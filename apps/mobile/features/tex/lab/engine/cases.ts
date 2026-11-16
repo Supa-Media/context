@@ -5,7 +5,7 @@
  * `node:<id>`), whose boxes come from the step's input and output shapes, so every step gets the same form.
  */
 import { AREAS } from "../data/areas";
-import { GROUPS } from "../data/graph";
+import { groupsOf } from "../data/graph";
 import { CASES } from "../labData.generated";
 import type { LabCase, LabGraph, LabNode } from "../types";
 import { G, lab, MODELS } from "./state";
@@ -26,7 +26,7 @@ export type Want = { is?: string; judge?: string };
 /** Every step of a graph, those inside a folded group too; a group's own box is not a step. */
 export function allSteps(g: LabGraph = G()): LabNode[] {
   const inside = Object.values(g.folded ?? {}).flatMap((f) => f.nodes);
-  return [...g.nodes.filter((n) => !GROUPS[n.id]), ...inside];
+  return [...g.nodes.filter((n) => !groupsOf(g)[n.id] && !g.folded?.[n.id]), ...inside];
 }
 
 export const stepById = (id: string, g: LabGraph = G()) => allSteps(g).find((n) => n.id === id);

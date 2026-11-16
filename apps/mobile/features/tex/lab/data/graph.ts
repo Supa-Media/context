@@ -95,6 +95,18 @@ export function mainGraph(): LabGraph {return mainGraph0()}
 /** The config's group definitions (the box of each folded group). */
 export const GROUPS: GroupDefs = TEX_CONFIG.groups;
 
+/**
+ * A graph's group definitions: main's, with a draft's own over them (`graph.groups`, the `group` edit; 2026-11-16: a
+ * draft that gathers steps into a new group names its box). A group a draft drops (`null`) falls back to main's.
+ */
+export function groupsOf(g: { groups?: Record<string, GroupDefs[string] | null> } | null | undefined): GroupDefs {
+  const own = g?.groups;
+  if (!own || typeof own !== "object") return GROUPS;
+  const out: GroupDefs = { ...GROUPS };
+  for (const [id, info] of Object.entries(own)) if (info && typeof info === "object") out[id] = info;
+  return out;
+}
+
 /** The Lab's start graph: the config with each group folded into its box (Dev2, 2026-11-14: "Focus on it opens all eleven steps"). */
 export function mainGraph0(): LabGraph {const c=JSON.parse(JSON.stringify(TEX_CONFIG)) as {nodes:LabNode[];edges:LabGraph["edges"]};return foldGroups({nodes:c.nodes,edges:c.edges},GROUPS)}
 

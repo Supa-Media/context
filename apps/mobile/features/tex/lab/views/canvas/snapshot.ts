@@ -8,7 +8,7 @@
  * Pure strings and numbers, no DOM. The Lab's step lookups read its one state (`engine/state.ts`), so each drawing
  * puts the graph there for the length of the call and puts the old one back.
  */
-import { GROUPS } from "../../data/graph";
+import { groupsOf } from "../../data/graph";
 import { foldAround, foldGroups, stepsShownFor, unfoldGroups } from "../../engine/groups";
 import type { Sim } from "../../engine/sim";
 import { lab, node } from "../../engine/state";
@@ -122,7 +122,8 @@ export function snapshotPage(graph: LabGraph, opts: SnapshotOptions = {}): Snaps
   const marks = opts.base ? marksAgainst(open, checked(opts.base)) : null;
   // A step inside a group focuses its group, as the Lab's Focus opens it.
   const focus = asked ? (open.nodes.find((n) => n.id === asked)?.group ?? asked) : null;
-  const shown = foldAround(foldGroups(open, GROUPS), focus, GROUPS);
+  const groups = groupsOf(graph);
+  const shown = foldAround(foldGroups(open, groups), focus, groups);
   const opened = stepsShownFor(shown, focus).length > 0;
 
   return withGraph(shown, () => {
@@ -145,7 +146,7 @@ export function snapshotPage(graph: LabGraph, opts: SnapshotOptions = {}): Snaps
       const ys = shown.nodes.map((n) => n.y);
       const loops = shown.edges.some((e) => e.mode === "loop");
       bounds = { x0: Math.min(...xs) - 30, x1: Math.max(...xs) + W + 30, y0: Math.min(...ys) - 30, y1: Math.max(...ys) + H + (loops ? 100 : 40) };
-      if (focus) label = GROUPS[focus]?.label ?? focus;
+      if (focus) label = groups[focus]?.label ?? focus;
     }
 
     if (marks) {

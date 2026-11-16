@@ -76,6 +76,12 @@ export type SandboxState = {
   shared: boolean;
   /** Recent test chats (the gateway's `list`), newest first; null until read, or when the gateway has no `list`. */
   recent: SandboxRecent[] | null;
+  /**
+   * Whether this test chat runs the version as drawn (`draftFit`, gateway `agent/texConfig.js`): a draft's steps with
+   * no code yet do not run, steps it removes still run as main's. Said on the chat, so a run is never read as the draft's
+   * when it was main's (2026-11-16).
+   */
+  fit: { asDrawn: boolean; says?: string } | null;
 };
 
 /** One of the recent test chats, whoever opened it: the Lab or an AI through `tex_dev`. */
@@ -84,7 +90,7 @@ export type SandboxRecent = { sandboxId: string; name: string; source: SandboxSo
 export type SandboxOp = "chats" | "sets" | "open" | "send" | "react" | "edit" | "unsend" | "retry" | "back" | "drop" | "reset" | "get" | "list" | "use";
 export type SandboxCall = (op: SandboxOp, body: Record<string, unknown>) => Promise<Record<string, unknown>>;
 
-export const sandbox: SandboxState = { id: null, source: { kind: "maya" }, versionId: "main", people: [], handles: {}, as: "", rows: [], writes: [], running: null, hot: null, busy: false, problem: null, chats: [], sets: [], draft: null, shared: false, recent: null };
+export const sandbox: SandboxState = { id: null, source: { kind: "maya" }, versionId: "main", people: [], handles: {}, as: "", rows: [], writes: [], running: null, hot: null, busy: false, problem: null, chats: [], sets: [], draft: null, shared: false, recent: null, fit: null };
 
 const subs = new Set<() => void>();
 let ver = 0;
@@ -158,6 +164,10 @@ let seen = new Set<string>();
 
 function take(b: Record<string, unknown>) {
   if (typeof b.sandboxId === "string") sandbox.id = b.sandboxId;
+  if (b.fit && typeof b.fit === "object") {
+    const f = b.fit as Record<string, unknown>;
+    sandbox.fit = { asDrawn: f.asDrawn !== false, ...(typeof f.says === "string" ? { says: f.says } : {}) };
+  }
   if (Array.isArray(b.people)) {
     // `{handle, name}` each, or a bare name.
     const ps = arr<unknown>(b.people).map((x) => (typeof x === "string" ? { handle: x, name: x } : x && typeof x === "object" ? { handle: str((x as Record<string, unknown>).handle), name: str((x as Record<string, unknown>).name) } : null)).filter((x): x is { handle: string; name: string } => !!x && !!(x.name || x.handle));
@@ -285,6 +295,7 @@ export function openSandbox(source: SandboxSource, versionId: string, base?: str
   sandbox.writes = [];
   sandbox.running = null;
   sandbox.hot = null;
+  sandbox.fit = null;
   return run("open", { source: source.kind, ...(source.kind === "chat" ? { chatId: source.chatId } : source.kind === "set" ? { convId: source.convId, ...(source.chatId ? { chatId: source.chatId } : {}) } : {}), versionId, ...(base ? { base } : {}) });
 }
 /** What a `list` entry's source says, as a source the picker and Reset can open again. */
@@ -340,7 +351,7 @@ export async function attachSandbox(sandboxId: string, versionId: string, recent
   if (polling) clearTimeout(polling);
   polling = null;
   rawRows = [];
-  Object.assign(sandbox, { id: sandboxId, shared: true, versionId: recent?.versionId ?? versionId, rows: [], writes: [], running: null, hot: null, people: [], handles: {}, as: "" });
+  Object.assign(sandbox, { id: sandboxId, shared: true, versionId: recent?.versionId ?? versionId, rows: [], writes: [], running: null, hot: null, fit: null, people: [], handles: {}, as: "" });
   if (recent) sandbox.source = recent.source;
   seenFor = null;
   if (!call) return run("get", {});

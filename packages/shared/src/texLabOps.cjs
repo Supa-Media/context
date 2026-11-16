@@ -19,6 +19,8 @@
  *   { op: "convo_tool", tool, on }              one chat tool in `graph.convo.tools` on or off; null drops the setting
  *   { op: "model",  key, value }                one of the draft's own models (`graph.models[key]`); null deletes it,
  *                                               and the steps on it move to haiku-5-5, as the Lab's model form does
+ *   { op: "group",  id, value }                 one group's box (`graph.groups[id]`: label, goal?, icon?, x?, y?), the
+ *                                               box the steps whose `group` names it fold into; null drops the draft's own
  *   { op: "put",    graph }                     the whole graph
  *
  * Each edit names the pieces it touches (`keysOf`). The control plane keeps which pieces every revision touched, and an
@@ -87,6 +89,8 @@ function keysOf(op) {
       return [`c:tools:${op.tool}`];
     case "model":
       return [`md:${op.key}`];
+    case "group":
+      return [`g:${op.id}`];
     case "put":
       return ["*"];
     default:
@@ -260,13 +264,30 @@ function applyOps(graph, ops) {
           }
           break;
         }
+        case "group": {
+          if (typeof op.id !== "string" || !ID.test(op.id)) throw at("id is not a group id");
+          if (op.value === undefined || (op.value !== null && (typeof op.value !== "object" || Array.isArray(op.value)))) throw at("value must be the group's box { label, goal?, icon?, x?, y? }, or null");
+          if (op.value !== null) {
+            if (typeof op.value.label !== "string" || !op.value.label.trim()) throw at("a group needs a label");
+            for (const k of Object.keys(op.value)) if (!["label", "goal", "icon", "x", "y"].includes(k)) throw at(`a group has no field ${k}`);
+            for (const k of ["goal", "icon"]) if (op.value[k] !== undefined && typeof op.value[k] !== "string") throw at(`${k} must be words`);
+            for (const k of ["x", "y"]) if (op.value[k] !== undefined && !Number.isFinite(op.value[k])) throw at(`${k} must be a number`);
+          }
+          g.groups = { ...(g.groups ?? {}) };
+          const had = g.groups[op.id];
+          if (op.value === null) delete g.groups[op.id];
+          else g.groups[op.id] = clone(op.value);
+          if (Object.keys(g.groups).length === 0) delete g.groups;
+          line(() => (op.value === null ? `dropped group ${op.id}` : `${had ? "changed" : "added"} group ${op.id} (${op.value.label})`));
+          break;
+        }
         case "put": {
           g = clone(asGraph(op.graph));
           line(() => "replaced the whole graph");
           break;
         }
         default:
-          throw at("not an edit: use set, move, add, remove, wire, unwire, module, convo, convo_tool, model or put");
+          throw at("not an edit: use set, move, add, remove, wire, unwire, module, convo, convo_tool, model, group or put");
       }
     } catch (error) {
       if (error instanceof OpError && error.message.startsWith("edit ")) throw error;
@@ -292,12 +313,12 @@ function diffGraphs(a, b) {
   asGraph(a);
   asGraph(b);
   const rest = (g) => {
-    const { nodes: _n, edges: _e, modules: _m, convo: _c, models: _d, ...others } = g;
+    const { nodes: _n, edges: _e, modules: _m, convo: _c, models: _d, groups: _g, ...others } = g;
     return others;
   };
   if (!same(rest(a), rest(b))) return [{ op: "put", graph: clone(b) }];
   const ops = [];
-  for (const [part, op, name] of [["modules", "module", "key"], ["models", "model", "key"], ["convo", "convo", "field"]]) {
+  for (const [part, op, name] of [["modules", "module", "key"], ["models", "model", "key"], ["convo", "convo", "field"], ["groups", "group", "id"]]) {
     const was = a[part] ?? {};
     const now = b[part] ?? {};
     for (const k of new Set([...Object.keys(was), ...Object.keys(now)])) {

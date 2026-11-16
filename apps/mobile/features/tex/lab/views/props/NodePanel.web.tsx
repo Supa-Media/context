@@ -10,7 +10,7 @@
  */
 import { useState, type ReactNode } from "react";
 import { AREAS, EXAMINABLE } from "../../data/areas";
-import { ICONS, NODE_INFO, WIRES } from "../../data/graph";
+import { groupsOf, ICONS, NODE_INFO, WIRES } from "../../data/graph";
 import { fieldText, stepChange } from "../../engine/changeMarks";
 import { cacheShare, ctxTokens, fmtS, fmtUsd, outTok } from "../../engine/sim";
 import { labSim, tracedReal } from "../../engine/realTimes";
@@ -34,6 +34,13 @@ function setNode<K extends keyof LabNode>(id: string, k: K, v: LabNode[K]) {
   edit(() => {
     const x = node(id);
     if (x) x[k] = v;
+    // A folded group's box is drawn from the graph's group definitions, so its name, goal and icon are kept there
+    // (the draft's `groups`, the `group` edit tex_dev makes too); the box itself is gone once the graph is unfolded.
+    const g = G();
+    if (g.folded?.[id] && (k === "label" || k === "goal" || k === "icon")) {
+      const was = groupsOf(g)[id] ?? { label: id };
+      g.groups = { ...(g.groups ?? {}), [id]: { ...was, [k]: v } };
+    }
   });
 }
 

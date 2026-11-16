@@ -10,13 +10,14 @@
  */
 
 import { appOriginOf } from "../agent/noteLinks.js";
-import { TEX_CONFIG, withDraft } from "../agent/texConfig.js";
+import { draftFit, TEX_CONFIG, withDraft } from "../agent/texConfig.js";
 import { toolError } from "../tools/results.js";
 import { draftProblems, draftVsMain } from "./check.js";
 import { ACTIONS, guideText } from "./guide.js";
 import { caseRoom, labAction, labWording, putBackOps, snapshotSim } from "./lab.js";
 import { chatsOf, entriesOf, openChat, turnsOf } from "./probe.js";
 import { jobsAnswer, linkAnswer, mineAnswer, momentsAnswer, promptAnswer, turnAnswer } from "./replay.js";
+import { nodeStatsAnswer } from "./nodeStats.js";
 import { createSandboxActions } from "./sandbox.js";
 import { createSetActions } from "./sets.js";
 import { snapshotGraph } from "./snapshot.js";
@@ -97,7 +98,7 @@ export function createTexDev({ env, session, controlPlane, defer = null, sleep =
     if (!versionId || versionId === "main") return { graph: { nodes: TEX_CONFIG.nodes, edges: TEX_CONFIG.edges } };
     const { graph, error } = await draftGraph(versionId);
     if (error) return { error: "This test chat's draft could not be read." };
-    return { graph: withDraft(TEX_CONFIG, graph) };
+    return { graph: withDraft(TEX_CONFIG, graph), fit: draftFit(TEX_CONFIG, graph) };
   }
 
   /** A real chat's history file, for `sandbox replay`: the person's own 1:1 or a group they are in (`openChat`). */
@@ -287,6 +288,16 @@ export function createTexDev({ env, session, controlPlane, defer = null, sleep =
         }
         const { error } = await plane("case", { key: args.key, data });
         return error ?? json({ kept: args.key, for: "every staff member, as the Lab's case edits" });
+      }
+      case "node_stats": {
+        const p = await page();
+        if (p.error) return p.error;
+        try {
+          const answer = await nodeStatsAnswer(env, p.page, args, ledgerOf ? { ledgerOf, now: now() } : { now: now() });
+          return answer.error ? toolError(answer.error) : json(answer);
+        } catch {
+          return toolError("Your chats' history could not be read just now.");
+        }
       }
       case "chats": {
         const p = await page();

@@ -241,3 +241,21 @@ test("replay sets a real text's production run beside the same words re-run, fro
   assert.deepEqual(out.diff.tex, { before: ["Friday: nothing."], after: ["Friday: Pay Day."] });
   assert.match((await sandbox({ op: "replay", text: "nope" })).error, /no text nope/);
 });
+
+test("a card names what sent each Tex text, the steps behind it, a job's later texts and how to read a sandbox page", () => {
+  const rows = [
+    { ...sentRow, line: { name: "photon", inMs: 850 } },
+    { ...replyRow, from: "fd", cause: ["s1", "s4"], line: { name: "photon", inMs: 0, outMs: 900 }, steps: steps.map((s, i) => ({ ...s, id: `s${i}`, ...(i ? { parent: `s${i - 1}` } : {}) })) },
+    { id: "j1", who: "Tex", text: "Found the table.", at: T0 + 60_000, prod: false, from: "job", cause: ["s9"] },
+    { id: "t2", who: "You", text: "next", at: T0 + 90_000, prod: false },
+    { id: "j2", who: "Tex", text: "not this one's", at: T0 + 95_000, prod: false, from: "job" },
+  ];
+  const card = runCard({ rows, msgId: "t1", graph: GRAPH, writes: [{ id: "w1", kind: "page", title: "Plan", by: "t1" }, { id: "w2", kind: "note", by: "t2" }] });
+  assert.deepEqual(card.texSent, [{ id: "t1r", from: "fd", cause: ["s1", "s4"], lineOutMs: 900 }, { id: "j1", from: "job", cause: ["s9"] }]);
+  assert.deepEqual(card.jobTexts.map((j) => j.id), ["j1"], "only this text's job texts, before the next test text");
+  assert.deepEqual(card.time.lineMs, { in: 850, out: 900 });
+  assert.equal(card.fired[1].id, "s1");
+  assert.equal(card.fired[1].parent, "s0");
+  assert.deepEqual(card.writes.map((w) => w.id), ["w1"]);
+  assert.match(card.writes[0].read, /page \{ sandboxId, id: "w1" \}/);
+});

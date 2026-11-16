@@ -59,6 +59,7 @@ import { json } from "../http/responses.js";
 import { callSandbox, SANDBOX_TTL_MS, sandboxStub, SEED_CHUNK } from "./object.js";
 import { eventId, RUNNING_STALE_MS, stepsOf } from "./harness.js";
 import { chatStepsOf, runTestText } from "./chatRun.js";
+import { draftFit, TEX_CONFIG } from "../agent/texConfig.js";
 import { inboundEvent, picsOf, reactionOf, TAPBACK_OF, targetOf } from "./inbound.js";
 import { lineOf, measuredLine, rowLine } from "./line.js";
 import { sandboxAsset } from "./pages.js";
@@ -294,7 +295,7 @@ async function open(env, controlPlane, token, who, input, origin) {
   // Listed for the person, so the Lab can follow a test chat an AI opened on their grant, and the AI one the Lab opened.
   await callSandbox(indexStub(env, who.userId), "meta", { key: `sb:${sandboxId}`, value: { sandboxId, source, chat, kind: group ? "group" : "1:1", versionId: about.versionId, by: byOf(input.by), at: Date.now() } }).catch(() => {});
   console.log(JSON.stringify({ event: "lab_sandbox_open", source, kind, rows: rows.length, draft: about.versionId !== "main" }));
-  return json({ sandboxId, people, rows: rows.map(shown) });
+  return json({ sandboxId, people, rows: rows.map(shown), fit: draftFit(TEX_CONFIG, drafted.config) });
 }
 
 /** The Lab's view: rows (each tapped one with its `reactions`), writes, and the turn running now (a stale mark is no turn). */
@@ -525,6 +526,8 @@ function aboutOf(state) {
     people: about.people ?? [],
     rows: rows.length,
     testRows: rows.filter((row) => !row.prod).length,
+    // Whether its texts run the draft as drawn, or main's code for steps the draft adds, removes or changes (`draftFit`).
+    fit: draftFit(TEX_CONFIG, about.config ?? null),
   };
 }
 
@@ -631,7 +634,7 @@ async function serveLabSandbox(request, env, ctx, { origin = "https://context.lc
       if (drafted.error) return refused(...drafted.error);
       const versionId = typeof input.versionId === "string" && input.versionId !== "" ? input.versionId : "main";
       await callSandbox(stub, "meta", { key: "chat", value: { ...state.meta.chat, versionId, config: drafted.config } });
-      return json({ ...aboutOf({ ...state, meta: { ...state.meta, chat: { ...state.meta.chat, versionId } } }) });
+      return json({ ...aboutOf({ ...state, meta: { ...state.meta, chat: { ...state.meta.chat, versionId, config: drafted.config } } }) });
     }
     case "read":
       return json(await callSandbox(stub, "ledger.read", { chat: state.meta.chat.ledgerChat, options: readOptions(input.options) }));
