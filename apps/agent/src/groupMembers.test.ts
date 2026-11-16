@@ -110,13 +110,15 @@ describe("the kept list", () => {
     expect(after.count).toBe(1);
   });
 
-  it("is never kept for an app that reports no changes, and a change for a group with nothing kept writes nothing", async () => {
+  // Kept for filing a sender-only message (`withKeptMembers`; Photon names only the sender, 2026-11-16), but an app
+  // that reports no changes is still read before every send.
+  it("is kept but never trusted before sending for an app that reports no changes, and a change with nothing kept writes nothing", async () => {
     const storage = new MemoryStorage();
     expect(await membersChanged(storage, 1)).toBe(false);
     expect(await storage.get("gmembers")).toBeUndefined();
     const app = line([[ADA, BO]], false);
     await readMembersNow(storage, app, PLACE, () => 1);
-    expect(await storage.get("gmembers")).toBeUndefined();
+    expect(await storage.get("gmembers")).toEqual({ list: [ADA, BO], at: 1 });
     await membersBeforeSend(storage, app, PLACE, () => 2);
     expect(app.count).toBe(2);
   });

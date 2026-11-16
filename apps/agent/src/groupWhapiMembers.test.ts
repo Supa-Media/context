@@ -128,3 +128,51 @@ describe("a WhatsApp group's untagged lines", () => {
     expect(JSON.stringify(w.asks.at(-1))).not.toContain("secret plan");
   });
 });
+
+/**
+ * The same on iMessage through the new number. Photon's event names only the sender too, so after the move to the
+ * new number (2026-11-14) Tex Devs lost every untagged line but the last asker's: Jhon's reply to Seyi never reached
+ * Tex, and Seyi's answer to Jhon read as a request to Tex (2026-11-16). A message naming only its sender now carries
+ * the member list the last turn read, on any app, and the turn binds the chat by that list.
+ */
+describe("an iMessage group whose events name only the sender", () => {
+  const GROUP_ID = "group_imsg_1";
+  const CY = "+15555550103";
+  const said = (w: ReturnType<typeof setup>, from: string, text: string) => w.message(text, { from, participants: [from] });
+
+  it("keeps another member's line and hands it to the next tag", async () => {
+    const storage = new MemoryStorage();
+    const w = setup(GROUP_ID, { decide: fakeJudge, members: [[ADA, BO, LINE]] });
+    await acceptGroup(storage, said(w, ADA, "Tex, when is the party?"), 1);
+    await drainGroup(storage, w.deps);
+    expect(w.asks).toHaveLength(1);
+
+    expect(await acceptGroup(storage, said(w, BO, "I can reuse the judge for the evals"), 2)).toBe("kept");
+    await drainGroup(storage, w.deps);
+    await acceptGroup(storage, said(w, ADA, "Tex, what did Bo just say?"), 3);
+    await drainGroup(storage, w.deps);
+    expect(w.asks.length).toBeGreaterThanOrEqual(2);
+    expect(JSON.stringify(w.asks.at(-1))).toContain("reuse the judge");
+  });
+
+  it("drops a line before any member list was read, and a newcomer's line the kept list does not name", async () => {
+    const storage = new MemoryStorage();
+    const w = setup(GROUP_ID, { decide: fakeJudge, members: [[ADA, BO, LINE]] });
+    expect(await acceptGroup(storage, said(w, BO, "before anyone asked"), 1)).toBe("ignored");
+    await acceptGroup(storage, said(w, ADA, "Tex, hi"), 2);
+    await drainGroup(storage, w.deps);
+    expect(await acceptGroup(storage, said(w, CY, "who are you all"), 3)).toBe("ignored");
+  });
+
+  it("never hands a turn lines said before someone joined", async () => {
+    const storage = new MemoryStorage();
+    const w = setup(GROUP_ID, { decide: fakeJudge, members: [[ADA, BO, LINE], [ADA, BO, LINE], [ADA, BO, CY, LINE]] });
+    await acceptGroup(storage, said(w, ADA, "Tex, hi"), 1);
+    await drainGroup(storage, w.deps);
+    expect(await acceptGroup(storage, said(w, BO, "the secret plan for Cy's party"), 2)).toBe("kept");
+    await acceptGroup(storage, said(w, ADA, "Tex, what did Bo say?"), 3);
+    await drainGroup(storage, w.deps);
+    expect(w.asks.length).toBeGreaterThanOrEqual(2);
+    expect(JSON.stringify(w.asks.at(-1))).not.toContain("secret plan");
+  });
+});

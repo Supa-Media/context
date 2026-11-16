@@ -67,7 +67,7 @@ import type { InboxStorage } from "./inbox";
 import type { SendblueKeys } from "./sendblue";
 import type { WhapiKeys } from "./whapi";
 import { groupLineFor, groupLineSeam, type GroupLine, type GroupPlace } from "./groupLine";
-import { inRoom, readMembersNow, withKeptMembers } from "./groupMembers";
+import { inRoom, namesOnlySender, readMembersNow, withKeptMembers } from "./groupMembers";
 import type { NoteCardDrawer } from "./noteCards";
 import { isBound, isMuted, keepChatLine, peopleOf, setChatBound, sha256Hex, unmute } from "./groupChat";
 import type { GroupMessage } from "./sendblueGroups";
@@ -148,6 +148,7 @@ export { ASK_KEY, type OpenAsk };
  * in a chat Tex is set up in, as any line is (`acceptGroup`).
  */
 export async function keepGroupEdit(storage: InboxStorage, message: GroupMessage, now: number): Promise<"kept" | "ignored" | "duplicate"> {
+  message = await withKeptMembers(storage, message); // an unsend names only its sender, as a text does
   if (message.sms === true || !(await isBound(storage, message))) return "ignored";
   const seen = seenKey(message.eventId, await sha256Hex(message.text));
   if ((await storage.get<number>(seen)) !== undefined) return "duplicate";
@@ -539,8 +540,8 @@ export async function answerGroup(storage: InboxStorage, entries: GroupEntry[], 
   const members = await readMembersNow(storage, app, chat, deps.now); // kept, for the check before sending (`groupMembers.ts`)
   clock?.mark("members");
   if (members === null) log("members_unread");
-  // WhatsApp's webhook named only the sender: the chat is bound, read and filed by the list just read (`inRoom`).
-  if (app.senderOnlyWebhook && members !== null) message = inRoom(message, members);
+  // A webhook that named only the sender (WhatsApp, Photon): the chat is bound, read and filed by the list just read (`inRoom`).
+  if ((app.senderOnlyWebhook || namesOnlySender(message)) && members !== null) message = inRoom(message, members);
   const question = command === null;
   if (members === null && !routine && (app.senderOnlyWebhook || question || command?.kind === "status")) throw new ServiceError(app.senderOnlyWebhook ? "whapi" : "sendblue", null);
   // A routine runs as its writer's tag only while Sendblue says they are in the chat: nothing else lists who is.

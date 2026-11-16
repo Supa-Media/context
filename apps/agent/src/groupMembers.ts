@@ -17,7 +17,6 @@ import type { InboxStorage } from "./inbox";
 import type { GroupLine, GroupPlace } from "./groupLine";
 import { peopleOf } from "./groupChat";
 import type { GroupMessage } from "./sendblueGroups";
-import { isWhapiGroup } from "./whapi";
 
 const KEPT_KEY = "gmembers";
 
@@ -34,7 +33,9 @@ export async function readMembersNow(storage: InboxStorage, app: GroupLine, plac
   const started = now();
   let list: string[] | null = null;
   for (let attempt = 0; attempt < tries && list === null; attempt++) list = await app.readMembers(place);
-  if (list !== null && app.membershipEvents) {
+  // Kept for every app: a message naming only its sender is filed by it (`withKeptMembers`). Only an app that reports
+  // changes trusts it before sending (`membersBeforeSend`).
+  if (list !== null) {
     const kept = await storage.get<Kept>(KEPT_KEY);
     // A change reported while this read was out is not covered by it: it stays marked.
     const changedAt = kept?.changedAt !== undefined && kept.changedAt >= started ? kept.changedAt : undefined;
@@ -63,21 +64,24 @@ export async function membersBeforeSend(storage: InboxStorage, app: GroupLine, p
 }
 
 /**
- * A WhatsApp message with the people it was said in front of. Whapi's webhook names only the sender
- * (`whapiInbound.ts`), where Sendblue's names everyone, and the chat's lines are bound, kept and handed on by that
+ * A message with the people it was said in front of. Whapi's webhook names only the sender (`whapiInbound.ts`), and
+ * so does Photon's (iMessage on Tex's new number, Tex Devs, 2026-11-16), where Sendblue's names everyone, and the chat's lines are bound, kept and handed on by that
  * list's hash (`groupChat.ts`): read as the sender alone, every member's untagged line but the last tagger's was
  * dropped, and a member's message about a pay correction went unseen on 2026-11-12. The kept list stands in for
  * the webhook's, as an iMessage's own list would. Fail closed, as before: no list kept yet, one the app said changed,
  * or a sender it does not name (somebody new, the list is behind), and the message keeps its sender alone.
  */
 export async function withKeptMembers(storage: InboxStorage, message: GroupMessage): Promise<GroupMessage> {
-  if (!isWhapiGroup(message.groupId) || message.routine !== undefined) return message;
-  // A webhook that names anyone besides the sender is taken at its word.
-  if (peopleOf(message.line, message.participants).some((person) => person !== message.from)) return message;
+  if (message.routine !== undefined || !namesOnlySender(message)) return message; // a webhook that names anyone else is taken at its word
   const kept = await storage.get<Kept>(KEPT_KEY);
   if (kept === undefined || (kept.changedAt !== undefined && kept.changedAt >= kept.at)) return message;
   if (!kept.list.includes(message.from)) return message;
   return { ...message, participants: peopleOf(message.line, kept.list) };
+}
+
+/** Whether a message's webhook named nobody but its sender (WhatsApp and Photon always do). */
+export function namesOnlySender(message: GroupMessage): boolean {
+  return peopleOf(message.line, message.participants).every((person) => person === message.from);
 }
 
 /**
