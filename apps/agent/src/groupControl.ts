@@ -21,6 +21,8 @@ export type ControlAnswer =
       slug: string;
       /** The slugs of the shared workspaces every account holder here shares (`lib/textGroupReach.ts`): none when anyone has no account. */
       reach?: string[];
+      /** Who keeps the chat from each shared workspace its asker and sponsor share, and why (`lib/textGroupBlockers.ts`). */
+      blocked?: { slug: string; who: string; why: "not_member" | "no_account" }[];
       intro: boolean;
       timeZone?: string;
       handle?: string;
@@ -36,6 +38,18 @@ export type ControlAnswer =
 
 const LABEL = /^guest-[0-9a-f]{4}$/;
 const MAIL_ADDRESS = /^[^\s@/]{1,64}@[^\s@/]{1,190}$/;
+
+/** Who keeps the chat from a workspace, as the control plane named them: a handle or a guest's label, never a number. */
+export function blockedOf(value: unknown): { blocked?: { slug: string; who: string; why: "not_member" | "no_account" }[] } {
+  if (!Array.isArray(value)) return {};
+  const handle = /^[a-z0-9][a-z0-9-]{0,64}$/;
+  const blocked = value.slice(0, 24).map(record).flatMap((entry) =>
+    typeof entry.slug === "string" && handle.test(entry.slug) && typeof entry.who === "string" && (handle.test(entry.who) || LABEL.test(entry.who)) && (entry.why === "not_member" || entry.why === "no_account")
+      ? [{ slug: entry.slug, who: entry.who, why: entry.why as "not_member" | "no_account" }]
+      : [],
+  );
+  return blocked.length > 0 ? { blocked } : {};
+}
 
 /** `mint: false` asks without minting a grant: the turn already holds a kept token (`groupKept.ts`). */
 export async function askControlPlane(deps: GroupDeps, message: GroupMessage, people: string[], command: Command | null, { mint = true }: { mint?: boolean } = {}): Promise<ControlAnswer> {
@@ -81,6 +95,7 @@ export async function askControlPlane(deps: GroupDeps, message: GroupMessage, pe
         status: "ready",
         slug: body.slug as string,
         ...(Array.isArray(body.reach) ? { reach: (body.reach.filter(slug) as string[]).slice(0, 12) } : {}),
+        ...blockedOf(body.blocked),
         intro: body.intro === true,
         ...(typeof body.timeZone === "string" && /^[A-Za-z0-9_+\-/]{1,64}$/.test(body.timeZone) ? { timeZone: body.timeZone } : {}),
         ...(slug(body.handle) ? { handle: body.handle as string } : {}),

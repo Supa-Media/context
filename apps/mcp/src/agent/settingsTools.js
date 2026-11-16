@@ -286,6 +286,7 @@ function chatInviteTool({ group, words, judge, onInvite }) {
       description:
         "Invite everyone in this group chat to one of the asker's shared workspaces, when they ask in any words (\"share @studio with everyone here\", " +
         "\"add the group to my team workspace\"), so you can use all of it here. workspace: its @handle; as: editors (default) or members (read only). " +
+        "It invites only the people here who aren't in it yet, so \"add Sam to @studio\" when Sam is the one here who isn't is this call, never a reason to send them to the app. " +
         "Only an owner there can; the invitations go after your answer, and a line with the result follows it, so say only that you're adding them.",
       inputSchema: { type: "object", properties: { workspace: { type: "string" }, as: { type: "string", enum: ["editors", "members"] } }, required: ["workspace"] },
     },

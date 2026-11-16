@@ -86,6 +86,9 @@ export async function groupTurn(storage: InboxStorage, deps: GroupDeps, { messag
     ...(covered.some((entry) => tagsTex(entry.text || entry.heard || "")) ? { tagged: true } : {}),
     // Mailboxes shared with this chat, named for the turn; the control plane decides every read (`chat-mail.md`).
     ...(asked.mail?.length ? { mail: asked.mail } : {}),
+    // Who keeps the chat from a workspace its asker and sponsor share (`lib/textGroupBlockers.ts`), so the turn logs it
+    // and Tex names who and the fix, by text (Dev2, 2026-11-16).
+    ...(asked.blocked?.length ? { blocked: asked.blocked } : {}),
   };
   // The chat's next events are filed under the people this turn named the gateway (`eventPeople`).
   await notePeople(storage, message, group.members);
