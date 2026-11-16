@@ -141,7 +141,7 @@ export function stepChange(id: string): { x: NodeMark; vs: string } | null {
 
 /** The marks the canvas draws now, or null when they are off. */
 export function currentMarks(): Marks | null {
-  if (lab.chg === "off" || lab.mode === "replay") return null;
+  if (lab.chg === "off") return null;
   const b = changeBase();
   return b ? computeMarks(G(), b.graph, lab.chg, b.vs) : null;
 }

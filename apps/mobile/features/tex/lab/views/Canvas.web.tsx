@@ -36,9 +36,6 @@ import {
   type Cam,
 } from "./canvas/render";
 import type { Lit } from "./canvas/usePlayback";
-import { ReplayTimeline } from "./replay/ReplayTimeline";
-import type { Moment } from "../engine/replay";
-import type { LedgerEntry } from "../../page/texPageTypes";
 import { useStageInput } from "./canvas/useStageInput.web";
 import { useFollowRunning } from "./props/useFollowRunning";
 
@@ -61,11 +58,9 @@ function Svg({
   );
 }
 
-export function Canvas({ replay = null, testLit = null }: { replay?: { m: Moment | null; entries: LedgerEntry[] } | null; testLit?: Lit | ReadonlySet<string> | null }) {
+export function Canvas({ testLit = null }: { testLit?: Lit | ReadonlySet<string> | null }) {
   const s = useLab();
   useFollowRunning();
-  // Replay draws the same graph, read only, lit by its own timeline (`replay/ReplayTimeline.tsx`).
-  const [replayLit, setReplayLit] = useState<Lit | null>(null);
   const stage = useRef<HTMLDivElement>(null);
   const world = useRef<SVGGElement>(null);
   const cam = useRef<Cam>({ x: 40, y: 40, k: 0.6 });
@@ -127,7 +122,7 @@ export function Canvas({ replay = null, testLit = null }: { replay?: { m: Moment
   if (s.cfocus && !node(s.cfocus, g) && !opened) lab.cfocus = null;
   const sim = labSim(g);
   // A draft's changes against main or its last revision (`engine/changeMarks.ts`), drawn on the whole graph only.
-  const marks = replay || (lab.cfocus && !opened) ? null : currentMarks();
+  const marks = lab.cfocus && !opened ? null : currentMarks();
   const tags = (SCENARIOS[s.scn] || SCENARIOS.own)?.tags || [];
   let html: string;
   if (lab.cfocus && !opened) {
@@ -136,7 +131,7 @@ export function Canvas({ replay = null, testLit = null }: { replay?: { m: Moment
     html = f.html;
   } else {
     fBounds.current = null;
-    html = renderGraphHtml(g, sim, tags, s.sel, replay ? replayLit : testLit, "off", replay ? null : stepCounts(g), replay ? null : marks);
+    html = renderGraphHtml(g, sim, tags, s.sel, testLit, "off", stepCounts(g), marks);
   }
   // An open group has no box to name, so its focus bar takes the group's label (Dev2, 2026-11-14).
   const focused = lab.cfocus ? node(lab.cfocus, g) ?? (opened ? { label: GROUPS[lab.cfocus]?.label ?? lab.cfocus } : undefined) : undefined;
@@ -164,14 +159,7 @@ export function Canvas({ replay = null, testLit = null }: { replay?: { m: Moment
         </svg>
       </div>
       <ChangeTip marks={marks} stage={stage} />
-      {/* In Replay the key leads the row on the left and the numbers stay right (Dev2, 2026-11-14: "put the key back to float left"). */}
-      <div className={replay ? "ctop replay" : "ctop"}>
-      {/* Replay's chat on the left already shows the text (Dev2, 2026-11-14: "this feels redundant with the left panel"); the Lab's canvas shows the test chat's text instead (Dev2, 2026-11-16: "do we really need this strip?"). */}
-      {replay ? (
-        <>
-          <div className="float keyw" id="keyw" hidden={!!focused} dangerouslySetInnerHTML={{ __html: focused ? "" : keywHtml() }} />
-        </>
-      ) : null}
+      <div className="ctop">
       {marks && !focused ? <ChangeLegend mode={marks.mode} vs={marks.vs} /> : null}
       <div className="float fbar" id="fbar" hidden={!focused}>
         {focused ? (
@@ -185,9 +173,6 @@ export function Canvas({ replay = null, testLit = null }: { replay?: { m: Moment
         ) : null}
       </div>
       </div>
-      {replay ? (
-        replay.m ? <ReplayTimeline m={replay.m} entries={replay.entries} onLit={setReplayLit} /> : null
-      ) : (
       <>
       <div className="float tools" role="toolbar" aria-label="Tools">
         <button className="ib" id="tSel" aria-pressed={tool === "sel"} title="Select and move (V); hold space to move the canvas" aria-label="Select" onClick={() => setTool("sel")}>
@@ -241,7 +226,6 @@ export function Canvas({ replay = null, testLit = null }: { replay?: { m: Moment
         />
       </div>
       </>
-      )}
     </>
   );
 }

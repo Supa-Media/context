@@ -43,6 +43,8 @@ export type PlayRun = {
   running: boolean;
   /** The graph Tex had when it ran (a real text), drawn instead of the version open; absent = the version open. */
   graph?: LabGraph;
+  /** Said when the graph of the time could not be loaded and the version open is drawn instead. */
+  graphNote?: string;
   /** A real text: when it ran and the version that ran it. */
   prod?: { at: number; code?: string };
   /** For Tex's text: whose steps these are a part of. */

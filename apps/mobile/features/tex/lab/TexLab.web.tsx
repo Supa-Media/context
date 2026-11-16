@@ -11,7 +11,7 @@
  * Staff only: every query behind it is `requireAdmin` (`functions/texLab.ts`);
  * the page asks `amIAdmin` only to say so kindly, as tex.lc/admin does.
  */
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 import { useQuery } from "convex/react";
 import { AdminChrome } from "../../admin/AdminPane";
 import { StaffFactorGate } from "../../admin/StaffFactorGate";
@@ -24,7 +24,6 @@ import { ensureFontsLoaded } from "../../design/fonts.web";
 import { useLab, useLabSync, useLiveFeed, useRevBase } from "./store";
 import { saveNow } from "./engine/live";
 import type { View } from "./types";
-import { Canvas } from "./views/Canvas.web";
 import { Compare } from "./views/Compare.web";
 import { LiveChips } from "./views/LiveChanges.web";
 import { MoreMenu, RunSplit, SpeedMenu, VersionMenu } from "./views/bar/TopBar.web";
@@ -35,17 +34,12 @@ import { Sim } from "./views/Sim.web";
 import { Tests } from "./views/Tests.web";
 import { Tools } from "./views/Tools.web";
 import { Viewer } from "./views/Viewer.web";
-import { MineLoader, readMomentDetail, refreshChat, replayEntries } from "./views/mine/useMine";
+import { MineLoader } from "./views/mine/useMine";
+import { useSandbox } from "./engine/sandbox";
 import { useLabUrl } from "./views/useLabUrl.web";
-import { ReplayPanel } from "./views/replay/ReplayPanel";
 import { ArchCanvas } from "./views/canvas/ArchCanvas.web";
-import { openMoment, ReplaySide } from "./views/replay/ReplaySide";
-import { loggedMoments, momentsOf } from "./engine/replay";
 import { useLabTheme } from "./theme.web";
 import { Testing } from "./views/testing/Testing.web";
-
-/** How often Replay looks for new texts and runs. */
-const REFRESH_MS = 10_000;
 
 export const TEX_LAB_TITLE = "Tex Architecture Lab";
 
@@ -128,6 +122,7 @@ export function TexLab() {
 
 function Lab() {
   const s = useLab();
+  const sandbox = useSandbox();
   useLiveFeed();
   useRevBase();
   const closeSide = () => set({ sideOpen: false });
@@ -136,29 +131,8 @@ function Lab() {
   const nm = Object.keys(G().modules || {}).length;
   const tags = { modTag: nm + cvn ? nm + cvn + " edited" : "", toolTag: "", runTag: d.length ? d.length + " change" + (d.length > 1 ? "s" : "") : "" };
   useLabUrl();
-  const replay = s.mode === "replay";
   const testing = s.mode === "testing";
-  // Replay: the picked chat cut into moments, and the one shown (`engine/replay.ts`).
-  const entries = replay ? replayEntries() : [];
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  const moments = useMemo(() => (replay ? loggedMoments(momentsOf(s.myLines, entries)) : []), [replay, s.myLines, entries.length]);
-  const moment = moments.find((m) => m.id === s.moment) ?? null;
-  useEffect(() => {
-    if (replay && !moment && moments.length) openMoment(moments[moments.length - 1]);
-    // A moment opened from the address (`useLabUrl`) reads its day's details as a click would; read once per day.
-    else if (replay && moment) void readMomentDetail(moment.at);
-  }, [replay, moment, moments]);
-  // Replay looks for new texts and runs every 10 s while the tab is in front (`refreshChat`).
-  useEffect(() => {
-    if (!replay) return;
-    const look = setInterval(() => {
-      if (document.visibilityState === "visible") void refreshChat();
-    }, REFRESH_MS);
-    return () => clearInterval(look);
-  }, [replay]);
-  // Replay's right panel folds away to the canvas's right edge (Dev2, 2026-11-14: "no way to collapse this panel").
-  const [panelHidden, setPanelHidden] = useState(false);
-  const propsOn = s.view === "canvas" && (s.sel !== null || replay) && !(replay && panelHidden && !phone());
+  const propsOn = s.view === "canvas" && s.sel !== null;
   const wide = propsOn && !!s.cfocus && s.sel?.t === "node" && s.sel.id === s.cfocus;
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -171,9 +145,10 @@ function Lab() {
     return () => window.removeEventListener("keydown", onKey);
   }, []);
 
-  // Lab or Replay (Dev2, 2026-11-14: "there should be some type of toggle for replays versus the lab"). Replay reads your own chats, read only.
-  // Testing (Dev2, 2026-11-15): the Training, Dev and Test sets as conversations, labelled per message and node.
-  const setMode = (mode: "lab" | "replay" | "testing") => {
+  // Lab or Testing. Replay is part of the Lab (Lab live sandbox, Dev2 2026-11-16): a real text's play button shows what
+  // ran in production (`engine/prodRun.ts`). Testing (Dev2, 2026-11-15): the Training, Dev and Test sets as
+  // conversations, labelled per message and node.
+  const setMode = (mode: "lab" | "testing") => {
     if (mode === s.mode) return;
     set({ mode, sel: null, cfocus: null, view: "canvas", ...(mode === "lab" ? { real: null } : {}) });
     if (mode === "lab" && lab.scn === "own" && lab.tester !== "me") {
@@ -206,11 +181,8 @@ function Lab() {
             </button>
           )}
           <div className="modes" role="group" aria-label="Mode">
-            <button id="modeLab" aria-pressed={!replay && !testing} onClick={() => setMode("lab")}>
+            <button id="modeLab" aria-pressed={!testing} onClick={() => setMode("lab")}>
               Lab
-            </button>
-            <button id="modeReplay" aria-pressed={replay} onClick={() => setMode("replay")}>
-              Replay
             </button>
             <button id="modeTesting" aria-pressed={testing} onClick={() => setMode("testing")}>
               Testing
@@ -224,8 +196,6 @@ function Lab() {
               <span className="spacer" />
               <RunSplit />
             </>
-          ) : replay ? (
-            <span className="spacer" />
           ) : (
             <>
               <VersionMenu />
@@ -249,9 +219,8 @@ function Lab() {
             <Testing />
           </div>
         ) : (
-        <div className={"body" + (replay ? "" : " labnav" + (s.navMin ? " navmin" : "")) + (propsOn ? " props" : "") + (wide ? " wide" : "")} id="body" style={gridCols ? { gridTemplateColumns: gridCols } : undefined}>
-          <nav className="side" id="side" aria-label={replay ? "Your chats" : "Lab"} hidden={s.sideHidden && !phone()}>
-            {replay ? <ReplaySide moments={moments} onHide={toggleSide} /> : <>
+        <div className={"body labnav" + (s.navMin ? " navmin" : "") + (propsOn ? " props" : "") + (wide ? " wide" : "")} id="body" style={gridCols ? { gridTemplateColumns: gridCols } : undefined}>
+          <nav className="side" id="side" aria-label="Lab" hidden={s.sideHidden && !phone()}>
             {NAV.map(([v, name, icon, tag]) => (
               <button key={v} className="rowi" data-view={v} aria-current={s.view === v} title={name} onClick={() => (closeSide(), go(v))}>
                 <Svg d={icon} />
@@ -269,23 +238,11 @@ function Lab() {
                 <span className="nm">Collapse</span>
               </button>
             </div>
-            </>}
           </nav>
           <div className="scrim" id="scrim" onClick={closeSide} />
           <main className="main" id="main">
             <div id="v-canvas" hidden={s.view !== "canvas"}>
-              {/* Replay's chats, hidden, come back from a tab at the canvas's left edge, where they went (Dev2, 2026-11-14). */}
-              {replay && s.sideHidden && !phone() ? (
-                <button className="float rexpand" id="rExpand" aria-label="Show your chats" title="Show your chats" onClick={toggleSide}>
-                  <Svg className="i" d='<path d="M9 6l6 6-6 6"/>' />
-                </button>
-              ) : null}
-              {replay && panelHidden && !phone() ? (
-                <button className="float rexpand right" id="pExpand" aria-label="Show the panel" title="Show the panel" onClick={() => setPanelHidden(false)}>
-                  <Svg className="i" d='<path d="M15 6l-6 6 6 6"/>' />
-                </button>
-              ) : null}
-              {s.view === "canvas" ? replay ? <Canvas replay={{ m: moment, entries }} /> : <ArchCanvas /> : null}
+              {s.view === "canvas" ? <ArchCanvas /> : null}
             </div>
             {PAGES.map(([v, id, style, render]) => (
               <div key={v} className="pg" id={"v-" + v} hidden={s.view !== v}>
@@ -296,17 +253,13 @@ function Lab() {
             ))}
           </main>
           <aside className="props-pane" id="props" aria-label="Properties" hidden={!propsOn}>
-            {propsOn && replay && !phone() ? (
-              <button className="ib pcollapse" id="pCollapse" aria-label="Hide the panel" title="Hide the panel" onClick={() => setPanelHidden(true)}>
-                <Svg className="i" d='<path d="M9 6l6 6-6 6"/>' />
-              </button>
-            ) : null}
-            {propsOn ? replay ? <ReplayPanel m={moment} /> : <Props /> : null}
+            {propsOn ? <Props /> : null}
           </aside>
         </div>
         )}
       </div>
-      {replay ? <MineLoader /> : null}
+      {/* Reads the person's own ledger, once the test chat shows real texts, so a real text's play button can show what ran (`views/mine/playProd.ts`). */}
+      {s.tester === "me" || sandbox.rows.some((r) => r.prod) ? <MineLoader /> : null}
       <div className="toast" id="toast" hidden={!s.toastText}>
         {s.toastText}
       </div>

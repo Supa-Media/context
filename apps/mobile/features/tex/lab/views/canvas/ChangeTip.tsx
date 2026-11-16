@@ -109,18 +109,16 @@ export function ChangeTip({ marks, stage }: { marks: Marks | null; stage: RefObj
         <button className="lnk" id="tipGhost" onClick={() => set({ chg: marks.mode === "ghost" ? "marks" : "ghost" })}>
           {marks.mode === "ghost" ? "Show marks" : "Show ghost"}
         </button>
-        {lab.mode === "replay" ? null : (
-          <button
-            className="lnk"
-            id="tipPutBack"
-            onClick={() => {
-              putBack(tip.id);
-              setTip(null);
-            }}
-          >
-            {marks.vs === "main" ? "Put back main's" : `Put back ${marks.vs}'s`}
-          </button>
-        )}
+        <button
+          className="lnk"
+          id="tipPutBack"
+          onClick={() => {
+            putBack(tip.id);
+            setTip(null);
+          }}
+        >
+          {marks.vs === "main" ? "Put back main's" : `Put back ${marks.vs}'s`}
+        </button>
       </div>
     </div>
   );

@@ -52,6 +52,5 @@ export const tracedReal = (): RealTimes | null => (lab.scn === "own" && lab.real
 /** The canvas's simulation of the traced moment: estimates, or the measured run of a real text. */
 export function labSim(g: LabGraph = G()): Sim {
   const real = tracedReal();
-  const sim = withReal(simulate(g, lab.scn, lab.logRows, real), real, g);
-  return lab.mode === "replay" ? onlyWhatRan(sim, g) : sim;
+  return withReal(simulate(g, lab.scn, lab.logRows, real), real, g);
 }
