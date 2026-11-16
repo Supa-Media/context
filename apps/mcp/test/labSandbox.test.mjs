@@ -21,7 +21,7 @@ import { LabSandboxObject, sandboxTables, serveSandbox } from "../src/labSandbox
 import { sandboxNamespace } from "../src/labSandbox/wire.js";
 import { CONTROL_PLANE_READS, controlPlaneAnswer, LAB_SANDBOX_KEY, sandboxedTool, sandboxEnvOf, sandboxGateOf, toolAnswer, withoutKeys } from "../src/labSandbox/policy.js";
 import { sandboxGate, stepsOf, turnBody } from "../src/labSandbox/harness.js";
-import { handleLabSandbox, MAYA_CONVO } from "../src/labSandbox/route.js";
+import { handleLabSandbox, MAX_DRAWN_GRAPH, MAYA_CONVO } from "../src/labSandbox/route.js";
 import { withDraft } from "../src/agent/graph/turnGraph.js";
 import { TEX_CONFIG, texConfigOf, texEffort, texModel, texSetupFront, texTimeoutMs, texWords } from "../src/agent/texConfig.js";
 import { createTransport } from "../src/controlPlane/client.js";
@@ -280,7 +280,7 @@ test("a group test text is sent as the person written as, and steps come from th
 });
 
 /** The route over a fake control plane: `people` maps a token to who it is. */
-function routeWorld(people) {
+function routeWorld(people, options = {}) {
   const ns = sandboxNamespaceFixture();
   const env = { LAB_SANDBOX: ns, CONTROL_PLANE_URL: "https://control.example.invalid", GATEWAY_SECRET: "gw-secret-example-not-real-000000" };
   const original = globalThis.fetch;
@@ -300,7 +300,7 @@ function routeWorld(people) {
     return answer({ status: "bad_request" });
   };
   const call = async (token, body) => {
-    const response = await handleLabSandbox(new Request("https://gateway.example.invalid/tex-lab/sandbox", { method: "POST", headers: { authorization: `Bearer ${token}`, "content-type": "application/json" }, body: JSON.stringify(body) }), env, null);
+    const response = await handleLabSandbox(new Request("https://gateway.example.invalid/tex-lab/sandbox", { method: "POST", headers: { authorization: `Bearer ${token}`, "content-type": "application/json" }, body: JSON.stringify(body) }), env, null, options);
     return { status: response.status, body: await response.json() };
   };
   return { call, env, ns, restore: () => (globalThis.fetch = original) };
@@ -454,6 +454,48 @@ test("a test chat opens on the whole real chat, never a cutoff; get pages with a
     const live = await w.call(ALICE, { op: "get", sandboxId: id, after: opened.body.rows.at(-1).id });
     assert.deepEqual(live.body.rows[0].steps.map((s) => s.node), ["text", "triage"]);
     assert.deepEqual(live.body.running.steps.map((s) => s.node), ["text", "triage"]);
+  } finally {
+    w.restore();
+  }
+});
+
+// Dev2, 2026-11-16: a draft with edits not saved yet left the test chat on "There is no such draft." and its history,
+// the texts to play, unreadable. The Lab sends the draft as drawn; its texts run that, and the chat says so.
+test("a draft not saved yet opens with its history when the Lab sends it as drawn, and its texts run that draft", async () => {
+  const ran = [];
+  const runTurn = async ({ config }) => {
+    ran.push(config);
+  };
+  const w = routeWorld({ [ALICE]: { userId: "u_alice", workspaceId: "ws_alice" } }, { runTurn });
+  try {
+    const first = TEX_CONFIG.nodes[0];
+    const drawn = { nodes: [{ id: first.id, on: false }], edges: [] };
+    const refusedOpen = await w.call(ALICE, { op: "open", source: "maya", versionId: "vunsaved1" });
+    assert.equal(refusedOpen.status, 404, "a draft neither saved nor sent is still not there");
+    assert.equal((await w.call(ALICE, { op: "open", source: "maya", versionId: "vunsaved1", graph: "{not json" })).status, 400);
+    assert.equal((await w.call(ALICE, { op: "open", source: "maya", versionId: "vunsaved1", graph: JSON.stringify({ nodes: [] }) })).status, 400, "a graph has steps and wires");
+    assert.equal((await w.call(ALICE, { op: "open", source: "maya", versionId: "vunsaved1", graph: "x".repeat(MAX_DRAWN_GRAPH + 1) })).status, 400);
+
+    const opened = await w.call(ALICE, { op: "open", source: "maya", versionId: "vunsaved1", graph: JSON.stringify(drawn) });
+    assert.equal(opened.status, 200);
+    assert.ok(opened.body.rows.length > 0, "the chat's history shows, to read and play");
+    const sandboxId = opened.body.sandboxId;
+    const about = await w.call(ALICE, { op: "about", sandboxId });
+    assert.equal(about.body.versionId, "vunsaved1");
+    assert.equal(about.body.drawn, true);
+    assert.equal(about.body.graph, undefined, "the drawn graph is given only when asked");
+    assert.deepEqual((await w.call(ALICE, { op: "about", sandboxId, graph: true })).body.graph, drawn);
+
+    // A text without a graph (an AI texting in the chat the Lab opened) runs the draft as last drawn, not "no such draft".
+    assert.equal((await w.call(ALICE, { op: "send", sandboxId, text: "hi" })).status, 200);
+    assert.deepEqual(ran.at(-1), drawn);
+
+    // A text the Lab sends carries the draft as drawn now, and the chat keeps it.
+    const later = { nodes: [{ id: first.id, on: true }], edges: [] };
+    const other = (await w.call(ALICE, { op: "open", source: "maya", versionId: "vunsaved1", graph: JSON.stringify(drawn) })).body.sandboxId;
+    assert.equal((await w.call(ALICE, { op: "send", sandboxId: other, text: "hi", graph: JSON.stringify(later) })).status, 200);
+    assert.deepEqual(ran.at(-1), later);
+    assert.deepEqual((await w.call(ALICE, { op: "about", sandboxId: other, graph: true })).body.graph, later, "the chat keeps the draft its last text ran");
   } finally {
     w.restore();
   }

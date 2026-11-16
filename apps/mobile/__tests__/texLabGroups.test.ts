@@ -12,7 +12,7 @@
 import { describe, expect, test } from "@jest/globals";
 import TEX_CONFIG from "@context/shared/src/texConfig.json";
 import { GROUPS, mainGraph } from "../features/tex/lab/data/graph";
-import { foldAround, foldGroups, groupToOpen, stepsShownFor, unfoldGroups } from "../features/tex/lab/engine/groups";
+import { foldAround, foldGroups, groupOnly, groupToOpen, stepsShownFor, unfoldGroups } from "../features/tex/lab/engine/groups";
 import type { LabEdge, LabGraph, LabNode } from "../features/tex/lab/types";
 
 const MEMBERS = TEX_CONFIG.nodes.filter((n) => n.group === "intake").map((n) => n.id);
@@ -119,6 +119,16 @@ describe("focus on the intake box", () => {
       { from: "doorStep", to: "fd", mode: "wait", when: ["next"] },
       { from: "doorStep", to: "bypass", mode: "wait", when: ["answered"] },
     ]);
+  });
+
+  test("Focus on a group draws just that group: its seven steps and the wires between them (Dev2, 2026-11-16)", () => {
+    const opened = foldAround(folded(), "intake", GROUPS);
+    const only = groupOnly(opened, "intake");
+    expect(ids(only)).toEqual([...MEMBERS].sort());
+    expect(only.edges).toHaveLength(7);
+    expect(only.edges.every((e) => MEMBERS.includes(e.from) && MEMBERS.includes(e.to))).toBe(true);
+    // The steps are the graph's own: moving one there moves it in the graph.
+    expect(only.nodes[0]).toBe(opened.nodes.find((n) => n.id === only.nodes[0].id));
   });
 
   test("a folded graph shows no focused steps, and Whole graph folds the group again", () => {

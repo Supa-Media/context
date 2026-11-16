@@ -199,6 +199,16 @@ export function stepsShownFor(graph: LabGraph, focusId: string | null): LabNode[
   return focusId ? graph.nodes.filter((n) => n.group === focusId) : [];
 }
 
+/**
+ * A focused group drawn alone: its steps and the wires between them, nothing else (Dev2, 2026-11-16: "when I click focus
+ * on a group, I want it to open just that group"). The steps are the graph's own, so moving one moves it in the graph.
+ */
+export function groupOnly(graph: LabGraph, groupId: string): LabGraph {
+  const nodes = graph.nodes.filter((n) => n.group === groupId);
+  const ids = new Set(nodes.map((n) => n.id));
+  return { ...graph, nodes, edges: graph.edges.filter((e) => ids.has(e.from) && ids.has(e.to)) };
+}
+
 /** The group a focus on this step opens: the step's own group, or the box of a folded group; undefined for other steps. */
 export function groupToOpen(graph: LabGraph, id: string): string | undefined {
   const n = graph.nodes.find((x) => x.id === id);

@@ -131,7 +131,7 @@ import { createRoot } from "react-dom/client";
 import { TexLab } from "../features/tex/lab/TexLab.web";
 import { clone, lab, MAIN, set } from "../features/tex/lab/engine/state";
 import { numColW } from "../features/tex/lab/views/grid/TextGrid.web";
-import { gatewaySandbox, resetSandboxState, failureWords, sandbox, tryFromHere } from "../features/tex/lab/engine/sandbox";
+import { drawnDraft, gatewaySandbox, resetSandboxState, failureWords, sandbox, tryFromHere } from "../features/tex/lab/engine/sandbox";
 import { holdPlayClock, resetPlay } from "../features/tex/lab/engine/sandboxPlay";
 
 const roots: (() => void)[] = [];
@@ -469,5 +469,31 @@ describe("the gateway route", () => {
     await expect(call("open", { source: { kind: "chat", chatId: "me" } })).rejects.toThrow("The test chat hit a problem on the server");
     expect(failureWords(422, { error: "refused", message: "A Lab test chat changes nothing outside itself." })).toBe("A Lab test chat changes nothing outside itself.");
     expect(failureWords(400, { error: "pick a chat to copy" })).toBe("pick a chat to copy");
+  });
+});
+
+// Dev2, 2026-11-16: a draft with edits not saved yet left the test chat on "There is no such draft." The Lab sends the
+// draft as drawn while the saved copy isn't it, and only then.
+describe("the draft a test chat runs", () => {
+  const before = { cur: lab.cur, versions: lab.versions, dirty: lab.dirty };
+  afterEach(() => {
+    Object.assign(lab, before);
+  });
+
+  test("a draft never saved, or edited since its save, goes as drawn; main and a saved clean draft don't", () => {
+    const draft = clone(MAIN);
+    draft.id = "vdrawn1";
+    Object.assign(lab, { cur: draft, versions: [], dirty: false });
+    const drawn = drawnDraft("vdrawn1");
+    expect(drawn).not.toBeNull();
+    const parsed = JSON.parse(drawn!) as { nodes: Array<{ id: string; group?: string }>; edges: unknown[] };
+    expect(parsed.nodes.length).toBeGreaterThan(0);
+    expect(parsed.nodes.some((n) => n.id === "intake")).toBe(false);
+    Object.assign(lab, { versions: [clone(draft)], dirty: false });
+    expect(drawnDraft("vdrawn1")).toBeNull();
+    lab.dirty = true;
+    expect(drawnDraft("vdrawn1")).not.toBeNull();
+    expect(drawnDraft("vother")).toBeNull();
+    expect(drawnDraft("main")).toBeNull();
   });
 });

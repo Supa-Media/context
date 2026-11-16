@@ -16,7 +16,7 @@ import {
   unfocus,
   undo,
 } from "../engine/state";
-import { stepsShownFor } from "../engine/groups";
+import { groupOnly, stepsShownFor } from "../engine/groups";
 import { groupsOf } from "../data/graph";
 import { labSim } from "../engine/realTimes";
 import { runTags } from "../engine/sim";
@@ -99,7 +99,9 @@ export function Canvas({ testLit = null, graph = null, lead = null }: { testLit?
     // The step card floats over the canvas's right side: fit the graph beside it, as the mockup's fit does.
     const r = { width: b.width - (lab.sel && b.width > 900 ? 350 : 0), height: b.height };
     // The test chat's line is fitted in too, as the mockup's fit does (`canvas/lineDecor.ts`).
-    const c = fitCam(lab.cfocus ? G().nodes : [...G().nodes, ...lineNodes(G())], r, lab.cfocus ? fBounds.current : null);
+    // A focused group is fitted alone, as it is drawn alone.
+    const inGroup = stepsShownFor(G(), lab.cfocus);
+    const c = fitCam(inGroup.length ? inGroup : lab.cfocus ? G().nodes : [...G().nodes, ...lineNodes(G())], r, lab.cfocus && !inGroup.length ? fBounds.current : null);
     if (!c) return;
     cam.current = c;
     applyCam();
@@ -140,7 +142,7 @@ export function Canvas({ testLit = null, graph = null, lead = null }: { testLit?
   // A real text's run draws the graph Tex had then, read only (`ArchCanvas.web.tsx`); else the version open.
   const g = graph ?? G();
   setCanvasReadOnly(!!graph);
-  // A focus on an open group draws the whole graph with its steps in it (Dev2, 2026-11-14: "Focus on it opens all eleven steps").
+  // A focus on a group opens just that group: its steps and the wires between them (Dev2, 2026-11-16, `groupOnly`).
   const opened = stepsShownFor(g, lab.cfocus).length > 0;
   if (s.cfocus && !node(s.cfocus, g) && !opened) lab.cfocus = null;
   const sim = labSim(g);
@@ -155,8 +157,13 @@ export function Canvas({ testLit = null, graph = null, lead = null }: { testLit?
   } else {
     fBounds.current = null;
     // The test chat's line: two view-only pseudo-steps beside the graph, never in it (`canvas/lineDecor.ts`).
-    const line = lineDecorHtml(g, s.sel, testLit, lineTimes(panelRow(pick, play)?.steps));
-    html = line.under + renderGraphHtml(g, sim, tags, s.sel, testLit, "off", stepCounts(g), marks) + line.over;
+    if (opened && lab.cfocus) {
+      const only = groupOnly(g, lab.cfocus);
+      html = renderGraphHtml(only, sim, tags, s.sel, testLit, "off", stepCounts(g), marks);
+    } else {
+      const line = lineDecorHtml(g, s.sel, testLit, lineTimes(panelRow(pick, play)?.steps));
+      html = line.under + renderGraphHtml(g, sim, tags, s.sel, testLit, "off", stepCounts(g), marks) + line.over;
+    }
   }
   // An open group has no box to name, so its focus bar takes the group's label (Dev2, 2026-11-14).
   const focused = lab.cfocus ? node(lab.cfocus, g) ?? (opened ? { label: groupsOf(g)[lab.cfocus]?.label ?? lab.cfocus } : undefined) : undefined;
