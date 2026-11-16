@@ -181,7 +181,7 @@ export function chatStepsOf(entries, { own = null, since = 0 } = {}) {
   if (!worker.some(({ step }) => step?.node === "lanes")) {
     for (const reply of list.filter((entry) => entry?.kind === "reply" && Number.isFinite(entry.timing?.waitMs))) {
       const first = Math.min(...graph.map((g) => g.at), reply.at ?? 0);
-      queued.push({ at: first - 0.5, step: { node: "lanes", out: outOf({ waitedMs: reply.timing.waitMs, from: "the turn's logged wait" }), ms: reply.timing.waitMs, ok: true } });
+      queued.push({ at: first - 0.5, step: { node: "lanes", out: { waitedMs: reply.timing.waitMs, from: "the turn's logged wait" }, ms: reply.timing.waitMs, ok: true } });
     }
   }
   return [...worker, ...queued, ...graph].sort((a, b) => a.at - b.at).map(({ step }) => step);
