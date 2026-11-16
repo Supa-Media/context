@@ -6,7 +6,7 @@
  * `{ links: true }`, an argument no tool has, and to `read_back` earlier reads its six tools never showed.
  *
  * Whether a step is shown the list is the config's (the owner, 2026-11-16): only a step whose ctx names "tools", in
- * main's config or a Lab draft's. Main's names it for neither the Advisor nor Job check yet: wiring is a Lab draft.
+ * main's config or a Lab draft's. Main's names it for both the Advisor and Job check, wired by a Lab draft (2026-11-16).
  *
  * ## Sabotage record
  *
@@ -87,14 +87,14 @@ test("the six offer read:<ref> exactly when the turn holds read_back, and only t
 });
 
 /** A Lab draft that adds "tools" to the reads of `ids`, as the Lab draws it. */
-const drafted = (...ids) => ({ nodes: ids.map((id) => ({ id, ctx: [...texStep(id).ctx, "tools"] })) });
+const drafted = (...ids) => ({ nodes: ids.map((id) => ({ id, ctx: texStep(id).ctx.filter((key) => key !== "tools") })) });
 
-test("only a step whose reads name tools is shown them: main's names it for neither, a Lab draft's can", async () => {
+test("only a step whose reads name tools is shown them: main's names it for both (Lab, 2026-11-16), a draft can take it out", async () => {
   const { tools } = sixToolsOver(held("orient", "read_note", "list_notes", "browse"));
   const live = { about: "Name: Ada.", now: "Monday", tools, messages: MESSAGES };
-  // Main's config: neither step reads "tools", so no list at all, never the names-only one it had.
-  assert.equal(readsTools("advisor"), false);
-  assert.equal(readsTools("jobcheck"), false);
+  // Main's config: both steps read "tools" (promoted from the Lab, 2026-11-16).
+  assert.equal(readsTools("advisor"), true);
+  assert.equal(readsTools("jobcheck"), true);
   const asked = [];
   const request = async (params) => (asked.push(params), { text: "VERDICT: done\nADVICE: fine." });
   const ask = async (config) => {
@@ -102,11 +102,12 @@ test("only a step whose reads name tools is shown them: main's names it for neit
     await advisor.call({}, live);
     return asked.at(-1).messages[0].text;
   };
-  assert.doesNotMatch(await ask(), /<tex_tools>/);
+  assert.match(await ask(), /<tex_tools>\n- orient: [\s\S]*- browse: Drive a browser/);
+  // A draft that takes "tools" out of both: no list at all, never the names-only one there was.
   const draft = drafted("advisor", "jobcheck");
   const config = withDraft(TEX_CONFIG, draft);
-  assert.equal(readsTools("advisor", config), true);
-  assert.match(await ask(config), /<tex_tools>\n- orient: [\s\S]*- browse: Drive a browser/);
+  assert.equal(readsTools("advisor", config), false);
+  assert.doesNotMatch(await ask(config), /<tex_tools>/);
   // The draft's reads are applied, never reported as run as main's.
   assert.equal(draftFit(TEX_CONFIG, draft).unapplied, undefined);
 
@@ -115,6 +116,6 @@ test("only a step whose reads name tools is shown them: main's names it for neit
     await checkJob({ job, live, answer: "Done.", model: "opus", request, ...(cfg ? { config: cfg } : {}) });
     return asked.at(-1).messages[0].text;
   };
-  assert.doesNotMatch(await check(), /<tex_tools>/);
-  assert.match(await check(config), /<tex_tools>\n- orient: /);
+  assert.match(await check(), /<tex_tools>\n- orient: /);
+  assert.doesNotMatch(await check(config), /<tex_tools>/);
 });
