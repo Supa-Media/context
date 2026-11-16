@@ -142,6 +142,29 @@ test("a dispatch GitHub refuses fails the run with GitHub's reason", async () =>
   expect((await door("runs", { id })).run).toMatchObject({ stage: "failed", error: "GitHub refused to start the run (403: Resource not accessible by personal access token)" });
 });
 
+test("a run GitHub refused is marked fixed once a later run got to GitHub; a finished run can be removed, a running one can't", async () => {
+  const { door, t, lab } = await world();
+  vi.stubGlobal("fetch", async () => new Response(JSON.stringify({ message: "Resource not accessible by personal access token" }), { status: 403 }));
+  const { id: refused } = await door("run", { draft: "main", kind: "dev" });
+  await drainScheduled(t);
+  expect((await door("runs", { id: refused })).run).toMatchObject({ stage: "failed", fixedSince: false });
+  // The token fixed: GitHub accepts the next dispatch.
+  vi.stubGlobal("fetch", async () => new Response(null, { status: 204 }));
+  const { id: later } = await door("run", { draft: "main", kind: "dev" });
+  await drainScheduled(t);
+  await t.mutation(internal.functions.texLabRuns.report, { runId: later, stage: "running", ghRunUrl: RUN_URL });
+  expect((await door("runs", { id: refused })).run.fixedSince).toBe(true);
+  expect((await door("runs", {})).runs.find((r: { id: string }) => r.id === refused).fixedSince).toBe(true);
+  expect(await door("run_remove", { id: later })).toMatchObject({ status: "bad_request" });
+  expect(await door("run_remove", { id: refused })).toEqual({ status: "ok" });
+  await expect(lab.mutation(api.functions.texLabRuns.remove, { id: refused })).rejects.toThrow();
+  await t.mutation(internal.functions.texLabRuns.report, { runId: later, stage: "done", results: { pass: 1, total: 1 } });
+  await lab.mutation(api.functions.texLabRuns.remove, { id: later });
+  expect((await door("runs", {})).runs).toEqual([]);
+  const stranger = withSession(t, await createUser(t, "stranger2@example.invalid"));
+  await expect(stranger.mutation(api.functions.texLabRuns.remove, { id: later })).rejects.toThrow();
+});
+
 describe("the workflow's reports", () => {
   test("running, then done with the results kept clean; a finished run stays finished; a stage never goes back", async () => {
     const { door, t } = await world();
