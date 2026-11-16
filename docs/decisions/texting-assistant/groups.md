@@ -613,6 +613,16 @@ is wrong".
 
 What a simplification would cost: going back to `phoneLinks` alone makes app sign-ins guests again; letting a guest count
 without an invitation hands a workspace to a stranger's number; storing the reach without the numbers keeps a revoked
-invitation's workspace open. Not done: the two tables are still two (`phoneLinks`, `users.phone`); every group reader goes
-through the one lookup, and the app's own sign-in keeps its order (`phoneSignIn.ts` `phoneHolder`). Tests:
-`apps/convex/__tests__/textGroupReachOneList.test.ts`, `textGroupReach.test.ts`, `textGroupBlockers.test.ts`.
+invitation's workspace open.
+
+**One stored list (Dev2, same day: "context signups vs tex signups should be the same").** `phoneLinks` is now the
+only list any reader goes by (`lib/identities.ts` `accountForPhone` reads it alone): a number confirmed at the app's
+phone sign-in is written there too (`lib/numberList.ts` `syncSignInNumber`, called by every place that confirms or
+clears `users.phone`: sign-in, phone check, phone change, account joins, staff), marked `via: "sign_in"`, and
+numbers confirmed before are put on it by `.github/workflows/number-list-backfill.yml`. So an app sign-up texts Tex
+1:1 with no code, and texting setup still runs for one with no personal workspace yet. `users.phone` stays on the
+account only because the sign-in system reads it there. Kept from the two lists' one benefit: turning Tex off
+(STOP, unlink) is recorded (`textingStops`), so neither the sign-in sync nor the backfill puts the number back until
+the person links again by code; the backfill also keeps off anyone whose personal workspace's audit shows an
+earlier unlink. One number is one account: a number already on the list for someone else stays theirs. Tests:
+`apps/convex/__tests__/textGroupReachOneList.test.ts`, `numberList.test.ts`, `textSetup.test.ts`, `textGroupReach.test.ts`, `textGroupBlockers.test.ts`.

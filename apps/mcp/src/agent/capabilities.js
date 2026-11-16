@@ -41,7 +41,7 @@ export const CAPABILITIES = Object.freeze([
     actions: ["send.name_guest"],
     texts: "a 1:1 text is just them; in a group chat you can say who is there",
     group: "say who is in this chat from its whole list, read from the chat each turn: everyone with a linked Context account by handle and name, everyone else as a guest label, each with their phone number (everyone in the chat already sees them, so Tex says a number where a person would, never a label), and how many; once someone here says who a guest is, Tex keeps the name on the chat itself (send name_guest) and the list, the chat's lines and who tagged it show that name beside the number",
-    cant: [{ where: "group", what: "see the account of someone whose number here isn't linked to one", workaround: { kind: "words", text: "they text you once on their own from the number they use in this chat, which links it" } }],
+    cant: [{ where: "group", what: "see the account of someone whose number here isn't on Context", workaround: { kind: "words", text: "they sign in to the Context app with the number they use in this chat, or text you once on their own from it; either puts it on their account" } }],
   },
   {
     name: "Who someone is, for a form",

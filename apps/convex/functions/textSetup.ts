@@ -17,6 +17,7 @@ import { newPhoneAccount, phoneHolder } from "./phoneSignIn";
 import { scheduleSignInAlert } from "./signInAlerts";
 import { isPhoneNumber, TEXTS_CLIENT_ID } from "./textLinks";
 import { acceptPhoneInvitations } from "./lib/invitations/join";
+import { clearTextingStopped } from "./lib/numberList";
 
 /**
  * Setting somebody up by text (Dev2, 2026-10-17: onboarding happens by text,
@@ -94,8 +95,9 @@ async function whoMaySetUp(ctx: MutationCtx, phone: string): Promise<Who | null>
     .query("phoneLinks")
     .withIndex("by_phone", (q) => q.eq("phone", phone))
     .first();
-  if (link !== null) return null;
-  const holder = await phoneHolder(ctx, phone);
+  // On the list by an app sign-in with no personal workspace yet (`lib/numberList.ts`): that account sets up here.
+  if (link !== null && (link.via !== "sign_in" || (await ownedPersonalWorkspace(ctx, link.userId)) !== null)) return null;
+  const holder = link?.userId ?? (await phoneHolder(ctx, phone));
   if (holder === null) return (await isPhoneAdmitted(ctx.db, phone)) ? { kind: "new" } : null;
   if (await phoneSignInPaused(ctx, holder)) return null;
   if ((await ownedPersonalWorkspace(ctx, holder)) !== null) return null;
@@ -103,7 +105,7 @@ async function whoMaySetUp(ctx: MutationCtx, phone: string): Promise<Who | null>
     .query("phoneLinks")
     .withIndex("by_user", (q) => q.eq("userId", holder))
     .first();
-  if (otherLink !== null) return null;
+  if (otherLink !== null && otherLink.phone !== phone) return null;
   // `finishSetup`'s rule for someone who came in through a work domain: a
   // personal email first, so leaving that domain cannot strand the account.
   if ((await joinedThroughDomain(ctx, holder)) && (await attachedEmailsOf(ctx, holder)).length === 0) return null;
@@ -168,7 +170,14 @@ async function setUp(
   const displayName = user?.name?.trim() || handle;
   const { workspaceId, slug } = await createWorkspaceHandler(ctx, userId, { slug: handle, displayName, kind: "personal" });
   const now = Date.now();
-  await ctx.db.insert("phoneLinks", { userId, phone, linkedAt: now });
+  // The number may be on the list already, by the sign-in that made the account (`lib/numberList.ts`): texting proved it too.
+  const listed = await ctx.db
+    .query("phoneLinks")
+    .withIndex("by_phone", (q) => q.eq("phone", phone))
+    .first();
+  if (listed === null) await ctx.db.insert("phoneLinks", { userId, phone, linkedAt: now, via: "text" });
+  else if (listed.userId === userId) await ctx.db.patch(listed._id, { via: "text" });
+  await clearTextingStopped(ctx, userId);
   // A workspace that invited this number from a Tex group chat is joined now: texting from it proved it.
   await acceptPhoneInvitations(ctx, userId, phone);
   await ctx.db.delete(askedId);

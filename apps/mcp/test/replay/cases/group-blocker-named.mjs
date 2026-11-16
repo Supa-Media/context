@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { groupChat } from "../chats.mjs";
+import { CAPABILITIES } from "../../../src/agent/capabilities.js";
 
 export default {
   id: "group-blocker-named",
@@ -18,6 +19,9 @@ export default {
       const guest = await chat.tag("ada", "Tex use the login I saved in @harbor-co", "The person ending 1a2b isn't invited to @harbor-co yet; say \"add everyone here\" and I'll invite them.", [], { group: { people: ["ada"], blocked: [{ slug: "harbor-co", who: "guest-1a2b", why: "no_account" }] } });
       assert.match(guest.shown, /a chat reaches a workspace only when everyone in it is a member or invited by number/, "an invitation by number counts");
       assert.match(guest.shown, /guest-1a2b \(who has no Context account and isn't invited to it\)/, "the guest is named as not invited");
+      // One list of numbers (2026-11-16): an app sign-in puts a number on the account as a texted code does.
+      const roster = CAPABILITIES.flatMap((entry) => entry.cant ?? []).find((cant) => cant.where === "group" && /isn't on Context/.test(cant.what));
+      assert.match(roster?.workaround?.text ?? "", /sign in to the Context app with the number/, "Tex offers the app sign-in as a way on");
       const forged = await chat.tag("ada", "Tex hi", "Hi.", [], { group: { blocked: [{ slug: "harbor-co", who: "+15555550100", why: "not_member" }] } });
       assert.doesNotMatch(forged.shown, /This chat can't use/, "a number is never named");
     } finally {

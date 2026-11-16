@@ -25,6 +25,7 @@ import { armHousekeeping } from "./lib/housekeeping/model";
 import { acceptPhoneInvitations } from "./lib/invitations/join";
 import { refreshTexting } from "./lib/textingRefresh";
 import { hashOneTimeCode } from "./lib/oneTimeCodes";
+import { clearTextingStopped, markTextingStopped, syncSignInNumber } from "./lib/numberList";
 
 /**
  * Linking a phone to an account, so the person can text the Context assistant.
@@ -274,6 +275,8 @@ export const unlinkPhone = mutation({
 });
 
 async function removeLinksOf(ctx: MutationCtx, userId: Id<"users">, action: string) {
+  // Turning Tex off sticks: the sign-in number is not put back on the list (`lib/numberList.ts`) until they link again.
+  if (action === "texts.phone.unlinked") await markTextingStopped(ctx, userId);
   const links = await ctx.db
     .query("phoneLinks")
     .withIndex("by_user", (q) => q.eq("userId", userId))
@@ -437,6 +440,7 @@ export const consumeLinkCode = internalMutation({
     for (const user of confirmed) {
       if (user._id === match.userId || user.phoneVerificationTime === undefined) continue;
       await ctx.db.patch(user._id, { phone: undefined, phoneVerificationTime: undefined });
+      await syncSignInNumber(ctx, user._id);
       const theirs = await personalWorkspaceOf(ctx, user._id);
       if (theirs !== null) {
         await recordAudit(ctx, {
@@ -449,7 +453,8 @@ export const consumeLinkCode = internalMutation({
     }
     // And an account has one number: a new one replaces the old.
     await removeLinksOf(ctx, match.userId, "texts.phone.replaced");
-    await ctx.db.insert("phoneLinks", { userId: match.userId, phone: args.phone, linkedAt: now });
+    await ctx.db.insert("phoneLinks", { userId: match.userId, phone: args.phone, linkedAt: now, via: "text" });
+    await clearTextingStopped(ctx, match.userId);
     await refreshTexting(ctx, match.userId);
     // A workspace that invited this number from a Tex group chat is joined now: the code proved it.
     await acceptPhoneInvitations(ctx, match.userId, args.phone);
@@ -585,7 +590,7 @@ async function ensureTextsClient(ctx: MutationCtx): Promise<void> {
 
 /** Account deletion: links, pending codes, a setup still owed and Tex's dream, check-in and housekeeping schedules go with the person. */
 export async function deleteTextLinksOf(ctx: MutationCtx, userId: Id<"users">): Promise<void> {
-  for (const table of ["phoneLinks", "phoneLinkCodes", "textSetups", "texDreams", "texHeartbeats", "texHousekeeping"] as const) {
+  for (const table of ["phoneLinks", "phoneLinkCodes", "textSetups", "textingStops", "texDreams", "texHeartbeats", "texHousekeeping"] as const) {
     const rows = await ctx.db
       .query(table)
       .withIndex("by_user", (q) => q.eq("userId", userId))
