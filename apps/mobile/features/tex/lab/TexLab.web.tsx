@@ -45,7 +45,7 @@ import { LabRunDev, RunControls } from "./views/runs/Runs.web";
 import { openMoment, ReplaySide } from "./views/replay/ReplaySide";
 import { loggedMoments, momentsOf } from "./engine/replay";
 import { setLabTheme, THEMES, useLabTheme } from "./theme.web";
-import { Ratio, Testing } from "./views/testing/Testing.web";
+import { Testing } from "./views/testing/Testing.web";
 
 /** How often Replay looks for new texts and runs. */
 const REFRESH_MS = 10_000;
@@ -269,10 +269,7 @@ function Lab() {
             </button>
           </div>
           {testing ? (
-            <>
-              <Ratio />
-              <RunControls />
-            </>
+            <RunControls />
           ) : replay ? null : (
             <>
           <button className="chipbtn" id="verBtn" onClick={showVersions}>
