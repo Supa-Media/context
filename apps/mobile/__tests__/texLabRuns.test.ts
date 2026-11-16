@@ -231,15 +231,21 @@ describe("running from the Lab", () => {
     let rows: unknown[] = [];
     setSandboxCall(async (op, body) => {
       calls.push({ op, body });
-      if (op === "open") rows = [{ id: "m1", who: "Ana", text: "Tex what's the weather on Sunday?", prod: true }];
-      if (op === "send")
+      if (op === "chats") return { chats: [{ chatId: "me", name: "You and Tex" }, { chatId: "f".repeat(64), name: "Band" }] };
+      if (op === "open") {
+        rows = [{ id: "m1", who: "Ana", text: "Tex what's the weather on Sunday?", prod: true }];
+        return { sandboxId: "sb1", people: [{ handle: "ana", name: "Ana" }, { handle: "bo", name: "Bo" }], rows };
+      }
+      if (op === "send") {
         rows = [
           ...rows,
-          { id: "t1", who: String(body.as), text: String(body.text), steps: [{ node: "triage", out: "to: judge", ms: 2 }, { node: "decide", out: "act: respond", ms: 400 }] },
-          { id: "t1r", who: "Tex", text: "Bring sunscreen." },
+          { id: "t1", who: String(body.as), text: String(body.text) },
+          { id: "t1r", reply: "t1", who: "Tex", text: "Bring sunscreen.", steps: [{ node: "triage", out: "to: judge", ms: 2 }, { node: "decide", out: "act: respond", ms: 400 }] },
         ];
-      if (op === "reset") rows = (rows as Array<{ prod?: boolean }>).filter((r) => r.prod);
-      return { sandboxId: "sb1", people: ["Ana", "Bo"], rows, writes: [], running: null };
+        return { msgId: "t1" };
+      }
+      if (op === "reset") return { ok: true };
+      return { rows, writes: [], running: null };
     });
     await mount();
     await pick("#tryWho", "Bo");
@@ -251,10 +257,16 @@ describe("running from the Lab", () => {
     click("#trySend");
     await tick();
     await tick();
-    expect(calls[0]).toEqual({ op: "open", body: { source: "set", convId: "picnic", versionId: "main" } });
-    expect(calls[1]).toEqual({ op: "send", body: { sandboxId: "sb1", as: "Bo", text: "should we bring a tent" } });
+    // A group conversation runs in one of your group chats; Bo is sent by handle.
+    expect(calls.slice(0, 4)).toEqual([
+      { op: "chats", body: {} },
+      { op: "open", body: { source: "set", convId: "picnic", chatId: "f".repeat(64), versionId: "main" } },
+      { op: "send", body: { sandboxId: "sb1", as: "bo", text: "should we bring a tent" } },
+      { op: "get", body: { sandboxId: "sb1" } },
+    ]);
     expect(qa("tr.try").map((r) => r.querySelector(".txt")?.textContent)).toEqual(["should we bring a tent", "Bring sunscreen."]);
     expect(q("#tryPanel")?.textContent).toContain("Bring sunscreen.");
+    expect(q("#tryPanel")?.textContent).toContain("act: respond");
     click("#tryKeep");
     await tick();
     const ops = (mockCalls.filter((c) => c.fn === "functions/texSets:edit").pop()?.args.ops ?? []) as Array<{ op: string; msg: { who: string; text: string } }>;

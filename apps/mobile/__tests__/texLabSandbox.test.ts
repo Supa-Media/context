@@ -13,7 +13,9 @@
  * Sabotage record (applied, run, observed failing, reverted, 2026-11-16):
  *  1. `backTo` sending op "drop" -> "go back to a text keeps it and its reply" fails;
  *  2. the grid ignoring a row's steps -> "each step's output fills its column" fails;
- *  3. `gatewaySandbox` not retrying on 401 -> "a stale grant is minted again once" fails.
+ *  3. `gatewaySandbox` not retrying on 401 -> "a stale grant is minted again once" fails;
+ *  4. `backTo` sending "back" for a real text -> "going back to a real text opens the chat again" fails;
+ *  5. reply rows' steps left on the reply -> "each step's output fills its column" fails.
  */
 import { afterEach, beforeEach, describe, expect, jest, test } from "@jest/globals";
 
@@ -31,7 +33,7 @@ jest.mock("expo-router", () => {
 });
 jest.mock("../features/site/host", () => ({ isTexHost: () => true }));
 
-type Row = { id: string; who: string; text: string; prod?: boolean; steps?: Array<{ node: string; out: string; ms: number }> };
+type Row = { id: string; who: string; text: string; prod?: boolean; reply?: string; steps?: Array<{ node: string; out: string; ms: number }> };
 const mockCalls: Array<{ op: string; body: Record<string, unknown> }> = [];
 let mockRows: Row[] = [];
 let mockWrites: Array<{ kind: string; summary: string; by: string }> = [];
@@ -39,8 +41,9 @@ let mockSeq = 0;
 const answer = (text: string): Row[] => {
   const id = "t" + ++mockSeq;
   return [
-    { id, who: "", text, steps: [{ node: "triage", out: "to: judge", ms: 2 }, { node: "decide", out: "act: respond", ms: 410 }, { node: "fd", out: "draft 22 chars", ms: 3400 }] },
-    { id: id + "r", who: "Tex", text: "Added it to the calendar." },
+    // As the route has it: the turn's steps on Tex's reply row, which names the text it answers.
+    { id, who: "", text },
+    { id: id + "r", reply: id, who: "Tex", text: "Added it to the calendar.", steps: [{ node: "triage", out: "to: judge", ms: 2 }, { node: "decide", out: "act: respond", ms: 410 }, { node: "fd", out: "draft 22 chars", ms: 3400 }] },
   ];
 };
 jest.mock("../features/tex/lab/views/canvas/sandboxCall", () => {
@@ -50,20 +53,33 @@ jest.mock("../features/tex/lab/views/canvas/sandboxCall", () => {
     const at = (id: unknown) => mockRows.findIndex((r) => r.id === id);
     if (op === "chats") return { chats: [{ chatId: "me", name: "me" }, { chatId: "band", name: "Band" }] };
     if (op === "open") {
-      mockRows = body.source === "chat" ? [{ id: "h1", who: "Priya", text: "practice thursday?", prod: true }, { id: "h2", who: "Tex", text: "Yes, 7 pm.", prod: true }] : [];
+      const real: Row[] = body.source === "chat" ? [{ id: "h1", who: "Priya", text: "practice thursday?", prod: true }, { id: "h2", who: "Tex", text: "Yes, 7 pm.", prod: true }] : [];
+      const until = real.findIndex((r) => r.id === body.base);
+      mockRows = until < 0 ? real : real.slice(0, until);
       mockWrites = [];
-      return { sandboxId: "sb1", people: body.source === "chat" ? ["Priya", "Sam"] : ["Maya"], rows: mockRows, writes: [] };
+      return { sandboxId: "sb1", people: body.source === "chat" ? [{ handle: "priya", name: "Priya" }, { handle: "sam", name: "Sam" }] : [{ handle: "", name: "Maya" }], rows: mockRows };
     }
-    if (op === "send") {
-      const [t, r] = answer(String(body.text));
-      t.who = String(body.as);
+    if (["retry", "back", "drop"].includes(op) && mockRows[at(body.msgId)]?.prod) throw new Error("That is a real text: open the chat with base set to it to try from there.");
+    const sent = (as: string, text: string) => {
+      const [t, r] = answer(text);
+      t.who = as;
       mockRows.push(t, r);
       mockWrites.push({ kind: "Calendar", summary: "new event, held in the sandbox", by: t.id });
+      return { msgId: t.id };
+    };
+    // send and retry answer only the new text's id; get shows it.
+    if (op === "send") return sent(String(body.as), String(body.text));
+    if (op === "retry") {
+      const t = mockRows[at(body.msgId)];
+      mockRows = mockRows.slice(0, at(body.msgId));
+      return sent(t.who, t.text);
     }
     if (op === "back") mockRows = mockRows.slice(0, at(body.msgId) + 2);
     if (op === "drop") mockRows = mockRows.slice(0, at(body.msgId));
-    if (op === "retry") mockRows = mockRows.slice(0, at(body.msgId) + 2);
-    if (op === "reset") mockRows = mockRows.filter((r) => r.prod);
+    if (op === "reset") {
+      mockRows = [];
+      return { ok: true };
+    }
     const ids = new Set(mockRows.map((r) => r.id));
     mockWrites = mockWrites.filter((w) => ids.has(w.by));
     return { sandboxId: "sb1", rows: mockRows, writes: mockWrites, running: null };
@@ -154,7 +170,8 @@ describe("the Architecture test chat", () => {
     expect(mockCalls.at(-1)).toEqual({ op: "open", body: { source: "chat", chatId: "band", versionId: "main" } });
     await pick("#sbAs", "Sam");
     await type("Tex add the gig to the band calendar");
-    expect(mockCalls.find((c) => c.op === "send")?.body).toEqual({ sandboxId: "sb1", as: "Sam", text: "Tex add the gig to the band calendar" });
+    // A person in the chat is sent by their handle.
+    expect(mockCalls.find((c) => c.op === "send")?.body).toEqual({ sandboxId: "sb1", as: "sam", text: "Tex add the gig to the band calendar" });
     expect(texts()).toEqual(["practice thursday?", "Yes, 7 pm.", "Tex add the gig to the band calendar", "Added it to the calendar."]);
     // The real chat's texts are greyed, a line marks where the test texts start.
     expect(qa("#sbGrid tbody tr.prod").length).toBe(2);
@@ -185,12 +202,28 @@ describe("the Architecture test chat", () => {
     expect(texts()).toEqual(["one", "Added it to the calendar."]);
     await type("again");
     await click('#sbGrid [data-retry="t4"]');
-    expect(mockCalls.at(-1)?.op).toBe("retry");
-    await click('#sbGrid [data-drop="t4"]');
+    // Retry sends the text again as a new one; get shows it.
+    expect(mockCalls.slice(-2).map((c) => c.op)).toEqual(["retry", "get"]);
+    expect(texts()).toEqual(["one", "Added it to the calendar.", "again", "Added it to the calendar."]);
+    await click('#sbGrid [data-drop="t5"]');
     expect(texts()).toEqual(["one", "Added it to the calendar."]);
     await click("#sbReset");
-    expect(mockCalls.at(-1)?.op).toBe("reset");
+    // Reset deletes the test chat, and a fresh one opens over the same chat.
+    expect(mockCalls.slice(-2).map((c) => c.op)).toEqual(["reset", "open"]);
     expect(sandbox.rows).toEqual([]);
+  });
+
+  test("going back to a real text opens the chat again up to the text after it", async () => {
+    await mount();
+    await pick("#sbSrc", "chat:band");
+    await type("one");
+    expect(texts()).toEqual(["practice thursday?", "Yes, 7 pm.", "one", "Added it to the calendar."]);
+    await click('#sbGrid [data-back="h1"]');
+    expect(mockCalls.slice(-2)).toEqual([
+      { op: "reset", body: { sandboxId: "sb1" } },
+      { op: "open", body: { source: "chat", chatId: "band", versionId: "main", base: "h2" } },
+    ]);
+    expect(texts()).toEqual(["practice thursday?"]);
   });
 });
 

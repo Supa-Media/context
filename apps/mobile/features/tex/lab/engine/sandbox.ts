@@ -12,14 +12,16 @@ import { useSyncExternalStore } from "react";
 import type { StepCell } from "../views/grid/TextGrid.web";
 import { lab, set as setLab } from "./state";
 
-export type SandboxSource = { kind: "maya" } | { kind: "chat"; chatId: string; name: string } | { kind: "set"; convId: string; name: string };
+export type SandboxSource = { kind: "maya" } | { kind: "chat"; chatId: string; name: string } | { kind: "set"; convId: string; name: string; chatId?: string };
 export type SandboxRow = { id: string; who: string; text: string; at?: number; prod?: boolean; quiet?: boolean; tex?: boolean; steps?: StepCell[] };
 export type SandboxWrite = { kind: string; summary: string; by?: string };
 export type SandboxState = {
   id: string | null;
   source: SandboxSource;
   versionId: string;
+  /** Who may send, by name; `handles` is each one's handle, sent as `as` (a name not in it is sent as a guest). */
   people: string[];
+  handles: Record<string, string>;
   as: string;
   rows: SandboxRow[];
   writes: SandboxWrite[];
@@ -37,7 +39,7 @@ export type SandboxState = {
 export type SandboxOp = "chats" | "open" | "send" | "retry" | "back" | "drop" | "reset" | "get";
 export type SandboxCall = (op: SandboxOp, body: Record<string, unknown>) => Promise<Record<string, unknown>>;
 
-export const sandbox: SandboxState = { id: null, source: { kind: "maya" }, versionId: "main", people: [], as: "", rows: [], writes: [], running: null, hot: null, busy: false, problem: null, chats: [], draft: null };
+export const sandbox: SandboxState = { id: null, source: { kind: "maya" }, versionId: "main", people: [], handles: {}, as: "", rows: [], writes: [], running: null, hot: null, busy: false, problem: null, chats: [], draft: null };
 
 const subs = new Set<() => void>();
 let ver = 0;
@@ -81,8 +83,28 @@ export function rowOf(r: Record<string, unknown>): SandboxRow {
 
 function take(b: Record<string, unknown>) {
   if (typeof b.sandboxId === "string") sandbox.id = b.sandboxId;
-  if (Array.isArray(b.people)) sandbox.people = arr<string>(b.people).filter((x) => typeof x === "string");
-  if (Array.isArray(b.rows)) sandbox.rows = arr<Record<string, unknown>>(b.rows).map(rowOf);
+  if (Array.isArray(b.people)) {
+    // `{handle, name}` each, or a bare name.
+    const ps = arr<unknown>(b.people).map((x) => (typeof x === "string" ? { handle: x, name: x } : x && typeof x === "object" ? { handle: str((x as Record<string, unknown>).handle), name: str((x as Record<string, unknown>).name) } : null)).filter((x): x is { handle: string; name: string } => !!x && !!(x.name || x.handle));
+    sandbox.people = ps.map((x) => x.name || x.handle);
+    sandbox.handles = Object.fromEntries(ps.map((x) => [x.name || x.handle, x.handle]));
+  }
+  if (Array.isArray(b.rows)) {
+    const raw = arr<Record<string, unknown>>(b.rows);
+    const rows = raw.map(rowOf);
+    // A reply row carries the steps of the text it answers (`reply`): the grid shows them on that text's row.
+    raw.forEach((r, i) => {
+      const to = typeof r.reply === "string" ? rows.find((x) => x.id === r.reply) : undefined;
+      if (to && !to.steps?.length && rows[i].steps?.length) to.steps = rows[i].steps;
+      if (to) rows[i].steps = [];
+      if (typeof r.error === "string" && r.error) rows[i].text = (rows[i].text ? rows[i].text + " · " : "") + "Didn't finish: " + r.error;
+      if (rows[i].text) rows[i].quiet = rows[i].quiet && !r.error;
+    });
+    // A test text is kept under the handle it was sent as: shown by the person's name.
+    const nameOf = Object.fromEntries(Object.entries(sandbox.handles).filter(([, h]) => h).map(([n, h]) => [h, n]));
+    rows.forEach((r) => (r.who = nameOf[r.who] ?? r.who));
+    sandbox.rows = rows;
+  }
   if (Array.isArray(b.writes)) sandbox.writes = arr<Record<string, unknown>>(b.writes).map((w) => ({ kind: str(w.kind), summary: str(w.summary), by: str(w.by) || undefined }));
   sandbox.running = typeof b.running === "string" ? b.running : b.running && typeof b.running === "object" ? str((b.running as Record<string, unknown>).msgId) || null : null;
   sandbox.hot = b.running && typeof b.running === "object" ? str((b.running as Record<string, unknown>).node) || null : typeof b.hot === "string" ? b.hot : null;
@@ -109,7 +131,12 @@ async function run(op: SandboxOp, body: Record<string, unknown>, busy = true) {
   emit();
   try {
     const b = await call(op, op === "open" ? body : { sandboxId: sandbox.id, ...body });
-    take(b);
+    if (op === "reset") {
+      // Reset deletes the test chat.
+      Object.assign(sandbox, { id: null, rows: [], writes: [], running: null, hot: null });
+    } else if (Array.isArray(b.rows) || op === "open") take(b);
+    // send and retry answer the new text's id: the rows, and its turn running, come from get.
+    else if (sandbox.id) take(await call("get", { sandboxId: sandbox.id }));
   } catch (e) {
     sandbox.problem = e instanceof Error ? e.message : "The test chat didn't answer";
     sandbox.running = null;
@@ -140,7 +167,7 @@ export function openSandbox(source: SandboxSource, versionId: string, base?: str
   sandbox.writes = [];
   sandbox.running = null;
   sandbox.hot = null;
-  return run("open", { source: source.kind, ...(source.kind === "chat" ? { chatId: source.chatId } : source.kind === "set" ? { convId: source.convId } : {}), versionId, ...(base ? { base } : {}) });
+  return run("open", { source: source.kind, ...(source.kind === "chat" ? { chatId: source.chatId } : source.kind === "set" ? { convId: source.convId, ...(source.chatId ? { chatId: source.chatId } : {}) } : {}), versionId, ...(base ? { base } : {}) });
 }
 /**
  * Replay's "Try from here": the Lab, a test chat over that chat with its real texts up to (not including) the one
@@ -151,7 +178,8 @@ export function tryFromHere(chatId: string, name: string, msgId: string, as: str
   setLab({ mode: "lab", view: "canvas", sel: null });
   const p = openSandbox({ kind: "chat", chatId, name }, lab.cur.id, msgId);
   return p.then(() => {
-    if (as && sandbox.people.includes(as)) sandbox.as = as;
+    const name = sandbox.people.includes(as) ? as : Object.keys(sandbox.handles).find((n) => sandbox.handles[n] === as);
+    if (name) sandbox.as = name;
     emit();
   });
 }
@@ -165,19 +193,46 @@ export function takeDraft() {
  * The Testing tab's "Try a text": the chat so far as a test chat on the version picked to run, and one more text from
  * one of its people, run in Tex's gateway on live models. Read only, like every test chat.
  */
-export async function tryText(convId: string, name: string, versionId: string, who: string, text: string) {
-  if (sandbox.source.kind !== "set" || sandbox.source.convId !== convId || sandbox.versionId !== versionId || !sandbox.id) await openSandbox({ kind: "set", convId, name }, versionId);
-  else await run("reset", {});
+export async function tryText(convId: string, name: string, versionId: string, who: string, text: string, group = false) {
+  let chatId: string | undefined;
+  if (group) {
+    // A group conversation runs in one of your group chats: its Tex notes read, its history the conversation's.
+    if (!sandbox.chats.length) await readSandboxChats();
+    chatId = sandbox.chats.find((c) => c.chatId !== "me")?.chatId;
+    if (!chatId) {
+      sandbox.problem = "A group conversation is tried in one of your group chats with Tex, and you aren't in one";
+      emit();
+      return;
+    }
+  }
+  if (sandbox.id) await run("reset", {});
+  await openSandbox({ kind: "set", convId, name, ...(chatId ? { chatId } : {}) }, versionId);
   if (!sandbox.id) return;
-  sandbox.as = who;
+  sandbox.as = sandbox.people.includes(who) ? who : (sandbox.people[0] ?? who);
   await sendText(text);
 }
 
-export const sendText = (text: string) => run("send", { as: sandbox.as, text });
+export const sendText = (text: string) => run("send", { as: sandbox.handles[sandbox.as] ?? sandbox.as, text });
 export const retryText = (msgId: string) => run("retry", { msgId });
-export const backTo = (msgId: string) => run("back", { msgId });
+/**
+ * Go back to a text: it and its reply kept, everything later dropped. A real text the chat started from can't be cut,
+ * so the test chat opens again with the real texts up to the one after it.
+ */
+export function backTo(msgId: string) {
+  const i = sandbox.rows.findIndex((r) => r.id === msgId);
+  if (i < 0 || !sandbox.rows[i].prod) return run("back", { msgId });
+  const next = sandbox.rows.slice(i + 1).find((r) => r.prod);
+  return reopen(next?.id);
+}
 export const dropText = (msgId: string) => run("drop", { msgId });
-export const resetSandbox = () => run("reset", {});
+function reopen(base?: string) {
+  const { source, versionId } = sandbox;
+  return (sandbox.id ? run("reset", {}) : Promise.resolve()).then(() => openSandbox(source, versionId, base));
+}
+/** Reset: the test chat deleted, and a fresh one over the same chat. */
+export const resetSandbox = () => reopen();
+/** Discard a try: the test chat deleted, nothing opened again. */
+export const discardSandbox = () => (sandbox.id ? run("reset", {}) : Promise.resolve());
 export function sendAs(who: string) {
   sandbox.as = who;
   emit();
@@ -204,7 +259,7 @@ export function gatewaySandbox(endpoint: string, token: (refresh: boolean | { re
 
 /** For tests: back to an empty test chat. */
 export function resetSandboxState() {
-  Object.assign(sandbox, { id: null, source: { kind: "maya" }, versionId: "main", people: [], as: "", rows: [], writes: [], running: null, hot: null, busy: false, problem: null, chats: [], draft: null });
+  Object.assign(sandbox, { id: null, source: { kind: "maya" }, versionId: "main", people: [], handles: {}, as: "", rows: [], writes: [], running: null, hot: null, busy: false, problem: null, chats: [], draft: null });
   if (polling) clearTimeout(polling);
   polling = null;
   emit();

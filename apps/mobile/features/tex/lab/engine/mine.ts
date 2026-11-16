@@ -37,6 +37,8 @@ export type Start = "checkin" | "routine" | "notify";
  */
 export type ChatLine = {
   id: string;
+  /** The ledger's event id (`eid`): what a test chat's `base` names. */
+  eid?: string;
   at: number;
   from: "person" | "tex";
   who: string;
@@ -158,7 +160,7 @@ function textLines(entries: LedgerEntry[], byId: Map<string, MyText>, group: boo
       }
       const tex = fromKind(e) === "tex";
       const name = str(rec(e.from)?.name);
-      return { id: e.id, at: e.at, from: tex ? ("tex" as const) : ("person" as const), who: tex ? "Tex" : group ? name || "Someone" : "You", text: str(e.text), play: tex ? null : (byId.get(e.id) ?? null) };
+      return { id: e.id, ...(typeof e.eid === "string" ? { eid: e.eid } : {}), at: e.at, from: tex ? ("tex" as const) : ("person" as const), who: tex ? "Tex" : group ? name || "Someone" : "You", text: str(e.text), play: tex ? null : (byId.get(e.id) ?? null) };
     });
 }
 

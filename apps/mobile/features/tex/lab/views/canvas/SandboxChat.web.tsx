@@ -133,8 +133,8 @@ export function SandboxChat() {
       />
       <form
         className="sbc"
-        onSubmit={(e) => {
-          e.preventDefault();
+        onSubmit={(event) => {
+          event.preventDefault();
           send();
         }}
       >

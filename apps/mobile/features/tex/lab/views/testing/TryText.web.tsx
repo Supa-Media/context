@@ -7,7 +7,7 @@
 import { useState } from "react";
 import { G } from "../../engine/state";
 import { runsUi, useRunsUi } from "../../engine/labRuns";
-import { resetSandbox, tryText, useSandbox } from "../../engine/sandbox";
+import { discardSandbox, tryText, useSandbox } from "../../engine/sandbox";
 import { freshId, type Conversation } from "../../engine/sets";
 import { change, setUi, useSets } from "../../engine/setsStore";
 import { msWords } from "../grid/TextGrid.web";
@@ -34,7 +34,7 @@ export function TryRows({ c, span }: { c: Conversation; span: number }) {
     const ops: Parameters<typeof change>[1] = [{ op: "addMsg", at, msg: { id, who: t.person!.who, text: t.person!.text } }];
     if (t.reply && !t.reply.quiet) ops.push({ op: "addMsg", at: at + 1, msg: { id: id + "t", who: "Tex", tex: true, text: t.reply.text } });
     change(c.id, ops);
-    void resetSandbox();
+    void discardSandbox();
     setUi({ msg: null });
   };
   const open = () => setUi({ msg: "try", col: null, editing: false });
@@ -65,7 +65,7 @@ export function TryRows({ c, span }: { c: Conversation; span: number }) {
               <button className="btn sm" id="tryKeep" onClick={(e) => (e.stopPropagation(), keep())}>
                 {t.reply && !t.reply.quiet ? "Keep both rows" : "Keep the text"}
               </button>
-              <button className="btn sm ghost" id="tryDrop" onClick={(e) => (e.stopPropagation(), void resetSandbox(), setUi({ msg: null }))}>
+              <button className="btn sm ghost" id="tryDrop" onClick={(e) => (e.stopPropagation(), void discardSandbox(), setUi({ msg: null }))}>
                 Discard
               </button>
             </div>
@@ -88,7 +88,7 @@ export function TryCompose({ c }: { c: Conversation }) {
     if (!v || sb.running || sb.busy) return;
     setText("");
     setUi({ msg: "try", col: null, editing: false });
-    void tryText(c.id, c.title, runsUi.ver, who, v);
+    void tryText(c.id, c.title, runsUi.ver, who, v, c.kind === "group");
   };
   return (
     <div className="compose" id="tryCompose">
