@@ -64,7 +64,8 @@ export function resultsOf(rows, ms) {
       msgIndex: r.at ?? 0,
       node: r.node,
       ok: Boolean(r.right),
-      got: r.ran === false ? "can't run alone" : String(r.got ?? (r.right ? "as labelled" : r.why ?? "")),
+      // A test that did not run says why (Dev2, 2026-11-16: twenty Front door tests read only "can't run alone").
+      got: r.ran === false ? `can't run: ${String(r.why ?? "no way to run alone yet").slice(0, 200)}` : String(r.got ?? (r.right ? "as labelled" : r.why ?? "")),
       want: String(r.want ?? ""),
       ...(r.ran === false ? { ran: false } : {}),
     })),

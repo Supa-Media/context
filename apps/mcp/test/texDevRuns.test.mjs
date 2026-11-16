@@ -78,7 +78,7 @@ test("results count by chat and by step, with each test's verdict and no words",
   assert.deepEqual(r.perConv, [{ id: "g", pass: 1, total: 2 }, { id: "m", pass: 0, total: 1 }]);
   assert.deepEqual(r.perNode, [{ node: "decide", pass: 1, total: 2 }, { node: "fd", pass: 0, total: 1 }]);
   assert.deepEqual(r.rows[1], { convId: "g", msgIndex: 8, node: "decide", ok: false, got: "quiet", want: "respond" });
-  assert.deepEqual(r.rows[2], { convId: "m", msgIndex: 1, node: "fd", ok: false, got: "can't run alone", want: "", ran: false });
+  assert.deepEqual(r.rows[2], { convId: "m", msgIndex: 1, node: "fd", ok: false, got: "can't run: runs alone only on a one-ask chat", want: "", ran: false }, "a test that did not run says why");
 });
 
 test("decideSaid names every labelled field, so a miss on why shows where it differs", () => {
