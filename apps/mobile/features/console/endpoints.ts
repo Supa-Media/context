@@ -60,6 +60,8 @@ const RESERVED_FIRST_SEGMENTS = new Set([
   "approvals",
   // The person's own view of Tex's browser, `/tex/computer` on the gateway.
   "tex",
+  // The Lab's test chats, `/tex-lab/sandbox` on the gateway.
+  "tex-lab",
   // The Mac app's Messages backup, `/messages/imessage/batch` on the gateway.
   "messages",
   // What a card in Messages shows, `/cards/inbox` and `/cards/week` on the gateway.
