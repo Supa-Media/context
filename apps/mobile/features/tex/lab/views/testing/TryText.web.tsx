@@ -4,13 +4,18 @@
  * Tex uses. It takes seconds and is read only (the test chat, `engine/sandbox.ts`). Its two rows sit under the chat
  * until kept as rows of the chat or discarded; the panel shows the steps that ran.
  */
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { G } from "../../engine/state";
 import { runsUi, useRunsUi } from "../../engine/labRuns";
 import { discardSandbox, tryText, useSandbox } from "../../engine/sandbox";
 import { freshId, type Conversation } from "../../engine/sets";
 import { change, setUi, useSets } from "../../engine/setsStore";
 import { msWords } from "../grid/TextGrid.web";
+import { usePicUpload } from "../canvas/usePicUpload";
+import { PicI } from "./Menu.web";
+
+/** The most pictures one text takes, as the test chat's send does. */
+const MAX_TRY_PICS = 6;
 
 /** The try for this chat, if the test chat is on it. */
 export function useTry(c: Conversation) {
@@ -31,7 +36,7 @@ export function TryRows({ c, span }: { c: Conversation; span: number }) {
   const keep = () => {
     const at = c.msgs.length;
     const id = freshId(c);
-    const ops: Parameters<typeof change>[1] = [{ op: "addMsg", at, msg: { id, who: t.person!.who, text: t.person!.text } }];
+    const ops: Parameters<typeof change>[1] = [{ op: "addMsg", at, msg: { id, who: t.person!.who, text: t.person!.text, ...(t.person!.pics?.length ? { pics: t.person!.pics.map((url) => ({ url })) } : {}) } }];
     if (t.reply && !t.reply.quiet) ops.push({ op: "addMsg", at: at + 1, msg: { id: id + "t", who: "Tex", tex: true, text: t.reply.text } });
     change(c.id, ops);
     void discardSandbox();
@@ -47,7 +52,10 @@ export function TryRows({ c, span }: { c: Conversation; span: number }) {
         <td>
           <b>{t.person.who}</b>
         </td>
-        <td className="txt">{t.person.text}</td>
+        <td className="txt">
+          {t.person.text}
+          {t.person.pics?.length ? <span className="muted small"> ({t.person.pics.length === 1 ? "a picture" : `${t.person.pics.length} pictures`})</span> : null}
+        </td>
         <td colSpan={Math.max(1, span)} className="small muted">
           {t.running ? <span className="pill r"><span className="spin" />Running</span> : `ran ${steps.join(" → ")}`}
         </td>
@@ -80,25 +88,78 @@ export function TryRows({ c, span }: { c: Conversation; span: number }) {
 export function TryCompose({ c }: { c: Conversation }) {
   const ui = useRunsUi();
   const sb = useSandbox();
+  const upload = usePicUpload();
+  const file = useRef<HTMLInputElement>(null);
   const people = c.members.length ? c.members : ["Maya"];
   const [who, setWho] = useState(people[0]);
   const [text, setText] = useState("");
+  const [pics, setPics] = useState<string[]>([]);
+  const [uploading, setUploading] = useState(0);
+  const add = async (files: File[]) => {
+    const take = files.filter((f) => f.type.startsWith("image/")).slice(0, MAX_TRY_PICS - pics.length);
+    if (!take.length) return;
+    setUploading((n) => n + take.length);
+    for (const f of take) {
+      try {
+        const { url } = await upload(f);
+        setPics((p) => (p.length < MAX_TRY_PICS ? [...p, url] : p));
+      } catch (e) {
+        setUi({ problem: e instanceof Error ? e.message : "Couldn't upload that picture" });
+      } finally {
+        setUploading((n) => n - 1);
+      }
+    }
+  };
+  const ready = (!!text.trim() || pics.length > 0) && !uploading && !sb.running && !sb.busy;
   const go = () => {
+    if (!ready) return;
     const v = text.trim();
-    if (!v || sb.running || sb.busy) return;
+    const sent = pics;
     setText("");
+    setPics([]);
     setUi({ msg: "try", col: null, editing: false });
-    void tryText(c.id, c.title, runsUi.ver, who, v, c.kind === "group");
+    void tryText(c.id, c.title, runsUi.ver, who, v, c.kind === "group", sent);
   };
   return (
-    <div className="compose" id="tryCompose">
+    <div className="compose" id="tryCompose" onDragOver={(e) => e.dataTransfer.types.includes("Files") && e.preventDefault()} onDrop={(e) => e.dataTransfer.files.length && (e.preventDefault(), void add([...e.dataTransfer.files]))}>
       <select id="tryWho" aria-label="Who sends it" value={who} onChange={(e) => setWho(e.target.value)}>
         {people.map((p) => (
           <option key={p}>{p}</option>
         ))}
       </select>
-      <input id="tryTxt" aria-label="Try a text" placeholder={`Try a text as ${who}…`} title={`Runs one turn on ${ui.ver === "main" ? "main" : "the draft picked to run"}: what happens if ${who} sends it`} value={text} onChange={(e) => setText(e.target.value)} onKeyDown={(e) => (e.stopPropagation(), e.key === "Enter" && go())} />
-      <button className="btn p" id="trySend" disabled={!text.trim() || !!sb.running || sb.busy} onClick={go}>
+      {pics.length || uploading ? (
+        <span className="ts-tpics" id="tryPics">
+          {pics.map((u, k) => (
+            <span key={u} className="ts-tpic">
+              <img src={u} alt={`Picture ${k + 1}`} />
+              <button aria-label={`Remove picture ${k + 1}`} title="Remove" onClick={() => setPics((p) => p.filter((x) => x !== u))}>
+                ×
+              </button>
+            </span>
+          ))}
+          {uploading ? <span className="muted small">uploading…</span> : null}
+        </span>
+      ) : null}
+      <input
+        id="tryTxt"
+        aria-label="Try a text"
+        placeholder={`Try a text as ${who}…`}
+        title={`Runs one turn on ${ui.ver === "main" ? "main" : "the draft picked to run"}: what happens if ${who} sends it`}
+        value={text}
+        onChange={(e) => setText(e.target.value)}
+        onKeyDown={(e) => (e.stopPropagation(), e.key === "Enter" && go())}
+        onPaste={(e) => {
+          const files = [...e.clipboardData.files].filter((f) => f.type.startsWith("image/"));
+          if (!files.length) return;
+          e.preventDefault();
+          void add(files);
+        }}
+      />
+      <input ref={file} type="file" accept="image/*" multiple hidden id="tryPicFile" onChange={(e) => (void add([...(e.target.files ?? [])]), (e.target.value = ""))} />
+      <button className="ib" id="tryPic" title="Add a picture" aria-label="Add a picture" disabled={pics.length >= MAX_TRY_PICS} onClick={() => file.current?.click()}>
+        <PicI />
+      </button>
+      <button className="btn p" id="trySend" disabled={!ready} onClick={go}>
         Send
       </button>
     </div>

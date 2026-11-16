@@ -244,7 +244,7 @@ export function takeDraft() {
  * The Testing tab's "Try a text": the chat so far as a test chat on the version picked to run, and one more text from
  * one of its people, run in Tex's gateway on live models. Read only, like every test chat.
  */
-export async function tryText(convId: string, name: string, versionId: string, who: string, text: string, group = false) {
+export async function tryText(convId: string, name: string, versionId: string, who: string, text: string, group = false, pics: string[] = []) {
   let chatId: string | undefined;
   if (group) {
     // A group conversation runs in one of your group chats: its Tex notes read, its history the conversation's.
@@ -260,7 +260,7 @@ export async function tryText(convId: string, name: string, versionId: string, w
   await openSandbox({ kind: "set", convId, name, ...(chatId ? { chatId } : {}) }, versionId);
   if (!sandbox.id) return;
   sandbox.as = sandbox.people.includes(who) ? who : (sandbox.people[0] ?? who);
-  await sendText(text);
+  await sendText(text, { pics });
 }
 
 const asHandle = () => sandbox.handles[sandbox.as] ?? sandbox.as;

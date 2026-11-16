@@ -1,6 +1,6 @@
 /**
- * Running from the Lab (mockup https://claude.ai/artifact/P2vQtigdvALrSWyb5CqQ3E): the controls (which version, which
- * models, ▶ Run Dev set, Runs), each chat's latest run, and the Runs panel with each run's score, misses and the same
+ * Running from the Lab (mockup https://claude.ai/artifact/P2vQtigdvALrSWyb5CqQ3E): starting a run (the top bar's
+ * ▶ Run Dev set, `views/bar/TopBar.web.tsx`, picks the version and models), and the Runs panel with each run's score, misses and the same
  * run as a tex_dev call. Scores come from the Dev set only; the Test set runs only in its locked service, behind
  * Promote's pull request.
  */
@@ -49,79 +49,6 @@ export function StagePill({ r }: { r: LabRun }) {
 }
 
 /** The Testing tab's run controls: which version, which models, ▶ Run Dev set and the Runs panel. */
-export function RunControls() {
-  const ui = useRunsUi();
-  const runs = useRuns();
-  const go = useStartRun("testing");
-  const busy = runs.filter(live).length;
-  return (
-    <div className="runctl" id="runCtl">
-      <label className="small muted" htmlFor="runVer">
-        Run
-      </label>
-      <select id="runVer" aria-label="Which version runs" value={ui.ver} onChange={(e) => setRunsUi({ ver: e.target.value })}>
-        {lab.versions.map((v) => (
-          <option key={v.id} value={v.id}>
-            {v.id === "main" ? "main" : `draft “${v.name}”`}
-          </option>
-        ))}
-      </select>
-      <ModelsPick />
-      <button className="btn sm p" id="runDev" title="Runs every Dev set unit test on GitHub, with the models you pick" onClick={() => void go("dev")}>
-        ▶ Run Dev set
-      </button>
-      <button className="btn sm" id="runsBtn" aria-pressed={ui.open} onClick={() => setRunsUi({ open: !ui.open })}>
-        Runs{runs.length ? <b> {runs.length}</b> : null}
-        {busy ? <span className="spin" /> : null}
-      </button>
-    </div>
-  );
-}
-
-export function ModelsPick() {
-  const ui = useRunsUi();
-  return (
-    <select id="runModels" aria-label="Which models answer" value={ui.models} onChange={(e) => setRunsUi({ models: e.target.value === "cc" ? "cc" : "gw" })}>
-      <option value="gw">Models: as live Tex (AI gateway)</option>
-      <option value="cc">Models: Claude Code (subscription)</option>
-    </select>
-  );
-}
-
-/** Above a chat's grid: its latest run (the chat alone, or the Dev set it is in). */
-export function RunBar({ convId, dev }: { convId: string; dev: boolean }) {
-  const runs = useRuns();
-  const r = runs.find((x) => (x.kind === "chat" && x.convId === convId) || (dev && x.kind === "dev"));
-  if (!r)
-    return (
-      <div className="runbar" id="runBar">
-        <span className="muted">No run on this chat yet. ▶ Run this chat, or ▶ Run Dev set at the top, runs its unit tests on GitHub.</span>
-      </div>
-    );
-  return (
-    <div className="runbar" id="runBar">
-      <StagePill r={r} />
-      <b>{runLabel(r, chatTitle, nodeName)}</b>
-      <span className="muted">
-        on {verName(r.versionId)} · started {ago(r.startedAt)}
-      </span>
-      {r.stage === "done" ? (
-        <span>
-          {scoreWords(r)} · {costWords(r)}
-        </span>
-      ) : null}
-      <a href="#" data-openrun={r.id} onClick={(e) => (e.preventDefault(), setRunsUi({ open: true, run: r.id }))}>
-        Details
-      </a>
-      {r.ghRunUrl ? (
-        <a href={r.ghRunUrl} target="_blank" rel="noopener noreferrer">
-          GitHub run ↗
-        </a>
-      ) : null}
-    </div>
-  );
-}
-
 /** The Runs panel, in place of the cell's labels while it is open. */
 export function RunsPanel() {
   const ui = useRunsUi();
