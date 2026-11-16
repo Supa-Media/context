@@ -4,6 +4,14 @@
  */
 "use strict";
 
+/**
+ * Tex's number: the one line people are told to text, everywhere the app names it (Settings, the /tex pages, the
+ * waitlist's "you're in", the staff console, the Lab's test chat). Photon's dedicated Business line since 2026-11-16
+ * (docs/decisions/texting-assistant/photon-line.md). A public business line, not a secret. Moving Tex to a new line is
+ * a change to this line alone; `TEX_LINE_NUMBERS` only lists the older lines Tex still answers on.
+ */
+const TEX_NUMBER = "+14157918922";
+
 const MONTHS = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
 
 /** "+1 (415) 555-0100" for a US number; any other number as given. */
@@ -22,4 +30,4 @@ function archiveSentence(archiveOn) {
   return ` This number stops working on ${MONTHS[month - 1]} ${day}.`;
 }
 
-module.exports = { formatNumber, archiveSentence };
+module.exports = { TEX_NUMBER, formatNumber, archiveSentence };

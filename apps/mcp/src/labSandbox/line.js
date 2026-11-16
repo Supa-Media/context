@@ -15,8 +15,10 @@
  * deliveries logged gets `PHOTON_DEFAULT`, a fixed default that is not a measurement (said on the `line` it answers).
  */
 
-/** Tex's new number, where a test text arrives: a public business line, not a secret. */
-export const PHOTON_NUMBER = "+14157918922";
+import { TEX_NUMBER } from "../../../../packages/shared/src/texNumber.cjs";
+
+/** Tex's number, where a test text arrives: the one the app tells people (`packages/shared/src/texNumber.cjs`). */
+export const PHOTON_NUMBER = TEX_NUMBER;
 /**
  * The delays a chat with too few logged Photon deliveries gets. NOT MEASURED: no aggregate of Photon's lag exists to
  * read from here, so these are a stand-in until one does; `measured: false` says so on every `line`.

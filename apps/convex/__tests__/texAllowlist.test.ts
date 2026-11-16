@@ -9,6 +9,7 @@
  */
 
 import { afterEach, describe, expect, test, vi } from "vitest";
+import { TEX_NUMBER } from "@context/shared/src/texNumber.cjs";
 import { convexTest } from "convex-test";
 import { api } from "../_generated/api";
 import schema from "../schema";
@@ -20,7 +21,7 @@ import {
   addToLinqLine,
   dedicatedTexLines,
   readLinqLine,
-  texLineFor,
+  texNumberHere,
   removeFromLinqLine,
 } from "../functions/lib/adminFns/texAllowlist";
 import { withSession } from "./session.helpers";
@@ -225,7 +226,7 @@ describe("the console's Tex list, through the admin functions", () => {
     const { as, fake } = await setup(phones(3));
     vi.stubEnv("TEX_LINE_NUMBERS", "+15555550177, +15555550178");
     const before = fake.calls.length;
-    expect(await as.action(api.functions.admin.texAllowlist, {})).toEqual({ state: "unlimited", line: "+15555550177" });
+    expect(await as.action(api.functions.admin.texAllowlist, {})).toEqual({ state: "unlimited", line: TEX_NUMBER });
     expect(fake.calls).toHaveLength(before);
     vi.unstubAllEnvs();
   });
@@ -255,11 +256,9 @@ describe("Tex's dedicated lines", () => {
     expect(dedicatedTexLines(" +15555550177 , nope, +15555550177,+15555550178")).toEqual(["+15555550177", "+15555550178"]);
   });
 
-  test("always tells one person the same line, and spreads people over several", () => {
-    const lines = ["+15555550177", "+15555550178"];
-    expect(texLineFor(lines, "+15555550100")).toBe(texLineFor(lines, "+15555550100"));
-    const told = new Set(phones(20).map((phone) => texLineFor(lines, phone)));
-    expect(told).toEqual(new Set(lines));
-    expect(texLineFor(["+15555550177"], "+15555550100")).toBe("+15555550177");
+  test("people are told Tex's number, never one of the lines Tex still answers on", () => {
+    expect(texNumberHere("+15555550177, +15555550178")).toBe(TEX_NUMBER);
+    expect(texNumberHere(undefined)).toBeNull();
+    expect(texNumberHere("nope")).toBeNull();
   });
 });

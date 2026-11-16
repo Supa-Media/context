@@ -26,7 +26,7 @@ import { internal } from "../_generated/api";
 import type { Id } from "../_generated/dataModel";
 import { internalAction, internalQuery, type ActionCtx, type QueryCtx } from "../_generated/server";
 import { internalMutation } from "./lib/rowWatch/mutations";
-import { addToLinqLineAt, dedicatedTexLines, removeFromLinqLine, texLineFor } from "./lib/adminFns/texAllowlist";
+import { addToLinqLineAt, removeFromLinqLine, texNumberHere } from "./lib/adminFns/texAllowlist";
 import { recordAdminAudit } from "./lib/adminFns/audit";
 import { confirmedEmailsOf, currentPhoneOf } from "./lib/emailProof";
 import { textTexNumber } from "./waitlistText";
@@ -106,10 +106,10 @@ export async function putOnTexLine(
     const number = phone ?? facts?.phone ?? null;
     if (facts === null || number === null) return null;
     // A dedicated line has no list: anybody can text it.
-    const dedicated = dedicatedTexLines(process.env.TEX_LINE_NUMBERS);
-    if (dedicated.length > 0) {
+    const texNumber = texNumberHere(process.env.TEX_LINE_NUMBERS);
+    if (texNumber !== null) {
       log("dedicated");
-      return texLineFor(dedicated, number);
+      return texNumber;
     }
     if (!process.env.LINQ_API_KEY?.trim()) {
       log("skipped", { reason: "linq_not_connected" });
