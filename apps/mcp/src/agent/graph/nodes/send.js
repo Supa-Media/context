@@ -26,9 +26,10 @@ async function sentOf(response) {
 export async function sendNode(_input, io) {
   const t = io.ctx.turn;
   const threads = typeof t.threadsSort === "function" ? ["threads"] : [];
-  if (t.drafts === undefined) return { when: ["answered"], ...(await sentOf(t.response)) };
+  if (t.drafts === undefined) return { when: [(t.sentAs = "answered")], ...(await sentOf(t.response)) };
   if (t.response === undefined) t.response = await finishARoutine(t);
-  if (t.response !== undefined) return { when: ["ended", ...threads], ...(await sentOf(t.response)) };
+  if (t.response !== undefined) return { when: [(t.sentAs = "ended"), ...threads], ...(await sentOf(t.response)) };
   t.response = await sendTheReply(t);
-  return { when: [t.turn?.exhausted ? "exhausted" : "sent", ...threads], ...(await sentOf(t.response)) };
+  t.sentAs = t.turn?.exhausted ? "exhausted" : "sent"; // what After the reply reads, in a draft that draws it: only a reply that went is scored
+  return { when: [t.sentAs, ...threads], ...(await sentOf(t.response)) };
 }

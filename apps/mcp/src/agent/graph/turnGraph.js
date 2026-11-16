@@ -16,6 +16,8 @@ import { sandboxGateOf } from "../../labSandbox/policy.js";
 
 /** Where a turn's run starts: the first door step, or, for a routine's run, Routine runs, which is wired to it. */
 export const TURN_START = "readTheText";
+/** Where it starts on a Lab draft that draws the Door as one step in Intake (Dev2, 2026-11-16; `texConfig.js` `CODE_AHEAD`). */
+export const DOOR_START = "doorStep";
 export const ROUTINE_START = "routine";
 
 /**
@@ -89,7 +91,8 @@ export async function runTurnGraph(t) {
     background: (running) => void t.tex.after("graph_background", running.finally(() => (log.write(), t.chatLog?.flush?.()))),
   });
   try {
-    await graph.run(startsAtRoutine(t) ? ROUTINE_START : TURN_START, {}, { turn: t, useSetup });
+    const start = startsAtRoutine(t) ? ROUTINE_START : config.nodes.some((node) => node.id === DOOR_START) ? DOOR_START : TURN_START;
+    await graph.run(start, {}, { turn: t, useSetup, wired: graph.wired });
   } finally {
     log.write();
   }

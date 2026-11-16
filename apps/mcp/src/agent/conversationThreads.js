@@ -38,7 +38,7 @@ import { requestViaGateway } from "./aiGateway.js";
 import { ledgerPlace, ledgerWriter } from "./ledger.js";
 import { firstObject } from "./replyJudge.js";
 import { withArchitecture } from "./texArchitecture.js";
-import { texEffort, texModel, texTimeoutMs } from "./texConfig.js";
+import { texEffort, texModel, texTimeoutMs, texPick } from "./texConfig.js";
 import { DESCRIPTION_CHARS, foldThreads, listedThreads, MAX_LISTED, THREADS_SUFFIX, TITLE_CHARS } from "./threadsFold.js";
 
 export { foldThreads, listedThreads, MAX_LISTED, THREADS_SUFFIX };
@@ -185,10 +185,10 @@ export function verdictEntries(verdict, threads, covered, at = Date.now()) {
 // about 430 tokens a time, almost all thinking, about 3 s on its own. A 400-token cap with thinking on cut the verdict
 // off (about 4 turns in 10 of the 2026-11-07 backfill came back unsorted); with thinking off the cap is the answer's
 // alone, a JSON line of about 60-120 tokens.
-export async function classifyText({ threads, lines, question, replying, group = false, config, metadata, timeZone = null, request = requestViaGateway, timeoutMs = texTimeoutMs("classifier", config?.tex) }) {
+export async function classifyText({ threads, lines, question, replying, group = false, config, metadata, timeZone = null, request = requestViaGateway, timeoutMs = texTimeoutMs(texPick(["afterReply", "classifier"], config?.tex), config?.tex) }) {
   if (!config) return null;
   const call = request(
-    { model: texModel("classifier", config?.tex), system: withArchitecture(THREADS_SYSTEM, "threads"), messages: [{ role: "user", text: threadsMessage({ threads, lines, question, replying, group }) }], tools: [], ...texEffort("classifier", config?.tex), maxTokens: THREADS_MAX_TOKENS },
+    { model: texModel(texPick(["afterReply", "classifier"], config?.tex), config?.tex), system: withArchitecture(THREADS_SYSTEM, "threads"), messages: [{ role: "user", text: threadsMessage({ threads, lines, question, replying, group }) }], tools: [], ...texEffort(texPick(["afterReply", "classifier"], config?.tex), config?.tex), maxTokens: THREADS_MAX_TOKENS },
     config,
     { metadata, timeZone }, // told today in their zone (`localNow.js` `withToday`)
   );

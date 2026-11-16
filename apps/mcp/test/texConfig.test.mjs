@@ -16,7 +16,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 
-import { TEX_CONFIG, TEX_PROMPT_WORDS, texEffort, texModel, texModules, texSetupFront, texStep, texTimeoutMs } from "../src/agent/texConfig.js";
+import { texPick, TEX_CONFIG, TEX_PROMPT_WORDS, texEffort, texModel, texModules, texSetupFront, texStep, texTimeoutMs } from "../src/agent/texConfig.js";
 import { frontOf, parseSetup } from "../src/agent/production.js";
 import { assembleSetup, modulePath } from "../src/agent/promptModules.js";
 import { moduleIsCurrent as promptModuleIsCurrent } from "../../../scripts/tex-prompt-module.mjs";
@@ -47,15 +47,19 @@ test("each judge's model and time limit is the config's", () => {
 });
 
 test("each judge asks the config how hard to think, and no model file keeps an effort or model id of its own", () => {
-  for (const [file, id] of [["replyJudge.js", "reviewer"], ["mailChecker.js", "mail"], ["cardCheck.js", "card"], ["handbackJudge.js", "handback"], ["selfReview.js", "selfreview"], ["conversationThreads.js", "classifier"]]) {
+  // A step a draft may fold into another reads the folded one first (`texPick`): "answerCheck" before "reviewer".
+  for (const [file, id] of [["replyJudge.js", 'texPick\\(\\["answerCheck", "reviewer"\\], config\\?\\.tex\\)'], ["mailChecker.js", '"mail"'], ["cardCheck.js", '"card"'], ["handbackJudge.js", '"handback"'], ["selfReview.js", 'texPick\\(\\["afterReply", "selfreview"\\], config\\?\\.tex\\)'], ["conversationThreads.js", 'texPick\\(\\["afterReply", "classifier"\\], config\\?\\.tex\\)']]) {
     const text = src(file);
-    assert.match(text, new RegExp(`texEffort\\("${id}", config\\?\\.tex\\)`), file); // main's, or a Lab test chat's draft (`aiGatewayConfig`)
-    assert.match(text, new RegExp(`texModel\\("${id}", config\\?\\.tex\\)`), file);
+    assert.match(text, new RegExp(`texEffort\\(${id}, config\\?\\.tex\\)`), file); // main's, or a Lab test chat's draft (`aiGatewayConfig`)
+    assert.match(text, new RegExp(`texModel\\(${id}, config\\?\\.tex\\)`), file);
     assert.doesNotMatch(text, /effort: "(?:off|low|medium|high|xhigh|max)"/, file);
     assert.doesNotMatch(text, /= "anthropic\/claude-[a-z0-9.-]+"/, file);
   }
   assert.deepEqual(texEffort("classifier"), { effort: "low", thinking: "off" });
   assert.deepEqual(texEffort("reviewer"), { effort: texStep("reviewer").effort });
+  // Main's config has no folded step, so each reads its own: live Tex is unchanged.
+  assert.deepEqual([texPick(["answerCheck", "reviewer"]), texPick(["afterReply", "classifier"]), texPick(["afterReply", "selfreview"])], ["reviewer", "classifier", "selfreview"]);
+  assert.throws(() => texPick(["nope", "neither"]), /no step "nope" or "neither"/);
 });
 
 test("a setup note with no models runs on the config's, exactly as the same note naming the config's models", async () => {

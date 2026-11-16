@@ -13,7 +13,7 @@
  */
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { draftFit, TEX_CONFIG, withDraft } from "../src/agent/texConfig.js";
+import { CODE_AHEAD, draftFit, TEX_CONFIG, withDraft } from "../src/agent/texConfig.js";
 import { ranAsOf, runCard } from "../src/texDev/sandbox.js";
 import { turnFrom } from "../src/texDev/probe.js";
 import { nodeStatsAnswer, runOf, tally } from "../src/texDev/nodeStats.js";
@@ -23,13 +23,13 @@ import { failedAt } from "../src/agent/memoryNudge.js";
 const clone = (x) => JSON.parse(JSON.stringify(x));
 const main = () => ({ nodes: clone(TEX_CONFIG.nodes), edges: clone(TEX_CONFIG.edges) });
 
-/** The simplify draft's shape: Reflect and Memory nudge merged into one new step, Learn. */
-function mergedDraft() {
+/** A draft that merges Reflect and Memory nudge into one new step, `id`: one with no code ("ponder"), or one built ahead ("learn"). */
+function mergedDraft(id = "ponder", label = "Ponder") {
   const g = main();
   g.nodes = g.nodes.filter((n) => n.id !== "reflect" && n.id !== "nudge");
-  g.nodes.push({ ...clone(TEX_CONFIG.nodes.find((n) => n.id === "nudge")), id: "learn", label: "Learn" });
+  g.nodes.push({ ...clone(TEX_CONFIG.nodes.find((n) => n.id === "nudge")), id, label });
   g.edges = g.edges.filter((e) => e.to !== "reflect" && e.to !== "nudge" && e.from !== "reflect" && e.from !== "nudge");
-  g.edges.push({ from: "send", to: "learn", mode: "background", when: ["*"] });
+  g.edges.push({ from: "send", to: id, mode: "background", when: ["fired"] });
   return g;
 }
 
@@ -45,16 +45,29 @@ test("main, and a draft that only changes what the gateway can run, run as drawn
 test("a draft that adds and removes steps says what of it cannot run", () => {
   const fit = draftFit(TEX_CONFIG, mergedDraft());
   assert.equal(fit.asDrawn, false);
-  assert.deepEqual(fit.noCode, ["learn (Learn)"]);
+  assert.deepEqual(fit.noCode, ["ponder (Ponder)"]);
   assert.deepEqual(fit.removed, ["nudge (Memory nudge)", "reflect (Reflect)"]);
   assert.equal(fit.wires, "main", "a wire to a step with no code makes the whole wiring main's, as withDraft runs it");
-  assert.deepEqual(fit.badWires, ["send → learn"]);
+  assert.deepEqual(fit.badWires, ["send → ponder"]);
   assert.match(fit.says, /1 step the draft adds has no code yet/);
   assert.match(fit.says, /2 steps the draft removes still run as main's/);
   // The fit is the rules withDraft applies, not a guess: what it calls main's is what runs.
   const ran = withDraft(TEX_CONFIG, mergedDraft());
-  assert.ok(ran.nodes.some((n) => n.id === "nudge") && !ran.nodes.some((n) => n.id === "learn"));
+  assert.ok(ran.nodes.some((n) => n.id === "nudge") && !ran.nodes.some((n) => n.id === "ponder"));
   assert.equal(ran.edges, TEX_CONFIG.edges);
+});
+
+test("a draft that draws a step built ahead of the config runs it, with the draft's wires, and its removed steps no more", () => {
+  // Dev2, 2026-11-16: a draft's new steps are built in main's code first (`CODE_AHEAD`), so a draft can run them.
+  assert.ok(CODE_AHEAD.includes("learn"));
+  const fit = draftFit(TEX_CONFIG, mergedDraft("learn", "Learn"));
+  assert.deepEqual(fit, { asDrawn: true });
+  const ran = withDraft(TEX_CONFIG, mergedDraft("learn", "Learn"));
+  assert.ok(ran.nodes.some((n) => n.id === "learn"), "the step built ahead is in the turn's config");
+  assert.ok(ran.edges.some((e) => e.from === "send" && e.to === "learn"), "the draft's wires run");
+  assert.ok(!ran.edges.some((e) => e.to === "nudge" || e.to === "reflect"), "no wire reaches a removed step");
+  assert.ok(ran.nodes.some((n) => n.id === "nudge"), "a removed step stays for the settings code reads off it");
+  assert.ok(!TEX_CONFIG.nodes.some((n) => n.id === "learn"), "main's own config never has it");
 });
 
 test("a setting the gateway could not take is named", () => {
@@ -77,7 +90,7 @@ test("a card on such a draft opens with how it really ran", () => {
   const card = runCard({ rows, msgId: "t1", graph: withDraft(TEX_CONFIG, mergedDraft()), draft: "vdraft", fit });
   assert.equal(card.ranAs.asDrawn, false);
   assert.match(card.ranAs.says, /^Not the draft as drawn/);
-  assert.deepEqual(card.ranAs.notRunNoCode, ["learn (Learn)"]);
+  assert.deepEqual(card.ranAs.notRunNoCode, ["ponder (Ponder)"]);
   assert.deepEqual(card.ranAs.removedButRan, ["nudge (Memory nudge)"], "only the removed steps this run's log shows ran");
   assert.match(card.ranAs.wires, /main's/);
   assert.equal(Object.keys(card).indexOf("ranAs"), Object.keys(card).indexOf("draft") + 1, "said right after which draft, before anything else");

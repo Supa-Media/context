@@ -47,6 +47,14 @@ import { sendNode } from "./nodes/send.js";
 import { settleAYesOrNoNode } from "./nodes/settleAYesOrNo.js";
 import { toolsNode } from "./nodes/tools.js";
 import { watchWhatLeavesNode } from "./nodes/watchWhatLeaves.js";
+// Built ahead of live Tex's config, for the simpler graph a Lab draft runs (Dev2, 2026-11-16).
+import { doorStepNode } from "./nodes/doorStep.js";
+import { bypassNode } from "./nodes/bypass.js";
+import { answerCheckNode } from "./nodes/answerCheck.js";
+import learn from "./nodes/learn.js";
+import { afterReplyNode } from "./nodes/afterReply.js";
+import { jobadv } from "./nodes/jobadv.js";
+import { staffNode } from "./nodes/staff.js";
 
 /**
  * Each entry is a getter, so the table reads a node's code when the runner asks for it, never while the modules load: the
@@ -103,4 +111,16 @@ export const GATEWAY_NODES = {
   get nudge() { return nudge; },
   get picture() { return picture; },
   get reflect() { return reflect; },
+  // Steps whose code is merged ahead of the config (`texGraphNotYet.json` "ahead"): main's config has no node for them,
+  // so live Tex never runs them; a Lab draft that draws them does (`texConfig.js` `withDraft`). Each folds steps above
+  // into one: the Door (the eleven door steps), Confirmations & refusals, the Answer check (checks and the reviewer),
+  // Learn (reflect and the nudge), After the reply (classifier and self-review), the Job advisor (jobcheck and
+  // mailadv) and Staff messages.
+  get doorStep() { return doorStepNode; },
+  get bypass() { return bypassNode; },
+  get answerCheck() { return answerCheckNode; },
+  get learn() { return learn; },
+  get afterReply() { return afterReplyNode; },
+  get jobadv() { return jobadv; },
+  get staff() { return staffNode; },
 };

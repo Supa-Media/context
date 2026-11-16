@@ -17,7 +17,7 @@ export async function runARoutine(t) {
     }
     if (routine.settings.paused) return json({ outcome: "paused", skipped: true });
     runs = await tex.step("read_runs", () => readRuns(store, routine.path));
-    question = await tex.step("routine_question", () => routineRunQuestion(store, routine, runs, body.routine.timeZone));
+    question = await tex.step("routine_question", () => routineRunQuestion(store, routine, runs, body.routine.timeZone, { kept: t, standing: t.asRoutine === true }));
     // A job going well, done or gone costs no model call (`supervise.js`); done or gone stops its supervisor.
     supervision = await tex.step("prepare_supervision", () => prepareSupervision(dispatch, routine, { runs, handle: store.contexts.find((c) => c.current)?.name }));
     if (supervision?.skip) {

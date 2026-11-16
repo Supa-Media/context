@@ -27,8 +27,19 @@ const { coverageProblems } = graphLib;
 const NOT_YET_MOST = 7;
 
 test("every node is on the runner or in notYet, never both, and nothing on either is missing from the config", () => {
-  assert.deepEqual(coverageProblems(TEX_CONFIG, { runner: Object.keys(GATEWAY_NODES), notYet: NOT_YET.notYet }), []);
+  // A step built ahead of the config (`ahead`) has code and no node of main's, and is checked on its own below.
+  const runner = Object.keys(GATEWAY_NODES).filter((id) => !NOT_YET.ahead.includes(id));
+  assert.deepEqual(coverageProblems(TEX_CONFIG, { runner, notYet: NOT_YET.notYet }), []);
   for (const [id, impl] of Object.entries(GATEWAY_NODES)) assert.equal(typeof impl, "function", `GATEWAY_NODES "${id}" is not a function`);
+});
+
+test("a step built ahead of the config has code here and no node of main's, so live Tex never runs it (Dev2, 2026-11-16)", () => {
+  // Sabotage: put "learn" in the config and leave it in ahead, or drop its GATEWAY_NODES entry, and this fails.
+  assert.ok(Array.isArray(NOT_YET.ahead));
+  for (const id of NOT_YET.ahead) {
+    assert.equal(typeof GATEWAY_NODES[id], "function", `ahead "${id}" has no code in GATEWAY_NODES`);
+    assert.ok(!TEX_CONFIG.nodes.some((n) => n.id === id), `ahead "${id}" is a node of main's config: take it out of ahead`);
+  }
 });
 
 test("notYet only shrinks", () => {
