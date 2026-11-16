@@ -71,7 +71,7 @@ function Svg({
 export function Canvas({ testLit = null, graph = null, lead = null }: { testLit?: Lit | ReadonlySet<string> | null; graph?: LabGraph | null; lead?: ReactNode }) {
   const s = useLab();
   useFollowRunning();
-  useSandbox();
+  const sbId = useSandbox().id;
   const { play, pick } = usePlay();
   const stage = useRef<HTMLDivElement>(null);
   const world = useRef<SVGGElement>(null);
@@ -122,6 +122,12 @@ export function Canvas({ testLit = null, graph = null, lead = null }: { testLit?
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // A test chat opened (or closed) adds (or takes away) its line beside the graph: fit again so it is in view.
+  useEffect(() => {
+    if (sbId !== undefined) requestAnimationFrame(fit);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [sbId]);
 
   useStageInput({
     stage,

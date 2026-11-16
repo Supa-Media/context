@@ -6,7 +6,7 @@
  * carry their name inside the bar when it fits. A text still running draws only what has started, on a scale that
  * grows with it, and its clock says how far behind live the playback is.
  */
-import { isLineStep } from "../../engine/lineSteps";
+import { isLineStep, lineLabel } from "../../engine/lineSteps";
 import { useEffect, useRef, useState, type MouseEvent as RMouseEvent } from "react";
 import { stepCount, stepsWord, type PlayRun, type PlayStep } from "../../engine/playRun";
 import { densityFor, packSteps, scaleOf, texCauseRun, trackOrder } from "../../engine/sandboxRun";
@@ -19,7 +19,7 @@ import { msWords } from "../grid/TextGrid.web";
 
 const NAME_W = 118 + 8;
 const fmt = (ms: number) => msWords(Math.max(0, ms));
-const labelOf = (id: string) => node(id)?.label ?? id;
+const labelOf = (id: string) => (isLineStep(id) ? lineLabel(id) : (node(id)?.label ?? id));
 
 /** Grid | Timeline, in the dock's head. */
 export function DockSwitch({ view, onView }: { view: DockView; onView: (v: DockView) => void }) {
