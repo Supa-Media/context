@@ -123,7 +123,7 @@ export function ReplayPanel({ m }: { m: Moment | null }) {
         <span className="pill">{fmtS(m.of)} to the last send</span>
       </div>
       {first.start ? null : (
-        <button className="primary" id="rTry" title="Copy the chat up to this text into a test chat, and try it on the version open in the Lab" onClick={() => tryFromHere(lab.myChat, (lab.myChats ?? []).find((c) => c.key === lab.myChat)?.name ?? "Your 1:1 with Tex", first.id, first.from === "person" && first.who ? first.who : "", first.text)}>
+        <button className="primary" id="rTry" title="Copy the chat up to this text into a test chat, and try it on the version open in the Lab" onClick={() => tryFromHere(lab.myChat, (lab.myChats ?? []).find((c) => c.key === lab.myChat)?.name ?? "Your 1:1 with Tex", first.eid ?? first.id, first.from === "person" && first.who ? first.who : "", first.text)}>
           Try from here
         </button>
       )}
