@@ -12,6 +12,12 @@
  * Tex staying quiet: there is no "quiet" row. `labels[nodeId]` is what that node should output on that message:
  * its config output fields (`"any"` skips one), `must` / `never` lines, `run: "must" | "must not"`, and `star: true`
  * when it is a unit test. `rec[nodeId]` is a node's recorded run on main, the frozen input for the nodes it feeds.
+ *
+ * A turn nobody texted (Dev2, 2026-11-16: Tex's unprompted heads-ups belong in the sets "as routine-fired turns") is
+ * a trigger row: `via` names the input that fired it (checkin | routine | notify), `who` is that input's name
+ * (TRIGGERS), and `text` says what it brought in (the email, the event, the routine's ask). It is not a member, and
+ * it carries labels like a person's message, so "should Tex speak up about this" is a unit test. `at` is an
+ * optional time line ("Tue 9:20") so long conversations keep their gaps.
  */
 "use strict";
 
@@ -21,6 +27,8 @@ const TARGET = Object.freeze({ training: 60, dev: 20, test: 20 });
 /** How far a set may drift from its share, in points, before the ratio fails. */
 const DRIFT = 10;
 const KINDS = Object.freeze(["react", "reply", "edit", "delete"]);
+/** The inputs that start a turn with no text, and the name their rows go by. */
+const TRIGGERS = Object.freeze({ checkin: "Check-in", routine: "Routine", notify: "Send through Tex" });
 const RUN = Object.freeze(["must", "must not"]);
 const TEX = "Tex";
 /** A label's keys that are not a node's output fields. */
@@ -70,6 +78,10 @@ function check(c, config, opts = {}) {
       if (m.who !== TEX) out.push(`${at} is a Tex row, so its speaker is Tex`);
       if (m.labels && Object.keys(m.labels).length) out.push(`${at} is a Tex row: labels go on people's messages`);
       if (m.star) out.push(`${at} is a Tex row: a whole reply is every node together, never a unit test`);
+    } else if (m.via !== undefined) {
+      if (!TRIGGERS[m.via]) out.push(`${at}: via "${m.via}" must be one of ${Object.keys(TRIGGERS).join(", ")}`);
+      else if (m.who !== TRIGGERS[m.via]) out.push(`${at} is fired by ${m.via}, so its speaker is ${TRIGGERS[m.via]}`);
+      if (m.kind !== undefined) out.push(`${at} is a trigger, not a ${m.kind}`);
     } else if (!members.includes(m.who)) out.push(`${at}: ${m.who} is not in the chat's members`);
     if (m.kind !== undefined) {
       if (!KINDS.includes(m.kind)) out.push(`${at}: kind "${m.kind}" must be one of ${KINDS.join(", ")}`);
@@ -127,4 +139,4 @@ function ratio(input) {
   return { counts, total, pct, holds: total > 0 && off.length === 0, off };
 }
 
-module.exports = { SETS, TARGET, DRIFT, KINDS, RUN, TEX, LABEL_KEYS, labelFields, check, unitTests, before, ratio };
+module.exports = { SETS, TARGET, DRIFT, KINDS, TRIGGERS, RUN, TEX, LABEL_KEYS, labelFields, check, unitTests, before, ratio };

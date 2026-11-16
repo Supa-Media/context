@@ -176,7 +176,7 @@ function applyOne(c, op) {
       text(m.text ?? "", "a message's text");
       if (m.pics !== undefined) m.pics = pics(m.pics);
       if (m.who === TEX || m.tex) makeTex(m);
-      else joinMember(c, m.who);
+      else if (m.via === undefined) joinMember(c, m.who); // a trigger row (check-in, routine) is never a member
       const at = op.after === undefined ? c.msgs.length : op.after === null ? 0 : msgAt(c, op.after) + 1;
       c.msgs.splice(at, 0, m);
       op.msg = m; // the id it got, for the change line and the answer

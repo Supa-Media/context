@@ -12,6 +12,7 @@
  *   MAX_OPS raised from 200 to 500                  "a batch needs a list of ops, and is at most MAX_OPS long" fails
  *   add with after null putting the message last    "add with no after appends; after null puts it first" and
  *                                                   "the Lab's addMsg adds at an index ..." fail
+ *   add joining a trigger row to members (11-16)    "adding a trigger row ... never makes it a member" fails
  */
 import assert from "node:assert/strict";
 import { createRequire } from "node:module";
@@ -341,4 +342,10 @@ test("a message carries pictures: https only, at most MAX_PICS, null drops them,
   assert.ok(!check(only, { nodes: [] }).some((p) => /no words/.test(p)), "a picture with no words is a sound message");
   const added = run(base(), [{ op: "add", msg: { who: base().members[0], text: "", pics: [pic] } }]);
   assert.deepEqual(added.msgs.at(-1).pics, [pic]);
+});
+
+test("adding a trigger row (check-in, routine) never makes it a member", () => {
+  const out = run(base(), [{ op: "add", msg: { who: "Check-in", via: "checkin", text: "Gmail: the boiler visit moved to Friday" } }]);
+  assert.ok(!out.members.includes("Check-in"));
+  assert.equal(out.msgs.at(-1).via, "checkin");
 });
