@@ -131,7 +131,7 @@ export function TextGrid(p: {
     <div className="tst tgrid" id={p.id}>
       <div className="ph">
         {p.head}
-        {p.slim ? null : <ColButton cols={cols} all={all} save={save} reset={reset} id={p.id ? p.id + "ColBtn" : undefined} />}
+        {p.slim || p.alt ? null : <ColButton cols={cols} all={all} save={save} reset={reset} id={p.id ? p.id + "ColBtn" : undefined} />}
         {p.headEnd}
       </div>
       <div className="scroll" ref={scroller} hidden={p.folded || !!p.alt}>

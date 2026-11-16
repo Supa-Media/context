@@ -5,7 +5,7 @@
  * meta, 28px controls. Names are `sb`-prefixed: the Lab's root is `.tl` and its top bar `.bar`. `labCss5.ts` appends it.
  */
 export const LAB_CSS_DOCK = String.raw`
-.tl .sbx{position:relative;max-height:calc(100% - 120px)}
+.tl .sbx{position:relative;height:340px;max-height:calc(100% - 120px)}
 .tl .sbx.drag{transition:none}
 .tl .sbgrip{position:absolute;top:-5px;left:0;right:0;height:10px;cursor:ns-resize;z-index:6;display:grid;place-items:center;touch-action:none}
 .tl .sbgrip::after{content:"";width:40px;height:4px;border-radius:2px;background:var(--line2)}
@@ -48,7 +48,7 @@ export const LAB_CSS_DOCK = String.raw`
 .tl .sbtracks.packed .sbtb.msg{height:13px;padding:0}
 .tl .sbhead{position:absolute;top:0;bottom:0;width:2px;background:var(--bad);pointer-events:none}
 .tl .sbtracks .scne{padding:16px 4px;color:var(--muted);font-size:12px}
-.tl .archcv .runpill{bottom:12px;left:12px;padding:3px 10px;font-size:12px;color:var(--muted);font-variant-numeric:tabular-nums;max-width:calc(50% - 170px);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;z-index:4}
+.tl .archcv .runpill{bottom:12px;left:12px;padding:3px 10px;font-size:12px;color:var(--muted);font-variant-numeric:tabular-nums;max-width:calc(50% - 185px);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;z-index:4}
 .tl .archcv .runpill b{color:var(--text);font-weight:600}
 .tl .archcv .runpill .rp{color:var(--warn);font-weight:600}
 .tl .vmenu .mi .aib{font-size:10px;font-weight:700;letter-spacing:.05em;color:var(--accent);background:var(--accent-dim);border-radius:5px;padding:1px 5px}

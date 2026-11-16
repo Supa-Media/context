@@ -236,6 +236,8 @@ describe("the Architecture test chat", () => {
     expect(row.querySelector('td[data-c="fd"]')?.textContent).toBe("draft 22 chars3.4 s");
     // Columns are picked like Testing's.
     expect(qa("#sbGrid thead th").map((t) => t.textContent)).toContain("Front door");
+    // Columns are the grid's: a text sent opened the Timeline, so back to the Grid.
+    await click('#sbView [data-v="grid"]');
     await click("#sbGridColBtn");
     const box = q<HTMLInputElement>('#sbGridColMenu input[data-show="fd"]')!;
     act(() => box.click());
