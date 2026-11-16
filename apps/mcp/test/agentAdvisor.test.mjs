@@ -94,7 +94,8 @@ test("with the live turn it reads Tex's instructions and every call and result, 
   });
   const said = asked[0].messages[0].text;
   assert.match(said, /<tex_instructions>\nYou are Tex\.\n<\/tex_instructions>/);
-  assert.doesNotMatch(said, /<tex_tools>|read_note, /, "main's Advisor step reads no tools, so no list at all, never names alone (`advisorToolList.test.mjs`)");
+  assert.match(said, /<tex_tools>\n- read_note: /, "main's Advisor step reads the tools module, so it sees each tool whole (`advisorToolList.test.mjs`)");
+  assert.doesNotMatch(said, /read_note, /, "never the names alone");
   assert.match(said, /Tex: Reading your resume\.\n\[Tex calls read_note \{"path":"tex\/resume\.md"\}\]/);
   assert.match(said, /\[result of read_note\]\nHeadline: Staff engineer\./);
   assert.match(said, /\[result of browse, failed\]\nTimed out\./);
