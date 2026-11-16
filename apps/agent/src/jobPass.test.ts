@@ -14,9 +14,9 @@
  *  2. `noteJobUpdate` without the `finalPass` check → "the chat gets one result per job: a second pass's is dropped, the same pass's retry is not".
  */
 
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import type { Fetch } from "./clients";
-import { acceptJob, PASS_KEY, runJob, type JobDeps } from "./jobRun";
+import { acceptJob, OVERLAP_WAIT_MS, PASS_KEY, runJob, type JobDeps } from "./jobRun";
 import { chatJobs, RUN_KEY, startJobs, type JobRun, type JobUpdate } from "./jobs";
 import { jobUpdate } from "./jobTexts";
 import { MemoryStorage } from "./memoryStorage.testing";
@@ -68,9 +68,12 @@ describe("one result per background job", () => {
     await acceptJob(storage, run(), NOW);
     let retried: Promise<unknown> = Promise.resolve();
     const { deps, reports } = jobDeps([
-      // The first pass's turn is still running when its step is retried: the retry's turn saves and finishes first.
+      // The first pass's turn is still running when its step is retried on the object, reset under it
+      // (a new instance on the same stored data): the retry's turn saves and finishes first.
       async () => {
-        retried = runJob(storage, deps);
+        const reset = new MemoryStorage();
+        reset.data = storage.data;
+        retried = runJob(reset, deps);
         await retried;
         return { answer: "I couldn't save the page update. Here's the bug report I'd send.", exhausted: true };
       },
@@ -84,6 +87,43 @@ describe("one result per background job", () => {
     // Finished stays finished: the overtaken pass never writes the run back for another part.
     expect(storage.data.has(RUN_KEY)).toBe(false);
     expect(storage.data.has(PASS_KEY)).toBe(false);
+  });
+
+  it("a second pass asked for while one runs in the same object starts no turn and asks to be called later", async () => {
+    // Dev2, 2026-11-16: the workflow retried a pass's step while the pass ran on, and both drove one browser.
+    const storage = new MemoryStorage();
+    await acceptJob(storage, run(), NOW);
+    let second: unknown = null;
+    let turns = 0;
+    const { deps, reports } = jobDeps([
+      async () => {
+        turns += 1;
+        second = await runJob(storage, deps);
+        return { answer: "Booked it." };
+      },
+    ]);
+    const logs: string[] = [];
+    const spy = vi.spyOn(console, "log").mockImplementation((line: string) => void logs.push(line));
+    try {
+      await runJob(storage, deps);
+    } finally {
+      spy.mockRestore();
+    }
+    expect(turns).toBe(1);
+    expect(second).toEqual({ kind: "after", ms: OVERLAP_WAIT_MS, overlap: true });
+    expect(OVERLAP_WAIT_MS).toBe(30_000);
+    expect(logs.some((line) => JSON.parse(line).outcome === "pass_overlap")).toBe(true);
+    // The running pass kept the job and gave its one answer.
+    expect(reports.filter((update) => update.texts).map((update) => update.texts)).toEqual([["Booked it."]]);
+  });
+
+  it("a pass asked for after the running one finished runs as usual", async () => {
+    const storage = new MemoryStorage();
+    await acceptJob(storage, run(), NOW);
+    const { deps } = jobDeps([async () => ({ answer: "Part one done.", unfinished: true }), async () => ({ answer: "All done." })]);
+    await runJob(storage, deps);
+    const next = await runJob(storage, deps);
+    expect(next).not.toMatchObject({ overlap: true });
   });
 
   it("a pass that still holds the job reports as before", async () => {
