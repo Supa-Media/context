@@ -95,6 +95,11 @@ export const setTexOldLine = mutation({
   },
 });
 
+/** The setting as the Worker reads it, for a Lab test chat's object too (`texLabSandbox.ts`). */
+export async function oldLineSetting(ctx: QueryCtx): Promise<Setting> {
+  return asSetting(await current(ctx));
+}
+
 /** The setting the Worker reads (`/agent-texts/old-line`). Phone and day only; who changed it stays with staff. */
 export const oldLineForWorker = internalQuery({
   args: {},

@@ -112,6 +112,15 @@ export function rowOf(r: Record<string, unknown>): SandboxRow {
   };
 }
 
+/** The rows as the gateway last sent them, whole: a `get` with `after` sends only what follows the chat's real texts. */
+let rawRows: Record<string, unknown>[] = [];
+
+/** The last of the real chat's texts the test chat opened on: they never change, so a look asks only for what follows. */
+function lastRealId(): string | null {
+  for (let i = rawRows.length - 1; i >= 0; i -= 1) if (rawRows[i].prod === true && typeof rawRows[i].id === "string") return rawRows[i].id as string;
+  return null;
+}
+
 function take(b: Record<string, unknown>) {
   if (typeof b.sandboxId === "string") sandbox.id = b.sandboxId;
   if (Array.isArray(b.people)) {
@@ -122,6 +131,7 @@ function take(b: Record<string, unknown>) {
   }
   if (Array.isArray(b.rows)) {
     const raw = arr<Record<string, unknown>>(b.rows);
+    rawRows = raw;
     const rows = raw.map(rowOf);
     // A reply row carries the steps of the text it answers (`reply`): the grid shows them on that text's row.
     raw.forEach((r, i) => {
@@ -148,7 +158,8 @@ function poll() {
   if (polling) clearTimeout(polling);
   polling = null;
   if (!sandbox.running || !sandbox.id) return;
-  polling = setTimeout(() => void run("get", {}, false), POLL_MS);
+  const after = lastRealId();
+  polling = setTimeout(() => void run("get", after ? { after } : {}, false), POLL_MS);
 }
 
 async function run(op: SandboxOp, body: Record<string, unknown>, busy = true) {
@@ -162,8 +173,14 @@ async function run(op: SandboxOp, body: Record<string, unknown>, busy = true) {
   emit();
   try {
     const b = await call(op, op === "open" ? body : { sandboxId: sandbox.id, ...body });
+    // Only the rows after the real texts came back (`total` says so): the real ones are the ones kept.
+    if (op === "get" && typeof body.after === "string" && typeof b.total === "number" && Array.isArray(b.rows)) {
+      const at = rawRows.findIndex((r) => r.id === body.after);
+      b.rows = at >= 0 ? [...rawRows.slice(0, at + 1), ...arr<Record<string, unknown>>(b.rows)] : await call("get", { sandboxId: sandbox.id }).then((full) => full.rows);
+    }
     if (op === "reset") {
       // Reset deletes the test chat.
+      rawRows = [];
       Object.assign(sandbox, { id: null, rows: [], writes: [], running: null, hot: null });
     } else if (Array.isArray(b.rows) || op === "open") take(b);
     // An edit the edit step found unchanged keeps nothing: said, so the click isn't lost.

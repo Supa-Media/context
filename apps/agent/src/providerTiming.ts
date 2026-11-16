@@ -9,7 +9,7 @@
  * is its own text, cut short.
  */
 
-export type ProviderName = "sendblue" | "linq" | "whapi" | "photon";
+export type ProviderName = "sendblue" | "linq" | "whapi" | "photon" | "lab";
 export type ProviderError = { code: string; message?: string };
 
 /** A text's way in: the provider's own time for it, when we got its webhook, and the lag between. */
@@ -42,7 +42,7 @@ export type ProviderSend = {
   error?: ProviderError;
 };
 
-const NAMES: readonly ProviderName[] = ["sendblue", "linq", "whapi", "photon"];
+const NAMES: readonly ProviderName[] = ["sendblue", "linq", "whapi", "photon", "lab"];
 /** A time this far ahead of ours is the provider's clock, not a lag; this far behind is a replay, not a lag either. */
 export const LAG_SKEW_MS = 60_000;
 export const LAG_MOST_MS = 24 * 60 * 60 * 1000;

@@ -8,3 +8,5 @@
 export { SenderInbox } from "./chatObject";
 export { arrive } from "./inboxMove";
 export { remoteLine, remoteGroupLine } from "./remoteLine";
+// A Lab test chat's object starts as the real chat's is once Tex answered in it: set up for the people it was texted in front of.
+export { setChatBound } from "./groupChat";

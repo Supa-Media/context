@@ -1,0 +1,152 @@
+// A Lab test text goes in where a real text goes in (src/labSandbox/chatRun.js; Dev2, 2026-11-16: "expected it to go
+// through the "A text arrives" node end to end, but it looks like it skipped straight to front door"): the texting
+// Worker's own chat object takes it, runs Old number?, Triage, Decide and the queue, and only then asks `/agent`.
+// Fake ids, numbers and words only.
+//
+// Sabotage (temporary local edits, reverted, 2026-11-16):
+//   chatRun.js `fetchOut` letting an unknown host through                 "nothing leaves ..." fails
+//   chatRun.js `fetchOut` skipping the text's token check                 "nothing leaves ..." fails (401 expected)
+//   chatRun.js `/agent` hop leaving a group's made-up key                  "a group test text ..." fails
+//   harness.js `onNode` calling `this.show` (the runner calls it unbound)  "a turn's node lights its row ..." fails
+
+import { test } from "node:test";
+import assert from "node:assert/strict";
+
+import { LabSandboxObject } from "../src/labSandbox/object.js";
+import { chatEnvFor, chatStepsOf, keepingLine, LAB_CONTROL_PLANE, LAB_GATEWAY, LAB_WORKER_SECRET, MemoryStorage, runChatTurn } from "../src/labSandbox/chatRun.js";
+import { streamTurn, wantsProgress } from "../src/agent/progress.js";
+import { eventEntry } from "../src/agent/ledger.js";
+import { durableSql } from "./texStoreFixture.mjs";
+
+const KEY = "c".repeat(64);
+
+function sandbox(about, rows) {
+  const object = new LabSandboxObject({ storage: { sql: durableSql(), setAlarm: async () => {}, deleteAlarm: async () => {}, deleteAll: async () => {} } });
+  const stub = { fetch: (request) => object.fetch(request) };
+  const call = async (op, body) => (await stub.fetch(new Request(`https://lab-sandbox.internal/${op}`, { method: "POST", body: JSON.stringify(body) }))).json();
+  return { stub, call, ready: call("init", { about, rows, history: [] }) };
+}
+
+/**
+ * `/agent` and the texting routes as the gateway answers them, recorded: the turn answers `answer` (streamed when the
+ * chat object asks for progress, as `http/route.js` does), and `/agent/events` lands in the test chat's ledger.
+ */
+function fakeGateway(answer, call, rowId) {
+  const asked = [];
+  const agentRoute = async (request, path) => {
+    const body = await request.json().catch(() => ({}));
+    asked.push({ path, body, auth: request.headers.get("authorization") });
+    if (path === "/agent") {
+      const reply = () => Response.json({ answer, turn: body.turn ?? "t" });
+      return wantsProgress(request) ? streamTurn(async () => reply()) : reply();
+    }
+    if (path === "/agent/events") {
+      await call("ledger.append", { entries: (body.events ?? []).map(eventEntry), by: rowId });
+      return Response.json({ written: [...new Set((body.events ?? []).map((e) => e.id))] });
+    }
+    return Response.json({ events: [] });
+  };
+  const texted = [];
+  const textsRoute = async (request) => {
+    const path = new URL(request.url).pathname;
+    texted.push(path);
+    if (path === "/texts/session") return Response.json({ status: "linked", accessToken: "never-used" });
+    if (path === "/texts/old-line") return Response.json({ to: "pass" });
+    return Response.json({ error: "unknown_route" }, { status: 404 });
+  };
+  return { asked, texted, agentRoute, textsRoute };
+}
+
+const ONE = { kind: "one", owner: "person:ws_a", ledgerChat: "texts", people: [{ handle: "ana", name: "You" }] };
+
+test("a 1:1 test text runs from A text arrives through the chat object, and Tex's reply is what its line sent", async () => {
+  const row = { id: "t1", who: "ana", text: "what's on today?", at: Date.now(), prod: false, eid: "0000000000001-000001" };
+  const { stub, call, ready } = sandbox(ONE, []);
+  await ready;
+  await call("row.add", { row });
+  const gw = fakeGateway("Nothing until 3pm.", call, row.id);
+  // The turn's own route hop is faked here; the token the chat object carries to it is the one minted for this text.
+  let token = null;
+  let litAtTurn = null;
+  const agentRoute = async (request, path) => {
+    token ??= request.headers.get("authorization");
+    // What the Lab shows while the turn is asked: the chat object's steps so far, on the running row.
+    if (path === "/agent" && litAtTurn === null) {
+      await new Promise((resolve) => setTimeout(resolve, 20));
+      litAtTurn = ((await call("state", {})).meta.running?.steps ?? []).map((s) => s.node);
+    }
+    return gw.agentRoute(request, path);
+  };
+  await runChatTurn({ env: {}, stub, about: ONE, row, payload: { defaultWorkspaceId: "ws_a" }, token: "caller-token", config: null, origin: "https://gateway.example", agentRoute, textsRoute: gw.textsRoute });
+  const state = await call("state", {});
+  const reply = state.rows.find((r) => r.id === "t1r");
+  assert.ok(reply, "a reply row");
+  assert.equal(reply.text, "Nothing until 3pm.");
+  const turn = gw.asked.find((a) => a.path === "/agent");
+  assert.ok(turn, "the chat object asked /agent");
+  assert.equal(turn.body.question, "what's on today?");
+  assert.match(token, /^Bearer lab_[0-9a-f]{48}$/, "a token minted for this text, never the caller's");
+  assert.ok(gw.texted.includes("/texts/old-line"), "Old number? was asked");
+  const nodes = reply.steps.map((s) => s.node);
+  for (const node of ["text", "oldLine", "triage"]) assert.ok(nodes.includes(node), `step ${node} logged (${nodes.join(", ")})`);
+  assert.ok(!state.meta.running, "nothing left running");
+  for (const node of ["text", "oldLine", "triage"]) assert.ok(litAtTurn.includes(node), `${node} lit before the turn ran (${litAtTurn.join(", ")})`);
+  assert.ok(typeof state.meta.chatObject === "string", "the chat object's storage is kept for the next text");
+});
+
+test("a group test text runs through the chat object, and the /agent hop carries the real chat's key", async () => {
+  const about = { kind: "group", owner: `chat:${KEY}`, ledgerChat: KEY, chatKey: KEY, members: "d".repeat(64), people: [{ handle: "ana", name: "You" }, { handle: "ben", name: "ben" }] };
+  const row = { id: "t1", who: "ben", text: "@tex what time is dinner?", at: Date.now(), prod: false, eid: "0000000000001-000001" };
+  const { stub, call, ready } = sandbox(about, []);
+  await ready;
+  await call("row.add", { row });
+  const gw = fakeGateway("7pm at Ana's.", call, row.id);
+  await runChatTurn({ env: {}, stub, about, row, payload: { defaultWorkspaceId: "ws_a" }, token: "caller-token", config: null, origin: "https://gateway.example", chat: { slug: "family" }, agentRoute: gw.agentRoute, textsRoute: gw.textsRoute });
+  const state = await call("state", {});
+  const turn = gw.asked.find((a) => a.path === "/agent");
+  assert.ok(turn, `the chat object asked /agent (${JSON.stringify(state.rows.find((r) => r.id === "t1r"))})`);
+  assert.equal(turn.body.group.key, KEY, "the real chat's key, not the made-up one");
+  assert.equal(turn.body.group.members, about.members);
+  assert.equal(turn.body.group.from, "ben");
+  const reply = state.rows.find((r) => r.id === "t1r");
+  assert.equal(reply.text, "7pm at Ana's.");
+  const nodes = reply.steps.map((s) => s.node);
+  for (const node of ["text", "triage"]) assert.ok(nodes.includes(node), `step ${node} logged (${nodes.join(", ")})`);
+});
+
+test("nothing leaves: an unknown host, a control-plane change and another object are refused and listed", async () => {
+  const records = [];
+  const gate = { record: (w) => records.push(w) };
+  const line = keepingLine(new Map([["ana", "+15555550101"]]));
+  const env = chatEnvFor({ gate, storage: new MemoryStorage(), about: ONE, chat: {}, phones: new Map([["ana", "+15555550101"]]), line: {}, token: "lab_x", agent: async () => Response.json({ ok: true }), texts: async () => Response.json({}) });
+  assert.equal(env.AGENT_WORKER_SECRET, LAB_WORKER_SECRET);
+  assert.equal((await env.FETCH("https://api.example.invalid/x", { method: "POST" })).status, 403);
+  assert.equal((await env.FETCH(`${LAB_CONTROL_PLANE}/agent-texts/invite`, { method: "POST", body: "{}" })).status, 403);
+  assert.equal((await env.SENDER_INBOX.get(env.SENDER_INBOX.idFromName("job:1")).fetch("https://inbox/job-start", { method: "POST" })).status, 503);
+  assert.equal(records.length, 3);
+  assert.equal((await env.FETCH(`${LAB_GATEWAY}/agent`, { method: "POST", body: "{}" })).status, 401, "the gateway answers only the text's own token");
+  assert.equal((await env.FETCH(`${LAB_GATEWAY}/agent`, { method: "POST", body: "{}", headers: { authorization: "Bearer lab_x" } })).status, 200);
+  assert.deepEqual(line.sent, []);
+});
+
+test("a turn's node lights its row even when the runner calls the watch on its own", async () => {
+  const { stub, call, ready } = sandbox(ONE, []);
+  await ready;
+  const { sandboxGate } = await import("../src/labSandbox/harness.js");
+  const ahead = [{ node: "triage", out: null, ms: 1, ok: true }];
+  const { onNode, flush } = sandboxGate(stub, ONE, "t1", { before: ahead });
+  onNode({ node: "readTheText", output: { ok: true }, ms: 2, ok: true });
+  await flush();
+  assert.deepEqual((await call("state", {})).meta.running.steps.map((s) => s.node), ["triage", "readTheText"]);
+});
+
+test("the steps a text ran are the worker's and the graph's, in the order logged, named by node", () => {
+  const entries = [
+    { kind: "step", step: "text", at: 1, ms: 0, ok: true, output: { outcome: "queued" } },
+    { kind: "step", step: "triage", at: 2, ms: 3, ok: true },
+    { kind: "step", step: "lane", at: 3, ms: 1, ok: true },
+    { kind: "step", step: "node", name: "readTheText", at: 4, ms: 2, ok: true },
+    { kind: "step", step: "send", at: 5, ms: 9, ok: true },
+  ];
+  assert.deepEqual(chatStepsOf(entries).map((s) => s.node), ["text", "triage", "lanes", "readTheText", "send"]);
+});
