@@ -18,6 +18,7 @@ import { phoneSignInPaused } from "./lib/emailProof";
 import { APP_REVIEW_PHONE } from "./lib/reviewerAccount";
 import { scheduleSignInAlert } from "./signInAlerts";
 import { newReceipt } from "./lib/waitlistReceipt";
+import { syncSignInNumber } from "./lib/numberList";
 
 /**
  * Signing in, and joining the waitlist, with a phone (Dev2, 2026-10-09:
@@ -184,6 +185,8 @@ export async function newPhoneAccount(
 ): Promise<Id<"users">> {
   const now = Date.now();
   const userId = await ctx.db.insert("users", { phone, phoneVerificationTime: now, isActive: true, createdAt: now });
+  // The number the code proved is on the one list from the start (`lib/numberList.ts`): an account is Tex's to text.
+  await syncSignInNumber(ctx, userId);
   // What `onUserCreated` does for an account made by email (`auth.ts`),
   // founding Premium included: scheduled, so nothing in it fails this.
   await scheduleSignupAlert(ctx, { kind: "account", userId });

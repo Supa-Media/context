@@ -15,6 +15,7 @@ import { confirmedEmailsOf, requireEmailProof } from "./lib/emailProof";
 import { isFreshSingleEmailAccount } from "./lib/freshSignup";
 import { isReservedReviewer } from "./lib/reviewerAccount";
 import { hashOneTimeCode } from "./lib/oneTimeCodes";
+import { syncSignInNumber } from "./lib/numberList";
 
 /**
  * Several sign-in emails on one account (Dev2, 2026-10-09).
@@ -343,6 +344,7 @@ async function attachProvenEmail(
     // and its phone, proven by the code that made it, goes along.
     await foldIn(ctx, userId, into);
     await ctx.db.patch(into, { phone: me.phone, phoneVerificationTime: me.phoneVerificationTime });
+    await syncSignInNumber(ctx, into);
     return "moved";
   }
   if (standing.kind === "other") {

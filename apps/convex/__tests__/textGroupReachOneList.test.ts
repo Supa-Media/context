@@ -3,6 +3,7 @@ import { api } from "../_generated/api";
 import type { Id } from "../_generated/dataModel";
 import { addMember, asUser, createUser, createWorkspace, gatewayPost } from "./fixtures.helpers";
 import { migrate, pinnedWorld, type PinnedWorld } from "./pinnedReaders.helpers";
+import { syncSignInNumber } from "../functions/lib/numberList";
 
 /**
  * ONE LIST OF NUMBERS, AND REACH BY MEMBERSHIP (Dev2, 2026-11-16: "there should only be 1 list, having an account
@@ -15,7 +16,7 @@ import { migrate, pinnedWorld, type PinnedWorld } from "./pinnedReaders.helpers"
  *
  * ## Sabotage record (run by hand; each must fail a test here)
  *
- *   `linkedUser` reading only `phoneLinks`                    -> "an account made by a phone sign-in ..." fails
+ *   the sign-in number left off the list (`syncSignInNumber`) -> "an account made by a phone sign-in ..." fails
  *   `invitedByNumber` keeping the row's role                  -> "... at the invitation's role" fails
  *   `liveReach` called without the grant's `reachGuests`      -> "revoking the invitation ..." fails
  *   `reachBlockers` naming a guest invited by number          -> "... named only where they aren't invited" fails
@@ -57,7 +58,11 @@ async function texter(t: T, name: string, phone: string) {
 
 /** An account made by the app's phone sign-in: the number confirmed on it, never linked by a code texted to Tex. */
 async function signedInByPhone(t: T, name: string, phone: string) {
-  const userId = await t.run(async (ctx) => await ctx.db.insert("users", { phone, phoneVerificationTime: Date.now(), isActive: true, createdAt: Date.now() }));
+  const userId = await t.run(async (ctx) => {
+    const id = await ctx.db.insert("users", { phone, phoneVerificationTime: Date.now(), isActive: true, createdAt: Date.now() });
+    await syncSignInNumber(ctx, id); // what every sign-in that confirms a number does (`lib/numberList.ts`)
+    return id;
+  });
   await createWorkspace(t, userId, name, { kind: "personal" });
   return userId;
 }

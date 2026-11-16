@@ -1,0 +1,33 @@
+# Put the phone numbers confirmed at the app's sign-in before the one list of
+# numbers existed on it (`apps/convex/functions/numberList.ts`; Dev2,
+# 2026-11-16: "there should only be 1 list"). Manual only; it pages through
+# the accounts on its own, keeps anyone who turned Tex off off, and running it
+# again adds nothing. It prints only the first page's counts: this repository
+# is public, and so is this job's log.
+name: Number list backfill
+
+on:
+  workflow_dispatch:
+
+jobs:
+  backfill:
+    runs-on: ubuntu-latest
+    environment: production
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: "pnpm"
+
+      - run: pnpm install --frozen-lockfile
+
+      - name: Backfill
+        run: npx convex run functions/numberList:backfill '{}' 2>/dev/null
+        env:
+          CONVEX_DEPLOY_KEY: ${{ secrets.CONVEX_DEPLOY_KEY }}

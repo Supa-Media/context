@@ -184,6 +184,7 @@ import type * as functions_nodeMoves from "../functions/nodeMoves.js";
 import type * as functions_nodeMovesAdmin from "../functions/nodeMovesAdmin.js";
 import type * as functions_nodeRowMoves from "../functions/nodeRowMoves.js";
 import type * as functions_nodeRowMovesMarked from "../functions/nodeRowMovesMarked.js";
+import type * as functions_numberList from "../functions/numberList.js";
 import type * as functions_nodesPrivacy from "../functions/nodesPrivacy.js";
 import type * as functions_nodesAccess from "../functions/nodesAccess.js";
 import type * as functions_nodesAccessFirst from "../functions/nodesAccessFirst.js";
@@ -460,6 +461,7 @@ declare const fullApi: ApiFromModules<{
   "functions/nodesGateway": typeof functions_nodesGateway;
   "functions/nodesListing": typeof functions_nodesListing;
   "functions/nodesMigration": typeof functions_nodesMigration;
+  "functions/numberList": typeof functions_numberList;
   "functions/noteIds": typeof functions_noteIds;
   "functions/noteIdsCleanup": typeof functions_noteIdsCleanup;
   "functions/noteIdsCleanupRun": typeof functions_noteIdsCleanupRun;

@@ -19,9 +19,25 @@ export const textLinkTables = {
     /** E.164, e.g. +15555550100. */
     phone: v.string(),
     linkedAt: v.number(),
+    /**
+     * How the number was proven (Dev2, 2026-11-16: "there should only be 1 list"): a code texted to Tex (`text`, and
+     * every row from before this field), or a code the app's phone sign-in texted (`sign_in`, `lib/numberList.ts`).
+     * Either is the one list every reader goes by; only a `sign_in` row follows the account's sign-in number.
+     */
+    via: v.optional(v.union(v.literal("text"), v.literal("sign_in"))),
   })
     .index("by_phone", ["phone"])
     .index("by_user", ["userId"]),
+
+  /**
+   * A person who turned Tex off (texted STOP, unlinked in the app, or "This wasn't me" unlinked them): their sign-in
+   * number is not put back on the list (`lib/numberList.ts`) until they link again by code or set up by text.
+   * Deleted with the account.
+   */
+  textingStops: defineTable({
+    userId: v.id("users"),
+    at: v.number(),
+  }).index("by_user", ["userId"]),
 
   /**
    * A code the app showed, waiting to be texted from `phone`. Only its hash is

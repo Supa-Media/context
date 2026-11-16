@@ -30,6 +30,7 @@ import { normalizePhone, phoneHeldByAnother } from "../phoneCheck";
 import { attachedEmailsOf } from "../signInEmails";
 import { recordAdminAudit } from "./audit";
 import { handleForUser } from "../identities";
+import { syncSignInNumber } from "../numberList";
 
 /** People one search returns. */
 export const PEOPLE_PAGE = 50;
@@ -227,6 +228,7 @@ export async function setPhoneHandler(
   if (typed === null || typed.trim() === "") {
     if (user.phone === undefined && user.phoneVerificationTime === undefined) return { status: "removed" };
     await ctx.db.patch(userId, { phone: undefined, phoneVerificationTime: undefined });
+    await syncSignInNumber(ctx, userId);
     await recordAdminAudit(ctx, actor, "person.phone_removed", userId, {
       was: user.phone === undefined ? null : lastFour(user.phone),
     });
@@ -240,6 +242,8 @@ export async function setPhoneHandler(
   }
   if (user.phone === phone && user.phoneVerificationTime !== undefined) return { status: "saved", phone };
   await ctx.db.patch(userId, { phone, phoneVerificationTime: Date.now() });
+  // Typed by staff, not proven by a code: the old sign-in row goes, and this number is not put on the texting list.
+  await syncSignInNumber(ctx, userId, { add: false });
   await recordAdminAudit(ctx, actor, "person.phone_set", userId, {
     phone: lastFour(phone),
     was: user.phone === undefined ? null : lastFour(user.phone),

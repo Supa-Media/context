@@ -19,6 +19,7 @@ import { currentPhoneOf, requireEmailProof } from "./lib/emailProof";
 import { admittedRowOf } from "./waitlistTex";
 import { joinedThroughDomain } from "./lib/accountSetup";
 import type { MutationCtx, QueryCtx } from "../_generated/server";
+import { syncSignInNumber } from "./lib/numberList";
 
 /**
  * The phone check's three calls: is this person asked, text them a code, and
@@ -248,6 +249,7 @@ async function recordPhone(
   }
   if (await phoneHeldByAnother(ctx, phone, userId)) return "taken";
   await ctx.db.patch(userId, { phone, phoneVerificationTime: Date.now() });
+  await syncSignInNumber(ctx, userId);
   return "confirmed";
 }
 
@@ -285,5 +287,6 @@ async function changePhone(ctx: MutationCtx, userId: Id<"users">, phone: string)
     .withIndex("by_user", (q) => q.eq("userId", userId))
     .collect();
   for (const link of links) await ctx.db.patch(link._id, { phone, linkedAt: Date.now() });
+  await syncSignInNumber(ctx, userId);
   return "confirmed";
 }

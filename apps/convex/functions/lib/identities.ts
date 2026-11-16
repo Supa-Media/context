@@ -98,24 +98,16 @@ export async function resolveAddressedUser(
 }
 
 /**
- * The account a phone number answers for: the one it is linked to by a texted
- * code (`phoneLinks`, one account per number), else the one account that
- * verified it at a phone sign-in. Two verified accounts on one number resolve
- * to `null`, like every other ambiguity here.
+ * The account a phone number answers for: its row on the one list of numbers (`phoneLinks`, one account per number),
+ * made by a code texted to Tex or by the app's phone sign-in (`lib/numberList.ts`; Dev2, 2026-11-16: "there should
+ * only be 1 list").
  */
 export async function accountForPhone(ctx: Pick<QueryCtx, "db">, phone: string): Promise<Id<"users"> | null> {
   const link = await ctx.db
     .query("phoneLinks")
     .withIndex("by_phone", (q) => q.eq("phone", phone))
     .first();
-  if (link !== null) return link.userId;
-  const verified = (
-    await ctx.db
-      .query("users")
-      .withIndex("by_phone", (q) => q.eq("phone", phone))
-      .take(10)
-  ).filter((user) => user.phoneVerificationTime !== undefined);
-  return verified.length === 1 ? verified[0]._id : null;
+  return link?.userId ?? null;
 }
 
 /** The numbers this account answers to: its texted link and its verified sign-in number. */

@@ -3,6 +3,7 @@ import type { MutationCtx, QueryCtx } from "../../../_generated/server";
 import { phoneHolder } from "../../phoneSignIn";
 import { foldIn, ownsAnything } from "./foldIn";
 import { confirmedEmailsOf } from "../emailProof";
+import { syncSignInNumber } from "../numberList";
 
 /**
  * One person, one account, however many emails (Dev2, 2026-10-09: "just
@@ -60,6 +61,7 @@ export async function joinOnPhone(
     // A holder known only by its texting link gets the phone on the account too.
     if (holder !== null && holder.phoneVerificationTime === undefined) {
       await ctx.db.patch(join.holder, { phone, phoneVerificationTime: now });
+      await syncSignInNumber(ctx, join.holder);
     }
     return;
   }
@@ -71,4 +73,5 @@ export async function joinOnPhone(
   for (const link of links) await ctx.db.patch(link._id, { userId });
   await foldIn(ctx, join.holder, userId);
   await ctx.db.patch(userId, { phone, phoneVerificationTime: now });
+  await syncSignInNumber(ctx, userId);
 }

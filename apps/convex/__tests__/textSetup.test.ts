@@ -5,6 +5,7 @@ import { createUser, createWorkspace, drainScheduled, seedStorageBinding, setupT
 import { MANAGED_R2_ACCOUNT_ID_ENV_VAR, managedBucketName } from "../functions/lib/managedStorage";
 import { SETUP_ASK_TTL_MS } from "../functions/textSetup";
 import { APP_REVIEW_PHONE } from "../functions/lib/reviewerAccount";
+import { syncSignInNumber } from "../functions/lib/numberList";
 import { FOUNDING_PREMIUM_ACCOUNTS } from "../functions/lib/billing/founding";
 
 /**
@@ -250,6 +251,16 @@ describe("a phone confirmed on an account with no workspace yet", () => {
     expect(link?.userId).toBe(held);
     expect(audit.map((row) => row.action)).not.toContain("texts.setup.account_created");
     expect(jobs.some((job) => job.name.includes("signInAlerts"))).toBe(true);
+  });
+
+  test("an account on the number list by its app sign-in, with no personal workspace yet, sets up by text, one row", async () => {
+    const t = setupTest();
+    const held = await heldBy(t, "h@example.invalid");
+    await t.run(async (ctx) => void (await syncSignInNumber(ctx, held)));
+    await setup(t);
+    expect((await setup(t, "holder")).status).toBe("set_up");
+    const links = await t.run(async (ctx) => await ctx.db.query("phoneLinks").collect());
+    expect(links.map((row) => [row.userId, row.via])).toEqual([[held, "text"]]);
   });
 
   test("someone who came in through a work domain needs a personal email first, as in the app", async () => {
