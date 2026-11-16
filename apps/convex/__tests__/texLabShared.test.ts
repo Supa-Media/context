@@ -13,6 +13,7 @@
  * ## Sabotage record (temporary local edits, reverted, 2026-11-16)
  *
  *   `sharedChats` skipping the everyone check                    1 failed ("a group counts only when everybody ...")
+ *   `sharedSessionFor` handing out a session for an unlisted 1:1  1 failed ("a shared 1:1's test session ...")
  */
 
 import { afterEach, describe, expect, test, vi } from "vitest";
