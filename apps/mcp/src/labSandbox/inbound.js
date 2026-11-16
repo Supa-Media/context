@@ -22,7 +22,7 @@
  * nothing; `whapiInbound.ts` ignores `messages.patch`; Sendblue sends none), so the route refuses it.
  */
 
-import { fetchableImageUrl } from "../../../../packages/shared/src/remoteImage.cjs";
+import { MAX_REMOTE_IMAGE_BYTES, fetchableImageUrl } from "../../../../packages/shared/src/remoteImage.cjs";
 import { checkPics } from "../../../../packages/shared/src/texSetOps.cjs";
 import { eventEntry } from "../agent/ledger.js";
 
@@ -61,13 +61,36 @@ export function targetOf(rows, id, what) {
   return { row };
 }
 
+/**
+ * A picture's bytes cut off at write_note's ceiling (`MAX_REMOTE_IMAGE_BYTES`, 5 MB): the download runs in the shared
+ * gateway, not the texting Worker, so one test text's six pictures never hold more than this each.
+ */
+function capped(response) {
+  const said = Number(response.headers.get("content-length"));
+  if (Number.isFinite(said) && said > MAX_REMOTE_IMAGE_BYTES) {
+    response.body?.cancel().catch(() => {});
+    return new Response(null, { status: 413 });
+  }
+  if (!response.body) return response;
+  let seen = 0;
+  const cut = new TransformStream({
+    transform(chunk, out) {
+      seen += chunk.byteLength;
+      if (seen > MAX_REMOTE_IMAGE_BYTES) out.error(new Error("picture over the size limit"));
+      else out.enqueue(chunk);
+    },
+  });
+  return new Response(response.body.pipeThrough(cut), { status: response.status, headers: response.headers });
+}
+
 /** A picture's download as the Worker does it, but only from a plain https name, every redirect checked again. */
 export function pictureFetch(fetchImpl) {
   return async (input, init = {}) => {
     let url = fetchableImageUrl(String(input));
     for (let hop = 0; hop <= PICTURE_HOPS && url !== null; hop += 1) {
       const response = await fetchImpl(url.toString(), { method: "GET", redirect: "manual", headers: { accept: "image/*" }, ...(init.signal ? { signal: init.signal } : {}) });
-      if (response.status < 300 || response.status >= 400) return response;
+      if (response.status < 300 || response.status >= 400) return capped(response);
+      await response.body?.cancel().catch(() => {});
       const next = response.headers.get("location");
       let resolved = null;
       try {
@@ -179,7 +202,9 @@ export async function askOf({ about, row, rows, fetch: fetchImpl = (...a) => glo
   }
   const said = group ? sinceTex(rows, row.id).slice(-CHAT_LINES) : [];
   const files = group ? w.filesFor({ attachments: attachmentsOf(row) }, said.map((r) => ({ attachments: attachmentsOf(r) }))) : attachmentsOf(row);
-  const attachments = files.length > 0 ? await w.prepareAttachments(files, { fetch: pictureFetch(fetchImpl), ...(images ? { images } : {}) }) : [];
+  const prepared = files.length > 0 ? await w.prepareAttachments(files, { fetch: pictureFetch(fetchImpl), ...(images ? { images } : {}) }) : [];
+  // Pictures only: a test text's address that turns out to be audio or a document is not read.
+  const attachments = prepared.map((a) => (String(a.mediaType ?? "").startsWith("image/") || "unread" in a ? a : { name: a.name, mediaType: a.mediaType, unread: "Only pictures are read in a Lab test chat." }));
   const reacted = group || row.kind === "reaction" ? [] : notedSince(rows, row.id);
   const chat = said.map((r) => ({ who: r.who, text: String(r.text ?? "") || w.PICTURE_LINE }));
   return { ask, attachments, reacted, chat };

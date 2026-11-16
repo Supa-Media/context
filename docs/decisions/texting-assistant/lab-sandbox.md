@@ -111,8 +111,14 @@ The texting Worker's judge (decide) is not asked before a test turn, for a text 
 production would queue runs its turn, so a tapback the judge would have left unanswered still gets one (Tex may stay
 quiet). A group's chat lines are the rows since Tex last spoke, as the Worker keeps them until a turn takes them. Tex's
 reply is one row, where production may send several texts, so a 👍 on "the line above the ask" is a 👍 on the whole
-reply (`thumbs.ts` `onTheAsk`). A picture over 5 MB is not fetched (`remoteImage.cjs`'s ceiling), where the Worker
-would download up to 25 MB and convert it.
+reply (`thumbs.ts` `onTheAsk`). A picture over 5 MB is not read (`remoteImage.cjs`'s ceiling, enforced on the bytes as
+they arrive, since the download runs in the shared gateway), where the Worker would download up to 25 MB and convert
+it; an address that turns out to be audio or a document is not read either.
+
+Every turn reads the draft as saved at that moment, not as it was when the test chat opened, so an edit saved in the
+Lab is what the next text, or a retry, runs; the Lab's ▶ calls a text stale exactly when the draft's saved revision
+has changed since it ran. A retry cuts its old text only after everything that could refuse it (the daily cap, the
+chat, the draft) has passed, so a refused retry loses nothing.
 
 **Tests** (`apps/mcp/test/labSandbox.test.mjs`, sabotaged): a put lands in the test chat and is read back there while
 the real object holds nothing; a real key is read through until the test chat changes it; the test chat's ledger is

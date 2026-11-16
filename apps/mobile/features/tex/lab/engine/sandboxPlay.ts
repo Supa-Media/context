@@ -10,14 +10,13 @@ import { lab } from "./state";
 import { retryText, sandbox, type SandboxRow } from "./sandbox";
 import type { Lit } from "../views/canvas/usePlayback";
 
-/** What runs: the version, its wiring and settings and its picks, never where its steps sit on the canvas. */
+/**
+ * What a test turn runs: the version as saved, which the gateway reads afresh for every turn. Its id and saved
+ * revision, never the canvas as drawn: a focus folding groups, a step moved or an edit not saved yet changes nothing
+ * a turn would run.
+ */
 export function versionPrint(): string {
-  const c = lab.cur;
-  const graph = JSON.stringify(c.graph, (k, v) => (k === "x" || k === "y" ? undefined : v));
-  let h = 0;
-  const s = graph + "|" + JSON.stringify(c.picks ?? null) + "|" + JSON.stringify(c.areas ?? null);
-  for (let i = 0; i < s.length; i++) h = (Math.imul(h, 31) + s.charCodeAt(i)) | 0;
-  return c.id + ":" + (h >>> 0).toString(36);
+  return lab.cur.id + ":" + (lab.cur.rev ?? 0);
 }
 
 /** Each test text's version print when it ran; a text the Lab didn't see run takes the print it was first seen with. */

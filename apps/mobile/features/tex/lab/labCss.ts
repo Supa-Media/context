@@ -68,7 +68,6 @@ svg.i{width:16px;height:16px;flex:none;fill:none;stroke:currentColor;stroke-widt
 .chg .row b{color:var(--text);font-weight:600}.chg .row.ai b{color:var(--team)}
 .chg .row small{color:var(--dim);font-size:11px}
 .chg .none{padding:4px 8px;font-size:12px;color:var(--dim)}
-.thm{display:inline-flex;gap:2px;padding:2px;border:1px solid var(--line);border-radius:8px;background:var(--chip)}.thm button{display:grid;place-items:center;width:26px;height:24px;padding:0;border:none;border-radius:6px;background:none;color:var(--dim)}.thm button:hover{color:var(--text)}.thm button[aria-checked="true"]{background:var(--page);color:var(--text);box-shadow:var(--shadow)}
 
 .body{display:grid;grid-template-columns:260px minmax(0,1fr);min-height:0}
 .body.props{grid-template-columns:260px minmax(0,1fr) 320px}
@@ -230,14 +229,8 @@ label.num.chg{outline:2px solid var(--accent);border-radius:10px}
 .lgok{color:var(--ok)}.lgno{color:var(--bad)}
 .ttbl td{vertical-align:top}.tacts{display:flex;flex-wrap:wrap;gap:4px}.tact{font-family:var(--mono,monospace);font-size:11px;padding:1px 6px;border-radius:6px;background:var(--chip);color:var(--text2)}.tact b{color:var(--text);margin-left:4px}.tact.err{box-shadow:inset 0 0 0 1px var(--bad)}
 .vren{border:1px solid transparent;background:none;font:inherit;font-weight:600;padding:4px 6px;border-radius:8px;width:170px;color:var(--text)}.vren:hover,.vren:focus{border-color:var(--line);background:var(--page)}
-.moment{left:12px;top:12px;padding:5px 5px 5px 12px}
-.ctop{position:absolute;left:12px;right:12px;top:12px;z-index:3;display:flex;flex-wrap:wrap;align-items:flex-start;gap:8px;pointer-events:none}.ctop>*{pointer-events:auto}.ctop>.float{position:static;min-width:0;max-width:100%}.ctop>.stats{margin-left:auto}.cbreak{flex-basis:100%;height:0}.ctop.replay>.keybtn,.ctop.replay>.keyw{order:-1}
-.moment .scnbtn{min-width:0}
-.playbar{left:50%;transform:translateX(-50%);bottom:calc(64px + env(safe-area-inset-bottom,0px));width:min(620px,calc(100% - 24px));padding:5px 12px;gap:10px}
-.playbar #playScrub{flex:1;min-width:0;accent-color:var(--accent)}
-.playbar .pace{display:inline-flex;align-items:center;gap:6px;font-size:12px;color:var(--muted);white-space:nowrap}.playbar .pace input{width:72px;accent-color:var(--accent)}.playbar .clock{font-size:12px;font-weight:600;color:var(--text);font-variant-numeric:tabular-nums;white-space:nowrap}
+.ctop{position:absolute;left:12px;right:12px;top:12px;z-index:3;display:flex;flex-wrap:wrap;align-items:flex-start;gap:8px;pointer-events:none}.ctop>*{pointer-events:auto}.ctop>.float{position:static;min-width:0;max-width:100%}.ctop>.stats{margin-left:auto}.ctop.replay>.keyw{order:-1}
 .nd .ring{fill:none;stroke:var(--ok);stroke-width:3.5;stroke-linecap:round;pointer-events:none;transition:stroke .15s}.nd .ring.wait{stroke:var(--accent)}.nd .ring.seg{stroke-linecap:butt}.nd.run .card{stroke:var(--ok-wash);stroke-width:3}
-.scnbtn{display:flex;align-items:center;gap:6px;border:none;background:none;font-weight:500;padding:4px 2px;max-width:320px}.scnbtn span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .scnpop{position:absolute;left:12px;top:58px;z-index:6;width:min(420px,calc(100% - 24px));max-height:min(70vh,560px);display:flex;flex-direction:column;gap:6px;background:var(--page);border:1px solid var(--line);border-radius:12px;box-shadow:var(--shadow);padding:8px}
 .scnpop .search{width:100%;max-width:none}.scnl{overflow:auto;min-height:0;flex:1}
 .scng{font-size:11px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:.04em;padding:8px 8px 3px}
@@ -248,7 +241,6 @@ label.num.chg{outline:2px solid var(--accent);border-radius:10px}
 .stats b{color:var(--text);font-variant-numeric:tabular-nums;font-weight:600}
 .zoom{right:12px;bottom:calc(14px + env(safe-area-inset-bottom,0px))}
 /* Replay: the zoom sits up top, off the timeline (Dev2, 2026-11-14: "You see this overlap? super annoying"). */
-.keybtn{display:flex;align-items:center;gap:6px;padding:5px 10px;font:inherit;font-size:12px;color:var(--muted);cursor:pointer}.keybtn[aria-expanded=true]{color:var(--text)}
 .zoom .ib{width:30px;height:30px;border:none;background:none}
 .keyw{left:12px;top:60px;flex-wrap:wrap;gap:12px;padding:6px 12px;font-size:12px;color:var(--muted)}
 .keyw svg{width:30px;height:10px}
@@ -403,8 +395,7 @@ textarea.code{width:100%;border:1px solid var(--line);background:var(--page);bor
   .main{border-radius:0;border-left:none}
   .props-pane{position:fixed;z-index:12;left:0;right:0;bottom:0;max-height:58%;border-top:1px solid var(--line);border-radius:14px 14px 0 0;box-shadow:var(--shadow);padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px));padding-bottom:calc(20px + env(safe-area-inset-bottom,0px))}
   .rtl{bottom:calc(14px + env(safe-area-inset-bottom,0px))}
-  .stats,.keyw,.keybtn,.sync{display:none}
-  .playbar .pace span{display:none}.playbar .pace input{width:52px}
+  .stats,.keyw,.sync{display:none}
   .zoom{bottom:calc(114px + env(safe-area-inset-bottom,0px))}
   .chipbtn{max-width:150px}
 }

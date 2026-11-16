@@ -9,9 +9,9 @@
  * reaches the real chat, the workspace or anyone's phone. Folds to its head with ▾.
  */
 import { useEffect, useRef, useState } from "react";
-import { backTo, dropText, reactTo, readSandboxChats, readSandboxSets, takeDraft, openSandbox, resetSandbox, sendAs, sendText, TAPBACKS, useSandbox, type SandboxRow, type SandboxSource } from "../../engine/sandbox";
+import { backTo, dropText, reactTo, readSandboxChats, readSandboxSets, sandboxProblem, takeDraft, openSandbox, resetSandbox, sendAs, sendText, TAPBACKS, useSandbox, type SandboxRow, type SandboxSource } from "../../engine/sandbox";
 import { isStale, noteRan, pickStep, playLit, playText, usePlay } from "../../engine/sandboxPlay";
-import { uploadPic } from "../../engine/setsStore";
+import { usePicUpload } from "./usePicUpload";
 import { useLab } from "../../store";
 import { useSandboxCall } from "./sandboxCall";
 import { TextGrid, msWords, type TextRow } from "../grid/TextGrid.web";
@@ -202,6 +202,7 @@ export function SandboxChat() {
   const s = useLab();
   const { play, pick } = usePlay();
   const ready = useSandboxCall();
+  const upload = usePicUpload();
   const [text, setText] = useState(() => takeDraft()?.text ?? "");
   const [folded, setFolded] = useState(false);
   const [replyTo, setReplyTo] = useState<string | null>(null);
@@ -211,13 +212,20 @@ export function SandboxChat() {
   const txt = useRef<HTMLInputElement>(null);
   const versionId = s.cur.id;
   noteRan(sb.rows);
-  // A fresh test chat when the Lab opens a different version, or once the gateway can be reached.
+  // A test chat once the gateway can be reached, and a fresh one when the Lab opens a different version. A switch
+  // while a call is in flight waits for it: `busy` going false runs this again. Reset opens its own fresh chat.
+  const started = useRef(false);
   useEffect(() => {
     if (!ready) return;
-    if (!sb.chats.length) void readSandboxChats();
-    if ((sb.id === null || sb.versionId !== versionId) && !sb.busy) void openSandbox(sb.source, versionId);
+    if (!started.current) {
+      started.current = true;
+      if (!sb.chats.length) void readSandboxChats();
+      if (sb.id === null || sb.versionId !== versionId) void openSandbox(sb.source, versionId);
+      return;
+    }
+    if (!sb.busy && sb.versionId !== versionId) void openSandbox(sb.source, versionId);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [ready, versionId]);
+  }, [ready, versionId, sb.busy]);
   // A reply to a text that's gone (back, delete, another chat) is dropped.
   useEffect(() => {
     if (replyTo && !sb.rows.some((r) => r.id === replyTo)) setReplyTo(null);
@@ -258,7 +266,14 @@ export function SandboxChat() {
     const imgs = files.filter((f) => f.type.startsWith("image/")).slice(0, Math.max(0, MAX_PICS - pics.length));
     if (!imgs.length) return;
     setUploading((n) => n + imgs.length);
-    const got = await Promise.all(imgs.map((f) => uploadPic(f).catch(() => null)));
+    const got = await Promise.all(
+      imgs.map((f) =>
+        upload(f).catch((e: unknown) => {
+          sandboxProblem(e instanceof Error ? e.message : "Couldn't upload that picture");
+          return null;
+        }),
+      ),
+    );
     setUploading((n) => n - imgs.length);
     const urls = got.map((p) => p?.url).filter((u): u is string => !!u && u.startsWith("https://"));
     if (urls.length) setPics((ps) => [...ps, ...urls].slice(0, MAX_PICS));
@@ -364,7 +379,8 @@ export function SandboxChat() {
         msgExtra={(r) => {
           const src = byId.get(r.id);
           if (!src) return null;
-          return r.evt ? null : (
+          // A row with no words (pictures only, a quiet or noted reply) can't be tapped or replied to.
+          return r.evt || !src.text || src.quiet ? null : (
             <MsgOptions
               r={src}
               onReply={() => {

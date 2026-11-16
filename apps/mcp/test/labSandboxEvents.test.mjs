@@ -5,6 +5,9 @@
 // Sabotage (temporary local edits, reverted, 2026-11-16):
 //   inbound.js `reactionOf` running every 1:1 tapback          "a ❤️ on a plain text is only noted ..." fails
 //   inbound.js `pictureFetch` following a redirect unchecked   "a redirect to an address is never followed" fails
+//   route.js `addRow` running on the config read at open      "every turn runs the draft as saved now ..." fails
+//   route.js `retry` cutting before its checks                 "... a retry that is refused cuts nothing" fails
+//   inbound.js `capped` returning the response as it came      "a picture over 5 MB is not read" fails
 
 import { test } from "node:test";
 import assert from "node:assert/strict";
@@ -35,6 +38,8 @@ function pictureHost(seen = []) {
     seen.push({ url: String(url), redirect: init.redirect });
     const path = new URL(String(url)).pathname;
     if (path === "/a.png") return new Response(png(), { headers: { "content-type": "image/png" } });
+    if (path === "/big.png") return new Response(png(), { headers: { "content-type": "image/png", "content-length": "6000000" } });
+    if (path === "/huge.png") return new Response(new Uint8Array(5_100_000), { headers: { "content-type": "image/png" } });
     if (path === "/hop") return new Response(null, { status: 302, headers: { location: "https://10.0.0.1/a.png" } });
     return new Response("nope", { status: 404 });
   };
@@ -63,6 +68,13 @@ test("a redirect to an address is never followed", async () => {
   assert.ok(body.attachments[0].unread, "no bytes from the address");
   assert.deepEqual(seen.map((s) => s.url), ["https://img.example.test/hop"]);
   assert.equal(seen[0].redirect, "manual");
+});
+
+test("a picture over 5 MB is not read, whether it says its size or not", async () => {
+  const row = { id: "t1", eid: EID(1), who: "You", text: "look", at: 1, prod: false, pics: [{ url: "https://img.example.test/big.png" }, { url: "https://img.example.test/huge.png" }] };
+  const body = await turnRequestBody({ about: ONE, row, rows: [row], turn: "labturn01", fetch: pictureHost() });
+  assert.equal(body.attachments.length, 2);
+  for (const a of body.attachments) assert.ok(a.unread, "no bytes past the ceiling");
 });
 
 test("a quoted reply names the text it answers: its words in a 1:1, Tex's words or only that it was one in a group", async () => {
@@ -148,7 +160,7 @@ function routeWorld() {
     if (body.action === "who") return answer({ status: "ok", userId: "u_alice", chats: [{ key: KEY, name: "Team", people: 3 }] });
     if (body.action === "set") return answer(body.args.id === "secret-test" ? { status: "ok", conv: JSON.stringify(testDraft) } : { status: "not_found" });
     if (body.action === "sets") return answer({ status: "ok", drafts: [{ id: "fresh-one", set: "dev", conv: JSON.stringify({ id: "fresh-one", title: "Fresh", set: "dev", kind: "group", members: ["Mia", "Kai"], msgs: [{ id: "m1", who: "Mia", text: "hi" }] }) }] });
-    if (body.action === "draft") return answer({ status: "not_found" });
+    if (body.action === "draft") return answer(world.draft ? { status: "ok", graph: JSON.stringify(world.draft) } : { status: "not_found" });
     if (body.action === "session") {
       const session = { grantId: "g1", clientId: "context_texts", actorUserId: "u_alice", scopes: ["context:read"], defaultWorkspaceId: "ws_alice", workspaces: [{ workspaceId: "ws_alice", role: "owner", kind: "personal", slug: "alfa" }] };
       if (body.args.chat === "me") return answer({ status: "ok", session, people: [{ handle: "alfa", name: "You" }] });
@@ -172,7 +184,8 @@ function routeWorld() {
     const index = await callSandbox(ns.get(ns.idFromName("labsandbox:u_alice:index0000000000")), "state", {});
     return Number(index.meta[`sends:${new Date().toISOString().slice(0, 10)}`] ?? 0);
   };
-  return { call, turns, sends, restore: () => (globalThis.fetch = original) };
+  const world = { call, turns, sends, draft: null, restore: () => (globalThis.fetch = original) };
+  return world;
 }
 
 const ALICE = "tok_alice_example_000000000000";
@@ -224,6 +237,31 @@ test("a picture text and a quoted reply run a turn and show on their rows; retry
     assert.deepEqual(w.turns.at(-1).row.pics, pics);
     assert.equal(w.turns.at(-1).row.replyTo, opened.rows[0].id);
     assert.equal(await w.sends(), 2);
+  } finally {
+    w.restore();
+  }
+});
+
+test("every turn runs the draft as saved now, not as it was at open; a retry that is refused cuts nothing", async () => {
+  const w = routeWorld();
+  try {
+    w.draft = { nodes: [{ id: "decide", on: true }], edges: [] };
+    const { body: opened } = await w.call({ op: "open", source: "maya", versionId: "d1" });
+    const sandboxId = opened.sandboxId;
+    const sent = await w.call({ op: "send", sandboxId, text: "one" });
+    assert.equal(sent.status, 200);
+    assert.equal(w.turns.at(-1).config.nodes[0].on, true);
+    // The Lab saves an edit to the draft: the next turn runs it.
+    w.draft = { nodes: [{ id: "decide", on: false }], edges: [] };
+    assert.equal((await w.call({ op: "retry", sandboxId, msgId: sent.body.msgId })).status, 200);
+    assert.equal(w.turns.at(-1).config.nodes[0].on, false);
+    const texts = async () => (await w.call({ op: "get", sandboxId })).body.rows.filter((r) => !r.prod).map((r) => r.text);
+    const before = await texts();
+    const last = (await w.call({ op: "get", sandboxId })).body.rows.filter((r) => !r.prod && !r.reply).at(-1).id;
+    // The draft is deleted: the retry is refused, and the text and its reply are still there.
+    w.draft = null;
+    assert.equal((await w.call({ op: "retry", sandboxId, msgId: last })).status, 404);
+    assert.deepEqual(await texts(), before);
   } finally {
     w.restore();
   }

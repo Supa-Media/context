@@ -246,8 +246,11 @@ const NOTED = "Noted, not answered: a 1:1 tapback that answers nothing runs no t
  * A test row into the chat: its event into the ledger as the Worker logs it, and its turn run in the background, or,
  * for a tapback production only notes, a quiet reply row and no turn. Only a row that runs a turn is counted.
  */
-async function addRow({ env, ctx, controlPlane, token, who, stub, state, row, origin, runTurn, turn = true }) {
+async function addRow({ env, ctx, controlPlane, token, who, stub, state, row, origin, runTurn, turn = true, cut = null }) {
   const about = state.meta.chat;
+  // The draft as saved now, not as it was at open: an edit in the Lab since then is what the next turn runs.
+  const drafted = turn ? await draftConfig(controlPlane, token, about.versionId) : { config: about.config ?? null };
+  if (drafted.error) return refused(...drafted.error);
   if (turn) {
     const day = new Date().toISOString().slice(0, 10);
     const counted = await callSandbox(sandboxStub(env, who.userId, "index0000000000"), "count", { key: `sends:${day}`, max: DAILY_SENDS });
@@ -255,6 +258,8 @@ async function addRow({ env, ctx, controlPlane, token, who, stub, state, row, or
   }
   const answer = await controlPlane.labSandbox(token, "session", { chat: about.chat });
   if (answer?.status !== "ok") return refused(404, answer?.error ?? "This chat is no longer yours to test in.");
+  // A retry cuts its old text only once everything that could refuse it has passed, so a refusal loses nothing.
+  if (cut !== null) await callSandbox(stub, "cut.from", { id: cut });
   await callSandbox(stub, "row.add", { row });
   await callSandbox(stub, "ledger.append", { entries: [await inboundEvent({ about, row, rows: [...(state.rows ?? []), row] })], by: row.id });
   const tapback = row.kind === "reaction" ? { turn } : {};
@@ -263,7 +268,7 @@ async function addRow({ env, ctx, controlPlane, token, who, stub, state, row, or
     return json({ msgId: row.id, ...tapback });
   }
   await callSandbox(stub, "meta", { key: "running", value: { msgId: row.id, node: null, at: row.at } });
-  const run = runTurn({ env, stub, about, row, payload: answer.session, token, config: about.config ?? null, origin });
+  const run = runTurn({ env, stub, about, row, payload: answer.session, token, config: drafted.config ?? null, origin });
   if (ctx && typeof ctx.waitUntil === "function") ctx.waitUntil(run);
   else await run;
   return json({ msgId: row.id, ...tapback });
@@ -277,7 +282,7 @@ function newIds() {
 }
 
 /** `send`, and `retry`'s second half: a text, with its pictures and the row it replies to, and its turn. */
-async function send(deps, state, { as, text = "", pics: given, replyTo }) {
+async function send(deps, state, { as, text = "", pics: given, replyTo }, cut = null) {
   if (typeof text !== "string" || text.length > MAX_TEXT) return refused(400, `text is at most ${MAX_TEXT} characters`);
   const { pics, error } = picsOf(given);
   if (error) return refused(400, error);
@@ -292,11 +297,11 @@ async function send(deps, state, { as, text = "", pics: given, replyTo }) {
   if (speaker.error) return refused(...speaker.error);
   const { at, eid, id } = newIds();
   const row = { id, eid, who: speaker.speaker, text, at, prod: false, ...(pics.length > 0 ? { pics } : {}), ...(typeof replyTo === "string" ? { replyTo } : {}) };
-  return await addRow({ ...deps, state, row });
+  return await addRow({ ...deps, state, row, cut });
 }
 
 /** `react`: a tapback on a row with words, read as production reads it; a turn only when production would run one. */
-async function react(deps, state, { msgId, emoji, as }) {
+async function react(deps, state, { msgId, emoji, as }, cut = null) {
   if (typeof emoji !== "string" || !TAPBACK_OF[emoji]) return refused(400, `emoji is one of ${Object.keys(TAPBACK_OF).join(" ")}`);
   const target = targetOf(state.rows, msgId, "tapped");
   if (target.error) return refused(...target.error);
@@ -307,7 +312,7 @@ async function react(deps, state, { msgId, emoji, as }) {
   const read = await reactionOf({ about, target: target.row, emoji, as: speaker.speaker, rows: state.rows });
   const { at, eid, id } = newIds();
   const row = { id, eid, who: speaker.speaker, kind: "reaction", emoji, on: target.row.id, text: read.line, at, prod: false, ...(read.runs ? {} : { noted: true }) };
-  return await addRow({ ...deps, state, row, turn: read.runs });
+  return await addRow({ ...deps, state, row, turn: read.runs, cut });
 }
 
 /**
@@ -375,11 +380,12 @@ export async function handleLabSandbox(request, env, ctx, { origin = "https://co
       if (found.error) return refused(...found.error);
       if (found.row.reply) return refused(400, "retry a text, not Tex's reply");
       if (view(state).running !== null) return refused(409, "a test text is still running: wait for its reply");
-      await callSandbox(stub, "cut.from", { id: found.row.id });
-      const fresh = await callSandbox(stub, "state", {});
+      // Checked against the chat as it will be once the text is cut; the cut itself waits until nothing can refuse it.
       const { row } = found;
-      if (row.kind === "reaction") return await react(deps, fresh, { msgId: row.on, emoji: row.emoji, as: row.who });
-      return await send(deps, fresh, { as: row.who, text: row.text, pics: row.pics, replyTo: row.replyTo });
+      const at = (state.rows ?? []).findIndex((r) => r.id === row.id);
+      const before = { ...state, rows: (state.rows ?? []).slice(0, at) };
+      if (row.kind === "reaction") return await react(deps, before, { msgId: row.on, emoji: row.emoji, as: row.who }, row.id);
+      return await send(deps, before, { as: row.who, text: row.text, pics: row.pics, replyTo: row.replyTo }, row.id);
     }
     case "back":
     case "drop": {

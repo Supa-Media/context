@@ -111,6 +111,7 @@ export const LAB_CSS_5 = String.raw`
   .tl .bar #verBtn{max-width:96px}
   .tl .bar #verBtn .car{display:none}
   .tl .sbx .ph .sbxtag{display:none}
+  .tl .keyw.keypop{display:flex}
   .tl .score small{display:none}
 }
 @media (max-width:420px){.tl .hide-xs{display:none}.tl .bar .modes button{padding:3px 6px}}

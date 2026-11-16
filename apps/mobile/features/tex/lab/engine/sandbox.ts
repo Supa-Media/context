@@ -186,6 +186,12 @@ export async function readSandboxChats() {
   }
 }
 
+/** A problem the test chat shows (a picture that didn't upload). */
+export function sandboxProblem(problem: string | null) {
+  sandbox.problem = problem;
+  emit();
+}
+
 /** The Training and Dev conversations, as the gateway lists them. */
 export async function readSandboxSets() {
   if (!call) return;

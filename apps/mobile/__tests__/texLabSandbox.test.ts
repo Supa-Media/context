@@ -37,9 +37,8 @@ jest.mock("expo-router", () => {
   return { Redirect: ({ href }: { href: string }) => createElement("div", { "data-testid": "redirect", "data-href": href }) };
 });
 jest.mock("../features/site/host", () => ({ isTexHost: () => true }));
-jest.mock("../features/tex/lab/engine/setsStore", () => ({
-  ...jest.requireActual<typeof import("../features/tex/lab/engine/setsStore")>("../features/tex/lab/engine/setsStore"),
-  uploadPic: async (f: File) => ({ url: "https://files.example.test/" + f.name, type: f.type }),
+jest.mock("../features/tex/lab/views/canvas/usePicUpload", () => ({
+  usePicUpload: () => async (f: File) => ({ url: "https://files.example.test/" + f.name }),
 }));
 
 type Row = { id: string; who: string; text: string; prod?: boolean; reply?: string; steps?: Array<{ node: string; out: string; ms: number }> };
@@ -279,11 +278,16 @@ describe("the test chat's ▶ and message options", () => {
     await click(q('#sbGrid tr[data-id="t1"] td[data-c="decide"]'));
     expect(q('#sbGrid tr[data-id="t1"]')?.classList.contains("sel")).toBe(true);
     expect(q('#sbGrid tr[data-id="t1"] td[data-c="decide"]')?.classList.contains("on")).toBe(true);
-    // The version changes: ▶ is marked stale and runs the text again on live models.
+    // Only the canvas as drawn changes (a step moved): nothing a turn runs, so ▶ still plays back.
     act(() => {
-      const n = lab.cur.graph.nodes.find((x) => x.id === "decide")!;
-      lab.cur.graph = { ...lab.cur.graph, nodes: lab.cur.graph.nodes.map((x) => (x === n ? { ...x, label: x.label + " (new)" } : x)) };
+      lab.cur.graph = { ...lab.cur.graph, nodes: lab.cur.graph.nodes.map((x) => (x.id === "decide" ? { ...x, x: x.x + 40 } : x)) };
       set({ dirty: true });
+    });
+    expect(play().classList.contains("stale")).toBe(false);
+    // The version as saved changes: ▶ is marked stale and runs the text again on live models.
+    act(() => {
+      lab.cur.rev = (lab.cur.rev ?? 0) + 1;
+      set({ dirty: false });
     });
     expect(play().classList.contains("stale")).toBe(true);
     await click(play());
