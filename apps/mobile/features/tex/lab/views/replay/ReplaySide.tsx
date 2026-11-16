@@ -1,11 +1,13 @@
 /**
  * Replay's left column: the chats you can replay (your 1:1 and every group chat you're in) and the picked chat's
- * conversation, newest at the bottom. A click on any text someone sent replays from it: the canvas and the timeline.
+ * conversation as a grid of Speaker and Message, newest at the bottom. A click on any text someone sent replays from it:
+ * the canvas and the timeline.
  */
 import { useEffect, useRef } from "react";
 import { LOGGED_FROM, QUIET_WORDS, startLabel, type Moment } from "../../engine/replay";
 import { lab, set } from "../../engine/state";
 import { pickChat, readMomentDetail, readMyTexts } from "../mine/useMine";
+import { TextGrid, type TextRow } from "../grid/TextGrid.web";
 
 const time = (at: number) => new Date(at).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" });
 const day = (at: number) => new Date(at).toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" });
@@ -20,16 +22,35 @@ export function ReplaySide({ moments, onHide }: { moments: Moment[]; onHide?: ()
   const chats = lab.myChats ?? [{ key: "me", name: "Just you and Tex" }];
   const newest = (moments.length ? moments[moments.length - 1].id : "") + "|" + lab.myChat;
   useEffect(() => {
-    const el = list.current;
+    const el = list.current?.querySelector<HTMLElement>("#replayGrid .scroll") || list.current;
     if (el) el.scrollTop = el.scrollHeight;
   }, [newest]);
   const group = lab.myChat !== "me";
   // Once the oldest text read is from before full logging, nothing older can be replayed: no Older button (no note either: Dev2, 2026-11-14, "No need for this text").
   const reachedStart = lab.myLines.length > 0 && lab.myLines[0].at < LOGGED_FROM;
-  let lastDay = "";
   // The chat as it read, from when full logging began; each text someone sent replays from there.
   const lines = lab.myLines.filter((l) => l.at >= LOGGED_FROM);
   const byId = new Map(moments.map((m) => [m.id, m]));
+  // A grid of Speaker and Message (Dev2, 2026-11-16: "just keep it on the left only showing speaker and message"), a line for each day.
+  const rows: TextRow[] = [];
+  let lastDay = "";
+  for (const l of lines) {
+    const d = day(l.at);
+    if (d !== lastDay) rows.push({ id: "day:" + l.id, who: "", text: "", sep: d, day: true });
+    lastDay = d;
+    const m = byId.get(l.id);
+    // Tex texting on its own says what started it: a check-in, a routine, another AI's ping.
+    const who = l.start ? startLabel(l) : l.from === "tex" ? "Tex" : l.who || (group ? "" : "You");
+    rows.push({
+      id: l.id,
+      who,
+      text: l.quiet ? QUIET_WORDS : l.text,
+      tex: l.from === "tex",
+      whoCls: l.start ? "cds" : undefined,
+      attrs: m ? { "data-moment": m.id, "aria-current": String(lab.moment === m.id) } : undefined,
+      title: (m ? (l.start ? "Replay this run" : "Replay from this text") : l.start ? "Ran before its steps were logged, so it can't be walked through" : "") + " · " + time(l.at),
+    });
+  }
   return (
     <div className="rside" id="replaySide">
       <div className="rsideh">
@@ -58,33 +79,17 @@ export function ReplaySide({ moments, onHide }: { moments: Moment[]; onHide?: ()
         {lab.myTexts === null ? <div className="scne">Reading the chat…</div> : null}
         {lab.myTexts === "failed" ? <div className="scne">{"Couldn't read this chat"}</div> : null}
         {Array.isArray(lab.myTexts) && !moments.length && !reachedStart ? <div className="scne">No texts yet</div> : null}
-        {lines.map((l) => {
-          const d = day(l.at);
-          const head = d !== lastDay ? <div className="cdd">{d}</div> : null;
-          lastDay = d;
-          const side = l.from === "tex" ? "tex" : group ? "them" : "me";
-          // Tex texting on its own says what started it: a check-in, a routine, another AI's ping.
-          const who = l.start ? <span className="cdw cds">{startLabel(l)}</span> : group || l.from === "tex" ? <span className="cdw">{l.who}</span> : null;
-          const m = byId.get(l.id);
-          const words = l.quiet ? <span className="cdt cdq">{QUIET_WORDS}</span> : <span className="cdt">{l.text}</span>;
-          return (
-            <div key={l.id} className="rmw">
-              {head}
-              {m ? (
-                <button className={`cdb ${side} can${lab.moment === m.id ? " on" : ""}`} data-moment={m.id} aria-current={lab.moment === m.id} title={l.start ? "Replay this run" : "Replay from this text"} onClick={() => openMoment(m)}>
-                  {who}
-                  {words}
-                  <span className="cdm">{time(l.at)}</span>
-                </button>
-              ) : (
-                <span className={`cdb ${side}`} title={l.start ? "Ran before its steps were logged, so it can't be walked through" : undefined}>
-                  {who}
-                  {words}
-                </span>
-              )}
-            </div>
-          );
-        })}
+        <TextGrid
+          gridKey="replay"
+          id="replayGrid"
+          slim
+          rows={rows}
+          sel={lab.moment ? lines.find((l) => byId.get(l.id)?.id === lab.moment)?.id ?? null : null}
+          onRow={(r) => {
+            const m = byId.get(r.id);
+            if (m) openMoment(m);
+          }}
+        />
       </div>
     </div>
   );

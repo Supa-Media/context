@@ -1,0 +1,222 @@
+/**
+ * Lab runs on GitHub (`functions/texLabRuns.ts`; Dev2, 2026-11-16: "Ok go ahead and build everything"). Two doors, one
+ * store: the Lab as a staff member (`api.functions.texLabRuns.*`), and `tex_dev`'s `run`/`runs` through `forGateway`.
+ * Pinned: who may start one, the caps, the dispatch to GitHub (and a deployment without the token failing the run
+ * rather than leaving it waiting), the workflow's reports (a finished run stays finished, a stage never goes back),
+ * what the workflow is handed (the draft's graph and the Dev drafts only), and Promote's gate run following its pull
+ * request's "Tex test set" status.
+ *
+ * Sabotage record (temporary local edits to functions/texLabRuns.ts, restored, 2026-11-16):
+ *   MAX_QUEUED check removed                     "three waiting runs is the most ..." fails
+ *   report without the finished-stays-finished   "a finished run stays finished ..." fails
+ *   job handing Training drafts' words           "the workflow is handed ..." fails
+ *   followGate ignoring the status state         "Promote makes a gate run ..." fails
+ */
+
+import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
+import { PINNED_CONTEXT_SLUG } from "@context/shared";
+import { api, internal } from "../../_generated/api";
+import { hashToken } from "../../functions/lib/crypto";
+import { addMember, createUser, createWorkspace, drainScheduled, gatewayPost } from "../fixtures.helpers";
+import { ACCESS_A, ACCESS_B, bodyOf, twoConnectedTenants } from "./fixtures.helpers";
+import { withSession } from "../session.helpers";
+import { cleanResults, gateCounts } from "../../functions/texLabRuns";
+
+vi.setConfig({ testTimeout: 30_000 });
+
+const STAFF = "staff@example.invalid";
+const RUN_URL = "https://github.com/example/repo/actions/runs/123";
+const PR = "https://github.com/example/repo/pull/12";
+const SHA = "a".repeat(40);
+
+type Call = { url: string; body: Record<string, unknown> | null };
+let calls: Call[] = [];
+let testSet: { state: string; description: string } | null = null;
+
+beforeEach(() => {
+  vi.stubEnv("ADMIN_EMAILS", `${STAFF},alice@example.invalid`);
+  vi.stubEnv("GH_ADMIN_TOKEN", "ghp_fake_for_tests");
+  calls = [];
+  testSet = null;
+  vi.stubGlobal("fetch", async (input: RequestInfo | URL, init?: RequestInit) => {
+    const url = String(input);
+    calls.push({ url, body: init?.body ? JSON.parse(String(init.body)) : null });
+    if (url.endsWith("/dispatches")) return new Response(JSON.stringify({ workflow_run_id: 123, html_url: RUN_URL }), { status: 200 });
+    if (url.includes("/pulls/12")) return new Response(JSON.stringify({ head: { sha: SHA } }), { status: 200 });
+    if (url.includes(`/commits/${SHA}/statuses`)) return new Response(JSON.stringify(testSet ? [{ context: "Tex test set", ...testSet }] : []), { status: 200 });
+    return new Response("{}", { status: 404 });
+  });
+});
+afterEach(() => {
+  vi.unstubAllEnvs();
+  vi.unstubAllGlobals();
+  vi.useRealTimers();
+});
+
+async function world(role: "editor" | "member" = "editor") {
+  const tenants = await twoConnectedTenants();
+  const staff = await createUser(tenants.t, STAFF);
+  const pinned = await createWorkspace(tenants.t, staff, PINNED_CONTEXT_SLUG, { kind: "shared", displayName: "Context" });
+  await addMember(tenants.t, pinned, tenants.alice, role, staff);
+  const door = async (action: string, args: Record<string, unknown> = {}, token = ACCESS_A): Promise<Record<string, any>> =>
+    (await tenants.t.mutation(internal.functions.texLabDrafts.forGateway, { hashedAccessToken: await hashToken(token), action, args })) as Record<string, any>;
+  return { ...tenants, staff, door, lab: withSession(tenants.t, staff) };
+}
+
+const runsOf = async (t: Awaited<ReturnType<typeof world>>["t"]) => await t.run(async (ctx) => await ctx.db.query("texLabRuns").collect());
+
+describe("who may start a run", () => {
+  test("a stranger and a plain member are refused, and nothing is stored or dispatched", async () => {
+    const w = await world();
+    expect(await w.door("run", { draft: "main", kind: "dev" }, ACCESS_B)).toEqual({ status: "refused" });
+    const member = await world("member");
+    expect(await member.door("run", { draft: "main", kind: "dev" })).toEqual({ status: "refused" });
+    const stranger = withSession(w.t, await createUser(w.t, "stranger@example.invalid"));
+    await expect(stranger.mutation(api.functions.texLabRuns.start, { versionId: "main", kind: "dev" })).rejects.toThrow();
+    await expect(stranger.query(api.functions.texLabRuns.list, {})).rejects.toThrow();
+    expect(await runsOf(w.t)).toHaveLength(0);
+    await drainScheduled(w.t);
+    expect(calls).toHaveLength(0);
+  });
+});
+
+describe("starting a run", () => {
+  test("the Lab's start records the run and dispatches tex-lab-run.yml on main with the run's id; its address comes back", async () => {
+    const w = await world();
+    const { runId } = await w.lab.mutation(api.functions.texLabRuns.start, { versionId: "main", kind: "dev", models: "cc" });
+    await drainScheduled(w.t);
+    expect(calls).toHaveLength(1);
+    expect(calls[0].url).toBe("https://api.github.com/repos/Supa-Media/context/actions/workflows/tex-lab-run.yml/dispatches");
+    expect(calls[0].body).toMatchObject({ ref: "main", inputs: { run_id: runId } });
+    expect(await w.lab.query(api.functions.texLabRuns.get, { id: runId })).toMatchObject({ versionId: "main", kind: "dev", models: "cc", stage: "queued", ghRunUrl: RUN_URL, via: "lab" });
+  });
+
+  test("tex_dev run takes a chat or a node, refuses a gate run, a bad kind and a draft that is not there", async () => {
+    const { door } = await world();
+    expect(await door("run", { draft: "main", kind: "chat", conv: "maya-and-tex" })).toMatchObject({ status: "ok" });
+    expect(await door("run", { draft: "main", kind: "node", node: "decide", models: "gw" })).toMatchObject({ status: "ok" });
+    expect(await door("run", { draft: "main", kind: "gate" })).toMatchObject({ status: "bad_request" });
+    expect(await door("run", { draft: "main", kind: "chat" })).toMatchObject({ status: "bad_request" });
+    expect(await door("run", { draft: "main", kind: "dev", models: "api" })).toMatchObject({ status: "bad_request" });
+    expect(await door("run", { draft: "vnothere", kind: "dev" })).toEqual({ status: "not_found" });
+  });
+
+  test("three waiting runs is the most a person has; a finished one frees its place", async () => {
+    const { door, t } = await world();
+    const ids = [];
+    for (let i = 0; i < 3; i += 1) ids.push((await door("run", { draft: "main", kind: "dev" })).id);
+    expect(await door("run", { draft: "main", kind: "dev" })).toMatchObject({ status: "bad_request", error: expect.stringContaining("at most 3") });
+    await t.mutation(internal.functions.texLabRuns.report, { runId: ids[0], stage: "done", results: { pass: 1, total: 1 } });
+    expect(await door("run", { draft: "main", kind: "dev" })).toMatchObject({ status: "ok" });
+  });
+
+  test("twenty runs a day is the most a person starts", async () => {
+    const { door, t } = await world();
+    for (let i = 0; i < 20; i += 1) {
+      const { id } = await door("run", { draft: "main", kind: "dev" });
+      await t.mutation(internal.functions.texLabRuns.report, { runId: id, stage: "failed", error: "x" });
+    }
+    expect(await door("run", { draft: "main", kind: "dev" })).toMatchObject({ status: "bad_request", error: expect.stringContaining("20 runs") });
+  });
+
+  test("a deployment without GH_ADMIN_TOKEN fails the run, saying so, rather than leaving it waiting", async () => {
+    vi.stubEnv("GH_ADMIN_TOKEN", "");
+    const { door, t } = await world();
+    const { id } = await door("run", { draft: "main", kind: "dev" });
+    await drainScheduled(t);
+    expect(calls).toHaveLength(0);
+    expect((await door("runs", { id })).run).toMatchObject({ stage: "failed", error: expect.stringContaining("GH_ADMIN_TOKEN") });
+  });
+});
+
+test("a dispatch GitHub refuses fails the run with GitHub's reason", async () => {
+  const { door, t } = await world();
+  vi.stubGlobal("fetch", async () => new Response(JSON.stringify({ message: "Resource not accessible by personal access token" }), { status: 403 }));
+  const { id } = await door("run", { draft: "main", kind: "dev" });
+  await drainScheduled(t);
+  expect((await door("runs", { id })).run).toMatchObject({ stage: "failed", error: "GitHub refused to start the run (403: Resource not accessible by personal access token)" });
+});
+
+describe("the workflow's reports", () => {
+  test("running, then done with the results kept clean; a finished run stays finished; a stage never goes back", async () => {
+    const { door, t } = await world();
+    const { id } = await door("run", { draft: "main", kind: "dev" });
+    await t.mutation(internal.functions.texLabRuns.report, { runId: id, stage: "running", ghRunUrl: RUN_URL });
+    await t.mutation(internal.functions.texLabRuns.report, { runId: id, stage: "queued", ghRunUrl: RUN_URL });
+    expect((await door("runs", { id })).run.stage).toBe("running");
+    await expect(t.mutation(internal.functions.texLabRuns.report, { runId: id, stage: "running", ghRunUrl: "https://example.invalid/x" })).rejects.toThrow();
+    const results = { pass: 1, total: 2, costUsd: 0.00123456, ms: 900, perConv: [{ id: "group-4", pass: 1, total: 2 }], perNode: [{ node: "decide", pass: 1, total: 2 }], rows: [{ convId: "group-4", msgIndex: 3, node: "decide", ok: true, got: "respond", want: "respond", secret: "dropped" }, { convId: "group-4", msgIndex: 9, node: "decide", ok: false, got: "quiet", want: "respond" }] };
+    await t.mutation(internal.functions.texLabRuns.report, { runId: id, stage: "done", results });
+    await t.mutation(internal.functions.texLabRuns.report, { runId: id, stage: "failed", error: "late" });
+    const run = (await door("runs", { id })).run;
+    expect(run).toMatchObject({ stage: "done", error: null, results: { pass: 1, total: 2, costUsd: 0.0012 } });
+    expect(run.results.rows[0]).toEqual({ convId: "group-4", msgIndex: 3, node: "decide", ok: true, got: "respond", want: "respond" });
+    expect(run.finishedAt).toBeGreaterThan(0);
+    // The list leaves each run's rows out; one run whole has them.
+    const listed = (await door("runs", {})).runs.find((r: { id: string }) => r.id === id);
+    expect(listed.results.rows).toBeUndefined();
+    expect(listed.results.perNode).toEqual([{ node: "decide", pass: 1, total: 2 }]);
+  });
+
+  test("the workflow is handed the draft's graph and the Dev drafts' words, never a Training draft's", async () => {
+    const { door, t, lab } = await world();
+    const { id: draft } = await door("create", { name: "Try", graph: JSON.stringify({ nodes: [{ id: "text" }], edges: [] }) });
+    const conv = (id: string, set: string) => ({ id, title: id, set, kind: "one", members: ["Jo"], msgs: [{ id: "m1", who: "Jo", text: "hi" }] });
+    await lab.mutation(api.functions.texSets.create, { conv: conv("dev-a", "dev") });
+    await lab.mutation(api.functions.texSets.create, { conv: conv("train-a", "training") });
+    const { id } = await door("run", { draft, kind: "dev" });
+    const job = (await t.query(internal.functions.texLabRuns.job, { runId: id })) as Record<string, any>;
+    expect(job).toMatchObject({ versionId: draft, kind: "dev", models: "gw" });
+    expect(JSON.parse(job.graph).nodes).toEqual([{ id: "text" }]);
+    expect(job.drafts.find((d: { id: string }) => d.id === "dev-a").conv).toContain('"hi"');
+    expect(job.drafts.find((d: { id: string }) => d.id === "train-a")).toEqual({ id: "train-a", set: "training", removed: false });
+  });
+});
+
+describe("Promote", () => {
+  test("Promote makes a gate run, starts the promote workflow at once, and the run follows its pull request's Test set status", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    const { door, t } = await world();
+    const { id: draft } = await door("create", { name: "Ship", graph: JSON.stringify({ nodes: [{ id: "text" }], edges: [] }) });
+    expect(await door("promote", { draft })).toMatchObject({ status: "ok", promote: "asked" });
+    await drainScheduled(t);
+    // (An earlier test's run dispatch can land here too: only Promote's is this test's.)
+    expect(calls.filter((c) => c.url.includes("tex-lab-promote.yml"))).toHaveLength(1);
+    let [gate] = (await door("runs", { draft })).runs;
+    expect(gate).toMatchObject({ kind: "gate", stage: "queued", pr: null });
+    const at = (await t.query(internal.functions.texLabPromote.asked, {}))[0].at;
+    await t.mutation(internal.functions.texLabPromote.answered, { versionId: draft, at, pr: PR });
+    [gate] = (await door("runs", { draft })).runs;
+    expect(gate).toMatchObject({ stage: "running", pr: PR });
+    // Still pending: the run keeps waiting.
+    testSet = { state: "pending", description: "Running the Test Set on the change and on main" };
+    vi.advanceTimersByTime(3 * 60 * 1000);
+    await t.finishInProgressScheduledFunctions();
+    expect((await door("runs", { draft })).runs[0].stage).toBe("running");
+    testSet = { state: "success", description: "Test Set 12/14 right, main 11/14: no step worse" };
+    vi.advanceTimersByTime(3 * 60 * 1000);
+    await t.finishInProgressScheduledFunctions();
+    expect((await door("runs", { draft })).runs[0]).toMatchObject({ stage: "done", results: { pass: 12, total: 14 } });
+  });
+
+  test("a version the promote workflow refuses fails its gate run with why", async () => {
+    const { door, t } = await world();
+    const { id: draft } = await door("create", { name: "Bad", graph: JSON.stringify({ nodes: [{ id: "text" }], edges: [] }) });
+    await door("promote", { draft });
+    const at = (await t.query(internal.functions.texLabPromote.asked, {}))[0].at;
+    await t.mutation(internal.functions.texLabPromote.answered, { versionId: draft, at, why: "a step the gateway has no code for" });
+    expect((await door("runs", { draft })).runs[0]).toMatchObject({ kind: "gate", stage: "failed", error: "a step the gateway has no code for" });
+  });
+});
+
+test("gateCounts and cleanResults read only counts", () => {
+  expect(gateCounts("Test Set 3/9, main 4/9; worse on decide")).toEqual({ pass: 3, total: 9 });
+  expect(gateCounts("The Test Set run failed before a verdict: read the run")).toBeNull();
+  expect(cleanResults({ pass: "x", rows: [{ convId: 5, ok: "yes" }] })).toMatchObject({ pass: 0, rows: [{ convId: "", ok: false }] });
+});
+
+test("POST /gateway/tex/dev passes run and runs on", async () => {
+  const { t } = await world();
+  expect(await bodyOf(await gatewayPost(t, "/gateway/tex/dev", { accessToken: ACCESS_A, action: "runs", args: {} }))).toMatchObject({ status: "ok", runs: [] });
+  expect(await bodyOf(await gatewayPost(t, "/gateway/tex/dev", { accessToken: ACCESS_A, action: "run", args: { draft: "main", kind: "dev" } }))).toMatchObject({ status: "ok" });
+});

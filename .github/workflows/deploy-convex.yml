@@ -251,6 +251,12 @@ jobs:
           # inbox, not each staff member who switched them on (Dev2,
           # 2026-10-25). Unset mails each subscriber, as a self-hoster gets.
           SIGNUP_ALERTS_EMAIL: context@supa.media
+          # Lab runs on GitHub (`functions/texLabRuns.ts`): the PAT the promote
+          # workflow opens pull requests with, here to dispatch tex-lab-run.yml
+          # and tex-lab-promote.yml at once and to read a Promote's Test set
+          # status. Absent is a working state: a Lab run fails saying so, and
+          # Promote waits for the quarter-hour schedule.
+          GH_ADMIN_TOKEN: ${{ secrets.GH_ADMIN_TOKEN }}
           # The deployment the batched call goes to; checked against the key.
           EXPO_PUBLIC_CONVEX_URL: ${{ secrets.EXPO_PUBLIC_CONVEX_URL }}
         # One request for every variable (scripts/convex-env-sync.mjs) rather
@@ -284,7 +290,8 @@ jobs:
             META_CAPI_TOKEN CLOUDFLARE_ANALYTICS_TOKEN CLOUDFLARE_ANALYTICS_ACCOUNT_ID \
             POSTHOG_PERSONAL_API_KEY POSTHOG_PROJECT_ID \
             BROWSERBASE_API_KEY BROWSERBASE_PROJECT_ID \
-            STORAGE_MOVER_ORIGIN REPORTS_EMAIL SIGNUP_ALERTS_EMAIL
+            STORAGE_MOVER_ORIGIN REPORTS_EMAIL SIGNUP_ALERTS_EMAIL \
+            GH_ADMIN_TOKEN
 
       # The fixed sign-in codes the CUJ and reviewer accounts used, and the
       # older TEST_OTP_* pair, failed the CASA assessment (1.2.1, 1.3.x;
