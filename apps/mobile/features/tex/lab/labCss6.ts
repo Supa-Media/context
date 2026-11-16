@@ -17,9 +17,9 @@ export const LAB_CSS_6 = String.raw`
 .tl .st.ok{background:var(--ok-wash);color:var(--ok)}
 .tl .st.run{background:var(--accent-dim);color:var(--accent)}
 .tl .st.none{background:var(--chip);color:var(--muted)}
-.tl .props-pane .tabs{display:flex;gap:2px;padding:6px 0;border-top:1px solid var(--line);border-bottom:1px solid var(--line)}
-.tl .props-pane .tabs button{border:none;background:none;padding:3px 8px;border-radius:6px;color:var(--muted);font-weight:500;font-size:12px}
-.tl .props-pane .tabs button[aria-pressed=true]{background:var(--s3);color:var(--text)}
+.tl #props .tabs{display:flex;gap:2px;padding:6px 0;border-top:1px solid var(--line);border-bottom:1px solid var(--line)}
+.tl #props .tabs button{border:none;background:none;padding:3px 8px;border-radius:6px;color:var(--muted);font-weight:500;font-size:12px}
+.tl #props .tabs button[aria-pressed=true]{background:var(--s3);color:var(--text)}
 .tl .runbody{padding:10px 0}
 .tl .runbody pre{margin:0;font-family:var(--mono);font-size:11px;line-height:1.5;white-space:pre-wrap;word-break:break-word;color:var(--text2)}
 .tl .runbody .think{font-size:12px;color:var(--text2);white-space:pre-wrap}
@@ -52,5 +52,5 @@ export const LAB_CSS_6 = String.raw`
 .tl .sum .cl .ms{margin-left:auto;font-family:var(--mono);font-size:11px;color:var(--dim)}
 .tl .sum .more{border:none;background:none;color:var(--accent);font-size:12px;padding:0}
 .tl .chgf{outline:2px solid var(--chg);outline-offset:1px;background:var(--chg-wash);border-radius:8px}
-.tl .chgf .was,.tl .props-pane .was{display:block;font-size:11px;color:var(--chg);font-weight:600;margin-top:2px}
+.tl .chgf .was,.tl #props .was{display:block;font-size:11px;color:var(--chg);font-weight:600;margin-top:2px}
 `;

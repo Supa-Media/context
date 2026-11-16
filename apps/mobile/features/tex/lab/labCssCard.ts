@@ -50,5 +50,14 @@ export const LAB_CSS_CARD = String.raw`
 .tl .sbmodal .mailv .kv{display:grid;grid-template-columns:70px 1fr;gap:4px 10px;padding-bottom:10px;border-bottom:1px solid var(--line);margin-bottom:10px}
 .tl .sbmodal .mailv .kv span:nth-child(odd){color:var(--muted)}
 .tl .sbmodal .mailb{white-space:pre-wrap}
+.tl .nd.line .card{stroke-dasharray:4 3;fill:var(--s2)}
+.tl .nd.line .ttl{fill:var(--text2)}
+.tl .nd.line{cursor:pointer}
+.tl .nd.line.sel .card{stroke:var(--accent);stroke-width:2}
+.tl .nd.line.lit .card{stroke:var(--accent);stroke-width:1.6}
+.tl .wire.lnw{stroke-width:1.4}
+.tl #props .bdg.line{background:var(--chip);color:var(--muted);font-size:11px;font-weight:600;padding:2px 8px;border-radius:6px}
+.tl #props .ph .lname{font-size:15px;font-weight:600;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.tl #props .lnote{font-size:12px;color:var(--muted);margin:2px 0 8px}
 @media (max-width:760px){.tl #props.ins,.tl #props.ins.wide{top:auto;left:12px;right:12px;width:auto;bottom:12px;height:55%}.tl .archcv.withcard .ctop{right:12px}}
 `;

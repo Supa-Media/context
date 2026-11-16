@@ -7,6 +7,7 @@
 import { runningNode } from "../../engine/stepRunNow";
 import { usePlay } from "../../engine/sandboxPlay";
 import { G, lab, set } from "../../engine/state";
+import { isLineStep } from "../../engine/lineSteps";
 
 export function CardSwitch({ card, changed }: { card: "run" | "set"; changed: boolean }) {
   const { play } = usePlay();
@@ -29,7 +30,7 @@ export function CardSwitch({ card, changed }: { card: "run" | "set"; changed: bo
         title={pinned ? "Go back to following the step that is running" : "Shows whichever step is running; click a node to pin it"}
         onClick={() => {
           if (!pinned) return set({ pin: true });
-          set(target && G().nodes.some((n) => n.id === target) ? { pin: false, sel: { t: "node", id: target } } : { pin: false });
+          set(target && (G().nodes.some((n) => n.id === target) || isLineStep(target)) ? { pin: false, sel: { t: "node", id: target } } : { pin: false });
         }}
       >
         {pinned ? "Follow running" : "● Following"}

@@ -383,6 +383,8 @@ export function delSel() {
   const sel = lab.sel;
   if (!sel) return;
   if (sel.t === "node") {
+    // The test chat's line is no step of the graph (`lineSteps.ts`): nothing to delete, and no draft to start.
+    if (sel.id === "lineIn" || sel.id === "lineOut") return;
     if (["text", "send"].includes(sel.id)) {
       toast("Every version needs a start and a send");
       return;

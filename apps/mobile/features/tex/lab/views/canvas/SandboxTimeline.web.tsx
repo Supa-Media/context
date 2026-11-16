@@ -6,6 +6,7 @@
  * carry their name inside the bar when it fits. A text still running draws only what has started, on a scale that
  * grows with it, and its clock says how far behind live the playback is.
  */
+import { isLineStep } from "../../engine/lineSteps";
 import { useEffect, useRef, useState, type MouseEvent as RMouseEvent } from "react";
 import { stepCount, stepsWord, type PlayRun, type PlayStep } from "../../engine/playRun";
 import { densityFor, packSteps, scaleOf, texCauseRun, trackOrder } from "../../engine/sandboxRun";
@@ -198,8 +199,11 @@ export function SandboxTimeline() {
 /** While one of Tex's texts plays, the steps that didn't lead to it fade on the canvas. */
 export function DimOthers({ only }: { only: ReadonlySet<string> | null }) {
   if (!only?.size) return null;
-  // Only the canvas's own step ids, so a step id from the gateway never becomes CSS of its own.
-  const keep = [...only].filter((id) => !!node(id)).map((id) => `:not([data-id="${CSS_ESC(id)}"])`).join("");
+  // Only the canvas's own step ids and the line's two (`lineDecor.ts`), so a step id from the gateway never becomes CSS of its own.
+  const keep = [...only]
+    .filter((id) => !!node(id) || isLineStep(id))
+    .map((id) => (isLineStep(id) ? `:not([data-line="${id}"])` : `:not([data-id="${CSS_ESC(id)}"])`))
+    .join("");
   if (!keep) return null;
   return <style>{`.tl .archcv.only .nd${keep}{opacity:.28}.tl .archcv.only .wire{opacity:.35}`}</style>;
 }

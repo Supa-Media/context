@@ -39,6 +39,11 @@ import type { LabGraph } from "../types";
 import type { Lit } from "./canvas/usePlayback";
 import { setCanvasReadOnly, useStageInput } from "./canvas/useStageInput.web";
 import { useFollowRunning } from "./props/useFollowRunning";
+import { lineNodes } from "../engine/lineSteps";
+import { useSandbox } from "../engine/sandbox";
+import { usePlay } from "../engine/sandboxPlay";
+import { panelRow } from "../engine/stepRunNow";
+import { lineDecorHtml, lineTimes } from "./canvas/lineDecor";
 
 function Svg({
   d,
@@ -66,6 +71,8 @@ function Svg({
 export function Canvas({ testLit = null, graph = null, lead = null }: { testLit?: Lit | ReadonlySet<string> | null; graph?: LabGraph | null; lead?: ReactNode }) {
   const s = useLab();
   useFollowRunning();
+  useSandbox();
+  const { play, pick } = usePlay();
   const stage = useRef<HTMLDivElement>(null);
   const world = useRef<SVGGElement>(null);
   const cam = useRef<Cam>({ x: 40, y: 40, k: 0.6 });
@@ -91,7 +98,8 @@ export function Canvas({ testLit = null, graph = null, lead = null }: { testLit?
     const b = el.getBoundingClientRect();
     // The step card floats over the canvas's right side: fit the graph beside it, as the mockup's fit does.
     const r = { width: b.width - (lab.sel && b.width > 900 ? 350 : 0), height: b.height };
-    const c = fitCam(G().nodes, r, lab.cfocus ? fBounds.current : null);
+    // The test chat's line is fitted in too, as the mockup's fit does (`canvas/lineDecor.ts`).
+    const c = fitCam(lab.cfocus ? G().nodes : [...G().nodes, ...lineNodes(G())], r, lab.cfocus ? fBounds.current : null);
     if (!c) return;
     cam.current = c;
     applyCam();
@@ -140,7 +148,9 @@ export function Canvas({ testLit = null, graph = null, lead = null }: { testLit?
     html = f.html;
   } else {
     fBounds.current = null;
-    html = renderGraphHtml(g, sim, tags, s.sel, testLit, "off", stepCounts(g), marks);
+    // The test chat's line: two view-only pseudo-steps beside the graph, never in it (`canvas/lineDecor.ts`).
+    const line = lineDecorHtml(g, s.sel, testLit, lineTimes(panelRow(pick, play)?.steps));
+    html = line.under + renderGraphHtml(g, sim, tags, s.sel, testLit, "off", stepCounts(g), marks) + line.over;
   }
   // An open group has no box to name, so its focus bar takes the group's label (Dev2, 2026-11-14).
   const focused = lab.cfocus ? node(lab.cfocus, g) ?? (opened ? { label: groupsOf(g)[lab.cfocus]?.label ?? lab.cfocus } : undefined) : undefined;

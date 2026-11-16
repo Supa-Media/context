@@ -4,6 +4,7 @@
  * pans; a drag from a port, or from a step with the connect tool, draws a wire; a drag on a step moves it, snapped
  * to 10, copying main first; a click selects; the wheel pans and ctrl/⌘-wheel zooms; V, C and H pick the tool,
  * Delete removes the selection, Escape leaves focus or clears it, ctrl/⌘Z undoes. Ctrl/⌘S is the shell's.
+ * The test chat's line (`lineDecor.ts`, `data-line`, no `data-id`) is only ever picked: never moved, wired or focused.
  */
 import { useEffect, type RefObject } from "react";
 import {
@@ -44,7 +45,8 @@ type Act =
     }
   | { k: "edge"; i: number }
   | { k: "fblk"; mod?: string; go?: string }
-  | { k: "fpick"; id: string };
+  | { k: "fpick"; id: string }
+  | { k: "line"; id: string };
 
 /** The canvas draws another graph than the version open (a real text's, as it ran): nothing on it can be changed. */
 let readOnly = false;
@@ -76,7 +78,7 @@ export function useStageInput({
 
     const tap = (e: PointerEvent) => {
       const t = e.target as Element;
-      const g = t.closest?.(".nd") as SVGGElement | null;
+      const g = t.closest?.(".nd[data-id]") as SVGGElement | null;
       if (!g || t.closest(".port")) {
         lastTap = { id: null, at: 0 };
         return;
@@ -105,7 +107,8 @@ export function useStageInput({
       const p = toWorld(e);
       const t = e.target as Element;
       const port = t.closest("[data-port]") as HTMLElement | null;
-      const nd = t.closest(".nd") as HTMLElement | null;
+      const nd = t.closest(".nd[data-id]") as HTMLElement | null;
+      const ln = t.closest("[data-line]") as HTMLElement | null;
       const hit = t.closest("[data-edge]") as HTMLElement | null;
       closeAddMenu();
       try {
@@ -123,6 +126,10 @@ export function useStageInput({
           act = { k: "fpick", id: nd.dataset.id! };
           return;
         }
+      }
+      if (ln && lab.tool !== "pan" && !space) {
+        act = { k: "line", id: ln.dataset.line! };
+        return;
       }
       if (lab.tool === "pan" || space || (!nd && !hit && !port)) {
         const c = cam.current!;
@@ -199,6 +206,10 @@ export function useStageInput({
         else if (a.go) focusOn(a.go);
         return;
       }
+      if (a.k === "line") {
+        set({ sel: { t: "node", id: a.id }, addCtxOpen: false, pin: true });
+        return;
+      }
       if (a.k === "fpick") {
         // A step an open group draws is picked for its properties; it does not become a focus of its own.
         const shown = stepsShownFor(G(), lab.cfocus).some((n) => n.id === a.id);
@@ -227,7 +238,7 @@ export function useStageInput({
       }
       if (a.k === "wire") {
         const el = document.elementFromPoint(e.clientX, e.clientY);
-        const to = el?.closest?.(".nd") as HTMLElement | null;
+        const to = el?.closest?.(".nd[data-id]") as HTMLElement | null;
         st.querySelector("#ghost")?.setAttribute("d", "");
         if (to && to.dataset.id !== a.from) {
           const tid = to.dataset.id!;
