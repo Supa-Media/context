@@ -129,10 +129,20 @@ export function fold(n: LabNode, g: LabGraph, s: string, tags: string[], log: Lo
 const LOGS_WHEN_RUN = new Set(["reviewer", "router", "fallback", "card", "classifier", "selfreview", "handback", "mailadv", "tools", "egress", "picture", "nudge", "reflect", "nightly", "dream", "daysum", "housekeep"]);
 
 /** `from` names the start step outright, for a run not traced on the canvas (Replay's timeline rows). */
+/**
+ * The tags a scenario's run carries for the wires' `when`. Every moment the Lab runs is a text on Tex's current line, so
+ * the old-number step (`oldLine`) passes it on to Triage, and every door step hands the turn on to the next (`next`, the
+ * door chain since #3314). Triage sends a lone 1:1 text straight to the Queue (`tex`) and a group's texts to Decide
+ * (`judge`), as the texting Worker does (`apps/agent/src/stepEvents.ts` `triageStep`; Dev2, 2026-11-16: the graph
+ * matches the code).
+ */
+export function runTags(s: string): string[] {
+  const own = (SCENARIOS[s] || SCENARIOS.own)?.tags ?? [];
+  return [...own, "pass", "next", own.includes("group") ? "judge" : "tex"];
+}
+
 export function simulate(g: LabGraph, s: string, log: Log, real: RealTimes | null = null, from?: string): Sim {
-  // Every moment the Lab runs is a text on Tex's current line, so the old-number step (`oldLine`) passes it on to Triage,
-  // and every door step hands the turn on to the next (`when: ["next"]`, the door chain since #3314).
-  const tags = [...((SCENARIOS[s] || SCENARIOS.own)?.tags ?? []), "pass", "next"];
+  const tags = runTags(s);
   // A real run goes where it was measured: a measured step ran, a step that always logs when it runs and logged
   // nothing did not, and the rest follow the guess from the text's words.
   const on = (e: LabEdge) => {
