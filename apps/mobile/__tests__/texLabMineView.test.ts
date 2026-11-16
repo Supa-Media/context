@@ -122,7 +122,7 @@ import { act, createElement } from "react";
 import { createRoot } from "react-dom/client";
 import TexLabRoute from "../app/(app)/lab";
 import { config } from "../features/tex/lab/engine/diff";
-import { clone, emit, G, lab, MAIN, node, set as setLab } from "../features/tex/lab/engine/state";
+import { clone, emit, lab, MAIN, node, set as setLab } from "../features/tex/lab/engine/state";
 import { promptText } from "../features/tex/lab/views/run/runText";
 import { SCENARIOS, traceMine } from "../features/tex/lab/engine/traces";
 import { readTurnTimes } from "../features/tex/lab/views/mine/useMine";
