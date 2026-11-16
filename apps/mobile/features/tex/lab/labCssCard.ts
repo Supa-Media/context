@@ -10,7 +10,7 @@ export const LAB_CSS_CARD = String.raw`
 .tl #props.ins[hidden]{display:none}
 .tl #props.ins.wide{width:min(420px,calc(100% - 24px))}
 .tl #props .insbd{flex:1;min-height:0;overflow:auto;padding:10px 14px 0;display:flex;flex-direction:column}
-.tl #props .pclose{position:absolute;top:8px;right:8px;width:28px!important;height:28px!important;z-index:3}
+.tl #props .pclose{display:inline-grid;place-items:center;position:absolute;top:8px;right:8px;width:28px!important;height:28px!important;z-index:3}
 .tl #props .cardrow{padding-right:34px}
 .tl #props .ph{gap:8px;margin-bottom:2px}
 .tl #props .ph input{flex:0 1 auto;field-sizing:content;min-width:4ch;max-width:62%;font-size:15px;padding:3px 4px}
@@ -40,7 +40,7 @@ export const LAB_CSS_CARD = String.raw`
 .tl .sbscrim{position:fixed;inset:0;background:rgba(10,8,6,.35);z-index:70;display:grid;place-items:center;padding:16px}
 .tl .sbmodal{background:var(--page);border:1px solid var(--line2);border-radius:14px;box-shadow:var(--shadow);width:min(720px,100%);max-height:88vh;display:flex;flex-direction:column;overflow:hidden}
 .tl .sbmodal .mh{display:flex;align-items:center;gap:8px;padding:10px 14px;border-bottom:1px solid var(--line)}
-.tl .sbmodal .mh b{font-size:14px}
+.tl .sbmodal .mh b{font-size:14px;white-space:nowrap;flex:none}
 .tl .sbmodal .url{font-family:var(--mono);font-size:11px;color:var(--muted);background:var(--chip);padding:3px 8px;border-radius:6px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0}
 .tl .sbmodal .mb{overflow:auto;min-height:0}
 .tl .sbmodal .banner{background:var(--warn-wash);color:var(--warn);font-size:12px;padding:6px 14px;font-weight:500}

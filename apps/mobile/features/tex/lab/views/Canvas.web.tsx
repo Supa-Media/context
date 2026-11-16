@@ -17,7 +17,7 @@ import {
   undo,
 } from "../engine/state";
 import { stepsShownFor } from "../engine/groups";
-import { GROUPS } from "../data/graph";
+import { groupsOf } from "../data/graph";
 import { labSim } from "../engine/realTimes";
 import { SCENARIOS } from "../engine/traces";
 import { useLab } from "../store";
@@ -143,7 +143,7 @@ export function Canvas({ testLit = null, graph = null, lead = null }: { testLit?
     html = renderGraphHtml(g, sim, tags, s.sel, testLit, "off", stepCounts(g), marks);
   }
   // An open group has no box to name, so its focus bar takes the group's label (Dev2, 2026-11-14).
-  const focused = lab.cfocus ? node(lab.cfocus, g) ?? (opened ? { label: GROUPS[lab.cfocus]?.label ?? lab.cfocus } : undefined) : undefined;
+  const focused = lab.cfocus ? node(lab.cfocus, g) ?? (opened ? { label: groupsOf(g)[lab.cfocus]?.label ?? lab.cfocus } : undefined) : undefined;
 
   useLayoutEffect(applyCam);
 

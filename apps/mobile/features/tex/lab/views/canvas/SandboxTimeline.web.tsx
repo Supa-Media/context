@@ -17,7 +17,6 @@ import { ranWhen } from "./RunPill.web";
 import { msWords } from "../grid/TextGrid.web";
 
 const NAME_W = 118 + 8;
-const ROW_FULL = 20;
 const fmt = (ms: number) => msWords(Math.max(0, ms));
 const labelOf = (id: string) => node(id)?.label ?? id;
 

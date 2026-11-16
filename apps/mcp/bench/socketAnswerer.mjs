@@ -168,15 +168,21 @@ export async function answerOne(dir, call, { cli = (request) => runCli(request),
 /** Answers waiting calls, `parallel` at a time, until `stopped()` and nothing waits. Rejects on the first call that fails every try. */
 export async function answerLoop(dir, { parallel = 4, stopped, cli, log = () => {}, pollMs = 1000, wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms)) } = {}) {
   const busy = new Map();
+  // Calls answered this run. A listing read while a call was finishing can still hold it after it left `busy`, and it
+  // would be answered twice (a second paid CLI run): CI saw 6 answers for 5 calls, 2026-11-16.
+  const done = new Set();
   let failure = null;
   let answered = 0;
   for (;;) {
     if (failure) throw failure;
-    const waiting = (await pendingCalls(dir)).filter((call) => !busy.has(call.hash));
+    const waiting = (await pendingCalls(dir)).filter((call) => !busy.has(call.hash) && !done.has(call.hash));
     if (failure) throw failure; // a call can fail while the listing is read: never hand it out again
     for (const call of waiting.slice(0, Math.max(0, parallel - busy.size))) {
       const work = answerOne(dir, call, { cli, log })
-        .then(() => (answered += 1))
+        .then(() => {
+          done.add(call.hash);
+          answered += 1;
+        })
         .catch((error) => (failure ??= error))
         .finally(() => busy.delete(call.hash));
       busy.set(call.hash, work);

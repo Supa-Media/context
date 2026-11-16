@@ -127,7 +127,7 @@ export function notFiredOf(graph, steps) {
       if (wire.mode === "uses") reasons.push(`${wire.from} may call it${when.includes("*") ? "" : ` (when ${when.join(", ")})`} and did not`);
       else if (wire.mode === "job") reasons.push(`${wire.from} started no job`);
       else if (!matched) reasons.push(`${wire.from} said [${tags.join(", ") || "nothing"}], the ${wire.mode} wire wants [${when.join(", ")}]`);
-      else reasons.push(`${wire.from} ran and the ${wire.mode} wire matched, but it logged no run`);
+      else reasons.push(`${wire.from} ran and said [${tags.join(", ") || "nothing"}], which the ${wire.mode} wire [${when.join(", ")}] runs it on, but it logged no run: the code did not run it though the config says it does`);
     }
     if (reasons.length === 0) continue;
     out.push({ node: node.id, ...(label.get(node.id) !== node.id ? { label: label.get(node.id) } : {}), why: reasons.join("; ") });
@@ -142,6 +142,8 @@ function cardStep(step, n) {
   return {
     n,
     node: step.node,
+    ...(typeof step.id === "string" ? { id: step.id } : {}),
+    ...(typeof step.parent === "string" ? { parent: step.parent } : {}),
     ...(Number.isFinite(step.at) ? { atMs: step.at } : {}),
     ...(Number.isFinite(step.ms) ? { ms: step.ms } : { running: true }),
     ...(step.ok === false ? { ok: false } : {}),
@@ -162,7 +164,7 @@ function cardStep(step, n) {
  * The run card for one test row: what Tex said, how long it took, every step that ran, every step that did not and
  * why, the slowest, what failed and what it would have changed. `graph` is the config the run ran on.
  */
-export function runCard({ rows, msgId, writes = [], graph, running = null, draft = "main" }) {
+export function runCard({ rows, msgId, writes = [], graph, running = null, draft = "main", fit = null }) {
   const row = rows.find((r) => r.id === msgId);
   if (!row) return { error: `There is no row ${msgId} in this test chat.` };
   const replies = rows.filter((r) => r.reply === msgId || (r.who === "Tex" && r.on === msgId));
@@ -175,13 +177,22 @@ export function runCard({ rows, msgId, writes = [], graph, running = null, draft
   const failed = fired.filter((s) => s.ok === false || s.failedInside).map((s) => ({ n: s.n, node: s.node, why: s.failedInside ?? "ok: false" }));
   const slowest = fired.filter((s) => Number.isFinite(s.ms) && s.ms > 0).sort((a, b) => b.ms - a.ms).slice(0, 3).map((s) => `${s.node} ${secs(s.ms)}`);
   const mine = writes.filter((w) => w && (w.by === undefined || w.by === msgId));
+  // Texts a background job sent later for this text (`from: "job"`): the Tex rows after it, before the next test text.
+  const at = rows.indexOf(row);
+  const nextOwn = rows.findIndex((r, i) => i > at && r.who !== "Tex" && !r.prod);
+  const later = rows.slice(at + 1, nextOwn < 0 ? rows.length : nextOwn).filter((r) => r.who === "Tex" && r.from === "job" && !replies.includes(r));
+  // Each Tex text with what sent it, the steps that led to it (`cause`, logged, never inferred) and the line's delay.
+  const sent = [...said, ...later].filter((r) => r.from || Array.isArray(r.cause) || Number.isFinite(r.line?.outMs));
   return {
     msgId,
     status: done ? "done" : "running",
     ...(done ? {} : { runningNow: running?.node ?? null, next: `wait { sandboxId, msgId: "${msgId}" } for the rest` }),
     draft,
+    ...(done && fit && fit.asDrawn === false ? { ranAs: ranAsOf(fit, fired) } : {}),
     sent: { who: row.who, text: short(row.text ?? "", TEXT_CUT), ...(row.kind ? { kind: row.kind, on: row.on } : {}) },
     tex: said.map((r) => short(r.text, 2_000)),
+    ...(later.length ? { jobTexts: later.map((r) => ({ id: r.id, text: short(r.text, 2_000), ...(Array.isArray(r.cause) ? { cause: r.cause } : {}) })) } : {}),
+    ...(sent.length ? { texSent: sent.map((r) => ({ id: r.id, from: r.from ?? "fd", ...(Array.isArray(r.cause) ? { cause: r.cause } : {}), ...(Number.isFinite(r.line?.outMs) ? { lineOutMs: r.line.outMs } : {}) })) } : {}),
     ...(reply?.quiet ? { quiet: short(reply.text || "Tex stayed quiet", 300) } : {}),
     ...(row.error || reply?.error ? { error: row.error ?? reply.error } : {}),
     time: {
@@ -193,8 +204,27 @@ export function runCard({ rows, msgId, writes = [], graph, running = null, draft
     failed,
     fired,
     notFired: done ? notFiredOf(graph, steps) : "after it finishes",
-    writes: mine.map((w) => (typeof w === "string" ? w : cutDeep(w, 300))),
+    writes: mine.map((w) => (typeof w === "string" ? w : { ...cutDeep(w, 300), ...(w.kind === "page" ? { read: `page { sandboxId, id: "${w.id}" }` } : {}) })),
     drill: `step { sandboxId, msgId: "${msgId}", node } for a step's input, output, thinking and calls; part: "prompt" for its prompt`,
+  };
+}
+
+/**
+ * How a run on a draft that cannot run as drawn really ran (`draftFit`): the steps the draft adds that did not run
+ * (no code), the steps it removes that ran anyway, by name from this run's log, and main's wires when its own could
+ * not run. Said first on the card, so a run is never read as the draft's when it was main's.
+ */
+export function ranAsOf(fit, fired) {
+  const ran = new Set((fired ?? []).map((s) => s.node));
+  const idOf = (entry) => String(entry).split(" ")[0];
+  const stillRan = (fit.removed ?? []).filter((entry) => ran.has(idOf(entry)));
+  return {
+    asDrawn: false,
+    says: `Not the draft as drawn: ${fit.says}`,
+    ...(fit.noCode ? { notRunNoCode: fit.noCode } : {}),
+    ...(stillRan.length ? { removedButRan: stillRan } : {}),
+    wires: fit.wires === "main" ? "main's (the draft's name steps with no code)" : "the draft's",
+    ...(fit.unapplied ? { ranAsMain: fit.unapplied } : {}),
   };
 }
 
@@ -262,7 +292,7 @@ export function createSandboxActions({ route, graphOf, page, env, origin, realCh
     if (card.error || card.status !== "done") return card;
     const graph = await graphOf(facts.versionId);
     if (graph.error) return graph;
-    return runCard({ ...given, graph: graph.graph });
+    return runCard({ ...given, graph: graph.graph, fit: graph.fit ?? facts.fit ?? null });
   }
 
   /** Looks until the run is done or `seconds` pass, then answers its card as it stands. */
@@ -305,7 +335,7 @@ export function createSandboxActions({ route, graphOf, page, env, origin, realCh
     } };
     const deps = { ledgerOf: () => sandboxLedger, origin, fetch: (...a) => globalThis.fetch(...a) };
     const chat = facts.kind === "group" ? facts.chat : "me";
-    const given = { chat, turn: found.turn, at: found.at, ...(typeof args.node === "string" ? { node: args.node } : {}), ...(args.full === true ? { full: true } : {}) };
+    const given = { chat, turn: found.turn, at: found.at, ...(typeof args.node === "string" ? { node: args.node } : {}), ...(args.full === true ? { full: true } : {}), ...(typeof args.detail === "string" ? { detail: args.detail } : {}) };
     if (args.part === "prompt") return await promptAnswer(env, p.page, { ...given, ...(args.round ? { round: args.round } : {}), ...(args.module ? { module: args.module } : {}) }, deps);
     const answer = await turnAnswer(env, p.page, given, deps);
     if (answer.error) return answer;
@@ -342,6 +372,7 @@ export function createSandboxActions({ route, graphOf, page, env, origin, realCh
       people: opened.people,
       total: rows.length,
       last: rows.slice(rows.length - shown).map(compactRow),
+      ...(opened.fit?.asDrawn === false ? { fit: opened.fit } : {}),
       link: linkOf(opened.sandboxId, body.versionId ?? args.draft),
       watch: "the person sees this test chat live in the Lab at link (its texts playing as they run, the draft's edits as you make them)",
       next: "send { sandboxId, text } runs a text and answers its run card; rows { sandboxId, before } pages back",
