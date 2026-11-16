@@ -8,6 +8,7 @@
  *   labelFields() keeps optional fields           "labels use the node's required output fields" fails
  *   ratio() counts every label, not stars         "the ratio counts unit tests, never labels" fails
  *   DRIFT ignored in ratio()                      "a set may drift ten points, not more" fails
+ *   check() skips the trigger's speaker rule      "a trigger row is the input that fired it" fails
  */
 import { test } from "node:test";
 import assert from "node:assert/strict";
@@ -92,4 +93,17 @@ test("a set may drift ten points, not more", () => {
   assert.equal(bad.holds, false);
   assert.deepEqual(bad.off, ["training", "test"]);
   assert.equal(sets.ratio({}).holds, false);
+});
+
+test("a trigger row is the input that fired it, never a member, and can be a unit test", () => {
+  const c = chat({ kind: "one", members: ["Rosa"], msgs: [
+    { id: "m1", who: "Check-in", via: "checkin", at: "Wed 9:20", text: "Gmail: the ferry company moved Saturday's first boat to 8:10", labels: { fd: { must: ["tell Rosa the new time"], star: true } } },
+    { id: "m2", who: "Tex", tex: true, text: "Heads up, Saturday's first ferry is now 8:10." },
+  ] });
+  assert.deepEqual(sets.check(c, config), []);
+  assert.equal(sets.unitTests(c).length, 1);
+  const wrongWho = chat({ kind: "one", members: ["Rosa"], msgs: [{ id: "m1", who: "Rosa", via: "checkin", text: "x" }] });
+  assert.match(sets.check(wrongWho, config).join("\n"), /fired by checkin, so its speaker is Check-in/);
+  const unknown = chat({ kind: "one", members: ["Rosa"], msgs: [{ id: "m1", who: "Cron", via: "cron", text: "x" }] });
+  assert.match(sets.check(unknown, config).join("\n"), /via "cron" must be one of checkin, routine, notify/);
 });
