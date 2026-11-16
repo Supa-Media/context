@@ -312,7 +312,11 @@ async function dispatchWorkflow(file: string, inputs: Record<string, string>): P
   } catch {
     return { ok: false, error: "GitHub could not be reached to start the run" };
   }
-  if (res.status !== 200 && res.status !== 204) return { ok: false, error: `GitHub refused to start the run (${res.status})` };
+  if (res.status !== 200 && res.status !== 204) {
+    // GitHub's own reason ("Resource not accessible by personal access token" is a token without Actions write).
+    const said = ((await res.json().catch(() => null)) as { message?: unknown } | null)?.message;
+    return { ok: false, error: `GitHub refused to start the run (${res.status}${typeof said === "string" ? `: ${said.slice(0, 160)}` : ""})` };
+  }
   const body = res.status === 200 ? ((await res.json().catch(() => null)) as { html_url?: unknown } | null) : null;
   const url = typeof body?.html_url === "string" && RUN_URL.test(body.html_url) ? body.html_url : null;
   return { ok: true, url };

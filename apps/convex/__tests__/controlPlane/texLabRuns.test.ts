@@ -129,6 +129,14 @@ describe("starting a run", () => {
   });
 });
 
+test("a dispatch GitHub refuses fails the run with GitHub's reason", async () => {
+  const { door, t } = await world();
+  vi.stubGlobal("fetch", async () => new Response(JSON.stringify({ message: "Resource not accessible by personal access token" }), { status: 403 }));
+  const { id } = await door("run", { draft: "main", kind: "dev" });
+  await drainScheduled(t);
+  expect((await door("runs", { id })).run).toMatchObject({ stage: "failed", error: "GitHub refused to start the run (403: Resource not accessible by personal access token)" });
+});
+
 describe("the workflow's reports", () => {
   test("running, then done with the results kept clean; a finished run stays finished; a stage never goes back", async () => {
     const { door, t } = await world();
