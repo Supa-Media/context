@@ -43,7 +43,7 @@ jest.mock("../features/tex/lab/views/canvas/usePicUpload", () => ({
   usePicUpload: () => async (f: File) => ({ url: "https://files.example.test/" + f.name }),
 }));
 
-type Row = { id: string; who: string; text: string; prod?: boolean; reply?: string; steps?: Array<{ node: string; out: string; ms: number }> };
+type Row = { id: string; who: string; text: string; prod?: boolean; reply?: string; kind?: string; on?: string; edited?: boolean; unsent?: boolean; quiet?: boolean; steps?: Array<{ node: string; out: string; ms: number }> };
 const mockCalls: Array<{ op: string; body: Record<string, unknown> }> = [];
 let mockRows: Row[] = [];
 let mockWrites: Array<{ kind: string; summary: string; by: string }> = [];
@@ -83,6 +83,21 @@ jest.mock("../features/tex/lab/views/canvas/sandboxCall", () => {
       const t = mockRows[at(body.msgId)];
       mockRows = mockRows.slice(0, at(body.msgId));
       return sent(t.who, t.text);
+    }
+    if (op === "edit") {
+      const t = mockRows[at(body.msgId)];
+      if (String(body.text).trim() === t.text) return { msgId: t.id, to: "same", why: "the words did not change" };
+      const [e, r] = answer(String(body.text));
+      Object.assign(e, { who: t.who, kind: "edit", on: t.id, edited: true });
+      mockRows.push(e, r);
+      return { msgId: e.id, to: "turn", why: "the words changed" };
+    }
+    if (op === "unsend") {
+      const t = mockRows[at(body.msgId)];
+      const id = "t" + ++mockSeq;
+      mockRows.push({ id, who: t.who, text: "", kind: "unsend", on: t.id }, { id: id + "r", reply: id, who: "Tex", text: "", quiet: true });
+      Object.assign(t, { unsent: true });
+      return { msgId: id, to: "withdraw", why: "they took the text back" };
     }
     if (op === "back") mockRows = mockRows.slice(0, at(body.msgId) + 2);
     if (op === "drop") mockRows = mockRows.slice(0, at(body.msgId));
@@ -315,7 +330,7 @@ describe("the test chat's ▶ and message options", () => {
     expect(q('#sbGrid [data-play="t2"]')?.classList.contains("stale")).toBe(false);
   });
 
-  test("tapbacks, replies and pictures are each sent to Tex; Edit is off", async () => {
+  test("tapbacks, replies and pictures are each sent to Tex", async () => {
     await mount();
     await type("one");
     // ⋯ on the text: the tapbacks, Reply, Edit.
@@ -339,10 +354,42 @@ describe("the test chat's ▶ and message options", () => {
     await type("this one");
     expect(mockCalls.find((c) => c.op === "send" && c.body.text === "this one")?.body).toEqual({ sandboxId: "sb1", as: "", text: "this one", pics: [{ url: "https://files.example.test/p1.png" }], replyTo: "t1r" });
     expect(q("#sbPend")).toBeNull();
-    // Edit is there but off: production passes no edit on to Tex.
+  });
+
+  test("Edit sends an edit of a test text with its new words, and Delete takes one back (Undo Send)", async () => {
+    await mount();
+    await type("dinner at 7?");
+    // Tex's text has neither.
+    await click('#sbGrid tr[data-id="t1r"] .mopt');
+    expect(q("#sbOpt-t1rMenu [data-unsend]")).toBeNull();
     await click('#sbGrid tr[data-id="t1"] .mopt');
-    expect(q<HTMLButtonElement>('#sbOpt-t1Menu [data-edit-open="t1"]')?.disabled).toBe(true);
-    expect(mockCalls.some((c) => c.op === "edit")).toBe(false);
+    await click('#sbOpt-t1Menu [data-edit-open="t1"]');
+    expect(q("#sbPend")?.textContent).toMatch(/Editing .*dinner at 7\?/);
+    expect(q<HTMLInputElement>("#sbTxt")!.value).toBe("dinner at 7?");
+    expect(q("#sbSend")?.textContent).toBe("Save edit");
+    // The same words: the edit step keeps nothing, and the Lab says so.
+    await click("#sbSend");
+    expect(mockCalls.find((c) => c.op === "edit")?.body).toEqual({ sandboxId: "sb1", as: "", msgId: "t1", text: "dinner at 7?" });
+    expect(q("#sandbox")?.textContent).toMatch(/Nothing kept: the words did not change/);
+    await click('#sbGrid tr[data-id="t1"] .mopt');
+    await click('#sbOpt-t1Menu [data-edit-open="t1"]');
+    await type("dinner at 8?");
+    expect(mockCalls.filter((c) => c.op === "edit").at(-1)?.body).toEqual({ sandboxId: "sb1", as: "", msgId: "t1", text: "dinner at 8?" });
+    // The edit is its own row, quoting the text it changed, marked edited; the text it changed keeps its words.
+    const row = q('#sbGrid tr[data-id="t2"]')!;
+    expect(row.textContent).toMatch(/dinner at 8\?/);
+    expect(row.textContent).toMatch(/edited/);
+    expect(row.textContent).toMatch(/dinner at 7\?/);
+    // Delete on the text: Undo Send, its sender's.
+    await click('#sbGrid tr[data-id="t1"] .mopt');
+    await click('#sbOpt-t1Menu [data-unsend="t1"]');
+    expect(mockCalls.find((c) => c.op === "unsend")?.body).toEqual({ sandboxId: "sb1", as: "", msgId: "t1" });
+    expect(q('#sbGrid tr[data-id="t1"]')?.textContent).toMatch(/\(unsent\)/);
+    expect(q('#sbGrid tr[data-id="t3"]')?.textContent).toMatch(/took back a text/);
+    // A text taken back is edited or taken back no more.
+    await click('#sbGrid tr[data-id="t1"] .mopt');
+    expect(q("#sbOpt-t1Menu [data-edit-open]")).toBeNull();
+    expect(q("#sbOpt-t1Menu [data-unsend]")).toBeNull();
   });
 });
 

@@ -194,7 +194,7 @@ function routeWorld() {
 
 const ALICE = "tok_alice_example_000000000000";
 
-test("pictures, replies, tapbacks and edits are refused when they are not what a chat can carry", async () => {
+test("pictures, replies, tapbacks, edits and unsends are refused when they are not what a chat can carry", async () => {
   const w = routeWorld();
   try {
     const { body: opened } = await w.call({ op: "open", source: "maya" });
@@ -213,9 +213,9 @@ test("pictures, replies, tapbacks and edits are refused when they are not what a
     const sent = await w.call({ op: "send", sandboxId, text: "hello" });
     assert.equal(sent.status, 200);
     assert.equal((await w.call({ op: "edit", sandboxId, msgId: `${sent.body.msgId}r`, text: "changed" })).status, 400, "Tex's text is never edited");
-    const edit = await w.call({ op: "edit", sandboxId, msgId: sent.body.msgId, text: "hello again" });
-    assert.equal(edit.status, 501);
-    assert.match(edit.body.error, /Tex doesn't receive edits yet/);
+    assert.equal((await w.call({ op: "unsend", sandboxId, msgId: real })).status, 400, "a real text is never unsent");
+    assert.equal((await w.call({ op: "unsend", sandboxId, msgId: `${sent.body.msgId}r` })).status, 400, "Tex's text is never unsent");
+    assert.equal((await w.call({ op: "edit", sandboxId, msgId: sent.body.msgId, text: "  " })).status, 400, "an edit has words");
     const rows = (await w.call({ op: "get", sandboxId })).body.rows;
     assert.equal(rows.find((r) => r.id === sent.body.msgId).text, "hello", "an edit refused changes nothing");
     assert.equal(w.turns.length, 1);
@@ -329,7 +329,89 @@ test("chats say their kind and people; sets lists Training and Dev only; the Tes
   }
 });
 
-test("tex_dev's guide documents the sandbox's pictures, replies, tapbacks, edits and sets", () => {
+test("an edit runs the edit step and, when the words changed, a turn on the new words beside the text", async () => {
+  const w = routeWorld();
+  try {
+    const { body: opened } = await w.call({ op: "open", source: "maya" });
+    const sandboxId = opened.sandboxId;
+    const sent = await w.call({ op: "send", sandboxId, text: "dinner at 7?" });
+    const same = await w.call({ op: "edit", sandboxId, msgId: sent.body.msgId, text: "Dinner at 7? " });
+    assert.equal(same.status, 200);
+    assert.equal(same.body.to, "same", "the same words, cased and spaced again, change nothing");
+    assert.equal(w.turns.length, 1, "no turn for an edit that changed nothing");
+    const edited = await w.call({ op: "edit", sandboxId, msgId: sent.body.msgId, text: "dinner at 8?" });
+    assert.equal(edited.status, 200);
+    assert.equal(edited.body.to, "turn");
+    assert.equal(w.turns.length, 2, "a changed edit runs its turn");
+    assert.equal(w.turns[1].row.kind, "edit");
+    const rows = (await w.call({ op: "get", sandboxId })).body.rows;
+    const row = rows.find((r) => r.id === edited.body.msgId);
+    assert.equal(row.on, sent.body.msgId);
+    assert.equal(row.text, "dinner at 8?");
+    assert.equal(row.edited, true);
+    assert.equal(rows.find((r) => r.id === sent.body.msgId).text, "dinner at 7?", "the text itself keeps its words, as the ledger does");
+    const entries = (await callSandbox(w.chat(), "ledger.of", { by: edited.body.msgId })).entries;
+    const step = entries.find((e) => e.kind === "step" && e.step === "node" && e.name === "edit");
+    assert.ok(step, "the edit step's run is on the row");
+    assert.deepEqual(step.output, { to: "turn", why: "the words changed" });
+    assert.equal(step.input.earlier, "dinner at 7?");
+    const event = entries.find((e) => e.kind === "text");
+    assert.equal(event.edited, true);
+    assert.equal(event.text, "dinner at 8?");
+    assert.equal(event.quoted, "dinner at 7?");
+    assert.ok(event.replyTo, "the edit names the text it changes");
+    const again = await w.call({ op: "edit", sandboxId, msgId: sent.body.msgId, text: "dinner at 8?" });
+    assert.equal(again.body.to, "same", "compared with the words the text says now, its latest edit's");
+    assert.equal((await w.call({ op: "edit", sandboxId, msgId: edited.body.msgId, text: "x" })).status, 400, "an edit row is not edited itself");
+    const retried = await w.call({ op: "retry", sandboxId, msgId: edited.body.msgId });
+    assert.equal(retried.status, 200);
+    const after = (await w.call({ op: "get", sandboxId })).body.rows;
+    assert.equal(after.filter((r) => r.kind === "edit").length, 1, "retry sends the edit again in place of the old one");
+  } finally {
+    w.restore();
+  }
+});
+
+test("an unsend keeps the text taken back with a quiet noted reply and runs no turn", async () => {
+  const w = routeWorld();
+  try {
+    const { body: opened } = await w.call({ op: "open", source: "chat", chatId: KEY });
+    const sandboxId = opened.sandboxId;
+    const sent = await w.call({ op: "send", sandboxId, text: "who has the ferry times", as: "ana" });
+    assert.equal((await w.call({ op: "unsend", sandboxId, msgId: sent.body.msgId, as: "kai" })).status, 403, "only its sender takes a text back");
+    const unsent = await w.call({ op: "unsend", sandboxId, msgId: sent.body.msgId, as: "ana" });
+    assert.equal(unsent.status, 200);
+    assert.equal(unsent.body.to, "withdraw");
+    assert.equal(w.turns.length, 1, "no turn for an unsend");
+    const rows = (await w.call({ op: "get", sandboxId })).body.rows;
+    assert.equal(rows.find((r) => r.id === sent.body.msgId).unsent, true);
+    const row = rows.find((r) => r.id === unsent.body.msgId);
+    assert.equal(row.kind, "unsend");
+    assert.equal(row.text, "");
+    const reply = rows.find((r) => r.reply === unsent.body.msgId);
+    assert.equal(reply.quiet, true);
+    assert.equal(reply.noted, true);
+    assert.match(reply.note, /Taken back/);
+    const event = (await callSandbox(w.chat(), "ledger.of", { by: unsent.body.msgId })).entries.find((e) => e.kind === "text");
+    assert.equal(event.unsent, true);
+    assert.equal(event.text, "");
+    assert.equal(event.quoted, "who has the ferry times");
+    assert.equal((await w.call({ op: "edit", sandboxId, msgId: sent.body.msgId, text: "x", as: "ana" })).status, 400, "a text taken back is not edited");
+    assert.equal((await w.call({ op: "unsend", sandboxId, msgId: sent.body.msgId, as: "ana" })).status, 400, "nor taken back twice");
+    // The next text's chat lines leave out both the text taken back and its unsend.
+    await w.call({ op: "send", sandboxId, text: "@tex anyone?", as: "kai" });
+    const all = (await callSandbox(w.chat(), "state", {})).rows;
+    const asked = w.turns[1].row;
+    const body = await turnRequestBody({ about: w.turns[1].about, row: asked, rows: all.slice(0, all.findIndex((r) => r.id === asked.id) + 1), turn: "labturn09" });
+    assert.ok(!body.group.chat.some((line) => line.text.includes("ferry")), "a text taken back is gone from the chat lines");
+    assert.equal(body.group.chat.length, 0);
+  } finally {
+    w.restore();
+  }
+});
+
+test("tex_dev's guide documents the sandbox's pictures, replies, tapbacks, edits, unsends and sets", () => {
   const line = guideText().split("\n").find((l) => l.startsWith("- sandbox "));
-  for (const word of ["pics", "replyTo", '"react"', "emoji", '"edit"', '"sets"', "Tex doesn't receive edits yet"]) assert.ok(line.includes(word), `the guide's sandbox line names ${word}`);
+  for (const word of ["pics", "replyTo", '"react"', "emoji", '"edit"', '"unsend"', '"sets"', "edit step"]) assert.ok(line.includes(word), `the guide's sandbox line names ${word}`);
+  assert.ok(!line.includes("Tex doesn't receive edits yet"));
 });

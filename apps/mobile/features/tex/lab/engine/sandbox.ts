@@ -22,14 +22,17 @@ export type SandboxRow = {
   quiet?: boolean;
   tex?: boolean;
   steps?: StepCell[];
-  /** Pictures sent with the text (https only), the text it replies to, and whether it was edited. */
+  /** Pictures sent with the text (https only), the text it replies to, whether it was edited, and taken back (unsent). */
   pics?: string[];
   replyTo?: string;
   edited?: boolean;
+  unsent?: boolean;
+  /** The text a tapback, an edit or an unsend row is on. */
+  on?: string;
   /** Tapbacks on this text, each run as a Tex turn of its own. */
   reactions?: Array<{ who: string; emoji: string }>;
-  /** A row that is a tapback or an edit on another text, not a text of its own. */
-  kind?: "reaction" | "edit";
+  /** A row that is a tapback, an edit or an unsend on another text, not a text of its own. */
+  kind?: "reaction" | "edit" | "unsend";
 };
 /** The tapbacks iMessage has, in its order. */
 export const TAPBACKS = ["❤️", "👍", "👎", "😂", "‼️", "❓"] as const;
@@ -57,7 +60,7 @@ export type SandboxState = {
   draft: { as: string; text: string } | null;
 };
 
-export type SandboxOp = "chats" | "sets" | "open" | "send" | "react" | "retry" | "back" | "drop" | "reset" | "get";
+export type SandboxOp = "chats" | "sets" | "open" | "send" | "react" | "edit" | "unsend" | "retry" | "back" | "drop" | "reset" | "get";
 export type SandboxCall = (op: SandboxOp, body: Record<string, unknown>) => Promise<Record<string, unknown>>;
 
 export const sandbox: SandboxState = { id: null, source: { kind: "maya" }, versionId: "main", people: [], handles: {}, as: "", rows: [], writes: [], running: null, hot: null, busy: false, problem: null, chats: [], sets: [], draft: null };
@@ -102,8 +105,10 @@ export function rowOf(r: Record<string, unknown>): SandboxRow {
     ...(Array.isArray(r.pics) ? { pics: arr<unknown>(r.pics).map((p) => (typeof p === "string" ? p : p && typeof p === "object" ? str((p as Record<string, unknown>).url) : "")).filter((u) => u.startsWith("https://")) } : {}),
     ...(typeof r.replyTo === "string" && r.replyTo ? { replyTo: r.replyTo } : {}),
     ...(r.edited === true ? { edited: true } : {}),
+    ...(r.unsent === true ? { unsent: true } : {}),
+    ...(typeof r.on === "string" && r.on ? { on: r.on } : {}),
     ...(Array.isArray(r.reactions) ? { reactions: arr<Record<string, unknown>>(r.reactions).map((x) => ({ who: str(x.who), emoji: str(x.emoji) })).filter((x) => x.emoji) } : {}),
-    ...(r.kind === "reaction" || r.kind === "edit" ? { kind: r.kind } : {}),
+    ...(r.kind === "reaction" || r.kind === "edit" || r.kind === "unsend" ? { kind: r.kind } : {}),
   };
 }
 
@@ -161,6 +166,8 @@ async function run(op: SandboxOp, body: Record<string, unknown>, busy = true) {
       // Reset deletes the test chat.
       Object.assign(sandbox, { id: null, rows: [], writes: [], running: null, hot: null });
     } else if (Array.isArray(b.rows) || op === "open") take(b);
+    // An edit the edit step found unchanged keeps nothing: said, so the click isn't lost.
+    else if (b.to === "same") sandbox.problem = "Nothing kept: " + (str(b.why) || "the words did not change");
     // send and retry answer the new text's id: the rows, and its turn running, come from get.
     else if (sandbox.id) take(await call("get", { sandboxId: sandbox.id }));
   } catch (e) {
@@ -269,6 +276,16 @@ export const sendText = (text: string, extra: { pics?: string[]; replyTo?: strin
   run("send", { as: asHandle(), text, ...(extra.pics?.length ? { pics: extra.pics.slice(0, 6).map((url) => ({ url })) } : {}), ...(extra.replyTo ? { replyTo: extra.replyTo } : {}) });
 /** A tapback on a text, as whoever the composer sends as: Tex sees it as it would a real one. */
 export const reactTo = (msgId: string, emoji: string) => run("react", { as: asHandle(), msgId, emoji });
+
+/** Whoever sent a text, as the gateway knows them: an edit or an unsend is only ever its sender's. */
+const senderOf = (msgId: string) => {
+  const who = sandbox.rows.find((r) => r.id === msgId)?.who ?? "";
+  return sandbox.handles[who] ?? who;
+};
+/** An edit of a test text: the edit step runs as on a real iMessage edit, and a turn on the new words when they changed. */
+export const editText = (msgId: string, text: string) => run("edit", { as: senderOf(msgId), msgId, text });
+/** Undo Send on a test text: kept as taken back, with no turn, as production keeps one. */
+export const unsendText = (msgId: string) => run("unsend", { as: senderOf(msgId), msgId });
 
 export const retryText = (msgId: string) => run("retry", { msgId });
 /**

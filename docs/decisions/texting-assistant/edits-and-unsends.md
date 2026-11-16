@@ -32,10 +32,14 @@ joined. Neither is ever "(not answered)".
 **Where.** Photon's line, 1:1 and groups (a moved group's edits go to its old home, as its texts do). Sendblue sends
 no edits or unsends; WhatsApp's `messages.patch` is not read yet (the capability list's `cant`).
 
+**The Lab.** A test chat's ⋯ has Edit and Delete (Undo Send) on a test text, and tex_dev's `sandbox` has `edit` and
+`unsend`: the same node with the draft, the same event, a turn only for `turn`
+([lab-sandbox](./lab-sandbox.md)). As for any test text, the judge is not asked before the turn.
+
 The judge's transcript writes them as the Training conversations do (`events.ts` `renderTranscript`, `texTraining.cjs`
 `lineOf`): `(edits "…" to) …` and `(deleted "…")`.
 
 **What a simplification would cost.** Folding an edit into the earlier text in place rewrites the record a person
 owns and hides what Tex answered; sending an edit straight to Tex answers every fixed typo; a code rule for which
 edits matter is a fixed behavior rule the examples should teach. Tests: `apps/agent/src/editStep.test.ts`,
-`apps/mcp/test/editNode.test.mjs`, replay case `edit-and-unsend-shown`.
+`apps/mcp/test/editNode.test.mjs`, `apps/mcp/test/labSandboxEvents.test.mjs`, replay case `edit-and-unsend-shown`.
