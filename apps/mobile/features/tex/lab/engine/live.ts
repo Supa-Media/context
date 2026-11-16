@@ -178,6 +178,9 @@ export async function flush(): Promise<void> {
       live.synced = unfold(lab.cur.graph);
     }
     live.rev = ans.rev;
+    // The page's version keeps the saved revision: the list bringing this rev back stops at `onRemote`'s guard and
+    // never reaches `reconcile`, which is the only other place it moves.
+    lab.cur.rev = ans.rev;
     if (ans.others.length) {
       live.stale = true;
       live.needRev = ans.rev;

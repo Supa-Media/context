@@ -124,19 +124,26 @@ describe("/lab", () => {
     mockAnswers.set(ADMIN, true);
     mockAnswers.set(LIST, { me: "u1", names: { u1: "@staff" }, versions: [{ versionId: "vabc", name: "Faster judge", authorId: "u1", graph, picks: "{}", areas: null, results: "[]", createdAt: 1, updatedAt: 2 }], caseEdits: [] });
     mount();
-    expect(text("#side > .rowi .nm")).toEqual(["Architecture", "Context modules", "Conversations", "Tools", "Speed and cost", "Compare versions"]);
-    expect(text("#wsList .nm")).toEqual(["maya", "fashion-brand", "band"]);
-    expect(text("#gcList .nm")).toEqual(["band chat"]);
-    expect(text("#verList .nm")).toEqual(["main", "Faster judge"]);
+    // Decluttered (2026-11-16): five pages and Collapse; versions, the sync state and Save live in the top bar.
+    expect(text("#side > .rowi .nm")).toEqual(["Architecture", "Context modules", "Tools", "Speed and cost", "Compare versions"]);
+    expect(text("#side .sidefoot .rowi .nm")).toEqual(["Collapse"]);
+    expect(q("#wsList")).toBeNull();
+    // Save shows only when something isn't saved.
+    expect(q("#saveBtn")).toBeNull();
+    act(() => q("#moreBtn")!.click());
     expect(q("#syncState")?.textContent).toBe("Shared · 1 saved version");
-    expect(q("#saveBtn")?.hasAttribute("disabled")).toBe(true);
+    act(() => q("#verBtn")!.click());
+    expect(text("#verList .nm")).toEqual(["main", "Faster judge"]);
+    act(() => q("#verBtn")!.click());
 
     act(() => q('[data-view="tools"]')!.click());
     expect(q("#v-tools")?.hidden).toBe(false);
     expect(q("#v-canvas")?.hidden).toBe(true);
     expect(q('[data-view="tools"]')?.getAttribute("aria-current")).toBe("true");
 
+    act(() => q("#verBtn")!.click());
     act(() => q('[data-ver="vabc"]')!.click());
+    act(() => q("#verBtn")!.click());
     expect(q("#verRename")?.hidden).toBe(false);
     expect((q("#verRename") as HTMLInputElement).value).toBe("Faster judge");
   });

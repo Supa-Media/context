@@ -2,13 +2,15 @@
  * The shared text grid's styles (`views/grid/TextGrid.web.tsx`): Testing's grid (`labCss3.ts`) laid out as a panel
  * for the Architecture test chat and Replay's list, plus the step-output cells. `labCss3.ts` appends it.
  */
+import { LAB_CSS_5 } from "./labCss5";
+
 export const LAB_CSS_4 = String.raw`
 .tl .tst.tgrid{display:flex;flex-direction:column;gap:0;padding:0;height:100%;min-height:0;background:var(--page);font-size:12px}
 .tl .tst.tgrid .ph{padding:6px 10px;gap:6px}
 .tl .tst.tgrid .scroll{overflow:auto;min-height:0;flex:1}
 .tl .tst.tgrid tr.mr{cursor:pointer}
 .tl .tst.tgrid td.o{white-space:nowrap;font-size:11px}
-.tl .tst.tgrid td.o .tm{display:block;color:var(--muted);font-family:var(--mono);font-size:9.5px}
+.tl .tst.tgrid td.o .tm{display:block;color:var(--muted);font-family:var(--mono);font-size:10px}
 .tl .tst.tgrid td.o.hot{background:var(--accent-dim)}
 .tl .tst.tgrid td.o.on{box-shadow:inset 0 0 0 2px var(--accent)}
 .tl .tst.tgrid td.o.bad{color:var(--bad)}
@@ -65,4 +67,4 @@ export const LAB_CSS_4 = String.raw`
 .tl .tst .miss{font-size:12px;border-left:3px solid var(--bad);padding:2px 0 2px 8px}
 .tl .tst .pernode{display:inline-block;margin-right:8px}
 .tl .tst #runsPanel,.tl .tst #tryPanel{overflow:auto}
-`;
+` + LAB_CSS_5;

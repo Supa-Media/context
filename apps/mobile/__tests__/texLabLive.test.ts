@@ -12,6 +12,7 @@ import { beforeEach, describe, expect, jest, test } from "@jest/globals";
 import { mainGraph } from "../features/tex/lab/data/graph";
 import { ago, aiClient, bind, flush, hlClass, isLive, live, onRemote, pendingOps, resetLive, setFeed, setSender, setSetupSender, setupPending, stepsOf, tick, whoLabel, type Answer } from "../features/tex/lab/engine/live";
 import { clone, lab, MAIN } from "../features/tex/lab/engine/state";
+import { versionPrint } from "../features/tex/lab/engine/sandboxPlay";
 import { unfoldGroups } from "../features/tex/lab/engine/groups";
 import type { LabGraph } from "../features/tex/lab/types";
 
@@ -256,5 +257,26 @@ describe("what the bar and list say", () => {
     expect(setups).toEqual([JSON.stringify({ mail: [] })]);
     expect(lab.dirty).toBe(false);
     setSetupSender(null);
+  });
+});
+
+describe("the test chat's version print (sandboxPlay.ts)", () => {
+  // A test turn runs the draft as the server saved it: ▶ must go stale on the page's own saved edit (2026-11-16 review:
+  // it only moved on someone else's), and not on a step moved or an edit not saved yet.
+  test("moves on a saved edit to what runs, not on a move or an unsaved edit", async () => {
+    const id = firstId(lab.cur.graph);
+    const before = versionPrint();
+    lab.cur.graph.nodes.find((n) => n.id === id)!.x += 40;
+    lab.dirty = true;
+    await flush();
+    expect(live.rev).toBe(6);
+    expect(versionPrint()).toBe(before);
+    lab.cur.graph.nodes.find((n) => n.id === id)!.ms += 1000;
+    lab.dirty = true;
+    expect(versionPrint()).toBe(before);
+    answer = { status: "ok", rev: 7, said: [], others: [] };
+    await flush();
+    expect(lab.cur.rev).toBe(7);
+    expect(versionPrint()).not.toBe(before);
   });
 });

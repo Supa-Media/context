@@ -34,11 +34,49 @@ export type TextRow = {
   attrs?: Record<string, string>;
   /** A class on the speaker's name (Replay's start steps: "cds"). */
   whoCls?: string;
+  /** A quoted reply: who and what it answers. */
+  quote?: string;
+  /** Pictures sent with it (https URLs). */
+  pics?: string[];
+  /** Tapbacks on it, each as its emoji. */
+  reactions?: string[];
+  edited?: boolean;
+  /** A reaction or an edit, not a text: drawn in italics. */
+  evt?: boolean;
 };
 
 /** The steps a text column starts with (the mockup's): the rest are in the Columns menu. */
 export const FIRST_STEPS = ["triage", "decide", "lanes", "prepareTheAnswer", "fd", "tools", "checks", "send"];
 const SLIM_STEPS: string[] = [];
+
+/** The row actions' column, right after the row's number (Dev2, 2026-11-16: "these buttons need to not be hidden all the way on the right"). */
+const ACT_W = 76;
+
+/** A message: what it quotes, its text, edited, its tapbacks, its options button and its pictures. */
+function msgCell(r: TextRow, msgExtra?: (r: TextRow) => ReactNode) {
+  return (
+    <>
+      {r.quote ? <span className="q">↩ {r.quote}</span> : null}
+      {r.quiet ? <span className="muted">(stays quiet)</span> : r.text}
+      {r.edited ? <span className="ed">edited</span> : null}
+      {r.reactions?.length ? (
+        <span className="rx">
+          {r.reactions.map((e, k) => (
+            <span key={k}>{e}</span>
+          ))}
+        </span>
+      ) : null}
+      {msgExtra ? msgExtra(r) : null}
+      {r.pics?.length ? (
+        <span className="pics">
+          {r.pics.map((u) => (
+            <img key={u} src={u} alt="Picture sent" />
+          ))}
+        </span>
+      ) : null}
+    </>
+  );
+}
 
 export const msWords = (ms: number | null) => (ms === null ? "" : ms < 1 ? "<1 ms" : ms < 1000 ? `${Math.round(ms)} ms` : `${(ms / 1000).toFixed(1)} s`);
 
@@ -50,7 +88,13 @@ export function TextGrid(p: {
   selCol?: string | null;
   onRow?: (r: TextRow, col: string | null) => void;
   actions?: (r: TextRow) => ReactNode;
+  /** After a message's text: its options button (the test chat's ⋯). */
+  msgExtra?: (r: TextRow) => ReactNode;
   head?: ReactNode;
+  /** After the Columns button (the test chat's Reset). */
+  headEnd?: ReactNode;
+  /** The grid folded to its head (the test chat's ▾). */
+  folded?: boolean;
   empty?: ReactNode;
   id?: string;
 }) {
@@ -62,29 +106,30 @@ export function TextGrid(p: {
   const table = useRef<HTMLTableElement>(null);
   const stepCols = vc.filter((c) => c.id !== "who" && c.id !== "text");
   const act = !!p.actions;
-  const tw = p.slim ? null : 32 + vc.reduce((a, c) => a + colW(cols, c.id), 0) + (act ? 112 : 0);
+  const tw = p.slim ? null : 32 + vc.reduce((a, c) => a + colW(cols, c.id), 0) + (act ? ACT_W : 0);
   return (
     <div className="tst tgrid" id={p.id}>
       <div className="ph">
         {p.head}
         {p.slim ? null : <ColButton cols={cols} all={all} save={save} reset={reset} id={p.id ? p.id + "ColBtn" : undefined} />}
+        {p.headEnd}
       </div>
-      <div className="scroll">
+      <div className="scroll" hidden={p.folded}>
         <table className="chatgrid" ref={table} style={{ width: tw === null ? "100%" : tw }}>
           <colgroup>
             {p.slim ? null : <col style={{ width: 32 }} />}
+            {act ? <col style={{ width: ACT_W }} /> : null}
             {vc.map((c) => (
               <col key={c.id} style={p.slim && c.id === "text" ? undefined : { width: colW(cols, c.id) }} />
             ))}
-            {act ? <col style={{ width: 112 }} /> : null}
           </colgroup>
           <thead>
             <tr>
               {p.slim ? null : <th className="num">#</th>}
+              {act ? <th className="ach" /> : null}
               {vc.map((c, k) => (
-                <HeadCell key={c.id} col={c} onResize={(e) => startResize(e, table.current, k + (p.slim ? 0 : 1), colW(cols, c.id), (w) => save({ ...cols, w: { ...cols.w, [c.id]: w } }))} />
+                <HeadCell key={c.id} col={c} onResize={(e) => startResize(e, table.current, k + (p.slim ? 0 : 1) + (act ? 1 : 0), colW(cols, c.id), (w) => save({ ...cols, w: { ...cols.w, [c.id]: w } }))} />
               ))}
-              {act ? <th /> : null}
             </tr>
           </thead>
           <tbody>
@@ -101,14 +146,14 @@ export function TextGrid(p: {
                 n++;
                 const cls = ["mr", r.tex ? "tex" : "", r.prod ? "prod" : "", r.test ? "test" : "", p.sel === r.id ? "sel" : ""].filter(Boolean).join(" ");
                 return (
-                  <tr key={r.id} className={cls} data-id={r.id} title={r.title} {...r.attrs} onClick={(e) => p.onRow && !(e.target as HTMLElement).closest("button") && p.onRow(r, (e.target as HTMLElement).closest("td")?.getAttribute("data-c") || null)}>
+                  <tr key={r.id} className={cls} data-id={r.id} title={r.title} {...r.attrs} onClick={(e) => p.onRow && !(e.target as HTMLElement).closest("button, .popm") && p.onRow(r, (e.target as HTMLElement).closest("td")?.getAttribute("data-c") || null)}>
                     {p.slim ? null : <td className="num mono muted">{n}</td>}
+                    {act ? <td className="ac">{p.actions!(r)}</td> : null}
                     {vc.map((c) => {
                       if (c.id === "who") return <td key="who" data-c="who"><b className={[r.tex ? "texwho" : "", r.whoCls || ""].join(" ").trim() || undefined}>{r.who}</b></td>;
-                      if (c.id === "text") return <td key="text" data-c="text" className="txt">{r.quiet ? <span className="muted">(stays quiet)</span> : r.text}</td>;
+                      if (c.id === "text") return <td key="text" data-c="text" className={"txt" + (r.evt ? " evt" : "")}>{msgCell(r, p.msgExtra)}</td>;
                       return null;
                     })}
-                    {act ? <td className="ac">{p.actions!(r)}</td> : null}
                     {r.tex
                       ? stepCols.length ? <td colSpan={stepCols.length} className="texcell" /> : null
                       : stepCols.map((c) => {

@@ -71,7 +71,7 @@ export const LAB_CSS_3 = String.raw`
 .tl .tst .cv{color:var(--text);font-size:11px}
 .tl .tst .ed{width:100%;font:inherit;font-size:12px;border:1px solid var(--accent);border-radius:4px;padding:2px 4px;background:var(--page);color:var(--text);resize:vertical;min-height:0}
 .tl .tst .edwrap{display:flex;flex-direction:column;gap:3px}
-.tl .tst .rowx{border:0;background:none;color:var(--muted);opacity:0;font-size:14px;width:20px;padding:0}
+.tl .tst .rowx{border:0;background:none;color:var(--muted);opacity:0;font-size:13px;width:20px;padding:0}
 .tl .tst tr.mr:hover .rowx{opacity:1}
 .tl .tst td.x{border-right:0!important;white-space:nowrap}
 .tl .tst tr.addrow td{border-right:0!important}
@@ -90,7 +90,7 @@ export const LAB_CSS_3 = String.raw`
 .tl .tst .panel.fold{align-items:center;justify-content:flex-start;gap:10px;padding:10px 0;color:var(--muted);font-weight:600;cursor:pointer}
 .tl .tst .panel.fold:hover{color:var(--text);background:var(--s3)}
 .tl .tst .panel.fold .foldname{writing-mode:vertical-rl;font-size:12px;letter-spacing:.04em}
-.tl .tst .foldbtn{border:none;background:none;color:var(--muted);padding:2px 6px;border-radius:6px;font-size:14px;line-height:1}
+.tl .tst .foldbtn{border:none;background:none;color:var(--muted);padding:2px 6px;border-radius:6px;font-size:13px;line-height:1}
 .tl .tst .foldbtn:hover{background:var(--s3);color:var(--text)}
 .tl .tst .pics{display:flex;flex-wrap:wrap;gap:4px;margin-top:4px}
 .tl .tst .pics img{width:56px;height:56px;object-fit:cover;border-radius:6px;border:1px solid var(--line2);display:block}

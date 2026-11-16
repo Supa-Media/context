@@ -249,13 +249,13 @@ export function sendBackNotice(feedback, { advisor = false } = {}) {
 }
 
 /** One review: `{ kind, send, problems, feedback }`, or null when there is no verdict in time. */
-export async function reviewReply({ state, earlier = [], request = requestViaGateway, config, metadata, timeoutMs = REVIEW_TIMEOUT_MS }) {
+export async function reviewReply({ state, earlier = [], request = requestViaGateway, config, metadata, timeoutMs = texTimeoutMs("reviewer", config?.tex) }) {
   const call = request(
     // `toldNow`: the state's first line is this reviewer's own now line
     // (`judgeState`), so the door does not write a second one. It is said here
     // because the line sits in their words, which the door never reads a
     // notice out of (`localNow.js` `noticesOf`).
-    { model: REVIEW_MODEL, system: withArchitecture(REVIEW_SYSTEM, "reviewer"), messages: [{ role: "user", text: reviewMessage(state, earlier) }], tools: [], maxTokens: REVIEW_MAX_TOKENS, ...texEffort("reviewer"), toldNow: true },
+    { model: texModel("reviewer", config?.tex), system: withArchitecture(REVIEW_SYSTEM, "reviewer"), messages: [{ role: "user", text: reviewMessage(state, earlier) }], tools: [], maxTokens: REVIEW_MAX_TOKENS, ...texEffort("reviewer", config?.tex), toldNow: true },
     config,
     { metadata },
   );
@@ -283,7 +283,9 @@ export const takesBack = (answer) => typeof answer === "string" && TAKE_BACK.tes
  * all (Dev2, 2026-11-07: a routine texted "the say_nothing action isn't
  * available to me in this session").
  */
-export function replyJudge({ setting, question, history = [], inner = null, plain = null, report = null, scheduled = null, timeZone = null, config = null, request = requestViaGateway, metadata = null, timeoutMs = REVIEW_TIMEOUT_MS, clock = Date.now, log = console.log, advisor = false, byRunner = false }) {
+export function replyJudge({ setting, question, history = [], inner = null, plain = null, report = null, scheduled = null, timeZone = null, config = null, request = requestViaGateway, metadata = null, timeoutMs = texTimeoutMs("reviewer", config?.tex), clock = Date.now, log = console.log, advisor = false, byRunner = false }) {
+  // The reviewer's model: main's, or a Lab test chat's draft's (`aiGateway.js` `aiGatewayConfig`).
+  const reviewModel = texModel("reviewer", config?.tex);
   const on = Boolean(setting) && (config !== null || request !== requestViaGateway);
   const verdicts = [];
   const feedbackSoFar = [];
@@ -322,8 +324,8 @@ export function replyJudge({ setting, question, history = [], inner = null, plai
       // A quiet word is never a text: nothing is sent, so there is nothing to judge (Tex Devs, 2026-11-05: a SKIP sent back three times; `sayNothing.js`).
       if (isControlWord(answer)) return { notice: null, review: false };
       if (unreviewed) {
-        log(JSON.stringify({ event: "tex_reply_review", model: REVIEW_MODEL, round: sentBack, kind: null, verdict: "skipped", problems: [], ms: 0 }));
-        if (!byRunner) turn.tell?.({ kind: "model", step: "reviewer", ok: true, ms: 0, model: REVIEW_MODEL, input: { draftChars: String(answer ?? "").length, actions: 0 }, output: { verdict: "skipped", why: "no search, read, write or send in this turn, so nothing to check its claims against" } });
+        log(JSON.stringify({ event: "tex_reply_review", model: reviewModel, round: sentBack, kind: null, verdict: "skipped", problems: [], ms: 0 }));
+        if (!byRunner) turn.tell?.({ kind: "model", step: "reviewer", ok: true, ms: 0, model: reviewModel, input: { draftChars: String(answer ?? "").length, actions: 0 }, output: { verdict: "skipped", why: "no search, read, write or send in this turn, so nothing to check its claims against" } });
         return { notice: null, review: false };
       }
       return { notice: null, review: true };
@@ -331,11 +333,11 @@ export function replyJudge({ setting, question, history = [], inner = null, plai
     /** The Reply reviewer node's half (`graph/nodes/reviewer.js`): one review of a draft the code checks let through; a notice sends it back. */
     async review(answer, turn = {}) {
       if (sentBack >= sendBacksFor(kindSoFar)) {
-        turn.tell?.(judgeEvent({ by: "review", model: REVIEW_MODEL, round: sentBack, draft: answer, went: true, reason: `sent back ${sentBack === 1 ? "once" : `${sentBack} times`} already, so it goes as it is` }));
+        turn.tell?.(judgeEvent({ by: "review", model: reviewModel, round: sentBack, draft: answer, went: true, reason: `sent back ${sentBack === 1 ? "once" : `${sentBack} times`} already, so it goes as it is` }));
         return null;
       }
       if (sentBack >= 1 && clock() - began >= SEND_BACK_WINDOW_MS) {
-        turn.tell?.(judgeEvent({ by: "review", model: REVIEW_MODEL, round: sentBack, draft: answer, went: true, reason: "out of time to write it again, so it goes as it is" }));
+        turn.tell?.(judgeEvent({ by: "review", model: reviewModel, round: sentBack, draft: answer, went: true, reason: "out of time to write it again, so it goes as it is" }));
         return null;
       }
       const state = judgeState({ question, history, messages: turn.messages, answer, report, scheduled, now: clock(), timeZone });
@@ -349,13 +351,13 @@ export function replyJudge({ setting, question, history = [], inner = null, plai
       verdicts.push({ verdict, ms, acted, kind: review?.kind ?? null, problems: review?.problems ?? [], round: sentBack });
       turn.mark?.({ verdict, confidence: null, ms, acted, ok: review !== null });
       // The kind and the problem names only: never the reply, the question or the feedback (`docs/decisions/observability`).
-      log(JSON.stringify({ event: "tex_reply_review", model: REVIEW_MODEL, round: sentBack, kind: review?.kind ?? null, verdict: review === null ? "none" : acted ? "sent_back" : "sent", problems: review?.problems ?? [], ms }));
+      log(JSON.stringify({ event: "tex_reply_review", model: reviewModel, round: sentBack, kind: review?.kind ?? null, verdict: review === null ? "none" : acted ? "sent_back" : "sent", problems: review?.problems ?? [], ms }));
       if (review === null) return null;
       // The third send-back and on bring the advisor in, while it has time to answer (Dev2, 2026-11-13).
       const askAdvisor = acted && advisor && sentBack >= ADVISOR_AFTER_SEND_BACKS && clock() - began < ADVISOR_WINDOW_MS;
       const notice = acted ? sendBackNotice(review.feedback, { advisor: askAdvisor }) : null;
       // Every review of a draft, and whether it went, in the chat's history (Dev2, 2026-11-05: "so we can see how responses were shaped").
-      turn.tell?.(judgeEvent({ by: "review", model: REVIEW_MODEL, round: sentBack, draft: answer, went: !acted, ms, notice, kind: review.kind, problems: review.problems }));
+      turn.tell?.(judgeEvent({ by: "review", model: reviewModel, round: sentBack, draft: answer, went: !acted, ms, notice, kind: review.kind, problems: review.problems }));
       if (!acted) return null;
       feedbackSoFar.push(review.feedback);
       sentBack += 1;

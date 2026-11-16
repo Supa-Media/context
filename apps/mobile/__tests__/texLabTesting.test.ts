@@ -9,10 +9,12 @@
  *
  * Every name and message here is invented. This repository is public.
  *
- * Sabotage record (applied, run, observed failing, reverted, 2026-11-15):
+ * Sabotage record (applied, run, observed failing, reverted, 2026-11-15; 2026-11-16 below):
  *  1. `cellOf` ignoring `run: "must"` -> "a must-run label on a node that didn't run shows !" fails;
  *  2. the hidden Test list showing titles -> "the Test Set stays hidden" fails;
  *  3. `saveCols` not writing to this browser -> "the Columns menu hides a column and the choice is kept" fails.
+ *  4. (2026-11-16) `deleteChat` never calling the sink -> "Delete chat, which asks twice and goes to the store" fails;
+ *  5. (2026-11-16) the details panel opening on any cell -> "a node's cell opens its details" fails.
  * (Dropping the Tex-row check from T is caught twice: the tab and `texSetOps.cjs` both refuse a label on a Tex row.)
  */
 import { afterEach, beforeEach, describe, expect, jest, test } from "@jest/globals";
@@ -106,7 +108,7 @@ async function mount() {
   click("#modeTesting");
   await act(async () => void (await new Promise((r) => setTimeout(r, 0))));
   // The repo's own conversations are there too; these tests work in the invented one.
-  click('.chat[data-chat="picnic"]');
+  click('.ts-ci[data-chat="picnic"]');
 }
 const q = (s: string) => document.querySelector<HTMLElement>(s);
 const qa = (s: string) => [...document.querySelectorAll<HTMLElement>(s)];
@@ -122,9 +124,8 @@ describe("the Testing tab", () => {
   test("opens on the sets, the ratio and the first chat as a grid of message × node", async () => {
     await mount();
     expect(q("[data-testid=tex-testing]")).not.toBeNull();
-    expect(q('.set[data-set="training"]')?.textContent).toContain("Errands");
-    expect(q('.set[data-set="dev"]')?.textContent).toContain("Picnic planning");
-    expect(q("#ratio")?.textContent).toContain("starred tests");
+    expect(q('.ts-set[data-set="training"]')?.textContent).toContain("Errands");
+    expect(q('.ts-set[data-set="dev"]')?.textContent).toContain("Picnic planning");
     const heads = qa("table.chatgrid thead th[data-col]").map((h) => h.dataset.col);
     expect(heads.slice(0, 4)).toEqual(["who", "text", "triage", "decide"]);
     expect(heads).not.toContain("router");
@@ -132,16 +133,33 @@ describe("the Testing tab", () => {
     expect(q('tr.mr[data-id="m3"] td[data-c="text"]')?.textContent).toContain("reacted to #2");
   });
 
-  test("a node's cell shows its input from the config and its label form; a pick is sent as a field op", async () => {
+  test("a node's cell opens its details: the label form, and what the config hands it folded away; a pick is a field op", async () => {
     await mount();
+    expect(q("#insp")).toBeNull();
     click('tr.mr[data-id="m4"] td[data-c="decide"]');
+    expect(q("#inspTitle")?.textContent).toBe("Decide · #4");
+    expect((q("#reads") as HTMLDetailsElement).open).toBe(false);
     expect(q("#insp")?.textContent).toContain("Reads, in order");
     for (const id of G().nodes.find((n) => n.id === "decide")!.ctx) expect(q("#insp")?.textContent).toContain(id);
     expect(q("#insp")?.textContent).toContain("Wires in");
     expect(q('#insp a[href="/lab?node=decide"]')).not.toBeNull();
-    click('.seg[data-f="act"] button[data-v="quiet"]');
+    click('.seg2[data-f="act"] button[data-v="quiet"]');
     expect(lastOps()).toEqual([{ op: "field", msg: "m4", node: "decide", field: "act", value: "quiet" }]);
     expect(q('tr.mr[data-id="m4"] td[data-c="decide"]')?.textContent).toContain("quiet");
+    click('.seg2[data-f="run"] button[data-v="must"]');
+    expect(lastOps()).toEqual([{ op: "field", msg: "m4", node: "decide", field: "run", value: "must" }]);
+    click("#starNode");
+    expect(lastOps()).toEqual([{ op: "field", msg: "m4", node: "decide", field: "star", value: true }]);
+    click("#closeInsp");
+    expect(q("#insp")).toBeNull();
+  });
+
+  test("a message's own cells and a Tex row open no details panel: they edit in place", async () => {
+    await mount();
+    click('tr.mr[data-id="m4"] td[data-c="text"]');
+    expect(q("#insp")).toBeNull();
+    click('tr.mr[data-id="m2"] td[data-c="text"]');
+    expect(q("#insp")).toBeNull();
   });
 
   test("T stars a node cell, never a Tex row", async () => {
@@ -171,50 +189,119 @@ describe("the Testing tab", () => {
     expect(lastOps()).toEqual([{ op: "edit", msg: "m5", field: "text", value: "see you at noon" }]);
   });
 
-  test("the Test Set stays hidden: counts only, until a person shows it", async () => {
+  test("the Test Set stays hidden: one count row, shown only on a second click", async () => {
     await mount();
-    const test = q('.set[data-set="test"]')!;
-    expect(test.textContent).toContain("Hidden chat 1");
+    const test = q('.ts-set[data-set="test"]')!;
+    expect(test.textContent).toContain("1 hidden chat");
     expect(test.textContent).toContain("★ 2");
     expect(document.body.textContent).not.toContain("Words only people see");
+    await act(async () => click("#showTest"));
+    expect(q("#showTest")?.textContent).toContain("Click again");
     expect(fetched.some((u) => u.endsWith("/tex-test-set"))).toBe(false);
     await act(async () => click("#showTest"));
     await act(async () => void (await new Promise((r) => setTimeout(r, 0))));
-    expect(q('.set[data-set="test"]')?.textContent).toContain("Words only people see");
+    expect(q('.ts-set[data-set="test"]')?.textContent).toContain("Words only people see");
   });
 
-  test("the Columns menu hides a column and the choice is kept in this browser", async () => {
+  test("step columns: + lists every step to show, × on a header hides it, and the choice is kept in this browser", async () => {
     await mount();
-    click("#colBtn");
-    const box = q('#colMenu input[data-show="triage"]') as HTMLInputElement;
-    act(() => box.click());
+    click('th[data-col="triage"] button[data-hide="triage"]');
     expect(qa("table.chatgrid thead th[data-col]").map((h) => h.dataset.col)).not.toContain("triage");
     expect(JSON.parse(localStorage.getItem("texLab.testing.cols") || "{}").hidden).toContain("triage");
+    click("#addCol");
+    const items = qa("#colMenu .it");
+    expect(items.length).toBe(stepNodes(G()).length);
+    const triage = items.find((b) => b.textContent?.includes(G().nodes.find((n) => n.id === "triage")!.label))!;
+    click(triage);
+    expect(qa("table.chatgrid thead th[data-col]").map((h) => h.dataset.col)).toContain("triage");
+    expect(q("#colMenu")).not.toBeNull();
+  });
+});
+
+// Dev2, 2026-11-16: "simplify this page, because right now it looks horrendous" (approved mockup
+// https://claude.ai/artifact/PUjJ7Vd6tX6BJj7vkEir1T).
+describe("the simplified tab", () => {
+  test("no strips, legend, hint or set label: the header is the title, its count, undo, redo and ⋯", async () => {
+    await mount();
+    expect(q(".legend")).toBeNull();
+    expect(q(".runbar")).toBeNull();
+    expect(q("#runChat")).toBeNull();
+    expect(q("#colBtn")).toBeNull();
+    expect(q("#histBtn")).toBeNull();
+    expect(q("#ratio")?.closest("#tstSets")).not.toBeNull();
+    expect((q("#chatTitle") as HTMLInputElement).value).toBe("Picnic planning");
+    expect(q("#chatMeta")?.textContent).toBe("group · ★ 1");
+    expect(q(".ts-mh")?.textContent).not.toContain("Dev");
+  });
+
+  test("the sets panel hides and shows from the chat header, and the choice is kept in this browser", async () => {
+    await mount();
+    click("#foldSets");
+    expect(q("#tstSets")).toBeNull();
+    expect(JSON.parse(localStorage.getItem("texLab.testing.fold") || "{}").sets).toBe(true);
+    click("#openSets");
+    expect(q("#tstSets")).not.toBeNull();
+  });
+
+  test("renaming in the header is a title op", async () => {
+    await mount();
+    const t = q("#chatTitle") as HTMLInputElement;
+    act(() => {
+      Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!.call(t, "Picnic, Sunday");
+      t.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+    act(() => void t.dispatchEvent(new FocusEvent("focusout", { bubbles: true })));
+    expect(lastOps()).toEqual([{ op: "title", value: "Picnic, Sunday" }]);
+  });
+
+  test("dragging a chat onto another set moves it", async () => {
+    await mount();
+    const data = new Map<string, string>();
+    const dt = { setData: (k: string, v: string) => data.set(k, v), getData: (k: string) => data.get(k) ?? "", effectAllowed: "" };
+    const ev = (type: string) => Object.assign(new Event(type, { bubbles: true, cancelable: true }), { dataTransfer: dt });
+    act(() => void q('.ts-ci[data-chat="picnic"]')!.dispatchEvent(ev("dragstart")));
+    act(() => void q('.ts-set[data-set="training"]')!.dispatchEvent(ev("drop")));
+    expect(sets.convs.find((c) => c.id === "picnic")?.set).toBe("training");
+  });
+
+  test("a row's ⋯ inserts a row below, moves it and deletes it", async () => {
+    await mount();
+    click('button[data-mm="m1"]');
+    expect(q("#rowMenu")).not.toBeNull();
+    click(qa("#rowMenu .it").find((b) => b.textContent === "Insert row below")!);
+    expect(lastOps()[0]).toMatchObject({ op: "addMsg", at: 1 });
+    expect(q("#rowMenu")).toBeNull();
+    click('button[data-mm="m4"]');
+    click(qa("#rowMenu .it").find((b) => b.textContent?.startsWith("Move up"))!);
+    expect(lastOps()).toEqual([{ op: "move", msg: "m4", before: "m3" }]);
+    click('button[data-mm="m4"]');
+    click(qa("#rowMenu .it").find((b) => b.textContent?.startsWith("Delete row"))!);
+    expect(lastOps()).toEqual([{ op: "remove", msg: "m4" }]);
+  });
+
+  test("the chat's ⋯ holds History, the key and Delete chat, which asks twice and goes to the store", async () => {
+    mockAnswers.set("functions/texSets:history", { rev: 3, isNew: false, revs: [{ rev: 3, by: "@ana", via: "lab", said: ["labelled decide on m4"], at: 1, restorable: true }, { rev: 2, by: "@ana", via: "lab", said: ["m1 text → hi"], at: 1, restorable: true }] });
+    await mount();
+    click("#chatMore");
+    expect(q("#chatMenu")?.textContent).toContain("must run, didn't");
+    click(qa("#chatMenu .it").find((b) => b.textContent === "History…")!);
+    expect(q("#histMenu")?.textContent).toContain("Revision 3");
+    expect(q("#histMenu")?.textContent).toContain("Original");
+    await act(async () => click('#histMenu button[data-back="2"]'));
+    expect(mockCalls.find((c) => c.fn === "functions/texSets:restoreTo")?.args).toEqual({ id: "picnic", to: 2 });
+    click("#chatMore");
+    const del = () => qa("#chatMenu .it").find((b) => /delete/i.test(b.textContent || ""))!;
+    click(del());
+    expect(mockCalls.some((c) => c.fn === "functions/texSets:remove")).toBe(false);
+    expect(del().textContent).toBe("Click again to delete");
+    await act(async () => click(del()));
+    expect(mockCalls.find((c) => c.fn === "functions/texSets:remove")?.args).toMatchObject({ id: "picnic" });
+    expect(sets.convs.some((c) => c.id === "picnic")).toBe(false);
   });
 });
 
 // Dev2's comments on the live tab, 2026-11-16.
 describe("Dev2's changes to the tab", () => {
-  test("both side panels fold to a strip and open again, and the choice is kept in this browser", async () => {
-    await mount();
-    click("#foldSets");
-    expect(q("#tstSets")).toBeNull();
-    expect(q("#openSets")).not.toBeNull();
-    click("#foldInsp");
-    expect(q("#insp")).toBeNull();
-    expect(JSON.parse(localStorage.getItem("texLab.testing.fold") || "{}")).toEqual({ sets: true, insp: true });
-    click("#openSets");
-    click("#openInsp");
-    expect(q("#tstSets")).not.toBeNull();
-    expect(q("#insp")).not.toBeNull();
-  });
-
-  test("no keyboard hint line and no list of the cases a chat came from", async () => {
-    await mount();
-    expect(q(".legend")?.textContent).not.toContain("Click a cell");
-    expect(q("#middle .ph")?.textContent).not.toContain("from ");
-  });
-
   test("Undo puts the last change back as a whole chat, Redo does it again, and Cmd+Z does the same", async () => {
     await mount();
     click('tr.mr[data-id="m4"] td[data-c="decide"]');
@@ -233,17 +320,7 @@ describe("Dev2's changes to the tab", () => {
     expect(q('tr.mr[data-id="m4"] td[data-c="decide"] .starc')).not.toBeNull();
   });
 
-  test("History lists the saved revisions and Put back asks the store for that one", async () => {
-    mockAnswers.set("functions/texSets:history", { rev: 3, isNew: false, revs: [{ rev: 3, by: "@ana", via: "lab", said: ["labelled decide on m4"], at: 1, restorable: true }, { rev: 2, by: "@ana", via: "lab", said: ["m1 text → hi"], at: 1, restorable: true }] });
-    await mount();
-    click("#histBtn");
-    expect(q("#histMenu")?.textContent).toContain("Revision 3");
-    expect(q("#histMenu")?.textContent).toContain("Original");
-    await act(async () => click('#histMenu button[data-back="2"]'));
-    expect(mockCalls.find((c) => c.fn === "functions/texSets:restoreTo")?.args).toEqual({ id: "picnic", to: 2 });
-  });
-
-  test("a message shows its pictures, and removing one is an edit of its pics", async () => {
+  test("a message shows its pictures, and removing one in its editor is an edit of its pics", async () => {
     await mount();
     const pic = { url: "https://example.invalid/chairs.png", type: "image/png", name: "chairs.png" };
     click('tr.mr[data-id="m4"] td[data-c="text"]');
@@ -255,7 +332,8 @@ describe("Dev2's changes to the tab", () => {
     key("ArrowLeft");
     key("ArrowRight");
     expect(q('tr.mr[data-id="m4"] td[data-c="text"] img')?.getAttribute("src")).toBe(pic.url);
-    click('#insp .pic button[aria-label="Remove picture"]');
+    key("Enter");
+    click('td.dc.on .pic button[aria-label="Remove picture"]');
     expect(lastOps()).toEqual([{ op: "edit", msg: "m4", field: "pics", value: [] }]);
   });
 });

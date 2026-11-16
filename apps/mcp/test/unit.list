@@ -597,3 +597,4 @@ test/texTraining.test.mjs
 test/texTestSet.test.mjs
 test/labSandbox.test.mjs
 test/editNode.test.mjs
+test/labSandboxEvents.test.mjs

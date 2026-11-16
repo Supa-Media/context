@@ -15,7 +15,8 @@ export function placeOf(search: string): Place {
   const q = new URLSearchParams(search);
   const m = q.get("mode");
   const mode = m === "replay" ? "replay" : m === "testing" ? "testing" : "lab";
-  const view = (VIEWS as string[]).includes(q.get("page") ?? "") ? (q.get("page") as View) : "canvas";
+  const page = q.get("page") === "convo" ? "modules" : (q.get("page") ?? "");
+  const view = (VIEWS as string[]).includes(page) ? (page as View) : "canvas";
   const chat = q.get("chat") ?? "";
   const moment = q.get("moment") ?? "";
   const node = q.get("node") ?? "";

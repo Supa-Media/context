@@ -11,6 +11,8 @@
 //   policy.js `controlPlaneAnswer` passing every route   "a control-plane write is refused ..." fails
 //   policy.js READ_TOOLS holding send_email               "a tool that changes or sends ..." fails
 //   route.js `sandboxStub` named without the userId       "another person's test chat ..." fails
+//   texConfig.js `draftStep` ignoring the draft's model   "a draft's models, efforts ..." fails
+//   aiGateway.js `tex` always main's config                "a draft's models, efforts ..." fails
 
 import { test } from "node:test";
 import assert from "node:assert/strict";
@@ -21,8 +23,9 @@ import { CONTROL_PLANE_READS, controlPlaneAnswer, LAB_SANDBOX_KEY, sandboxedTool
 import { sandboxGate, stepsOf, turnBody } from "../src/labSandbox/harness.js";
 import { handleLabSandbox, MAYA_CONVO } from "../src/labSandbox/route.js";
 import { withDraft } from "../src/agent/graph/turnGraph.js";
-import { TEX_CONFIG } from "../src/agent/texConfig.js";
+import { TEX_CONFIG, texConfigOf, texEffort, texModel, texSetupFront, texTimeoutMs, texWords } from "../src/agent/texConfig.js";
 import { createTransport } from "../src/controlPlane/client.js";
+import { aiGatewayConfig } from "../src/agent/aiGateway.js";
 import { texBucket, texStoreStub, texTimers } from "../src/texStore/wire.js";
 import { durableSql, texStoreNamespace } from "./texStoreFixture.mjs";
 
@@ -221,6 +224,40 @@ test("a draft's wiring runs only where every wire names a step; its on and off a
   assert.equal(TEX_CONFIG.nodes.find((n) => n.id === first.id).on, first.on, "main's config is untouched");
 });
 
+test("a draft's models, efforts, time limits and prompt words run in a test chat, and only there", async () => {
+  const words = texWords(TEX_CONFIG);
+  const draft = {
+    nodes: [
+      { id: "fd", model: "opus-5-5", effort: "high" },
+      { id: "reviewer", model: "sonnet-5-5", effort: "medium", timeoutS: 12 },
+      { id: "classifier", model: "lab-only-model" },
+    ],
+    edges: [],
+    modules: { "p-rules": { text: "Draft rules only." } },
+  };
+  const out = withDraft(TEX_CONFIG, draft);
+  assert.equal(texModel("fd", out), TEX_CONFIG.models["opus-5-5"]);
+  assert.deepEqual(texEffort("fd", out), { effort: "high" });
+  assert.equal(texModel("reviewer", out), TEX_CONFIG.models["sonnet-5-5"]);
+  assert.equal(texTimeoutMs("reviewer", out), 12_000);
+  assert.equal(texModel("classifier", out), texModel("classifier"), "a model main's table has no id for keeps main's");
+  assert.equal(texWords(out).rules, "Draft rules only.");
+  assert.equal(texWords(TEX_CONFIG).rules, words.rules, "main's words are untouched");
+  // The texting setup a test turn reads takes the draft's front-door model and words.
+  const front = texSetupFront(out);
+  assert.equal(front.models.main, TEX_CONFIG.models["opus-5-5"]);
+  assert.equal(front.models.effort, "high");
+  // Through the env: a gate with the draft gives it, every real env gives main's.
+  const gate = { record() {}, config: draft };
+  assert.equal(texModel("reviewer", texConfigOf({ [LAB_SANDBOX_KEY]: gate })), TEX_CONFIG.models["sonnet-5-5"]);
+  assert.equal(texConfigOf({}), TEX_CONFIG);
+  // Each judge reads its model off the AI gateway config (`config?.tex`): a test turn's carries the draft, a real one's nothing.
+  const road = { AI_GATEWAY_ACCOUNT_ID: "0123456789abcdef0123456789abcdef", AI_GATEWAY_ID: "tex", AI_GATEWAY_TOKEN: "x".repeat(32) };
+  assert.equal(texModel("reviewer", aiGatewayConfig({ ...road, [LAB_SANDBOX_KEY]: gate }).tex), TEX_CONFIG.models["sonnet-5-5"]);
+  assert.equal(aiGatewayConfig(road).tex, undefined);
+  assert.equal(texModel("reviewer", texConfigOf({})), texModel("reviewer"));
+});
+
 test("a group test text is sent as the person written as, and steps come from the node entries", () => {
   const about = { kind: "group", chatKey: KEY, members: OTHER_KEY, people: [{ handle: "ana", name: "Ana" }, { handle: "kai", name: "Kai" }] };
   const body = turnBody({ about, text: "@Tex hi", as: "kai", eid: "1700000000000-000001", turn: "labturn01", rows: [{ who: "ana", text: "morning" }] });
@@ -267,7 +304,8 @@ test("a stranger is refused; the chats are the person's 1:1 and their groups", a
   const w = routeWorld({ [ALICE]: { userId: "u_alice", workspaceId: "ws_alice" } });
   try {
     assert.equal((await w.call(BOB, { op: "chats" })).status, 403);
-    assert.deepEqual((await w.call(ALICE, { op: "chats" })).body.chats, [{ chatId: "me", name: "You and Tex" }, { chatId: KEY, name: "Team" }]);
+    // Each chat says what it is and how many people it holds (the Lab's picker; a count the control plane leaves out is 1).
+    assert.deepEqual((await w.call(ALICE, { op: "chats" })).body.chats, [{ chatId: "me", name: "You and Tex", kind: "1:1", people: 1 }, { chatId: KEY, name: "Team", kind: "group", people: 1 }]);
     assert.equal((await w.call(ALICE, { op: "open", source: "chat", chatId: OTHER_KEY })).status, 404, "a chat they are not in does not exist");
   } finally {
     w.restore();

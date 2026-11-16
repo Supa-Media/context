@@ -9,16 +9,25 @@
  * (`apps/convex/functions/texLabSandbox.ts`); every test chat is the caller's own object, named by their id, so one
  * person never reaches another's.
  *
- *  - `chats` → `{ chats: [{ chatId, name }] }`: their 1:1 (`me`) and each group chat they are in.
+ *  - `chats` → `{ chats: [{ chatId, name, kind: "1:1" | "group", people }] }`: their 1:1 (`me`) and each group chat
+ *    they are in, with how many people it holds besides Tex.
+ *  - `sets` → `{ sets: [{ id, title, set: "training" | "dev", kind, people, texts }] }`: the Training and Dev
+ *    conversations a test chat can start from, the Lab's drafts over the repo's copy. Never the Test Set.
  *  - `open { source: "chat" | "set" | "maya", chatId?, convId?, versionId?, base? }` → `{ sandboxId, people, rows }`:
  *    a real chat's texts so far (up to `base`, which is left out), or a Training or Dev conversation's (never the Test
  *    Set's), as the test chat's start; `maya` is the bench's Maya conversation.
- *  - `send { sandboxId, as, text }` → `{ msgId }`: the text, as `as`, and its turn run in the background; `get` shows it.
- *  - `retry { sandboxId, msgId }` → `{ msgId }`: that text and everything after it dropped, and the text sent again.
+ *  - `send { sandboxId, as?, text, pics?, replyTo? }` → `{ msgId }`: the text, as `as`, with up to 6 pictures
+ *    (`[{ url, type?, name? }]`, https; `text` may then be empty) and as a reply to a row of this test chat, and its turn
+ *    run in the background; `get` shows it.
+ *  - `react { sandboxId, msgId, emoji, as? }` → `{ msgId, turn }`: a tapback (❤️ 👍 👎 😂 ‼️ ❓) on any row with words;
+ *    `turn` false when production only notes it (a 1:1 tapback that answers nothing), its reply row quiet and `noted`.
+ *  - `edit { sandboxId, msgId, text, as? }`: refused, 501: Tex doesn't receive edits yet (`inbound.js`).
+ *  - `retry { sandboxId, msgId }` → `{ msgId }`: that text or tapback and everything after it dropped, and sent again.
  *  - `back { sandboxId, msgId }`: that text and its reply kept, everything later dropped.
  *  - `drop { sandboxId, msgId }`: that text and everything after it dropped.
  *  - `reset { sandboxId }`: the whole test chat deleted.
- *  - `get { sandboxId }` → `{ rows, writes, running }`.
+ *  - `get { sandboxId }` → `{ rows, writes, running }`; a row has `pics`, `replyTo`, and `reactions: [{ who, emoji }]`
+ *    when tapped; a tapback's own row is `kind: "reaction"` with its `emoji` and the row it is `on`.
  */
 
 import REPO from "../../../../packages/shared/src/texSetsRepo.generated.json" with { type: "json" };
@@ -27,7 +36,8 @@ import { ledgerFor, ONE_TO_ONE_CHAT } from "../agent/ledger.js";
 import { bearerToken } from "../session.js";
 import { json } from "../http/responses.js";
 import { callSandbox, sandboxStub } from "./object.js";
-import { eventId, runSandboxTurn, textEvent, TURN_LIMIT_MS } from "./harness.js";
+import { eventId, runSandboxTurn, TURN_LIMIT_MS } from "./harness.js";
+import { inboundEvent, picsOf, reactionOf, TAPBACK_OF, targetOf } from "./inbound.js";
 
 export const LAB_SANDBOX_PATH = "/tex-lab/sandbox";
 /** A person's test texts a day, across all their test chats: each runs the real models. */
@@ -86,6 +96,37 @@ async function conversationOf(controlPlane, token, id) {
   if (!conv || !Array.isArray(conv.msgs)) return { error: [404, `There is no Training or Dev conversation ${id}.`] };
   if (conv.set === "test") return { error: [403, "The Test Set is people only and never runs here."] };
   return { conv };
+}
+
+/**
+ * `sets`: the Training and Dev conversations a test chat can start from, each as the Lab has it (its draft over the
+ * repo's copy, `texSets.ts` `listDrafts` through the control plane), a removed one left out. The Test Set is never kept
+ * there or in the repo's copy, and anything that says it is one is left out here too.
+ */
+async function setsList(controlPlane, token) {
+  const answer = await controlPlane.labSandbox(token, "sets", {}).catch(() => null);
+  if (answer === null) return refused(503, "the control plane did not answer");
+  const drafts = answer.status === "ok" && Array.isArray(answer.drafts) ? answer.drafts.filter((d) => d && typeof d.id === "string") : [];
+  const byId = new Map(drafts.map((d) => [d.id, d]));
+  const repo = REPO.sets ?? [];
+  const convs = [];
+  for (const c of repo) {
+    const d = byId.get(c.id);
+    if (d?.removed) continue;
+    convs.push(d ? (parse(d.conv) ?? c) : c);
+  }
+  for (const d of drafts) if (!d.removed && !repo.some((c) => c.id === d.id)) convs.push(parse(d.conv));
+  const sets = convs
+    .filter((c) => c && typeof c.id === "string" && (c.set === "training" || c.set === "dev") && Array.isArray(c.msgs))
+    .map((c) => ({
+      id: c.id,
+      title: String(c.title ?? c.id),
+      set: c.set,
+      kind: c.kind === "group" ? "group" : "1:1",
+      people: c.kind === "group" ? (Array.isArray(c.members) ? c.members.length : 0) : 1,
+      texts: c.msgs.filter((m) => m && typeof m.text === "string").length,
+    }));
+  return json({ sets });
 }
 
 /** A conversation's messages as a test chat's start: rows, and the ledger entries a turn reads them from. */
@@ -179,35 +220,119 @@ async function open(env, controlPlane, token, who, input) {
   return json({ sandboxId, people, rows: rows.map(shown) });
 }
 
-/** The Lab's view: rows, writes, and the turn running now (a stale mark is no turn). */
+/** The Lab's view: rows (each tapped one with its `reactions`), writes, and the turn running now (a stale mark is no turn). */
 function view(state) {
   const running = state.meta?.running;
   const live = running && typeof running === "object" && Date.now() - (running.at ?? 0) < TURN_LIMIT_MS + 2 * MINUTE;
-  return { rows: (state.rows ?? []).map(shown), writes: state.writes ?? [], running: live ? { msgId: running.msgId, node: running.node ?? null } : null };
+  const list = state.rows ?? [];
+  const taps = new Map();
+  for (const row of list) if (row.kind === "reaction" && typeof row.on === "string") taps.set(row.on, [...(taps.get(row.on) ?? []), { who: row.who, emoji: row.emoji }]);
+  const rows = list.map((row) => (taps.has(row.id) ? { ...shown(row), reactions: taps.get(row.id) } : shown(row)));
+  return { rows, writes: state.writes ?? [], running: live ? { msgId: running.msgId, node: running.node ?? null } : null };
 }
 
-/** `send`, and `retry`'s second half: the text into the test chat's ledger and rows, its turn run in the background. */
-async function send(env, ctx, controlPlane, token, who, stub, state, { as, text }, origin) {
-  if (typeof text !== "string" || text.trim() === "" || text.length > MAX_TEXT) return refused(400, `text is 1 to ${MAX_TEXT} characters`);
+/** Who a test row is from: a person's handle or a name in a group, the person in a 1:1; `{ speaker }` or `{ error }`. */
+function speakerOf(about, as) {
+  if (about.kind !== "group") return { speaker: "You" };
+  const speaker = typeof as === "string" && as.trim() !== "" ? as.trim().slice(0, 64) : (about.people ?? [])[0]?.handle ?? "someone";
+  if (!HANDLE.test(speaker) && !/^[\p{L}\p{N} ._\-']{1,40}$/u.test(speaker)) return { error: [400, "as is a person's handle or a name"] };
+  return { speaker };
+}
+
+/** What a noted tapback's quiet row says: production runs no turn for it (`apps/agent/src/inbox.ts` `react`). */
+const NOTED = "Noted, not answered: a 1:1 tapback that answers nothing runs no turn; the next text carries it as reacted.";
+
+/**
+ * A test row into the chat: its event into the ledger as the Worker logs it, and its turn run in the background, or,
+ * for a tapback production only notes, a quiet reply row and no turn. Only a row that runs a turn is counted.
+ */
+async function addRow({ env, ctx, controlPlane, token, who, stub, state, row, origin, runTurn, turn = true, cut = null }) {
   const about = state.meta.chat;
-  if (view(state).running !== null) return refused(409, "a test text is still running: wait for its reply");
-  const speaker = about.kind === "group" ? (typeof as === "string" && as.trim() !== "" ? as.trim().slice(0, 64) : (about.people ?? [])[0]?.handle ?? "someone") : "You";
-  if (about.kind === "group" && !HANDLE.test(speaker) && !/^[\p{L}\p{N} ._\-']{1,40}$/u.test(speaker)) return refused(400, "as is a person's handle or a name");
-  const day = new Date().toISOString().slice(0, 10);
-  const counted = await callSandbox(sandboxStub(env, who.userId, "index0000000000"), "count", { key: `sends:${day}`, max: DAILY_SENDS });
-  if (!counted.ok) return refused(429, `${DAILY_SENDS} test texts a day: try again tomorrow`);
+  // The draft as saved now, not as it was at open: an edit in the Lab since then is what the next turn runs.
+  const drafted = turn ? await draftConfig(controlPlane, token, about.versionId) : { config: about.config ?? null };
+  if (drafted.error) return refused(...drafted.error);
+  if (turn) {
+    const day = new Date().toISOString().slice(0, 10);
+    const counted = await callSandbox(sandboxStub(env, who.userId, "index0000000000"), "count", { key: `sends:${day}`, max: DAILY_SENDS });
+    if (!counted.ok) return refused(429, `${DAILY_SENDS} test texts a day: try again tomorrow`);
+  }
   const answer = await controlPlane.labSandbox(token, "session", { chat: about.chat });
   if (answer?.status !== "ok") return refused(404, answer?.error ?? "This chat is no longer yours to test in.");
-  const at = Date.now();
-  const eid = eventId(at);
-  const row = { id: `t${eid.replace("-", "")}`, eid, who: speaker, text, at, prod: false };
+  // A retry cuts its old text only once everything that could refuse it has passed, so a refusal loses nothing.
+  if (cut !== null) {
+    // Read again: a send that landed while the checks above were out is running now, and the cut would take it.
+    const now = await callSandbox(stub, "state", {});
+    if (view(now).running !== null) return refused(409, "a test text is still running: wait for its reply");
+    await callSandbox(stub, "cut.from", { id: cut });
+  }
   await callSandbox(stub, "row.add", { row });
-  await callSandbox(stub, "ledger.append", { entries: [textEvent({ eid, at, text, as: speaker, about })], by: row.id });
-  await callSandbox(stub, "meta", { key: "running", value: { msgId: row.id, node: null, at } });
-  const run = runSandboxTurn({ env, stub, about, row, payload: answer.session, token, config: about.config ?? null, origin });
+  await callSandbox(stub, "ledger.append", { entries: [await inboundEvent({ about, row, rows: [...(state.rows ?? []), row] })], by: row.id });
+  const tapback = row.kind === "reaction" ? { turn } : {};
+  if (!turn) {
+    await callSandbox(stub, "row.add", { row: { id: `${row.id}r`, reply: row.id, who: "Tex", text: "", at: row.at, prod: false, quiet: true, noted: true, note: NOTED, ms: 0, steps: [] } });
+    return json({ msgId: row.id, ...tapback });
+  }
+  await callSandbox(stub, "meta", { key: "running", value: { msgId: row.id, node: null, at: row.at } });
+  const run = runTurn({ env, stub, about, row, payload: answer.session, token, config: drafted.config ?? null, origin });
   if (ctx && typeof ctx.waitUntil === "function") ctx.waitUntil(run);
   else await run;
-  return json({ msgId: row.id });
+  return json({ msgId: row.id, ...tapback });
+}
+
+/** A new test row's ids: its event id and the row id built from it. */
+function newIds() {
+  const at = Date.now();
+  const eid = eventId(at);
+  return { at, eid, id: `t${eid.replace("-", "")}` };
+}
+
+/** `send`, and `retry`'s second half: a text, with its pictures and the row it replies to, and its turn. */
+async function send(deps, state, { as, text = "", pics: given, replyTo }, cut = null) {
+  if (typeof text !== "string" || text.length > MAX_TEXT) return refused(400, `text is at most ${MAX_TEXT} characters`);
+  const { pics, error } = picsOf(given);
+  if (error) return refused(400, error);
+  if (text.trim() === "" && pics.length === 0) return refused(400, `text is 1 to ${MAX_TEXT} characters, or empty with pictures`);
+  if (replyTo !== undefined && replyTo !== null) {
+    const target = targetOf(state.rows, replyTo, "replied to");
+    if (target.error) return refused(...target.error);
+  }
+  const about = state.meta.chat;
+  if (view(state).running !== null) return refused(409, "a test text is still running: wait for its reply");
+  const speaker = speakerOf(about, as);
+  if (speaker.error) return refused(...speaker.error);
+  const { at, eid, id } = newIds();
+  const row = { id, eid, who: speaker.speaker, text, at, prod: false, ...(pics.length > 0 ? { pics } : {}), ...(typeof replyTo === "string" ? { replyTo } : {}) };
+  return await addRow({ ...deps, state, row, cut });
+}
+
+/** `react`: a tapback on a row with words, read as production reads it; a turn only when production would run one. */
+async function react(deps, state, { msgId, emoji, as }, cut = null) {
+  if (typeof emoji !== "string" || !TAPBACK_OF[emoji]) return refused(400, `emoji is one of ${Object.keys(TAPBACK_OF).join(" ")}`);
+  const target = targetOf(state.rows, msgId, "tapped");
+  if (target.error) return refused(...target.error);
+  const about = state.meta.chat;
+  if (view(state).running !== null) return refused(409, "a test text is still running: wait for its reply");
+  const speaker = speakerOf(about, as);
+  if (speaker.error) return refused(...speaker.error);
+  const read = await reactionOf({ about, target: target.row, emoji, as: speaker.speaker, rows: state.rows });
+  const { at, eid, id } = newIds();
+  const row = { id, eid, who: speaker.speaker, kind: "reaction", emoji, on: target.row.id, text: read.line, at, prod: false, ...(read.runs ? {} : { noted: true }) };
+  return await addRow({ ...deps, state, row, turn: read.runs, cut });
+}
+
+/**
+ * `edit`: refused once the text is one the caller may edit. Production passes no edit on: Photon's `message.edited` is
+ * counted and dropped (`apps/agent/src/photonEvents.ts`), WhatsApp's `messages.patch` is ignored (`whapiInbound.ts`),
+ * and Sendblue sends none, so there is no ledger event or turn to run, and a test one would be made up.
+ */
+function edit(state, { msgId, text, as }) {
+  const found = testRow(state, msgId);
+  if (found.error) return refused(...found.error);
+  if (found.row.who === "Tex" || found.row.reply) return refused(400, "Tex's text is never edited: edit one of the test texts");
+  if (found.row.kind === "reaction") return refused(400, "a tapback is never edited");
+  if (typeof text !== "string" || text.trim() === "" || text.length > MAX_TEXT) return refused(400, `text is 1 to ${MAX_TEXT} characters`);
+  if (state.meta.chat.kind === "group" && typeof as === "string" && as.trim() !== "" && as.trim() !== found.row.who) return refused(403, `That text is ${found.row.who}'s: edit it as them.`);
+  return refused(501, "Tex doesn't receive edits yet: the texting Worker counts an edited message and passes nothing on (no ledger event, no turn). Retry the text with the new words instead.");
 }
 
 /** A test text the caller may cut at: one of this test chat's own, never a real text it started from. */
@@ -219,7 +344,7 @@ function testRow(state, msgId) {
 }
 
 /** One `/tex-lab/sandbox` call. */
-export async function handleLabSandbox(request, env, ctx, { origin = "https://context.lc" } = {}) {
+export async function handleLabSandbox(request, env, ctx, { origin = "https://context.lc", runTurn = runSandboxTurn } = {}) {
   if (request.method !== "POST") return new Response(null, { status: 405 });
   if (!env?.LAB_SANDBOX) return refused(501, "this deployment has no Lab test chats");
   const token = bearerToken(request);
@@ -232,9 +357,12 @@ export async function handleLabSandbox(request, env, ctx, { origin = "https://co
   if (who.status === "refused" || typeof who.userId !== "string") return refused(403, "Only Tex developers use the Lab's test chats.");
 
   if (input.op === "chats") {
-    const groups = (Array.isArray(who.chats) ? who.chats : []).filter((chat) => CHAT_KEY.test(chat?.key ?? "")).map((chat) => ({ chatId: chat.key, name: String(chat.name ?? "Group chat") }));
-    return json({ chats: [{ chatId: "me", name: "You and Tex" }, ...groups] });
+    const groups = (Array.isArray(who.chats) ? who.chats : [])
+      .filter((chat) => CHAT_KEY.test(chat?.key ?? ""))
+      .map((chat) => ({ chatId: chat.key, name: String(chat.name ?? "Group chat"), kind: "group", people: Number.isSafeInteger(chat.people) && chat.people > 0 ? chat.people : 1 }));
+    return json({ chats: [{ chatId: "me", name: "You and Tex", kind: "1:1", people: 1 }, ...groups] });
   }
+  if (input.op === "sets") return await setsList(controlPlane, token);
   if (input.op === "open") return await open(env, controlPlane, token, who, input);
 
   if (typeof input.sandboxId !== "string" || !SANDBOX_ID.test(input.sandboxId)) return refused(400, "name the test chat: sandboxId");
@@ -242,18 +370,27 @@ export async function handleLabSandbox(request, env, ctx, { origin = "https://co
   const state = await callSandbox(stub, "state", {});
   if (!state?.meta?.chat) return refused(404, "There is no such test chat (Reset or a day unused deletes one).");
 
+  const deps = { env, ctx, controlPlane, token, who, stub, origin, runTurn };
   switch (input.op) {
     case "get":
       return json(view(state));
     case "send":
-      return await send(env, ctx, controlPlane, token, who, stub, state, input, origin);
+      return await send(deps, state, input);
+    case "react":
+      return await react(deps, state, input);
+    case "edit":
+      return edit(state, input);
     case "retry": {
       const found = testRow(state, input.msgId);
       if (found.error) return refused(...found.error);
       if (found.row.reply) return refused(400, "retry a text, not Tex's reply");
       if (view(state).running !== null) return refused(409, "a test text is still running: wait for its reply");
-      await callSandbox(stub, "cut.from", { id: found.row.id });
-      return await send(env, ctx, controlPlane, token, who, stub, await callSandbox(stub, "state", {}), { as: found.row.who, text: found.row.text }, origin);
+      // Checked against the chat as it will be once the text is cut; the cut itself waits until nothing can refuse it.
+      const { row } = found;
+      const at = (state.rows ?? []).findIndex((r) => r.id === row.id);
+      const before = { ...state, rows: (state.rows ?? []).slice(0, at) };
+      if (row.kind === "reaction") return await react(deps, before, { msgId: row.on, emoji: row.emoji, as: row.who }, row.id);
+      return await send(deps, before, { as: row.who, text: row.text, pics: row.pics, replyTo: row.replyTo }, row.id);
     }
     case "back":
     case "drop": {
@@ -267,6 +404,6 @@ export async function handleLabSandbox(request, env, ctx, { origin = "https://co
       await callSandbox(stub, "reset", {});
       return json({ ok: true });
     default:
-      return refused(400, "op is chats, open, send, retry, back, drop, reset or get");
+      return refused(400, "op is chats, sets, open, send, react, edit, retry, back, drop, reset or get");
   }
 }

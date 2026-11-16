@@ -3,9 +3,16 @@
  */
 /**
  * The Lab's "You" as a test user, in the page (Dev2, 2026-11-13: "give me the ability to change the user to my user,
- * and essentially replay old messages ... it also should probably be read only"): the swap in the sidebar, Your texts
+ * and essentially replay old messages ... it also should probably be read only"): Your texts
  * on the Test cases page, a ticked text in the run config and prompt, and a pasted replay shown beside it and never
  * saved with the version (every staff member reads a saved version).
+ *
+ * The decluttered Lab (mockup https://claude.ai/artifact/W21NekNf2vtnFLXXzAmp7N, approved by Dev2 2026-11-16) took
+ * out the sidebar's test user swap (Maya / You) and its Workspaces list, the canvas's scenario picker and the playbar
+ * with its speed slider, so the tests of those went with them. What they led to is still checked here: a traced text's
+ * step panel, Replay, the ticked texts and the pasted replay, with the tester set by `asYou()` since nothing in the
+ * page sets it now; the look's toggle, now in the top bar's ⋯; and the wires' key, open in Replay's top row and behind
+ * the toolbar's ? in the Lab.
  *
  * Sabotage checks: drop the `lab.myNow` branch in Run's keepResults and "a pasted replay ..." fails on the saved raw;
  * drop the replays spread from `config()` and "a ticked text ..." fails.
@@ -120,7 +127,8 @@ import TexLabRoute from "../app/(app)/lab";
 import { config } from "../features/tex/lab/engine/diff";
 import { clone, emit, G, lab, MAIN, set as setLab } from "../features/tex/lab/engine/state";
 import { promptText } from "../features/tex/lab/views/run/runText";
-import { SCENARIOS } from "../features/tex/lab/engine/traces";
+import { SCENARIOS, traceMine } from "../features/tex/lab/engine/traces";
+import { readTurnTimes } from "../features/tex/lab/views/mine/useMine";
 
 const roots: Array<() => void> = [];
 const afterThis: Array<() => void> = [];
@@ -165,6 +173,15 @@ beforeEach(() => {
 
 const q = <T extends Element = HTMLElement>(s: string) => document.querySelector<T>(s);
 const qa = (s: string) => [...document.querySelectorAll<HTMLElement>(s)];
+/**
+ * The test user as You. The sidebar swap that set this left with the decluttered Lab and nothing in the page sets it
+ * now; Replay's loader reads your ledger (the mocked MineLoader), and the tester is set here.
+ */
+async function asYou() {
+  await click(q("#modeReplay"));
+  await click(q("#modeLab"));
+  act(() => setLab({ tester: "me" }));
+}
 async function click(el: Element | null | undefined) {
   if (!el) throw new Error("expected an element to click");
   await act(async () => {
@@ -173,120 +190,18 @@ async function click(el: Element | null | undefined) {
   });
 }
 
-describe("the Lab's test user as You", () => {
-  test("the swap shows you and your workspaces, opens Your texts, and swaps back to Maya", async () => {
-    expect(q("#tuser b")?.textContent).toBe("Maya");
-    await click(q("#tuserSwap"));
-    expect(q("#tuser b")?.textContent).toBe("Sam");
-    expect(qa("#wsList .nm").map((x) => x.textContent)).toEqual(["sam", "band"]);
-    expect(q("#gcList")).toBeNull();
-    expect(q('[data-area="mine"]')?.getAttribute("aria-current")).toBe("true");
-    expect(qa(".tc .cid").length).toBe(2);
-    expect(q(".tc .pill.acc")?.textContent).toBe("abc1234 · setup a1b2c3");
-    expect(qa(".tc .bb.tex .bw").map((x) => x.textContent)).toEqual(["Tex then", "Tex then"]);
-    await click(q("#tuserSwap"));
-    expect(q("#tuser b")?.textContent).toBe("Maya");
-    expect(q('[data-area="mine"]')).toBeNull();
-  });
-
-  test("as You, the canvas's picker lists the texts you sent, not test cases, and traces the one you pick", async () => {
-    await click(q("#tuserSwap"));
-    await click(q('[data-view="canvas"]'));
-    await click(q("#scnBtn"));
-    expect(qa("#scnPop [data-mine] .nm").map((x) => x.textContent)).toEqual(["remind me about the shelves", "hey"]);
-    expect(qa("#scnPop [data-tr]")).toEqual([]);
-    await click(q('#scnPop [data-mine="ev1"]'));
-    expect(q("#scnName")?.textContent).toBe("hey");
-    // Its real times, not estimates: the reply as measured, each measured step as is, the rest marked "≈".
-    expect(q("#stats")?.textContent).toMatch(/6\.3 s real/);
-    // The front door with the tool call it made: 2.7 s of rounds and 0.65 s of the tool.
+describe("the Lab with your own texts", () => {
+  test("a step's panel shows what it got and gave in your text, and its icon can be changed", async () => {
+    // Traced as the swap's canvas picker traced one of your texts; neither is in the decluttered Lab, so the state is
+    // set here (Replay's scrubber is what traces a text now, and leaving Replay clears it).
+    await act(async () => {
+      traceMine("hey");
+      await readTurnTimes({ text: "hey" } as never);
+    });
+    // Its real times on the canvas, not estimates: the front door with its tool call, the reviewer as measured.
     expect(q('.nd[data-id="fd"] .tm')?.textContent).toBe("3.4 s");
     expect(q('.nd[data-id="reviewer"] .tm')?.textContent).toBe("2.1 s");
     expect(q('.nd[data-id="checks"] .tm')?.textContent ?? "").toMatch(/^(≈ .* s)?$/);
-    // Back to Maya: a bench test again, and her picker lists tests.
-    await click(q("#tuserSwap"));
-    await click(q('[data-view="canvas"]'));
-    expect(q("#scnName")?.textContent).not.toBe("hey");
-    expect(q("#stats")?.textContent).not.toMatch(/real/);
-    await click(q("#scnBtn"));
-    expect(qa("#scnPop [data-mine]")).toEqual([]);
-    expect(qa("#scnPop [data-tr]").length).toBeGreaterThan(0);
-    await click(q("#scnBtn"));
-    // You again, with your texts already read: the canvas opens on your newest.
-    await click(q("#tuserSwap"));
-    await click(q('[data-view="canvas"]'));
-    expect(q("#scnName")?.textContent).toBe("remind me about the shelves");
-  });
-
-  test("a real text plays at its logged pace, scaled by the speed slider, and the lit step's panel shows what it got and gave", async () => {
-    await click(q("#tuserSwap"));
-    await click(q('[data-view="canvas"]'));
-    await click(q("#scnBtn"));
-    await click(q('#scnPop [data-mine="ev1"]'));
-    // 8× faster: the 6.3 s reply plays in under a second of screen time.
-    const range = q<HTMLInputElement>("#playSpeed")!;
-    const setValue = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!;
-    act(() => {
-      setValue.call(range, "5");
-      range.dispatchEvent(new Event("input", { bubbles: true }));
-    });
-    expect(q("#playSpeedLabel")?.textContent).toBe("8× faster");
-    // A virtual clock, so the pace is checked exactly: each frame reads performance.now.
-    let now = 0;
-    const clockSpy = jest.spyOn(performance, "now").mockImplementation(() => now);
-    afterThis.push(() => clockSpy.mockRestore());
-    await click(q("#playBtn"));
-    const litAt = async (ms: number) => {
-      now = ms;
-      await act(async () => {
-        await new Promise((r) => setTimeout(r, 5));
-      });
-      return qa(".nd.lit").map((el) => el.dataset.id!);
-    };
-    // At 8×, each 100 ms of screen time is 0.8 s of the turn. Door steps runs 0.86-1.56 s, the front door from 1.56 s.
-    expect(await litAt(150)).toContain("door");
-    const later = await litAt(240);
-    expect(later).toContain("fd");
-    expect(later).not.toContain("door");
-    // The tool call ran 1.5 s into the turn's gateway part, inside the front door's rounds.
-    expect(await litAt(340)).toEqual(expect.arrayContaining(["fd", "tools"]));
-    expect(q("#playClock")?.textContent).toBe("2.7 s / 7.2 s");
-    // The lit step that started last is selected, so its panel shows what it got and gave.
-    expect(q("#nIO")).not.toBeNull();
-    // Past the end nothing is lit, and the clock stops at the end.
-    expect(await litAt(1500)).toEqual([]);
-    expect(q("#playClock")?.textContent).toBe("7.2 s / 7.2 s");
-    // A running step shows a ring filling around it as its time passes: the front door runs 1.56-4.91 s.
-    const scrubber = q<HTMLInputElement>("#playScrub")!;
-    const scrubTo = (ms: number) =>
-      act(() => {
-        setValue.call(scrubber, String(ms));
-        scrubber.dispatchEvent(new Event("input", { bubbles: true }));
-      });
-    const filled = () => Number(q('.nd.run[data-id="fd"] .ring')?.getAttribute("stroke-dasharray")?.split(" ")[0]);
-    scrubTo(2000);
-    expect(q("#playClock")?.textContent).toBe("2.0 s / 7.2 s");
-    const early = filled();
-    scrubTo(4000);
-    const late = filled();
-    expect(early).toBeGreaterThan(0);
-    expect(late).toBeGreaterThan(early);
-    expect(late).toBeLessThan(100);
-    // Scrubbing pauses; Play carries on from there rather than from the top.
-    expect(q("#playBtn")?.getAttribute("aria-label")).toBe("Play the moment");
-    await click(q("#playBtn"));
-    expect(q("#playBtn")?.getAttribute("aria-label")).toBe("Pause");
-    expect(await litAt(1500 + 10)).toContain("fd");
-    await click(q("#playBtn"));
-    expect(q("#playBtn")?.getAttribute("aria-label")).toBe("Play the moment");
-    clockSpy.mockRestore();
-  });
-
-  test("a step's panel shows what it got and gave in your text, and its icon can be changed", async () => {
-    await click(q("#tuserSwap"));
-    await click(q('[data-view="canvas"]'));
-    await click(q("#scnBtn"));
-    await click(q('#scnPop [data-mine="ev1"]'));
     act(() => {
       lab.sel = { t: "node", id: "tools" };
       emit();
@@ -304,15 +219,13 @@ describe("the Lab's test user as You", () => {
     // Where they are is in the address, so a refresh or Back keeps it (Dev2, 2026-11-14).
     expect(new URLSearchParams(window.location.search).get("mode")).toBe("replay");
     expect(new URLSearchParams(window.location.search).get("moment")).toBe("ev3");
-    // The text box over the canvas repeats the chat, so it is hidden; the wires' key is open, starting the top row, until put away.
-    expect(q(".ctop .moment")?.hasAttribute("hidden")).toBe(true);
-    expect(q("#keyw")?.textContent).toMatch(/Next/);
-    expect(q("#keyBtn")?.previousElementSibling?.className).not.toBe("cbreak");
-    // In Replay the key leads the top row on the left (Dev2, 2026-11-14: "put the key back to float left").
+    // No text strip over the canvas (the chat on the left already shows it). In Replay the wires' key stays open and
+    // leads the top row on the left (Dev2, 2026-11-14: "put the key back to float left"); there is no toolbar, so no ?.
+    expect(q(".ctop .moment")).toBeNull();
     expect(q(".ctop")?.className).toBe("ctop replay");
-    await click(q("#keyBtn"));
-    expect(q("#keyw")?.hasAttribute("hidden")).toBe(true);
-    await click(q("#keyBtn"));
+    expect(q(".ctop.replay #keyw")?.textContent).toMatch(/Next/);
+    expect(q("#keyw")?.hasAttribute("hidden")).toBe(false);
+    expect(q("#keyBtn")).toBeNull();
     // The chats hide from beside them, and come back from the canvas's edge.
     await click(q("#rCollapse"));
     expect(q("#side")?.hasAttribute("hidden")).toBe(true);
@@ -427,13 +340,19 @@ describe("the Lab's test user as You", () => {
     await click(q("#modeLab"));
     expect(q("#tSel")).not.toBeNull();
     expect(q("#replaySide")).toBeNull();
-    expect(q('#wsList a[data-myws="band"]')).toBeNull();
-    await click(q("#tuserSwap"));
-    expect(q('#wsList a[data-myws="band"]')?.getAttribute("href")).toBe("/console/band");
+    // There the key is a popover behind the toolbar's ?, shut until asked for.
+    expect(q("#keyw")?.classList.contains("keypop")).toBe(true);
+    expect(q("#keyw")?.hasAttribute("hidden")).toBe(true);
+    await click(q("#keyBtn"));
+    expect(q("#keyw")?.hasAttribute("hidden")).toBe(false);
+    expect(q("#keyw")?.textContent).toMatch(/Next/);
+    await click(q("#keyBtn"));
+    expect(q("#keyw")?.hasAttribute("hidden")).toBe(true);
   });
 
   test("a ticked text goes into the run config and the prompt, with the notes its turn read", async () => {
-    await click(q("#tuserSwap"));
+    await asYou();
+    act(() => setLab({ view: "tests", tArea: "mine" }));
     await click(q('[data-mypick="ev3"]'));
     const c = config() as ReturnType<typeof config> & { replays?: Array<{ id: string; reads: string[]; then: unknown }>; replayAs?: unknown };
     expect(c.replayAs).toEqual({ handle: "sam", name: "Sam" });
@@ -444,7 +363,7 @@ describe("the Lab's test user as You", () => {
   });
 
   test("a pasted replay shows beside the text it replayed, and is never saved with the version", async () => {
-    await click(q("#tuserSwap"));
+    await asYou();
     // Run and Test cases left the nav (Runs panel, 2026-11-16); the pages stay for You's texts.
     act(() => setLab({ view: "run" }));
     await act(async () => void (await new Promise((r) => setTimeout(r, 0))));
@@ -458,7 +377,7 @@ describe("the Lab's test user as You", () => {
     await click(q("#resBtn"));
     expect(MAIN.results.length).toBe(0);
     expect(JSON.stringify(mockSaved)).not.toMatch(/Saturday at 9|shelves/);
-    act(() => setLab({ view: "tests" }));
+    act(() => setLab({ view: "tests", tArea: "mine" }));
     await act(async () => void (await new Promise((r) => setTimeout(r, 0))));
     expect(qa(".tc .bb.tex .bw").map((x) => x.textContent)).toContain("Tex now");
     expect(document.body.textContent).toMatch(/Saturday at 9\./);
@@ -469,6 +388,10 @@ describe("the Lab's look", () => {
   test("the toggle sets light or dark on the Lab, auto follows the system, and the choice is remembered here", async () => {
     const root = () => q('[data-testid="tex-lab"]')!;
     expect(root().getAttribute("data-theme")).toBeNull();
+    // The look moved into the top bar's ⋯ (decluttered Lab).
+    expect(q('[data-theme-pick="light"]')).toBeNull();
+    await click(q("#moreBtn"));
+    expect(q("#moreBtnMenu #themeToggle")).not.toBeNull();
     await click(q('[data-theme-pick="light"]'));
     expect(root().getAttribute("data-theme")).toBe("light");
     expect(window.localStorage.getItem("tex-lab-theme")).toBe("light");
