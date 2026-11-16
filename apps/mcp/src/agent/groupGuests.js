@@ -62,14 +62,14 @@ export function blockedLine(group) {
   if (blocked.length === 0) return "";
   const bySlug = new Map();
   for (const { slug, who, why } of blocked) {
-    const named = why === "no_account" ? `${who} (whose number isn't linked to a Context account)` : `@${who} (not a member of it)`;
+    const named = why === "no_account" ? `${who} (who has no Context account and isn't invited to it)` : `@${who} (not a member of it)`;
     bySlug.set(slug, [...(bySlug.get(slug) ?? []), named]);
   }
   const lines = [...bySlug].map(([slug, names]) => `@${slug}, because of ${names.join(", ")}`);
   const first = blocked[0].slug;
   const one = blocked[0].why === "no_account" ? blocked[0].who : `@${blocked[0].who}`;
   return (
-    `This chat can't use ${lines.join("; and ")}: a chat reaches a workspace only when everyone in it is a member. ` +
+    `This chat can't use ${lines.join("; and ")}: a chat reaches a workspace only when everyone in it is a member or invited by number. ` +
     "When an ask needs that workspace (its notes, a login saved there, a link to save one there), say so in one line: who and why, and the fix, by text. " +
     `The fix is an owner of the workspace asking you to add them in any words ("add ${one} to @${first}" counts): you call send chat_add_everyone, which invites only the people here not in it yet, ` +
     "or that person leaving the chat; the moment it's fixed, the workspace and its logins work here. Never send anyone to the app for this. "

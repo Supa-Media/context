@@ -48,7 +48,7 @@ test("groupOf carries blockers from the body and nothing else from them", () => 
 test("the prompt names who and the fix, by text, never the app", () => {
   const group = groupOf({ group: { key: HEX, members: HEX, from: "ada", people: ["ada", "sam"], blocked: [SHYOH, GUEST] } });
   const line = blockedLine(group);
-  assert.match(line, /@crystal-co, because of @sam \(not a member of it\), guest-1a2b \(whose number isn't linked/);
+  assert.match(line, /@crystal-co, because of @sam \(not a member of it\), guest-1a2b \(who has no Context account and isn't invited to it\)/);
   assert.match(line, /"add @sam to @crystal-co" counts\): you call send chat_add_everyone, which invites only the people here not in it yet/);
   assert.match(line, /Never send anyone to the app/);
   assert.ok(groupPrompt(group, "context-lc").includes(line));

@@ -13,7 +13,7 @@
  *   `guestChatsOf` ignoring `homeWords`                           -> "is texted a code" fails
  *   `syncHomePhones` dropped from `homeOnlyTurn`                  -> "is texted a code" fails
  *   the `ensureChatHome` call dropped from `enrol`                -> "is named on the home" fails
- *   `phoneAccountOf` dropped from `homeOnlyTurn`                  -> "the next tag keeps" fails
+ *   `linkedUser` reading only `phoneLinks`                        -> "the next tag keeps" fails
  *   `homeBinder` returning the sponsor for a muted chat           -> "a muted chat" fails
  *   `keepPhones` keeping rows for numbers that left               -> "a tag without the number" fails
  */

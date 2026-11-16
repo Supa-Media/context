@@ -9,6 +9,7 @@
  * behind the agent Worker's secret, keyed by the phone that texted.
  */
 
+import { accountForPhone } from "./lib/identities";
 import { v } from "convex/values";
 import { getAuthUserId, requireAuthId } from "./lib/signedIn";
 import type { Id } from "../_generated/dataModel";
@@ -45,13 +46,9 @@ export const setMyTexStyle = mutation({
   },
 });
 
+/** The account a number answers for: one lookup, a texted link or a confirmed sign-in (`lib/identities.ts`). */
 async function linkedUser(ctx: QueryCtx, phone: string): Promise<Id<"users"> | null> {
-  if (!isPhoneNumber(phone)) return null;
-  const link = await ctx.db
-    .query("phoneLinks")
-    .withIndex("by_phone", (q) => q.eq("phone", phone))
-    .first();
-  return link?.userId ?? null;
+  return isPhoneNumber(phone) ? await accountForPhone(ctx, phone) : null;
 }
 
 /** The settings a 1:1 texted turn uses: the linked person's own, `{}` when unset or unlinked. */

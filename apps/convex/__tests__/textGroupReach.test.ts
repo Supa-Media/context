@@ -21,7 +21,7 @@ import { routineChat } from "../functions/lib/routines/chats";
  *
  *   `sharedByAll` skipping the second person's memberships          -> "a workspace only some share is not in reach" fails
  *   `liveReach` reading the stored list without the membership check -> "one of them leaving B drops B ..." fails
- *   `reachOf` ignoring `hasGuests`                                   -> "a person with no account means home only" fails
+ *   `reachOf` ignoring `guests` (`invitedByNumber`)                  -> "a person with no account means home only" fails
  *   `mayBeInReach` letting personal workspaces through               -> "a personal workspace ... never in reach" fails
  *   `mayBeInReach` letting the pin through                           -> "... @context-lc ..." fails
  *   `lowest` returning the higher role                               -> "a viewer in the chat ..." fails

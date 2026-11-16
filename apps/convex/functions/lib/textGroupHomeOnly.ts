@@ -21,7 +21,7 @@ import { phoneSignInPaused } from "./emailProof";
 import { ensureGroupClient } from "./textGroupClient";
 import { keepEarlierToken } from "./controlPlane/earlierTokens";
 import { ensureChatHome, chatHomeOf } from "./textGroupHome";
-import { chatPerson, handleOf, linkedUser, phoneAccountOf } from "./textGroupAccounts";
+import { chatPerson, handleOf, linkedUser } from "./textGroupAccounts";
 import { syncHomePhones } from "./guestPhones";
 import { guestLabel } from "./textGroupGuests";
 import { pinnedContextWorkspace } from "./pinnedContext";
@@ -58,7 +58,7 @@ export interface HomeOnlyReady {
   names: { phone: string; handle: string; name?: string }[];
   guests: { phone: string; label: string }[];
   guestTagger?: string;
-  /** The slugs of the shared workspaces the chat reaches this turn, by name (`lib/textGroupReach.ts`); none when anyone here has no account. */
+  /** The slugs of the shared workspaces the chat reaches this turn, by name (`lib/textGroupReach.ts`); an account-less person here keeps out every one they aren't invited to by number. */
   reach: string[];
   /** Who keeps the chat from each shared workspace its asker and sponsor share, so the turn logs it and Tex can say so (`lib/textGroupBlockers.ts`). */
   blocked: Blocker[];
@@ -81,32 +81,36 @@ export async function homeOnlyTurn(
   const names: { phone: string; handle: string; name?: string }[] = [];
   const guests: { phone: string; label: string }[] = [];
   const people: Id<"users">[] = [];
-  const linked: Id<"users">[] = []; // people here by a linked number, never a guest's light account
+  const unnamed: { phone: string; label: string }[] = [];
+  const named: { userId: Id<"users">; label: string }[] = []; // each account here, by its guest label for one with no handle
   for (const phone of others) {
     const userId = phone === args.sender ? senderUser : await linkedUser(ctx, phone);
+    // A number with no account at all is a guest. One with an account, by a texted link or a confirmed sign-in (a
+    // guest's light account from a note link, `functions/guestPass.ts`, included), is a person here (`linkedUser`).
     if (userId === null) {
       guests.push({ phone, label: await guestLabel(args.groupKey, phone) });
-      // A guest who opened a note link has a light account (`functions/guestPass.ts`): still a guest to Tex, but named
-      // on the home to edit, so the next tag does not take away what the code gave.
-      const light = await phoneAccountOf(ctx, phone);
-      if (light !== null && !people.includes(light)) people.push(light);
       continue;
     }
     if (!people.includes(userId)) people.push(userId);
-    if (!linked.includes(userId)) linked.push(userId);
-    // Each account's name beside its handle, so the turn can say who is here (`apps/mcp/src/agent/groupNames.js`).
-    names.push(await chatPerson(ctx, phone, userId));
+    named.push({ userId, label: await guestLabel(args.groupKey, phone) });
+    // Each account's name beside its handle, so the turn can say who is here (`apps/mcp/src/agent/groupNames.js`). An
+    // account with no handle yet (a light account) is told by its label, as a guest is, though it counts as a person.
+    const person = await chatPerson(ctx, phone, userId);
+    if (person.handle === "") unnamed.push({ phone, label: await guestLabel(args.groupKey, phone) });
+    else names.push(person);
   }
-  // The sponsor brought Tex in and pays: set once (`textGroupUsage.ts`). Before the row has one, whoever is here with an account.
-  const sponsor = chat.sponsorId ?? chat.boundBy ?? senderUser ?? people[0];
+  // The sponsor brought Tex in and pays: set once (`textGroupUsage.ts`). Before the row has one, whoever is here with an
+  // account that can pay (a personal workspace to meter to), the tagger first: an app sign-in with no handle yet can't.
+  const sponsor = chat.sponsorId ?? chat.boundBy ?? (await firstWhoCanPay(ctx, [...(senderUser === null ? [] : [senderUser]), ...people])) ?? senderUser ?? people[0];
   if (sponsor === undefined) return null;
   // The chat's reach, worked out now (`lib/textGroupReach.ts`): every shared workspace each account holder here, and the
-  // sponsor who acts, is a member of; none when anyone has no account. Kept on the chat for its single-workspace readers.
+  // sponsor who acts, is a member of and every guest is invited to by number. Kept on the chat for its single-workspace readers.
   const reachPeople = [...new Set([...people, sponsor])];
-  const reach = await reachOf(ctx, chat, reachPeople, guests.length > 0);
+  const reachGuests = guests.map((guest) => guest.phone);
+  const reach = await reachOf(ctx, chat, reachPeople, reachGuests);
   const reachIds = reach.map((row) => row.workspace._id);
-  await ctx.db.patch(chat._id, { reach: reachIds, reachPeople });
-  const blocked = await reachBlockers(ctx, { asker: senderUser, sponsor, people: linked, guests: guests.map((guest) => guest.label), reach: reachIds });
+  await ctx.db.patch(chat._id, { reach: reachIds, reachPeople, reachGuests });
+  const blocked = await reachBlockers(ctx, { asker: senderUser, sponsor, people: named, guests, reach: reachIds });
   const intro = chat.introducedAt === undefined;
   const minted = args.mint && args.command === undefined;
   if (minted) {
@@ -117,6 +121,7 @@ export async function homeOnlyTurn(
       people,
       reach: reachIds,
       reachPeople,
+      reachGuests,
       tagger: senderUser,
       guestPhone: senderUser === null ? args.sender : undefined,
       hashedAccessToken: args.hashedAccessToken,
@@ -139,11 +144,17 @@ export async function homeOnlyTurn(
     handle,
     minted,
     names,
-    guests,
+    guests: [...guests, ...unnamed],
     reach: reach.map((row) => row.workspace.slug),
     blocked,
     ...(senderUser === null ? { guestTagger: await guestLabel(args.groupKey, args.sender) } : {}),
   };
+}
+
+/** The first of `candidates` with a personal workspace to meter a chat's turns to, or undefined. */
+async function firstWhoCanPay(ctx: MutationCtx, candidates: Id<"users">[]): Promise<Id<"users"> | undefined> {
+  for (const userId of candidates) if ((await personalWorkspaceOf(ctx, userId)) !== null) return userId;
+  return undefined;
 }
 
 /**
@@ -159,6 +170,7 @@ async function mintHomeOnlyGrant(
     people: Id<"users">[];
     reach: Id<"workspaces">[];
     reachPeople: Id<"users">[];
+    reachGuests: string[];
     tagger: Id<"users"> | null;
     guestPhone?: string;
     hashedAccessToken: string;
@@ -181,6 +193,7 @@ async function mintHomeOnlyGrant(
     homeOnly: true as const,
     reach: input.reach,
     reachPeople: input.reachPeople,
+    reachGuests: input.reachGuests,
     ...(input.tagger === null ? {} : { taggerId: input.tagger, ownTagToken: input.hashedAccessToken }),
     ...(input.guestPhone === undefined ? {} : { guestPhone: input.guestPhone }),
   };
@@ -254,7 +267,7 @@ export async function homeOnlyRows(ctx: QueryCtx, grant: Doc<"oauthGrants">, wor
       homeOnly: true,
     },
   ];
-  for (const reach of await liveReach(ctx, grant.texGroup?.reach, grant.texGroup?.reachPeople, grant.userId)) {
+  for (const reach of await liveReach(ctx, grant.texGroup?.reach, grant.texGroup?.reachPeople, grant.userId, grant.texGroup?.reachGuests ?? [])) {
     rows.push({ workspaceId: reach.workspace._id, slug: reach.workspace.slug, role: reach.role, kind: reach.workspace.kind });
   }
   return rows;
