@@ -97,8 +97,9 @@ export function createTexDev({ env, session, controlPlane, defer = null, sleep =
   }
 
   /** The config a test chat's turn runs on: main's, or a draft over it as the sandbox runs one (`withDraft`). */
-  async function sandboxGraph(versionId) {
+  async function sandboxGraph(versionId, drawn = null) {
     if (!versionId || versionId === "main") return { graph: { nodes: TEX_CONFIG.nodes, edges: TEX_CONFIG.edges } };
+    if (drawn && typeof drawn === "object") return { graph: withDraft(TEX_CONFIG, drawn), fit: draftFit(TEX_CONFIG, drawn) };
     const { graph, error } = await draftGraph(versionId);
     if (error) return { error: "This test chat's draft could not be read." };
     return { graph: withDraft(TEX_CONFIG, graph), fit: draftFit(TEX_CONFIG, graph) };

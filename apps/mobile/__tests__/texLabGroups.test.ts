@@ -12,7 +12,8 @@
 import { describe, expect, test } from "@jest/globals";
 import TEX_CONFIG from "@context/shared/src/texConfig.json";
 import { GROUPS, mainGraph } from "../features/tex/lab/data/graph";
-import { foldAround, foldGroups, groupToOpen, stepsShownFor, unfoldGroups } from "../features/tex/lab/engine/groups";
+import { foldAround, foldGroups, groupChain, groupItems, groupToOpen, stepsShownFor, unfoldGroups } from "../features/tex/lab/engine/groups";
+import { groupParts, laidOut, needsLayout } from "../features/tex/lab/engine/groupLayout";
 import type { LabEdge, LabGraph, LabNode } from "../features/tex/lab/types";
 
 const MEMBERS = TEX_CONFIG.nodes.filter((n) => n.group === "intake").map((n) => n.id);
@@ -121,6 +122,19 @@ describe("focus on the intake box", () => {
     ]);
   });
 
+  test("Focus on a group draws just that group: its seven steps and the wires between them (Dev2, 2026-11-16)", () => {
+    const opened = foldAround(folded(), "intake", GROUPS);
+    const { items, inner, ins, outs } = groupParts(opened, "intake", GROUPS);
+    expect(items.map((n) => n.id).sort()).toEqual([...MEMBERS].sort());
+    expect(inner).toHaveLength(7);
+    expect(inner.every((i) => MEMBERS.includes(opened.edges[i].from) && MEMBERS.includes(opened.edges[i].to))).toBe(true);
+    // Wires that leave the group are pills naming the thing outside, never steps drawn beside it.
+    expect(outs.map((p) => [p.item, p.other])).toEqual([["doorStep", "fd"], ["doorStep", "bypass"]]);
+    expect(ins.every((p) => !MEMBERS.includes(p.other))).toBe(true);
+    // The steps are the graph's own: moving one there moves it in the graph.
+    expect(items[0]).toBe(opened.nodes.find((n) => n.id === items[0].id));
+  });
+
   test("a folded graph shows no focused steps, and Whole graph folds the group again", () => {
     expect(stepsShownFor(folded(), "intake")).toEqual([]);
     const back = foldAround(foldAround(folded(), "intake", GROUPS), null, GROUPS);
@@ -153,4 +167,69 @@ test("a save gives back the config exactly: every wire on the steps it joined, e
   const key = (e: LabEdge) => [e.from, e.to, e.mode, e.when.join(",")].join("|");
   expect(saved.edges.map(key).sort()).toEqual(config.edges.map(key).sort());
   expect(config.edges.some((e) => e.from === "job" && e.to === "tools")).toBe(true);
+});
+
+describe("nested groups (mockup 5y8sZpxqRYNZEdqqXTjq6J v3, Dev2 2026-11-16: \"make sure that groups can be nested\")", () => {
+  const step = (id: string, group: string | undefined, x: number): LabNode =>
+    ({ id, label: id, goal: "", log: true, on: true, rounds: 1, out: 0, ctx: [], ms: 0, timeoutS: 0, areas: [], file: "", note: "", icon: "code", model: "code", x, y: 0, group }) as LabNode;
+  const NEST = {
+    tools: { label: "Tools", goal: "" },
+    checks: { label: "Checks", goal: "", parent: "tools" },
+  };
+  const raw = (): LabGraph => ({
+    nodes: [step("in", undefined, 0), step("job", "tools", 200), step("mail", "checks", 400), step("card", "checks", 400), step("out", undefined, 800)],
+    edges: [
+      { from: "in", to: "job", mode: "wait", when: [] },
+      { from: "job", to: "mail", mode: "wait", when: [] },
+      { from: "mail", to: "card", mode: "wait", when: [] },
+      { from: "card", to: "out", mode: "wait", when: [] },
+    ],
+  });
+
+  test("the chain runs innermost first and a cycle stops", () => {
+    expect(groupChain(NEST, "checks")).toEqual(["checks", "tools"]);
+    expect(groupChain({ a: { label: "a", parent: "b" }, b: { label: "b", parent: "a" } }, "a")).toEqual(["a", "b"]);
+  });
+
+  test("the whole graph folds a nested group into its outermost group's card", () => {
+    const g = foldGroups(raw(), NEST);
+    expect(ids(g)).toEqual(["in", "out", "tools"]);
+    expect(g.folded?.tools.nodes.map((n) => n.id).sort()).toEqual(["card", "job", "mail"]);
+  });
+
+  test("opening the outer group draws its step and the inner group's card, nothing outside", () => {
+    const g = foldAround(foldGroups(raw(), NEST), "tools", NEST);
+    expect(groupItems(g, "tools", NEST).map((n) => n.id).sort()).toEqual(["checks", "job"]);
+    const { ins, outs } = groupParts(g, "tools", NEST);
+    expect(ins.map((p) => [p.other, p.item])).toEqual([["in", "job"]]);
+    expect(outs.map((p) => [p.item, p.other])).toEqual([["checks", "out"]]);
+  });
+
+  test("opening the inner group draws its two steps, and the outer step is a pill", () => {
+    const g = foldAround(foldGroups(raw(), NEST), "checks", NEST);
+    expect(groupItems(g, "checks", NEST).map((n) => n.id).sort()).toEqual(["card", "mail"]);
+    const { ins, outs } = groupParts(g, "checks", NEST);
+    expect(ins.map((p) => [p.other, p.item])).toEqual([["job", "mail"]]);
+    expect(outs.map((p) => [p.item, p.other])).toEqual([["card", "out"]]);
+    // Back to the whole graph folds both again; nothing is lost.
+    const back = unfoldGroups(foldAround(g, null, NEST));
+    expect(ids(back)).toEqual(ids(raw()));
+    expect(wires(back)).toEqual(wires(raw()));
+  });
+
+  test("a focused step inside a nested group keeps both groups open around it", () => {
+    const g = foldAround(foldGroups(raw(), NEST), "mail", NEST);
+    expect(ids(g)).toEqual(ids(raw()));
+  });
+
+  test("piled-up places are laid out left to right along the wires; arranged ones are kept", () => {
+    const g = foldAround(foldGroups(raw(), NEST), "checks", NEST);
+    const items = groupItems(g, "checks", NEST);
+    expect(needsLayout(g, items)).toBe(true);
+    const out = laidOut(g, "checks", NEST);
+    const at = (id: string) => out.nodes.find((n) => n.id === id)!;
+    expect(at("card").x).toBeGreaterThan(at("mail").x);
+    expect(needsLayout(out, groupItems(out, "checks", NEST))).toBe(false);
+    expect(laidOut(out, "checks", NEST)).toBe(out);
+  });
 });

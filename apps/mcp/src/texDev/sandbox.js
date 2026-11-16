@@ -290,7 +290,9 @@ export function createSandboxActions({ route, graphOf, page, env, origin, realCh
     const card = runCard({ ...given, graph: { nodes: [], edges: [] } });
     // The config it ran on is read only once the run is done: it is what the steps that did not run are told from.
     if (card.error || card.status !== "done") return card;
-    const graph = await graphOf(facts.versionId);
+    // A draft the Lab sent as drawn (not saved yet) is read from the test chat itself: the saved copy isn't what ran.
+    const drawn = facts.drawn === true ? (await call({ op: "about", sandboxId, graph: true })).graph ?? null : null;
+    const graph = await graphOf(facts.versionId, drawn);
     if (graph.error) return graph;
     return runCard({ ...given, graph: graph.graph, fit: graph.fit ?? facts.fit ?? null });
   }
