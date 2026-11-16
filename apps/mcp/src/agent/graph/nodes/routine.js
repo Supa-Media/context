@@ -32,8 +32,7 @@ function routineOf(t) {
  * The node. Main's config wires it to the door's first step, so a routine's run goes on through the door; a Lab draft
  * that wires it straight to the Front door (Dev2, 2026-11-16: "routines shouldn't act as a message you've sent, they
  * should act like routines") makes it run the door's parts itself (`../door.js`, each logged in this row), with what
- * it knows of its runs and whether the person answers them (`routineEngagement.js`), and hand the Front door the
- * routine (`run`); a paused or vanished routine, or a job that needs no model, ends here (`stopped`), its outcome kept
+ * it knows of its runs and whether the person answers them (`routineEngagement.js`), and log the routine (`run`), the Front door being told it through the turn (`runARoutine.js`); a paused or vanished routine, or a job that needs no model, ends here (`stopped`), its outcome kept
  * for Text them. `steps` is the door's parts, swapped only by a test.
  */
 export async function routine(_input, io, steps) {
@@ -44,7 +43,7 @@ export async function routine(_input, io, steps) {
   const { answer, answeredBy, parts, handed } = await runDoor(t, io.ctx, Date.now, steps);
   if (answer !== undefined) {
     t.response = answer;
-    return { when: ["stopped"], answeredBy, parts, routine: routineOf(t), status: answer?.status };
+    return { when: ["stopped"], answeredBy, status: answer?.status, log: { parts, routine: routineOf(t) } };
   }
-  return { when: ["run"], ...handed, parts, routine: routineOf(t) };
+  return { when: ["run"], ...handed, log: { parts, routine: routineOf(t) } };
 }
