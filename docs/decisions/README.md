@@ -929,6 +929,7 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 - [A big ask splits into parallel jobs, planned by the advisor (2026-11-04)](./texting-assistant/background-jobs.md)
 - [A new brief is always a new job (2026-11-11; its silent start reversed 2026-11-12)](./texting-assistant/background-jobs.md)
 - [A job's start is Tex's call: a line or a tapback, judged from example chats (2026-11-12)](./texting-assistant/background-jobs.md)
+- [One job drives a chat's browser at a time (2026-11-16)](./texting-assistant/background-jobs.md)
 - [Every job gets a shared note first, with the job, Tex and the advisor on its mail (2026-11-05)](./texting-assistant/job-notes.md)
 - [A person's own computer becomes more minion slots, run by one Rust runner (2026-11-03, 2026-11-04)](./texting-assistant/machines.md)
 - [A run is plain Claude Code in the person's folder (owner, 2026-11-04)](./texting-assistant/machines.md)
