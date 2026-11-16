@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
+import { TEX_NUMBER } from "@context/shared/src/texNumber.cjs";
 import { api, internal } from "../_generated/api";
 import type { Id } from "../_generated/dataModel";
 import { ADMIN_EMAILS_ENV_VAR } from "../functions/lib/admin";
@@ -180,14 +181,14 @@ describe("Let in on a phone row", () => {
     expect(texts().map(textBody)).toEqual([admittedText(`${ORIGIN}/login`)]);
   });
 
-  test("on a dedicated line (TEX_LINE_NUMBERS) nothing reaches Linq, and the text names that line", async () => {
+  test("on a dedicated line (TEX_LINE_NUMBERS) nothing reaches Linq, and the text names Tex's number, not that line", async () => {
     vi.stubEnv("TEX_LINE_NUMBERS", "+15555550177");
     const t = setupTest();
     const as = await staff(t);
     await as.mutation(api.functions.admin.admitWaitlist, { ids: [await row(t, { phone: PHONE })] });
     await drainScheduled(t);
     expect(calls.filter((call) => call.url.startsWith(LINQ_ZERO_SERVICE))).toHaveLength(0);
-    expect(texts().map(textBody)).toEqual([admittedText(`${ORIGIN}/login`, "+15555550177")]);
+    expect(texts().map(textBody)).toEqual([admittedText(`${ORIGIN}/login`, TEX_NUMBER)]);
     expect(await trail(t)).toEqual([]);
   });
 

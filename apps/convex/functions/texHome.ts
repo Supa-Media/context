@@ -2,7 +2,7 @@ import { getAuthUserId } from "./lib/signedIn";
 import { v } from "convex/values";
 import type { Id } from "../_generated/dataModel";
 import { internalQuery, query, type QueryCtx } from "../_generated/server";
-import { dedicatedTexLines, texLineFor } from "./lib/adminFns/texAllowlist";
+import { texNumberHere } from "./lib/adminFns/texAllowlist";
 import { currentPhoneOf } from "./lib/emailProof";
 import { personalWorkspaceOf } from "./textLinks";
 
@@ -44,7 +44,7 @@ const homeValidator = v.union(
   v.object({
     /** The last four digits of the phone they sign in with, if any. */
     ending: v.union(v.string(), v.null()),
-    /** The Tex line for that phone, when one is configured. */
+    /** Tex's number, for a person with a phone, where Tex runs. */
     line: v.union(v.string(), v.null()),
     /** True until that phone first texts Tex. */
     firstText: v.boolean(),
@@ -64,11 +64,11 @@ export const mine = query({
     const user = await ctx.db.get(userId);
     if (user === null) return null;
     const phone = await currentPhoneOf(ctx, user);
-    const lines = dedicatedTexLines(process.env.TEX_LINE_NUMBERS);
+    const texNumber = texNumberHere(process.env.TEX_LINE_NUMBERS);
     const workspaceId = await personalWorkspaceOf(ctx, userId);
     return {
       ending: phone === null ? null : phone.slice(-4),
-      line: phone === null || lines.length === 0 ? null : texLineFor(lines, phone),
+      line: phone === null ? null : texNumber,
       firstText: phone === null ? true : !(await hasTextedTex(ctx, phone)),
       mainEmail: user.email?.toLowerCase() ?? null,
       workspaceId,

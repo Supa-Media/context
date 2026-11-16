@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, test, vi } from "vitest";
+import { TEX_NUMBER } from "@context/shared/src/texNumber.cjs";
 import { api, internal } from "../_generated/api";
 import type { Id } from "../_generated/dataModel";
 import { addMember, asUser, createUser, createWorkspace, seedGoogleConnection, setupTest, type TestConvex } from "./fixtures.helpers";
@@ -135,7 +136,7 @@ describe("texHome.mine", () => {
     await adopt(t, userId, "ada.lovelace@gmail.com");
     expect(await asUser(t, userId).query(api.functions.texHome.mine, {})).toEqual({
       ending: "0100",
-      line: LINE,
+      line: TEX_NUMBER,
       firstText: true,
       mainEmail: "ada.lovelace@gmail.com",
       workspaceId,
