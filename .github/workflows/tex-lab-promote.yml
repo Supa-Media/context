@@ -75,13 +75,18 @@ jobs:
               answer "$(jq -cn --arg v "$id" --argjson at "$at" --arg why "${why#tex-lab-promote: refused: }" '{versionId: $v, at: $at, why: $why}')"
               continue
             fi
+            # tex_dev's bundles carry the config too; CI fails a config change that leaves them stale.
+            node scripts/tex-dev-canvas.mjs > /dev/null
+            node scripts/tex-dev-lab.mjs > /dev/null
+            node scripts/tex-dev-replay.mjs > /dev/null
+            node scripts/tex-lab-data.mjs > /dev/null
             if git diff --quiet; then
               answer "$(jq -cn --arg v "$id" --argjson at "$at" '{versionId: $v, at: $at, why: "it is the same as main"}')"
               continue
             fi
             name=$(echo "$ask" | jq -r .name | tr -d '\r' | cut -c1-80)
             by=$(echo "$ask" | jq -r .by)
-            git add packages/shared/src/texConfig.json docs/architecture/tex.md apps/mcp/src/agent/texArchitecture.generated.js packages/shared/src/texPrompt packages/shared/src/texPrompt.generated.json
+            git add packages/shared/src/texConfig.json docs/architecture/tex.md apps/mcp/src/agent/texArchitecture.generated.js packages/shared/src/texPrompt packages/shared/src/texPrompt.generated.json apps/mcp/src/texDev apps/mobile/features/tex/lab/labData.generated.ts
             git commit -q -m "Promote the Lab version \"$name\" to Tex's config" -m "Asked for in the Tex Architecture Lab by $by. The pull request merges only on green CI and the replay gate."
             git push -q -f origin "HEAD:refs/heads/tex-lab/promote-$id-$at"
             {

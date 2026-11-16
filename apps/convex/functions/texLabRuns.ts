@@ -349,18 +349,28 @@ export function gateCounts(description: string): { pass: number; total: number }
   return m ? { pass: Number(m[1]), total: Number(m[2]) } : null;
 }
 
+/** The replay rule's check (`.github/workflows/tex-replay-check.yml`). */
+const REPLAY_CHECK = "Tex replay passed on this commit";
+
 async function gateStatus(pr: string): Promise<{ state: string; description: string } | null> {
   const m = PR_URL.exec(pr);
   const token = process.env.GH_ADMIN_TOKEN;
   if (!m || !token) return null;
   const headers = { authorization: `Bearer ${token}`, accept: "application/vnd.github+json", "x-github-api-version": "2022-11-28", "user-agent": "context-tex-lab" };
   try {
-    const pull = (await (await fetch(`https://api.github.com/repos/${m[1]}/pulls/${m[2]}`, { headers })).json()) as { head?: { sha?: string } };
+    const pull = (await (await fetch(`https://api.github.com/repos/${m[1]}/pulls/${m[2]}`, { headers })).json()) as { head?: { sha?: string }; state?: string; merged_at?: string | null };
     const sha = pull?.head?.sha;
     if (typeof sha !== "string" || !/^[0-9a-f]{40}$/.test(sha)) return null;
     const statuses = (await (await fetch(`https://api.github.com/repos/${m[1]}/commits/${sha}/statuses?per_page=100`, { headers })).json()) as Array<{ context?: string; state?: string; description?: string }>;
     const s = Array.isArray(statuses) ? statuses.find((x) => x.context === "Tex test set") : undefined;
-    return s ? { state: String(s.state ?? ""), description: String(s.description ?? "") } : { state: "none", description: "" };
+    if (s) return { state: String(s.state ?? ""), description: String(s.description ?? "") };
+    // No Test set status: a promotion that reaches no model area never starts one, and "Tex replay passed on this
+    // commit" (tex-replay-check.yml) goes green without it. That is the gate's whole answer for such a change.
+    const checks = (await (await fetch(`https://api.github.com/repos/${m[1]}/commits/${sha}/check-runs?check_name=${encodeURIComponent(REPLAY_CHECK)}`, { headers })).json()) as { check_runs?: Array<{ status?: string; conclusion?: string }> };
+    const replay = Array.isArray(checks?.check_runs) ? checks.check_runs[0] : undefined;
+    if (replay?.status === "completed" && replay.conclusion === "success") return { state: "no-area", description: "" };
+    if (pull.state === "closed" && !pull.merged_at) return { state: "closed", description: "" };
+    return { state: "none", description: "" };
   } catch {
     return null;
   }
@@ -373,6 +383,16 @@ export const followGate = internalAction({
     const run = await ctx.runQuery(internal.functions.texLabRuns.gateRun, { runId });
     if (!run || !run.pr || run.stage !== "running") return null;
     const s = await gateStatus(run.pr);
+    if (s?.state === "no-area" || s?.state === "closed") {
+      await ctx.runMutation(internal.functions.texLabRuns.report, {
+        runId,
+        stage: s.state === "no-area" ? "done" : "failed",
+        results: { pass: 0, total: 0, costUsd: 0, ms: Date.now() - run.startedAt, perConv: [], perNode: [], rows: [] },
+        // 0 of 0: the replay rule passed with no Test set to run (the change reaches no model area).
+        ...(s.state === "closed" ? { error: "the pull request was closed without merging" } : {}),
+      });
+      return null;
+    }
     if (s && (s.state === "success" || s.state === "failure" || s.state === "error")) {
       const counts = gateCounts(s.description);
       await ctx.runMutation(internal.functions.texLabRuns.report, {
