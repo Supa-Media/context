@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { browseOnBrowserbase } from "./browserbaseRoute";
 import { IdleTimer, type IdleNamespace, type IdleStorage } from "./idle";
 import { LEASE_MS, RUN_LEASE_MS, claimLease, holderOf } from "./lease";
@@ -51,9 +51,9 @@ describe("the browser lease: one driver at a time", () => {
   it("is taken when free, refreshed by its own holder, and refused to another live holder", async () => {
     let now = 1_000;
     const { timer } = oneObject(() => now);
-    expect(await timer.claim(JOB, LEASE_MS)).toEqual({ ok: true });
+    expect(await timer.claim(JOB, LEASE_MS)).toMatchObject({ ok: true });
     now += 60_000;
-    expect(await timer.claim(JOB, LEASE_MS)).toEqual({ ok: true });
+    expect(await timer.claim(JOB, LEASE_MS)).toMatchObject({ ok: true });
     expect(await timer.claim(TURN, LEASE_MS)).toEqual({ ok: false, leftMs: LEASE_MS });
   });
 
@@ -62,7 +62,7 @@ describe("the browser lease: one driver at a time", () => {
     const { timer } = oneObject(() => now);
     await timer.claim(JOB, LEASE_MS);
     now += LEASE_MS + 1;
-    expect(await timer.claim(TURN, LEASE_MS)).toEqual({ ok: true });
+    expect(await timer.claim(TURN, LEASE_MS)).toMatchObject({ ok: true });
     expect(await timer.claim(JOB, LEASE_MS)).toMatchObject({ ok: false });
   });
 
@@ -72,7 +72,7 @@ describe("the browser lease: one driver at a time", () => {
     expect(await timer.release(TURN)).toBe(false);
     expect(await timer.claim(TURN, LEASE_MS)).toMatchObject({ ok: false });
     expect(await timer.release(JOB)).toBe(true);
-    expect(await timer.claim(TURN, LEASE_MS)).toEqual({ ok: true });
+    expect(await timer.claim(TURN, LEASE_MS)).toMatchObject({ ok: true });
   });
 
   it("claims inside the object's exclusive section", async () => {
@@ -122,7 +122,7 @@ describe("/browse with a holder", () => {
     expect(api.calls).toEqual([]);
   });
 
-  it("keeps the browser past a step for two minutes, then frees it", async () => {
+  it("keeps the browser ninety seconds past a step, then frees it", async () => {
     let now = 0;
     const { namespace, store } = oneObject(() => now);
     const env = { ...ENV, BROWSER_IDLE: namespace };
@@ -161,5 +161,57 @@ describe("/browse with a holder", () => {
     expect((await browse(env, null, api)).status).not.toBe(409);
     expect(api.calls.length).toBeGreaterThan(0);
     expect(store.data.get("lease")).toMatchObject({ holder: JOB });
+  });
+
+  it("is short: a holder that died is gone ninety seconds after its last step, never minutes", () => {
+    expect(LEASE_MS).toBe(90_000);
+    // Longer than the gateway lets one browse call take, and no more than a few minutes.
+    expect(RUN_LEASE_MS).toBeGreaterThan(160_000);
+    expect(RUN_LEASE_MS).toBeLessThanOrEqual(3 * 60_000);
+  });
+
+  it("the next holder after one that disconnected drives the same running browser, never a fresh one", async () => {
+    let now = 0;
+    const { namespace } = oneObject(() => now);
+    const env = { ...ENV, BROWSER_IDLE: namespace };
+    const calls: Array<{ method: string; url: string }> = [];
+    const running = (async (input: RequestInfo | URL, init?: RequestInit) => {
+      calls.push({ method: init?.method ?? "GET", url: String(input) });
+      if (String(input).endsWith("/sessions?status=RUNNING")) return Response.json([{ id: "theirs-still", connectUrl: "wss://c/theirs-still", userMetadata: { owner: OWNER } }]);
+      return Response.json({});
+    }) as typeof fetch;
+    // The first pass took the lease and was cut off; the browser it drove is still up.
+    await browseOnBrowserbase(env, "/browse", { owner: OWNER, steps: [{ do: "read" }], holder: JOB }, running);
+    now += LEASE_MS + 1;
+    calls.length = 0;
+    const response = await browseOnBrowserbase(env, "/browse", { owner: OWNER, steps: [{ do: "read" }], holder: TURN }, running);
+    expect(response.status).not.toBe(409);
+    expect(await response.json()).toMatchObject({ session: "theirs-still" });
+    // No new browser was asked for, and the running one was not let go.
+    expect(calls.filter((c) => c.method === "POST")).toEqual([]);
+  });
+
+  it("logs the lease changing hands by owner tag and holder, and nothing else", async () => {
+    let now = 0;
+    const { namespace } = oneObject(() => now);
+    const env = { ...ENV, BROWSER_IDLE: namespace };
+    const lines: Array<Record<string, unknown>> = [];
+    const spy = vi.spyOn(console, "log").mockImplementation((line: string) => void lines.push(JSON.parse(line)));
+    try {
+      await browse(env, JOB);
+      await browse(env, TURN);
+      now += LEASE_MS + 1;
+      await browse(env, TURN);
+      await browseOnBrowserbase(env, "/browse/release", { owner: OWNER, holder: TURN }, fakeApi().fetcher);
+    } finally {
+      spy.mockRestore();
+    }
+    const leases = lines.filter((line) => line.event === "site_shots_lease");
+    expect(leases).toEqual([
+      { event: "site_shots_lease", outcome: "taken", owner: OWNER, holder: JOB },
+      { event: "site_shots_lease", outcome: "refused", owner: OWNER, holder: TURN },
+      { event: "site_shots_lease", outcome: "expired_taken", owner: OWNER, holder: TURN },
+      { event: "site_shots_lease", outcome: "released", owner: OWNER, holder: TURN },
+    ]);
   });
 });

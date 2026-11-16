@@ -42,7 +42,8 @@ interface Lease {
   holder: string;
   until: number;
 }
-export type LeaseAnswer = { ok: true } | { ok: false; leftMs: number };
+/** `took`: a free lease, this holder's own refreshed, or one whose holder went quiet past its end. */
+export type LeaseAnswer = { ok: true; took: "free" | "refreshed" | "expired" } | { ok: false; leftMs: number };
 
 /** Runs `fn` with no other event let in until it is done (blockConcurrencyWhile). */
 export type Exclusive = <T>(fn: () => Promise<T>) => Promise<T>;
@@ -83,7 +84,7 @@ export class IdleTimer {
       const now = this.now();
       if (lease && lease.holder !== holder && lease.until > now) return { ok: false, leftMs: lease.until - now };
       await this.storage.put("lease", { holder, until: now + ms });
-      return { ok: true };
+      return { ok: true, took: !lease ? "free" : lease.holder === holder ? "refreshed" : "expired" };
     });
   }
 

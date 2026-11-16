@@ -115,7 +115,7 @@ export async function browseOnBrowserbase(
   try {
     return await runOnBrowserbase(env, owner, body, parsed, fetcher, later);
   } finally {
-    // Two minutes past this step, so a holder that never comes back frees it.
+    // Ninety seconds past this step, so a holder that died or disconnected frees it soon.
     await claimLease(env.BROWSER_IDLE, owner, holder, LEASE_MS);
   }
 }
