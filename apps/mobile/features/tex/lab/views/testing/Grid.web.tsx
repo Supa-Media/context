@@ -8,6 +8,7 @@ import { G } from "../../engine/state";
 import { bodyOf, cellOf, colWidth, defaultCols, labelFields, newRowAt, freshId, SET_INFO, starsIn, stepNodes, type Conversation, type Message } from "../../engine/sets";
 import { change, colsFor, saveCols, setUi, sets, useSets } from "../../engine/setsStore";
 import type { LabNode } from "../../types";
+import { ColMenu as SharedColMenu, HeadCell, startResize as resizeCol } from "../grid/GridParts.web";
 import { MsgFields, SpeakerPick } from "./MsgFields.web";
 
 type Col = { id: string; name: string; node?: LabNode };
@@ -122,35 +123,7 @@ function TextEd({ init, ph, keep, onKey }: { init: string; ph: string; keep: (v:
 
 function ColMenu() {
   const cols = colsFor(G());
-  const all = cols.order.map((id) => colDefs().find((c) => c.id === id)).filter((c): c is Col => !!c);
-  const mv = (k: number, d: number) => {
-    const o = cols.order.slice();
-    const a = o.indexOf(all[k].id);
-    const b = o.indexOf(all[k + d].id);
-    [o[a], o[b]] = [o[b], o[a]];
-    saveCols({ ...cols, order: o });
-  };
-  return (
-    <div className="colmenu" id="colMenu" onClick={(e) => e.stopPropagation()}>
-      <div className="cap">Columns</div>
-      {all.map((c, k) => (
-        <div className="cm" key={c.id}>
-          <label>
-            <input type="checkbox" data-show={c.id} checked={!cols.hidden.includes(c.id)} disabled={c.id === "text"} onChange={(e) => saveCols({ ...cols, hidden: e.target.checked ? cols.hidden.filter((x) => x !== c.id) : [...cols.hidden, c.id] })} /> {c.name}
-          </label>
-          <button className="btn sm ghost" data-up={k} aria-label={`Move ${c.name} left`} disabled={!k} onClick={() => mv(k, -1)}>
-            ↑
-          </button>
-          <button className="btn sm ghost" data-dn={k} aria-label={`Move ${c.name} right`} disabled={k >= all.length - 1} onClick={() => mv(k, 1)}>
-            ↓
-          </button>
-        </div>
-      ))}
-      <button className="btn sm" id="resetCols" onClick={() => saveCols(defaultCols(G()))}>
-        Reset columns and widths
-      </button>
-    </div>
-  );
+  return <SharedColMenu id="colMenu" resetId="resetCols" cols={cols} all={colDefs()} save={saveCols} reset={() => saveCols(defaultCols(G()))} />;
 }
 
 function Title({ c }: { c: Conversation }) {
@@ -232,27 +205,7 @@ export function Grid({ c }: { c: Conversation }) {
     document.addEventListener("mouseup", up);
   };
 
-  const startResize = (e: React.MouseEvent, id: string, k: number) => {
-    e.preventDefault();
-    e.stopPropagation();
-    const x0 = e.clientX;
-    const w0 = colWidth(cols, id);
-    const cg = table.current?.querySelectorAll("colgroup col")[k] as HTMLElement | undefined;
-    const t0 = table.current?.offsetWidth || tw;
-    let w = w0;
-    const mv = (ev: MouseEvent) => {
-      w = Math.max(44, w0 + ev.clientX - x0);
-      if (cg) cg.style.width = w + "px";
-      if (table.current) table.current.style.width = t0 + (w - w0) + "px";
-    };
-    const up = () => {
-      document.removeEventListener("mousemove", mv);
-      document.removeEventListener("mouseup", up);
-      saveCols({ ...cols, w: { ...cols.w, [id]: w } });
-    };
-    document.addEventListener("mousemove", mv);
-    document.addEventListener("mouseup", up);
-  };
+  const startResize = (e: React.MouseEvent, id: string, k: number) => resizeCol(e, table.current, k, colWidth(cols, id), (w) => saveCols({ ...cols, w: { ...cols.w, [id]: w } }));
 
   const td = (m: Message, col: Col, inner: React.ReactNode, title = "", cls = "") => {
     const on = m.id === s.msg && s.col === col.id;
@@ -328,12 +281,7 @@ export function Grid({ c }: { c: Conversation }) {
             <tr>
               <th className="num">#</th>
               {vc.map((x, k) => (
-                <th key={x.id} data-col={x.id}>
-                  <span className="hname" title={x.name}>
-                    {x.name}
-                  </span>
-                  <span className="rs" data-rs={x.id} title="Drag to resize" onMouseDown={(e) => startResize(e, x.id, k + 1)} />
-                </th>
+                <HeadCell key={x.id} col={x} onResize={(e) => startResize(e, x.id, k + 1)} />
               ))}
               <th />
             </tr>
