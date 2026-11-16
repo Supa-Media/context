@@ -5,6 +5,9 @@
  * A job's log, 2026-11-16: the advisor saw the turn's tools by name only and told a Haiku job to fetch an email with
  * `{ links: true }`, an argument no tool has, and to `read_back` earlier reads its six tools never showed.
  *
+ * Whether a step is shown the list is the config's (the owner, 2026-11-16): only a step whose ctx names "tools", in
+ * main's config or a Lab draft's. Main's names it for neither the Advisor nor Job check yet: wiring is a Lab draft.
+ *
  * ## Sabotage record
  *
  * Applied, suite run, named check observed failing, reverted.
@@ -13,6 +16,7 @@
  *     → "the advisor's brief lists each tool's parameters and actions" fails.
  *  2. `jobCheckBrief` dropping `<tex_tools>`.
  *     → "the job check is shown the part's tools too" fails.
+ *  4. `readsTools` always true → "only a step whose reads name tools is shown them" fails.
  *  3. `fetchTool` dropping the `read:<ref>` line.
  *     → "the six offer read:<ref> exactly when the turn holds read_back" fails, and the `reads-back` replay.
  */
@@ -20,9 +24,10 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { advisorBrief } from "../src/agent/advisor.js";
-import { MAX_TOOL_LIST_CHARS, toolList } from "../src/agent/advisorToolList.js";
-import { jobCheckBrief } from "../src/agent/jobCheck.js";
+import { advisorBrief, advisorTools } from "../src/agent/advisor.js";
+import { MAX_TOOL_LIST_CHARS, readsTools, toolList } from "../src/agent/advisorToolList.js";
+import { checkJob, jobCheckBrief } from "../src/agent/jobCheck.js";
+import { TEX_CONFIG, draftFit, texStep, withDraft } from "../src/agent/texConfig.js";
 import { READS_PREFACE } from "../src/agent/readsIndex.js";
 import { sixToolsOver } from "../src/agent/sixTools.js";
 import { toolDefinitions } from "../src/tools/registry.js";
@@ -34,7 +39,7 @@ const MESSAGES = [{ role: "user", text: "find the link in the clinic's email" }]
 
 test("the advisor's brief lists each tool's parameters and actions, never only its name", () => {
   const { tools } = sixToolsOver(held("orient", "search_notes", "read_note", "list_notes", "browse", "open_page"));
-  const brief = advisorBrief({ about: "Name: Ada.", now: "Monday", tools: [...tools, { name: "ask_advisor", description: "Ask.", inputSchema: { type: "object", properties: {} } }] }, MESSAGES);
+  const brief = advisorBrief({ about: "Name: Ada.", now: "Monday", tools: [...tools, { name: "ask_advisor", description: "Ask.", inputSchema: { type: "object", properties: {} } }] }, MESSAGES, { tools: true });
   const listed = brief.match(/<tex_tools>\n([\s\S]*?)\n<\/tex_tools>/)?.[1] ?? "";
   assert.match(listed, /^- fetch: /m, "each tool by name");
   assert.match(listed, /^ {4}id \(string, required\): A note path/m, "its parameters, with their type and description");
@@ -45,7 +50,7 @@ test("the advisor's brief lists each tool's parameters and actions, never only i
 
 test("a tool the turn lacks never appears in the brief", () => {
   const { tools } = sixToolsOver(held("orient", "search_notes", "read_note"));
-  const listed = advisorBrief({ about: "x", tools }, MESSAGES);
+  const listed = advisorBrief({ about: "x", tools }, MESSAGES, { tools: true });
   for (const missing of ["read_back", "read:<ref>", "browse", "fill_login", "- send:"]) assert.ok(!listed.includes(missing), `${missing} is not listed`);
 });
 
@@ -79,4 +84,37 @@ test("the six offer read:<ref> exactly when the turn holds read_back, and only t
   const without = sixToolsOver(held("read_note", "list_notes"));
   assert.doesNotMatch(JSON.stringify(without.tools), /read:<ref>|read_back/);
   assert.notEqual(without.resolve("fetch", { id: "read:r1a2b3" }).name, "read_back");
+});
+
+/** A Lab draft that adds "tools" to the reads of `ids`, as the Lab draws it. */
+const drafted = (...ids) => ({ nodes: ids.map((id) => ({ id, ctx: [...texStep(id).ctx, "tools"] })) });
+
+test("only a step whose reads name tools is shown them: main's names it for neither, a Lab draft's can", async () => {
+  const { tools } = sixToolsOver(held("orient", "read_note", "list_notes", "browse"));
+  const live = { about: "Name: Ada.", now: "Monday", tools, messages: MESSAGES };
+  // Main's config: neither step reads "tools", so no list at all, never the names-only one it had.
+  assert.equal(readsTools("advisor"), false);
+  assert.equal(readsTools("jobcheck"), false);
+  const asked = [];
+  const request = async (params) => (asked.push(params), { text: "VERDICT: done\nADVICE: fine." });
+  const ask = async (config) => {
+    const [advisor] = advisorTools({ model: "opus", history: [], question: "q", request, ...(config ? { config } : {}) });
+    await advisor.call({}, live);
+    return asked.at(-1).messages[0].text;
+  };
+  assert.doesNotMatch(await ask(), /<tex_tools>/);
+  const draft = drafted("advisor", "jobcheck");
+  const config = withDraft(TEX_CONFIG, draft);
+  assert.equal(readsTools("advisor", config), true);
+  assert.match(await ask(config), /<tex_tools>\n- orient: [\s\S]*- browse: Drive a browser/);
+  // The draft's reads are applied, never reported as run as main's.
+  assert.equal(draftFit(TEX_CONFIG, draft).unapplied, undefined);
+
+  const job = { title: "Clinic forms", brief: "Fill in the clinic's intake form.", doneWhen: "submitted", attempt: 1 };
+  const check = async (cfg) => {
+    await checkJob({ job, live, answer: "Done.", model: "opus", request, ...(cfg ? { config: cfg } : {}) });
+    return asked.at(-1).messages[0].text;
+  };
+  assert.doesNotMatch(await check(), /<tex_tools>/);
+  assert.match(await check(config), /<tex_tools>\n- orient: /);
 });

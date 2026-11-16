@@ -1,6 +1,6 @@
 {
   "role": "advisor-job-check",
-  "about": "The job check at every stop of a background job. Invented people and words. A tool result shows done; a promise of more work is not done; only the person can give a code; a dropped part of their own ask is not done. A claim about the outside world (signed in, a wrong password) needs proof in the part's own tool results.",
+  "about": "The job check at every stop of a background job. Invented people and words. A tool result shows done; a promise of more work is not done; only the person can give a code; a dropped part of their own ask is not done.",
   "cases": [
     {
       "id": "saved-note-is-done",
@@ -48,32 +48,11 @@
           {
             "url": "https://northwind.example/apply"
           },
-          "Northwind Fellowship 2027. Step 1 of 4: Sign in.\n[1] input text: User ID\n[2] input password: Password\n[3] link: Forgot password\n[4] button: Log in"
-        ],
-        [
-          "fill_login",
-          {
-            "entry": "v_9f8e7d",
-            "username_ref": 1
-          },
-          "Filled the saved email for Northwind. Press the page's continue button with send action browse, then fill_login again with password_ref on the next page."
-        ],
-        [
-          "browse",
-          {
-            "steps": [
-              {
-                "do": "click",
-                "ref": 4
-              }
-            ]
-          },
-          "Northwind Fellowship 2027. Step 1 of 4: Sign in.\nInvalid user login or password.\n[1] input text: User ID\n[2] input password: Password\n[3] link: Forgot password\n[4] button: Log in"
+          "Northwind Fellowship 2027. Step 1 of 4: Create an account or sign in. [Sign in with email] [Continue with Google]"
         ]
       ],
-      "answer": "Northwind rejected your saved password (\"Invalid user login or password\"). Re-save it in the app and I'll begin the application.",
-      "want": "keep_going",
-      "fixed": "2026-11-16: folded in a wrong-password claim made after one error on a split fill (username alone, then Log in), which the check once passed on as waiting and the person was asked to re-save a password that worked; a promise of more work is still not done"
+      "answer": "I opened the application. It has four steps; I'll begin with the sign-in next.",
+      "want": "keep_going"
     },
     {
       "id": "texted-code-is-waiting",

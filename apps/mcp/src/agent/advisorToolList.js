@@ -10,7 +10,18 @@
  * with its type, its enum and the start of its description, and, for the six's families (`sixTools.js`), each action
  * the turn holds with its own arguments. Compact and capped: it sits beside a transcript that may be long. Only what
  * the turn was offered is listed, so a tool it lacks can never be advised.
+ *
+ * Whether a step is shown the list is the config's, never code's (the owner, 2026-11-16): a step reads it when its
+ * `ctx` in `texConfig.json` names "tools" (`readsTools`), main's or a Lab draft's; without it, no list at all.
  */
+
+import { TEX_CONFIG, texStep } from "./texConfig.js";
+
+/** Whether step `id` reads the turn's tools in `config` (main's, or a Lab test chat's draft): its ctx names "tools". */
+export function readsTools(id, config = TEX_CONFIG) {
+  const ctx = texStep(id, config).ctx;
+  return Array.isArray(ctx) && ctx.includes("tools");
+}
 
 /** The most of the whole list; a longer one keeps its first tools and says it was cut. */
 export const MAX_TOOL_LIST_CHARS = 16_000;

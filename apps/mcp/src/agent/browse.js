@@ -645,6 +645,8 @@ export function browserSession(computer, { allowed, addresses, takePages, say = 
 
     /** The origin of the page the browser is on, or null before it opens one. */
     currentOrigin: () => origin,
+    /** The last reading's password box, or null: a username filled alone on a page that has one fills both (`fillLogin.js`). */
+    passwordBox: () => (Array.isArray(shownElements) ? shownElements : []).find((element) => /\bpassword\b/i.test(String(element?.kind ?? "")))?.ref ?? null,
 
     /**
      * Type a secret into one field, for the vault (`fillLogin.js`, `fillCard.js`). The

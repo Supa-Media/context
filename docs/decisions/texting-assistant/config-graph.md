@@ -298,6 +298,32 @@ reversed.
 **Changing a node's code only.** The pull request changes the config too, or it
 says `Tex diagram: unchanged because <reason>`.
 
+## A step reads the turn's tools only when its ctx says "tools" (2026-11-16)
+
+A job's log on 2026-11-16: the Advisor was handed the turn's tools by name
+only (`fetch, send, ...`), and told a Haiku job to fetch an email with
+`{ links: true }`, an argument no tool has, and to `read_back` earlier reads
+its six tools never showed. The owner: "I'm confused how the advisor does not
+have access to the tool set. That sounds like a harness issue."
+
+**Decided (the owner, 2026-11-16):** what a step reads is the config's, never
+code's. The Advisor (`advisor`) and Job check (`jobcheck`) are shown the turn's
+real tools, each with its first paragraph, its parameters (type, enum, the
+start of its description) and the actions and ids it lists, capped at 16,000
+characters (`advisorToolList.js`), **only when their `ctx` names `"tools"`**,
+in main's config or a Lab draft's (`readsTools`, threaded as `texConfigOf`).
+Without it they see no tool list at all: the names-only list is gone. The code
+merged unwired; wiring is a Lab draft that adds `"tools"` to those two steps'
+`ctx`, then Promote. A draft that does is applied as drawn (`draftFit` reports
+nothing unapplied). The fetch id `read:<ref>` (`sixTools.js`) opens an earlier
+read (`read_back`), listed among fetch's ids exactly when the turn holds it, so
+a turn shown read refs can always open them.
+
+**What a "simplification" would cost.** Building the list whatever the config
+says puts a prompt decision back in code; a names-only list lets the advisor
+advise arguments that don't exist. `apps/mcp/test/agentAdvisorToolList.test.mjs`
+and the `reads-back` replay fail if either is reversed.
+
 ## Related
 
 - [One drawing of Tex](./architecture-diagram.md): the hand-drawn rule it replaces

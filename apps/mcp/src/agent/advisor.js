@@ -32,7 +32,7 @@ import { withoutTag } from "./promptFence.js";
 import { adviseOnce, advisorRequest, advisorThinking } from "./advisorRoles/core.js";
 import { ADVISOR_PROMPT } from "./advisorRoles/chat.js";
 import { TEX_CONFIG, texTimeoutMs } from "./texConfig.js";
-import { toolList } from "./advisorToolList.js";
+import { readsTools, toolList } from "./advisorToolList.js";
 
 // Its instructions live in `advisorRoles/chat.js`, beside the other roles' (`advisorRoles/core.js`).
 export { ADVISOR_PROMPT, advisorRequest, advisorThinking };
@@ -107,9 +107,10 @@ const quoted = (value) => BRIEF_TAGS.reduce((text, tag) => withoutTag(tag, text)
  * @param {string} options.question the person's text, likewise
  * @param {Function} options.request `(params) => answer`, `requestBuiltin` bound to the turn's provider
  * @param {Function} [options.meter] `(usage, failed, model, whole)`, `texEntryPoint.js`'s
+ * @param {object} [options.config] the config the turn runs on (`texConfigOf`): its Advisor step's reads decide whether the turn's tools are shown
  * @returns {Array<{tool: object, call: Function}>}
  */
-export function advisorTools({ model, effort, history, question, request, meter = async () => {} }) {
+export function advisorTools({ model, effort, history, question, request, meter = async () => {}, config = TEX_CONFIG }) {
   if (typeof model !== "string" || typeof request !== "function") return [];
   let asks = 0;
   /** `live`: the turn as it stands (`turn.js`): its system prompt, its tools and its messages so far. */
@@ -119,7 +120,7 @@ export function advisorTools({ model, effort, history, question, request, meter 
     const transcript = Array.isArray(live?.messages) ? live.messages : [...history, { role: "user", text: question }];
     let answer;
     try {
-      answer = await adviseOnce({ request, model, effort, prompt: ADVISOR_PROMPT, role: "advisor", brief: advisorBrief(live, transcript) });
+      answer = await adviseOnce({ request, model, effort, prompt: ADVISOR_PROMPT, role: "advisor", brief: advisorBrief(live, transcript, { tools: readsTools("advisor", config) }) });
     } catch {
       await meter(null, true, model, false);
       return text("Your advisor couldn't be reached. Answer with what you have.", true);
@@ -134,11 +135,11 @@ export function advisorTools({ model, effort, history, question, request, meter 
 }
 
 /**
- * The whole turn, as one text the advisor reads: Tex's instructions, its
- * tools with what each takes, then every message in order, tool calls and results
- * included. A long turn keeps its newest part.
+ * The whole turn, as one text the advisor reads: Tex's instructions, the turn's
+ * tools with what each takes when its step reads "tools" (`tools`), then every
+ * message in order, tool calls and results included. A long turn keeps its newest part.
  */
-export function advisorBrief(live, transcript) {
+export function advisorBrief(live, transcript, { tools = false } = {}) {
   // A turn hands its parts (`builtin.js` `liveTurn`): who they are and this moment, never the texting rules, which
   // used up the whole 40,000 characters and cut the person off (the context review, 2026-11-06).
   if (typeof live?.about === "string") {
@@ -148,15 +149,17 @@ export function advisorBrief(live, transcript) {
       (about ? `<about_them>\n${about}\n</about_them>\n\n` : "") + (now ? `<this_moment>\n${now}\n</this_moment>\n\n` : ""),
       live,
       transcript,
+      tools,
     );
   }
   const system = quoted(clip(live?.system, MAX_SYSTEM_CHARS));
-  return briefOf(system ? `<tex_instructions>\n${system}\n</tex_instructions>\n\n` : "", live, transcript);
+  return briefOf(system ? `<tex_instructions>\n${system}\n</tex_instructions>\n\n` : "", live, transcript, tools);
 }
 
-function briefOf(head, live, transcript) {
-  // Each tool with what it takes, never its name alone (`advisorToolList.js`): from names, it advised arguments no tool has (2026-11-16).
-  const tools = quoted(toolList(live?.tools, { skip: [ADVISOR_TOOL] }));
+function briefOf(head, live, transcript, showTools) {
+  // Each tool with what it takes, never its name alone (`advisorToolList.js`): from names, it advised arguments no tool
+  // has (2026-11-16). Only when the Advisor step's reads name "tools" in the config; otherwise no list at all.
+  const tools = showTools ? quoted(toolList(live?.tools, { skip: [ADVISOR_TOOL] })) : "";
   const lines = transcript.map(messageLine).filter(Boolean);
   let body = lines.join("\n\n");
   if (body.length > MAX_TRANSCRIPT_CHARS) body = `(earlier part of the turn left out)\n\n${body.slice(-MAX_TRANSCRIPT_CHARS)}`;
