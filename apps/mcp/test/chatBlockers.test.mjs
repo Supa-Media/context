@@ -15,8 +15,8 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { blockedOf, groupOf, groupPrompt } from "../src/agent/groupTurn.js";
-import { blockedLine, groupReachOut, guestPrompt } from "../src/agent/groupGuests.js";
+import { groupOf, groupPrompt } from "../src/agent/groupTurn.js";
+import { blockedLine, blockedOf, groupReachOut, guestPrompt } from "../src/agent/groupGuests.js";
 import { settingsTools } from "../src/agent/settingsTools.js";
 
 const HEX = "a".repeat(64);

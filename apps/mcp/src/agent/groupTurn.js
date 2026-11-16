@@ -53,7 +53,7 @@ import { directNote, learnDirect } from "./groupDirectNotes.js";
 import { homeNamesOf, readEitherName } from "./homeNames.js";
 import { readWithEtag } from "./jobLog.js";
 import { textingAwareCallTool, textingWriteTools } from "./textingWrites.js";
-import { GUEST_NOTE_TOOLS, blockedLine, guestAwareCallTool, guestPrompt, isGuestChat } from "./groupGuests.js";
+import { GUEST_NOTE_TOOLS, blockedLine, blockedOf, guestAwareCallTool, guestPrompt, isGuestChat } from "./groupGuests.js";
 import { chatRoutinePrompt, chatRoutineRefusal } from "./groupRoutines.js";
 import { chatMailOf, chatMailPrompt, chatMailTools } from "./groupMail.js";
 import { toolError } from "../tools/results.js";
@@ -167,19 +167,6 @@ export function reachOf(session) {
 export function inFirstReach(dispatch, group) {
   const first = Array.isArray(group?.reach) ? group.reach[0] : undefined;
   return dispatch === null || first === undefined ? dispatch : (name, args) => dispatch(name, { ...args, context: `@${first}` });
-}
-
-/**
- * Who keeps the chat from a shared workspace, as the Worker passed the control plane's answer on: a handle or a guest's
- * label and why, never a number. It only names; what the chat may read is the grant's (`reachOf`), never this.
- */
-const BLOCKED_WHO = /^(?:[a-z0-9][a-z0-9-]{0,64}|guest-[0-9a-f]{4})$/;
-export function blockedOf(value) {
-  if (!Array.isArray(value)) return [];
-  return value
-    .slice(0, 24)
-    .filter((entry) => entry !== null && typeof entry === "object" && HANDLE.test(entry.slug ?? "") && BLOCKED_WHO.test(entry.who ?? "") && (entry.why === "not_member" || entry.why === "no_account"))
-    .map(({ slug, who, why }) => ({ slug, who, why }));
 }
 
 /** The handles of the people in the chat, as the control plane named them to the Worker; an email may be offered to one (`tools/offerFor.js`). */
