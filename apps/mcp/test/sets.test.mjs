@@ -105,11 +105,11 @@ test("ratioCheck with a Test count uses all three sets", () => {
 });
 
 test("a conversation file is one line per field and per message, and every repo file is written that way", async () => {
-  const c = { id: "x", title: "X", set: "dev", kind: "one", members: ["Jo"], msgs: [{ id: "m1", who: "Jo", text: "hi ⁨there⁩" }, { id: "m2", who: "Tex", tex: true, text: "hey" }] };
+  const c = { id: "x", title: "X", set: "dev", kind: "one", members: ["Jo"], msgs: [{ id: "m1", who: "Jo", text: `hi ${String.fromCharCode(0x2068)}there${String.fromCharCode(0x2069)}` }, { id: "m2", who: "Tex", tex: true, text: "hey" }] };
   const text = conversationFile(c);
   assert.deepEqual(JSON.parse(text), c);
   assert.equal(text.split("\n").length, 1 + 5 + 1 + 2 + 2 + 1, "the brace, five fields, the msgs bracket, one line per message, the two closes, the final newline");
-  assert.doesNotMatch(text, /[⁦-⁩]/, "invisible characters are escapes");
+  assert.doesNotMatch(text, /[\u2066-\u2069]/, "invisible characters are escapes");
   for (const conv of await loadSets()) {
     const file = readFileSync(join(SETS_DIR, conv.set, `${conv.id}.json`), "utf8");
     assert.equal(file, conversationFile(JSON.parse(file)), `${conv.id} is written as conversationFile writes it`);
