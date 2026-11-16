@@ -230,6 +230,21 @@ test("set_restore takes the mark back with a restore, not a removal", async () =
   assert.equal(res.restored, true);
 });
 
+// Dev2, 2026-11-16: "please make sure we have a change history and the ability to undo" — the Lab's History, here too.
+test("set_history lists the revisions with the repo's copy last, and set_back puts one back", async () => {
+  const dev = REPO.sets.find((c) => c.set === "dev");
+  const { plane, call } = tool({
+    set_history: { status: "ok", id: dev.id, rev: 2, isNew: false, revs: [{ rev: 2, said: ["b"], restorable: true }, { rev: 1, said: ["a"], restorable: true }] },
+    set_back: { status: "ok", id: dev.id, rev: 3, conv: JSON.stringify(dev) },
+  });
+  const h = jsonOf(await call("set_history", { id: dev.id }));
+  assert.deepEqual(h.revs.map((r) => r.rev), [2, 1, 0]);
+  const back = jsonOf(await call("set_back", { id: dev.id, to: 1 }));
+  assert.deepEqual(plane.calls.find((c) => c.action === "set_back").args, { id: dev.id, to: 1 });
+  assert.equal(back.rev, 3);
+  assert.equal((await call("set_back", { id: dev.id })).isError, true);
+});
+
 test("set_promote refuses when a draft has problems, and asks for the sound ones", async () => {
   const bad = { id: "bad-one", title: "Bad", set: "dev", kind: "one", members: ["Ann"], msgs: [{ id: "m1", who: "Bob", text: "hi" }] };
   const ok = { id: "ok-one", title: "Fine", set: "training", kind: "one", members: ["Ann"], msgs: [{ id: "m1", who: "Ann", text: "hi there" }] };
@@ -315,7 +330,7 @@ test("set_import hands a chat's texts with the rules, and names set_create as th
 });
 
 test("the tool's description and the guide name every set action", () => {
-  const actions = ["sets", "set_get", "set_fields", "set_edit", "set_move", "set_create", "set_import", "set_delete", "set_restore", "set_ratio", "set_promote"];
+  const actions = ["sets", "set_get", "set_fields", "set_edit", "set_move", "set_create", "set_import", "set_delete", "set_restore", "set_history", "set_back", "set_ratio", "set_promote"];
   const description = texDevToolDefinitions()[0].description;
   const guide = guideText();
   for (const action of actions) {

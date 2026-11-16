@@ -15,7 +15,7 @@ export const LAB_CSS_3 = String.raw`
 .tl .tst button{font:inherit;color:inherit;cursor:pointer}
 .tl .tst button:focus-visible,.tl .tst input:focus-visible,.tl .tst select:focus-visible,.tl .tst [tabindex]:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
 .tl .tst .cols{display:grid;grid-template-columns:250px minmax(0,1fr) 340px;gap:10px;min-height:0}
-@media (max-width:980px){.tl .tst .cols{grid-template-columns:1fr}.tl .tst{height:auto;overflow:auto}}
+@media (max-width:980px){.tl .tst .cols{grid-template-columns:1fr!important}.tl .tst{height:auto;overflow:auto}}
 .tl .tst .panel{background:var(--page);border:1px solid var(--line2);border-radius:12px;min-height:0;display:flex;flex-direction:column;overflow:hidden}
 .tl .tst .scroll{overflow:auto;min-height:0;flex:1}
 .tl .tst .ph{padding:10px 12px;border-bottom:1px solid var(--line2);display:flex;align-items:center;gap:8px;flex-wrap:wrap}
@@ -87,6 +87,21 @@ export const LAB_CSS_3 = String.raw`
 .tl .tst .inbox > *:not(summary){margin-top:6px}
 .tl .tst .inrow{display:grid;grid-template-columns:34px minmax(0,1fr);gap:6px;align-items:start;padding:2px 0}
 .tl .tst .inrow b{font-weight:600;font-size:12px}
+.tl .tst .panel.fold{align-items:center;justify-content:flex-start;gap:10px;padding:10px 0;color:var(--muted);font-weight:600;cursor:pointer}
+.tl .tst .panel.fold:hover{color:var(--text);background:var(--s3)}
+.tl .tst .panel.fold .foldname{writing-mode:vertical-rl;font-size:12px;letter-spacing:.04em}
+.tl .tst .foldbtn{border:none;background:none;color:var(--muted);padding:2px 6px;border-radius:6px;font-size:14px;line-height:1}
+.tl .tst .foldbtn:hover{background:var(--s3);color:var(--text)}
+.tl .tst .pics{display:flex;flex-wrap:wrap;gap:4px;margin-top:4px}
+.tl .tst .pics img{width:56px;height:56px;object-fit:cover;border-radius:6px;border:1px solid var(--line2);display:block}
+.tl .tst .pics .pic{position:relative}
+.tl .tst .pics .pic button{position:absolute;top:-6px;right:-6px;width:18px;height:18px;border-radius:9px;border:1px solid var(--line2);background:var(--page);font-size:11px;line-height:1;padding:0}
+.tl .tst .picadd{display:inline-flex;align-items:center;gap:4px;font-size:12px;color:var(--accent);cursor:pointer}
+.tl .tst .picadd input{display:none}
+.tl .tst .hist{position:absolute;right:0;top:calc(100% + 4px);z-index:30;width:320px;max-height:420px;overflow:auto;background:var(--page);border:1px solid var(--line2);border-radius:10px;box-shadow:0 8px 24px rgba(0,0,0,.14);padding:6px}
+.tl .tst .hist .hr{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:2px 8px;padding:6px 8px;border-radius:7px}
+.tl .tst .hist .hr:hover{background:var(--s3)}
+.tl .tst .hist .hr.cur{background:var(--accent-dim)}
 .tl .tst .legend{display:flex;flex-wrap:wrap;gap:12px;font-size:12px;color:var(--muted);padding:8px 12px 12px}
 .tl .tst .banner{background:color-mix(in srgb,var(--team) 12%,var(--page));color:var(--team);padding:8px 12px;font-size:12px;border-bottom:1px solid var(--line2)}
 .tl .tst .empty{padding:30px;text-align:center;color:var(--muted)}

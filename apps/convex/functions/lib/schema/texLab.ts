@@ -127,7 +127,11 @@ export const texLabTables = {
     .index("by_started", ["startedAt"])
     .index("by_version", ["versionId", "startedAt"])
     .index("by_by", ["by", "startedAt"]),
-  /** What each revision of a conversation draft changed (`texSetOps.cjs` keys and lines), for the conflict check. */
+  /**
+   * What each revision of a conversation draft changed (`texSetOps.cjs` keys and lines), for the conflict check, and
+   * the conversation as that revision left it (`data`), so the Lab's history and `tex_dev` `set_history` can put any
+   * earlier revision back (Dev2, 2026-11-16: "make sure we have a change history and the ability to undo").
+   */
   texSetChanges: defineTable({
     convoId: v.string(),
     rev: v.number(),
@@ -136,5 +140,6 @@ export const texLabTables = {
     keys: v.array(v.string()),
     said: v.array(v.string()),
     at: v.number(),
+    data: v.optional(v.string()),
   }).index("by_convo_rev", ["convoId", "rev"]),
 };

@@ -324,3 +324,21 @@ test("describe keeps a short line, and the full one when asked", () => {
   assert.ok(describe({ op: "edit", msg: "m1", field: "text", value: long }, true).length > 200);
   assert.equal(describe({ op: "field", msg: "m1", node: "decide", field: "star", value: false }), "unstarred decide on m1");
 });
+
+// Dev2, 2026-11-16: "No way to add images into these messages".
+test("a message carries pictures: https only, at most MAX_PICS, null drops them, and a picture needs no words", () => {
+  const { MAX_PICS } = ops;
+  const { check } = require("../../../packages/shared/src/texSets.cjs");
+  const pic = { url: "https://example.invalid/a.png", type: "image/png", name: "a.png" };
+  const c = run(base(), [{ op: "edit", msg: "m1", field: "pics", value: [pic] }]);
+  assert.deepEqual(c.msgs[0].pics, [pic]);
+  assert.match(describe({ op: "edit", msg: "m1", field: "pics", value: [pic] }), /1 picture/);
+  assert.throws(() => run(base(), [{ op: "edit", msg: "m1", field: "pics", value: [{ url: "http://example.invalid/a.png" }] }]), OpError);
+  assert.throws(() => run(base(), [{ op: "edit", msg: "m1", field: "pics", value: [{ url: "https://x.invalid/a", type: "text/html" }] }]), OpError);
+  assert.throws(() => run(base(), [{ op: "edit", msg: "m1", field: "pics", value: Array(MAX_PICS + 1).fill(pic) }]), OpError);
+  assert.equal(run(c, [{ op: "edit", msg: "m1", field: "pics", value: null }]).msgs[0].pics, undefined);
+  const only = run(c, [{ op: "edit", msg: "m1", field: "text", value: "" }]);
+  assert.ok(!check(only, { nodes: [] }).some((p) => /no words/.test(p)), "a picture with no words is a sound message");
+  const added = run(base(), [{ op: "add", msg: { who: base().members[0], text: "", pics: [pic] } }]);
+  assert.deepEqual(added.msgs.at(-1).pics, [pic]);
+});

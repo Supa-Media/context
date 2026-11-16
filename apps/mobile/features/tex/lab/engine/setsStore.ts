@@ -9,6 +9,7 @@ import type { LabGraph } from "../types";
 import { fitCols, type Cols } from "./sets";
 import { applyOps, type SetOp } from "@context/shared/src/texSetOps.cjs";
 import type { Conversation, SetId } from "./sets";
+import type { Pic } from "@context/shared/src/texSets.d.cts";
 
 /** An edit, in the shapes `texSetOps.cjs` reads from the Lab and the MCP alike; a move to or from Test is the tab's own. */
 export type Op = SetOp | { op: "set"; value: SetId };
@@ -32,6 +33,13 @@ export type SetsState = {
   loaded: boolean;
   /** The last thing the sink said went wrong, shown in the header. */
   problem: string | null;
+  /** Steps Undo and Redo can take in this visit (Dev2, 2026-11-16: "make sure we have a change history and the ability to undo"). */
+  undo: number;
+  redo: number;
+  /** The side panels, folded to a strip (Dev2, 2026-11-16: "no way to collapse this panel"); kept in this browser. */
+  fold: { sets: boolean; insp: boolean };
+  /** The History menu, open over the chat. */
+  history: boolean;
 };
 
 export const sets: SetsState = {
@@ -48,6 +56,10 @@ export const sets: SetsState = {
   cols: null,
   loaded: false,
   problem: null,
+  undo: 0,
+  redo: 0,
+  fold: readFold(),
+  history: false,
 };
 
 let version = 0;
@@ -78,17 +90,48 @@ export function applyAll(c: Conversation, ops: Op[]): Conversation {
   return moves.length ? { ...out, set: moves[moves.length - 1].value } : out;
 }
 
+const FOLD_KEY = "texLab.testing.fold";
+function readFold(): { sets: boolean; insp: boolean } {
+  try {
+    const f = JSON.parse(globalThis.localStorage?.getItem(FOLD_KEY) || "null");
+    return { sets: f?.sets === true, insp: f?.insp === true };
+  } catch {
+    return { sets: false, insp: false };
+  }
+}
+/** Fold or open a side panel. */
+export function fold(which: "sets" | "insp", on = !sets.fold[which]) {
+  sets.fold = { ...sets.fold, [which]: on };
+  try {
+    globalThis.localStorage?.setItem(FOLD_KEY, JSON.stringify(sets.fold));
+  } catch {
+    /* folded for this visit */
+  }
+  emitSets();
+}
+
 export type SetsSink = {
   /** Keep these ops on a conversation; `before` is how it read before them. */
   change: (before: Conversation, after: Conversation, ops: Op[]) => Promise<void>;
   create: (c: Conversation) => Promise<void>;
   /** Show the Test Set's words to this person (people only, with the warning). */
   readTest?: () => Promise<Conversation[]>;
+  /** Upload a picture sent with a message; answers where it is served. */
+  upload?: (file: File) => Promise<Pic>;
+  /** Put a Training or Dev chat's revision `to` back (0: the repo's copy), as a new revision. */
+  restore?: (id: string, to: number) => Promise<void>;
 };
 let sink: SetsSink | null = null;
 export const setSetsSink = (s: SetsSink | null) => {
   sink = s;
 };
+
+/** One change this visit made, as Undo and Redo walk it: the chat before and after. */
+type Step = { chat: string; before: Conversation; after: Conversation };
+const UNDO_MAX = 200;
+const undone: Step[] = [];
+const redone: Step[] = [];
+const counted = () => Object.assign(sets, { undo: undone.length, redo: redone.length });
 
 /** Apply ops to a conversation and keep them. */
 export function change(chatId: string, ops: Op[]) {
@@ -101,10 +144,56 @@ export function change(chatId: string, ops: Op[]) {
   } catch (e) {
     return setUi({ problem: e instanceof Error ? e.message : "That edit can't be applied" });
   }
+  if (JSON.stringify(after) === JSON.stringify(before)) return;
+  undone.push({ chat: chatId, before, after });
+  if (undone.length > UNDO_MAX) undone.shift();
+  redone.length = 0;
+  counted();
   sets.convs = sets.convs.slice();
   sets.convs[i] = after;
   emitSets();
   void sink?.change(before, after, ops).catch((e: unknown) => setUi({ problem: e instanceof Error ? e.message : "Couldn't save that change" }));
+}
+
+/** Put a chat back to how it read: one whole-chat edit, kept like any other (a Test chat goes back to the eval service). */
+export function replaceChat(chatId: string, to: Conversation) {
+  const i = sets.convs.findIndex((c) => c.id === chatId);
+  if (i < 0) return false;
+  const before = sets.convs[i];
+  sets.convs = sets.convs.slice();
+  sets.convs[i] = to;
+  sets.chat = chatId;
+  if (sets.msg && !to.msgs.some((m) => m.id === sets.msg)) sets.msg = null;
+  emitSets();
+  // A Test chat never takes a store edit: the sink moves or writes it whole.
+  const ops: Op[] = to.set === "test" ? [] : [{ op: "put", convo: to } as Op];
+  void sink?.change(before, to, ops).catch((e: unknown) => setUi({ problem: e instanceof Error ? e.message : "Couldn't save that change" }));
+  return true;
+}
+
+/** Undo this visit's last change (Cmd+Z), or redo the last undone one (Shift+Cmd+Z). */
+export function undo(redo = false) {
+  const from = redo ? redone : undone;
+  const step = from.pop();
+  if (!step) return;
+  replaceChat(step.chat, redo ? step.after : step.before);
+  (redo ? undone : redone).push(step);
+  counted();
+  emitSets();
+}
+
+/** Upload a picture through the sink; null when this page can't. */
+export async function uploadPic(file: File): Promise<Pic | null> {
+  if (!sink?.upload) {
+    setUi({ problem: "Pictures can't be uploaded here" });
+    return null;
+  }
+  try {
+    return await sink.upload(file);
+  } catch (e) {
+    setUi({ problem: e instanceof Error ? e.message : "Couldn't upload that picture" });
+    return null;
+  }
 }
 
 export function createChat(c: Conversation) {
@@ -164,4 +253,15 @@ export function saveCols(cols: Cols, draw = true) {
     /* the columns stay for this visit */
   }
   if (draw) emitSets();
+}
+
+/** Put a revision from the History back; the store's answer redraws the chat. */
+export async function restoreRev(id: string, to: number) {
+  if (!sink?.restore) return setUi({ problem: "The history can't be reached here" });
+  try {
+    await sink.restore(id, to);
+    setUi({ history: false, problem: null });
+  } catch (e) {
+    setUi({ problem: e instanceof Error ? e.message : "Couldn't put that revision back" });
+  }
 }

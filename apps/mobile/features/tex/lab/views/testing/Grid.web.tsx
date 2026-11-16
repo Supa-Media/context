@@ -6,7 +6,8 @@
 import { useEffect, useRef, useState } from "react";
 import { G } from "../../engine/state";
 import { bodyOf, cellOf, colWidth, defaultCols, labelFields, newRowAt, freshId, SET_INFO, starsIn, stepNodes, type Conversation, type Message } from "../../engine/sets";
-import { change, colsFor, saveCols, setUi, sets, useSets } from "../../engine/setsStore";
+import { change, colsFor, saveCols, setUi, sets, undo, useSets } from "../../engine/setsStore";
+import { History } from "./History.web";
 import type { LabNode } from "../../types";
 import { ColMenu as SharedColMenu, HeadCell, startResize as resizeCol } from "../grid/GridParts.web";
 import { MsgFields, SpeakerPick } from "./MsgFields.web";
@@ -29,14 +30,14 @@ export function selectCell(c: Conversation, msg: string, col: string, editing = 
 }
 function dropFresh(c: Conversation, keep: string | null) {
   const f = sets.fresh && sets.fresh !== keep ? c.msgs.find((x) => x.id === sets.fresh) : null;
-  if (f && !f.text && !f.kind) change(c.id, [{ op: "remove", msg: f.id }]);
+  if (f && !f.text && !f.kind && !f.pics?.length) change(c.id, [{ op: "remove", msg: f.id }]);
   if (sets.fresh !== keep) sets.fresh = null;
 }
 /** Leave the editor; a fresh row left empty goes. */
 export function doneEditing(c: Conversation) {
   const conv = sets.convs.find((x) => x.id === c.id) || c;
   const m = conv.msgs.find((x) => x.id === sets.msg);
-  if (m && sets.fresh === m.id && !m.text && !m.kind) {
+  if (m && sets.fresh === m.id && !m.text && !m.kind && !m.pics?.length) {
     change(c.id, [{ op: "remove", msg: m.id }]);
     sets.msg = null;
   }
@@ -74,13 +75,28 @@ function Body({ c, m }: { c: Conversation; m: Message }) {
       </span>
     </>
   ) : null;
-  if (!b.kind) return m.text ? <>{m.text}</> : <span className="muted">(empty)</span>;
+  const pics = m.pics?.length ? <Pics m={m} /> : null;
+  if (!b.kind) return m.text || pics ? <>{m.text}{pics}</> : <span className="muted">(empty)</span>;
   return (
     <>
       <span className="kind">{b.kind}</span>
       {late}{" "}
       {b.quoted !== null ? <span className="muted">“{b.quoted}”</span> : b.struck ? <s className="muted">{b.text}</s> : b.text}
+      {pics}
     </>
+  );
+}
+
+/** A message's pictures, small; each opens full size. */
+export function Pics({ m }: { m: Message }) {
+  return (
+    <span className="pics">
+      {(m.pics ?? []).map((p, k) => (
+        <a key={k} className="pic" href={p.url} target="_blank" rel="noreferrer" title={p.name || "Picture"} onClick={(e) => e.stopPropagation()}>
+          <img src={p.url} alt={p.name || "Picture"} loading="lazy" />
+        </a>
+      ))}
+    </span>
   );
 }
 
@@ -157,7 +173,10 @@ export function Grid({ c }: { c: Conversation }) {
   }, [s.msg, s.editing, c.id]);
 
   useEffect(() => {
-    const close = () => sets.colMenu && setUi({ colMenu: false });
+    const close = (e: MouseEvent) => {
+      if (sets.colMenu) setUi({ colMenu: false });
+      if (sets.history && !(e.target as HTMLElement | null)?.closest?.(".hist")) setUi({ history: false });
+    };
     document.addEventListener("click", close);
     return () => document.removeEventListener("click", close);
   }, []);
@@ -250,16 +269,36 @@ export function Grid({ c }: { c: Conversation }) {
           {info.name}
         </span>
         <span className="muted small">
-          {c.kind === "one" ? "1:1" : "group"} · ★ {starsIn(c)} unit tests{(c as { from?: string }).from ? ` · from ${(c as { from?: string }).from}` : ""}
+          {c.kind === "one" ? "1:1" : "group"} · ★ {starsIn(c)} unit tests
         </span>
-        <span style={{ marginLeft: "auto", position: "relative" }}>
+        <span style={{ marginLeft: "auto", display: "flex", gap: 6, position: "relative" }}>
+          <button className="btn sm" id="undoBtn" disabled={!s.undo} title="Undo (⌘Z)" aria-label="Undo" onClick={() => undo()}>
+            ↶ Undo
+          </button>
+          <button className="btn sm" id="redoBtn" disabled={!s.redo} title="Redo (⇧⌘Z)" aria-label="Redo" onClick={() => undo(true)}>
+            ↷
+          </button>
+          <button
+            className="btn sm"
+            id="histBtn"
+            aria-expanded={s.history}
+            onClick={(e) => {
+              e.stopPropagation();
+              setUi({ history: !s.history, colMenu: false });
+            }}
+          >
+            History
+          </button>
+          {s.history ? <History c={c} /> : null}
+        </span>
+        <span style={{ position: "relative" }}>
           <button
             className="btn sm"
             id="colBtn"
             aria-expanded={s.colMenu}
             onClick={(e) => {
               e.stopPropagation();
-              setUi({ colMenu: !s.colMenu });
+              setUi({ colMenu: !s.colMenu, history: false });
             }}
           >
             Columns ▾
@@ -347,9 +386,6 @@ export function Grid({ c }: { c: Conversation }) {
         </table>
       </div>
       <div className="legend">
-        <span>
-          Click a cell to select · <kbd>Enter</kbd> or double-click to edit · arrows move · drag ⠿ or <kbd>Alt</kbd>+<kbd>↑</kbd>/<kbd>↓</kbd> to reorder · <kbd>Del</kbd> clears · <kbd>T</kbd> unit test
-        </span>
         <span className="c-ok">✓ labelled</span>
         <span className="c-open">○ ran, no label</span>
         <span>– didn't run</span>

@@ -214,10 +214,49 @@ describe("promote", () => {
   });
 });
 
+// Dev2, 2026-11-16: "Made some change and I couldnt undo it, please make sure we have a change history and the ability to undo".
+describe("change history and putting a revision back", () => {
+  test("every revision is listed newest first and any one can be put back as a new revision", async () => {
+    const { door } = await world();
+    await door("set_edit", { id: "chat-a", rev: 0, ops: TITLE, base: BASE });
+    await door("set_edit", { id: "chat-a", rev: 1, ops: [{ op: "edit", msg: "m1", field: "text", value: "where is the bin?" }] });
+    const h = await door("set_history", { id: "chat-a" });
+    expect(h).toMatchObject({ status: "ok", rev: 2, isNew: false });
+    expect(h.revs.map((r: { rev: number }) => r.rev)).toEqual([2, 1]);
+    expect(h.revs.every((r: { restorable: boolean }) => r.restorable)).toBe(true);
+
+    const back = await door("set_back", { id: "chat-a", to: 1 });
+    expect(back).toMatchObject({ status: "ok", rev: 3, said: ["put back revision 1"] });
+    const now = JSON.parse(back.conv);
+    expect(now.title).toBe("Bins 2");
+    expect(now.msgs[0].text).toBe("is the bin out?");
+    // Undo is a revision too: putting 2 back redoes it.
+    expect(JSON.parse((await door("set_back", { id: "chat-a", to: 2 })).conv).msgs[0].text).toBe("where is the bin?");
+  });
+
+  test("revision 0 is the repo's copy, a revision out of range is refused, and the Lab's door does the same as staff", async () => {
+    const { door, lab } = await world();
+    await door("set_edit", { id: "chat-a", rev: 0, ops: TITLE, base: BASE });
+    expect(await door("set_back", { id: "chat-a", to: 9 })).toMatchObject({ status: "bad_request" });
+    expect((await lab.query(api.functions.texSets.history, { id: "chat-a" })).revs).toHaveLength(1);
+    expect(await lab.mutation(api.functions.texSets.restoreTo, { id: "chat-a", to: 0 })).toMatchObject({ status: "ok", rev: 0 });
+    expect(await drafts(door)).toEqual([]);
+    expect(await door("set_back", { id: "chat-a", to: 1 })).toMatchObject({ status: "not_found" });
+  });
+
+  test("a message's pictures are kept, and a picture that is not an https address is refused", async () => {
+    const { door } = await world();
+    const pic = { url: "https://example.invalid/p.png", type: "image/png", name: "p.png" };
+    const ok = await door("set_edit", { id: "chat-a", rev: 0, ops: [{ op: "edit", msg: "m1", field: "pics", value: [pic] }], base: BASE });
+    expect(JSON.parse(ok.conv).msgs[0].pics).toEqual([pic]);
+    expect(await door("set_edit", { id: "chat-a", rev: 1, ops: [{ op: "edit", msg: "m1", field: "pics", value: [{ url: "javascript:alert(1)" }] }] })).toMatchObject({ status: "bad_request" });
+  });
+});
+
 // Found by this file's first draft (2026-11-15): the route's action list had no set_* name, so none reached the store.
 test("POST /gateway/tex/dev passes every set action to the set store", async () => {
   const { t } = await world();
-  for (const action of ["set_drafts", "set_edit", "set_create", "set_remove", "set_promote"]) {
+  for (const action of ["set_drafts", "set_edit", "set_create", "set_remove", "set_promote", "set_history", "set_back"]) {
     const answer = await bodyOf(await gatewayPost(t, "/gateway/tex/dev", { accessToken: ACCESS_A, action, args: {} }));
     expect(answer.status === "bad_request" && answer.error === undefined).toBe(false);
   }

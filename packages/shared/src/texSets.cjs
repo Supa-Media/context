@@ -7,7 +7,8 @@
  *
  * A conversation: `{ id, title, set, kind: "one" | "group", members, msgs }`. A message: `{ id, who, text }`, a Tex
  * row `tex: true` (what Tex should have said, history for later rows, never a test), a special message `kind`
- * (react | reply | edit | delete) pointing at an earlier one by `to`. A person's message with no Tex row after it is
+ * (react | reply | edit | delete) pointing at an earlier one by `to`, and `pics` the pictures sent with it
+ * (`[{ url, type?, name? }]`; a message with pictures needs no words). A person's message with no Tex row after it is
  * Tex staying quiet: there is no "quiet" row. `labels[nodeId]` is what that node should output on that message:
  * its config output fields (`"any"` skips one), `must` / `never` lines, `run: "must" | "must not"`, and `star: true`
  * when it is a unit test. `rec[nodeId]` is a node's recorded run on main, the frozen input for the nodes it feeds.
@@ -74,7 +75,9 @@ function check(c, config, opts = {}) {
       if (!KINDS.includes(m.kind)) out.push(`${at}: kind "${m.kind}" must be one of ${KINDS.join(", ")}`);
       else if (!seen.has(m.to)) out.push(`${at} is a ${m.kind} of a message that isn't earlier in the chat`);
     } else if (m.to !== undefined) out.push(`${at} points at another message but has no kind`);
-    if (!m.tex && m.kind !== "delete" && !String(m.text ?? "").trim()) out.push(`${at} has no words`);
+    const hasPics = Array.isArray(m.pics) && m.pics.length > 0;
+    if (m.pics !== undefined && !hasPics) out.push(`${at}: pics is a list of pictures`);
+    if (!m.tex && m.kind !== "delete" && !String(m.text ?? "").trim() && !hasPics) out.push(`${at} has no words`);
     for (const [nodeId, l] of Object.entries(m.labels || {})) {
       const n = nodeOf(config, nodeId);
       if (!n) { out.push(`${at}: no node "${nodeId}" in Tex's config`); continue; }

@@ -6,7 +6,7 @@ export type SetOp =
   | { op: "members"; value: string[] }
   | { op: "set"; value: "training" | "dev" }
   | { op: "add"; msg: Partial<Message> & { who: string; text: string }; after?: string | null }
-  | { op: "edit"; msg: string; field: "who" | "text" | "kind" | "to" | "tex"; value: unknown }
+  | { op: "edit"; msg: string; field: "who" | "text" | "kind" | "to" | "tex" | "pics"; value: unknown }
   | { op: "remove"; msg: string }
   | { op: "move"; msg: string; before: string | null }
   | { op: "label"; msg: string; node: string; value: Record<string, unknown> | null }
@@ -20,6 +20,7 @@ export type SetOp =
   | { op: "label"; id: string; node: string; label: Record<string, unknown> | null };
 export const OPEN_SETS: readonly ("training" | "dev")[];
 export const MAX_OPS: number;
+export const MAX_PICS: number;
 export class OpError extends Error {}
 export function apply<C extends Conversation>(convo: C, op: SetOp): C;
 export function applyOps<C extends Conversation>(convo: C, ops: SetOp[]): { convo: C; keys: string[]; said: string[]; full: string[] };
