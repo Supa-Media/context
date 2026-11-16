@@ -8,12 +8,14 @@
 //   chatRun.js `fetchOut` skipping the text's token check                 "nothing leaves ..." fails (401 expected)
 //   chatRun.js `/agent` hop leaving a group's made-up key                  "a group test text ..." fails
 //   harness.js `onNode` calling `this.show` (the runner calls it unbound)  "a turn's node lights its row ..." fails
+//   chatRun.js `gatewayRoutes` handing the `{ store, session }` pair on as the store (live 2026-11-16: every test
+//   text stopped at triage, the turn never asked)                          "the /agent hop hands the turn ..." fails
 
 import { test } from "node:test";
 import assert from "node:assert/strict";
 
 import { LabSandboxObject } from "../src/labSandbox/object.js";
-import { chatEnvFor, chatStepsOf, keepingLine, LAB_CONTROL_PLANE, LAB_GATEWAY, LAB_WORKER_SECRET, MemoryStorage, runChatTurn } from "../src/labSandbox/chatRun.js";
+import { chatEnvFor, chatStepsOf, gatewayRoutes, keepingLine, LAB_CONTROL_PLANE, LAB_GATEWAY, LAB_WORKER_SECRET, MemoryStorage, runChatTurn } from "../src/labSandbox/chatRun.js";
 import { streamTurn, wantsProgress } from "../src/agent/progress.js";
 import { eventEntry } from "../src/agent/ledger.js";
 import { durableSql } from "./texStoreFixture.mjs";
@@ -149,4 +151,24 @@ test("the steps a text ran are the worker's and the graph's, in the order logged
     { kind: "step", step: "send", at: 5, ms: 9, ok: true },
   ];
   assert.deepEqual(chatStepsOf(entries).map((s) => s.node), ["text", "triage", "lanes", "readTheText", "send"]);
+});
+
+test("the /agent hop hands the turn the test chat's own store and session, streamed or not", async () => {
+  const store = { name: "store" };
+  const session = { name: "session" };
+  const seen = [];
+  const handle = async (request, env, givenStore, givenSession) => {
+    seen.push([givenStore, givenSession]);
+    return Response.json({ answer: "ok", turn: "t" });
+  };
+  const ctx = { waitUntil() {} };
+  const route = gatewayRoutes({ storeOf: async () => ({ store, session }), sandboxEnv: {}, controlPlane: {}, ctx, gate: { record() {} }, handle });
+  assert.equal((await (await route(new Request("https://lab/agent", { method: "POST", body: "{}" }), "/agent")).json()).answer, "ok");
+  const streamed = await route(new Request("https://lab/agent", { method: "POST", body: "{}", headers: { accept: "application/x-ndjson" } }), "/agent");
+  await streamed.text();
+  assert.equal(seen.length, 2);
+  for (const [givenStore, givenSession] of seen) {
+    assert.equal(givenStore, store);
+    assert.equal(givenSession, session);
+  }
 });
