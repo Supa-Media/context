@@ -56,7 +56,7 @@ export type SandboxState = {
   chats: Array<{ chatId: string; name: string; kind?: "dm" | "group"; people?: number }>;
   /** The Training and Dev conversations a test chat may start from (the gateway's `sets`; never the Test set). */
   sets: Array<{ id: string; title: string; set: "training" | "dev"; group: boolean; texts: number }>;
-  /** A text waiting in the composer: Replay's "Try from here" puts the text it tries from there. */
+  /** A text waiting in the composer: `tryFromHere` puts the text it tries from there. */
   draft: { as: string; text: string } | null;
 };
 
@@ -243,8 +243,8 @@ export function openSandbox(source: SandboxSource, versionId: string, base?: str
   return run("open", { source: source.kind, ...(source.kind === "chat" ? { chatId: source.chatId } : source.kind === "set" ? { convId: source.convId, ...(source.chatId ? { chatId: source.chatId } : {}) } : {}), versionId, ...(base ? { base } : {}) });
 }
 /**
- * Replay's "Try from here": the Lab, a test chat over that chat with its real texts up to (not including) the one
- * picked, and that text waiting to be sent, as whoever sent it.
+ * "Try from here" (Replay's, before Replay joined the Lab): a test chat over that chat with its real texts up to (not
+ * including) the one picked, and that text waiting to be sent, as whoever sent it.
  */
 export function tryFromHere(chatId: string, name: string, msgId: string, as: string, text: string) {
   sandbox.draft = { as, text };

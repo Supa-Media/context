@@ -1,8 +1,8 @@
 /**
  * The Lab's place in the address bar (Dev2, 2026-11-14: "please make sure we are tracking state in the url so that when
- * we refresh the page or try to go back it doesnt just take us to the lab homepage"): Lab or Replay, the Lab's page,
- * and in Replay the chat and the moment. A refresh opens where it was; Back and Forward step through pages, modes and
- * chats. Picking another moment replaces the entry rather than adding one, so Back is not a walk through every text.
+ * we refresh the page or try to go back it doesnt just take us to the lab homepage"): Lab or Testing, the Lab's page,
+ * and the chat and the text a link points at (an old `?mode=replay` address opens the Lab there). A refresh opens where it was; Back and Forward step through pages, modes and
+ * chats. Picking another text replaces the entry rather than adding one, so Back is not a walk through every text.
  */
 import { useEffect } from "react";
 import { lab, set, subscribe } from "../engine/state";
@@ -11,7 +11,7 @@ import { placeOf, searchOf, type Place } from "./labPlace";
 
 export { placeOf, searchOf, type Place } from "./labPlace";
 
-const now = (): Place => ({ mode: lab.mode, view: lab.view, chat: lab.myChat, moment: lab.mode === "replay" ? lab.moment : null, set: lab.mode === "testing" ? lab.setChat : null });
+const now = (): Place => ({ mode: lab.mode, view: lab.view, chat: lab.myChat, moment: lab.mode === "lab" ? lab.moment : null, set: lab.mode === "testing" ? lab.setChat : null });
 
 /** Put the Lab where an address says. */
 function go(p: Place) {

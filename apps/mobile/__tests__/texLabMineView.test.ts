@@ -10,9 +10,8 @@
  * The decluttered Lab (mockup https://claude.ai/artifact/W21NekNf2vtnFLXXzAmp7N, approved by Dev2 2026-11-16) took
  * out the sidebar's test user swap (Maya / You) and its Workspaces list, the canvas's scenario picker and the playbar
  * with its speed slider, so the tests of those went with them. What they led to is still checked here: a traced text's
- * step panel, Replay, the ticked texts and the pasted replay, with the tester set by `asYou()` since nothing in the
- * page sets it now; the look's toggle, now in the top bar's ⋯; and the wires' key, open in Replay's top row and behind
- * the toolbar's ? in the Lab.
+ * step panel, that Replay is not a mode (an old address opens the Lab), the ticked texts and the pasted replay, with the tester set by `asYou()` since nothing in the
+ * page sets it now; the look's toggle, now in the top bar's ⋯; and the wires' key behind the toolbar's ?.
  *
  * Sabotage checks: drop the `lab.myNow` branch in Run's keepResults and "a pasted replay ..." fails on the saved raw;
  * drop the replays spread from `config()` and "a ticked text ..." fails.
@@ -60,9 +59,7 @@ jest.mock("../features/tex/lab/views/mine/useMine", () => {
     },
     readMyTexts: async () => {},
     readMyChats: async () => {},
-    readMomentDetail: async () => {},
-    refreshChat: async () => {},
-    // Replay's details: the Worker's judgings and each turn's reply timing, as the ledger keeps them.
+    // The details read for a job's work: the Worker's judgings and each turn's reply timing, as the ledger keeps them.
     replayEntries: () => {
       const T1 = Date.UTC(2026, 10, 14, 14);
       const T2 = Date.UTC(2026, 10, 14, 15);
@@ -175,11 +172,9 @@ const q = <T extends Element = HTMLElement>(s: string) => document.querySelector
 const qa = (s: string) => [...document.querySelectorAll<HTMLElement>(s)];
 /**
  * The test user as You. The sidebar swap that set this left with the decluttered Lab and nothing in the page sets it
- * now; Replay's loader reads your ledger (the mocked MineLoader), and the tester is set here.
+ * now; the loader reads your ledger (the mocked MineLoader), and the tester is set here.
  */
 async function asYou() {
-  await click(q("#modeReplay"));
-  await click(q("#modeLab"));
   act(() => setLab({ tester: "me" }));
 }
 async function click(el: Element | null | undefined) {
@@ -193,7 +188,7 @@ async function click(el: Element | null | undefined) {
 describe("the Lab with your own texts", () => {
   test("a step's panel shows what it got and gave in your text, and its icon can be changed", async () => {
     // Traced as the swap's canvas picker traced one of your texts; neither is in the decluttered Lab, so the state is
-    // set here (Replay's scrubber is what traces a text now, and leaving Replay clears it).
+    // set here (a real text's play button traces it now, `engine/prodRun.ts`).
     await act(async () => {
       traceMine("hey");
       await readTurnTimes({ text: "hey" } as never);
@@ -214,133 +209,28 @@ describe("the Lab with your own texts", () => {
     expect(q("#nIconPick")).toBeNull();
   });
 
-  test("Replay is its own mode: your chats, the conversation in moments, a timeline of how they queued, read only", async () => {
-    await click(q("#modeReplay"));
-    // Where they are is in the address, so a refresh or Back keeps it (Dev2, 2026-11-14).
-    expect(new URLSearchParams(window.location.search).get("mode")).toBe("replay");
-    expect(new URLSearchParams(window.location.search).get("moment")).toBe("ev3");
-    // No text strip over the canvas (the chat on the left already shows it). In Replay the wires' key stays open and
-    // leads the top row on the left (Dev2, 2026-11-14: "put the key back to float left"); there is no toolbar, so no ?.
-    expect(q(".ctop .moment")).toBeNull();
-    expect(q(".ctop")?.className).toBe("ctop replay");
-    expect(q(".ctop.replay #keyw")?.textContent).toMatch(/Next/);
-    expect(q("#keyw")?.hasAttribute("hidden")).toBe(false);
-    expect(q("#keyBtn")).toBeNull();
-    // The chats hide from beside them, and come back from the canvas's edge.
-    await click(q("#rCollapse"));
-    expect(q("#side")?.hasAttribute("hidden")).toBe(true);
-    await click(q("#rExpand"));
-    expect(q("#side")?.hasAttribute("hidden")).toBe(false);
-    // The Lab's editing goes away: no tools, no version controls.
-    expect(q("#tSel")).toBeNull();
-    expect(q("#saveBtn")).toBeNull();
-    // The chats are a drop-down (Dev2 on the mock: "Should probably be a drop down").
-    expect(qa("#rChat option").map((x) => x.textContent)).toEqual(["1:1 with Tex", "Band · 4 people", "Old pals · 1 person"]);
-    // The chat reads as it was; every text someone sent replays from it (Dev2: "replay from any text").
-    // A grid of Speaker and Message only (Dev2, 2026-11-16: "just keep it on the left only showing speaker and message").
-    expect(qa("#replayGrid thead th").map((x) => x.textContent)).toEqual(["Speaker", "Message"]);
-    expect(qa("#replayGrid tbody tr.mr").map((x) => x.textContent)).toEqual(["Youhey", "TexHi.", "Youremind me about the shelves", "TexDone."]);
-    expect(qa("#replaySide [data-moment]").map((x) => x.getAttribute("data-moment"))).toEqual(["ev1", "ev3"]);
-    // It opens on the newest moment, and the timeline shows its texts, the judge's calls and the turn.
-    expect(q('[data-moment="ev3"]')?.getAttribute("aria-current")).toBe("true");
-    expect(qa('#replayTimeline [data-lane="decide"] .rbar').map((x) => x.textContent)).toEqual(["answer", "fold it in"]);
-    expect(qa('#replayTimeline [data-lane="queue"] .rbar').map((x) => x.className)).toEqual(["rbar wait"]);
-    // One row per step that ran, each helper under the step that waited on it (Dev2, 2026-11-14: "what about helpers?").
-    const rowNames = qa("#replayTimeline .rrow .rln").map((x) => x.textContent);
-    expect(rowNames[0]).toBe("Texts");
-    expect(rowNames).toContain("Front door");
-    expect(rowNames).not.toContain("Judge");
-    expect(rowNames.at(-1)).toBe("Sent");
-    // Compact: unnamed tracks, as few as what ran at once needs, each bar named (Dev2, 2026-11-14).
-    await click(q("#rCompact"));
-    expect(q("#rCompact")?.getAttribute("aria-pressed")).toBe("true");
-    // Back to one row per step reads "Expand" (Dev2, 2026-11-14: "Instead of saying by step, just say expand").
-    expect(q("#rCompact")?.textContent).toBe("Expand");
-    // Every bar stays inside its track: the clock runs to the last bar's end, and a tiny bar keeps clear of the edge.
-    const lefts = qa("#replayTimeline .rbar").map((x) => parseFloat(x.style.left));
-    expect(lefts.length).toBeGreaterThan(0);
-    expect(lefts.every((l) => l >= 0 && l < 100)).toBe(true);
-    expect(qa("#replayTimeline .rrow .rln")).toEqual([]);
-    const tracks = qa("#replayTimeline .rrow.compact");
-    expect(tracks.length).toBeGreaterThan(0);
-    expect(tracks.length).toBeLessThan(rowNames.length);
-    const named = qa("#replayTimeline .rrow.compact .rbar").map((x) => x.getAttribute("aria-label") ?? "");
-    expect(named.some((x) => x.startsWith("Front door · "))).toBe(true);
-    expect(named.some((x) => x.startsWith("Decide · answer"))).toBe(true);
-    await click(q("#rCompact"));
-    expect(qa("#replayTimeline .rrow .rln").length).toBe(rowNames.length);
-    // The panel doesn't repeat the texts (they're on the left): it shows each turn and the judge's calls.
-    expect(q("#replayPanel h3")?.textContent).toBe("From your text");
-    expect(qa("#rTurns .rturnt").map((x) => x.textContent)).toEqual(["Done."]);
-    expect(q("#rTurns .rturnh")?.textContent).toMatch(/waited 0\.3 s.*ran 3\.4 s/);
-    expect(qa("#rJudge .rjrow b").map((x) => x.textContent)).toEqual(["answer", "fold it in"]);
-    expect(q("#replayPanel pre")).toBeNull();
-    const setValue = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!;
-    // Each judging lights Decide when the head is on it, and each text that comes in its start step, on the moment's
-    // own clock, not only the turn's first (Dev2, 2026-11-14: "how come 'a text arrives' did not light up").
+  test("Replay is not a mode: Lab and Testing only, and an old Replay address opens the Lab at its chat and text", async () => {
+    expect(q("#modeReplay")).toBeNull();
+    expect(qa("#modeLab, #modeTesting").map((x) => x.id)).toEqual(["modeLab", "modeTesting"]);
+    // An address from when Replay was a mode: the Lab opens at that chat and text, and writes its own address back.
+    window.history.replaceState(null, "", "/lab?mode=replay&chat=g1&moment=ev3");
     await act(async () => {
-      setValue.call(q<HTMLInputElement>("#rScrub")!, "1300");
-      q("#rScrub")!.dispatchEvent(new Event("input", { bubbles: true }));
+      window.dispatchEvent(new PopStateEvent("popstate"));
       await new Promise((r) => setTimeout(r, 0));
     });
-    expect(q('.nd[data-id="decide"]')?.classList.contains("lit")).toBe(true);
-    // Scrubbing plays the turn under the head at its measured times: at 2.5 s its front door (2.7 s long) is running.
-    await click(q('[data-moment="ev1"]'));
-    const scrubber = q<HTMLInputElement>("#rScrub")!;
-    await act(async () => {
-      setValue.call(scrubber, "2500");
-      scrubber.dispatchEvent(new Event("input", { bubbles: true }));
-      await new Promise((r) => setTimeout(r, 0));
-    });
-    expect(q("#rClock")?.textContent).toBe("2.5 s / 4.4 s");
-    expect(lab.ownText).toBe("hey");
-    const ring = q('.nd.run[data-id="fd"] .ring');
-    expect(ring).not.toBeNull();
-    expect(lab.sel).toEqual({ t: "node", id: "fd" });
-    expect(q("#replayPanel .pill")?.textContent).toMatch(/Haiku/);
-    expect(q("#replayPanel .pill:nth-child(2)")?.textContent).toBe("2.7 s real");
-    // A group chat they're in: other people's names, and its texts trace the group path.
-    await act(async () => {
-      const pick = q<HTMLSelectElement>("#rChat")!;
-      Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, "value")!.set!.call(pick, "g1");
-      pick.dispatchEvent(new Event("change", { bubbles: true }));
-      await new Promise((r) => setTimeout(r, 0));
-    });
-    expect(q('#replayGrid tbody tr.mr td[data-c="who"]')?.textContent).toBe("Ada");
-    await act(async () => {
-      setValue.call(q<HTMLInputElement>("#rScrub")!, "500");
-      q("#rScrub")!.dispatchEvent(new Event("input", { bubbles: true }));
-      await new Promise((r) => setTimeout(r, 0));
-    });
-    expect(lab.ownText).toBe("who has the van?");
-    expect(SCENARIOS.own.tags).toContain("group");
-    // Texts from before every step was logged in full don't replay (Dev2: "make sure that replay only works after the
-    // proper logging is in place"): their moment is left out and Older texts goes away.
-    lab.myOlder = 123;
-    await act(async () => {
-      const pick = q<HTMLSelectElement>("#rChat")!;
-      Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, "value")!.set!.call(pick, "g2");
-      pick.dispatchEvent(new Event("change", { bubbles: true }));
-      await new Promise((r) => setTimeout(r, 0));
-    });
-    expect(qa("#replaySide [data-moment]").map((x) => x.getAttribute("data-moment"))).toEqual(["o3", "o5"]);
-    expect(q("#rOlder")).toBeNull();
-    // A routine's run is in the chat too, and replays from the routine's own start step with what it thought.
-    expect(q('[data-moment="o5"] .cds')?.textContent).toBe("Routine · morning news");
-    await click(q('[data-moment="o5"]'));
-    expect(q("#replayPanel h3")?.textContent).toBe("Routine · morning news");
-    await act(async () => {
-      setValue.call(q<HTMLInputElement>("#rScrub")!, "1000");
-      q("#rScrub")!.dispatchEvent(new Event("input", { bubbles: true }));
-      await new Promise((r) => setTimeout(r, 0));
-    });
-    expect(lab.ownFrom).toBe("routine");
-    expect(lab.real?.io?.fd?.map((l) => l.k)).toContain("Thought · 4.0 s");
-    // Back to the Lab: its tools and the version controls return, and no conversation.
-    await click(q("#modeLab"));
+    expect(lab.mode).toBe("lab");
+    expect(lab.myChat).toBe("g1");
+    expect(lab.moment).toBe("ev3");
+    const search = new URLSearchParams(window.location.search);
+    expect(search.get("mode")).toBeNull();
+    expect(search.get("chat")).toBe("g1");
+    expect(search.get("moment")).toBe("ev3");
+    // The Lab is whole: its tools and version controls, no Replay chats, panel or timeline.
     expect(q("#tSel")).not.toBeNull();
     expect(q("#replaySide")).toBeNull();
-    // There the key is a popover behind the toolbar's ?, shut until asked for.
+    expect(q("#replayPanel")).toBeNull();
+    expect(q("#replayTimeline")).toBeNull();
+    // The wires' key is a popover behind the toolbar's ?, shut until asked for.
     expect(q("#keyw")?.classList.contains("keypop")).toBe(true);
     expect(q("#keyw")?.hasAttribute("hidden")).toBe(true);
     await click(q("#keyBtn"));
@@ -348,6 +238,21 @@ describe("the Lab with your own texts", () => {
     expect(q("#keyw")?.textContent).toMatch(/Next/);
     await click(q("#keyBtn"));
     expect(q("#keyw")?.hasAttribute("hidden")).toBe(true);
+  });
+
+  test("a text from one of their group chats traces the group path, whatever its words say", async () => {
+    await asYou();
+    act(() => {
+      lab.myChat = "g1";
+      traceMine("who has the van?");
+    });
+    expect(lab.ownText).toBe("who has the van?");
+    expect(SCENARIOS.own.tags).toContain("group");
+    act(() => {
+      lab.myChat = "me";
+      traceMine("who has the van?");
+    });
+    expect(SCENARIOS.own.tags).not.toContain("group");
   });
 
   test("a ticked text goes into the run config and the prompt, with the notes its turn read", async () => {
