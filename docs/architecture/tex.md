@@ -195,7 +195,7 @@ every wire, from the same config.
 | Staff messages | staff | staff-messages | on | code |  |  |  | graph/nodes/moveChat.js · textsMove.js |
 | Job advisor | jobadv | jobs | on | Opus 5.5 | high |  | own, brief, ask, ledger, out:job | graph/nodes/jobcheck.js · jobCheck.js · advisorRoles/jobMail.js |
 | Learn | learn |  | on | Haiku 5.5 | low |  |  | reflect.js · memoryNudge.js |
-| After the reply | afterReply |  | on | Haiku 5.5 | off | 4 s | own, train:classifier, train:selfreview, threads, recent, hist | conversationThreads.js · selfReview.js |
+| After the reply | afterReply |  | on | Haiku 5.5 | off | 4 s | own, threads, recent, hist | conversationThreads.js · selfReview.js |
 | Answer check | answerCheck |  | on | Haiku 5.5 | low | 8 s | own, train:reviewer, ledger, ask, draft, hist, date | graph/nodes/checks.js · graph/nodes/reviewer.js · replyJudge.js · sendBack.js |
 | Confirmations & refusals | bypass |  | on | code |  |  |  | graph/nodes/bypass.js |
 
