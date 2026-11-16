@@ -119,7 +119,8 @@ function momentSteps(m: Moment, lines: ChatLine[], entries: LedgerEntry[], g: La
     const real = shown.times;
     const mine = shown.entries.filter((e) => e.turn === tid);
     // Only the steps the log shows ran (`onlyWhatRan`): never an estimate standing in for one that didn't.
-    const sim = onlyWhatRan(withReal(simulate(g, "own", null, real, m.from), real, g), g);
+    // A job's report enters the turn the way a text does; the Texts row's own step already shows the job started it.
+    const sim = onlyWhatRan(withReal(simulate(g, "own", null, real, m.from === "job" ? "text" : m.from), real, g), g);
     const timing = rec(mine.find((e) => e.kind === "reply")?.timing);
     const rounds = (Array.isArray(timing?.rounds) ? (timing!.rounds as unknown[]) : []).map(rec).filter((r): r is Record<string, unknown> => r !== null);
     const calls: PlayCall[] = mine

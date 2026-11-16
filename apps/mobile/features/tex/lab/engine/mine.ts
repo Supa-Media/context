@@ -27,8 +27,12 @@ export type MyText = {
   who?: string;
 };
 
-/** What made Tex text without a text from them first (`texConfig.json`'s other start steps). */
-export type Start = "checkin" | "routine" | "notify";
+/**
+ * What made Tex text without a text from them first (`texConfig.json`'s other start steps). `job` is a background
+ * job reporting back: never part of the text before it (Dev2, 2026-11-16: "background jobs by definition are not part
+ * of a run"), so its turn starts a moment of its own (`replay.ts` `jobLines`).
+ */
+export type Start = "checkin" | "routine" | "notify" | "job";
 
 /**
  * One line of a chat as the Lab's conversation shows it: every text in order, and the person's ones playable. A text
