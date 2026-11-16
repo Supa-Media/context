@@ -40,6 +40,8 @@ import { Viewer } from "./views/Viewer.web";
 import { MineLoader, readMomentDetail, readTurnTimes, refreshChat, replayEntries } from "./views/mine/useMine";
 import { useLabUrl } from "./views/useLabUrl.web";
 import { ReplayPanel } from "./views/replay/ReplayPanel";
+import { ArchCanvas } from "./views/canvas/ArchCanvas.web";
+import { LabRunDev, RunControls } from "./views/runs/Runs.web";
 import { openMoment, ReplaySide } from "./views/replay/ReplaySide";
 import { loggedMoments, momentsOf } from "./engine/replay";
 import { setLabTheme, THEMES, useLabTheme } from "./theme.web";
@@ -58,8 +60,6 @@ const NAV: Array<[View, string, string, "modTag" | "cvTag" | "toolTag" | "runTag
   ["convo", "Conversations", '<path d="M4 5h11v8H8l-4 3z"/><path d="M15 9h5v8l-3-2h-6v-2"/>', "cvTag"],
   ["tools", "Tools", '<path d="M14.5 6.5a3.5 3.5 0 0 0 4.6 4.6l-8 8a2 2 0 0 1-2.8-2.8l8-8a3.5 3.5 0 0 0-1.8-1.8z"/>', "toolTag"],
   ["sim", "Speed and cost", '<circle cx="12" cy="13" r="7"/><path d="M12 13l3-3M10 3h4"/>', null],
-  ["tests", "Test cases", '<path d="M9 4h6M10 4v5l-5 9a1.5 1.5 0 0 0 1.3 2h11.4a1.5 1.5 0 0 0 1.3-2l-5-9V4"/><path d="M7.5 14h9"/>', null],
-  ["run", "Run", '<path d="M7 5l11 7-11 7z"/>', "runTag"],
   ["compare", "Compare versions", '<path d="M5 20V10M12 20V4M19 20v-7"/>', null],
 ];
 
@@ -268,7 +268,12 @@ function Lab() {
               Testing
             </button>
           </div>
-          {testing ? <Ratio /> : replay ? null : (
+          {testing ? (
+            <>
+              <Ratio />
+              <RunControls />
+            </>
+          ) : replay ? null : (
             <>
           <button className="chipbtn" id="verBtn" onClick={showVersions}>
             <Svg className="i" d='<path d="M6 4v10a4 4 0 0 0 4 4h8"/><circle cx="18" cy="18" r="1.6"/>' />
@@ -309,6 +314,7 @@ function Lab() {
               Its pull request
             </a>
           ) : null}
+          <LabRunDev />
             </>
           )}
           <span className="spacer" />
@@ -420,7 +426,7 @@ function Lab() {
                   <Svg className="i" d='<path d="M15 6l-6 6 6 6"/>' />
                 </button>
               ) : null}
-              {s.view === "canvas" ? <Canvas replay={replay ? { m: moment, entries } : null} /> : null}
+              {s.view === "canvas" ? replay ? <Canvas replay={{ m: moment, entries }} /> : <ArchCanvas /> : null}
             </div>
             {PAGES.map(([v, id, style, render]) => (
               <div key={v} className="pg" id={"v-" + v} hidden={s.view !== v}>

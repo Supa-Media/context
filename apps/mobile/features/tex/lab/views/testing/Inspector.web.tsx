@@ -3,6 +3,7 @@
  * (with exactly what the config gives the node there), a message's cell its speaker and words, a Tex row what Tex
  * should have said.
  */
+import { useStartRun } from "../runs/Runs.web";
 import { useState } from "react";
 import { G, lab } from "../../engine/state";
 import { labelCount, labelFields, modValue, nodeStars, ranOn, starsIn, wiresIn, type Conversation, type Label, type Message } from "../../engine/sets";
@@ -109,6 +110,7 @@ function Lines({ c, m, n, k, word, l }: { c: Conversation; m: Message; n: LabNod
 }
 
 function LabelForm({ c, m, n }: { c: Conversation; m: Message; n: LabNode }) {
+  const runIt = useStartRun("testing");
   const l: Label = m.labels?.[n.id] || {};
   const f = labelFields(n);
   const ran = ranOn(m, n.id);
@@ -168,8 +170,11 @@ function LabelForm({ c, m, n }: { c: Conversation; m: Message; n: LabNode }) {
         </>
       )}
       <div style={{ display: "flex", gap: 6 }}>
-        <button className="btn sm" id="runNode" onClick={() => setShown(m.id + n.id)}>
-          Run node on main
+        <button className="btn sm" id="runNode" disabled={!l.star || c.set === "test"} title={c.set === "test" ? "The Test set runs only in the locked eval service" : l.star ? `Runs ${n.label}'s unit tests across the Dev set on GitHub` : "Star it first: a run checks unit tests"} onClick={() => void runIt("node", { nodeId: n.id })}>
+          ▶ Run node
+        </button>
+        <button className="btn sm ghost" id="recNode" title="What main's recorded run of this step gave on this message" onClick={() => setShown(m.id + n.id)}>
+          Recorded on main
         </button>
         {Object.keys(l).length ? (
           <button className="btn sm ghost" id="clearLabel" onClick={() => change(c.id, [{ op: "label", msg: m.id, node: n.id, value: null }])}>

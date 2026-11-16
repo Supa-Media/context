@@ -17,6 +17,7 @@ import { PromptAt } from "./PromptAt";
 import { JobRuns } from "./JobRuns";
 import { jobsOf } from "../../engine/jobRuns";
 import { replayEntries } from "../mine/useMine";
+import { tryFromHere } from "../../engine/sandbox";
 
 /** A got or gave longer than this shows its start, with the whole a click away; nothing is ever cut. */
 const FOLD = 1500;
@@ -121,6 +122,11 @@ export function ReplayPanel({ m }: { m: Moment | null }) {
         </span>
         <span className="pill">{fmtS(m.of)} to the last send</span>
       </div>
+      {first.start ? null : (
+        <button className="primary" id="rTry" title="Copy the chat up to this text into a test chat, and try it on the version open in the Lab" onClick={() => tryFromHere(lab.myChat, (lab.myChats ?? []).find((c) => c.key === lab.myChat)?.name ?? "Your 1:1 with Tex", first.id, first.from === "person" && first.who ? first.who : "", first.text)}>
+          Try from here
+        </button>
+      )}
       <div className="grp" id="rTurns">
         <h4>Turns</h4>
         {turnBars.length ? (

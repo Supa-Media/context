@@ -43,6 +43,8 @@ jest.mock("expo-router", () => {
   return { Redirect: ({ href }: { href: string }) => createElement("div", { "data-testid": "redirect", "data-href": href }) };
 });
 jest.mock("../features/site/host", () => ({ isTexHost: () => mockTexHost }));
+// The test chat under the canvas reaches the gateway with the person's own grant; no gateway here.
+jest.mock("../features/tex/lab/views/canvas/sandboxCall", () => ({ useSandboxCall: () => false }));
 
 (globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 window.matchMedia = ((q: string) => ({ matches: false, media: q, addEventListener() {}, removeEventListener() {} })) as never;
@@ -60,7 +62,7 @@ import { BASE_MODELS } from "../features/tex/lab/data/models";
 import { CASES } from "../features/tex/lab/labData.generated";
 import { config } from "../features/tex/lab/engine/diff";
 import { mods } from "../features/tex/lab/engine/modules";
-import { clone, emit, lab, MAIN } from "../features/tex/lab/engine/state";
+import { clone, emit, lab, MAIN, set as setLab } from "../features/tex/lab/engine/state";
 import { caseFit } from "../features/tex/lab/views/tests/caseParts";
 import { parseReport, promptText } from "../features/tex/lab/views/run/runText";
 import { Workspace } from "../features/tex/lab/views/Workspace.web";
@@ -131,7 +133,8 @@ function setValue(el: HTMLInputElement | HTMLTextAreaElement, value: string) {
     el.dispatchEvent(new Event("input", { bubbles: true }));
   });
 }
-const view = (name: string) => click(q(`[data-view="${name}"]`));
+// Test cases and Run left the sidebar for the Runs panel (2026-11-16); their pages are still drawn by view.
+const view = (name: string) => (name === "tests" || name === "run" ? act(() => setLab({ view: name })) : click(q(`[data-view="${name}"]`)));
 /** Open the Tests page on an area; the area click also drops any open case editor, as the page does. */
 function openTests(area = "core") {
   view("tests");
