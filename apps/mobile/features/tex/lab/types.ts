@@ -90,8 +90,8 @@ export type LabGraph = {
   modules?: Record<string, Partial<LabModule>>;
   models?: Record<string, LabModel>;
   convo?: Partial<ConvoSettings>;
-  /** The draft's own group boxes (label, goal, icon, place) over main's config `groups` (`data/graph.ts` `groupsOf`). */
-  groups?: Record<string, { label: string; goal?: string; icon?: string; x?: number; y?: number }>;
+  /** The draft's own group boxes (label, goal, icon, place, the group it sits in) over main's config `groups` (`data/graph.ts` `groupsOf`). */
+  groups?: Record<string, { label: string; goal?: string; icon?: string; x?: number; y?: number; parent?: string }>;
 };
 
 export type RunResult = { at: number; areas: Record<string, unknown>; raw: string; [k: string]: unknown };

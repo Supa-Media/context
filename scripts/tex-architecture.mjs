@@ -96,12 +96,21 @@ export function drawingFor(config) {
     if (!n.group) lines.push(`  ${box(n)}`);
     else groups.set(n.group, [...(groups.get(n.group) ?? []), n]);
   }
-  for (const [group, members] of groups) {
+  // Groups nest (Dev2, 2026-11-16): a group with a parent is drawn inside its parent's subgraph.
+  const parentOf = (g) => config.groups?.[g]?.parent;
+  for (const g of [...groups.keys()]) for (let up = parentOf(g), seen = 0; up && seen < 64; up = parentOf(up), seen++) if (!groups.has(up)) groups.set(up, []);
+  const drawn = new Set();
+  const subgraph = (group, depth) => {
+    if (drawn.has(group)) return;
+    drawn.add(group);
+    const pad = "  ".repeat(depth);
     const title = config.groups?.[group]?.label ?? group;
-    lines.push(`  subgraph ${mid(`group_${group}`)}["${quote(title)}"]`);
-    for (const n of members) lines.push(`    ${box(n)}`);
-    lines.push("  end");
-  }
+    lines.push(`${pad}subgraph ${mid(`group_${group}`)}["${quote(title)}"]`);
+    for (const n of groups.get(group)) lines.push(`${pad}  ${box(n)}`);
+    for (const child of groups.keys()) if (parentOf(child) === group) subgraph(child, depth + 1);
+    lines.push(`${pad}end`);
+  };
+  for (const group of groups.keys()) if (!parentOf(group) || !groups.has(parentOf(group))) subgraph(group, 1);
   for (const e of config.edges) {
     const mode = modeOf(e.mode);
     const tags = when(e);
@@ -157,7 +166,9 @@ export function mapFor(config) {
     if (n.group && !groups.has(n.group)) {
       groups.add(n.group);
       const members = config.nodes.filter((m) => m.group === n.group).map((m) => m.label);
-      lines.push(`${config.groups?.[n.group]?.label ?? n.group} (a group of steps): ${members.join(", ")}.`);
+      const parent = config.groups?.[n.group]?.parent;
+      const inside = parent ? `, inside ${config.groups?.[parent]?.label ?? parent}` : "";
+      lines.push(`${config.groups?.[n.group]?.label ?? n.group} (a group of steps${inside}): ${members.join(", ")}.`);
     }
     const model = nodeModel(config, n);
     const head = `- ${n.label} (${model === "code" ? "code, no model" : model}${n.on ? "" : ", turned off: never runs"})`;

@@ -9,11 +9,13 @@
  * puts the graph there for the length of the call and puts the old one back.
  */
 import { groupsOf } from "../../data/graph";
-import { foldAround, foldGroups, stepsShownFor, unfoldGroups } from "../../engine/groups";
+import { foldAround, groupChain, isGroupFocus, unfoldGroups, type GroupDefs } from "../../engine/groups";
+import { laidOut } from "../../engine/groupLayout";
 import type { Sim } from "../../engine/sim";
 import { lab, node } from "../../engine/state";
 import { LAB_CSS } from "../../labCss";
 import type { LabEdge, LabGraph, LabNode } from "../../types";
+import { renderGroupFocusHtml } from "./groupView";
 import { esc, H, renderFocusCanvasHtml, renderGraphHtml, statsHtml, W, type Bounds } from "./render";
 
 export type SnapshotOptions = {
@@ -114,17 +116,25 @@ function withGraph<T>(graph: LabGraph, fn: () => T): T {
   }
 }
 
+/** The focus bar's path for a caption: each group around, then the focus ("Tools & subagents / Checks"). */
+function path(groups: GroupDefs, id: string, inside?: string): string {
+  const chain = groupChain(groups, inside ?? id);
+  const names = [...chain].reverse().map((g) => groups[g]?.label ?? g);
+  return (inside ? [...names, id] : names).join(" / ");
+}
+
 /** The page for one drawing. Throws a plain sentence when the graph or the focus cannot be drawn. */
 export function snapshotPage(graph: LabGraph, opts: SnapshotOptions = {}): Snapshot {
   const asked = opts.focus ? String(opts.focus) : null;
   const width = Math.round(Math.min(MAX_WIDTH, Math.max(MIN_SIDE, opts.width ?? 1600)));
   const open = unfoldGroups(checked(graph));
   const marks = opts.base ? marksAgainst(open, checked(opts.base)) : null;
-  // A step inside a group focuses its group, as the Lab's Focus opens it.
-  const focus = asked ? (open.nodes.find((n) => n.id === asked)?.group ?? asked) : null;
+  // As the Lab's Focus: a group opens on its own (its steps and the cards of the groups inside it), a step shows its own view.
+  const focus = asked;
   const groups = groupsOf(graph);
-  const shown = foldAround(foldGroups(open, groups), focus, groups);
-  const opened = stepsShownFor(shown, focus).length > 0;
+  let shown = foldAround(open, focus, groups);
+  const opened = isGroupFocus(shown, focus, groups);
+  if (opened && focus) shown = laidOut(shown, focus, groups);
 
   return withGraph(shown, () => {
     let html: string;
@@ -138,15 +148,19 @@ export function snapshotPage(graph: LabGraph, opts: SnapshotOptions = {}): Snaps
       const f = renderFocusCanvasHtml(shown, sim, focus, null);
       html = f.html;
       bounds = { ...f.fBounds, y1: f.fBounds.y1 + 24 };
-      label = n.label;
+      label = n.group ? path(groups, n.label, n.group) : n.label;
+    } else if (opened && focus) {
+      const f = renderGroupFocusHtml(shown, sim, focus, groups, { tags: [], sel: null, lit: null, counts: null, marks: null });
+      html = f.html;
+      bounds = f.fBounds;
+      label = path(groups, focus);
     } else {
       // The canvas fades only the steps switched off, whatever is traced (`Canvas.web.tsx`), so the tags change nothing here.
-      html = renderGraphHtml(shown, sim, [], null, null, "off");
+      html = renderGraphHtml(shown, sim, [], null, null, "off", null, null, { groups });
       const xs = shown.nodes.map((n) => n.x);
       const ys = shown.nodes.map((n) => n.y);
       const loops = shown.edges.some((e) => e.mode === "loop");
       bounds = { x0: Math.min(...xs) - 30, x1: Math.max(...xs) + W + 30, y0: Math.min(...ys) - 30, y1: Math.max(...ys) + H + (loops ? 100 : 40) };
-      if (focus) label = groups[focus]?.label ?? focus;
     }
 
     if (marks) {

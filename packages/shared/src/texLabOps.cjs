@@ -19,7 +19,7 @@
  *   { op: "convo_tool", tool, on }              one chat tool in `graph.convo.tools` on or off; null drops the setting
  *   { op: "model",  key, value }                one of the draft's own models (`graph.models[key]`); null deletes it,
  *                                               and the steps on it move to haiku-5-5, as the Lab's model form does
- *   { op: "group",  id, value }                 one group's box (`graph.groups[id]`: label, goal?, icon?, x?, y?), the
+ *   { op: "group",  id, value }                 one group's box (`graph.groups[id]`: label, goal?, icon?, x?, y?, parent?), the
  *                                               box the steps whose `group` names it fold into; null drops the draft's own
  *   { op: "put",    graph }                     the whole graph
  *
@@ -266,10 +266,18 @@ function applyOps(graph, ops) {
         }
         case "group": {
           if (typeof op.id !== "string" || !ID.test(op.id)) throw at("id is not a group id");
-          if (op.value === undefined || (op.value !== null && (typeof op.value !== "object" || Array.isArray(op.value)))) throw at("value must be the group's box { label, goal?, icon?, x?, y? }, or null");
+          if (op.value === undefined || (op.value !== null && (typeof op.value !== "object" || Array.isArray(op.value)))) throw at("value must be the group's box { label, goal?, icon?, x?, y?, parent? }, or null");
           if (op.value !== null) {
             if (typeof op.value.label !== "string" || !op.value.label.trim()) throw at("a group needs a label");
-            for (const k of Object.keys(op.value)) if (!["label", "goal", "icon", "x", "y"].includes(k)) throw at(`a group has no field ${k}`);
+            for (const k of Object.keys(op.value)) if (!["label", "goal", "icon", "x", "y", "parent"].includes(k)) throw at(`a group has no field ${k}`);
+            if (g.nodes.some((n) => n.id === op.id)) throw at(`${op.id} is a step's id; a group needs an id of its own`);
+            // Groups nest (Dev2, 2026-11-16): `parent` is the group this one sits in, never itself or one inside it.
+            if (op.value.parent !== undefined) {
+              if (typeof op.value.parent !== "string" || !ID.test(op.value.parent)) throw at("parent is not a group id");
+              if (op.value.parent === op.id) throw at("a group cannot sit inside itself");
+              for (let up = op.value.parent, seen = 0; up && seen <= 64; up = g.groups?.[up]?.parent, seen++)
+                if (up === op.id) throw at(`${op.value.parent} sits inside ${op.id}, so ${op.id} cannot sit inside it`);
+            }
             for (const k of ["goal", "icon"]) if (op.value[k] !== undefined && typeof op.value[k] !== "string") throw at(`${k} must be words`);
             for (const k of ["x", "y"]) if (op.value[k] !== undefined && !Number.isFinite(op.value[k])) throw at(`${k} must be a number`);
           }

@@ -111,9 +111,11 @@ export function configFrom(graph, current, currentWords = {}, shelf = []) {
     groups = { ...(current.groups ?? {}) };
     for (const [id, info] of Object.entries(graph.groups)) {
       if (!ID.test(id) || !info || typeof info !== "object" || typeof info.label !== "string") return refuse(`group "${id}" has no label`);
-      groups[id] = Object.fromEntries(["label", "goal", "icon", "x", "y"].filter((k) => info[k] !== undefined).map((k) => [k, info[k]]));
+      groups[id] = Object.fromEntries(["label", "goal", "icon", "x", "y", "parent"].filter((k) => info[k] !== undefined).map((k) => [k, info[k]]));
     }
+    // A group some step names, and every group around it (groups nest: Dev2, 2026-11-16), is kept.
     const named = new Set(nodes.map((n) => n.group).filter(Boolean));
+    for (const id of [...named]) for (let up = groups[id]?.parent; up && !named.has(up); up = groups[up]?.parent) named.add(up);
     for (const id of Object.keys(groups)) if (!named.has(id) && !(current.groups ?? {})[id]) delete groups[id];
   }
   return { config: { ...current, nodes, edges, ...(groups ? { groups } : {}) }, words: madeWords.words, unshelved: nodes.map((n) => n.id).filter((id) => shelved.has(id)) };
@@ -181,6 +183,12 @@ function selfTest() {
   const bg = g8.edges.find((e) => e.mode === "background");
   bg.mode = "behind";
   expect(configFrom(g8, current, words).config?.edges.find((e) => e.from === bg.from && e.to === bg.to)?.mode === "background", "a version saved with the old \"behind\" wire did not promote as background");
+  // A nested group keeps the group it sits in, and that group stays though no step names it directly.
+  const g10 = graph();
+  g10.groups = { outer: { label: "Outer" }, inner: { label: "Inner", parent: "outer" } };
+  g10.nodes.find((n) => n.id === "fd").group = "inner";
+  const nested = configFrom(g10, current, words).config;
+  expect(nested?.groups?.inner?.parent === "outer" && nested?.groups?.outer?.label === "Outer", "a nested group lost the group it sits in");
   console.log("tex-lab-promote self-test: ok");
 }
 

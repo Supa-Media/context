@@ -4,14 +4,16 @@
  * `zoomBy`, the stage's wheel handler and `addStep` (template.html ~lines 600-1027). The view
  * sets innerHTML from these; the tests compare them with the artifact's own output.
  */
-import { ICONS, NODE_INFO, WIRES } from "../../data/graph";
+import { groupsOf, ICONS, NODE_INFO, WIRES } from "../../data/graph";
 import { FTYPES } from "../../data/models";
 import { wireKey, type Marks } from "../../engine/changeMarks";
 import { hlClass } from "../../engine/live";
 import { mods } from "../../engine/modules";
 import { fires, fmtReal, fmtS, fmtUsd, outTok, type Sim } from "../../engine/sim";
 import { MODELS, node } from "../../engine/state";
+import type { GroupDefs } from "../../engine/groups";
 import type { LabEdge, LabGraph, LabNode, Selection } from "../../types";
+import { CARD_DX, CARD_DY, CARD_H, CARD_W, groupCardHtml } from "./groupCard";
 
 export const W = 180;
 export const H = 64;
@@ -34,6 +36,9 @@ export function wirePath(
   a: Pt & { x: number; y: number },
   b: Pt,
   mode: string,
+  /** How wide each end is: a step's box, or a group's wider card given with its x at the card's left edge. */
+  aw = W,
+  bw = W,
 ): { d: string; lx?: number; ly?: number } {
   if (mode === "loop") {
     const bot = Math.max(a.y, b.y) + H + 70;
@@ -43,21 +48,21 @@ export function wirePath(
       ly: bot - 12,
     };
   }
-  let x1 = a.x + W,
+  let x1 = a.x + aw,
     y1 = a.y + H / 2,
     x2 = b.x,
     y2 = b.y + H / 2;
   if (Math.abs(a.x - b.x) < W) {
-    x1 = a.x + W / 2;
-    x2 = b.x + W / 2;
+    x1 = a.x + aw / 2;
+    x2 = b.x + bw / 2;
     y1 = b.y > a.y ? a.y + H : a.y;
     y2 = b.y > a.y ? b.y : b.y + H;
     const my = (y1 + y2) / 2;
     return { d: `M${x1},${y1} C${x1},${my} ${x2},${my} ${x2},${y2}` };
   }
-  if (b.x + W <= a.x) {
+  if (b.x + bw <= a.x) {
     x1 = a.x;
-    x2 = b.x + W;
+    x2 = b.x + bw;
   }
   const mx = (x1 + x2) / 2;
   return { d: `M${x1},${y1} C${mx},${y1} ${mx},${y2} ${x2},${y2}` };
@@ -207,7 +212,16 @@ export function renderGraphHtml(
   counts: Record<string, number> | null = null,
   /** A draft's changes against main or its last revision, drawn on the steps and wires (`engine/changeMarks.ts`). */
   marks: Marks | null = null,
+  /**
+   * `only`: draw just these steps and boxes and the wires between them (an open group, `groupView.ts`); the wires keep
+   * their places in the graph, so picking one picks the graph's. `groups`: the graph's group definitions, for the cards.
+   */
+  opts: { only?: ReadonlySet<string> | null; groups?: GroupDefs; group?: string } = {},
 ): string {
+  const only = opts.only ?? null;
+  const isBox = (id: string) => !!g.folded?.[id];
+  // A folded group's card is wider than a step and stands around the box's place: its wires meet the card's edges.
+  const end = (n: LabNode) => (isBox(n.id) ? { at: { x: n.x + CARD_DX, y: n.y }, w: CARD_W } : { at: n, w: W });
   litId = boxesLit(g, litId);
   const reached = (id: string) => sim.reach.has(id) || sim.inside.has(id);
   // While playing, how far through each running step is (0 to 1), drawn as a ring filling around it.
@@ -230,18 +244,23 @@ export function renderGraphHtml(
     const a = node(e.from, g);
     const b = node(e.to, g);
     if (!a || !b) return;
+    if (only && !(only.has(a.id) && only.has(b.id))) return;
     const w = WIRES[e.mode] || WIRES.wait;
     const on = fade === "off" ? lit(e.from) && lit(e.to) : fires(e, tags, g) && lit(e.from);
     const s = sel?.t === "edge" && sel.i === i;
-    const p = wirePath(a, b, e.mode);
+    const ea = end(a),
+      eb = end(b);
+    const p = wirePath(ea.at, eb.at, e.mode, ea.w, eb.w);
     const wm = marks && marks.newWires.has(wireKey(e)) ? " wnew" : "";
     h += `<path class="wire ${on || s ? "" : "dim"} ${s ? "sel" : ""}${wm}" d="${p.d}" stroke="var(${s ? "--accent" : w.c})" ${w.dash ? `stroke-dasharray="${w.dash}"` : ""} ${w.w && !s ? `stroke-width="${w.w}"` : ""} marker-end="url(#m-${s ? "sel" : e.mode})"/>`;
     h += `<path class="hit" d="${p.d}" data-edge="${i}"><title>${esc(w.name + ": " + a.label + " → " + b.label)}</title></path>`;
     if (e.mode === "loop" && (on || s))
       h += `<text class="wlabel" x="${p.lx}" y="${p.ly}" text-anchor="middle">send back</text>`;
   });
-  if (marks) h += goneHtml(marks);
+  // An open group draws only the removed steps that were in it; a gone wire may reach outside, so none is drawn there.
+  if (marks) h += goneHtml(only ? { ...marks, removed: marks.removed.filter((o) => !!opts.group && o.group === opts.group), goneWires: [] } : marks);
   for (const n of g.nodes) {
+    if (only && !only.has(n.id)) continue;
     const m = MODELS[n.model] || MODELS.code;
     const s = sel?.t === "node" && sel.id === n.id;
     const mk = marks?.nodes[n.id] ? ` chg-${marks.nodes[n.id].kind}` : "";
@@ -251,6 +270,11 @@ export function renderGraphHtml(
         ? "Code"
         : m.name + (n.effort && m.runs !== "api" ? " · " + n.effort : "");
     const time = timeLabel(sim, n.id);
+    if (isBox(n.id)) {
+      const state = `${hlClass(n.id)}${mk} ${s ? "sel" : ""} ${lit(n.id) || s ? "" : "dim"} ${(typeof litId === "string" ? litId === n.id : !!litId?.has(n.id)) ? (ring(n.id) !== null ? "lit run" : done(n.id) ? "lit done" : "lit") : ""}`;
+      h += groupCardHtml(n, g.folded![n.id].nodes, opts.groups ?? {}, MODELS, { cls: state, time, changed: marks?.nodes[n.id]?.kind === "changed" });
+      continue;
+    }
     h += `<g class="nd${hlClass(n.id)}${mk} ${s ? "sel" : ""} ${lit(n.id) || s ? "" : "dim"} ${n.on ? "" : "off"} ${(typeof litId === "string" ? litId === n.id : !!litId?.has(n.id)) ? (ring(n.id) !== null ? "lit run" : done(n.id) ? "lit done" : "lit") : ""}" data-id="${n.id}" transform="translate(${n.x},${n.y})">
       ${marks ? markHtml(marks, n.id) : ""}<rect class="card" width="${W}" height="${H}" rx="12"/>${ring(n.id) !== null ? ringHtml(sim, g, n.id, ring(n.id)!) : ""}
       <rect x="10" y="12" width="40" height="40" rx="10" fill="var(--s3)"/>
@@ -343,10 +367,25 @@ export function renderFocusCanvasHtml(
   const BW = 190,
     BH = 26,
     GAP = 5;
-  const col = <T>(items: T[], ih: number) => {
-    const tot = items.length * ih + (items.length - 1) * GAP;
-    return items.map((x, i) => ({ x, y: H / 2 - tot / 2 + i * (ih + GAP) }));
+  // A column of things, each its own height (a group's card is taller than a step), centred on the step.
+  const col = <T>(items: T[], ih: number | ((x: T) => number)) => {
+    const hs = items.map((x) => (typeof ih === "function" ? ih(x) : ih));
+    const tot = hs.reduce((a, b) => a + b, 0) + (items.length - 1) * GAP;
+    let at = H / 2 - tot / 2;
+    return items.map((x, i) => {
+      const y = at;
+      at += hs[i] + GAP;
+      return { x, y };
+    });
   };
+  // A neighbour that is a folded group is drawn as its card (opening it on a click), its wire meeting the card's edge.
+  const boxH = (id: string) => (g.folded?.[id] ? CARD_H : H);
+  const nbr = (id: string, x: number, y: number) => {
+    const m = node(id, g)!;
+    if (!g.folded?.[id]) return ndSvg(m, x, y, sim, true, sel);
+    return groupCardHtml({ ...m, x: x - CARD_DX, y: y - CARD_DY }, g.folded[id].nodes, groupsOf(g), MODELS, { cls: "", time: timeLabel(sim, id), changed: false });
+  };
+  const mid = (id: string, y: number) => y + (g.folded?.[id] ? -CARD_DY : 0) + H / 2;
   const inE = g.edges.filter((e) => e.to === n.id && node(e.from, g));
   const outE = g.edges.filter((e) => e.from === n.id && node(e.to, g));
   const readers = g.nodes.filter(
@@ -389,15 +428,15 @@ export function renderFocusCanvasHtml(
     attr: string,
   ) =>
     `<g class="fblk ${cls}" ${attr} transform="translate(${x},${y})"><rect width="${w}" height="${BH}" rx="7"/><text x="10" y="18">${esc(label.length > 24 ? label.slice(0, 23) + "…" : label)}</text>${tk ? `<text class="tk" x="${w - 8}" y="18" text-anchor="end">${tk}</text>` : ""}</g>`;
-  const cI = col(ins, H),
+  const cI = col(ins, (e) => boxH(e.from)),
     cM = col(ctx, BH),
     cF = col(fields, BH),
-    cO = col(outs, H);
+    cO = col(outs, (e) => boxH(e.to));
   cI.forEach(({ x: e, y }) => {
     h +=
-      wire({ x: XI + W, y: y + H / 2 }, { x: 0, y: H / 2 }, e.mode) +
-      ndSvg(node(e.from, g)!, XI, y, sim, true, sel);
-    ys.push(y, y + H);
+      wire({ x: XI + (g.folded?.[e.from] ? CARD_W : W), y: mid(e.from, y) }, { x: 0, y: H / 2 }, e.mode) +
+      nbr(e.from, XI, y);
+    ys.push(y, y + boxH(e.from));
   });
   cM.forEach(({ x: c, y }) => {
     h += wire({ x: XM + BW, y: y + BH / 2 }, { x: 0, y: H / 2 }, "reads");
@@ -443,9 +482,9 @@ export function renderFocusCanvasHtml(
   cO.forEach(({ x: e, y }) => {
     const t = node(e.to, g)!;
     h +=
-      wire({ x: XO + BW, y: H / 2 }, { x: XN, y: y + H / 2 }, e.mode) +
-      ndSvg(t, XN, y, sim, true, sel);
-    ys.push(y, y + H);
+      wire({ x: XO + BW, y: H / 2 }, { x: XN, y: mid(t.id, y) }, e.mode) +
+      nbr(t.id, XN, y);
+    ys.push(y, y + boxH(t.id));
   });
   const y0 = Math.min(...ys) - 40,
     y1 = Math.max(...ys, H + 170);

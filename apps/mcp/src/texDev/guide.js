@@ -27,7 +27,7 @@ export const ACTIONS = [
   ["run_setup", "{ draft, picks?: { <area>: [case ids] | null }, areas?: [areas] | null }", "the Run tab's setup: the cases ticked per area (merged by area; null ticks every case again) and the areas the run covers (null: the ones the changes touch)"],
   ["keep_results", "{ draft | \"main\", report, link? }", "Run's \"Keep these results\": a pasted run report read with the Lab's own reader and kept with the draft, or with main; its \"## Lab replay\" part (the person's own chat) is never kept"],
   ["revert", "{ draft, rev } | { draft, to }", "undo as a new revision: rev undoes the change made at that revision (refused when a later change touched the same thing); to undoes every change after that revision. Kept results stay"],
-  ["snapshot", "{ draft? | graph?, focus?, theme?, test? | text? }", "a PNG of the draft as the Lab draws it, or of a graph you pass; `focus` a step or group id; changes from main are marked; with `test` (a key from sim) or `text` each step shows its time and the stats chip its reply time, calls and cost, as the canvas does"],
+  ["snapshot", "{ draft? | graph?, focus?, theme?, test? | text? }", "a PNG of the draft as the Lab draws it, or of a graph you pass; `focus` a group id draws that group open on its own (its steps, the cards of the groups inside it, the wires leaving it as pills), a step id draws its own view (comes in, reads, gives out, goes to); changes from main are marked; with `test` (a key from sim) or `text` each step shows its time and the stats chip its reply time, calls and cost, as the canvas does"],
   ["link", "{ draft } | { chat?, moment? } | { page, draft? }", "the Lab address with this draft open, live; or the Lab at a chat and a text, or one of its pages (staff sign-in)"],
   ["check", "{ draft | graph }", "the runner's and Promote's checks, without promoting"],
   ["promote", "{ draft }", "the Lab's Promote: starts the promote workflow at once for a pull request that merges only through CI and the replay gate, and a gate run (runs) that follows its Test set status"],
@@ -90,7 +90,7 @@ export const ACTIONS = [
       "edit and unsend reach the edit step as a real iMessage edit or Undo Send (\"same\" stays quiet, \"turn\" runs a turn, \"withdraw\" takes a waiting text back). back and drop cut the test texts, reset deletes the test chat; get is the Lab's raw view",
   ],
   ["put_back", "{ draft, step, vs?: \"main\" | \"last\" }", "the change marks' Put back: one step back to main's (or the last revision's) version, its fields, place and wires; lands as an edit with the conflict check"],
-  ["reference", "{ topic?, draft?, log? }", "the Lab's catalogues: tools (what each does, its actions and the steps that call it; `log` a pasted chat record, counted as the Tools tab does), steps (what each logs and writes), ledger, areas, models, wires, sources, convo"],
+  ["reference", "{ topic?, draft?, log?, group? }", "the Lab's catalogues: tools (what each does, its actions and the steps that call it; `log` a pasted chat record, counted as the Tools tab does), steps (what each logs and writes), groups (each step group, the group it sits in, its own steps and the groups inside it, and what opening it on the canvas draws: the wires inside and the wires in from and out to outside, each naming the thing outside; `group` one id), ledger, areas, models, wires, sources, convo"],
 ];
 
 export const EDIT_OPS = [
@@ -104,7 +104,7 @@ export const EDIT_OPS = [
   '{ op: "convo", field, value }  one conversation setting (word, older, threads, days, dayChars, slim, classify, tools); null drops it',
   '{ op: "convo_tool", tool, on }  one chat tool on or off, merged into the rest (null drops its setting), as the Conversation tab does',
   '{ op: "model", key, value }  one of the draft\'s own models ({ name, full, id, runs: "claude" | "api" | "code", base?, perTok?, cacheR?, cacheW?, outP?, typed?, custom: true }), as the model form keeps it; null deletes it and its steps move to haiku-5-5',
-  '{ op: "group", id, value }  a group\'s box: { label, goal?, icon?, x?, y? } (steps join it with set field group: id; the canvas folds them into this box); null drops the draft\'s own; get answers the draft\'s groups in graph.groups',
+  '{ op: "group", id, value }  a group\'s box: { label, goal?, icon?, x?, y?, parent? } (steps join it with set field group: id; the canvas folds them into this box; `parent` nests it inside another group, whose open view then shows it as a card); null drops the draft\'s own; get answers the draft\'s groups in graph.groups',
   '{ op: "put", graph }  the whole graph',
 ];
 
