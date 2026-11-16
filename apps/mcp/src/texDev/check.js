@@ -10,6 +10,7 @@
 
 import { problemsOf } from "../../../../packages/shared/src/texGraph.cjs";
 import { TEX_CONFIG } from "../agent/texConfig.js";
+import SHELF from "../../../../packages/shared/src/texNodeShelf.json" with { type: "json" };
 
 const EFFORTS = new Set(["off", "low", "medium", "high", "xhigh", "max"]);
 
@@ -29,13 +30,14 @@ function modelProblem(n, own, models) {
 }
 
 /** Every problem the draft's graph has, as plain lines; [] when it would promote. */
-export function draftProblems(graph, current = TEX_CONFIG) {
+export function draftProblems(graph, current = TEX_CONFIG, shelf = Object.keys(SHELF.nodes ?? {})) {
   if (!graph || !Array.isArray(graph.nodes) || !Array.isArray(graph.edges)) return ["the draft has no steps and wires"];
   const problems = problemsOf({ nodes: graph.nodes, edges: graph.edges }).map((p) => `runner: ${p}`);
   const known = new Set(current.nodes.map((n) => n.id));
+  const shelved = new Set(shelf);
   const ids = new Set(graph.nodes.map((n) => n?.id));
   for (const n of graph.nodes) {
-    if (!known.has(n.id)) problems.push(`promote: step "${n.id}" is new; the gateway has no code for it yet, so build it on a branch first (apps/mcp/src/agent/graph/nodes/)`);
+    if (!known.has(n.id) && !shelved.has(n.id)) problems.push(`promote: step "${n.id}" is new; the gateway has no code for it yet, so merge its code to main first, on the shelf (apps/mcp/src/agent/graph/nodes/ and packages/shared/src/texNodeShelf.json)`);
     if (typeof n.model !== "string" || (n.model !== "code" && typeof current.models[n.model] !== "string")) problems.push(modelProblem(n, graph.models, current.models));
     if (n.effort !== undefined && !EFFORTS.has(n.effort)) problems.push(`promote: step "${n.id}" has effort "${n.effort}" (${[...EFFORTS].join(", ")})`);
     if (typeof n.on !== "boolean") problems.push(`promote: step "${n.id}" is neither on nor off`);

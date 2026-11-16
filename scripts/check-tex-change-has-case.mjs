@@ -21,22 +21,32 @@
  *
  * The reason is read by a person later; "n/a" is not one.
  *
+ * A node put on the shelf (Dev2, 2026-11-16: "for code changes, create the node inside the code first and merge it to
+ * main ... the node is not used in any config yet and so shouldn't need to go through too much ci cd checks") needs
+ * no case: it never runs until a Lab draft wires it, and that promotion is what gets replayed. The pull request changes
+ * only the shelf (`texNodeShelf.json`), the files its entries name, the runner's table and tests.
+ *
  *   node scripts/check-tex-change-has-case.mjs             # in CI: BASE_SHA, TEX_PR_BODY
  *   node scripts/check-tex-change-has-case.mjs --self-test
  */
 import { execFileSync } from "node:child_process";
+import { readFileSync } from "node:fs";
 
 /** Files whose change changes what Tex does. */
 export const TEX_CODE = [/^apps\/mcp\/src\/agent\//, /^apps\/agent\/src\//, /^packages\/shared\/src\/text[^/]*$/, /^packages\/shared\/src\/texConfig\.json$/, /^packages\/shared\/src\/texPrompt/];
 /** Files that are cases Tex is replayed or benchmarked against. */
 export const CASES = [/^apps\/mcp\/test\/replay\/cases\//, /^apps\/mcp\/bench\/respond\//, /^apps\/mcp\/bench\/review\//, /^apps\/mcp\/bench\/advisor\//, /^apps\/mcp\/bench\/ai\/tests\//];
 const EXEMPT = /^\s*No replay case:\s*(.+?)\s*$/im;
+export const SHELF = "packages/shared/src/texNodeShelf.json";
+const RUNNER_TABLE = "apps/mcp/src/agent/graph/gatewayNodes.js";
 const MIN_REASON = 12;
 
 /** The verdict for one pull request: null when it may merge, else what is missing. */
-export function verdict(files, body = "") {
+export function verdict(files, body = "", shelfFiles = []) {
   const tex = files.filter((file) => TEX_CODE.some((pattern) => pattern.test(file)));
   if (tex.length === 0) return null;
+  // Only shelf nodes: their files, the runner's table that holds them, and the shelf itself.
+  if (files.includes(SHELF) && tex.every((file) => file === RUNNER_TABLE || shelfFiles.includes(file))) return null;
   if (files.some((file) => CASES.some((pattern) => pattern.test(file)))) return null;
   const reason = EXEMPT.exec(body ?? "")?.[1] ?? "";
   if (reason.length >= MIN_REASON) return null;
@@ -62,10 +72,13 @@ function selfTest() {
     ["a token reason fails", ["apps/mcp/src/agent/turn.js"], "No replay case: n/a", false],
     ["the reason must be its own line", ["apps/mcp/src/agent/turn.js"], "we said No replay case: renames a log field only", false],
     ["a unit test alone is not a replay case", ["apps/mcp/src/agent/turn.js", "apps/mcp/test/agentTurn.test.mjs"], "", false],
+    ["a node put on the shelf needs no case", [SHELF, RUNNER_TABLE, "apps/mcp/src/agent/graph/nodes/fresh.js", "apps/mcp/test/fresh.test.mjs"], "", true, ["apps/mcp/src/agent/graph/nodes/fresh.js"]],
+    ["a shelf PR that also changes a running file needs one", [SHELF, "apps/mcp/src/agent/graph/nodes/fresh.js", "apps/mcp/src/agent/turn.js"], "", false, ["apps/mcp/src/agent/graph/nodes/fresh.js"]],
+    ["a node file not on the shelf needs one", [SHELF, "apps/mcp/src/agent/graph/nodes/fresh.js"], "", false, []],
   ];
   let failed = 0;
-  for (const [name, files, body, passes] of cases) {
-    const ok = (verdict(files, body) === null) === passes;
+  for (const [name, files, body, passes, shelfFiles = []] of cases) {
+    const ok = (verdict(files, body, shelfFiles) === null) === passes;
     if (!ok) failed += 1;
     console.log(`${ok ? "ok" : "FAIL"} - ${name}`);
   }
@@ -86,7 +99,8 @@ if (import.meta.url === `file://${process.argv[1]}`) {
     }
     // The checkout is the pull request merged onto its base, so base..HEAD is exactly what it changes.
     const files = execFileSync("git", ["diff", "--name-only", BASE_SHA, "HEAD"], { encoding: "utf8" }).split("\n").filter(Boolean);
-    const problem = verdict(files, TEX_PR_BODY);
+    const shelf = JSON.parse(readFileSync(SHELF, "utf8"));
+    const problem = verdict(files, TEX_PR_BODY, Object.values(shelf.nodes ?? {}).flatMap((n) => n.files ?? []));
     if (problem) {
       console.error(`::error::${problem.split("\n")[0]}`);
       console.error(problem);
