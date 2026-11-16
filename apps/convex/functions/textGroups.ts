@@ -119,6 +119,8 @@ export const groupAnswerValidator = v.union(
     bound: v.boolean(),
     /** The slugs of the shared workspaces the chat reaches this turn, by name: none when anyone here has no account. */
     reach: v.optional(v.array(v.string())),
+    /** Who keeps the chat from each shared workspace its asker and sponsor share, and why (`lib/textGroupBlockers.ts`). */
+    blocked: v.optional(v.array(v.object({ slug: v.string(), who: v.string(), why: v.union(v.literal("not_member"), v.literal("no_account")) }))),
     timeZone: v.string(),
     /** The tagger's handle (their personal workspace's slug), so the answer can say who asked; "" when none. */
     handle: v.string(),
@@ -158,6 +160,7 @@ export type GroupAnswer =
       intro: boolean;
       bound: boolean;
       reach?: string[];
+      blocked?: { slug: string; who: string; why: "not_member" | "no_account" }[];
       timeZone: string;
       handle: string;
       minted: boolean;

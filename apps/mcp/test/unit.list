@@ -350,6 +350,7 @@ test/texStoreMove.test.mjs
 test/texRouting.test.mjs
 test/texAlarms.test.mjs
 test/texRoutineAlarms.test.mjs
+test/chatBlockers.test.mjs
 test/chatReach.test.mjs
 test/agentJobCheck.test.mjs
 test/agentJobRestart.test.mjs

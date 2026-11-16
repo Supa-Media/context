@@ -13,6 +13,7 @@
  * two nodes share.
  */
 import { readTheText } from "../texEntryPoint/readTheText.js";
+import { groupReachOut } from "../groupGuests.js";
 import { runARoutine } from "../texEntryPoint/runARoutine.js";
 import { checkTheQuestion } from "../texEntryPoint/checkTheQuestion.js";
 import { settleAYesOrNo } from "../texEntryPoint/settleAYesOrNo.js";
@@ -32,7 +33,7 @@ const count = (v) => (Array.isArray(v) ? v.length : 0);
  * for the log. The names are the parts' old step names, so a turn logged before the door was one step reads the same.
  */
 export const DOOR_PARTS = Object.freeze([
-  ["readTheText", readTheText, (t) => ({ chat: has(t.group) ? "group" : "one", kind: String(t.tex?.kind ?? ""), job: t.job != null, routine: t.runner === true, report: t.report != null, asked: typeof t.question === "string" && t.question.length > 0, covers: Array.isArray(t.body?.covers) ? t.body.covers.filter((id) => typeof id === "string").slice(0, 32) : [] })],
+  ["readTheText", readTheText, (t) => ({ chat: has(t.group) ? "group" : "one", kind: String(t.tex?.kind ?? ""), job: t.job != null, routine: t.runner === true, report: t.report != null, asked: typeof t.question === "string" && t.question.length > 0, covers: Array.isArray(t.body?.covers) ? t.body.covers.filter((id) => typeof id === "string").slice(0, 32) : [], ...groupReachOut(t.group) })],
   ["runARoutine", runARoutine, (t) => ({ routine: has(t.routine), runs: count(t.runs), supervised: has(t.supervision) })],
   ["checkTheQuestion", checkTheQuestion, (t) => ({ quoted: has(t.quoted), reacted: count(t.reacted), attachments: count(t.sent), steering: has(t.steer) })],
   ["settleAYesOrNo", settleAYesOrNo, (t) => ({ front: t.front === true, thumbsUp: t.thumbsUp === true, setAside: count(t.setAside), dropped: count(t.dropped), paid: count(t.paid) })],

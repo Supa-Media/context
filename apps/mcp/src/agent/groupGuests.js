@@ -38,6 +38,44 @@ export function isGuestChat(session) {
   return readsAsChat(session?.grantedGroups);
 }
 
+/**
+ * Who keeps the chat from a shared workspace, as the Worker passed the control plane's answer on: a handle or a guest's
+ * label and why, never a number. It only names; what the chat may read is the grant's (`groupTurn.js` `reachOf`), never this.
+ */
+const BLOCKED_SLUG = /^[a-z0-9](?:[a-z0-9-]{0,63})$/;
+const BLOCKED_WHO = /^(?:[a-z0-9][a-z0-9-]{0,64}|guest-[0-9a-f]{4})$/;
+export function blockedOf(value) {
+  if (!Array.isArray(value)) return [];
+  return value
+    .slice(0, 24)
+    .filter((entry) => entry !== null && typeof entry === "object" && BLOCKED_SLUG.test(entry.slug ?? "") && BLOCKED_WHO.test(entry.who ?? "") && (entry.why === "not_member" || entry.why === "no_account"))
+    .map(({ slug, who, why }) => ({ slug, who, why }));
+}
+
+/**
+ * Who keeps the chat from a shared workspace its asker and sponsor share (`apps/convex/functions/lib/textGroupBlockers.ts`;
+ * Dev2, 2026-11-16: the Crystal Care chat lost its workspace overnight when someone joined who isn't a member, and Tex
+ * could only say "this chat can't see it" and send people to the app). "" when nothing is missing.
+ */
+export function blockedLine(group) {
+  const blocked = Array.isArray(group?.blocked) ? group.blocked : [];
+  if (blocked.length === 0) return "";
+  const bySlug = new Map();
+  for (const { slug, who, why } of blocked) {
+    const named = why === "no_account" ? `${who} (whose number isn't linked to a Context account)` : `@${who} (not a member of it)`;
+    bySlug.set(slug, [...(bySlug.get(slug) ?? []), named]);
+  }
+  const lines = [...bySlug].map(([slug, names]) => `@${slug}, because of ${names.join(", ")}`);
+  const first = blocked[0].slug;
+  const one = blocked[0].why === "no_account" ? blocked[0].who : `@${blocked[0].who}`;
+  return (
+    `This chat can't use ${lines.join("; and ")}: a chat reaches a workspace only when everyone in it is a member. ` +
+    "When an ask needs that workspace (its notes, a login saved there, a link to save one there), say so in one line: who and why, and the fix, by text. " +
+    `The fix is an owner of the workspace asking you to add them in any words ("add ${one} to @${first}" counts): you call send chat_add_everyone, which invites only the people here not in it yet, ` +
+    "or that person leaving the chat; the moment it's fixed, the workspace and its logins work here. Never send anyone to the app for this. "
+  );
+}
+
 /** What a chat's turn is told, after the built-in words. `group.home` is the chat's home, or null. */
 export function guestPrompt(group, workspace) {
   const where = workspace ? `@${workspace}` : "one workspace";
@@ -57,6 +95,7 @@ export function guestPrompt(group, workspace) {
     "even when they are the one asking. They are shown the exact copy and only their 👍 or yes makes it; anyone may ask for changes first, and anyone else's yes does nothing. " +
     "You can search the web and open or browse pages, and this chat has its own browser: whatever you sign in to here stays signed in for this chat. " +
     "A password or card comes only from a login saved for this chat or shared with it, or one the person who tagged you saved for themselves, never typed in the chat. " +
+    blockedLine(group) +
     chatRoutinePrompt(group) +
     "You can't text anyone outside the chat. " +
     "You see what the chat said before the tag, so \"write this up\" or \"what did we decide\" means that conversation; " +
@@ -130,4 +169,15 @@ async function chatReads(store, path) {
   } catch {
     return false;
   }
+}
+
+/**
+ * What the "Read the text" node logs of a group chat's workspaces, every group turn (Dev2, 2026-11-16): the ones it
+ * reaches, and who keeps it from the rest, so Replay shows why a chat can't see one. Nothing for a 1:1 text.
+ */
+export function groupReachOut(group) {
+  if (group === null || group === undefined) return {};
+  const reach = Array.isArray(group.reach) ? group.reach.map((slug) => `@${slug}`).join(", ") : "";
+  const blocked = (Array.isArray(group.blocked) ? group.blocked : []).map(({ slug, who, why }) => `${why === "no_account" ? who : `@${who}`} ${why === "no_account" ? "has no account" : "not in"} @${slug}`).join("; ");
+  return { reach: reach || "none", ...(blocked ? { blocked } : {}) };
 }

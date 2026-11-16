@@ -222,10 +222,10 @@ export async function groupChat({ key = "a".repeat(64), members = "b".repeat(64)
     model,
     team,
     controlPlane,
-    async tag(from, words, reply, said = [], { tagged = false } = {}) {
+    async tag(from, words, reply, said = [], { tagged = false, group = {} } = {}) {
       const before = model.requests.length;
       model.install(script(reply));
-      const { result: answered, calls } = await counted(tex, () => request(env, TOKEN_GROUP, "/agent", { question: words, group: { key, members, from, chat: said, ...(tagged ? { tagged: true } : {}) } }));
+      const { result: answered, calls } = await counted(tex, () => request(env, TOKEN_GROUP, "/agent", { question: words, group: { ...group, key, members, from, chat: said, ...(tagged ? { tagged: true } : {}) } }));
       if (answered.status !== 200) throw new Error(`replay: the group turn for "${words}" answered ${answered.status}: ${JSON.stringify(answered.body)}`);
       return { answer: String(answered.body.answer ?? ""), calls, shown: model.requests.slice(before).map(shownIn).join("\n"), requests: model.requests.slice(before) };
     },

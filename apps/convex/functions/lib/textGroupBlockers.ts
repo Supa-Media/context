@@ -1,0 +1,83 @@
+/**
+ * Who keeps a group chat from a shared workspace (Dev2, 2026-11-16, after the Crystal Care chat lost its workspace
+ * overnight when someone joined who isn't a member, and Tex could only say "this chat can't see it").
+ *
+ * A chat's reach is every shared workspace that ALL its people and its sponsor are members of, and none when anyone
+ * has no linked account (`lib/textGroupReach.ts`). That rule stays exactly as it is. This module only names, for the
+ * turn, why a workspace is missing: for each shared workspace the asker and the sponsor are both members of that the
+ * chat does not reach, the people here who are not members of it, and the people here with no linked account. The
+ * turn logs it and Tex can say who it is and what fixes it, by text.
+ *
+ * What it tells the chat: that the asker and the sponsor share a workspace by that name, and who here is not in it.
+ * Both are the asker's own to say (they asked in this chat), and a non-member learns no more than its name, which is
+ * how sharing is addressed anyway. A workspace only the sponsor is in, with an asker who isn't, is never named.
+ */
+
+import type { Doc, Id } from "../../_generated/dataModel";
+import type { MutationCtx } from "../../_generated/server";
+import { handleOf } from "./textGroupAccounts";
+import { pinnedContextWorkspace } from "./pinnedContext";
+import { getMembership } from "./workspaceAuth";
+
+/** Most workspaces named per turn, and most people named per workspace: a turn needs the first few, never a roster. */
+export const MAX_BLOCKED_WORKSPACES = 3;
+export const MAX_BLOCKERS = 8;
+/** Most memberships read for the asker: nobody is in this many. */
+const MEMBERSHIP_SCAN = 200;
+
+/** One person who keeps the chat from one workspace, and why: not a member there, or no linked account at all. */
+export interface Blocker {
+  slug: string;
+  who: string;
+  why: "not_member" | "no_account";
+}
+
+/**
+ * Why the chat misses each shared workspace its asker and sponsor both belong to, by slug, empty when it misses none.
+ * `people` are the accounts here (each with the handle it is named by), `guests` the labels of those with none.
+ */
+export async function reachBlockers(
+  ctx: MutationCtx,
+  input: {
+    asker: Id<"users"> | null;
+    sponsor: Id<"users">;
+    people: Id<"users">[];
+    guests: string[];
+    reach: Id<"workspaces">[];
+  },
+): Promise<Blocker[]> {
+  // A guest who asked has no workspaces of their own to name; only an account holder's ask names any.
+  if (input.asker === null) return [];
+  const pin = await pinnedContextWorkspace(ctx);
+  const reached = new Set(input.reach);
+  const memberships = await ctx.db
+    .query("workspaceMembers")
+    .withIndex("by_user", (q) => q.eq("userId", input.asker as Id<"users">))
+    .take(MEMBERSHIP_SCAN);
+  const candidates: Doc<"workspaces">[] = [];
+  for (const membership of memberships) {
+    if (reached.has(membership.workspaceId)) continue;
+    const workspace = await ctx.db.get(membership.workspaceId);
+    if (workspace === null || workspace.kind !== "shared" || (pin !== null && workspace._id === pin._id)) continue;
+    if (input.sponsor !== input.asker && (await getMembership(ctx, workspace._id, input.sponsor)) === null) continue;
+    candidates.push(workspace);
+  }
+  candidates.sort((a, b) => (a.slug < b.slug ? -1 : a.slug > b.slug ? 1 : 0));
+  const handles = new Map<Id<"users">, string>();
+  const handle = async (userId: Id<"users">) => {
+    if (!handles.has(userId)) handles.set(userId, await handleOf(ctx, userId));
+    return handles.get(userId) as string;
+  };
+  const blocked: Blocker[] = [];
+  for (const workspace of candidates.slice(0, MAX_BLOCKED_WORKSPACES)) {
+    const here: Blocker[] = [];
+    for (const userId of new Set(input.people)) {
+      if ((await getMembership(ctx, workspace._id, userId)) !== null) continue;
+      const name = await handle(userId);
+      if (name !== "") here.push({ slug: workspace.slug, who: name, why: "not_member" });
+    }
+    for (const label of input.guests) here.push({ slug: workspace.slug, who: label, why: "no_account" });
+    blocked.push(...here.slice(0, MAX_BLOCKERS));
+  }
+  return blocked;
+}
