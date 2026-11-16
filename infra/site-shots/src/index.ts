@@ -32,6 +32,8 @@
  *                 gateway's turn and nowhere else; the browser closes itself
  *                 when idle, and nothing in it is kept.
  *   POST /browse/close `{ session }` → closes that browser now.
+ *   POST /browse/release `{ owner, holder }` → lets go of the browser's lease
+ *                 (./lease.ts): one driver at a time per person's or chat's browser.
  *   POST /browse/hold `{ owner }` → keeps the person's Browserbase browser up
  *                 fifteen minutes while Tex waits on them (./idle.ts HOLD_MS);
  *                 Cloudflare's browser closes with its question, so it holds nothing.
@@ -53,7 +55,7 @@
 
 import puppeteer from "@cloudflare/puppeteer";
 import { DurableObject } from "cloudflare:workers";
-import { IdleTimer } from "./idle";
+import { IdleTimer, type LeaseAnswer } from "./idle";
 import { fetchRead } from "./fetchText";
 import { BROWSERBASE_FETCH_TIMEOUT_MS, browserbaseFetch } from "./browserbaseFetch";
 import { parseReadRequest, read } from "./read";
@@ -79,6 +81,12 @@ export class BrowserIdle extends DurableObject<Env> {
   async touch(owner: string, ms?: number): Promise<void> {
     await this.timer.touch(owner, ms);
   }
+  async claim(holder: string, ms: number): Promise<LeaseAnswer> {
+    return await this.timer.claim(holder, ms);
+  }
+  async release(holder: string): Promise<boolean> {
+    return await this.timer.release(holder);
+  }
   async alarm(): Promise<void> {
     await this.timer.alarm();
   }
@@ -87,7 +95,7 @@ export class BrowserIdle extends DurableObject<Env> {
 export default {
   async fetch(request: Request, env: Env, ctx?: ExecutionContext): Promise<Response> {
     const url = new URL(request.url);
-    if (request.method === "POST" && (url.pathname === "/browse" || url.pathname === "/browse/close" || url.pathname === "/browse/hold")) {
+    if (request.method === "POST" && (url.pathname === "/browse" || url.pathname === "/browse/close" || url.pathname === "/browse/hold" || url.pathname === "/browse/release")) {
       const body = await request.json().catch(() => null);
       if ((body as { provider?: unknown })?.provider === "browserbase") return await browseOnBrowserbase(env, url.pathname, body, fetch, (work) => ctx?.waitUntil(work));
       return await browse(env, url.pathname, body);

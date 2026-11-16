@@ -31,10 +31,18 @@ export const RETRY_MS = 60 * 1000;
 export interface IdleStorage {
   get<T>(key: string): Promise<T | undefined>;
   put(key: string, value: unknown): Promise<void>;
+  delete(key: string): Promise<boolean>;
   deleteAll(): Promise<void>;
   getAlarm(): Promise<number | null>;
   setAlarm(at: number): Promise<void>;
 }
+
+/** Who drives the browser, until when (./lease.ts). */
+interface Lease {
+  holder: string;
+  until: number;
+}
+export type LeaseAnswer = { ok: true } | { ok: false; leftMs: number };
 
 /** Runs `fn` with no other event let in until it is done (blockConcurrencyWhile). */
 export type Exclusive = <T>(fn: () => Promise<T>) => Promise<T>;
@@ -61,6 +69,32 @@ export class IdleTimer {
     // more than once, and inside its handler getAlarm says nothing of a touch.
     await this.storage.put("until", until);
     await this.storage.setAlarm(until);
+  }
+
+  /**
+   * Takes the browser's lease for `holder` (./lease.ts): free, run out, or
+   * already this holder's, it is theirs until `ms` from now; another live
+   * holder's, it is refused with how long that one has left. Atomic: nothing
+   * else reaches this object between the read and the write.
+   */
+  async claim(holder: string, ms: number): Promise<LeaseAnswer> {
+    return await this.exclusive(async () => {
+      const lease = await this.storage.get<Lease>("lease");
+      const now = this.now();
+      if (lease && lease.holder !== holder && lease.until > now) return { ok: false, leftMs: lease.until - now };
+      await this.storage.put("lease", { holder, until: now + ms });
+      return { ok: true };
+    });
+  }
+
+  /** Lets the lease go, only while `holder` still has it. */
+  async release(holder: string): Promise<boolean> {
+    return await this.exclusive(async () => {
+      const lease = await this.storage.get<Lease>("lease");
+      if (!lease || lease.holder !== holder) return false;
+      await this.storage.delete("lease");
+      return true;
+    });
   }
 
   /**
@@ -100,7 +134,14 @@ export class IdleTimer {
 
 export interface IdleNamespace {
   idFromName(name: string): DurableObjectId;
-  get(id: DurableObjectId, options?: { locationHint?: "enam" }): { touch(owner: string, ms?: number): Promise<void> };
+  get(id: DurableObjectId, options?: { locationHint?: "enam" }): IdleStub;
+}
+
+/** The object's methods; the lease's are optional, so a stand-in with only `touch` still works. */
+export interface IdleStub {
+  touch(owner: string, ms?: number): Promise<void>;
+  claim?(holder: string, ms: number): Promise<LeaseAnswer>;
+  release?(holder: string): Promise<boolean>;
 }
 
 /** Pushes this person's browser's end five minutes out (or `ms`). Never fails the step it rides on. */

@@ -5,6 +5,11 @@
  *   `{ provider, owner, steps, handoff? }` → `{ session, ran, page }` (`handoff`
  *   says the person is being handed this browser, and asks for nothing)
  *   `/browse/close` `{ provider, owner }` → releases their browser now
+ *   `/browse/release` `{ provider, owner, holder }` → lets go of the lease
+ *
+ * A `holder` on /browse takes the browser for that caller alone (./lease.ts):
+ * while another holder has it the answer is 409 `{ busy: true }` and nothing
+ * runs. A call with none runs as it always did.
  *
  * With `keep: true` the answer also carries `jar`, the person's sign-ins read
  * back out of the browser, for the gateway to seal in their vault; a `jar`
@@ -60,6 +65,7 @@ import { MAX_DOWNLOAD_BYTES, asFile, type Downloads } from "./download";
 import { attachPage, cdpPage, connectCdp } from "./cdp";
 import { browserbaseUploads } from "./upload";
 import { HOLD_MS, IDLE_MS, touchIdle } from "./idle";
+import { LEASE_MS, RUN_LEASE_MS, claimLease, holderOf, releaseLease } from "./lease";
 import { captureJar, parseJar, restoreCookies, restoreStorage, type Jar } from "./jar";
 import { reportFailedRun, type FailedRun } from "./sessionLogs";
 import { invisibleCaptcha, settleCaptcha } from "./captcha";
@@ -94,8 +100,34 @@ export async function browseOnBrowserbase(
     await touchIdle(env.BROWSER_IDLE, owner, HOLD_MS);
     return json({ held: true });
   }
+  // One driver at a time (./lease.ts): a caller that names itself takes the
+  // browser, or is told it is busy and nothing runs.
+  const holder = holderOf(body);
+  if (path === "/browse/release") return json({ released: holder !== null && (await releaseLease(env.BROWSER_IDLE, owner, holder)) });
   const parsed = parseBrowseRequest({ steps: (body as { steps?: unknown })?.steps });
   if (parsed === null) return json({ error: "those steps could not be read" }, 400);
+  if (holder === null) return await runOnBrowserbase(env, owner, body, parsed, fetcher, later);
+  const claimed = await claimLease(env.BROWSER_IDLE, owner, holder, RUN_LEASE_MS);
+  if (claimed.busy) {
+    console.log(JSON.stringify({ event: "site_shots_browse_busy" }));
+    return json({ busy: true, error: "another question is using this browser", retryMs: claimed.leftMs }, 409);
+  }
+  try {
+    return await runOnBrowserbase(env, owner, body, parsed, fetcher, later);
+  } finally {
+    // Two minutes past this step, so a holder that never comes back frees it.
+    await claimLease(env.BROWSER_IDLE, owner, holder, LEASE_MS);
+  }
+}
+
+async function runOnBrowserbase(
+  env: BrowserbaseEnv,
+  owner: string,
+  body: unknown,
+  parsed: NonNullable<ReturnType<typeof parseBrowseRequest>>,
+  fetcher: typeof fetch,
+  later: Later,
+): Promise<Response> {
   const keep = (body as { keep?: unknown })?.keep === true;
   const startOver = (body as { fresh?: unknown })?.fresh === true;
   const handingOver = (body as { handoff?: unknown })?.handoff === true;
