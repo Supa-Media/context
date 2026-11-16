@@ -36,6 +36,12 @@ export const texLabTables = {
      */
     rev: v.optional(v.number()),
     live: v.optional(v.object({ client: v.string(), by: v.id("users"), at: v.number() })),
+    /**
+     * The code a draft runs on (Dev2, 2026-11-16: "when we run things it should run on the PRs code instead of main";
+     * `functions/texLabRuns.ts` `CODE`): a same-repository pull request (`#3401`) or branch whose steps the draft's
+     * graph needs. Unset is main. Every run of the draft checks that code out.
+     */
+    code: v.optional(v.string()),
   }).index("by_version", ["versionId"]),
   /**
    * What each revision of a draft changed, for the other side to read: the pieces it touched (`texLabOps.cjs`
@@ -116,6 +122,10 @@ export const texLabTables = {
     ghRunUrl: v.optional(v.string()),
     /** A gate run's pull request. */
     pr: v.optional(v.string()),
+    /** The code asked for (a draft's `code`, or the run's own): `#<pull request>` or a branch; unset is main. */
+    code: v.optional(v.string()),
+    /** The commit the workflow checked out and ran, reported back by it: what actually ran. */
+    commit: v.optional(v.string()),
     by: v.id("users"),
     /** "lab" for the Lab page, or the AI client's name. */
     via: v.string(),

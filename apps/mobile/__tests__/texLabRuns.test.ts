@@ -184,6 +184,39 @@ describe("running from the Lab", () => {
     expect(q("#runBar")).toBeNull();
   });
 
+  test("a draft's Code field points its runs at a pull request; the run shows the code and the commit that ran (Dev2: \"run on the PRs code\")", async () => {
+    const V = { ...clone(MAIN), id: "vpr1", name: "Simpler graph" };
+    act(() => set({ cur: clone(V), versions: [MAIN, V] }));
+    mockAnswers.set("functions/texLabRuns:codeFor", null);
+    const RAN: LabRun = { ...DONE, id: "run7", versionId: "vpr1", code: "#3401", commit: "0123456789abcdef0123456789abcdef01234567" };
+    mockAnswers.set("functions/texLabRuns:list", [RAN]);
+    mockAnswers.set("functions/texLabRuns:get", RAN);
+    await mount(false);
+    click("#runMore");
+    expect(q("#labCodeNow")?.textContent).toBe("Runs on main's code");
+    const input = q("#labCode") as HTMLInputElement;
+    act(() => {
+      input.value = "https://github.com/Supa-Media/context/pull/3401";
+      input.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true }));
+    });
+    await tick();
+    expect(mockCalls.filter((c) => c.fn === "functions/texLabRuns:setCode").map((c) => c.args)).toEqual([{ versionId: "vpr1", code: "https://github.com/Supa-Media/context/pull/3401" }]);
+    click("#labAllRuns");
+    act(() => setRunsUi({ run: "run7" }));
+    expect(q("#runsPanel .runrow")?.textContent).toContain("#3401 @ 0123456");
+    expect(q("#runCode")?.textContent).toContain("ran commit 0123456");
+    expect((q("#runCommit") as HTMLAnchorElement).href).toBe("https://github.com/Supa-Media/context/commit/0123456789abcdef0123456789abcdef01234567");
+    expect(q("#runsPanel")?.textContent).toContain("A GitHub run on pull request #3401's code");
+    expect(q("#runsPanel .mcp")?.textContent).toContain('tex_dev { action: "run", draft: "vpr1", kind: "dev", models: "gw", code: "#3401" }');
+  });
+
+  test("main's Code is main's, with nothing to set", async () => {
+    await mount(false);
+    click("#runMore");
+    expect(q("input#labCode")).toBeNull();
+    expect(q("#labCode")?.textContent).toContain("main's code");
+  });
+
   test("a refusal says why", async () => {
     mockRefuse = "3 runs are already waiting: one finishes first";
     await mount();
