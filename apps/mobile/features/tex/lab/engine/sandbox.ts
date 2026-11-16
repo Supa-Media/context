@@ -181,8 +181,10 @@ export async function readSandboxChats() {
       .map((c) => ({ chatId: str(c.chatId), name: str(c.name), ...(c.kind === "1:1" || c.kind === "dm" ? { kind: "dm" as const } : c.kind === "group" ? { kind: "group" as const } : {}), ...(num(c.people) != null ? { people: num(c.people)! } : {}) }))
       .filter((c) => c.chatId);
     emit();
-  } catch {
-    /* Maya stays */
+  } catch (e) {
+    // Said, not swallowed: an empty list read as "no chats" hid a gateway route that answered 404 (2026-11-16).
+    sandbox.problem = "Your chats didn't load: " + (e instanceof Error ? e.message : "the test chat didn't answer");
+    emit();
   }
 }
 

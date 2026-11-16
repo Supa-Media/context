@@ -369,6 +369,8 @@ const PRODUCT_RESERVED_NAMES: readonly string[] = [
   // The texting assistant's name (decided by the owner, 2026-10-10): `@tex`
   // and `tex@context.lc` would read as the assistant itself.
   "tex",
+  // The gateway's Lab test chats, `/tex-lab/sandbox`: a route word there (`apps/mcp/src/workspacePath.js`).
+  "tex-lab",
   // The apex paths the **router** serves itself, held against its own
   // `NOT_PAGES` by `namesRoutes.test.ts`. The app's routes below were the
   // other half of this; `infra/router` has never been covered, and `/ingest`
