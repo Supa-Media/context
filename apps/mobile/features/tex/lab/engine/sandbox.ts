@@ -161,7 +161,12 @@ export function writeOf(w: Record<string, unknown>): SandboxWrite {
 }
 
 /** A test chat page's id: the last part of its address, else the write's own id. */
-export const pageIdOf = (w: SandboxWrite) => (w.url ? (w.url.split(/[?#]/)[0].split("/").pop() ?? "") : "") || w.id || "";
+/** A page's id in the sandbox: the last segment of its address (an id, never a name shown), else the write's own id. */
+const lastSegment = (url: string) => {
+  const path = url.split(/[?#]/)[0];
+  return path.slice(path.lastIndexOf("/") + 1);
+};
+export const pageIdOf = (w: SandboxWrite) => (w.url ? lastSegment(w.url) : "") || w.id || "";
 
 /** One of the test chat's pages, read back whole (op `page`): its title and its Markdown, as text. */
 export async function readSandboxPage(id: string): Promise<{ title: string; text: string }> {
