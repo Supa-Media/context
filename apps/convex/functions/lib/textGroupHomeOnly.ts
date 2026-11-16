@@ -30,6 +30,7 @@ import { accountTimeZone } from "./routines/access";
 import { effectiveTimeZone } from "./routines/model";
 import { personalWorkspaceOf } from "../textLinks";
 import { liveReach, reachOf } from "./textGroupReach";
+import { reachBlockers, type Blocker } from "./textGroupBlockers";
 import { speaksUpOf } from "./texChatRules";
 
 /** The client every group grant is minted for, and its name (`functions/textGroups.ts` holds the same two). */
@@ -59,6 +60,8 @@ export interface HomeOnlyReady {
   guestTagger?: string;
   /** The slugs of the shared workspaces the chat reaches this turn, by name (`lib/textGroupReach.ts`); none when anyone here has no account. */
   reach: string[];
+  /** Who keeps the chat from each shared workspace its asker and sponsor share, so the turn logs it and Tex can say so (`lib/textGroupBlockers.ts`). */
+  blocked: Blocker[];
 }
 
 /**
@@ -78,6 +81,7 @@ export async function homeOnlyTurn(
   const names: { phone: string; handle: string; name?: string }[] = [];
   const guests: { phone: string; label: string }[] = [];
   const people: Id<"users">[] = [];
+  const linked: Id<"users">[] = []; // people here by a linked number, never a guest's light account
   for (const phone of others) {
     const userId = phone === args.sender ? senderUser : await linkedUser(ctx, phone);
     if (userId === null) {
@@ -89,6 +93,7 @@ export async function homeOnlyTurn(
       continue;
     }
     if (!people.includes(userId)) people.push(userId);
+    if (!linked.includes(userId)) linked.push(userId);
     // Each account's name beside its handle, so the turn can say who is here (`apps/mcp/src/agent/groupNames.js`).
     names.push(await chatPerson(ctx, phone, userId));
   }
@@ -101,6 +106,7 @@ export async function homeOnlyTurn(
   const reach = await reachOf(ctx, chat, reachPeople, guests.length > 0);
   const reachIds = reach.map((row) => row.workspace._id);
   await ctx.db.patch(chat._id, { reach: reachIds, reachPeople });
+  const blocked = await reachBlockers(ctx, { asker: senderUser, sponsor, people: linked, guests: guests.map((guest) => guest.label), reach: reachIds });
   const intro = chat.introducedAt === undefined;
   const minted = args.mint && args.command === undefined;
   if (minted) {
@@ -135,6 +141,7 @@ export async function homeOnlyTurn(
     names,
     guests,
     reach: reach.map((row) => row.workspace.slug),
+    blocked,
     ...(senderUser === null ? { guestTagger: await guestLabel(args.groupKey, args.sender) } : {}),
   };
 }

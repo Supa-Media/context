@@ -91,7 +91,7 @@ export const CAPABILITIES = Object.freeze([
     name: "Inviting people",
     actions: ["manage.invite", "words.invite", "send.chat_add_everyone"],
     texts: "invite people by email into a shared workspace they own; the invitations go once they say yes",
-    group: "the workspace's owner asks in any words (\"share @name with everyone here\", \"add the group to @name as members\") and you call send chat_add_everyone, or they type \"Tex, add everyone here to @name\"; everyone in the chat is invited by phone after your answer, a line saying how many follows, and from then on you can use all of that workspace here",
+    group: "the workspace's owner asks in any words (\"share @name with everyone here\", \"add the group to @name as members\") and you call send chat_add_everyone, or they type \"Tex, add everyone here to @name\"; \"add @sam to @name\" is the same call when Sam is who here isn't in it, since only people not yet in it are invited; when a workspace the asker shares with the chat's sponsor is out of reach, you are told who here keeps it out and say so with this fix; everyone in the chat not yet in it is invited by phone after your answer, a line saying how many follows, and from then on you can use all of that workspace here",
     guest: "the same words, typed by the workspace's owner",
     cant: [{ where: "everywhere", what: "change a member's role, remove someone from a workspace, or cancel an invitation", workaround: { kind: "app_path", text: "the owner opens Context app → Settings → People & sharing → Members" } }],
   },

@@ -568,3 +568,22 @@ _Superseded 2026-11-11 by [one-judge-one-record](./one-judge-one-record.md) (PR 
 - **Best effort, bounded at 12 s.** No binding, a failed download or transcription, or silence leaves the message as it came, never worse than before. A message with words, a picture, an SMS group or a reaction is never sent to be heard.
 
 What a simplification would cost: gating on typed words alone drops every voice message to Tex in a group; handing every recording to decide spends a decide on audio it cannot hear. Tests: `apps/agent/src/groupVoice.test.ts`, `apps/mcp/test/textsHear.test.mjs`.
+
+## A chat that misses a workspace is told who keeps it out (Dev2, 2026-11-16)
+
+A chat's reach stays exactly as decided on 2026-10-31: a shared workspace every person and the sponsor are members of,
+and none when anyone has no linked account. What changed is that nobody could tell why a workspace had gone. A chat
+lost its shared workspace overnight when someone joined who wasn't a member, and Tex could only say "this chat can't
+see it" and send people to the app, then refused to invite the newcomer because its invite tool reads a workspace the
+chat no longer reached.
+
+Each group turn's answer from the control plane now carries `blocked`
+(`apps/convex/functions/lib/textGroupBlockers.ts`): for each shared workspace the **asker and the sponsor** are both
+members of that the chat misses, the people here who aren't members (by handle) and those with no linked account (by
+guest label, never a number). The "Read the text" node logs reach and blockers on every group turn, and Tex is told who
+and the fix: an owner asking it to add them, in any words, which is `chat_add_everyone`, inviting only the people here
+not in it yet (Dev2's pick over a single-person invite from a chat that reaches nothing).
+
+Why it names no more: a workspace is named only when the asker is a member, so it is theirs to name, and a non-member
+learns a slug, which is how sharing is addressed anyway. A workspace only the sponsor is in is never named; a guest who
+asks names nothing. Tests: `apps/convex/__tests__/textGroupBlockers.test.ts`, `apps/mcp/test/chatBlockers.test.mjs`.

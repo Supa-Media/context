@@ -53,7 +53,7 @@ import { directNote, learnDirect } from "./groupDirectNotes.js";
 import { homeNamesOf, readEitherName } from "./homeNames.js";
 import { readWithEtag } from "./jobLog.js";
 import { textingAwareCallTool, textingWriteTools } from "./textingWrites.js";
-import { GUEST_NOTE_TOOLS, guestAwareCallTool, guestPrompt, isGuestChat } from "./groupGuests.js";
+import { GUEST_NOTE_TOOLS, blockedLine, guestAwareCallTool, guestPrompt, isGuestChat } from "./groupGuests.js";
 import { chatRoutinePrompt, chatRoutineRefusal } from "./groupRoutines.js";
 import { chatMailOf, chatMailPrompt, chatMailTools } from "./groupMail.js";
 import { toolError } from "../tools/results.js";
@@ -135,7 +135,8 @@ export function groupOf(body, session = null) {
   const size = sizeOf(group.size, people.length + guests.length);
   const numbers = numbersOf(group.numbers, [...people, ...guests]); // each person's number, by handle or label (`groupNames.js`)
   const asker = from === "" && guests.includes(group.asker) ? group.asker : ""; // a guest who tagged Tex, by label
-  const kept = { key: group.key, members: group.members, from, people, chat: chatOf(group.chat), ...(names.length > 0 ? { names } : {}), ...(guests.length > 0 ? { guests } : {}), ...(numbers.length > 0 ? { numbers } : {}), ...(asker ? { asker } : {}), ...(size !== null ? { size } : {}), ...(mail.length > 0 ? { mail } : {}), ...(reach.length > 0 ? { reach } : {}), ...(group.tagged === true ? { tagged: true } : {}) }; // tagged: a literal "@Tex", always answered (`sendTheReply.js`)
+  const blocked = blockedOf(group.blocked); // who keeps the chat from a workspace, named only (`groupGuests.js` `blockedLine`)
+  const kept = { key: group.key, members: group.members, from, people, chat: chatOf(group.chat), ...(names.length > 0 ? { names } : {}), ...(guests.length > 0 ? { guests } : {}), ...(numbers.length > 0 ? { numbers } : {}), ...(asker ? { asker } : {}), ...(size !== null ? { size } : {}), ...(mail.length > 0 ? { mail } : {}), ...(reach.length > 0 ? { reach } : {}), ...(group.tagged === true ? { tagged: true } : {}), ...(blocked.length > 0 ? { blocked } : {}) }; // tagged: a literal "@Tex", always answered (`sendTheReply.js`)
   // A chat that reaches shared workspaces (every person here has an account and shares them) is an ordinary group turn
   // whose home is its memory; only a chat with people who aren't all here (no reach) is narrowed to its home.
   if (reach.length > 0 || !isGuestChat(session)) return from === "" ? { ...kept, guestTagger: true } : kept;
@@ -166,6 +167,19 @@ export function reachOf(session) {
 export function inFirstReach(dispatch, group) {
   const first = Array.isArray(group?.reach) ? group.reach[0] : undefined;
   return dispatch === null || first === undefined ? dispatch : (name, args) => dispatch(name, { ...args, context: `@${first}` });
+}
+
+/**
+ * Who keeps the chat from a shared workspace, as the Worker passed the control plane's answer on: a handle or a guest's
+ * label and why, never a number. It only names; what the chat may read is the grant's (`reachOf`), never this.
+ */
+const BLOCKED_WHO = /^(?:[a-z0-9][a-z0-9-]{0,64}|guest-[0-9a-f]{4})$/;
+export function blockedOf(value) {
+  if (!Array.isArray(value)) return [];
+  return value
+    .slice(0, 24)
+    .filter((entry) => entry !== null && typeof entry === "object" && HANDLE.test(entry.slug ?? "") && BLOCKED_WHO.test(entry.who ?? "") && (entry.why === "not_member" || entry.why === "no_account"))
+    .map(({ slug, who, why }) => ({ slug, who, why }));
 }
 
 /** The handles of the people in the chat, as the control plane named them to the Worker; an email may be offered to one (`tools/offerFor.js`). */
@@ -580,6 +594,7 @@ export function groupPrompt(group, workspace) {
     GROUP_SIGN_IN_LINES +
     "A password comes only from a login saved for this chat or the whole workspace, or one the person who tagged you saved for themselves, and never typed in the chat; " +
     "when a site needs a password and there is none saved, send whoever asked a vault_add link at once in one short line (the page lets them give it to this chat, the workspace or keep it to themselves), and carry on by yourself once it's saved. " +
+    blockedLine(group) +
     "Slack can't be used from a group, because it connects for one person only; say the person can text you on their own for it. " +
     chatRoutinePrompt(group) +
     "You can't text anyone outside the chat. " +
