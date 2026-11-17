@@ -26,8 +26,8 @@ import { pastGooglePasskey } from "./googleChallenge";
 import { HOLD_MS, IDLE_MS, touchIdle } from "./idle";
 import { OWNER_TAG } from "./browserbase";
 import { capRefusal, effectiveCaps, hostFromSteps, type BrowseOutcome, type BlockReason } from "./browserUsePolicy";
-import { browserUseConfigured, createBrowser, creditBalanceUsd, sessionCost, stopBrowser, type BrowserUseKey, type BrowserUseSession } from "./browserUse";
-import { ledgerStub, safeRecord, UNKNOWN_SESSION_USD, type LedgerEnv, type OwnedSession } from "./browserUseLedger";
+import { browserUseConfigured, createBrowser, creditBalanceUsd, sessionSpend, stopBrowser, type BrowserUseKey, type BrowserUseSession } from "./browserUse";
+import { ledgerStub, safeRecord, type LedgerEnv, type OwnedSession } from "./browserUseLedger";
 
 const json = (body: unknown, status = 200) =>
   new Response(JSON.stringify(body), { status, headers: { "content-type": "application/json" } });
@@ -96,10 +96,11 @@ function outcomeOf(result: DriveResult): { outcome: BrowseOutcome; reason?: Bloc
 /**
  * Stop the session, charge what it cost, and write the call row. Returns
  * false when the stop itself failed, so the caller keeps the session for
- * the idle alarm to try again. A missing cost charges a full day of the
- * cap, which refuses the next fallback that day.
+ * the idle alarm to try again. Cost is the browser object's `browserCost`
+ * plus `proxyCost`, or the drop in the account balance when those are still
+ * zero. A missing number charges nothing: it does not spend the day's cap.
  */
-export async function endBrowserUseSession(env: BrowserUseEnv, session: OwnedSession, fetcher: typeof fetch = fetch): Promise<boolean> {
+export async function endBrowserUseSession(env: BrowserUseEnv, session: OwnedSession, fetcher: typeof fetch = fetch, balanceBefore: number | null = null): Promise<boolean> {
   if (session.charged) return true;
   try {
     await stopBrowser(env, session.id, fetcher);
@@ -107,11 +108,12 @@ export async function endBrowserUseSession(env: BrowserUseEnv, session: OwnedSes
     console.log(JSON.stringify({ event: "site_shots_browser_use_stop_failed" }));
     return false;
   }
-  const cost = await sessionCost(env, session.id, fetcher);
-  const usd = cost?.totalUsd ?? UNKNOWN_SESSION_USD;
+  const cost = await sessionSpend(env, session.id, balanceBefore, fetcher);
+  const usd = cost?.totalUsd ?? 0;
+  if (cost === null) console.log(JSON.stringify({ event: "site_shots_browser_use_cost_unknown" }));
   const stub = ledgerStub(env);
   try {
-    await stub?.addSpend(usd);
+    if (usd > 0) await stub?.addSpend(usd);
   } catch {
     console.log(JSON.stringify({ event: "site_shots_browser_use_spend_failed" }));
   }
@@ -122,7 +124,7 @@ export async function endBrowserUseSession(env: BrowserUseEnv, session: OwnedSes
     outcome: session.outcome,
     ...(session.reason ? { reason: session.reason } : {}),
     durationMs: Math.max(0, Date.now() - session.started),
-    ...(cost ? { costUsd: cost.totalUsd, proxyMb: cost.proxyMb, bytes: cost.bytes } : { costUsd: usd }),
+    ...(cost ? { costUsd: cost.totalUsd, proxyMb: cost.proxyMb, bytes: cost.bytes } : {}),
   });
   return true;
 }
@@ -265,7 +267,7 @@ export async function browseOnBrowserUse(
     // step. A reused session stays up for its own idle stop.
     if (created && createdNew && !remembered) {
       const owned: OwnedSession = settled ?? { id: created.id, cdpUrl: created.cdpUrl, host, started, outcome: "error", charged: false };
-      const ended = await endBrowserUseSession(env, owned, fetcher);
+      const ended = await endBrowserUseSession(env, owned, fetcher, typeof balance === "number" ? balance : null);
       if (!ended && stub) await stub.remember(owner, owned).catch(() => undefined);
     }
   }

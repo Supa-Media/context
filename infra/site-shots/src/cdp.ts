@@ -12,6 +12,7 @@ import { frameLister } from "./cdpFrames";
 import { turnOffPasskeys } from "./passkeys";
 import { type Solver, watchSolver } from "./captchaSolver";
 import { setFileInput } from "./upload";
+import { pageLoadFailure } from "./pageLoad";
 
 /** One CDP connection: send a method, get its result. */
 export interface CdpTransport {
@@ -164,8 +165,33 @@ export async function cdpPage(cdp: CdpTransport, attached?: AttachedPage): Promi
 
   const page: BrowsePage = {
     async goto(url, { timeout }) {
-      await send("Page.navigate", { url });
-      await settle(timeout);
+      // Heard before the navigation, so a proxy failure is not thrown away.
+      let netError = "";
+      const onFailed = (params: unknown) => {
+        const text = (params as { errorText?: unknown })?.errorText;
+        if (typeof text === "string" && text.startsWith("net::")) netError = text.slice(0, 200);
+      };
+      cdp.on?.("Network.loadingFailed", onFailed);
+      await send("Page.enable").catch(() => undefined);
+      await send("Network.enable").catch(() => undefined);
+      const navigated = await send<{ errorText?: string }>("Page.navigate", { url });
+      if (typeof navigated?.errorText === "string" && navigated.errorText) throw new Error(navigated.errorText.slice(0, 200));
+      // The load event, or the ready-state poll, whichever finishes first.
+      // The timer is cleared either way: a race left running would hold the
+      // request open for the whole goto budget. An error page is readyState
+      // complete, so the address is checked after.
+      await new Promise<void>((resolve) => {
+        const timer = setTimeout(resolve, timeout);
+        const finish = () => {
+          clearTimeout(timer);
+          resolve();
+        };
+        cdp.on?.("Page.loadEventFired", finish);
+        settle(timeout).then(finish, finish);
+      });
+      const href = await evaluate<string>("location.href").catch(() => "");
+      const failure = pageLoadFailure(href, netError);
+      if (failure) throw new Error(failure);
     },
     evaluate,
     async click(selector) {

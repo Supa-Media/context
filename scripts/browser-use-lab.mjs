@@ -47,8 +47,13 @@ function connect(url) {
   const ws = new WebSocket(url);
   let next = 1;
   const pending = new Map();
+  const listeners = new Map();
   ws.addEventListener("message", (event) => {
     const message = JSON.parse(event.data);
+    if (typeof message.id !== "number") {
+      for (const listener of listeners.get(message.method) ?? []) listener(message.params);
+      return;
+    }
     const waiter = pending.get(message.id);
     if (!waiter) return;
     pending.delete(message.id);
@@ -60,8 +65,11 @@ function connect(url) {
       resolve({
         send(method, params, sessionId) {
           const id = next++;
-          ws.send(JSON.stringify({ id, method, params, sessionId }));
+          ws.send(JSON.stringify({ id, method, params, ...(sessionId ? { sessionId } : {}) }));
           return new Promise((res, rej) => pending.set(id, { resolve: res, reject: rej }));
+        },
+        on(method, listener) {
+          listeners.set(method, [...(listeners.get(method) ?? []), listener]);
         },
         close() {
           ws.close();
@@ -72,8 +80,23 @@ function connect(url) {
   });
 }
 
+/** Chrome's network-error page is not a loaded site. A real host, even one that answered 403, is. */
+function loadFailure(href, netError) {
+  const url = typeof href === "string" ? href : "";
+  const net = /net::ERR_[A-Z0-9_]{1,60}/.exec(netError ?? "")?.[0] ?? "";
+  if (url.startsWith("chrome-error:") || url.startsWith("chrome://")) return net || "chrome error page";
+  try {
+    if (new URL(url).hostname === "chromewebdata") return net || "chrome error page";
+  } catch {
+    // Not a URL.
+  }
+  return null;
+}
+
 const started = Date.now();
 let sessionId = null;
+let balanceBefore = null;
+let loadFailed = null;
 try {
   const balanceStarted = Date.now();
   const balance = await api("GET", "/api/v2/billing/account");
@@ -87,14 +110,18 @@ try {
     console.error(`balance $${usd} is under $0.50 after ${balanceMs}ms; not starting a session`);
     process.exit(1);
   }
+  balanceBefore = usd;
   console.log(`balance $${usd} in ${balanceMs}ms`);
 
   const createStarted = Date.now();
+  // proxyCountryCode "us" is the documented default (lowercase), not a
+  // special value. A navigation that lands on chromewebdata is a failed
+  // load, reported below, not a reason to change this body.
   const created = await api("POST", "/api/v4/browsers", { timeout: 15, proxyCountryCode: "us" });
   const createMs = Date.now() - createStarted;
   sessionId = created.json?.id ?? null;
   const cdpUrl = created.json?.cdpUrl;
-  if (created.status !== 201 && created.status !== 200 || typeof sessionId !== "string" || typeof cdpUrl !== "string") {
+  if ((created.status !== 201 && created.status !== 200) || typeof sessionId !== "string" || typeof cdpUrl !== "string") {
     console.error(`create failed (${created.status}) after ${createMs}ms`);
     process.exit(1);
   }
@@ -107,14 +134,56 @@ try {
     let targetId = targets.targetInfos?.find((target) => target.type === "page")?.targetId;
     if (!targetId) targetId = (await cdp.send("Target.createTarget", { url: "about:blank" })).targetId;
     const attached = await cdp.send("Target.attachToTarget", { targetId, flatten: true });
-    await cdp.send("Page.navigate", { url: PAGE }, attached.sessionId);
-    const info = await cdp.send("Runtime.evaluate", {
-      expression: "({ href: location.href, title: document.title, ready: document.readyState })",
-      returnByValue: true,
-    }, attached.sessionId);
-    const page = info.result?.value ?? {};
-    console.log(`loaded in ${Date.now() - navStarted}ms title=${JSON.stringify(page.title ?? "")} ready=${page.ready ?? ""}`);
-    console.log(`host=${(() => { try { return new URL(String(page.href ?? PAGE)).hostname; } catch { return ""; } })()}`);
+    const session = attached.sessionId;
+    let netErrorText = "";
+    let statusCode = "";
+    cdp.on("Network.loadingFailed", (params) => {
+      if (typeof params?.errorText === "string") netErrorText = params.errorText;
+    });
+    cdp.on("Network.responseReceived", (params) => {
+      if (params?.type === "Document" && typeof params.response?.status === "number") statusCode = String(params.response.status);
+    });
+    const loaded = new Promise((resolve) => {
+      const timer = setTimeout(resolve, 20_000);
+      cdp.on("Page.loadEventFired", () => {
+        clearTimeout(timer);
+        resolve();
+      });
+    });
+    await cdp.send("Page.enable", {}, session);
+    await cdp.send("Network.enable", {}, session).catch(() => undefined);
+    const navigated = await cdp.send("Page.navigate", { url: PAGE }, session);
+    const navigateError = typeof navigated?.errorText === "string" ? navigated.errorText : "";
+    await loaded;
+    let href = "";
+    let title = "";
+    let ready = "";
+    const until = Date.now() + 5_000;
+    while (Date.now() < until) {
+      const info = await cdp.send("Runtime.evaluate", {
+        expression: "({ href: location.href, title: document.title, ready: document.readyState })",
+        returnByValue: true,
+      }, session);
+      const page = info.result?.value ?? {};
+      href = typeof page.href === "string" ? page.href : "";
+      title = typeof page.title === "string" ? page.title : "";
+      ready = typeof page.ready === "string" ? page.ready : "";
+      if (ready === "complete") break;
+      await new Promise((resolve) => setTimeout(resolve, 200));
+    }
+    const failure = navigateError || loadFailure(href, netErrorText);
+    let host = "";
+    try {
+      host = new URL(href || PAGE).hostname;
+    } catch {
+      host = "";
+    }
+    console.log(`status=${statusCode || "none"} netErrorText=${JSON.stringify(netErrorText || navigateError || "")}`);
+    console.log(`title=${JSON.stringify(title)} ready=${ready} host=${host} ms=${Date.now() - navStarted}`);
+    if (failure) {
+      loadFailed = failure;
+      console.error(`load failed: ${failure}`);
+    }
   } finally {
     cdp.close();
   }
@@ -122,9 +191,15 @@ try {
   if (sessionId) {
     const stopStarted = Date.now();
     const stopped = await api("PATCH", `/api/v4/browsers/${sessionId}`, { action: "stop" });
-    const cost = await api("GET", `/api/v4/sessions/${sessionId}/cost`);
-    const total = cost.json?.totalCostUsd ?? "unknown";
-    const proxy = cost.json?.proxyUsedMb ?? "unknown";
-    console.log(`stopped (${stopped.status}) in ${Date.now() - stopStarted}ms costUsd=${total} proxyMb=${proxy} totalMs=${Date.now() - started}`);
+    const browser = await api("GET", `/api/v4/browsers/${sessionId}`);
+    const after = await api("GET", "/api/v2/billing/account");
+    const browserCost = browser.json?.browserCost ?? "none";
+    const proxyCost = browser.json?.proxyCost ?? "none";
+    const proxyMb = browser.json?.proxyUsedMb ?? "none";
+    const afterUsd = Number(after.json?.totalCreditsBalanceUsd);
+    const delta = balanceBefore !== null && Number.isFinite(afterUsd) ? Math.round((balanceBefore - afterUsd) * 1_000_000) / 1_000_000 : "unknown";
+    console.log(`stopped (${stopped.status}) in ${Date.now() - stopStarted}ms browserCost=${browserCost} proxyCost=${proxyCost} proxyMb=${proxyMb} balanceDeltaUsd=${delta} totalMs=${Date.now() - started}`);
   }
 }
+if (loadFailed) process.exit(1);
+

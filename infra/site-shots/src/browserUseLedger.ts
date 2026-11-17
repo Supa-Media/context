@@ -8,7 +8,7 @@
  */
 
 import { browserUseLedgerStub } from "./idle";
-import { BROWSER_USE_CEILING, browseLogRow, nyPeriod, summarizeBrowseLog, type BrowseLogRow, type BrowseLogSummary } from "./browserUsePolicy";
+import { browseLogRow, nyPeriod, summarizeBrowseLog, type BrowseLogRow, type BrowseLogSummary } from "./browserUsePolicy";
 
 export interface LedgerKv {
   get<T>(key: string): Promise<T | undefined>;
@@ -152,10 +152,3 @@ export async function acceptBrowseLog(env: LedgerEnv, body: unknown): Promise<{ 
   await safeRecord(env, row);
   return { ok: true };
 }
-
-/**
- * The amount charged when the vendor does not say what a stopped session
- * cost. A full day of the cap, so the next fallback that day is refused
- * rather than spending against an unknown total.
- */
-export const UNKNOWN_SESSION_USD = BROWSER_USE_CEILING.dayUsd;

@@ -25,6 +25,14 @@ The sealed cookie and IndexedDB jar is restored onto the new browser.
 A Browserbase profile id is not a Browser Use profile. A Google sign-in
 bound to the device that created it will not transfer.
 
+A stopped browser's spend is `browserCost` plus `proxyCost` on
+`GET /api/v4/browsers/{id}` (`proxyUsedMb` is the proxy traffic). That
+object is the browser session. `GET /api/v4/sessions/{id}/cost` is an
+agent session, which a browser Tex started does not have. When the
+browser object still shows zero, the drop in `totalCreditsBalanceUsd`
+from before the session to after the stop is the spend. A number that
+cannot be read charges nothing, and does not use up the day's cap.
+
 Caps, enforced in the screenshot Worker and failing closed: 15 minutes a
 job, $1 a New York day, $5 a New York month, and a vendor balance under
 $0.50 or a balance call that fails. A cap refusal returns the original

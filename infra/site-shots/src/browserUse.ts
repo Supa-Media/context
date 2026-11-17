@@ -22,7 +22,10 @@ export function browserUseAllowed(method: string, path: string): boolean {
   if (method === "GET" && path === "/api/v2/billing/account") return true;
   if (method === "POST" && path === "/api/v4/browsers") return true;
   if (method === "PATCH" && /^\/api\/v4\/browsers\/[A-Za-z0-9-]{8,80}$/.test(path)) return true;
-  if (method === "GET" && /^\/api\/v4\/sessions\/[A-Za-z0-9-]{8,80}\/cost$/.test(path)) return true;
+  // A standalone browser's cost is on the browser itself (`browserCost`,
+  // `proxyCost`, `proxyUsedMb`). `/api/v4/sessions/{id}/cost` is an agent
+  // session, and a browser we started has none.
+  if (method === "GET" && /^\/api\/v4\/browsers\/[A-Za-z0-9-]{8,80}$/.test(path)) return true;
   return false;
 }
 
@@ -90,19 +93,46 @@ export interface SessionCost {
   bytes: number;
 }
 
-/** What the session cost after it stopped. Null when the vendor does not say: the caller then fails closed. */
+/** What the stopped browser cost. Null when the browser object has no numbers. */
 export async function sessionCost(env: BrowserUseKey, id: string, fetcher: typeof fetch = fetch): Promise<SessionCost | null> {
   if (!ID.test(id)) return null;
   try {
-    const response = await call(env, "GET", `/api/v4/sessions/${id}/cost`, undefined, fetcher);
+    const response = await call(env, "GET", `/api/v4/browsers/${id}`, undefined, fetcher);
     if (!response.ok) return null;
-    const body = (await response.json().catch(() => null)) as { totalCostUsd?: unknown; proxyUsedMb?: unknown } | null;
-    const totalUsd = typeof body?.totalCostUsd === "number" ? body.totalCostUsd : Number(body?.totalCostUsd);
-    const proxyMb = typeof body?.proxyUsedMb === "number" ? body.proxyUsedMb : Number(body?.proxyUsedMb);
-    if (!Number.isFinite(totalUsd) || totalUsd < 0) return null;
-    const mb = Number.isFinite(proxyMb) && proxyMb >= 0 ? proxyMb : 0;
+    const body = (await response.json().catch(() => null)) as { browserCost?: unknown; proxyCost?: unknown; proxyUsedMb?: unknown } | null;
+    const browserCost = money(body?.browserCost);
+    const proxyCost = money(body?.proxyCost);
+    if (browserCost === null && proxyCost === null) return null;
+    const totalUsd = (browserCost ?? 0) + (proxyCost ?? 0);
+    const mb = money(body?.proxyUsedMb) ?? 0;
     return { totalUsd, proxyMb: mb, bytes: Math.round(mb * 1024 * 1024) };
   } catch {
     return null;
   }
+}
+
+function money(value: unknown): number | null {
+  const n = typeof value === "number" ? value : typeof value === "string" ? Number(value) : NaN;
+  return Number.isFinite(n) && n >= 0 ? n : null;
+}
+
+/**
+ * Spend to record for a stopped browser. The browser object's own costs when
+ * they are above zero; otherwise the drop in `totalCreditsBalanceUsd` from
+ * before the session to after the stop. Never a made-up day of spend: a
+ * missing number charges nothing, and the next fallback is not refused for it.
+ */
+export async function sessionSpend(env: BrowserUseKey, id: string, balanceBefore: number | null, fetcher: typeof fetch = fetch): Promise<SessionCost | null> {
+  const listed = await sessionCost(env, id, fetcher);
+  if (listed && listed.totalUsd > 0) return listed;
+  if (balanceBefore !== null) {
+    try {
+      const after = await creditBalanceUsd(env, fetcher);
+      const delta = Math.round((balanceBefore - after) * 1_000_000) / 1_000_000;
+      if (delta > 0) return { totalUsd: delta, proxyMb: listed?.proxyMb ?? 0, bytes: listed?.bytes ?? 0 };
+    } catch {
+      // The balance call failed. Fall through to the listed zero, or nothing.
+    }
+  }
+  return listed;
 }

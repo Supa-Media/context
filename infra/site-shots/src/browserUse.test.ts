@@ -53,8 +53,10 @@ function vendor(balance: number | "down" = 10) {
     if (method === "POST" && url.endsWith("/api/v4/browsers")) {
       return Response.json({ id: SESSION, cdpUrl: `wss://cdp.example/${SESSION}`, liveUrl: "https://live.browser-use.example/secret-view" }, { status: 201 });
     }
+    if (method === "GET" && /\/api\/v4\/browsers\/[^/]+$/.test(new URL(url).pathname)) {
+      return Response.json({ id: SESSION, status: "stopped", browserCost: "0.010000", proxyCost: "0.002000", proxyUsedMb: "2.5" });
+    }
     if (method === "PATCH") return Response.json({ ok: true });
-    if (url.endsWith("/cost")) return Response.json({ totalCostUsd: "0.012000", proxyUsedMb: "2.5" });
     return new Response("missing", { status: 404 });
   }) as typeof fetch;
   return { calls, fetcher };
@@ -120,8 +122,8 @@ describe("the vendor client", () => {
     expect(browserUseAllowed("GET", "/api/v2/billing/account")).toBe(true);
     expect(browserUseAllowed("POST", "/api/v4/browsers")).toBe(true);
     expect(browserUseAllowed("PATCH", `/api/v4/browsers/${SESSION}`)).toBe(true);
-    expect(browserUseAllowed("GET", `/api/v4/sessions/${SESSION}/cost`)).toBe(true);
-    for (const path of ["/api/v2/billing/credits", "/api/v2/billing/auto-recharge", "/api/v4/tasks", "/api/v4/runs", "/api/v4/agents"]) {
+    expect(browserUseAllowed("GET", `/api/v4/browsers/${SESSION}`)).toBe(true);
+    for (const path of ["/api/v2/billing/credits", "/api/v2/billing/auto-recharge", "/api/v4/tasks", "/api/v4/runs", "/api/v4/agents", `/api/v4/sessions/${SESSION}/cost`]) {
       expect(browserUseAllowed("POST", path)).toBe(false);
     }
   });
@@ -216,18 +218,40 @@ describe("browseOnBrowserUse", () => {
     expect(api.calls.filter((call) => call.method === "PATCH")).toHaveLength(1);
   });
 
-  it("charges a full day when the cost cannot be read, so the next job is refused", async () => {
+  it("charges the balance drop when the browser object has no cost yet, and nothing when neither can be read", async () => {
     const book = new BrowseLedger(kv());
-    const api = vendor();
-    const blind = (async (input: RequestInfo | URL, init?: RequestInit) => {
-      if (String(input).endsWith("/cost")) return new Response("no", { status: 404 });
-      return api.fetcher(input, init);
+    let balanceReads = 0;
+    const fetcher = (async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      const method = init?.method ?? "GET";
+      if (url.endsWith("/api/v2/billing/account")) {
+        balanceReads += 1;
+        return Response.json({ totalCreditsBalanceUsd: balanceReads === 1 ? 4.977575 : 4.967575 });
+      }
+      if (method === "POST" && url.endsWith("/api/v4/browsers")) return Response.json({ id: SESSION, cdpUrl: `wss://cdp.example/${SESSION}` }, { status: 201 });
+      if (method === "PATCH") return Response.json({ ok: true });
+      if (method === "GET" && url.includes("/api/v4/browsers/")) return Response.json({ browserCost: "0", proxyCost: "0", proxyUsedMb: "0" });
+      return new Response("no", { status: 404 });
     }) as typeof fetch;
-    await browseOnBrowserUse(ledgerEnv(book), "/browse", { owner: OWNER, steps: [{ do: "read" }], keep: false }, blind, driveOk);
-    expect((await book.spent()).dayUsd).toBe(1);
-    const again = vendor();
-    const response = await browseOnBrowserUse(ledgerEnv(book), "/browse", { owner: OWNER, steps: [{ do: "read" }] }, again.fetcher, driveOk);
-    expect((await response.json() as { reason?: string }).reason).toMatch(/day cap/);
+    await browseOnBrowserUse(ledgerEnv(book), "/browse", { owner: OWNER, steps: [{ do: "read" }], keep: false }, fetcher, driveOk);
+    expect((await book.spent()).dayUsd).toBeCloseTo(0.01);
+
+    const blind = new BrowseLedger(kv());
+    let accountReads = 0;
+    const down = (async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      const method = init?.method ?? "GET";
+      if (url.endsWith("/api/v2/billing/account")) {
+        accountReads += 1;
+        if (accountReads === 1) return Response.json({ totalCreditsBalanceUsd: 5 });
+        return new Response("no", { status: 503 });
+      }
+      if (method === "POST" && url.endsWith("/api/v4/browsers")) return Response.json({ id: SESSION, cdpUrl: `wss://cdp.example/${SESSION}` }, { status: 201 });
+      if (method === "PATCH") return Response.json({ ok: true });
+      return new Response("no", { status: 404 });
+    }) as typeof fetch;
+    await browseOnBrowserUse(ledgerEnv(blind), "/browse", { owner: OWNER, steps: [{ do: "read" }], keep: false }, down, driveOk);
+    expect((await blind.spent()).dayUsd).toBe(0);
   });
 });
 
