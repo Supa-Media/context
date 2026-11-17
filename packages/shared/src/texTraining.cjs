@@ -87,6 +87,14 @@ function linesBefore(c, at, keep = Infinity) {
 const SPEAK_UP = Object.freeze(["quiet", "attentive", "follow along", "helpful", "direct"]);
 
 /**
+ * The step that writes the text a turn nobody texted sends, by what started it (`via`): a check-in's look answers in
+ * its own model call (`heartbeat.js`), never through the Front door's prompt, so the Front door's labels on the turns
+ * a check-in started are the check-in's examples too (Dev set, 2026-11-17: every check-in row stayed quiet, its model
+ * shown none of the Training check-ins).
+ */
+const VIA_READERS = Object.freeze({ checkin: "checkin" });
+
+/**
  * Every Training label as a moment, by node: `{ chat, kind, setting?, before, newest, label }`, in file order, then
  * message order. The label is the node's own fields without `star` (a star makes it a unit test, not a different
  * example).
@@ -100,8 +108,12 @@ function momentsOf(conversations) {
       for (const [node, l] of Object.entries(m.labels || {})) {
         const { star: _star, ...label } = l || {};
         if (Object.keys(label).length === 0) continue;
+        // The check-in's own label is its code's output (`to: look`), which no model reads; its examples are the
+        // Front door's answers to the turns a check-in started (`VIA_READERS`).
+        if (node === "checkin") continue;
         const moment = { chat: c.id, kind: c.kind, ...(SPEAK_UP.includes(c.setting) ? { setting: c.setting } : {}), before: linesBefore(c, at, historyLines(node)), newest: lineOf(m, before(c, at)), label };
         (nodes[node] ??= []).push(moment);
+        if (node === "fd" && VIA_READERS[m.via]) (nodes[VIA_READERS[m.via]] ??= []).push(moment);
       }
     });
   }
@@ -226,4 +238,4 @@ function moduleText(entry, generated) {
   return TRAIN_ENTRY.test(entry) ? trainingText({ ctx: [entry] }, generated) : "";
 }
 
-module.exports = { TRAIN_ENTRY, WHOLE_INTRO, chatsOf, wholeText, conversationText, trainName, QUOTE_CHARS, HISTORY_LINES, historyLines, TRAINING_INTRO, lineOf, linesBefore, momentsOf, trainingSources, wantLines, exampleText, trainingText, moduleText };
+module.exports = { TRAIN_ENTRY, VIA_READERS, WHOLE_INTRO, chatsOf, wholeText, conversationText, trainName, QUOTE_CHARS, HISTORY_LINES, historyLines, TRAINING_INTRO, lineOf, linesBefore, momentsOf, trainingSources, wantLines, exampleText, trainingText, moduleText };

@@ -46,6 +46,7 @@ import { eventLines } from "./transcript.js";
 import { HISTORY_PATH } from "./historyFile.js";
 import { readTexNotes } from "./jobs.js";
 import { runTurn } from "./turn.js";
+import { trainingFor } from "./texArchitecture.js";
 import { reportToolFailures } from "./toolFailures.js";
 import { BUILTIN_PROVIDER, builtinModel, canRunBuiltin } from "./builtin.js";
 import { PRODUCTION_HEARTBEAT_PATH, readJobSetup, readProductionSetup } from "./production.js";
@@ -197,12 +198,15 @@ export const HEARTBEAT_INSTRUCTIONS = [
  * What the check-in is asked to do: the setup's words (`instructions`) or the
  * built-in ones, then this look's facts, then the one answer the gateway reads.
  */
-export function heartbeatQuestion({ changed, now, texted, recent = [], instructions = null, theirs = "", mail = "", sources = "", muted = [] }) {
+export function heartbeatQuestion({ changed, now, texted, recent = [], instructions = null, theirs = "", mail = "", sources = "", muted = [], examples = "" }) {
   const shown = changed.slice(0, MAX_CHANGED_SHOWN);
   const more = changed.length - shown.length;
   const words = typeof instructions === "string" && instructions.trim() !== "" ? instructions.trim() : HEARTBEAT_INSTRUCTIONS;
   return [
     words,
+    // The Training check-ins its config context names (`train:checkin`, `texTraining.cjs` VIA_READERS): what a look
+    // that found something like this one texted, or that it stayed quiet.
+    examples,
     "## This look",
     shown.length === 0
       ? "Nothing in their notes changed since you last looked."
@@ -352,6 +356,7 @@ export async function handleHeartbeat(request, env, store, session, controlPlane
     mail: [newMailSection(mail), heartbeatMailSection(mailboxes, started)].filter(Boolean).join("\n\n"),
     sources: [calendarSection(calendar, started, timeZone), slackSection(slack), chatSection(chat)].filter(Boolean).join("\n\n"),
     muted: mutes,
+    examples: trainingFor("checkIn"),
   });
   // The reply reviewer reads a check-in's text before it goes, as a text nobody asked for (Dev2, 2026-11-07:
   // "all of routines ... go through the reviewer agent before it gets to the user"). Its own setup's

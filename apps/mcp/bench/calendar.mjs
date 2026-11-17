@@ -24,3 +24,16 @@ export function calendarWrites(days) {
   const others = guests.filter((guest) => !own.has(guest));
   return others.length === 0 ? {} : { calendarAddress: days[0].address, calendarGuests: others };
 }
+
+/**
+ * The calendar flags a world starts with: its fixture's days and who may be changed, and, for a test that says its
+ * person has a calendar connected (`calendar: connected`, a Dev conversation whose setting gives Tex their calendar;
+ * Dev set, 2026-11-17: "add it to the calendar" answered "your Google Calendar isn't connected"), an empty one that
+ * reads and takes their own changes when the fixture holds no days.
+ */
+export function benchCalendar(days, connectedFor = null) {
+  const flags = { calendarDays: calendarAnswer(days), ...calendarWrites(days) };
+  if (connectedFor === null || days.length > 0) return flags;
+  const address = `${String(connectedFor).toLowerCase().replace(/[^a-z0-9]/g, "") || "person"}@calendar.bench.invalid`;
+  return { ...flags, calendarDays: () => ({ ok: true, days: [] }), calendarAddress: address };
+}

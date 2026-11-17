@@ -40,7 +40,7 @@ import { createVectorizeBackend, meaningIndexFor } from "../test/vectorizeStub.m
 import { wireSearchSettings } from "../src/search/settings.js";
 import { texStoreNamespace } from "../test/texStoreFixture.mjs";
 import { assertIsoDate, installClock, noonUtcMs, noteModifiedAt, realNow } from "./clock.mjs";
-import { calendarAnswer, calendarWrites } from "./calendar.mjs";
+import { benchCalendar } from "./calendar.mjs";
 import { chatEntries, modelLog } from "./modelLog.mjs";
 import { failedStatus, roundsOf } from "./trace.mjs";
 
@@ -200,8 +200,7 @@ export async function createWorld(bench, person, setupRaw, models, today = null,
   const controlPlane = createControlPlaneStub({ site: (cleared, body) => site.answer(cleared, body) });
   // The person's calendar, as Google would answer for it: their personal
   // workspace's calendar days, read live by `calendar:` (`load.mjs`).
-  controlPlane.flags.calendarDays = calendarAnswer(bench.workspaces[own.workspace]?.calendar ?? []);
-  Object.assign(controlPlane.flags, calendarWrites(bench.workspaces[own.workspace]?.calendar ?? []));
+  Object.assign(controlPlane.flags, benchCalendar(bench.workspaces[own.workspace]?.calendar ?? [], models.calendar === "connected" ? person : null));
   // Their Gmail, as Google would answer for it (`mailbox.mjs`): searched and
   // read live, and a mailbox that may keep drafts. Sending stays off, as it is
   // until Google's review adds the send scope (tests/tasks.md, task 9). Each

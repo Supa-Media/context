@@ -202,3 +202,24 @@ test("train:<node>:all:<chars> is its own module: a step given it reads whole co
   assert.ok(whole, "the front door reads its Training as whole conversations (Dev2, 2026-11-17)");
   if (TRAINING.chats?.fd?.length) assert.ok(texModules().texts.includes(trainName(whole)), "and its prompt carries them");
 });
+
+// Dev set, 2026-11-17: every check-in row stayed quiet, and the check-in's model was shown none of the Training
+// check-ins, because it answers in its own call (`heartbeat.js`), not through the Front door's prompt. The Front
+// door's labels on a turn a check-in started are the check-in's examples; its own code-output label is not.
+// Sabotage: dropping VIA_READERS, or leaving `examples` out of the look's question, fails this.
+test("the check-in reads the Front door's labels on the turns a check-in started, after its own words", async () => {
+  const withOwn = WHOLE("walker", 0);
+  withOwn.msgs[3] = { ...withOwn.msgs[3], labels: { ...withOwn.msgs[3].labels, checkin: { to: "look" } } };
+  const nodes = momentsOf([withOwn]);
+  assert.equal(nodes.checkin.length, 1);
+  assert.deepEqual(nodes.checkin[0].label, { never: ["just say confirmed"] });
+  assert.equal(nodes.fd.length, 2, "the Front door keeps every label of its own");
+  const text = trainingText({ ctx: ["train:checkin"] }, { nodes });
+  assert.match(text, /<newest>\(Check-in, nobody texted: Gmail: Dana confirmed Monday noon\.\)<\/newest>\n<never>just say confirmed<\/never>/);
+  assert.doesNotMatch(text, /<to>look<\/to>/);
+  const { heartbeatQuestion } = await import("../src/agent/heartbeat.js");
+  const asked = heartbeatQuestion({ changed: [], now: Date.now(), texted: [], instructions: "OWN WORDS", examples: text });
+  assert.ok(asked.startsWith(`OWN WORDS\n\n${text}\n\n## This look`));
+  const { trainingFor } = await import("../src/agent/texArchitecture.js");
+  assert.match(trainingFor("checkIn"), /Check-in, nobody texted/, "main's config gives the check-in its Training check-ins");
+});
