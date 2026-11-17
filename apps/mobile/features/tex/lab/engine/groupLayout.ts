@@ -28,7 +28,7 @@ const overlaps = (a: ReturnType<typeof boxOf>, b: ReturnType<typeof boxOf>) =>
 
 /** The wires between two things an open group draws, as [from, to] ids (loops left out). */
 function innerWires(g: LabGraph, ids: ReadonlySet<string>): Array<[string, string]> {
-  return g.edges.filter((e) => e.mode !== "loop" && e.from !== e.to && ids.has(e.from) && ids.has(e.to)).map((e) => [e.from, e.to]);
+  return g.edges.filter((e) => e.mode !== "loop" && e.mode !== "generator" && e.from !== e.to && ids.has(e.from) && ids.has(e.to)).map((e) => [e.from, e.to]);
 }
 
 /** True when the open group's things need placing: two of them overlap, or a wire inside runs right to left. */

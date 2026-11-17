@@ -27,8 +27,8 @@ export function artifactGraphModule() {
     return g;
   };
   // The artifact's own wires; the live Lab calls "Next step" Next and folds "After sending" into Background. The artifact
-  // had no provisional run (Dev2, 2026-11-17), so its drawing has none.
-  const { provisional: _provisional, ...liveWires } = actual.WIRES;
+  // had no provisional run (Dev2, 2026-11-17) and no generator (Dev2, 2026-11-16), so its drawing has neither.
+  const { provisional: _provisional, generator: _generator, ...liveWires } = actual.WIRES;
   const WIRES = { ...liveWires, wait: { name: "Next step", dash: "", c: "--text2", tip: "Runs when this step is done, before the reply" }, background: { name: "After sending", dash: "2 4", c: "--dim", tip: "Runs once the reply has gone; nobody waits for it" }, job: { name: "Background", dash: "7 5", c: "--m-api", tip: "Starts a job; the reply doesn't wait" } };
   return { ...actual, WIRES, mainGraph0, mainGraph };
 }

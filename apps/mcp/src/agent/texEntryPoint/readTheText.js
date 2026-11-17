@@ -16,6 +16,8 @@ import { vaultSavedQuestion } from "../vaultSaved.js";
 import { handedBackQuestion } from "../handback.js";
 import { warmTurn } from "../warmCopy.js";
 import { chatLedger, reportEntry } from "../workEntries.js";
+import { CHAT_ASK_EVENT, CHAT_ANSWER_EVENT } from "../crossChat.js";
+import { gatewayGraph } from "../graph/gatewayGraph.js";
 
 // TEX ENTRY POINT: begin (every await below is a timed `tex` call: `texTiming.js`, checked by `scripts/tex-entry-check.mjs`)
 export async function readTheText(t) {
@@ -72,7 +74,28 @@ export async function readTheText(t) {
   let supervision = null;
   // A saved login's turn (`vaultSaved.js`) and a job's report are asked the gateway's own line, never the body's.
   const chatEvent = { texting: (session.actorClientId === TEXTS_CLIENT_ID && group === null) || group !== null, job }; // a saved login's or a handed-back browser's turn, a chat's own only
-  let question = vaultSavedQuestion(body, chatEvent) ?? handedBackQuestion(body, chatEvent) ?? (report !== null ? jobReportQuestion(report) : null) ?? (typeof body.question === "string" ? body.question.trim() : "");
-  Object.assign(t, { body, chatTurn, dispatch, group, hot, job, question, received, report, routine, runner, runs, setupRead, supervision });
+  // Another chat's ask, or the answer to this chat's own (`crossChat.js`): node "Another chat asks" reads it, a run of its own.
+  const crossChat = await tex.step("chat_ask", () => crossChatEvent(body, { chatTurn, job, group, env, writer: store.ledger }));
+  if (crossChat?.refused) return json(crossChat.refused);
+  let question = vaultSavedQuestion(body, chatEvent) ?? handedBackQuestion(body, chatEvent) ?? (report !== null ? jobReportQuestion(report) : null) ?? crossChat?.question ?? (typeof body.question === "string" ? body.question.trim() : "");
+  Object.assign(t, { body, chatTurn, crossChat: crossChat?.event ?? null, crossPrompt: crossChat?.prompt ?? "", dispatch, group, hot, job, question, received, report, routine, runner, runs, setupRead, supervision });
 }
 // TEX ENTRY POINT: end
+
+/**
+ * A run the texting Worker started for another chat's ask or this chat's answer (`body.event`), read by node `chatAsk`
+ * over the turn's graph, so the run is logged: `{ event, question, prompt }`, `{ refused }` when this chat's config has
+ * no such node (nothing is run on words it can't place), or null on any other turn.
+ */
+async function crossChatEvent(body, { chatTurn, job, group, env, writer }) {
+  if (!chatTurn || job !== null || (body?.event !== CHAT_ASK_EVENT && body?.event !== CHAT_ANSWER_EVENT)) return null;
+  const config = texConfigOf(env);
+  const id = typeof body.crossChat?.id === "string" ? body.crossChat.id.slice(0, 48) : "";
+  const unread = { answer: "", quiet: true, ...(body.event === CHAT_ASK_EVENT && id ? { crossBack: { id, state: "refused", texts: [], why: "that chat can't take asks from other chats" } } : {}) };
+  if (!config.nodes.some((node) => node.id === "chatAsk" && node.on !== false)) return { refused: unread };
+  const graph = gatewayGraph({ writer, turn: typeof body.turn === "string" ? body.turn : null, config });
+  const { output } = await graph.runNode("chatAsk", { event: body.event, crossChat: body.crossChat, group: group !== null }, {}, "readTheText");
+  if (output?.to !== "ask" && output?.to !== "answer") return { refused: unread };
+  return { event: output.event, question: output.question, prompt: output.prompt };
+}
+
