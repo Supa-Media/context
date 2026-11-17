@@ -4,8 +4,8 @@
  * (Dev2, 2026-11-17, Servant Hearted trace issue 6: "yes" to Tex's own "Want me to move it into @v2l?" was refused,
  * because the word list read only the newest text).
  *
- * On the shelf: main's config has no node for it, so live Tex keeps the word list; a Lab draft that wires
- * `tools -> moveJudge` (mode `uses`) runs it. Its model and effort are the config's (the draft's).
+ * Wired as `tools -> moveJudge` (mode `uses`, Lab version "Move judge (Servant Hearted 6)"); a config with no such
+ * wire keeps the word list. Its model and effort are the config's.
  */
 import { aiGatewayConfig, requestViaGateway } from "../../aiGateway.js";
 import { withArchitecture } from "../../texArchitecture.js";
