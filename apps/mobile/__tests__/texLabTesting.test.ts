@@ -390,7 +390,7 @@ describe("the tab's reading of a chat", () => {
     expect(hiddenOf({ perChat: [{ kind: "group", msgs: 3, stars: 1, title: "leak" }] })).toEqual({ hidden: [{ kind: "group", msgs: 3, stars: 1 }], stars: 1, byNode: null });
   });
 
-  it("reads the Test Set's unit tests per step, for the warn-only note on a step with none (Dev2, 2026-11-17)", () => {
+  test("reads the Test Set's unit tests per step, for the warn-only note on a step with none (Dev2, 2026-11-17)", () => {
     const c = hiddenOf({ stars: 2, byNode: { decide: 2 }, perChat: [{ kind: "one", msgs: 2, stars: 2 }] });
     expect(c.byNode).toEqual({ decide: 2 });
     expect(missingTest([TRAIN], c.byNode)).toEqual([{ scope: "fd", training: 1, dev: 0 }]);
