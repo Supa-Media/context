@@ -180,14 +180,16 @@ for (const { name, groupId } of LINES) {
       // The judge's verdicts on the lines that do not name Tex.
       const judged = () => w.decided.filter((body) => !namesTex(newestLine(body)));
       expect(judged()[0].waitingAsks).toEqual([]);
+      // Bo's line ran its own Provisional run on Bo's session (stopped: the judge was quiet), and disarmed nothing of Ada's.
+      expect(w.stale).toEqual([]);
       // Ada's own words are shown her ask.
       await acceptGroup(storage, w.message("actually wait"), 20);
       await drainGroup(storage, w.deps);
       expect(judged()[1].waitingAsks).toHaveLength(1);
-      // Owed now, and disarmed only with Ada's own session, the next time she tags Tex.
+      // Owed now, and disarmed only with Ada's own session: her line's own Provisional run carries it (stopped or
+      // not, the judge already called it stale), and Bo's turn after it never sends it again.
       await acceptGroup(storage, w.message("Tex what's on tonight", { from: BO }), 30);
       await drainGroup(storage, w.deps);
-      expect(w.stale).toEqual([]);
       await acceptGroup(storage, w.message("Tex and tomorrow?"), 40);
       await drainGroup(storage, w.deps);
       expect(w.stale).toEqual([{ asks: [ASK_ID] }]);
@@ -213,7 +215,8 @@ for (const { name, groupId } of LINES) {
       await drainGroup(storage, w.deps);
       expect(w.asks.map((ask) => ask.question)).toEqual(["Tex hi", "Tex make the poster"]);
       expect((await decidedWords(storage, w, groupId)).slice(-1)).toEqual(["this never works"]);
-      expect(w.control.map((body) => body.sender)).toEqual([ADA, ADA]);
+      // Bo's complaint ran a Provisional run of its own beside its decide (Bo's grant read), stopped by the silent: no answer.
+      expect(w.control.map((body) => body.sender)).toEqual([ADA, ADA, BO]);
       expect(w.texts.filter((text) => text.startsWith("answer to"))).toEqual(["answer to Tex hi", "answer to Tex make the poster"]);
     });
 
