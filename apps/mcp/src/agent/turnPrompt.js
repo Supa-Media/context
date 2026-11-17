@@ -28,8 +28,11 @@ import { personVoicePrompt } from "./personVoice.js";
 import { calendarAge, calendarPrompt } from "./calendarCache.js";
 import { TRANSCRIPTS_PROMPT } from "./transcript.js";
 import { ATTENTION_PROMPT, CHECK_IN_PROMPT } from "./checkIns.js";
-import { manifestOf } from "./promptManifest.js";
+import { keptWordsOf, manifestOf } from "./promptManifest.js";
 import { mailAccountsFacts, mailAccountsPrompt } from "./mailAccounts.js";
+
+/** The repo's fixed paragraphs: the commit's catalogue holds their words, so a turn never keeps them (`keptWordsOf`). */
+const REPO_WORDS = new Set([TRANSCRIPTS_PROMPT, CHECK_IN_PROMPT, ATTENTION_PROMPT, PLANNER_PROMPT, DRIVER_PROMPT, PROGRESS_PROMPT].map((text) => text.trim()));
 
 /** Said ahead of the per-text facts in the person's turn, so the model reads them as Context's, not theirs. */
 const PREAMBLE_LABEL = "Context for this text, not written by them:";
@@ -92,11 +95,13 @@ export function turnPrompt(place, answering, o) {
   ];
   const preamble = turnFacts(facts.map(([, text]) => text));
   const stableId = ["stable", o.texting ? "texting" : "notes", ...(o.pictures ? ["pictures"] : []), ...(edits ? ["edits"] : []), ...(parts.production ? ["production"] : [])].join("/");
+  const sent = [[stableId, parts.stable], ...context.flatMap(([id, text]) => (id === "thread" ? threadParts.map(([part, words]) => [part === "" ? "context/thread" : `context/thread/${part}`, words]) : [[`context/${id}`, text]])), ...facts.map(([id, text]) => [`preamble/${id}`, typeof text === "string" ? text.trim() : text])];
   return {
     system: { stable: parts.stable, context: context.map(([, text]) => text ?? "").join("") },
     preamble,
     prompt: {
-      modules: manifestOf([[stableId, parts.stable], ...context.flatMap(([id, text]) => (id === "thread" ? threadParts.map(([part, words]) => [part === "" ? "context/thread" : `context/thread/${part}`, words]) : [[`context/${id}`, text]])), ...facts.map(([id, text]) => [`preamble/${id}`, typeof text === "string" ? text.trim() : text])]),
+      modules: manifestOf(sent),
+      words: keptWordsOf(sent.filter(([, text]) => !REPO_WORDS.has(typeof text === "string" ? text.trim() : text))), // the words a rebuild at this commit can't make (`promptManifest.js` `keptWordsOf`)
       // The builder inputs a rebuild cannot read from the notes: when, where, and which model it was said to.
       inputs: { at: Math.round(now), ...(o.localNow?.timeZone ? { timeZone: o.localNow.timeZone } : {}), ...(typeof answering === "string" ? { model: answering } : {}), history: o.history.length },
     },

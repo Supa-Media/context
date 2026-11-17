@@ -12,7 +12,8 @@ import { test } from "node:test";
 
 import { createEgressWorld, request, TOKEN_TEXTS } from "./agentEgressFixtures.mjs";
 import { ledgerFor, ONE_TO_ONE_CHAT } from "../src/agent/ledger.js";
-import { turnTiming } from "../src/agent/turnTiming.js";
+import { MAX_TURN_WORDS, turnTiming } from "../src/agent/turnTiming.js";
+import { fingerprint } from "../src/agent/promptManifest.js";
 
 const CHAT = "sendblue:line:+15555550100";
 const ledgerOf = (world) => ledgerFor(world.env, { person: "ws_egress" });
@@ -51,7 +52,9 @@ test("a texted turn's reply keeps where its time went: the wait, each step, each
     const model = timing.steps.find((step) => step.name === "model");
     assert.ok(timing.rounds[0].at >= model.at && timing.rounds[0].at <= timing.tools[0].at && timing.tools[0].at <= timing.rounds[1].at, "on the turn's own clock, in the order they ran");
     assert.ok(timing.rounds[1].at + timing.rounds[1].ms <= timing.replyMs, "all before the reply was ready");
-    assert.doesNotMatch(JSON.stringify(timing), /dentist|Tuesday|calendar|5555550100/, "names and numbers, never a word");
+    // The prompt's own kept words (`promptManifest.js` `keptWordsOf`, 2026-11-17) are the one place words are; the rest is names and numbers.
+    const withoutWords = { ...timing, rounds: timing.rounds.map(({ prompt, ...r }) => ({ ...r, prompt: { ...prompt, words: undefined } })) };
+    assert.doesNotMatch(JSON.stringify(withoutWords), /dentist|Tuesday|calendar|5555550100/, "names and numbers, never a word");
     const thinking = entries.find((entry) => entry.kind === "thinking");
     assert.equal(thinking.output, 900, "a thinking entry says what its round cost");
     assert.equal(typeof thinking.ms, "number");
@@ -116,4 +119,18 @@ test("the Worker's wait keeps only sane milliseconds, and is left out when there
   assert.equal(turnTiming({ replyMs: 1, worker: "slow" }).worker, undefined);
   assert.equal(turnTiming({ replyMs: 1, worker: { sessionMs: -4, beforeAskMs: Infinity } }).worker, undefined);
   assert.deepEqual(turnTiming({ replyMs: 1, worker: { sessionMs: 900.6, beforeAskMs: 99 * 60 * 60 * 1000 } }).worker, { sessionMs: 901 });
+});
+
+test("a turn keeps prompt words within one budget for all its rounds, and a module over it is never kept in a later round", () => {
+  // Sabotage check: the per-round cap this replaced (reset the budget each round and leave a skipped module out of
+  // `seen`) keeps 45,000 characters in each of the first three rounds, and this fails.
+  const texts = Array.from({ length: 9 }, (_, i) => String.fromCharCode(97 + i).repeat(15_000));
+  const modules = texts.map((text, i) => ({ id: `context/m${i}`, n: text.length, h: fingerprint(text) }));
+  const words = Object.fromEntries(texts.map((text) => [fingerprint(text), text]));
+  const round = (at) => ({ kind: "model", at, ms: 1, prompt: { modules, words, inputs: { at: 1 } } });
+  const timing = turnTiming({ steps: [{ name: "model", at: 0, ms: 10 }], trace: [round(0), round(2), round(4), round(6)], replyMs: 10 });
+  const kept = timing.rounds.map((r) => Object.values(r.prompt.words ?? {}).reduce((sum, text) => sum + text.length, 0));
+  assert.ok(kept.reduce((a, b) => a + b, 0) <= MAX_TURN_WORDS, `kept ${kept}`);
+  assert.deepEqual(kept.slice(1), [0, 0, 0], "a later round keeps nothing the first round skipped");
+  assert.ok(timing.rounds.every((r) => r.prompt.modules.length === 9), "every module keeps its fingerprint");
 });

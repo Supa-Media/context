@@ -40,10 +40,16 @@ function workerPart(worker) {
 /**
  * The round's prompt as module ids and fingerprints (`promptManifest.js`), so a
  * rebuild at the commit in the reply's `version.code` can prove it is the
- * prompt that ran. Ids and numbers only, capped like everything here.
+ * prompt that ran, and the words of its modules the catalogue can't hold,
+ * each once a turn (`seen`: a later round sent the same words), at most
+ * `MAX_TURN_WORDS` characters for the whole turn: a module over the budget keeps
+ * its fingerprint only, in every round, so a long turn's reply stays far under
+ * the ledger's 512 KB an entry (`texStore/ledger.js`).
  */
 const MAX_MODULES = 40;
-function promptPart(prompt) {
+export const MAX_TURN_WORDS = 48_000;
+const FP = /^[0-9a-f]{8}$/;
+function promptPart(prompt, seen = { words: new Set(), kept: 0 }) {
   if (prompt === null || typeof prompt !== "object" || !Array.isArray(prompt.modules)) return {};
   const modules = prompt.modules.slice(0, MAX_MODULES).filter((m) => typeof m?.id === "string" && typeof m.h === "string").map((m) => ({ id: name(m.id), n: whole(m.n), h: name(m.h) }));
   const i = prompt.inputs ?? {};
@@ -53,7 +59,18 @@ function promptPart(prompt) {
     ...(typeof i.model === "string" ? { model: name(i.model) } : {}),
     ...(Number.isFinite(i.history) ? { history: whole(i.history) } : {}),
   };
-  return { prompt: { modules, inputs } };
+  const logged = new Set(modules.map((m) => m.h));
+  const words = {};
+  let kept = 0;
+  for (const [h, text] of Object.entries(prompt.words && typeof prompt.words === "object" ? prompt.words : {})) {
+    if (!FP.test(h) || !logged.has(h) || seen.words.has(h) || typeof text !== "string") continue;
+    seen.words.add(h); // kept or over the budget: never tried again in a later round
+    if (seen.kept + text.length > MAX_TURN_WORDS) continue;
+    words[h] = text;
+    seen.kept += text.length;
+    kept += text.length;
+  }
+  return { prompt: { modules, inputs, ...(kept > 0 ? { words } : {}) } };
 }
 
 const whole = (value) => (Number.isFinite(value) && value > 0 ? Math.round(value) : 0);
@@ -82,6 +99,7 @@ export function turnTiming({ steps = [], trace = [], waitMs = null, worker = nul
     rounds: [],
     tools: [],
   };
+  const wordsSeen = { words: new Set(), kept: 0 }; // a module's words are kept once a turn, in the first round that sent them, within one budget
   for (const entry of Array.isArray(trace) ? trace : []) {
     const at = loopAt + whole(entry?.at);
     const ms = whole(entry?.ms);
@@ -99,7 +117,7 @@ export function turnTiming({ steps = [], trace = [], waitMs = null, worker = nul
         ...(entry.cut ? { cut: true } : {}),
         ...(entry.stopped ? { stopped: true } : {}), // a provisional run stopped mid-call (`steer.js`)
         ...(entry.usage ? { input: whole(usage.input), output: whole(usage.output), cacheRead: whole(usage.cacheRead), cacheWrite: whole(usage.cacheWrite), said: whole(entry.said), calls: whole(entry.calls) } : {}),
-        ...promptPart(entry.prompt),
+        ...promptPart(entry.prompt, wordsSeen),
       });
     }
   }

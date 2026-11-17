@@ -281,7 +281,7 @@ export async function promptAnswer(env, page, args = {}, { ledgerOf, fetch: get 
   const cat = p.code ? await R.catalogAt(p.code, get) : null;
   const told = R.toldTime(p.inputs);
   const full = args.full === true;
-  const words = (m) => (cat ? R.wordsOf(cat, m) : null);
+  const words = (m) => R.wordsOf(cat, m, p.kept ?? null); // the catalogue's, or the words the turn kept, each proven by its fingerprint
   const one = Number.isSafeInteger(args.round) ? args.round : node === "door" ? 1 : null;
   if (typeof args.module === "string") {
     const rounds = p.rounds.map((r, i) => ({ r, i })).filter(({ i }) => one === null || i + 1 === one);
@@ -319,7 +319,7 @@ export async function promptAnswer(env, page, args = {}, { ledgerOf, fetch: get 
     ...(p.inputs?.model ? { model: p.inputs.model } : {}),
     ...(typeof p.inputs?.history === "number" ? { earlierTurns: p.inputs.history } : {}),
     ...(told ? { told } : {}),
-    catalogue: !p.code ? "no commit logged, so no words can be proven" : cat ? "read at this commit; each module's words are shown only where its fingerprint is in it" : "none read at this commit (it ran before 2026-11-14, or the file could not be fetched just now); only sizes and fingerprints are shown",
+    catalogue: !p.code ? "no commit logged; only words the turn kept, proven by their fingerprints, are shown" : cat ? "read at this commit; each module's words are shown only where its fingerprint is in it, or the turn kept words with that fingerprint" : "none read at this commit (it ran before 2026-11-14, or the file could not be fetched just now); only words the turn kept, proven by their fingerprints, are shown",
     rounds,
     notInCatalogue: [...missing],
     next: "prompt { turn, module, from?, limit? } for one module's whole words",
@@ -331,7 +331,7 @@ function whyNot(R, cat, p, m, told) {
   const source = `${m.id === "preamble/now" && told ? `The time: ${told}. ` : ""}From ${R.moduleSource(m.id)}`;
   if (!p.code) return `${source}; no commit was logged`;
   if (!cat) return `${source}; no catalogue at this commit`;
-  return `${source}. ${R.fromRepo(m.id) ? "Not in this version's catalogue (a chat's own progress level, say)" : "Built from their own words when the turn ran, which are never kept"}`;
+  return `${source}. ${R.fromRepo(m.id) ? "Not in this version's catalogue (a chat's own progress level, say)" : "Built from their own words when the turn ran, and not kept: the turn ran before 2026-11-17, or the module was too long to keep"}`;
 }
 
 /** One job's work as the Lab reads it (`readJobWork`): its entries by id, and its runs' own turns' entries. */
