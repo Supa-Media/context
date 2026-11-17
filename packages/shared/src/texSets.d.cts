@@ -6,10 +6,14 @@ export type Message = {
   kind?: "react" | "reply" | "edit" | "delete"; to?: string;
   labels?: Record<string, Label>; rec?: Record<string, Record<string, unknown>>;
   pics?: Pic[];
+  /** A trigger row's input (a check-in, a routine, Send through Tex); its `who` is that input's name. */
+  via?: "checkin" | "routine" | "notify";
+  /** An optional time line ("Tue 9:20", or "Tue Oct 13 10:14" to anchor the days). */
+  at?: string;
 };
 /** A picture sent with a message: an https address, its type and file name. */
 export type Pic = { url: string; type?: string; name?: string };
-export type Conversation = { id: string; title: string; set: SetId; kind: "one" | "group"; members: string[]; msgs: Message[] };
+export type Conversation = { id: string; title: string; set: SetId; kind: "one" | "group"; members: string[]; msgs: Message[]; setting?: string };
 export type Fields = { picks: Record<string, string[]>; texts: string[]; lines: boolean };
 export type UnitTest = { chat: string; msg: string; at: number; node: string };
 export type Ratio = { counts: Record<SetId, number>; total: number; pct: Record<SetId, number>; holds: boolean; off: SetId[] };
@@ -22,6 +26,8 @@ export const KINDS: readonly string[];
 export const RUN: readonly string[];
 export const TEX: "Tex";
 export const LABEL_KEYS: readonly string[];
+/** The people a Dev conversation may have: the bench's, one world each. */
+export const BENCH_PEOPLE: readonly string[];
 export function labelFields(node: ConfigNode | undefined, opts?: { why?: string[] }): Fields;
 export function check(c: unknown, config: Config, opts?: { why?: string[] }): string[];
 export function unitTests(c: Conversation): UnitTest[];

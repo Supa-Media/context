@@ -69,8 +69,7 @@ describe("realTimes", () => {
     expect(sim.T.fd.ms).toBe(2700 + 650);
     expect(sim.T.answerCheck).toBeUndefined();
     expect(sim.T.fd.parts.some((p) => p.id === "sendback")).toBe(false);
-    // The Door starts with the text, beside the Queue (a Provisional run, Dev2, 2026-11-17).
-    expect(sim.T.doorStep.start).toBe(0);
+    expect(sim.T.doorStep.start).toBe(sim.T.lanes.end);
   });
 });
 
