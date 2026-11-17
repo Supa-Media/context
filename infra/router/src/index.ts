@@ -37,6 +37,7 @@ import { isTexHost, TEX_ROBOTS_TXT } from "./texHost";
 import { ingestResponse } from "./analyticsIngest";
 import { pageViewerResponse } from "./pageViewer";
 import { withSecurityHeaders } from "./securityHeaders";
+import { withExpoAssetCache } from "./expoCache";
 import { assetsWithStyleNonce } from "./styleNonce";
 import { cspReportResponse, isCspReportPath } from "./cspReport";
 import { isPluginSandboxPath, pluginSandboxResponse } from "./pluginSandbox";
@@ -266,7 +267,13 @@ async function respond(
           // always provide this binding; EXPO_ORIGIN remains only as a
           // compatibility fallback for external self-hosted configurations.
           // The shell gets a fresh style nonce in its report-only policy (`styleNonce.ts`).
-          return await assetsWithStyleNonce(request, env.ASSETS, new URL(request.url).pathname, env.CONVEX_ORIGIN);
+          // `/_expo/` is cached here, not by `decision.cache` below: this
+          // branch returns first, and the binding's own header revalidates
+          // (`expoCache.ts`).
+          const pathname = new URL(request.url).pathname;
+          const served = await assetsWithStyleNonce(request, env.ASSETS, pathname, env.CONVEX_ORIGIN);
+          if (pathname.startsWith("/_expo/")) return withExpoAssetCache(served);
+          return served;
         }
         const origin = originFor(decision.upstream, env);
         if (!origin) {

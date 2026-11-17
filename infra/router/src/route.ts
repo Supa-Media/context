@@ -187,7 +187,9 @@ export const CONVEX_PREFIXES = ["/api/auth/"] as const;
  */
 
 /** Expo's content-hashed bundle output: the filename changes when the bytes
- *  do, so it is safe to cache at the edge indefinitely. */
+ *  do, so it is safe to cache at the edge indefinitely. The Static Assets
+ *  branch applies this itself (`expoCache.ts`). It returns before `cache`
+ *  is read, and a missing file there is the shell, which must not be cached. */
 const IMMUTABLE_PREFIX = "/_expo/";
 
 function isConvexPath(pathname: string): boolean {
