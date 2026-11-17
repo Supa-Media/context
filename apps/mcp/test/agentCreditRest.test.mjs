@@ -9,14 +9,18 @@
  *
  * Sabotage record: drop the `store.spent` write in `noteCreditSpent`, run this
  * file, and "a second isolate skips the spent key" fails because B sends
- * `x-api-key`. Put the write back.
+ * `x-api-key`. Put the write back. Pass `body.now` and `body.until` straight
+ * through in `handleCreditRest`, and "a remote spent with until far in the
+ * future is stored at most CREDIT_REST_MS ahead" stores the year that was
+ * asked, and "a remote claim with a future now does not set a far-future
+ * probeUntil" sets `probeUntil` a year out. Put the server clock back.
  */
 
 import assert from "node:assert/strict";
 import test from "node:test";
 
 import { aiGatewayConfig, requestViaGateway, resetCreditState } from "../src/agent/aiGateway.js";
-import { CreditRestObject, createCreditCache, handleCreditRest } from "../src/agent/creditRest.js";
+import { CREDIT_REST_MS, CreditRestObject, createCreditCache, handleCreditRest } from "../src/agent/creditRest.js";
 
 const ACCOUNT_ID = "0123456789abcdef0123456789abcdef";
 const TOKEN = `gw-token-${"a".repeat(20)}`;
@@ -49,7 +53,7 @@ function scripted(replies) {
 }
 
 /** One object behind a namespace, with storage that copies values the way a real object does. */
-function namespace() {
+function openedNamespace() {
   const data = new Map();
   const storage = {
     get: async (key) => (data.has(key) ? JSON.parse(JSON.stringify(data.get(key))) : undefined),
@@ -59,9 +63,27 @@ function namespace() {
   };
   const object = new CreditRestObject({ storage });
   return {
-    idFromName: (name) => name,
-    get: () => ({ fetch: (request) => object.fetch(request) }),
+    storage,
+    namespace: {
+      idFromName: (name) => name,
+      get: () => ({ fetch: (request) => object.fetch(request) }),
+    },
   };
+}
+
+function namespace() {
+  return openedNamespace().namespace;
+}
+
+function postCreditRest(env, body) {
+  return handleCreditRest(
+    new Request("https://mcp.context.lc/credit-rest", {
+      method: "POST",
+      headers: { authorization: `Bearer ${TOKEN}`, "content-type": "application/json" },
+      body: JSON.stringify(body),
+    }),
+    env,
+  );
 }
 
 function config() {
@@ -180,4 +202,59 @@ test("POST /credit-rest answers the gateway token and hides a wrong one", async 
   );
   assert.equal(claim.status, 200);
   assert.deepEqual(await claim.json(), { try: true });
+});
+
+const ONE_YEAR = 365 * 24 * 60 * 60 * 1000;
+
+test("a remote spent with until far in the future is stored at most CREDIT_REST_MS ahead", async () => {
+  const { storage, namespace: rest } = openedNamespace();
+  const env = { AI_GATEWAY_TOKEN: TOKEN, CREDIT_REST: rest };
+  const before = Date.now();
+  const asked = before + ONE_YEAR;
+  const lines = [];
+  const original = console.log;
+  console.log = (line) => {
+    lines.push(String(line));
+    original(line);
+  };
+  try {
+    const response = await postCreditRest(env, { op: "spent", name: "plan", until: asked });
+    assert.equal(response.status, 200);
+    const kept = (await response.json()).until;
+    const after = Date.now();
+    assert.ok(kept >= before + CREDIT_REST_MS && kept <= after + CREDIT_REST_MS, `stored ${kept}, window ${before + CREDIT_REST_MS}..${after + CREDIT_REST_MS}`);
+    assert.ok(kept < asked);
+    assert.equal((await storage.get("book")).plan.until, kept);
+    const logged = lines.flatMap((line) => {
+      try {
+        const row = JSON.parse(line);
+        return row?.event === "credit_rest_clamped" ? [row] : [];
+      } catch {
+        return [];
+      }
+    });
+    assert.equal(logged.length, 1);
+    assert.equal(logged[0].payer, "plan");
+    assert.equal(logged[0].asked, asked);
+    assert.equal(logged[0].kept, kept);
+  } finally {
+    console.log = original;
+  }
+});
+
+test("a remote claim with a future now does not set a far-future probeUntil", async () => {
+  const { storage, namespace: rest } = openedNamespace();
+  const env = { AI_GATEWAY_TOKEN: TOKEN, CREDIT_REST: rest };
+  const spent = await postCreditRest(env, { op: "spent", name: "plan", until: 1 });
+  assert.equal(spent.status, 200);
+  assert.equal((await spent.json()).until, 1, "a timestamp already past is stored as sent, so the rest has ended");
+  const before = Date.now();
+  const askedNow = before + ONE_YEAR;
+  const claim = await postCreditRest(env, { op: "claim", name: "plan", now: askedNow });
+  assert.equal(claim.status, 200);
+  assert.equal((await claim.json()).probe, true);
+  const probeUntil = (await storage.get("book")).plan.probeUntil;
+  const after = Date.now();
+  assert.ok(probeUntil > before && probeUntil <= after + 60_000, `probeUntil ${probeUntil} is not within a minute of the worker clock`);
+  assert.ok(askedNow - probeUntil > 24 * 60 * 60 * 1000);
 });
