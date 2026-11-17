@@ -95,6 +95,10 @@ export async function groupTurn(storage: InboxStorage, deps: GroupDeps, { messag
   // Named, so a message that lands while it runs can be folded into it (`steer.ts`), and those it took in are not answered again.
   const { steer, end, live } = startTurn(storage, message.groupId, message.from, deps, covers, (ids) => dropSteered(storage, ids, covers));
   await steer.onSession(accessToken);
+  // A provisional run (`provisional.ts`): its go or stop goes to this turn, and nothing below reaches the chat before the go.
+  const gate = deps.provisional;
+  gate?.bind(steer.turn, accessToken);
+  const stopped = async () => gate !== undefined && (await gate.decided) === "stop";
   const meta: SayMeta = { turn: steer.turn, covers, people: group.members };
   /*
     Asked for as a stream, as a person's own text is (the owner, 2026-10-23:
@@ -119,6 +123,7 @@ export async function groupTurn(storage: InboxStorage, deps: GroupDeps, { messag
     // Never on a tapback: tapping a tapback is no sign to anyone (`answersTapback`).
     if (acked || routine || message.jobReport !== undefined || message.reaction !== undefined || message.answersTapback !== undefined) return;
     acked = true;
+    if (await stopped()) return;
     try {
       if (!(await isBound(storage, message))) return;
       await tapback(storage, { chat: message.groupId, now: deps.now, by: "tool_started", turn: steer.turn }, message.text, (sent) => groupLineFor(groupLineSeam(deps), message.groupId).react({ line: message.line, groupId: message.groupId }, message.messageId, sent));
@@ -128,7 +133,7 @@ export async function groupTurn(storage: InboxStorage, deps: GroupDeps, { messag
     }
   };
   const progress = async (text: string) => {
-    if (routine) return;
+    if (routine || (await stopped())) return;
     try {
       if (!(await isBound(storage, message))) return log("progress_unbound");
       if (!paused) {
@@ -143,6 +148,7 @@ export async function groupTurn(storage: InboxStorage, deps: GroupDeps, { messag
   };
   let answer: AgentAnswer;
   const asking = deps.now();
+  if (gate?.verdict === "stop") return end(), "cancelled";
   try {
     answer = await askAgentStream(
       deps.fetch,
@@ -152,6 +158,7 @@ export async function groupTurn(storage: InboxStorage, deps: GroupDeps, { messag
         question: message.text,
         group: { ...group, chat: said.lines.map((line) => ({ from: handles.get(line.from) ?? labels.get(line.from) ?? "", text: line.text || PICTURE_LINE })) },
         turn: steer.turn,
+        ...(gate !== undefined ? { provisional: true, allow: gate.allow } : {}),
         arrivedAt, ...(await fixedTimings(storage)), // fixed replies since the last turn, for the chat's note
         ...(covers.length > 0 ? { covers, chat: message.groupId, ...(await outbox(storage, message.groupId)) } : {}), // the chat's day is the gateway's ledger; the outbox goes on top
         ...(attachments.length > 0 ? { attachments } : {}),
@@ -173,7 +180,7 @@ export async function groupTurn(storage: InboxStorage, deps: GroupDeps, { messag
     end();
   }
   const answered = deps.now();
-  if (live.cancelled || answer.kind === "cancelled") {
+  if (live.cancelled || answer.kind === "cancelled" || (await stopped())) {
     // Cancelled here though its answer came: what it armed is never left armed and unseen.
     if (answer.kind === "answer" && answer.askIds) await staleAsks(deps, accessToken, answer.askIds);
     return "cancelled";

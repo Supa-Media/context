@@ -46,6 +46,8 @@ export interface Env {
   /** Where a background job's object runs: "gateway" starts new jobs in the gateway's TexJob, anything else keeps them in the SenderInbox (`jobPlace.ts`). A job the gateway holds stays there either way. */
   JOBS?: string;
   /** The chat's line, when this chat object runs in the gateway: the Worker's, over its RPC (`remoteLine.ts`). Absent in the Worker. */
+  /** The Tex config a Lab test chat runs on (its draft's wiring, `provisional.ts`); absent, the one built in. */
+  TEX_GRAPH?: unknown;
   TEX_LINE?: { line: (chatId: string) => Line; groupLine: (groupId: string) => GroupLine };
   /** "on" serves the texts simulator (simulator.ts). Only staging sets it. */
   SIMULATOR?: string;

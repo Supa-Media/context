@@ -6,7 +6,7 @@
  */
 import TEX_CONFIG from "@context/shared/src/texConfig.json";
 import { foldGroups, type GroupDefs } from "../engine/groups";
-import type { LabGraph, LabNode } from "../types";
+import type { LabEdge, LabGraph, LabNode } from "../types";
 
 export const BASE_SHA: string = "888afb0";
 
@@ -18,8 +18,18 @@ export const WIRES: Record<string, { name: string; dash: string; c: string; w?: 
   // next, and background is really all we need"). The key stays, so configs and the sim's after-the-reply lane are unchanged.
   background:{name:"Background",dash:"7 5",c:"--m-api",tip:"Starts it and moves on; nobody waits for it",folded:true},
   job:{name:"Background",dash:"7 5",c:"--m-api",tip:"Starts it and moves on; nobody waits for it"},
-  loop:{name:"Send back",dash:"5 4",c:"--bad",tip:"Sometimes sends the draft back"}
+  loop:{name:"Send back",dash:"5 4",c:"--bad",tip:"Sometimes sends the draft back"},
+  // A provisional run (Dev2, 2026-11-17): the target starts without waiting for the source, whose output is its go, stop
+  // or restart (`when` "stop:<tag>", "restart:<tag>"); until every go, it may do only what the wire's `allow` lets it.
+  provisional:{name:"Provisional run",dash:"2 3",c:"--warn",tip:"Starts at once instead of waiting for this step, which can stop or restart it at any point; until it says go, the run may only read (or make writes that can be undone)"}
 };
+
+/** The tags a provisional wire may stop or restart its step on: what Triage and Decide say (Dev2, 2026-11-17). */
+export const PROVISIONAL_WHEN: Array<[string, string]> = [["running","A turn is running"],["quiet","Stay quiet"],["wait","Wait for more"]];
+/** What a provisional run may do before its go; a wire with no `allow` is "revertible". */
+export const PROVISIONAL_ALLOW: Array<[NonNullable<LabEdge["allow"]>, string, string]> = [["read","Read only","Only reads until its go"],["revertible","Revertible","Reads, and writes that can be undone; nothing that cannot be taken back"]];
+/** A wire's name as its label and tooltip say it: a provisional one with what it may do before its go. */
+export const wireName = (e: Pick<LabEdge, "mode" | "allow">, wires = WIRES) => (e.mode === "provisional" && wires.provisional ? `${wires.provisional.name} (${e.allow === "read" ? "read only" : "revertible"})` : (wires[e.mode] || wires.wait).name);
 
 export const ICONS: Record<string, string> = {
   text:'<path d="M4 5h16v11H9l-5 4z"/>',

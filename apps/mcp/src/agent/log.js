@@ -119,9 +119,9 @@ export const STEP_KIND = "step";
 /**
  * The steps the Worker's chat object takes itself (`ledger.js` `STEP_NAMES` holds each): triage, a person's own chat's
  * judging, a tapback, a text's arrival with its provider's times, a send's provider status (`providerTiming.ts`) and
- * the old-number step (`oldLineStep.ts`), a staff move to the new number (`moveChats.ts`) and a person's edit of a text (`editStep.ts`).
+ * the old-number step (`oldLineStep.ts`), a staff move to the new number (`moveChats.ts`), a person's edit of a text (`editStep.ts`) and a Provisional run's go or stop (`groupTurnRun.ts` `settleEarly`).
  */
-const WORKER_STEPS = new Set(["triage", "decide", "react", "text", "send", "oldLine", "moveChat", "edit"]);
+const WORKER_STEPS = new Set(["triage", "decide", "react", "text", "send", "oldLine", "moveChat", "edit", "provisional"]);
 const STEP_FIELDS = new Set(["id", "at", "chat", "from", "kind", "turn", "step"]);
 const STEP_PARTS = new Set(["name", "of", "ok", "ms", "input", "output", "cause"]);
 const STEP_CODE = /^[\w-]{1,40}$/;

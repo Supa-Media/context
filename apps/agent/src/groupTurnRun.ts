@@ -31,7 +31,9 @@ import { answerGroup, turnFailed, type GroupDeps } from "./groupInbox";
 import { watchFailed } from "./reviewWatch";
 import { CHAT_LOOK_PATH } from "./groupRoutines";
 import { armBy } from "./events";
+import { logStep } from "./stepEvents";
 import { chatEvent } from "./chatState";
+import { logProvisional, provisionalGate, type Allow, type ProvisionalGate, type Verdict } from "./provisional";
 
 /** Each handed turn is kept at `gturn:<id>`; `gturn` alone is where a chat kept its one turn before 2026-11-13. */
 export const TURN_PREFIX = "gturn:";
@@ -44,7 +46,7 @@ export const MAX_GROUP_TURNS = 3;
  * `asker`: who the turn answers, as the line names them (absent on a turn handed before 2026-11-13).
  * `retryAt`: a workflow that did not start is tried again from then, not on every pass of the drain.
  */
-export type HandedTurn = { id: string; keys: string[]; at: number; starts: number; started?: true; inline?: true; reason?: string; tries?: number; kind?: TurnKind; asker?: string; retryAt?: number };
+export type HandedTurn = { id: string; keys: string[]; at: number; starts: number; started?: true; inline?: true; reason?: string; tries?: number; kind?: TurnKind; asker?: string; retryAt?: number; provisional?: true };
 export type TurnKind = "routine" | "heartbeat";
 /** Failed starts before the turn is answered here instead. */
 export const MAX_STARTS = 3;
@@ -117,6 +119,12 @@ export async function liveTurns(storage: InboxStorage, deps: GroupDeps): Promise
     if (turn.inline) {
       if (answering.get(storage)?.has(turn.id)) {
         await armBy(storage, deps.now() + INLINE_WATCH_MS, deps.now());
+        continue;
+      }
+      // A provisional run never told go is not answered by anyone: its messages wait in the queue for the drain.
+      if (turn.provisional) {
+        logProvisional("ended", { why: "lost" });
+        await storage.delete(turnKey(turn.id));
         continue;
       }
       // Not running here: the object restarted mid-answer. Its workflow answers it, skipping any part already sent.
@@ -212,7 +220,7 @@ async function answerOnce(storage: InboxStorage, deps: GroupDeps, id: string): P
     sendingFor(storage, id, null);
   }
   log("workflow_answered", undefined, tries, turn.kind);
-  return await finish(storage, deps, id, cancelled ? "cancelled" : "done");
+  return await finish(storage, deps, id, cancelled ? "cancelled" : "done", deps.provisional?.verdict === "stop");
 }
 
 /** `/group-failed`: the workflow gave up on turn `id`; the chat is told, as a turn given up on here is. */
@@ -229,9 +237,10 @@ export async function failHanded(storage: InboxStorage, deps: GroupDeps, id: str
 }
 
 /** The turn is over (`how`: answered, cancelled by a restart, or given up on): its place is free, and whatever waited for it is drained now. */
-async function finish(storage: InboxStorage, deps: GroupDeps, id: string, how: "done" | "cancelled" | "failed"): Promise<"done"> {
+async function finish(storage: InboxStorage, deps: GroupDeps, id: string, how: "done" | "cancelled" | "failed", stopped = false): Promise<"done"> {
   await storage.delete(turnKey(id));
-  await chatEvent(storage, how, "turn", { now: deps.now() });
+  // A provisional run Decide stopped was never the chat's turn: the drain goes on with the choice it made instead.
+  if (!stopped) await chatEvent(storage, how, "turn", { now: deps.now() });
   await dropParts(storage, id);
   await storage.setAlarm(deps.now());
   return "done";
@@ -248,4 +257,53 @@ async function entriesOf(storage: InboxStorage, turn: HandedTurn): Promise<Group
 
 function log(outcome: string, reason?: string, attempts?: number, kind?: TurnKind): void {
   console.log(JSON.stringify({ event: "group_turn", outcome, ...(reason ? { reason } : {}), ...(attempts ? { attempts } : {}), ...(kind ? { kind } : {}) }));
+}
+
+/**
+ * A turn started before Decide chose (a Provisional run, `provisional.ts`): answered as a handed turn is, beside the
+ * drain, but behind `gate`, so nothing of it reaches the chat before the go. With no answer-first path (no workflow),
+ * the answer runs in memory and the drain takes it up on a go (`answerInline`).
+ */
+export type EarlyRun = { chat: string; keys: string[]; gate: ProvisionalGate & { decide(verdict: Verdict): Promise<void> }; startedAt: number; ended: Promise<unknown>; id?: string; inline?: Promise<"cancelled" | void> };
+/** How long the drain waits for a stopped run to end before it goes on (its messages are held while it runs). */
+export const EARLY_STOP_WAIT_MS = 3_000;
+
+export async function startEarly(storage: InboxStorage, deps: GroupDeps, entries: GroupEntry[], allow: Allow): Promise<EarlyRun> {
+  const gate = provisionalGate(deps, allow);
+  const gated: GroupDeps = { ...deps, provisional: gate };
+  const keys = entries.map(([key]) => key);
+  const startedAt = deps.now();
+  logProvisional("started", { messages: keys.length, allow, path: deps.answerFirst !== undefined && deps.startTurn !== undefined ? "first" : "inline" });
+  if (deps.answerFirst !== undefined && deps.startTurn !== undefined) {
+    const id = crypto.randomUUID();
+    const turn: HandedTurn = { id, keys, at: startedAt, starts: 0, asker: entries.at(-1)![1].message.from, inline: true, provisional: true };
+    await storage.put(turnKey(id), turn);
+    await armBy(storage, deps.now() + INLINE_WATCH_MS, deps.now());
+    const ended = answerHanded(storage, gated, id).then(async (outcome) => {
+      if (outcome !== "failed") return;
+      // Failed before or after its verdict: stopped, it is nobody's turn; told go, its workflow retries it, as any turn.
+      if ((await gate.decided) === "stop") return void (await finish(storage, deps, id, "cancelled", true));
+      const now = await storage.get<HandedTurn>(turnKey(id));
+      if (now !== undefined) await start(storage, deps, { ...now, inline: undefined, provisional: undefined });
+    });
+    deps.answerFirst(ended.catch(() => {}));
+    return { chat: entries[0][1].message.groupId, keys, gate, startedAt, ended, id };
+  }
+  const inline = timedReply(storage, entries[0][1].at ?? startedAt, undefined, deps.now, (clock) => answerGroup(storage, entries, gated, clock));
+  const ended = inline.catch(() => {});
+  return { chat: entries[0][1].message.groupId, keys, gate, startedAt, ended, inline };
+}
+
+/** Decide's choice, given to an early run: the go, or the stop and why (logged, with how long it had run). */
+export async function settleEarly(storage: InboxStorage, deps: GroupDeps, run: EarlyRun, verdict: Verdict, why: string): Promise<void> {
+  const ranMs = deps.now() - run.startedAt;
+  logProvisional(verdict, { why, ranMs });
+  // Its own step in the chat's ledger, beside the turn's (Dev2: a stopped Front door is logged as its own run).
+  await logStep(storage, run.chat, { name: "provisional", ok: true, ms: ranMs, input: { messages: run.keys.length, allow: run.gate.allow }, output: { verdict, why } }, deps.now(), run.gate.turn ?? undefined);
+  if (verdict === "go" && run.id !== undefined) {
+    const now = await storage.get<HandedTurn>(turnKey(run.id));
+    if (now !== undefined) await storage.put<HandedTurn>(turnKey(run.id), { ...now, provisional: undefined });
+  }
+  await run.gate.decide(verdict);
+  if (verdict === "stop") await Promise.race([run.ended, new Promise((resolve) => setTimeout(resolve, EARLY_STOP_WAIT_MS))]);
 }

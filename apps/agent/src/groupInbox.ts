@@ -80,7 +80,8 @@ import { logStep, tapback, triageStep } from "./stepEvents";
 import { runningTurn } from "./steer";
 import { canWait, chatEvent, readChatState, stillGathering } from "./chatState";
 import { chooseGroupTurn, coversOf, keepNames, logGroupInbound, mergedGroup, ownTurn, whileRunning, type GroupEntry, type GroupPending } from "./groupTurn";
-import { handOff, liveTurns, MAX_GROUP_TURNS } from "./groupTurnRun";
+import { handOff, liveTurns, MAX_GROUP_TURNS, settleEarly, startEarly, type EarlyRun } from "./groupTurnRun";
+import { provisionalDoor, sameMessages, type ProvisionalGate } from "./provisional";
 import { answerBesideTurn } from "./groupBeside";
 import { groupTurn } from "./groupModelTurn";
 import type { TimingDataset } from "./textTiming";
@@ -116,6 +117,10 @@ export type GroupDeps = {
   remoteGroupLine?: (groupId: string) => GroupLine;
   /** Where a group staff moved to Tex's new number lives now (`groupMoves.ts`); read by `groupLine.ts`. */
   movedTo?: (groupId: string) => Promise<GroupPlace | null>;
+  /** The Tex config the provisional wiring is read from (a Lab draft in a test chat); absent, the one built in (`provisional.ts`). */
+  texGraph?: unknown;
+  /** Set on a turn started before Decide chose (`groupTurnRun.ts` `startEarly`): nothing reaches the chat before its go. */
+  provisional?: ProvisionalGate;
 };
 
 /** A group's queue is named apart from every phone's, which always starts with "+". */
@@ -414,6 +419,8 @@ async function drainOnce(storage: InboxStorage, deps: GroupDeps): Promise<void> 
     }
     if (pending.length === 0) break;
     let entries: GroupEntry[] = [pending[0]];
+    // A Provisional run (`provisional.ts`): the asker's messages start their turn now, beside Decide, which is its go or stop.
+    let early: EarlyRun | null = null;
     if (!pending[0][1].byCode && pending[0][1].attempts === 0) {
       const burst: GroupEntry[] = [];
       for (const entry of pending) {
@@ -428,7 +435,14 @@ async function drainOnce(storage: InboxStorage, deps: GroupDeps): Promise<void> 
         // What code answers alone (a command, a menu reply) never waits on a held burst (`groupBeside.ts`).
         return void (await answerBesideTurn(storage, deps, [...holding, ...burst.map(([key]) => key)]));
       }
+      const door = provisionalDoor(deps.texGraph);
+      if (door.on) early = await startEarly(storage, deps, ownTurn(burst), door.allow);
       const choice = await chooseGroupTurn(storage, deps, burst, untagged && canWait(state, deps.now()));
+      // Decide held the burst: the early run stops now (`restart:wait`), and the turn after the wait starts afresh.
+      if (early !== null && choice.wait !== undefined && choice.wait.length > 0) {
+        await settleEarly(storage, deps, early, "stop", "wait");
+        early = null;
+      }
       // Decide's reaction goes at once, whatever it decided about words, and only once per message.
       if (choice.react) {
         const [key, item] = choice.react;
@@ -453,6 +467,12 @@ async function drainOnce(storage: InboxStorage, deps: GroupDeps): Promise<void> 
       }
       for (const [key] of choice.drop) await storage.delete(key);
       entries = await notAskedAgain(storage, ownTurn(choice.answer), deps.now());
+      // The go only for exactly the messages it started on; quiet, or any other set, stops it and the drain goes on as before.
+      if (early !== null) {
+        const go = entries.length > 0 && sameMessages(early.keys, entries.map(([key]) => key));
+        await settleEarly(storage, deps, early, go ? "go" : "stop", go ? "chosen" : entries.length === 0 ? "quiet" : "other");
+        if (!go) early = null;
+      }
       if (entries.length === 0) {
         await chatEvent(storage, "silent", choice.react ? "react" : "decide", { now: deps.now() });
         continue;
@@ -460,6 +480,15 @@ async function drainOnce(storage: InboxStorage, deps: GroupDeps): Promise<void> 
     }
     // A retried turn (the inline path) is still the same draft: only a first attempt starts one.
     if (entries.at(-1)![1].attempts === 0) await chatEvent(storage, "start", entries.at(-1)![1].byCode ? "code" : "turn", { now: deps.now() });
+    // Told go, the early run is this turn: already beside the drain, or (no workflow) answered here from what it has done.
+    if (early !== null) {
+      if (early.inline === undefined) {
+        for (const [key, item] of entries) await storage.put<GroupPending>(key, item);
+        continue;
+      }
+      if (await answerInline(storage, entries, deps, early.inline)) return;
+      continue;
+    }
     // Handed off, it runs beside the drain: the next pass looks for somebody else's text to start beside it.
     if (deps.startTurn !== undefined) {
       await handOff(storage, deps, entries);
@@ -472,12 +501,12 @@ async function drainOnce(storage: InboxStorage, deps: GroupDeps): Promise<void> 
 }
 
 /** One turn answered here, as before workflows: retried by the alarm, then given up on. True when the drain stops for the retry. */
-export async function answerInline(storage: InboxStorage, entries: GroupEntry[], deps: GroupDeps): Promise<boolean> {
+export async function answerInline(storage: InboxStorage, entries: GroupEntry[], deps: GroupDeps, started?: Promise<"cancelled" | void>): Promise<boolean> {
   const [key, item] = entries.at(-1)!;
   // Which path ran it: inline means no workflow (`groupTurnRun.ts` logs workflow_started for the other).
   if (item.attempts === 0) log("inline");
   try {
-    const outcome = await timedReply(storage, entries[0][1].at ?? deps.now(), undefined, deps.now, (clock) => answerGroup(storage, entries, deps, clock));
+    const outcome = await (started ?? timedReply(storage, entries[0][1].at ?? deps.now(), undefined, deps.now, (clock) => answerGroup(storage, entries, deps, clock)));
     // Restarted: what it covered waits, marked, for the turn that answers it with the newer message.
     if (outcome !== "cancelled") for (const [done] of entries) await storage.delete(done);
     await chatEvent(storage, outcome === "cancelled" ? "cancelled" : "done", "inline", { now: deps.now() });
@@ -528,6 +557,9 @@ export async function answerGroup(storage: InboxStorage, entries: GroupEntry[], 
   const acceptedAt = entries[0][1].at ?? deps.now();
   const covers = coversOf(entries);
   const app = groupLineFor(groupLineSeam(deps), message.groupId);
+  // A provisional run says nothing before its go: what code answers alone waits for it, and stopped, is never said.
+  const held = async () => deps.provisional !== undefined && (await deps.provisional.decided) === "stop";
+  if (deps.provisional !== undefined && (message.sms || message.routine !== undefined || groupCommand(message.text) !== null) && (await held())) return "cancelled";
   // A green-bubble group is never answered from anyone's notes: SMS vouches for no sender.
   if (message.sms) return void (await say(storage, deps, message, GROUP_LINES.sms, { system: true }));
   const chat = { line: message.line, groupId: message.groupId };
@@ -560,6 +592,7 @@ export async function answerGroup(storage: InboxStorage, entries: GroupEntry[], 
   const behind = kept === null ? null : () => askControlPlane(deps, message, people, null, { mint: false }).then((answer) => refreshKept(storage, answer), () => refreshKept(storage, null));
   clock?.mark("control"); // near zero when kept
   const status = asked.status;
+  if (status !== "ready" && (await held())) return "cancelled";
   const fixed = (text: string) => say(storage, deps, message, text, { system: true });
   // A chat that can't run it now is told nothing: nobody in it asked just now.
   if (routine && status !== "ready") return void (await cannotRun(storage, deps, message, status));
