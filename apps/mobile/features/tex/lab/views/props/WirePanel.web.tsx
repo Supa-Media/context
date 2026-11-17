@@ -5,7 +5,7 @@
  */
 import type { ReactNode } from "react";
 import { useEffect } from "react";
-import { WHEN, WIRES } from "../../data/graph";
+import { PROVISIONAL_ALLOW, PROVISIONAL_WHEN, WHEN, WIRES } from "../../data/graph";
 import { delSel, edit, G, lab, node, set } from "../../engine/state";
 import type { LabEdge } from "../../types";
 import { useLab } from "../../store";
@@ -23,6 +23,28 @@ function toggleWhen(i: number, t: string) {
       ed.when = ed.when.includes(t) ? ed.when.filter((x) => x !== t) : [...ed.when, t];
       if (!ed.when.length) ed.when = ["*"];
     }
+  });
+}
+
+/** A provisional wire's verdicts: toggle "stop:<tag>" or "restart:<tag>"; with none, it only says go. */
+function toggleVerdict(i: number, v: string) {
+  edit(() => {
+    const ed = G().edges[i];
+    const has = ed.when.includes(v);
+    ed.when = has ? ed.when.filter((x) => x !== v) : [...ed.when.filter((x) => x !== "*"), v];
+    if (!ed.when.length) ed.when = ["*"];
+  });
+}
+
+/** Change a wire's kind, keeping only the "fires when" entries the new kind reads. */
+function setMode(i: number, k: LabEdge["mode"]) {
+  edit(() => {
+    const ed = G().edges[i];
+    const verdict = (x: string) => x.startsWith("stop:") || x.startsWith("restart:");
+    ed.mode = k;
+    if (k !== "provisional") delete ed.allow;
+    ed.when = ed.when.filter((x) => x === "*" || (k === "provisional") === verdict(x));
+    if (!ed.when.length) ed.when = ["*"];
   });
 }
 
@@ -62,7 +84,7 @@ export function WirePanel({ extra }: { extra?: ReactNode }) {
         <h4>Kind</h4>
         <div className="wk" id="eMode">
           {Object.entries(WIRES).filter(([, w]) => !w.folded).map(([k, w]) => (
-            <button key={k} data-v={k} aria-pressed={e.mode === k || (k === "job" && !!WIRES[e.mode]?.folded)} onClick={() => edit(() => (G().edges[i].mode = k as LabEdge["mode"]))}>
+            <button key={k} data-v={k} aria-pressed={e.mode === k || (k === "job" && !!WIRES[e.mode]?.folded)} onClick={() => setMode(i, k as LabEdge["mode"])}>
               <WireIcon mode={k} />
               <span>
                 <b>{w.name}</b>
@@ -72,16 +94,43 @@ export function WirePanel({ extra }: { extra?: ReactNode }) {
           ))}
         </div>
       </div>
-      <div className="grp">
-        <h4>Fires when</h4>
-        <div className="chips">
-          {WHEN.map(([t, l]) => (
-            <button key={t} className="tg" data-when={t} aria-pressed={e.when.includes(t)} onClick={() => toggleWhen(i, t)}>
-              {l}
-            </button>
-          ))}
+      {e.mode === "provisional" ? (
+        <div className="grp">
+          <h4>Before its go</h4>
+          <div className="chips" id="eAllow">
+            {PROVISIONAL_ALLOW.map(([k, l, tip]) => (
+              <button key={k} className="tg" data-allow={k} title={tip} aria-pressed={(e.allow ?? "revertible") === k} onClick={() => edit(() => (G().edges[i].allow = k))}>
+                {l}
+              </button>
+            ))}
+          </div>
         </div>
-      </div>
+      ) : null}
+      {e.mode === "provisional" ? (
+        (["stop", "restart"] as const).map((kind) => (
+          <div className="grp" key={kind}>
+            <h4>{kind === "stop" ? "Stops it when" : "Restarts it when"}</h4>
+            <div className="chips">
+              {PROVISIONAL_WHEN.map(([t, l]) => (
+                <button key={t} className="tg" data-when={`${kind}:${t}`} aria-pressed={e.when.includes(`${kind}:${t}`)} onClick={() => toggleVerdict(i, `${kind}:${t}`)}>
+                  {l}
+                </button>
+              ))}
+            </div>
+          </div>
+        ))
+      ) : (
+        <div className="grp">
+          <h4>Fires when</h4>
+          <div className="chips">
+            {WHEN.map(([t, l]) => (
+              <button key={t} className="tg" data-when={t} aria-pressed={e.when.includes(t)} onClick={() => toggleWhen(i, t)}>
+                {l}
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
       {e.mode === "loop" ? (
         <div className="grp">
           <h4>How often</h4>
