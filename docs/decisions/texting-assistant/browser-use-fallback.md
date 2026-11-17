@@ -31,8 +31,11 @@ $0.50 or a balance call that fails. A cap refusal returns the original
 Browserbase result plus the reason. Spend and the block log live in the
 `BrowserUseLedger` Durable Object (`POST /browse/blocks` summarizes it).
 The log is one job row per browse tool call, plus a call row per Browser
-Use session and per vendor refusal, so it outlives Cloudflare's sampled
-logs.
+Use session, per vendor refusal, and per document-host 403 seen after the
+answer. With the fallback off, the browse does not wait for Browserbase's
+session log: that 403 is written after the response. With the fallback on,
+the answer waits up to a second so the gateway can retry. The log outlives
+Cloudflare's sampled logs.
 
 **What a simplification would cost:** routing every job to Browser Use, or
 treating a Verified-tier 403 as a site block, spends the $5 month cap on

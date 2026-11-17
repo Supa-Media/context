@@ -41,6 +41,10 @@
  * A run that fails is logged with a digest of the session's own Browserbase
  * log (./sessionLogs.ts), after the answer has gone (`later`): hosts, status
  * codes and counts, never the page, an address's path or what was typed.
+ * A document-host 403 is part of that digest. The answer waits for it, at
+ * most a second, only when the gateway sends `waitForBlock` (the Browser Use
+ * fallback is on). Otherwise the 403 is written to the block log after the
+ * answer, so a browse with the flag off is not slower.
  *
  * `owner` is the gateway's tag for the person (./browserbase.ts); the browser
  * is found by it, so a question that comes back after a sign-in carries on in
@@ -76,6 +80,26 @@ import { pastGooglePasskey } from "./googleChallenge";
 
 const json = (body: unknown, status = 200) =>
   new Response(JSON.stringify(body), { status, headers: { "content-type": "application/json" } });
+
+/**
+ * A document-host 403 from the session log, written after the answer. The
+ * fallback is off, so the gateway does not need the flag on this response.
+ * Nothing here throws: a log Browserbase does not return is not a block.
+ */
+function recordDocumentBlock(env: BrowserbaseEnv, sessionId: string, started: number, fetcher: typeof fetch): Promise<void> {
+  return sessionLogDigest(env, sessionId, fetcher).then(async (digest) => {
+    const forbidden = documentForbidden(digest);
+    if (!forbidden) return;
+    await safeRecord(env, {
+      kind: "call",
+      provider: "browserbase",
+      host: forbidden.host,
+      outcome: "site_blocked",
+      reason: "403",
+      durationMs: Math.max(0, Date.now() - started),
+    });
+  }).catch(() => undefined);
+}
 
 /** Runs work after the answer has gone: the Worker's `ctx.waitUntil`. */
 export type Later = (work: Promise<unknown>) => void;
@@ -231,9 +255,12 @@ async function runOnBrowserbase(
     const uploads = browserbaseUploads(env, session.id, fetcher);
     // A blank page is waited for as long as the gateway says this turn may (./patience.ts).
     let result = await runSteps(page, parsed.steps, { downloads, uploads, waitMs: contentWaitOf(body) });
-    // The session log is what shows a document-host 403. Asked while a captcha
-    // is given time to clear, and given at most a second when the page has none.
-    const logsReady = sessionLogDigest(env, session.id, fetcher, 1_000).catch(() => null);
+    // The session log is what shows a document-host 403. The answer waits for
+    // it only when the gateway will use it to retry (`waitForBlock`), and then
+    // for at most a second. With the fallback off, the log is read after the
+    // answer (`later`), so this browse is not slower than it was.
+    const waitForBlock = (body as { waitForBlock?: unknown }).waitForBlock === true;
+    const logsReady = waitForBlock ? sessionLogDigest(env, session.id, fetcher, 1_000).catch(() => null) : null;
     // Not while the person is being handed the browser: it is theirs then.
     const captcha = handingOver ? null : await settleCaptcha(attached.evaluate, { solver: attached.solver ?? null });
     if (captcha === "solved") result = { ...result, page: (await runSteps(page, [{ do: "read" }])).page };
@@ -246,7 +273,8 @@ async function runOnBrowserbase(
       result = { ...result, page: (await runSteps(page, [{ do: again }])).page };
     }
     const jar = keep && restored ? await captureJar(cdp, attached).catch(() => null) : null;
-    const forbidden = documentForbidden(await logsReady);
+    const forbidden = logsReady === null ? null : documentForbidden(await logsReady);
+    if (!waitForBlock) later(recordDocumentBlock(env, session.id, started, fetcher));
     const kind = captcha === "unsolved" ? await captchaKind(attached.evaluate) : null;
     const ok = result.ran.every((r) => r.ok);
     // Step kinds and timing only, as for Cloudflare's browser.

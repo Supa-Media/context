@@ -162,6 +162,8 @@ export function siteShotsComputer(env, { owner = null, viewer = null, jar = null
         ...(fresh ? { fresh: true } : {}),
         ...waiting,
         ...(jar !== null ? { keep: true, ...(held !== null ? { jar: held } : {}) } : {}),
+        // The answer waits for a document-host 403 only when a fallback might use it.
+        ...(browserUse === "on" ? { waitForBlock: true } : {}),
         // A new profile is given the jar's cookies; one in use holds newer ones.
         ...(saved !== null ? { profile: saved.id, ...(saved.created ? { profileNew: true } : {}) } : {}),
       }), { patient, now, ...(sleep ? { sleep } : {}) });

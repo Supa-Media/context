@@ -240,6 +240,9 @@ describe("the block log", () => {
       { at: 4, kind: "job", provider: "browserbase", host: "shop.example", outcome: "ok", durationMs: 500, fallback: { ran: false } },
     ];
     expect(summarizeBrowseLog(rows)).toMatchObject({ jobs: 2, blocks: 1, byReason: { "403": 1 }, fallbacks: 1, vendorRefused: 1, fallbackCostUsd: 0.012 });
+    const after = summarizeBrowseLog([...rows, { at: 5, kind: "call", provider: "browserbase", host: "wwws.airfrance.com", outcome: "site_blocked", reason: "403", durationMs: 200 }]);
+    expect(after.blocks).toBe(2);
+    expect(after.byReason["403"]).toBe(2);
   });
 });
 

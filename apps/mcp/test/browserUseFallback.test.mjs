@@ -160,3 +160,28 @@ test("the screenshot computer sends provider browser-use only when the flag is o
   assert.equal(JSON.stringify(sent).includes("liveUrl"), false);
   resetBrowserbaseProbe();
 });
+
+test("the flag off does not ask the browse to wait for the session log", async () => {
+  resetBrowserbaseProbe();
+  const posts = [];
+  const binding = {
+    async fetch(_url, init) {
+      const body = JSON.parse(init.body);
+      posts.push(body);
+      return Response.json({
+        provider: "browserbase",
+        session: "bb-1",
+        ran: (body.steps ?? []).map((step) => ({ do: step.do, ok: true })),
+        page: { url: PAGE, title: "Page", text: "Hi", elements: [] },
+      });
+    },
+  };
+  await siteShotsComputer({ SITE_SHOTS: binding }, { owner: OWNER, browserUse: "off" }).browse(null, [{ do: "goto", url: PAGE }]);
+  assert.equal(posts[0].provider, "browserbase");
+  assert.equal(posts[0].waitForBlock, undefined);
+  resetBrowserbaseProbe();
+  await siteShotsComputer({ SITE_SHOTS: binding }, { owner: OWNER, browserUse: "on" }).browse(null, [{ do: "read" }]);
+  assert.equal(posts.at(-1).provider, "browserbase");
+  assert.equal(posts.at(-1).waitForBlock, true);
+  resetBrowserbaseProbe();
+});

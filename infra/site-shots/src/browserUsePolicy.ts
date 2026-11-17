@@ -167,9 +167,9 @@ export interface BrowseLogSummary {
 /**
  * Counts for the block rate and the fallback trial. Job rows are one per
  * browse tool call (a captcha ladder is one job, not one row per try). Call
- * rows are vendor refusals and Browser Use sessions. Blocks are counted on
- * jobs so a ladder is not triple-counted; fallbacks are counted on the
- * sessions that started.
+ * rows are vendor refusals, Browser Use sessions, and a document-host 403
+ * written after the answer when the fallback flag is off. A site-blocked
+ * call row counts as a block. Fallbacks are the sessions that started.
  */
 export function summarizeBrowseLog(rows: readonly BrowseLogRow[]): BrowseLogSummary {
   const byReason: Record<string, number> = {};
@@ -187,6 +187,11 @@ export function summarizeBrowseLog(rows: readonly BrowseLogRow[]): BrowseLogSumm
         const key = reason ?? "unknown";
         byReason[key] = (byReason[key] ?? 0) + 1;
       }
+    }
+    if (row.kind === "call" && row.outcome === "site_blocked") {
+      blocks += 1;
+      const key = row.reason ?? row.trigger ?? "unknown";
+      byReason[key] = (byReason[key] ?? 0) + 1;
     }
     if (row.kind === "call" && row.provider === "browser-use") {
       fallbacks += 1;
