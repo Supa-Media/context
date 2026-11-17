@@ -114,6 +114,13 @@ const TEXTING_JOB = "texting-assistant";
 
 const MAX_BODY_LINES = 1_000;
 const MAX_BODY_CHARS = 40_000;
+/**
+ * A setup built from prompt modules rather than a note's own body may be longer: the front door reads whole Training
+ * conversations (`train:<nodeId>:all:<chars>`, Dev2, 2026-11-17), each module bounded by its own cap in the config.
+ * These bound a module list gone wrong; a note's body keeps the limits above.
+ */
+const MAX_CONFIG_CHARS = 200_000;
+const MAX_CONFIG_LINES = 5_000;
 const MAX_STEPS = 40;
 const TOOL = /^[a-z][a-z0-9_]{0,63}$/;
 const THINK_ROUNDS = /^[1-9]$/;
@@ -270,9 +277,11 @@ async function parse(kept, config) {
   const wordsDiffer = ownModules && lists !== null ? namedModules(lists).filter((name) => typeof TEX_PROMPT_WORDS[name] === "string" && moduleBody(texts?.[name]) !== TEX_PROMPT_WORDS[name]) : [];
   if (prompts === undefined) return null;
   const prompt = prompts === null ? raw.slice(match[0].length).trim() : prompts.texts;
+  const maxChars = prompts !== null ? MAX_CONFIG_CHARS : MAX_BODY_CHARS;
+  const maxLines = prompts !== null ? MAX_CONFIG_LINES : MAX_BODY_LINES;
   for (const text of prompts === null ? [prompt] : Object.values(prompts)) {
-    if (text.length === 0 || text.length > MAX_BODY_CHARS) return null;
-    if (text.split(/\r?\n/).length > MAX_BODY_LINES) return null;
+    if (text.length === 0 || text.length > maxChars) return null;
+    if (text.split(/\r?\n/).length > maxLines) return null;
   }
 
   return {

@@ -20,6 +20,7 @@ import { texPick, TEX_CONFIG, TEX_PROMPT_WORDS, texEffort, texModel, texModules,
 import { frontOf, parseSetup } from "../src/agent/production.js";
 import { assembleSetup, modulePath } from "../src/agent/promptModules.js";
 import { moduleIsCurrent as promptModuleIsCurrent } from "../../../scripts/tex-prompt-module.mjs";
+import { trainName } from "../../../packages/shared/src/texTraining.cjs";
 import { REVIEW_MODEL, REVIEW_TIMEOUT_MS } from "../src/agent/replyJudge.js";
 import { MAIL_CHECKER_MODEL } from "../src/agent/mailChecker.js";
 import { CARD_CHECK_MODEL } from "../src/agent/cardCheck.js";
@@ -119,10 +120,11 @@ test("the generated words are the Markdown files' (scripts/tex-prompt-module.mjs
 });
 
 test("each step's prompt modules are the p- entries of its context, in order, and each has words", () => {
-  // A `train:<node>` entry stands where it is as `train-<node>` once that node has Training labels (texTraining.cjs).
+  // A `train:<node>` entry stands where it is as `train-<node>` once that node has Training labels, and a
+  // `train:<node>:all:<chars>` one as `train-<node>-all-<chars>` (texTraining.cjs).
   const of = (id) =>
     texStep(id)
-      .ctx.map((c) => (c.startsWith("p-") ? c.slice(2) : c.startsWith("train:") && TEX_PROMPT_WORDS[`train-${c.slice(6)}`] ? `train-${c.slice(6)}` : null))
+      .ctx.map((c) => (c.startsWith("p-") ? c.slice(2) : trainName(c) && TEX_PROMPT_WORDS[trainName(c)] ? trainName(c) : null))
       .filter(Boolean);
   assert.deepEqual(texModules(), { texts: of("fd"), group: of("fd"), job: of("job") });
   for (const name of new Set([...of("fd"), ...of("job")])) assert.equal(typeof TEX_PROMPT_WORDS[name], "string", name);
