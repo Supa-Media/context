@@ -38,6 +38,9 @@ export const MODES = Object.freeze({
   behind: { arrow: "-.->", says: "afterwards, in the background, nobody waiting" },
   loop: { arrow: "==>", says: "may send work back to" },
   job: { arrow: "==>", says: "may start as a background job" },
+  // A provisional run (Dev2, 2026-11-17): the target starts without waiting for this step, which may stop or restart
+  // it at any point; until this step says go, the target may only read, or make writes that can be undone.
+  provisional: { arrow: "-..->", says: "may stop, restart or give its go to" },
 });
 const modeOf = (mode) => (mode === "behind" ? "background" : mode);
 
@@ -74,6 +77,8 @@ export function shapeProblems(config) {
 }
 
 const when = (e) => ((e.when ?? ["*"]).join() === "*" ? "" : (e.when ?? []).join(", "));
+/** What a provisional run may do before its go, as the words say it: "provisional run (revertible)". */
+const provisionalAs = (e) => `provisional run (${e.allow === "read" ? "read only" : "revertible"})`;
 const quote = (text) => String(text).replaceAll('"', "#quot;");
 const cell = (text) => String(text).replaceAll("|", "\\|");
 /** Mermaid ids: the node's id, kept clear of Mermaid's own words. */
@@ -114,7 +119,8 @@ export function drawingFor(config) {
   for (const e of config.edges) {
     const mode = modeOf(e.mode);
     const tags = when(e);
-    const label = mode === "wait" ? tags : tags ? `${mode}: ${tags}` : mode;
+    const kind = mode === "provisional" ? provisionalAs(e) : mode;
+    const label = mode === "wait" ? tags : tags ? `${kind}: ${tags}` : kind;
     const arrow = MODES[e.mode]?.arrow ?? "-->";
     lines.push(`  ${mid(e.from)} ${arrow}${label ? `|${quote(label)}|` : ""} ${mid(e.to)}`);
   }
@@ -153,7 +159,10 @@ export function mapFor(config) {
   const byId = new Map(config.nodes.map((n) => [n.id, n]));
   const name = (id) => byId.get(id)?.label ?? id;
   const out = (id, mode) => config.edges.filter((e) => e.from === id && modeOf(e.mode) === mode);
-  const list = (edges) => edges.map((e) => (when(e) ? `${name(e.to)} (when ${when(e)})` : name(e.to))).join("; ");
+  const list = (edges) =>
+    edges
+      .map((e) => `${name(e.to)}${e.mode === "provisional" ? ` as a ${provisionalAs(e)}` : ""}${when(e) ? ` (when ${when(e)})` : ""}`)
+      .join("; ");
   const starts = config.nodes.filter((n) => n.kind === "input");
   const lines = [
     "Tex is a graph of steps (nodes) joined by wires, both read from Tex's config (texConfig.json), which is what runs. A step is code or one model call. A wire says what runs next and on what: \"then\" runs the next step on this one's output, only when its condition holds; \"may call\" lets a step call another and wait for the answer; \"may send work back to\" returns a draft for another try; \"may start as a background job\" starts work that reports later; \"afterwards, in the background\" runs once the text has gone, with nobody waiting.",
@@ -173,7 +182,7 @@ export function mapFor(config) {
     const model = nodeModel(config, n);
     const head = `- ${n.label} (${model === "code" ? "code, no model" : model}${n.on ? "" : ", turned off: never runs"})`;
     lines.push(n.goal ? `${head}: ${n.goal}` : head);
-    for (const mode of ["wait", "uses", "loop", "job", "background"]) {
+    for (const mode of ["wait", "uses", "loop", "job", "background", "provisional"]) {
       const edges = out(n.id, mode);
       if (edges.length > 0) lines.push(`  ${MODES[mode].says}: ${list(edges)}`);
     }

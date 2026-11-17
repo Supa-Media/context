@@ -205,6 +205,25 @@ describe("/lab properties panel, viewer and modules page", () => {
     expect(q("#props")?.hidden).toBe(true);
   });
 
+  test("a provisional wire picks what stops or restarts its step and what it may do before its go (Dev2, 2026-11-17)", () => {
+    mount();
+    act(() => set({ sel: { t: "edge", i: 0 } }));
+    click('#eMode [data-v="provisional"]');
+    expect(G().edges[0].mode).toBe("provisional");
+    expect(G().edges[0].when).toEqual(["*"]);
+    expect(q('[data-allow="revertible"]')?.getAttribute("aria-pressed")).toBe("true");
+
+    click('[data-when="stop:quiet"]');
+    click('[data-when="restart:wait"]');
+    click('#eAllow [data-allow="read"]');
+    expect(G().edges[0]).toMatchObject({ when: ["stop:quiet", "restart:wait"], allow: "read" });
+
+    // Back to Next: the verdicts and the allow go, as Next reads neither.
+    click('#eMode [data-v="wait"]');
+    expect(G().edges[0].when).toEqual(["*"]);
+    expect(G().edges[0].allow).toBeUndefined();
+  });
+
   test("the module viewer saves new text, counting its tokens, and then offers to go back to main", () => {
     mount();
     act(() => set({ viewer: { kind: "module", key: "map" } }));

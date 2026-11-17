@@ -4,7 +4,7 @@
  * `zoomBy`, the stage's wheel handler and `addStep` (template.html ~lines 600-1027). The view
  * sets innerHTML from these; the tests compare them with the artifact's own output.
  */
-import { groupsOf, ICONS, NODE_INFO, WIRES } from "../../data/graph";
+import { groupsOf, ICONS, NODE_INFO, WIRES, wireName } from "../../data/graph";
 import { FTYPES } from "../../data/models";
 import { wireKey, type Marks } from "../../engine/changeMarks";
 import { hlClass } from "../../engine/live";
@@ -253,7 +253,7 @@ export function renderGraphHtml(
     const p = wirePath(ea.at, eb.at, e.mode, ea.w, eb.w);
     const wm = marks && marks.newWires.has(wireKey(e)) ? " wnew" : "";
     h += `<path class="wire ${on || s ? "" : "dim"} ${s ? "sel" : ""}${wm}" d="${p.d}" stroke="var(${s ? "--accent" : w.c})" ${w.dash ? `stroke-dasharray="${w.dash}"` : ""} ${w.w && !s ? `stroke-width="${w.w}"` : ""} marker-end="url(#m-${s ? "sel" : e.mode})"/>`;
-    h += `<path class="hit" d="${p.d}" data-edge="${i}"><title>${esc(w.name + ": " + a.label + " → " + b.label)}</title></path>`;
+    h += `<path class="hit" d="${p.d}" data-edge="${i}"><title>${esc(wireName(e, WIRES) + ": " + a.label + " → " + b.label)}</title></path>`;
     if (e.mode === "loop" && (on || s))
       h += `<text class="wlabel" x="${p.lx}" y="${p.ly}" text-anchor="middle">send back</text>`;
   });

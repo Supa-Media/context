@@ -148,7 +148,7 @@ function momentSteps(m: Moment, lines: ChatLine[], entries: LedgerEntry[], shown
     const parentOf = (n: string) => {
       const into = g.edges.filter((e) => e.to === n && placed.has(e.from));
       const caller = into.find((e) => e.mode === "uses");
-      const before = into.filter((e) => e.mode !== "uses" && e.mode !== "loop").sort((a, b) => placed.get(b.from)!.end - placed.get(a.from)!.end)[0];
+      const before = into.filter((e) => e.mode !== "uses" && e.mode !== "loop" && e.mode !== "provisional").sort((a, b) => placed.get(b.from)!.end - placed.get(a.from)!.end)[0];
       return (caller ?? before)?.from ?? null;
     };
     for (const [n, p] of [...placed].sort((a, b) => a[1].start - b[1].start)) {

@@ -11,7 +11,7 @@
  */
 import { useState, type ReactNode } from "react";
 import { AREAS, EXAMINABLE } from "../../data/areas";
-import { ICONS, NODE_INFO, WIRES } from "../../data/graph";
+import { ICONS, NODE_INFO, wireName } from "../../data/graph";
 import { fieldText, stepChange } from "../../engine/changeMarks";
 import { cacheShare, ctxTokens, fmtS, fmtUsd, outTok } from "../../engine/sim";
 import { labSim, tracedReal } from "../../engine/realTimes";
@@ -259,7 +259,7 @@ export function NodePanel({ n, extra }: { n: LabNode; extra?: ReactNode }) {
                 <WireIcon mode={e.mode} />
                 <span style={{ flex: 1 }}>{other?.label}</span>
                 <span className="hint" style={{ fontSize: 12 }}>
-                  {WIRES[e.mode].name}
+                  {wireName(e)}
                 </span>
               </button>
             );
