@@ -16,6 +16,7 @@
  * removing the `thinPageHint` line failed "an empty page read says to browse".
  */
 
+import { carries } from "../src/agent/checkFindings.js";
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { claimCheck } from "../src/agent/claimCheck.js";
@@ -73,7 +74,7 @@ test("a give-up after one failed site is sent to other sites, for any kind of pa
     const wrapped = claims.wrapWeb(web(["search_web", "open_page", "browse"], { open_page: FAILED }));
     await wrapped.call("search_web", { query: "x" });
     await wrapped.call(...open("https://reader.example/a"));
-    assert.equal(claims.check(said), otherSitesNotice({ sites: 1, canBrowse: true }), said);
+    assert.ok(carries(claims.check(said), otherSitesNotice({ sites: 1, canBrowse: true })), said);
   }
   assert.match(otherSitesNotice({ sites: 1, canBrowse: true }), /another|different sites/);
   assert.doesNotMatch(otherSitesNotice({ sites: 1, canBrowse: false }), /browse/);
@@ -83,8 +84,9 @@ test("after the other-sites round, a paste ask still goes back once, then the an
   const claims = claimCheck({ question: "fill in the verse analysis" });
   const wrapped = claims.wrapWeb(web(["search_web", "open_page", "browse"], { open_page: FAILED }));
   await wrapped.call(...open("https://reader.example/a"));
-  assert.equal(claims.check(OWNER), otherSitesNotice({ sites: 1, canBrowse: true }));
-  assert.equal(claims.check(OWNER), publishedTextNotice({ canBrowse: true }));
+  // Both go back in one notice, not one round each (`checkFindings.js`).
+  const first = claims.check(OWNER);
+  assert.ok(carries(first, otherSitesNotice({ sites: 1, canBrowse: true })) && carries(first, publishedTextNotice({ canBrowse: true })), first);
   const third = await claims.check(OWNER);
   assert.notEqual(third, otherSitesNotice({ sites: 1, canBrowse: true }));
   assert.notEqual(third, publishedTextNotice({ canBrowse: true }));

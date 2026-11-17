@@ -149,13 +149,17 @@ export const TRY_CLAIM_NOTICE =
 import { RESULT_NOTICE, WORDY_NOTICE, restatesTheResult, tooWordy } from "./wordy.js";
 import { WORK_PAGE_NOTICE, workForAPage } from "./workPage.js";
 import { bareCoverMissing, bareCoverNotice } from "./pageCoverFloor.js";
+import { SHAPE, combineFindings, finding, oneShape } from "./checkFindings.js";
 import { CHECK_IN_ANSWER_NOTICE, IMPOSSIBLE_NIGHT_NOTICE, THEIR_FIGURE_NOTICE, disownsTheirFigure, dropsCheckInAnswer, impossibleNight } from "./timeLog.js";
 
 /**
- * The check for one turn: `{ question, waiting, pictures, history, detailed }` from the turn, `steps` as
- * `claimCheck.js` records them. Answers a notice, each kind once, or null.
+ * Every finding of one turn's checks on a draft: `{ question, waiting, pictures, history, detailed }` from the turn,
+ * `steps` as `claimCheck.js` records them. Answers `[{ kind, notice, advice }]` (`checkFindings.js`), each kind once a
+ * turn; the page, result and wordy checks are advice on the answer's shape, the rest are facts
+ * (a bare page's cover stays a fact: "A page always has a picture", docs/decisions/app-and-console/pages.md). Advice
+ * that was found but not sent is handed back with `release(kind)`, so it can still ride along with a later fact.
  */
-export function replyChecks({ question, waiting = false, pictures = false, history = [], detailed = false }) {
+export function replyFindings({ question, waiting = false, pictures = false, history = [], detailed = false }) {
   const given = new Set();
   const checks = [
     ["empty", (answer) => isEmptyAnswer(answer), EMPTY_NOTICE],
@@ -172,18 +176,40 @@ export function replyChecks({ question, waiting = false, pictures = false, histo
     ["goal", (answer) => dropsTheGoal(question, answer), GOAL_NOTICE],
     // A page saved with no picture and no cover call draws its cover before the link goes (`pageCoverFloor.js`).
     ["cover", (answer, steps) => bareCoverMissing(steps) !== "", (answer, steps) => bareCoverNotice(bareCoverMissing(steps))],
-    // Work looked up on the web and texted as a wall of findings is a page (`workPage.js`), before it is cut.
-    ["work", (answer, steps) => workForAPage(answer, { question, steps }), WORK_PAGE_NOTICE],
-    // Last, so a fix above is made before the answer is cut (`wordy.js`).
-    ["result", (answer, steps) => restatesTheResult(answer, { question, steps, detailed }), RESULT_NOTICE],
-    ["wordy", (answer, steps) => tooWordy(answer, { question, steps, detailed }), WORDY_NOTICE],
+    // Work looked up on the web and texted as a wall of findings is a page (`workPage.js`).
+    ["work", (answer, steps) => workForAPage(answer, { question, steps }), WORK_PAGE_NOTICE, true],
+    // Words beside a page or picture, or an essay with none (`wordy.js`): at most one of these shapes a turn (`checkFindings.js` `oneShape`).
+    ["result", (answer, steps) => restatesTheResult(answer, { question, steps, detailed }), RESULT_NOTICE, true],
+    ["wordy", (answer, steps) => tooWordy(answer, { question, steps, detailed }), WORDY_NOTICE, true],
   ];
-  return (answer, steps = []) => {
-    for (const [kind, fails, notice] of checks) {
+  const run = (answer, steps = []) => {
+    const found = [];
+    for (const [kind, fails, notice, advice] of checks) {
       if (given.has(kind) || !fails(answer, steps)) continue;
       given.add(kind);
-      return typeof notice === "function" ? notice(answer, steps) : notice;
+      found.push(finding(kind, typeof notice === "function" ? notice(answer, steps) : notice, advice));
     }
-    return null;
+    return found;
+  };
+  run.release = (kind) => given.delete(kind);
+  return run;
+}
+
+/**
+ * These checks alone, as one turn's check: the one notice for a draft (`checkFindings.js` `combineFindings`), or null.
+ * Advice on its own goes back once a turn, as on a chat turn.
+ */
+export function replyChecks(turn) {
+  const findings = replyFindings(turn);
+  let shapeGiven = false;
+  let adviceGiven = false;
+  return (answer, steps = []) => {
+    const all = findings(answer, steps);
+    const found = oneShape(all, shapeGiven);
+    const notice = combineFindings(found, { adviceAlone: !adviceGiven });
+    for (const entry of all) if (entry.advice && (notice === null || !found.includes(entry))) findings.release(entry.kind);
+    if (notice !== null && found.some((entry) => entry.advice)) adviceGiven = true;
+    if (notice !== null && found.some((entry) => entry.advice && SHAPE.includes(entry.kind))) shapeGiven = true;
+    return notice;
   };
 }

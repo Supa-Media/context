@@ -223,6 +223,7 @@ jobs:
         if: ${{ !cancelled() }}
         id: agent
         with:
+          tex-data: "true"
           packages: "@context/agent"
           # The Worker imports Tex's config and graph by path, not as a package: a wiring change is a Worker change (#3443).
           paths: |

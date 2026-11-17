@@ -91,6 +91,7 @@ jobs:
       - uses: ./.github/actions/ci-scope
         id: scope
         with:
+          tex-data: "true"
           packages: "@context/mcp"
           # The five packages below are NOT in `@context/mcp`'s dependency
           # closure and have to be named by hand, which is the one thing about
@@ -178,6 +179,7 @@ jobs:
       - uses: ./.github/actions/ci-scope
         id: scope
         with:
+          tex-data: "true"
           packages: "@context/mcp"
           # The same inputs as `Test Gateway`'s scope; see its comment.
           paths: |
