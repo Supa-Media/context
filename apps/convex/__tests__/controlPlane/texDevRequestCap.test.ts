@@ -7,13 +7,13 @@ import { describe, expect, it } from "vitest";
 import { readFileSync } from "node:fs";
 import { MAX_TEX_DEV_REQUEST_BYTES } from "../../functions/lib/gatewayAuth";
 import { MAX_JSON } from "../../functions/texLab";
+import { TEX_CONFIG } from "@context/shared/src/texConfig.cjs";
 
-const main = readFileSync(new URL("../../../../packages/shared/src/texConfig.json", import.meta.url), "utf8");
 const bodyOf = (graph: string) => JSON.stringify({ accessToken: "t".repeat(64), action: "create", args: { name: "A draft", from: "main", graph, base: "0".repeat(15) } });
 
 describe("the tex_dev route's request cap", () => {
   it("a draft made from main fits the route's cap", () => {
-    const body = bodyOf(JSON.stringify(JSON.parse(main)));
+    const body = bodyOf(JSON.stringify(TEX_CONFIG));
     expect(body.length).toBeLessThan(MAX_TEX_DEV_REQUEST_BYTES);
   });
 
