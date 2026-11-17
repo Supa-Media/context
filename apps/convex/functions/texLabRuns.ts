@@ -27,9 +27,13 @@ import { requireAdmin } from "./lib/admin";
 import { handleForUser } from "./lib/identities";
 import { internalMutation, mutation } from "./lib/rowWatch/mutations";
 
-/** At most this many of one person's runs waiting or running at once, and this many started in a day. */
-export const MAX_QUEUED = 3;
-export const MAX_PER_DAY = 20;
+/**
+ * At most this many of one person's runs waiting or running at once, and this many started in a day. Every Claude
+ * thread of a person runs as them, so the caps are sized for several threads working the Dev set side by side
+ * (Dev2, 2026-11-17: "increase the caps if they keep getting hit"); a Dev run costs about a dollar at most.
+ */
+export const MAX_QUEUED = 6;
+export const MAX_PER_DAY = 60;
 const DAY_MS = 24 * 60 * 60 * 1000;
 /** A run still waiting or running after this long counts as lost: it no longer holds a place in the queue. */
 export const STALE_MS = 3 * 60 * 60 * 1000;
