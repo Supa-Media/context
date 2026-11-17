@@ -307,7 +307,9 @@ export async function armForText(store, { userId, ids, chat = null, now = Date.n
   */
   const stale = (await listPending(store, { userId, texting: true, chat: EVERY_CHAT, now })).filter(({ record }) => !wanted.has(record.id));
   if (stale.length > 0 && (await disarmRecords(store, stale)) > 0) throw new Error("an earlier ask could not be cleared");
-  await Promise.all(found.map((entry) => rearmForText(store, entry, true, now, chat)));
+  // The caller withdraws on failure, so no put may still be in flight.
+  const results = await Promise.allSettled(found.map((entry) => rearmForText(store, entry, true, now, chat)));
+  if (results.some((result) => result.status === "rejected")) throw new Error("an ask could not be armed");
 }
 
 /** Drop asks by id for this person: a turn that failed before it could tell them. */

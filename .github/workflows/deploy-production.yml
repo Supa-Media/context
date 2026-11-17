@@ -1,12 +1,12 @@
 name: Deploy to Production
 
-# Promote one commit after it passed CI on main and staging.
+# Promote one commit after CI on main has passed it. Staging is not a gate.
 #
 # A manual run deploys the tip of main. Promote to Production dispatches
 # `prod-deploy/<sha>`, a branch at one commit, so the run's SHA is that
 # commit rather than whatever main is when a branch dispatch starts.
 # `validate` refuses a run whose commit is not on main, or whose newest CI
-# or staging run did not succeed.
+# run did not succeed.
 #
 # Only the components that changed since production's last successful run are
 # deployed; `validate` decides with scripts/deploy-plan.mjs, which deploys
@@ -57,7 +57,7 @@ permissions:
 
 jobs:
   validate:
-    name: Require a successful staging deployment
+    name: Require a green CI run on main
     runs-on: ubuntu-latest
     outputs:
       convex: ${{ steps.plan.outputs.convex }}

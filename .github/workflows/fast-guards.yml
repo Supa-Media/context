@@ -2,14 +2,19 @@ name: Fast repository guards
 
 on:
   pull_request:
-    # `edited` too: three guards read the description ("No replay case:", "Tex diagram: unchanged because"), and a line
-    # added there after the push must be seen without another push.
-    types: [opened, synchronize, reopened, edited]
+    # Not `edited`. A description edit re-ran every guard and cancelled an
+    # in-progress run. pr-description.yml re-runs this workflow only when the
+    # owner's skip line changed, and the steps below read the live description
+    # so that re-run sees the new line. "No replay case:", "Tex diagram:
+    # unchanged because" and "Speed budget raised:" are read on the next push,
+    # and on that re-run.
+    types: [opened, synchronize, reopened]
   push:
     branches: [main]
 
 permissions:
   contents: read
+  pull-requests: read
 
 # A newer push to a pull request supersedes the run for the older commit, so
 # that run is cancelled rather than holding runners (a free account gets 20
@@ -37,6 +42,14 @@ jobs:
       - name: Record the runner Node version
         run: node --version
 
+      - name: The pull request description, as it is now
+        if: github.event_name == 'pull_request'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR: ${{ github.event.pull_request.number }}
+          EVENT_BODY: ${{ github.event.pull_request.body }}
+        run: node scripts/pr-description.mjs --print-body > "$RUNNER_TEMP/pr-body"
+
       - name: The public privacy page contains the current policy without app execution
         run: node --experimental-strip-types --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --test scripts/public-privacy.test.mjs
 
@@ -49,6 +62,7 @@ jobs:
           node scripts/check-workflow-yaml.mjs
           node scripts/check-workflow-triggers.mjs --self-test
           node scripts/check-workflow-triggers.mjs
+          node scripts/pr-description.mjs --self-test
           node scripts/check-workflow-interpolation.mjs --self-test
           node scripts/check-workflow-interpolation.mjs
           node scripts/bench-runner-lock.mjs --self-test
@@ -169,6 +183,7 @@ jobs:
           BASE_SHA: ${{ github.event.pull_request.base.sha }}
           TEX_PR_BODY: ${{ github.event.pull_request.body }}
         run: |
+          if [ -f "$RUNNER_TEMP/pr-body" ]; then TEX_PR_BODY="$(cat "$RUNNER_TEMP/pr-body")"; export TEX_PR_BODY; fi
           node scripts/check-tex-change-has-case.mjs --self-test
           if [ -n "$BASE_SHA" ]; then
             git fetch --no-tags --depth=1 origin "$BASE_SHA"
@@ -181,6 +196,7 @@ jobs:
           BASE_SHA: ${{ github.event.pull_request.base.sha }}
           TEX_PR_BODY: ${{ github.event.pull_request.body }}
         run: |
+          if [ -f "$RUNNER_TEMP/pr-body" ]; then TEX_PR_BODY="$(cat "$RUNNER_TEMP/pr-body")"; export TEX_PR_BODY; fi
           node scripts/check-speed-budget.mjs --self-test
           if [ -n "$BASE_SHA" ]; then
             git fetch --no-tags --depth=1 origin "$BASE_SHA"
@@ -193,6 +209,7 @@ jobs:
           BASE_SHA: ${{ github.event.pull_request.base.sha }}
           TEX_PR_BODY: ${{ github.event.pull_request.body }}
         run: |
+          if [ -f "$RUNNER_TEMP/pr-body" ]; then TEX_PR_BODY="$(cat "$RUNNER_TEMP/pr-body")"; export TEX_PR_BODY; fi
           node scripts/tex-diagram-check.mjs --self-test
           if [ -n "$BASE_SHA" ]; then
             git fetch --no-tags --depth=1 origin "$BASE_SHA"

@@ -14,8 +14,18 @@
  * module by module, so a rebuilt prompt is proven the one that ran, or the
  * module that differs is named.
  *
- * Ids, lengths and fingerprints only: never a word of the prompt, so the
- * entry stays small and holds nothing the notes it was built from do not.
+ * The words of the modules a commit cannot rebuild are kept too (Dev2,
+ * 2026-11-17, after "Dev2 can't see this chat" and "@shyoh tagged you" went
+ * unseen in Replay: 7 of a group turn's 13 modules showed no words): every
+ * module but the stable rules and the repo's fixed paragraphs, beside its
+ * fingerprint (`keptWordsOf`), in the chat's own history. That includes what
+ * the turn was handed and the history may not hold (the about-me note, the jobs
+ * note, the calendar copy, the workspaces it reaches): whoever can read the
+ * chat's history can read them, its people and the developers it is shared
+ * with, and nobody else (no log line or Analytics point carries them). A reader
+ * shows them only when their fingerprint is the one logged, so kept words are
+ * proven the words that ran (`apps/mobile/features/tex/lab/engine/promptAt.ts`).
+ * See docs/decisions/texting-assistant/turn-told-from-state.md.
  */
 
 /** FNV-1a over UTF-16 code units, 8 hex digits: a fingerprint, not a secret. */
@@ -37,6 +47,22 @@ export function manifestOf(parts) {
   for (const [id, text] of parts) {
     if (typeof text !== "string" || text === "") continue;
     out.push({ id, n: text.length, h: fingerprint(text) });
+  }
+  return out;
+}
+
+/** A module longer than this keeps its fingerprint only: a pasted note, say, which the history already holds. */
+export const MAX_KEPT_WORDS = 16_000;
+
+/**
+ * `[id, text]` pairs to `{fingerprint: text}`: the words of every module but the stable rules (`stable/...`, which the
+ * prompt catalogue holds at every commit), so Replay shows what a turn was told and not only how long it was.
+ */
+export function keptWordsOf(parts) {
+  const out = {};
+  for (const [id, text] of parts) {
+    if (typeof id !== "string" || id.startsWith("stable/") || typeof text !== "string" || text === "" || text.length > MAX_KEPT_WORDS) continue;
+    out[fingerprint(text)] = text;
   }
   return out;
 }

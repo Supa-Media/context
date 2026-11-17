@@ -55,10 +55,20 @@ export function inboxByName(namespace: DurableObjectNamespace, name: string): { 
  * (`textCounts.ts`). Cloudflare derives it with a key we do not hold, so it can't be turned back into the name.
  * Empty when there is no name or the namespace refuses it.
  */
+/** The id text of the object named `name`, or "" when there is no name or the namespace refuses it. This does not make a stub. */
+export function objectIdText(namespace: DurableObjectNamespace, name: string): string {
+  if (name === "") return "";
+  return idText(namespace, name);
+}
+
 export function inboxIdOf(namespace: DurableObjectNamespace, name: unknown): string {
   if (typeof name !== "string" || name === "") return "";
+  return idText(namespace, `enam:${name}`);
+}
+
+function idText(namespace: DurableObjectNamespace, name: string): string {
   try {
-    return namespace.idFromName(`enam:${name}`).toString();
+    return namespace.idFromName(name).toString();
   } catch {
     return "";
   }

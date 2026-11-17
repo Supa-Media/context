@@ -1,25 +1,27 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { BACKOFF_MS, probeHead, runLine, streamOnce } from "../container/listener.mjs";
+import { BACKOFF_MS, eventInstant, probeHead, proveRead, runLine, streamOnce } from "../container/listener.mjs";
+import { formatLog } from "../container/log.mjs";
+import { createReads } from "../container/reads.mjs";
 import { createLedger } from "../container/ledger.mjs";
 
 const LINE = "+15550100123";
 const DM = "any;-;+15550100999";
 const WHEN = new Date("2026-11-14T12:00:00.000Z");
 
-function text(seq) {
+function text(seq, at = WHEN) {
   return {
     type: "message.received",
     sequence: seq,
     chatGuid: DM,
     isFromMe: false,
-    occurredAt: WHEN,
+    occurredAt: at,
     message: {
       guid: `msg-${seq}`,
       chatGuids: [DM],
       isFromMe: false,
-      dateCreated: WHEN,
+      dateCreated: at,
       sender: { address: "+15550100999", service: "iMessage" },
       content: { text: `words ${seq}`, attachments: [], formatting: [], mentions: [] },
     },
@@ -191,4 +193,64 @@ test("runLine probes the head once for a line with no frontier", async () => {
   });
   assert.equal(probes, 1);
   assert.equal(ledger.frontier(LINE), 50);
+});
+
+test("the first catch-up reports the replay count and the oldest event's age", async () => {
+  const live = { messages: feed(), chats: feed(), groups: feed() };
+  const oldest = new Date("2026-11-17T15:00:00.000Z");
+  const newer = new Date("2026-11-17T16:00:00.000Z");
+  const client = fakeClient({ catchup: () => replay([text(101, oldest), text(102, newer)], 102), live });
+  const ledger = createLedger({ checkpoints: { [LINE]: 100 }, runId: "lag" });
+  const reads = [];
+  const now = Date.parse("2026-11-17T16:30:00.000Z");
+  const pending = streamOnce({
+    client,
+    line: LINE,
+    ledger,
+    onQueued: () => {},
+    signal: new AbortController().signal,
+    now: () => now,
+    onCatchup: (stats) => reads.push(stats),
+  });
+  await new Promise((resolve) => setTimeout(resolve, 20));
+  live.messages.fail(Object.assign(new Error("stop"), { code: "networkError" }));
+  await assert.rejects(pending, /stop/);
+  assert.deepEqual(reads, [{ replayed: 2, lagMs: 90 * 60 * 1000 }]);
+  assert.equal(eventInstant({ message: { dateCreated: oldest } }), oldest.getTime());
+  assert.equal(eventInstant({ type: "catchup.complete" }), null);
+});
+
+test("a Photon read that finishes counts, and one that hangs does not", async () => {
+  const ok = fakeClient({ catchup: () => completeAt(9), live: {} });
+  assert.equal(await proveRead(ok, 1000), 9);
+  const hung = fakeClient({
+    catchup: () => (async function* () {
+      await new Promise(() => {});
+    })(),
+    live: {},
+  });
+  await assert.rejects(proveRead(hung, 30), (error) => error.code === "readTimeout");
+});
+
+test("the first catch-up is logged with its lag, and a later poll is a read with nothing replayed", () => {
+  const logs = [];
+  let clock = 1_000;
+  const reads = createReads((record) => logs.push(JSON.parse(formatLog(record, new Date(clock)))), () => clock);
+  reads.start();
+  reads.catchup(LINE, { replayed: 4, lagMs: 8 * 60_000 });
+  reads.catchup(LINE, { replayed: 1, lagMs: 5 });
+  clock = 2_000;
+  reads.poll(LINE);
+  reads.fail(LINE, "readTimeout");
+  assert.equal(logs[0].event, "line.read");
+  assert.equal(logs[0].first, true);
+  assert.equal(logs[0].replayed, 4);
+  assert.equal(logs[0].lag_ms, 8 * 60_000);
+  assert.equal(logs[0].line, "0123");
+  assert.equal(logs.filter((record) => record.first === true).length, 1);
+  assert.deepEqual(logs[1], { ts: new Date(2000).toISOString(), event: "line.read", line: "0123", replayed: 0, lag_ms: 0 });
+  assert.equal(logs[2].event, "line.read_failed");
+  assert.equal(logs[2].error, "readTimeout");
+  assert.equal(JSON.stringify(logs).includes(LINE), false);
+  assert.deepEqual(reads.snapshot(), { startedAt: 1000, lastReadAt: 2000 });
 });

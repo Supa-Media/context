@@ -199,7 +199,15 @@ export function estimateJudging(requests, model) {
   const inputTokens = requests.reduce((sum, r) => sum + r.inputTokens, 0);
   // Verdicts run well under max_tokens; a quarter of it is a generous guess.
   const outputTokens = requests.reduce((sum, r) => sum + Math.ceil(r.outputTokens / 4), 0);
-  return { requests: requests.length, inputTokens, outputTokens, usd: priceOf(model, { input: inputTokens, output: outputTokens }) };
+  // Each request is its own call. Pricing the total would treat a pile of short prompts as one prompt past the cliff.
+  let usd = 0;
+  for (const request of requests) {
+    const price = priceOf(model, { input: request.inputTokens, output: Math.ceil(request.outputTokens / 4) });
+    if (price === null) return { requests: requests.length, inputTokens, outputTokens, usd: null };
+    usd += price;
+  }
+  if (requests.length === 0) usd = priceOf(model, { input: 0, output: 0 });
+  return { requests: requests.length, inputTokens, outputTokens, usd };
 }
 
 /**

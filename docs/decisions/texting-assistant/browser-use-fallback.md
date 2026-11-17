@@ -12,6 +12,15 @@ A 403 from Browserbase refusing the Verified tier, a billing 402, a
 capacity 503, and a generic error are not site blocks. The last seven days
 of 403s were all the Verified-tier refusal.
 
+The other browser starts blank. The retry replays the plan a silent submit
+already builds (`freshBrowserPlan` in `silentSubmit.js`): open the page the
+browser is on, then the steps already done, then this call's steps. It
+counts as cleared only when that replay shows no captcha or block and every
+step succeeded. A failed step is logged as `steps_failed` with the step's
+name, never the words that were typed. A fallback that does not clear leaves
+the question and the live view on the Browserbase browser, keeps the
+hand-off, and releases the Browser Use session.
+
 The gateway sends `provider: "browser-use"`. The screenshot Worker does not
 switch by itself. It uses the browser-session API and CDP only
 (`POST /api/v4/browsers`, `PATCH` stop, `PATCH /api/v4/browsers/{id}/proxy`,
@@ -61,9 +70,13 @@ Cloudflare's sampled logs.
 **What a simplification would cost:** routing every job to Browser Use, or
 treating a Verified-tier 403 as a site block, spends the $5 month cap on
 work Browserbase already does, or on a plan limit that is not a bot wall.
-Dropping the stop call keeps billing after the socket closes. Tests:
-`infra/site-shots/src/browserUse.test.ts` and
-`apps/mcp/test/browserUseFallback.test.mjs`.
+Counting a replay whose own step failed as cleared cancels the hand-off and
+points the person's question and live view at a blank browser, and the
+trial's `fallback.outcome` counts that failure as a success. Dropping the
+stop call keeps billing after the socket closes. Tests:
+`infra/site-shots/src/browserUse.test.ts`,
+`apps/mcp/test/browserUseFallback.test.mjs`, and
+`apps/mcp/test/replay/cases/fallback-steps-cleared.mjs`.
 
 Revisit a full switch after 20 or more real Browser Use jobs. Read the
 counts with `POST /browse/blocks` on the screenshot Worker (the gateway's

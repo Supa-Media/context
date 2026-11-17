@@ -100,6 +100,20 @@ async function openBinding(session, env, controlPlane, later = () => {}) {
 /** Where each opened binding came from (`openBinding`), read once by the store built from it. */
 const sources = new WeakMap();
 
+/**
+ * `{ binding: null }` on a 200 (`credentials.ts`): the same bytes for an unknown token and a workspace with no
+ * bucket, on purpose, so this is not a definite auth refusal. The route keeps the 503 and logs which path asked.
+ */
+function unbound(from, ms) {
+  const error = new StorageUnavailable("not bound");
+  error.ms = ms;
+  if (from?.source === "control_plane") {
+    error.upstream = 200;
+    error.code = "binding_null";
+  }
+  return error;
+}
+
 /** Ask the control plane for the binding and keep it in the object. Never throws: a failed refresh is tried next time. */
 async function refreshBehind(session, controlPlane, keep) {
   try {
@@ -172,10 +186,11 @@ async function openSessionStore(session, env, controlPlane) {
   // The request's `ctx.waitUntil` is laid on the store only after it opens (`http/requestStore.js`), so the routing
   // layer, and a binding refresh behind the response, are handed a door to it now.
   const behind = deferDoor();
+  const started = Date.now();
   const opened = await openBinding(session, env, controlPlane, (work) => behind.later(work));
   const { binding, searchIndex, meaningIndex, meaningOn, encryptionKey, rotation, noteCap } = opened;
 
-  if (binding === null) throw new StorageUnavailable("not bound");
+  if (binding === null) throw unbound(sources.get(opened), Date.now() - started);
   if (!binding || typeof binding !== "object") throw new StorageUnavailable("malformed binding");
   if (binding.status !== "active") throw new StorageUnavailable("not active");
 

@@ -1,19 +1,18 @@
 name: Promote to Production
 
 # A green CI run from a push to main starts Deploy to Production for the
-# newest commit on main that has also passed staging. A green staging run is
-# the other wake-up, so a staging re-run still ships a commit whose CI
-# already passed. scripts/promote-production.mjs picks the commit and
-# dispatches `prod-deploy/<sha>`, a branch at that commit. Dispatching `main`
-# would ship whatever
-# the tip was at creation time, including a commit CI has not passed.
+# newest commit on main whose CI succeeded. Staging is not a gate, and this
+# workflow does not listen for it. scripts/promote-production.mjs picks the
+# commit and dispatches `prod-deploy/<sha>`, a branch at that commit.
+# Dispatching `main` would ship whatever the tip was at creation time,
+# including a commit CI has not passed.
 #
 # A merge made with GITHUB_TOKEN does not start CI, so it does not start
 # this workflow either. A merge from a person or an agent using their own
 # credentials does. AUTO_DEPLOY_PRODUCTION=off leaves the manual press.
 on:
   workflow_run:
-    workflows: ["CI", "Deploy Staging"]
+    workflows: ["CI"]
     types: [completed]
 
 # One starter runs, and a newer wake-up replaces one that has not started.
@@ -31,9 +30,9 @@ permissions:
 jobs:
   promote:
     name: Start Deploy to Production
-    if: ${{ vars.AUTO_DEPLOY_PRODUCTION != 'off' && github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.head_branch == 'main' && github.event.workflow_run.head_repository.full_name == github.repository && ((github.event.workflow_run.name == 'CI' && github.event.workflow_run.event == 'push') || (github.event.workflow_run.name == 'Deploy Staging' && (github.event.workflow_run.event == 'push' || github.event.workflow_run.event == 'workflow_dispatch'))) }}
+    if: ${{ vars.AUTO_DEPLOY_PRODUCTION != 'off' && github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.head_branch == 'main' && github.event.workflow_run.head_repository.full_name == github.repository && github.event.workflow_run.name == 'CI' && github.event.workflow_run.event == 'push' }}
     runs-on: ubuntu-latest
-    timeout-minutes: 25
+    timeout-minutes: 5
     steps:
       - uses: actions/checkout@v5
       - uses: actions/setup-node@v5

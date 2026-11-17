@@ -38,9 +38,18 @@ Photon sends.
 
 - No public route. `workers_dev` is off and there are no routes. The agent
   reaches the outbound ops only through its `PHOTON` service binding.
-- Secrets: `PHOTON_PROJECT_ID` and `PHOTON_PROJECT_SECRET`, set by the deploy
-  workflow when both exist. Unset, the Worker answers 503 `unconfigured` and
-  nothing listens, so the deploy is inert.
+- Secrets: `PHOTON_PROJECT_ID` and `PHOTON_PROJECT_SECRET`, sent with the
+  Worker on `wrangler deploy --secrets-file` when both exist. Unset, the
+  Worker answers 503 `unconfigured` and nothing listens, so the deploy is
+  inert. A separate secret put after deploy is a second version and a second
+  container start, which is what left the bridge with no instance on
+  2026-11-17.
+- Health: `bridge.health` is ok only when a Photon read has succeeded within
+  two poll intervals (two minutes). Older than that is degraded. At three
+  minutes, with the container still claiming to be up, the object restarts
+  it. A missing container retries the wake and schedules the next alarm in
+  a few seconds. The first read after a start logs `line.read` with
+  `replayed` and `lag_ms` (the oldest event's age).
 
 ## Testing
 

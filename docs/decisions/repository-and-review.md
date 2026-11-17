@@ -219,13 +219,14 @@ afternoon (CI run 44150860615, Convex shard 6, sha 994abffb; production run
 44150879077 of that sha succeeded). `Start Production` is gone. `Promote to
 Production` runs on `workflow_run` of CI (push to main, conclusion success)
 and of Deploy Staging, and starts Deploy to Production for the newest commit
-on main whose CI and staging have both succeeded. The SHA is pinned by dispatching
+on main whose CI and staging have both succeeded. That staging gate was
+removed later the same day; see the amendment below. The SHA is pinned by dispatching
 `prod-deploy/<sha>`, a branch at that commit: `workflow_dispatch` cannot
 take a commit, and dispatching `main` would ship the tip at creation time.
 The deployment event is not used, because it runs the workflow file at the
 SHA and a same-repo branch could carry a modified one. `Deploy to
-Production` checks CI, staging and that the commit is still on main again
-before it changes anything. There is no bypass. `AUTO_DEPLOY_PRODUCTION=off`
+Production` checks CI and that the commit is still on main again
+before it changes anything. There is no bypass of a red CI run. `AUTO_DEPLOY_PRODUCTION=off`
 is still the manual press; `after-staging` is no longer a separate lane.
 
 A skipped job inside a green CI run does not block the release, because only
@@ -235,9 +236,7 @@ and the starter that runs re-reads main, so an older CI completion cannot
 deploy over a newer green commit. `concurrency: deploy-production` still does
 not cancel an in-progress rollout; a newer deployment replaces one that has
 not started. The OTA upload is its own workflow, started after the backends
-succeed, so it does not hold that queue. The staging requirement stays: the
-check inside the deploy is an API read, and the minutes are the wait until
-staging for that commit has succeeded, which the old lane skipped.
+succeed, so it does not hold that queue.
 `promote-production.test.mjs` and `production-release.test.mjs` pin the
 trigger, the refusal of a red CI, and the pin branch.
 
@@ -246,6 +245,14 @@ for the gateway suite. Staging's copy can be a different commit by the time
 production starts, and a cancelled staging run never ran it. The suite runs
 on the commit being deployed, beside Convex, and only the gateway deploy
 waits for it. A failed suite fails the release.
+
+**Amended later the same day by the owner: staging does not gate production.**
+The first hundred customers do not need a staging stop, and collapsed or
+still-pending staging runs were holding every release. `Promote to
+Production` listens only to CI on a push to `main` and deploys the newest
+commit whose CI succeeded. `Deploy to Production` no longer requires a
+staging run, on the automatic path or the manual press. `Deploy Staging`
+keeps running on its own. A red CI run still does not deploy.
 
 The import-coverage guard now checks `deploy-staging.yml`; its unfiltered main
 push covers every bundled file, including future packages. Production deploys

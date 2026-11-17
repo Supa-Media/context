@@ -7,6 +7,8 @@
 const FIELDS = new Set([
   "event", "line", "seq", "ms", "ok", "status", "error", "retryable",
   "frontier", "queued", "lines", "attempt", "delay_ms", "outcome", "op", "port",
+  // A Photon read: the first catch-up after start, and each later poll.
+  "first", "replayed", "lag_ms",
   // A provider failure's own reason, scrubbed (`errors.mjs` `errorDetail`).
   "field", "request", "grpc", "detail",
 ]);

@@ -40,7 +40,7 @@ import {
   StorageUnavailable,
   storeForSession,
 } from "../session.js";
-import { corsResponse, json } from "./responses.js";
+import { corsResponse, json, RETRY_AFTER } from "./responses.js";
 import { createControlPlane } from "../controlPlane.js";
 import { enforceOrigin, isTransportPath } from "../origin.js";
 import { handleAgent } from "../agent/route.js";
@@ -364,13 +364,27 @@ export async function route(request, env, ctx) {
         // Authenticated, but this workspace has no bucket we can reach. A
         // refusal, never a fallback: there is no other store to serve from and
         // reaching for one would be the cross-tenant bug itself.
+        // `not bound` stays 503. Convex answers `{ binding: null }` on HTTP 200 for an unknown token and for a
+        // workspace with no bucket, the same bytes (`credentials.ts`), so it is not a definite auth result.
+        // 401 would make the Tex page and the machines list drop a live token and call again. Retry-After is
+        // what an HTTP client can honor; the app's own poll does not read it.
+        if (error.reason === "not bound") {
+          console.error(JSON.stringify({
+            event: "storage_not_bound",
+            path,
+            upstream: Number.isInteger(error.upstream) ? error.upstream : null,
+            code: typeof error.code === "string" && /^[a-z0-9_]{1,40}$/.test(error.code) ? error.code : null,
+            ms: Number.isFinite(error.ms) ? error.ms : null,
+          }));
+        }
         return json(
           {
             error: "storage_unavailable",
             error_description:
               "This context has no reachable storage. Reconnect it from the dashboard.",
           },
-          503
+          503,
+          RETRY_AFTER,
         );
       }
 

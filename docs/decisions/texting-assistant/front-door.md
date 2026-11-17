@@ -141,3 +141,37 @@ it. No new example was written from a Dev row.
 **What a simplification would cost:** folding the check-in back into "do it
 yourself" makes a check-in start work nobody asked for. `agencyPrinciple.test.mjs`
 fails if the check-in sentence leaves `rules.md`.
+
+## Read-only calls in one round run together (2026-11-17)
+
+A round that called several tools ran them one after another. Over seven days,
+47 rounds did that, and one turn opened three Gmail accounts in sequence for
+about 43.5 seconds.
+
+The round runs its calls together only when every resolved name is in
+`PARALLEL_READS` (`apps/mcp/src/agent/parallelReads.js`). Those names are what
+`search` and `fetch` translate to (`search_notes`, `search_email`, `read_note`,
+`read_email`, and the other readers `translateFetch` names), plus `search_web`.
+The model still says `search`, `fetch` and `send` action `search_web`. One
+write, any other `send` action, a browser call (`browse`, `open_page`,
+`fill_login`, `fill_card`: one shared browser), a tool that can be held for a
+yes, or a call that can settle the turn keeps the whole round serial.
+
+Each call keeps its own timeout, and the budget is still read when the call
+starts. Calls that start together share that reading, so a later read in the
+round is not refused because an earlier one in the same round used the budget.
+A plain note save still goes through `settleNoteWrite`, because a write is
+never in that set. Results are appended in call order. A thrown call is still
+that call's error, with the reason kept out of the model's sight.
+`timing.toolMs` for a round that ran together is the wall time, so
+`tex_timing` counts the slowest call rather than the sum. The trace still
+keeps each call's own duration.
+
+**What running every call together would cost:** a write, a send, or two steps
+on the one browser would overlap, and a later call would no longer see that an
+earlier one in the round had failed or been held. `parallelReads.test.mjs`
+("two slow reads finish in about the time of the slower one", "a write mixed
+into the round keeps it serial", "results stay in call order when the later
+read finishes first") and `replay/cases/parallel-mail-searches.mjs` (two
+mailbox searches in one round start together, and the model still reads the
+first result first) fail.

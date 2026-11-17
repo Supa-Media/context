@@ -43,10 +43,17 @@ export function devShareOf(value) {
 
 const at = (names) => names.map((name) => (name === SOMEONE ? "someone without a handle" : `@${name}`)).join(", ");
 
-/** The words a group turn is told, or "" when the turn knows nothing about it. */
+/**
+ * When the control plane sent no state (it failed, or an older Worker): said, never left out, so the model doesn't fill
+ * it in (Dev2, 2026-11-17: "not known" when the field is missing).
+ */
+export const DEV_SHARE_NOT_KNOWN =
+  "\n\nSHARED WITH THE DEVELOPERS: whether the developers who build Tex can read this chat is not known right now. Never say it is or isn't, or who has said yes.";
+
+/** The words a group turn whose front door reads `devShare` is told: the state, or that it is not known. */
 export function devSharePrompt(devShare) {
   const state = devShareOf(devShare);
-  if (state === null) return "";
+  if (state === null) return DEV_SHARE_NOT_KNOWN;
   const switchLine =
     "Each person here with an account turns their own sharing on or off by saying \"Tex, share my chats with the devs\" or \"Tex, stop sharing with the devs\"; nobody can do it for someone else. ";
   if (state.shared) {

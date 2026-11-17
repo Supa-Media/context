@@ -326,26 +326,31 @@ export function browserSession(computer, { allowed, addresses, takePages, say = 
 
   // A job's long wait goes with the first run of each call only (`JOB_PAGE_WAIT_MS`).
   let longWait = false;
-  async function run(planned, { handoff = false, fresh = false, provider = null } = {}) {
+  async function run(planned, { handoff = false, fresh = false, provider = null, trial = false } = {}) {
     const waitMs = longWait ? JOB_PAGE_WAIT_MS : null;
     longWait = false;
-    const result = await computer.browse(session, planned, { ...(handoff ? { handoff: true } : {}), ...(fresh ? { fresh: true } : {}), ...(waitMs !== null ? { waitMs } : {}), ...(provider ? { provider } : {}), ...lease });
+    const result = await computer.browse(session, planned, { ...(handoff ? { handoff: true } : {}), ...(fresh ? { fresh: true } : {}), ...(waitMs !== null ? { waitMs } : {}), ...(provider ? { provider } : {}), ...(trial ? { trial: true } : {}), ...lease });
     if (result?.refused) return { refused: result.refused };
     if (typeof result?.handoffUrl === "string" && result.handoffUrl.startsWith("https://")) handoffLink = result.handoffUrl;
-    if (result?.session) session = result.session;
+    // A trial stays on the browser this question already has until it is kept.
+    if (result?.session && trial !== true) session = result.session;
     const reading = result?.page;
     if (!reading) return null;
-    try {
-      origin = new URL(reading.url).origin;
-    } catch {
-      origin = null;
-    }
     // Where the page went, and its links, were written by the page: as safe
-    // to open as a link on a page `open_page` read.
-    for (const href of [reading.url, ...reading.elements.map((e) => e.href)]) {
-      const url = canonicalUrl(href);
-      if (url) allowed.add(url);
-    }
+    // to open as a link on a page `open_page` read. A trial that is not kept
+    // must not move the question onto the other browser's page.
+    const remember = () => {
+      try {
+        origin = new URL(reading.url).origin;
+      } catch {
+        origin = null;
+      }
+      for (const href of [reading.url, ...(Array.isArray(reading.elements) ? reading.elements.map((e) => e.href) : [])]) {
+        const url = canonicalUrl(href);
+        if (url) allowed.add(url);
+      }
+    };
+    if (trial !== true) remember();
     return {
       reading,
       ran: Array.isArray(result.ran) ? result.ran : [],
@@ -359,6 +364,7 @@ export function browserSession(computer, { allowed, addresses, takePages, say = 
       costUsd: typeof result.costUsd === "number" ? result.costUsd : null,
       proxyMb: typeof result.proxyMb === "number" ? result.proxyMb : null,
       proxy: result.proxy === "managed" || result.proxy === "direct" ? result.proxy : null,
+      ...(trial && result?.session ? { adopt() { session = result.session; remember(); } } : {}),
     };
   }
 
@@ -520,7 +526,9 @@ export function browserSession(computer, { allowed, addresses, takePages, say = 
         done = await run(planned);
         let cleared = false;
         if (done !== null) ({ done, line: captchaLine, cleared } = await captchas.settle(done, (s, o) => run(s, o)));
+        // Settle records the steps. The captcha ladder already spoke, so it does not run, and the fallback still needs them.
         if (!cleared && captchaLine === "") ({ done, line: captchaLine } = await submits.settle(done, planned, shownElements, (s, o) => run(s, o)));
+        else submits.note(planned);
         // A site block may be tried once on Browser Use. A vendor 403, 402 or 503 is not one (`browserUseFallback.js`).
         ({ done, captchaLine, handoff, trigger, fallbackNote, fallbackCleared, fallback, tried: browserUseTried } = await retryOnBrowserUse({
           done, captchaLine, handoff, captchas, submits, computer, tried: browserUseTried, run, planned,

@@ -265,6 +265,19 @@ test("haiku input past 100k tokens is five times the published rate, output incl
   const over = { input: 1_000_000, output: 1_000_000, cacheRead: 1_000_000, cacheWrite: 1_000_000 };
   // 0.50 + 0.50 + 0.05 + 0.625
   assert.equal(priceUsd("claude-haiku-5-5", over), 1.675);
+  // The same tokens summed across calls stay on the published rate.
+  assert.equal(priceUsd("claude-haiku-5-5", { input: 1_000_000 }, { perCall: false }), 0.1);
+  assert.equal(priceUsd("claude-haiku-5-5", over, { perCall: false }), 0.735);
+});
+
+test("runPriceUsd prices summed Haiku input past 100k at the base rate", () => {
+  const model = "claude-haiku-5-5";
+  const usage = { input: 120_000, output: 1_000 };
+  const run = { model, usage, usageByModel: { [model]: usage }, rounds: { [model]: 4 } };
+  // Four rounds at 30k each. 120k in at $0.10 and 1k out at $0.50, not five times the input.
+  assert.equal(runPriceUsd(run), 0.0125);
+  assert.equal(runPriceUsd({ model, usage }), 0.0125);
+  assert.equal(priceUsd(model, usage), 0.0605);
 });
 
 test("priceUsd prices sonnet under both names", () => {
@@ -531,22 +544,22 @@ test("a planned setup is priced model by model, and the summary says the think m
       // Routed: one Opus round that planned, four Haiku rounds that drove.
       {
         setup: "plan-drive", question: 1, run: 1, model: HAIKU, tools: [{ tool: "router: think (0.90)", ok: true }], ms: 1000, texts: 1, conversation: [],
-        usage: { input: 110_000, output: 0 },
-        usageByModel: { [OPUS]: { input: 10_000, output: 0 }, [HAIKU]: { input: 100_000, output: 0 } },
+        usage: { input: 1_100_000, output: 0 },
+        usageByModel: { [OPUS]: { input: 100_000, output: 0 }, [HAIKU]: { input: 1_000_000, output: 0 } },
         rounds: { [OPUS]: 1, [HAIKU]: 4 },
       },
       // Not routed: all Haiku.
       {
         setup: "plan-drive", question: 2, run: 1, model: HAIKU, tools: [{ tool: "router: main", ok: true }], ms: 1000, texts: 1, conversation: [],
-        usage: { input: 100_000, output: 0 }, usageByModel: { [HAIKU]: { input: 100_000, output: 0 } }, rounds: { [HAIKU]: 5 },
+        usage: { input: 1_000_000, output: 0 }, usageByModel: { [HAIKU]: { input: 1_000_000, output: 0 } }, rounds: { [HAIKU]: 5 },
       },
     ],
   };
-  // Opus 0.01M at $4 + Haiku 0.1M at $0.1 = $0.05. Both stay under the 100k cliff.
-  assert.ok(Math.abs(runPriceUsd(planned.runs[0]) - 0.05) < 1e-12, String(runPriceUsd(planned.runs[0])));
+  // Opus 0.1M at $4 + Haiku 1M at $0.10 = $0.50. The Haiku million is four rounds, so it stays on the published rate, not 1.1M at Haiku's $0.11 and not five times $0.10.
+  assert.ok(Math.abs(runPriceUsd(planned.runs[0]) - 0.5) < 1e-12, String(runPriceUsd(planned.runs[0])));
   const md = resultMarkdown(planned);
-  assert.ok(md.includes("Routed: plan-drive sent 1 of 2 answers to anthropic/claude-opus-5-5 ($0.0500 each)"), md);
-  assert.ok(md.includes("Think share: plan-drive ran 1 of 10 model rounds (10%) and $0.0400 of $0.0600 model spend (67%) on anthropic/claude-opus-5-5, planning 1 round a routed answer; the target is about 20%."), md);
+  assert.ok(md.includes("Routed: plan-drive sent 1 of 2 answers to anthropic/claude-opus-5-5 ($0.5000 each)"), md);
+  assert.ok(md.includes("Think share: plan-drive ran 1 of 10 model rounds (10%) and $0.4000 of $0.6000 model spend (67%) on anthropic/claude-opus-5-5, planning 1 round a routed answer; the target is about 20%."), md);
   // The summary a person reads first carries it, and the note still parses.
   assert.ok(summaryMarkdown(md).includes("Think share: plan-drive"), "the summary keeps the line");
   assert.equal(parseResult(md).answers.length, 2);

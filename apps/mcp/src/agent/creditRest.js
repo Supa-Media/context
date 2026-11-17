@@ -149,6 +149,12 @@ function sameSecret(a, b) {
  * token the runner already holds. A wrong token is a 404, the same as a
  * worker with no such route. The body is an op and a payer name, never a key
  * and never a prompt.
+ *
+ * The runner's clock is not this worker's. A claim uses `Date.now()` here,
+ * and a spent mark is kept at most `CREDIT_REST_MS` ahead of it. A larger
+ * finite `until` is clamped and logged. A non-finite `until` is forwarded
+ * unchanged, the same as before this bound. Callers inside this worker do
+ * not come through here, and the object still stores the timestamp they send.
  */
 export async function handleCreditRest(request, env) {
   if (request.method !== "POST") return new Response(null, { status: 405 });
@@ -164,13 +170,29 @@ export async function handleCreditRest(request, env) {
     body = {};
   }
   try {
-    if (body?.op === "claim") return json(await store.claim(body.name, Number(body.now)));
-    if (body?.op === "spent") return json(await store.spent(body.name, Number(body.until)));
+    if (body?.op === "claim") return json(await store.claim(body.name, Date.now()));
+    if (body?.op === "spent") {
+      const bound = clampedUntil(body);
+      const result = await store.spent(body.name, bound.until);
+      if (bound.clamped) {
+        const payer = typeof body.name === "string" ? body.name.slice(0, 80) : null;
+        console.log(JSON.stringify({ event: "credit_rest_clamped", payer, asked: bound.asked, kept: bound.until }));
+      }
+      return json(result);
+    }
     if (body?.op === "clear") return json(await store.clear(body.name));
   } catch {
     return new Response(null, { status: 502 });
   }
   return new Response(null, { status: 400 });
+}
+
+/** The runner's `until`, at most one rest ahead of this worker. A non-finite value is unchanged. */
+function clampedUntil(body) {
+  const asked = Number(body?.until);
+  const cap = Date.now() + CREDIT_REST_MS;
+  if (!Number.isFinite(asked) || asked <= cap) return { until: asked, clamped: false };
+  return { until: cap, clamped: true, asked };
 }
 
 /** For tests: forget the process-wide copy. A store the test holds is its own. */
