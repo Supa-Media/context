@@ -774,49 +774,6 @@ jobs:
           EXPO_PUBLIC_CONVEX_URL: "https://native-bundle-check.invalid"
         run: pnpm exec expo export --platform "${{ matrix.platform }}" --output-dir "$RUNNER_TEMP/native-bundle"
 
-  # A pull request of only Tex config and data skips the three mobile shards
-  # (`skip-when-only` above), and with them `apps/mobile/__tests__/texLab*.test.ts`,
-  # which check that the Lab still draws the config those files were generated
-  # from. A Lab Promote changes only those files, so that wiring was proved
-  # only after merge (#3443 broke both deploys that way). This runs just those
-  # tests, and only then: a push to main is never "Tex data only", and the
-  # full mobile shards already cover any diff that also has code.
-  tex-lab-wiring:
-    name: Tex Lab wiring
-    runs-on: ubuntu-latest
-    timeout-minutes: 20
-    steps:
-      - uses: actions/checkout@v5
-
-      - uses: actions/setup-node@v5
-        with:
-          node-version: 22
-          package-manager-cache: false
-
-      - name: Is this only Tex config and data?
-        id: tex
-        uses: ./.github/actions/ci-scope
-        with:
-          mode: tex-data-only
-
-      - uses: pnpm/action-setup@v4
-        if: steps.tex.outputs.only == 'true'
-
-      - uses: actions/setup-node@v5
-        if: steps.tex.outputs.only == 'true'
-        with:
-          node-version: 22
-          cache: pnpm
-
-      - name: Install dependencies
-        if: steps.tex.outputs.only == 'true'
-        run: pnpm install --frozen-lockfile
-
-      - name: Run the Tex Lab wiring tests
-        if: steps.tex.outputs.only == 'true'
-        working-directory: apps/mobile
-        run: pnpm exec jest --testPathPattern '__tests__/texLab' --watchman=false
-
   # The app's own `tsc`. Without it a Convex function's return shape could
   # change under a screen that still read the old one: #2116 cut
   # `nodesMigration.report` rows to four fields while the staff Search tab

@@ -250,8 +250,8 @@ export function selfTest() {
   const block = /\n {6}skip-when-only: \|\n((?: {8}.*\n)+)/.exec(ci);
   const listed = block ? block[1].split("\n").map((line) => line.trim()).filter(Boolean) : [];
   if (listed.join("\n") !== TEX_DATA.join("\n")) throw new Error("ci.yml's skip-when-only is not TEX_DATA");
-  // The mobile shards skip a config-only diff, so the Lab's wiring tests have their own job, and only then.
-  const wiring = jobBlock(ci, "tex-lab-wiring");
+  // The mobile shards skip a config-only diff, so the Lab's wiring tests have their own workflow, and only then.
+  const wiring = jobBlock(readFileSync(join(root, ".github/workflows/tex-lab-wiring.yml"), "utf8"), "tex-lab-wiring");
   if (!wiring.includes("mode: tex-data-only")) throw new Error("Tex Lab wiring does not ask whether the diff is only Tex data");
   if (!wiring.includes("steps.tex.outputs.only == 'true'")) throw new Error("Tex Lab wiring is not limited to a Tex-data diff");
   if (!wiring.includes("pnpm exec jest --testPathPattern '__tests__/texLab'")) throw new Error("Tex Lab wiring does not run the texLab tests");
