@@ -389,6 +389,11 @@ export async function createWorld(bench, person, setupRaw, models, today = null,
   const chat = worldChat({ env, token, group, tagger, textedEvent, postEvents, workspaceId: () => ids.get(own.workspace), timeZone: models.timeZone ?? "UTC", mailbox: () => mail[0]?.address ?? null, mailArrives: (email) => world.mailArrives(email) });
   const world = {
     ...chat,
+    /** The chat before its text was there before the turn: what seeding it wrote (its kept pictures) is not a change the turn made. */
+    async earlier(...args) {
+      await chat.earlier(...args);
+      for (const name of before.keys()) before.set(name, snapshot(s3.bucketFor(`bench-${name}`)));
+    },
     /** One texted message, answered with the conversation so far; with `job`, one part of a job, as `jobRun.ts` asks it (`jobTasks.mjs`): their text is posted on part 1 only, the report never, and the done check's verdict and advice come back (`jobCheck.js` `jobFields`). */
     async text(message, attachments = [], { running = null, others = [], job = null, byCode = false, as = null, event = null, groupMail = null } = {}) {
       // The person opened the last handoff's link and signed in before texting.
@@ -593,7 +598,8 @@ export async function createWorld(bench, person, setupRaw, models, today = null,
           // save) is not something it did. Round two failed six change questions
           // for every setup on "changed another note", every one `privacy.md`.
           if (isPlumbingPath(path)) continue;
-          out.push({ workspace: name, path, kind: "written", detail: text.replace(/\s+/g, " ").trim().slice(0, 300) });
+          const added = was.has(path) && text.startsWith(was.get(path)) ? text.slice(was.get(path).length) : text; // what it added, not the top of a note
+          out.push({ workspace: name, path, kind: "written", detail: added.replace(/\s+/g, " ").trim().slice(0, 300) });
         }
         for (const path of was.keys()) {
           if (!now.has(path) && !isPlumbingPath(path)) out.push({ workspace: name, path, kind: "deleted", detail: "" });
