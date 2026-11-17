@@ -275,7 +275,19 @@ async function writeNote(writer, scope, rules, overrides, args, options, specula
   }
   const publishedForLink =
     sharing && scope === "private" && !requestedVisibility && existingVisibility !== "team";
-  const desiredVisibility = publishedForLink
+  /*
+   * A NEW NOTE IN A SHARED WORKSPACE TAKES ITS FOLDER'S DEFAULT (owner, 2026-11-17).
+   *
+   * A personal connection's new note defaulted to private everywhere, so a project Tex made in a shared workspace's
+   * team folder came out private, and the person's "use the folder's default" could only be remembered, never kept
+   * (`docs/decisions/privacy-and-sharing/shared-folder-default.md`). In a shared workspace the folder already says who
+   * reads what is put there, so a new note with no visibility asked for is given that folder's tier. Nothing wider
+   * than the folder is ever chosen here, and a personal workspace keeps the private default.
+   */
+  const folderDefault =
+    !exists && !requestedVisibility && !publishedForLink && scope === "private" &&
+    store.actor?.workspaceKind === "shared" && inheritedVisibility === "team";
+  const desiredVisibility = publishedForLink || folderDefault
     ? "team"
     : requestedVisibility || existingVisibility || scope;
   // An existing note saved with no visibility asked for keeps the tier it has: `desiredVisibility` is then the
@@ -316,7 +328,7 @@ async function writeNote(writer, scope, rules, overrides, args, options, specula
   // with the ungated one the default an agent reaches.
   const isPublishing =
     scope === "private" && desiredVisibility === "team" && (!exists || existingVisibility !== "team");
-  if (isPublishing && args.confirm_team_publish !== true && !publishedForLink) {
+  if (isPublishing && args.confirm_team_publish !== true && !publishedForLink && !folderDefault) {
     return toolError(
       "confirmation required: publishing this note to team makes it readable by every team-access connection. Retry with confirm_team_publish=true only after explicit user approval."
     );

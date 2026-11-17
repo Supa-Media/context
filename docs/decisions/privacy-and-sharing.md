@@ -179,3 +179,7 @@ Moved to [A link shows the pictures its note embeds, and no other object](./priv
 ### An AI connection holds its person's names
 
 [An AI connection reads what was shared with its person, as the app does](./privacy-and-sharing/ai-connection-names.md) (decided by the owner, 2026-11-03): every OAuth client gets the groups, handle and row tokens the app gets, so by-name shares and Tex group chat homes open to it; Context's own background clients still get none.
+
+### A new note in a shared workspace takes its folder's default
+
+[A new note in a shared workspace takes its folder's default](./privacy-and-sharing/shared-folder-default.md) (decided by the owner, 2026-11-17): a personal connection's new note with no visibility asked for gets its folder's team tier in a shared workspace; a personal workspace keeps the private default.
