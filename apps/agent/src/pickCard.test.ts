@@ -184,6 +184,20 @@ describe("an answer with option cards", () => {
     }
   });
 
+  it("a Photon 1:1 chat gets the card to choose with too, through the bridge's send/app", async () => {
+    const storage = new MemoryStorage();
+    await accept(storage, message("photon:mh_p1", `photon:${LINE}:${PHONE}`), 1_000);
+    const ops: string[] = [];
+    const photon = {
+      fetch: async (url: string) => {
+        ops.push(new URL(url).pathname.slice(1));
+        return Response.json({ ok: true, guid: "g" });
+      },
+    } as unknown as Fetcher;
+    await drain(storage, { ...deps(fake([])), photon });
+    expect(ops).toContain("send/app");
+  });
+
   it("finishes the answer when a line refuses the card, and sends nothing in its place", async () => {
     const storage = new MemoryStorage();
     await accept(storage, message("sendblue:mh_o3"), 1_000);

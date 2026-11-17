@@ -60,6 +60,7 @@ import { lineFor, type Line, type LineDeps } from "./line";
 import type { GroupPlace } from "./groupLine";
 import { pruneMedia } from "./media";
 import { isSendblueChat, WEB_ADDRESS } from "./sendblue";
+import { isPhotonChat } from "./photon";
 import { isWhapiChat } from "./whapi";
 import { carouselRun, isRefusal } from "./carousel";
 import { describePart, partsFor, shrinkPicture, type Media, type OutgoingPicture, type SendPart } from "./outgoing";
@@ -611,7 +612,8 @@ async function answering(message: Message, work: string, deps: InboxDeps, storag
   if (texts.length > 0 && message.channel !== "simulator") await watchConversation(storage, { kind: "one", phone: message.from }, deps.now());
   // A 👍 on any of these texts is a 👍 on the ask among them (`thumbs.ts`).
   await rememberAskReply(storage, texts, deps.now());
-  const cards = message.channel === "simulator" || !isSendblueChat(message.chatId) ? null : deps.appCard;
+  // Our Messages cards go where the line sends them: Sendblue and Photon (`photonLine.ts` `sendAppCard`).
+  const cards = message.channel === "simulator" || !(isSendblueChat(message.chatId) || isPhotonChat(message.chatId)) ? null : deps.appCard;
   if (pictures.length === 0) return done(await withAnswerCards(texts, { texts, choices: [], offers }, cards, viewLink(hub, deps.threadsLink)));
   // The simulator has no Linq to upload to; its log says a picture went.
   const upload =
