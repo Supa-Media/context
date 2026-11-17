@@ -256,18 +256,19 @@ export async function disarmChat(store, { chat, keep = [], now = Date.now() }) {
  * them, and the caller says so to the person.
  */
 export async function disarmRecords(store, entries) {
-  let stuck = 0;
-  for (const { key, etag, record } of entries) {
-    if (await deleteWithLegacyFallback(store, key).then(() => true, () => false)) continue;
-    try {
-      const put = await store.put(key, JSON.stringify({ ...record, texting: false }), etag ? { onlyIf: { etagMatches: etag } } : undefined);
-      if (put) continue;
-    } catch {
-      // counted below
-    }
-    stuck += 1;
-  }
-  return stuck;
+  const stuck = await Promise.all(
+    entries.map(async ({ key, etag, record }) => {
+      if (await deleteWithLegacyFallback(store, key).then(() => true, () => false)) return 0;
+      try {
+        const put = await store.put(key, JSON.stringify({ ...record, texting: false }), etag ? { onlyIf: { etagMatches: etag } } : undefined);
+        if (put) return 0;
+      } catch {
+        // counted below
+      }
+      return 1;
+    }),
+  );
+  return stuck.reduce((sum, count) => sum + count, 0);
 }
 
 /** What Tex is called as a client (`TEXTS_CLIENT_NAME` and its old name in `apps/convex/functions/textLinks.ts`). */
@@ -306,16 +307,15 @@ export async function armForText(store, { userId, ids, chat = null, now = Date.n
   */
   const stale = (await listPending(store, { userId, texting: true, chat: EVERY_CHAT, now })).filter(({ record }) => !wanted.has(record.id));
   if (stale.length > 0 && (await disarmRecords(store, stale)) > 0) throw new Error("an earlier ask could not be cleared");
-  for (const entry of found) await rearmForText(store, entry, true, now, chat);
+  await Promise.all(found.map((entry) => rearmForText(store, entry, true, now, chat)));
 }
 
 /** Drop asks by id for this person: a turn that failed before it could tell them. */
 export async function withdrawPending(store, { userId, ids, now = Date.now() }) {
   const wanted = new Set(ids);
   if (wanted.size === 0) return;
-  for (const { key, record } of await listPending(store, { userId, now })) {
-    if (wanted.has(record.id)) await deleteWithLegacyFallback(store, key).catch(() => {});
-  }
+  const pending = await listPending(store, { userId, now });
+  await Promise.all(pending.filter(({ record }) => wanted.has(record.id)).map(({ key }) => deleteWithLegacyFallback(store, key).catch(() => {})));
 }
 
 /**
