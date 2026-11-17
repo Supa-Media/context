@@ -67,9 +67,9 @@ test("a routine's instructions read back become the reminder", () => {
   const link = "https://developer.apple.com/contact/";
   assert.equal(
     runOutcome(`Remind them to call Apple about actually reviewing the Context app. Link to call them: ${link}`).text,
-    `Reminder: call Apple about actually reviewing the Context app. Link to call them: ${link}`,
+    `Call Apple about actually reviewing the Context app. Link to call them: ${link}`,
   );
-  assert.equal(spokenToThem("Remind me about the dentist at 3"), "Reminder: the dentist at 3");
+  assert.equal(spokenToThem("Remind me about the dentist at 3"), "The dentist at 3");
   assert.equal(spokenToThem("Tell them that the deposit cleared."), "The deposit cleared.");
   assert.equal(spokenToThem("Let them know the build is green"), "The build is green");
   assert.equal(runOutcome("DONE: Tell them it shipped.").text, "It shipped.");
@@ -110,7 +110,7 @@ test("a run is told its answer is the text, and a one-off is told to text the re
   const routine = { path: "tex/routines/once/call-apple.md", cadence: { unit: "once" }, settings: { at: "2026-10-23 9:00 am" }, body: "Remind them to call Apple." };
   const question = routineQuestion(routine, { now: Date.UTC(2026, 9, 23, 13), timeZone: "UTC", recent: "Your last texts with them, oldest first:\nThem: hi" });
   assert.match(question, /texted to them exactly as you write it/);
-  assert.match(question, /Text them the reminder itself/);
+  assert.match(question, /Text them the thing itself/);
   assert.doesNotMatch(question, /in their words/);
   assert.match(question, /nothing worth telling this time, call send with action say_nothing/);
   assert.match(question, /Them: hi/);
@@ -203,4 +203,19 @@ test("a run is told it can change their calendar, never to hand it back, and whe
   const offered = [{ name: "calendar_event" }, { name: "write_note" }, { name: "send_email" }, { name: "read_note" }];
   assert.deepEqual(routineCalendarTools(offered).map((tool) => tool.name), ["calendar_event"]);
   assert.deepEqual(routineCalendarTools(undefined), []);
+});
+
+// Dev2, 2026-11-17: a reminder texts just the thing at the right time; "I need Tex to be more succinct". Sabotage: the
+// "Reminder: " prefix put back in spokenToThem fails the first check; the due line taken out of the framing fails the rest.
+test("a reminder is the thing itself: code adds no label, and every run is told a reminder arrives when due", () => {
+  assert.equal(runOutcome("Remind them to stretch").text, "Stretch");
+  for (const cadence of [{ unit: "once" }, { unit: "day", every: 1 }]) {
+    const asked = routineQuestion(
+      { path: "tex/routines/x/stretch.md", cadence, settings: {}, body: "Remind them to stretch." },
+      { now: Date.UTC(2026, 10, 17, 14), timeZone: "UTC" },
+    );
+    assert.match(asked, /A reminder arrives when it is due, one-off or recurring, so don't label it a reminder or say that it is due now/);
+    assert.match(asked, /a time that is still ahead .* stays/);
+    assert.doesNotMatch(asked, /texts "Reminder:/);
+  }
 });

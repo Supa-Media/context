@@ -594,3 +594,11 @@ test("a group test's other members' lines are read with the text they come befor
   const { questions } = parseTest('---\njob: texting-assistant\ngroup: band\n---\n\n## 1. Ask\n\n- person starts: "tex hi"\n- @priya before text 2: "I can do Tuesday"\n');
   assert.deepEqual(questions[0].others, [{ from: "priya", before: 2, text: "I can do Tuesday" }]);
 });
+
+test("a one-off routine row is read as one, a daily routine row as daily", async () => {
+  const { parseTest } = await import("../load.mjs");
+  const md = '---\njob: texting-assistant\nrun_as: Maya\n---\n\n# T\n\n## 1. a\n\n- kind: task\n- one-off routine runs: "Remind them to stretch."\n- must: say stretch\n\n## 2. b\n\n- kind: task\n- routine runs: "reminder: meds"\n- must: say meds\n';
+  const [once, daily] = parseTest(md).questions;
+  assert.deepEqual([once.routine, once.routineOnce], ["Remind them to stretch.", true]);
+  assert.deepEqual([daily.routine, daily.routineOnce], ["reminder: meds", false]);
+});

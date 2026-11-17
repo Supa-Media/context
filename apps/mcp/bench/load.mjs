@@ -122,6 +122,9 @@ function readQuestion(sec) {
     // finds (`- check-in mail:` {from, subject, body}), or the routine's words (`- routine runs:` a JSON string).
     checkinMail: null,
     routine: null,
+    // A one-off reminder's run (`- one-off routine runs:`), placed in `tex/routines/once/` as production keeps one, so
+    // its run reads the one-off's own framing (`routine.js` routineQuestion); `- routine runs:` is a daily routine.
+    routineOnce: false,
     body: sec.lines.join("\n").trim(),
   };
   for (const raw of sec.lines) {
@@ -136,6 +139,10 @@ function readQuestion(sec) {
     else if ((m = line.match(/^- person starts:\s*(.*)$/))) q.personStarts = unquote(m[1]);
     else if ((m = line.match(/^- person texts:\s*(.*)$/))) q.texts = jsonText(m[1], sec.n);
     else if ((m = line.match(/^- routine runs:\s*(.*)$/))) q.routine = jsonText(m[1], sec.n);
+    else if ((m = line.match(/^- one-off routine runs:\s*(.*)$/))) {
+      q.routine = jsonText(m[1], sec.n);
+      q.routineOnce = true;
+    }
     else if ((m = line.match(/^- check-in mail:\s*(.*)$/))) q.checkinMail = mailLine(m[1], sec.n);
     else if ((m = line.match(/^- earlier (person|tex):\s*(.*)$/))) q.earlier.push({ from: m[1], text: jsonText(m[2], sec.n) });
     else if ((m = line.match(/^- earlier @([a-z0-9-]+):\s*(.*)$/))) q.earlier.push({ from: "person", who: m[1], text: jsonText(m[2], sec.n) });

@@ -269,9 +269,12 @@ export async function converse(world, question, person, mode = null, background 
  * or the routine runs with the case's words, through the real `/agent` on that client's grant. Nobody texts; what Tex
  * would text is the one answer.
  */
+/** Where a test's routine is placed: a one-off in `tex/routines/once/`, as production keeps one, else a daily one. */
+export const routinePathOf = (question) => (question.routineOnce === true ? "tex/routines/once/bench-reminder.md" : "tex/routines/daily/bench-routine.md");
+
 async function startedBy(world, question) {
   if (question.checkinMail) world.mailArrives(question.checkinMail);
-  const turn = question.checkinMail ? await world.checkIn() : await world.routine("tex/routines/daily/bench-routine.md", question.routine);
+  const turn = question.checkinMail ? await world.checkIn() : await world.routine(routinePathOf(question), question.routine);
   return { conversation: turn.ok ? [{ from: "assistant", text: turn.answer }] : [], ms: turn.ms, personMs: 0, tools: [], jobs: [], traces: [], usage: turn.usage, usageByModel: {}, rounds: {}, model: turn.model, error: turn.error, texts: turn.ok ? 1 : 0 };
 }
 
