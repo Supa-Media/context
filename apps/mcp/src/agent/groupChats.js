@@ -46,6 +46,20 @@ export function groupsOn(env) {
   }
 }
 
+/**
+ * Whether this turn's config wires the Cross-chat gate (`tools -> crossChatGate`): its `ask_chat` names a group from
+ * the same list, so the list is read for it even when the front door doesn't read groups (Dev2, 2026-11-17: a 1:1 asked
+ * to message Tex Devs, and `ask_chat` was missing because only the `groups` module read the list).
+ */
+export function asksOn(env) {
+  try {
+    const edges = texConfigOf(env)?.edges;
+    return Array.isArray(edges) && edges.some((edge) => edge?.from === "tools" && edge?.to === "crossChatGate");
+  } catch {
+    return false;
+  }
+}
+
 /** Whether a step's `ctx` lists the `groups` module. */
 export const readsGroups = (step) => Array.isArray(step?.ctx) && step.ctx.includes(GROUPS_MODULE);
 
