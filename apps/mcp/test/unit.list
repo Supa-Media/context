@@ -603,6 +603,7 @@ test/texTraining.test.mjs
 test/texTestSet.test.mjs
 test/labSandbox.test.mjs
 test/labSandboxChat.test.mjs
+test/labSandboxCross.test.mjs
 test/editNode.test.mjs
 test/labSandboxEvents.test.mjs
 test/labSandboxLive.test.mjs

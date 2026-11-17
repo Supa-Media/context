@@ -301,3 +301,21 @@ it live. Both are the same person's grant, so nothing is shared beyond them.
 
 **Tests**: `apps/mcp/test/texDevSandbox.test.mjs` (sabotaged: the not-run reasons, the wait's deadline, open's last
 rows) and the route's `about`/`use`/`read`/`list` in `labSandbox.test.mjs` (another person's never answers).
+
+## Cross-chat asks in a test chat (Dev2, 2026-11-17)
+
+Dev2's standing rule: a feature is done only once it works in the Lab. A test turn's `ask_chat` runs for real through
+the Cross-chat gate. The test chat's chat object sends the ask as production does, but the other chat's object is
+never the real one. `jobs.js` keeps the ask, and `crossRuns.js` carries it once the turn ends:
+
+- The group's linked test chat is opened once on that group and kept with the asking test chat as `linked:<key>`. It
+  takes the ask through its own chat object (`/cross-ask`) as a row of its own, and its run answers back without
+  texting there.
+- That answer reaches the asking test chat's object (`/cross-answer`), which runs its own turn with it.
+
+Each run is an ordinary test run (real models and reads, writes kept in the test chat), and each is counted as a sent
+text. The asking reply row names the linked chat and both rows (`cross`), and the `tex_dev` card carries them. One hop,
+as in production. A chat shared with the developers never asks, because its person's groups are theirs.
+
+Faking the ask, as test chats did before, made Dev2's 1:1 failure invisible in the Lab. Its tests are
+`apps/mcp/test/labSandboxCross.test.mjs` (sabotaged).

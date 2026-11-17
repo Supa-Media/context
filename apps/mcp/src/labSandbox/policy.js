@@ -151,9 +151,10 @@ export const READ_TOOLS = Object.freeze(
 /**
  * Tools that run for real in a test chat because what they do lands in it: a background job they start, steer or
  * restart runs in the test chat's own job objects (`jobs.js`), on the same fences; a progress line is texted on the
- * test chat's line. Their note writes and calls pass the fences like any other.
+ * test chat's line; an ask of Tex in another chat goes through the Cross-chat gate and runs in a linked test chat of
+ * that chat (`crossRuns.js`), and a do-ask's post lands in that test chat. Their note writes and calls pass the fences like any other.
  */
-export const RUN_IN_SANDBOX = Object.freeze(new Set(["start_background_job", "steer_background_job", "restart_background_job", "plan_big_ask", "text_progress"]));
+export const RUN_IN_SANDBOX = Object.freeze(new Set(["start_background_job", "steer_background_job", "restart_background_job", "plan_big_ask", "text_progress", "ask_chat", "post_in_chat"]));
 
 /**
  * Tools that need a browser or one of the person's computers, which a test chat never has: refused, said in words the

@@ -193,6 +193,9 @@ export function runCard({ rows, msgId, writes = [], graph, running = null, draft
     tex: said.map((r) => short(r.text, 2_000)),
     ...(later.length ? { jobTexts: later.map((r) => ({ id: r.id, text: short(r.text, 2_000), ...(Array.isArray(r.cause) ? { cause: r.cause } : {}) })) } : {}),
     ...(sent.length ? { texSent: sent.map((r) => ({ id: r.id, from: r.from ?? "fd", ...(Array.isArray(r.cause) ? { cause: r.cause } : {}), ...(Number.isFinite(r.line?.outMs) ? { lineOutMs: r.line.outMs } : {}) })) } : {}),
+    // An ask of Tex in another chat, carried after this run (`labSandbox/crossRuns.js`): the group's linked test chat and
+    // the rows its run and the answer's run came in on, each with its own card.
+    ...(Array.isArray(reply?.cross) && reply.cross.length ? { cross: reply.cross.map((c) => ({ ...cutDeep(c, 80), ...(c.ask ? { askCard: `card { sandboxId: "${c.sandboxId}", msgId: "${c.ask}" }` } : {}), ...(c.answer ? { answerCard: `card { msgId: "${c.answer}" } in this test chat` } : {}) })) } : {}),
     ...(reply?.quiet ? { quiet: short(reply.text || "Tex stayed quiet", 300) } : {}),
     ...(row.error || reply?.error ? { error: row.error ?? reply.error } : {}),
     time: {
