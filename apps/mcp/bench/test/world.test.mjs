@@ -8,6 +8,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 
 import { createWorld, manifest } from "../world.mjs";
+import { benchPicture } from "../earlierPictures.mjs";
 import { THREADS_SYSTEM } from "../../src/agent/conversationThreads.js";
 
 const SETUP = "---\njob: texting-assistant\nmodels:\n  main: anthropic/claude-haiku-5-5\n---\n\nYou are a test assistant.\n";
@@ -565,7 +566,10 @@ test("a picture sent earlier in the chat is in the next turn's history, as produ
     const chat = await world.chatLedger();
     const reply = chat.find((entry) => entry.kind === "reply" && typeof entry.attached === "string");
     assert.match(reply.attached, /link-preview\.png \(image \S+ in tex\/pictures\/\d{4}-\d{2}\.md\)/);
-    assert.ok((await world.text("what did that say?")).ok);
+    assert.deepEqual(world.changes().filter((c) => c.path.includes("pictures")), [], "the kept picture was there before the turn, not a change it made");
+    assert.ok((await world.text("what did that say?", [await benchPicture("link-preview.png")])).ok);
+    const kept = world.changes().find((c) => c.path.includes("pictures"));
+    assert.equal(kept?.detail.match(/upload-/g)?.length, 1, "a note it added to shows what it added, not the earlier picture");
     assert.ok(sent.some((body) => /link-preview\.png \(image \S+ in tex\/pictures\/\d{4}-\d{2}\.md\)/.test(JSON.stringify(body.messages))), "the turn is shown the picture where it was sent, by where it is kept");
   } finally {
     world.close();
