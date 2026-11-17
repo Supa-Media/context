@@ -94,10 +94,22 @@ export function packed(modules) {
   return { v: 2, lines, modules: out };
 }
 
-/** One line per entry, so a diff names the rule that changed. */
+/** The most characters of prompt lines packed onto one line of the file. */
+const ROW_CHARS = 2_000;
+
+/**
+ * One line per module, so a diff names the module that changed; the prompt lines packed a few to a row (up to
+ * ROW_CHARS), since whole Training conversations (`train:<node>:all`) put hundreds of short chat lines in, and one per
+ * row would take the file past the repository's 1,000-line limit.
+ */
 function written({ v, lines, modules }) {
   const mods = Object.entries(modules).map(([h, m]) => `    ${JSON.stringify(h)}: ${JSON.stringify(m)}`);
-  return `{\n  "v": ${v},\n  "modules": {\n${mods.join(",\n")}\n  },\n  "lines": [\n${lines.map((l) => `    ${JSON.stringify(l)}`).join(",\n")}\n  ]\n}\n`;
+  const rows = [];
+  for (const l of lines.map((x) => JSON.stringify(x))) {
+    if (rows.length > 0 && rows.at(-1).length + l.length + 2 <= ROW_CHARS) rows[rows.length - 1] += `, ${l}`;
+    else rows.push(l);
+  }
+  return `{\n  "v": ${v},\n  "modules": {\n${mods.join(",\n")}\n  },\n  "lines": [\n${rows.map((r) => `    ${r}`).join(",\n")}\n  ]\n}\n`;
 }
 
 const built = catalog();

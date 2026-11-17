@@ -227,11 +227,14 @@ const shapeOf = (m) => JSON.stringify(canon([Boolean(m.tex), m.kind ?? "", bare(
 /**
  * Every migrated case that is not one unbroken run of messages, with the same labels, inside the one repo
  * conversation whose `from` names it, as sentences. Speakers may be renamed; the shape of each message may not.
+ * A case no conversation names any more is not a problem: Dev2 removed the ten conversations the old cases were
+ * folded into (2026-11-17) for chats rebuilt from real texts, and the cases still run in their own bench areas.
  */
 export function placesOf(cases, repoConvs) {
   const out = [];
   for (const kase of cases) {
     const homes = repoConvs.filter((c) => [].concat(c.from ?? []).includes(kase.id));
+    if (homes.length === 0) continue;
     if (homes.length !== 1) {
       out.push(`${kase.id}: named by ${homes.length} conversations, not 1`);
       continue;
@@ -247,7 +250,7 @@ export function placesOf(cases, repoConvs) {
 /** Every problem across the conversations, as sentences; empty when all pass the contract. */
 export function problems(convs, config) {
   const out = [];
-  for (const c of convs) for (const p of check(c, config, { why: Object.keys(WHY) })) out.push(`${c.id}: ${p}`);
+  for (const c of convs) for (const p of check(c, config, { why: Object.keys(WHY), bench: false })) out.push(`${c.id}: ${p}`);
   return out;
 }
 
@@ -264,7 +267,9 @@ async function main(argv) {
     process.stderr.write(`${bad.join("\n")}\n`);
     return 1;
   }
-  process.stdout.write(`${convs.length} cases are inside the repo's conversations\n`);
+  const sets = await loadSets();
+  const named = convs.filter((kase) => sets.some((c) => [].concat(c.from ?? []).includes(kase.id))).length;
+  process.stdout.write(`${named} of ${convs.length} cases are named by the repo's conversations, and each named one is inside its conversation\n`);
   return 0;
 }
 
