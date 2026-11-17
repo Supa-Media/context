@@ -50,9 +50,10 @@ test("the chat and its summaries are two modules, each its span (days or all) an
   assert.equal(moduleSpan("chat:0:40000", "chat"), null, "no zero-day span");
   assert.equal(moduleSpan("chat:7:40000", "summaries"), null);
   assert.equal(moduleSpan("week", "chat"), null);
-  // Raised from 40k each on 2026-11-17 (Dev2: "raise these artificial limits to actual legit limits"): 40k cut 503 of
-  // a busy group's 721 texts that week.
-  assert.deepEqual(historyReads(texStep("fd")), { chat: { days: 7, chars: 200_000 }, summaries: { days: null, chars: 120_000 } });
+  // 40k of the week cut 503 of a busy group's 721 texts (2026-11-17). 130k holds that week (~132k characters).
+  // 200k of the week plus 120k of summaries put a full history over Haiku's 100k-token price cliff (a 1:1 round
+  // measured 138,187 tokens the same day). 30k keeps the newer older-day summaries, each with its read_day line.
+  assert.deepEqual(historyReads(texStep("fd")), { chat: { days: 7, chars: 130_000 }, summaries: { days: null, chars: 30_000 } });
   assert.equal(weekOn({}), true);
   const fd = texStep("fd");
   const drafted = withDraft(TEX_CONFIG, { nodes: [{ id: "fd", ctx: fd.ctx.filter((key) => !/^(chat|summaries):/.test(key)).concat("hist") }] });

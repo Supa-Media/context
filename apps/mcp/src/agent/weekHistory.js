@@ -43,9 +43,10 @@ const MAX_PAGES = 15;
 /** `read_day`: the most of a day's words one call answers; a longer day is read in parts. */
 export const READ_DAY_CHARS = 60_000;
 
-/** The reads when a config names none: the last 7 days within 200k characters, every summary within 120k (Dev2 named
- * 40k each first, 2026-11-17; raised the same day, when 40k cut a busy group's week to its newest third). */
-export const DEFAULT_READS = Object.freeze({ chat: Object.freeze({ days: 7, chars: 200_000 }), summaries: Object.freeze({ days: null, chars: 120_000 }) });
+/** The reads when a config names none: the last 7 days within 130k characters, every summary within 30k. 40k of the
+ * week cut a busy group's 721 texts to its newest 218 (2026-11-17); 130k holds that week. The larger caps (200k and
+ * 120k) put a full history over Haiku's 100k-token price cliff. Same numbers as the front door's `ctx`. */
+export const DEFAULT_READS = Object.freeze({ chat: Object.freeze({ days: 7, chars: 130_000 }), summaries: Object.freeze({ days: null, chars: 30_000 }) });
 
 /** The tool every older day names. */
 export const READ_DAY = "read_day";

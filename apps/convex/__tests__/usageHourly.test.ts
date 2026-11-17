@@ -132,8 +132,7 @@ describe("recordHourly", () => {
 
     const totals = await daily(t);
     expect(totals).toHaveLength(1);
-    expect(totals[0]).toMatchObject({ metric: "mcp.response_tokens.claude", count: 120 });
-    expect(totals[0].workspaceId).toBeUndefined();
+    expect(totals[0]).toMatchObject({ metric: "mcp.response_tokens.claude", count: 120, workspaceId });
   });
 
   test("a free workspace writes nothing", async () => {
@@ -249,7 +248,26 @@ describe("recordHourly", () => {
     });
     const totals = await daily(t);
     expect(totals).toHaveLength(1);
-    expect(totals[0]).toMatchObject({ metric: "mcp.calls.chatgpt", count: 2 });
+    expect(totals[0]).toMatchObject({ metric: "mcp.calls.chatgpt", count: 2, workspaceId });
+  });
+
+  test("two workspaces add their family totals on their own rows", async () => {
+    const t = setupTest();
+    const one = await workspace(t, "one", true);
+    const two = await workspace(t, "two", true);
+    await client(t, "client-gpt", "ChatGPT");
+    await t.mutation(internal.functions.usage.recordHourly, {
+      events: [event(one.workspaceId, { clientId: "client-gpt", metric: "mcp.calls", method: "count", count: 3 })],
+      at: AT,
+    });
+    await t.mutation(internal.functions.usage.recordHourly, {
+      events: [event(two.workspaceId, { clientId: "client-gpt", metric: "mcp.calls", method: "count", count: 4 })],
+      at: AT,
+    });
+    const totals = await daily(t);
+    expect(totals).toHaveLength(2);
+    expect(new Set(totals.map((row) => row.workspaceId))).toEqual(new Set([one.workspaceId, two.workspaceId]));
+    expect(totals.reduce((sum, row) => sum + row.count, 0)).toBe(7);
   });
 
   test("images and writes do not touch the family totals", async () => {

@@ -97,6 +97,7 @@ flowchart LR
     n_job["Background job<br/>Haiku 5.5 · effort medium<br/>graph/nodes/job.js · texJob.js · apps/agent jobRun.ts"]:::model
     n_handback["Hand-back judge<br/>Haiku 5.5 · effort low<br/>graph/nodes/handback.js · handbackJudge.js · claimCheck.js"]:::model
     n_jobadv["Job advisor<br/>Opus 5.5 · effort high<br/>graph/nodes/jobcheck.js · jobCheck.js · advisorRoles/jobMail.js"]:::model
+    n_partEnd["Part end<br/>code<br/>graph/nodes/partEnd.js · jobPartEnd.cjs · jobPartEndRoute.js · apps/agent jobPartEnd.ts"]:::code
   end
   n_checkin -->|look| n_fd
   n_notify -->|send| n_send
@@ -145,6 +146,7 @@ flowchart LR
   n_crossChatGate -.->|starts a new run: ask| n_chatAsk
   n_chatAnswer -.->|starts a new run: back| n_chatAsk
   n_tools -.->|uses: tapback| n_tapback
+  n_job -.->|uses: job| n_partEnd
   classDef start fill:#ffe3ee,stroke:#ff4f8b,color:#1d1838
   classDef code fill:#dcf7f3,stroke:#11b5a4,color:#1d1838
   classDef model fill:#ece5ff,stroke:#7b4dff,color:#1d1838
@@ -183,7 +185,7 @@ every wire, from the same config.
 | Bookkeeping | prepareBookkeeping | retired | off | code |  |  |  | texEntryPoint/prepareBookkeeping.js |
 | Prepare the answer | prepareTheAnswer | retired | off | code |  |  |  | texEntryPoint/prepareTheAnswer.js |
 | Router | router | retired | off | Clef |  |  | recent | router.js |
-| Front door | fd |  | on | Haiku 5.5 | medium |  | tools, skills, map, p-about-tex, p-rules, p-tools, p-working, p-sound-like-a-person, p-pictures, p-how-you-talk, train:fd:all:60000, caps, groups, summaries:all:120000, chat:7:200000, threads, about, date, ask | turn.js runTurn · texEntryPoint/runTheModel.js |
+| Front door | fd |  | on | Haiku 5.5 | medium |  | tools, skills, map, p-about-tex, p-rules, p-tools, p-working, p-sound-like-a-person, p-pictures, p-how-you-talk, train:fd:all:60000, caps, groups, summaries:all:30000, chat:7:130000, threads, about, date, ask | turn.js runTurn · texEntryPoint/runTheModel.js |
 | Fallback | fallback | retired | off | GLM-4.7 Flash |  |  |  | builtin.js |
 | Big-ask planner | planner | retired | off | Opus 5.5 | high |  | own, train:planner, ask, caps | planBigAsk.js |
 | Tools | tools | tools-subagents | on | code |  |  |  | callToolForSession |
@@ -221,8 +223,9 @@ every wire, from the same config.
 | Another chat asks | chatAsk |  | on | code |  |  |  | graph/nodes/chatAsk.js |
 | Answer the other chat | chatAnswer |  | on | code |  |  |  | graph/nodes/chatAnswer.js |
 | Tapback | tapback | tools-subagents | on | code |  |  |  | graph/nodes/tapback.js · tapbackEnding.js |
+| Part end | partEnd | jobs | on | code |  |  |  | graph/nodes/partEnd.js · jobPartEnd.cjs · jobPartEndRoute.js · apps/agent jobPartEnd.ts |
 
-Wires: checkin → fd (wait, look) · notify → send (wait, send) · oldLine → send (wait, redirect) · edit → triage (wait, turn) · moveChat → send (wait, person, group) · triage → decide (wait, judge, running) · triage → lanes (wait, tex) · decide → react (wait) · decide → lanes (wait) · fd → tools (uses, action) · tools → mail (uses, email) · tools → card (uses, card) · fd → job (job, job) · job → handback (job, job) · tools → egress (uses, share) · tools → picture (uses, picture) · picture → card (uses) · nightly → dream (wait, dream) · dream → daysum (wait, summarize) · nightly → housekeep (wait, housekeeping) · tools → advisor (uses, ask_advisor) · job → jobadv (uses, job) · job → tools (uses, job) · triage → doorStep (provisional, stop:running) · decide → doorStep (provisional, stop:quiet, restart:wait) · lanes → doorStep (provisional) · text → triage (wait) · doorStep → fd (wait, next) · send → learn (background, fired) · send → afterReply (background, sent, threads) · fd → answerCheck (wait) · answerCheck → send (wait) · answerCheck → fd (loop) · doorStep → bypass (wait, answered) · bypass → send (wait) · staff → moveChat (wait, move) · routine → fd (wait, run) · routine → bypass (wait, stopped) · fd → planner (uses, big) · send → chatDays (background, sent, ended, answered) · tools → moveJudge (uses, move) · tools → crossChatGate (uses, ask_chat) · chatAsk → lanes (wait, ask, answer) · answerCheck → chatAnswer (wait, ask) · crossChatGate → chatAsk (generator, ask) · chatAnswer → chatAsk (generator, back) · tools → tapback (uses, tapback)
+Wires: checkin → fd (wait, look) · notify → send (wait, send) · oldLine → send (wait, redirect) · edit → triage (wait, turn) · moveChat → send (wait, person, group) · triage → decide (wait, judge, running) · triage → lanes (wait, tex) · decide → react (wait) · decide → lanes (wait) · fd → tools (uses, action) · tools → mail (uses, email) · tools → card (uses, card) · fd → job (job, job) · job → handback (job, job) · tools → egress (uses, share) · tools → picture (uses, picture) · picture → card (uses) · nightly → dream (wait, dream) · dream → daysum (wait, summarize) · nightly → housekeep (wait, housekeeping) · tools → advisor (uses, ask_advisor) · job → jobadv (uses, job) · job → tools (uses, job) · triage → doorStep (provisional, stop:running) · decide → doorStep (provisional, stop:quiet, restart:wait) · lanes → doorStep (provisional) · text → triage (wait) · doorStep → fd (wait, next) · send → learn (background, fired) · send → afterReply (background, sent, threads) · fd → answerCheck (wait) · answerCheck → send (wait) · answerCheck → fd (loop) · doorStep → bypass (wait, answered) · bypass → send (wait) · staff → moveChat (wait, move) · routine → fd (wait, run) · routine → bypass (wait, stopped) · fd → planner (uses, big) · send → chatDays (background, sent, ended, answered) · tools → moveJudge (uses, move) · tools → crossChatGate (uses, ask_chat) · chatAsk → lanes (wait, ask, answer) · answerCheck → chatAnswer (wait, ask) · crossChatGate → chatAsk (generator, ask) · chatAnswer → chatAsk (generator, back) · tools → tapback (uses, tapback) · job → partEnd (uses, job)
 <!-- tex-config: steps end -->
 
 ## The rule

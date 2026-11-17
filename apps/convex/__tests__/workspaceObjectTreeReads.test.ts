@@ -6,11 +6,11 @@
  *
  * Parity first: after a real push, the object's store answers exactly what Convex's rows answer, for an owner and for
  * a team member kept out of a private folder. Then: Convex's rows answer only while the object cannot be the whole
- * answer (not on its object, a change still waiting in the outbox, the object behind), and a walk that finds the
- * object behind part way fails rather than mixing the two.
+ * answer (not on its object, a push that may narrow or replace the tree, the object behind), and a walk that finds the
+ * object behind part way fails rather than mixing the two. A content edit still waiting is read from the object.
  *
  * Sabotage, each confirmed to fail a case here: drop the object branch from `servedNodesStore` (the object-only rows
- * never show), drop the `waitingSince` check (a share taken back is served from the object's older rules), drop the
+ * never show), drop the `treeReadsWait` check (a share taken back is served from the object's older rules), drop the
  * `behind` check on the first page (the object's pre-narrowing rules are used), ignore `root` in `filesPage`.
  */
 
@@ -129,6 +129,26 @@ describe("the control plane's tree reads come from the workspace object", () => 
     const after = ops().length;
     expect(await shown(await servedNodesStore(actionCtx(t), workspaceId, NO_BUCKET), "team")).not.toContain("plans/a.md");
     expect(ops().slice(after)).toContain("ws.rows.files");
+  });
+
+  test("a content edit still waiting is read from the object, and a long outbox is not", async () => {
+    const { t, workspaceId, ops } = await pushedWorld();
+    await t.run(async (ctx) => {
+      await ctx.db.insert("workspaceObjectOutbox", { workspaceId, nodeIds: [], access: false, at: Date.now() });
+    });
+    const before = ops().length;
+    expect(await shown(await servedNodesStore(actionCtx(t), workspaceId, NO_BUCKET), "team")).toContain("plans/a.md");
+    expect(ops().slice(before)).toContain("ws.rows.files");
+    // Past the cap the read cannot see whether a later entry narrows, so it uses Convex.
+    await t.run(async (ctx) => {
+      for (const row of await ctx.db.query("workspaceObjectOutbox").collect()) await ctx.db.delete(row._id);
+      for (let n = 0; n < 50; n += 1) {
+        await ctx.db.insert("workspaceObjectOutbox", { workspaceId, nodeIds: [], access: false, at: n });
+      }
+    });
+    const mid = ops().length;
+    expect(await shown(await servedNodesStore(actionCtx(t), workspaceId, NO_BUCKET), "team")).toContain("plans/a.md");
+    expect(ops().slice(mid)).not.toContain("ws.rows.files");
   });
 
   test("an object with a mark open is not read: Convex's rows answer", async () => {

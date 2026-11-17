@@ -9,11 +9,13 @@
  * `nodeTrees`. Privacy is still decided by the unchanged callers with `canSee`, over this mirror.
  *
  * It answers `null`, and the caller reads Convex's rows as before, where it cannot be the whole answer: the workspace
- * is not on its object, the gateway is unreachable from this deployment, a change Convex committed is still waiting in
- * the push's outbox (`workspaceObjectPush.waitingSince`, what a binding's `notesBehind` says), a chunked move is being drawn over Convex's
- * rows (`nodeRowMoves.drawn`, folded there and nowhere else), or the object is behind (a mark is open: a narrowing
- * Convex already took may not have landed, and Convex's rows are the newer). A page that finds the object behind
- * part way through a walk fails the walk rather than mix the two.
+ * is not on its object, the gateway is unreachable from this deployment, a waiting push may narrow what a reader
+ * sees, replace the tree, or clear the binding (`workspaceObjectPush.treeReadsWait`), a chunked move is being drawn
+ * over Convex's rows (`nodeRowMoves.drawn`, folded there and nowhere else), or the object is behind (a mark is open:
+ * a narrowing Convex already took may not have landed, and Convex's rows are the newer). A content edit still
+ * waiting in the outbox is read here: the object holds the notes, and a scan of every node document for that edit
+ * was most of `nodes.listLive`. A page that finds the object behind part way through a walk fails the walk rather
+ * than mix the two.
  */
 
 import { internal } from "../../../_generated/api";
@@ -89,9 +91,11 @@ export async function objectTreeClient(
   if (home !== "object") return null;
   const client = options.client !== undefined ? options.client : consoleWorkspaceClient(ctx, workspaceId, { caller: "tree" });
   if (client === null) return null;
-  // A change Convex committed and the object has not taken yet (a public mutation cannot wait for its push): Convex's
-  // rows are the newer until it lands, as every binding opened now says (`notesBehind`).
-  if (await ctx.runQuery(internal.functions.workspaceObjectPush.waitingSince, { workspaceId, at: Number.MAX_SAFE_INTEGER })) return null;
+  // A change Convex committed and the object has not taken yet. A narrowing, a whole-tree push, an unmarked
+  // narrowing, or a binding clear: Convex's rows are the ones a reader must see, so the caller scans them.
+  // A content edit still waiting is not one of those. The object already holds the notes, and scanning every
+  // node document to show one edit was most of `nodes.listLive`'s bytes (137 GB, Oct 18 to Nov 17).
+  if (await ctx.runQuery(internal.functions.workspaceObjectPush.treeReadsWait, { workspaceId })) return null;
   const moves = await ctx.runQuery(internal.functions.nodeRowMoves.drawn, { workspaceId });
   if (moves.length > 0) return null;
   return client;
