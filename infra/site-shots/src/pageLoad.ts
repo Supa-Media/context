@@ -36,3 +36,36 @@ const PROXY_CONNECT = /net::ERR_(?:SOCKS|PROXY|TUNNEL)_/;
 export function proxyConnectFailure(reason: unknown): boolean {
   return typeof reason === "string" && PROXY_CONNECT.test(reason);
 }
+
+/**
+ * Chrome reports `net::ERR_ABORTED` for a redirect it then follows. The main
+ * frame has landed when its address is a real http(s) host and the document
+ * status is 2xx or 3xx. An error page, or an abort with no such status, is
+ * still a failure.
+ */
+function landedAfterRedirect(href: unknown, status: unknown): boolean {
+  const code = typeof status === "number" && Number.isInteger(status) ? status : NaN;
+  if (code < 200 || code >= 400) return false;
+  if (typeof href !== "string" || /^(about|chrome-error|chrome|blob|data):/.test(href)) return false;
+  try {
+    const url = new URL(href);
+    return (url.protocol === "http:" || url.protocol === "https:") && url.hostname.length > 0 && url.hostname !== "chromewebdata";
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Why this navigation failed, or null when the page is usable. `status` is
+ * the main frame's document status. `net::ERR_ABORTED` alone is not a failure
+ * after a redirect onto a real host.
+ */
+export function navigationFailure(href: unknown, netError: unknown, status: unknown): string | null {
+  const text = typeof netError === "string" ? netError : "";
+  const net = NET.exec(text)?.[0] ?? "";
+  if (net === "net::ERR_ABORTED" && landedAfterRedirect(href, status)) return null;
+  const page = pageLoadFailure(href, text);
+  if (page) return page;
+  if (net) return net;
+  return null;
+}

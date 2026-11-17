@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { gotoFailureReason, pageLoadFailure, proxyConnectFailure } from "./pageLoad";
+import { gotoFailureReason, navigationFailure, pageLoadFailure, proxyConnectFailure } from "./pageLoad";
 
 describe("pageLoadFailure", () => {
   it("is Chrome's network error page, with the net error text when we have it", () => {
@@ -25,5 +25,20 @@ describe("pageLoadFailure", () => {
     expect(proxyConnectFailure("net::ERR_TUNNEL_CONNECTION_FAILED")).toBe(true);
     expect(proxyConnectFailure("net::ERR_CONNECTION_RESET")).toBe(false);
     expect(proxyConnectFailure("that did not work on this page")).toBe(false);
+  });
+});
+
+describe("navigationFailure", () => {
+  it("ignores ERR_ABORTED once a redirect has landed on a real host", () => {
+    expect(navigationFailure("https://www.airfrance.fr/", "net::ERR_ABORTED", 200)).toBeNull();
+    expect(navigationFailure("https://wwws.airfrance.us/check-in", "net::ERR_ABORTED", 302)).toBeNull();
+    expect(navigationFailure("https://www.airfrance.com/", "Page.navigate net::ERR_ABORTED", 200)).toBeNull();
+  });
+
+  it("still fails an abort that did not land, and any other net error", () => {
+    expect(navigationFailure("chrome-error://chromewebdata/", "net::ERR_ABORTED", 200)).toBe("net::ERR_ABORTED");
+    expect(navigationFailure("https://www.airfrance.com/", "net::ERR_ABORTED", 0)).toBe("net::ERR_ABORTED");
+    expect(navigationFailure("https://chromewebdata/", "net::ERR_SOCKS_CONNECTION_FAILED", 0)).toBe("net::ERR_SOCKS_CONNECTION_FAILED");
+    expect(navigationFailure("https://wwws.airfrance.us/check-in", "", 200)).toBeNull();
   });
 });

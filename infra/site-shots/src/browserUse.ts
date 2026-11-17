@@ -111,6 +111,8 @@ export interface SessionCost {
   totalUsd: number;
   proxyMb: number;
   bytes: number;
+  /** True when the vendor did not say, and `totalUsd` is the elapsed-time estimate. */
+  estimated?: boolean;
 }
 
 /** What the stopped browser cost. Null when the browser object has no numbers. */
@@ -136,13 +138,26 @@ function money(value: unknown): number | null {
   return Number.isFinite(n) && n >= 0 ? n : null;
 }
 
+/** Published browser time: 50 browsers for one hour is $3, so one browser-hour is $0.06. */
+const BROWSER_HOUR_USD = 0.06;
+
+/**
+ * What to charge when neither the browser object nor the balance drop can be
+ * read. Elapsed minutes at $0.06 an hour, plus $0.01, so the day's cap still
+ * binds. A zero that was actually read is not this.
+ */
+export function estimatedSessionUsd(elapsedMs: number): number {
+  const minutes = (Number.isFinite(elapsedMs) && elapsedMs > 0 ? elapsedMs : 0) / 60_000;
+  return Math.round((minutes * (BROWSER_HOUR_USD / 60) + 0.01) * 1_000_000) / 1_000_000;
+}
+
 /**
  * Spend to record for a stopped browser. The browser object's own costs when
  * they are above zero; otherwise the drop in `totalCreditsBalanceUsd` from
- * before the session to after the stop. Never a made-up day of spend: a
- * missing number charges nothing, and the next fallback is not refused for it.
+ * before the session to after the stop. When neither number can be read, the
+ * charge is `estimatedSessionUsd`, not zero and not the whole day.
  */
-export async function sessionSpend(env: BrowserUseKey, id: string, balanceBefore: number | null, fetcher: typeof fetch = fetch): Promise<SessionCost | null> {
+export async function sessionSpend(env: BrowserUseKey, id: string, balanceBefore: number | null, elapsedMs: number, fetcher: typeof fetch = fetch): Promise<SessionCost> {
   const listed = await sessionCost(env, id, fetcher);
   if (listed && listed.totalUsd > 0) return listed;
   if (balanceBefore !== null) {
@@ -150,9 +165,12 @@ export async function sessionSpend(env: BrowserUseKey, id: string, balanceBefore
       const after = await creditBalanceUsd(env, fetcher);
       const delta = Math.round((balanceBefore - after) * 1_000_000) / 1_000_000;
       if (delta > 0) return { totalUsd: delta, proxyMb: listed?.proxyMb ?? 0, bytes: listed?.bytes ?? 0 };
+      if (listed) return listed;
+      return { totalUsd: 0, proxyMb: 0, bytes: 0 };
     } catch {
-      // The balance call failed. Fall through to the listed zero, or nothing.
+      // The balance call failed. A listed zero was still read. Otherwise estimate.
     }
   }
-  return listed;
+  if (listed) return listed;
+  return { totalUsd: estimatedSessionUsd(elapsedMs), proxyMb: 0, bytes: 0, estimated: true };
 }

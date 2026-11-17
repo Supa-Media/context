@@ -41,8 +41,10 @@ A stopped browser's spend is `browserCost` plus `proxyCost` on
 object is the browser session. `GET /api/v4/sessions/{id}/cost` is an
 agent session, which a browser Tex started does not have. When the
 browser object still shows zero, the drop in `totalCreditsBalanceUsd`
-from before the session to after the stop is the spend. A number that
-cannot be read charges nothing, and does not use up the day's cap.
+from before the session to after the stop is the spend. When neither
+number can be read, the charge is the minutes the browser was open at
+$0.06 an hour, plus $0.01, so the day's cap still binds. A zero that was
+read stays zero. It is not charged as the whole day.
 
 Caps, enforced in the screenshot Worker and failing closed: 15 minutes a
 job, $1 a New York day, $5 a New York month, and a vendor balance under

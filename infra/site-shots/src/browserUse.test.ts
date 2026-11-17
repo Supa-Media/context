@@ -7,7 +7,7 @@
 import { describe, expect, it } from "vitest";
 import { BrowseLedger } from "./browserUseLedger";
 import { browseOnBrowserUse, type DriveResult } from "./browserUseRoute";
-import { browserUseAllowed, createBrowser } from "./browserUse";
+import { browserUseAllowed, createBrowser, estimatedSessionUsd, sessionSpend } from "./browserUse";
 import { BROWSER_USE_CEILING, browseLogRow, capRefusal, effectiveCaps, nyPeriod, summarizeBrowseLog, type BrowseLogRow } from "./browserUsePolicy";
 import { documentForbidden, digestLogs } from "./sessionLogs";
 
@@ -222,7 +222,7 @@ describe("browseOnBrowserUse", () => {
     expect(api.calls.filter((call) => call.method === "PATCH")).toHaveLength(1);
   });
 
-  it("charges the balance drop when the browser object has no cost yet, and nothing when neither can be read", async () => {
+  it("charges the balance drop when the browser object has no cost yet, and an estimate when neither can be read", async () => {
     const book = new BrowseLedger(kv());
     let balanceReads = 0;
     const fetcher = (async (input: RequestInfo | URL, init?: RequestInit) => {
@@ -255,7 +255,27 @@ describe("browseOnBrowserUse", () => {
       return new Response("no", { status: 404 });
     }) as typeof fetch;
     await browseOnBrowserUse(ledgerEnv(blind), "/browse", { owner: OWNER, steps: [{ do: "read" }], keep: false }, down, driveOk);
-    expect((await blind.spent()).dayUsd).toBe(0);
+    const estimated = (await blind.spent()).dayUsd;
+    expect(estimated).toBeGreaterThanOrEqual(0.01);
+    expect(estimated).toBeLessThan(0.011);
+  });
+
+  it("estimates an unread session at $0.06 an hour plus $0.01, and keeps a balance that did not move at zero", () => {
+    expect(estimatedSessionUsd(0)).toBe(0.01);
+    expect(estimatedSessionUsd(60_000)).toBeCloseTo(0.011);
+    expect(estimatedSessionUsd(60 * 60_000)).toBeCloseTo(0.07);
+  });
+
+  it("does not estimate when the balance was read and did not drop", async () => {
+    const fetcher = (async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      const method = init?.method ?? "GET";
+      if (url.endsWith("/api/v2/billing/account")) return Response.json({ totalCreditsBalanceUsd: 4.977575 });
+      if (method === "GET" && url.includes("/api/v4/browsers/")) return new Response("no", { status: 404 });
+      return new Response("no", { status: 404 });
+    }) as typeof fetch;
+    const cost = await sessionSpend({ BROWSER_USE_API_KEY: "bu_test_key" }, SESSION, 4.977575, 60_000, fetcher);
+    expect(cost).toEqual({ totalUsd: 0, proxyMb: 0, bytes: 0 });
   });
 
   it("turns the proxy off once after a SOCKS failure and records direct", async () => {

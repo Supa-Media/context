@@ -99,7 +99,8 @@ function outcomeOf(result: DriveResult): { outcome: BrowseOutcome; reason?: Bloc
  * false when the stop itself failed, so the caller keeps the session for
  * the idle alarm to try again. Cost is the browser object's `browserCost`
  * plus `proxyCost`, or the drop in the account balance when those are still
- * zero. A missing number charges nothing: it does not spend the day's cap.
+ * zero. When neither can be read, the charge is the minutes open at $0.06
+ * an hour plus $0.01, so the cap still binds. A zero that was read stays zero.
  */
 export async function endBrowserUseSession(env: BrowserUseEnv, session: OwnedSession, fetcher: typeof fetch = fetch, balanceBefore: number | null = null): Promise<boolean> {
   if (session.charged) return true;
@@ -109,9 +110,10 @@ export async function endBrowserUseSession(env: BrowserUseEnv, session: OwnedSes
     console.log(JSON.stringify({ event: "site_shots_browser_use_stop_failed" }));
     return false;
   }
-  const cost = await sessionSpend(env, session.id, balanceBefore, fetcher);
-  const usd = cost?.totalUsd ?? 0;
-  if (cost === null) console.log(JSON.stringify({ event: "site_shots_browser_use_cost_unknown" }));
+  const elapsed = Math.max(0, Date.now() - session.started);
+  const cost = await sessionSpend(env, session.id, balanceBefore, elapsed, fetcher);
+  const usd = cost.totalUsd;
+  if (cost.estimated) console.log(JSON.stringify({ event: "site_shots_browser_use_cost_estimated", usd }));
   const stub = ledgerStub(env);
   try {
     if (usd > 0) await stub?.addSpend(usd);

@@ -12,7 +12,7 @@
  * off (`PATCH /api/v4/browsers/{id}/proxy` `{"mode":"direct"}`).
  *
  *   BROWSER_USE_API_KEY=… node scripts/browser-use-lab.mjs
- *   BROWSER_USE_API_KEY=… node scripts/browser-use-lab.mjs https://wwws.airfrance.com/check-in
+ *   BROWSER_USE_API_KEY=… node scripts/browser-use-lab.mjs https://wwws.airfrance.us/check-in
  *   BROWSER_USE_API_KEY=… node scripts/browser-use-lab.mjs --proxy direct
  *   BROWSER_USE_API_KEY=… node scripts/browser-use-lab.mjs https://example.com/ --proxy us
  *   BROWSER_USE_API_KEY=… node scripts/browser-use-lab.mjs --proxy null
@@ -25,7 +25,7 @@
  * navigating. `rotate` asks for a new residential IP. `us` sends "us".
  */
 
-const DEFAULT_PAGE = "https://wwws.airfrance.com/check-in";
+const DEFAULT_PAGE = "https://wwws.airfrance.us/check-in";
 const KEY = process.env.BROWSER_USE_API_KEY ?? "";
 const ORIGIN = "https://api.browser-use.com";
 const PROXY_CHOICES = new Set(["omit", "us", "null", "direct", "rotate"]);
@@ -132,6 +132,31 @@ function proxyConnect(failure) {
   return typeof failure === "string" && /net::ERR_(?:SOCKS|PROXY|TUNNEL)_/.test(failure);
 }
 
+/**
+ * Same rule as `navigationFailure` in `infra/site-shots/src/pageLoad.ts`.
+ * `net::ERR_ABORTED` is the redirect Chrome cancelled. A real host whose
+ * document status is 2xx or 3xx has landed.
+ */
+function navigationFailure(href, netError, status) {
+  const text = typeof netError === "string" ? netError : "";
+  const net = /net::ERR_[A-Z0-9_]{1,60}/.exec(text)?.[0] ?? "";
+  const code = typeof status === "number" && Number.isInteger(status) ? status : NaN;
+  let landed = code >= 200 && code < 400 && typeof href === "string" && !/^(about|chrome-error|chrome|blob|data):/.test(href);
+  if (landed) {
+    try {
+      const url = new URL(href);
+      landed = (url.protocol === "http:" || url.protocol === "https:") && url.hostname.length > 0 && url.hostname !== "chromewebdata";
+    } catch {
+      landed = false;
+    }
+  }
+  if (net === "net::ERR_ABORTED" && landed) return null;
+  const page = loadFailure(href, text);
+  if (page) return page;
+  if (net) return net;
+  return null;
+}
+
 function createBody(override) {
   const body = { timeout: 15 };
   if (override === "us") body.proxyCountryCode = "us";
@@ -149,12 +174,17 @@ async function readProxy(id) {
 
 async function navigate(cdp, session, url) {
   let netErrorText = "";
-  let statusCode = "";
+  let documentStatus = 0;
+  let mainFrame = "";
+  const tree = await cdp.send("Page.getFrameTree", {}, session).catch(() => null);
+  if (typeof tree?.frameTree?.frame?.id === "string") mainFrame = tree.frameTree.frame.id;
   cdp.on("Network.loadingFailed", (params) => {
     if (typeof params?.errorText === "string") netErrorText = params.errorText;
   });
   cdp.on("Network.responseReceived", (params) => {
-    if (params?.type === "Document" && typeof params.response?.status === "number") statusCode = String(params.response.status);
+    if (params?.type !== "Document" || typeof params.response?.status !== "number") return;
+    if (mainFrame && params.frameId !== mainFrame) return;
+    documentStatus = params.response.status;
   });
   const loaded = new Promise((resolve) => {
     const timer = setTimeout(resolve, 20_000);
@@ -170,27 +200,30 @@ async function navigate(cdp, session, url) {
   let href = "";
   let title = "";
   let ready = "";
+  let pageStatus = 0;
   const until = Date.now() + 5_000;
   while (Date.now() < until) {
     const info = await cdp.send("Runtime.evaluate", {
-      expression: "({ href: location.href, title: document.title, ready: document.readyState })",
+      expression: "({ href: location.href, title: document.title, ready: document.readyState, status: (performance.getEntriesByType('navigation').at(-1) || {}).responseStatus || 0 })",
       returnByValue: true,
     }, session);
     const seen = info.result?.value ?? {};
     href = typeof seen.href === "string" ? seen.href : "";
     title = typeof seen.title === "string" ? seen.title : "";
     ready = typeof seen.ready === "string" ? seen.ready : "";
+    pageStatus = typeof seen.status === "number" ? seen.status : 0;
     if (ready === "complete") break;
     await new Promise((resolve) => setTimeout(resolve, 200));
   }
-  const failure = navigateError || loadFailure(href, netErrorText);
+  const status = pageStatus >= 200 ? pageStatus : documentStatus;
+  const failure = navigationFailure(href, navigateError || netErrorText, status);
   let host = "";
   try {
     host = new URL(href || url).hostname;
   } catch {
     host = "";
   }
-  console.log(`status=${statusCode || "none"} netErrorText=${JSON.stringify(netErrorText || navigateError || "")}`);
+  console.log(`status=${status || "none"} netErrorText=${JSON.stringify(netErrorText || navigateError || "")}`);
   console.log(`title=${JSON.stringify(title)} ready=${ready} host=${host} ms=${Date.now() - started}`);
   if (failure) console.error(`load failed: ${failure}`);
   return failure;

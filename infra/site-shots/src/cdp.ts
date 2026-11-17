@@ -12,7 +12,7 @@ import { frameLister } from "./cdpFrames";
 import { turnOffPasskeys } from "./passkeys";
 import { type Solver, watchSolver } from "./captchaSolver";
 import { setFileInput } from "./upload";
-import { pageLoadFailure } from "./pageLoad";
+import { navigationFailure } from "./pageLoad";
 
 /** One CDP connection: send a method, get its result. */
 export interface CdpTransport {
@@ -166,16 +166,30 @@ export async function cdpPage(cdp: CdpTransport, attached?: AttachedPage): Promi
   const page: BrowsePage = {
     async goto(url, { timeout }) {
       // Heard before the navigation, so a proxy failure is not thrown away.
+      // A redirect's document is aborted (`net::ERR_ABORTED`) and then the
+      // main frame lands; that status is the one that counts.
       let netError = "";
+      let documentStatus = 0;
+      let mainFrame = "";
       const onFailed = (params: unknown) => {
         const text = (params as { errorText?: unknown })?.errorText;
         if (typeof text === "string" && text.startsWith("net::")) netError = text.slice(0, 200);
       };
+      const onResponse = (params: unknown) => {
+        const message = params as { type?: unknown; frameId?: unknown; response?: { status?: unknown } };
+        if (message.type !== "Document" || typeof message.response?.status !== "number") return;
+        if (mainFrame && message.frameId !== mainFrame) return;
+        documentStatus = message.response.status;
+      };
       cdp.on?.("Network.loadingFailed", onFailed);
+      cdp.on?.("Network.responseReceived", onResponse);
       await send("Page.enable").catch(() => undefined);
       await send("Network.enable").catch(() => undefined);
+      const tree = await send<{ frameTree?: { frame?: { id?: unknown } } }>("Page.getFrameTree").catch(() => null);
+      if (typeof tree?.frameTree?.frame?.id === "string") mainFrame = tree.frameTree.frame.id;
       const navigated = await send<{ errorText?: string }>("Page.navigate", { url });
-      if (typeof navigated?.errorText === "string" && navigated.errorText) throw new Error(navigated.errorText.slice(0, 200));
+      const navigateError = typeof navigated?.errorText === "string" ? navigated.errorText.slice(0, 200) : "";
+      if (navigateError && !navigateError.includes("net::ERR_ABORTED")) throw new Error(navigateError);
       // The load event, or the ready-state poll, whichever finishes first.
       // The timer is cleared either way: a race left running would hold the
       // request open for the whole goto budget. An error page is readyState
@@ -190,7 +204,9 @@ export async function cdpPage(cdp: CdpTransport, attached?: AttachedPage): Promi
         settle(timeout).then(finish, finish);
       });
       const href = await evaluate<string>("location.href").catch(() => "");
-      const failure = pageLoadFailure(href, netError);
+      const reported = await evaluate<unknown>("(performance.getEntriesByType('navigation').at(-1) || {}).responseStatus").catch(() => 0);
+      const status = typeof reported === "number" && reported >= 200 ? reported : documentStatus;
+      const failure = navigationFailure(href, navigateError || netError, status);
       if (failure) throw new Error(failure);
     },
     evaluate,
