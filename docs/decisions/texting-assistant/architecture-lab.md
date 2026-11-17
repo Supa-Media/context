@@ -59,9 +59,13 @@ drafts are promoted at once, and a draft's whole graph written over main undid e
 was made. So a draft keeps the stamp of the main it was made from (`base` on `texLabVersions`,
 `packages/shared/src/texConfigStamp.cjs`; a copy of a draft keeps that draft's), and Promote is a three-way merge
 (`scripts/tex-lab-merge.mjs`): the draft's own changes since that main, one setting at a time, onto main as it is
-now. A step's context list both sides changed merges as a list; a position both moved keeps main's; any other setting
-both changed, a module's words both changed, or an edit main has made impossible refuses the Promote and names each,
-with main's value and the draft's. A draft saved before drafts kept a base is taken to start from main as it was when
+now. A step's context list both sides changed merges as a list, and its input and output fields merge by field name;
+a position both moved keeps main's; any other setting both changed, a module's words both changed, or an edit main has
+made impossible refuses the Promote and names each, with main's value and the draft's. The Lab's version menu lists
+those clashes (`views/bar/PromoteClashes.web.tsx`): the person picks main's or this draft's for each and promotes
+again, and tex_dev does the same with `promote { draft, picks }`; the picks travel on the ask
+(`texLabVersions.promote.picks`) and the pull request names them. An edit main made impossible has no draft side to
+pick and is made again in a fresh draft. A draft saved before drafts kept a base is taken to start from main as it was when
 it was made, and its pull request says so. *Simplifying it back* to writing the whole graph brings the silent
 overwrites back; `node scripts/tex-lab-merge.mjs --self-test` (fast guards) fails "a stale draft wrote over main's
 newer change". The config stays one file: the conflicts that kept stopping parallel work were in the committed

@@ -16,7 +16,7 @@
 
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 import { PINNED_CONTEXT_SLUG } from "@context/shared";
-import { api } from "../../_generated/api";
+import { api, internal } from "../../_generated/api";
 import { addMember, createUser, createWorkspace, gatewayPost } from "../fixtures.helpers";
 import { ACCESS_A, ACCESS_B, bodyOf, registerClient, twoConnectedTenants } from "./fixtures.helpers";
 import { withSession } from "../session.helpers";
@@ -156,6 +156,16 @@ describe("tex_dev drafts", () => {
     const row = (await withSession(t, staff).query(api.functions.texLab.list, {})).versions.find((v) => v.versionId === id)!;
     expect(row.promote?.state).toBe("asked");
     expect(await dev("get", { draft: "vnothere" })).toEqual({ status: "not_found" });
+  });
+  test("promote carries tex_dev's clash picks to the workflow, only main or draft", async () => {
+    const { t, dev } = await world();
+    const id = (await dev("create", { name: "Ship it", graph: JSON.stringify(GRAPH) })).id as string;
+    expect(await dev("promote", { draft: id, picks: [{ what: "Front door effort", take: "draft" }, { what: "wire a → b", take: "main" }, { what: "junk", take: "mine" }, "nonsense"] })).toEqual({ status: "ok", promote: "asked" });
+    const ask = (await t.query(internal.functions.texLabPromote.asked, {})).find((a) => a.versionId === id)!;
+    expect(ask.picks).toEqual([
+      { what: "Front door effort", take: "draft" },
+      { what: "wire a → b", take: "main" },
+    ]);
   });
   test("the Lab's Tools and Tests tabs: tool stats, and case edits kept for every staff member", async () => {
     const { t, dev, staff } = await world();

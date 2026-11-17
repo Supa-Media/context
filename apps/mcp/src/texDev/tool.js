@@ -236,8 +236,10 @@ export function createTexDev({ env, session, controlPlane, defer = null, sleep =
         if (got.error) return got.error;
         const problems = draftProblems(got.graph);
         if (problems.length > 0) return toolError(`This draft would be refused: ${problems.join("; ")}`);
-        const { error } = await plane("promote", { draft: args.draft });
-        return error ?? json({ promote: "asked", then: "The promote workflow starts now and opens its pull request within minutes; it merges only through CI and the replay gate. Its gate run (runs) follows the pull request's Test set status, counts only; list shows the pull request." });
+        // The Lab's clash picks: { "<what>": "main" | "draft" } for the clashes the last refusal named (get shows them).
+        const picks = args.picks && typeof args.picks === "object" && !Array.isArray(args.picks) ? Object.fromEntries(Object.entries(args.picks).filter(([, side]) => side === "main" || side === "draft")) : undefined;
+        const { error } = await plane("promote", { draft: args.draft, ...(picks && Object.keys(picks).length > 0 ? { picks: Object.entries(picks).map(([what, take]) => ({ what, take })) } : {}) });
+        return error ?? json({ promote: "asked", ...(picks && Object.keys(picks).length > 0 ? { picks } : {}), then: "The promote workflow starts now and opens its pull request within minutes, merging only this draft's own changes onto main; it merges only through CI and the replay gate. If main changed a setting this draft changed too, it is refused and get's promote.clashes names each with both values: promote again with picks { \"<what>\": \"main\" | \"draft\" }. Its gate run (runs) follows the pull request's Test set status, counts only; list shows the pull request." });
       }
       // Runs on GitHub (Dev2, 2026-11-16): the Lab's Run Dev set, Run this chat and Run node, on the Dev set only.
       case "run": {

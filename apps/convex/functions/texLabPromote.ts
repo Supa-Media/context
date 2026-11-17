@@ -12,6 +12,7 @@
 
 import { ConvexError, v } from "convex/values";
 import { internalQuery } from "../_generated/server";
+import { promoteClash, promotePick } from "./lib/schema/texLab";
 import { requireAdmin } from "./lib/admin";
 import { handleForUser } from "./lib/identities";
 import { internalMutation, mutation } from "./lib/rowWatch/mutations";
@@ -19,11 +20,20 @@ import { promoteAnswered, startGateRun } from "./texLabRuns";
 
 const PR_URL = /^https:\/\/github\.com\/[\w.-]+\/[\w.-]+\/pull\/\d{1,7}$/;
 
+/** Picks as kept: at most 200, each clash named once, the last pick for it winning. */
+export function cleanPicks(picks: { what: string; take: "main" | "draft" }[] | undefined) {
+  if (!picks) return undefined;
+  const byWhat = new Map<string, "main" | "draft">();
+  for (const p of picks) if (p.what.length > 0 && p.what.length <= 300) byWhat.set(p.what, p.take);
+  const out = [...byWhat].slice(0, 200).map(([what, take]) => ({ what, take }));
+  return out.length > 0 ? out : undefined;
+}
+
 /** Ask for a saved version to become Tex's config. Main cannot be promoted: it is the config. */
 export const ask = mutation({
-  args: { versionId: v.string() },
+  args: { versionId: v.string(), picks: v.optional(v.array(promotePick)) },
   returns: v.null(),
-  handler: async (ctx, { versionId }) => {
+  handler: async (ctx, { versionId, picks }) => {
     const actor = await requireAdmin(ctx);
     if (versionId === "main") throw new ConvexError("Main is already Tex's config");
     const row = await ctx.db
@@ -32,7 +42,8 @@ export const ask = mutation({
       .unique();
     if (!row) throw new ConvexError("Save this version before promoting it");
     const now = Date.now();
-    await ctx.db.patch(row._id, { promote: { state: "asked", by: actor.userId, at: now } });
+    const kept = cleanPicks(picks);
+    await ctx.db.patch(row._id, { promote: { state: "asked", by: actor.userId, at: now, ...(kept ? { picks: kept } : {}) } });
     // Promote starts at once, and its gate run follows the pull request (`texLabRuns.ts`).
     await startGateRun(ctx, { userId: actor.userId, via: "lab" }, versionId, now);
     return null;
@@ -42,7 +53,7 @@ export const ask = mutation({
 /** The versions waiting for their pull request, oldest ask first, with who asked (a handle, never an address). */
 export const asked = internalQuery({
   args: {},
-  returns: v.array(v.object({ versionId: v.string(), name: v.string(), graph: v.string(), by: v.string(), at: v.number(), base: v.string(), made: v.number() })),
+  returns: v.array(v.object({ versionId: v.string(), name: v.string(), graph: v.string(), by: v.string(), at: v.number(), base: v.string(), made: v.number(), picks: v.array(promotePick) })),
   handler: async (ctx) => {
     const rows = (await ctx.db.query("texLabVersions").collect()).filter((r) => r.promote?.state === "asked");
     rows.sort((a, b) => (a.promote?.at ?? 0) - (b.promote?.at ?? 0));
@@ -50,7 +61,7 @@ export const asked = internalQuery({
     for (const r of rows) {
       const handle = r.promote ? await handleForUser(ctx, r.promote.by) : null;
       // `base` and `made` let the workflow find the main the draft started from and merge only its own changes.
-      out.push({ versionId: r.versionId, name: r.name, graph: r.graph, by: handle ? "@" + handle : "a staff member", at: r.promote?.at ?? 0, base: r.base ?? "", made: r.createdAt });
+      out.push({ versionId: r.versionId, name: r.name, graph: r.graph, by: handle ? "@" + handle : "a staff member", at: r.promote?.at ?? 0, base: r.base ?? "", made: r.createdAt, picks: r.promote?.picks ?? [] });
     }
     return out;
   },
@@ -58,9 +69,9 @@ export const asked = internalQuery({
 
 /** The workflow's answer: the pull request it opened, or why the version could not become a config. */
 export const answered = internalMutation({
-  args: { versionId: v.string(), at: v.number(), pr: v.optional(v.string()), why: v.optional(v.string()) },
+  args: { versionId: v.string(), at: v.number(), pr: v.optional(v.string()), why: v.optional(v.string()), clashes: v.optional(v.array(promoteClash)) },
   returns: v.null(),
-  handler: async (ctx, { versionId, at, pr, why }) => {
+  handler: async (ctx, { versionId, at, pr, why, clashes }) => {
     if (pr !== undefined && !PR_URL.test(pr)) throw new ConvexError("Not a pull request address");
     const row = await ctx.db
       .query("texLabVersions")
@@ -70,7 +81,7 @@ export const answered = internalMutation({
     if (!row?.promote || row.promote.state !== "asked" || row.promote.at !== at) return null;
     const state = pr !== undefined ? ("opened" as const) : ("refused" as const);
     await promoteAnswered(ctx, versionId, pr, why, Date.now());
-    await ctx.db.patch(row._id, { promote: { ...row.promote, state, ...(pr !== undefined ? { pr } : {}), ...(why !== undefined ? { why: why.slice(0, 300) } : {}) } });
+    await ctx.db.patch(row._id, { promote: { ...row.promote, state, ...(pr !== undefined ? { pr } : {}), ...(why !== undefined ? { why: why.slice(0, 300) } : {}), ...(pr === undefined && clashes && clashes.length > 0 ? { clashes: clashes.slice(0, 50) } : {}) } });
     return null;
   },
 });

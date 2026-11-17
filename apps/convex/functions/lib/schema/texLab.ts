@@ -9,6 +9,14 @@ import { v } from "convex/values";
  * are public in the repo. Shared by every staff member, read and written only
  * through `functions/texLab.ts` behind `requireAdmin`.
  */
+/**
+ * A clash a refused Promote named (`scripts/tex-lab-merge.mjs`): what both main and the draft changed, each side's value,
+ * and whether a person may pick a side (an edit main made impossible has no draft side to pick).
+ */
+export const promoteClash = v.object({ what: v.string(), main: v.string(), draft: v.string(), pick: v.boolean() });
+/** A person's pick for one clash: keep main's, or write the draft's over it. */
+export const promotePick = v.object({ what: v.string(), take: v.union(v.literal("main"), v.literal("draft")) });
+
 export const texLabTables = {
   texLabVersions: defineTable({
     /** The Lab's own id for the version (`v<base36 time>`), stable across saves. */
@@ -26,9 +34,10 @@ export const texLabTables = {
     /**
      * Promote (Dev2, 2026-11-13: the Lab's config is "the only source of truth"): a staff member asked for this
      * version to become Tex's config; the Lab promote workflow opens the pull request that changes
-     * `packages/shared/src/texConfig.json` and records its address here.
+     * `packages/shared/src/texConfig.json` and records its address here. A refusal over clashes with main keeps them
+     * (`clashes`), and the next ask carries the person's pick for each (`picks`; Dev2, 2026-11-17).
      */
-    promote: v.optional(v.object({ state: v.union(v.literal("asked"), v.literal("opened"), v.literal("refused")), by: v.id("users"), at: v.number(), pr: v.optional(v.string()), why: v.optional(v.string()) })),
+    promote: v.optional(v.object({ state: v.union(v.literal("asked"), v.literal("opened"), v.literal("refused")), by: v.id("users"), at: v.number(), pr: v.optional(v.string()), why: v.optional(v.string()), clashes: v.optional(v.array(promoteClash)), picks: v.optional(v.array(promotePick)) })),
     /**
      * Live drafts (Dev2, 2026-11-15: an AI over the MCP's `tex_dev` and a person in the Lab edit one draft together;
      * `functions/texLabDrafts.ts`): the revision, raised by every save and every batch of edits, and the AI client

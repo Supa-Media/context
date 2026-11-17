@@ -34,6 +34,7 @@ import { pageForUser } from "./texPage";
 import { sharedChats } from "./lib/texLabShared";
 import { setAction } from "./texSets";
 import { runAction, startGateRun } from "./texLabRuns";
+import { cleanPicks } from "./texLabPromote";
 import { clampDays } from "./texLabToolStats";
 import { toolStatsReport } from "./lib/adminFns/texToolStats";
 import { deleteDraftRows, describeChange, keepResults, renameDraft, revertDraft, savedState, setRunSetup as writeRunSetup, undoText } from "./lib/texLabDraftWrites";
@@ -298,7 +299,7 @@ const draftOf = async (ctx: QueryCtx, row: Row) => ({
   rev: row.rev ?? 0,
   updatedAt: row.updatedAt,
   live: row.live && Date.now() - row.live.at < LIVE_MS ? { client: row.live.client, at: row.live.at } : null,
-  promote: row.promote ? { state: row.promote.state, pr: row.promote.pr ?? null, why: row.promote.why ?? null } : null,
+  promote: row.promote ? { state: row.promote.state, pr: row.promote.pr ?? null, why: row.promote.why ?? null, clashes: row.promote.clashes ?? [], picks: row.promote.picks ?? [] } : null,
   /** The pull request or branch whose code the draft's runs check out; null is main (`texLabRuns.ts`). */
   code: row.code ?? null,
 });
@@ -440,8 +441,12 @@ export const forGateway = internalMutation({
     }
     if (action === "promote") {
       if (row.promote?.state === "asked") return { status: "ok", promote: "asked" };
-      await ctx.db.patch(row._id, { promote: { state: "asked", by: dev.userId, at: now } });
-      await ctx.db.insert("texLabChanges", { versionId: row.versionId, rev: (row.rev ?? 0) + 1, by: dev.userId, via: dev.client, keys: [], said: ["asked to promote this draft"], at: now });
+      // tex_dev's picks for the clashes the last refusal named, as the Lab sends them: [{ what, take: "main" | "draft" }]
+      // (a list, because a clash's name is no field name: it can hold "→").
+      const raw: unknown[] = Array.isArray(a.picks) ? a.picks : [];
+      const picks = cleanPicks(raw.filter((p): p is { what: string; take: "main" | "draft" } => !!p && typeof p === "object" && typeof (p as { what?: unknown }).what === "string" && ["main", "draft"].includes((p as { take?: unknown }).take as string)).map((p) => ({ what: p.what, take: p.take })));
+      await ctx.db.patch(row._id, { promote: { state: "asked", by: dev.userId, at: now, ...(picks ? { picks } : {}) } });
+      await ctx.db.insert("texLabChanges", { versionId: row.versionId, rev: (row.rev ?? 0) + 1, by: dev.userId, via: dev.client, keys: [], said: [picks ? `asked to promote this draft, picking ${picks.map((p) => `${p.take === "draft" ? "the draft's" : "main's"} ${p.what}`).join(", ")}` : "asked to promote this draft"], at: now });
       await ctx.db.patch(row._id, { rev: (row.rev ?? 0) + 1 });
       await startGateRun(ctx, { userId: dev.userId, via: dev.client }, row.versionId, now);
       return { status: "ok", promote: "asked" };

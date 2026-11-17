@@ -142,6 +142,18 @@ test("check and promote use the runner's and Promote's own checks", async () => 
   assert.ok(!plane.calls.some((c) => c.action === "promote"), "a draft that would be refused is not asked for");
 });
 
+test("promote passes the clash picks on, and only main or draft", async () => {
+  const plane = fakePlane({ get: { status: "ok", rev: 2, graph: JSON.stringify(mainGraph()) }, promote: { status: "ok" } });
+  const said = jsonOf(await createTexDev({ env: {}, session: session("editor"), controlPlane: plane })("promote", { draft: "vabc", picks: { "Front door effort": "draft", "wire a → b": "main", junk: "mine" } }));
+  const asked = plane.calls.find((c) => c.action === "promote");
+  // To the control plane as a list: a clash's name is no Convex field name ("→").
+  assert.deepEqual(asked.args.picks, [{ what: "Front door effort", take: "draft" }, { what: "wire a → b", take: "main" }]);
+  assert.deepEqual(said.picks, { "Front door effort": "draft", "wire a → b": "main" });
+  const plain = fakePlane({ get: { status: "ok", rev: 2, graph: JSON.stringify(mainGraph()) }, promote: { status: "ok" } });
+  await createTexDev({ env: {}, session: session("editor"), controlPlane: plain })("promote", { draft: "vabc" });
+  assert.equal(plain.calls.find((c) => c.action === "promote").args.picks, undefined);
+});
+
 test("snapshot answers the Lab's picture as an image", async () => {
   const env = { SITE_SHOTS: { fetch: async () => new Response(JSON.stringify({ png: "iVBORw0KGgo=", width: 800, height: 600, blocked: [] })) } };
   const result = await createTexDev({ env, session: session("editor"), controlPlane: fakePlane({}) })("snapshot", {});

@@ -18,8 +18,10 @@
  * file is rebuilt, so the pull request's fingerprints show the changed prompt and the replay gate runs. A new
  * `p-<name>` module with words is a new file; which steps read it, and where, is the steps' context in the config.
  *
- *   node scripts/tex-lab-promote.mjs <graph.json> --base <stamp> --made <ms> [--summary <file>]
- *                                                          merge the draft's own changes onto main (Promote)
+ *   node scripts/tex-lab-promote.mjs <graph.json> --base <stamp> --made <ms> [--summary <file>] [--picks <file>] [--clashes <file>]
+ *                                                          merge the draft's own changes onto main (Promote); --picks
+ *                                                          settles clashes ({ "<what>": "main" | "draft" }), --clashes
+ *                                                          writes a refusal's clashes as JSON for the Lab to pick from
  *   node scripts/tex-lab-promote.mjs <graph.json>          write the graph as it is (a Lab Run on a branch's code)
  *   node scripts/tex-lab-promote.mjs <graph.json> --check  only say whether it would be refused
  *   node scripts/tex-lab-promote.mjs --self-test
@@ -30,7 +32,7 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { CONFIG, MODULE as MAP_MODULE, PAGE, moduleFor as mapModuleFor, pageFor } from "./tex-architecture.mjs";
-import { clashText, findBase, mergeOntoMain, sideAt } from "./tex-lab-merge.mjs";
+import { clashText, findBase, mergeOntoMain, picksOf, sideAt } from "./tex-lab-merge.mjs";
 import { FOLDER as PROMPT_FOLDER, MODULE as PROMPT_MODULE, moduleFor as promptModuleFor, wordsOf } from "./tex-prompt-module.mjs";
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
@@ -214,7 +216,7 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
   const args = process.argv.slice(2);
   if (args.includes("--self-test")) selfTest();
   else {
-    const file = args.find((a, i) => !a.startsWith("--") && !["--base", "--made", "--main", "--summary"].includes(args[i - 1]));
+    const file = args.find((a, i) => !a.startsWith("--") && !["--base", "--made", "--main", "--summary", "--picks", "--clashes"].includes(args[i - 1]));
     if (!file) {
       console.error("usage: node scripts/tex-lab-promote.mjs <graph.json> [--check] | --self-test");
       process.exit(2);
@@ -244,8 +246,17 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
         console.error("tex-lab-promote: refused: the main this draft was made from is not on main any more, so its own changes can't be told from main's; make a fresh draft from main and redo them");
         process.exit(1);
       }
-      const merged = mergeOntoMain({ graph, base: sideAt(found.commit), main: { config: current, words: wordsOf(ROOT) }, shelf: shelfIds, configFrom });
+      let picks = {};
+      if (flag("--picks")) {
+        try {
+          picks = picksOf(JSON.parse(readFileSync(flag("--picks"), "utf8")));
+        } catch {
+          picks = {};
+        }
+      }
+      const merged = mergeOntoMain({ graph, base: sideAt(found.commit), main: { config: current, words: wordsOf(ROOT) }, shelf: shelfIds, configFrom, picks });
       if (merged.clashes?.length) {
+        if (flag("--clashes")) writeFileSync(flag("--clashes"), JSON.stringify(merged.clashes.slice(0, 50).map((c) => ({ what: c.what.slice(0, 300), main: String(c.main).slice(0, 200), draft: String(c.draft).slice(0, 200), pick: c.pick === true }))));
         console.error(`tex-lab-promote: refused: ${clashText(merged.clashes, found.commit)}`);
         process.exit(1);
       }
