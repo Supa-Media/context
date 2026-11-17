@@ -175,11 +175,15 @@ export function siteShotsComputer(env, { owner = null, viewer = null, jar = null
         // Browserbase took the call, so the lease may be this question's until it ends.
         if (typeof holder === "string") leased.add(holder);
         const result = await browseResult(response, jar, profile);
-        // The person's own page, never a link to the browser itself.
-        return handoff && typeof viewer === "string" ? { ...result, handoffUrl: viewer } : result;
+        // The person's own page, never a link to the browser itself. The log
+        // names this browser even when the answer leaves `provider` off.
+        const stamped = { ...result, provider: "browserbase" };
+        return handoff && typeof viewer === "string" ? { ...stamped, handoffUrl: viewer } : stamped;
       } else browserbaseMissing = true;
     }
-    return await browseResult(await post(binding, "/browse", session === null ? { steps, ...waiting } : { session, steps, ...waiting }));
+    const cloud = await browseResult(await post(binding, "/browse", session === null ? { steps, ...waiting } : { session, steps, ...waiting }));
+    // This is Cloudflare's browser. A missing provider must not be logged as Browserbase.
+    return cloud ? { ...cloud, provider: "cloudflare" } : cloud;
   }
 
   return {

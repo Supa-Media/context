@@ -586,7 +586,7 @@ export function browserSession(computer, { allowed, addresses, takePages, say = 
       const stepFailed = done.ran.some((step) => !step.ok);
       await computer.noteBrowse?.({
         kind: "job",
-        provider: done.provider === "browser-use" || done.provider === "cloudflare" ? done.provider : "browserbase",
+        provider: done.provider === "browser-use" || done.provider === "browserbase" ? done.provider : "cloudflare",
         host: browseHost(done.reading?.url),
         outcome: blockedOutcome ? "site_blocked" : stepFailed ? "error" : "ok",
         ...(blockedOutcome ? { reason: trigger } : {}),
