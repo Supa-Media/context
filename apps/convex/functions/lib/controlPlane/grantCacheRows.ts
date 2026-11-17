@@ -77,6 +77,23 @@ export async function forgetGrantResolveCache(
   }
 }
 
+/** Lists that name this workspace, plus lists for grants that live here, including a texting token a later mint kept. */
+export async function forgetWorkspaceGrantLists(ctx: MutationCtx, workspaceId: Id<"workspaces">): Promise<void> {
+  await forgetGrantResolveCache(ctx, { workspaceId });
+  const grants = await ctx.db
+    .query("oauthGrants")
+    .withIndex("by_workspace", (q) => q.eq("workspaceId", workspaceId))
+    .collect();
+  for (const grant of grants) {
+    await forgetGrantResolveCache(ctx, { grantId: grant._id, hashedAccessToken: grant.hashedAccessToken });
+    const earlier = await ctx.db
+      .query("textsEarlierTokens")
+      .withIndex("by_grant", (q) => q.eq("grantId", grant._id))
+      .collect();
+    for (const row of earlier) await forgetGrantResolveCache(ctx, { hashedAccessToken: row.hashedAccessToken });
+  }
+}
+
 /** Point the workspace index at the list just saved. Replaces the previous set for this token. */
 export async function replaceGrantCacheLinks(
   ctx: MutationCtx,

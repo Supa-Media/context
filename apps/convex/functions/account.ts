@@ -65,7 +65,7 @@ import { soleOwnerOf } from "./lib/account/soleOwner";
 import { takeAwayFirst } from "./lib/accessHandOff/takeAway";
 import { finalizeWorkspaceDeletion } from "./lib/account/finalizeWorkspaceDeletion";
 import { disableMeaningHandler } from "./lib/meaningFns/rows";
-import { forgetGrantResolveCache } from "./lib/controlPlane/grantCacheRows";
+import { forgetWorkspaceGrantLists } from "./lib/controlPlane/grantCacheRows";
 
 /**
  * Delete one disposable workspace owned by the production CUJ account.
@@ -236,8 +236,7 @@ export async function deleteAccountFor(ctx: MutationCtx, userId: Id<"users">): P
  *  - **`ingestionSettings`**, **`vaultImportJobs`**, **`ingestionTickets`**, **`cloudflareProvisioning`**,
  *    **`websiteStates`**, **`websiteRouteIndex`**,
  *    **`workspaceKeyRotations`**, **`workspaceInvitations`** (every status),
- *    **`oauthGrants`**, **`grantResolveCache`** (lists that name this workspace,
- *    and lists for grants that live here), **`noteShares`** (every status), **`auditEvents`**,
+ *    **`oauthGrants`** and saved lists that name this workspace, **`noteShares`** (every status), **`auditEvents`**,
  *    **`workspaceMembers`**, **`names`** — swept below, each with its own
  *    comment on why.
  *  - **`workspaceDataKeys`** — deliberately KEPT. See the comment beside its
@@ -650,19 +649,12 @@ export async function deleteWorkspaceCascade(
   // Every AI-client grant on this context, whoever holds it. A grant is
   // authority over a workspace; the workspace is ceasing to exist, so an
   // editor's still-active grant must not survive as a dangling credential.
-  // Saved lists that name this workspace, whoever's token built them, and the
-  // lists for grants that live here. A list is deleted whole; the next resolve
-  // builds it again without this workspace.
-  await forgetGrantResolveCache(ctx, { workspaceId });
+  await forgetWorkspaceGrantLists(ctx, workspaceId);
   const grants = await ctx.db
     .query("oauthGrants")
     .withIndex("by_workspace", (q) => q.eq("workspaceId", workspaceId))
     .collect();
   for (const grant of grants) {
-    await forgetGrantResolveCache(ctx, { grantId: grant._id, hashedAccessToken: grant.hashedAccessToken });
-    for (const earlier of await ctx.db.query("textsEarlierTokens").withIndex("by_grant", (q) => q.eq("grantId", grant._id)).collect()) {
-      await forgetGrantResolveCache(ctx, { hashedAccessToken: earlier.hashedAccessToken });
-    }
     await ctx.db.delete(grant._id);
   }
 
