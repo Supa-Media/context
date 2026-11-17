@@ -162,13 +162,13 @@
       "id": "research-band-caterers-shared-page",
       "kind": "research page",
       "tag": "bench-area:jobs (eval-gaps 2026-11-17; not a Dev or Training set case)",
-      "as": "Maya",
+      "as": "Priya",
       "today": "2026-10-11",
       "text": "put a caterer comparison in the band notes for our end of year party, 30 of us. caterers.example has them. totals for 30 and a link for each",
       "job": {
         "title": "Band party caterers page",
         "brief": "Compare every caterer on caterers.example for a 30-person party on a page in the band workspace's notes (not Maya's own): the full total for 30 people (food, sides and drinks) for each, with a link to each caterer's page.",
-        "doneWhen": "A page in the band workspace lists every caterer on caterers.example with its total for 30 people and a link to its page, and Maya has the page's link."
+        "doneWhen": "A page in the band workspace lists every caterer on caterers.example with its total for 30 people and a link to its page, and Priya has the page's link."
       },
       "page": { "under": "band/" },
       "sources": { "hosts": ["caterers.example"], "min": 4 },

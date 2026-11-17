@@ -642,9 +642,9 @@ export async function createWorld(bench, person, setupRaw, models, today = null,
       s3.bucketFor(`bench-${own.workspace}`).set(path, { body, etag: `placed-${path.length}`, lastModified: modified(baseMs) });
     },
 
-    /** A note's text in the person's own workspace, or null. */
-    read(path) {
-      const object = s3.bucketFor(`bench-${own.workspace}`).get(path);
+    /** A note's text in `workspace` (the person's own when omitted), or null. */
+    read(path, workspace = null) {
+      const object = s3.bucketFor(`bench-${workspace ?? own.workspace}`).get(path);
       return object ? bodyText(object) : null;
     },
 

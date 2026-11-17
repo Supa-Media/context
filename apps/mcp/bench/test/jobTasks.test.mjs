@@ -11,8 +11,10 @@
  */
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
 import { test } from "node:test";
 
+import { parseTest, readBenchFolder } from "../load.mjs";
 import { checkTask, endedAs, gateRow, hasEntry, loadCases, pickPage, readQuality, runJob, sourcesIn } from "../jobTasks.mjs";
 
 const caterers = {
@@ -108,6 +110,17 @@ test("a page edit that never saved has no page; a new page is the written note t
   ];
   const texts = { "a.md": "Lucky Wok", "b.md": "Lucky Wok 4000", "tex/history.md": "Lucky Wok 4000 4000" };
   assert.equal(pickPage(caterers, changes, (path) => texts[path] ?? null).path, "maya/b.md");
+  const seen = [];
+  const band = pickPage(
+    { ...caterers, page: { under: "band/" }, covers: ["Lucky Wok"] },
+    [{ workspace: "band", path: "party.md", kind: "written" }],
+    (path, workspace) => {
+      seen.push([workspace, path]);
+      return workspace === "band" ? "Lucky Wok 255" : "the asker's own note";
+    },
+  );
+  assert.deepEqual(seen, [["band", "party.md"]]);
+  assert.equal(band.text, "Lucky Wok 255", "a page under band/ is graded from the band workspace");
 });
 
 test("the quality judge's lines are read by number, and a skipped one is a fail", () => {
@@ -133,4 +146,13 @@ test("every job task is invented, complete and gradeable", async () => {
   const failing = { id: "z", right: false, checks: [{ line: 'covers "Pine Lake"', pass: false }, { line: "ended done (ended done)", pass: true }] };
   assert.equal(gateRow(failing).expected, 'finish with every check passing (failed: covers "Pine Lake")', "the report says which check a practice case failed");
   assert.equal(gateRow({ ...failing, heldOut: true }).expected, "finish with every check passing", "a held-out case's checks are never shown");
+  const bench = await readBenchFolder(fileURLToPath(new URL("../ai", import.meta.url)));
+  for (const item of cases) {
+    const root = (item.page.at ?? item.page.under).split("/")[0];
+    const row = bench.people.find((person) => person.person === item.as && person.workspace === root);
+    assert.ok(row && row.role !== "member", `${item.id}: ${item.as} can write in ${root}`);
+  }
+  const groupWrite = parseTest(readFileSync(new URL("../ai/tests/groups.md", import.meta.url), "utf8")).questions.find((question) => question.n === 2);
+  assert.equal(groupWrite.checks.some((check) => check.kind === "must" && check.what === "write"), false, "a member's group turn is not graded as a write");
+  assert.ok(groupWrite.checks.some((check) => check.kind === "must not" && check.value === "band/"));
 });
