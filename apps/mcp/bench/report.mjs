@@ -70,8 +70,8 @@ const PRICES = {
   "claude-fable-5-1": { input: 10, output: 50, cacheRead: 0.25, cacheWrite: 12.5 },
 };
 
-// Cost in USD of one run. Null when the model has no known price.
-export function priceUsd(model, usage) {
+// Cost in USD of one call (`perCall: false` for a sum). Null when the model has no known price.
+export function priceUsd(model, usage, { perCall = true } = {}) {
   if (!Object.hasOwn(PRICES, model)) return null;
   const p = PRICES[model];
   const u = usage ?? {};
@@ -81,8 +81,9 @@ export function priceUsd(model, usage) {
   const cacheWrite = p.cacheWrite ?? p.input;
   // Haiku 5.5 bills the whole input at five times the published rate once the
   // prompt is past 100,000 tokens (the price cliff). Output stays on the short rate.
+  // A sum cannot see one call's size; promptBudget.js keeps each call under the line.
   const inputTokens = n(u.input) + n(u.cacheRead) + n(u.cacheWrite);
-  const scale = /haiku-5/i.test(model) && inputTokens > 100_000 ? 5 : 1;
+  const scale = perCall && /haiku-5/i.test(model) && inputTokens > 100_000 ? 5 : 1;
   return (
     (n(u.input) * p.input * scale +
       n(u.output) * p.output +
@@ -127,10 +128,10 @@ const failedCalls = (run) => (run.tools ?? []).filter((call) => typeof call !== 
  */
 export function runPriceUsd(run, setup) {
   const byModel = run.usageByModel && typeof run.usageByModel === "object" ? Object.entries(run.usageByModel) : [];
-  if (byModel.length === 0) return priceUsd(run.model ?? setup?.model, run.usage);
+  if (byModel.length === 0) return priceUsd(run.model ?? setup?.model, run.usage, { perCall: false });
   let total = 0;
   for (const [model, usage] of byModel) {
-    const price = priceUsd(model, usage);
+    const price = priceUsd(model, usage, { perCall: false });
     if (price === null) return null;
     total += price;
   }
@@ -199,7 +200,7 @@ function thinkShareLine(setup, mine) {
       if (model === think) thinkRounds += count;
     }
     for (const [model, usage] of Object.entries(run.usageByModel ?? {})) {
-      const price = priceUsd(model, usage);
+      const price = priceUsd(model, usage, { perCall: false });
       if (price === null) return null;
       spend += price;
       if (model === think) thinkSpend += price;

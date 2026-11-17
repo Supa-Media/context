@@ -21,7 +21,7 @@
 
 import { MEANING_DIMENSIONS, MEANING_MODEL } from "../src/search/meaning/embed.js";
 import { priceUsd } from "./report.mjs";
-import { CREDIT_REST_MS, createCreditCache, noteCreditSpent, payerSkipped } from "../src/agent/creditRest.js";
+import { CREDIT_REST_MS, createCreditCache, noteCreditPaid, noteCreditSpent, payerSkipped } from "../src/agent/creditRest.js";
 
 const realFetch = globalThis.fetch;
 
@@ -140,6 +140,8 @@ export function claudeTransport(env, fetchImpl = realFetch) {
         const moveOn = await retryWithoutKey(response, payer);
         if (!moveOn) {
           await noteCost(send, response);
+          // A 200 after a probe clears it. Production does this in aiGateway.js; leaving the probe set skips that payer for 30s.
+          if (response.status === 200) await noteCreditPaid(name, { store: rest, cache });
           return response;
         }
         last = response;

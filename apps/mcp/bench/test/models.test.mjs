@@ -14,21 +14,36 @@ const BODY = JSON.stringify({ model: "claude-haiku-5-5", max_tokens: 10, message
 
 function recorder(...answers) {
   const calls = [];
-  const resting = new Map();
+  const credit = [];
+  // `{ until, probeUntil }`, the same row the credit rest object keeps.
+  const book = new Map();
   const fetchImpl = async (url, init) => {
     if (String(url).endsWith("/credit-rest")) {
       const body = JSON.parse(init.body);
-      if (body.op === "spent") resting.set(body.name, body.until);
-      if (body.op === "clear") resting.delete(body.name);
-      const until = resting.get(body.name) ?? 0;
-      const claim = Date.now() < until ? { try: false, until } : { try: true };
-      return new Response(JSON.stringify(body.op === "claim" ? claim : { ok: true, until }), { status: 200, headers: { "content-type": "application/json" } });
+      credit.push(body);
+      const now = Number(body.now);
+      const row = book.get(body.name) ?? null;
+      if (body.op === "spent") {
+        book.set(body.name, { until: Math.max(row?.until ?? 0, Number(body.until) || 0), probeUntil: 0 });
+        return new Response(JSON.stringify({ ok: true, until: book.get(body.name).until }), { status: 200, headers: { "content-type": "application/json" } });
+      }
+      if (body.op === "clear") {
+        book.delete(body.name);
+        return new Response(JSON.stringify({ ok: true }), { status: 200, headers: { "content-type": "application/json" } });
+      }
+      if (!row || !Number.isFinite(now) || !(row.until > 0)) {
+        return new Response(JSON.stringify({ try: true }), { status: 200, headers: { "content-type": "application/json" } });
+      }
+      if (now < row.until) return new Response(JSON.stringify({ try: false, until: row.until }), { status: 200, headers: { "content-type": "application/json" } });
+      if (now < (row.probeUntil ?? 0)) return new Response(JSON.stringify({ try: false, until: row.probeUntil }), { status: 200, headers: { "content-type": "application/json" } });
+      book.set(body.name, { ...row, probeUntil: now + 30_000 });
+      return new Response(JSON.stringify({ try: true, probe: true }), { status: 200, headers: { "content-type": "application/json" } });
     }
     calls.push({ url, headers: init.headers, body: init.body });
     const [status, body] = answers.shift() ?? [200, { content: [] }];
     return new Response(JSON.stringify(body), { status });
   };
-  return { calls, fetchImpl };
+  return { calls, fetchImpl, book, credit };
 }
 
 test("with the gateway's keys, calls go through the real gateway with the credit key", async () => {
@@ -44,6 +59,20 @@ test("with the gateway's keys, calls go through the real gateway with the credit
   assert.equal(calls[0].headers["x-api-key"], "fixture-credit-key-000000000000");
   assert.deepEqual(JSON.parse(calls[0].headers["cf-aig-metadata"]), { feature: "benchmark" });
   assert.equal(calls[0].body, BODY);
+});
+
+test("a successful call after an expired rest sends clear, so production stops skipping that payer", async () => {
+  const answered = [200, { model: "claude-haiku-5-5", usage: { input_tokens: 20, output_tokens: 5 } }];
+  const { calls, fetchImpl, book, credit } = recorder(answered, answered);
+  book.set("plan", { until: Date.now() - 1_000, probeUntil: 0 });
+  const send = claudeTransport({ ...GATEWAY, ANTHROPIC_CREDIT_KEY: "fixture-credit-key-000000000000" }, fetchImpl);
+  assert.equal((await send(BODY)).status, 200);
+  assert.equal(calls.length, 1);
+  assert.deepEqual(credit.map((body) => body.op), ["claim", "clear"]);
+  assert.equal(credit[1].name, "plan");
+  assert.equal(book.has("plan"), false);
+  assert.equal((await send(BODY)).status, 200);
+  assert.deepEqual(credit.map((body) => body.op), ["claim", "clear", "claim"], "a later success, with no probe open, writes nothing");
 });
 
 test("a spent credit is not sent again, and Unified Billing is not asked", async () => {

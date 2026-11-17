@@ -169,7 +169,7 @@ export async function judgeQuality(item, { page, report }, request) {
 const fakeQuality = async () => ({ text: "", usage: {} });
 
 /** What a job's parts cost, priced model by model. */
-export const partsUsd = (parts) => parts.reduce((sum, part) => sum + Object.entries(part.usageByModel ?? {}).reduce((s, [model, usage]) => s + (priceUsd(model, usage) ?? 0), 0), 0);
+export const partsUsd = (parts) => parts.reduce((sum, part) => sum + Object.entries(part.usageByModel ?? {}).reduce((s, [model, usage]) => s + (priceUsd(model, usage, { perCall: false }) ?? 0), 0), 0);
 
 /** The replay gate's row for a graded case (`replayGate.mjs`): right and expected are this scorer's own. */
 export const gateRow = (record) => ({ id: record.id, right: record.right === true, must: false, heldOut: record.heldOut === true, target: record.target ?? false, cause: record.cause ?? (record.target || null), expected: expectedOf(record), usd: record.usd ?? 0 });
