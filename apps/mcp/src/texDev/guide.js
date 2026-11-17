@@ -12,6 +12,8 @@ const MODE_MEANING = {
   uses: "a helper the step may call while it runs (a judge, a tool, a sub-agent)",
   loop: "a send-back: the target may send work back, up to the wire's rounds",
   job: "starts a background job that runs on its own and reports back",
+  provisional: "the target starts at once beside the source, which may stop it (its `when`: stop:<tag>, restart:<tag>); until its go it may only read, or also make writes that can be undone (`allow`)",
+  generator: "fire and forget: the target starts a new run of its own, which re-enters Tex as a new input, never part of this run",
 };
 
 /** The actions, in the order a session usually needs them, with what each takes. */
