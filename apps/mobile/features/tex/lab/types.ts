@@ -37,7 +37,7 @@ export type LabNode = {
 };
 
 /** `allow`, on a provisional wire only: what its step may do before the go ("revertible" when absent; Dev2, 2026-11-17). */
-/** `unless`, on a provisional wire only: bursts that do not start it early (`firstLook`, `sms`, `unpaired`). Absent or empty: every burst starts it. */
+/** `unless`, on a provisional wire only: bursts that do not start it early. `firstLook` and `sms` are required (the config check refuses a wire that drops either); `unpaired` may be absent. */
 export type LabEdge = { from: string; to: string; mode: WireMode; when: string[]; allow?: "read" | "revertible"; unless?: string[] };
 
 export type LabModel = {

@@ -12,7 +12,7 @@ const MODE_MEANING = {
   uses: "a helper the step may call while it runs (a judge, a tool, a sub-agent)",
   loop: "a send-back: the target may send work back, up to the wire's rounds",
   job: "starts a background job that runs on its own and reports back",
-  provisional: "the target starts at once beside the source, which may stop it (its `when`: stop:<tag>, restart:<tag>); until its go it may only read, or also make writes that can be undone (`allow`). `unless` (firstLook, sms, unpaired) names the bursts that do not start it early; with none, every burst does",
+  provisional: "the target starts at once beside the source, which may stop it (its `when`: stop:<tag>, restart:<tag>); until its go it may only read, or also make writes that can be undone (`allow`). `unless` names the bursts that do not start it early: firstLook and sms are required (a wire that drops either is refused) and unpaired may be absent",
   generator: "fire and forget: the target starts a new run of its own, which re-enters Tex as a new input, never part of this run",
 };
 
@@ -100,7 +100,7 @@ export const EDIT_OPS = [
   '{ op: "move", node, x, y }  where it sits on the canvas',
   '{ op: "add", node: { id, ...fields } }  a new step (needs code before it can promote)',
   '{ op: "remove", node }  a step, its wires and every read of its output (main\'s steps are turned off, not removed, to promote; text and send always stay)',
-  '{ op: "wire", from, to, mode, when?, allow?, unless? }  a wire; one per from, to and mode. `allow` and `unless` are for a provisional wire: allow is "read" or "revertible"; unless lists bursts that do not start it early (firstLook, sms, unpaired); null clears either',
+  '{ op: "wire", from, to, mode, when?, allow?, unless? }  a wire; one per from, to and mode. `allow` and `unless` are for a provisional wire: allow is "read" or "revertible"; unless lists bursts that do not start it early (firstLook and sms are required, unpaired may be absent); null clears either, and a wire that then lacks firstLook or sms does not promote',
   '{ op: "unwire", from, to, mode? }  a wire, or every mode between the two',
   '{ op: "module", key, value }  one context module\'s edit (its words as value.text, for a p-<name> prompt module); null drops it',
   '{ op: "convo", field, value }  one conversation setting (word, older, threads, days, dayChars, slim, classify, tools); null drops it',

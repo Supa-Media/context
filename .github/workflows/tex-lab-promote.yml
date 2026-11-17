@@ -83,8 +83,12 @@ jobs:
             # both changed is refused by name, never written over (Dev2, 2026-11-17).
             if ! why=$(node scripts/tex-lab-promote.mjs "$RUNNER_TEMP/graph.json" --base "$base" --made "$made" --main origin/main --summary "$RUNNER_TEMP/merged.json" --picks "$RUNNER_TEMP/picks.json" --clashes "$RUNNER_TEMP/clashes.json" 2>&1); then
               echo "$id: refused"
+              # The check logs a refusal as its own line. The Lab is told only the sentence.
+              printf '%s\n' "$why" >&2
+              refused=$(printf '%s\n' "$why" | sed -n 's/^tex-lab-promote: refused: //p')
+              if [ -z "$refused" ]; then refused=$why; fi
               clashes=$(cat "$RUNNER_TEMP/clashes.json" 2>/dev/null || echo '[]')
-              answer "$(jq -cn --arg v "$id" --argjson at "$at" --arg why "${why#tex-lab-promote: refused: }" --argjson clashes "$clashes" '{versionId: $v, at: $at, why: $why} + (if ($clashes | length) > 0 then {clashes: $clashes} else {} end)')"
+              answer "$(jq -cn --arg v "$id" --argjson at "$at" --arg why "$refused" --argjson clashes "$clashes" '{versionId: $v, at: $at, why: $why} + (if ($clashes | length) > 0 then {clashes: $clashes} else {} end)')"
               continue
             fi
             # The Lab's prompt catalogue (read at old commits by the Lab's Replay) follows the config's words and order.

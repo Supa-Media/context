@@ -8,10 +8,11 @@
  * Lab promote workflow runs this on a branch of its own and opens the pull request; the pull request's gates decide.
  *
  * Refused, with the reason, rather than written: a graph whose steps or wires are malformed, a wire to a step that is
- * not there, a step on a model the config's table has no gateway id for (a model added in the Lab only), or a step
- * the gateway has no code for (a new id: merge its code to main first, on the shelf, `texNodeShelf.json`; Dev2,
- * 2026-11-16: "create the node inside the code first and merge it to main"), or an edit to a module whose
- * words are not a prompt module's (a code module, a chat view, a step's own instructions: those change in code).
+ * not there, a provisional wire whose `unless` drops `firstLook` or `sms` (the same check CI runs), a step on a model
+ * the config's table has no gateway id for (a model added in the Lab only), or a step the gateway has no code for
+ * (a new id: merge its code to main first, on the shelf, `texNodeShelf.json`; Dev2, 2026-11-16: "create the node
+ * inside the code first and merge it to main"), or an edit to a module whose words are not a prompt module's
+ * (a code module, a chat view, a step's own instructions: those change in code).
  *
  * Prompt words are promoted too (Dev2, 2026-11-14: the words live "in the repo, beside the config"): a version's text
  * for a prompt module, `p-<name>`, is written to `packages/shared/src/texPrompt/<name>.md` and the generated words
@@ -99,6 +100,11 @@ export function configFrom(graph, current, currentWords = {}, shelf = []) {
     // A provisional wire's allow (Dev2, 2026-11-17): what its step may do before the go.
     if (e.allow !== undefined && !(e.mode === "provisional" && (e.allow === "read" || e.allow === "revertible"))) return refuse(`the wire ${e.from} → ${e.to} has allow "${e.allow}": only a provisional wire has one, "read" or "revertible"`);
     if (e.unless !== undefined && !(e.mode === "provisional" && Array.isArray(e.unless) && e.unless.every((fact) => SCHEMA.START_FACTS.includes(fact)))) return refuse(`the wire ${e.from} → ${e.to} has unless ${JSON.stringify(e.unless)}: only a provisional wire has one, a list of ${SCHEMA.START_FACTS.join(", ")}`);
+    // The same hold check CI runs (`provisionalHoldProblems`): a Promote cannot drop firstLook or sms.
+    if (e.mode === "provisional") {
+      const missing = SCHEMA.provisionalHoldProblems([e]);
+      if (missing.length) return refuse(missing.join("; "));
+    }
   }
   // In the order main has them, so a promotion's diff shows only what changed.
   const order = new Map(current.nodes.map((n, i) => [n.id, i]));
@@ -162,14 +168,35 @@ function selfTest() {
   }
   // A provisional wire, and its allow, is config too.
   const gp = graph();
-  gp.edges.push({ from: "text", to: "doorStep", mode: "provisional", when: ["stop:running"], allow: "read", unless: ["firstLook"] });
+  gp.edges.push({ from: "text", to: "doorStep", mode: "provisional", when: ["stop:running"], allow: "read", unless: ["firstLook", "sms"] });
   expect(configFrom(gp, current, words).config?.edges.find((e) => e.from === "text" && e.mode === "provisional")?.allow === "read", "a provisional wire's allow was lost");
-  expect(configFrom(gp, current, words).config?.edges.find((e) => e.from === "text" && e.mode === "provisional")?.unless?.[0] === "firstLook", "a provisional wire's unless was lost");
+  expect(configFrom(gp, current, words).config?.edges.find((e) => e.from === "text" && e.mode === "provisional")?.unless?.join() === "firstLook,sms", "a provisional wire's unless was lost");
   gp.edges[gp.edges.length - 1].allow = "anything";
   expect(/allow/.test(configFrom(gp, current, words).refused ?? ""), "a provisional wire with an unknown allow passed");
   gp.edges[gp.edges.length - 1].allow = "read";
   gp.edges[gp.edges.length - 1].unless = ["sideways"];
   expect(/unless/.test(configFrom(gp, current, words).refused ?? ""), "a provisional wire with an unknown unless passed");
+  // firstLook and sms are required. Dropping either must be refused here, the same check CI runs, and logged.
+  const dropHold = (fact) => {
+    const g = graph();
+    const wire = g.edges.find((e) => e.from === "triage" && e.mode === "provisional");
+    wire.unless = wire.unless.filter((f) => f !== fact);
+    const lines = [];
+    const log = console.log;
+    console.log = (line) => lines.push(String(line));
+    let refused = "";
+    try {
+      refused = configFrom(g, current, words).refused ?? "";
+    } finally {
+      console.log = log;
+    }
+    return { refused, lines };
+  };
+  for (const fact of ["firstLook", "sms"]) {
+    const dropped = dropHold(fact);
+    expect(new RegExp(`provisional wire triage → doorStep is missing the hold ${fact}`).test(dropped.refused), `a provisional wire that drops ${fact} was promoted`);
+    expect(dropped.lines.some((line) => line.includes("provisional_hold_refused") && line.includes(`"missing":"${fact}"`) && line.includes('"from":"triage"')), `dropping ${fact} was not logged`);
+  }
   // A generator wire (starts a new run) is config too.
   const gg = graph();
   gg.edges.push({ from: "send", to: "text", mode: "generator", when: ["answer"] });
