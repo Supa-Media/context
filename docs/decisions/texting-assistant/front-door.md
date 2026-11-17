@@ -131,14 +131,18 @@ A round that called several tools ran them one after another. Over seven days,
 47 rounds did that, and one turn opened three Gmail accounts in sequence for
 about 43.5 seconds.
 
-The round runs its calls together only when every resolved name is in
-`PARALLEL_READS` (`apps/mcp/src/agent/parallelReads.js`). Those names are what
+The round runs its calls together only when every resolved call is a parallel
+read (`isParallelRead` in `apps/mcp/src/agent/parallelReads.js`): its name is
+in `PARALLEL_READS`, and a `vault_list` has no `fetch`. Those names are what
 `search` and `fetch` translate to (`search_notes`, `search_email`, `read_note`,
 `read_email`, and the other readers `translateFetch` names), plus `search_web`.
-The model still says `search`, `fetch` and `send` action `search_web`. One
-write, any other `send` action, a browser call (`browse`, `open_page`,
-`fill_login`, `fill_card`: one shared browser), a tool that can be held for a
-yes, or a call that can settle the turn keeps the whole round serial.
+A plain `fetch vault:` is `vault_list` with no `fetch` and still runs together.
+`send` action `api` resolves to that same name with `fetch` (an outbound
+request with a vault secret) and keeps the whole round serial. The model still
+says `search`, `fetch` and `send` action `search_web`. One write, any other
+`send` action, a browser call (`browse`, `open_page`, `fill_login`,
+`fill_card`: one shared browser), a tool that can be held for a yes, or a
+call that can settle the turn keeps the whole round serial.
 
 Each call keeps its own timeout, and the budget is still read when the call
 starts. Calls that start together share that reading, so a later read in the
@@ -154,7 +158,9 @@ keeps each call's own duration.
 on the one browser would overlap, and a later call would no longer see that an
 earlier one in the round had failed or been held. `parallelReads.test.mjs`
 ("two slow reads finish in about the time of the slower one", "a write mixed
-into the round keeps it serial", "results stay in call order when the later
-read finishes first") and `replay/cases/parallel-mail-searches.mjs` (two
-mailbox searches in one round start together, and the model still reads the
-first result first) fail.
+into the round keeps it serial", "a vault fetch mixed into the round keeps it
+serial", "send api beside a search keeps the round serial", "two vault fetches
+in one round stay serial", "results stay in call order when the later read
+finishes first") and
+`replay/cases/parallel-mail-searches.mjs` (two mailbox searches in one round
+start together, and the model still reads the first result first) fail.
