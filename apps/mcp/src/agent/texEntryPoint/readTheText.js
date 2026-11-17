@@ -55,12 +55,14 @@ export async function readTheText(t) {
   if (group !== null) group.mailDomain = mailDomainOf(env); // the chat's own address is on this deployment's apex (`chatHome.js` `chatMailAddress`)
   // Background jobs (`background.js`): a texted turn may start them, and a job's own turn names itself.
   const chatTurn = !runner && (session.actorClientId === TEXTS_CLIENT_ID || group !== null);
-  const job = chatTurn ? jobOf(body.job) : null, report = jobReportOf(body, { chatTurn, job }); // and a job reporting to the chat's own turn, its coordinator (`jobReport.js`)
+  const job = chatTurn ? jobOf(body.job) : null;
+  let report = jobReportOf(body, { chatTurn, job }); // and a job reporting to the chat's own turn, its coordinator (`jobReport.js`)
 
   store.actor = actorFor(session); tex.kind = turnKind({ runner, job, group, texting: session.actorClientId === TEXTS_CLIENT_ID }); // which steps are off (`texTiming.js`)
   // Note mail (`tools/notes/mail.js`): a job's turn joins mail as the job, so mail reaches it at once; only Tex's own turn may interrupt one.
   store.mailTurn = job !== null ? { role: "job", job: job.id } : chatTurn || runner ? { role: "tex" } : null;
   store.contexts = contextsFor(session); store.ledger = chatTurn || runner ? chatLedger(store, session) : null; if (job !== null && store.ledger) store.ledger = session.ledger = jobTagged(store.ledger, job); // a job's turn marks all it writes as the job's (`ledger.js` `jobTagged`) // a texted, group or routine turn's chat ledger, which the email gate and a settled ask write to (`workEntries.js`)
+  if (report !== null) report = await tex.step("job_report", () => jobReportEvent(body, report, { config: texConfigOf(env), writer: store.ledger })); // node "A job reports" reads it once the config has it
   if (report !== null && store.ledger) { try { store.ledger.write(reportEntry(report, { turn: body.turn })); } catch { /* the history's line never costs the turn */ } } // what this turn was handed, before the model reads it (`workEntries.js` `reportEntry`)
   const hot = warmTurn(env, session, body, { eligible: session.actorClientId === TEXTS_CLIENT_ID && group === null && job === null && !runner, logEligible: group !== null && job === null && !runner, now: received }); // what the Worker kept of the last turn's reads, never the history or About me (`warmCopy.js`)
   const setupRead = readProductionSetup(store, session, { texting: session.actorClientId === TEXTS_CLIENT_ID || runner || group !== null, warm: hot.setup, config: texConfigOf(env) }); // read beside what comes before it, not after
@@ -81,6 +83,18 @@ export async function readTheText(t) {
   Object.assign(t, { body, chatTurn, crossChat: crossChat?.event ?? null, crossPrompt: crossChat?.prompt ?? "", dispatch, group, hot, job, question, received, report, routine, runner, runs, setupRead, supervision });
 }
 // TEX ENTRY POINT: end
+
+/**
+ * A job's report to this chat (`jobReport.js`), read by node `jobReport` over the turn's graph when this chat's config
+ * has it, so the run is logged; until then (the node on the shelf) the code's own read stands. A report the node can't
+ * read is the same null the code's read gives.
+ */
+export async function jobReportEvent(body, report, { config, writer }) {
+  if (!config.nodes.some((node) => node.id === "jobReport" && node.on !== false)) return report;
+  const graph = gatewayGraph({ writer, turn: typeof body.turn === "string" ? body.turn : null, config });
+  const { output } = await graph.runNode("jobReport", { jobReport: body.jobReport }, {}, "readTheText");
+  return output?.to === "report" ? output.report : null;
+}
 
 /**
  * A run the texting Worker started for another chat's ask or this chat's answer (`body.event`), read by node `chatAsk`
