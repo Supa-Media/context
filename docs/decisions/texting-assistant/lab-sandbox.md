@@ -113,7 +113,8 @@ entries with it, and the ledger is rebuilt from what is left. A real text is nev
    stay in the overlay but are not listed as changes. Objects are
    reached by name only (`idFromString` and `newUniqueId` throw).
 3. *The control plane.* The one `post` every control-plane method uses checks `controlPlaneAnswer`: a listed read
-   (`CONTROL_PLANE_READS`, or a route that reads by its body) is sent; the turn's bookkeeping (usage, turn log,
+   (`CONTROL_PLANE_READS`, or a route that reads by its body) is sent, except a chat shared with the developers, whose
+   personal-account reads are answered empty and never sent ([lab-shared-chats](./lab-shared-chats.md)); the turn's bookkeeping (usage, turn log,
    signals, the daily cap's verdict) is answered as done; everything else, an email, a calendar change, a share, a
    job, is refused and listed. The storage binding comes back with every secret field blanked, and `ws.open`'s kept
    binding is dropped, so a bucket could refuse every request even if one were reached.
