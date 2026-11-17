@@ -358,6 +358,7 @@ export function browserSession(computer, { allowed, addresses, takePages, say = 
       ms: typeof result.ms === "number" ? result.ms : null,
       costUsd: typeof result.costUsd === "number" ? result.costUsd : null,
       proxyMb: typeof result.proxyMb === "number" ? result.proxyMb : null,
+      proxy: result.proxy === "managed" || result.proxy === "direct" ? result.proxy : null,
     };
   }
 
@@ -592,6 +593,7 @@ export function browserSession(computer, { allowed, addresses, takePages, say = 
         ...(trigger ? { trigger } : {}),
         durationMs: typeof done.ms === "number" ? done.ms : 0,
         ...(typeof done.proxyMb === "number" ? { proxyMb: done.proxyMb, bytes: Math.round(done.proxyMb * 1024 * 1024) } : {}),
+        ...(done.proxy === "managed" || done.proxy === "direct" ? { proxy: done.proxy } : {}),
         ...(typeof done.costUsd === "number" ? { costUsd: done.costUsd } : {}),
         fallback,
       }).catch(() => undefined);

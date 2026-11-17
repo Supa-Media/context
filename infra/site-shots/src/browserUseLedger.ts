@@ -30,6 +30,7 @@ export interface OwnedSession {
   started: number;
   outcome: BrowseLogRow["outcome"];
   reason?: BrowseLogRow["reason"];
+  proxy?: BrowseLogRow["proxy"];
   charged: boolean;
 }
 

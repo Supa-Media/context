@@ -14,12 +14,23 @@ of 403s were all the Verified-tier refusal.
 
 The gateway sends `provider: "browser-use"`. The screenshot Worker does not
 switch by itself. It uses the browser-session API and CDP only
-(`POST /api/v4/browsers`, `PATCH` stop, `GET /api/v2/billing/account`,
-`GET /api/v4/sessions/{id}/cost`). It does not start a Browser Use agent
-task, and it does not call anything that buys credits or turns on
-auto-recharge. Closing the CDP socket is not a stop. The vendor live-view
-URL is never returned; the person's own `/tex/<handle>` view attaches to
-the CDP socket.
+(`POST /api/v4/browsers`, `PATCH` stop, `PATCH /api/v4/browsers/{id}/proxy`,
+`GET /api/v2/billing/account`, `GET /api/v4/browsers/{id}`). It does not
+start a Browser Use agent task, and it does not call anything that buys
+credits or turns on auto-recharge. Closing the CDP socket is not a stop.
+The vendor live-view URL is never returned; the person's own
+`/tex/<handle>` view attaches to the CDP socket.
+
+The create body omits `proxyCountryCode`. The harness
+`start_remote_daemon()` posts an empty body, and the documented default is
+the US residential proxy. An explicit `"us"` is that default, and it failed
+to open Air France with `net::ERR_SOCKS_CONNECTION_FAILED`. `null` on create
+is the documented way to disable the proxy, and a lab run still saw the
+SOCKS proxy, so a proxy-connection failure (`ERR_SOCKS_`, `ERR_PROXY_`,
+`ERR_TUNNEL_`) is retried once with `{"mode":"direct"}` on the running
+browser. The block log's `proxy` is `managed` or `direct`, whichever
+produced the result, and `POST /browse/blocks` counts those sessions in
+`byProxy`.
 
 The sealed cookie and IndexedDB jar is restored onto the new browser.
 A Browserbase profile id is not a Browser Use profile. A Google sign-in

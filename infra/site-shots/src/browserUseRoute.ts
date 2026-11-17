@@ -25,8 +25,9 @@ import { invisibleCaptcha, captchaKind, settleCaptcha } from "./captcha";
 import { pastGooglePasskey } from "./googleChallenge";
 import { HOLD_MS, IDLE_MS, touchIdle } from "./idle";
 import { OWNER_TAG } from "./browserbase";
+import { proxyConnectFailure } from "./pageLoad";
 import { capRefusal, effectiveCaps, hostFromSteps, type BrowseOutcome, type BlockReason } from "./browserUsePolicy";
-import { browserUseConfigured, createBrowser, creditBalanceUsd, sessionSpend, stopBrowser, type BrowserUseKey, type BrowserUseSession } from "./browserUse";
+import { browserUseConfigured, createBrowser, creditBalanceUsd, disableBrowserProxy, sessionSpend, stopBrowser, type BrowserUseKey, type BrowserUseSession } from "./browserUse";
 import { ledgerStub, safeRecord, type LedgerEnv, type OwnedSession } from "./browserUseLedger";
 
 const json = (body: unknown, status = 200) =>
@@ -125,6 +126,7 @@ export async function endBrowserUseSession(env: BrowserUseEnv, session: OwnedSes
     ...(session.reason ? { reason: session.reason } : {}),
     durationMs: Math.max(0, Date.now() - session.started),
     ...(cost ? { costUsd: cost.totalUsd, proxyMb: cost.proxyMb, bytes: cost.bytes } : {}),
+    ...(session.proxy === "managed" || session.proxy === "direct" ? { proxy: session.proxy } : {}),
   });
   return true;
 }
@@ -208,31 +210,47 @@ export async function browseOnBrowserUse(
   let createdNew = false;
   let remembered = false;
   let settled: OwnedSession | null = null;
+  let proxy: "managed" | "direct" = "managed";
   const keep = (body as { keep?: unknown })?.keep !== false;
   try {
     const existing = fresh ? null : await stub?.recall(owner).catch(() => null);
     if (existing && !existing.charged) {
       created = { id: existing.id, cdpUrl: existing.cdpUrl };
+      if (existing.proxy === "direct") proxy = "direct";
     } else {
       created = await createBrowser(env, caps.jobMinutes, owner, fetcher);
       createdNew = true;
     }
-    let timer: ReturnType<typeof setTimeout> | undefined;
-    let result: DriveResult;
-    try {
-      result = await Promise.race([
-        drive(created, body, fetcher),
-        new Promise<never>((_, reject) => {
-          timer = setTimeout(() => reject(new Error("browser-use job minute cap")), caps.jobMinutes * 60_000);
-        }),
-      ]);
-    } catch (error) {
-      if (error instanceof Error && error.message === "browser-use job minute cap") {
-        console.log(JSON.stringify({ event: "site_shots_browser_use_job_cap" }));
+    const deadline = Date.now() + caps.jobMinutes * 60_000;
+    const driveWithinCap = async (): Promise<DriveResult> => {
+      const left = deadline - Date.now();
+      if (left <= 0) throw new Error("browser-use job minute cap");
+      let timer: ReturnType<typeof setTimeout> | undefined;
+      try {
+        return await Promise.race([
+          drive(created as BrowserUseSession, body, fetcher),
+          new Promise<never>((_, reject) => {
+            timer = setTimeout(() => reject(new Error("browser-use job minute cap")), left);
+          }),
+        ]);
+      } catch (error) {
+        if (error instanceof Error && error.message === "browser-use job minute cap") {
+          console.log(JSON.stringify({ event: "site_shots_browser_use_job_cap" }));
+        }
+        throw error;
+      } finally {
+        if (timer !== undefined) clearTimeout(timer);
       }
-      throw error;
-    } finally {
-      if (timer !== undefined) clearTimeout(timer);
+    };
+    let result = await driveWithinCap();
+    // ERR_SOCKS_ / ERR_PROXY_ / ERR_TUNNEL_ means the residential proxy did not
+    // connect. `proxyCountryCode: null` on create can leave that proxy in
+    // place, so this one retry turns it off on the running browser.
+    const proxyDown = proxy === "managed" && result.ran.some((step) => step.do === "goto" && step.ok === false && proxyConnectFailure(step.reason));
+    if (proxyDown && (await disableBrowserProxy(env, created.id, fetcher).catch(() => false))) {
+      proxy = "direct";
+      console.log(JSON.stringify({ event: "site_shots_browser_use_proxy", from: "managed", to: "direct" }));
+      result = await driveWithinCap();
     }
     const classified = outcomeOf(result);
     const owned: OwnedSession = {
@@ -242,6 +260,7 @@ export async function browseOnBrowserUse(
       started,
       outcome: classified.outcome,
       ...(classified.reason ? { reason: classified.reason } : {}),
+      proxy,
       charged: false,
     };
     if (keep && stub) {
@@ -254,6 +273,7 @@ export async function browseOnBrowserUse(
       session: created.id,
       ran: result.ran,
       page,
+      proxy,
       ms: Date.now() - started,
       ...(result.captcha !== null ? { captcha: result.captcha } : {}),
       ...(result.captchaKind !== null ? { captchaKind: result.captchaKind } : {}),
@@ -266,7 +286,7 @@ export async function browseOnBrowserUse(
     // A session this call created is stopped unless it was kept for the next
     // step. A reused session stays up for its own idle stop.
     if (created && createdNew && !remembered) {
-      const owned: OwnedSession = settled ?? { id: created.id, cdpUrl: created.cdpUrl, host, started, outcome: "error", charged: false };
+      const owned: OwnedSession = settled ?? { id: created.id, cdpUrl: created.cdpUrl, host, started, outcome: "error", proxy, charged: false };
       const ended = await endBrowserUseSession(env, owned, fetcher, typeof balance === "number" ? balance : null);
       if (!ended && stub) await stub.remember(owner, owned).catch(() => undefined);
     }

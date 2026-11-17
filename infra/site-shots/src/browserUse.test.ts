@@ -5,18 +5,19 @@
  */
 
 import { describe, expect, it } from "vitest";
-import { BrowseLedger, type LedgerKv } from "./browserUseLedger";
+import { BrowseLedger } from "./browserUseLedger";
 import { browseOnBrowserUse, type DriveResult } from "./browserUseRoute";
 import { browserUseAllowed, createBrowser } from "./browserUse";
-import { BROWSER_USE_CEILING, capRefusal, effectiveCaps, nyPeriod, summarizeBrowseLog, type BrowseLogRow } from "./browserUsePolicy";
+import { BROWSER_USE_CEILING, browseLogRow, capRefusal, effectiveCaps, nyPeriod, summarizeBrowseLog, type BrowseLogRow } from "./browserUsePolicy";
 import { documentForbidden, digestLogs } from "./sessionLogs";
 
 const OWNER = "a".repeat(64);
 const SESSION = "11111111-1111-1111-1111-111111111111";
 
-function kv(seed: Record<string, unknown> = {}): LedgerKv {
+function kv(seed: Record<string, unknown> = {}) {
   const map = new Map<string, unknown>(Object.entries(seed));
   return {
+    map,
     async get<T>(key: string) {
       return map.get(key) as T | undefined;
     },
@@ -122,7 +123,9 @@ describe("the vendor client", () => {
     expect(browserUseAllowed("GET", "/api/v2/billing/account")).toBe(true);
     expect(browserUseAllowed("POST", "/api/v4/browsers")).toBe(true);
     expect(browserUseAllowed("PATCH", `/api/v4/browsers/${SESSION}`)).toBe(true);
+    expect(browserUseAllowed("PATCH", `/api/v4/browsers/${SESSION}/proxy`)).toBe(true);
     expect(browserUseAllowed("GET", `/api/v4/browsers/${SESSION}`)).toBe(true);
+    expect(browserUseAllowed("GET", `/api/v4/browsers/${SESSION}/proxy`)).toBe(false);
     for (const path of ["/api/v2/billing/credits", "/api/v2/billing/auto-recharge", "/api/v4/tasks", "/api/v4/runs", "/api/v4/agents", `/api/v4/sessions/${SESSION}/cost`]) {
       expect(browserUseAllowed("POST", path)).toBe(false);
     }
@@ -135,8 +138,9 @@ describe("the vendor client", () => {
     expect(api.calls[0]).toMatchObject({
       method: "POST",
       url: "https://api.browser-use.com/api/v4/browsers",
-      body: { timeout: 15, proxyCountryCode: "us", metadata: { owner: OWNER } },
+      body: { timeout: 15, metadata: { owner: OWNER } },
     });
+    expect(api.calls[0].body).not.toHaveProperty("proxyCountryCode");
     expect(JSON.stringify(api.calls[0].body)).not.toContain("profile");
     expect(JSON.stringify(api.calls[0].body)).not.toContain("liveUrl");
   });
@@ -253,20 +257,55 @@ describe("browseOnBrowserUse", () => {
     await browseOnBrowserUse(ledgerEnv(blind), "/browse", { owner: OWNER, steps: [{ do: "read" }], keep: false }, down, driveOk);
     expect((await blind.spent()).dayUsd).toBe(0);
   });
+
+  it("turns the proxy off once after a SOCKS failure and records direct", async () => {
+    let drives = 0;
+    const drive = async (): Promise<DriveResult> => {
+      drives += 1;
+      if (drives === 1) return { ...page, ran: [{ do: "goto", ok: false, reason: "net::ERR_SOCKS_CONNECTION_FAILED" }] };
+      return page;
+    };
+    const store = kv();
+    const book = new BrowseLedger(store);
+    const api = vendor();
+    const response = await browseOnBrowserUse(ledgerEnv(book), "/browse", { owner: OWNER, steps: [{ do: "goto", url: "https://wwws.airfrance.com/check-in" }], keep: false }, api.fetcher, drive);
+    expect(drives).toBe(2);
+    const body = await response.json() as { proxy?: string; ran?: Array<{ ok: boolean }> };
+    expect(body.proxy).toBe("direct");
+    expect(body.ran?.[0]?.ok).toBe(true);
+    expect(api.calls.filter((call) => call.method === "PATCH" && call.url.endsWith("/proxy"))).toEqual([
+      expect.objectContaining({ body: { mode: "direct" } }),
+    ]);
+    const logs = store.map.get("logs") as BrowseLogRow[];
+    expect(logs.at(-1)).toMatchObject({ kind: "call", provider: "browser-use", proxy: "direct", outcome: "ok" });
+    expect((await book.summary()).byProxy).toEqual({ managed: 0, direct: 1 });
+  });
+
+  it("leaves the proxy on when the net error is not a proxy failure", async () => {
+    const drive = async (): Promise<DriveResult> => ({ ...page, ran: [{ do: "goto", ok: false, reason: "net::ERR_CONNECTION_RESET" }] });
+    const api = vendor();
+    const response = await browseOnBrowserUse(ledgerEnv(new BrowseLedger(kv())), "/browse", { owner: OWNER, steps: [{ do: "goto", url: "https://wwws.airfrance.com/check-in" }], keep: false }, api.fetcher, drive);
+    expect(api.calls.filter((call) => call.url.endsWith("/proxy"))).toHaveLength(0);
+    expect((await response.json() as { proxy?: string }).proxy).toBe("managed");
+  });
 });
 
 describe("the block log", () => {
   it("counts site blocks and Browser Use sessions, and drops a path", () => {
     const rows: BrowseLogRow[] = [
       { at: 1, kind: "job", provider: "browserbase", host: "wwws.airfrance.com", outcome: "site_blocked", reason: "403", trigger: "403", durationMs: 1000, fallback: { ran: true, outcome: "ok", costUsd: 0.01 } },
-      { at: 2, kind: "call", provider: "browser-use", host: "wwws.airfrance.com", outcome: "ok", durationMs: 8000, costUsd: 0.012, proxyMb: 2.5 },
+      { at: 2, kind: "call", provider: "browser-use", host: "wwws.airfrance.com", outcome: "ok", durationMs: 8000, costUsd: 0.012, proxyMb: 2.5, proxy: "direct" },
       { at: 3, kind: "call", provider: "browserbase", host: "", outcome: "vendor_refused", durationMs: 40 },
       { at: 4, kind: "job", provider: "browserbase", host: "shop.example", outcome: "ok", durationMs: 500, fallback: { ran: false } },
     ];
-    expect(summarizeBrowseLog(rows)).toMatchObject({ jobs: 2, blocks: 1, byReason: { "403": 1 }, fallbacks: 1, vendorRefused: 1, fallbackCostUsd: 0.012 });
+    expect(summarizeBrowseLog(rows)).toMatchObject({ jobs: 2, blocks: 1, byReason: { "403": 1 }, fallbacks: 1, vendorRefused: 1, fallbackCostUsd: 0.012, byProxy: { managed: 0, direct: 1 } });
     const after = summarizeBrowseLog([...rows, { at: 5, kind: "call", provider: "browserbase", host: "wwws.airfrance.com", outcome: "site_blocked", reason: "403", durationMs: 200 }]);
     expect(after.blocks).toBe(2);
     expect(after.byReason["403"]).toBe(2);
+    const kept = browseLogRow({ kind: "job", provider: "browser-use", host: "wwws.airfrance.com", outcome: "ok", durationMs: 1, proxy: "managed" });
+    expect(kept?.proxy).toBe("managed");
+    const dropped = browseLogRow({ kind: "job", provider: "browser-use", host: "wwws.airfrance.com", outcome: "ok", durationMs: 1, proxy: "socks" });
+    expect(dropped?.proxy).toBeUndefined();
   });
 });
 

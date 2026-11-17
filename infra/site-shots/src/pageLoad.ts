@@ -29,3 +29,10 @@ export function gotoFailureReason(error: unknown): string {
   if (message === "chrome error page" || message.startsWith("chrome error page")) return message.slice(0, 180);
   return "that did not work on this page";
 }
+
+const PROXY_CONNECT = /net::ERR_(?:SOCKS|PROXY|TUNNEL)_/;
+
+/** A residential proxy that never connected. A reset or a refused name is not one of these. */
+export function proxyConnectFailure(reason: unknown): boolean {
+  return typeof reason === "string" && PROXY_CONNECT.test(reason);
+}

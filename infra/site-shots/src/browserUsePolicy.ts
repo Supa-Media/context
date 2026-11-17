@@ -108,6 +108,8 @@ export interface BrowseLogRow {
   durationMs: number;
   bytes?: number;
   proxyMb?: number;
+  /** `managed` is the vendor residential proxy. `direct` is the one retry with it off. */
+  proxy?: "managed" | "direct";
   costUsd?: number;
   fallback?: { ran: boolean; outcome?: string; costUsd?: number | null };
 }
@@ -137,6 +139,7 @@ export function browseLogRow(raw: unknown, now = Date.now()): BrowseLogRow | nul
   if (bytes !== undefined) out.bytes = Math.round(bytes);
   const proxyMb = money(row.proxyMb);
   if (proxyMb !== undefined) out.proxyMb = proxyMb;
+  if (row.proxy === "managed" || row.proxy === "direct") out.proxy = row.proxy;
   const costUsd = money(row.costUsd);
   if (costUsd !== undefined) out.costUsd = costUsd;
   if (row.fallback && typeof row.fallback === "object") {
@@ -162,6 +165,8 @@ export interface BrowseLogSummary {
   fallbacks: number;
   vendorRefused: number;
   fallbackCostUsd: number;
+  /** Browser Use sessions by the proxy setting that produced the logged result. */
+  byProxy: { managed: number; direct: number };
 }
 
 /**
@@ -178,6 +183,7 @@ export function summarizeBrowseLog(rows: readonly BrowseLogRow[]): BrowseLogSumm
   let fallbacks = 0;
   let vendorRefused = 0;
   let fallbackCostUsd = 0;
+  const byProxy = { managed: 0, direct: 0 };
   for (const row of rows) {
     if (row.kind === "job") {
       jobs += 1;
@@ -196,6 +202,7 @@ export function summarizeBrowseLog(rows: readonly BrowseLogRow[]): BrowseLogSumm
     if (row.kind === "call" && row.provider === "browser-use") {
       fallbacks += 1;
       if (typeof row.costUsd === "number") fallbackCostUsd += row.costUsd;
+      if (row.proxy === "managed" || row.proxy === "direct") byProxy[row.proxy] += 1;
     }
     if (row.outcome === "vendor_refused") vendorRefused += 1;
   }
@@ -206,5 +213,6 @@ export function summarizeBrowseLog(rows: readonly BrowseLogRow[]): BrowseLogSumm
     fallbacks,
     vendorRefused,
     fallbackCostUsd: Math.round(fallbackCostUsd * 1_000_000) / 1_000_000,
+    byProxy,
   };
 }

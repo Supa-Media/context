@@ -22,6 +22,9 @@ export function browserUseAllowed(method: string, path: string): boolean {
   if (method === "GET" && path === "/api/v2/billing/account") return true;
   if (method === "POST" && path === "/api/v4/browsers") return true;
   if (method === "PATCH" && /^\/api\/v4\/browsers\/[A-Za-z0-9-]{8,80}$/.test(path)) return true;
+  // Turn the residential proxy off on a browser that is already running.
+  // Create-time null does not reliably do that.
+  if (method === "PATCH" && /^\/api\/v4\/browsers\/[A-Za-z0-9-]{8,80}\/proxy$/.test(path)) return true;
   // A standalone browser's cost is on the browser itself (`browserCost`,
   // `proxyCost`, `proxyUsedMb`). `/api/v4/sessions/{id}/cost` is an agent
   // session, and a browser we started has none.
@@ -56,16 +59,33 @@ export interface BrowserUseSession {
  * a Browserbase profile is not a Browser Use profile, and a Google sign-in
  * bound to the browser that created it will not transfer. The sealed jar is
  * what moves, applied over CDP by the caller.
+ *
+ * `proxyCountryCode` is omitted. `start_remote_daemon()` posts `{}`, and the
+ * documented default is the US residential proxy. Sending `"us"` is that
+ * default, and it is what failed Air France with `net::ERR_SOCKS_CONNECTION_FAILED`.
+ * Sending `null` is the documented create-time disable, and a lab run still
+ * saw the SOCKS proxy. Turning it off is `disableBrowserProxy`.
  */
 export async function createBrowser(env: BrowserUseKey, minutes: number, owner: string, fetcher: typeof fetch = fetch): Promise<BrowserUseSession> {
   const timeout = Math.min(15, Math.max(1, Math.round(minutes)));
-  const response = await call(env, "POST", "/api/v4/browsers", { timeout, proxyCountryCode: "us", metadata: { owner } }, fetcher);
+  const response = await call(env, "POST", "/api/v4/browsers", { timeout, metadata: { owner } }, fetcher);
   if (!response.ok) throw new Error(`browser-use ${response.status}`);
   const body = (await response.json().catch(() => null)) as { id?: unknown; cdpUrl?: unknown } | null;
   const id = typeof body?.id === "string" && ID.test(body.id) ? body.id : "";
   const cdpUrl = typeof body?.cdpUrl === "string" && /^wss:\/\//.test(body.cdpUrl) ? body.cdpUrl : "";
   if (!id || !cdpUrl) throw new Error("browser-use gave no session");
   return { id, cdpUrl };
+}
+
+/**
+ * No residential proxy, on a browser that is already running.
+ * `PATCH /api/v4/browsers/{id}/proxy` with `{"mode":"direct"}`. Tabs and
+ * cookies stay. A false result means the proxy was not changed.
+ */
+export async function disableBrowserProxy(env: BrowserUseKey, id: string, fetcher: typeof fetch = fetch): Promise<boolean> {
+  if (!ID.test(id)) return false;
+  const response = await call(env, "PATCH", `/api/v4/browsers/${id}/proxy`, { mode: "direct" }, fetcher);
+  return response.ok;
 }
 
 /** Stop the cloud browser. A 404 means it has already ended. Closing the CDP socket is not this. */
