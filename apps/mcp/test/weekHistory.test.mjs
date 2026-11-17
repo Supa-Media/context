@@ -295,3 +295,15 @@ test("a routine's text from days ago is in the week as Tex's own text, saying a 
   assert.doesNotMatch(view.text, /OTHERS-ONLY/, "a routine's text to other people is not this chat's");
   assert.ok(view.text.indexOf("RENT-REMINDER") < view.text.indexOf("paid it"));
 });
+
+// Dev2, 2026-11-17: "why isn't it staying in the history forever?" Past the week a day is its summary (`ledgerDays.js`
+// keeps every note as "Tex, by itself"), and read_day opens the whole day: a routine's text is in it too.
+test("read_day opens a routine's text weeks later, as Tex's own text with why it went out", async () => {
+  const ledger = texLedger(durableSql());
+  const day = "2026-10-20";
+  const at = midnightOf(day, ZONE) + 9 * 3600e3;
+  ledger.append("texts", [{ v: 1, id: "rent", at, kind: "note", turn: "r1", routine: "tex/routines/monthly/rent.md", outcome: "answered", text: "RENT-DUE: rent's due Friday." }]);
+  const text = (await readDayTool({ ledger, chat: "texts", timeZone: ZONE, log: () => {} }).call({ day })).content[0].text;
+  assert.match(text, /You: RENT-DUE/);
+  assert.match(text, /routine tex\/routines\/monthly\/rent\.md ran on its schedule/);
+});
