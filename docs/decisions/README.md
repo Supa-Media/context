@@ -751,6 +751,8 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 - [The Convex suite watches the gateway files Convex reaches](./testing/ci-pipelines.md)
 - [The gateway suite runs as two jobs, and its slow file in shards](./testing/ci-pipelines.md)
 - [Per push, a real browser tests only the note editor](./testing/ci-pipelines.md)
+- [A pull request of only Tex config and data runs only the Tex checks](./testing/ci-pipelines.md)
+- [Mac jobs are decided on Linux](./testing/ci-pipelines.md)
 - [A pull request runs the Convex tests its change reaches](./testing/convex-test-impact.md)
 - [The report-only policy is enforced against the browser specs before production](./testing/csp-candidate.md)
 
@@ -801,6 +803,7 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 - [A Provisional run starts a step before the steps that decide whether it should run (2026-11-17)](./texting-assistant/provisional-run.md)
 - [Tex asks Tex across chats, and a "Starts a new run" wire (2026-11-17)](./texting-assistant/cross-chat-asks.md)
 - [One list of what Tex can do, and where (2026-11-08)](./texting-assistant/capabilities.md)
+- [Checks read a draft together and send it back once (2026-11-17)](./texting-assistant/one-notice.md)
 - [Every Tex turn reads its setup, whoever the person is (2026-11-02)](./texting-assistant/setup-read.md)
 - [Tex answers directly, or says what it is doing as it works, never that it is done (2026-11-01)](./texting-assistant/interleaved-updates.md)
 - [Every reaction in a chat is input, a reaction on Tex's question its answer (2026-11-01)](./texting-assistant/reactions-as-input.md)

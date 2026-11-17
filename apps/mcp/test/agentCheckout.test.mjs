@@ -27,6 +27,7 @@
  *     sentences" fails.
  */
 
+import { carries } from "../src/agent/checkFindings.js";
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
@@ -181,7 +182,8 @@ test("a site said to lack what the browser never searched is sent back to look",
   const claims = claimCheck({ question: "isn't there a vamoose bus" });
   const wrapped = claims.wrapWeb(web(WEB_TOOLS));
   await wrapped.call("open_page", {});
-  assert.equal(claims.check(NOT_SEARCHED), LOOK_ON_SITE_NOTICE);
+  // The unread $58 goes back in the same notice (`checkFindings.js`).
+  assert.ok(carries(claims.check(NOT_SEARCHED), LOOK_ON_SITE_NOTICE));
 });
 
 test("a site searched in the browser this turn may say what it lacks", async () => {

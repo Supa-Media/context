@@ -10,6 +10,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
+import { QUIET_MS, midConversation } from "../../src/agent/checkInGather.js";
 import { byCodeStart } from "../byCode.mjs";
 import { createWorld } from "../world.mjs";
 
@@ -103,6 +104,27 @@ test("an earlier one-to-one check-in is kept as production keeps it: a check-in'
     assert.equal((await world.ledgerEntries()).filter((entry) => entry.kind === "text" && /Haskins/.test(entry.text ?? "")).length, 0);
     assert.equal(world.chatSide().mailbox !== null, true, "the email is in their mailbox");
   });
+});
+
+test("the chat before a one-to-one check-in is dated past the check-in's quiet wait, as production only looks once it is quiet", async () => {
+  const chat = [
+    { from: "person", text: "book the TAP flight" },
+    { from: "tex", text: "Booked." },
+    { from: "trigger", via: "checkin", mail: { from: "TAP", subject: "receipt", body: "your receipt" } },
+    { from: "tex", text: "Receipt's in." },
+    { from: "person", text: "done" },
+  ];
+  for (const checkIn of [true, false]) {
+    await inWorld("Priya", { gatewayFetch: scripted("ok").fetch }, async (world) => {
+      await world.earlier(chat, { checkIn });
+      const now = Date.now();
+      const kept = (await world.ledgerEntries()).filter((entry) => entry.backfill === undefined);
+      assert.equal(kept.length >= 4, true);
+      // A check-in says "busy" while a text of theirs is under QUIET_MS old (`checkInGather.js` `midConversation`).
+      assert.equal(midConversation(kept.filter((entry) => entry.kind === "text" && entry.from?.kind === "person").map((entry) => ({ theirs: true, at: entry.at })), now), !checkIn, `checkIn ${checkIn}`);
+      for (const entry of kept.filter((one) => one.kind === "text")) assert.equal(now - entry.at >= QUIET_MS, checkIn, `${entry.from?.kind} ${entry.text} dated ${now - entry.at} ms ago`);
+    });
+  }
 });
 
 test("an earlier one-to-one routine is kept as the routine turn's note, which the next turn reads", async () => {

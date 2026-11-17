@@ -28,6 +28,37 @@ const ROOT_INPUTS = [
   "scripts/import-reach.mjs",
 ];
 
+/**
+ * Tex's config and data: the wiring graph, its node shelf, prompt words,
+ * Training and test-set conversations, and the files generated from them.
+ * They change behaviour only through the code that reads them, so a diff made
+ * of nothing else is proven by the jobs that read them (the gateway and Worker
+ * suites, the generated-bundle check, the fast guards and the Tex test set),
+ * which opt in with `tex-data: "true"`. Every other job skips such a diff
+ * (Dev2, 2026-11-17: a config change runs the AI tests, not every suite).
+ * A diff with any other file in it is scoped exactly as before.
+ */
+export const TEX_DATA = [
+  "packages/shared/src/texConfig.json",
+  "packages/shared/src/texNodeShelf.json",
+  "packages/shared/src/texPrompt/**",
+  "packages/shared/src/texTraining.generated.json",
+  "packages/shared/src/texSetsRepo.generated.json",
+  "apps/mcp/bench/sets/**",
+  "apps/mcp/src/agent/texArchitecture.generated.js",
+  "apps/mcp/src/texDev/canvas.generated.js",
+  "apps/mcp/src/texDev/lab.generated.js",
+  "apps/mcp/src/texDev/replay.generated.js",
+  "apps/mobile/features/tex/lab/labData.generated.ts",
+  "apps/mobile/features/tex/lab/promptCatalog.generated.json",
+  "docs/architecture/tex.md",
+];
+
+/** True when a diff is non-empty and every file in it is Tex config or data. */
+export function texDataOnly(changed) {
+  return changed.length > 0 && changed.every((file) => TEX_DATA.some((pattern) => matches(file, pattern)));
+}
+
 export function parseList(value = "") {
   return String(value)
     .split(/[\n,]/)
@@ -139,8 +170,24 @@ function writeSummary(lines, env = process.env) {
  * `entries` scopes by the files those entry points import rather than by whole
  * packages (see import-reach.mjs); `packages` and `paths` still add to it.
  */
-export function decide({ packages = [], paths = [], entries = [], changed = [], backstop = null, root = process.cwd() }) {
+export function decide({
+  packages = [],
+  paths = [],
+  entries = [],
+  changed = [],
+  backstop = null,
+  texData = false,
+  root = process.cwd(),
+}) {
   const watched = watchedPaths(packages, paths, root);
+  if (!backstop && !texData && texDataOnly(changed)) {
+    return {
+      affected: false,
+      reason: `only Tex config and data changed (${changed.length} path${changed.length === 1 ? "" : "s"}); the Tex suites and test set prove it`,
+      matched: [],
+      watched,
+    };
+  }
   const scope = entries.length ? reach(entries, root) : null;
   const matched = backstop
     ? []
@@ -189,6 +236,23 @@ export function selfTest() {
   if (!editor("apps/mobile/metro.config.js")) throw new Error("a build config of the app the editor is built in did not fail open");
   if (editor("apps/mobile/public/index.html")) throw new Error("an asset nothing imports matched the editor scope");
   if (editor("apps/mobile/eslint.config.js")) throw new Error("a lint config matched the editor scope");
+  // A diff of only Tex config and data runs only the jobs that opt in.
+  const config = ["packages/shared/src/texConfig.json", "apps/mobile/features/tex/lab/labData.generated.ts", "docs/architecture/tex.md"];
+  const mobile = (changed, texData) => decide({ packages: [], paths: ["apps/mobile/**", "packages/shared/**"], changed, texData, root }).affected;
+  if (mobile(config, false)) throw new Error("a config-only diff ran a job that did not opt in to Tex data");
+  if (!mobile(config, true)) throw new Error("a config-only diff skipped a job that opted in to Tex data");
+  if (!mobile([...config, "apps/mobile/App.tsx"], false)) throw new Error("a diff with code beside the config skipped a watching job");
+  if (!mobile(["packages/shared/src/texPrompt/frontDoor.md"], true)) throw new Error("a prompt edit skipped an opted-in job");
+  if (texDataOnly([])) throw new Error("an empty diff counted as Tex data only");
+  // The framework CI's copy of the list must be this one.
+  const ci = readFileSync(join(root, ".github/workflows/ci.yml"), "utf8");
+  const block = /\n {6}skip-when-only: \|\n((?: {8}.*\n)+)/.exec(ci);
+  const listed = block ? block[1].split("\n").map((line) => line.trim()).filter(Boolean) : [];
+  if (listed.join("\n") !== TEX_DATA.join("\n")) throw new Error("ci.yml's skip-when-only is not TEX_DATA");
+  if (texDataOnly(["packages/shared/src/texConfig.ts"])) throw new Error("a code file beside the config counted as Tex data");
+  if (!decide({ paths: ["apps/mobile/**"], changed: config, backstop: "push", root }).affected) {
+    throw new Error("the main-branch backstop skipped a config-only push");
+  }
   // A pull request is diffed against the base its test merge was made onto.
   const pr = { pull_request: { base: { sha: "a".repeat(40) }, head: { sha: "c".repeat(40) } } };
   if (pullRequestBase(pr, ["b".repeat(40), "c".repeat(40)]) !== "b".repeat(40)) {
@@ -214,12 +278,22 @@ export function selfTest() {
 }
 
 async function main(env = process.env) {
+  if (env.CI_SCOPE_MODE === "tex-data-only") {
+    // For whole jobs gated at the job level: `only` is true when this pull
+    // request changes nothing but Tex config and data. A push never is.
+    const diff = changedFiles(env);
+    const only = !diff.backstop && texDataOnly(diff.files);
+    writeOutput("only", String(only), env);
+    console.log(only ? `Tex config and data only:\n${diff.files.map((file) => `- ${file}`).join("\n")}` : "Not Tex config and data only");
+    return;
+  }
   const packages = parseList(env.CI_SCOPE_PACKAGES);
   const paths = parseList(env.CI_SCOPE_PATHS);
   const entries = parseList(env.CI_SCOPE_ENTRIES);
   if (!packages.length && !paths.length && !entries.length) throw new Error("ci-scope needs at least one package, path or entry");
   const diff = changedFiles(env);
-  const result = decide({ packages, paths, entries, changed: diff.files, backstop: diff.backstop });
+  const texData = env.CI_SCOPE_TEX_DATA === "true";
+  const result = decide({ packages, paths, entries, changed: diff.files, backstop: diff.backstop, texData });
   writeOutput("affected", String(result.affected), env);
   writeOutput("reason", result.reason.replaceAll("\n", " "), env);
   console.log(`${result.affected ? "RUN" : "SKIP"}: ${result.reason}`);
