@@ -97,7 +97,7 @@ function opusDecide() {
   return g;
 }
 
-test("sim times the draft against main: slower, dearer, step by step with what each reads", async () => {
+test("sim times the draft against main: dearer, off the critical path, step by step with what each reads", async () => {
   const dev = devWith({ get: draftRow(opusDecide()), cases: NO_CASES });
   // A group text: Triage sends it to Decide (a lone 1:1 text goes straight to the Queue, and Decide never runs).
   const key = labTests({ draft: { id: "main", name: "main" } }).find((t) => t.key === "pipeline/group-chatter-kept").key;
@@ -105,7 +105,9 @@ test("sim times the draft against main: slower, dearer, step by step with what e
   assert.equal(answer.version, "Opus door");
   assert.equal(answer.test.key, key);
   assert.equal(answer.base, "main");
-  assert.match(answer.untilReply.vsBase, /^\+[\d.]+ s vs main$/);
+  // Decide runs beside the Front door now (the Provisional run, Dev2, 2026-11-17): a slower Decide that still gives its
+  // go before the Front door's draft is ready costs more but no time.
+  assert.equal(answer.untilReply.vsBase, "same as main");
   assert.match(answer.cost.vsBase, /^\+\$[\d.]+ vs main$/);
   const decide = answer.whereTheTimeGoes.find((s) => s.step === "decide");
   assert.equal(decide.model, "Opus");

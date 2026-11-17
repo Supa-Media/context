@@ -109,13 +109,13 @@ describe("unfolding puts the config back", () => {
 });
 
 describe("focus on the intake box", () => {
-  test("Focus opens all seven steps, and each one is in the canvas with its own wires", () => {
+  test("Focus opens all seven steps, and each one is in the canvas with its own wires (nine, with the Provisional run's three)", () => {
     const opened = foldAround(folded(), "intake", GROUPS);
     const shown = stepsShownFor(opened, "intake");
     expect(shown.map((n) => n.id).sort()).toEqual([...MEMBERS].sort());
     expect(opened.nodes.find((n) => n.id === "intake")).toBeUndefined();
     const chain = opened.edges.filter((e) => MEMBERS.includes(e.from) && MEMBERS.includes(e.to));
-    expect(chain).toHaveLength(7);
+    expect(chain).toHaveLength(9);
     expect(opened.edges.filter((e) => MEMBERS.includes(e.from) && !MEMBERS.includes(e.to))).toEqual([
       { from: "doorStep", to: "fd", mode: "wait", when: ["next"] },
       { from: "doorStep", to: "bypass", mode: "wait", when: ["answered"] },
@@ -123,10 +123,11 @@ describe("focus on the intake box", () => {
   });
 
   test("Focus on a group draws just that group: its seven steps and the wires between them (Dev2, 2026-11-16)", () => {
+    // Nine: Triage, Decide and the Queue each start the Door provisionally (Dev2, 2026-11-17).
     const opened = foldAround(folded(), "intake", GROUPS);
     const { items, inner, ins, outs } = groupParts(opened, "intake", GROUPS);
     expect(items.map((n) => n.id).sort()).toEqual([...MEMBERS].sort());
-    expect(inner).toHaveLength(7);
+    expect(inner).toHaveLength(9);
     expect(inner.every((i) => MEMBERS.includes(opened.edges[i].from) && MEMBERS.includes(opened.edges[i].to))).toBe(true);
     // Wires that leave the group are pills naming the thing outside, never steps drawn beside it.
     expect(outs.map((p) => [p.item, p.other])).toEqual([["doorStep", "fd"], ["doorStep", "bypass"]]);
