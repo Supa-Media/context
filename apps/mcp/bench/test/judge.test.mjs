@@ -346,8 +346,8 @@ test("estimateJudging prices a judging from its requests, and the fake judge is 
   const { dir, path, cleanup } = await folder();
   try {
     const estimate = estimateJudging([{ inputTokens: 1_000_000, outputTokens: 400_000 }], "claude-haiku-5-5");
-    // 1M in at $0.10 plus a quarter of 400k out at $0.50.
-    assert.equal(estimate.usd, 0.15);
+    // 1M in past the 100k cliff is five times $0.10, plus a quarter of 400k out at $0.50.
+    assert.equal(estimate.usd, 0.55);
     assert.equal(estimateJudging([], "claude-haiku-5-5").usd, 0);
     assert.equal(estimateJudging([{ inputTokens: 1, outputTokens: 1 }], "mystery-judge").usd, null);
     const result = await judgeFile({ path, dir, send: fakeJudge(), maxUsd: 0 });

@@ -16,7 +16,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import { aiGatewayConfig, requestViaGateway, resetCreditState } from "../src/agent/aiGateway.js";
-import { CreditRestObject, createCreditCache } from "../src/agent/creditRest.js";
+import { CreditRestObject, createCreditCache, handleCreditRest } from "../src/agent/creditRest.js";
 
 const ACCOUNT_ID = "0123456789abcdef0123456789abcdef";
 const TOKEN = `gw-token-${"a".repeat(20)}`;
@@ -161,4 +161,23 @@ test("a store that does not answer still tries the key", async () => {
   assert.equal(sent.calls.length, 1);
   assert.equal(sent.calls[0].headers["x-api-key"], CREDIT);
   assert.equal(paid.paidBy, "credit");
+});
+
+test("POST /credit-rest answers the gateway token and hides a wrong one", async () => {
+  const env = { AI_GATEWAY_TOKEN: TOKEN, CREDIT_REST: namespace() };
+  const wrong = await handleCreditRest(
+    new Request("https://mcp.context.lc/credit-rest", { method: "POST", headers: { authorization: `Bearer ${"b".repeat(TOKEN.length)}` }, body: "{}" }),
+    env,
+  );
+  assert.equal(wrong.status, 404);
+  const claim = await handleCreditRest(
+    new Request("https://mcp.context.lc/credit-rest", {
+      method: "POST",
+      headers: { authorization: `Bearer ${TOKEN}`, "content-type": "application/json" },
+      body: JSON.stringify({ op: "claim", name: "plan", now: T0 }),
+    }),
+    env,
+  );
+  assert.equal(claim.status, 200);
+  assert.deepEqual(await claim.json(), { try: true });
 });

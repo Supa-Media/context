@@ -253,10 +253,18 @@ const SNAPSHOT = [
 ].join("\n");
 
 test("priceUsd prices haiku under both names", () => {
-  const usage = { input: 1000000, output: 1000000, cacheRead: 1000000, cacheWrite: 1000000 };
-  // 0.10 + 0.50 + 0.01 + 0.125
-  assert.equal(priceUsd("anthropic/claude-haiku-5-5", usage), 0.735);
-  assert.equal(priceUsd("claude-haiku-5-5", usage), 0.735);
+  const usage = { input: 1000, output: 1000, cacheRead: 1000, cacheWrite: 1000 };
+  // Under 100k tokens: 0.0001 + 0.0005 + 0.00001 + 0.000125.
+  assert.equal(priceUsd("anthropic/claude-haiku-5-5", usage), 0.000735);
+  assert.equal(priceUsd("claude-haiku-5-5", usage), 0.000735);
+});
+
+test("haiku input past 100k tokens is five times the published rate, output included once", () => {
+  assert.equal(priceUsd("claude-haiku-5-5", { input: 100_000 }), 0.01);
+  assert.equal(priceUsd("claude-haiku-5-5", { input: 1_000_000, output: 1_000_000 }), 1);
+  const over = { input: 1_000_000, output: 1_000_000, cacheRead: 1_000_000, cacheWrite: 1_000_000 };
+  // 0.50 + 0.50 + 0.05 + 0.625
+  assert.equal(priceUsd("claude-haiku-5-5", over), 1.675);
 });
 
 test("priceUsd prices sonnet under both names", () => {
@@ -278,7 +286,7 @@ test("priceUsd returns null for an unknown model", () => {
 });
 
 test("priceUsd counts missing usage fields as zero", () => {
-  assert.equal(priceUsd("claude-haiku-5-5", { input: 1000000 }), 0.1);
+  assert.equal(priceUsd("claude-haiku-5-5", { input: 1000000 }), 0.5);
   assert.equal(priceUsd("claude-haiku-5-5", {}), 0);
   assert.equal(priceUsd("claude-haiku-5-5", undefined), 0);
 });
@@ -523,22 +531,22 @@ test("a planned setup is priced model by model, and the summary says the think m
       // Routed: one Opus round that planned, four Haiku rounds that drove.
       {
         setup: "plan-drive", question: 1, run: 1, model: HAIKU, tools: [{ tool: "router: think (0.90)", ok: true }], ms: 1000, texts: 1, conversation: [],
-        usage: { input: 1_100_000, output: 0 },
-        usageByModel: { [OPUS]: { input: 100_000, output: 0 }, [HAIKU]: { input: 1_000_000, output: 0 } },
+        usage: { input: 110_000, output: 0 },
+        usageByModel: { [OPUS]: { input: 10_000, output: 0 }, [HAIKU]: { input: 100_000, output: 0 } },
         rounds: { [OPUS]: 1, [HAIKU]: 4 },
       },
       // Not routed: all Haiku.
       {
         setup: "plan-drive", question: 2, run: 1, model: HAIKU, tools: [{ tool: "router: main", ok: true }], ms: 1000, texts: 1, conversation: [],
-        usage: { input: 1_000_000, output: 0 }, usageByModel: { [HAIKU]: { input: 1_000_000, output: 0 } }, rounds: { [HAIKU]: 5 },
+        usage: { input: 100_000, output: 0 }, usageByModel: { [HAIKU]: { input: 100_000, output: 0 } }, rounds: { [HAIKU]: 5 },
       },
     ],
   };
-  // Opus 0.1M at $4 + Haiku 1M at $0.1 = $0.50, not 1.1M at Haiku's $0.11.
-  assert.ok(Math.abs(runPriceUsd(planned.runs[0]) - 0.5) < 1e-12, String(runPriceUsd(planned.runs[0])));
+  // Opus 0.01M at $4 + Haiku 0.1M at $0.1 = $0.05. Both stay under the 100k cliff.
+  assert.ok(Math.abs(runPriceUsd(planned.runs[0]) - 0.05) < 1e-12, String(runPriceUsd(planned.runs[0])));
   const md = resultMarkdown(planned);
-  assert.ok(md.includes("Routed: plan-drive sent 1 of 2 answers to anthropic/claude-opus-5-5 ($0.5000 each)"), md);
-  assert.ok(md.includes("Think share: plan-drive ran 1 of 10 model rounds (10%) and $0.4000 of $0.6000 model spend (67%) on anthropic/claude-opus-5-5, planning 1 round a routed answer; the target is about 20%."), md);
+  assert.ok(md.includes("Routed: plan-drive sent 1 of 2 answers to anthropic/claude-opus-5-5 ($0.0500 each)"), md);
+  assert.ok(md.includes("Think share: plan-drive ran 1 of 10 model rounds (10%) and $0.0400 of $0.0600 model spend (67%) on anthropic/claude-opus-5-5, planning 1 round a routed answer; the target is about 20%."), md);
   // The summary a person reads first carries it, and the note still parses.
   assert.ok(summaryMarkdown(md).includes("Think share: plan-drive"), "the summary keeps the line");
   assert.equal(parseResult(md).answers.length, 2);

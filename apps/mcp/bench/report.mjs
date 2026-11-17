@@ -79,11 +79,15 @@ export function priceUsd(model, usage) {
   const n = (v) => (Number.isFinite(v) ? v : 0);
   const cacheRead = p.cacheRead ?? p.input;
   const cacheWrite = p.cacheWrite ?? p.input;
+  // Haiku 5.5 bills the whole input at five times the published rate once the
+  // prompt is past 100,000 tokens (the price cliff). Output stays on the short rate.
+  const inputTokens = n(u.input) + n(u.cacheRead) + n(u.cacheWrite);
+  const scale = /haiku-5/i.test(model) && inputTokens > 100_000 ? 5 : 1;
   return (
-    (n(u.input) * p.input +
+    (n(u.input) * p.input * scale +
       n(u.output) * p.output +
-      n(u.cacheRead) * cacheRead +
-      n(u.cacheWrite) * cacheWrite) /
+      n(u.cacheRead) * cacheRead * scale +
+      n(u.cacheWrite) * cacheWrite * scale) /
     1e6
   );
 }
