@@ -29,6 +29,7 @@ import type { InboxStorage } from "./inbox";
 import { cut, MAX_INBOUND_TEXT } from "./inbound";
 import { readPictures, type OutgoingPicture } from "./outgoing";
 import partEndLib from "../../../packages/shared/src/jobPartEnd.cjs";
+import jobStartLib from "../../../packages/shared/src/jobStart.cjs";
 import { TEX_CONFIG } from "../../../packages/shared/src/texConfig.cjs";
 import { MAX_ENDS_KEPT, PART_CAUSES, type JobSaved, type PartCause, type PartEnd } from "./jobProgress";
 
@@ -108,10 +109,12 @@ export function jobPictures(pictures: OutgoingPicture[]): OutgoingPicture[] {
   return kept;
 }
 
+/** The Job start node's limits (`packages/shared/src/jobStart.cjs`), today's numbers while it names none. */
+const START_LIMITS = jobStartLib.configStartLimits(TEX_CONFIG);
 /** Cloud jobs at once in a chat. A job on their computer counts against that computer's own slots instead (`apps/mcp/src/agent/jobSlots.js`). */
-export const MAX_RUNNING_JOBS = 3;
+export const MAX_RUNNING_JOBS = START_LIMITS.cloudSlots;
 /** The most jobs one computer runs for a chat (`slotCounts`'s most); its owner's own count is checked by the gateway and the workspace object. */
-export const MAX_MACHINE_JOBS = 8;
+export const MAX_MACHINE_JOBS = START_LIMITS.machineSlots;
 /** The most jobs one turn may start or steer: the cloud's and one computer's. */
 const MAX_TURN_JOBS = MAX_RUNNING_JOBS + MAX_MACHINE_JOBS;
 /** The computer a job's entry runs on, by machine id; null in the cloud. An entry from before ids were kept is on an unnamed one. */

@@ -61,6 +61,7 @@ import { chatAnswerNode } from "./nodes/chatAnswer.js";
 import { tapbackNode } from "./nodes/tapback.js";
 import { partEndNode } from "./nodes/partEnd.js";
 import { jobReportNode } from "./nodes/jobReport.js";
+import { jobStartNode } from "./nodes/jobStart.js";
 import { jobadv } from "./nodes/jobadv.js";
 import { staffNode } from "./nodes/staff.js";
 
@@ -146,4 +147,6 @@ export const GATEWAY_NODES = {
   get partEnd() { return partEndNode; },
   // A background job's report, a new run of its chat: read strictly, asked the gateway's own line (`nodes/jobReport.js`).
   get jobReport() { return jobReportNode; },
+  // Whether a background job the front door asks for starts now, under the slots in its config (`nodes/jobStart.js`).
+  get jobStart() { return jobStartNode; },
 };
