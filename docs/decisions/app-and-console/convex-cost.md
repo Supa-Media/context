@@ -39,6 +39,12 @@ patterns combined to produce the bill:
   tree, or clear the binding, and a waiting list too long to see the end of,
   is read from Convex's rows. Scanning every node document for a content edit
   was most of `nodes.listLive`.
+- A token's workspace list is saved and reused while the grant, its
+  memberships, its groups, handles and emails, and each workspace's access
+  version are unchanged. The access snapshot is not read again for that list.
+  The version lives on its own small row, written in the same transaction as
+  `nodeAccessState.version`. A revoked grant or a removed membership never
+  reuses the list.
 - A reader that needs both the mirror and the rules reads the access
   snapshot once (`readerView`).
 - A live frame with nobody to relay to is authorized at most every 30 seconds

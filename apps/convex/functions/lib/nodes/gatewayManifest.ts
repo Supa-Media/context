@@ -37,7 +37,8 @@ import type { ActionCtx, QueryCtx } from "../../../_generated/server";
 import { NO_NAMES, clearanceOf } from "../clearance";
 import { audienceOfNames } from "../pinnedReaders";
 import type { Audience } from "./rowAccess";
-import { contextsForGrant, resolveLiveGrant } from "../controlPlane/liveGrants";
+import { loadGrantWorkspaces } from "../controlPlane/grantCache";
+import { resolveLiveGrant } from "../controlPlane/liveGrants";
 import { TOKEN_HASH_PATTERN, hashToken } from "../crypto";
 import { json } from "../gatewayAuth";
 import { syncManifest } from "../fileOps/syncManifest";
@@ -108,7 +109,7 @@ export async function readClearanceHandler(ctx: QueryCtx, args: ObjectType<typeo
   const live = await resolveLiveGrant(ctx, args.hashedAccessToken);
   if (live === null) return null;
   return gatewayReadClearance(
-    { scopes: live.grant.scopes, workspaces: await contextsForGrant(ctx, live) },
+    { scopes: live.grant.scopes, workspaces: (await loadGrantWorkspaces(ctx, args.hashedAccessToken, live)).workspaces },
     args.expectedWorkspaceId,
   );
 }

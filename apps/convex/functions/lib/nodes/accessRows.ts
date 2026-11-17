@@ -117,8 +117,17 @@ export async function accessStateOf(ctx: QueryCtx, workspaceId: Id<"workspaces">
   return await state;
 }
 
-/** The version of this workspace's access rows: bumped by every finished derivation, `0` before the first. */
+/**
+ * The version of this workspace's access rows: bumped by every finished derivation, `0` before the first.
+ * The small `nodeAccessVersions` row when it exists, so this does not load the snapshot. Absent until the
+ * next derivation (or a grant resolve that records it), and then the snapshot's own version.
+ */
 export async function accessVersionOf(ctx: QueryCtx, workspaceId: Id<"workspaces">): Promise<number> {
+  const small = await ctx.db
+    .query("nodeAccessVersions")
+    .withIndex("by_workspace", (q) => q.eq("workspaceId", workspaceId))
+    .unique();
+  if (small !== null) return small.version;
   const state = await accessStateOf(ctx, workspaceId);
   return state?.version ?? 0;
 }

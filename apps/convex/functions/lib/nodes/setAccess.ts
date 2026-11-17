@@ -26,7 +26,7 @@ import type { Doc, Id } from "../../../_generated/dataModel";
 import type { MutationCtx } from "../../../_generated/server";
 import { recordAudit } from "../audit";
 import { effectiveVisibility, visibilityOf, narrowerVisibility, type Visibility } from "../privacy";
-import { refreshSnapshot } from "./accessBackfill";
+import { putAccessVersion, refreshSnapshot } from "./accessBackfill";
 import { pinnedContextWorkspace } from "../pinnedContext";
 import { scanAccessRows } from "./accessRows";
 import { livePending, PENDING_MAX } from "./pendingAccess";
@@ -196,6 +196,7 @@ async function setPendingAccess(
   const nextVersion = version + 1;
   if (state === null) await ctx.db.insert("nodeAccessState", { workspaceId, version: nextVersion, orphans: [], pending: next });
   else await ctx.db.patch(state._id, { version: nextVersion, pending: next });
+  await putAccessVersion(ctx, workspaceId, nextVersion);
   return { ok: true, version: nextVersion };
 }
 

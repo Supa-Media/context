@@ -35,7 +35,7 @@ import { MAX_GRANTEES, writeRowAccess, wantedOf, type GranteeInput } from "./lib
 import { livePending, PENDING_MAX } from "./lib/nodes/pendingAccess";
 import { liveNodeAt } from "./lib/nodes/paths";
 import { removeUserGrantsIn } from "./lib/grants/removeUserGrants";
-import { refreshSnapshot } from "./lib/nodes/accessBackfill";
+import { putAccessVersion, refreshSnapshot } from "./lib/nodes/accessBackfill";
 
 export const accessGranteeValidator = v.object({
   kind: v.union(v.literal("user"), v.literal("group"), v.literal("email"), v.literal("members"), v.literal("accounts")),
@@ -286,6 +286,7 @@ async function settleVersion(
   const sawSame = heldVersion === record.baseVersion;
   const version = sawSame ? Math.max(heldVersion + 1, record.version) : Math.max(heldVersion + 1, record.version + 1);
   if (fresh.version !== version) await ctx.db.patch(fresh._id, { version });
+  await putAccessVersion(ctx, workspaceId, version);
   if (!sawSame) {
     // Convex's own access change is not in the object: an access push sends the object the set as Convex now holds it.
     const push: WorkspaceChange = { nodeIds: new Set(), access: true, narrows: false, binding: false, born: new Set(), bornPaths: new Set(), goneObjectIds: new Set() };

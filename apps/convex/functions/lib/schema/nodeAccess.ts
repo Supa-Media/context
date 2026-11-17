@@ -144,4 +144,39 @@ export const nodeAccessTables = {
     rulesEtag: v.optional(v.union(v.string(), v.null())),
     derivedEtag: v.optional(v.union(v.string(), v.null())),
   }).index("by_workspace", ["workspaceId"]),
+
+  /**
+   * The access version alone, so a reader that only needs to know whether the
+   * snapshot changed does not load `nodeAccessState` (the snapshot is the
+   * heavy document). Written in the same transaction as every change to
+   * `nodeAccessState.version`.
+   */
+  nodeAccessVersions: defineTable({
+    workspaceId: v.id("workspaces"),
+    version: v.number(),
+  }).index("by_workspace", ["workspaceId"]),
+
+  /**
+   * The workspace list `contextsForGrant` last built for one access token,
+   * reused while the grant, its memberships, its group and handle names, and
+   * each workspace's access version are unchanged. The snapshot is not read
+   * on a hit. A revoked grant, a removed membership, or a moved version never
+   * hits.
+   */
+  grantResolveCache: defineTable({
+    hashedAccessToken: v.string(),
+    fingerprint: v.string(),
+    workspaces: v.array(
+      v.object({
+        workspaceId: v.id("workspaces"),
+        slug: v.string(),
+        role: v.string(),
+        kind: v.union(v.literal("personal"), v.literal("shared")),
+        grantedNames: v.optional(v.array(v.string())),
+        setupOnly: v.optional(v.literal(true)),
+        chatHome: v.optional(v.string()),
+        homeOnly: v.optional(v.literal(true)),
+      }),
+    ),
+  }).index("by_token", ["hashedAccessToken"]),
 };

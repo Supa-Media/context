@@ -14,6 +14,7 @@ import type { ObjectType } from "convex/values";
 import type { QueryCtx } from "../../../_generated/server";
 import type { Id } from "../../../_generated/dataModel";
 import { TOKEN_HASH_PATTERN } from "../crypto";
+import { loadGrantWorkspaces, type GrantRemember } from "./grantCache";
 import {
   addressable,
   contextsForGrant,
@@ -201,21 +202,18 @@ export async function resolveGatewaySessionHandler(
   ctx: QueryCtx,
   args: ObjectType<typeof resolveGrantByAccessTokenArgs>,
 ) {
-  const session = await resolveGrantByAccessTokenHandler(ctx, args);
-  if (session === null) return { session: null, touchDue: false };
-  const grant = await ctx.db.get(session.grantId);
+  const resolved = await resolveGrant(ctx, args);
+  if (resolved.session === null) return { session: null, touchDue: false, remember: null };
+  const grant = await ctx.db.get(resolved.session.grantId);
   const lastUsedAt = grant?.lastUsedAt;
   const touchDue = lastUsedAt === undefined || Date.now() - lastUsedAt >= TOUCH_GRANT_EVERY_MS;
-  return { session, touchDue };
+  return { session: resolved.session, touchDue, remember: resolved.remember };
 }
 
-export async function resolveGrantByAccessTokenHandler(
-  ctx: QueryCtx,
-  args: ObjectType<typeof resolveGrantByAccessTokenArgs>,
-) {
+async function resolveGrant(ctx: QueryCtx, args: ObjectType<typeof resolveGrantByAccessTokenArgs>) {
   const live: (LiveGrant & { run?: RunGrantInfo }) | null =
     (await resolveLiveGrant(ctx, args.hashedAccessToken)) ?? (await resolveRunGrant(ctx, args.hashedAccessToken));
-  if (live === null) return null;
+  if (live === null) return { session: null, remember: null as GrantRemember | null };
   // A run grant reads as its own client, and as the parent grant for everything else: who it acts as, what it reaches.
   const client = live.run
     ? null
@@ -224,22 +222,33 @@ export async function resolveGrantByAccessTokenHandler(
         .withIndex("by_clientId", (q) => q.eq("clientId", live.grant.clientId))
         .unique();
   const chatId = await texChatIdOf(ctx, live);
+  const loaded = await loadGrantWorkspaces(ctx, args.hashedAccessToken, live);
   return {
-    grantId: live.grant._id,
-    clientId: live.run ? TEX_MACHINE_RUN_CLIENT_ID : live.grant.clientId,
-    clientName: live.run ? "Tex on your computer" : (client?.clientName ?? null),
-    actorUserId: live.grant.userId,
-    scopes: live.grant.scopes,
-    expiresAt: live.run ? live.run.expiresAt : (live.grant.accessTokenExpiresAt as number),
-    toolsListedAt: live.grant.toolsListedAt ?? live.grant.createdAt,
-    ...(chatId === null ? {} : { texChatId: chatId }),
-    ...ownTagOf(live, chatId, args.hashedAccessToken),
-    workspaceId: live.grant.workspaceId,
-    slug: live.workspace.slug,
-    role: live.role,
-    kind: live.workspace.kind,
-    workspaces: await contextsForGrant(ctx, live),
+    remember: loaded.remember,
+    session: {
+      grantId: live.grant._id,
+      clientId: live.run ? TEX_MACHINE_RUN_CLIENT_ID : live.grant.clientId,
+      clientName: live.run ? "Tex on your computer" : (client?.clientName ?? null),
+      actorUserId: live.grant.userId,
+      scopes: live.grant.scopes,
+      expiresAt: live.run ? live.run.expiresAt : (live.grant.accessTokenExpiresAt as number),
+      toolsListedAt: live.grant.toolsListedAt ?? live.grant.createdAt,
+      ...(chatId === null ? {} : { texChatId: chatId }),
+      ...ownTagOf(live, chatId, args.hashedAccessToken),
+      workspaceId: live.grant.workspaceId,
+      slug: live.workspace.slug,
+      role: live.role,
+      kind: live.workspace.kind,
+      workspaces: loaded.workspaces,
+    },
   };
+}
+
+export async function resolveGrantByAccessTokenHandler(
+  ctx: QueryCtx,
+  args: ObjectType<typeof resolveGrantByAccessTokenArgs>,
+) {
+  return (await resolveGrant(ctx, args)).session;
 }
 
 export function gatewayOwnerClearance(
