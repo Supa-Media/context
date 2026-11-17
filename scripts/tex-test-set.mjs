@@ -8,7 +8,7 @@
  * says is printed: the conversations and the answers are written to files only this job's user can read, and this
  * prints counts.
  *
- *   node scripts/tex-test-set.mjs start  --pr <n> --sha <head> --base <main sha> --dir <sealed dir>
+ *   node scripts/tex-test-set.mjs start  --pr <n> --sha <head> --base <main sha> [--change <patch-id>] --dir <sealed dir>
  *       writes <dir>/conversations.json and <dir>/run; exit 3 when the caps refuse, with their sentence
  *   node scripts/tex-test-set.mjs finish --dir <sealed dir>
  *       sends <dir>/branch.json and <dir>/main.json, writes <dir>/verdict.json; exit 0 on a pass, 1 on a fail
@@ -89,7 +89,7 @@ async function main() {
   if (sub === "start") {
     const dir = arg("dir");
     mkdirSync(dir, { recursive: true, mode: 0o700 });
-    const { status, answer } = await call("/v1/runs", { pr: Number(arg("pr")), sha: arg("sha"), base: arg("base") }, { token: await oidcToken() });
+    const { status, answer } = await call("/v1/runs", { pr: Number(arg("pr")), sha: arg("sha"), base: arg("base"), ...(arg("change") ? { change: arg("change") } : {}) }, { token: await oidcToken() });
     if (status === 429) {
       sealed(join(dir, "refused"), String(answer?.error ?? "capped"));
       console.log(`The Test Set did not run: ${answer?.error ?? "capped"}.`);
