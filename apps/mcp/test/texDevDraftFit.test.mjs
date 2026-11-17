@@ -229,13 +229,9 @@ test("Triage's wires follow where it sends a text: the judge to Decide, a lone t
   assert.deepEqual(into("lanes"), ["tex"]);
 });
 
-test("a draft that draws Chat day summaries after Text them runs it as drawn, from the shelf (Dev2, 2026-11-16)", () => {
-  assert.ok(SHELF_NODES.includes("chatDays"), "its code is merged ahead of the config");
-  assert.ok(!TEX_CONFIG.nodes.some((n) => n.id === "chatDays"), "main's config never runs it");
-  const g = main();
-  g.nodes = [...g.nodes, { id: "chatDays", label: "Chat day summaries", model: "haiku-5-5", effort: "low", on: true, ctx: [], inSchema: [], outSchema: [] }];
-  g.edges = [...g.edges, { from: "send", to: "chatDays", mode: "background", when: ["sent", "ended", "answered"] }];
-  assert.deepEqual(draftFit(TEX_CONFIG, g), { asDrawn: true });
-  const ran = withDraft(TEX_CONFIG, g);
-  assert.ok(ran.edges.some((e) => e.from === "send" && e.to === "chatDays" && e.mode === "background"));
+test("Chat day summaries, promoted from the shelf, runs after Text them in main's config (Dev2, 2026-11-16)", () => {
+  assert.ok(!SHELF_NODES.includes("chatDays"), "its promotion took it off the shelf");
+  assert.ok(TEX_CONFIG.nodes.some((n) => n.id === "chatDays" && n.on !== false), "main's config runs it");
+  assert.ok(TEX_CONFIG.edges.some((e) => e.from === "send" && e.to === "chatDays" && e.mode === "background"));
+  assert.deepEqual(draftFit(TEX_CONFIG, main()), { asDrawn: true });
 });

@@ -294,7 +294,8 @@ export async function createEgressWorld() {
     });
     // Tex's objects: the person's history, turn records and Tex notes (`texStore.js`).
     const tex = texStoreNamespace();
-    const env = { CONTROL_PLANE_URL: CONTROL_PLANE_ORIGIN, GATEWAY_SECRET, SITE_SHOTS: browser, TEX_STORE: tex.namespace, ...AI_GATEWAY_ENV };
+    // Chat day summaries (a background model call after every reply) off, so `requests.at(-1)` is the turn's own call.
+    const env = { CONTROL_PLANE_URL: CONTROL_PLANE_ORIGIN, GATEWAY_SECRET, SITE_SHOTS: browser, TEX_STORE: tex.namespace, DAY_SUMMARIES: "off", ...AI_GATEWAY_ENV };
 
     const privacyText = () => bucket.get("privacy.md")?.body ?? "";
     // Access is the control plane's rows: the seeded rules with every row change the gateway sent applied.

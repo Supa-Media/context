@@ -125,6 +125,10 @@ export async function oneToOne() {
       if (flushed.status !== 200) throw new Error(`replay: the Worker's flush answered ${flushed.status}`);
       return { answer, calls, id: theirs.id, shown: world.model.requests.slice(before).map(shownIn).join("\n") };
     },
+    /** Time passing between texts: the chat's clock moves on by `ms` (a case that fakes `Date.now` for its older texts). */
+    later(ms) {
+      clock += ms;
+    },
     /** One of the person's own events the Worker posts with no turn (an unsend, a typo fixed): kept, never answered. */
     async keep(fields) {
       clock += 60_000;

@@ -40,9 +40,11 @@ const WARM_BUDGET = 7;
  * the desk (history, About me and the jobs list in one), and the running
  * mark's read and write. The prior turn's record is the copy's. Each is a call
  * to an object in the gateway's region, not a bucket read; still budgeted, so
- * a read that creeps back in one record at a time fails here.
+ * a read that creeps back in one record at a time fails here. Since 2026-11-17
+ * the chat's history modules add two, read side by side: the chat word for word
+ * over its days and the day summaries before them (`weekHistory.js`).
  */
-const OBJECT_BUDGET = 3;
+const OBJECT_BUDGET = 5;
 
 const CHAT = "sendblue:line:+15555550100";
 let seq = 0;

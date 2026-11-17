@@ -57,6 +57,7 @@ import { cancelledTurn } from "../src/agent/textingRoutes.js";
 import { logPrefix } from "../src/agent/log.js";
 import { ledgerFor, ONE_TO_ONE_CHAT } from "../src/agent/ledger.js";
 import { LOG_PREFACE, TURNS_PREFIX } from "../src/agent/loggedTurn.js";
+import { WEEK_PREFACE } from "../src/agent/weekHistory.js";
 import { CANCEL_PREFIX, RUNNING_PREFIX, steerFor } from "../src/agent/steer.js";
 import { createPending, PENDING_PREFIX } from "../src/tools/approvals.js";
 import { LOGICAL_DELETE_CONTENT_TYPE } from "../src/store/logicalDelete.js";
@@ -458,7 +459,7 @@ test("a turn that covers logged events is shown the transcript, and today's hist
   const response = await call("/agent", { question: "move it to 8", timeZone: "UTC", conversation: "texts", chat: CHAT, covers: [fresh.id], turn: TURN });
   assert.equal(response.status, 200);
   const messages = JSON.stringify(requests[0].messages);
-  assert.ok(messages.includes(LOG_PREFACE.slice(0, 40)), "the log is the conversation");
+  assert.ok(messages.includes(WEEK_PREFACE.slice(0, 40)), "the chat's ledger is the conversation (`weekHistory.js`)");
   assert.match(messages, /You: Dinner at 7\./);
   // The Worker texts the answer and posts it; the chat rebuilt from the ledger then holds the exchange (`ledgerConversation.js`).
   await call("/agent/events", { conversation: "texts", events: [event({ from: { kind: "tex" }, text: "Moved to 8.", turn: TURN, covers: [fresh.id] })] });
@@ -494,7 +495,7 @@ test("a turn with no log for its chat is today's turn", async () => {
   script = [{ text: "Sure." }];
   const response = await call("/agent", { question: "hello", timeZone: "UTC", conversation: "texts", chat: CHAT, covers: [event().id] });
   assert.equal(response.status, 200);
-  assert.ok(!JSON.stringify(requests[0].messages).includes(LOG_PREFACE.slice(0, 40)));
+  assert.ok(![LOG_PREFACE, WEEK_PREFACE].some((preface) => JSON.stringify(requests[0].messages).includes(preface.slice(0, 40))));
 });
 
 /* ---------------- no turn record (turn-trust.md, 2026-11-05) ---------------- */

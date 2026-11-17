@@ -9,14 +9,15 @@
  *  3. `weekView` reading with `fade: true` → "the seven days are word for word…" fails (a long answer cut).
  *  4. `inlinePictureBlocks` putting the picture before its marker → "a picture's block comes right after the line…" fails.
  *  5. `writeChatDaySummaries` writing to `texts` instead of `chat` → "a group's finished days are summed up…" fails.
- *  6. `readsWeek` true for `hist` → "main's config reads `hist`…" fails.
+ *  6. `moduleSpan` reading "all" as 0 days → "the chat and its summaries are two modules…" fails.
+ *  7. `weekTurn` ignoring the summaries module's span → "a summaries module of 3 days shows only the 3 days…" fails.
  */
 
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
 import {
-  dayLine, dayBefore, midnightOf, picturesOf, readDayTool, readsWeek, summaryPart, weekOn, weekStart, weekTurn, weekView, WEEK_MODULE,
+  dayLine, dayBefore, historyReads, midnightOf, moduleSpan, picturesOf, readDayTool, summaryPart, weekOn, weekStart, weekTurn, weekView,
 } from "../src/agent/weekHistory.js";
 import { anthropicMessages, inlinePictureBlocks } from "../src/agent/providers.js";
 import { writeChatDaySummaries } from "../src/agent/daySummaries.js";
@@ -42,12 +43,42 @@ const said = (chat, at, who, text, extra = {}) => {
 };
 const summary = (day, at, text) => ({ v: 1, id: `day-${day}`, at, kind: "day", day, text });
 
-test("main's config reads `hist`, so nothing live changes until a draft's front door reads `week`", () => {
-  assert.equal(readsWeek(texStep("fd")), false);
-  assert.equal(weekOn({}), false);
+// Dev2, 2026-11-17: "context module: chat summaries all, 40k cap / context module: chat history 7d, 40k cap", days or all.
+test("the chat and its summaries are two modules, each its span (days or all) and cap, read from main's front door", () => {
+  assert.deepEqual(moduleSpan("chat:7:40000", "chat"), { days: 7, chars: 40_000 });
+  assert.deepEqual(moduleSpan("summaries:all:40000", "summaries"), { days: null, chars: 40_000 });
+  assert.equal(moduleSpan("chat:0:40000", "chat"), null, "no zero-day span");
+  assert.equal(moduleSpan("chat:7:40000", "summaries"), null);
+  assert.equal(moduleSpan("week", "chat"), null);
+  assert.deepEqual(historyReads(texStep("fd")), { chat: { days: 7, chars: 40_000 }, summaries: { days: null, chars: 40_000 } });
+  assert.equal(weekOn({}), true);
   const fd = texStep("fd");
-  const drafted = withDraft(TEX_CONFIG, { nodes: [{ id: "fd", ctx: fd.ctx.map((key) => (key === "hist" ? WEEK_MODULE : key)) }] });
-  assert.equal(readsWeek(texStep("fd", drafted)), true);
+  const drafted = withDraft(TEX_CONFIG, { nodes: [{ id: "fd", ctx: fd.ctx.filter((key) => !/^(chat|summaries):/.test(key)).concat("hist") }] });
+  assert.equal(historyReads(texStep("fd", drafted)), null, "a draft back on `hist` turns it off");
+  const month = withDraft(TEX_CONFIG, { nodes: [{ id: "fd", ctx: fd.ctx.map((key) => (key.startsWith("chat:") ? "chat:30:120000" : key)) }] });
+  assert.deepEqual(historyReads(texStep("fd", month)).chat, { days: 30, chars: 120_000 }, "a month is a config change");
+});
+
+test("a summaries module of 3 days shows only the 3 days before the chat's window, and the chat's cap drops the oldest texts", async () => {
+  const ledger = texLedger(durableSql());
+  const start = weekStart(NOW, ZONE, 2);
+  const days = ["2026-11-10", "2026-11-11", "2026-11-12", "2026-11-13", "2026-11-14", "2026-11-15"];
+  for (const day of days) await ledger.append("chat", [summary(day, midnightOf(day, ZONE) + 23 * 3600e3, `summary of ${day}`)]);
+  const texts = [];
+  for (let i = 0; i < 20; i += 1) texts.push(said("chat", start + 3600e3 + i * 60e3, "ada", `text ${i} ${"x".repeat(200)}`));
+  await ledger.append("chat", texts);
+  const built = await weekTurn({ ledger, chat: "chat", now: NOW, timeZone: ZONE, reads: { chat: { days: 2, chars: 2_000 }, summaries: { days: 3, chars: 40_000 } }, log: () => {} });
+  const text = built.history.text;
+  assert.match(text, /before the last 2 days/);
+  assert.match(text, /summary of 2026-11-14/);
+  assert.doesNotMatch(text, /summary of 2026-11-13/, "outside the summaries' 3 days");
+  assert.doesNotMatch(text, /summary of 2026-11-16/);
+  assert.match(text, /text 19 /, "the newest text is kept");
+  assert.doesNotMatch(text, /text 0 /, "the oldest go first past the cap");
+  assert.match(text, /oldest texts of the last 2 days are left out here for room/);
+  const whole = await weekTurn({ ledger, chat: "chat", now: NOW, timeZone: ZONE, reads: { chat: null, summaries: { days: null, chars: 40_000 } }, log: () => {} });
+  assert.match(whole.history.text, /summary of 2026-11-10/, "all summaries, no chat module");
+  assert.doesNotMatch(whole.history.text, /text 19 /);
 });
 
 test("the window starts at midnight six days back in the chat's zone, so it moves once a day", () => {
