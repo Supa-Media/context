@@ -175,9 +175,12 @@ function toolReplies(request) {
     .map((block) => String(block.content ?? ""));
 }
 
+// Every user message's words: since 2026-11-17 a routine's earlier texts come first, as the chat so far (`ledgerHistory.js`).
 function userText(request) {
-  const first = request?.messages?.[0]?.content;
-  return typeof first === "string" ? first : JSON.stringify(first ?? "");
+  return (request?.messages ?? [])
+    .filter((message) => message.role === "user")
+    .map((message) => (typeof message.content === "string" ? message.content : JSON.stringify(message.content ?? "")))
+    .join("\n");
 }
 
 export async function runAgentRoutineChecks(check) {

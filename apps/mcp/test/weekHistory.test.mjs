@@ -50,7 +50,9 @@ test("the chat and its summaries are two modules, each its span (days or all) an
   assert.equal(moduleSpan("chat:0:40000", "chat"), null, "no zero-day span");
   assert.equal(moduleSpan("chat:7:40000", "summaries"), null);
   assert.equal(moduleSpan("week", "chat"), null);
-  assert.deepEqual(historyReads(texStep("fd")), { chat: { days: 7, chars: 40_000 }, summaries: { days: null, chars: 40_000 } });
+  // Raised from 40k each on 2026-11-17 (Dev2: "raise these artificial limits to actual legit limits"): 40k cut 503 of
+  // a busy group's 721 texts that week.
+  assert.deepEqual(historyReads(texStep("fd")), { chat: { days: 7, chars: 200_000 }, summaries: { days: null, chars: 120_000 } });
   assert.equal(weekOn({}), true);
   const fd = texStep("fd");
   const drafted = withDraft(TEX_CONFIG, { nodes: [{ id: "fd", ctx: fd.ctx.filter((key) => !/^(chat|summaries):/.test(key)).concat("hist") }] });
@@ -277,4 +279,33 @@ test("a threaded turn on the week shows the 7 days, lists its threads over them,
   assert.match(turn.note, /the texts below are the last 7 days/);
   assert.equal(turn.read_day.tool.name, "read_day");
   assert.equal(turn.read_thread.tool.name, "read_thread");
+});
+
+// Dev2, 2026-11-17: a one-to-one routine's text stayed in Tex's history a day only (`sentByItself.js`), so after that Tex
+// forgot it sent it. The routine's own note (`finishARoutine.js`: its path, no `about`) is a text Tex sent by itself.
+test("a routine's text from days ago is in the week as Tex's own text, saying a routine sent it; one to other people is not", () => {
+  const start = weekStart(NOW, ZONE);
+  const note = (id, at, text, extra) => ({ v: 1, id, at, kind: "note", turn: `r-${id}`, routine: "tex/routines/daily/rent.md", outcome: "answered", text, ...extra });
+  const entries = [
+    note("n1", NOW - 3 * DAY, "RENT-REMINDER: rent's due Friday, $1,300."),
+    note("n2", NOW - 3 * DAY + 1000, "OTHERS-ONLY: pay Priya back.", { others: true }),
+    said("texts", NOW - 2 * DAY, "maya", "paid it"),
+  ].reverse();
+  const view = weekView({ entries, chat: "texts", start, timeZone: ZONE });
+  assert.match(view.text, /RENT-REMINDER/, "a routine's text three days ago is kept");
+  assert.match(view.text, /routine tex\/routines\/daily\/rent\.md ran on its schedule/, "and why it went out");
+  assert.doesNotMatch(view.text, /OTHERS-ONLY/, "a routine's text to other people is not this chat's");
+  assert.ok(view.text.indexOf("RENT-REMINDER") < view.text.indexOf("paid it"));
+});
+
+// Dev2, 2026-11-17: "why isn't it staying in the history forever?" Past the week a day is its summary (`ledgerDays.js`
+// keeps every note as "Tex, by itself"), and read_day opens the whole day: a routine's text is in it too.
+test("read_day opens a routine's text weeks later, as Tex's own text with why it went out", async () => {
+  const ledger = texLedger(durableSql());
+  const day = "2026-10-20";
+  const at = midnightOf(day, ZONE) + 9 * 3600e3;
+  ledger.append("texts", [{ v: 1, id: "rent", at, kind: "note", turn: "r1", routine: "tex/routines/monthly/rent.md", outcome: "answered", text: "RENT-DUE: rent's due Friday." }]);
+  const text = (await readDayTool({ ledger, chat: "texts", timeZone: ZONE, log: () => {} }).call({ day })).content[0].text;
+  assert.match(text, /You: RENT-DUE/);
+  assert.match(text, /routine tex\/routines\/monthly\/rent\.md ran on its schedule/);
 });
