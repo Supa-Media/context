@@ -270,9 +270,10 @@ test("setsCommand refuses another subcommand and a file that is not a list", asy
 test("the fake run gets the repo's conversations right for decide and reviewer, and runs every one of them", async () => {
   // Training and Dev together: which set holds a node's labels moves with the ratio, the runner's job does not.
   const dev = REPO.sets;
-  const rows = await runSets(dev, { tree: REPO_ROOT, fake: true });
+  // One node per run: running every node's fake for every row took ~110 s and hit the file's two-minute limit.
   for (const node of ["decide", "reviewer"]) {
-    const mine = rows.filter((r) => r.node === node);
+    const mine = await runSets(dev, { tree: REPO_ROOT, fake: true, node });
+    assert.ok(mine.every((r) => r.node === node), `only ${node} rows ran`);
     const expected = dev.reduce((n, c) => n + unitTests(c).filter((t) => t.node === node).length, 0);
     // The reviewer's labels left with the old conversations (Dev2, 2026-11-17); Decide's must always be there.
     if (node === "decide") assert.ok(expected > 0, `the repo has ${node} unit tests`);
