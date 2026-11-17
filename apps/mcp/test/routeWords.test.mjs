@@ -18,6 +18,7 @@ import { RESERVED_FIRST_SEGMENTS, splitWorkspacePath } from "../src/workspacePat
 import { MACHINE_PATHS } from "../src/machines/routes.js";
 import { MACHINE_JOB_PATHS } from "../src/machines/jobRoutes.js";
 import { JOB_NOTE_PATHS } from "../src/agent/jobNote.js";
+import { JOB_PART_END_PATH } from "../src/agent/jobPartEndRoute.js";
 import { MACHINE_APP_PATHS } from "../src/machines/appRoutes.js";
 import { APP_ROUTES } from "../src/http/appRoutes.js";
 import { TEX_COMPUTER_PATHS } from "../src/http/texComputer.js";
@@ -45,6 +46,7 @@ const ROUTE_SETS = {
   MACHINE_PATHS,
   MACHINE_JOB_PATHS,
   JOB_NOTE_PATHS,
+  JOB_PART_END_PATH: [JOB_PART_END_PATH],
   MACHINE_APP_PATHS,
   APP_ROUTES: [...APP_ROUTES.keys()],
   TEX_COMPUTER_PATHS,

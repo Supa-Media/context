@@ -96,3 +96,40 @@ test("Part end is on the shelf, its code in the gateway's table", () => {
   assert.ok(SHELF.nodes.partEnd, "on the shelf");
   assert.equal(GATEWAY_NODES.partEnd, partEndNode);
 });
+
+// Step 6: the texting Worker asks the gateway (`/agent/job/part-end`, `agent/jobPartEndRoute.js`) after each part.
+import { handleJobPartEnd, partEndFor } from "../src/agent/jobPartEndRoute.js";
+import { lendJob, returnJob } from "../src/agent/graph/jobHandles.js";
+
+const texting = (fields = {}) => ({ actorClientId: "context_texts", scopes: ["context:read", "context:write"], ...fields });
+const askRoute = (body, session, method = "POST") =>
+  handleJobPartEnd(new Request("https://gw.example/agent/job/part-end", { method, body: method === "POST" ? JSON.stringify(body) : undefined }), null, null, session);
+
+test("the route answers the node's choice to the texting Worker, and nobody else", async () => {
+  const input = at({ cause: "check_limit", hasDraft: true });
+  const answered = await askRoute({ jobId: "job-1", input }, texting());
+  assert.equal(answered.status, 200);
+  assert.deepEqual(await answered.json(), decidePartEnd(input, null));
+  assert.equal((await askRoute({ jobId: "job-1", input }, texting({ actorClientId: "context_texts_group" }))).status, 200);
+  assert.equal((await askRoute({ jobId: "job-1", input }, texting({ actorClientId: "some_ai_client" }))).status, 403);
+  assert.equal((await askRoute({ jobId: "job-1", input }, texting({ scopes: ["context:read"] }))).status, 403);
+  assert.equal((await askRoute({ jobId: "job-1" }, texting())).status, 400);
+  assert.equal((await askRoute(null, texting(), "GET")).status, 405);
+});
+
+test("while the job's pass runs, its own wire answers; else the config's wire; else the rule on default limits", async () => {
+  const input = at({ cause: "unfinished" });
+  const io = { use: { partEnd: async () => ({ to: "end", ended: "stuck", cause: "unfinished", room: true, via: "lent" }) } };
+  lendJob("job-lent", io);
+  try {
+    assert.equal((await partEndFor("job-lent", input)).via, "lent");
+  } finally {
+    returnJob("job-lent", io);
+  }
+  const fired = [];
+  const graph = { fire: async (from, to, given) => (fired.push([from, to]), { ...decidePartEnd(given, { parts: 1 }), via: "wire" }) };
+  const wired = { edges: [{ from: "job", to: "partEnd", mode: "uses", when: ["job"] }] };
+  assert.equal((await partEndFor("job-other", input, { config: wired, graph })).via, "wire");
+  assert.deepEqual(fired, [["job", "partEnd"]]);
+  assert.deepEqual(await partEndFor("job-other", input, { config: { edges: [] } }), decidePartEnd(input, null));
+});
