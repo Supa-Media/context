@@ -56,10 +56,13 @@ test("the node answers its choice as a when tag, under the limits on its own con
   assert.equal(GATEWAY_NODES.jobStart, jobStartNode);
 });
 
-test("on the shelf, the rule decides and no node runs", async () => {
-  assert.ok(SHELF.nodes.jobStart, "on the shelf until a Lab draft wires it");
+test("wired in the config (off the shelf), with today's slots; a config without it lets the rule decide, no node run", async () => {
+  assert.ok(!SHELF.nodes.jobStart, "off the shelf once promoted");
+  assert.ok(TEX_CONFIG.edges.some((e) => e.from === "fd" && e.to === "jobStart" && e.mode === "uses"), "the fd -> jobStart wire");
+  assert.deepEqual(configStartLimits(TEX_CONFIG), DEFAULT_LIMITS, "today's slots, now from the node's config");
   const entries = [];
-  const choose = jobStartChooser({ config: TEX_CONFIG, writer: { write: (e) => entries.push(e) } });
+  const unwired = { ...TEX_CONFIG, nodes: TEX_CONFIG.nodes.filter((n) => n.id !== "jobStart"), edges: TEX_CONFIG.edges.filter((e) => e.to !== "jobStart") };
+  const choose = jobStartChooser({ config: unwired, writer: { write: (e) => entries.push(e) } });
   assert.deepEqual(await choose(ask()), decideStart(ask()));
   assert.equal(entries.length, 0);
 });
