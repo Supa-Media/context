@@ -38,7 +38,7 @@
     {"id":"m30","text":"i'll do dishes then i guess","who":"John"},
     {"id":"m31","text":"you always say that and then disappear","who":"Priya"},
     {"id":"m32","labels":{"decide":{"act":"quiet","star":true,"why":"people_talking"}},"text":"slander","who":"John"},
-    {"at":"Tue 12:02","id":"m33","text":"[pic: a notice taped to the front door]","who":"Kofi"},
+    {"at":"Tue 12:02","id":"m33","text":"","who":"Kofi","pics":[{"url":"https://raw.githubusercontent.com/Supa-Media/context/main/apps/mcp/bench/ai/pictures/dev-flat-notice.jpg","type":"image/jpeg","name":"IMG_5512.jpg"}]},
     {"id":"m34","labels":{"decide":{"act":"respond","star":true},"fd":{"must":["read the picture and give the part that matters"],"never":["read out the whole notice"],"star":true}},"text":"Tex what does this say, too lazy to go back down","who":"Kofi"},
     {"id":"m35","tex":true,"text":"Water's off Thursday 9am to 1pm for pipe work. Building asks you to run taps after it's back.","who":"Tex"},
     {"id":"m36","text":"of course thursday","who":"Priya"},
