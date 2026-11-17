@@ -14,6 +14,7 @@
 import { clock, dayOf } from "./jobLog.js";
 import { ledgerPlace, ONE_TO_ONE_CHAT } from "./ledger.js";
 import { eventLines } from "./transcript.js";
+import { speaker } from "./logRender.js";
 
 /** One read's page of the ledger. */
 const PAGE = 500;
@@ -59,9 +60,10 @@ const fromThem = (entry) => entry.kind === "text" && entry.from?.kind === "perso
 const fromTex = (entry) => entry.kind === "text" && entry.from?.kind === "tex";
 
 /** A ledger entry as a transcript's lines (`transcript.js`), or null for one a transcript never showed. */
-function entryLines(entry, timeZone) {
+function entryLines(entry, timeZone, named = false) {
   const at = Number.isSafeInteger(entry.at) ? `${clock(entry.at, timeZone)} ` : "";
-  if (fromThem(entry)) return `**Them (${at.trim()}):** ${cut(entry.text, MAX_TEXT_CHARS)}\n`;
+  // In a group, each text under its sender's name, as the chat shows them (`logRender.js` `speaker`).
+  if (fromThem(entry)) return `**${named ? speaker(entry.from) : "Them"} (${at.trim()}):** ${cut(entry.text, MAX_TEXT_CHARS)}\n`;
   if (fromTex(entry)) return entry.delivered === false ? null : `**Tex (${at.trim()}):** ${cut(entry.text, MAX_TEXT_CHARS)}\n`;
   if (entry.kind === "note" && entry.backfill === undefined) return `**Tex, by itself (${at.trim()}):** ${cut(entry.text, MAX_TEXT_CHARS)}\n`;
   if (entry.kind === "thinking") return eventLines({ kind: "thinking", text: entry.text });
@@ -74,12 +76,12 @@ function entryLines(entry, timeZone) {
  * The entries as one text, a heading per day in their zone, newest kept within
  * `chars`. Empty when nothing in them was texted.
  */
-export function renderChatDays(entries, { timeZone, chars = MAX_DREAM_CHAT_CHARS } = {}) {
+export function renderChatDays(entries, { timeZone, chars = MAX_DREAM_CHAT_CHARS, named = false } = {}) {
   if (!entries.some((entry) => fromThem(entry) || fromTex(entry))) return "";
   const parts = [];
   let day = null;
   for (const entry of entries) {
-    const lines = entryLines(entry, timeZone);
+    const lines = entryLines(entry, timeZone, named);
     if (lines === null) continue;
     const today = Number.isSafeInteger(entry.at) ? dayOf(entry.at, timeZone) : day;
     if (today !== day) {

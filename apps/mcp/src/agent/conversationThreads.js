@@ -211,12 +211,12 @@ function threadLine(thread, when) {
  * The history block's threads part: the listed threads, then the suggested thread and its texts older than the
  * last day (`older`, already rendered lines), or that the text starts a new one. "" when there are no threads.
  */
-export function threadsPrompt({ threads, suggested = null, fresh = false, older = [], when }) {
+export function threadsPrompt({ threads, suggested = null, fresh = false, older = [], when, window = "the last 24 hours" }) {
   if (threads.length === 0 && suggested === null) return "";
   const listed = listedThreads(threads);
   const hidden = threads.length - listed.length;
   const lines = [
-    `Conversations in this chat, open ones first (the texts below are the last 24 hours; read_thread opens any conversation in full${hidden > 0 ? `, including ${hidden} older ones not listed` : ""}):`,
+    `Conversations in this chat, open ones first (the texts below are ${window}; read_thread opens any conversation in full${hidden > 0 ? `, including ${hidden} older ones not listed` : ""}):`,
     ...listed.map((thread) => threadLine(thread, when)),
   ];
   if (fresh) lines.push("", "The newest text most likely starts a new conversation.");

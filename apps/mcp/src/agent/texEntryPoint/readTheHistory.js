@@ -19,6 +19,10 @@ import { approvalVerdict } from "../textedApprovals.js";
 import { threadsOn } from "../conversationThreads.js";
 import { ledgerPlace } from "../ledger.js";
 import { threadedTurn } from "../threadedTurn.js";
+import { carryKey } from "../stretch.js";
+import { imageOf, weekOn, weekTurn } from "../weekHistory.js";
+import { DEFAULT_TIME_ZONE, readTimeZone } from "../localNow.js";
+import { routineTimeZone } from "../routine.js";
 import { pagesOpenedBefore } from "../turnWeb.js";
 import { TEXTS_CLIENT_ID } from "./clients.js";
 
@@ -31,12 +35,17 @@ export async function readTheHistory(t) {
   const offered = await tex.wait("tools_list", offeredRead); stages?.mark("tools");
   const learnedRead = tex.ahead("learned_skills", () => group !== null ? historyRead.then(() => openChatSkills(group)) : openLearnedSkills(dispatch, { texted: session.actorClientId === TEXTS_CLIENT_ID, contexts: store.contexts, warm: hot.skills }), null).catch(() => null); // read beside the history, once the egress ledger is set
   // Today's history, and the chat's event log when the Worker names what this turn covers (`loggedTurn.js`).
-  const [{ conversation, history, view = null, tools: keptReads = null }, logged] = await tex.wait("history", historyRead); const attachments = [...fresh, ...(runner ? [] : await tex.step("kept_files_again", () => carryKeptFiles(store, history, fresh), []))]; stages?.mark("history");
+  const [{ conversation, history, view: momentRead = null, tools: keptReads = null }, logged] = await tex.wait("history", historyRead); const attachments = [...fresh, ...(runner ? [] : await tex.step("kept_files_again", () => carryKeptFiles(store, history, fresh), []))]; stages?.mark("history");
   // The new text sorted into the chat's conversations, started now and waited for just before the model (`threadedTurn.js`).
   const place = ledgerPlace(session);
+  // The week's history (`weekHistory.js`): when the front door reads the `week` module, every chat, one-to-one or group, is shown its last 7 days word for word after each earlier day's summary, with its pictures.
+  const week = chatTurn && job === null && place !== null && typeof store?.texLedger === "function" && weekOn(env) ? { grant: carryKey(session), readPicture: pictureReader(group, dispatch) } : null;
   const threadsRun = chatTurn && job === null && !runner && logged !== null && place !== null && threadsOn(env) && typeof store?.texLedger === "function"
-    ? tex.ahead("threads", () => threadedTurn({ logged, ledger: store.texLedger(place.owner.chat ?? null), chat: place.chat, group: group !== null, config: aiGatewayConfig(env), metadata: { feature: "assistant", workspace: String(session.workspaceId), client: "threads" } }), null).catch(() => null)
+    ? tex.ahead("threads", () => threadedTurn({ logged, ledger: store.texLedger(place.owner.chat ?? null), chat: place.chat, group: group !== null, config: aiGatewayConfig(env), metadata: { feature: "assistant", workspace: String(session.workspaceId), client: "threads" }, week }), null).catch(() => null)
     : null;
+  // A turn that answers no named text (a routine, a check-in, a job's report) reads the same week.
+  const weekMoment = week !== null && momentRead !== null && logged === null ? await tex.step("week_history", () => weekTurn({ ledger: store.texLedger(place.owner.chat ?? null), chat: place.chat, now: received, timeZone: runner ? routineTimeZone(routine?.settings, body.routine?.timeZone) : readTimeZone(body.timeZone) ?? DEFAULT_TIME_ZONE, grant: week.grant, readPicture: week.readPicture }), null).catch(() => null) : null;
+  const view = weekMoment?.history ? { history: [weekMoment.history], shown: weekMoment.shown } : momentRead;
   // A carried result read from outside marks this turn as if it had read it itself (the owner, 2026-11-10; `stretch.js`).
   const carry = carryCounts(logged?.carried ?? []); if (logged !== null) { const line = { carried: carry.carried, stubOther: carry.stubOther, stubGrant: carry.stubGrant, stubWorkspace: carry.stubWorkspace, carriedOutside: carry.outside ? "yes" : "no", stretch: carry.stretch }; console.log(JSON.stringify({ event: "tex_carry", ...line })); if (stages) stages.carry = line; }
   if (group !== null) markChatWords(ledger); if (job?.tainted || report !== null || carry.outside) markUntrusted(ledger); // a chat's own words are no stranger's (`chatSkills.js`); a job planned after a read from outside still carries it, and a job's report is what it read
@@ -65,6 +74,21 @@ export async function readTheHistory(t) {
       metadata: { feature: "mail-checker", workspace: String(session.workspaceId) },
     });
   }
-  Object.assign(t, { attachments, background, computersRead, mailRead, conversation, fresh, history, keptReads, learnedRead, logged, offered, threadsRun, view });
+  Object.assign(t, { attachments, background, computersRead, mailRead, conversation, fresh, history, keptReads, learnedRead, logged, offered, threadsRun, view, week: weekMoment ? { read_day: weekMoment.read_day } : null });
 }
 // TEX ENTRY POINT: end
+
+/**
+ * How the week's pictures are read back: `read_image` on the note each is kept in, a group's in its home (`chatHome.js`),
+ * a person's in their own workspace. A picture kept anywhere else is not read.
+ */
+function pictureReader(group, dispatch) {
+  return async (note, image) => {
+    if (group !== null) {
+      const home = group.home;
+      if (!home || typeof home.dispatch !== "function" || !note.startsWith(`${home.folder}/`)) return null;
+      return imageOf(await home.dispatch("read_image", { note, image }));
+    }
+    return typeof dispatch === "function" ? imageOf(await dispatch("read_image", { note, image })) : null;
+  };
+}

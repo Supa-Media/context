@@ -59,10 +59,9 @@ test("a draft that adds and removes steps says what of it cannot run", () => {
 
 test("a draft that draws a step built ahead of the config runs it, with the draft's wires, and its removed steps no more", () => {
   // Dev2, 2026-11-16: a draft's new steps are built in main's code first (`SHELF_NODES`), so a draft can run them.
-  // Promote took Learn, and every other step built ahead, off the shelf as it put them in the config: the shelf is empty
-  // now, and the steps it held run as main's own. A draft that draws Learn in place of Reflect and Memory nudge runs
-  // as drawn, with its own wires.
-  assert.deepEqual(SHELF_NODES, []);
+  // Promote took Learn, and every other step built ahead, off the shelf as it put them in the config: the steps it held
+  // run as main's own. A draft that draws Learn in place of Reflect and Memory nudge runs as drawn, with its own wires.
+  for (const id of ["learn", "doorStep", "bypass", "answerCheck", "afterReply"]) assert.ok(!SHELF_NODES.includes(id), `${id} left the shelf`);
   for (const id of ["learn", "doorStep", "bypass", "answerCheck", "afterReply"]) assert.ok(TEX_CONFIG.nodes.some((n) => n.id === id), `${id} is main's`);
   const learnDraft = () => {
     const g = main();
@@ -228,4 +227,15 @@ test("Triage's wires follow where it sends a text: the judge to Decide, a lone t
   const into = (to) => TEX_CONFIG.edges.find((e) => e.from === "triage" && e.to === to).when;
   assert.deepEqual(into("decide"), ["judge", "running"]);
   assert.deepEqual(into("lanes"), ["tex"]);
+});
+
+test("a draft that draws Chat day summaries after Text them runs it as drawn, from the shelf (Dev2, 2026-11-16)", () => {
+  assert.ok(SHELF_NODES.includes("chatDays"), "its code is merged ahead of the config");
+  assert.ok(!TEX_CONFIG.nodes.some((n) => n.id === "chatDays"), "main's config never runs it");
+  const g = main();
+  g.nodes = [...g.nodes, { id: "chatDays", label: "Chat day summaries", model: "haiku-5-5", effort: "low", on: true, ctx: [], inSchema: [], outSchema: [] }];
+  g.edges = [...g.edges, { from: "send", to: "chatDays", mode: "background", when: ["sent", "ended", "answered"] }];
+  assert.deepEqual(draftFit(TEX_CONFIG, g), { asDrawn: true });
+  const ran = withDraft(TEX_CONFIG, g);
+  assert.ok(ran.edges.some((e) => e.from === "send" && e.to === "chatDays" && e.mode === "background"));
 });

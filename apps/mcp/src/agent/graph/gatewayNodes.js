@@ -53,6 +53,7 @@ import { bypassNode } from "./nodes/bypass.js";
 import { answerCheckNode } from "./nodes/answerCheck.js";
 import learn from "./nodes/learn.js";
 import { afterReplyNode } from "./nodes/afterReply.js";
+import chatDays from "./nodes/chatDays.js";
 import { jobadv } from "./nodes/jobadv.js";
 import { staffNode } from "./nodes/staff.js";
 
@@ -123,4 +124,6 @@ export const GATEWAY_NODES = {
   get afterReply() { return afterReplyNode; },
   get jobadv() { return jobadv; },
   get staff() { return staffNode; },
+  // Chat day summaries: every chat's finished days summed up after a reply, groups included (`nodes/chatDays.js`).
+  get chatDays() { return chatDays; },
 };
