@@ -12,9 +12,12 @@
  * already searched or fetched does not.
  */
 
-/** Their ask points at a record Tex can open, not at general knowledge. */
+/**
+ * Their ask is to read a record, not a mention of one in passing.
+ * "the chat" is left out: a check-in says "if nothing needs the chat", and that is not an ask to read the record.
+ */
 const ABOUT_RECORD =
-  /\b(?:my|our|the|their|this|that|your)\s+(?:notes?|pages?|emails?|e-mails?|gmail|inbox|mail|calendar|chats?)\b/i;
+  /\b(?:what(?:'s| is| does| did)|read|check|look (?:at|in|up))\b[^?\n]{0,80}\b(?:notes?|pages?|emails?|e-mails?|gmail|inbox|mail|calendar)\b/i;
 
 /** A call that opens a record. The six tools and the names they resolve to. */
 const READS =

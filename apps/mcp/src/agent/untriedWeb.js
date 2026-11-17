@@ -22,15 +22,8 @@
  */
 
 import { TRY_NOTICE, saysItCouldNot } from "./claimCheck.js";
-import { finishedOfferNotice } from "./finishedOffer.js";
 import { recordReadNotice } from "./recordRead.js";
 import { seenFiguresNotice } from "./sourcedFigures.js";
-import { toolDefinitions } from "../tools/registry.js";
-
-const isWrite = (name) => {
-  const tool = toolDefinitions().find((entry) => entry.name === name);
-  return tool !== undefined && tool.annotations?.readOnlyHint !== true;
-};
 
 /**
  * `{ wrap, wrapWeb, check }`, shaped like `claimCheck`'s, for the front door.
@@ -41,19 +34,14 @@ export function untriedWebCheck({ question = "" } = {}) {
   let triedWeb = false;
   let noticed = false;
   let figuresChecked = false;
-  let wrote = false;
-  let held = false;
   let recordNoticed = false;
-  let extraOfferNoticed = false;
   const steps = [];
   return {
-    /** The turn's own tools, so a read or a finished write is visible to the checks. */
+    /** The turn's own tools, so a read is visible to the record check. */
     wrap(callTool) {
       return async (name, args) => {
         const result = await callTool(name, args);
-        steps.push({ name, ok: result?.isError !== true, ...(result?.held === true ? { held: true } : {}) });
-        if (result?.held === true) held = true;
-        if (result?.isError !== true && isWrite(name)) wrote = true;
+        steps.push({ name, ok: result?.isError !== true });
         return result;
       };
     },
@@ -74,18 +62,12 @@ export function untriedWebCheck({ question = "" } = {}) {
         noticed = true;
         return TRY_NOTICE;
       }
-      // An ask about a record with no read this turn, then an offer tacked on after a finished write.
+      // An ask to read a record, with no read this turn. An offer after a finished write is not caught here:
+      // "Want me to book it?" after writing the options is the next step, and a phrase cannot tell that from an extra offer.
       if (!recordNoticed) {
         const notice = recordReadNotice(question, steps);
         if (notice !== null) {
           recordNoticed = true;
-          return notice;
-        }
-      }
-      if (!extraOfferNoticed && wrote && !held) {
-        const notice = finishedOfferNotice(answer);
-        if (notice !== null) {
-          extraOfferNoticed = true;
           return notice;
         }
       }

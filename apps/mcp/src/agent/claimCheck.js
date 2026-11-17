@@ -56,8 +56,6 @@ import { ENOUGH_SITES, aSiteFailed, asksForPublishedText, hostsAsked, otherSites
 import { NOTE_PICTURE_NOTICE, OWED_PICTURE_NOTICE, VISUAL_NOTICE, claimsNotePicture, owesAPicture, wantsACard } from "./visuals/notice.js";
 import { BUG_NOTICE, filesABugElsewhere, lessonInAboutMe, writeBeforeReport } from "./bugCheck.js";
 import { selfRepairNotice } from "./lookFirst.js";
-import { recordReadNotice } from "./recordRead.js";
-import { finishedOfferNotice } from "./finishedOffer.js";
 import { mayAsk } from "./handbackJudge.js";
 import { pageNotice, turnNoteWrite, wantsAPage } from "./pageNotice.js";
 import { replyFindings } from "./replyChecks.js";
@@ -460,9 +458,6 @@ export function claimCheck({ question, judge = null, waiting = false, corrects =
   const noteWrites = [];
   let bugNoticed = false;
   let repairNoticed = false;
-  // An ask about a record answered with no read (`recordRead.js`), and an offer tacked on after a finished write (`finishedOffer.js`).
-  let recordNoticed = false;
-  let extraOfferNoticed = false;
   // A waiting ask the answer said had changed, with nothing held again (rule 6).
   let supersedeNoticed = false;
   // A confession the turn's own record contradicts (`confession.js`).
@@ -687,22 +682,6 @@ export function claimCheck({ question, judge = null, waiting = false, corrects =
     if (!cardNoticed && !held && visuals() && wantsACard(answer, { question, steps })) {
       cardNoticed = true;
       advise("card", VISUAL_NOTICE);
-    }
-    // An ask about their notes, a page, mail, the calendar or the chat, with no read this turn.
-    if (!recordNoticed) {
-      const notice = recordReadNotice(question, steps);
-      if (notice !== null) {
-        recordNoticed = true;
-        fact("record", notice);
-      }
-    }
-    // A write already went through, nothing is held, and the reply still offers something further.
-    if (!extraOfferNoticed && wrote && !held) {
-      const notice = finishedOfferNotice(answer);
-      if (notice !== null) {
-        extraOfferNoticed = true;
-        fact("extra", notice);
-      }
     }
     if (!noticed) {
       const notice =

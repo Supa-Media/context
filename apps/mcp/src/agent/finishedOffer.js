@@ -14,8 +14,11 @@
 
 const EXTRA = /\b(?:want me to|shall I|should I|do you want me to|would you like me to)\b[^?\n]{0,180}\?/i;
 
-/** An offer the hold check already owns. Naming one here would ask twice. */
-const HELD_KIND = /\b(?:emails?|e-mails?|calendar|slack|pay|payment|bug)\b/i;
+/**
+ * An offer the hold check already owns, or the next step after options
+ * ("Want me to book it?"). Naming one here would send a right reply back.
+ */
+const HELD_KIND = /\b(?:emails?|e-mails?|calendar|slack|pay|payment|bug|book)\b/i;
 
 export const FINISHED_OFFER_NOTICE =
   "Before this goes: the change is already made, and nothing is waiting on them. " +

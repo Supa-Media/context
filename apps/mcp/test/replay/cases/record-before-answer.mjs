@@ -4,9 +4,9 @@ import { oneToOne } from "../chats.mjs";
 export default {
   id: "record-before-answer",
   incident:
-    "2026-11-17: a turn answered what a note and an email said without searching or fetching, and a turn that had already written the change still ended by offering something further. The prompts already forbade both. Nothing in the answer check held them.",
+    "2026-11-17: a turn answered what a note said without searching or fetching. The prompt already said to read the record first. The front door's check did not hold it. A check-in that mentions the chat is not that ask.",
   cause:
-    "The code checks looked at claims of a write and at offers that need a yes. An ask about a record with no read, and an extra offer after a finished write, were only words in the prompt.",
+    "The front door's code check looked at an untried web and at figures. An ask to read a note, a page, mail or the calendar, with no read, went out.",
   path: "1:1 text",
   async run() {
     const chat = await oneToOne();
@@ -18,13 +18,8 @@ export default {
       ]);
       assert.match(unread.shown, /have not read any of it this turn/, "a note ask with no read is sent back");
       assert.match(unread.answer, /October 14 to 18/, "the rewrite answers after the read");
-      const offered = await chat.text("add oat milk to the shopping list", [
-        { toolCalls: [{ name: "write_note", args: { path: "todo.md", content: "- oat milk" } }] },
-        { text: "Added. Want me to set up a weekly grocery order too?" },
-        { text: "Added." },
-      ]);
-      assert.match(offered.shown, /Don't add an offer/, "a finished write that still offers more is sent back");
-      assert.equal(offered.answer, "Added.");
+      const checkIn = await chat.text("(Time for this chat's check-in: look on your own at what is new. If nothing needs the chat, answer exactly SKIP.)", "SKIP");
+      assert.equal(checkIn.answer, "SKIP", "a check-in that mentions the chat is not sent back for a read");
     } finally {
       chat.restore();
     }
