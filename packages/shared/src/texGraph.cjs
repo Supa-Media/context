@@ -28,7 +28,12 @@
  *           (`kind: "input"`), in this chat or another; nothing in the current run waits for it. A background job, a
  *           routine, an ask sent to another chat: each output re-enters Tex as a new input (Dev2, 2026-11-16, the
  *           generators model). `when` tags work as on `wait` ("ask", "answer"). Never fired by `run`, never part of
- *           `orderFrom`, and ignored by the cycle check, so a generator may point back up the graph.
+ *           `orderFrom`, and ignored by the cycle check, so a generator may point back up the graph. A node starts one
+ *           through `io.start[target]`, handed to the host's `start` option; the wire's `rounds` cap the chain.
+ * A `wait` or `background` wire whose `when` names "failed" catches its source's failure: the source's output is then
+ * `{ when: ["failed"], failed: { name, message } }` and the run goes on down that wire instead of throwing.
+ * `run`'s `progress` option (`{ get(nodeId), put(nodeId, output) }`, the host's durable store for one run) skips every
+ * node it already holds an output for and keeps each new one, so a run resumed after a crash or deploy picks up there.
  * `when` on a wire: `["*"]`, or tags the source's output must carry (`output.when`, or `output.to` as one tag) for a
  * `wait` or `background` wire to fire. A node that is off (`on: false`) never runs, and its wires never fire.
  *
@@ -270,7 +275,9 @@ function provisionalWiring(config) {
  * start. Both are on the log entry, so a run's cause is read from what ran, never inferred from times.
  */
 let runSeq = 0;
-function createGraph(config, impls, { log = () => {}, background = null, handOff = null, now = Date.now, onStart = null } = {}) {
+/** A run id, unique in the isolate: every log entry gets its own, so a parent always names an entry that was kept. */
+const nextRunId = () => ((runSeq = (runSeq + 1) % Number.MAX_SAFE_INTEGER), `r${runSeq}`);
+function createGraph(config, impls, { log = () => {}, background = null, handOff = null, now = Date.now, onStart = null, start = null } = {}) {
   const problems = problemsOf(config);
   if (problems.length) throw new GraphError(problems.join("; "));
   const byId = new Map(config.nodes.map((n) => [n.id, n]));
@@ -301,8 +308,7 @@ function createGraph(config, impls, { log = () => {}, background = null, handOff
     if (node.on === false) return { ran: false };
     const impl = impls[id];
     const at = now();
-    runSeq = (runSeq + 1) % Number.MAX_SAFE_INTEGER;
-    const self = `r${runSeq}`;
+    const self = nextRunId();
     const ids = { id: self, ...(typeof parent === "string" ? { parent } : {}) };
     // Shaped only for a watcher: a real turn sets none, and shaping costs a serialisation of the whole input.
     if (typeof onStart === "function") started({ node: id, ...ids, at, via, input: shaped(input) });
@@ -362,13 +368,26 @@ function createGraph(config, impls, { log = () => {}, background = null, handOff
         if (background) background(run.catch(() => {}));
         return run;
       }),
+      // A generator wire starts a new run at its target, through the host's `start` (it persists and schedules it: a
+      // job's next part, an ask to another chat). The wire's rounds cap the chain: `ctx.generation` counts the runs
+      // before this one, and a start past the cap is answered `{ started: false, why: "spent" }`, never thrown, so the
+      // node can end the chain itself (Dev2, 2026-11-17, jobs as config).
+      start: handles("generator", (to, wire) => async (arg) => {
+        const generation = Number.isInteger(ctx?.generation) ? ctx.generation : 0;
+        if (Number.isInteger(wire.rounds) && wire.rounds > 0 && generation + 1 >= wire.rounds) return { started: false, why: "spent" };
+        if (typeof start !== "function") throw new GraphError(`"${id}" starts a run at "${to}", and this process has no start`);
+        if (!fires(wire, arg)) return { started: false, why: "when" };
+        keep({ node: to, input: shaped(arg), output: null, ms: 0, own: 0, ok: true, at: now(), via: `${id}:generator`, started: true, id: nextRunId(), parent: self });
+        const result = await start(to, carried(arg), { from: id, generation: generation + 1, parent: self });
+        return { started: true, ...(plain(result) ? result : {}) };
+      }),
     };
     // A handle to a node with no wire here is refused, not undefined, so a mistake fails loudly.
-    for (const kind of ["use", "back", "job"]) {
+    for (const kind of ["use", "back", "job", "start"]) {
       io[kind] = new Proxy(io[kind], {
         get(target, key) {
           if (typeof key !== "string" || key in target || key === "then" || key === "toJSON") return target[key];
-          throw new GraphError(`"${id}" has no ${kind === "use" ? "uses" : kind === "back" ? "loop" : "job"} wire to "${key}"`);
+          throw new GraphError(`"${id}" has no ${{ use: "uses", back: "loop", job: "job", start: "generator" }[kind]} wire to "${key}"`);
         },
       });
     }
@@ -380,6 +399,14 @@ function createGraph(config, impls, { log = () => {}, background = null, handOff
       return { ran: true, output, id: self };
     } catch (error) {
       keep({ node: id, input: shaped(input), output: null, ...timing(), ok: false, error: error?.name === "GraphError" ? error.message : String(error?.name ?? "error"), at, via, ...ids });
+      // The failed run's id rides on the error, so a `failed` wire's target names the entry that failed as its parent.
+      if (error && typeof error === "object" && !("runId" in error)) {
+        try {
+          Object.defineProperty(error, "runId", { value: self, enumerable: false });
+        } catch {
+          /* a frozen error keeps no id; its catcher falls back */
+        }
+      }
       throw error;
     }
   }
@@ -418,7 +445,8 @@ function createGraph(config, impls, { log = () => {}, background = null, handOff
    * fired `background` wire's target runs in the background. Returns `{ outputs, ran }`: each node's output by id, in run
    * order.
    */
-  async function run(start, input, ctx = {}, { stopAt = [] } = {}) {
+  async function run(begin, input, ctx = {}, { stopAt = [], progress = null } = {}) {
+    const start = begin;
     const stops = new Set(stopAt);
     if (!byId.has(start)) throw new GraphError(`no node "${start}"`);
     const order = orderFrom(config, start);
@@ -439,7 +467,26 @@ function createGraph(config, impls, { log = () => {}, background = null, handOff
         else await run;
         continue;
       }
-      const r = await runNode(id, given, ctx, "wait", fedBy.get(id));
+      // A node a durable run already finished (`progress`, the host's store for this run: a job part resumed after a
+      // crash or a deploy) is not run again: its kept output feeds on as it did (Dev2, 2026-11-17, jobs as config).
+      const kept = progress ? await progress.get(id) : undefined;
+      let r;
+      if (kept !== undefined) {
+        const resumedId = nextRunId();
+        keep({ node: id, input: shaped(given), output: shaped(kept), ms: 0, own: 0, ok: true, at: now(), via: "resumed", resumed: true, id: resumedId, ...(fedBy.get(id) ? { parent: fedBy.get(id) } : {}) });
+        r = { ran: true, output: kept, id: resumedId };
+      } else {
+        try {
+          r = await runNode(id, given, ctx, "wait", fedBy.get(id));
+        } catch (error) {
+          // A node that fails is an output when a wire from it says what happens then (`when: ["failed"]`): the run goes
+          // on down that wire with what failed, never thrown away. With no such wire it throws, as before.
+          const caught = [...out(id, "wait"), ...out(id, "background")].some((e) => Array.isArray(e.when) && e.when.includes("failed"));
+          if (!caught) throw error;
+          r = { ran: true, output: { when: ["failed"], failed: { name: String(error?.name ?? "Error"), message: String(error?.message ?? "").slice(0, 300) } }, id: error?.runId };
+        }
+        if (r.ran && progress && !r.output?.failed) await progress.put(id, r.output);
+      }
       if (!r.ran) continue;
       outputs[id] = r.output;
       ran.push(id);
