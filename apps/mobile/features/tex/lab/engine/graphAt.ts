@@ -5,6 +5,7 @@
  * main with (`mainGraph0`: the config's steps and wires, each group folded into its box), and kept per commit.
  * Where it can't be loaded the version open is drawn and the run says so (`graphNote`), never a guess.
  */
+import { migrateGraph, SCHEMA_VERSION } from "@context/shared/src/texConfigSchema.cjs";
 import { GROUPS } from "../data/graph";
 import type { LabGraph, LabNode } from "../types";
 import { foldGroups } from "./groups";
@@ -17,8 +18,10 @@ const rec = (v: unknown): Record<string, unknown> | null => (v !== null && typeo
 /** A graph from one commit's `texConfig.json`, or null when it isn't one (an older shape, an error page). */
 export function graphOfConfig(config: unknown): LabGraph | null {
   const c = rec(config);
-  if (!c || c.texConfig !== 1 || !Array.isArray(c.nodes) || !Array.isArray(c.edges) || !c.nodes.length) return null;
-  const copy = JSON.parse(JSON.stringify({ nodes: c.nodes, edges: c.edges })) as { nodes: LabNode[]; edges: LabGraph["edges"] };
+  // An older commit's config is brought to today's schema by the same migrations a draft runs; a newer one is not read.
+  if (!c || !Number.isInteger(c.texConfig) || (c.texConfig as number) > SCHEMA_VERSION || !Array.isArray(c.nodes) || !Array.isArray(c.edges) || !c.nodes.length) return null;
+  const m = migrateGraph(c) as Record<string, unknown>;
+  const copy = JSON.parse(JSON.stringify({ nodes: m.nodes, edges: m.edges })) as { nodes: LabNode[]; edges: LabGraph["edges"] };
   return foldGroups({ nodes: copy.nodes, edges: copy.edges }, (rec(c.groups) as typeof GROUPS | null) ?? GROUPS);
 }
 

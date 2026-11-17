@@ -8,7 +8,7 @@
  * when its own entry names none and "a Tex text with no turn of its own has no cause run" fails.
  */
 import { beforeEach, describe, expect, jest, test } from "@jest/globals";
-import TEX_CONFIG from "@context/shared/src/texConfig.json";
+import { TEX_CONFIG } from "@context/shared/src/texConfig.cjs";
 import { forgetGraphs, graphAt, graphNoteFor, graphOfConfig } from "../features/tex/lab/engine/graphAt";
 import { prodPlay, prodPlayAtVersion } from "../features/tex/lab/engine/prodRun";
 import { linesOf } from "../features/tex/lab/engine/replayRead";

@@ -1,4 +1,4 @@
-import { readFileSync } from "node:fs";
+import { TEX_CONFIG } from "@context/shared/src/texConfig.cjs";
 import { describe, expect, test } from "vitest";
 import {
   CREDIT_KEYS,
@@ -522,11 +522,9 @@ describe("consoleCosts: calls, meter and texts", () => {
   });
 });
 
-describe("TEX_STEPS against packages/shared/src/texConfig.json", () => {
+describe("TEX_STEPS against Tex's config", () => {
   test("every texConfig node whose model is not code is listed, with its label, model and on flag", () => {
-    const config = JSON.parse(
-      readFileSync(new URL("../../../packages/shared/src/texConfig.json", import.meta.url), "utf8"),
-    ) as { models: Record<string, string>; nodes: Array<{ id: string; label: string; model: string; on: boolean }> };
+    const config = TEX_CONFIG as unknown as { models: Record<string, string>; nodes: Array<{ id: string; label: string; model: string; on: boolean }> };
     const expected = config.nodes
       .filter((node) => node.model !== "code")
       .map((node) => ({ id: node.id, label: node.label, model: node.model, on: node.on }));

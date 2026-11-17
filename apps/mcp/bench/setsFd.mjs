@@ -373,7 +373,7 @@ export async function runFd(units, { tree, fake = false, runTests = null }) {
         const r = got.rows.find((x) => x.id === `${t.name}/q${k + 1}`);
         const usd = Math.round(each * 10_000) / 10_000;
         if (!r) rows.push({ ...u.row, right: false, ran: false, usd, why: "the bench gave no judged answer" });
-        else rows.push({ ...u.row, right: Boolean(r.right), ran: true, usd, got: r.right ? "every line held" : missedLine(r), want: "every must and never line", ...(r.right ? {} : { misses: r.misses ?? [], said: r.said ?? [] }) });
+        else rows.push({ ...u.row, right: Boolean(r.right), ran: true, usd, got: r.right ? "every line held" : missedLine(r), want: "every must and never line", misses: r.misses ?? [], held: r.held ?? [], said: r.said ?? [] });
       });
     }
     return rows;

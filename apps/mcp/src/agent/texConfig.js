@@ -12,13 +12,14 @@
  * Wires still run as code. A step the code has no way to run when on (the router, for now) is refused by
  * `test/texConfig.test.mjs`, so the file never says something the gateway does not do.
  */
-import CONFIG from "../../../../packages/shared/src/texConfig.json" with { type: "json" };
+import { TEX_CONFIG as CONFIG } from "../../../../packages/shared/src/texConfig.cjs";
 import PROMPT from "../../../../packages/shared/src/texPrompt.generated.json" with { type: "json" };
 import TRAINING from "../../../../packages/shared/src/texTraining.generated.json" with { type: "json" };
 import SHELF from "../../../../packages/shared/src/texNodeShelf.json" with { type: "json" };
 import { TRAIN_ENTRY, moduleText, trainName } from "../../../../packages/shared/src/texTraining.cjs";
 import { configStamp } from "../../../../packages/shared/src/texConfigStamp.cjs";
 import { sandboxGateOf } from "../labSandbox/policy.js";
+import { EFFORTS as SCHEMA_EFFORTS } from "../../../../packages/shared/src/texConfigSchema.cjs";
 
 export const TEX_CONFIG = CONFIG;
 /** The stamp of the config this code runs: a draft made from main keeps it, so Promote merges only its own changes (`texConfigStamp.cjs`). */
@@ -158,7 +159,7 @@ export function texModules(config = CONFIG) {
   return { texts, group: texts, job: of("job") };
 }
 
-const EFFORTS = new Set(["off", "low", "medium", "high", "xhigh", "max"]);
+const EFFORTS = new Set(SCHEMA_EFFORTS);
 const MAX_WORDS = 40_000;
 const MAX_TIMEOUT_S = 600;
 

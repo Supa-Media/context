@@ -6,7 +6,7 @@
  * floor fails the second test.
  */
 import { expect, test } from "@jest/globals";
-import TEX_CONFIG from "@context/shared/src/texConfig.json";
+import { TEX_CONFIG } from "@context/shared/src/texConfig.cjs";
 import { simulate } from "../features/tex/lab/engine/sim";
 import { SCENARIOS } from "../features/tex/lab/engine/traces";
 import type { LabEdge, LabGraph } from "../features/tex/lab/types";

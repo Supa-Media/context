@@ -32,6 +32,7 @@ import { OutputGrp } from "./OutputFields.web";
 import { StepCases } from "./StepCases.web";
 import { StepChanges } from "./StepChanges.web";
 import { AddPicker, ReadsStack } from "./ReadsStack.web";
+import { EFFORTS } from "@context/shared/src/texConfigSchema.cjs";
 
 export function NodePanel({ n, extra }: { n: LabNode; extra?: ReactNode }) {
   useLab();
@@ -173,7 +174,7 @@ export function NodePanel({ n, extra }: { n: LabNode; extra?: ReactNode }) {
               <>
                 <h4 style={{ marginTop: 12 }}>Effort</h4>
                 <div className={cc("effort", "seg")} id="nEffort">
-                  {["off", "low", "medium", "high", "xhigh"].map((k) => (
+                  {EFFORTS.map((k) => (
                     <button key={k} data-v={k} aria-pressed={(n.effort || "medium") === k} onClick={() => setNode(n.id, "effort", k)}>
                       {k}
                     </button>

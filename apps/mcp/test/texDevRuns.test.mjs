@@ -84,11 +84,11 @@ test("results count by chat and by step, with each test's verdict and no words",
 test("a missed Front door row keeps the judge's reasons and Tex's texts, so its cause can be read", () => {
   const rows = [
     { chat: "w", at: 4, node: "fd", right: false, ran: true, usd: 0, got: "must: x | Tex: On it", want: "every must and never line", misses: [{ kind: "must", line: "ask only for the return date", reason: "asked nothing" }, { kind: "must not", line: "ask about budget", reason: "" }], said: ["On it.", "(Tex reacted to their text)"] },
-    { chat: "w", at: 6, node: "fd", right: true, ran: true, usd: 0, got: "every line held", want: "every must and never line", misses: [], said: ["fine"] },
+    { chat: "w", at: 6, node: "fd", right: true, ran: true, usd: 0, got: "every line held", want: "every must and never line", misses: [], held: [{ kind: "must", line: "answer short", reason: "one line" }], said: ["fine"] },
   ];
   const r = resultsOf(rows, "1");
   assert.equal(r.rows[0].detail, "must: ask only for the return date (asked nothing)\nnever: ask about budget\nTex: On it. / (Tex reacted to their text)");
-  assert.equal(r.rows[1].detail, undefined, "a held row carries no detail");
+  assert.equal(r.rows[1].detail, "held: must: answer short (one line)\nTex: fine", "a passed row can be audited: what held, why, and what Tex said");
   assert.equal(detailOf({ said: ["x".repeat(3_000)] }).detail.length, 1_500);
   assert.deepEqual(detailOf({}), {});
 });

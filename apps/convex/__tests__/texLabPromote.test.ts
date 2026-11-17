@@ -34,11 +34,11 @@ describe("promoting a Lab version", () => {
     await staff.mutation(api.functions.texLabPromote.ask, { versionId: "vabc123" });
     const asks = await t.query(internal.functions.texLabPromote.asked, {});
     expect(asks.map((a) => [a.versionId, a.name, a.graph])).toEqual([["vabc123", "Reviewer at medium", version.graph]]);
-    expect((await staff.query(api.functions.texLab.list, {})).versions[0].promote).toEqual({ state: "asked", pr: null, why: null });
+    expect((await staff.query(api.functions.texLab.list, {})).versions[0].promote).toEqual({ state: "asked", pr: null, why: null, clashes: [], picks: [] });
 
     await t.mutation(internal.functions.texLabPromote.answered, { versionId: "vabc123", at: asks[0].at, pr: PR });
     expect(await t.query(internal.functions.texLabPromote.asked, {})).toEqual([]);
-    expect((await staff.query(api.functions.texLab.list, {})).versions[0].promote).toEqual({ state: "opened", pr: PR, why: null });
+    expect((await staff.query(api.functions.texLab.list, {})).versions[0].promote).toEqual({ state: "opened", pr: PR, why: null, clashes: [], picks: [] });
   });
 
   test("an ask carries the main the draft was made from, kept from its first save, so Promote merges rather than overwrites", async () => {
@@ -66,7 +66,31 @@ describe("promoting a Lab version", () => {
     await t.mutation(internal.functions.texLabPromote.answered, { versionId: "vabc123", at: ask.at - 1, why: "stale" });
     expect(await t.query(internal.functions.texLabPromote.asked, {})).toHaveLength(1);
     await t.mutation(internal.functions.texLabPromote.answered, { versionId: "vabc123", at: ask.at, why: 'step "brandnew" is new' });
-    expect((await staff.query(api.functions.texLab.list, {})).versions[0].promote).toEqual({ state: "refused", pr: null, why: 'step "brandnew" is new' });
+    expect((await staff.query(api.functions.texLab.list, {})).versions[0].promote).toEqual({ state: "refused", pr: null, why: 'step "brandnew" is new', clashes: [], picks: [] });
+  });
+
+  test("a refusal over clashes keeps them, and the next ask carries the person's picks to the workflow", async () => {
+    const t = tester();
+    const staff = withSession(t, await user(t, ADMIN));
+    await staff.mutation(api.functions.texLab.saveVersion, version);
+    await staff.mutation(api.functions.texLabPromote.ask, { versionId: "vabc123" });
+    const [ask] = await t.query(internal.functions.texLabPromote.asked, {});
+    expect(ask.picks).toEqual([]);
+    const clashes = [
+      { what: "Front door effort", main: "high", draft: "low", pick: true },
+      { what: "wire fd → gone (wait)", main: "changed so this edit no longer applies", draft: "no step gone", pick: false },
+    ];
+    await t.mutation(internal.functions.texLabPromote.answered, { versionId: "vabc123", at: ask.at, why: "main changed the same things", clashes });
+    expect((await staff.query(api.functions.texLab.list, {})).versions[0].promote?.clashes).toEqual(clashes);
+
+    // Picks: one per clash, the last for a clash winning.
+    await staff.mutation(api.functions.texLabPromote.ask, { versionId: "vabc123", picks: [{ what: "Front door effort", take: "main" }, { what: "Front door effort", take: "draft" }] });
+    const [again] = await t.query(internal.functions.texLabPromote.asked, {});
+    expect(again.picks).toEqual([{ what: "Front door effort", take: "draft" }]);
+    // A new ask clears the old clashes; an opened pull request never keeps any.
+    expect((await staff.query(api.functions.texLab.list, {})).versions[0].promote?.clashes).toEqual([]);
+    await t.mutation(internal.functions.texLabPromote.answered, { versionId: "vabc123", at: again.at, pr: PR, clashes });
+    expect((await staff.query(api.functions.texLab.list, {})).versions[0].promote?.clashes).toEqual([]);
   });
 
   test("a stranger cannot ask, main and an unsaved version cannot be promoted, and only a pull request address is kept", async () => {
