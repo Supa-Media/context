@@ -763,7 +763,7 @@ function startedTurn(got, said) {
   const text = ok ? String(said(got.body) ?? "") : "";
   return {
     ok,
-    answer: text === "" ? "(stayed quiet: nothing texted)" : text,
+    answer: text === "" ? `(stayed quiet: ${String(got.body?.outcome ?? got.body?.reason ?? "nothing texted")})` : text,
     error: ok ? null : String(got.body?.error ?? `status ${got.status}`),
     ms: got.ms,
     model: got.usage.model ?? null,
