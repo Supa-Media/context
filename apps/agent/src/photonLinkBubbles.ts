@@ -5,7 +5,7 @@
  *
  * The mapping is kept in the chat object's storage, which is where those reports are answered (`sendblueStatus.ts`).
  * An in-memory map died with the isolate, so a report after the object was evicted logged `unmatched`. Noting never
- * fails the send: the words have already gone.
+ * fails the send: the words have already gone. This is line bookkeeping, not a turn, so no replay case can show it.
  */
 
 /** What of a chat object's storage this needs, so tests can pass a Map. */
