@@ -53,6 +53,18 @@ export const CAPABILITIES = Object.freeze([
     cant: [{ where: "group", what: "ask the personal Tex of someone here who isn't on Context", workaround: { kind: "words", text: "ask them in the chat for what the form needs" } }],
   },
   {
+    name: "Ask Tex in another chat",
+    actions: ["send.ask_chat", "send.post_in_chat"],
+    texts: "ask Tex in one of their group chats for something it knows or to do something there (send ask_chat, naming the group): only groups they are in now, one open ask per group, 10 an hour and 40 a day; the answer comes back as its own turn within 10 minutes, or you hear it timed out, and you tell them",
+    group: "ask the personal Tex of whoever tagged you (send ask_chat; contact: true answers their name, number and emails at once): for somebody else here, pass as and only their 👍 or yes lets you ask; asked by their 1:1, answer only what anyone here could ask, and a do-ask posts one line here signed with who asked (send post_in_chat)",
+    guest: "ask them in the chat",
+    who: "the person in the 1:1, or the tagger in a group (someone else here with their own 👍 or yes)",
+    cant: [
+      { where: "group", what: "ask another group chat", workaround: { kind: "words", text: "ask from your own 1:1 with Tex, which can ask any group you are in" } },
+      { where: "1:1", what: "ask a group you are not in", workaround: { kind: "words", text: "ask someone in that group to tag Tex there" } },
+    ],
+  },
+  {
     name: "Notes",
     actions: ["write.save", "write.save_many", "write.comment", "write.upload", "write.remember", "manage.move", "manage.move_many", "manage.move_folder", "manage.archive", "manage.suggest_destination", "manage.layout", "manage.folder_job", "manage.encrypt"],
     texts: "read, search, write, move and archive notes in every workspace they can reach, comment on a note, add pictures to one, encrypt or decrypt one, and lay down a workspace's starting folders; nothing is ever deleted",

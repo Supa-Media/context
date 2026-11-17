@@ -102,7 +102,7 @@ describe("cross-chat asks", () => {
     expect(readCrossBack({ id: ASK.id, state: "timeout", texts: [] })).toBeNull();
     expect(crossWired({ edges: [] })).toBe(false);
     expect(crossWired({ edges: [{ from: "tools", to: "crossChatGate" }] })).toBe(true);
-    expect(crossWired()).toBe(false); // main's config: on the shelf
+    expect(crossWired()).toBe(true); // main's config wires it (the promote, 2026-11-17)
     expect(crossFields({ kind: "ask", id: ASK.id, from: "x", what: "y", do: false, reply: ME })).toEqual({ event: "chat_ask", crossChat: { kind: "ask", id: ASK.id, from: "x", what: "y", do: false } });
   });
 });
