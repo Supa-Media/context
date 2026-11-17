@@ -15,12 +15,57 @@ import { PLACED_PREFIX } from "./inboxMove";
 const PLACED = /^enam:[^\0]{1,512}$/;
 const NAME = /^[^\0]{1,512}$/;
 
-/** A call to one of this Worker's placed objects, by its placed name (`enam:<name>`, as `inboxByName` names it). */
+/**
+ * A call to one of this Worker's placed objects, by its placed name (`enam:<name>`, as `inboxByName` names it).
+ *
+ * The fetch has no deadline. `SenderInbox.fetch` waits on `placeGate` (`inboxMove.ts`) and then on the route,
+ * and either can wait on another object or on the gateway with nothing bounding it. A deadline that answered
+ * an error would fail the caller: `inboxFetch` is not retried (`texChat.js` `workerStub` returns the promise).
+ * The line says which object and which path, and how long it took, so a hang can be told from a slow route.
+ */
 export async function inboxFetch(namespace: DurableObjectNamespace, call: { name?: unknown } | null, request: Request): Promise<Response> {
   const name = call?.name;
   if (typeof name !== "string" || !PLACED.test(name) || !name.startsWith(PLACED_PREFIX)) throw new TypeError("an object is named by its placed name");
   if (!(request instanceof Request)) throw new TypeError("a call is a Request");
-  return await objectByName(namespace, name).fetch(request);
+  const started = Date.now();
+  const id = inboxObjectId(namespace, name);
+  const path = inboxPath(request);
+  try {
+    const response = await objectByName(namespace, name).fetch(request);
+    logInboxFetch(id, path, httpOutcome(response.status), Date.now() - started);
+    return response;
+  } catch (error) {
+    logInboxFetch(id, path, "threw", Date.now() - started);
+    throw error;
+  }
+}
+
+/** The object's id as text, when it is an id and not the name. A name can be a phone number; an id cannot be turned back into one. */
+function inboxObjectId(namespace: DurableObjectNamespace, name: string): string {
+  try {
+    const id = namespace.idFromName(name).toString();
+    return /^[A-Za-z0-9_-]{1,128}$/.test(id) ? id : "opaque";
+  } catch {
+    return "";
+  }
+}
+
+/** The path only. A query can carry an address, and a path that is not one of ours is not logged as itself. */
+function inboxPath(request: Request): string {
+  try {
+    const path = new URL(request.url).pathname;
+    return /^\/[A-Za-z0-9/_-]{0,80}$/.test(path) ? path : "other";
+  } catch {
+    return "other";
+  }
+}
+
+function httpOutcome(status: number): string {
+  return Number.isInteger(status) && status >= 100 && status <= 599 ? `http_${status}` : "threw";
+}
+
+function logInboxFetch(id: string, path: string, outcome: string, ms: number): void {
+  console.log(JSON.stringify({ event: "inbox_fetch", id, path, outcome, ms }));
 }
 
 /** The id the chat named `name` has here: what its pictures' and pages' addresses carry (`media.ts`, `jobs.ts`). */

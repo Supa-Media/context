@@ -22,7 +22,7 @@
  */
 
 import { ownHandle } from "../texComputer.js";
-import { json } from "../responses.js";
+import { json, RETRY_AFTER } from "../responses.js";
 
 /** The console's client (`CONSOLE_CLIENT_ID` in `apps/convex/functions/agentGrant.ts`). */
 export const CONSOLE_CLIENT_ID = "context_console";
@@ -38,7 +38,8 @@ export class PageRefusal extends Error {
   }
 
   response() {
-    return json({ error: this.error, error_description: this.message }, this.status);
+    // 503 is the upstream failure. 401 and 403 are not retried by an HTTP client, and carry no Retry-After.
+    return json({ error: this.error, error_description: this.message }, this.status, this.status === 503 ? RETRY_AFTER : undefined);
   }
 }
 
@@ -65,6 +66,14 @@ export async function loadPage(controlPlane, session) {
   } catch {
     answer = null;
   }
+  // `{ status: "refused" }` is definite: the grant is not the console's, not live, or this person has no personal
+  // workspace (`functions/texPage.ts` `pageFor`). 401 would make the app drop a live token and ask again
+  // (`texPageSource.ts` replaces the token once on 401, and a history read retries a failure), so a lasting
+  // refusal would mint tokens on every try. 403 `not_yours` stops and draws someone else's page. 403 `refused`
+  // is a failed read: the overview polls every 30s and history backs off, the same schedule a 503 already
+  // got, and an HTTP client does not treat 403 as retryable. A thrown call or a body that is not a page stays
+  // 503, with Retry-After, because that one may succeed if asked again.
+  if (answer?.status === "refused") throw new PageRefusal(403, "refused", "This sign-in cannot open the page.");
   if (answer?.status !== "ok" || typeof answer.workspaceId !== "string") throw new PageRefusal(503, "unavailable", "The page could not be read just now.");
   return answer;
 }
