@@ -21,7 +21,9 @@ gates on ... training shouldn't affect CI/CD speed. Even the dev shouldn't".
   wires' inputs: the upstream node's label on that message if it has one, else
   its recorded run on main.
 - **60/20/20 over unit tests**: Training / Dev / Test, a whole conversation in
-  one set, each set within ten points of its share.
+  one set, each set within ten points of its share. It is a target, reported
+  and never a CI failure (Dev2, 2026-11-17: "no need to enforce the 60 20 20,
+  thats just the target").
 - **Training** is read by the nodes as an examples module in their context and
   never run in CI. **Dev** is replayed on demand and nightly for agents to tune
   against, and never gates. **Test** is the only gate, people-only (written and
@@ -69,9 +71,8 @@ ratio counts labels instead of stars, or if the drift limit is ignored.
 - **Training and Dev are files**, one conversation each, at
   `apps/mcp/bench/sets/<training|dev>/<id>.json`, checked by
   `scripts/tex-sets-check.mjs` in Fast guards (every file sound, in its set's
-  folder, no `test/` folder, and the ratio over all three sets, which fails
-  CI once every set has a unit test (Test as the eval service counts it) and
-  until then names the empty set and is only reported). The
+  folder, no `test/` folder, and the ratio over all three sets, Test as the
+  eval service counts it, reported only). The
   gateway and the Lab read them as generated data
   (`texSetsRepo.generated.json`, the Lab's `SETS`).
 - **A change is a draft first.** The Lab's Testing tab and `tex_dev` edit a
