@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import { SESSION_LIFETIME_S, createSession, forgetRefusedTiers, sessionRequests } from "./browserbase";
 import { browseOnBrowserbase } from "./browserbaseRoute";
+import { BrowseLedger, type LedgerKv } from "./browserUseLedger";
 import { READ_WORLD, STORAGE_WORLD } from "./jar";
 import { PASSKEYS_OFF_SOURCE } from "./passkeys";
 
@@ -422,5 +423,83 @@ describe("what a new browser is asked for", () => {
     const { bodies, fetcher } = vendor([400, 400, 400]);
     await expect(createSession(ENV, OWNER, fetcher)).rejects.toThrow("browserbase 400");
     expect(bodies).toHaveLength(3);
+  });
+});
+
+const DOCUMENT_403 = [
+  { method: "Page.frameNavigated", request: { params: { frame: { url: "https://wwws.airfrance.com/check-in" } } } },
+  { method: "Network.responseReceived", request: { params: { response: { url: "https://wwws.airfrance.com/check-in", status: 403 } } } },
+];
+
+function blockLedger() {
+  const map = new Map<string, unknown>();
+  const kv: LedgerKv = {
+    async get<T>(key: string) {
+      return map.get(key) as T | undefined;
+    },
+    async put(key: string, value: unknown) {
+      map.set(key, value);
+    },
+    async delete(key: string) {
+      return map.delete(key);
+    },
+  };
+  const book = new BrowseLedger(kv);
+  return {
+    book,
+    env: {
+      ...ENV,
+      BROWSER_USE_LEDGER: { idFromName: () => ({}) as DurableObjectId, get: () => book },
+    },
+  };
+}
+
+/** The session log stays shut until `release`, so a browse that waits on it cannot answer. */
+function holdLogs(api: ReturnType<typeof fakeApi>) {
+  let release = () => {};
+  const gate = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  const fetcher = (async (input: RequestInfo | URL, init?: RequestInit) => {
+    if (String(input).endsWith("/logs")) {
+      await gate;
+      return Response.json(DOCUMENT_403);
+    }
+    return api.fetcher(input, init);
+  }) as typeof fetch;
+  return { fetcher, release };
+}
+
+describe("the session log and the fallback flag", () => {
+  it("with the fallback off, the answer does not wait for the log, and the block is written after", async () => {
+    const api = fakeApi();
+    const held = holdLogs(api);
+    const { book, env } = blockLedger();
+    const pending: Array<Promise<unknown>> = [];
+    const response = await Promise.race([
+      browseOnBrowserbase(env, "/browse", { owner: OWNER, steps: [{ do: "read" }] }, held.fetcher, (work) => pending.push(work)),
+      new Promise<Response>((_, reject) => setTimeout(() => reject(new Error("the answer waited for the session log")), 3_000)),
+    ]);
+    expect(response.status).toBe(200);
+    expect((await response.json() as { blocked?: unknown }).blocked).toBeUndefined();
+    expect((await book.summary()).blocks).toBe(0);
+    held.release();
+    await Promise.all(pending);
+    expect(await book.summary()).toMatchObject({ blocks: 1, byReason: { "403": 1 } });
+  });
+
+  it("with waitForBlock, the answer waits for the log and returns the document 403", async () => {
+    const api = fakeApi();
+    const held = holdLogs(api);
+    let settled = false;
+    const responsePromise = browseOnBrowserbase(ENV, "/browse", { owner: OWNER, steps: [{ do: "read" }], waitForBlock: true }, held.fetcher, () => undefined).then((response) => {
+      settled = true;
+      return response;
+    });
+    await new Promise((resolve) => setTimeout(resolve, 1_500));
+    expect(settled).toBe(false);
+    held.release();
+    const response = await responsePromise;
+    expect((await response.json() as { blocked?: unknown }).blocked).toEqual({ reason: "403", host: "wwws.airfrance.com" });
   });
 });

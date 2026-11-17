@@ -252,6 +252,7 @@ jobs:
       GOOGLE_MAPS_KEY: ${{ secrets.GOOGLE_MAPS_KEY }}
       BROWSERBASE_API_KEY: ${{ secrets.BROWSERBASE_API_KEY }}
       BROWSERBASE_PROJECT_ID: ${{ secrets.BROWSERBASE_PROJECT_ID }}
+      BROWSER_USE_API_KEY: ${{ secrets.BROWSER_USE_API_KEY }}
       AI_GATEWAY_ACCOUNT_ID: ${{ secrets.AI_GATEWAY_ACCOUNT_ID }}
       AI_GATEWAY_ID: ${{ secrets.AI_GATEWAY_ID }}
       AI_GATEWAY_TOKEN: ${{ secrets.AI_GATEWAY_TOKEN }}
@@ -351,6 +352,12 @@ jobs:
                 node scripts/worker-secrets.mjs BROWSERBASE_API_KEY BROWSERBASE_PROJECT_ID | pnpm --dir infra/site-shots exec wrangler secret bulk --env staging
               else
                 echo "::notice::Browserbase is not configured in staging; Tex drives Cloudflare's browser."
+              fi
+              # Optional. Staging turns the fallback on; without this key the fallback refuses.
+              if [ -n "${BROWSER_USE_API_KEY:-}" ]; then
+                node scripts/worker-secrets.mjs BROWSER_USE_API_KEY | pnpm --dir infra/site-shots exec wrangler secret bulk --env staging
+              else
+                echo "::notice::Browser Use is not configured in staging; a site-block fallback refuses."
               fi
               ;;
             *)

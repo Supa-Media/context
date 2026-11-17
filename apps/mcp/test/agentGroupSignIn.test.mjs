@@ -139,8 +139,9 @@ test("a group turn's browser is the chat's: Browserbase by the chat's tag, with 
   const second = await open();
   const resumed = await second.web.call(BROWSE_TOOL, { steps: [{ do: "read" }] });
   assert.notEqual(resumed.isError, true, JSON.stringify(resumed));
-  assert.equal(sent[1].owner, sent[0].owner);
-  assert.deepEqual(sent[1].jar, SIGNED_IN);
+  const browses = sent.filter((body) => body.provider === "browserbase" && Array.isArray(body.steps));
+  assert.equal(browses[1].owner, browses[0].owner);
+  assert.deepEqual(browses[1].jar, SIGNED_IN);
 });
 
 test("the group is told a code sign-in needs no saved login, and a person's own texts are too", () => {
@@ -223,7 +224,7 @@ test("a group chat's browser is handed over on the chat's own Tex page, opened a
   assert.match(browse.description, /a link to this browser is added to your reply/);
   const result = await web.call(BROWSE_TOOL, { steps: [{ do: "goto", url: "https://venue.example.com/party_request/1" }, { do: "handoff" }] });
   assert.notEqual(result.isError, true, JSON.stringify(result));
-  assert.equal(sent.at(-1).handoff, true);
+  assert.equal(sent.filter((body) => Array.isArray(body.steps)).at(-1).handoff, true);
   assert.equal(opened.browser.handoffLink(), "https://app.example.com/tex/group/kite-willow-rocket/computer?full=1");
   assert.match(opened.browser.handoffLine(), /https:\/\/app\.example\.com\/tex\/group\/kite-willow-rocket\/computer\?full=1/);
   // The answer names the browser it handed over, by a hash of its tag, so the chat's Done carries the task on (`handback.js`).

@@ -904,6 +904,7 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 - [A browser waiting on the person is held fifteen minutes (2026-10-28)](./texting-assistant/computer.md#a-browser-waiting-on-the-person-is-held-fifteen-minutes-2026-10-28)
 - [A page read includes its frames' words (2026-11-03)](./texting-assistant/computer.md#a-page-read-includes-its-frames-words-2026-11-03)
 - [A job waits for a slow page to load before it reads it (2026-11-16)](./texting-assistant/computer.md#a-job-waits-for-a-slow-page-to-load-before-it-reads-it-2026-11-16)
+- [Browser Use is the fallback for a site block (2026-11-17)](./texting-assistant/browser-use-fallback.md)
 - [An email's links keep their addresses (2026-11-16)](./communications/reading-mail.md#an-emails-links-keep-their-addresses-2026-11-16)
 - [The Tex page shows each chat's Tex live, from the chat's own box (2026-11-02)](./texting-assistant/tex-page.md)
 - [Tex holds the six tools, each listing only what it was granted (2026-10-16)](./texting-assistant/tool-shelf.md)

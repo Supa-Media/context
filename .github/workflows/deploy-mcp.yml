@@ -257,6 +257,7 @@ jobs:
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           BROWSERBASE_API_KEY: ${{ secrets.BROWSERBASE_API_KEY }}
           BROWSERBASE_PROJECT_ID: ${{ secrets.BROWSERBASE_PROJECT_ID }}
+          BROWSER_USE_API_KEY: ${{ secrets.BROWSER_USE_API_KEY }}
         run: |
           set -euo pipefail
           if [ -n "${BROWSERBASE_API_KEY:-}" ] && [ -n "${BROWSERBASE_PROJECT_ID:-}" ]; then
@@ -264,6 +265,12 @@ jobs:
             echo "OK — Browserbase is configured for Tex."
           else
             echo "OK — no Browserbase key; Tex drives Cloudflare's browser."
+          fi
+          # Optional. The fallback flag is off in production, so a key here does not spend.
+          if [ -n "${BROWSER_USE_API_KEY:-}" ]; then
+            node ../../scripts/worker-secrets.mjs BROWSER_USE_API_KEY | pnpm exec wrangler secret bulk --env=""
+          else
+            echo "OK — no Browser Use key; a site-block fallback stays unavailable."
           fi
 
       # DEPLOY FIRST, secrets after — the ordering `deploy-router.yml` and

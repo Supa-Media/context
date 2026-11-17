@@ -33,6 +33,7 @@ import { DOWNLOAD_WAIT_MS, runDownload, type DownloadedFile, type Downloads } fr
 import { FRAME_REF_BASE, docMarking, docWith, framesOf, type Doc, type FrameDoc } from "./frames";
 import { BY_WORDS, MAX_CLICK_TEXT, wordsSource } from "./clickWords";
 import { readWhenLoaded, waitSeconds } from "./patience";
+import { gotoFailureReason } from "./pageLoad";
 import { isCheckoutPaymentFrame } from "./paymentFrames";
 import { pickExpirySource } from "./cardMenus";
 import { COVERED_PRESS, SET_DIRECTLY, closePopup, coveredSource, domClickSource, typedOrSet } from "./popups";
@@ -435,7 +436,7 @@ export async function runSteps(
         ? await waitFor(step.seconds)
         : step.do === "goto" && offLimits(step.url)
         ? ({ do: "goto", ok: false, reason: "that page is off limits" } as StepResult)
-        : await runStep(page, step, downloads, uploads).catch(() => ({ do: step.do, ok: false, reason: "that did not work on this page" }) as StepResult);
+        : await runStep(page, step, downloads, uploads).catch((error) => ({ do: step.do, ok: false, reason: step.do === "goto" ? gotoFailureReason(error) : "that did not work on this page" }) as StepResult);
     // However it got there (a click, a redirect), it does not stay.
     const landed = (await where(page).catch(() => null))?.href ?? null;
     if (landed !== null && offLimits(landed)) {

@@ -75,6 +75,18 @@ function asSigns(value: unknown): CaptchaSigns | null {
   return { widget: v.widget === true, answered: v.answered === true, wall: v.wall === true, invisible: v.invisible === true };
 }
 
+/**
+ * Which captcha is still on the page: a whole-page wall (an interstitial) or
+ * a widget. Null when the probe cannot tell. The gateway uses this after its
+ * ladder, to say why a fallback ran.
+ */
+export async function captchaKind(evaluate: (source: string) => Promise<unknown>): Promise<"wall" | "widget" | null> {
+  const signs = asSigns(await evaluate(CAPTCHA_PROBE).catch(() => null));
+  if (signs?.wall) return "wall";
+  if (signs?.widget && !signs.answered) return "widget";
+  return null;
+}
+
 /** Whether the page carries a captcha that shows nothing until a form is sent. A probe that fails says no. */
 export async function invisibleCaptcha(evaluate: (source: string) => Promise<unknown>): Promise<boolean> {
   return asSigns(await evaluate(CAPTCHA_PROBE).catch(() => null))?.invisible === true;

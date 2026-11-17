@@ -15,10 +15,12 @@
  * - **It photographs what any visitor sees.** The browser carries no cookie,
  *   token or session: a members-only page would show a sign-in screen, which
  *   is why the control plane only ever names public pages.
- * - **It keeps nothing.** No KV, R2, D1 or cache. The pictures go back in the
- *   response and nowhere else. One Durable Object per person holds their
- *   owner tag and an alarm, which releases their Browserbase browser five
- *   minutes after its last use (./idle.ts), and nothing else.
+ * - **Pictures are not kept.** No KV, R2 or cache of a page. The pictures go
+ *   back in the response. One Durable Object per person holds their owner tag
+ *   and an alarm, which releases their browser five minutes after its last
+ *   use (./idle.ts). A second object, one for the whole Worker, holds the
+ *   Browser Use spend totals and the site-block log (./browserUseLedger.ts):
+ *   hosts, outcomes and costs, never a page or a path.
  *
  *   POST /shoot   `{ url, sizes? }` → `{ shots, failures }` (see ./shoot.ts)
  *   POST /read    `{ url }` → `{ page }`: title, visible text and links, for
@@ -38,8 +40,10 @@
  *                 fifteen minutes while Tex waits on them (./idle.ts HOLD_MS);
  *                 Cloudflare's browser closes with its question, so it holds nothing.
  *   Any of these with `provider: "browserbase"` drives the person's Browserbase
- *   browser instead (./browserbaseRoute.ts); that path holds the Worker's
- *   one secret, the Browserbase key, which never leaves this Worker.
+ *   browser instead (./browserbaseRoute.ts). `provider: "browser-use"` drives
+ *   a Browser Use browser the gateway asked for after a site block
+ *   (./browserUseRoute.ts); this Worker does not choose that on its own.
+ *   POST /browse/log and POST /browse/blocks are the site-block log.
  *   POST /render  `{ html, width?, height?, allow?, fit? }` → `{ png, width, height,
  *                 blocked }`: a page the texting assistant wrote, as a
  *                 picture, reaching only the addresses in `allow` (./render.ts)
@@ -61,6 +65,8 @@ import { BROWSERBASE_FETCH_TIMEOUT_MS, browserbaseFetch } from "./browserbaseFet
 import { parseReadRequest, read } from "./read";
 import { browserbaseConfigured, type BrowserbaseEnv } from "./browserbase";
 import { browseOnBrowserbase } from "./browserbaseRoute";
+import { browseOnBrowserUse, releaseOwnedBrowserUse, type BrowserUseEnv } from "./browserUseRoute";
+import { acceptBrowseLog, blockSummary } from "./browserUseLedger";
 import { viewOnBrowserbase } from "./view";
 import { viewStatus } from "./viewStatus";
 import { BROWSE_GOTO_TIMEOUT_MS, parseBrowseRequest, runSteps, type BrowsePage } from "./browse";
@@ -69,7 +75,7 @@ import type { Browser, BrowserContext } from "@cloudflare/puppeteer";
 import { parseRenderRequest, render, type RenderBrowser } from "./render";
 import { parseShootRequest, shoot, type BrowserLike, type PageLike } from "./shoot";
 
-interface Env extends BrowserbaseEnv {
+interface Env extends BrowserbaseEnv, BrowserUseEnv {
   BROWSER: Parameters<typeof puppeteer.launch>[0];
 }
 
@@ -77,8 +83,12 @@ const json = (body: unknown, status = 200) =>
   new Response(JSON.stringify(body), { status, headers: { "content-type": "application/json" } });
 
 /** One per person, by owner tag: their browser's five-minute idle alarm (./idle.ts). */
+export { BrowserUseLedger } from "./browserUseObject";
+
 export class BrowserIdle extends DurableObject<Env> {
-  private timer = new IdleTimer(this.ctx.storage, this.env, fetch, Date.now, (fn) => this.ctx.blockConcurrencyWhile(fn));
+  private timer = new IdleTimer(this.ctx.storage, this.env, fetch, Date.now, (fn) => this.ctx.blockConcurrencyWhile(fn), async (owner) => {
+    await releaseOwnedBrowserUse(this.env, owner, fetch);
+  });
   async touch(owner: string, ms?: number): Promise<void> {
     await this.timer.touch(owner, ms);
   }
@@ -96,9 +106,18 @@ export class BrowserIdle extends DurableObject<Env> {
 export default {
   async fetch(request: Request, env: Env, ctx?: ExecutionContext): Promise<Response> {
     const url = new URL(request.url);
+    if (request.method === "POST" && url.pathname === "/browse/blocks") {
+      return json(await blockSummary(env));
+    }
+    if (request.method === "POST" && url.pathname === "/browse/log") {
+      return json(await acceptBrowseLog(env, await request.json().catch(() => null)));
+    }
     if (request.method === "POST" && (url.pathname === "/browse" || url.pathname === "/browse/close" || url.pathname === "/browse/hold" || url.pathname === "/browse/release")) {
       const body = await request.json().catch(() => null);
-      if ((body as { provider?: unknown })?.provider === "browserbase") return await browseOnBrowserbase(env, url.pathname, body, fetch, (work) => ctx?.waitUntil(work));
+      const provider = (body as { provider?: unknown })?.provider;
+      if (provider === "browserbase") return await browseOnBrowserbase(env, url.pathname, body, fetch, (work) => ctx?.waitUntil(work));
+      // Only when the gateway names this provider. A site block alone does not.
+      if (provider === "browser-use") return await browseOnBrowserUse(env, url.pathname, body, fetch);
       return await browse(env, url.pathname, body);
     }
     if (request.method === "POST" && url.pathname === "/view/status") {
@@ -283,8 +302,9 @@ async function browse(env: Env, path: string, body: unknown): Promise<Response> 
     page.setDefaultTimeout(BROWSE_GOTO_TIMEOUT_MS);
     const result = await runSteps(page as unknown as BrowsePage, parsed.steps, { waitMs: contentWaitOf(body) });
     // Step kinds and timing only: never an address, a word typed or the page.
-    console.log(JSON.stringify({ event: "site_shots_browse", steps: parsed.steps.map((s) => s.do), ok: result.ran.every((r) => r.ok), ms: Date.now() - started, ...waitLog(result.page) }));
-    return json({ session: browser.sessionId(), ...result });
+    const ok = result.ran.every((r) => r.ok);
+    console.log(JSON.stringify({ event: "site_shots_browse", provider: "cloudflare", steps: parsed.steps.map((s) => s.do), ok, ms: Date.now() - started, ...waitLog(result.page) }));
+    return json({ provider: "cloudflare", session: browser.sessionId(), ms: Date.now() - started, ...result });
   } catch {
     return json({ session: browser.sessionId(), error: "the browser could not do that" }, 502);
   } finally {

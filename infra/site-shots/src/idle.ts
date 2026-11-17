@@ -56,6 +56,8 @@ export class IdleTimer {
     private fetcher: typeof fetch = fetch,
     private now: () => number = Date.now,
     private exclusive: Exclusive = (fn) => fn(),
+    /** Stops a Browser Use session kept for this owner. Browserbase's own release stays above. */
+    private onRelease: ((owner: string) => Promise<void>) | null = null,
   ) {}
 
   /**
@@ -122,6 +124,7 @@ export class IdleTimer {
           return;
         }
         for (const id of ids) await releaseSession(this.env, id, this.fetcher);
+        if (owner && this.onRelease) await this.onRelease(owner);
       } catch {
         // The retry armed above stands.
         console.log(JSON.stringify({ event: "site_shots_browserbase_idle_retry" }));
@@ -148,6 +151,15 @@ export interface IdleStub {
 /** The owner's object, placed in eastern North America like every object of ours (decided by the owner, 2026-11-01). The one place this Worker makes a stub. */
 export function idleStub(namespace: IdleNamespace, owner: string): IdleStub {
   return namespace.get(namespace.idFromName(owner), { locationHint: "enam" });
+}
+
+/**
+ * The one Browser Use ledger, placed the same way. Spend and the block log
+ * live here, not in the per-person idle object.
+ */
+export function browserUseLedgerStub<T>(namespace: { idFromName(name: string): DurableObjectId; get(id: DurableObjectId, options?: { locationHint?: "enam" }): T } | undefined): T | null {
+  if (!namespace) return null;
+  return namespace.get(namespace.idFromName("browser-use"), { locationHint: "enam" });
 }
 
 /** Pushes this person's browser's end five minutes out (or `ms`). Never fails the step it rides on. */
