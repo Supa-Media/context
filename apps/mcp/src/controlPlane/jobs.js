@@ -2,7 +2,8 @@
  * Gateway job tickets: create, open and report the result of a job the
  * control plane runs on the gateway's behalf.
  */
-import { ControlPlaneError } from "./client.js";
+import { ControlPlaneError, sha256Hex } from "./client.js";
+import { rememberTicketShared, rememberedTicketShared } from "../texStore/ticketCache.js";
 
 export function createJobMethods({ post, required }) {
   return {
@@ -52,13 +53,19 @@ export function createJobMethods({ post, required }) {
      * when it is unknown or expired.
      */
     async openTexStoreTicket(ticket) {
+      const now = Date.now();
+      // The hash is the cache key. The ticket itself is not kept.
+      const hash = await sha256Hex(ticket);
+      const cached = await rememberedTicketShared(hash, now);
+      if (cached !== null) return cached;
       const parsed = await post("/gateway/tex-store/open", { ticket });
       const opened = required(parsed, "opened");
       if (opened === null) return null;
       if (!opened || typeof opened !== "object" || typeof opened.workspaceId !== "string" || !Array.isArray(opened.owners)) {
         throw new ControlPlaneError("malformed Tex store ticket");
       }
-      return opened;
+      await rememberTicketShared(hash, opened, now);
+      return { workspaceId: opened.workspaceId, owners: opened.owners };
     },
   };
 }

@@ -32,16 +32,23 @@ export const mint = internalMutation({
   },
 });
 
-/** What a ticket opens, or `null` when it is unknown or expired. */
+/**
+ * What a ticket opens, or `null` when it is unknown or expired. `expiresAt` is
+ * the row's own expiry, so the gateway can repeat this answer until then
+ * without asking again (`apps/mcp/src/texStore/ticketCache.js`).
+ */
 export const open = internalQuery({
   args: { hashedTicket: v.string(), now: v.number() },
-  returns: v.union(v.null(), v.object({ workspaceId: v.string(), owners: v.array(v.string()) })),
+  returns: v.union(
+    v.null(),
+    v.object({ workspaceId: v.string(), owners: v.array(v.string()), expiresAt: v.number() }),
+  ),
   handler: async (ctx, { hashedTicket, now }) => {
     const row = await ctx.db
       .query("texStoreTickets")
       .withIndex("by_hashed_ticket", (q) => q.eq("hashedTicket", hashedTicket))
       .unique();
     if (row === null || row.expiresAt <= now) return null;
-    return { workspaceId: row.workspaceId, owners: row.owners };
+    return { workspaceId: row.workspaceId, owners: row.owners, expiresAt: row.expiresAt };
   },
 });
