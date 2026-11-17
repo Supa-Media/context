@@ -1,5 +1,5 @@
 {
-  "texConfig": 1,
+  "texConfig": 2,
   "about": "Tex as it runs: every step, its model, effort, on or off, time limit, rounds and the context it reads in order, and every wire. The Tex Architecture Lab opens this as main and promotes a version by changing this file in a pull request; the gateway reads it. Nothing else holds these values (Dev2, 2026-11-13).",
   "models": {
     "haiku-5-5": "anthropic/claude-haiku-5-5",
@@ -9,6 +9,7 @@
     "glm-4-7": "@cf/zai-org/glm-4.7-flash",
     "gemini": "google/gemini-2.5-flash-image"
   },
+  "browsers": {"browserUseFallback":"off","jobMinutes":15,"dayUsd":1,"monthUsd":5,"minBalanceUsd":0.5},
   "groups": {"intake":{"label":"Intake","goal":"A text arrives, is edited or unsent; Triage, Decide, Queue and React choose whether and when Tex answers, and the Door gathers what the turn needs or answers in code.","icon":"text","x":0,"y":340},"jobs":{"label":"Jobs","goal":"Long work in the background: the job, its advisor and the hand-back judge.","icon":"job","x":840,"y":60},"tools-subagents":{"label":"Tools & subagents","goal":"The tools Front door calls and the helpers they use: mail, card and egress checks, the picture maker and the advisor.","icon":"tools","x":560,"y":60},"staff-messages":{"label":"Staff messages","goal":"Texts staff send through Tex from the console, such as a chat moving to the new number.","icon":"plug","x":840,"y":760},"retired":{"label":"Turned off (deleted after Promote)","goal":"Steps folded into the new ones above. Promote keeps main's steps turned off, never deleted; the cleanup after Promote deletes them and their code.","x":280,"y":100}},
   "nodes": [
     {"id":"checkin","label":"Check-in","goal":"Three times a day, look at what changed in their workspace, mail and calendar, and text them only what can't wait; most looks stay quiet. Runs the front door with its own read-only tools and setup model.","log":true,"on":true,"rounds":1,"out":300,"ctx":["train:checkin"],"ms":0,"timeoutS":0,"areas":[],"file":"graph/nodes/checkin.js · heartbeat.js","note":"","icon":"beat","kind":"input","model":"code","x":0,"y":60,"inSchema":[{"name":"timeZone","type":"text"},{"name":"since","type":"number","optional":true},{"name":"started","type":"number"}],"outSchema":[{"name":"to","type":"choice","options":"look, done"},{"name":"status","type":"number","optional":true},{"name":"body","type":"object","optional":true},{"name":"counts","type":"object","optional":true},{"name":"calendar","type":"yesno","optional":true}]},

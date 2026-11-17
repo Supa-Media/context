@@ -136,7 +136,8 @@ export function configText(config) {
   const lines = (a) => "[\n" + a.map((x) => "    " + JSON.stringify(x)).join(",\n") + "\n  ]";
   const models = JSON.stringify(config.models, null, 4).replace(/\n}$/, "\n  }");
   const groups = config.groups ? `\n  "groups": ${JSON.stringify(config.groups)},` : "";
-  return `{\n  "texConfig": ${config.texConfig},\n  "about": ${JSON.stringify(config.about)},\n  "models": ${models},${groups}\n  "nodes": ${lines(config.nodes)},\n  "edges": ${lines(config.edges)}\n}\n`;
+  const browsers = config.browsers ? `\n  "browsers": ${JSON.stringify(config.browsers)},` : "";
+  return `{\n  "texConfig": ${config.texConfig},\n  "about": ${JSON.stringify(config.about)},\n  "models": ${models},${browsers}${groups}\n  "nodes": ${lines(config.nodes)},\n  "edges": ${lines(config.edges)}\n}\n`;
 }
 
 function selfTest() {

@@ -56,6 +56,8 @@ export class IdleTimer {
     private fetcher: typeof fetch = fetch,
     private now: () => number = Date.now,
     private exclusive: Exclusive = (fn) => fn(),
+    /** Stops a Browser Use session kept for this owner. Browserbase's own release stays above. */
+    private onRelease: ((owner: string) => Promise<void>) | null = null,
   ) {}
 
   /**
@@ -122,6 +124,7 @@ export class IdleTimer {
           return;
         }
         for (const id of ids) await releaseSession(this.env, id, this.fetcher);
+        if (owner && this.onRelease) await this.onRelease(owner);
       } catch {
         // The retry armed above stands.
         console.log(JSON.stringify({ event: "site_shots_browserbase_idle_retry" }));

@@ -22,7 +22,7 @@
  */
 "use strict";
 
-const SCHEMA_VERSION = 1;
+const SCHEMA_VERSION = 2;
 
 const MODES = Object.freeze(["wait", "uses", "background", "job", "loop", "provisional", "generator"]);
 const EFFORTS = Object.freeze(["off", "low", "medium", "high", "xhigh", "max"]);
@@ -79,6 +79,7 @@ function configProblems(config) {
   if (!config || typeof config !== "object" || Array.isArray(config)) return ["the config is not an object"];
   if (config.texConfig !== SCHEMA_VERSION) out.push(`it is schema version ${JSON.stringify(config.texConfig)}, not ${SCHEMA_VERSION}: run node scripts/tex-config-migrate.mjs`);
   if (!config.models || typeof config.models !== "object" || !Object.values(config.models).every(isText)) out.push("models must map each model key to a gateway model id");
+  if (config.texConfig === SCHEMA_VERSION) out.push(...browserProblems(config.browsers));
   if (!Array.isArray(config.nodes) || !Array.isArray(config.edges)) return [...out, "it has no nodes and edges lists"];
   const models = config.models ?? {};
   const groups = config.groups ?? {};
@@ -137,9 +138,39 @@ function texConfigOf(config) {
  * The migrations, oldest first: `MIGRATIONS[i]` takes a graph (a config, or a Lab draft's `{ nodes, edges, ... }`)
  * from version i to i+1 and answers the new graph. Each is idempotent and leaves alone what it does not recognise.
  */
+const ON_OFF = new Set(["on", "off"]);
+
+/** The browser fallback, filled in when a draft has none. Values stay inside the hard caps. */
+function browsersOf(raw) {
+  const b = raw && typeof raw === "object" && !Array.isArray(raw) ? raw : {};
+  return {
+    browserUseFallback: b.browserUseFallback === "on" ? "on" : "off",
+    jobMinutes: Number.isInteger(b.jobMinutes) && b.jobMinutes >= 1 && b.jobMinutes <= 15 ? b.jobMinutes : 15,
+    dayUsd: typeof b.dayUsd === "number" && b.dayUsd > 0 && b.dayUsd <= 1 ? b.dayUsd : 1,
+    monthUsd: typeof b.monthUsd === "number" && b.monthUsd > 0 && b.monthUsd <= 5 ? b.monthUsd : 5,
+    minBalanceUsd: typeof b.minBalanceUsd === "number" && b.minBalanceUsd >= 0.5 ? b.minBalanceUsd : 0.5,
+  };
+}
+
+function browserProblems(browsers) {
+  if (!browsers || typeof browsers !== "object" || Array.isArray(browsers)) return ["browsers must be the browser settings object"];
+  const out = [];
+  for (const key of Object.keys(browsers)) {
+    if (!["browserUseFallback", "jobMinutes", "dayUsd", "monthUsd", "minBalanceUsd"].includes(key)) out.push(`browsers has a field the schema does not know: ${key}`);
+  }
+  if (!ON_OFF.has(browsers.browserUseFallback)) out.push('browsers.browserUseFallback must be "on" or "off"');
+  if (!(Number.isInteger(browsers.jobMinutes) && browsers.jobMinutes >= 1 && browsers.jobMinutes <= 15)) out.push("browsers.jobMinutes must be a whole number from 1 to 15");
+  if (!(typeof browsers.dayUsd === "number" && browsers.dayUsd > 0 && browsers.dayUsd <= 1)) out.push("browsers.dayUsd must be a number from above 0 to 1");
+  if (!(typeof browsers.monthUsd === "number" && browsers.monthUsd > 0 && browsers.monthUsd <= 5)) out.push("browsers.monthUsd must be a number from above 0 to 5");
+  if (!(typeof browsers.minBalanceUsd === "number" && browsers.minBalanceUsd >= 0.5)) out.push("browsers.minBalanceUsd must be a number of at least 0.5");
+  return out;
+}
+
 const MIGRATIONS = Object.freeze([
   // 0 → 1 (2026-11-14): the wire mode "behind" was renamed "background" (Dev2).
   (g) => ({ ...g, edges: (g.edges ?? []).map((e) => (e && e.mode === "behind" ? { ...e, mode: "background" } : e)) }),
+  // 1 → 2 (2026-11-17): the Browser Use fallback and its caps, off unless a config says on.
+  (g) => ({ ...g, browsers: browsersOf(g.browsers) }),
 ]);
 
 /**

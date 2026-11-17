@@ -68,8 +68,10 @@ import { browserbaseUploads } from "./upload";
 import { HOLD_MS, IDLE_MS, touchIdle } from "./idle";
 import { LEASE_MS, RUN_LEASE_MS, claimLease, holderOf, releaseLease } from "./lease";
 import { captureJar, parseJar, restoreCookies, restoreStorage, type Jar } from "./jar";
-import { reportFailedRun, type FailedRun } from "./sessionLogs";
-import { invisibleCaptcha, settleCaptcha } from "./captcha";
+import { documentForbidden, reportFailedRun, sessionLogDigest, type FailedRun } from "./sessionLogs";
+import { hostFromSteps } from "./browserUsePolicy";
+import { safeRecord } from "./browserUseLedger";
+import { captchaKind, invisibleCaptcha, settleCaptcha } from "./captcha";
 import { pastGooglePasskey } from "./googleChallenge";
 
 const json = (body: unknown, status = 200) =>
@@ -172,6 +174,17 @@ async function runOnBrowserbase(
     const status = /^browserbase (\d{3})$/.exec(error instanceof Error ? error.message : "")?.[1] ?? null;
     // The status only: never the vendor's body, which can name the account.
     console.log(JSON.stringify({ event: "site_shots_browserbase_refused", status }));
+    // 402 is billing and 503 is capacity. Neither is a site block. A 403 from
+    // this call is Browserbase refusing a tier, which createSession already
+    // retried; if it still throws, it is the vendor, not the page.
+    const vendor = status === "402" || status === "403" || status === "503";
+    await safeRecord(env, {
+      kind: "call",
+      provider: "browserbase",
+      host: hostFromSteps(parsed.steps),
+      outcome: vendor ? "vendor_refused" : "error",
+      durationMs: Date.now() - started,
+    });
     // 402: Browserbase will not start a browser until its bill is paid. The
     // gateway takes Cloudflare's browser for this question rather than failing.
     if (status === "402") return json({ error: "browserbase refused: payment required" }, 402);
@@ -218,6 +231,9 @@ async function runOnBrowserbase(
     const uploads = browserbaseUploads(env, session.id, fetcher);
     // A blank page is waited for as long as the gateway says this turn may (./patience.ts).
     let result = await runSteps(page, parsed.steps, { downloads, uploads, waitMs: contentWaitOf(body) });
+    // The session log is what shows a document-host 403. Asked while a captcha
+    // is given time to clear, and given at most a second when the page has none.
+    const logsReady = sessionLogDigest(env, session.id, fetcher, 1_000).catch(() => null);
     // Not while the person is being handed the browser: it is theirs then.
     const captcha = handingOver ? null : await settleCaptcha(attached.evaluate, { solver: attached.solver ?? null });
     if (captcha === "solved") result = { ...result, page: (await runSteps(page, [{ do: "read" }])).page };
@@ -230,11 +246,24 @@ async function runOnBrowserbase(
       result = { ...result, page: (await runSteps(page, [{ do: again }])).page };
     }
     const jar = keep && restored ? await captureJar(cdp, attached).catch(() => null) : null;
+    const forbidden = documentForbidden(await logsReady);
+    const kind = captcha === "unsolved" ? await captchaKind(attached.evaluate) : null;
     const ok = result.ran.every((r) => r.ok);
     // Step kinds and timing only, as for Cloudflare's browser.
     console.log(JSON.stringify({ event: "site_shots_browse", provider: "browserbase", steps, ok, ms: Date.now() - started, ...waitLog(result.page) }));
     if (!ok) failed(session.id, "steps", result.ran.map((r) => ({ do: r.do, ok: r.ok, ...(r.reason && !r.ok ? { reason: r.reason.slice(0, 200) } : {}) })));
-    return json({ session: session.id, ...result, ...(captcha !== null ? { captcha } : {}), ...(hidden ? { invisibleCaptcha: true } : {}), ...(jar !== null ? { jar } : {}), ...(profileGone ? { profileGone: true } : {}) });
+    return json({
+      provider: "browserbase",
+      session: session.id,
+      ...result,
+      ms: Date.now() - started,
+      ...(captcha !== null ? { captcha } : {}),
+      ...(kind !== null ? { captchaKind: kind } : {}),
+      ...(forbidden ? { blocked: forbidden } : {}),
+      ...(hidden ? { invisibleCaptcha: true } : {}),
+      ...(jar !== null ? { jar } : {}),
+      ...(profileGone ? { profileGone: true } : {}),
+    });
   } catch {
     failed(session.id, "run");
     return json({ session: session.id, error: "the browser could not do that" }, 502);

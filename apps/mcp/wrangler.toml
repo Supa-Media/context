@@ -415,6 +415,9 @@ workers_dev = true
 # The texts simulator's chats, once their chat object runs here (`src/texChat.js`); as the texting Worker's staging
 # `SIMULATOR`, never set in production.
 SIMULATOR = "on"
+# Site-block fallback onto Browser Use. Staging only: production reads
+# browsers.browserUseFallback "off" in texConfig.json and must not set this.
+BROWSER_USE_FALLBACK = "on"
 SHARING_JUDGE = "on"
 HANDBACK_JUDGE = "on"
 TEX_REVIEW = "on"

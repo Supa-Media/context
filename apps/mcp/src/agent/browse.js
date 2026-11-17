@@ -54,6 +54,7 @@ import { BROWSER_BUSY, newHolder } from "./browserLease.js";
 import { silentSubmits } from "./silentSubmit.js";
 import { waitsOnThem } from "./browserHold.js";
 import { notAStep } from "./browseNotAStep.js";
+import { browseHost, fallbackWanted, siteBlockAfterLadder } from "./browserUseFallback.js";
 
 export const BROWSE_TOOL = "browse";
 
@@ -289,6 +290,8 @@ export function browserSession(computer, { allowed, addresses, takePages, say = 
   const captchas = captchaLadder();
   // And a hidden one, which only shows as a send button that does nothing (`silentSubmit.js`).
   const submits = silentSubmits();
+  // One Browser Use retry per question, after a site block and only when the flag is on.
+  let browserUseTried = false;
   let shownElements = [];
   // The person's own page for taking the browser over (`context.lc/tex/@<handle>`),
   // never the model's and never a link to the browser itself: texted the
@@ -323,10 +326,11 @@ export function browserSession(computer, { allowed, addresses, takePages, say = 
 
   // A job's long wait goes with the first run of each call only (`JOB_PAGE_WAIT_MS`).
   let longWait = false;
-  async function run(planned, { handoff = false, fresh = false } = {}) {
+  async function run(planned, { handoff = false, fresh = false, provider = null } = {}) {
     const waitMs = longWait ? JOB_PAGE_WAIT_MS : null;
     longWait = false;
-    const result = await computer.browse(session, planned, { ...(handoff ? { handoff: true } : {}), ...(fresh ? { fresh: true } : {}), ...(waitMs !== null ? { waitMs } : {}), ...lease });
+    const result = await computer.browse(session, planned, { ...(handoff ? { handoff: true } : {}), ...(fresh ? { fresh: true } : {}), ...(waitMs !== null ? { waitMs } : {}), ...(provider ? { provider } : {}), ...lease });
+    if (result?.refused) return { refused: result.refused };
     if (typeof result?.handoffUrl === "string" && result.handoffUrl.startsWith("https://")) handoffLink = result.handoffUrl;
     if (result?.session) session = result.session;
     const reading = result?.page;
@@ -342,7 +346,19 @@ export function browserSession(computer, { allowed, addresses, takePages, say = 
       const url = canonicalUrl(href);
       if (url) allowed.add(url);
     }
-    return { reading, ran: Array.isArray(result.ran) ? result.ran : [], file: result.file ?? null, captcha: result.captcha ?? null, invisible: result.invisibleCaptcha === true };
+    return {
+      reading,
+      ran: Array.isArray(result.ran) ? result.ran : [],
+      file: result.file ?? null,
+      captcha: result.captcha ?? null,
+      captchaKind: result.captchaKind ?? null,
+      invisible: result.invisibleCaptcha === true,
+      blocked: result.blocked ?? null,
+      provider: result.provider ?? null,
+      ms: typeof result.ms === "number" ? result.ms : null,
+      costUsd: typeof result.costUsd === "number" ? result.costUsd : null,
+      proxyMb: typeof result.proxyMb === "number" ? result.proxyMb : null,
+    };
   }
 
   /** Keep a downloaded file in the person's bucket and say how to use it; the bytes never reach the model. */
@@ -493,6 +509,10 @@ export function browserSession(computer, { allowed, addresses, takePages, say = 
       let done;
       let captchaLine = "";
       let notTheirs = false;
+      let fallbackNote = "";
+      let fallbackCleared = false;
+      let fallback = { ran: false };
+      let trigger = null;
       try {
         // The steps go first with no handoff, so a captcha they meet is
         // tried every other way before the browser is handed over for it.
@@ -500,8 +520,40 @@ export function browserSession(computer, { allowed, addresses, takePages, say = 
         let cleared = false;
         if (done !== null) ({ done, line: captchaLine, cleared } = await captchas.settle(done, (s, o) => run(s, o)));
         if (!cleared && captchaLine === "") ({ done, line: captchaLine } = await submits.settle(done, planned, shownElements, (s, o) => run(s, o)));
+        // A site block, and only a site block, may be tried once on Browser Use.
+        // A Browserbase 403, a 402 or a 503 never reaches here as `trigger`.
+        if (done?.reading) {
+          trigger = siteBlockAfterLadder({
+            blocked: done.blocked,
+            captchaStuck: captchas.stuck(),
+            captchaKind: done.captchaKind,
+            submitStuck: submits.stuck(),
+          });
+          if (fallbackWanted({ flag: computer.browserUseFallback?.() ?? "off", reason: trigger, already: browserUseTried })) {
+            browserUseTried = true;
+            const again = await run(planned, { provider: "browser-use" }).catch(() => ({ refused: "browser-use could not be started" }));
+            if (!again?.reading) {
+              fallback = { ran: false, outcome: "refused" };
+              fallbackNote = `\n\nThe site blocked this browser (${trigger}). The other browser was not used: ${again?.refused ?? "browser-use could not be started"}.`;
+            } else {
+              const still = siteBlockAfterLadder({
+                blocked: again.blocked,
+                captchaStuck: again.captcha === "unsolved",
+                captchaKind: again.captchaKind,
+                submitStuck: false,
+              });
+              done = again;
+              fallback = { ran: true, outcome: still ?? "ok", ...(again.costUsd !== null && again.costUsd !== undefined ? { costUsd: again.costUsd } : {}) };
+              if (!still) {
+                captchaLine = "";
+                fallbackCleared = true;
+                handoff = false;
+              } else fallbackNote = `\n\nTried the other browser after a site block (${trigger}); it was blocked too (${still}).`;
+            }
+          }
+        }
         // Got past a captcha: nothing is left for the person to do there.
-        if (cleared) handoff = false;
+        if (cleared || fallbackCleared) handoff = false;
         // Only a sign-in, a code, a captcha, a card or their own ask is theirs (`handoffGate.js`).
         if (handoff && done !== null && !handoffIsTheirs({ reading: done.reading, stuck: captchas.stuck() || submits.stuck(), theirWords: addresses })) {
           handoff = false;
@@ -549,14 +601,28 @@ export function browserSession(computer, { allowed, addresses, takePages, say = 
       shownElements = done.reading.elements;
       const kept = done.file ? await keepFile(done.file) : "";
       const result = textResult(
-        readingText(done.reading, done.ran, { from }) + captchaLine + (notTheirs ? NOT_THEIRS : "") + told + kept,
+        readingText(done.reading, done.ran, { from }) + captchaLine + fallbackNote + (notTheirs ? NOT_THEIRS : "") + told + kept,
         notTheirs || done.ran.some((r) => !r.ok) || kept.startsWith("\n\nNot kept"),
       );
       // The page it read, kept with the answer (`sources.js`), even when a step on the way failed.
       result.sources = [done.reading.url];
       if (result.isError) result.why = whyBrowseFailed(done.ran, notTheirs); // for the jobs page (`modelPlan.js` `whyFailed`): the text above is a page reading
       // For the answer check: a captcha that outlasted every try is the only one the person may be asked to solve (`claimCheck.js`).
-      if (captchas.stuck() || submits.stuck()) result.captchaStuck = true;
+      if ((captchas.stuck() || submits.stuck()) && !fallbackCleared) result.captchaStuck = true;
+      const blockedOutcome = trigger && !fallbackCleared;
+      const stepFailed = done.ran.some((step) => !step.ok);
+      await computer.noteBrowse?.({
+        kind: "job",
+        provider: done.provider === "browser-use" || done.provider === "cloudflare" ? done.provider : "browserbase",
+        host: browseHost(done.reading?.url),
+        outcome: blockedOutcome ? "site_blocked" : stepFailed ? "error" : "ok",
+        ...(blockedOutcome ? { reason: trigger } : {}),
+        ...(trigger ? { trigger } : {}),
+        durationMs: typeof done.ms === "number" ? done.ms : 0,
+        ...(typeof done.proxyMb === "number" ? { proxyMb: done.proxyMb, bytes: Math.round(done.proxyMb * 1024 * 1024) } : {}),
+        ...(typeof done.costUsd === "number" ? { costUsd: done.costUsd } : {}),
+        fallback,
+      }).catch(() => undefined);
       Object.assign(result, passkeyMarks(done.reading)); // A passkey wall met, or Google's other ways reached (`browserWalls.js`).
       // A look's picture, after the words: what the page shows, for a click at a point on it.
       const shot = done.reading.shot;
