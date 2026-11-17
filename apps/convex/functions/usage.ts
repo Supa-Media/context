@@ -265,8 +265,11 @@ export const MAX_HOURLY_BATCH_EVENTS = 50;
  * Checked once per workspace per batch, from `workspacePlans`, the same row
  * `lib/premium.ts` reads.
  *
- * Token events also bump a platform-wide `usageDaily` total for the agent's
- * client family, which is all the admin dashboard sees of them.
+ * Token events also bump a `usageDaily` total for the agent's client family,
+ * on that workspace's own row. The admin dashboard sums every row of the
+ * metric, so the platform total is the same sum it was when one shared row
+ * held it. One shared row was what every paying workspace patched, and those
+ * writes conflicted (5.9k OCC failures on `recordHourly`, Oct 18 to Nov 17).
  */
 export const recordHourly = internalMutation({
   args: {
@@ -326,7 +329,7 @@ export const recordHourly = internalMutation({
           families.set(event.clientId, clientFamily(client?.clientName));
         }
         const total = `${familyTotal}.${families.get(event.clientId)}` as UsageMetric;
-        await bump(ctx, day, total, undefined, count);
+        await bump(ctx, day, total, event.workspaceId, count);
       }
       applied += 1;
     }

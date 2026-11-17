@@ -27,10 +27,12 @@ export const billingTables = {
    * than the day, and no shape into which any of those could later be added
    * without an obvious schema change and a conversation.
    *
-   * `workspaceId` is optional and present only for metrics that are counted
-   * per context (tool calls). Where it is set, the row says "this workspace
-   * made N calls on this day" — which is metadata we already hold, of the same
-   * kind as a member list, and never what the calls were about.
+   * `workspaceId` is optional. Where it is set, the row says "this workspace
+   * made N of this metric on this day" — metadata we already hold, of the same
+   * kind as a member list, and never what the calls were about. Family token
+   * totals are per workspace too: the dashboard sums them, and one shared row
+   * was a write every paying workspace conflicted on. A row with no workspace
+   * is a platform-wide counter that is not attributed (a visit, a sign-in).
    */
   usageDaily: defineTable({
     /** `YYYY-MM-DD`, UTC. The bucket, and half the identity of the row. */
