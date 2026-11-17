@@ -109,6 +109,17 @@ export function cantRun(c, i) {
   return null;
 }
 
+/**
+ * A failed Front door test as its run row says it, short (the Lab keeps 200 characters): the first line that failed
+ * and what Tex said. The judge's whole reasons and Tex's whole texts stay in the row's `misses` and `said`.
+ */
+export function missedLine(r) {
+  const miss = (r.misses ?? [])[0];
+  const said = (r.said ?? []).join(" / ").replace(/\s+/g, " ");
+  const line = miss ? `${miss.kind === "must not" ? "never" : "must"}: ${miss.line}` : "a must or never line failed";
+  return `${line.slice(0, 90)} | Tex: ${said.slice(0, 100) || "(said nothing)"}`;
+}
+
 /** Who sends message `i`: its speaker, the one person of a one-to-one chat. */
 const senderOf = (c, i) => (c.kind === "group" ? c.msgs[i].who : c.members[0]);
 
@@ -222,7 +233,7 @@ export async function runFd(units, { tree, fake = false, runTests = null }) {
         const r = got.rows.find((x) => x.id === `${t.name}/q${k + 1}`);
         const usd = Math.round(each * 10_000) / 10_000;
         if (!r) rows.push({ ...u.row, right: false, ran: false, usd, why: "the bench gave no judged answer" });
-        else rows.push({ ...u.row, right: Boolean(r.right), ran: true, usd, got: r.right ? "every line held" : "a must or never line failed", want: "every must and never line" });
+        else rows.push({ ...u.row, right: Boolean(r.right), ran: true, usd, got: r.right ? "every line held" : missedLine(r), want: "every must and never line", ...(r.right ? {} : { misses: r.misses ?? [], said: r.said ?? [] }) });
       });
     }
     return rows;

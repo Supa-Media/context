@@ -30,6 +30,13 @@ const { unitTests, TEX } = require("../../../packages/shared/src/texSets.cjs");
 const USD = { decide: 0.0004, reviewer: 0.002 };
 
 const at = (handle) => "@" + String(handle).toLowerCase().replace(/\s+/g, "");
+/**
+ * Whether Decide put a reaction on the message: its own also_react answer, which it gives beside any act (reacting
+ * is its own decision, Dev2 2026-11-01). The verdict carries it as the emoji it picked; a quiet one that reacts reads
+ * "react". Reading only act === "react" scored every respond-and-react label wrong whatever Decide answered.
+ */
+export const reactsIn = (verdict) => verdict?.act === "react" || typeof verdict?.emoji === "string";
+
 const snip = (s, n = 60) => (String(s ?? "").length > n ? String(s).slice(0, n - 1) + "…" : String(s ?? ""));
 
 /** One message as the judge reads a chat line (`textDecide.cjs` JUDGE_EXAMPLES): "@who: words", Tex as "You". */
@@ -74,7 +81,7 @@ export function decideCase(c, i) {
 export function decideSaid(label, verdict) {
   if (!verdict || verdict.ok !== true) return { got: "no verdict", want: String(label.act ?? "any") };
   // Every field the label names, as "field value", so a miss shows where it differs (act alone hid a why miss).
-  const got = { act: verdict.act === "answer" ? "respond" : verdict.act === "wait" ? "wait" : "quiet", also_react: verdict.act === "react" ? "yes" : "no", why: verdict.why ?? "none", moved_on: verdict.movedOn ? "yes" : "no" };
+  const got = { act: verdict.act === "answer" ? "respond" : verdict.act === "wait" ? "wait" : "quiet", also_react: reactsIn(verdict) ? "yes" : "no", why: verdict.why ?? "none", moved_on: verdict.movedOn ? "yes" : "no" };
   const fields = Object.keys(got).filter((f) => label[f] !== undefined && label[f] !== "any");
   const line = (pick) => fields.map((f) => (f === "act" ? pick(f) : `${f} ${pick(f)}`)).join(", ");
   return { got: line((f) => got[f]), want: line((f) => label[f]) };
@@ -84,7 +91,7 @@ export function decideSaid(label, verdict) {
 export function decideRight(label, verdict) {
   if (!verdict || verdict.ok !== true) return { right: false, why: "no verdict" };
   const act = verdict.act === "answer" ? "respond" : verdict.act === "wait" ? "wait" : "quiet";
-  const reacts = verdict.act === "react" ? "yes" : "no";
+  const reacts = reactsIn(verdict) ? "yes" : "no";
   const misses = [];
   const want = (field, got) => {
     const w = label[field];
