@@ -35,7 +35,7 @@ import type { SendblueKeys } from "./sendblue";
 import type { WhapiKeys } from "./whapi";
 import type { InboxStorage } from "./inbox";
 import { machineTurn, type MachineLive, type MachineOutcome } from "./machineTurn";
-import { JOB_SHOWN_MS, jobAsked, JOB_LINES, PICKED_UP, jobPictures, log, MAX_JOB_ATTEMPTS, MAX_JOB_PICTURES, MAX_JOB_TRIES, RUN_KEY, type JobAsk, type JobMail, type JobRun, type JobSteer, type JobUpdate, type JobVerdict, type StepHow } from "./jobs";
+import { JOB_SHOWN_MS, jobAsked, JOB_LINES, PICKED_UP, jobPictures, log, MAX_JOB_ATTEMPTS, MAX_JOB_PICTURES, MAX_JOB_TRIES, MAX_MACHINE_JOB_ATTEMPTS, RUN_KEY, type JobAsk, type JobMail, type JobRun, type JobSteer, type JobUpdate, type JobVerdict, type StepHow } from "./jobs";
 import { shrinkPicture, type OutgoingPicture } from "./outgoing";
 import type { ImagesLike } from "./attachments";
 import { limitResetAt } from "./jobPause";
@@ -419,7 +419,7 @@ export async function runJob(storage: InboxStorage, deps: JobDeps): Promise<JobN
           ? advice ? `Not done yet; next: ${advice}`.slice(0, 280) : "Finishing what was still missing"
           : outcome.kind === "broken"
             ? `Part ${run.attempt} ${CAUSE_WORDS[outcome.cause]}; part ${run.attempt + 1} picks up from what it saved`.slice(0, 280)
-            : `Still going: part ${run.attempt + 1} of at most ${MAX_JOB_ATTEMPTS}`,
+            : `Still going: part ${run.attempt + 1} of at most ${run.machine !== undefined ? MAX_MACHINE_JOB_ATTEMPTS : MAX_JOB_ATTEMPTS}`,
     });
     // Why it carried on, so a part that ran again can be explained from the log alone (2026-11-08: it could not).
     log("carry_on", run.id, outcome.kind === "broken" ? `broken:${outcome.cause}` : changed ? "changed" : unfinished ? "unfinished" : "exhausted");
