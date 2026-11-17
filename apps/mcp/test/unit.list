@@ -619,3 +619,4 @@ test/labSandboxShared.test.mjs
 test/weekHistory.test.mjs
 test/agentProvisional.test.mjs
 test/sharedFolderDefault.test.mjs
+test/moveJudge.test.mjs
