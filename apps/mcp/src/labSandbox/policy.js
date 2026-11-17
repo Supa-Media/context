@@ -31,6 +31,9 @@ export function sandboxGateOf(env) {
  * Routes that only read (`apps/convex/functions/lib/gatewayRoutes/*`). `/gateway/binding` hands back the workspace's
  * storage binding, as every real turn's store open does; asked with a key rotation in the body, it is refused below.
  * The person's own mail, calendar and Google Chat reads spend their hourly read allowance, as a real turn's do.
+ * A chat shared with the developers (`gate.noNotes`) does not: its session is the sharer's and the token is the
+ * caller's (`texLabSandbox.ts`), so those reads, and the other personal-account reads on the same path, are answered
+ * empty here (`emptyPersonalRead`) and never sent.
  */
 export const CONTROL_PLANE_READS = Object.freeze(
   new Set([
@@ -41,6 +44,59 @@ export const CONTROL_PLANE_READS = Object.freeze(
     "/gateway/binding", "/gateway/email/search", "/gateway/email/read", "/gateway/calendar/days", "/gateway/chat/recent", "/gateway/chat/spaces",
   ]),
 );
+
+/**
+ * Personal-account reads a shared test chat answers empty (`emptyPersonalRead`). The developer's own test chat is not
+ * in this set: `gate.noNotes` is set only for a chat shared with the developers (`chatRun.js`).
+ */
+export const NO_NOTES_PERSONAL_READS = Object.freeze(
+  new Set([
+    "/gateway/email/search", "/gateway/email/read", "/gateway/calendar/days", "/gateway/chat/recent", "/gateway/chat/spaces",
+    "/gateway/mail/get", "/gateway/mail/jobs", "/gateway/mail-health", "/gateway/connect/apps", "/gateway/workspaces/connect-google",
+    "/gateway/links/list", "/gateway/access/profiles", "/gateway/machines/owned", "/gateway/machines/for-chat",
+    "/gateway/transcription/consent",
+  ]),
+);
+
+const CHAT_SPACE = /^spaces\/[A-Za-z0-9_-]{1,64}$/;
+const CHAT_ADDRESS = /^[^\s@]{1,64}@[^\s@]{1,190}$/;
+
+/**
+ * An empty answer for one personal-account read, in the shape that route's caller already treats as nothing found.
+ * No address, subject, or message from either person is in it. `/gateway/agent/identity` with `groups` is not here:
+ * that list is the chats shared with the developers, answered above. A vault change is not here either.
+ */
+export function emptyPersonalRead(route, body) {
+  if (route === "/gateway/email/search") return { ok: true, results: [], mailboxes: [] };
+  if (route === "/gateway/email/read") return { ok: false, refused: "not_found" };
+  if (route === "/gateway/calendar/days") return { ok: true, days: [] };
+  if (route === "/gateway/chat/spaces") return { ok: true, from: "", accounts: [], spaces: [] };
+  if (route === "/gateway/chat/recent") {
+    const space = typeof body?.space === "string" && CHAT_SPACE.test(body.space) ? body.space : null;
+    const to = typeof body?.to === "string" && CHAT_ADDRESS.test(body.to) ? body.to : null;
+    if (space !== null) return { ok: true, from: "", place: { space }, messages: [] };
+    if (to !== null) return { ok: true, from: "", place: { person: to }, messages: [] };
+    return { ok: true, messages: [] };
+  }
+  if (route === "/gateway/mail/get") return { mailbox: null };
+  if (route === "/gateway/mail/jobs" || route === "/gateway/mail-health") return { mailboxes: [] };
+  if (route === "/gateway/connect/apps") return { apps: [] };
+  if (route === "/gateway/workspaces/connect-google") return { google: null };
+  if (route === "/gateway/links/list") return { links: [] };
+  if (route === "/gateway/access/profiles") return { profiles: [] };
+  if (route === "/gateway/machines/owned" || route === "/gateway/machines/for-chat") return { machines: [] };
+  if (route === "/gateway/transcription/consent") return { allowed: false };
+  if (route === "/gateway/agent/identity") return { identity: null };
+  if (route === "/gateway/vault/text") return { status: "done", entries: [] };
+  return null;
+}
+
+/** A personal-account read, for a shared test chat only. Group lists and vault changes are not. */
+function personalReadWhenNoNotes(route, body) {
+  if (route === "/gateway/agent/identity") return body?.groups !== true;
+  if (route === "/gateway/vault/text") return body?.op === "list";
+  return NO_NOTES_PERSONAL_READS.has(route);
+}
 
 /** Names under which a storage binding carries a secret: blanked, so the bucket refuses whatever is asked of it. */
 const SECRET_FIELDS = new Set(["secretAccessKey", "sessionToken", "secretKey", "apiToken", "password"]);
@@ -118,6 +174,14 @@ export function controlPlaneAnswer(path, body, gate) {
   // The person's group chats, for a 1:1 that reads them (`agent/groupChats.js`): the list the Lab read for this chat,
   // since a test turn's token is the Lab's own and the control plane would know nobody by it.
   if (route === "/gateway/agent/identity" && body?.groups === true) return { answer: { groups: Array.isArray(gate.groups) ? gate.groups : null } };
+  // Shared with the developers: the sharer's mail, calendar, chat and the other personal-account reads stay empty.
+  // A route classed as personal with no empty shape is refused, never sent.
+  if (gate.noNotes === true && personalReadWhenNoNotes(route, body)) {
+    const answer = emptyPersonalRead(route, body);
+    if (answer !== null) return { answer };
+    gate.record({ kind: kindOfRoute(route), summary: `${route.replace("/gateway/", "")} (not sent: test chat)` });
+    return { refuse: 403 };
+  }
   if (CONTROL_PLANE_READS.has(route) || readByBody(route, body)) return { pass: true };
   const answered = ANSWERED[route];
   if (answered) {

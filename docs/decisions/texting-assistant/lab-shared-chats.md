@@ -37,6 +37,16 @@ sharer's notes rather than hand developers that key: a shared chat's test turn g
 the group chats that are shared with the developers too, for a 1:1 that reads its groups
 ([group-reads-from-1to1](./group-reads-from-1to1.md); `sharedSessionFor`).
 
+**Mail, calendar and chat stay empty too (2026-11-17).** That notes store was the only read answered locally. The
+session on a shared test turn is still the sharer's, and the gateway still keeps the caller's token (`texLabSandbox.ts`:
+"Never a token: the gateway keeps the caller's"). Mail, calendar and Google Chat reads were still sent, and so were
+the other personal-account reads on that same path: mailbox health and note-mail lookups, connected apps, the
+connect-Google page, share links, member profiles (name and email), the caller's identity aside from the shared-group
+list, a vault list, the caller's computers, and transcription consent. The control plane would have answered each for
+whichever of the two people that token and workspace resolved to. With `gate.noNotes`, `controlPlaneAnswer` answers
+them empty (`emptyPersonalRead`) and does not send them. The developer's own test chat is unchanged, and those reads
+still go through there. `tex_dev` `sandbox` uses the same gate.
+
 Dev2 chose this on 2026-11-16 ("Allow test texts", over a read-only Lab tab), with the yes's wording updated to say
 so for everyone who says yes from then on: Settings → Feedback and Tex's texted answer (`apps/agent/src/
 reviewSharing.ts` `WHAT_IT_MEANS`) say the team can "text a test copy of the chat, where I answer as I would you,
@@ -47,8 +57,11 @@ reading the notes I can read; nothing done there changes your notes or reaches a
 
 **What a simplification would cost.** Keeping a copy of a shared history past a no, or a test session handed out
 without asking the list, widens what the yes said. Reading the list once and caching it keeps a chat after its person
-said no. Running a shared chat's test text on the developer's session reads the wrong person's notes. Each is caught:
+said no. Running a shared chat's test text on the developer's session reads the wrong person's notes. Sending a shared
+chat's mail, calendar or Google Chat read (or the other personal-account reads beside them) reads one of the two
+people's data. Each is caught:
 `apps/mcp/test/labSandboxShared.test.mjs` (not listed is not there, no is gone at once for reads and test texts, raw
-only, the sharer's session), `apps/mcp/test/texDev.test.mjs` (shared probes), `apps/convex/__tests__/texLabShared.test.ts`
+only, the sharer's session), `apps/mcp/test/labSandbox.test.mjs` (a shared chat's mail, calendar, Google Chat and the
+other personal-account reads come back empty and are never sent), `apps/mcp/test/texDev.test.mjs` (shared probes), `apps/convex/__tests__/texLabShared.test.ts`
 (who is listed, the sharer's session only while listed), `apps/mobile/__tests__/texLabShared.test.ts` and
 `texLabSandbox.test.ts` (the tab).

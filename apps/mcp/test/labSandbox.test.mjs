@@ -9,6 +9,7 @@
 //   wire.js `put` sent on to the real object            "a put lands in the test chat ..." fails
 //   wire.js default branch answering the real object    "an unknown or writing op is refused ..." fails
 //   policy.js `controlPlaneAnswer` passing every route   "a control-plane write is refused ..." fails
+//   policy.js noNotes passing personal reads             "a shared test chat reads no mail ..." fails
 //   policy.js READ_TOOLS holding send_email               "a tool that changes or sends ..." fails
 //   route.js `sandboxStub` named without the userId       "another person's test chat ..." fails
 //   texConfig.js `draftStep` ignoring the draft's model   "a draft's models, efforts ..." fails
@@ -19,13 +20,16 @@ import assert from "node:assert/strict";
 
 import { LabSandboxObject, sandboxTables, serveSandbox } from "../src/labSandbox/object.js";
 import { sandboxNamespace } from "../src/labSandbox/wire.js";
-import { CONTROL_PLANE_READS, controlPlaneAnswer, LAB_SANDBOX_KEY, sandboxedTool, sandboxEnvOf, sandboxGateOf, toolAnswer, withoutKeys } from "../src/labSandbox/policy.js";
+import { CONTROL_PLANE_READS, controlPlaneAnswer, LAB_SANDBOX_KEY, NO_NOTES_PERSONAL_READS, sandboxedTool, sandboxEnvOf, sandboxGateOf, toolAnswer, withoutKeys } from "../src/labSandbox/policy.js";
 import { sandboxGate, stepsOf, turnBody } from "../src/labSandbox/harness.js";
 import { noteOwnWorkspace } from "../src/tools/etagPlace.js";
 import { handleLabSandbox, MAX_DRAWN_GRAPH, MAYA_CONVO } from "../src/labSandbox/route.js";
 import { withDraft } from "../src/agent/graph/turnGraph.js";
 import { TEX_CONFIG, texConfigOf, texEffort, texModel, texSetupFront, texTimeoutMs, texWords } from "../src/agent/texConfig.js";
 import { createTransport } from "../src/controlPlane/client.js";
+import { createEmailMethods } from "../src/controlPlane/email.js";
+import { createCalendarMethods } from "../src/controlPlane/calendar.js";
+import { createGoogleChatMethods } from "../src/controlPlane/googleChat.js";
 import { aiGatewayConfig } from "../src/agent/aiGateway.js";
 import { texBucket, texStoreStub, texTimers } from "../src/texStore/wire.js";
 import { durableSql, texStoreNamespace } from "./texStoreFixture.mjs";
@@ -531,6 +535,120 @@ test("a chat shared with the developers runs with none of its person's notes: an
   // The developer's own test chat is untouched: its binding is the real one, keys blanked.
   assert.deepEqual(controlPlaneAnswer("/gateway/binding", { expectedWorkspaceId: "ws_me" }, { record: () => {} }).pass, true);
   assert.equal(sandboxEnvOf({ NATIVE_BINDINGS: "NOTES" }, { gate: {} }).NATIVE_BINDINGS, "NOTES");
+});
+
+test("a shared test chat reads no mail, calendar, Google Chat or other personal data: empty here, never sent", async () => {
+  // The session is the sharer's (`texLabSandbox.ts` `sharedSessionFor`) and the token on the turn is the caller's
+  // (`sessionFromPayload` keeps it; `texLabSandbox.ts` sends none). A pass would ask the control plane with both, and
+  // the answer would be whichever of the two that pair resolved to. Fake words only; the stub below is what a live
+  // call would have returned, and it must never be asked.
+  const LEAK = "sharer-lease-secret";
+  const shared = { noNotes: true, record: () => assert.fail("an empty read is not a change") };
+  const poisoned = {
+    ok: true,
+    results: [{ address: "sharer@example.invalid", id: "m1", threadId: "t", date: "2026-11-01T00:00:00.000Z", from: "landlord@example.invalid", to: "sharer@example.invalid", subject: LEAK, snippet: LEAK }],
+    mailboxes: [{ address: "sharer@example.invalid", folder: "inbox/email", state: "ok" }],
+    days: [{ address: "sharer@example.invalid", date: "2026-11-17", text: LEAK }],
+    messages: [{ id: "c1", from: "them", text: LEAK, at: "2026-11-17T00:00:00.000Z" }],
+    spaces: [{ name: "spaces/AAA", displayName: "Family" }],
+    place: { space: "spaces/AAA" },
+    from: "sharer@example.invalid",
+    accounts: ["sharer@example.invalid"],
+    mailbox: { name: "inbox", address: "sharer@example.invalid" },
+    apps: [{ app: "slack", account: "sharer@example.invalid" }],
+    identity: { name: "Sayo", phones: ["+15555550100"], emails: ["sharer@example.invalid"] },
+    links: [{ url: "https://context.example.invalid/s/secret" }],
+    profiles: [{ userId: "user_sharer", email: "sharer@example.invalid" }],
+    machines: [{ machineId: "machine_sharer", workspaceId: "ws_sharer" }],
+    google: { ok: true, url: "https://context.example.invalid/add-gmail" },
+    status: "done",
+    entries: [{ name: "bank", sites: ["bank.example"] }],
+    allowed: true,
+  };
+  const sent = [];
+  const env = {
+    CONTROL_PLANE_URL: "https://control.example.invalid",
+    GATEWAY_SECRET: "gw-secret-example-not-real-000000",
+    [LAB_SANDBOX_KEY]: shared,
+  };
+  const { post } = createTransport(env, async (url) => {
+    sent.push(String(url));
+    return new Response(JSON.stringify(poisoned), { headers: { "content-type": "application/json" } });
+  });
+  const email = createEmailMethods({ post });
+  const calendar = createCalendarMethods({ post });
+  const chat = createGoogleChatMethods({ post });
+  const token = "dev-token-example-not-real";
+  const workspace = "ws_sharer";
+
+  const searched = await email.personMailSearch(token, workspace, { query: "lease" });
+  assert.equal(searched.ok, true);
+  assert.deepEqual(searched.results, []);
+  assert.deepEqual(searched.mailboxes, []);
+  const opened = await email.personMailRead(token, workspace, "sharer@example.invalid", "m1");
+  assert.deepEqual(opened, { ok: false, refused: "not_found" });
+  const days = await calendar.personCalendarDays(token, workspace, { date: "2026-11-17", days: 1 });
+  assert.equal(days.ok, true);
+  assert.deepEqual(days.days, []);
+  const recent = await chat.googleChatRecent(token, workspace, { since: "2026-11-01T00:00:00.000Z" });
+  assert.deepEqual(recent, { ok: true, messages: [] });
+  const convo = await chat.googleChatConversation(token, workspace, { space: "spaces/AAA" });
+  assert.equal(convo.ok, true);
+  assert.deepEqual(convo.messages, []);
+  assert.equal(convo.place.space, "spaces/AAA");
+  const dm = await chat.googleChatConversation(token, workspace, { to: "guest@example.invalid" });
+  assert.equal(dm.ok, true);
+  assert.deepEqual(dm.messages, []);
+  const spaces = await chat.googleChatSpaces(token, workspace, {});
+  assert.equal(spaces.ok, true);
+  assert.deepEqual(spaces.spaces, []);
+  assert.deepEqual(spaces.accounts, []);
+
+  const direct = [
+    ["/gateway/mail/get", { accessToken: token, mailboxId: "mb_example" }, { mailbox: null }],
+    ["/gateway/mail/jobs", { accessToken: token, workspaceId: workspace, path: "inbox/x.md" }, { mailboxes: [] }],
+    ["/gateway/mail-health", { accessToken: token, expectedWorkspaceId: workspace }, { mailboxes: [] }],
+    ["/gateway/connect/apps", { accessToken: token, expectedWorkspaceId: workspace }, { apps: [] }],
+    ["/gateway/workspaces/connect-google", { accessToken: token, expectedWorkspaceId: workspace, kind: "gmail" }, { google: null }],
+    ["/gateway/links/list", { accessToken: token, expectedWorkspaceId: workspace }, { links: [] }],
+    ["/gateway/access/profiles", { people: [{ userId: "user_sharer" }] }, { profiles: [] }],
+    ["/gateway/machines/owned", { userId: "user_sharer" }, { machines: [] }],
+    ["/gateway/machines/for-chat", { groupKey: "a".repeat(64) }, { machines: [] }],
+    ["/gateway/transcription/consent", { accessToken: token, expectedWorkspaceId: workspace }, { allowed: false }],
+    ["/gateway/agent/identity", { accessToken: token, expectedWorkspaceId: workspace }, { identity: null }],
+    ["/gateway/agent/identity", { accessToken: token, asker: true }, { identity: null }],
+    ["/gateway/vault/text", { accessToken: token, expectedWorkspaceId: workspace, op: "list" }, { status: "done", entries: [] }],
+  ];
+  for (const [path, body, answer] of direct) {
+    assert.deepEqual(await post(path, body), answer, path);
+    assert.equal(JSON.stringify(answer).includes(LEAK), false, path);
+  }
+  const covered = new Set([
+    "/gateway/email/search", "/gateway/email/read", "/gateway/calendar/days", "/gateway/chat/recent", "/gateway/chat/spaces",
+    ...direct.map(([path]) => path),
+  ]);
+  for (const route of NO_NOTES_PERSONAL_READS) assert.ok(covered.has(route), `${route} has no empty-read case`);
+  assert.deepEqual(sent, [], "a shared test chat never calls the control plane for these");
+  assert.equal(JSON.stringify(searched).includes(LEAK), false);
+  assert.equal(JSON.stringify(days).includes(LEAK), false);
+  assert.equal(JSON.stringify(recent).includes(LEAK), false);
+
+  // The filtered group list stays (only chats shared with the developers). A vault change is still a refusal.
+  const noted = [];
+  const noting = { noNotes: true, groups: [{ key: "a".repeat(64), name: "Shared", people: ["jhon"], lastSeenAt: 1 }], record: (row) => noted.push(row) };
+  assert.equal(controlPlaneAnswer("/gateway/agent/identity", { accessToken: token, groups: true }, noting).answer.groups.length, 1);
+  assert.equal(controlPlaneAnswer("/gateway/vault/text", { op: "share", entry: "e1", to: "chat" }, noting).refuse, 403);
+  assert.equal(noted.length, 1);
+
+  // The developer's own test chat still reads for real.
+  const ownSent = [];
+  const own = createTransport(
+    { ...env, [LAB_SANDBOX_KEY]: { record() {} } },
+    async (url) => (ownSent.push(String(url)), new Response(JSON.stringify({ ok: true, results: [], mailboxes: [] }), { headers: { "content-type": "application/json" } })),
+  );
+  const ownSearch = await createEmailMethods({ post: own.post }).personMailSearch(token, "ws_me", { query: "lease" });
+  assert.equal(ownSearch.ok, true);
+  assert.deepEqual(ownSent, ["https://control.example.invalid/gateway/email/search"]);
 });
 
 test("a test chat refuses a write carrying another workspace's etag, as the gateway does (2026-11-17)", async () => {
