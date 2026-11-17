@@ -138,6 +138,7 @@ jobs:
           - 'apps/mcp/src/agent/localNow.js'
           - 'apps/mcp/src/agent/log.js'
           - 'apps/mcp/src/agent/logRender.js'
+          - 'apps/mcp/src/agent/sentOnItsOwn.js'
           - 'apps/mcp/src/agent/sources.js'
           - 'apps/mcp/src/agent/textingPhone.js'
           - 'apps/mcp/src/agent/threadsFold.js'
@@ -797,6 +798,7 @@ jobs:
             apps/mcp/src/agent/localNow.js
             apps/mcp/src/agent/log.js
             apps/mcp/src/agent/logRender.js
+            apps/mcp/src/agent/sentOnItsOwn.js
             apps/mcp/src/agent/sources.js
             apps/mcp/src/agent/textingPhone.js
             apps/mcp/src/agent/threadsFold.js
