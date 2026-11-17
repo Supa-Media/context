@@ -28,12 +28,14 @@ import { handleForUser } from "./lib/identities";
 import { internalMutation, mutation } from "./lib/rowWatch/mutations";
 
 /**
- * At most this many of one person's runs waiting or running at once, and this many started in a day. Every Claude
- * thread of a person runs as them, so the caps are sized for several threads working the Dev set side by side
- * (Dev2, 2026-11-17: "increase the caps if they keep getting hit"); a Dev run costs about a dollar at most.
+ * At most this many of one person's runs waiting or running at once, and this many started in a day: guards against a
+ * runaway loop, set well above what people and their Claude threads use (Dev2, 2026-11-17: "increase the caps if they
+ * keep getting hit"; "why only 6 Dev sets at a time?"). No outside limit sets them: each run is one GitHub job at a
+ * time, and runs past the account's concurrent-job limit wait in GitHub's queue rather than fail. A Dev run costs
+ * about a dollar at most.
  */
-export const MAX_QUEUED = 6;
-export const MAX_PER_DAY = 60;
+export const MAX_QUEUED = 20;
+export const MAX_PER_DAY = 300;
 const DAY_MS = 24 * 60 * 60 * 1000;
 /** A run still waiting or running after this long counts as lost: it no longer holds a place in the queue. */
 export const STALE_MS = 3 * 60 * 60 * 1000;
