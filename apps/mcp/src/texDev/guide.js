@@ -53,7 +53,7 @@ export const ACTIONS = [
   ["set_restore", "{ id }", "drop the Lab's draft of a conversation (or its delete), back to the repo's copy"],
   ["set_history", "{ id }", "a conversation's change history, newest first: each revision's changes, who and when, as the Testing tab's History shows it"],
   ["set_back", "{ id, to }", "put revision `to` back as a new revision (0: the repo's copy); to the revision before the last undoes it, as Undo in the Lab"],
-  ["set_ratio", "{}", "the stars per set: Training and Dev here, Test counted by the eval service"],
+  ["set_ratio", "{}", "the stars per set, one pooled 60/20/20 over every scope: Training and Dev here, Test counted by the eval service; noTest names each scope (step) with Training or Dev unit tests and none in the Test Set, a warning that never fails anything"],
   ["set_promote", "{ ids? }", "the Testing tab's Promote: a pull request within 15 minutes writing the drafts (all, or the ones named) into apps/mcp/bench/sets"],
   ["chats", "{}", "the chats whose turns you can probe: your one-to-one with Tex, each group chat you are in, and the chats people shared with the developers (`shared: true`, read only)"],
   ["turns", "{ chat?, day?, before?, limit? }", "a chat's recent replies, 20 unless `limit` (at most 100), with each turn's id, time and how long it took; `day` YYYY-MM-DD, `before` to page back"],

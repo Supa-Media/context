@@ -82,6 +82,20 @@ test("sets lists the repo's conversations with the ratio, and a draft overrides 
   assert.equal(after.of, REPO.sets.length, "a draft over a repo conversation is not a new row");
 });
 
+test("set_ratio names each scope with no Test cases as a warning, from the Test Set's counts by step", async () => {
+  // Dev2, 2026-11-17: one pooled 60/20/20; per scope only a warn-only note when the Test Set has none.
+  const scopes = [...new Set(REPO.sets.flatMap((c) => unitTests(c).map((t) => t.node)))].sort();
+  assert.ok(scopes.length > 0, "the repo's sets have unit tests");
+  const [covered, ...rest] = scopes;
+  const env = { APP_ORIGIN: "https://context.example", TEX_EVAL: { summary: async () => ({ counts: { stars: 2, byNode: { [covered]: 2 } }, runs: [] }) } };
+  const call = createTexDev({ env, session, controlPlane: fakePlane(EMPTY_DRAFTS) });
+  const r = jsonOf(await call("set_ratio", {}));
+  assert.deepEqual(r.noTest.map((x) => x.scope), rest);
+  if (rest.length) assert.match(r.warning, /never a failure/);
+  const down = createTexDev({ env: { APP_ORIGIN: "https://context.example" }, session, controlPlane: fakePlane(EMPTY_DRAFTS) });
+  assert.match(jsonOf(await down("set_ratio", {})).noTest, /could not be read/, "no counts: no guessed warning");
+});
+
 test("a removed draft leaves its conversation out of the ratio, and a new draft adds a row", async () => {
   const dev = repoDev();
   const gone = tool({ set_drafts: { status: "ok", drafts: [draftOf(dev, 2, { removed: true })] } });

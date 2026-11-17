@@ -21,6 +21,8 @@ export type SetsState = {
   convs: Conversation[];
   hiddenTest: HiddenChat[];
   testStars: number;
+  /** The Test Set's unit tests per step, from its public counts; null until read (then no warning is guessed). */
+  testByNode: Record<string, number> | null;
   showTest: boolean;
   chat: string | null;
   msg: string | null;
@@ -46,6 +48,7 @@ export const sets: SetsState = {
   convs: [],
   hiddenTest: [],
   testStars: 0,
+  testByNode: null,
   showTest: false,
   chat: null,
   msg: null,
@@ -225,12 +228,13 @@ export async function deleteChat(chatId: string) {
 }
 
 /** The store's latest copy of the conversations; selection survives when its chat and message still exist. */
-export function loadConvs(convs: Conversation[], hidden: HiddenChat[], testStars: number) {
+export function loadConvs(convs: Conversation[], hidden: HiddenChat[], testStars: number, testByNode: Record<string, number> | null = null) {
   const testOpen = sets.showTest ? sets.convs.filter((c) => c.set === "test") : [];
   const ids = new Set(convs.map((c) => c.id));
   sets.convs = [...convs, ...testOpen.filter((c) => !ids.has(c.id))];
   sets.hiddenTest = hidden;
   sets.testStars = testStars;
+  sets.testByNode = testByNode;
   sets.loaded = true;
   if (sets.chat && !sets.convs.some((c) => c.id === sets.chat)) sets.chat = null;
   emitSets();

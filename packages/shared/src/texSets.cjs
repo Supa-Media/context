@@ -158,4 +158,27 @@ function ratio(input) {
   return { counts, total, pct, holds: total > 0 && off.length === 0, off };
 }
 
-module.exports = { SETS, TARGET, DRIFT, KINDS, TRIGGERS, JOB_STATES, RUN, TEX, LABEL_KEYS, BENCH_PEOPLE, labelFields, check, unitTests, before, ratio };
+
+/**
+ * The scopes with no unit test in the Test Set (Dev2, 2026-11-17: "one pooled 60/20/20 split across all scopes, not a
+ * separate split per scope. The only per-scope piece is the non-blocking warning when a scope has no Test cases").
+ * A scope is whatever a label is keyed by: a node today, a config group once group labels arrive. `testByScope` is the
+ * eval service's public `byNode` count; when it is unknown (null), nothing is named, because a guess would cry wolf.
+ * Each entry names the scope and its Training and Dev unit tests. A warning only: nothing fails on it.
+ */
+function missingTest(convs, testByScope) {
+  if (!testByScope || typeof testByScope !== "object") return [];
+  const by = {};
+  for (const c of convs || []) {
+    if (c.set !== "training" && c.set !== "dev") continue;
+    for (const t of unitTests(c)) {
+      by[t.node] ??= { scope: t.node, training: 0, dev: 0 };
+      by[t.node][c.set] += 1;
+    }
+  }
+  return Object.values(by)
+    .filter((s) => !(Number(testByScope[s.scope]) > 0))
+    .sort((a, b) => (a.scope < b.scope ? -1 : a.scope > b.scope ? 1 : 0));
+}
+
+module.exports = { SETS, TARGET, DRIFT, KINDS, TRIGGERS, JOB_STATES, RUN, TEX, LABEL_KEYS, BENCH_PEOPLE, labelFields, check, unitTests, before, ratio, missingTest };
