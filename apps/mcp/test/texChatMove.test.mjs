@@ -150,6 +150,23 @@ async function arrive(chat, body) {
 }
 
 describe("TexChat runs the Worker's chat object", () => {
+  it("a call to this chat's own Worker object is served here, and another chat is still fetched", async () => {
+    const { chatEnv } = await import("../src/texChat.js");
+    const calls = [];
+    const rpc = { async inboxFetch(target) { calls.push(target.name); return Response.json({ rpc: true }); } };
+    const own = { name: `enam:${PHONE}`, fetch: async (request) => Response.json({ local: new URL(request.url).pathname }) };
+    const env = { PUBLIC_ORIGIN: SELF, CONTROL_PLANE_URL: "https://cp.example", AGENT_WORKER_SECRET: "s", TEXTING: rpc };
+    const inbox = await chatEnv(env, { waitUntil() {} }, PHONE, "worker-id", {
+      gateway: () => ({ fetch: async () => new Response(null) }),
+      texts: () => ({ fetch: async () => new Response(null) }),
+      own,
+    });
+    const local = await inbox.SENDER_INBOX.get(inbox.SENDER_INBOX.idFromName(`enam:${PHONE}`)).fetch("https://inbox/accept", { method: "POST", body: "{}" });
+    assert.deepEqual(await local.json(), { local: "/accept" });
+    await inbox.SENDER_INBOX.get(inbox.SENDER_INBOX.idFromName("enam:chat-two")).fetch("https://inbox/accept", { method: "POST", body: "{}" });
+    assert.deepEqual(calls, ["enam:chat-two"]);
+  });
+
   it("a handed-over text is copied in, queued, and answered on the Worker's line", async () => {
     controlPlane();
     const worker = fakeWorker();
