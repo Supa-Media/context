@@ -43,8 +43,8 @@ export function workerEvents({ env, token, group = null }) {
   let texted = 0;
   // In a group (`world.mjs` `group`), the chat is the group's key and each text names its sender by handle and hash.
   const chat = group?.key ?? BENCH_CHAT;
-  const textedEvent = (text, sender = null) => {
-    const at = Date.now();
+  // `at`: when it was sent, now unless a chat before a check-in is dated back (`worldChat.mjs` `earlier`).
+  const textedEvent = (text, sender = null, at = Date.now()) => {
     texted += 1;
     return { id: `${String(at).padStart(13, "0")}-${String(texted).padStart(6, "0")}`, at, chat, from: { kind: "person", ...(sender ? { name: sender.handle, who: sender.who } : {}) }, kind: "text", text: String(text).slice(0, 3_000), turn: `bench-turn-${String(texted).padStart(6, "0")}` };
   };
