@@ -39,5 +39,5 @@ draft wiring them, so no turn is told of a capability it can't use.
 and hide that run from its own chat's replay; letting an ask-run ask on would let two chats loop; texting an ask-run's
 draft would put one chat's words in front of people who never asked. Tests: `apps/mcp/test/crossChat.test.mjs`,
 `apps/agent/src/crossChat.test.ts`, `apps/mcp/test/texGraph.test.mjs` (generator wires) and the replay case
-`apps/mcp/test/replay/cases/cross-chat-answer.mjs`. Wired into the config by the Lab draft "Cross-chat asks" (promoted
+`apps/mcp/test/replay/cases/routine-sees-chat.mjs` (its cross-chat part). Wired into the config by the Lab draft "Cross-chat asks" (promoted
 2026-11-17); unwiring `tools -> crossChatGate` in a draft turns it all off again, and `ask_personal_tex` comes back.

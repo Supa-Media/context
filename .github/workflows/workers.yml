@@ -34,6 +34,9 @@ on:
       - "infra/site-shots/**"
       - "infra/tex-eval/**"
       - "apps/agent/**"
+      - "packages/shared/src/texConfig.json"
+      - "packages/shared/src/texGraph.cjs"
+      - "packages/shared/src/texNumber.cjs"
       - "pnpm-lock.yaml"
       - ".github/workflows/workers.yml"
 
@@ -221,7 +224,12 @@ jobs:
         id: agent
         with:
           packages: "@context/agent"
-          paths: ".github/workflows/workers.yml"
+          # The Worker imports Tex's config and graph by path, not as a package: a wiring change is a Worker change (#3443).
+          paths: |
+            .github/workflows/workers.yml
+            packages/shared/src/texConfig.json
+            packages/shared/src/texGraph.cjs
+            packages/shared/src/texNumber.cjs
 
       - name: Install (Agent)
         if: ${{ !cancelled() && steps.agent.outputs.affected == 'true' }}

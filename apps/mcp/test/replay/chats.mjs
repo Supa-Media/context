@@ -127,7 +127,7 @@ export async function oneToOne() {
     },
     /**
      * A run the Worker starts by code with no text of theirs (`queueByCode`): a cross-chat ask or answer
-     * (`apps/agent/src/crossChat.ts`), its `body` as the Worker adds it. Nothing is covered; Tex's reply, if any, is kept.
+     * (`apps/agent/src/crossChat.ts`), its `body` as the Worker adds it. Nothing is covered, and nothing is flushed: the case reads what the run was shown and answered.
      */
     async byCode(question, reply, body) {
       clock += 60_000;
@@ -139,10 +139,6 @@ export async function oneToOne() {
       warm = answered.body.warm ?? null;
       clock += 5_000;
       const answer = String(answered.body.answer ?? "");
-      if (answer) {
-        const flushed = await request(world.env, TOKEN_TEXTS, "/agent/events", { conversation: "texts", events: [event({ from: { kind: "tex" }, text: answer, turn, delivered: true })] });
-        if (flushed.status !== 200) throw new Error(`replay: the Worker's flush answered ${flushed.status}`);
-      }
       return { answer, body: answered.body, shown: world.model.requests.slice(before).map(shownIn).join("\n") };
     },
     /** Time passing between texts: the chat's clock moves on by `ms` (a case that fakes `Date.now` for its older texts). */

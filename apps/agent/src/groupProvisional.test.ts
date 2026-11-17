@@ -14,12 +14,19 @@ import { describe, expect, it } from "vitest";
 import config from "../../../packages/shared/src/texConfig.json" with { type: "json" };
 import { acceptGroup, drainGroup } from "./groupInbox";
 import { MemoryStorage } from "./memoryStorage.testing";
-import { BO, LINES, setup, silent, answerAll } from "./groupWorld.testing";
+import { ADA, BO, LINE, LINES, setup, silent, answerAll } from "./groupWorld.testing";
+import { setChatBound } from "./groupChat";
 import { handedTurns, liveTurns, turnKey, type HandedTurn } from "./groupTurnRun";
 import { provisionalDoor, sameMessages } from "./provisional";
 import type { Fetch } from "./clients";
 
-/** The built-in config with Triage, Decide and the Queue wired to the Door step as a Provisional run. */
+/** The config with the Door step waiting on the Queue, as it was before the Provisional run was wired (2026-11-17). */
+const waiting = {
+  ...config,
+  edges: [...config.edges.filter((edge) => !(edge.to === "doorStep" && edge.mode === "provisional")), { from: "lanes", to: "doorStep", mode: "wait", when: ["*"] }],
+};
+
+/** Triage, Decide and the Queue wired to the Door step as a Provisional run (the built-in config since 2026-11-17). */
 const wired = {
   ...config,
   edges: [
@@ -34,9 +41,11 @@ const wired = {
  * A world whose gateway holds a provisional turn's answer until the Worker's go or stop, as `apps/mcp` does
  * (`steer.js`, `runTheModel.js`); `tool` makes the turn start a tool (a tapback) while it waits.
  */
-function provisionalWorld(groupId: string, opts: Parameters<typeof setup>[1] & { tool?: boolean } = {}) {
+async function provisionalWorld(groupId: string, opts: Parameters<typeof setup>[1] & { tool?: boolean } = {}) {
   const storage = new MemoryStorage();
   const w = setup(groupId, opts);
+  // A chat Tex is set up in: a first look never runs provisionally (`drainOnce`).
+  await setChatBound(storage, { kind: "group-message", eventId: "bound", groupId, line: LINE, from: ADA, participants: [ADA, BO, LINE], messageId: "bound", text: "" });
   const verdicts = new Map<string, (verdict: "go" | "stop") => void>();
   const told: { path: string; body: Record<string, unknown> }[] = [];
   const asked: Record<string, unknown>[] = [];
@@ -62,8 +71,9 @@ function provisionalWorld(groupId: string, opts: Parameters<typeof setup>[1] & {
 const { name, groupId } = LINES[0];
 
 describe(`a group's Provisional run, ${name}`, () => {
-  it("reads the wiring from the config: off as built, on when wired, read only when any wire says so", () => {
-    expect(provisionalDoor(config)).toEqual({ on: false, allow: "read" });
+  it("reads the wiring from the config: on as built (Dev2, 2026-11-17), off when Door waits, read only when any wire says so", () => {
+    expect(provisionalDoor(config)).toEqual({ on: true, allow: "revertible" });
+    expect(provisionalDoor(waiting)).toEqual({ on: false, allow: "read" });
     expect(provisionalDoor(wired)).toEqual({ on: true, allow: "revertible" });
     const narrowed = { ...wired, edges: wired.edges.map((edge) => (edge.from === "decide" && edge.mode === "provisional" ? { ...edge, allow: "read" } : edge)) };
     expect(provisionalDoor(narrowed)).toEqual({ on: true, allow: "read" });
@@ -75,14 +85,14 @@ describe(`a group's Provisional run, ${name}`, () => {
     const storage = new MemoryStorage();
     const w = setup(groupId, { decide: answerAll });
     await acceptGroup(storage, w.message("Tex what's on tonight"), 0);
-    await drainGroup(storage, w.deps);
+    await drainGroup(storage, { ...w.deps, texGraph: waiting });
     expect(w.asks).toHaveLength(1);
     expect(w.asks[0].provisional).toBeUndefined();
     expect(w.texts).toContain("answer to Tex what's on tonight");
   });
 
   it("told go, it answers as any turn", async () => {
-    const { storage, w, deps, told, asked } = provisionalWorld(groupId, { decide: answerAll });
+    const { storage, w, deps, told, asked } = await provisionalWorld(groupId, { decide: answerAll });
     await acceptGroup(storage, w.message("Tex what's on tonight"), 0);
     await drainGroup(storage, deps);
     expect(asked).toHaveLength(1);
@@ -97,7 +107,7 @@ describe(`a group's Provisional run, ${name}`, () => {
   it("the turn is asked before Decide answers", async () => {
     let decideNow!: () => void;
     const slow = new Promise<void>((resolve) => (decideNow = resolve));
-    const { storage, w, deps, asked } = provisionalWorld(groupId, { decide: silent, decideWait: () => slow });
+    const { storage, w, deps, asked } = await provisionalWorld(groupId, { decide: silent, decideWait: () => slow });
     await acceptGroup(storage, w.message("anyone up for pizza tex", { from: BO }), 0);
     const draining = drainGroup(storage, deps);
     for (let tick = 0; tick < 200 && asked.length === 0; tick += 1) await new Promise((resolve) => setTimeout(resolve, 1));
@@ -111,7 +121,7 @@ describe(`a group's Provisional run, ${name}`, () => {
     // Decide answers once the turn is with the gateway, so the stop lands mid-turn.
     let asking!: () => void;
     const reached = new Promise<void>((resolve) => (asking = resolve));
-    const { storage, w, deps, told, asked } = provisionalWorld(groupId, { decide: silent, decideWait: () => reached });
+    const { storage, w, deps, told, asked } = await provisionalWorld(groupId, { decide: silent, decideWait: () => reached });
     const watching = setInterval(() => asked.length > 0 && asking(), 1);
     await acceptGroup(storage, w.message("lol nice tex", { from: BO }), 0);
     await drainGroup(storage, deps);
@@ -126,7 +136,7 @@ describe(`a group's Provisional run, ${name}`, () => {
   });
 
   it("stopped before it reached the gateway, it never asks", async () => {
-    const { storage, w, deps, asked } = provisionalWorld(groupId, { decide: silent });
+    const { storage, w, deps, asked } = await provisionalWorld(groupId, { decide: silent });
     await acceptGroup(storage, w.message("lol nice tex", { from: BO }), 0);
     await drainGroup(storage, deps);
     expect(asked.length).toBeLessThanOrEqual(1);
@@ -136,7 +146,7 @@ describe(`a group's Provisional run, ${name}`, () => {
   it("nothing reaches the chat while the verdict is out, and a stop drops it", async () => {
     let decideNow!: () => void;
     const slow = new Promise<void>((resolve) => (decideNow = resolve));
-    const { storage, w, deps, asked } = provisionalWorld(groupId, { decide: silent, decideWait: () => slow });
+    const { storage, w, deps, asked } = await provisionalWorld(groupId, { decide: silent, decideWait: () => slow });
     await acceptGroup(storage, w.message("anyone up for pizza tex", { from: BO }), 0);
     const draining = drainGroup(storage, deps);
     for (let tick = 0; tick < 200 && asked.length === 0; tick += 1) await new Promise((resolve) => setTimeout(resolve, 1));
@@ -150,7 +160,7 @@ describe(`a group's Provisional run, ${name}`, () => {
 
   it("answered first (with a workflow): told go it answers, stopped it is nobody's turn", async () => {
     for (const [decide, text] of [[answerAll, "Tex what's on tonight"], [silent, "lol nice tex"]] as const) {
-      const { storage, w, deps, told } = provisionalWorld(groupId, { decide });
+      const { storage, w, deps, told } = await provisionalWorld(groupId, { decide });
       const kept: Promise<unknown>[] = [];
       const started: string[] = [];
       const first = { ...deps, startTurn: async (id: string) => void started.push(id), answerFirst: (work: Promise<unknown>) => void kept.push(work) };

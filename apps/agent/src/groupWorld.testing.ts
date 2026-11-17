@@ -67,6 +67,7 @@ export function setup(
   const events: { conversation: unknown; events: TexEvent[] }[] = [];
   const steers: Record<string, unknown>[] = [];
   const cancels: Record<string, unknown>[] = [];
+  const gos: Record<string, unknown>[] = [];
   const stale: Record<string, unknown>[] = [];
   const texts: string[] = [];
   const reactions: string[] = [];
@@ -170,6 +171,11 @@ export function setup(
       steers.push(body);
       return Response.json({ queued: true });
     }
+    // A Provisional run's go (`provisional.ts`): the turn asked, so it is running.
+    if (path === "/agent/go") {
+      gos.push(body);
+      return Response.json({ go: asks.some((ask) => ask.turn === body.turn) });
+    }
     if (path === "/agent/cancel") {
       cancels.push(body);
       return Response.json({ cancelled: opts.cancelled ?? true });
@@ -217,7 +223,7 @@ export function setup(
     text,
     ...extra,
   });
-  return { deps, decided, rechecks, asks, control, engagement, styles, sharing, events, posted, steers, cancels, stale, texts, reactions, under, release, running, message };
+  return { deps, decided, rechecks, asks, control, engagement, styles, sharing, events, posted, steers, cancels, gos, stale, texts, reactions, under, release, running, message };
 }
 
 /** The chat as it was logged: what the gateway took, and this object's outbox, oldest first (`chatRead.ts`). */
