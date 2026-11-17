@@ -11,6 +11,7 @@
     "test": "turbo run test",
     "setup:secrets": "op inject -i .env.example -o .env.local",
     "architecture": "supa-architecture-check",
+    "precheck": "node scripts/precheck.mjs",
     "ai": "node apps/mcp/bench/run.mjs"
   },
   "devDependencies": {
