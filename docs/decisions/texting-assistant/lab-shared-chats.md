@@ -29,6 +29,14 @@ developer's own chats. A test text there runs on the sharer's own session (`texL
 as it would for them, and every write stays in the sandbox as in any test chat. The session is asked for again on
 every text, and only while the chat is listed, so a no stops test texts at once.
 
+**Without the sharer's notes (Dev2, 2026-11-17).** Reading them live never worked reliably: the store asks for the
+workspace's key with the developer's token, and a workspace's key is handed only to its members, so a test text in
+Sayo's shared 1:1 stalled before Tex ran whenever no copy was kept. Dev2 chose to run shared test texts without the
+sharer's notes rather than hand developers that key: a shared chat's test turn gets an empty store of its own
+(`apps/mcp/src/labSandbox/policy.js` `NO_NOTES_BINDING`), every read empty and no save kept. A shared 1:1 lists only
+the group chats that are shared with the developers too, for a 1:1 that reads its groups
+([group-reads-from-1to1](./group-reads-from-1to1.md); `sharedSessionFor`).
+
 Dev2 chose this on 2026-11-16 ("Allow test texts", over a read-only Lab tab), with the yes's wording updated to say
 so for everyone who says yes from then on: Settings → Feedback and Tex's texted answer (`apps/agent/src/
 reviewSharing.ts` `WHAT_IT_MEANS`) say the team can "text a test copy of the chat, where I answer as I would you,
