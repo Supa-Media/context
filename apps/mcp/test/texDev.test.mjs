@@ -14,6 +14,7 @@ import { toolsForSession } from "../src/tools/advertised.js";
 import { STAFF_ONLY_TOOLS, toolDefinitions } from "../src/tools/registry.js";
 import { textingWriteTools, WITHHELD_TOOLS } from "../src/agent/textingWrites.js";
 import { agentTools } from "../src/agent/turn.js";
+import { configStamp } from "../../../packages/shared/src/texConfigStamp.cjs";
 import { createTexDev, TEX_DEV_WHO, toolTexDev } from "../src/texDev/tool.js";
 import { guideText } from "../src/texDev/guide.js";
 import { draftProblems } from "../src/texDev/check.js";
@@ -92,6 +93,8 @@ test("create from main sends main's graph; a refusal from the control plane is t
   const made = jsonOf(await call("create", { name: "Try" }));
   assert.equal(made.link, "https://context.example/lab?v=vabc");
   assert.equal(JSON.parse(plane.calls[0].args.graph).nodes.length, TEX_CONFIG.nodes.length);
+  // It keeps the main it was made from, so Promote merges only its own changes (texConfigStamp.cjs).
+  assert.equal(plane.calls[0].args.base, configStamp(TEX_CONFIG));
   assert.equal(plane.calls[0].token, "tok");
   const refused = await createTexDev({ env: {}, session: session("editor"), controlPlane: fakePlane({ list: { status: "refused" } }) })("list");
   assert.equal(textOf(refused), TEX_DEV_WHO);
@@ -137,6 +140,18 @@ test("check and promote use the runner's and Promote's own checks", async () => 
   const refused = await createTexDev({ env: {}, session: session("editor"), controlPlane: plane })("promote", { draft: "vabc" });
   assert.equal(refused.isError, true);
   assert.ok(!plane.calls.some((c) => c.action === "promote"), "a draft that would be refused is not asked for");
+});
+
+test("promote passes the clash picks on, and only main or draft", async () => {
+  const plane = fakePlane({ get: { status: "ok", rev: 2, graph: JSON.stringify(mainGraph()) }, promote: { status: "ok" } });
+  const said = jsonOf(await createTexDev({ env: {}, session: session("editor"), controlPlane: plane })("promote", { draft: "vabc", picks: { "Front door effort": "draft", "wire a → b": "main", junk: "mine" } }));
+  const asked = plane.calls.find((c) => c.action === "promote");
+  // To the control plane as a list: a clash's name is no Convex field name ("→").
+  assert.deepEqual(asked.args.picks, [{ what: "Front door effort", take: "draft" }, { what: "wire a → b", take: "main" }]);
+  assert.deepEqual(said.picks, { "Front door effort": "draft", "wire a → b": "main" });
+  const plain = fakePlane({ get: { status: "ok", rev: 2, graph: JSON.stringify(mainGraph()) }, promote: { status: "ok" } });
+  await createTexDev({ env: {}, session: session("editor"), controlPlane: plain })("promote", { draft: "vabc" });
+  assert.equal(plain.calls.find((c) => c.action === "promote").args.picks, undefined);
 });
 
 test("snapshot answers the Lab's picture as an image", async () => {

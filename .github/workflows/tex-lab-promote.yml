@@ -32,6 +32,9 @@ jobs:
       - uses: actions/checkout@v4
         with:
           token: ${{ secrets.GH_ADMIN_TOKEN }}
+          # A promotion is merged from the main the draft was made from (scripts/tex-lab-merge.mjs), so main's history
+          # has to be here to find it.
+          fetch-depth: 0
 
       - uses: pnpm/action-setup@v4
 
@@ -70,28 +73,46 @@ jobs:
             if ! [[ "$id" =~ ^v[0-9a-z]{1,16}$ && "$at" =~ ^[0-9]{1,16}$ ]]; then echo "skipping a malformed ask"; continue; fi
             git checkout -q -B "tex-lab/promote-$id-$at" origin/main
             echo "$ask" | jq -r .graph > "$RUNNER_TEMP/graph.json"
-            if ! why=$(node scripts/tex-lab-promote.mjs "$RUNNER_TEMP/graph.json" 2>&1); then
+            base=$(echo "$ask" | jq -r '.base // ""')
+            made=$(echo "$ask" | jq -r '.made // 0')
+            if ! [[ "$base" =~ ^(c[0-9a-f]{14})?$ && "$made" =~ ^[0-9]{1,16}$ ]]; then echo "skipping a malformed ask"; continue; fi
+            rm -f "$RUNNER_TEMP/merged.json" "$RUNNER_TEMP/clashes.json"
+            # The person's picks for the clashes a refusal named, made in the Lab or with tex_dev (main's or the draft's).
+            echo "$ask" | jq -c '(.picks // []) | map({(.what): .take}) | add // {}' > "$RUNNER_TEMP/picks.json"
+            # Only the draft's own changes since the main it was made from, merged onto main as it is now; a setting
+            # both changed is refused by name, never written over (Dev2, 2026-11-17).
+            if ! why=$(node scripts/tex-lab-promote.mjs "$RUNNER_TEMP/graph.json" --base "$base" --made "$made" --main origin/main --summary "$RUNNER_TEMP/merged.json" --picks "$RUNNER_TEMP/picks.json" --clashes "$RUNNER_TEMP/clashes.json" 2>&1); then
               echo "$id: refused"
-              answer "$(jq -cn --arg v "$id" --argjson at "$at" --arg why "${why#tex-lab-promote: refused: }" '{versionId: $v, at: $at, why: $why}')"
+              clashes=$(cat "$RUNNER_TEMP/clashes.json" 2>/dev/null || echo '[]')
+              answer "$(jq -cn --arg v "$id" --argjson at "$at" --arg why "${why#tex-lab-promote: refused: }" --argjson clashes "$clashes" '{versionId: $v, at: $at, why: $why} + (if ($clashes | length) > 0 then {clashes: $clashes} else {} end)')"
               continue
             fi
-            # tex_dev's bundles carry the config too; CI fails a config change that leaves them stale.
-            node scripts/tex-dev-canvas.mjs > /dev/null
-            node scripts/tex-dev-lab.mjs > /dev/null
-            node scripts/tex-dev-replay.mjs > /dev/null
-            node scripts/tex-lab-data.mjs > /dev/null
+            # The Lab's prompt catalogue (read at old commits by the Lab's Replay) follows the config's words and order.
+            node scripts/tex-prompt-catalog.mjs > /dev/null
             if git diff --quiet; then
               answer "$(jq -cn --arg v "$id" --argjson at "$at" '{versionId: $v, at: $at, why: "it is the same as main"}')"
               continue
             fi
             name=$(echo "$ask" | jq -r .name | tr -d '\r' | cut -c1-80)
             by=$(echo "$ask" | jq -r .by)
-            git add packages/shared/src/texConfig.json docs/architecture/tex.md apps/mcp/src/agent/texArchitecture.generated.js packages/shared/src/texPrompt packages/shared/src/texPrompt.generated.json apps/mcp/src/texDev apps/mobile/features/tex/lab/labData.generated.ts
+            git add packages/shared/src/texConfig.json docs/architecture/tex.md apps/mcp/src/agent/texArchitecture.generated.js packages/shared/src/texPrompt packages/shared/src/texPrompt.generated.json packages/shared/src/texNodeShelf.json apps/mobile/features/tex/lab/promptCatalog.generated.json
             git commit -q -m "Promote the Lab version \"$name\" to Tex's config" -m "Asked for in the Tex Architecture Lab by $by. The pull request merges only on green CI and the replay gate."
             git push -q -f origin "HEAD:refs/heads/tex-lab/promote-$id-$at"
             {
               echo "Promoted from the Tex Architecture Lab (context.lc/lab) by $by: version \"$name\" (\`$id\`)."
               echo
+              if [ -f "$RUNNER_TEMP/merged.json" ]; then
+                echo "Merged onto main, not written over it: this draft's own changes since \`$(jq -r '.base[0:7]' "$RUNNER_TEMP/merged.json")\`, the main it was made from$(jq -r 'if .guessed then " (taken from when it was made: it was saved before drafts kept their base)" else "" end' "$RUNNER_TEMP/merged.json"), and the $(jq -r .theirs "$RUNNER_TEMP/merged.json") change(s) main has had since, kept. Its own:"
+                echo
+                jq -r '.kept[] | "- " + .' "$RUNNER_TEMP/merged.json" | head -60
+                echo
+              fi
+              if [ "$(jq length "$RUNNER_TEMP/picks.json")" -gt 0 ]; then
+                echo "Settings both changed, settled by $by's pick:"
+                echo
+                jq -r 'to_entries[] | "- " + .key + ": " + (if .value == "draft" then "this draft'"'"'s" else "main'"'"'s" end)' "$RUNNER_TEMP/picks.json" | head -60
+                echo
+              fi
               echo "What changed is \`packages/shared/src/texConfig.json\`, the drawing and table it makes in \`docs/architecture/tex.md\`, the map every Tex agent reads (\`texArchitecture.generated.js\`), and any prompt words under \`packages/shared/src/texPrompt/\`; the diff is the whole change. A changed model, effort, time limit or word changes the prompts and requests the replay gate fingerprints, so **Tex replay required** names the areas it reaches and starts the sealed Test Set on main for this pull request; it merges when that passes."
               echo
               echo "No replay case: a Lab promotion changes settings the existing replay areas already measure."
@@ -132,7 +153,7 @@ jobs:
           if [ "$(echo "$refused" | jq length)" != "0" ]; then
             answer "$(jq -cn --argjson r "$refused" --argjson at "$ats" '{items: [$r[] | {id, at: $at[.id], why}]}')"
           fi
-          git add apps/mcp/bench/sets packages/shared/src/texSetsRepo.generated.json apps/mcp/src/texDev apps/mobile/features/tex/lab/labData.generated.ts
+          git add apps/mcp/bench/sets packages/shared/src/texSetsRepo.generated.json
           if git diff --cached --quiet; then
             done_ids=$(echo "$result" | jq -c '[.written[], .removed[]]')
             [ "$(echo "$done_ids" | jq length)" = "0" ] || answer "$(jq -cn --argjson d "$done_ids" --argjson at "$ats" '{items: [$d[] | {id: ., at: $at[.], why: "it is the same as main"}]}')"

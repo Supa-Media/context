@@ -27,6 +27,10 @@ export const LAB_CSS_5 = String.raw`
 .tl .vmenu .vren,.tl .vmenu input[type=search]{flex:1;min-width:0;width:100%;height:28px;border:1px solid var(--line2);border-radius:8px;background:var(--s2);padding:0 10px;font-size:13px;color:var(--text)}
 .tl .vmenu input[type=search]{flex:none;margin:2px 0 4px}
 .tl .vmenu .mchanges{max-height:220px;overflow:auto}
+.tl .vmenu .clashes{display:flex;flex-direction:column;gap:2px;max-height:280px;overflow:auto}
+.tl .vmenu .clash{padding:2px 4px}
+.tl .vmenu .clash .cw{font-size:12px;color:var(--text2);padding:2px 6px 0;overflow-wrap:anywhere}
+.tl .vmenu .clash .seg button{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;padding:6px 6px}
 .tl .vmenu .seg{background:none;gap:4px;padding:4px 6px;flex-wrap:nowrap}
 .tl .vmenu .seg button{flex:1;border:1px solid var(--line);background:none;border-radius:7px;padding:6px 0;color:var(--text2);font-size:12px;box-shadow:none}
 .tl .vmenu .seg button[aria-checked=true],.tl .vmenu .seg button[aria-selected=true],.tl .vmenu .seg button[aria-pressed=true]{background:var(--accent-dim);color:var(--accent);border-color:transparent}

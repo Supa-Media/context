@@ -5,7 +5,7 @@
  * without a copy to drift.
  */
 
-const config = require("./texConfig.json");
+const { TEX_CONFIG: config } = require("./texConfig.cjs");
 
 const TEX_STEPS = Object.freeze(
   config.nodes

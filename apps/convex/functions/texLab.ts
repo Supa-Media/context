@@ -14,8 +14,10 @@ import { query } from "../_generated/server";
 import { requireAdmin } from "./lib/admin";
 import { handleForUser } from "./lib/identities";
 import { mutation } from "./lib/rowWatch/mutations";
+import { isStamp } from "@context/shared/src/texConfigStamp.cjs";
 import { recordSave } from "./texLabDrafts";
 import { deleteDraftRows } from "./lib/texLabDraftWrites";
+import { promoteClash, promotePick } from "./lib/schema/texLab";
 
 /** A version's JSON fields and a case edit must each fit well inside a row. */
 export const MAX_JSON = 400_000;
@@ -36,7 +38,7 @@ const versionRow = v.object({
   createdAt: v.number(),
   updatedAt: v.number(),
   /** Where its Promote stands (`texLabPromote.ts`): asked, the pull request opened, or why it was refused. */
-  promote: v.union(v.null(), v.object({ state: v.string(), pr: v.union(v.string(), v.null()), why: v.union(v.string(), v.null()) })),
+  promote: v.union(v.null(), v.object({ state: v.string(), pr: v.union(v.string(), v.null()), why: v.union(v.string(), v.null()), clashes: v.array(promoteClash), picks: v.array(promotePick) })),
   /** Its revision, and the AI client last in it over the MCP's `tex_dev` (`texLabDrafts.ts`). */
   rev: v.number(),
   live: v.union(v.null(), v.object({ client: v.string(), at: v.number() })),
@@ -56,7 +58,7 @@ export const list = query({
     return {
       me: actor.userId,
       names,
-      versions: versions.map((r) => ({ versionId: r.versionId, name: r.name, authorId: r.authorId ?? null, graph: r.graph, picks: r.picks, areas: r.areas ?? null, results: r.results, createdAt: r.createdAt, updatedAt: r.updatedAt, promote: r.promote ? { state: r.promote.state, pr: r.promote.pr ?? null, why: r.promote.why ?? null } : null, rev: r.rev ?? 0, live: r.live ? { client: r.live.client, at: r.live.at } : null })),
+      versions: versions.map((r) => ({ versionId: r.versionId, name: r.name, authorId: r.authorId ?? null, graph: r.graph, picks: r.picks, areas: r.areas ?? null, results: r.results, createdAt: r.createdAt, updatedAt: r.updatedAt, promote: r.promote ? { state: r.promote.state, pr: r.promote.pr ?? null, why: r.promote.why ?? null, clashes: r.promote.clashes ?? [], picks: r.promote.picks ?? [] } : null, rev: r.rev ?? 0, live: r.live ? { client: r.live.client, at: r.live.at } : null })),
       caseEdits: caseEdits.map((r) => ({ key: r.key, data: r.data })),
     };
   },
@@ -64,7 +66,7 @@ export const list = query({
 
 /** Save a version (a new one or over itself). `main` keeps only its run results. */
 export const saveVersion = mutation({
-  args: { versionId: v.string(), name: v.string(), graph: v.string(), picks: v.string(), areas: v.optional(v.string()), results: v.string(), createdAt: v.number() },
+  args: { versionId: v.string(), name: v.string(), graph: v.string(), picks: v.string(), areas: v.optional(v.string()), results: v.string(), createdAt: v.number(), base: v.optional(v.string()) },
   returns: v.null(),
   handler: async (ctx, a) => {
     const actor = await requireAdmin(ctx);
@@ -78,7 +80,8 @@ export const saveVersion = mutation({
     const fields = { name: a.name.trim() || "Untitled", graph: a.graph, picks: a.picks, areas: a.areas, results: a.results, updatedAt: now };
     // Every save is a revision with what it changed, so an AI in the draft over `tex_dev` reads it (`texLabDrafts.ts`).
     if (row) await ctx.db.patch(row._id, { ...fields, ...(a.versionId === "main" ? {} : { rev: await recordSave(ctx, row, a.graph, actor.userId, now, { name: fields.name, picks: a.picks, areas: a.areas, results: a.results }) }) });
-    else await ctx.db.insert("texLabVersions", { versionId: a.versionId, authorId: actor.userId, createdAt: a.createdAt || now, ...fields, rev: 0 });
+    // The main a draft was made from is kept from its first save on: a later save never moves it.
+    else await ctx.db.insert("texLabVersions", { versionId: a.versionId, authorId: actor.userId, createdAt: a.createdAt || now, ...fields, rev: 0, ...(a.versionId !== "main" && isStamp(a.base) ? { base: a.base } : {}) });
     return null;
   },
 });

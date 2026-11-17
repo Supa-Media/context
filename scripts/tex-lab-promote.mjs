@@ -18,21 +18,29 @@
  * file is rebuilt, so the pull request's fingerprints show the changed prompt and the replay gate runs. A new
  * `p-<name>` module with words is a new file; which steps read it, and where, is the steps' context in the config.
  *
- *   node scripts/tex-lab-promote.mjs <graph.json>          write the config and the table
+ *   node scripts/tex-lab-promote.mjs <graph.json> --base <stamp> --made <ms> [--summary <file>] [--picks <file>] [--clashes <file>]
+ *                                                          merge the draft's own changes onto main (Promote); --picks
+ *                                                          settles clashes ({ "<what>": "main" | "draft" }), --clashes
+ *                                                          writes a refusal's clashes as JSON for the Lab to pick from
+ *   node scripts/tex-lab-promote.mjs <graph.json>          write the graph as it is (a Lab Run on a branch's code)
  *   node scripts/tex-lab-promote.mjs <graph.json> --check  only say whether it would be refused
  *   node scripts/tex-lab-promote.mjs --self-test
  */
 import { readFileSync, writeFileSync } from "node:fs";
+import { createRequire } from "node:module";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { CONFIG, MODULE as MAP_MODULE, PAGE, moduleFor as mapModuleFor, pageFor } from "./tex-architecture.mjs";
+import { clashText, findBase, mergeOntoMain, picksOf, sideAt } from "./tex-lab-merge.mjs";
 import { FOLDER as PROMPT_FOLDER, MODULE as PROMPT_MODULE, moduleFor as promptModuleFor, wordsOf } from "./tex-prompt-module.mjs";
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 const ID = /^[a-z][A-Za-z0-9_-]{0,30}$/;
-const MODES = new Set(["wait", "uses", "background", "job", "loop", "provisional", "generator"]);
-const EFFORTS = new Set(["off", "low", "medium", "high", "xhigh", "max"]);
+// The wire modes, efforts and migrations are the schema's (`texConfigSchema.cjs`).
+const SCHEMA = createRequire(import.meta.url)("../packages/shared/src/texConfigSchema.cjs");
+const MODES = new Set(SCHEMA.MODES);
+const EFFORTS = new Set(SCHEMA.EFFORTS);
 const PROMPT_KEY = /^p-([a-z][a-z0-9-]{0,47})$/;
 const MAX_WORDS = 40_000;
 /** Nodes merged but not wired (Dev2, 2026-11-16). */
@@ -67,6 +75,8 @@ export function wordsFrom(modules, currentWords) {
 export function configFrom(graph, current, currentWords = {}, shelf = []) {
   const refuse = (why) => ({ refused: why });
   if (!graph || !Array.isArray(graph.nodes) || !Array.isArray(graph.edges)) return refuse("the version has no steps and wires");
+  // A version saved under an older shape is brought to the current one first (`texConfigSchema.cjs` MIGRATIONS).
+  graph = SCHEMA.migrateGraph(graph);
   const madeWords = wordsFrom(graph.modules, currentWords);
   if (madeWords.refused) return madeWords;
   const known = new Set(current.nodes.map((n) => n.id));
@@ -83,8 +93,6 @@ export function configFrom(graph, current, currentWords = {}, shelf = []) {
   }
   for (const id of known) if (!ids.has(id)) return refuse(`step "${id}" is gone: the gateway still runs it, so turn it off instead of deleting it`);
   for (const e of graph.edges) {
-    // A version saved before "behind" was renamed "background" (Dev2, 2026-11-14) promotes with the new name.
-    if (e && e.mode === "behind") e.mode = "background";
     if (!e || !ids.has(e.from) || !ids.has(e.to)) return refuse(`a wire joins a step that is not there (${e?.from} → ${e?.to})`);
     if (!MODES.has(e.mode) || !Array.isArray(e.when) || !e.when.every((w) => typeof w === "string")) return refuse(`the wire ${e.from} → ${e.to} is malformed`);
     if (e.rounds !== undefined && !(Number.isInteger(e.rounds) && e.rounds > 0 && e.rounds <= 100)) return refuse(`the wire ${e.from} → ${e.to} has rounds that are not a whole number from 1 to 100`);
@@ -208,7 +216,7 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
   const args = process.argv.slice(2);
   if (args.includes("--self-test")) selfTest();
   else {
-    const file = args.find((a) => !a.startsWith("--"));
+    const file = args.find((a, i) => !a.startsWith("--") && !["--base", "--made", "--main", "--summary", "--picks", "--clashes"].includes(args[i - 1]));
     if (!file) {
       console.error("usage: node scripts/tex-lab-promote.mjs <graph.json> [--check] | --self-test");
       process.exit(2);
@@ -222,7 +230,41 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
     }
     const current = JSON.parse(readFileSync(join(ROOT, CONFIG), "utf8"));
     const shelf = JSON.parse(readFileSync(join(ROOT, SHELF), "utf8"));
-    const made = configFrom(graph, current, wordsOf(ROOT), Object.keys(shelf.nodes ?? {}));
+    const shelfIds = Object.keys(shelf.nodes ?? {});
+    // A promotion is a merge onto main (Dev2, 2026-11-17): the draft's own changes since the main it started from
+    // (`--base <stamp>`, `--made <ms>`), never its whole graph (`tex-lab-merge.mjs`). Without them (the Lab's Run on a
+    // branch's code) the graph is written as it is, as before.
+    const flag = (name) => {
+      const i = args.indexOf(name);
+      return i >= 0 ? args[i + 1] : undefined;
+    };
+    let made;
+    let note = "";
+    if (flag("--base") !== undefined || flag("--made") !== undefined) {
+      const found = findBase({ stamp: flag("--base"), made: Number(flag("--made")) }, flag("--main") ?? "HEAD");
+      if (!found) {
+        console.error("tex-lab-promote: refused: the main this draft was made from is not on main any more, so its own changes can't be told from main's; make a fresh draft from main and redo them");
+        process.exit(1);
+      }
+      let picks = {};
+      if (flag("--picks")) {
+        try {
+          picks = picksOf(JSON.parse(readFileSync(flag("--picks"), "utf8")));
+        } catch {
+          picks = {};
+        }
+      }
+      const merged = mergeOntoMain({ graph, base: sideAt(found.commit), main: { config: current, words: wordsOf(ROOT) }, shelf: shelfIds, configFrom, picks });
+      if (merged.clashes?.length) {
+        if (flag("--clashes")) writeFileSync(flag("--clashes"), JSON.stringify(merged.clashes.slice(0, 50).map((c) => ({ what: c.what.slice(0, 300), main: String(c.main).slice(0, 200), draft: String(c.draft).slice(0, 200), pick: c.pick === true }))));
+        console.error(`tex-lab-promote: refused: ${clashText(merged.clashes, found.commit)}`);
+        process.exit(1);
+      }
+      made = merged;
+      note = `merged onto main from ${found.commit.slice(0, 7)}${found.guessed ? " (taken from when the draft was made: it was saved before drafts kept their base)" : ""}: ${merged.kept.length} change${merged.kept.length === 1 ? "" : "s"} of its own, ${merged.theirs} of main's since kept`;
+      const summary = flag("--summary");
+      if (summary && !args.includes("--check")) writeFileSync(summary, JSON.stringify({ base: found.commit, guessed: found.guessed, kept: merged.kept, theirs: merged.theirs }));
+    } else made = configFrom(graph, current, wordsOf(ROOT), shelfIds);
     if (made.refused) {
       console.error(`tex-lab-promote: refused: ${made.refused}`);
       process.exit(1);
@@ -241,6 +283,6 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
       }
     }
     const changed = Object.keys(made.words);
-    console.log(`tex-lab-promote: ${args.includes("--check") ? "would write" : "wrote"} ${CONFIG}, ${PAGE}'s drawing and table and ${MAP_MODULE}${changed.length > 0 ? `, and the words of ${changed.join(", ")}` : ""}`);
+    console.log(`tex-lab-promote: ${args.includes("--check") ? "would write" : "wrote"} ${CONFIG}, ${PAGE}'s drawing and table and ${MAP_MODULE}${changed.length > 0 ? `, and the words of ${changed.join(", ")}` : ""}${note ? `; ${note}` : ""}`);
   }
 }

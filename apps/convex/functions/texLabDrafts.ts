@@ -21,6 +21,7 @@
 import { ConvexError, v } from "convex/values";
 import { query, type MutationCtx, type QueryCtx } from "../_generated/server";
 import type { Doc, Id } from "../_generated/dataModel";
+import { isStamp } from "@context/shared/src/texConfigStamp.cjs";
 import { applyOps, conflicts, diffGraphs, keysOf, OpError } from "@context/shared/src/texLabOps.cjs";
 import { requireAdmin, userIsStaff } from "./lib/admin";
 import { handleForUser } from "./lib/identities";
@@ -33,6 +34,7 @@ import { pageForUser } from "./texPage";
 import { sharedChats } from "./lib/texLabShared";
 import { setAction } from "./texSets";
 import { runAction, startGateRun } from "./texLabRuns";
+import { cleanPicks } from "./texLabPromote";
 import { clampDays } from "./texLabToolStats";
 import { toolStatsReport } from "./lib/adminFns/texToolStats";
 import { deleteDraftRows, describeChange, keepResults, renameDraft, revertDraft, savedState, setRunSetup as writeRunSetup, undoText } from "./lib/texLabDraftWrites";
@@ -297,7 +299,7 @@ const draftOf = async (ctx: QueryCtx, row: Row) => ({
   rev: row.rev ?? 0,
   updatedAt: row.updatedAt,
   live: row.live && Date.now() - row.live.at < LIVE_MS ? { client: row.live.client, at: row.live.at } : null,
-  promote: row.promote ? { state: row.promote.state, pr: row.promote.pr ?? null, why: row.promote.why ?? null } : null,
+  promote: row.promote ? { state: row.promote.state, pr: row.promote.pr ?? null, why: row.promote.why ?? null, clashes: row.promote.clashes ?? [], picks: row.promote.picks ?? [] } : null,
   /** The pull request or branch whose code the draft's runs check out; null is main (`texLabRuns.ts`). */
   code: row.code ?? null,
 });
@@ -409,16 +411,19 @@ export const forGateway = internalMutation({
       const name = typeof a.name === "string" ? a.name.trim().slice(0, NAME_MAX) : "";
       if (!name) return { status: "bad_request", error: "a draft needs a name" };
       let graph: string | null = null;
+      // The main it starts from (`texConfigStamp.cjs`): a copy of a draft keeps that draft's, else the caller's main.
+      let base: string | undefined = isStamp(a.base) ? a.base : undefined;
       if (typeof a.from === "string" && a.from !== "main") {
         const from = await rowOf(ctx, a.from);
         if (from === null) return { status: "not_found" };
         graph = from.graph;
+        base = from.base;
       } else if (typeof a.graph === "string") graph = a.graph;
       const parsed = graph === null ? null : parseGraph(graph);
       if (parsed === null || !Array.isArray(parsed.nodes) || !Array.isArray(parsed.edges)) return { status: "bad_request", error: "the draft has no steps and wires" };
       if (graph!.length > MAX_JSON) return { status: "bad_request", error: "the draft would be too big to save" };
       const versionId = newId();
-      await ctx.db.insert("texLabVersions", { versionId, name, authorId: dev.userId, graph: graph!, picks: "{}", results: "[]", createdAt: now, updatedAt: now, rev: 1, live: { client: dev.client, by: dev.userId, at: now } });
+      await ctx.db.insert("texLabVersions", { versionId, name, authorId: dev.userId, graph: graph!, picks: "{}", results: "[]", createdAt: now, updatedAt: now, rev: 1, live: { client: dev.client, by: dev.userId, at: now }, ...(base ? { base } : {}) });
       await ctx.db.insert("texLabChanges", { versionId, rev: 1, by: dev.userId, via: dev.client, keys: ["*"], said: [`made this draft from ${typeof a.from === "string" ? a.from : "a config"}`], at: now });
       return { status: "ok", id: versionId, rev: 1, name };
     }
@@ -436,8 +441,12 @@ export const forGateway = internalMutation({
     }
     if (action === "promote") {
       if (row.promote?.state === "asked") return { status: "ok", promote: "asked" };
-      await ctx.db.patch(row._id, { promote: { state: "asked", by: dev.userId, at: now } });
-      await ctx.db.insert("texLabChanges", { versionId: row.versionId, rev: (row.rev ?? 0) + 1, by: dev.userId, via: dev.client, keys: [], said: ["asked to promote this draft"], at: now });
+      // tex_dev's picks for the clashes the last refusal named, as the Lab sends them: [{ what, take: "main" | "draft" }]
+      // (a list, because a clash's name is no field name: it can hold "→").
+      const raw: unknown[] = Array.isArray(a.picks) ? a.picks : [];
+      const picks = cleanPicks(raw.filter((p): p is { what: string; take: "main" | "draft" } => !!p && typeof p === "object" && typeof (p as { what?: unknown }).what === "string" && ["main", "draft"].includes((p as { take?: unknown }).take as string)).map((p) => ({ what: p.what, take: p.take })));
+      await ctx.db.patch(row._id, { promote: { state: "asked", by: dev.userId, at: now, ...(picks ? { picks } : {}) } });
+      await ctx.db.insert("texLabChanges", { versionId: row.versionId, rev: (row.rev ?? 0) + 1, by: dev.userId, via: dev.client, keys: [], said: [picks ? `asked to promote this draft, picking ${picks.map((p) => `${p.take === "draft" ? "the draft's" : "main's"} ${p.what}`).join(", ")}` : "asked to promote this draft"], at: now });
       await ctx.db.patch(row._id, { rev: (row.rev ?? 0) + 1 });
       await startGateRun(ctx, { userId: dev.userId, via: dev.client }, row.versionId, now);
       return { status: "ok", promote: "asked" };

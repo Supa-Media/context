@@ -128,7 +128,7 @@ const WHY = Object.freeze({
  * tune-up" (2026-11-12).
  */
 const TRAINING = require("./texTraining.generated.json");
-const TEX_CONFIG = require("./texConfig.json");
+const { TEX_CONFIG } = require("./texConfig.cjs");
 const { trainingSources, exampleText: trainingExample } = require("./texTraining.cjs");
 
 /**

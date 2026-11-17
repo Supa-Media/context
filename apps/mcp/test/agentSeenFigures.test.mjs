@@ -22,6 +22,7 @@ import { ask, createEgressWorld, TOKEN_TEXTS } from "./agentEgressFixtures.mjs";
 import { RECHECK_FROM } from "../src/agent/recheck.js";
 import { seenFiguresNotice } from "../src/agent/sourcedFigures.js";
 import { untriedWebCheck } from "../src/agent/untriedWeb.js";
+import { readTexConfig } from "../../../scripts/lib/texConfigFile.mjs";
 
 const read = (text) => [
   { role: "user", text: "how fast are replies lately?" },
@@ -83,8 +84,7 @@ test("the Reply reviewer reads only a job's report and a routine's text (Dev2, 2
   // The reviewer is folded into the Answer check: every Front door draft goes through it, the wire back to the Front door
   // carries its notice, and its model review runs only on a turn `runTheModel.js` tags `reviewedAs` (a report or a routine).
   // Sabotage: the `t.reviewedAs` guard dropped from answerCheck.js, or the reviewer's old wire turned back on, and this fails.
-  const { readFile } = await import("node:fs/promises");
-  const config = JSON.parse(await readFile(new URL("../../../packages/shared/src/texConfig.json", import.meta.url), "utf8"));
+  const config = readTexConfig();
   const wired = (from, to) => config.edges.filter((w) => w.from === from && w.to === to);
   assert.deepEqual(wired("fd", "answerCheck").map((w) => w.mode), ["wait"], "every draft is checked before it goes");
   assert.deepEqual(wired("answerCheck", "fd").map((w) => w.mode), ["loop"], "a draft sent back goes to the Front door");

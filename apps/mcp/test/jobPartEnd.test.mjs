@@ -1,0 +1,98 @@
+/**
+ * Part end (Dev2, 2026-11-17, jobs as config, step 5): what follows each part of a background job, as one pure rule
+ * (`packages/shared/src/jobPartEnd.cjs`) behind the shelf node `partEnd`, with its limits as the node's config.
+ * Until a Lab draft wires it, `runJob` (`apps/agent/src/jobRun.ts`) decides the same things in code; these cases are
+ * that code's behaviour, so wiring the node changes nothing a person sees.
+ *
+ * Sabotage record (2026-11-17, applied, run, failing, reverted):
+ *   (i)   `DETERMINISTIC` emptied: "a check limit with a draft saved delivers it" fails (it carried on instead).
+ *   (ii)  the time limit dropped from `roomLeft`: "a job past its time ..." fails (it carried on).
+ *   (iii) `spinning` ignored: "two idle parts in a row end stuck" fails.
+ *   (iv)  config limits ignored in `limitsOf`: "the node's config sets the limits" fails.
+ */
+import { test } from "node:test";
+import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
+
+import partEndLib from "../../../packages/shared/src/jobPartEnd.cjs";
+import SHELF from "../../../packages/shared/src/texNodeShelf.json" with { type: "json" };
+import { partEndNode } from "../src/agent/graph/nodes/partEnd.js";
+import { GATEWAY_NODES } from "../src/agent/graph/gatewayNodes.js";
+
+const { decidePartEnd, DEFAULT_LIMITS, limitsOf } = partEndLib;
+const MIN = 60_000;
+const at = (extra) => ({ part: 1, startedAt: 0, now: 5 * MIN, ...extra });
+
+test("a check limit with a draft saved delivers it, done, on the first part (the timecards job)", () => {
+  assert.deepEqual(decidePartEnd(at({ cause: "check_limit", hasDraft: true })), { to: "deliver", ended: "done", cause: "check_limit", room: true });
+});
+
+test("a crash or timeout carries on while there is room, and delivers its draft, stuck, when there is none", () => {
+  for (const cause of ["crash", "timeout"]) {
+    assert.equal(decidePartEnd(at({ cause, hasDraft: true })).to, "carry", `${cause} with room carries on`);
+    assert.deepEqual(decidePartEnd(at({ cause, hasDraft: true, part: 10 })), { to: "deliver", ended: "stuck", cause, room: false });
+    assert.deepEqual(decidePartEnd(at({ cause, part: 10 })), { to: "end", ended: "failed", cause, room: false }, "with nothing saved it fails");
+  }
+});
+
+test("work left (steps out, unfinished, changed) carries on, and ends as it stands when the parts run out", () => {
+  assert.equal(decidePartEnd(at({ cause: "steps_out" })).to, "carry");
+  assert.equal(decidePartEnd(at({ cause: "unfinished" })).to, "carry");
+  assert.equal(decidePartEnd(at({ cause: "changed" })).to, "carry");
+  assert.deepEqual(decidePartEnd(at({ cause: "unfinished", part: 10 })), { to: "end", ended: "stuck", cause: "unfinished", room: false });
+  assert.deepEqual(decidePartEnd(at({ cause: "changed", part: 10 })), { to: "end", ended: "done", cause: "changed", room: false });
+});
+
+test("a job past its time, or past its parts, starts no more", () => {
+  assert.equal(decidePartEnd(at({ cause: "steps_out", now: 31 * MIN })).room, false);
+  assert.equal(decidePartEnd(at({ cause: "steps_out", now: 31 * MIN })).to, "end");
+  assert.equal(decidePartEnd(at({ cause: "steps_out", part: 9 })).to, "carry", "part 9 of 10 still has one after it");
+});
+
+test("two idle parts in a row end stuck instead of spending more", () => {
+  assert.equal(decidePartEnd(at({ cause: "unfinished", idle: true })).to, "carry", "one idle part is allowed");
+  assert.deepEqual(decidePartEnd(at({ cause: "unfinished", idle: true, wasIdle: true })), { to: "end", ended: "stuck", cause: "unfinished", room: true, spinning: true });
+});
+
+test("the rest end at once: done, waiting, stuck, stopped, refused for now, turned down, model down", () => {
+  const ended = (input) => decidePartEnd(at(input)).ended;
+  assert.equal(ended({ cause: "done" }), "done");
+  assert.equal(ended({ cause: "waiting" }), "waiting");
+  assert.equal(ended({ cause: "stuck" }), "stuck");
+  assert.equal(ended({ cause: "stopped" }), "failed");
+  assert.equal(ended({ cause: "refused" }), "waiting");
+  assert.equal(ended({ cause: "refused", rejected: true }), "failed");
+  assert.equal(ended({ cause: "model_down" }), "failed");
+  assert.equal(decidePartEnd(at({ cause: "no such cause" })).cause, "crash", "an unknown cause is read as a crash");
+});
+
+test("a job on their own computer runs under its own limits", () => {
+  assert.equal(decidePartEnd(at({ cause: "steps_out", machine: true, part: 50, now: 3 * 60 * MIN })).to, "carry");
+  assert.equal(decidePartEnd(at({ cause: "steps_out", machine: true, part: 96 })).to, "end");
+});
+
+test("the node's config sets the limits, and a missing or bad one keeps today's number", () => {
+  assert.deepEqual(limitsOf(null), DEFAULT_LIMITS);
+  assert.deepEqual(limitsOf({ parts: 3, minutes: -1 }), { ...DEFAULT_LIMITS, parts: 3 });
+  assert.equal(decidePartEnd(at({ cause: "steps_out", part: 3 }), { parts: 3 }).to, "end");
+});
+
+test("the node answers its choice as a when tag, under the limits on its own config", async () => {
+  const out = await partEndNode(at({ cause: "steps_out", part: 2 }), { node: { id: "partEnd", limits: { parts: 2 } } });
+  assert.deepEqual(out.when, ["end"]);
+  assert.equal(out.ended, "stuck");
+});
+
+test("today's limits are the texting Worker's, until the wiring step moves them into config", () => {
+  const jobs = readFileSync(new URL("../../agent/src/jobs.ts", import.meta.url), "utf8");
+  const value = (name) => Function(`return (${jobs.match(new RegExp(`export const ${name} = ([^;]+);`))[1]})`)();
+  assert.equal(value("MAX_JOB_ATTEMPTS"), DEFAULT_LIMITS.parts);
+  assert.equal(value("JOB_LIMIT_MS"), DEFAULT_LIMITS.minutes * MIN);
+  assert.equal(value("MAX_MACHINE_JOB_ATTEMPTS"), DEFAULT_LIMITS.machineParts);
+  assert.equal(value("MACHINE_JOB_LIMIT_MS"), DEFAULT_LIMITS.machineMinutes * MIN);
+});
+
+test("Part end is on the shelf, its code in the gateway's table", () => {
+  assert.ok(SHELF.nodes.partEnd, "on the shelf");
+  assert.equal(GATEWAY_NODES.partEnd, partEndNode);
+});

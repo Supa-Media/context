@@ -18,6 +18,7 @@ import { fileURLToPath } from "node:url";
 import { aiGatewayConfig, requestViaGateway } from "../src/agent/aiGateway.js";
 import { UNIT_LIMIT } from "./gateSample.mjs";
 import { DEFAULT_JUDGE } from "./judge.mjs";
+import { readTexConfig } from "../../../scripts/lib/texConfigFile.mjs";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 export const NODES_DIR = join(HERE, "nodes");
@@ -129,7 +130,7 @@ export async function nodesCommand(options, { write = (text) => process.stdout.w
   const only = options.only ? new Set(String(options.only).split(",")) : null;
   const sets = (await loadNodeCases(options.dir ?? NODES_DIR)).filter((s) => !only || only.has(s.node));
   const table = nodes ?? (await import("../src/agent/graph/gatewayNodes.js")).GATEWAY_NODES;
-  const shapes = config ?? JSON.parse(await readFile(join(HERE, "../../../packages/shared/src/texConfig.json"), "utf8"));
+  const shapes = config ?? readTexConfig();
   const gateway = options.fake ? null : aiGatewayConfig(process.env);
   const judge = gateway ? (field, value, words) => judgeField(gateway, field, value, words) : null;
   const rows = [];

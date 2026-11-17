@@ -4,6 +4,7 @@
   "private": true,
   "main": "expo-router/entry",
   "scripts": {
+    "postinstall": "node ../../scripts/tex-generated.mjs mobile",
     "start": "expo start",
     "dev": "expo start",
     "lint": "eslint .",

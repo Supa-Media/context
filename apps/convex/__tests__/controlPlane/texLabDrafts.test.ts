@@ -16,7 +16,7 @@
 
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 import { PINNED_CONTEXT_SLUG } from "@context/shared";
-import { api } from "../../_generated/api";
+import { api, internal } from "../../_generated/api";
 import { addMember, createUser, createWorkspace, gatewayPost } from "../fixtures.helpers";
 import { ACCESS_A, ACCESS_B, bodyOf, registerClient, twoConnectedTenants } from "./fixtures.helpers";
 import { withSession } from "../session.helpers";
@@ -46,6 +46,16 @@ async function world(role: "editor" | "member" = "editor") {
 }
 
 describe("tex_dev drafts", () => {
+  test("a draft keeps the main it was made from, and a copy of a draft keeps that draft's", async () => {
+    const { t, dev } = await world();
+    const made = await dev("create", { name: "Based", graph: JSON.stringify(GRAPH), base: "c0123456789abcd" });
+    const copied = await dev("create", { name: "Copy", from: made.id, base: "c00000000000000" });
+    const loose = await dev("create", { name: "Loose", graph: JSON.stringify(GRAPH), base: "nope" });
+    const rows = await t.run(async (ctx) => await ctx.db.query("texLabVersions").collect());
+    const baseOf = (id: unknown) => rows.find((r) => r.versionId === id)?.base;
+    expect([baseOf(made.id), baseOf(copied.id), baseOf(loose.id)]).toEqual(["c0123456789abcd", "c0123456789abcd", undefined]);
+  });
+
   test("an editor of the pinned context makes, reads and edits a draft, and sees it in the list", async () => {
     const { dev } = await world();
     const made = await dev("create", { name: "Lighter reviewer", graph: JSON.stringify(GRAPH) });
@@ -146,6 +156,16 @@ describe("tex_dev drafts", () => {
     const row = (await withSession(t, staff).query(api.functions.texLab.list, {})).versions.find((v) => v.versionId === id)!;
     expect(row.promote?.state).toBe("asked");
     expect(await dev("get", { draft: "vnothere" })).toEqual({ status: "not_found" });
+  });
+  test("promote carries tex_dev's clash picks to the workflow, only main or draft", async () => {
+    const { t, dev } = await world();
+    const id = (await dev("create", { name: "Ship it", graph: JSON.stringify(GRAPH) })).id as string;
+    expect(await dev("promote", { draft: id, picks: [{ what: "Front door effort", take: "draft" }, { what: "wire a → b", take: "main" }, { what: "junk", take: "mine" }, "nonsense"] })).toEqual({ status: "ok", promote: "asked" });
+    const ask = (await t.query(internal.functions.texLabPromote.asked, {})).find((a) => a.versionId === id)!;
+    expect(ask.picks).toEqual([
+      { what: "Front door effort", take: "draft" },
+      { what: "wire a → b", take: "main" },
+    ]);
   });
   test("the Lab's Tools and Tests tabs: tool stats, and case edits kept for every staff member", async () => {
     const { t, dev, staff } = await world();
