@@ -76,6 +76,7 @@ import {
   json,
   randomOpaqueToken,
   MAX_PRIVACY_REQUEST_BYTES,
+  MAX_TEX_DEV_REQUEST_BYTES,
   readJsonBody,
   requestIsFromAgentWorker,
   requestIsFromEmailWorker,
@@ -841,7 +842,7 @@ http.route({ path: "/gateway/access/mirror", method: "POST", handler: gatewayRou
 http.route({ path: "/gateway/rows/mirror", method: "POST", handler: gatewayRoute(workspaceRoutes.gatewayRowsMirrorHandler) }); // Convex written behind an object's note writes (`functions/objectRowsMirror.ts`)
 export const gatewayDreamsStart = gatewayRoute(dreams.gatewayDreamsStartHandler); // Tex's dream now, for the owner's own agent (`lib/dreams/now.ts`)
 http.route({ path: "/gateway/dreams/start", method: "POST", handler: gatewayDreamsStart });
-for (const [path, handler] of texStyleRoutes.TEX_ROUTES) http.route({ path, method: "POST", handler: gatewayRoute(handler) }); // the agent's chat commands on its own grant, and the Tex page's two calls on the console's (`texCommands.ts`, `texPage.ts`)
+for (const [path, handler] of texStyleRoutes.TEX_ROUTES) http.route({ path, method: "POST", handler: gatewayRoute(handler, path === "/gateway/tex/dev" ? MAX_TEX_DEV_REQUEST_BYTES : undefined) }); // the agent's chat commands on its own grant, and the Tex page's two calls on the console's (`texCommands.ts`, `texPage.ts`)
 export const gatewayAgentIdentity = gatewayRoute(texIdentity.gatewayAgentIdentityHandler); // who is texting Tex (`lib/texIdentity/identity.ts`)
 http.route({ path: "/gateway/agent/identity", method: "POST", handler: gatewayAgentIdentity });
 http.route({ path: "/gateway/texts/opened", method: "POST", handler: gatewayRoute(texIdentity.gatewayTextsOpenedHandler) }); // a text's session the person object opened (`functions/textingObjects.ts`)
