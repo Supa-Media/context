@@ -59,7 +59,7 @@
     {"id":"m53","text":"after we yelled at you","who":"Remi"},
     {"id":"m54","kind":"reply","labels":{"decide":{"act":"respond","star":true,"why":"replies_to_tex"},"fd":{"must":["playful one-liner back, short"],"never":["apologise or explain"],"star":true}},"text":"tex is a hater","to":"m50","who":"Theo"},
     {"id":"m55","tex":true,"text":"Just a fan with notes.","who":"Tex"},
-    {"id":"m56","labels":{"decide":{"act":"quiet","also_react":"no","star":true,"why":"people_talking"}},"text":"lmaooo","who":"Theo"},
+    {"id":"m56","labels":{"decide":{"act":"quiet","also_react":"no","star":true,"why":"replies_to_tex"}},"text":"lmaooo","who":"Theo"},
     {"at":"Tue 19:30","id":"m57","text":"how are we feeling about saturday","who":"Theo"},
     {"id":"m58","text":"good if the generator holds up","who":"Nadia"},
     {"id":"m59","text":"did we ever fix the flicker","who":"Remi"},
