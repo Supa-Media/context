@@ -70,6 +70,7 @@ export function turnPrompt(place, answering, o) {
     ["checkIns", o.observe && o.texting ? CHECK_IN_PROMPT : ""], // what its own check-ins do (`heartbeat.js`)
     ["attention", o.observe && o.texting ? ATTENTION_PROMPT : ""], // the pings other agents ask it to text (`attention.js`)
     ["workspaces", workspacesPrompt(o.workspaces)],
+    ["groups", typeof o.groups === "string" ? o.groups : ""], // the group chats they are in, read from their 1:1 (`groupChats.js`)
     ["mail", mailAccountsPrompt(o.mail)], // the mailboxes a mail search reaches (`mailAccounts.js`); their states are per text, below
   ];
   // Always the day: a caller with no clock of its own (the memory nudge, a reflection) gets now, in the routines' default zone, named (Dev2, 2026-11-10).

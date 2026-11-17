@@ -33,6 +33,7 @@ import { sharedChats } from "./lib/texLabShared";
 import { engagementOf, TEXTS_GROUP_CLIENT_ID } from "./textGroups";
 import { oldLineSetting } from "./texOldLine";
 import { TEXTS_CLIENT_ID } from "./textLinks";
+import { groupsOfUser } from "./lib/texIdentity/groups";
 
 const CONSOLE_CLIENT_ID = "context_console";
 const CHAT_KEY = /^[0-9a-f]{64}$/;
@@ -95,7 +96,8 @@ async function sessionFor(ctx: QueryCtx, userId: Id<"users">, chat: string) {
     const own = grants.filter((grant) => grant.clientId === TEXTS_CLIENT_ID && grant.status === "active").sort((a, b) => b.createdAt - a.createdAt);
     for (const grant of own) {
       const live = await liveWithoutToken(ctx, grant);
-      if (live !== null) return { status: "ok" as const, session: await sessionOf(ctx, live), people: [{ handle: await handleFor(ctx, userId), name: "You" }], chat: { oldLine: await oldLineSetting(ctx) } };
+      // Their group chats too, so a draft that lets the 1:1 read them is tested on the real list (`lib/texIdentity/groups.ts`).
+      if (live !== null) return { status: "ok" as const, session: await sessionOf(ctx, live), people: [{ handle: await handleFor(ctx, userId), name: "You" }], chat: { oldLine: await oldLineSetting(ctx), groups: await groupsOfUser(ctx, userId) } };
     }
     return { status: "not_found" as const, error: "Tex has no texting grant for you yet: text Tex once first." };
   }
@@ -135,7 +137,8 @@ export async function sharedSessionFor(ctx: QueryCtx, callerId: Id<"users">, cha
   if (listed.kind === "1:1") {
     const sharer = chat.slice(2) as Id<"users">;
     const answer = await sessionFor(ctx, sharer, "me");
-    return answer.status === "ok" ? { ...answer, people: [{ handle: await handleFor(ctx, sharer), name: listed.name }] } : answer;
+    // Sharing a 1:1 shares that chat, never the sharer's group chats: a test turn there reads none of them.
+    return answer.status === "ok" ? { ...answer, people: [{ handle: await handleFor(ctx, sharer), name: listed.name }], chat: { ...answer.chat, groups: [] } } : answer;
   }
   const group = await ctx.db
     .query("textGroups")
