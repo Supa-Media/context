@@ -367,7 +367,7 @@ export const CAPABILITIES = Object.freeze([
   },
   {
     name: "Progress lines and silence",
-    actions: ["send.progress", "send.say_nothing"],
+    actions: ["send.progress", "send.say_nothing", "send.tapback"],
     texts: "text a short line while a long job runs, or say nothing when silence fits",
     group: "the same",
   },

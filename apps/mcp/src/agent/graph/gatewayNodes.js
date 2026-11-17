@@ -58,6 +58,7 @@ import moveJudge from "./nodes/moveJudge.js";
 import { crossChatGateNode } from "./nodes/crossChatGate.js";
 import { chatAskNode } from "./nodes/chatAsk.js";
 import { chatAnswerNode } from "./nodes/chatAnswer.js";
+import { tapbackNode } from "./nodes/tapback.js";
 import { jobadv } from "./nodes/jobadv.js";
 import { staffNode } from "./nodes/staff.js";
 
@@ -137,4 +138,6 @@ export const GATEWAY_NODES = {
   get crossChatGate() { return crossChatGateNode; },
   get chatAsk() { return chatAskNode; },
   get chatAnswer() { return chatAnswerNode; },
+  // A tapback as the whole answer: whether the front door may end the turn with one, and which emoji (`nodes/tapback.js`, `../tapbackEnding.js`).
+  get tapback() { return tapbackNode; },
 };
