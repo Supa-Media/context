@@ -395,6 +395,7 @@ export class SenderInbox implements DurableObject {
     return {
       ...(workflow ? { startTurn: (turn: string) => startGroupTurn(workflow, this.state.id.toString(), turn), answerFirst: (work: Promise<unknown>) => this.handOff(work) } : {}),
       fetch: this.out,
+      ...(this.env.TEX_GRAPH !== undefined ? { texGraph: this.env.TEX_GRAPH } : {}),
       controlPlaneOrigin: this.env.CONTROL_PLANE_ORIGIN,
       workerSecret: this.env.AGENT_WORKER_SECRET,
       gatewayOrigin: this.env.GATEWAY_ORIGIN,

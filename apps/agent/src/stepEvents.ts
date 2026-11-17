@@ -24,7 +24,7 @@ import type { Decision, DecideAsk } from "./decide";
 import type { InboxStorage } from "./inbox";
 import type { ProviderArrival, ProviderSend } from "./providerTiming";
 
-export type StepName = "triage" | "decide" | "react" | "text" | "send" | "oldLine" | "moveChat" | "edit";
+export type StepName = "triage" | "decide" | "react" | "text" | "send" | "oldLine" | "moveChat" | "edit" | "provisional";
 /** One step as the gateway takes it (`apps/mcp/src/agent/log.js` `checkStep`). */
 export type StepRecord = {
   name: StepName;

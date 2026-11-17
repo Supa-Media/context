@@ -30,7 +30,17 @@ run has marked itself running).
 - The turn's answer waits for the go (`provisional_wait`); none within a minute is a stop. Only the Worker sends, and it
   never sends a stopped run's answer.
 
+**What the texting Worker does (`apps/agent/src/provisional.ts`, `groupTurnRun.ts` `startEarly`).** In a group, once
+the config wires the Door step as a Provisional run, a burst's asker's messages start their turn at once, beside
+Decide (answered first, or in memory where there is no workflow). Decide's choice is the verdict: exactly the messages
+it started on is the go; quiet, a wait, or any other set stops it, and the drain carries on with that choice as before,
+so a different set is answered by a fresh turn. Until the go, nothing reaches the chat: no tapback on a tool, no
+progress line, no fixed line, no answer. A run lost to a restart before its go is nobody's turn (its record is dropped,
+its messages wait for the drain). Each verdict is the chat's `provisional` step (the Front door's, in the Lab), with why
+and how long the run had gone. The wiring comes from the config the Worker was built with, or a Lab test chat's draft
+(`env.TEX_GRAPH`). A 1:1 chat's judged path is next; its texts mostly go straight to Tex already (p50 wait 0.03 s).
+
 **What a simplification would cost.** Running writes before the go without the undo leaves a note changed by a turn
 that was never meant to answer; dropping the end-of-turn wait answers before Decide said so. Both are caught by
-`apps/mcp/test/agentProvisional.test.mjs` (its header lists the sabotage each test catches) and the Lab's
-`texLabProvisional.test.ts`.
+`apps/mcp/test/agentProvisional.test.mjs` (its header lists the sabotage each test catches), the Worker's
+`apps/agent/src/groupProvisional.test.ts`, and the Lab's `texLabProvisional.test.ts`.
