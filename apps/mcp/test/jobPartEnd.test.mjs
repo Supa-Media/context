@@ -49,6 +49,15 @@ test("a job past its time, or past its parts, starts no more", () => {
   assert.equal(decidePartEnd(at({ cause: "steps_out", part: 9 })).to, "carry", "part 9 of 10 still has one after it");
 });
 
+test("out of steps with no room left, a job ends as the part's own check read its answer", () => {
+  const last = (checked) => decidePartEnd(at({ cause: "steps_out", part: 10, ...(checked ? { checked } : {}) })).ended;
+  assert.equal(last("done"), "done", "checked done: its answer is the result, not a stuck job");
+  assert.equal(last("waiting"), "waiting");
+  assert.equal(last("stuck"), "stuck");
+  assert.equal(last(undefined), "stuck", "no check: short until shown otherwise");
+  assert.equal(decidePartEnd(at({ cause: "steps_out", checked: "done" })).to, "carry", "with room left it still carries on");
+});
+
 test("two idle parts in a row end stuck instead of spending more", () => {
   assert.equal(decidePartEnd(at({ cause: "unfinished", idle: true })).to, "carry", "one idle part is allowed");
   assert.deepEqual(decidePartEnd(at({ cause: "unfinished", idle: true, wasIdle: true })), { to: "end", ended: "stuck", cause: "unfinished", room: true, spinning: true });

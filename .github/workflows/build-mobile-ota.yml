@@ -1,0 +1,102 @@
+name: Export production OTA bundle
+
+# Exports the over-the-air JS bundle during Deploy to Production. The upload
+# is deploy-production-ota.yml, so installed builds with a matching
+# runtimeVersion pick the bundle up without a native rebuild.
+#
+# IMPORTANT: build-time public env vars (EXPO_PUBLIC_*) MUST be present here too.
+# `eas update` exports the JS bundle in this runner, so a missing
+# EXPO_PUBLIC_CONVEX_URL would ship `undefined` and crash the app on launch —
+# exactly like a native build without it. (See docs/SECRETS.md.)
+#
+# EAS_PROJECT_ID is the same story for a different reason: `eas update` reads
+# `app.config.js`'s `extra.eas.projectId` — evaluated in THIS runner, unlike a
+# native build's — to know which EAS project to publish to. It is an account
+# identifier this public repository does not commit (CLAUDE.md), so
+# `app.config.js` falls back to a placeholder without it; missing here, that
+# placeholder would make `eas update` either fail outright or publish to the
+# wrong project, so the preflight below refuses to continue without it.
+#
+# Called by deploy-production.yml for `phase: bundle`, which exports the JS as
+# soon as the run starts, beside the backend deploys. The upload is
+# deploy-production-ota.yml, started after the backends succeed, so the export
+# stays off the tail of the deploy and the upload does not hold its queue.
+# Exporting is the slow half (about two minutes of Metro). The upload keeps
+# the old edge: new JS must not reach phones before the functions it calls exist.
+
+on:
+  workflow_call:
+    inputs:
+      phase:
+        description: "bundle (export and upload an artifact). Publish is deploy-production-ota.yml."
+        type: string
+        required: true
+
+concurrency:
+  group: build-mobile-ota-production
+  cancel-in-progress: false
+
+jobs:
+  bundle:
+    name: Export OTA bundle
+    if: ${{ inputs.phase == 'bundle' }}
+    runs-on: ubuntu-latest
+    environment: production
+    env:
+      # Inlined into the OTA JS bundle at export time.
+      EXPO_PUBLIC_CONVEX_URL: ${{ secrets.EXPO_PUBLIC_CONVEX_URL }}
+      EXPO_PUBLIC_SENTRY_DSN: ${{ secrets.EXPO_PUBLIC_SENTRY_DSN }}
+      # The commit, so a feedback report names the build it came from.
+      EXPO_PUBLIC_APP_BUILD: ${{ github.sha }}
+      EXPO_PUBLIC_SENTRY_TRACES_SAMPLE_RATE: "0.1"
+      EXPO_PUBLIC_POSTHOG_KEY: ${{ secrets.EXPO_PUBLIC_POSTHOG_KEY }}
+      EXPO_PUBLIC_POSTHOG_HOST: ${{ secrets.EXPO_PUBLIC_POSTHOG_HOST }}
+      EXPO_PUBLIC_POSTHOG_REPLAY_SAMPLE_RATE: "0.1"
+      # The site key for the human check in front of a collect link — the
+      # public half of the pair whose secret half `deploy-convex.yml` pushes.
+      # Public by construction: it is in the markup of every page that runs the
+      # widget. Here rather than committed because this repository is, and
+      # `CLAUDE.md` keeps account identifiers out of it. Absent is a working
+      # state and a deliberate one: the form says it is not taking answers,
+      # which is the same thing the control plane says with no secret set.
+      EXPO_PUBLIC_TURNSTILE_SITE_KEY: ${{ secrets.EXPO_PUBLIC_TURNSTILE_SITE_KEY }}
+      # Build-only source-map credentials; none has an EXPO_PUBLIC_ prefix.
+      SENTRY_AUTH_TOKEN: ${{ secrets.SENTRY_AUTH_TOKEN }}
+      SENTRY_ORG: ${{ secrets.SENTRY_ORG }}
+      SENTRY_PROJECT: ${{ secrets.SENTRY_PROJECT }}
+      # Read by app.config.js to resolve extra.eas.projectId — see the header.
+      EAS_PROJECT_ID: ${{ secrets.EAS_PROJECT_ID }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Verify required secrets
+        run: |
+          for v in EXPO_PUBLIC_CONVEX_URL EAS_PROJECT_ID; do
+            if [ -z "${!v:-}" ]; then
+              echo "ERROR: missing required secret '$v' in the 'production' environment."
+              exit 1
+            fi
+          done
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      # Exactly the export `eas update` runs itself (eas-cli publish.js: ios +
+      # android, source and asset maps), so publishing it is unchanged.
+      - name: Export the production bundle
+        working-directory: apps/mobile
+        run: pnpm exec expo export --output-dir dist --dump-sourcemap --dump-assetmap --platform ios --platform android
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: production-ota-dist
+          path: apps/mobile/dist
+          if-no-files-found: error
+          retention-days: 1
