@@ -9,7 +9,7 @@
     {"at":"Mon 10:02","id":"m1","labels":{"decide":{"act":"respond","also_react":"yes","emoji":"🔎","star":true},"fd":{"must":["react first, then go look"],"never":["reply \"on it\" in words when a reaction says it"],"star":true}},"text":"Tex pull up prices for the three card readers we talked about, square, clover, and the one nadia sent","who":"Remi"},
     {"id":"m2","kind":"react","tex":true,"text":"🔎","to":"m1","who":"Tex"},
     {"id":"m3","text":"tapstand.example","who":"Nadia"},
-    {"id":"m4","labels":{"decide":{"act":"quiet","star":true,"why":"people_talking"}},"text":"yeah that one","who":"Remi"},
+    {"id":"m4","text":"yeah that one","who":"Remi"},
     {"id":"m5","text":"does clover still do the monthly fee thing","who":"Theo"},
     {"id":"m6","text":"think so","who":"Nadia"},
     {"id":"m7","tex":true,"text":"Cheapest for us is Square: no monthly fee, 2.6% plus 15¢ a tap. Clover is $15 a month plus 2.3%, and Tapstand is 2.9% but the reader's free.","who":"Tex"},
@@ -32,7 +32,7 @@
     {"id":"m24","text":"some guy at the market, he let me take it","who":"Nadia"},
     {"id":"m25","labels":{"fd":{"never":["comment on the picture"],"star":true}},"text":"we need him on the menu board","who":"Theo"},
     {"id":"m26","text":"not ON the menu theo","who":"Remi"},
-    {"id":"m27","labels":{"decide":{"act":"quiet","also_react":"yes","emoji":"😂","star":true,"why":"people_talking"}},"text":"💀 you know what i meant","who":"Theo"},
+    {"id":"m27","text":"💀 you know what i meant","who":"Theo"},
     {"id":"m28","kind":"react","tex":true,"text":"😂","to":"m26","who":"Tex"},
     {"at":"Mon 16:05","id":"m29","text":"commissary says the fryer cleaning is now monthly, $120","who":"Theo"},
     {"id":"m30","text":"ugh","who":"Remi"},
@@ -59,7 +59,7 @@
     {"id":"m53","text":"after we yelled at you","who":"Remi"},
     {"id":"m54","kind":"reply","labels":{"decide":{"act":"respond","star":true,"why":"replies_to_tex"},"fd":{"must":["playful one-liner back, short"],"never":["apologise or explain"],"star":true}},"text":"tex is a hater","to":"m50","who":"Theo"},
     {"id":"m55","tex":true,"text":"Just a fan with notes.","who":"Tex"},
-    {"id":"m56","labels":{"decide":{"act":"quiet","also_react":"no","star":true,"why":"replies_to_tex"}},"text":"lmaooo","who":"Theo"},
+    {"id":"m56","labels":{"decide":{"act":"quiet","also_react":"no","star":true,"why":"people_talking"}},"text":"lmaooo","who":"Theo"},
     {"at":"Tue 19:30","id":"m57","text":"how are we feeling about saturday","who":"Theo"},
     {"id":"m58","text":"good if the generator holds up","who":"Nadia"},
     {"id":"m59","text":"did we ever fix the flicker","who":"Remi"},
@@ -143,6 +143,12 @@
     {"id":"m137","labels":{"fd":{"must":["the number from the card reader, compared to a normal Saturday"]}},"text":"Tex how much did we do today","who":"Remi"},
     {"id":"m138","tex":true,"text":"$2,310 on cards, about $500 more than a normal Saturday. Breakfast was $640 of that.","who":"Tex"},
     {"id":"m139","text":"we're so back","who":"Nadia"},
-    {"id":"m140","text":"🎉","who":"Theo"}
+    {"id":"m140","text":"🎉","who":"Theo"},
+    {"at":"Sun 10:05","id":"m141","text":"Tex what does the farmers market charge for a stall now","who":"Nadia"},
+    {"id":"m142","tex":true,"text":"Their fee page needs a login, so I couldn't see the price.","who":"Tex"},
+    {"id":"m143","kind":"reply","labels":{"decide":{"act":"quiet","also_react":"no","star":true,"why":"asks_someone_else"}},"text":"remi didn't they email you about it","to":"m142","who":"Theo"},
+    {"id":"m144","text":"somewhere, i'll look","who":"Remi"},
+    {"id":"m145","kind":"reply","labels":{"decide":{"act":"respond","star":true,"why":"replies_to_tex"}},"text":"try the city's events page instead","to":"m142","who":"Nadia"},
+    {"id":"m146","tex":true,"text":"The city's page lists summer stalls at $45 a day.","who":"Tex"}
   ]
 }
