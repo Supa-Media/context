@@ -30,10 +30,13 @@ import { internalMutation, mutation } from "./lib/rowWatch/mutations";
 /**
  * At most this many of one person's runs waiting or running at once, and this many started in a day. Every Claude
  * thread of a person runs as them, so the caps are sized for several threads working the Dev set side by side
- * (Dev2, 2026-11-17: "increase the caps if they keep getting hit"); a Dev run costs about a dollar at most.
+ * (Dev2, 2026-11-17: "increase the caps if they keep getting hit"); a Dev run costs about a dollar at most. Six at
+ * once was hit the same afternoon with five threads each queueing main and a draft, so the caps are the money a day can
+ * bear, not a guess at how many threads run (Dev2, 2026-11-17: "raising these artificial limits to actual legit limits,
+ * the only real limit I have is ... a monetary budget"): 200 runs is at most about $200 a day, most runs cost cents.
  */
-export const MAX_QUEUED = 6;
-export const MAX_PER_DAY = 60;
+export const MAX_QUEUED = 20;
+export const MAX_PER_DAY = 200;
 const DAY_MS = 24 * 60 * 60 * 1000;
 /** A run still waiting or running after this long counts as lost: it no longer holds a place in the queue. */
 export const STALE_MS = 3 * 60 * 60 * 1000;
