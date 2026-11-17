@@ -19,6 +19,7 @@ import { hashToken } from "./lib/crypto";
 import { randomOpaqueToken } from "./lib/gatewayAuth";
 import { consumeRateLimit } from "./lib/rateLimit";
 import { requireWorkspaceAccess } from "./lib/workspaceAuth";
+import { forgetGrantResolveCache } from "./lib/controlPlane/grantCacheRows";
 
 /**
  * The console's own grant, so the agent in this app can reach the gateway.
@@ -296,6 +297,7 @@ async function applyConsoleGrantWork(
     });
   } else {
     grantId = reusable._id;
+    await forgetGrantResolveCache(ctx, { hashedAccessToken: reusable.hashedAccessToken });
     await ctx.db.patch(reusable._id, {
       consoleInstanceId: args.consoleInstanceId,
       // Re-clamped every time, so a role that narrowed since the last mint

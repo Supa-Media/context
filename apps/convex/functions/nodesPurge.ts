@@ -107,6 +107,15 @@ export async function forgetWorkspaceTree(
     .withIndex("by_workspace", (q) => q.eq("workspaceId", workspaceId))
     .collect();
   for (const row of accessState) await ctx.db.delete(row._id);
+  // The small version row too. `putAccessVersion` only ever raises it, so a
+  // state rebuilt after this delete would restart at 1 while the leftover row
+  // stayed at the old number, and a saved grant list would not see access
+  // changes until the new version climbed past it.
+  const accessVersions = await ctx.db
+    .query("nodeAccessVersions")
+    .withIndex("by_workspace", (q) => q.eq("workspaceId", workspaceId))
+    .collect();
+  for (const row of accessVersions) await ctx.db.delete(row._id);
   // The icons, emoji names and forwarding ledger (`lib/smallData/purge.ts`).
   if (options.storageMoved === true) await resetSmallDataForStorage(ctx, workspaceId);
   else await purgeSmallDataBatch(ctx, workspaceId);

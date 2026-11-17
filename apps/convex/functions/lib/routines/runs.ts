@@ -35,6 +35,7 @@ import {
   nextRunFor,
 } from "./model";
 import { fallsBackToOwner, scheduleReconcile } from "./sync";
+import { forgetGrantResolveCache } from "../controlPlane/grantCacheRows";
 
 const ROUTINE_SCOPES = [SCOPE_READ, SCOPE_WRITE, SCOPE_PRIVATE];
 
@@ -262,6 +263,7 @@ async function applyRoutineGrant(
       createdAt: now,
     });
   } else {
+    await forgetGrantResolveCache(ctx, { hashedAccessToken: reusable.hashedAccessToken });
     await ctx.db.patch(reusable._id, fields);
   }
 }
@@ -314,7 +316,10 @@ export async function recordRoutineResultHandler(
       .collect();
     for (const grant of grants) {
       if (grant.clientId !== ROUTINES_CLIENT_ID || grant.status !== "active") continue;
-      if ((grant.accessTokenExpiresAt ?? 0) > now) await ctx.db.patch(grant._id, { accessTokenExpiresAt: now });
+      if ((grant.accessTokenExpiresAt ?? 0) > now) {
+        await forgetGrantResolveCache(ctx, { hashedAccessToken: grant.hashedAccessToken });
+        await ctx.db.patch(grant._id, { accessTokenExpiresAt: now });
+      }
     }
   }
 

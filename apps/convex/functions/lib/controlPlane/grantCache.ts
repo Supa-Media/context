@@ -28,6 +28,7 @@ import { ownedConfirmedEmailsOf } from "../signInEmails";
 import { MAX_SESSION_CONTEXTS, contextsForGrant, resolveLiveGrant, type LiveGrant } from "./liveGrants";
 import { TEXTS_GROUP_CLIENT_ID } from "../../textGroups";
 import type { RunGrantInfo } from "./liveGrants";
+import { REMEMBER_PRUNE_BATCH, pruneExpiredGrantCache, replaceGrantCacheLinks } from "./grantCacheRows";
 
 /** The same bound `grantedNamesFor` uses for group rows. */
 const MAX_GROUPS = 100;
@@ -177,7 +178,11 @@ export async function loadGrantWorkspaces(
       .query("grantResolveCache")
       .withIndex("by_token", (q) => q.eq("hashedAccessToken", hashedAccessToken))
       .unique();
-    if (row !== null && row.fingerprint === saved) return { workspaces: row.workspaces, remember: null };
+    // A row from before `expiresAt` was stored, or one already past it, is a miss.
+    // The caller has already refused a revoked or expired grant, before this read.
+    if (row !== null && row.expiresAt !== undefined && row.expiresAt > Date.now() && row.fingerprint === saved) {
+      return { workspaces: row.workspaces, remember: null };
+    }
   }
   const workspaces = await contextsForGrant(ctx, live);
   const versions: { workspaceId: Id<"workspaces">; version: number }[] = [];
@@ -194,8 +199,13 @@ export async function rememberGrantResolveHandler(
   ctx: MutationCtx,
   args: GrantRemember,
 ): Promise<null> {
+  // A miss is when a new token shows up. Drop a bounded batch of expired lists
+  // in the same write so they do not wait for the hourly prune.
+  await pruneExpiredGrantCache(ctx, REMEMBER_PRUNE_BATCH);
   const live = await resolveLiveGrant(ctx, args.hashedAccessToken);
   if (live === null || !cacheable(live)) return null;
+  const expiresAt = live.grant.accessTokenExpiresAt;
+  if (typeof expiresAt !== "number" || expiresAt <= Date.now()) return null;
   for (const item of args.versions) await putAccessVersion(ctx, item.workspaceId, item.version);
   const fingerprint = await fingerprintOf(ctx, live);
   if (fingerprint === null || fingerprint !== args.fingerprint) return null;
@@ -203,8 +213,20 @@ export async function rememberGrantResolveHandler(
     .query("grantResolveCache")
     .withIndex("by_token", (q) => q.eq("hashedAccessToken", args.hashedAccessToken))
     .unique();
-  const row = { hashedAccessToken: args.hashedAccessToken, fingerprint, workspaces: args.workspaces };
+  const row = {
+    hashedAccessToken: args.hashedAccessToken,
+    fingerprint,
+    workspaces: args.workspaces,
+    grantId: live.grant._id,
+    userId: live.grant.userId,
+    expiresAt,
+  };
   if (existing === null) await ctx.db.insert("grantResolveCache", row);
-  else await ctx.db.patch(existing._id, { fingerprint: row.fingerprint, workspaces: row.workspaces });
+  else await ctx.db.patch(existing._id, row);
+  await replaceGrantCacheLinks(
+    ctx,
+    args.hashedAccessToken,
+    args.workspaces.map((workspace) => workspace.workspaceId),
+  );
   return null;
 }

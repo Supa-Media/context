@@ -22,6 +22,7 @@ import { recordAudit } from "../audit";
 import { noteAgentUse } from "../agentUse";
 import { getMembership } from "../workspaceAuth";
 import { objectHolding } from "../accessHandOff/heldGrants";
+import { forgetGrantResolveCache } from "./grantCacheRows";
 
 /**
  * An S256 PKCE challenge is the base64url of a SHA-256 digest: 43 characters,
@@ -235,6 +236,7 @@ export async function rotateGrantHandler(
       .unique();
     // A switched person's grant is rotated in their object, which spots reuse itself; Convex is written behind it.
     if (reused !== null && reused.status === "active" && (await objectHolding(ctx, reused)) === null) {
+      await forgetGrantResolveCache(ctx, { grantId: reused._id, hashedAccessToken: reused.hashedAccessToken });
       await ctx.db.patch(reused._id, {
         status: "revoked",
         revokedAt: Date.now(),
@@ -277,6 +279,7 @@ export async function rotateGrantHandler(
       : null;
   const scopes = narrowed !== null && narrowed.length > 0 ? narrowed : grant.scopes;
 
+  await forgetGrantResolveCache(ctx, { hashedAccessToken: grant.hashedAccessToken });
   await ctx.db.patch(grant._id, {
     previousHashedRefreshToken: grant.hashedRefreshToken,
     hashedRefreshToken: args.newHashedRefreshToken,
@@ -355,6 +358,7 @@ export async function revokeGrantByTokenHandler(
   const holder = await objectHolding(ctx, grant);
   if (holder !== null) return { grantId: grant._id, personalWorkspaceId: holder };
 
+  await forgetGrantResolveCache(ctx, { grantId: grant._id, hashedAccessToken: grant.hashedAccessToken });
   await ctx.db.patch(grant._id, { status: "revoked", revokedAt: Date.now() });
   await recordAudit(ctx, {
     workspaceId: grant.workspaceId,

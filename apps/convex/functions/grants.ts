@@ -30,6 +30,7 @@ import { noteAgentUse } from "./lib/agentUse";
 import { grantsNewestFirst } from "./lib/grants/newestFirst";
 import { getMembership, workspaceNotFound } from "./lib/workspaceAuth";
 import { RATE_LIMIT_RETENTION_MS, consumeRateLimit } from "./lib/rateLimit";
+import { forgetGrantResolveCache } from "./lib/controlPlane/grantCacheRows";
 
 /**
  * The most grants one response carries.
@@ -277,6 +278,7 @@ export const revokeGrant = mutation({
 
     if (grant.status === "revoked") return { revoked: false };
 
+    await forgetGrantResolveCache(ctx, { grantId: grant._id, hashedAccessToken: grant.hashedAccessToken });
     await ctx.db.patch(args.grantId, {
       status: "revoked",
       revokedAt: Date.now(),
