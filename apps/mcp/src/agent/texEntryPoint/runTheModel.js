@@ -48,6 +48,7 @@ import { setAsideLine } from "../textedSettle.js";
 import { cancelledTurn } from "../textingRoutes.js";
 import { textingAwareCallTool } from "../textingWrites.js";
 import { saidBefore, withTheirNotesKept } from "../theirNotes.js";
+import { ownWorkspaceName, withWorkspaceConventions } from "../workspaceConventions.js";
 import { threadPrompt } from "../threadView.js";
 import { sleepLineNote } from "../timeLog.js";
 import { agentTools, runTurn } from "../turn.js";
@@ -157,7 +158,7 @@ export async function runTheModel(t, via) {
     callTool: via.tools(allowedFirst(allowedBeside ? allowedRead : null, withChatWriteLock({ env, group, steps: chatLog === null ? null : stepLog(chatLog, ledgerAt ?? {}) }, (steer?.track ?? ((call) => call))(withVaultWatch(ledger, withGroupVault(group, (claims?.wrap ?? ((call) => call))(withSameAsk({ on: claims !== null, store, session, ledger, history, question }, withBackground(background, outgoing.wrap(
       withPictureMaker(maker, withDrawnImages(outgoing, withAttachmentImages(
         attachments,
-        withEmailFiles({ store, attachments }, withKeptFiles(store, () => markUntrusted(ledger), withMailAgent(supervision?.mail ?? null, withDelegate(delegation, withChatSkills(group, learned, withLearnedSkills(group !== null ? null : learned, withSkills(skills, withNoteLinks(withFolderFit(group !== null ? groupAwareCallTool(withTheirNotesKept(dispatch, keptOptions), groupWriting, { store, group }) : textingAwareCallTool(withTheirNotesKept(dispatch, keptOptions), textingWriting, { timeZone })), noteLinking)), { tainted: () => ledger.untrusted === true, dispatch }), { outside: () => ledger.outside === true }))))),
+        withEmailFiles({ store, attachments }, withKeptFiles(store, () => markUntrusted(ledger), withMailAgent(supervision?.mail ?? null, withDelegate(delegation, withChatSkills(group, learned, withLearnedSkills(group !== null ? null : learned, withSkills(skills, withWorkspaceConventions(withNoteLinks(withFolderFit(group !== null ? groupAwareCallTool(withTheirNotesKept(dispatch, keptOptions), groupWriting, { store, group }) : textingAwareCallTool(withTheirNotesKept(dispatch, keptOptions), textingWriting, { timeZone })), noteLinking), { own: ownWorkspaceName(noteLinking.contexts) })), { tainted: () => ledger.untrusted === true, dispatch }), { outside: () => ledger.outside === true }))))),
       )), pictureRun),
     )))))))))),
     pictures: texted || group !== null,
