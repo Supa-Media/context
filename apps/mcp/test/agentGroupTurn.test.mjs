@@ -35,7 +35,7 @@ const TOKEN_GROUP_READER = `cat_group_reader_${"0".repeat(22)}`;
 const TOKEN_TEXTS = `cat_group_texts_${"0".repeat(23)}`;
 const KEY = "a".repeat(64);
 const MEMBERS = "b".repeat(64);
-const chat = (extra = {}) => ({ key: KEY, members: MEMBERS, from: "ada", ...extra });
+const chat = (extra = {}) => ({ key: KEY, members: MEMBERS, from: "ada", cause: "tagged", ...extra });
 
 let world;
 
@@ -157,7 +157,7 @@ test("a group turn must name its chat, and a chat names only hashes", async () =
   assert.equal(groupOf({ group: { key: KEY, members: "+15555550100", from: "ada" } }), null, "a phone number is not a participant hash");
   assert.equal(groupOf({ group: { key: "short", members: MEMBERS } }), null);
   // No handle is nobody's own account (an invited person's tag, 2026-10-27): marked so it releases and sends nothing as anyone.
-  assert.deepEqual(groupOf({ group: chat({ from: "Not A Handle!" }) }), { key: KEY, members: MEMBERS, from: "", people: [], chat: [], guestTagger: true });
+  assert.deepEqual(groupOf({ group: chat({ from: "Not A Handle!" }) }), { key: KEY, members: MEMBERS, from: "", people: [], chat: [], cause: "tagged", guestTagger: true });
   // A chat line names a handle or nobody, never a number, and a line that isn't one is left out.
   const said = groupOf({ group: chat({ chat: [{ from: "+15555550100", text: "hi" }, { text: 7 }, { from: "bo", text: "  friday?  " }] }) });
   assert.deepEqual(said.chat, [{ from: "", text: "hi" }, { from: "bo", text: "friday?" }]);
