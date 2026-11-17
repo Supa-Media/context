@@ -523,7 +523,7 @@ export async function runTurn(options) {
       // answer ran out of room, which the turn log and a benchmark count.
       ...(answer.stop === "max_tokens" ? { cut: true } : {}),
       ...(strippedNote ? { code: "thinking_stripped" } : {}),
-      // What the round cost in tokens, and how much of its output was words or calls (the rest is thinking): `turnStages.js` `callPoints`; and which prompt it was sent, as module ids and fingerprints, never its words (`promptManifest.js`).
+      // What the round cost in tokens, and how much of its output was words or calls (the rest is thinking): `turnStages.js` `callPoints`; and which prompt it was sent, as module ids and fingerprints, with the words a rebuild can't make (`promptManifest.js` `keptWordsOf`).
       ...(answer.usage ? { usage: answer.usage, said: (answer.text ?? "").length, calls: answer.toolCalls.length } : {}), ...(prompt.prompt ? { prompt: prompt.prompt } : {}), ...(answer.prefix ? { prefix: answer.prefix } : {}),
     });
     strippedNote = false;

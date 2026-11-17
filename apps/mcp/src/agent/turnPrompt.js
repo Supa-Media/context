@@ -31,6 +31,9 @@ import { ATTENTION_PROMPT, CHECK_IN_PROMPT } from "./checkIns.js";
 import { keptWordsOf, manifestOf } from "./promptManifest.js";
 import { mailAccountsFacts, mailAccountsPrompt } from "./mailAccounts.js";
 
+/** The repo's fixed paragraphs: the commit's catalogue holds their words, so a turn never keeps them (`keptWordsOf`). */
+const REPO_WORDS = new Set([TRANSCRIPTS_PROMPT, CHECK_IN_PROMPT, ATTENTION_PROMPT, PLANNER_PROMPT, DRIVER_PROMPT, PROGRESS_PROMPT].map((text) => text.trim()));
+
 /** Said ahead of the per-text facts in the person's turn, so the model reads them as Context's, not theirs. */
 const PREAMBLE_LABEL = "Context for this text, not written by them:";
 
@@ -98,7 +101,7 @@ export function turnPrompt(place, answering, o) {
     preamble,
     prompt: {
       modules: manifestOf(sent),
-      words: keptWordsOf(sent), // the words a rebuild at this commit can't make (`promptManifest.js` `keptWordsOf`)
+      words: keptWordsOf(sent.filter(([, text]) => !REPO_WORDS.has(typeof text === "string" ? text.trim() : text))), // the words a rebuild at this commit can't make (`promptManifest.js` `keptWordsOf`)
       // The builder inputs a rebuild cannot read from the notes: when, where, and which model it was said to.
       inputs: { at: Math.round(now), ...(o.localNow?.timeZone ? { timeZone: o.localNow.timeZone } : {}), ...(typeof answering === "string" ? { model: answering } : {}), history: o.history.length },
     },

@@ -41,13 +41,15 @@ function workerPart(worker) {
  * The round's prompt as module ids and fingerprints (`promptManifest.js`), so a
  * rebuild at the commit in the reply's `version.code` can prove it is the
  * prompt that ran, and the words of its modules the catalogue can't hold,
- * each once a turn (`seen`: a later round sent the same words), capped like
- * everything here.
+ * each once a turn (`seen`: a later round sent the same words), at most
+ * `MAX_TURN_WORDS` characters for the whole turn: a module over the budget keeps
+ * its fingerprint only, in every round, so a long turn's reply stays far under
+ * the ledger's 512 KB an entry (`texStore/ledger.js`).
  */
 const MAX_MODULES = 40;
-const MAX_ROUND_WORDS = 48_000;
+export const MAX_TURN_WORDS = 48_000;
 const FP = /^[0-9a-f]{8}$/;
-function promptPart(prompt, seen = new Set()) {
+function promptPart(prompt, seen = { words: new Set(), kept: 0 }) {
   if (prompt === null || typeof prompt !== "object" || !Array.isArray(prompt.modules)) return {};
   const modules = prompt.modules.slice(0, MAX_MODULES).filter((m) => typeof m?.id === "string" && typeof m.h === "string").map((m) => ({ id: name(m.id), n: whole(m.n), h: name(m.h) }));
   const i = prompt.inputs ?? {};
@@ -61,9 +63,11 @@ function promptPart(prompt, seen = new Set()) {
   const words = {};
   let kept = 0;
   for (const [h, text] of Object.entries(prompt.words && typeof prompt.words === "object" ? prompt.words : {})) {
-    if (!FP.test(h) || !logged.has(h) || seen.has(h) || typeof text !== "string" || kept + text.length > MAX_ROUND_WORDS) continue;
+    if (!FP.test(h) || !logged.has(h) || seen.words.has(h) || typeof text !== "string") continue;
+    seen.words.add(h); // kept or over the budget: never tried again in a later round
+    if (seen.kept + text.length > MAX_TURN_WORDS) continue;
     words[h] = text;
-    seen.add(h);
+    seen.kept += text.length;
     kept += text.length;
   }
   return { prompt: { modules, inputs, ...(kept > 0 ? { words } : {}) } };
@@ -95,7 +99,7 @@ export function turnTiming({ steps = [], trace = [], waitMs = null, worker = nul
     rounds: [],
     tools: [],
   };
-  const wordsSeen = new Set(); // a module's words are kept once a turn, in the first round that sent them
+  const wordsSeen = { words: new Set(), kept: 0 }; // a module's words are kept once a turn, in the first round that sent them, within one budget
   for (const entry of Array.isArray(trace) ? trace : []) {
     const at = loopAt + whole(entry?.at);
     const ms = whole(entry?.ms);

@@ -47,11 +47,11 @@ hand. Dev2 chose to keep them.
 - `turnPrompt.js` hands `prompt.words`, `{fingerprint: text}` for every module but the stable rules
   (`keptWordsOf`); a module over 16,000 characters keeps its fingerprint only.
 - `turnTiming.js` keeps them in the reply's round, each once a turn (a later round sending the same bytes keeps none),
-  only for fingerprints that round's manifest names, at most 48,000 characters a round.
+  only for fingerprints that round's manifest names, at most 48,000 characters a turn (a module over that keeps its fingerprint only).
 - The Lab (`engine/promptAt.ts` `wordsOf`), Replay's Prompt panel and `tex_dev prompt` show the catalogue's words or
   the kept ones, the kept ones only when they hash to the fingerprint and length logged.
 
-They live in the chat's own history, beside the texts they were built from, so they reach nobody the history does not.
+They live in the chat's own history and reach whoever reads it (its people, and the developers it is shared with), never a log or Analytics point; that includes what the turn was handed that the history may not hold, such as the about-me and jobs notes and the calendar copy. The repo's fixed paragraphs are not kept: the catalogue has them.
 A turn grows by roughly the size of its moment-built modules (6 to 20 KB in a group turn); the history the model reads
 never includes a reply's timing (`conversation.js` `keptTurn`). What a simplification would cost: dropping the words
 again hides the next wrong fact the same way (`apps/mcp/test/promptManifest.test.mjs`); showing kept words without the

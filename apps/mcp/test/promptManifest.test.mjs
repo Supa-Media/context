@@ -81,3 +81,15 @@ test("a thread note in parts is sent as one block and named part by part, so a c
   assert.deepEqual(manifestDiff(split.prompt.modules, changed.prompt.modules), ["context/thread/background"]);
   assert.ok(whole.prompt.modules.some((m) => m.id === "context/thread"), "a plain note keeps its one id");
 });
+
+test("a turn never keeps the repo's fixed paragraphs, which the commit's catalogue already holds", async () => {
+  const { turnPrompt } = await import("../src/agent/turnPrompt.js");
+  const { TRANSCRIPTS_PROMPT } = await import("../src/agent/transcript.js");
+  const o = { texting: true, pictures: false, notes: null, models: null, tools: [], history: [], threadNote: "", turnNote: "@ada asked at 3", webNames: new Set(), progress: null, aboutMe: null, identity: null, jobs: null, voice: null, calendar: null, observe: () => {}, workspaces: [], localNow: { now: Date.UTC(2026, 10, 17, 21), timeZone: "America/New_York" }, plan: null, nudge: "" };
+  const { prompt } = turnPrompt(null, "anthropic/claude-haiku-5-5", o);
+  const transcripts = prompt.modules.find((m) => m.id === "context/transcripts");
+  assert.ok(transcripts, "a 1:1 is sent its record's paragraph");
+  assert.equal(prompt.words[transcripts.h], undefined);
+  assert.ok(Object.values(prompt.words).some((text) => text.includes("@ada asked at 3")), "the turn's own note is kept");
+  assert.ok(!Object.values(prompt.words).includes(TRANSCRIPTS_PROMPT.trim()));
+});

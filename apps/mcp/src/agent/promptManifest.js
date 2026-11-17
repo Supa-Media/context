@@ -17,8 +17,12 @@
  * The words of the modules a commit cannot rebuild are kept too (Dev2,
  * 2026-11-17, after "Dev2 can't see this chat" and "@shyoh tagged you" went
  * unseen in Replay: 7 of a group turn's 13 modules showed no words): every
- * module but the stable rules, beside its fingerprint (`keptWordsOf`), in the
- * chat's own history where the texts it was built from already are. A reader
+ * module but the stable rules and the repo's fixed paragraphs, beside its
+ * fingerprint (`keptWordsOf`), in the chat's own history. That includes what
+ * the turn was handed and the history may not hold (the about-me note, the jobs
+ * note, the calendar copy, the workspaces it reaches): whoever can read the
+ * chat's history can read them, its people and the developers it is shared
+ * with, and nobody else (no log line or Analytics point carries them). A reader
  * shows them only when their fingerprint is the one logged, so kept words are
  * proven the words that ran (`apps/mobile/features/tex/lab/engine/promptAt.ts`).
  * See docs/decisions/texting-assistant/turn-told-from-state.md.
