@@ -53,6 +53,7 @@ import { causeOf, failureRecorder } from "./toolFailures.js";
 import { exhaustedAnswer, roundNotice } from "./lastRound.js";
 import { traceNames } from "./turnLog.js";
 import { TAPBACK_TOOL } from "./tapbackEnding.js";
+import { resumedRounds, roundsKeeper } from "./turnResume.js";
 import { SAID_NOTHING, SAY_NOTHING_TOOL, sayNothingLocal, sayNothingRefused, typedCallNotice, typedCallOf, withSayNothing } from "./sayNothing.js";
 
 export { describePlace, systemPrompt } from "./prompt.js";
@@ -273,6 +274,10 @@ export async function runTurn(options) {
     // Told each step as it happens (`transcript.js`): thinking, words between tools, each call.
     // Never throws back into the turn, and asks the model for its thinking in words.
     observe = null,
+    // An earlier try's rounds of this same text, opened (`savedRounds.js`): the turn goes on from them, nothing in them done again.
+    resumeFrom = null,
+    // Keeps what the turn has done after each call returns, for a try after a crash to go on from (`turnResume.js` `roundsKeeper`): `{ keep, marks }`.
+    keepRounds = null,
   } = options;
   const held = turnLedger({ tools: options.tools, ranHere: (name) => webNames.has(name) || localCalls.has(name) }); // the turn as its ledger keeps it (`sendBack.js`)
   const tell = (event) => {
@@ -419,8 +424,12 @@ export async function runTurn(options) {
   // The fallback is taken once a turn: a turn that moved models must never loop back to it.
   let fellBack = false;
 
+  // An earlier try's rounds (`savedRounds.js`): put back after the question, its calls counted as this turn's own, never run or logged again.
+  const firstRound = resumedRounds({ resumeFrom, rounds, messages, held, steps, tell });
+  const roundsFrom = historyMessages.length + 1; // where the rounds after the question start
+  const keeper = typeof keepRounds?.keep !== "function" ? null : roundsKeeper({ messages, roundsFrom, readOnly: new Set((options.tools ?? []).filter((tool) => tool?.annotations?.readOnlyHint === true && !webNames.has(tool.name) && !localCalls.has(tool.name)).map((tool) => tool.name)), keep: keepRounds.keep, marks: keepRounds.marks, carried: resumeFrom?.ran ?? {} });
   let lastWords = ""; // what the model last said, answered if the bound is reached (`lastRound.js`)
-  for (let round = 0; round < rounds; round += 1) {
+  for (let round = firstRound; round < rounds; round += 1) {
     const notice = roundNotice(round, rounds, { scheduled });
     if (notice !== null && messages.at(-1)?.text !== notice) messages.push({ role: "user", text: notice });
     const jobNudge = typeof roundNote === "function" ? roundNote(round, clock() - began) : null;
@@ -574,6 +583,7 @@ export async function runTurn(options) {
       toolCalls: answer.toolCalls,
       ...(Array.isArray(answer.content) ? { content: answer.content } : {}),
     });
+    keeper?.roundStarted();
 
     const settling = []; // calls this round that settle the turn, read once the whole round has run: one round may start several jobs
     const roundFrom = messages.length; // where this round's results start: a call that settles is told whether any beside it failed (`tapbackEnding.js`)
@@ -686,8 +696,10 @@ export async function runTurn(options) {
         // second, different copy of the email texted beside the one held (Dev, 2026-10-19).
         isError: failedCall(result),
       });
+      keeper?.called(call, result, round); // kept for a try after a crash, if all it did is in its words (`turnResume.js`)
       if (typeof settles === "function" && result?.isError !== true) settling.push(call);
     }
+    if (settling.length > 0) keeper?.freeze(); // a call that settles the turn has effects beyond its words (`savedRounds.js`)
     // A job just started: the job does the work, so the person hears "on it" now, not after another model round.
     // Read after the round, not at its first start: a call after it in the same round (a second part) still runs (2026-11-04).
     for (const call of settling) {

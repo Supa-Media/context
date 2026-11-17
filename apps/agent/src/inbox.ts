@@ -381,7 +381,7 @@ async function answerTurn(storage: InboxStorage, deps: InboxDeps, entries: Entry
   const timing: TurnTiming = { started: deps.now(), arrived: arrivedAt(entries) };
   let turn: Answered;
   try {
-    turn = await answering(message, work, { ...deps, retry: tries < MAX_ANSWER_ATTEMPTS, arrivedAt: timing.arrived }, storage, covers, presence, timing);
+    turn = await answering(message, work, { ...deps, retry: tries < MAX_ANSWER_ATTEMPTS, again: tries > 1, arrivedAt: timing.arrived }, storage, covers, presence, timing);
     if (typeof turn.turn === "string") timing.turn = turn.turn; // its timing row lines up with the gateway's (`textTiming.ts`)
   } catch (error) {
     if (!(error instanceof TryLater)) throw error;

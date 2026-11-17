@@ -155,6 +155,24 @@ for (const { name, groupId } of LINES) {
       expect([...(await storage.list({ prefix: "gpending:" })).keys()]).toEqual([]);
     });
 
+    // Dev2, 2026-11-17: a retry tells the gateway so, which goes on from what the failed try did (`apps/mcp/src/agent/savedRounds.js`).
+    // Sabotage: pass `deps` unchanged in `groupTurnRun.ts` `answerOnce` and the second ask has no `again`.
+    it("a retried turn tells the gateway it is a retry, and the first try does not", async () => {
+      const { storage, w, deps, run } = handedWorld(groupId);
+      const bodies: Record<string, unknown>[] = [];
+      deps.fetch = (async (url: string, init?: RequestInit) => {
+        if (new URL(url).pathname === "/agent") {
+          bodies.push(JSON.parse(String(init?.body)));
+          if (bodies.length === 1) return new Response("down", { status: 502 });
+        }
+        return await w.deps.fetch(url, init);
+      }) as unknown as Fetch;
+      await acceptGroup(storage, w.message("Tex what's on tonight"), 0);
+      await drainGroup(storage, deps);
+      expect((await run()).outcome).toBe("done");
+      expect(bodies.map((body) => body.again)).toEqual([undefined, true]);
+    });
+
     it("a turn that failed is still scored: the ask and the line sent instead go to the review, once", async () => {
       // Tex Devs, 2026-10-29: every reply failed, and no review was ever asked for.
       const { storage, w, deps, run } = handedWorld(groupId);

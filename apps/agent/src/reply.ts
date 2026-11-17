@@ -117,6 +117,8 @@ export type ReplyDeps = {
    * run: a held send is asked again, never sent, and the same ask is deduped.
    */
   retry?: boolean;
+  /** A try after one that failed: the gateway reads what that try did and goes on from it (`apps/mcp/src/agent/savedRounds.js`). */
+  again?: boolean;
   /**
    * Names the turn, so a text sent while it runs can join it (`inbox.ts`):
    * `onSession` is handed the session the turn runs as, and `onSteered` the
@@ -321,7 +323,7 @@ async function answer(message: Message, deps: ReplyDeps): Promise<string | strin
       // Somebody else's words, kept apart from the person's (`apps/mcp/src/agent/quoted.js`).
       message.quoted ?? (message.threaded ? "" : undefined),
       message.threadStart,
-      { tapback: message.tapback, reacted: message.reacted, turn: deps.steer?.turn, running: deps.running, event: message.event, jobReport: message.jobReport, ...(message.crossChat ? { crossChat: crossFields(message.crossChat).crossChat } : {}), ...(deps.crossCounts ? { crossCounts: deps.crossCounts } : {}), covers: deps.covers, chat: message.chatId, told: deps.told, settings: session.settings, arrivedAt: deps.arrivedAt, worker, ...warm },
+      { tapback: message.tapback, reacted: message.reacted, turn: deps.steer?.turn, running: deps.running, event: message.event, jobReport: message.jobReport, ...(message.crossChat ? { crossChat: crossFields(message.crossChat).crossChat } : {}), ...(deps.crossCounts ? { crossCounts: deps.crossCounts } : {}), covers: deps.covers, chat: message.chatId, told: deps.told, settings: session.settings, arrivedAt: deps.arrivedAt, worker, ...warm, ...(deps.again ? { again: true } : {}) },
     );
     if (answer.kind === "unavailable") await deps.warm?.keep(undefined); // a turn that may have written and never said what: the next one starts a new copy (`warm.ts`); the rest wrote nothing
     // Cancelled for a restart (`steer.ts`): the turn that replaces it answers.

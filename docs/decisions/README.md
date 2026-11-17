@@ -801,6 +801,7 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 - [The Lab's "Shared with devs" chats are the review-sharing yes, tested as their person in a sandbox (2026-11-16)](./texting-assistant/lab-shared-chats.md)
 - [An edited or unsent text is kept beside the one it changes, and Decide judges an edit from examples (2026-11-16)](./texting-assistant/edits-and-unsends.md)
 - [A Provisional run starts a step before the steps that decide whether it should run (2026-11-17)](./texting-assistant/provisional-run.md)
+- [A retried turn goes on from what its last try did (2026-11-17)](./texting-assistant/turn-resume.md)
 - [Tex asks Tex across chats, and a "Starts a new run" wire (2026-11-17)](./texting-assistant/cross-chat-asks.md)
 - [One list of what Tex can do, and where (2026-11-08)](./texting-assistant/capabilities.md)
 - [Checks read a draft together and send it back once (2026-11-17)](./texting-assistant/one-notice.md)

@@ -218,6 +218,18 @@ describe("inbox", () => {
     expect(sent).toEqual([{ text: COPY.unavailable, idempotency: "reply:e1" }]);
   });
 
+  // Dev2, 2026-11-17: a try after one that failed tells the gateway so, which goes on from what that try did
+  // (`apps/mcp/src/agent/savedRounds.js`); a first try never says it, so it costs no store call before its model.
+  // Sabotage: drop `again` from `reply.ts`'s ask, or send it on every try, and this fails.
+  it("tells the gateway a try is a retry, and only then", async () => {
+    const storage = new MemoryStorage();
+    await accept(storage, msg("e1", "q"), 1_000);
+    const bodies: Record<string, unknown>[] = [];
+    await drain(storage, deps({ bodies, agentStatus: () => 502 }));
+    await drain(storage, deps({ bodies }));
+    expect(bodies.map((body) => body.again)).toEqual([undefined, true]);
+  });
+
   it("never retries a turn the gateway refused outright: it is refused the same way every time", async () => {
     const storage = new MemoryStorage();
     await accept(storage, msg("e1", "q"), 1_000);

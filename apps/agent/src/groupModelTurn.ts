@@ -164,7 +164,7 @@ export async function groupTurn(storage: InboxStorage, deps: GroupDeps, { messag
         group: { ...group, chat: said.lines.map((line) => ({ from: handles.get(line.from) ?? labels.get(line.from) ?? "", text: line.text || PICTURE_LINE })) },
         turn: steer.turn,
         ...(gate !== undefined ? { provisional: true, allow: gate.allow } : {}),
-        arrivedAt, ...(await fixedTimings(storage)), // fixed replies since the last turn, for the chat's note
+        arrivedAt, ...(await fixedTimings(storage)), ...(deps.again ? { again: true } : {}), // a try after one that failed (`apps/mcp/src/agent/savedRounds.js`) // fixed replies since the last turn, for the chat's note
         ...(covers.length > 0 ? { covers, chat: message.groupId, ...(await outbox(storage, message.groupId)) } : {}), // the chat's day is the gateway's ledger; the outbox goes on top
         ...(attachments.length > 0 ? { attachments } : {}),
         ...(asked.timeZone ? { timeZone: asked.timeZone } : {}),

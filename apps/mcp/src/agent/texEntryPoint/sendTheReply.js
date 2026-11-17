@@ -137,6 +137,7 @@ export async function sendTheReply(t) {
   };
   // A run answering another chat's ask texts nothing here: node "Answer the other chat" sends its draft back (`crossChat.js`).
   if (crossAskRun) Object.assign(reply, await tex.step("chat_answer", () => crossBackOf(t.crossChat, turn.answer, ledger.crossPost, { env, writer: chatLog, turn: ledgerTurn })));
+  void t.rounds?.forget(); // answered: an earlier try's snapshot of this text goes (`turnResume.js`)
   // A job's part says its answer before the advisor's check, unchecked: a gateway that dies during the check (out of
   // memory, 2026-11-08) no longer loses a finished part, which the Worker then ran again from nothing (`progress.js`).
   if (job !== null && typeof answered === "function") await tex.step("answer_early", () => answered({ ...withoutSteps(reply), ...jobFields(null, { exhausted: turn.exhausted === true, unfinished: claims?.unfinished(turn.answer) === true, untrusted: ledger.untrusted === true }), ...(turn.steps?.length ? {} : { idle: true }) }));
