@@ -3,8 +3,9 @@ import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { test } from "node:test";
 
-import { LIVE_SETTINGS, cantRun, earlierLines, fdTest, frontFor, runFd } from "../bench/setsFd.mjs";
-import { parseTest } from "../bench/load.mjs";
+import { LIVE_SETTINGS, cantRun, dayOf, earlierLines, fdTest, frontFor, groupFor, runFd } from "../bench/setsFd.mjs";
+import { parsePeople, parseTest } from "../bench/load.mjs";
+import sets from "../../../packages/shared/src/texSets.cjs";
 import { parseSetup } from "../src/agent/production.js";
 
 const BENCH = new URL("../bench/ai", import.meta.url).pathname;
@@ -48,9 +49,59 @@ test("a person's tests run in their bench world, on its day, once, on the script
   assert.equal(await frontFor(BENCH, "Nobody Here"), null);
 });
 
-test("what can't run says why: a group chat, a tapback, a picture", () => {
+test("someone with no test of their own runs on the core set's lines as themselves, on the day and in the group asked", async () => {
+  const front = await frontFor(BENCH, "John", { today: "2026-10-13", group: "the-flat" });
+  assert.match(front, /^run_as: John$/m);
+  assert.match(front, /^group: the-flat$/m);
+  assert.match(front, /^today: 2026-10-13$/m);
+  assert.match(front, /^every_answer:/m, "the core set's voice lines");
+  assert.equal((front.match(/^group: /gm) ?? []).length, 1);
+});
+
+test("the bench's people are exactly the people a Dev chat may have", async () => {
+  const people = parsePeople(await readFile(join(BENCH, "workspaces/people.md"), "utf8"));
+  const withWorld = [...new Set(people.filter((r) => r.personal).map((r) => r.person))].sort();
+  assert.deepEqual([...sets.BENCH_PEOPLE].sort(), withWorld);
+});
+
+test("a group runs in the shared workspace that has all its members, and each earlier line is its sender's", async () => {
+  const people = parsePeople(await readFile(join(BENCH, "workspaces/people.md"), "utf8"));
+  const flat = conv([
+    { id: "m1", who: "Priya", at: "Sun Jun 28 18:10", text: "who ate my leftover pad thai" },
+    { id: "m2", who: "Kofi", text: "three bites" },
+    { id: "m3", who: "Routine", via: "routine", at: "Mon 9:30", text: "rent reminder" },
+    { id: "m4", who: "Tex", tex: true, text: "Rent's due Wednesday." },
+    { id: "m5", who: "John", at: "Wed 8:50", text: "Tex what was the low last night", labels: { fd: { must: ["one number"], star: true } } },
+  ], { id: "the-flat", kind: "group", members: ["Priya", "John", "Kofi"] });
+  assert.equal(groupFor(people, flat), "the-flat");
+  assert.equal(groupFor(people, { ...flat, id: "x", members: ["Maya", "Priya"] }), "band", "the first shared workspace with them all");
+  assert.equal(groupFor(people, { ...flat, members: ["Maya", "Remi"] }), null);
+  assert.deepEqual(earlierLines(flat, 4), [
+    { from: "person", who: "priya", text: "who ate my leftover pad thai" },
+    { from: "person", who: "kofi", text: "three bites" },
+    { from: "tex", text: "Rent's due Wednesday." },
+  ], "the routine row is nobody's text");
+  const q = parseTest(fdTest([unit(flat, 4)], "job: texting-assistant\nrun_as: John\ngroup: the-flat\ntoday: 2026-07-01")).questions[0];
+  assert.deepEqual(q.earlier.map((l) => l.who ?? l.from), ["priya", "kofi", "tex"]);
+});
+
+test("each test's day is walked from the first dated time line", () => {
+  const c = conv([
+    { id: "m1", who: "Maya", at: "Tue Oct 13 10:14", text: "a" },
+    { id: "m2", who: "Maya", at: "Tue 22:58", text: "b" },
+    { id: "m3", who: "Maya", at: "Fri 9:36", text: "c" },
+    { id: "m4", who: "Maya", text: "d" },
+    { id: "m5", who: "Maya", at: "Mon 10:40", text: "e" },
+    { id: "m6", who: "Maya", at: "Sat Oct 24 7:15", text: "f" },
+  ]);
+  assert.deepEqual([0, 1, 2, 3, 4, 5].map((i) => dayOf(c, i, 2026)), ["2026-10-13", "2026-10-13", "2026-10-16", "2026-10-16", "2026-10-19", "2026-10-24"]);
+  assert.equal(dayOf(conv([{ id: "m1", who: "Maya", at: "Tue 9:00", text: "x" }]), 0, 2026), null, "no dated line: the test's own day");
+});
+
+test("what can't run says why: a check-in or routine row, a tapback, a picture; a group chat runs", () => {
   assert.equal(cantRun(chat, 4), null);
-  assert.match(cantRun({ ...chat, kind: "group" }, 4), /group chat/);
+  assert.equal(cantRun({ ...chat, kind: "group" }, 4), null);
+  assert.match(cantRun(conv([{ id: "m1", who: "Routine", via: "routine", text: "rent reminder" }]), 0), /Routine row can't run/);
   assert.match(cantRun(chat, 2), /react/);
   assert.match(cantRun(conv([{ id: "m1", who: "Maya", text: "this?", pics: [{ url: "https://x.test/a.png" }] }]), 0), /pictures/);
 });
@@ -70,12 +121,13 @@ test("the batch runs each person's tests as one bench test and maps each judged 
     return { rows: [{ id: "sets-1/q1", right: true }, { id: "sets-1/q2", right: false }], usd: 0.02, bars: {}, missing: [] };
   };
   const two = conv([...chat.msgs, { id: "m6", who: "Maya", text: "and the plumber?", labels: { fd: { must: ["say Friday"], star: true } } }]);
-  const group = { ...two, id: "g1", kind: "group" };
+  const group = { ...two, id: "g1", kind: "group", members: ["Maya", "Remi"] };
   const rows = await runFd([unit(two, 4), unit(two, 5), unit(group, 4)], { tree: TREE, fake: true, runTests });
   assert.equal(seen.length, 1);
   assert.deepEqual(seen[0].tests, ["sets-1"]);
   assert.match(seen[0].setup, /max_steps: 24/, "an unpulled tree runs with the live settings");
   assert.equal(parseTest(seen[0].raw).questions.length, 2);
+  assert.match(rows[0].why, /no shared workspace .* has all of Maya, Remi/);
   assert.deepEqual(rows.map((r) => [r.chat, r.msg, r.ran, r.right]), [
     ["g1", "m5", false, false],
     ["c1", "m5", true, true],
@@ -97,6 +149,17 @@ test("a case the bench gave no answer for did not run, and the scratch folder is
 
 test("the batch runs through the real bench on fake models end to end", async () => {
   const rows = await runFd([unit(chat, 4)], { tree: TREE, fake: true });
+  assert.equal(rows.length, 1);
+  assert.equal(rows[0].ran, true, rows[0].why);
+});
+
+test("a group chat's test runs through the real bench on fake models end to end, as its sender in its shared workspace", async () => {
+  const flat = conv([
+    { id: "m1", who: "Priya", at: "Sun Jun 28 18:10", text: "who ate my leftover pad thai" },
+    { id: "m2", who: "Kofi", text: "three bites" },
+    { id: "m3", who: "John", text: "Tex does the lease say anything about appliances", labels: { fd: { must: ["quote Section 9"], star: true } } },
+  ], { id: "the-flat", kind: "group", members: ["Priya", "John", "Kofi"] });
+  const rows = await runFd([unit(flat, 2)], { tree: TREE, fake: true });
   assert.equal(rows.length, 1);
   assert.equal(rows[0].ran, true, rows[0].why);
 });
