@@ -16,7 +16,7 @@
  * chat kept: no judge, no model, no spend.
  */
 import { CONTROL_PLANE_ORIGIN, GATEWAY_SECRET, createControlPlaneStub, createS3Backend } from "../controlPlaneStub.mjs";
-import { createEgressWorld, fakeModel, keepDeskKeys, PRIVACY_MANIFEST, request, TOKEN_ROUTINE, TOKEN_TEXTS } from "../agentEgressFixtures.mjs";
+import { createEgressWorld, fakeModel, keepDeskKeys, PRIVACY_MANIFEST, request, TOKEN_CHECKIN, TOKEN_ROUTINE, TOKEN_TEXTS } from "../agentEgressFixtures.mjs";
 import { AI_GATEWAY_ENV, AI_GATEWAY_ORIGIN, BUILTIN_ALLOWED } from "../agentModelFixture.mjs";
 import { texStoreNamespace } from "../texStoreFixture.mjs";
 
@@ -144,6 +144,22 @@ export async function oneToOne() {
       world.model.install(script(reply));
       const ran = await request(world.env, TOKEN_ROUTINE, "/agent", { routine: { path } });
       if (ran.status !== 200) throw new Error(`replay: the routine ${path} answered ${ran.status}: ${JSON.stringify(ran.body)}`);
+      return { answer: String(ran.body.answer ?? ""), shown: world.model.requests.slice(before).map(shownIn).join("\n") };
+    },
+    /**
+     * A check-in looking over the last hour, with `mail` (the bench Gmail's shape) just arrived in their inbox: what it
+     * would text (empty when it stayed quiet) and what its model was shown.
+     */
+    async checkIn(reply, { mail = [] } = {}) {
+      clock += 60_000;
+      if (mail.length > 0) {
+        world.controlPlane.flags.mailboxes = [{ address: mail[0].to, folder: "0-inbox/email" }];
+        world.controlPlane.flags.mailResults = () => mail;
+      }
+      const before = world.model.requests.length;
+      world.model.install(script(reply));
+      const ran = await request(world.env, TOKEN_CHECKIN, "/agent", { heartbeat: { timeZone: "UTC", since: Date.now() - HOUR } });
+      if (ran.status !== 200) throw new Error(`replay: the check-in answered ${ran.status}: ${JSON.stringify(ran.body)}`);
       return { answer: String(ran.body.answer ?? ""), shown: world.model.requests.slice(before).map(shownIn).join("\n") };
     },
     /** One part of a background job started from this chat: `job` as the Worker hands it (title, brief, attempt, followUps). */
