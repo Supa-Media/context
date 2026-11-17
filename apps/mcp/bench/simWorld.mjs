@@ -23,6 +23,8 @@
  * world never sees what the test wants, only the chat a person would see.
  */
 
+import { triggerWords } from "./load.mjs";
+
 export const SIM_MODEL = "claude-haiku-5-5";
 const MAX_TOKENS = 1500;
 /** How much of the chat before the text the world is shown. */
@@ -292,7 +294,7 @@ const unquoted = (value) => {
  */
 export function simulateFor(front, question, person, { send = null, memo, fake = false }) {
   if (front?.world !== "simulated") return null;
-  const chat = (question.earlier ?? []).map((line) => ({ who: line.from === "tex" ? "Tex" : line.who ?? person, text: line.text }));
+  const chat = (question.earlier ?? []).map((line) => (line.from === "trigger" ? { who: "(not a text)", text: triggerWords(line) } : { who: line.from === "tex" ? "Tex" : line.who ?? person, text: line.text }));
   const said = question.routine ?? question.checkinMail?.subject ?? question.personStarts ?? question.texts ?? question.text;
   if (said) chat.push({ who: question.routine ? "Routine" : question.checkinMail ? "Check-in" : person, text: String(said) });
   return { send: fake ? null : send, memo, setting: unquoted(front.world_setting), chat };

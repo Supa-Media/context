@@ -42,7 +42,9 @@ import { wireSearchSettings } from "../src/search/settings.js";
 import { texStoreNamespace } from "../test/texStoreFixture.mjs";
 import { assertIsoDate, clockMs, installClock, noonUtcMs, noteModifiedAt, realNow } from "./clock.mjs";
 import { benchCalendar } from "./calendar.mjs";
-import { keepEarlierPictures } from "./earlierPictures.mjs";
+import { clientDispatch, keepEarlierPictures } from "./earlierPictures.mjs";
+import { ledgerFor, ONE_TO_ONE_CHAT } from "../src/agent/ledger.js";
+import { keepOneToOne } from "./byCode.mjs";
 import { chatEntries, modelLog } from "./modelLog.mjs";
 import { failedStatus, roundsOf } from "./trace.mjs";
 
@@ -387,7 +389,7 @@ export async function createWorld(bench, person, setupRaw, models, today = null,
   const { textedEvent, postEvents } = workerEvents({ env, token: chatToken, group });
   return {
     /** One texted message, answered with the conversation so far; with `job`, one part of a job, as `jobRun.ts` asks it (`jobTasks.mjs`): their text is posted on part 1 only, the report never, and the done check's verdict and advice come back (`jobCheck.js` `jobFields`). */
-    async text(message, attachments = [], { running = null, others = [], job = null } = {}) {
+    async text(message, attachments = [], { running = null, others = [], job = null, byCode = false, as = null, event = null, groupMail = null } = {}) {
       // The person opened the last handoff's link and signed in before texting.
       web?.personSignsIn();
       const { ctx, settle } = createWorkerCtx();
@@ -405,9 +407,14 @@ export async function createWorld(bench, person, setupRaw, models, today = null,
         before.push(textedEvent(line.text, sender));
         await postEvents([before.at(-1)]);
       }
-      const said = textedEvent(message, tagger);
-      if (job === null || job.attempt === 1) await postEvents([said]);
-      const covers = [...before.map((event) => event.id), said.id];
+      // A turn the Worker queues itself (`byCode`: a group's routine or check-in, a job's report; `byCode.mjs`) posts no
+      // text of theirs and covers none, as `queueByCode` and `queueGroupByCode` keep no inbound event; `as` is who it
+      // runs as in a group (the routine's writer, the job's asker).
+      const sender = as !== null && group ? group.people.get(as) : tagger;
+      if (as !== null && group && !sender) throw new Error(`@${as} is not in the group's workspace (people.md)`);
+      const said = textedEvent(message, sender);
+      if (!byCode && (job === null || job.attempt === 1)) await postEvents([said]);
+      const covers = byCode ? [] : [...before.map((event) => event.id), said.id];
       // Asked for as a stream, as the texting Worker asks (`apps/agent/src/clients.ts`):
       // a streamed turn is the long one, with the setup's max_steps, and a
       // plain JSON ask would measure the quick turn's 8 rounds instead.
@@ -418,7 +425,7 @@ export async function createWorld(bench, person, setupRaw, models, today = null,
           // What the chat has running, as the texting Worker sends it (`apps/agent/src/jobs.ts`): only a
           // turn that is sent it is offered background jobs (`background.js`), so a test with `background: on` sends it.
           // `covers` and `chat` as the Worker sends them (`apps/agent/src/inbox.ts`) on a real run (`run.mjs` `ledgerTurns`), so the turn reads the ledger and sorts its thread as production does.
-          body: JSON.stringify({ question: message, ...(models.timeZone ? { timeZone: models.timeZone } : {}), ...(group ? { group: { key: group.key, members: group.members, from: tagger.handle } } : { conversation: "texts" }), turn: said.turn, ...(models.ledgerTurns === true ? { covers, chat: said.chat } : {}), ...(attachments.length > 0 ? { attachments } : {}), ...(Array.isArray(running) ? { running } : {}), ...(job ? { job } : {}) }),
+          body: JSON.stringify({ question: message, ...(models.timeZone ? { timeZone: models.timeZone } : {}), ...(group ? { group: { key: group.key, members: group.members, from: sender.handle, ...(groupMail ? { mail: groupMail } : {}) } } : { conversation: "texts" }), turn: said.turn, ...(models.ledgerTurns === true && covers.length > 0 ? { covers, chat: said.chat } : {}), ...(event ?? {}), ...(attachments.length > 0 ? { attachments } : {}), ...(Array.isArray(running) ? { running } : {}), ...(job ? { job } : {}) }),
         }),
         env,
         ctx,
@@ -487,10 +494,37 @@ export async function createWorld(bench, person, setupRaw, models, today = null,
       };
     },
 
-    /** A chat before its text, each line posted as the Worker posts it (theirs a text, Tex's its answer to the one before); nothing is answered. */
+    /**
+     * A chat before its text, each line posted as the Worker posts it (theirs a text, Tex's its answer to the one before);
+     * nothing is answered. A trigger line (`- earlier check-in mail:`, `- earlier routine:`, `- earlier job reports:`)
+     * covers no text of theirs, and Tex's texts after it are kept as production keeps that kind (`byCode.mjs`).
+     */
     async earlier(lines) {
       let last = null;
+      let trigger = null;
+      let held = [];
+      const keepTrigger = async () => {
+        if (trigger === null) return;
+        const turn = textedEvent("").turn;
+        const texts = held.map((line) => line.text);
+        const post = group ? texts : await keepOneToOne({ env, workspaceId: ids.get(own.workspace), trigger, texts, at: Date.now(), turn });
+        for (const text of post) await postEvents([{ ...textedEvent(text), from: { kind: "tex" }, turn, covers: [], delivered: true }]);
+        trigger = null;
+        held = [];
+      };
       for (const line of lines) {
+        if (trigger !== null && line.from === "tex") {
+          held.push(line);
+          continue;
+        }
+        await keepTrigger();
+        if (line.from === "trigger") {
+          // A one-to-one check-in's email is in their Gmail; a group's is in a mailbox shared with the chat, not the tagger's.
+          if (line.via === "checkin" && line.mail && !group) this.mailArrives(line.mail);
+          trigger = line;
+          last = null;
+          continue;
+        }
         const sender = line.who && group ? group.people.get(line.who) : tagger; // a group's other member: `- earlier @priya:`
         if (line.who && group && !sender) throw new Error(`@${line.who} is not in the group's workspace (people.md)`);
         const event = { ...textedEvent(line.text, line.from === "person" ? sender : null), ...(line.pictures?.length ? { kind: "picture", pictures: line.pictures } : {}) };
@@ -499,6 +533,7 @@ export async function createWorld(bench, person, setupRaw, models, today = null,
         await postEvents([posted]); // Tex's answer to a picture kept it, as that turn did (`earlierPictures.mjs`)
         if (line.from === "tex" && last?.pictures) await keepEarlierPictures({ env, token, workspaceId: ids.get(own.workspace), group, timeZone: models.timeZone ?? "UTC", at: last.at, turn: last.turn, names: last.pictures });
       }
+      await keepTrigger();
     },
     /**
      * An email arriving in the person's Gmail now (`{ from, subject, body }`), as a check-in's new mail: a person with
@@ -634,6 +669,25 @@ export async function createWorld(bench, person, setupRaw, models, today = null,
       const body = await response.json().catch(() => null);
       const text = (body?.result?.content ?? []).map((block) => block.text ?? "").join("\n");
       return { ok: response.status === 200 && body?.result?.isError !== true, text, ms };
+    },
+
+    /** What a turn the Worker queues itself needs to know of this chat (`byCode.mjs`): its group's home and who tags, the zone, the mailbox. */
+    chatSide() {
+      return { group: group ? { home: group.home } : null, handle: tagger?.handle ?? null, timeZone: models.timeZone ?? "UTC", mailbox: mail[0]?.address ?? null };
+    },
+
+    /** The chat's ledger as the gateway keeps it (`ledger.js`): every entry, oldest first, for a test to read. */
+    async ledgerEntries() {
+      const ledger = ledgerFor(env, group ? { chat: group.key } : { person: ids.get(own.workspace) });
+      const read = await ledger.read(group ? group.key : ONE_TO_ONE_CHAT, { before: Number.MAX_SAFE_INTEGER, limit: 5_000, jobs: true });
+      return [...(read.entries ?? read)].sort((a, b) => (a.seq ?? 0) - (b.seq ?? 0));
+    },
+
+    /** A note put into the group chat's home as if it were already there (a chat routine's words), through its home grant. */
+    async placeInHome(path, body) {
+      if (!group) throw new Error("only a group chat has a home");
+      const result = await clientDispatch({ env, token: group.homeToken })("write_note", { path: `${group.home}/${path}`, content: body });
+      if (result?.isError) throw new Error(`could not place ${path} in the chat's home: ${(result.content ?? []).map((part) => part.text ?? "").join(" ")}`);
     },
 
     /** A note put into the person's own workspace before a job runs, as if it were already there. */

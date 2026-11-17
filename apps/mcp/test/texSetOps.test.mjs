@@ -136,6 +136,19 @@ test("edit text replaces the words; a non-text is refused; an unknown field name
   assert.throws(() => run(base(), [{ op: "edit", msg: "m1", field: "colour", value: "red" }]), /a message's fields are/);
 });
 
+test("edit via retypes a trigger row and names its speaker; state is a job row's; a person's row refuses both", () => {
+  const withRoutine = () => ({ ...base(), msgs: [...base().msgs, { id: "m4", who: "Routine", via: "routine", text: "job finished: page written" }] });
+  const job = run(withRoutine(), [{ op: "edit", msg: "m4", field: "via", value: "job" }, { op: "edit", msg: "m4", field: "state", value: "running" }]).msgs[3];
+  assert.deepEqual([job.who, job.via, job.state], ["Background job", "job", "running"]);
+  assert.equal(run(withRoutine(), [{ op: "edit", msg: "m4", field: "via", value: "job" }, { op: "edit", msg: "m4", field: "state", value: "running" }, { op: "edit", msg: "m4", field: "state", value: null }]).msgs[3].state, undefined);
+  const back = run(withRoutine(), [{ op: "edit", msg: "m4", field: "via", value: "job" }, { op: "edit", msg: "m4", field: "state", value: "failed" }, { op: "edit", msg: "m4", field: "via", value: "routine" }]).msgs[3];
+  assert.deepEqual([back.who, back.via, back.state], ["Routine", "routine", undefined], "a routine keeps no job state");
+  assert.throws(() => run(withRoutine(), [{ op: "edit", msg: "m4", field: "via", value: "tapback" }]), /via is one of/);
+  assert.throws(() => run(withRoutine(), [{ op: "edit", msg: "m4", field: "state", value: "done" }]), /state is a job row's/);
+  assert.throws(() => run(withRoutine(), [{ op: "edit", msg: "m4", field: "via", value: "job" }, { op: "edit", msg: "m4", field: "state", value: "maybe" }]), /state is one of/);
+  assert.throws(() => run(base(), [{ op: "edit", msg: "m1", field: "via", value: "job" }]), /only a trigger row/);
+});
+
 test("remove takes a message out; an unknown one is refused", () => {
   assert.deepEqual(ids(run(base(), [{ op: "remove", msg: "m2" }])), ["m1", "m3"]);
   assert.throws(() => run(base(), [{ op: "remove", msg: "m9" }]), /no message "m9"/);

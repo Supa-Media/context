@@ -49,8 +49,15 @@ export const handleOf = (name) => String(name).toLowerCase().replace(/[^a-z0-9-]
 export function earlierLines(c, i) {
   const lines = [];
   for (const m of c.msgs.slice(0, i)) {
-    if (m.kind && m.kind !== "reply") continue; // a tapback, an edit or an unsend is not a line of the chat's text
-    if (m.via) continue; // a check-in or a routine fired a turn; nobody texted it
+    // A tapback, an edit or an unsend is not a line of the chat's text; Tex's own tapbacks are only a step in
+    // production's ledger, which no history draws (`stepEvents.ts` `tapback`).
+    if (m.kind && m.kind !== "reply") continue;
+    // A check-in, a routine or a job's report fired a turn nobody texted: kept as production keeps it (`byCode.mjs`).
+    if (m.via) {
+      const trigger = triggerOf(c, c.msgs.indexOf(m));
+      if (trigger !== null) lines.push(trigger);
+      continue;
+    }
     const pictures = m.tex ? [] : picturesOf(m);
     if ((typeof m.text !== "string" || m.text.trim() === "") && pictures.length === 0) continue;
     const text = typeof m.text === "string" ? m.text : "";
@@ -133,12 +140,37 @@ export function groupFor(people, c) {
   return fits.includes(c.id) ? c.id : (fits.sort()[0] ?? null);
 }
 
+/**
+ * A trigger row of `c` (message `i`) as a case's earlier line (`load.mjs`): a check-in with the email it found, a
+ * routine with its words, a job's report with its words; null for one the bench keeps nothing of (a notify).
+ */
+export function triggerOf(c, i) {
+  const m = c.msgs[i];
+  if (m.via === "checkin") return { from: "trigger", via: "checkin", mail: checkinMail(m.text) };
+  if (m.via === "routine") return { from: "trigger", via: "routine", text: String(m.text ?? "") };
+  if (m.via === "job") return { from: "trigger", via: "job", report: jobReportRow(c, i) };
+  return null;
+}
+
+/**
+ * A job row's report (`texSets.cjs` via "job"): its words, its state (done unless the row says), and the asker's text it
+ * answers, the last person text before it. The title is invented, the same way for every job row: production's is the
+ * one the Front door gave when it started the job, which a Dev chat doesn't keep, so it is the first sentence of the
+ * asker's text, at most 120 characters, never the row's own words.
+ */
+export function jobReportRow(c, i) {
+  const m = c.msgs[i];
+  const asked = [...c.msgs.slice(0, i)].reverse().find((x) => !x.tex && !x.via && !x.kind && typeof x.text === "string" && x.text.trim() !== "");
+  const words = String(asked?.text ?? "").replace(/\s+/g, " ").trim();
+  const title = (words.split(/(?<=[.!?])\s/)[0] || "the job you started").slice(0, 120);
+  return { title, state: m.state ?? "done", text: String(m.text ?? ""), asked: words, askedBy: asked?.who ?? null };
+}
+
 /** Why message `i` of `c` can't run as a Front door test yet, or null when it can. */
 export function cantRun(c, i) {
   const m = c.msgs[i];
-  if (m.via && c.kind === "group") return `a group's ${m.who} row can't run as a Front door test yet: the bench runs a person's own check-ins and routines`;
   if (m.via === "checkin" && checkinMail(m.text) === null) return "a check-in row runs only when it found an email (\"Gmail: ...\")";
-  if (m.via && m.via !== "checkin" && m.via !== "routine") return `a ${m.via} row can't run as a Front door test`;
+  if (m.via && m.via !== "checkin" && m.via !== "routine" && m.via !== "job") return `a ${m.via} row can't run as a Front door test`;
   if (m.kind && m.kind !== "reply") return `a ${m.kind} can't run as a Front door test: only a text or a reply`;
   if (Array.isArray(m.pics) && picturesOf(m).length < m.pics.length) return "a picture of this text isn't kept in the repository (apps/mcp/bench/ai/pictures/)";
   if ((typeof m.text !== "string" || m.text.trim() === "") && picturesOf(m).length === 0) return "the text is empty";
@@ -175,8 +207,18 @@ export function checkinMail(text) {
 /** Whether a conversation's setting says Tex has the calendar ("Tex has Gmail, Calendar, ...", "the shared calendar"). */
 export const hasCalendar = (c) => /\bcalendar\b/i.test(String(c?.setting ?? ""));
 
-/** Who sends message `i`: its speaker, the one person of a one-to-one chat. */
-const senderOf = (c, i) => (c.kind === "group" ? c.msgs[i].who : c.members[0]);
+/**
+ * Who message `i` of `c` runs as: the one person of a one-to-one chat; in a group its speaker, and for a trigger the
+ * person the Worker queues it as: a job's asker, a routine's or check-in's writer (`groupRoutines.ts` `run.phone`), the
+ * shared workspace's owner in `people.md` (the bench's choice: a Dev chat doesn't say who wrote its routines).
+ */
+export function senderOf(c, i, people = [], group = null) {
+  if (c.kind !== "group") return c.members[0];
+  const m = c.msgs[i];
+  if (m.via === "job") return jobReportRow(c, i).askedBy ?? c.members[0];
+  if (m.via) return people.find((row) => row.workspace === group && row.role === "owner")?.person ?? c.members[0];
+  return m.who;
+}
 
 /** One bench test of `units` (all one person's): the front matter given, then one case a unit, its chat before it. */
 export function fdTest(units, front) {
@@ -188,9 +230,10 @@ export function fdTest(units, front) {
       `## ${k + 1}. ${String(m.text).replace(/\s+/g, " ").slice(0, 120)}`,
       "",
       "- kind: task",
-      m.via === "checkin" ? `- check-in mail: ${JSON.stringify(checkinMail(m.text))}` : m.via === "routine" ? `- routine runs: ${JSON.stringify(m.text)}` : `- person texts: ${JSON.stringify(m.text ?? "")}`,
+      m.via === "checkin" ? `- check-in mail: ${JSON.stringify(checkinMail(m.text))}` : m.via === "routine" ? `- routine runs: ${JSON.stringify(m.text)}` : m.via === "job" ? `- job reports: ${JSON.stringify(jobReportRow(u.convo, u.at))}` : `- person texts: ${JSON.stringify(m.text ?? "")}`,
       ...picturesOf(m).map((name) => `- person sends picture: ${name}`),
       ...earlierLines(u.convo, u.at).flatMap((line) => {
+        if (line.from === "trigger") return [triggerLine(line)];
         const who = line.who ? `@${line.who}` : line.from;
         return [`- earlier ${who}: ${JSON.stringify(line.text)}`, ...(line.pictures ?? []).map((name) => `- earlier ${who} sends picture: ${name}`)];
       }),
@@ -200,6 +243,13 @@ export function fdTest(units, front) {
     out.push(lines.join("\n") + "\n");
   });
   return out.join("\n");
+}
+
+/** An earlier trigger as its case line (`load.mjs`). */
+function triggerLine(line) {
+  if (line.via === "checkin") return line.mail ? `- earlier check-in mail: ${JSON.stringify(line.mail)}` : "- earlier check-in";
+  if (line.via === "routine") return `- earlier routine: ${JSON.stringify(line.text)}`;
+  return `- earlier job reports: ${JSON.stringify(line.report)}`;
 }
 
 /**
@@ -273,8 +323,8 @@ export async function runFd(units, { tree, fake = false, runTests = null }) {
     const year = Number(/^today: (\d{4})/m.exec(FRONT.exec(await readFile(join(dir, "tests", "core.md"), "utf8"))?.[1] ?? "")?.[1] ?? new Date().getUTCFullYear());
     const batches = new Map();
     for (const u of can) {
-      const person = senderOf(u.convo, u.at);
       const group = u.convo.kind === "group" ? groupFor(people, u.convo) : null;
+      const person = senderOf(u.convo, u.at, people, group);
       if (u.convo.kind === "group" && group === null) {
         rows.push({ ...u.row, right: false, ran: false, usd: 0, why: `no shared workspace in apps/mcp/bench/ai/workspaces/people.md has all of ${u.convo.members.join(", ")}` });
         continue;

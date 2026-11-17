@@ -37,11 +37,11 @@
  */
 "use strict";
 
-const { KINDS, TEX } = require("./texSets.cjs");
+const { JOB_STATES, KINDS, TEX, TRIGGERS } = require("./texSets.cjs");
 
 /** The sets a conversation may be in here: the Test Set lives only in the eval service. */
 const OPEN_SETS = Object.freeze(["training", "dev"]);
-const MSG_FIELDS = new Set(["who", "text", "kind", "to", "tex", "pics"]);
+const MSG_FIELDS = new Set(["who", "text", "kind", "to", "tex", "pics", "via", "state"]);
 /** Pictures on one message: at most this many, each an https address (the Lab uploads to the control plane's files). */
 const MAX_PICS = 6;
 const PIC_TYPE = /^image\/(png|jpeg|gif|webp|heic|heif)$/;
@@ -197,6 +197,18 @@ function applyOne(c, op) {
       } else if (op.field === "tex") {
         if (op.value === true) makeTex(m);
         else throw new OpError('to make a Tex row a person\'s, edit its who to their name');
+      } else if (op.field === "via") {
+        // A trigger row's input: its speaker is that input's name (`texSets.cjs` TRIGGERS); a person's row can't become one.
+        if (!Object.hasOwn(TRIGGERS, op.value)) throw new OpError(`via is one of ${Object.keys(TRIGGERS).join(", ")}`);
+        if (m.via === undefined) throw new OpError("only a trigger row (a check-in, a routine, a job's report) changes its input");
+        m.via = op.value;
+        m.who = TRIGGERS[op.value];
+        if (op.value !== "job") delete m.state;
+      } else if (op.field === "state") {
+        if (m.via !== "job") throw new OpError("state is a job row's");
+        if (op.value === null) delete m.state;
+        else if (!JOB_STATES.includes(op.value)) throw new OpError(`state is one of ${JOB_STATES.join(", ")}`);
+        else m.state = op.value;
       } else if (op.field === "text") m.text = text(op.value, "text");
       else if (op.field === "pics") {
         if (op.value === null || (Array.isArray(op.value) && !op.value.length)) delete m.pics;
