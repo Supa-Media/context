@@ -76,7 +76,8 @@ beforeEach(async () => {
   const tex = texStoreNamespace();
   // The 1:1 chat so far, in the person's ledger, as the gateway keeps it.
   seedChat(withAgentHome(s3.bucketFor("tenant-prefix-own"), tex, "ws_prefix_own"), [{ role: "user", text: "remember the logo" }, { role: "assistant", text: "Noted." }]);
-  const env = { CONTROL_PLANE_URL: CONTROL_PLANE_ORIGIN, TEX_STORE: tex.namespace, GATEWAY_SECRET, ...AI_GATEWAY_ENV };
+  // Chat day summaries off, so the last request is the turn's own.
+  const env = { CONTROL_PLANE_URL: CONTROL_PLANE_ORIGIN, TEX_STORE: tex.namespace, GATEWAY_SECRET, DAY_SUMMARIES: "off", ...AI_GATEWAY_ENV };
   Object.assign(world, { model, env, restore: () => (restoreControlPlane(), restoreS3()) });
 });
 

@@ -9,7 +9,7 @@
  *  3. `weekView` reading with `fade: true` → "the seven days are word for word…" fails (a long answer cut).
  *  4. `inlinePictureBlocks` putting the picture before its marker → "a picture's block comes right after the line…" fails.
  *  5. `writeChatDaySummaries` writing to `texts` instead of `chat` → "a group's finished days are summed up…" fails.
- *  6. `readsWeek` true for `hist` → "main's config reads `hist`…" fails.
+ *  6. `readsWeek` true for `hist` → "main's front door reads `week`…" fails (the draft putting `hist` back).
  */
 
 import assert from "node:assert/strict";
@@ -42,12 +42,12 @@ const said = (chat, at, who, text, extra = {}) => {
 };
 const summary = (day, at, text) => ({ v: 1, id: `day-${day}`, at, kind: "day", day, text });
 
-test("main's config reads `hist`, so nothing live changes until a draft's front door reads `week`", () => {
-  assert.equal(readsWeek(texStep("fd")), false);
-  assert.equal(weekOn({}), false);
+test("main's front door reads `week` (promoted 2026-11-17), and a draft that puts `hist` back turns it off", () => {
+  assert.equal(readsWeek(texStep("fd")), true);
+  assert.equal(weekOn({}), true);
   const fd = texStep("fd");
-  const drafted = withDraft(TEX_CONFIG, { nodes: [{ id: "fd", ctx: fd.ctx.map((key) => (key === "hist" ? WEEK_MODULE : key)) }] });
-  assert.equal(readsWeek(texStep("fd", drafted)), true);
+  const drafted = withDraft(TEX_CONFIG, { nodes: [{ id: "fd", ctx: fd.ctx.map((key) => (key === WEEK_MODULE ? "hist" : key)) }] });
+  assert.equal(readsWeek(texStep("fd", drafted)), false);
 });
 
 test("the window starts at midnight six days back in the chat's zone, so it moves once a day", () => {

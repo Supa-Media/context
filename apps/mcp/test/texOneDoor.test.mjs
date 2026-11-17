@@ -17,6 +17,7 @@ import { test } from "node:test";
 
 import { createEgressWorld, request, TOKEN_ROUTINE, TOKEN_TEXTS } from "./agentEgressFixtures.mjs";
 import { MOMENT_PREFACE, momentView } from "../src/agent/loggedTurn.js";
+import { WEEK_PREFACE } from "../src/agent/weekHistory.js";
 
 const CHAT = "sendblue:line:+15555550100";
 let seq = 0;
@@ -58,7 +59,7 @@ test("a job's report reads the chat from its ledger, as a reply does", async () 
     const report = await request(world.env, TOKEN_TEXTS, "/agent", { question: "", conversation: "texts", event: "job_report", jobReport: { title: "Application", state: "done", texts: ["Drafted every answer."] }, chat: CHAT, turn: "turn-door-0002", warm: one.body.warm });
     assert.equal(report.status, 200, JSON.stringify(report.body));
     const shown = JSON.stringify(world.model.requests.at(-1).messages);
-    assert.ok(shown.includes(MOMENT_PREFACE.slice(1, 40)), "the report's turn is shown the chat from the ledger");
+    assert.ok(shown.includes(WEEK_PREFACE.slice(1, 40)), "the report's turn is shown the chat's week from the ledger (`weekHistory.js`)");
     assert.match(shown, /the dentist moved to Thursday 4pm/);
   } finally {
     world.restore();

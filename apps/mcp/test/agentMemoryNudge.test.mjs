@@ -98,7 +98,8 @@ const controlPlane = createControlPlaneStub();
 let bucket;
 const restore = [];
 const tex = texStoreNamespace();
-const env = { CONTROL_PLANE_URL: CONTROL_PLANE_ORIGIN, TEX_STORE: tex.namespace, GATEWAY_SECRET, ...AI_GATEWAY_ENV };
+// Chat day summaries off: their background model call would take the nudge's scripted answers.
+const env = { CONTROL_PLANE_URL: CONTROL_PLANE_ORIGIN, TEX_STORE: tex.namespace, GATEWAY_SECRET, DAY_SUMMARIES: "off", ...AI_GATEWAY_ENV };
 
 function reply(step) {
   const content = [];

@@ -534,7 +534,7 @@ test("a group test's texts run the threaded history, with the other members' tex
     assert.ok(second.ok, second.error ?? "");
     assert.ok(sent.some((call) => call.classifier), "the thread sorter ran, as it does for a group");
     const front = JSON.stringify(sent.filter((call) => !call.classifier).at(-1).body.messages);
-    assert.match(front, /The chat's last 24 hours of texts/, "the model reads the threaded history");
+    assert.match(front, /the texts below are the last 7 days/, "the model reads the week's history (`weekHistory.js`)");
     assert.match(front, /@priya: I can bring the reflector/, "another member's text is in the chat");
     assert.match(front, /@maya tagged you/, "the tagger is the test's person");
   } finally {
