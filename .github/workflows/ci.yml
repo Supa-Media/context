@@ -698,7 +698,7 @@ jobs:
   # thing that builds a native bundle ran *after* the merge button.
   #
   # So the deploy's own export runs here, before merging, for both platforms.
-  # It is the same command `deploy-mobile-update.yml` runs, minus the publish:
+  # It is the same command `build-mobile-ota.yml` runs, minus the publish:
   # no EAS credential, no Expo account, nothing sent anywhere. Roughly two
   # minutes, and it is the only check in this repository that can see a native
   # resolution failure at all.

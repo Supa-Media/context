@@ -45,8 +45,8 @@ permissions:
   contents: read
 
 jobs:
-  # Production starts beside staging from deploy-production-start.yml, outside this
-  # workflow's queue, so a merge waiting here for staging never holds it up.
+  # Production starts from promote-production.yml after CI on main succeeds,
+  # outside this queue, so a merge waiting here never holds the starter.
 
   plan:
     name: Choose what to deploy

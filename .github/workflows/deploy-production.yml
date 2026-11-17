@@ -1,6 +1,12 @@
 name: Deploy to Production
 
-# Promote the commit selected by this manual run, after it passed staging.
+# Promote one commit after it passed CI on main and staging.
+#
+# A manual run deploys the tip of main. Promote to Production dispatches
+# `prod-deploy/<sha>`, a branch at one commit, so the run's SHA is that
+# commit rather than whatever main is when a branch dispatch starts.
+# `validate` refuses a run whose commit is not on main, or whose newest CI
+# or staging run did not succeed.
 #
 # Only the components that changed since production's last successful run are
 # deployed; `validate` decides with scripts/deploy-plan.mjs, which deploys
@@ -10,11 +16,11 @@ name: Deploy to Production
 #   validate ─┬─ web export ─────────────────────┐
 #             ├─ convex ─┬─ gateway ─────────────┼─ router + assets
 #             │          ├─ email ───────────────┤
-#             │          ├─ transcribe ──────────┼─ mobile-update (publish)
+#             │          ├─ transcribe ──────────┤
 #             │          ├─ egress ──────────────┤
 #             │          ├─ photon ──────────────┤
 #             │          └─ agent                │
-#             ├─ mobile-bundle (export) ─────────┘
+#             ├─ mobile-bundle (export) ─────────┴─ start OTA publish
 #             └─ sentry
 #
 # Why each edge exists:
@@ -22,8 +28,9 @@ name: Deploy to Production
 #   plane functions the old backend does not have.
 # - The web export builds alongside the backends. The router waits for both,
 #   then publishes Worker code and that exact export as one version.
-# - The OTA update waits for the backends, not the web artifact. Its bundle is
-#   exported from the start, beside them; only the upload waits.
+# - The OTA bundle is exported from the start, beside the backends. The upload
+#   is a separate workflow started after those backends succeed, so this
+#   queue is free once web, router, Convex and the agent are live.
 #
 # The gateway's suite is not rerun here. `validate` requires this exact commit
 # to have passed staging, and staging runs that suite (a superset of this
@@ -35,11 +42,10 @@ on:
         description: Deploy every component, whatever changed
         type: boolean
         default: false
-      alongside_staging:
-        description: Started by a merge beside staging, so do not wait for staging or main's CI
-        type: boolean
-        default: false
 
+# One deploy runs. A newer run replaces one that has not started, so a burst
+# keeps the in-progress rollout and at most one queued deploy. The queued run
+# is the newest pin Promote dispatched, which is the newest green SHA.
 concurrency:
   group: deploy-production
   cancel-in-progress: false
@@ -76,7 +82,6 @@ jobs:
       - run: node scripts/production-release.mjs
         env:
           GH_TOKEN: ${{ github.token }}
-          ALONGSIDE_STAGING: ${{ inputs.alongside_staging }}
       - name: Compare with what production is running
         id: plan
         env:
@@ -149,15 +154,28 @@ jobs:
   mobile-bundle:
     needs: validate
     if: ${{ !cancelled() && !failure() && needs.validate.outputs.ota == 'true' }}
-    uses: ./.github/workflows/deploy-mobile-update.yml
+    uses: ./.github/workflows/build-mobile-ota.yml
     with:
       phase: bundle
     secrets: inherit
 
-  mobile-update:
+  # Starts the upload and returns. The publish workflow is not a job of
+  # this run, so its minute does not hold deploy-production.
+  mobile-publish:
+    name: Start OTA publish
     needs: [validate, convex, gateway, email, transcribe, egress, mobile-bundle]
     if: ${{ !cancelled() && !failure() && needs.validate.outputs.ota == 'true' }}
-    uses: ./.github/workflows/deploy-mobile-update.yml
-    with:
-      phase: publish
-    secrets: inherit
+    runs-on: ubuntu-latest
+    permissions:
+      actions: write
+      contents: read
+    steps:
+      - name: Publish the exported bundle without holding this deploy
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          DEPLOY_SHA: ${{ github.sha }}
+          SOURCE_RUN_ID: ${{ github.run_id }}
+        # `--ref` is a branch. The workflow checks out deploy_sha, the commit
+        # this run exported, which is not always the tip.
+        run: gh workflow run deploy-production-ota.yml --repo "$GH_REPO" --ref main -f "source_run_id=$SOURCE_RUN_ID" -f "deploy_sha=$DEPLOY_SHA"

@@ -5,14 +5,21 @@ import { requireStagingRelease } from './production-release.mjs';
 import { parseOnBlock } from './check-workflow-triggers.mjs';
 
 const env = { GITHUB_EVENT_NAME: 'workflow_dispatch', GITHUB_REF: 'refs/heads/main', GITHUB_SHA: 'a'.repeat(40), GITHUB_REPOSITORY: 'example/app', GH_TOKEN: 'fake-test-token' };
-const good = { head_sha: env.GITHUB_SHA, head_branch: 'main', status: 'completed', conclusion: 'success', html_url: 'https://example.com/run' };
-const reply = runs => async () => ({ ok: true, json: async () => ({ workflow_runs: runs }) });
+const good = { head_sha: env.GITHUB_SHA, head_branch: 'main', status: 'completed', conclusion: 'success', event: 'push', html_url: 'https://example.com/run' };
+const reply = runs => async (url) => {
+  if (String(url.pathname).includes('/compare/')) return { ok: true, json: async () => ({ status: 'identical' }) };
+  return { ok: true, json: async () => ({ workflow_runs: runs }) };
+};
 
 test('promotion verifies the dispatch commit rather than the current main tip', async () => {
   const url = await requireStagingRelease(env, async (url, options) => {
+    assert.equal(options.headers.Authorization, 'Bearer fake-test-token');
+    if (String(url.pathname).includes('/compare/')) {
+      assert.match(url.pathname, new RegExp(`/compare/${env.GITHUB_SHA}\\.\\.\\.main$`));
+      return { ok: true, json: async () => ({ status: 'identical' }) };
+    }
     assert.equal(url.searchParams.get('head_sha'), env.GITHUB_SHA);
     assert.equal(url.searchParams.get('branch'), 'main');
-    assert.equal(options.headers.Authorization, 'Bearer fake-test-token');
     return { ok: true, json: async () => ({ workflow_runs: [good] }) };
   });
   assert.equal(url, good.html_url);
@@ -20,48 +27,50 @@ test('promotion verifies the dispatch commit rather than the current main tip', 
 
 test('a commit whose CI on main failed, is pending or never ran cannot be promoted', async () => {
   const ci = { ...good, html_url: 'https://example.com/ci' };
-  for (const runs of [[], [{ ...ci, conclusion: 'failure' }], [{ ...ci, status: 'in_progress' }], [{ ...ci, head_sha: 'b'.repeat(40) }], [{ ...ci, conclusion: 'failure' }, ci]]) {
-    const request = async (url) => ({ ok: true, json: async () => ({ workflow_runs: url.pathname.endsWith('/ci.yml/runs') ? runs : [good] }) });
+  for (const runs of [[], [{ ...ci, conclusion: 'failure' }], [{ ...ci, status: 'in_progress' }], [{ ...ci, head_sha: 'b'.repeat(40) }], [{ ...ci, conclusion: 'skipped' }], [{ ...ci, event: 'pull_request' }], [{ ...ci, conclusion: 'failure' }, ci]]) {
+    const request = async (url) => {
+      if (String(url.pathname).includes('/compare/')) return { ok: true, json: async () => ({ status: 'identical' }) };
+      return { ok: true, json: async () => ({ workflow_runs: url.pathname.endsWith('/ci.yml/runs') ? runs : [good] }) };
+    };
     await assert.rejects(requireStagingRelease(env, request), /CI has not passed/);
   }
+  // A green conclusion is enough. A skipped job listed beside it is not consulted.
   const asked = [];
   await requireStagingRelease(env, async (url) => {
-    asked.push(url.pathname.split('/').at(-2));
-    return { ok: true, json: async () => ({ workflow_runs: [good] }) };
+    asked.push(String(url.pathname).includes('/compare/') ? 'compare' : url.pathname.split('/').at(-2));
+    if (String(url.pathname).includes('/compare/')) return { ok: true, json: async () => ({ status: 'ahead' }) };
+    return { ok: true, json: async () => ({ workflow_runs: [{ ...good, jobs: [{ name: 'ci / Test Shared Package', conclusion: 'skipped' }] }] }) };
   });
-  assert.deepEqual(asked, ['deploy-staging.yml', 'ci.yml']);
+  assert.deepEqual(asked, ['compare', 'deploy-staging.yml', 'ci.yml']);
 });
 
-test('a release started beside staging skips the staging and CI wait, and only that', async () => {
-  const none = () => assert.fail('a release beside staging asks GitHub nothing');
-  assert.equal(await requireStagingRelease({ ...env, ALONGSIDE_STAGING: 'true' }, none), 'started alongside staging');
-  // The flag does not lift the main-only, manual-event rule.
-  await assert.rejects(requireStagingRelease({ ...env, ALONGSIDE_STAGING: 'true', GITHUB_REF: 'refs/heads/feature' }, none), /manually from main/);
-  // Anything but the exact string still waits.
-  for (const value of [undefined, 'false', '', 'TRUE']) {
-    await assert.rejects(requireStagingRelease({ ...env, ALONGSIDE_STAGING: value }, reply([])), /not completed staging/);
-  }
+test('a pin branch deploys its commit only when the name matches and the commit is on main', async () => {
+  const pin = `refs/heads/prod-deploy/${env.GITHUB_SHA.slice(0, 12)}`;
+  const pinned = { ...env, GITHUB_REF: pin };
+  assert.equal(await requireStagingRelease(pinned, reply([good])), good.html_url);
+  await assert.rejects(requireStagingRelease(pinned, async (url) => {
+    assert.match(url.pathname, /\/compare\//);
+    return { ok: true, json: async () => ({ status: 'diverged' }) };
+  }), /not on main/);
+  await assert.rejects(requireStagingRelease({ ...pinned, GITHUB_REF: `refs/heads/prod-deploy/${'b'.repeat(12)}` }, () => assert.fail('must reject before API access')), /manually from main/);
 });
 
-test('a merge starts production beside staging unless the variable puts staging first', () => {
+test('a merge no longer starts production before CI, and nothing can skip the check', () => {
   const dir = new URL('../.github/workflows/', import.meta.url);
-  const start = readFileSync(new URL('deploy-production-start.yml', dir), 'utf8');
-  assert.match(start, /on:\n  push:\n    branches: \[main\]\n/);
-  assert.match(start, /  production:\n    name: Start production alongside staging\n    if: \$\{\{ vars\.AUTO_DEPLOY_PRODUCTION != 'off' && vars\.AUTO_DEPLOY_PRODUCTION != 'after-staging' \}\}/);
-  assert.match(start, /run: gh workflow run deploy-production\.yml --ref main -f alongside_staging=true/);
-  // Never behind staging's queue again (2026-11-02): no concurrency group, and
-  // staging no longer starts production itself, so there is one lane.
-  assert.doesNotMatch(start, /^concurrency:/m);
+  assert.equal(readdirSync(dir).includes('deploy-production-start.yml'), false);
   const staging = readFileSync(new URL('deploy-staging.yml', dir), 'utf8');
   assert.doesNotMatch(staging, /gh workflow run deploy-production/);
   const production = readFileSync(new URL('deploy-production.yml', dir), 'utf8');
-  assert.match(production, /ALONGSIDE_STAGING: \$\{\{ inputs\.alongside_staging \}\}/);
+  assert.doesNotMatch(production, /alongside_staging|ALONGSIDE_STAGING/);
+  assert.doesNotMatch(production, /^ {2}deployment:/m);
   const promote = readFileSync(new URL('promote-production.yml', dir), 'utf8');
-  assert.match(promote, /vars\.AUTO_DEPLOY_PRODUCTION == 'after-staging'/);
+  assert.match(promote, /workflows: \["CI", "Deploy Staging"\]/);
+  assert.match(promote, /vars\.AUTO_DEPLOY_PRODUCTION != 'off'/);
+  assert.doesNotMatch(promote, /gh workflow run deploy-/);
 });
 
 test('automatic events and non-main refs cannot promote', async () => {
-  for (const change of [{ GITHUB_EVENT_NAME: 'push' }, { GITHUB_EVENT_NAME: 'pull_request' }, { GITHUB_REF: 'refs/heads/feature' }, { GITHUB_REF: 'refs/tags/main' }]) {
+  for (const change of [{ GITHUB_EVENT_NAME: 'push' }, { GITHUB_EVENT_NAME: 'pull_request' }, { GITHUB_REF: 'refs/heads/feature' }, { GITHUB_REF: 'refs/tags/main' }, { GITHUB_REF: 'refs/heads/prod-deploy/short' }]) {
     await assert.rejects(requireStagingRelease({ ...env, ...change }, () => assert.fail('must reject before API access')), /manually from main/);
   }
 });
@@ -85,15 +94,6 @@ test('only staging can deploy automatically; production services share one manua
       assert.deepEqual(triggers.get('push'), { branches: ['main'] });
       continue;
     }
-    // A merge's other lane deploys nothing itself: it only presses Deploy to
-    // Production, whose own entry point above checks the release.
-    if (name === 'deploy-production-start.yml') {
-      assert.deepEqual([...triggers.keys()], ['push']);
-      assert.deepEqual(triggers.get('push'), { branches: ['main'] });
-      assert.deepEqual([...text.matchAll(/^\s+run: (.*)$/gm)].map(m => m[1]), ['gh workflow run deploy-production.yml --ref main -f alongside_staging=true']);
-      assert.doesNotMatch(text, /secrets\./);
-      continue;
-    }
     for (const trigger of triggers.keys()) assert.ok(['workflow_call', 'workflow_dispatch'].includes(trigger), `${name} may not deploy on ${trigger}`);
     if (triggers.has('workflow_call')) {
       assert.deepEqual([...triggers.keys()], ['workflow_call']);
@@ -109,13 +109,21 @@ test('only staging can deploy automatically; production services share one manua
   assert.match(production, /web:\s+needs: validate/);
   assert.match(production, /uses: \.\/\.github\/workflows\/build-web\.yml/);
   assert.match(production, /router:\s+needs: \[validate, convex, gateway, email, transcribe, egress, web\]/);
-  assert.match(production, /mobile-update:\s+needs: \[validate, convex, gateway, email, transcribe, egress, mobile-bundle\]/);
-  // The OTA bundle exports beside the backends; only the upload waits for them,
-  // and it publishes that exact export rather than re-bundling.
+  assert.match(production, /mobile-publish:\n    name: Start OTA publish\n    needs: \[validate, convex, gateway, email, transcribe, egress, mobile-bundle\]/);
+  assert.match(production, /gh workflow run deploy-production-ota\.yml --repo "\$GH_REPO" --ref main/);
+  assert.doesNotMatch(production, /phase: publish/);
+  // The OTA bundle exports beside the backends. The upload is a later workflow,
+  // so it does not hold this deploy, and it publishes that exact export.
   assert.match(production, /mobile-bundle:\s+needs: validate\n/);
-  const ota = readFileSync(new URL('deploy-mobile-update.yml', dir), 'utf8');
+  assert.match(production, /cancel-in-progress: false/);
+  const bundle = readFileSync(new URL('build-mobile-ota.yml', dir), 'utf8');
+  assert.match(bundle, /expo export --output-dir dist --dump-sourcemap --dump-assetmap --platform ios --platform android/);
+  const ota = readFileSync(new URL('deploy-production-ota.yml', dir), 'utf8');
+  assert.deepEqual([...parseOnBlock(ota).keys()], ['workflow_dispatch']);
+  assert.match(ota, /cancel-in-progress: false/);
+  assert.match(ota, /ref: \$\{\{ inputs\.deploy_sha \}\}/);
+  assert.match(ota, /run-id: \$\{\{ inputs\.source_run_id \}\}/);
   assert.match(ota, /eas update --branch production --skip-bundler --input-dir dist/);
-  assert.match(ota, /expo export --output-dir dist --dump-sourcemap --dump-assetmap --platform ios --platform android/);
   const staging = readFileSync(new URL('deploy-staging.yml', dir), 'utf8');
   assert.match(staging, /ota:\n    name: Publish OTA\n    needs: \[plan, convex, workers, ota-bundle\]/);
   assert.match(staging, /ota-bundle:\n    name: Build OTA bundle\n    needs: plan\n/);
@@ -125,10 +133,12 @@ test('only staging can deploy automatically; production services share one manua
   assert.match(staging, /pnpm install --filter "\$\{\{ matrix\.worker\.package \}\}\.\.\."/);
   assert.doesNotMatch(staging, /--filter "\.\/\$\{\{ matrix\.worker\.dir/);
   // Every deploy job waits on the staging check, directly or through Convex.
-  const jobs = production.split(/^  (?=[a-z-]+:$)/m).slice(2);
-  assert.ok(jobs.length >= 9, 'expected every component job after validate');
+  const jobs = production.slice(production.indexOf('\njobs:\n')).split(/^  (?=[a-z-]+:$)/m).slice(1);
+  assert.ok(jobs.length >= 9, 'expected validate and every component job');
   for (const job of jobs) {
-    assert.match(job, /needs: (validate|\[validate,)/, `${job.split(':')[0]} must need validate`);
+    const id = job.split(':')[0].trim();
+    if (id === 'validate') continue;
+    assert.match(job, /needs: (validate|\[validate,)/, `${id} must need validate`);
   }
 });
 

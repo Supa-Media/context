@@ -5,7 +5,7 @@ name: Deploy Mobile Native (build + submit)
 #
 # ## What this is not
 #
-# `deploy-mobile-update.yml` ships an OTA JS bundle on every merge to `main`,
+# `build-mobile-ota.yml` exports the OTA JS bundle on every production deploy,
 # and that covers most days: a change to JS reaches installed builds without
 # anyone touching Xcode. What it cannot do is change the binary — a new native
 # module, a permission string, an entitlement, a bumped `runtimeVersion` — and

@@ -213,6 +213,34 @@ run. `check-workflow-triggers.mjs` counts `gh workflow run deploy-*.yml` as a
 deploy command, and `production-release.test.mjs` pins that the file only
 dispatches.
 
+**Amended 2026-11-17 by the owner: production waits for a green main CI.**
+The beside-staging lane shipped a commit whose CI on main failed the same
+afternoon (CI run 44150860615, Convex shard 6, sha 994abffb; production run
+44150879077 of that sha succeeded). `Start Production` is gone. `Promote to
+Production` runs on `workflow_run` of CI (push to main, conclusion success)
+and of Deploy Staging, and opens a deployment for the newest commit on main
+whose CI and staging have both succeeded. The SHA is pinned by dispatching
+`prod-deploy/<sha>`, a branch at that commit: `workflow_dispatch` cannot
+take a commit, and dispatching `main` would ship the tip at creation time.
+The deployment event is not used, because it runs the workflow file at the
+SHA and a same-repo branch could carry a modified one. `Deploy to
+Production` checks CI, staging and that the commit is still on main again
+before it changes anything. There is no bypass. `AUTO_DEPLOY_PRODUCTION=off`
+is still the manual press; `after-staging` is no longer a separate lane.
+
+A skipped job inside a green CI run does not block the release, because only
+the workflow conclusion is read. A skipped CI workflow is not a success.
+`concurrency: start-production` keeps one starter and replaces a pending one,
+and the starter that runs re-reads main, so an older CI completion cannot
+deploy over a newer green commit. `concurrency: deploy-production` still does
+not cancel an in-progress rollout; a newer deployment replaces one that has
+not started. The OTA upload is its own workflow, started after the backends
+succeed, so it does not hold that queue. The staging requirement stays: the
+check inside the deploy is an API read, and the minutes are the wait until
+staging for that commit has succeeded, which the old lane skipped.
+`promote-production.test.mjs` and `production-release.test.mjs` pin the
+trigger, the refusal of a red CI, and the pin branch.
+
 The import-coverage guard now checks `deploy-staging.yml`; its unfiltered main
 push covers every bundled file, including future packages. Production deploys
 the whole backend when explicitly promoted, so it has no path filter to drift.

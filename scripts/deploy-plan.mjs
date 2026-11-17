@@ -139,7 +139,7 @@ export const TARGETS = {
         importOnly: APP_IMPORT_ONLY,
         files: ["scripts/build-drawing-editor.mjs", workflow("build-web"), workflow("deploy-router")],
       },
-      ota: { packages: ["@context/mobile"], importOnly: APP_IMPORT_ONLY, files: [workflow("deploy-mobile-update")] },
+      ota: { packages: ["@context/mobile"], importOnly: APP_IMPORT_ONLY, files: [workflow("build-mobile-ota"), workflow("deploy-production-ota")] },
     },
     fanOut: [...SHARED_FAN_OUT, workflow("deploy-production")],
     ignored: SHARED_IGNORED,
