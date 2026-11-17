@@ -396,10 +396,11 @@ const PICTURE_TYPES = new Set(["image/png", "image/jpeg", "image/gif", "image/we
  * sandbox should act like an actual chat"). The text is held for the line's delay in (`lineIn`) before the chat
  * object takes it; each text Tex sends is held for the line's delay out (`lineOut`) before it shows as delivered; a job
  * the turn started runs after it (`jobs.js`), its texts each a Tex row `from: "job"`. Every step is kept as it runs
- * (`steps.js`), and each Tex row names its `cause`. `chat` is the control plane's view of the chat; `sleep` and `now`
- * only for tests. Never throws.
+ * (`steps.js`), and each Tex row names its `cause`. `chat` is the control plane's view of the chat; `inbound(address)`
+ * is what another chat's object hands this one (`/cross-ask`, `/cross-answer`) in place of a text over the line
+ * (`crossRuns.js`); `sleep` and `now` only for tests. Never throws; answers `{ cross }`, what its turns sent another chat.
  */
-export async function runChatTurn({ env, stub, about, row, payload, token, config, origin, chat = null, agentRoute = null, textsRoute = null, now = Date.now, sleep = hold, jobLimitMs = JOB_LIMIT_MS }) {
+export async function runChatTurn({ env, stub, about, row, payload, token, config, origin, chat = null, inbound = null, agentRoute = null, textsRoute = null, now = Date.now, sleep = hold, jobLimitMs = JOB_LIMIT_MS }) {
   const line = lineOf(about);
   const gate = sandboxGate(stub, about, row.id, { config, arrivedAt: row.at ?? now(), now });
   // The group chats a 1:1 test turn may read, as the control plane listed them for this chat (`texLabSandbox.ts`):
@@ -452,14 +453,19 @@ export async function runChatTurn({ env, stub, about, row, payload, token, confi
     await gate.write({ kind: "picture", title: String(picture.title ?? picture.name ?? "picture"), url, expires: now() + SANDBOX_TTL_MS });
     return url;
   };
+  // What this text's turns sent another chat (`jobs.js` `crossOut`), handed back for the route to carry (`crossRuns.js`).
+  let crossOut = [];
   try {
-    await callSandbox(stub, "beat", { msgId: row.id, node: "lineIn", steps: [] });
+    await callSandbox(stub, "beat", { msgId: row.id, node: inbound === null ? "lineIn" : "text", steps: [] });
     // The line: the text reaches the chat object after the line's delay in, as a Photon text reaches the Worker.
     // Its hold counts from when the text was sent (`row.at`), as a provider's lag does: what the route spent is part of it.
-    const sentAt = row.at ?? started;
-    const lineIn = book.line("lineIn", { line: line.name, number: line.number, from: row.who, holdMs: line.inMs }, null, sentAt);
-    await sleep(Math.max(0, line.inMs - (now() - sentAt)));
-    book.end(lineIn, { out: { arrived: true, line: line.name, number: line.number }, ms: Math.max(line.inMs, now() - sentAt) });
+    // A run another chat started (`inbound`, `crossRuns.js`) comes from that chat's object, never over the line.
+    if (inbound === null) {
+      const sentAt = row.at ?? started;
+      const lineIn = book.line("lineIn", { line: line.name, number: line.number, from: row.who, holdMs: line.inMs }, null, sentAt);
+      await sleep(Math.max(0, line.inMs - (now() - sentAt)));
+      book.end(lineIn, { out: { arrived: true, line: line.name, number: line.number }, ms: Math.max(line.inMs, now() - sentAt) });
+    }
     const state = await callSandbox(stub, "state", {});
     // Reset while the line held the text: the test chat is gone, and the turn never starts.
     if (!state.meta?.chat) throw new Error("the test chat was reset");
@@ -467,7 +473,7 @@ export async function runChatTurn({ env, stub, about, row, payload, token, confi
     const sandboxId = String(about.sandboxId ?? state.meta?.sandboxId ?? row.id).slice(0, 40);
     const address = { ...(await addressOf(about, sandboxId)), line: line.number };
     // Anyone a group's text is written as has a number of their own there: a name nobody in the chat has is a guest's.
-    if (about.kind === "group" && typeof row.who === "string" && !address.phones.has(row.who)) address.phones.set(row.who, await phoneOf(row.who));
+    if (about.kind === "group" && inbound === null && typeof row.who === "string" && !address.phones.has(row.who)) address.phones.set(row.who, await phoneOf(row.who));
     const storage = MemoryStorage.from(state.meta?.chatObject, rows, onEvent);
     const fresh = storage.data.size === 0;
     const kept = keepingLine(address.phones, row.id, { onText, onPicture });
@@ -508,15 +514,17 @@ export async function runChatTurn({ env, stub, about, row, payload, token, confi
     envOf = chatEnvFor({ gate, storage, about, chat: { ...(chat ?? {}), pictures: (row.pics ?? []).map((p) => p.url) }, phones: address.phones, line: chatLine, token: labToken, agent, texts, images: env.IMAGES, inboxes: registry.namespace });
     const inbox = new SenderInbox(objectState(storage, `lab-${sandboxId}`), envOf);
     registry.chat = inbox;
+    crossOut = registry.crossOut;
     if (about.kind !== "group") await storage.put("texts:workspace", payload?.defaultWorkspaceId ?? "");
     const sentHandles = new Map(Object.entries(state.meta?.sentHandles ?? {}));
-    const { path, body: message } = inboundOf({ about, row, rows, address, sentHandles });
+    // `inbound(address)`: what another chat's object hands this one (`/cross-ask`, `/cross-answer`), in place of a text.
+    const { path, body: message } = inbound === null ? inboundOf({ about, row, rows, address, sentHandles }) : inbound(address);
     // A test chat is one Tex already answers in (its grant is what the Lab opened it with): its object starts set up for
     // the people here, as the real chat's is after Tex's first turn there (`groupChat.ts` `setChatBound`).
-    if (about.kind === "group" && fresh) await setChatBound(storage, { kind: "group-message", groupId: address.groupId, line: address.line, from: message.from, participants: message.participants ?? [...address.phones.values()], messageId: row.id, text: "" });
+    if (about.kind === "group" && fresh) await setChatBound(storage, { kind: "group-message", groupId: address.groupId, line: address.line, from: message.from ?? message.asker, participants: message.participants ?? [...address.phones.values()], messageId: row.id, text: "" });
     // Its provider is the line's: the lag the `text` step shows is the line's hold.
     const provider = { name: line.name === "photon" ? "photon" : "lab", providerAt: row.at ?? started, receivedAt: now() };
-    const accepted = await inbox.fetch(new Request(`https://inbox${path}`, { method: "POST", body: JSON.stringify({ ...message, provider }) }));
+    const accepted = await inbox.fetch(new Request(`https://inbox${path}`, { method: "POST", body: JSON.stringify(inbound === null ? { ...message, provider } : message) }));
     const outcome = (await accepted.json().catch(() => ({}))).outcome ?? `status ${accepted.status}`;
     const deadline = started + TURN_LIMIT_MS;
     await drainChat(inbox, storage, work, deadline, now);
@@ -544,7 +552,7 @@ export async function runChatTurn({ env, stub, about, row, payload, token, confi
     const handles = Object.fromEntries([...sentHandles.entries()].slice(-200));
     if (!quiet) handles[replyId] = `${row.id}-sent-${said.length}`;
     await callSandbox(stub, "meta", { key: "sentHandles", value: handles });
-    console.log(JSON.stringify({ event: "lab_sandbox_chat_turn", ok: true, ms: now() - started, steps: book.view().length, quiet, jobs: registry.jobs.size, jobTexts: jobRows, outcome: String(outcome).slice(0, 20), lineCalls: kept.calls.length }));
+    console.log(JSON.stringify({ event: "lab_sandbox_chat_turn", ok: true, cross: registry.crossOut.length, ms: now() - started, steps: book.view().length, quiet, jobs: registry.jobs.size, jobTexts: jobRows, outcome: String(outcome).slice(0, 20), lineCalls: kept.calls.length }));
   } catch (error) {
     await gate.flush();
     const at = now();
@@ -558,6 +566,7 @@ export async function runChatTurn({ env, stub, about, row, payload, token, confi
     // Only this text's own mark: a turn that outlived its mark never frees another text's.
     await callSandbox(stub, "release", { msgId: row.id }).catch(() => {});
   }
+  return { cross: crossOut };
 }
 
 /** The chat object's alarm, run as Cloudflare runs it, until nothing near is left to run, never past the deadline. */

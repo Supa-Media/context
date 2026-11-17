@@ -73,10 +73,21 @@ export function sandboxInboxes({ gate, makeJob, parentOfJob = () => null }) {
   const jobs = new Map();
   /** The names a job reports to: its `run.inbox`, as the chat object gave it at `/job-start`. */
   const chats = new Set();
-  const registry = { chat: null, jobs, chats };
+  /** Asks and answers this text's turn sent another chat (`crossChat.ts`), carried by the route afterwards (`crossRuns.js`). */
+  const crossOut = [];
+  const registry = { chat: null, jobs, chats, crossOut };
   const reach = async (name, request) => {
     const path = new URL(request.url).pathname;
-    if (path === "/chat-where") return Response.json({ ok: true });
+    // Another group chat's directory entry: a test chat answers with the chat's own key, which the route opens a linked
+    // test chat on (`crossRuns.js`), so an ask from here never reaches the real chat.
+    if (path === "/chat-where") return Response.json(name.startsWith("group-key:") ? { ok: true, groupId: name.slice("group-key:".length), line: "lab" } : { ok: true });
+    if ((path === "/cross-ask" || path === "/cross-answer") && request.method === "POST" && !chats.has(name)) {
+      const body = await request.clone().json().catch(() => null);
+      if (body === null || typeof body !== "object") return Response.json({ outcome: "bad" }, { status: 400 });
+      crossOut.push({ to: name, path, body });
+      gate.record({ kind: "Chat", summary: path === "/cross-ask" ? `asked Tex in another chat: ${String(body.what ?? "").slice(0, 140)}` : "answered the chat that asked", tool: path === "/cross-ask" ? "ask_chat" : "chatAnswer" });
+      return Response.json({ outcome: "queued" });
+    }
     if (name.startsWith("job:")) {
       let job = jobs.get(name);
       if (!job) {

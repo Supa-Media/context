@@ -61,6 +61,7 @@ import { json } from "../http/responses.js";
 import { callSandbox, SANDBOX_TTL_MS, sandboxStub, SEED_CHUNK } from "./object.js";
 import { eventId, RUNNING_STALE_MS, stepsOf } from "./harness.js";
 import { chatStepsOf, runTestText } from "./chatRun.js";
+import { followCross } from "./crossRuns.js";
 import { draftFit, TEX_CONFIG } from "../agent/texConfig.js";
 import { sharedChatOf, sharedLedger, sharedList } from "./shared.js";
 import { inboundEvent, picsOf, reactionOf, TAPBACK_OF, targetOf } from "./inbound.js";
@@ -423,10 +424,56 @@ async function addRow({ env, ctx, controlPlane, token, who, stub, state, row, or
     await callSandbox(stub, "release", { msgId: row.id }).catch(() => {});
     throw error;
   }
-  const run = runTurn({ env, stub, about, row, payload: answer.session, token, config: drafted.config ?? null, origin, chat: answer.chat ?? null });
+  const config = drafted.config ?? null;
+  // An ask of Tex in another chat runs on after the turn, in that chat's linked test chat, and its answer comes back
+  // here as a run of its own (`crossRuns.js`).
+  const asker = { stub, about, sandboxId: about.sandboxId, replyId: `${row.id}r`, payload: answer.session, chat: answer.chat ?? null };
+  const run = Promise.resolve(runTurn({ env, stub, about, row, payload: answer.session, token, config, origin, chat: answer.chat ?? null }))
+    .then((done) => followCross(done?.cross, asker, crossDeps({ env, controlPlane, token, who, origin, runTurn, config, asker })))
+    .then((carried) => (carried.length > 0 ? callSandbox(stub, "row.patch", { id: asker.replyId, patch: { cross: carried } }) : null))
+    .catch(() => {});
   if (ctx && typeof ctx.waitUntil === "function") ctx.waitUntil(run);
   else await run;
   return json({ msgId: row.id });
+}
+
+/**
+ * What `followCross` needs of the route: a group's linked test chat (opened once on that chat, kept with the asking
+ * test chat as `linked:<key>`, and only for a group the caller is in now), and a run of a row in a test chat, claimed
+ * and counted as a sent text is.
+ */
+function crossDeps({ env, controlPlane, token, who, origin, runTurn, config, asker }) {
+  const sessionOf = async (chat) => {
+    const answer = await controlPlane.labSandbox(token, "session", { chat });
+    return answer?.status === "ok" ? answer : null;
+  };
+  return {
+    newRow: newIds,
+    linked: async (key) => {
+      const listed = (Array.isArray(who.chats) ? who.chats : []).find((chat) => chat?.key === key);
+      if (!CHAT_KEY.test(key) || !listed) return null;
+      const session = await sessionOf(key);
+      if (session === null) return null;
+      const kept = (await callSandbox(asker.stub, "state", {})).meta?.[`linked:${key}`];
+      let sandboxId = typeof kept === "string" && SANDBOX_ID.test(kept) && (await callSandbox(sandboxStub(env, who.userId, kept), "exists", {})).exists ? kept : null;
+      if (sandboxId === null) {
+        const opened = await (await open(env, controlPlane, token, who, { source: "chat", chatId: key, versionId: asker.about.versionId, by: "cross-chat ask" }, origin)).json();
+        if (typeof opened?.sandboxId !== "string") return null;
+        sandboxId = opened.sandboxId;
+        await callSandbox(asker.stub, "meta", { key: `linked:${key}`, value: sandboxId });
+      }
+      const stub = sandboxStub(env, who.userId, sandboxId);
+      const about = (await callSandbox(stub, "state", {})).meta?.chat;
+      return about ? { stub, about: { ...about, name: String(listed.name ?? "the group") }, sandboxId, payload: session.session, chat: session.chat ?? null } : null;
+    },
+    run: async (target, row, inbound) => {
+      const day = new Date().toISOString().slice(0, 10);
+      if (!(await callSandbox(indexStub(env, who.userId), "count", { key: `sends:${day}`, max: DAILY_SENDS })).ok) return null;
+      if (!(await callSandbox(target.stub, "claim", { msgId: row.id, staleMs: RUNNING_STALE_MS })).ok) return null;
+      await callSandbox(target.stub, "row.add", { row });
+      return await runTurn({ env, stub: target.stub, about: target.about, row, payload: target.payload, token, config, origin, chat: target.chat, inbound });
+    },
+  };
 }
 
 /** A new test row's ids: its event id and the row id built from it. */
