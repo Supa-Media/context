@@ -4,7 +4,7 @@
  * their about text (MOD_ABOUT), where each one's source lives (SRC_KINDS, MOD_SRC). Tex's prompt modules' words
  * are the repository's (packages/shared/src/texPrompt, since 2026-11-14), shown from labData.generated.ts.
  */
-import TEX_CONFIG from "@context/shared/src/texConfig.json";
+import { TEX_CONFIG } from "@context/shared/src/texConfig.cjs";
 import type { LabModule } from "../types";
 
 /**

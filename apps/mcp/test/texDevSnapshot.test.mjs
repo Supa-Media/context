@@ -14,13 +14,12 @@
  */
 
 import assert from "node:assert/strict";
-import { createRequire } from "node:module";
 import { test } from "node:test";
 
 import { graphSvg, snapshotGraph } from "../src/texDev/snapshot.js";
+import { readTexConfig } from "../../../scripts/lib/texConfigFile.mjs";
 
-const require = createRequire(import.meta.url);
-const config = require("../../../packages/shared/src/texConfig.json");
+const config = readTexConfig();
 
 const main = () => ({ nodes: structuredClone(config.nodes), edges: structuredClone(config.edges) });
 /** The Lab draws a label at most 15 characters, cut with an ellipsis, and escapes it. */

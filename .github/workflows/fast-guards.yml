@@ -203,12 +203,18 @@ jobs:
 
       # Promote writes a Lab version into the config: main's own graph must promote to main's config byte for byte,
       # and a loop wire keeps its rounds (it lost them unseen while nothing ran this; 2026-11-16).
+      # One loader and one schema for Tex's config (2026-11-17): no file reads texConfig.json its own way, the
+      # committed config matches its schema version, and a version bump comes with its migration.
+      - name: Tex's config is read through its loader and matches its schema
+        run: node scripts/tex-config-readers.mjs && node scripts/tex-config-readers.mjs --self-test && node scripts/tex-config-migrate.mjs --check
+
       - name: Lab Promote writes main as main
-        run: node scripts/tex-lab-promote.mjs --self-test
+        run: node scripts/tex-lab-promote.mjs --self-test && node scripts/tex-lab-merge.mjs --self-test
 
       # The Architecture Lab's cases, module texts and test workspaces are the bench's own (tex.lc/lab).
-      - name: The Tex Lab's data matches the bench
-        run: node scripts/tex-lab-data.mjs --check
+      # Built on install and never committed (scripts/tex-generated.mjs); building it still fails on a bench past its caps.
+      - name: The Tex Lab's data builds from the bench
+        run: node scripts/tex-lab-data.mjs
 
       # Tex's test conversations (packages/shared/src/texSets.cjs; plan: tex-sets/plan.md). The Test Set is never in the
       # repo: its star count comes from the eval service, and an unreachable service falls back to Training against Dev.

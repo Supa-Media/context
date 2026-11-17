@@ -312,9 +312,9 @@ export async function frontFor(dir, person, { today = null, group = null, calend
 
 /**
  * The Front door's batch: every unit through the tree's own bench, grouped by person, each group one test. `runTests`
- * is `coreArea.mjs`'s from the tree, swapped by a test. Answers one row a unit.
+ * is `coreArea.mjs`'s from the tree, swapped by a test; `parallel` tests go at once. Answers one row a unit.
  */
-export async function runFd(units, { tree, fake = false, runTests = null }) {
+export async function runFd(units, { tree, fake = false, runTests = null, parallel = 1 }) {
   const rows = [];
   const can = [];
   for (const u of units) {
@@ -366,14 +366,14 @@ export async function runFd(units, { tree, fake = false, runTests = null }) {
       tests.push({ name, group: units });
     }
     if (tests.length === 0) return rows;
-    const got = await run(tree, tests.map((t) => t.name), { dir, scratch, tag: "sets", fake });
+    const got = await run(tree, tests.map((t) => t.name), { dir, scratch, tag: "sets", fake, parallel });
     const each = got.usd / tests.reduce((n, t) => n + t.group.length, 0);
     for (const t of tests) {
       t.group.forEach((u, k) => {
         const r = got.rows.find((x) => x.id === `${t.name}/q${k + 1}`);
         const usd = Math.round(each * 10_000) / 10_000;
         if (!r) rows.push({ ...u.row, right: false, ran: false, usd, why: "the bench gave no judged answer" });
-        else rows.push({ ...u.row, right: Boolean(r.right), ran: true, usd, got: r.right ? "every line held" : missedLine(r), want: "every must and never line", ...(r.right ? {} : { misses: r.misses ?? [], said: r.said ?? [] }) });
+        else rows.push({ ...u.row, right: Boolean(r.right), ran: true, usd, got: r.right ? "every line held" : missedLine(r), want: "every must and never line", misses: r.misses ?? [], held: r.held ?? [], said: r.said ?? [] });
       });
     }
     return rows;

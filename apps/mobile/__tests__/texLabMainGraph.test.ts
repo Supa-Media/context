@@ -13,7 +13,7 @@ import { describe, expect, test } from "@jest/globals";
 import { mainGraph } from "../features/tex/lab/data/graph";
 import { unfoldGroups } from "../features/tex/lab/engine/groups";
 import { BASE_MODELS } from "../features/tex/lab/data/models";
-import TEX_CONFIG from "@context/shared/src/texConfig.json";
+import { TEX_CONFIG } from "@context/shared/src/texConfig.cjs";
 
 describe("the Lab's main graph is Tex's config", () => {
   test("main's graph is the config itself, and the config names each model as the Lab's table does", () => {

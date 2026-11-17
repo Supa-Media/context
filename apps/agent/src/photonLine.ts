@@ -191,13 +191,15 @@ export function photonKind(emoji: string): PhotonKind {
 
 // ---- the 1:1 line ----
 
-/** Tapback on a message, with a like when the emoji is refused; never throws. */
-async function tapbackOn(photon: Fetcher, place: PhotonPlace, guid: string, emoji: string): Promise<void> {
+/** Tapback on a message, with a like when the emoji is refused; never throws. The one that went, or null when none did. */
+async function tapbackOn(photon: Fetcher, place: PhotonPlace, guid: string, emoji: string): Promise<string | null> {
   const kind: PhotonKind = photonKind(emoji);
   try {
     await reactPhoton(photon, place, guid, kind, true);
+    return emoji;
   } catch {
-    if (kind !== "like") await reactPhoton(photon, place, guid, "like", true).catch(() => undefined);
+    if (kind === "like") return null;
+    return await reactPhoton(photon, place, guid, "like", true).then(() => "👍", () => null);
   }
 }
 
@@ -309,9 +311,10 @@ export function photonLine(deps: LineDeps): Line {
     acknowledge: async (chatId, messageId, emoji) => {
       try {
         const p = photon();
-        await tapbackOn(p, await dmPlace(p, chatId), messageId, emoji);
+        return await tapbackOn(p, await dmPlace(p, chatId), messageId, emoji);
       } catch {
         // A tapback that failed costs only the tapback.
+        return null;
       }
     },
     // The card goes as a .vcf attachment naming the chat's line (`card.ts`), a contact the person can save.

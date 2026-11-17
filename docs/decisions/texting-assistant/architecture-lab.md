@@ -54,6 +54,25 @@ change. It refuses a new step (its code comes first, on a branch), a deleted one
 gateway id, and new words for a module built in code. Production's setup note names no models;
 AI Promote refuses a texting setup that names its own (`bench/promote.mjs` `configRefusal`).
 
+**Promote merges, it never writes over main** (decided by the owner, 2026-11-17, "A + B + schema, no split"). Many
+drafts are promoted at once, and a draft's whole graph written over main undid every change merged since the draft
+was made. So a draft keeps the stamp of the main it was made from (`base` on `texLabVersions`,
+`packages/shared/src/texConfigStamp.cjs`; a copy of a draft keeps that draft's), and Promote is a three-way merge
+(`scripts/tex-lab-merge.mjs`): the draft's own changes since that main, one setting at a time, onto main as it is
+now. A step's context list both sides changed merges as a list, and its input and output fields merge by field name;
+a position both moved keeps main's; any other setting both changed, a module's words both changed, or an edit main has
+made impossible refuses the Promote and names each, with main's value and the draft's. The Lab's version menu lists
+those clashes (`views/bar/PromoteClashes.web.tsx`): the person picks main's or this draft's for each and promotes
+again, and tex_dev does the same with `promote { draft, picks }`; the picks travel on the ask
+(`texLabVersions.promote.picks`) and the pull request names them. An edit main made impossible has no draft side to
+pick and is made again in a fresh draft. A copy keeps its source's base, in the Lab and in tex_dev; a copy of a
+draft saved before drafts kept a base keeps when that draft was made (`madeAt`), never today's main, which would make
+the copy's Promote undo everything merged since. A draft saved before drafts kept a base is taken to start from main as it was when
+it was made, and its pull request says so. *Simplifying it back* to writing the whole graph brings the silent
+overwrites back; `node scripts/tex-lab-merge.mjs --self-test` (fast guards) fails "a stale draft wrote over main's
+newer change". The config stays one file: the conflicts that kept stopping parallel work were in the committed
+bundles generated from it, not in the config.
+
 **Tex's prompt words live in the repository, beside the config** (Dev2, 2026-11-14, choosing "In the repo, beside
 the config" over keeping them in `@context-lc` pinned by fingerprint: a pinned copy is a second copy that can only
 fail). Each module is `packages/shared/src/texPrompt/<name>.md`, the words exactly as Tex is given them;
@@ -70,7 +89,8 @@ The `ai/production/prompt/` notes are retired. Skills stay in `@context-lc` for 
 **Its data is the bench's own.** `scripts/tex-lab-data.mjs` writes the cases,
 the module texts (the map, the capability list, the judge examples, the test
 person's about note) and the test workspaces from the repo into
-`labData.generated.ts`. Fast repository guards fails when that file is stale.
+`labData.generated.ts`, built on install and never committed (`scripts/tex-generated.mjs`); fast repository
+guards fails when the bench cannot build it.
 
 **What a simplification would cost:** rebuilding the views "in the app's own
 style" instead of porting them would bring back the thing Dev2 named, a build

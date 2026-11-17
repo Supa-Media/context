@@ -65,7 +65,8 @@ export interface Line {
   /** "Read" on the chat, or on `messageId` where the line marks one message (WhatsApp). */
   markRead(chatId: string, messageId?: string): Promise<void>;
   /** A tapback of `emoji` on the person's text (`ackEmoji.ts`), where the line has tapbacks (Sendblue); Linq does nothing. Never throws. */
-  acknowledge(chatId: string, messageId: string, emoji: string): Promise<void>;
+  /** The tapback that went (the emoji, or the line's fallback), null when none did; nothing when the line cannot tell. */
+  acknowledge(chatId: string, messageId: string, emoji: string): Promise<string | null | void>;
   /** Whether the line took the contact card. */
   shareContactCard(chatId: string): Promise<boolean>;
   /** The line's iMessage Name & Photo shared into the chat, or set again first with `refresh`; Linq's card already does both. */
@@ -130,7 +131,7 @@ function linqLine(deps: LineDeps): Line {
     uploadPicture: async (picture) => ({ attachment_id: await uploadLinqPicture(fetch, key, picture) }),
     startTyping: (chatId) => startLinqTyping(fetch, key, chatId),
     markRead: (chatId) => markLinqRead(fetch, key, chatId),
-    acknowledge: async () => {},
+    acknowledge: async () => null,
     shareContactCard: (chatId) => shareLinqContactCard(fetch, key, chatId),
     shareProfile: async () => "shared",
   };
@@ -194,9 +195,10 @@ function sendblueLine(deps: LineDeps): Line {
       if (deps.sendblue) await markSendblueRead(fetch, deps.sendblue, chatId);
     },
     acknowledge: async (chatId, messageId, emoji) => {
-      if (!deps.sendblue) return;
+      if (!deps.sendblue) return null;
       // An emoji the line refuses still leaves the person a sign it landed.
-      if (!(await reactSendblue(fetch, deps.sendblue, chatId, messageId, emoji))) await reactSendblue(fetch, deps.sendblue, chatId, messageId, "like");
+      if (await reactSendblue(fetch, deps.sendblue, chatId, messageId, emoji)) return emoji;
+      return (await reactSendblue(fetch, deps.sendblue, chatId, messageId, "like")) ? "👍" : null;
     },
     // The card goes as a .vcf, by address (`card.ts`): a contact the person can save.
     shareContactCard: async (chatId) => {
@@ -259,9 +261,10 @@ function whapiLine(deps: LineDeps): Line {
       if (deps.whapi && messageId) await markWhapiRead(fetch, deps.whapi, messageId);
     },
     acknowledge: async (_chatId, messageId, emoji) => {
-      if (!deps.whapi) return;
+      if (!deps.whapi) return null;
       // An emoji WhatsApp refuses still leaves the person a sign it landed.
-      if (!(await reactWhapi(fetch, deps.whapi, messageId, emoji)) && emoji !== "👍") await reactWhapi(fetch, deps.whapi, messageId, "👍");
+      if (await reactWhapi(fetch, deps.whapi, messageId, emoji)) return emoji;
+      return emoji !== "👍" && (await reactWhapi(fetch, deps.whapi, messageId, "👍")) ? "👍" : null;
     },
     shareContactCard: async (chatId) => {
       const chat = parseWhapiChat(chatId);

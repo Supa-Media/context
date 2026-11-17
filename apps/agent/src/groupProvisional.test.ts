@@ -11,7 +11,7 @@
  */
 
 import { describe, expect, it } from "vitest";
-import config from "../../../packages/shared/src/texConfig.json" with { type: "json" };
+import { TEX_CONFIG as config } from "../../../packages/shared/src/texConfig.cjs";
 import { acceptGroup, drainGroup } from "./groupInbox";
 import { MemoryStorage } from "./memoryStorage.testing";
 import { ADA, BO, LINE, LINES, setup, silent, answerAll } from "./groupWorld.testing";

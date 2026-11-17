@@ -30,12 +30,13 @@
  * gateway run this same code.
  */
 
-const MODES = ["wait", "uses", "background", "job", "loop", "provisional", "generator"];
-/** What a provisional wire's step may do before its go (`texGraph.cjs`). */
-const ALLOW = ["read", "revertible"];
+// The wire modes, a provisional wire's allows and a step's fields are the schema's (`texConfigSchema.cjs`).
+const SCHEMA = require("./texConfigSchema.cjs");
+const MODES = [...SCHEMA.MODES];
+const ALLOW = [...SCHEMA.ALLOW];
 const ID = /^[A-Za-z][A-Za-z0-9_-]{0,47}$/;
 /** The fields a `set` may change: everything a step has but its id (which `remove` and `add` change). */
-const NODE_FIELDS = new Set(["label", "goal", "log", "on", "rounds", "out", "ctx", "ms", "timeoutS", "areas", "file", "note", "icon", "model", "effort", "kind", "inSchema", "outSchema", "sendBack", "x", "y", "group", "fallback"]);
+const NODE_FIELDS = new Set(SCHEMA.NODE_FIELDS);
 /** At most this many edits in one batch. */
 const MAX_OPS = 200;
 /** Every version needs a start and a send (the Lab's `delSel`). */

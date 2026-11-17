@@ -368,8 +368,8 @@ export const CAPABILITIES = Object.freeze([
   {
     name: "Progress lines and silence",
     actions: ["send.progress", "send.say_nothing", "send.tapback"],
-    texts: "text a short line while a long job runs, or say nothing when silence fits",
-    group: "the same",
+    texts: "text a short line while a long job runs, say nothing when silence fits, or answer their text with only a tapback on it (say for a thing you did for them, or their thanks) and no words",
+    group: "the same, except a literal @Tex tag is always answered in words",
   },
   {
     name: "How you talk, and your settings",

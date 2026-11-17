@@ -9,7 +9,7 @@
  * as globals, and porting them with the same names and the same reads is what
  * keeps the Lab "EXACTLY like the artifact" (Dev2, 2026-11-13).
  */
-import { groupsOf, mainGraph } from "../data/graph";
+import { groupsOf, MAIN_STAMP, mainGraph } from "../data/graph";
 import { BASE_MODELS } from "../data/models";
 import type { LabCase, LabGraph, LabModel, LabVersion, Selection, Tool, View } from "../types";
 import { foldAround, isGroupFocus, unfoldGroups } from "./groups";
@@ -255,11 +255,15 @@ export function forkFromMain() {
   let i = 1;
   while (names.has(nm)) nm = "My version " + ++i;
   const nv = clone(lab.cur);
+  // A copy of an older draft with no stamp keeps when that draft was made, so Promote never takes today's main as its base.
+  if (!isMain() && !nv.base) nv.madeAt = nv.madeAt ?? nv.createdAt;
   nv.id = "v" + Date.now().toString(36);
   nv.name = nm;
   nv.authorId = lab.myId;
   nv.results = [];
   nv.createdAt = Date.now();
+  // The main it starts from, so Promote merges only its own changes; a copy of a draft keeps that draft's.
+  if (isMain()) nv.base = MAIN_STAMP;
   lab.cur = nv;
   lab.undoStack = [];
   lab.dirty = true;

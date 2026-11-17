@@ -21,9 +21,10 @@
 import { readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
+import { CONFIG_PATH, readTexConfig } from "./lib/texConfigFile.mjs";
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
-export const CONFIG = "packages/shared/src/texConfig.json";
+export const CONFIG = CONFIG_PATH;
 export const PAGE = "docs/architecture/tex.md";
 export const MODULE = "apps/mcp/src/agent/texArchitecture.generated.js";
 
@@ -223,7 +224,7 @@ const read = (root, path) => readFileSync(join(root, path), "utf8");
 
 /** Everything stale or wrong between the config, the page and the module, for `tex-diagram-check.mjs`. */
 export function generatedProblems(root = ROOT) {
-  const config = JSON.parse(read(root, CONFIG));
+  const config = readTexConfig(root);
   const problems = shapeProblems(config);
   if (problems.length > 0) return problems;
   if (pageFor(read(root, PAGE), config) !== read(root, PAGE)) problems.push(`${PAGE} is not what ${CONFIG} draws: run node scripts/tex-architecture.mjs`);

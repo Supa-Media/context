@@ -107,11 +107,18 @@ export type LabVersion = {
   authorId: string | null;
   createdAt?: number;
   updatedAt?: number;
+  /** The main it was made from (`texConfigStamp.cjs`); Promote merges only what changed since. */
+  base?: string;
+  /** For an older draft with no `base`: when the main it starts from was main (a copy keeps the original's). */
+  madeAt?: number;
   /** Its revision on the server, and the AI client last in it over the MCP (`engine/live.ts`). */
   rev?: number;
   live?: { client: string; at: number } | null;
-  /** Where its Promote stands (`texLabPromote.ts`): asked, its pull request opened, or why it was refused. */
-  promote?: { state: string; pr: string | null; why: string | null } | null;
+  /**
+   * Where its Promote stands (`texLabPromote.ts`): asked, its pull request opened, or why it was refused; a refusal
+   * over things main changed too names each clash, and the next ask carries the person's picks.
+   */
+  promote?: { state: string; pr: string | null; why: string | null; clashes?: { what: string; main: string; draft: string; pick: boolean }[]; picks?: { what: string; take: "main" | "draft" }[] } | null;
 };
 
 /**

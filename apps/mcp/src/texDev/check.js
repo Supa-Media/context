@@ -11,8 +11,9 @@
 import { problemsOf } from "../../../../packages/shared/src/texGraph.cjs";
 import { TEX_CONFIG } from "../agent/texConfig.js";
 import SHELF from "../../../../packages/shared/src/texNodeShelf.json" with { type: "json" };
+import { EFFORTS as SCHEMA_EFFORTS } from "../../../../packages/shared/src/texConfigSchema.cjs";
 
-const EFFORTS = new Set(["off", "low", "medium", "high", "xhigh", "max"]);
+const EFFORTS = new Set(SCHEMA_EFFORTS);
 
 /**
  * Why a step's model would not promote. A draft may keep models of its own (`graph.models`, the Lab's model form and
