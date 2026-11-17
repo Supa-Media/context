@@ -13,7 +13,7 @@
  * Every run is logged as its own step (`provisional`): started, go, stop and why, how long it ran before the verdict.
  */
 
-import bundled from "../../../packages/shared/src/texConfig.json";
+import bundled from "../../../packages/shared/src/texConfig.json" with { type: "json" };
 import { provisionalWiring } from "../../../packages/shared/src/texGraph.cjs";
 import { post, record, type Fetch } from "./clients";
 
