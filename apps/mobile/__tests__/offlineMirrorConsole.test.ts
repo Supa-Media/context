@@ -373,16 +373,27 @@ describe("on the phone, the copy answers first", () => {
   });
 
   test("the copy is on screen before any wait, then the bucket's version replaces it", async () => {
+    // `deviceFirst` is read when the offline object is built. The mount in
+    // beforeEach already built it with the flag off, and a later render does
+    // not always rebuild it. Main CI 44191069024 then waited 5ms, short of
+    // the 250ms glance, and the editor was still empty. Remount with the
+    // flag on. The budget stays under that glance, so a server-first open
+    // still fails this case.
     mockDeviceFirst = true;
+    unmount?.();
+    unmount = mount();
     await settle();
     await syncNow();
     let answer: (note: OpenNote) => void = () => {};
     actions[fn("readNote")] = () => new Promise((resolve) => (answer = resolve as (note: OpenNote) => void));
     browser.select(OTHER);
-    await act(async () => {
-      await new Promise((resolve) => setTimeout(resolve, 5));
-    });
-    await settle(30);
+    const budget = Date.now() + 150;
+    while (browser.editor.path !== OTHER && Date.now() < budget) {
+      await act(async () => {
+        await new Promise((resolve) => setTimeout(resolve, 5));
+      });
+      await settle(8);
+    }
     expect(browser.editor.path).toBe(OTHER);
     expect(browser.editor.draft).toBe("Nobody opened this on this device.\n");
     expect(browser.editor.fromCache).toBe(true);

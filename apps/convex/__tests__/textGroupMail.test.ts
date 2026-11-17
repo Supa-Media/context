@@ -22,8 +22,8 @@
  *  - the chat's own check-in (`textGroupLooks.ts`): dropping its wake, its
  *    claim, its result, its lease, its live-chat check, its gap, the
  *    personal `watchedIn`, the arming on a turn or daily, the next slot set
- *    at claim, or the quiet/dormant drop each fails a test in "the chat
- *    checks in on its own".
+ *    at claim, leaving a look that is already sooner than the delay, or the
+ *    quiet/dormant drop each fails a test in "the chat checks in on its own".
  */
 
 import { afterEach, describe, expect, test, vi } from "vitest";
@@ -322,10 +322,27 @@ describe("the chat checks in on its own", () => {
     expect((await lookRow(t)).nextLookAt).toBeGreaterThan(Date.now());
   });
 
+  test("mail leaves a look that is already sooner than the delay", async () => {
+    gmail();
+    const t = setupTest();
+    await shared(t);
+    // The daily slot lands here in the minute before 10:00, 14:00 or 18:00
+    // in the binder's zone. Mail must not push that look out to a minute
+    // from now (main CI 44194792601, 25s before 18:00 Eastern).
+    const sooner = Date.now() + 30_000;
+    await patchLook(t, { nextLookAt: sooner });
+    await t.mutation(internal.functions.googlePush.pokeFromPubsub, { gmailAddress: WORK });
+    expect((await lookRow(t)).nextLookAt).toBe(sooner);
+  });
+
   test("new mail brings the look forward, and the cron hands it out once, leased", async () => {
     gmail();
     const t = setupTest();
     await shared(t);
+    // Binding the chat armed the next daily slot. Park it well past the mail
+    // delay so this case is the bring-forward at any time of day, including
+    // the minute before a slot, when the test above is the one that applies.
+    await patchLook(t, { nextLookAt: Date.now() + 12 * HOUR });
     const before = Date.now();
     await t.mutation(internal.functions.googlePush.pokeFromPubsub, { gmailAddress: WORK });
     const row = await lookRow(t);
