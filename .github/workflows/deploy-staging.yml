@@ -289,7 +289,28 @@ jobs:
         run: pnpm --dir infra/tex-eval exec wrangler deploy --env staging
       - name: Deploy staging Worker
         # The gateway records the commit on each Tex turn (apps/mcp/src/agent/texVersion.js).
-        run: pnpm --dir "$WORKER_DIR" exec wrangler deploy --env staging ${{ matrix.worker.name == 'mcp' && format('--var TEX_CODE_VERSION:{0}', github.sha) || '' }}
+        # Photon secrets go on this deploy, not a later secret put: that second
+        # version restarts the container. Staging is off the line, and the same
+        # double start is still a second rollout.
+        run: |
+          set -euo pipefail
+          args=(--env staging)
+          secrets_file=""
+          cleanup() { if [ -n "${secrets_file}" ]; then rm -f "$secrets_file"; fi; }
+          trap cleanup EXIT
+          if [ "$WORKER" = "mcp" ]; then
+            args+=(--var "TEX_CODE_VERSION:${GITHUB_SHA}")
+          fi
+          if [ "$WORKER" = "photon" ]; then
+            if [ -n "${PHOTON_PROJECT_ID:-}" ] && [ -n "${PHOTON_PROJECT_SECRET:-}" ]; then
+              secrets_file="$(mktemp)"
+              node "$GITHUB_WORKSPACE/scripts/photon-secrets-file.mjs" "$secrets_file"
+              args+=(--secrets-file "$secrets_file")
+            else
+              echo "WARNING: PHOTON_PROJECT_ID and PHOTON_PROJECT_SECRET are not both set; the staging bridge stays unconfigured and idle."
+            fi
+          fi
+          pnpm --dir "$WORKER_DIR" exec wrangler deploy "${args[@]}"
       - name: Sync staging Worker secrets
         run: |
           set -euo pipefail
@@ -301,13 +322,7 @@ jobs:
               printf '%s' "$PLUGIN_EGRESS_SECRET" | pnpm --dir infra/egress-service exec wrangler secret put EGRESS_SERVICE_SECRET --env staging
               ;;
             photon)
-              # Both or neither: a half-set pair would leave the bridge unable to mint a token.
-              if [ -z "${PHOTON_PROJECT_ID:-}" ] || [ -z "${PHOTON_PROJECT_SECRET:-}" ]; then
-                echo "WARNING: PHOTON_PROJECT_ID and PHOTON_PROJECT_SECRET are not both set; the staging bridge stays unconfigured and idle."
-              else
-                printf '%s' "$PHOTON_PROJECT_ID" | pnpm --dir infra/photon-bridge exec wrangler secret put PHOTON_PROJECT_ID --env staging
-                printf '%s' "$PHOTON_PROJECT_SECRET" | pnpm --dir infra/photon-bridge exec wrangler secret put PHOTON_PROJECT_SECRET --env staging
-              fi
+              # Secrets went out with the deploy (--secrets-file). Nothing to sync.
               ;;
             email)
               printf '%s' "$EMAIL_WORKER_SECRET" | pnpm --dir infra/email-worker exec wrangler secret put EMAIL_WORKER_SECRET --env staging

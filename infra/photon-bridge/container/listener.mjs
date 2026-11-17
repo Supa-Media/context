@@ -18,11 +18,51 @@ export async function probeHead(client) {
   throw new Error("catch-up ended without catchup.complete");
 }
 
+/** Apple's stamp on a raw event, when it has one. Used for replay lag only. */
+export function eventInstant(event) {
+  const candidates = [event?.occurredAt, event?.message?.dateCreated, event?.editedAt, event?.readAt, event?.retractedAt];
+  for (const value of candidates) {
+    const ms = value instanceof Date ? value.getTime() : typeof value === "string" ? Date.parse(value) : NaN;
+    if (Number.isFinite(ms)) return ms;
+  }
+  return null;
+}
+
+/**
+ * One Photon read that proves the channel still answers. The head probe
+ * replays nothing (see `probeHead`). A read that does not finish inside
+ * `timeoutMs` rejects with code `readTimeout` and does not count.
+ */
+export async function proveRead(client, timeoutMs, signal) {
+  if (signal?.aborted) throw Object.assign(new Error("aborted"), { code: "aborted" });
+  const stream = client.events.catchUp(Number.MAX_SAFE_INTEGER);
+  let timer;
+  const reading = (async () => {
+    for await (const event of stream) {
+      if (event.type === "catchup.complete") return event.headSequence;
+    }
+    throw new Error("catch-up ended without catchup.complete");
+  })();
+  // A timeout settles the race and leaves this read running until `close`.
+  reading.catch(() => {});
+  try {
+    return await Promise.race([
+      reading,
+      new Promise((_, reject) => {
+        timer = setTimeout(() => reject(Object.assign(new Error("timeout"), { code: "readTimeout" })), timeoutMs);
+      }),
+    ]);
+  } finally {
+    clearTimeout(timer);
+    await stream.close?.();
+  }
+}
+
 /**
  * One connection's life: the live streams and catch-up run together until a
  * stream fails, the line is cut off, or the signal aborts. Throws on failure.
  */
-export async function streamOnce({ client, line, ledger, onQueued, signal, enrich = async () => ({}) }) {
+export async function streamOnce({ client, line, ledger, onQueued, signal, enrich = async () => ({}), onCatchup, now = Date.now }) {
   const live = [
     client.messages.subscribeEvents(),
     client.chats.subscribeEvents(),
@@ -55,8 +95,16 @@ export async function streamOnce({ client, line, ledger, onQueued, signal, enric
   for (const pump of pumps) pump.catch(() => {});
 
   try {
+    let replayed = 0;
+    let oldest = null;
     for await (const event of catchup) {
-      if (event.type === "catchup.complete") break;
+      if (event.type === "catchup.complete") {
+        onCatchup?.({ replayed, lagMs: oldest == null ? 0 : Math.max(0, now() - oldest) });
+        break;
+      }
+      replayed += 1;
+      const at = eventInstant(event);
+      if (at != null && (oldest == null || at < oldest)) oldest = at;
       await offer(event);
     }
     await Promise.race([...pumps, abort]);
@@ -69,24 +117,59 @@ export async function streamOnce({ client, line, ledger, onQueued, signal, enric
  * Runs a line until the signal aborts. `log` receives event names and codes
  * only (see log.mjs).
  */
-export async function runLine({ client, line, ledger, onQueued, signal, log, enrich, backoff = BACKOFF_MS, sleep = defaultSleep }) {
-  let attempt = 0;
-  while (!signal.aborted) {
-    try {
-      if (ledger.frontier(line) === undefined) {
-        ledger.initialize(line, await probeHead(client));
+export async function runLine({
+  client,
+  line,
+  ledger,
+  onQueued,
+  signal,
+  log,
+  enrich,
+  backoff = BACKOFF_MS,
+  sleep = defaultSleep,
+  onCatchup,
+  onPoll,
+  onPollFailed,
+  pollMs = 0,
+  pollTimeoutMs = 20_000,
+  now,
+}) {
+  const polling = pollMs > 0
+    ? (async () => {
+      while (!signal.aborted) {
+        await sleep(pollMs, signal);
+        if (signal.aborted) return;
+        try {
+          await proveRead(client, pollTimeoutMs, signal);
+          onPoll?.();
+        } catch (error) {
+          if (signal.aborted) return;
+          onPollFailed?.(errorCode(error));
+        }
       }
-      await streamOnce({ client, line, ledger, onQueued, signal, enrich });
-      log({ event: "line.stream_ended", line, attempt });
-    } catch (error) {
+    })()
+    : null;
+  let attempt = 0;
+  try {
+    while (!signal.aborted) {
+      try {
+        if (ledger.frontier(line) === undefined) {
+          ledger.initialize(line, await probeHead(client));
+        }
+        await streamOnce({ client, line, ledger, onQueued, signal, enrich, onCatchup, now });
+        log({ event: "line.stream_ended", line, attempt });
+      } catch (error) {
+        if (signal.aborted) return;
+        log({ event: "line.stream_failed", line, attempt, error: errorCode(error) });
+      }
       if (signal.aborted) return;
-      log({ event: "line.stream_failed", line, attempt, error: errorCode(error) });
+      const delay = backoff[Math.min(attempt, backoff.length - 1)];
+      attempt += 1;
+      log({ event: "line.reconnect", line, attempt, delay_ms: delay });
+      await sleep(delay, signal);
     }
-    if (signal.aborted) return;
-    const delay = backoff[Math.min(attempt, backoff.length - 1)];
-    attempt += 1;
-    log({ event: "line.reconnect", line, attempt, delay_ms: delay });
-    await sleep(delay, signal);
+  } finally {
+    await polling;
   }
 }
 

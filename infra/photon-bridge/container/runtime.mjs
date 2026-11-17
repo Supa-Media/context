@@ -10,6 +10,8 @@ import { fetchFile, nameFor } from "./files.mjs";
 import { runLine } from "./listener.mjs";
 import { createLedger } from "./ledger.mjs";
 import { last4 } from "./log.mjs";
+import { POLL_INTERVAL_MS, readHealth } from "./readHealth.mjs";
+import { createReads } from "./reads.mjs";
 import { issueTokens, linesOf, renewalDelayMs, RETRY_MS } from "./tokens.mjs";
 
 function compact(object) {
@@ -53,6 +55,7 @@ export function createRuntime({
   });
   const watch = (args, sent) => delivery.watch(args.line, args.chat, sent);
   const controller = new AbortController();
+  const reads = createReads(log);
   let startPromise;
 
   function tokenFor(instanceId) {
@@ -91,6 +94,10 @@ export function createRuntime({
         signal: controller.signal,
         log,
         enrich: enricher.enrich,
+        onCatchup: (stats) => reads.catchup(line, stats),
+        onPoll: () => reads.poll(line),
+        onPollFailed: (code) => reads.fail(line, code),
+        pollMs: POLL_INTERVAL_MS,
       }).catch((error) => {
         log({ event: "line.crashed", line, error: typeof error?.code === "string" ? error.code : "unknown" });
       });
@@ -144,6 +151,7 @@ export function createRuntime({
     /** Mints tokens and starts the listeners. Idempotent; a failure can be retried. */
     start(checkpoints) {
       if (!configured) throw new RequestError(503, "unconfigured");
+      reads.start();
       if (!startPromise) {
         for (const [line, seq] of Object.entries(checkpoints ?? {})) {
           if (Number.isSafeInteger(seq)) ledger.initialize(line, seq);
@@ -161,10 +169,17 @@ export function createRuntime({
 
     health() {
       const snapshot = ledger.snapshot();
+      const { startedAt, lastReadAt } = reads.snapshot();
+      const started = startPromise !== undefined;
+      const verdict = readHealth({ now: Date.now(), started, startedAt, lastReadAt });
       return {
-        ok: true,
+        ok: verdict.ok,
+        read: verdict.read,
+        readAgeMs: verdict.readAgeMs,
+        lastReadAt,
+        startedAt,
         configured,
-        started: startPromise !== undefined,
+        started,
         lines: snapshot.lines.map(({ line, frontier }) => ({ line: last4(line), frontier })),
         queued: snapshot.queued,
         skipped: snapshot.skipped,
