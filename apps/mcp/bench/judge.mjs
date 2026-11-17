@@ -33,6 +33,13 @@ import { priceUsd } from "./report.mjs";
 import { frontMatter, judgedSection, parseResult, setFrontStatus } from "./resultNote.mjs";
 import { benchFolder } from "./folder.mjs";
 
+/** A started job as the judge reads it: its title, then its brief, cut at 800 characters. */
+export const jobStartedLine = (job) => {
+  const title = String(job?.title ?? "");
+  const brief = String(job?.brief ?? "").replace(/\s+/g, " ").trim();
+  return brief ? `${title}: ${brief.length > 800 ? `${brief.slice(0, 800)}…` : brief}` : title;
+};
+
 /** The judge when neither --judge nor the test's judge: line names one. */
 export const DEFAULT_JUDGE = "claude-haiku-5-5";
 /** The most a judging may be estimated to cost without --max-usd raising it. */
@@ -158,8 +165,10 @@ export function buildJudgeRequest({ model, question, answers, every = [] }) {
       conversation: answer.conversation,
       tools: answer.toolsLine,
       changes: answer.changes,
-      // The background jobs it started, by title, so "start a job" is graded on what started.
-      ...(answer.jobs?.length ? { jobs_started: answer.jobs.map((job) => String(job.title ?? "")) } : {}),
+      // The background jobs it started, each its title and the brief Tex gave it, so "start a job that does X" is graded
+      // on what the job was told to do, not a title alone (Dev set, 2026-11-17: a job briefed to read the site and
+      // compare flights failed "kick off a job that ..." because the judge saw only its title).
+      ...(answer.jobs?.length ? { jobs_started: answer.jobs.map(jobStartedLine) } : {}),
     })),
   };
   const content = ["Grade every answer against the checks.", "", "<answers>", JSON.stringify(payload, null, 2), "</answers>"].join("\n");

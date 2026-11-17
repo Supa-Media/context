@@ -28,6 +28,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
 
+import { tapbackSaidLine } from "../src/agent/tapbackEnding.js";
 import { parsePeople } from "./load.mjs";
 
 /** The live setup note's settings, without its task skills (Context `@context-lc ai/production/texting-assistant.md`). */
@@ -55,8 +56,15 @@ export function earlierLines(c, i, year = null) {
     return ago === null ? line : { ...line, minutesBefore: ago };
   };
   for (const [j, m] of c.msgs.slice(0, i).entries()) {
-    // A tapback, an edit or an unsend is not a line of the chat's text; Tex's own tapbacks are only a step in
-    // production's ledger, which no history draws (`stepEvents.ts` `tapback`).
+    // A tapback, an edit or an unsend is not a line of the chat's text, with one exception: Tex's tapback that was its
+    // whole answer (no text of Tex's after it before the next message of theirs). Production keeps that turn as said,
+    // "(You texted them nothing and reacted 🗓️ to their text.)" (`sendTheReply.js` tapbackSaidLine), so the next turn
+    // knows it acted; dropped, a later "put it back" read as nothing having moved (Dev set, 2026-11-17). A tapback
+    // beside Tex's words was only an acknowledgement and stays out.
+    if (m.kind === "react" && m.tex && endsTexTurn(c, j)) {
+      lines.push(dated({ from: "tex", text: tapbackSaidLine(m.text) }, j));
+      continue;
+    }
     if (m.kind && m.kind !== "reply") continue;
     // A check-in, a routine or a job's report fired a turn nobody texted: kept as production keeps it (`byCode.mjs`).
     if (m.via) {
@@ -78,6 +86,15 @@ export function earlierLines(c, i, year = null) {
     later = kept[k].minutesBefore ?? later;
   }
   return kept;
+}
+
+/** Whether Tex's tapback at `j` was its whole answer: no text of Tex's follows it before the next message of theirs. */
+export function endsTexTurn(c, j) {
+  for (const m of c.msgs.slice(j + 1)) {
+    if (m.tex && !m.kind && typeof m.text === "string" && m.text.trim() !== "") return false;
+    if (!m.tex) return true;
+  }
+  return true;
 }
 
 /** Where a Dev message's picture is kept in this repository: `pics` urls under `apps/mcp/bench/ai/pictures/`. */

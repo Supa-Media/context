@@ -344,3 +344,27 @@ test("the bench's bare acknowledgement is production's", async () => {
   const source = await readFile(new URL("../../agent/src/inboxTurn.ts", import.meta.url), "utf8");
   assert.equal(/const PURE_ACK = (\/.*\/[a-z]*);/.exec(source)?.[1], String(PURE_ACK));
 });
+// Tex's tapback that was its whole answer is kept as said, as production keeps it (`tapbackSaidLine`); one beside its
+// words stays out. Sabotage: skip every `kind` row in `earlierLines` and the "move it" turn reads as unanswered.
+test("a tapback that was Tex's whole answer is an earlier line; one beside its words is not", () => {
+  const c = {
+    kind: "group",
+    msgs: [
+      { id: "m1", who: "Ana", text: "Tex move the dinner to 8" },
+      { id: "m2", who: "Tex", tex: true, kind: "react", to: "m1", text: "🗓️" },
+      { id: "m3", who: "Ben", text: "Tex what's on friday" },
+      { id: "m4", who: "Tex", tex: true, kind: "react", to: "m3", text: "👀" },
+      { id: "m5", who: "Tex", tex: true, text: "Dinner at 8." },
+      { id: "m6", who: "Ana", text: "wait no" },
+    ],
+  };
+  assert.deepEqual(
+    earlierLines(c, 5).map((l) => [l.from, l.text]),
+    [
+      ["person", "Tex move the dinner to 8"],
+      ["tex", "(You texted them nothing and reacted 🗓️ to their text.)"],
+      ["person", "Tex what's on friday"],
+      ["tex", "Dinner at 8."],
+    ],
+  );
+});
