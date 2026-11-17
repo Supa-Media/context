@@ -2,6 +2,7 @@
 
 import { contextsFor } from "../../context/identity.js";
 import { markUntrusted } from "../../privacy/egress.js";
+import { devShareOn, devSharePrompt } from "../devShare.js";
 import { groupChatsForTurn, groupsOn } from "../groupChats.js";
 import { ADVISOR_TOOL, advisorRequest, advisorTimeoutMs, advisorTools, jobAdvisorLine } from "../advisor.js";
 import { texConfigOf } from "../texConfig.js";
@@ -211,8 +212,10 @@ export async function runTheModel(t, via) {
     observe: chatLog === null ? withJobSteps(job, step, null, () => ledger.untrusted === true) : collectReads((t.reads = rereadCarried(rounds?.from ?? null, claims)), ledgerObserver(chatLog, withJobSteps(job, step, null, () => ledger.untrusted === true), ledgerAt)), // a job's steps also go to its chat (`background.js`), and every step to the chat's ledger; what it read, for the facts its reply keeps (`toldFacts.js`)
     workspaces: contextsFor(session), // Where a new note goes (`workspaces.js`).
     groups: groupChats?.prompt ?? "", // the group chats they are in (`groupChats.js`)
+    devShare: group !== null && devShareOn(env) ? devSharePrompt(group.devShare) : "", // whether the developers can read this chat (`devShare.js`)
     mail, // the mailboxes a mail search reaches, and any not fine (`mailAccounts.js`)
     texting: texting || group !== null, // a group's answer is a text too, written for one
+    inGroup: group !== null, // never told the 1:1's own record, check-ins and pings (`turnPrompt.js`)
     notes: production !== null ? { prompt: setupWithMap(setupPromptFor(production, turnKind({ group, job })), turnKind({ group, job })) } : null, // a 1:1 text, a group or a job: each its own modules (`promptModules.js`)
     builtinModelOverride: productionModel ?? undefined,
     router,

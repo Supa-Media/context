@@ -29,6 +29,7 @@ import { staleAsks } from "./decide";
 import { startTurn } from "./steer";
 import { recheckDraft } from "./groupRecheck";
 import { tagsTex } from "./groupWords";
+import { turnCause } from "./groupCause";
 import { watchForSave } from "./vaultWatch";
 import { watchForHandback } from "./handbackWatch";
 import { inviteEveryone } from "./groupInvite";
@@ -88,11 +89,15 @@ export async function groupTurn(storage: InboxStorage, deps: GroupDeps, { messag
     size: here.length,
     // A literal "@Tex" is always answered (Dev2, 2026-11-12): the gateway offers no say_nothing, and a silent end is its fallback line.
     ...(covered.some((entry) => tagsTex(entry.text || entry.heard || "")) ? { tagged: true } : {}),
+    // Why this turn runs, so the gateway never tells Tex it was tagged when it wasn't (`groupCause.ts`).
+    cause: turnCause(message, covered),
     // Mailboxes shared with this chat, named for the turn; the control plane decides every read (`chat-mail.md`).
     ...(asked.mail?.length ? { mail: asked.mail } : {}),
     // Who keeps the chat from a workspace its asker and sponsor share (`lib/textGroupBlockers.ts`), so the turn logs it
     // and Tex names who and the fix, by text (Dev2, 2026-11-16).
     ...(asked.blocked?.length ? { blocked: asked.blocked } : {}),
+    // Whether the developers who build Tex can read this chat in their Lab, and who said yes (Dev2, 2026-11-17).
+    ...(asked.devShare ? { devShare: asked.devShare } : {}),
   };
   // The chat's next events are filed under the people this turn named the gateway (`eventPeople`).
   await notePeople(storage, message, group.members);

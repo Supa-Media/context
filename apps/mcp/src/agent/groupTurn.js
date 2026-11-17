@@ -53,6 +53,7 @@ import { directNote, learnDirect } from "./groupDirectNotes.js";
 import { homeNamesOf, readEitherName } from "./homeNames.js";
 import { readWithEtag } from "./jobLog.js";
 import { textingAwareCallTool, textingWriteTools } from "./textingWrites.js";
+import { devShareOf } from "./devShare.js";
 import { GUEST_NOTE_TOOLS, blockedLine, blockedOf, guestAwareCallTool, guestPrompt, isGuestChat } from "./groupGuests.js";
 import { chatRoutinePrompt, chatRoutineRefusal } from "./groupRoutines.js";
 import { chatMailOf, chatMailPrompt, chatMailTools } from "./groupMail.js";
@@ -136,7 +137,9 @@ export function groupOf(body, session = null) {
   const numbers = numbersOf(group.numbers, [...people, ...guests]); // each person's number, by handle or label (`groupNames.js`)
   const asker = from === "" && guests.includes(group.asker) ? group.asker : ""; // a guest who tagged Tex, by label
   const blocked = blockedOf(group.blocked); // who keeps the chat from a workspace, named only (`groupGuests.js` `blockedLine`)
-  const kept = { key: group.key, members: group.members, from, people, chat: chatOf(group.chat), ...(names.length > 0 ? { names } : {}), ...(guests.length > 0 ? { guests } : {}), ...(numbers.length > 0 ? { numbers } : {}), ...(asker ? { asker } : {}), ...(size !== null ? { size } : {}), ...(mail.length > 0 ? { mail } : {}), ...(reach.length > 0 ? { reach } : {}), ...(group.tagged === true ? { tagged: true } : {}), ...(blocked.length > 0 ? { blocked } : {}) }; // tagged: a literal "@Tex", always answered (`sendTheReply.js`)
+  const cause = TURN_CAUSES.includes(group.cause) ? group.cause : null; // why this turn runs, from the Worker (`apps/agent/src/groupCause.ts`)
+  const devShare = devShareOf(group.devShare); // whether the developers can read this chat in their Lab (`devShare.js`)
+  const kept = { key: group.key, members: group.members, from, people, chat: chatOf(group.chat), ...(names.length > 0 ? { names } : {}), ...(guests.length > 0 ? { guests } : {}), ...(numbers.length > 0 ? { numbers } : {}), ...(asker ? { asker } : {}), ...(size !== null ? { size } : {}), ...(mail.length > 0 ? { mail } : {}), ...(reach.length > 0 ? { reach } : {}), ...(group.tagged === true ? { tagged: true } : {}), ...(blocked.length > 0 ? { blocked } : {}), ...(devShare !== null ? { devShare } : {}), ...(cause !== null ? { cause } : {}) }; // tagged: a literal "@Tex", always answered (`sendTheReply.js`)
   // A chat that reaches shared workspaces (every person here has an account and shares them) is an ordinary group turn
   // whose home is its memory; only a chat with people who aren't all here (no reach) is narrowed to its home.
   if (reach.length > 0 || !isGuestChat(session)) return from === "" ? { ...kept, guestTagger: true } : kept;
@@ -602,7 +605,29 @@ export function groupPrompt(group, workspace) {
 }
 
 /** Who tagged Tex this time, said in their turn (`turnPrompt.js` preamble), never the cached system prompt: it changes with the tagger. */
+/** Why a group turn runs, as the Worker names it (`apps/agent/src/groupCause.ts`). */
+export const TURN_CAUSES = Object.freeze(["check_in", "routine", "job_report", "cross_chat", "reaction", "tagged", "named", "judged"]);
+
+/**
+ * What the turn is told about why it runs (Dev2, 2026-11-17). Only a text that names Tex is said to tag it: a chat's
+ * own check-in was told "@jo tagged you" and answered "Yeah, what do you need?", and a follow-up the judge picked up
+ * was explained as "you'd just tagged me". A turn with no cause (an older Worker) is told as before.
+ */
 export function taggedLine(group) {
+  const cause = group?.cause ?? null;
+  if (cause === "check_in") return "Nobody texted you: this is the chat's own check-in, run on its schedule. Its words say what to look at and when to answer SKIP.";
+  if (cause === "routine") return "Nobody texted you: this is one of the chat's routines, run on its schedule.";
+  if (cause === "job_report") return "Nobody texted you: work you started for this chat reported back.";
+  if (cause === "cross_chat") return "Nobody here texted you: another of your chats with these people asked this one something.";
+  const who = group.from ? taggerLabel(group) : group.asker ? shownWho(group, group.asker).replace(/^@/, "") : "";
+  if (cause === "reaction") return who ? `${who} reacted to one of your texts.` : "Someone reacted to one of your texts.";
+  if (cause === "judged") {
+    return (
+      `${who ? `${who}'s newest text` : "The newest text"} doesn't name you: it was handed to you because it looked like a reply to you or a follow-up on your last answer. ` +
+      "Nobody tagged you, so never say they did; if it wasn't for you, call send with action say_nothing." +
+      (group.guestTagger && !group.guestChat ? ` ${INVITED_TAGGER_LINE.trim()}` : "")
+    );
+  }
   const guest = group.asker ? shownWho(group, group.asker).replace(/^@/, "") : "";
   if (group.guestChat) return group.from ? `@${group.from} tagged you.` : guest ? `A guest in this chat, ${guest}, tagged you.` : "A guest in this chat tagged you.";
   return (group.from ? `${taggerLabel(group)} tagged you.` : guest ? `${guest} tagged you.` : "Someone tagged you.") + (group.guestTagger ? ` ${INVITED_TAGGER_LINE.trim()}` : "");

@@ -66,11 +66,14 @@ export function turnPrompt(place, answering, o) {
     ["aboutMe", o.aboutMe === null ? "" : aboutMePrompt(o.aboutMe, { edits, identity: o.identity })],
     ["jobs", o.jobs === null ? "" : jobsPrompt(o.jobs, { edits })],
     ["voice", o.voice == null ? "" : personVoicePrompt(o.voice, { edits })], // how they talk, `tex/voice.md` (`personVoice.js`)
-    ["transcripts", o.observe && o.texting ? TRANSCRIPTS_PROMPT : ""], // a dream (`dream.js`) is told to read them
-    ["checkIns", o.observe && o.texting ? CHECK_IN_PROMPT : ""], // what its own check-ins do (`heartbeat.js`)
-    ["attention", o.observe && o.texting ? ATTENTION_PROMPT : ""], // the pings other agents ask it to text (`attention.js`)
+    // The person's own 1:1 record, its check-ins and the pings other agents send it: never a group's (Dev2, 2026-11-17:
+    // every group turn was told its history is in "their personal workspace"; a group's is in its home, `groupTurn.js`).
+    ["transcripts", o.observe && o.texting && !o.inGroup ? TRANSCRIPTS_PROMPT : ""], // a dream (`dream.js`) is told to read them
+    ["checkIns", o.observe && o.texting && !o.inGroup ? CHECK_IN_PROMPT : ""], // what its own check-ins do (`heartbeat.js`)
+    ["attention", o.observe && o.texting && !o.inGroup ? ATTENTION_PROMPT : ""], // the pings other agents ask it to text (`attention.js`)
     ["workspaces", workspacesPrompt(o.workspaces)],
     ["groups", typeof o.groups === "string" ? o.groups : ""], // the group chats they are in, read from their 1:1 (`groupChats.js`)
+    ["devShare", typeof o.devShare === "string" ? o.devShare : ""], // a group chat's sharing with the developers (`devShare.js`)
     ["mail", mailAccountsPrompt(o.mail)], // the mailboxes a mail search reaches (`mailAccounts.js`); their states are per text, below
   ];
   // Always the day: a caller with no clock of its own (the memory nudge, a reflection) gets now, in the routines' default zone, named (Dev2, 2026-11-10).
