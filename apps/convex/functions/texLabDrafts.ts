@@ -298,6 +298,8 @@ const draftOf = async (ctx: QueryCtx, row: Row) => ({
   by: row.authorId ? await whoIs(ctx, new Map(), row.authorId) : "Someone",
   rev: row.rev ?? 0,
   updatedAt: row.updatedAt,
+  /** The main it was made from (`texConfigStamp.cjs`); null for a draft saved before drafts kept one. */
+  base: row.base ?? null,
   live: row.live && Date.now() - row.live.at < LIVE_MS ? { client: row.live.client, at: row.live.at } : null,
   promote: row.promote ? { state: row.promote.state, pr: row.promote.pr ?? null, why: row.promote.why ?? null, clashes: row.promote.clashes ?? [], picks: row.promote.picks ?? [] } : null,
   /** The pull request or branch whose code the draft's runs check out; null is main (`texLabRuns.ts`). */
