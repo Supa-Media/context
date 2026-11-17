@@ -210,3 +210,17 @@ describe("a routine kept in its chat's home", () => {
     expect(chatRoutineQuestion("tex/groups/orbit-lamp-river/notes.md")).not.toContain("@context-lc");
   });
 });
+
+describe("the words a chat's routine and check-in turns are asked (moved to packages/shared, unchanged)", () => {
+  const where = { line: "+15555550100", groupId: "g1", runId: "run_1", phone: "+15555550101" };
+  it("asks a chat routine in the same words", () => {
+    expect(chatRoutineMessage({ ...where, path: "tex/groups/orbit-lamp-river/routines/rent.md" }).text).toBe(
+      '(It\'s time for this chat\'s routine, tex/groups/orbit-lamp-river/routines/rent.md (context: "@context-lc"). Read that note and do what it says now, for everyone here, as if it had just been asked. If it only wants a word when there is something to say and there isn\'t, answer exactly SKIP.)',
+    );
+  });
+  it("asks a chat's own check-in in the same words", () => {
+    expect(chatRoutineMessage({ ...where, path: CHAT_LOOK_PATH, since: 1_790_000_000_000, timeZone: "UTC" }).text).toBe(
+      "(Time for this chat's check-in: look on your own at what is new since Sep 21, 2:13 PM UTC, in three places only: mail shared with this chat (search it with after:1790000000), mail sent to this chat's own address (the notes in its folder's email/ that arrived since), and what was asked of you in this chat that you said you would follow up on. Never post about the workspace's other activity, notes or other agents' work: nobody here asked. Post here only what someone in this chat needs to act on or know now, in one short line: what happened and who should handle it. Leave out mail that concerns only the mailbox's owner personally: their own check-ins text them about it. Never post just to say hello or to summarize; newsletters, receipts and automated notices are not worth a message, and neither is anything you already posted here. If nothing needs the chat, answer exactly SKIP.)",
+    );
+  });
+});

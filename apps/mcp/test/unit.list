@@ -1,3 +1,4 @@
+bench/test/byCode.test.mjs
 bench/test/checks.test.mjs
 bench/test/fluff.test.mjs
 bench/test/judge.test.mjs
@@ -627,3 +628,4 @@ test/crossChat.test.mjs
 test/workspaceConventions.test.mjs
 test/workspaceConventionsTurn.test.mjs
 test/checkInTraining.test.mjs
+test/tapbackEnding.test.mjs

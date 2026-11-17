@@ -3,7 +3,7 @@ import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { test } from "node:test";
 
-import { LIVE_SETTINGS, cantRun, checkinMail, dayOf, earlierLines, fdTest, frontFor, groupFor, runFd, timeOf, zoneOf } from "../bench/setsFd.mjs";
+import { LIVE_SETTINGS, cantRun, checkinMail, dayOf, earlierLines, fdTest, frontFor, groupFor, jobReportRow, runFd, senderOf, timeOf, zoneOf } from "../bench/setsFd.mjs";
 import { clockMs, installClock } from "../bench/clock.mjs";
 import { parsePeople, parseTest } from "../bench/load.mjs";
 import sets from "../../../packages/shared/src/texSets.cjs";
@@ -82,10 +82,31 @@ test("a group runs in the shared workspace that has all its members, and each ea
   assert.deepEqual(earlierLines(flat, 4), [
     { from: "person", who: "priya", text: "who ate my leftover pad thai" },
     { from: "person", who: "kofi", text: "three bites" },
+    { from: "trigger", via: "routine", text: "rent reminder" },
     { from: "tex", text: "Rent's due Wednesday." },
-  ], "the routine row is nobody's text");
+  ], "the routine row is nobody's text: the routine that ran");
   const q = parseTest(fdTest([unit(flat, 4)], "job: texting-assistant\nrun_as: John\ngroup: the-flat\ntoday: 2026-07-01")).questions[0];
-  assert.deepEqual(q.earlier.map((l) => l.who ?? l.from), ["priya", "kofi", "tex"]);
+  assert.deepEqual(q.earlier.map((l) => l.who ?? l.via ?? l.from), ["priya", "kofi", "routine", "tex"]);
+});
+
+test("a job row reports the asker's job, titled from their first sentence, and runs as them; a group's routine runs as its owner", async () => {
+  const people = parsePeople(await readFile(join(BENCH, "workspaces/people.md"), "utf8"));
+  const wedding = conv([
+    { id: "m1", who: "Maya", text: "Can you check my email from Paulo for details? Then the hotel." },
+    { id: "m2", who: "Tex", tex: true, text: "On it." },
+    { id: "m3", who: "Background job", via: "job", text: "ceremony Sat 4pm", labels: { fd: { must: ["say 4pm"], star: true } } },
+    { id: "m4", who: "Background job", via: "job", state: "running", text: "still looking at hotels" },
+  ]);
+  assert.deepEqual(jobReportRow(wedding, 2), { title: "Can you check my email from Paulo for details?", state: "done", text: "ceremony Sat 4pm", asked: "Can you check my email from Paulo for details? Then the hotel.", askedBy: "Maya" });
+  assert.equal(jobReportRow(wedding, 3).state, "running");
+  assert.equal(senderOf(wedding, 2), "Maya");
+  const q = parseTest(fdTest([unit(wedding, 2)], "job: texting-assistant\nrun_as: Maya\ntoday: 2026-07-01")).questions[0];
+  assert.equal(q.jobReport.title, "Can you check my email from Paulo for details?");
+  assert.equal(q.jobReport.state, "done");
+  const later = parseTest(fdTest([unit({ ...wedding, msgs: [...wedding.msgs, { id: "m5", who: "Maya", text: "thanks", labels: { fd: { must: ["be short"], star: true } } }] }, 4)], "job: texting-assistant\nrun_as: Maya\ntoday: 2026-07-01")).questions[0];
+  assert.deepEqual(later.earlier.filter((l) => l.from === "trigger").map((l) => [l.via, l.report.state]), [["job", "done"], ["job", "running"]], "earlier job reports keep their state");
+  const flat = conv([{ id: "m1", who: "Routine", via: "routine", text: "rent" }], { id: "the-flat", kind: "group", members: ["Priya", "John", "Kofi"] });
+  assert.equal(senderOf(flat, 0, people, "the-flat"), people.find((r) => r.workspace === "the-flat" && r.role === "owner").person);
 });
 
 test("each test's day is walked from the first dated time line", () => {
@@ -101,14 +122,16 @@ test("each test's day is walked from the first dated time line", () => {
   assert.equal(dayOf(conv([{ id: "m1", who: "Maya", at: "Tue 9:00", text: "x" }]), 0, 2026), null, "no dated line: the test's own day");
 });
 
-test("what can't run says why: a group's check-in or routine row, a check-in that found no email, a tapback, a picture; a group chat runs", () => {
+test("what can't run says why: a check-in that found no email, a tapback, a picture; a group chat and its check-in and routine rows run", () => {
   assert.equal(cantRun(chat, 4), null);
   assert.equal(cantRun({ ...chat, kind: "group" }, 4), null);
-  // A person's own check-in that found an email, and their routine, run; a group's do not yet.
+  // A check-in that found an email, a routine and a job's report run, in a group too (`byCode.mjs`).
   assert.equal(cantRun(conv([{ id: "m1", who: "Routine", via: "routine", text: "rent reminder" }]), 0), null);
   assert.equal(cantRun(conv([{ id: "m1", who: "Check-in", via: "checkin", text: "Gmail: TAP: flight delayed" }]), 0), null);
   assert.match(cantRun(conv([{ id: "m1", who: "Check-in", via: "checkin", text: "calendar: dentist moved" }]), 0), /found an email/);
-  assert.match(cantRun(conv([{ id: "m1", who: "Routine", via: "routine", text: "rent reminder" }], { kind: "group" }), 0), /group's Routine row can't run/);
+  assert.equal(cantRun(conv([{ id: "m1", who: "Routine", via: "routine", text: "rent reminder" }], { kind: "group" }), 0), null);
+  assert.equal(cantRun(conv([{ id: "m1", who: "Check-in", via: "checkin", text: "Gmail: TAP: flight delayed" }], { kind: "group" }), 0), null);
+  assert.equal(cantRun(conv([{ id: "m1", who: "Maya", text: "find the venue" }, { id: "m2", who: "Background job", via: "job", text: "venue booked" }]), 1), null);
   assert.match(cantRun(chat, 2), /react/);
   assert.match(cantRun(conv([{ id: "m1", who: "Maya", text: "this?", pics: [{ url: "https://x.test/a.png" }] }]), 0), /pictures/);
 });

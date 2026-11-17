@@ -13,9 +13,9 @@ import assert from "node:assert/strict";
 
 import { LabSandboxObject } from "../src/labSandbox/object.js";
 import { runChatTurn } from "../src/labSandbox/chatRun.js";
-import { followCross } from "../src/labSandbox/crossRuns.js";
+import { followCross, objectCarry } from "../src/labSandbox/crossRuns.js";
 import { RUN_IN_SANDBOX } from "../src/labSandbox/policy.js";
-import { handleLabSandbox } from "../src/labSandbox/route.js";
+import { DAILY_SENDS, handleLabSandbox, newIds, open } from "../src/labSandbox/route.js";
 import { streamTurn, wantsProgress } from "../src/agent/progress.js";
 import { eventEntry } from "../src/agent/ledger.js";
 import { durableSql } from "./texStoreFixture.mjs";
@@ -152,10 +152,13 @@ test("followCross carries an ask to the group's linked test chat and its answer 
 });
 
 /** The route over in-memory test chats, with a control plane that knows one person, their 1:1 and the group `KEY`. */
-function routeWorld(runTurn) {
+function routeWorld(runTurn, later = null) {
   const objects = new Map();
+  // `later`: the request's and the objects' `waitUntil`, kept apart, as the Worker and its objects keep them.
+  const carry = (env, state, body) => objectCarry(env, state, body, async () => ({ open, newIds, runTurn, max: DAILY_SENDS }));
   const object = (name) => {
-    if (!objects.has(name)) objects.set(name, new LabSandboxObject({ storage: { sql: durableSql(), setAlarm: async () => {}, deleteAlarm: async () => {}, deleteAll: async () => {} } }));
+    const state = { storage: { sql: durableSql(), setAlarm: async () => {}, deleteAlarm: async () => {}, deleteAll: async () => {} }, ...(later?.object ? { waitUntil: (work) => void later.object.push(work) } : {}) };
+    if (!objects.has(name)) objects.set(name, new LabSandboxObject(state, env, { carry }));
     return objects.get(name);
   };
   const env = { LAB_SANDBOX: { idFromName: (name) => ({ name }), get: (id) => ({ fetch: (request) => object(id.name).fetch(request) }) }, CONTROL_PLANE_URL: "https://control.example.invalid", GATEWAY_SECRET: "gw-secret-example-not-real-000000" };
@@ -174,7 +177,7 @@ function routeWorld(runTurn) {
     return answer({ status: "not_found" });
   };
   const call = async (body) => {
-    const response = await handleLabSandbox(new Request("https://gateway.example.invalid/tex-lab/sandbox", { method: "POST", headers: { authorization: `Bearer ${TOKEN}`, "content-type": "application/json" }, body: JSON.stringify(body) }), env, null, { runTurn });
+    const response = await handleLabSandbox(new Request("https://gateway.example.invalid/tex-lab/sandbox", { method: "POST", headers: { authorization: `Bearer ${TOKEN}`, "content-type": "application/json" }, body: JSON.stringify(body) }), env, later ? { waitUntil: (work) => void later.request.push(work) } : null, { runTurn });
     return { status: response.status, body: await response.json() };
   };
   return { call, restore: () => (globalThis.fetch = original) };
@@ -220,4 +223,67 @@ test("the route runs a 1:1 test text's ask in the group's linked test chat and i
   } finally {
     w.restore();
   }
+});
+
+test("a request that will not wait hands the trip to the asking test chat's object, which carries it after the request is gone", async () => {
+  const ran = [];
+  const runTurn = async ({ stub, about, row, inbound }) => {
+    await stub.fetch(new Request("https://lab-sandbox.internal/row.add", { method: "POST", body: JSON.stringify({ row: { id: `${row.id}r`, reply: row.id, who: "Tex", text: "ok", at: Date.now(), prod: false } }) }));
+    await stub.fetch(new Request("https://lab-sandbox.internal/release", { method: "POST", body: JSON.stringify({ msgId: row.id }) }));
+    const into = inbound ? inbound({ groupId: "lab-group", line: "lab", phones: new Map([["ana", "+15555550199"]]) }) : null;
+    ran.push([about.kind, into?.path ?? null]);
+    if (about.kind === "one" && into === null) return { cross: [{ to: `group:${KEY}`, path: "/cross-ask", body: { id: "x0123456789abcdef0123", what: "is the demo Friday?", do: false, groupId: KEY } }] };
+    if (about.kind === "group") return { cross: [{ to: "+15555550101", path: "/cross-answer", body: { id: into.body.id, state: "answered", texts: ["Yes, Friday."] } }] };
+    return { cross: [] };
+  };
+  const later = { request: [], object: [] };
+  const w = routeWorld(runTurn, later);
+  try {
+    const { sandboxId } = (await w.call({ op: "open", source: "chat", chatId: "me" })).body;
+    const sent = await w.call({ op: "send", sandboxId, text: "ask Tex Devs if the demo is Friday" });
+    assert.equal(sent.status, 200, JSON.stringify(sent.body));
+    await Promise.all(later.request);
+    // The request's own work is only the asking turn: a Worker stops it 30 s after answering (production, 2026-11-17).
+    assert.deepEqual(ran, [["one", null]]);
+    assert.equal(later.object.length, 1, "the trip is the object's to keep");
+    await Promise.all(later.object);
+    assert.deepEqual(ran, [["one", null], ["group", "/cross-ask"], ["one", "/cross-answer"]]);
+    const reply = (await w.call({ op: "get", sandboxId })).body.rows.find((r) => r.id === `${sent.body.msgId}r`);
+    assert.equal(reply?.cross?.[0]?.outcome, "answered", JSON.stringify(reply));
+  } finally {
+    w.restore();
+  }
+});
+
+test("an object that cannot keep the trip leaves it to the request that sent the text", async () => {
+  const ran = [];
+  const runTurn = async ({ stub, about, row, inbound }) => {
+    await stub.fetch(new Request("https://lab-sandbox.internal/release", { method: "POST", body: JSON.stringify({ msgId: row.id }) }));
+    const into = inbound ? inbound({ groupId: "lab-group", line: "lab", phones: new Map([["ana", "+15555550199"]]) }) : null;
+    ran.push([about.kind, into?.path ?? null]);
+    if (about.kind === "one" && into === null) return { cross: [{ path: "/cross-ask", body: { id: "x0123456789abcdef0124", what: "demo?", groupId: KEY } }] };
+    if (about.kind === "group") return { cross: [{ path: "/cross-answer", body: { id: into.body.id, state: "answered", texts: ["Yes."] } }] };
+    return { cross: [] };
+  };
+  const later = { request: [], object: null };
+  const w = routeWorld(runTurn, later);
+  try {
+    const { sandboxId } = (await w.call({ op: "open", source: "chat", chatId: "me" })).body;
+    await w.call({ op: "send", sandboxId, text: "ask Tex Devs" });
+    await Promise.all(later.request);
+    assert.deepEqual(ran, [["one", null], ["group", "/cross-ask"], ["one", "/cross-answer"]]);
+  } finally {
+    w.restore();
+  }
+});
+
+test("an object carries only a trip it was handed whole and can keep", async () => {
+  const kept = [];
+  const state = { waitUntil: (work) => void kept.push(work) };
+  const env = { LAB_SANDBOX: { idFromName: (name) => ({ name }), get: () => ({ fetch: async () => new Response("{}") }) } };
+  const pieces = async () => ({ open: async () => null, newIds, runTurn: async () => ({ cross: [] }), max: 1 });
+  assert.deepEqual(objectCarry(env, state, { cross: [], who: { userId: "u_ana" }, asker: { sandboxId: "0123456789abcdef" } }, pieces), { carrying: false }, "no token, no trip");
+  assert.deepEqual(objectCarry(env, {}, { cross: [], token: TOKEN, who: { userId: "u_ana" }, asker: { sandboxId: "0123456789abcdef" } }, pieces), { carrying: false }, "an object that cannot keep it says so");
+  assert.deepEqual(objectCarry(env, state, { cross: [], token: TOKEN, who: { userId: "u_ana" }, asker: { sandboxId: "0123456789abcdef" } }, pieces), { carrying: true });
+  await Promise.all(kept);
 });

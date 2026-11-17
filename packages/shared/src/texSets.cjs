@@ -15,7 +15,8 @@
  *
  * A turn nobody texted (Dev2, 2026-11-16: Tex's unprompted heads-ups belong in the sets "as routine-fired turns") is
  * a trigger row: `via` names the input that fired it (checkin | routine | notify), `who` is that input's name
- * (TRIGGERS), and `text` says what it brought in (the email, the event, the routine's ask). It is not a member, and
+ * (TRIGGERS), and `text` says what it brought in (the email, the event, the routine's ask, a background job's report,
+ * with the job's `state`). It is not a member, and
  * it carries labels like a person's message, so "should Tex speak up about this" is a unit test. `at` is an
  * optional time line ("Tue 9:20") so long conversations keep their gaps.
  */
@@ -28,7 +29,12 @@ const TARGET = Object.freeze({ training: 60, dev: 20, test: 20 });
 const DRIFT = 10;
 const KINDS = Object.freeze(["react", "reply", "edit", "delete"]);
 /** The inputs that start a turn with no text, and the name their rows go by. */
-const TRIGGERS = Object.freeze({ checkin: "Check-in", routine: "Routine", notify: "Send through Tex" });
+const TRIGGERS = Object.freeze({ checkin: "Check-in", routine: "Routine", notify: "Send through Tex", job: "Background job" });
+/**
+ * A job row's `state`, as the texting Worker reports a job to the chat's turn (`apps/agent/src/jobTexts.ts`): its
+ * result (done), an update on its way (running), or its end otherwise. Absent is done.
+ */
+const JOB_STATES = Object.freeze(["done", "running", "failed", "waiting", "stuck"]);
 const RUN = Object.freeze(["must", "must not"]);
 const TEX = "Tex";
 /** A label's keys that are not a node's output fields. */
@@ -94,6 +100,7 @@ function check(c, config, opts = {}) {
       if (!TRIGGERS[m.via]) out.push(`${at}: via "${m.via}" must be one of ${Object.keys(TRIGGERS).join(", ")}`);
       else if (m.who !== TRIGGERS[m.via]) out.push(`${at} is fired by ${m.via}, so its speaker is ${TRIGGERS[m.via]}`);
       if (m.kind !== undefined) out.push(`${at} is a trigger, not a ${m.kind}`);
+      if (m.state !== undefined && (m.via !== "job" || !JOB_STATES.includes(m.state))) out.push(`${at}: state is a job row's, one of ${JOB_STATES.join(", ")}`);
     } else if (!members.includes(m.who)) out.push(`${at}: ${m.who} is not in the chat's members`);
     if (m.kind !== undefined) {
       if (!KINDS.includes(m.kind)) out.push(`${at}: kind "${m.kind}" must be one of ${KINDS.join(", ")}`);
@@ -151,4 +158,4 @@ function ratio(input) {
   return { counts, total, pct, holds: total > 0 && off.length === 0, off };
 }
 
-module.exports = { SETS, TARGET, DRIFT, KINDS, TRIGGERS, RUN, TEX, LABEL_KEYS, BENCH_PEOPLE, labelFields, check, unitTests, before, ratio };
+module.exports = { SETS, TARGET, DRIFT, KINDS, TRIGGERS, JOB_STATES, RUN, TEX, LABEL_KEYS, BENCH_PEOPLE, labelFields, check, unitTests, before, ratio };

@@ -42,7 +42,7 @@ import { wireSearchSettings } from "../src/search/settings.js";
 import { texStoreNamespace } from "../test/texStoreFixture.mjs";
 import { assertIsoDate, clockMs, installClock, noonUtcMs, noteModifiedAt, realNow } from "./clock.mjs";
 import { benchCalendar } from "./calendar.mjs";
-import { keepEarlierPictures } from "./earlierPictures.mjs";
+import { worldChat } from "./worldChat.mjs";
 import { chatEntries, modelLog } from "./modelLog.mjs";
 import { failedStatus, roundsOf } from "./trace.mjs";
 
@@ -385,9 +385,12 @@ export async function createWorld(bench, person, setupRaw, models, today = null,
     return { usage, usageByModel, model: reports.at(-1)?.model ?? null };
   };
   const { textedEvent, postEvents } = workerEvents({ env, token: chatToken, group });
-  return {
+  // The chat before its text, and what a turn the Worker queues itself reads of it (`worldChat.mjs`).
+  const chat = worldChat({ env, token, group, tagger, textedEvent, postEvents, workspaceId: () => ids.get(own.workspace), timeZone: models.timeZone ?? "UTC", mailbox: () => mail[0]?.address ?? null, mailArrives: (email) => world.mailArrives(email) });
+  const world = {
+    ...chat,
     /** One texted message, answered with the conversation so far; with `job`, one part of a job, as `jobRun.ts` asks it (`jobTasks.mjs`): their text is posted on part 1 only, the report never, and the done check's verdict and advice come back (`jobCheck.js` `jobFields`). */
-    async text(message, attachments = [], { running = null, others = [], job = null } = {}) {
+    async text(message, attachments = [], { running = null, others = [], job = null, byCode = false, as = null, event = null, groupMail = null } = {}) {
       // The person opened the last handoff's link and signed in before texting.
       web?.personSignsIn();
       const { ctx, settle } = createWorkerCtx();
@@ -405,9 +408,14 @@ export async function createWorld(bench, person, setupRaw, models, today = null,
         before.push(textedEvent(line.text, sender));
         await postEvents([before.at(-1)]);
       }
-      const said = textedEvent(message, tagger);
-      if (job === null || job.attempt === 1) await postEvents([said]);
-      const covers = [...before.map((event) => event.id), said.id];
+      // A turn the Worker queues itself (`byCode`: a group's routine or check-in, a job's report; `byCode.mjs`) posts no
+      // text of theirs and covers none, as `queueByCode` and `queueGroupByCode` keep no inbound event; `as` is who it
+      // runs as in a group (the routine's writer, the job's asker).
+      const sender = as !== null && group ? group.people.get(as) : tagger;
+      if (as !== null && group && !sender) throw new Error(`@${as} is not in the group's workspace (people.md)`);
+      const said = textedEvent(message, sender);
+      if (!byCode && (job === null || job.attempt === 1)) await postEvents([said]);
+      const covers = byCode ? [] : [...before.map((event) => event.id), said.id];
       // Asked for as a stream, as the texting Worker asks (`apps/agent/src/clients.ts`):
       // a streamed turn is the long one, with the setup's max_steps, and a
       // plain JSON ask would measure the quick turn's 8 rounds instead.
@@ -418,7 +426,7 @@ export async function createWorld(bench, person, setupRaw, models, today = null,
           // What the chat has running, as the texting Worker sends it (`apps/agent/src/jobs.ts`): only a
           // turn that is sent it is offered background jobs (`background.js`), so a test with `background: on` sends it.
           // `covers` and `chat` as the Worker sends them (`apps/agent/src/inbox.ts`) on a real run (`run.mjs` `ledgerTurns`), so the turn reads the ledger and sorts its thread as production does.
-          body: JSON.stringify({ question: message, ...(models.timeZone ? { timeZone: models.timeZone } : {}), ...(group ? { group: { key: group.key, members: group.members, from: tagger.handle } } : { conversation: "texts" }), turn: said.turn, ...(models.ledgerTurns === true ? { covers, chat: said.chat } : {}), ...(attachments.length > 0 ? { attachments } : {}), ...(Array.isArray(running) ? { running } : {}), ...(job ? { job } : {}) }),
+          body: JSON.stringify({ question: message, ...(models.timeZone ? { timeZone: models.timeZone } : {}), ...(group ? { group: { key: group.key, members: group.members, from: sender.handle, ...(groupMail ? { mail: groupMail } : {}) } } : { conversation: "texts" }), turn: said.turn, ...(models.ledgerTurns === true && covers.length > 0 ? { covers, chat: said.chat } : {}), ...(event ?? {}), ...(attachments.length > 0 ? { attachments } : {}), ...(Array.isArray(running) ? { running } : {}), ...(job ? { job } : {}) }),
         }),
         env,
         ctx,
@@ -487,19 +495,6 @@ export async function createWorld(bench, person, setupRaw, models, today = null,
       };
     },
 
-    /** A chat before its text, each line posted as the Worker posts it (theirs a text, Tex's its answer to the one before); nothing is answered. */
-    async earlier(lines) {
-      let last = null;
-      for (const line of lines) {
-        const sender = line.who && group ? group.people.get(line.who) : tagger; // a group's other member: `- earlier @priya:`
-        if (line.who && group && !sender) throw new Error(`@${line.who} is not in the group's workspace (people.md)`);
-        const event = { ...textedEvent(line.text, line.from === "person" ? sender : null), ...(line.pictures?.length ? { kind: "picture", pictures: line.pictures } : {}) };
-        if (line.from === "person") last = event;
-        const { pictures, ...posted } = line.from === "person" ? event : { ...event, from: { kind: "tex" }, turn: last?.turn ?? event.turn, covers: last ? [last.id] : [], delivered: true };
-        await postEvents([posted]); // Tex's answer to a picture kept it, as that turn did (`earlierPictures.mjs`)
-        if (line.from === "tex" && last?.pictures) await keepEarlierPictures({ env, token, workspaceId: ids.get(own.workspace), group, timeZone: models.timeZone ?? "UTC", at: last.at, turn: last.turn, names: last.pictures });
-      }
-    },
     /**
      * An email arriving in the person's Gmail now (`{ from, subject, body }`), as a check-in's new mail: a person with
      * no mailbox yet gets one at their bench address.
@@ -694,5 +689,5 @@ export async function createWorld(bench, person, setupRaw, models, today = null,
       for (const file of copies) rmSync(file, { force: true });
     },
   };
+  return world;
 }
-

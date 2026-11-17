@@ -9,6 +9,8 @@
  *  2. `onStep` left out of the `askAgentStream` call → "a tool turn gets exactly one tapback, before the reply" fails.
  *  3. A tapback at accept on any message naming Tex, as the old timer armed it → "a message the judge silenced gets none" fails.
  *  4. `toolStarted` on every step and on a turn's end (a no-tool turn tapped) → "a turn with no tool gets none" fails.
+ *  5. `replaces` false (2026-11-17) → "Tex's own tapback after a tool replaces the early one ..." fails; `replaces`
+ *     without its `!== tapped` → the same test fails on the repeated emoji.
  */
 
 import { describe, expect, it } from "vitest";
@@ -93,6 +95,31 @@ for (const { name, groupId } of LINES) {
       await drainGroup(storage, w.deps);
       expect(w.reactions).toHaveLength(1);
       expect(w.texts).toEqual([]);
+    });
+
+    // Dev2, 2026-11-17, "Front door picks the tapback": Tex's own tapback (`apps/mcp/src/agent/tapbackEnding.js`) after a
+    // tool replaces the early one when it differs, and is never a second one when it is the same.
+    it("Tex's own tapback after a tool replaces the early one, and the same emoji is not sent twice", async () => {
+      const storage = new MemoryStorage();
+      const w = streaming(groupId, [{ step: "write" }], { answer: "", quiet: true, react: "🎉" });
+      await bound(storage, w);
+      await acceptGroup(storage, w.message("Tex, put the party on the calendar for Saturday"), 1_000);
+      await drainGroup(storage, w.deps);
+      expect(w.reactions).toHaveLength(2);
+      expect(w.reactions.at(-1)).toBe("🎉");
+      expect(w.texts).toEqual([]);
+      const same = streaming(groupId, [{ step: "write" }], { answer: "", quiet: true, react: "" });
+      const again = new MemoryStorage();
+      await bound(again, same);
+      await acceptGroup(again, same.message("Tex, put the party on the calendar for Saturday"), 1_000);
+      await drainGroup(again, same.deps);
+      const early = same.reactions[0];
+      const echo = streaming(groupId, [{ step: "write" }], { answer: "", quiet: true, react: early });
+      const third = new MemoryStorage();
+      await bound(third, echo);
+      await acceptGroup(third, echo.message("Tex, put the party on the calendar for Saturday"), 1_000);
+      await drainGroup(third, echo.deps);
+      expect(echo.reactions).toEqual([early]);
     });
 
     it("a turn with no tool gets none, answered or silent", async () => {

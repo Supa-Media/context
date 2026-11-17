@@ -52,6 +52,7 @@ import { pushbackNudge } from "./pushback.js";
 import { causeOf, failureRecorder } from "./toolFailures.js";
 import { exhaustedAnswer, roundNotice } from "./lastRound.js";
 import { traceNames } from "./turnLog.js";
+import { TAPBACK_TOOL } from "./tapbackEnding.js";
 import { SAID_NOTHING, SAY_NOTHING_TOOL, sayNothingLocal, sayNothingRefused, typedCallNotice, typedCallOf, withSayNothing } from "./sayNothing.js";
 
 export { describePlace, systemPrompt } from "./prompt.js";
@@ -575,6 +576,7 @@ export async function runTurn(options) {
     });
 
     const settling = []; // calls this round that settle the turn, read once the whole round has run: one round may start several jobs
+    const roundFrom = messages.length; // where this round's results start: a call that settles is told whether any beside it failed (`tapbackEnding.js`)
     for (const made of answer.toolCalls) {
       // One of the six, as the granted tool that carries it; an older name as itself.
       const resolved = six.resolve(made.name, made.args);
@@ -629,8 +631,8 @@ export async function runTurn(options) {
       // Which model made this call, for the usage breakdown. Per call, because
       // routing and fallback can change the model mid-turn.
       options.onModel?.(model);
-      // A tool starting, for a group's one early tapback (`apps/agent/src/groupModelTurn.ts`): a progress line or silence is not one.
-      if (call.name !== PROGRESS_TOOL && call.name !== SAY_NOTHING_TOOL) try { options.onToolStart?.(call.name); } catch { /* a failed tapback never costs the turn */ }
+      // A tool starting, for a group's one early tapback (`apps/agent/src/groupModelTurn.ts`): a progress line, silence or a tapback of the model's own (`tapbackEnding.js`) is not one.
+      if (call.name !== PROGRESS_TOOL && call.name !== SAY_NOTHING_TOOL && call.name !== TAPBACK_TOOL) try { options.onToolStart?.(call.name); } catch { /* a failed tapback never costs the turn */ }
       try {
         const viaMcp = !(progress && call.name === PROGRESS_TOOL) && !localCalls.has(call.name) && !webNames.has(call.name);
         result = (await sandboxedTool(env, call)) ?? (viaMcp && isPlainNoteWrite(call.name, call.args)
@@ -689,7 +691,7 @@ export async function runTurn(options) {
     // A job just started: the job does the work, so the person hears "on it" now, not after another model round.
     // Read after the round, not at its first start: a call after it in the same round (a second part) still runs (2026-11-04).
     for (const call of settling) {
-      const settled = settles(call.name, call.args);
+      const settled = settles(call.name, call.args, { roundFailed: messages.slice(roundFrom).some((message) => message.role === "tool" && message.isError === true) });
       if (typeof settled === "string" && settled !== "") {
         return { answer: settled, provider, model, steps, usage, usageByModel, timing: { ...timing, trace }, settled: call.name, live: liveTurn(prompt, messages, offered) };
       }

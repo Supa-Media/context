@@ -42,7 +42,8 @@ over a GitHub listener), with a Models pick of the AI gateway or Claude Code on
   Test chats (the sandbox) still run on production's gateway: a Worker with
   Durable Objects gets no per-version preview, so a branch's gateway would be a
   deployment of its own.
-- **Caps:** 3 waiting or running per person, 20 a day. A run still open after
+- **Caps:** 6 waiting or running per person, 60 a day (raised from 3 and 20 by
+  Dev2, 2026-11-17, since every thread of a person runs as them). A run still open after
   three hours no longer holds a place.
 - **Public logs say counts and ids.** Results go to Convex, never into the log.
 - **Promote starts at once.** Asking dispatches `tex-lab-promote.yml`
