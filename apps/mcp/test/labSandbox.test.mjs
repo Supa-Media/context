@@ -21,6 +21,7 @@ import { LabSandboxObject, sandboxTables, serveSandbox } from "../src/labSandbox
 import { sandboxNamespace } from "../src/labSandbox/wire.js";
 import { CONTROL_PLANE_READS, controlPlaneAnswer, LAB_SANDBOX_KEY, sandboxedTool, sandboxEnvOf, sandboxGateOf, toolAnswer, withoutKeys } from "../src/labSandbox/policy.js";
 import { sandboxGate, stepsOf, turnBody } from "../src/labSandbox/harness.js";
+import { noteOwnWorkspace } from "../src/tools/etagPlace.js";
 import { handleLabSandbox, MAX_DRAWN_GRAPH, MAYA_CONVO } from "../src/labSandbox/route.js";
 import { withDraft } from "../src/agent/graph/turnGraph.js";
 import { TEX_CONFIG, texConfigOf, texEffort, texModel, texSetupFront, texTimeoutMs, texWords } from "../src/agent/texConfig.js";
@@ -530,4 +531,23 @@ test("a chat shared with the developers runs with none of its person's notes: an
   // The developer's own test chat is untouched: its binding is the real one, keys blanked.
   assert.deepEqual(controlPlaneAnswer("/gateway/binding", { expectedWorkspaceId: "ws_me" }, { record: () => {} }).pass, true);
   assert.equal(sandboxEnvOf({ NATIVE_BINDINGS: "NOTES" }, { gate: {} }).NATIVE_BINDINGS, "NOTES");
+});
+
+test("a test chat refuses a write carrying another workspace's etag, as the gateway does (2026-11-17)", async () => {
+  // The Lab replayed the incident: Tex read @crystal-care's index.md, then wrote the bare path with that etag, and the
+  // stub said "Saved". The gate learns which workspace a plain path means from the routed reads (`etagPlace.js`).
+  const writes = [];
+  const gate = { record: (w) => writes.push(w) };
+  noteOwnWorkspace(gate, "@seyi");
+  const placed = "@crystal-care/n1:c2.doc.r0";
+  const wrong = await toolAnswer("write_note", { path: "index.md", content: "x", expected_etag: placed }, gate);
+  assert.equal(wrong.isError, true);
+  assert.match(wrong.content[0].text, /@crystal-care/);
+  assert.match(wrong.content[0].text, /@seyi\/index\.md/);
+  assert.equal(writes.at(-1).kind, "Refused");
+  const right = await toolAnswer("write_note", { path: "@crystal-care/index.md", content: "x", expected_etag: placed }, gate);
+  assert.equal(right.isError, undefined, "addressed where it was read, it saves");
+  // Two sessions seen in one turn: the stub checks nothing rather than refuse what the gateway would take.
+  noteOwnWorkspace(gate, "@context-lc");
+  assert.equal((await toolAnswer("write_note", { path: "index.md", content: "x", expected_etag: placed }, gate)).isError, undefined);
 });
