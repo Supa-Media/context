@@ -35,13 +35,14 @@ import type { SendblueKeys } from "./sendblue";
 import type { WhapiKeys } from "./whapi";
 import type { InboxStorage } from "./inbox";
 import { machineTurn, type MachineLive, type MachineOutcome } from "./machineTurn";
-import { JOB_SHOWN_MS, JOB_LIMIT_MS, jobAsked, JOB_LINES, MACHINE_JOB_LIMIT_MS, MAX_MACHINE_JOB_ATTEMPTS, PICKED_UP, jobPictures, log, MAX_JOB_ATTEMPTS, MAX_JOB_PICTURES, MAX_JOB_TRIES, RUN_KEY, type JobAsk, type JobMail, type JobRun, type JobSteer, type JobUpdate, type JobVerdict, type StepHow } from "./jobs";
+import { JOB_SHOWN_MS, jobAsked, JOB_LINES, PICKED_UP, jobPictures, log, MAX_JOB_ATTEMPTS, MAX_JOB_PICTURES, MAX_JOB_TRIES, RUN_KEY, type JobAsk, type JobMail, type JobRun, type JobSteer, type JobUpdate, type JobVerdict, type StepHow } from "./jobs";
 import { shrinkPicture, type OutgoingPicture } from "./outgoing";
 import type { ImagesLike } from "./attachments";
 import { limitResetAt } from "./jobPause";
 import { STEER_TIMEOUT_MS } from "./steer";
 import { advisorVerdict, openJobNote } from "./jobNote";
-import { DETERMINISTIC, mergeSaved, PROGRESS_KEY, readOutside, savedCall, withEnd, type JobSaved, type PartCause } from "./jobProgress";
+import { partEndChoice } from "./jobPartEnd";
+import { mergeSaved, PROGRESS_KEY, readOutside, savedCall, withEnd, type JobSaved, type PartCause } from "./jobProgress";
 
 export type JobDeps = {
   fetch: Fetch;
@@ -376,25 +377,37 @@ export async function runJob(storage: InboxStorage, deps: JobDeps): Promise<JobN
     const token = await jobToken(run, deps).catch(() => null);
     if (token !== null) await advisorVerdict(run, deps, token, `My check of part ${run.attempt}: ${outcome.verdict.replace("_", " ")}.${advice ? ` ${advice}` : ""}`);
   }
-  // Dev2, 2026-10-31: a job keeps going for at most 30 minutes or 10 parts, then reports where it got to.
-  // A job on their own computer runs for hours, in fifteen-minute parts (`machineTurn.ts`).
-  const roomLeft = run.machine !== undefined ? run.attempt < MAX_MACHINE_JOB_ATTEMPTS && deps.now() - run.startedAt < MACHINE_JOB_LIMIT_MS : run.attempt < MAX_JOB_ATTEMPTS && deps.now() - run.startedAt < JOB_LIMIT_MS;
   // Two parts in a row that called no tool and still weren't done are going nowhere (2026-10-31: three restarted jobs
   // answered "it's running again" eight times each): it ends stuck and says so, instead of spending more parts.
   const idle = outcome.kind === "answer" && outcome.idle === true && unfinished;
-  const spinning = idle && run.idle === true;
   // Why this part ended, typed (`jobProgress.ts`): kept with the run and shown by `job_status`.
   const cause = partCause(outcome, { changed, unfinished });
   const ends = withEnd(run.ends, run.attempt, cause);
   run.ends = ends;
+  // What follows the part (the next part, the last draft, or the end) is the config's Part end node, under its
+  // limits (Dev2, 2026-11-17, "jobs as config"; `jobPartEnd.ts`). Only a part that answered or broke asks it: a stop,
+  // a refusal and a service out of tries end here, as they always have.
+  const asks = outcome.kind === "answer" || outcome.kind === "broken";
+  const choice = asks
+    ? await partEndChoice(
+        { cause, part: run.attempt, startedAt: run.startedAt, now: deps.now(), machine: run.machine !== undefined, hasDraft: !!run.saved?.draft, idle, wasIdle: run.idle === true },
+        async (input) => {
+          const token = await jobToken(run, deps).catch(() => null);
+          if (token === null) return null;
+          const answered = await post(deps.fetch, "gateway", `${deps.gatewayOrigin}/agent/job/part-end`, token, { jobId: run.id, input }, STEER_TIMEOUT_MS).catch(() => null);
+          return answered?.status === 200 ? answered.json : null;
+        },
+      )
+    : null;
+  const spinning = choice?.spinning === true;
   // A cause that would end the next part the same way (its checks' loop ran out on the same draft) delivers the last
   // draft rather than burning parts; so does a part that broke with no part left. Never a job that ends with nothing.
-  if (outcome.kind === "broken" && run.saved?.draft && (DETERMINISTIC.has(outcome.cause) || !roomLeft)) {
+  if (outcome.kind === "broken" && choice?.to === "deliver" && run.saved?.draft) {
     log("delivered_draft", run.id, outcome.cause);
     const draftTexts = textsFromAnswer(run.saved.draft);
-    return await finish(storage, { ...run, sent, draft: run.saved.draft.slice(0, MAX_DRAFT) }, { state: DETERMINISTIC.has(outcome.cause) ? "done" : "stuck", status: `Sent its last draft: ${CAUSE_WORDS[outcome.cause]}`.slice(0, 280), texts: draftTexts, part: run.attempt, ends }, tell, deps.now(), pass);
+    return await finish(storage, { ...run, sent, draft: run.saved.draft.slice(0, MAX_DRAFT) }, { state: choice.ended === "done" ? "done" : "stuck", status: `Sent its last draft: ${CAUSE_WORDS[outcome.cause]}`.slice(0, 280), texts: draftTexts, part: run.attempt, ends }, tell, deps.now(), pass);
   }
-  if (carryOn && roomLeft && !spinning) {
+  if (carryOn && choice?.to === "carry") {
     // An answer a later text replaces is not texted; the next part builds on it, so the person gets one result, not two that disagree.
     const draft = (changed || unfinished) && outcome.kind === "answer" ? outcome.texts.join("\n\n").slice(0, MAX_DRAFT) || run.draft : run.draft;
     // A part cut off before it answered (2026-11-08) no longer hands on step names (`cutOff`): everything it got is in `saved`.

@@ -65,7 +65,8 @@ function decidePartEnd(input, config) {
     limits,
   );
   // Two parts in a row that called no tool and still weren't done are going nowhere: it ends stuck (2026-10-31).
-  const spinning = input?.idle === true && input?.wasIdle === true && cause === "unfinished";
+  // `idle` already means the part was not done, whatever ended it (out of steps too).
+  const spinning = input?.idle === true && input?.wasIdle === true && CARRY.includes(cause) && !BROKEN.includes(cause);
   // A part that broke with a draft saved sends it when the next part would break the same way, or no part is left:
   // never a job that ends with nothing (2026-11-17, the timecards job).
   if (BROKEN.includes(cause) && input?.hasDraft === true && (DETERMINISTIC.includes(cause) || !room)) {
