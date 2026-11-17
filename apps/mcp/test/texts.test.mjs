@@ -286,7 +286,7 @@ test("each read is written down as who and what kind, never what was read, and a
     assert.deepEqual(kept.map((read) => JSON.parse(read.body).how).sort(), ["listed", "read", "searched"]);
     for (const read of kept) {
       assert.equal(JSON.parse(read.body).who, "Claude");
-      assert.doesNotMatch(read.key + read.body, /flight|chat-ada|Ada|1555/);
+      assert.doesNotMatch(read.key + read.body, /flight|chat-ada|Ada|5550100/);
     }
 
     const { ctx, settle } = createWorkerCtx();
