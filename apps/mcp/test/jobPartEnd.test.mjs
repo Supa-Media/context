@@ -93,8 +93,11 @@ test("the texting Worker's limits are the node's config, not numbers of its own"
   assert.equal(value("MACHINE_JOB_LIMIT_MS"), "LIMITS.machineMinutes * 60 * 1000");
 });
 
-test("Part end is on the shelf, its code in the gateway's table", () => {
-  assert.ok(SHELF.nodes.partEnd, "on the shelf");
+test("Part end is wired in the config (off the shelf), with its limits, and its code is in the gateway's table", async () => {
+  const { TEX_CONFIG } = await import("../src/agent/texConfig.js");
+  assert.ok(!SHELF.nodes.partEnd, "off the shelf once promoted");
+  assert.ok(TEX_CONFIG.edges.some((e) => e.from === "job" && e.to === "partEnd" && e.mode === "uses"), "the job -> partEnd wire");
+  assert.deepEqual(partEndLib.configLimits(TEX_CONFIG), DEFAULT_LIMITS, "today's limits, now from the node's config");
   assert.equal(GATEWAY_NODES.partEnd, partEndNode);
 });
 
@@ -110,7 +113,9 @@ test("the route answers the node's choice to the texting Worker, and nobody else
   const input = at({ cause: "check_limit", hasDraft: true });
   const answered = await askRoute({ jobId: "job-1", input }, texting());
   assert.equal(answered.status, 200);
-  assert.deepEqual(await answered.json(), decidePartEnd(input, null));
+  // The config's job -> partEnd wire runs the node on the runner: the rule's choice, with its `when`.
+  const choice = decidePartEnd(input, null);
+  assert.deepEqual(await answered.json(), { when: [choice.to], ...choice });
   assert.equal((await askRoute({ jobId: "job-1", input }, texting({ actorClientId: "context_texts_group" }))).status, 200);
   assert.equal((await askRoute({ jobId: "job-1", input }, texting({ actorClientId: "some_ai_client" }))).status, 403);
   assert.equal((await askRoute({ jobId: "job-1", input }, texting({ scopes: ["context:read"] }))).status, 403);
