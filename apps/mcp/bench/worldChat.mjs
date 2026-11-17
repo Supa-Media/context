@@ -6,6 +6,7 @@
  * and its tests read of the chat: its group's home, its ledger, a note put in the home.
  */
 
+import { QUIET_MS } from "../src/agent/checkInGather.js";
 import { ledgerFor, ONE_TO_ONE_CHAT } from "../src/agent/ledger.js";
 import { keepOneToOne } from "./byCode.mjs";
 import { clientDispatch, keepEarlierPictures } from "./earlierPictures.mjs";
@@ -20,17 +21,22 @@ export function worldChat({ env, token, group, tagger, textedEvent, postEvents, 
      * A chat before its text, each line posted as the Worker posts it (theirs a text, Tex's its answer to the one before);
      * nothing is answered. A trigger line (`- earlier check-in mail:`, `- earlier routine:`, `- earlier job reports:`)
      * covers no text of theirs, and Tex's texts after it are kept as production keeps that kind (`byCode.mjs`).
+     * Before a one-to-one check-in (`checkIn`) the whole chat is dated back past `QUIET_MS`, as production has it: the
+     * check-in says "busy" mid-conversation and the control plane asks again once the chat is quiet (`checkin.js`); a
+     * group's look has no such wait. Dated now, every Dev check-in row came back "(stayed quiet: busy)".
      */
-    async earlier(lines) {
+    async earlier(lines, { checkIn = false } = {}) {
+      const quietFor = checkIn && !group ? QUIET_MS + 60_000 : 0;
+      const at = () => Date.now() - quietFor;
       let last = null;
       let trigger = null;
       let held = [];
       const keepTrigger = async () => {
         if (trigger === null) return;
-        const turn = textedEvent("").turn;
+        const turn = textedEvent("", null, at()).turn;
         const texts = held.map((line) => line.text);
-        const post = group ? texts : await keepOneToOne({ env, workspaceId: workspaceId(), trigger, texts, at: Date.now(), turn });
-        for (const text of post) await postEvents([{ ...textedEvent(text), from: { kind: "tex" }, turn, covers: [], delivered: true }]);
+        const post = group ? texts : await keepOneToOne({ env, workspaceId: workspaceId(), trigger, texts, at: at(), turn });
+        for (const text of post) await postEvents([{ ...textedEvent(text, null, at()), from: { kind: "tex" }, turn, covers: [], delivered: true }]);
         trigger = null;
         held = [];
       };
@@ -49,7 +55,7 @@ export function worldChat({ env, token, group, tagger, textedEvent, postEvents, 
         }
         const sender = line.who && group ? group.people.get(line.who) : tagger; // a group's other member: `- earlier @priya:`
         if (line.who && group && !sender) throw new Error(`@${line.who} is not in the group's workspace (people.md)`);
-        const event = { ...textedEvent(line.text, line.from === "person" ? sender : null), ...(line.pictures?.length ? { kind: "picture", pictures: line.pictures } : {}) };
+        const event = { ...textedEvent(line.text, line.from === "person" ? sender : null, at()), ...(line.pictures?.length ? { kind: "picture", pictures: line.pictures } : {}) };
         if (line.from === "person") last = event;
         const { pictures, ...posted } = line.from === "person" ? event : { ...event, from: { kind: "tex" }, turn: last?.turn ?? event.turn, covers: last ? [last.id] : [], delivered: true };
         await postEvents([posted]); // Tex's answer to a picture kept it, as that turn did (`earlierPictures.mjs`)

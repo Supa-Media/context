@@ -195,6 +195,14 @@ function result(text, isError = false) {
 }
 
 /**
+ * Why a streamed turn died, typed for a job's part (`apps/agent/src/jobProgress.ts`): the config's send-back loop ran
+ * out (`texGraph.cjs`, a draft its checks kept sending back), or anything else. Never the error's message.
+ */
+export function diedOf(error) {
+  return error?.name === "GraphError" && /sent work back to .* more than \d+ times/.test(String(error?.message ?? "")) ? "check_limit" : "crash";
+}
+
+/**
  * Run `run(progress)` (which returns the route's ordinary Response) and stream
  * it: `{"progress": "..."}` lines as they happen, `{"step": "..."}` for a
  * job's own steps, `{"tick": n}` while nothing does, for a job's part one
@@ -240,7 +248,13 @@ export function streamTurn(run, { waitUntil = null, heartbeatMs = HEARTBEAT_MS }
       // (`texEntryPoint/sendTheReply.js`; 2026-11-08, the gateway ran out of memory in the check and the part ran again).
       const response = await run(
         (text) => write({ progress: text }),
-        (text, how) => write({ step: text, ...(how?.failed ? { failed: true } : {}), ...(how?.why ? { why: how.why } : {}) }),
+        // A job's step also carries what it returned and whether it is held for their yes; a draft goes on a line of its own (`jobSaved.js`).
+        (text, how) =>
+          text
+            ? write({ step: text, ...(how?.failed ? { failed: true } : {}), ...(how?.why ? { why: how.why } : {}), ...(typeof how?.result === "string" && how.result ? { result: how.result } : {}), ...(how?.held ? { held: true } : {}), ...(how?.outside ? { outside: true } : {}) })
+            : typeof how?.draft === "string" && how.draft
+              ? write({ draft: how.draft })
+              : Promise.resolve(),
         (body) => write({ answered: body }),
       );
       const body = await response.json().catch(() => null);
@@ -250,7 +264,7 @@ export function streamTurn(run, { waitUntil = null, heartbeatMs = HEARTBEAT_MS }
       // error's name goes to this deployment's logs, never its message, which
       // can quote a note.
       console.log(JSON.stringify({ event: "agent_stream_error", name: error?.name ?? "Error" }));
-      await write({ status: 500, body: { error: "server_error" } });
+      await write({ status: 500, body: { error: "server_error", cause: diedOf(error) } });
     } finally {
       clearInterval(heartbeat);
       await chain;
