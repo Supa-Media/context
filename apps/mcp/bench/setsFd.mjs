@@ -226,13 +226,14 @@ export function fdTest(units, front) {
   units.forEach((u, k) => {
     const m = u.convo.msgs[u.at];
     const l = u.label;
+    const { earlier, unanswered } = sinceTexAnswered(earlierLines(u.convo, u.at), picturesOf(m), u.convo.kind === "group");
     const lines = [
       `## ${k + 1}. ${String(m.text).replace(/\s+/g, " ").slice(0, 120)}`,
       "",
       "- kind: task",
       m.via === "checkin" ? `- check-in mail: ${JSON.stringify(checkinMail(m.text))}` : m.via === "routine" ? `- routine runs: ${JSON.stringify(m.text)}` : m.via === "job" ? `- job reports: ${JSON.stringify(jobReportRow(u.convo, u.at))}` : `- person texts: ${JSON.stringify(m.text ?? "")}`,
-      ...picturesOf(m).map((name) => `- person sends picture: ${name}`),
-      ...earlierLines(u.convo, u.at).flatMap((line) => {
+      ...unanswered.map((name) => `- person sends picture: ${name}`),
+      ...earlier.flatMap((line) => {
         if (line.from === "trigger") return [triggerLine(line)];
         const who = line.who ? `@${line.who}` : line.from;
         return [`- earlier ${who}: ${JSON.stringify(line.text)}`, ...(line.pictures ?? []).map((name) => `- earlier ${who} sends picture: ${name}`)];
@@ -243,6 +244,21 @@ export function fdTest(units, front) {
     out.push(lines.join("\n") + "\n");
   });
   return out.join("\n");
+}
+
+/**
+ * The pictures a turn reads, as production's: its own and those sent since Tex last answered, oldest first. A group
+ * turn reads the newest four of the chat's, any member's (`groupInbox.ts` `filesFor`); a one-to-one turn merges the
+ * burst and reads the first eight (`inboxTurn.ts` `merged`). Tex answered when it texted, or when a routine ran, which
+ * clears the chat's lines even when it stays quiet (`groupModelTurn.ts`); a tapback is not a line here. The earlier
+ * lines keep their words without the picture, so none is sent twice.
+ */
+export function sinceTexAnswered(lines, own = [], group = false) {
+  const from = lines.findLastIndex((line) => line.from === "tex" || (line.from === "trigger" && line.via === "routine")) + 1;
+  const all = [...lines.slice(from).flatMap((line) => line.pictures ?? []), ...own];
+  const unanswered = group ? all.slice(-4) : all.slice(0, 8);
+  const earlier = lines.map((line, k) => (k >= from && line.pictures ? (({ pictures, ...rest }) => rest)(line) : line));
+  return { earlier, unanswered };
 }
 
 /** An earlier trigger as its case line (`load.mjs`). */

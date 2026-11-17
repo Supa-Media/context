@@ -41,6 +41,7 @@ import type { ImagesLike } from "./attachments";
 import { limitResetAt } from "./jobPause";
 import { STEER_TIMEOUT_MS } from "./steer";
 import { advisorVerdict, openJobNote } from "./jobNote";
+import { DETERMINISTIC, mergeSaved, PROGRESS_KEY, readOutside, savedCall, withEnd, type JobSaved, type PartCause } from "./jobProgress";
 
 export type JobDeps = {
   fetch: Fetch;
@@ -103,10 +104,10 @@ const live = new WeakMap<InboxStorage, Live>();
 
 type Outcome =
   | { kind: "answer"; texts: string[]; pictures: OutgoingPicture[]; exhausted: boolean; unfinished: boolean; status: string; steered: string[]; untrusted?: true; vaultWatch?: true; vaultLinks?: string[]; verdict?: JobVerdict; advice?: string; idle?: true }
-  /** Nothing ran: try the same turn again later. `why` is kept for the job's last word if no try is left. */
-  | { kind: "retry"; why?: string }
-  /** It ran and broke: carry on in a new turn, if one is left. */
-  | { kind: "broken" }
+  /** Nothing ran (or the model was down): try the same turn again later. `why` is kept for the job's last word if no try is left. */
+  | { kind: "retry"; why?: string; cause?: "model_down" }
+  /** It ran and broke: carry on in a new turn, if one is left. `cause`: why, when it is known (`jobProgress.ts`). */
+  | { kind: "broken"; cause: "check_limit" | "timeout" | "crash" }
   /** Ends here, with this to say, or silently. */
   | { kind: "stop"; text?: string }
   /** The gateway refused to run it (`daily_limit`, `no_model`): it waits on them, and says why. */
@@ -274,6 +275,9 @@ export async function runJob(storage: InboxStorage, deps: JobDeps): Promise<JobN
   // Stopped between turns: it ends here, saying nothing (the chat's turn already told them).
   if ((await storage.get<boolean>(STOP_KEY)) === true) return await finish(storage, run, { state: "failed", status: "Stopped" }, tell, deps.now(), pass);
   await storage.put(PASS_KEY, pass);
+  // What earlier parts saved, and what a pass whose object died mid-part had saved before it went (`jobProgress.ts`).
+  const savedBefore = mergeSaved(run.saved, await storage.get<JobSaved>(PROGRESS_KEY));
+  if (savedBefore !== undefined) run.saved = savedBefore;
   // Its note, asked for once before its first part: the job, Tex and the advisor on its mail, and the job told who is there (`jobNote.ts`).
   // A group's job has a note only where Tex put it in a project (`apps/mcp/src/agent/jobNote.js`), so one without asks nothing.
   if (run.note === undefined && run.noteAsked !== true && (run.origin.kind === "phone" || run.mail !== undefined)) {
@@ -288,10 +292,21 @@ export async function runJob(storage: InboxStorage, deps: JobDeps): Promise<JobN
     await tell({ state: "running", status: text, ...(HAS_LINK.test(text) ? { texts: [text] } : {}) });
   };
   // Each step, kept by the chat for "what is it doing?"; a step that failed to arrive costs only that line.
-  // The part's steps, also kept here: a part cut off before it answered hands them to the next one (`cutOff`).
-  const took: string[] = [];
+  // Each return, held action and draft is also saved here the moment it streams back (`jobProgress.ts`): a part that
+  // dies mid-way hands everything it had to the next (2026-11-17: ten parts each redid the same search, sign-in and email).
+  const partSaved: JobSaved = { calls: [] };
+  const save = () => storage.put(PROGRESS_KEY, partSaved).catch(() => {});
   const onStep = async (text: string, how?: StepHow) => {
-    if (took.length < MAX_CUT_OFF_STEPS) took.push(how?.failed ? `${text} (failed)` : text);
+    if (text === "") {
+      if (how?.draft) Object.assign(partSaved, { draft: how.draft, draftPart: run.attempt });
+      if (how?.draft) await save();
+      return;
+    }
+    const call = savedCall(run.attempt, text, how);
+    if (call !== null) {
+      partSaved.calls.push(call);
+      await save();
+    }
     await tell({ state: "running", step: text, ...(how?.failed ? { stepFailed: true as const, ...(how.why ? { stepWhy: how.why } : {}) } : {}) });
   };
 
@@ -313,7 +328,7 @@ export async function runJob(storage: InboxStorage, deps: JobDeps): Promise<JobN
           ? await phoneTurn(run, asked, turn, deps, onProgress, onStep)
           : await groupTurn(run, asked, turn, deps, onStep);
   } catch (error) {
-    outcome = error instanceof ServiceError ? { kind: "retry", why: unreachable(error) } : { kind: "broken" };
+    outcome = error instanceof ServiceError ? { kind: "retry", why: unreachable(error) } : { kind: "broken", cause: "crash" };
   } finally {
     if (live.get(storage) === turn) live.delete(storage);
   }
@@ -322,6 +337,10 @@ export async function runJob(storage: InboxStorage, deps: JobDeps): Promise<JobN
     log("stale_pass", run.id);
     return { kind: "done" };
   }
+  // Everything saved so far, this part's included, is the run's now: every write of the run below carries it.
+  const saved = mergeSaved(run.saved, partSaved);
+  if (saved !== undefined) run.saved = saved;
+  await storage.delete(PROGRESS_KEY);
   // Nothing ran on a retry, so what it was shown is shown again.
   const left =
     outcome.kind === "retry"
@@ -332,7 +351,10 @@ export async function runJob(storage: InboxStorage, deps: JobDeps): Promise<JobN
     return await finish(storage, { ...run, sent }, { state: "failed", status: "Stopped" }, tell, deps.now(), pass);
   }
   if (outcome.kind === "retry" && run.tries + 1 < MAX_JOB_TRIES) {
-    await storage.put<Stored>(RUN_KEY, { ...run, sent, tries: run.tries + 1 });
+    // A model that was down is a pass's end of its own, said in `job_status`; a gateway that never answered is not one.
+    const ends = outcome.cause ? withEnd(run.ends, run.attempt, outcome.cause) : run.ends;
+    await storage.put<Stored>(RUN_KEY, { ...run, sent, tries: run.tries + 1, ...(ends ? { ends } : {}) });
+    if (outcome.cause) await tell({ state: "running", status: "The AI model didn't answer; trying again shortly", part: run.attempt, ...(ends ? { ends } : {}) });
     log("retry", run.id);
     return { kind: "after", ms: RETRY_MS * 2 ** run.tries };
   }
@@ -361,20 +383,31 @@ export async function runJob(storage: InboxStorage, deps: JobDeps): Promise<JobN
   // answered "it's running again" eight times each): it ends stuck and says so, instead of spending more parts.
   const idle = outcome.kind === "answer" && outcome.idle === true && unfinished;
   const spinning = idle && run.idle === true;
+  // Why this part ended, typed (`jobProgress.ts`): kept with the run and shown by `job_status`.
+  const cause = partCause(outcome, { changed, unfinished });
+  const ends = withEnd(run.ends, run.attempt, cause);
+  run.ends = ends;
+  // A cause that would end the next part the same way (its checks' loop ran out on the same draft) delivers the last
+  // draft rather than burning parts; so does a part that broke with no part left. Never a job that ends with nothing.
+  if (outcome.kind === "broken" && run.saved?.draft && (DETERMINISTIC.has(outcome.cause) || !roomLeft)) {
+    log("delivered_draft", run.id, outcome.cause);
+    const draftTexts = textsFromAnswer(run.saved.draft);
+    return await finish(storage, { ...run, sent, draft: run.saved.draft.slice(0, MAX_DRAFT) }, { state: DETERMINISTIC.has(outcome.cause) ? "done" : "stuck", status: `Sent its last draft: ${CAUSE_WORDS[outcome.cause]}`.slice(0, 280), texts: draftTexts, part: run.attempt, ends }, tell, deps.now(), pass);
+  }
   if (carryOn && roomLeft && !spinning) {
     // An answer a later text replaces is not texted; the next part builds on it, so the person gets one result, not two that disagree.
     const draft = (changed || unfinished) && outcome.kind === "answer" ? outcome.texts.join("\n\n").slice(0, MAX_DRAFT) || run.draft : run.draft;
+    // A part cut off before it answered (2026-11-08) no longer hands on step names (`cutOff`): everything it got is in `saved`.
     const { unfinished: _was, advice: _said, idle: _idle, cutOff: _cut, ...kept } = run;
-    // Cut off before it answered (2026-11-08: the gateway ran out of memory after a part had written its page, and the
-    // next part, told nothing, did it all again): the next part is shown what this one had done, to check before redoing.
-    const cutOff = outcome.kind === "broken" && took.length > 0 ? took : undefined;
     // What this part did, one line, so a job that ends short reports every part and not only its last (2026-11-06:
     // a cloud reviewer's tenth part answered a screenshot, and that alone became its report: "nothing from it is built").
     const said = outcome.kind === "answer" ? partLine(run.attempt, outcome.texts, outcome.status) : null;
     const parts = said === null ? run.parts : [...(run.parts ?? []), said].slice(-MAX_PARTS_KEPT);
-    await storage.put<Stored>(RUN_KEY, { ...kept, sent, attempt: run.attempt + 1, tries: 0, ...(parts?.length ? { parts } : {}), ...(draft ? { draft } : {}), ...(unfinished ? { unfinished: true as const } : {}), ...(advice && !changed ? { advice } : {}), ...(idle ? { idle: true as const } : {}), ...(cutOff ? { cutOff } : {}), ...(outcome.kind === "answer" && outcome.untrusted ? { tainted: true as const } : {}) });
+    await storage.put<Stored>(RUN_KEY, { ...kept, sent, attempt: run.attempt + 1, tries: 0, ...(parts?.length ? { parts } : {}), ...(draft ? { draft } : {}), ...(unfinished ? { unfinished: true as const } : {}), ...(advice && !changed ? { advice } : {}), ...(idle ? { idle: true as const } : {}), ...((outcome.kind === "answer" && outcome.untrusted) || readOutside(run.saved) ? { tainted: true as const } : {}) });
     await tell({
       state: "running",
+      part: run.attempt + 1,
+      ends,
       ...watch,
       ...checked,
       status: mailed
@@ -383,10 +416,12 @@ export async function runJob(storage: InboxStorage, deps: JobDeps): Promise<JobN
         ? "Changing it to what you texted"
         : unfinished
           ? advice ? `Not done yet; next: ${advice}`.slice(0, 280) : "Finishing what was still missing"
-          : `Still going: part ${run.attempt + 1} of at most ${MAX_JOB_ATTEMPTS}`,
+          : outcome.kind === "broken"
+            ? `Part ${run.attempt} ${CAUSE_WORDS[outcome.cause]}; part ${run.attempt + 1} picks up from what it saved`.slice(0, 280)
+            : `Still going: part ${run.attempt + 1} of at most ${MAX_JOB_ATTEMPTS}`,
     });
     // Why it carried on, so a part that ran again can be explained from the log alone (2026-11-08: it could not).
-    log("carry_on", run.id, outcome.kind === "broken" ? "broken" : changed ? "changed" : unfinished ? "unfinished" : "exhausted");
+    log("carry_on", run.id, outcome.kind === "broken" ? `broken:${outcome.cause}` : changed ? "changed" : unfinished ? "unfinished" : "exhausted");
     return { kind: "now" };
   }
 
@@ -415,10 +450,31 @@ export async function runJob(storage: InboxStorage, deps: JobDeps): Promise<JobN
           : outcome.kind === "retry" && outcome.why
             ? // Out of tries at a service that didn't answer: said, so neither Tex nor the person is left guessing (2026-11-06).
               { state: "failed", status: `Stopped: ${outcome.why}`.slice(0, 280), texts: [JOB_LINES.failed(run.title, outcome.why)] }
-            : { state: "failed", texts: [JOB_LINES.failed(run.title)] };
+            : { state: "failed", ...(outcome.kind === "broken" ? { status: `Stopped: part ${run.attempt} ${CAUSE_WORDS[outcome.cause]}`.slice(0, 280) } : {}), texts: [JOB_LINES.failed(run.title)] };
+  update.part = run.attempt;
+  update.ends = ends;
   // What it had got to is what a restart starts on (`resumeJob`).
   const got = outcome.kind === "answer" && !changed ? outcome.texts.join("\n\n").slice(0, MAX_DRAFT) : "";
   return await finish(storage, { ...run, sent, ...(got ? { draft: got } : {}), ...(advice ? { advice } : {}) }, update, tell, deps.now(), pass);
+}
+
+/** A part's end cause in words, for its status and `job_status`. */
+const CAUSE_WORDS: Record<"check_limit" | "timeout" | "crash", string> = {
+  check_limit: "ran out of answer-check rounds (its checks kept sending the draft back)",
+  timeout: "ran past its time",
+  crash: "crashed before it answered",
+};
+
+/** Why a part ended, from its outcome (`jobProgress.ts` `PartCause`). */
+function partCause(outcome: Outcome, { changed, unfinished }: { changed: boolean; unfinished: boolean }): PartCause {
+  if (outcome.kind === "broken") return outcome.cause;
+  if (outcome.kind === "retry") return outcome.cause ?? "crash";
+  if (outcome.kind === "stop") return "stopped";
+  if (outcome.kind === "refused" || outcome.kind === "rejected") return "refused";
+  if (changed) return "changed";
+  if (outcome.exhausted) return "steps_out";
+  if (unfinished) return "unfinished";
+  return outcome.verdict === "waiting" ? "waiting" : outcome.verdict === "stuck" || outcome.verdict === "keep_going" ? "stuck" : "done";
 }
 
 /** Earlier parts' lines a job keeps for its last word. */
@@ -426,9 +482,6 @@ const MAX_PARTS_KEPT = 8;
 const MAX_PART_LINE = 300;
 
 /** One part as its job's last word recalls it: its answer's first line, or its status. Null when it said nothing. */
-/** The most steps of a part cut off before it answered that the next part is shown (`cutOff`). */
-export const MAX_CUT_OFF_STEPS = 40;
-
 export function partLine(attempt: number, texts: string[], status: string): string | null {
   const first = texts.join("\n").split("\n").find((line) => line.trim() !== "")?.trim() ?? status.trim();
   return first === "" ? null : `Part ${attempt}: ${first}`.slice(0, MAX_PART_LINE);
@@ -498,12 +551,14 @@ function ask(run: JobRun, followUps: string[], mail: Array<JobMail & { text: str
     ...(run.draft ? { draft: run.draft } : {}),
     ...(run.draft && run.unfinished ? { unfinished: true as const } : {}),
     ...(run.advice ? { advice: run.advice } : {}),
-    ...(run.cutOff?.length ? { cutOff: run.cutOff } : {}),
+    ...(run.cutOff?.length ? { cutOff: run.cutOff } : {}), // a run stored before `saved` (`jobProgress.ts`)
+    ...(run.saved ? { saved: run.saved } : {}),
   };
 }
 
 /** A part on their computer, as a cloud part's outcome. */
 function fromMachine(outcome: MachineOutcome): Outcome {
+  if (outcome.kind === "broken") return { kind: "broken", cause: "crash" };
   if (outcome.kind !== "answer") return outcome;
   const check = outcome.check ?? {};
   return {
@@ -544,7 +599,12 @@ function outcomeOf(answer: AgentAnswer, texts: (text: string) => string[]): Outc
     };
   }
   if (answer.kind === "not_started") return { kind: "retry" };
-  if (answer.kind === "unavailable") return answer.refused ? { kind: "rejected", why: answer.refused } : { kind: "broken" };
+  if (answer.kind === "unavailable") {
+    if (answer.refused) return { kind: "rejected", why: answer.refused };
+    // A model that was down is tried again with what the part saved, not counted as a part that broke (`jobProgress.ts`).
+    if (answer.cause === "model_down") return { kind: "retry", why: "the AI model didn't answer", cause: "model_down" };
+    return { kind: "broken", cause: answer.cause === "check_limit" || answer.cause === "timeout" ? answer.cause : "crash" };
+  }
   // Refused before anything ran: never a silent failure (Dev2, 2026-10-31, the day three jobs ran into the cap).
   if (answer.kind === "daily_limit" || answer.kind === "no_model") return { kind: "refused", why: answer.kind };
   return { kind: "stop", text: undefined };
@@ -628,7 +688,6 @@ async function groupTurn(run: JobRun, job: JobAsk, turn: Live, deps: JobDeps, on
     async () => {},
     onStep,
   );
-  if (answer.kind === "unavailable" && !answer.refused) return { kind: "broken" };
   const outcome = outcomeOf(answer, textsFromAnswer);
   if (outcome.kind !== "answer") return outcome;
   // Sent only to the people it was written for, as a group's answer is (`groupInbox.ts`).

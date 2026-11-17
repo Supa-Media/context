@@ -11,13 +11,13 @@
  *     "a part whose stream dies after its answer is reported, not run again".
  *  2. `askAgentStream` letting a failed final line win over `answered` → "a failed final line after the answer
  *     line keeps the answer".
- *  3. `runJob` not keeping `cutOff` → "a part cut off before it answered hands its steps to the next part".
+ *  3. `runJob` not keeping `saved` → "a part cut off before it answered hands everything it got to the next part".
  *  4. `runJob` logging `carry_on` with no reason → both `carry_on` expectations fail.
  */
 
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { askAgent, type Fetch } from "./clients";
-import { acceptJob, MAX_CUT_OFF_STEPS, runJob, type JobDeps } from "./jobRun";
+import { acceptJob, runJob, type JobDeps } from "./jobRun";
 import { jobTag, RUN_KEY, type JobRun, type JobUpdate } from "./jobs";
 import { MemoryStorage } from "./memoryStorage.testing";
 
@@ -93,8 +93,8 @@ describe("a stream that dies after its answer", () => {
   it("the final line wins when it comes, and a refusal is never covered over", async () => {
     expect(await askAgent(stream([{ answered: { answer: "Early." } }, { status: 200, body: { answer: "Checked.", verdict: "done" } }]), "g", "t", "q", async () => {})).toMatchObject({ kind: "answer", text: "Checked." });
     expect(await askAgent(stream([{ answered: { answer: "Early." } }, { status: 429, body: {} }]), "g", "t", "q", async () => {})).toEqual({ kind: "daily_limit" });
-    // An empty early answer is no answer: the stream is as dead as before.
-    expect(await askAgent(stream([{ answered: { answer: "  " } }]), "g", "t", "q", async () => {})).toEqual({ kind: "unavailable" });
+    // An empty early answer is no answer: the stream is as dead as before, and says it crashed (`jobProgress.ts`).
+    expect(await askAgent(stream([{ answered: { answer: "  " } }]), "g", "t", "q", async () => {})).toEqual({ kind: "unavailable", cause: "crash" });
   });
 });
 
@@ -109,31 +109,30 @@ describe("a job's part the gateway lost", () => {
     expect(reports.at(-1)).toMatchObject({ state: "done", texts: ["The comparison is on its page."] });
   });
 
-  it("a part cut off before it answered hands its steps to the next part, and says why it carried on", async () => {
+  it("a part cut off before it answered hands everything it got to the next part, and says why it carried on", async () => {
     const logs = vi.spyOn(console, "log").mockImplementation(() => {});
     const storage = new MemoryStorage();
     await acceptJob(storage, RUN, NOW);
-    const many = Array.from({ length: MAX_CUT_OFF_STEPS + 5 }, (_, i) => ({ step: `Step ${i + 1}` }));
     const { deps, asked, reports } = jobDeps([
-      [{ step: "Searched the web" }, { step: "Read a pricing page", failed: true }, { step: "Wrote projects/compare.page.md" }, { tick: 1 }],
+      [{ step: "Searched the web", result: "3 providers found" }, { step: "Read a pricing page", failed: true }, { step: "Wrote projects/compare.page.md", result: "saved" }, { tick: 1 }],
       [{ status: 200, body: { answer: "Checked the page; it was all there." } }],
     ]);
     await runJob(storage, deps);
-    expect((await storage.get<JobRun>(RUN_KEY))?.cutOff).toEqual(["Searched the web", "Read a pricing page (failed)", "Wrote projects/compare.page.md"]);
+    // Step names alone (`cutOff`) are no longer what it hands on: every call and what it returned is (`jobProgress.ts`).
+    expect((await storage.get<JobRun>(RUN_KEY))?.cutOff).toBeUndefined();
     await runJob(storage, deps);
-    expect(asked[0].job).not.toHaveProperty("cutOff");
-    expect(asked[1].job).toMatchObject({ attempt: 2, cutOff: ["Searched the web", "Read a pricing page (failed)", "Wrote projects/compare.page.md"] });
+    expect(asked[0].job).not.toHaveProperty("saved");
+    expect(asked[1].job).toMatchObject({
+      attempt: 2,
+      saved: {
+        calls: [
+          { part: 1, step: "Searched the web", result: "3 providers found" },
+          { part: 1, step: "Read a pricing page", failed: true },
+          { part: 1, step: "Wrote projects/compare.page.md", result: "saved" },
+        ],
+      },
+    });
     expect(reports.at(-1)).toMatchObject({ state: "done", texts: ["Checked the page; it was all there."] });
-    expect(jobLogs(logs)).toContainEqual({ event: "background_job", outcome: "carry_on", job: jobTag(RUN.id), reason: "broken" });
-
-    // Kept to the newest part only, and to its first steps.
-    const second = new MemoryStorage();
-    await acceptJob(second, RUN, NOW);
-    const more = jobDeps([many, [{ status: 200, body: { answer: "Done.", unfinished: true } }]]);
-    await runJob(second, more.deps);
-    expect((await second.get<JobRun>(RUN_KEY))?.cutOff).toHaveLength(MAX_CUT_OFF_STEPS);
-    await runJob(second, more.deps);
-    expect((await second.get<JobRun>(RUN_KEY))?.cutOff).toBeUndefined();
-    expect(jobLogs(logs)).toContainEqual({ event: "background_job", outcome: "carry_on", job: jobTag(RUN.id), reason: "unfinished" });
+    expect(jobLogs(logs)).toContainEqual({ event: "background_job", outcome: "carry_on", job: jobTag(RUN.id), reason: "broken:crash" });
   });
 });

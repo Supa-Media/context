@@ -332,7 +332,8 @@ test("a refusal travels in the last line with its status, and a throw is an opaq
     throw new Error("secret plumbing detail");
   });
   const out = await lines(thrown);
-  assert.deepEqual(out, [{ status: 500, body: { error: "server_error" } }]);
+  // Its cause is typed for a job's part (`apps/agent/src/jobProgress.ts`), never its message.
+  assert.deepEqual(out, [{ status: 500, body: { error: "server_error", cause: "crash" } }]);
 });
 
 test("a heartbeat keeps a quiet stream alive", async () => {

@@ -11,7 +11,7 @@ import type { LabCase, LabGraph, LabNode } from "../types";
 import { G, lab, MODELS } from "./state";
 
 /** The most cases one step keeps (`UNIT_LIMIT` in apps/mcp/bench/gateSample.mjs; the fast guards fail past it). */
-export const CASE_CAP = 20;
+export const CASE_CAP = 50;
 
 export const NODE_AREA = "node:";
 export const isNodeArea = (area: string) => area.startsWith(NODE_AREA);

@@ -3,7 +3,7 @@ import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { test } from "node:test";
 
-import { LIVE_SETTINGS, cantRun, checkinMail, dayOf, earlierLines, fdTest, frontFor, groupFor, jobReportRow, runFd, senderOf, timeOf, zoneOf } from "../bench/setsFd.mjs";
+import { LIVE_SETTINGS, cantRun, checkinMail, dayOf, earlierLines, fdTest, frontFor, groupFor, jobReportRow, runFd, senderOf, sinceTexAnswered, timeOf, zoneOf } from "../bench/setsFd.mjs";
 import { clockMs, installClock } from "../bench/clock.mjs";
 import { parsePeople, parseTest } from "../bench/load.mjs";
 import sets from "../../../packages/shared/src/texSets.cjs";
@@ -275,6 +275,23 @@ test("a Dev text's pictures go in with it, and an earlier one with its line, whe
   const parsed = parseTest(`---\nrun_as: x\n---\n\n${test.split("---\n").slice(2).join("---\n")}`);
   assert.deepEqual(parsed.questions[0].sendsPictures, ["dev-passport-page.jpg"]);
   assert.deepEqual(parsed.questions[0].earlier[0].pictures, ["dev-wedding-rsvp.jpg"]);
+  // A picture nobody answered yet goes in with the text after it, as a turn reads what was sent since Tex last answered.
+  const after = conv([
+    { id: "m1", who: "Maya", text: "Got the tickets", pics: [{ url: url("dev-flat-notice.jpg") }] },
+    { id: "m2", who: "Tex", tex: true, text: "Nice." },
+    { id: "m3", who: "Maya", text: "", pics: [{ url: url("dev-airport-signs.jpg") }] },
+    { id: "m4", who: "Maya", text: "where do i go", labels: { fd: { must: ["x"] } } },
+  ]);
+  const sent = fdTest([unit(after, 3)], "run_as: x");
+  assert.match(sent, /^- person sends picture: dev-airport-signs\.jpg$/m);
+  assert.doesNotMatch(sent, /^- earlier person sends picture: dev-airport-signs\.jpg$/m, "sent once, with the turn");
+  assert.match(sent, /^- earlier person sends picture: dev-flat-notice\.jpg$/m, "an answered one stays where it was sent");
+  assert.deepEqual(sinceTexAnswered([{ from: "person", text: "a", pictures: ["p.jpg"] }], ["q.jpg"]).unanswered, ["p.jpg", "q.jpg"]);
+  const six = ["1", "2", "3", "4", "5", "6"].map((n) => ({ from: "person", who: "kofi", text: "", pictures: [`${n}.jpg`] }));
+  assert.deepEqual(sinceTexAnswered(six, [], true).unanswered, ["3.jpg", "4.jpg", "5.jpg", "6.jpg"], "a group turn reads the newest four");
+  assert.equal(sinceTexAnswered([...six, ...six, ...six], []).unanswered.length, 8, "a one-to-one turn reads the first eight");
+  assert.deepEqual(sinceTexAnswered([six[0], { from: "trigger", via: "routine" }]).unanswered, [], "a routine clears the chat's lines");
+  assert.deepEqual(sinceTexAnswered([six[0], { from: "trigger", via: "checkin" }]).unanswered, ["1.jpg"]);
   const elsewhere = conv([{ id: "m1", who: "Maya", text: "hi", pics: [{ url: "https://example.com/a.jpg" }] }]);
   assert.match(cantRun(elsewhere, 0), /isn't kept in the repository/);
 });

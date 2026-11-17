@@ -53,12 +53,13 @@
  */
 
 import { ENOUGH_SITES, aSiteFailed, asksForPublishedText, hostsAsked, otherSitesNotice, publishedTextNotice } from "./otherSites.js";
-import { NOTE_PICTURE_NOTICE, OWED_PICTURE_NOTICE, VISUAL_NOTICE, VISUAL_TOO, claimsNotePicture, owesAPicture, wantsACard } from "./visuals/notice.js";
+import { NOTE_PICTURE_NOTICE, OWED_PICTURE_NOTICE, VISUAL_NOTICE, claimsNotePicture, owesAPicture, wantsACard } from "./visuals/notice.js";
 import { BUG_NOTICE, filesABugElsewhere, lessonInAboutMe, writeBeforeReport } from "./bugCheck.js";
 import { selfRepairNotice } from "./lookFirst.js";
 import { mayAsk } from "./handbackJudge.js";
 import { pageNotice, turnNoteWrite, wantsAPage } from "./pageNotice.js";
-import { replyChecks } from "./replyChecks.js";
+import { replyFindings } from "./replyChecks.js";
+import { SHAPE, combineFindings, finding, oneShape } from "./checkFindings.js";
 import { barePageWritten } from "./pageCoverFloor.js";
 import { givesUpOnAFile, keptFileNotice, readsAKeptFile } from "./keptClaims.js";
 import { confessionNotice, contradictedConfession } from "./confession.js";
@@ -412,7 +413,10 @@ const KEPT_WISHES = new Set([ATTENTION_SETTINGS_PATH, HEARTBEAT_SETTINGS_PATH, H
  */
 export function claimCheck({ question, judge = null, waiting = false, corrects = false, pictures = false, job = null, visuals = () => false, kept = [], keptShown = false, history = [], detailed = false, origin = null }) {
   // An empty answer, a stray script, "your notes are down", a pointer back at the waiting ask (`replyChecks.js`).
-  const shape = replyChecks({ question, waiting, pictures, history, detailed });
+  const shape = replyFindings({ question, waiting, pictures, history, detailed });
+  // Whether advice on the answer's shape was given this turn, and whether a form-or-length one was (`checkFindings.js`).
+  let adviceGiven = false;
+  let shapeGiven = false;
   let wrote = false;
   let keptWish = false;
   let held = false;
@@ -527,156 +531,175 @@ export function claimCheck({ question, judge = null, waiting = false, corrects =
     stale: () => corrects && !held,
     /** A job's final answer that still stops short: the Worker runs another turn instead of texting it as done. */
     unfinished: (answer) => !held && unfinishedJob(job, answer), // an answer holding an ask for their yes always goes out
-    check(answer) {
-      const notice = firstNotice(answer);
-      // Another notice won this round, but the answer is also a list a card should carry: the card rides
-      // along, or a lunch list sent back for its missing prices comes home as words (owner, 2026-10-26).
-      if (notice === null || notice === VISUAL_NOTICE || cardNoticed || held || !visuals() || !wantsACard(answer, { question, steps })) return notice;
-      cardNoticed = true;
-      const withCard = (said) => (said === null ? VISUAL_NOTICE : `${said}\n\n${VISUAL_TOO}`);
-      return typeof notice === "string" ? withCard(notice) : Promise.resolve(notice).then(withCard);
+    /**
+     * Every finding on this draft at once, sent back in one notice (`checkFindings.js`): facts block, advice on
+     * its shape rides along, or on a chat turn goes back alone once a turn; a job's part is never held for advice.
+     * `before`: findings a wrapping check already made on this draft (`doItChecks.js`), listed first.
+     */
+    /** `check` reads `{ before }` from its context: a wrapping check's findings join this draft's one notice. */
+    takesFindings: true,
+    check(answer, context) {
+      const before = Array.isArray(context?.before) ? context.before : [];
+      const all = [...before, ...findings(answer)];
+      const found = oneShape(all, shapeGiven);
+      const notice = combineFindings(found, { adviceAlone: job === null && !adviceGiven });
+      // Advice found but not sent is not spent: it can still ride along with a later fact this turn.
+      for (const entry of all) if (entry.advice && (notice === null || !found.includes(entry))) release(entry.kind);
+      if (notice === null) return judgeOnce(answer);
+      if (found.some((entry) => entry.advice)) adviceGiven = true;
+      if (found.some((entry) => entry.advice && SHAPE.includes(entry.kind))) shapeGiven = true;
+      return notice;
     },
   };
 
-  /** The one notice this answer earns, before a card is added to it. */
-  function firstNotice(answer) {
-    const shaped = shape(answer, steps);
-    if (shaped !== null) return shaped;
+  /** Hands back a once-a-turn advice check that found something which was never sent. */
+  function release(kind) {
+    if (kind === "page") pageNoticed = false;
+    else if (kind === "card") cardNoticed = false;
+    else shape.release(kind);
+  }
+
+  /** Every check's finding on this answer, each kind once a turn: `[{ kind, notice, advice }]`. */
+  function findings(answer) {
+    const found = shape(answer, steps);
+    const fact = (kind, notice) => found.push(finding(kind, notice));
+    const advise = (kind, notice) => found.push(finding(kind, notice, true));
     // A note link nobody gave: a shortened or retyped name opens "That file does not exist".
     const unknown = linkNoticed ? [] : links.unknown(answer);
     if (unknown.length > 0) {
       linkNoticed = true;
-      return unknownLinkNotice(unknown, links.known());
+      fact("link", unknownLinkNotice(unknown, links.known()));
     }
     // "I hadn't checked your calendar" when it had: check the reads before agreeing.
     const confessed = confessNoticed ? null : contradictedConfession(answer, { history, steps });
     if (confessed !== null) {
       confessNoticed = true;
-      return confessionNotice(confessed);
+      fact("confession", confessionNotice(confessed));
     }
     const accounted = saveAccount(answer, { history, steps });
-    if (accounted !== null) return accounted;
+    if (accounted !== null) fact("save", accounted);
     // "The PDF won't load" or "paste its text" with the file kept and unread this turn: read it.
     if (!keptNoticed && kept.length > 0 && !keptRead && givesUpOnAFile(answer)) {
       keptNoticed = true;
-      return keptFileNotice(kept, { shown: keptShown });
+      fact("kept", keptFileNotice(kept, { shown: keptShown }));
     }
     // Then, a browser call that failed once, given up on: the plainest fix is to run it again.
     if (!retryNoticed && browserFailedLast && givesUpOnTheBrowser(answer)) {
       retryNoticed = true;
-      return BROWSER_RETRY_NOTICE;
+      fact("retry", BROWSER_RETRY_NOTICE);
     }
     // A page read failed and the answer gives up with few sites tried: the same content is on others.
     if (!sitesNoticed && aSiteFailed(steps) && sitesTried.size < ENOUGH_SITES && (saysItCouldNot(answer) || givesUp(answer) || asksForPublishedText(answer))) {
       sitesNoticed = true;
-      return otherSitesNotice({ sites: Math.max(1, sitesTried.size), canBrowse: canBrowse() });
+      fact("sites", otherSitesNotice({ sites: Math.max(1, sitesTried.size), canBrowse: canBrowse() }));
     }
     // A browser it never tried this turn, said to have failed: try it first.
     if (!retryNoticed && !browserTried && canBrowse() && givesUpOnTheBrowser(answer) && ABOUT_A_PAGE.test(answer)) {
       retryNoticed = true;
-      return BROWSER_UNTRIED_NOTICE;
+      fact("untried", BROWSER_UNTRIED_NOTICE);
     }
     // "Paste them in": published text asked of them, which is Tex's to find, tried or not.
     if (!pasteNoticed && hadWeb && asksForPublishedText(answer)) {
       pasteNoticed = true;
-      return publishedTextNotice({ canBrowse: canBrowse() });
+      fact("paste", publishedTextNotice({ canBrowse: canBrowse() }));
     }
-    // Then, a source that failed with the other roads to the answer untried (`otherRoutes.js`): the
-    // more exact notice, since an answer that gives up also tends to hand the looking back.
+    // Then, a source that failed with the other roads to the answer untried (`otherRoutes.js`).
     if (!routesNoticed && givesUp(answer) && (steps.some((step) => !step.ok) || saysSourceIsDown(answer))) {
       routesNoticed = true;
       const untried = untriedRoutes(steps);
-      if (untried.length > 0) return otherRoutesNotice(untried);
+      if (untried.length > 0) fact("routes", otherRoutesNotice(untried));
     }
     const passkey = walls.passkey(answer);
-    if (passkey !== null) return passkey;
+    if (passkey !== null) fact("passkey", passkey);
     // Handing work back is checked on its own, once, beside the others: an
     // answer that offers an email can still ask them to go and find it.
     if (!handedBack && handsWorkBack(answer, { held })) {
       handedBack = true;
-      return HANDBACK_NOTICE;
+      fact("handback", HANDBACK_NOTICE);
     }
     if (!payNoticed && canFillCard() && handsBackThePayment(answer)) {
       payNoticed = true;
-      return CARD_NOTICE;
+      fact("pay", CARD_NOTICE);
     }
     if (!lookNoticed && !browserTried && canBrowse() && saysNotFoundOnSite(answer)) {
       lookNoticed = true;
-      return LOOK_ON_SITE_NOTICE;
+      fact("look", LOOK_ON_SITE_NOTICE);
     }
     const unsourced = figures.check(answer);
-    if (unsourced !== null) return unsourced;
+    if (unsourced !== null) fact("figure", unsourced);
     if (!shortNoticed && (stopsShort(answer) || fewerThanAsked(answer, question) || (job !== null && !held && announcesNextStep(answer)))) {
       shortNoticed = true;
-      return finishNotice({ job: job !== null });
+      fact("short", finishNotice({ job: job !== null }));
     }
     if (!askFirstNoticed && job === null && picksBeforeAsking(answer, question)) {
       askFirstNoticed = true;
-      return ASK_FIRST_NOTICE;
+      fact("ask-first", ASK_FIRST_NOTICE);
     }
     const captcha = walls.captcha(answer);
-    if (captcha !== null) return captcha;
+    if (captcha !== null) fact("captcha", captcha);
     // A promise to text later, or to check in at a set time, that nothing in the turn keeps.
     const later = !laterNoticed && !keptPromise ? laterNotice(answer) : null;
     if (later !== null) {
       laterNoticed = true;
-      return later;
+      fact("later", later);
     }
     // Their text corrected a waiting ask, and nothing new is held: make the call with the change (rule 6).
     // An answer asking them something ("Who should it go to?") waits on them instead.
     if (!supersedeNoticed && corrects && !held && !/\?/.test(String(answer ?? ""))) {
       supersedeNoticed = true;
-      return SUPERSEDE_NOTICE;
+      fact("supersede", SUPERSEDE_NOTICE);
     }
     // "File this as a bug" answered with a note, not a report (`bugCheck.js`).
     if (!bugNoticed && filesABugElsewhere(question, answer, steps)) {
       bugNoticed = true;
-      return BUG_NOTICE;
+      fact("bug", BUG_NOTICE);
     }
     // "Fix yourself" answered with "what's broken?" or nothing tried (`lookFirst.js`).
     const repair = repairNoticed ? null : selfRepairNotice(question, answer, steps);
     if (repair !== null) {
       repairNoticed = true;
-      return repair;
+      fact("repair", repair);
     }
     // "The note now has a picture" with no write that carried one.
     if (!notePictureNoticed && claimsNotePicture(answer, steps)) {
       notePictureNoticed = true;
-      return NOTE_PICTURE_NOTICE;
+      fact("note-picture", NOTE_PICTURE_NOTICE);
     }
-    // A plan, research or itinerary saved as a plain note: write it as a page.
+    // A plan, research or itinerary saved as a plain note: advice to write it as a page.
     const plain = pageNoticed || held ? null : wantsAPage(noteWrites, question);
     if (plain !== null) {
       pageNoticed = true;
       cardNoticed = true;
-      return pageNotice(plain);
+      advise("page", pageNotice(plain));
     }
     // "Here's the graphic" with nothing drawn, or a graphic asked for and never drawn.
     if (!owedNoticed && !held && visuals() && owesAPicture(answer, { question, steps })) {
       owedNoticed = true;
       cardNoticed = true;
-      return OWED_PICTURE_NOTICE;
+      fact("owed-picture", OWED_PICTURE_NOTICE);
     }
+    // A list a card should carry (owner, 2026-10-26: it rides along with whatever else goes back).
     if (!cardNoticed && !held && visuals() && wantsACard(answer, { question, steps })) {
       cardNoticed = true;
-      return VISUAL_NOTICE;
+      advise("card", VISUAL_NOTICE);
     }
-    if (noticed) return judgeOnce(answer);
-    const notice =
-      asksToMute(question) && !keptWish
-        ? MUTE_NOTICE
-        : claimsAChange(answer) && !wrote
-          ? CLAIM_NOTICE
-          : offersAHeldChange(answer) && !held && !checkerRefused
-            ? offerNotice(offeredKinds(answer))
-            : hadWeb && !triedWeb && saysItCouldNot(answer)
-              ? TRY_NOTICE
-              : null;
-    if (notice !== null) {
-      noticed = true;
-      return notice;
+    if (!noticed) {
+      const notice =
+        asksToMute(question) && !keptWish
+          ? MUTE_NOTICE
+          : claimsAChange(answer) && !wrote
+            ? CLAIM_NOTICE
+            : offersAHeldChange(answer) && !held && !checkerRefused
+              ? offerNotice(offeredKinds(answer))
+              : hadWeb && !triedWeb && saysItCouldNot(answer)
+                ? TRY_NOTICE
+                : null;
+      if (notice !== null) {
+        noticed = true;
+        fact("claim", notice);
+      }
     }
-    return judgeOnce(answer);
+    return found;
   }
 
   /**
