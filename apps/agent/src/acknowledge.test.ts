@@ -8,11 +8,14 @@
  *  1. The old 10-second tapback timer put back in `presence.ts` → "a long turn gets no tapback" fails.
  *  2. The bubble's renewal dropped → "...and the bubble renewed" fails.
  *  3. `reactionFor`'s fallback dropped → "a refused emoji falls back to a thumbs-up" fails.
+ *  4. `inbox.ts` not keeping the tapback as Tex's line → "a tapback as the whole answer is kept as Tex's line" fails.
+ *  5. `tapback()` ignoring what the line says went → "a tapback that never went ... leaves their text unanswered" fails.
  */
 
 import { describe, expect, it, vi } from "vitest";
 import type { Fetch } from "./clients";
 import { accept, drain, TYPING_REFRESH_MS, type InboxDeps } from "./inbox";
+import { keptEvents } from "./events";
 import { MemoryStorage } from "./memoryStorage.testing";
 import type { Message } from "./reply";
 import { sendblueChatId } from "./sendblue";
@@ -71,10 +74,9 @@ const message = (handle: string, text: string, extra: Partial<Message> = {}): Me
 });
 
 /** Drain one text whose answer takes `ms`, and the Sendblue calls made. */
-async function answered(text: Message, ms: number, reactionStatus = 200, react?: string): Promise<Call[]> {
+async function answered(text: Message, ms: number, reactionStatus = 200, react?: string, storage = new MemoryStorage()): Promise<Call[]> {
   vi.useFakeTimers();
   try {
-    const storage = new MemoryStorage();
     await accept(storage, text, 1_000);
     const calls: Call[] = [];
     const { fetcher, finish } = fake(calls, reactionStatus, react);
@@ -117,5 +119,28 @@ describe("a text Tex is working on shows the bubble, never a tapback beside the 
     const calls = await answered(message("mh_refused", "ok cool"), 2_000, 422, "🎉");
     expect(reactions(calls).map((c) => c.body.reaction)).toEqual(["🎉", "like"]);
     expect(calls.some((c) => c.path === "/api/send-message" && String(c.body.content ?? "").includes("answer"))).toBe(false);
+  });
+
+  it("a tapback as the whole answer is kept as Tex's line covering their text, so the next turn reads it as answered", async () => {
+    const storage = new MemoryStorage();
+    await answered(message("mh_thanks", "perfect thank you"), 2_000, 200, "❤️", storage);
+    const events = await keptEvents(storage, CHAT);
+    const theirs = events.find((e) => e.from.kind === "person");
+    const tapped = events.find((e) => e.from.kind === "tex");
+    expect(tapped).toMatchObject({ kind: "reaction", text: "❤️", delivered: true });
+    expect(typeof tapped?.turn).toBe("string");
+    expect(tapped?.covers).toContain(theirs?.id);
+  });
+
+  it("a job start's own tapback (no emoji named) also answers their text: the job's report covers nothing", async () => {
+    const storage = new MemoryStorage();
+    await answered(message("mh_job", "find me flights to lisbon"), 2_000, 200, "", storage);
+    expect((await keptEvents(storage, CHAT)).find((e) => e.from.kind === "tex")).toMatchObject({ kind: "reaction", delivered: true });
+  });
+
+  it("a tapback that never went (the emoji and its fallback refused) leaves their text unanswered", async () => {
+    const down = new MemoryStorage();
+    await answered(message("mh_down", "perfect thank you"), 2_000, 500, "❤️", down);
+    expect((await keptEvents(down, CHAT)).some((e) => e.from.kind === "tex")).toBe(false);
   });
 });

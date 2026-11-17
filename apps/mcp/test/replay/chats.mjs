@@ -83,7 +83,7 @@ async function counted(tex, run) {
 const script = (reply) => (Array.isArray(reply) ? reply : [{ text: reply }]);
 
 /**
- * A 1:1 chat with Tex. `text(words, reply, { attachments, fields })` is one person's
+ * A 1:1 chat with Tex. `text(words, reply, { attachments, fields, body })` is one person's
  * text (and the files sent with it) and the model's scripted answer; it
  * returns what Tex texted back, the text's event id and what the model was shown for it.
  */
@@ -96,7 +96,7 @@ export async function oneToOne() {
   const event = (fields) => ({ id: `${clock}-${String(++seq).padStart(6, "0")}`, at: clock, chat: LINE, from: { kind: "person" }, kind: "text", text: "", ...fields });
   return {
     world,
-    async text(words, reply, { attachments, fields } = {}) {
+    async text(words, reply, { attachments, fields, body } = {}) {
       clock += 60_000;
       // `fields`: what the Worker's own steps add to the text's event, as its edit step does (`apps/agent/src/editStep.ts`).
       const theirs = event({ text: words, ...(fields ?? {}) });
@@ -112,6 +112,7 @@ export async function oneToOne() {
           recent: [theirs],
           turn,
           ...(attachments ? { attachments } : {}),
+          ...(body ?? {}), // what the Worker adds beside their words: a tapback's `quoted` and `tapback` (`apps/agent/src/reply.ts`)
           ...(warm ? { warm } : {}),
         }),
       );
@@ -120,10 +121,13 @@ export async function oneToOne() {
       await keepDeskKeys(world, { about: false, jobs: false });
       clock += 5_000;
       const answer = String(answered.body.answer ?? "");
-      const sent = event({ from: { kind: "tex" }, text: answer, turn, covers: [theirs.id], delivered: true });
-      const flushed = await request(world.env, TOKEN_TEXTS, "/agent/events", { conversation: "texts", events: [theirs, sent] });
+      // An answer with no words texts nothing: the Worker flushes their text, and a tapback it sent as Tex's line covering
+      // it (`apps/agent/src/inbox.ts`), or nothing beside it when Tex stayed silent.
+      const react = typeof answered.body.react === "string" && answered.body.react !== "" ? answered.body.react : null;
+      const sent = answer !== "" ? [event({ from: { kind: "tex" }, text: answer, turn, covers: [theirs.id], delivered: true })] : react !== null ? [event({ from: { kind: "tex" }, kind: "reaction", text: react, turn, covers: [theirs.id], delivered: true })] : [];
+      const flushed = await request(world.env, TOKEN_TEXTS, "/agent/events", { conversation: "texts", events: [theirs, ...sent] });
       if (flushed.status !== 200) throw new Error(`replay: the Worker's flush answered ${flushed.status}`);
-      return { answer, calls, id: theirs.id, shown: world.model.requests.slice(before).map(shownIn).join("\n") };
+      return { answer, body: answered.body, calls, id: theirs.id, shown: world.model.requests.slice(before).map(shownIn).join("\n") };
     },
     /**
      * A run the Worker starts by code with no text of theirs (`queueByCode`): a cross-chat ask or answer

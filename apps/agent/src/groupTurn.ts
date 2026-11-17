@@ -314,7 +314,7 @@ export async function whileRunning(
   running: Live,
   tagged: boolean,
   now: () => number,
-  react: (emoji?: string) => Promise<void>,
+  react: (emoji?: string) => Promise<unknown>,
 ): Promise<WhileRunning> {
   const decision = await ask(storage, { ...running.deps, now }, message, [ev], true);
   if (!decision.ok) return tagged ? "after" : "chat";
