@@ -5,8 +5,8 @@
  *   pnpm ai nightly [--held-out <dir>] [--out <file>] [--run-url <url>] [--fake] [--areas core,tasks]
  *
  * Every area, three runs each, as the live setup: the core set and the simple asks, the golden tasks, the web facts,
- * the one judge's reply-or-quiet cases and the reply reviewer's, and (once, a whole job each) the background job tasks. Each area is checked against the spend cap in
- * `@context-lc ai/results/spend.md` before it starts, refused when it would pass it, and its cost recorded there after.
+ * the one judge's reply-or-quiet cases and the reply reviewer's, and (once, a whole job each) the background job tasks. Each area is checked against the monthly budget in
+ * `@context-lc ai/results/spend.md` before it starts (this month's limit and today's cap), refused when it would pass either, and its cost recorded there after.
  * One note, `ai/results/nightly/<date>.md`, says pass or fail by each area's own bar, the cases that fell short, the
  * target cases (known bugs) apart, the live drift from people's conversations, and what changed in the live prompt
  * since the night before. A pull request's gate runs only the area it touches; this runs them all.
@@ -24,7 +24,7 @@ import { changesSince, fingerprint, productionLines, readFingerprint, readProduc
 import { AREA_LIMITS, mergeRuns, readHeldOut } from "./replayGate.mjs";
 import { loadCases, passes as respondPasses, respondCommand } from "./respond.mjs";
 import { loadSets, passes as reviewPasses, reviewCommand } from "./review.mjs";
-import { addSpendRow, expectedUsd, parseSpend, readSpend } from "./spend.mjs";
+import { addSpendRow, budgetAt, calendarDay, expectedUsd, noteRound, parseSpend, readSpend, roundAllowed } from "./spend.mjs";
 
 export const NIGHTLY_RUNS = 3;
 export const SCOREBOARD_FOLDER = `${RESULTS_FOLDER}/nightly`;
@@ -99,6 +99,9 @@ const RESULT = { pass: "✅ pass", fail: "❌ fail", refused: "⏸ not run", mis
 export function scoreboardNote({ date, runUrl = null, areas, drift = null, production = null, spend }) {
   const ran = areas.filter((a) => a.status === "pass" || a.status === "fail");
   const spent = areas.reduce((sum, a) => sum + (a.usd ?? 0), 0);
+  const budgetLine = spend.mode === "monthly"
+    ? `the testing budget stands at ${money(spend.monthSpend)} of this month's ${money(spend.monthLimit)} limit (${money(spend.daySpend)} of the ${money(spend.dailyCap)} daily cap; replay-gate ${money(spend.replaySpend)} of its ${money(spend.replayCap)})`
+    : `the testing budget stands at ${money(spend.total)} of its ${money(spend.cap)} cap`;
   const lines = [
     "---",
     "role: nightly-scoreboard",
@@ -109,7 +112,7 @@ export function scoreboardNote({ date, runUrl = null, areas, drift = null, produ
     "",
     `# Tex nightly, ${date}`,
     "",
-    `Written by the Tex nightly run${runUrl ? ` ([the run](${runUrl}))` : ""}: every area, ${NIGHTLY_RUNS} runs each (the job tasks once: each is a whole job), as the live setup. ${ran.filter((a) => a.status === "pass").length} of ${areas.length} areas pass their bar; tonight spent ${money(spent)}, and the testing budget stands at ${money(spend.total)} of its ${money(spend.cap)} cap (ai/results/spend.md).`,
+    `Written by the Tex nightly run${runUrl ? ` ([the run](${runUrl}))` : ""}: every area, ${NIGHTLY_RUNS} runs each (the job tasks once: each is a whole job), as the live setup. ${ran.filter((a) => a.status === "pass").length} of ${areas.length} areas pass their bar; tonight spent ${money(spent)}, and ${budgetLine} (ai/results/spend.md).`,
     "",
     `| area | result | cases right in most runs | right in every run | spent |`,
     "| --- | --- | --- | --- | --- |",
@@ -184,15 +187,18 @@ export async function nightlyCommand(options, { write = (text) => process.stdout
   const only = options.areas ? String(options.areas).split(",") : null;
   const connection = await signIn({ env: process.env });
   const spendNote = await readSpend(connection);
-  if (!spendNote) throw new Error("ai/results/spend.md is not in Context: write it with a cap_usd line before running");
-  const spend = parseSpend(spendNote.content);
+  if (!spendNote) throw new Error("ai/results/spend.md is not in Context: write it with monthly_cap_usd, rollover_max_usd and daily_cap_usd before running");
+  // The scoreboard file keeps the UTC date it has always used. Spend rows use the New York civil day, which is the same date at the 07:23 UTC schedule.
+  const today = calendarDay(new Date());
+  let budget = budgetAt(parseSpend(spendNote.content), today.iso);
   const run = options["run-url"] ? `[nightly](${options["run-url"]})` : "nightly";
 
   const areas = [];
   for (const spec of NIGHTLY_AREAS.filter((s) => !only || only.includes(s.area))) {
-    const expected = options.fake ? 0 : await expectedFor(spec, { rows: spend.rows, dir, heldOut });
-    if (spend.total + expected > spend.cap) {
-      areas.push({ area: spec.area, status: "refused", rows: [], usd: 0, reason: `over the spend cap (needs about ${money(expected)}, ${money(spend.cap - spend.total)} left; raise cap_usd in ai/results/spend.md)` });
+    const expected = options.fake ? 0 : await expectedFor(spec, { rows: budget.rows, dir, heldOut });
+    const verdict = roundAllowed(budget, expected, `nightly-${spec.area}`);
+    if (!verdict.ok) {
+      areas.push({ area: spec.area, status: "refused", rows: [], usd: 0, reason: verdict.reason });
       continue;
     }
     let result;
@@ -204,9 +210,9 @@ export async function nightlyCommand(options, { write = (text) => process.stdout
     }
     areas.push(result);
     if (!options.fake && result.usd >= 0.005) {
-      const row = { date, run, test: `nightly-${spec.area}`, setups: ["production"], answers: result.rows.length * runsOf(spec), usd: Math.round(result.usd * 100) / 100 };
+      const row = { date: today.iso, run, test: `nightly-${spec.area}`, setups: ["production"], answers: result.rows.length * runsOf(spec), usd: Math.round(result.usd * 100) / 100 };
       await addSpendRow(connection, row);
-      spend.total += row.usd;
+      budget = noteRound(budget, row);
     }
   }
 
@@ -216,7 +222,7 @@ export async function nightlyCommand(options, { write = (text) => process.stdout
   const last = await lastScoreboard(connection, date);
   const production = { now, since: last?.since ?? null, changes: last ? changesSince(now, readFingerprint(last.content), last.since) : [] };
 
-  const note = scoreboardNote({ date, runUrl: options["run-url"] ?? null, areas, drift, production, spend });
+  const note = scoreboardNote({ date, runUrl: options["run-url"] ?? null, areas, drift, production, spend: budget });
   if (options.out) await writeFile(options.out, note);
   if (!options.fake) await writeNote(connection, `${SCOREBOARD_FOLDER}/${date}.md`, note, `Tex nightly scoreboard ${date}`);
   write(note.replace(/^---\n[\s\S]*?\n---\n\n/, ""));
