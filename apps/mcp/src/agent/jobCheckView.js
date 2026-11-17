@@ -20,16 +20,25 @@
  * for Tex's (`advisorRoles/jobCheck.js` tells it so).
  */
 
-import { withoutTag } from "./promptFence.js";
-
 /** The most of a part the check reads, in characters (about 30,000 tokens). */
 export const VIEW_CHARS = 120_000;
 /** Below this a piece is not worth showing cut: the oldest results become stubs instead. */
 export const FLOOR_CHARS = 1_500;
-/** The tag a result is quoted in; its own tags in the result are neutralized, so a page can't end it or forge the line above it. */
+/** The tag a result is quoted in; its own tags in the result are neutralized, so a page can't end it. */
 export const RESULT_TAG = "result";
+/**
+ * The marks only this file writes, around each piece's label line. Quoted text loses them (and the invisible
+ * characters that could hide a lookalike), so a page or Tex's own words can't forge "Tex got all of it".
+ */
+export const LABEL = ["⟦", "⟧"];
+const MARKS = /[⟦⟧\u200B-\u200F\u2060-\u2064\uFEFF\u00AD]/g;
+const RESULT_TAGS = new RegExp(`<\\s*(/?)\\s*${RESULT_TAG}\\b[^>]*>`, "gi");
+/** Quoted text that can neither end a <result> fence (attributes and all) nor write a label. */
+const fenced = (text) => String(text ?? "").replace(MARKS, "").replace(RESULT_TAGS, (_whole, slash) => `(${slash}${RESULT_TAG})`);
+const label = (words) => `${LABEL[0]}${words}${LABEL[1]}`;
 
 const HEAD_SHARE = 2 / 3;
+const STUB_WORTH = 300;
 const count = (n) => n.toLocaleString("en-US");
 
 /**
@@ -63,12 +72,12 @@ function piecesOf(messages, quoted) {
     if (!message || typeof message !== "object") continue;
     const said = typeof message.text === "string" ? message.text.trim() : "";
     if (message.role === "tool") {
-      pieces.push({ kind: "result", name: message.name ?? "a tool", failed: message.isError === true, text: withoutTag(RESULT_TAG, quoted(said)) });
+      pieces.push({ kind: "result", name: message.name ?? "a tool", failed: message.isError === true, text: fenced(quoted(said)) });
       continue;
     }
-    if (said) pieces.push({ kind: "words", text: `${message.role === "assistant" ? "Tex" : "Them"}: ${withoutTag(RESULT_TAG, quoted(said))}` });
+    if (said) pieces.push({ kind: "words", text: `${message.role === "assistant" ? "Tex" : "Them"}: ${fenced(quoted(said))}` });
     for (const made of Array.isArray(message.toolCalls) ? message.toolCalls : []) {
-      pieces.push({ kind: "call", name: made?.name ?? "a tool", text: withoutTag(RESULT_TAG, quoted(JSON.stringify(made?.args ?? {}))) });
+      pieces.push({ kind: "call", name: made?.name ?? "a tool", text: fenced(quoted(JSON.stringify(made?.args ?? {}))) });
     }
   }
   return pieces;
@@ -78,12 +87,12 @@ function render(piece, share) {
   if (piece.kind === "words") return piece.text;
   const whole = piece.text.length;
   if (piece.kind === "call") {
-    if (whole <= share) return `[Tex calls ${piece.name} ${piece.text}]`;
-    return `[Tex calls ${piece.name}; your view shows the start and end of its input, ${count(share)} of ${count(whole)} characters; Tex sent all of it]\n${startAndEnd(piece.text, share)}`;
+    if (whole <= share) return `${label(`Tex calls ${piece.name}`)} ${piece.text}`;
+    return `${label(`Tex calls ${piece.name}; your view shows the start and end of its input, ${count(share)} of ${count(whole)} characters; Tex sent all of it`)}\n<${RESULT_TAG}>\n${startAndEnd(piece.text, share)}\n</${RESULT_TAG}>`;
   }
   const failed = piece.failed ? ", failed" : "";
-  if (piece.stub) return `[result of ${piece.name}${failed}; left out of your view to fit (${count(whole)} characters); Tex got all of it]`;
-  const head = whole <= share ? `[result of ${piece.name}${failed}]` : `[result of ${piece.name}${failed}; your view shows its start and end, ${count(share)} of ${count(whole)} characters; Tex got all of it]`;
+  if (piece.stub) return label(`result of ${piece.name}${failed}; left out of your view to fit (${count(whole)} characters); Tex got all of it`);
+  const head = whole <= share ? label(`result of ${piece.name}${failed}`) : label(`result of ${piece.name}${failed}; your view shows its start and end, ${count(share)} of ${count(whole)} characters; Tex got all of it`);
   return `${head}\n<${RESULT_TAG}>\n${startAndEnd(piece.text, share) || "(no result)"}\n</${RESULT_TAG}>`;
 }
 
@@ -100,7 +109,8 @@ export function partView(messages, { quoted = (text) => String(text ?? ""), budg
   let share = fairShare(cuttable().map((piece) => piece.text.length), room);
   // Too many to show each one readably: the oldest results go to stubs first, one at a time.
   while (share < FLOOR_CHARS) {
-    const oldest = pieces.find((piece) => piece.kind === "result" && !piece.stub);
+    // Only a result longer than a stub line is worth stubbing: a short one costs less shown whole.
+    const oldest = pieces.find((piece) => piece.kind === "result" && !piece.stub && piece.text.length > STUB_WORTH);
     if (!oldest) break;
     oldest.stub = true;
     share = fairShare(cuttable().map((piece) => piece.text.length), room);
