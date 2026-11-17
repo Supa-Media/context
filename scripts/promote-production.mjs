@@ -2,32 +2,28 @@ import { pathToFileURL } from 'node:url';
 import { PRODUCTION_DEPLOY_BRANCH } from './production-release.mjs';
 
 // After CI succeeds on a push to main, start Deploy to Production for the
-// newest commit on main whose CI and staging have both succeeded (decided by
-// the owner, 2026-11-17; docs/decisions/repository-and-review.md). A green
-// staging run is a second wake-up, so a staging re-run still ships a commit
-// whose CI already passed.
+// newest commit on main whose CI succeeded (decided by the owner, 2026-11-17;
+// docs/decisions/repository-and-review.md). Staging is not consulted. A
+// collapsed or still-pending staging run must not hold a release.
 //
 // The commit deployed is that SHA, not the branch tip at dispatch time.
 // workflow_dispatch cannot take a SHA, and `ref: main` would ship whatever
 // landed in the gap, including a commit CI has not passed. A `prod-deploy/`
 // branch at the commit pins it. The deployment event is not used, because
 // that runs the workflow file at the SHA and a same-repo branch could carry
-// a modified one. Deploy to Production checks CI, staging and that the
-// commit is still on main before it changes anything.
+// a modified one. Deploy to Production checks CI and that the commit is
+// still on main before it changes anything.
 //
 // Only the CI workflow's conclusion is read. A job skipped inside a green
 // run (docs-only diffs, conditional suites) does not block the release. A
 // skipped CI workflow is not a success, so that commit is not deployed, and
 // the next green run still is.
 //
-// One starter runs and one waits. Each pass picks the newest deployable
-// commit, so a burst leaves at most one production run in progress and one
-// queued, for the newest green SHA. An in-progress production run is not
-// cancelled.
+// One starter runs and one waits. Each pass picks the newest green commit,
+// so a burst leaves at most one production run in progress and one queued.
+// An in-progress production run is not cancelled.
 
 const API = 'https://api.github.com';
-const POLL_MS = 15_000;
-const STAGING_WAIT_MS = 20 * 60_000;
 const COMMIT_LIMIT = 30;
 
 function client(env, request) {
@@ -46,49 +42,34 @@ function refuse(env) {
   if (env.EVENT_REPO !== env.GITHUB_REPOSITORY) return `event repository ${env.EVENT_REPO}`;
   if (env.EVENT_BRANCH !== 'main') return `branch ${env.EVENT_BRANCH}`;
   if (env.EVENT_CONCLUSION !== 'success') return `conclusion ${env.EVENT_CONCLUSION}`;
-  if (env.EVENT_WORKFLOW === 'CI') {
-    if (env.EVENT_EVENT !== 'push') return `CI ran for ${env.EVENT_EVENT}, not a push to main`;
-    return null;
-  }
-  if (env.EVENT_WORKFLOW === 'Deploy Staging') {
-    if (env.EVENT_EVENT !== 'push' && env.EVENT_EVENT !== 'workflow_dispatch') return `staging ran for ${env.EVENT_EVENT}`;
-    return null;
-  }
-  return `workflow ${env.EVENT_WORKFLOW}`;
+  if (env.EVENT_WORKFLOW !== 'CI') return `workflow ${env.EVENT_WORKFLOW}`;
+  if (env.EVENT_EVENT !== 'push') return `CI ran for ${env.EVENT_EVENT}, not a push to main`;
+  return null;
 }
 
 function onMain(run, sha) {
   return run?.head_sha === sha && run.head_branch === 'main';
 }
 
-async function newestRun(api, workflow, sha, event) {
-  const params = new URLSearchParams({ branch: 'main', head_sha: sha, per_page: '20' });
-  if (event) params.set('event', event);
-  const data = await api(`/actions/workflows/${workflow}/runs?${params}`);
-  return (data.workflow_runs ?? []).find(run => onMain(run, sha) && (!event || run.event === event)) ?? null;
+async function newestRun(api, sha) {
+  const params = new URLSearchParams({ branch: 'main', head_sha: sha, event: 'push', per_page: '20' });
+  const data = await api(`/actions/workflows/ci.yml/runs?${params}`);
+  return (data.workflow_runs ?? []).find(run => onMain(run, sha) && run.event === 'push') ?? null;
 }
 
 function succeeded(run) {
   return run?.status === 'completed' && run.conclusion === 'success';
 }
 
-// Newest commit on main that CI has passed. `waiting` means that commit's
-// staging run has not finished; a failed or cancelled staging run is skipped
-// so an older commit that did finish can still ship.
+// Newest commit on main whose newest CI push succeeded. A red, skipped, or
+// still-running tip is skipped so an older green commit can still ship.
 async function select(api) {
   const commits = await api(`/commits?sha=main&per_page=${COMMIT_LIMIT}`);
   if (!Array.isArray(commits)) throw new Error('Commit list was not a list.');
   for (const commit of commits) {
     const sha = commit.sha;
     if (!/^[a-f0-9]{40}$/.test(sha ?? '')) continue;
-    const ci = await newestRun(api, 'ci.yml', sha, 'push');
-    // Not proved yet, or proved red. A skipped workflow is not a pass.
-    // Jobs skipped inside a successful run never appear here: the conclusion
-    // is already success.
-    if (!succeeded(ci)) continue;
-    const staging = await newestRun(api, 'deploy-staging.yml', sha);
-    if (succeeded(staging)) return { sha, staging: 'ready' };
-    if (!staging || staging.status !== 'completed') return { sha, staging: 'waiting' };
+    if (succeeded(await newestRun(api, sha))) return sha;
   }
   return null;
 }
@@ -116,46 +97,18 @@ async function openDeployment(api, sha) {
   });
 }
 
-export async function promote(env, { request = fetch, sleep = ms => new Promise(r => setTimeout(r, ms)), now = Date.now, log = console.log } = {}) {
+export async function promote(env, { request = fetch, log = console.log } = {}) {
   const skipped = refuse(env);
   if (skipped) return { promoted: false, reason: skipped };
   if (!env.GH_TOKEN) throw new Error('Missing GitHub Actions token.');
   const api = client(env, request);
-  const deadline = now() + STAGING_WAIT_MS;
-  // The commit whose staging we are waiting on, and the tip at the time we
-  // chose it. A new tip is scanned from scratch so a newer green commit
-  // replaces the one we were waiting on.
-  let watch = null;
-
-  for (;;) {
-    if (watch) {
-      const tip = (await api('/commits/main')).sha;
-      if (tip !== watch.tip) {
-        watch = null;
-        continue;
-      }
-      const staging = await newestRun(api, 'deploy-staging.yml', watch.sha);
-      if (succeeded(staging) || staging?.status === 'completed') {
-        watch = null;
-        continue;
-      }
-    } else {
-      const target = await select(api);
-      if (!target) return { promoted: false, reason: 'no commit on main has passed CI with staging ready or still running' };
-      if (target.staging === 'ready') {
-        const decision = await dispatchDecision(api, target.sha);
-        if (decision !== 'dispatch') return { promoted: false, reason: decision, sha: target.sha };
-        await openDeployment(api, target.sha);
-        return { promoted: true, sha: target.sha, reason: `CI and staging passed on ${target.sha}` };
-      }
-      watch = { sha: target.sha, tip: (await api('/commits/main')).sha };
-      log(`CI is green for ${target.sha}; waiting for its staging deployment.`);
-    }
-    if (now() > deadline) {
-      throw new Error(`Staging for ${watch.sha} did not succeed within ${STAGING_WAIT_MS / 60_000} minutes; production was not started.`);
-    }
-    await sleep(POLL_MS);
-  }
+  const sha = await select(api);
+  if (!sha) return { promoted: false, reason: 'no commit on main has a green CI run' };
+  const decision = await dispatchDecision(api, sha);
+  if (decision !== 'dispatch') return { promoted: false, reason: decision, sha };
+  await openDeployment(api, sha);
+  log(`CI passed on ${sha}.`);
+  return { promoted: true, sha, reason: `CI passed on ${sha}` };
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
