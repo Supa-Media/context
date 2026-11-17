@@ -92,7 +92,9 @@ jobs:
           HEAD: ${{ steps.pr.outputs.head }}
           BASE: ${{ steps.pr.outputs.base }}
         run: |
-          set -uo pipefail
+          # GitHub runs this with bash -e: without +e a capped start (exit 3) ends the step before "capped" is set,
+          # and the commit is marked "failed before a verdict" instead of the cap's own reason.
+          set +e -uo pipefail
           umask 077
           change="$(git diff "$BASE" "$HEAD" | git patch-id --stable | cut -d' ' -f1)"
           node scripts/tex-test-set.mjs start --pr "$PR" --sha "$HEAD" --base "$BASE" ${change:+--change "$change"} --dir "$RUNNER_TEMP/sealed" | tee -a "$GITHUB_STEP_SUMMARY"
