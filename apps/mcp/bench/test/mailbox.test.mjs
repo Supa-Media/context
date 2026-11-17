@@ -124,3 +124,17 @@ test("a check-in's look is shown the email that just arrived, and a routine runs
     world.close();
   }
 });
+
+// Dev set, 2026-11-17: three check-in rows came back "(stayed quiet: quiet)", with nothing to tell the model's own
+// choice from a step that stopped its text. A quiet start now carries its model's last words and tool calls.
+test("a quiet check-in or routine row says what its model said last", async () => {
+  const { lastWords, startedTurn } = await import("../worldStarts.mjs");
+  const calls = [{ answer: { content: [{ type: "text", text: "Nothing new  for\nthem." }, { type: "tool_use", name: "send", input: { action: "say_nothing" } }] } }];
+  assert.equal(lastWords(calls), 'Nothing new for them. send({"action":"say_nothing"})');
+  assert.equal(lastWords([]), "");
+  const quiet = startedTurn({ status: 200, body: { outcome: "quiet" }, ms: 1, usage: {} }, () => "", calls);
+  assert.equal(quiet.answer, '(stayed quiet: quiet: Nothing new for them. send({"action":"say_nothing"}))');
+  const spoke = startedTurn({ status: 200, body: { outcome: "speak", answer: "Your flight is late." }, ms: 1, usage: {} }, (b) => b.answer, calls);
+  assert.equal(spoke.answer, "Your flight is late.");
+  assert.ok(lastWords([{ answer: { content: [{ type: "text", text: "x".repeat(400) }] } }]).length <= 160);
+});

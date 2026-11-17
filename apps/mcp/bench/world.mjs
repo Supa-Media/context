@@ -508,13 +508,13 @@ export async function createWorld(bench, person, setupRaw, models, today = null,
 
     /** One check-in, as Tex's check-in client: what it would text (`worldStarts.mjs`). */
     async checkIn() {
-      return checkInTurn((body) => startCall({ worker, env, token: startTokens.checkin, body, controlPlane }));
+      return checkInTurn((body) => startCall({ worker, env, token: startTokens.checkin, body, controlPlane }), () => modelCalls.calls());
     },
 
     /** One run of the routine at `path`, placed with `text` as its words (`worldStarts.mjs`). */
     async routine(path, text) {
       this.place(path, `${text}\n`);
-      return routineTurn(path, (body) => startCall({ worker, env, token: startTokens.routine, body, controlPlane }));
+      return routineTurn(path, (body) => startCall({ worker, env, token: startTokens.routine, body, controlPlane }), () => modelCalls.calls());
     },
 
     /**
