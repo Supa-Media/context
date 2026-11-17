@@ -389,6 +389,25 @@ test("a send-back past the first waits on the turn's time, and the advisor is as
   assert.equal(await judge.check("four", { messages: ACTED }), null, "out of time: it goes as it is");
 });
 
+// Dev2, 2026-11-17 (the timecards job, step 1 of jobs as config): a code notice is another model round too, so a chat
+// turn out of time after one lets the draft go, as the review does, instead of running into the Worker's limit.
+// Sabotage record (2026-11-17, applied, run, failing, reverted): the code checks' window removed -> this test fails.
+test("a chat turn's code checks send back once, then let the draft go when the turn is out of time", async () => {
+  let now = 0;
+  const told = [];
+  const { judge } = judgeFor([pass, pass], { clock: () => now, inner: { check: () => "Fix it." } });
+  assert.equal((await judge.codeCheck("one", { messages: ACTED, tell: (e) => told.push(e) })).notice, "Fix it.");
+  now = SEND_BACK_WINDOW_MS;
+  const late = await judge.codeCheck("two", { messages: ACTED, tell: (e) => told.push(e) });
+  assert.equal(late.notice, null, "out of time: it goes as it is");
+  const judged = told.filter((e) => e.kind === "judge");
+  assert.deepEqual(judged.map((e) => e.went), [false, true]);
+  // A job's report keeps the loop wire's whole budget: its stream is long.
+  const job = judgeFor([pass], { clock: () => now, report: "the job's report", inner: { check: () => "Fix it." } });
+  assert.equal((await job.judge.codeCheck("one", { messages: ACTED })).notice, "Fix it.");
+  assert.equal((await job.judge.codeCheck("two", { messages: ACTED })).notice, "Fix it.");
+});
+
 // Dev2, 2026-11-14: "Everything that's running should have a node": the code checks and a skipped review are steps of
 // their own in the chat's ledger, passed or not, so Replay never draws one that ran as silent or one that didn't as run.
 // Sabotage record (2026-11-14, applied, run, failing, reverted): the `checks` tell removed from `check` → this test fails.

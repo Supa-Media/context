@@ -292,6 +292,8 @@ export function replyJudge({ setting, question, history = [], inner = null, plai
   // A computer owner's ask goes out in the gateway's own words whatever the turn says (`jobReport.js`): nothing to judge.
   const skip = Boolean(report?.ask);
   let sentBack = 0;
+  /** The code checks' own send-backs this turn, for their time window. */
+  let codeBacks = 0;
   // The turn begins as its reviewer is made (`runTheModel.js`): the clock a send-back past the first is held to.
   const began = clock();
   // The kind the reviewer last named: the budget is the turn's, so a task stays a task on its rewrites.
@@ -316,6 +318,14 @@ export function replyJudge({ setting, question, history = [], inner = null, plai
       // On the graph the runner logs the Answer checks node itself (`graph/nodes/checks.js`); `byRunner` drops this hand-written copy.
       if (!byRunner && typeof checks?.check === "function") turn.tell?.({ kind: "model", step: "checks", ok: true, ms: clock() - checked, input: { draftChars: String(answer ?? "").length, set: unreviewed ? "plain" : "full", actions: actionsOf(turn.messages).length }, output: { verdict: before !== null && before !== undefined ? "sent back" : "let it go" } });
       if (before !== null && before !== undefined) {
+        // A chat turn out of time after a send-back lets the draft go, as the review does (`SEND_BACK_WINDOW_MS`): each
+        // notice is another model round inside the texting Worker's limit, and a turn that runs out loses its answer.
+        // A job's report or a routine's text runs in a longer stream and keeps its whole budget (the loop wire's rounds).
+        if (codeBacks >= 1 && report === null && scheduled === null && clock() - began >= SEND_BACK_WINDOW_MS) {
+          turn.tell?.(judgeEvent({ by: "code", round: codeBacks, draft: answer, went: true, notice: before, reason: "out of time to write it again, so it goes as it is" }));
+          return { notice: null, review: false };
+        }
+        codeBacks += 1;
         // The code checks that run first: what they sent back, kept in the chat's history too.
         turn.tell?.(judgeEvent({ by: "code", round: sentBack, draft: answer, went: false, notice: before }));
         return { notice: before, review: false };
