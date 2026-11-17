@@ -57,6 +57,16 @@ function readConversation(lines) {
   return turns.map((turn) => ({ from: turn.from, text: unescapeHeadings(trimBlank(turn.lines).join("\n")) }));
 }
 
+/** A result's `Calls:` line: `{ name, args, ok }`, or none when it isn't one. */
+function readCalls(text) {
+  try {
+    const value = JSON.parse(text);
+    return Array.isArray(value) ? value.filter((call) => call && typeof call.name === "string") : [];
+  } catch {
+    return [];
+  }
+}
+
 /** A result's `Jobs:` line read back; a line that isn't one is no jobs. */
 function readJobsLine(text) {
   try {
@@ -85,6 +95,7 @@ function readBlock(id, lines) {
   const filedLine = tail.find((line) => line.startsWith("Filed: "));
   // The background jobs it started (`checks.mjs` `start`).
   const jobsLine = tail.find((line) => line.startsWith("Jobs: "));
+  const callsLine = tail.find((line) => line.startsWith("Calls: "));
   let time = null;
   if (timeLine) {
     const m = timeLine.match(TIME);
@@ -100,6 +111,7 @@ function readBlock(id, lines) {
     mail: mailLine ? mailLine.slice("Mail: ".length).split(" | ").filter(Boolean) : [],
     where: filedLine ? filedWhere(filedLine.slice("Filed: ".length)) : {},
     jobs: jobsLine ? readJobsLine(jobsLine.slice("Jobs: ".length)) : [],
+    calls: callsLine ? readCalls(callsLine.slice("Calls: ".length)) : [],
     time,
     error: errorLine ? errorLine.slice("Error: ".length) : null,
   };

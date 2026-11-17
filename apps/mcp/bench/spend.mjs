@@ -239,13 +239,31 @@ export function spendCheck({ raw, test, setups, now = new Date() }) {
   return { ...roundAllowed(budget, expected, test), expected };
 }
 
+/**
+ * How many cases a check job recorded. Those notes have `## Outputs` and `#### setup: verdict`,
+ * not `## Answers`, so `parseResult` sees none and a real round was written down as 0 answers
+ * (heartbeat gh-70 to gh-72, meeting-summaries gh-57).
+ */
+export function outputBlocks(raw) {
+  const lines = String(raw ?? "").replace(/\r\n?/g, "\n").split("\n");
+  const start = lines.indexOf("## Outputs");
+  if (start < 0) return 0;
+  let count = 0;
+  for (let i = start + 1; i < lines.length; i += 1) {
+    if (lines[i].startsWith("## ")) break;
+    if (lines[i].startsWith("#### ")) count += 1;
+  }
+  return count;
+}
+
 /** One round's row, from its result note. */
 export function roundRow(resultRaw, run) {
   const front = frontMatter(resultRaw);
   const answers = parseResult(resultRaw).answers;
   const price = answers.reduce((sum, answer) => sum + (answer.time?.price ?? 0), 0);
   const setups = String(front.setups ?? "").replace(/^\[|\]$/g, "").split(",").map((item) => item.trim().split("@")[0]).filter(Boolean);
-  return { date: front.date, run, test: front.test || front.job, setups, answers: answers.length, usd: Math.round(price * OVERHEAD * 100) / 100 };
+  const counted = answers.length > 0 ? answers.length : outputBlocks(resultRaw);
+  return { date: front.date, run, test: front.test || front.job, setups, answers: counted, usd: Math.round(price * OVERHEAD * 100) / 100 };
 }
 
 function renderTotal(budget) {

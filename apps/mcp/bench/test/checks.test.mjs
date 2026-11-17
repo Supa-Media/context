@@ -4,7 +4,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 
-import { checkVerdicts, filedNotes, readCheck, recordedFront, writeTarget } from "../checks.mjs";
+import { callTarget, checkVerdicts, filedNotes, readCheck, recordedFront, writeTarget } from "../checks.mjs";
 
 const once = "- must write: maya/routines/once/ with at: 2026-10-09 9:00 am";
 const weekdays = "- must write: maya/routines/daily/ with at: 7:30 am, on: weekdays";
@@ -174,4 +174,21 @@ test("a start check can count only the jobs on a computer, or only those in the 
   assert.equal(grade("- must not start: a job in the cloud", [job("a", "Studio Mac"), job("b")]), false);
   assert.equal(grade("- must start: 2+ jobs on one note's mail on a computer", [job("a", "Studio Mac"), job("b", "Studio Mac")]), true);
   assert.equal(grade("- must start: 2+ jobs on one note's mail on a computer", [job("a", "Studio Mac"), job("b")]), false, "one of the two ran in the cloud");
+});
+
+test("a call check matches a bare tool name, and with arguments matches those too", () => {
+  const send = { name: "send", args: { action: "ask_chat", args: { chat: "Tex Devs", do: true } }, ok: true };
+  const read = { name: "read_skill", args: { name: "onboarding" }, ok: true };
+  const failed = { name: "send", args: { action: "ask_chat" }, ok: false };
+  const grade = (line, calls) => checkVerdicts({ checks: [readCheck(line)] }, { tools: calls.map((call) => (call.ok ? call.name : `${call.name} (failed)`)), calls })[0].pass;
+  assert.equal(callTarget("read_skill").args, null);
+  assert.equal(grade("- must call: read_skill", [read]), true);
+  assert.equal(grade("- must call: send", [send]), true, "a bare name still matches any send");
+  assert.equal(grade("- must call: send with action: ask_chat", [send]), true);
+  assert.equal(grade("- must call: send with action: ask_chat, do: true", [send]), true, "a nested argument counts");
+  assert.equal(grade("- must call: send with action: ask_chat", [read]), false);
+  assert.equal(grade("- must call: send with action: post_in_chat", [send]), false);
+  assert.equal(grade("- must call: send with action: ask_chat", [failed]), false, "a failed call does not count");
+  assert.equal(grade("- must not call: send with action: ask_chat", [read]), true);
+  assert.throws(() => readCheck("- must call: send with not an argument"), /not key: value/);
 });

@@ -441,8 +441,11 @@ async function answerJobs(options, { bench, test, testName = options.test ?? opt
           result = await converse(world, question, person, test.front.mode ?? null, test.front.background === "on");
         }
         const { traces = [], ...answered } = result;
+        const chat = await world.chatLedger?.().catch(() => []) ?? [];
+        // Tool arguments, for `must call: tool with key: value` (`checks.mjs`). The trace keeps only the tool name.
+        const calls = chat.filter((entry) => entry?.kind === "tool" && typeof entry.name === "string").map((entry) => ({ name: entry.name, ...(entry.as?.name ? { as: entry.as.name } : {}), args: entry.args && typeof entry.args === "object" ? entry.args : {}, ok: entry.ok !== false, ...(entry.held === true ? { held: true } : {}) }));
         // Everything the conversation did, for its ledger file (`modelLog.mjs`); `run` writes it beside the result.
-        const ledger = benchLedger({ setup: setup.name, question: question.n, run: n, as, questionText: question.text, conversation: answered.conversation, turns: traces, chat: await world.chatLedger?.().catch(() => []) ?? [], calls: world.modelCalls?.() ?? [] });
+        const ledger = benchLedger({ setup: setup.name, question: question.n, run: n, as, questionText: question.text, conversation: answered.conversation, turns: traces, chat, calls: world.modelCalls?.() ?? [] });
         result = answered;
         records.push({
           ...(reran === null ? {} : { reran }),
@@ -455,6 +458,7 @@ async function answerJobs(options, { bench, test, testName = options.test ?? opt
           run: n,
           ...result,
           model: result.model ?? setup.model,
+          calls,
           changes: world.changes(),
           // What the scripted browser did, for the checks (`checks.mjs`).
           browser: world.browser(),

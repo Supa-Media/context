@@ -9,6 +9,11 @@
  * `sites.mjs`, the notes it wrote) and graded here; the judge never sees them.
  *
  *   - must call: read_skill          a tool call that did not fail
+ *   - must call: send with action: ask_chat
+ *                                the same, and those arguments: each key's
+ *                                value anywhere in the call's arguments
+ *                                (`true` matches a boolean). A line with no
+ *                                `with` still matches the tool name only.
  *   - must not call: vault_add_link
  *   - must reach: chatgpt.com/plugins  a page opened or read (a prefix)
  *   - must hand off: chatgpt.com     a handoff while on that site
@@ -63,10 +68,67 @@ export function readCheck(line) {
   if (m[2] === "write") writeTarget(m[3].trim());
   if (m[2] === "file") fileTarget(m[3].trim());
   if (m[2] === "start") startTarget(m[3].trim());
+  if (m[2] === "call") callTarget(m[3].trim());
   return { kind: m[1], what: m[2], value: m[3].trim(), line: `${m[2]} ${m[3].trim()}` };
 }
 
-const called = (tools, name) => tools.some((label) => label === name || label === `${name} (held for OK)`);
+/** A `call` check: the tool name, then optionally `with key: value, key: value`. */
+export function callTarget(value) {
+  const at = value.search(/\s+with\s+/);
+  if (at < 0) return { name: value.trim(), args: null };
+  const name = value.slice(0, at).trim();
+  const rest = value.slice(at).replace(/^\s+with\s+/, "");
+  if (name === "") throw new Error(`call check: "${value}" names no tool`);
+  const args = {};
+  const parts = rest.split(/,\s*(?=[A-Za-z][\w.-]*:\s)/).filter((part) => part.trim());
+  if (parts.length === 0) throw new Error(`call check: "${value}" has no arguments after with`);
+  for (const part of parts) {
+    const field = part.match(/^\s*([A-Za-z][\w.-]*):\s*(.*?)\s*$/);
+    if (!field) throw new Error(`call check: "${part.trim()}" is not key: value`);
+    args[field[1]] = field[2];
+  }
+  return { name, args };
+}
+
+const toolLabel = (label) => {
+  if (typeof label === "string") return label;
+  if (!label || typeof label !== "object") return "";
+  const name = String(label.tool ?? "");
+  if (label.ok === false) return `${name} (failed)`;
+  if (label.held) return `${name} (held for OK)`;
+  return name;
+};
+
+const called = (tools, name) => (tools ?? []).map(toolLabel).some((label) => label === name || label === `${name} (held for OK)`);
+
+/** Whether `args` has `key` equal to `want`, at this object or inside one it holds. */
+function hasArg(args, key, want) {
+  if (!args || typeof args !== "object") return false;
+  if (Object.prototype.hasOwnProperty.call(args, key) && argEqual(want, args[key])) return true;
+  return Object.values(args).some((value) => value && typeof value === "object" && hasArg(value, key, want));
+}
+
+function argEqual(want, got) {
+  if (typeof got === "boolean") return want === (got ? "true" : "false");
+  if (typeof got === "number") return want === String(got);
+  if (typeof got !== "string") return false;
+  return got === want;
+}
+
+/** The calls a result recorded (`Calls:`), or tool objects that already carry arguments. */
+function callsOf(answer) {
+  if (Array.isArray(answer.calls)) {
+    return answer.calls.filter((call) => call && typeof call.name === "string").map((call) => ({ name: call.name, as: call.as, args: call.args ?? {}, ok: call.ok !== false }));
+  }
+  return (answer.tools ?? []).filter((call) => call && typeof call === "object" && call.args).map((call) => ({ name: String(call.tool ?? ""), as: call.as, args: call.args, ok: call.ok !== false }));
+}
+
+/** A name-only call matches the tool. A `with` call also needs each named argument. Failed calls never count. */
+function calledAs(value, answer) {
+  const { name, args } = callTarget(value);
+  if (args === null) return called(answer.tools, name);
+  return callsOf(answer).some((call) => call.ok && (call.name === name || call.as === name) && Object.entries(args).every(([key, want]) => hasArg(call.args, key, want)));
+}
 
 /**
  * Whether a link Tex texted carries `key=value` in its query (2026-11-03: a theCut login's vault link said
@@ -98,7 +160,7 @@ function happened(check, answer) {
   const value = check.value.toLowerCase();
   switch (check.what) {
     case "call":
-      return called(answer.tools ?? [], check.value);
+      return calledAs(check.value, answer);
     case "link":
       return linked(answer.conversation ?? [], check.value);
     case "reach":
