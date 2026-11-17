@@ -340,11 +340,22 @@ function createGraph(config, impls, { log = () => {}, background = null, handOff
       node,
       ctx,
       use: handles("uses", (to) => async (arg, lend) => waited(async () => (await runNode(to, arg, withLend(lend), `${id}:uses`, self)).output)),
-      back: handles("loop", (to, wire) => async (arg) => {
+      // A send-back spends one of the wire's rounds; a `release` (the caller letting the work go on unchanged, the
+      // answer check's "let it go") spends none, so a spent budget can always hand the work back. `left()` says how
+      // many sends remain: a node that sees 0 lets the work go instead of sending it back (Dev2, 2026-11-17: a part
+      // whose third notice crashed the turn threw its finished answer away ten times). Sending past the budget is
+      // still refused, as a bug in the node.
+      back: handles("loop", (to, wire) => {
         const most = [wire.rounds, byId.get(to)?.rounds].find((r) => Number.isInteger(r) && r > 0) ?? 1;
-        if (backs >= most) throw new GraphError(`"${id}" sent work back to "${to}" more than ${most} times`);
-        backs += 1;
-        return waited(() => sendBack(to, id, arg, ctx, self));
+        const send = async (arg, how) => {
+          if (how?.release !== true) {
+            if (backs >= most) throw new GraphError(`"${id}" sent work back to "${to}" more than ${most} times`);
+            backs += 1;
+          }
+          return waited(() => sendBack(to, id, arg, ctx, self));
+        };
+        send.left = () => Math.max(0, most - backs);
+        return send;
       }),
       job: handles("job", (to) => (arg, lend) => {
         const run = runNode(to, arg, withLend(lend), `${id}:job`, self);

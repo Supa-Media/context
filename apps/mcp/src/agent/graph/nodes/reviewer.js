@@ -12,8 +12,9 @@ export async function reviewerNode(input, io) {
     const waiting = t.drafts.waiting;
     reviews += 1;
     const notice = await t.answerChecks.review(waiting.draft, waiting.info);
-    if (notice !== null && notice !== undefined) sentBack += 1;
-    stop = await io.back.fd({ notice: notice === null || notice === undefined ? null : String(notice) });
+    const sends = notice !== null && notice !== undefined && io.back.fd.left() > 0;
+    if (sends) sentBack += 1;
+    stop = sends ? await io.back.fd({ notice: String(notice) }) : await io.back.fd({ notice: null }, { release: true });
   }
   return { ...stop, when: ["action"], reviews, sentBack };
 }
