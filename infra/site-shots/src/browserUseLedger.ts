@@ -31,6 +31,11 @@ export interface OwnedSession {
   outcome: BrowseLogRow["outcome"];
   reason?: BrowseLogRow["reason"];
   proxy?: BrowseLogRow["proxy"];
+  /**
+   * Sticky. True once any browse on this session cleared. Absent on a record
+   * written before the field: that record is judged by `outcome`.
+   */
+  cleared?: boolean;
   charged: boolean;
 }
 

@@ -19,7 +19,12 @@ counts as cleared only when that replay shows no captcha or block and every
 step succeeded. A failed step is logged as `steps_failed` with the step's
 name, never the words that were typed. A fallback that does not clear leaves
 the question and the live view on the Browserbase browser, keeps the
-hand-off, and releases the Browser Use session.
+hand-off, and releases the Browser Use session. Once a session has cleared,
+a later failed step or an unsolved captcha leaves it on the live view, and
+the call log still records that later outcome. The view releases a session
+only when it has never cleared (a record from before this flag is judged by
+its last outcome), which is how a trial whose close was missed stays off
+the page.
 
 The gateway sends `provider: "browser-use"`. The screenshot Worker does not
 switch by itself. It uses the browser-session API and CDP only
@@ -72,9 +77,12 @@ treating a Verified-tier 403 as a site block, spends the $5 month cap on
 work Browserbase already does, or on a plan limit that is not a bot wall.
 Counting a replay whose own step failed as cleared cancels the hand-off and
 points the person's question and live view at a blank browser, and the
-trial's `fallback.outcome` counts that failure as a success. Dropping the
+trial's `fallback.outcome` counts that failure as a success. Releasing a
+session because its last call failed drops a browser that already cleared,
+including one the person is signing in on. Dropping the
 stop call keeps billing after the socket closes. Tests:
 `infra/site-shots/src/browserUse.test.ts`,
+`infra/site-shots/src/view.test.ts`,
 `apps/mcp/test/browserUseFallback.test.mjs`, and
 `apps/mcp/test/replay/cases/fallback-steps-cleared.mjs`.
 
