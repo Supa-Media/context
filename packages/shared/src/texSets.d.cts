@@ -36,3 +36,6 @@ export function check(c: unknown, config: Config, opts?: { why?: string[] }): st
 export function unitTests(c: Conversation): UnitTest[];
 export function before(c: Conversation, at: number): Message[];
 export function ratio(input: Conversation[] | Partial<Record<SetId, number>>): Ratio;
+/** A scope with Training or Dev unit tests and none in the Test Set: a warning, never a failure. */
+export type MissingTest = { scope: string; training: number; dev: number };
+export function missingTest(convs: Conversation[], testByScope: Record<string, number> | null | undefined): MissingTest[];

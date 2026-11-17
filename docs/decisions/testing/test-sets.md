@@ -24,6 +24,19 @@ gates on ... training shouldn't affect CI/CD speed. Even the dev shouldn't".
   one set, each set within ten points of its share. It is a target, reported
   and never a CI failure (Dev2, 2026-11-17: "no need to enforce the 60 20 20,
   thats just the target").
+- **One pooled split; per scope only a warning** (Dev2, 2026-11-17: "one
+  pooled 60/20/20 split across all scopes, not a separate split per scope. The
+  only per-scope piece is the non-blocking warning when a scope has no Test
+  cases"). A scope is what a label is keyed by: a node today, a config group
+  once group labels arrive. `missingTest` in `texSets.cjs` names each scope
+  with Training or Dev unit tests and none in the Test Set, from the eval
+  service's public `byNode` count; CI prints it as a GitHub warning
+  (`scripts/tex-sets-check.mjs`), the Lab marks the column and the ratio chip,
+  and tex_dev's `set_ratio` returns it as `noTest`. It never fails anything,
+  and names nothing when the counts can't be read. A per-scope ratio would
+  push most of a small, costly scope's cases into Training, where nothing
+  runs; `apps/mcp/test/texSets.test.mjs` fails if a zero count is taken for a
+  Test case.
 - **Training** is read by the nodes as an examples module in their context and
   never run in CI. **Dev** is replayed on demand and nightly for agents to tune
   against, and never gates. **Test** is the only gate, people-only (written and

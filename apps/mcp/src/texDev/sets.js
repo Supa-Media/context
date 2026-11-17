@@ -15,12 +15,13 @@
  */
 
 import REPO from "../../../../packages/shared/src/texSetsRepo.generated.json" with { type: "json" };
-import { check, KINDS, labelFields, ratio, unitTests } from "../../../../packages/shared/src/texSets.cjs";
+import { check, KINDS, labelFields, missingTest, ratio, unitTests } from "../../../../packages/shared/src/texSets.cjs";
 import { WHY } from "../../../../packages/shared/src/textDecide.cjs";
 import { MAX_OPS, OPEN_SETS } from "../../../../packages/shared/src/texSetOps.cjs";
 import { TEX_CONFIG } from "../agent/texConfig.js";
 import { toolError } from "../tools/results.js";
 import { openChat } from "./probe.js";
+import { testSetSummary } from "../http/texTestSet.js";
 
 const WHY_LIST = Object.keys(WHY);
 const ID = /^[a-z0-9][a-z0-9-]{0,79}$/;
@@ -132,11 +133,18 @@ export function createSetActions({ plane, json, page, env, ledgerOf, repo = REPO
     return hit ? hit : { error: toolError(`There is no Training or Dev conversation ${id}; sets lists them (the Test Set is never shown here).`) };
   }
 
-  const ratioOf = (convs) => {
+  // One pooled split over every scope; per scope only a warning, never a failure, when a scope has no Test cases
+  // (Dev2, 2026-11-17), from the Test Set's counts by step: the same counts the Lab's Testing tab reads, no words.
+  const ratioOf = async (convs) => {
     const live = convs.filter((x) => !x.draft?.removed).map((x) => x.convo);
     const r = ratio(live);
     const td = r.counts.training + r.counts.dev;
-    return { training: r.counts.training, dev: r.counts.dev, test: "counted by the eval service, never shown here", devShare: td ? Math.round((r.counts.dev * 100) / td) : 0, target: "60/20/20 over starred unit tests; Training:Dev 3:1 here" };
+    const testByNode = (await testSetSummary(env))?.counts?.byNode ?? null;
+    const noTest = missingTest(live, testByNode);
+    return {
+      training: r.counts.training, dev: r.counts.dev, test: "counted by the eval service, never shown here", devShare: td ? Math.round((r.counts.dev * 100) / td) : 0, target: "60/20/20 over starred unit tests, pooled across every scope; Training:Dev 3:1 here",
+      ...(testByNode ? { noTest, ...(noTest.length ? { warning: `${noTest.map((x) => x.scope).join(", ")}: unit tests in Training or Dev and none in the Test Set (a warning, never a failure)` } : {}) } : { noTest: "the Test Set's counts could not be read just now" }),
+    };
   };
 
   const edit = async (id, ops, rev) => {
@@ -165,7 +173,7 @@ export function createSetActions({ plane, json, page, env, ledgerOf, repo = REPO
           .filter((x) => !q || `${x.convo.title} ${x.convo.id} ${x.convo.from ?? ""}`.toLowerCase().includes(q))
           .map((x) => summary(x.convo, x.draft));
         const limit = Math.max(1, Math.min(500, Number(args.limit) || 200));
-        return json({ ratio: ratioOf(o.convs), shown: Math.min(rows.length, limit), of: rows.length, sets: rows.slice(0, limit), next: "set_get { id } reads one whole; set_fields shows what a label can hold" });
+        return json({ ratio: await ratioOf(o.convs), shown: Math.min(rows.length, limit), of: rows.length, sets: rows.slice(0, limit), next: "set_get { id } reads one whole; set_fields shows what a label can hold" });
       }
       case "set_get": {
         const hit = await one(args.id);
@@ -174,7 +182,7 @@ export function createSetActions({ plane, json, page, env, ledgerOf, repo = REPO
       }
       case "set_ratio": {
         const o = await overlay();
-        return o.error ?? json(ratioOf(o.convs));
+        return o.error ?? json(await ratioOf(o.convs));
       }
       case "set_fields": {
         const nodes = args.node ? labelNodes().filter((n) => n.id === args.node) : labelNodes();

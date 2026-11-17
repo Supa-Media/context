@@ -7,34 +7,81 @@
  */
 import { useEffect, useRef, useState } from "react";
 import { G, node } from "../../engine/state";
-import { bodyOf, cellOf, colWidth, labelFields, newRowAt, freshId, starsIn, stepNodes, type Conversation, type Message } from "../../engine/sets";
-import { change, colsFor, deleteChat, fold, saveCols, setUi, sets, undo, uploadPic, useSets } from "../../engine/setsStore";
+import {
+  bodyOf,
+  cellOf,
+  colWidth,
+  labelFields,
+  missingTest,
+  newRowAt,
+  freshId,
+  starsIn,
+  stepNodes,
+  type Conversation,
+  type Message,
+} from "../../engine/sets";
+import {
+  change,
+  colsFor,
+  deleteChat,
+  fold,
+  saveCols,
+  setUi,
+  sets,
+  undo,
+  uploadPic,
+  useSets,
+} from "../../engine/setsStore";
 import { History } from "./History.web";
 import type { LabNode } from "../../types";
 import { startResize as resizeCol } from "../grid/GridParts.web";
 import { MsgFields, SpeakerPick } from "./MsgFields.web";
 import { TryCompose, TryRows } from "./TryText.web";
-import { Chev, Menu, More, Plus, UndoI, useMenu, type MenuItem } from "./Menu.web";
+import {
+  Chev,
+  Menu,
+  More,
+  Plus,
+  UndoI,
+  useMenu,
+  type MenuItem,
+} from "./Menu.web";
 
 type Col = { id: string; name: string; node?: LabNode };
 
 function colDefs(): Col[] {
-  return [{ id: "who", name: "Speaker" }, { id: "text", name: "Message" }, ...stepNodes(G()).map((n) => ({ id: n.id, name: n.label, node: n }))];
+  return [
+    { id: "who", name: "Speaker" },
+    { id: "text", name: "Message" },
+    ...stepNodes(G()).map((n) => ({ id: n.id, name: n.label, node: n })),
+  ];
 }
 export function visibleCols(): Col[] {
   const cols = colsFor(G());
   const all = colDefs();
-  return cols.order.filter((id) => !cols.hidden.includes(id)).map((id) => all.find((c) => c.id === id)).filter((c): c is Col => !!c);
+  return cols.order
+    .filter((id) => !cols.hidden.includes(id))
+    .map((id) => all.find((c) => c.id === id))
+    .filter((c): c is Col => !!c);
 }
 
 /** Select a cell; a row that is still empty goes when you leave it. */
-export function selectCell(c: Conversation, msg: string, col: string, editing = false) {
+export function selectCell(
+  c: Conversation,
+  msg: string,
+  col: string,
+  editing = false,
+) {
   dropFresh(c, msg);
   setUi({ msg, col, editing });
 }
 function dropFresh(c: Conversation, keep: string | null) {
-  const f = sets.fresh && sets.fresh !== keep ? c.msgs.find((x) => x.id === sets.fresh) : null;
-  if (f && !f.text && !f.kind && !f.pics?.length) change(c.id, [{ op: "remove", msg: f.id }]);
+  const f =
+    sets.fresh && sets.fresh !== keep
+      ? c.msgs.find((x) => x.id === sets.fresh)
+      : null;
+  if (f && !f.text && !f.kind && !f.pics?.length)
+    change(c.id, [{ op: "remove", msg: f.id }]);
   if (sets.fresh !== keep) sets.fresh = null;
 }
 /** Leave the editor; a fresh row left empty goes. */
@@ -64,9 +111,27 @@ function CellSym({ m, n }: { m: Message; n: LabNode }) {
       <span className="cv">{x.value}</span>
     </>
   ) : null;
-  if (x.sym === "★") return (<>{st}{v}</>);
-  if (x.sym === "✓") return (<><span className="c-ok">✓</span>{v}</>);
-  return (<>{st}<span className={x.cls}>{x.sym}</span>{x.sym === "!" ? v : null}</>);
+  if (x.sym === "★")
+    return (
+      <>
+        {st}
+        {v}
+      </>
+    );
+  if (x.sym === "✓")
+    return (
+      <>
+        <span className="c-ok">✓</span>
+        {v}
+      </>
+    );
+  return (
+    <>
+      {st}
+      <span className={x.cls}>{x.sym}</span>
+      {x.sym === "!" ? v : null}
+    </>
+  );
 }
 
 function Body({ c, m }: { c: Conversation; m: Message }) {
@@ -80,12 +145,26 @@ function Body({ c, m }: { c: Conversation; m: Message }) {
     </>
   ) : null;
   const pics = m.pics?.length ? <Pics m={m} /> : null;
-  if (!b.kind) return m.text || pics ? <>{m.text}{pics}</> : <span className="muted">(empty)</span>;
+  if (!b.kind)
+    return m.text || pics ? (
+      <>
+        {m.text}
+        {pics}
+      </>
+    ) : (
+      <span className="muted">(empty)</span>
+    );
   return (
     <>
       <span className="kind">{b.kind}</span>
       {late}{" "}
-      {b.quoted !== null ? <span className="muted">“{b.quoted}”</span> : b.struck ? <s className="muted">{b.text}</s> : b.text}
+      {b.quoted !== null ? (
+        <span className="muted">“{b.quoted}”</span>
+      ) : b.struck ? (
+        <s className="muted">{b.text}</s>
+      ) : (
+        b.text
+      )}
       {pics}
     </>
   );
@@ -96,7 +175,15 @@ export function Pics({ m }: { m: Message }) {
   return (
     <span className="pics">
       {(m.pics ?? []).map((p, k) => (
-        <a key={k} className="pic" href={p.url} target="_blank" rel="noreferrer" title={p.name || "Picture"} onClick={(e) => e.stopPropagation()}>
+        <a
+          key={k}
+          className="pic"
+          href={p.url}
+          target="_blank"
+          rel="noreferrer"
+          title={p.name || "Picture"}
+          onClick={(e) => e.stopPropagation()}
+        >
           <img src={p.url} alt={p.name || "Picture"} loading="lazy" />
         </a>
       ))}
@@ -110,7 +197,10 @@ function NodeEditor({ c, m, n }: { c: Conversation; m: Message; n: LabNode }) {
   const f = labelFields(n);
   const pick = Object.entries(f.picks)[0];
   const done = () => setUi({ editing: false });
-  const keys = (e: React.KeyboardEvent<HTMLInputElement | HTMLSelectElement>, keep: () => void) => {
+  const keys = (
+    e: React.KeyboardEvent<HTMLInputElement | HTMLSelectElement>,
+    keep: () => void,
+  ) => {
     e.stopPropagation();
     if (e.key === "Escape") done();
     else if (e.key === "Enter" && !e.shiftKey) {
@@ -122,7 +212,26 @@ function NodeEditor({ c, m, n }: { c: Conversation; m: Message; n: LabNode }) {
   if (pick) {
     const [field, opts] = pick;
     return (
-      <select className="ed" data-ed="node" data-f={field} autoFocus value={(l[field] as string) || ""} onKeyDown={(e) => keys(e, () => undefined)} onChange={(e) => (change(c.id, [{ op: "field", msg: m.id, node: n.id, field, value: e.target.value || null }]), done())}>
+      <select
+        className="ed"
+        data-ed="node"
+        data-f={field}
+        autoFocus
+        value={(l[field] as string) || ""}
+        onKeyDown={(e) => keys(e, () => undefined)}
+        onChange={(e) => (
+          change(c.id, [
+            {
+              op: "field",
+              msg: m.id,
+              node: n.id,
+              field,
+              value: e.target.value || null,
+            },
+          ]),
+          done()
+        )}
+      >
         <option value="">(no label)</option>
         {[...opts, "any"].map((v) => (
           <option key={v}>{v}</option>
@@ -131,19 +240,76 @@ function NodeEditor({ c, m, n }: { c: Conversation; m: Message; n: LabNode }) {
     );
   }
   const field = f.texts[0];
-  if (field) return <TextEd init={(l[field] as string) || ""} ph={field + "…"} keep={(v) => change(c.id, [{ op: "field", msg: m.id, node: n.id, field, value: v || null }])} onKey={keys} />;
+  if (field)
+    return (
+      <TextEd
+        init={(l[field] as string) || ""}
+        ph={field + "…"}
+        keep={(v) =>
+          change(c.id, [
+            { op: "field", msg: m.id, node: n.id, field, value: v || null },
+          ])
+        }
+        onKey={keys}
+      />
+    );
   const must = (l.must as string[]) || [];
-  return <TextEd init={must[0] || ""} ph="must…" keep={(v) => change(c.id, [{ op: "field", msg: m.id, node: n.id, field: "must", value: v ? [v, ...must.slice(1)] : must.slice(1).length ? must.slice(1) : null }])} onKey={keys} />;
+  return (
+    <TextEd
+      init={must[0] || ""}
+      ph="must…"
+      keep={(v) =>
+        change(c.id, [
+          {
+            op: "field",
+            msg: m.id,
+            node: n.id,
+            field: "must",
+            value: v
+              ? [v, ...must.slice(1)]
+              : must.slice(1).length
+                ? must.slice(1)
+                : null,
+          },
+        ])
+      }
+      onKey={keys}
+    />
+  );
 }
-function TextEd({ init, ph, keep, onKey }: { init: string; ph: string; keep: (v: string) => void; onKey: (e: React.KeyboardEvent<HTMLInputElement>, keep: () => void) => void }) {
+function TextEd({
+  init,
+  ph,
+  keep,
+  onKey,
+}: {
+  init: string;
+  ph: string;
+  keep: (v: string) => void;
+  onKey: (e: React.KeyboardEvent<HTMLInputElement>, keep: () => void) => void;
+}) {
   const [v, setV] = useState(init);
   const commit = () => v.trim() !== init && keep(v.trim());
-  return <input className="ed" data-ed="txt" autoFocus placeholder={ph} value={v} onChange={(e) => setV(e.target.value)} onBlur={() => sets.editing && commit()} onKeyDown={(e) => onKey(e, commit)} />;
+  return (
+    <input
+      className="ed"
+      data-ed="txt"
+      autoFocus
+      placeholder={ph}
+      value={v}
+      onChange={(e) => setV(e.target.value)}
+      onBlur={() => sets.editing && commit()}
+      onKeyDown={(e) => onKey(e, commit)}
+    />
+  );
 }
 
 /** The chat's name, renamed in place (a Test chat's stays as the eval service has it). */
 function Title({ c }: { c: Conversation }) {
-  const keep = (v: string) => v.trim() && v.trim() !== c.title && change(c.id, [{ op: "title", value: v.trim() }]);
+  const keep = (v: string) =>
+    v.trim() &&
+    v.trim() !== c.title &&
+    change(c.id, [{ op: "title", value: v.trim() }]);
   return (
     <input
       className="ts-ttl"
@@ -167,7 +333,9 @@ function Title({ c }: { c: Conversation }) {
 
 const KEY = (
   <div className="key">
-    <span className="ok">✓</span>labelled<span>○</span>ran, no label<span>–</span>didn't run<span className="must">!</span>must run, didn't<span className="star">★</span>unit test
+    <span className="ok">✓</span>labelled<span>○</span>ran, no label
+    <span>–</span>didn't run<span className="must">!</span>must run, didn't
+    <span className="star">★</span>unit test
   </div>
 );
 
@@ -180,8 +348,18 @@ function addPic(c: Conversation, m: Message) {
     const f = input.files?.[0];
     if (!f) return;
     const pic = await uploadPic(f);
-    const now = sets.convs.find((x) => x.id === c.id)?.msgs.find((x) => x.id === m.id);
-    if (pic && now) change(c.id, [{ op: "edit", msg: m.id, field: "pics", value: [...(now.pics ?? []), pic].slice(0, 6) }]);
+    const now = sets.convs
+      .find((x) => x.id === c.id)
+      ?.msgs.find((x) => x.id === m.id);
+    if (pic && now)
+      change(c.id, [
+        {
+          op: "edit",
+          msg: m.id,
+          field: "pics",
+          value: [...(now.pics ?? []), pic].slice(0, 6),
+        },
+      ]);
   };
   input.click();
 }
@@ -203,12 +381,14 @@ export function Grid({ c }: { c: Conversation }) {
   useEffect(() => {
     const sr = scroller.current?.querySelector("tr.sel");
     if (sr && !s.editing) sr.scrollIntoView({ block: "nearest" });
-    else if (!s.msg && scroller.current) scroller.current.scrollTop = scroller.current.scrollHeight;
+    else if (!s.msg && scroller.current)
+      scroller.current.scrollTop = scroller.current.scrollHeight;
   }, [s.msg, s.editing, c.id]);
 
   useEffect(() => {
     const close = (e: MouseEvent) => {
-      if (sets.history && !(e.target as HTMLElement | null)?.closest?.(".hist")) setUi({ history: false });
+      if (sets.history && !(e.target as HTMLElement | null)?.closest?.(".hist"))
+        setUi({ history: false });
     };
     document.addEventListener("click", close);
     return () => document.removeEventListener("click", close);
@@ -216,7 +396,9 @@ export function Grid({ c }: { c: Conversation }) {
 
   /** Show or hide a step's column; a shown one keeps the order the steps run in. */
   const showCol = (id: string, on: boolean) => {
-    const hidden = on ? cols.hidden.filter((x) => x !== id) : [...cols.hidden.filter((x) => x !== id), id];
+    const hidden = on
+      ? cols.hidden.filter((x) => x !== id)
+      : [...cols.hidden.filter((x) => x !== id), id];
     saveCols({ ...cols, hidden });
     if (!on && sets.col === id) setUi({ col: "text", editing: false });
   };
@@ -231,7 +413,9 @@ export function Grid({ c }: { c: Conversation }) {
     const line = document.createElement("div");
     line.className = "dropline";
     (root || document.body).appendChild(line);
-    const rows = [...(table.current?.querySelectorAll<HTMLTableRowElement>("tr.mr") || [])];
+    const rows = [
+      ...(table.current?.querySelectorAll<HTMLTableRowElement>("tr.mr") || []),
+    ];
     let to: string | null = null;
     const mv = (ev: MouseEvent) => {
       let best: { r: HTMLTableRowElement | null; y: number } | null = null;
@@ -242,10 +426,19 @@ export function Grid({ c }: { c: Conversation }) {
           break;
         }
       }
-      if (!best) best = { r: null, y: rows[rows.length - 1].getBoundingClientRect().bottom };
+      if (!best)
+        best = {
+          r: null,
+          y: rows[rows.length - 1].getBoundingClientRect().bottom,
+        };
       to = best.r ? best.r.dataset.id || null : null;
       const tb = table.current!.getBoundingClientRect();
-      Object.assign(line.style, { top: best.y - 1 + "px", left: tb.left + "px", width: Math.min(tb.width, scroller.current?.clientWidth || tb.width) + "px" });
+      Object.assign(line.style, {
+        top: best.y - 1 + "px",
+        left: tb.left + "px",
+        width:
+          Math.min(tb.width, scroller.current?.clientWidth || tb.width) + "px",
+      });
     };
     const up = () => {
       document.removeEventListener("mousemove", mv);
@@ -264,9 +457,18 @@ export function Grid({ c }: { c: Conversation }) {
     document.addEventListener("mouseup", up);
   };
 
-  const startResize = (e: React.MouseEvent, id: string, k: number) => resizeCol(e, table.current, k, colWidth(cols, id), (w) => saveCols({ ...cols, w: { ...cols.w, [id]: w } }));
+  const startResize = (e: React.MouseEvent, id: string, k: number) =>
+    resizeCol(e, table.current, k, colWidth(cols, id), (w) =>
+      saveCols({ ...cols, w: { ...cols.w, [id]: w } }),
+    );
 
-  const td = (m: Message, col: Col, inner: React.ReactNode, title = "", cls = "") => {
+  const td = (
+    m: Message,
+    col: Col,
+    inner: React.ReactNode,
+    title = "",
+    cls = "",
+  ) => {
     const on = m.id === s.msg && s.col === col.id;
     return (
       <td
@@ -282,7 +484,8 @@ export function Grid({ c }: { c: Conversation }) {
           selectCell(c, m.id, col.id, same && !(m.tex && col.node));
         }}
         onDoubleClick={(e) => {
-          if ((e.target as HTMLElement).closest(".ed") || (m.tex && col.node)) return;
+          if ((e.target as HTMLElement).closest(".ed") || (m.tex && col.node))
+            return;
           selectCell(c, m.id, col.id, true);
         }}
       >
@@ -291,11 +494,27 @@ export function Grid({ c }: { c: Conversation }) {
     );
   };
   const editorFor = (m: Message, col: Col) => {
-    if (col.id === "who") return <SpeakerPick c={c} m={m} cls="ed" autoFocus onDone={() => doneEditing(c)} />;
+    if (col.id === "who")
+      return (
+        <SpeakerPick
+          c={c}
+          m={m}
+          cls="ed"
+          autoFocus
+          onDone={() => doneEditing(c)}
+        />
+      );
     if (col.id === "text")
       return (
         <div className="edwrap">
-          <MsgFields key={m.id + (m.kind || "")} c={c} m={m} cls="ed edp" autoFocus onDone={() => doneEditing(c)} />
+          <MsgFields
+            key={m.id + (m.kind || "")}
+            c={c}
+            m={m}
+            cls="ed edp"
+            autoFocus
+            onDone={() => doneEditing(c)}
+          />
         </div>
       );
     return col.node ? <NodeEditor c={c} m={m} n={col.node} /> : null;
@@ -324,11 +543,41 @@ export function Grid({ c }: { c: Conversation }) {
   ];
   const rowMenu = (m: Message, i: number): MenuItem[] => [
     { label: "Insert row below", run: () => addRow(c, m.id) },
-    { label: "Move up", key: "⌥↑", disabled: i === 0, run: () => change(c.id, [{ op: "move", msg: m.id, before: c.msgs[i - 1].id }]) },
-    { label: "Move down", key: "⌥↓", disabled: i === c.msgs.length - 1, run: () => change(c.id, [{ op: "move", msg: m.id, before: c.msgs[i + 2]?.id ?? null }]) },
-    ...(m.tex ? [] : [{ label: "Make it a reply / reaction…", run: () => selectCell(c, m.id, "text", true) }]),
+    {
+      label: "Move up",
+      key: "⌥↑",
+      disabled: i === 0,
+      run: () =>
+        change(c.id, [{ op: "move", msg: m.id, before: c.msgs[i - 1].id }]),
+    },
+    {
+      label: "Move down",
+      key: "⌥↓",
+      disabled: i === c.msgs.length - 1,
+      run: () =>
+        change(c.id, [
+          { op: "move", msg: m.id, before: c.msgs[i + 2]?.id ?? null },
+        ]),
+    },
+    ...(m.tex
+      ? []
+      : [
+          {
+            label: "Make it a reply / reaction…",
+            run: () => selectCell(c, m.id, "text", true),
+          },
+        ]),
     "hr",
-    ...(m.tex ? [] : ([{ label: "Add a picture", disabled: (m.pics?.length ?? 0) >= 6, run: () => addPic(c, m) }, "hr"] as MenuItem[])),
+    ...(m.tex
+      ? []
+      : ([
+          {
+            label: "Add a picture",
+            disabled: (m.pics?.length ?? 0) >= 6,
+            run: () => addPic(c, m),
+          },
+          "hr",
+        ] as MenuItem[])),
     {
       label: "Delete row",
       key: "⌫",
@@ -339,14 +588,35 @@ export function Grid({ c }: { c: Conversation }) {
       },
     },
   ];
-  const colMenu: MenuItem[] = [{ head: "Step columns" }, ...steps.map((x) => ({ label: x.name, check: !cols.hidden.includes(x.id), keepOpen: true, run: () => showCol(x.id, cols.hidden.includes(x.id)) }))];
+  const colMenu: MenuItem[] = [
+    { head: "Step columns" },
+    ...steps.map((x) => ({
+      label: x.name,
+      check: !cols.hidden.includes(x.id),
+      keepOpen: true,
+      run: () => showCol(x.id, cols.hidden.includes(x.id)),
+    })),
+  ];
   const nodeCols = vc.filter((x) => x.node).length;
+  // A step with unit tests in Training or Dev and none in Test: a warning on its column, never a failure (Dev2, 2026-11-17).
+  const noTest = new Map(
+    missingTest(
+      s.convs.filter((x) => x.set !== "test"),
+      s.testByNode,
+    ).map((x) => [x.scope, x]),
+  );
 
   return (
     <main className="ts-mid" id="middle">
       <div className="ts-mh">
         {s.fold.sets ? (
-          <button className="ib" id="openSets" title="Show sets" aria-label="Show sets" onClick={() => fold("sets", false)}>
+          <button
+            className="ib"
+            id="openSets"
+            title="Show sets"
+            aria-label="Show sets"
+            onClick={() => fold("sets", false)}
+          >
             <Chev />
           </button>
         ) : null}
@@ -356,23 +626,61 @@ export function Grid({ c }: { c: Conversation }) {
           {test ? " · people only" : ""}
         </span>
         <span className="sp" />
-        <button className="ib" id="undoBtn" disabled={!s.undo} title="Undo (⌘Z)" aria-label="Undo" onClick={() => undo()}>
+        <button
+          className="ib"
+          id="undoBtn"
+          disabled={!s.undo}
+          title="Undo (⌘Z)"
+          aria-label="Undo"
+          onClick={() => undo()}
+        >
           <UndoI />
         </button>
-        <button className="ib" id="redoBtn" disabled={!s.redo} title="Redo (⇧⌘Z)" aria-label="Redo" onClick={() => undo(true)}>
+        <button
+          className="ib"
+          id="redoBtn"
+          disabled={!s.redo}
+          title="Redo (⇧⌘Z)"
+          aria-label="Redo"
+          onClick={() => undo(true)}
+        >
           <UndoI redo />
         </button>
-        <button className="ib" id="chatMore" title="More" aria-label="Chat options" aria-expanded={menu.openId === "chat"} onClick={(e) => (setSure(false), menu.toggle(e, "chat"))}>
+        <button
+          className="ib"
+          id="chatMore"
+          title="More"
+          aria-label="Chat options"
+          aria-expanded={menu.openId === "chat"}
+          onClick={(e) => (setSure(false), menu.toggle(e, "chat"))}
+        >
           <More />
         </button>
         {s.history ? <History c={c} /> : null}
       </div>
       <div className="ts-gw" id="gridScroll" ref={scroller}>
-        <table className="chatgrid" ref={table} style={{ minWidth: 44 + 36 + vc.reduce((a, x) => a + (x.id === "text" ? 240 : colWidth(cols, x.id)), 0) }}>
+        <table
+          className="chatgrid"
+          ref={table}
+          style={{
+            minWidth:
+              44 +
+              36 +
+              vc.reduce(
+                (a, x) => a + (x.id === "text" ? 240 : colWidth(cols, x.id)),
+                0,
+              ),
+          }}
+        >
           <colgroup>
             <col style={{ width: 44 }} />
             {vc.map((x) => (
-              <col key={x.id} style={x.id === "text" ? undefined : { width: colWidth(cols, x.id) }} />
+              <col
+                key={x.id}
+                style={
+                  x.id === "text" ? undefined : { width: colWidth(cols, x.id) }
+                }
+              />
             ))}
             <col style={{ width: 36 }} />
           </colgroup>
@@ -380,18 +688,53 @@ export function Grid({ c }: { c: Conversation }) {
             <tr>
               <th className="num">#</th>
               {vc.map((x, k) => (
-                <th key={x.id} data-col={x.id} title={x.name} style={{ position: "sticky" }}>
+                <th
+                  key={x.id}
+                  data-col={x.id}
+                  title={x.name}
+                  style={{ position: "sticky" }}
+                >
                   {x.name}
+                  {noTest.has(x.id) ? (
+                    <span
+                      className="ts-notest"
+                      data-notest={x.id}
+                      title={`No unit tests in the Test Set for ${x.name} (Training ${noTest.get(x.id)?.training}, Dev ${noTest.get(x.id)?.dev}). A warning only: CI never fails on it.`}
+                    >
+                      !
+                    </span>
+                  ) : null}
                   {x.node ? (
-                    <button className="x" data-hide={x.id} title="Hide column" aria-label={`Hide ${x.name}`} onClick={(e) => (e.stopPropagation(), showCol(x.id, false))}>
+                    <button
+                      className="x"
+                      data-hide={x.id}
+                      title="Hide column"
+                      aria-label={`Hide ${x.name}`}
+                      onClick={(e) => (
+                        e.stopPropagation(),
+                        showCol(x.id, false)
+                      )}
+                    >
                       ×
                     </button>
                   ) : null}
-                  {x.id === "text" ? null : <span className="rs" onMouseDown={(e) => startResize(e, x.id, k + 1)} />}
+                  {x.id === "text" ? null : (
+                    <span
+                      className="rs"
+                      onMouseDown={(e) => startResize(e, x.id, k + 1)}
+                    />
+                  )}
                 </th>
               ))}
               <th className="ts-addc">
-                <button className="ib" id="addCol" title="Add a step column" aria-label="Add a step column" aria-expanded={menu.openId === "cols"} onClick={(e) => menu.toggle(e, "cols")}>
+                <button
+                  className="ib"
+                  id="addCol"
+                  title="Add a step column"
+                  aria-label="Add a step column"
+                  aria-expanded={menu.openId === "cols"}
+                  onClick={(e) => menu.toggle(e, "cols")}
+                >
                   <Plus />
                 </button>
               </th>
@@ -403,36 +746,77 @@ export function Grid({ c }: { c: Conversation }) {
               return (
                 <tr
                   key={m.id}
-                  className={"mr" + (m.tex ? " tex" : "") + (sel ? " sel" : "") + (dragging === m.id ? " dragging" : "")}
+                  className={
+                    "mr" +
+                    (m.tex ? " tex" : "") +
+                    (sel ? " sel" : "") +
+                    (dragging === m.id ? " dragging" : "")
+                  }
                   data-id={m.id}
                   onClick={(e) => {
-                    if ((e.target as HTMLElement).closest("td.dc,button,.ed")) return;
+                    if ((e.target as HTMLElement).closest("td.dc,button,.ed"))
+                      return;
                     selectCell(c, m.id, s.col || "text");
                   }}
                 >
-                  <td className="num" data-drag={m.id} title="Drag to move this message earlier or later (or Alt+↑/↓)" onMouseDown={(e) => startDrag(e, m.id)}>
+                  <td
+                    className="num"
+                    data-drag={m.id}
+                    title="Drag to move this message earlier or later (or Alt+↑/↓)"
+                    onMouseDown={(e) => startDrag(e, m.id)}
+                  >
                     <span className="n">{i + 1}</span>
                   </td>
                   {vc.map((col) => {
-                    if (col.id === "who") return td(m, col, m.tex ? <b className="texwho">Tex</b> : <b>{m.who}</b>, "", " ts-who");
-                    if (col.id === "text") return td(m, col, <Body c={c} m={m} />, "", " txt");
+                    if (col.id === "who")
+                      return td(
+                        m,
+                        col,
+                        m.tex ? <b className="texwho">Tex</b> : <b>{m.who}</b>,
+                        "",
+                        " ts-who",
+                      );
+                    if (col.id === "text")
+                      return td(m, col, <Body c={c} m={m} />, "", " txt");
                     if (m.tex) return null;
                     const x = cellOf(m, col.node!);
-                    return td(m, col, <CellSym m={m} n={col.node!} />, `${col.name}: ${x.title}`, " nc");
+                    return td(
+                      m,
+                      col,
+                      <CellSym m={m} n={col.node!} />,
+                      `${col.name}: ${x.title}`,
+                      " nc",
+                    );
                   })}
-                  {m.tex && nodeCols ? <td colSpan={nodeCols} className="texcell" /> : null}
+                  {m.tex && nodeCols ? (
+                    <td colSpan={nodeCols} className="texcell" />
+                  ) : null}
                   <td className="act">
-                    <button className="ib" data-mm={m.id} title="Message options" aria-label={`Options for message ${i + 1}`} aria-expanded={menu.openId === "row:" + m.id} onClick={(e) => menu.toggle(e, "row:" + m.id)}>
+                    <button
+                      className="ib"
+                      data-mm={m.id}
+                      title="Message options"
+                      aria-label={`Options for message ${i + 1}`}
+                      aria-expanded={menu.openId === "row:" + m.id}
+                      onClick={(e) => menu.toggle(e, "row:" + m.id)}
+                    >
                       <More />
                     </button>
                   </td>
                 </tr>
               );
             })}
-            <TryRows c={c} span={vc.filter((x) => x.id !== "who" && x.id !== "text").length} />
+            <TryRows
+              c={c}
+              span={vc.filter((x) => x.id !== "who" && x.id !== "text").length}
+            />
           </tbody>
         </table>
-        <button className="ts-addrow" id="addRow" onClick={() => addRow(c, null)}>
+        <button
+          className="ts-addrow"
+          id="addRow"
+          onClick={() => addRow(c, null)}
+        >
           + Add row
         </button>
       </div>
@@ -440,7 +824,13 @@ export function Grid({ c }: { c: Conversation }) {
       {menu.anchor && menu.openId ? (
         <Menu
           anchor={menu.anchor}
-          id={menu.openId === "chat" ? "chatMenu" : menu.openId === "cols" ? "colMenu" : "rowMenu"}
+          id={
+            menu.openId === "chat"
+              ? "chatMenu"
+              : menu.openId === "cols"
+                ? "colMenu"
+                : "rowMenu"
+          }
           onClose={() => (menu.close(), setSure(false))}
           items={
             menu.openId === "chat"
@@ -448,7 +838,9 @@ export function Grid({ c }: { c: Conversation }) {
               : menu.openId === "cols"
                 ? colMenu
                 : (() => {
-                    const i = c.msgs.findIndex((x) => "row:" + x.id === menu.openId);
+                    const i = c.msgs.findIndex(
+                      (x) => "row:" + x.id === menu.openId,
+                    );
                     return i < 0 ? [] : rowMenu(c.msgs[i], i);
                   })()
           }
@@ -461,7 +853,12 @@ export function Grid({ c }: { c: Conversation }) {
 /** The grid's keys, while the Testing tab is open and nothing is being typed. */
 export function gridKey(e: KeyboardEvent) {
   const t = e.target as HTMLElement | null;
-  if (sets.editing || !sets.msg || (t && /INPUT|TEXTAREA|SELECT/.test(t.tagName))) return;
+  if (
+    sets.editing ||
+    !sets.msg ||
+    (t && /INPUT|TEXTAREA|SELECT/.test(t.tagName))
+  )
+    return;
   const c = sets.convs.find((x) => x.id === sets.chat);
   if (!c) return;
   const i = c.msgs.findIndex((x) => x.id === sets.msg);
@@ -475,18 +872,40 @@ export function gridKey(e: KeyboardEvent) {
   if (e.altKey && (e.key === "ArrowUp" || e.key === "ArrowDown")) {
     const j = e.key === "ArrowUp" ? i - 1 : i + 1;
     if (j < 0 || j >= c.msgs.length) return;
-    change(c.id, [{ op: "move", msg: m.id, before: e.key === "ArrowUp" ? c.msgs[i - 1].id : (c.msgs[i + 2]?.id ?? null) }]);
-  } else if (e.key === "ArrowDown" && i < c.msgs.length - 1) selectCell(c, c.msgs[i + 1].id, col);
+    change(c.id, [
+      {
+        op: "move",
+        msg: m.id,
+        before:
+          e.key === "ArrowUp" ? c.msgs[i - 1].id : (c.msgs[i + 2]?.id ?? null),
+      },
+    ]);
+  } else if (e.key === "ArrowDown" && i < c.msgs.length - 1)
+    selectCell(c, c.msgs[i + 1].id, col);
   else if (e.key === "ArrowUp" && i > 0) selectCell(c, c.msgs[i - 1].id, col);
-  else if (e.key === "ArrowRight" && k < vc.length - 1) selectCell(c, m.id, vc[k + 1]);
+  else if (e.key === "ArrowRight" && k < vc.length - 1)
+    selectCell(c, m.id, vc[k + 1]);
   else if (e.key === "ArrowLeft" && k > 0) selectCell(c, m.id, vc[k - 1]);
   else if (e.key === "Enter") {
     if (m.tex && isNode(col)) return;
     setUi({ col, editing: true });
-  } else if ((e.key === "Delete" || e.key === "Backspace") && isNode(col) && m.labels?.[col]) change(c.id, [{ op: "label", msg: m.id, node: col, value: null }]);
+  } else if (
+    (e.key === "Delete" || e.key === "Backspace") &&
+    isNode(col) &&
+    m.labels?.[col]
+  )
+    change(c.id, [{ op: "label", msg: m.id, node: col, value: null }]);
   else if (e.key.toLowerCase() === "t" && !e.metaKey && !e.ctrlKey) {
     if (m.tex || !isNode(col)) return;
-    change(c.id, [{ op: "field", msg: m.id, node: col, field: "star", value: !m.labels?.[col]?.star }]);
+    change(c.id, [
+      {
+        op: "field",
+        msg: m.id,
+        node: col,
+        field: "star",
+        value: !m.labels?.[col]?.star,
+      },
+    ]);
   } else return;
   e.preventDefault();
 }

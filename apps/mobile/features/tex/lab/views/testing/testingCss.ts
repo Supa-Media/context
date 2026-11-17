@@ -19,6 +19,7 @@ export const TESTING_CSS = String.raw`
 .tl .tsx .ts-ratio .rb{display:inline-flex;width:44px;height:5px;border-radius:3px;overflow:hidden;background:var(--chip)}
 .tl .tsx .ts-ratio .rb i{display:block;height:100%}
 .tl .tsx .ts-ratio.off{color:var(--warn)}
+.tl .tsx .ts-notest{display:inline-flex;align-items:center;justify-content:center;min-width:16px;height:16px;padding:0 4px;margin-left:4px;border-radius:8px;background:var(--warn-wash);color:var(--warn);font-size:10px;font-weight:700;font-variant-numeric:tabular-nums;cursor:help;vertical-align:middle}
 .tl .tsx .ts-list{overflow:auto;flex:1;padding:0 6px 10px}
 .tl .tsx .ts-set.drop{background:var(--accent-dim);border-radius:7px}
 .tl .tsx .ts-grp{display:flex;align-items:center;gap:6px;width:100%;height:28px;padding:0 6px;color:var(--muted);font-size:11px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;margin-top:6px}

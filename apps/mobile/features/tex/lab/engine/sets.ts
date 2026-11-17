@@ -5,7 +5,7 @@
  * the ratio. The format and its rules are `packages/shared/src/texSets.cjs`, the one contract every reader shares.
  */
 import { unfoldGroups } from "./groups";
-import { labelFields as fieldsOf, ratio as ratioOf, unitTests, KINDS, SETS, TARGET } from "@context/shared/src/texSets.cjs";
+import { labelFields as fieldsOf, missingTest, ratio as ratioOf, unitTests, KINDS, SETS, TARGET } from "@context/shared/src/texSets.cjs";
 import type { Conversation, Fields, Label, Message, Ratio, SetId } from "@context/shared/src/texSets.d.cts";
 import { JUDGE_EXAMPLES, WHY } from "@context/shared/src/textDecide.cjs";
 import { MOD_SRC } from "../data/modules";
@@ -13,6 +13,7 @@ import type { LabGraph, LabNode } from "../types";
 import { mods } from "./modules";
 
 export type { Conversation, Label, Message, Ratio, SetId };
+export { missingTest };
 export { KINDS, SETS, TARGET };
 
 const why = Object.keys(WHY);
