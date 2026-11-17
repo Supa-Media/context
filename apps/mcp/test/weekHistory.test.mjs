@@ -92,9 +92,9 @@ test("the window starts at midnight six days back in the chat's zone, so it move
 
 test("each earlier day is its summary, ending with the exact read_day call for that day", () => {
   const part = summaryPart([{ day: "2026-11-08", text: "They planned the picnic." }, { day: "2026-11-09", text: "You booked the van." }]);
-  assert.match(part, /- Sun, Nov 8 \(2026-11-08\): They planned the picnic\. To read that day's whole transcript, call read_day with \{"day": "2026-11-08"\}\./);
-  assert.match(part, /\(2026-11-09\): You booked the van\. To read that day's whole transcript, call read_day with \{"day": "2026-11-09"\}\./);
-  assert.equal(dayLine("2026-11-09"), 'To read that day\'s whole transcript, call read_day with {"day": "2026-11-09"}.');
+  assert.match(part, /- Sun, Nov 8 \(2026-11-08\): They planned the picnic\. To read that day's whole transcript: fetch \{"id": "day:2026-11-08"\}\./);
+  assert.match(part, /\(2026-11-09\): You booked the van\. To read that day's whole transcript: fetch \{"id": "day:2026-11-09"\}\./);
+  assert.equal(dayLine("2026-11-09"), 'To read that day\'s whole transcript: fetch {"id": "day:2026-11-09"}.');
   assert.equal(summaryPart([]), "");
 });
 
@@ -158,7 +158,7 @@ test("a one-to-one chat and a group get the same history from the same entries, 
   const one = await build("texts");
   const group = await build("chat");
   assert.equal(one.built.history.text, group.built.history.text, "the same module, word for word");
-  assert.match(one.built.history.text, /The van was booked\. To read that day's whole transcript, call read_day with \{"day": "2026-11-08"\}/);
+  assert.match(one.built.history.text, /The van was booked\. To read that day's whole transcript: fetch \{"id": "day:2026-11-08"\}/);
   assert.match(one.built.history.text, /what did we decide\?/);
   assert.doesNotMatch(one.built.history.text, /OLD-TEXT/);
   assert.deepEqual(one.built.history.pictures, [{ marker: "[picture upload-p1.jpg]", mediaType: "image/jpeg", data: "upload-p1.jpg@tex/pictures/2026-11.md" }]);
@@ -272,7 +272,7 @@ test("a threaded turn on the week shows the 7 days, lists its threads over them,
   const turn = await threadedTurn({ logged, ledger, chat: "texts", week: { grant: null, readPicture: null }, log: () => {} });
   assert.match(turn.history[0].text, /^\(The chat's last 7 days of texts/);
   assert.match(turn.history[0].text, /WEEK-TEXT about the trip/);
-  assert.match(turn.history[0].text, /OLD-DAY summary\. To read that day's whole transcript, call read_day with \{"day": "2026-11-08"\}/);
+  assert.match(turn.history[0].text, /OLD-DAY summary\. To read that day's whole transcript: fetch \{"id": "day:2026-11-08"\}/);
   assert.doesNotMatch(turn.history[0].text, /and the hotel\?/);
   assert.match(turn.note, /the texts below are the last 7 days/);
   assert.equal(turn.read_day.tool.name, "read_day");
