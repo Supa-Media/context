@@ -132,7 +132,8 @@ describe("a job part the gateway turns down", () => {
     expect(agentAnswer(401, { error: "invalid_token" })).toEqual({ kind: "unavailable" });
     expect(agentAnswer(408, {})).toEqual({ kind: "unavailable" });
     expect(agentAnswer(500, {})).toEqual({ kind: "unavailable" });
-    expect(agentAnswer(502, { error: "model_unavailable" })).toEqual({ kind: "unavailable" });
+    // The model was down: a break too, typed so a job tries the same part again with what it saved (`jobProgress.ts`).
+    expect(agentAnswer(502, { error: "model_unavailable" })).toEqual({ kind: "unavailable", cause: "model_down" });
     expect(agentAnswer(200, { answer: "Done.", heard: `  ${SAID}  ` })).toMatchObject({ kind: "answer", heard: SAID });
   });
 

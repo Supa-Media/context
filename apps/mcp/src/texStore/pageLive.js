@@ -29,6 +29,13 @@ export const PAGE_SOCKET_MAX_MS = 5 * 60 * 1000;
 export const PAGE_CLOSE_REAUTH = 4001;
 export const POLL_RUNNING_MS = 2_000;
 export const POLL_IDLE_MS = 15_000;
+/**
+ * The least time between two "read it again" bursts to the open pages. Every line a turn writes to the chat's log
+ * announces a change, and each announcement makes every open page read itself again through the gateway: a busy turn
+ * once sent hundreds a minute, which overloaded the person's own object and failed their sign-ins with it
+ * (2026-11-17). Changes inside the gap wait and go out together, once, when it ends.
+ */
+export const CHANGED_GAP_MS = 2_000;
 const TAG = "page";
 /** Sections a frame may name: the overview's keys, the list kinds, and a job. */
 export const PAGE_SECTIONS = new Set([
@@ -94,6 +101,11 @@ export function pageLive(state, sql, env, deps = {}) {
       return [made[0], made[1]];
     });
   const upgraded = deps.upgraded ?? ((client) => new Response(null, { status: 101, webSocket: client }));
+  const later = deps.later ?? ((run, ms) => setTimeout(run, ms));
+  /** When the last "read it again" burst went out, and the sections waiting for the gap to end. In memory only. */
+  let changedAt = -Infinity;
+  const waiting = new Set();
+  let flushing = false;
   /** What was last pushed for each section, so a poll pushes only what changed. Lost on hibernation: then pushed again, which is harmless. */
   const pushed = new Map();
 
@@ -188,11 +200,26 @@ export function pageLive(state, sql, env, deps = {}) {
 
     /** Something the page shows changed: each named section, without a value, so the page reads it again. */
     changed(sections) {
-      const named = [...new Set((Array.isArray(sections) ? sections : []).filter((section) => PAGE_SECTIONS.has(section) && section !== "job"))];
-      const frames = named.map((section) => patchFrame(section));
+      const named = (Array.isArray(sections) ? sections : []).filter((section) => PAGE_SECTIONS.has(section) && section !== "job");
+      if (named.length === 0) return sockets().length;
+      for (const section of named) waiting.add(section);
       // A record or a note can change the overview's tiles and its counts too.
-      if (named.length > 0 && !named.includes("tiles")) frames.push(patchFrame("tiles"));
-      return send(frames);
+      waiting.add("tiles");
+      const flush = () => {
+        flushing = false;
+        if (waiting.size === 0) return sockets().length;
+        changedAt = now();
+        const frames = [...waiting].map((section) => patchFrame(section));
+        waiting.clear();
+        return send(frames);
+      };
+      const wait = changedAt + CHANGED_GAP_MS - now();
+      if (wait <= 0 && !flushing) return flush();
+      if (!flushing) {
+        flushing = true;
+        later(flush, Math.max(0, wait));
+      }
+      return sockets().length;
     },
 
     /** When the next poll is due, or null when no page is open. */

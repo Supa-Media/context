@@ -630,3 +630,4 @@ test/workspaceConventionsTurn.test.mjs
 test/checkInTraining.test.mjs
 test/tapbackEnding.test.mjs
 test/agentCheckFindings.test.mjs
+test/jobSaved.test.mjs

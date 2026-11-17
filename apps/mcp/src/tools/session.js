@@ -15,6 +15,7 @@ import { reportOpenedNote } from "../search/quality.js";
 import { inWordsOf, translateV2Params } from "./v2/translate.js";
 import { SAVE_MANY_TOOL, saveMany } from "./v2/saveMany.js";
 import { readNotesAcross, readsAcross } from "./readNotesAcross.js";
+import { checkEtagPlaces, etagWorkspaceRefusal, placeAnswerEtags } from "./etagPlace.js";
 import { addressByPath } from "./pathAddress.js";
 import { disabledToolNames, disabledToolRefusal } from "../plugins/enablement.js";
 import {
@@ -267,6 +268,9 @@ export async function callToolForSession(params, store, session, options = {}) {
   // recorded there, and never runs here; a read of a note the test chat wrote is answered from it.
   const sandbox = sandboxGateOf(store?.env) ?? session?.labSandbox ?? null;
   if (sandbox !== null) {
+    // The test chat answers its writes itself, so an etag from another workspace is refused here, by name (`etagPlace.js`).
+    const wrongPlace = etagRefusalByName(call?.name, call?.arguments, session);
+    if (wrongPlace) return inWordsOf(v2, toolError(wrongPlace));
     const stubbed = await toolAnswer(canonicalToolName(call?.name), call?.arguments, sandbox);
     if (stubbed !== null) return stubbed;
   }
@@ -419,6 +423,8 @@ async function routeToolCall(params, store, session, routed, options = {}) {
       }
       throw error;
     }
+    const wrongPlace = await checkEtagPlaces(args, { workspace: workspaceNameOf(sourceTarget.session), store: sourceTarget.store });
+    if (wrongPlace) return toolError(wrongPlace);
     const crossArgs = { ...args };
     delete crossArgs.source_context;
     delete crossArgs.destination_context;
@@ -457,7 +463,7 @@ async function routeToolCall(params, store, session, routed, options = {}) {
         )
       );
       reportToolUsage(store, params?.name, sourceTarget.session.workspaceId);
-      return result;
+      return placeAnswerEtags(result, workspaceNameOf(sourceTarget.session));
     }
     const result = await answeringNoteCap(() =>
       toolMoveNoteAcrossContexts(
@@ -471,7 +477,8 @@ async function routeToolCall(params, store, session, routed, options = {}) {
     );
     reportToolUsage(store, params?.name, sourceTarget.session.workspaceId);
     reportToolUsage(store, params?.name, destinationTarget.session.workspaceId);
-    return result;
+    // A refusal is about the source (its current version); a move done names where the note is now.
+    return placeAnswerEtags(result, workspaceNameOf((result?.isError ? sourceTarget : destinationTarget).session));
   }
 
   // Enforced here as well as filtered in `toolsForSession`: the listing is a
@@ -551,6 +558,13 @@ async function routeToolCall(params, store, session, routed, options = {}) {
     if (off.has(params?.name)) return toolError(disabledToolRefusal(params?.name));
   }
 
+  // A note's version names its workspace and note: one from anywhere else is refused, never rerouted (`etagPlace.js`).
+  // After the argument check, which promises a malformed call reaches no storage; the note's id is a lookup.
+  {
+    const wrongPlace = await checkEtagPlaces(args, { workspace: workspaceNameOf(target), store: targetStore });
+    if (wrongPlace) return toolError(wrongPlace);
+  }
+
   // After every refusal above, so a call that would not have run anyway is
   // never held for a person to look at; before dispatch, which is the point.
   {
@@ -588,7 +602,21 @@ async function routeToolCall(params, store, session, routed, options = {}) {
   // reached, and attributing it to the connection's default context would
   // quietly make one tenant's figures include another's work.
   reportToolUsage(store, params?.name, target.workspaceId);
-  return result;
+  return placeAnswerEtags(result, workspaceNameOf(target));
+}
+
+/** `@slug` of a routed session, or null where it has none. */
+function workspaceNameOf(target) {
+  return typeof target?.workspaceSlug === "string" && target.workspaceSlug !== "" ? `@${target.workspaceSlug.toLowerCase()}` : null;
+}
+
+/** `etagWorkspaceRefusal` for a call not yet routed: the place it names by `context` or path, else the session's own. */
+function etagRefusalByName(name, supplied, session) {
+  if (!supplied || typeof supplied !== "object" || Array.isArray(supplied)) return null;
+  const args = { ...supplied };
+  if (addressByPath(name, args)) return null;
+  const context = name === "move_note" ? args.source_context : args.context;
+  return etagWorkspaceRefusal(args, { context: typeof context === "string" ? context : null, own: workspaceNameOf(session) });
 }
 
 /**
