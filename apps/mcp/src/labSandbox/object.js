@@ -405,16 +405,20 @@ function chatKept(sql) {
   return all(sql.exec("SELECT k FROM sb_meta WHERE k = 'chat'")).length > 0;
 }
 
-/** What `cross.carry` runs, loaded when asked: the route and the turn import this file. */
-async function carryPieces() {
-  const [route, chatRun] = await Promise.all([import("./route.js"), import("./chatRun.js")]);
-  return { open: route.open, newIds: route.newIds, runTurn: chatRun.runTestText, max: route.DAILY_SENDS };
+/**
+ * What `cross.carry` runs (`crossRuns.js` `objectCarry`), handed in by the route when the Worker loads it
+ * (`carryWith`): the route and the turn import this file, and the control plane's reads of it stay this file's own.
+ * Unset, the object says it carries nothing and the request carries the trip.
+ */
+let carryHere = null;
+export function carryWith(carry) {
+  carryHere = typeof carry === "function" ? carry : null;
 }
 
 /** The Durable Object class (`LabSandbox` in `wrangler.toml`). */
 export class LabSandboxObject {
-  /** `carry` is what `cross.carry` runs with; only a test hands its own. */
-  constructor(state, env, { carry = carryPieces } = {}) {
+  /** `carry` is what `cross.carry` runs; only a test hands its own. */
+  constructor(state, env, { carry = null } = {}) {
     this.state = state;
     this.env = env;
     this.carry = carry;
@@ -439,7 +443,7 @@ export class LabSandboxObject {
       return Response.json({ error: "gone", message: "This test chat is gone (Reset, or a day unused)." }, { status: 410 });
     }
     // A turn's asks of other chats, carried here so they outlive the request that sent the text (`crossRuns.js`).
-    if (op === "cross.carry") return Response.json((await import("./crossRuns.js")).objectCarry(this.env, this.state, body, this.carry));
+    if (op === "cross.carry") return Response.json((this.carry ?? carryHere)?.(this.env, this.state, body) ?? { carrying: false });
     let answer;
     try {
       answer = serveSandbox(this.tables, op, body ?? {});

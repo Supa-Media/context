@@ -155,7 +155,7 @@ test("followCross carries an ask to the group's linked test chat and its answer 
 function routeWorld(runTurn, later = null) {
   const objects = new Map();
   // `later`: the request's and the objects' `waitUntil`, kept apart, as the Worker and its objects keep them.
-  const carry = async () => ({ open, newIds, runTurn, max: DAILY_SENDS });
+  const carry = (env, state, body) => objectCarry(env, state, body, async () => ({ open, newIds, runTurn, max: DAILY_SENDS }));
   const object = (name) => {
     const state = { storage: { sql: durableSql(), setAlarm: async () => {}, deleteAlarm: async () => {}, deleteAll: async () => {} }, ...(later?.object ? { waitUntil: (work) => void later.object.push(work) } : {}) };
     if (!objects.has(name)) objects.set(name, new LabSandboxObject(state, env, { carry }));

@@ -58,10 +58,10 @@ import { ledgerFor, ONE_TO_ONE_CHAT } from "../agent/ledger.js";
 import { LEDGER_KINDS } from "../texStore/ledger.js";
 import { bearerToken } from "../session.js";
 import { json } from "../http/responses.js";
-import { callSandbox, SANDBOX_TTL_MS, sandboxStub, SEED_CHUNK } from "./object.js";
+import { callSandbox, carryWith, SANDBOX_TTL_MS, sandboxStub, SEED_CHUNK } from "./object.js";
 import { eventId, RUNNING_STALE_MS, stepsOf } from "./harness.js";
 import { chatStepsOf, runTestText } from "./chatRun.js";
-import { carryFrom, carryInObject } from "./crossRuns.js"; // a test chat's asks of other chats
+import { carryFrom, carryInObject, objectCarry } from "./crossRuns.js"; // a test chat's asks of other chats
 import { draftFit, TEX_CONFIG } from "../agent/texConfig.js";
 import { sharedChatOf, sharedLedger, sharedList } from "./shared.js";
 import { inboundEvent, picsOf, reactionOf, TAPBACK_OF, targetOf } from "./inbound.js";
@@ -433,6 +433,7 @@ async function addRow({ env, ctx, controlPlane, token, who, stub, state, row, or
 
 /** A new test row's ids: its event id and the row id built from it. */
 export const newIds = (at = Date.now(), eid = eventId(at)) => ({ at, eid, id: `t${eid.replace("-", "")}` });
+carryWith((env, state, body) => objectCarry(env, state, body, async () => ({ open, newIds, runTurn: runTestText, max: DAILY_SENDS })));
 
 /** `send`, and `retry`'s second half: a text, with its pictures and the row it replies to, and its turn. */
 async function send(deps, state, { as, text = "", pics: given, replyTo }, cut = null) {
