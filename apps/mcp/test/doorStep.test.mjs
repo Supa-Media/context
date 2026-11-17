@@ -44,8 +44,7 @@ test("Intake holds the Door, which hands the Front door a text and Confirmations
   assert.deepEqual(out.sort(), [["bypass", "wait", "answered"], ["fd", "wait", "next"]]);
   assert.deepEqual(TEX_CONFIG.edges.filter((e) => e.from === "bypass").map((e) => e.to), ["send"]);
   assert.ok(!TEX_CONFIG.edges.some((e) => PARTS.includes(e.from) || PARTS.includes(e.to)), "no part runs as a step of its own any more");
-  // The Door starts as a Provisional run beside Triage, Decide and the Queue, which give its go or its stop (Dev2, 2026-11-17).
-  assert.deepEqual(TEX_CONFIG.edges.filter((e) => e.to === "doorStep").map((e) => `${e.from}:${e.mode}`).sort(), ["decide:provisional", "lanes:provisional", "triage:provisional"], "Intake starts the Door provisionally");
+  assert.deepEqual(TEX_CONFIG.edges.filter((e) => e.to === "doorStep").map((e) => e.from), ["lanes"], "the Queue starts the Door");
   for (const id of ["doorStep", "bypass"]) assert.notEqual(TEX_CONFIG.nodes.find((n) => n.id === id)?.on, false, `live Tex runs ${id}`);
   for (const part of PARTS) assert.equal(TEX_CONFIG.nodes.find((n) => n.id === part)?.on, false, `${part} is off as a step`);
 });
