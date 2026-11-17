@@ -20,6 +20,7 @@
  *     app is handing back" fails.
  */
 
+import { carries } from "../src/agent/checkFindings.js";
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
@@ -42,9 +43,9 @@ test("the Planning Center answer is sent back to try email, calendar, notes and 
   const notice = claims.check(GAVE_UP);
   for (const road of ["search_email", "from:planningcenteronline.com", "calendar", "notes", "browse"]) assert.ok(notice.includes(road), road);
   assert.ok(notice.includes("where you read it") && notice.includes("Never tell them to check it themselves"));
-  // The next round is still checked for handing back and for the promise.
-  assert.equal(claims.check(GAVE_UP), HANDBACK_NOTICE);
-  assert.equal(claims.check(GAVE_UP), LATER_NOTICE);
+  // Handing back and the promise go back in the same notice, not one round each (`checkFindings.js`).
+  assert.ok(carries(notice, HANDBACK_NOTICE) && carries(notice, LATER_NOTICE), notice);
+  assert.equal(await claims.check(GAVE_UP), null, "nothing goes back twice");
 });
 
 test("a turn that already took a road is told only the others, and one that took them all is let through", () => {
