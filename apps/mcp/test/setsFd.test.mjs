@@ -209,5 +209,7 @@ test("a conversation whose setting gives Tex the calendar runs with one connecte
   assert.equal(connected.calendarAddress, "john@calendar.bench.invalid");
   assert.equal(benchCalendar([], null).calendarDays, null, "none connected unless the test says so");
   const fixture = [{ date: "2026-10-13", address: "j@example.invalid", text: "### 09:00 · Gym" }];
-  assert.equal(benchCalendar(fixture, "John").calendarAddress, undefined, "a fixture's own calendar is kept as it is");
+  assert.equal(benchCalendar(fixture, "John").calendarAddress, "j@example.invalid", "a connected fixture calendar takes their changes");
+  assert.equal(benchCalendar(fixture, "John").calendarDays({ date: "2026-10-13" }).days.length, 1, "and still reads its own days");
+  assert.equal(benchCalendar(fixture, null).calendarAddress, undefined, "a fixture without calendar: connected is kept as it is");
 });

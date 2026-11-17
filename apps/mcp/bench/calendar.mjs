@@ -33,7 +33,10 @@ export function calendarWrites(days) {
  */
 export function benchCalendar(days, connectedFor = null) {
   const flags = { calendarDays: calendarAnswer(days), ...calendarWrites(days) };
-  if (connectedFor === null || days.length > 0) return flags;
+  if (connectedFor === null) return flags;
+  // Connected with a fixture's days: their own calendar takes their changes too (Dev set, 2026-11-17: John's
+  // fixture gained days with no guests, so "put friday dinner on the calendar" was refused as no calendar).
+  if (days.length > 0) return { calendarAddress: days[0].address, ...flags };
   const address = `${String(connectedFor).toLowerCase().replace(/[^a-z0-9]/g, "") || "person"}@calendar.bench.invalid`;
   return { ...flags, calendarDays: () => ({ ok: true, days: [] }), calendarAddress: address };
 }
