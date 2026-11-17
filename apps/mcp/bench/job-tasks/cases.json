@@ -136,48 +136,6 @@
         "Golden Lotus is left out, or named only as closed on Sundays",
         "Each open place has tonight's hours (Casa Verde 4 to 9 pm, The Brick Oven 5 to 10 pm)"
       ]
-    },
-    {
-      "id": "research-lunch-decision-page",
-      "kind": "research page",
-      "tag": "bench-area:jobs (eval-gaps 2026-11-17; not a Dev or Training set case)",
-      "as": "Maya",
-      "today": "2026-10-11",
-      "text": "help me pick a spot for team lunch from lunch.example. make it a proper decision page i can send the team, with what each place costs and where you got it",
-      "job": {
-        "title": "Team lunch decision page",
-        "brief": "Make a designed decision page in Maya's notes comparing every lunch spot on lunch.example for a team lunch: each one's lunch price range with the link the price came from, and a recommendation.",
-        "doneWhen": "A designed decision page in Maya's notes compares every lunch spot on lunch.example with its lunch prices and a source link for each, recommends one, and Maya has the page's link."
-      },
-      "page": { "under": "maya/" },
-      "sources": { "hosts": ["lunch.example", "orders.example"], "min": 3 },
-      "covers": ["Bento Bay", "12", "Pho Corner", "13", "Seoul Box", "15|14"],
-      "quality": [
-        "It is a designed page (its path ends in .page.md), laid out as a decision: the options side by side and one recommendation with its reason",
-        "It carries at least one picture or Tex drawing, as every designed page must",
-        "Seoul Box's prices come from its ordering page, never a guess or 'no price available'"
-      ]
-    },
-    {
-      "id": "research-band-caterers-shared-page",
-      "kind": "research page",
-      "tag": "bench-area:jobs (eval-gaps 2026-11-17; not a Dev or Training set case)",
-      "as": "Priya",
-      "today": "2026-10-11",
-      "text": "put a caterer comparison in the band notes for our end of year party, 30 of us. caterers.example has them. totals for 30 and a link for each",
-      "job": {
-        "title": "Band party caterers page",
-        "brief": "Compare every caterer on caterers.example for a 30-person party on a page in the band workspace's notes (not Maya's own): the full total for 30 people (food, sides and drinks) for each, with a link to each caterer's page.",
-        "doneWhen": "A page in the band workspace lists every caterer on caterers.example with its total for 30 people and a link to its page, and Priya has the page's link."
-      },
-      "page": { "under": "band/" },
-      "sources": { "hosts": ["caterers.example"], "min": 4 },
-      "covers": ["Lucky Wok", "255", "Taqueria Rosa", "300", "Nonna", "285", "Big Smoke", "555"],
-      "quality": [
-        "The page is in the band workspace, where the whole band can read it, and nothing from Maya's personal notes is on it",
-        "Nonna's Trays is priced as three half trays of the mains, three half trays of the sides and three gallons of drinks (each serves ten), not a per-person price, and the optional cannoli is not in that total",
-        "It says which caterer is cheapest"
-      ]
     }
   ]
 }

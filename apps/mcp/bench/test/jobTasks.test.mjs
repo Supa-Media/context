@@ -131,7 +131,7 @@ test("the quality judge's lines are read by number, and a skipped one is a fail"
 
 test("every job task is invented, complete and gradeable", async () => {
   const cases = await loadCases();
-  assert.ok(cases.length >= 6 && cases.length <= 10, "6-10 tasks (the coordinator's brief, plus two eval-gap cases, 2026-11-17)");
+  assert.ok(cases.length >= 6 && cases.length <= 8, "6-8 tasks (the coordinator's brief)");
   assert.equal(new Set(cases.map((item) => item.id)).size, cases.length);
   for (const item of cases) {
     assert.ok(item.text && item.job?.title && item.job?.brief && item.job?.doneWhen, `${item.id}: an ask, a title, a brief and a finish line`);
