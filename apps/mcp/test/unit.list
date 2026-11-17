@@ -624,3 +624,4 @@ test/moveJudge.test.mjs
 test/crossChat.test.mjs
 test/workspaceConventions.test.mjs
 test/workspaceConventionsTurn.test.mjs
+test/checkInTraining.test.mjs
