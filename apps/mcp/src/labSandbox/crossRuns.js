@@ -19,6 +19,12 @@
  * with the developers never asks: its person's groups are theirs.
  */
 
+import { callSandbox, sandboxStub } from "./object.js";
+import { RUNNING_STALE_MS } from "./harness.js";
+
+const CHAT_KEY = /^[0-9a-f]{64}$/;
+const SANDBOX_ID = /^[0-9a-f]{16}$/;
+
 /** The most asks one test text's turn carries (production's gate allows one open ask per pair). */
 export const MAX_CROSS = 3;
 
@@ -65,4 +71,52 @@ export async function followCross(cross, asker, deps) {
     done.push({ id: ask.body.id, outcome: answered === null ? "answer_not_run" : "answered", sandboxId: linked.sandboxId, ask: askRow.id, answer: answerRow.id });
   }
   return done;
+}
+
+/** `followCross` after a test row's run (`done`, its `{ cross }`), its outcome kept on the asking reply row. Never throws. */
+export async function carryCross(done, asker, deps) {
+  try {
+    const carried = await followCross(done?.cross, asker, deps);
+    if (carried.length > 0) await callSandbox(asker.stub, "row.patch", { id: asker.replyId, patch: { cross: carried } });
+  } catch {
+    /* the asking run's own row stands; what did not run shows as not run */
+  }
+}
+
+/**
+ * What `followCross` needs of the route: a group's linked test chat (opened once on that chat, kept with the asking
+ * test chat as `linked:<key>`, and only for a group the caller is in now), and a run of a row in a test chat, claimed
+ * and counted as a sent text is. `open` is the route's own open of a test chat, `count` its daily count of sent texts.
+ */
+export function crossDeps({ env, controlPlane, token, who, origin, runTurn, config, asker, open, newRow, count }) {
+  const sessionOf = async (chat) => {
+    const answer = await controlPlane.labSandbox(token, "session", { chat });
+    return answer?.status === "ok" ? answer : null;
+  };
+  return {
+    newRow,
+    linked: async (key) => {
+      const listed = (Array.isArray(who.chats) ? who.chats : []).find((chat) => chat?.key === key);
+      if (!CHAT_KEY.test(key) || !listed) return null;
+      const session = await sessionOf(key);
+      if (session === null) return null;
+      const kept = (await callSandbox(asker.stub, "state", {})).meta?.[`linked:${key}`];
+      let sandboxId = typeof kept === "string" && SANDBOX_ID.test(kept) && (await callSandbox(sandboxStub(env, who.userId, kept), "exists", {})).exists ? kept : null;
+      if (sandboxId === null) {
+        const opened = await (await open(env, controlPlane, token, who, { source: "chat", chatId: key, versionId: asker.about.versionId, by: "cross-chat ask" }, origin)).json();
+        if (typeof opened?.sandboxId !== "string") return null;
+        sandboxId = opened.sandboxId;
+        await callSandbox(asker.stub, "meta", { key: `linked:${key}`, value: sandboxId });
+      }
+      const stub = sandboxStub(env, who.userId, sandboxId);
+      const about = (await callSandbox(stub, "state", {})).meta?.chat;
+      return about ? { stub, about: { ...about, name: String(listed.name ?? "the group") }, sandboxId, payload: session.session, chat: session.chat ?? null } : null;
+    },
+    run: async (target, row, inbound) => {
+      if (!(await count(`sends:${new Date().toISOString().slice(0, 10)}`)).ok) return null;
+      if (!(await callSandbox(target.stub, "claim", { msgId: row.id, staleMs: RUNNING_STALE_MS })).ok) return null;
+      await callSandbox(target.stub, "row.add", { row });
+      return await runTurn({ env, stub: target.stub, about: target.about, row, payload: target.payload, token, config, origin, chat: target.chat, inbound });
+    },
+  };
 }

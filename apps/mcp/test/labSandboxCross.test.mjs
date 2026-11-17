@@ -183,7 +183,8 @@ const TOKEN = "tok_ana_example_0000000000000";
 
 test("the route runs a 1:1 test text's ask in the group's linked test chat and its answer back in the 1:1, reusing the link", async () => {
   const ran = [];
-  const runTurn = async ({ stub, about, row, inbound }) => {
+  const runTurn = async ({ stub, about, row, inbound, payload }) => {
+    assert.equal(payload?.defaultWorkspaceId, "ws_ana", `every run carries its chat's session (${about.kind}, ${row.who})`);
     // As `runChatTurn` does when its turn ends: the test chat is free for the next row.
     await stub.fetch(new Request("https://lab-sandbox.internal/row.add", { method: "POST", body: JSON.stringify({ row: { id: `${row.id}r`, reply: row.id, who: "Tex", text: "ok", at: Date.now(), prod: false } }) }));
     await stub.fetch(new Request("https://lab-sandbox.internal/release", { method: "POST", body: JSON.stringify({ msgId: row.id }) }));
