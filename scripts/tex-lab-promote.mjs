@@ -153,7 +153,7 @@ function selfTest() {
   // A provisional wire, and its allow, is config too.
   const gp = graph();
   gp.edges.push({ from: "text", to: "doorStep", mode: "provisional", when: ["stop:running"], allow: "read" });
-  expect(configFrom(gp, current, words).config?.edges.find((e) => e.from === "text" && e.mode === "provisional")?.allow === "read", "a provisional wire's allow was lost");
+  expect(configFrom(gp, current, words).config?.edges.find((e) => e.mode === "provisional")?.allow === "read", "a provisional wire's allow was lost");
   gp.edges[gp.edges.length - 1].allow = "anything";
   expect(/allow/.test(configFrom(gp, current, words).refused ?? ""), "a provisional wire with an unknown allow passed");
   const g1 = graph();

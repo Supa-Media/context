@@ -221,19 +221,17 @@ test("groups nest: a group names the group it sits in, never itself, one inside 
 });
 
 test("a provisional wire carries its allow, kept on a rewire, dropped by null, and round-trips through the diff (Dev2, 2026-11-17)", () => {
-  // Main wires Triage, Decide and the Queue to the Door as provisional too: this test's own wire is the one from A text arrives.
-  const textWire = (e) => e.from === "text" && e.mode === "provisional";
   const g = main();
   let r = applyOps(g, [{ op: "wire", from: "text", to: "doorStep", mode: "provisional", when: ["stop:running"], allow: "read" }]);
-  assert.equal(r.graph.edges.find(textWire).allow, "read");
+  assert.equal(r.graph.edges.find((e) => e.mode === "provisional").allow, "read");
   assert.match(r.said[0], /provisional read, when stop:running/);
   r = applyOps(r.graph, [{ op: "wire", from: "text", to: "doorStep", mode: "provisional", when: ["stop:quiet"] }]);
-  assert.equal(r.graph.edges.find(textWire).allow, "read", "a rewire that names no allow keeps it");
+  assert.equal(r.graph.edges.find((e) => e.mode === "provisional").allow, "read", "a rewire that names no allow keeps it");
   const back = applyOps(g, diffGraphs(g, r.graph)).graph;
-  assert.deepEqual(back.edges.find(textWire), r.graph.edges.find(textWire));
+  assert.deepEqual(back.edges.find((e) => e.mode === "provisional"), r.graph.edges.find((e) => e.mode === "provisional"));
   const cleared = applyOps(r.graph, [{ op: "wire", from: "text", to: "doorStep", mode: "provisional", when: ["stop:quiet"], allow: null }]).graph;
-  assert.equal(cleared.edges.find(textWire).allow, undefined);
-  assert.equal(applyOps(r.graph, diffGraphs(r.graph, cleared)).graph.edges.find(textWire).allow, undefined);
+  assert.equal(cleared.edges.find((e) => e.mode === "provisional").allow, undefined);
+  assert.equal(applyOps(r.graph, diffGraphs(r.graph, cleared)).graph.edges.find((e) => e.mode === "provisional").allow, undefined);
   assert.throws(() => applyOps(g, [{ op: "wire", from: "text", to: "doorStep", mode: "wait", allow: "read" }]), OpError);
   assert.throws(() => applyOps(g, [{ op: "wire", from: "text", to: "doorStep", mode: "provisional", allow: "anything" }]), OpError);
 });

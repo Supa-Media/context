@@ -13,16 +13,8 @@ import type { LabEdge, LabGraph } from "../features/tex/lab/types";
 
 const main = (): LabGraph => JSON.parse(JSON.stringify(TEX_CONFIG)) as LabGraph;
 
-/** The wiring before the Provisional run was promoted: the Queue's Next wire starts the Door, after Triage and Decide. */
-function waitingDoor(): LabGraph {
-  const g = main();
-  g.edges = g.edges.filter((e) => !(e.to === "doorStep" && e.mode === "provisional"));
-  g.edges.push({ from: "lanes", to: "doorStep", mode: "wait", when: ["*"] });
-  return g;
-}
-
 function provisionalDoor(): LabGraph {
-  const g = waitingDoor();
+  const g = main();
   g.edges = g.edges.filter((e) => !(e.from === "lanes" && e.to === "doorStep"));
   const wire = (from: string, when: string[]): LabEdge => ({ from, to: "doorStep", mode: "provisional", when });
   g.edges.push(wire("triage", ["stop:running"]), wire("decide", ["stop:quiet", "restart:wait"]), wire("lanes", ["*"]));
@@ -33,10 +25,9 @@ const group = () => (SCENARIOS["test/group"] = { name: "A group text", group: "t
 
 test("a provisional Front door shortens a group text's reply by the time of the steps it no longer waits for", () => {
   group();
-  const before = simulate(waitingDoor(), "test/group", null);
+  const before = simulate(main(), "test/group", null);
   const after = simulate(provisionalDoor(), "test/group", null);
-  // Waiting, the Front door starts after Triage, Decide and Lanes; run provisionally (main since Dev2 promoted it), at once.
-  expect(simulate(main(), "test/group", null).reply).toBeCloseTo(after.reply, 6);
+  // On main the Front door waits for Triage, Decide and Lanes; run provisionally, it starts at once.
   expect(before.T.doorStep.start).toBeGreaterThan(0);
   expect(before.T.doorStep.start).toBeCloseTo(before.T.lanes.end, 6);
   expect(after.T.doorStep.start).toBe(0);
