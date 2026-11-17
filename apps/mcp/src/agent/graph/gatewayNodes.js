@@ -59,6 +59,7 @@ import { crossChatGateNode } from "./nodes/crossChatGate.js";
 import { chatAskNode } from "./nodes/chatAsk.js";
 import { chatAnswerNode } from "./nodes/chatAnswer.js";
 import { tapbackNode } from "./nodes/tapback.js";
+import { partEndNode } from "./nodes/partEnd.js";
 import { jobadv } from "./nodes/jobadv.js";
 import { staffNode } from "./nodes/staff.js";
 
@@ -140,4 +141,6 @@ export const GATEWAY_NODES = {
   get chatAnswer() { return chatAnswerNode; },
   // A tapback as the whole answer: whether the front door may end the turn with one, and which emoji (`nodes/tapback.js`, `../tapbackEnding.js`).
   get tapback() { return tapbackNode; },
+  // After each part of a background job: the next part, the last draft, or the end, under the limits in its config (`nodes/partEnd.js`).
+  get partEnd() { return partEndNode; },
 };
