@@ -14,6 +14,8 @@
 
 name: Tex test set
 
+run-name: Tex test set for #${{ inputs.pr }}
+
 on:
   workflow_dispatch:
     inputs:
@@ -130,6 +132,14 @@ jobs:
           set -euo pipefail
           [ -n "$HEAD" ] || exit 0
           if [ "$CAPPED" = "true" ]; then
+            # A second run on a commit that already passed is the cap ("1 a
+            # commit"). That refusal must not replace the pass. A first run
+            # that is itself capped still marks failure below: there is no pass.
+            passed="$(gh api "repos/$GITHUB_REPOSITORY/commits/$HEAD/statuses" --jq '[.[] | select(.context == "Tex test set" and .state == "success")][0].state // ""')"
+            if [ "$passed" = "success" ]; then
+              echo "This commit already has a successful Tex test set status; a second run was capped and does not replace it."
+              exit 0
+            fi
             state=failure; description="$(head -c 139 "$RUNNER_TEMP/sealed/refused")"
           elif [ -f "$RUNNER_TEMP/sealed/verdict.json" ]; then
             [ "$SCORE" = "success" ] && state=success || state=failure
