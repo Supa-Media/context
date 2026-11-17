@@ -52,7 +52,7 @@ export async function groupTurn(storage: InboxStorage, deps: GroupDeps, { messag
   const app = groupLineFor(groupLineSeam(deps), message.groupId);
   const chat = { line: message.line, groupId: message.groupId };
   const routine = message.routine !== undefined;
-  const quoted = message.replyTo === undefined ? null : await app.readOwnMessage(chat, message.replyTo);
+  const quoted = message.replyTo === undefined ? null : (message.quoted ?? (await app.readOwnMessage(chat, message.replyTo)));
   const kept = await chatBefore(storage, message, acceptedAt, deps.now());
   // A chat line this turn answers is its question, not what the chat said around it.
   const asked_ = new Set(covered.map((entry) => `${entry.from}\n${entry.text}`));

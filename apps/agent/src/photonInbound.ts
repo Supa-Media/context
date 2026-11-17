@@ -202,6 +202,8 @@ function received(body: Rec, env: Envelope, options: PhotonParseOptions): Photon
     const attachments = sms ? [] : attachmentsOf(message, text, options);
     if (text === "" && attachments.length === 0) return { kind: "ignored", reason: "empty" };
     const replyTo = idOf(message.replyTo);
+    // An inline reply to one of Tex's own texts carries those words when the bridge read them, as a 1:1 reply's do.
+    const quoted = replyTo !== null && message.replyToFromMe === true && typeof message.replyToText === "string" ? message.replyToText.trim().slice(0, MAX_QUOTED_TEXT) : "";
     const group: GroupMessage = {
       kind: "group-message",
       eventId: `photon:${guid}`,
@@ -212,6 +214,7 @@ function received(body: Rec, env: Envelope, options: PhotonParseOptions): Photon
       messageId: guid,
       ...cutText(text),
       ...(replyTo !== null ? { replyTo } : {}),
+      ...(quoted !== "" ? { quoted } : {}),
       ...(sms ? { sms: true as const } : {}),
       ...(attachments.length > 0 ? { attachments } : {}),
     };

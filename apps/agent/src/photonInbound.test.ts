@@ -157,6 +157,14 @@ describe("parsePhotonEvent: groups", () => {
     expect(parsed).toMatchObject({ kind: "group-message", participants: [PHONE, "?", OTHER] });
   });
 
+  it("a group reply to Tex's own text carries those words as quoted; a reply to somebody else's does not", () => {
+    const toTex = parsePhotonEvent(groupEvent({ message: { guid: "g-r", text: "yes", service: "iMessage", replyTo: "tex-1", replyToText: " Book it? ", replyToFromMe: true } }));
+    expect(toTex).toMatchObject({ kind: "group-message", replyTo: "tex-1", quoted: "Book it?" });
+    const toOther = parsePhotonEvent(groupEvent({ message: { guid: "g-r2", text: "same", service: "iMessage", replyTo: "p-1", replyToText: "lunch?", replyToFromMe: false } }));
+    expect(toOther).toMatchObject({ kind: "group-message", replyTo: "p-1" });
+    expect(toOther).not.toHaveProperty("quoted");
+  });
+
   it("keeps a group SMS flagged, with no files read", () => {
     const parsed = parsePhotonEvent(
       groupEvent({ message: { guid: "g-sms", text: "hey", service: "SMS", attachments: [{ guid: "a", name: "p.png", mimeType: "image/png", size: 1 }] } }),
