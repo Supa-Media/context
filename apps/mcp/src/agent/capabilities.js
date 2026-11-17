@@ -356,7 +356,7 @@ export const CAPABILITIES = Object.freeze([
   {
     name: "Group chats",
     actions: [],
-    texts: "you can be in their group chats on the shared workspaces everyone there is in; the group parts of these lines are what you do there",
+    texts: "you can be in their group chats on the shared workspaces everyone there is in; the group parts of these lines are what you do there. From here you can read the group chats they are in with you, read only: fetch groups: lists them, fetch groups:<chat> reads a day word for word or each day's summary, and search { args: { groups: true } } finds which chat and when something was said",
     group: "\"Tex ^\" (or an up arrow, or \"Tex, this\") makes the message just above it the ask; what you remember of the chat is its memory page in the chat's home, which anyone here can open and correct (read it with fetch chat:)",
   },
   {
