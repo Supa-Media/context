@@ -42,14 +42,15 @@ export const ask = mutation({
 /** The versions waiting for their pull request, oldest ask first, with who asked (a handle, never an address). */
 export const asked = internalQuery({
   args: {},
-  returns: v.array(v.object({ versionId: v.string(), name: v.string(), graph: v.string(), by: v.string(), at: v.number() })),
+  returns: v.array(v.object({ versionId: v.string(), name: v.string(), graph: v.string(), by: v.string(), at: v.number(), base: v.string(), made: v.number() })),
   handler: async (ctx) => {
     const rows = (await ctx.db.query("texLabVersions").collect()).filter((r) => r.promote?.state === "asked");
     rows.sort((a, b) => (a.promote?.at ?? 0) - (b.promote?.at ?? 0));
     const out = [];
     for (const r of rows) {
       const handle = r.promote ? await handleForUser(ctx, r.promote.by) : null;
-      out.push({ versionId: r.versionId, name: r.name, graph: r.graph, by: handle ? "@" + handle : "a staff member", at: r.promote?.at ?? 0 });
+      // `base` and `made` let the workflow find the main the draft started from and merge only its own changes.
+      out.push({ versionId: r.versionId, name: r.name, graph: r.graph, by: handle ? "@" + handle : "a staff member", at: r.promote?.at ?? 0, base: r.base ?? "", made: r.createdAt });
     }
     return out;
   },

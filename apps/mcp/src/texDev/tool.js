@@ -10,7 +10,7 @@
  */
 
 import { appOriginOf } from "../agent/noteLinks.js";
-import { draftFit, TEX_CONFIG, withDraft } from "../agent/texConfig.js";
+import { CONFIG_STAMP, draftFit, TEX_CONFIG, withDraft } from "../agent/texConfig.js";
 import { toolError } from "../tools/results.js";
 import { draftProblems, draftVsMain } from "./check.js";
 import { ACTIONS, guideText } from "./guide.js";
@@ -143,7 +143,9 @@ export function createTexDev({ env, session, controlPlane, defer = null, sleep =
         const graph = args.graph !== undefined ? parseGraph(args.graph) : from === "main" ? mainGraph() : null;
         if (args.graph !== undefined && graph === null) return toolError("graph must be { nodes: [...], edges: [...] }.");
         // A graph passed in is the draft (no `from`); main is sent as its graph; another draft is copied by the control plane.
-        const body = args.graph !== undefined ? { name: args.name, graph: JSON.stringify(graph) } : from === "main" ? { name: args.name, from, graph: JSON.stringify(graph) } : { name: args.name, from };
+        // A draft keeps the main it started from, so Promote merges only its own changes; one copied from another draft
+        // keeps that draft's (the control plane copies it).
+        const body = args.graph !== undefined ? { name: args.name, graph: JSON.stringify(graph), base: CONFIG_STAMP } : from === "main" ? { name: args.name, from, graph: JSON.stringify(graph), base: CONFIG_STAMP } : { name: args.name, from };
         const { answer, error } = await plane("create", body);
         return error ?? json({ draft: answer.id, rev: answer.rev, name: answer.name, link: linkOf(answer.id), next: "edit it with { action: \"edit\", args: { draft, rev, ops } }; snapshot shows it" });
       }

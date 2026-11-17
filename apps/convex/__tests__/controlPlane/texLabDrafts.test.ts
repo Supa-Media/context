@@ -46,6 +46,16 @@ async function world(role: "editor" | "member" = "editor") {
 }
 
 describe("tex_dev drafts", () => {
+  test("a draft keeps the main it was made from, and a copy of a draft keeps that draft's", async () => {
+    const { t, dev } = await world();
+    const made = await dev("create", { name: "Based", graph: JSON.stringify(GRAPH), base: "c0123456789abcd" });
+    const copied = await dev("create", { name: "Copy", from: made.id, base: "c00000000000000" });
+    const loose = await dev("create", { name: "Loose", graph: JSON.stringify(GRAPH), base: "nope" });
+    const rows = await t.run(async (ctx) => await ctx.db.query("texLabVersions").collect());
+    const baseOf = (id: unknown) => rows.find((r) => r.versionId === id)?.base;
+    expect([baseOf(made.id), baseOf(copied.id), baseOf(loose.id)]).toEqual(["c0123456789abcd", "c0123456789abcd", undefined]);
+  });
+
   test("an editor of the pinned context makes, reads and edits a draft, and sees it in the list", async () => {
     const { dev } = await world();
     const made = await dev("create", { name: "Lighter reviewer", graph: JSON.stringify(GRAPH) });
