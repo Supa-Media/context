@@ -17,10 +17,16 @@
  * in the Lab and through `tex_dev` with its own run card; the asking text's reply row names the linked test chat and
  * both rows (`cross`). Nothing reaches the real group. One hop, as in production: an ask-run asks nobody. A chat shared
  * with the developers never asks: its person's groups are theirs.
+ *
+ * The trip is two more turns after the asking one, so it runs in the asking test chat's own object (`cross.carry`),
+ * whose `waitUntil` keeps it for up to 15 minutes: a Worker stops a request's `waitUntil` 30 s after it answers, which
+ * cut the answer's run short in production (2026-11-17, sandbox run t1794925338233000003: sent, never finished). The
+ * caller's token rides in that one call and is held in memory for the trip only, never stored.
  */
 
 import { callSandbox, sandboxStub } from "./object.js";
 import { RUNNING_STALE_MS } from "./harness.js";
+import { createControlPlane } from "../controlPlane.js";
 
 const CHAT_KEY = /^[0-9a-f]{64}$/;
 const SANDBOX_ID = /^[0-9a-f]{16}$/;
@@ -119,4 +125,50 @@ export function crossDeps({ env, controlPlane, token, who, origin, runTurn, conf
       return await runTurn({ env, stub: target.stub, about: target.about, row, payload: target.payload, token, config, origin, chat: target.chat, inbound });
     },
   };
+}
+
+/** The asking test chat as the object is told it: everything but its stub, which the object finds by its own id. */
+const askerOf = ({ stub: _stub, ...asker }) => asker;
+
+/**
+ * `followCross` with the route's own pieces (`route.js` `open`, `newIds` and its turn), its outcome kept on the asking
+ * reply row. `carry` is `{ env, controlPlane, token, who, origin, config, asker }`; `max` is the daily count of sent
+ * texts (`route.js` `DAILY_SENDS`). Never throws.
+ */
+export async function carryFrom(done, carry, { open, newRow, runTurn, max }) {
+  const { env, who, asker } = carry;
+  const count = (key) => callSandbox(sandboxStub(env, who.userId, "index0000000000"), "count", { key, max });
+  await carryCross(done, asker, crossDeps({ ...carry, runTurn, open, newRow, count }));
+}
+
+/**
+ * Hands a turn's asks (`done.cross`) to the asking test chat's object, which carries them after this request is gone
+ * (`objectCarry`); an object that cannot keep them leaves them to this request (`fallback`, `carryFrom`'s pieces).
+ * Nothing to carry asks nothing. Never throws.
+ */
+export async function carryInObject(done, carry, fallback) {
+  const { token, who, origin, config, asker } = carry;
+  if (!(Array.isArray(done?.cross) && done.cross.some((out) => out?.path === "/cross-ask"))) return;
+  if (asker?.about?.shared === true) return;
+  const holder = { userId: who.userId, chats: Array.isArray(who.chats) ? who.chats : [] };
+  const handed = await callSandbox(asker.stub, "cross.carry", { cross: done.cross, token, who: holder, origin, config, asker: askerOf(asker) }).catch(() => null);
+  if (handed?.carrying !== true) await carryFrom(done, carry, fallback);
+}
+
+/**
+ * The object's side of `cross.carry`: the trip, kept running by the object (`state.waitUntil`) and answered at once.
+ * `pieces()` loads the route's `open`, `newIds` and `DAILY_SENDS` and the turn (`chatRun.js` `runTestText`) when asked, since the
+ * route imports the object. Answers `{ carrying }`.
+ */
+export function objectCarry(env, state, body, pieces) {
+  const { cross, token, who, origin, config, asker } = body ?? {};
+  if (!Array.isArray(cross) || typeof token !== "string" || typeof who?.userId !== "string" || typeof asker?.sandboxId !== "string" || typeof state?.waitUntil !== "function") return { carrying: false };
+  const stub = sandboxStub(env, who.userId, asker.sandboxId);
+  if (stub === null) return { carrying: false };
+  const trip = (async () => {
+    const { open, newIds, runTurn, max } = await pieces();
+    await carryFrom({ cross }, { env, controlPlane: createControlPlane(env), token, who, origin, config, asker: { ...asker, stub } }, { open, newRow: newIds, runTurn, max });
+  })().catch(() => {});
+  state.waitUntil(trip);
+  return { carrying: true };
 }

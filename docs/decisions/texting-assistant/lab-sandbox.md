@@ -319,3 +319,12 @@ as in production. A chat shared with the developers never asks, because its pers
 
 Faking the ask, as test chats did before, made Dev2's 1:1 failure invisible in the Lab. Its tests are
 `apps/mcp/test/labSandboxCross.test.mjs` (sabotaged).
+
+**The trip runs in the asking test chat's object.** The first Lab test in production (2026-11-17) asked and the group
+answered, but the 1:1's answer run stopped right after it sent: a Worker stops a request's `waitUntil` 30 s after the
+request answers, and the asking turn plus two more runs is longer than that. When the request will not wait, the
+route hands the asks to the asking test chat's object (`cross.carry`), and the object keeps the trip with its own
+`waitUntil` (up to 15 minutes). The caller's token travels in that one call and stays in memory for the trip. It is
+never stored, so no credential lives in an object. An object that cannot keep the trip says so, and the request
+carries it as before. A simplification that carries the trip in the request again cuts every answer run that ends
+past the 30 s, and "a request that will not wait hands the trip to the asking test chat's object" fails.

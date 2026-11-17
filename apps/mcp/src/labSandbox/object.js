@@ -405,10 +405,19 @@ function chatKept(sql) {
   return all(sql.exec("SELECT k FROM sb_meta WHERE k = 'chat'")).length > 0;
 }
 
+/** What `cross.carry` runs, loaded when asked: the route and the turn import this file. */
+async function carryPieces() {
+  const [route, chatRun] = await Promise.all([import("./route.js"), import("./chatRun.js")]);
+  return { open: route.open, newIds: route.newIds, runTurn: chatRun.runTestText, max: route.DAILY_SENDS };
+}
+
 /** The Durable Object class (`LabSandbox` in `wrangler.toml`). */
 export class LabSandboxObject {
-  constructor(state) {
+  /** `carry` is what `cross.carry` runs with; only a test hands its own. */
+  constructor(state, env, { carry = carryPieces } = {}) {
     this.state = state;
+    this.env = env;
+    this.carry = carry;
     this.tables = null;
   }
 
@@ -429,6 +438,8 @@ export class LabSandboxObject {
     if (!CHATLESS_OPS.has(op) && !(op === "meta" && INDEX_KEY.test(String(body?.key ?? ""))) && !this.tables.meta().chat) {
       return Response.json({ error: "gone", message: "This test chat is gone (Reset, or a day unused)." }, { status: 410 });
     }
+    // A turn's asks of other chats, carried here so they outlive the request that sent the text (`crossRuns.js`).
+    if (op === "cross.carry") return Response.json((await import("./crossRuns.js")).objectCarry(this.env, this.state, body, this.carry));
     let answer;
     try {
       answer = serveSandbox(this.tables, op, body ?? {});

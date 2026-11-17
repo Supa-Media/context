@@ -61,7 +61,7 @@ import { json } from "../http/responses.js";
 import { callSandbox, SANDBOX_TTL_MS, sandboxStub, SEED_CHUNK } from "./object.js";
 import { eventId, RUNNING_STALE_MS, stepsOf } from "./harness.js";
 import { chatStepsOf, runTestText } from "./chatRun.js";
-import { carryCross, crossDeps } from "./crossRuns.js"; // a test chat's asks of other chats
+import { carryFrom, carryInObject } from "./crossRuns.js"; // a test chat's asks of other chats
 import { draftFit, TEX_CONFIG } from "../agent/texConfig.js";
 import { sharedChatOf, sharedLedger, sharedList } from "./shared.js";
 import { inboundEvent, picsOf, reactionOf, TAPBACK_OF, targetOf } from "./inbound.js";
@@ -255,7 +255,7 @@ async function draftConfig(controlPlane, token, versionId, graph = undefined, ke
 }
 
 /** `open`: a new test chat, the caller's own. */
-async function open(env, controlPlane, token, who, input, origin) {
+export async function open(env, controlPlane, token, who, input, origin) {
   const source = input.source ?? "chat";
   const drafted = await draftConfig(controlPlane, token, input.versionId, input.graph);
   if (drafted.error) return refused(...drafted.error);
@@ -422,19 +422,17 @@ async function addRow({ env, ctx, controlPlane, token, who, stub, state, row, or
     await callSandbox(stub, "release", { msgId: row.id }).catch(() => {});
     throw error;
   }
-  const [config, asker] = [drafted.config ?? null, { stub, about, sandboxId: about.sandboxId, replyId: `${row.id}r`, payload: answer.session, chat: answer.chat ?? null }]; // its asks of other chats run after it (`crossRuns.js`)
-  const run = Promise.resolve(runTurn({ env, stub, about, row, payload: answer.session, token, config, origin, chat: answer.chat ?? null })).then((done) => carryCross(done, asker, crossDeps({ env, controlPlane, token, who, origin, runTurn, config, asker, open, newRow: newIds, count: (key) => callSandbox(indexStub(env, who.userId), "count", { key, max: DAILY_SENDS }) })));
-  if (ctx && typeof ctx.waitUntil === "function") ctx.waitUntil(run);
+  // Its asks of other chats run after it (`crossRuns.js`), in the test chat's object unless this request waits for them.
+  const [config, later] = [drafted.config ?? null, typeof ctx?.waitUntil === "function"];
+  const carry = { env, controlPlane, token, who, origin, config, asker: { stub, about, sandboxId: about.sandboxId, replyId: `${row.id}r`, payload: answer.session, chat: answer.chat ?? null } };
+  const run = Promise.resolve(runTurn({ env, stub, about, row, payload: answer.session, token, config, origin, chat: answer.chat ?? null })).then((done) => (later ? carryInObject : carryFrom)(done, carry, { open, newRow: newIds, runTurn, max: DAILY_SENDS }));
+  if (later) ctx.waitUntil(run);
   else await run;
   return json({ msgId: row.id });
 }
 
 /** A new test row's ids: its event id and the row id built from it. */
-function newIds() {
-  const at = Date.now();
-  const eid = eventId(at);
-  return { at, eid, id: `t${eid.replace("-", "")}` };
-}
+export const newIds = (at = Date.now(), eid = eventId(at)) => ({ at, eid, id: `t${eid.replace("-", "")}` });
 
 /** `send`, and `retry`'s second half: a text, with its pictures and the row it replies to, and its turn. */
 async function send(deps, state, { as, text = "", pics: given, replyTo }, cut = null) {
