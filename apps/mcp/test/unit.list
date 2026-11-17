@@ -562,6 +562,7 @@ test/texPrefixPrint.test.mjs
 test/texEarlierRoomStep.test.mjs
 test/promptCatalog.test.mjs
 test/texGraph.test.mjs
+test/texGraphDurable.test.mjs
 test/texSets.test.mjs
 test/sets.test.mjs
 test/setsMigrate.test.mjs
