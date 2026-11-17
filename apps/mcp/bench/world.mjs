@@ -27,7 +27,7 @@ import worker from "../src/index.js";
 import { PRODUCTION_TEXTING_PATH } from "../src/agent/production.js";
 import { skillPath } from "../src/agent/skills.js";
 import { createWeb } from "./sites.mjs";
-import { simBinding, simulatedWorld } from "./simWorld.mjs";
+import { simBinding, simulatedWorld, sitesIn } from "./simWorld.mjs";
 import { createBenchSite } from "./siteStub.mjs";
 import { CONTROL_PLANE_ORIGIN, GATEWAY_SECRET, createControlPlaneStub, createS3Backend } from "../test/controlPlaneStub.mjs";
 import { rmSync } from "node:fs";
@@ -231,8 +231,8 @@ export async function createWorld(bench, person, setupRaw, models, today = null,
 
   // The scripted web a golden task runs on (`sites.mjs`): the browser
   // Worker's stand-in, and the answers to web searches.
-  const web = models.sites?.length ? createWeb(models.sites) : null;
   const sim = simulatedWorld(models, controlPlane, { today, person, noMailbox: mail.length === 0 }); // a Dev test's outside world (`simWorld.mjs`)
+  const web = sitesIn(models.sites, sim)?.length ? createWeb(sitesIn(models.sites, sim)) : null;
 
   // Model calls are the only traffic that leaves the world, and web searches
   // when the run has a search key and no scripted web: production searches
