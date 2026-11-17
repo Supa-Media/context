@@ -13,7 +13,7 @@ import assert from "node:assert/strict";
 
 import { LabSandboxObject } from "../src/labSandbox/object.js";
 import { runChatTurn } from "../src/labSandbox/chatRun.js";
-import { followCross, objectCarry } from "../src/labSandbox/crossRuns.js";
+import { followCross, objectCarry, objectRun } from "../src/labSandbox/crossRuns.js";
 import { RUN_IN_SANDBOX } from "../src/labSandbox/policy.js";
 import { DAILY_SENDS, handleLabSandbox, newIds, open } from "../src/labSandbox/route.js";
 import { streamTurn, wantsProgress } from "../src/agent/progress.js";
@@ -155,7 +155,7 @@ test("followCross carries an ask to the group's linked test chat and its answer 
 function routeWorld(runTurn, later = null) {
   const objects = new Map();
   // `later`: the request's and the objects' `waitUntil`, kept apart, as the Worker and its objects keep them.
-  const carry = (env, state, body) => objectCarry(env, state, body, async () => ({ open, newIds, runTurn, max: DAILY_SENDS }));
+  const carry = (env, state, body, op) => (op === "text.run" ? objectRun : objectCarry)(env, state, body, async () => ({ open, newIds, runTurn, max: DAILY_SENDS }));
   const object = (name) => {
     const state = { storage: { sql: durableSql(), setAlarm: async () => {}, deleteAlarm: async () => {}, deleteAll: async () => {} }, ...(later?.object ? { waitUntil: (work) => void later.object.push(work) } : {}) };
     if (!objects.has(name)) objects.set(name, new LabSandboxObject(state, env, { carry }));
@@ -225,7 +225,7 @@ test("the route runs a 1:1 test text's ask in the group's linked test chat and i
   }
 });
 
-test("a request that will not wait hands the trip to the asking test chat's object, which carries it after the request is gone", async () => {
+test("a request that will not wait hands the whole run to the asking test chat's object, which carries its trip after the request is gone", async () => {
   const ran = [];
   const runTurn = async ({ stub, about, row, inbound }) => {
     await stub.fetch(new Request("https://lab-sandbox.internal/row.add", { method: "POST", body: JSON.stringify({ row: { id: `${row.id}r`, reply: row.id, who: "Tex", text: "ok", at: Date.now(), prod: false } }) }));
@@ -242,10 +242,9 @@ test("a request that will not wait hands the trip to the asking test chat's obje
     const { sandboxId } = (await w.call({ op: "open", source: "chat", chatId: "me" })).body;
     const sent = await w.call({ op: "send", sandboxId, text: "ask Tex Devs if the demo is Friday" });
     assert.equal(sent.status, 200, JSON.stringify(sent.body));
-    await Promise.all(later.request);
-    // The request's own work is only the asking turn: a Worker stops it 30 s after answering (production, 2026-11-17).
-    assert.deepEqual(ran, [["one", null]]);
-    assert.equal(later.object.length, 1, "the trip is the object's to keep");
+    // The request keeps no work: a Worker stops it 30 s after answering (production, 2026-11-17).
+    assert.equal(later.request.length, 0, "the request keeps nothing");
+    assert.equal(later.object.length, 1, "the turn and its trip are the object's to keep");
     await Promise.all(later.object);
     assert.deepEqual(ran, [["one", null], ["group", "/cross-ask"], ["one", "/cross-answer"]]);
     const reply = (await w.call({ op: "get", sandboxId })).body.rows.find((r) => r.id === `${sent.body.msgId}r`);
