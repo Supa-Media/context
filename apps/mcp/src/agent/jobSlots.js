@@ -14,14 +14,15 @@
  */
 
 import { configLimits } from "../../../../packages/shared/src/jobPartEnd.cjs";
+import { configStartLimits } from "../../../../packages/shared/src/jobStart.cjs";
 import { TEX_CONFIG } from "./texConfig.js";
 
-/** Cloud jobs at once in a chat (`apps/agent/src/jobs.ts` holds the same). */
-export const MAX_CLOUD_JOBS = 3;
+/** Cloud jobs at once in a chat: the Job start node's config (`jobStart.cjs`; `apps/agent/src/jobs.ts` holds the same). */
+export const MAX_CLOUD_JOBS = configStartLimits(TEX_CONFIG).cloudSlots;
 /** Parts one job may take, the first included, before it reports what it has: its Part end node's config (`jobPartEnd.cjs`). */
 export const MAX_JOB_ATTEMPTS = configLimits(TEX_CONFIG).parts;
-/** The most slots one computer can have (`slotCounts`, `workspaceStore/machines.js`). */
-export const MAX_MACHINE_SLOTS = 8;
+/** The most slots one computer can have: the Job start node's config (`slotCounts`, `workspaceStore/machines.js`). */
+export const MAX_MACHINE_SLOTS = configStartLimits(TEX_CONFIG).machineSlots;
 
 /** The computer a running entry or a started job is on: its machine id, or null in the cloud. */
 export function machineOf(entry) {
@@ -47,6 +48,8 @@ export function jobSlots(jobs) {
   const busyOn = (machineId) => live().filter((entry) => machineOf(entry) === machineId).length;
   return {
     cloudFree: () => Math.max(0, MAX_CLOUD_JOBS - cloudBusy()),
+    /** Jobs running in the cloud (null) or on one computer, this turn's starts included. */
+    busy: (computer = null) => (computer === null ? cloudBusy() : busyOn(computer.id)),
     /** Free slots on one computer, `{ id, slots }` as `machinesFor` lists it. */
     freeOn: (computer) => Math.max(0, slotsOf(computer) - busyOn(computer.id)),
     /** Whether a job may start where it would run: the cloud, or `computer`. */
