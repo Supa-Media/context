@@ -17,6 +17,7 @@ export const DEV_SHARE_MODULE = "devShare";
 
 const HANDLE = /^[a-z0-9][a-z0-9-]{0,64}$/;
 const MAX_NAMES = 64;
+const SOMEONE = "someone";
 
 /** Whether this turn's config (a Lab draft's in a Lab test chat) has the front door read the chat's sharing. */
 export function devShareOn(env) {
@@ -31,11 +32,16 @@ export function devShareOn(env) {
 /** The state as the Worker sent it, or null: handles only, a boolean `shared`. */
 export function devShareOf(value) {
   if (value === null || typeof value !== "object" || Array.isArray(value) || typeof value.shared !== "boolean") return null;
-  const handles = (list) => (Array.isArray(list) ? [...new Set(list.filter((name) => typeof name === "string" && HANDLE.test(name)))].slice(0, MAX_NAMES) : []);
+  // "someone" is a person without a handle (the control plane's word): kept once per person, never deduped or tagged.
+  const handles = (list) => {
+    if (!Array.isArray(list)) return [];
+    const named = list.filter((name) => typeof name === "string" && HANDLE.test(name));
+    return [...new Set(named.filter((name) => name !== SOMEONE)), ...named.filter((name) => name === SOMEONE)].slice(0, MAX_NAMES);
+  };
   return { shared: value.shared, by: handles(value.by), waiting: handles(value.waiting) };
 }
 
-const at = (names) => names.map((name) => `@${name}`).join(", ");
+const at = (names) => names.map((name) => (name === SOMEONE ? "someone without a handle" : `@${name}`)).join(", ");
 
 /** The words a group turn is told, or "" when the turn knows nothing about it. */
 export function devSharePrompt(devShare) {

@@ -112,11 +112,16 @@ export async function devShareOf(ctx: QueryCtx, group: Pick<Doc<"textGroups">, "
   const pinned = people.length === 0 ? null : (await pinnedContextWorkspace(ctx))?._id ?? null;
   const by: string[] = [];
   const waiting: string[] = [];
-  for (const id of people) {
-    const said = await sharesReviews(ctx, id);
-    const name = (await handleFor(ctx, id)) || "someone";
+  // Asked side by side: this runs on every group turn's answer.
+  const answers = await Promise.all(
+    people.map(async (id) => {
+      const [said, handle] = await Promise.all([sharesReviews(ctx, id), handleFor(ctx, id)]);
+      return { said, name: handle || "someone", team: said ? false : await onTheTeam(ctx, pinned, id) };
+    }),
+  );
+  for (const { said, name, team } of answers) {
     if (said) by.push(name);
-    else if (!(await onTheTeam(ctx, pinned, id))) waiting.push(name);
+    else if (!team) waiting.push(name);
   }
   return { devShare: { shared: by.length > 0 && waiting.length === 0, by, waiting } };
 }

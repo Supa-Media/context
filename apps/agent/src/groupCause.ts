@@ -4,28 +4,29 @@
  * it; Tex looked for the tag, found none and texted "Yeah, what do you need?" into the chat. A follow-up the judge
  * picked up was told the same, and Tex then explained itself with "you'd just tagged me".
  *
+ * - `job_report`: work Tex started reported back; `cross_chat`: another of the person's Tex chats asked this one;
+ *   `vault_saved`: someone saved the login Tex asked for; `browser_handed_back`: someone pressed Done on the browser
+ *   Tex handed them. Each is queued as a routine's turn is (`jobTexts.ts`, `crossChat.ts`, `vaultWatch.ts`,
+ *   `handbackWatch.ts` all set `routine`), so they are named before it.
  * - `check_in`: the chat's own check-in (`groupRoutines.ts` `CHAT_LOOK_PATH`); `routine`: one of its routines.
- * - `job_report`: work Tex started reported back; `cross_chat`: another of the person's Tex chats asked this one.
  * - `reaction`: a tapback on one of Tex's texts.
- * - `tagged`: a text here says "@Tex"; `named`: a text here says "Tex" by name.
+ * - `tagged`: a text here says "@Tex"; `named`: a text here names Tex ("Tex" or "Context", `groupWords.ts`).
  * - `judged`: none of those: the judge read a text as meant for Tex (a reply to it, or a follow-up on its answer).
  */
 import type { GroupMessage } from "./sendblueGroups";
 import { CHAT_LOOK_PATH } from "./groupRoutines";
-import { tagsTex } from "./groupWords";
+import { namesTex, tagsTex } from "./groupWords";
 
-export type TurnCause = "check_in" | "routine" | "job_report" | "cross_chat" | "reaction" | "tagged" | "named" | "judged";
+export type TurnCause = "check_in" | "routine" | "job_report" | "cross_chat" | "vault_saved" | "browser_handed_back" | "reaction" | "tagged" | "named" | "judged";
 
-/** "Tex" as a word, the way people name it in a chat ("Tex, ...", "hey tex"), never inside another word. */
-const NAMED = /(?<![\w-])tex(?![\w-])/i;
-
-export function turnCause(message: Pick<GroupMessage, "routine" | "jobReport" | "crossChat" | "reaction" | "answersTapback">, covered: { text?: string; heard?: string }[]): TurnCause {
-  if (message.routine !== undefined) return message.routine.path === CHAT_LOOK_PATH ? "check_in" : "routine";
+export function turnCause(message: Pick<GroupMessage, "routine" | "jobReport" | "crossChat" | "event" | "reaction" | "answersTapback">, covered: { text?: string; heard?: string }[]): TurnCause {
   if (message.jobReport !== undefined) return "job_report";
   if (message.crossChat !== undefined) return "cross_chat";
+  if (message.event !== undefined) return message.event;
+  if (message.routine !== undefined) return message.routine.path === CHAT_LOOK_PATH ? "check_in" : "routine";
   if (message.reaction !== undefined || message.answersTapback !== undefined) return "reaction";
   const said = covered.map((entry) => entry.text || entry.heard || "");
   if (said.some(tagsTex)) return "tagged";
-  if (said.some((text) => NAMED.test(text))) return "named";
+  if (said.some(namesTex)) return "named";
   return "judged";
 }
