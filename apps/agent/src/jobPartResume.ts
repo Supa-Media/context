@@ -32,6 +32,7 @@ export function resumePlan(run: JobRun, hadProgress: boolean): { ask: Pick<JobAs
   // `resumeFrom: 0` has the gateway drop this part's saved rounds, which may still be that try's: never carried again.
   if (run.resumedTry !== undefined) {
     delete run.resumedTry;
+    delete run.carryFrom; // nor the part before's, should this fresh try die before it saves anything
     return { ask: { ...base, resumeFrom: 0 }, changed: true };
   }
   const from = run.tries > 0 || hadProgress ? run.attempt : run.carryFrom === run.attempt - 1 && run.attempt > 1 ? run.carryFrom : undefined;

@@ -121,6 +121,10 @@ describe("a job's part goes on from saved rounds", () => {
     const run: JobRun = { ...RUN, attempt: 2, resumedTry: 2 };
     expect(resumePlan(run, true)).toEqual({ ask: { resumeFrom: 0 }, changed: true });
     expect(run.resumedTry).toBeUndefined();
+    // Handed part 1's rounds, died, then a fresh try died too before saving anything: part 1's rounds are not handed again.
+    const twice: JobRun = { ...RUN, attempt: 2, carryFrom: 1, resumedTry: 2 };
+    resumePlan(twice, false);
+    expect(resumePlan(twice, false).ask.resumeFrom).toBeUndefined();
     // A pass that died on a fresh try goes on from that try's rounds.
     expect(resumePlan({ ...RUN, attempt: 2 }, true).ask).toEqual({ resumeFrom: 2 });
   });
