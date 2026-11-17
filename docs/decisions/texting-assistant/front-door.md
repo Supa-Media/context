@@ -163,4 +163,6 @@ serial", "send api beside a search keeps the round serial", "two vault fetches
 in one round stay serial", "results stay in call order when the later read
 finishes first") and
 `replay/cases/parallel-mail-searches.mjs` (two mailbox searches in one round
-start together, and the model still reads the first result first) fail.
+start together, and the model still reads the first result first) and
+`replay/cases/serial-vault-fetch.mjs` (a search and a `send api` in one round
+start one after the other) fail.
