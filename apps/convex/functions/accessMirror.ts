@@ -32,6 +32,7 @@ import { isPending } from "./lib/invitations/forCaller";
 import { invalidateInvitationSignInCode } from "./invitationEmail";
 import { TOKEN_HASH_PATTERN } from "./lib/crypto";
 import { clampAccessTokenExpiry } from "./lib/consentScopes";
+import { forgetGrantResolveCache } from "./lib/controlPlane/grantCacheRows";
 
 export const accessChangeValidator = v.union(
   v.object({ op: v.literal("remove_member"), userId: v.string(), at: v.number(), by: v.string() }),
@@ -129,6 +130,7 @@ export const apply = internalMutationMirrored({
       if (grant.hashedRefreshToken === change.refreshHash || grant.previousHashedRefreshToken === change.refreshHash) return { applied: false };
       // Narrowing only, as the object did: a copy never holds a scope the grant did not.
       const scopes = change.scopes.filter((scope) => grant.scopes.includes(scope));
+      await forgetGrantResolveCache(ctx, { hashedAccessToken: grant.hashedAccessToken });
       await ctx.db.patch(grant._id, {
         previousHashedRefreshToken: grant.hashedRefreshToken,
         hashedRefreshToken: change.refreshHash,
@@ -141,6 +143,7 @@ export const apply = internalMutationMirrored({
     }
     // Revoked by the person, or by their own client: either way the person acted.
     const by = actor ?? grant.userId;
+    await forgetGrantResolveCache(ctx, { grantId: grant._id, hashedAccessToken: grant.hashedAccessToken });
     await ctx.db.patch(grant._id, { status: "revoked", revokedAt: now });
     await recordAudit(ctx, {
       workspaceId: grant.workspaceId,

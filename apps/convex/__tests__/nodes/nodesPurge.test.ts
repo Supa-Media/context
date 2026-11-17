@@ -2,7 +2,12 @@
  * Forgetting a workspace's tree (`functions/nodesPurge.ts`): every row goes,
  * across as many scheduled batches as it takes, and another workspace's rows
  * are never touched. Fails if the purge stops after its first batch or if its
- * index read loses the `workspaceId` scope.
+ * index read loses the `workspaceId` scope. Fails if the access version row
+ * is left behind: `putAccessVersion` only raises it, so a rebuilt state would
+ * stay hidden behind the old number.
+ *
+ * Sabotage: stop deleting `nodeAccessVersions` in `forgetWorkspaceTree` and
+ * the rebuilt version stays at 7.
  */
 
 import { afterEach, describe, expect, test, vi } from "vitest";
@@ -90,5 +95,29 @@ describe("nodesPurge", () => {
     expect(await counts(t, ws)).toEqual({ nodes: 0, trees: 0, privacy: 0, links: 0, facts: 0 });
     const scheduled = await t.run(async (ctx) => await ctx.db.system.query("_scheduled_functions").collect());
     expect(scheduled).toHaveLength(0);
+  });
+
+  test("forgetting the tree drops the access version, so a rebuilt state starts again at 1", async () => {
+    const t = convexTest(schema, modules);
+    const ws = await workspace(t, "versions");
+    const other = await workspace(t, "kept-version");
+    await t.run(async (ctx) => {
+      await ctx.db.insert("nodeAccessState", { workspaceId: ws, version: 7, orphans: [] });
+      await ctx.db.insert("nodeAccessVersions", { workspaceId: ws, version: 7 });
+      await ctx.db.insert("nodeAccessVersions", { workspaceId: other, version: 4 });
+    });
+
+    await t.run((ctx) => forgetWorkspaceTree(ctx as unknown as MutationCtx, ws));
+    const { refreshSnapshot } = await import("../../functions/lib/nodes/accessBackfill");
+    await t.run(async (ctx) => {
+      await refreshSnapshot(ctx as unknown as MutationCtx, ws);
+    });
+
+    const versions = await t.run(async (ctx) => ({
+      rebuilt: await ctx.db.query("nodeAccessVersions").withIndex("by_workspace", (q) => q.eq("workspaceId", ws)).unique(),
+      kept: await ctx.db.query("nodeAccessVersions").withIndex("by_workspace", (q) => q.eq("workspaceId", other)).unique(),
+    }));
+    expect(versions.rebuilt?.version).toBe(1);
+    expect(versions.kept?.version).toBe(4);
   });
 });

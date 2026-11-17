@@ -14,6 +14,7 @@ import type { Id } from "../../_generated/dataModel";
 import type { MutationCtx } from "../../_generated/server";
 import { phoneSignInPaused } from "./emailProof";
 import { getMembership } from "./workspaceAuth";
+import { forgetGrantResolveCache } from "./controlPlane/grantCacheRows";
 
 /** A token pair minted by the calling action: hashes only, never the plaintext. */
 export type MintedToken = { hashedAccessToken: string; hashedRefreshToken: string };
@@ -69,6 +70,7 @@ export async function applyTexJobGrant(
       createdAt: args.now,
     });
   } else {
+    await forgetGrantResolveCache(ctx, { hashedAccessToken: reusable.hashedAccessToken });
     await ctx.db.patch(reusable._id, fields);
   }
 }
@@ -84,7 +86,10 @@ export async function endTexJobGrant(
     .collect();
   for (const grant of grants) {
     if (grant.clientId !== args.clientId || grant.status !== "active") continue;
-    if ((grant.accessTokenExpiresAt ?? 0) > args.now) await ctx.db.patch(grant._id, { accessTokenExpiresAt: args.now });
+    if ((grant.accessTokenExpiresAt ?? 0) > args.now) {
+      await forgetGrantResolveCache(ctx, { hashedAccessToken: grant.hashedAccessToken });
+      await ctx.db.patch(grant._id, { accessTokenExpiresAt: args.now });
+    }
   }
 }
 

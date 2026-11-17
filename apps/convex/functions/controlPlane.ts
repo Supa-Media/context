@@ -65,6 +65,7 @@ import {
 } from "./lib/controlPlane/bindingShapes";
 import type { ClaimedGatewayJob, LeasedGatewayJob, OpenedGatewayJob } from "./lib/controlPlane/gatewayJobs";
 import * as grantCache from "./lib/controlPlane/grantCache";
+import * as grantCacheRows from "./lib/controlPlane/grantCacheRows";
 import * as session from "./lib/controlPlane/session";
 import * as authorization from "./lib/controlPlane/authorization";
 import * as gatewayJobs from "./lib/controlPlane/gatewayJobs";
@@ -118,6 +119,18 @@ export const rememberGrantResolve = internalMutation({
   args: grantCache.rememberGrantResolveArgs,
   returns: grantCache.rememberGrantResolveReturns,
   handler: grantCache.rememberGrantResolveHandler,
+});
+
+/** Drop saved workspace lists whose token has expired, and rows from before expiry was stored. */
+export const pruneGrantResolveCache = internalMutation({
+  args: {},
+  returns: v.null(),
+  handler: async (ctx): Promise<null> => {
+    if (await grantCacheRows.pruneGrantResolveCache(ctx)) {
+      await ctx.scheduler.runAfter(0, internal.functions.controlPlane.pruneGrantResolveCache, {});
+    }
+    return null;
+  },
 });
 
 export const startAuthorization = internalMutation({
