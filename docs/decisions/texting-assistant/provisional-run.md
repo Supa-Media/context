@@ -44,3 +44,11 @@ and how long the run had gone. The wiring comes from the config the Worker was b
 that was never meant to answer; dropping the end-of-turn wait answers before Decide said so. Both are caught by
 `apps/mcp/test/agentProvisional.test.mjs` (its header lists the sabotage each test catches), the Worker's
 `apps/agent/src/groupProvisional.test.ts`, and the Lab's `texLabProvisional.test.ts`.
+
+**Door beside Front door (Dev2, 2026-11-17).** On a Provisional run the cap check (`allowed`, the control plane's
+daily-limit answer) runs beside the model instead of before it, as on a lean chat: nothing a provisional run says or
+changes past an undoable save leaves before the go anyway, and `allowedFirst` still holds every tool until the cap has
+answered, so a refusal ends the turn with no tool run. Measured over the two days before (`tex_timing`), the check was
+0.25 s of Door at the median and 0.7 s at p90, with rare 4 to 16 s spikes; the history read stays in front, because
+Front door's first call is built from it. Simplifying this back costs that time on every provisional run;
+`agentProvisional.test.mjs` ("Door beside Front door", "the cap refuses") fails if it is reversed or the hold is lost.
