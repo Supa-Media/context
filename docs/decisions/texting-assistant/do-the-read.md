@@ -104,7 +104,9 @@ answered with no search and no fetch. The front door's check
 (`untriedWeb.js`) sends that draft back once. The ask has to be a read
 ("what does the note say", "check my email"), not a mention: a check-in
 says "if nothing needs the chat", and "put it in a plain note" is where
-to write. The chat is not in the pattern for that reason. The claim check
+to write. The chat is not in the pattern for that reason. "note" and
+"page" count only with a determiner right against them, so "note the
+tulips" and "check the status page" are not asks to read the record. The claim check
 on every other turn is unchanged, so the reply reviewer is not.
 
 An extra "want me to" after a finished write is not caught in code. "Want

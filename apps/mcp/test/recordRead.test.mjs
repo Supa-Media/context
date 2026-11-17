@@ -19,6 +19,14 @@ test("an ask to read a note, with no read, is sent back; a mention is not", () =
   assert.equal(recordReadNotice("what's the capital of Portugal", []), null, "general knowledge is not a record");
   assert.equal(recordReadNotice("If nothing needs the chat, answer exactly SKIP.", []), null, "a check-in mentioning the chat is not an ask to read it");
   assert.equal(recordReadNotice("find catering for 30 people, in a plain note", []), null, "naming a note as where to write is not an ask to read one");
+  assert.equal(
+    recordReadNotice("every morning at 7:30 tell me what's due, and note the tulips in a plain note", []),
+    null,
+    "note as a verb, and a plain note to write, is not an ask to read one",
+  );
+  assert.equal(recordReadNotice("check the status page and share fourth", []), null, "a status page is not their page");
+  assert.equal(recordReadNotice("check my email", []), RECORD_READ_NOTICE);
+  assert.equal(recordReadNotice("read the page about the trip", []), RECORD_READ_NOTICE);
 });
 
 test("the front door's check sends a record ask back, and lets it go after a read", async () => {
