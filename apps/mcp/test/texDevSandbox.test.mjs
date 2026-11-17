@@ -244,6 +244,25 @@ test("replay sets a real text's production run beside the same words re-run, fro
   assert.match((await sandbox({ op: "replay", text: "nope" })).error, /no text nope/);
 });
 
+test("replay sends a reply under the same message it went under, and says when a tapback goes again as words", async () => {
+  const real = [
+    { id: "y0", at: T0 - 5_000, kind: "text", eid: "e7", turn: "pt0", from: { kind: "tex" }, text: "Friday: nothing." },
+    { id: "y1", at: T0, kind: "text", eid: "e8", from: { kind: "person", name: "kai" }, replyTo: "e7", text: "look it up again" },
+    { id: "y2", at: T0 + 9_000, kind: "reply", turn: "pt1", ms: 9_000, text: "Still nothing." },
+    { id: "y3", at: T0 + 20_000, kind: "text", eid: "e9", event: "reaction", from: { kind: "person", name: "kai" }, text: "❓ on Tex's message" },
+    { id: "y4", at: T0 + 29_000, kind: "reply", turn: "pt2", ms: 9_000, text: "What's unclear?" },
+  ].map((e, i) => ({ v: 1, seq: i + 1, ...e }));
+  const ledger = { read: async (_n, o = {}) => ({ entries: real.filter((e) => (!o.kinds || o.kinds.includes(e.kind)) && (o.since == null || e.at >= o.since) && (o.until == null || e.at < o.until)) }) };
+  const r = fakeRoute({ polls: 0, rows: [] });
+  const { sandbox } = actions(r, { realChat: async () => ({ ledger, name: "texts" }) });
+  const out = await sandbox({ op: "replay", text: "e8" });
+  assert.equal(r.calls.find((c) => c.op === "send").replyTo, "e7", "threaded under the real message, as in production");
+  assert.equal(out.text.replyTo, "e7");
+  const tap = await sandbox({ op: "replay", text: "e9" });
+  assert.match(tap.text.note, /tapback/);
+  assert.equal(r.calls.filter((c) => c.op === "send")[1].replyTo, undefined);
+});
+
 test("a card names what sent each Tex text, the steps behind it, a job's later texts and how to read a sandbox page", () => {
   const rows = [
     { ...sentRow, line: { name: "photon", inMs: 850 } },

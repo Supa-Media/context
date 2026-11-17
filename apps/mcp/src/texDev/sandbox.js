@@ -449,9 +449,12 @@ export function createSandboxActions({ route, graphOf, page, env, origin, realCh
     const opened = await call({ op: "open", source: "chat", chatId: chat, base: args.text, ...(typeof args.draft === "string" ? { versionId: args.draft } : {}) });
     if (opened.error) return opened;
     const as = prod.row.who === "You" ? undefined : prod.from;
-    const card = await runAndWait("send", { sandboxId: opened.sandboxId, text: prod.row.text, ...(as ? { as } : {}), wait: args.wait });
+    // The test chat holds the real rows under their own ids, so a reply goes under the same message it went under.
+    const replyTo = prod.row.replyTo;
+    const card = await runAndWait("send", { sandboxId: opened.sandboxId, text: prod.row.text, ...(as ? { as } : {}), ...(replyTo ? { replyTo } : {}), wait: args.wait });
+    const notes = [...(prod.pics ? ["its pictures are not sent again"] : []), ...(prod.tapback ? ["a tapback: its log keeps only its words, so it is sent again as a text"] : [])];
     return {
-      text: { id: args.text, who: prod.row.who, words: short(prod.row.text, TEXT_CUT), ...(prod.pics ? { note: "its pictures are not sent again" } : {}) },
+      text: { id: args.text, who: prod.row.who, words: short(prod.row.text, TEXT_CUT), ...(replyTo ? { replyTo } : {}), ...(notes.length ? { note: notes.join("; ") } : {}) },
       production: prod.card,
       sandboxId: opened.sandboxId,
       now: card,
@@ -534,13 +537,15 @@ export async function prodRun({ ledger, name }, eid) {
   }
   const said = entries.filter((e) => e.kind === "text" && e.turn === reply.turn && e.from?.kind === "tex");
   const who = text.from?.name ? String(text.from.name) : "You";
-  const row = { id: eid, who, text: String(text.text ?? ""), at: text.at, prod: true };
+  // A reply keeps the text it was sent under, so its replay is threaded the same way (Decide reads "(replying to You)").
+  const row = { id: eid, who, text: String(text.text ?? ""), at: text.at, prod: true, ...(typeof text.replyTo === "string" && text.replyTo !== "" ? { replyTo: text.replyTo } : {}) };
   const rows = [row, ...(said.length ? said : [{ text: reply.text ?? "", at: reply.at }]).map((t, i) => ({ id: `${eid}r${i}`, reply: eid, who: "Tex", text: String(t.text ?? ""), at: t.at, ms: reply.ms, ...(i === 0 ? { steps } : {}) }))];
   const card = runCard({ rows, msgId: eid, graph: { nodes: [], edges: [] }, draft: "production" });
   return {
     row,
     from: text.from?.name ?? null,
     pics: Array.isArray(text.attachments) && text.attachments.length > 0,
+    tapback: text.event === "reaction",
     card: { ...card, turn: reply.turn, ...(reply.version ? { version: reply.version } : {}), notFired: "not worked out for a production run: it ran on its own version's graph", drill: `turn { chat, turn: "${reply.turn}" } reads it whole` },
   };
 }

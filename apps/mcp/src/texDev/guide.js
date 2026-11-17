@@ -87,7 +87,7 @@ export const ACTIONS = [
       "again re-runs a text (after use, or on `draft`) and answers both cards and the diff: Tex's words, times, steps only in one, each changed step's time and output. " +
       "A card's texSent names what sent each Tex text (fd, job, ...), its cause (the ids of the steps that led to it, as logged) and the line's delay; jobTexts are a background job's later texts; writes list what the turn would have changed (notes, emails, pages, pictures, drafts, refused), and page reads a sandbox page whole. " +
       "use sets the draft the next texts run on. try sends one text to up to 4 drafts, each in its own test chat opened the same way, side by side. " +
-      "replay re-runs one of your real texts (its id from moments, mine or entries) in a test chat opened on that chat just before it, on main or a draft, and answers the production run's card (what its log shows ran), the new card and the diff. " +
+      "replay re-runs one of your real texts (its id from moments, mine or entries) in a test chat opened on that chat just before it, on main or a draft (a reply goes under the same message it went under; a tapback goes again as words), and answers the production run's card (what its log shows ran), the new card and the diff. " +
       "pics: up to 6 (https images; text may then be empty); replyTo quotes a row; react is a tapback (❤️ 👍 👎 😂 ‼️ ❓), handed to the chat object as a real one, which answers or only notes it; " +
       "edit and unsend reach the edit step as a real iMessage edit or Undo Send (\"same\" stays quiet, \"turn\" runs a turn, \"withdraw\" takes a waiting text back). back and drop cut the test texts, reset deletes the test chat; get is the Lab's raw view",
   ],
