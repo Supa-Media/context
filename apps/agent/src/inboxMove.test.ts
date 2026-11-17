@@ -1,8 +1,35 @@
 import { describe, expect, test } from "vitest";
-import { KEEP_OLD_MS, PLACE_KEY, RETRY_MOVE_MS, decodeValue, encodeValue, movedAlarm, type Place } from "./inboxMove";
+import { KEEP_OLD_MS, PLACE_KEY, RETRY_MOVE_MS, decodeValue, encodeValue, movedAlarm, placeGate, type Place } from "./inboxMove";
 import { PHONE, World, memoryStorage, oldInboxWith } from "./inboxMoveWorld.testing";
 
 describe("moving a texting inbox to US East", () => {
+  test("the old inbox is asked with the input gate open, so a call back is not stuck behind the copy", async () => {
+    const storage = memoryStorage();
+    let held = false;
+    const block = async <T>(run: () => Promise<T>) => {
+      held = true;
+      try {
+        return await run();
+      } finally {
+        held = false;
+      }
+    };
+    const stubs = () => ({
+      fetch: async (request: Request) => {
+        const path = new URL(request.url).pathname;
+        if (path === "/__move_out") {
+          expect(held).toBe(false);
+          return Response.json({ busy: true }, { status: 409 });
+        }
+        if (path === "/__move_back") return new Response(null, { status: 200 });
+        return new Response("old");
+      },
+    });
+    const answer = await placeGate(new Request("https://inbox/get?k=count", { headers: { "x-inbox-name": PHONE } }), storage, stubs, 0, block, () => 1_000_000);
+    expect("response" in answer).toBe(true);
+    if ("response" in answer) expect(await answer.response.text()).toBe("old");
+  });
+
   test("the first call copies the idle old inbox whole, checked, alarm too, and the old one passes later calls on", async () => {
     const world = new World();
     const old = await oldInboxWith(world);
