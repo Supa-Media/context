@@ -203,6 +203,22 @@ async function tapbackOn(photon: Fetcher, place: PhotonPlace, guid: string, emoj
 const ONE_LINK = /^https?:\/\/\S+$/i;
 
 /**
+ * A send under `replyTo`, and the same send plain when the bridge refuses the thread (a 4xx: an empty or unknown
+ * target), as Sendblue's line does (`sendblue.ts` `sendMessage`): a reply outside the thread beats no reply. An empty
+ * `replyTo` is no thread at all. A refusal of the plain send, or any failure, still throws.
+ */
+export async function threadedOrPlain<T>(replyTo: string | undefined, send: (replyTo?: string) => Promise<T>): Promise<T> {
+  if (replyTo === undefined || replyTo === "") return await send();
+  try {
+    return await send(replyTo);
+  } catch (error) {
+    if (!isRefusal(error)) throw error;
+    console.log(JSON.stringify({ event: "photon_thread", outcome: "refused" }));
+    return await send();
+  }
+}
+
+/**
  * Tex's words on Photon, with a rich link where they hold one: a text that is one link goes with `linkPreview`; words
  * with a link go plain, then their first link alone with its preview, as iMessage does when a person sends both; any
  * other text goes plain. Resolves to the words' guid, the one a later text threads under. The link's own bubble is
@@ -210,8 +226,8 @@ const ONE_LINK = /^https?:\/\/\S+$/i;
  */
 export async function sendPhotonWords(photon: Fetcher, place: PhotonPlace, text: string, replyTo?: string): Promise<string | undefined> {
   const words = text.slice(0, MAX_REPLY_TEXT);
-  if (ONE_LINK.test(words.trim())) return await sendPhotonText(photon, place, words.trim(), { replyTo, linkPreview: true });
-  const guid = await sendPhotonText(photon, place, words, { replyTo });
+  if (ONE_LINK.test(words.trim())) return await threadedOrPlain(replyTo, (under) => sendPhotonText(photon, place, words.trim(), { ...(under ? { replyTo: under } : {}), linkPreview: true }));
+  const guid = await threadedOrPlain(replyTo, (under) => sendPhotonText(photon, place, words, under ? { replyTo: under } : {}));
   const link = linksIn(words).find((found) => ONE_LINK.test(found));
   if (link !== undefined) {
     try {
@@ -239,7 +255,7 @@ export function photonLine(deps: LineDeps): Line {
       const card = cardsOn(deps.appCard) ? noteCard(text, deps.appCard) : null;
       if (card) {
         try {
-          return await sendPhotonApp(p, place, photonCard(card), replyTo);
+          return await threadedOrPlain(replyTo, (under) => sendPhotonApp(p, place, photonCard(card), under));
         } catch (error) {
           // A line that refuses the card gets the link itself: the card is never the only way to the note.
           if (!isRefusal(error)) throw error;
@@ -249,17 +265,20 @@ export function photonLine(deps: LineDeps): Line {
     },
     sendMedia: async (chatId, media, _key, replyTo) => {
       const p = photon();
-      await sendPhotonAttachment(p, await dmPlace(p, chatId), attachmentOf(media), replyTo);
+      const place = await dmPlace(p, chatId);
+      await threadedOrPlain(replyTo, (under) => sendPhotonAttachment(p, place, attachmentOf(media), under));
     },
     sendAppCard: async (chatId, card, replyTo) => {
       const p = photon();
-      await sendPhotonApp(p, await dmPlace(p, chatId), photonCard(card), replyTo);
+      const place = await dmPlace(p, chatId);
+      await threadedOrPlain(replyTo, (under) => sendPhotonApp(p, place, photonCard(card), under));
     },
     sendCarousel: async (chatId, urls, replyTo) => {
       if (urls.length === 0) return;
       const p = photon();
       const parts = urls.map((url) => ({ attachment: attachmentOf({ url }) }));
-      await sendPhotonMultipart(p, await dmPlace(p, chatId), parts, replyTo);
+      const place = await dmPlace(p, chatId);
+      await threadedOrPlain(replyTo, (under) => sendPhotonMultipart(p, place, parts, under));
     },
     // Hosted at a short-lived address the bridge fetches and sends as a real attachment, not a link (as Sendblue's).
     uploadPicture: async (picture: Picture) => {
@@ -332,7 +351,8 @@ export function photonGroupLine(deps: GroupLineDeps): GroupLine {
   return {
     sendText: async (place, text, replyTo) => await sendPhotonWords(photon(), placeOf(place), text, replyTo),
     sendMedia: async (place, url, replyTo) => {
-      await sendPhotonAttachment(photon(), placeOf(place), attachmentOf({ url }), replyTo);
+      const where = placeOf(place);
+      await threadedOrPlain(replyTo, (under) => sendPhotonAttachment(photon(), where, attachmentOf({ url }), under));
     },
     react: async (place, messageId, emoji) => {
       try {

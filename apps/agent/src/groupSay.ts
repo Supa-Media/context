@@ -178,7 +178,8 @@ async function sayNow(storage: InboxStorage, deps: GroupSayDeps, message: Pick<G
  */
 export function threadUnder(message: Pick<GroupMessage, "messageId" | "reaction" | "answersTapback">): string | undefined {
   if (message.answersTapback !== undefined) return message.answersTapback.on;
-  return message.reaction !== undefined ? undefined : message.messageId;
+  // A routine's run has no message of its own (`chatRoutineMessage`: messageId ""), so it threads under nothing.
+  return message.reaction !== undefined || message.messageId === "" ? undefined : message.messageId;
 }
 
 /** This lane's way out for the one sender (`sendOne.ts`): the group line, under the message answered, and Tex's sent handles. */

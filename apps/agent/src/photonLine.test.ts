@@ -304,3 +304,35 @@ describe("Photon group line (photonLine.ts, groupLine.ts dispatch)", () => {
     expect(b.calls).toEqual([]);
   });
 });
+
+describe("Photon threads: a refused thread goes plain, and an empty one is no thread", () => {
+  it("a group text under an empty message id (a routine's run) is sent plain, never with replyTo ''", async () => {
+    const b = bridge((op, body) => (op === "send/text" && body.replyTo === "" ? refuse(400) : undefined));
+    const app = groupLineFor({ fetch: globalThis.fetch, photon: b.photon }, GROUP);
+    expect(await app.sendText({ line: "+15550000001", groupId: GROUP }, "morning check-in", "")).toBe("sent-guid");
+    expect(b.calls).toEqual([{ op: "send/text", body: { line: "+15550000001", chat: "iMessage;+;chat123", text: "morning check-in" } }]);
+  });
+
+  it("a group text whose thread the bridge refuses (400 invalid_replyTo) goes again plain, once", async () => {
+    const b = bridge((op, body) => (op === "send/text" && body.replyTo !== undefined ? refuse(400) : undefined));
+    const app = groupLineFor({ fetch: globalThis.fetch, photon: b.photon }, GROUP);
+    expect(await app.sendText({ line: "+15550000001", groupId: GROUP }, "hi", "gone")).toBe("sent-guid");
+    expect(b.calls.map((c) => c.body.replyTo)).toEqual(["gone", undefined]);
+  });
+
+  it("a 1:1 text and picture whose thread is refused go plain; a 500 is not a refusal and still fails", async () => {
+    const b = bridge((op, body) => (op.startsWith("send/") && body.replyTo !== undefined ? refuse(400) : undefined));
+    const line = lineFor(deps(b.photon), DM);
+    await line.sendText(DM, "hello", "k", "gone");
+    await line.sendMedia(DM, { url: "https://files.example.com/a.png" }, "k2", "gone");
+    expect(b.calls.map((c) => [c.op, c.body.replyTo])).toEqual([
+      ["send/text", "gone"],
+      ["send/text", undefined],
+      ["send/attachment", "gone"],
+      ["send/attachment", undefined],
+    ]);
+    const down = bridge((op, body) => (op === "send/text" && body.replyTo !== undefined ? refuse(500) : undefined));
+    await expect(lineFor(deps(down.photon), DM).sendText(DM, "hello", "k", "r")).rejects.toBeInstanceOf(ServiceError);
+    expect(down.calls).toHaveLength(1);
+  });
+});
