@@ -235,3 +235,23 @@ test("a Front door row runs at its own time of day in its person's zone, never n
   assert.match(front, /^clock: 08:02$/m);
   assert.equal(parseTest(`---\n${front}\n---\n\n# T\n\n## 1. hi\n\n- person texts: "hi"\n`).front.clock, "08:02");
 });
+
+test("a Dev text's pictures go in with it, and an earlier one with its line, when the repository keeps them", () => {
+  const url = (name) => `https://raw.githubusercontent.com/Supa-Media/context/main/apps/mcp/bench/ai/pictures/${name}`;
+  const c = conv([
+    { id: "m1", who: "Maya", text: "", pics: [{ url: url("dev-wedding-rsvp.jpg") }] },
+    { id: "m2", who: "Tex", tex: true, text: "Got it." },
+    { id: "m3", who: "Maya", text: "this ok?", pics: [{ url: url("dev-passport-page.jpg") }], labels: { fd: { must: ["x"] } } },
+  ]);
+  assert.deepEqual(earlierLines(c, 2), [{ from: "person", text: "", pictures: ["dev-wedding-rsvp.jpg"] }, { from: "tex", text: "Got it." }]);
+  assert.equal(cantRun(c, 2), null);
+  assert.equal(cantRun(c, 0), null, "a picture with no words is a text");
+  const test = fdTest([unit(c, 2)], "run_as: x");
+  assert.match(test, /^- person sends picture: dev-passport-page\.jpg$/m);
+  assert.match(test, /^- earlier person: ""\n- earlier person sends picture: dev-wedding-rsvp\.jpg$/m);
+  const parsed = parseTest(`---\nrun_as: x\n---\n\n${test.split("---\n").slice(2).join("---\n")}`);
+  assert.deepEqual(parsed.questions[0].sendsPictures, ["dev-passport-page.jpg"]);
+  assert.deepEqual(parsed.questions[0].earlier[0].pictures, ["dev-wedding-rsvp.jpg"]);
+  const elsewhere = conv([{ id: "m1", who: "Maya", text: "hi", pics: [{ url: "https://example.com/a.jpg" }] }]);
+  assert.match(cantRun(elsewhere, 0), /isn't kept in the repository/);
+});

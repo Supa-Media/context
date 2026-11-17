@@ -42,6 +42,7 @@ import { wireSearchSettings } from "../src/search/settings.js";
 import { texStoreNamespace } from "../test/texStoreFixture.mjs";
 import { assertIsoDate, clockMs, installClock, noonUtcMs, noteModifiedAt, realNow } from "./clock.mjs";
 import { benchCalendar } from "./calendar.mjs";
+import { keepEarlierPictures } from "./earlierPictures.mjs";
 import { chatEntries, modelLog } from "./modelLog.mjs";
 import { failedStatus, roundsOf } from "./trace.mjs";
 
@@ -486,19 +487,17 @@ export async function createWorld(bench, person, setupRaw, models, today = null,
       };
     },
 
-    /**
-     * A Lab replay's chat before its text (`labReplay.mjs`): each line posted to the chat's ledger as the texting
-     * Worker posts it, theirs as a text and Tex's as its delivered answer to the text before, so the replayed turn
-     * reads the chat it read then. Nothing is answered.
-     */
+    /** A chat before its text, each line posted as the Worker posts it (theirs a text, Tex's its answer to the one before); nothing is answered. */
     async earlier(lines) {
       let last = null;
       for (const line of lines) {
         const sender = line.who && group ? group.people.get(line.who) : tagger; // a group's other member: `- earlier @priya:`
         if (line.who && group && !sender) throw new Error(`@${line.who} is not in the group's workspace (people.md)`);
-        const event = textedEvent(line.text, line.from === "person" ? sender : null);
+        const event = { ...textedEvent(line.text, line.from === "person" ? sender : null), ...(line.pictures?.length ? { kind: "picture", pictures: line.pictures } : {}) };
         if (line.from === "person") last = event;
-        await postEvents([line.from === "person" ? event : { ...event, from: { kind: "tex" }, turn: last?.turn ?? event.turn, covers: last ? [last.id] : [], delivered: true }]);
+        const { pictures, ...posted } = line.from === "person" ? event : { ...event, from: { kind: "tex" }, turn: last?.turn ?? event.turn, covers: last ? [last.id] : [], delivered: true };
+        await postEvents([posted]); // Tex's answer to a picture kept it, as that turn did (`earlierPictures.mjs`); a bench group has no home
+        if (line.from === "tex" && last?.pictures && !group) await keepEarlierPictures({ env, token, workspaceId: ids.get(own.workspace), timeZone: models.timeZone ?? "UTC", at: last.at, turn: last.turn, names: last.pictures });
       }
     },
     /**

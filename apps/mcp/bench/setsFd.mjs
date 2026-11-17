@@ -51,12 +51,20 @@ export function earlierLines(c, i) {
   for (const m of c.msgs.slice(0, i)) {
     if (m.kind && m.kind !== "reply") continue; // a tapback, an edit or an unsend is not a line of the chat's text
     if (m.via) continue; // a check-in or a routine fired a turn; nobody texted it
-    if (typeof m.text !== "string" || m.text.trim() === "") continue;
-    if (m.tex) lines.push({ from: "tex", text: m.text });
-    else lines.push(c.kind === "group" ? { from: "person", who: handleOf(m.who), text: m.text } : { from: "person", text: m.text });
+    const pictures = m.tex ? [] : picturesOf(m);
+    if ((typeof m.text !== "string" || m.text.trim() === "") && pictures.length === 0) continue;
+    const text = typeof m.text === "string" ? m.text : "";
+    if (m.tex) lines.push({ from: "tex", text });
+    else lines.push({ from: "person", ...(c.kind === "group" ? { who: handleOf(m.who) } : {}), text, ...(pictures.length > 0 ? { pictures } : {}) });
   }
   return lines.slice(-MAX_EARLIER);
 }
+
+/** Where a Dev message's picture is kept in this repository: `pics` urls under `apps/mcp/bench/ai/pictures/`. */
+const REPO_PICTURE = /\/apps\/mcp\/bench\/ai\/pictures\/([A-Za-z0-9][A-Za-z0-9._-]*\.(?:png|jpe?g))$/i;
+
+/** The bench picture names of a message's `pics`, each one kept in this repository; one kept elsewhere is left out. */
+export const picturesOf = (m) => (Array.isArray(m.pics) ? m.pics : []).map((p) => REPO_PICTURE.exec(String(p?.url ?? ""))?.[1]).filter(Boolean);
 
 const DAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
@@ -132,8 +140,8 @@ export function cantRun(c, i) {
   if (m.via === "checkin" && checkinMail(m.text) === null) return "a check-in row runs only when it found an email (\"Gmail: ...\")";
   if (m.via && m.via !== "checkin" && m.via !== "routine") return `a ${m.via} row can't run as a Front door test`;
   if (m.kind && m.kind !== "reply") return `a ${m.kind} can't run as a Front door test: only a text or a reply`;
-  if (Array.isArray(m.pics) && m.pics.length > 0) return "a text with pictures can't run as a Front door test yet";
-  if (typeof m.text !== "string" || m.text.trim() === "") return "the text is empty";
+  if (Array.isArray(m.pics) && picturesOf(m).length < m.pics.length) return "a picture of this text isn't kept in the repository (apps/mcp/bench/ai/pictures/)";
+  if ((typeof m.text !== "string" || m.text.trim() === "") && picturesOf(m).length === 0) return "the text is empty";
   if (!Array.isArray(c.members) || typeof c.members[0] !== "string") return "the conversation names no person";
   return null;
 }
@@ -180,8 +188,12 @@ export function fdTest(units, front) {
       `## ${k + 1}. ${String(m.text).replace(/\s+/g, " ").slice(0, 120)}`,
       "",
       "- kind: task",
-      m.via === "checkin" ? `- check-in mail: ${JSON.stringify(checkinMail(m.text))}` : m.via === "routine" ? `- routine runs: ${JSON.stringify(m.text)}` : `- person texts: ${JSON.stringify(m.text)}`,
-      ...earlierLines(u.convo, u.at).map((line) => `- earlier ${line.who ? `@${line.who}` : line.from}: ${JSON.stringify(line.text)}`),
+      m.via === "checkin" ? `- check-in mail: ${JSON.stringify(checkinMail(m.text))}` : m.via === "routine" ? `- routine runs: ${JSON.stringify(m.text)}` : `- person texts: ${JSON.stringify(m.text ?? "")}`,
+      ...picturesOf(m).map((name) => `- person sends picture: ${name}`),
+      ...earlierLines(u.convo, u.at).flatMap((line) => {
+        const who = line.who ? `@${line.who}` : line.from;
+        return [`- earlier ${who}: ${JSON.stringify(line.text)}`, ...(line.pictures ?? []).map((name) => `- earlier ${who} sends picture: ${name}`)];
+      }),
       ...(l.must || []).map((x) => `- must: ${x}`),
       ...(l.never || []).map((x) => `- must not: ${x}`),
     ];

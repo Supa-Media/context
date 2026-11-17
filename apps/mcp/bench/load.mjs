@@ -140,7 +140,17 @@ function readQuestion(sec) {
     else if ((m = line.match(/^- earlier (person|tex):\s*(.*)$/))) q.earlier.push({ from: m[1], text: jsonText(m[2], sec.n) });
     else if ((m = line.match(/^- earlier @([a-z0-9-]+):\s*(.*)$/))) q.earlier.push({ from: "person", who: m[1], text: jsonText(m[2], sec.n) });
     else if ((m = line.match(/^- @([a-z0-9-]+) before text (\d+):\s*(.*)$/))) q.others.push({ from: m[1], before: Number(m[2]), text: unquote(m[3]) });
-    else if ((m = line.match(/^- person sends picture:\s*(.*)$/))) q.sendsPicture = pictureName(m[1].trim());
+    else if ((m = line.match(/^- person sends picture:\s*(.*)$/))) {
+      const name = pictureName(m[1].trim());
+      q.sendsPicture ??= name; // the first; every one is in `sendsPictures`
+      (q.sendsPictures ??= []).push(name);
+    }
+    else if ((m = line.match(/^- earlier (?:person|@[a-z0-9-]+) sends picture:\s*(.*)$/))) {
+      // A picture sent with the earlier line before it (`earlierPictures.mjs`).
+      const before = q.earlier.at(-1);
+      if (!before || before.from !== "person") throw new Error(`question ${sec.n}: an earlier picture follows the earlier line of the person who sent it`);
+      (before.pictures ??= []).push(pictureName(m[1].trim()));
+    }
     else if (/^- person answers asks\s*$/.test(line)) q.answersAsks = true;
     else if ((m = line.match(/^- if asked (.+?):\s*(.*)$/))) q.ifAsked.push({ when: m[1], say: unquote(m[2]) });
     else if ((m = line.match(/^- must not:\s*(.*)$/))) q.mustNot.push(m[1].trim());

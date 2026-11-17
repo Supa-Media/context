@@ -58,6 +58,7 @@ import { setsCommand } from "./setsRun.mjs";
 import { keyMarkdown, keyPathFor, resultMarkdown } from "./report.mjs";
 import { createWorld } from "./world.mjs";
 import { simMemo, simulateFor } from "./simWorld.mjs";
+import { benchPicture } from "./earlierPictures.mjs";
 import { filedNotes } from "./checks.mjs";
 import { realNow } from "./clock.mjs";
 import { benchFolder } from "./folder.mjs";
@@ -181,12 +182,6 @@ export function handOffAnswer(turn, question, events) {
   return null;
 }
 
-/** A picture a test sends with its opening text (`- person sends picture:`), from the repository's `ai/pictures/`. */
-async function benchPicture(name) {
-  const data = await readFile(fileURLToPath(new URL(`./ai/pictures/${name}`, import.meta.url)));
-  return { name, mediaType: /\.png$/i.test(name) ? "image/png" : "image/jpeg", data: data.toString("base64") };
-}
-
 /** One conversation: the person's opening text, then as many turns as they take. */
 /**
  * A test's `computer: Studio Mac (claude, codex) 3 slots`: the one computer its
@@ -216,8 +211,9 @@ export async function converse(world, question, person, mode = null, background 
   let message = question.personStarts ?? question.texts ?? question.text;
   const limit = personTextLimit(question);
   for (let texts = 0; message !== null && texts < limit; texts += 1) {
-    const pictures = texts === 0 && question.sendsPicture ? [await benchPicture(question.sendsPicture)] : [];
-    conversation.push({ from: "person", text: pictures.length > 0 ? `${message}\n[Sent a picture: ${question.sendsPicture}]` : message });
+    const sent = texts === 0 ? (question.sendsPictures ?? (question.sendsPicture ? [question.sendsPicture] : [])) : [];
+    const pictures = await Promise.all(sent.map(benchPicture));
+    conversation.push({ from: "person", text: pictures.length > 0 ? `${message}\n${sent.map((name) => `[Sent a picture: ${name}]`).join("\n")}` : message });
     const seen = world.browser().length;
     const others = (question.others ?? []).filter((line) => line.before === texts + 1); // a group's other members, before this text (`load.mjs`)
     for (const line of others) conversation.push({ from: "person", text: `@${line.from}: ${line.text}` });

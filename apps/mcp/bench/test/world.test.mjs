@@ -549,3 +549,25 @@ test("Tex's calendar copy is housekeeping, never recorded as a change the answer
   const { CALENDAR_PATH } = await import("../../src/agent/calendarCache.js");
   assert.equal(CALENDAR_PATH, "tex/calendar.md", "world.mjs names the calendar copy by this path");
 });
+
+// An earlier picture (`earlierPictures.mjs`) is kept as the turn that answered it kept it, so the next turn's week of
+// history shows it where it was sent, as production's does. Sabotage: drop the `kind: "picture"` on the earlier
+// event, or the reply entry `keepEarlierPictures` writes, and the turn never learns where the picture is.
+test("a picture sent earlier in the chat is in the next turn's history, as production keeps it", async () => {
+  const sent = [];
+  const gatewayFetch = async (_url, init) => {
+    sent.push(JSON.parse(init.body));
+    return new Response(JSON.stringify({ content: [{ type: "text", text: "Saw it." }], stop_reason: "end_turn", usage: { input_tokens: 10, output_tokens: 5 } }), { status: 200, headers: { "Content-Type": "application/json" } });
+  };
+  const world = await createWorld(bench, "Maya", SETUP, { gatewayFetch, ledgerTurns: true });
+  try {
+    await world.earlier([{ from: "person", text: "look at this", pictures: ["link-preview.png"] }, { from: "tex", text: "Got it." }]);
+    const chat = await world.chatLedger();
+    const reply = chat.find((entry) => entry.kind === "reply" && typeof entry.attached === "string");
+    assert.match(reply.attached, /link-preview\.png \(image \S+ in tex\/pictures\/\d{4}-\d{2}\.md\)/);
+    assert.ok((await world.text("what did that say?")).ok);
+    assert.ok(sent.some((body) => /link-preview\.png \(image \S+ in tex\/pictures\/\d{4}-\d{2}\.md\)/.test(JSON.stringify(body.messages))), "the turn is shown the picture where it was sent, by where it is kept");
+  } finally {
+    world.close();
+  }
+});
