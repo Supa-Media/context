@@ -66,10 +66,24 @@ its span and cap:
 - `summaries:<days|all>:<chars>`: each earlier day's summary before that window, within the last `days` days, the
   newest kept within `chars`, each ending with its `read_day` line.
 
-Main reads `summaries:all:40000` then `chat:7:40000`. Changing a span or cap is a Lab edit of the front door's
+Main reads `summaries:all:30000` and `chat:7:130000`. Changing a span or cap is a Lab edit of the front door's
 reads, never code. Taking both out puts the front door back on its older view. The history modules run whether or
 not conversation threads are on. Test: `apps/mcp/test/weekHistory.test.mjs` ("the chat and its summaries are two
-modules…", "a summaries module of 3 days…") and the replay case `week-history-shown`.
+modules…", "a summaries module of 3 days…") and the replay case `history-under-cliff`.
+
+## Under the 100k-token price cliff (2026-11-17)
+
+Haiku 5.5 charges five times for input past 100,000 tokens. A 1:1 front-door round that day wrote 138,187 tokens.
+The system modules were 210,914 characters, about 53,500 tokens. The rest was the history the caps allowed: 200,000
+characters of the last 7 days plus 120,000 of older summaries, about 85,000 tokens when both caps were full.
+
+40,000 characters of that week had kept 218 of a busy group's 721 texts, so the week itself was about 132,000
+characters. `chat:7:130000` holds that week (a thin slice of the oldest texts, if any, is named and `read_day`
+opens the day). `summaries:all:30000` keeps the newer older-day summaries, each still ending with its `read_day`
+line. A full history is then 160,000 characters, about 40,500 tokens at the measured 3.95 characters per token.
+With the system modules, the round stays under 100,000. The newest texts of the week stay verbatim. A day the cap
+leaves out is still opened by the call its summary names, or by `read_day` when the week's own note says the
+oldest texts were left out.
 
 **In the bench (2026-11-17).** A Front door unit test posts the chat before its text at each line's own time
 (`apps/mcp/bench/setsFd.mjs` `minutesBefore`, `clock.mjs` `atEarlierTime`), as the Worker posted it live, so the
