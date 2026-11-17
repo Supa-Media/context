@@ -271,6 +271,20 @@
       "want": "hush",
       "from": "eager-1117",
       "cause": "a reply under Tex's text that asks another person is theirs, not Tex's"
+    },
+    {
+      "id": "g-banter-about-tex-after-tex",
+      "chat": "group",
+      "lines": [
+        "@mara: Tex what's the high tomorrow",
+        "You: 61.",
+        "@jules: tex is honestly the only one here who answers on time",
+        "@mara: tex is a phone"
+      ],
+      "text": "@jules: that's what i'm saying",
+      "want": "hush",
+      "from": "eager-1117",
+      "cause": "people joking about Tex with each other right after it spoke is their talk, not a question for Tex"
     }
   ]
 }
