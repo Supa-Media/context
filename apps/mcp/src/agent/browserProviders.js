@@ -137,11 +137,12 @@ export function siteShotsComputer(env, { owner = null, viewer = null, jar = null
     return { ...result, provider: "browser-use" };
   }
 
-  async function browseOn(session, steps, { handoff = false, fresh = false, holder = null, patient = false, waitMs, provider = null } = {}) {
+  async function browseOn(session, steps, { handoff = false, fresh = false, holder = null, patient = false, waitMs, provider = null, trial = false } = {}) {
     // The gateway names the provider. The screenshot Worker does not switch by itself.
     if ((provider === "browser-use" || onBrowserUse) && browserUse === "on") {
       const result = await browseUse(steps, { handoff, fresh, holder, patient, waitMs });
-      if (!result?.refused && result?.session) onBrowserUse = true;
+      // A trial does not move the question. It is kept only when the fallback clears.
+      if (trial !== true && !result?.refused && result?.session) onBrowserUse = true;
       return result;
     }
     // How long a blank page is waited for (`infra/site-shots/src/patience.ts`): a job's long wait, else the Worker's own short one.
@@ -238,6 +239,19 @@ export function siteShotsComputer(env, { owner = null, viewer = null, jar = null
     },
 
     browserUseFallback: () => browserUse,
+
+    /** The fallback cleared: the rest of this question runs on Browser Use. */
+    adoptBrowserUse() {
+      onBrowserUse = true;
+    },
+
+    /** The fallback did not clear. Drop that session so the question and the live view stay on Browserbase. */
+    async releaseBrowserUse() {
+      onBrowserUse = false;
+      if (typeof owner === "string" && owner.length > 0) {
+        await post(binding, "/browse/close", { provider: "browser-use", owner }).catch(() => undefined);
+      }
+    },
 
     async closeBrowser(session, { waiting = false } = {}) {
       // Waiting on the person: held fifteen minutes rather than five (`browserHold.js`).

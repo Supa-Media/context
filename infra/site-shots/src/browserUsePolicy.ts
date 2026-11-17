@@ -111,7 +111,7 @@ export interface BrowseLogRow {
   /** `managed` is the vendor residential proxy. `direct` is the one retry with it off. */
   proxy?: "managed" | "direct";
   costUsd?: number;
-  fallback?: { ran: boolean; outcome?: string; costUsd?: number | null };
+  fallback?: { ran: boolean; outcome?: string; costUsd?: number | null; step?: string };
 }
 
 const OUTCOMES = new Set(["ok", "site_blocked", "vendor_refused", "error"]);
@@ -146,10 +146,12 @@ export function browseLogRow(raw: unknown, now = Date.now()): BrowseLogRow | nul
     const fallback = row.fallback as Record<string, unknown>;
     if (typeof fallback.ran === "boolean") {
       const cost = fallback.costUsd === null ? null : money(fallback.costUsd);
+      const step = typeof fallback.step === "string" && /^[a-z_]{1,20}$/.test(fallback.step) ? fallback.step : undefined;
       out.fallback = {
         ran: fallback.ran,
         ...(typeof fallback.outcome === "string" && fallback.outcome.length > 0 && fallback.outcome.length <= 40 ? { outcome: fallback.outcome } : {}),
         ...(cost !== undefined ? { costUsd: cost } : {}),
+        ...(step ? { step } : {}),
       };
     }
   }

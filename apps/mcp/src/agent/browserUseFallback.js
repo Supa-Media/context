@@ -66,10 +66,22 @@ export function fallbackWanted({ flag, reason, already }) {
   return flag === "on" && typeof reason === "string" && already !== true;
 }
 
+/** A step name safe to keep in the block log: never the words that were typed. */
+const STEP = /^[a-z_]{1,20}$/;
+
+/** The first step that did not run, or a stand-in when the run reported none. Null when every step ran. */
+function failedStep(ran) {
+  if (!Array.isArray(ran) || ran.length === 0) return { do: "" };
+  return ran.find((step) => !step || step.ok !== true) ?? null;
+}
+
 /**
  * One retry on Browser Use after the ladder, or the same result when the
- * flag is off or nothing was a site block. `run` is the browse tool's own
- * step runner, so the retry is the same steps on the other browser.
+ * flag is off or nothing was a site block. The other browser starts blank,
+ * so the retry is the silent-submit plan: open the page, then the steps
+ * already done (`submits.plan`). It is cleared only when that plan has no
+ * captcha or block and every step ran. Anything else leaves the question
+ * on the original browser.
  */
 export async function retryOnBrowserUse({ done, captchaLine, handoff, captchas, submits, computer, tried, run, planned }) {
   let trigger = null;
@@ -88,24 +100,39 @@ export async function retryOnBrowserUse({ done, captchaLine, handoff, captchas, 
     });
     if (fallbackWanted({ flag: computer.browserUseFallback?.() ?? "off", reason: trigger, already: tried })) {
       tried = true;
-      const again = await run(planned, { provider: "browser-use" }).catch(() => ({ refused: "browser-use could not be started" }));
+      // Open the page, then the steps already done, then this call: the same plan a silent submit replays.
+      const plan = typeof submits?.plan === "function" ? submits.plan(next.reading?.url) : planned;
+      const again = await run(plan, { provider: "browser-use", trial: true }).catch(() => ({ refused: "browser-use could not be started" }));
       if (!again?.reading) {
         fallback = { ran: false, outcome: "refused" };
         fallbackNote = `\n\nThe site blocked this browser (${trigger}). The other browser was not used: ${again?.refused ?? "browser-use could not be started"}.`;
       } else {
+        const failed = failedStep(again.ran);
         const still = siteBlockAfterLadder({
           blocked: again.blocked,
           captchaStuck: again.captcha === "unsolved",
           captchaKind: again.captchaKind,
           submitStuck: false,
         });
-        next = again;
-        fallback = { ran: true, outcome: still ?? "ok", ...(again.costUsd != null ? { costUsd: again.costUsd } : {}) };
-        if (!still) {
+        const cost = again.costUsd != null ? { costUsd: again.costUsd } : {};
+        // Cleared only when nothing is blocking and every replayed step ran.
+        if (!still && !failed) {
+          again.adopt?.();
+          computer.adoptBrowserUse?.();
+          next = again;
+          fallback = { ran: true, outcome: "ok", ...cost };
           line = "";
           fallbackCleared = true;
           hand = false;
-        } else fallbackNote = `\n\nTried the other browser after a site block (${trigger}); it was blocked too (${still}).`;
+        } else {
+          // The question, the hand-off and the live view stay on the original browser.
+          await computer.releaseBrowserUse?.();
+          const name = failed && typeof failed.do === "string" && STEP.test(failed.do) ? failed.do : undefined;
+          fallback = failed ? { ran: true, outcome: "steps_failed", ...(name ? { step: name } : {}), ...cost } : { ran: true, outcome: still, ...cost };
+          fallbackNote = failed
+            ? `\n\nTried the other browser after a site block (${trigger}); a step did not run (${name ?? "unknown"}).`
+            : `\n\nTried the other browser after a site block (${trigger}); it was blocked too (${still}).`;
+        }
       }
     }
   }
