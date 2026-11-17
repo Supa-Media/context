@@ -746,6 +746,7 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 - [Tex is tested on conversations, split 60/20/20, gated on the Test Set](./testing/test-sets.md)
 - [The Test Set lives only in a sealed eval service](./testing/test-set-service.md)
 - [Lab runs go to GitHub, on the Dev set only](./testing/lab-runs.md)
+- [A Sonnet front door stays inside the Haiku band (2026-11-17)](./testing/sonnet-front-door.md)
 - [The advisor is four roles, each replayed on its own](./testing/advisor-roles.md)
 - [Pull-request checks report broadly and work narrowly](./testing/ci-pipelines.md)
 - [The Convex suite watches the gateway files Convex reaches](./testing/ci-pipelines.md)
