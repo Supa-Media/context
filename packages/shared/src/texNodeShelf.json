@@ -1,14 +1,4 @@
 {
   "about": "Nodes whose code is merged into apps/mcp/src/agent/graph/gatewayNodes.js but not wired into texConfig.json yet (Dev2, 2026-11-16: \"for code changes, create the node inside the code first and merge it to main\"). A shelf node never runs: the runner runs only the config's nodes. A Lab draft wires it, and Promote takes it off the shelf in the same pull request that puts it in the config. Each entry: the node's id, its files (repository paths), and what it is for.",
-  "nodes": {
-    "jobStart": {
-      "files": [
-        "apps/mcp/src/agent/graph/nodes/jobStart.js",
-        "packages/shared/src/jobStart.cjs",
-        "apps/mcp/src/agent/jobStartChoice.js",
-        "apps/mcp/src/agent/background.js"
-      ],
-      "why": "Whether a background job the front door asks for starts now (Dev2, 2026-11-17, jobs as config step 7): start it, pass the ask to the job already doing it (already, the steering choice), wait for a slot (full), or refuse an ask with no title or brief; its limits (cloudSlots 3, machineSlots 8) are the node's config. Wired as fd -> jobStart (uses, when job); once on, each start_background_job call asks it, logged. Unwired, the same rule decides on today's limits."
-    }
-  }
+  "nodes": {}
 }
