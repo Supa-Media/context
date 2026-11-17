@@ -68,18 +68,23 @@ export function resultsOf(rows, ms) {
       got: r.ran === false ? `can't run: ${String(r.why ?? "no way to run alone yet").slice(0, 200)}` : String(r.got ?? (r.right ? "as labelled" : r.why ?? "")),
       want: String(r.want ?? ""),
       ...(r.ran === false ? { ran: false } : {}),
-      // A miss's whole story: each failed line with the judge's reason, then every text Tex sent, so a reader can find
-      // the cause without rerunning (Dev set, 2026-11-17: misses showed one cut line and nothing of the judge's reason).
-      ...(r.right ? {} : detailOf(r)),
+      // A row's whole story: each failed line with the judge's reason, each line that held with its reason, then every
+      // text Tex sent, so a reader can find the cause, or audit a pass, without rerunning (Dev2, 2026-11-17).
+      ...detailOf(r),
     })),
   };
 }
 
-/** A missed row's detail: "never: <line> (<judge's reason>)" per failed line, then "Tex: <texts>"; empty when there is none. */
+/**
+ * A row's detail: "never: <line> (<judge's reason>)" per failed line, "held: must: <line> (<reason>)" per line that
+ * held, then "Tex: <texts>"; empty when there is none.
+ */
 export function detailOf(r) {
-  const misses = (Array.isArray(r.misses) ? r.misses : []).map((m) => `${m.kind === "must not" ? "never" : "must"}: ${m.line}${m.reason ? ` (${m.reason})` : ""}`);
+  const line = (m) => `${m.kind === "must not" ? "never" : "must"}: ${m.line}${m.reason ? ` (${m.reason})` : ""}`;
+  const misses = (Array.isArray(r.misses) ? r.misses : []).map(line);
+  const held = (Array.isArray(r.held) ? r.held : []).map((m) => `held: ${line(m)}`);
   const said = Array.isArray(r.said) ? r.said.filter((t) => typeof t === "string") : [];
-  const text = [...misses, ...(said.length > 0 ? [`Tex: ${said.join(" / ")}`] : [])].join("\n").slice(0, DETAIL_CHARS);
+  const text = [...misses, ...held, ...(said.length > 0 ? [`Tex: ${said.join(" / ")}`] : [])].join("\n").slice(0, DETAIL_CHARS);
   return text === "" ? {} : { detail: text };
 }
 
