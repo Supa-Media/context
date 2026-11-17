@@ -10,7 +10,9 @@ import { AgentRefusal, openProvider } from "../turn.js";
 
 // TEX ENTRY POINT: begin (every await below is a timed `tex` call: `texTiming.js`, checked by `scripts/tex-entry-check.mjs`)
 export async function checkItMayRun(t) {
-  const { body, controlPlane, dispatch, env, group, hot, job, outcome, report, routine, runner, runs, session, stages, store, tex } = t;
+  const { body, controlPlane, dispatch, env, group, hot, job, outcome, report, routine, runner, runs, session, stages, steer = null, store, tex } = t;
+  // The cap check runs beside the model on a lean chat, and on a Provisional run (Dev2, 2026-11-17: Door beside Front door), whose answer and every write already wait for the Worker's go: its no still ends the turn before any tool runs (`allowedFirst`).
+  const allowedBeside = tex.lean || steer?.provisional === true;
   const offeredRead = tex.ahead("tools_list", () => grantedToolsFor(session, store, { texts: true })), historyRead = tex.ahead("history", () => turnReads(store, session, body, { runner, group, dispatch, warm: hot, timeZone: readTimeZone(body.timeZone) ?? DEFAULT_TIME_ZONE, job: job !== null, moment: runner || report !== null || group !== null || job !== null, time: { memory: (run) => tex.ahead("history_memory", run), ledger: (run) => tex.ahead("history_ledger", run), log: (run) => tex.ahead("history_log", run), group: { reads: (run) => tex.ahead("history_group_notes", run), ledger: (run) => tex.ahead("history_group_ledger", run), record: (run) => tex.ahead("history_group_record", run), playbook: (run) => tex.ahead("history_group_playbook", run), voice: (run) => tex.ahead("history_group_voice", run), about: (run) => tex.ahead("history_group_about", run), jobs: (run) => tex.ahead("history_group_jobs", run) } } })); // beside the provider check (`ahead`), a group's memory too now that the egress ledger is set above (2026-10-31)
   const allowedRead = tex.ahead("allowed", () => openProvider(controlPlane, session, body.provider, env, { background: job !== null || report !== null })); // a job's part or report: not on the daily cap (Dev2, 2026-10-31)
   const refused = async (error) => { // the turn's answer when the model may not run here (beside the model on a chat's text: `tex.lean`)
@@ -27,10 +29,10 @@ export async function checkItMayRun(t) {
     // the assistant is not theirs when it is is worse than telling them nothing.
     return json({ error: "model_unavailable" }, 503);
   };
-  if (!tex.lean) {
+  if (!allowedBeside) {
     const error = await tex.wait("allowed", allowedRead).then(() => null, (thrown) => thrown); stages?.mark("provider");
     if (error !== null) return await tex.step("refused", () => refused(error));
   }
-  Object.assign(t, { allowedRead, historyRead, offeredRead, refused });
+  Object.assign(t, { allowedBeside, allowedRead, historyRead, offeredRead, refused });
 }
 // TEX ENTRY POINT: end

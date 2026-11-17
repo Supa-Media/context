@@ -251,6 +251,7 @@ const env = { CONTROL_PLANE_URL: CONTROL_PLANE_ORIGIN, TEX_STORE: tex.namespace,
 let bucket;
 let hold = null; // the model's answer waits on this while set
 let modelCalls = 0;
+let capHold = null; // the control plane's cap check answers only once this settles, while set
 let script = []; // the model's answers in order; then "Sure."
 
 function reply(step) {
@@ -299,6 +300,7 @@ before(async () => {
   const below = globalThis.fetch;
   globalThis.fetch = async (input, init) => {
     const url = typeof input === "string" ? input : input.url;
+    if (capHold !== null && /\/gateway\/builtin-model$/.test(new URL(url).pathname)) await capHold;
     if (url.startsWith(AI_GATEWAY_ORIGIN)) {
       const meta = new Headers(init.headers).get("cf-aig-metadata") ?? "";
       if (!/"client":"(reflect|classifier|selfreview|nudge)"/.test(meta)) modelCalls += 1;
@@ -335,6 +337,8 @@ after(() => {
 
 beforeEach(() => {
   hold = null;
+  capHold = null;
+  controlPlane.setBuiltinVerdict("ws_prov", BUILTIN_ALLOWED);
   modelCalls = 0;
   script = [];
   for (const key of [...bucket.keys()]) bucket.delete(key);
@@ -404,5 +408,38 @@ test("allow read: the save waits, and a stop leaves the note as it was", async (
   assert.equal((await call("/agent/cancel", { turn: "turn-prov-0006", provisional: true })).body.cancelled, true);
   const answered = await asking;
   assert.equal(answered.body.cancelled, true);
+  assert.equal(bodyOf("1-projects/plan.md"), "# Plan\n\nThe plan.\n");
+});
+
+test("Door beside Front door: a provisional run asks the model while the cap check is still out", async () => {
+  let answerCap;
+  capHold = new Promise((r) => (answerCap = r));
+  const asking = call("/agent", { question: "hi", timeZone: "UTC", conversation: "texts", turn: "turn-prov-0007", provisional: true });
+  assert.equal(await until(() => modelCalls > 0, 2_000), true, "the model was asked before the cap check answered");
+  answerCap();
+  assert.equal(await goWhenRunning("turn-prov-0007"), true);
+  const answered = await asking;
+  assert.equal(answered.status, 200);
+  assert.equal(answered.body.answer, "Sure.");
+});
+
+test("a turn not run provisionally still waits for the cap check before the model", async () => {
+  let answerCap;
+  capHold = new Promise((r) => (answerCap = r));
+  const asking = call("/agent", { question: "hi", timeZone: "UTC", conversation: "texts", turn: "turn-prov-0008" });
+  await new Promise((r) => setTimeout(r, 300));
+  assert.equal(modelCalls, 0, "no model call before the cap check");
+  answerCap();
+  assert.equal((await asking).body.answer, "Sure.");
+});
+
+test("a provisional run the cap refuses runs no tool and says the refusal", async () => {
+  controlPlane.setBuiltinVerdict("ws_prov", { allowed: false, reason: "daily_cap" });
+  script = [...fetchThenSave("# Plan\n\nNo.\n"), { text: "Updated." }];
+  const asking = call("/agent", { question: "update the plan", timeZone: "UTC", conversation: "texts", turn: "turn-prov-0009", provisional: true });
+  await goWhenRunning("turn-prov-0009");
+  const answered = await asking;
+  assert.equal(answered.status, 429);
+  assert.equal(answered.body.error, "daily_limit");
   assert.equal(bodyOf("1-projects/plan.md"), "# Plan\n\nThe plan.\n");
 });
