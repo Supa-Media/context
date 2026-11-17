@@ -148,7 +148,7 @@
     {"id":"m142","tex":true,"text":"Their fee page needs a login, so I couldn't see the price.","who":"Tex"},
     {"id":"m143","kind":"reply","labels":{"decide":{"act":"quiet","also_react":"no","star":true,"why":"asks_someone_else"}},"text":"remi didn't they email you about it","to":"m142","who":"Theo"},
     {"id":"m144","text":"somewhere, i'll look","who":"Remi"},
-    {"id":"m145","kind":"reply","labels":{"decide":{"act":"respond","star":true,"why":"replies_to_tex"}},"text":"try the city's events page instead","to":"m142","who":"Nadia"},
+    {"id":"m145","kind":"reply","text":"try the city's events page instead","to":"m142","who":"Nadia"},
     {"id":"m146","tex":true,"text":"The city's page lists summer stalls at $45 a day.","who":"Tex"}
   ]
 }

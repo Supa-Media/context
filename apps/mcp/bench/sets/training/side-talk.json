@@ -39,7 +39,7 @@
     {"id":"m31","tex":true,"text":"That link opens a sign-in page, so I can't read the sheet. If someone pastes it here, I'll go through it.","who":"Tex"},
     {"id":"m32","kind":"reply","labels":{"decide":{"act":"quiet","also_react":"no","star":true,"why":"asks_someone_else"}},"text":"lena you still have that login right","to":"m31","who":"Marco"},
     {"id":"m33","text":"not since they reset it","who":"Lena"},
-    {"id":"m34","kind":"reply","labels":{"decide":{"act":"respond","star":true,"why":"replies_to_tex"}},"text":"find their old catalogue online then","to":"m31","who":"Kai"},
+    {"id":"m34","kind":"reply","text":"find their old catalogue online then","to":"m31","who":"Kai"},
     {"id":"m35","tex":true,"text":"Their spring catalogue is public: masters went from $38 to $46 a roll, ink stayed at $29.","who":"Tex"},
     {"id":"m36","kind":"reply","text":"marco this is why we switched","to":"m35","who":"Lena"}
   ]
