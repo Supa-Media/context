@@ -12,6 +12,7 @@
  *  1. `answerTurn` without `lookAgainTexts` → "a draft overtaken ..." fails (the old reply is sent).
  *  2. `mark` without `rechecked` → "looked at once" fails (asked again, held forever).
  *  3. `byCode` ignoring tapbacks → "a tapback after it" fails (a 👍 is rechecked).
+ *  4. `upTo` from the turn's start again → "stamped before the turn started" fails (the stale reply is sent).
  */
 
 import { describe, expect, it } from "vitest";
@@ -119,6 +120,39 @@ describe("a 1:1 reply's last look", () => {
 
   it("a recheck that can't answer sends the draft, as before", async () => {
     const { w } = await overtaken("down");
+    expect(w.sent.some((text) => text.includes("answer to save the playbook"))).toBe(true);
+  });
+
+  // 2026-11-16: "do you see this link" then the link 0.8 s later. The link was queued after the turn chose its texts but
+  // stamped before the turn started, so the look, which counted only texts after the turn's start, never saw it and the
+  // reply saying no link came through was sent.
+  it("a text that came after the ones it answers is looked at, even when it was stamped before the turn started", async () => {
+    const storage = new MemoryStorage();
+    const w = world(false);
+    const late = { ...w.deps, now: () => NOW + 500 }; // the turn starts after the link came in
+    await accept(storage, msg("e1", "do you see this link"), NOW);
+    const draining = drain(storage, late);
+    await w.running;
+    expect(await accept(storage, msg("e2", "https://shop.example/products/hoodie"), NOW + 100)).toBe("queued");
+    w.release();
+    await draining;
+    await drain(storage, late);
+    expect(w.rechecks).toHaveLength(1);
+    // Only the turn that answers both is sent (its words and the link go as two texts).
+    expect(answered(w)).toEqual(["do you see this link", "do you see this link\nhttps://shop.example/products/hoodie"]);
+    expect(w.sent.join("\n")).toBe("answer to do you see this link\nhttps://shop.example/products/hoodie");
+  });
+
+  it("a text that came before the ones it answers never holds the reply", async () => {
+    const storage = new MemoryStorage();
+    const w = world(false);
+    await accept(storage, msg("e1", "save the playbook"), NOW);
+    const draining = drain(storage, w.deps);
+    await w.running;
+    await accept(storage, msg("e0", "an older text left out"), NOW - 100);
+    w.release();
+    await draining;
+    expect(w.rechecks).toEqual([]);
     expect(w.sent.some((text) => text.includes("answer to save the playbook"))).toBe(true);
   });
 

@@ -104,8 +104,8 @@ export type Inbound =
        */
       newTopic?: true;
       /**
-       * Sendblue: it came as SMS (a green bubble), whose sender number anyone
-       * can fake. Its words are never acted on (`reply.ts`, `smsReply`).
+       * It came as SMS (a green bubble) or RCS (an Android phone), whose sender
+       * number anyone can fake. Its words are never acted on (`reply.ts`, `smsReply`).
        */
       sms?: true;
       /** A tapback that is answered (`reactions.ts`): which one; `quoted` holds the words it was on. */

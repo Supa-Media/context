@@ -387,7 +387,7 @@ async function answerTurn(storage: InboxStorage, deps: InboxDeps, entries: Entry
   }
   // Restarted (`steer.ts`), or held by the last look at their newer texts (`lookAgain.ts`): nothing it said goes; its texts wait, marked, for the turn that answers them with the newer one.
   if (turn.cancelled) return true;
-  if (!turn.fixed && (await lookAgainTexts(storage, deps, entries, turn.parts, timing.started)) === "held") return (turn.asks.length > 0 && turn.token !== undefined && (await staleAsks(deps, turn.token, turn.asks)), true);
+  if (!turn.fixed && (await lookAgainTexts(storage, deps, entries, turn.parts)) === "held") return (turn.asks.length > 0 && turn.token !== undefined && (await staleAsks(deps, turn.token, turn.asks)), true);
   for (const sentKey of (await storage.list({ prefix: `${PROGRESS_PREFIX}${work}:` })).keys()) await storage.delete(sentKey); // answered: its lines (`answerTexts`) go
   let reply = turn.parts;
   // The first answer on the new line says it is Tex's new number, once.

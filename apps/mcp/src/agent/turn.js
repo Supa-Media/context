@@ -264,7 +264,7 @@ export async function runTurn(options) {
     // `{ now, timeZone }`: the person's own clock, told every round (`localNow.js`).
     localNow = null,
     // The workspaces they can reach (`contextsFor`), so a new note goes where its project is (`workspaces.js`).
-    workspaces = null, mail = null, // and their mailboxes with each one's state (`mailAccounts.js`)
+    workspaces = null, groups = "", mail = null, // and their mailboxes with each one's state (`mailAccounts.js`)
     // How hard each model thinks, by model name (`production.js`); absent: the model's own default.
     efforts = null,
     // What the person sent with the question, checked (`attachments.js`): shown to the model with it.
@@ -353,7 +353,7 @@ export async function runTurn(options) {
     trace.push({ kind: "router", tier: routed.tier, pick: routed.pick, model, at: asked - began, ms: clock() - asked, ...confidence });
     tell({ kind: "model", step: "router", model, ms: clock() - asked, input: options.planned || nudge !== "" ? undefined : question, output: { tier: routed.tier, pick: routed.pick, ...confidence }, reason: options.planned ? "a long job is planned on the thinking model" : routed.tier === "think" ? "the router judged it needs thinking" : "picked by the router" });
   }
-  const promptFor = (answering) => turnPrompt(place, answering, { texting, pictures, notes, models: router !== null ? { main: mainModel, think: router.think, jobsOnly: router.jobsOnly === true } : null, tools, history, threadNote, turnNote, webNames, progress, aboutMe, identity, jobs, voice, calendar, observe, workspaces, mail, localNow, plan, nudge }); // `turnPrompt.js`
+  const promptFor = (answering) => turnPrompt(place, answering, { texting, pictures, notes, models: router !== null ? { main: mainModel, think: router.think, jobsOnly: router.jobsOnly === true } : null, tools, history, threadNote, turnNote, webNames, progress, aboutMe, identity, jobs, voice, calendar, observe, workspaces, groups, mail, localNow, plan, nudge }); // `turnPrompt.js`
   let prompt = promptFor(model);
   // The person's own text, with the turn's facts carried ahead of it (`providers.js`): set before every round.
   const questionMessage = { role: "user", text: question, ...(attachments.length > 0 ? { attachments } : {}) };

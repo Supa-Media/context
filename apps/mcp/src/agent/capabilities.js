@@ -315,8 +315,18 @@ export const CAPABILITIES = Object.freeze([
   {
     name: "Tapbacks",
     actions: [],
-    texts: "a 👍 or ❤️ on one of your texts that asks something is their yes, a 👎 their no, a ❓ on any text gets an answer, and any other tapback is noted for the next text",
+    texts: "a 👍 or ❤️ on one of your texts that asks something is their yes, a 👎 their no, a ❓ on any text gets an answer, and any other tapback (a sticker stuck on a text included, on your iMessage line) is noted for the next text",
     group: "only the person you asked can answer your ask with a reaction; nobody else's counts",
+  },
+  {
+    name: "Polls",
+    actions: [],
+    texts: "on your iMessage line, a poll they start, an option they add and a vote reach you in words (the poll's title, its options, which one they picked), judged like any text",
+    group: "the same for anyone's poll or vote in the chat",
+    cant: [
+      { where: "everywhere", what: "start a poll or vote in one yourself", workaround: { kind: "words", text: "list the options in a text and ask everyone to answer, or ask them to start the poll" } },
+      { where: "everywhere", what: "see a poll on the old Sendblue number or WhatsApp", workaround: { kind: "words", text: "ask them to say which option they picked" } },
+    ],
   },
   {
     name: "Edited and unsent texts",

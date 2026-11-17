@@ -219,3 +219,14 @@ test("issueTokens posts with basic auth to the project's token route and refuses
   const refused = async () => new Response("no", { status: 401 });
   await assert.rejects(issueTokens({ projectId: "p", projectSecret: "s", fetchImpl: refused }), { code: "cloud_refused", status: 401 });
 });
+
+test("a poll change is enriched with the poll's title and options, and a sticker with the words it was stuck on", async () => {
+  const enricher = createEnricher({
+    lookup: async () => ({ text: "stuck on these", fromMe: true }),
+    poll: async () => ({ title: "Dinner", options: [{ optionIdentifier: "a", text: "Pizza" }], votes: [] }),
+  });
+  assert.deepEqual(await enricher.enrich({ type: "poll.changed", pollMessageGuid: "p" }), { poll: { title: "Dinner", options: [{ id: "a", text: "Pizza" }] } });
+  assert.deepEqual(await enricher.enrich({ type: "message.stickerPlaced", messageGuid: "m" }), { targetText: "stuck on these", targetFromMe: true });
+  const blind = createEnricher({ lookup: async () => ({ text: "", fromMe: false }), poll: async () => { throw new Error("down"); } });
+  assert.deepEqual(await blind.enrich({ type: "poll.changed", pollMessageGuid: "p" }), {});
+});
