@@ -41,7 +41,7 @@ import type { ImagesLike } from "./attachments";
 import { limitResetAt } from "./jobPause";
 import { STEER_TIMEOUT_MS } from "./steer";
 import { advisorVerdict, openJobNote } from "./jobNote";
-import { partEndChoice } from "./jobPartEnd";
+import { askPartEnd, partEndChoice } from "./jobPartEnd";
 import { mergeSaved, PROGRESS_KEY, readOutside, savedCall, withEnd, type JobSaved, type PartCause } from "./jobProgress";
 
 export type JobDeps = {
@@ -384,21 +384,9 @@ export async function runJob(storage: InboxStorage, deps: JobDeps): Promise<JobN
   const cause = partCause(outcome, { changed, unfinished });
   const ends = withEnd(run.ends, run.attempt, cause);
   run.ends = ends;
-  // What follows the part (the next part, the last draft, or the end) is the config's Part end node, under its
-  // limits (Dev2, 2026-11-17, "jobs as config"; `jobPartEnd.ts`). Only a part that answered or broke asks it: a stop,
-  // a refusal and a service out of tries end here, as they always have.
-  const asks = outcome.kind === "answer" || outcome.kind === "broken";
-  const choice = asks
-    ? await partEndChoice(
-        { cause, part: run.attempt, startedAt: run.startedAt, now: deps.now(), machine: run.machine !== undefined, hasDraft: !!run.saved?.draft, idle, wasIdle: run.idle === true },
-        async (input) => {
-          const token = await jobToken(run, deps).catch(() => null);
-          if (token === null) return null;
-          const answered = await post(deps.fetch, "gateway", `${deps.gatewayOrigin}/agent/job/part-end`, token, { jobId: run.id, input }, STEER_TIMEOUT_MS).catch(() => null);
-          return answered?.status === 200 ? answered.json : null;
-        },
-      )
-    : null;
+  // What follows the part is the config's Part end node (`jobPartEnd.ts`); a stop, refusal or service out of tries ends here.
+  const facts = { cause, part: run.attempt, startedAt: run.startedAt, now: deps.now(), machine: run.machine !== undefined, hasDraft: !!run.saved?.draft, idle, wasIdle: run.idle === true };
+  const choice = outcome.kind === "answer" || outcome.kind === "broken" ? await partEndChoice(facts, (input) => askPartEnd(deps, () => jobToken(run, deps), run.id, input)) : null;
   const spinning = choice?.spinning === true;
   // A cause that would end the next part the same way (its checks' loop ran out on the same draft) delivers the last
   // draft rather than burning parts; so does a part that broke with no part left. Never a job that ends with nothing.

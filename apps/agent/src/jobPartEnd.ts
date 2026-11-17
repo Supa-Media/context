@@ -7,6 +7,8 @@
  * never a second set of rules, and never a job left without a next step.
  */
 
+import { post, type Fetch } from "./clients";
+import { STEER_TIMEOUT_MS } from "./steer";
 import partEndLib from "../../../packages/shared/src/jobPartEnd.cjs";
 import { TEX_CONFIG } from "../../../packages/shared/src/texConfig.cjs";
 import type { PartEndChoice, PartEndInput } from "../../../packages/shared/src/jobPartEnd.d.cts";
@@ -32,4 +34,12 @@ export function choiceOf(value: unknown): PartEndChoice | null {
 export async function partEndChoice(input: PartEndInput, ask: (input: PartEndInput) => Promise<unknown>): Promise<PartEndChoice> {
   const answered = choiceOf(await ask(input).catch(() => null));
   return answered ?? decidePartEnd(input, bundledLimits() as never);
+}
+
+/** Asks the gateway's Part end node (`/agent/job/part-end`) with the job's own token: its answer, or null. */
+export async function askPartEnd(gateway: { fetch: Fetch; gatewayOrigin: string }, token: () => Promise<string | null>, jobId: string, input: PartEndInput): Promise<unknown> {
+  const held = await token().catch(() => null);
+  if (held === null) return null;
+  const answered = await post(gateway.fetch, "gateway", `${gateway.gatewayOrigin}/agent/job/part-end`, held, { jobId, input }, STEER_TIMEOUT_MS).catch(() => null);
+  return answered?.status === 200 ? answered.json : null;
 }
