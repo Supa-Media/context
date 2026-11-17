@@ -37,10 +37,13 @@ export async function startCall({ worker, env, token, body, controlPlane }) {
   return { status: response.status, body: answer, ms: realNow() - started, usage: controlPlane.builtinReports.at(-1) ?? {} };
 }
 
-/** One check-in looking back an hour: what it would text, or its quiet outcome. `calls` are the world's model calls. */
-export async function checkInTurn(call, calls = () => []) {
+/**
+ * One check-in looking back an hour, in the person's zone as the control plane sends it: what it would text, or its
+ * quiet outcome. `calls` are the world's model calls. (Sent as UTC, a 9:30 pm Chicago row read as 2:30 am: Dev set, 2026-11-17.)
+ */
+export async function checkInTurn(call, calls = () => [], timeZone = "UTC") {
   const before = calls().length;
-  return startedTurn(await call({ heartbeat: { timeZone: "UTC", since: Date.now() - 60 * 60_000 } }), (body) => (body?.outcome === "speak" ? body.answer : ""), calls().slice(before));
+  return startedTurn(await call({ heartbeat: { timeZone, since: Date.now() - 60 * 60_000 } }), (body) => (body?.outcome === "speak" ? body.answer : ""), calls().slice(before));
 }
 
 /**
@@ -56,10 +59,10 @@ export function lastWords(calls, max = 160) {
   return words.length > max ? `${words.slice(0, max - 1)}…` : words;
 }
 
-/** One run of the routine at `path`, as the routine runner asks: what it would text, or its quiet outcome. */
-export async function routineTurn(path, call, calls = () => []) {
+/** One run of the routine at `path`, as the routine runner asks, in the person's zone: what it would text, or its quiet outcome. */
+export async function routineTurn(path, call, calls = () => [], timeZone = "UTC") {
   const before = calls().length;
-  return startedTurn(await call({ routine: { path, timeZone: "UTC" } }), (body) => (body?.skipped ? "" : body?.answer), calls().slice(before));
+  return startedTurn(await call({ routine: { path, timeZone } }), (body) => (body?.skipped ? "" : body?.answer), calls().slice(before));
 }
 
 /** An answer shaped as a turn is: `said` picks what it would text; a quiet one names its outcome. */

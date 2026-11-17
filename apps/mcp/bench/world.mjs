@@ -511,13 +511,13 @@ export async function createWorld(bench, person, setupRaw, models, today = null,
 
     /** One check-in, as Tex's check-in client: what it would text (`worldStarts.mjs`). */
     async checkIn() {
-      return checkInTurn((body) => startCall({ worker, env, token: startTokens.checkin, body, controlPlane }), () => modelCalls.calls());
+      return checkInTurn((body) => startCall({ worker, env, token: startTokens.checkin, body, controlPlane }), () => modelCalls.calls(), models.timeZone ?? "UTC");
     },
 
     /** One run of the routine at `path`, placed with `text` as its words (`worldStarts.mjs`). */
     async routine(path, text) {
       this.place(path, `${text}\n`);
-      return routineTurn(path, (body) => startCall({ worker, env, token: startTokens.routine, body, controlPlane }), () => modelCalls.calls());
+      return routineTurn(path, (body) => startCall({ worker, env, token: startTokens.routine, body, controlPlane }), () => modelCalls.calls(), models.timeZone ?? "UTC");
     },
 
     /**
@@ -525,7 +525,7 @@ export async function createWorld(bench, person, setupRaw, models, today = null,
      * is: its answer is the line it would text and the log it wrote.
      */
     async keepHouse() {
-      return houseTurn(await startCall({ worker, env, token: houseToken, body: { housekeeping: { timeZone: "UTC" } }, controlPlane }), (path) => this.readThrough(path));
+      return houseTurn(await startCall({ worker, env, token: houseToken, body: { housekeeping: { timeZone: models.timeZone ?? "UTC" } }, controlPlane }), (path) => this.readThrough(path));
     },
 
     /**

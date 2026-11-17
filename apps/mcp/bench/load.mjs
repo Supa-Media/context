@@ -152,6 +152,11 @@ function readQuestion(sec) {
     else if (/^- earlier check-in\s*$/.test(line)) q.earlier.push({ from: "trigger", via: "checkin", mail: null });
     else if ((m = line.match(/^- earlier routine:\s*(.*)$/))) q.earlier.push({ from: "trigger", via: "routine", text: jsonText(m[1], sec.n) });
     else if ((m = line.match(/^- earlier job reports:\s*(.*)$/))) q.earlier.push({ from: "trigger", via: "job", report: jobLine(m[1], sec.n) });
+    else if ((m = line.match(/^- earlier minutes before:\s*(\d+)\s*$/))) {
+      // When the earlier line before it was sent, in minutes before this text (`setsFd.mjs` minutesBefore).
+      if (q.earlier.length === 0) throw new Error(`question ${sec.n}: "earlier minutes before" follows the earlier line it dates`);
+      q.earlier.at(-1).minutesBefore = Number(m[1]);
+    }
     else if ((m = line.match(/^- earlier (person|tex):\s*(.*)$/))) q.earlier.push({ from: m[1], text: jsonText(m[2], sec.n) });
     else if ((m = line.match(/^- earlier @([a-z0-9-]+):\s*(.*)$/))) q.earlier.push({ from: "person", who: m[1], text: jsonText(m[2], sec.n) });
     else if ((m = line.match(/^- @([a-z0-9-]+) before text (\d+):\s*(.*)$/))) q.others.push({ from: m[1], before: Number(m[2]), text: unquote(m[3]) });

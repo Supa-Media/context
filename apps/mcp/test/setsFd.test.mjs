@@ -3,7 +3,7 @@ import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { test } from "node:test";
 
-import { LIVE_SETTINGS, cantRun, checkinMail, dayOf, earlierLines, fdTest, frontFor, groupFor, jobReportRow, runFd, senderOf, sinceTexAnswered, timeOf, zoneOf } from "../bench/setsFd.mjs";
+import { LIVE_SETTINGS, MAX_MINUTES_BEFORE, cantRun, minutesBefore, checkinMail, dayOf, earlierLines, fdTest, frontFor, groupFor, jobReportRow, runFd, senderOf, sinceTexAnswered, timeOf, zoneOf } from "../bench/setsFd.mjs";
 import { clockMs, installClock } from "../bench/clock.mjs";
 import { parsePeople, parseTest } from "../bench/load.mjs";
 import sets from "../../../packages/shared/src/texSets.cjs";
@@ -28,6 +28,26 @@ test("the chat before a Front door test goes in as it was, texts and replies onl
     { from: "tex", text: "Morning!" },
     { from: "person", text: "quick one" },
   ]);
+});
+
+// Production's ledger keeps each text's own time. Sabotage: drop `minutesBefore` from earlierLines, or the
+// `- earlier minutes before:` line from fdTest, and the whole chat reads as sent a minute ago.
+test("each earlier line is dated by its own day and time, held inside the seven days of verbatim chat", () => {
+  const c = conv([
+    { id: "m0", who: "Maya", text: "before any date" },
+    { id: "m1", who: "Maya", text: "hi", at: "Mon Oct 5 10:00" },
+    { id: "m2", tex: true, text: "Hi!", at: "Mon 10:01" },
+    { id: "m3", who: "Maya", text: "and now?", at: "Tue 9:00", labels: { fd: { must: ["answers"] } } },
+    { id: "m4", who: "Maya", text: "much later", at: "Wed Oct 21 9:00" },
+  ]);
+  assert.equal(minutesBefore(c, 1, 3, 2026), 23 * 60);
+  assert.equal(minutesBefore(c, 2, 3, 2026), 23 * 60 - 1);
+  assert.equal(minutesBefore(c, 3, 1, 2026), null, "never dated after the text");
+  assert.equal(minutesBefore(c, 1, 4, 2026), MAX_MINUTES_BEFORE, "sixteen days back is held inside six");
+  assert.deepEqual(earlierLines(c, 3).map((l) => l.minutesBefore), [undefined, undefined, undefined], "no year, no dates");
+  assert.deepEqual(earlierLines(c, 3, 2026).map((l) => l.minutesBefore), [1380, 1380, 1379], "a line before the first date is as old as the next");
+  const raw = fdTest([unit(c, 3)], "job: texting-assistant\nrun_as: Maya\ntoday: 2026-10-06\nruns: 1\nweb: scripted");
+  assert.deepEqual(parseTest(raw).questions[0].earlier.map((l) => [l.from, l.minutesBefore]), [["person", 1380], ["person", 1380], ["tex", 1379]]);
 });
 
 test("a test runs one text with the chat before it and its must and never lines, as the bench parses it", () => {
