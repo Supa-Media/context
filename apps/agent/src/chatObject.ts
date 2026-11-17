@@ -29,6 +29,7 @@ import { tellNewLine } from "./newLine";
 import type { Line } from "./line";
 import { groupLineFor, groupLineSeam, type GroupLine } from "./groupLine";
 import { sendblueKeys } from "./sendblue";
+import { keepLinkBubble, linkNotesOf } from "./photonLinkBubbles";
 import { noteSendStatus, resendPlain, type SendStatus } from "./sendblueStatus";
 import { type GroupMessage } from "./sendblueGroups";
 import { heardInGroup } from "./groupVoice";
@@ -122,6 +123,7 @@ export class SenderInbox implements DurableObject {
           sendblue: sendblueKeys(this.env.SENDBLUE_API_KEY_ID, this.env.SENDBLUE_API_SECRET, this.env.SENDBLUE_STATUS_URL),
           whapi: whapiKeys(this.env.WHAPI_TOKEN, this.env.WHAPI_LINE),
           photon: this.env.PHOTON ?? null,
+          linkNotes: linkNotesOf(this.state.storage),
           now: () => Date.now(),
           simulator: simulatorEnabled(this.env.SIMULATOR),
           textCounts: this.env.TEX_COUNTS,
@@ -139,6 +141,7 @@ export class SenderInbox implements DurableObject {
         sendblue: sendblueKeys(this.env.SENDBLUE_API_KEY_ID, this.env.SENDBLUE_API_SECRET, this.env.SENDBLUE_STATUS_URL),
         whapi: whapiKeys(this.env.WHAPI_TOKEN, this.env.WHAPI_LINE),
         photon: this.env.PHOTON ?? null,
+        linkNotes: linkNotesOf(this.state.storage),
         now: () => Date.now(),
         textCounts: this.env.TEX_COUNTS,
         ...this.remoteLines(),
@@ -230,6 +233,11 @@ export class SenderInbox implements DurableObject {
     if (path === "/cross-answer") return Response.json({ outcome: await takeCrossAnswer(this.state.storage, await request.json().catch(() => null), Date.now()) });
     if (path === "/page-jobs") return Response.json(await pageJobsOf(this.state.storage, Date.now()));
     if (path === "/page-steer") return await pageSteerResponse(this.state.storage, await request.json().catch(() => null), async (id, next) => (await this.deps().steerJob?.(id, next)) ?? false);
+    // A Photon link bubble's guid, kept here so a report after this isolate is gone still matches the words (`photonLinkBubbles.ts`).
+    if (path === "/link-bubble") {
+      const kept = await keepLinkBubble(this.state.storage, await request.json().catch(() => null));
+      return new Response(null, { status: kept ? 204 : 400 });
+    }
     if (path === "/send-status") {
       const status = (await request.json()) as SendStatus;
       const note = async () => {
@@ -430,6 +438,7 @@ export class SenderInbox implements DurableObject {
       sendblue: sendblueKeys(this.env.SENDBLUE_API_KEY_ID, this.env.SENDBLUE_API_SECRET, this.env.SENDBLUE_STATUS_URL),
       whapi: whapiKeys(this.env.WHAPI_TOKEN, this.env.WHAPI_LINE),
       photon: this.env.PHOTON ?? null,
+      linkNotes: linkNotesOf(this.state.storage),
       movedTo: groupMovedTo(this.env.SENDER_INBOX),
       appCard: appCardConfig(this.env),
       waitUntil: (promise) => this.handOff(promise),

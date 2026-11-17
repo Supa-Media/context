@@ -15,7 +15,7 @@
  * No Node APIs: the gateway bundles this module (`line.ts`, `groupLine.ts`, `lineCalls.ts`).
  */
 
-import { noteLinkBubble } from "./photonLinkBubbles";
+import type { LinkNotes } from "./photonLinkBubbles";
 import { CARD_MEDIA_TYPE, CARD_NAME, texCard } from "./card";
 import { ServiceError, MAX_REPLY_TEXT } from "./clients";
 import { cardsOn, noteCard, type AppCard } from "./appCards";
@@ -227,17 +227,27 @@ export async function threadedOrPlain<T>(replyTo: string | undefined, send: (rep
  * other text goes plain. Resolves to the words' guid, the one a later text threads under. The link's own bubble is
  * best effort: the words have gone, so its failure is logged and never fails the send.
  */
-export async function sendPhotonWords(photon: Fetcher, place: PhotonPlace, text: string, replyTo?: string): Promise<string | undefined> {
+export async function sendPhotonWords(photon: Fetcher, place: PhotonPlace, text: string, replyTo?: string, notes?: LinkNotes): Promise<string | undefined> {
   const words = text.slice(0, MAX_REPLY_TEXT);
   if (ONE_LINK.test(words.trim())) return await threadedOrPlain(replyTo, (under) => sendPhotonText(photon, place, words.trim(), { ...(under ? { replyTo: under } : {}), linkPreview: true }));
   const guid = await threadedOrPlain(replyTo, (under) => sendPhotonText(photon, place, words, under ? { replyTo: under } : {}));
   const link = linksIn(words).find((found) => ONE_LINK.test(found));
   if (link !== undefined) {
+    let bubble: string | undefined;
     try {
-      // Its reports (echo, read, delivery) are the same send's (`photonLinkBubbles.ts`).
-      noteLinkBubble(await sendPhotonText(photon, place, link, { linkPreview: true }), guid);
+      bubble = await sendPhotonText(photon, place, link, { linkPreview: true });
     } catch {
+      // The words have gone. A preview that failed is logged and never fails the send.
       console.log(JSON.stringify({ event: "photon_link_preview", outcome: "failed" }));
+      return guid;
+    }
+    if (notes !== undefined && typeof bubble === "string" && typeof guid === "string") {
+      try {
+        // Its reports (echo, read, delivery) are the same send's (`photonLinkBubbles.ts`). Noting never fails the send.
+        await notes.note(bubble, guid);
+      } catch {
+        console.log(JSON.stringify({ event: "photon_link_bubble", outcome: "unnoted" }));
+      }
     }
   }
   return guid;
@@ -265,7 +275,7 @@ export function photonLine(deps: LineDeps): Line {
           if (!isRefusal(error)) throw error;
         }
       }
-      return await sendPhotonWords(p, place, text, replyTo);
+      return await sendPhotonWords(p, place, text, replyTo, deps.linkNotes);
     },
     sendMedia: async (chatId, media, _key, replyTo) => {
       const p = photon();
@@ -354,7 +364,7 @@ export function photonGroupLine(deps: GroupLineDeps): GroupLine {
   };
   const placeOf = (place: GroupPlace): PhotonPlace => ({ line: placeLine(place), chat: photonGroupChat(place.groupId) });
   return {
-    sendText: async (place, text, replyTo) => await sendPhotonWords(photon(), placeOf(place), text, replyTo),
+    sendText: async (place, text, replyTo) => await sendPhotonWords(photon(), placeOf(place), text, replyTo, deps.linkNotes),
     sendMedia: async (place, url, replyTo) => {
       const where = placeOf(place);
       await threadedOrPlain(replyTo, (under) => sendPhotonAttachment(photon(), where, attachmentOf({ url }), under));

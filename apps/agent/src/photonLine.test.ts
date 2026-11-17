@@ -1,4 +1,5 @@
-import { linkBubbleWords } from "./photonLinkBubbles";
+import { linkBubbleWords, noteLinkBubble } from "./photonLinkBubbles";
+import { MemoryStorage } from "./memoryStorage.testing";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { ServiceError } from "./clients";
 import { isRefusal } from "./carousel";
@@ -80,9 +81,17 @@ describe("Photon 1:1 line (photonLine.ts)", () => {
   it("a link bubble is kept beside its words' guid, so its reports land on the same send", async () => {
     let n = 0;
     const b = bridge((op) => (op === "send/text" ? { status: 200, body: { ok: true, guid: ++n === 1 ? "words-guid" : "link-guid" } } : undefined));
-    await expect(lineFor(deps(b.photon), DM).sendText(DM, "read https://example.com/a", "k1")).resolves.toBe("words-guid");
-    expect(linkBubbleWords("link-guid")).toBe("words-guid");
-    expect(linkBubbleWords("words-guid")).toBeUndefined();
+    const storage = new MemoryStorage();
+    await expect(lineFor(deps(b.photon, { linkNotes: { note: (link, words) => noteLinkBubble(storage, link, words) } }), DM).sendText(DM, "read https://example.com/a", "k1")).resolves.toBe("words-guid");
+    expect(await linkBubbleWords(storage, "link-guid")).toBe("words-guid");
+    expect(await linkBubbleWords(storage, "words-guid")).toBeUndefined();
+  });
+
+  it("a link bubble that cannot be noted does not fail the words already sent", async () => {
+    const b = bridge();
+    const linkNotes = { note: async () => { throw new Error("storage down"); } };
+    await expect(lineFor(deps(b.photon, { linkNotes }), DM).sendText(DM, "read https://example.com/a", "k1")).resolves.toBe("sent-guid");
+    expect(b.ops()).toEqual(["send/text", "send/text"]);
   });
 
   it("a link bubble that fails does not fail the words already sent", async () => {
