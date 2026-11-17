@@ -163,7 +163,7 @@ export function openAiMessages(system, messages) {
   for (const message of messages) {
     if (message.role === "tool") {
       // Words only on this API's tool answers: a picture is named as one it cannot see.
-      const unseen = Array.isArray(message.images) && message.images.length > 0 ? `\n[${message.images.length === 1 ? "A picture" : `${message.images.length} pictures`} in this result; you cannot see pictures on this model, so say so if asked what it shows.]` : "";
+      const unseen = Array.isArray(message.images) && message.images.length > 0 ? `\n[${message.images.length === 1 ? "A picture" : `${message.images.length} pictures`} in this result; you cannot see pictures on this model, so say so if asked what it shows, and never guess.]` : "";
       out.push({ role: "tool", tool_call_id: message.id, content: `${message.text}${unseen}` });
       continue;
     }

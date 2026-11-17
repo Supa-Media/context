@@ -195,6 +195,7 @@ test("size ceilings: a picture over write_note's 5,000,000 bytes and a PDF over 
 test("a model that reads words only is told what it cannot see", () => {
   const [message] = openAiMessages(null, [{ role: "user", text: "what is it", attachments: readAttachments(ATTACHED) }]);
   assert.match(message.content, /meme\.png: you cannot see this one/);
+  assert.match(message.content, /never guess what it shows/);
   assert.match(message.content, /Ada Lovelace/);
   // And the Anthropic shape leaves an ordinary text alone.
   assert.deepEqual(anthropicMessages([{ role: "user", text: "hi" }]), [{ role: "user", content: [{ type: "text", text: "hi" }] }]);
@@ -350,4 +351,5 @@ test("a picture in a tool's answer is shown to a model that sees, and named to o
   ]);
   const named = openAiMessages("", messages).at(-1).content;
   assert.match(named, /^The image\.\n\[A picture in this result; you cannot see pictures on this model/);
+  assert.match(named, /never guess/);
 });
