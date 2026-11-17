@@ -288,6 +288,8 @@ function runBlock(run, setup) {
   }
   const tools = run.tools?.length ? run.tools.map(toolLabel).join(", ") : "none";
   lines.push(`Tools: ${tools}`, "");
+  // The arguments a `must call: tool with key: value` line is graded on (`checks.mjs`). Absent on older notes.
+  if (run.calls?.length) lines.push(`Calls: ${JSON.stringify(run.calls.map((call) => ({ name: call.name, ...(call.as ? { as: call.as } : {}), args: call.args ?? {}, ok: call.ok !== false, ...(call.held ? { held: true } : {}) })))}`, "");
   // What a scripted browser did (`sites.mjs`): one line, read back by the checks.
   if (run.browser?.length) lines.push(`Browser: ${run.browser.map((event) => event.replace(/\s+/g, " ").replaceAll(" | ", " / ")).join(" | ")}`, "");
   if (run.mail?.length) lines.push(`Mail: ${run.mail.map((event) => event.replace(/\s+/g, " ").replaceAll(" | ", " / ")).join(" | ")}`, "");

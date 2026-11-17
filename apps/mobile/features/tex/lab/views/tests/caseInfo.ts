@@ -75,7 +75,7 @@ export function ioInfo(area: string, shown: LabGraph = G(), pick: string | null 
     ...(io.fixture || []).map((k) => ({ key: k, name: modName(k, g), cls: "f" as const })),
     ...n.ctx.filter((k) => !gives.has(k)).map((k) => ({ key: k, name: modName(k, g), cls: "d" as const })),
   ];
-  return { int: false, step: n, model: m, chips, fixture: !!io.fixture, check: io.check.field || "words", how: io.check.how };
+  return { int: false, step: n, model: m, chips, fixture: !!io.fixture, check: io.check.code ? "code" : io.check.field || "words", how: io.check.how };
 }
 
 /** Who an area's cases run as, when no bench person does: how it is run, and for Should Tex answer its chats. Null for an area with a person. */

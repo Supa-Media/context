@@ -19,8 +19,9 @@
  *   - an errand's site step happened (`site`: the scripted browser's record, `sites.mjs`);
  *   - the job ended done, as the Worker would end it.
  *
- * A case is right when every check passes. A quality judge (Haiku, one call a case) then reads the page for what
- * code can't (`quality`), and its grades are reported beside the checks; they never decide a case.
+ * A case is right when every check passes and, on a real judge, every quality grade passes. A quality judge
+ * (Haiku, one call a case) reads the page for what code can't (`quality`). A stand-in judge (`--fake`, or a
+ * fingerprint run) fails every criterion on purpose and does not decide the case: it proves the plumbing.
  *
  * The setup is production's, pulled from Context (`pnpm ai pull texting-assistant`, then `--setup production`).
  * `--fake` runs a scripted model on a stand-in setup: it proves the plumbing and spends nothing.
@@ -106,16 +107,21 @@ export function sourcesIn(text, hosts) {
 
 /**
  * The page a case is graded on: the placed page at `page.at` (only if the job rewrote it), else the written note
- * under `page.under` that covers most of the ask. `changes` are the world's (`world.changes()`), `read` a note's text.
+ * under `page.under` that covers most of the ask. `changes` are the world's (`world.changes()`). `read(path, workspace)`
+ * is that note's text in the workspace the path names, so a page under `band/` is not graded from the asker's own.
  */
 export function pickPage(item, changes, read, placed = {}) {
   const written = changes.filter((change) => change.kind === "written" && change.path.endsWith(".md") && !/^(tex|\.context)\//.test(change.path)).map((change) => `${change.workspace}/${change.path}`);
+  const textAt = (full) => {
+    const cut = full.indexOf("/");
+    return read(full.slice(cut + 1), full.slice(0, cut));
+  };
   if (item.page.at) {
     const path = item.page.at.slice(item.page.at.indexOf("/") + 1);
-    const text = read(path);
+    const text = textAt(item.page.at);
     return text !== null && text !== placed[path] ? { path: item.page.at, text } : null;
   }
-  const candidates = written.filter((path) => path.startsWith(item.page.under)).map((path) => ({ path, text: read(path.slice(path.indexOf("/") + 1)) ?? "" }));
+  const candidates = written.filter((path) => path.startsWith(item.page.under)).map((path) => ({ path, text: textAt(path) ?? "" }));
   const score = (page) => (item.covers ?? []).filter((entry) => hasEntry(page.text, entry)).length;
   return candidates.sort((a, b) => score(b) - score(a))[0] ?? null;
 }
@@ -166,13 +172,27 @@ const fakeQuality = async () => ({ text: "", usage: {} });
 /** What a job's parts cost, priced model by model. */
 export const partsUsd = (parts) => parts.reduce((sum, part) => sum + Object.entries(part.usageByModel ?? {}).reduce((s, [model, usage]) => s + (priceUsd(model, usage) ?? 0), 0), 0);
 
+/**
+ * A case is right when its code checks pass and, unless `countQuality` is false, every quality grade passes.
+ * An empty grade list does not fail it: there was nothing for the judge to read.
+ */
+export function caseRight(checks, quality, { countQuality = true } = {}) {
+  const checksPass = Array.isArray(checks) && checks.length > 0 && checks.every((check) => check.pass);
+  if (!checksPass) return false;
+  if (!countQuality) return true;
+  return (quality ?? []).every((grade) => grade.pass);
+}
+
 /** The replay gate's row for a graded case (`replayGate.mjs`): right and expected are this scorer's own. */
 export const gateRow = (record) => ({ id: record.id, right: record.right === true, must: false, heldOut: record.heldOut === true, target: record.target ?? false, cause: record.cause ?? (record.target || null), expected: expectedOf(record), usd: record.usd ?? 0 });
 
-/** What the gate's report says a case expected: for a practice case, the checks it failed too; a held-out one, nothing more. */
+/** What the gate's report says a case expected: for a practice case, the checks and quality lines it failed; a held-out one, nothing more. */
 function expectedOf(record) {
-  const failed = record.heldOut === true ? [] : (record.checks ?? []).filter((check) => !check.pass).map((check) => check.line);
-  return `finish with every check passing${failed.length ? ` (failed: ${failed.join("; ")})` : ""}`;
+  if (record.heldOut === true) return "finish with every check passing";
+  const failed = (record.checks ?? []).filter((check) => !check.pass).map((check) => check.line);
+  const quality = record.qualityCounts === false ? [] : (record.quality ?? []).filter((grade) => !grade.pass).map((grade) => `quality: ${grade.criterion}`);
+  const all = [...failed, ...quality];
+  return `finish with every check passing${all.length ? ` (failed: ${all.join("; ")})` : ""}`;
 }
 
 /** Whether the jobs clear the bar: every case that is not a target right. */
@@ -186,7 +206,7 @@ export function jobsReport(records) {
   const lines = [
     `## Job tasks ${passes(records) ? "✅ pass" : "❌ below the bar"}`,
     "",
-    "Bar: every task's plain-code checks pass (a target, a bug not fixed yet, is reported and never counts against it). Quality is graded beside, never deciding.",
+    "Bar: every task's plain-code checks pass, and on a real judge so does every quality grade (a target, a bug not fixed yet, is reported and never counts against it). A stand-in judge does not decide.",
     "",
     `**Tasks:** ${graded.filter((record) => record.right).length}/${graded.length} right. **Targets:** ${targets.filter((record) => record.right).length}/${targets.length} pass now. **Quality:** ${grades.filter((grade) => grade.pass).length}/${grades.length} criteria. Spent about $${usd.toFixed(2)}.`,
     "",
@@ -207,7 +227,7 @@ export function jobsReport(records) {
 
 /** Grade one finished job in its world. */
 async function gradeJob(world, item, ran, request, placed) {
-  const page = pickPage(item, world.changes(), (path) => world.read(path), placed);
+  const page = pickPage(item, world.changes(), (path, workspace) => world.read(path, workspace), placed);
   const browser = world.browser();
   const checks = checkTask(item, { page, status: ran.status, browser, parts: ran.parts });
   const report = ran.parts.at(-1)?.answer ?? "";
@@ -275,7 +295,9 @@ export async function jobTasksCommand(options, { write = (text) => process.stdou
       world.close();
       prepared?.close();
     }
-    record.right = record.checks.length > 0 && record.checks.every((check) => check.pass);
+    const countQuality = !(options.fake || fingerprint);
+    record.qualityCounts = countQuality;
+    record.right = caseRight(record.checks, record.quality, { countQuality });
     spent += record.usd;
     records.push(record);
     process.stderr.write(`${item.id}: ${record.right ? "right" : "wrong"}, ended ${record.status} after ${record.parts.length} part(s), $${record.usd.toFixed(2)}\n`);

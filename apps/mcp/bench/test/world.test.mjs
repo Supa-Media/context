@@ -519,6 +519,9 @@ test("a conversation keeps every model call and the chat's own ledger, for its l
 // members' texts go to the chat's ledger first, and the turn runs the threaded history as a group turn does in production.
 // Sabotage: send `conversation: "texts"` instead of `group` from `world.text`, or drop `texChatId` from the group grant (`groupChat.mjs`),
 // and the classifier never runs, so this fails.
+// The shared fixture makes Priya a member of brand, and the chat's grant is the lowest role (`groupRole`), so that
+// chat can only read and does not file threads. These two tests are about the history, so both people can edit.
+const brandEditors = { ...bench, people: bench.people.map((row) => (row.workspace === "brand" && row.role === "member" ? { ...row, role: "editor" } : row)) };
 test("a group test's texts run the threaded history, with the other members' texts in it", async () => {
   const sent = [];
   const gatewayFetch = async (_url, init) => {
@@ -528,7 +531,7 @@ test("a group test's texts run the threaded history, with the other members' tex
     const text = system.includes(THREADS_SYSTEM.slice(0, 60)) ? '{"thread":"new","title":"Gig","description":"the gig","finished":[]}' : "On it.";
     return new Response(JSON.stringify({ content: [{ type: "text", text }], stop_reason: "end_turn", usage: { input_tokens: 10, output_tokens: 5 } }), { status: 200, headers: { "Content-Type": "application/json" } });
   };
-  const world = await createWorld(bench, "Maya", SETUP, { gatewayFetch, ledgerTurns: true, group: "brand" });
+  const world = await createWorld(brandEditors, "Maya", SETUP, { gatewayFetch, ledgerTurns: true, group: "brand" });
   try {
     assert.ok((await world.text("tex when is the shoot?")).ok);
     const second = await world.text("tex and who brings the lights?", [], { others: [{ from: "priya", text: "I can bring the reflector" }] });
@@ -619,7 +622,7 @@ test("a group's earlier picture is kept in its home, where the next turn is show
     const text = sorter ? '{"thread":"new","title":"Gig","description":"the gig","finished":[]}' : "Saw it.";
     return new Response(JSON.stringify({ content: [{ type: "text", text }], stop_reason: "end_turn", usage: { input_tokens: 10, output_tokens: 5 } }), { status: 200, headers: { "Content-Type": "application/json" } });
   };
-  const world = await createWorld(bench, "Maya", SETUP, { gatewayFetch, ledgerTurns: true, group: "brand" });
+  const world = await createWorld(brandEditors, "Maya", SETUP, { gatewayFetch, ledgerTurns: true, group: "brand" });
   try {
     await world.earlier([{ from: "person", who: "priya", text: "tex look", pictures: ["link-preview.png"] }, { from: "tex", text: "Got it." }]);
     const logged = [];

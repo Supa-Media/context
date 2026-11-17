@@ -8,7 +8,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { budgetAt, calendarDay, monthBudget, noteRound, parseSpend, roundAllowed, spendCheck, withRow } from "../spend.mjs";
+import { budgetAt, calendarDay, monthBudget, noteRound, outputBlocks, parseSpend, roundAllowed, roundRow, spendCheck, withRow } from "../spend.mjs";
 
 const FRONT = ["monthly_cap_usd: 40", "rollover_max_usd: 20", "daily_cap_usd: 15", "replay_gate_monthly_cap_usd: 10"];
 
@@ -202,4 +202,12 @@ test("recording a row rewrites the month's total line and keeps the history", ()
   assert.match(next, /\| 2026-11-02 \| r \| core \| production \| 1 \| \$0\.50 \|/);
   assert.match(next, /Total: \$2\.00 of November 2026's \$60\.00 limit \(\$20\.00 carried in; \$2\.00 of the \$15\.00 daily cap on 2026-11-02; replay-gate \$1\.50 of its \$10\.00\)\.\n$/);
   assert.equal(parseSpend(next).rows.length, 3);
+});
+
+test("a check job's outputs count as answers, and a conversation note still counts its answer blocks", () => {
+  const check = ["---", "job: heartbeat", "test: heartbeat", "date: 2026-10-19", "setups: [production]", "---", "", "## Outputs", "", "### 1. quiet", "", "#### production: passed", "", "> SKIP", "", "### 2. a bill", "", "#### production: failed", "", "> pay it", ""].join("\n");
+  assert.equal(outputBlocks(check), 2);
+  assert.deepEqual(roundRow(check, "gh-70"), { date: "2026-10-19", run: "gh-70", test: "heartbeat", setups: ["production"], answers: 2, usd: 0 });
+  const talked = ["---", "job: texting-assistant", "test: core", "date: 2026-10-17", "setups: [production@aaa]", "---", "", "## Answers", "", "### 1. hi", "", "as Maya, lookup", "", "#### amber-fox-quiet-lane", "", "**Person:** hi", "", "**Assistant:** hey", "", "Tools: none", "", "Time 1.0 s, $0.0100, 1 text", ""].join("\n");
+  assert.equal(roundRow(talked, "gh-60").answers, 1);
 });

@@ -183,6 +183,16 @@ describe("caseFit: what a version has lost against a case", () => {
     decideNode().outSchema = decideNode().outSchema!.filter((f) => f.name !== "act");
     expect(caseFit(respond())).toEqual([`checks act, which ${DECIDE_LABEL} no longer answers`]);
   });
+
+  test("jobs, review and pipeline fit on main", () => {
+    // Jobs are graded in code (jobTasks.mjs), review by the ok/send_back label, pipeline on doorStep.
+    // Marking jobs as word-graded made every job case "can't test as written".
+    for (const area of ["jobs", "review", "pipeline"]) {
+      const cases = CASES.filter((c) => c.area === area);
+      expect(cases.length).toBeGreaterThan(0);
+      for (const c of cases) expect(caseFit(c)).toEqual([]);
+    }
+  });
 });
 
 describe("parseReport: a pasted Tex replay report", () => {

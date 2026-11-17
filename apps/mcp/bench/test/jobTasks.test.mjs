@@ -13,7 +13,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { test } from "node:test";
 
-import { checkTask, endedAs, gateRow, hasEntry, loadCases, pickPage, readQuality, runJob, sourcesIn } from "../jobTasks.mjs";
+import { caseRight, checkTask, endedAs, gateRow, hasEntry, loadCases, pickPage, readQuality, runJob, sourcesIn } from "../jobTasks.mjs";
 
 const caterers = {
   id: "t",
@@ -108,6 +108,28 @@ test("a page edit that never saved has no page; a new page is the written note t
   ];
   const texts = { "a.md": "Lucky Wok", "b.md": "Lucky Wok 4000", "tex/history.md": "Lucky Wok 4000 4000" };
   assert.equal(pickPage(caterers, changes, (path) => texts[path] ?? null).path, "maya/b.md");
+  const seen = [];
+  const band = pickPage(
+    { ...caterers, page: { under: "band/" }, covers: ["Lucky Wok"] },
+    [{ workspace: "band", path: "party.md", kind: "written" }],
+    (path, workspace) => {
+      seen.push([workspace, path]);
+      return workspace === "band" ? "Lucky Wok 255" : "the asker's own note";
+    },
+  );
+  assert.deepEqual(seen, [["band", "party.md"]]);
+  assert.equal(band.text, "Lucky Wok 255", "a page under band/ is graded from the band workspace");
+});
+
+test("a quality miss fails the case, and a stand-in judge's misses do not", () => {
+  const checks = [{ line: "ended done (ended done)", pass: true }];
+  const miss = [{ criterion: "names the price", pass: false, why: "left it out" }];
+  assert.equal(caseRight(checks, miss), false);
+  assert.equal(caseRight(checks, [{ criterion: "names the price", pass: true }]), true);
+  assert.equal(caseRight(checks, []), true, "nothing for the judge to read does not fail the case");
+  assert.equal(caseRight(checks, miss, { countQuality: false }), true, "a stand-in judge does not decide");
+  assert.equal(caseRight([{ pass: false }], miss, { countQuality: false }), false, "a failed check still fails");
+  assert.match(gateRow({ id: "z", right: false, checks, quality: miss }).expected, /quality: names the price/);
 });
 
 test("the quality judge's lines are read by number, and a skipped one is a fail", () => {

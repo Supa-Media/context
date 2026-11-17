@@ -304,7 +304,7 @@ export async function createWorld(bench, person, setupRaw, models, today = null,
   });
 
   // A group chat (`models.group`): its grant, hashes and token (`groupChat.mjs`).
-  const { group, tagger, chatToken } = await benchGroup({ name: models.group, bench, person, rows, ids, own, controlPlane, token });
+  const { group, tagger, chatToken } = await benchGroup({ name: models.group, bench, person, ids, own, controlPlane, token });
 
   // Tex's housekeeping (`src/agent/housekeeping.js`) has its own client, over
   // the person's own workspace, plus the pinned one every account reaches,
@@ -642,9 +642,9 @@ export async function createWorld(bench, person, setupRaw, models, today = null,
       s3.bucketFor(`bench-${own.workspace}`).set(path, { body, etag: `placed-${path.length}`, lastModified: modified(baseMs) });
     },
 
-    /** A note's text in the person's own workspace, or null. */
-    read(path) {
-      const object = s3.bucketFor(`bench-${own.workspace}`).get(path);
+    /** A note's text in `workspace` (the person's own when omitted), or null. */
+    read(path, workspace = null) {
+      const object = s3.bucketFor(`bench-${workspace ?? own.workspace}`).get(path);
       return object ? bodyText(object) : null;
     },
 

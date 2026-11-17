@@ -306,6 +306,8 @@ jobs:
           set -euo pipefail
           if [ "$RAN" = "success" ] && [ -s "$RUNNER_TEMP/sealed/results.bin" ]; then
             openssl enc -d -aes-256-cbc -pbkdf2 -pass env:SEAL -in "$RUNNER_TEMP/sealed/results.bin" | gunzip > "$RUNNER_TEMP/results.json"
+            # A reply can hold one half of an emoji. jq will not parse that file until the lone surrogate is replaced.
+            node scripts/tex-lab-run.mjs sanitize "$RUNNER_TEMP/results.json"
             jq -e 'type == "object"' "$RUNNER_TEMP/results.json" > /dev/null
             npx convex run functions/texLabRuns:report "$(jq -cn --arg id "$RUN_ID" --slurpfile r "$RUNNER_TEMP/results.json" '{runId: $id, stage: "done", results: $r[0]}')" > /dev/null 2>&1
             exit 0
