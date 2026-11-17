@@ -106,7 +106,7 @@ const MILESTONES: Array<{
       <>Patches that never move a score <em>get deleted</em>, so the code gets simpler</>,
       <>Shows exactly <em>where to train</em> our own model</>,
     ],
-    how: ["Write up to 20 cases per part of Tex", "Grade replies by hand first", "Let the judge take over once it agrees", "Score every change against main"],
+    how: ["Write up to 50 cases per part of Tex", "Grade replies by hand first", "Let the judge take over once it agrees", "Score every change against main"],
     onMain: ["sealed test set", "merge check against main"],
     reuses: [[1, "graders"], [1, "judge"], [2, "real cases"], [2, "hold + target sets"]],
     adds: ["Tex cases", "speed + cost", "all 3 milestones in that check"],

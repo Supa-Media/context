@@ -16,6 +16,7 @@ import { test } from "node:test";
 import { createTexDev } from "../src/texDev/tool.js";
 import { TEX_CONFIG } from "../src/agent/texConfig.js";
 import { guideText } from "../src/texDev/guide.js";
+import { UNIT_LIMIT } from "../bench/gateSample.mjs";
 
 const mainGraph = () => JSON.parse(JSON.stringify({ nodes: TEX_CONFIG.nodes, edges: TEX_CONFIG.edges }));
 const jsonOf = (result) => JSON.parse(result.content.find((c) => c.type === "text").text);
@@ -51,14 +52,14 @@ test("the guide names steps, marks and put_back, and case's swap_out", () => {
   assert.match(text, /swap_out/);
 });
 
-test("steps lists every step out of 20 and the ones with no cases; one step gives its case form", async () => {
+test("steps lists every step out of UNIT_LIMIT and the ones with no cases; one step gives its case form", async () => {
   const dev = devWith(fakePlane({ cases: NO_CASES }));
   const all = jsonOf(await dev("steps", {}));
-  assert.equal(all.cap, 20);
+  assert.equal(all.cap, UNIT_LIMIT);
   const fd = all.steps.find((s) => s.step === "fd");
-  assert.match(fd.cases, /^\d+\/20$/);
+  assert.match(fd.cases, new RegExp(`^\\d+/${UNIT_LIMIT}$`));
   assert.ok(all.noCasesYet.length > 0);
-  for (const id of all.noCasesYet) assert.equal(all.steps.find((s) => s.step === id).cases, "0/20");
+  for (const id of all.noCasesYet) assert.equal(all.steps.find((s) => s.step === id).cases, `0/${UNIT_LIMIT}`);
   const one = jsonOf(await dev("steps", { step: "answerCheck" }));
   assert.equal(one.area, "node:answerCheck");
   assert.match(one.newCase.key, /^node:answerCheck\/new-\d+$/);
@@ -115,8 +116,8 @@ test("put_back lands the edits that bring one step back to main, with the draft'
 });
 
 test("a new case into a full step is refused unless it trades one out, as the Tests page's swap", async () => {
-  // A step's own cases, all added in the Lab: 20 of them fill it.
-  const full = Array.from({ length: 20 }, (_, i) => ({ key: `node:send/c${i}`, data: JSON.stringify({ area: "node:send", id: `c${i}`, ask: "x", expect: "y", isNew: true }) }));
+  // A step's own cases, all added in the Lab: UNIT_LIMIT of them fill it.
+  const full = Array.from({ length: UNIT_LIMIT }, (_, i) => ({ key: `node:send/c${i}`, data: JSON.stringify({ area: "node:send", id: `c${i}`, ask: "x", expect: "y", isNew: true }) }));
   const plane = fakePlane({ cases: { status: "ok", caseEdits: full }, case: { status: "ok" } });
   const dev = devWith(plane);
   const refused = await dev("case", { key: "node:send/new-21", data: { area: "node:send", id: "new-21", ask: "a", expect: "b", isNew: true } });
@@ -133,7 +134,10 @@ test("a new case into a full step is refused unless it trades one out, as the Te
   assert.equal(writes[0].args.data, null);
   assert.equal(JSON.parse(writes[1].args.data).replaces, "c5");
   // A bench step's own case traded out is marked removed, its words kept.
-  const bench = fakePlane({ cases: NO_CASES, case: { status: "ok" } });
+  // The bench's review cases plus enough added in the Lab fill the step.
+  const benchKept = jsonOf(await devWith(fakePlane({ cases: NO_CASES }))("bench", { area: "review", limit: 1 })).total;
+  const added = Array.from({ length: UNIT_LIMIT - benchKept }, (_, i) => ({ key: `review/a${i}`, data: JSON.stringify({ area: "review", id: `a${i}`, ask: "x", expect: "y", isNew: true }) }));
+  const bench = fakePlane({ cases: { status: "ok", caseEdits: added }, case: { status: "ok" } });
   const benchDev = devWith(bench);
   const room = jsonOf(await benchDev("bench", { area: "review", limit: 1 }));
   const out = room.cases[0].id;
