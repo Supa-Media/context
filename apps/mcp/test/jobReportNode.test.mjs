@@ -5,7 +5,7 @@
  * Sabotage record (temporary local edits, reverted):
  *   gatewayGraph not watching the request's Lab gate → "a node run outside the turn's graph shows on the run card" fails
  *   the node's `report === null` refusal removed → "refuses a report it can't read" fails
- *   jobReportEvent's on-check removed (the node run while on the shelf) → "on the shelf, the code's read stands" fails
+ *   jobReportEvent's on-check removed (the node run with none in the config) → "a config without it keeps the code's read" fails
  *   jobReportEvent returning the code's report when the node refused → "the node's refusal is the run's" fails
  */
 import test from "node:test";
@@ -43,11 +43,15 @@ test("refuses a report it can't read", async () => {
   assert.equal((await jobReportNode({})).to, "refuse");
 });
 
-test("on the shelf, the code's read stands and no node runs", async () => {
-  assert.ok(SHELF.nodes.jobReport, "on the shelf until a Lab draft wires it");
+test("wired in the config (off the shelf); a config without it keeps the code's read and runs no node", async () => {
+  assert.ok(!SHELF.nodes.jobReport, "off the shelf once promoted");
   assert.equal(GATEWAY_NODES.jobReport, jobReportNode);
+  assert.ok(TEX_CONFIG.nodes.some((n) => n.id === "jobReport" && n.kind === "input" && n.on !== false), "an input node in the config");
+  assert.ok(TEX_CONFIG.edges.some((e) => e.from === "job" && e.to === "jobReport" && e.mode === "generator"), "the job -> jobReport generator wire");
+  assert.ok(TEX_CONFIG.edges.some((e) => e.from === "jobReport" && e.to === "lanes" && e.mode === "wait" && e.when.includes("report")), "jobReport -> lanes");
+  const unwired = { ...TEX_CONFIG, nodes: TEX_CONFIG.nodes.filter((n) => n.id !== "jobReport"), edges: TEX_CONFIG.edges.filter((e) => e.from !== "jobReport" && e.to !== "jobReport") };
   const writer = ledger(), b = body(REPORT), read = code(b);
-  assert.equal(await jobReportEvent(b, read, { config: TEX_CONFIG, writer }), read);
+  assert.equal(await jobReportEvent(b, read, { config: unwired, writer }), read);
   assert.equal(writer.entries.length, 0);
 });
 
