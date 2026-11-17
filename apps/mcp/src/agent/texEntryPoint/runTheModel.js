@@ -150,7 +150,7 @@ export async function runTheModel(t, via) {
   const pictureRun = (name, args, callTool) => gatewayGraph({ writer: chatLog, turn: ledgerAt?.turn ?? null }).fire("tools", "picture", { tool: name, args }, { env, maker, callTool, cardCheck }).then((out) => out.result); // interim: io.use.picture once tools is a node
   steer?.revertWith(dispatch); // a provisional run's note saves are read first and put back through the client's own dispatcher (`steer.js`)
   // An earlier try of this same text, carried on from what it had done (`savedRounds.js`): a chat's turn only; a job keeps its own (`jobSaved.js`), a routine's run has no text.
-  const rounds = job === null && !runner && chatTurn ? await carriedRounds({ store, session, body, question, egress: ledger }).catch(() => null) : null;
+  const rounds = job === null && !runner && chatTurn ? await tex.step("carried_rounds", () => carriedRounds({ store, session, body, question, egress: ledger }).catch(() => null)) : null;
   t.rounds = rounds; // its snapshot goes once the reply is made (`sendTheReply.js`)
   stages?.ready(); const turn = await tex.step("model", () => runTurn({
     resumeFrom: rounds?.from ?? null, keepRounds: rounds?.keep ? { keep: rounds.keep, marks: rounds.marks } : null,
