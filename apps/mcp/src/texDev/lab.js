@@ -215,7 +215,7 @@ export async function putBackOps(plane, args) {
 }
 
 /**
- * Room for a new case, as the Lab's Keep checks it: a step keeps at most 20, so a new one into a full area is refused
+ * Room for a new case, as the Lab's Keep checks it: a step keeps at most 50, so a new one into a full area is refused
  * unless it trades one out (`swap_out`), as the Tests page's swap does.
  */
 export async function caseRoom(plane, area, id, out = null) {

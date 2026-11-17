@@ -3,7 +3,7 @@
  * of things"; chose "Reply checker and jobs"). A change's replay runs a fixed part of the jobs, not all of them: an
  * examiner session answers every call by hand, and a full run had grown to about 494 calls (2026-11-15).
  *
- * - review and respond, the two unit steps, once sampled 20 each, now keep only 20 cases (`UNIT_LIMIT`) and run whole.
+ * - review and respond, the two unit steps, once sampled 20 each, now keep at most `UNIT_LIMIT` cases and run whole.
  * - jobs: `GATE_JOB_TASKS`, one task of each kind (3 of the 7 whole jobs).
  *
  * The full set of jobs stays in the repository and runs whole without `--gate-sample` (`pnpm ai jobs`).
@@ -15,8 +15,11 @@
  * The most cases any one step keeps (Dev2, 2026-11-15: "a max of 20 test cases per unit"; chose "keep best 20, delete
  * rest"). The reviewer's sets and Decide's cases were cut to 20 each, kept so every reviewer set and both kinds of
  * answer stay in; `scripts/tex-lab-data.mjs` fails when any step's cases pass it, so the bench never grows back.
+ * Raised to 50 on 2026-11-17 (Dev2: "Replay cases, 20 per step - raise it to what you think makes sense"): every step
+ * that had cases was full, so a fix could not add the case that proves it. The replay is on demand and capped at $1 a
+ * change (`replayGate.mjs`); a step's case is one cheap call, so 50 keeps a step's run to cents.
  */
-export const UNIT_LIMIT = 20;
+export const UNIT_LIMIT = 50;
 
 /** The job tasks a change's replay runs: one research page, one page edit, one errand. */
 export const GATE_JOB_TASKS = ["research-caterers-page", "page-edit-fix-caterer-numbers", "errand-register-retreat-and-note"];
