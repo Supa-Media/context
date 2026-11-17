@@ -48,6 +48,13 @@ over a GitHub listener), with a Models pick of the AI gateway or Claude Code on
   account's concurrent limit rather than failing them). A run still open after
   three hours no longer holds a place.
 - **Public logs say counts and ids.** Results go to Convex, never into the log.
+- **Any reply text is stored.** A model sometimes emits one half of an emoji (a lone
+  UTF-16 surrogate). `JSON.stringify` writes that as `\ud83d`, and jq refuses
+  the file, so the report step never reaches Convex and the score stays in the
+  GitHub log. The report step rewrites lone surrogates to U+FFFD before jq
+  reads the file (`scripts/tex-lab-run.mjs` `sanitize`). A real pair is kept.
+  PR 3548's Dev run (2026-11-17, decide 18/23, front door 11/30) failed this
+  way on U+D83D.
 - **Promote starts at once.** Asking dispatches `tex-lab-promote.yml`
   straight away (the quarter-hour schedule stays as the fallback) and makes a
   "gate" run, which follows the pull request's **Tex test set** status and

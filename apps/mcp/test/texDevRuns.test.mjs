@@ -12,7 +12,8 @@ import { test } from "node:test";
 import { createTexDev } from "../src/texDev/tool.js";
 import { guideText } from "../src/texDev/guide.js";
 import { texDevToolDefinitions } from "../src/tools/schemas/texDev.js";
-import { detailOf, devConversations, resultsOf } from "../../../scripts/tex-lab-run.mjs";
+import { execFileSync } from "node:child_process";
+import { detailOf, devConversations, resultsOf, sanitizeResults } from "../../../scripts/tex-lab-run.mjs";
 import { decideSaid } from "../bench/setsRun.mjs";
 
 const textOf = (result) => result.content.find((c) => c.type === "text")?.text ?? "";
@@ -91,6 +92,20 @@ test("a missed Front door row keeps the judge's reasons and Tex's texts, so its 
   assert.equal(r.rows[1].detail, "held: must: answer short (one line)\nTex: fine", "a passed row can be audited: what held, why, and what Tex said");
   assert.equal(detailOf({ said: ["x".repeat(3_000)] }).detail.length, 1_500);
   assert.deepEqual(detailOf({}), {});
+});
+
+test("a lone surrogate in a reply is stored as a replacement character, which jq can read", () => {
+  // PR 3548's Dev run (2026-11-17): a reply kept U+D83D, the lead half of an emoji, and jq
+  // refused the results file, so the report step never stored the run.
+  const rows = [{ chat: "w", at: 1, node: "fd", right: true, usd: 0, got: "July 10? \uD83D", want: "ok \uDFFF", said: ["July 10? \uD83D\uDCC5 and \uD83D"] }];
+  const text = JSON.stringify(resultsOf(rows, "1"));
+  assert.doesNotMatch(text, /\\ud83d|\\udfff/i);
+  assert.match(text, /July 10\? \uFFFD/);
+  assert.match(text, /\uD83D\uDCC5/, "a complete emoji pair is kept");
+  const fixed = sanitizeResults(JSON.stringify({ got: "July 10? \uD83D" }));
+  assert.doesNotMatch(fixed, /\\ud83d/i);
+  assert.equal(execFileSync("jq", ["-c", "{pass,total}"], { input: text, encoding: "utf8" }).trim(), '{"pass":1,"total":1}');
+  assert.equal(execFileSync("jq", ["-r", ".got"], { input: fixed, encoding: "utf8" }).trim(), "July 10? \uFFFD");
 });
 
 test("decideSaid names every labelled field, so a miss on why shows where it differs", () => {

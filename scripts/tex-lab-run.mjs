@@ -6,6 +6,7 @@
  *
  *   node scripts/tex-lab-run.mjs prepare <job.json> <dir>     the conversations to run, and the draft's graph
  *   node scripts/tex-lab-run.mjs results <rows.json> <ms>     the results the run reports back, as JSON
+ *   node scripts/tex-lab-run.mjs sanitize <results.json>     rewrite that file so jq can store any reply
  *
  * `prepare` reads the run Convex hands the workflow (`texLabRuns:job`): the Dev set is the repo's
  * (`apps/mcp/bench/sets/dev`) with the Lab's drafts over it (a draft in Dev replaces or adds a conversation; one moved
@@ -38,6 +39,42 @@ export function devConversations(repo, drafts, convId = null) {
   return all.filter((c) => c.id === convId);
 }
 
+/**
+ * Reply text as JSON that jq and Convex will store. A model sometimes emits one half of an emoji
+ * (a lone UTF-16 surrogate, `U+D83D` with no trail). `JSON.stringify` writes that as `\ud83d`, and
+ * jq refuses the file (`Invalid \uXXXX\uXXXX surrogate pair escape`), so the report step never
+ * reaches Convex. A lone surrogate becomes U+FFFD; a real pair is kept.
+ */
+export function plainText(value) {
+  const text = String(value ?? "");
+  let out = "";
+  for (let i = 0; i < text.length; i += 1) {
+    const code = text.charCodeAt(i);
+    if (code >= 0xd800 && code <= 0xdbff) {
+      const next = text.charCodeAt(i + 1);
+      if (next >= 0xdc00 && next <= 0xdfff) {
+        out += text[i] + text[i + 1];
+        i += 1;
+      } else out += "\uFFFD";
+    } else if (code >= 0xdc00 && code <= 0xdfff) out += "\uFFFD";
+    else out += text[i];
+  }
+  return out;
+}
+
+/** Every string in a results object, with lone surrogates replaced. */
+export function plainValue(value) {
+  if (typeof value === "string") return plainText(value);
+  if (Array.isArray(value)) return value.map(plainValue);
+  if (value && typeof value === "object") return Object.fromEntries(Object.entries(value).map(([key, item]) => [key, plainValue(item)]));
+  return value;
+}
+
+/** A results file rewritten so jq can read it. The report step runs this before it stores the run. */
+export function sanitizeResults(raw) {
+  return JSON.stringify(plainValue(JSON.parse(raw)));
+}
+
 /** The runner's rows as the Lab reads a run's results (`texLabRuns.cleanResults`). */
 export function resultsOf(rows, ms) {
   const perConv = new Map();
@@ -52,7 +89,7 @@ export function resultsOf(rows, ms) {
     add(perConv, r.chat, "id", r.right);
     add(perNode, r.node, "node", r.right);
   }
-  return {
+  const out = {
     pass: rows.filter((r) => r.right).length,
     total: rows.length,
     costUsd: Math.round(rows.reduce((a, r) => a + (r.usd || 0), 0) * 10_000) / 10_000,
@@ -73,6 +110,7 @@ export function resultsOf(rows, ms) {
       ...detailOf(r),
     })),
   };
+  return plainValue(out);
 }
 
 /**
@@ -108,7 +146,11 @@ async function main() {
     process.stdout.write(JSON.stringify(resultsOf(JSON.parse(readFileSync(a, "utf8")), b)));
     return;
   }
-  throw new Error("usage: tex-lab-run.mjs prepare <job.json> <dir> | results <rows.json> <ms>");
+  if (sub === "sanitize") {
+    writeFileSync(a, sanitizeResults(readFileSync(a, "utf8")));
+    return;
+  }
+  throw new Error("usage: tex-lab-run.mjs prepare <job.json> <dir> | results <rows.json> <ms> | sanitize <results.json>");
 }
 
 if (import.meta.url === `file://${process.argv[1]}`) {
