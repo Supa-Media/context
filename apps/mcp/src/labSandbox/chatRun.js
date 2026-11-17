@@ -24,6 +24,7 @@
  * home are found by, are the real ones, put back on the turn's body at the `/agent` hop.
  */
 
+import { JOB_PART_END_PATH, handleJobPartEnd } from "../agent/jobPartEndRoute.js";
 import { handleAgent } from "../agent/route.js";
 import { TEXTING_ROUTES } from "../agent/textingRoutes.js";
 import { streamTurn, wantsProgress } from "../agent/progress.js";
@@ -256,6 +257,8 @@ export function controlPlaneSwitch({ about, chat, phones, gate, token }) {
           ...(chat?.engagementChosen === true ? { engagementChosen: true } : {}),
           ...(chat?.instructions ? { instructions: chat.instructions } : {}),
           ...(chat?.updates ? { updates: chat.updates } : {}),
+          // Whether the chat is shared with the developers, as the control plane reads it (`lib/texLabShared.ts` `devShareOf`).
+          ...(chat?.devShare ? { devShare: chat.devShare } : {}),
         };
       }
       case "/agent-texts/decide/gate":
@@ -608,6 +611,8 @@ export function gatewayRoutes({ storeOf, sandboxEnv, controlPlane, ctx, gate, ha
       return streamTurn((progress, step, answered) => handle(turn, sandboxEnv, store, session, controlPlane, { progress, step, answered }), { waitUntil: (work) => ctx.waitUntil(work) });
     }
     if (TEXTING_ROUTES.has(path)) return await TEXTING_ROUTES.get(path)(request, store, session);
+    // What follows a job's part: the Part end node on the test chat's draft, logged to the test chat (`jobPartEndRoute.js`).
+    if (path === JOB_PART_END_PATH) return await handleJobPartEnd(request, sandboxEnv, store, session);
     gate.record({ kind: "Other", summary: `asked the gateway ${path}` });
     return Response.json({ error: "not_in_lab" }, { status: 403 });
   };

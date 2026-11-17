@@ -32,6 +32,8 @@
  *     turn that cannot draw one still ends with the cover" fails.
  *   `drawingCard` dropped from `pageCover` (`visuals/page.js`) → "a drawn
  *     page is texted as the wide card of its title and drawing" fails.
+ *   `toneOf` dropped, so every colour is ink again → "a light fill is paper,
+ *     and a fill covering most of the canvas is left out" fails.
  */
 
 import assert from "node:assert/strict";
@@ -71,6 +73,43 @@ const PAGE = [
   "- [ ] Hold two venues",
   "",
 ].join("\n");
+
+test("a light fill is paper, and a fill covering most of the canvas is left out", () => {
+  // The model's white background rectangle used to become a solid ink block, and the card check rejected it.
+  const read = readScene('<rect width="1200" height="900" fill="#fff"/><circle cx="400" cy="450" r="80" fill="none"/>');
+  assert.equal(read.error, null);
+  assert.deepEqual(read.shapes.map((shape) => shape.tag), ["circle"]);
+  const svg = drawingSvg(read, { seed: "bg" });
+  assert.doesNotMatch(svg, /height="900"/);
+  assert.doesNotMatch(svg, /width="1200" height="900"|fill="#2A45CF"[^/]*width="1200"/);
+  for (const fill of ["#ffffff", "#FFF", "white", "rgb(255, 255, 255)", "hsl(0, 0%, 100%)", "#fffdf9"]) {
+    const light = readScene(`<rect x="40" y="40" width="200" height="80" fill="${fill}"/>`);
+    assert.equal(light.error, null, fill);
+    assert.equal(light.shapes[0].attrs.fill, "paper", fill);
+  }
+  assert.match(drawingSvg(readScene('<rect x="40" y="40" width="200" height="80" fill="#ffffff"/>')), /<rect x="40" y="40" width="200" height="80" fill="#FFFDF9"/);
+  // A pale background the size of the canvas is dropped. A smaller one stays, as paper.
+  const pale = readScene('<rect width="1000" height="700" fill="#f5f5f5"/><circle cx="20" cy="20" r="8"/>');
+  assert.equal(pale.shapes[0].tag, "rect");
+  assert.equal(pale.shapes[0].attrs.fill, "paper");
+  const sheet = readScene('<polygon points="0,0 1200,0 1200,900 0,900" fill="white"/><circle cx="30" cy="30" r="6"/>');
+  assert.deepEqual(sheet.shapes.map((shape) => shape.tag), ["circle"]);
+  // An ink fill that size would bury the drawing. The model is told why, and nothing is drawn.
+  for (const fill of ["#111111", "#000", "black", "rgb(10, 10, 10)", "ink"]) {
+    const buried = readScene(`<rect width="1200" height="900" fill="${fill}"/><circle cx="100" cy="100" r="20"/>`);
+    assert.equal(buried.shapes, null, fill);
+    assert.match(buried.error, /bury the drawing in ink/, fill);
+    assert.match(buried.error, /Leave the background out/);
+  }
+  // A dark colour on a small shape is still ink. A transparent fill is none.
+  assert.equal(readScene('<rect x="1" y="1" width="10" height="10" fill="red"/>').shapes[0].attrs.fill, "ink");
+  assert.equal(readScene('<rect x="1" y="1" width="10" height="10" fill="#ff0000"/>').shapes[0].attrs.fill, "ink");
+  assert.equal(readScene('<rect x="1" y="1" width="10" height="10" fill="transparent"/>').shapes[0].attrs.fill, "none");
+  // A scale means the numbers are not the size on the canvas, so the shape is kept.
+  const scaled = readScene('<g transform="scale(0.2)"><rect width="1200" height="900" fill="#000"/></g>');
+  assert.equal(scaled.error, null);
+  assert.equal(scaled.shapes[0].children[0].attrs.fill, "ink");
+});
 
 test("a scene is read into shapes and drawn again in Tex's ink, with the calm Tex", () => {
   const scene = readScene(SCENE);
@@ -187,7 +226,9 @@ test("a page with no picture is sent back to draw one, and the drawing is saved 
 
   const asked = await draw(VISUAL_TOOL, { template: "page", data: { path: "projects/concert.page.md" } });
   assert.equal(asked.isError, true);
+  assert.equal(asked.ask, true, "asking for a scene is a designed send-back, not a broken tool");
   assert.equal(asked.content[0].text, SCENE_ASK);
+  assert.match(SCENE_ASK, /Do not draw a background rectangle/);
   assert.equal(shots.calls.length, 0, "nothing is drawn before the scene");
 
   const drawn = await draw(VISUAL_TOOL, { template: "page", data: { path: "projects/concert.page.md", scene: SCENE } });
@@ -251,6 +292,7 @@ test("a turn that cannot draw one still ends with the cover", async () => {
   for (let i = 0; i < MAX_DRAWING_TRIES; i++) {
     const refused = await draw(VISUAL_TOOL, args);
     assert.equal(refused.isError, true);
+    assert.equal(refused.ask, undefined, "a scene that cannot be read is a real error");
     assert.match(refused.content[0].text, /could not be drawn: <blink> is not drawn/);
   }
   const drawn = await draw(VISUAL_TOOL, args);

@@ -7,6 +7,8 @@ import { addressedTo } from "../../tools/offerFor.js";
 import { aiGatewayConfig } from "../aiGateway.js";
 import { hearVoiceMessages } from "../attachments.js";
 import { backgroundSession, runningJobsOf } from "../background.js";
+import { jobStartChooser } from "../jobStartChoice.js";
+import { texConfigOf } from "../texConfig.js";
 import { machinesFor } from "../../machines/forJobs.js";
 import { readMailHealth } from "../mailHealth.js";
 import { openChatSkills } from "../chatSkills.js";
@@ -59,7 +61,7 @@ export async function readTheHistory(t) {
   const mailRead = group === null ? tex.ahead("mail_accounts", () => readMailHealth(store), []).catch(() => []) : null;
   // The group chats they are in, read from their own 1:1 when the front door reads the `groups` module (`groupChats.js`).
   const groupsRead = chatTurn && job === null && !runner && group === null && session.actorClientId === TEXTS_CLIENT_ID && (groupsOn(env) || asksOn(env)) ? tex.ahead("my_groups", () => readTexterGroups(controlPlane, session), null).catch(() => null) : null;
-  const background = chatTurn ? backgroundSession({ running: runningJobsOf(body.running), job, now: received, report: report !== null, read: () => markUntrusted(ledger), machines: group !== null || session.actorClientId === TEXTS_CLIENT_ID ? () => computersRead ?? machinesFor(env, session, controlPlane) : null, inGroup: group !== null, opened: () => pagesOpenedBefore(history) }) : null; // a job starts with the pages the chat opened (`jobPages.js`)
+  const background = chatTurn ? backgroundSession({ running: runningJobsOf(body.running), job, now: received, report: report !== null, read: () => markUntrusted(ledger), machines: group !== null || session.actorClientId === TEXTS_CLIENT_ID ? () => computersRead ?? machinesFor(env, session, controlPlane) : null, inGroup: group !== null, opened: () => pagesOpenedBefore(history), chooseStart: jobStartChooser({ env, config: texConfigOf(env), writer: store.ledger ?? null, turn: typeof body.turn === "string" ? body.turn : null }) }) : null; // a job starts with the pages the chat opened (`jobPages.js`)
   session.egress.turn = runner ? { note: routine?.body ?? "" } : { history, question }; // the sharing judge's
   // A typed yes, nothing armed, to Tex's last text offering a held change in its own words (`tools/likedPreview.js`).
   if (session.egress.liked === undefined && approvalVerdict(question) === "approve") session.egress.liked = [lastOffer(history)].find((offer) => group === null || addressedTo(offer, group.from)) ?? undefined;

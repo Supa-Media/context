@@ -640,3 +640,7 @@ test/agentCheckFindings.test.mjs
 test/jobSaved.test.mjs
 test/savedRounds.test.mjs
 test/labSandboxObjectRun.test.mjs
+test/jobReportNode.test.mjs
+test/devShare.test.mjs
+test/jobCheckView.test.mjs
+test/jobStart.test.mjs

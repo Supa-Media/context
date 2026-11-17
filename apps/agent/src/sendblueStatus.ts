@@ -155,16 +155,24 @@ const pause = (ms: number): Promise<void> => new Promise((resolve) => setTimeout
 async function sentEvent(storage: InboxStorage, status: SendStatus, wait: (ms: number) => Promise<void>): Promise<{ ev?: string; linkBubble: boolean }> {
   const photon = status.report?.name === "photon";
   // A Photon link bubble's report is its words' send (`photonLinkBubbles.ts`); the bubble may be noted only once its send answers.
-  const handleNow = () => (photon ? (linkBubbleWords(status.handle) ?? status.handle) : status.handle);
-  const read = async () => ((await storage.get<{ h: string; ev: string }[]>(HANDLES_KEY)) ?? []).find((entry) => entry.h === handleNow())?.ev;
-  let ev = await read();
+  const placed = async () => {
+    if (!photon) return { handle: status.handle, linkBubble: false };
+    const words = await linkBubbleWords(storage, status.handle);
+    return { handle: words ?? status.handle, linkBubble: words !== undefined };
+  };
+  const read = async () => {
+    const now = await placed();
+    const ev = ((await storage.get<{ h: string; ev: string }[]>(HANDLES_KEY)) ?? []).find((entry) => entry.h === now.handle)?.ev;
+    return { ev, linkBubble: now.linkBubble };
+  };
+  let found = await read();
   if (photon) {
-    for (let waited = 0; ev === undefined && waited < PHOTON_MATCH_WAIT_MS; waited += PHOTON_MATCH_STEP_MS) {
+    for (let waited = 0; found.ev === undefined && waited < PHOTON_MATCH_WAIT_MS; waited += PHOTON_MATCH_STEP_MS) {
       await wait(PHOTON_MATCH_STEP_MS);
-      ev = await read();
+      found = await read();
     }
   }
-  return { ...(ev !== undefined ? { ev } : {}), linkBubble: handleNow() !== status.handle };
+  return { ...(found.ev !== undefined ? { ev: found.ev } : {}), linkBubble: found.linkBubble };
 }
 
 /** Whether two strings match, hashed first so the time taken says nothing of either. */

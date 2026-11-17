@@ -22,12 +22,18 @@
  */
 "use strict";
 
-const SCHEMA_VERSION = 2;
+const SCHEMA_VERSION = 3;
 
 const MODES = Object.freeze(["wait", "uses", "background", "job", "loop", "provisional", "generator"]);
 const EFFORTS = Object.freeze(["off", "low", "medium", "high", "xhigh", "max"]);
 /** What a provisional run may do before its go: reads only, or reads and writes that can be undone (the default). */
 const ALLOW = Object.freeze(["read", "revertible"]);
+/**
+ * Bursts a provisional wire may refuse to start early (`unless` on the wire). `firstLook`: a chat Tex is not set up
+ * in. `sms`: an SMS. `unpaired`: the worker has only one of the workflow (`startTurn`) and answer-first. Absence of
+ * `unless` means every burst starts the run. The texting Worker and the Lab both read this list (`texGraph.cjs`).
+ */
+const START_FACTS = Object.freeze(["firstLook", "sms", "unpaired"]);
 const KINDS = Object.freeze(["input", "tool"]);
 /** The types a node's input and output fields may have (`inSchema`, `outSchema`; checked by the runner, `texGraph.cjs`). */
 const IO_TYPES = Object.freeze(["text", "number", "choice", "object", "yesno", "score", "ids", "list"]);
@@ -70,7 +76,7 @@ const NODE_SHAPE = Object.freeze({
 });
 const NODE_FIELDS = Object.freeze(Object.keys(NODE_SHAPE));
 const REQUIRED = Object.freeze(["label", "on", "model"]);
-const EDGE_FIELDS = Object.freeze(["from", "to", "mode", "when", "rounds", "allow"]);
+const EDGE_FIELDS = Object.freeze(["from", "to", "mode", "when", "rounds", "allow", "unless"]);
 const ID = /^[A-Za-z][A-Za-z0-9_-]{0,47}$/;
 
 /** Everything wrong with a parsed `texConfig.json`, as sentences a person reads; [] when it is sound. */
@@ -120,6 +126,7 @@ function configProblems(config) {
     if (!isTextList(e.when) || e.when.length === 0) out.push(`the wire ${name} needs a when list`);
     if (e.rounds !== undefined && !(Number.isInteger(e.rounds) && e.rounds > 0 && e.rounds <= 100)) out.push(`the wire ${name} has rounds that are not a whole number from 1 to 100`);
     if (e.allow !== undefined && !(e.mode === "provisional" && ALLOW.includes(e.allow))) out.push(`the wire ${name} has allow "${e.allow}": only a provisional wire has one, ${ALLOW.join(" or ")}`);
+    if (e.unless !== undefined && !(e.mode === "provisional" && isTextList(e.unless) && e.unless.every((fact) => START_FACTS.includes(fact)))) out.push(`the wire ${name} has unless ${JSON.stringify(e.unless)}: only a provisional wire has one, a list of ${START_FACTS.join(", ")}`);
     const key = `${e.from}>${e.to}>${e.mode}`;
     if (wires.has(key)) out.push(`the wire ${name} (${e.mode}) is there twice`);
     wires.add(key);
@@ -169,7 +176,10 @@ function browserProblems(browsers) {
 const MIGRATIONS = Object.freeze([
   // 0 → 1 (2026-11-14): the wire mode "behind" was renamed "background" (Dev2).
   (g) => ({ ...g, edges: (g.edges ?? []).map((e) => (e && e.mode === "behind" ? { ...e, mode: "background" } : e)) }),
-  // 1 → 2 (2026-11-17): the Browser Use fallback and its caps, off unless a config says on.
+  // 1 → 2 (2026-11-17): a provisional wire may name `unless` (firstLook, sms, unpaired), the bursts that do not start
+  // its step early. A wire drawn before the field has none, and that means every burst starts it, so nothing is rewritten.
+  (g) => g,
+  // 2 → 3 (2026-11-17): the Browser Use fallback and its caps, off unless a config says on.
   (g) => ({ ...g, browsers: browsersOf(g.browsers) }),
 ]);
 
@@ -185,4 +195,4 @@ function migrateGraph(graph) {
   return Number.isInteger(graph.texConfig) ? { ...g, texConfig: Math.max(graph.texConfig, SCHEMA_VERSION) } : g;
 }
 
-module.exports = { SCHEMA_VERSION, MODES, EFFORTS, ALLOW, KINDS, IO_TYPES, GROUP_FIELDS, NODE_FIELDS, EDGE_FIELDS, configProblems, texConfigOf, MIGRATIONS, migrateGraph };
+module.exports = { SCHEMA_VERSION, MODES, EFFORTS, ALLOW, START_FACTS, KINDS, IO_TYPES, GROUP_FIELDS, NODE_FIELDS, EDGE_FIELDS, configProblems, texConfigOf, MIGRATIONS, migrateGraph };

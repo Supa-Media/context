@@ -8,6 +8,7 @@
  *  - `groupTurn` not sending `provisional` → "told go, it answers as any turn" fails;
  *  - `startEarly` handing the run to answerFirst without its gate → "answered first: stopped" fails;
  *  - `liveTurns` handing a lost provisional run to its workflow → "a provisional run lost to a restart is nobody's turn" fails.
+ *  - `drainOnce` deciding the early start itself, instead of `earlyGate` → "the early start is the wires' unless" fails.
  */
 
 import { describe, expect, it } from "vitest";
@@ -17,7 +18,7 @@ import { MemoryStorage } from "./memoryStorage.testing";
 import { ADA, BO, LINE, LINES, setup, silent, answerAll } from "./groupWorld.testing";
 import { setChatBound } from "./groupChat";
 import { handedTurns, liveTurns, turnKey, type HandedTurn } from "./groupTurnRun";
-import { provisionalDoor, sameMessages } from "./provisional";
+import { earlyFacts, earlyGate, provisionalDoor, sameMessages } from "./provisional";
 import type { Fetch } from "./clients";
 
 /** The config with the Door step waiting on the Queue, as it was before the Provisional run was wired (2026-11-17). */
@@ -26,11 +27,26 @@ const waiting = {
   edges: [...config.edges.filter((edge) => !(edge.to === "doorStep" && edge.mode === "provisional")), { from: "lanes", to: "doorStep", mode: "wait", when: ["*"] }],
 };
 
+/** Production's provisional wires with `unless` replaced. `null` drops the field: every burst starts early. */
+function withUnless(facts: string[] | null) {
+  return {
+    ...config,
+    edges: config.edges.map((edge) => {
+      if (edge.mode !== "provisional") return edge;
+      if (facts === null) {
+        const { unless: _drop, ...rest } = edge;
+        return rest;
+      }
+      return { ...edge, unless: facts };
+    }),
+  };
+}
+
 /** Triage, Decide and the Queue wired to the Door step as a Provisional run (the built-in config since 2026-11-17). */
 const wired = {
   ...config,
   edges: [
-    ...config.edges.filter((edge) => !(edge.from === "lanes" && edge.to === "doorStep")),
+    ...config.edges.filter((edge) => !(edge.to === "doorStep" && edge.mode === "provisional")),
     { from: "triage", to: "doorStep", mode: "provisional", when: ["stop:running"] },
     { from: "decide", to: "doorStep", mode: "provisional", when: ["stop:quiet", "restart:wait"] },
     { from: "lanes", to: "doorStep", mode: "provisional", when: ["*"] },
@@ -41,11 +57,11 @@ const wired = {
  * A world whose gateway holds a provisional turn's answer until the Worker's go or stop, as `apps/mcp` does
  * (`steer.js`, `runTheModel.js`); `tool` makes the turn start a tool (a tapback) while it waits.
  */
-async function provisionalWorld(groupId: string, opts: Parameters<typeof setup>[1] & { tool?: boolean } = {}) {
+async function provisionalWorld(groupId: string, opts: Parameters<typeof setup>[1] & { tool?: boolean; graph?: unknown; bind?: boolean } = {}) {
   const storage = new MemoryStorage();
   const w = setup(groupId, opts);
-  // A chat Tex is set up in: a first look never runs provisionally (`drainOnce`).
-  await setChatBound(storage, { kind: "group-message", eventId: "bound", groupId, line: LINE, from: ADA, participants: [ADA, BO, LINE], messageId: "bound", text: "" });
+  // A chat Tex is set up in: a first look never runs provisionally (`drainOnce`). `bind: false` leaves it unset.
+  if (opts.bind !== false) await setChatBound(storage, { kind: "group-message", eventId: "bound", groupId, line: LINE, from: ADA, participants: [ADA, BO, LINE], messageId: "bound", text: "" });
   const verdicts = new Map<string, (verdict: "go" | "stop") => void>();
   const told: { path: string; body: Record<string, unknown> }[] = [];
   const asked: Record<string, unknown>[] = [];
@@ -64,7 +80,7 @@ async function provisionalWorld(groupId: string, opts: Parameters<typeof setup>[
     }
     return await w.deps.fetch(url, init);
   }) as unknown as Fetch;
-  const deps = { ...w.deps, fetch: fetcher, texGraph: wired };
+  const deps = { ...w.deps, fetch: fetcher, texGraph: opts.graph ?? wired };
   return { storage, w, deps, told, asked };
 }
 
@@ -72,11 +88,17 @@ const { name, groupId } = LINES[0];
 
 describe(`a group's Provisional run, ${name}`, () => {
   it("reads the wiring from the config: on as built (Dev2, 2026-11-17), off when Door waits, read only when any wire says so", () => {
-    expect(provisionalDoor(config)).toEqual({ on: true, allow: "revertible" });
-    expect(provisionalDoor(waiting)).toEqual({ on: false, allow: "read" });
-    expect(provisionalDoor(wired)).toEqual({ on: true, allow: "revertible" });
+    expect(provisionalDoor(config)).toEqual({ on: true, allow: "revertible", unless: ["firstLook", "sms", "unpaired"] });
+    expect(provisionalDoor(waiting)).toEqual({ on: false, allow: "read", unless: [] });
+    expect(provisionalDoor(wired)).toEqual({ on: true, allow: "revertible", unless: [] });
     const narrowed = { ...wired, edges: wired.edges.map((edge) => (edge.from === "decide" && edge.mode === "provisional" ? { ...edge, allow: "read" } : edge)) };
-    expect(provisionalDoor(narrowed)).toEqual({ on: true, allow: "read" });
+    expect(provisionalDoor(narrowed)).toEqual({ on: true, allow: "read", unless: [] });
+    expect(earlyFacts([{ look: true, message: {} }], {})).toEqual(["firstLook"]);
+    expect(earlyFacts([{ message: { sms: true } }], {})).toEqual(["sms"]);
+    expect(earlyFacts([{ message: {} }], { startTurn: async () => {} })).toEqual(["unpaired"]);
+    expect(earlyFacts([{ message: {} }], { startTurn: async () => {}, answerFirst: () => {} })).toEqual([]);
+    expect(earlyGate(config, [{ look: true, message: {} }], {}).start).toBe(false);
+    expect(earlyGate(waiting, [{ look: true, message: {} }], {}).held).toEqual([]);
     expect(sameMessages(["a", "b"], ["b", "a"])).toBe(true);
     expect(sameMessages(["a"], ["a", "b"])).toBe(false);
   });
@@ -178,6 +200,63 @@ describe(`a group's Provisional run, ${name}`, () => {
       }
       expect([...(await storage.list({ prefix: "gpending:" })).keys()]).toEqual([]);
     }
+  });
+
+  it("the early start is the wires' unless: a first look, an SMS and an unpaired worker stay quiet until the config says otherwise", async () => {
+    const skipped = async (run: () => Promise<void>) => {
+      const lines: string[] = [];
+      const orig = console.log;
+      console.log = (line?: unknown) => {
+        lines.push(String(line));
+        orig(line);
+      };
+      try {
+        await run();
+      } finally {
+        console.log = orig;
+      }
+      return lines.filter((line) => line.includes('"step":"provisional"') && line.includes('"outcome":"skipped"'));
+    };
+    const first = await provisionalWorld(groupId, { decide: answerAll, bind: false, graph: config });
+    const held = await skipped(async () => {
+      await acceptGroup(first.storage, first.w.message("Tex what's on tonight"), 0);
+      await drainGroup(first.storage, first.deps);
+    });
+    expect(first.asked).toEqual([]);
+    expect(held.some((line) => line.includes("firstLook"))).toBe(true);
+
+    // No `unless`: the same first look starts early. The gate is the config's, not a check left in the drain.
+    const open = await provisionalWorld(groupId, { decide: answerAll, bind: false, graph: withUnless(null) });
+    await acceptGroup(open.storage, open.w.message("Tex what's on tonight"), 0);
+    await drainGroup(open.storage, open.deps);
+    expect(open.asked.length).toBeGreaterThan(0);
+
+    // A condition that names only SMS does not hold a first look.
+    const onlySms = await provisionalWorld(groupId, { decide: answerAll, bind: false, graph: withUnless(["sms"]) });
+    await acceptGroup(onlySms.storage, onlySms.w.message("Tex what's on tonight"), 0);
+    await drainGroup(onlySms.storage, onlySms.deps);
+    expect(onlySms.asked.length).toBeGreaterThan(0);
+
+    const sms = await provisionalWorld(groupId, { decide: answerAll, graph: config });
+    const smsHeld = await skipped(async () => {
+      await acceptGroup(sms.storage, sms.w.message("Tex what's on tonight", { sms: true }), 0);
+      await drainGroup(sms.storage, sms.deps);
+    });
+    expect(sms.asked).toEqual([]);
+    expect(smsHeld.some((line) => line.includes("sms"))).toBe(true);
+
+    const half = await provisionalWorld(groupId, { decide: answerAll, graph: config });
+    const halfHeld = await skipped(async () => {
+      await acceptGroup(half.storage, half.w.message("Tex what's on tonight"), 0);
+      await drainGroup(half.storage, { ...half.deps, startTurn: async () => {} });
+    });
+    expect(half.asked).toEqual([]);
+    expect(halfHeld.some((line) => line.includes("unpaired"))).toBe(true);
+
+    const halfOpen = await provisionalWorld(groupId, { decide: answerAll, graph: withUnless(["firstLook", "sms"]) });
+    await acceptGroup(halfOpen.storage, halfOpen.w.message("Tex what's on tonight"), 0);
+    await drainGroup(halfOpen.storage, { ...halfOpen.deps, startTurn: async () => {} });
+    expect(halfOpen.asked.length).toBeGreaterThan(0);
   });
 
   it("a provisional run lost to a restart is nobody's turn: its record goes, and its messages wait for the drain", async () => {

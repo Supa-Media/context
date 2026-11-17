@@ -4,7 +4,7 @@
  * meeting, and how a system fits together.
  */
 
-import { DARK, LIGHT, SERIF, TONES, clamp, esc, heading, list, num, page, pct, photo } from "./kit.js";
+import { DARK, LIGHT, SERIF, TONES, clamp, esc, heading, list, num, page, pct, photo, photoUrl } from "./kit.js";
 
 /** Work by column: in progress, needs you, shipped. Each card a name, how far along, a note and an owner. */
 export function board(data, theme) {
@@ -96,25 +96,32 @@ ${data.title ? `<div style="font-size: 20px; font-weight: 600">${esc(data.title,
   );
 }
 
-/** How to do something: up to four numbered steps, a photo each, and what you need. */
+/** How to do something: up to four numbered steps, a photo when the step has one, and what you need. */
 export function steps(data, theme) {
   const c = theme === "dark" ? DARK : LIGHT;
   const items = list(data.steps, 4);
   const tall = items.length <= 2;
+  // Title and tip are cut here too (`esc`). The tool schema tells the model the same limits, so a card is not held for an ellipsis the model was never warned about.
+  const words = (step) => `<div style="font-size: 18px; font-weight: 600; line-height: 1.2">${esc(step.title, 34)}</div><div style="font-size: 14px; color: ${c.muted}; line-height: 1.35">${esc(step.tip, 60)}</div>`;
   return page(
     `<div style="display: flex; justify-content: space-between; align-items: flex-end; gap: 12px">${heading(c, data.kicker, data.title, { size: 36 })}
 ${data.needs ? `<div style="display: flex; flex-direction: column; align-items: flex-end; gap: 2px; background: ${c.surface}; border-radius: 10px; padding: 8px 12px; flex-shrink: 0; max-width: 200px"><div style="font-size: 12px; color: ${c.muted}">You need</div><div style="font-size: 15px; font-weight: 600; text-align: right">${esc(data.needs, 40)}</div></div>` : ""}</div>
 <div style="display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; flex-grow: 1">${items
-      .map(
-        (step, i) => `<div style="background: ${c.surface}; border-radius: 10px; overflow: hidden; display: flex; flex-direction: column">${photo(step.photo, {
+      .map((step, i) => {
+        const card = `background: ${c.surface}; border-radius: 10px; overflow: hidden; display: flex; flex-direction: column`;
+        // No photo: no slot. An empty one drew "No photo found" and the card check held it.
+        if (photoUrl(step.photo) === null) {
+          return `<div style="${card}; justify-content: center"><div style="padding: 16px 14px; display: flex; gap: 12px; align-items: flex-start"><div style="width: 36px; height: 36px; border-radius: 18px; background: ${c.ink}; color: ${c.bg}; font-weight: 600; font-size: 18px; display: flex; align-items: center; justify-content: center; flex-shrink: 0">${i + 1}</div><div style="display: flex; flex-direction: column; gap: 4px; min-width: 0">${words(step)}</div></div></div>`;
+        }
+        return `<div style="${card}">${photo(step.photo, {
           height: tall ? 330 : 150,
           radius: 0,
           tone: TONES[(i + 1) % TONES.length],
           label: step.source ? `photo · ${esc(step.source, 20)}` : "",
           extra: `<div style="position: absolute; top: 10px; left: 10px; width: 36px; height: 36px; border-radius: 18px; background: ${c.ink}; color: ${c.bg}; font-weight: 600; font-size: 18px; display: flex; align-items: center; justify-content: center">${i + 1}</div>`,
         })}
-<div style="padding: 12px 14px; display: flex; flex-direction: column; gap: 4px"><div style="font-size: 18px; font-weight: 600; line-height: 1.2">${esc(step.title, 34)}</div><div style="font-size: 14px; color: ${c.muted}; line-height: 1.35">${esc(step.tip, 60)}</div></div></div>`,
-      )
+<div style="padding: 12px 14px; display: flex; flex-direction: column; gap: 4px">${words(step)}</div></div>`;
+      })
       .join("")}</div>`,
     { background: c.bg, ink: c.ink, gap: 18 },
   );

@@ -48,6 +48,7 @@ import { PAGE_JOB_LINE } from "../pages.js";
 import { mailLine, mailOf } from "./steer.js";
 import { pickMachine } from "../machines/forJobs.js";
 import { MAX_CLOUD_JOBS, MAX_JOB_ATTEMPTS, MAX_MACHINE_SLOTS, jobSlots } from "./jobSlots.js";
+import { decideStart } from "../../../../packages/shared/src/jobStart.cjs";
 import { START_JOB_TOOL, TOOL } from "./backgroundTool.js";
 import { PLAN_TOOL } from "./planBigAsk.js";
 import { endsOf, jobResumeOf, MAX_STREAMED_RESULT, partsLine, savedOf, savedPrompt } from "./jobSaved.js";
@@ -405,9 +406,9 @@ const text = (words, isError = false) => ({ content: [{ type: "text", text: word
  * What a texted turn gets for background jobs: the tool (unless it is a job
  * itself), what is running (`prompt`), and the jobs it started (`started`).
  *
- * @param {{ running: Array|null, job: object|null, now: number, report?: boolean, read?: () => void }} options
+ * @param {{ running: Array|null, job: object|null, now: number, report?: boolean, read?: () => void, chooseStart?: (facts: object) => Promise<object> }} options (`chooseStart`: the Job start node, `jobStartChoice.js`)
  */
-export function backgroundSession({ running, job, now, report = false, read = () => {}, machines = null, inGroup = false, opened = () => [] }) {
+export function backgroundSession({ running, job, now, report = false, read = () => {}, machines = null, inGroup = false, opened = () => [], chooseStart = async (facts) => decideStart(facts, null) }) {
   if (running === null) return null;
   const started = [];
   let justStarted = []; // the titles of the jobs started since `endsTurn` last read them: a round may start several
@@ -437,35 +438,34 @@ export function backgroundSession({ running, job, now, report = false, read = ()
   const call = async (args) => {
     const title = line(args?.title, MAX_TITLE);
     const brief = typeof args?.brief === "string" ? args.brief.trim().slice(0, MAX_BRIEF) : "";
-    if (title === "" || brief === "") return text("A job needs a title and a brief.", true);
-    const already = [...running.filter((entry) => entry.state === "running"), ...started].find((entry) => sameJob(entry.title, title));
-    if (already) {
-      return text(
-        `Already working on that in the background: "${already.title}"` +
-          (already.startedAt ? `, started ${ago(already.startedAt, now)}` : "") +
-          (already.status ? `; latest: ${already.status}` : "") +
-          ". Don't start it again: tell them it's in progress and what it's at.",
-      );
-    }
-    // A start is always a new job with this brief, even named like one that stopped (Dev2, 2026-11-11): a report turn's
-    // new brief, with the link the stuck job lacked, was matched to that job and dropped, and the job resumed and stuck
-    // again three times. Picking a stopped job back up as it was is restart_job's alone.
+    // Whether it starts is the Job start node's (`graph/nodes/jobStart.js`, `jobStart.cjs`): the same job as one running
+    // is steered there ("already"), a full place waits ("full"). A start is always a new job with this brief, even named
+    // like one that stopped (Dev2, 2026-11-11: a report turn's new brief was matched to a stuck job and dropped, and the
+    // job resumed and stuck again three times). Picking a stopped job back up as it was is restart_job's alone.
+    const asked = title !== "" && brief !== "";
+    const already = asked ? [...running.filter((entry) => entry.state === "running"), ...started].find((entry) => sameJob(entry.title, title)) : undefined;
     const mail = jobMailOf(args?.mail);
     // On one of their own computers (`machines/forJobs.js`): found now, and admitted by its owner's rules at every part.
     let machine = null;
     let computer = null;
-    if (args?.on_computer !== undefined && args?.on_computer !== null) {
+    if (asked && !already && args?.on_computer !== undefined && args?.on_computer !== null) {
       if (machines === null) return text("Only a job from their own chat, or a group chat a computer was lent to, can run on a computer.", true);
       const picked = pickMachine(await machines(), { ...args.on_computer, group: inGroup });
       if (picked.error) return text(picked.error, true);
       ({ machine, computer } = picked);
     }
-    // The cloud's three slots, or the computer's own (`jobSlots.js`).
-    if (!slots.room(computer)) {
+    const choice = await chooseStart({ hasTitle: title !== "", hasBrief: brief !== "", already: already ? { title: already.title, ...(already.startedAt ? { startedAt: already.startedAt } : {}), ...(already.status ? { status: already.status } : {}) } : null, computer: computer ? { id: computer.id, slots: computer.slots } : null, cloudBusy: slots.busy(null), machineBusy: computer ? slots.busy(computer) : 0 });
+    if (choice.to === "refuse") return text("A job needs a title and a brief.", true);
+    if (choice.to === "already") {
+      return text(
+        `Already working on that in the background: "${choice.title}"` + (choice.startedAt ? `, started ${ago(choice.startedAt, now)}` : "") + (choice.status ? `; latest: ${choice.status}` : "") +
+          ". Don't start it again: tell them it's in progress and what it's at.",
+      );
+    }
+    if (choice.to === "full") {
       return text(
         computer === null
-          ? `${MAX_RUNNING_JOBS} jobs are already running in the cloud. Tell them you'll take this one once one finishes and they can ask again then, ` +
-              "or do it now if it's small."
+          ? `${choice.slots} jobs are already running in the cloud. Tell them you'll take this one once one finishes and they can ask again then, or do it now if it's small.`
           : `Every slot on "${machine.name}" is taken. Tell them you'll start it there once one of its jobs finishes.`,
         true,
       );

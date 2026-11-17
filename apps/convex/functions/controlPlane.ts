@@ -64,6 +64,7 @@ import {
   type OpenedGatewayBinding,
 } from "./lib/controlPlane/bindingShapes";
 import type { ClaimedGatewayJob, LeasedGatewayJob, OpenedGatewayJob } from "./lib/controlPlane/gatewayJobs";
+import * as grantCache from "./lib/controlPlane/grantCache";
 import * as session from "./lib/controlPlane/session";
 import * as authorization from "./lib/controlPlane/authorization";
 import * as gatewayJobs from "./lib/controlPlane/gatewayJobs";
@@ -98,13 +99,25 @@ export const resolveGrantByAccessToken = internalQuery({
  */
 export const resolveGatewaySession = internalQuery({
   args: session.resolveGrantByAccessTokenArgs,
-  returns: v.object({ session: session.resolveGrantByAccessTokenReturns, touchDue: v.boolean(), flags: v.array(v.string()) }),
+  returns: v.object({
+    session: session.resolveGrantByAccessTokenReturns,
+    touchDue: v.boolean(),
+    flags: v.array(v.string()),
+    remember: v.union(v.null(), v.object(grantCache.rememberGrantResolveArgs)),
+  }),
   handler: async (ctx, args) => {
     const answer = await session.resolveGatewaySessionHandler(ctx, args);
     // The acting person's feature flags, in the same read, for a person their object does not answer for yet
     // (`flagObjects.ts`; one whose object does gets them there).
     return { ...answer, flags: answer.session === null ? [] : await flagsFor(ctx, answer.session.actorUserId) };
   },
+});
+
+/** Save a grant's workspace list after a miss, when the fingerprint still matches. */
+export const rememberGrantResolve = internalMutation({
+  args: grantCache.rememberGrantResolveArgs,
+  returns: grantCache.rememberGrantResolveReturns,
+  handler: grantCache.rememberGrantResolveHandler,
 });
 
 export const startAuthorization = internalMutation({

@@ -182,6 +182,17 @@ test("the /agent hop hands the turn the test chat's own store and session, strea
   }
 });
 
+test("a test chat's job asks the Part end node what follows its part, never refused as outside the Lab", async () => {
+  const recorded = [];
+  const session = { actorClientId: "context_texts", scopes: ["context:read", "context:write"] };
+  const route = gatewayRoutes({ storeOf: async () => ({ store: null, session }), sandboxEnv: {}, controlPlane: {}, ctx: { waitUntil() {} }, gate: { record: (r) => recorded.push(r) } });
+  const input = { cause: "check_limit", part: 1, startedAt: 0, now: 1_000, hasDraft: true };
+  const answered = await route(new Request("https://lab/agent/job/part-end", { method: "POST", body: JSON.stringify({ jobId: "job-1", input }) }), "/agent/job/part-end");
+  assert.equal(answered.status, 200);
+  assert.equal((await answered.json()).to, "deliver");
+  assert.deepEqual(recorded, []);
+});
+
 /** One test row run through the chat object of a 1:1 test chat that already holds `rows`. */
 async function runOne(rows, row, gwOptions) {
   const { stub, call, ready } = sandbox(ONE, []);

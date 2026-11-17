@@ -103,17 +103,21 @@ const STYLE_RULES = {
 /**
  * Why the judge chose what it did: Clef never writes words, so its why is one of these, and each example is labelled
  * with one. Logged and kept in the chat's ledger (`judge` entry), so the owner can read why and add examples.
+ * Two lines say what the Training examples already label with them (2026-11-17): "asks_someone_else" a follow-up
+ * question to the room that names nobody, and "corrects_tex" narrowing an ask. Read narrower, the judge picked a
+ * neighbouring reason for the same act. Widening "about_tex" to remarks made to Tex was tried and dropped: the judge
+ * read it as a reason to answer banter (Dev runs, a quiet row turned respond on both).
  */
 const WHY = Object.freeze({
   tags_tex: "it @-tags Tex or names Tex as the one asked",
   replies_to_tex: "it replies to one of Tex's texts",
   answers_tex: "it answers a question Tex asked: a yes, approve, a thumbs-up, a pick",
   asks_tex: "it asks Tex something or tells Tex to do something",
-  corrects_tex: "it corrects Tex or pushes back on Tex",
+  corrects_tex: "it corrects Tex, pushes back on Tex, or changes what Tex was asked to do",
   about_tex: "people talking about Tex, not to it",
   thanks_or_ok: "only thanks, an ok or a laugh that asks nothing",
   people_talking: "people talking to each other",
-  asks_someone_else: "it asks a named person, not Tex",
+  asks_someone_else: "it asks someone in the chat, named or not, and not Tex",
   news_shared: "news, a win or a feeling shared with the chat",
   still_typing: "its sender is still typing the rest",
   fixes_typo: "an edit that only fixes how earlier words were spelled, asking nothing new",

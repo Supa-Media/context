@@ -32,6 +32,7 @@ import { adviseOnce, advisorThinking } from "./advisorRoles/core.js";
 import { JOB_CHECK_PROMPT } from "./advisorRoles/jobCheck.js";
 import { ADVISOR_KNOWS_MAIL } from "./advisorRoles/knowsMail.js";
 import { withoutTag } from "./promptFence.js";
+import { partView } from "./jobCheckView.js";
 import { readsTools, toolList } from "./advisorToolList.js";
 import { TEX_CONFIG } from "./texConfig.js";
 
@@ -40,34 +41,17 @@ export { ADVISOR_KNOWS_MAIL, JOB_CHECK_PROMPT };
 
 export const VERDICTS = ["done", "keep_going", "waiting", "stuck"];
 const MAX_ADVICE = 600;
-const MAX_TRANSCRIPT_CHARS = 120_000;
-const MAX_RESULT_CHARS = 8_000;
 const TAGS = ["job", "tex_instructions", "tex_tools", "transcript", "their_ask", "their_texts", "job_note_mail"];
-
-
 
 const clip = (value, max) => (typeof value === "string" ? value.trim().slice(0, max) : "");
 const quoted = (value) => TAGS.reduce((text, tag) => withoutTag(tag, text), String(value ?? ""));
-
-function line(message) {
-  if (!message || typeof message !== "object") return "";
-  const said = typeof message.text === "string" ? message.text.trim() : "";
-  if (message.role === "tool") {
-    const cut = said.length > MAX_RESULT_CHARS ? `${said.slice(0, MAX_RESULT_CHARS)}\n[cut]` : said;
-    return `[result of ${message.name ?? "a tool"}${message.isError ? ", failed" : ""}]\n${quoted(cut) || "(no result)"}`;
-  }
-  const calls = Array.isArray(message.toolCalls)
-    ? message.toolCalls.map((made) => `[Tex calls ${made?.name ?? "a tool"} ${quoted(JSON.stringify(made?.args ?? {}).slice(0, 2_000))}]`).join("\n")
-    : "";
-  return [said ? `${message.role === "assistant" ? "Tex" : "Them"}: ${quoted(said)}` : "", calls].filter(Boolean).join("\n");
-}
 
 /** What the advisor reads: the job, their texts about it, the tools the part had (when given), and the whole part. */
 export function jobCheckBrief({ job, messages, answer, exhausted, tools = null }) {
   // What the part could call, with what each takes (`advisorToolList.js`), only when Job check's reads name "tools" (`checkJob`).
   const offered = Array.isArray(tools) ? quoted(toolList(tools, { skip: ["ask_advisor"] })) : "";
-  let body = (Array.isArray(messages) ? messages : []).map(line).filter(Boolean).join("\n\n");
-  if (body.length > MAX_TRANSCRIPT_CHARS) body = `(earlier part left out)\n\n${body.slice(-MAX_TRANSCRIPT_CHARS)}`;
+  // The whole part when it fits; else a fair share of each result and input, labeled (`jobCheckView.js`).
+  const body = partView(messages, { quoted });
   const followUps = (job.followUps ?? []).map((text) => `- ${quoted(text)}`).join("\n");
   const asked = (job.asked ?? []).map((text) => `- ${quoted(text)}`).join("\n");
   return (

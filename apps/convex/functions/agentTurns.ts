@@ -52,6 +52,7 @@ export const traceEntryValidator = v.object({
   retried: v.optional(v.boolean()),
   cut: v.optional(v.boolean()),
   held: v.optional(v.boolean()),
+  ask: v.optional(v.boolean()),
   ok: v.boolean(),
   ms: v.number(),
 });
@@ -109,7 +110,7 @@ export const recordAgentTurn = internalMutation({
         if (entry.tool === undefined || !TOOL_NAME.test(entry.tool)) return false;
         // The action is kept only when it is a name; anything else is dropped, and the turn is still kept.
         const action = entry.action !== undefined && ACTION_NAME.test(entry.action) ? entry.action : undefined;
-        trace.push({ kind: "tool" as const, tool: entry.tool, ok: entry.ok, ms, ...(action === undefined ? {} : { action }), ...(entry.six !== undefined && SIX_NAMES.has(entry.six) ? { six: entry.six } : {}), ...(entry.held ? { held: true } : {}) });
+        trace.push({ kind: "tool" as const, tool: entry.tool, ok: entry.ok || entry.ask === true, ms, ...(action === undefined ? {} : { action }), ...(entry.six !== undefined && SIX_NAMES.has(entry.six) ? { six: entry.six } : {}), ...(entry.held ? { held: true } : {}), ...(entry.ask ? { ask: true } : {}) });
       } else if (entry.kind === "router") {
         // The router's pick (`src/agent/router.js`): which tier, and so which model, answered.
         if (entry.tool !== undefined || entry.tier === undefined || entry.model === undefined || !MODEL.test(entry.model)) return false;

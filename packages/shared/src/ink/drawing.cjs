@@ -18,7 +18,10 @@
  *    periwinkle on the dark page, through the app's brush (`#rough`, the
  *    filter `apps/mobile/features/chaos/RoughInk.web.tsx` draws Tex with).
  *  - **One hatch**: a fill is `none`, `ink`, `paper` or `hatch`, and every
- *    hatch is the same lines at the same spacing.
+ *    hatch is the same lines at the same spacing. A light colour the model
+ *    names (white, `#fff`, a high luminance) is paper. A filled shape that
+ *    covers most of the canvas is left out: the paper is already there, and
+ *    an ink fill that size would bury the drawing, which is refused with why.
  *  - **The calm Tex**, the # with googly eyes, legs and a wave, from the app's
  *    own geometry (`./texFigure.cjs`), wherever the scene puts a `<tex>`, or
  *    at its foot when it names none.
@@ -76,6 +79,13 @@ const SHAPES = {
 };
 const NUMBER_ATTRS = new Set(["x", "y", "x1", "y1", "x2", "y2", "width", "height", "rx", "ry", "cx", "cy", "r", "size", "stroke-width", "opacity", "font-size"]);
 const FILLS = new Set(["none", "ink", "paper", "hatch"]);
+/** A fill this light is paper, not ink: a white background the model drew would otherwise become a slab of ink. */
+const LIGHT_LUMINANCE = 0.7;
+/** A filled shape covering this much of the canvas is a background. The paper is already there. */
+const COVER_SHARE = 0.8;
+/** Named colours light enough to be paper. A hex, rgb or hsl colour is judged by its luminance instead. */
+const LIGHT_NAMES = new Set(["white", "snow", "ivory", "floralwhite", "ghostwhite", "whitesmoke", "seashell", "linen", "oldlace", "beige", "cornsilk", "papayawhip", "blanchedalmond", "antiquewhite", "bisque", "azure", "mintcream", "honeydew", "aliceblue", "lavenderblush", "lightyellow", "lightcyan", "lightgoldenrodyellow"]);
+const COVER_INK = "A filled shape covers most of the canvas, so it would bury the drawing in ink. Leave the background out: the paper is already there.";
 
 const NUMBER = /^-?(?:\d+\.?\d*|\.\d+)(?:e-?\d+)?$/i;
 const PATH_DATA = /^[MmLlHhVvCcSsQqTtAaZz0-9eE.,\s+-]+$/;
@@ -85,6 +95,148 @@ const ATTR = /([A-Za-z_:][\w:.-]*)\s*=\s*(?:"([^"]*)"|'([^']*)')/g;
 
 const fail = (error) => ({ shapes: null, tex: null, error });
 const num = (value) => (NUMBER.test(value) ? Number(value) : NaN);
+
+/** sRGB channel to linear light, for the luminance of a colour the model named. */
+function linear(channel) {
+  const c = channel / 255;
+  return c <= 0.04045 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4;
+}
+
+/** Relative luminance of an sRGB triple, 0 to 1. */
+function luminance(r, g, b) {
+  return 0.2126 * linear(r) + 0.7152 * linear(g) + 0.0722 * linear(b);
+}
+
+/** hsl (0-360, 0-1, 0-1) as an sRGB triple. */
+function hslToRgb(h, s, l) {
+  const a = s * Math.min(l, 1 - l);
+  const f = (n) => {
+    const k = (n + h / 30) % 12;
+    return l - a * Math.max(Math.min(k - 3, 9 - k, 1), -1);
+  };
+  return [f(0), f(8), f(4)].map((c) => Math.round(Math.min(1, Math.max(0, c)) * 255));
+}
+
+/** A colour as `[r, g, b]`, or null when it is not a hex, rgb or hsl colour. */
+function rgbOf(value) {
+  const hex3 = /^#([0-9a-f]{3})$/.exec(value);
+  const hex6 = /^#([0-9a-f]{6})(?:[0-9a-f]{2})?$/.exec(value);
+  const hex = hex3 ? hex3[1].split("").map((c) => c + c).join("") : hex6 ? hex6[1] : null;
+  if (hex) return [parseInt(hex.slice(0, 2), 16), parseInt(hex.slice(2, 4), 16), parseInt(hex.slice(4, 6), 16)];
+  const rgb = /^rgba?\(\s*([\d.]+%?)\s*,\s*([\d.]+%?)\s*,\s*([\d.]+%?)/.exec(value);
+  if (rgb) {
+    const channel = (part) => (part.endsWith("%") ? (Number(part.slice(0, -1)) / 100) * 255 : Number(part));
+    return [channel(rgb[1]), channel(rgb[2]), channel(rgb[3])].map((n) => Math.min(255, Math.max(0, n)));
+  }
+  const hsl = /^hsla?\(\s*([\d.]+)\s*,\s*([\d.]+)%\s*,\s*([\d.]+)%/.exec(value);
+  if (hsl) return hslToRgb(Number(hsl[1]), Number(hsl[2]) / 100, Number(hsl[3]) / 100);
+  return null;
+}
+
+/**
+ * A colour the model named, as the fill the drawing can use: `paper` when it
+ * is light, `none` when it is transparent, `ink` when it is a dark colour we
+ * can read, or null when it is not a colour (a named ink like `blue` stays
+ * for the caller).
+ */
+function toneOf(value) {
+  const v = value.trim().toLowerCase();
+  if (v === "transparent") return "none";
+  if (LIGHT_NAMES.has(v)) return "paper";
+  const rgb = rgbOf(v);
+  if (!rgb) return null;
+  return luminance(...rgb) >= LIGHT_LUMINANCE ? "paper" : "ink";
+}
+
+/** A shape's box on the canvas, before any transform, or null when it has none we can measure. */
+function shapeBox(node) {
+  const a = node.attrs;
+  if (node.tag === "rect") {
+    if (!(a.width > 0) || !(a.height > 0)) return null;
+    return { x: a.x ?? 0, y: a.y ?? 0, w: a.width, h: a.height };
+  }
+  if (node.tag === "circle") {
+    if (!(a.r > 0)) return null;
+    return { x: (a.cx ?? 0) - a.r, y: (a.cy ?? 0) - a.r, w: a.r * 2, h: a.r * 2 };
+  }
+  if (node.tag === "ellipse") {
+    if (!(a.rx > 0) || !(a.ry > 0)) return null;
+    return { x: (a.cx ?? 0) - a.rx, y: (a.cy ?? 0) - a.ry, w: a.rx * 2, h: a.ry * 2 };
+  }
+  if ((node.tag === "polygon" || node.tag === "polyline") && Array.isArray(a.points) && a.points.length >= 4) {
+    let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+    for (let i = 0; i < a.points.length; i += 2) {
+      minX = Math.min(minX, a.points[i]);
+      maxX = Math.max(maxX, a.points[i]);
+      minY = Math.min(minY, a.points[i + 1]);
+      maxY = Math.max(maxY, a.points[i + 1]);
+    }
+    return { x: minX, y: minY, w: maxX - minX, h: maxY - minY };
+  }
+  return null;
+}
+
+/** How far a transform slides a shape, and whether a scale or rotation means we should not guess its size. */
+function slideOf(transform) {
+  if (typeof transform !== "string" || transform === "") return { x: 0, y: 0, plain: true };
+  if (/rotate\s*\(|scale\s*\(/i.test(transform)) return { x: 0, y: 0, plain: false };
+  let x = 0, y = 0;
+  for (const m of transform.matchAll(/translate\(\s*(-?[\d.]+)(?:[\s,]+(-?[\d.]+))?\s*\)/gi)) {
+    x += Number(m[1]);
+    y += m[2] === undefined ? 0 : Number(m[2]);
+  }
+  return { x, y, plain: true };
+}
+
+/** Whether a box covers most of the canvas, counting only the part that sits on it. */
+function coversCanvas(box) {
+  const x0 = Math.max(0, box.x);
+  const y0 = Math.max(0, box.y);
+  const x1 = Math.min(SCENE_WIDTH, box.x + box.w);
+  const y1 = Math.min(SCENE_HEIGHT, box.y + box.h);
+  if (!(x1 > x0) || !(y1 > y0)) return false;
+  return (x1 - x0) * (y1 - y0) >= COVER_SHARE * SCENE_WIDTH * SCENE_HEIGHT;
+}
+
+/**
+ * Filled shapes that cover most of the canvas, taken out. The paper is
+ * already there, so a paper or hatch background is dropped. An ink one would
+ * bury the drawing: `buried` says so, and the scene is refused with why.
+ * A scale or rotation is left alone: its size is no longer the numbers written.
+ */
+function dropCoveringFills(nodes, shift = { x: 0, y: 0 }, plain = true) {
+  const shapes = [];
+  let buried = false;
+  for (const node of nodes) {
+    if (node.tag === "g") {
+      const moved = slideOf(node.attrs.transform);
+      const inner = dropCoveringFills(
+        node.children,
+        { x: shift.x + (moved.plain ? moved.x : 0), y: shift.y + (moved.plain ? moved.y : 0) },
+        plain && moved.plain,
+      );
+      buried = buried || inner.buried;
+      if (inner.shapes.length > 0) shapes.push({ ...node, children: inner.shapes });
+      continue;
+    }
+    const own = slideOf(node.attrs.transform);
+    const box = plain && own.plain ? shapeBox(node) : null;
+    const fill = node.attrs.fill;
+    if (box && fill && fill !== "none" && coversCanvas({ x: box.x + shift.x + own.x, y: box.y + shift.y + own.y, w: box.w, h: box.h })) {
+      if (fill === "ink") buried = true;
+      continue;
+    }
+    shapes.push(node);
+  }
+  return { shapes, buried };
+}
+
+/** Shapes a picture would actually draw: an empty group is not one. */
+function drawable(nodes) {
+  let n = 0;
+  for (const node of nodes) n += node.tag === "g" ? drawable(node.children) : 1;
+  return n;
+}
 const fmt = (n) => String(Math.round(n * 100) / 100);
 const esc = (text) => String(text).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
 const unesc = (text) => String(text).replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&quot;/g, '"').replace(/&#39;/g, "'").replace(/&amp;/g, "&");
@@ -113,9 +265,14 @@ function readAttr(tag, name, raw) {
     case "transform":
       if (!TRANSFORM.test(value)) return new Error(`<${tag} transform>: translate, rotate or scale only`);
       return value.replace(/\s+/g, " ").trim();
-    case "fill":
-      // A colour the model names is ink: the drawing has one colour.
-      return FILLS.has(value) ? value : value === "" ? undefined : /^(?:#|rgb|hsl|[a-z]+$)/i.test(value) ? "ink" : undefined;
+    case "fill": {
+      // A light colour is paper. Anything darker the model names is ink: the drawing has one colour.
+      if (FILLS.has(value)) return value;
+      if (value === "") return undefined;
+      const tone = toneOf(value);
+      if (tone) return tone;
+      return /^(?:#|rgb|hsl|[a-z]+$)/i.test(value) ? "ink" : undefined;
+    }
     case "stroke":
       return value === "none" ? "none" : "ink";
     case "stroke-dasharray": {
@@ -200,8 +357,10 @@ function readScene(markup) {
     }
   }
   if (stack.length > 1) return fail(`<${stack[stack.length - 1].tag}> is never closed.`);
-  if (count === 0) return fail("The scene has no shapes: draw what the page is about.");
-  return { shapes: root.children, tex, error: null };
+  const dropped = dropCoveringFills(root.children);
+  if (dropped.buried) return fail(COVER_INK);
+  if (count === 0 || drawable(dropped.shapes) === 0) return fail("The scene has no shapes: draw what the page is about.");
+  return { shapes: dropped.shapes, tex, error: null };
 }
 
 /** One shape, written again from what was read. */

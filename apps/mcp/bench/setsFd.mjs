@@ -28,6 +28,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
 
+import { tapbackSaidLine } from "../src/agent/tapbackEnding.js";
 import { parsePeople } from "./load.mjs";
 
 /** The live setup note's settings, without its task skills (Context `@context-lc ai/production/texting-assistant.md`). */
@@ -55,8 +56,18 @@ export function earlierLines(c, i, year = null) {
     return ago === null ? line : { ...line, minutesBefore: ago };
   };
   for (const [j, m] of c.msgs.slice(0, i).entries()) {
-    // A tapback, an edit or an unsend is not a line of the chat's text; Tex's own tapbacks are only a step in
-    // production's ledger, which no history draws (`stepEvents.ts` `tapback`).
+    // A tapback, an edit or an unsend is not a line of the chat's text, with one exception: Tex's tapback that was its
+    // whole answer (no text of Tex's after it before the next message of theirs), kept as production keeps it so the
+    // next turn knows it acted (dropped, a later "put it back" read as nothing having moved; Dev set, 2026-11-17). In a
+    // one-to-one chat the Worker posts it as Tex's `reaction` event ("(a tapback) ⏰", `inbox.ts`); in a group the
+    // Front door's tapback is kept as said, "(You texted them nothing and reacted 🗓️ to their text.)"
+    // (`sendTheReply.js` tapbackSaidLine), while Decide's own react on a text it stayed quiet on is only a step
+    // (`groupInbox.ts`) and stays out. A tapback beside Tex's words was only an acknowledgement and stays out too.
+    if (m.kind === "react" && m.tex && endsTexTurn(c, j)) {
+      if (c.kind !== "group") lines.push(dated({ from: "tex", text: String(m.text ?? ""), tapback: true }, j));
+      else if (!decideStayedQuiet(c, m.to)) lines.push(dated({ from: "tex", text: tapbackSaidLine(m.text) }, j));
+      continue;
+    }
     if (m.kind && m.kind !== "reply") continue;
     // A check-in, a routine or a job's report fired a turn nobody texted: kept as production keeps it (`byCode.mjs`).
     if (m.via) {
@@ -78,6 +89,18 @@ export function earlierLines(c, i, year = null) {
     later = kept[k].minutesBefore ?? later;
   }
   return kept;
+}
+
+/** Whether the group text `id` is one Decide stayed quiet on (its react then is Decide's, never the Front door's). */
+const decideStayedQuiet = (c, id) => c.msgs.find((m) => m.id === id)?.labels?.decide?.act === "quiet";
+
+/** Whether Tex's tapback at `j` was its whole answer: no text of Tex's follows it before the next message of theirs. */
+export function endsTexTurn(c, j) {
+  for (const m of c.msgs.slice(j + 1)) {
+    if (m.tex && !m.kind && typeof m.text === "string" && m.text.trim() !== "") return false;
+    if (!m.tex) return true;
+  }
+  return true;
 }
 
 /** Where a Dev message's picture is kept in this repository: `pics` urls under `apps/mcp/bench/ai/pictures/`. */
@@ -272,6 +295,7 @@ export function fdTest(units, front) {
         const ago = line.minutesBefore === undefined ? [] : [`- earlier minutes before: ${line.minutesBefore}`];
         if (line.from === "trigger") return [triggerLine(line), ...ago];
         const who = line.who ? `@${line.who}` : line.from;
+        if (line.tapback) return [`- earlier tex tapback: ${JSON.stringify(line.text)}`, ...ago];
         return [`- earlier ${who}: ${JSON.stringify(line.text)}`, ...(line.pictures ?? []).map((name) => `- earlier ${who} sends picture: ${name}`), ...ago];
       }),
       ...(l.must || []).map((x) => `- must: ${x}`),
@@ -314,7 +338,8 @@ export function burstBefore(c, i) {
  * The pictures a turn reads, as production's: its own and those sent since Tex last answered, oldest first. A group
  * turn reads the newest four of the chat's, any member's (`groupInbox.ts` `filesFor`); a one-to-one turn merges the
  * burst and reads the first eight (`inboxTurn.ts` `merged`). Tex answered when it texted, or when a routine ran, which
- * clears the chat's lines even when it stays quiet (`groupModelTurn.ts`); a tapback is not a line here. The earlier
+ * clears the chat's lines even when it stays quiet (`groupModelTurn.ts`); a tapback that was Tex's whole answer is its
+ * line too (`earlierLines`), and so answers what came before it. The earlier
  * lines keep their words without the picture, so none is sent twice.
  */
 export function sinceTexAnswered(lines, own = [], group = false) {

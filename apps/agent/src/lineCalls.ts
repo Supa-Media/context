@@ -18,6 +18,7 @@ import { appCardConfig } from "./appCards";
 import { noteCardDrawer } from "./noteCards";
 import { sendblueKeys } from "./sendblue";
 import { whapiKeys } from "./whapi";
+import { remoteLinkNotes } from "./photonLinkBubbles";
 import { inboxByName } from "./objectPlace";
 import type { CountDataset } from "./textCounts";
 
@@ -125,6 +126,7 @@ function sharedDeps(env: LineCallEnv, inbox: string) {
     sendblue: sendblueKeys(env.SENDBLUE_API_KEY_ID, env.SENDBLUE_API_SECRET, env.SENDBLUE_STATUS_URL),
     whapi: whapiKeys(env.WHAPI_TOKEN, env.WHAPI_LINE),
     photon: env.PHOTON ?? null,
+    linkNotes: remoteLinkNotes(inboxByName(env.SENDER_INBOX, inbox)),
     hostPicture: (picture: Picture) => hostPictureAt(env, inbox, picture),
     noteCardPicture: noteCardDrawer((input, init) => fetch(input, init), env.CONTROL_PLANE_ORIGIN, env.AGENT_WORKER_SECRET),
     textCounts: env.TEX_COUNTS,

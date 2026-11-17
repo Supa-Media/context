@@ -17,9 +17,9 @@
  * on a shared chat, since a turn would read the person's notes afresh, which their yes never covered.
  */
 
-import type { Id } from "../../_generated/dataModel";
+import type { Doc, Id } from "../../_generated/dataModel";
 import type { QueryCtx } from "../../_generated/server";
-import { onTheTeam } from "../texReviews";
+import { onTheTeam, sharesReviews } from "../texReviews";
 import { handleFor } from "../texPage";
 import { personalWorkspaceOf } from "../textLinks";
 import { pinnedContextWorkspace } from "./pinnedContext";
@@ -96,4 +96,32 @@ export async function sharedChats(ctx: QueryCtx, callerId: Id<"users">): Promise
     });
   }
   return out.sort((a, b) => Math.max(b.lastAt ?? 0, b.sharedAt) - Math.max(a.lastAt ?? 0, a.sharedAt)).slice(0, MAX_SHARED_CHATS);
+}
+
+/**
+ * Whether one group chat is in the Lab's "Shared with developers" list, by the same rule as `sharedChats`, for its own
+ * turn to be told (Dev2, 2026-11-17: Tex told a chat "Dev2 can't see this chat" while it was shared, because no turn
+ * was told). `by` are the people here who said yes; `waiting` are the people here with an account who have neither
+ * said yes nor are on the team, so one of them keeps it out. People with no account are not in `homeUsers` and are
+ * never counted, as `sharedChats` never counts them. Handles only, never ids or numbers.
+ */
+export type DevShare = { shared: boolean; by: string[]; waiting: string[] };
+
+export async function devShareOf(ctx: QueryCtx, group: Pick<Doc<"textGroups">, "homeUsers">): Promise<{ devShare: DevShare }> {
+  const people = [...new Set(group.homeUsers ?? [])].slice(0, 64);
+  const pinned = people.length === 0 ? null : (await pinnedContextWorkspace(ctx))?._id ?? null;
+  const by: string[] = [];
+  const waiting: string[] = [];
+  // Asked side by side: this runs on every group turn's answer.
+  const answers = await Promise.all(
+    people.map(async (id) => {
+      const [said, handle] = await Promise.all([sharesReviews(ctx, id), handleFor(ctx, id)]);
+      return { said, name: handle || "someone", team: said ? false : await onTheTeam(ctx, pinned, id) };
+    }),
+  );
+  for (const { said, name, team } of answers) {
+    if (said) by.push(name);
+    else if (!team) waiting.push(name);
+  }
+  return { devShare: { shared: by.length > 0 && waiting.length === 0, by, waiting } };
 }

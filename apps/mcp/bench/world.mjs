@@ -453,7 +453,7 @@ export async function createWorld(bench, person, setupRaw, models, today = null,
         // sent before the answer, as the texting Worker sends them (`apps/agent/src/inbox.ts`).
         progress,
         // The background jobs the turn started, for the start checks (`checks.mjs`): nothing runs them here.
-        jobs: (Array.isArray(body?.jobs) ? body.jobs : []).map((job) => ({ title: String(job?.title ?? ""), mail: job?.mail?.path ?? null, name: job?.mail?.name ?? null, on: job?.machine?.name ?? null })),
+        jobs: (Array.isArray(body?.jobs) ? body.jobs : []).map((job) => ({ title: String(job?.title ?? ""), brief: String(job?.brief ?? ""), mail: job?.mail?.path ?? null, name: job?.mail?.name ?? null, on: job?.machine?.name ?? null })),
         // Held calls the answer asks a YES for (`route.js`); the played person answers.
         asked: typeof body?.asked === "number" ? body.asked : 0,
         // The gateway hides a provider's reason from the caller; the turn log

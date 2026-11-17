@@ -81,7 +81,7 @@ import { runningTurn } from "./steer";
 import { canWait, chatEvent, readChatState, stillGathering } from "./chatState";
 import { chooseGroupTurn, coversOf, settleWait, keepNames, logGroupInbound, mergedGroup, ownTurn, whileRunning, type GroupEntry, type GroupPending } from "./groupTurn";
 import { handOff, liveTurns, MAX_GROUP_TURNS, settleEarly, startEarly, type EarlyRun } from "./groupTurnRun";
-import { provisionalDoor, sameMessages, type ProvisionalGate } from "./provisional";
+import { earlyGate, logProvisional, sameMessages, type ProvisionalGate } from "./provisional";
 import { answerBesideTurn } from "./groupBeside";
 import { groupTurn } from "./groupModelTurn";
 import type { TimingDataset } from "./textTiming";
@@ -439,12 +439,11 @@ async function drainOnce(storage: InboxStorage, deps: GroupDeps): Promise<void> 
         // What code answers alone (a command, a menu reply) never waits on a held burst (`groupBeside.ts`).
         return void (await answerBesideTurn(storage, deps, [...holding, ...burst.map(([key]) => key)]));
       }
-      const door = provisionalDoor(deps.texGraph);
-      // Only where its failure has the same retry a handed turn has (the answer-first path beside a workflow, or no
-      // workflow at all), and never on a first look: a chat Tex is not set up in, or an SMS, is read by the judge alone
-      // and nothing of it is kept or asked unless the judge answers it (`firstLook`).
-      const firstLooks = burst.some(([, item]) => item.look === true || item.message.sms === true);
-      if (door.on && !firstLooks && (deps.startTurn === undefined) === (deps.answerFirst === undefined)) early = await startEarly(storage, deps, ownTurn(burst), door.allow);
+      // When the early run starts is the wires' `unless` (`provisional.ts` `earlyGate`), the same condition the Lab
+      // simulates: a first look, an SMS, or a worker with only one of the two paths does not start it.
+      const gate = earlyGate(deps.texGraph, burst.map(([, item]) => item), deps);
+      if (gate.start) early = await startEarly(storage, deps, ownTurn(burst), gate.allow);
+      else if (gate.held.length > 0) logProvisional("skipped", { why: gate.held.join(",") });
       const choice = await chooseGroupTurn(storage, deps, burst, untagged && canWait(state, deps.now()));
       // Decide held the burst: the early run stops now (`restart:wait`), and the turn after the wait starts afresh.
       if (early !== null && choice.wait !== undefined && choice.wait.length > 0) {

@@ -157,6 +157,7 @@ function readQuestion(sec) {
       if (q.earlier.length === 0) throw new Error(`question ${sec.n}: "earlier minutes before" follows the earlier line it dates`);
       q.earlier.at(-1).minutesBefore = Number(m[1]);
     }
+    else if ((m = line.match(/^- earlier tex tapback:\s*(.*)$/))) q.earlier.push({ from: "tex", text: jsonText(m[1], sec.n), tapback: true }); // Tex's tapback that was its whole answer (`setsFd.mjs`)
     else if ((m = line.match(/^- earlier (person|tex):\s*(.*)$/))) q.earlier.push({ from: m[1], text: jsonText(m[2], sec.n) });
     else if ((m = line.match(/^- earlier @([a-z0-9-]+):\s*(.*)$/))) q.earlier.push({ from: "person", who: m[1], text: jsonText(m[2], sec.n) });
     else if ((m = line.match(/^- @([a-z0-9-]+) before text (\d+):\s*(.*)$/))) q.others.push({ from: m[1], before: Number(m[2]), text: unquote(m[3]) });

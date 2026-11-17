@@ -23,11 +23,11 @@ const TEXTING_CLIENTS = new Set(["context_texts", "context_texts_group"]);
  * The choice, by the job's own wire, the config's wire, or the rule itself while the node is unwired. `writer` is the
  * job's chat log, where the runner logs the node's run under the job, as every step is.
  */
-export async function partEndFor(jobId, input, { config = TEX_CONFIG, graph = null, writer = null } = {}) {
+export async function partEndFor(jobId, input, { config = TEX_CONFIG, graph = null, writer = null, env = null } = {}) {
   const lent = borrowJob(jobId);
   if (lent !== null && "partEnd" in lent.use) return await lent.use.partEnd(input);
   const wired = config.edges.some((e) => e.from === "job" && e.to === "partEnd");
-  if (wired) return await (graph ?? gatewayGraph({ writer, config })).fire("job", "partEnd", input);
+  if (wired) return await (graph ?? gatewayGraph({ env, writer, config })).fire("job", "partEnd", input);
   return decidePartEnd(input, config.nodes?.find((node) => node.id === "partEnd")?.limits ?? null);
 }
 
@@ -41,7 +41,7 @@ export async function handleJobPartEnd(request, env, store, session, deps = {}) 
   const i = body.input;
   const input = { cause: String(i.cause ?? "").slice(0, 40), part: Number(i.part) || 1, startedAt: Number(i.startedAt) || 0, now: Number(i.now) || 0, machine: i.machine === true, hasDraft: i.hasDraft === true, idle: i.idle === true, wasIdle: i.wasIdle === true, rejected: i.rejected === true };
   const writer = store ? jobTagged(storeLedger(store, session), { id: body.jobId }) : null;
-  const choice = await partEndFor(body.jobId, input, { config: env ? texConfigOf(env) : TEX_CONFIG, writer, ...deps });
+  const choice = await partEndFor(body.jobId, input, { config: env ? texConfigOf(env) : TEX_CONFIG, writer, env, ...deps });
   await writer?.flush?.();
   return json(choice);
 }

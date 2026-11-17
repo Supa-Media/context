@@ -12,7 +12,7 @@ const MODE_MEANING = {
   uses: "a helper the step may call while it runs (a judge, a tool, a sub-agent)",
   loop: "a send-back: the target may send work back, up to the wire's rounds",
   job: "starts a background job that runs on its own and reports back",
-  provisional: "the target starts at once beside the source, which may stop it (its `when`: stop:<tag>, restart:<tag>); until its go it may only read, or also make writes that can be undone (`allow`)",
+  provisional: "the target starts at once beside the source, which may stop it (its `when`: stop:<tag>, restart:<tag>); until its go it may only read, or also make writes that can be undone (`allow`). `unless` (firstLook, sms, unpaired) names the bursts that do not start it early; with none, every burst does",
   generator: "fire and forget: the target starts a new run of its own, which re-enters Tex as a new input, never part of this run",
 };
 
@@ -53,7 +53,7 @@ export const ACTIONS = [
   ["set_restore", "{ id }", "drop the Lab's draft of a conversation (or its delete), back to the repo's copy"],
   ["set_history", "{ id }", "a conversation's change history, newest first: each revision's changes, who and when, as the Testing tab's History shows it"],
   ["set_back", "{ id, to }", "put revision `to` back as a new revision (0: the repo's copy); to the revision before the last undoes it, as Undo in the Lab"],
-  ["set_ratio", "{}", "the stars per set: Training and Dev here, Test counted by the eval service"],
+  ["set_ratio", "{}", "the stars per set, one pooled 60/20/20 over every scope: Training and Dev here, Test counted by the eval service; noTest names each scope (step) with Training or Dev unit tests and none in the Test Set, a warning that never fails anything"],
   ["set_promote", "{ ids? }", "the Testing tab's Promote: a pull request within 15 minutes writing the drafts (all, or the ones named) into apps/mcp/bench/sets"],
   ["chats", "{}", "the chats whose turns you can probe: your one-to-one with Tex, each group chat you are in, and the chats people shared with the developers (`shared: true`, read only)"],
   ["turns", "{ chat?, day?, before?, limit? }", "a chat's recent replies, 20 unless `limit` (at most 100), with each turn's id, time and how long it took; `day` YYYY-MM-DD, `before` to page back"],
@@ -100,7 +100,7 @@ export const EDIT_OPS = [
   '{ op: "move", node, x, y }  where it sits on the canvas',
   '{ op: "add", node: { id, ...fields } }  a new step (needs code before it can promote)',
   '{ op: "remove", node }  a step, its wires and every read of its output (main\'s steps are turned off, not removed, to promote; text and send always stay)',
-  '{ op: "wire", from, to, mode, when? }  a wire; one per from, to and mode',
+  '{ op: "wire", from, to, mode, when?, allow?, unless? }  a wire; one per from, to and mode. `allow` and `unless` are for a provisional wire: allow is "read" or "revertible"; unless lists bursts that do not start it early (firstLook, sms, unpaired); null clears either',
   '{ op: "unwire", from, to, mode? }  a wire, or every mode between the two',
   '{ op: "module", key, value }  one context module\'s edit (its words as value.text, for a p-<name> prompt module); null drops it',
   '{ op: "convo", field, value }  one conversation setting (word, older, threads, days, dayChars, slim, classify, tools); null drops it',
@@ -121,7 +121,7 @@ export function guideText(config = TEX_CONFIG) {
   }
   const stepLine = (n) => `  - ${n.id} (${n.label}): ${n.model}${n.effort ? ", effort " + n.effort : ""}${n.on === false ? ", OFF" : ""}${n.timeoutS ? `, ${n.timeoutS} s limit` : ""}${n.file ? ` · code: ${n.file}` : ""}`;
   const steps = [...byGroup.entries()].flatMap(([group, nodes]) => [group ? `- group "${group}" (${groups[group]?.label ?? group}):` : "- steps:", ...nodes.map(stepLine)]);
-  const wires = config.edges.map((e) => `  ${e.from} → ${e.to} (${e.mode}${(e.when ?? ["*"]).join(",") === "*" ? "" : ", when " + e.when.join(", ")})`);
+  const wires = config.edges.map((e) => `  ${e.from} → ${e.to} (${e.mode}${(e.when ?? ["*"]).join(",") === "*" ? "" : ", when " + e.when.join(", ")}${Array.isArray(e.unless) && e.unless.length ? ", unless " + e.unless.join(", ") : ""})`);
   return [
     "# Developing on Tex",
     "",

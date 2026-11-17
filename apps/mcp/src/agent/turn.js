@@ -240,6 +240,7 @@ export async function runTurn(options) {
     steer = null,
     web = null,
     texting = false,
+    inGroup = false, // a group chat's turn: the 1:1-only modules stay out (`turnPrompt.js`)
     // Whether its answer can text pictures back (`outgoingPictures.js`): a text from their phone.
     pictures = false,
     notes = null,
@@ -266,7 +267,7 @@ export async function runTurn(options) {
     // `{ now, timeZone }`: the person's own clock, told every round (`localNow.js`).
     localNow = null,
     // The workspaces they can reach (`contextsFor`), so a new note goes where its project is (`workspaces.js`).
-    workspaces = null, groups = "", mail = null, // and their mailboxes with each one's state (`mailAccounts.js`)
+    workspaces = null, groups = "", devShare = "", mail = null, // and their mailboxes with each one's state (`mailAccounts.js`)
     // How hard each model thinks, by model name (`production.js`); absent: the model's own default.
     efforts = null,
     // What the person sent with the question, checked (`attachments.js`): shown to the model with it.
@@ -359,7 +360,7 @@ export async function runTurn(options) {
     trace.push({ kind: "router", tier: routed.tier, pick: routed.pick, model, at: asked - began, ms: clock() - asked, ...confidence });
     tell({ kind: "model", step: "router", model, ms: clock() - asked, input: options.planned || nudge !== "" ? undefined : question, output: { tier: routed.tier, pick: routed.pick, ...confidence }, reason: options.planned ? "a long job is planned on the thinking model" : routed.tier === "think" ? "the router judged it needs thinking" : "picked by the router" });
   }
-  const promptFor = (answering) => turnPrompt(place, answering, { texting, pictures, notes, models: router !== null ? { main: mainModel, think: router.think, jobsOnly: router.jobsOnly === true } : null, tools, history, threadNote, turnNote, webNames, progress, aboutMe, identity, jobs, voice, calendar, observe, workspaces, groups, mail, localNow, plan, nudge }); // `turnPrompt.js`
+  const promptFor = (answering) => turnPrompt(place, answering, { texting, inGroup, pictures, notes, models: router !== null ? { main: mainModel, think: router.think, jobsOnly: router.jobsOnly === true } : null, tools, history, threadNote, turnNote, webNames, progress, aboutMe, identity, jobs, voice, calendar, observe, workspaces, groups, devShare, mail, localNow, plan, nudge }); // `turnPrompt.js`
   let prompt = promptFor(model);
   // The person's own text, with the turn's facts carried ahead of it (`providers.js`): set before every round.
   const questionMessage = { role: "user", text: question, ...(attachments.length > 0 ? { attachments } : {}) };
@@ -679,11 +680,16 @@ export async function runTurn(options) {
       timing.toolMs += toolMs;
       // A call the egress gate held for the person's yes is not a failure: it
       // runs when they give it (`texEntryPoint.js`), and a log that called it failed
-      // would read as a broken tool.
-      trace.push({ kind: "tool", tool: call.name, ok: result?.isError !== true, at: called - began, ms: toolMs, ...(result?.held === true ? { held: true } : {}), ...traceNames(made, call) }); // the six's name and action, for the Lab's Tools page (`turnLog.js`)
+      // would read as a broken tool. A designed send-back (`ask`: a page with no
+      // picture asking for its scene) is not one either. The model still reads it
+      // as an error and draws again, and the chat's ledger still shows the call
+      // as not done, so a later check does not skip the cover. The turn log
+      // counts it as a call that worked, so the Lab's tool stats do not.
+      const asked = result?.ask === true;
+      trace.push({ kind: "tool", tool: call.name, ok: result?.isError !== true || asked, at: called - began, ms: toolMs, ...(result?.held === true ? { held: true } : {}), ...(asked ? { ask: true } : {}), ...traceNames(made, call) }); // the six's name and action, for the Lab's Tools page (`turnLog.js`)
       steps.push({ tool: call.name, ok: result?.isError !== true, ...(Array.isArray(result?.sources) ? { sources: result.sources } : {}) });
-      // A failed step sends the next round to the planner; one held for the person's yes does not.
-      if (failedCall(result)) { escalate = true; failed({ tool: call.name, ...causeOf(thrown, ToolTimeout), result, ms: toolMs, round }); }
+      // A failed step sends the next round to the planner; one held for the person's yes, or a designed send-back, does not.
+      if (failedCall(result) && !asked) { escalate = true; failed({ tool: call.name, ...causeOf(thrown, ToolTimeout), result, ms: toolMs, round }); }
       tell({ kind: "tool", name: call.name, args: call.args, ...(made.name !== call.name ? { as: { name: made.name, args: made.args } } : {}), ok: result?.isError !== true, ms: toolMs, held: result?.held === true, reason: whyFailed(result), result: toolResultText(result), ...(typeof result?.thinking === "string" && result.thinking ? { thinking: result.thinking } : {}) }); // the result, for the chat's ledger (`ledger.js`)
       messages.push({
         role: "tool",

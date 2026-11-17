@@ -55,7 +55,7 @@ function useSetsSync() {
   const state = useRef(merged);
   state.current = merged;
 
-  const counts = useRef<{ hidden: HiddenChat[]; stars: number }>({ hidden: [], stars: 0 });
+  const counts = useRef<{ hidden: HiddenChat[]; stars: number; byNode: Record<string, number> | null }>({ hidden: [], stars: 0, byNode: null });
   useEffect(() => {
     let on = true;
     void test
@@ -63,13 +63,13 @@ function useSetsSync() {
       .then((c) => {
         if (!on) return;
         counts.current = c;
-        loadConvs(state.current.convs, c.hidden, c.stars);
+        loadConvs(state.current.convs, c.hidden, c.stars, c.byNode);
       })
       .catch(() => undefined);
     return () => void (on = false);
   }, [test]);
   useEffect(() => {
-    if (data) loadConvs(merged.convs, counts.current.hidden, counts.current.stars);
+    if (data) loadConvs(merged.convs, counts.current.hidden, counts.current.stars, counts.current.byNode);
   }, [data, merged]);
 
   /** The revision each of this tab's own edits came back at, so quick edits in a row don't trip over the list. */

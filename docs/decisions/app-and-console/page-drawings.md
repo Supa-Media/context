@@ -37,8 +37,13 @@ How it works:
   picture from what was read. No address, script, style or handler survives,
   and the screenshot Worker is asked to load nothing (`allow: []`).
 - **What makes it Tex's is added by us, never left to the model.** There is
-  one ink: Tex blue, or periwinkle on the dark page. A colour the model names
-  becomes ink, and a fill is `none`, `ink`, `paper` or `hatch`. The app's brush
+  one ink: Tex blue, or periwinkle on the dark page. A fill is `none`, `ink`,
+  `paper` or `hatch`. A light colour the model names (white, `#fff`, a high
+  luminance) is paper; a darker colour is ink. A filled shape covering most
+  of the canvas is left out, because the paper is already there: a light one
+  is dropped and the scene is drawn, and an ink one is refused with why,
+  since drawing it would bury the picture in a solid block (2026-11-17: that
+  block was most of `draw_visual`'s card-check failures). The app's brush
   filter is used, and the calm Tex comes from the app's own geometry
   (`packages/shared/src/ink/texFigure.cjs`, which the app now imports too:
   `apps/mobile/features/chaos/figureGeometry.ts`). Tex stands where the scene

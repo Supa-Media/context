@@ -20,7 +20,7 @@ import assert from "node:assert/strict";
 import graphLib from "../../../packages/shared/src/texGraph.cjs";
 import { TEX_CONFIG } from "../src/agent/texConfig.js";
 
-const { createGraph, problemsOf, coverageProblems, GraphError, provisionalWiring, orderFrom } = graphLib;
+const { createGraph, problemsOf, coverageProblems, GraphError, provisionalWiring, provisionalHeld, orderFrom } = graphLib;
 
 const node = (id, extra = {}) => ({ id, on: true, rounds: 1, ...extra });
 const wire = (from, to, mode = "wait", when = ["*"]) => ({ from, to, mode, when });
@@ -355,9 +355,9 @@ test("provisionalWiring names the step run provisionally, what stops or restarts
     on: true,
     target: "door",
     sources: [
-      { from: "triage", stop: ["running"], restart: [], allow: "revertible" },
-      { from: "decide", stop: ["quiet"], restart: ["wait"], allow: "read" },
-      { from: "lanes", stop: [], restart: [], allow: "revertible" },
+      { from: "triage", stop: ["running"], restart: [], allow: "revertible", unless: [] },
+      { from: "decide", stop: ["quiet"], restart: ["wait"], allow: "read", unless: [] },
+      { from: "lanes", stop: [], restart: [], allow: "revertible", unless: [] },
     ],
   });
   const offTriage = provisionalDraft();
@@ -382,6 +382,21 @@ test("a provisional wire takes only stop: and restart: tags and a known allow, a
   const onWait = provisionalDraft();
   onWait.edges[0] = { ...onWait.edges[0], allow: "read" };
   assert.match(problemsOf(onWait).join(), /only a provisional wire has one/);
+  const badUnless = provisionalDraft();
+  badUnless.edges.push({ ...wire("text", "door", "provisional"), unless: ["sideways"] });
+  assert.match(problemsOf(badUnless).join(), /unless \["sideways"\]/);
+});
+
+test("provisionalHeld is the wires' unless, and one wire's fact holds the run", () => {
+  assert.deepEqual(provisionalHeld(["firstLook", "sms", "unpaired"], ["group", "sms"]), ["sms"]);
+  assert.deepEqual(provisionalHeld([], ["firstLook"]), []);
+  assert.deepEqual(provisionalHeld(undefined, ["firstLook"]), []);
+  const held = provisionalDraft();
+  held.edges.find((e) => e.from === "decide" && e.mode === "provisional").unless = ["firstLook"];
+  const wiring = provisionalWiring(held);
+  assert.deepEqual(wiring.sources.find((s) => s.from === "decide").unless, ["firstLook"]);
+  assert.deepEqual(provisionalHeld(wiring.sources.flatMap((s) => s.unless), ["firstLook"]), ["firstLook"]);
+  assert.deepEqual(provisionalHeld(wiring.sources.flatMap((s) => s.unless), ["sms"]), []);
 });
 
 // A generator wire (Dev2, 2026-11-16, the generators model): it starts a new run at an input node, so the runner never

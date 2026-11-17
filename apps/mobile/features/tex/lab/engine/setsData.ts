@@ -29,7 +29,7 @@ export function mergeDrafts(repo: Conversation[], drafts: Draft[]): { convs: Con
 }
 
 /** The hidden Test chats as the public counts give them: by position, kind, messages and stars, never an id. */
-export function hiddenOf(counts: unknown): { hidden: HiddenChat[]; stars: number } {
+export function hiddenOf(counts: unknown): { hidden: HiddenChat[]; stars: number; byNode: Record<string, number> | null } {
   const r = counts && typeof counts === "object" ? (counts as Record<string, unknown>) : {};
   const per = Array.isArray(r.perChat) ? r.perChat : [];
   const hidden = per
@@ -37,11 +37,13 @@ export function hiddenOf(counts: unknown): { hidden: HiddenChat[]; stars: number
     .filter((x): x is Record<string, unknown> => !!x)
     .map((x) => ({ kind: x.kind === "group" ? ("group" as const) : ("one" as const), msgs: Number(x.msgs) || 0, stars: Number(x.stars) || 0 }));
   const stars = Number(r.stars);
-  return { hidden, stars: Number.isFinite(stars) ? stars : hidden.reduce((a, h) => a + h.stars, 0) };
+  // Unit tests per step, for the warning on a step with none in Test (Dev2, 2026-11-17); null when the counts lack it.
+  const byNode = r.byNode && typeof r.byNode === "object" ? (r.byNode as Record<string, number>) : null;
+  return { hidden, stars: Number.isFinite(stars) ? stars : hidden.reduce((a, h) => a + h.stars, 0), byNode };
 }
 
 export type TestClient = {
-  counts: () => Promise<{ hidden: HiddenChat[]; stars: number }>;
+  counts: () => Promise<{ hidden: HiddenChat[]; stars: number; byNode: Record<string, number> | null }>;
   list: () => Promise<Conversation[]>;
   put: (c: Conversation) => Promise<void>;
   remove: (id: string) => Promise<void>;

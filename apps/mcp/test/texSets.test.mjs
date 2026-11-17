@@ -9,6 +9,7 @@
  *   ratio() counts every label, not stars         "the ratio counts unit tests, never labels" fails
  *   DRIFT ignored in ratio()                      "a set may drift ten points, not more" fails
  *   check() skips the trigger's speaker rule      "a trigger row is the input that fired it" fails
+ *   missingTest() counts a zero as a Test case     "a scope with tests but none in the Test Set is named" fails (2026-11-17)
  */
 import { test } from "node:test";
 import assert from "node:assert/strict";
@@ -93,6 +94,17 @@ test("a set may drift ten points, not more", () => {
   assert.equal(bad.holds, false);
   assert.deepEqual(bad.off, ["training", "test"]);
   assert.equal(sets.ratio({}).holds, false);
+});
+
+test("a scope with tests but none in the Test Set is named, and the split stays pooled", () => {
+  // Dev2, 2026-11-17: one pooled 60/20/20; per scope only a warn-only note when Test has none.
+  const convs = [chat({ set: "training" }), chat({ set: "dev" })];
+  assert.deepEqual(sets.missingTest(convs, { decide: 3 }), [{ scope: "fd", training: 1, dev: 1 }]);
+  assert.deepEqual(sets.missingTest(convs, { decide: 1, fd: 2 }), []);
+  assert.deepEqual(sets.missingTest(convs, { fd: 0 }).map((s) => s.scope), ["decide", "fd"], "a zero count is none");
+  assert.deepEqual(sets.missingTest(convs, null), [], "unknown Test counts name nothing");
+  assert.deepEqual(sets.missingTest([chat({ set: "test" })], {}), [], "Test chats are never counted from words");
+  assert.equal(sets.ratio(convs).total, 4, "the ratio is still one pooled count");
 });
 
 test("a trigger row is the input that fired it, never a member, and can be a unit test", () => {

@@ -7,7 +7,7 @@
  */
 import { useEffect, useRef, useState } from "react";
 import { G, node } from "../../engine/state";
-import { bodyOf, cellOf, colWidth, labelFields, newRowAt, freshId, starsIn, stepNodes, type Conversation, type Message } from "../../engine/sets";
+import { bodyOf, cellOf, colWidth, labelFields, missingTest, newRowAt, freshId, starsIn, stepNodes, type Conversation, type Message } from "../../engine/sets";
 import { change, colsFor, deleteChat, fold, saveCols, setUi, sets, undo, uploadPic, useSets } from "../../engine/setsStore";
 import { History } from "./History.web";
 import type { LabNode } from "../../types";
@@ -341,6 +341,8 @@ export function Grid({ c }: { c: Conversation }) {
   ];
   const colMenu: MenuItem[] = [{ head: "Step columns" }, ...steps.map((x) => ({ label: x.name, check: !cols.hidden.includes(x.id), keepOpen: true, run: () => showCol(x.id, cols.hidden.includes(x.id)) }))];
   const nodeCols = vc.filter((x) => x.node).length;
+  // A step with unit tests in Training or Dev and none in Test: a warning on its column, never a failure (Dev2, 2026-11-17).
+  const noTest = new Map(missingTest(s.convs.filter((x) => x.set !== "test"), s.testByNode).map((x) => [x.scope, x]));
 
   return (
     <main className="ts-mid" id="middle">
@@ -382,6 +384,11 @@ export function Grid({ c }: { c: Conversation }) {
               {vc.map((x, k) => (
                 <th key={x.id} data-col={x.id} title={x.name} style={{ position: "sticky" }}>
                   {x.name}
+                  {noTest.has(x.id) ? (
+                    <span className="ts-notest" data-notest={x.id} title={`No unit tests in the Test Set for ${x.name} (Training ${noTest.get(x.id)?.training}, Dev ${noTest.get(x.id)?.dev}). A warning only: CI never fails on it.`}>
+                      !
+                    </span>
+                  ) : null}
                   {x.node ? (
                     <button className="x" data-hide={x.id} title="Hide column" aria-label={`Hide ${x.name}`} onClick={(e) => (e.stopPropagation(), showCol(x.id, false))}>
                       ×
