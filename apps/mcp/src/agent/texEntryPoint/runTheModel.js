@@ -131,6 +131,7 @@ export async function runTheModel(t, via) {
   const egressJudge = aiGatewayConfig(env) === null ? null : (input) => gatewayGraph({ writer: chatLog, turn: ledgerAt?.turn ?? null }).fire("tools", "egress", input, { env }); // interim: io.use.egress once tools is a node
   if (typeof session.sharingJudge === "function" && egressJudge) session.sharingJudge = egressJudge; // interim: io.use.egress once tools is a node
   const pictureRun = (name, args, callTool) => gatewayGraph({ writer: chatLog, turn: ledgerAt?.turn ?? null }).fire("tools", "picture", { tool: name, args }, { env, maker, callTool, cardCheck }).then((out) => out.result); // interim: io.use.picture once tools is a node
+  steer?.revertWith(dispatch); // a provisional run's note saves are read first and put back through the client's own dispatcher (`steer.js`)
   stages?.ready(); const turn = await tex.step("model", () => runTurn({
     // With the log, the chat and its tapbacks are in the transcript, and the covered events are the question (`loggedTurn.js`).
     question: [logged === null && view === null ? chatLines(group) : "", logged === null ? reactedLine(reacted) : "", setAsideLine(setAside, dropped), paidLine(paid), sentNoteLinksLine(question, noteLinking.origin), (logged ? loggedQuestion(logged.question, quoted, logged.replying) : askedWith(question, quoted)), logged === null ? sleepLineNote(question) : ""].filter(Boolean).join("\n\n"),
@@ -212,7 +213,12 @@ export async function runTheModel(t, via) {
   await tex.after("turn_row", logTurn(turn.exhausted ? "exhausted" : "answered", turn.model, turn.timing, turn.usage, meterParts(turn)));
   outcome.clean = ledger.untrusted !== true;
   // Cancelled by the Worker (`steer.js`), in a round or after the last: its asks are withdrawn, nothing is kept as said, and nothing is texted.
-  if (turn.cancelled || (steer !== null && (await tex.step("cancel_check", () => steer.endCancelled())))) return await tex.step("cancelled", () => begun.catch(() => {}).then(() => cancelledTurn(store, session, { ledger, steer, steps: turn.steps })));
+  // A provisional run (the config's "Provisional run" wire) answers only once the Worker's checks said go; stopped, or never told, it is cancelled.
+  const stopped = steer?.provisional === true && !turn.cancelled && !(await tex.step("provisional_wait", () => steer.waitGo()));
+  if (stopped || turn.cancelled || (steer !== null && (await tex.step("cancel_check", () => steer.endCancelled())))) {
+    if (steer !== null && steer.changed.length > 0) await tex.step("provisional_undo", () => steer.revert()); // what it changed before its go is put back
+    return await tex.step("cancelled", () => begun.catch(() => {}).then(() => cancelledTurn(store, session, { ledger, steer, steps: turn.steps })));
+  }
   Object.assign(t, { turn, replyPlace: null }); // the classifier no longer runs before the reply, so it places none (`threadedTurn.js`)
 }
 // TEX ENTRY POINT: end

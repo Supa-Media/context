@@ -97,6 +97,7 @@ export function turnTiming({ steps = [], trace = [], waitMs = null, worker = nul
         ...(entry.ok === false ? { ok: false } : {}),
         ...(entry.retried ? { retried: true } : {}),
         ...(entry.cut ? { cut: true } : {}),
+        ...(entry.stopped ? { stopped: true } : {}), // a provisional run stopped mid-call (`steer.js`)
         ...(entry.usage ? { input: whole(usage.input), output: whole(usage.output), cacheRead: whole(usage.cacheRead), cacheWrite: whole(usage.cacheWrite), said: whole(entry.said), calls: whole(entry.calls) } : {}),
         ...promptPart(entry.prompt),
       });

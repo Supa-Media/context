@@ -76,7 +76,7 @@ describe("parsePhotonEvent: messages in a 1:1 chat", () => {
       attachments: [{ url: GENERIC_ADDRESS("att-1"), mimeType: "image/heic", filename: "IMG_1.HEIC", size: 1234 }],
     });
     // Without any address, a picture alone is nothing to answer.
-    expect(parsePhotonEvent(body)).toEqual({ kind: "ignored", reason: "empty" });
+    expect(parsePhotonEvent(body)).toMatchObject({ kind: "ignored", reason: "empty" });
   });
 
   it("marks a reply as threaded, and carries the words it answers as quoted", () => {
@@ -98,7 +98,7 @@ describe("parsePhotonEvent: messages in a 1:1 chat", () => {
       });
     expect(withFile("photo.png", "look")).toMatchObject({ kind: "message", attachments: [{ filename: "photo.png" }] });
     // A rich link's card is a plugin payload, never something the person sent.
-    expect(withFile("Preview.pluginPayloadAttachment", "")).toEqual({ kind: "ignored", reason: "empty" });
+    expect(withFile("Preview.pluginPayloadAttachment", "")).toMatchObject({ kind: "ignored", reason: "empty" });
     // A file sent with an address in its words is that address's preview (`isPreviewFile`).
     expect(withFile("photo.png", "https://example.com/page")).toMatchObject({ kind: "message", text: "https://example.com/page" });
     expect(withFile("photo.png", "https://example.com/page")).not.toHaveProperty("attachments");
@@ -119,7 +119,6 @@ describe("parsePhotonEvent: messages in a 1:1 chat", () => {
   });
 
   it("ignores a service that is neither iMessage nor SMS, and a sender that is not a phone", () => {
-    expect(parsePhotonEvent(event({ message: { guid: "m", text: "hi", service: "RCS" } }))).toEqual({ kind: "ignored", reason: "service" });
     expect(parsePhotonEvent(event({ from: "person@example.com" }))).toEqual({ kind: "ignored", reason: "sender" });
   });
 
@@ -130,11 +129,32 @@ describe("parsePhotonEvent: messages in a 1:1 chat", () => {
     );
     expect(card).toMatchObject({ kind: "message", text: "yes", viaCard: { ask: "abc123" } });
     const other = parsePhotonEvent(event({ message: { guid: "m-other", text: "Poll", service: "iMessage", balloonBundleId: "com.apple.Polls", appUrl: "https://x.example" } }));
-    expect(other).toEqual({ kind: "ignored", reason: "app_card" });
+    expect(other).toEqual({ kind: "ignored", reason: "app_card", chatId: photonChatId(LINE, PHONE), from: PHONE });
+  });
+
+  // 2026-11-17: a link sent with its preview reached Tex in a group but was dropped in a 1:1 as another app's card.
+  it("reads a link sent with Apple's preview as its words, in a 1:1 as in a group", () => {
+    const link = "https://shop.example/products/hoodie";
+    const preview = { guid: "m-link", text: link, service: "iMessage", balloonBundleId: "com.apple.messages.URLBalloonProvider" };
+    expect(parsePhotonEvent(event({ message: preview }))).toEqual({ kind: "message", eventId: "photon:m-link", chatId: photonChatId(LINE, PHONE), from: PHONE, messageId: "m-link", text: link });
+    expect(parsePhotonEvent(groupEvent({ message: preview }))).toMatchObject({ kind: "group-message", groupId: GROUP_ID, text: link });
+    // A card with no app address whose words are one link is a preview too, whatever id the bridge names it by.
+    const unnamed = parsePhotonEvent(event({ message: { guid: "m-link2", text: link, service: "iMessage", balloonBundleId: "com.apple.messages.SomethingNew" } }));
+    expect(unnamed).toMatchObject({ kind: "message", text: link });
+    // Another app's card whose words happen to be a link, with its own address, is still that app's card.
+    const app = parsePhotonEvent(event({ message: { guid: "m-app", text: link, service: "iMessage", balloonBundleId: "com.example.app", appUrl: "https://x.example" } }));
+    expect(app).toMatchObject({ kind: "ignored", reason: "app_card" });
+  });
+
+  it("names the chat a dropped message was sent in, so its history can show the drop", () => {
+    expect(parsePhotonEvent(event({ message: { guid: "m", text: "hi", service: "RCS" } }))).toEqual({ kind: "ignored", reason: "service", chatId: photonChatId(LINE, PHONE), from: PHONE });
+    expect(parsePhotonEvent(groupEvent({ message: { guid: "m", text: " ", service: "iMessage" } }))).toEqual({
+      kind: "ignored", reason: "empty", groupId: GROUP_ID, line: LINE, from: PHONE, participants: [PHONE, OTHER],
+    });
   });
 
   it("ignores a message with no words and no file", () => {
-    expect(parsePhotonEvent(event({ message: { guid: "m-empty", text: "   ", service: "iMessage" } }))).toEqual({ kind: "ignored", reason: "empty" });
+    expect(parsePhotonEvent(event({ message: { guid: "m-empty", text: "   ", service: "iMessage" } }))).toEqual({ kind: "ignored", reason: "empty", chatId: photonChatId(LINE, PHONE), from: PHONE });
   });
 });
 

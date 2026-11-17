@@ -30,7 +30,9 @@
  * gateway run this same code.
  */
 
-const MODES = ["wait", "uses", "background", "job", "loop"];
+const MODES = ["wait", "uses", "background", "job", "loop", "provisional"];
+/** What a provisional wire's step may do before its go (`texGraph.cjs`). */
+const ALLOW = ["read", "revertible"];
 const ID = /^[A-Za-z][A-Za-z0-9_-]{0,47}$/;
 /** The fields a `set` may change: everything a step has but its id (which `remove` and `add` change). */
 const NODE_FIELDS = new Set(["label", "goal", "log", "on", "rounds", "out", "ctx", "ms", "timeoutS", "areas", "file", "note", "icon", "model", "effort", "kind", "inSchema", "outSchema", "sendBack", "x", "y", "group", "fallback"]);
@@ -197,10 +199,17 @@ function applyOps(graph, ops) {
           if (!MODES.includes(op.mode)) throw at(`mode must be one of ${MODES.join(", ")}`);
           const when = op.when === undefined ? ["*"] : op.when;
           if (!Array.isArray(when) || !when.every((w) => typeof w === "string" && w.length > 0 && w.length <= 40)) throw at("when must be a list of tags");
+          // A provisional wire's allow (Dev2, 2026-11-17): what its step may do before the go; kept on a rewire that names
+          // none, and dropped (back to the default, revertible) by null.
+          if (op.allow !== undefined && op.allow !== null && !(op.mode === "provisional" && ALLOW.includes(op.allow))) throw at(`allow is only for a provisional wire, and one of ${ALLOW.join(", ")}`);
           const had = g.edges.find((e) => e.from === op.from && e.to === op.to && e.mode === op.mode);
-          if (had) had.when = [...when];
-          else g.edges.push({ from: op.from, to: op.to, mode: op.mode, when: [...when] });
-          line(() => `${had ? "rewired" : "wired"} ${op.from} → ${op.to} (${op.mode}${when.join(",") === "*" ? "" : ", when " + when.join(", ")})`);
+          if (had) {
+            had.when = [...when];
+            if (op.allow === null) delete had.allow;
+            else if (op.allow !== undefined) had.allow = op.allow;
+          } else g.edges.push({ from: op.from, to: op.to, mode: op.mode, when: [...when], ...(typeof op.allow === "string" ? { allow: op.allow } : {}) });
+          const allow = op.allow ?? had?.allow;
+          line(() => `${had ? "rewired" : "wired"} ${op.from} → ${op.to} (${op.mode}${allow ? " " + allow : ""}${when.join(",") === "*" ? "" : ", when " + when.join(", ")})`);
           break;
         }
         case "unwire": {
@@ -369,8 +378,12 @@ function diffGraphs(a, b) {
   // A removed step's wires go with it.
   const gone = new Set(ops.filter((o) => o.op === "remove").map((o) => o.node));
   for (const [k, e] of wa) if (!wb.has(k) && !gone.has(e.from) && !gone.has(e.to)) ops.push({ op: "unwire", from: e.from, to: e.to, mode: e.mode });
-  for (const [k, e] of wb) if (!wa.has(k) || !same(wa.get(k).when, e.when)) ops.push({ op: "wire", from: e.from, to: e.to, mode: e.mode, when: [...(e.when ?? ["*"])] });
+  for (const [k, e] of wb) {
+    const was = wa.get(k);
+    const allow = was?.allow !== e.allow ? { allow: e.allow ?? null } : {};
+    if (!was || !same(was.when, e.when) || was.allow !== e.allow) ops.push({ op: "wire", from: e.from, to: e.to, mode: e.mode, when: [...(e.when ?? ["*"])], ...allow });
+  }
   return ops;
 }
 
-module.exports = { MODES, NODE_FIELDS, MAX_OPS, KEPT_STEPS, FALLBACK_MODEL, OpError, applyOps, diffGraphs, keysOf, overlaps, conflicts };
+module.exports = { MODES, ALLOW, NODE_FIELDS, MAX_OPS, KEPT_STEPS, FALLBACK_MODEL, OpError, applyOps, diffGraphs, keysOf, overlaps, conflicts };

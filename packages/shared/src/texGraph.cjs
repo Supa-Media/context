@@ -17,6 +17,13 @@
  *           (the target's `rounds` when the wire names none). The target runs, then the `wait` path from it forward
  *           to the source, and the call returns what the last node before the source gave.
  *   job     the source may start the target as a background job, through `io.job[target]`.
+ *   provisional  ("Provisional run") the target does not wait for the source to start: it starts once its other
+ *           inputs allow, or at the run's start when every wire into it is `provisional`. The source's output is the
+ *           target's verdict: tags matching the wire's `stop:<tag>` entries stop the running target, `restart:<tag>` stops
+ *           and reruns it, and anything else says go. Until every `provisional` source into it has said go, the target
+ *           may do only what the wire's `allow` lets it: "read" (reads only) or "revertible" (the default: reads, and writes
+ *           that can be undone); anything that cannot be taken back always waits for the go. One target per config; read
+ *           by intake through `provisionalWiring`, never fired by `run` (Dev2, 2026-11-17).
  * `when` on a wire: `["*"]`, or tags the source's output must carry (`output.when`, or `output.to` as one tag) for a
  * `wait` or `background` wire to fire. A node that is off (`on: false`) never runs, and its wires never fire.
  *
@@ -34,7 +41,9 @@
  */
 "use strict";
 
-const MODES = Object.freeze(["wait", "background", "uses", "loop", "job"]);
+const MODES = Object.freeze(["wait", "background", "uses", "loop", "job", "provisional"]);
+/** What a provisional run may do before its go: reads only, or reads and writes that can be undone (the default). */
+const ALLOW = Object.freeze(["read", "revertible"]);
 const MAX_LOG_CHARS = 3_500;
 
 class GraphError extends Error {
@@ -166,7 +175,13 @@ function problemsOf(config) {
   for (const e of config?.edges ?? []) {
     if (!ids.has(e.from) || !ids.has(e.to)) problems.push(`wire ${e.from} -> ${e.to} joins a node that is not there`);
     if (!MODES.includes(e.mode)) problems.push(`wire ${e.from} -> ${e.to} has mode "${e.mode}"`);
+    if (e.mode === "provisional") for (const t of Array.isArray(e.when) ? e.when : [])
+      if (t !== "*" && !/^(stop|restart):[\w-]+$/.test(String(t))) problems.push(`provisional wire ${e.from} -> ${e.to} has when "${t}": only "*", "stop:<tag>" or "restart:<tag>"`);
+    if (e.allow !== undefined && !(e.mode === "provisional" && ALLOW.includes(e.allow)))
+      problems.push(`wire ${e.from} -> ${e.to} has allow "${e.allow}": only a provisional wire has one, "read" or "revertible"`);
   }
+  const provisionalTargets = new Set((config?.edges ?? []).filter((e) => e.mode === "provisional").map((e) => e.to));
+  if (provisionalTargets.size > 1) problems.push(`provisional wires point at more than one step (${[...provisionalTargets].join(", ")}): one step may run provisionally`);
   // Kahn over wait and background wires.
   const flow = (config?.edges ?? []).filter((e) => e.mode === "wait" || e.mode === "background");
   const indeg = new Map([...ids].map((id) => [id, 0]));
@@ -207,6 +222,25 @@ function orderFrom(config, start) {
   };
   for (const id of reach) visit(id);
   return order;
+}
+
+/**
+ * How a config runs a step provisionally (Dev2, 2026-11-17): the target of its `provisional` wires and, for each wire
+ * whose two ends are on, its source, the tags that stop or restart the target (`when` entries "stop:<tag>",
+ * "restart:<tag>"; any other output is go) and what the target may do before the go (`allow`, "revertible" when the
+ * wire names none). `on` is false with no such wire. Read by intake; the runner never fires these wires.
+ */
+function provisionalWiring(config) {
+  const isOn = (id) => {
+    const n = (config?.nodes ?? []).find((x) => x.id === id);
+    return !!n && n.on !== false;
+  };
+  const wires = (Array.isArray(config?.edges) ? config.edges : []).filter((e) => e.mode === "provisional" && isOn(e.from) && isOn(e.to));
+  if (!wires.length) return { on: false, target: null, sources: [] };
+  const target = wires[0].to;
+  const tags = (e, kind) => (Array.isArray(e.when) ? e.when : []).filter((t) => typeof t === "string" && t.startsWith(`${kind}:`)).map((t) => t.slice(kind.length + 1));
+  const sources = wires.filter((e) => e.to === target).map((e) => ({ from: e.from, stop: tags(e, "stop"), restart: tags(e, "restart"), allow: e.allow === "read" ? "read" : "revertible" }));
+  return { on: true, target, sources };
 }
 
 /**
@@ -441,4 +475,4 @@ function coverageProblems(config, processes, shelf = []) {
   return problems;
 }
 
-module.exports = { MODES, GraphError, createGraph, problemsOf, coverageProblems, checkShape, fires, tagsOf, shaped, orderFrom };
+module.exports = { MODES, GraphError, createGraph, problemsOf, coverageProblems, checkShape, fires, tagsOf, shaped, orderFrom, provisionalWiring, ALLOW };

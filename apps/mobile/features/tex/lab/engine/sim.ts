@@ -25,6 +25,8 @@ export function fires(e: LabEdge, tags: string[], g: LabGraph) {
   const t = node(e.to, g);
   const f = node(e.from, g);
   if (!t || !f || !t.on || !f.on) return false;
+  // A provisional wire's tags are its verdicts (stop, restart), never a route: it always reaches its step.
+  if (e.mode === "provisional") return true;
   return e.when.includes("*") || e.when.some((w) => tags.includes(w));
 }
 
@@ -177,12 +179,18 @@ export function simulate(shown: LabGraph, s: string, log: Log, real: RealTimes |
   }
   const T: Record<string, StepTime> = {};
   const order = [...reach.keys()];
+  // A provisional run (Dev2, 2026-11-17) starts when its other inputs allow, at the start when it has none, never
+  // waiting for its provisional sources; their latest end is its go, and the reply cannot be sent before it.
+  const provisionals = g.edges.filter((e) => e.mode === "provisional" && reach.has(e.from) && reach.has(e.to) && on(e));
+  const goFloor = () => (provisionals.some((e) => T[e.to]) ? Math.max(0, ...provisionals.filter((e) => T[e.from]).map((e) => T[e.from].end)) : 0);
   for (let p = 0; p < order.length + 2; p++)
     for (const id of order) {
       const n = node(id, g)!;
-      const preds = g.edges.filter((e) => e.to === id && reach.has(e.from) && on(e) && !["uses", "loop"].includes(e.mode) && T[e.from]);
-      if (id !== start.id && !preds.length) continue;
-      const st = id === start.id ? 0 : Math.max(0, ...preds.map((e) => T[e.from].end));
+      const preds = g.edges.filter((e) => e.to === id && reach.has(e.from) && on(e) && !["uses", "loop", "provisional"].includes(e.mode) && T[e.from]);
+      const provisional = provisionals.some((e) => e.to === id);
+      if (id !== start.id && !preds.length && !provisional) continue;
+      let st = id === start.id ? 0 : Math.max(0, ...preds.map((e) => T[e.from].end));
+      if (id === "send") st = Math.max(st, goFloor());
       const f = fold(n, g, s, tags, log, new Set(), real);
       T[id] = { start: st, end: st + f.ms, ms: f.ms, usd: f.usd, calls: f.calls, parts: f.parts, lane: reach.get(id)!.lane };
     }

@@ -20,7 +20,7 @@ import assert from "node:assert/strict";
 import graphLib from "../../../packages/shared/src/texGraph.cjs";
 import { TEX_CONFIG } from "../src/agent/texConfig.js";
 
-const { createGraph, problemsOf, coverageProblems, GraphError } = graphLib;
+const { createGraph, problemsOf, coverageProblems, GraphError, provisionalWiring, orderFrom } = graphLib;
 
 const node = (id, extra = {}) => ({ id, on: true, rounds: 1, ...extra });
 const wire = (from, to, mode = "wait", when = ["*"]) => ({ from, to, mode, when });
@@ -291,4 +291,64 @@ test("a node logs its whole run and its own time, less its waits on the nodes it
   assert.deepEqual(of("fd"), [[1450, 1200], [1450, 1200]]);
   assert.deepEqual(of("checks"), [[1453, 3]]);
   assert.deepEqual(of("send"), [[40, 40]]);
+});
+
+// A provisional run (Dev2, 2026-11-17): the `provisional` wire is an intake signal, read through provisionalWiring, never
+// fired by the runner. Sabotage: counting "provisional" in the cycle check, or firing it in run(), fails the first test;
+// provisionalWiring ignoring `on`, or dropping `allow`, fails the second; the allow check removed fails the third.
+const provisionalDraft = () => ({
+  nodes: [node("text"), node("triage"), node("decide"), node("lanes"), node("door"), node("send")],
+  edges: [
+    wire("text", "triage"), wire("triage", "decide"), wire("decide", "lanes"), wire("door", "send"),
+    wire("triage", "door", "provisional", ["stop:running"]),
+    { ...wire("decide", "door", "provisional", ["stop:quiet", "restart:wait"]), allow: "read" },
+    { ...wire("lanes", "door", "provisional"), allow: "revertible" },
+  ],
+});
+
+test("a provisional wire is never fired by the runner and is no part of the cycle check", async () => {
+  const config = provisionalDraft();
+  assert.deepEqual(problemsOf(config), []);
+  // door -> triage would close a cycle only if provisional wires counted; they do not.
+  assert.deepEqual(problemsOf({ ...config, edges: [...config.edges, wire("door", "triage", "provisional")] }).filter((p) => /cycle/.test(p)), []);
+  assert.ok(!orderFrom(config, "text").includes("door"));
+  const ran = [];
+  const impl = (id) => async () => (ran.push(id), {});
+  const g = createGraph(config, Object.fromEntries(config.nodes.map((n) => [n.id, impl(n.id)])));
+  await g.run("text", {});
+  assert.deepEqual(ran, ["text", "triage", "decide", "lanes"]);
+});
+
+test("provisionalWiring names the step run provisionally, what stops or restarts it and what it may do before the go", () => {
+  assert.deepEqual(provisionalWiring(provisionalDraft()), {
+    on: true,
+    target: "door",
+    sources: [
+      { from: "triage", stop: ["running"], restart: [], allow: "revertible" },
+      { from: "decide", stop: ["quiet"], restart: ["wait"], allow: "read" },
+      { from: "lanes", stop: [], restart: [], allow: "revertible" },
+    ],
+  });
+  const offTriage = provisionalDraft();
+  offTriage.nodes.find((n) => n.id === "triage").on = false;
+  assert.deepEqual(provisionalWiring(offTriage).sources.map((s) => s.from), ["decide", "lanes"]);
+  const offDoor = provisionalDraft();
+  offDoor.nodes.find((n) => n.id === "door").on = false;
+  assert.deepEqual(provisionalWiring(offDoor), { on: false, target: null, sources: [] });
+  assert.equal(provisionalWiring(TEX_CONFIG).on, TEX_CONFIG.edges.some((e) => e.mode === "provisional"));
+});
+
+test("a provisional wire takes only stop: and restart: tags and a known allow, and only one step may run provisionally", () => {
+  const bad = provisionalDraft();
+  bad.edges.push(wire("text", "door", "provisional", ["quiet"]));
+  assert.match(problemsOf(bad).join(), /provisional wire text -> door has when "quiet"/);
+  const two = provisionalDraft();
+  two.edges.push(wire("text", "lanes", "provisional"));
+  assert.match(problemsOf(two).join(), /more than one step/);
+  const allow = provisionalDraft();
+  allow.edges.push({ ...wire("text", "door", "provisional"), allow: "anything" });
+  assert.match(problemsOf(allow).join(), /allow "anything"/);
+  const onWait = provisionalDraft();
+  onWait.edges[0] = { ...onWait.edges[0], allow: "read" };
+  assert.match(problemsOf(onWait).join(), /only a provisional wire has one/);
 });

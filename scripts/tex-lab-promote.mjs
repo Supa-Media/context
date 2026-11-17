@@ -31,7 +31,7 @@ import { FOLDER as PROMPT_FOLDER, MODULE as PROMPT_MODULE, moduleFor as promptMo
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 const ID = /^[a-z][A-Za-z0-9_-]{0,30}$/;
-const MODES = new Set(["wait", "uses", "background", "job", "loop"]);
+const MODES = new Set(["wait", "uses", "background", "job", "loop", "provisional"]);
 const EFFORTS = new Set(["off", "low", "medium", "high", "xhigh", "max"]);
 const PROMPT_KEY = /^p-([a-z][a-z0-9-]{0,47})$/;
 const MAX_WORDS = 40_000;
@@ -88,6 +88,8 @@ export function configFrom(graph, current, currentWords = {}, shelf = []) {
     if (!e || !ids.has(e.from) || !ids.has(e.to)) return refuse(`a wire joins a step that is not there (${e?.from} → ${e?.to})`);
     if (!MODES.has(e.mode) || !Array.isArray(e.when) || !e.when.every((w) => typeof w === "string")) return refuse(`the wire ${e.from} → ${e.to} is malformed`);
     if (e.rounds !== undefined && !(Number.isInteger(e.rounds) && e.rounds > 0 && e.rounds <= 100)) return refuse(`the wire ${e.from} → ${e.to} has rounds that are not a whole number from 1 to 100`);
+    // A provisional wire's allow (Dev2, 2026-11-17): what its step may do before the go.
+    if (e.allow !== undefined && !(e.mode === "provisional" && (e.allow === "read" || e.allow === "revertible"))) return refuse(`the wire ${e.from} → ${e.to} has allow "${e.allow}": only a provisional wire has one, "read" or "revertible"`);
   }
   // In the order main has them, so a promotion's diff shows only what changed.
   const order = new Map(current.nodes.map((n, i) => [n.id, i]));
@@ -104,7 +106,7 @@ export function configFrom(graph, current, currentWords = {}, shelf = []) {
   // Wires in the order main has them too (the Lab unfolds a group's wires in its own order), new ones last.
   const wireKey = (e) => `${e.from}>${e.to}>${e.mode}`;
   const wireOrder = new Map(current.edges.map((e, i) => [wireKey(e), i]));
-  const edges = graph.edges.map(({ from, to, mode, when, rounds }) => ({ from, to, mode, when, ...(rounds !== undefined ? { rounds } : {}) })).map((e, i) => ({ e, at: wireOrder.get(wireKey(e)) ?? current.edges.length + i })).sort((a, b) => a.at - b.at).map(({ e }) => e);
+  const edges = graph.edges.map(({ from, to, mode, when, rounds, allow }) => ({ from, to, mode, when, ...(rounds !== undefined ? { rounds } : {}), ...(allow !== undefined ? { allow } : {}) })).map((e, i) => ({ e, at: wireOrder.get(wireKey(e)) ?? current.edges.length + i })).sort((a, b) => a.at - b.at).map(({ e }) => e);
   // The draft's own group boxes over main's (the `group` edit), only for groups some step names.
   let groups = current.groups;
   if (graph.groups && typeof graph.groups === "object") {
@@ -148,6 +150,12 @@ function selfTest() {
     loop.rounds = 0;
     expect(/rounds/.test(configFrom(g0, current, words).refused ?? ""), "a wire with rounds 0 passed");
   }
+  // A provisional wire, and its allow, is config too.
+  const gp = graph();
+  gp.edges.push({ from: "text", to: "doorStep", mode: "provisional", when: ["stop:running"], allow: "read" });
+  expect(configFrom(gp, current, words).config?.edges.find((e) => e.mode === "provisional")?.allow === "read", "a provisional wire's allow was lost");
+  gp.edges[gp.edges.length - 1].allow = "anything";
+  expect(/allow/.test(configFrom(gp, current, words).refused ?? ""), "a provisional wire with an unknown allow passed");
   const g1 = graph();
   g1.nodes.find((n) => n.id === "reviewer").effort = "medium";
   expect(configFrom(g1, current, words).config.nodes.find((n) => n.id === "reviewer").effort === "medium", "an effort change was lost");

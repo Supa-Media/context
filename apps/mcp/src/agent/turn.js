@@ -220,6 +220,9 @@ export async function openProvider(controlPlane, session, requested, env = {}, {
  *   counts split by the model that spent them, which is what a turn that
  *   changed model mid-way is priced by (`modelPlan.js` `meterParts`)
  */
+/** What a provisional run's model call resolves to when the Worker's checks stopped it mid-call (`steer.js` `stopWatch`). */
+const STOPPED_MID_CALL = Symbol("stopped mid-call");
+
 export async function runTurn(options) {
   const {
     question,
@@ -432,13 +435,24 @@ export async function runTurn(options) {
     const asked = clock();
     let answer;
     questionMessage.preamble = prompt.preamble;
+    // Run provisionally, ahead of the Worker's checks (`steer.js`): stopped while the model answers, the call is cut off and the turn ends now.
+    const watch = typeof steer?.stopWatch === "function" ? steer.stopWatch() : null;
     try {
-      answer = await requestBuiltin(
+      const call = requestBuiltin(
         // `cachedThrough`: the history is the cached stretch; the question and what follows it are not (`aiGateway.js`).
         { model, system: prompt.system, messages, tools: offered, effort: efforts?.[model], cachedThrough: historyMessages.length, ...(observe ? { display: "summarized" } : {}) },
         providerOptions.ai,
         providerOptions,
       );
+      answer = watch === null ? await call : await Promise.race([call, watch.stopped.then((stop) => (stop ? STOPPED_MID_CALL : call))]);
+      if (answer === STOPPED_MID_CALL) {
+        // The call is left to finish, never aborted: what it cost is still logged, so a stopped run's price is measured, not guessed.
+        call.then((late) => tell({ kind: "model", step: "provisional", model, input: { outcome: "stopped_usage" }, output: { usage: late?.usage ?? null } }), () => {});
+        timing.modelMs += clock() - asked;
+        trace.push({ kind: "model", model, ok: true, stopped: true, at: asked - began, ms: clock() - asked }); // a round cut short by the stop, its tokens logged when the call ends
+        tell({ kind: "model", step: "provisional", model, ms: clock() - asked, input: { outcome: "stopped", round }, output: { stoppedMidCall: true }, reason: "the Worker's checks stopped this provisional run" });
+        return { answer: "", provider, model, steps, usage, usageByModel, timing: { ...timing, trace }, cancelled: true, stoppedMidCall: true };
+      }
     } catch (error) {
       // A provider that refused the earlier blocks (`aiGateway.js` names it): once more without them.
       if (error instanceof ProviderError && error.reason === THINKING_REFUSED && !stripped && messages.some((m) => m.content)) { stripped = strippedNote = true; timing.modelMs += clock() - asked; for (const m of messages) delete m.content; round -= 1; continue; }
@@ -478,6 +492,8 @@ export async function runTurn(options) {
         };
       }
       throw error;
+    } finally {
+      watch?.done();
     }
     const roundMs = clock() - asked;
     timing.rounds += 1;

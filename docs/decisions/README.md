@@ -796,6 +796,7 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 - [The Lab's test chats run the real turn on a copy that changes nothing, over a simulated Photon line (2026-11-16)](./texting-assistant/lab-sandbox.md)
 - [The Lab's "Shared with devs" chats are the review-sharing yes, tested as their person in a sandbox (2026-11-16)](./texting-assistant/lab-shared-chats.md)
 - [An edited or unsent text is kept beside the one it changes, and Decide judges an edit from examples (2026-11-16)](./texting-assistant/edits-and-unsends.md)
+- [A Provisional run starts a step before the steps that decide whether it should run (2026-11-17)](./texting-assistant/provisional-run.md)
 - [One list of what Tex can do, and where (2026-11-08)](./texting-assistant/capabilities.md)
 - [Every Tex turn reads its setup, whoever the person is (2026-11-02)](./texting-assistant/setup-read.md)
 - [Tex answers directly, or says what it is doing as it works, never that it is done (2026-11-01)](./texting-assistant/interleaved-updates.md)

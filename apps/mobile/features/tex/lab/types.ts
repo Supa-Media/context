@@ -4,8 +4,8 @@
  * artifact"), so these name what that page's script kept in plain objects.
  */
 
-/** How a wire runs: the next step, a helper inside a step, after the reply, a background job, or a send-back. */
-export type WireMode = "wait" | "uses" | "background" | "job" | "loop";
+/** How a wire runs: the next step, a helper inside a step, after the reply, a background job, a send-back, or a step run ahead. */
+export type WireMode = "wait" | "uses" | "background" | "job" | "loop" | "provisional";
 
 export type FieldType = "yesno" | "choice" | "score" | "text";
 export type OutField = { name: string; type: FieldType | string; options?: string };
@@ -36,7 +36,8 @@ export type LabNode = {
   group?: string;
 };
 
-export type LabEdge = { from: string; to: string; mode: WireMode; when: string[] };
+/** `allow`, on a provisional wire only: what its step may do before the go ("revertible" when absent; Dev2, 2026-11-17). */
+export type LabEdge = { from: string; to: string; mode: WireMode; when: string[]; allow?: "read" | "revertible" };
 
 export type LabModel = {
   name: string;

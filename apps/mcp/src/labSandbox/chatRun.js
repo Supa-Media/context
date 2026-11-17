@@ -66,8 +66,8 @@ const AFTER_LIMIT_MS = 60_000;
 /** An alarm further off than this is not this text's: it is kept for the next one. */
 const ALARM_NEAR_MS = 30_000;
 /** The worker's step names, by the config node each belongs to (`apps/mobile/.../stepLogs.ts` `STEP_ALIAS`). */
-const WORKER_STEPS = new Set(["text", "oldLine", "triage", "decide", "recheck", "lane", "react", "send", "edit"]);
-const STEP_NODE = Object.freeze({ lane: "lanes", recheck: "decide" });
+const WORKER_STEPS = new Set(["text", "oldLine", "triage", "decide", "recheck", "lane", "react", "send", "edit", "provisional"]);
+const STEP_NODE = Object.freeze({ lane: "lanes", recheck: "decide", provisional: "fd" });
 
 /** One of the chat object's own steps (`stepEvents.ts` `logStep`), whole, as the step book keeps it; null for another event. */
 function workerStep(step) {
@@ -315,6 +315,8 @@ export function chatEnvFor({ gate, storage, about, chat, phones, line, token, ag
   };
   return {
     FETCH: fetchOut,
+    // The draft's wiring, for what the chat object reads itself (a Provisional run, `apps/agent/src/provisional.ts`).
+    ...(gate.config ? { TEX_GRAPH: withDraft(TEX_CONFIG, gate.config) } : {}),
     GATEWAY_ORIGIN: LAB_GATEWAY,
     GATEWAY_TEXTS: { fetch: (input, init) => texts(new Request(input, init)) },
     CONTROL_PLANE_ORIGIN: LAB_CONTROL_PLANE,

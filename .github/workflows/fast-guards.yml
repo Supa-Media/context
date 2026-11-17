@@ -2,6 +2,9 @@ name: Fast repository guards
 
 on:
   pull_request:
+    # `edited` too: three guards read the description ("No replay case:", "Tex diagram: unchanged because"), and a line
+    # added there after the push must be seen without another push.
+    types: [opened, synchronize, reopened, edited]
   push:
     branches: [main]
 
