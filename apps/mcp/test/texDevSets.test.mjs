@@ -246,7 +246,7 @@ test("set_history lists the revisions with the repo's copy last, and set_back pu
 });
 
 test("set_promote refuses when a draft has problems, and asks for the sound ones", async () => {
-  const bad = { id: "bad-one", title: "Bad", set: "dev", kind: "one", members: ["Ann"], msgs: [{ id: "m1", who: "Bob", text: "hi" }] };
+  const bad = { id: "bad-one", title: "Bad", set: "dev", kind: "one", members: ["Maya"], msgs: [{ id: "m1", who: "Bob", text: "hi" }] };
   const ok = { id: "ok-one", title: "Fine", set: "training", kind: "one", members: ["Ann"], msgs: [{ id: "m1", who: "Ann", text: "hi there" }] };
   const drafts = [draftOf(bad, 1, { isNew: true }), draftOf(ok, 1, { isNew: true })];
   const { plane, call } = tool({ set_drafts: { status: "ok", drafts }, set_promote: { status: "ok", asked: ["ok-one"], then: "later" } });
@@ -306,8 +306,8 @@ test("sourceTexts reads a chat's texts oldest first, named as the chat has them,
 });
 
 test("set_create with from_chat refuses a copy of a real text, and saves a rewritten one", async () => {
-  const copied = { id: "copy-one", title: "Copy", set: "dev", kind: "one", members: ["Ann"], msgs: [{ id: "m1", who: "Ann", text: "We could really move the Thursday meeting to half past two" }] };
-  const rewritten = { id: "rewrite-one", title: "Rewrite", set: "dev", kind: "one", members: ["Ann"], msgs: [{ id: "m1", who: "Ann", text: "Could Ann shift the Friday stand-up to quarter past ten" }] };
+  const copied = { id: "copy-one", title: "Copy", set: "dev", kind: "one", members: ["Nia"], msgs: [{ id: "m1", who: "Nia", text: "We could really move the Thursday meeting to half past two" }] };
+  const rewritten = { id: "rewrite-one", title: "Rewrite", set: "dev", kind: "one", members: ["Nia"], msgs: [{ id: "m1", who: "Nia", text: "Could Nia shift the Friday stand-up to quarter past ten" }] };
   const { plane, call } = tool({ page: PAGE, set_create: { status: "ok", id: "rewrite-one", rev: 1, conv: "{}" } }, ledgerWith([ROSA_TEXT]));
   const refused = await call("set_create", { conv: copied, from_chat: { chat: "me" } });
   assert.equal(refused.isError, true);

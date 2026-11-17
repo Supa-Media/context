@@ -80,6 +80,13 @@ function linesBefore(c, at, keep = Infinity) {
 }
 
 /**
+ * A group's speak-up setting, the words an example's chat line shows ("group chat, speak-up quiet"). A conversation's
+ * `setting` that is any other text describes the chat (who they are, what Tex has) and rides only in its whole-chat
+ * module, never on every snippet: a paragraph repeated on each of Decide's examples crowds out the live chat Clef reads.
+ */
+const SPEAK_UP = Object.freeze(["quiet", "attentive", "follow along", "helpful", "direct"]);
+
+/**
  * Every Training label as a moment, by node: `{ chat, kind, setting?, before, newest, label }`, in file order, then
  * message order. The label is the node's own fields without `star` (a star makes it a unit test, not a different
  * example).
@@ -93,7 +100,7 @@ function momentsOf(conversations) {
       for (const [node, l] of Object.entries(m.labels || {})) {
         const { star: _star, ...label } = l || {};
         if (Object.keys(label).length === 0) continue;
-        const moment = { chat: c.id, kind: c.kind, ...(typeof c.setting === "string" ? { setting: c.setting } : {}), before: linesBefore(c, at, historyLines(node)), newest: lineOf(m, before(c, at)), label };
+        const moment = { chat: c.id, kind: c.kind, ...(SPEAK_UP.includes(c.setting) ? { setting: c.setting } : {}), before: linesBefore(c, at, historyLines(node)), newest: lineOf(m, before(c, at)), label };
         (nodes[node] ??= []).push(moment);
       }
     });

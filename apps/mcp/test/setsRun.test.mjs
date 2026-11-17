@@ -253,7 +253,8 @@ test("the fake run gets the repo's conversations right for decide and reviewer, 
   for (const node of ["decide", "reviewer"]) {
     const mine = rows.filter((r) => r.node === node);
     const expected = dev.reduce((n, c) => n + unitTests(c).filter((t) => t.node === node).length, 0);
-    assert.ok(expected > 0, `the repo has ${node} unit tests`);
+    // The reviewer's labels left with the old conversations (Dev2, 2026-11-17); Decide's must always be there.
+    if (node === "decide") assert.ok(expected > 0, `the repo has ${node} unit tests`);
     assert.equal(mine.length, expected);
     assert.deepEqual(
       mine.filter((r) => !r.right || !r.ran).map((r) => [r.chat, r.msg, r.why]),

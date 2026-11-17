@@ -76,7 +76,7 @@ test("only steps that read Training name it in their context", () => {
 
 test("a step reads only the Training its context names", () => {
   assert.equal(trainingText({ ctx: ["recent"] }, TRAINING), "");
-  assert.match(trainingText({ ctx: ["train:decide"] }, TRAINING), /<newest>@rosa: 👍 \(yes\) on Tex's message/);
+  assert.match(trainingText({ ctx: ["train:decide"] }, TRAINING), /<newest>@remi: Tex pull up prices/);
   assert.equal(trainingText({ ctx: ["train:fd"] }, { nodes: {} }), "");
 });
 
