@@ -91,6 +91,7 @@ describe("tickets for Tex's notes", () => {
     expect(await t.query(internal.functions.texStoreTickets.open, { hashedTicket: await hashToken("b"), now: 2_000 })).toEqual({
       workspaceId,
       owners: [`person:${workspaceId}`],
+      expiresAt: 1_000 + TEX_STORE_TICKET_TTL_MS,
     });
     expect(await t.query(internal.functions.texStoreTickets.open, { hashedTicket: await hashToken("b"), now: 1_000 + TEX_STORE_TICKET_TTL_MS })).toBeNull();
     expect(await t.query(internal.functions.texStoreTickets.open, { hashedTicket: await hashToken("never"), now: 2_000 })).toBeNull();
