@@ -15,7 +15,9 @@
  * draft's additions and removals onto main's order). A position both moved keeps main's. Anything else both changed,
  * a prompt module's words both changed, or an edit main has made impossible (a wire to a step main removed) is a clash:
  * Promote is refused and the refusal names each one with main's value and the draft's, so nobody's change is lost
- * without a person choosing.
+ * without a person choosing. The person then picks a side for each, in the Lab or with tex_dev's promote `picks`
+ * ({ "<what>": "main" | "draft" }), and promotes again: "main" drops the draft's edit, "draft" applies it over main's.
+ * An edit main has made impossible has no "draft" side to pick; it is made again in a fresh draft.
  *
  *   node scripts/tex-lab-merge.mjs --self-test
  */
@@ -34,13 +36,45 @@ export const WORDS_PATH = "packages/shared/src/texPrompt";
 const LOOK_BACK = 400;
 /** List fields both sides may change at once: merged as lists, not clashed. */
 const LIST_FIELDS = new Set(["ctx", "areas"]);
+/** A step's input and output fields: merged by field name; one field both changed differently is a clash. */
+const IO_FIELDS = new Set(["inSchema", "outSchema"]);
 
 const same = (a, b) => JSON.stringify(a) === JSON.stringify(b);
 const short = (v, max = 40) => {
   const s = v === undefined ? "nothing" : typeof v === "string" ? v : JSON.stringify(v);
   return s.length > max ? s.slice(0, max - 1) + "…" : s;
 };
+/** One side of a clash on a list (a context list, an io schema): what it added and took out since the base, by name. */
+const listSide = (was, now) => {
+  if (!Array.isArray(was) || !Array.isArray(now)) return short(now);
+  const key = (x) => (x && typeof x === "object" && typeof x.name === "string" ? x.name : JSON.stringify(x));
+  const before = new Map(was.map((x) => [key(x), JSON.stringify(x)]));
+  const after = new Map(now.map((x) => [key(x), JSON.stringify(x)]));
+  const added = [...after.keys()].filter((k) => !before.has(k));
+  const gone = [...before.keys()].filter((k) => !after.has(k));
+  const changed = [...after.keys()].filter((k) => before.has(k) && before.get(k) !== after.get(k));
+  const parts = [added.length ? `adds ${added.join(", ")}` : "", gone.length ? `takes out ${gone.join(", ")}` : "", changed.length ? `changes ${changed.join(", ")}` : ""].filter(Boolean);
+  return short(parts.length ? parts.join("; ") : "reorders it", 120);
+};
 const core = (c) => ({ nodes: c.nodes, edges: c.edges, ...(c.groups ? { groups: c.groups } : {}) });
+
+/** Two edits to a list of named fields (`inSchema`, `outSchema`) merged by name, or null when both changed one field. */
+export function mergeIo(base = [], mine = [], theirs = []) {
+  const by = (list) => new Map(list.map((f) => [f.name, f]));
+  const [b, m, t] = [by(base), by(mine), by(theirs)];
+  const names = mergeList([...b.keys()], [...m.keys()], [...t.keys()]);
+  const out = [];
+  for (const name of names) {
+    const was = b.get(name);
+    const ours = m.get(name);
+    const theirsNow = t.get(name);
+    const mineChanged = !same(was, ours);
+    if (mineChanged && !same(was, theirsNow) && !same(ours, theirsNow)) return null;
+    const pick = mineChanged ? ours : theirsNow;
+    if (pick) out.push(pick);
+  }
+  return out;
+}
 
 /** The draft's list edits laid onto main's list: its removals taken out, its additions put after what came before them. */
 export function mergeList(base = [], mine = [], theirs = []) {
@@ -84,7 +118,7 @@ function about(op, labelOf) {
  * (passed in, so the two files don't import each other). Answers `{ config, words, unshelved, kept, theirs, clashes }`
  * or `{ refused }`; `clashes` non-empty means nothing should be written.
  */
-export function mergeOntoMain({ graph, base, main, shelf = [], configFrom }) {
+export function mergeOntoMain({ graph, base, main, shelf = [], configFrom, picks = {} }) {
   // The draft as a config over its own base: the same checks Promote always made, against the main it started from.
   const drafted = configFrom(graph, base.config, base.words, shelf);
   if (drafted.refused) return drafted;
@@ -116,10 +150,16 @@ export function mergeOntoMain({ graph, base, main, shelf = [], configFrom }) {
       if (op.op === "set" && LIST_FIELDS.has(op.field) && theirs.some((t) => t.op === "set" && t.node === op.node && t.field === op.field)) {
         const value = mergeList(baseNode(op.node)?.[op.field] ?? [], draftNode(op.node)?.[op.field] ?? [], mainNode(op.node)?.[op.field] ?? []);
         edit = { ...op, value };
-      } else {
+      } else if (op.op === "set" && IO_FIELDS.has(op.field) && theirs.some((t) => t.op === "set" && t.node === op.node && t.field === op.field) && mergeIo(baseNode(op.node)?.[op.field] ?? [], draftNode(op.node)?.[op.field] ?? [], mainNode(op.node)?.[op.field] ?? [])) {
+        edit = { ...op, value: mergeIo(baseNode(op.node)?.[op.field] ?? [], draftNode(op.node)?.[op.field] ?? [], mainNode(op.node)?.[op.field] ?? []) };
+      } else if (picks[a.what] === "main") {
+        continue;
+      } else if (picks[a.what] !== "draft") {
+        const was = op.op === "set" ? baseNode(op.node)?.[op.field] : undefined;
         const now = op.op === "set" ? mainNode(op.node)?.[op.field] : undefined;
         const drafted_ = op.op === "set" ? draftNode(op.node)?.[op.field] : undefined;
-        clashes.push({ what: a.what, main: op.op === "set" ? (mainNode(op.node) ? short(now) : "step removed") : "changed it", draft: op.op === "set" ? short(drafted_) : "changed it" });
+        const side = (v) => (Array.isArray(v) && Array.isArray(was) ? listSide(was, v) : short(v));
+        clashes.push({ what: a.what, main: op.op === "set" ? (mainNode(op.node) ? side(now) : "step removed") : "changed it", draft: op.op === "set" ? side(drafted_) : "changed it", pick: true });
         continue;
       }
     }
@@ -128,7 +168,7 @@ export function mergeOntoMain({ graph, base, main, shelf = [], configFrom }) {
       merged = done.graph;
       kept.push(...done.said);
     } catch (error) {
-      clashes.push({ what: about(op, labelOf).what, main: "changed so this edit no longer applies", draft: String(error?.message ?? error).replace(/^edit 1 \([^)]*\): /, "") });
+      clashes.push({ what: about(op, labelOf).what, main: "changed so this edit no longer applies", draft: String(error?.message ?? error).replace(/^edit 1 \([^)]*\): /, ""), pick: false });
     }
   }
 
@@ -139,8 +179,12 @@ export function mergeOntoMain({ graph, base, main, shelf = [], configFrom }) {
     const now = main.words[name];
     if (now === text) continue;
     if (now !== was) {
-      clashes.push({ what: `the words of prompt module ${name}`, main: "changed them", draft: "changed them" });
-      continue;
+      const what = `the words of prompt module ${name}`;
+      if (picks[what] === "main") continue;
+      if (picks[what] !== "draft") {
+        clashes.push({ what, main: "changed them", draft: "changed them", pick: true });
+        continue;
+      }
     }
     words[name] = text;
   }
@@ -152,11 +196,19 @@ export function mergeOntoMain({ graph, base, main, shelf = [], configFrom }) {
   return { config: made.config, words: made.words, unshelved: made.unshelved, kept, theirs: theirs.length, clashes: [] };
 }
 
+/** Picks as the Lab and tex_dev send them, checked: `{ "<what>": "main" | "draft" }`, at most 200, else {}. */
+export function picksOf(value) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return {};
+  const out = {};
+  for (const [what, side] of Object.entries(value).slice(0, 200)) if (typeof what === "string" && what.length <= 300 && (side === "main" || side === "draft")) out[what] = side;
+  return out;
+}
+
 /** A clash list as one refusal a person reads in the Lab. */
 export function clashText(clashes, baseCommit) {
   const lines = clashes.slice(0, 6).map((c) => `${c.what} (main: ${c.main}; this draft: ${c.draft})`);
   const more = clashes.length > 6 ? `; and ${clashes.length - 6} more` : "";
-  return `main changed the same ${clashes.length === 1 ? "thing" : "things"} since this draft was made${baseCommit ? ` (${baseCommit.slice(0, 7)})` : ""}: ${lines.join("; ")}${more}. Take main's in the draft, or make the change again in a fresh draft`;
+  return `main changed the same ${clashes.length === 1 ? "thing" : "things"} since this draft was made${baseCommit ? ` (${baseCommit.slice(0, 7)})` : ""}: ${lines.join("; ")}${more}. Pick main's or this draft's for each in the Lab (or tex_dev promote picks) and promote again`;
 }
 
 const git = (args) => execFileSync("git", args, { encoding: "utf8", maxBuffer: 64 * 1024 * 1024 });
@@ -210,10 +262,14 @@ async function selfTest() {
   const side = (c, w = words) => ({ config: c, words: w });
   const graph = (c) => copy({ nodes: c.nodes, edges: c.edges });
   const node = (c, id) => c.nodes.find((n) => n.id === id);
-  const run = (g, base, main) => mergeOntoMain({ graph: g, base, main, configFrom });
+  const run = (g, base, main, picks) => mergeOntoMain({ graph: g, base, main, configFrom, picks });
 
   expect(same(mergeList(["a", "b", "c"], ["a", "x", "c"], ["a", "b", "c", "d"]), ["a", "x", "c", "d"]), "a list merge lost a side");
   expect(same(mergeList([], ["x"], ["y"]), ["x", "y"]), "a list merge with nothing before put the addition in the wrong place");
+  const f = (name, type = "text") => ({ name, type });
+  expect(same(mergeIo([f("a"), f("b")], [f("a"), f("b"), f("d")], [f("a"), f("b"), f("t")]), [f("a"), f("b"), f("d"), f("t")]), "fields both sides added were not both kept");
+  expect(same(mergeIo([f("a"), f("b")], [f("a")], [f("a"), f("b"), f("t")]), [f("a"), f("t")]), "a field the draft took out came back");
+  expect(mergeIo([f("a")], [f("a", "number")], [f("a", "yesno")]) === null, "one field changed two ways did not clash");
 
   // The bug this file exists for: main changed one step after the draft was made; the draft changed another.
   const base = copy(config);
@@ -238,6 +294,14 @@ async function selfTest() {
   const m3 = run(draft, side(base), side(main3));
   expect(m3.clashes.length === 1 && /Front door effort/.test(m3.clashes[0].what) && m3.clashes[0].main === "high" && m3.clashes[0].draft === "low" && !m3.config, "a clash on one setting was not named");
   expect(/main changed the same thing/.test(clashText(m3.clashes, "abcdef1234")), "the clash refusal does not say what happened");
+  // A person's pick settles it: "main" keeps main's value, "draft" writes the draft's over it; the rest still merges.
+  expect(m3.clashes[0].pick === true, "a setting both changed was not offered as a pick");
+  const pickMain = run(draft, side(base), side(main3), picksOf({ [m3.clashes[0].what]: "main" }));
+  expect(pickMain.clashes.length === 0 && node(pickMain.config, "fd").effort === "high", "picking main's did not keep main's value");
+  const pickDraft = run(draft, side(base), side(main3), picksOf({ [m3.clashes[0].what]: "draft" }));
+  expect(pickDraft.clashes.length === 0 && node(pickDraft.config, "fd").effort === "low", "picking the draft's did not write the draft's value");
+  expect(run(draft, side(base), side(main3), picksOf({ "something else": "draft" })).clashes.length === 1, "a pick for another clash settled this one");
+  expect(Object.keys(picksOf({ a: "main", b: "mine", c: 1 })).join() === "a" && Object.keys(picksOf(["x"])).length === 0, "picks were not checked");
 
   // Main made the same change: no clash.
   const main4 = copy(config);
@@ -269,6 +333,10 @@ async function selfTest() {
   expect(m7.clashes.length === 0 && m7.words[names[1]]?.endsWith("Draft's line.") && m7.words[names[0]] === undefined, "words merged wrong");
   const m8 = run({ ...graph(base), modules: { [`p-${names[0]}`]: { text: words[names[0]] + "\n\nDraft's line." } } }, side(base), side(config, mainWords));
   expect(m8.clashes.length === 1 && /words of prompt module/.test(m8.clashes[0].what), "both changing one module's words did not clash");
+  const m8d = run({ ...graph(base), modules: { [`p-${names[0]}`]: { text: words[names[0]] + "\n\nDraft's line." } } }, side(base), side(config, mainWords), { [m8.clashes[0].what]: "draft" });
+  expect(m8d.clashes.length === 0 && m8d.words[names[0]]?.endsWith("Draft's line."), "picking the draft's words did not write them");
+  const m8m = run({ ...graph(base), modules: { [`p-${names[0]}`]: { text: words[names[0]] + "\n\nDraft's line." } } }, side(base), side(config, mainWords), { [m8.clashes[0].what]: "main" });
+  expect(m8m.clashes.length === 0 && m8m.words[names[0]] === undefined, "picking main's words still wrote the draft's");
 
   // A draft with no changes merges to main exactly.
   const m9 = run(graph(base), side(base), side(main));

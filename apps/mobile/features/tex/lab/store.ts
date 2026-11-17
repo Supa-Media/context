@@ -49,11 +49,14 @@ export const saveMainResults = () => mainSaver?.();
  * Promote the open version (Dev2, 2026-11-13: the Lab's config is "the only source of truth"): asks for the pull
  * request that makes it Tex's config (`texLabPromote.ts`); it merges only through CI and the replay gate.
  */
-let promoter: ((versionId: string) => Promise<unknown>) | null = null;
-export async function promoteVersion() {
+/** A person's side for one clash a refused Promote named (`scripts/tex-lab-merge.mjs`): main's value, or this draft's. */
+export type ClashPick = { what: string; take: "main" | "draft" };
+let promoter: ((versionId: string, picks?: ClashPick[]) => Promise<unknown>) | null = null;
+/** Promote; after a refusal over clashes with main, again with the person's pick for each (`tex_dev promote picks`). */
+export async function promoteVersion(picks?: ClashPick[]) {
   if (isMain() || lab.dirty || !promoter) return;
   try {
-    await promoter(lab.cur.id);
+    await promoter(lab.cur.id, picks && picks.length > 0 ? picks : undefined);
     toast("Promote asked: its pull request opens within 15 minutes");
   } catch {
     toast("Couldn't ask to promote this version");
@@ -113,7 +116,7 @@ export function useLabSync(enabled: boolean) {
       await save(toRow(v));
     });
     caseSaver = (key, d) => saveCaseRow({ key, data: d });
-    promoter = (versionId) => askPromote({ versionId });
+    promoter = (versionId, picks) => askPromote({ versionId, ...(picks ? { picks } : {}) });
     mainSaver = () => save(toRow({ ...MAIN, graph: { nodes: [], edges: [] } }));
     setSender((versionId, baseRev, ops) => applyEdits({ versionId, baseRev, ops }) as Promise<Answer>);
     setSetupSender((versionId, picks, areas) => setRunSetup({ versionId, picks, areas }));

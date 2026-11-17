@@ -14,6 +14,7 @@ import { setLabTheme, THEMES, useLabTheme } from "../../theme.web";
 import { ChangeToggles, LiveChanges } from "../LiveChanges.web";
 import { StagePill, useRuns, useStartRun } from "../runs/Runs.web";
 import { Pop } from "./Pop.web";
+import { PromoteClashes } from "./PromoteClashes.web";
 
 function Svg({ d, className = "i", style }: { d: string; className?: string; style?: React.CSSProperties }) {
   return <svg className={className} viewBox="0 0 24 24" style={style} dangerouslySetInnerHTML={{ __html: d }} />;
@@ -107,6 +108,7 @@ export function VersionMenu() {
                   Its pull request ↗
                 </a>
               ) : null}
+              <PromoteClashes key={`${s.cur.id}:${s.cur.promote?.state}:${s.cur.promote?.clashes?.length ?? 0}`} promote={s.cur.promote} dirty={s.dirty} onDone={close} />
               {s.view === "canvas" ? (
                 <>
                   <hr />

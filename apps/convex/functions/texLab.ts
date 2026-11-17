@@ -17,6 +17,7 @@ import { mutation } from "./lib/rowWatch/mutations";
 import { isStamp } from "@context/shared/src/texConfigStamp.cjs";
 import { recordSave } from "./texLabDrafts";
 import { deleteDraftRows } from "./lib/texLabDraftWrites";
+import { promoteClash, promotePick } from "./lib/schema/texLab";
 
 /** A version's JSON fields and a case edit must each fit well inside a row. */
 export const MAX_JSON = 400_000;
@@ -37,7 +38,7 @@ const versionRow = v.object({
   createdAt: v.number(),
   updatedAt: v.number(),
   /** Where its Promote stands (`texLabPromote.ts`): asked, the pull request opened, or why it was refused. */
-  promote: v.union(v.null(), v.object({ state: v.string(), pr: v.union(v.string(), v.null()), why: v.union(v.string(), v.null()) })),
+  promote: v.union(v.null(), v.object({ state: v.string(), pr: v.union(v.string(), v.null()), why: v.union(v.string(), v.null()), clashes: v.array(promoteClash), picks: v.array(promotePick) })),
   /** Its revision, and the AI client last in it over the MCP's `tex_dev` (`texLabDrafts.ts`). */
   rev: v.number(),
   live: v.union(v.null(), v.object({ client: v.string(), at: v.number() })),
@@ -57,7 +58,7 @@ export const list = query({
     return {
       me: actor.userId,
       names,
-      versions: versions.map((r) => ({ versionId: r.versionId, name: r.name, authorId: r.authorId ?? null, graph: r.graph, picks: r.picks, areas: r.areas ?? null, results: r.results, createdAt: r.createdAt, updatedAt: r.updatedAt, promote: r.promote ? { state: r.promote.state, pr: r.promote.pr ?? null, why: r.promote.why ?? null } : null, rev: r.rev ?? 0, live: r.live ? { client: r.live.client, at: r.live.at } : null })),
+      versions: versions.map((r) => ({ versionId: r.versionId, name: r.name, authorId: r.authorId ?? null, graph: r.graph, picks: r.picks, areas: r.areas ?? null, results: r.results, createdAt: r.createdAt, updatedAt: r.updatedAt, promote: r.promote ? { state: r.promote.state, pr: r.promote.pr ?? null, why: r.promote.why ?? null, clashes: r.promote.clashes ?? [], picks: r.promote.picks ?? [] } : null, rev: r.rev ?? 0, live: r.live ? { client: r.live.client, at: r.live.at } : null })),
       caseEdits: caseEdits.map((r) => ({ key: r.key, data: r.data })),
     };
   },
