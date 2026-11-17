@@ -103,7 +103,17 @@ export function texChatClass({ gateway, texts }) {
       if (place?.arrivedAt === undefined) {
         if (typeof name !== "string" || this.env.TEXTING === undefined) return null;
         // Not inside blockConcurrencyWhile: the Worker's move can call back here, and the input gate has to be open for that.
-        if (this.opening === undefined) this.opening = copyIn(this.env.TEXTING, storage, name);
+        // One attempt at a time. A rejection is dropped when it settles, and only if it is still this attempt, so the
+        // next call copies again instead of awaiting the same failure until the object restarts.
+        if (this.opening === undefined) {
+          const opening = copyIn(this.env.TEXTING, storage, name);
+          this.opening = opening;
+          opening.catch((error) => {
+            if (this.opening === opening) this.opening = undefined;
+            // The chat id and the error's name only. The message can carry the text being copied.
+            console.log(JSON.stringify({ event: "tex_chat_move_failed", chat: name, error: String(error?.name ?? "error").slice(0, 40) }));
+          });
+        }
         const moved = await this.opening;
         this.opening = undefined;
         console.log(JSON.stringify({ event: "tex_chat_move", ...moved }));

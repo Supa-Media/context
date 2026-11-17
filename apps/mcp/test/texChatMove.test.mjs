@@ -15,6 +15,8 @@
  *   3. `workerObjects` answered "" for the chat's own id: "the chat's own id is the Worker's" failed.
  *   4. `chatEnv` passed `SIMULATOR: "on"` whatever the gateway's var: "a simulated chat ... only where the simulator is
  *      on" failed (the gateway without it answered the simulator).
+ *   5. `chat` left a rejected `this.opening` in place (2026-11-17): "a rejected copy is forgotten, and the next call
+ *      copies" failed, the second call awaiting the same rejection.
  */
 import assert from "node:assert/strict";
 import { afterEach, describe, it } from "node:test";
@@ -229,6 +231,54 @@ describe("TexChat runs the Worker's chat object", () => {
     // A pass-on with no name, or a bad one, is refused before the chat object.
     const unnamed = await chat.fetch(new Request("https://chat/chat-call/accept", { method: "POST", body: "{}" }));
     assert.equal(unnamed.status, 400);
+  });
+
+  it("a rejected copy is forgotten, and the next call copies", async () => {
+    controlPlane();
+    const worker = fakeWorker();
+    const { chat, storage } = chatObject(worker.rpc);
+    const realGet = storage.get.bind(storage);
+    let copyReads = 0;
+    storage.get = async (key) => {
+      // chat() reads the place, then copyIn reads it again. That second read rejects, so the
+      // cached copy promise rejects before any row is copied. The text must not be logged.
+      if (key === "__inbox_place" && ++copyReads === 2) {
+        const error = new Error("secret words failed the copy");
+        error.name = "CopyFailed";
+        throw error;
+      }
+      return realGet(key);
+    };
+    const lines = [];
+    const realLog = console.log;
+    console.log = (...args) => {
+      const line = args.map(String).join(" ");
+      if (line.includes("tex_chat_move_failed")) lines.push(line);
+      realLog(...args);
+    };
+    const text = "secret words";
+    try {
+      await assert.rejects(arrive(chat, { kind: "one", inbox: PHONE, message: message("m1", text) }), { name: "CopyFailed" });
+      assert.equal(worker.calls.move.length, 0);
+      const second = await arrive(chat, { kind: "one", inbox: PHONE, message: message("m1", text) });
+      assert.deepEqual(second, { status: 200, body: { outcome: "queued" } });
+      assert.deepEqual(worker.calls.move, [{ inbox: PHONE, op: "out" }]);
+      assert.deepEqual(await storage.get("history:1"), { text: "an older line" });
+      const failed = lines
+        .map((line) => {
+          try {
+            return JSON.parse(line);
+          } catch {
+            return null;
+          }
+        })
+        .find((line) => line?.event === "tex_chat_move_failed");
+      assert.equal(failed.chat, PHONE);
+      assert.equal(failed.error, "CopyFailed");
+      assert.equal(JSON.stringify(failed).includes(text), false);
+    } finally {
+      console.log = realLog;
+    }
   });
 
   it("a copy the Worker refuses leaves the Worker answering", async () => {
