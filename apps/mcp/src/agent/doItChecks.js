@@ -47,7 +47,8 @@ export function namesTheAdvisor(question) {
 /**
  * `{ wrapLocal, check }` around a turn's other answer check (`claimCheck.js`
  * or `untriedWeb.js`, or none): `wrapLocal` watches the turn's own tools for
- * the advisor; `check` runs these first, then the other's.
+ * the advisor, and forwards them to the inner check when it watches too (a
+ * local read, `untriedWeb.js`); `check` runs these first, then the other's.
  */
 export function doItChecks({ question, inner = null }) {
   const advisorAsked = namesTheAdvisor(question);
@@ -56,7 +57,8 @@ export function doItChecks({ question, inner = null }) {
   let advisorNoticed = false;
   return {
     wrapLocal(local) {
-      return (Array.isArray(local) ? local : []).map((entry) => {
+      const watched = typeof inner?.wrapLocal === "function" ? inner.wrapLocal(local) : local;
+      return (Array.isArray(watched) ? watched : []).map((entry) => {
         if (entry?.tool?.name !== ADVISOR_TOOL || typeof entry.call !== "function") return entry;
         hasAdvisor = true;
         return { ...entry, call: (...args) => ((askedAdvisor = true), entry.call(...args)) };

@@ -26,7 +26,7 @@ import { recordReadNotice } from "./recordRead.js";
 import { seenFiguresNotice } from "./sourcedFigures.js";
 
 /**
- * `{ wrap, wrapWeb, check }`, shaped like `claimCheck`'s, for the front door.
+ * `{ wrap, reread, wrapLocal, wrapWeb, check }`, shaped like `claimCheck`'s, for the front door.
  * `question` is their ask, so a record ask with no read can be sent back (`recordRead.js`).
  */
 export function untriedWebCheck({ question = "" } = {}) {
@@ -44,6 +44,31 @@ export function untriedWebCheck({ question = "" } = {}) {
         steps.push({ name, ok: result?.isError !== true });
         return result;
       };
+    },
+    /**
+     * A read an earlier try of this text already ran, put back (`turnResume.js` `rereadCarried`).
+     * It counts as read: the model answers from it and does not call the tool again.
+     */
+    reread(name, _args, result) {
+      steps.push({ name, ok: result?.isError !== true });
+    },
+    /**
+     * The turn's local tools (`read_back`, `read_day`, `read_thread`, `group_chats`).
+     * They never go through `callTool`, so `wrap` does not see them.
+     */
+    wrapLocal(local) {
+      return (Array.isArray(local) ? local : []).map((entry) => {
+        const name = entry?.tool?.name;
+        if (typeof name !== "string" || typeof entry.call !== "function") return entry;
+        return {
+          ...entry,
+          call: async (...args) => {
+            const result = await entry.call(...args);
+            steps.push({ name, ok: result?.isError !== true });
+            return result;
+          },
+        };
+      });
     },
     wrapWeb(web) {
       if (web === null || web === undefined) return null;
