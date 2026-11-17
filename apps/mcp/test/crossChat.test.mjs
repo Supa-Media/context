@@ -174,8 +174,8 @@ test("the Worker's counts are read strictly", () => {
   assert.deepEqual(crossCountsOf({ hour: -1, day: 2.5, open: ["group:x", 3] }), { hour: 0, day: 0, open: ["group:x"] });
 });
 
-test("the model calls them as send actions, and the three nodes have code", () => {
-  assert.equal(ASSISTANT_SEND_ACTIONS.ask_chat.tool, ASK_CHAT);
-  assert.equal(ASSISTANT_SEND_ACTIONS.post_in_chat.tool, "post_in_chat");
+test("on the shelf: not a send action yet (its capability line comes with the promote), and the three nodes have code", () => {
+  assert.equal(ASSISTANT_SEND_ACTIONS.ask_chat, undefined);
+  assert.equal(ASSISTANT_SEND_ACTIONS.post_in_chat, undefined);
   for (const id of ["crossChatGate", "chatAsk", "chatAnswer"]) assert.equal(typeof GATEWAY_NODES[id], "function", id);
 });
