@@ -50,7 +50,7 @@ import { pickMachine } from "../machines/forJobs.js";
 import { MAX_CLOUD_JOBS, MAX_JOB_ATTEMPTS, MAX_MACHINE_SLOTS, jobSlots } from "./jobSlots.js";
 import { START_JOB_TOOL, TOOL } from "./backgroundTool.js";
 import { PLAN_TOOL } from "./planBigAsk.js";
-import { endsOf, MAX_STREAMED_RESULT, partsLine, savedOf, savedPrompt } from "./jobSaved.js";
+import { endsOf, jobResumeOf, MAX_STREAMED_RESULT, partsLine, savedOf, savedPrompt } from "./jobSaved.js";
 import { JOB_START_EXAMPLES, SAY_FIELD, startLine } from "./jobStart.js";
 export { jobReportOf, jobReportPrompt, jobReportQuestion, QUIET_REPORT_LINE, reportReply } from "./jobReport.js";
 
@@ -187,12 +187,7 @@ export function jobOf(value) {
     title,
     brief: typeof value.brief === "string" ? value.brief.trim().slice(0, MAX_JOB_BRIEF) : "",
     doneWhen: line(value.doneWhen, MAX_STATUS),
-    attempt,
-    // Which restart of the job this is, and the part whose saved rounds this part goes on from (`turnResume.js`): this
-    // part again after a try that died, or the part before, cut off before it answered (`apps/agent/src/jobPartResume.ts`).
-    resumes: Number.isSafeInteger(value.resumes) && value.resumes >= 0 ? value.resumes : 0,
-    // 0: start fresh, and drop this part's saved rounds, which a try that died after it was handed them may have left.
-    resumeFrom: value.resumeFrom === 0 || value.resumeFrom === attempt || (value.resumeFrom === attempt - 1 && attempt > 1) ? value.resumeFrom : null,
+    attempt, ...jobResumeOf(value, attempt), // which restart, and the part whose saved rounds it goes on from (`jobSaved.js`)
     tainted: value.tainted === true,
     // Their own texts that started it, oldest first, the last one the text it started from (`openAsk.js`; `apps/agent/src/jobRun.ts` `ask`).
     asked: Array.isArray(value.asked)
