@@ -22,15 +22,29 @@
  */
 
 import { TRY_NOTICE, saysItCouldNot } from "./claimCheck.js";
+import { recordReadNotice } from "./recordRead.js";
 import { seenFiguresNotice } from "./sourcedFigures.js";
 
-/** `{ wrapWeb, check }`, shaped like `claimCheck`'s, for `runTurn`'s `web` and `answerCheck`. */
-export function untriedWebCheck() {
+/**
+ * `{ wrap, wrapWeb, check }`, shaped like `claimCheck`'s, for the front door.
+ * `question` is their ask, so a record ask with no read can be sent back (`recordRead.js`).
+ */
+export function untriedWebCheck({ question = "" } = {}) {
   let hadWeb = false;
   let triedWeb = false;
   let noticed = false;
   let figuresChecked = false;
+  let recordNoticed = false;
+  const steps = [];
   return {
+    /** The turn's own tools, so a read is visible to the record check. */
+    wrap(callTool) {
+      return async (name, args) => {
+        const result = await callTool(name, args);
+        steps.push({ name, ok: result?.isError !== true });
+        return result;
+      };
+    },
     wrapWeb(web) {
       if (web === null || web === undefined) return null;
       hadWeb = true;
@@ -47,6 +61,15 @@ export function untriedWebCheck() {
       if (!noticed && hadWeb && !triedWeb && saysItCouldNot(answer)) {
         noticed = true;
         return TRY_NOTICE;
+      }
+      // An ask to read a record, with no read this turn. An offer after a finished write is not caught here:
+      // "Want me to book it?" after writing the options is the next step, and a phrase cannot tell that from an extra offer.
+      if (!recordNoticed) {
+        const notice = recordReadNotice(question, steps);
+        if (notice !== null) {
+          recordNoticed = true;
+          return notice;
+        }
       }
       if (figuresChecked) return null;
       figuresChecked = true;
