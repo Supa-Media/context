@@ -1,6 +1,6 @@
 /** Types for `texGraph.cjs`; see that file for the rules and the reasons. */
 
-export type WireMode = "wait" | "background" | "uses" | "loop" | "job" | "provisional";
+export type WireMode = "wait" | "background" | "uses" | "loop" | "job" | "provisional" | "generator";
 export interface GraphWire { from: string; to: string; mode: string; when?: string[]; rounds?: number; /** A provisional wire's: what its target may do before the go. */ allow?: ProvisionalAllow }
 export type ProvisionalAllow = "read" | "revertible";
 export interface GraphField { name: string; type?: "text" | "yesno" | "score" | "number" | "choice" | "ids" | "list" | "object" | "any" | string; options?: string; optional?: boolean }

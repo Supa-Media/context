@@ -41,6 +41,9 @@ export const MODES = Object.freeze({
   // A provisional run (Dev2, 2026-11-17): the target starts without waiting for this step, which may stop or restart
   // it at any point; until this step says go, the target may only read, or make writes that can be undone.
   provisional: { arrow: "-..->", says: "may stop, restart or give its go to" },
+  // A generator (Dev2, 2026-11-16, the generators model): fire and forget; the target, an input node, starts a run of
+  // its own, in this chat or another, and nothing in this run waits for it.
+  generator: { arrow: "-.->", says: "starts a new run at" },
 });
 const modeOf = (mode) => (mode === "behind" ? "background" : mode);
 
@@ -119,7 +122,7 @@ export function drawingFor(config) {
   for (const e of config.edges) {
     const mode = modeOf(e.mode);
     const tags = when(e);
-    const kind = mode === "provisional" ? provisionalAs(e) : mode;
+    const kind = mode === "provisional" ? provisionalAs(e) : mode === "generator" ? "starts a new run" : mode;
     const label = mode === "wait" ? tags : tags ? `${kind}: ${tags}` : kind;
     const arrow = MODES[e.mode]?.arrow ?? "-->";
     lines.push(`  ${mid(e.from)} ${arrow}${label ? `|${quote(label)}|` : ""} ${mid(e.to)}`);
@@ -182,7 +185,7 @@ export function mapFor(config) {
     const model = nodeModel(config, n);
     const head = `- ${n.label} (${model === "code" ? "code, no model" : model}${n.on ? "" : ", turned off: never runs"})`;
     lines.push(n.goal ? `${head}: ${n.goal}` : head);
-    for (const mode of ["wait", "uses", "loop", "job", "background", "provisional"]) {
+    for (const mode of ["wait", "uses", "loop", "job", "background", "provisional", "generator"]) {
       const edges = out(n.id, mode);
       if (edges.length > 0) lines.push(`  ${MODES[mode].says}: ${list(edges)}`);
     }

@@ -31,7 +31,7 @@ import { FOLDER as PROMPT_FOLDER, MODULE as PROMPT_MODULE, moduleFor as promptMo
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 const ID = /^[a-z][A-Za-z0-9_-]{0,30}$/;
-const MODES = new Set(["wait", "uses", "background", "job", "loop", "provisional"]);
+const MODES = new Set(["wait", "uses", "background", "job", "loop", "provisional", "generator"]);
 const EFFORTS = new Set(["off", "low", "medium", "high", "xhigh", "max"]);
 const PROMPT_KEY = /^p-([a-z][a-z0-9-]{0,47})$/;
 const MAX_WORDS = 40_000;
@@ -156,6 +156,10 @@ function selfTest() {
   expect(configFrom(gp, current, words).config?.edges.find((e) => e.mode === "provisional")?.allow === "read", "a provisional wire's allow was lost");
   gp.edges[gp.edges.length - 1].allow = "anything";
   expect(/allow/.test(configFrom(gp, current, words).refused ?? ""), "a provisional wire with an unknown allow passed");
+  // A generator wire (starts a new run) is config too.
+  const gg = graph();
+  gg.edges.push({ from: "send", to: "text", mode: "generator", when: ["answer"] });
+  expect(configFrom(gg, current, words).config?.edges.some((e) => e.mode === "generator" && e.to === "text"), "a generator wire was lost");
   const g1 = graph();
   g1.nodes.find((n) => n.id === "reviewer").effort = "medium";
   expect(configFrom(g1, current, words).config.nodes.find((n) => n.id === "reviewer").effort === "medium", "an effort change was lost");
