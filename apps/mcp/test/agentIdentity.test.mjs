@@ -89,6 +89,7 @@ before(async () => {
     const url = typeof input === "string" ? input : input.url;
     if (url === `${CONTROL_PLANE_ORIGIN}/gateway/agent/identity`) {
       const body = JSON.parse(init.body);
+      if (body.groups === true) return new Response(JSON.stringify({ groups: [] }), { status: 200, headers: { "Content-Type": "application/json" } }); // the group list ask_chat reads (`groupChats.js` asksOn), not who they are
       asked.push({ secret: new Headers(init.headers).get("authorization"), ...body });
       if (answer === "missing") return new Response(JSON.stringify({ error: "not_found" }), { status: 404 });
       return new Response(JSON.stringify({ identity: body.accessToken === TOKEN_TEXTS ? answer : null }), { status: 200, headers: { "Content-Type": "application/json" } });

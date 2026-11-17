@@ -159,7 +159,8 @@ export function crossAskTool({ event = null, group = null, groups = null, counts
         group === null
           ? "Ask Tex in one of their group chats for something it knows (its notes, settings, logins, what was decided there) or to do something there for them. " +
             "To read what was said in a group, use the group's words directly instead; this is for what isn't in the words, or for getting something done there. " +
-            "chat: the group, by name or key. what: the ask, in their words. do: true when it should act, not just answer. The answer comes back later as its own turn, so tell them in a few words that you asked."
+            "chat: the group, by name or key. what: the ask, in their words. do: true when it should act, not just answer. The answer comes back later as its own turn, so tell them in a few words that you asked." +
+            groupNames(groups)
           : "Ask the personal Tex of whoever tagged you (their own 1:1 with you) for something only it knows about them, or to do something for them there. " +
             "contact: true for just their name, phone and email for a form or sign-in they asked for: answered at once, never ask them in the chat for these. " +
             "For somebody else here, pass as with their handle: they are asked here first, and only their 👍 or yes lets you. " +
@@ -210,6 +211,12 @@ export function crossAskTool({ event = null, group = null, groups = null, counts
       );
     },
   };
+}
+
+/** The 1:1's groups, named in `ask_chat`'s description so the model knows which it can ask without reading them first. */
+function groupNames(groups) {
+  const names = (Array.isArray(groups) ? groups : []).map((chat) => String(chat?.name ?? "").trim()).filter(Boolean).slice(0, 30);
+  return names.length > 0 ? ` Their groups: ${names.join(", ")}.` : " They are in no group chat with you yet.";
 }
 
 /** Somebody else's personal Tex: offered to them, never asked until their own 👍 or yes (`offerFor.js`). */

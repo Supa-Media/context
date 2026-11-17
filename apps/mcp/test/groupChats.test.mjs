@@ -16,7 +16,7 @@ import { test } from "node:test";
 import { sixToolsOver } from "../src/agent/sixTools.js";
 import { readDayTool } from "../src/agent/weekHistory.js";
 import { readThreadTool } from "../src/agent/conversationThreads.js";
-import { groupChatsTool, groupsOn, groupsPrompt, pickChat, readsGroups, readTexterGroups } from "../src/agent/groupChats.js";
+import { asksOn, groupChatsTool, groupsOn, groupsPrompt, pickChat, readsGroups, readTexterGroups } from "../src/agent/groupChats.js";
 import { eventEntry } from "../src/agent/ledger.js";
 import { texLedger } from "../src/texStore/ledger.js";
 import { midnightOf } from "../src/agent/weekHistory.js";
@@ -66,6 +66,12 @@ test("off unless the front door's ctx lists `groups`: main's config stays as it 
   assert.equal(readsGroups(texStep("fd", on)), true);
   assert.equal(readsGroups(texStep("fd")), false);
   assert.equal(readsGroups(null), false);
+});
+
+test("the list is also read when the Cross-chat gate is wired, so ask_chat has its groups without the groups module", () => {
+  // Dev2, 2026-11-17: a 1:1 asked to message Tex Devs got "no such action": main wired the gate but not `groups`.
+  assert.equal(asksOn({}), true, "main's config wires tools -> crossChatGate");
+  assert.equal(groupsOn({}) || asksOn({}), true, "readTheHistory reads the list on main");
 });
 
 test("the list comes only from the control plane, kept to well-formed rows, names on one line", async () => {

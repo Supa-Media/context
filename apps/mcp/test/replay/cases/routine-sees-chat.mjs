@@ -46,6 +46,32 @@ export default {
       assert.equal(asked.answer, "", "nothing is texted to them");
       assert.equal(asked.body.crossBack?.id, "xbbbbbbbbbb", "the answer goes back to the chat that asked");
       assert.deepEqual(asked.body.crossBack?.texts, ["The Hoxton, Williamsburg."]);
+      // 2026-11-17 (Dev2's 1:1, "ask the chat ... to build Tex a body"): ask_chat was "no such action", because only the
+      // front door's `groups` module read their group list. Now the wired gate reads it too, and the 1:1 can ask.
+      const TEX_DEVS = { key: "d".repeat(64), name: "Tex Devs", people: ["seyi"], lastSeenAt: 1 };
+      const below = globalThis.fetch;
+      globalThis.fetch = async (input, init) => {
+        const url = typeof input === "string" ? input : input.url;
+        if (url.endsWith("/gateway/agent/identity") && JSON.parse(init?.body ?? "{}").groups === true) return new Response(JSON.stringify({ groups: [TEX_DEVS] }), { status: 200, headers: { "Content-Type": "application/json" } });
+        return below(input, init);
+      };
+      let offered = "";
+      try {
+        const asking = await chat.byCode("ask Tex Devs to start building Tex a body", [
+          (request) => {
+            offered = JSON.stringify(request.tools ?? []);
+            return { toolCalls: [{ name: "send", args: { action: "ask_chat", args: { chat: "Tex Devs", what: "Seyi would like you to start building Tex a body.", do: true } } }] };
+          },
+          { text: "Asked Tex Devs, I'll tell you what they say." },
+        ], { covers: [], crossCounts: { hour: 0, day: 0, open: [] } });
+        assert.match(offered, /ask_chat/, "a 1:1 is offered ask_chat on main's config");
+        assert.match(offered, /Their groups: Tex Devs\./, "and told which groups it can ask");
+        assert.equal(asking.body.crossAsks?.length, 1, "the ask leaves for the Worker to carry");
+        assert.deepEqual(asking.body.crossAsks[0].to, { kind: "group", key: TEX_DEVS.key, name: "Tex Devs" });
+        assert.equal(asking.body.crossAsks[0].do, true);
+      } finally {
+        globalThis.fetch = below;
+      }
     } finally {
       chat.restore();
     }

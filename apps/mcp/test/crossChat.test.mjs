@@ -31,6 +31,7 @@ test("from a 1:1, ask_chat asks one of their groups by name, through the gate, a
   const ledger = { asked: [] };
   const tool = crossAskTool({ groups: GROUPS, counts: COUNTS, ledger, gate });
   assert.equal(tool.tool.name, ASK_CHAT);
+  assert.match(tool.tool.description, /Their groups: Tex Devs, Crystal Care\./, "the 1:1 is told which groups it can ask, without the groups module");
   const result = await tool.call({ chat: "tex devs", what: "what did we decide about the Lab timeline?" });
   assert.equal(result.isError, undefined);
   assert.match(words(result), /Asked Tex in Tex Devs/);

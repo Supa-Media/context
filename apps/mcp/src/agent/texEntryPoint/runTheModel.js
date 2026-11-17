@@ -2,7 +2,7 @@
 
 import { contextsFor } from "../../context/identity.js";
 import { markUntrusted } from "../../privacy/egress.js";
-import { groupChatsForTurn } from "../groupChats.js";
+import { groupChatsForTurn, groupsOn } from "../groupChats.js";
 import { ADVISOR_TOOL, advisorRequest, advisorTimeoutMs, advisorTools, jobAdvisorLine } from "../advisor.js";
 import { texConfigOf } from "../texConfig.js";
 import { aiGatewayConfig } from "../aiGateway.js";
@@ -113,7 +113,7 @@ export async function runTheModel(t, via) {
   const mail = mailRead === null ? null : await tex.wait("mail_accounts", mailRead); // their mailboxes (`mailAccounts.js`)
   // The group chats they are in, and the read-only tool that searches and reads them (`groupChats.js`).
   t.groups = groupsRead === null ? null : await tex.wait("my_groups", groupsRead); // `[{ key, name, people, lastSeenAt }]`, also read by the cross-chat ask
-  const groupChats = t.groups === null ? null : groupChatsForTurn({ env, groups: t.groups, timeZone, onRead: () => markUntrusted(ledger) });
+  const groupChats = t.groups === null || !groupsOn(env) ? null : groupChatsForTurn({ env, groups: t.groups, timeZone, onRead: () => markUntrusted(ledger) });
   // A read offered back instead of done, and an advisor they asked for and nobody asked, go back once, on the front door too, without judges (`doItChecks.js`).
   const doIt = chatTurn && job === null && !runner && (texted || group !== null) ? doItChecks({ question, inner: claims ?? tries }) : null;
   // The setup's reply reviewer, after `claimCheck.js`: one Haiku call reads the reply against every action this turn took and the kind of turn it is, and sends it back with feedback only for a problem they would notice, at most once (five times for a task or a job's report, the advisor brought in from the third), and only on a draft written after an action (`replyJudge.js`; Dev2, 2026-11-06 and 2026-11-11). A job's report turn shows it the report.
