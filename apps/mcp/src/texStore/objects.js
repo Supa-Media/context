@@ -224,8 +224,11 @@ export function texObjects(sql, { now = Date.now, guard = () => {}, tables = DEF
       // runs to the end of the table, and a list of `.context/…` then reads
       // every row (2026-11-17, one Tex store read 327M rows in a day). The
       // exclusive end is the prefix followed by U+10FFFF. An empty prefix has
-      // no upper bound. Read in batches, so a delimiter folding many keys into
-      // one prefix never stops a page early.
+      // no upper bound. SQLite seeks on one lower bound, and `key > cursor AND
+      // key >= prefix` seeks at the cursor: an empty cursor is the start of
+      // the table, so every key before the prefix is still read. Start at the
+      // prefix until the cursor has passed it. Read in batches, so a delimiter
+      // folding many keys into one prefix never stops a page early.
       const upper = `${prefix}\u{10FFFF}`;
       const columns = "key, etag, size, uploaded, content_type, custom, chunks";
       for (;;) {
@@ -237,13 +240,19 @@ export function texObjects(sql, { now = Date.now, guard = () => {}, tables = DEF
                 prefix,
                 size + 1,
               )
-            : sql.exec(
-                `SELECT ${columns} FROM ${O} WHERE key > ? AND key >= ? AND key < ? ORDER BY key LIMIT ?`,
-                last,
-                prefix,
-                upper,
-                size + 1,
-              ),
+            : last >= prefix
+              ? sql.exec(
+                  `SELECT ${columns} FROM ${O} WHERE key > ? AND key < ? ORDER BY key LIMIT ?`,
+                  last,
+                  upper,
+                  size + 1,
+                )
+              : sql.exec(
+                  `SELECT ${columns} FROM ${O} WHERE key >= ? AND key < ? ORDER BY key LIMIT ?`,
+                  prefix,
+                  upper,
+                  size + 1,
+                ),
         );
         for (const row of batch) {
           if (objects.length + prefixes.length >= size) {
