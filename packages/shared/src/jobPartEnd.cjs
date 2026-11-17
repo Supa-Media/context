@@ -40,6 +40,12 @@ function limitsOf(config) {
   };
 }
 
+/** The limits a whole config sets on its Part end node: every reader of a job's limits takes them from here. */
+function configLimits(config) {
+  const node = Array.isArray(config?.nodes) ? config.nodes.find((n) => n && n.id === "partEnd") : null;
+  return limitsOf(node?.limits);
+}
+
 /** Whether a part may follow this one: under the part count and inside the time, the computer's own when it runs there. */
 function roomLeft({ part, startedAt, now, machine }, limits) {
   const most = machine ? limits.machineParts : limits.parts;
@@ -85,4 +91,4 @@ function endedAs(cause, rejected) {
   return "failed"; // stopped, a crash or a timeout with nothing saved, a model that stayed down
 }
 
-module.exports = { CAUSES, DEFAULT_LIMITS, DETERMINISTIC, decidePartEnd, limitsOf, roomLeft };
+module.exports = { CAUSES, DEFAULT_LIMITS, DETERMINISTIC, configLimits, decidePartEnd, limitsOf, roomLeft };
