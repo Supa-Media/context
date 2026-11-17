@@ -263,83 +263,116 @@ Wires: checkin → fd (wait, look) · notify → send (wait, send) · oldLine �
 
 ## How a turn runs: the config's graph
 
-A turn is one run of `packages/shared/src/texConfig.json`'s graph, from
-`readTheText` to the send, with the background wires after it. The runner is
-`packages/shared/src/texGraph.cjs`, and the gateway's code of each node is in
-`apps/mcp/src/agent/graph/gatewayNodes.js`. The wires are the config's, never
-code: an early answer is an `answered` wire to Text them, a draft's checks and
-the reviewer's loops are `loop` wires back to the front door, and the front
-door reaches its tools, advisor, fallback and planner through `uses` wires. The
-runner logs every node run into the chat's ledger. The decision is
-[the turn graph](../decisions/texting-assistant/turn-graph.md).
+The live path of a text in `packages/shared/src/texConfig.json` is Intake, the
+Door, the Front door, then Text them, with the background wires after the send.
+The runner is `packages/shared/src/texGraph.cjs`, and the gateway's code of each
+node is in `apps/mcp/src/agent/graph/gatewayNodes.js`. The wires are the
+config's. The runner logs every node run into the chat's ledger. The decision
+is [the turn graph](../decisions/texting-assistant/turn-graph.md). Section 1 is
+every node and wire, generated from the config. This drawing uses those wires
+and leaves nodes that are off out of the path.
+
+Intake is on. A text arrives waits into Triage. An edit waits into Triage on
+`turn`. Triage waits into Decide on `judge` or `running`, and into the Queue on
+`tex`. Decide waits into React and into the Queue. Triage, Decide and the Queue
+may start the Door as a provisional, revertible run: Triage on `stop:running`,
+Decide on `stop:quiet` or `restart:wait`, and the Queue with no tag. The Door
+waits into the Front door on `next`. On `answered` it waits into Confirmations
+& refusals, which waits into Text them.
+
+Decide, Intake's Clef judge, is on. The Clef router (`router`) is off and has
+no wire. The eleven door steps, `readTheText` through `prepareTheAnswer`, are
+off and have no wires. The GLM-4.7 Flash fallback (`fallback`) is off and has
+no wire. The big-ask planner (`planner`) is off. Its `uses` wire from the Front
+door, tagged `big`, is still in the config, and the node does not run.
+
+The Front door is Haiku 5.5 at effort medium. It reaches Tools on a `uses` wire
+tagged `action`. Tools reaches the Advisor, Opus 5.5 at effort high, on a
+`uses` wire tagged `ask_advisor`. The Front door waits into Answer check, Haiku
+5.5 at effort low. Answer check waits into Text them, and its `loop` wire can
+send a draft back to the Front door at most five times. On `ask`, Answer check
+waits into Answer the other chat. After the send, Text them starts Learn on
+`fired`, After the reply on `sent` or `threads`, and Chat day summaries on
+`sent`, `ended` or `answered`. Those three run in the background.
+
+Answer checks, the Reply reviewer, the Classifier and Self-review are off.
+Answer check, Learn and After the reply are the steps on this path. Tools also
+reaches the mail checker, card check, the egress judge, the picture maker, the
+move judge, the cross-chat gate and Tapback, each on its own `uses` wire.
+Section 1 draws those wires, and the Front door's `job` wire to Background job.
 
 ```mermaid
 flowchart LR
-  readTheText["Read the text"] -->|next| runARoutine["Run a routine"]
-  runARoutine -->|next| checkTheQuestion["Check the question"]
-  checkTheQuestion -->|next| settleAYesOrNo["Settle a yes or no"]
-  settleAYesOrNo -->|next| watchWhatLeaves["Watch what leaves"]
-  watchWhatLeaves -->|next| checkItMayRun["Check it may run"]
-  checkItMayRun -->|next| readTheHistory["Read the history"]
-  readTheHistory -->|next| openTheWeb["Open the web"]
-  openTheWeb -->|next| readTheSetup["Read the setup"]
-  readTheSetup -->|next| prepareBookkeeping["Bookkeeping"]
-  prepareBookkeeping -->|next| prepareTheAnswer["Prepare the answer"]
-  prepareTheAnswer -->|next| fd["Front door"]
-  readTheText -.->|answered| send["Text them"]
-  runARoutine -.->|answered| send
-  checkTheQuestion -.->|answered| send
-  settleAYesOrNo -.->|answered| send
-  checkItMayRun -.->|answered| send
-  fd -->|uses: action| tools["Tools"]
-  fd -->|uses: stuck| advisor["Advisor"]
-  fd -->|uses: down| fallback["Fallback"]
-  fd -->|uses: big| planner["Big-ask planner"]
-  fd -->|every draft| checks["Answer checks"]
-  checks -->|loop| fd
-  checks -->|action| reviewer["Reply reviewer"]
-  reviewer -->|loop| fd
-  checks -->|every run| send
-  reviewer -->|action| send
-  send -.->|background: threads| classifier["Classifier"]
-  send -.->|background: sent| selfreview["Self-review"]
-  linkStyle 16,17,18,19 stroke-dasharray: 5 5
+  subgraph intake["Intake"]
+    text(["A text arrives"])
+    edit(["A text is edited or unsent"])
+    triage["Triage"]
+    decide["Decide<br/>Clef"]
+    react["React"]
+    lanes["Queue"]
+    doorStep["Door"]
+  end
+  fd["Front door<br/>Haiku 5.5 · effort medium"]
+  tools["Tools"]
+  advisor["Advisor<br/>Opus 5.5 · effort high"]
+  answerCheck["Answer check<br/>Haiku 5.5 · effort low"]
+  chatAnswer["Answer the other chat"]
+  bypass["Confirmations & refusals"]
+  send["Text them"]
+  learn["Learn<br/>Haiku 5.5"]
+  afterReply["After the reply<br/>Haiku 5.5"]
+  chatDays["Chat day summaries<br/>Haiku 5.5"]
+  text --> triage
+  edit -->|turn| triage
+  triage -->|judge, running| decide
+  triage -->|tex| lanes
+  decide --> react
+  decide --> lanes
+  triage -..->|provisional run (revertible): stop:running| doorStep
+  decide -..->|provisional run (revertible): stop:quiet, restart:wait| doorStep
+  lanes -..->|provisional run (revertible)| doorStep
+  doorStep -->|next| fd
+  doorStep -->|answered| bypass
+  bypass --> send
+  fd -.->|uses: action| tools
+  tools -.->|uses: ask_advisor| advisor
+  fd --> answerCheck
+  answerCheck --> send
+  answerCheck ==>|loop| fd
+  answerCheck -->|ask| chatAnswer
+  send -.->|background: fired| learn
+  send -.->|background: sent, threads| afterReply
+  send -.->|background: sent, ended, answered| chatDays
 ```
 
-The front door stops at each draft and returns it, so the checks run as their
-own nodes. A draft the checks send back goes to the front door and comes back
-through Answer checks before the reviewer reads it. Send runs once, after the
-reviewer when the reviewer ran, because its wire from the checks has no
-condition. Mail and card checks sit inside Tools, and the router is off, so
-neither is drawn.
+Each node in the drawing is on in the config. Section 2 lists the retired
+nodes, including the eleven door steps, the router, the fallback and the
+planner, each off.
 
-| Node id | Label | Code file (under `apps/mcp/src/agent/`) |
-| --- | --- | --- |
-| `readTheText` | Read the text | `texEntryPoint/readTheText.js` |
-| `runARoutine` | Run a routine | `texEntryPoint/runARoutine.js` |
-| `checkTheQuestion` | Check the question | `texEntryPoint/checkTheQuestion.js` |
-| `settleAYesOrNo` | Settle a yes or no | `texEntryPoint/settleAYesOrNo.js` |
-| `watchWhatLeaves` | Watch what leaves | `texEntryPoint/watchWhatLeaves.js` |
-| `checkItMayRun` | Check it may run | `texEntryPoint/checkItMayRun.js` |
-| `readTheHistory` | Read the history | `texEntryPoint/readTheHistory.js` |
-| `openTheWeb` | Open the web | `texEntryPoint/openTheWeb.js` |
-| `readTheSetup` | Read the setup | `texEntryPoint/readTheSetup.js` |
-| `prepareBookkeeping` | Bookkeeping | `texEntryPoint/prepareBookkeeping.js` |
-| `prepareTheAnswer` | Prepare the answer | `texEntryPoint/prepareTheAnswer.js` |
-| `fd` | Front door | `texEntryPoint/runTheModel.js` (`turn.js` `runTurn`), `graph/nodes/fd.js` |
-| `tools` | Tools | `graph/nodes/tools.js` (`callToolForSession`) |
-| `advisor` | Advisor | `graph/nodes/advisor.js` (`advisor.js`, `advisorRoles/chat.js`) |
-| `fallback` | Fallback | `graph/nodes/fallback.js` (`builtin.js`) |
-| `planner` | Big-ask planner | `graph/nodes/planner.js` (`planBigAsk.js`) |
-| `checks` | Answer checks | `graph/nodes/checks.js` (`doItChecks.js`, `replyJudge.js`) |
-| `reviewer` | Reply reviewer | `graph/nodes/reviewer.js` (`replyJudge.js` `review`) |
-| `send` | Text them | `graph/nodes/send.js` (`texEntryPoint/sendTheReply.js`) |
-| `classifier` | Classifier | `graph/nodes/classifier.js` (`conversationThreads.js`) |
-| `selfreview` | Self-review | `graph/nodes/selfreview.js` (`selfReview.js`) |
+| Node id | Label | Model | Effort | Time limit | Where |
+| --- | --- | --- | --- | --- | --- |
+| `text` | A text arrives | code | | | `apps/agent` |
+| `edit` | A text is edited or unsent | code | | | `graph/nodes/edit.js · textsEdit.js · apps/agent editStep.ts` |
+| `triage` | Triage | code | | | `inboxTurn.ts chooseTurn · groupInbox.ts acceptGroup` |
+| `decide` | Decide | Clef | | | `textsDecide.js · textDecide.cjs` |
+| `react` | React | code | | | `decide.ts reactionFor · reactions.ts` |
+| `lanes` | Queue | code | | | `apps/agent inbox.ts · groupTurn.ts` |
+| `doorStep` | Door | code | | | `texEntryPoint/*` |
+| `bypass` | Confirmations & refusals | code | | | `graph/nodes/bypass.js` |
+| `fd` | Front door | Haiku 5.5 | medium | | `turn.js runTurn · texEntryPoint/runTheModel.js` |
+| `tools` | Tools | code | | | `callToolForSession` |
+| `advisor` | Advisor | Opus 5.5 | high | 40 s | `advisor.js · advisorRoles/chat.js` |
+| `answerCheck` | Answer check | Haiku 5.5 | low | 8 s | `graph/nodes/checks.js · graph/nodes/reviewer.js · replyJudge.js · sendBack.js` |
+| `chatAnswer` | Answer the other chat | code | | | `graph/nodes/chatAnswer.js` |
+| `send` | Text them | code | | | `sendTheReply · sendOne.ts · recoverFromFailure.js` |
+| `learn` | Learn | Haiku 5.5 | low | | `reflect.js · memoryNudge.js` |
+| `afterReply` | After the reply | Haiku 5.5 | off | 4 s | `conversationThreads.js · selfReview.js` |
+| `chatDays` | Chat day summaries | Haiku 5.5 | low | | `graph/nodes/chatDays.js · daySummaries.js` |
 
 ## Change log
 Newest first. One line per pull request that changed the drawing.
 
+- 2026-11-17: the hand-written "How a turn runs" drawing, its prose and its node table follow the live text path in section 1: Intake, the Door, the Front door (Haiku 5.5, effort medium), Tools and the Advisor (Opus 5.5, effort high), Answer check (Haiku 5.5, effort low), then Text them. The eleven door steps, the Clef router and the GLM-4.7 Flash fallback stay off that path and unwired. Decide (Clef) stays on. The big-ask planner stays off; its `uses` wire tagged `big` remains in the config. No config change, so sections 1 and 2 are untouched.
 - 2026-11-17: every chat, 1:1 or group, reads its history through two Front door modules whose span and cap are config (Dev2: "chat summaries all, 40k cap / chat history 7d, 40k cap", "number of days or all"; [week-history](../decisions/texting-assistant/week-history.md)): `chat:<days|all>:<chars>`, the chat word for word over those days with its pictures inline by id, and `summaries:<days|all>:<chars>`, each earlier day's summary ending with the `read_day` call that opens it. Main reads `summaries:all:40000` and `chat:7:40000`. A new step, Chat day summaries (`chatDays`), runs on a background wire after Text them and sums up each finished day of any chat, groups included, three a run over the last three weeks. Replay case `sees-own-reply` (a text from three days ago, word for word).
 - 2026-11-16: a new start, "A text is edited or unsent" (`edit`), wired to Triage when an edit changed what was said (Dev2: "Build edit support in Tex", "not just edits but deleted messages as well"; [edits-and-unsends](../decisions/texting-assistant/edits-and-unsends.md)). Photon's iMessage Edit and Undo Send, in a 1:1 or a group, go to the chat object's `/edit` (`apps/agent/src/editStep.ts`), which finds the text it changes by its handle and asks the node on the gateway's graph (`/texts/edit`): unchanged, changed (kept and queued; Triage sends it to Decide, which judges it from labelled edits in the Training conversations) or unsent (kept as taken back, and out of the queue if no turn started on it). The event carries `edited` or `unsent` with `replyTo` and `quoted`; the transcript marks it and names the text it changed. Worker step `edit` logged. Replay case `edit-and-unsend-shown`; `provider-lag-logged` merged into `worker-steps-logged` to keep 20.
 - 2026-11-14: the turn after the door runs as one run of `texConfig.json`'s graph (Dev2: "it's fine for node to be code, but it's not fine for the connections between node to be code"). Each door step is a node of group "door", eleven in all, whose code is its file under `texEntryPoint/`; an early answer is its `answered` wire to Text them. The front door stops at each draft, and Answer checks and the Reply reviewer send it back through their `loop` wires. Tools, advisor, fallback and planner are the front door's `uses` wires, Text them's Classifier and Self-review run on `background` wires, and the runner logs every node run. The drawing is in "How a turn runs: the config's graph", and the router, the mail check, the job itself, the routine start and Triage are not on the runner yet ([turn graph](../decisions/texting-assistant/turn-graph.md)). Tests: `apps/mcp/test/texGraphDoor.test.mjs`, `texGraphTurn.test.mjs`, `chatLedgerWrites.test.mjs`, `replay/cases/turn-steps-logged.mjs`.

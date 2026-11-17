@@ -138,8 +138,10 @@ did not have to leave a case behind.
    and simple asks, the golden tasks, the web facts (once that set is on
    main), the one judge's cases and the reviewer's, held-out cases included,
    and the job tasks once (a whole job each).
-   Each area is checked against `cap_usd` in `spend.md` before it starts and
-   refused past it, and its cost is recorded there. It writes one note,
+   Each area is checked against the month's limit and the day's cap in
+   `spend.md` before it starts and refused past either, and its cost is
+   recorded there. A replay is checked against that same month and against
+   its own monthly line, so it cannot spend the night's room. The nightly writes one note,
    `@context-lc ai/results/nightly/<date>.md`: pass or fail by each area's own
    bar, the cases that fell short (held-out ones by cause), the target cases,
    the live drift and the live prompt's changes. The run goes red when an area

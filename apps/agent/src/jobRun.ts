@@ -42,7 +42,7 @@ import { limitResetAt } from "./jobPause";
 import { STEER_TIMEOUT_MS } from "./steer";
 import { advisorVerdict, openJobNote } from "./jobNote";
 import { askPartEnd, partEndChoice } from "./jobPartEnd";
-import { mergeSaved, PROGRESS_KEY, readOutside, savedCall, withEnd, type JobSaved, type PartCause } from "./jobProgress";
+import { carryPatch, mergeSaved, partResume, PROGRESS_KEY, readOutside, savedCall, withEnd, type JobSaved, type PartCause } from "./jobProgress";
 
 export type JobDeps = {
   fetch: Fetch;
@@ -277,7 +277,7 @@ export async function runJob(storage: InboxStorage, deps: JobDeps): Promise<JobN
   if ((await storage.get<boolean>(STOP_KEY)) === true) return await finish(storage, run, { state: "failed", status: "Stopped" }, tell, deps.now(), pass);
   await storage.put(PASS_KEY, pass);
   // What earlier parts saved, and what a pass whose object died mid-part had saved before it went (`jobProgress.ts`).
-  const savedBefore = mergeSaved(run.saved, await storage.get<JobSaved>(PROGRESS_KEY));
+  const leftOver = await storage.get<JobSaved>(PROGRESS_KEY), savedBefore = mergeSaved(run.saved, leftOver);
   if (savedBefore !== undefined) run.saved = savedBefore;
   // Its note, asked for once before its first part: the job, Tex and the advisor on its mail, and the job told who is there (`jobNote.ts`).
   // A group's job has a note only where Tex put it in a project (`apps/mcp/src/agent/jobNote.js`), so one without asks nothing.
@@ -315,11 +315,12 @@ export async function runJob(storage: InboxStorage, deps: JobDeps): Promise<JobN
   const shown = (await storage.get<JobSteer[]>(STEERS_KEY)) ?? [];
   const turn: Live = { turn: crypto.randomUUID(), fetch: deps.fetch, gatewayOrigin: deps.gatewayOrigin };
   live.set(storage, turn);
-  const asked = ask(
+  const resume = await partResume(run, leftOver !== undefined, () => storage.put<Stored>(RUN_KEY, { ...run, sent }), () => storage.delete(PROGRESS_KEY)); // the saved rounds it goes on from, marked before it asks (`jobPartResume.ts`)
+  const asked = { ...ask(
     run,
     shown.filter((steer) => steer.mail === undefined).map((steer) => steer.text),
     shown.flatMap((steer) => (steer.mail === undefined ? [] : [{ ...steer.mail, text: steer.text }])),
-  );
+  ), ...resume };
   let outcome: Outcome;
   try {
     outcome =
@@ -399,12 +400,12 @@ export async function runJob(storage: InboxStorage, deps: JobDeps): Promise<JobN
     // An answer a later text replaces is not texted; the next part builds on it, so the person gets one result, not two that disagree.
     const draft = (changed || unfinished) && outcome.kind === "answer" ? outcome.texts.join("\n\n").slice(0, MAX_DRAFT) || run.draft : run.draft;
     // A part cut off before it answered (2026-11-08) no longer hands on step names (`cutOff`): everything it got is in `saved`.
-    const { unfinished: _was, advice: _said, idle: _idle, cutOff: _cut, ...kept } = run;
+    const { unfinished: _was, advice: _said, idle: _idle, cutOff: _cut, carryFrom: _from, resumedTry: _tried, ...kept } = run;
     // What this part did, one line, so a job that ends short reports every part and not only its last (2026-11-06:
     // a cloud reviewer's tenth part answered a screenshot, and that alone became its report: "nothing from it is built").
     const said = outcome.kind === "answer" ? partLine(run.attempt, outcome.texts, outcome.status) : null;
     const parts = said === null ? run.parts : [...(run.parts ?? []), said].slice(-MAX_PARTS_KEPT);
-    await storage.put<Stored>(RUN_KEY, { ...kept, sent, attempt: run.attempt + 1, tries: 0, ...(parts?.length ? { parts } : {}), ...(draft ? { draft } : {}), ...(unfinished ? { unfinished: true as const } : {}), ...(advice && !changed ? { advice } : {}), ...(idle ? { idle: true as const } : {}), ...((outcome.kind === "answer" && outcome.untrusted) || readOutside(run.saved) ? { tainted: true as const } : {}) });
+    await storage.put<Stored>(RUN_KEY, { ...kept, sent, attempt: run.attempt + 1, tries: 0, ...(parts?.length ? { parts } : {}), ...(draft ? { draft } : {}), ...(unfinished ? { unfinished: true as const } : {}), ...(advice && !changed ? { advice } : {}), ...carryPatch(run, outcome), ...(idle ? { idle: true as const } : {}), ...((outcome.kind === "answer" && outcome.untrusted) || readOutside(run.saved) ? { tainted: true as const } : {}) });
     await tell({
       state: "running",
       part: run.attempt + 1,

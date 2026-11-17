@@ -29,11 +29,25 @@ The outside-read mark ([agent-egress](../privacy-and-sharing/agent-egress.md)) i
 resumed turn is exactly as untrusted as the try that read the outside thing.
 
 **Keyed by the text.** A hash of the question, the chat events it answers and, in a group, the chat lines it was shown:
-a newer text merged in, or a group that moved on, starts over. A turn whose text names no events, a job's part (which
-keeps its own, [background-jobs](./background-jobs.md)) and a routine's run carry nothing. A provisional run
+a newer text merged in, or a group that moved on, starts over. A turn whose text names no events and a routine's run carry nothing. A job's part
+is keyed by its job, which restart of it and the part (see below). A provisional run
 ([provisional-run](./provisional-run.md)) reads a snapshot but keeps none, since what it does before its go may be
 put back. A group text started early runs provisional, so in a group only a try that was not provisional
 keeps one; measure `turn_resumed` by `group` before widening that.
+
+**A background job's part** (Dev2, 2026-11-17: "jobs must be reliable"; plan reviewed by Fable). Each part keeps its
+rounds under its own key (job, restart, part), in the same chat home, and reads back only the part the Worker names
+(`apps/agent/src/jobPartResume.ts`): this part again when its last try died (a retry, or a pass whose object died
+mid-part), or the part before when it was cut off before it answered (a crash or its time running out). A part that
+ended any other way (done, waiting, stuck, out of check rounds or steps, changed by a text) is followed by a fresh part,
+as before. A try that was handed saved rounds and still did not answer is followed by a fresh try, so rounds that may
+be what killed the gateway are never carried twice in a row; the mark is on the job's run before it asks, so a pass
+that dies keeps it. A part carried from the part before starts its own round count; a part tried again keeps ten rounds
+to finish in. It is told the calls below its task were made by its last part, and `jobSaved.js`'s list stays as it was
+(it covers what was not carried, and older parts). A part on their own computer keeps none. The same rule decides what
+carries, so a job whose first call is a write or a web step carries nothing: `turn_resumed` (with `job`) says how often
+it pays. Carried reads are not checked again against the person's access; for at most 30 minutes, the same as a chat
+turn's and shorter than `jobSaved.js`'s list.
 
 **What it logs.** The resumed try writes one `resumed` step to the chat's ledger, naming the round and each call, and
 never logs the first try's calls again as run (Replay shows only what ran). The gateway's log gets `turn_resumed` with

@@ -11,6 +11,7 @@ import { atEarlierTime } from "./clock.mjs";
 import { ledgerFor, ONE_TO_ONE_CHAT } from "../src/agent/ledger.js";
 import { keepOneToOne } from "./byCode.mjs";
 import { clientDispatch, keepEarlierPictures } from "./earlierPictures.mjs";
+import { linksIn, seedLinkedNotes } from "./earlierNotes.mjs";
 
 /**
  * The chat's side of a bench world. `workspaceId` and `mailbox` are read when used (the person's mailbox can open
@@ -26,9 +27,11 @@ export function worldChat({ env, token, group, tagger, textedEvent, postEvents, 
      * check-in says "busy" mid-conversation and the control plane asks again once the chat is quiet (`checkin.js`); a
      * group's look has no such wait. Dated now, every Dev check-in row came back "(stayed quiet: busy)". A line with
      * `minutesBefore` is posted that long before the text, the clock set back for it (`clock.mjs` atEarlierTime), as
-     * the Worker posted it live then: production's ledger keeps each text's own time.
+     * the Worker posted it live then: production's ledger keeps each text's own time. A note an earlier job report or
+     * text of Tex's links is written first if it isn't there, from the chat's own words (`earlierNotes.mjs`); `also` is
+     * the case's own job report, whose page is written last.
      */
-    async earlier(lines, { checkIn = false } = {}) {
+    async earlier(lines, { checkIn = false, also = [] } = {}) {
       const quietFor = checkIn && !group ? QUIET_MS + 60_000 : 0;
       const back = (line) => Math.max(quietFor, (line?.minutesBefore ?? 0) * 60_000);
       const at = () => Date.now();
@@ -41,13 +44,19 @@ export function worldChat({ env, token, group, tagger, textedEvent, postEvents, 
         trigger = null;
         held = [];
       };
+      const seed = async (texts) => {
+        if (!texts.some((text) => linksIn(text).length > 0)) return;
+        const { skipped } = await seedLinkedNotes(clientDispatch({ env, token }), texts);
+        if (skipped.length > 0) process.stderr.write(`bench: ${skipped.length} linked note(s) from earlier lines could not be written as the person\n`);
+      };
       const keepTriggerThen = async () => {
         const turn = textedEvent("", null, at()).turn;
         const texts = held.map((line) => line.text);
+        await seed([trigger.report?.text ?? trigger.text ?? "", ...texts]);
         const post = group ? texts : await keepOneToOne({ env, workspaceId: workspaceId(), trigger, texts, at: at(), turn });
         for (const text of post) await postEvents([{ ...textedEvent(text, null, at()), from: { kind: "tex" }, turn, covers: [], delivered: true }]);
       };
-      for (const line of lines) {
+      for (const [k, line] of lines.entries()) {
         if (trigger !== null && line.from === "tex") {
           held.push(line);
           continue;
@@ -63,6 +72,10 @@ export function worldChat({ env, token, group, tagger, textedEvent, postEvents, 
         const sender = line.who && group ? group.people.get(line.who) : tagger; // a group's other member: `- earlier @priya:`
         if (line.who && group && !sender) throw new Error(`@${line.who} is not in the group's workspace (people.md)`);
         await atEarlierTime(back(line), async () => {
+          if (line.from === "tex" && (k === 0 || lines[k - 1].from !== "tex")) {
+            const end = lines.findIndex((next, n) => n > k && next.from !== "tex");
+            await seed(lines.slice(k, end === -1 ? lines.length : end).map((next) => next.text));
+          }
           const event = { ...textedEvent(line.text, line.from === "person" ? sender : null, at()), ...(line.pictures?.length ? { kind: "picture", pictures: line.pictures } : {}) };
           if (line.from === "person") last = event;
           const { pictures, ...posted } = line.from === "person" ? event : { ...event, from: { kind: "tex" }, turn: last?.turn ?? event.turn, covers: last ? [last.id] : [], delivered: true };
@@ -71,6 +84,7 @@ export function worldChat({ env, token, group, tagger, textedEvent, postEvents, 
         });
       }
       await keepTrigger();
+      await seed(also); // the case's own job report: its job wrote the page before it reported
     },
 
     /** What a turn the Worker queues itself needs to know of this chat (`byCode.mjs`): its group's home and who tags, the zone, the mailbox. */
