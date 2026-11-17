@@ -21,6 +21,7 @@
  */
 
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { BrowseLedger } from "./browserUseLedger";
 import { FRAME_SCALE, MAX_COORDINATE, MAX_SCROLL, MAX_VIEW_TEXT, parseViewAction, viewOnBrowserbase, windowSizes } from "./view";
 
 const ENV = { BROWSERBASE_API_KEY: "bb_test_key", BROWSERBASE_PROJECT_ID: "proj-test" };
@@ -75,6 +76,22 @@ function fakeApi({ running = [] as Array<Record<string, unknown>> } = {}) {
 
 const MINE = { id: "mine", connectUrl: "wss://connect.example/mine", userMetadata: { owner: OWNER } };
 const THEIRS = { id: "theirs", connectUrl: "wss://connect.example/theirs", userMetadata: { owner: OTHER } };
+const USE_SESSION = "11111111-1111-1111-1111-111111111111";
+
+function ledgerKv() {
+  const map = new Map<string, unknown>();
+  return {
+    async get<T>(key: string) {
+      return map.get(key) as T | undefined;
+    },
+    async put(key: string, value: unknown) {
+      map.set(key, value);
+    },
+    async delete(key: string) {
+      return map.delete(key);
+    },
+  };
+}
 
 async function call(path: string, body: unknown, api = fakeApi({ running: [THEIRS, MINE] }), env: Record<string, string> = ENV) {
   const response = await viewOnBrowserbase(env, path, body, api.fetcher);
@@ -245,6 +262,58 @@ describe("viewOnBrowserbase", () => {
     const result = await call("/view/input", { owner: OWNER, action: { kind: "type", text: "hi" } }, fakeApi({ running: [THEIRS] }));
     expect(result.body).toEqual({ running: false });
     expect(result.api.sent).toEqual([]);
+  });
+
+  it("keeps the live view on Browserbase when the Browser Use fallback did not clear", async () => {
+    const book = new BrowseLedger(ledgerKv());
+    await book.remember(OWNER, {
+      id: USE_SESSION,
+      cdpUrl: "wss://cdp.example/browser-use",
+      host: "wwws.airfrance.com",
+      started: Date.now(),
+      outcome: "error",
+      charged: false,
+    });
+    const api = fakeApi({ running: [MINE] });
+    const env = {
+      ...ENV,
+      BROWSER_USE_API_KEY: "bu_test_key",
+      BROWSER_USE_LEDGER: {
+        idFromName: () => ({ toString: () => "browser-use" }) as unknown as DurableObjectId,
+        get: () => book,
+      },
+    };
+    const response = await viewOnBrowserbase(env, "/view/frame", { owner: OWNER }, api.fetcher);
+    expect(response.status).toBe(200);
+    expect(api.connected).toEqual(["https://connect.example/mine"]);
+    expect(api.connected.join(" ")).not.toContain("cdp.example");
+    expect(await book.recall(OWNER)).toBeNull();
+    expect(api.calls.some((entry) => entry.method === "PATCH" && entry.url.includes(USE_SESSION))).toBe(true);
+  });
+
+  it("shows a Browser Use browser the question moved to", async () => {
+    const book = new BrowseLedger(ledgerKv());
+    await book.remember(OWNER, {
+      id: USE_SESSION,
+      cdpUrl: "wss://cdp.example/browser-use",
+      host: "wwws.airfrance.com",
+      started: Date.now(),
+      outcome: "ok",
+      charged: false,
+    });
+    const api = fakeApi({ running: [MINE] });
+    const env = {
+      ...ENV,
+      BROWSER_USE_API_KEY: "bu_test_key",
+      BROWSER_USE_LEDGER: {
+        idFromName: () => ({ toString: () => "browser-use" }) as unknown as DurableObjectId,
+        get: () => book,
+      },
+    };
+    const response = await viewOnBrowserbase(env, "/view/frame", { owner: OWNER }, api.fetcher);
+    expect(response.status).toBe(200);
+    expect(api.connected).toEqual(["https://cdp.example/browser-use"]);
+    expect(await book.recall(OWNER)).not.toBeNull();
   });
 });
 

@@ -326,6 +326,10 @@ describe("the block log", () => {
     expect(kept?.proxy).toBe("managed");
     const dropped = browseLogRow({ kind: "job", provider: "browser-use", host: "wwws.airfrance.com", outcome: "ok", durationMs: 1, proxy: "socks" });
     expect(dropped?.proxy).toBeUndefined();
+    const failed = browseLogRow({ kind: "job", provider: "browserbase", host: "wwws.airfrance.com", outcome: "site_blocked", reason: "403", trigger: "403", durationMs: 1, fallback: { ran: true, outcome: "steps_failed", step: "click" } });
+    expect(failed?.fallback).toEqual({ ran: true, outcome: "steps_failed", step: "click" });
+    const noisy = browseLogRow({ kind: "job", provider: "browserbase", host: "wwws.airfrance.com", outcome: "site_blocked", reason: "403", durationMs: 1, fallback: { ran: true, outcome: "steps_failed", step: "the password" } });
+    expect(noisy?.fallback).toEqual({ ran: true, outcome: "steps_failed" });
   });
 });
 

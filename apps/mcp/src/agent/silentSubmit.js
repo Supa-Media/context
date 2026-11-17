@@ -29,6 +29,20 @@ const SEND = /\b(?:register|registration|submit|sign ?up|join|enrol+|rsvp|contin
 /** The steps a fresh browser does not need replayed: they only look. */
 const LOOKS = new Set(["read", "look", "handoff", "download"]);
 
+/**
+ * The plan a brand-new browser runs to reach the same page: open it, then
+ * the steps already done on it. A send pressed twice is pressed once.
+ * `opened` is the address a goto in this question used; `pageUrl` is where
+ * the browser is now, when this question resumed one an earlier one opened.
+ * The Browser Use fallback runs this same plan (`browserUseFallback.js`).
+ */
+export function freshBrowserPlan(opened, since, pageUrl) {
+  const steps = Array.isArray(since) ? since : [];
+  const last = steps.at(-1);
+  const replay = steps.filter((step, i) => i === steps.length - 1 || JSON.stringify(step) !== JSON.stringify(last));
+  return [{ do: "goto", url: opened ?? pageUrl }, ...replay];
+}
+
 /** Said when the fresh browser's press went through. */
 export const SUBMIT_CLEARED_LINE =
   "\n\nPressing it did nothing twice: a hidden captcha on this page was turning this browser away. A fresh browser with a new address filled the form in the same way and pressed it again, and this is where that got. " +
@@ -73,20 +87,31 @@ export function silentSubmits() {
   let lastStill = null;
   const laddered = new Set();
   let stuck = false;
+  /** Record this call's steps, so a later fresh browser can redo them. */
+  function note(planned) {
+    const steps = Array.isArray(planned) ? planned : [];
+    const goto = steps.map((step) => step?.do).lastIndexOf("goto");
+    if (goto >= 0) {
+      opened = steps[goto].url;
+      since = steps.slice(goto + 1).filter((step) => step && !LOOKS.has(step.do));
+    } else since.push(...steps.filter((step) => step && !LOOKS.has(step.do)));
+  }
   return {
+    note,
+    /** Open the page, then the steps already done, for a brand-new browser. */
+    plan(pageUrl) {
+      return freshBrowserPlan(opened, since, pageUrl);
+    },
     /**
      * After a call: `done` is its run (`browse.js`), `planned` its steps,
      * `elements` the reading they were pressed on, `run` runs steps. Answers
      * the run the model should read and the line to put under it.
      */
     async settle(done, planned, elements, run) {
-      const goto = planned.map((step) => step.do).lastIndexOf("goto");
-      if (goto >= 0) {
-        opened = planned[goto].url;
-        since = planned.slice(goto + 1).filter((step) => !LOOKS.has(step.do));
-      } else since.push(...planned.filter((step) => !LOOKS.has(step.do)));
+      note(planned);
       if (done === null || done.ran.some((r) => !r.ok)) return { done, line: "" };
       // The reading it was pressed on, or, when this call opened the page, the one it left: the page did not move.
+      const goto = (Array.isArray(planned) ? planned : []).map((step) => step?.do).lastIndexOf("goto");
       const before = goto >= 0 ? done.reading.elements : elements;
       if (!pressedSend(planned, before)) return { done, line: "" };
       const here = { url: bare(done.reading.url), text: words(done.reading.text) };
@@ -95,8 +120,7 @@ export function silentSubmits() {
       if (!still || done.invisible !== true || laddered.has(here.url)) return { done, line: "" };
       laddered.add(here.url);
       // The same boxes filled once, and the button pressed once: not each press that went nowhere.
-      const replay = since.filter((step, i) => i === since.length - 1 || JSON.stringify(step) !== JSON.stringify(since.at(-1)));
-      const again = await run([{ do: "goto", url: opened ?? done.reading.url }, ...replay], { fresh: true }).catch(() => null);
+      const again = await run(freshBrowserPlan(opened, since, done.reading.url), { fresh: true }).catch(() => null);
       if (again !== null && (bare(again.reading.url) !== here.url || words(again.reading.text) !== here.text)) {
         lastStill = null;
         return { done: again, line: SUBMIT_CLEARED_LINE };
