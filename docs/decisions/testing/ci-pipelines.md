@@ -267,8 +267,11 @@ version line, so the Tex diagram check is in there. Three of those steps also
 run `git fetch --no-tags --depth=1 origin "$BASE_SHA"`. CI needs that fetch,
 because its checkout is already shallow. Precheck has already resolved that
 commit as the merge-base, and the same fetch on a full clone writes
-`.git/shallow` and cuts history there, so each such line becomes `:` (an
-empty `then` is a bash syntax error) and the rest of the step runs. The app
+`.git/shallow` and cuts history there, so a line that is only that fetch
+becomes `:` (an empty `then` is a bash syntax error) and the rest of the
+step runs, while a `git fetch` of `$BASE_SHA` with another command chained
+after it fails the self-test instead of discarding that command or
+shallowing the clone. The app
 typecheck is the `mobile-typecheck` job: `pnpm typecheck` with
 `working-directory: apps/mobile` and `--max-old-space-size=6144`
 (`pnpm --dir apps/mobile typecheck` locally). The architecture check is
@@ -286,8 +289,9 @@ script then exits 0 having checked nothing.
 Dropping it, or letting the steps drift from the workflow, puts the fix loop
 back. Fast repository guards run `node scripts/precheck.mjs --self-test`. It
 fails if a guard `run:` is skipped for any reason other than `node --version`,
-if a guard line changes for any reason other than replacing `git fetch` of
-`$BASE_SHA` with `:`, if `mobile-typecheck` stops running `pnpm typecheck` in
+if a guard line changes for any reason other than replacing a bare
+`git fetch` of `$BASE_SHA` with `:`, if a `git fetch` of `$BASE_SHA` is
+not only that fetch, if `mobile-typecheck` stops running `pnpm typecheck` in
 `apps/mobile` with `--max-old-space-size=6144`, or if `ci.yml` stops passing
 `architecture-check: true`.
 
