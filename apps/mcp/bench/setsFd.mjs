@@ -259,12 +259,14 @@ export function fdTest(units, front) {
   units.forEach((u, k) => {
     const m = u.convo.msgs[u.at];
     const l = u.label;
-    const { earlier, unanswered } = sinceTexAnswered(earlierLines(u.convo, u.at, year), picturesOf(m), u.convo.kind === "group");
+    const burst = burstBefore(u.convo, u.at);
+    const before = earlierLines(u.convo, u.at, year);
+    const { earlier, unanswered } = sinceTexAnswered(before.slice(0, before.length - burst.length), picturesOf(m), u.convo.kind === "group");
     const lines = [
       `## ${k + 1}. ${String(m.text).replace(/\s+/g, " ").slice(0, 120)}`,
       "",
       "- kind: task",
-      m.via === "checkin" ? `- check-in mail: ${JSON.stringify(checkinMail(m.text))}` : m.via === "routine" ? `- routine runs: ${JSON.stringify(m.text)}` : m.via === "job" ? `- job reports: ${JSON.stringify(jobReportRow(u.convo, u.at))}` : `- person texts: ${JSON.stringify(m.text ?? "")}`,
+      m.via === "checkin" ? `- check-in mail: ${JSON.stringify(checkinMail(m.text))}` : m.via === "routine" ? `- routine runs: ${JSON.stringify(m.text)}` : m.via === "job" ? `- job reports: ${JSON.stringify(jobReportRow(u.convo, u.at))}` : `- person texts: ${JSON.stringify([...burst, m.text ?? ""].filter(Boolean).join("\n"))}`,
       ...unanswered.map((name) => `- person sends picture: ${name}`),
       ...earlier.flatMap((line) => {
         const ago = line.minutesBefore === undefined ? [] : [`- earlier minutes before: ${line.minutesBefore}`];
@@ -278,6 +280,34 @@ export function fdTest(units, front) {
     out.push(lines.join("\n") + "\n");
   });
   return out.join("\n");
+}
+
+/** A bare acknowledgement, as production's (`apps/agent/src/inboxTurn.ts` PURE_ACK; a test keeps the two the same). */
+export const PURE_ACK = /^\s*(?:ok|okay|k|kk|thanks|thank you|thx|ty|cool|got it|great|nice|perfect|👍|🙏|❤️)[\s.!]*$/iu;
+
+/**
+ * The person's texts a one-to-one turn at message `i` answers with it, oldest first. Production starts a turn on a
+ * words-only text at once (`inbox.ts` TEXT_WAIT_MS 0); a text that lands while it runs restarts it, and the restarted
+ * turn answers both as one, words in order (`inboxTurn.ts` merged). So the texts right before `i` with no answer of
+ * Tex's between (a text or a tapback) join it, and the burst stops at: a message with its own `at` (sent apart), a
+ * bare acknowledgement (production drops an uncovered one: `gatherTheTurn`), a message labelled for the Front door
+ * (the set says it was a turn of its own), a picture or a trigger. Without a time on each text the bench cannot tell a
+ * restart from a finished quiet turn, so an undated text right before is taken as a restart. Dev set, 2026-11-17:
+ * "what's the weather at home tomorrow" then "no tuesday actually" never reached the turn as one ask. A tapback of
+ * theirs is not words and is passed over.
+ */
+export function burstBefore(c, i) {
+  if (c.kind === "group" || c.msgs[i]?.via) return [];
+  const texts = [];
+  for (let j = i - 1; j >= 0; j -= 1) {
+    if (typeof c.msgs[j + 1].at === "string" && c.msgs[j + 1].at.trim() !== "") break;
+    const m = c.msgs[j];
+    if (m.tex || m.via) break;
+    if (m.kind && m.kind !== "reply") continue;
+    if (m.labels?.fd || picturesOf(m).length > 0 || typeof m.text !== "string" || m.text.trim() === "" || PURE_ACK.test(m.text)) break;
+    texts.unshift(m.text);
+  }
+  return texts;
 }
 
 /**
