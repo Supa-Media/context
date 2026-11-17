@@ -46,6 +46,7 @@ import { addModelUsage, failedCall, modelForRound, thinkRoundsFor, whyFailed } f
 import { PROGRESS_TOOL } from "./progress.js";
 import { turnLedger } from "./sendBack.js";
 import { SIX_TOOLS, sixToolsOver } from "./sixTools.js";
+import { roundIsParallel } from "./parallelReads.js";
 import { resultInV2Names } from "../tools/v2/speak.js";
 import { goalsIn } from "./aboutMe.js";
 import { pushbackNudge } from "./pushback.js";
@@ -588,15 +589,37 @@ export async function runTurn(options) {
 
     const settling = []; // calls this round that settle the turn, read once the whole round has run: one round may start several jobs
     const roundFrom = messages.length; // where this round's results start: a call that settles is told whether any beside it failed (`tapbackEnding.js`)
-    for (const made of answer.toolCalls) {
+    /*
+      READS IN ONE ROUND RUN TOGETHER (`parallelReads.js`).
+
+      Every call still starts with the same checks, the same timeout and the
+      same remaining-budget cap, and a plain note save still goes through
+      `settleNoteWrite`. Results are recorded in call order after they finish.
+      `timing.toolMs` for a round that ran together is the wall time, so a
+      turn that opened three mailboxes counts the slowest search, not the sum.
+      One call, or any call outside the allowlist, keeps the round serial:
+      the next call still sees the clock and the ledger the previous one left.
+    */
+    const resolvedNames = answer.toolCalls.map((made) => {
+      const resolved = six.resolve(made.name, made.args);
+      return resolved.error ? null : resolved.name;
+    });
+    const together = roundIsParallel(resolvedNames);
+    // One call, returned for `apply` to record in order. `effects` replay the
+    // serial side effects; `{ time }` is this call's own duration, added to
+    // `timing.toolMs` only when the round is serial.
+    const runOne = async (made) => {
+      const effects = [];
       // One of the six, as the granted tool that carries it; an older name as itself.
       const resolved = six.resolve(made.name, made.args);
       if (resolved.error) {
-        messages.push({ role: "tool", id: made.id, name: made.name, text: resolved.error, isError: true });
-        escalate = true;
-        tell({ kind: "tool", name: made.name.slice(0, 64), args: made.args, ok: false, ms: 0, reason: (resolved.cause ?? "no_such_action").replaceAll("_", " ") });
-        failed({ tool: made.name, cause: resolved.cause ?? "no_such_action", text: resolved.error, round }); // or `unknown_argument` (`sixTools.js`)
-        continue;
+        effects.push(() => {
+          messages.push({ role: "tool", id: made.id, name: made.name, text: resolved.error, isError: true });
+          escalate = true;
+          tell({ kind: "tool", name: made.name.slice(0, 64), args: made.args, ok: false, ms: 0, reason: (resolved.cause ?? "no_such_action").replaceAll("_", " ") });
+          failed({ tool: made.name, cause: resolved.cause ?? "no_such_action", text: resolved.error, round }); // or `unknown_argument` (`sixTools.js`)
+        });
+        return { ran: false, effects };
       }
       const call = { ...made, name: resolved.name, args: resolved.args };
       const asSix = SIX_TOOLS.includes(made.name);
@@ -608,33 +631,34 @@ export async function runTurn(options) {
           and because `call.name` is unbounded text the model produced, and
           `steps` is rendered to the person.
         */
-        messages.push({
-          role: "tool",
-          id: call.id,
-          name: made.name,
-          text: asSix ? "That is not something you were given. Use only the actions your tools list." : "There is no such tool. Use only the tools you were given.",
-          isError: true,
+        const text = asSix ? "That is not something you were given. Use only the actions your tools list." : "There is no such tool. Use only the tools you were given.";
+        effects.push(() => {
+          messages.push({ role: "tool", id: call.id, name: made.name, text, isError: true });
+          escalate = true;
+          tell({ kind: "tool", name: call.name.slice(0, 64), args: call.args, ok: false, ms: 0, reason: "no such tool" });
+          failed({ tool: call.name, cause: "not_offered", text: asSix ? "not one of the actions it was given" : "no such tool", round });
         });
-        escalate = true;
-        tell({ kind: "tool", name: call.name.slice(0, 64), args: call.args, ok: false, ms: 0, reason: "no such tool" });
-        failed({ tool: call.name, cause: "not_offered", text: asSix ? "not one of the actions it was given" : "no such tool", round });
-        continue;
+        return { ran: false, effects };
       }
       const repeated = held.refusal(call.name, call.args); // a write already made, asked again after a send-back
       if (repeated !== null) {
-        messages.push({ role: "tool", id: call.id, name: made.name, text: repeated, isError: true });
-        tell({ kind: "tool", name: call.name, args: call.args, ok: false, ms: 0, reason: "already done this turn" });
-        failed({ tool: call.name, cause: "repeated", text: "already done this turn", round });
-        continue;
+        effects.push(() => {
+          messages.push({ role: "tool", id: call.id, name: made.name, text: repeated, isError: true });
+          tell({ kind: "tool", name: call.name, args: call.args, ok: false, ms: 0, reason: "already done this turn" });
+          failed({ tool: call.name, cause: "repeated", text: "already done this turn", round });
+        });
+        return { ran: false, effects };
       }
       if (clock() - began >= toolBudgetMs) {
         // Answered in band, like an unknown tool: the model's next round is
         // the answer, written from what the calls so far returned.
-        trace.push({ kind: "tool", tool: call.name, ok: false, ms: 0 });
-        messages.push({ role: "tool", id: call.id, name: made.name, text: OUT_OF_TIME, isError: true });
-        tell({ kind: "tool", name: call.name, args: call.args, ok: false, ms: 0, reason: "out of time" });
-        failed({ tool: call.name, cause: "out_of_time", text: "asked for after the turn's tool time was spent", round });
-        continue;
+        effects.push(() => {
+          trace.push({ kind: "tool", tool: call.name, ok: false, ms: 0 });
+          messages.push({ role: "tool", id: call.id, name: made.name, text: OUT_OF_TIME, isError: true });
+          tell({ kind: "tool", name: call.name, args: call.args, ok: false, ms: 0, reason: "out of time" });
+          failed({ tool: call.name, cause: "out_of_time", text: "asked for after the turn's tool time was spent", round });
+        });
+        return { ran: false, effects };
       }
       let result;
       let thrown = null; // what the tool threw, for the failure log only (`toolFailures.js`)
@@ -668,7 +692,7 @@ export async function runTurn(options) {
           own header reserves its reasons for the gateway's logs), and this
           string goes to a third-party model.
         */
-        if (error instanceof ProviderError) throw error;
+        if (error instanceof ProviderError) return { ran: true, providerError: error, effects };
         thrown = error;
         const text =
           error instanceof ToolTimeout ? (call.name === BROWSE_TOOL ? BROWSE_TIMED_OUT : isMove(call.name) ? MOVE_TIMED_OUT : TOOL_TIMED_OUT) : "That call failed. Don't guess what it would have said.";
@@ -677,7 +701,6 @@ export async function runTurn(options) {
       // A refusal written in the older names, read by a model that holds the six (`speak.js`).
       if (asSix) result = resultInV2Names(result);
       const toolMs = clock() - called;
-      timing.toolMs += toolMs;
       // A call the egress gate held for the person's yes is not a failure: it
       // runs when they give it (`texEntryPoint.js`), and a log that called it failed
       // would read as a broken tool. A designed send-back (`ask`: a page with no
@@ -685,25 +708,45 @@ export async function runTurn(options) {
       // as an error and draws again, and the chat's ledger still shows the call
       // as not done, so a later check does not skip the cover. The turn log
       // counts it as a call that worked, so the Lab's tool stats do not.
-      const asked = result?.ask === true;
-      trace.push({ kind: "tool", tool: call.name, ok: result?.isError !== true || asked, at: called - began, ms: toolMs, ...(result?.held === true ? { held: true } : {}), ...(asked ? { ask: true } : {}), ...traceNames(made, call) }); // the six's name and action, for the Lab's Tools page (`turnLog.js`)
-      steps.push({ tool: call.name, ok: result?.isError !== true, ...(Array.isArray(result?.sources) ? { sources: result.sources } : {}) });
-      // A failed step sends the next round to the planner; one held for the person's yes, or a designed send-back, does not.
-      if (failedCall(result) && !asked) { escalate = true; failed({ tool: call.name, ...causeOf(thrown, ToolTimeout), result, ms: toolMs, round }); }
-      tell({ kind: "tool", name: call.name, args: call.args, ...(made.name !== call.name ? { as: { name: made.name, args: made.args } } : {}), ok: result?.isError !== true, ms: toolMs, held: result?.held === true, reason: whyFailed(result), result: toolResultText(result), ...(typeof result?.thinking === "string" && result.thinking ? { thinking: result.thinking } : {}) }); // the result, for the chat's ledger (`ledger.js`)
-      messages.push({
-        role: "tool",
-        id: call.id,
-        name: made.name,
-        text: toolResultText(result) || "(no result)",
-        images: toolResultImages(result),
-        // A held call reaches the model as what it is, waiting for the person, never as an
-        // error: read as one, "Not sent yet" became "the email didn't go through" and a
-        // second, different copy of the email texted beside the one held (Dev, 2026-10-19).
-        isError: failedCall(result),
+      const ask = result?.ask === true;
+      effects.push({ time: toolMs });
+      effects.push(() => {
+        trace.push({ kind: "tool", tool: call.name, ok: result?.isError !== true || ask, at: called - began, ms: toolMs, ...(result?.held === true ? { held: true } : {}), ...(ask ? { ask: true } : {}), ...traceNames(made, call) }); // the six's name and action, for the Lab's Tools page (`turnLog.js`)
+        steps.push({ tool: call.name, ok: result?.isError !== true, ...(Array.isArray(result?.sources) ? { sources: result.sources } : {}) });
+        // A failed step sends the next round to the planner; one held for the person's yes, or a designed send-back, does not.
+        if (failedCall(result) && !ask) { escalate = true; failed({ tool: call.name, ...causeOf(thrown, ToolTimeout), result, ms: toolMs, round }); }
+        tell({ kind: "tool", name: call.name, args: call.args, ...(made.name !== call.name ? { as: { name: made.name, args: made.args } } : {}), ok: result?.isError !== true, ms: toolMs, held: result?.held === true, reason: whyFailed(result), result: toolResultText(result), ...(typeof result?.thinking === "string" && result.thinking ? { thinking: result.thinking } : {}) }); // the result, for the chat's ledger (`ledger.js`)
+        messages.push({
+          role: "tool",
+          id: call.id,
+          name: made.name,
+          text: toolResultText(result) || "(no result)",
+          images: toolResultImages(result),
+          // A held call reaches the model as what it is, waiting for the person, never as an
+          // error: read as one, "Not sent yet" became "the email didn't go through" and a
+          // second, different copy of the email texted beside the one held (Dev, 2026-10-19).
+          isError: failedCall(result),
+        });
+        keeper?.called(call, result, round); // kept for a try after a crash, if all it did is in its words (`turnResume.js`)
+        if (typeof settles === "function" && result?.isError !== true) settling.push(call);
       });
-      keeper?.called(call, result, round); // kept for a try after a crash, if all it did is in its words (`turnResume.js`)
-      if (typeof settles === "function" && result?.isError !== true) settling.push(call);
+      return { ran: true, effects };
+    };
+    const apply = (outcome, addTime) => {
+      if (outcome.providerError) throw outcome.providerError;
+      for (const effect of outcome.effects) {
+        if (typeof effect === "function") effect();
+        else if (addTime) timing.toolMs += effect.time;
+      }
+    };
+    if (together) {
+      const started = clock();
+      const outcomes = await Promise.all(answer.toolCalls.map((made) => runOne(made)));
+      // Wall time, once: the trace still keeps each call's own duration.
+      if (outcomes.some((outcome) => outcome.ran)) timing.toolMs += Math.max(0, clock() - started);
+      for (const outcome of outcomes) apply(outcome, false);
+    } else {
+      for (const made of answer.toolCalls) apply(await runOne(made), true);
     }
     if (settling.length > 0) keeper?.freeze(); // a call that settles the turn has effects beyond its words (`savedRounds.js`)
     // A job just started: the job does the work, so the person hears "on it" now, not after another model round.
