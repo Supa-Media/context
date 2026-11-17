@@ -307,6 +307,30 @@ test("non-ASCII keys stay inside their prefix, and startAfter outside it does no
   assertBoundedKeySearch(sql);
 });
 
+test("a cursor JavaScript and SQLite order differently stays inside the prefix", { skip }, async () => {
+  // U+FF01 is one UTF-16 unit (three UTF-8 bytes); U+1F600 is a surrogate pair (four).
+  // JavaScript orders U+FF01 after U+1F600. SQLite BINARY orders the bytes the other way.
+  const aheadSql = durableSql();
+  const ahead = texObjects(aheadSql);
+  for (const key of ["a\uFF02x", "a\u{1F600}/1", "a\u{1F600}/2", "b"]) await ahead.put(key, key);
+  aheadSql.queries.length = 0;
+  assert.deepEqual(
+    ahead.list({ prefix: "a\u{1F600}", startAfter: "a\uFF01" }).objects.map((object) => object.key),
+    ["a\u{1F600}/1", "a\u{1F600}/2"],
+  );
+  assertBoundedKeySearch(aheadSql);
+
+  const behindSql = durableSql();
+  const behind = texObjects(behindSql);
+  for (const key of ["a\uFF01/1", "a\uFF01/2", "a\u{1F600}/1", "b"]) await behind.put(key, key);
+  behindSql.queries.length = 0;
+  assert.deepEqual(
+    behind.list({ prefix: "a\uFF01", startAfter: "a\u{1F600}" }).objects.map((object) => object.key),
+    [],
+  );
+  assertBoundedKeySearch(behindSql);
+});
+
 test("delete removes the keys given, and wipe removes everything", { skip }, async () => {
   const objects = texObjects(durableSql());
   const { store, bucket } = storeOver(objects);

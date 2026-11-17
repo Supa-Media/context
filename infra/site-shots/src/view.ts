@@ -226,8 +226,9 @@ export async function viewOnBrowserbase(env: BrowserbaseEnv & BrowserUseEnv, pat
   // The person looking at or driving it is using it. Before the lookup, so a
   // release already under way finishes first and this finds no browser (./idle.ts).
   await touchIdle(env.BROWSER_IDLE, owner);
-  // The fallback browser, when the question moved to it. A fallback that did
-  // not clear has been released, so this attaches to Browserbase instead.
+  // The fallback browser, when the question moved to it. A session that has
+  // never cleared has been released, so this attaches to Browserbase instead.
+  // One that has cleared stays after a later failed step or captcha.
   // Its vendor live-view URL is never asked for; this attaches to the CDP
   // socket the ledger kept, and the answer is a picture.
   const browserUse = await browserUseCdp(env, owner, fetcher).catch(() => null);
