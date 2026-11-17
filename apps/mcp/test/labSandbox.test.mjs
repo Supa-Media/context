@@ -515,3 +515,19 @@ test("a 1:1 test turn's group list is the one the Lab read for the chat, and gro
   assert.equal(await toolAnswer("group_chats", { op: "search", words: "texas" }, { record: () => assert.fail("not recorded as a write") }), null);
   assert.equal(await toolAnswer("read_day", { day: "2026-11-09" }, { record: () => assert.fail("not recorded as a write") }), null);
 });
+
+test("a chat shared with the developers runs with none of its person's notes: an empty store of its own, never theirs", async () => {
+  // Dev2, 2026-11-17: Sayo's shared 1:1 stalled on every test text: the store asked for his workspace's key with the
+  // developer's token, which is handed only to its members, and the turn never started. It runs on an empty store now.
+  const { storeForBinding } = await import("../src/store/factory.js");
+  const shared = { noNotes: true, record: () => assert.fail("a store open is not a change") };
+  const answered = controlPlaneAnswer("/gateway/binding", { expectedWorkspaceId: "ws_sharer" }, shared);
+  assert.deepEqual(answered.answer.binding, { provider: "r2-binding", bindingName: "LAB_NO_NOTES", status: "active", workspaceId: "ws_sharer" }, "answered here, never sent with the developer's token");
+  const env = sandboxEnvOf({ NATIVE_BINDINGS: "NOTES", NOTES: { get: async () => assert.fail("never the real bucket") } }, { gate: shared });
+  const store = storeForBinding(answered.answer.binding, env);
+  assert.equal(await store.get("areas/diary.md"), null, "every read is empty");
+  await assert.rejects(store.put("areas/new.md", "x"), /without its person's notes/, "and nothing is kept");
+  // The developer's own test chat is untouched: its binding is the real one, keys blanked.
+  assert.deepEqual(controlPlaneAnswer("/gateway/binding", { expectedWorkspaceId: "ws_me" }, { record: () => {} }).pass, true);
+  assert.equal(sandboxEnvOf({ NATIVE_BINDINGS: "NOTES" }, { gate: {} }).NATIVE_BINDINGS, "NOTES");
+});

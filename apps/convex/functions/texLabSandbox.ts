@@ -132,13 +132,18 @@ async function sessionFor(ctx: QueryCtx, userId: Id<"users">, chat: string) {
  * its people with a live grant there (the sponsor first). Names are handles, never "You": the caller is not in it.
  */
 export async function sharedSessionFor(ctx: QueryCtx, callerId: Id<"users">, chat: string) {
-  const listed = (await sharedChats(ctx, callerId)).find((c) => c.key === chat);
+  const shared = await sharedChats(ctx, callerId);
+  const listed = shared.find((c) => c.key === chat);
   if (!listed) return { status: "not_found" as const, error: "That chat isn't shared with the developers (or no longer is)." };
   if (listed.kind === "1:1") {
     const sharer = chat.slice(2) as Id<"users">;
     const answer = await sessionFor(ctx, sharer, "me");
-    // Sharing a 1:1 shares that chat, never the sharer's group chats: a test turn there reads none of them.
-    return answer.status === "ok" ? { ...answer, people: [{ handle: await handleFor(ctx, sharer), name: listed.name }], chat: { ...answer.chat, groups: [] } } : answer;
+    // Sharing a 1:1 shares that chat, never the sharer's other group chats: a test turn there reads only the groups
+    // that are shared with the developers too (Dev2, 2026-11-17: test reading groups from Sayo's 1:1).
+    if (answer.status !== "ok") return answer;
+    const sharedGroups = new Set(shared.filter((c) => c.kind === "group").map((c) => c.key));
+    const groups = (await groupsOfUser(ctx, sharer)).filter((g) => sharedGroups.has(g.key));
+    return { ...answer, people: [{ handle: await handleFor(ctx, sharer), name: listed.name }], chat: { ...answer.chat, groups } };
   }
   const group = await ctx.db
     .query("textGroups")
