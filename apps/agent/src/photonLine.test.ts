@@ -1,3 +1,4 @@
+import { linkBubbleWords } from "./photonLinkBubbles";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { ServiceError } from "./clients";
 import { isRefusal } from "./carousel";
@@ -74,6 +75,14 @@ describe("Photon 1:1 line (photonLine.ts)", () => {
     const b = bridge();
     await lineFor(deps(b.photon), DM).sendText(DM, "vanilla and pistachio", "k1");
     expect(b.calls).toEqual([{ op: "send/text", body: { line: "+15550000001", chat: DM_GUID, text: "vanilla and pistachio" } }]);
+  });
+
+  it("a link bubble is kept beside its words' guid, so its reports land on the same send", async () => {
+    let n = 0;
+    const b = bridge((op) => (op === "send/text" ? { status: 200, body: { ok: true, guid: ++n === 1 ? "words-guid" : "link-guid" } } : undefined));
+    await expect(lineFor(deps(b.photon), DM).sendText(DM, "read https://example.com/a", "k1")).resolves.toBe("words-guid");
+    expect(linkBubbleWords("link-guid")).toBe("words-guid");
+    expect(linkBubbleWords("words-guid")).toBeUndefined();
   });
 
   it("a link bubble that fails does not fail the words already sent", async () => {

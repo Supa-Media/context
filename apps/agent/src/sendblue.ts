@@ -494,7 +494,8 @@ export function parseSendblueInbound(payload: unknown): Inbound {
   // The phone is the login, and only Apple vouches for an iMessage sender.
   // An SMS still gets a fixed answer over iMessage, never one from its words:
   // a first text to a new number often goes green (`reply.ts`, `smsReply`).
-  if (payload.service === "SMS") return smsInbound(payload, handle, line(payload), from);
+  // RCS (an Android phone) gets the same fixed answer: Tex answers it over the line but never reads its words.
+  if (payload.service === "SMS" || payload.service === "RCS") return smsInbound(payload, handle, line(payload), from);
   if (payload.service !== "iMessage") return { kind: "ignored", reason: "service" };
 
   const ours = line(payload);

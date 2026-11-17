@@ -44,8 +44,8 @@ export async function forwardContainerLogs(port: Fetchish, cursor: LogCursor, lo
     if (!response.ok) {
       log({ event: "bridge.health", ok: false, status: response.status });
     } else {
-      const health = (await response.json()) as { started?: boolean; queued?: number; lines?: { line: string; frontier: number | null }[] };
-      log({ event: "bridge.health", ok: true, started: health.started === true, queued: health.queued ?? 0, lines: health.lines ?? [] });
+      const health = (await response.json()) as { started?: boolean; queued?: number; lines?: { line: string; frontier: number | null }[]; skipped?: Record<string, number>; checks?: number };
+      log({ event: "bridge.health", ok: true, started: health.started === true, queued: health.queued ?? 0, lines: health.lines ?? [], skipped: health.skipped ?? {}, checks: health.checks ?? 0 });
     }
   } catch (error) {
     log({ event: "bridge.health", ok: false, error: error instanceof Error ? error.name : "unknown" });
