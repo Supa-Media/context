@@ -9,7 +9,7 @@
 
 import type { GroupTurnParams } from "./groupTurnWorkflow";
 import type { JobRunParams } from "./jobWorkflow";
-import { inboxIdOf, objectByName } from "./objectPlace";
+import { inboxIdOf, objectByName, objectIdText } from "./objectPlace";
 import { PLACED_PREFIX } from "./inboxMove";
 
 const PLACED = /^enam:[^\0]{1,512}$/;
@@ -42,12 +42,8 @@ export async function inboxFetch(namespace: DurableObjectNamespace, call: { name
 
 /** The object's id as text, when it is an id and not the name. A name can be a phone number; an id cannot be turned back into one. */
 function inboxObjectId(namespace: DurableObjectNamespace, name: string): string {
-  try {
-    const id = namespace.idFromName(name).toString();
-    return /^[A-Za-z0-9_-]{1,128}$/.test(id) ? id : "opaque";
-  } catch {
-    return "";
-  }
+  const id = objectIdText(namespace, name);
+  return /^[A-Za-z0-9_-]{1,128}$/.test(id) ? id : "opaque";
 }
 
 /** The path only. A query can carry an address, and a path that is not one of ours is not logged as itself. */
