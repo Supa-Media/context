@@ -35,6 +35,12 @@ export const texLabTables = {
      * last in it. A version saved before has neither and reads as revision 0.
      */
     rev: v.optional(v.number()),
+    /**
+     * The main it was made from (Dev2, 2026-11-17: parallel config changes must not write over each other): the stamp of
+     * that `texConfig.json` (`packages/shared/src/texConfigStamp.cjs`). Promote merges only what the draft changed since
+     * then onto main (`scripts/tex-lab-merge.mjs`). A version saved before has none and is based on when it was made.
+     */
+    base: v.optional(v.string()),
     live: v.optional(v.object({ client: v.string(), by: v.id("users"), at: v.number() })),
     /**
      * The code a draft runs on (Dev2, 2026-11-16: "when we run things it should run on the PRs code instead of main";

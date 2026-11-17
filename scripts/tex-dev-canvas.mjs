@@ -49,7 +49,7 @@ if (process.argv.includes("--check")) {
   const have = fs.existsSync(OUT) ? fs.readFileSync(OUT, "utf8") : "";
   if (have !== wanted) {
     console.error("apps/mcp/src/texDev/canvas.generated.js is not what the Lab's canvas drawing builds.");
-    console.error("Run `node scripts/tex-dev-canvas.mjs` and commit the result.");
+    console.error("Run `node scripts/tex-dev-canvas.mjs` (built on install, never committed).");
     process.exit(1);
   }
   console.log("tex-dev canvas: up to date");

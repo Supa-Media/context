@@ -107,6 +107,7 @@ export function useLabSync(enabled: boolean) {
       ...(v.areas ? { areas: JSON.stringify(v.areas) } : {}),
       results: JSON.stringify(v.results || []),
       createdAt: v.createdAt || Date.now(),
+      ...(v.base ? { base: v.base } : {}),
     });
     setSaver(async (v) => {
       await save(toRow(v));

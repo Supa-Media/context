@@ -107,6 +107,8 @@ export type LabVersion = {
   authorId: string | null;
   createdAt?: number;
   updatedAt?: number;
+  /** The main it was made from (`texConfigStamp.cjs`); Promote merges only what changed since. */
+  base?: string;
   /** Its revision on the server, and the AI client last in it over the MCP (`engine/live.ts`). */
   rev?: number;
   live?: { client: string; at: number } | null;

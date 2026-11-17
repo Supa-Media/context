@@ -5,10 +5,13 @@
  * the "when" choices and the add-step kinds. The graph itself is Tex's config (`mainGraph`).
  */
 import TEX_CONFIG from "@context/shared/src/texConfig.json";
+import { configStamp } from "@context/shared/src/texConfigStamp.cjs";
 import { foldGroups, type GroupDefs } from "../engine/groups";
 import type { LabEdge, LabGraph, LabNode } from "../types";
 
 export const BASE_SHA: string = "888afb0";
+/** The stamp of the config this Lab was built with: a draft made from main keeps it, so Promote merges only its own changes. */
+export const MAIN_STAMP: string = configStamp(TEX_CONFIG);
 
 export const WIRES: Record<string, { name: string; dash: string; c: string; w?: number; tip: string; folded?: boolean }> = {
   // "Next", not the artifact's "Next step" (Dev2, 2026-11-14).
