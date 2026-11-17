@@ -22,6 +22,7 @@
 
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { BrowseLedger } from "./browserUseLedger";
+import { browseOnBrowserUse, type DriveResult } from "./browserUseRoute";
 import { FRAME_SCALE, MAX_COORDINATE, MAX_SCROLL, MAX_VIEW_TEXT, parseViewAction, viewOnBrowserbase, windowSizes } from "./view";
 
 const ENV = { BROWSERBASE_API_KEY: "bb_test_key", BROWSERBASE_PROJECT_ID: "proj-test" };
@@ -77,10 +78,75 @@ function fakeApi({ running = [] as Array<Record<string, unknown>> } = {}) {
 const MINE = { id: "mine", connectUrl: "wss://connect.example/mine", userMetadata: { owner: OWNER } };
 const THEIRS = { id: "theirs", connectUrl: "wss://connect.example/theirs", userMetadata: { owner: OTHER } };
 const USE_SESSION = "11111111-1111-1111-1111-111111111111";
+const USE_CDP = `wss://cdp.example/${USE_SESSION}`;
+
+function ledgerEnv(book: BrowseLedger) {
+  return {
+    ...ENV,
+    BROWSER_USE_API_KEY: "bu_test_key",
+    BROWSER_USE_LEDGER: {
+      idFromName: () => ({ toString: () => "browser-use" }) as unknown as DurableObjectId,
+      get: () => book,
+    },
+  };
+}
+
+/** Browser Use's API, the CDP socket the view attaches to, and Browserbase's session list. */
+function viewVendor() {
+  const calls: Array<{ method: string; url: string; body: unknown }> = [];
+  const connected: string[] = [];
+  const sent: Sent[] = [];
+  const fetcher = (async (input: RequestInfo | URL, init?: RequestInit) => {
+    const url = String(input);
+    const method = init?.method ?? "GET";
+    if (new Headers(init?.headers).get("Upgrade") === "websocket") {
+      connected.push(url);
+      return Object.assign(new Response(null), { webSocket: fakeSocket(sent) });
+    }
+    const body = typeof init?.body === "string" ? JSON.parse(init.body) : null;
+    calls.push({ method, url, body });
+    if (url.endsWith("/api/v2/billing/account")) return Response.json({ totalCreditsBalanceUsd: 10 });
+    if (method === "POST" && url.endsWith("/api/v4/browsers")) {
+      return Response.json({ id: USE_SESSION, cdpUrl: USE_CDP, liveUrl: "https://live.browser-use.example/secret-view" }, { status: 201 });
+    }
+    if (method === "GET" && url.includes(`/api/v4/browsers/${USE_SESSION}`)) {
+      return Response.json({ id: USE_SESSION, status: "stopped", browserCost: "0.010000", proxyCost: "0.002000", proxyUsedMb: "2.5" });
+    }
+    if (method === "PATCH") return Response.json({ ok: true });
+    if (url.endsWith("/sessions?status=RUNNING")) return Response.json([MINE]);
+    return Response.json({ id: "new-1", connectUrl: "wss://connect.example/new-1" });
+  }) as typeof fetch;
+  return { calls, connected, fetcher };
+}
+
+const clearedRun: DriveResult = {
+  ran: [{ do: "goto", ok: true }],
+  page: { url: "https://wwws.airfrance.com/check-in" },
+  captcha: null,
+  captchaKind: null,
+  invisibleCaptcha: false,
+  jar: null,
+};
+
+function stops(calls: Array<{ method: string; body: unknown }>) {
+  return calls.filter((entry) => entry.method === "PATCH" && entry.body !== null && (entry.body as { action?: string }).action === "stop");
+}
+
+async function browseKept(env: ReturnType<typeof ledgerEnv>, fetcher: typeof fetch, result: DriveResult) {
+  const response = await browseOnBrowserUse(
+    env,
+    "/browse",
+    { owner: OWNER, steps: [{ do: "goto", url: "https://wwws.airfrance.com/check-in" }], keep: true },
+    fetcher,
+    async () => result,
+  );
+  expect(response.status).toBe(200);
+}
 
 function ledgerKv() {
   const map = new Map<string, unknown>();
   return {
+    map,
     async get<T>(key: string) {
       return map.get(key) as T | undefined;
     },
@@ -314,6 +380,73 @@ describe("viewOnBrowserbase", () => {
     expect(response.status).toBe(200);
     expect(api.connected).toEqual(["https://cdp.example/browser-use"]);
     expect(await book.recall(OWNER)).not.toBeNull();
+  });
+
+  it("keeps a cleared Browser Use browser when a later step fails", async () => {
+    const store = ledgerKv();
+    const book = new BrowseLedger(store);
+    const api = viewVendor();
+    const env = ledgerEnv(book);
+    await browseKept(env, api.fetcher, clearedRun);
+    await browseKept(env, api.fetcher, { ...clearedRun, ran: [{ do: "click", ok: false, reason: "nothing there" }] });
+    expect((await book.recall(OWNER))?.outcome).toBe("error");
+    const response = await viewOnBrowserbase(env, "/view/frame", { owner: OWNER }, api.fetcher);
+    expect(stops(api.calls)).toEqual([]);
+    expect(await book.recall(OWNER)).toMatchObject({ id: USE_SESSION, outcome: "error", cleared: true });
+    expect(response.status).toBe(200);
+    expect(api.connected).toEqual([USE_CDP.replace(/^wss:/, "https:")]);
+    await browseOnBrowserUse(env, "/browse/close", { owner: OWNER }, api.fetcher);
+    const logs = store.map.get("logs") as Array<{ kind: string; outcome: string }>;
+    expect(logs.at(-1)).toMatchObject({ kind: "call", provider: "browser-use", outcome: "error" });
+  });
+
+  it("keeps a cleared Browser Use browser when a later captcha is unsolved", async () => {
+    const book = new BrowseLedger(ledgerKv());
+    const api = viewVendor();
+    const env = ledgerEnv(book);
+    await browseKept(env, api.fetcher, clearedRun);
+    await browseKept(env, api.fetcher, { ...clearedRun, captcha: "unsolved" });
+    expect(await book.recall(OWNER)).toMatchObject({ outcome: "site_blocked", reason: "captcha" });
+    const response = await viewOnBrowserbase(env, "/view/frame", { owner: OWNER }, api.fetcher);
+    expect(stops(api.calls)).toEqual([]);
+    expect(await book.recall(OWNER)).toMatchObject({ id: USE_SESSION, outcome: "site_blocked", cleared: true });
+    expect(response.status).toBe(200);
+    expect(api.connected).toEqual([USE_CDP.replace(/^wss:/, "https:")]);
+  });
+
+  it("releases a trial whose only browse failed", async () => {
+    const book = new BrowseLedger(ledgerKv());
+    const api = viewVendor();
+    const env = ledgerEnv(book);
+    await browseKept(env, api.fetcher, { ...clearedRun, ran: [{ do: "click", ok: false, reason: "nothing there" }] });
+    expect(await book.recall(OWNER)).toMatchObject({ outcome: "error", cleared: false });
+    const response = await viewOnBrowserbase(env, "/view/frame", { owner: OWNER }, api.fetcher);
+    expect(response.status).toBe(200);
+    expect(stops(api.calls)).toHaveLength(1);
+    expect(await book.recall(OWNER)).toBeNull();
+    expect(api.connected).toEqual(["https://connect.example/mine"]);
+  });
+
+  it("keeps a session that cleared before this flag when a later step fails", async () => {
+    const book = new BrowseLedger(ledgerKv());
+    await book.remember(OWNER, {
+      id: USE_SESSION,
+      cdpUrl: USE_CDP,
+      host: "wwws.airfrance.com",
+      started: Date.now(),
+      outcome: "ok",
+      charged: false,
+    });
+    const api = viewVendor();
+    const env = ledgerEnv(book);
+    await browseKept(env, api.fetcher, { ...clearedRun, ran: [{ do: "click", ok: false, reason: "nothing there" }] });
+    expect(api.calls.some((entry) => entry.method === "POST" && entry.url.endsWith("/api/v4/browsers"))).toBe(false);
+    expect((await book.recall(OWNER))?.outcome).toBe("error");
+    const response = await viewOnBrowserbase(env, "/view/frame", { owner: OWNER }, api.fetcher);
+    expect(stops(api.calls)).toEqual([]);
+    expect(await book.recall(OWNER)).toMatchObject({ id: USE_SESSION, outcome: "error", cleared: true });
+    expect(response.status).toBe(200);
+    expect(api.connected).toEqual([USE_CDP.replace(/^wss:/, "https:")]);
   });
 });
 

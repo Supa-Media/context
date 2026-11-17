@@ -150,15 +150,26 @@ export async function releaseOwnedBrowserUse(env: BrowserUseEnv, owner: string, 
 }
 
 /**
+ * Whether this session has had a cleared run. A record written before
+ * `cleared` existed is judged by its last outcome, which was the only signal.
+ */
+function hadCleared(session: OwnedSession | null): boolean {
+  if (!session) return false;
+  if (typeof session.cleared === "boolean") return session.cleared;
+  return session.outcome === "ok";
+}
+
+/**
  * The CDP url of the owner's Browser Use browser, for the person's own view,
- * when that browser is the one the question moved to. A session whose steps
- * did not clear is released here, so the live view stays on Browserbase.
+ * when that browser is the one the question moved to. A session that has
+ * never cleared is released here, so a missed close does not show the trial.
+ * One that has cleared stays, even when the last call failed or met a captcha.
  * The url never leaves this Worker.
  */
 export async function browserUseCdp(env: BrowserUseEnv, owner: string, fetcher: typeof fetch = fetch): Promise<string | null> {
   const session = await ledgerStub(env)?.recall(owner).catch(() => null);
   if (!session || session.charged) return null;
-  if (session.outcome !== "ok") {
+  if (!hadCleared(session)) {
     await releaseOwned(env, owner, fetcher);
     return null;
   }
@@ -265,6 +276,10 @@ export async function browseOnBrowserUse(
       result = await driveWithinCap();
     }
     const classified = outcomeOf(result);
+    // A trial can reuse a browser an earlier question already cleared. That
+    // browser stays showable. The last call's outcome is what the call log
+    // records when the session finally stops.
+    const reused = existing && !existing.charged ? existing : null;
     const owned: OwnedSession = {
       id: created.id,
       cdpUrl: created.cdpUrl,
@@ -273,6 +288,7 @@ export async function browseOnBrowserUse(
       outcome: classified.outcome,
       ...(classified.reason ? { reason: classified.reason } : {}),
       proxy,
+      cleared: hadCleared(reused) || classified.outcome === "ok",
       charged: false,
     };
     if (keep && stub) {
