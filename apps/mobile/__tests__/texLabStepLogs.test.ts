@@ -38,6 +38,7 @@ const entries: LedgerEntry[] = [
   run("answerCheck", { draft: 8, reviewedAs: "report" }, { passed: true }),
   run("afterReply", { texts: 1 }, { threads: ["trip"], score: 4 }),
   run("chatDays", { texts: 1 }, { outcome: "summed", written: 1, missing: 0 }),
+  run("moveJudge", { action: "move_note", path: "projects/agenda.md", workspace: "band" }, { allow: true, reason: "they said yes to the offer" }),
   run("jobadv", { role: "check" }, { state: "keep_going" }),
   run("learn", { question: "plan the trip" }, { nudge: { outcome: "skipped" }, reflect: { outcome: "skipped" } }),
   step("door", { input: { chat: "group", kind: "text", covers: ["1000-000001"] }, output: { model: "anthropic/claude-haiku-5-5", effort: "medium", reviewer: "on", advisor: "on", planner: "off" } }),
