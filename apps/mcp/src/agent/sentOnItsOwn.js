@@ -18,6 +18,17 @@
  */
 
 const BY_ITSELF = /^\(Not a text from them\.\s*/;
+
+/**
+ * Why a routine's text went out, for a routine's note, which keeps its path and no `about` (`finishARoutine.js`).
+ * Both readers use it (`ledgerConversation.js`, `ledgerHistory.js` `noteEvent`): with only the first, a one-to-one
+ * routine's text reached a turn's chat only through `sentByItself.js`, a day long, so Tex forgot after 24 hours it had
+ * sent it (Dev2, 2026-11-17).
+ */
+export const routineLine = (path) => `(Not a text from them. Your routine ${path} ran on its schedule and you texted them what follows.)`;
+
+/** Why a note Tex sent by itself went out: its `about`, or a routine's line from its path; null for any other note. */
+export const noteAbout = (entry) => (typeof entry?.about === "string" ? entry.about : typeof entry?.routine === "string" && entry.routine !== "" ? routineLine(entry.routine) : null);
 const RELAYED = /another of their agents asked you/i;
 /** A reason longer than this is cut: it is a label, never instructions to follow. */
 export const MAX_WHY_CHARS = 200;

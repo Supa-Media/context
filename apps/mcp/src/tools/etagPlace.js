@@ -25,6 +25,8 @@
  * below only ever see the bare version.
  */
 
+import { addressByPath } from "./pathAddress.js";
+
 /** The arguments that hand a note's version back, at the top of a call and inside a batch's items. */
 const ETAG_FIELDS = ["expected_etag", "expected_source_etag", "expected_privacy_etag"];
 const ITEM_LISTS = ["moves", "notes"];
@@ -179,4 +181,28 @@ export function etagWorkspaceRefusal(args, { context, own }) {
     if (placed && placed.workspace !== here) return wrongWorkspace(field, placed.workspace, here, path);
   }
   return null;
+}
+
+/** `etagWorkspaceRefusal` for a call not yet routed: the place it names by `context` or path, else `own` (`@name`). */
+export function etagRefusalByName(name, supplied, own) {
+  if (!supplied || typeof supplied !== "object" || Array.isArray(supplied)) return null;
+  const args = { ...supplied };
+  if (addressByPath(name, args)) return null;
+  const context = name === "move_note" ? args.source_context : args.context;
+  return etagWorkspaceRefusal(args, { context: typeof context === "string" ? context : null, own });
+}
+
+/** A value `gate.ownWorkspace` takes when plain paths were seen to mean two places: the stub then checks nothing. */
+const SEVERAL = "";
+
+/**
+ * Keep on a Lab test chat's gate which workspace a plain path means: the session's own, whatever the call addressed. A
+ * test turn's writes are answered by the test chat before they are routed (`agent/turn.js`, `policy.js` `toolAnswer`),
+ * so this is how that stub knows. Two sessions in one turn (a chat home's own dispatch beside the person's) leave it
+ * checking nothing, never refusing a write the real gateway would take.
+ */
+export function noteOwnWorkspace(gate, own) {
+  if (!gate || typeof gate !== "object" || typeof own !== "string" || own === "") return;
+  if (gate.ownWorkspace === undefined) gate.ownWorkspace = own;
+  else if (gate.ownWorkspace !== own) gate.ownWorkspace = SEVERAL;
 }
