@@ -636,3 +636,28 @@ test("a group's earlier picture is kept in its home, where the next turn is show
     world.close();
   }
 });
+
+// A page an earlier job says it wrote is there for the next turn, holding only the chat's words about it, and a note
+// already there is left alone. Sabotage: drop the `seed` calls in `worldChat.mjs` and the page reads back null.
+test("a note an earlier job report or Tex text links is written from the chat's words, and an existing one kept", async () => {
+  const world = await createWorld(bench, "Maya", SETUP, { gatewayFetch: async () => new Response("{}", { status: 500 }), ledgerTurns: true });
+  try {
+    world.place("projects/kept.md", "# Kept\n\nalready here\n");
+    await world.earlier([
+      { from: "person", text: "plan the trip" },
+      { from: "trigger", via: "job", report: { title: "plan the trip", state: "done", text: "Flights compared. Page written: context://@maya/projects/trip/plan.md. Present to Maya.", asked: "plan the trip" } },
+      { from: "tex", text: "All on one page: context://@maya/projects/trip/plan.md" },
+      { from: "tex", text: "Fastest is the nonstop, $1,180." },
+      { from: "person", text: "and the other one?" },
+      { from: "tex", text: "Notes are here: context://@maya/projects/kept.md." },
+    ]);
+    const page = await world.readThrough("projects/trip/plan.md");
+    assert.ok(page, "the linked page was written");
+    assert.match(page.body, /Flights compared/);
+    assert.match(page.body, /Fastest is the nonstop, \$1,180\./);
+    assert.doesNotMatch(page.body, /context:\/\//);
+    assert.match((await world.readThrough("projects/kept.md")).body, /already here/);
+  } finally {
+    world.close();
+  }
+});
