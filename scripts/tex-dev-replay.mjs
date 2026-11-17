@@ -49,7 +49,7 @@ if (process.argv.includes("--check")) {
   const have = fs.existsSync(OUT) ? fs.readFileSync(OUT, "utf8") : "";
   if (have !== wanted) {
     console.error("apps/mcp/src/texDev/replay.generated.js is not what the Lab's Replay builds.");
-    console.error("Run `node scripts/tex-dev-replay.mjs` and commit the result.");
+    console.error("Run `node scripts/tex-dev-replay.mjs` (built on install, never committed).");
     process.exit(1);
   }
   console.log("tex-dev replay: up to date");

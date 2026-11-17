@@ -630,5 +630,6 @@ test/workspaceConventions.test.mjs
 test/workspaceConventionsTurn.test.mjs
 test/checkInTraining.test.mjs
 test/tapbackEnding.test.mjs
+test/jobPartEnd.test.mjs
 test/agentCheckFindings.test.mjs
 test/jobSaved.test.mjs

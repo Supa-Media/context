@@ -1,4 +1,13 @@
 {
   "about": "Nodes whose code is merged into apps/mcp/src/agent/graph/gatewayNodes.js but not wired into texConfig.json yet (Dev2, 2026-11-16: \"for code changes, create the node inside the code first and merge it to main\"). A shelf node never runs: the runner runs only the config's nodes. A Lab draft wires it, and Promote takes it off the shelf in the same pull request that puts it in the config. Each entry: the node's id, its files (repository paths), and what it is for.",
-  "nodes": {}
+  "nodes": {
+    "partEnd": {
+      "files": [
+        "apps/mcp/src/agent/graph/nodes/partEnd.js",
+        "packages/shared/src/jobPartEnd.cjs",
+        "packages/shared/src/jobPartEnd.d.cts"
+      ],
+      "why": "Part end (Dev2, 2026-11-17, jobs as config, step 5): after each part of a background job, says what follows: the next part (carry), the last saved draft (deliver), or the job's end and how it ended, under limits that are the node's own config (parts 10, minutes 30, machineParts 96, machineMinutes 240). Wired as job -> partEnd (wait), partEnd -> job (generator, when carry), partEnd -> handback (when deliver/end); unwired, runJob in apps/agent/src/jobRun.ts still decides."
+    }
+  }
 }

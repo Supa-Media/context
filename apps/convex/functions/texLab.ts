@@ -14,6 +14,7 @@ import { query } from "../_generated/server";
 import { requireAdmin } from "./lib/admin";
 import { handleForUser } from "./lib/identities";
 import { mutation } from "./lib/rowWatch/mutations";
+import { isStamp } from "@context/shared/src/texConfigStamp.cjs";
 import { recordSave } from "./texLabDrafts";
 import { deleteDraftRows } from "./lib/texLabDraftWrites";
 
@@ -64,7 +65,7 @@ export const list = query({
 
 /** Save a version (a new one or over itself). `main` keeps only its run results. */
 export const saveVersion = mutation({
-  args: { versionId: v.string(), name: v.string(), graph: v.string(), picks: v.string(), areas: v.optional(v.string()), results: v.string(), createdAt: v.number() },
+  args: { versionId: v.string(), name: v.string(), graph: v.string(), picks: v.string(), areas: v.optional(v.string()), results: v.string(), createdAt: v.number(), base: v.optional(v.string()) },
   returns: v.null(),
   handler: async (ctx, a) => {
     const actor = await requireAdmin(ctx);
@@ -78,7 +79,8 @@ export const saveVersion = mutation({
     const fields = { name: a.name.trim() || "Untitled", graph: a.graph, picks: a.picks, areas: a.areas, results: a.results, updatedAt: now };
     // Every save is a revision with what it changed, so an AI in the draft over `tex_dev` reads it (`texLabDrafts.ts`).
     if (row) await ctx.db.patch(row._id, { ...fields, ...(a.versionId === "main" ? {} : { rev: await recordSave(ctx, row, a.graph, actor.userId, now, { name: fields.name, picks: a.picks, areas: a.areas, results: a.results }) }) });
-    else await ctx.db.insert("texLabVersions", { versionId: a.versionId, authorId: actor.userId, createdAt: a.createdAt || now, ...fields, rev: 0 });
+    // The main a draft was made from is kept from its first save on: a later save never moves it.
+    else await ctx.db.insert("texLabVersions", { versionId: a.versionId, authorId: actor.userId, createdAt: a.createdAt || now, ...fields, rev: 0, ...(a.versionId !== "main" && isStamp(a.base) ? { base: a.base } : {}) });
     return null;
   },
 });

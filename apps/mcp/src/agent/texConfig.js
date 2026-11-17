@@ -17,9 +17,12 @@ import PROMPT from "../../../../packages/shared/src/texPrompt.generated.json" wi
 import TRAINING from "../../../../packages/shared/src/texTraining.generated.json" with { type: "json" };
 import SHELF from "../../../../packages/shared/src/texNodeShelf.json" with { type: "json" };
 import { TRAIN_ENTRY, moduleText, trainName } from "../../../../packages/shared/src/texTraining.cjs";
+import { configStamp } from "../../../../packages/shared/src/texConfigStamp.cjs";
 import { sandboxGateOf } from "../labSandbox/policy.js";
 
 export const TEX_CONFIG = CONFIG;
+/** The stamp of the config this code runs: a draft made from main keeps it, so Promote merges only its own changes (`texConfigStamp.cjs`). */
+export const CONFIG_STAMP = configStamp(CONFIG);
 
 /**
  * Steps on the shelf (`texNodeShelf.json`; Dev2, 2026-11-16: "for code changes, create the node inside the code first

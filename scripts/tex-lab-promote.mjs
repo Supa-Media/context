@@ -18,7 +18,9 @@
  * file is rebuilt, so the pull request's fingerprints show the changed prompt and the replay gate runs. A new
  * `p-<name>` module with words is a new file; which steps read it, and where, is the steps' context in the config.
  *
- *   node scripts/tex-lab-promote.mjs <graph.json>          write the config and the table
+ *   node scripts/tex-lab-promote.mjs <graph.json> --base <stamp> --made <ms> [--summary <file>]
+ *                                                          merge the draft's own changes onto main (Promote)
+ *   node scripts/tex-lab-promote.mjs <graph.json>          write the graph as it is (a Lab Run on a branch's code)
  *   node scripts/tex-lab-promote.mjs <graph.json> --check  only say whether it would be refused
  *   node scripts/tex-lab-promote.mjs --self-test
  */
@@ -27,6 +29,7 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { CONFIG, MODULE as MAP_MODULE, PAGE, moduleFor as mapModuleFor, pageFor } from "./tex-architecture.mjs";
+import { clashText, findBase, mergeOntoMain, sideAt } from "./tex-lab-merge.mjs";
 import { FOLDER as PROMPT_FOLDER, MODULE as PROMPT_MODULE, moduleFor as promptModuleFor, wordsOf } from "./tex-prompt-module.mjs";
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
@@ -208,7 +211,7 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
   const args = process.argv.slice(2);
   if (args.includes("--self-test")) selfTest();
   else {
-    const file = args.find((a) => !a.startsWith("--"));
+    const file = args.find((a, i) => !a.startsWith("--") && !["--base", "--made", "--main", "--summary"].includes(args[i - 1]));
     if (!file) {
       console.error("usage: node scripts/tex-lab-promote.mjs <graph.json> [--check] | --self-test");
       process.exit(2);
@@ -222,7 +225,32 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
     }
     const current = JSON.parse(readFileSync(join(ROOT, CONFIG), "utf8"));
     const shelf = JSON.parse(readFileSync(join(ROOT, SHELF), "utf8"));
-    const made = configFrom(graph, current, wordsOf(ROOT), Object.keys(shelf.nodes ?? {}));
+    const shelfIds = Object.keys(shelf.nodes ?? {});
+    // A promotion is a merge onto main (Dev2, 2026-11-17): the draft's own changes since the main it started from
+    // (`--base <stamp>`, `--made <ms>`), never its whole graph (`tex-lab-merge.mjs`). Without them (the Lab's Run on a
+    // branch's code) the graph is written as it is, as before.
+    const flag = (name) => {
+      const i = args.indexOf(name);
+      return i >= 0 ? args[i + 1] : undefined;
+    };
+    let made;
+    let note = "";
+    if (flag("--base") !== undefined || flag("--made") !== undefined) {
+      const found = findBase({ stamp: flag("--base"), made: Number(flag("--made")) }, flag("--main") ?? "HEAD");
+      if (!found) {
+        console.error("tex-lab-promote: refused: the main this draft was made from is not on main any more, so its own changes can't be told from main's; make a fresh draft from main and redo them");
+        process.exit(1);
+      }
+      const merged = mergeOntoMain({ graph, base: sideAt(found.commit), main: { config: current, words: wordsOf(ROOT) }, shelf: shelfIds, configFrom });
+      if (merged.clashes?.length) {
+        console.error(`tex-lab-promote: refused: ${clashText(merged.clashes, found.commit)}`);
+        process.exit(1);
+      }
+      made = merged;
+      note = `merged onto main from ${found.commit.slice(0, 7)}${found.guessed ? " (taken from when the draft was made: it was saved before drafts kept their base)" : ""}: ${merged.kept.length} change${merged.kept.length === 1 ? "" : "s"} of its own, ${merged.theirs} of main's since kept`;
+      const summary = flag("--summary");
+      if (summary && !args.includes("--check")) writeFileSync(summary, JSON.stringify({ base: found.commit, guessed: found.guessed, kept: merged.kept, theirs: merged.theirs }));
+    } else made = configFrom(graph, current, wordsOf(ROOT), shelfIds);
     if (made.refused) {
       console.error(`tex-lab-promote: refused: ${made.refused}`);
       process.exit(1);
@@ -241,6 +269,6 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
       }
     }
     const changed = Object.keys(made.words);
-    console.log(`tex-lab-promote: ${args.includes("--check") ? "would write" : "wrote"} ${CONFIG}, ${PAGE}'s drawing and table and ${MAP_MODULE}${changed.length > 0 ? `, and the words of ${changed.join(", ")}` : ""}`);
+    console.log(`tex-lab-promote: ${args.includes("--check") ? "would write" : "wrote"} ${CONFIG}, ${PAGE}'s drawing and table and ${MAP_MODULE}${changed.length > 0 ? `, and the words of ${changed.join(", ")}` : ""}${note ? `; ${note}` : ""}`);
   }
 }

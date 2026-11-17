@@ -41,6 +41,22 @@ describe("promoting a Lab version", () => {
     expect((await staff.query(api.functions.texLab.list, {})).versions[0].promote).toEqual({ state: "opened", pr: PR, why: null });
   });
 
+  test("an ask carries the main the draft was made from, kept from its first save, so Promote merges rather than overwrites", async () => {
+    const t = tester();
+    const staff = withSession(t, await user(t, ADMIN));
+    await staff.mutation(api.functions.texLab.saveVersion, { ...version, base: "c0123456789abcd" });
+    // A later save never moves it, and a value that is not a stamp is never kept.
+    await staff.mutation(api.functions.texLab.saveVersion, { ...version, name: "Again", base: "c00000000000000" });
+    await staff.mutation(api.functions.texLab.saveVersion, { ...version, versionId: "vnobase", base: "not a stamp" });
+    await staff.mutation(api.functions.texLabPromote.ask, { versionId: "vabc123" });
+    await staff.mutation(api.functions.texLabPromote.ask, { versionId: "vnobase" });
+    const asks = await t.query(internal.functions.texLabPromote.asked, {});
+    expect(asks.map((a) => [a.versionId, a.base, a.made])).toEqual([
+      ["vabc123", "c0123456789abcd", 1],
+      ["vnobase", "", 1],
+    ]);
+  });
+
   test("a refusal says why, and an answer for an older ask leaves the newer one waiting", async () => {
     const t = tester();
     const staff = withSession(t, await user(t, ADMIN));

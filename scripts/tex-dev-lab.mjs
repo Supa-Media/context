@@ -50,7 +50,7 @@ if (process.argv.includes("--check")) {
   const have = fs.existsSync(OUT) ? fs.readFileSync(OUT, "utf8") : "";
   if (have !== wanted) {
     console.error("apps/mcp/src/texDev/lab.generated.js is not what the Lab's engine builds.");
-    console.error("Run `node scripts/tex-dev-lab.mjs` and commit the result.");
+    console.error("Run `node scripts/tex-dev-lab.mjs` (built on install, never committed).");
     process.exit(1);
   }
   console.log("tex-dev lab: up to date");
