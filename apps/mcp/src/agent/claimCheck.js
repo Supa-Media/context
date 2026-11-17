@@ -474,6 +474,7 @@ export function claimCheck({ question, judge = null, waiting = false, corrects =
   // A note link in the answer that no tool gave (`linkCheck.js`).
   const links = noteLinkCheck({ origin, question, history });
   let linkNoticed = false;
+  const saw = (name, args, result) => void ((keptRead = keptRead || readsAKeptFile(name, args) === true), figures.read(result, { args }), result?.isError !== true && links.read(result)); // what a read showed
   return {
     /** The turn's web (`turnWeb.js`), watched for whether anything on it was tried. */
     wrapWeb(web) {
@@ -498,24 +499,13 @@ export function claimCheck({ question, judge = null, waiting = false, corrects =
         },
       };
     },
-    /**
-     * A read an earlier try of this text ran, put back for this one (`turnResume.js`): what it showed counts as read,
-     * as if this try had run it. Only reads ever carry on (`savedRounds.js` `carriesOn`), so nothing here writes.
-     */
-    reread(name, args, result) {
-      if (readsAKeptFile(name, args)) keptRead = true;
-      figures.read(result, { args });
-      if (result?.isError !== true) links.read(result);
-      steps.push({ name, ok: result?.isError !== true, ...(typeof args?.action === "string" ? { action: args.action } : {}) });
-    },
+    reread: (name, args, result) => void (saw(name, args, result), steps.push({ name, ok: result?.isError !== true, ...(typeof args?.action === "string" ? { action: args.action } : {}) })), // a read an earlier try of this text ran, put back (`turnResume.js`): it counts as read
     wrap(callTool) {
       return async (name, args) => {
         // "File this as a bug": a note write waits for the report (`bugCheck.js`).
         const refused = writeBeforeReport(question, name, args, steps) ?? lessonInAboutMe(question, name, args);
-        if (readsAKeptFile(name, args)) keptRead = true;
         const result = refused ?? (await callTool(name, args));
-        figures.read(result, { args });
-        if (result?.isError !== true) links.read(result);
+        saw(name, args, result);
         const images = args?.images ?? args?.args?.images;
         // A write that carried pictures, so "the note now has a picture" can be checked (`claimsNotePicture`); a held call is marked, as a held bug report is filed.
         steps.push({ name, ok: result?.isError !== true, ...(typeof args?.action === "string" ? { action: args.action } : {}), ...(result?.held === true ? { held: true } : {}), ...(Array.isArray(images) && images.length > 0 ? { images: true } : {}), ...(result?.isError !== true && isWrite(name) && /\.page\.md$/i.test(String(args?.path ?? "")) ? { page: true } : {}), ...(result?.isError !== true && isWrite(name) && barePageWritten(args) ? { bare: barePageWritten(args) } : {}), ...noteStep(name, args, isWrite(name)) });
