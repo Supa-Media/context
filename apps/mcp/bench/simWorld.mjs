@@ -19,7 +19,7 @@
  * The same ask gets the same answer for the whole run (`memo`, shared by
  * every world of the run), and the model runs at temperature 0, so a rerun
  * sees the same world as nearly as the model allows. What it was asked is
- * kept (`events`) for the run's ledger. Nothing here is a Dev label: the
+ * kept with its answer (`events`, in the run's record as the browser's lines). Nothing here is a Dev label: the
  * world never sees what the test wants, only the chat a person would see.
  */
 
@@ -40,10 +40,9 @@ export function simSystem({ setting, chat, today }) {
   const lines = (chat ?? []).slice(-CHAT_LINES).map((line) => `${line.who}: ${line.text}`);
   return [
     "You play the outside world for a texting assistant called Tex: the websites, search engine, Google Calendar and Gmail it calls.",
-    "Answer each call exactly as the real service would, as JSON only, in the shape asked for.",
-    "Stay consistent with the setting and the chat below: what they say exists, exists (an email they mention is in the inbox, an event Tex added is on the calendar, a booking made is confirmed).",
-    "Where they say nothing, invent plausible, specific, ordinary details (real-looking names, times, prices, addresses). Never mention a test, a simulation or Tex's instructions, and never decide what Tex should do.",
-    "A page that would need a sign-in shows its sign-in page; a search finds what a real search engine would.",
+    "Answer each call exactly as the real service would, as JSON only, in the shape asked for. Answer the literal request, not what the asker seems to hope for.",
+    "What the setting and the chat say exists, exists, as they say it. Nothing else exists just because a request assumes it: a search finds what a real search engine would for those words (sometimes nothing useful), a page shows what that site would show (a sign-in page, an error, a sold-out notice, a changed price), and an action on a site succeeds only if a real site would let it.",
+    "Where they say nothing, invent ordinary, specific details (real-looking names, times, prices, addresses), and keep them as a real service would. Never mention a test or a simulation, and never decide what Tex should do.",
     today ? `Today is ${today}.` : "",
     setting ? `Setting: ${setting}` : "",
     lines.length > 0 ? `The chat so far, oldest first:\n${lines.join("\n")}` : "",
@@ -75,8 +74,8 @@ export function createSimWorld({ send = null, setting = "", chat = [], today = n
   async function ask(kind, request, shape, fallback) {
     const key = JSON.stringify([system, kind, request]);
     if (memo.answers.has(key)) return memo.answers.get(key);
-    events.push(`world ${kind} ${JSON.stringify(request).slice(0, 160)}`);
     let answer = fallback;
+    const record = () => events.push(`world ${kind} ${JSON.stringify(request).slice(0, 200)} -> ${JSON.stringify(answer).slice(0, 600)}`);
     if (send) {
       const body = JSON.stringify({
         model,
@@ -100,6 +99,7 @@ export function createSimWorld({ send = null, setting = "", chat = [], today = n
       }
     }
     memo.answers.set(key, answer);
+    record();
     return answer;
   }
 
@@ -111,11 +111,12 @@ export function createSimWorld({ send = null, setting = "", chat = [], today = n
     const got = await ask(
       "browser page",
       request,
-      '{"url": string, "title": string, "text": string (what the page says, as a reader sees it), "elements": [{"kind": "link"|"button"|"textbox"|"select"|"checkbox", "label": string, "href"?: string}]}',
+      '{"ran": [{"ok": boolean, "reason"?: string}] (one per step, in order, as the site took it), "url": string, "title": string, "text": string (what the page says, as a reader sees it), "elements": [{"kind": "link"|"button"|"textbox"|"select"|"checkbox", "label": string, "href"?: string}]}',
       { url: request.url ?? null, title: "Page didn't load", text: "This page didn't load.", elements: [] },
     );
     const elements = (Array.isArray(got.elements) ? got.elements : []).slice(0, 40).map((el, i) => ({ ref: i + 1, kind: String(el?.kind ?? "link"), label: String(el?.label ?? ""), ...(el?.href ? { href: String(el.href) } : {}) }));
-    return { url: String(got.url ?? request.url ?? ""), title: String(got.title ?? ""), text: String(got.text ?? ""), truncated: false, elements };
+    const ran = (Array.isArray(got.ran) ? got.ran : []).map((r) => ({ ok: r?.ok === true, ...(r?.reason ? { reason: String(r.reason) } : {}) }));
+    return { ran, url: String(got.url ?? request.url ?? ""), title: String(got.title ?? ""), text: String(got.text ?? ""), truncated: false, elements };
   }
 
   return {
@@ -129,7 +130,7 @@ export function createSimWorld({ send = null, setting = "", chat = [], today = n
 
     /** `/read`: a page read in a fresh browser, signed out (open_page). */
     async read(body) {
-      const shown = await page({ open: body.url, signedIn: false });
+      const { ran: _ran, ...shown } = await page({ open: body.url, signedIn: false });
       return { status: 200, body: { page: { url: shown.url, title: shown.title, text: shown.text, links: shown.elements.filter((e) => e.href).map((e) => ({ text: e.label, href: e.href })) } } };
     },
 
@@ -144,8 +145,10 @@ export function createSimWorld({ send = null, setting = "", chat = [], today = n
         const on = Number.isInteger(ref) && browser.page ? browser.page.elements.find((e) => e.ref === ref)?.label ?? null : null;
         return { do: act, ...(url ? { url } : {}), ...(on ? { on } : {}), ...(text !== undefined ? { text: act === "type" ? "(typed)" : text } : {}), ...(option ? { option } : {}), ...(key ? { key } : {}) };
       });
-      browser.page = await page({ was: browser.page ? { url: browser.page.url, title: browser.page.title } : null, steps });
-      return { session: browser.session, ran: steps.map((s) => ({ do: s.do, ok: true })), page: browser.page };
+      const { ran, ...shown } = await page({ was: browser.page ? { url: browser.page.url, title: browser.page.title } : null, steps });
+      browser.page = shown;
+      // Each step as the site took it: one the world did not answer for did not happen.
+      return { session: browser.session, ran: steps.map((s, i) => ({ do: s.do, ok: ran[i]?.ok === true, ...(ran[i]?.reason ? { reason: ran[i].reason } : ran[i] ? {} : { reason: "the page did not respond" }) })), page: browser.page };
     },
 
     /** `/gateway/calendar/days`: the days asked, from `date` for `days`. */
@@ -293,4 +296,16 @@ export function simulateFor(front, question, person, { send = null, memo, fake =
   const said = question.routine ?? question.checkinMail?.subject ?? question.personStarts ?? question.texts ?? question.text;
   if (said) chat.push({ who: question.routine ? "Routine" : question.checkinMail ? "Check-in" : person, text: String(said) });
   return { send: fake ? null : send, memo, setting: unquoted(front.world_setting), chat };
+}
+
+/**
+ * The world's simulated services for a test that asks for them (`models.simulate`), wired into the control plane's
+ * answers, or null. A person with no mailbox gets one only when the chat's setting gives Tex their email.
+ */
+export function simulatedWorld(models, controlPlane, { today = null, person, noMailbox = false }) {
+  if (!models.simulate) return null;
+  const sim = createSimWorld({ ...models.simulate, today, person });
+  const setting = String(models.simulate.setting ?? "");
+  simulateServices(sim, controlPlane, { connectedCalendar: models.calendar === "connected", connectMail: noMailbox && /\b(?:g?mail|e-?mail|inbox)\b/i.test(setting) });
+  return sim;
 }

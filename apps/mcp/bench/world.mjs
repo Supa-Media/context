@@ -27,7 +27,7 @@ import worker from "../src/index.js";
 import { PRODUCTION_TEXTING_PATH } from "../src/agent/production.js";
 import { skillPath } from "../src/agent/skills.js";
 import { createWeb } from "./sites.mjs";
-import { createSimWorld, simBinding, simulateServices } from "./simWorld.mjs";
+import { simBinding, simulatedWorld } from "./simWorld.mjs";
 import { createBenchSite } from "./siteStub.mjs";
 import { CONTROL_PLANE_ORIGIN, GATEWAY_SECRET, createControlPlaneStub, createS3Backend } from "../test/controlPlaneStub.mjs";
 import { rmSync } from "node:fs";
@@ -231,9 +231,7 @@ export async function createWorld(bench, person, setupRaw, models, today = null,
   // The scripted web a golden task runs on (`sites.mjs`): the browser
   // Worker's stand-in, and the answers to web searches.
   const web = models.sites?.length ? createWeb(models.sites) : null;
-  // A Dev test's outside world where the scripted web and the fixtures have nothing (`simWorld.mjs`, Dev2 2026-11-17).
-  const sim = models.simulate ? createSimWorld({ ...models.simulate, today, person }) : null;
-  if (sim) simulateServices(sim, controlPlane, { connectedCalendar: models.calendar === "connected", connectMail: mail.length === 0 && /\b(?:g?mail|e-?mail|inbox)\b/i.test(models.simulate.setting ?? "") });
+  const sim = simulatedWorld(models, controlPlane, { today, person, noMailbox: mail.length === 0 }); // a Dev test's outside world (`simWorld.mjs`)
 
   // Model calls are the only traffic that leaves the world, and web searches
   // when the run has a search key and no scripted web: production searches

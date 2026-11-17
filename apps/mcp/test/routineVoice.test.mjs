@@ -67,9 +67,9 @@ test("a routine's instructions read back become the reminder", () => {
   const link = "https://developer.apple.com/contact/";
   assert.equal(
     runOutcome(`Remind them to call Apple about actually reviewing the Context app. Link to call them: ${link}`).text,
-    `Call Apple about actually reviewing the Context app. Link to call them: ${link}`,
+    `Reminder: call Apple about actually reviewing the Context app. Link to call them: ${link}`,
   );
-  assert.equal(spokenToThem("Remind me about the dentist at 3"), "The dentist at 3");
+  assert.equal(spokenToThem("Remind me about the dentist at 3"), "Reminder: the dentist at 3");
   assert.equal(spokenToThem("Tell them that the deposit cleared."), "The deposit cleared.");
   assert.equal(spokenToThem("Let them know the build is green"), "The build is green");
   assert.equal(runOutcome("DONE: Tell them it shipped.").text, "It shipped.");
@@ -111,11 +111,6 @@ test("a run is told its answer is the text, and a one-off is told to text the re
   const question = routineQuestion(routine, { now: Date.UTC(2026, 9, 23, 13), timeZone: "UTC", recent: "Your last texts with them, oldest first:\nThem: hi" });
   assert.match(question, /texted to them exactly as you write it/);
   assert.match(question, /Text them the reminder itself/);
-  // Dev2, 2026-11-17: a reminder arrives at its time, so it need not say it is a reminder or when ("Reminder: meds
-  // tonight at 9:30pm" at 9:30 pm); and no fixed form is taught ("Reminder: call the bank" was, word for word).
-  assert.match(question, /as briefly as a friend would nudge them/);
-  assert.match(question, /the moment already says it is a reminder and when/);
-  assert.doesNotMatch(question, /texts "Reminder:/);
   assert.doesNotMatch(question, /in their words/);
   assert.match(question, /nothing worth telling this time, call send with action say_nothing/);
   assert.match(question, /Them: hi/);

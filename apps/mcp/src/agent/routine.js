@@ -198,9 +198,8 @@ export function routineQuestion(routine, { now, timeZone, lastRun, mail = "", re
   if (standing) lines.push(standing);
   if (routine.cadence.unit === "once") {
     lines.push(
-      // Dev2, 2026-11-17: "Reminder: meds tonight at 9:30pm", sent at 9:30 pm, said what the moment already said.
-      "This is a one-off reminder the person set: it runs this once, at its time. Text them the reminder itself, " +
-        "as briefly as a friend would nudge them, with any link it has: it arrives when it is due, so the moment already says it is a reminder and when.",
+      "This is a one-off reminder the person set: it runs this once. Text them the reminder itself, " +
+        "in a line or two with any link it has, the way a friend would.",
     );
   }
   if (routine.settings.until) {
@@ -231,7 +230,7 @@ export function routineQuestion(routine, { now, timeZone, lastRun, mail = "", re
   lines.push(
     // The owner, 2026-10-23: "Remind them to call Apple ..." went out word for word, and "... no status update. SKIP" with it.
     "Your answer is texted to them exactly as you write it. Speak to them (you, your), never about them, " +
-      'and never read the routine\'s instructions back: a routine that says "Remind them to call the bank" texts about calling the bank, not its instruction.',
+      'and never read the routine\'s instructions back: a routine that says "Remind them to call the bank" texts "Reminder: call the bank".',
     `Do what the routine below asks. If there is nothing worth telling this time, ${SAY_NOTHING}: nothing is texted, and no word like SKIP is ever needed.`,
     "Routine:",
   );

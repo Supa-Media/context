@@ -57,6 +57,20 @@ test("a run with no model answers with nothing rather than failing", async () =>
   assert.equal(jsonIn("no json here"), null);
 });
 
+test("the world is told to answer the literal request, and nothing exists because a request assumes it", () => {
+  const system = simSystem({ setting: "s", chat: [] });
+  assert.match(system, /Answer the literal request/);
+  assert.match(system, /Nothing else exists just because a request assumes it/);
+  assert.doesNotMatch(system, /is confirmed/, "the world never promises an action worked");
+});
+
+test("no field of a question but the chat and its text reaches the world", () => {
+  const sentinel = "LABEL-SENTINEL";
+  const question = { text: "hi", earlier: [{ from: "person", text: "before" }], body: sentinel, musts: [sentinel], mustNots: [sentinel], must: sentinel, never: sentinel, labels: { fd: { must: [sentinel] } }, ifAsked: [sentinel], checks: [sentinel], want: sentinel, title: sentinel };
+  const sim = simulateFor({ world: "simulated", world_setting: "s" }, question, "Remi", { memo: simMemo() });
+  assert.doesNotMatch(JSON.stringify(sim) + simSystem(sim), new RegExp(sentinel));
+});
+
 test("the world is shown the chat a person sees, never the test's must lines", () => {
   const question = { text: "Tex put friday 7pm house dinner on the calendar", earlier: [{ from: "person", who: "priya", text: "friday works" }, { from: "tex", text: "Logged." }], body: "- must: the reaction is enough" };
   const sim = simulateFor({ world: "simulated", world_setting: '"Flatmates; Tex has the shared calendar."' }, question, "John", { send: null, memo: simMemo() });
@@ -117,7 +131,7 @@ test("a person with no mailbox gets one only when the chat's setting gives Tex t
 });
 
 test("a scripted site's page stays scripted; any other page and browser is the world's", async () => {
-  const { send, asked } = scriptedSend({ "browser page": { url: "https://www.flytap.example/manage", title: "Manage booking", text: "TP 237 delayed 50 min", elements: [{ kind: "button", label: "Check in" }] } });
+  const { send, asked } = scriptedSend({ "browser page": { ran: [{ ok: true }, { ok: false, reason: "Seat 12A is taken" }], url: "https://www.flytap.example/manage", title: "Manage booking", text: "TP 237 delayed 50 min", elements: [{ kind: "button", label: "Check in" }] } });
   const sim = createSimWorld({ send, setting: "trip" });
   const web = {
     binding: {
@@ -133,7 +147,11 @@ test("a scripted site's page stays scripted; any other page and browser is the w
   assert.equal(asked.length, 0, "the scripted page is never the model's");
   const read = await (await binding.fetch("https://s/read", json({ url: "https://www.flytap.example/manage" }))).json();
   assert.match(read.page.text, /delayed 50 min/);
-  const browsed = await (await binding.fetch("https://s/browse", json({ provider: "browserbase", owner: "o1", steps: [{ do: "goto", url: "https://www.flytap.example/manage" }] }))).json();
+  const browsed = await (await binding.fetch("https://s/browse", json({ provider: "browserbase", owner: "o1", steps: [{ do: "goto", url: "https://www.flytap.example/manage" }, { do: "click", ref: 1 }, { do: "click", ref: 1 }] }))).json();
   assert.equal(browsed.page.elements[0].ref, 1);
-  assert.equal(browsed.ran[0].ok, true);
+  assert.deepEqual(browsed.ran, [
+    { do: "goto", ok: true },
+    { do: "click", ok: false, reason: "Seat 12A is taken" },
+    { do: "click", ok: false, reason: "the page did not respond" },
+  ], "a step succeeds only when the site took it");
 });

@@ -28,7 +28,7 @@
  *      the start or the end of the answer is quiet, whatever came before it.
  *   4. Instructions read back. An answer that opens "Remind them to", "Tell
  *      them", "Text the person that" is the routine's note, not a text to
- *      them, and is turned into one: "Call Apple ...".
+ *      them, and is turned into one: "Reminder: call Apple ...".
  */
 
 import { mutedWord, readAttentionSettings } from "./attention.js";
@@ -84,7 +84,7 @@ const INSTRUCTION_LEAD = new RegExp(
 
 /**
  * The answer as a text to them: a routine's instructions read back ("Remind
- * them to call Apple") become the reminder itself ("Call Apple").
+ * them to call Apple") become the reminder itself ("Reminder: call Apple").
  * Leaves anything else exactly as it was.
  */
 export function spokenToThem(text) {
@@ -93,5 +93,6 @@ export function spokenToThem(text) {
   if (lead === null) return said;
   const rest = said.slice(lead[0].length).trim();
   if (rest === "") return said;
+  if (lead[1] !== undefined) return `Reminder: ${rest}`;
   return rest[0].toUpperCase() + rest.slice(1);
 }
