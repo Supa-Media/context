@@ -126,7 +126,8 @@ async function noteDropped(env: Env, dropped: PhotonDropped, provider: unknown):
     let chat = dropped.chatId;
     let name = dropped.from;
     if (dropped.groupId !== undefined) {
-      const arrival = await arrivedAs(env.SENDER_INBOX, { photonGroupId: dropped.groupId, photonLine: dropped.line ?? "", from: dropped.from ?? "", participants: dropped.participants ?? [] });
+      // Only the moved group's alias is read: no sender is named, so a drop can never be taken for the old number's swap note.
+      const arrival = await arrivedAs(env.SENDER_INBOX, { photonGroupId: dropped.groupId, photonLine: dropped.line ?? "", from: "", participants: [] });
       chat = arrival.from?.groupId ?? dropped.groupId;
       name = groupInboxName(chat);
     }

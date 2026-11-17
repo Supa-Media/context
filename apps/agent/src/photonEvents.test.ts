@@ -235,6 +235,16 @@ describe("PhotonEvents.event: messages the line drops", () => {
     expect(routed).toEqual([expect.objectContaining({ to: groupInboxName(photonGroupId(GUID)), path: "/dropped", body: expect.objectContaining({ chat: photonGroupId(GUID), kind: "group", reason: "empty" }) })]);
   });
 
+  it("files a drop in a moved group under the old group, and never takes it for the old number's swap note", async () => {
+    const asked: Record<string, unknown>[] = [];
+    const moves = (_path: string, body: Record<string, unknown>) => (asked.push(body), body.from === "" ? { from: { line: OTHER, groupId: "old-group" } } : { from: { line: OTHER, groupId: "old-group" }, matched: { groupKey: "k" } });
+    const { env: e, routed } = env({}, { moves });
+    const empty = event({ chat: { guid: GUID, kind: "group", participants: [PHONE, OTHER] }, from: OTHER, message: { guid: "g-0", text: " ", service: "iMessage" } });
+    expect(await entrypoint(e).event(empty)).toEqual({ status: 200 });
+    expect(asked).toEqual([expect.objectContaining({ from: "", participants: [] })]);
+    expect(routed).toEqual([expect.objectContaining({ to: groupInboxName("old-group"), path: "/dropped", body: expect.objectContaining({ chat: "old-group" }) })]);
+  });
+
   it("still resolves 200 when the chat could not note the drop, so the bridge never sends it again", async () => {
     const { env: e } = env({}, { status: 500 });
     const card = { guid: "m-app", text: "Poll", service: "iMessage", balloonBundleId: "com.example.polls", appUrl: "https://x.example" };
