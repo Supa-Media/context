@@ -253,3 +253,23 @@ request asked for two Macs to decide to skip; on 2026-11-17 both sat 19 to 22
 minutes with no runner and were cancelled. A Linux job, `Which checks this
 change needs`, runs the filters, and the Mac jobs start only when they match.
 A job skipped by its `if:` reports success, so no required check waits.
+
+## The fast checks run locally before a push
+
+_Decided 2026-11-17, from the open-to-live measurement._ Five of the six pull
+requests that took over 30 minutes to reach production had a red-CI fix loop:
+the fast guards, the app typecheck, or the architecture check failed after
+the push (#3544 failed typecheck and `ci / Architecture check`; #3538 and
+#3532 failed Fast repository guards). `pnpm precheck`
+(`scripts/precheck.mjs`) runs those three the way CI does. The guard steps
+are every `run:` step of `.github/workflows/fast-guards.yml` except the Node
+version line, so the Tex diagram check is in there. The app typecheck is
+`pnpm --dir apps/mobile typecheck` with a 6 GB heap. The architecture check
+is `pnpm exec supa-architecture-check --base origin/main` (or `main` when
+that is the ref that exists). It needs `pnpm install` already. CLAUDE.md
+requires it before a push.
+
+Dropping it, or letting the steps drift from the workflow, puts the fix loop
+back. `node scripts/precheck.mjs --self-test` fails if a guard `run:` is
+skipped for any reason other than `node --version`, or if the typecheck or
+architecture command is no longer CI's.

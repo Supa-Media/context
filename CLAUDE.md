@@ -351,6 +351,11 @@ checked is not a guard.**
 - **Test-first.** Write the failing test, then the code. Tenant isolation,
   authorization scopes, etag conflicts, storage failures, ingestion idempotency
   and revocation all need real coverage.
+- **Before every push, run `pnpm precheck`.** It runs the fast guards
+  (including the Tex diagram check), the app typecheck, and the architecture
+  check that CI runs. Those are the checks that failed after a push and turned
+  into a fix loop (#3544, #3538). Do not push a red precheck. It needs
+  `pnpm install` and stays within a couple of minutes.
 - **Sabotage-test rather than trusting a green run**: break the invariant
   deliberately and confirm the right tests fail.
 - **Small, tested increments.** Atomic commits; describe *why*.
