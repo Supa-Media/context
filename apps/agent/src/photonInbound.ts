@@ -23,7 +23,7 @@ import { cardReply } from "./cardChats";
 import { cutText, MAX_INBOUND_ATTACHMENTS, MAX_INBOUND_TEXT, type Inbound, type InboundAttachment } from "./inbound";
 import { photonChatId, photonGroupId } from "./photon";
 import type { Reaction, Tapback } from "./reactions";
-import type { GroupInbound, GroupMessage } from "./sendblueGroups";
+import { cleanGroupName, type GroupInbound, type GroupMessage } from "./sendblueGroups";
 import { E164, isPreviewFile, MAX_QUOTED_TEXT } from "./sendblue";
 
 /** An edit or an unsend of a message in a chat: either goes to the chat's `edit` step (`editStep.ts`, node `edit`). */
@@ -72,6 +72,7 @@ const EVENT_TYPES = new Set([
 ]);
 /** Kinds the bridge reads that are not a message here: described, then dropped with a 200. */
 const NOT_A_MESSAGE = new Set(["message.read", "group.changed", "chat.other"]);
+const NOT_A_MESSAGE_REASON: Record<string, string> = { "message.read": "read", "group.changed": "group_change", "chat.other": "chat_event" };
 
 /** Photon's reaction kinds, read onto the tapback names `sendblueTapbacks.ts` uses. `emoji` and `sticker` are separate. */
 const TAPBACKS: Record<string, Tapback> = {
@@ -302,6 +303,36 @@ function sideEvent(body: Rec, env: Envelope, kind: "edited" | "unsent"): PhotonP
   };
 }
 
+/**
+ * A group's name as a Photon event gives it (the bridge's `chat.name`, Apple's `groupTitle`), cleaned as Sendblue's
+ * `group_display_name` is: null when the event says nothing about it, or is no group's. Shown only as the chat's
+ * folder name in the app, never in a turn (`sendblueGroups.ts` `groupNameOf`).
+ */
+export function photonGroupNameOf(body: unknown): string | null {
+  const chat = isRecord(body) && isRecord(body.chat) ? body.chat : null;
+  return chat !== null && chat.kind === "group" ? cleanGroupName(chat.name) : null;
+}
+
+/** A group's change as the bridge reads it (`group.changed`): a new name, or somebody added, removed or left. */
+export type PhotonGroupChange = { groupId: string; line: string; from?: string; change: "renamed"; name: string } | { groupId: string; line: string; from?: string; change: "members" };
+
+/** The change a `group.changed` event names, or null for any other event, or one this Worker does not read. */
+export function photonGroupChange(body: unknown): PhotonGroupChange | null {
+  if (!isRecord(body) || body.type !== "group.changed") return null;
+  const env = envelopeOf(body);
+  if (env === null || env.where?.groupId === undefined) return null;
+  const group = isRecord(body.group) ? body.group : null;
+  const from = env.from !== undefined && E164.test(env.from) ? { from: env.from } : {};
+  if (group?.change === "displayNameChanged") {
+    const name = cleanGroupName(group.displayName);
+    return name === null ? null : { groupId: env.where.groupId, line: env.line, ...from, change: "renamed", name };
+  }
+  if (group?.change === "participantAdded" || group?.change === "participantRemoved" || group?.change === "participantLeft") {
+    return { groupId: env.where.groupId, line: env.line, ...from, change: "members" };
+  }
+  return null;
+}
+
 /** The guids of the pictures a message names, so their addresses can be signed before the event is read. */
 export function photonAttachmentGuids(body: unknown): string[] {
   const message = isRecord(body) && isRecord(body.message) ? body.message : null;
@@ -320,8 +351,9 @@ export function parsePhotonEvent(body: unknown, options: PhotonParseOptions = {}
   if (!isRecord(body)) return { kind: "invalid" };
   const env = envelopeOf(body);
   if (env === null) return { kind: "invalid" };
-  if (body.fromMe === true) return { kind: "ignored", reason: "event_type" };
-  if (NOT_A_MESSAGE.has(env.type)) return { kind: "ignored", reason: "event_type" };
+  // Each its own reason, so the log tells Tex's own echoes from a group's changes and the chat events nobody reads.
+  if (body.fromMe === true) return { kind: "ignored", reason: "from_me" };
+  if (NOT_A_MESSAGE.has(env.type)) return { kind: "ignored", reason: NOT_A_MESSAGE_REASON[env.type] ?? "event_type" };
   switch (env.type) {
     case "message.received":
       return received(body, env, options);

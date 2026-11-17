@@ -285,17 +285,17 @@ describe("parsePhotonEvent: edits and unsends", () => {
 
 describe("parsePhotonEvent: what is not a message", () => {
   it("ignores Tex's own side of every event (fromMe), whatever kind it is", () => {
-    expect(parsePhotonEvent(event({ fromMe: true }))).toEqual({ kind: "ignored", reason: "event_type" });
-    expect(parsePhotonEvent({ ...reactionEvent("love"), fromMe: true })).toEqual({ kind: "ignored", reason: "event_type" });
-    expect(parsePhotonEvent(groupEvent({ fromMe: true }))).toEqual({ kind: "ignored", reason: "event_type" });
-    expect(parsePhotonEvent(event({ type: "message.unsent", fromMe: true, unsent: { targetGuid: "m" } }))).toEqual({ kind: "ignored", reason: "event_type" });
-    expect(parsePhotonEvent(event({ type: "message.edited", fromMe: true, edited: { targetGuid: "m" } }))).toEqual({ kind: "ignored", reason: "event_type" });
+    expect(parsePhotonEvent(event({ fromMe: true }))).toEqual({ kind: "ignored", reason: "from_me" });
+    expect(parsePhotonEvent({ ...reactionEvent("love"), fromMe: true })).toEqual({ kind: "ignored", reason: "from_me" });
+    expect(parsePhotonEvent(groupEvent({ fromMe: true }))).toEqual({ kind: "ignored", reason: "from_me" });
+    expect(parsePhotonEvent(event({ type: "message.unsent", fromMe: true, unsent: { targetGuid: "m" } }))).toEqual({ kind: "ignored", reason: "from_me" });
+    expect(parsePhotonEvent(event({ type: "message.edited", fromMe: true, edited: { targetGuid: "m" } }))).toEqual({ kind: "ignored", reason: "from_me" });
   });
 
   it("ignores a read receipt, a group change and a chat change as an event type", () => {
-    expect(parsePhotonEvent(event({ type: "message.read", message: undefined, read: { targetGuid: "m" } }))).toEqual({ kind: "ignored", reason: "event_type" });
-    expect(parsePhotonEvent(event({ type: "group.changed", message: undefined }))).toEqual({ kind: "ignored", reason: "event_type" });
-    expect(parsePhotonEvent(event({ type: "chat.other", message: undefined }))).toEqual({ kind: "ignored", reason: "event_type" });
+    expect(parsePhotonEvent(event({ type: "message.read", message: undefined, read: { targetGuid: "m" } }))).toEqual({ kind: "ignored", reason: "read" });
+    expect(parsePhotonEvent(event({ type: "group.changed", message: undefined }))).toEqual({ kind: "ignored", reason: "group_change" });
+    expect(parsePhotonEvent(event({ type: "chat.other", message: undefined }))).toEqual({ kind: "ignored", reason: "chat_event" });
   });
 });
 

@@ -330,3 +330,49 @@ describe("the event path has no public route", () => {
     expect(routed).toEqual([]);
   });
 });
+
+describe("PhotonEvents.event: a group's name and its people", () => {
+  const OLD = { line: "+15555550188", groupId: "sb-group-1" };
+  /** The control plane's calls, by path and body. */
+  function controlPlane(): { calls: { path: string; body: Record<string, unknown> }[] } {
+    const calls: { path: string; body: Record<string, unknown> }[] = [];
+    vi.stubGlobal("fetch", async (url: string, init?: RequestInit) => {
+      calls.push({ path: new URL(url).pathname, body: JSON.parse(String(init?.body ?? "{}")) });
+      return Response.json({});
+    });
+    return { calls };
+  }
+  const change = (group: Record<string, unknown>) => event({ type: "group.changed", eventId: "photon:group.changed:x:7", message: undefined, chat: { guid: GUID, kind: "group", name: "Band" }, from: OTHER, group });
+
+  it("sends a group text's name to the app, as Sendblue's webhook gave it with every message", async () => {
+    const cp = controlPlane();
+    const { env: e } = env();
+    await entrypoint(e).event(event({ chat: { guid: GUID, kind: "group", name: " Gig‮ night ", participants: [PHONE, OTHER] }, from: OTHER, message: { guid: "g-n", text: "hi", service: "iMessage" } }));
+    expect(cp.calls.find((c) => c.path === "/agent-texts/group/name")?.body).toEqual({ line: LINE, groupId: photonGroupId(GUID), name: "Gig night" });
+  });
+
+  it("a rename goes to the app under the group Tex files it as, and takes no turn", async () => {
+    const cp = controlPlane();
+    const { env: e, routed } = env({}, { moves: (path) => (path === "/group-move/arrive" ? { from: OLD } : undefined) });
+    expect(await entrypoint(e).event(change({ change: "displayNameChanged", displayName: "Tour 2027" }))).toEqual({ status: 200 });
+    expect(cp.calls.filter((c) => c.path === "/agent-texts/group/name").map((c) => c.body)).toEqual([{ line: OLD.line, groupId: OLD.groupId, name: "Tour 2027" }]);
+    expect(routed).toEqual([]);
+  });
+
+  it("somebody added, removed or leaving marks the group's kept people changed, and never asks a move to match", async () => {
+    controlPlane();
+    const arrivals: Record<string, unknown>[] = [];
+    const { env: e, routed } = env({}, { moves: (path, body) => (path === "/group-move/arrive" ? (arrivals.push(body), {}) : undefined) });
+    for (const kind of ["participantAdded", "participantRemoved", "participantLeft"]) {
+      expect(await entrypoint(e).event(change({ change: kind, address: OTHER }))).toEqual({ status: 200 });
+    }
+    expect(routed.map((r) => [r.to, r.path])).toEqual(Array(3).fill([groupInboxName(photonGroupId(GUID)), "/group-members-changed"]));
+    expect(arrivals.every((a) => a.from === "")).toBe(true);
+  });
+
+  it("a group change it does not read, or a 1:1 chat's, is ignored with its own reason", async () => {
+    const { env: e, routed } = env();
+    expect(await entrypoint(e).event(change({ change: "groupIconChanged" }))).toEqual({ status: 200 });
+    expect(routed).toEqual([]);
+  });
+});
