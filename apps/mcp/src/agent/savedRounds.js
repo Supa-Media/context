@@ -41,6 +41,17 @@ export async function textKey({ question, covers, groupChat = null }) {
   return hex(await crypto.subtle.digest("SHA-256", encoder.encode(named)));
 }
 
+/**
+ * A background job's part, as the key its snapshot is kept under: the job, which restart of it (`resumeJob` starts
+ * its parts at 1 again), and the part. Each part keeps its own, so a part still running past its time never writes
+ * over the next one's.
+ */
+export async function jobKey({ id, resumes = 0, part }) {
+  if (typeof id !== "string" || id === "" || !Number.isSafeInteger(part) || part < 1) return null;
+  const named = JSON.stringify(["job-v1", id, Number.isSafeInteger(resumes) && resumes >= 0 ? resumes : 0, part]);
+  return hex(await crypto.subtle.digest("SHA-256", encoder.encode(named)));
+}
+
 /** One message as the snapshot keeps it: pictures out, a long result cut. */
 export function keptMessage(message) {
   if (message?.role === "tool") {
