@@ -12,7 +12,7 @@ import { test } from "node:test";
 import { createTexDev } from "../src/texDev/tool.js";
 import { guideText } from "../src/texDev/guide.js";
 import { texDevToolDefinitions } from "../src/tools/schemas/texDev.js";
-import { devConversations, resultsOf } from "../../../scripts/tex-lab-run.mjs";
+import { detailOf, devConversations, resultsOf } from "../../../scripts/tex-lab-run.mjs";
 import { decideSaid } from "../bench/setsRun.mjs";
 
 const textOf = (result) => result.content.find((c) => c.type === "text")?.text ?? "";
@@ -79,6 +79,18 @@ test("results count by chat and by step, with each test's verdict and no words",
   assert.deepEqual(r.perNode, [{ node: "decide", pass: 1, total: 2 }, { node: "fd", pass: 0, total: 1 }]);
   assert.deepEqual(r.rows[1], { convId: "g", msgIndex: 8, node: "decide", ok: false, got: "quiet", want: "respond" });
   assert.deepEqual(r.rows[2], { convId: "m", msgIndex: 1, node: "fd", ok: false, got: "can't run: runs alone only on a one-ask chat", want: "", ran: false }, "a test that did not run says why");
+});
+
+test("a missed Front door row keeps the judge's reasons and Tex's texts, so its cause can be read", () => {
+  const rows = [
+    { chat: "w", at: 4, node: "fd", right: false, ran: true, usd: 0, got: "must: x | Tex: On it", want: "every must and never line", misses: [{ kind: "must", line: "ask only for the return date", reason: "asked nothing" }, { kind: "must not", line: "ask about budget", reason: "" }], said: ["On it.", "(Tex reacted to their text)"] },
+    { chat: "w", at: 6, node: "fd", right: true, ran: true, usd: 0, got: "every line held", want: "every must and never line", misses: [], said: ["fine"] },
+  ];
+  const r = resultsOf(rows, "1");
+  assert.equal(r.rows[0].detail, "must: ask only for the return date (asked nothing)\nnever: ask about budget\nTex: On it. / (Tex reacted to their text)");
+  assert.equal(r.rows[1].detail, undefined, "a held row carries no detail");
+  assert.equal(detailOf({ said: ["x".repeat(3_000)] }).detail.length, 1_500);
+  assert.deepEqual(detailOf({}), {});
 });
 
 test("decideSaid names every labelled field, so a miss on why shows where it differs", () => {

@@ -313,6 +313,9 @@ test("gateCounts and cleanResults read only counts", () => {
   expect(gateCounts("Test Set 3/9, main 4/9; worse on decide")).toEqual({ pass: 3, total: 9 });
   expect(gateCounts("The Test Set run failed before a verdict: read the run")).toBeNull();
   expect(cleanResults({ pass: "x", rows: [{ convId: 5, ok: "yes" }] })).toMatchObject({ pass: 0, rows: [{ convId: "", ok: false }] });
+  expect(cleanResults({ rows: [{ convId: "w", ok: false, detail: "must: a (b)\nTex: c" }] }).rows[0]).toMatchObject({ detail: "must: a (b)\nTex: c" });
+  expect(cleanResults({ rows: [{ convId: "w", ok: false, detail: "x".repeat(5_000) }] }).rows[0].detail).toHaveLength(1_500);
+  expect(cleanResults({ rows: [{ convId: "w", ok: true }] }).rows[0]).not.toHaveProperty("detail");
 });
 
 test("POST /gateway/tex/dev passes run and runs on", async () => {

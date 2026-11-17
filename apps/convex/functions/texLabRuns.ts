@@ -85,7 +85,7 @@ const stageV = v.union(v.literal("queued"), v.literal("running"), v.literal("don
 const num = (x: unknown) => (typeof x === "number" && Number.isFinite(x) ? x : 0);
 const str = (x: unknown, n = 80) => (typeof x === "string" ? x.slice(0, n) : "");
 
-/** A workflow's results as the Lab reads them: numbers, ids and each verdict's short got/want, nothing else. */
+/** A workflow's results as the Lab reads them: numbers, ids, each verdict's short got/want and a miss's detail, nothing else. */
 export function cleanResults(r: unknown) {
   const o = (r && typeof r === "object" ? r : {}) as Record<string, unknown>;
   const list = (x: unknown) => (Array.isArray(x) ? x.slice(0, MAX_ROWS) : []) as Record<string, unknown>[];
@@ -104,6 +104,8 @@ export function cleanResults(r: unknown) {
       got: str(x.got, 200),
       want: str(x.want, 200),
       ...(x.ran === false ? { ran: false } : {}),
+      // A miss's failed lines with the judge's reasons and Tex's texts (`scripts/tex-lab-run.mjs` detailOf).
+      ...(typeof x.detail === "string" && x.detail !== "" ? { detail: str(x.detail, 1_500) } : {}),
     })),
   };
 }

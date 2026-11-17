@@ -199,6 +199,16 @@ export function benchRunning(count) {
   return Array.from({ length: Math.max(0, Math.min(6, count)) }, (_, i) => ({ id: `bench-running-${i + 1}`, title: `Earlier job ${i + 1}`, state: "running", startedAt: Date.now() - 10 * 60_000, status: "working" }));
 }
 
+/**
+ * The line a tapback ending shows the judge: "(Tex reacted 🗓️ to their text)", or, when the Worker picks the emoji
+ * (`react: ""`), "(Tex reacted to their text)". Null when the turn sent no tapback.
+ */
+export function tapbackLine(react) {
+  if (typeof react !== "string") return null;
+  const emoji = react.trim();
+  return emoji === "" ? "(Tex reacted to their text)" : `(Tex reacted ${emoji} to their text)`;
+}
+
 export async function converse(world, question, person, mode = null, background = false) {
   if (mode === "housekeeping") return await keepHouse(world, question);
   const conversation = [];
@@ -238,6 +248,10 @@ export async function converse(world, question, person, mode = null, background 
     // texting Worker sends them (`apps/agent/src/inbox.ts`), so it counts as one.
     for (const line of turn.progress ?? []) conversation.push({ from: "assistant", text: line });
     conversation.push({ from: "assistant", text: turn.answer });
+    // A turn that ends in a tapback instead of words (a job's start, `sendTheReply.js`) showed the person that tapback:
+    // the judge reads it as the line they saw, never as silence (Dev set, 2026-11-17: three such turns read "said nothing").
+    const tapback = tapbackLine(turn.react);
+    if (tapback !== null) conversation.push({ from: "assistant", text: tapback, tapback: true });
     // Only a back-and-forth has a person who answers back. The time the played
     // person takes is the run's, not the setup's: it is kept apart from `ms`.
     const personStarted = realNow();
@@ -247,7 +261,7 @@ export async function converse(world, question, person, mode = null, background 
       (question.personStarts !== null || question.ifAsked.length > 0 ? await playPerson(person, question.body, conversation) : null);
     totals.personMs += realNow() - personStarted;
   }
-  return { conversation, ...totals, texts: conversation.filter((turn) => turn.from === "assistant").length };
+  return { conversation, ...totals, texts: conversation.filter((turn) => turn.from === "assistant" && turn.tapback !== true).length };
 }
 
 /**
