@@ -100,6 +100,7 @@
  */
 import { LiveTicketObject } from "./live/ticket.js";
 import { SearchQualityKeyObject } from "./search/qualityKeyObject.js";
+import { CreditRestObject } from "./agent/creditRest.js";
 import { openTextsSession } from "./agent/textsSession.js";
 import { hearForTexts, TEXTS_HEAR_PATH } from "./agent/textsHear.js";
 import { chatForTexts, decideForTexts, eventsForTexts, TEXTS_CHAT_PATH, TEXTS_DECIDE_PATH, TEXTS_EVENTS_PATH, TEXTS_RECHECK_PATH } from "./agent/textsDecide.js";
@@ -193,6 +194,8 @@ export const TexChat = texChatClass({ gateway: () => gatewayWorker, texts: () =>
 export const TexJob = texJobClass({ gateway: () => gatewayWorker, texts: () => TexTexts });
 /** The search quality log's key root (`search/qualityKeyObject.js`), reached only from this Worker. */
 export const SearchQualityKey = SearchQualityKeyObject;
+/** Which AI Gateway payer's credit is spent (`agent/creditRest.js`), one object for the whole gateway. */
+export const CreditRest = CreditRestObject;
 /** Each workspace's notes, tree rows and access rules, one Durable Object per workspace (`workspaceStore.js`). */
 export const WorkspaceStore = WorkspaceStoreDurableObject;
 /** One Lab test chat, one Durable Object per person's test chat (`labSandbox/object.js`). */

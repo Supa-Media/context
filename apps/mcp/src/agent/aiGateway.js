@@ -4,7 +4,9 @@
  * Decided by the owner, 2026-10-08: every model call on our bill goes through
  * one gateway, and the free API credit that comes with the owner's Claude plan
  * is spent before anything that costs money. So a Claude call here is made
- * twice at most:
+ * twice at most, and only on the isolate that first sees the credit run out.
+ * Every other isolate reads that fact (`creditRest.js`) and skips the spent
+ * key, so its call is attempted once:
  *
  * 1. With `ANTHROPIC_CREDIT_KEY` — the key of the Claude Console organization
  *    that holds the plan's monthly credit.
@@ -50,6 +52,7 @@ import { ProviderError, THINKING_REFUSED, anthropicMessages } from "./providers.
 import { prefixPrint } from "./prefixPrint.js";
 import { withToday } from "./localNow.js";
 import { TEX_CONFIG, texConfigOf } from "./texConfig.js";
+import { CREDIT_REST_MS, creditStoreOf, noteCreditPaid, noteCreditSpent, payerSkipped, resetCreditCache } from "./creditRest.js";
 
 /** The Anthropic API version this build is written against. */
 const ANTHROPIC_VERSION = "2023-06-01";
@@ -81,11 +84,11 @@ const ROUND_TIMEOUT_MS = 60_000;
 const RESPONSE_BYTE_CAP = 2_000_000;
 
 /**
- * Once the plan's credit has run out, how long calls skip it before trying it
- * again. It refills monthly, so retrying it on every round would only double
- * every call's latency until then.
+ * Once a payer's credit has run out, how long calls skip it before one of
+ * them tries it again (`creditRest.js`). The rest is the same on every
+ * isolate: the object there holds it, and a monthly refill is picked up by
+ * the probe that runs when the rest ends.
  */
-const CREDIT_REST_MS = 15 * 60_000;
 
 /**
  * Statuses that mean the key itself was refused, after which a call is retried
@@ -147,15 +150,14 @@ export function aiGatewayConfig(env) {
     creditKey: typeof creditKey === "string" && creditKey.length >= 20 && creditKey.length <= 512 ? creditKey : null,
     // Keys the gateway holds, by alias, in the order they are tried; a malformed name is dropped, never sent.
     keyAliases: [...new Set(aliases.filter((alias) => KEY_ALIAS.test(alias)))].slice(0, MAX_KEY_ALIASES),
+    // The shared "this payer's credit is spent" record (`creditRest.js`). Null where the binding is left out.
+    creditStore: creditStoreOf(env),
   };
 }
 
-/** Per isolate: until when each payer's credit is known to be used up, by payer name. */
-const creditRestingUntil = new Map();
-
-/** For tests: forget that any credit ran out. */
+/** For tests: forget that this isolate has seen a credit run out. */
 export function resetCreditState() {
-  creditRestingUntil.clear();
+  resetCreditCache();
 }
 
 /**
@@ -465,6 +467,9 @@ export async function requestViaGateway(call, config, options = {}) {
   const fetchImpl = options.fetchImpl || ((...args) => globalThis.fetch(...args));
   const now = options.now || Date.now;
   const wait = options.wait || ((ms) => new Promise((resolve) => setTimeout(resolve, ms)));
+  // The shared rest (`creditRest.js`). A test passes its own cache so two isolates can be two maps.
+  const store = options.creditStore === undefined ? config.creditStore ?? null : options.creditStore;
+  const cache = options.creditCache;
   // Every model told the day, whichever agent asks (`localNow.js` `withToday`).
   let body = gatewayBody(withToday(call, { now: now(), timeZone: options.timeZone ?? null }));
   if (hourMarksRefused) body = withoutHourMarks(body);
@@ -493,15 +498,17 @@ export async function requestViaGateway(call, config, options = {}) {
 
   let paidBy = "cloudflare";
   let answer = null;
+  const clock = now();
   for (const payer of payersOf(config)) {
-    if (now() < (creditRestingUntil.get(payer.name) ?? 0)) continue;
+    if (await payerSkipped(payer.name, clock, { store, ...(cache ? { cache } : {}) })) continue;
     answer = await sendIt(payer);
     if (answer.status === 200) {
       paidBy = "credit";
+      await noteCreditPaid(payer.name, { store, ...(cache ? { cache } : {}) });
       break;
     } else if (saysCreditSpent(answer.text) || answer.status === 402) {
-      // This payer's credit is used up: rest it until it is worth asking again.
-      creditRestingUntil.set(payer.name, now() + CREDIT_REST_MS);
+      // This payer's credit is used up: rest it, here and on every other isolate, until it is worth asking again.
+      await noteCreditSpent(payer.name, clock + CREDIT_REST_MS, { store, ...(cache ? { cache } : {}) });
       answer = null;
     } else if (RETRY_WITHOUT_KEY.has(answer.status) || (payer.alias && answer.status === 400 && !namesThinking(answer))) {
       // The key itself was refused (revoked, wrong organization, an alias the

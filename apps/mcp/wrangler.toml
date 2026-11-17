@@ -232,6 +232,18 @@ class_name = "LabSandbox"
 tag = "v8-lab-sandbox"
 new_sqlite_classes = ["LabSandbox"]
 
+# Which AI Gateway payer's credit is spent (src/agent/creditRest.js): one object, a payer name and a timestamp,
+# never a key and never a prompt. Every isolate reads it, so a spent plan credit is skipped everywhere instead of
+# failing once per isolate and then being paid again on Unified Billing. Self-hosting on the free tier: leave it
+# out, and each isolate keeps its own fifteen-minute rest.
+[[durable_objects.bindings]]
+name = "CREDIT_REST"
+class_name = "CreditRest"
+
+[[migrations]]
+tag = "v9-credit-rest"
+new_sqlite_classes = ["CreditRest"]
+
 # Where each Tex turn's time went (src/agent/turnStages.js): numbers, a kind
 # and an outcome per turn, never words, a person or a workspace. Read with the
 # account's Analytics Engine SQL API (`SELECT ... FROM tex_timing`). The code
@@ -443,6 +455,10 @@ class_name = "SearchQualityKey"
 [[env.staging.durable_objects.bindings]]
 name = "LAB_SANDBOX"
 class_name = "LabSandbox"
+
+[[env.staging.durable_objects.bindings]]
+name = "CREDIT_REST"
+class_name = "CreditRest"
 
 [[env.staging.analytics_engine_datasets]]
 binding = "TEX_TIMING"
