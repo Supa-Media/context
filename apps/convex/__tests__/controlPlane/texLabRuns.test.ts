@@ -7,7 +7,7 @@
  * request's "Tex test set" status.
  *
  * Sabotage record (temporary local edits to functions/texLabRuns.ts, restored, 2026-11-16):
- *   MAX_QUEUED check removed                     "three waiting runs is the most ..." fails
+ *   MAX_QUEUED check removed                     "MAX_QUEUED waiting runs is the most ..." fails
  *   report without the finished-stays-finished   "a finished run stays finished ..." fails
  *   job handing Training drafts' words           "the workflow is handed ..." fails
  *   followGate ignoring the status state         "Promote makes a gate run ..." fails
@@ -20,7 +20,7 @@ import { hashToken } from "../../functions/lib/crypto";
 import { addMember, createUser, createWorkspace, drainScheduled, gatewayPost } from "../fixtures.helpers";
 import { ACCESS_A, ACCESS_B, bodyOf, twoConnectedTenants } from "./fixtures.helpers";
 import { withSession } from "../session.helpers";
-import { cleanResults, gateCounts } from "../../functions/texLabRuns";
+import { MAX_PER_DAY, MAX_QUEUED, cleanResults, gateCounts } from "../../functions/texLabRuns";
 
 vi.setConfig({ testTimeout: 30_000 });
 
@@ -106,22 +106,22 @@ describe("starting a run", () => {
     expect(await door("run", { draft: "vnothere", kind: "dev" })).toEqual({ status: "not_found" });
   });
 
-  test("three waiting runs is the most a person has; a finished one frees its place", async () => {
+  test("MAX_QUEUED waiting runs is the most a person has; a finished one frees its place", async () => {
     const { door, t } = await world();
     const ids = [];
-    for (let i = 0; i < 3; i += 1) ids.push((await door("run", { draft: "main", kind: "dev" })).id);
-    expect(await door("run", { draft: "main", kind: "dev" })).toMatchObject({ status: "bad_request", error: expect.stringContaining("at most 3") });
+    for (let i = 0; i < MAX_QUEUED; i += 1) ids.push((await door("run", { draft: "main", kind: "dev" })).id);
+    expect(await door("run", { draft: "main", kind: "dev" })).toMatchObject({ status: "bad_request", error: expect.stringContaining(`at most ${MAX_QUEUED}`) });
     await t.mutation(internal.functions.texLabRuns.report, { runId: ids[0], stage: "done", results: { pass: 1, total: 1 } });
     expect(await door("run", { draft: "main", kind: "dev" })).toMatchObject({ status: "ok" });
   });
 
-  test("twenty runs a day is the most a person starts", async () => {
+  test("MAX_PER_DAY runs a day is the most a person starts", async () => {
     const { door, t } = await world();
-    for (let i = 0; i < 20; i += 1) {
+    for (let i = 0; i < MAX_PER_DAY; i += 1) {
       const { id } = await door("run", { draft: "main", kind: "dev" });
       await t.mutation(internal.functions.texLabRuns.report, { runId: id, stage: "failed", error: "x" });
     }
-    expect(await door("run", { draft: "main", kind: "dev" })).toMatchObject({ status: "bad_request", error: expect.stringContaining("20 runs") });
+    expect(await door("run", { draft: "main", kind: "dev" })).toMatchObject({ status: "bad_request", error: expect.stringContaining(`${MAX_PER_DAY} runs`) });
   });
 
   test("a deployment without GH_ADMIN_TOKEN fails the run, saying so, rather than leaving it waiting", async () => {

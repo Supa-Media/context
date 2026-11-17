@@ -6,8 +6,10 @@ export type Message = {
   kind?: "react" | "reply" | "edit" | "delete"; to?: string;
   labels?: Record<string, Label>; rec?: Record<string, Record<string, unknown>>;
   pics?: Pic[];
-  /** A trigger row's input (a check-in, a routine, Send through Tex); its `who` is that input's name. */
-  via?: "checkin" | "routine" | "notify";
+  /** A trigger row's input (a check-in, a routine, Send through Tex, a background job's report); its `who` is that input's name. */
+  via?: "checkin" | "routine" | "notify" | "job";
+  /** A job row's state as the job reported it; absent is done. */
+  state?: "done" | "running" | "failed" | "waiting" | "stuck";
   /** An optional time line ("Tue 9:20", or "Tue Oct 13 10:14" to anchor the days). */
   at?: string;
 };
@@ -23,6 +25,7 @@ export const SETS: readonly SetId[];
 export const TARGET: Readonly<Record<SetId, number>>;
 export const DRIFT: number;
 export const KINDS: readonly string[];
+export const JOB_STATES: readonly string[];
 export const RUN: readonly string[];
 export const TEX: "Tex";
 export const LABEL_KEYS: readonly string[];

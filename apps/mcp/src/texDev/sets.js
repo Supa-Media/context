@@ -185,7 +185,7 @@ export function createSetActions({ plane, json, page, env, ledgerOf, repo = REPO
           message: { kinds: KINDS, to: "a react, reply, edit or delete points at an earlier message by id", tex: "a Tex row is what Tex should have said, history for later rows, never a test; no Tex row after a person's message means Tex stays quiet" },
           rec: "rec[node] on a person's message is that node's recorded run on main: the frozen input for the nodes it feeds when no label on the upstream node says otherwise",
           sets: OPEN_SETS,
-          ops: `set_edit takes up to ${MAX_OPS} ops: title, kind, members, set, add {msg, after?}, edit {msg, field, value}, remove {msg}, move {msg, before}, label {msg, node, value|null}, field {msg, node, field, value|null}, rec {msg, node, value|null}, put {convo}; edit {msg, field: "pics", value: [{url, type?, name?}] | null} sets a message's pictures (https addresses, at most 6); the Lab's addMsg/editMsg/removeMsg/moveMsg spellings work too`,
+          ops: `set_edit takes up to ${MAX_OPS} ops: title, kind, members, set, add {msg, after?}, edit {msg, field, value}, remove {msg}, move {msg, before}, label {msg, node, value|null}, field {msg, node, field, value|null}, rec {msg, node, value|null}, put {convo}; edit {msg, field: "pics", value: [{url, type?, name?}] | null} sets a message's pictures (https addresses, at most 6); edit {msg, field: "via", value: checkin|routine|notify|job} changes a trigger row's input and edit {msg, field: "state", value: done|running|failed|waiting|stuck|null} a job row's state; the Lab's addMsg/editMsg/removeMsg/moveMsg spellings work too`,
         });
       }
       case "set_edit": {

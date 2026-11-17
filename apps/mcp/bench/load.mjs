@@ -125,6 +125,8 @@ function readQuestion(sec) {
     // A one-off reminder's run (`- one-off routine runs:`), placed in `tex/routines/once/` as production keeps one, so
     // its run reads the one-off's own framing (`routine.js` routineQuestion); `- routine runs:` is a daily routine.
     routineOnce: false,
+    // A Front door test that starts at a job's report (`- job reports:` {title, state, text, asked}; `byCode.mjs`).
+    jobReport: null,
     body: sec.lines.join("\n").trim(),
   };
   for (const raw of sec.lines) {
@@ -144,6 +146,12 @@ function readQuestion(sec) {
       q.routineOnce = true;
     }
     else if ((m = line.match(/^- check-in mail:\s*(.*)$/))) q.checkinMail = mailLine(m[1], sec.n);
+    else if ((m = line.match(/^- job reports:\s*(.*)$/))) q.jobReport = jobLine(m[1], sec.n);
+    // An earlier trigger (`byCode.mjs`): Tex's texts after it are kept as production keeps that kind.
+    else if ((m = line.match(/^- earlier check-in mail:\s*(.*)$/))) q.earlier.push({ from: "trigger", via: "checkin", mail: mailLine(m[1], sec.n) });
+    else if (/^- earlier check-in\s*$/.test(line)) q.earlier.push({ from: "trigger", via: "checkin", mail: null });
+    else if ((m = line.match(/^- earlier routine:\s*(.*)$/))) q.earlier.push({ from: "trigger", via: "routine", text: jsonText(m[1], sec.n) });
+    else if ((m = line.match(/^- earlier job reports:\s*(.*)$/))) q.earlier.push({ from: "trigger", via: "job", report: jobLine(m[1], sec.n) });
     else if ((m = line.match(/^- earlier (person|tex):\s*(.*)$/))) q.earlier.push({ from: m[1], text: jsonText(m[2], sec.n) });
     else if ((m = line.match(/^- earlier @([a-z0-9-]+):\s*(.*)$/))) q.earlier.push({ from: "person", who: m[1], text: jsonText(m[2], sec.n) });
     else if ((m = line.match(/^- @([a-z0-9-]+) before text (\d+):\s*(.*)$/))) q.others.push({ from: m[1], before: Number(m[2]), text: unquote(m[3]) });
@@ -175,6 +183,27 @@ function readQuestion(sec) {
     }
   }
   return q;
+}
+
+/** An earlier trigger line in words, for a reader of the chat before (the judge, the simulated world): what came in, by whom. */
+export function triggerWords(line) {
+  if (line.via === "checkin") return line.mail ? `(Check-in found mail) ${line.mail.from}: ${line.mail.body}` : "(Check-in)";
+  if (line.via === "routine") return `(Routine ran) ${line.text}`;
+  return `(Background job ${line.report.state === "running" ? "update" : line.report.state}) ${line.report.text}`;
+}
+
+/** A job's report on a case line: JSON `{ title, state, text, asked? }`, `state` one the Worker reports (`jobs.ts`). */
+function jobLine(raw, n) {
+  let value;
+  try {
+    value = JSON.parse(raw.trim());
+  } catch {
+    value = null;
+  }
+  if (!value || typeof value !== "object" || typeof value.title !== "string" || typeof value.text !== "string" || !["done", "failed", "running", "waiting", "stuck"].includes(value.state)) {
+    throw new Error(`question ${n}: a job reports line is JSON {title, state, text, asked?}, state done, failed, running, waiting or stuck`);
+  }
+  return value;
 }
 
 /** A check-in's email on a case line: JSON `{ from, subject, body }`, each a string. */

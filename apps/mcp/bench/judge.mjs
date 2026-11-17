@@ -26,7 +26,7 @@ import { readFile, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 
 import { checkVerdicts } from "./checks.mjs";
-import { isGateQuestion, parseTest } from "./load.mjs";
+import { isGateQuestion, parseTest, triggerWords } from "./load.mjs";
 import { claudeTransport } from "./models.mjs";
 import { assertAnswered, modelSocket, socketSend } from "./modelSocket.mjs";
 import { priceUsd } from "./report.mjs";
@@ -150,7 +150,7 @@ export function buildJudgeRequest({ model, question, answers, every = [] }) {
     gate: isGateQuestion(question),
     // A Lab replay's or a Dev test's chat before the text (`- earlier ...` lines): the newest of it, so a check that
     // names "them" or "the plan" is graded against the chat it was written for.
-    ...((question.earlier ?? []).length > 0 ? { chat_before: question.earlier.slice(-JUDGE_EARLIER).map((line) => `${line.from === "tex" ? "Tex" : line.who ? `@${line.who}` : "Person"}: ${line.text}`) } : {}),
+    ...((question.earlier ?? []).length > 0 ? { chat_before: question.earlier.slice(-JUDGE_EARLIER).map((line) => (line.from === "trigger" ? triggerWords(line) : `${line.from === "tex" ? "Tex" : line.who ? `@${line.who}` : "Person"}: ${line.text}`)) } : {}),
     checks,
     may: question.may,
     answers: answers.map((answer) => ({

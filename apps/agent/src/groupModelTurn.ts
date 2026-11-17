@@ -5,6 +5,8 @@
  * only while it still answers its asker's newest words (`groupRecheck.ts`).
  */
 
+import { reactionFor } from "./reactEmoji";
+import { ackEmoji } from "./ackEmoji";
 import { canRedraft, chatEvent, readChatState } from "./chatState";
 import { askAgentStream, askLine, ServiceError, type AgentAnswer } from "./clients";
 import { CHAT_LOOK_PATH, saysSkip } from "./groupRoutines";
@@ -121,6 +123,7 @@ export async function groupTurn(storage: InboxStorage, deps: GroupDeps, { messag
   // One tapback on a slow ask, never with a text (Dev2, 2026-11-12): the first tool the turn starts taps the asked
   // message, at most once an answer and not after a progress line; a turn with no tool gets none.
   let acked = false;
+  let tapped: string | undefined; // the emoji the early tapback sent, when one did: Tex's own pick may replace it (below)
   const toolStarted = async () => {
     // Never on a tapback: tapping a tapback is no sign to anyone (`answersTapback`).
     if (acked || routine || message.jobReport !== undefined || message.reaction !== undefined || message.answersTapback !== undefined) return;
@@ -128,7 +131,7 @@ export async function groupTurn(storage: InboxStorage, deps: GroupDeps, { messag
     if (await stopped()) return;
     try {
       if (!(await isBound(storage, message))) return;
-      await tapback(storage, { chat: message.groupId, now: deps.now, by: "tool_started", turn: steer.turn }, message.text, (sent) => groupLineFor(groupLineSeam(deps), message.groupId).react({ line: message.line, groupId: message.groupId }, message.messageId, sent));
+      await tapback(storage, { chat: message.groupId, now: deps.now, by: "tool_started", turn: steer.turn }, message.text, (sent) => ((tapped = sent), groupLineFor(groupLineSeam(deps), message.groupId).react({ line: message.line, groupId: message.groupId }, message.messageId, sent)));
       log("tool_tap");
     } catch {
       log("tool_tap_failed");
@@ -243,7 +246,10 @@ export async function groupTurn(storage: InboxStorage, deps: GroupDeps, { messag
   // Nothing to text (a group's SKIP, `apps/mcp/src/agent/route.js`): the gateway kept nothing, so this object keeps the chat's lines.
   if (!routine && answer.quiet && (answer.verbatim?.length ?? 0) === 0 && answer.pictures.length === 0) {
     // Answered with a tapback and no words: the conversation classifier's (`apps/mcp/src/agent/respond.js`), the emoji checked against the list.
-    if (answer.react !== undefined && message.reaction === undefined && message.answersTapback === undefined && !acked) await tapback(storage, { chat: message.groupId, now: deps.now, by: "classifier", asked: answer.react || undefined, turn: steer.turn }, message.text, (sent) => groupLineFor(groupLineSeam(deps), message.groupId).react({ line: message.line, groupId: message.groupId }, message.messageId, sent)).catch(() => {});
+    // Tex's own pick (the front door's `tapback`, `apps/mcp/src/agent/tapbackEnding.js`) replaces the early one when it
+    // differs: a person keeps one tapback on a message, so the second takes the first's place, never beside a text.
+    const replaces = acked && tapped !== undefined && answer.react !== "" && answer.react !== undefined && reactionFor(answer.react, ackEmoji(message.text)) !== tapped;
+    if (answer.react !== undefined && message.reaction === undefined && message.answersTapback === undefined && (!acked || replaces)) await tapback(storage, { chat: message.groupId, now: deps.now, by: answer.react ? "tex" : "classifier", asked: answer.react || undefined, turn: steer.turn }, message.text, (sent) => groupLineFor(groupLineSeam(deps), message.groupId).react({ line: message.line, groupId: message.groupId }, message.messageId, sent)).catch(() => {});
     await handOff();
     return log(answer.react !== undefined ? "reacted" : "silent");
   }

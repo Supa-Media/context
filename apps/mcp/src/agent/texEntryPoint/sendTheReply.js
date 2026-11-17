@@ -34,6 +34,7 @@ import { heardWords, sentLine } from "../heardWords.js";
 import { jobChecked, startedJobEntries } from "../workEntries.js";
 import { VAULT_SAVED_QUESTION } from "../vaultSaved.js";
 import { HANDED_BACK_QUESTION, handbackField } from "../handback.js";
+import { tapbackOf, tapbackSaidLine } from "../tapbackEnding.js"; // a tapback as the whole answer: nothing texted, the Worker reacts
 import { typedCallOf } from "../sayNothing.js"; // a call typed out is never texted, the last stop before it goes
 import { factsEntry } from "../toldFacts.js";
 import { texVersion } from "../texVersion.js"; // which Tex answered, for the Lab's replays
@@ -58,7 +59,8 @@ export async function sendTheReply(t) {
   // An answer still empty after its notice is never sent as nothing (`replyChecks.js`); a routine's empty run is its SKIP.
   // A flattering opener ("You're so right!") comes off first (`pushback.js`).
   const crossAskRun = t.crossChat?.kind === "ask"; // its answer goes back to the chat that asked, never texted here (`crossChat.js`)
-  const hushed = turn.answer === QUIET_ACK; // a job's start or restart texts nothing; their text gets a tapback instead (`background.js`)
+  const tapped = tapbackOf(turn); // the front door answered with only a tapback (`tapbackEnding.js`)
+  const hushed = turn.answer === QUIET_ACK || tapped !== null; // a job's start or restart texts nothing; their text gets a tapback instead (`background.js`)
   const { answer: replied, quiet } = hushed ? { answer: "", quiet: true } : reportReply(report, turn.answer), silent = job === null && (((group !== null || turn.settled === "say_nothing") && /^\W*SKIP\W*$/.test(String(replied ?? ""))) || typedCallOf(replied) !== null), { answer: told, pictures, captions, choices = [], offers = [] } = outgoing.take(quiet ? "" : silent ? (group?.tagged === true ? EMPTY_FALLBACK : "") : !runner && isEmptyAnswer(replied) ? EMPTY_FALLBACK : withoutFlattery(replied)); // a report's quiet is a flag, and an ended job always gets a line (`jobReport.js`); a group's bare SKIP, or any say_nothing (`sayNothing.js`), is silence, never the fallback, and only SKIP: "Quiet." answers a question (Dev2, 2026-11-01: Tex texted "my answer got lost" to a message for Instinct); a literal "@Tex" is never silent: its silence is the fallback (Dev2, 2026-11-12)
   // An email's ask is texted exactly as written (`apps/agent/src/reply.ts`), or withdrawn if it would not fit; asks their text corrected are dropped (`claimCheck.js` rule 6).
   const { ask, verbatim } = await tex.step("ask_line", () => textedAsk(store, session, ledger.asked, told, { who: group?.from || null, stale: claims?.stale() === true ? setAside.map((entry) => entry.id) : null, chat: askChat }));
@@ -96,8 +98,8 @@ export async function sendTheReply(t) {
     await tex.after("memory_nudge", async () => afterGraph.fire("send", "nudge", { question, answer: turn.answer ?? "", tainted: taintedTurn, canWrite }, afterCtx).catch(() => {}).then(() => chatLog?.flush())); // interim: fired by this code with its own input over the wire (tagged "fired", so the run never fires it with send's output) until send's output carries it
   }
 
-  if (group !== null && job === null && !crossAskRun && !turn.exhausted && !replaced && !(silent && answer === "")) await tex.behind(front, "save_group_chat", () => keepGroupExchange(store, group, history, question, [answer, sentPicturesLine(pictures, captions)].filter(Boolean).join("\n"), { tainted: ledger.untrusted, tools: turn.steps.filter((step) => step.ok).map((step) => step.tool), sources: turn.steps.flatMap((step) => step.sources ?? []), timing: groupTimingLine({ arrivedAt: body.arrivedAt, received, done: Date.now(), fixed: body.fixed }), dispatch }).catch(() => {})); // with its cards' words (`sentPicturesLine`)
-  const saving = conversation !== null && job === null && !turn.exhausted && !replaced, said = [answer || (hushed ? QUIET_ACK_LINE : quiet ? QUIET_REPORT_LINE : ""), sentPicturesLine(pictures, captions)].filter(Boolean).join("\n");
+  if (group !== null && job === null && !crossAskRun && !turn.exhausted && !replaced && !(silent && answer === "")) await tex.behind(front, "save_group_chat", () => keepGroupExchange(store, group, history, question, [answer || (tapped !== null ? tapbackSaidLine(tapped) : ""), sentPicturesLine(pictures, captions)].filter(Boolean).join("\n"), { tainted: ledger.untrusted, tools: turn.steps.filter((step) => step.ok).map((step) => step.tool), sources: turn.steps.flatMap((step) => step.sources ?? []), timing: groupTimingLine({ arrivedAt: body.arrivedAt, received, done: Date.now(), fixed: body.fixed }), dispatch }).catch(() => {})); // with its cards' words (`sentPicturesLine`)
+  const saving = conversation !== null && job === null && !turn.exhausted && !replaced, said = [answer || (tapped !== null ? tapbackSaidLine(tapped) : hushed ? QUIET_ACK_LINE : quiet ? QUIET_REPORT_LINE : ""), sentPicturesLine(pictures, captions)].filter(Boolean).join("\n");
   if (saving) await tex.behind(front, "save_chat", () => (async () => { // a job's answer is its report, never texted: only the coordinator's turn is kept as said (`jobReport.js`)
     try {
       // A caller other than the texting Worker (which posts every text both ways itself, `/agent/events`) keeps its exchange in the ledger, in the gateway's words.
@@ -114,7 +116,7 @@ export async function sendTheReply(t) {
   // "fix this" or frustration scores the conversation after the reply: the Self-review node, on Text them's background wire (`../graph/nodes/selfreview.js`).
   const reply = {
     answer: sent, ...((quiet || silent) && sent === "" ? { quiet: true } : {}), // nothing to text, as a flag the Worker reads, never a word (`jobReport.js`)
-    ...(hushed && report === null && sent === "" ? { react: "" } : {}), // a tapback in place of a text: a job start's, the Worker's own pick from their words; the Worker checks the emoji (`reactEmoji.ts`)
+    ...(hushed && report === null && sent === "" ? { react: tapped ?? "" } : {}), // a tapback in place of a text: a job start's, the Worker's own pick from their words; the Worker checks the emoji (`reactEmoji.ts`)
     ...(replyPlace === "under" || replyPlace === "plain" ? { place: replyPlace } : {}), // under the text it answers, or plain in the chat (`conversationThreads.js`)
     // How many held calls the answer's last line asks about, so a caller that
     // plays the person (the bench) knows a YES is awaited; zero on a clean turn.
