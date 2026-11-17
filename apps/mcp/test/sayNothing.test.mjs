@@ -108,3 +108,24 @@ test("any other call typed out goes back to be made, and is never the text", asy
   assert.equal(result.answer, "Nothing running right now.");
   assert.match(JSON.stringify(ai.calls[1]), /job_status call written out as text/);
 });
+
+// Sayo's 1:1, 2026-11-16: a routine was written and say_nothing ("placeholder") made in the same round; nothing was texted.
+test("say_nothing beside another call in the same round waits for that call's answer, and the turn goes on", async () => {
+  const { ai, ran, result } = await turn([
+    { calls: [{ name: "search_notes" }, { name: "send", args: { action: SAY_NOTHING_TOOL, args: { why: "placeholder" } } }] },
+    { text: "Set: I'll remind you Wednesday at 9." },
+  ], { judged: false });
+  assert.equal(result.answer, "Set: I'll remind you Wednesday at 9.");
+  assert.notEqual(result.settled, SAY_NOTHING_TOOL);
+  assert.deepEqual(ran, ["search_notes"]);
+  assert.equal(ai.calls.length, 2);
+  assert.match(JSON.stringify(ai.calls[1]), /Not quiet yet/);
+});
+
+test("say_nothing on its own in the round after still ends the turn quietly", async () => {
+  const { result } = await turn([
+    { calls: [{ name: "search_notes" }, { name: "send", args: { action: SAY_NOTHING_TOOL, args: { why: "x" } } }] },
+    { calls: [{ name: "send", args: { action: SAY_NOTHING_TOOL, args: { why: "nothing new" } } }] },
+  ], { judged: false });
+  assert.equal(result.answer, SAID_NOTHING);
+});

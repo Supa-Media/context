@@ -57,6 +57,15 @@ export const sayNothingRefused = {
 };
 
 /**
+ * SILENCE BESIDE ANOTHER CALL WAITS FOR ITS ANSWER (owner, 2026-11-17). Sayo asked for a reminder; in one round
+ * Tex wrote the routine and called `say_nothing` ("placeholder") beside it, before it had seen the write's answer,
+ * and the turn ended with nothing texted. A `say_nothing` made in the same round as any other call is answered with
+ * this and does not end the turn; the next round, with the other answers in hand, may still choose silence.
+ */
+export const QUIET_TOO_SOON =
+  "Not quiet yet: you asked for silence in the same round as another call, before seeing what it answered. Read its answer, then text them, or call say_nothing again on its own if nothing should be sent.";
+
+/**
  * The answer a turn that called it hands on: the quiet word its readers already treat as nothing to send
  * (`QUIET_WORD` in `checkInGuards.js`, written out because that module reaches back to `turn.js`; a test holds them equal).
  */
