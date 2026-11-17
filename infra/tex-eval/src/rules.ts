@@ -4,8 +4,13 @@
  * tune against it by trying again; a run returns pass or fail and counts by node, never a word.
  */
 
-/** 1 run a commit, 3 a pull request, 1000 a day (UTC), across every pull request. */
-export const CAPS = { commit: 1, pr: 3, day: 1000 } as const;
+/**
+ * 1 run a commit, 10 changes a pull request, 1000 a day (UTC), across every pull request. Raised from 3 a pull
+ * request by Dev2, 2026-11-17 ("increase the caps if they keep getting hit"): merging a moving main made every
+ * pull request spend its runs on the same change. The pull request cap counts distinct changes (the patch-id of
+ * the pull request's diff from main), so a commit that only merges main re-runs without spending one.
+ */
+export const CAPS = { commit: 1, pr: 10, day: 1000 } as const;
 /** The largest conversation kept, in bytes of its JSON. */
 export const MAX_CHAT_BYTES = 200_000;
 export const ID = /^[a-z0-9][a-z0-9-]{0,79}$/;
@@ -72,7 +77,10 @@ export function problemWith(c: unknown): string | null {
 
 export interface Usage {
   commit: number;
+  /** Distinct changes this pull request already ran. */
   pr: number;
+  /** This change (the same diff from main) already ran on this pull request: only main moved, so it spends no pull request run. */
+  sameChange?: boolean;
   day: number;
   /** Extra runs people gave this pull request, not yet used. */
   allowed: number;
@@ -80,7 +88,7 @@ export interface Usage {
 
 /** Whether a run may start, and whether it spends one of the pull request's extra runs. */
 export function mayRun(u: Usage): { ok: true; spendsAllowance: boolean } | { ok: false; why: string } {
-  const over = u.commit >= CAPS.commit ? `this commit already had its ${CAPS.commit} Test Set run` : u.pr >= CAPS.pr ? `this pull request already had its ${CAPS.pr} Test Set runs` : u.day >= CAPS.day ? `the Test Set already ran ${CAPS.day} times today (UTC)` : null;
+  const over = u.commit >= CAPS.commit ? `this commit already had its ${CAPS.commit} Test Set run` : !u.sameChange && u.pr >= CAPS.pr ? `this pull request already ran ${CAPS.pr} different changes on the Test Set` : u.day >= CAPS.day ? `the Test Set already ran ${CAPS.day} times today (UTC)` : null;
   if (!over) return { ok: true, spendsAllowance: false };
   if (u.allowed > 0) return { ok: true, spendsAllowance: true };
   return { ok: false, why: `${over}; a person can allow one more in the Lab` };

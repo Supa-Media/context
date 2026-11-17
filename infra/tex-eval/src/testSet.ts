@@ -13,6 +13,8 @@ export interface RunStart {
   base: string;
   ghRun: string;
   actor?: string;
+  /** The patch-id of the pull request's diff from main: the same on a commit that only merges main. */
+  change?: string;
 }
 export interface RunRow {
   id: string;
@@ -35,6 +37,7 @@ export class TestSet extends DurableObject {
     this.sql = ctx.storage.sql;
     this.sql.exec(`CREATE TABLE IF NOT EXISTS chats (id TEXT PRIMARY KEY, body TEXT NOT NULL, by TEXT NOT NULL, at INTEGER NOT NULL)`);
     this.sql.exec(`CREATE TABLE IF NOT EXISTS runs (id TEXT PRIMARY KEY, pr INTEGER NOT NULL, sha TEXT NOT NULL, base TEXT NOT NULL, day TEXT NOT NULL, at INTEGER NOT NULL, gh_run TEXT NOT NULL, tests TEXT NOT NULL, verdict TEXT, allowance INTEGER NOT NULL DEFAULT 0)`);
+    if (!this.sql.exec<{ name: string }>(`PRAGMA table_info(runs)`).toArray().some((c) => c.name === "change")) this.sql.exec(`ALTER TABLE runs ADD COLUMN change TEXT`);
     this.sql.exec(`CREATE TABLE IF NOT EXISTS allowances (pr INTEGER PRIMARY KEY, left INTEGER NOT NULL)`);
     // Who changed what, by id only.
     this.sql.exec(`CREATE TABLE IF NOT EXISTS audit (at INTEGER NOT NULL, who TEXT NOT NULL, what TEXT NOT NULL, subject TEXT NOT NULL)`);
@@ -112,12 +115,16 @@ export class TestSet extends DurableObject {
     if (same) return { ok: true as const, run: same.id, conversations: chats };
     const n = (q: string, v: string | number) => this.sql.exec<{ n: number }>(`SELECT COUNT(*) AS n FROM runs WHERE ${q} = ?`, v).one().n;
     const allowed = this.sql.exec<{ left: number }>(`SELECT left FROM allowances WHERE pr = ?`, s.pr).toArray()[0]?.left ?? 0;
-    const may = mayRun({ commit: n("sha", s.sha), pr: n("pr", s.pr), day: n("day", dayOf(now)), allowed });
+    const change = s.change && SHA.test(s.change) ? s.change : null;
+    // A run with no change named counts as a change of its own.
+    const changes = this.sql.exec<{ n: number }>(`SELECT COUNT(DISTINCT COALESCE(change, id)) AS n FROM runs WHERE pr = ?`, s.pr).one().n;
+    const sameChange = change !== null && this.sql.exec<{ n: number }>(`SELECT COUNT(*) AS n FROM runs WHERE pr = ? AND change = ?`, s.pr, change).one().n > 0;
+    const may = mayRun({ commit: n("sha", s.sha), pr: changes, sameChange, day: n("day", dayOf(now)), allowed });
     if (!may.ok) return { ok: false as const, why: may.why };
     if (may.spendsAllowance) this.sql.exec(`UPDATE allowances SET left = left - 1 WHERE pr = ?`, s.pr);
     const tests: Test[] = chats.flatMap(unitTests);
     const id = crypto.randomUUID();
-    this.sql.exec(`INSERT INTO runs (id, pr, sha, base, day, at, gh_run, tests, allowance) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`, id, s.pr, s.sha, s.base, dayOf(now), now, s.ghRun, JSON.stringify(tests), may.spendsAllowance ? 1 : 0);
+    this.sql.exec(`INSERT INTO runs (id, pr, sha, base, day, at, gh_run, tests, allowance, change) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`, id, s.pr, s.sha, s.base, dayOf(now), now, s.ghRun, JSON.stringify(tests), may.spendsAllowance ? 1 : 0, change);
     this.audit(s.actor ? `github:${s.actor}` : "github", "run", `#${s.pr} ${s.sha.slice(0, 7)}`);
     return { ok: true as const, run: id, conversations: chats };
   }

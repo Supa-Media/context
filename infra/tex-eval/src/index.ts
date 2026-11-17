@@ -11,7 +11,7 @@ export { TestSet };
  *
  *  - HTTP (`/tex-eval/*` on the gateway, passed here untouched): main's Test Set workflows only, by GitHub OIDC.
  *      GET  /counts             counts, no words (the Lab's ratio bar, the ratio guard in CI)
- *      POST /v1/runs            { pr, sha, base } -> { run, conversations } within the caps, else 429 { error }
+ *      POST /v1/runs            { pr, sha, base, change? } -> { run, conversations } within the caps, else 429 { error }
  *      POST /v1/runs/result     { run, branch: Result[], main: Result[] } -> { verdict } (pass/fail, counts by node)
  *      POST /v1/seed            { conversations } -> { kept, skipped } (the held-out cases moved in; never overwrites)
  *  - `PeopleDoor` (RPC): the Lab's people, checked by the gateway (the app's own client, an @context-lc editor).
@@ -51,8 +51,8 @@ export async function handle(request: Request, env: Env, keys: KeySource = githu
   }
   const ghRun = String(claims.run_id);
   if (path === "/v1/runs") {
-    const b = await body<{ pr?: number; sha?: string; base?: string }>(request);
-    const started = await one(env).startRun({ pr: Number(b?.pr), sha: String(b?.sha ?? ""), base: String(b?.base ?? ""), ghRun, actor: typeof claims.actor === "string" ? claims.actor : undefined });
+    const b = await body<{ pr?: number; sha?: string; base?: string; change?: string }>(request);
+    const started = await one(env).startRun({ pr: Number(b?.pr), sha: String(b?.sha ?? ""), base: String(b?.base ?? ""), change: typeof b?.change === "string" ? b.change : undefined, ghRun, actor: typeof claims.actor === "string" ? claims.actor : undefined });
     return started.ok ? json({ run: started.run, conversations: started.conversations }) : json({ error: started.why }, 429);
   }
   if (path === "/v1/runs/result") {
