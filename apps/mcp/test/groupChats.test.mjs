@@ -5,7 +5,7 @@
  * Sabotage record (2026-11-17), each applied, this file run, named test failing, reverted:
  *  1. `pickChat` matching any key start of 1 character → "a chat is named by its id or its name…" fails.
  *  2. `read` opening `ledgerOf(args.chat)` instead of the list's key → "read opens one day word for word…" fails.
- *  3. `readsGroups` always true → "off unless the front door's ctx lists `groups`" fails.
+ *  3. `readsGroups` always false → "on where the front door's ctx lists `groups`…" fails.
  *  4. the `onRead()` call removed → "reading another chat's words marks the turn untrusted" fails.
  *  5. the `groups:` row dropped from `sixTools.js` `ASSISTANT_FETCH_IDS` → "the model reaches every chat reader…" fails.
  */
@@ -16,7 +16,7 @@ import { test } from "node:test";
 import { sixToolsOver } from "../src/agent/sixTools.js";
 import { readDayTool } from "../src/agent/weekHistory.js";
 import { readThreadTool } from "../src/agent/conversationThreads.js";
-import { groupChatsTool, groupsOn, groupsPrompt, pickChat, readsGroups, readTexterGroups } from "../src/agent/groupChats.js";
+import { asksOn, groupChatsTool, groupsOn, groupsPrompt, pickChat, readsGroups, readTexterGroups } from "../src/agent/groupChats.js";
 import { eventEntry } from "../src/agent/ledger.js";
 import { texLedger } from "../src/texStore/ledger.js";
 import { midnightOf } from "../src/agent/weekHistory.js";
@@ -60,12 +60,17 @@ async function chats() {
 
 const text = (result) => result.content[0].text;
 
-test("off unless the front door's ctx lists `groups`: main's config stays as it is", () => {
-  assert.equal(groupsOn({}), false, "main's front door does not read the groups yet: a Lab draft turns it on");
-  const on = withDraft(TEX_CONFIG, { nodes: [{ id: "fd", ctx: [...texStep("fd").ctx, "groups"] }] });
-  assert.equal(readsGroups(texStep("fd", on)), true);
-  assert.equal(readsGroups(texStep("fd")), false);
+test("on where the front door's ctx lists `groups`, as main's now does, and off where a draft takes it out", () => {
+  assert.equal(readsGroups(texStep("fd")), true, "Promoted 2026-11-17 (Lab draft \"1:1 reads group chats\")");
+  const off = withDraft(TEX_CONFIG, { nodes: [{ id: "fd", ctx: texStep("fd").ctx.filter((m) => m !== "groups") }] });
+  assert.equal(readsGroups(texStep("fd", off)), false);
   assert.equal(readsGroups(null), false);
+});
+
+test("the list is also read when the Cross-chat gate is wired, so ask_chat has its groups without the groups module", () => {
+  // Dev2, 2026-11-17: a 1:1 asked to message Tex Devs got "no such action": main wired the gate but not `groups`.
+  assert.equal(asksOn({}), true, "main's config wires tools -> crossChatGate");
+  assert.equal(groupsOn({}) || asksOn({}), true, "readTheHistory reads the list on main");
 });
 
 test("the list comes only from the control plane, kept to well-formed rows, names on one line", async () => {
@@ -110,6 +115,9 @@ test("search finds texts across every chat they are in, with chat, day, time and
   assert.match(loose, /Family .* @sade: Texas flights/);
   assert.match(loose, /Tex Devs .* @shyoh/);
   assert.ok(!opened.includes(NOT_MINE));
+  const whole = text(await tool.call({ op: "search", words: "eval" }));
+  assert.match(whole, /the eval set is red again/);
+  assert.doesNotMatch(text(await tool.call({ op: "search", words: "eva" })), /eval set/, "a word inside another word is not a hit");
   const none = text(await tool.call({ op: "search", words: "zebra" }));
   assert.match(none, /No text in their 2 group chats holds "zebra"/);
 });

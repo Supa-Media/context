@@ -14,6 +14,7 @@
  *
  *   `sharedChats` skipping the everyone check                    1 failed ("a group counts only when everybody ...")
  *   `sharedSessionFor` handing out a session for an unlisted 1:1  1 failed ("a shared 1:1's test session ...")
+ *   (2026-11-17) the shared-groups filter dropped                 1 failed ("a shared 1:1 reads only the groups ...")
  */
 
 import { afterEach, describe, expect, test, vi } from "vitest";
@@ -103,5 +104,29 @@ describe("chats shared with the developers", () => {
     }
     await t.run((ctx) => ctx.db.delete(yes));
     expect((await t.run((ctx) => sharedSessionFor(ctx, dev, `u:${sam}`))).status).toBe("not_found");
+  });
+
+  test("a shared 1:1 reads only the groups shared with the developers too, never the sharer's others", async () => {
+    vi.stubEnv("ADMIN_EMAILS", "staff@example.invalid");
+    const t = setupTest();
+    const dev = await createUser(t, "dev@example.invalid");
+    await createWorkspace(t, dev, "devperson", { kind: "personal" });
+    const sam = await createUser(t, "sam@example.invalid");
+    const samWs = await createWorkspace(t, sam, "samperson", { kind: "personal" });
+    const kai = await createUser(t, "kai@example.invalid");
+    await createWorkspace(t, kai, "kaiperson", { kind: "personal" });
+    const lee = await createUser(t, "lee@example.invalid");
+    await createWorkspace(t, lee, "leeperson", { kind: "personal" });
+    await t.run(async (ctx) => {
+      await ctx.db.insert("oauthGrants", { workspaceId: samWs, userId: sam, clientId: "context_texts", scopes: ["context:read"], hashedAccessToken: "hashed_example_sam", hashedRefreshToken: "refresh_hashed_example_sam", accessTokenExpiresAt: Date.now() + 3_600_000, status: "active", createdAt: Date.now() });
+      await ctx.db.insert("texReviewSharing", { userId: sam, sharedAt: 5 });
+      await ctx.db.insert("texReviewSharing", { userId: lee, sharedAt: 6 });
+      // Everybody in it said yes: shared. Kai never did: not shared, so a test turn never lists it.
+      await ctx.db.insert("textGroups", { groupKey: GROUP_A, lastSeenAt: 10, homeUsers: [sam, lee], chatName: "Trip" });
+      await ctx.db.insert("textGroups", { groupKey: GROUP_B, lastSeenAt: 11, homeUsers: [sam, kai], chatName: "Family" });
+    });
+    const answer = await t.run((ctx) => sharedSessionFor(ctx, dev, `u:${sam}`));
+    expect(answer.status).toBe("ok");
+    if (answer.status === "ok") expect((answer.chat as { groups: { key: string }[] }).groups.map((g) => g.key)).toEqual([GROUP_A]);
   });
 });

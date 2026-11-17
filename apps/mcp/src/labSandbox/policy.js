@@ -107,6 +107,10 @@ export function controlPlaneAnswer(path, body, gate) {
     gate.record({ kind: "Other", summary: "a key rotation, refused in the test chat" });
     return { refuse: 403 };
   }
+  // A shared chat's notes are not the developer's to open: its store is an empty one of the test chat's own.
+  if (route === "/gateway/binding" && gate.noNotes === true) {
+    return { answer: { binding: { provider: "r2-binding", bindingName: NO_NOTES_BINDING, status: "active", workspaceId: String(body?.expectedWorkspaceId ?? "") } } };
+  }
   // The storage binding comes back with its keys blanked: a test turn reads notes from the workspace's object, and a
   // bucket it reached with these keys would refuse every request, a write above all.
   if (route === "/gateway/binding") return { pass: true, transform: withoutKeys };
@@ -227,6 +231,26 @@ const WITHHELD_STRINGS = new Set(["TRANSCRIBE_WORKER_SECRET", "AGENT_WORKER_SECR
  * keep nothing, and `gate` under `LAB_SANDBOX_KEY`. Every other binding (the texting Worker, site shots, Tex's jobs and
  * chat queues, live rooms, tickets, the eval service) is left out, so no code path can reach one.
  */
+/**
+ * The bucket a chat shared with the developers gets in place of its person's notes (Dev2 chose "run without the
+ * sharer's notes", 2026-11-17): a workspace's key is handed only to its members, so a developer's test text in someone
+ * else's chat reads none of their notes. It holds nothing and keeps nothing: every read is empty and a save is refused,
+ * which the turn reads as any failed save (its writes are the test chat's own anyway, `sandboxTools.js`).
+ */
+export const NO_NOTES_BINDING = "LAB_NO_NOTES";
+export function noNotesBucket() {
+  const refuse = async () => {
+    throw new Error("This test chat was shared with the developers without its person's notes: nothing is saved here.");
+  };
+  return {
+    get: async () => null,
+    head: async () => null,
+    list: async () => ({ objects: [], delimitedPrefixes: [], truncated: false }),
+    put: refuse,
+    delete: async () => undefined,
+  };
+}
+
 export function sandboxEnvOf(env, { gate, workspaces, tex }) {
   const out = {};
   for (const [key, value] of Object.entries(env ?? {})) {
@@ -238,5 +262,9 @@ export function sandboxEnvOf(env, { gate, workspaces, tex }) {
   if (workspaces) out.WORKSPACE_STORE = workspaces;
   if (tex) out.TEX_STORE = tex;
   out[LAB_SANDBOX_KEY] = gate;
+  if (gate?.noNotes === true) {
+    out[NO_NOTES_BINDING] = noNotesBucket();
+    out.NATIVE_BINDINGS = [String(out.NATIVE_BINDINGS ?? ""), NO_NOTES_BINDING].filter((entry) => entry.trim() !== "").join(",");
+  }
   return out;
 }

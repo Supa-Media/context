@@ -46,6 +46,20 @@ export function groupsOn(env) {
   }
 }
 
+/**
+ * Whether this turn's config wires the Cross-chat gate (`tools -> crossChatGate`): its `ask_chat` names a group from
+ * the same list, so the list is read for it even when the front door doesn't read groups (Dev2, 2026-11-17: a 1:1 asked
+ * to message Tex Devs, and `ask_chat` was missing because only the `groups` module read the list).
+ */
+export function asksOn(env) {
+  try {
+    const edges = texConfigOf(env)?.edges;
+    return Array.isArray(edges) && edges.some((edge) => edge?.from === "tools" && edge?.to === "crossChatGate");
+  } catch {
+    return false;
+  }
+}
+
 /** Whether a step's `ctx` lists the `groups` module. */
 export const readsGroups = (step) => Array.isArray(step?.ctx) && step.ctx.includes(GROUPS_MODULE);
 
@@ -155,7 +169,8 @@ export function groupChatsTool({ groups, ledgerOf, timeZone = "UTC", onRead = ()
       for (const e of events) {
         const text = String(e.text ?? "");
         const low = text.toLowerCase();
-        const hits = want.filter((w) => low.includes(w)).length;
+        // Whole words, with a plain ending ("texas's", "trips", "traveling"), never inside another word ("trip" in "tripleseat").
+        const hits = want.filter((w) => new RegExp(`(?<![\\p{L}\\p{N}])${w.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}(?:s|es|'s|ing|ed|er)?(?![\\p{L}\\p{N}])`, "u").test(low)).length;
         if (hits > 0) found.push({ g, e, text, hits });
       }
     }

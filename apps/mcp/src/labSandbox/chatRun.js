@@ -403,8 +403,11 @@ export async function runChatTurn({ env, stub, about, row, payload, token, confi
   const line = lineOf(about);
   const gate = sandboxGate(stub, about, row.id, { config, arrivedAt: row.at ?? now(), now });
   // The group chats a 1:1 test turn may read, as the control plane listed them for this chat (`texLabSandbox.ts`):
-  // a shared 1:1's are none, and a group's own turn never asks (`groupChats.js`).
+  // a shared 1:1's are only the groups its person shared too, and a group's own turn never asks (`groupChats.js`).
   gate.groups = Array.isArray(chat?.groups) ? chat.groups : null;
+  // A chat shared with the developers runs with none of its person's notes (Dev2, 2026-11-17): their workspace's key is
+  // handed only to its members, and the developer testing is not one (`policy.js` `NO_NOTES_BINDING`).
+  gate.noNotes = about?.shared === true;
   const { book } = gate;
   const onEvent = (event) => {
     const step = workerStep(event.step);
