@@ -22,6 +22,8 @@ import { ADVISOR_TOOL } from "../src/agent/advisor.js";
 import { replyChecks } from "../src/agent/replyChecks.js";
 import { WORK_PAGE_NOTICE } from "../src/agent/workPage.js";
 import { WORDY_NOTICE, RESULT_NOTICE } from "../src/agent/wordy.js";
+import { bareCoverNotice } from "../src/agent/pageCoverFloor.js";
+import { GIVE_UP, GIVE_UPS } from "../src/agent/checkFindings.js";
 
 /** Findings looked up on the web and texted as a long wall of words: a page's worth, and an essay. No figures, so nothing unsourced. */
 const WALL = Array.from({ length: 14 }, (_, at) => `Finding ${at + 1} is that the venue market near the park is tight this month and books out early.`).join(" ");
@@ -55,7 +57,7 @@ test("facts on the same draft go back in one notice, with advice riding along", 
   assert.ok(carries(notice, CLAIM_NOTICE), "the claim with no write");
   assert.ok(carries(notice, HANDBACK_NOTICE), "the look-up handed back");
   assert.ok(carries(notice, WORK_PAGE_NOTICE), "the page advice rides along");
-  assert.match(notice, /^Before this goes, 2 things/);
+  assert.match(notice, /^Before this goes, check 2 things/);
   assert.match(notice, /never a reason to hold the answer back/);
   // Each was said once: the same draft goes, nothing is sent back a second time.
   assert.equal(await claims.check(draft), null);
@@ -88,4 +90,30 @@ test("the advisor's ask goes back in the same notice as the claim check's findin
   doIt.wrapLocal([{ tool: { name: ADVISOR_TOOL }, call: async () => ({}) }]);
   const notice = await doIt.check("Done, I've added it to your notes.");
   assert.ok(carries(notice, ADVISOR_NOTICE) && carries(notice, CLAIM_NOTICE), notice);
+});
+
+test("a bare page's cover still holds a job's answer: it is a fact (pages.md, 'A page always has a picture')", async () => {
+  const claims = claimCheck({ question: "find new church plants", job: { id: "job-1" } });
+  await claims.wrap(async () => ({ content: [{ type: "text", text: "saved" }] }))("write_note", { path: "projects/churches.page.md", content: "---\nkind: research\n---\n# Churches\n\nEight plants." });
+  const notice = await claims.check("Eight plants. https://context.lc/p/@seyi/projects/churches.page.md");
+  assert.ok(carries(notice, bareCoverNotice("projects/churches.page.md")), String(notice));
+});
+
+test("advice a job didn't send is not spent: it rides along with a later fact", async () => {
+  const claims = await searched(claimCheck({ question: "find us a venue for 30", job: { id: "job-1" } }));
+  assert.equal(await claims.check(WALL), null);
+  const notice = await claims.check(`${WALL} I've added it to your notes.`);
+  assert.ok(carries(notice, CLAIM_NOTICE) && carries(notice, WORK_PAGE_NOTICE), String(notice));
+});
+
+test("a fact that sets the answer's shape sends no shape advice beside it", () => {
+  const found = [finding("owed-picture", "draw it, then ONE line"), finding("wordy", WORDY_NOTICE, true)];
+  assert.deepEqual(oneShape(found).map((entry) => entry.kind), ["owed-picture"]);
+});
+
+test("at most two give-up facts go back on one draft, the most exact first", () => {
+  const found = ["handback", "routes", "paste", "sites", "claim"].map((kind) => finding(kind, `Before this goes: ${kind}.`));
+  const kept = oneShape(found).map((entry) => entry.kind);
+  assert.deepEqual(kept, ["paste", "sites", "claim"]);
+  assert.equal(kept.filter((kind) => GIVE_UP.includes(kind)).length, GIVE_UPS);
 });

@@ -17,7 +17,7 @@
  *     browser never tried, a search handed back to them. Facts block: any fact
  *     sends the draft back, every fact found listed in one notice.
  *   - **Advice** is about shape: a page rather than a text, too wordy, one
- *     line beside a page, a card for a list, a page's cover. It never holds an
+ *     line beside a page, a card for a list, a plain note that should be a page. It never holds an
  *     answer on its own in a job (the job's report is reviewed later), and on
  *     a chat turn it may cost one rewrite a turn at most. It rides along when
  *     a fact sends the draft back anyway.
@@ -31,6 +31,16 @@
 /** The advice that says what form or length the answer takes: only one of these a turn, the first that fires in this order. */
 export const SHAPE = ["page", "work", "card", "result", "wordy"];
 
+/**
+ * The facts that all say "you gave up too soon" in different words: at most `GIVE_UPS` of them go back on one draft,
+ * the most exact first, so a give-up draft is not handed six overlapping notices at once.
+ */
+export const GIVE_UP = ["retry", "untried", "sites", "look", "paste", "routes", "handback"];
+export const GIVE_UPS = 2;
+
+/** Facts that themselves say what shape the answer takes ("draw it, then ONE line"): with one, no shape advice goes. */
+export const SHAPED_FACTS = ["owed-picture"];
+
 /** A finding: `{ kind, notice, advice }`. A fact unless `advice` is true. */
 export function finding(kind, notice, advice = false) {
   return { kind, notice: String(notice), advice: advice === true };
@@ -41,8 +51,11 @@ function body(notice) {
   return String(notice).replace(/^\s*Before this goes:\s*/i, "").trim();
 }
 
-/** Keeps at most one `SHAPE` advice, the first in `SHAPE`'s order, and none at all once one was given this turn (`shapeGiven`). */
+/** Caps the give-up facts (`GIVE_UPS`), and keeps at most one `SHAPE` advice, the first in `SHAPE`'s order, and none at all once one was given this turn (`shapeGiven`). */
 export function oneShape(found, shapeGiven = false) {
+  const giveUps = found.filter((entry) => !entry.advice && GIVE_UP.includes(entry.kind)).sort((a, b) => GIVE_UP.indexOf(a.kind) - GIVE_UP.indexOf(b.kind));
+  if (giveUps.length > GIVE_UPS) found = found.filter((entry) => !giveUps.slice(GIVE_UPS).includes(entry));
+  if (found.some((entry) => !entry.advice && SHAPED_FACTS.includes(entry.kind))) shapeGiven = true;
   const shaped = found.filter((entry) => entry.advice && SHAPE.includes(entry.kind));
   if (shaped.length === 0) return found;
   const keep = shapeGiven ? null : shaped.reduce((best, entry) => (SHAPE.indexOf(entry.kind) < SHAPE.indexOf(best.kind) ? entry : best));
@@ -62,7 +75,7 @@ export function combineFindings(found, { adviceAlone = false } = {}) {
   const parts = [];
   if (facts.length === 1) parts.push(facts[0].notice);
   if (facts.length > 1) {
-    parts.push(`Before this goes, ${facts.length} things in your answer don't match what this turn did. Fix them all in one rewrite:`);
+    parts.push(`Before this goes, check ${facts.length} things against what this turn did, and fix what needs it in one rewrite:`);
     facts.forEach((entry, at) => parts.push(`${at + 1}. ${body(entry.notice)}`));
   }
   if (advice.length > 0) {

@@ -155,7 +155,9 @@ import { CHECK_IN_ANSWER_NOTICE, IMPOSSIBLE_NIGHT_NOTICE, THEIR_FIGURE_NOTICE, d
 /**
  * Every finding of one turn's checks on a draft: `{ question, waiting, pictures, history, detailed }` from the turn,
  * `steps` as `claimCheck.js` records them. Answers `[{ kind, notice, advice }]` (`checkFindings.js`), each kind once a
- * turn; the cover, page, result and wordy checks are advice on the answer's shape, the rest are facts.
+ * turn; the page, result and wordy checks are advice on the answer's shape, the rest are facts
+ * (a bare page's cover stays a fact: "A page always has a picture", docs/decisions/app-and-console/pages.md). Advice
+ * that was found but not sent is handed back with `release(kind)`, so it can still ride along with a later fact.
  */
 export function replyFindings({ question, waiting = false, pictures = false, history = [], detailed = false }) {
   const given = new Set();
@@ -173,14 +175,14 @@ export function replyFindings({ question, waiting = false, pictures = false, his
     ["prompt", (answer) => repeatsUnarrivedPrompt(question, answer), NO_PROMPT_NOTICE],
     ["goal", (answer) => dropsTheGoal(question, answer), GOAL_NOTICE],
     // A page saved with no picture and no cover call draws its cover before the link goes (`pageCoverFloor.js`).
-    ["cover", (answer, steps) => bareCoverMissing(steps) !== "", (answer, steps) => bareCoverNotice(bareCoverMissing(steps)), true],
+    ["cover", (answer, steps) => bareCoverMissing(steps) !== "", (answer, steps) => bareCoverNotice(bareCoverMissing(steps))],
     // Work looked up on the web and texted as a wall of findings is a page (`workPage.js`).
     ["work", (answer, steps) => workForAPage(answer, { question, steps }), WORK_PAGE_NOTICE, true],
     // Words beside a page or picture, or an essay with none (`wordy.js`): at most one of these shapes a turn (`checkFindings.js` `oneShape`).
     ["result", (answer, steps) => restatesTheResult(answer, { question, steps, detailed }), RESULT_NOTICE, true],
     ["wordy", (answer, steps) => tooWordy(answer, { question, steps, detailed }), WORDY_NOTICE, true],
   ];
-  return (answer, steps = []) => {
+  const run = (answer, steps = []) => {
     const found = [];
     for (const [kind, fails, notice, advice] of checks) {
       if (given.has(kind) || !fails(answer, steps)) continue;
@@ -189,6 +191,8 @@ export function replyFindings({ question, waiting = false, pictures = false, his
     }
     return found;
   };
+  run.release = (kind) => given.delete(kind);
+  return run;
 }
 
 /**
@@ -200,8 +204,10 @@ export function replyChecks(turn) {
   let shapeGiven = false;
   let adviceGiven = false;
   return (answer, steps = []) => {
-    const found = oneShape(findings(answer, steps), shapeGiven);
+    const all = findings(answer, steps);
+    const found = oneShape(all, shapeGiven);
     const notice = combineFindings(found, { adviceAlone: !adviceGiven });
+    for (const entry of all) if (entry.advice && (notice === null || !found.includes(entry))) findings.release(entry.kind);
     if (notice !== null && found.some((entry) => entry.advice)) adviceGiven = true;
     if (notice !== null && found.some((entry) => entry.advice && SHAPE.includes(entry.kind))) shapeGiven = true;
     return notice;

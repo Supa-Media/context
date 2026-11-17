@@ -540,14 +540,24 @@ export function claimCheck({ question, judge = null, waiting = false, corrects =
     takesFindings: true,
     check(answer, context) {
       const before = Array.isArray(context?.before) ? context.before : [];
-      const found = oneShape([...before, ...findings(answer)], shapeGiven);
+      const all = [...before, ...findings(answer)];
+      const found = oneShape(all, shapeGiven);
       const notice = combineFindings(found, { adviceAlone: job === null && !adviceGiven });
+      // Advice found but not sent is not spent: it can still ride along with a later fact this turn.
+      for (const entry of all) if (entry.advice && (notice === null || !found.includes(entry))) release(entry.kind);
       if (notice === null) return judgeOnce(answer);
       if (found.some((entry) => entry.advice)) adviceGiven = true;
       if (found.some((entry) => entry.advice && SHAPE.includes(entry.kind))) shapeGiven = true;
       return notice;
     },
   };
+
+  /** Hands back a once-a-turn advice check that found something which was never sent. */
+  function release(kind) {
+    if (kind === "page") pageNoticed = false;
+    else if (kind === "card") cardNoticed = false;
+    else shape.release(kind);
+  }
 
   /** Every check's finding on this answer, each kind once a turn: `[{ kind, notice, advice }]`. */
   function findings(answer) {
