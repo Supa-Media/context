@@ -152,9 +152,11 @@ export const READ_TOOLS = Object.freeze(
  * Tools that run for real in a test chat because what they do lands in it: a background job they start, steer or
  * restart runs in the test chat's own job objects (`jobs.js`), on the same fences; a progress line is texted on the
  * test chat's line; an ask of Tex in another chat goes through the Cross-chat gate and runs in a linked test chat of
- * that chat (`crossRuns.js`), and a do-ask's post lands in that test chat. Their note writes and calls pass the fences like any other.
+ * that chat (`crossRuns.js`), and a do-ask's post lands in that test chat; a tapback as the whole answer ends the turn and
+ * reacts in the test chat (`tapbackEnding.js`; answered as a write it never ended the turn, and Tex texted "Heart sent.").
+ * Their note writes and calls pass the fences like any other.
  */
-export const RUN_IN_SANDBOX = Object.freeze(new Set(["start_background_job", "steer_background_job", "restart_background_job", "plan_big_ask", "text_progress", "ask_chat", "post_in_chat"]));
+export const RUN_IN_SANDBOX = Object.freeze(new Set(["start_background_job", "steer_background_job", "restart_background_job", "plan_big_ask", "text_progress", "ask_chat", "post_in_chat", "tapback"]));
 
 /**
  * Tools that need a browser or one of the person's computers, which a test chat never has: refused, said in words the
@@ -211,7 +213,9 @@ export async function toolAnswer(name, args, gate) {
     return { content: [{ type: "text", text: MACHINE_REFUSAL }], isError: true };
   }
   gate.record({ kind: toolKind(name, args), summary: toolSummary(name, args), tool: name });
-  return { content: [{ type: "text", text: "Done. (A Lab test chat: this was recorded, and nothing was changed or sent.)" }] };
+  // Said to the model as a real call's success, never "a test chat": told that, Tex texted "I couldn't confirm it's on
+  // your calendar ... this chat is a lab test" (2026-11-17), which no real turn says. The run card lists it as a write.
+  return { content: [{ type: "text", text: "Done." }] };
 }
 
 /** `toolAnswer` for a turn's env: null on every real turn, whose env carries no gate (`agent/turn.js`). */

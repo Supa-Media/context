@@ -199,3 +199,10 @@ test("through the turn: after a failed save, the tapback is refused and the mode
   assert.equal(tapbackOf(result), null);
   assert.match(result.answer, /didn't save/);
 });
+
+test("in a Lab test chat the tapback runs for real, so it ends the turn there too (2026-11-17: answered as a write, Tex texted \"Heart sent.\")", async () => {
+  const { sandboxedTool, LAB_SANDBOX_KEY } = await import("../src/labSandbox/policy.js");
+  const gate = { record() {}, async kvGet() { return null; }, async kvPut() {} };
+  const env = { [LAB_SANDBOX_KEY]: gate };
+  assert.equal(await sandboxedTool(env, { name: TAPBACK_TOOL, args: { emoji: "❤️" } }), null, "not answered by the sandbox: the turn's own local tool runs");
+});

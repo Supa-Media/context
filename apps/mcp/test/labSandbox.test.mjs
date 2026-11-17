@@ -158,7 +158,7 @@ test("a tool that changes or sends is answered as done and listed; a read runs; 
   const gate = { record: (w) => writes.push(w) };
   for (const name of ["send_email", "write_note", "remember", "background", "vault_list", "report_problem", "write"]) {
     const answer = await toolAnswer(name, { to: "x@example.invalid" }, gate);
-    assert.match(answer.content[0].text, /nothing was changed or sent/, name);
+    assert.equal(answer.content[0].text, "Done.", `${name}: read as a real call's success, never as a test`);
   }
   for (const name of ["browse", "fill_login", "delegate", "add_computer"]) {
     const answer = await toolAnswer(name, {}, gate);
@@ -178,7 +178,7 @@ test("a real turn's tools run as they are: only a test turn's env carries the ga
   const call = { name: "send_email", args: { to: "x@example.invalid" } };
   assert.equal(await sandboxedTool({ PLAIN: "x" }, call), null);
   assert.equal(await sandboxedTool({ [LAB_SANDBOX_KEY]: { notAGate: true } }, call), null, "a gate without record() is no gate");
-  assert.match((await sandboxedTool({ [LAB_SANDBOX_KEY]: { record() {} } }, call)).content[0].text, /nothing was changed or sent/);
+  assert.equal((await sandboxedTool({ [LAB_SANDBOX_KEY]: { record() {} } }, call)).content[0].text, "Done.");
 });
 
 test("a test turn's env has no texting Worker, jobs, browser, chats or sandboxes, and analytics keep nothing", () => {
