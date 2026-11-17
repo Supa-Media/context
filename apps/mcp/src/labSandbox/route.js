@@ -426,7 +426,8 @@ async function addRow({ env, ctx, controlPlane, token, who, stub, state, row, or
   // unless this request waits for it: a Worker stops a request's `waitUntil` 30 s after answering, mid-job.
   const [config, later] = [drafted.config ?? null, typeof ctx?.waitUntil === "function"];
   const carry = { env, controlPlane, token, who, origin, config, asker: { stub, about, sandboxId: about.sandboxId, replyId: `${row.id}r`, payload: answer.session, chat: answer.chat ?? null } };
-  if (later && (await runInObject({ about, row, payload: answer.session, chat: answer.chat ?? null }, carry))) return json({ msgId: row.id });
+  // Run here only when the object answered without taking it: one whose answer was lost may be running it already.
+  if (later && (await runInObject({ about, row }, carry)) !== "refused") return json({ msgId: row.id });
   const run = Promise.resolve(runTurn({ env, stub, about, row, payload: answer.session, token, config, origin, chat: answer.chat ?? null })).then((done) => (later ? carryInObject : carryFrom)(done, carry, { open, newRow: newIds, runTurn, max: DAILY_SENDS }));
   if (later) ctx.waitUntil(run);
   else await run;

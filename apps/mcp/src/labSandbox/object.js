@@ -376,6 +376,14 @@ export function serveSandbox(tables, op, body) {
       tables.setMeta("running", { msgId: body.msgId, node: body.node ?? null, at: Date.now(), ...(Array.isArray(body.steps) ? { steps: body.steps } : {}) });
       return { ok: true };
     }
+    case "alive": {
+      // A run the object keeps (`crossRuns.js` `objectRun`) calling itself, so the object is never idle mid-model-call;
+      // its mark is kept fresh as it stands, its node and steps untouched. Never another text's mark.
+      const running = tables.meta().running;
+      if (running?.msgId !== body.msgId) return { ok: false };
+      tables.setMeta("running", { ...running, at: Date.now() });
+      return { ok: true };
+    }
     case "release": {
       const running = tables.meta().running;
       if (running?.msgId !== body.msgId) return { ok: false };

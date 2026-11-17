@@ -1,10 +1,13 @@
-// A Lab test text's whole run lives in its test chat's own object (`crossRuns.js` `objectRun`, op `text.run`), never
-// under the request that sent it: a Worker stops a request's `waitUntil` 30 s after it answers, and in production
+// A Lab test text's whole run is handed to its test chat's own object (`crossRuns.js` `objectRun`, op `text.run`), never
+// kept by the request that sent it: a Worker stops a request's `waitUntil` 30 s after it answers, and in production
 // (2026-11-17, jobs j6401134c and j25f68f92) every background job longer than that logged `carry_on` and then nothing.
 //
-// What this proves: a sent text's request keeps no work of its own; the object keeps the run, whose job runs past 80 s
-// of the clock and reaches its report (a Tex row `from: "job"`), and the text's running mark is freed after it. A
-// request whose object will not take the run still runs it itself. Fake ids, numbers and words only.
+// What this proves (the hand-off, on a fake clock: whether Cloudflare keeps the object alive is proven in the Lab, not
+// here): a sent text's request keeps no work of its own; the object keeps the run, whose job runs past 80 s of the clock
+// and reaches its report (a Tex row `from: "job"`), and the text's running mark is freed after it; a request whose
+// object answered without taking the run runs it itself, and one whose call failed with no answer never runs it twice;
+// a run that fails before its turn frees the mark; `alive` keeps the mark fresh without touching its steps; and the
+// Worker's own wiring (`route.js` `carryWith`) sends `text.run` to `objectRun`. Fake ids, numbers and words only.
 //
 // Sabotage (temporary local edit, reverted, 2026-11-17): `addRow` back to running the turn under the request's
 // `waitUntil` (no `runInObject`) fails "the request keeps no work".
@@ -14,7 +17,7 @@ import assert from "node:assert/strict";
 
 import { LabSandboxObject } from "../src/labSandbox/object.js";
 import { handleLabSandbox, newIds, open, DAILY_SENDS } from "../src/labSandbox/route.js";
-import { objectRun, objectCarry } from "../src/labSandbox/crossRuns.js";
+import { objectRun, objectCarry, runInObject } from "../src/labSandbox/crossRuns.js";
 import { runChatTurn } from "../src/labSandbox/chatRun.js";
 import { streamTurn, wantsProgress } from "../src/agent/progress.js";
 import { eventEntry } from "../src/agent/ledger.js";
@@ -139,4 +142,48 @@ test("an object runs only a run it was handed whole, with a token, and can keep"
   assert.deepEqual(objectRun(env, state, { ...whole, turn: { about: { kind: "one" } } }, pieces), { running: false }, "no row, no run");
   assert.deepEqual(objectRun(env, {}, whole, pieces), { running: false }, "an object that cannot keep it says so");
   assert.equal(kept.length, 0);
+});
+
+test("a call to the object that failed with no answer is never run again by the request; an answer that refused is", async () => {
+  const thrown = (error) => ({ fetch: async () => { throw error; } });
+  const carry = (stub) => ({ token: ALICE, who: { userId: "u_alice" }, origin: "https://gateway.example.invalid", config: null, asker: { stub, sandboxId: "0123456789abcdef" } });
+  assert.equal(await runInObject({ about: {}, row: { id: "t1" } }, carry(thrown(new Error("network lost")))), "unknown");
+  assert.equal(await runInObject({ about: {}, row: { id: "t1" } }, carry({ fetch: async () => Response.json({ error: "gone" }, { status: 410 }) })), "refused");
+  assert.equal(await runInObject({ about: {}, row: { id: "t1" } }, carry({ fetch: async () => Response.json({ running: false }) })), "refused");
+  assert.equal(await runInObject({ about: {}, row: { id: "t1" } }, carry({ fetch: async () => Response.json({ running: true }) })), "object");
+});
+
+test("a run that fails before its turn frees its text's mark; alive keeps a mark fresh and its steps as they were", async () => {
+  const objects = new Map();
+  const env = { LAB_SANDBOX: { idFromName: (name) => ({ name }), get: (id) => ({ fetch: (request) => objects.get(id.name).fetch(request) }) } };
+  const kept = [];
+  const object = new LabSandboxObject({ storage: { sql: durableSql(), setAlarm: async () => {}, deleteAlarm: async () => {}, deleteAll: async () => {} }, waitUntil: (work) => void kept.push(work) }, env);
+  objects.set("labsandbox:u_alice:0123456789abcdef", object);
+  const call = async (op, body = {}) => (await object.fetch(new Request(`https://lab-sandbox.internal/${op}`, { method: "POST", body: JSON.stringify(body) }))).json();
+  await call("init", { about: { kind: "one", sandboxId: "0123456789abcdef" }, rows: [], history: [] });
+  assert.equal((await call("claim", { msgId: "t1", staleMs: 60_000 })).ok, true);
+  await call("beat", { msgId: "t1", node: "fd", steps: [{ node: "fd" }] });
+  const before = (await call("state")).meta.running;
+  assert.equal((await call("alive", { msgId: "t1" })).ok, true);
+  assert.equal((await call("alive", { msgId: "t2" })).ok, false, "never another text's mark");
+  const after = (await call("state")).meta.running;
+  assert.deepEqual([after.node, after.steps], [before.node, before.steps], "its node and steps untouched");
+  const broken = async () => {
+    throw new Error("could not load");
+  };
+  assert.deepEqual(objectRun(env, { waitUntil: (work) => void kept.push(work) }, { turn: { about: { kind: "one" }, row: { id: "t1" } }, token: ALICE, who: { userId: "u_alice" }, asker: { sandboxId: "0123456789abcdef" } }, broken), { running: true });
+  await Promise.all(kept);
+  assert.equal((await call("state")).meta.running, undefined, "the mark is freed");
+});
+
+test("the Worker's own wiring runs text.run as objectRun: the object takes the run and keeps it", async () => {
+  // The route module sets the object's `text.run` (`carryWith`) when it loads; this object is handed none of its own.
+  const kept = [];
+  const object = new LabSandboxObject({ storage: { sql: durableSql(), setAlarm: async () => {}, deleteAlarm: async () => {}, deleteAll: async () => {} }, waitUntil: (work) => void kept.push(work) }, { LAB_SANDBOX: { idFromName: (name) => ({ name }), get: () => ({ fetch: async () => Response.json({ error: "refused" }, { status: 422 }) }) } });
+  const call = async (op, body = {}) => (await object.fetch(new Request(`https://lab-sandbox.internal/${op}`, { method: "POST", body: JSON.stringify(body) }))).json();
+  await call("init", { about: { kind: "one", sandboxId: "0123456789abcdef" }, rows: [], history: [] });
+  assert.deepEqual(await call("text.run", { turn: { about: { kind: "one" }, row: { id: "t1" } }, who: { userId: "u_alice" }, asker: { sandboxId: "0123456789abcdef" } }), { running: false }, "no token, no run");
+  assert.deepEqual(await call("text.run", { turn: { about: { kind: "one", sandboxId: "0123456789abcdef" }, row: { id: "t1", who: "You", text: "hi", at: Date.now() } }, token: ALICE, who: { userId: "u_alice" }, origin: "https://gateway.example.invalid", asker: { sandboxId: "0123456789abcdef" } }), { running: true });
+  assert.equal(kept.length, 1, "the object keeps it");
+  await Promise.all(kept);
 });

@@ -334,6 +334,10 @@ background job it started: in production (2026-11-17, jobs j6401134c and j25f68f
 and then nothing, cut at the request's 30 s. When the request will not wait, the route now hands the whole run (the
 turn, its jobs up to `JOB_LIMIT_MS`, then its asks, `crossRuns.js` `objectRun`) to the test chat's own object
 (`text.run`), on the same terms as `cross.carry`: the token in that one call, in memory only, and the request running
-it as before when the object cannot keep it. Its test is `apps/mcp/test/labSandboxObjectRun.test.mjs` (sabotaged): a
+it as before when the object answers without taking it. A call that failed with no answer is never run again by the
+request, since the object may already be running it; its mark goes stale instead. `state.waitUntil` alone does not
+keep a Durable Object alive, so the run calls its own object every 20 s (`alive`, which refreshes the mark and touches
+nothing else) and is never idle through a long model call. A deploy still resets the object and ends a run in flight,
+as it does a production job's pass; the mark then goes stale and the next text gets in. Its test is `apps/mcp/test/labSandboxObjectRun.test.mjs` (sabotaged): a
 job whose own turn takes 90 s of the clock reaches its report while the request keeps no work. A simplification that
 runs the turn in the request again fails "the request keeps no work".
