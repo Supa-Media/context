@@ -148,3 +148,17 @@ test("a job's limits everywhere are its Part end node's config, today's numbers 
   const { TEX_CONFIG } = await import("../src/agent/texConfig.js");
   assert.equal(MAX_JOB_ATTEMPTS, configLimits(TEX_CONFIG).parts);
 });
+
+// Step 7c: a part refused at today's limit pauses the job in the Part end node, until just after the limit resets.
+test("a part refused at today's limit pauses the job until just after midnight UTC; no model or a turned-down part does not", () => {
+  const now = Date.UTC(2026, 10, 17, 22, 30);
+  const refused = decidePartEnd(at({ cause: "refused", refusal: "daily_limit", now }));
+  assert.equal(refused.to, "end");
+  assert.equal(refused.ended, "waiting");
+  assert.equal(refused.resumeAt, Date.UTC(2026, 10, 18, 0, 2));
+  assert.equal(decidePartEnd(at({ cause: "refused", refusal: "daily_limit", now }), { resumeAfterMinutes: 10 }).resumeAt, Date.UTC(2026, 10, 18, 0, 10), "the node's config sets how long after");
+  assert.equal(decidePartEnd(at({ cause: "refused", refusal: "no_model", now })).resumeAt, undefined);
+  const rejected = decidePartEnd(at({ cause: "refused", rejected: true, refusal: "daily_limit", now }));
+  assert.equal(rejected.ended, "failed");
+  assert.equal(rejected.resumeAt, undefined);
+});
