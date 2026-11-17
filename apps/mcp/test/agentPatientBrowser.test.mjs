@@ -137,7 +137,8 @@ test("a background job's turn opens a patient browser, and a chat turn does not"
   for (const patient of [true, false]) {
     const { web } = await openTurnWeb(env, { session, texting: true, group: null, question: ASK, vouched: ASK, channel: null, store: null, dispatch: null, ledger: {}, patient });
     await web.call("browse", { steps: [{ do: "goto", url: PORTAL }] });
-    assert.equal(sent.at(-1).waitMs, patient ? JOB_PAGE_WAIT_MS : undefined);
+    const browse = sent.filter((body) => Array.isArray(body.steps)).at(-1);
+    assert.equal(browse.waitMs, patient ? JOB_PAGE_WAIT_MS : undefined);
   }
   resetBrowserbaseProbe();
 });

@@ -41,6 +41,10 @@
  * A run that fails is logged with a digest of the session's own Browserbase
  * log (./sessionLogs.ts), after the answer has gone (`later`): hosts, status
  * codes and counts, never the page, an address's path or what was typed.
+ * A document-host 403 is part of that digest. The answer waits for it, at
+ * most a second, only when the gateway sends `waitForBlock` (the Browser Use
+ * fallback is on). Otherwise the 403 is written to the block log after the
+ * answer, so a browse with the flag off is not slower.
  *
  * `owner` is the gateway's tag for the person (./browserbase.ts); the browser
  * is found by it, so a question that comes back after a sign-in carries on in
@@ -68,12 +72,34 @@ import { browserbaseUploads } from "./upload";
 import { HOLD_MS, IDLE_MS, touchIdle } from "./idle";
 import { LEASE_MS, RUN_LEASE_MS, claimLease, holderOf, releaseLease } from "./lease";
 import { captureJar, parseJar, restoreCookies, restoreStorage, type Jar } from "./jar";
-import { reportFailedRun, type FailedRun } from "./sessionLogs";
-import { invisibleCaptcha, settleCaptcha } from "./captcha";
+import { documentForbidden, reportFailedRun, sessionLogDigest, type FailedRun } from "./sessionLogs";
+import { hostFromSteps } from "./browserUsePolicy";
+import { safeRecord } from "./browserUseLedger";
+import { captchaKind, invisibleCaptcha, settleCaptcha } from "./captcha";
 import { pastGooglePasskey } from "./googleChallenge";
 
 const json = (body: unknown, status = 200) =>
   new Response(JSON.stringify(body), { status, headers: { "content-type": "application/json" } });
+
+/**
+ * A document-host 403 from the session log, written after the answer. The
+ * fallback is off, so the gateway does not need the flag on this response.
+ * Nothing here throws: a log Browserbase does not return is not a block.
+ */
+function recordDocumentBlock(env: BrowserbaseEnv, sessionId: string, started: number, fetcher: typeof fetch): Promise<void> {
+  return sessionLogDigest(env, sessionId, fetcher).then(async (digest) => {
+    const forbidden = documentForbidden(digest);
+    if (!forbidden) return;
+    await safeRecord(env, {
+      kind: "call",
+      provider: "browserbase",
+      host: forbidden.host,
+      outcome: "site_blocked",
+      reason: "403",
+      durationMs: Math.max(0, Date.now() - started),
+    });
+  }).catch(() => undefined);
+}
 
 /** Runs work after the answer has gone: the Worker's `ctx.waitUntil`. */
 export type Later = (work: Promise<unknown>) => void;
@@ -172,6 +198,17 @@ async function runOnBrowserbase(
     const status = /^browserbase (\d{3})$/.exec(error instanceof Error ? error.message : "")?.[1] ?? null;
     // The status only: never the vendor's body, which can name the account.
     console.log(JSON.stringify({ event: "site_shots_browserbase_refused", status }));
+    // 402 is billing and 503 is capacity. Neither is a site block. A 403 from
+    // this call is Browserbase refusing a tier, which createSession already
+    // retried; if it still throws, it is the vendor, not the page.
+    const vendor = status === "402" || status === "403" || status === "503";
+    await safeRecord(env, {
+      kind: "call",
+      provider: "browserbase",
+      host: hostFromSteps(parsed.steps),
+      outcome: vendor ? "vendor_refused" : "error",
+      durationMs: Date.now() - started,
+    });
     // 402: Browserbase will not start a browser until its bill is paid. The
     // gateway takes Cloudflare's browser for this question rather than failing.
     if (status === "402") return json({ error: "browserbase refused: payment required" }, 402);
@@ -218,6 +255,12 @@ async function runOnBrowserbase(
     const uploads = browserbaseUploads(env, session.id, fetcher);
     // A blank page is waited for as long as the gateway says this turn may (./patience.ts).
     let result = await runSteps(page, parsed.steps, { downloads, uploads, waitMs: contentWaitOf(body) });
+    // The session log is what shows a document-host 403. The answer waits for
+    // it only when the gateway will use it to retry (`waitForBlock`), and then
+    // for at most a second. With the fallback off, the log is read after the
+    // answer (`later`), so this browse is not slower than it was.
+    const waitForBlock = (body as { waitForBlock?: unknown }).waitForBlock === true;
+    const logsReady = waitForBlock ? sessionLogDigest(env, session.id, fetcher, 1_000).catch(() => null) : null;
     // Not while the person is being handed the browser: it is theirs then.
     const captcha = handingOver ? null : await settleCaptcha(attached.evaluate, { solver: attached.solver ?? null });
     if (captcha === "solved") result = { ...result, page: (await runSteps(page, [{ do: "read" }])).page };
@@ -230,11 +273,25 @@ async function runOnBrowserbase(
       result = { ...result, page: (await runSteps(page, [{ do: again }])).page };
     }
     const jar = keep && restored ? await captureJar(cdp, attached).catch(() => null) : null;
+    const forbidden = logsReady === null ? null : documentForbidden(await logsReady);
+    if (!waitForBlock) later(recordDocumentBlock(env, session.id, started, fetcher));
+    const kind = captcha === "unsolved" ? await captchaKind(attached.evaluate) : null;
     const ok = result.ran.every((r) => r.ok);
     // Step kinds and timing only, as for Cloudflare's browser.
     console.log(JSON.stringify({ event: "site_shots_browse", provider: "browserbase", steps, ok, ms: Date.now() - started, ...waitLog(result.page) }));
     if (!ok) failed(session.id, "steps", result.ran.map((r) => ({ do: r.do, ok: r.ok, ...(r.reason && !r.ok ? { reason: r.reason.slice(0, 200) } : {}) })));
-    return json({ session: session.id, ...result, ...(captcha !== null ? { captcha } : {}), ...(hidden ? { invisibleCaptcha: true } : {}), ...(jar !== null ? { jar } : {}), ...(profileGone ? { profileGone: true } : {}) });
+    return json({
+      provider: "browserbase",
+      session: session.id,
+      ...result,
+      ms: Date.now() - started,
+      ...(captcha !== null ? { captcha } : {}),
+      ...(kind !== null ? { captchaKind: kind } : {}),
+      ...(forbidden ? { blocked: forbidden } : {}),
+      ...(hidden ? { invisibleCaptcha: true } : {}),
+      ...(jar !== null ? { jar } : {}),
+      ...(profileGone ? { profileGone: true } : {}),
+    });
   } catch {
     failed(session.id, "run");
     return json({ session: session.id, error: "the browser could not do that" }, 502);

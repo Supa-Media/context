@@ -15,13 +15,14 @@
  *   `sharedChats` skipping the everyone check                    1 failed ("a group counts only when everybody ...")
  *   `sharedSessionFor` handing out a session for an unlisted 1:1  1 failed ("a shared 1:1's test session ...")
  *   (2026-11-17) the shared-groups filter dropped                 1 failed ("a shared 1:1 reads only the groups ...")
+ *   (2026-11-17) `devShareOf` skipping the team check              1 failed ("a group turn is told its sharing ...")
  */
 
 import { afterEach, describe, expect, test, vi } from "vitest";
 import { PINNED_CONTEXT_SLUG } from "@context/shared";
 import type { Id } from "../_generated/dataModel";
 import { addMember, createUser, createWorkspace, setupTest } from "./fixtures.helpers";
-import { sharedChats } from "../functions/lib/texLabShared";
+import { devShareOf, sharedChats } from "../functions/lib/texLabShared";
 import { sharedSessionFor } from "../functions/texLabSandbox";
 
 const GROUP_A = "a".repeat(64);
@@ -128,5 +129,28 @@ describe("chats shared with the developers", () => {
     const answer = await t.run((ctx) => sharedSessionFor(ctx, dev, `u:${sam}`));
     expect(answer.status).toBe("ok");
     if (answer.status === "ok") expect((answer.chat as { groups: { key: string }[] }).groups.map((g) => g.key)).toEqual([GROUP_A]);
+  });
+});
+
+describe("a group turn is told its own sharing (Dev2, 2026-11-17: Tex said \"Dev2 can't see this chat\" while it was shared)", () => {
+  test("a group turn is told its sharing by the list's own rule: who said yes and who keeps it out", async () => {
+    vi.stubEnv("ADMIN_EMAILS", "staff@example.invalid");
+    const t = setupTest();
+    const staff = await createUser(t, "staff@example.invalid");
+    const pinned = await createWorkspace(t, staff, PINNED_CONTEXT_SLUG, { kind: "shared", displayName: "Context" });
+    const people: Record<string, Id<"users">> = {};
+    for (const name of ["sam", "kai", "teammate"]) {
+      people[name] = await createUser(t, `${name}@example.invalid`);
+      await createWorkspace(t, people[name], name + "person", { kind: "personal" });
+    }
+    await addMember(t, pinned, people.teammate, "member");
+    await t.run(async (ctx) => {
+      await ctx.db.insert("texReviewSharing", { userId: people.sam, sharedAt: 5 });
+    });
+    const told = (homeUsers: Id<"users">[]) => t.run((ctx) => devShareOf(ctx, { homeUsers }));
+    expect(await told([people.sam, people.teammate])).toEqual({ devShare: { shared: true, by: ["samperson"], waiting: [] } });
+    expect(await told([people.sam, people.kai])).toEqual({ devShare: { shared: false, by: ["samperson"], waiting: ["kaiperson"] } });
+    expect(await told([people.teammate])).toEqual({ devShare: { shared: false, by: [], waiting: [] } });
+    expect(await told([])).toEqual({ devShare: { shared: false, by: [], waiting: [] } });
   });
 });

@@ -53,6 +53,9 @@ import { directNote, learnDirect } from "./groupDirectNotes.js";
 import { homeNamesOf, readEitherName } from "./homeNames.js";
 import { readWithEtag } from "./jobLog.js";
 import { textingAwareCallTool, textingWriteTools } from "./textingWrites.js";
+import { devShareOf } from "./devShare.js";
+import { TURN_CAUSES } from "./groupTurnCause.js";
+export { INVITED_TAGGER_LINE, TURN_CAUSES, taggedLine } from "./groupTurnCause.js";
 import { GUEST_NOTE_TOOLS, blockedLine, blockedOf, guestAwareCallTool, guestPrompt, isGuestChat } from "./groupGuests.js";
 import { chatRoutinePrompt, chatRoutineRefusal } from "./groupRoutines.js";
 import { chatMailOf, chatMailPrompt, chatMailTools } from "./groupMail.js";
@@ -136,7 +139,9 @@ export function groupOf(body, session = null) {
   const numbers = numbersOf(group.numbers, [...people, ...guests]); // each person's number, by handle or label (`groupNames.js`)
   const asker = from === "" && guests.includes(group.asker) ? group.asker : ""; // a guest who tagged Tex, by label
   const blocked = blockedOf(group.blocked); // who keeps the chat from a workspace, named only (`groupGuests.js` `blockedLine`)
-  const kept = { key: group.key, members: group.members, from, people, chat: chatOf(group.chat), ...(names.length > 0 ? { names } : {}), ...(guests.length > 0 ? { guests } : {}), ...(numbers.length > 0 ? { numbers } : {}), ...(asker ? { asker } : {}), ...(size !== null ? { size } : {}), ...(mail.length > 0 ? { mail } : {}), ...(reach.length > 0 ? { reach } : {}), ...(group.tagged === true ? { tagged: true } : {}), ...(blocked.length > 0 ? { blocked } : {}) }; // tagged: a literal "@Tex", always answered (`sendTheReply.js`)
+  const cause = TURN_CAUSES.includes(group.cause) ? group.cause : null; // why this turn runs, from the Worker (`apps/agent/src/groupCause.ts`)
+  const devShare = devShareOf(group.devShare); // whether the developers can read this chat in their Lab (`devShare.js`)
+  const kept = { key: group.key, members: group.members, from, people, chat: chatOf(group.chat), ...(names.length > 0 ? { names } : {}), ...(guests.length > 0 ? { guests } : {}), ...(numbers.length > 0 ? { numbers } : {}), ...(asker ? { asker } : {}), ...(size !== null ? { size } : {}), ...(mail.length > 0 ? { mail } : {}), ...(reach.length > 0 ? { reach } : {}), ...(group.tagged === true ? { tagged: true } : {}), ...(blocked.length > 0 ? { blocked } : {}), ...(devShare !== null ? { devShare } : {}), ...(cause !== null ? { cause } : {}) }; // tagged: a literal "@Tex", always answered (`sendTheReply.js`)
   // A chat that reaches shared workspaces (every person here has an account and shares them) is an ordinary group turn
   // whose home is its memory; only a chat with people who aren't all here (no reach) is narrowed to its home.
   if (reach.length > 0 || !isGuestChat(session)) return from === "" ? { ...kept, guestTagger: true } : kept;
@@ -552,11 +557,6 @@ function noAccountTaggerCallTool(callTool, group) {
   };
 }
 
-/** What an invited person's tag adds to the group words: they can ask anything, and sends go from a member. */
-export const INVITED_TAGGER_LINE =
-  "The person who tagged you is invited to this workspace and not on Context yet; they can ask you for anything here. " +
-  "An email or calendar change goes only from the account of someone here who is on Context: pass as with their handle, and only their 👍 or yes sends it. ";
-
 export function groupPrompt(group, workspace) {
   if (group.guestChat) return guestPrompt(group, workspace);
   const reach = Array.isArray(group.reach) ? group.reach : [];
@@ -599,13 +599,6 @@ export function groupPrompt(group, workspace) {
     playbookPrompt(group) +
     voicePrompt(group)
   );
-}
-
-/** Who tagged Tex this time, said in their turn (`turnPrompt.js` preamble), never the cached system prompt: it changes with the tagger. */
-export function taggedLine(group) {
-  const guest = group.asker ? shownWho(group, group.asker).replace(/^@/, "") : "";
-  if (group.guestChat) return group.from ? `@${group.from} tagged you.` : guest ? `A guest in this chat, ${guest}, tagged you.` : "A guest in this chat tagged you.";
-  return (group.from ? `${taggerLabel(group)} tagged you.` : guest ? `${guest} tagged you.` : "Someone tagged you.") + (group.guestTagger ? ` ${INVITED_TAGGER_LINE.trim()}` : "");
 }
 
 /** Where the chat's memory is kept, for the prompt: its home's page, or with the chat until it has a home (`groupMemoryCarry.js`). */

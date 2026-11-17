@@ -385,9 +385,9 @@ export async function runJob(storage: InboxStorage, deps: JobDeps): Promise<JobN
   const cause = partCause(outcome, { changed, unfinished });
   const ends = withEnd(run.ends, run.attempt, cause);
   run.ends = ends;
-  // What follows the part is the config's Part end node (`jobPartEnd.ts`); a stop, refusal or service out of tries ends here.
-  const facts = { cause, part: run.attempt, startedAt: run.startedAt, now: deps.now(), machine: run.machine !== undefined, hasDraft: !!run.saved?.draft, idle, wasIdle: run.idle === true };
-  const choice = outcome.kind === "answer" || outcome.kind === "broken" ? await partEndChoice(facts, (input) => askPartEnd(deps, () => jobToken(run, deps), run.id, input)) : null;
+  // What follows the part is the config's Part end node (`jobPartEnd.ts`), a pause at today's limit too; a stop or a service out of tries ends here.
+  const facts = { cause, part: run.attempt, startedAt: run.startedAt, now: deps.now(), machine: run.machine !== undefined, hasDraft: !!run.saved?.draft, idle, wasIdle: run.idle === true, ...(outcome.kind === "rejected" ? { rejected: true } : {}), ...(outcome.kind === "refused" ? { refusal: outcome.why } : {}) };
+  const choice = outcome.kind === "answer" || outcome.kind === "broken" || outcome.kind === "refused" || outcome.kind === "rejected" ? await partEndChoice(facts, (input) => askPartEnd(deps, () => jobToken(run, deps), run.id, input)) : null;
   const spinning = choice?.spinning === true;
   // A cause that would end the next part the same way (its checks' loop ran out on the same draft) delivers the last
   // draft rather than burning parts; so does a part that broke with no part left. Never a job that ends with nothing.
@@ -444,7 +444,7 @@ export async function runJob(storage: InboxStorage, deps: JobDeps): Promise<JobN
           ...watch,
         }
       : outcome.kind === "refused"
-        ? { state: "waiting", status: JOB_LINES.refusedStatus[outcome.why], texts: [JOB_LINES.refused(run.title, outcome.why)], ...(outcome.why === "daily_limit" ? { resumeAt: limitResetAt(deps.now()) } : {}) } // starts again by itself (`jobPause.ts`)
+        ? { state: "waiting", status: JOB_LINES.refusedStatus[outcome.why], texts: [JOB_LINES.refused(run.title, outcome.why)], ...(outcome.why === "daily_limit" ? { resumeAt: choice?.resumeAt ?? limitResetAt(deps.now()) } : {}) } // starts again by itself (`jobPause.ts`), when Part end says
         : outcome.kind === "rejected"
           ? { state: "failed", status: `Stopped: turned down before it ran (${outcome.why})`.slice(0, 280), texts: [JOB_LINES.rejected(run.title, outcome.why)] }
         : outcome.kind === "stop"

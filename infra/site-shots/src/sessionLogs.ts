@@ -15,8 +15,12 @@
  * - how many console errors and uncaught exceptions, never their text
  * - the hosts the tabs went to
  *
- * Nothing here returns to the gateway or the model. The session id is logged
- * with it so whoever is debugging can open that session in Browserbase's own
+ * The digest itself stays in the log. The one thing the gateway is told is a
+ * document-host 403 (`documentForbidden`): the host and the status, never a
+ * path. A third-party asset's 403 is not that. A 403 from Browserbase's own
+ * API, refusing the Verified tier, never appears in this digest at all.
+ *
+ * The session id is logged with it so whoever is debugging can open that session in Browserbase's own
  * dashboard, behind Browserbase's sign-in: its live view while the browser is
  * still up (it ends five idle minutes after the run, ./idle.ts) and the full
  * log. That is the read-only live view for debugging; the debugger link itself
@@ -131,6 +135,17 @@ export function digestLogs(entries: unknown): LogDigest {
     exceptions,
     hosts,
   };
+}
+
+/**
+ * The document host (a main-frame navigation in `hosts`) answered 403.
+ * A 403 on some other host, a script or an image, is not the page being blocked.
+ */
+export function documentForbidden(digest: LogDigest | null): { reason: "403"; host: string } | null {
+  if (!digest) return null;
+  const documents = new Set(digest.hosts);
+  const hit = digest.failed.find((row) => row.status === 403 && documents.has(row.host));
+  return hit ? { reason: "403", host: hit.host } : null;
 }
 
 /** This session's log, digested; null when Browserbase could not give it in time. */

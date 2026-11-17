@@ -257,6 +257,8 @@ export function controlPlaneSwitch({ about, chat, phones, gate, token }) {
           ...(chat?.engagementChosen === true ? { engagementChosen: true } : {}),
           ...(chat?.instructions ? { instructions: chat.instructions } : {}),
           ...(chat?.updates ? { updates: chat.updates } : {}),
+          // Whether the chat is shared with the developers, as the control plane reads it (`lib/texLabShared.ts` `devShareOf`).
+          ...(chat?.devShare ? { devShare: chat.devShare } : {}),
         };
       }
       case "/agent-texts/decide/gate":

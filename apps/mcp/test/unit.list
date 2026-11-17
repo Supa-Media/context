@@ -208,6 +208,7 @@ test/agentUploads.test.mjs
 test/agentDownloads.test.mjs
 test/agentEmailFiles.test.mjs
 test/agentBrowserJar.test.mjs
+test/browserUseFallback.test.mjs
 test/agentBrowserProfile.test.mjs
 test/agentDoneLine.test.mjs
 test/agentFallback.test.mjs
@@ -640,5 +641,6 @@ test/jobSaved.test.mjs
 test/savedRounds.test.mjs
 test/labSandboxObjectRun.test.mjs
 test/jobReportNode.test.mjs
+test/devShare.test.mjs
 test/jobCheckView.test.mjs
 test/jobStart.test.mjs

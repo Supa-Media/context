@@ -32,8 +32,9 @@
  */
 
 import { browserbaseConfigured, findSession, OWNER_TAG, type BrowserbaseEnv } from "./browserbase";
-import { attachPage, connectCdp, type AttachedPage } from "./cdp";
+import { attachPage, connectCdp, type AttachedPage, type CdpTransport } from "./cdp";
 import { touchIdle } from "./idle";
+import { browserUseCdp, releaseOwnedBrowserUse, type BrowserUseEnv } from "./browserUseRoute";
 
 /** The most one `type` action inserts. A sign-in field, not a document. */
 export const MAX_VIEW_TEXT = 1_000;
@@ -195,31 +196,7 @@ export async function captureFrame(page: AttachedPage): Promise<ViewFrame> {
   };
 }
 
-export async function viewOnBrowserbase(env: BrowserbaseEnv, path: string, body: unknown, fetcher: typeof fetch = fetch): Promise<Response> {
-  const owner = (body as { owner?: unknown })?.owner;
-  if (typeof owner !== "string" || !OWNER_TAG.test(owner)) return json({ error: "an owner is required" }, 400);
-  let action: ViewAction | null = null;
-  if (path === "/view/input") {
-    action = parseViewAction((body as { action?: unknown })?.action);
-    if (action === null) return json({ error: "that action could not be read" }, 400);
-  } else if (path !== "/view/frame") {
-    return new Response(null, { status: 404 });
-  }
-  // Without Browserbase there is no browser that outlives a question to look at.
-  if (!browserbaseConfigured(env)) return json({ running: false });
-  const started = Date.now();
-  // The person looking at or driving it is using it. Before the lookup, so a
-  // release already under way finishes first and this finds no browser (./idle.ts).
-  await touchIdle(env.BROWSER_IDLE, owner);
-  const session = await findSession(env, owner, fetcher).catch(() => null);
-  if (session === null) return json({ running: false });
-  let cdp;
-  try {
-    cdp = await connectCdp(session.connectUrl, fetcher);
-  } catch {
-    // Ended between the listing and the connect: as good as not running.
-    return json({ running: false });
-  }
+async function frameResponse(cdp: CdpTransport, action: ViewAction | null, started: number): Promise<Response> {
   try {
     const page = await attachPage(cdp);
     if (action !== null) await applyAction(page, action);
@@ -233,6 +210,44 @@ export async function viewOnBrowserbase(env: BrowserbaseEnv, path: string, body:
   } finally {
     cdp.close();
   }
+}
+
+export async function viewOnBrowserbase(env: BrowserbaseEnv & BrowserUseEnv, path: string, body: unknown, fetcher: typeof fetch = fetch): Promise<Response> {
+  const owner = (body as { owner?: unknown })?.owner;
+  if (typeof owner !== "string" || !OWNER_TAG.test(owner)) return json({ error: "an owner is required" }, 400);
+  let action: ViewAction | null = null;
+  if (path === "/view/input") {
+    action = parseViewAction((body as { action?: unknown })?.action);
+    if (action === null) return json({ error: "that action could not be read" }, 400);
+  } else if (path !== "/view/frame") {
+    return new Response(null, { status: 404 });
+  }
+  const started = Date.now();
+  // The person looking at or driving it is using it. Before the lookup, so a
+  // release already under way finishes first and this finds no browser (./idle.ts).
+  await touchIdle(env.BROWSER_IDLE, owner);
+  // The fallback browser, when that is the one this person is on. Its vendor
+  // live-view URL is never asked for; this attaches to the CDP socket the
+  // ledger kept, and the answer is a picture.
+  const browserUse = await browserUseCdp(env, owner).catch(() => null);
+  if (browserUse) {
+    try {
+      return await frameResponse(await connectCdp(browserUse, fetcher), action, started);
+    } catch {
+      await releaseOwnedBrowserUse(env, owner, fetcher).catch(() => undefined);
+    }
+  }
+  if (!browserbaseConfigured(env)) return json({ running: false });
+  const session = await findSession(env, owner, fetcher).catch(() => null);
+  if (session === null) return json({ running: false });
+  let cdp;
+  try {
+    cdp = await connectCdp(session.connectUrl, fetcher);
+  } catch {
+    // Ended between the listing and the connect: as good as not running.
+    return json({ running: false });
+  }
+  return await frameResponse(cdp, action, started);
 }
 
 /**

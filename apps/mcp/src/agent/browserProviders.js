@@ -24,6 +24,8 @@
 import { fileWords, typeOfFile, wordsWithoutPages } from "../tools/readFile.js";
 import { pdfLinks } from "../tools/pdfLinks.js";
 import { untilFree } from "./browserLease.js";
+import { TEX_CONFIG } from "./texConfig.js";
+import { browserUseCaps, browserUseFlag } from "./browserUseFallback.js";
 
 /** Set once a Worker says it has no Browserbase key; a deploy starts a new isolate. */
 let browserbaseMissing = false;
@@ -76,8 +78,8 @@ async function post(binding, path, body) {
  * browser. The sign-ins read back out of the browser go to `keep` and never
  * on (`browserJar.js`): nothing past this function sees them.
  */
-async function browseResult(response, keep = null, profile = null) {
-  const body = await response.json().catch(() => null);
+async function browseResult(response, keep = null, profile = null, parsed = null) {
+  const body = parsed ?? await response.json().catch(() => null);
   if (typeof body?.session === "string") {
     const { jar, profileGone, ...answer } = body;
     if (!response.ok) return { session: answer.session, ran: [], page: null };
@@ -98,17 +100,50 @@ async function browseResult(response, keep = null, profile = null) {
  * sealed in the person's vault as well (`browserJar.js`), the fallback and the
  * copy a new profile starts from. Without either, each browser starts signed out.
  */
-export function siteShotsComputer(env, { owner = null, viewer = null, jar = null, profile = null, now = Date.now, sleep = undefined } = {}) {
+export function siteShotsComputer(env, { owner = null, viewer = null, jar = null, profile = null, now = Date.now, sleep = undefined, browserUse = browserUseFlag(TEX_CONFIG, env) } = {}) {
   const binding = env?.SITE_SHOTS;
   if (typeof binding?.fetch !== "function") return null;
   // Which browser this question's `browse` ended up on.
   let onBrowserbase = false;
+  let onBrowserUse = false;
   // Holders that asked the Browserbase browser for steps, each let go when its question ends.
   const leased = new Set();
   const refused = () => browserbaseRefusedAt !== null && now() - browserbaseRefusedAt < BROWSERBASE_REFUSED_PAUSE_MS;
   const browserbaseWanted = () => typeof owner === "string" && owner.length > 0 && !browserbaseMissing && !refused();
 
-  async function browseOn(session, steps, { handoff = false, fresh = false, holder = null, patient = false, waitMs } = {}) {
+  async function browseUse(steps, { handoff = false, fresh = false, holder = null, patient = false, waitMs } = {}) {
+    const waiting = Number.isFinite(waitMs) ? { waitMs } : {};
+    // The sealed jar moves onto the new browser. A Browserbase profile id is
+    // not a Browser Use profile, and a Google sign-in bound to the device
+    // that created it will not transfer, so it is not sent.
+    const held = !onBrowserUse && jar !== null ? await jar.load() : null;
+    const response = await untilFree(() => post(binding, "/browse", {
+      provider: "browser-use",
+      owner,
+      steps,
+      caps: browserUseCaps(),
+      ...(typeof holder === "string" ? { holder } : {}),
+      ...(handoff ? { handoff: true } : {}),
+      ...(fresh ? { fresh: true } : {}),
+      ...waiting,
+      keep: true,
+      ...(held !== null ? { jar: held } : {}),
+    }), { patient, now, ...(sleep ? { sleep } : {}) });
+    const body = await response.json().catch(() => null);
+    if (body?.fallbackRefused === true || response.status === 501 || !response.ok) {
+      return { refused: typeof body?.reason === "string" ? body.reason : "browser-use refused" };
+    }
+    const result = await browseResult(response, jar, null, body);
+    return { ...result, provider: "browser-use" };
+  }
+
+  async function browseOn(session, steps, { handoff = false, fresh = false, holder = null, patient = false, waitMs, provider = null } = {}) {
+    // The gateway names the provider. The screenshot Worker does not switch by itself.
+    if ((provider === "browser-use" || onBrowserUse) && browserUse === "on") {
+      const result = await browseUse(steps, { handoff, fresh, holder, patient, waitMs });
+      if (!result?.refused && result?.session) onBrowserUse = true;
+      return result;
+    }
     // How long a blank page is waited for (`infra/site-shots/src/patience.ts`): a job's long wait, else the Worker's own short one.
     const waiting = Number.isFinite(waitMs) ? { waitMs } : {};
     if (browserbaseWanted()) {
@@ -127,6 +162,8 @@ export function siteShotsComputer(env, { owner = null, viewer = null, jar = null
         ...(fresh ? { fresh: true } : {}),
         ...waiting,
         ...(jar !== null ? { keep: true, ...(held !== null ? { jar: held } : {}) } : {}),
+        // The answer waits for a document-host 403 only when a fallback might use it.
+        ...(browserUse === "on" ? { waitForBlock: true } : {}),
         // A new profile is given the jar's cookies; one in use holds newer ones.
         ...(saved !== null ? { profile: saved.id, ...(saved.created ? { profileNew: true } : {}) } : {}),
       }), { patient, now, ...(sleep ? { sleep } : {}) });
@@ -138,11 +175,15 @@ export function siteShotsComputer(env, { owner = null, viewer = null, jar = null
         // Browserbase took the call, so the lease may be this question's until it ends.
         if (typeof holder === "string") leased.add(holder);
         const result = await browseResult(response, jar, profile);
-        // The person's own page, never a link to the browser itself.
-        return handoff && typeof viewer === "string" ? { ...result, handoffUrl: viewer } : result;
+        // The person's own page, never a link to the browser itself. The log
+        // names this browser even when the answer leaves `provider` off.
+        const stamped = { ...result, provider: "browserbase" };
+        return handoff && typeof viewer === "string" ? { ...stamped, handoffUrl: viewer } : stamped;
       } else browserbaseMissing = true;
     }
-    return await browseResult(await post(binding, "/browse", session === null ? { steps, ...waiting } : { session, steps, ...waiting }));
+    const cloud = await browseResult(await post(binding, "/browse", session === null ? { steps, ...waiting } : { session, steps, ...waiting }));
+    // This is Cloudflare's browser. A missing provider must not be logged as Browserbase.
+    return cloud ? { ...cloud, provider: "cloudflare" } : cloud;
   }
 
   return {
@@ -180,6 +221,7 @@ export function siteShotsComputer(env, { owner = null, viewer = null, jar = null
     async signOut() {
       if (typeof owner === "string" && owner.length > 0) {
         await post(binding, "/browse/close", { provider: "browserbase", owner }).catch(() => undefined);
+        await post(binding, "/browse/close", { provider: "browser-use", owner }).catch(() => undefined);
       }
       const profileGone = profile === null ? true : await profile.forget();
       const jarGone = jar === null ? true : await jar.forget();
@@ -190,8 +232,20 @@ export function siteShotsComputer(env, { owner = null, viewer = null, jar = null
      * the next one, ending itself, so a sign-in can be carried on from, and
      * is held longer when the question ends waiting on the person.
      */
+    /** The block log, one row per browse tool call. A failure to write it does not fail the browse. */
+    async noteBrowse(row) {
+      await post(binding, "/browse/log", row).catch(() => undefined);
+    },
+
+    browserUseFallback: () => browserUse,
+
     async closeBrowser(session, { waiting = false } = {}) {
       // Waiting on the person: held fifteen minutes rather than five (`browserHold.js`).
+      if (onBrowserUse) {
+        if (waiting) return void (await post(binding, "/browse/hold", { provider: "browser-use", owner }));
+        await post(binding, "/browse/close", { provider: "browser-use", owner });
+        return;
+      }
       if (onBrowserbase) return waiting ? void (await post(binding, "/browse/hold", { provider: "browserbase", owner })) : undefined;
       await post(binding, "/browse/close", { session });
     },
