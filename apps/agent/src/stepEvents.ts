@@ -22,7 +22,7 @@ import { addEvent } from "./events";
 import { reactionFor } from "./reactEmoji";
 import type { Decision, DecideAsk } from "./decide";
 import type { InboxStorage } from "./inbox";
-import type { ProviderArrival, ProviderSend } from "./providerTiming";
+import { readArrival, type ProviderArrival, type ProviderSend } from "./providerTiming";
 
 export type StepName = "triage" | "decide" | "react" | "text" | "send" | "oldLine" | "moveChat" | "edit";
 /** One step as the gateway takes it (`apps/mcp/src/agent/log.js` `checkStep`). */
@@ -78,17 +78,29 @@ export function decideStep(ask: Pick<DecideAsk, "style" | "candidates" | "newest
  * came, the lag between, any status or error it gave, and what the chat's queue did with it (Dev2, 2026-11-14). `ms`
  * is the provider's lag, so a slow provider shows as a slow step.
  */
-export function textStep(ev: string | undefined, kind: "one" | "group" | "react" | "edit", provider: ProviderArrival, outcome: string, queuedAt: number): StepRecord {
-  const ok = provider.error === undefined;
+export function textStep(ev: string | undefined, kind: "one" | "group" | "react" | "edit", provider: ProviderArrival, outcome: string, queuedAt: number, reason?: string): StepRecord {
+  const ok = provider.error === undefined && outcome !== "dropped";
   return {
     name: "text",
     of: kind,
     ok,
     ...(provider.lagMs !== undefined ? { ms: provider.lagMs } : {}),
     input: { ...(ev ? { ev } : {}), provider },
-    output: { outcome, queuedAt, ...(provider.lagMs !== undefined ? { lagMs: provider.lagMs } : {}) },
-    ...(ok ? {} : { cause: provider.error!.code }),
+    output: { outcome, ...(reason ? { reason } : {}), queuedAt, ...(provider.lagMs !== undefined ? { lagMs: provider.lagMs } : {}) },
+    ...(ok ? {} : { cause: provider.error?.code ?? reason ?? outcome }),
   };
+}
+
+/**
+ * A message the line dropped in a chat (`photonEvents.ts` noteDropped, the object's `/dropped`): its `text` step, outcome
+ * "dropped" with the reason, never the words. False for a body that names no chat, kind, reason or provider time.
+ */
+export async function logDropped(storage: InboxStorage, body: unknown, now: number): Promise<boolean> {
+  const b = body !== null && typeof body === "object" ? (body as Record<string, unknown>) : {};
+  const provider = readArrival(b.provider);
+  if (typeof b.chat !== "string" || b.chat === "" || (b.kind !== "one" && b.kind !== "group") || typeof b.reason !== "string" || provider === undefined) return false;
+  await logStep(storage, b.chat, textStep(undefined, b.kind, provider, "dropped", now, b.reason), now);
+  return true;
 }
 
 /** A send's status from its provider (the config's `send` node): `ms` is how long the provider took to reach it. */

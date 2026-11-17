@@ -11,7 +11,7 @@ import { describe, expect, it, vi } from "vitest";
 import worker, { type Env } from "./index";
 import { arrivalOf, lagBetween, providerError, providerTime, readArrival, sendReportOf } from "./providerTiming";
 import { parseSendStatus } from "./sendblueStatus";
-import { logStep, sendStep, textStep } from "./stepEvents";
+import { logDropped, logStep, sendStep, textStep } from "./stepEvents";
 import { MemoryStorage } from "./memoryStorage.testing";
 import { unwritten } from "./events";
 import type { TextsBinding } from "./gatewaySession";
@@ -77,6 +77,18 @@ describe("the steps", () => {
     expect(step).toMatchObject({ name: "text", of: "one", ok: true, ms: 120_000, output: { outcome: "queued", queuedAt: NOW + 5, lagMs: 120_000 } });
     const failed = textStep(undefined, "group", arrivalOf("photon", null, NOW, { error: { code: "delayed" } }), "queued", NOW);
     expect(failed).toMatchObject({ ok: false, cause: "delayed" });
+    const dropped = textStep(undefined, "one", arrivalOf("photon", null, NOW), "dropped", NOW, "app_card");
+    expect(dropped).toMatchObject({ ok: false, cause: "app_card", output: { outcome: "dropped", reason: "app_card" } });
+  });
+
+  it("a message the line dropped is the chat's text step, its reason and never its words", async () => {
+    const storage = new MemoryStorage();
+    expect(await logDropped(storage, { chat: "chat-1", kind: "one", reason: "app_card", provider: arrivalOf("photon", NOW - 1_000, NOW) }, NOW)).toBe(true);
+    const kept = (await unwritten(storage)).find((event) => event.kind === "step") as { chat?: string; step?: Record<string, unknown> } | undefined;
+    expect(kept).toMatchObject({ chat: "chat-1", step: { name: "text", of: "one", ok: false, cause: "app_card", output: { outcome: "dropped", reason: "app_card" } } });
+    for (const bad of [{}, { chat: "", kind: "one", reason: "x", provider: arrivalOf("photon", null, NOW) }, { chat: "c", kind: "tapback", reason: "x", provider: arrivalOf("photon", null, NOW) }, { chat: "c", kind: "one", reason: "x" }]) {
+      expect(await logDropped(new MemoryStorage(), bad, NOW)).toBe(false);
+    }
   });
 
   it("a send step is kept in the chat's outbox, ids and times only", async () => {

@@ -10,7 +10,10 @@
  *   email is not one Tex answers;
  * - an SMS is kept only so it gets its fixed answer; its files are not read;
  * - a 1:1 message from one of our iMessage apps is read as the words the card
- *   stands for (`cardReply`), any other app's card is not a message;
+ *   stands for (`cardReply`), Apple's own link preview is read as its words (the
+ *   link), as a group's always is, and any other app's card is not a message;
+ * - a message that is not read but names its chat says which (`chatId` or
+ *   `groupId`), so the chat's history can show what was dropped;
  * - a link's preview file is not something the person sent (`isPreviewFile`);
  * - a tapback is a reaction, read as its name; a removal is marked `removed`;
  *   and a tapback on Tex's own text carries that text (`onTex`), as Sendblue's does.
@@ -51,7 +54,22 @@ export type PhotonSideEvent = {
 /** An edit or an unsend, as the chat's `edit` step takes it: an edit always has its new words. */
 export type PhotonEdit = PhotonSideEvent;
 
-export type PhotonParsed = Inbound | GroupInbound | PhotonSideEvent | { kind: "invalid" };
+/** A message dropped on its way in, with the chat it was sent in when the event names one, so its history can show the drop. */
+export type PhotonDropped = { kind: "ignored"; reason: string; chatId?: string; groupId?: string; line?: string; from?: string; participants?: string[] };
+
+export type PhotonParsed = Inbound | GroupInbound | PhotonSideEvent | PhotonDropped | { kind: "invalid" };
+
+/**
+ * Apple's own rich link preview: a text whose words are a link, which iMessage draws as a card. It is the person's
+ * words, never another app's card (2026-11-17: the 1:1 path dropped every link sent with a preview as "app_card").
+ */
+export const LINK_PREVIEW_BUNDLE = "com.apple.messages.URLBalloonProvider";
+const LONE_LINK = /^https?:\/\/\S+$/i;
+
+/** True for Apple's link preview: its bundle id, or a card with no app address whose words are one link. */
+export function isLinkPreview(bundleId: string, appUrl: unknown, text: string): boolean {
+  return bundleId === LINK_PREVIEW_BUNDLE || (typeof appUrl !== "string" && LONE_LINK.test(text));
+}
 
 export type PhotonParseOptions = {
   /** The address a picture is served at, by its guid; undefined leaves that picture off. */
@@ -194,13 +212,17 @@ function received(body: Rec, env: Envelope, options: PhotonParseOptions): Photon
   if (message === null || guid === null) return { kind: "invalid" };
   if (env.from === undefined || !E164.test(env.from)) return { kind: "ignored", reason: "sender" };
   const service = message.service;
-  if (service !== "iMessage" && service !== "SMS") return { kind: "ignored", reason: "service" };
+  if (service !== "iMessage" && service !== "SMS") {
+    const where = env.where?.groupId !== undefined ? { groupId: env.where.groupId, line: env.line, participants: participantsOf(isRecord(body.chat) ? body.chat : {}, env.from) } : env.where?.chatId !== undefined ? { chatId: env.where.chatId } : {};
+    return { kind: "ignored", reason: "service", ...where, from: env.from };
+  }
   const sms = service === "SMS";
   const from = env.from;
   if (env.where?.groupId !== undefined) {
     const text = typeof message.text === "string" ? message.text.trim() : "";
     const attachments = sms ? [] : attachmentsOf(message, text, options);
-    if (text === "" && attachments.length === 0) return { kind: "ignored", reason: "empty" };
+    const participants = participantsOf(isRecord(body.chat) ? body.chat : {}, from);
+    if (text === "" && attachments.length === 0) return { kind: "ignored", reason: "empty", groupId: env.where.groupId, line: env.line, from, participants };
     const replyTo = idOf(message.replyTo);
     const group: GroupMessage = {
       kind: "group-message",
@@ -208,7 +230,7 @@ function received(body: Rec, env: Envelope, options: PhotonParseOptions): Photon
       groupId: env.where.groupId,
       line: env.line,
       from,
-      participants: participantsOf(isRecord(body.chat) ? body.chat : {}, from),
+      participants,
       messageId: guid,
       ...cutText(text),
       ...(replyTo !== null ? { replyTo } : {}),
@@ -221,14 +243,15 @@ function received(body: Rec, env: Envelope, options: PhotonParseOptions): Photon
   // A 1:1 message from one of our iMessage apps is what its card says, and another app's card is not a message (`cardChats.ts`).
   let text = typeof message.text === "string" ? message.text.trim() : "";
   let viaCard: { ask?: string } | undefined;
-  if (typeof message.balloonBundleId === "string") {
+  const chatId = env.where.chatId;
+  if (typeof message.balloonBundleId === "string" && !isLinkPreview(message.balloonBundleId, message.appUrl, text)) {
     const card = typeof message.appUrl === "string" ? cardReply({ extensionBundleId: message.balloonBundleId, url: message.appUrl }) : null;
-    if (card === null) return { kind: "ignored", reason: "app_card" };
+    if (card === null) return { kind: "ignored", reason: "app_card", chatId, from };
     text = card.text;
     viaCard = card.ask !== undefined ? { ask: card.ask } : {};
   }
   const attachments = sms ? [] : attachmentsOf(message, text, options);
-  if (text === "" && attachments.length === 0) return { kind: "ignored", reason: "empty" };
+  if (text === "" && attachments.length === 0) return { kind: "ignored", reason: "empty", chatId, from };
   const replyTo = idOf(message.replyTo);
   // The words an inline reply answers, when the bridge read them (`replyToText`): somebody else's words, carried as `quoted`.
   const quoted = typeof message.replyToText === "string" ? message.replyToText.trim().slice(0, MAX_QUOTED_TEXT) : "";

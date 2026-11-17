@@ -49,6 +49,20 @@ export default {
       assert.deepEqual(timedSteps.map((entry) => [entry.step, entry.ok, entry.ms]), [["text", true, 120_000], ["send", false, 333_000]], "the lag on each is in the chat's record");
       assert.equal(timedSteps[0].input.provider.lagMs, 120_000);
       assert.equal(timedSteps[1].reason, "4001", "with the provider's error");
+      // 2026-11-16: on Photon's line a 1:1 link sent with its rich preview was dropped by the Worker as another app's
+      // card, and only the Worker's logs knew; Tex answered that it saw no link. A message the line drops is now the
+      // chat's text step, outcome "dropped" and why, never its words (`stepEvents.ts` logDropped).
+      const dropAt = later + 20_000;
+      const photon = { name: "photon", providerAt: dropAt - 200, receivedAt: dropAt, lagMs: 200 };
+      const dropped = { id: `${dropAt}-910003`, at: dropAt, chat: LINE, from: { kind: "system" }, kind: "step", step: { name: "text", of: "one", ok: false, ms: 200, input: { provider: photon }, output: { outcome: "dropped", reason: "app_card", queuedAt: dropAt, lagMs: 200 }, cause: "app_card" } };
+      const noted = await request(chat.world.env, TOKEN_TEXTS, "/agent/events", { conversation: "texts", events: [dropped] });
+      assert.equal(noted.status, 200, JSON.stringify(noted.body));
+      assert.deepEqual(noted.body.written, [dropped.id], "a drop is taken into the chat's record");
+      const drops = (await ledger.read(ONE_TO_ONE_CHAT)).entries.filter((entry) => entry.kind === "step" && entry.step === "text" && entry.output?.outcome === "dropped");
+      assert.deepEqual(drops.map((entry) => [entry.ok, entry.output.reason]), [[false, "app_card"]], "so Replay shows the drop and why");
+      chat.deploy();
+      const last = await chat.text("did you get the link?", "Yes.");
+      assert.doesNotMatch(last.shown, /app_card|dropped/, "a drop's step never reaches what a turn reads");
     } finally {
       chat.restore();
     }
