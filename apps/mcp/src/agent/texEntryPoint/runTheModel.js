@@ -48,7 +48,7 @@ import { computersLine, delegationBeside } from "../../machines/forTurn.js";
 import { setAsideLine } from "../textedSettle.js";
 import { cancelledTurn } from "../textingRoutes.js";
 import { textingAwareCallTool } from "../textingWrites.js";
-import { withTheirNotesKept } from "../theirNotes.js";
+import { saidBefore, withTheirNotesKept } from "../theirNotes.js";
 import { threadPrompt } from "../threadView.js";
 import { sleepLineNote } from "../timeLog.js";
 import { agentTools, runTurn } from "../turn.js";
@@ -134,6 +134,9 @@ export async function runTheModel(t, via) {
   t.settings = doorOut({ production, productionModel, fallback, router, gated, advising, planning, computers, skills, delegation, threaded });
   const egressJudge = aiGatewayConfig(env) === null ? null : (input) => gatewayGraph({ writer: chatLog, turn: ledgerAt?.turn ?? null }).fire("tools", "egress", input, { env }); // interim: io.use.egress once tools is a node
   if (typeof session.sharingJudge === "function" && egressJudge) session.sharingJudge = egressJudge; // interim: io.use.egress once tools is a node
+  // The move judge, only where a Lab draft wires it (`graph/nodes/moveJudge.js`, on the shelf); main keeps the word list.
+  const drawn = gatewayGraph({ writer: chatLog, turn: ledgerAt?.turn ?? null, config: texConfigOf(env) });
+  const keptOptions = { question, on: !runner, ...(aiGatewayConfig(env) !== null && drawn.wired("tools", "moveJudge") ? { judge: (input) => drawn.fire("tools", "moveJudge", input, { env }), said: saidBefore(history) } : {}) };
   const pictureRun = (name, args, callTool) => gatewayGraph({ writer: chatLog, turn: ledgerAt?.turn ?? null }).fire("tools", "picture", { tool: name, args }, { env, maker, callTool, cardCheck }).then((out) => out.result); // interim: io.use.picture once tools is a node
   steer?.revertWith(dispatch); // a provisional run's note saves are read first and put back through the client's own dispatcher (`steer.js`)
   stages?.ready(); const turn = await tex.step("model", () => runTurn({
@@ -158,7 +161,7 @@ export async function runTheModel(t, via) {
     callTool: via.tools(allowedFirst(allowedBeside ? allowedRead : null, withChatWriteLock({ env, group, steps: chatLog === null ? null : stepLog(chatLog, ledgerAt ?? {}) }, (steer?.track ?? ((call) => call))(withVaultWatch(ledger, withGroupVault(group, (claims?.wrap ?? ((call) => call))(withSameAsk({ on: claims !== null, store, session, ledger, history, question }, withBackground(background, outgoing.wrap(
       withPictureMaker(maker, withDrawnImages(outgoing, withAttachmentImages(
         attachments,
-        withEmailFiles({ store, attachments }, withKeptFiles(store, () => markUntrusted(ledger), withMailAgent(supervision?.mail ?? null, withDelegate(delegation, withChatSkills(group, learned, withLearnedSkills(group !== null ? null : learned, withSkills(skills, withNoteLinks(withFolderFit(group !== null ? groupAwareCallTool(withTheirNotesKept(dispatch, { question, on: !runner }), groupWriting, { store, group }) : textingAwareCallTool(withTheirNotesKept(dispatch, { question, on: !runner }), textingWriting, { timeZone })), noteLinking)), { tainted: () => ledger.untrusted === true, dispatch }), { outside: () => ledger.outside === true }))))),
+        withEmailFiles({ store, attachments }, withKeptFiles(store, () => markUntrusted(ledger), withMailAgent(supervision?.mail ?? null, withDelegate(delegation, withChatSkills(group, learned, withLearnedSkills(group !== null ? null : learned, withSkills(skills, withNoteLinks(withFolderFit(group !== null ? groupAwareCallTool(withTheirNotesKept(dispatch, keptOptions), groupWriting, { store, group }) : textingAwareCallTool(withTheirNotesKept(dispatch, keptOptions), textingWriting, { timeZone })), noteLinking)), { tainted: () => ledger.untrusted === true, dispatch }), { outside: () => ledger.outside === true }))))),
       )), pictureRun),
     )))))))))),
     pictures: texted || group !== null,

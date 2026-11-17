@@ -85,6 +85,10 @@ export const ROLES = Object.freeze({
     node: "planner",
     you: "the Big-ask planner: the Front door hands you a big ask and you split it into background jobs.",
   },
+  moveJudge: {
+    node: "tools",
+    you: "the Move judge: before the Front door's tools move or archive a note of theirs, you read their recent texts and Tex's own offer and say whether they asked for it. Nothing you write reaches the person.",
+  },
   daySummary: {
     node: "readTheHistory",
     you: "the nightly day summary: you write one line about a day of the chat, which Read the history later gives the Front door as the chat so far. Nothing you write reaches the person directly.",

@@ -238,3 +238,33 @@ test("the mapped event is JSON-safe and carries no undefined members", () => {
   assert.equal(text, JSON.stringify(JSON.parse(text)));
   assert.equal("replyToText" in mapped.message, false);
 });
+
+test("a sticker stuck on a message is a sticker reaction on that message", () => {
+  const mapped = mapEvent(
+    { type: "message.stickerPlaced", sequence: 140, chatGuid: DM, isFromMe: false, occurredAt: WHEN, actor: { address: "+15550100999", service: "iMessage" }, messageGuid: "target-1", sticker: { guid: "att" } },
+    LINE,
+    { targetText: "Tex's words", targetFromMe: true },
+  );
+  assert.equal(mapped.type, "message.reactionAdded");
+  assert.equal(mapped.eventId, "photon:message.stickerPlaced:target-1:140");
+  assert.deepEqual(mapped.reaction, { kind: "sticker", targetGuid: "target-1", targetText: "Tex's words", targetFromMe: true });
+  assert.equal(mapped.from, "+15550100999");
+});
+
+test("a poll started, an option added and a vote are messages in words", () => {
+  const base = { type: "poll.changed", chatGuid: GROUP, isFromMe: false, occurredAt: WHEN, actor: { address: "+15550100999", service: "iMessage" }, pollMessageGuid: "poll-1" };
+  const created = mapEvent({ ...base, sequence: 150, delta: { type: "created", title: "Dinner", options: [{ optionIdentifier: "a", text: "Pizza" }, { optionIdentifier: "b", text: "Tacos" }] } }, LINE);
+  assert.equal(created.type, "message.received");
+  assert.equal(created.chat.kind, "group");
+  assert.equal(created.message.text, "Started a poll “Dinner”: “Pizza”, “Tacos”");
+  assert.equal(created.message.guid, "poll-1:poll:150");
+  assert.equal(created.message.poll, true);
+  assert.equal(created.message.service, "iMessage");
+  const voted = mapEvent({ ...base, sequence: 151, delta: { type: "voted", optionIdentifier: "b" } }, LINE, { poll: { title: "Dinner", options: [{ id: "a", text: "Pizza" }, { id: "b", text: "Tacos" }] } });
+  assert.equal(voted.message.text, "Voted “Tacos” in the poll “Dinner”");
+  const blind = mapEvent({ ...base, sequence: 152, delta: { type: "voted", optionIdentifier: "b" } }, LINE);
+  assert.equal(blind.message.text, "Voted in the poll");
+  const unvoted = mapEvent({ ...base, sequence: 153, delta: { type: "unvoted", optionIdentifier: "b" } }, LINE, { poll: { title: "Dinner", options: [] } });
+  assert.equal(unvoted.message.text, "Took back a vote in the poll “Dinner”");
+  assert.equal(mapEvent({ ...base, sequence: 154, delta: { type: "mystery" } }, LINE), null);
+});

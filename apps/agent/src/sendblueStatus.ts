@@ -27,6 +27,7 @@ import { lineFor, lineSeam, type LineDeps } from "./line";
 import { MAX_SENT, SENT_KEY } from "./groupSay";
 import { rememberText } from "./threads";
 import { providerError, sendReportOf, type ProviderSend, type SendStatusName } from "./providerTiming";
+import { linkBubbleWords } from "./photonLinkBubbles";
 
 /** A status body is small; anything this big is not one. */
 const MAX_BODY = 64 * 1024;
@@ -112,9 +113,11 @@ export function resendPlain(storage: InboxStorage, deps: LineDeps & GroupLineDep
 
 /** Log one status, resend plain a threaded text that never went, and mark any other send that never went. The outcome, for the log and tests. */
 export async function noteSendStatus(storage: InboxStorage, status: SendStatus, now: number, resend?: Resend, wait: (ms: number) => Promise<void> = pause): Promise<"logged" | "marked" | "resent" | "unmatched"> {
-  const ev = await sentEvent(storage, status, wait);
+  const { ev, linkBubble } = await sentEvent(storage, status, wait);
   let outcome: "logged" | "marked" | "resent" | "unmatched" = ev === undefined ? "unmatched" : "logged";
-  const threaded = NEVER_WENT.has(status.status) && resend !== undefined ? await takeThreaded(storage, status.handle, now) : undefined;
+  // A link bubble that failed is only its preview: the words went, so the text is neither resent nor marked.
+  const neverWent = NEVER_WENT.has(status.status) && !linkBubble;
+  const threaded = neverWent && resend !== undefined ? await takeThreaded(storage, status.handle, now) : undefined;
   if (threaded !== undefined && resend !== undefined) {
     try {
       // The same event, a new message: a reply under the resent text, and its own status, find what it said.
@@ -125,7 +128,7 @@ export async function noteSendStatus(storage: InboxStorage, status: SendStatus, 
       // The plain send failed too: marked below as never went.
     }
   }
-  if (outcome !== "resent" && ev !== undefined && NEVER_WENT.has(status.status)) {
+  if (outcome !== "resent" && ev !== undefined && neverWent) {
     const failed = (await storage.get<string[]>(FAILED_KEY)) ?? [];
     if (!failed.includes(ev)) {
       await addEvent(storage, { at: now, chat: status.chat, from: { kind: "tex" }, kind: "delivery", delivered: false, reason: "failed", replyTo: ev });
@@ -133,7 +136,7 @@ export async function noteSendStatus(storage: InboxStorage, status: SendStatus, 
       outcome = "marked";
     }
   }
-  console.log(JSON.stringify({ event: "sendblue_status", ...(status.report && status.report.name !== "sendblue" ? { provider: status.report.name } : {}), status: status.status, ...(status.errorClass ? { error_class: status.errorClass } : {}), downgraded: status.downgraded, ...(ev ? { ev } : {}), outcome }));
+  console.log(JSON.stringify({ event: "sendblue_status", ...(status.report && status.report.name !== "sendblue" ? { provider: status.report.name } : {}), status: status.status, ...(status.errorClass ? { error_class: status.errorClass } : {}), downgraded: status.downgraded, ...(ev ? { ev } : {}), ...(linkBubble ? { link_bubble: true } : {}), outcome }));
   return outcome;
 }
 
@@ -149,15 +152,19 @@ const pause = (ms: number): Promise<void> => new Promise((resolve) => setTimeout
  * 2026-11-15/16): a Photon report waits for the handle, a little at a time, so the object can take the send's own
  * write in between. Sendblue's callbacks come long after the send and are read once.
  */
-async function sentEvent(storage: InboxStorage, status: SendStatus, wait: (ms: number) => Promise<void>): Promise<string | undefined> {
-  const read = async () => ((await storage.get<{ h: string; ev: string }[]>(HANDLES_KEY)) ?? []).find((entry) => entry.h === status.handle)?.ev;
+async function sentEvent(storage: InboxStorage, status: SendStatus, wait: (ms: number) => Promise<void>): Promise<{ ev?: string; linkBubble: boolean }> {
+  const photon = status.report?.name === "photon";
+  // A Photon link bubble's report is its words' send (`photonLinkBubbles.ts`); the bubble may be noted only once its send answers.
+  const handleNow = () => (photon ? (linkBubbleWords(status.handle) ?? status.handle) : status.handle);
+  const read = async () => ((await storage.get<{ h: string; ev: string }[]>(HANDLES_KEY)) ?? []).find((entry) => entry.h === handleNow())?.ev;
   let ev = await read();
-  if (status.report?.name !== "photon") return ev;
-  for (let waited = 0; ev === undefined && waited < PHOTON_MATCH_WAIT_MS; waited += PHOTON_MATCH_STEP_MS) {
-    await wait(PHOTON_MATCH_STEP_MS);
-    ev = await read();
+  if (photon) {
+    for (let waited = 0; ev === undefined && waited < PHOTON_MATCH_WAIT_MS; waited += PHOTON_MATCH_STEP_MS) {
+      await wait(PHOTON_MATCH_STEP_MS);
+      ev = await read();
+    }
   }
-  return ev;
+  return { ...(ev !== undefined ? { ev } : {}), linkBubble: handleNow() !== status.handle };
 }
 
 /** Whether two strings match, hashed first so the time taken says nothing of either. */

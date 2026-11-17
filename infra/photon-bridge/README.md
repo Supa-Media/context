@@ -23,6 +23,16 @@ Photon sends.
   `app.mjs` serves the ops.
 - `src/pump.ts`: delivery and retry. A 2xx or 4xx from the agent passes the
   event; a 5xx or a thrown call retries and the checkpoint does not move.
+- `container/delivery.mjs`: Photon has no delivery event, so each send is read
+  back (`messages.get`) 30 s and 3 min after it went. An error code becomes a
+  `message.status` event, state `failed` (the agent marks the send, and sends a
+  threaded text again plain); a send still not delivered at the last read is
+  `undelivered`, shown on the send step only. These events carry no sequence
+  and move no checkpoint; a container restart loses the checks still waiting.
+- Stickers stuck on a message map to a `sticker` reaction, and poll changes
+  (started, option added, voted, vote taken back) to a message in words.
+  Any event the bridge does not map is counted by type in the minute
+  `bridge.health` line (`skipped`), never dropped unseen.
 
 ## Surface
 

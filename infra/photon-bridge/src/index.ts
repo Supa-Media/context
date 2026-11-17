@@ -51,11 +51,15 @@ function json(value: unknown, status: number): Response {
  * delivers each to the agent, acks it, and stores the contiguous frontier per
  * line here, in Durable Object storage.
  */
+/** Where the container's log forwarding got to (`forwardLogs`). */
+const LOG_CURSOR_KEY = "logcursor";
+
 export class PhotonBridge extends DurableObject<Env> {
   private live = false;
   private starting?: Promise<void>;
   private pumping?: Promise<void>;
-  private logCursor: LogCursor = { boot: "", next: 0 };
+  private logCursor?: LogCursor;
+  private forwarding?: Promise<void>;
 
   constructor(ctx: DurableObjectState, env: Env) {
     super(ctx, env);
@@ -166,7 +170,23 @@ export class PhotonBridge extends DurableObject<Env> {
       return;
     }
     this.startPump();
-    this.logCursor = await forwardContainerLogs(this.port(), this.logCursor, log);
+    await this.forwardLogs();
+  }
+
+  /**
+   * The container's log lines since the last read, once each: the alarm and the cron wake can land together, and a
+   * read already running is joined rather than run again from the same cursor (each line was logged twice, 2026-11-17:
+   * 367 send lines for 279 sends). The cursor is stored, so an object that was evicted does not read it all again.
+   */
+  private forwardLogs(): Promise<void> {
+    this.forwarding ??= (async () => {
+      const cursor = this.logCursor ?? (await this.ctx.storage.get<LogCursor>(LOG_CURSOR_KEY)) ?? { boot: "", next: 0 };
+      this.logCursor = await forwardContainerLogs(this.port(), cursor, log);
+      await this.ctx.storage.put(LOG_CURSOR_KEY, this.logCursor);
+    })().finally(() => {
+      this.forwarding = undefined;
+    });
+    return this.forwarding;
   }
 
   async alarm(): Promise<void> {
