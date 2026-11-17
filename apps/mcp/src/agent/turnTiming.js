@@ -40,10 +40,14 @@ function workerPart(worker) {
 /**
  * The round's prompt as module ids and fingerprints (`promptManifest.js`), so a
  * rebuild at the commit in the reply's `version.code` can prove it is the
- * prompt that ran. Ids and numbers only, capped like everything here.
+ * prompt that ran, and the words of its modules the catalogue can't hold,
+ * each once a turn (`seen`: a later round sent the same words), capped like
+ * everything here.
  */
 const MAX_MODULES = 40;
-function promptPart(prompt) {
+const MAX_ROUND_WORDS = 48_000;
+const FP = /^[0-9a-f]{8}$/;
+function promptPart(prompt, seen = new Set()) {
   if (prompt === null || typeof prompt !== "object" || !Array.isArray(prompt.modules)) return {};
   const modules = prompt.modules.slice(0, MAX_MODULES).filter((m) => typeof m?.id === "string" && typeof m.h === "string").map((m) => ({ id: name(m.id), n: whole(m.n), h: name(m.h) }));
   const i = prompt.inputs ?? {};
@@ -53,7 +57,16 @@ function promptPart(prompt) {
     ...(typeof i.model === "string" ? { model: name(i.model) } : {}),
     ...(Number.isFinite(i.history) ? { history: whole(i.history) } : {}),
   };
-  return { prompt: { modules, inputs } };
+  const logged = new Set(modules.map((m) => m.h));
+  const words = {};
+  let kept = 0;
+  for (const [h, text] of Object.entries(prompt.words && typeof prompt.words === "object" ? prompt.words : {})) {
+    if (!FP.test(h) || !logged.has(h) || seen.has(h) || typeof text !== "string" || kept + text.length > MAX_ROUND_WORDS) continue;
+    words[h] = text;
+    seen.add(h);
+    kept += text.length;
+  }
+  return { prompt: { modules, inputs, ...(kept > 0 ? { words } : {}) } };
 }
 
 const whole = (value) => (Number.isFinite(value) && value > 0 ? Math.round(value) : 0);
@@ -82,6 +95,7 @@ export function turnTiming({ steps = [], trace = [], waitMs = null, worker = nul
     rounds: [],
     tools: [],
   };
+  const wordsSeen = new Set(); // a module's words are kept once a turn, in the first round that sent them
   for (const entry of Array.isArray(trace) ? trace : []) {
     const at = loopAt + whole(entry?.at);
     const ms = whole(entry?.ms);
@@ -99,7 +113,7 @@ export function turnTiming({ steps = [], trace = [], waitMs = null, worker = nul
         ...(entry.cut ? { cut: true } : {}),
         ...(entry.stopped ? { stopped: true } : {}), // a provisional run stopped mid-call (`steer.js`)
         ...(entry.usage ? { input: whole(usage.input), output: whole(usage.output), cacheRead: whole(usage.cacheRead), cacheWrite: whole(usage.cacheWrite), said: whole(entry.said), calls: whole(entry.calls) } : {}),
-        ...promptPart(entry.prompt),
+        ...promptPart(entry.prompt, wordsSeen),
       });
     }
   }

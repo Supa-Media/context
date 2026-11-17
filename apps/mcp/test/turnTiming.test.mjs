@@ -51,7 +51,10 @@ test("a texted turn's reply keeps where its time went: the wait, each step, each
     const model = timing.steps.find((step) => step.name === "model");
     assert.ok(timing.rounds[0].at >= model.at && timing.rounds[0].at <= timing.tools[0].at && timing.tools[0].at <= timing.rounds[1].at, "on the turn's own clock, in the order they ran");
     assert.ok(timing.rounds[1].at + timing.rounds[1].ms <= timing.replyMs, "all before the reply was ready");
-    assert.doesNotMatch(JSON.stringify(timing), /dentist|Tuesday|calendar|5555550100/, "names and numbers, never a word");
+    // The prompt's own kept words (`promptManifest.js` `keptWordsOf`, 2026-11-17) are the one place words are; the rest is names and numbers.
+    const withoutWords = { ...timing, rounds: timing.rounds.map(({ prompt, ...r }) => ({ ...r, prompt: { ...prompt, words: undefined } })) };
+    assert.doesNotMatch(JSON.stringify(withoutWords), /dentist|Tuesday|calendar|5555550100/, "names and numbers, never a word");
+    assert.doesNotMatch(JSON.stringify(timing.rounds.map((r) => r.prompt.words)), /dentist|5555550100/, "the kept words are the prompt's modules, never the person's texts");
     const thinking = entries.find((entry) => entry.kind === "thinking");
     assert.equal(thinking.output, 900, "a thinking entry says what its round cost");
     assert.equal(typeof thinking.ms, "number");

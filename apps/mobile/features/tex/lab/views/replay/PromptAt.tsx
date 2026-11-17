@@ -55,7 +55,7 @@ export function PromptAt({ p }: { p: TurnPrompt }) {
             <p className="hint">Same modules as the round before.</p>
           ) : (
             r.modules.map((m) => {
-              const words = cat && cat !== "loading" ? wordsOf(cat, m) : null;
+              const words = wordsOf(cat && cat !== "loading" ? cat : null, m, p.kept);
               return (
                 <details key={m.id + m.h} className="iofold pmod" data-mod={m.id}>
                   <summary>
@@ -67,7 +67,7 @@ export function PromptAt({ p }: { p: TurnPrompt }) {
                     <p className="hint">
                       {m.id === "preamble/now" && told ? `The time: ${told}. ` : ""}
                       From {moduleSource(m.id)}
-                      {cat && cat !== "loading" ? (fromRepo(m.id) ? ". Not in this version's catalogue (a chat's own progress level, say)" : ". Built from their own words when the turn ran, which are never kept") : ""}. Fingerprint {m.h}.
+                      {cat && cat !== "loading" ? (fromRepo(m.id) ? ". Not in this version's catalogue (a chat's own progress level, say)" : ". Built from their own words when the turn ran, and not kept: the turn ran before 2026-11-17, or the module was too long to keep") : ""}. Fingerprint {m.h}.
                     </p>
                   )}
                 </details>

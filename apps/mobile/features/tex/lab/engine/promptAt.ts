@@ -7,14 +7,16 @@
  * commit that ran (`texVersion.js`), never the words. `scripts/tex-prompt-catalog.mjs` writes, at every commit, the
  * words of each module that commit builds from the repository alone, keyed by fingerprint; the Lab reads that file AT
  * the turn's commit, so a module's words are shown only when its fingerprint proves they are the words that ran. A
- * module built from the person's notes or the moment holds their words, which are never kept: it is named, sized and
- * said where it came from.
+ * module built from the person's notes or the moment (the time, why the turn ran, the thread) is kept with its words
+ * since 2026-11-17 (`promptManifest.js` `keptWordsOf`; Dev2 chose it after a turn's false "@shyoh tagged you" could not
+ * be seen in Replay), shown only when they hash to the fingerprint logged; an older turn's is named, sized and said
+ * where it came from.
  */
 import type { LedgerEntry } from "../../page/texPageTypes";
 
 export type PromptModule = { id: string; n: number; h: string };
 export type PromptRound = { model: string | null; modules: PromptModule[] };
-export type TurnPrompt = { code: string | null; setup: string | null; rounds: PromptRound[]; inputs: { at?: number; timeZone?: string; model?: string; history?: number } | null };
+export type TurnPrompt = { code: string | null; setup: string | null; rounds: PromptRound[]; inputs: { at?: number; timeZone?: string; model?: string; history?: number } | null; kept: Record<string, string> };
 
 const rec = (v: unknown): Record<string, unknown> | null => (v !== null && typeof v === "object" && !Array.isArray(v) ? (v as Record<string, unknown>) : null);
 const COMMIT = /^[0-9a-f]{7,40}$/;
@@ -29,12 +31,14 @@ export function turnPromptOf(entries: LedgerEntry[], turn: string | null): TurnP
   const timing = rec(h?.timing);
   const rounds: PromptRound[] = [];
   let inputs: TurnPrompt["inputs"] = null;
+  const kept: Record<string, string> = {};
   for (const r of Array.isArray(timing?.rounds) ? (timing!.rounds as unknown[]) : []) {
     const p = rec(rec(r)?.prompt);
     const modules = (Array.isArray(p?.modules) ? (p!.modules as unknown[]) : [])
       .map(rec)
       .filter((m): m is Record<string, unknown> => m !== null && typeof m.id === "string" && typeof m.h === "string" && FP.test(m.h))
       .map((m) => ({ id: m.id as string, n: typeof m.n === "number" ? m.n : 0, h: m.h as string }));
+    for (const [h, w] of Object.entries(rec(p?.words) ?? {})) if (FP.test(h) && typeof w === "string") kept[h] ??= w;
     if (!modules.length) continue;
     rounds.push({ model: typeof rec(r)?.model === "string" ? (rec(r)!.model as string) : typeof rec(p?.inputs)?.model === "string" ? (rec(p!.inputs)!.model as string) : null, modules });
     inputs ??= rec(p?.inputs) as TurnPrompt["inputs"];
@@ -43,7 +47,7 @@ export function turnPromptOf(entries: LedgerEntry[], turn: string | null): TurnP
   const code = typeof version?.code === "string" && COMMIT.test(version.code) ? version.code : null;
   const setup = typeof version?.setup === "string" ? version.setup : null;
   if (!rounds.length && !code) return null;
-  return { code, setup, rounds, inputs };
+  return { code, setup, rounds, inputs, kept };
 }
 
 /** Where each module the repository can't hold comes from, in words (`turnPrompt.js`). */
@@ -100,11 +104,25 @@ export function catalogAt(code: string, get: typeof fetch = fetch): Promise<Cata
   return p;
 }
 
-/** A module's words from a catalogue, only when its fingerprint is there: the words that ran, or null. */
-export function wordsOf(catalog: Catalog | null, m: PromptModule): string | null {
+/** FNV-1a over UTF-16 code units, 8 hex digits: the gateway's `promptManifest.js` `fingerprint`, the same bytes. */
+export function fingerprint(text: string): string {
+  let h = 0x811c9dc5;
+  for (let i = 0; i < text.length; i += 1) {
+    h ^= text.charCodeAt(i);
+    h = Math.imul(h, 0x01000193) >>> 0;
+  }
+  return h.toString(16).padStart(8, "0");
+}
+
+/**
+ * A module's words that ran, or null: from the catalogue at the turn's commit when its fingerprint is there, else from
+ * the words the turn kept, only when they hash to the fingerprint it logged (never words that merely sit beside it).
+ */
+export function wordsOf(catalog: Catalog | null, m: PromptModule, kept: Record<string, string> | null = null): string | null {
   const row = catalog?.modules[m.h];
-  if (!row || row.id !== m.id) return null;
-  return row.at.map((i) => catalog!.lines[i] ?? "").join("\n");
+  if (row && row.id === m.id) return row.at.map((i) => catalog!.lines[i] ?? "").join("\n");
+  const own = kept?.[m.h];
+  return typeof own === "string" && m.n === own.length && fingerprint(own) === m.h ? own : null;
 }
 
 /** The time a turn's prompt was told, in its own time zone, for the `preamble/now` row. */

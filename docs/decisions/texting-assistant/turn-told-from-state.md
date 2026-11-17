@@ -34,3 +34,25 @@ field doesn't hold.
 **What a "simplification" costs.** Saying "tagged you" whatever ran the turn brings back the unprompted check-in
 replies and the invented explanations. Tests: `apps/mcp/test/devShare.test.mjs`, `apps/agent/src/groupCause.test.ts`,
 `apps/convex/__tests__/texLabShared.test.ts`, replay case `group-told-why`.
+
+## Every module's words are kept beside its fingerprint (2026-11-17)
+
+Until now a turn kept, per model round, each prompt module's id, length and fingerprint, never its words
+(`promptManifest.js`, Dev2, 2026-11-14), and the Lab showed words only for modules the prompt catalogue rebuilds at
+the turn's commit. Seven of a group turn's thirteen modules (the time, why the turn ran, the thread note's parts, the
+workspaces it reaches, the model line) are built from the moment, so Replay and `tex_dev prompt` showed `words: null`
+for exactly the lines that were wrong: nobody could read "@shyoh tagged you." on a check-in without rebuilding it by
+hand. Dev2 chose to keep them.
+
+- `turnPrompt.js` hands `prompt.words`, `{fingerprint: text}` for every module but the stable rules
+  (`keptWordsOf`); a module over 16,000 characters keeps its fingerprint only.
+- `turnTiming.js` keeps them in the reply's round, each once a turn (a later round sending the same bytes keeps none),
+  only for fingerprints that round's manifest names, at most 48,000 characters a round.
+- The Lab (`engine/promptAt.ts` `wordsOf`), Replay's Prompt panel and `tex_dev prompt` show the catalogue's words or
+  the kept ones, the kept ones only when they hash to the fingerprint and length logged.
+
+They live in the chat's own history, beside the texts they were built from, so they reach nobody the history does not.
+A turn grows by roughly the size of its moment-built modules (6 to 20 KB in a group turn); the history the model reads
+never includes a reply's timing (`conversation.js` `keptTurn`). What a simplification would cost: dropping the words
+again hides the next wrong fact the same way (`apps/mcp/test/promptManifest.test.mjs`); showing kept words without the
+fingerprint check shows words that did not run (`apps/mobile/__tests__/texLabPromptAt.test.ts`).
