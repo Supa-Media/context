@@ -30,6 +30,7 @@ on:
 permissions:
   contents: read
   pull-requests: read
+  actions: read
 
 run-name: Tex Lab run ${{ inputs.run_id }}
 
@@ -134,8 +135,27 @@ jobs:
           [ -s "$RUNNER_TEMP/why" ] && why="$(head -c 280 "$RUNNER_TEMP/why" | tr '\n' ' ')"
           echo "why=$why" >> "$GITHUB_OUTPUT"
 
+  # The spend check signs in as the benchmark runner. That grant rotates its
+  # refresh token on every use and revokes itself when a retired one comes
+  # back, so this waits until no earlier runner sign-in is still going. The
+  # wait is its own job: the run job reads the secret when it starts, after
+  # the earlier run has written the rotated token back.
+  wait-turn:
+    name: Wait for earlier benchmark runs
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          sparse-checkout: scripts
+          persist-credentials: false
+      - name: Wait until no earlier run signs in as the benchmark runner
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: node scripts/bench-runner-lock.mjs --max-minutes 170
+
   run:
-    needs: prep
+    needs: [prep, wait-turn]
     runs-on: ubuntu-latest
     environment: production
     timeout-minutes: 90
@@ -177,8 +197,29 @@ jobs:
           name: job
           path: ${{ runner.temp }}/sealed
 
+      - name: Refuse to sign in beside another benchmark run
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: node scripts/bench-runner-lock.mjs --check
+
       - name: Refuse a Dev set the spend cap does not allow
         run: pnpm --silent ai spend check dev-set --setups production
+
+      # The check just rotated the refresh token. Write it back before the
+      # long run, from the file sign-in wrote, not by running the checkout's
+      # scripts with the admin token. A retired token presented again revokes
+      # the grant.
+      - name: Keep the runner's rotated token
+        if: always()
+        env:
+          GH_TOKEN: ${{ secrets.GH_ADMIN_TOKEN }}
+        run: |
+          set -euo pipefail
+          f="$RUNNER_TEMP/bench-runner.json"
+          [ -f "$f" ] || exit 0
+          next="$(node -e 'const j=JSON.parse(require("fs").readFileSync(process.argv[1],"utf8")); if(typeof j.refreshToken!=="string"||!j.refreshToken) process.exit(1); process.stdout.write(j.refreshToken)' "$f")"
+          echo "::add-mask::$next"
+          gh secret set BENCH_RUNNER_REFRESH_TOKEN_LIVE --env production --repo "$GITHUB_REPOSITORY" --body "$next"
 
       - name: The Dev conversations, and the draft's graph
         env:
@@ -259,6 +300,19 @@ jobs:
           fi
           mkdir -p "$RUNNER_TEMP/out"
           gzip -9c "$RUNNER_TEMP/results.json" | openssl enc -aes-256-cbc -pbkdf2 -salt -pass env:SEAL -out "$RUNNER_TEMP/out/results.bin"
+
+      # spend add may have rotated the token again after the hour.
+      - name: Keep the runner's rotated token again
+        if: always()
+        env:
+          GH_TOKEN: ${{ secrets.GH_ADMIN_TOKEN }}
+        run: |
+          set -euo pipefail
+          f="$RUNNER_TEMP/bench-runner.json"
+          [ -f "$f" ] || exit 0
+          next="$(node -e 'const j=JSON.parse(require("fs").readFileSync(process.argv[1],"utf8")); if(typeof j.refreshToken!=="string"||!j.refreshToken) process.exit(1); process.stdout.write(j.refreshToken)' "$f")"
+          echo "::add-mask::$next"
+          gh secret set BENCH_RUNNER_REFRESH_TOKEN_LIVE --env production --repo "$GITHUB_REPOSITORY" --body "$next"
 
       - uses: actions/upload-artifact@v4
         with:

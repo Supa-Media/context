@@ -4,8 +4,9 @@
  *
  * The gateway rotates the benchmark runner's refresh token on every use and
  * revokes the grant when a spent one comes back, so the workflows that sign in
- * as the runner (AI Benchmark, AI Promote, Tex replay, Tex nightly) must never
- * overlap. They shared one `concurrency` group for that, but a group holds one
+ * as the runner (AI Benchmark, AI Promote, Tex replay, Tex nightly, Tex Lab
+ * and the Test Set seed) must never overlap. They shared one `concurrency`
+ * group for that, but a group holds one
  * running and ONE pending run: a third run cancels the pending one, which then
  * ran no job at all. With several agents dispatching Tex replay, replays
  * cancelled each other, and a cancelled replay never marked its commit, so the
@@ -34,7 +35,7 @@
 import { execFileSync } from "node:child_process";
 
 /** The workflows that sign in as the benchmark runner. */
-export const RUNNER_WORKFLOWS = ["ai-benchmark.yml", "ai-promote.yml", "tex-replay.yml", "tex-nightly.yml"];
+export const RUNNER_WORKFLOWS = ["ai-benchmark.yml", "ai-promote.yml", "tex-replay.yml", "tex-nightly.yml", "tex-lab-run.yml", "tex-test-set-seed.yml"];
 const ACTIVE = new Set(["queued", "in_progress", "waiting", "requested", "pending"]);
 
 /** Whether run `a` comes before run `b`: its latest attempt started first, then the lower id. */

@@ -48,6 +48,14 @@ over a GitHub listener), with a Models pick of the AI gateway or Claude Code on
   account's concurrent limit rather than failing them). A run still open after
   three hours no longer holds a place.
 - **Public logs say counts and ids.** Results go to Convex, never into the log.
+- **The spend check signs in as the benchmark runner.** That grant rotates
+  its refresh token on every use and revokes itself when a retired one is
+  presented. A Lab run waits until no earlier runner sign-in is still going
+  (`scripts/bench-runner-lock.mjs`, the same list as the benchmark, replay,
+  nightly and the Test Set seed), then writes the rotated token back to the
+  production environment secret `BENCH_RUNNER_REFRESH_TOKEN_LIVE` before the
+  Dev set runs and again after the spend line. The admin token that writes
+  the secret is on those two steps only, not in the job's environment.
 - **Promote starts at once.** Asking dispatches `tex-lab-promote.yml`
   straight away (the quarter-hour schedule stays as the fallback) and makes a
   "gate" run, which follows the pull request's **Tex test set** status and
@@ -64,3 +72,8 @@ fails if a run could cover a Training chat. Without the deploy key split, a
 branch's code could rewrite the files the reporting step runs and act with the
 production deploy key; the code tests in `texLabRuns.test.ts` fail if a code
 name could be an option, a path climb or another repository's pull request.
+Two Lab runs signing in together, or a Lab run that spends the refresh token
+and does not write it back, presents a retired token next time and the
+gateway revokes the grant; the next Dev run then stops at `invalid_grant`
+until someone runs `pnpm ai connect` again. `bench-runner-lock.mjs` lists
+`tex-lab-run.yml` so the other runner workflows wait for it too.
