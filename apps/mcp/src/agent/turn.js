@@ -52,7 +52,7 @@ import { pushbackNudge } from "./pushback.js";
 import { causeOf, failureRecorder } from "./toolFailures.js";
 import { exhaustedAnswer, roundNotice } from "./lastRound.js";
 import { traceNames } from "./turnLog.js";
-import { QUIET_TOO_SOON, SAID_NOTHING, SAY_NOTHING_TOOL, sayNothingLocal, sayNothingRefused, typedCallNotice, typedCallOf, withSayNothing } from "./sayNothing.js";
+import { SAID_NOTHING, SAY_NOTHING_TOOL, sayNothingLocal, sayNothingRefused, typedCallNotice, typedCallOf, withSayNothing } from "./sayNothing.js";
 
 export { describePlace, systemPrompt } from "./prompt.js";
 export { toolResultImages, toolResultText } from "./toolResults.js";
@@ -605,12 +605,6 @@ export async function runTurn(options) {
         escalate = true;
         tell({ kind: "tool", name: call.name.slice(0, 64), args: call.args, ok: false, ms: 0, reason: "no such tool" });
         failed({ tool: call.name, cause: "not_offered", text: asSix ? "not one of the actions it was given" : "no such tool", round });
-        continue;
-      }
-      // Silence asked beside another call in the same round is answered, not taken: its result is not seen yet (`sayNothing.js`).
-      if (call.name === SAY_NOTHING_TOOL && answer.toolCalls.length > 1 && settles !== endsTurn) {
-        messages.push({ role: "tool", id: call.id, name: made.name, text: QUIET_TOO_SOON, isError: true });
-        tell({ kind: "tool", name: call.name, args: call.args, ok: false, ms: 0, reason: "beside another call" });
         continue;
       }
       const repeated = held.refusal(call.name, call.args); // a write already made, asked again after a send-back
