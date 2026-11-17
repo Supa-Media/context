@@ -65,6 +65,7 @@ import { runCrossContextAdvertisingChecks } from "./crossContext/advertising.tes
 import { runCrossContextStoreIdentityChecks } from "./crossContext/storeIdentity.test.mjs";
 import { runCrossContextChangeReportingChecks } from "./crossContext/changeReporting.test.mjs";
 import { runCrossContextRoutingSuggestionChecks } from "./crossContext/routingSuggestion.test.mjs";
+import { runCrossContextEtagPlaceChecks } from "./crossContext/etagPlace.test.mjs";
 
 /**
  * The checks themselves live in `crossContext/*.test.mjs`, split by behaviour
@@ -83,6 +84,7 @@ export async function runCrossContextChecks(check) {
   await runCrossContextStoreIdentityChecks(check, harness);
   await runCrossContextChangeReportingChecks(check, harness);
   await runCrossContextRoutingSuggestionChecks(check, harness);
+  await runCrossContextEtagPlaceChecks(check, harness);
 
   const { restoreControlPlane, restoreS3 } = harness;
   restoreControlPlane();

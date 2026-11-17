@@ -181,12 +181,13 @@ test("an app's read starts no document either, and writing from the Markdown's e
   const heads = headsIn();
   const text = (await call("read_note", { path: mailPath(5) }))?.content?.[0]?.text ?? "";
   assert.doesNotMatch(text, /^document_id:/m);
-  assert.match(text, /^etag: mail-5$/m);
+  // Placed in its workspace (`tools/etagPlace.js`), and the bare version still edits.
+  assert.match(text, /^etag: (?:@[a-z0-9-]+(?:\/[\w-]+)?:)?mail-5$/m);
   assert.equal(headsIn(), heads, "an app's read wrote nothing for the note");
   // Every tool names the version the same way (`notes/version.js`), so that etag is enough to edit.
   const written = await call("write_note", { path: mailPath(5), content: "# Mail 5\n\nPlease reply by Friday. Done.\n", expected_etag: "mail-5" });
   assert.notEqual(written?.isError, true, written?.content?.[0]?.text);
-  assert.match(written.content[0].text, /etag c2\./);
+  assert.match(written.content[0].text, /etag (?:@\S+?:)?c2\./);
   assert.equal(headsIn(), heads + 1, "the write started the note's document");
 });
 
@@ -199,5 +200,5 @@ test("a note that already has a document is read through it, by a check-in too",
   // The read's answer goes back to the model in its next request: the document's, with its id and etag.
   const answered = modelRequests.at(-1);
   assert.match(answered, /document_id: doc-/);
-  assert.match(answered, /etag: c2\./);
+  assert.match(answered, /etag: (?:@\S+?:)?c2\./);
 });

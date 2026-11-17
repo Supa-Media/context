@@ -272,7 +272,7 @@ export async function runDrawingChecks(check) {
     check("its labels come back", read.includes("Cassowary") && read.includes("Quoll"));
     check("its connections come back", read.includes("Cassowary → Quoll"));
     check("its inventory comes back", read.includes("2 rectangles"));
-    check("the etag is still the file's", /\netag: e\d+\n/.test(`\n${read}`));
+    check("the etag is still the file's", /\netag: (?:@[a-z0-9-]+(?:\/[\w-]+)?:)?e\d+\n/.test(`\n${read}`));
 
     const payloadHead = compressToBase64(
       JSON.stringify({ type: "excalidraw", version: 2, source: "https://excalidraw.com", elements: ELEMENTS })

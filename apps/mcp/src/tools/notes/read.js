@@ -188,6 +188,8 @@ export async function toolReadNote(store, scope, rules, overrides, pathArg, hist
    * caller must not do is write this text back — `toolWriteNote` refuses that
    * explicitly rather than trusting anyone to notice.
    */
+  // The note's id, from the read's one lookup, so its etag can name the note it is the version of (`tools/etagPlace.js`).
+  const noteId = typeof store.oneRead === "function" && typeof view.noteIdAt === "function" ? await view.noteIdAt(path).catch(() => null) : null;
   if (isDrawingPath(path) && !opened.encrypted) {
     const drawing = parseDrawing(opened.text, path);
     return withOpened(toolText(
@@ -195,7 +197,7 @@ export async function toolReadNote(store, scope, rules, overrides, pathArg, hist
         `kind: drawing\n\n${describeDrawing(drawing, { path })}\n\n` +
         "*This is a description. The drawing itself is unchanged in the bucket, and " +
         "write_note will not overwrite it with text.*"
-    ), { path, text: "", encrypted: false });
+    ), { path, text: "", encrypted: false, noteId });
   }
   const actualText = collaboration?.text ?? opened.text;
   return withOpened(toolText(
@@ -205,7 +207,7 @@ export async function toolReadNote(store, scope, rules, overrides, pathArg, hist
       // the path it is being given rather than the one it asked for.
       `${path === requested ? "" : `\nmoved_from: ${requested}`}` +
       `${drawingEmbedLine(actualText)}${commentsLine(actualText)}${mailLine(actualText)}\n\n${actualText}`
-  ), { path, text: actualText, encrypted: opened.encrypted });
+  ), { path, text: actualText, encrypted: opened.encrypted, noteId });
 }
 
 /** The most notes one `read_notes` call opens. */
@@ -237,6 +239,7 @@ export async function toolReadNotes(store, scope, rules, overrides, pathsArg) {
   const answer = results.every((result) => result.isError) ? { content, isError: true } : { content };
   // The notes it opened, at the paths they were read at, for the activity log (`tools/session.js`). Not enumerable: the client's answer is unchanged.
   const read = results.filter((result) => !result.isError && result.opened?.path).map((result) => result.opened.path);
+  Object.defineProperty(answer, "notesOpened", { value: results.map((result) => result.opened).filter(Boolean), enumerable: false });
   return Object.defineProperty(answer, "notesRead", { value: read, enumerable: false });
 }
 
