@@ -12,7 +12,15 @@ instead of in a GitHub secret.
   leaves Cloudflare.
 - Order: each stored key, then the plan key (`ANTHROPIC_CREDIT_KEY`), then no
   key, which Unified Billing pays. Each spent payer rests 15 minutes on its
-  own, per isolate.
+  own. Since 2026-11-17 that rest is one Durable Object for the whole gateway
+  (`CREDIT_REST`, `apps/mcp/src/agent/creditRest.js`), not a map in the
+  isolate: after the first call sees the credit spent, every other isolate
+  skips that payer and the call is attempted once, on the next payer. When
+  the rest ends, one caller probes the key and the others still skip it. A
+  probe that the credit answers clears the record, so the monthly refill (the
+  plan credit returns on the 21st) is picked up without anyone clearing it by
+  hand. A read that fails tries the key, and never fails the turn. With the
+  binding left out, each isolate keeps its own rest, as before.
 - A stored key that is not the gateway's `default` is never used by a call
   without an alias, so the last, keyless call still lands on Unified Billing
   (seen live on 2026-11-13: keyless calls stayed `wholesale` after two aliased
@@ -21,6 +29,8 @@ instead of in a GitHub secret.
   for an alias it does not hold is not documented as a 401; it is logged as
   `ai_gateway_payer_refused` with the payer and status only.
 
-Simplifying this away (back to one key on the request) brings back the doubled
-calls once that key's credit is spent. Test:
-`apps/mcp/test/agentGatewayAliases.test.mjs`.
+Simplifying this away (back to one key on the request, or a rest that only
+the isolate which saw the failure remembers) brings back the doubled calls
+once that key's credit is spent. Tests:
+`apps/mcp/test/agentGatewayAliases.test.mjs`,
+`apps/mcp/test/agentCreditRest.test.mjs`.
