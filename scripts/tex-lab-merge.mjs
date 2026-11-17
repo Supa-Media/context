@@ -165,7 +165,7 @@ export function sideAt(commit, run = git) {
   const config = JSON.parse(run(["show", `${commit}:${CONFIG_PATH}`]));
   const words = {};
   for (const file of run(["ls-tree", "--name-only", `${commit}:${WORDS_PATH}`]).split("\n").filter((f) => f.endsWith(".md"))) {
-    const text = run(["show", `${commit}:${WORDS_PATH}/${file}`]).replace(/^﻿/, "").trim();
+    const text = run(["show", `${commit}:${WORDS_PATH}/${file}`]).replace(/^\uFEFF/, "").trim();
     if (text) words[file.slice(0, -3)] = text;
   }
   return { config, words };
