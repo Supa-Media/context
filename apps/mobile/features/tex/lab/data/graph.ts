@@ -21,7 +21,10 @@ export const WIRES: Record<string, { name: string; dash: string; c: string; w?: 
   loop:{name:"Send back",dash:"5 4",c:"--bad",tip:"Sometimes sends the draft back"},
   // A provisional run (Dev2, 2026-11-17): the target starts without waiting for the source, whose output is its go, stop
   // or restart (`when` "stop:<tag>", "restart:<tag>"); until every go, it may do only what the wire's `allow` lets it.
-  provisional:{name:"Provisional run",dash:"2 3",c:"--warn",tip:"Starts at once instead of waiting for this step, which can stop or restart it at any point; until it says go, the run may only read (or make writes that can be undone)"}
+  provisional:{name:"Provisional run",dash:"2 3",c:"--warn",tip:"Starts at once instead of waiting for this step, which can stop or restart it at any point; until it says go, the run may only read (or make writes that can be undone)"},
+  // A generator (Dev2, 2026-11-16, the generators model): fire and forget; the target, an input step, starts a run of
+  // its own, in this chat or another. Never part of this run: the sim and Replay leave it out.
+  generator:{name:"Starts a new run",dash:"8 3 2 3",c:"--team",tip:"Fires and forgets: the target starts a run of its own, here or in another chat, and nothing in this run waits for it"}
 };
 
 /** The tags a provisional wire may stop or restart its step on: what Triage and Decide say (Dev2, 2026-11-17). */

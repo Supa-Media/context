@@ -621,5 +621,6 @@ test/agentProvisional.test.mjs
 test/sharedFolderDefault.test.mjs
 test/groupChats.test.mjs
 test/moveJudge.test.mjs
+test/crossChat.test.mjs
 test/workspaceConventions.test.mjs
 test/workspaceConventionsTurn.test.mjs

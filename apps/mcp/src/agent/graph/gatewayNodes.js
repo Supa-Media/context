@@ -55,6 +55,9 @@ import learn from "./nodes/learn.js";
 import { afterReplyNode } from "./nodes/afterReply.js";
 import chatDays from "./nodes/chatDays.js";
 import moveJudge from "./nodes/moveJudge.js";
+import { crossChatGateNode } from "./nodes/crossChatGate.js";
+import { chatAskNode } from "./nodes/chatAsk.js";
+import { chatAnswerNode } from "./nodes/chatAnswer.js";
 import { jobadv } from "./nodes/jobadv.js";
 import { staffNode } from "./nodes/staff.js";
 
@@ -129,4 +132,9 @@ export const GATEWAY_NODES = {
   get chatDays() { return chatDays; },
   // The move judge: whether their recent words, or their yes to Tex's offer, ask to move or archive a note of theirs (`nodes/moveJudge.js`).
   get moveJudge() { return moveJudge; },
+  // Tex asks Tex across chats (`../crossChat.js`): the gate before an ask leaves, the input that starts the other chat's
+  // run (and the asking chat's run for its answer), and the step that sends an ask-run's answer back.
+  get crossChatGate() { return crossChatGateNode; },
+  get chatAsk() { return chatAskNode; },
+  get chatAnswer() { return chatAnswerNode; },
 };

@@ -87,6 +87,7 @@ import { watchConversation, watchShared } from "./reviewWatch";
 import type { Inbound } from "./inbound";
 import { afterReplyWork, deferAfterReply, rememberSession, type TurnTiming } from "./afterReply";
 import type { TimingDataset } from "./textTiming";
+import { answerCrossAsk, crossCounts, crossWired, sendCrossAsks } from "./crossChat";
 
 /** The subset of `DurableObjectStorage` this uses, so tests can pass a Map. */
 export type InboxStorage = {
@@ -104,6 +105,10 @@ export type InboxDeps = ReplyDeps &
     now: () => number;
     /** Where each answered text's wait is written (`textTiming.ts`); absent, nowhere. */
     textTiming?: TimingDataset;
+    /** A call to another of this Worker's chat objects by name (`crossChat.ts`); absent, no chat asks another. */
+    crossCall?: (inbox: string, path: string, body: unknown) => Promise<Response>;
+    /** A Lab test chat's draft config (`env.TEX_GRAPH`); absent, the config the Worker was built with. */
+    texGraph?: unknown;
     /** Starts a background job in an object of its own (`jobs.ts`); absent, texted turns are offered none. */
     spawnJob?: (id: string, run: JobRun) => Promise<void>;
     /** Hands a later text to a running job's object; true when it took it (`jobRun.ts`). */
@@ -594,6 +599,7 @@ async function answering(message: Message, work: string, deps: InboxDeps, storag
       warm: warmDeps(storage, deps.now), // the gateway's sealed copy (`warm.ts`)
       onShared: () => watchShared(storage, message.from, deps.now()),
       ...(await jobsFor(storage, message, deps)),
+      ...(await crossFor(storage, message, deps)),
     },
     storage,
     presence,
@@ -622,6 +628,18 @@ async function answering(message: Message, work: string, deps: InboxDeps, storag
       : async (picture: { name: string; mediaType: string; data: string; title?: string }) =>
           lineFor(lineDeps(deps), message.chatId).uploadPicture(await shrinkPicture(deps.images, picture));
   return done(await withAnswerCards(await partsFor(texts, pictures, upload), { texts, choices, offers }, cards, viewLink(hub, deps.threadsLink)));
+}
+
+/** What a texted turn is shown of its asks to other chats, and where they and an ask-run's answer go (`crossChat.ts`). */
+async function crossFor(storage: InboxStorage, message: Message, deps: InboxDeps): Promise<Pick<ReplyDeps, "crossCounts" | "onCrossAsks" | "onCrossBack">> {
+  const call = deps.crossCall;
+  if (call === undefined || message.sms || !crossWired(deps.texGraph)) return {};
+  const cross = { now: deps.now, call };
+  return {
+    crossCounts: await crossCounts(storage, deps.now()),
+    onCrossAsks: (asks) => sendCrossAsks(storage, cross, { kind: "one", chatId: message.chatId, from: message.from, ...(message.channel === "simulator" ? { channel: "simulator" as const } : {}) }, asks),
+    onCrossBack: async (back) => (message.crossChat?.kind === "ask" ? answerCrossAsk(cross, message.crossChat, back) : undefined),
+  };
 }
 
 /** What a texted turn is shown of the chat's background jobs, and how it starts more (`jobs.ts`). */
