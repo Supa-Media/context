@@ -271,12 +271,14 @@ export async function toolAnswer(name, args, gate) {
   if (typeof name !== "string") return null;
   if (READ_TOOLS.has(name)) return typeof gate.call === "function" ? await overlayRead(name, args, gate) : null;
   if (RUN_IN_SANDBOX.has(name)) return null;
-  // An etag from another workspace is refused here as the gateway refuses it (`tools/etagPlace.js`), so a test chat
-  // never shows a save the real one would not make. Only once a routed call said which workspace a plain path means.
+  // An etag from another workspace, and a call that names two, are refused here as the gateway refuses them
+  // (`tools/etagPlace.js`), so a test chat never shows a save the real one would not make. The etag half waits until a
+  // routed call said which workspace a plain path means; two names are refused either way.
   const own = typeof gate.ownWorkspace === "string" && gate.ownWorkspace !== "" ? gate.ownWorkspace : null;
-  const wrongPlace = own !== null ? etagRefusalByName(name, args, own) : null;
+  const wrongPlace = etagRefusalByName(name, args, own);
   if (wrongPlace) {
-    gate.record({ kind: "Refused", summary: `${toolSummary(name, args)} (an etag from another workspace)`, tool: name });
+    const why = wrongPlace.startsWith("refused:") ? "an etag from another workspace" : "names two workspaces";
+    gate.record({ kind: "Refused", summary: `${toolSummary(name, args)} (${why})`, tool: name });
     return { content: [{ type: "text", text: wrongPlace }], isError: true };
   }
   const done = typeof gate.call === "function" ? await sandboxWrite(name, args, gate) : null;

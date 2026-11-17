@@ -665,7 +665,21 @@ test("a test chat refuses a write carrying another workspace's etag, as the gate
   assert.equal(writes.at(-1).kind, "Refused");
   const right = await toolAnswer("write_note", { path: "@crystal-care/index.md", content: "x", expected_etag: placed }, gate);
   assert.equal(right.isError, undefined, "addressed where it was read, it saves");
-  // Two sessions seen in one turn: the stub checks nothing rather than refuse what the gateway would take.
+  // The same call naming both workspaces: the gateway refuses it in `addressByPath`, before the etag check. The test
+  // chat answers the write itself, so it has to say that refusal rather than "Done."
+  const two = await toolAnswer("write_note", { path: "@crystal-care/index.md", context: "@seyi", content: "x", expected_etag: placed }, gate);
+  assert.equal(two.isError, true);
+  assert.match(two.content[0].text, /names two workspaces/);
+  assert.match(two.content[0].text, /@seyi/);
+  assert.match(two.content[0].text, /@crystal-care/);
+  assert.equal(writes.at(-1).kind, "Refused");
+  assert.match(writes.at(-1).summary, /names two workspaces/);
+  assert.doesNotMatch(two.content[0].text, /^Saved|^Done/);
+  // Two sessions seen in one turn: the etag half checks nothing rather than refuse what the gateway would take.
+  // Two names are still refused: the gateway refuses those whichever session the call ran in.
   noteOwnWorkspace(gate, "@context-lc");
   assert.equal((await toolAnswer("write_note", { path: "index.md", content: "x", expected_etag: placed }, gate)).isError, undefined);
+  const twoAgain = await toolAnswer("write_note", { path: "@band/notes/a.md", context: "@seyi", content: "x" }, gate);
+  assert.equal(twoAgain.isError, true);
+  assert.match(twoAgain.content[0].text, /names two workspaces/);
 });
