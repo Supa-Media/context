@@ -4,7 +4,7 @@
  * the wording fingerprint and word diff the artifact used. Ported verbatim.
  */
 import { CV_MAIN } from "../data/convo";
-import { BASE_MODULES, MOD_ABOUT, MOD_SRC, SRC_KINDS, STABLE } from "../data/modules";
+import { BASE_MODULES, MOD_ABOUT, MOD_SRC, SRC_KINDS, spanModule, STABLE } from "../data/modules";
 import { MODTEXT } from "../labData.generated";
 import type { ConvoSettings, LabGraph, LabModule, LabNode } from "../types";
 import { edit, G, MAIN } from "./state";
@@ -19,6 +19,11 @@ export function modsRaw(g: LabGraph = G()): Record<string, LabModule> {
   const about = MOD_ABOUT as Record<string, string>;
   for (const k in base)
     o[k] = { ...base[k], ...(MODTEXT[k] ? { tok: Math.ceil(MODTEXT[k].length / 4) } : {}), stable: STABLE.has(k), about: about[k] || "", text: MODTEXT[k] || "", kind: src[k]?.[0] || "code", path: src[k]?.[1] || "", ...(x[k] || {}) } as LabModule;
+  // A history span the version's steps read that main's don't (`chat:<days|all>:<chars>`, `summaries:...`): named from its key.
+  for (const n of g.nodes || []) for (const k of n.ctx || []) {
+    const span = o[k] ? null : spanModule(k);
+    if (span) o[k] = { ...span.mod, stable: false, about: span.about, text: "", kind: span.src[0], path: span.src[1], ...(x[k] || {}) } as LabModule;
+  }
   for (const k in x) if (!o[k]) o[k] = { tok: 500, stable: false, about: "", text: "", kind: "store", path: "", name: "", ...x[k], custom: true } as LabModule;
   return o;
 }

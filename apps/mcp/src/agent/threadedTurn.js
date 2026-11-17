@@ -17,7 +17,7 @@ import { summaryLines } from "./ledgerHistory.js";
 import { renderEvents, speaker, words } from "./logRender.js";
 import { dayAgo, timeNote } from "./chatTime.js";
 import { callbacksPrompt, pickCallbacks } from "./callbacks.js";
-import { weekTurn } from "./weekHistory.js";
+import { DEFAULT_READS, spanName, weekTurn } from "./weekHistory.js";
 
 /** What the threaded history opens with. */
 export const THREADED_PREFACE = "(The chat's last 24 hours of texts, oldest first, as they happened. \"You\" is you. The newest messages, the ones you are answering, come next, with the chat's conversations and how long ago each day here was.)";
@@ -36,10 +36,10 @@ export const DAY_TIME = (timeZone) => new Intl.DateTimeFormat("en-US", { timeZon
 /** One event as one line, for the classifier and the suggested thread. */
 export const lineOf = (event, format) => `[${format.format(new Date(event.at)).replace(/ /g, " ")}] ${speaker(event.from)}: ${words(event)}`;
 
-export async function threadedTurn({ logged, ledger, chat, group = false, config, metadata, request, now = Date.now(), week = null, log = (line) => console.log(line) }) {
+export async function threadedTurn({ logged, ledger, chat, group = false, config, metadata, request, now = Date.now(), week = null, threading = true, log = (line) => console.log(line) }) {
   const parts = logged?.parts;
   if (!parts || ledger === null || typeof chat !== "string") return null;
-  const read = await readThreads(ledger, chat);
+  const read = threading ? await readThreads(ledger, chat) : { ...foldThreads([]), entries: [] }; // conversation threads off: no list to read
   const format = DAY_TIME(parts.timeZone);
   // The new text is sorted after the answer has gone, never before it (Dev2, 2026-11-12: "Classifier off the reply
   // path ... Never wait for it"): the turn sees the threads as they stood after the text before, and `sort` keeps
@@ -107,11 +107,11 @@ async function weekThreaded({ logged, parts, ledger, chat, threads, format, week
   const covered = new Set((logged.covered ?? []).map((event) => event.id));
   const stretch = (event) => Number.isSafeInteger(parts.since) && event.at >= parts.since; // the stretch is carried as messages (`stretch.js`)
   const built = await weekTurn({
-    ledger, chat, now: parts.answering, timeZone: parts.timeZone, extra: parts.shown, grant: week.grant ?? null, readPicture: week.readPicture ?? null, log,
+    ledger, chat, now: parts.answering, timeZone: parts.timeZone, reads: week.reads ?? DEFAULT_READS, extra: parts.shown, grant: week.grant ?? null, readPicture: week.readPicture ?? null, log,
     skip: (event) => covered.has(event.id) || stretch(event),
     tags: (events) => threadOfEvents(threads, events),
   });
-  const listed = threadsPrompt({ threads, when: (at) => format.format(new Date(at)).replace(/ /g, " "), window: "the last 7 days" });
+  const listed = threadsPrompt({ threads, when: (at) => format.format(new Date(at)).replace(/ /g, " "), window: spanName((week.reads ?? DEFAULT_READS).chat?.days ?? 0) });
   const note = [listed, dayAges(built?.shown ?? [], parts.answering, parts.timeZone)].filter((part) => part !== "").join("\n\n");
   const tagsOf = threadOfEvents(threads, parts.shown);
   const render = (id) => parts.shown.filter((event) => tagsOf.get(event.id) === id).map((event) => lineOf(event, format)).join("\n");

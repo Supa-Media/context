@@ -20,6 +20,10 @@ import { after, before, test } from "node:test";
 import { createEgressWorld, request, TEXTED_CHAT, TOKEN_TEXTS } from "./agentEgressFixtures.mjs";
 import { BUILTIN_ALLOWED } from "./agentModelFixture.mjs";
 import { LOG_PREFACE, loggedTurn, OLD_CAP_UNTIL } from "../src/agent/loggedTurn.js";
+import { WEEK_PREFACE } from "../src/agent/weekHistory.js";
+
+/** A turn shown the chat from its ledger: the week's history (`weekHistory.js`), or the log's view before it. */
+const fromLedger = (all) => all.includes(WEEK_PREFACE.slice(0, 40)) || all.includes(LOG_PREFACE);
 import { checkEvent } from "../src/agent/log.js";
 
 const TOKEN_GROUP = `cat_fulltext_group_ada_${"0".repeat(16)}`;
@@ -61,13 +65,13 @@ async function texted(token, question, { logged = question, left = undefined, gr
 test("1:1: a 6,000-character pasted brief reaches the model's question with its last line", async () => {
   assert.ok(BRIEF.length > 5_500 && BRIEF.length < 6_500);
   const { all, asked } = await texted(TOKEN_TEXTS, BRIEF);
-  assert.ok(all.includes(LOG_PREFACE), "a logged turn");
+  assert.ok(fromLedger(all), "a logged turn");
   assert.ok(asked.trimEnd().endsWith(LAST), "the brief's last line is the end of the question");
 });
 
 test("a group: a 6,000-character pasted brief reaches the model's question with its last line", async () => {
   const { all, asked } = await texted(TOKEN_GROUP, BRIEF, { group: KEY });
-  assert.ok(all.includes(LOG_PREFACE), "a logged turn");
+  assert.ok(fromLedger(all), "a logged turn");
   assert.match(asked, /Ada: Instructions for the screens/, "the log's question, its speaker named");
   assert.ok(asked.trimEnd().endsWith(LAST), "the brief's last line is the end of the question");
 });
@@ -77,7 +81,7 @@ test("a text the log kept cut reaches the model whole, as the Worker sent it", a
   // One a Worker logged at its old 3,000, and one a Worker cut, with its mark and its `left`.
   for (const cut of [{ logged: BRIEF.slice(0, 3_000) }, { logged: `${BRIEF.slice(0, 3_000)}\n[cut: ${BRIEF.length - 3_000} more characters]`, left: BRIEF.length - 3_000 }]) {
     const { all, asked } = await texted(TOKEN_TEXTS, BRIEF, cut);
-    assert.ok(all.includes(LOG_PREFACE), "a logged turn");
+    assert.ok(fromLedger(all), "a logged turn");
     assert.ok(asked.trimEnd().endsWith(LAST), "the brief's last line is the end of the question");
     assert.ok(!asked.includes("[cut:"), "no mark once whole");
   }

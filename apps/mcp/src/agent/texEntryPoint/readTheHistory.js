@@ -20,7 +20,7 @@ import { threadsOn } from "../conversationThreads.js";
 import { ledgerPlace } from "../ledger.js";
 import { threadedTurn } from "../threadedTurn.js";
 import { carryKey } from "../stretch.js";
-import { imageOf, weekOn, weekTurn } from "../weekHistory.js";
+import { historyReadsOf, imageOf, weekTurn } from "../weekHistory.js";
 import { DEFAULT_TIME_ZONE, readTimeZone } from "../localNow.js";
 import { routineTimeZone } from "../routine.js";
 import { pagesOpenedBefore } from "../turnWeb.js";
@@ -38,13 +38,16 @@ export async function readTheHistory(t) {
   const [{ conversation, history, view: momentRead = null, tools: keptReads = null }, logged] = await tex.wait("history", historyRead); const attachments = [...fresh, ...(runner ? [] : await tex.step("kept_files_again", () => carryKeptFiles(store, history, fresh), []))]; stages?.mark("history");
   // The new text sorted into the chat's conversations, started now and waited for just before the model (`threadedTurn.js`).
   const place = ledgerPlace(session);
-  // The week's history (`weekHistory.js`): when the front door reads the `week` module, every chat, one-to-one or group, is shown its last 7 days word for word after each earlier day's summary, with its pictures.
-  const week = chatTurn && job === null && place !== null && typeof store?.texLedger === "function" && weekOn(env) ? { grant: carryKey(session), readPicture: pictureReader(group, dispatch) } : null;
-  const threadsRun = chatTurn && job === null && !runner && logged !== null && place !== null && threadsOn(env) && typeof store?.texLedger === "function"
-    ? tex.ahead("threads", () => threadedTurn({ logged, ledger: store.texLedger(place.owner.chat ?? null), chat: place.chat, group: group !== null, config: aiGatewayConfig(env), metadata: { feature: "assistant", workspace: String(session.workspaceId), client: "threads" }, week }), null).catch(() => null)
+  // The chat's history (`weekHistory.js`): when the front door reads the `chat:` and `summaries:` modules, every chat, one-to-one or group, is shown its chat word for word over the days the config names after each earlier day's summary, with its pictures.
+  const reads = chatTurn && job === null && place !== null && typeof store?.texLedger === "function" ? historyReadsOf(env) : null;
+  const week = reads !== null ? { reads, grant: carryKey(session), readPicture: pictureReader(group, dispatch) } : null;
+  // The threaded turn carries the history modules even with conversation threads off (then it sorts nothing).
+  const threading = threadsOn(env);
+  const threadsRun = chatTurn && job === null && !runner && logged !== null && place !== null && (threading || week !== null) && typeof store?.texLedger === "function"
+    ? tex.ahead("threads", () => threadedTurn({ logged, ledger: store.texLedger(place.owner.chat ?? null), chat: place.chat, group: group !== null, config: aiGatewayConfig(env), metadata: { feature: "assistant", workspace: String(session.workspaceId), client: "threads" }, week, threading }).then((built) => (built !== null && !threading ? { ...built, sort: null } : built)), null).catch(() => null)
     : null;
   // A turn that answers no named text (a routine, a check-in, a job's report) reads the same week.
-  const weekMoment = week !== null && momentRead !== null && logged === null ? await tex.step("week_history", () => weekTurn({ ledger: store.texLedger(place.owner.chat ?? null), chat: place.chat, now: received, timeZone: runner ? routineTimeZone(routine?.settings, body.routine?.timeZone) : readTimeZone(body.timeZone) ?? DEFAULT_TIME_ZONE, grant: week.grant, readPicture: week.readPicture }), null).catch(() => null) : null;
+  const weekMoment = week !== null && momentRead !== null && logged === null ? await tex.step("week_history", () => weekTurn({ ledger: store.texLedger(place.owner.chat ?? null), chat: place.chat, now: received, timeZone: runner ? routineTimeZone(routine?.settings, body.routine?.timeZone) : readTimeZone(body.timeZone) ?? DEFAULT_TIME_ZONE, reads: week.reads, grant: week.grant, readPicture: week.readPicture }), null).catch(() => null) : null;
   const view = weekMoment?.history ? { history: [weekMoment.history], shown: weekMoment.shown } : momentRead;
   // A carried result read from outside marks this turn as if it had read it itself (the owner, 2026-11-10; `stretch.js`).
   const carry = carryCounts(logged?.carried ?? []); if (logged !== null) { const line = { carried: carry.carried, stubOther: carry.stubOther, stubGrant: carry.stubGrant, stubWorkspace: carry.stubWorkspace, carriedOutside: carry.outside ? "yes" : "no", stretch: carry.stretch }; console.log(JSON.stringify({ event: "tex_carry", ...line })); if (stages) stages.carry = line; }

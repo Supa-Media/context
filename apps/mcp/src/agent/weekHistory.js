@@ -5,14 +5,18 @@
  * ... always added to the conversation history ... if it's within that 7 day range";
  * `docs/decisions/texting-assistant/week-history.md`).
  *
- * A chat turn whose front door reads the context module `week` (`readsWeek`, a Lab draft's choice over `hist`) is
- * shown, from the chat's ledger, in one history message:
+ * Two context modules in the front door's `ctx` turn it on, each set in the config alone (Dev2, 2026-11-17: "maybe we
+ * show 7d of chat history, maybe 1 month, maybe all, these should all be config changes, as well as setting the
+ * character cutoff ... and then a separate context module for chat summaries"; "make it number of days or all"):
  *
- *   1. every day before the last seven that has a day summary (`daySummaries.js`), oldest first, each summary ending
- *      with the same fixed line naming `read_day` and that day's id (`dayLine`);
- *   2. the last seven days word for word: from midnight six days before the newest text it answers, in the chat's
- *      time zone, so the window moves once a day and the transcript stays the same from text to text within a day;
- *   3. each picture sent in those seven days, inline where it was sent, by the id it is kept under (`picturesOf`).
+ *   `chat:<days|all>:<chars>`       the chat word for word over that many days (from midnight `days - 1` days back in
+ *                                   the chat's zone, so the window moves once a day), newest kept within `chars`;
+ *   `summaries:<days|all>:<chars>`  each day before that window that has a day summary (`daySummaries.js`), within the
+ *                                   last `days` days, newest kept within `chars`, each ending with the same fixed line
+ *                                   naming `read_day` and that day's id (`dayLine`).
+ *
+ * Both are shown, from the chat's ledger, in one history message, the summaries first; each picture sent within the
+ * chat's window is inline where it was sent, by the id it is kept under (`picturesOf`).
  *
  * A one-to-one chat and a group get exactly this; nothing here asks which one it is.
  */
@@ -24,15 +28,12 @@ import { renderEvents } from "./logRender.js";
 import { DESK_LEDGER } from "../texStore/desk.js";
 import { texConfigOf, texStep } from "./texConfig.js";
 
-/** The context module that turns this on, in the front door's `ctx` (`texConfig.json`). */
-export const WEEK_MODULE = "week";
-/** How many days are shown word for word, today included. */
-export const WEEK_DAYS = 7;
-/** The most of the seven days' words one turn is shown, newest kept: far past a busy week, short of the model's room. */
-export const WEEK_CHARS = 300_000;
-/** The most day summaries shown before the seven days, newest kept, and the characters they may take. */
-export const MAX_DAY_SUMMARIES = 60;
-export const DAY_SUMMARY_CHARS = 48_000;
+/** The two context modules, as their keys start in the front door's `ctx` (`texConfig.json`). */
+export const CHAT_MODULE = "chat";
+export const SUMMARIES_MODULE = "summaries";
+const MODULE_KEY = /^(chat|summaries):(\d{1,4}|all):(\d{1,7})$/;
+/** The most summaries one read keeps, whatever the span: a year and a half of days. */
+export const MAX_DAY_SUMMARIES = 500;
 /** The most pictures shown inline, newest kept, and their bytes together (the request's own ceiling is far above). */
 export const MAX_WEEK_PICTURES = 20;
 export const MAX_WEEK_PICTURE_BYTES = 12_000_000;
@@ -42,22 +43,41 @@ const MAX_PAGES = 15;
 /** `read_day`: the most of a day's words one call answers; a longer day is read in parts. */
 export const READ_DAY_CHARS = 60_000;
 
+/** The reads Dev2 named first (2026-11-17): the last 7 days within 40k characters, every summary within 40k. */
+export const DEFAULT_READS = Object.freeze({ chat: Object.freeze({ days: 7, chars: 40_000 }), summaries: Object.freeze({ days: null, chars: 40_000 }) });
+
 /** The tool every older day names. */
 export const READ_DAY = "read_day";
 
-/** Whether the config's front door reads the week module. */
-export function readsWeek(step) {
-  return Array.isArray(step?.ctx) && step.ctx.includes(WEEK_MODULE);
+/** One module key read: `{ days: number | null (all), chars }`, or null when it is not one. */
+export function moduleSpan(key, kind) {
+  const match = MODULE_KEY.exec(String(key ?? ""));
+  if (match === null || match[1] !== kind) return null;
+  const days = match[2] === "all" ? null : Number(match[2]);
+  const chars = Number(match[3]);
+  if ((days !== null && days < 1) || chars < 1) return null;
+  return { days, chars };
 }
 
-/** Whether this turn's config (a Lab draft's, in a Lab test chat) has the front door read the week. */
-export function weekOn(env) {
+/** What a step's `ctx` reads of the chat: `{ chat, summaries }`, each a span or null, or null when it reads neither. */
+export function historyReads(step) {
+  const ctx = Array.isArray(step?.ctx) ? step.ctx : [];
+  const chat = ctx.map((key) => moduleSpan(key, CHAT_MODULE)).find(Boolean) ?? null;
+  const summaries = ctx.map((key) => moduleSpan(key, SUMMARIES_MODULE)).find(Boolean) ?? null;
+  return chat === null && summaries === null ? null : { chat, summaries };
+}
+
+/** What this turn's config (a Lab draft's, in a Lab test chat) has the front door read of the chat, or null. */
+export function historyReadsOf(env) {
   try {
-    return readsWeek(texStep("fd", texConfigOf(env)));
+    return historyReads(texStep("fd", texConfigOf(env)));
   } catch {
-    return false;
+    return null;
   }
 }
+
+/** Whether the front door reads the chat through these modules at all. */
+export const weekOn = (env) => historyReadsOf(env) !== null;
 
 const pad = (n) => String(n).padStart(2, "0");
 const DAY_ID = /^(\d{4})-(\d{2})-(\d{2})$/;
@@ -83,10 +103,18 @@ export function dayBefore(day, n = 1) {
   return `${at.getUTCFullYear()}-${pad(at.getUTCMonth() + 1)}-${pad(at.getUTCDate())}`;
 }
 
-/** Where the seven days start for a turn answering at `at`: midnight six days before that day, in `timeZone`. */
-export function weekStart(at, timeZone) {
-  return midnightOf(dayBefore(dayOf(at, timeZone), WEEK_DAYS - 1), timeZone);
+/**
+ * Where the chat word for word starts for a turn answering at `at`: midnight `days - 1` days before that day, in
+ * `timeZone`; 0 (the chat's start) for `null` (all); the next midnight for 0 days (no chat module: nothing word for word).
+ */
+export function weekStart(at, timeZone, days = 7) {
+  if (days === null) return 0;
+  if (days === 0) return midnightOf(dayBefore(dayOf(at, timeZone), -1), timeZone);
+  return midnightOf(dayBefore(dayOf(at, timeZone), days - 1), timeZone);
 }
+
+/** How the window is named to the model: "the last 7 days", "today", "the whole chat". */
+export const spanName = (days) => (days === null ? "the whole chat" : days === 0 ? "only the newest texts" : days === 1 ? "today" : `the last ${days} days`);
 
 /** The fixed line every older day's summary ends with: the exact call that opens that day whole. */
 export const dayLine = (day) => `To read that day's whole transcript, call ${READ_DAY} with {"day": "${day}"}.`;
@@ -97,10 +125,10 @@ function dayName(day) {
 }
 
 /** The older days' part of the history: each summary with its fixed line, oldest first, or "" when there are none. */
-export function summaryPart(summaries) {
+export function summaryPart(summaries, days = 7) {
   if (!Array.isArray(summaries) || summaries.length === 0) return "";
   return [
-    "Earlier days, before the last 7, each as summed up after it ended:",
+    days === 0 ? "Earlier days, each as summed up after it ended:" : `Earlier days, before ${spanName(days)}, each as summed up after it ended:`,
     ...summaries.map((summary) => `- ${dayName(summary.day)} (${summary.day}): ${summary.text.replace(/\s+/g, " ").trim()} ${dayLine(summary.day)}`),
   ].join("\n");
 }
@@ -122,18 +150,21 @@ export async function readSpan(ledger, chat, { since, until = null, kinds = DESK
   return { entries, whole };
 }
 
-/** The day summaries kept before `before`, one a day, newest kept within the caps, oldest first: `{day, text}`. */
-export async function readSummaries(ledger, chat, { before }) {
+/**
+ * The day summaries kept before `before` (and for a day from `fromDay` on, when named), one a day, newest kept within
+ * `chars`, oldest first: `{day, text}`.
+ */
+export async function readSummaries(ledger, chat, { before, fromDay = null, chars }) {
   const read = await ledger.read(chat, { before: Number.MAX_SAFE_INTEGER, kinds: ["day"], limit: 500, slim: true });
   const found = new Map();
   for (const entry of read?.entries ?? []) {
     if (entry?.kind !== "day" || typeof entry.day !== "string" || !DAY_ID.test(entry.day) || typeof entry.text !== "string" || entry.text.trim() === "") continue;
-    if (!(entry.at < before) || found.has(entry.day)) continue;
+    if (!(entry.at < before) || found.has(entry.day) || (fromDay !== null && entry.day < fromDay)) continue;
     found.set(entry.day, entry.text.trim());
   }
   const days = [...found.keys()].sort().reverse();
   const kept = [];
-  let room = DAY_SUMMARY_CHARS;
+  let room = chars;
   for (const day of days.slice(0, MAX_DAY_SUMMARIES)) {
     room -= found.get(day).length + 120;
     if (room < 0) break;
@@ -189,7 +220,7 @@ export const pictureMarker = (id) => `[picture ${id}]`;
  * Worker's outbox, a one-to-one chat's check-ins kept in the person's record), added when their ids are new; `skip`
  * the ids the turn is answering now and the stretch it carries as messages.
  */
-export function weekView({ entries, chat, start, summaries = [], extra = [], skip = () => false, timeZone = "UTC", tags = null, grant = null, preface = "" }) {
+export function weekView({ entries, chat, start, summaries = [], extra = [], skip = () => false, timeZone = "UTC", tags = null, grant = null, preface = "", chars: cap = 40_000, days = 7 }) {
   const read = earlierFromLedger(entries, chat, { before: Number.MAX_SAFE_INTEGER, chars: Number.MAX_SAFE_INTEGER, fade: false, grant });
   const byId = new Map();
   for (const event of read.events) if (event.at >= start) byId.set(event.id, event);
@@ -200,7 +231,7 @@ export function weekView({ entries, chat, start, summaries = [], extra = [], ski
   // Past the cap, the newest are kept, whole days first to go.
   let chars = events.reduce((sum, event) => sum + String(event.text ?? "").length + 40, 0);
   let cut = 0;
-  while (chars > WEEK_CHARS && events.length > 1) {
+  while (chars > cap && events.length > 0) {
     chars -= String(events[0].text ?? "").length + 40;
     events = events.slice(1);
     cut += 1;
@@ -217,7 +248,7 @@ export function weekView({ entries, chat, start, summaries = [], extra = [], ski
   });
   const tagged = typeof tags === "function" ? tags(marked) : tags; // each text's conversation (`conversationThreads.js`)
   const transcript = renderEvents(marked, { timeZone, answeredBy: [...read.events, ...extra], tools: read.tools, facts: read.facts, tags: tagged, lulls: true });
-  const told = [summaryPart(summaries), cut > 0 ? `(The ${cut} oldest texts of the last 7 days are left out here for room; read_day opens any day whole.)` : "", transcript].filter((part) => part !== "").join("\n\n");
+  const told = [summaryPart(summaries, days), cut > 0 ? `(The ${cut} oldest texts of ${spanName(days)} are left out here for room; read_day opens any day whole.)` : "", transcript].filter((part) => part !== "").join("\n\n");
   return { text: preface ? `${preface}\n\n${told}` : told, pictures, shown: marked, summaries, chars, cut };
 }
 
@@ -251,7 +282,7 @@ export function readDayTool({ ledger, chat, timeZone = "UTC", grant = null, log 
     tool: {
       name: READ_DAY,
       description:
-        "Read one earlier day of this chat word for word: every text, oldest first, as the history shows the last 7 days. " +
+        "Read one earlier day of this chat word for word: every text, oldest first, as the history shows the newest days. " +
         'Each earlier day in the history ends with the exact call, like {"day": "2026-11-08"}. A long day comes in parts: pass part 2, 3 and on when the answer says there is more.',
       inputSchema: {
         type: "object",
@@ -288,23 +319,36 @@ export function readDayTool({ ledger, chat, timeZone = "UTC", grant = null, log 
   };
 }
 
-/** What the week's history opens with. */
-export const WEEK_PREFACE = "(The chat's last 7 days of texts, oldest first, as they happened, after a summary of each earlier day. \"You\" is you. A picture sent in these 7 days is shown where it was sent, by its id. The newest messages, the ones you are answering, come next.)";
+/** What the history opens with, for the span its chat module reads (null: all) and whether summaries come first. */
+export function weekPreface(days, summed) {
+  if (days === 0) return `(The chat's earlier days, each summed up. "You" is you. The newest messages, the ones you are answering, come next.)`;
+  const these = days === null ? "the chat's texts since it began" : days === 1 ? "today's texts" : `the chat's last ${days} days of texts`;
+  const within = days === null ? "the chat" : days === 1 ? "today" : `these ${days} days`;
+  const before = summed ? ", after a summary of each earlier day" : "";
+  return `(${these[0].toUpperCase()}${these.slice(1)}, oldest first, as they happened${before}. "You" is you. A picture sent in ${within} is shown where it was sent, by its id. The newest messages, the ones you are answering, come next.)`;
+}
+/** The preface for the default reads (7 days, summaries before them). */
+export const WEEK_PREFACE = weekPreface(7, true);
 
 /**
  * The week's history for one turn, read from the chat's ledger (`ledger.read`): `{ history, read_day, shown, log }`,
  * `history` one user message with its pictures, or null when the ledger holds nothing to show. `now` is the newest
  * text it answers (or the moment it runs); `extra`, `skip` and `tags` as `weekView` takes them.
  */
-export async function weekTurn({ ledger, chat, now, timeZone = "UTC", extra = [], skip = () => false, tags = null, grant = null, readPicture = null, log = (line) => console.log(line) }) {
+export async function weekTurn({ ledger, chat, now, timeZone = "UTC", reads = DEFAULT_READS, extra = [], skip = () => false, tags = null, grant = null, readPicture = null, log = (line) => console.log(line) }) {
   if (ledger === null || typeof ledger?.read !== "function" || typeof chat !== "string") return null;
   const began = Date.now();
-  const start = weekStart(now, timeZone);
-  const [span, summaries] = await Promise.all([readSpan(ledger, chat, { since: start }), readSummaries(ledger, chat, { before: start }).catch(() => [])]);
-  const view = weekView({ entries: span.entries, chat, start, summaries, extra, skip, timeZone, tags, grant, preface: WEEK_PREFACE });
+  const days = reads.chat === null ? 0 : reads.chat.days;
+  const start = weekStart(now, timeZone, days);
+  const fromDay = reads.summaries?.days == null ? null : dayBefore(dayOf(now, timeZone), reads.summaries.days);
+  const [span, summaries] = await Promise.all([
+    reads.chat === null ? { entries: [], whole: true } : readSpan(ledger, chat, { since: start }),
+    reads.summaries === null ? [] : readSummaries(ledger, chat, { before: start, fromDay, chars: reads.summaries.chars }).catch(() => []),
+  ]);
+  const view = weekView({ entries: span.entries, chat, start, summaries, extra: reads.chat === null ? [] : extra, skip, timeZone, tags, grant, preface: weekPreface(days, summaries.length > 0), chars: reads.chat?.chars ?? 0, days });
   const read = Date.now();
   const pictures = await loadPictures(view.pictures, readPicture);
-  const line = { event: "tex_week_history", start, texts: view.shown.length, chars: view.chars, cut: view.cut, whole: span.whole, entries: span.entries.length, summaries: summaries.length, pictures: view.pictures.length, picturesShown: pictures.length, readMs: read - began, picturesMs: Date.now() - read };
+  const line = { event: "tex_week_history", start, days: days ?? "all", cap: reads.chat?.chars ?? 0, summaryDays: reads.summaries === null ? 0 : reads.summaries.days ?? "all", summaryCap: reads.summaries?.chars ?? 0, texts: view.shown.length, chars: view.chars, cut: view.cut, whole: span.whole, entries: span.entries.length, summaries: summaries.length, pictures: view.pictures.length, picturesShown: pictures.length, readMs: read - began, picturesMs: Date.now() - read };
   log(JSON.stringify(line));
   const read_day = readDayTool({ ledger, chat, timeZone, grant, log });
   if (view.shown.length === 0 && summaries.length === 0) return { history: null, read_day, shown: [], log: line };

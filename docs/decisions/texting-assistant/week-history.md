@@ -53,3 +53,20 @@ turn was offered (`callbacks.js`) are not offered with `week`: the summaries car
 Tests: `apps/mcp/test/weekHistory.test.mjs` (a one-to-one chat and a group get the same history from the same entries;
 the window; the fixed line; pictures after their marker; group summaries; read_day), `texDevDraftFit.test.mjs` (a
 draft runs Chat day summaries from the shelf).
+
+## Two modules, span and cap in the config (2026-11-17)
+
+Dev2, 2026-11-17: "split it up ... maybe we show 7d of chat history, maybe 1 month, maybe all, these should all be
+config changes, as well as setting the character cutoff ... and then a separate context module for chat summaries";
+"make it number of days or all". The single `week` module became two keys in the front door's `ctx`, each carrying
+its span and cap:
+
+- `chat:<days|all>:<chars>`: the chat word for word over that many days (from midnight, in the chat's zone), the
+  newest kept within `chars`, pictures inline by id;
+- `summaries:<days|all>:<chars>`: each earlier day's summary before that window, within the last `days` days, the
+  newest kept within `chars`, each ending with its `read_day` line.
+
+Main reads `summaries:all:40000` then `chat:7:40000`. Changing a span or cap is a Lab edit of the front door's
+reads, never code. Taking both out puts the front door back on its older view. The history modules run whether or
+not conversation threads are on. Test: `apps/mcp/test/weekHistory.test.mjs` ("the chat and its summaries are two
+modules…", "a summaries module of 3 days…") and the replay case `week-history-shown`.
