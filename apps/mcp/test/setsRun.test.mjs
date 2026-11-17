@@ -199,6 +199,24 @@ test("a batch that throws reports each of its units, not the run", async () => {
   assert.deepEqual(rows.map((r) => [r.node, r.ran, r.why]), [["fd", false, "could not run: gateway down"]]);
 });
 
+test("the in-process nodes run beside the batched ones, which get the parallel count, and rows keep their order", { timeout: 5000 }, async () => {
+  const c = conv("both", [
+    { id: "m1", who: "Ann", text: "hi", labels: { decide: { act: "respond", star: true }, fd: { must: ["x"], star: true } } },
+    { id: "m2", who: "Ann", text: "and you?", labels: { decide: { act: "wait", star: true }, fd: { must: ["y"], star: true } } },
+  ]);
+  let release;
+  const fdStarted = new Promise((r) => (release = r));
+  const seen = [];
+  const adapters = {
+    // Decide waits for the Front door's batch to have started: run one after the other, this never resolves.
+    decide: async () => async () => (await fdStarted, { right: true, ran: true, usd: 0 }),
+    fd: { batch: async (units, opts) => (seen.push(opts.parallel), release(), units.map((u) => ({ ...u.row, right: true, ran: true, usd: 0 }))) },
+  };
+  const rows = await runSets([c], { adapters, tree: "/x", parallel: 5 });
+  assert.deepEqual(seen, [5]);
+  assert.deepEqual(rows.map((r) => [r.node, r.msg]), [["decide", "m1"], ["decide", "m2"], ["fd", "m1"], ["fd", "m2"]]);
+});
+
 test("countsLine has counts by node, the cost, and never a message's words", () => {
   const rows = [
     { chat: "c", msg: "m1", node: "decide", right: true, ran: true, usd: 0.001, why: "secret words" },

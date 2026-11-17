@@ -220,12 +220,13 @@ jobs:
           if [ "$MODELS" = "cc" ]; then
             export BENCH_MODEL_SOCKET="$RUNNER_TEMP/sock"
             mkdir -p "$BENCH_MODEL_SOCKET"
-            node apps/mcp/bench/socketAnswerer.mjs --dir "$BENCH_MODEL_SOCKET" --stop "$RUNNER_TEMP/run-done" --parallel 4 > "$RUNNER_TEMP/answerer.log" 2>&1 &
+            node apps/mcp/bench/socketAnswerer.mjs --dir "$BENCH_MODEL_SOCKET" --stop "$RUNNER_TEMP/run-done" --parallel 8 > "$RUNNER_TEMP/answerer.log" 2>&1 &
             answerer=$!
             ( while kill -0 "$answerer" 2>/dev/null; do sleep 5; done; [ -f "$RUNNER_TEMP/run-done" ] || pkill -f "bench/run.mjs sets run" || true ) &
           fi
           started=$(date +%s%3N)
-          node apps/mcp/bench/run.mjs sets run --conversations "$RUNNER_TEMP/lab/convs.json" --out "$RUNNER_TEMP/lab/rows.json" ${NODE_ID:+--node "$NODE_ID"}
+          # Eight Front door tests at once inside this one job (`setsRun.mjs`): no more GitHub jobs, so CI keeps its runners.
+          node apps/mcp/bench/run.mjs sets run --conversations "$RUNNER_TEMP/lab/convs.json" --out "$RUNNER_TEMP/lab/rows.json" --parallel 8 ${NODE_ID:+--node "$NODE_ID"}
           code=$?
           echo "$(( $(date +%s%3N) - started ))" > "$RUNNER_TEMP/lab/ms"
           if [ -n "$answerer" ]; then
