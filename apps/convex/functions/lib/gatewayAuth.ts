@@ -116,6 +116,14 @@ const MAX_REQUEST_BYTES = 64_000;
 export const MAX_PRIVACY_REQUEST_BYTES = 1_100_000;
 
 /**
+ * The Lab's `tex_dev` calls (`/gateway/tex/dev`) carry a whole Tex graph: a draft made from main, or an edit that puts
+ * one. Main's graph passed 64 KB once escaped into the request on 2026-11-17 (#3498), and every draft made from main
+ * answered "could not be reached". A draft's row holds at most `MAX_JSON` (400 KB, `texLab.ts`); escaped, plus the
+ * token, that fits here.
+ */
+export const MAX_TEX_DEV_REQUEST_BYTES = 1_100_000;
+
+/**
  * How long a parked authorization request, and then the code it becomes,
  * stays alive.
  *
