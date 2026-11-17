@@ -139,12 +139,18 @@ export function isUnanswered(answer) {
  * checks in the order the judge must return verdicts. The payload is the only
  * thing the judge is shown.
  */
+/** How many of the chat's lines before the text the judge is shown. */
+const JUDGE_EARLIER = 12;
+
 export function buildJudgeRequest({ model, question, answers, every = [] }) {
   const checks = checksOf(question, every);
   const payload = {
     question: question.text,
     asked_by: answers[0]?.as ?? null,
     gate: isGateQuestion(question),
+    // A Lab replay's or a Dev test's chat before the text (`- earlier ...` lines): the newest of it, so a check that
+    // names "them" or "the plan" is graded against the chat it was written for.
+    ...((question.earlier ?? []).length > 0 ? { chat_before: question.earlier.slice(-JUDGE_EARLIER).map((line) => `${line.from === "tex" ? "Tex" : line.who ? `@${line.who}` : "Person"}: ${line.text}`) } : {}),
     checks,
     may: question.may,
     answers: answers.map((answer) => ({
@@ -152,6 +158,8 @@ export function buildJudgeRequest({ model, question, answers, every = [] }) {
       conversation: answer.conversation,
       tools: answer.toolsLine,
       changes: answer.changes,
+      // The background jobs it started, by title, so "start a job" is graded on what started.
+      ...(answer.jobs?.length ? { jobs_started: answer.jobs.map((job) => String(job.title ?? "")) } : {}),
     })),
   };
   const content = ["Grade every answer against the checks.", "", "<answers>", JSON.stringify(payload, null, 2), "</answers>"].join("\n");

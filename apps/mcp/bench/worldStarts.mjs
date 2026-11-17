@@ -37,23 +37,39 @@ export async function startCall({ worker, env, token, body, controlPlane }) {
   return { status: response.status, body: answer, ms: realNow() - started, usage: controlPlane.builtinReports.at(-1) ?? {} };
 }
 
-/** One check-in looking back an hour: what it would text, or its quiet outcome. */
-export async function checkInTurn(call) {
-  return startedTurn(await call({ heartbeat: { timeZone: "UTC", since: Date.now() - 60 * 60_000 } }), (body) => (body?.outcome === "speak" ? body.answer : ""));
+/** One check-in looking back an hour: what it would text, or its quiet outcome. `calls` are the world's model calls. */
+export async function checkInTurn(call, calls = () => []) {
+  const before = calls().length;
+  return startedTurn(await call({ heartbeat: { timeZone: "UTC", since: Date.now() - 60 * 60_000 } }), (body) => (body?.outcome === "speak" ? body.answer : ""), calls().slice(before));
+}
+
+/**
+ * What a quiet look's model said last, short, so a quiet row says why it was quiet (Dev set, 2026-11-17: three check-in
+ * rows came back "(stayed quiet: quiet)" with nothing to tell a model's choice from a step that stopped it): its last
+ * call's words and the tools it called, each with its first arguments. "" when there was no call.
+ */
+export function lastWords(calls, max = 160) {
+  const last = calls.at(-1);
+  const content = Array.isArray(last?.answer?.content) ? last.answer.content : [];
+  const parts = content.map((part) => (part?.type === "text" ? String(part.text ?? "") : part?.type === "tool_use" ? `${part.name}(${JSON.stringify(part.input ?? {})})` : "")).filter((x) => x.trim() !== "");
+  const words = parts.join(" ").replace(/\s+/g, " ").trim();
+  return words.length > max ? `${words.slice(0, max - 1)}…` : words;
 }
 
 /** One run of the routine at `path`, as the routine runner asks: what it would text, or its quiet outcome. */
-export async function routineTurn(path, call) {
-  return startedTurn(await call({ routine: { path, timeZone: "UTC" } }), (body) => (body?.skipped ? "" : body?.answer));
+export async function routineTurn(path, call, calls = () => []) {
+  const before = calls().length;
+  return startedTurn(await call({ routine: { path, timeZone: "UTC" } }), (body) => (body?.skipped ? "" : body?.answer), calls().slice(before));
 }
 
 /** An answer shaped as a turn is: `said` picks what it would text; a quiet one names its outcome. */
-export function startedTurn(got, said) {
+export function startedTurn(got, said, calls = []) {
   const ok = got.status === 200 && got.body !== null;
   const text = ok ? String(said(got.body) ?? "") : "";
+  const why = text === "" ? lastWords(calls) : "";
   return {
     ok,
-    answer: text === "" ? `(stayed quiet: ${String(got.body?.outcome ?? got.body?.reason ?? "nothing texted")})` : text,
+    answer: text === "" ? `(stayed quiet: ${String(got.body?.outcome ?? got.body?.reason ?? "nothing texted")}${why ? `: ${why}` : ""})` : text,
     error: ok ? null : String(got.body?.error ?? `status ${got.status}`),
     ms: got.ms,
     model: got.usage.model ?? null,

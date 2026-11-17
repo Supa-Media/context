@@ -30,6 +30,7 @@ export const TOKEN_TEXTS = `cat_egress_texts_${"0".repeat(22)}`;
 export const TOKEN_CONSOLE = `cat_egress_console_${"0".repeat(20)}`;
 export const TOKEN_STRANGER_CONSOLE = `cat_egress_otherapp_${"0".repeat(19)}`;
 export const TOKEN_ROUTINE = `cat_egress_routine_${"0".repeat(21)}`;
+export const TOKEN_CHECKIN = `cat_egress_checkin_${"0".repeat(21)}`;
 export const TOKEN_MCP_TWO = `cat_egress_mcp_two_${"0".repeat(20)}`;
 export const TOKEN_MEMBER_MCP = `cat_egress_member_mcp_${"0".repeat(18)}`;
 export const TOKEN_MEMBER_CONSOLE = `cat_egress_member_console_${"0".repeat(14)}`;
@@ -228,6 +229,7 @@ export async function createEgressWorld() {
     await grant(TOKEN_TEXTS, "context_texts", "Context (texts)");
     await grant(TOKEN_CONSOLE, "context_console", "Context (this app)");
     await grant(TOKEN_ROUTINE, "context_routines", "Context (routines)");
+    await grant(TOKEN_CHECKIN, "context_heartbeat", "Context (check-ins)");
     // Another person's console, on the same workspace (an editor): never theirs to answer.
     await controlPlane.addGrant({
       accessToken: TOKEN_STRANGER_CONSOLE,

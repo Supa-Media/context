@@ -139,6 +139,9 @@ export function checkinMail(text) {
   return { from, subject, body: said };
 }
 
+/** Whether a conversation's setting says Tex has the calendar ("Tex has Gmail, Calendar, ...", "the shared calendar"). */
+export const hasCalendar = (c) => /\bcalendar\b/i.test(String(c?.setting ?? ""));
+
 /** Who sends message `i`: its speaker, the one person of a one-to-one chat. */
 const senderOf = (c, i) => (c.kind === "group" ? c.msgs[i].who : c.members[0]);
 
@@ -167,7 +170,7 @@ export function fdTest(units, front) {
  * day, judge and voice lines; failing that, the core set's own with `run_as:` them. One run each, on the scripted web,
  * on `today` and in the `group` when given. Null when nobody in `people.md` is called that.
  */
-export async function frontFor(dir, person, { today = null, group = null } = {}) {
+export async function frontFor(dir, person, { today = null, group = null, calendar = false } = {}) {
   const people = parsePeople(await readFile(join(dir, "workspaces", "people.md"), "utf8"));
   if (!people.some((row) => row.person === person && row.personal)) return null;
   const names = (await readdir(join(dir, "tests"))).filter((n) => n.endsWith(".md")).sort((a, b) => (a === "core.md" ? -1 : b === "core.md" ? 1 : a.localeCompare(b)));
@@ -188,6 +191,10 @@ export async function frontFor(dir, person, { today = null, group = null } = {})
   let f = found.replace(/^runs: .*$/m, "runs: 1").replace(/^web: .*$/m, "web: scripted").replace(/^group: .*\n?/m, "");
   if (!/^runs: /m.test(f)) f += "\nruns: 1";
   if (!/^web: /m.test(f)) f += "\nweb: scripted";
+  // Production offers every text background jobs (the texting Worker always sends what the chat has running), so a
+  // Dev test does too: without it a test that wants a job started could never pass (Dev set, 2026-11-17).
+  if (!/^background: on$/m.test(f)) f = f.replace(/^background: .*\n?/m, "") + "\nbackground: on";
+  if (calendar && !/^calendar: /m.test(f)) f += "\ncalendar: connected";
   if (today) f = f.replace(/^today: .*$/m, `today: ${today}`);
   if (group) f = f.replace(/^(run_as: .*)$/m, `$1\ngroup: ${group}`);
   return f;
@@ -229,13 +236,15 @@ export async function runFd(units, { tree, fake = false, runTests = null }) {
         continue;
       }
       const today = dayOf(u.convo, u.at, year);
-      const key = JSON.stringify([person, today, group]);
-      if (!batches.has(key)) batches.set(key, { person, today, group, units: [] });
+      // A conversation whose setting gives Tex the calendar runs with one connected (`calendar.mjs` benchCalendar).
+      const calendar = hasCalendar(u.convo);
+      const key = JSON.stringify([person, today, group, calendar]);
+      if (!batches.has(key)) batches.set(key, { person, today, group, calendar, units: [] });
       batches.get(key).units.push(u);
     }
     const tests = [];
-    for (const { person, today, group, units } of batches.values()) {
-      const front = await frontFor(dir, person, { today, group });
+    for (const { person, today, group, calendar, units } of batches.values()) {
+      const front = await frontFor(dir, person, { today, group, calendar });
       if (front === null) {
         rows.push(...units.map((u) => ({ ...u.row, right: false, ran: false, usd: 0, why: `${person} has no bench world: a Dev chat's people are the bench's (apps/mcp/bench/ai/workspaces/people.md)` })));
         continue;

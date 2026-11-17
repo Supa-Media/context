@@ -27,7 +27,7 @@ test("the generated module is the conversations' (scripts/tex-training-module.mj
 });
 
 /** A label the judge's form can show: a real act and a reason from its list (textDecide.cjs `judgeForm`). */
-const judgeForm = (moment) => ["quiet", "respond", "wait"].includes(moment.label.act) && Object.hasOwn(WHY, moment.label.why);
+const judgeForm = (moment) => ["quiet", "respond", "wait"].includes(moment.label.act);
 
 test("Decide reads its examples from Training, each in the judge's own form", () => {
   assert.ok(TEX_CONFIG.nodes.find((n) => n.id === "decide").ctx.includes("train:decide"));
@@ -38,7 +38,9 @@ test("Decide reads its examples from Training, each in the judge's own form", ()
   assert.equal(blocks.length, TRAINING.nodes.decide.length, "every Decide label is one example");
   for (const [i, moment] of TRAINING.nodes.decide.entries()) {
     assert.ok(blocks[i].includes(`<newest>${moment.newest}</newest>`), `example ${i + 1} is ${moment.chat}'s message`);
-    if (judgeForm(moment)) assert.match(blocks[i], /<verdict>(quiet|respond|wait|react)<\/verdict>(\n<react>[^<]+<\/react>)?\n<why>[a-z_]+<\/why>\n<\/example>$/);
+    // Each answer under its question's name (act, also_react, emoji, why), never a "react" act the judge isn't offered.
+    if (judgeForm(moment)) assert.match(blocks[i], /<act>(quiet|respond|wait)<\/act>(\n<also_react>(yes|no)<\/also_react>)?(\n<emoji>[^<]+<\/emoji>)?(\n<why>[a-z_]+<\/why>)?\n<\/example>$/);
+    if (moment.label.also_react === "yes") assert.match(blocks[i], /<also_react>yes<\/also_react>/, `example ${i + 1} shows its reaction`);
   }
 });
 
@@ -56,7 +58,7 @@ test("an example from a long conversation shows its newest stretch and counts wh
     ],
   };
   const nodes = momentsOf([long]);
-  assert.deepEqual(nodes.decide[0].before, [`(${30 - historyLines("decide")} earlier messages)`, "@rosa: line 29", "@kim: line 30"]);
+  assert.deepEqual(nodes.decide[0].before, [`(${30 - historyLines("decide")} earlier messages)`, ...Array.from({ length: historyLines("decide") }, (_, k) => { const n = 31 - historyLines("decide") + k; return `${n % 2 ? "@rosa" : "@kim"}: line ${n}`; })]);
   assert.equal(nodes.fd[0].before.length, historyLines("fd") + 1);
   assert.equal(nodes.fd[0].before[0], `(${30 - historyLines("fd")} earlier messages)`);
   assert.equal(linesBefore(long, 30).length, 30, "a node run alone reads the whole chat");
@@ -199,4 +201,25 @@ test("train:<node>:all:<chars> is its own module: a step given it reads whole co
   const whole = fd.ctx.find((c) => /^train:fd:all:\d+$/.test(c));
   assert.ok(whole, "the front door reads its Training as whole conversations (Dev2, 2026-11-17)");
   if (TRAINING.chats?.fd?.length) assert.ok(texModules().texts.includes(trainName(whole)), "and its prompt carries them");
+});
+
+// Dev set, 2026-11-17: every check-in row stayed quiet, and the check-in's model was shown none of the Training
+// check-ins, because it answers in its own call (`heartbeat.js`), not through the Front door's prompt. The Front
+// door's labels on a turn a check-in started are the check-in's examples; its own code-output label is not.
+// Sabotage: dropping VIA_READERS, or leaving `examples` out of the look's question, fails this.
+test("the check-in reads the Front door's labels on the turns a check-in started, after its own words", async () => {
+  const withOwn = WHOLE("walker", 0);
+  withOwn.msgs[3] = { ...withOwn.msgs[3], labels: { ...withOwn.msgs[3].labels, checkin: { to: "look" } } };
+  const nodes = momentsOf([withOwn]);
+  assert.equal(nodes.checkin.length, 1);
+  assert.deepEqual(nodes.checkin[0].label, { never: ["just say confirmed"] });
+  assert.equal(nodes.fd.length, 2, "the Front door keeps every label of its own");
+  const text = trainingText({ ctx: ["train:checkin"] }, { nodes });
+  assert.match(text, /<newest>\(Check-in, nobody texted: Gmail: Dana confirmed Monday noon\.\)<\/newest>\n<never>just say confirmed<\/never>/);
+  assert.doesNotMatch(text, /<to>look<\/to>/);
+  const { heartbeatQuestion } = await import("../src/agent/heartbeat.js");
+  const asked = heartbeatQuestion({ changed: [], now: Date.now(), texted: [], instructions: "OWN WORDS", examples: text });
+  assert.ok(asked.startsWith(`OWN WORDS\n\n${text}\n\n## This look`));
+  const { trainingFor } = await import("../src/agent/texArchitecture.js");
+  assert.match(trainingFor("checkIn"), /Check-in, nobody texted/, "main's config gives the check-in its Training check-ins");
 });

@@ -159,7 +159,7 @@ every wire, from the same config.
 <!-- tex-config: steps begin -->
 | Step | Id | Group | | Model | Effort | Time limit | Reads, in order | Where |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| Check-in | checkin |  | on | code |  |  |  | graph/nodes/checkin.js · heartbeat.js |
+| Check-in | checkin |  | on | code |  |  | train:checkin | graph/nodes/checkin.js · heartbeat.js |
 | Routine runs | routine |  | on | code |  |  |  | graph/nodes/routine.js · routine.js · runARoutine.js · finishARoutine.js |
 | Send through Tex | notify |  | on | code |  |  |  | graph/nodes/notify.js · tools/attention.js · attention.js |
 | A text arrives | text | intake | on | code |  |  |  | apps/agent |

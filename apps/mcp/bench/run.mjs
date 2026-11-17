@@ -378,6 +378,8 @@ async function answerJobs(options, { bench, test, testName = options.test ?? opt
   models.computer = readComputer(test.front.computer);
   // A group test (`group: <shared workspace>`) texts as the group grant, in that workspace's chat (`world.mjs`).
   models.group = test.front.group ?? null;
+  // A test whose person has a calendar connected and nothing on it (`calendar: connected`, `calendar.mjs` benchCalendar).
+  models.calendar = test.front.calendar ?? null;
   const person = { fake: options.fake === true, send, model: test.front.played_by };
 
   // Warm by default (decided 2026-10-08): every workspace indexed once, every

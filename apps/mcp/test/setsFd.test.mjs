@@ -46,6 +46,8 @@ test("a person's tests run in their bench world, on its day, once, on the script
   assert.match(front, /^today: 2026-10-08$/m, "the core set's day, which the Maya conversation's facts are on");
   assert.match(front, /^runs: 1$/m);
   assert.match(front, /^web: scripted$/m);
+  assert.match(front, /^background: on$/m, "offered background jobs, as every production text is");
+  assert.equal(parseTest(`---\n${front}\n---\n\n# T\n\n## 1. hi\n\n- person texts: "hi"\n`).front.background, "on");
   assert.equal(await frontFor(BENCH, "Nobody Here"), null);
 });
 
@@ -187,4 +189,25 @@ test("a check-in or routine row becomes its case's start line, not a person's te
   const parsed = parseTest(md).questions;
   assert.deepEqual(parsed[0].checkinMail, { from: "TAP", subject: "flight delayed", body: "flight delayed" });
   assert.equal(parsed[1].routine, "reminder: meds");
+});
+
+// Dev set, 2026-11-17: "add it to the calendar" in a chat whose setting gives Tex the calendar was answered "your
+// Google Calendar isn't connected", because the bench person's fixture held no calendar days. Sabotage: dropping the
+// `calendar: connected` line, or benchCalendar's empty connected calendar, fails this.
+test("a conversation whose setting gives Tex the calendar runs with one connected, empty and writable", async () => {
+  const { hasCalendar } = await import("../bench/setsFd.mjs");
+  const { benchCalendar } = await import("../bench/calendar.mjs");
+  assert.equal(hasCalendar({ setting: "Tex has Gmail, Calendar, Context notes and the web." }), true);
+  assert.equal(hasCalendar({ setting: "the group's notes, the shared calendar and the web" }), true);
+  assert.equal(hasCalendar({ setting: "Tex has the group's notes." }), false);
+  const front = await frontFor(BENCH, "John", { today: "2026-10-13", calendar: true });
+  assert.match(front, /^calendar: connected$/m);
+  assert.equal(parseTest(`---\n${front}\n---\n\n# T\n\n## 1. hi\n\n- person texts: "hi"\n`).front.calendar, "connected");
+  assert.doesNotMatch(await frontFor(BENCH, "John", { today: "2026-10-13" }), /^calendar: /m);
+  const connected = benchCalendar([], "John");
+  assert.deepEqual(connected.calendarDays({ date: "2026-10-13" }), { ok: true, days: [] });
+  assert.equal(connected.calendarAddress, "john@calendar.bench.invalid");
+  assert.equal(benchCalendar([], null).calendarDays, null, "none connected unless the test says so");
+  const fixture = [{ date: "2026-10-13", address: "j@example.invalid", text: "### 09:00 · Gym" }];
+  assert.equal(benchCalendar(fixture, "John").calendarAddress, undefined, "a fixture's own calendar is kept as it is");
 });

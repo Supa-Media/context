@@ -89,6 +89,10 @@ export const ROLES = Object.freeze({
     node: "tools",
     you: "the Move judge: before the Front door's tools move or archive a note of theirs, you read their recent texts and Tex's own offer and say whether they asked for it. Nothing you write reaches the person.",
   },
+  checkIn: {
+    node: "checkin",
+    you: "the Check-in: nobody texted you; you look at what changed in their workspace, mail and calendar and text them only what can't wait. Your text goes through the Reply reviewer, then Text them sends it.",
+  },
   daySummary: {
     node: "readTheHistory",
     you: "the nightly day summary: you write one line about a day of the chat, which Read the history later gives the Front door as the chat so far. Nothing you write reaches the person directly.",

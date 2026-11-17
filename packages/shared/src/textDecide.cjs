@@ -131,37 +131,47 @@ const TRAINING = require("./texTraining.generated.json");
 const TEX_CONFIG = require("./texConfig.json");
 const { trainingSources, exampleText: trainingExample } = require("./texTraining.cjs");
 
-/** A Decide label as the judge's verdict: a reaction with nothing written reads "react", as the examples always have. */
+/**
+ * A Decide label as the judge reads it: its act, whether it also reacts and with what, and its why, each under the name
+ * of the question it answers (`decideRequest`: act, also_react, emoji, why). Until 2026-11-17 a quiet label that
+ * reacted showed `<verdict>react</verdict>`, an act the judge is never offered, and a reply that also reacted showed no
+ * reaction at all, so no example taught also_react beside an answer (Dev set: five such misses).
+ */
 function judgeExample(moment) {
   const { act, also_react: alsoReact, emoji, why } = moment.label;
-  const verdict = act === "quiet" && alsoReact === "yes" ? "react" : act;
   return {
     chat: moment.kind,
     ...(moment.setting ? { setting: moment.setting } : {}),
     lines: moment.before,
     text: moment.newest,
-    verdict,
-    ...(verdict === "react" ? { emoji } : {}),
-    why,
+    act,
+    ...(alsoReact === "yes" || alsoReact === "no" ? { alsoReact } : {}),
+    ...(alsoReact === "yes" && typeof emoji === "string" && emoji !== "" ? { emoji } : {}),
+    ...(Object.hasOwn(WHY, why) ? { why } : {}),
+    // The old shape's verdict, kept for readers that count reacting examples (the Lab's Testing tab).
+    verdict: act === "quiet" && alsoReact === "yes" ? "react" : act,
   };
 }
 
 const DECIDE_SOURCES = trainingSources(TEX_CONFIG.nodes.find((node) => node.id === "decide"));
 
-/** A Decide label the judge's form can show: a real act and why (a label may leave either "any", or out). */
-const judgeForm = (moment) => ["quiet", "respond", "wait"].includes(moment.label.act) && Object.hasOwn(WHY, moment.label.why);
+/** A Decide label the judge's form can show: a real act (a label may leave its why "any", or out). */
+const judgeForm = (moment) => ["quiet", "respond", "wait"].includes(moment.label.act);
 
 /** Decide's own Training labels, as the judge reads them; another node's labels it reads stay in that node's form. */
 const JUDGE_EXAMPLES = Object.freeze(
   DECIDE_SOURCES.includes("decide") ? (TRAINING.nodes.decide ?? []).filter(judgeForm).map(judgeExample) : [],
 );
 
-/** One example as the judge reads it, in `<example>` tags. */
+/** One example as the judge reads it, in `<example>` tags, each answer under its question's name. */
 function exampleText(item) {
   const chat = item.chat === "group" ? `group chat, speak-up ${item.setting ?? "follow along"}` : "one-to-one chat with Tex";
   const lines = item.lines.length > 0 ? item.lines.join("\n") : "(nothing before)";
-  const react = item.verdict === "react" ? `\n<react>${item.emoji}</react>` : "";
-  return `<example>\n<chat>${chat}</chat>\n<before>\n${lines}\n</before>\n<newest>${item.text}</newest>\n<verdict>${item.verdict}</verdict>${react}\n<why>${item.why}</why>\n</example>`;
+  const answers = [`<act>${item.act}</act>`];
+  if (item.alsoReact) answers.push(`<also_react>${item.alsoReact}</also_react>`);
+  if (item.emoji) answers.push(`<emoji>${item.emoji}</emoji>`);
+  if (item.why) answers.push(`<why>${item.why}</why>`);
+  return `<example>\n<chat>${chat}</chat>\n<before>\n${lines}\n</before>\n<newest>${item.text}</newest>\n${answers.join("\n")}\n</example>`;
 }
 
 /**
@@ -205,7 +215,7 @@ function decideRequest(body, { facts = [] } = {}) {
     also_react: {
       type: "noul",
       instructions:
-        "Separately from whether Tex writes anything: should Tex put one emoji reaction on the newest message, as a friend in the chat would (news, a win, a feeling, a plan, thanks)?",
+        "Separately from whether Tex writes anything: should Tex put one emoji reaction on the newest message, as a friend in the chat would (news, a win, a feeling, a plan, thanks, a joke, or an ask Tex is taking on)? The examples' <also_react> shows where one fits, beside a reply or instead of one.",
       criteria: { true: "yes, one emoji reaction fits", false: "no reaction" },
     },
     wait_seconds: {
