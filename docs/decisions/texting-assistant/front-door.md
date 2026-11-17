@@ -138,8 +138,10 @@ in `PARALLEL_READS`, and a `vault_list` has no `fetch`. Those names are what
 `read_email`, and the other readers `translateFetch` names), plus `search_web`.
 A plain `fetch vault:` is `vault_list` with no `fetch` and still runs together.
 `send` action `api` resolves to that same name with `fetch` (an outbound
-request with a vault secret) and keeps the whole round serial. The model still
-says `search`, `fetch` and `send` action `search_web`. One write, any other
+request with a vault secret) and keeps the whole round serial. The graph is
+unchanged: the same tools still run, and only whether that call may overlap
+another one changed. The model still says `search`, `fetch` and `send` action
+`search_web`. One write, any other
 `send` action, a browser call (`browse`, `open_page`, `fill_login`,
 `fill_card`: one shared browser), a tool that can be held for a yes, or a
 call that can settle the turn keeps the whole round serial.
