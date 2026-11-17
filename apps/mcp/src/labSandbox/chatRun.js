@@ -402,6 +402,9 @@ const PICTURE_TYPES = new Set(["image/png", "image/jpeg", "image/gif", "image/we
 export async function runChatTurn({ env, stub, about, row, payload, token, config, origin, chat = null, agentRoute = null, textsRoute = null, now = Date.now, sleep = hold, jobLimitMs = JOB_LIMIT_MS }) {
   const line = lineOf(about);
   const gate = sandboxGate(stub, about, row.id, { config, arrivedAt: row.at ?? now(), now });
+  // The group chats a 1:1 test turn may read, as the control plane listed them for this chat (`texLabSandbox.ts`):
+  // a shared 1:1's are none, and a group's own turn never asks (`groupChats.js`).
+  gate.groups = Array.isArray(chat?.groups) ? chat.groups : null;
   const { book } = gate;
   const onEvent = (event) => {
     const step = workerStep(event.step);

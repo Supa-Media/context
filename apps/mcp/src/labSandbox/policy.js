@@ -110,6 +110,9 @@ export function controlPlaneAnswer(path, body, gate) {
   // The storage binding comes back with its keys blanked: a test turn reads notes from the workspace's object, and a
   // bucket it reached with these keys would refuse every request, a write above all.
   if (route === "/gateway/binding") return { pass: true, transform: withoutKeys };
+  // The person's group chats, for a 1:1 that reads them (`agent/groupChats.js`): the list the Lab read for this chat,
+  // since a test turn's token is the Lab's own and the control plane would know nobody by it.
+  if (route === "/gateway/agent/identity" && body?.groups === true) return { answer: { groups: Array.isArray(gate.groups) ? gate.groups : null } };
   if (CONTROL_PLANE_READS.has(route) || readByBody(route, body)) return { pass: true };
   const answered = ANSWERED[route];
   if (answered) {
@@ -136,7 +139,7 @@ export const READ_TOOLS = Object.freeze(
     "orient", "scope_info", "list_notes", "read_note", "read_notes", "evaluate_lists", "search_notes", "related_notes", "read_file", "read_image",
     "list_meetings", "read_meeting", "read_calendar", "list_channel_days", "read_channel_day", "list_contacts", "read_contact", "read_activity",
     "list_changes", "search_email", "read_email", "search_texts", "list_texts", "read_texts", "read_google_chat", "app_read", "list_links", "list_plugins",
-    "read_back", "read_thread", "earlier_texts", "earlier_chat", "tex_settings_get", "chat_status", "job_status", "ask_advisor", "open_page",
+    "read_back", "read_thread", "read_day", "group_chats", "earlier_texts", "earlier_chat", "tex_settings_get", "chat_status", "job_status", "ask_advisor", "open_page",
     "search_web", "travel_time", "draw_visual", "draw_picture", "make_picture", "read_skill", "read_learned_skill", "say_nothing", "search", "fetch",
   ]),
 );

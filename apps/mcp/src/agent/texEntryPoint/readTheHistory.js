@@ -25,6 +25,7 @@ import { DEFAULT_TIME_ZONE, readTimeZone } from "../localNow.js";
 import { routineTimeZone } from "../routine.js";
 import { pagesOpenedBefore } from "../turnWeb.js";
 import { TEXTS_CLIENT_ID } from "./clients.js";
+import { groupsOn, readTexterGroups } from "../groupChats.js";
 
 // TEX ENTRY POINT: begin (every await below is a timed `tex` call: `texTiming.js`, checked by `scripts/tex-entry-check.mjs`)
 export async function readTheHistory(t) {
@@ -56,6 +57,8 @@ export async function readTheHistory(t) {
   const computersRead = chatTurn && job === null && (group !== null || session.actorClientId === TEXTS_CLIENT_ID) ? tex.ahead("computers", () => machinesFor(env, session, controlPlane), []).catch(() => []) : null;
   // Their own mailboxes, read beside the rest so a mail search is told which it reaches (`mailAccounts.js`); a group's shared mail is told by `groupMail.js`.
   const mailRead = group === null ? tex.ahead("mail_accounts", () => readMailHealth(store), []).catch(() => []) : null;
+  // The group chats they are in, read from their own 1:1 when the front door reads the `groups` module (`groupChats.js`).
+  const groupsRead = chatTurn && job === null && !runner && group === null && session.actorClientId === TEXTS_CLIENT_ID && groupsOn(env) ? tex.ahead("my_groups", () => readTexterGroups(controlPlane, session), null).catch(() => null) : null;
   const background = chatTurn ? backgroundSession({ running: runningJobsOf(body.running), job, now: received, report: report !== null, read: () => markUntrusted(ledger), machines: group !== null || session.actorClientId === TEXTS_CLIENT_ID ? () => computersRead ?? machinesFor(env, session, controlPlane) : null, inGroup: group !== null, opened: () => pagesOpenedBefore(history) }) : null; // a job starts with the pages the chat opened (`jobPages.js`)
   session.egress.turn = runner ? { note: routine?.body ?? "" } : { history, question }; // the sharing judge's
   // A typed yes, nothing armed, to Tex's last text offering a held change in its own words (`tools/likedPreview.js`).
@@ -77,7 +80,7 @@ export async function readTheHistory(t) {
       metadata: { feature: "mail-checker", workspace: String(session.workspaceId) },
     });
   }
-  Object.assign(t, { attachments, background, computersRead, mailRead, conversation, fresh, history, keptReads, learnedRead, logged, offered, threadsRun, view, week: weekMoment ? { read_day: weekMoment.read_day } : null });
+  Object.assign(t, { attachments, background, computersRead, mailRead, groupsRead, conversation, fresh, history, keptReads, learnedRead, logged, offered, threadsRun, view, week: weekMoment ? { read_day: weekMoment.read_day } : null });
 }
 // TEX ENTRY POINT: end
 
