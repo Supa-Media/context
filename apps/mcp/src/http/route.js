@@ -87,6 +87,7 @@ import { WORKSPACE_STORE_PATH, handleWorkspaceStoreDoor } from "../workspaceStor
 import { IMAGE_UPLOAD_PATH, handleImageUpload } from "../notes/imageUploads.js";
 import { judgeFor } from "../privacy/judge.js";
 import { TEX_EVAL_PREFIX, handleTexEval } from "./texTestSet.js";
+import { CREDIT_REST_PATH, handleCreditRest } from "../agent/creditRest.js";
 import { LAB_SANDBOX_PATH, handleLabSandbox } from "../labSandbox/route.js";
 import { PAGE_PREFIX as LAB_SANDBOX_PAGES, handleLabSandboxPage } from "../labSandbox/pages.js";
 
@@ -104,6 +105,9 @@ export async function route(request, env, ctx) {
     // An upload link's PUT (`notes/imageUploads.js`): no person's token and no
     // workspace selector; the ticket in its header is the whole authority.
     if (url.pathname === IMAGE_UPLOAD_PATH) return await handleImageUpload(request, env);
+    // The benchmark runner's view of which payer's credit is spent (`agent/creditRest.js`). The gateway token is the
+    // whole authority. It is matched before a workspace is read off the path.
+    if (url.pathname === CREDIT_REST_PATH) return await handleCreditRest(request, env);
     // Tex's eval service (`infra/tex-eval`), passed through untouched: it reads no session of ours, and answers runs
     // only to main's Test Set workflow, by the GitHub OIDC token it checks itself (`texTestSet.js`).
     if (url.pathname.startsWith(TEX_EVAL_PREFIX)) return await handleTexEval(request, env);

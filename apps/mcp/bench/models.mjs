@@ -20,6 +20,8 @@
  */
 
 import { MEANING_DIMENSIONS, MEANING_MODEL } from "../src/search/meaning/embed.js";
+import { priceUsd } from "./report.mjs";
+import { CREDIT_REST_MS, createCreditCache, noteCreditSpent, payerSkipped } from "../src/agent/creditRest.js";
 
 const realFetch = globalThis.fetch;
 
@@ -43,15 +45,60 @@ async function retryWithoutKey(response, payer) {
 
 const KEY_ALIAS = /^[a-z0-9][a-z0-9_-]{0,63}$/;
 
+/** Where the benchmark reads the shared credit rest. Production's gateway, unless a run names another. */
+const CREDIT_REST_ORIGIN = "https://mcp.context.lc";
+
+function remoteRest(env, fetchImpl) {
+  const token = env.AI_GATEWAY_TOKEN;
+  if (typeof token !== "string" || token === "") return null;
+  const origin = String(env.CREDIT_REST_ORIGIN || CREDIT_REST_ORIGIN).replace(/\/$/, "");
+  const call = async (op, body) => {
+    const response = await fetchImpl(`${origin}/credit-rest`, {
+      method: "POST",
+      headers: { authorization: `Bearer ${token}`, "content-type": "application/json" },
+      body: JSON.stringify({ op, ...body }),
+    });
+    if (!response.ok) throw new Error(`credit rest ${response.status}`);
+    return response.json();
+  };
+  return {
+    claim: (name, now) => call("claim", { name, now }),
+    spent: (name, until) => call("spent", { name, until }),
+    clear: (name) => call("clear", { name }),
+  };
+}
+
+/** Add a Messages response's priced usage onto `send.costUsd`. A refusal adds nothing. */
+async function noteCost(send, response) {
+  if (response.status !== 200) return;
+  let parsed = null;
+  try {
+    parsed = JSON.parse(await response.clone().text());
+  } catch {
+    return;
+  }
+  const usage = parsed?.usage ?? {};
+  const model = typeof parsed?.model === "string" ? parsed.model : "claude-haiku-5-5";
+  const price = priceUsd(model, {
+    input: usage.input_tokens,
+    output: usage.output_tokens,
+    cacheRead: usage.cache_read_input_tokens,
+    cacheWrite: usage.cache_creation_input_tokens,
+  });
+  if (Number.isFinite(price)) send.costUsd += price;
+}
+
 /**
  * How this run reaches Claude: `send(body)` posts one Messages API body and
  * returns the response. `send.route` says which road, or null with no keys.
  *
  * Through the gateway it mirrors the product (`src/agent/aiGateway.js`): the
- * plan's credit key first, and on a spent credit or a refused key the same
- * call again without it, which Unified Billing pays. Calls are tagged
- * `feature: benchmark` so the AI costs tab can tell them from people's texts,
- * and the gateway keeps no log of them.
+ * plan's credit key first, and a spent credit is the shared rest
+ * (`/credit-rest` on the gateway). A benchmark call never falls through to
+ * Unified Billing: with no credit left it stops, and the round records nothing
+ * on Cloudflare's balance. Calls are tagged `feature: benchmark` so the AI
+ * costs tab can tell them from people's texts, and the gateway keeps no log
+ * of them. `send.costUsd` is the priced usage of the calls that came back.
  */
 export function claudeTransport(env, fetchImpl = realFetch) {
   const accountId = env.AI_GATEWAY_ACCOUNT_ID;
@@ -59,10 +106,10 @@ export function claudeTransport(env, fetchImpl = realFetch) {
   const token = env.AI_GATEWAY_TOKEN;
   const key = env.ANTHROPIC_CREDIT_KEY || env.ANTHROPIC_API_KEY || null;
   const aliases = [...new Set(String(env.AI_GATEWAY_KEY_ALIASES || "").split(",").map((a) => a.trim()).filter((a) => KEY_ALIAS.test(a)))].slice(0, 5);
-  // Who may pay, in order, before Unified Billing; a spent one is skipped for the rest of the run.
+  // Who may pay, in order. A spent one is skipped. A benchmark never adds a keyless call.
   const payers = [...aliases.map((alias) => ({ alias })), ...(key ? [{ key }] : [])];
-  const spent = new Set();
   const base = { "content-type": "application/json", "anthropic-version": "2023-06-01" };
+  const payerName = (payer) => (payer.alias ? `alias:${payer.alias}` : "plan");
 
   if (ACCOUNT_ID.test(accountId ?? "") && GATEWAY_ID.test(gatewayId ?? "") && token) {
     const url = `https://gateway.ai.cloudflare.com/v1/${accountId}/${gatewayId}/anthropic/v1/messages`;
@@ -82,15 +129,27 @@ export function claudeTransport(env, fetchImpl = realFetch) {
         },
         body,
       });
+    const rest = remoteRest(env, fetchImpl);
+    const cache = createCreditCache();
     const send = async (body) => {
+      let last = null;
       for (const payer of payers) {
-        if (spent.has(payer)) continue;
+        const name = payerName(payer);
+        if (await payerSkipped(name, Date.now(), { store: rest, cache })) continue;
         const response = await post(body, payer);
-        if (!(await retryWithoutKey(response, payer))) return response;
-        if (response.status === 402 || (response.status === 400 && /credit balance/i.test(await response.clone().text().catch(() => "")))) spent.add(payer);
+        const moveOn = await retryWithoutKey(response, payer);
+        if (!moveOn) {
+          await noteCost(send, response);
+          return response;
+        }
+        last = response;
+        const text = response.status === 400 ? await response.clone().text().catch(() => "") : "";
+        if (response.status === 402 || /credit balance/i.test(text)) await noteCreditSpent(name, Date.now() + CREDIT_REST_MS, { store: rest, cache });
       }
-      return post(body, null);
+      // No keyless retry. Unified Billing is not a benchmark payer.
+      return last ?? json({ error: { type: "billing", message: "benchmark calls do not use Unified Billing" } }, 402);
     };
+    send.costUsd = 0;
     send.route = "gateway";
     return send;
   }

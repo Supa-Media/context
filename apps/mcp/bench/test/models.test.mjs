@@ -14,7 +14,16 @@ const BODY = JSON.stringify({ model: "claude-haiku-5-5", max_tokens: 10, message
 
 function recorder(...answers) {
   const calls = [];
+  const resting = new Map();
   const fetchImpl = async (url, init) => {
+    if (String(url).endsWith("/credit-rest")) {
+      const body = JSON.parse(init.body);
+      if (body.op === "spent") resting.set(body.name, body.until);
+      if (body.op === "clear") resting.delete(body.name);
+      const until = resting.get(body.name) ?? 0;
+      const claim = Date.now() < until ? { try: false, until } : { try: true };
+      return new Response(JSON.stringify(body.op === "claim" ? claim : { ok: true, until }), { status: 200, headers: { "content-type": "application/json" } });
+    }
     calls.push({ url, headers: init.headers, body: init.body });
     const [status, body] = answers.shift() ?? [200, { content: [] }];
     return new Response(JSON.stringify(body), { status });
@@ -37,47 +46,47 @@ test("with the gateway's keys, calls go through the real gateway with the credit
   assert.equal(calls[0].body, BODY);
 });
 
-test("a spent credit is retried without the key, so Unified Billing pays", async () => {
+test("a spent credit is not sent again, and Unified Billing is not asked", async () => {
   const { calls, fetchImpl } = recorder([400, { error: { message: "Your credit balance is too low" } }], [200, { content: [] }]);
   const send = claudeTransport({ ...GATEWAY, ANTHROPIC_CREDIT_KEY: "fixture-credit-key-000000000000" }, fetchImpl);
-  assert.equal((await send(BODY)).status, 200);
-  assert.equal(calls.length, 2);
-  assert.equal(calls[1].headers["x-api-key"], undefined);
+  assert.equal((await send(BODY)).status, 400);
+  assert.equal(calls.length, 1);
+  assert.equal(calls[0].headers["x-api-key"], "fixture-credit-key-000000000000");
+  assert.equal((await send(BODY)).status, 402, "the shared rest skips the key, and nothing is sent keyless");
+  assert.equal(calls.length, 1);
 });
 
-test("a refused key is retried without it; any other error is returned as is", async () => {
+test("a refused key is not sent to Unified Billing; any other error is returned as is", async () => {
   const refused = recorder([401, { error: { message: "invalid x-api-key" } }], [200, { content: [] }]);
-  await claudeTransport({ ...GATEWAY, ANTHROPIC_API_KEY: "fixture-api-key-0000000000000000" }, refused.fetchImpl)(BODY);
-  assert.equal(refused.calls.length, 2);
+  const response = await claudeTransport({ ...GATEWAY, ANTHROPIC_API_KEY: "fixture-api-key-0000000000000000" }, refused.fetchImpl)(BODY);
+  assert.equal(response.status, 401);
+  assert.equal(refused.calls.length, 1);
 
   const bad = recorder([400, { error: { message: "messages: required" } }]);
-  const response = await claudeTransport({ ...GATEWAY, ANTHROPIC_CREDIT_KEY: "fixture-credit-key-000000000000" }, bad.fetchImpl)(BODY);
-  assert.equal(response.status, 400);
+  const other = await claudeTransport({ ...GATEWAY, ANTHROPIC_CREDIT_KEY: "fixture-credit-key-000000000000" }, bad.fetchImpl)(BODY);
+  assert.equal(other.status, 400);
   assert.equal(bad.calls.length, 1);
 });
 
-test("stored keys are named by alias in order, then the credit key, then Unified Billing; a spent one is skipped after", async () => {
+test("stored keys are named by alias in order, then the credit key; a spent one is skipped and Unified Billing is never asked", async () => {
   const spent = [400, { error: { message: "Your credit balance is too low" } }];
-  const { calls, fetchImpl } = recorder(spent, spent, spent, [200, { content: [] }], [200, { content: [] }]);
+  const { calls, fetchImpl } = recorder(spent, spent, spent);
   const send = claudeTransport({ ...GATEWAY, AI_GATEWAY_KEY_ALIASES: "first-credits,second-credits", ANTHROPIC_CREDIT_KEY: "fixture-credit-key-000000000000" }, fetchImpl);
-  assert.equal((await send(BODY)).status, 200);
-  assert.equal(calls.length, 4);
+  assert.equal((await send(BODY)).status, 400);
+  assert.equal(calls.length, 3);
   assert.equal(calls[0].headers["cf-aig-byok-alias"], "first-credits");
   assert.equal(calls[0].headers["x-api-key"], undefined);
   assert.equal(calls[1].headers["cf-aig-byok-alias"], "second-credits");
   assert.equal(calls[2].headers["x-api-key"], "fixture-credit-key-000000000000");
-  assert.equal(calls[3].headers["x-api-key"], undefined);
-  assert.equal(calls[3].headers["cf-aig-byok-alias"], undefined);
-  await send(BODY);
-  assert.equal(calls.length, 5);
-  assert.equal(calls[4].headers["cf-aig-byok-alias"], undefined);
+  assert.equal((await send(BODY)).status, 402);
+  assert.equal(calls.length, 3, "the next call sends nothing: every payer is resting");
 });
 
-test("the gateway with no key at all is Unified Billing from the first call", async () => {
+test("the gateway with no key at all does not call Unified Billing", async () => {
   const { calls, fetchImpl } = recorder();
-  await claudeTransport(GATEWAY, fetchImpl)(BODY);
-  assert.equal(calls.length, 1);
-  assert.equal(calls[0].headers["x-api-key"], undefined);
+  const response = await claudeTransport(GATEWAY, fetchImpl)(BODY);
+  assert.equal(response.status, 402);
+  assert.equal(calls.length, 0);
 });
 
 test("without the gateway, an Anthropic key goes straight to Anthropic", async () => {
