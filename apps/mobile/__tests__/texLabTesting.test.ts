@@ -61,7 +61,7 @@ import { act, createElement } from "react";
 import { createRoot } from "react-dom/client";
 import { TexLab } from "../features/tex/lab/TexLab.web";
 import { clone, G, MAIN, node, set } from "../features/tex/lab/engine/state";
-import { bodyOf, cellOf, defaultCols, fitCols, setsRatio, stepNodes, type Conversation } from "../features/tex/lab/engine/sets";
+import { bodyOf, cellOf, defaultCols, fitCols, missingTest, setsRatio, stepNodes, type Conversation } from "../features/tex/lab/engine/sets";
 import { hiddenOf, mergeDrafts } from "../features/tex/lab/engine/setsData";
 import { sets, undo } from "../features/tex/lab/engine/setsStore";
 
@@ -387,6 +387,13 @@ describe("the tab's reading of a chat", () => {
   });
 
   test("the hidden list reads counts by position, never words", () => {
-    expect(hiddenOf({ perChat: [{ kind: "group", msgs: 3, stars: 1, title: "leak" }] })).toEqual({ hidden: [{ kind: "group", msgs: 3, stars: 1 }], stars: 1 });
+    expect(hiddenOf({ perChat: [{ kind: "group", msgs: 3, stars: 1, title: "leak" }] })).toEqual({ hidden: [{ kind: "group", msgs: 3, stars: 1 }], stars: 1, byNode: null });
+  });
+
+  test("reads the Test Set's unit tests per step, for the warn-only note on a step with none (Dev2, 2026-11-17)", () => {
+    const c = hiddenOf({ stars: 2, byNode: { decide: 2 }, perChat: [{ kind: "one", msgs: 2, stars: 2 }] });
+    expect(c.byNode).toEqual({ decide: 2 });
+    expect(missingTest([TRAIN], c.byNode)).toEqual([{ scope: "fd", training: 1, dev: 0 }]);
+    expect(missingTest([CHAT], null)).toEqual([]);
   });
 });

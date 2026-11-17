@@ -1,13 +1,4 @@
 {
   "about": "Nodes whose code is merged into apps/mcp/src/agent/graph/gatewayNodes.js but not wired into texConfig.json yet (Dev2, 2026-11-16: \"for code changes, create the node inside the code first and merge it to main\"). A shelf node never runs: the runner runs only the config's nodes. A Lab draft wires it, and Promote takes it off the shelf in the same pull request that puts it in the config. Each entry: the node's id, its files (repository paths), and what it is for.",
-  "nodes": {
-    "jobReport": {
-      "files": [
-        "apps/mcp/src/agent/graph/nodes/jobReport.js",
-        "apps/mcp/src/agent/jobReport.js",
-        "apps/mcp/src/agent/texEntryPoint/readTheText.js"
-      ],
-      "why": "A background job reports back as a new run of its chat (Dev2, 2026-11-16 generators model; jobs as config step 7, 2026-11-17): the Worker's job_report is read strictly and the run is asked the gateway's own line. Wired as job -> jobReport (generator, when report) and jobReport -> lanes (wait, when report); once on, the chat's turn reads the report through this node, logged. Unwired, the turn reads it in code as today."
-    }
-  }
+  "nodes": {}
 }

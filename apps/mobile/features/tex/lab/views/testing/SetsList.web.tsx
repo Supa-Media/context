@@ -5,7 +5,7 @@
  * only) until a person asks to see them and says yes to the people-only note.
  */
 import { useState } from "react";
-import { SET_INFO, SETS, setsRatio, starsIn, type Conversation, type SetId } from "../../engine/sets";
+import { missingTest, SET_INFO, SETS, setsRatio, starsIn, type Conversation, type SetId } from "../../engine/sets";
 import { change, createChat, fold, setUi, showTest, useSets } from "../../engine/setsStore";
 import { Chev, Plus } from "./Menu.web";
 
@@ -21,8 +21,14 @@ export function Ratio() {
     s.testStars,
   );
   const colors = { training: "var(--accent)", dev: "var(--ok)", test: "var(--team)" } as const;
+  // One pooled split over every step; per step only a warning when the Test Set has none of its tests (Dev2, 2026-11-17).
+  const noTest = missingTest(
+    s.convs.filter((c) => c.set !== "test"),
+    s.testByNode,
+  );
   return (
-    <span className={"ts-ratio" + (r.holds ? "" : " off")} id="ratio" title={`${r.total} unit tests: ${r.pct.training} / ${r.pct.dev} / ${r.pct.test} across Training, Dev and Test, target 60 / 20 / 20`}>
+    <>
+    <span className={"ts-ratio" + (r.holds ? "" : " off")} id="ratio" title={`${r.total} unit tests: ${r.pct.training} / ${r.pct.dev} / ${r.pct.test} across Training, Dev and Test, pooled over every step, target 60 / 20 / 20`}>
       <span className="rb" aria-hidden="true">
         {(["training", "dev", "test"] as const).map((k) => (
           <i key={k} style={{ width: r.pct[k] + "%", background: colors[k] }} />
@@ -30,6 +36,12 @@ export function Ratio() {
       </span>
       {r.pct.training}/{r.pct.dev}/{r.pct.test}
     </span>
+    {noTest.length ? (
+      <span className="ts-notest" id="noTest" title={`No unit tests in the Test Set for: ${noTest.map((x) => `${x.scope} (Training ${x.training}, Dev ${x.dev})`).join(", ")}. A warning only: CI never fails on it.`}>
+        ! {noTest.length}
+      </span>
+    ) : null}
+    </>
   );
 }
 
