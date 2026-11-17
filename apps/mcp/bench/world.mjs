@@ -22,6 +22,8 @@
 import { readMailbox, searchMailbox } from "./mailbox.mjs";
 import { TRANSCRIPTS_FOLDER } from "../src/agent/transcript.js";
 import { HOUSEKEEPING_CLIENT_ID } from "../src/agent/housekeeping.js";
+import { HEARTBEAT_CLIENT_ID } from "../src/agent/heartbeat.js";
+import { ROUTINES_CLIENT_ID } from "../src/agent/routine.js";
 import worker from "../src/index.js";
 import { PRODUCTION_TEXTING_PATH } from "../src/agent/production.js";
 import { skillPath } from "../src/agent/skills.js";
@@ -205,16 +207,17 @@ export async function createWorld(bench, person, setupRaw, models, today = null,
   // read live, and a mailbox that may keep drafts. Sending stays off, as it is
   // until Google's review adds the send scope (tests/tasks.md, task 9). Each
   // search and read is kept for the result's `Mail:` line.
-  const mail = bench.workspaces[own.workspace]?.mail ?? [];
+  const mail = [...(bench.workspaces[own.workspace]?.mail ?? [])];
   const mailEvents = [];
-  if (mail.length > 0) {
+  const connectMail = () => {
     const address = mail[0].address;
     controlPlane.flags.mailboxes = [{ address, folder: "0-inbox/email" }];
     const logged = (event, value) => (mailEvents.push(event(value)), value);
     controlPlane.flags.mailResults = (query) => logged((found) => `mail search ${JSON.stringify(String(query))}: ${found.length} found`, searchMailbox(mail, query));
     controlPlane.flags.mailMessage = (body) => logged(() => `mail read ${body.id}`, readMailbox(mail, body.address, body.id));
     controlPlane.flags.emailDrafter = address;
-  }
+  };
+  if (mail.length > 0) connectMail();
   // The listing tools list from the Convex tree, copied here from each S3 bucket.
   controlPlane.serveTreesFrom(null, { s3 });
   // A warmed world answers searches from a copy of the snapshot's database.
@@ -314,6 +317,23 @@ export async function createWorld(bench, person, setupRaw, models, today = null,
     clientId: HOUSEKEEPING_CLIENT_ID,
     alsoMemberOf: [{ workspaceId: "ws_pinned", role: "member" }],
   });
+
+  // Tex's check-ins and routine runs come in on their own clients' grants, over the person's own workspace, as in
+  // production (`heartbeat.js` HEARTBEAT_CLIENT_ID, `routine.js` ROUTINES_CLIENT_ID): what a Front door test that
+  // starts at a check-in or a routine sends (`world.checkIn`, `world.routine`).
+  const startTokens = {};
+  for (const [kind, clientId] of [["checkin", HEARTBEAT_CLIENT_ID], ["routine", ROUTINES_CLIENT_ID]]) {
+    startTokens[kind] = `cat_${kind}_${person.toLowerCase().replace(/[^a-z]/g, "")}_${"0".repeat(24)}`;
+    await controlPlane.addGrant({
+      workspaceId: ids.get(own.workspace),
+      role: "owner",
+      userId: `user_bench_${own.workspace}`,
+      accessToken: startTokens[kind],
+      scopes: ["context:read", "context:write", "context:private"],
+      clientId,
+      alsoMemberOf: [{ workspaceId: "ws_pinned", role: "member" }],
+    });
+  }
 
   const before = new Map([...ids].map(([name]) => [name, snapshot(s3.bucketFor(`bench-${name}`))]));
   const env = {
@@ -493,6 +513,39 @@ export async function createWorld(bench, person, setupRaw, models, today = null,
         await postEvents([line.from === "person" ? event : { ...event, from: { kind: "tex" }, turn: last?.turn ?? event.turn, covers: last ? [last.id] : [], delivered: true }]);
       }
     },
+    /**
+     * An email arriving in the person's Gmail now (`{ from, subject, body }`), as a check-in's new mail: a person with
+     * no mailbox yet gets one at their bench address.
+     */
+    mailArrives(email) {
+      const address = mail[0]?.address ?? `${handleOfPerson(person)}@bench.invalid`;
+      const id = `arrived${mail.length + 1}`;
+      const body = String(email.body ?? "");
+      mail.unshift({ address, id, threadId: id, date: new Date(Date.now() - 5 * 60_000).toISOString(), from: String(email.from), to: address, subject: String(email.subject), body, attachments: [], snippet: body.replace(/\s+/g, " ").slice(0, 140) });
+      if (mail.length === 1) connectMail();
+    },
+
+    /** One check-in, through the real `/agent` as Tex's check-in client: what it would text, or nothing when it stayed quiet. */
+    async checkIn() {
+      return startedTurn(await this.as(startTokens.checkin, { heartbeat: { timeZone: "UTC", since: Date.now() - 60 * 60_000 } }), (body) => (body?.outcome === "speak" ? body.answer : ""));
+    },
+
+    /** One run of the routine at `path` (a note under `tex/routines/<schedule>/`), placed with `text` as its words, as the routine runner asks. */
+    async routine(path, text) {
+      this.place(path, `${text}\n`);
+      return startedTurn(await this.as(startTokens.routine, { routine: { path, timeZone: "UTC" } }), (body) => (body?.skipped ? "" : body?.answer));
+    },
+
+    /** One `/agent` call with `token`'s grant. */
+    async as(token, body) {
+      const { ctx, settle } = createWorkerCtx();
+      const started = realNow();
+      const response = await worker.fetch(new Request("https://mcp.bench.invalid/agent", { method: "POST", headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" }, body: JSON.stringify(body) }), env, ctx);
+      const answer = await response.json().catch(() => null);
+      await settle();
+      return { status: response.status, body: answer, ms: realNow() - started, usage: controlPlane.builtinReports.at(-1) ?? {} };
+    },
+
     /**
      * One housekeeping run over the person's own workspace, answered as a turn
      * is: its answer is the line it would text and the log it wrote.
@@ -696,5 +749,26 @@ export async function createWorld(bench, person, setupRaw, models, today = null,
       d1?.close();
       for (const file of copies) rmSync(file, { force: true });
     },
+  };
+}
+
+/** A person's bench mail handle. */
+function handleOfPerson(person) {
+  return String(person).toLowerCase().replace(/[^a-z0-9]/g, "") || "person";
+}
+
+/** A check-in's or routine run's answer, shaped as a turn is (`converse` reads it): `said` picks what it would text. */
+function startedTurn(got, said) {
+  const ok = got.status === 200 && got.body !== null;
+  const text = ok ? String(said(got.body) ?? "") : "";
+  return {
+    ok,
+    answer: text === "" ? "(stayed quiet: nothing texted)" : text,
+    error: ok ? null : String(got.body?.error ?? `status ${got.status}`),
+    ms: got.ms,
+    model: got.usage.model ?? null,
+    tools: [],
+    jobs: [],
+    usage: { input: got.usage.inputTokens ?? 0, output: got.usage.outputTokens ?? 0, cacheRead: got.usage.cacheReadTokens ?? 0, cacheWrite: got.usage.cacheWriteTokens ?? 0 },
   };
 }

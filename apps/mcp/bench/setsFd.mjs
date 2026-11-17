@@ -18,8 +18,10 @@
  * contract refuses anyone else in a Dev chat, `texSets.cjs` BENCH_PEOPLE), as them: their own test's front matter when
  * one runs as them, else the core set's. A group chat runs in the shared workspace `people.md` puts all its members in
  * (the one named like the conversation first), each earlier line sent as the member who said it. Each test runs on its
- * own day: the conversation's `at` lines walked from the first one that names a date ("Tue Oct 13 10:14"). A picture,
- * an edit or a check-in or routine row says why it can't yet, on its row.
+ * own day: the conversation's `at` lines walked from the first one that names a date ("Tue Oct 13 10:14"). A check-in
+ * row runs as a check-in that finds its email in the person's Gmail, and a routine row as a run of a routine with its
+ * words (`- check-in mail:`, `- routine runs:`; Dev set, 2026-11-17: seven Front door rows were check-ins and routines);
+ * a group's, a picture or an edit says why it can't yet, on its row.
  */
 import { cp, mkdir, mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -101,7 +103,9 @@ export function groupFor(people, c) {
 /** Why message `i` of `c` can't run as a Front door test yet, or null when it can. */
 export function cantRun(c, i) {
   const m = c.msgs[i];
-  if (m.via) return `a ${m.who} row can't run as a Front door test yet: the bench sends texts, not check-ins or routines`;
+  if (m.via && c.kind === "group") return `a group's ${m.who} row can't run as a Front door test yet: the bench runs a person's own check-ins and routines`;
+  if (m.via === "checkin" && checkinMail(m.text) === null) return "a check-in row runs only when it found an email (\"Gmail: ...\")";
+  if (m.via && m.via !== "checkin" && m.via !== "routine") return `a ${m.via} row can't run as a Front door test`;
   if (m.kind && m.kind !== "reply") return `a ${m.kind} can't run as a Front door test: only a text or a reply`;
   if (Array.isArray(m.pics) && m.pics.length > 0) return "a text with pictures can't run as a Front door test yet";
   if (typeof m.text !== "string" || m.text.trim() === "") return "the text is empty";
@@ -120,6 +124,21 @@ export function missedLine(r) {
   return `${line.slice(0, 90)} | Tex: ${said.slice(0, 100) || "(said nothing)"}`;
 }
 
+/**
+ * The email a check-in row found, as the bench's Gmail holds it: "Gmail: <from>: <what it says>" (the sender is the
+ * words before the first colon when they are short enough to be one). Null when the row is not mail.
+ */
+export function checkinMail(text) {
+  const m = /^\s*Gmail:\s*([\s\S]+)$/.exec(String(text ?? ""));
+  if (!m) return null;
+  const rest = m[1].trim();
+  const colon = rest.indexOf(":");
+  const from = colon > 0 && colon <= 60 ? rest.slice(0, colon).trim() : "(sender)";
+  const said = colon > 0 && colon <= 60 ? rest.slice(colon + 1).trim() : rest;
+  const subject = said.split(/(?<=[.!?])\s/)[0].slice(0, 120);
+  return { from, subject, body: said };
+}
+
 /** Who sends message `i`: its speaker, the one person of a one-to-one chat. */
 const senderOf = (c, i) => (c.kind === "group" ? c.msgs[i].who : c.members[0]);
 
@@ -133,7 +152,7 @@ export function fdTest(units, front) {
       `## ${k + 1}. ${String(m.text).replace(/\s+/g, " ").slice(0, 120)}`,
       "",
       "- kind: task",
-      `- person texts: ${JSON.stringify(m.text)}`,
+      m.via === "checkin" ? `- check-in mail: ${JSON.stringify(checkinMail(m.text))}` : m.via === "routine" ? `- routine runs: ${JSON.stringify(m.text)}` : `- person texts: ${JSON.stringify(m.text)}`,
       ...earlierLines(u.convo, u.at).map((line) => `- earlier ${line.who ? `@${line.who}` : line.from}: ${JSON.stringify(line.text)}`),
       ...(l.must || []).map((x) => `- must: ${x}`),
       ...(l.never || []).map((x) => `- must not: ${x}`),
