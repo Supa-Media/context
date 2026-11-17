@@ -124,3 +124,20 @@ a setup without gates, or a deployment with no Workers AI binding.
 **What a simplification would cost:** dropping it brings back "paste the
 points" for a link nothing tried. `agentUntriedWeb.test.mjs` ("an untried
 can't-open on the front door gets one round to try") fails.
+
+## Who does the work (2026-11-17)
+
+The front door already said to do an ask itself, to show anything meant for
+someone else, and to hand over only a code, a captcha or a payment. Those
+lines lived in four prompt files and never named a check-in. Training already
+splits them: a check-in (`loose-ends` m1, m29) says what came in and offers
+the next step, and does not start it; an ask (`trial-hire` m5, m30, m57)
+does the work and does not hand it back; a routine (`loose-ends` m39, m64)
+may do the one step it was set up to do; a password change after a possible
+break-in (`running-the-shop` m31) is left to the person. One block in
+`rules.md`, "Who does the work", says that split. The other files point at
+it. No new example was written from a Dev row.
+
+**What a simplification would cost:** folding the check-in back into "do it
+yourself" makes a check-in start work nobody asked for. `agencyPrinciple.test.mjs`
+fails if the check-in sentence leaves `rules.md`.
