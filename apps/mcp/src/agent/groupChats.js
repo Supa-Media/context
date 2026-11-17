@@ -155,7 +155,8 @@ export function groupChatsTool({ groups, ledgerOf, timeZone = "UTC", onRead = ()
       for (const e of events) {
         const text = String(e.text ?? "");
         const low = text.toLowerCase();
-        const hits = want.filter((w) => low.includes(w)).length;
+        // Whole words, with a plain ending ("texas's", "trips", "traveling"), never inside another word ("trip" in "tripleseat").
+        const hits = want.filter((w) => new RegExp(`(?<![\\p{L}\\p{N}])${w.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}(?:s|es|'s|ing|ed|er)?(?![\\p{L}\\p{N}])`, "u").test(low)).length;
         if (hits > 0) found.push({ g, e, text, hits });
       }
     }

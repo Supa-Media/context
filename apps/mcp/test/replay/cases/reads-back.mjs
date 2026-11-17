@@ -1,7 +1,8 @@
 import assert from "node:assert/strict";
 import { oneToOne } from "../chats.mjs";
 import { sixToolsOver } from "../../../src/agent/sixTools.js";
-import { groupChatsTool } from "../../../src/agent/groupChats.js";
+import { groupChatsTool, readsGroups } from "../../../src/agent/groupChats.js";
+import { texStep } from "../../../src/agent/texConfig.js";
 import { readDayTool, dayLine } from "../../../src/agent/weekHistory.js";
 import { readThreadTool } from "../../../src/agent/conversationThreads.js";
 
@@ -36,6 +37,8 @@ export default {
       const shown = six.tools.map((tool) => tool.description).join("\n");
       for (const way of [/groups:<chat>/, /groups: true/, /day:<YYYY-MM-DD>/, /thread:<id>/]) assert.match(shown, way, "the model is shown how to call each chat reader");
       assert.equal(six.resolve("search", { query: "picnic", args: { groups: true } }).name, "group_chats");
+      // And a 1:1's front door reads them (promoted 2026-11-17): asked to sum up a group's week, Tex had no list of its groups.
+      assert.equal(readsGroups(texStep("fd")), true, "the front door's ctx lists the person's group chats");
       assert.deepEqual(six.resolve("fetch", JSON.parse(dayLine("2026-11-09").match(/fetch (\{.*\})/)[1])), { name: "read_day", args: { day: "2026-11-09" } }, "a day summary's last line is a call it can make");
     } finally {
       chat.restore();

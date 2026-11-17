@@ -156,10 +156,13 @@ async function text(question) {
 test("a texted turn is told the number it is texting, asked with the person's own token", async () => {
   const { status } = await text("sign in to partiful as me");
   assert.equal(status, 200);
-  assert.equal(asked.length, 1);
-  assert.equal(asked[0].accessToken, TOKEN_TEXTS);
-  assert.equal(asked[0].expectedWorkspaceId, "ws_identity");
-  assert.equal(asked[0].secret, `Bearer ${GATEWAY_SECRET}`);
+  // The same route is also asked for their group chats (`groupChats.js`, on since 2026-11-17), with the same token.
+  const identity = asked.filter((ask) => ask.groups !== true);
+  assert.equal(identity.length, 1);
+  assert.equal(identity[0].accessToken, TOKEN_TEXTS);
+  assert.equal(identity[0].expectedWorkspaceId, "ws_identity");
+  assert.equal(identity[0].secret, `Bearer ${GATEWAY_SECRET}`);
+  assert.ok(asked.filter((ask) => ask.groups === true).every((ask) => ask.accessToken === TOKEN_TEXTS), "their groups, asked as them");
   assert.ok(systems.length > 0);
   assert.match(systems[0], /Phone: \+15555550100 \(the number you text them at\)/);
   assert.match(systems[0], /Name: Ada Lovelace/);
