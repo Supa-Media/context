@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { reloadGate, type ReloadGate } from "./reloadGate";
 import type { PatchFrame } from "./texPageLive";
 import { keepOverview, keptOverview } from "./texPageMemory";
 import { readJobDetail, readSection } from "./texPageRead";
@@ -67,6 +68,8 @@ export function useTexPage(source: TexPageSource | null, chat: string, handle?: 
   const listeners = useRef(new Set<() => void>());
   const jobs = useRef(new Map<string, JobDetail>());
   const epoch = useRef(0);
+  /** Every "read it again" goes through this: one read at a time, at most one per gap (`reloadGate.ts`). */
+  const gate = useRef<ReloadGate | null>(null);
 
   const bump = useCallback((key: string) => {
     versions.current.set(key, (versions.current.get(key) ?? 0) + 1);
@@ -111,6 +114,11 @@ export function useTexPage(source: TexPageSource | null, chat: string, handle?: 
     await Promise.all([core, tileRead]);
   }, [chat, show, source]);
 
+  const reread = useCallback(() => {
+    if (gate.current) gate.current.request();
+    else void load();
+  }, [load]);
+
   const onPatch = useCallback(
     (patch: PatchFrame) => {
       if (patch.section === "job") {
@@ -126,16 +134,16 @@ export function useTexPage(source: TexPageSource | null, chat: string, handle?: 
       }
       if (LIST_KINDS.has(patch.section)) {
         bump(patch.section);
-        void load();
+        reread();
         return;
       }
-      if (patch.value === undefined) return void load();
+      if (patch.value === undefined) return reread();
       const was = latest.current;
       if (was !== null) show(readSection(was, patch.section, patch.value) ?? was);
       if (patch.section === "thinking") bump("thinking");
       if (patch.section === "earlier") bump("jobs");
     },
-    [bump, load, show],
+    [bump, reread, show],
   );
 
   useEffect(() => {
@@ -149,21 +157,25 @@ export function useTexPage(source: TexPageSource | null, chat: string, handle?: 
     setPhase(kept !== null ? "ready" : "loading");
     setTiles(kept !== null ? { lines: true, computer: false, waiting: true } : NOTHING_KNOWN);
     if (source === null) return;
-    void load();
+    const reads = reloadGate(load);
+    gate.current = reads;
+    reads.request();
     const giveUp = setTimeout(() => setTiles((was) => (was.waiting ? { ...was, waiting: false } : was)), TILES_WAIT_MS);
     let socketUp = false;
     const feed = source.live(chat, onPatch, (up) => {
       // Coming back up: anything missed while down is read once.
-      if (up && !socketUp) void load();
+      if (up && !socketUp) reads.request();
       socketUp = up;
       setLive(up);
     });
     const timer = setInterval(() => {
-      if (!socketUp && !hidden()) void load();
+      if (!socketUp && !hidden()) reads.request();
     }, FALLBACK_POLL_MS);
     return () => {
       clearTimeout(giveUp);
       clearInterval(timer);
+      reads.cancel();
+      if (gate.current === reads) gate.current = null;
       feed?.close();
       setLive(false);
     };
