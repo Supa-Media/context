@@ -3,6 +3,7 @@
  * as a new run (Dev2's generators model, 2026-11-16), read by this node once the config has it, logged like every node.
  *
  * Sabotage record (temporary local edits, reverted):
+ *   gatewayGraph not watching the request's Lab gate → "a node run outside the turn's graph shows on the run card" fails
  *   the node's `report === null` refusal removed → "refuses a report it can't read" fails
  *   jobReportEvent's on-check removed (the node run while on the shelf) → "on the shelf, the code's read stands" fails
  *   jobReportEvent returning the code's report when the node refused → "the node's refusal is the run's" fails
@@ -61,4 +62,26 @@ test("the node's refusal is the run's", async () => {
   // The Worker's report the node can't read gives no report, whatever the code's read held.
   const stale = code(body(REPORT));
   assert.equal(await jobReportEvent(body({ title: "", state: "done" }), stale, { config: wired, writer: null }), null);
+});
+
+// A Lab test chat's card shows every node a request runs, not only the turn graph's (2026-11-17: the draft's jobReport
+// ran in a test chat's report run and its card never showed it, as its graph was made without the request's env).
+import { readFileSync, readdirSync } from "node:fs";
+import { LAB_SANDBOX_KEY } from "../src/labSandbox/policy.js";
+
+test("in a Lab test chat, a node run outside the turn's graph shows on the run card, started and ended", async () => {
+  const started = [], ended = [];
+  const env = { [LAB_SANDBOX_KEY]: { record() {}, onStart: (run) => started.push(run.node), onNode: (run) => ended.push(run.node) } };
+  const writer = ledger(), b = body(REPORT);
+  await jobReportEvent(b, code(b), { env, config: wired, writer });
+  assert.deepEqual(started, ["jobReport"]);
+  assert.deepEqual(ended, ["jobReport"]);
+  assert.equal(writer.entries.length, 1, "still kept in the chat's ledger");
+});
+
+test("every graph a turn's steps make passes the request's env, so a Lab card misses none of its nodes", () => {
+  const dir = new URL("../src/agent/texEntryPoint/", import.meta.url);
+  for (const file of readdirSync(dir).filter((name) => name.endsWith(".js"))) {
+    for (const call of readFileSync(new URL(file, dir), "utf8").match(/gatewayGraph\(\{[^}]*\}/g) ?? []) assert.match(call, /\benv\b/, `${file}: ${call}`);
+  }
 });

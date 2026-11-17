@@ -138,10 +138,10 @@ export async function runTheModel(t, via) {
   t.threadsSort = threaded?.sort ? () => threadsSortAndWrite(threaded.sort, store, session) : null; // the Classifier node files the text after the reply (`../graph/nodes/classifier.js`), on Text them's background wire
   // What this turn runs the front door with, every setting that shapes it, logged as the Front door node's (Dev2, 2026-11-14: "every single block should have proper logging of what's going in and out and what parameters were set").
   t.settings = doorOut({ production, productionModel, fallback, router, gated, advising, planning, computers, skills, delegation, threaded });
-  const egressJudge = aiGatewayConfig(env) === null ? null : (input) => gatewayGraph({ writer: chatLog, turn: ledgerAt?.turn ?? null }).fire("tools", "egress", input, { env }); // interim: io.use.egress once tools is a node
+  const egressJudge = aiGatewayConfig(env) === null ? null : (input) => gatewayGraph({ env, writer: chatLog, turn: ledgerAt?.turn ?? null }).fire("tools", "egress", input, { env }); // interim: io.use.egress once tools is a node
   if (typeof session.sharingJudge === "function" && egressJudge) session.sharingJudge = egressJudge; // interim: io.use.egress once tools is a node
   // The move judge, where the config wires tools -> moveJudge (`graph/nodes/moveJudge.js`); without the wire, the word list.
-  const drawn = gatewayGraph({ writer: chatLog, turn: ledgerAt?.turn ?? null, config: texConfigOf(env) });
+  const drawn = gatewayGraph({ env, writer: chatLog, turn: ledgerAt?.turn ?? null, config: texConfigOf(env) });
   // Tex asks Tex across chats (`crossChat.js`), once a config wires the Cross-chat gate: it replaces ask_personal_tex in a group.
   const crossWired = chatTurn && job === null && !routine && drawn.wired("tools", "crossChatGate");
   const crossTools = crossWired ? [crossAskTool({ event: t.crossChat ?? null, group, groups: t.groups ?? null, counts: crossCountsOf(body.crossCounts), ledger, gate: (input) => drawn.fire("tools", "crossChatGate", input, { env }), say: channel ? (line) => channel.say(line) : null, identity: typeof controlPlane?.askerIdentity === "function" ? () => controlPlane.askerIdentity(session.accessToken) : null }), postInChatTool({ event: t.crossChat ?? null, group, ledger })].filter(Boolean) : [];
@@ -151,7 +151,7 @@ export async function runTheModel(t, via) {
   const reactable = !quoted?.tapback && question !== VAULT_SAVED_QUESTION && question !== HANDED_BACK_QUESTION;
   const tapping = chatTurn && reactable && job === null && !routine && report === null && !t.crossChat && drawn.wired("tools", "tapback") ? tapbackEnding({ gate: (input) => drawn.fire("tools", "tapback", input, { env }), tagged: group?.tagged === true }) : null;
   const keptOptions = { question, on: !runner, ...(aiGatewayConfig(env) !== null && drawn.wired("tools", "moveJudge") ? { judge: (input) => drawn.fire("tools", "moveJudge", input, { env }), said: saidBefore(history) } : {}) };
-  const pictureRun = (name, args, callTool) => gatewayGraph({ writer: chatLog, turn: ledgerAt?.turn ?? null }).fire("tools", "picture", { tool: name, args }, { env, maker, callTool, cardCheck }).then((out) => out.result); // interim: io.use.picture once tools is a node
+  const pictureRun = (name, args, callTool) => gatewayGraph({ env, writer: chatLog, turn: ledgerAt?.turn ?? null }).fire("tools", "picture", { tool: name, args }, { env, maker, callTool, cardCheck }).then((out) => out.result); // interim: io.use.picture once tools is a node
   steer?.revertWith(dispatch); // a provisional run's note saves are read first and put back through the client's own dispatcher (`steer.js`)
   // An earlier try of this same text, or a job's part cut off before it answered, carried on from what it had done (`savedRounds.js`); a routine's run has no text.
   const rounds = !runner && (job !== null || chatTurn) ? await tex.step("carried_rounds", () => carriedRounds({ store, session, body, question, job, egress: ledger }).catch(() => null)) : null;
