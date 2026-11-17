@@ -76,3 +76,5 @@ export function withEnd(ends: PartEnd[] | undefined, part: number, cause: PartCa
 
 /** Whether any saved call read from outside: the next part built on it is marked as the part that read it was. */
 export const readOutside = (saved: JobSaved | undefined) => (saved?.calls ?? []).some((call) => call.outside === true);
+
+export { carryPatch, partResume } from "./jobPartResume"; // which saved rounds a part goes on from

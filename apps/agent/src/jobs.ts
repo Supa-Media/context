@@ -28,6 +28,8 @@ import type { GroupMessage } from "./sendblueGroups";
 import type { InboxStorage } from "./inbox";
 import { cut, MAX_INBOUND_TEXT } from "./inbound";
 import { readPictures, type OutgoingPicture } from "./outgoing";
+import partEndLib from "../../../packages/shared/src/jobPartEnd.cjs";
+import { TEX_CONFIG } from "../../../packages/shared/src/texConfig.cjs";
 import { MAX_ENDS_KEPT, PART_CAUSES, type JobSaved, type PartCause, type PartEnd } from "./jobProgress";
 
 /** What a turn asked to start, as the gateway wrote it. */
@@ -49,7 +51,7 @@ export type JobVerdict = "done" | "keep_going" | "waiting" | "stuck";
 /** What a job's own turn is asked with; `followUps`: the person's later texts about it, their own words. */
 /** `draft`: the last part's answer, never texted because a later text changed the job, or (`unfinished`) because it stopped short of the ask; the next part builds on it. */
 /** `mail`: note mail that came for it since its last part, oldest first (`jobMail.ts`), never among `followUps`. */
-export type JobAsk = { roster?: string; project?: JobProject; id: string; title: string; brief: string; doneWhen?: string; /** Their own texts that started it, oldest first, the one it started from last. */ asked?: string[]; attempt: number; tainted?: true; followUps?: string[]; mail?: Array<JobMail & { text: string }>; draft?: string; unfinished?: true; advice?: string; cutOff?: string[]; saved?: JobSaved };
+export type JobAsk = { roster?: string; project?: JobProject; id: string; title: string; brief: string; doneWhen?: string; /** Their own texts that started it, oldest first, the one it started from last. */ asked?: string[]; attempt: number; tainted?: true; followUps?: string[]; mail?: Array<JobMail & { text: string }>; draft?: string; unfinished?: true; advice?: string; cutOff?: string[]; saved?: JobSaved; /** Which restart this is, and the part whose saved rounds it goes on from (`jobPartResume.ts`). */ resumes?: number; resumeFrom?: number };
 /** A later text handed to a running job (`jobRun.ts`): the person's own words and the event they came in; `stop` ends it. */
 /** `resume`: pick an ended job back up where it stopped (`jobRun.ts` `resumeJob`), never a new copy of it. */
 export type JobSteer = { id: string; text: string; stop?: true; resume?: true; mail?: JobMail; machine?: JobMachine };
@@ -70,7 +72,7 @@ export type JobOrigin =
 
 /** Everything a job's object needs to run it. */
 /** `note`: the job's note and who it is on its mail (`jobNote.ts`); `noteAsked`: the note was asked for once, made or not. */
-export type JobRun = StartedJob & { id: string; inbox: string; origin: JobOrigin; attempt: number; tries: number; startedAt: number; draft?: string; /** One line per part carried on (`jobRun.ts` `partLine`), for the last word of a job that ends short. */ parts?: string[]; /** The steps of the last part, when it was cut off before it answered (`jobRun.ts`). */ cutOff?: string[]; /** What its parts got, saved as it returned (`jobProgress.ts`), and how each part ended. */ saved?: JobSaved; ends?: PartEnd[]; unfinished?: true; advice?: string; resumes?: number; idle?: true; machineRun?: MachineRunRef; machineSession?: string; note?: JobNote; noteAsked?: true };
+export type JobRun = StartedJob & { id: string; inbox: string; origin: JobOrigin; attempt: number; tries: number; startedAt: number; draft?: string; /** One line per part carried on (`jobRun.ts` `partLine`), for the last word of a job that ends short. */ parts?: string[]; /** The steps of the last part, when it was cut off before it answered (`jobRun.ts`). */ cutOff?: string[]; /** What its parts got, saved as it returned (`jobProgress.ts`), and how each part ended. */ saved?: JobSaved; ends?: PartEnd[]; unfinished?: true; advice?: string; resumes?: number; /** The part it goes on from, when the part before was cut off (`jobPartResume.ts`), and the part whose try was handed saved rounds. */ carryFrom?: number; resumedTry?: number; idle?: true; machineRun?: MachineRunRef; machineSession?: string; note?: JobNote; noteAsked?: true };
 /** The part running on the machine now, kept so a pass that restarts reads the same run instead of assigning another. */
 export type MachineRunRef = { runId: string; part: number; deadline: number };
 
@@ -117,10 +119,16 @@ const machineOfEntry = (entry: { machine?: true; on?: string }): string | null =
 /** Whether one more job fits where it would run: the cloud's three, or that computer's own. */
 const fits = (running: readonly { on?: string; machine?: true }[], on: string | null) =>
   on === null ? running.filter((entry) => machineOfEntry(entry) === null).length < MAX_RUNNING_JOBS : running.filter((entry) => machineOfEntry(entry) === on).length < MAX_MACHINE_JOBS;
-/** Parts one job may take before it reports what it has (the gateway clamps to the same); Dev2, 2026-10-31: 10 parts or 30 minutes. */
-export const MAX_JOB_ATTEMPTS = 10;
+/**
+ * A job's limits are its Part end node's config (`limits` in texConfig.json; `jobPartEnd.cjs`, Dev2, 2026-11-17, "jobs as
+ * config"): today's 10 parts or 30 minutes (Dev2, 2026-10-31), 96 parts or 4 hours on the person's own computer, until
+ * the config says otherwise. Everything sized by them (stale times, the Workflow's passes) follows.
+ */
+const LIMITS = partEndLib.configLimits(TEX_CONFIG);
+/** Parts one job may take before it reports what it has (the gateway clamps to the same). */
+export const MAX_JOB_ATTEMPTS = LIMITS.parts;
 /** How long a job keeps going after the advisor says "keep going" before it is reported stuck. */
-export const JOB_LIMIT_MS = 30 * 60 * 1000;
+export const JOB_LIMIT_MS = LIMITS.minutes * 60 * 1000;
 /** Tries at a turn that could not start (a deploy, the control plane down) before the job gives up. */
 export const MAX_JOB_TRIES = 3;
 /** How long a finished job is kept at all: the "What Tex is working on" page reads it for this long. */
@@ -130,9 +138,9 @@ export const JOB_SHOWN_MS = 2 * 60 * 60 * 1000;
 /** A job still "running" this long after it started died with its object: it is marked stopped. */
 export const JOB_STALE_MS = JOB_LIMIT_MS + 15 * 60 * 1000 + 5 * 60 * 1000; // its last part may start just inside the limit and run fifteen minutes
 /** A job on the person's own computer runs four hours by default (owner, 2026-11-03), in fifteen-minute parts. */
-export const MACHINE_JOB_LIMIT_MS = 4 * 60 * 60 * 1000;
+export const MACHINE_JOB_LIMIT_MS = LIMITS.machineMinutes * 60 * 1000;
 /** Parts a machine job may take: twenty-four hours of them, the most a machine's owner may allow. */
-export const MAX_MACHINE_JOB_ATTEMPTS = 96;
+export const MAX_MACHINE_JOB_ATTEMPTS = LIMITS.machineParts;
 export const MACHINE_JOB_STALE_MS = MACHINE_JOB_LIMIT_MS + 20 * 60 * 1000 + 5 * 60 * 1000;
 export const JOB_PREFIX = "job:";
 export const RUN_KEY = "jobrun";

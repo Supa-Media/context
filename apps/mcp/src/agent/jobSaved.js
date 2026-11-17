@@ -93,3 +93,15 @@ export function withJobDrafts(job, step, answerCheck) {
     return answerCheck(draft, info);
   };
 }
+
+/**
+ * `body.job`'s resume, read strictly: which restart of the job this is, and the part whose saved rounds this part goes
+ * on from: this part again after a try that died, or the part before, cut off before it answered
+ * (`apps/agent/src/jobPartResume.ts`); 0 starts fresh and drops this part's own, which a try that died after it was
+ * handed saved rounds may have left. Anything else is null.
+ */
+export function jobResumeOf(value, attempt) {
+  const resumes = Number.isSafeInteger(value?.resumes) && value.resumes >= 0 ? value.resumes : 0;
+  const from = value?.resumeFrom;
+  return { resumes, resumeFrom: from === 0 || from === attempt || (from === attempt - 1 && attempt > 1) ? from : null };
+}

@@ -83,13 +83,14 @@ test("the node answers its choice as a when tag, under the limits on its own con
   assert.equal(out.ended, "stuck");
 });
 
-test("today's limits are the texting Worker's, until the wiring step moves them into config", () => {
+test("the texting Worker's limits are the node's config, not numbers of its own", () => {
   const jobs = readFileSync(new URL("../../agent/src/jobs.ts", import.meta.url), "utf8");
-  const value = (name) => Function(`return (${jobs.match(new RegExp(`export const ${name} = ([^;]+);`))[1]})`)();
-  assert.equal(value("MAX_JOB_ATTEMPTS"), DEFAULT_LIMITS.parts);
-  assert.equal(value("JOB_LIMIT_MS"), DEFAULT_LIMITS.minutes * MIN);
-  assert.equal(value("MAX_MACHINE_JOB_ATTEMPTS"), DEFAULT_LIMITS.machineParts);
-  assert.equal(value("MACHINE_JOB_LIMIT_MS"), DEFAULT_LIMITS.machineMinutes * MIN);
+  assert.match(jobs, /const LIMITS = partEndLib\.configLimits\(TEX_CONFIG\);/);
+  const value = (name) => jobs.match(new RegExp(`export const ${name} = ([^;]+);`))[1];
+  assert.equal(value("MAX_JOB_ATTEMPTS"), "LIMITS.parts");
+  assert.equal(value("JOB_LIMIT_MS"), "LIMITS.minutes * 60 * 1000");
+  assert.equal(value("MAX_MACHINE_JOB_ATTEMPTS"), "LIMITS.machineParts");
+  assert.equal(value("MACHINE_JOB_LIMIT_MS"), "LIMITS.machineMinutes * 60 * 1000");
 });
 
 test("Part end is on the shelf, its code in the gateway's table", () => {
@@ -132,4 +133,13 @@ test("while the job's pass runs, its own wire answers; else the config's wire; e
   assert.equal((await partEndFor("job-other", input, { config: wired, graph })).via, "wire");
   assert.deepEqual(fired, [["job", "partEnd"]]);
   assert.deepEqual(await partEndFor("job-other", input, { config: { edges: [] } }), decidePartEnd(input, null));
+});
+
+test("a job's limits everywhere are its Part end node's config, today's numbers while it names none", async () => {
+  const { configLimits } = partEndLib;
+  assert.deepEqual(configLimits({ nodes: [] }), DEFAULT_LIMITS);
+  assert.deepEqual(configLimits({ nodes: [{ id: "partEnd", limits: { parts: 4, minutes: 12 } }] }), { ...DEFAULT_LIMITS, parts: 4, minutes: 12 });
+  const { MAX_JOB_ATTEMPTS } = await import("../src/agent/background.js");
+  const { TEX_CONFIG } = await import("../src/agent/texConfig.js");
+  assert.equal(MAX_JOB_ATTEMPTS, configLimits(TEX_CONFIG).parts);
 });

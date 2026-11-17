@@ -272,10 +272,10 @@ jobs:
         if: ${{ inputs.judge_run_id == '' }}
         run: pnpm ai pull "$BENCH_JOB"
 
-      # The loop's budget (bench/spend.mjs, decided by Dev2 on 2026-10-17): a
-      # round that would take the total in `ai/results/spend.md` past its
-      # cap_usd is refused before anything is spent. A person raises the cap
-      # by editing that note.
+      # The loop's budget (bench/spend.mjs): a round whose expected cost would
+      # take this America/New_York month past its limit, or today past the
+      # daily cap, in `ai/results/spend.md` is refused before anything is
+      # spent. A person raises the caps by editing that note.
       - name: Refuse a round over the spend cap
         if: ${{ !inputs.fake && inputs.judge_run_id == '' && inputs.job != 'search' }}
         run: |
