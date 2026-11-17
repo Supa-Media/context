@@ -250,7 +250,8 @@ export type AgentAnswer =
   /** The gateway's 503 for a workspace with no bucket it can reach: a new one still starting, or a broken binding. */
   | { kind: "no_storage" }
   /** `timedOut`: a streamed turn that ran past its time, not one that failed; `refused`: turned down before anything ran (`agentRefusal.ts`). */
-  | { kind: "unavailable"; timedOut?: true; refused?: string };
+  /** `cause`: why it died, as the gateway or the stream said (`jobProgress.ts` `PartCause`): its answer checks' loop ran out, it ran past its time, the model was down, or it crashed. */
+  | { kind: "unavailable"; timedOut?: true; refused?: string; cause?: "check_limit" | "timeout" | "model_down" | "crash" };
 
 /**
  * Ask the gateway's `/agent` route. `conversation` names the thread the
@@ -434,6 +435,9 @@ export function agentAnswer(status: number, json: unknown): AgentAnswer {
   if (status === 503 && body.error === "storage_unavailable") return { kind: "no_storage" };
   const refused = refusalOf(status, body);
   if (refused !== null) return { kind: "unavailable", refused };
+  // The gateway's word on why the turn died (`apps/mcp/src/agent/progress.js` `diedOf`, `recoverFromFailure.js`).
+  if (status === 502 && body.error === "model_unavailable") return { kind: "unavailable", cause: "model_down" };
+  if (body.cause === "check_limit" || body.cause === "crash") return { kind: "unavailable", cause: body.cause };
   return { kind: "unavailable" };
 }
 
@@ -445,6 +449,8 @@ export function agentAnswer(status: number, json: unknown): AgentAnswer {
 export const AGENT_STREAM_TIMEOUT_MS = 12 * 60_000;
 /** The gateway writes a heartbeat every 15 seconds; this long with no line is a dead stream. */
 export const AGENT_STREAM_IDLE_MS = 60_000;
+/** The most of one tool's result a job's step line carries (`jobProgress.ts` keeps less). */
+const MAX_STEP_RESULT = 2_000;
 /** One line of the stream is a progress text or a final JSON body, which may carry pictures (`outgoing.ts`). */
 const MAX_STREAM_LINE = 24 * 1024 * 1024;
 
@@ -471,7 +477,7 @@ export async function askAgentStream(
   };
   // A job's part sends its answer before the advisor's check (`apps/mcp/src/agent/progress.js` `answered`): when the gateway dies after it (out of memory, 2026-11-08), the part still answered, unchecked, rather than being redone.
   let early: AgentAnswer | null = null;
-  const dead = (): AgentAnswer => early ?? { kind: "unavailable" }, failed = (final: AgentAnswer) => (final.kind === "unavailable" && final.refused === undefined ? dead() : final);
+  const dead = (): AgentAnswer => early ?? { kind: "unavailable", cause: "crash" }, failed = (final: AgentAnswer) => (final.kind === "unavailable" && final.refused === undefined ? (early ?? final) : final);
   try {
     touch();
     const response = await fetcher(`${gatewayOrigin}/agent`, {
@@ -511,9 +517,18 @@ export async function askAgentStream(
           continue;
         }
         if (typeof parsed.step === "string" && parsed.step.trim()) {
-          // Whether it failed, and the tool's short reason, for the jobs page (`apps/mcp/src/agent/background.js` `stepWhy`).
+          // Whether it failed, and the tool's short reason, for the jobs page (`apps/mcp/src/agent/background.js` `stepWhy`);
+          // what it returned and whether it waits on their yes, saved by a job as it comes (`jobProgress.ts`).
           const why = typeof parsed.why === "string" ? parsed.why.replace(/\s+/g, " ").trim().slice(0, 160) : "";
-          await onStep?.(parsed.step.trim().slice(0, 140), parsed.failed === true ? { failed: true, ...(why ? { why } : {}) } : undefined);
+          const result = typeof parsed.result === "string" && parsed.result.trim() ? parsed.result.trim().slice(0, MAX_STEP_RESULT) : "";
+          const how: StepHow = { ...(parsed.failed === true ? { failed: true as const, ...(why ? { why } : {}) } : {}), ...(result ? { result } : {}), ...(parsed.held === true ? { held: true as const } : {}), ...(parsed.outside === true ? { outside: true as const } : {}) };
+          await onStep?.(parsed.step.trim().slice(0, 140), Object.keys(how).length > 0 ? how : undefined);
+          touch();
+          continue;
+        }
+        if (typeof parsed.draft === "string" && parsed.draft.trim()) {
+          // A draft the part wrote, before its checks: what a part that then dies still has (`jobProgress.ts`).
+          await onStep?.("", { draft: parsed.draft.trim().slice(0, MAX_STEP_RESULT * 4) });
           touch();
           continue;
         }
@@ -524,9 +539,9 @@ export async function askAgentStream(
       }
     }
     // The stream ended with no final line: the turn died on the way.
-    return dead();
+    return early ?? { kind: "unavailable", cause: "crash" };
   } catch {
-    return early ?? (timedOut ? { kind: "unavailable", timedOut: true } : { kind: "unavailable" });
+    return early ?? (timedOut ? { kind: "unavailable", timedOut: true, cause: "timeout" } : { kind: "unavailable", cause: "crash" });
   } finally {
     clearTimeout(overall);
     clearTimeout(idle);
