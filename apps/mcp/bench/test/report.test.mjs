@@ -253,10 +253,31 @@ const SNAPSHOT = [
 ].join("\n");
 
 test("priceUsd prices haiku under both names", () => {
-  const usage = { input: 1000000, output: 1000000, cacheRead: 1000000, cacheWrite: 1000000 };
-  // 0.10 + 0.50 + 0.01 + 0.125
-  assert.equal(priceUsd("anthropic/claude-haiku-5-5", usage), 0.735);
-  assert.equal(priceUsd("claude-haiku-5-5", usage), 0.735);
+  const usage = { input: 1000, output: 1000, cacheRead: 1000, cacheWrite: 1000 };
+  // Under 100k tokens: 0.0001 + 0.0005 + 0.00001 + 0.000125.
+  assert.equal(priceUsd("anthropic/claude-haiku-5-5", usage), 0.000735);
+  assert.equal(priceUsd("claude-haiku-5-5", usage), 0.000735);
+});
+
+test("haiku input past 100k tokens is five times the published rate, output included once", () => {
+  assert.equal(priceUsd("claude-haiku-5-5", { input: 100_000 }), 0.01);
+  assert.equal(priceUsd("claude-haiku-5-5", { input: 1_000_000, output: 1_000_000 }), 1);
+  const over = { input: 1_000_000, output: 1_000_000, cacheRead: 1_000_000, cacheWrite: 1_000_000 };
+  // 0.50 + 0.50 + 0.05 + 0.625
+  assert.equal(priceUsd("claude-haiku-5-5", over), 1.675);
+  // The same tokens summed across calls stay on the published rate.
+  assert.equal(priceUsd("claude-haiku-5-5", { input: 1_000_000 }, { perCall: false }), 0.1);
+  assert.equal(priceUsd("claude-haiku-5-5", over, { perCall: false }), 0.735);
+});
+
+test("runPriceUsd prices summed Haiku input past 100k at the base rate", () => {
+  const model = "claude-haiku-5-5";
+  const usage = { input: 120_000, output: 1_000 };
+  const run = { model, usage, usageByModel: { [model]: usage }, rounds: { [model]: 4 } };
+  // Four rounds at 30k each. 120k in at $0.10 and 1k out at $0.50, not five times the input.
+  assert.equal(runPriceUsd(run), 0.0125);
+  assert.equal(runPriceUsd({ model, usage }), 0.0125);
+  assert.equal(priceUsd(model, usage), 0.0605);
 });
 
 test("priceUsd prices sonnet under both names", () => {
@@ -278,7 +299,7 @@ test("priceUsd returns null for an unknown model", () => {
 });
 
 test("priceUsd counts missing usage fields as zero", () => {
-  assert.equal(priceUsd("claude-haiku-5-5", { input: 1000000 }), 0.1);
+  assert.equal(priceUsd("claude-haiku-5-5", { input: 1000000 }), 0.5);
   assert.equal(priceUsd("claude-haiku-5-5", {}), 0);
   assert.equal(priceUsd("claude-haiku-5-5", undefined), 0);
 });
@@ -534,7 +555,7 @@ test("a planned setup is priced model by model, and the summary says the think m
       },
     ],
   };
-  // Opus 0.1M at $4 + Haiku 1M at $0.1 = $0.50, not 1.1M at Haiku's $0.11.
+  // Opus 0.1M at $4 + Haiku 1M at $0.10 = $0.50. The Haiku million is four rounds, so it stays on the published rate, not 1.1M at Haiku's $0.11 and not five times $0.10.
   assert.ok(Math.abs(runPriceUsd(planned.runs[0]) - 0.5) < 1e-12, String(runPriceUsd(planned.runs[0])));
   const md = resultMarkdown(planned);
   assert.ok(md.includes("Routed: plan-drive sent 1 of 2 answers to anthropic/claude-opus-5-5 ($0.5000 each)"), md);

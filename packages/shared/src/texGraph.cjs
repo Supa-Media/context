@@ -24,7 +24,9 @@
  *           may do only what the wire's `allow` lets it: "read" (reads only) or "revertible" (the default: reads, and writes
  *           that can be undone); anything that cannot be taken back always waits for the go. `unless` names the bursts
  *           that do not start it early (`firstLook`, `sms`, `unpaired`; `provisionalHeld`): any one of them on any
- *           provisional wire holds the run, and the step waits for those sources instead. One target per config; read
+ *           provisional wire holds the run, and the step waits for those sources instead. The config check requires
+ *           `firstLook` and `sms` on every provisional wire (`texConfigSchema.cjs`); this runner still reads a wire
+ *           as written. One target per config; read
  *           by intake through `provisionalWiring`, never fired by `run` (Dev2, 2026-11-17).
  *   generator  ("Starts a new run") the source starts a new run of its own that begins at the target, an input node
  *           (`kind: "input"`), in this chat or another; nothing in the current run waits for it. A background job, a

@@ -106,16 +106,21 @@ export function sourcesIn(text, hosts) {
 
 /**
  * The page a case is graded on: the placed page at `page.at` (only if the job rewrote it), else the written note
- * under `page.under` that covers most of the ask. `changes` are the world's (`world.changes()`), `read` a note's text.
+ * under `page.under` that covers most of the ask. `changes` are the world's (`world.changes()`). `read(path, workspace)`
+ * is that note's text in the workspace the path names, so a page under `band/` is not graded from the asker's own.
  */
 export function pickPage(item, changes, read, placed = {}) {
   const written = changes.filter((change) => change.kind === "written" && change.path.endsWith(".md") && !/^(tex|\.context)\//.test(change.path)).map((change) => `${change.workspace}/${change.path}`);
+  const textAt = (full) => {
+    const cut = full.indexOf("/");
+    return read(full.slice(cut + 1), full.slice(0, cut));
+  };
   if (item.page.at) {
     const path = item.page.at.slice(item.page.at.indexOf("/") + 1);
-    const text = read(path);
+    const text = textAt(item.page.at);
     return text !== null && text !== placed[path] ? { path: item.page.at, text } : null;
   }
-  const candidates = written.filter((path) => path.startsWith(item.page.under)).map((path) => ({ path, text: read(path.slice(path.indexOf("/") + 1)) ?? "" }));
+  const candidates = written.filter((path) => path.startsWith(item.page.under)).map((path) => ({ path, text: textAt(path) ?? "" }));
   const score = (page) => (item.covers ?? []).filter((entry) => hasEntry(page.text, entry)).length;
   return candidates.sort((a, b) => score(b) - score(a))[0] ?? null;
 }
@@ -164,7 +169,7 @@ export async function judgeQuality(item, { page, report }, request) {
 const fakeQuality = async () => ({ text: "", usage: {} });
 
 /** What a job's parts cost, priced model by model. */
-export const partsUsd = (parts) => parts.reduce((sum, part) => sum + Object.entries(part.usageByModel ?? {}).reduce((s, [model, usage]) => s + (priceUsd(model, usage) ?? 0), 0), 0);
+export const partsUsd = (parts) => parts.reduce((sum, part) => sum + Object.entries(part.usageByModel ?? {}).reduce((s, [model, usage]) => s + (priceUsd(model, usage, { perCall: false }) ?? 0), 0), 0);
 
 /** The replay gate's row for a graded case (`replayGate.mjs`): right and expected are this scorer's own. */
 export const gateRow = (record) => ({ id: record.id, right: record.right === true, must: false, heldOut: record.heldOut === true, target: record.target ?? false, cause: record.cause ?? (record.target || null), expected: expectedOf(record), usd: record.usd ?? 0 });
@@ -207,7 +212,7 @@ export function jobsReport(records) {
 
 /** Grade one finished job in its world. */
 async function gradeJob(world, item, ran, request, placed) {
-  const page = pickPage(item, world.changes(), (path) => world.read(path), placed);
+  const page = pickPage(item, world.changes(), (path, workspace) => world.read(path, workspace), placed);
   const browser = world.browser();
   const checks = checkTask(item, { page, status: ran.status, browser, parts: ran.parts });
   const report = ran.parts.at(-1)?.answer ?? "";

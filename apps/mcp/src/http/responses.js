@@ -2,12 +2,16 @@
 
 /* -------------------------------- helpers --------------------------------- */
 
-export function json(obj, status = 200) {
+/** On a 503 that is a real upstream failure: callers that honor it wait, instead of retrying at once. */
+export const RETRY_AFTER = { "Retry-After": "5" };
+
+export function json(obj, status = 200, extraHeaders) {
   return new Response(JSON.stringify(obj), {
     status,
     headers: {
       "Content-Type": "application/json",
       "Access-Control-Allow-Origin": "*",
+      ...(extraHeaders ?? {}),
     },
   });
 }

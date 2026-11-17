@@ -28,9 +28,22 @@ instead of in a GitHub secret.
 - A plain 400 on an alias moves to the next payer, since the gateway's answer
   for an alias it does not hold is not documented as a 401; it is logged as
   `ai_gateway_payer_refused` with the payer and status only.
+- A benchmark call uses the same rest. The runner has no Durable Object
+  binding, so it posts `claim`, `spent` and `clear` to `/credit-rest` on the
+  gateway, with the gateway token it already holds. The body is an op and a
+  payer name. A wrong token is a 404. The runner's clock is not trusted: a
+  claim uses the worker's time, and a spent mark is stored at most one rest
+  ahead of it. A larger finite `until` is clamped and logged as
+  `credit_rest_clamped`. The object still stores the timestamp an in-worker
+  caller sends, because that caller is the worker's own clock. A benchmark
+  call never falls through to Unified Billing: when every credit payer is
+  spent or refused, the call stops. People's texts still do, because a text
+  has to be answered. The round's priced usage is written to the eval spend
+  note, so the monthly, daily and replay caps count it. (2026-11-17)
 
 Simplifying this away (back to one key on the request, or a rest that only
 the isolate which saw the failure remembers) brings back the doubled calls
-once that key's credit is spent. Tests:
+once that key's credit is spent. Passing the runner's `now` and `until`
+straight into the object parks the plan payer on the runner's clock. Tests:
 `apps/mcp/test/agentGatewayAliases.test.mjs`,
 `apps/mcp/test/agentCreditRest.test.mjs`.

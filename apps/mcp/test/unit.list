@@ -62,6 +62,7 @@ test/agentSixTools.test.mjs
 test/agentTranscript.test.mjs
 test/agentTrustedSites.test.mjs
 test/agentTurnLimits.test.mjs
+test/parallelReads.test.mjs
 test/agentHeldEcho.test.mjs
 test/agentWorkspaces.test.mjs
 test/appOriginMetadata.test.mjs
@@ -250,6 +251,7 @@ test/calendarRead.test.mjs
 test/agentSentNoteLinks.test.mjs
 test/agentBackground.test.mjs
 test/agentTwoAsks.test.mjs
+test/armForTextRace.test.mjs
 test/agentClaimCheck.test.mjs
 test/agentHandback.test.mjs
 test/calendarWords.test.mjs
@@ -427,6 +429,7 @@ test/chatLedgerWrites.test.mjs
 test/chatLedgerReads.test.mjs
 test/chatLedgerBackfill.test.mjs
 test/texPage.test.mjs
+test/upstreamStatus.test.mjs
 test/texPageComputer.test.mjs
 test/texPageJobPlaces.test.mjs
 test/aboutLines.test.mjs
@@ -569,6 +572,7 @@ test/texPrefixPrint.test.mjs
 test/texEarlierRoomStep.test.mjs
 test/promptCatalog.test.mjs
 test/texGraph.test.mjs
+test/texProvisionalHolds.test.mjs
 test/texGraphDurable.test.mjs
 test/texSets.test.mjs
 test/sets.test.mjs
@@ -646,3 +650,4 @@ test/jobReportNode.test.mjs
 test/devShare.test.mjs
 test/jobCheckView.test.mjs
 test/jobStart.test.mjs
+test/turnFactClaims.test.mjs

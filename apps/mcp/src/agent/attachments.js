@@ -300,7 +300,7 @@ export function plainAttachmentText(attachments, text) {
     if (attachment.heard) return `${n}. ${attachment.name}, a voice message; they said:\n${attachment.text.slice(0, 20_000)}`;
     if (typeof attachment.text === "string") return `${n}. ${attachment.name}:\n${attachment.text.slice(0, 20_000)}`;
     if (typeof attachment.unread === "string") return `${n}. ${attachment.name}: could not be opened. ${attachment.unread}`;
-    return `${n}. ${attachment.name}: you cannot see this one on this model; say so if they ask about it.`;
+    return `${n}. ${attachment.name}: you cannot see this one on this model. Say so if they ask about it, and never guess what it shows.`;
   });
   return `They sent attachments with this text:\n${parts.join("\n")}\n\n${text || "(No words, just the attachments.)"}`;
 }

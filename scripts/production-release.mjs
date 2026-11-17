@@ -24,10 +24,8 @@ export async function requireStagingRelease(env, request = fetch) {
   }
   if (!env.GH_TOKEN) throw new Error('Missing GitHub Actions read token.');
   await assertCommitOnMain(env, request, env.GITHUB_SHA);
-  const run = await newestRun(env, request, 'deploy-staging.yml', 'staging deployment');
-  if (!run || run.status !== 'completed' || run.conclusion !== 'success') {
-    throw new Error('This commit has not completed staging successfully; finish or rerun Deploy Staging before promoting it.');
-  }
+  // Staging is not a gate (owner, 2026-11-17): a collapsed or pending staging
+  // run was holding every release. Deploy Staging still runs on its own.
   // A pull request runs only the Convex tests its change reaches
   // (scripts/convex-tests.mjs); main runs the whole suite, and this is where
   // that run stops a release. Only the workflow conclusion counts, so a job
@@ -38,7 +36,7 @@ export async function requireStagingRelease(env, request = fetch) {
   if (!ci || ci.event !== 'push' || ci.status !== 'completed' || ci.conclusion !== 'success') {
     throw new Error('CI has not passed on this commit on main; fix or rerun it before promoting.');
   }
-  return run.html_url;
+  return ci.html_url;
 }
 
 // `ahead` means main contains the commit. `identical` means it is the tip.

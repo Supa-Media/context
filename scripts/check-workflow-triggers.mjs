@@ -192,6 +192,14 @@ const PR_FILTER_KEYS = ["branches", "branches-ignore", "paths", "paths-ignore"];
 const REQUIRED_PR_TYPES = ["opened", "synchronize", "reopened"];
 
 /**
+ * The one workflow that may listen only for `edited`. It does not grade the
+ * pull request; it re-runs the workflows that do, and only when the owner's
+ * skip line changed (`.github/workflows/pr-description.yml`). Any other file
+ * with that filter drops the three events a pull request is checked on.
+ */
+const EDIT_ONLY = new Set(["pr-description.yml"]);
+
+/**
  * The two triggers whose configuration a rule below actually reads (A and C).
  * Nesting under these is refused rather than flattened — see `parseOnBlock`.
  */
@@ -515,8 +523,9 @@ export function analyse(files) {
       const types = config === null ? undefined : config.types;
       if (types !== undefined) {
         const declared = Array.isArray(types) ? types : types === null ? [] : [String(types)];
+        const editOnly = EDIT_ONLY.has(name) && declared.length === 1 && declared[0] === "edited";
         const missing = REQUIRED_PR_TYPES.filter((t) => !declared.includes(t));
-        if (missing.length > 0) {
+        if (missing.length > 0 && !editOnly) {
           fail(
             "A",
             name,
@@ -747,6 +756,25 @@ function selfTest() {
       "the default activity set, written out",
       [{ name: "mcp.yml", text: "on:\n  pull_request:\n    types: [opened, synchronize, reopened]\n  push:\n    branches: [main]\njobs: {}\n" }],
       [],
+    ],
+    [
+      // pr-description.yml re-runs other checks; it is not itself a check of
+      // the pull request, so it may listen only for description edits. The
+      // name is the whole allowance: the same filter on any other file is the
+      // bug above.
+      "the description workflow listens only for edits",
+      [{ name: "pr-description.yml", text: "on:\n  pull_request:\n    types: [edited]\njobs: {}\n" }],
+      [],
+    ],
+    [
+      "another workflow cannot listen only for edits",
+      [{ name: "mcp.yml", text: "on:\n  pull_request:\n    types: [edited]\n  push:\n    branches: [main]\njobs: {}\n" }],
+      ["A mcp.yml"],
+    ],
+    [
+      "the description workflow still cannot take a path filter",
+      [{ name: "pr-description.yml", text: "on:\n  pull_request:\n    types: [edited]\n    paths:\n      - 'docs/**'\njobs: {}\n" }],
+      ["A pr-description.yml"],
     ],
     [
       // Rule E, which no case reached until now: `parseOnBlock` throws for every

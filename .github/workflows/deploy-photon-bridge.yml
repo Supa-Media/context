@@ -98,17 +98,12 @@ jobs:
           cache: pnpm
       - run: pnpm install --filter "./infra/photon-bridge..." --frozen-lockfile
 
+      # Secrets ride on this same deploy. A following secret put publishes a
+      # second version and starts the container again; on 2026-11-17 that
+      # second start left the bridge with no container instance. Both secrets
+      # or neither, so a half-set pair cannot mint a token. Unset, the deploy
+      # stays inert until the Photon project exists.
       - name: Deploy container and Worker
-        working-directory: infra/photon-bridge
-        env:
-          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-        run: pnpm exec wrangler deploy
-
-      # Set only when present, so the deploy stays inert until Dev2 provisions
-      # the Photon project. Each secret is written after the deploy, which is
-      # the order scripts/check-workflow-secret-order.mjs requires.
-      - name: Sync the Photon credentials
         working-directory: infra/photon-bridge
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
@@ -117,12 +112,17 @@ jobs:
           PHOTON_PROJECT_SECRET: ${{ secrets.PHOTON_PROJECT_SECRET }}
         run: |
           set -euo pipefail
-          if [ -z "${PHOTON_PROJECT_ID:-}" ] || [ -z "${PHOTON_PROJECT_SECRET:-}" ]; then
+          secrets_file=""
+          cleanup() { if [ -n "${secrets_file}" ]; then rm -f "$secrets_file"; fi; }
+          trap cleanup EXIT
+          if [ -n "${PHOTON_PROJECT_ID:-}" ] && [ -n "${PHOTON_PROJECT_SECRET:-}" ]; then
+            secrets_file="$(mktemp)"
+            node ../../scripts/photon-secrets-file.mjs "$secrets_file"
+            pnpm exec wrangler deploy --secrets-file "$secrets_file"
+          else
             echo "WARNING: PHOTON_PROJECT_ID and PHOTON_PROJECT_SECRET are not both set; the bridge stays unconfigured and idle."
-            exit 0
+            pnpm exec wrangler deploy
           fi
-          printf '%s' "$PHOTON_PROJECT_ID" | pnpm exec wrangler secret put PHOTON_PROJECT_ID
-          printf '%s' "$PHOTON_PROJECT_SECRET" | pnpm exec wrangler secret put PHOTON_PROJECT_SECRET
 
       - name: Summary
         if: always()

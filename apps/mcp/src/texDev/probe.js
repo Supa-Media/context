@@ -183,7 +183,7 @@ export function turnFrom(mine, { timeZone, full = false, detail } = {}) {
       ms: reply?.ms ?? null,
       ...(reply?.model ? { model: reply.model } : {}),
       ...(reply?.version ? { version: reply.version } : {}),
-      ...(reply?.timing ? { timing: full === true ? reply.timing : briefTiming(reply.timing, all) } : {}),
+      ...(reply?.timing ? { timing: full === true ? withoutWords(reply.timing) : briefTiming(reply.timing, all) } : {}),
       slowest: timed.slice(0, 8),
       failed,
       tools: mine.filter((e) => e.kind === "tool").map((e) => ({ name: e.name, ok: e.ok !== false, ms: e.ms ?? null })),
@@ -198,4 +198,10 @@ export async function entriesOf(env, page, body = {}) {
   const chat = probedChat(page, body.chat ?? "me");
   const answer = await ledgerView(env, page, chat, { view: "raw", kinds: body.kinds, day: body.day, after: body.after, before: body.before === undefined && body.after === undefined ? NEWEST : body.before, job: body.job });
   return { chat: chat.key, ...answer, entries: (answer.entries ?? []).map((e) => cutDeep(e, body.full === true ? FULL_CUT : CUT)) };
+}
+
+/** The timing block without its kept prompt words (`turnTiming.js`): `prompt` is the action that shows them. */
+function withoutWords(timing) {
+  if (!Array.isArray(timing?.rounds)) return timing;
+  return { ...timing, rounds: timing.rounds.map((round) => (round?.prompt?.words ? { ...round, prompt: { ...round.prompt, words: undefined } } : round)) };
 }

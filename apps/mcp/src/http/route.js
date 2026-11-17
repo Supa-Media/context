@@ -40,7 +40,7 @@ import {
   StorageUnavailable,
   storeForSession,
 } from "../session.js";
-import { corsResponse, json } from "./responses.js";
+import { corsResponse, json, RETRY_AFTER } from "./responses.js";
 import { createControlPlane } from "../controlPlane.js";
 import { enforceOrigin, isTransportPath } from "../origin.js";
 import { handleAgent } from "../agent/route.js";
@@ -87,6 +87,7 @@ import { WORKSPACE_STORE_PATH, handleWorkspaceStoreDoor } from "../workspaceStor
 import { IMAGE_UPLOAD_PATH, handleImageUpload } from "../notes/imageUploads.js";
 import { judgeFor } from "../privacy/judge.js";
 import { TEX_EVAL_PREFIX, handleTexEval } from "./texTestSet.js";
+import { CREDIT_REST_PATH, handleCreditRest } from "../agent/creditRest.js";
 import { LAB_SANDBOX_PATH, handleLabSandbox } from "../labSandbox/route.js";
 import { PAGE_PREFIX as LAB_SANDBOX_PAGES, handleLabSandboxPage } from "../labSandbox/pages.js";
 
@@ -104,6 +105,9 @@ export async function route(request, env, ctx) {
     // An upload link's PUT (`notes/imageUploads.js`): no person's token and no
     // workspace selector; the ticket in its header is the whole authority.
     if (url.pathname === IMAGE_UPLOAD_PATH) return await handleImageUpload(request, env);
+    // The benchmark runner's view of which payer's credit is spent (`agent/creditRest.js`). The gateway token is the
+    // whole authority. It is matched before a workspace is read off the path.
+    if (url.pathname === CREDIT_REST_PATH) return await handleCreditRest(request, env);
     // Tex's eval service (`infra/tex-eval`), passed through untouched: it reads no session of ours, and answers runs
     // only to main's Test Set workflow, by the GitHub OIDC token it checks itself (`texTestSet.js`).
     if (url.pathname.startsWith(TEX_EVAL_PREFIX)) return await handleTexEval(request, env);
@@ -360,13 +364,27 @@ export async function route(request, env, ctx) {
         // Authenticated, but this workspace has no bucket we can reach. A
         // refusal, never a fallback: there is no other store to serve from and
         // reaching for one would be the cross-tenant bug itself.
+        // `not bound` stays 503. Convex answers `{ binding: null }` on HTTP 200 for an unknown token and for a
+        // workspace with no bucket, the same bytes (`credentials.ts`), so it is not a definite auth result.
+        // 401 would make the Tex page and the machines list drop a live token and call again. Retry-After is
+        // what an HTTP client can honor; the app's own poll does not read it.
+        if (error.reason === "not bound") {
+          console.error(JSON.stringify({
+            event: "storage_not_bound",
+            path,
+            upstream: Number.isInteger(error.upstream) ? error.upstream : null,
+            code: typeof error.code === "string" && /^[a-z0-9_]{1,40}$/.test(error.code) ? error.code : null,
+            ms: Number.isFinite(error.ms) ? error.ms : null,
+          }));
+        }
         return json(
           {
             error: "storage_unavailable",
             error_description:
               "This context has no reachable storage. Reconnect it from the dashboard.",
           },
-          503
+          503,
+          RETRY_AFTER,
         );
       }
 

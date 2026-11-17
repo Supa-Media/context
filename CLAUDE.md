@@ -318,8 +318,9 @@ statement of what is blocking, not a request for permission. Longer form:
 **Merging deploys staging, and production follows a green main CI.** Every
 merge to `main` runs `Deploy Staging`. `Promote to Production`
 (`promote-production.yml`) starts `Deploy to Production` when that CI run
-succeeds, for the newest commit on main that has also passed staging, and
-not before (decided by the owner, 2026-11-17). A red main CI does not deploy.
+succeeds, for the newest commit on main whose CI succeeded, and not before
+(decided by the owner, 2026-11-17). Staging does not gate it. A red main CI
+does not deploy.
 Check that production finished; do not dispatch it a second time. Set
 `AUTO_DEPLOY_PRODUCTION` to `off` to leave production to the manual press.
 Desktop releases, native builds, store submissions and secret rotation remain
@@ -351,6 +352,11 @@ checked is not a guard.**
 - **Test-first.** Write the failing test, then the code. Tenant isolation,
   authorization scopes, etag conflicts, storage failures, ingestion idempotency
   and revocation all need real coverage.
+- **Before every push, run `pnpm precheck`.** It runs the fast guards
+  (including the Tex diagram check), the app typecheck, and the architecture
+  check that CI runs. Those are the checks that failed after a push and turned
+  into a fix loop (#3544, #3538). Do not push a red precheck. It needs
+  `pnpm install` and stays within a couple of minutes.
 - **Sabotage-test rather than trusting a green run**: break the invariant
   deliberately and confirm the right tests fail.
 - **Small, tested increments.** Atomic commits; describe *why*.

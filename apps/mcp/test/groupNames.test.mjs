@@ -31,7 +31,7 @@ test("the tagger is named by handle and name, and only people in the chat are na
   });
   assert.deepEqual(group.names, [{ handle: "jo", name: "Jo Rivers" }, { handle: "sam", name: "Sam O'Neil-Park" }]);
   const prompt = groupPrompt(group, "acme");
-  assert.match(taggedLine(group), /@jo \(Jo Rivers\) tagged you/);
+  assert.match(taggedLine({ ...group, cause: "tagged" }), /@jo \(Jo Rivers\) tagged you/);
   assert.match(prompt, /@sam is Sam O'Neil-Park/);
   assert.doesNotMatch(prompt, /Eve/);
   assert.match(prompt, /never tell them they would know/);
@@ -158,11 +158,11 @@ test("a chat without numbers says nothing about them", () => {
 test("a guest who tagged Tex is named by label and number, and only a label that is here", () => {
   const guest = chatWithNumbers({ from: undefined, asker: "guest-1a2b" });
   assert.equal(guest.asker, "guest-1a2b");
-  assert.match(taggedLine(guest), /^guest-1a2b \(\+447700900123\) tagged you\./);
+  assert.match(taggedLine({ ...guest, cause: "tagged" }), /^guest-1a2b \(\+447700900123\) tagged you\./);
   assert.equal(chatWithNumbers({ from: undefined, asker: "guest-ffff" }).asker, undefined);
   assert.equal(chatWithNumbers({ asker: "guest-1a2b" }).asker, undefined, "an account holder tagged Tex");
   const home = { ...guest, guestChat: true };
-  assert.equal(taggedLine(home), "A guest in this chat, guest-1a2b (+447700900123), tagged you.");
+  assert.equal(taggedLine({ ...home, cause: "tagged" }), "A guest in this chat, guest-1a2b (+447700900123), tagged you.");
 });
 
 /*
@@ -196,7 +196,7 @@ test("a kept name sits beside the label on every line, the roster and who tagged
   assert.match(lines, /@guest-6ce3 \(Boba, \+1 \(555\) 555-0123\): a joke about reply latency/);
   assert.match(lines, /@guest-66ef \(Instinct\): talking enough for three/);
   assert.match(rosterLine(group), /guest-6ce3 \(Boba, \+1 \(555\) 555-0123\), on no Context account/);
-  assert.equal(taggedLine({ ...group, from: "", asker: "guest-66ef", guestTagger: true }).startsWith("guest-66ef (Instinct) tagged you."), true);
+  assert.equal(taggedLine({ ...group, from: "", asker: "guest-66ef", guestTagger: true, cause: "tagged" }).startsWith("guest-66ef (Instinct) tagged you."), true);
 });
 
 test("history lines name a guest the chat named", () => {

@@ -126,9 +126,9 @@ test("a 1:1 text: tools, system and history read back across texts while the clo
 
 test("a group: tools, system and history read back across texts while the tagger changes, and a literal @Tex tag follows a judged text", async () => {
   const { first, second } = await assertStable(TOKEN_GROUP, [
-    { question: "hello", group: { key: KEY, members: MEMBERS, from: "ada" }, timeZone: "UTC", running: [] },
-    { question: "what's the setlist?", group: { key: KEY, members: MEMBERS, from: "ada" }, timeZone: "UTC", running: [] },
-    { question: "@Tex and the opener?", group: { key: KEY, members: MEMBERS, from: "bo", tagged: true }, timeZone: "UTC", running: [JOB] },
+    { question: "hello", group: { key: KEY, members: MEMBERS, from: "ada", cause: "tagged" }, timeZone: "UTC", running: [] },
+    { question: "what's the setlist?", group: { key: KEY, members: MEMBERS, from: "ada", cause: "tagged" }, timeZone: "UTC", running: [] },
+    { question: "@Tex and the opener?", group: { key: KEY, members: MEMBERS, from: "bo", cause: "tagged", tagged: true }, timeZone: "UTC", running: [JOB] },
   ]);
   assert.match(JSON.stringify(first.messages.at(-1)), /@ada tagged you/);
   assert.match(JSON.stringify(second.messages.at(-1)), /@bo tagged you/);

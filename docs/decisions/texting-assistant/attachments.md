@@ -22,7 +22,9 @@ that pictures and files reach the model. Now:
 - The gateway (`apps/mcp/src/agent/attachments.js`) checks types and sizes
   against the model API's (8 files, 5 MB a picture, 10 MB a PDF, 20 MB in all)
   and sends them as image and document blocks before the person's words. A
-  text-only fallback model is told what it cannot see. A picture can be kept
+  text-only fallback model is told what it cannot see, and not to guess what a
+  picture shows: a guess reads as if it had seen the picture. The same line
+  is on a picture that comes back inside a tool result. A picture can be kept
   in a note with write_note `images: [{ name, data: "attachment:N" }]`; the
   bytes go in on the way to the tool, so the model never repeats them.
 - Attachments live for one turn, except photos on a kept texted turn: the last

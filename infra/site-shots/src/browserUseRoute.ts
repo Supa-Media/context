@@ -149,10 +149,20 @@ export async function releaseOwnedBrowserUse(env: BrowserUseEnv, owner: string, 
   await releaseOwned(env, owner, fetcher);
 }
 
-/** The CDP url of the owner's Browser Use browser, for the person's own view. Never leaves this Worker. */
-export async function browserUseCdp(env: BrowserUseEnv, owner: string): Promise<string | null> {
+/**
+ * The CDP url of the owner's Browser Use browser, for the person's own view,
+ * when that browser is the one the question moved to. A session whose steps
+ * did not clear is released here, so the live view stays on Browserbase.
+ * The url never leaves this Worker.
+ */
+export async function browserUseCdp(env: BrowserUseEnv, owner: string, fetcher: typeof fetch = fetch): Promise<string | null> {
   const session = await ledgerStub(env)?.recall(owner).catch(() => null);
-  return session && !session.charged ? session.cdpUrl : null;
+  if (!session || session.charged) return null;
+  if (session.outcome !== "ok") {
+    await releaseOwned(env, owner, fetcher);
+    return null;
+  }
+  return session.cdpUrl;
 }
 
 export async function browseOnBrowserUse(

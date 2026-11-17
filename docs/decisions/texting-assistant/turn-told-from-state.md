@@ -34,3 +34,43 @@ field doesn't hold.
 **What a "simplification" costs.** Saying "tagged you" whatever ran the turn brings back the unprompted check-in
 replies and the invented explanations. Tests: `apps/mcp/test/devShare.test.mjs`, `apps/agent/src/groupCause.test.ts`,
 `apps/convex/__tests__/texLabShared.test.ts`, replay case `group-told-why`.
+
+## Every module's words are kept beside its fingerprint (2026-11-17)
+
+Until now a turn kept, per model round, each prompt module's id, length and fingerprint, never its words
+(`promptManifest.js`, Dev2, 2026-11-14), and the Lab showed words only for modules the prompt catalogue rebuilds at
+the turn's commit. Seven of a group turn's thirteen modules (the time, why the turn ran, the thread note's parts, the
+workspaces it reaches, the model line) are built from the moment, so Replay and `tex_dev prompt` showed `words: null`
+for exactly the lines that were wrong: nobody could read "@shyoh tagged you." on a check-in without rebuilding it by
+hand. Dev2 chose to keep them.
+
+- `turnPrompt.js` hands `prompt.words`, `{fingerprint: text}` for every module but the stable rules
+  (`keptWordsOf`); a module over 16,000 characters keeps its fingerprint only.
+- `turnTiming.js` keeps them in the reply's round, each once a turn (a later round sending the same bytes keeps none),
+  only for fingerprints that round's manifest names, at most 48,000 characters a turn (a module over that keeps its fingerprint only).
+- The Lab (`engine/promptAt.ts` `wordsOf`), Replay's Prompt panel and `tex_dev prompt` show the catalogue's words or
+  the kept ones, the kept ones only when they hash to the fingerprint and length logged.
+
+They live in the chat's own history and reach whoever reads it (its people, and the developers it is shared with), never a log or Analytics point; that includes what the turn was handed that the history may not hold, such as the about-me and jobs notes and the calendar copy. The repo's fixed paragraphs are not kept: the catalogue has them.
+A turn grows by roughly the size of its moment-built modules (6 to 20 KB in a group turn); the history the model reads
+never includes a reply's timing (`conversation.js` `keptTurn`). What a simplification would cost: dropping the words
+again hides the next wrong fact the same way (`apps/mcp/test/promptManifest.test.mjs`); showing kept words without the
+fingerprint check shows words that did not run (`apps/mobile/__tests__/texLabPromptAt.test.ts`).
+
+## Each fact line says "not known" when its field is missing (2026-11-17)
+
+Step two of the same category. A fact line that had no field to read either fell back to a stock sentence or was left
+out, and both read to the model as facts: a turn with no cause was told "@<sponsor> tagged you.", a judged text from an
+invited person was told "The person who tagged you is invited", and a group whose sharing state did not arrive was
+told nothing, so Tex guessed.
+
+- `groupTurnCause.js` `taggedLine` says `CAUSE_NOT_KNOWN` for a missing or unknown cause, names a sender only from a
+  field (else "who sent it is not known"), and words a judged invited person as "The person who texted".
+- `devShare.js` says `DEV_SHARE_NOT_KNOWN` when the front door reads `devShare` and no state came.
+- The bench names each group turn's cause as the Worker does (`bench/benchCause.mjs`, `byCode.mjs`), so the Dev and
+  Test sets run what production runs.
+- `apps/mcp/test/turnFactClaims.test.mjs` walks every value each field can take, and its absence, and fails when a
+  line claims what its field doesn't hold; it also fails when the Worker's `TurnCause` gains a cause the gateway doesn't
+  word. Replay case `group-told-not-known`.
+
+What a simplification costs: a fallback sentence for a missing field is the original bug again, said confidently.

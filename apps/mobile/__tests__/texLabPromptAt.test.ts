@@ -13,7 +13,7 @@ import { createElement } from "react";
 import { act } from "react";
 import { createRoot } from "react-dom/client";
 
-import { catalogAt, fromRepo, moduleSource, turnPromptOf, wordsOf } from "../features/tex/lab/engine/promptAt";
+import { catalogAt, fingerprint, fromRepo, moduleSource, turnPromptOf, wordsOf } from "../features/tex/lab/engine/promptAt";
 import type { LedgerEntry } from "../features/tex/page/texPageTypes";
 import { PromptAt } from "../features/tex/lab/views/replay/PromptAt";
 
@@ -69,6 +69,18 @@ describe("a turn's prompt, walked back from its version", () => {
     expect(wordsOf(cat, { id: "context/web", n: stable.n, h: stableH })).toBeNull();
   });
 
+  test("a turn's kept words are shown only when they hash to the fingerprint it logged (2026-11-17)", () => {
+    const note = "@shyoh's newest text doesn't name you.";
+    const h = fingerprint(note);
+    const logged = [{ ...entries[1], timing: { v: 2, rounds: [{ ms: 9, prompt: { modules: [{ id: "preamble/turnNote", n: note.length, h }], words: { [h]: note, "0badc0de": "about me" } } }] } }] as unknown as LedgerEntry[];
+    const p = turnPromptOf(logged, "t1")!;
+    expect(wordsOf(null, p.rounds[0].modules[0], p.kept)).toBe(note);
+    // Words under a fingerprint they don't hash to are never shown, nor words for a module that logged another size.
+    expect(wordsOf(null, { id: "context/aboutMe", n: 8, h: "0badc0de" }, p.kept)).toBeNull();
+    expect(wordsOf(null, { id: "preamble/turnNote", n: note.length + 1, h }, p.kept)).toBeNull();
+    expect(turnPromptOf(entries, "t1")!.kept).toEqual({});
+  });
+
   test("a commit with no catalogue, or no commit, reads nothing", async () => {
     expect(await catalogAt("0123456789ab", served("{}", false))).toBeNull();
     const get = served(FILE);
@@ -101,7 +113,7 @@ describe("the prompt in Replay's panel", () => {
     expect(rows.map((r) => r.dataset.mod)).toEqual([stable.id, "context/web", "context/aboutMe", "preamble/now"]);
     expect(rows[0].querySelector("summary")!.textContent).toContain("exact words");
     expect(rows[0].querySelector("pre")!.textContent!.length).toBe(stable.n);
-    expect(rows[2].textContent).toContain("never kept");
+    expect(rows[2].textContent).toContain("and not kept");
     expect(rows[3].textContent).toContain("The time: Sat, Nov 14");
     expect(host.textContent).toContain("Same modules as the round before.");
     expect(host.querySelector<HTMLAnchorElement>("a.pill")!.href).toBe(`https://github.com/Supa-Media/context/commit/${CODE}`);

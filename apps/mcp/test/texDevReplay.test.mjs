@@ -190,8 +190,12 @@ test("a turn carries the moment's judgings, its real time per step, what each st
   // The reply's timing once: in brief in the summary, and the reply in the order says where it is.
   assert.equal(answer.order.find((e) => e.label === "reply").timing, "in summary.timing");
   assert.deepEqual(answer.summary.timing.rounds[0].prompt, { modules: 3, chars: 77 });
+  // A round's kept words (`turnTiming.js`) stay out of the full timing too: `prompt` is the action that shows them.
+  const reply = entries.find((e) => e.kind === "reply" && e.timing?.rounds?.[0]?.prompt);
+  reply.timing.rounds[0].prompt.words = { [modules[0].h]: "kept words" };
   const full = await turnAnswer({}, PAGE, { turn: "t1", full: true }, deps(fakeLedger(entries)));
   assert.deepEqual(full.summary.timing.rounds[0].prompt.modules, modules);
+  assert.equal(full.summary.timing.rounds[0].prompt.words, undefined);
   const one = await turnAnswer({}, PAGE, { turn: "t1", node: "fd" }, deps(fakeLedger(entries)));
   assert.deepEqual(Object.keys(one.io), ["fd"]);
 });

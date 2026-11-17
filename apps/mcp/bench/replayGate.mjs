@@ -233,7 +233,10 @@ const benchRunner = (area) => async (tree, { heldOut, only, fake, scratch, tag, 
   const rows = mergeRuns(all);
   // Answered through the model socket (an examiner session, or its recorded answers), a run spends no credits.
   const socketed = Boolean(process.env.BENCH_MODEL_SOCKET || process.env.BENCH_MODEL_REPLAY);
-  return { rows, usd: socketed ? 0 : AREA_LIMITS[area].usdPerCase * rows.length * runs };
+  const priced = all.flat();
+  const measured = priced.length > 0 && priced.every((row) => typeof row.usd === "number");
+  const usd = socketed ? 0 : measured ? priced.reduce((sum, row) => sum + row.usd, 0) : AREA_LIMITS[area].usdPerCase * rows.length * runs;
+  return { rows, usd };
 };
 
 /** An advisor role's scorer (`advisor.mjs`), run `runs` times: its rows price themselves. */

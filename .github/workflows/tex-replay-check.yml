@@ -5,17 +5,25 @@
 # the change, and one that differs by a byte is reached) and, when
 # any, passes only on a successful "Tex test set" status on the head commit,
 # which main's "Tex test set" run sets, then re-runs this.
+#
+# The Test Set starts before the fingerprints when the files themselves reach
+# a model area (scripts/tex-test-set-dispatch.mjs --early), so it runs beside
+# the other checks instead of after this one has already failed. A reach that
+# only the fingerprints can see still starts when the gate fails. Not `edited`:
+# pr-description.yml re-runs this only when the owner's skip line changed, and
+# the gate reads the live description.
 
 name: Tex replay required
 
 on:
   pull_request:
-    types: [opened, synchronize, reopened, edited]
+    types: [opened, synchronize, reopened]
 
 permissions:
   contents: read
   statuses: read
-  # Only to start "Tex replay" on this branch when the rule fails (the last step); this workflow holds no secret.
+  pull-requests: read
+  # Only to start "Tex test set" on main when this change needs it; this workflow holds no secret.
   actions: write
 
 concurrency:
@@ -39,7 +47,25 @@ jobs:
           node-version: 22
           package-manager-cache: false
       - name: The rule's own self-test
-        run: node scripts/tex-replay-required.mjs --self-test
+        run: |
+          node scripts/tex-replay-required.mjs --self-test
+          node scripts/tex-test-set-dispatch.mjs --self-test
+
+      # Files that reach a model area start the Test Set now, before the
+      # fingerprints. The gate below is unchanged: it still passes only on a
+      # successful status. A fork's code never starts it.
+      - name: Start the Tex test set when this change's files reach a model area
+        if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          GH_TOKEN: ${{ github.token }}
+          EVENT_BODY: ${{ github.event.pull_request.body }}
+        run: |
+          set -euo pipefail
+          git fetch --no-tags --depth=1 origin "$BASE_SHA"
+          node scripts/tex-test-set-dispatch.mjs --early
 
       # Every area's prompts built on main and on the change, with no model and no key
       # (apps/mcp/bench/promptFingerprint.mjs): an area whose prompts differ by a byte is
@@ -63,31 +89,32 @@ jobs:
           echo "areas=$areas" >> "$GITHUB_OUTPUT"
 
       - name: The replay gate's model half passed, or the change reaches no model area
+        id: gate
         env:
           BASE_SHA: ${{ github.event.pull_request.base.sha }}
           HEAD_SHA: ${{ github.event.pull_request.head.sha }}
           GH_TOKEN: ${{ github.token }}
           FINGERPRINT_AREAS: ${{ steps.prints.outputs.areas }}
-          # Read by the owner's temporary skip only (SKIP_LINE in the script); passed through env, never into a shell line.
-          PR_BODY: ${{ github.event.pull_request.body }}
-        run: node scripts/tex-replay-required.mjs
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          # Fallback when the live read fails. A re-run keeps the original event body, so the live one wins.
+          EVENT_BODY: ${{ github.event.pull_request.body }}
+        run: |
+          if [ -n "${PR_NUMBER:-}" ]; then
+            PR_BODY="$(node scripts/pr-description.mjs --print-body)"
+            export PR_BODY
+          fi
+          node scripts/tex-replay-required.mjs
 
-      # Dev2, 2026-11-15: the Test Set is the only gate. When the rule fails this starts main's "Tex test set" for
-      # this pull request (its OIDC token must name the file on main, so the ref is always main); it marks the head
-      # commit and re-runs this check. Started once a commit: only when the head has no "Tex test set" status yet.
-      # Never for a fork, whose code must not reach production's secrets.
-      - name: Start Tex test set for this pull request
-        if: failure() && github.event.pull_request.head.repo.full_name == github.repository
+      # A reach the files did not name (the prompts changed) still starts here,
+      # once, and only when the gate failed for want of a run. File areas were
+      # started above, before the fingerprints. Never for a fork.
+      - name: Start the Tex test set for a prompt-only reach
+        if: failure() && steps.gate.outcome == 'failure' && github.event.pull_request.head.repo.full_name == github.repository
         env:
-          GH_TOKEN: ${{ github.token }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
           HEAD_SHA: ${{ github.event.pull_request.head.sha }}
           PR_NUMBER: ${{ github.event.pull_request.number }}
-        run: |
-          set -euo pipefail
-          latest="$(gh api "repos/$GITHUB_REPOSITORY/commits/$HEAD_SHA/statuses" --jq '[.[] | select(.context == "Tex test set")][0].description // ""')"
-          if [ -n "$latest" ]; then
-            echo "Tex test set already ran or is running on this commit: $latest"
-            exit 0
-          fi
-          gh workflow run tex-test-set.yml --repo "$GITHUB_REPOSITORY" --ref main -f pr="$PR_NUMBER"
-          echo "Started Tex test set on main for #$PR_NUMBER; it re-runs this check when it ends." | tee -a "$GITHUB_STEP_SUMMARY"
+          GH_TOKEN: ${{ github.token }}
+          EVENT_BODY: ${{ github.event.pull_request.body }}
+          FINGERPRINT_AREAS: ${{ steps.prints.outputs.areas }}
+        run: node scripts/tex-test-set-dispatch.mjs --prompts

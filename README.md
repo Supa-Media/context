@@ -259,6 +259,7 @@ pnpm --filter @context/convex test   # control plane (vitest + convex-test)
 pnpm --filter @context/mobile test   # app (jest)
 pnpm typecheck
 pnpm architecture                    # file-size limits; run before calling work done
+pnpm precheck                        # guards, app typecheck, architecture; run before pushing
 ```
 
 Change a test in the same commit as the behavior it covers. Security-sensitive
