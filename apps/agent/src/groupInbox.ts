@@ -436,7 +436,11 @@ async function drainOnce(storage: InboxStorage, deps: GroupDeps): Promise<void> 
         return void (await answerBesideTurn(storage, deps, [...holding, ...burst.map(([key]) => key)]));
       }
       const door = provisionalDoor(deps.texGraph);
-      if (door.on) early = await startEarly(storage, deps, ownTurn(burst), door.allow);
+      // Only where its failure has the same retry a handed turn has (the answer-first path beside a workflow, or no
+      // workflow at all), and never on a first look: a chat Tex is not set up in, or an SMS, is read by the judge alone
+      // and nothing of it is kept or asked unless the judge answers it (`firstLook`).
+      const firstLooks = burst.some(([, item]) => item.look === true || item.message.sms === true);
+      if (door.on && !firstLooks && (deps.startTurn === undefined) === (deps.answerFirst === undefined)) early = await startEarly(storage, deps, ownTurn(burst), door.allow);
       const choice = await chooseGroupTurn(storage, deps, burst, untagged && canWait(state, deps.now()));
       // Decide held the burst: the early run stops now (`restart:wait`), and the turn after the wait starts afresh.
       if (early !== null && choice.wait !== undefined && choice.wait.length > 0) {

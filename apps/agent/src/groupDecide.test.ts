@@ -220,7 +220,9 @@ for (const { name, groupId } of LINES) {
       await drainGroup(storage, w.deps);
       expect(w.steers).toEqual([]);
       expect(w.asks.map((ask) => ask.question)).toEqual(["Tex make a graphic"]);
-      expect(w.control.map((body) => body.sender)).toEqual([ADA]);
+      // Bo's repeat started its own Provisional run beside the judge: it read Bo's grant, then the judge's silent stopped it
+      // before it asked the model, and it said nothing.
+      expect(w.control.map((body) => body.sender)).toEqual([ADA, BO]);
       expect(w.texts.filter((text) => text.startsWith("answer to"))).toEqual(["answer to Tex make a graphic"]);
     });
 
