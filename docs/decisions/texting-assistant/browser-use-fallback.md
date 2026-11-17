@@ -74,8 +74,9 @@ Counting a replay whose own step failed as cleared cancels the hand-off and
 points the person's question and live view at a blank browser, and the
 trial's `fallback.outcome` counts that failure as a success. Dropping the
 stop call keeps billing after the socket closes. Tests:
-`infra/site-shots/src/browserUse.test.ts` and
-`apps/mcp/test/browserUseFallback.test.mjs`.
+`infra/site-shots/src/browserUse.test.ts`,
+`apps/mcp/test/browserUseFallback.test.mjs`, and
+`apps/mcp/test/replay/cases/fallback-steps-cleared.mjs`.
 
 Revisit a full switch after 20 or more real Browser Use jobs. Read the
 counts with `POST /browse/blocks` on the screenshot Worker (the gateway's
