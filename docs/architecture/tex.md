@@ -87,6 +87,7 @@ flowchart LR
     n_card["Card check<br/>Haiku 5.5 · effort medium<br/>cardCheck.js"]:::model
     n_egress["Egress judge<br/>Haiku 5.5 · effort low<br/>privacy/judge.js"]:::model
     n_picture["Picture maker<br/>google/gemini-2.5-flash-image · effort off<br/>pictureMaker.js"]:::model
+    n_moveJudge["Move judge<br/>Haiku 5.5 · effort low<br/>graph/nodes/moveJudge.js · theirNotes.js"]:::model
   end
   subgraph n_group_jobs["Jobs"]
     n_job["Background job<br/>Haiku 5.5 · effort medium<br/>graph/nodes/job.js · texJob.js · apps/agent jobRun.ts"]:::model
@@ -131,6 +132,7 @@ flowchart LR
   n_routine -->|stopped| n_bypass
   n_fd -.->|uses: big| n_planner
   n_send -.->|background: sent, ended, answered| n_chatDays
+  n_tools -.->|uses: move| n_moveJudge
   classDef start fill:#ffe3ee,stroke:#ff4f8b,color:#1d1838
   classDef code fill:#dcf7f3,stroke:#11b5a4,color:#1d1838
   classDef model fill:#ece5ff,stroke:#7b4dff,color:#1d1838
@@ -202,8 +204,9 @@ every wire, from the same config.
 | Answer check | answerCheck |  | on | Haiku 5.5 | low | 8 s | own, ledger, ask, draft, hist, date | graph/nodes/checks.js · graph/nodes/reviewer.js · replyJudge.js · sendBack.js |
 | Confirmations & refusals | bypass |  | on | code |  |  |  | graph/nodes/bypass.js |
 | Chat day summaries | chatDays |  | on | Haiku 5.5 | low |  |  | graph/nodes/chatDays.js · daySummaries.js |
+| Move judge | moveJudge | tools-subagents | on | Haiku 5.5 | low | 8 s |  | graph/nodes/moveJudge.js · theirNotes.js |
 
-Wires: checkin → fd (wait, look) · notify → send (wait, send) · oldLine → send (wait, redirect) · edit → triage (wait, turn) · moveChat → send (wait, person, group) · triage → decide (wait, judge, running) · triage → lanes (wait, tex) · decide → react (wait) · decide → lanes (wait) · fd → tools (uses, action) · tools → mail (uses, email) · tools → card (uses, card) · fd → job (job, job) · job → handback (job, job) · tools → egress (uses, share) · tools → picture (uses, picture) · picture → card (uses) · nightly → dream (wait, dream) · dream → daysum (wait, summarize) · nightly → housekeep (wait, housekeeping) · tools → advisor (uses, ask_advisor) · job → jobadv (uses, job) · job → tools (uses, job) · lanes → doorStep (wait) · text → triage (wait) · doorStep → fd (wait, next) · send → learn (background, fired) · send → afterReply (background, sent, threads) · fd → answerCheck (wait) · answerCheck → send (wait) · answerCheck → fd (loop) · doorStep → bypass (wait, answered) · bypass → send (wait) · staff → moveChat (wait, move) · routine → fd (wait, run) · routine → bypass (wait, stopped) · fd → planner (uses, big) · send → chatDays (background, sent, ended, answered)
+Wires: checkin → fd (wait, look) · notify → send (wait, send) · oldLine → send (wait, redirect) · edit → triage (wait, turn) · moveChat → send (wait, person, group) · triage → decide (wait, judge, running) · triage → lanes (wait, tex) · decide → react (wait) · decide → lanes (wait) · fd → tools (uses, action) · tools → mail (uses, email) · tools → card (uses, card) · fd → job (job, job) · job → handback (job, job) · tools → egress (uses, share) · tools → picture (uses, picture) · picture → card (uses) · nightly → dream (wait, dream) · dream → daysum (wait, summarize) · nightly → housekeep (wait, housekeeping) · tools → advisor (uses, ask_advisor) · job → jobadv (uses, job) · job → tools (uses, job) · lanes → doorStep (wait) · text → triage (wait) · doorStep → fd (wait, next) · send → learn (background, fired) · send → afterReply (background, sent, threads) · fd → answerCheck (wait) · answerCheck → send (wait) · answerCheck → fd (loop) · doorStep → bypass (wait, answered) · bypass → send (wait) · staff → moveChat (wait, move) · routine → fd (wait, run) · routine → bypass (wait, stopped) · fd → planner (uses, big) · send → chatDays (background, sent, ended, answered) · tools → moveJudge (uses, move)
 <!-- tex-config: steps end -->
 
 ## The rule
