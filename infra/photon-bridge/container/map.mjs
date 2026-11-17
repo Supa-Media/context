@@ -155,6 +155,65 @@ function reaction(event, line, extras) {
   });
 }
 
+/**
+ * EXTENSION: a sticker stuck on a message is a reaction of kind "sticker", on the message it was stuck to, so the
+ * agent reads it as it reads a tapback (Sendblue never sent these).
+ */
+function stickerPlaced(event, line, extras) {
+  const chat = chatOf(event.chatGuid);
+  if (!chat || typeof event.messageGuid !== "string") return null;
+  return compact({
+    ...envelope(event, line, "message.reactionAdded", `photon:message.stickerPlaced:${event.messageGuid}:${event.sequence}`, chat, isoOr(event.occurredAt)),
+    from: actorOf(event),
+    reaction: compact({
+      kind: "sticker",
+      targetGuid: event.messageGuid,
+      targetPart: Number.isInteger(event.targetPartIndex) ? event.targetPartIndex : undefined,
+      targetText: extras.targetText,
+      targetFromMe: extras.targetFromMe,
+    }),
+  });
+}
+
+const MAX_POLL_WORDS = 600;
+
+function quoted(text) {
+  return `“${String(text ?? "").replace(/\s+/g, " ").trim()}”`;
+}
+
+/** What a poll change says, in words, as a person would read it in the chat. Null when it cannot be told. */
+export function pollWords(delta, poll) {
+  if (!isObject(delta)) return null;
+  const title = typeof delta.title === "string" && delta.title !== "" ? delta.title : poll?.title ?? "";
+  const named = title !== "" ? ` ${quoted(title)}` : "";
+  const options = (list) => (Array.isArray(list) ? list.map((option) => quoted(option?.text)).join(", ") : "");
+  let words = null;
+  if (delta.type === "created") words = `Started a poll${named}: ${options(delta.options)}`;
+  else if (delta.type === "optionAdded") words = `Added an option to the poll${named}; the options now: ${options(delta.options)}`;
+  else if (delta.type === "voted") {
+    const choice = poll?.options?.find((option) => option.id === delta.optionIdentifier)?.text;
+    words = `Voted${choice ? ` ${quoted(choice)}` : ""} in the poll${named}`;
+  } else if (delta.type === "unvoted") words = `Took back a vote in the poll${named}`;
+  return words === null ? null : words.slice(0, MAX_POLL_WORDS);
+}
+
+/**
+ * EXTENSION: a poll change (`poll.changed`) is a message of the actor's, in words (`pollWords`), with its own guid,
+ * so a poll started, an option added and a vote reach Tex as what the person did. Sendblue never read polls.
+ */
+function pollChanged(event, line, extras) {
+  const chat = chatOf(event.chatGuid);
+  if (!chat || typeof event.pollMessageGuid !== "string") return null;
+  const text = pollWords(event.delta, extras.poll);
+  if (text === null) return null;
+  const guid = `${event.pollMessageGuid}:poll:${event.sequence}`;
+  return {
+    ...envelope(event, line, "message.received", `photon:poll.changed:${event.pollMessageGuid}:${event.sequence}`, chat, isoOr(event.occurredAt)),
+    from: actorOf(event),
+    message: compact({ guid, text, service: service(event.actor?.service), attachments: [], poll: true }),
+  };
+}
+
 /** EXTENSION: `group` carries the membership or name change the plan leaves open. */
 function groupChanged(event, line) {
   const chat = chatOf(event.chatGuid);
@@ -207,8 +266,11 @@ export function mapEvent(event, line, extras = {}) {
       return reaction(event, line, extras);
     case "group.changed":
       return groupChanged(event, line);
+    case "message.stickerPlaced":
+      return stickerPlaced(event, line, extras);
+    case "poll.changed":
+      return pollChanged(event, line, extras);
     default:
-      // Sticker placements and polls are not in Contract A yet.
       return event.type.startsWith("chat.") ? chatOther(event, line) : null;
   }
 }
@@ -221,5 +283,7 @@ export const MAPPED_TYPES = Object.freeze([
   "message.reactionAdded",
   "message.reactionRemoved",
   "group.changed",
+  "message.stickerPlaced",
+  "poll.changed",
   "chat.*",
 ]);

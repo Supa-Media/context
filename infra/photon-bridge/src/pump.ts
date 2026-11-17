@@ -35,7 +35,8 @@ export type Sleep = (ms: number) => Promise<void>;
 export interface QueuedEvent {
   id: string;
   line: string;
-  seq: number;
+  /** Photon's sequence; null for an event the bridge made itself (a send's delivery check), which moves no frontier. */
+  seq: number | null;
   event: PhotonEvent;
 }
 
@@ -115,7 +116,7 @@ export async function pumpOnce({
   // replays it from the stored frontier, and the agent deduplicates by eventId.
   if (ack.status === 404) return "acked";
   if (!ack.ok) throw new Error(`ack ${ack.status}`);
-  const { line, frontier } = (await ack.json()) as { line: string; frontier: number };
-  await store.put(`${CHECKPOINT_PREFIX}${line}`, frontier);
+  const { line, frontier } = (await ack.json()) as { line: string; frontier: number | null };
+  if (item.seq !== null && Number.isSafeInteger(frontier)) await store.put(`${CHECKPOINT_PREFIX}${line}`, frontier as number);
   return "acked";
 }

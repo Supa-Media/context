@@ -5,13 +5,16 @@
  *
  * - `message.received` from Tex's own side (`fromMe`): Apple has the text, at Apple's own time: "sent".
  * - `message.read` by the other party: they read one of Tex's texts, at their read time: "read".
+ * - `message.status`, which the bridge makes by reading each send back (`infra/photon-bridge/container/delivery.mjs`):
+ *   "failed" with Apple's error code (FAILED: marked, and a threaded text sent again plain, as Sendblue's ERROR is),
+ *   or "undelivered" when it had still not reached their phone minutes later (shown on the send step, nothing more).
  *
  * Each becomes a `SendStatus` for the chat's object (`/send-status`, as Sendblue's status callback is), carrying the
  * provider's time and never the text's words. Anything else is null and goes on as an event.
  */
 
 import { photonChatId, photonGroupId } from "./photon";
-import { sendReportOf } from "./providerTiming";
+import { providerError, sendReportOf } from "./providerTiming";
 import type { SendStatus } from "./sendblueStatus";
 
 const E164 = /^\+[1-9]\d{6,14}$/;
@@ -38,8 +41,13 @@ function placeOf(line: string, chat: unknown): Pick<SendStatus, "object" | "chat
 export function photonSendStatusOf(body: unknown): SendStatus | null {
   if (!isRecord(body) || typeof body.line !== "string" || !E164.test(body.line)) return null;
   let handle: unknown;
-  let status: "sent" | "read";
-  if (body.type === "message.received" && body.fromMe === true) {
+  let status: "sent" | "read" | "failed" | "undelivered";
+  let code: unknown;
+  if (body.type === "message.status" && isRecord(body.status) && (body.status.state === "failed" || body.status.state === "undelivered")) {
+    handle = body.status.targetGuid;
+    status = body.status.state;
+    code = body.status.code;
+  } else if (body.type === "message.received" && body.fromMe === true) {
     handle = isRecord(body.message) ? body.message.guid : undefined;
     status = "sent";
   } else if (body.type === "message.read" && body.fromMe === false) {
@@ -49,11 +57,12 @@ export function photonSendStatusOf(body: unknown): SendStatus | null {
   if (typeof handle !== "string" || !GUID.test(handle)) return null;
   const place = placeOf(body.line, body.chat);
   if (place === null) return null;
+  const error = status === "failed" ? (providerError(code) ?? { code: "failed" }) : status === "undelivered" ? { code: "not_delivered" } : undefined;
   return {
     handle,
     status: status.toUpperCase(),
     downgraded: false,
     ...place,
-    report: sendReportOf("photon", handle, status, { providerAt: body.at }),
+    report: sendReportOf("photon", handle, status === "undelivered" ? "other" : status, { providerAt: body.at }, error),
   };
 }
