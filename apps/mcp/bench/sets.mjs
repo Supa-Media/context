@@ -5,10 +5,10 @@
  * never loaded into a set or written anywhere.
  */
 import { createRequire } from "node:module";
-import { readFileSync } from "node:fs";
 import { readdir, readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
+import { readTexConfig } from "../../../scripts/lib/texConfigFile.mjs";
 
 const require = createRequire(import.meta.url);
 const texSets = require("../../../packages/shared/src/texSets.cjs");
@@ -34,7 +34,6 @@ export function conversationFile(c) {
 }
 
 export const SETS_DIR = fileURLToPath(new URL("./sets", import.meta.url));
-const CONFIG_PATH = fileURLToPath(new URL("../../../packages/shared/src/texConfig.json", import.meta.url));
 
 /** Folders read from disk. `test` is read only so that a stray Test conversation is reported, never skipped. */
 const FOLDERS = ["training", "dev", "test"];
@@ -54,7 +53,7 @@ export function fileOf(conv) {
 
 /** Tex's config and the judge's reasons, as the validator needs them. */
 export function loadContract() {
-  const config = JSON.parse(readFileSync(CONFIG_PATH, "utf8"));
+  const config = readTexConfig();
   const why = Object.keys(textDecide.WHY);
   return { config, why };
 }

@@ -4,7 +4,7 @@
  * logs applied by mainGraph), the node factory N, the wire styles, the icon paths,
  * the "when" choices and the add-step kinds. The graph itself is Tex's config (`mainGraph`).
  */
-import TEX_CONFIG from "@context/shared/src/texConfig.json";
+import { TEX_CONFIG } from "@context/shared/src/texConfig.cjs";
 import { configStamp } from "@context/shared/src/texConfigStamp.cjs";
 import { foldGroups, type GroupDefs } from "../engine/groups";
 import type { LabEdge, LabGraph, LabNode } from "../types";

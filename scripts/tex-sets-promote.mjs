@@ -15,12 +15,13 @@ import { execFileSync } from "node:child_process";
 import { dirname, join } from "node:path";
 import { createRequire } from "node:module";
 import { fileURLToPath } from "node:url";
+import { readTexConfig } from "./lib/texConfigFile.mjs";
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 const require = createRequire(import.meta.url);
 const { check } = require("../packages/shared/src/texSets.cjs");
 const { WHY } = require("../packages/shared/src/textDecide.cjs");
-const CONFIG = JSON.parse(readFileSync(join(ROOT, "packages/shared/src/texConfig.json"), "utf8"));
+const CONFIG = readTexConfig(ROOT);
 export const SETS_DIR = join(ROOT, "apps/mcp/bench/sets");
 const { conversationFile } = await import(new URL("../apps/mcp/bench/sets.mjs", import.meta.url).href);
 const ID = /^[a-z0-9][a-z0-9-]{0,79}$/;

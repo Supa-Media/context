@@ -15,10 +15,10 @@
  */
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
 import { applyOps, conflicts, diffGraphs, keysOf, OpError, overlaps } from "../../../packages/shared/src/texLabOps.cjs";
+import { readTexConfig } from "../../../scripts/lib/texConfigFile.mjs";
 
-const config = JSON.parse(readFileSync(new URL("../../../packages/shared/src/texConfig.json", import.meta.url), "utf8"));
+const config = readTexConfig();
 const main = () => JSON.parse(JSON.stringify({ nodes: config.nodes, edges: config.edges }));
 const someNode = (g) => g.nodes.find((n) => n.id === "fd") ?? g.nodes[0];
 

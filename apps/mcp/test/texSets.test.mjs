@@ -12,12 +12,12 @@
  */
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
 
 import sets from "../../../packages/shared/src/texSets.cjs";
 import decide from "../../../packages/shared/src/textDecide.cjs";
+import { readTexConfig } from "../../../scripts/lib/texConfigFile.mjs";
 
-const config = JSON.parse(readFileSync(new URL("../../../packages/shared/src/texConfig.json", import.meta.url), "utf8"));
+const config = readTexConfig();
 const why = Object.keys(decide.WHY);
 const chat = (over = {}) => ({
   id: "ferry-trip", title: "Ferry trip planning", set: "dev", kind: "group", members: ["Maya", "Priya"],
