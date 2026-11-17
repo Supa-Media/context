@@ -222,6 +222,9 @@ export async function forward(stubs: InboxStubs, place: Place, request: Request,
   if (place.movedTo === GATEWAY) {
     // Moved to the gateway: the same call, path, query and bytes, on the gateway's chat route. No binding, nothing to answer it.
     if (gateway === undefined) return new Response(null, { status: 503 });
+    // Already handed to the gateway. Forwarding it again waits on the call that is waiting here.
+    if (headers.get(FORWARDED_HEADER) === "1") return new Response(null, { status: 421 });
+    headers.set(FORWARDED_HEADER, "1");
     const url = new URL(request.url);
     return await gateway.fetch(`${GATEWAY_CALL_PREFIX}${url.pathname}${url.search}`, { method: request.method, headers, body });
   }
@@ -230,6 +233,11 @@ export async function forward(stubs: InboxStubs, place: Place, request: Request,
 
 /** Marks a call the placed inbox handed back to the old one, because it holds nothing yet. */
 export const VIA_NEW_HEADER = "x-inbox-via-new";
+/**
+ * Set on a call forwarded to the gateway. A second forward of the same call would wait on the gateway, which is
+ * waiting on this object. The gateway serves that call itself (`texChat.js`) instead of asking here again.
+ */
+export const FORWARDED_HEADER = "x-inbox-forwarded";
 
 /** A call to a placed inbox that has not arrived, answered by the old one. */
 export async function viaOld(stubs: InboxStubs, name: string, request: Request, body: ArrayBuffer | null): Promise<Response> {
@@ -243,39 +251,72 @@ export type MoveOutcome =
   | { outcome: "arrived"; keys: number; ms: number }
   | { outcome: "busy" | "failed" | "waiting"; ms: number; reason?: string };
 
+/** What the old inbox answered to a move, already read, so the copy can run without waiting on it. */
+type Pulled = { status: number; payload: unknown } | null;
+
+/** Ask the old inbox to move out. Null when it cannot be reached. The caller must not hold the input gate across this. */
+async function pullOld(stubs: InboxStubs, name: string): Promise<Pulled> {
+  try {
+    const answer = await stubs(name).fetch(new Request(`https://inbox${MOVE_OUT}`, { method: "POST", body: JSON.stringify({ name }) }));
+    const text = await answer.text();
+    let payload: unknown = null;
+    if (text !== "") {
+      try {
+        payload = JSON.parse(text);
+      } catch {
+        payload = null;
+      }
+    }
+    return { status: answer.status, payload };
+  } catch {
+    return null;
+  }
+}
+
+/** Tell the old inbox to take its calls again. Never throws. Called after the input gate is open. */
+async function tellOldBack(stubs: InboxStubs, name: string): Promise<void> {
+  try {
+    await stubs(name).fetch(new Request(`https://inbox${MOVE_BACK}`, { method: "POST" }));
+  } catch {
+    // The old inbox stays marked moved and passes calls here, and the next call copies again.
+  }
+}
+
 /**
  * The new inbox's side: copy the old inbox in, check it, mark this one
  * arrived. Never throws; anything but `arrived` leaves this inbox empty and
- * the old one answering. Run inside `blockConcurrencyWhile`.
+ * the old one answering.
+ *
+ * The ask to the old inbox is not inside `blockConcurrencyWhile`. Holding the
+ * input gate across that fetch deadlocks when the old inbox calls back here,
+ * which is what a gateway move does.
  */
 export async function arrive(stubs: InboxStubs, storage: MoveStorage, name: string, now: () => number): Promise<MoveOutcome> {
   const started = now();
   const place = ((await storage.get<Place>(PLACE_KEY)) ?? {}) as Place;
   if (place.arrivedAt !== undefined) return { outcome: "arrived", keys: place.keys ?? 0, ms: 0 };
   if (place.failedAt !== undefined && started - place.failedAt < RETRY_MOVE_MS) return { outcome: "waiting", ms: 0 };
-  const old = stubs(name);
-  const failed = async (outcome: "busy" | "failed", reason: string, tellOld: boolean): Promise<MoveOutcome> => {
+  const pulled = await pullOld(stubs, name);
+  const finished = await finishArrive(storage, now, started, pulled);
+  if (finished.tellOld) await tellOldBack(stubs, name);
+  return finished.outcome;
+}
+
+/** Write the copy the old inbox already handed over. Telling the old inbox to take calls back happens after this, with the input gate open. */
+async function finishArrive(storage: MoveStorage, now: () => number, started: number, pulled: Pulled): Promise<{ outcome: MoveOutcome; tellOld: boolean }> {
+  const place = ((await storage.get<Place>(PLACE_KEY)) ?? {}) as Place;
+  if (place.arrivedAt !== undefined) return { outcome: { outcome: "arrived", keys: place.keys ?? 0, ms: 0 }, tellOld: false };
+  if (place.failedAt !== undefined && now() - place.failedAt < RETRY_MOVE_MS) return { outcome: { outcome: "waiting", ms: 0 }, tellOld: false };
+  const failed = async (outcome: "busy" | "failed", reason: string, tellOld: boolean) => {
     await storage.deleteAll();
     await storage.put(PLACE_KEY, { failedAt: now() } satisfies Place);
-    if (tellOld) {
-      try {
-        await old.fetch(new Request(`https://inbox${MOVE_BACK}`, { method: "POST" }));
-      } catch {
-        // The old inbox stays marked moved and passes calls here, and the next call copies again.
-      }
-    }
-    return { outcome, ms: now() - started, reason };
+    return { outcome: { outcome, ms: now() - started, reason } as MoveOutcome, tellOld };
   };
-  let answer: Response;
+  if (pulled === null) return await failed("failed", "old_unreachable", true);
+  if (pulled.status === 409) return await failed("busy", "old_busy", false);
+  if (pulled.status !== 200) return await failed("failed", `old_${pulled.status}`, true);
   try {
-    answer = await old.fetch(new Request(`https://inbox${MOVE_OUT}`, { method: "POST", body: JSON.stringify({ name }) }));
-  } catch {
-    return await failed("failed", "old_unreachable", true);
-  }
-  if (answer.status === 409) return await failed("busy", "old_busy", false);
-  if (!answer.ok) return await failed("failed", `old_${answer.status}`, true);
-  try {
-    const { entries, digest, alarm } = (await answer.json()) as { entries: Record<string, unknown>; digest: string; alarm: number | null };
+    const { entries, digest, alarm } = pulled.payload as { entries: Record<string, unknown>; digest: string; alarm: number | null };
     await storage.deleteAll();
     const keys = Object.keys(entries);
     for (let i = 0; i < keys.length; i += 128) {
@@ -287,7 +328,7 @@ export async function arrive(stubs: InboxStubs, storage: MoveStorage, name: stri
     if ((await fingerprint(await dumpOf(storage))) !== digest) return await failed("failed", "parity", true);
     if (typeof alarm === "number") await storage.setAlarm(alarm);
     await storage.put(PLACE_KEY, { arrivedAt: now(), keys: keys.length } satisfies Place);
-    return { outcome: "arrived", keys: keys.length, ms: now() - started };
+    return { outcome: { outcome: "arrived", keys: keys.length, ms: now() - started }, tellOld: false };
   } catch {
     return await failed("failed", "copy", true);
   }
@@ -337,7 +378,14 @@ export async function placeGate(
   } else if (place.movedTo !== undefined) return { response: await forward(stubs, place, request, body, gateway) };
   const name = request.headers.get(INBOX_NAME_HEADER);
   if (name !== null && OLD_NAME.test(name) && place.arrivedAt === undefined) {
-    const moved = await blockConcurrencyWhile(() => arrive(stubs, storage, name, now));
+    // Ask the old inbox before taking the input gate. A call it makes back here has to be able to run.
+    const retrying = place.failedAt !== undefined && now() - place.failedAt < RETRY_MOVE_MS;
+    const pulled = retrying ? null : await pullOld(stubs, name);
+    const finished = retrying
+      ? { outcome: { outcome: "waiting" as const, ms: 0 }, tellOld: false }
+      : await blockConcurrencyWhile(() => finishArrive(storage, now, now(), pulled));
+    if (finished.tellOld) await tellOldBack(stubs, name);
+    const moved = finished.outcome;
     if (moved.outcome !== "waiting") logMove(moved);
     if (moved.outcome !== "arrived") return { response: await viaOld(stubs, name, request, body) };
   }

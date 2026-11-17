@@ -102,7 +102,10 @@ export function texChatClass({ gateway, texts }) {
       const place = await storage.get(PLACE_KEY);
       if (place?.arrivedAt === undefined) {
         if (typeof name !== "string" || this.env.TEXTING === undefined) return null;
-        const moved = await this.state.blockConcurrencyWhile(() => copyIn(this.env.TEXTING, storage, name));
+        // Not inside blockConcurrencyWhile: the Worker's move can call back here, and the input gate has to be open for that.
+        if (this.opening === undefined) this.opening = copyIn(this.env.TEXTING, storage, name);
+        const moved = await this.opening;
+        this.opening = undefined;
         console.log(JSON.stringify({ event: "tex_chat_move", ...moved }));
         if (moved.outcome !== "arrived") return null;
       }
@@ -110,7 +113,19 @@ export function texChatClass({ gateway, texts }) {
       if (this.name === null) return null;
       const { SenderInbox } = await import("../../agent/src/gatewayChat.js");
       const senderId = (await storage.get(SENDER_ID_KEY)) ?? "";
-      this.inner = new SenderInbox(chatState(this.state, senderId), await chatEnv(this.env, this.state, this.name, senderId, { gateway, texts }));
+      // A call this chat makes to its own Worker object is served here. Asking the Worker would forward it back.
+      let servingOwn = false;
+      const own = {
+        name: `enam:${this.name}`,
+        fetch: (request) => {
+          if (servingOwn) return Promise.resolve(new Response(null, { status: 421 }));
+          servingOwn = true;
+          return Promise.resolve(this.inner.fetch(request)).finally(() => {
+            servingOwn = false;
+          });
+        },
+      };
+      this.inner = new SenderInbox(chatState(this.state, senderId), await chatEnv(this.env, this.state, this.name, senderId, { gateway, texts, own }));
       return this.inner;
     }
   };
@@ -155,7 +170,7 @@ export function chatState(state, senderId) {
  * The Worker's `Env`, as the chat object reads it, made of the gateway's bindings. `jobsHere`: this object's job calls
  * (`job:<id>`) reach the gateway's `TEX_JOB` objects rather than the Worker's.
  */
-export async function chatEnv(env, state, name, senderId, { gateway, texts, jobsHere = false }) {
+export async function chatEnv(env, state, name, senderId, { gateway, texts, jobsHere = false, own = null }) {
   const { remoteLine, remoteGroupLine } = await import("../../agent/src/gatewayChat.js");
   const ctx = { waitUntil: (work) => state.waitUntil(work), passThroughOnException() {} };
   const self = typeof env.PUBLIC_ORIGIN === "string" ? env.PUBLIC_ORIGIN.replace(/\/+$/, "") : "";
@@ -174,7 +189,7 @@ export async function chatEnv(env, state, name, senderId, { gateway, texts, jobs
     // The Worker's other objects (a job's, a chat's directory entry), reached through the Worker.
     // Where a new background job starts (`apps/agent/src/jobPlace.ts`): its calls then follow where it was born.
     JOBS: env.TEX_JOBS === "gateway" && env.TEX_JOB !== undefined ? "gateway" : "worker",
-    SENDER_INBOX: senderObjects(env, rpc, name, senderId, jobsHere),
+    SENDER_INBOX: senderObjects(env, rpc, name, senderId, jobsHere, own),
     TEX_LINE: rpc === undefined ? undefined : { line: (chatId) => remoteLine(rpc, name, chatId), groupLine: (groupId) => remoteGroupLine(rpc, name, groupId) },
     // A group turn's retries stay the Worker's Workflow: it reaches this chat through the Worker's object by its old
     // id, which passes the call on here (`groupTurnWorkflow.ts`).
@@ -194,13 +209,13 @@ export async function chatEnv(env, state, name, senderId, { gateway, texts, jobs
  * A stand-in for the Worker's `SENDER_INBOX` namespace: each object reached by name through the Worker's RPC. Only
  * this chat's own id is known here (the one it had in the Worker, for counting: `objectPlace.ts` `inboxIdOf`).
  */
-function workerObjects(rpc, chatName, senderId) {
+function workerObjects(rpc, chatName, senderId, own) {
   return {
     idFromName: (name) => workerId(name, chatName, senderId),
     idFromString: () => {
       throw new TypeError("a Worker object is reached by name here");
     },
-    get: (id) => workerStub(rpc, id),
+    get: (id) => workerStub(rpc, id, own),
   };
 }
 
@@ -209,10 +224,14 @@ function workerId(name, chatName, senderId) {
   return { name, toString: () => (name === `enam:${chatName}` ? senderId : "") };
 }
 
-/** A stub for the Worker's object `id`, reached over the Worker's RPC. */
-function workerStub(rpc, id) {
+/** A stub for the Worker's object `id`, reached over the Worker's RPC. This chat's own name is served here (`own`). */
+function workerStub(rpc, id, own) {
   return {
     fetch: (input, init) => {
+      if (own && id.name === own.name && typeof own.fetch === "function") {
+        const request = input instanceof Request && init === undefined ? input : new Request(input, init);
+        return own.fetch(request);
+      }
       if (rpc === undefined) return Promise.resolve(new Response(null, { status: 503 }));
       return rpc.inboxFetch({ name: id.name }, new Request(input, init));
     },
@@ -224,8 +243,8 @@ function workerStub(rpc, id) {
  * gateway's `TEX_JOB` object of that name, and every other name to the Worker's objects, as before. Only the job
  * objects are made here by namespace, through `objectByName`; the Worker's are named and reached over RPC.
  */
-function senderObjects(env, rpc, chatName, senderId, jobsHere) {
-  if (!jobsHere) return workerObjects(rpc, chatName, senderId);
+function senderObjects(env, rpc, chatName, senderId, jobsHere, own) {
+  if (!jobsHere) return workerObjects(rpc, chatName, senderId, own);
   return {
     idFromName: (name) => (jobNameOf(name) === null ? workerId(name, chatName, senderId) : { name, toString: () => "" }),
     idFromString: () => {
@@ -233,7 +252,7 @@ function senderObjects(env, rpc, chatName, senderId, jobsHere) {
     },
     get: (id) => {
       const job = jobNameOf(id.name);
-      if (job === null) return workerStub(rpc, id);
+      if (job === null) return workerStub(rpc, id, own);
       const stub = objectByName(env.TEX_JOB, job);
       return { fetch: (input, init) => stub.fetch(new Request(input, init)) };
     },

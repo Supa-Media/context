@@ -29,7 +29,7 @@ function namespaceOf(world: World): DurableObjectNamespace {
 
 /** The gateway's binding, recording what it was sent and answering a status the test sets. */
 function gatewayFake() {
-  const calls: { url: string; method: string; inbox: string | null; body: string }[] = [];
+  const calls: { url: string; method: string; inbox: string | null; body: string; forwarded: string | null }[] = [];
   const answer = { status: 200 };
   return {
     calls,
@@ -37,7 +37,7 @@ function gatewayFake() {
     fetch: async (url: string, init?: RequestInit) => {
       const headers = new Headers(init?.headers);
       const body = init?.body === undefined || init.body === null ? "" : new TextDecoder().decode(init.body as ArrayBuffer);
-      calls.push({ url, method: init?.method ?? "GET", inbox: headers.get("x-inbox-name"), body });
+      calls.push({ url, method: init?.method ?? "GET", inbox: headers.get("x-inbox-name"), body, forwarded: headers.get("x-inbox-forwarded") });
       return new Response(`gateway ${answer.status}`, { status: answer.status });
     },
   };
@@ -103,12 +103,29 @@ describe("moving a chat's inbox out to the gateway", () => {
 
     const late = await world.placed(PHONE).fetch("https://inbox/put?k=late", { method: "POST", body: "x" });
     expect(await late.text()).toBe("gateway 200");
-    expect(gateway.calls).toEqual([{ url: "https://gateway/texts/chat-call/put?k=late", method: "POST", inbox: PHONE, body: "x" }]);
+    expect(gateway.calls).toEqual([{ url: "https://gateway/texts/chat-call/put?k=late", method: "POST", inbox: PHONE, body: "x", forwarded: "1" }]);
     expect(placed.storage.data.has("late")).toBe(false);
 
     // Through the old, unplaced name: its copy passes the call to the placed inbox, which passes it to the gateway.
     expect(await (await world.stub(PHONE).fetch(new Request("https://inbox/get?k=count"))).text()).toBe("gateway 200");
-    expect(gateway.calls[1]).toEqual({ url: "https://gateway/texts/chat-call/get?k=count", method: "GET", inbox: PHONE, body: "" });
+    expect(gateway.calls[1]).toEqual({ url: "https://gateway/texts/chat-call/get?k=count", method: "GET", inbox: PHONE, body: "", forwarded: "1" });
+  });
+
+  test("a call the gateway sends back is not forwarded again", async () => {
+    const { world } = await arrivedWorld();
+    let calls = 0;
+    world.gateway = {
+      fetch: async () => {
+        calls += 1;
+        if (calls > 1) return new Response("loop", { status: 500 });
+        const nested = await world.placed(PHONE).fetch("https://inbox/get?k=count", { headers: { "x-inbox-forwarded": "1" } });
+        return new Response(`nested ${nested.status}`, { status: 200 });
+      },
+    };
+    await chatMove(namespaceOf(world), { inbox: PHONE, op: "out" });
+    const answer = await world.placed(PHONE).fetch("https://inbox/get?k=count");
+    expect(calls).toBe(1);
+    expect(await answer.text()).toBe("nested 421");
   });
 
   test("a gateway answer that fails is passed back as it is", async () => {
