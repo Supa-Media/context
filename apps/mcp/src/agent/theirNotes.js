@@ -83,10 +83,32 @@ function listed(listing, path) {
 }
 
 /**
- * Wraps a texted or group turn's dispatcher (`texEntryPoint.js`). `question` is the
- * text being answered; `on` is false for a routine's run. One per turn.
+ * With the move judge wired (`graph/nodes/moveJudge.js`, a Lab draft's `tools -> moveJudge`): a note that isn't there
+ * is never kept as theirs (the call goes on and answers for itself), and otherwise the judge reads their recent words
+ * and Tex's own offer. A judge that fails keeps the note where it is.
  */
-export function withTheirNotesKept(callTool, { question = "", on = true } = {}) {
+async function judgedAsked(judge, callTool, { name, args, path, where, said, asked }) {
+  const cut = path.lastIndexOf("/");
+  try {
+    const listing = await callTool("list_notes", { prefix: cut === -1 ? "" : `${path.slice(0, cut)}/`, ...(isText(where) ? { context: where } : {}) });
+    if (listing?.isError !== true && !listed(listing?.content?.[0]?.text, path) && !String(listing?.content?.[0]?.text ?? "").toLowerCase().includes(`${path.toLowerCase()}/`)) return true;
+  } catch {
+    // A listing that fails proves nothing: the judge still decides.
+  }
+  try {
+    const verdict = await judge({ said: [...(Array.isArray(said) ? said : []), { from: "person", text: asked }], action: name === "archive_note" || args?.action === "archive" ? "archive" : "move", path, ...(isText(where) ? { workspace: where } : {}) });
+    return verdict?.allow === true;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Wraps a texted or group turn's dispatcher (`texEntryPoint.js`). `question` is the
+ * text being answered; `on` is false for a routine's run; `judge`, only when a Lab draft wires the move judge, with
+ * `said`, the chat's recent texts before this one (`{ from: "person" | "tex", text }`, oldest first). One per turn.
+ */
+export function withTheirNotesKept(callTool, { question = "", on = true, judge = null, said = [] } = {}) {
   if (!on) return callTool;
   const asked = String(question ?? "");
   const made = new Set();
@@ -95,7 +117,7 @@ export function withTheirNotesKept(callTool, { question = "", on = true } = {}) 
     const taken = notesTaken(name, args);
     if (taken.length > 0 && !ASKS_TO_MOVE.test(asked)) {
       const theirs = taken.find((path) => !made.has(keyOf(path, where)));
-      if (theirs !== undefined) {
+      if (theirs !== undefined && !(judge !== null && (await judgedAsked(judge, callTool, { name, args, path: theirs, where, said, asked })))) {
         console.log(JSON.stringify({ event: "their_note_kept", tool: name }));
         return { content: [{ type: "text", text: keptInPlace(theirs) }], isError: true };
       }
@@ -123,4 +145,12 @@ export function withTheirNotesKept(callTool, { question = "", on = true } = {}) 
     if (path !== "" && result?.isError !== true && activityHintOf(result)?.created === true) made.add(keyOf(path, where));
     return result;
   };
+}
+
+/** The chat's last few texts before this one, as the move judge reads them: who said it and what, oldest first. */
+export function saidBefore(history, { last = 6 } = {}) {
+  return (Array.isArray(history) ? history : [])
+    .filter((turn) => (turn?.role === "user" || turn?.role === "assistant") && typeof turn.text === "string" && turn.text.trim() !== "")
+    .slice(-last)
+    .map((turn) => ({ from: turn.role === "assistant" ? "tex" : "person", text: turn.text.slice(-600) }));
 }
