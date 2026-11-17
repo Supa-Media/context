@@ -4,14 +4,14 @@
  * Two sets of checks, both the ones the real path runs: the runner's own (`texGraph.cjs` `problemsOf`: unique ids,
  * wires that join real steps with a real mode, no cycle over wait and background wires), and Promote's
  * (`scripts/tex-lab-promote.mjs` `configFrom`: a new step needs code first, a step is turned off rather than deleted,
- * every model has a gateway id, efforts and on/off are real values). The pull request Promote opens runs CI and the
- * replay gate on top; those are named, not run, here.
+ * every model has a gateway id, efforts and on/off are real values, and a provisional wire keeps `firstLook` and
+ * `sms`). The pull request Promote opens runs CI and the replay gate on top; those are named, not run, here.
  */
 
 import { problemsOf } from "../../../../packages/shared/src/texGraph.cjs";
 import { CONFIG_STAMP, TEX_CONFIG } from "../agent/texConfig.js";
 import SHELF from "../../../../packages/shared/src/texNodeShelf.json" with { type: "json" };
-import { EFFORTS as SCHEMA_EFFORTS } from "../../../../packages/shared/src/texConfigSchema.cjs";
+import { EFFORTS as SCHEMA_EFFORTS, provisionalHoldProblems } from "../../../../packages/shared/src/texConfigSchema.cjs";
 
 const EFFORTS = new Set(SCHEMA_EFFORTS);
 
@@ -39,6 +39,8 @@ function modelProblem(n, own, models) {
 export function draftProblems(graph, current = TEX_CONFIG, shelf = Object.keys(SHELF.nodes ?? {}), base = undefined) {
   if (!graph || !Array.isArray(graph.nodes) || !Array.isArray(graph.edges)) return ["the draft has no steps and wires"];
   const problems = problemsOf({ nodes: graph.nodes, edges: graph.edges }).map((p) => `runner: ${p}`);
+  // The same hold check CI and Promote run (`provisionalHoldProblems`), so a saved draft that drops one is refused here too.
+  problems.push(...provisionalHoldProblems(graph.edges));
   const known = new Set(current.nodes.map((n) => n.id));
   const shelved = new Set(shelf);
   const ids = new Set(graph.nodes.map((n) => n?.id));

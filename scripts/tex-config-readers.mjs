@@ -83,6 +83,23 @@ function selfTest() {
   bad.edges[0].mode = "sideways";
   const said = SCHEMA.configProblems(bad).join("; ");
   expect(/does not know: colour/.test(said) && /sideways/.test(said), "an unknown field or mode passed the schema");
+  // A provisional wire must keep firstLook and sms. A hand edit that drops one is the same refusal Promote gives.
+  for (const fact of ["firstLook", "sms"]) {
+    const held = JSON.parse(JSON.stringify(config));
+    const wire = held.edges.find((e) => e.mode === "provisional");
+    wire.unless = wire.unless.filter((f) => f !== fact);
+    const lines = [];
+    const log = console.log;
+    console.log = (line) => lines.push(String(line));
+    let heldSaid = "";
+    try {
+      heldSaid = SCHEMA.configProblems(held).join("; ");
+    } finally {
+      console.log = log;
+    }
+    expect(new RegExp(`provisional wire ${wire.from} → ${wire.to} is missing the hold ${fact}`).test(heldSaid), `a provisional wire that drops ${fact} passed the schema`);
+    expect(lines.some((line) => line.includes("provisional_hold_refused") && line.includes(`"missing":"${fact}"`)), `dropping ${fact} was not logged`);
+  }
   // A config one version behind is named, and migrating brings it back.
   const old = { ...JSON.parse(JSON.stringify(config)), texConfig: 0 };
   old.edges.find((e) => e.mode === "background").mode = "behind";

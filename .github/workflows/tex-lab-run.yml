@@ -188,7 +188,10 @@ jobs:
           set -euo pipefail
           [ -f "$RUNNER_TEMP/lab/graph.json" ] || { echo "The code's own config as it is"; exit 0; }
           if ! why=$(node scripts/tex-lab-promote.mjs "$RUNNER_TEMP/lab/graph.json" 2>&1); then
-            echo "${why#tex-lab-promote: refused: }" | head -c 280 > "$RUNNER_TEMP/why"
+            printf '%s\n' "$why" >&2
+            refused=$(printf '%s\n' "$why" | sed -n 's/^tex-lab-promote: refused: //p')
+            if [ -z "$refused" ]; then refused=$why; fi
+            printf '%s' "$refused" | head -c 280 > "$RUNNER_TEMP/why"
             echo "::error::the draft could not become a config"
             exit 1
           fi

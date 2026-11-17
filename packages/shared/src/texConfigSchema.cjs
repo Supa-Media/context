@@ -29,11 +29,17 @@ const EFFORTS = Object.freeze(["off", "low", "medium", "high", "xhigh", "max"]);
 /** What a provisional run may do before its go: reads only, or reads and writes that can be undone (the default). */
 const ALLOW = Object.freeze(["read", "revertible"]);
 /**
- * Bursts a provisional wire may refuse to start early (`unless` on the wire). `firstLook`: a chat Tex is not set up
- * in. `sms`: an SMS. `unpaired`: the worker has only one of the workflow (`startTurn`) and answer-first. Absence of
- * `unless` means every burst starts the run. The texting Worker and the Lab both read this list (`texGraph.cjs`).
+ * Bursts a provisional wire may name in `unless`. `firstLook`: a chat Tex is not set up in. `sms`: an SMS.
+ * `unpaired`: the worker has only one of the workflow (`startTurn`) and answer-first. The texting Worker and the Lab
+ * both read the list (`texGraph.cjs` `provisionalHeld`). A missing list holds nothing there; the config check below
+ * is what refuses a wire that drops a required hold.
  */
 const START_FACTS = Object.freeze(["firstLook", "sms", "unpaired"]);
+/**
+ * Holds every provisional wire must keep. `firstLook` and `sms` are privacy: dropping either lets a Lab Promote or a
+ * hand edit start the door early on a chat Tex is not set up in, or on an SMS. `unpaired` may be absent.
+ */
+const REQUIRED_HOLDS = Object.freeze(["firstLook", "sms"]);
 const KINDS = Object.freeze(["input", "tool"]);
 /** The types a node's input and output fields may have (`inSchema`, `outSchema`; checked by the runner, `texGraph.cjs`). */
 const IO_TYPES = Object.freeze(["text", "number", "choice", "object", "yesno", "score", "ids", "list"]);
@@ -127,9 +133,35 @@ function configProblems(config) {
     if (e.rounds !== undefined && !(Number.isInteger(e.rounds) && e.rounds > 0 && e.rounds <= 100)) out.push(`the wire ${name} has rounds that are not a whole number from 1 to 100`);
     if (e.allow !== undefined && !(e.mode === "provisional" && ALLOW.includes(e.allow))) out.push(`the wire ${name} has allow "${e.allow}": only a provisional wire has one, ${ALLOW.join(" or ")}`);
     if (e.unless !== undefined && !(e.mode === "provisional" && isTextList(e.unless) && e.unless.every((fact) => START_FACTS.includes(fact)))) out.push(`the wire ${name} has unless ${JSON.stringify(e.unless)}: only a provisional wire has one, a list of ${START_FACTS.join(", ")}`);
+    if (e.mode === "provisional") out.push(...provisionalHoldProblems([e]));
     const key = `${e.from}>${e.to}>${e.mode}`;
     if (wires.has(key)) out.push(`the wire ${name} (${e.mode}) is there twice`);
     wires.add(key);
+  }
+  return out;
+}
+
+/**
+ * Provisional wires whose `unless` drops `firstLook` or `sms`, as sentences naming the wire and the hold.
+ * Each one is logged (`provisional_hold_refused`). [] when every provisional wire keeps both. `unpaired` may be absent.
+ */
+function provisionalHoldProblems(edges) {
+  const out = [];
+  if (!Array.isArray(edges)) return out;
+  for (const e of edges) {
+    if (!e || e.mode !== "provisional") continue;
+    const unless = Array.isArray(e.unless) ? e.unless : [];
+    const from = typeof e.from === "string" ? e.from : "?";
+    const to = typeof e.to === "string" ? e.to : "?";
+    for (const fact of REQUIRED_HOLDS) {
+      if (unless.includes(fact)) continue;
+      out.push(`provisional wire ${from} → ${to} is missing the hold ${fact}`);
+      try {
+        console.log(JSON.stringify({ event: "provisional_hold_refused", from, to, missing: fact }));
+      } catch {
+        /* a log never hides the refusal */
+      }
+    }
   }
   return out;
 }
@@ -195,4 +227,4 @@ function migrateGraph(graph) {
   return Number.isInteger(graph.texConfig) ? { ...g, texConfig: Math.max(graph.texConfig, SCHEMA_VERSION) } : g;
 }
 
-module.exports = { SCHEMA_VERSION, MODES, EFFORTS, ALLOW, START_FACTS, KINDS, IO_TYPES, GROUP_FIELDS, NODE_FIELDS, EDGE_FIELDS, configProblems, texConfigOf, MIGRATIONS, migrateGraph };
+module.exports = { SCHEMA_VERSION, MODES, EFFORTS, ALLOW, START_FACTS, REQUIRED_HOLDS, KINDS, IO_TYPES, GROUP_FIELDS, NODE_FIELDS, EDGE_FIELDS, configProblems, provisionalHoldProblems, texConfigOf, MIGRATIONS, migrateGraph };
