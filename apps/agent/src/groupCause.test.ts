@@ -11,6 +11,7 @@ import { describe, expect, it } from "vitest";
 import { turnCause } from "./groupCause";
 import { devShareOf } from "./groupControl";
 import { CHAT_LOOK_PATH } from "./groupRoutines";
+import { JOB_REPORT_PATH } from "./jobTexts";
 import type { GroupMessage } from "./sendblueGroups";
 
 describe("turnCause", () => {
@@ -19,7 +20,7 @@ describe("turnCause", () => {
     expect(turnCause({ routine: { runId: "r", path: "tex/groups/x/routines/rent.md" } }, [])).toBe("routine");
   });
   it("work queued as a routine is named for what it is (every Worker-queued turn carries `routine`)", () => {
-    const routine = { runId: "x", path: "tex/queued.md" };
+    const routine = { runId: "x", path: JOB_REPORT_PATH };
     expect(turnCause({ routine, jobReport: {} as GroupMessage["jobReport"] }, [{ text: "@Tex find flights" }])).toBe("job_report");
     expect(turnCause({ routine, crossChat: {} as GroupMessage["crossChat"] }, [])).toBe("cross_chat");
     expect(turnCause({ routine, event: "vault_saved" }, [])).toBe("vault_saved");
