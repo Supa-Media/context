@@ -56,12 +56,10 @@ schema file). Recording costs about 8% on the full run.
 A selection can miss a test: a constant read only at module load, or a
 behaviour reached through a path the map's last recording did not take. So
 the selection is not the last word: `main` runs the whole suite on every
-merge. Under `AUTO_DEPLOY_PRODUCTION=after-staging`,
-`scripts/production-release.mjs` refuses a commit whose CI on `main` has not
-passed, so a missed failure stops the release. By default (owner, 2026-10-23)
-production deploys beside staging and does not wait for that run, so a missed
-failure can ship and is caught minutes later on `main`, where the next merge
-fixes it; that is the trade the owner chose for a five-minute release.
+merge. `scripts/production-release.mjs` refuses a commit whose CI on `main`
+has not passed, so a missed failure stops the release. Production used to
+deploy beside staging without waiting for that run (owner, 2026-10-23); as of
+2026-11-17 it waits, and a red main CI does not deploy.
 
 **What a simplification costs.** Dropping the coverage filter for plain
 imports puts every HTTP test back on every Tex change. Dropping the

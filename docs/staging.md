@@ -5,15 +5,17 @@ The staging app is served at `https://staging.context.lc`, with MCP at
 It has a separate Convex deployment in the existing Context project.
 
 Every merge to `main` runs `Deploy Staging`; it can also be run manually
-against a selected branch. A merge also starts `Deploy to Production` from
-`Start Production` (`deploy-production-start.yml`), a workflow of its own
-outside staging's queue, so the two deploy side by side and neither waits on
-the other (decided by the owner, 2026-10-23; moved out of staging's first job
-on 2026-11-02, when a queued staging run held production back). The repository
-variable `AUTO_DEPLOY_PRODUCTION` changes that: `after-staging` makes
-`Promote to Production` start production only after the staging run passes,
-CI on `main` has passed on the same commit, and it is still `main`'s tip;
-`off` leaves production to the manual press below.
+against a selected branch. Production does not start from that push.
+`Promote to Production` (`promote-production.yml`) starts `Deploy to
+Production` when CI on `main` succeeds, for the newest commit that has also
+passed staging (decided by the owner, 2026-11-17). A red CI run does not
+deploy. The starter waits outside staging's queue, so a queued staging run
+does not hold it, and it does not cancel a production deploy that has already
+started. Set `AUTO_DEPLOY_PRODUCTION` to `off` to leave production to the
+manual press below. A merge made with `GITHUB_TOKEN` does not start CI, so
+it does not start production either. The automatic run is dispatched on
+`prod-deploy/<sha>`, a branch at that commit, because a dispatch of `main`
+would ship whatever the tip was at that moment.
 
 A staging run deploys only what the commit can affect. Its first job,
 `scripts/deploy-plan.mjs`, compares the commit with what staging is running
@@ -35,14 +37,14 @@ when that component deploys.
 
 To release by hand, open **Actions → Deploy to Production → Run workflow** and select
 `main`. The action requires a successful staging deployment and a green CI
-run on `main` for that exact commit (a release started beside staging
-skips both), then deploys the components that changed since production's last
-successful run, chosen by the same planner with `--target production`: Convex,
-the Workers, web, router and production OTA. Tick `full` to redeploy
-everything, for recovery or after rotating a production secret. The OTA update
-publishes alongside web rather than after the router. The gateway suite is not
-rerun, because the staging run this action requires ran it whenever the
-gateway's inputs changed. All jobs use the commit fixed when the action
+run on `main` for that exact commit, then deploys the components that changed
+since production's last successful run, chosen by the same planner with
+`--target production`: Convex, the Workers, web and router. Tick `full` to
+redeploy everything, for recovery or after rotating a production secret. The
+OTA bundle is exported during the deploy; the upload starts after the backends
+succeed and does not hold the production queue. The gateway suite runs again on that same commit, beside the other deploy
+jobs; only the gateway deploy waits for it, and a failed suite fails the
+release. All jobs use the commit fixed when the action
 started, even if `main` moves while it runs. Production builds use production credentials; staging data is not
 copied. A failed deployment can be retried with GitHub's **Re-run failed jobs**.
 
