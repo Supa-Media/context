@@ -25,6 +25,7 @@ import { ACTIONS } from "../tools/v2/actions.js";
 import { translateV2Params } from "../tools/v2/translate.js";
 import { toolDefinitions } from "../tools/registry.js";
 import { toolsForSession } from "../tools/advertised.js";
+import { disabledToolNames } from "../plugins/enablement.js";
 import { actionArguments } from "../orient/manual.js";
 import { COMMAND_SEND_ACTIONS } from "./commandTools.js";
 import { COMPUTER_SEND_ACTIONS } from "../machines/texActions.js";
@@ -356,6 +357,11 @@ export async function grantedToolsFor(session, store, { texts = false } = {}) {
   store.offeredTools ??= () => toolsForSession(session, store);
   if (!texts || !store?.texts) return toolsForSession(session, store, { shape: "v1" });
   // Unlisted, so named here: the same definitions, past the same scope and plugin filters, answered by the one dispatcher (`OWN_READ_TOOLS`).
-  const [listed, all] = await Promise.all([toolsForSession(session, store, { shape: "v1" }), toolsForSession(session, store, { shape: "all" })]);
+  // Both shapes ask the same plugin switches. One read of enabled.json is shared, so a texted turn does not fetch it twice.
+  const disabled = await disabledToolNames(store);
+  const [listed, all] = await Promise.all([
+    toolsForSession(session, store, { shape: "v1", disabled }),
+    toolsForSession(session, store, { shape: "all", disabled }),
+  ]);
   return [...listed, ...all.filter((tool) => OWN_READ_TOOLS.includes(tool.name))];
 }

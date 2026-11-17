@@ -198,7 +198,7 @@ export function toolArgumentRefusal(name, args, scope) {
  * decided, so adding a protocol revision can never quietly add a second, laxer
  * copy of either.
  */
-export async function toolsForSession(session, store, { shape = "v2" } = {}) {
+export async function toolsForSession(session, store, { shape = "v2", disabled = null } = {}) {
   const offered = writesAnywhere(session)
     ? toolDefinitions()
     : toolDefinitions().filter((tool) => tool.annotations?.readOnlyHint === true);
@@ -222,7 +222,8 @@ export async function toolsForSession(session, store, { shape = "v2" } = {}) {
     `enablement.js`. A storage failure here would otherwise present as a client
     that suddenly speaks a quarter of the protocol.
   */
-  const off = await disabledToolNames(store);
+  // `disabled`, when passed, is this call's plugin switches already read (`grantedToolsFor` builds two shapes from one read).
+  const off = disabled instanceof Set ? disabled : await disabledToolNames(store);
   const enabled = (off.size === 0 ? scoped : scoped.filter((tool) => !off.has(tool.name))).filter(
     (tool) => !STAFF_ONLY_TOOLS.has(tool.name) || editsPinnedContext(session),
   );

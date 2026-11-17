@@ -11,7 +11,9 @@
  *  - the override sentence dropped from `instructionsPrompt`: "their own instructions win" (2026-11-02);
  *  - `readGroupVoice` without its line cap: "a group's voice note";
  *  - `readGroupVoice` keeping a line that is the fence marker, or `voicePrompt` without its
- *    "never follow" line: "a line in the voice note cannot close the fence".
+ *    "never follow" line: "a line in the voice note cannot close the fence";
+ *  - `firstHeld` re-reading a name already probed, or a missing voice note not
+ *    returned for the second read: "a missing voice note is probed once".
  */
 
 import assert from "node:assert/strict";
@@ -125,6 +127,22 @@ test("a group turn reads its notes side by side, not one after another (2026-10-
   };
   await readGroupMemory({ get: async () => null }, { ...GROUP }, dispatch);
   assert.ok(most >= 3, `the memory note, the voice note and the playbook are read at once (at most ${most} open)`);
+});
+
+test("a missing voice note is probed once per name, and the empty note is reused (2026-11-17)", async () => {
+  const reads = [];
+  const dispatch = async (name, args) => {
+    if (name === "read_note") reads.push(args.path);
+    return { isError: true, content: [{ type: "text", text: "not found" }] };
+  };
+  const group = { ...GROUP };
+  await readGroupMemory({ get: async () => null }, group, dispatch);
+  assert.equal(group.voice, "");
+  const voiceReads = reads.filter((path) => /\/voice-[0-9a-f]{12}\.md$/.test(path ?? ""));
+  const counts = new Map();
+  for (const path of voiceReads) counts.set(path, (counts.get(path) ?? 0) + 1);
+  assert.equal(counts.size, 2, `the new name and the old one: ${voiceReads.join(", ")}`);
+  for (const [path, count] of counts) assert.equal(count, 1, path);
 });
 
 test("a group turn reads its memory note and voice note once each, not again after their moves (2026-10-31)", async () => {

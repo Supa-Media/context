@@ -14,6 +14,7 @@
  *   `resolve` routing every `texts:` id to earlier_texts                     1
  *   `grantedToolsFor` not asking `store.texts` (cleared or not)              1
  *     (the team-grant turn still passes: the scope filter holds them back too)
+ *   the two tool shapes each reading enabled.json                            "both tool shapes share one read"
  *   `searchTool` returning the base description                              1
  *
  * Fake names, numbers and credentials only.
@@ -35,6 +36,7 @@ import {
 } from "./searchProjection/fixtures.mjs";
 import { DECISION_MODEL } from "../src/agent/decide.js";
 import { grantedToolsFor, sixToolsOver } from "../src/agent/sixTools.js";
+import { ENABLEMENT_KEY } from "../src/plugins/enablement.js";
 import { texStoreNamespace } from "./texStoreFixture.mjs";
 
 const tok = (name) => `cat_agtexts_${name}_`.padEnd(40, "0");
@@ -166,6 +168,23 @@ test("only a cleared store and a Tex turn that asks are handed the texts tools",
   assert.ok((await names(cleared(), { texts: true })).includes("read_texts"));
   assert.ok(!(await names(cleared())).includes("search_texts"), "a surface that did not ask (a dream, a check-in) is not handed them");
   assert.ok(!(await names({ readObject: async () => null, get: async () => null }, { texts: true })).includes("search_texts"), "an uncleared store is not");
+});
+
+test("both tool shapes share one read of the plugin settings", async () => {
+  const session = { workspaceKind: "personal", role: "owner", scope: "private", scopes: ["context:read", "context:write", "context:private"] };
+  let gets = 0;
+  const store = {
+    texts: { cleared: true },
+    readObject: async () => null,
+    async get(key) {
+      if (key === ENABLEMENT_KEY) gets += 1;
+      return { etag: "e1", text: async () => JSON.stringify({ version: 1, enabled: [], disabled: ["context-meetings"] }) };
+    },
+  };
+  const names = (await grantedToolsFor(session, store, { texts: true })).map((tool) => tool.name);
+  assert.equal(gets, 1, "enabled.json is read once for both shapes");
+  assert.ok(names.includes("search_texts"));
+  assert.ok(!names.includes("read_meeting"), "the shared read still switches the plugin's tools off");
 });
 
 test("texts:<id> reads a backed-up conversation where the turn holds them; bare texts: stays this chat's own", () => {

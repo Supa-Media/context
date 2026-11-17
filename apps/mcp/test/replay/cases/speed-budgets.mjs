@@ -5,7 +5,11 @@ import { BEHIND_THE_RESPONSE, groupChat, oneToOne } from "../chats.mjs";
 const BUDGET = new URL("../speed-budget.json", import.meta.url);
 const REPORTING = new URL("../../../src/controlPlane/reporting.js", import.meta.url);
 
-/** The five simple turns the budgets cover, each measured the way production meets it. */
+/**
+ * The five simple turns the budgets cover, each measured the way production meets it.
+ * A 1:1 turn reads `.context/plugins/enabled.json` once for both tool shapes.
+ * A group turn whose voice note is missing probes the new name and the old name once each.
+ */
 async function measure() {
   const seen = {};
   const chat = await oneToOne();
