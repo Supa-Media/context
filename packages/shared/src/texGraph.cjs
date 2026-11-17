@@ -22,7 +22,9 @@
  *           target's verdict: tags matching the wire's `stop:<tag>` entries stop the running target, `restart:<tag>` stops
  *           and reruns it, and anything else says go. Until every `provisional` source into it has said go, the target
  *           may do only what the wire's `allow` lets it: "read" (reads only) or "revertible" (the default: reads, and writes
- *           that can be undone); anything that cannot be taken back always waits for the go. One target per config; read
+ *           that can be undone); anything that cannot be taken back always waits for the go. `unless` names the bursts
+ *           that do not start it early (`firstLook`, `sms`, `unpaired`; `provisionalHeld`): any one of them on any
+ *           provisional wire holds the run, and the step waits for those sources instead. One target per config; read
  *           by intake through `provisionalWiring`, never fired by `run` (Dev2, 2026-11-17).
  *   generator  ("Starts a new run") the source starts a new run of its own that begins at the target, an input node
  *           (`kind: "input"`), in this chat or another; nothing in the current run waits for it. A background job, a
@@ -53,7 +55,7 @@
 
 // The wire modes and a provisional run's allows (reads only, or reads and writes that can be undone, the default) are
 // the schema's (`texConfigSchema.cjs`).
-const { MODES, ALLOW } = require("./texConfigSchema.cjs");
+const { MODES, ALLOW, START_FACTS } = require("./texConfigSchema.cjs");
 const MAX_LOG_CHARS = 3_500;
 
 class GraphError extends Error {
@@ -189,6 +191,8 @@ function problemsOf(config) {
       if (t !== "*" && !/^(stop|restart):[\w-]+$/.test(String(t))) problems.push(`provisional wire ${e.from} -> ${e.to} has when "${t}": only "*", "stop:<tag>" or "restart:<tag>"`);
     if (e.allow !== undefined && !(e.mode === "provisional" && ALLOW.includes(e.allow)))
       problems.push(`wire ${e.from} -> ${e.to} has allow "${e.allow}": only a provisional wire has one, "read" or "revertible"`);
+    if (e.unless !== undefined && !(e.mode === "provisional" && Array.isArray(e.unless) && e.unless.every((fact) => START_FACTS.includes(fact))))
+      problems.push(`wire ${e.from} -> ${e.to} has unless ${JSON.stringify(e.unless)}: only a provisional wire has one, a list of ${START_FACTS.join(", ")}`);
   }
   // A generator starts a new run, so it can only start one where runs start: an input node.
   const byId = new Map(nodes.map((n) => [n.id, n]));
@@ -241,8 +245,9 @@ function orderFrom(config, start) {
 /**
  * How a config runs a step provisionally (Dev2, 2026-11-17): the target of its `provisional` wires and, for each wire
  * whose two ends are on, its source, the tags that stop or restart the target (`when` entries "stop:<tag>",
- * "restart:<tag>"; any other output is go) and what the target may do before the go (`allow`, "revertible" when the
- * wire names none). `on` is false with no such wire. Read by intake; the runner never fires these wires.
+ * "restart:<tag>"; any other output is go), what the target may do before the go (`allow`, "revertible" when the
+ * wire names none) and which bursts do not start it early (`unless`; empty when the wire names none). `on` is false
+ * with no such wire. Read by intake; the runner never fires these wires.
  */
 function provisionalWiring(config) {
   const isOn = (id) => {
@@ -253,8 +258,19 @@ function provisionalWiring(config) {
   if (!wires.length) return { on: false, target: null, sources: [] };
   const target = wires[0].to;
   const tags = (e, kind) => (Array.isArray(e.when) ? e.when : []).filter((t) => typeof t === "string" && t.startsWith(`${kind}:`)).map((t) => t.slice(kind.length + 1));
-  const sources = wires.filter((e) => e.to === target).map((e) => ({ from: e.from, stop: tags(e, "stop"), restart: tags(e, "restart"), allow: e.allow === "read" ? "read" : "revertible" }));
+  const unlessOf = (e) => (Array.isArray(e.unless) ? e.unless.filter((fact) => typeof fact === "string") : []);
+  const sources = wires.filter((e) => e.to === target).map((e) => ({ from: e.from, stop: tags(e, "stop"), restart: tags(e, "restart"), allow: e.allow === "read" ? "read" : "revertible", unless: unlessOf(e) }));
   return { on: true, target, sources };
+}
+
+/**
+ * Which of `facts` hold a provisional run back (`unless` on its wires, the union: one wire that names a fact holds
+ * every wire). Empty when the run starts. The texting Worker and the Lab both call this, so a burst the config holds
+ * is held in both (Dev2, 2026-11-17: the gate is the wire's, not code's).
+ */
+function provisionalHeld(unless, facts) {
+  const block = new Set(Array.isArray(unless) ? unless : []);
+  return (Array.isArray(facts) ? facts : []).filter((fact) => typeof fact === "string" && block.has(fact));
 }
 
 /**
@@ -542,4 +558,4 @@ function coverageProblems(config, processes, shelf = []) {
   return problems;
 }
 
-module.exports = { MODES, GraphError, createGraph, problemsOf, coverageProblems, checkShape, fires, tagsOf, shaped, orderFrom, provisionalWiring, ALLOW };
+module.exports = { MODES, GraphError, createGraph, problemsOf, coverageProblems, checkShape, fires, tagsOf, shaped, orderFrom, provisionalWiring, provisionalHeld, ALLOW, START_FACTS };

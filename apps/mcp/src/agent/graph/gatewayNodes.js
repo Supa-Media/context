@@ -60,6 +60,7 @@ import { chatAskNode } from "./nodes/chatAsk.js";
 import { chatAnswerNode } from "./nodes/chatAnswer.js";
 import { tapbackNode } from "./nodes/tapback.js";
 import { partEndNode } from "./nodes/partEnd.js";
+import { jobReportNode } from "./nodes/jobReport.js";
 import { jobadv } from "./nodes/jobadv.js";
 import { staffNode } from "./nodes/staff.js";
 
@@ -143,4 +144,6 @@ export const GATEWAY_NODES = {
   get tapback() { return tapbackNode; },
   // After each part of a background job: the next part, the last draft, or the end, under the limits in its config (`nodes/partEnd.js`).
   get partEnd() { return partEndNode; },
+  // A background job's report, a new run of its chat: read strictly, asked the gateway's own line (`nodes/jobReport.js`).
+  get jobReport() { return jobReportNode; },
 };
