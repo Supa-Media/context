@@ -1,7 +1,7 @@
 /** Types for `texGraph.cjs`; see that file for the rules and the reasons. */
 
 export type WireMode = "wait" | "background" | "uses" | "loop" | "job" | "provisional" | "generator";
-export interface GraphWire { from: string; to: string; mode: string; when?: string[]; rounds?: number; /** A provisional wire's: what its target may do before the go. */ allow?: ProvisionalAllow }
+export interface GraphWire { from: string; to: string; mode: string; when?: string[]; rounds?: number; /** A provisional wire's: what its target may do before the go. */ allow?: ProvisionalAllow; /** Bursts that do not start a provisional run early (`firstLook`, `sms`, `unpaired`). Absent: every burst starts it. */ unless?: string[] }
 export type ProvisionalAllow = "read" | "revertible";
 export interface GraphField { name: string; type?: "text" | "yesno" | "score" | "number" | "choice" | "ids" | "list" | "object" | "any" | string; options?: string; optional?: boolean }
 export interface GraphNode { id: string; on?: boolean; rounds?: number; kind?: string; inSchema?: GraphField[]; outSchema?: GraphField[]; [key: string]: unknown }
@@ -47,7 +47,9 @@ export declare function tagsOf(output: unknown): string[];
 export declare function shaped(value: unknown, schema?: GraphField[]): unknown;
 export declare function orderFrom(config: GraphConfig, start: string): string[];
 
-/** How a config runs a step provisionally: its target and, per `provisional` wire with both ends on, the tags that stop or restart it and what it may do before the go. */
-export interface ProvisionalWiring { on: boolean; target: string | null; sources: { from: string; stop: string[]; restart: string[]; allow: ProvisionalAllow }[] }
+/** How a config runs a step provisionally: its target and, per `provisional` wire with both ends on, the tags that stop or restart it, what it may do before the go, and which bursts do not start it early. */
+export interface ProvisionalWiring { on: boolean; target: string | null; sources: { from: string; stop: string[]; restart: string[]; allow: ProvisionalAllow; unless: string[] }[] }
 export declare const ALLOW: readonly ProvisionalAllow[];
 export declare function provisionalWiring(config: GraphConfig): ProvisionalWiring;
+/** The facts in `facts` that `unless` holds back. Empty when the provisional run starts. */
+export declare function provisionalHeld(unless: readonly string[] | undefined, facts: readonly string[] | undefined): string[];

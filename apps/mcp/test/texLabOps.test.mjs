@@ -238,6 +238,23 @@ test("a provisional wire carries its allow, kept on a rewire, dropped by null, a
   assert.throws(() => applyOps(g, [{ op: "wire", from: "text", to: "doorStep", mode: "provisional", allow: "anything" }]), OpError);
 });
 
+test("a provisional wire's unless is kept, cleared by null, and round-trips through the diff", () => {
+  const textWire = (e) => e.from === "text" && e.mode === "provisional";
+  const g = main();
+  let r = applyOps(g, [{ op: "wire", from: "text", to: "doorStep", mode: "provisional", when: ["*"], unless: ["firstLook", "sms"] }]);
+  assert.deepEqual(r.graph.edges.find(textWire).unless, ["firstLook", "sms"]);
+  assert.match(r.said[0], /unless firstLook, sms/);
+  r = applyOps(r.graph, [{ op: "wire", from: "text", to: "doorStep", mode: "provisional", when: ["*"] }]);
+  assert.deepEqual(r.graph.edges.find(textWire).unless, ["firstLook", "sms"], "a rewire that names no unless keeps it");
+  const back = applyOps(g, diffGraphs(g, r.graph)).graph;
+  assert.deepEqual(back.edges.find(textWire).unless, ["firstLook", "sms"]);
+  const cleared = applyOps(r.graph, [{ op: "wire", from: "text", to: "doorStep", mode: "provisional", when: ["*"], unless: null }]).graph;
+  assert.equal(cleared.edges.find(textWire).unless, undefined);
+  assert.equal(applyOps(r.graph, diffGraphs(r.graph, cleared)).graph.edges.find(textWire).unless, undefined);
+  assert.throws(() => applyOps(g, [{ op: "wire", from: "text", to: "doorStep", mode: "provisional", unless: ["sideways"] }]), OpError);
+  assert.throws(() => applyOps(g, [{ op: "wire", from: "text", to: "doorStep", mode: "wait", unless: ["sms"] }]), OpError);
+});
+
 test("a generator wire is a wire kind the Lab can draw and round-trip (Dev2, 2026-11-16)", () => {
   const g = main();
   const r = applyOps(g, [{ op: "wire", from: "send", to: "text", mode: "generator", when: ["answer"] }]);

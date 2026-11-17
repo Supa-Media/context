@@ -1,5 +1,5 @@
 {
-  "texConfig": 1,
+  "texConfig": 2,
   "about": "Tex as it runs: every step, its model, effort, on or off, time limit, rounds and the context it reads in order, and every wire. The Tex Architecture Lab opens this as main and promotes a version by changing this file in a pull request; the gateway reads it. Nothing else holds these values (Dev2, 2026-11-13).",
   "models": {
     "haiku-5-5": "anthropic/claude-haiku-5-5",
@@ -97,9 +97,9 @@
     {"from":"tools","to":"advisor","mode":"uses","when":["ask_advisor"]},
     {"from":"job","to":"jobadv","mode":"uses","when":["job"]},
     {"from":"job","to":"tools","mode":"uses","when":["job"]},
-    {"from":"triage","to":"doorStep","mode":"provisional","when":["stop:running"]},
-    {"from":"decide","to":"doorStep","mode":"provisional","when":["stop:quiet","restart:wait"]},
-    {"from":"lanes","to":"doorStep","mode":"provisional","when":["*"]},
+    {"from":"triage","to":"doorStep","mode":"provisional","when":["stop:running"],"unless":["firstLook","sms","unpaired"]},
+    {"from":"decide","to":"doorStep","mode":"provisional","when":["stop:quiet","restart:wait"],"unless":["firstLook","sms","unpaired"]},
+    {"from":"lanes","to":"doorStep","mode":"provisional","when":["*"],"unless":["firstLook","sms","unpaired"]},
     {"from":"text","to":"triage","mode":"wait","when":["*"]},
     {"from":"doorStep","to":"fd","mode":"wait","when":["next"]},
     {"from":"send","to":"learn","mode":"background","when":["fired"]},

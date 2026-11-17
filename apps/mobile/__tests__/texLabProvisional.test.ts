@@ -47,6 +47,25 @@ test("a provisional Front door shortens a group text's reply by the time of the 
   expect(before.reply - after.reply).toBeCloseTo(before.T.lanes.end, 6);
 });
 
+test("a first look, an SMS or an unpaired worker does not start the door early, and a wire with no such condition does", () => {
+  group();
+  const g = main();
+  expect(simulate(g, "test/group", null).T.doorStep.start).toBe(0);
+  const held = (tags: string[]) => {
+    SCENARIOS["test/held"] = { name: "Held", group: "test", tags, rounds: {} };
+    return simulate(g, "test/held", null);
+  };
+  for (const fact of ["firstLook", "sms", "unpaired"]) {
+    const sim = held(["group", fact]);
+    expect(sim.T.doorStep.start).toBeGreaterThan(0);
+    expect(sim.T.doorStep.start).toBeCloseTo(sim.T.lanes.end, 6);
+  }
+  // The same burst starts at once once the wires drop the condition: the gate is the config's, not the simulation's.
+  const open = JSON.parse(JSON.stringify(g)) as LabGraph;
+  for (const edge of open.edges) if (edge.mode === "provisional") delete edge.unless;
+  expect(simulate(open, "test/held", null).T.doorStep.start).toBe(0);
+});
+
 test("the reply is never sent before every provisional source has said go", () => {
   group();
   const g = provisionalDoor();

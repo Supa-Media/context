@@ -4,6 +4,7 @@
  * that calls them, send-backs weighted by how often they happen, and the
  * reply time as when "Text them" ends.
  */
+import { provisionalHeld } from "@context/shared/src/texGraph.cjs";
 import { EFFORT, FTYPES } from "../data/models";
 import type { LabEdge, LabGraph, LabNode } from "../types";
 import { unfoldGroups } from "./groups";
@@ -181,12 +182,16 @@ export function simulate(shown: LabGraph, s: string, log: Log, real: RealTimes |
   const order = [...reach.keys()];
   // A provisional run (Dev2, 2026-11-17) starts when its other inputs allow, at the start when it has none, never
   // waiting for its provisional sources; their latest end is its go, and the reply cannot be sent before it.
-  const provisionals = g.edges.filter((e) => e.mode === "provisional" && reach.has(e.from) && reach.has(e.to) && on(e));
+  // `unless` on those wires is the same gate the texting Worker reads (`provisionalHeld`): a burst it names does not
+  // start early, and the step waits for those sources instead, the way a Next wire would.
+  const liveProvisional = g.edges.filter((e) => e.mode === "provisional" && reach.has(e.from) && reach.has(e.to) && on(e));
+  const held = (provisionalHeld(liveProvisional.flatMap((e) => e.unless ?? []), tags) as string[]).length > 0;
+  const provisionals = held ? [] : liveProvisional;
   const goFloor = () => (provisionals.some((e) => T[e.to]) ? Math.max(0, ...provisionals.filter((e) => T[e.from]).map((e) => T[e.from].end)) : 0);
   for (let p = 0; p < order.length + 2; p++)
     for (const id of order) {
       const n = node(id, g)!;
-      const preds = g.edges.filter((e) => e.to === id && reach.has(e.from) && on(e) && !["uses", "loop", "provisional", "generator"].includes(e.mode) && T[e.from]);
+      const preds = g.edges.filter((e) => e.to === id && reach.has(e.from) && on(e) && !["uses", "loop", "generator"].includes(e.mode) && !(e.mode === "provisional" && !held) && T[e.from]);
       const provisional = provisionals.some((e) => e.to === id);
       if (id !== start.id && !preds.length && !provisional) continue;
       let st = id === start.id ? 0 : Math.max(0, ...preds.map((e) => T[e.from].end));
