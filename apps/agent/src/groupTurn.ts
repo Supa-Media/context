@@ -212,7 +212,7 @@ function chosen(burst: GroupEntry[], act: string, decision: Extract<Decision, { 
 /**
  * A wait that is not held (no real burst, or the chat may not wait again) or that ran out: Decide judges the burst again
  * with only quiet or respond to choose (`settle`), so the wait ends as Decide says and never in an answer by default
- * (Dev2, 2026-11-17: "I just want decide to know when to answer or not"; Tex Devs 11-11..11-17, 10 replies to people
+ * (Dev2, 2026-11-17: "I just want decide to know when to answer or not"; in the team's own test chat, 11-11..11-17, 10 replies to people
  * talking to each other came from a wait turned into an answer). The judge down, as any judging (`judgeDownAnswer`).
  */
 export async function settleWait(storage: InboxStorage, deps: ControlDeps & { now: () => number }, burst: GroupEntry[]): Promise<GroupChoice> {

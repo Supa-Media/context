@@ -94,7 +94,7 @@ const FOR_TEX_RULE =
  * A one-to-one chat's line for the judge. A group has none (Dev2, 2026-11-17: "I dont want a follow along setting at
  * all, I just want decide to know when to answer or not"): what is for Tex there is taught by the examples and
  * FOR_TEX_RULE alone. The follow-along line told the judge to answer "follow-ups about what Tex just said", and in
- * Tex Devs 11-11..11-17 it answered 68 to 49 quiet right after Tex spoke, against 26 to 111 otherwise.
+ * the team's own test chat, 11-11..11-17, it answered 68 to 49 quiet right after Tex spoke, against 26 to 111 otherwise.
  */
 const STYLE_RULES = {
   direct: "This is a one-to-one chat with Tex: every text is to Tex. Respond, unless it is only thanks, an ok or a laugh that asks nothing: then react or quiet.",
