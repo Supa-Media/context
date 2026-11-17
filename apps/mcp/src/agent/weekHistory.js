@@ -117,7 +117,7 @@ export function weekStart(at, timeZone, days = 7) {
 export const spanName = (days) => (days === null ? "the whole chat" : days === 0 ? "only the newest texts" : days === 1 ? "today" : `the last ${days} days`);
 
 /** The fixed line every older day's summary ends with: the exact call that opens that day whole. */
-export const dayLine = (day) => `To read that day's whole transcript, call ${READ_DAY} with {"day": "${day}"}.`;
+export const dayLine = (day) => `To read that day's whole transcript: fetch {"id": "day:${day}"}.`;
 
 /** A day id as the history names it: `Sun, Nov 8`. */
 function dayName(day) {
@@ -283,7 +283,7 @@ export function readDayTool({ ledger, chat, timeZone = "UTC", grant = null, log 
       name: READ_DAY,
       description:
         "Read one earlier day of this chat word for word: every text, oldest first, as the history shows the newest days. " +
-        'Each earlier day in the history ends with the exact call, like {"day": "2026-11-08"}. A long day comes in parts: pass part 2, 3 and on when the answer says there is more.',
+        'Each earlier day in the history ends with the exact call, like fetch {"id": "day:2026-11-08"}. A long day comes in parts: pass part 2, 3 and on when the answer says there is more.',
       inputSchema: {
         type: "object",
         properties: {
