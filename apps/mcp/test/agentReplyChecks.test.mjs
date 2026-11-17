@@ -21,6 +21,7 @@
  *     picture turn whose model fails…" in `agentProduction.test.mjs` fails.
  */
 
+import { carries } from "../src/agent/checkFindings.js";
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
@@ -146,7 +147,8 @@ test("a calendar try said with no calendar_event call gets one more round, and a
   const wrapped = check.wrap(async () => ({ content: [{ type: "text", text: "ok" }] }));
   await wrapped("earlier_texts", {});
   await wrapped("write_note", { path: "areas/people/tabi.md" });
-  assert.equal(await check.check(said), TRY_CLAIM_NOTICE);
+  // The unkept "every hour" promise goes back in the same notice (`checkFindings.js`).
+  assert.ok(carries(await check.check(said), TRY_CLAIM_NOTICE));
 
   assert.equal(promisesLater("I'll keep trying every hour through Monday."), true);
   assert.equal(promisesLater("I'll keep trying."), true);

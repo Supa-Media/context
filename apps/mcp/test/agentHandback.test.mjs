@@ -30,6 +30,7 @@
  *     as handing work back" (the calendar changes handed back).
  */
 
+import { carries } from "../src/agent/checkFindings.js";
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
@@ -86,7 +87,8 @@ test("a step only they can take, an offer, a report, or their own to-do is not h
 test("an answer that hands the work back gets one more round, once, and an offer can still be checked after it", () => {
   const claims = claimCheck({ question: "YESSSSSSSS" });
   const first = "No receipt in it. Forward it to me from Google Payments and I'll make the draft. Want me to forward it to Kansi then?";
-  assert.equal(claims.check(first), HANDBACK_NOTICE);
+  // The email offered with nothing held goes back in the same notice (`checkFindings.js`).
+  assert.ok(carries(claims.check(first), HANDBACK_NOTICE));
   assert.ok(HANDBACK_NOTICE.includes("search_email") && HANDBACK_NOTICE.includes("from:"), "the notice names the other ways to search");
   // The same words again are not sent back a second time: the check never loops.
   const again = claims.check(first);
