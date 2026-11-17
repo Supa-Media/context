@@ -165,7 +165,7 @@ describe("askAgent, streamed", () => {
   });
 
   it("is unavailable when the stream ends with no final line", async () => {
-    expect(await askAgent(stream([{ progress: "Working." }]), "g", "t", "q", async () => {})).toEqual({ kind: "unavailable" });
+    expect(await askAgent(stream([{ progress: "Working." }]), "g", "t", "q", async () => {})).toEqual({ kind: "unavailable", cause: "crash" }) // typed for a job's part (`jobProgress.ts`);
   });
 
   it("reads a gateway that answers plain JSON exactly as before", async () => {

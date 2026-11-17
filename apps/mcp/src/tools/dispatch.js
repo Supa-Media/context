@@ -33,6 +33,7 @@ import { toolPairDevice } from "./pairDevice.js";
 import { toolNotifyMe } from "./attention.js";
 import { toolVaultAddLink, toolVaultList, toolVaultShareLink, toolVaultViewLink } from "./vault.js";
 import { toolError, toolText } from "./results.js";
+import { bareEtagArguments } from "./etagPlace.js";
 import { toolExistenceMasked } from "./registry.js";
 import { toolSetEncryption } from "./encryption/setEncryption.js";
 import { toolListChanges } from "../activity/changes.js";
@@ -104,6 +105,8 @@ function pathsNamed(value, found = []) {
 }
 
 export async function callTool(name, args, store, scope, options = {}) {
+  // A placed etag (`@name/id:version`) made bare: a routed call was checked in `session.js`; the gateway's own calls are in one store.
+  args = bareEtagArguments(args);
   // A chat's history file is a view of its log, read only (`agent/historyFile.js`): nothing changes it, whoever asks.
   if (changes(name)) {
     const refusal = pathsNamed(args ?? {}).map(historyWriteRefusal).find((words) => words !== null);
