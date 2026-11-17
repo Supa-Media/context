@@ -1,7 +1,7 @@
 /**
  * The Lab's step cases and change marks for the MCP's `tex_dev` (`steps`, `marks`, `put_back`; Dev2, 2026-11-15:
  * "anything that can be done inside of the lab should be able to be done inside of the MCP"): the Tests page's step
- * list with its n/20 meters and "No cases yet", one step's case form (its given and want boxes from the step's shapes),
+ * list with its n/50 meters and "No cases yet", one step's case form (its given and want boxes from the step's shapes),
  * and the canvas's change marks against main or the draft before its last revision, with Put back. Each answer is the
  * Lab's own function (`cases.ts`, `changeMarks.ts`) run on the version, through `withLab`; bundled with `forMcp.ts`.
  */
