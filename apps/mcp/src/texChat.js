@@ -103,9 +103,18 @@ export function texChatClass({ gateway, texts }) {
       if (place?.arrivedAt === undefined) {
         if (typeof name !== "string" || this.env.TEXTING === undefined) return null;
         // Not inside blockConcurrencyWhile: the Worker's move can call back here, and the input gate has to be open for that.
+        // Drop the copy if it throws. A rejection left on `opening` is what every later call rethrows.
         if (this.opening === undefined) this.opening = copyIn(this.env.TEXTING, storage, name);
-        const moved = await this.opening;
-        this.opening = undefined;
+        let moved;
+        try {
+          moved = await this.opening;
+        } catch (error) {
+          const message = String(error?.message ?? error).slice(0, 300);
+          console.log(JSON.stringify({ event: "tex_chat_move", outcome: "threw", error: message }));
+          throw error;
+        } finally {
+          this.opening = undefined;
+        }
         console.log(JSON.stringify({ event: "tex_chat_move", ...moved }));
         if (moved.outcome !== "arrived") return null;
       }
@@ -133,7 +142,8 @@ export function texChatClass({ gateway, texts }) {
 
 /**
  * Copy the Worker's chat object in (`inboxMove.ts` `arrive`, run against the Worker over RPC), and keep its name and
- * id. Never throws; anything but `arrived` leaves this object empty and the Worker's answering.
+ * id. A storage failure throws (the name and id writes here, or `arrive`'s own). Anything but `arrived` leaves this
+ * object empty and the Worker's answering.
  */
 async function copyIn(rpc, storage, name) {
   const { arrive } = await import("../../agent/src/gatewayChat.js");

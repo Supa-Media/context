@@ -15,6 +15,8 @@
  *   3. `workerObjects` answered "" for the chat's own id: "the chat's own id is the Worker's" failed.
  *   4. `chatEnv` passed `SIMULATOR: "on"` whatever the gateway's var: "a simulated chat ... only where the simulator is
  *      on" failed (the gateway without it answered the simulator).
+ *   5. `chat` cleared `this.opening` only after the copy resolved (2026-11-17): "a copy that throws is tried again"
+ *      failed, the next call rethrowing the stored rejection and never calling the Worker again.
  */
 import assert from "node:assert/strict";
 import { afterEach, describe, it } from "node:test";
@@ -165,6 +167,49 @@ describe("TexChat runs the Worker's chat object", () => {
     assert.deepEqual(await local.json(), { local: "/accept" });
     await inbox.SENDER_INBOX.get(inbox.SENDER_INBOX.idFromName("enam:chat-two")).fetch("https://inbox/accept", { method: "POST", body: "{}" });
     assert.deepEqual(calls, ["enam:chat-two"]);
+  });
+
+  it("a copy that throws is tried again, and the failure is logged", async () => {
+    controlPlane();
+    const worker = fakeWorker();
+    const { chat, storage } = chatObject(worker.rpc);
+    const realMove = worker.rpc.chatMove.bind(worker.rpc);
+    let attempts = 0;
+    // The Worker's move throws once. Recording that failure then throws, so `copyIn` rejects with the storage empty.
+    worker.rpc.chatMove = async (call) => {
+      attempts += 1;
+      if (attempts === 1) throw new Error("worker down");
+      return realMove(call);
+    };
+    const realPut = storage.put.bind(storage);
+    storage.put = async (key, value) => {
+      if (key === "__inbox_place" && value?.failedAt !== undefined) throw new Error("storage down");
+      return realPut(key, value);
+    };
+    const lines = [];
+    const realLog = console.log;
+    console.log = (line) => lines.push(String(line));
+    const moveLogs = () =>
+      lines.flatMap((line) => {
+        try {
+          const parsed = JSON.parse(line);
+          return parsed?.event === "tex_chat_move" ? [parsed] : [];
+        } catch {
+          return [];
+        }
+      });
+    try {
+      await assert.rejects(() => arrive(chat, { kind: "one", inbox: PHONE, message: message("m1", "hi") }), /storage down/);
+      assert.deepEqual(moveLogs(), [{ event: "tex_chat_move", outcome: "threw", error: "storage down" }]);
+      assert.equal(chat.opening, undefined);
+      assert.equal(attempts, 1);
+      const second = await arrive(chat, { kind: "one", inbox: PHONE, message: message("m1", "again") });
+      assert.deepEqual(second, { status: 200, body: { outcome: "queued" } });
+      assert.equal(attempts, 2);
+      assert.equal(moveLogs().some((line) => line.outcome === "arrived" && line.keys === 1), true);
+    } finally {
+      console.log = realLog;
+    }
   });
 
   it("a handed-over text is copied in, queued, and answered on the Worker's line", async () => {
