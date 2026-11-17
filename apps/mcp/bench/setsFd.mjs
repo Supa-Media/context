@@ -84,6 +84,31 @@ export function dayOf(c, i, year) {
   return day ? iso(day) : null;
 }
 
+/** The time of day message `i` of `c` was sent, "HH:MM" from the latest `at` at or before it ("Fri Oct 23 8:02"), or null. */
+export function timeOf(c, i) {
+  let time = null;
+  for (const m of c.msgs.slice(0, i + 1)) {
+    const hm = /\b(\d{1,2}):(\d{2})\s*$/.exec(typeof m.at === "string" ? m.at.trim() : "");
+    if (hm && Number(hm[1]) < 24) time = `${hm[1].padStart(2, "0")}:${hm[2]}`;
+  }
+  return time;
+}
+
+/**
+ * The zone a person's chat times are read in, fixed for the conversation: their own workspace's `timezone:` (their
+ * calendar's, as Google sends it), else the gateway's default. Production's Worker sends the person's zone the same way.
+ */
+export async function zoneOf(dir, workspace) {
+  const root = join(dir, "workspaces", workspace);
+  const files = await readdir(root, { recursive: true }).catch(() => []);
+  for (const name of files.filter((n) => n.endsWith(".md")).sort()) {
+    const zone = /^timezone:\s*"?([A-Za-z_]+\/[A-Za-z_\/]+)"?\s*$/m.exec(await readFile(join(root, name), "utf8").catch(() => ""))?.[1];
+    if (zone) return zone;
+  }
+  return DEFAULT_ZONE;
+}
+const DEFAULT_ZONE = "America/New_York";
+
 /**
  * The shared workspace a group conversation runs in: one `people.md` puts every member in with nobody's personal
  * workspace, the one named like the conversation first. Null when there is none.
@@ -170,7 +195,7 @@ export function fdTest(units, front) {
  * day, judge and voice lines; failing that, the core set's own with `run_as:` them. One run each, on the scripted web,
  * on `today` and in the `group` when given. Null when nobody in `people.md` is called that.
  */
-export async function frontFor(dir, person, { today = null, group = null, calendar = false, setting = null } = {}) {
+export async function frontFor(dir, person, { today = null, group = null, calendar = false, setting = null, clock = null } = {}) {
   const people = parsePeople(await readFile(join(dir, "workspaces", "people.md"), "utf8"));
   if (!people.some((row) => row.person === person && row.personal)) return null;
   const names = (await readdir(join(dir, "tests"))).filter((n) => n.endsWith(".md")).sort((a, b) => (a === "core.md" ? -1 : b === "core.md" ? 1 : a.localeCompare(b)));
@@ -199,6 +224,10 @@ export async function frontFor(dir, person, { today = null, group = null, calend
   // Dev2 2026-11-17): it sees the chat's setting, never its labels.
   if (setting !== null) f = f.replace(/^world(?:_setting)?: .*\n?/gm, "") + `\nworld: simulated\nworld_setting: ${JSON.stringify(String(setting).replace(/\s+/g, " ").trim())}`;
   if (today) f = f.replace(/^today: .*$/m, `today: ${today}`);
+  // The row's own time of day in the person's zone (`clock.mjs`), and that zone on every text as the Worker sends it.
+  const zone = await zoneOf(dir, people.find((row) => row.person === person && row.personal).workspace);
+  f = f.replace(/^(?:clock|time_zone): .*\n?/gm, "") + `\ntime_zone: ${zone}`;
+  if (clock) f += `\nclock: ${clock}`;
   if (group) f = f.replace(/^(run_as: .*)$/m, `$1\ngroup: ${group}`);
   return f;
 }
@@ -242,13 +271,14 @@ export async function runFd(units, { tree, fake = false, runTests = null }) {
       // A conversation whose setting gives Tex the calendar runs with one connected (`calendar.mjs` benchCalendar).
       const calendar = hasCalendar(u.convo);
       const setting = String(u.convo.setting ?? "");
-      const key = JSON.stringify([person, today, group, calendar, setting]);
-      if (!batches.has(key)) batches.set(key, { person, today, group, calendar, setting, units: [] });
+      const clock = timeOf(u.convo, u.at);
+      const key = JSON.stringify([person, today, group, calendar, setting, clock]);
+      if (!batches.has(key)) batches.set(key, { person, today, group, calendar, setting, clock, units: [] });
       batches.get(key).units.push(u);
     }
     const tests = [];
-    for (const { person, today, group, calendar, setting, units } of batches.values()) {
-      const front = await frontFor(dir, person, { today, group, calendar, setting });
+    for (const { person, today, group, calendar, setting, clock, units } of batches.values()) {
+      const front = await frontFor(dir, person, { today, group, calendar, setting, clock });
       if (front === null) {
         rows.push(...units.map((u) => ({ ...u.row, right: false, ran: false, usd: 0, why: `${person} has no bench world: a Dev chat's people are the bench's (apps/mcp/bench/ai/workspaces/people.md)` })));
         continue;

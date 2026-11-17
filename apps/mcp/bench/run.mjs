@@ -381,6 +381,9 @@ async function answerJobs(options, { bench, test, testName = options.test ?? opt
   models.group = test.front.group ?? null;
   // A test whose person has a calendar connected and nothing on it (`calendar: connected`, `calendar.mjs` benchCalendar).
   models.calendar = test.front.calendar ?? null;
+  // The person's zone, sent on every text as the Worker sends it, and the test's time of day in it (`clock.mjs` clockMs).
+  models.timeZone = test.front.time_zone ?? null;
+  models.clock = test.front.clock ?? null;
   const person = { fake: options.fake === true, send, model: test.front.played_by };
   // A Dev test's outside world, played by a model where the fixtures have nothing (`world: simulated`, `simWorld.mjs`).
   const worldMemo = simMemo();

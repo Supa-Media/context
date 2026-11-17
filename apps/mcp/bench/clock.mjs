@@ -117,11 +117,12 @@ export function installSeededChance(seed = 1) {
  * run it is replayed from. A loop that waits for the clock to pass a time would
  * wait forever on it; none of a 1:1 text's steps does (a job's mail wait does).
  */
-export function installClock(today, { stepped = steppedRun() } = {}) {
+export function installClock(today, { stepped = steppedRun(), at = null } = {}) {
   assertIsoDate(today);
   const previous = globalThis.Date;
   const openedAt = realNow();
-  const startMs = noonUtcMs(today);
+  // `at`: the moment the day starts at, when a test names its time of day (`clockMs`); noon UTC otherwise.
+  const startMs = Number.isFinite(at) ? at : noonUtcMs(today);
   const step = stepped ? { offset: 0 } : null;
   const outerStepping = stepping;
   if (step) stepping = step;
@@ -184,4 +185,26 @@ export function noteModifiedAt(text, baseMs) {
     if (iso && isIsoDate(iso)) return noonUtcMs(iso);
   }
   return baseMs - UNDATED_DAYS * DAY_MS;
+}
+
+/**
+ * The moment `today` at `hhmm` ("08:02") is in `timeZone`, as epoch ms: a test's `clock:` read in its person's zone.
+ * Null for a time or zone that isn't one.
+ */
+export function clockMs(today, hhmm, timeZone) {
+  const m = /^(\d{2}):(\d{2})$/.exec(String(hhmm ?? ""));
+  if (!isIsoDate(today) || !m) return null;
+  const wanted = Date.UTC(...today.split("-").map((n, i) => (i === 1 ? Number(n) - 1 : Number(n))), Number(m[1]), Number(m[2]));
+  let guess = wanted;
+  try {
+    // Two passes find the offset in force at that wall time (a change of clocks moves it once).
+    for (let k = 0; k < 2; k += 1) {
+      const parts = Object.fromEntries(new Intl.DateTimeFormat("en-US", { timeZone, hourCycle: "h23", year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit" }).formatToParts(new RealDate(guess)).map((p) => [p.type, p.value]));
+      const shown = Date.UTC(Number(parts.year), Number(parts.month) - 1, Number(parts.day), Number(parts.hour), Number(parts.minute));
+      guess += wanted - shown;
+    }
+  } catch {
+    return null;
+  }
+  return guess;
 }

@@ -40,7 +40,7 @@ import { ACCOUNT_ID as D1_ACCOUNT_ID, API_TOKEN as D1_API_TOKEN, CLOUDFLARE_API_
 import { createVectorizeBackend, meaningIndexFor } from "../test/vectorizeStub.mjs";
 import { wireSearchSettings } from "../src/search/settings.js";
 import { texStoreNamespace } from "../test/texStoreFixture.mjs";
-import { assertIsoDate, installClock, noonUtcMs, noteModifiedAt, realNow } from "./clock.mjs";
+import { assertIsoDate, clockMs, installClock, noonUtcMs, noteModifiedAt, realNow } from "./clock.mjs";
 import { benchCalendar } from "./calendar.mjs";
 import { chatEntries, modelLog } from "./modelLog.mjs";
 import { failedStatus, roundsOf } from "./trace.mjs";
@@ -226,7 +226,7 @@ export async function createWorld(bench, person, setupRaw, models, today = null,
   // conversation's copy and never in the snapshot or the next conversation.
   const vectorize = prepared?.vectors ? createVectorizeBackend({ seed: prepared.vectors }) : null;
   const restore = [s3.install(), controlPlane.install(), ...(d1 ? [d1.install()] : []), ...(vectorize ? [vectorize.install()] : [])];
-  if (today !== null) restore.push(installClock(today));
+  if (today !== null) restore.push(installClock(today, { at: clockMs(today, models.clock, models.timeZone ?? "UTC") })); // a test's `clock:` in its zone
 
   // The scripted web a golden task runs on (`sites.mjs`): the browser
   // Worker's stand-in, and the answers to web searches.
@@ -417,7 +417,7 @@ export async function createWorld(bench, person, setupRaw, models, today = null,
           // What the chat has running, as the texting Worker sends it (`apps/agent/src/jobs.ts`): only a
           // turn that is sent it is offered background jobs (`background.js`), so a test with `background: on` sends it.
           // `covers` and `chat` as the Worker sends them (`apps/agent/src/inbox.ts`) on a real run (`run.mjs` `ledgerTurns`), so the turn reads the ledger and sorts its thread as production does.
-          body: JSON.stringify({ question: message, ...(group ? { group: { key: group.key, members: group.members, from: tagger.handle } } : { conversation: "texts" }), turn: said.turn, ...(models.ledgerTurns === true ? { covers, chat: said.chat } : {}), ...(attachments.length > 0 ? { attachments } : {}), ...(Array.isArray(running) ? { running } : {}), ...(job ? { job } : {}) }),
+          body: JSON.stringify({ question: message, ...(models.timeZone ? { timeZone: models.timeZone } : {}), ...(group ? { group: { key: group.key, members: group.members, from: tagger.handle } } : { conversation: "texts" }), turn: said.turn, ...(models.ledgerTurns === true ? { covers, chat: said.chat } : {}), ...(attachments.length > 0 ? { attachments } : {}), ...(Array.isArray(running) ? { running } : {}), ...(job ? { job } : {}) }),
         }),
         env,
         ctx,

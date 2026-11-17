@@ -3,7 +3,8 @@ import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { test } from "node:test";
 
-import { LIVE_SETTINGS, cantRun, checkinMail, dayOf, earlierLines, fdTest, frontFor, groupFor, runFd } from "../bench/setsFd.mjs";
+import { LIVE_SETTINGS, cantRun, checkinMail, dayOf, earlierLines, fdTest, frontFor, groupFor, runFd, timeOf, zoneOf } from "../bench/setsFd.mjs";
+import { clockMs, installClock } from "../bench/clock.mjs";
 import { parsePeople, parseTest } from "../bench/load.mjs";
 import sets from "../../../packages/shared/src/texSets.cjs";
 import { parseSetup } from "../src/agent/production.js";
@@ -212,4 +213,25 @@ test("a conversation whose setting gives Tex the calendar runs with one connecte
   assert.equal(benchCalendar(fixture, "John").calendarAddress, "j@example.invalid", "a connected fixture calendar takes their changes");
   assert.equal(benchCalendar(fixture, "John").calendarDays({ date: "2026-10-13" }).days.length, 1, "and still reads its own days");
   assert.equal(benchCalendar(fixture, null).calendarAddress, undefined, "a fixture without calendar: connected is kept as it is");
+});
+
+test("a Front door row runs at its own time of day in its person's zone, never noon UTC", async () => {
+  const c = conv([{ id: "m1", who: "Maya", at: "Fri Oct 23 8:02", text: "a" }, { id: "m2", who: "Tex", tex: true, text: "b" }, { id: "m3", who: "Maya", at: "21:40", text: "c" }]);
+  assert.deepEqual([0, 1, 2].map((i) => timeOf(c, i)), ["08:02", "08:02", "21:40"]);
+  assert.equal(timeOf(conv([{ id: "m1", who: "Maya", text: "x" }]), 0), null);
+  assert.equal(await zoneOf(BENCH, "john"), "America/Chicago", "the zone the person's own calendar names");
+  assert.equal(await zoneOf(BENCH, "nobody-here"), "America/New_York", "else the gateway's default");
+  assert.equal(new Date(clockMs("2026-10-23", "08:02", "America/Chicago")).toISOString(), "2026-10-23T13:02:00.000Z");
+  assert.equal(new Date(clockMs("2026-01-10", "08:02", "America/Chicago")).toISOString(), "2026-01-10T14:02:00.000Z", "winter's offset");
+  assert.equal(clockMs("2026-10-23", "8pm", "America/Chicago"), null);
+  const restore = installClock("2026-10-23", { stepped: false, at: clockMs("2026-10-23", "08:02", "America/Chicago") });
+  try {
+    assert.equal(new Date().toISOString().slice(0, 16), "2026-10-23T13:02");
+  } finally {
+    restore();
+  }
+  const front = await frontFor(BENCH, "John", { today: "2026-10-23", clock: "08:02" });
+  assert.match(front, /^time_zone: America\/Chicago$/m);
+  assert.match(front, /^clock: 08:02$/m);
+  assert.equal(parseTest(`---\n${front}\n---\n\n# T\n\n## 1. hi\n\n- person texts: "hi"\n`).front.clock, "08:02");
 });
