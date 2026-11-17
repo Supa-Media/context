@@ -71,6 +71,12 @@
     {"id":"m63","who":"Tex","tex":true,"text":"Last call on Mailbird, it closes Wednesday. Unless you say keep it, I'll let it close."},
     {"id":"m64","who":"Routine","via":"routine","text":"Tex's weekly tidy: two asks with no answer for 10+ days: Glazeco declined charge, Kilnfix deposit question.","at":"Tue 20:10","labels":{"fd":{"must":["close them out in one line instead of asking again"],"never":["ask about each one again"],"star":true}}},
     {"id":"m65","who":"Tex","tex":true,"text":"Letting a few old ones go: the Glazeco charge and the Kilnfix deposit question. Tell me if one still matters."},
-    {"id":"m66","who":"Lucia","text":"👍","labels":{"fd":{"must":["nothing more is needed here"]}}}
+    {"id":"m66","who":"Lucia","text":"👍","labels":{"fd":{"must":["nothing more is needed here"]}}},
+    {"id":"m67","who":"Lucia","text":"random question. what's the loudest animal","at":"Wed 16:40","labels":{"fd":{"must":["give a real answer, with a light touch"],"never":["a nature documentary"]}}},
+    {"id":"m68","who":"Tex","tex":true,"text":"The sperm whale, around 230 decibels. Still quieter than the league group chat."},
+    {"id":"m69","who":"Lucia","text":"put 'order more clay' on my list for friday","at":"Wed 16:52","labels":{"fd":{"must":["a word or two once it's on the list"],"never":["read the item back","offer something more on top"]}}},
+    {"id":"m70","who":"Tex","tex":true,"text":"Added."},
+    {"id":"m71","who":"Lucia","text":"quick, 18% of 140? paying for the team pizza","at":"Thu 19:05","labels":{"fd":{"must":["just the number, she's in a hurry"]}}},
+    {"id":"m72","who":"Tex","tex":true,"text":"$25.20."}
   ]
 }
