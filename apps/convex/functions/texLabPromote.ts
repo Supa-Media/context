@@ -61,7 +61,7 @@ export const asked = internalQuery({
     for (const r of rows) {
       const handle = r.promote ? await handleForUser(ctx, r.promote.by) : null;
       // `base` and `made` let the workflow find the main the draft started from and merge only its own changes.
-      out.push({ versionId: r.versionId, name: r.name, graph: r.graph, by: handle ? "@" + handle : "a staff member", at: r.promote?.at ?? 0, base: r.base ?? "", made: r.createdAt, picks: r.promote?.picks ?? [] });
+      out.push({ versionId: r.versionId, name: r.name, graph: r.graph, by: handle ? "@" + handle : "a staff member", at: r.promote?.at ?? 0, base: r.base ?? "", made: r.madeAt ?? r.createdAt, picks: r.promote?.picks ?? [] });
     }
     return out;
   },

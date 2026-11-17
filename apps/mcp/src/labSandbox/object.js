@@ -376,6 +376,14 @@ export function serveSandbox(tables, op, body) {
       tables.setMeta("running", { msgId: body.msgId, node: body.node ?? null, at: Date.now(), ...(Array.isArray(body.steps) ? { steps: body.steps } : {}) });
       return { ok: true };
     }
+    case "alive": {
+      // A run the object keeps (`crossRuns.js` `objectRun`) calling itself, so the object is never idle mid-model-call;
+      // its mark is kept fresh as it stands, its node and steps untouched. Never another text's mark.
+      const running = tables.meta().running;
+      if (running?.msgId !== body.msgId) return { ok: false };
+      tables.setMeta("running", { ...running, at: Date.now() });
+      return { ok: true };
+    }
     case "release": {
       const running = tables.meta().running;
       if (running?.msgId !== body.msgId) return { ok: false };
@@ -406,7 +414,8 @@ function chatKept(sql) {
 }
 
 /**
- * What `cross.carry` runs (`crossRuns.js` `objectCarry`), handed in by the route when the Worker loads it
+ * What `cross.carry` and `text.run` run (`crossRuns.js` `objectCarry`, `objectRun`; `op` says which), handed in by the
+ * route when the Worker loads it
  * (`carryWith`): the route and the turn import this file, and the control plane's reads of it stay this file's own.
  * Unset, the object says it carries nothing and the request carries the trip.
  */
@@ -417,7 +426,7 @@ export function carryWith(carry) {
 
 /** The Durable Object class (`LabSandbox` in `wrangler.toml`). */
 export class LabSandboxObject {
-  /** `carry` is what `cross.carry` runs; only a test hands its own. */
+  /** `carry` is what `cross.carry` and `text.run` run; only a test hands its own. */
   constructor(state, env, { carry = null } = {}) {
     this.state = state;
     this.env = env;
@@ -443,7 +452,8 @@ export class LabSandboxObject {
       return Response.json({ error: "gone", message: "This test chat is gone (Reset, or a day unused)." }, { status: 410 });
     }
     // A turn's asks of other chats, carried here so they outlive the request that sent the text (`crossRuns.js`).
-    if (op === "cross.carry") return Response.json((this.carry ?? carryHere)?.(this.env, this.state, body) ?? { carrying: false });
+    // A test row's whole run (its turn, its jobs, its asks), likewise (`crossRuns.js` `objectRun`).
+    if (op === "cross.carry" || op === "text.run") return Response.json((this.carry ?? carryHere)?.(this.env, this.state, body, op) ?? (op === "text.run" ? { running: false } : { carrying: false }));
     let answer;
     try {
       answer = serveSandbox(this.tables, op, body ?? {});

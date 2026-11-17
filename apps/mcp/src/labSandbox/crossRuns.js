@@ -172,3 +172,57 @@ export function objectCarry(env, state, body, pieces) {
   state.waitUntil(trip);
   return { carrying: true };
 }
+
+/** How often a run the object keeps calls the object (`alive`): a Durable Object with no request for a minute or two is
+ * evicted, and one model call can run longer than that with no step changing. */
+export const ALIVE_MS = 20_000;
+
+/**
+ * A test row's whole run, handed to the test chat's own object (`text.run`), which keeps it after the request that
+ * sent the text has answered: its turn, every background job it starts (up to `jobs.js` `JOB_LIMIT_MS`), and its asks
+ * of other chats. A Worker stops a request's `waitUntil` 30 s after it answers, which cut every job longer than that
+ * short in production (2026-11-17, jobs j6401134c and j25f68f92: `carry_on`, then nothing). The caller's token rides
+ * in this one call and is held in memory for the run only, never stored. Answers `"object"` when the object took it,
+ * `"refused"` when the object answered without taking it (the request runs it, `addRow`), and `"unknown"` when the
+ * call failed with no answer: the object may have started it, so it is never run twice; its mark goes stale instead.
+ */
+export async function runInObject(turn, carry) {
+  const { token, who, origin, config, asker } = carry;
+  const holder = { userId: who.userId, chats: Array.isArray(who.chats) ? who.chats : [] };
+  try {
+    const handed = await callSandbox(asker.stub, "text.run", { turn, token, who: holder, origin, config, asker: askerOf(asker) });
+    return handed?.running === true ? "object" : "refused";
+  } catch (error) {
+    return Number.isFinite(error?.status) ? "refused" : "unknown";
+  }
+}
+
+/**
+ * The object's side of `text.run`: the turn (`pieces().runTurn`, `chatRun.js` `runTestText`), then its asks of other
+ * chats carried here too (`carryFrom`), kept running by the object (`state.waitUntil`, and a call to itself every
+ * `ALIVE_MS` so it is never idle) and answered at once. `turn` is the run's `{ about, row }`; its session and the
+ * control plane's chat ride on `asker`. A run that fails before its turn frees its text's mark. Answers `{ running }`.
+ */
+export function objectRun(env, state, body, pieces, { aliveMs = ALIVE_MS } = {}) {
+  const { turn, token, who, origin, config, asker } = body ?? {};
+  if (typeof turn?.row?.id !== "string" || typeof turn?.about !== "object" || turn.about === null || typeof token !== "string" || typeof who?.userId !== "string" || typeof asker?.sandboxId !== "string" || typeof state?.waitUntil !== "function") return { running: false };
+  const stub = sandboxStub(env, who.userId, asker.sandboxId);
+  if (stub === null) return { running: false };
+  const msgId = turn.row.id;
+  const alive = setInterval(() => void callSandbox(stub, "alive", { msgId }).catch(() => {}), aliveMs);
+  const run = (async () => {
+    try {
+      const { open, newIds, runTurn, max } = await pieces();
+      const done = await runTurn({ env, stub, about: turn.about, row: turn.row, payload: asker.payload, token, config, origin, chat: asker.chat ?? null });
+      await carryFrom(done, { env, controlPlane: createControlPlane(env), token, who, origin, config, asker: { ...asker, stub } }, { open, newRow: newIds, runTurn, max });
+    } catch (error) {
+      console.log(JSON.stringify({ event: "lab_sandbox_object_run", ok: false, reason: String(error?.name ?? "error").slice(0, 40) }));
+      // Only this text's own mark: one its turn already freed, or another text holds, is left as it is.
+      await callSandbox(stub, "release", { msgId }).catch(() => {});
+    } finally {
+      clearInterval(alive);
+    }
+  })();
+  state.waitUntil(run);
+  return { running: true };
+}

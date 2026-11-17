@@ -83,22 +83,19 @@ export function coreCases({ test, testRaw, resultRaw, keyRaw, setup = SETUP }) {
  * run reads (its own `apps/mcp/bench/ai` unless named). Returns rows whose `results` hold one boolean a run, what it
  * cost, each test's bar, and the tests the tree does not have.
  */
-export async function runTests(tree, tests, { only = null, runs = 1, fake = false, scratch, tag, dir = null }) {
+export async function runTests(tree, tests, { only = null, runs = 1, fake = false, scratch, tag, dir = null, parallel = 1 }) {
   const folder = dir ?? join(tree, "apps/mcp/bench/ai");
   const script = join(tree, "apps/mcp/bench/run.mjs");
-  const rows = [];
-  const bars = {};
-  const missing = [];
-  let usd = 0;
-  for (const test of tests) {
+  // Each test is its own run and judge process writing its own files, so `parallel` of them can go at once (a Lab
+  // Dev run's ~30 Front door tests took ~40 minutes one after another; Dev2, 2026-11-17: "why so long?"). The
+  // answers are gathered in the tests' order, so the result reads the same either way.
+  const answers = new Array(tests.length);
+  const one = async (test) => {
     const named = only ? only.map(caseId).filter((c) => c?.test === test).map((c) => c.n) : null;
-    if (named && named.length === 0) continue;
+    if (named && named.length === 0) return null;
     const testPath = join(folder, "tests", `${test}.md`);
     const testRaw = await readFile(testPath, "utf8").catch(() => null);
-    if (testRaw === null) {
-      missing.push(test); // a tree without the test (main, before a change adds it) answers none of it
-      continue;
-    }
+    if (testRaw === null) return { missing: true }; // a tree without the test (main, before a change adds it) answers none of it
     // A question with a mirror counts only when its mirror passes, so a rerun asks the mirror too: without it the
     // question read as untested, its row vanished, and one failed first run looked like a new case (core/q13, 2026-11-13).
     const numbers = named && withMirrors(named, parseTest(testRaw).questions);
@@ -110,11 +107,28 @@ export async function runTests(tree, tests, { only = null, runs = 1, fake = fals
     await run(process.execPath, [script, "judge", out, "--dir", folder, "--max-usd", "1", ...(fake ? ["--fake"] : [])], { cwd: tree, maxBuffer: 64 * 1024 * 1024, env: process.env });
     const resultRaw = await readFile(out, "utf8");
     const keyRaw = await readFile(join(dirname(out), frontMatter(resultRaw).key), "utf8");
-    const cases = coreCases({ test, testRaw, resultRaw, keyRaw });
-    rows.push(...cases.rows.filter((row) => !only || only.includes(row.id)));
-    usd += cases.usd;
-    bars[test] = cases.bar;
-  }
+    return { cases: coreCases({ test, testRaw, resultRaw, keyRaw }) };
+  };
+  let next = 0;
+  const worker = async () => {
+    while (next < tests.length) {
+      const k = next++;
+      answers[k] = await one(tests[k]);
+    }
+  };
+  await Promise.all(Array.from({ length: Math.max(1, Math.min(Number(parallel) || 1, tests.length)) }, worker));
+  const rows = [];
+  const bars = {};
+  const missing = [];
+  let usd = 0;
+  tests.forEach((test, k) => {
+    const a = answers[k];
+    if (!a) return;
+    if (a.missing) return void missing.push(test);
+    rows.push(...a.cases.rows.filter((row) => !only || only.includes(row.id)));
+    usd += a.cases.usd;
+    bars[test] = a.cases.bar;
+  });
   return { rows, usd, bars, missing };
 }
 

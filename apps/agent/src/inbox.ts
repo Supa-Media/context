@@ -355,9 +355,9 @@ export async function drain(storage: InboxStorage, deps: InboxDeps): Promise<voi
 
 /** Decide's `react`: its emoji when one of the 64, else one picked from the words (`ackEmoji.ts`). */
 /** Kept in the chat's ledger as a `react` step, with who chose it (`by`) and the turn it ended (`stepEvents.ts`). */
-async function acknowledgeText(storage: InboxStorage, deps: InboxDeps, message: Message, emoji: string | undefined, by: string, turn?: string): Promise<void> {
-  if (message.channel === "simulator" || !message.messageId || message.tapback) return;
-  await tapback(storage, { chat: message.chatId, now: deps.now, by, asked: emoji, turn }, message.text, (sent) => lineFor(lineDeps(deps), message.chatId).acknowledge(message.chatId, message.messageId, sent));
+async function acknowledgeText(storage: InboxStorage, deps: InboxDeps, message: Message, emoji: string | undefined, by: string, turn?: string): Promise<string | undefined> {
+  if (message.channel === "simulator" || !message.messageId || message.tapback) return undefined;
+  return (await tapback(storage, { chat: message.chatId, now: deps.now, by, asked: emoji, turn }, message.text, (sent) => lineFor(lineDeps(deps), message.chatId).acknowledge(message.chatId, message.messageId, sent))) ?? undefined;
 }
 
 /** When the oldest of `entries` came in; nothing for texts queued before this was kept. */
@@ -613,7 +613,14 @@ async function answering(message: Message, work: string, deps: InboxDeps, storag
   }
   await clearReactions(storage, reacted);
   // Answered with a tapback and no words: the classifier's, the emoji checked against the list (`reactEmoji.ts`).
-  if (react !== undefined && texts.length === 0) await acknowledgeText(storage, deps, message, react || undefined, "classifier", steer.turn).catch(() => {});
+  if (react !== undefined && texts.length === 0) {
+    // `react` names the Front door's own pick (`apps/mcp/src/agent/tapbackEnding.js`); empty, the Worker picks from their words.
+    const sent = await acknowledgeText(storage, deps, message, react || undefined, react ? "tex" : "classifier", steer.turn).catch(() => undefined);
+    // The tapback that went was the whole answer: kept as Tex's line covering their texts, so the next turn reads them as
+    // answered ("You: (a tapback) ❤️") instead of "(not answered)", which would have it answer them again in words. One that
+    // didn't go leaves them unanswered, which is the truth.
+    if (sent !== undefined) await addEvent(storage, { at: deps.now(), chat: message.chatId, from: { kind: "tex" }, kind: "reaction", text: sent, delivered: true, turn: steer.turn, covers: covers.slice(-MAX_CANDIDATES) }).catch(() => {});
+  }
   // Twenty quiet minutes from now, this conversation is scored (`reviewWatch.ts`).
   if (texts.length > 0 && message.channel !== "simulator") await watchConversation(storage, { kind: "one", phone: message.from }, deps.now());
   // A 👍 on any of these texts is a 👍 on the ask among them (`thumbs.ts`).

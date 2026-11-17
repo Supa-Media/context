@@ -1,13 +1,6 @@
 {
   "about": "Nodes whose code is merged into apps/mcp/src/agent/graph/gatewayNodes.js but not wired into texConfig.json yet (Dev2, 2026-11-16: \"for code changes, create the node inside the code first and merge it to main\"). A shelf node never runs: the runner runs only the config's nodes. A Lab draft wires it, and Promote takes it off the shelf in the same pull request that puts it in the config. Each entry: the node's id, its files (repository paths), and what it is for.",
   "nodes": {
-    "tapback": {
-      "files": [
-        "apps/mcp/src/agent/graph/nodes/tapback.js",
-        "apps/mcp/src/agent/tapbackEnding.js"
-      ],
-      "why": "A tapback as the whole answer (Dev2, 2026-11-17, chose \"Front door picks the tapback\"): the front door may end a turn with one tapback on their text and no words, such as a thing it did for them or thanks; this code node checks the emoji is one of the 64 and that the last call didn't fail. Wired as tools -> tapback (uses, when tapback); unwired, no turn is offered the tapback action."
-    },
     "partEnd": {
       "files": [
         "apps/mcp/src/agent/graph/nodes/partEnd.js",

@@ -19,8 +19,10 @@
  *     → "through the turn: a save that fails in the same round, after the tapback, keeps the turn going to words" fails.
  *  7. `turn.js` telling the Worker a tool started on `tapback`.
  *     → "through the turn: a tapback after a save ends it at once, ... with no early tapback of the Worker's" fails.
- *  8. The draft's wire `tools -> tapback` left out of `withDraft`'s shelf steps.
- *     → "a Lab draft that wires it runs the shelf node over the wire, with its shape" fails.
+ *  8. The config's wire `tools -> tapback` dropped.
+ *     → "wired on main: off the shelf, a send action, and a chat turn is offered it" fails.
+ *  9. `runTheModel.js` offering it on their own tapback (`reactable` always true).
+ *     → "through /agent: never offered where the Worker can't react, as on their own tapback" fails.
  */
 import test from "node:test";
 import assert from "node:assert/strict";
@@ -108,21 +110,22 @@ test("two endings compose: a started job's still settles beside it", () => {
   assert.equal(eitherEnds(null, null), null);
 });
 
-test("on the shelf: code merged, a send action, and no config of main wires it", () => {
+test("wired on main: off the shelf, a send action, and a chat turn is offered it", () => {
   assert.equal(typeof GATEWAY_NODES.tapback, "function");
-  assert.ok(SHELF.nodes.tapback, "the shelf names it");
+  assert.equal(SHELF.nodes.tapback, undefined, "promoted: the shelf no longer names it");
   assert.equal(ASSISTANT_SEND_ACTIONS.tapback.tool, TAPBACK_TOOL);
-  assert.equal(TEX_CONFIG.nodes.some((node) => node.id === "tapback"), false);
-  assert.equal(gatewayGraph().wired("tools", "tapback"), false, "inert on main: no turn is offered it");
+  assert.equal(TEX_CONFIG.nodes.some((node) => node.id === "tapback"), true);
+  assert.equal(gatewayGraph().wired("tools", "tapback"), true, "the config wires tools -> tapback");
 });
 
-test("a Lab draft that wires it runs the shelf node over the wire, with its shape", async () => {
+test("a Lab draft that wires it runs the node over the wire, with its shape", async () => {
   const node = {
     id: "tapback", label: "Tapback", model: "code", group: "tools-subagents", x: 900, y: 160,
     inSchema: [{ name: "emoji", type: "text" }, { name: "why", optional: true, type: "text" }, { name: "lastFailed", optional: true, type: "yesno" }, { name: "tagged", optional: true, type: "yesno" }],
     outSchema: [{ name: "to", options: "react, refuse", type: "choice" }, { name: "emoji", optional: true, type: "text" }, { name: "why", optional: true, type: "text" }],
   };
-  const draft = { nodes: [...TEX_CONFIG.nodes, node], edges: [...TEX_CONFIG.edges, { from: "tools", to: "tapback", mode: "uses", when: ["tapback"] }] };
+  const bare = { nodes: TEX_CONFIG.nodes.filter((n) => n.id !== "tapback"), edges: TEX_CONFIG.edges.filter((e) => e.to !== "tapback") };
+  const draft = { nodes: [...bare.nodes, node], edges: [...bare.edges, { from: "tools", to: "tapback", mode: "uses", when: ["tapback"] }] };
   const config = withDraft(TEX_CONFIG, draft);
   const graph = gatewayGraph({ config });
   assert.equal(graph.wired("tools", "tapback"), true);
@@ -205,4 +208,20 @@ test("in a Lab test chat the tapback runs for real, so it ends the turn there to
   const gate = { record() {}, async kvGet() { return null; }, async kvPut() {} };
   const env = { [LAB_SANDBOX_KEY]: gate };
   assert.equal(await sandboxedTool(env, { name: TAPBACK_TOOL, args: { emoji: "❤️" } }), null, "not answered by the sandbox: the turn's own local tool runs");
+});
+
+test("through /agent: never offered where the Worker can't react, as on their own tapback", async () => {
+  const { oneToOne } = await import("./replay/chats.mjs");
+  const offered = (chat, from) => chat.world.model.requests.slice(from).some((request) => JSON.stringify(request.tools ?? []).includes("- tapback:"));
+  const chat = await oneToOne();
+  try {
+    let from = chat.world.model.requests.length;
+    await chat.text("perfect thank you", "Anytime.");
+    assert.equal(offered(chat, from), true, "a text of theirs is offered the tapback");
+    from = chat.world.model.requests.length;
+    await chat.text("Loved \u201cAnytime.\u201d", "", { body: { quoted: "Anytime.", tapback: "Loved" } });
+    assert.equal(offered(chat, from), false, "their own tapback is never tapped back");
+  } finally {
+    chat.restore?.();
+  }
 });

@@ -110,7 +110,7 @@ export function useLabSync(enabled: boolean) {
       ...(v.areas ? { areas: JSON.stringify(v.areas) } : {}),
       results: JSON.stringify(v.results || []),
       createdAt: v.createdAt || Date.now(),
-      ...(v.base ? { base: v.base } : {}),
+      ...(v.base ? { base: v.base } : v.madeAt ? { madeAt: v.madeAt } : {}),
     });
     setSaver(async (v) => {
       await save(toRow(v));
@@ -148,7 +148,7 @@ export function useLabSync(enabled: boolean) {
         MAIN.results = parse(x.results, []);
         continue;
       }
-      list.push({ rev: x.rev, live: x.live, id: x.versionId, name: x.name, authorId: x.authorId, graph: shownGraph(withCurrentModes(parse(x.graph, { nodes: [], edges: [] })), lab.cfocus), picks: parse(x.picks, {}), areas: parse<string[] | null>(x.areas, null), results: parse(x.results, []), createdAt: x.createdAt, updatedAt: x.updatedAt, promote: x.promote });
+      list.push({ rev: x.rev, live: x.live, id: x.versionId, name: x.name, authorId: x.authorId, graph: shownGraph(withCurrentModes(parse(x.graph, { nodes: [], edges: [] })), lab.cfocus), picks: parse(x.picks, {}), areas: parse<string[] | null>(x.areas, null), results: parse(x.results, []), createdAt: x.createdAt, updatedAt: x.updatedAt, promote: x.promote, ...(x.base ? { base: x.base } : {}), ...(x.madeAt ? { madeAt: x.madeAt } : {}) });
     }
     lab.versions = list;
     lab.sync = `Shared · ${list.length - 1} saved version${list.length === 2 ? "" : "s"}`;
