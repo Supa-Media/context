@@ -8,10 +8,12 @@
  * still left the worker at about 126,000 tokens after the caps shipped
  * (gateway analytics, 2026-11-17, setups 54bad9c2e0f0 and d51546d21963).
  *
- * This trims the body that is about to be sent. Oldest tool results go first
- * (the model can call them again), then the oldest history text. The system
- * prompt, the tool list, and the newest message stay. Images are counted as
- * pictures, not as their base64, so a photo is not mistaken for a novel.
+ * This trims the body that is about to be sent. Tool results outside the
+ * newest message go first (the model can call them again), then the oldest
+ * history text, and only then a tool result in the newest message. The
+ * system prompt and the tool list stay until nothing else will do. Images
+ * are counted as pictures, not as their base64, so a photo is not mistaken
+ * for a novel.
  */
 
 /** Stay under the cliff with room for the estimate running a little low. */
@@ -140,9 +142,11 @@ function clipLargest(body) {
 }
 
 /**
- * `body` with enough of the oldest tool results removed that a Haiku call
- * stays under `HAIKU_INPUT_BUDGET`. The newest message is stubbed only when
- * the older ones were not enough. Returns the same object when it already fits.
+ * `body` trimmed until a Haiku call stays under `HAIKU_INPUT_BUDGET`.
+ * Tool results outside the newest message go first, then older history
+ * text, and only then a tool result in the newest message. Text in an
+ * earlier message, including the person's ask when this round's results
+ * followed it, is that history. Returns the same object when it already fits.
  */
 export function fitHaikuBody(body) {
   const before = estimateBodyTokens(body);
@@ -161,15 +165,15 @@ export function fitHaikuBody(body) {
       stubAt(older);
       continue;
     }
-    const any = oldestResult(messages, false);
-    if (any) {
-      stubAt(any);
-      continue;
-    }
     const history = oldestHistory(messages);
     if (history) {
       stubHistory(messages, history);
       shed += 1;
+      continue;
+    }
+    const any = oldestResult(messages, false);
+    if (any) {
+      stubAt(any);
       continue;
     }
     if (!clipLargest(next)) break;
