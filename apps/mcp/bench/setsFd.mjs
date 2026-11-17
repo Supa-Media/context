@@ -312,9 +312,9 @@ export async function frontFor(dir, person, { today = null, group = null, calend
 
 /**
  * The Front door's batch: every unit through the tree's own bench, grouped by person, each group one test. `runTests`
- * is `coreArea.mjs`'s from the tree, swapped by a test. Answers one row a unit.
+ * is `coreArea.mjs`'s from the tree, swapped by a test; `parallel` tests go at once. Answers one row a unit.
  */
-export async function runFd(units, { tree, fake = false, runTests = null }) {
+export async function runFd(units, { tree, fake = false, runTests = null, parallel = 1 }) {
   const rows = [];
   const can = [];
   for (const u of units) {
@@ -366,7 +366,7 @@ export async function runFd(units, { tree, fake = false, runTests = null }) {
       tests.push({ name, group: units });
     }
     if (tests.length === 0) return rows;
-    const got = await run(tree, tests.map((t) => t.name), { dir, scratch, tag: "sets", fake });
+    const got = await run(tree, tests.map((t) => t.name), { dir, scratch, tag: "sets", fake, parallel });
     const each = got.usd / tests.reduce((n, t) => n + t.group.length, 0);
     for (const t of tests) {
       t.group.forEach((u, k) => {
