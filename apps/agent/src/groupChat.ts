@@ -97,6 +97,26 @@ export async function isBound(storage: InboxStorage, message: GroupMessage): Pro
   return (await storage.get<string>(BOUND_KEY)) === (await peopleKey(message));
 }
 
+/**
+ * A chat bound by a message that named only its sender (Photon and Whapi groups before their member list was kept,
+ * 2026-11-16): the bound hash is one member's alone, so every other member's untagged line read as another chat and
+ * was dropped until somebody tagged Tex again. When `message` carries the group's whole list and the bound hash is
+ * exactly one of those members alone, the chat is bound by the whole list now, as its next tagged turn would bind it
+ * (`inRoom`). Lines kept under the old hash stay under it and are never handed on. True when it rebound.
+ */
+export async function rebindSenderOnly(storage: InboxStorage, message: GroupMessage): Promise<boolean> {
+  const bound = await storage.get<string>(BOUND_KEY);
+  if (bound === undefined) return false;
+  const members = peopleOf(message.line, message.participants);
+  if (members.length < 2) return false;
+  for (const person of members) {
+    if (bound !== (await peopleHash(message.line, [person]))) continue;
+    await storage.put(BOUND_KEY, await peopleKey(message));
+    return true;
+  }
+  return false;
+}
+
 /** Whether the chat muted Tex and has not started it again. */
 export async function isMuted(storage: InboxStorage): Promise<boolean> {
   return (await storage.get<boolean>(MUTED_KEY)) === true;

@@ -67,7 +67,7 @@ import type { InboxStorage } from "./inbox";
 import type { SendblueKeys } from "./sendblue";
 import type { WhapiKeys } from "./whapi";
 import { groupLineFor, groupLineSeam, type GroupLine, type GroupPlace } from "./groupLine";
-import { inRoom, namesOnlySender, readMembersNow, withKeptMembers } from "./groupMembers";
+import { inRoom, namesOnlySender, readMembersNow, withMembers } from "./groupMembers";
 import type { NoteCardDrawer } from "./noteCards";
 import { isBound, isMuted, keepChatLine, peopleOf, setChatBound, sha256Hex, unmute } from "./groupChat";
 import type { GroupMessage } from "./sendblueGroups";
@@ -147,8 +147,8 @@ export { ASK_KEY, type OpenAsk };
  * A group's unsend (`editStep.ts`): kept as that message taken back, so later turns know, and queued for no turn. Only
  * in a chat Tex is set up in, as any line is (`acceptGroup`).
  */
-export async function keepGroupEdit(storage: InboxStorage, message: GroupMessage, now: number): Promise<"kept" | "ignored" | "duplicate"> {
-  message = await withKeptMembers(storage, message); // an unsend names only its sender, as a text does
+export async function keepGroupEdit(storage: InboxStorage, message: GroupMessage, now: number, app?: GroupLine): Promise<"kept" | "ignored" | "duplicate"> {
+  message = await withMembers(storage, message, app, now); // an unsend names only its sender, as a text does
   if (message.sms === true || !(await isBound(storage, message))) return "ignored";
   const seen = seenKey(message.eventId, await sha256Hex(message.text));
   if ((await storage.get<number>(seen)) !== undefined) return "duplicate";
@@ -163,15 +163,16 @@ export async function keepGroupEdit(storage: InboxStorage, message: GroupMessage
  * chat Tex is not set up in (or from an SMS), it waits unlogged for the judge's first look. While a turn runs here,
  * a message is judged with the turn running (`groupTurn.ts`).
  */
-export async function acceptGroup(storage: InboxStorage, message: GroupMessage, now: number): Promise<"queued" | "kept" | "ignored" | "duplicate" | "full"> {
+export async function acceptGroup(storage: InboxStorage, message: GroupMessage, now: number, app?: GroupLine): Promise<"queued" | "kept" | "ignored" | "duplicate" | "full"> {
   // Every reaction is input (Dev2, 2026-11-01): a held ask's yes is code's; any other reads on as its line of the chat.
   if (message.reaction !== undefined) {
     const read = await acceptReaction(storage, message, message.reaction, now);
     if (read.kind === "done") return read.outcome;
     message = { ...message, text: read.line };
   }
-  // WhatsApp names only the sender: the group's kept list says who else heard it (`groupMembers.ts`).
-  message = await withKeptMembers(storage, message);
+  // WhatsApp and Photon name only the sender: the group's kept list, read from the app when there is none, says who
+  // else heard it (`groupMembers.ts`).
+  message = await withMembers(storage, message, app, now);
   const { repliesToTex, forTex: tagged, byCode } = await isItForTexInGroup(storage, message, now);
   const seen = seenKey(message.eventId, await sha256Hex(message.text));
   if ((await storage.get<number>(seen)) !== undefined) return tagged ? "duplicate" : "ignored";

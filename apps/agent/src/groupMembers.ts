@@ -15,7 +15,7 @@
 
 import type { InboxStorage } from "./inbox";
 import type { GroupLine, GroupPlace } from "./groupLine";
-import { peopleOf } from "./groupChat";
+import { isBound, peopleOf, rebindSenderOnly } from "./groupChat";
 import type { GroupMessage } from "./sendblueGroups";
 
 const KEPT_KEY = "gmembers";
@@ -77,6 +77,33 @@ export async function withKeptMembers(storage: InboxStorage, message: GroupMessa
   if (kept === undefined || (kept.changedAt !== undefined && kept.changedAt >= kept.at)) return message;
   if (!kept.list.includes(message.from)) return message;
   return { ...message, participants: peopleOf(message.line, kept.list) };
+}
+
+/** How soon the app is asked again for a sender the kept list does not name (a newcomer, or a list that is behind). */
+export const REREAD_MS = 60_000;
+
+/**
+ * `withKeptMembers`, reading the app's list first when none is usable. Until 2026-11-17 only a turn read it, so a
+ * group nobody had tagged Tex in since the list began to be kept had none, and every untagged line was still dropped
+ * (Tex Devs, 2026-11-17: two of Dev2's texts and a picture). Asked at most once a minute for a sender the list does
+ * not name. With a list read just now, a chat still bound by one member alone is bound by the whole list
+ * (`rebindSenderOnly`).
+ */
+export async function withMembers(storage: InboxStorage, message: GroupMessage, app: GroupLine | undefined, now: number): Promise<GroupMessage> {
+  if (app === undefined || message.routine !== undefined || message.sms === true || !namesOnlySender(message)) return await withKeptMembers(storage, message);
+  let kept = await storage.get<Kept>(KEPT_KEY);
+  const changed = kept?.changedAt !== undefined && kept.changedAt >= kept.at;
+  const usable = kept !== undefined && !changed && kept.list.includes(message.from);
+  if (!usable && (kept === undefined || changed || now - kept.at >= REREAD_MS)) {
+    await readMembersNow(storage, app, { line: message.line, groupId: message.groupId }, () => now);
+    kept = await storage.get<Kept>(KEPT_KEY);
+  }
+  const filled = await withKeptMembers(storage, message);
+  const fresh = kept !== undefined && now - kept.at <= KEPT_FRESH_MS;
+  if (fresh && !namesOnlySender(filled) && !(await isBound(storage, filled)) && (await rebindSenderOnly(storage, filled))) {
+    console.log(JSON.stringify({ event: "group_bound", outcome: "whole_list", people: peopleOf(filled.line, filled.participants).length }));
+  }
+  return filled;
 }
 
 /** Whether a message's webhook named nobody but its sender (WhatsApp and Photon always do). */
