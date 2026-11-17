@@ -1,8 +1,11 @@
+// End to end through a real texted turn (the replay harness), kept as a unit test: the pipeline replay area is at
+// its 20-case cap (Dev2, 2026-11-15). Fails with the wrapper removed from runTheModel.js (checked, 2026-11-17).
 import assert from "node:assert/strict";
-import { oneToOne } from "../chats.mjs";
-import { call, textOf, TOKEN_MCP } from "../../agentEgressFixtures.mjs";
+import { test } from "node:test";
+import { oneToOne } from "./replay/chats.mjs";
+import { call, textOf, TOKEN_MCP } from "./agentEgressFixtures.mjs";
 
-export default {
+const CASE = {
   id: "reads-workspace-rules",
   incident: "2026-11-16: in a 1:1 chat Tex made a project in a shared workspace with a layout of its own, tasks as checkboxes in the overview, where that workspace's index.md says one note per task. It never read the index.",
   cause: "Nothing loaded another workspace's index.md, about.md or README.md before Tex worked there; the prompt only said to follow them.",
@@ -23,3 +26,5 @@ export default {
     }
   },
 };
+
+test(CASE.incident, () => CASE.run());
