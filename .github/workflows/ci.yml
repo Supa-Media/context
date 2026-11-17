@@ -97,6 +97,23 @@ jobs:
       # here, under the required `ci / Test Summary`, and Gateway Contracts
       # keeps only its detector. `scripts/check-ci-path-gates.mjs` holds the
       # two lists together.
+      # A pull request of only Tex config and data skips the app, Convex and
+      # lint jobs: the Tex suites and test set prove it. Must equal TEX_DATA in
+      # scripts/ci-change-scope.mjs (its self-test checks).
+      skip-when-only: |
+        packages/shared/src/texConfig.json
+        packages/shared/src/texNodeShelf.json
+        packages/shared/src/texPrompt/**
+        packages/shared/src/texTraining.generated.json
+        packages/shared/src/texSetsRepo.generated.json
+        apps/mcp/bench/sets/**
+        apps/mcp/src/agent/texArchitecture.generated.js
+        apps/mcp/src/texDev/canvas.generated.js
+        apps/mcp/src/texDev/lab.generated.js
+        apps/mcp/src/texDev/replay.generated.js
+        apps/mobile/features/tex/lab/labData.generated.ts
+        apps/mobile/features/tex/lab/promptCatalog.generated.json
+        docs/architecture/tex.md
       change-filters: |
         shared:
           - 'packages/shared/**'
@@ -258,6 +275,7 @@ jobs:
       - uses: ./.github/actions/ci-scope
         id: scope
         with:
+          tex-data: "true"
           paths: |
             apps/mcp/src/forms/**
             apps/mcp/src/forms.js
@@ -526,14 +544,40 @@ jobs:
   # deliberately not merged into one: this one is meant to be cheap and fast
   # enough to run on every relevant pull request, and the release gate is
   # meant to prove the exact bits about to ship. Neither replaces the other.
-  desktop-launch-smoke:
-    name: The desktop app launches
-    runs-on: macos-latest
-    timeout-minutes: 15
+  # The two macOS jobs below decide here, on Linux, whether they have anything
+  # to do. The org has only a handful of macOS runners, and asking for one just
+  # to run a path filter left every pull request and merge waiting for one: on
+  # 2026-11-17 both jobs sat 19-22 minutes without a runner and were cancelled.
+  # A job skipped by its `if:` still reports success to a required check, so
+  # nothing is left pending; the filters themselves are unchanged.
+  #
+  # It also says whether the change is nothing but Tex config and data
+  # (scripts/ci-change-scope.mjs TEX_DATA), which the Tex suites and test set
+  # prove, so the Mac jobs skip it too (Dev2, 2026-11-17). A push to `main`
+  # never counts as one.
+  macos-scope:
+    name: Which checks this change needs
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      desktop: ${{ steps.changes.outputs.desktop }}
+      extension: ${{ steps.changes.outputs.extension }}
+      tex-data-only: ${{ steps.tex.outputs.only }}
     steps:
       - uses: actions/checkout@v5
 
-      - name: Does this touch the desktop app or what it depends on?
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          package-manager-cache: false
+
+      - name: Is this only Tex config and data?
+        uses: ./.github/actions/ci-scope
+        id: tex
+        with:
+          mode: tex-data-only
+
+      - name: Does this touch the desktop app or the Messages extension?
         uses: dorny/paths-filter@v3
         id: changes
         with:
@@ -547,15 +591,26 @@ jobs:
               - "apps/mcp/**"
               - "packages/collaboration/**"
               - ".github/workflows/ci.yml"
+            extension:
+              - "apps/mobile/targets/context-messages/**"
+              - "apps/mobile/plugins/with-context-messages.js"
+              - ".github/workflows/ci.yml"
 
-      # `github.event_name == 'push'` (to `main`, per this workflow's trigger)
-      # always runs, ungated — see the comment above this job for why a merge
-      # gets no path filter and a pull request does.
+  desktop-launch-smoke:
+    name: The desktop app launches
+    needs: macos-scope
+    if: github.event_name == 'push' || (needs.macos-scope.outputs.desktop == 'true' && needs.macos-scope.outputs.tex-data-only != 'true')
+    runs-on: macos-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v5
+
+      # The job's `if:` runs it on every push to `main`, ungated; see the
+      # comment above this job for why a merge gets no path filter and a pull
+      # request does.
       - uses: pnpm/action-setup@v4
-        if: github.event_name == 'push' || steps.changes.outputs.desktop == 'true'
 
       - uses: actions/setup-node@v5
-        if: github.event_name == 'push' || steps.changes.outputs.desktop == 'true'
         with:
           node-version: 22
           cache: pnpm
@@ -564,11 +619,9 @@ jobs:
       # as `deploy-desktop.yml`'s install. The rest of the workspace is not
       # this job's business.
       - name: Install
-        if: github.event_name == 'push' || steps.changes.outputs.desktop == 'true'
         run: pnpm install --filter "@context/desktop..." --frozen-lockfile
 
       - name: Build
-        if: github.event_name == 'push' || steps.changes.outputs.desktop == 'true'
         working-directory: apps/desktop
         run: pnpm run build
 
@@ -603,7 +656,6 @@ jobs:
       # was captured at all.
       - name: Launch the app it just built (smoke test)
         id: smoke
-        if: github.event_name == 'push' || steps.changes.outputs.desktop == 'true'
         working-directory: apps/desktop
         run: |
           set +e
@@ -683,17 +735,25 @@ jobs:
           filters: |
             mobile: ["apps/mobile/**", "apps/convex/**", "packages/collaboration/**", "packages/communications/**", "packages/desktop-bridge/**", "packages/drawings/**", "packages/meetings/**", "packages/obsidian-runtime/**", "packages/shared/**", ".npmrc", "package.json", "pnpm-lock.yaml", "pnpm-workspace.yaml", "patches/**", ".github/workflows/ci.yml"]
 
+      # A diff of only Tex config and data is proven by the Tex suites and
+      # test set, not by the app (scripts/ci-change-scope.mjs TEX_DATA).
+      - name: Is this only Tex config and data?
+        uses: ./.github/actions/ci-scope
+        id: tex
+        with:
+          mode: tex-data-only
+
       - uses: pnpm/action-setup@v4
-        if: steps.changes.outputs.mobile == 'true'
+        if: steps.changes.outputs.mobile == 'true' && steps.tex.outputs.only != 'true'
 
       - uses: actions/setup-node@v5
-        if: steps.changes.outputs.mobile == 'true'
+        if: steps.changes.outputs.mobile == 'true' && steps.tex.outputs.only != 'true'
         with:
           node-version: 22
           cache: pnpm
 
       - name: Install dependencies
-        if: steps.changes.outputs.mobile == 'true'
+        if: steps.changes.outputs.mobile == 'true' && steps.tex.outputs.only != 'true'
         run: pnpm install --frozen-lockfile
 
       # A syntactically valid, deliberately unreachable host, as `editor-webkit`
@@ -707,7 +767,7 @@ jobs:
       # measured 110s cold against 19s warm. The lockfile is in the key so a
       # dependency change starts cold; each run saves under its own commit.
       - name: Restore Metro's cache
-        if: steps.changes.outputs.mobile == 'true'
+        if: steps.changes.outputs.mobile == 'true' && steps.tex.outputs.only != 'true'
         uses: actions/cache@v4
         with:
           path: /tmp/metro-cache
@@ -716,7 +776,7 @@ jobs:
             metro-native-${{ matrix.platform }}-${{ hashFiles('pnpm-lock.yaml') }}-
 
       - name: Export the ${{ matrix.platform }} bundle
-        if: steps.changes.outputs.mobile == 'true'
+        if: steps.changes.outputs.mobile == 'true' && steps.tex.outputs.only != 'true'
         working-directory: apps/mobile
         env:
           EXPO_PUBLIC_CONVEX_URL: "https://native-bundle-check.invalid"
@@ -742,21 +802,29 @@ jobs:
           filters: |
             mobile: ["apps/mobile/**", "apps/convex/**", "packages/collaboration/**", "packages/communications/**", "packages/desktop-bridge/**", "packages/drawings/**", "packages/meetings/**", "packages/obsidian-runtime/**", "packages/shared/**", ".npmrc", "package.json", "pnpm-lock.yaml", "pnpm-workspace.yaml", "patches/**", ".github/workflows/ci.yml"]
 
+      # A diff of only Tex config and data is proven by the Tex suites and
+      # test set, not by the app (scripts/ci-change-scope.mjs TEX_DATA).
+      - name: Is this only Tex config and data?
+        uses: ./.github/actions/ci-scope
+        id: tex
+        with:
+          mode: tex-data-only
+
       - uses: pnpm/action-setup@v4
-        if: steps.changes.outputs.mobile == 'true'
+        if: steps.changes.outputs.mobile == 'true' && steps.tex.outputs.only != 'true'
 
       - uses: actions/setup-node@v5
-        if: steps.changes.outputs.mobile == 'true'
+        if: steps.changes.outputs.mobile == 'true' && steps.tex.outputs.only != 'true'
         with:
           node-version: 22
           cache: pnpm
 
       - name: Install dependencies
-        if: steps.changes.outputs.mobile == 'true'
+        if: steps.changes.outputs.mobile == 'true' && steps.tex.outputs.only != 'true'
         run: pnpm install --frozen-lockfile
 
       - name: Typecheck the app
-        if: steps.changes.outputs.mobile == 'true'
+        if: steps.changes.outputs.mobile == 'true' && steps.tex.outputs.only != 'true'
         working-directory: apps/mobile
         env:
           NODE_OPTIONS: --max-old-space-size=6144
@@ -887,23 +955,14 @@ jobs:
   # touches it, without building the app.
   messages-extension:
     name: The Messages extension compiles
+    needs: macos-scope
+    if: needs.macos-scope.outputs.extension == 'true' && needs.macos-scope.outputs.tex-data-only != 'true'
     runs-on: macos-latest
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@v5
 
-      - name: Does this touch the Messages extension?
-        uses: dorny/paths-filter@v3
-        id: changes
-        with:
-          filters: |
-            extension:
-              - "apps/mobile/targets/context-messages/**"
-              - "apps/mobile/plugins/with-context-messages.js"
-              - ".github/workflows/ci.yml"
-
       - name: Type-check the extension against the iOS SDK
-        if: steps.changes.outputs.extension == 'true'
         working-directory: apps/mobile/targets/context-messages
         run: |
           deployment=$(sed -n 's/.*IPHONEOS_DEPLOYMENT_TARGET = "\([0-9.]*\)".*/\1/p' ../../plugins/with-context-messages.js)
@@ -914,7 +973,6 @@ jobs:
             *.swift
 
       - name: Compile the Messages icon catalog
-        if: steps.changes.outputs.extension == 'true'
         run: |
           output=$(mktemp -d)
           trap 'rm -rf "$output"' EXIT

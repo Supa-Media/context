@@ -14,6 +14,14 @@ inputs:
     description: Newline-separated entry files; the job is affected only by the repository files they import (scripts/import-reach.mjs)
     required: false
     default: ""
+  tex-data:
+    description: Run on a diff of only Tex config and data (scripts/ci-change-scope.mjs TEX_DATA); every other job skips one
+    required: false
+    default: "false"
+  mode:
+    description: '"tex-data-only" outputs only=true when the diff is nothing but Tex config and data, instead of deciding one job'
+    required: false
+    default: ""
   push-diff:
     description: On a push, diff against the commit it replaced instead of always running (the main-branch backstop)
     required: false
@@ -23,6 +31,9 @@ outputs:
   affected:
     description: true when this job must run its guarded steps
     value: ${{ steps.scope.outputs.affected }}
+  only:
+    description: In mode tex-data-only, true when the diff is nothing but Tex config and data
+    value: ${{ steps.scope.outputs.only }}
   reason:
     description: Short explanation of why the job runs or skips
     value: ${{ steps.scope.outputs.reason }}
@@ -37,4 +48,6 @@ runs:
         CI_SCOPE_PATHS: ${{ inputs.paths }}
         CI_SCOPE_ENTRIES: ${{ inputs.entries }}
         CI_SCOPE_PUSH_DIFF: ${{ inputs.push-diff }}
+        CI_SCOPE_TEX_DATA: ${{ inputs.tex-data }}
+        CI_SCOPE_MODE: ${{ inputs.mode }}
       run: node scripts/ci-change-scope.mjs

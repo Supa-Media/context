@@ -12,6 +12,7 @@
  * 3. `claimsNotePicture` ignoring `images`: "a write that carried the card" fails.
  * 4. The group check dropped from `reportGate`: "a group's report never carries texts" fails.
  */
+import { carries } from "../src/agent/checkFindings.js";
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
@@ -49,7 +50,8 @@ test("a note write before the report is refused, and runs once the report is fil
 
 test("an answer with no report goes back once to file it; a held report counts", async () => {
   const claims = claimCheck({ question: ASKED });
-  assert.equal(claims.check("Filed. I added it to the handoff note."), BUG_NOTICE);
+  // "I added it" with nothing written is a claim too: both go back in one notice (`checkFindings.js`).
+  assert.ok(carries(claims.check("Filed. I added it to the handoff note."), BUG_NOTICE));
   assert.notEqual(claims.check("Filed. I added it to the handoff note."), BUG_NOTICE, "once a turn");
 
   const held = claimCheck({ question: "file a bug about the missing card" });

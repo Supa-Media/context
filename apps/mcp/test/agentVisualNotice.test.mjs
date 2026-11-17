@@ -17,10 +17,11 @@
  *     another reason carries the card too" fails.
  */
 
+import { carries } from "../src/agent/checkFindings.js";
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { OWED_PICTURE_NOTICE, VISUAL_NOTICE, VISUAL_TOO, owesAPicture, wantsACard } from "../src/agent/visuals/notice.js";
+import { OWED_PICTURE_NOTICE, VISUAL_NOTICE, owesAPicture, wantsACard } from "../src/agent/visuals/notice.js";
 import { noticeFor } from "../src/agent/handbackJudge.js";
 import { claimCheck } from "../src/agent/claimCheck.js";
 
@@ -65,8 +66,10 @@ test("a short answer, a draft, words they asked for, or a turn that drew already
 
 test("a texted list goes back once with the card notice, and the next answer goes out", async () => {
   const claims = claimCheck({ question: "What does my week look like", visuals: () => true });
-  assert.equal(await claims.check(WEEK), VISUAL_NOTICE);
-  assert.notEqual(await claims.check(WEEK), VISUAL_NOTICE, "asked once only");
+  // "it's on your calendar twice" reads as a claim, which goes back with the card as advice (`checkFindings.js`).
+  assert.ok(carries(await claims.check(WEEK), VISUAL_NOTICE));
+  const again = await claims.check(WEEK);
+  assert.ok(!carries(again, VISUAL_NOTICE), "asked once only");
   // A turn that cannot draw is never asked to.
   const blind = claimCheck({ question: "What does my week look like", visuals: () => false });
   assert.notEqual(await blind.check(WEEK), VISUAL_NOTICE);
@@ -102,13 +105,13 @@ test("a list sent back for another reason carries the card too, once", async () 
   const short = claimCheck({ question: "Can you show me some lunch options around me average prices as well", visuals: () => true });
   const first = await short.check(`${LUNCH}\n\nNext step is pricing the rest.`);
   assert.notEqual(first, VISUAL_NOTICE);
-  assert.ok(first.endsWith(VISUAL_TOO), "the card rides along with the other notice");
+  assert.ok(carries(first, VISUAL_NOTICE), "the card rides along with the other notice");
   const again = await short.check(`${LUNCH}\n\nNext step is pricing the rest.`);
-  assert.ok(again === null || !again.includes(VISUAL_TOO), "asked once only");
+  assert.ok(!carries(again, VISUAL_NOTICE), "asked once only");
   // A turn that cannot draw is never asked to.
   const blind = claimCheck({ question: "Can you show me some lunch options", visuals: () => false });
   const plain = await blind.check(`${LUNCH}\n\nNext step is pricing the rest.`);
-  assert.ok(plain === null || !plain.includes(VISUAL_TOO));
+  assert.ok(!carries(plain, VISUAL_NOTICE));
 });
 
 test("the hand-back notice keeps the whole answer and never makes a lookup about undoing", () => {

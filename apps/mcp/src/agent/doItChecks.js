@@ -27,6 +27,7 @@
  */
 
 import { ADVISOR_TOOL } from "./advisor.js";
+import { combineFindings, finding } from "./checkFindings.js";
 
 /**
  * They asked for Tex's advisor ("ask the advisor", "check with your advisor", "what does the advisor think").
@@ -61,12 +62,18 @@ export function doItChecks({ question, inner = null }) {
         return { ...entry, call: (...args) => ((askedAdvisor = true), entry.call(...args)) };
       });
     },
+    // One notice for every check on a draft (`checkFindings.js`): the advisor's ask goes in with the inner checks' findings.
     async check(answer, context) {
+      const before = [];
       if (advisorAsked && hasAdvisor && !askedAdvisor && !advisorNoticed) {
         advisorNoticed = true;
-        return ADVISOR_NOTICE;
+        before.push(finding("advisor", ADVISOR_NOTICE));
       }
-      return typeof inner?.check === "function" ? await inner.check(answer, context) : null;
+      if (typeof inner?.check !== "function") return combineFindings(before);
+      if (before.length === 0) return await inner.check(answer, context);
+      if (inner.takesFindings === true) return await inner.check(answer, { ...(context ?? {}), before });
+      const said = await inner.check(answer, context);
+      return combineFindings(said === null || said === undefined ? before : [...before, finding("inner", said)]);
     },
   };
 }
