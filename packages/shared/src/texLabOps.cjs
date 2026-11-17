@@ -30,7 +30,7 @@
  * gateway run this same code.
  */
 
-const MODES = ["wait", "uses", "background", "job", "loop", "provisional"];
+const MODES = ["wait", "uses", "background", "job", "loop", "provisional", "generator"];
 /** What a provisional wire's step may do before its go (`texGraph.cjs`). */
 const ALLOW = ["read", "revertible"];
 const ID = /^[A-Za-z][A-Za-z0-9_-]{0,47}$/;

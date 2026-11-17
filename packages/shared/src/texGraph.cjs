@@ -24,6 +24,11 @@
  *           may do only what the wire's `allow` lets it: "read" (reads only) or "revertible" (the default: reads, and writes
  *           that can be undone); anything that cannot be taken back always waits for the go. One target per config; read
  *           by intake through `provisionalWiring`, never fired by `run` (Dev2, 2026-11-17).
+ *   generator  ("Starts a new run") the source starts a new run of its own that begins at the target, an input node
+ *           (`kind: "input"`), in this chat or another; nothing in the current run waits for it. A background job, a
+ *           routine, an ask sent to another chat: each output re-enters Tex as a new input (Dev2, 2026-11-16, the
+ *           generators model). `when` tags work as on `wait` ("ask", "answer"). Never fired by `run`, never part of
+ *           `orderFrom`, and ignored by the cycle check, so a generator may point back up the graph.
  * `when` on a wire: `["*"]`, or tags the source's output must carry (`output.when`, or `output.to` as one tag) for a
  * `wait` or `background` wire to fire. A node that is off (`on: false`) never runs, and its wires never fire.
  *
@@ -41,7 +46,7 @@
  */
 "use strict";
 
-const MODES = Object.freeze(["wait", "background", "uses", "loop", "job", "provisional"]);
+const MODES = Object.freeze(["wait", "background", "uses", "loop", "job", "provisional", "generator"]);
 /** What a provisional run may do before its go: reads only, or reads and writes that can be undone (the default). */
 const ALLOW = Object.freeze(["read", "revertible"]);
 const MAX_LOG_CHARS = 3_500;
@@ -180,6 +185,10 @@ function problemsOf(config) {
     if (e.allow !== undefined && !(e.mode === "provisional" && ALLOW.includes(e.allow)))
       problems.push(`wire ${e.from} -> ${e.to} has allow "${e.allow}": only a provisional wire has one, "read" or "revertible"`);
   }
+  // A generator starts a new run, so it can only start one where runs start: an input node.
+  const byId = new Map(nodes.map((n) => [n.id, n]));
+  for (const e of config?.edges ?? []) if (e.mode === "generator" && byId.has(e.to) && byId.get(e.to).kind !== "input")
+    problems.push(`generator wire ${e.from} -> ${e.to} starts a run at "${e.to}", which is not an input node`);
   const provisionalTargets = new Set((config?.edges ?? []).filter((e) => e.mode === "provisional").map((e) => e.to));
   if (provisionalTargets.size > 1) problems.push(`provisional wires point at more than one step (${[...provisionalTargets].join(", ")}): one step may run provisionally`);
   // Kahn over wait and background wires.

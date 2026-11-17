@@ -168,7 +168,7 @@ export function simulate(shown: LabGraph, s: string, log: Log, real: RealTimes |
   while (ch && guard++ < 60) {
     ch = false;
     for (const e of g.edges) {
-      if (!reach.has(e.from) || !on(e) || e.mode === "uses" || e.mode === "loop") continue;
+      if (!reach.has(e.from) || !on(e) || e.mode === "uses" || e.mode === "loop" || e.mode === "generator") continue; // a generator starts a run of its own
       const fl = reach.get(e.from)!.lane;
       const lane = e.mode === "background" ? "behind" : e.mode === "job" ? "job" : fl;
       if (!reach.has(e.to)) {
@@ -186,7 +186,7 @@ export function simulate(shown: LabGraph, s: string, log: Log, real: RealTimes |
   for (let p = 0; p < order.length + 2; p++)
     for (const id of order) {
       const n = node(id, g)!;
-      const preds = g.edges.filter((e) => e.to === id && reach.has(e.from) && on(e) && !["uses", "loop", "provisional"].includes(e.mode) && T[e.from]);
+      const preds = g.edges.filter((e) => e.to === id && reach.has(e.from) && on(e) && !["uses", "loop", "provisional", "generator"].includes(e.mode) && T[e.from]);
       const provisional = provisionals.some((e) => e.to === id);
       if (id !== start.id && !preds.length && !provisional) continue;
       let st = id === start.id ? 0 : Math.max(0, ...preds.map((e) => T[e.from].end));
