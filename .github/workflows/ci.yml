@@ -178,6 +178,7 @@ jobs:
           - 'apps/mcp/src/texStore/**'
           - 'apps/mcp/src/tools/approvalKeys.js'
           - 'apps/mcp/src/tools/emailRead.js'
+          - 'apps/mcp/src/tools/etagPlace.js'
           - 'apps/mcp/src/tools/fileParts.js'
           - 'apps/mcp/src/tools/googleAiAccess.js'
           - 'apps/mcp/src/tools/pdfLinks.js'
@@ -191,6 +192,7 @@ jobs:
           - 'apps/mcp/src/tools/v2/actions.js'
           - 'apps/mcp/src/tools/moves/queuedFolder.js'
           - 'apps/mcp/src/tools/moves/references.js'
+          - 'apps/mcp/src/tools/pathAddress.js'
           - 'apps/mcp/src/tools/notes/write.js'
           - 'apps/mcp/src/tools/readImage.js'
           - 'apps/mcp/src/tools/results.js'
@@ -837,6 +839,7 @@ jobs:
             apps/mcp/src/texStore/**
             apps/mcp/src/tools/approvalKeys.js
             apps/mcp/src/tools/emailRead.js
+            apps/mcp/src/tools/etagPlace.js
             apps/mcp/src/tools/fileParts.js
             apps/mcp/src/tools/googleAiAccess.js
             apps/mcp/src/tools/pdfLinks.js
@@ -850,6 +853,7 @@ jobs:
             apps/mcp/src/tools/v2/actions.js
             apps/mcp/src/tools/moves/queuedFolder.js
             apps/mcp/src/tools/moves/references.js
+            apps/mcp/src/tools/pathAddress.js
             apps/mcp/src/tools/notes/write.js
             apps/mcp/src/tools/readImage.js
             apps/mcp/src/tools/results.js
