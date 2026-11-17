@@ -306,6 +306,7 @@ export async function askAgent(
     worker,
     warm, beside,
     recent,
+    rounds,
   }: {
     tapback?: Tapback;
     reacted?: Reaction[];
@@ -337,6 +338,8 @@ export async function askAgent(
     /** The sealed copy the last answer handed back, and this chat's newest events (`warm.ts`). */
     warm?: string; beside?: readonly string[]; // and what was written to the history beside it (`warm.ts` `keepBeside`)
     recent?: readonly TexEvent[]; // the outbox: what the gateway has not taken yet, added to the ledger's day (`warmCopy.js` `mergeEvents`)
+    /** An earlier try of this text's rounds, sealed, which the turn goes on from (`savedRounds.ts`). */
+    rounds?: string;
   } = {},
 ): Promise<AgentAnswer> {
   // The person's zone, so the turn knows the time where they are, and what
@@ -364,6 +367,7 @@ export async function askAgent(
     ...(worker ? { worker } : {}),
     ...(warm ? { warm, ...(beside && beside.length > 0 ? { beside } : {}) } : {}),
     ...(recent && recent.length > 0 ? { recent } : {}),
+    ...(rounds ? { rounds } : {}),
   };
   if (onProgress) return askAgentStream(fetcher, gatewayOrigin, accessToken, ask, onProgress, onStep);
   let result: { status: number; json: unknown };
@@ -451,6 +455,8 @@ export const AGENT_STREAM_TIMEOUT_MS = 12 * 60_000;
 export const AGENT_STREAM_IDLE_MS = 60_000;
 /** The most of one tool's result a job's step line carries (`jobProgress.ts` keeps less). */
 const MAX_STEP_RESULT = 2_000;
+/** The largest sealed rounds line kept (`apps/mcp/src/agent/savedRounds.js` `ROUNDS_MAX_CHARS`). */
+const MAX_ROUNDS_LINE = 400_000;
 /** One line of the stream is a progress text or a final JSON body, which may carry pictures (`outgoing.ts`). */
 const MAX_STREAM_LINE = 24 * 1024 * 1024;
 
@@ -523,6 +529,12 @@ export async function askAgentStream(
           const result = typeof parsed.result === "string" && parsed.result.trim() ? parsed.result.trim().slice(0, MAX_STEP_RESULT) : "";
           const how: StepHow = { ...(parsed.failed === true ? { failed: true as const, ...(why ? { why } : {}) } : {}), ...(result ? { result } : {}), ...(parsed.held === true ? { held: true as const } : {}), ...(parsed.outside === true ? { outside: true as const } : {}) };
           await onStep?.(parsed.step.trim().slice(0, 140), Object.keys(how).length > 0 ? how : undefined);
+          touch();
+          continue;
+        }
+        if (typeof parsed.rounds === "string" && parsed.rounds) {
+          // A chat turn's rounds so far, sealed by the gateway: kept until the text is answered, for a try after a crash (`savedRounds.ts`).
+          if (parsed.rounds.length <= MAX_ROUNDS_LINE) await onStep?.("", { rounds: parsed.rounds });
           touch();
           continue;
         }

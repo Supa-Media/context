@@ -63,6 +63,7 @@ import { replyJudge } from "../replyJudge.js";
 import { threadsSortAndWrite } from "../conversationThreads.js";
 import { withArchitecture } from "../texArchitecture.js";
 import { withChatWriteLock } from "../chatWriteLock.js";
+import { carriedRounds } from "../turnResume.js";
 
 /** The settings this turn runs the front door with, as the Front door node logs them (`../graph/nodes/fd.js`). */
 function doorOut({ production, productionModel, fallback, router, gated, advising, planning, computers, skills, delegation, threaded }) {
@@ -148,7 +149,10 @@ export async function runTheModel(t, via) {
   const keptOptions = { question, on: !runner, ...(aiGatewayConfig(env) !== null && drawn.wired("tools", "moveJudge") ? { judge: (input) => drawn.fire("tools", "moveJudge", input, { env }), said: saidBefore(history) } : {}) };
   const pictureRun = (name, args, callTool) => gatewayGraph({ writer: chatLog, turn: ledgerAt?.turn ?? null }).fire("tools", "picture", { tool: name, args }, { env, maker, callTool, cardCheck }).then((out) => out.result); // interim: io.use.picture once tools is a node
   steer?.revertWith(dispatch); // a provisional run's note saves are read first and put back through the client's own dispatcher (`steer.js`)
+  // An earlier try of this same text, carried on from its last round (`savedRounds.js`): a chat's turn only, jobs keep their own (`jobSaved.js`).
+  const rounds = job === null && typeof step === "function" ? await carriedRounds(t) : null;
   stages?.ready(); const turn = await tex.step("model", () => runTurn({
+    resumeFrom: rounds?.from ?? null, onRound: rounds?.save ?? null,
     // With the log, the chat and its tapbacks are in the transcript, and the covered events are the question (`loggedTurn.js`).
     question: [logged === null && view === null ? chatLines(group) : "", logged === null ? reactedLine(reacted) : "", setAsideLine(setAside, dropped), paidLine(paid), sentNoteLinksLine(question, noteLinking.origin), (logged ? loggedQuestion(logged.question, quoted, logged.replying) : askedWith(question, quoted)), logged === null ? sleepLineNote(question) : ""].filter(Boolean).join("\n\n"),
     place: body.place ?? null,

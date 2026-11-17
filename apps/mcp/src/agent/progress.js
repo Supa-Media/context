@@ -254,7 +254,9 @@ export function streamTurn(run, { waitUntil = null, heartbeatMs = HEARTBEAT_MS }
             ? write({ step: text, ...(how?.failed ? { failed: true } : {}), ...(how?.why ? { why: how.why } : {}), ...(typeof how?.result === "string" && how.result ? { result: how.result } : {}), ...(how?.held ? { held: true } : {}), ...(how?.outside ? { outside: true } : {}) })
             : typeof how?.draft === "string" && how.draft
               ? write({ draft: how.draft })
-              : Promise.resolve(),
+              : typeof how?.rounds === "string" && how.rounds
+                ? write({ rounds: how.rounds }) // a chat turn's rounds so far, sealed, for a try after a crash (`savedRounds.js`)
+                : Promise.resolve(),
         (body) => write({ answered: body }),
       );
       const body = await response.json().catch(() => null);

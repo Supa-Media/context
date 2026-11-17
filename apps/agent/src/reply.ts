@@ -51,7 +51,7 @@ import { saveReviewSharing, sharingReply, sharingWords } from "./reviewSharing";
 import type { OutgoingPicture } from "./outgoing";
 import type { Choice } from "./pickCard";
 import type { Offer } from "./dataCards";
-import type { JobSaid, JobSteerAsk, RunningJob, StartedJob } from "./jobs";
+import type { JobSaid, JobSteerAsk, RunningJob, StartedJob, StepHow } from "./jobs";
 import { crossFields, type CrossAsk, type CrossBack } from "./crossChat";
 import type { Inbound } from "./inbound";
 import type { WarmDeps } from "./warm";
@@ -73,6 +73,8 @@ export type ReplyDeps = {
   fetch: Fetch;
   /** The gateway's sealed warm copy, kept in this sender's object (`warm.ts`). */
   warm?: WarmDeps;
+  /** Where this text's rounds are kept across its tries (`savedRounds.ts`): handed back to a try after a crash. */
+  rounds?: { get(): Promise<string | undefined>; keep(sealed: string): Promise<void> };
   controlPlaneOrigin: string;
   workerSecret: string;
   gatewayOrigin: string;
@@ -321,7 +323,7 @@ async function answer(message: Message, deps: ReplyDeps): Promise<string | strin
       // Somebody else's words, kept apart from the person's (`apps/mcp/src/agent/quoted.js`).
       message.quoted ?? (message.threaded ? "" : undefined),
       message.threadStart,
-      { tapback: message.tapback, reacted: message.reacted, turn: deps.steer?.turn, running: deps.running, event: message.event, jobReport: message.jobReport, ...(message.crossChat ? { crossChat: crossFields(message.crossChat).crossChat } : {}), ...(deps.crossCounts ? { crossCounts: deps.crossCounts } : {}), covers: deps.covers, chat: message.chatId, told: deps.told, settings: session.settings, arrivedAt: deps.arrivedAt, worker, ...warm },
+      { tapback: message.tapback, reacted: message.reacted, turn: deps.steer?.turn, running: deps.running, event: message.event, jobReport: message.jobReport, ...(message.crossChat ? { crossChat: crossFields(message.crossChat).crossChat } : {}), ...(deps.crossCounts ? { crossCounts: deps.crossCounts } : {}), covers: deps.covers, chat: message.chatId, told: deps.told, settings: session.settings, arrivedAt: deps.arrivedAt, worker, ...warm, ...(deps.rounds ? { rounds: await deps.rounds.get(), onStep: async (_step: string, how?: StepHow) => void (how?.rounds ? await deps.rounds?.keep(how.rounds) : undefined) } : {}) },
     );
     if (answer.kind === "unavailable") await deps.warm?.keep(undefined); // a turn that may have written and never said what: the next one starts a new copy (`warm.ts`); the rest wrote nothing
     // Cancelled for a restart (`steer.ts`): the turn that replaces it answers.
