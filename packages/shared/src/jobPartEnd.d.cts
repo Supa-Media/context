@@ -9,3 +9,4 @@ export declare const DEFAULT_LIMITS: Readonly<JobLimits>;
 export declare function limitsOf(config?: Partial<JobLimits> | null): JobLimits;
 export declare function roomLeft(at: { part: number; startedAt: number; now: number; machine?: boolean }, limits: JobLimits): boolean;
 export declare function decidePartEnd(input: PartEndInput, config?: Partial<JobLimits> | null): PartEndChoice;
+export declare function configLimits(config?: { nodes?: readonly { id: string; limits?: unknown }[] } | null): JobLimits;

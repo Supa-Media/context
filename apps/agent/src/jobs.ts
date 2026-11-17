@@ -28,6 +28,8 @@ import type { GroupMessage } from "./sendblueGroups";
 import type { InboxStorage } from "./inbox";
 import { cut, MAX_INBOUND_TEXT } from "./inbound";
 import { readPictures, type OutgoingPicture } from "./outgoing";
+import partEndLib from "../../../packages/shared/src/jobPartEnd.cjs";
+import { TEX_CONFIG } from "../../../packages/shared/src/texConfig.cjs";
 import { MAX_ENDS_KEPT, PART_CAUSES, type JobSaved, type PartCause, type PartEnd } from "./jobProgress";
 
 /** What a turn asked to start, as the gateway wrote it. */
@@ -117,10 +119,16 @@ const machineOfEntry = (entry: { machine?: true; on?: string }): string | null =
 /** Whether one more job fits where it would run: the cloud's three, or that computer's own. */
 const fits = (running: readonly { on?: string; machine?: true }[], on: string | null) =>
   on === null ? running.filter((entry) => machineOfEntry(entry) === null).length < MAX_RUNNING_JOBS : running.filter((entry) => machineOfEntry(entry) === on).length < MAX_MACHINE_JOBS;
-/** Parts one job may take before it reports what it has (the gateway clamps to the same); Dev2, 2026-10-31: 10 parts or 30 minutes. */
-export const MAX_JOB_ATTEMPTS = 10;
+/**
+ * A job's limits are its Part end node's config (`limits` in texConfig.json; `jobPartEnd.cjs`, Dev2, 2026-11-17, "jobs as
+ * config"): today's 10 parts or 30 minutes (Dev2, 2026-10-31), 96 parts or 4 hours on the person's own computer, until
+ * the config says otherwise. Everything sized by them (stale times, the Workflow's passes) follows.
+ */
+const LIMITS = partEndLib.configLimits(TEX_CONFIG);
+/** Parts one job may take before it reports what it has (the gateway clamps to the same). */
+export const MAX_JOB_ATTEMPTS = LIMITS.parts;
 /** How long a job keeps going after the advisor says "keep going" before it is reported stuck. */
-export const JOB_LIMIT_MS = 30 * 60 * 1000;
+export const JOB_LIMIT_MS = LIMITS.minutes * 60 * 1000;
 /** Tries at a turn that could not start (a deploy, the control plane down) before the job gives up. */
 export const MAX_JOB_TRIES = 3;
 /** How long a finished job is kept at all: the "What Tex is working on" page reads it for this long. */
@@ -130,9 +138,9 @@ export const JOB_SHOWN_MS = 2 * 60 * 60 * 1000;
 /** A job still "running" this long after it started died with its object: it is marked stopped. */
 export const JOB_STALE_MS = JOB_LIMIT_MS + 15 * 60 * 1000 + 5 * 60 * 1000; // its last part may start just inside the limit and run fifteen minutes
 /** A job on the person's own computer runs four hours by default (owner, 2026-11-03), in fifteen-minute parts. */
-export const MACHINE_JOB_LIMIT_MS = 4 * 60 * 60 * 1000;
+export const MACHINE_JOB_LIMIT_MS = LIMITS.machineMinutes * 60 * 1000;
 /** Parts a machine job may take: twenty-four hours of them, the most a machine's owner may allow. */
-export const MAX_MACHINE_JOB_ATTEMPTS = 96;
+export const MAX_MACHINE_JOB_ATTEMPTS = LIMITS.machineParts;
 export const MACHINE_JOB_STALE_MS = MACHINE_JOB_LIMIT_MS + 20 * 60 * 1000 + 5 * 60 * 1000;
 export const JOB_PREFIX = "job:";
 export const RUN_KEY = "jobrun";
