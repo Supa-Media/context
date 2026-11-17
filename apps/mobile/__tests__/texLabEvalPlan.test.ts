@@ -5,7 +5,7 @@
 /**
  * /lab's Eval plan page, actually rendered: the whole route mounted as staff, the page reached by its nav row. What it
  * proves: the page is in the Lab's nav and its address (`?page=evals`), it names the retrieval gap and both milestones
- * with their targets, the structure picture is a placeholder (nothing invented), and its Testing link opens Testing.
+ * with their targets, the structure section shows Jhon's picture (the file, not a redrawing), and its Testing link opens Testing.
  *
  * Every value here is fake. This repository is public.
  *
@@ -112,12 +112,19 @@ describe("/lab Eval plan", () => {
     expect(text).toContain("Consent comes first");
   });
 
-  test("the structure picture is a placeholder, not invented layers", () => {
+  test("the structure section shows Jhon's picture, not a placeholder", () => {
     mountLab();
     click(q('[data-view="evals"]'));
-    const box = q('[data-testid="eval-structure-placeholder"]');
-    expect(box?.textContent).toContain("structure picture goes here");
-    expect(box?.querySelector("img, svg")).toBeNull();
+    expect(q('[data-testid="eval-structure-placeholder"]')).toBeNull();
+    const img = q('[data-testid="eval-structure-picture"]') as HTMLImageElement | null;
+    expect(img?.getAttribute("src")).toBe("/lab/eval-structure.webp");
+    expect(img?.getAttribute("alt")).toContain("Tex Eval System");
+  });
+
+  test("the picture's file is in the app's public folder", () => {
+    const { existsSync } = jest.requireActual<typeof import("fs")>("fs");
+    const { join } = jest.requireActual<typeof import("path")>("path");
+    expect(existsSync(join(__dirname, "..", "public", "lab", "eval-structure.webp"))).toBe(true);
   });
 
   test("Open Testing switches the Lab to Testing", () => {

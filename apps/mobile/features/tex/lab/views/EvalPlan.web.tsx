@@ -7,11 +7,14 @@
  * Static on purpose: the targets are a plan, not results, so nothing here reads a run. When a milestone has runs,
  * its card should read them rather than restate a number.
  *
- * The structure diagram is a placeholder: the team's picture of the eval layers has not been added to the repository,
- * and its layers are not written down anywhere this page could quote, so nothing here guesses at them.
+ * The structure section shows Jhon's picture of the eval system as it was sent (Seyi, in the team's group chat,
+ * 2026-11-16), served from `public/lab/eval-structure.webp`: the picture itself, not a redrawing of it.
  */
 import { set } from "../engine/state";
 import { PageHead } from "./parts";
+
+/** Jhon's eval structure picture, as sent; opens full size in a new tab. */
+export const EVAL_STRUCTURE_SRC = "/lab/eval-structure.webp";
 
 const ICON = (
   <svg className="i" viewBox="0 0 24 24">
@@ -38,14 +41,14 @@ export function EvalPlan() {
 
       <div className="blk" id="evalStructure">
         <h2>Structure</h2>
-        <div
-          className="box"
-          data-testid="eval-structure-placeholder"
-          style={{ borderStyle: "dashed", minHeight: 120, placeItems: "center", textAlign: "center", color: "var(--muted)" }}
-        >
-          <b>Jhon's structure picture goes here.</b>
-          <span>It has not been added yet. Drop the picture in as it is rather than redrawing it from memory.</span>
-        </div>
+        <a href={EVAL_STRUCTURE_SRC} target="_blank" rel="noreferrer" style={{ display: "block", maxWidth: 760 }}>
+          <img
+            data-testid="eval-structure-picture"
+            src={EVAL_STRUCTURE_SRC}
+            alt="Tex Eval System: the problem today, then three milestones, each built on the last: 1 Context memory (trial done), 2 our own data (next), 3 Tex (later), and what the milestone 1 trial run showed."
+            style={{ display: "block", width: "100%", height: "auto", borderRadius: 8, border: "1px solid var(--line)" }}
+          />
+        </a>
       </div>
 
       <div className="blk" id="evalToday">
