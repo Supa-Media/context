@@ -44,12 +44,10 @@
  */
 
 import { pagesSection } from "./jobPages.js";
-import { configLimits } from "../../../../packages/shared/src/jobPartEnd.cjs";
-import { TEX_CONFIG } from "./texConfig.js";
 import { PAGE_JOB_LINE } from "../pages.js";
 import { mailLine, mailOf } from "./steer.js";
 import { pickMachine } from "../machines/forJobs.js";
-import { MAX_CLOUD_JOBS, MAX_MACHINE_SLOTS, jobSlots } from "./jobSlots.js";
+import { MAX_CLOUD_JOBS, MAX_JOB_ATTEMPTS, MAX_MACHINE_SLOTS, jobSlots } from "./jobSlots.js";
 import { START_JOB_TOOL, TOOL } from "./backgroundTool.js";
 import { PLAN_TOOL } from "./planBigAsk.js";
 import { endsOf, MAX_STREAMED_RESULT, partsLine, savedOf, savedPrompt } from "./jobSaved.js";
@@ -75,8 +73,7 @@ const MAX_DRAFT = 4_000;
 export const MAX_RUNNING_JOBS = MAX_CLOUD_JOBS;
 /** Entries of `running` read from a request: running ones and a few just finished. */
 export const MAX_RUNNING_SHOWN = 14; // every running one (three in the cloud, up to eight on a computer) and a few just finished
-/** Parts one job may take, the first included, before it reports what it has: its Part end node's config (`jobPartEnd.cjs`). */
-export const MAX_JOB_ATTEMPTS = configLimits(TEX_CONFIG).parts;
+export { MAX_JOB_ATTEMPTS }; // the Part end node's config (`jobSlots.js`)
 
 const ID = /^[A-Za-z0-9_-]{8,64}$/;
 const MAX_TITLE = 120;

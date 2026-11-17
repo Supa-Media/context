@@ -13,8 +13,13 @@
  * share (`admit`, "busy"): this is the chat's own check before it starts one.
  */
 
+import { configLimits } from "../../../../packages/shared/src/jobPartEnd.cjs";
+import { TEX_CONFIG } from "./texConfig.js";
+
 /** Cloud jobs at once in a chat (`apps/agent/src/jobs.ts` holds the same). */
 export const MAX_CLOUD_JOBS = 3;
+/** Parts one job may take, the first included, before it reports what it has: its Part end node's config (`jobPartEnd.cjs`). */
+export const MAX_JOB_ATTEMPTS = configLimits(TEX_CONFIG).parts;
 /** The most slots one computer can have (`slotCounts`, `workspaceStore/machines.js`). */
 export const MAX_MACHINE_SLOTS = 8;
 
