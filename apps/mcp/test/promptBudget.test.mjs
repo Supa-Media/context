@@ -9,7 +9,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { estimateBodyTokens, fitHaikuBody, HAIKU_INPUT_BUDGET, LEFT_OUT } from "../src/agent/promptBudget.js";
+import { EARLIER, estimateBodyTokens, fitHaikuBody, HAIKU_INPUT_BUDGET, LEFT_OUT } from "../src/agent/promptBudget.js";
 
 const system = [{ type: "text", text: "You are Tex." }];
 const tools = [{ name: "fetch", description: "Read a note.", input_schema: { type: "object" } }];
@@ -47,4 +47,23 @@ test("oldest tool results are stubbed until a Haiku call is under the cliff, and
   assert.equal(fit.body.messages[2].content[0].content, LEFT_OUT);
   assert.equal(fit.body.messages[3].content[0].text, "and the deposit?");
   assert.equal(fit.body.system[0].text, "You are Tex.");
+});
+
+test("older history is stubbed when there is no tool result, and a system prompt that is the whole cliff is shortened", () => {
+  const page = "x".repeat(400_000);
+  const history = body([
+    { role: "user", content: [{ type: "text", text: page }] },
+    { role: "user", content: [{ type: "text", text: "and the deposit?" }] },
+  ]);
+  const fit = fitHaikuBody(history);
+  assert.ok(fit.after <= HAIKU_INPUT_BUDGET, `history still ${fit.after}`);
+  assert.equal(fit.body.messages[0].content[0].text, EARLIER);
+  assert.equal(fit.body.messages[1].content[0].text, "and the deposit?");
+
+  const huge = body([{ role: "user", content: [{ type: "text", text: "and the deposit?" }] }]);
+  huge.system = [{ type: "text", text: "s".repeat(500_000) }];
+  const cut = fitHaikuBody(huge);
+  assert.ok(cut.after <= HAIKU_INPUT_BUDGET, `system still ${cut.after}`);
+  assert.equal(cut.body.messages[0].content[0].text, "and the deposit?");
+  assert.ok(cut.body.system[0].text.length < 500_000);
 });

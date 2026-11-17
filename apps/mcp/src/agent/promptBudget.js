@@ -25,6 +25,9 @@ const IMAGE_TOKENS = 1_600;
 
 export const LEFT_OUT = "(Left out for length. Call it again if you need it.)";
 
+/** An older turn dropped whole, once its tool results were not enough. */
+export const EARLIER = "(Earlier turn left out for length.)";
+
 const textTokens = (text) => Math.ceil(String(text ?? "").length / TEXT_CHARS_PER_TOKEN);
 
 function blockTokens(block) {
@@ -78,6 +81,64 @@ function stubResult(block) {
   return { ...block, content: LEFT_OUT };
 }
 
+/** The oldest history text that is not the newest message, or null. The newest message stays until nothing else will do. */
+function oldestHistory(messages) {
+  const end = Math.max(0, messages.length - 1);
+  for (let i = 0; i < end; i += 1) {
+    const message = messages[i];
+    if (typeof message?.content === "string" && message.content !== EARLIER && message.content.length > EARLIER.length) return { message: i, kind: "string" };
+    if (!Array.isArray(message?.content)) continue;
+    for (let j = 0; j < message.content.length; j += 1) {
+      const block = message.content[j];
+      if (block?.type === "text" && typeof block.text === "string" && block.text !== EARLIER && block.text.length > EARLIER.length) return { message: i, block: j, kind: "text" };
+    }
+  }
+  return null;
+}
+
+function stubHistory(messages, where) {
+  const message = messages[where.message];
+  if (where.kind === "string") message.content = EARLIER;
+  else message.content[where.block] = { ...message.content[where.block], text: EARLIER };
+}
+
+/**
+ * Halve the longest remaining text, keeping its end. Used only when stubbing
+ * tool results and older turns still leaves the call over the cliff, which
+ * is a system prompt or a newest message bigger than the budget on its own.
+ * Returns false when nothing long is left, so the loop stops.
+ */
+function clipLargest(body) {
+  let best = null;
+  const offer = (text, set) => {
+    if (typeof text === "string" && text.length > (best?.text.length ?? EARLIER.length + 1)) best = { text, set };
+  };
+  if (typeof body.system === "string") offer(body.system, (value) => { body.system = value; });
+  else if (Array.isArray(body.system)) {
+    body.system.forEach((block, index) => {
+      if (typeof block?.text === "string") offer(block.text, (value) => { body.system[index] = { ...block, text: value }; });
+    });
+  }
+  (body.tools ?? []).forEach((tool, index) => {
+    if (typeof tool?.description === "string") offer(tool.description, (value) => { body.tools[index] = { ...tool, description: value }; });
+  });
+  (body.messages ?? []).forEach((message, index) => {
+    if (typeof message?.content === "string") offer(message.content, (value) => { body.messages[index] = { ...message, content: value }; });
+    else if (Array.isArray(message?.content)) {
+      message.content.forEach((block, blockIndex) => {
+        if (typeof block?.text === "string") offer(block.text, (value) => { message.content[blockIndex] = { ...block, text: value }; });
+        if (block?.type === "tool_result" && typeof block.content === "string") offer(block.content, (value) => { message.content[blockIndex] = { ...block, content: value }; });
+      });
+    }
+  });
+  if (!best || best.text.length <= EARLIER.length + 1) return false;
+  const tail = Math.max(0, Math.floor(best.text.length / 2) - EARLIER.length - 1);
+  const clipped = tail === 0 ? EARLIER : `${EARLIER}\n${best.text.slice(-tail)}`;
+  if (clipped.length >= best.text.length) return false;
+  best.set(clipped);
+  return true;
+}
+
 /**
  * `body` with enough of the oldest tool results removed that a Haiku call
  * stays under `HAIKU_INPUT_BUDGET`. The newest message is stubbed only when
@@ -101,8 +162,18 @@ export function fitHaikuBody(body) {
       continue;
     }
     const any = oldestResult(messages, false);
-    if (!any) break;
-    stubAt(any);
+    if (any) {
+      stubAt(any);
+      continue;
+    }
+    const history = oldestHistory(messages);
+    if (history) {
+      stubHistory(messages, history);
+      shed += 1;
+      continue;
+    }
+    if (!clipLargest(next)) break;
+    shed += 1;
   }
   return { body: next, before, after: estimateBodyTokens(next), shed };
 }

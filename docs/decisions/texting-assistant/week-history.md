@@ -81,7 +81,7 @@ characters of the last 7 days plus 120,000 of older summaries, about 85,000 toke
 characters. `chat:7:130000` holds that week (a thin slice of the oldest texts, if any, is named and `read_day`
 opens the day). `summaries:all:30000` keeps the newer older-day summaries, each still ending with its `read_day`
 line. A full history is then 160,000 characters, about 40,500 tokens at the measured 3.95 characters per token.
-With the system modules, the round stays under 100,000 when the history is the only large part. A 1:1 stretch's tool results are not part of these caps (`promptBudget.js` trims those before a Haiku call is sent). The newest texts of the week stay verbatim. A day the cap
+With the system modules, the round stays under 100,000 when the history is the only large part. A 1:1 stretch's tool results are not part of these caps. Before a Haiku call is sent, `promptBudget.js` stubs the oldest tool results, then older turns, until the call is under 96,000 tokens. The newest message stays whole unless it alone is over that line, and the system prompt is shortened only when the call would still cross the cliff. The newest texts of the week stay verbatim in the history caps. A day the cap
 leaves out is still opened by the call its summary names, or by `read_day` when the week's own note says the
 oldest texts were left out.
 
