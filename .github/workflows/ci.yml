@@ -526,14 +526,23 @@ jobs:
   # deliberately not merged into one: this one is meant to be cheap and fast
   # enough to run on every relevant pull request, and the release gate is
   # meant to prove the exact bits about to ship. Neither replaces the other.
-  desktop-launch-smoke:
-    name: The desktop app launches
-    runs-on: macos-latest
-    timeout-minutes: 15
+  # The two macOS jobs below decide here, on Linux, whether they have anything
+  # to do. The org has only a handful of macOS runners, and asking for one just
+  # to run a path filter left every pull request and merge waiting for one: on
+  # 2026-11-17 both jobs sat 19-22 minutes without a runner and were cancelled.
+  # A job skipped by its `if:` still reports success to a required check, so
+  # nothing is left pending; the filters themselves are unchanged.
+  macos-scope:
+    name: Which macOS checks this change needs
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      desktop: ${{ steps.changes.outputs.desktop }}
+      extension: ${{ steps.changes.outputs.extension }}
     steps:
       - uses: actions/checkout@v5
 
-      - name: Does this touch the desktop app or what it depends on?
+      - name: Does this touch the desktop app or the Messages extension?
         uses: dorny/paths-filter@v3
         id: changes
         with:
@@ -547,15 +556,26 @@ jobs:
               - "apps/mcp/**"
               - "packages/collaboration/**"
               - ".github/workflows/ci.yml"
+            extension:
+              - "apps/mobile/targets/context-messages/**"
+              - "apps/mobile/plugins/with-context-messages.js"
+              - ".github/workflows/ci.yml"
 
-      # `github.event_name == 'push'` (to `main`, per this workflow's trigger)
-      # always runs, ungated — see the comment above this job for why a merge
-      # gets no path filter and a pull request does.
+  desktop-launch-smoke:
+    name: The desktop app launches
+    needs: macos-scope
+    if: github.event_name == 'push' || needs.macos-scope.outputs.desktop == 'true'
+    runs-on: macos-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v5
+
+      # The job's `if:` runs it on every push to `main`, ungated; see the
+      # comment above this job for why a merge gets no path filter and a pull
+      # request does.
       - uses: pnpm/action-setup@v4
-        if: github.event_name == 'push' || steps.changes.outputs.desktop == 'true'
 
       - uses: actions/setup-node@v5
-        if: github.event_name == 'push' || steps.changes.outputs.desktop == 'true'
         with:
           node-version: 22
           cache: pnpm
@@ -564,11 +584,9 @@ jobs:
       # as `deploy-desktop.yml`'s install. The rest of the workspace is not
       # this job's business.
       - name: Install
-        if: github.event_name == 'push' || steps.changes.outputs.desktop == 'true'
         run: pnpm install --filter "@context/desktop..." --frozen-lockfile
 
       - name: Build
-        if: github.event_name == 'push' || steps.changes.outputs.desktop == 'true'
         working-directory: apps/desktop
         run: pnpm run build
 
@@ -603,7 +621,6 @@ jobs:
       # was captured at all.
       - name: Launch the app it just built (smoke test)
         id: smoke
-        if: github.event_name == 'push' || steps.changes.outputs.desktop == 'true'
         working-directory: apps/desktop
         run: |
           set +e
@@ -887,23 +904,14 @@ jobs:
   # touches it, without building the app.
   messages-extension:
     name: The Messages extension compiles
+    needs: macos-scope
+    if: needs.macos-scope.outputs.extension == 'true'
     runs-on: macos-latest
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@v5
 
-      - name: Does this touch the Messages extension?
-        uses: dorny/paths-filter@v3
-        id: changes
-        with:
-          filters: |
-            extension:
-              - "apps/mobile/targets/context-messages/**"
-              - "apps/mobile/plugins/with-context-messages.js"
-              - ".github/workflows/ci.yml"
-
       - name: Type-check the extension against the iOS SDK
-        if: steps.changes.outputs.extension == 'true'
         working-directory: apps/mobile/targets/context-messages
         run: |
           deployment=$(sed -n 's/.*IPHONEOS_DEPLOYMENT_TARGET = "\([0-9.]*\)".*/\1/p' ../../plugins/with-context-messages.js)
@@ -914,7 +922,6 @@ jobs:
             *.swift
 
       - name: Compile the Messages icon catalog
-        if: steps.changes.outputs.extension == 'true'
         run: |
           output=$(mktemp -d)
           trap 'rm -rf "$output"' EXIT
