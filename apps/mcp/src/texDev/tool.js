@@ -163,7 +163,7 @@ export function createTexDev({ env, session, controlPlane, defer = null, sleep =
         };
         // `picks`, `areas` and `results` are the Lab's Run tab: the cases picked, the areas, and every bench run's scores.
         // vsMain also names the modules' words and conversation settings the draft changes, as the Lab's nav tags do.
-        return json({ ...about, link: linkOf(args.draft), vsMain: { ...draftVsMain(graph), ...labWording(args.draft, answer) }, problems: draftProblems(graph), picks: read(picks, {}), areas: read(areas, null), results: read(results, []), graph });
+        return json({ ...about, link: linkOf(args.draft), vsMain: { ...draftVsMain(graph), ...labWording(args.draft, answer) }, problems: draftProblems(graph, undefined, undefined, answer.base ?? null), picks: read(picks, {}), areas: read(areas, null), results: read(results, []), graph });
       }
       case "edit": {
         if (needDraft(args)) return needDraft(args);
@@ -174,7 +174,7 @@ export function createTexDev({ env, session, controlPlane, defer = null, sleep =
           return json({ refused: "someone changed the same thing first; nothing of this batch was kept", rev: answer.rev, pieces: answer.keys, now: answer.now, others: answer.others, next: `edit again against rev ${answer.rev}` });
         }
         const after = await draftGraph(args.draft);
-        return json({ rev: answer.rev, kept: answer.said, others: answer.others, problems: after.graph ? draftProblems(after.graph) : null, link: linkOf(args.draft) });
+        return json({ rev: answer.rev, kept: answer.said, others: answer.others, problems: after.graph ? draftProblems(after.graph, undefined, undefined, after.answer?.base ?? null) : null, link: linkOf(args.draft) });
       }
       case "changes": {
         if (needDraft(args)) return needDraft(args);
@@ -221,20 +221,22 @@ export function createTexDev({ env, session, controlPlane, defer = null, sleep =
       }
       case "check": {
         let graph = args.graph !== undefined ? parseGraph(args.graph) : null;
+        let base;
         if (graph === null && typeof args.draft === "string") {
           const got = await draftGraph(args.draft);
           if (got.error) return got.error;
           graph = got.graph;
+          base = got.answer.base ?? null;
         }
         if (graph === null) return toolError("check takes a draft, or graph as { nodes: [...], edges: [...] }.");
-        const problems = draftProblems(graph);
+        const problems = draftProblems(graph, undefined, undefined, base);
         return json({ passes: problems.length === 0, problems, vsMain: draftVsMain(graph), then: "Promote's pull request also runs CI and the replay gate." });
       }
       case "promote": {
         if (needDraft(args)) return needDraft(args);
         const got = await draftGraph(args.draft);
         if (got.error) return got.error;
-        const problems = draftProblems(got.graph);
+        const problems = draftProblems(got.graph, undefined, undefined, got.answer.base ?? null);
         if (problems.length > 0) return toolError(`This draft would be refused: ${problems.join("; ")}`);
         // The Lab's clash picks: { "<what>": "main" | "draft" } for the clashes the last refusal named (get shows them).
         const picks = args.picks && typeof args.picks === "object" && !Array.isArray(args.picks) ? Object.fromEntries(Object.entries(args.picks).filter(([, side]) => side === "main" || side === "draft")) : undefined;

@@ -9,7 +9,7 @@
  */
 
 import { problemsOf } from "../../../../packages/shared/src/texGraph.cjs";
-import { TEX_CONFIG } from "../agent/texConfig.js";
+import { CONFIG_STAMP, TEX_CONFIG } from "../agent/texConfig.js";
 import SHELF from "../../../../packages/shared/src/texNodeShelf.json" with { type: "json" };
 import { EFFORTS as SCHEMA_EFFORTS } from "../../../../packages/shared/src/texConfigSchema.cjs";
 
@@ -30,8 +30,13 @@ function modelProblem(n, own, models) {
     : `promote: step "${n.id}" runs on this draft's own model "${n.model}"${typeof mine.id === "string" ? ` (${mine.id})` : ""}, which Tex's config has no gateway model for yet; add it to texConfig.json's models in a pull request first (${known})`;
 }
 
-/** Every problem the draft's graph has, as plain lines; [] when it would promote. */
-export function draftProblems(graph, current = TEX_CONFIG, shelf = Object.keys(SHELF.nodes ?? {})) {
+/**
+ * Every problem the draft's graph has, as plain lines; [] when it would promote. `base` is the stamp of the main the
+ * draft was made from (`texConfigStamp.cjs`; null for a draft saved before drafts kept one, undefined for a graph with
+ * no draft). Promote merges only what a draft changed since its base (`scripts/tex-lab-merge.mjs`), so a step main
+ * added after that is not one the draft deleted: it is only named "gone" for a draft made from main as it is now.
+ */
+export function draftProblems(graph, current = TEX_CONFIG, shelf = Object.keys(SHELF.nodes ?? {}), base = undefined) {
   if (!graph || !Array.isArray(graph.nodes) || !Array.isArray(graph.edges)) return ["the draft has no steps and wires"];
   const problems = problemsOf({ nodes: graph.nodes, edges: graph.edges }).map((p) => `runner: ${p}`);
   const known = new Set(current.nodes.map((n) => n.id));
@@ -43,7 +48,8 @@ export function draftProblems(graph, current = TEX_CONFIG, shelf = Object.keys(S
     if (n.effort !== undefined && !EFFORTS.has(n.effort)) problems.push(`promote: step "${n.id}" has effort "${n.effort}" (${[...EFFORTS].join(", ")})`);
     if (typeof n.on !== "boolean") problems.push(`promote: step "${n.id}" is neither on nor off`);
   }
-  for (const id of known) if (!ids.has(id)) problems.push(`promote: step "${id}" is gone; the gateway still runs it, so turn it off instead of deleting it`);
+  const fromNow = base === undefined || (current === TEX_CONFIG && base === CONFIG_STAMP);
+  if (fromNow) for (const id of known) if (!ids.has(id)) problems.push(`promote: step "${id}" is gone; the gateway still runs it, so turn it off instead of deleting it`);
   return problems;
 }
 
