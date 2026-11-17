@@ -233,9 +233,10 @@ describe("/lab: the Tests, Run, Compare and Workspace views", () => {
     expect(q('[data-area="respond"]')?.getAttribute("aria-current")).toBe("true");
     const n = respondCases().length;
     expect(qa(".tc").length).toBe(n);
-    // By default an area runs what a change's replay runs: 20 of Decide's cases (Dev2, 2026-11-15).
+    // By default an area runs what a change's replay runs: every Decide case not marked gate: false
+    // (Dev2, 2026-11-15). The count is not pinned: cases per step may grow to 50 (2026-11-17).
     const g = respondCases().filter((c) => c.gate !== false).length;
-    expect(g).toBe(20);
+    expect(g).toBeGreaterThan(0);
     expect(hintOf()).toBe(`${g} of ${n} in the run`);
     click(q("#selAll"));
     expect(hintOf()).toBe(`${n} of ${n} in the run`);

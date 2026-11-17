@@ -19,8 +19,8 @@ test("the cases have unique ids, both labels in both kinds of chat, and lines an
   const cases = await loadCases();
   const ids = new Set(cases.map((item) => item.id));
   assert.equal(ids.size, cases.length);
-  // At most 20 cases a step (Dev2, 2026-11-15), so each kind keeps a few rather than five.
-  assert.ok(cases.length <= 20);
+  // At most 50 cases a step (Dev2, 2026-11-15 set 20; raised to 50 with the Lab's cases a step, #3477, 2026-11-17).
+  assert.ok(cases.length <= 50);
   for (const chat of ["group", "one"]) for (const want of ["hush", "reply"]) assert.ok(cases.filter((item) => item.chat === chat && item.want === want).length >= 2, `${chat} ${want}`);
   for (const item of cases) assert.ok(Array.isArray(item.lines) && typeof item.text === "string");
 });

@@ -79,7 +79,7 @@ import { rememberChatReader } from "./chatRead";
 import { logStep, tapback, triageStep } from "./stepEvents";
 import { runningTurn } from "./steer";
 import { canWait, chatEvent, readChatState, stillGathering } from "./chatState";
-import { chooseGroupTurn, coversOf, keepNames, logGroupInbound, mergedGroup, ownTurn, whileRunning, type GroupEntry, type GroupPending } from "./groupTurn";
+import { chooseGroupTurn, coversOf, settleWait, keepNames, logGroupInbound, mergedGroup, ownTurn, whileRunning, type GroupEntry, type GroupPending } from "./groupTurn";
 import { handOff, liveTurns, MAX_GROUP_TURNS, settleEarly, startEarly, type EarlyRun } from "./groupTurnRun";
 import { provisionalDoor, sameMessages, type ProvisionalGate } from "./provisional";
 import { answerBesideTurn } from "./groupBeside";
@@ -463,8 +463,11 @@ async function drainOnce(storage: InboxStorage, deps: GroupDeps): Promise<void> 
           log("waiting");
           return void (await answerBesideTurn(storage, deps, [...holding, ...choice.wait.map(([key]) => key)]));
         }
-        // Past the burst's deadline or its waits: answered now, never held again.
-        choice.answer = choice.wait;
+        // Past the burst's deadline or its waits: Decide judges it again with no wait to choose, never answered by default (Dev2, 2026-11-17).
+        const settled = await settleWait(storage, deps, choice.wait);
+        choice.answer = settled.answer;
+        choice.chat = settled.chat;
+        choice.drop = settled.drop;
       }
       // Left as chat: an untagged one is already one of the chat's lines (`acceptGroup`); an addressed one becomes one.
       for (const [key, item] of choice.chat) {

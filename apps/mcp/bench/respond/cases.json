@@ -194,6 +194,56 @@
       "from": "audit-1113",
       "target": "a question that names Tex is for Tex",
       "cause": "a question that names Tex is for Tex"
+    },
+    {
+      "id": "g-followup-to-person-after-tex",
+      "chat": "group",
+      "lines": [
+        "@tara: Tex what time does the gym open sunday",
+        "You: 8 am on Sundays, closes at 6.",
+        "@bo: the new rack showed up, way smaller than the photos"
+      ],
+      "text": "@tara: smaller in what way",
+      "want": "hush",
+      "from": "eager-1117",
+      "cause": "a short follow-up asked of the person who just spoke is theirs, even right after Tex answered"
+    },
+    {
+      "id": "g-reply-under-other-assistant",
+      "chat": "group",
+      "lines": [
+        "@ines: Atlas find the dentist's number",
+        "@atlas: The clinic's number is on their site: (555) 010-3321."
+      ],
+      "text": "@ines: (replying to @atlas) and their hours?",
+      "want": "hush",
+      "from": "eager-1117",
+      "cause": "a reply under another assistant's text asks that assistant"
+    },
+    {
+      "id": "g-chatter-right-after-tex",
+      "chat": "group",
+      "lines": [
+        "@noor: Tex how much is left in the trip fund",
+        "You: $1,240 after the deposit."
+      ],
+      "text": "@sam: noor we should book the cabin before it goes",
+      "want": "hush",
+      "from": "eager-1117",
+      "cause": "people talking to each other right after Tex spoke is still their conversation"
+    },
+    {
+      "id": "g-reply-under-tex-short",
+      "chat": "group",
+      "lines": [
+        "@noor: Tex how much is left in the trip fund",
+        "You: $1,240 after the deposit."
+      ],
+      "text": "@noor: (replying to You) after which deposit",
+      "want": "reply",
+      "must": true,
+      "from": "eager-1117",
+      "cause": "a short follow-up sent under Tex's own text is for Tex"
     }
   ]
 }

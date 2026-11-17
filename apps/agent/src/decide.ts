@@ -56,6 +56,8 @@ export type DecideAsk = {
   newest: string;
   /** A group's ledger key (`chat:<groupKey>`, `groupKeyOf`): the gateway keeps the judge's verdict there as a `judge` entry. */
   ledger?: string;
+  /** A wait that was not held, or ran out, judged again with no wait to choose: quiet or respond (`chooseGroupTurn`). */
+  settle?: true;
 };
 
 /** `texts`: the gateway's binding, where decide asks Clef itself (`decideGateway.ts`); without it, the control plane's route. */
