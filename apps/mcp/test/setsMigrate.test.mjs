@@ -42,7 +42,7 @@ const countFrom = (prefix) => convs.filter((c) => c.from.startsWith(prefix)).len
 
 test("every migrated conversation passes the contract", () => {
   assert.deepEqual(problems(convs, config), []);
-  for (const c of convs) assert.deepEqual(sets.check(c, config, { why: Object.keys(decide.WHY) }), []);
+  for (const c of convs) assert.deepEqual(sets.check(c, config, { why: Object.keys(decide.WHY), bench: false }), []);
 });
 
 test("ids are unique and every conversation has a set", () => {
@@ -88,27 +88,31 @@ test("caseToConversation ignores a cause field", () => {
   assert.deepEqual(caused, plain);
 });
 
-test("every migrated case sits whole inside one of the repo's long conversations", async () => {
+test("a migrated case a conversation names sits whole inside it; one none names is retired, not a problem", async () => {
   const repoConvs = await loadSets();
   assert.ok(repoConvs.length <= 12, `about ten long conversations, not ${repoConvs.length}`);
   assert.deepEqual(placesOf(convs, repoConvs), []);
-  // Sabotage: a label changed inside its long conversation is caught.
-  const broken = structuredClone(repoConvs);
-  const labelled = broken.flatMap((c) => c.msgs).find((m) => m.labels?.fd);
-  labelled.labels.fd.must = ["something else"];
-  assert.ok(placesOf(convs, broken).length > 0, "a changed label is found");
+  // A conversation that names a case holds it whole: built from the case itself, then broken.
+  const kase = convs.find((c) => c.msgs.some((m) => m.labels && Object.keys(m.labels).length));
+  const home = { ...structuredClone(kase), id: "home", from: [kase.id] };
+  assert.deepEqual(placesOf([kase], [home]), []);
+  // Sabotage: a label changed inside its conversation is caught.
+  const broken = structuredClone(home);
+  const labelled = broken.msgs.find((m) => m.labels && Object.keys(m.labels).length);
+  const node = Object.keys(labelled.labels)[0];
+  labelled.labels[node] = { ...labelled.labels[node], must: ["something else"] };
+  assert.ok(placesOf([kase], [broken]).length > 0, "a changed label is found");
+  assert.match(placesOf([kase], [home, { ...home, id: "twice" }])[0], /named by 2 conversations/);
   // The Lab writes a conversation back with its keys in its own order (2026-11-16); that is the same label.
-  const reordered = structuredClone(repoConvs);
-  for (const m of reordered.flatMap((c) => c.msgs)) {
-    for (const [node, label] of Object.entries(m.labels ?? {})) {
-      m.labels[node] = Object.fromEntries(Object.entries(label).reverse());
-    }
+  const reordered = structuredClone(home);
+  for (const m of reordered.msgs) {
+    for (const [n, label] of Object.entries(m.labels ?? {})) m.labels[n] = Object.fromEntries(Object.entries(label).reverse());
   }
-  assert.deepEqual(placesOf(convs, reordered), []);
+  assert.deepEqual(placesOf([kase], [reordered]), []);
 });
 
-test("--check reports every case inside the repo's conversations", async () => {
+test("--check reports the cases the repo's conversations name", async () => {
   const script = new URL("apps/mcp/bench/setsMigrate.mjs", repo).pathname;
   const { stdout } = await run(process.execPath, [script, "--check"]);
-  assert.match(stdout, /are inside the repo's conversations/);
+  assert.match(stdout, /cases are named by the repo's conversations, and each named one is inside its conversation/);
 });

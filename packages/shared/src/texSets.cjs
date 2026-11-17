@@ -34,6 +34,13 @@ const TEX = "Tex";
 /** A label's keys that are not a node's output fields. */
 const LABEL_KEYS = Object.freeze(["star", "run", "must", "never"]);
 const ID = /^[a-z0-9][a-z0-9-]{0,79}$/;
+/**
+ * The people a Dev conversation may have (Dev2, 2026-11-17: "why dont we use existing people that we do have worlds
+ * for then, and then why dont we restrict the people that can be put in these test sets"). A Dev test runs as a real
+ * turn in the bench's invented world for its person (`apps/mcp/bench/setsFd.mjs`), so a chat with anyone else can't
+ * run. Exactly the people in `apps/mcp/bench/ai/workspaces/people.md`; `setsFd.test.mjs` fails when they part.
+ */
+const BENCH_PEOPLE = Object.freeze(["Maya", "John", "Priya", "Tomas", "Nia", "Kofi"]);
 
 /**
  * The fields a node is labelled with, from its config `outSchema`: a required choice or yes/no field becomes a
@@ -69,6 +76,11 @@ function check(c, config, opts = {}) {
   const members = Array.isArray(c.members) ? c.members : [];
   if (!members.length) out.push("needs at least one member");
   if (members.includes(TEX)) out.push("Tex is never a member; Tex rows say tex: true");
+  if (c.set === "dev" && opts.bench !== false) {
+    for (const name of members) {
+      if (name !== TEX && !BENCH_PEOPLE.includes(name)) out.push(`${name} has no bench world: a Dev chat's people are the bench's (${BENCH_PEOPLE.join(", ")})`);
+    }
+  }
   const seen = new Set();
   (Array.isArray(c.msgs) ? c.msgs : []).forEach((m, i) => {
     const at = `message ${i + 1}`;
@@ -139,4 +151,4 @@ function ratio(input) {
   return { counts, total, pct, holds: total > 0 && off.length === 0, off };
 }
 
-module.exports = { SETS, TARGET, DRIFT, KINDS, TRIGGERS, RUN, TEX, LABEL_KEYS, labelFields, check, unitTests, before, ratio };
+module.exports = { SETS, TARGET, DRIFT, KINDS, TRIGGERS, RUN, TEX, LABEL_KEYS, BENCH_PEOPLE, labelFields, check, unitTests, before, ratio };

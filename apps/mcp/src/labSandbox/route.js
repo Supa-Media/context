@@ -78,7 +78,7 @@ const SANDBOX_ID = /^[0-9a-f]{16}$/;
 const CHAT_KEY = /^[0-9a-f]{64}$/;
 const CONVO_ID = /^[a-z0-9][a-z0-9-]{0,79}$/;
 const HANDLE = /^[a-z0-9](?:[a-z0-9-]{0,63})$/;
-/** The bench's Maya: her Dev conversation with Tex. */
+/** The bench's Maya: her Dev conversation when the sets have one, else a fresh 1:1 (Dev2 removed it 2026-11-17). */
 export const MAYA_CONVO = "maya-and-tex";
 const MINUTE = 60_000;
 
@@ -262,8 +262,8 @@ async function open(env, controlPlane, token, who, input, origin) {
   let conv = null;
   if (source === "set" || source === "maya") {
     const found = await conversationOf(controlPlane, token, source === "maya" ? MAYA_CONVO : input.convId);
-    if (found.error) return refused(...found.error);
-    conv = found.conv;
+    if (found.error && !(source === "maya" && found.error[0] === 404)) return refused(...found.error);
+    conv = found.conv ?? { id: "maya", title: "Maya (test account)", set: "dev", kind: "one", members: ["Maya"], msgs: [] };
     // A group conversation runs in one of the caller's group chats (its Tex notes read, its history the conversation's).
     chat = conv.kind === "group" ? input.chatId : "me";
     if (conv.kind === "group" && (typeof chat !== "string" || !CHAT_KEY.test(chat))) return refused(400, "a group conversation runs in one of your group chats: pass chatId");
