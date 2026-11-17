@@ -298,7 +298,7 @@ other prompt byte still count. The examiner's answers are still named by the
 whole call, map included, so a replay never reuses an answer made for
 another map.
 
-## Every step keeps at most 20 cases (decided by the owner, 2026-11-15)
+## Every step keeps at most 50 cases (decided by the owner, 2026-11-15; raised 2026-11-17)
 
 Dev2, 2026-11-15, in the Lab: "some of these unit sections have way too many
 test cases ... we should have a max of 20 test cases per unit", then chose
@@ -309,9 +309,16 @@ Decide the 20 it took; the rest left the repository (git history keeps
 them). So review and respond run whole again and only the jobs are sampled
 (`GATE_SAMPLED`). `scripts/tex-lab-data.mjs` fails (and with it the fast
 guards) when any step, a step's own node cases included, holds more than
-`UNIT_LIMIT` (20), and the Lab trades a case in for one out when a step is
+`UNIT_LIMIT`, and the Lab trades a case in for one out when a step is
 full. A cap that only hid the extras, or kept running them unseen, would be
 the shadow work the config graph exists to end.
+
+The cap was 20 until 2026-11-17, when every step with cases was full and a
+fix could no longer add the case that proves it. Dev2 then asked that limits
+be the real ones, money being the only one ("Replay cases, 20 per step -
+raise it to what you think makes sense"), so it is 50: the replay is on
+demand and its spend stays capped at $1 a change, and a unit step's case is
+one small call. The 20 already kept stay; new cases fill the room.
 
 Steps with no area of their own get cases too (Dev2, same day: "a lot of
 nodes don't even have test cases listed here. And there's not a way to add

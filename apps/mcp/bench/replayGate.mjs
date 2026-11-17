@@ -42,7 +42,7 @@ export { AREAS, areasFor } from "./replayAreas.mjs";
 import { AREAS, areasFor } from "./replayAreas.mjs";
 
 /** The areas a change's replay samples rather than runs whole (Dev2, 2026-11-15; `gateSample.mjs`): the jobs alone, now
- * every other step keeps at most 20 cases and runs them all. */
+ * every other step keeps at most `UNIT_LIMIT` (50) cases and runs them all. */
 export const GATE_SAMPLED = new Set(["jobs"]);
 
 export const HELD_OUT_FOLDER = "ai/held-out";
