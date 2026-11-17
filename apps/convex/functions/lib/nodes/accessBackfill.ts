@@ -82,5 +82,16 @@ export async function refreshSnapshot(ctx: MutationCtx, workspaceId: Id<"workspa
   const version = (state?.version ?? 0) + 1;
   if (state === null) await ctx.db.insert("nodeAccessState", { workspaceId, version, orphans: [], snapshot });
   else await ctx.db.patch(state._id, { version, snapshot });
+  await putAccessVersion(ctx, workspaceId, version);
   return version;
+}
+
+/** The small version row, kept equal to `nodeAccessState.version` so a version read does not load the snapshot. */
+export async function putAccessVersion(ctx: MutationCtx, workspaceId: Id<"workspaces">, version: number): Promise<void> {
+  const row = await ctx.db
+    .query("nodeAccessVersions")
+    .withIndex("by_workspace", (q) => q.eq("workspaceId", workspaceId))
+    .unique();
+  if (row === null) await ctx.db.insert("nodeAccessVersions", { workspaceId, version });
+  else if (row.version < version) await ctx.db.patch(row._id, { version });
 }

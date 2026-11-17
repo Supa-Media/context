@@ -32,10 +32,17 @@ export async function gatewaySessionHandler(
   const accessToken = stringField(body, "accessToken");
   if (accessToken === null) return json({ session: null });
 
-  const { session, touchDue, flags } = await ctx.runQuery(
+  const { session, touchDue, flags, remember } = await ctx.runQuery(
     internal.functions.controlPlane.resolveGatewaySession,
     { hashedAccessToken: await hashToken(accessToken) },
   );
+  if (remember !== null) {
+    try {
+      await ctx.runMutation(internal.functions.controlPlane.rememberGrantResolve, remember);
+    } catch {
+      // The next request resolves in full. A failed cache write must not log anyone out.
+    }
+  }
   if (session === null) return json({ session: null });
 
   // Only when a stamp is due (at most every five minutes per grant): the
