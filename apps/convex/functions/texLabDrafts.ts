@@ -413,17 +413,20 @@ export const forGateway = internalMutation({
       let graph: string | null = null;
       // The main it starts from (`texConfigStamp.cjs`): a copy of a draft keeps that draft's, else the caller's main.
       let base: string | undefined = isStamp(a.base) ? a.base : undefined;
+      let madeAt: number | undefined;
       if (typeof a.from === "string" && a.from !== "main") {
         const from = await rowOf(ctx, a.from);
         if (from === null) return { status: "not_found" };
         graph = from.graph;
         base = from.base;
+        // An older draft with no stamp: the copy keeps when it was made, never today's main as its base.
+        if (!base) madeAt = from.madeAt ?? from.createdAt;
       } else if (typeof a.graph === "string") graph = a.graph;
       const parsed = graph === null ? null : parseGraph(graph);
       if (parsed === null || !Array.isArray(parsed.nodes) || !Array.isArray(parsed.edges)) return { status: "bad_request", error: "the draft has no steps and wires" };
       if (graph!.length > MAX_JSON) return { status: "bad_request", error: "the draft would be too big to save" };
       const versionId = newId();
-      await ctx.db.insert("texLabVersions", { versionId, name, authorId: dev.userId, graph: graph!, picks: "{}", results: "[]", createdAt: now, updatedAt: now, rev: 1, live: { client: dev.client, by: dev.userId, at: now }, ...(base ? { base } : {}) });
+      await ctx.db.insert("texLabVersions", { versionId, name, authorId: dev.userId, graph: graph!, picks: "{}", results: "[]", createdAt: now, updatedAt: now, rev: 1, live: { client: dev.client, by: dev.userId, at: now }, ...(base ? { base } : madeAt ? { madeAt } : {}) });
       await ctx.db.insert("texLabChanges", { versionId, rev: 1, by: dev.userId, via: dev.client, keys: ["*"], said: [`made this draft from ${typeof a.from === "string" ? a.from : "a config"}`], at: now });
       return { status: "ok", id: versionId, rev: 1, name };
     }

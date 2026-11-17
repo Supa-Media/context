@@ -50,6 +50,11 @@ export const texLabTables = {
      * then onto main (`scripts/tex-lab-merge.mjs`). A version saved before has none and is based on when it was made.
      */
     base: v.optional(v.string()),
+    /**
+     * For a draft with no `base` (saved before drafts kept one), when the main it starts from was main: a copy of such a
+     * draft keeps the original's time, so its Promote does not take today's main as its base and undo what merged since.
+     */
+    madeAt: v.optional(v.number()),
     live: v.optional(v.object({ client: v.string(), by: v.id("users"), at: v.number() })),
     /**
      * The code a draft runs on (Dev2, 2026-11-16: "when we run things it should run on the PRs code instead of main";

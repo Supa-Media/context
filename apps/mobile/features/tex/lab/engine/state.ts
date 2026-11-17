@@ -255,6 +255,8 @@ export function forkFromMain() {
   let i = 1;
   while (names.has(nm)) nm = "My version " + ++i;
   const nv = clone(lab.cur);
+  // A copy of an older draft with no stamp keeps when that draft was made, so Promote never takes today's main as its base.
+  if (!isMain() && !nv.base) nv.madeAt = nv.madeAt ?? nv.createdAt;
   nv.id = "v" + Date.now().toString(36);
   nv.name = nm;
   nv.authorId = lab.myId;
