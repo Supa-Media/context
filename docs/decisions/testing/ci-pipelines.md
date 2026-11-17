@@ -221,3 +221,30 @@ is below 15 seconds, and it introduces no additional failure. Until then the
 free 4-vCPU/16-GB public-repository runner remains the baseline; those specs and
 free public use are in GitHub's
 [hosted-runner reference](https://docs.github.com/en/actions/reference/runners/github-hosted-runners).
+
+## A pull request of only Tex config and data runs only the Tex checks
+
+_Decided by the owner, 2026-11-17._ Promoting a Lab draft edits
+`texConfig.json` and regenerates files inside the gateway, the app and the
+shared package, so a config-only pull request looked like code to every job
+and ran about 45 of them while the org had 20 runners. `TEX_DATA` in
+`scripts/ci-change-scope.mjs` names Tex's config, node shelf, prompts,
+Training and test-set data and their generated files. When those are all a
+pull request changes, every `ci-scope` gate skips unless its job sets
+`tex-data: "true"` (the gateway suite and units, the agent Worker tests, the
+generated-bundle check); the app typecheck, native bundles and Mac jobs skip;
+and the framework's lint, mobile and Convex jobs skip through its
+`skip-when-only` input, which must list exactly `TEX_DATA` (the self-test
+checks). The fast guards, the Tex replay check and the Tex test set run as
+before, and pushes to `main` run everything. Reversing it puts config pull
+requests back in the queue behind every suite; the `ci-change-scope`
+self-test fails if the rule or the list drifts.
+
+## Mac jobs are decided on Linux
+
+The org has five macOS runners. The desktop launch smoke test and the Messages
+extension compile used to run their path filter on a Mac, so every pull
+request asked for two Macs to decide to skip; on 2026-11-17 both sat 19 to 22
+minutes with no runner and were cancelled. A Linux job, `Which checks this
+change needs`, runs the filters, and the Mac jobs start only when they match.
+A job skipped by its `if:` reports success, so no required check waits.
