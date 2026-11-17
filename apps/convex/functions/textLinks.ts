@@ -26,6 +26,7 @@ import { acceptPhoneInvitations } from "./lib/invitations/join";
 import { refreshTexting } from "./lib/textingRefresh";
 import { hashOneTimeCode } from "./lib/oneTimeCodes";
 import { clearTextingStopped, markTextingStopped, syncSignInNumber } from "./lib/numberList";
+import { forgetGrantResolveCache } from "./lib/controlPlane/grantCacheRows";
 
 /**
  * Linking a phone to an account, so the person can text the Context assistant.
@@ -290,6 +291,7 @@ async function removeLinksOf(ctx: MutationCtx, userId: Id<"users">, action: stri
     .collect();
   for (const grant of grants) {
     if (grant.clientId === TEXTS_CLIENT_ID && grant.status === "active") {
+      await forgetGrantResolveCache(ctx, { grantId: grant._id, hashedAccessToken: grant.hashedAccessToken });
       await ctx.db.patch(grant._id, { status: "revoked" });
     }
   }

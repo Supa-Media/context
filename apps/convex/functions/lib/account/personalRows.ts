@@ -7,6 +7,7 @@ import { deleteTextLinksOf } from "../../textLinks";
 import { deleteAccountTimeZoneOf } from "../routines/app";
 import { deleteEmailProofRowsOf } from "../emailProof";
 import { deleteBlocksOf } from "../blocks";
+import { forgetGrantResolveCache } from "../controlPlane/grantCacheRows";
 
 /**
  * Everything `deleteAccount` removes that is the person's rather than a
@@ -211,12 +212,20 @@ export async function deletePersonalRows(
   // up above, or a co-owned context that lives on. The cascade already took
   // the ones on destroyed workspaces; this index walk is what makes revoking
   // the person's authority complete rather than incidental.
+  // Saved workspace lists name this person's slugs and granted notes. The
+  // grants below are deleted; lists written before `userId` was stored are
+  // reached by the token hash, including a texting token a later mint replaced.
+  await forgetGrantResolveCache(ctx, { userId });
   const grants = await ctx.db
     .query("oauthGrants")
     .withIndex("by_user", (q) => q.eq("userId", userId))
     .collect();
   for (const grant of grants) {
-    for (const earlier of await ctx.db.query("textsEarlierTokens").withIndex("by_grant", (q) => q.eq("grantId", grant._id)).collect()) await ctx.db.delete(earlier._id);
+    await forgetGrantResolveCache(ctx, { grantId: grant._id, hashedAccessToken: grant.hashedAccessToken });
+    for (const earlier of await ctx.db.query("textsEarlierTokens").withIndex("by_grant", (q) => q.eq("grantId", grant._id)).collect()) {
+      await forgetGrantResolveCache(ctx, { hashedAccessToken: earlier.hashedAccessToken });
+      await ctx.db.delete(earlier._id);
+    }
     await ctx.db.delete(grant._id);
   }
 

@@ -442,6 +442,14 @@ crons.interval("follow moved notes' links", { minutes: 30 }, internal.functions.
 /** Delete image-upload tickets past their ten minutes (`apps/mcp/src/notes/imageUploads.js`); no bucket, no decision. */
 crons.interval("sweep spent image upload tickets", { hours: 1 }, internal.functions.controlPlane.sweepImageUploads, {});
 
+/**
+ * Drop saved workspace lists whose access token has expired (`grantCacheRows.ts`).
+ * The list is a derivative of a resolve: slugs and granted note names, rebuilt
+ * on the next miss. Nothing here decides who may read. A revoked grant is
+ * refused at resolve time whether or not its row is still here.
+ */
+crons.interval("drop expired grant workspace lists", { hours: 1 }, internal.functions.controlPlane.pruneGrantResolveCache, {});
+
 /** Rebuild the bucket-backed website derivative; each pass re-checks enabled state. */
 crons.interval(
   "reconcile website route indexes",

@@ -13,6 +13,7 @@ import { hashToken } from "./lib/crypto";
 import { randomOpaqueToken } from "./lib/gatewayAuth";
 import { consumeRateLimit } from "./lib/rateLimit";
 import { requireWorkspaceAccess } from "./lib/workspaceAuth";
+import { forgetGrantResolveCache } from "./lib/controlPlane/grantCacheRows";
 
 /**
  * The card key: the grant the Context app leaves for its Messages extension,
@@ -158,6 +159,7 @@ async function applyCardsKeyWork(
       });
     } else {
       grantId = reusable._id;
+      await forgetGrantResolveCache(ctx, { hashedAccessToken: reusable.hashedAccessToken });
       await ctx.db.patch(reusable._id, {
         scopes: granted,
         hashedRefreshToken: args.hashedRefreshToken,

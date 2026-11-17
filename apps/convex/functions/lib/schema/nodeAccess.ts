@@ -162,10 +162,21 @@ export const nodeAccessTables = {
    * each workspace's access version are unchanged. The snapshot is not read
    * on a hit. A revoked grant, a removed membership, or a moved version never
    * hits.
+   *
+   * `grantId`, `userId` and `expiresAt` are optional so a row written before
+   * they existed still validates. A hit requires `expiresAt`: a row without
+   * one is rebuilt, and the prune deletes one that nobody reads again. The
+   * list is removed when the grant is revoked, the token is rotated, the
+   * token expires, the account is deleted, or a workspace it names is deleted
+   * (`lib/controlPlane/grantCacheRows.ts`).
    */
   grantResolveCache: defineTable({
     hashedAccessToken: v.string(),
     fingerprint: v.string(),
+    grantId: v.optional(v.id("oauthGrants")),
+    userId: v.optional(v.id("users")),
+    /** When this access token stops resolving. The prune deletes a row past it. */
+    expiresAt: v.optional(v.number()),
     workspaces: v.array(
       v.object({
         workspaceId: v.id("workspaces"),
@@ -178,5 +189,30 @@ export const nodeAccessTables = {
         homeOnly: v.optional(v.literal(true)),
       }),
     ),
-  }).index("by_token", ["hashedAccessToken"]),
+  })
+    .index("by_token", ["hashedAccessToken"])
+    .index("by_grant", ["grantId"])
+    .index("by_user", ["userId"])
+    .index("by_expires", ["expiresAt"]),
+
+  /**
+   * One row per workspace a saved list names, so deleting a workspace can find
+   * the lists that still carry its slug and granted note names. The list
+   * itself stays on `grantResolveCache`; this is only the index, rewritten
+   * with the list.
+   */
+  grantResolveCacheWorkspaces: defineTable({
+    hashedAccessToken: v.string(),
+    workspaceId: v.id("workspaces"),
+  })
+    .index("by_token", ["hashedAccessToken"])
+    .index("by_workspace", ["workspaceId"]),
+
+  /**
+   * Set once the walk that deletes cache rows from before `expiresAt` existed
+   * has finished. After that the hourly prune only reads `by_expires`.
+   */
+  grantResolveCacheDrain: defineTable({
+    done: v.boolean(),
+  }),
 };
