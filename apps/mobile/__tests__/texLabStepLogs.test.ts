@@ -44,6 +44,7 @@ const entries: LedgerEntry[] = [
   run("chatAnswer", { kind: "ask", id: "xabcdefghij", draft: "Yes." }, { to: "back", id: "xabcdefghij", state: "answered", texts: ["Yes."] }),
   run("tapback", { emoji: "❤️", why: "they thanked me", lastFailed: false, tagged: false }, { to: "react", emoji: "❤️" }),
   run("jobadv", { role: "check" }, { state: "keep_going" }),
+  run("jobReport", { jobReport: { title: "Find ramen", state: "done", texts: ["Kyuramen."] } }, { to: "report", report: { title: "Find ramen", state: "done", texts: ["Kyuramen."] } }),
   run("partEnd", { cause: "unfinished", part: 1 }, { to: "carry", cause: "unfinished", room: true }),
   run("learn", { question: "plan the trip" }, { nudge: { outcome: "skipped" }, reflect: { outcome: "skipped" } }),
   step("door", { input: { chat: "group", kind: "text", covers: ["1000-000001"] }, output: { model: "anthropic/claude-haiku-5-5", effort: "medium", reviewer: "on", advisor: "on", planner: "off" } }),
