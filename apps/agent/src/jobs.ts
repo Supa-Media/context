@@ -28,6 +28,7 @@ import type { GroupMessage } from "./sendblueGroups";
 import type { InboxStorage } from "./inbox";
 import { cut, MAX_INBOUND_TEXT } from "./inbound";
 import { readPictures, type OutgoingPicture } from "./outgoing";
+import { MAX_ENDS_KEPT, PART_CAUSES, type JobSaved, type PartCause, type PartEnd } from "./jobProgress";
 
 /** What a turn asked to start, as the gateway wrote it. */
 /** `mail`: one part of a split ask; the project note every part's job joins the mail of, and this part's name there. */
@@ -38,15 +39,17 @@ export type JobProject = { path: string; name: string; context?: string };
 /** A step a job's turn took, as the gateway told it (`withJobSteps`): tool and target, never a note's text; a failed one, with the tool's short reason. */
 export type JobStep = { at: number; text: string; failed?: true; why?: string };
 /** Whether a streamed step failed, and why (`clients.ts`). */
-export type StepHow = { failed?: true; why?: string };
+/** `result`, `held`, `outside`: what the call returned, whether it waits on their yes, whether the turn had read from outside by then; `draft`: a draft line, no step (`jobProgress.ts`). */
+export type StepHow = { failed?: true; why?: string; result?: string; held?: true; outside?: true; draft?: string };
 /** One line of the chat's job list, sent with every texted turn, with its steps; `verdict`/`advice`: the advisor's last check (`apps/mcp/src/agent/jobCheck.js`); `result`: a finished job's report, for the chat's turns only. */
-export type RunningJob = { id: string; title: string; state: JobState; startedAt: number; finishedAt?: number; status?: string; steps?: JobStep[]; verdict?: JobVerdict; advice?: string; result?: string; on?: string; resumeAt?: number };
+/** `part`: the part it is on (or ended on); `ends`: how its parts ended (`jobProgress.ts`), for `job_status`. */
+export type RunningJob = { id: string; title: string; state: JobState; startedAt: number; finishedAt?: number; status?: string; steps?: JobStep[]; verdict?: JobVerdict; advice?: string; result?: string; on?: string; resumeAt?: number; part?: number; ends?: PartEnd[] };
 /** The advisor's call on a job's part that just ended (`apps/mcp/src/agent/jobCheck.js`). */
 export type JobVerdict = "done" | "keep_going" | "waiting" | "stuck";
 /** What a job's own turn is asked with; `followUps`: the person's later texts about it, their own words. */
 /** `draft`: the last part's answer, never texted because a later text changed the job, or (`unfinished`) because it stopped short of the ask; the next part builds on it. */
 /** `mail`: note mail that came for it since its last part, oldest first (`jobMail.ts`), never among `followUps`. */
-export type JobAsk = { roster?: string; project?: JobProject; id: string; title: string; brief: string; doneWhen?: string; /** Their own texts that started it, oldest first, the one it started from last. */ asked?: string[]; attempt: number; tainted?: true; followUps?: string[]; mail?: Array<JobMail & { text: string }>; draft?: string; unfinished?: true; advice?: string; cutOff?: string[] };
+export type JobAsk = { roster?: string; project?: JobProject; id: string; title: string; brief: string; doneWhen?: string; /** Their own texts that started it, oldest first, the one it started from last. */ asked?: string[]; attempt: number; tainted?: true; followUps?: string[]; mail?: Array<JobMail & { text: string }>; draft?: string; unfinished?: true; advice?: string; cutOff?: string[]; saved?: JobSaved };
 /** A later text handed to a running job (`jobRun.ts`): the person's own words and the event they came in; `stop` ends it. */
 /** `resume`: pick an ended job back up where it stopped (`jobRun.ts` `resumeJob`), never a new copy of it. */
 export type JobSteer = { id: string; text: string; stop?: true; resume?: true; mail?: JobMail; machine?: JobMachine };
@@ -67,7 +70,7 @@ export type JobOrigin =
 
 /** Everything a job's object needs to run it. */
 /** `note`: the job's note and who it is on its mail (`jobNote.ts`); `noteAsked`: the note was asked for once, made or not. */
-export type JobRun = StartedJob & { id: string; inbox: string; origin: JobOrigin; attempt: number; tries: number; startedAt: number; draft?: string; /** One line per part carried on (`jobRun.ts` `partLine`), for the last word of a job that ends short. */ parts?: string[]; /** The steps of the last part, when it was cut off before it answered (`jobRun.ts`). */ cutOff?: string[]; unfinished?: true; advice?: string; resumes?: number; idle?: true; machineRun?: MachineRunRef; machineSession?: string; note?: JobNote; noteAsked?: true };
+export type JobRun = StartedJob & { id: string; inbox: string; origin: JobOrigin; attempt: number; tries: number; startedAt: number; draft?: string; /** One line per part carried on (`jobRun.ts` `partLine`), for the last word of a job that ends short. */ parts?: string[]; /** The steps of the last part, when it was cut off before it answered (`jobRun.ts`). */ cutOff?: string[]; /** What its parts got, saved as it returned (`jobProgress.ts`), and how each part ended. */ saved?: JobSaved; ends?: PartEnd[]; unfinished?: true; advice?: string; resumes?: number; idle?: true; machineRun?: MachineRunRef; machineSession?: string; note?: JobNote; noteAsked?: true };
 /** The part running on the machine now, kept so a pass that restarts reads the same run instead of assigning another. */
 export type MachineRunRef = { runId: string; part: number; deadline: number };
 
@@ -80,7 +83,7 @@ export type JobEntry = RunningJob & { chatId?: string; messageId?: string; line?
 /** `pictures`: the answer's pictures (a page's cover), sent before its texts and counted with them in `first`. */
 /** `asked`: who asked for the job and their words, so the chat's turn on its report can start it again (`jobTexts.ts`). */
 /** `pass`: the job's pass that sent it (`jobRun.ts` `PASS_KEY`); once one pass finished the job, no other pass's word is texted. */
-export type JobUpdate = { id: string; state: JobState; status?: string; verdict?: JobVerdict; advice?: string; pictures?: OutgoingPicture[]; texts?: string[]; first?: number; step?: string; stepFailed?: true; stepWhy?: string; vaultWatch?: string; vaultLinks?: string[]; pass?: string; asked?: { from: string; text: string }; ask?: string; resumeAt?: number };
+export type JobUpdate = { id: string; state: JobState; status?: string; verdict?: JobVerdict; advice?: string; pictures?: OutgoingPicture[]; texts?: string[]; first?: number; step?: string; stepFailed?: true; stepWhy?: string; vaultWatch?: string; vaultLinks?: string[]; pass?: string; asked?: { from: string; text: string }; ask?: string; resumeAt?: number; part?: number; ends?: PartEnd[] };
 
 /** A job's answer texts at most this many pictures: a page's cover, a card or two. */
 export const MAX_JOB_PICTURES = 2;
@@ -351,7 +354,7 @@ export async function chatJobs(storage: InboxStorage, now: number, { results = f
     .sort((a, b) => Number(b.state === "running") - Number(a.state === "running") || b.startedAt - a.startedAt)
     // Every running one, so the gateway counts each place's slots right; finished ones fill what is left of six. `all`: every job.
     .filter((entry, index) => all || entry.state === "running" || index < MAX_SHOWN)
-    .map(({ id, title, state, startedAt, finishedAt, status, steps, verdict, advice, result, on, resumeAt }) => ({
+    .map(({ id, title, state, startedAt, finishedAt, status, steps, verdict, advice, result, on, resumeAt, part, ends }) => ({
       id,
       title,
       state,
@@ -364,6 +367,9 @@ export async function chatJobs(storage: InboxStorage, now: number, { results = f
       ...(status ? { status } : {}),
       // A finished job keeps its steps: what it did is all it will ever do (2026-10-31: the chat called a stopped job running).
       ...(steps?.length ? { steps } : {}),
+      // Which part it is on and how its parts ended (`jobProgress.ts`): `job_status` says why a job took as many as it did.
+      ...(part ? { part } : {}),
+      ...(ends?.length ? { ends } : {}),
       // The advisor's call and a finished job's report go to the chat's own turns only, never the live view anyone with its link can open.
       ...(results && verdict ? { verdict } : {}),
       ...(results && advice ? { advice } : {}),
@@ -496,6 +502,8 @@ export async function noteJobUpdate(storage: InboxStorage, update: JobUpdate, no
     ...(step ? { steps: [...(entry.steps ?? []), stepOf(update, step, now)].slice(-MAX_STEPS_KEPT) } : {}),
     ...(state !== "running" ? { finishedAt: now, ...(update.pass ? { finalPass: update.pass } : {}), ...resultOf(update) } : {}),
     ...(state === "waiting" && update.resumeAt !== undefined ? { resumeAt: update.resumeAt } : {}),
+    ...(update.part ? { part: update.part } : {}),
+    ...(update.ends?.length ? { ends: update.ends } : {}),
   };
   // Paused for the daily limit only while this word says so (`jobPause.ts`).
   if (state !== "waiting" || update.resumeAt === undefined) delete next.resumeAt;
@@ -518,7 +526,7 @@ function resultOf(update: JobUpdate): { result?: string } {
 /** `POST /job-update`'s body, read strictly. */
 export function readJobUpdate(value: unknown): JobUpdate | null {
   if (!value || typeof value !== "object") return null;
-  const { id, state, status, pictures, texts, first, step, stepFailed, stepWhy, vaultWatch, vaultLinks, pass, asked, verdict, advice, ask, resumeAt } = value as Record<string, unknown>;
+  const { id, state, status, pictures, texts, first, step, stepFailed, stepWhy, vaultWatch, vaultLinks, pass, asked, verdict, advice, ask, resumeAt, part, ends } = value as Record<string, unknown>;
   const by = asked && typeof asked === "object" ? (asked as Record<string, unknown>) : {};
   const read = jobPictures(readPictures(pictures));
   if (typeof id !== "string" || !ID.test(id) || typeof state !== "string" || !STATES.has(state)) return null;
@@ -536,8 +544,18 @@ export function readJobUpdate(value: unknown): JobUpdate | null {
     ...(Number.isInteger(first) && (first as number) >= 0 ? { first: first as number } : {}),
     ...(Number.isSafeInteger(resumeAt) && (resumeAt as number) > 0 ? { resumeAt: resumeAt as number } : {}),
     ...(read.length > 0 ? { pictures: read } : {}),
+    ...(Number.isInteger(part) && (part as number) > 0 && (part as number) < 1_000 ? { part: part as number } : {}),
+    ...(readEnds(ends).length > 0 ? { ends: readEnds(ends) } : {}),
     ...(Array.isArray(texts) ? { texts: texts.filter((text): text is string => typeof text === "string" && text.trim() !== "").slice(0, 12) } : {}),
   };
+}
+
+/** How a job's parts ended (`jobProgress.ts`), read strictly. */
+export function readEnds(value: unknown): PartEnd[] {
+  if (!Array.isArray(value)) return [];
+  return value
+    .flatMap((end) => (end && typeof end === "object" && Number.isInteger(end.part) && end.part > 0 && PART_CAUSES.has(end.cause) ? [{ part: end.part as number, cause: end.cause as PartCause }] : []))
+    .slice(-MAX_ENDS_KEPT);
 }
 
 /** One line per job event: the job by its tag (`jobTag`), never its id. */

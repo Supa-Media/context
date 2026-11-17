@@ -6,7 +6,7 @@ import assert from "node:assert/strict";
 import { TexStore } from "../src/texStore.js";
 import { texObjects } from "../src/texStore/objects.js";
 import { readPageRecords } from "../src/texStore/pageRecords.js";
-import { PAGE_CLOSE_REAUTH, PAGE_LIVE_PATH, PAGE_VIEWER_HEADER, pageLive, pokeTexPage } from "../src/texStore/pageLive.js";
+import { CHANGED_GAP_MS, PAGE_CLOSE_REAUTH, PAGE_LIVE_PATH, PAGE_VIEWER_HEADER, pageLive, pokeTexPage } from "../src/texStore/pageLive.js";
 import { serveTexStore, texBucket } from "../src/texStore/wire.js";
 import { R2Store } from "../src/store/r2.js";
 import { arrivedSql, durableSql, texStoreNamespace } from "./texStoreFixture.mjs";
@@ -92,8 +92,11 @@ test("page_list answers the log's views, and an empty page while the object has 
 function liveOver({ now = () => 1_000_000, texting } = {}) {
   const state = socketState();
   const sockets = [];
+  /** Flushes the object put off until the gap between bursts ends, run by the test when it moves the clock. */
+  const timers = [];
   const page = pageLive(state, state.storage.sql, { TEXTING: texting }, {
     now,
+    later: (run, ms) => timers.push({ run, ms }),
     pair: () => {
       const client = { client: true };
       const server = fakeSocket();
@@ -102,7 +105,7 @@ function liveOver({ now = () => 1_000_000, texting } = {}) {
     },
     upgraded: (client) => ({ status: 101, client }),
   });
-  return { state, page, sockets };
+  return { state, page, sockets, timers };
 }
 
 test("live: a record or a note written in the object reaches an open page; a socket past its deadline is closed to re-authorize", async () => {
@@ -116,7 +119,8 @@ test("live: a record or a note written in the object reaches an open page; a soc
   // A change the log or a page act announces.
   await stub.fetch(new Request("https://tex-store.internal/page_poke", { method: "POST", headers: { "x-tex-call": encodeURIComponent(JSON.stringify({ op: "page_poke", sections: ["thinking"] })) } }));
   assert.deepEqual(sockets[0].sent.map((frame) => frame.section), ["thinking", "tiles"]);
-  // A note Tex saved (About, a routine): the note sections.
+  // A note Tex saved (About, a routine): the note sections, once the gap since the last burst has passed.
+  clock += CHANGED_GAP_MS;
   await new R2Store(texBucket(stub)).put("notes/0199a000-0000-7000-8000-000000000009.md", "# About me\n\n- Likes tea");
   assert.deepEqual(sockets[0].sent.slice(2).map((frame) => frame.section), ["about", "routines", "checkins", "tiles"]);
   // The object's bookkeeping is not a change on the page.
@@ -127,7 +131,32 @@ test("live: a record or a note written in the object reaches an open page; a soc
   assert.deepEqual(sockets[0].sent.at(-1), { t: "pong" });
   clock += 61_000;
   assert.equal(page.changed(["settings"]), 0);
+  assert.equal(page.changed(["settings"]), 0);
   assert.equal(sockets[0].closed.code, PAGE_CLOSE_REAUTH);
+});
+
+test("live: a burst of changes reaches an open page as one read-again per gap, never one per change", () => {
+  let clock = 1_000_000;
+  const { page, sockets, timers } = liveOver({ now: () => clock });
+  page.accept(viewerRequest({ deadline: clock + 60_000, chat: { phone: "+15555550100" } }));
+  // The first change goes out at once.
+  page.changed(["thinking", "behind"]);
+  assert.deepEqual(sockets[0].sent.map((frame) => frame.section), ["thinking", "behind", "tiles"]);
+  // A busy turn writes line after line: a hundred announcements inside the gap send nothing yet, and set one flush.
+  for (let i = 0; i < 100; i += 1) page.changed(i % 2 ? ["thinking", "behind"] : ["advisor", "behind"]);
+  page.changed(["settings"]);
+  assert.equal(sockets[0].sent.length, 3);
+  assert.equal(timers.length, 1);
+  assert.equal(timers[0].ms, CHANGED_GAP_MS);
+  // When the gap ends, every section named in it goes out once.
+  clock += CHANGED_GAP_MS;
+  timers.shift().run();
+  assert.deepEqual(sockets[0].sent.slice(3).map((frame) => frame.section).sort(), ["advisor", "behind", "settings", "thinking", "tiles"]);
+  // Nothing was waiting: a quiet page hears nothing more, and the next change after the gap goes out at once.
+  assert.equal(timers.length, 0);
+  clock += CHANGED_GAP_MS;
+  page.changed(["about"]);
+  assert.deepEqual(sockets[0].sent.slice(8).map((frame) => frame.section), ["about", "tiles"]);
 });
 
 test("live: the gateway's viewer header is required, and a socket never outlives five minutes", () => {
@@ -175,9 +204,11 @@ test("live: an open page polls the chat's jobs and is pushed only what changed, 
 test("live, end to end in the Tex object: a page opens through the object and hears a note written by another caller and a poke; wipe closes it", async () => {
   const state = socketState(arrivedSql(durableSql()));
   const sockets = [];
+  const timers = [];
   const store = new TexStore(state, {}, {
     dispatch: async () => ({ next: null }),
     pageDeps: {
+      later: (run) => timers.push(run),
       pair: () => {
         const server = fakeSocket();
         sockets.push(server);
@@ -201,6 +232,9 @@ test("live, end to end in the Tex object: a page opens through the object and he
   await new R2Store(texBucket(texStoreStubFor(env))).put("notes/0199a000-0000-7000-8000-000000000010.md", "# Routine");
   assert.deepEqual(sockets[0].sent.map((frame) => frame.section), ["about", "routines", "checkins", "tiles"]);
   assert.equal(await pokeTexPage(env, { person: "ws_live" }, ["settings", "nonsense"]), true);
+  // Inside the gap since the note's burst: it waits, then goes out once.
+  assert.equal(sockets[0].sent.length, 4);
+  timers.shift()();
   assert.deepEqual(sockets[0].sent.slice(4).map((frame) => frame.section), ["settings", "tiles"]);
   await store.fetch(new Request("https://tex-store.internal/wipe", { method: "POST", headers: { "x-tex-owner": "person:ws_live", "x-tex-call": encodeURIComponent(JSON.stringify({ op: "wipe" })) } }));
   assert.equal(sockets[0].closed.code, 1000);
