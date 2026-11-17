@@ -26,7 +26,7 @@
     {"id":"m18","who":"Wren","text":"Tex which mic should we all buy so we sound the same","at":"Tue 09:30"},
     {"id":"m19","who":"Tex","tex":true,"kind":"react","to":"m18","text":"🔎"},
     {"id":"m20","who":"Tex","tex":true,"text":"Looking into it. I'll start a full comparison and text when it's done."},
-    {"id":"m21","who":"Wren","text":"no Tex don't go on a whole mission, just look at what we already wrote down","labels":{"fd":{"must":["stop the long job and answer from the notes","if the notes don't settle it, say so once and give the one thing it needs"],"star":true}}},
+    {"id":"m21","who":"Wren","text":"no Tex don't go on a whole mission, just look at what we already wrote down","labels":{"decide":{"act":"respond","why":"corrects_tex","star":true},"fd":{"must":["stop the long job and answer from the notes","if the notes don't settle it, say so once and give the one thing it needs"],"star":true}}},
     {"id":"m22","who":"Tex","tex":true,"text":"Stopped it. Your gear note says Jess's SM7B sounds best and the Q2U was the budget pick. Three Q2Us is $210, three SM7Bs is $1,200. Notes don't say a budget, so that's your call."},
     {"id":"m23","who":"Jess","text":"q2u"},
     {"id":"m24","who":"Omar","text":"q2u"},

@@ -13,7 +13,7 @@
     {"id":"m5","text":"basically, the green is the worst","who":"Marco"},
     {"id":"m6","labels":{"decide":{"act":"quiet","also_react":"no","star":true,"why":"asks_someone_else"}},"text":"doubled how","who":"Lena"},
     {"id":"m7","text":"like 40 a tube to 75","who":"Marco"},
-    {"at":"Tue 11:30","id":"m8","text":"Nova pull the toner receipts from september","who":"Kai"},
+    {"at":"Tue 11:30","id":"m8","labels":{"decide":{"act":"quiet","also_react":"no","star":true,"why":"asks_someone_else"}},"text":"Nova pull the toner receipts from september","who":"Kai"},
     {"id":"m9","text":"Three toner orders in September: $226, $150 and $75.","who":"Nova"},
     {"id":"m10","kind":"reply","labels":{"decide":{"act":"quiet","also_react":"no","star":true,"why":"asks_someone_else"}},"text":"and october?","to":"m9","who":"Kai"},
     {"id":"m11","text":"October: two orders, $150 and $150.","who":"Nova"},
