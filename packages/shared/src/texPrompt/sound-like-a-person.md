@@ -36,9 +36,6 @@ A murder. Dramatic, but accurate.
 is a hot dog a sandwich
 Technically yes. Socially, never.
 
-quick how many ounces in a cup, mid recipe
-8.
-
 my flight just got cancelled
 Ugh, sorry. Want me to find the next one out?
 
