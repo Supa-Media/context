@@ -7,11 +7,14 @@ import { lineFor, type LineDeps } from "./line";
 import { CARD_VERSION } from "./card";
 import { isSendblueChat } from "./sendblue";
 import { isWhapiChat } from "./whapi";
+import { isPhotonChat } from "./photon";
 import type { InboxStorage } from "./inbox";
 
 /** When this sender was last offered the contact card; Linq asks for once a day at most. */
 export const CARD_KEY = "card";
 export const CARD_EVERY_MS = 24 * 60 * 60 * 1000;
+/** The day Tex's Photon line started answering (2026-11-15 UTC). */
+const PHOTON_FIRST_DAY = Date.UTC(2026, 10, 15);
 /** A Sendblue chat's card is a message the person sees, so it goes once per chat, never again for a newer `CARD_VERSION`. */
 export const cardSentKey = (chatId: string) => `card-sent:${chatId}`;
 /** When a Sendblue chat's card or Name & Photo was last tried; per chat, so a card offered on Linq never holds back the new line's. */
@@ -30,21 +33,27 @@ export const profileSetKey = (chatId: string) => `profile-set:${chatId}`;
  * day at most. Linq needs an outbound message in the chat first, which is why
  * this runs after a reply was sent. The time is kept whether or not the line
  * accepted it, so a line with no card set up costs one request a day, not one
- * per text. On Sendblue (and WhatsApp, as a contact) the card is a .vcf in the chat (`card.ts`), so once
+ * per text. On Sendblue and Photon (and WhatsApp, as a contact) the card is a .vcf in the chat (`card.ts`), so once
  * a card went it never goes again in that chat, whatever `CARD_VERSION` says:
  * a new one arrived after a reply in the middle of a conversation (2026-10-19).
  * A new `CARD_VERSION` only sets the line's Name & Photo again, which is
  * shared apart from the card and is how a new photo reaches a chat.
  */
 export async function offerCard(storage: InboxStorage, chatId: string, deps: LineDeps & { now: () => number }): Promise<void> {
-  if (!isSendblueChat(chatId) && !isWhapiChat(chatId)) {
+  const photon = isPhotonChat(chatId);
+  if (!isSendblueChat(chatId) && !isWhapiChat(chatId) && !photon) {
     const last = await storage.get<number>(CARD_KEY);
     if (last !== undefined && deps.now() - last < CARD_EVERY_MS) return;
     await storage.put(CARD_KEY, deps.now());
     await lineFor(deps, chatId).shareContactCard(chatId);
     return;
   }
-  const sentAs = versionOf(await storage.get<number | boolean>(cardSentKey(chatId)));
+  let sentAs = versionOf(await storage.get<number | boolean>(cardSentKey(chatId)));
+  // Photon chats took the once-a-day path until 2026-11-17, so a card sent there since Photon's first day counts as sent.
+  if (photon && sentAs === undefined && ((await storage.get<number>(CARD_KEY)) ?? 0) >= PHOTON_FIRST_DAY) {
+    await storage.put(cardSentKey(chatId), CARD_VERSION);
+    sentAs = CARD_VERSION;
+  }
   const sharedAs = versionOf(await storage.get<number | boolean>(profileSharedKey(chatId)));
   if (sentAs !== undefined && sharedAs === CARD_VERSION) return;
   // A day between tries, except that a newer card is tried at once.
