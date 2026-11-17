@@ -4,7 +4,7 @@
  *
  * An earlier picture is kept as production keeps it on the turn that answered it (`texEntryPoint/sendTheReply.js`):
  * written into the person's `tex/pictures/` note through their own gateway (`textedPictures.js`), and named on that
- * turn's reply entry in the chat's ledger (`attachments.js` `attachmentsLine`), so the Front door's week of history
+ * turn's reply entry in the chat's ledger (a group's in its home, `chatHome.js`) (`attachments.js` `attachmentsLine`), so the Front door's week of history
  * shows it inline where it was sent (`weekHistory.js` `picturesOf`), as it shows a real one. No model runs for it.
  */
 
@@ -43,17 +43,19 @@ export function clientDispatch({ env, token }) {
 }
 
 /**
- * Keep the pictures a person sent with an earlier one-to-one text, as the turn that answered it did: `names` under
- * `ai/pictures/`, sent at `at`, answered by Tex's line of `turn`. Answers the reply entry written, or null when none
- * could be kept (a group's are kept in its home, which a bench group has none of).
+ * Keep the pictures a person sent with an earlier text, as the turn that answered it did: `names` under
+ * `ai/pictures/`, sent at `at`, answered by Tex's line of `turn`. A one-to-one chat's go into the person's
+ * `tex/pictures/`; a group's into its home's `pictures/` (`group`: `{ key, home, homeToken }`, `groupChat.mjs`).
+ * Answers the reply entry written, or null when none could be kept.
  */
-export async function keepEarlierPictures({ env, token, workspaceId, timeZone = "UTC", at, turn, names }) {
+export async function keepEarlierPictures({ env, token, workspaceId, group = null, timeZone = "UTC", at, turn, names }) {
   const attachments = await Promise.all(names.map(benchPicture));
-  const kept = await keepTextedPictures(clientDispatch({ env, token }), { now: at, timeZone, attachments });
+  const dispatch = clientDispatch({ env, token: group ? group.homeToken : token });
+  const kept = await keepTextedPictures(dispatch, { now: at, timeZone, attachments, ...(group ? { folder: `${group.home}/pictures`, group: true } : {}) });
   if (kept.length === 0) return null;
-  const ledger = ledgerFor(env, { person: workspaceId });
+  const ledger = ledgerFor(env, group ? { chat: group.key } : { person: workspaceId });
   if (ledger === null) return null;
   const entry = wordsEntry("reply", "", { turn, at: at + 1, attached: attachmentsLine(attachments, kept), clean: true });
-  await ledger.append(ONE_TO_ONE_CHAT, [entry]);
+  await ledger.append(group ? group.key : ONE_TO_ONE_CHAT, [entry]);
   return entry;
 }

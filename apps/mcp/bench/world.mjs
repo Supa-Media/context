@@ -35,7 +35,7 @@ import { rmSync } from "node:fs";
 import { createWorkerCtx } from "../test/workerCtx.mjs";
 import { readStream, workerEvents } from "./workerWire.mjs";
 import { benchMachines } from "./benchMachines.mjs";
-import { benchGroup } from "./groupChat.mjs";
+import { benchGroup, benchHome } from "./groupChat.mjs";
 import { ACCOUNT_ID as D1_ACCOUNT_ID, API_TOKEN as D1_API_TOKEN, CLOUDFLARE_API_BASE, createD1Backend } from "../test/searchProjection/fixtures.mjs";
 import { createVectorizeBackend, meaningIndexFor } from "../test/vectorizeStub.mjs";
 import { wireSearchSettings } from "../src/search/settings.js";
@@ -275,7 +275,7 @@ export async function createWorld(bench, person, setupRaw, models, today = null,
   // Another job's setup under test (the dream's, `check.mjs`) sits beside the texting one, where production reads it.
   const pinnedNotes = models.pinnedNotes ?? [];
   pinned.set("privacy.md", {
-    body: manifest({ shared: true, files: [PRODUCTION_TEXTING_PATH, ...pinnedNotes.map((note) => note.path)] }),
+    body: manifest({ shared: true, files: [PRODUCTION_TEXTING_PATH, ...pinnedNotes.map((note) => note.path), ...(models.group ? [`${benchHome(models.group)}/about.md`] : [])] }),
     etag: "p0",
     lastModified: modified(baseMs),
   });
@@ -496,8 +496,8 @@ export async function createWorld(bench, person, setupRaw, models, today = null,
         const event = { ...textedEvent(line.text, line.from === "person" ? sender : null), ...(line.pictures?.length ? { kind: "picture", pictures: line.pictures } : {}) };
         if (line.from === "person") last = event;
         const { pictures, ...posted } = line.from === "person" ? event : { ...event, from: { kind: "tex" }, turn: last?.turn ?? event.turn, covers: last ? [last.id] : [], delivered: true };
-        await postEvents([posted]); // Tex's answer to a picture kept it, as that turn did (`earlierPictures.mjs`); a bench group has no home
-        if (line.from === "tex" && last?.pictures && !group) await keepEarlierPictures({ env, token, workspaceId: ids.get(own.workspace), timeZone: models.timeZone ?? "UTC", at: last.at, turn: last.turn, names: last.pictures });
+        await postEvents([posted]); // Tex's answer to a picture kept it, as that turn did (`earlierPictures.mjs`)
+        if (line.from === "tex" && last?.pictures) await keepEarlierPictures({ env, token, workspaceId: ids.get(own.workspace), group, timeZone: models.timeZone ?? "UTC", at: last.at, turn: last.turn, names: last.pictures });
       }
     },
     /**

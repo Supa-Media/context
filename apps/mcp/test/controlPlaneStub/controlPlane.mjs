@@ -193,7 +193,7 @@ export function createControlPlaneStub(options = {}) {
     // `apps/convex/functions/lib/controlPlane/liveGrants.ts`).
     grantedNames,
     expiresAt,
-    toolsListedAt, texChatId, // `texChatId`: the chat a group chat's grant is minted for (`liveGrants.ts` `texChatIdOf`)
+    toolsListedAt, texChatId, homeOnly, chatHome, // `texChatId`: a group chat's grant's chat (`liveGrants.ts` `texChatIdOf`); `homeOnly`: its one row is the home `chatHome`
   }) {
     const grantId = `grant_${++grantCounter}`;
     grants.set(grantId, {
@@ -209,7 +209,7 @@ export function createControlPlaneStub(options = {}) {
       grantedNames,
       status: "active",
       expiresAt: expiresAt ?? Date.now() + 3_600_000,
-      toolsListedAt, texChatId,
+      toolsListedAt, texChatId, homeOnly, chatHome,
     });
     accessTokens.set(await sha256Hex(accessToken), grantId);
     if (refreshToken) refreshTokens.set(await sha256Hex(refreshToken), grantId);
@@ -253,9 +253,8 @@ export function createControlPlaneStub(options = {}) {
         slug: workspaces.get(grant.workspaceId)?.slug ?? null,
         role: grant.role,
         kind: workspaces.get(grant.workspaceId)?.kind ?? "personal",
-        ...(namesFor(grant.workspaceId) === undefined
-          ? {}
-          : { grantedNames: namesFor(grant.workspaceId) }),
+        ...(namesFor(grant.workspaceId) === undefined ? {} : { grantedNames: namesFor(grant.workspaceId) }),
+        ...(grant.homeOnly === true && typeof grant.chatHome === "string" ? { homeOnly: true, chatHome: grant.chatHome } : {}),
       },
     ];
     for (const membership of grant.alsoMemberOf || []) {
@@ -271,7 +270,7 @@ export function createControlPlaneStub(options = {}) {
             ? {}
             : { grantedNames: namesFor(membership.workspaceId) }),
         // A group chat's pin, as the control plane marks it (`liveGrants.ts`).
-        ...(membership.setupOnly === true ? { setupOnly: true } : {}),
+        ...(membership.setupOnly === true ? { setupOnly: true, ...(typeof membership.chatHome === "string" ? { chatHome: membership.chatHome } : {}) } : {}),
       });
     }
     return rows;
