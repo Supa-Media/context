@@ -10,6 +10,7 @@
  *   4. the generated module left stale after a conversation changed       "the generated module is the conversations'" fails
  *   5. an empty Training module still adding words to a prompt            "a step with no labels gets no extra words" fails
  *   6. a front-door label not reaching the front door's prompt            "the front door is given its Training labels" fails
+ *   8. Training grown past a step's whole-chat cap, so a chat drops out   "every Training conversation fits" fails
  */
 import assert from "node:assert/strict";
 import { createRequire } from "node:module";
@@ -187,6 +188,16 @@ test("whole conversations fit their cap whole: one that would pass it is left ou
   assert.ok(all.includes("filler 399"));
   assert.equal(wholeText("fd", 100, generated), "", "none fits, no module");
   assert.equal(wholeText("nobody", 100_000, generated), "");
+});
+
+test("every Training conversation fits each step's whole-chat cap: none is silently left out of a live prompt", () => {
+  const capped = TEX_CONFIG.nodes.flatMap((n) => (n.ctx ?? []).map((entry) => [n.id, entry, TRAIN_ENTRY.exec(entry)]).filter(([, , m]) => m && m[2] !== undefined));
+  assert.ok(capped.length > 0, "the front door reads whole Training chats");
+  for (const [step, entry] of capped) {
+    const text = moduleText(entry, TRAINING);
+    assert.ok(text.length > 0, `${step} ${entry} renders`);
+    assert.doesNotMatch(text, /left out: over this module's/, `${step} ${entry}: Training grew past its cap; raise the cap in the config or trim a conversation`);
+  }
 });
 
 test("train:<node>:all:<chars> is its own module: a step given it reads whole conversations, under its own name", () => {
