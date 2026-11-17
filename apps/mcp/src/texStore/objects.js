@@ -55,6 +55,17 @@ export class TexObjectRefused extends Error {
 
 const rows = (cursor) => (typeof cursor?.toArray === "function" ? cursor.toArray() : []);
 
+/** `left` is at or after `right` in UTF-8 byte order, which is SQLite BINARY on `key`. */
+function utf8AtLeast(left, right) {
+  const a = new TextEncoder().encode(left);
+  const b = new TextEncoder().encode(right);
+  const end = Math.min(a.length, b.length);
+  for (let index = 0; index < end; index += 1) {
+    if (a[index] !== b[index]) return a[index] > b[index];
+  }
+  return a.length >= b.length;
+}
+
 function checkKey(key) {
   if (typeof key !== "string" || key === "" || key.length > 1024 || key.startsWith("/") || key.includes("\0")) {
     throw new TexObjectRefused("not a key this store keeps");
@@ -232,6 +243,7 @@ export function texObjects(sql, { now = Date.now, guard = () => {}, tables = DEF
       const upper = `${prefix}\u{10FFFF}`;
       const columns = "key, etag, size, uploaded, content_type, custom, chunks";
       for (;;) {
+        // JavaScript `>=` orders UTF-16 code units; SQLite BINARY orders `key` by UTF-8 bytes.
         const batch = rows(
           prefix === ""
             ? sql.exec(
@@ -240,7 +252,7 @@ export function texObjects(sql, { now = Date.now, guard = () => {}, tables = DEF
                 prefix,
                 size + 1,
               )
-            : last >= prefix
+            : utf8AtLeast(last, prefix)
               ? sql.exec(
                   `SELECT ${columns} FROM ${O} WHERE key > ? AND key < ? ORDER BY key LIMIT ?`,
                   last,
