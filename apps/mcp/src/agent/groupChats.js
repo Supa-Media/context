@@ -71,7 +71,7 @@ export function groupsPrompt(groups) {
   const sorted = [...groups].sort((a, b) => a.name.localeCompare(b.name));
   return (
     `\n\nThe group chats they are in with you, which you can read from here (only read: what is said there stays there, and you answer in that chat only when someone there asks): ` +
-    `call ${GROUP_CHATS} to search their texts, read a day word for word, or read each day's summary. Use it when they ask about one of these chats or about something said "in a group chat", and say which chat and when.\n` +
+    `fetch {"id": "groups:<chat>"} reads one (args { day } word for word, { from, to } each day's summary, { words } a search) and search { query, args: { groups: true } } searches them all. Use it when they ask about one of these chats or about something said "in a group chat", and say which chat and when.\n` +
     sorted.map(chatLine).join("\n")
   );
 }
@@ -113,7 +113,7 @@ export function groupChatsTool({ groups, ledgerOf, timeZone = "UTC", onRead = ()
   async function read({ chat, day, part }) {
     const g = pickChat(groups, chat);
     if (g === null) return unknown(chat);
-    if (typeof day !== "string" || !DAY_ID.test(day.trim())) return answer('Name the day as YYYY-MM-DD, like {"op": "read", "chat": "…", "day": "2026-11-08"}.', true);
+    if (typeof day !== "string" || !DAY_ID.test(day.trim())) return answer('Name the day as YYYY-MM-DD, like fetch {"id": "groups:<chat>", "args": {"day": "2026-11-08"}}.', true);
     const d = day.trim();
     const until = midnightOf(dayBefore(d, -1), timeZone);
     const { entries } = await readSpan(ledgerOf(g.key), g.key, { since: midnightOf(d, timeZone), until });
@@ -122,7 +122,7 @@ export function groupChatsTool({ groups, ledgerOf, timeZone = "UTC", onRead = ()
     const parts = Math.max(1, Math.ceil(text.length / READ_DAY_CHARS));
     const n = Number.isSafeInteger(part) && part > 0 ? part : 1;
     if (n > parts) return answer(`${d} has ${parts} part${parts === 1 ? "" : "s"}.`, true);
-    const more = n < parts ? `\n\n(Part ${n} of ${parts}. The rest: call ${GROUP_CHATS} with {"op": "read", "chat": "${g.key.slice(0, 12)}", "day": "${d}", "part": ${n + 1}}.)` : "";
+    const more = n < parts ? `\n\n(Part ${n} of ${parts}. The rest: fetch {"id": "groups:${g.key.slice(0, 12)}", "args": {"day": "${d}", "part": ${n + 1}}}.)` : "";
     return answer(`${g.name}, ${d}, word for word ("You" is you, Tex, in that chat):\n\n${text.slice((n - 1) * READ_DAY_CHARS, n * READ_DAY_CHARS)}${more}`);
   }
 
@@ -133,14 +133,14 @@ export function groupChatsTool({ groups, ledgerOf, timeZone = "UTC", onRead = ()
     const toDay = typeof to === "string" && DAY_ID.test(to.trim()) ? to.trim() : null;
     const kept = (await readSummaries(ledgerOf(g.key), g.key, { before: Number.MAX_SAFE_INTEGER, fromDay, chars: SUMMARY_CHARS })).filter((s) => toDay === null || s.day <= toDay);
     const today = dayOf(now(), timeZone);
-    const lines = kept.map((s) => `- ${s.day}: ${s.text.replace(/\s+/g, " ").trim()} (Word for word: {"op": "read", "chat": "${g.key.slice(0, 12)}", "day": "${s.day}"}.)`);
+    const lines = kept.map((s) => `- ${s.day}: ${s.text.replace(/\s+/g, " ").trim()} (Word for word: fetch {"id": "groups:${g.key.slice(0, 12)}", "args": {"day": "${s.day}"}}.)`);
     const note = `A day is summed up after it ends, so today (${today}) and the days just before it may have no summary yet: read those word for word.`;
     return answer(lines.length === 0 ? `${g.name} has no day summaries${fromDay || toDay ? " in those days" : ""} yet. ${note}` : `${g.name}, each day as summed up after it ended, oldest first:\n${lines.join("\n")}\n\n${note}`);
   }
 
   async function search({ words, chat, since }) {
     const want = terms(words);
-    if (want.length === 0) return answer('Say what to look for: {"op": "search", "words": "texas trip"}.', true);
+    if (want.length === 0) return answer('Say what to look for: search {"query": "texas trip", "args": {"groups": true}}.', true);
     const targets = chat === undefined || chat === null || String(chat).trim() === "" ? groups : [pickChat(groups, chat)].filter(Boolean);
     if (targets.length === 0) return unknown(chat);
     const sinceAt = typeof since === "string" && DAY_ID.test(since.trim()) ? midnightOf(since.trim(), timeZone) : 0;
@@ -163,7 +163,7 @@ export function groupChatsTool({ groups, ledgerOf, timeZone = "UTC", onRead = ()
     const shown = (all.length > 0 ? all : found).sort((a, b) => b.hits - a.hits || b.e.at - a.e.at).slice(0, MAX_HITS);
     log(JSON.stringify({ event: "tex_group_search", chats: targets.length, texts: looked, hits: found.length, whole: all.length, shown: shown.length }));
     if (shown.length === 0) return answer(`No text in ${targets.length === 1 ? targets[0].name : `their ${targets.length} group chats`} holds ${want.map((w) => `"${w}"`).join(" or ")}${sinceAt ? ` since ${since}` : ""}.`);
-    const lines = shown.map(({ g, e, text }) => `- ${g.name} · ${day.format(new Date(e.at))} ${time.format(new Date(e.at))} · ${speaker(e.from)}: ${text.replace(/[\s\u0000-\u001f]+/g, " ").slice(0, HIT_CHARS)} (that day: {"op": "read", "chat": "${g.key.slice(0, 12)}", "day": "${dayOf(e.at, timeZone)}"})`);
+    const lines = shown.map(({ g, e, text }) => `- ${g.name} · ${day.format(new Date(e.at))} ${time.format(new Date(e.at))} · ${speaker(e.from)}: ${text.replace(/[\s\u0000-\u001f]+/g, " ").slice(0, HIT_CHARS)} (that day: fetch {"id": "groups:${g.key.slice(0, 12)}", "args": {"day": "${dayOf(e.at, timeZone)}"}})`);
     const partial = all.length === 0 ? ` None held every word, so these hold some of them.` : "";
     return answer(`${shown.length} of ${found.length} matching texts, best first.${partial}\n${lines.join("\n")}`);
   }

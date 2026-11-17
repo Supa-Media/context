@@ -1,5 +1,5 @@
 /**
- * The move judge (`agent/graph/nodes/moveJudge.js`, on the shelf) and the guard that asks it (`agent/theirNotes.js`).
+ * The move judge (`agent/graph/nodes/moveJudge.js`, wired as tools -> moveJudge) and the guard that asks it (`agent/theirNotes.js`).
  * Servant Hearted trace issue 6 (2026-11-17): a yes to Tex's own "Want me to move it?" was refused by the word list,
  * and a note that wasn't there was kept as "theirs".
  *
@@ -90,9 +90,9 @@ test("a verdict only counts when it is a clear yes", async () => {
   assert.match(MOVE_JUDGE_SYSTEM, /Examples:/, "judged from examples");
 });
 
-test("the move judge is on the shelf: its code is in the table, and main's config has no node or wire for it", () => {
+test("the move judge is wired: its code is on the runner, off the shelf, and main's config calls it from tools", () => {
   assert.equal(typeof GATEWAY_NODES.moveJudge, "function");
-  assert.ok(SHELF.nodes.moveJudge.files.includes("apps/mcp/src/agent/graph/nodes/moveJudge.js"));
-  assert.ok(!TEX_CONFIG.nodes.some((n) => n.id === "moveJudge"));
-  assert.ok(!TEX_CONFIG.edges.some((e) => e.to === "moveJudge"));
+  assert.equal(SHELF.nodes.moveJudge, undefined);
+  assert.ok(TEX_CONFIG.nodes.some((n) => n.id === "moveJudge" && n.on !== false));
+  assert.ok(TEX_CONFIG.edges.some((e) => e.from === "tools" && e.to === "moveJudge" && e.mode === "uses" && e.when?.includes("move")));
 });
