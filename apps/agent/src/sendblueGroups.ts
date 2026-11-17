@@ -40,6 +40,11 @@ export type GroupMessage = {
   /** The characters `cutText` cut off `text`, when it cut. */
   left?: number;
   replyTo?: string;
+  /**
+   * The words of Tex's own text this inline reply answers, when the line sent them with the message (Photon's bridge
+   * reads them, `replyToText`), so the turn needs no lookup; else the turn reads them (`readOwnMessage`).
+   */
+  quoted?: string;
   /** A green-bubble group: answered with one fixed line, never with notes. */
   sms?: true;
   /** Any tapback or emoji reaction (`groupInbox.ts` `acceptReaction`); `text` is then the tapback's own words. */

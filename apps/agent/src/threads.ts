@@ -17,6 +17,7 @@
 import { textsFromAnswer } from "./format";
 import type { InboxStorage } from "./inbox";
 import { isSendblueChat } from "./sendblue";
+import { isPhotonChat } from "./photon";
 import { isWhapiChat } from "./whapi";
 
 export const THREADS_KEY = "threads";
@@ -53,7 +54,7 @@ async function hashOf(salt: string, words: string): Promise<string> {
 /** Keep a text's handle (theirs, or one Tex sent) so a later check-in can go under it. Best effort: never throws. */
 export async function rememberText(storage: InboxStorage, chatId: string, id: string | undefined, text: string, now: number): Promise<void> {
   try {
-    if (!(isSendblueChat(chatId) || isWhapiChat(chatId)) || typeof id !== "string" || !HANDLE.test(id)) return;
+    if (!(isSendblueChat(chatId) || isWhapiChat(chatId) || isPhotonChat(chatId)) || typeof id !== "string" || !HANDLE.test(id)) return;
     const words = opening(text);
     if (words === "") return;
     const h = await hashOf(await saltOf(storage), words);
@@ -73,7 +74,7 @@ export async function rememberText(storage: InboxStorage, chatId: string, id: st
  * Undefined when none is, and the check-in goes plain.
  */
 export async function threadUnder(storage: InboxStorage, chatId: string, continues: string | undefined): Promise<string | undefined> {
-  if (typeof continues !== "string" || !(isSendblueChat(chatId) || isWhapiChat(chatId))) return undefined;
+  if (typeof continues !== "string" || !(isSendblueChat(chatId) || isWhapiChat(chatId) || isPhotonChat(chatId))) return undefined;
   const words = opening(continues);
   if (words === "") return undefined;
   const kept = (await storage.get<Kept[]>(THREADS_KEY)) ?? [];

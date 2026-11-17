@@ -422,6 +422,17 @@ describe("a group's queue", () => {
     expect(await acceptGroup(storage, message("and more?", { messageId: "h_in3", replyTo: "h_someone_elses" }), 0)).toBe("kept");
   });
 
+  // A line that sends the quoted words with the reply (Photon's bridge) needs no lookup: those words are what Tex sees.
+  it("an inline reply that brings Tex's quoted words uses them, ahead of any lookup", async () => {
+    const storage = new MemoryStorage();
+    const w = world();
+    await acceptGroup(storage, message("Tex, when's the gig?"), 0);
+    await drainGroup(storage, deps(w));
+    expect(await acceptGroup(storage, message("and load in?", { messageId: "h_in2", replyTo: "h_out_1", quoted: "Saturday at 7." }), 0)).toBe("kept");
+    await drainGroup(storage, deps(w, { decide: (body) => ({ ok: true, act: "answer", covers: [body.newest], stale: [], movedOn: false, confidence: 0.9 }) }));
+    expect(w.asks[1]).toMatchObject({ question: "and load in?", quoted: "Saturday at 7." });
+  });
+
   it("answers a green-bubble group with one fixed line and never asks for notes", async () => {
     const storage = new MemoryStorage();
     const w = world();

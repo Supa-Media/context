@@ -22,7 +22,7 @@ import { photonAttachmentUrl, photonGroupGuid } from "./photon";
 import { photonGroupMembers } from "./photonClient";
 import { arrivalOf } from "./providerTiming";
 import { photonSendStatusOf } from "./photonSendStatus";
-import { parsePhotonEvent, photonAttachmentGuids, type PhotonDropped, type PhotonEdit } from "./photonInbound";
+import { parsePhotonEvent, photonAttachmentGuids, photonGroupChange, photonGroupNameOf, type PhotonDropped, type PhotonEdit } from "./photonInbound";
 import { sendGroupName } from "./sendblueGroups";
 import { workerOrigin } from "./media";
 
@@ -55,6 +55,9 @@ export async function photonEvent(env: Env, body: unknown): Promise<number> {
     console.log(JSON.stringify({ event: "photon_read", outcome: "ignored" }));
     return 200;
   }
+  // A group renamed, or somebody added, removed or left: noted for the group's home, never a message (`groupChange`).
+  const change = photonGroupChange(body);
+  if (change !== null) return await groupChange(env, change);
   const guids = photonAttachmentGuids(body);
   const origin = guids.length > 0 && env.AGENT_ORIGIN ? workerOrigin(env.AGENT_ORIGIN) : null;
   if (guids.length > 0 && origin === null) log("ignored", "no_origin");
@@ -90,7 +93,8 @@ export async function photonEvent(env: Env, body: unknown): Promise<number> {
     if (arrival.matched !== undefined) return await finishGroupMove(env, parsed.line, parsed.groupId, arrival.matched);
     const message = arrival.from === null ? parsed : asOldGroup(parsed, arrival.from);
     // A group's message goes to the group's own queue, never a sender's (`groupWebhook`, `index.ts`).
-    await sendGroupName((input, init) => fetch(input, init), env.CONTROL_PLANE_ORIGIN, env.AGENT_WORKER_SECRET, message, null);
+    // The chat's name, as Sendblue's webhook gave it with every message: the app shows it as the chat's folder name.
+    await sendGroupName((input, init) => fetch(input, init), env.CONTROL_PLANE_ORIGIN, env.AGENT_WORKER_SECRET, message, photonGroupNameOf(body));
     const name = groupInboxName(message.groupId);
     const brought = { ...message, provider };
     const result =
@@ -113,6 +117,27 @@ export async function photonEvent(env: Env, body: unknown): Promise<number> {
   const result =
     (await toChat(env, "one", parsed.from, brought, known)) ??
     (await inboxByName(env.SENDER_INBOX, parsed.from).fetch(`https://inbox/accept?origin=${encodeURIComponent(known ?? "")}`, { method: "POST", body: JSON.stringify(brought) }));
+  return result.ok ? 200 : 503;
+}
+
+/**
+ * A group's change, for the group as Tex files it (under its old id and line when staff moved it here,
+ * `groupMoves.ts`): a new name goes to the app, as a message's name does; a change of people marks the group's kept
+ * member list changed, so a sender-only line is not filed by a list that is behind (`groupMembers.ts`).
+ */
+async function groupChange(env: Env, change: NonNullable<ReturnType<typeof photonGroupChange>>): Promise<number> {
+  // Only the alias is looked up: with no sender, no pending move can match, so a change (the old number adding Tex's
+  // new one, mid-move) never ties the groups without the swap note that finishes the move.
+  const arrival = await arrivedAs(env.SENDER_INBOX, { photonGroupId: change.groupId, photonLine: change.line, from: "", participants: [] });
+  const place = arrival.from === null ? { groupId: change.groupId, line: change.line } : { groupId: arrival.from.groupId, line: arrival.from.line };
+  if (change.change === "renamed") {
+    await sendGroupName((input, init) => fetch(input, init), env.CONTROL_PLANE_ORIGIN, env.AGENT_WORKER_SECRET, place, change.name);
+    log("accepted", "group_renamed");
+    return 200;
+  }
+  const name = groupInboxName(place.groupId);
+  const result = (await toChat(env, "members", name, null)) ?? (await inboxByName(env.SENDER_INBOX, name).fetch("https://inbox/group-members-changed", { method: "POST" }));
+  log("accepted", "group_members");
   return result.ok ? 200 : 503;
 }
 
