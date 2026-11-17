@@ -3,7 +3,7 @@ import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { test } from "node:test";
 
-import { LIVE_SETTINGS, MAX_MINUTES_BEFORE, cantRun, minutesBefore, checkinMail, dayOf, earlierLines, fdTest, frontFor, groupFor, jobReportRow, runFd, senderOf, sinceTexAnswered, timeOf, zoneOf } from "../bench/setsFd.mjs";
+import { LIVE_SETTINGS, MAX_MINUTES_BEFORE, PURE_ACK, burstBefore, cantRun, minutesBefore, checkinMail, dayOf, earlierLines, fdTest, frontFor, groupFor, jobReportRow, runFd, senderOf, sinceTexAnswered, timeOf, zoneOf } from "../bench/setsFd.mjs";
 import { clockMs, installClock } from "../bench/clock.mjs";
 import { parsePeople, parseTest } from "../bench/load.mjs";
 import sets from "../../../packages/shared/src/texSets.cjs";
@@ -53,12 +53,12 @@ test("each earlier line is dated by its own day and time, held inside the seven 
 test("a test runs one text with the chat before it and its must and never lines, as the bench parses it", () => {
   const raw = fdTest([unit(chat, 4)], "job: texting-assistant\nrun_as: Maya\ntoday: 2026-10-08\nruns: 1\nweb: scripted");
   const q = parseTest(raw).questions[0];
-  assert.equal(q.texts, "When's my dentist appointment?");
+  assert.equal(q.texts, "quick one\nWhen's my dentist appointment?", "the text still waiting before it goes with it, as production merges them");
   assert.equal(q.personStarts, null, "one text: nobody plays the person after it");
   assert.equal(q.kind, "task");
   assert.deepEqual(q.must, ["say Tuesday, October 13 at 3 pm"]);
   assert.deepEqual(q.mustNot, ["make up a date"]);
-  assert.deepEqual(q.earlier.map((l) => l.from), ["person", "tex", "person"]);
+  assert.deepEqual(q.earlier.map((l) => l.from), ["person", "tex"]);
 });
 
 test("a person's tests run in their bench world, on its day, once, on the scripted web", async () => {
@@ -314,4 +314,33 @@ test("a Dev text's pictures go in with it, and an earlier one with its line, whe
   assert.deepEqual(sinceTexAnswered([six[0], { from: "trigger", via: "checkin" }]).unanswered, ["1.jpg"]);
   const elsewhere = conv([{ id: "m1", who: "Maya", text: "hi", pics: [{ url: "https://example.com/a.jpg" }] }]);
   assert.match(cantRun(elsewhere, 0), /isn't kept in the repository/);
+});
+
+// Production answers the texts waiting together as one (`inboxTurn.ts` merged). Sabotage: return [] from burstBefore
+// and the earlier ask never reaches the turn.
+test("a one-to-one text takes the person's waiting texts before it as one, unless Tex answered or time passed between", () => {
+  const c = conv([
+    { id: "m0", who: "Maya", text: "flight's late", at: "Mon Oct 5 9:00" },
+    { id: "m1", tex: true, text: "Ugh, sorry." },
+    { id: "m2", who: "Maya", text: "ok" },
+    { id: "m3", who: "Maya", text: "weather at home tomorrow?" },
+    { id: "m4", who: "Maya", text: "no tuesday actually", labels: { fd: { must: ["gives Tuesday's weather"] } } },
+    { id: "m5", tex: true, kind: "react", to: "m4", text: "👍" },
+    { id: "m6", who: "Maya", text: "and lisbon?" },
+    { id: "m7", who: "Maya", text: "later", at: "Mon 18:00" },
+  ]);
+  assert.deepEqual(burstBefore(c, 4), ["weather at home tomorrow?"], "a bare ok stays in the history, as production drops an uncovered one");
+  const labelled = conv([{ id: "a", who: "Maya", text: "book it", labels: { fd: { must: ["books"] } } }, { id: "b", who: "Maya", text: "for two" }]);
+  assert.deepEqual(burstBefore(labelled, 1), [], "a text labelled for the Front door was a turn of its own");
+  assert.deepEqual(burstBefore(c, 6), [], "Tex's tapback answered what came before");
+  assert.deepEqual(burstBefore(c, 7), [], "a text sent at a time of its own was not waiting with the one before");
+  assert.deepEqual(burstBefore({ ...c, kind: "group" }, 4), [], "a group's turn reads the chat, not a burst");
+  const q = parseTest(fdTest([unit(c, 4)], "job: texting-assistant\nrun_as: Maya\ntoday: 2026-10-05\nruns: 1\nweb: scripted")).questions[0];
+  assert.equal(q.texts, "weather at home tomorrow?\nno tuesday actually");
+  assert.deepEqual(q.earlier.map((l) => l.text), ["flight's late", "Ugh, sorry.", "ok"], "the burst is the turn's text, not its history");
+});
+
+test("the bench's bare acknowledgement is production's", async () => {
+  const source = await readFile(new URL("../../agent/src/inboxTurn.ts", import.meta.url), "utf8");
+  assert.equal(/const PURE_ACK = (\/.*\/[a-z]*);/.exec(source)?.[1], String(PURE_ACK));
 });
