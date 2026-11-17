@@ -22,6 +22,7 @@ import { counted, type CountDataset } from "./textCounts";
 import type { Picture } from "./line";
 import { hostedNoteCard, linkAfterCard, whapiNotePreview, type NoteCardDrawer } from "./noteCards";
 import type { SendblueKeys } from "./sendblue";
+import type { LinkNotes } from "./photonLinkBubbles";
 import { isPhotonGroupId, photonGroupLine } from "./photonLine";
 import { reactInGroup, readGroupMembers, readOwnGroupMessage, sendGroupMedia, sendGroupText } from "./sendblueGroups";
 import {
@@ -69,6 +70,8 @@ export type GroupLineDeps = {
   whapi?: WhapiKeys | null;
   /** Tex's iMessage line through the Photon bridge (`photonLine.ts`); absent, a Photon group then fails to send. */
   photon?: Fetcher | null;
+  /** Where a Photon link bubble is remembered, so a later report matches the words (`photonLinkBubbles.ts`). Absent, the bubble is still sent. */
+  linkNotes?: LinkNotes;
   /** Serves a picture at a short-lived address the app fetches (`media.ts`). */
   hostPicture?: (picture: Picture) => Promise<string>;
   /** Draws a note link's picture (`noteCards.ts`), sent before the link on iMessage, as in a 1:1 chat. */

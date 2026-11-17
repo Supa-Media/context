@@ -16,6 +16,7 @@ import { hostedNoteCard, linkAfterCard, whapiNotePreview, type NoteCardDrawer } 
 import { isRefusal } from "./carousel";
 import { linkPictureFinder, sendWithLinkPictures } from "./linkPreviews";
 import { counted, type CountDataset } from "./textCounts";
+import type { LinkNotes } from "./photonLinkBubbles";
 import { isPhotonChatId, photonLine } from "./photonLine";
 import {
   isSendblueChat,
@@ -82,6 +83,8 @@ export type LineDeps = {
   whapi?: WhapiKeys | null;
   /** Tex's iMessage line through the Photon bridge (`photonLine.ts`, plan.md Contract B); absent, a Photon chat then fails to send. */
   photon?: Fetcher | null;
+  /** Where a Photon link bubble is remembered, so a later report matches the words (`photonLinkBubbles.ts`). Absent, the bubble is still sent. */
+  linkNotes?: LinkNotes;
   /** Serves a picture's bytes at a short-lived address (`media.ts`), for a line that only takes addresses. */
   hostPicture?: (picture: Picture) => Promise<string>;
   /** Set when a link to a note goes as a Context card (`appCards.ts`); absent, it goes as the link. */

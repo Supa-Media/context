@@ -3,7 +3,7 @@ import { noteSendStatus, PHOTON_MATCH_WAIT_MS, type SendStatus } from "./sendblu
 import { noteHandle } from "./replyQuote";
 import { sendReportOf } from "./providerTiming";
 import { MemoryStorage } from "./memoryStorage.testing";
-import { noteLinkBubble } from "./photonLinkBubbles";
+import { keepLinkBubble, linkBubbleWords, noteLinkBubble, remoteLinkNotes } from "./photonLinkBubbles";
 import { photonSendStatusOf } from "./photonSendStatus";
 
 const NOW = Date.UTC(2026, 10, 17, 3);
@@ -48,16 +48,38 @@ describe("a Photon link bubble's reports are its words' send", () => {
     let waits = 0;
     const wait = async () => {
       waits += 1;
-      if (waits === 1) noteLinkBubble("link-1", "words-1");
+      if (waits === 1) await noteLinkBubble(storage, "link-1", "words-1");
     };
     const echo = { ...status("photon"), handle: "link-1", report: sendReportOf("photon", "link-1", "sent") };
     expect(await noteSendStatus(storage as never, echo, NOW, undefined, wait)).toBe("logged");
   });
 
+  it("posts a link bubble to the chat object, and a body that is not two guids is refused", async () => {
+    const storage = new MemoryStorage();
+    const inbox = {
+      fetch: async (_input: RequestInfo | URL, init?: RequestInit) => {
+        const kept = await keepLinkBubble(storage, JSON.parse(String(init?.body)));
+        return new Response(null, { status: kept ? 204 : 400 });
+      },
+    };
+    await remoteLinkNotes(inbox).note("link-r", "words-r");
+    expect(await linkBubbleWords(storage, "link-r")).toBe("words-r");
+    await expect(remoteLinkNotes(inbox).note("not a guid", "words-r")).resolves.toBeUndefined();
+    expect(await keepLinkBubble(storage, { link: 1, words: "words-r" })).toBe(false);
+  });
+
+  it("matches a link bubble noted in storage, with nothing left in memory from the send", async () => {
+    const storage = new MemoryStorage();
+    await noteLinkBubble(storage, "link-9", "words-9");
+    await noteHandle(storage as never, "words-9", "ev-9");
+    const echo = { ...status("photon"), handle: "link-9", report: sendReportOf("photon", "link-9", "sent") };
+    expect(await noteSendStatus(storage as never, echo, NOW, undefined, async () => {})).toBe("logged");
+  });
+
   it("a link bubble that failed marks nothing and resends nothing: the words went", async () => {
     const storage = new MemoryStorage();
     await noteHandle(storage as never, "words-2", "ev-words-2");
-    noteLinkBubble("link-2", "words-2");
+    await noteLinkBubble(storage, "link-2", "words-2");
     let resent = 0;
     const failed = { ...status("photon"), handle: "link-2", status: "FAILED", report: sendReportOf("photon", "link-2", "failed") };
     expect(await noteSendStatus(storage as never, failed, NOW, async () => (resent++, "x"), async () => {})).toBe("logged");
