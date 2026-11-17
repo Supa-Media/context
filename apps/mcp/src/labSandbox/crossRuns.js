@@ -172,3 +172,38 @@ export function objectCarry(env, state, body, pieces) {
   state.waitUntil(trip);
   return { carrying: true };
 }
+
+/**
+ * A test row's whole run, handed to the test chat's own object (`text.run`), which keeps it (`state.waitUntil`) after
+ * the request that sent the text has answered: its turn, every background job it starts (up to `jobs.js`
+ * `JOB_LIMIT_MS`), and its asks of other chats. A Worker stops a request's `waitUntil` 30 s after it answers, which cut
+ * every job longer than that short in production (2026-11-17, jobs j6401134c and j25f68f92: `carry_on`, then nothing).
+ * The caller's token rides in this one call and is held in memory for the run only, never stored. Answers whether the
+ * object took it; one that did not leaves the run to the request (`addRow`). Never throws.
+ */
+export async function runInObject(turn, carry) {
+  const { token, who, origin, config, asker } = carry;
+  const holder = { userId: who.userId, chats: Array.isArray(who.chats) ? who.chats : [] };
+  const handed = await callSandbox(asker.stub, "text.run", { turn, token, who: holder, origin, config, asker: askerOf(asker) }).catch(() => null);
+  return handed?.running === true;
+}
+
+/**
+ * The object's side of `text.run`: the turn (`pieces().runTurn`, `chatRun.js` `runTestText`), then its asks of other
+ * chats carried here too (`carryFrom`), kept running by the object and answered at once. `turn` is the run's
+ * `{ about, row, payload, chat }`. Answers `{ running }`.
+ */
+export function objectRun(env, state, body, pieces) {
+  const { turn, token, who, origin, config, asker } = body ?? {};
+  if (typeof turn?.row?.id !== "string" || typeof turn?.about !== "object" || turn.about === null || typeof token !== "string" || typeof who?.userId !== "string" || typeof asker?.sandboxId !== "string" || typeof state?.waitUntil !== "function") return { running: false };
+  const stub = sandboxStub(env, who.userId, asker.sandboxId);
+  if (stub === null) return { running: false };
+  const run = (async () => {
+    const { open, newIds, runTurn, max } = await pieces();
+    const controlPlane = createControlPlane(env);
+    const done = await runTurn({ env, stub, about: turn.about, row: turn.row, payload: turn.payload, token, config, origin, chat: turn.chat ?? null });
+    await carryFrom(done, { env, controlPlane, token, who, origin, config, asker: { ...asker, stub } }, { open, newRow: newIds, runTurn, max });
+  })().catch((error) => console.log(JSON.stringify({ event: "lab_sandbox_object_run", ok: false, reason: String(error?.name ?? "error").slice(0, 40) })));
+  state.waitUntil(run);
+  return { running: true };
+}
