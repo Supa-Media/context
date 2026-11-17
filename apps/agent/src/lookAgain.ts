@@ -89,7 +89,8 @@ export async function lookAgain<Item>(
 }
 
 /**
- * The same look for a 1:1 chat (`inbox.ts` `answerTurn`): the turn answered `entries`, its reply `parts` not sent.
+ * The same look for a 1:1 chat (`inbox.ts` `answerTurn`): the turn answered `entries`, its reply `parts` not sent. Their
+ * newer texts are the ones in after the newest of `entries`.
  * A text code answers (a yes, a code, a setting), a tapback, a job's report or the simulator never holds a reply.
  */
 export async function lookAgainTexts(
@@ -97,12 +98,14 @@ export async function lookAgainTexts(
   deps: ControlDeps,
   entries: readonly (readonly [string, Pending])[],
   parts: readonly SendPart[],
-  started: number,
 ): Promise<Rechecked> {
   const message = entries.at(-1)![1].message;
   if (message.channel === "simulator" || message.jobReport !== undefined || decidedByCode(message)) return "send"; // a job's report is not an answer to their words
   const covers = entries.flatMap(([, entry]) => (entry.ev ? [entry.ev] : []));
-  const upTo = Math.max(started, ...entries.map(([, entry]) => entry.at ?? 0));
+  // Newer than the newest text it answers, not than the turn's start: a text queued after the turn chose its texts but
+  // stamped before it started was never looked at (2026-11-16: a link sent 0.8 s after "do you see this link", and the
+  // reply saying no link came through went out).
+  const upTo = Math.max(0, ...entries.map(([, entry]) => entry.at ?? 0));
   return await lookAgain<Pending>(
     storage,
     deps,

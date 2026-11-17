@@ -37,6 +37,7 @@ import { Text } from "../../../design/components/Text";
 import { space } from "../../../design/tokens";
 import { useThemedStyles, type Colors } from "../../../design/theme";
 import type { FileEntry } from "../types";
+import { ABOUT_NOTE } from "../paths";
 import type { ListNote } from "../listBlock/model";
 import { FolderBoard } from "./Board";
 import { boardWidth } from "./pageMeasures";
@@ -327,14 +328,15 @@ export function FolderPage({
       : { onChoose: actions.onChoose, statusMenu: menuSections, onEditStatuses, owners, noteWord: NOTE_STATUS };
   // The Board's rail, where Backlog is a folder: what is in it, and the moves in and out of it.
   const parked = parkedOnBoard(parkedIn, notes ?? [], tasks.controls, writer);
-  // The about note drawn atop the page: the listing's, else the device copy's front note. A
-  // listed README may be the untouched placeholder New folder used to write, which the device
-  // copy can tell (`frontNoteOf`) and a listing cannot, so a README waits for the copy's word.
-  const fromCopy = summary !== null && !summary.creates ? summary.target : null;
-  const about = aboutPath !== null && !aboutPath.endsWith("/README.md") ? aboutPath : fromCopy;
+  // The about note drawn atop the page: the folder's `about.md` (`aboutNoteName`), as the listing
+  // names it, else as the device copy holds it. An `overview.md` is never drawn here: it is the
+  // project's main note and stays a row (the owner, 2026-11-17).
+  const ownAbout = folder === "" ? null : `${folder}/${ABOUT_NOTE}`;
+  const fromCopy = ownAbout !== null && described?.some((note) => note.path === ownAbout) === true ? ownAbout : null;
+  const about = aboutPath ?? fromCopy;
   // With none, a writer's first sentence creates one: `about.md`, or at the top of the workspace its front page.
   const setLede = host.source.setLede;
-  const createTarget = folder === "" ? "index.md" : summary?.creates === true ? summary.target : null;
+  const createTarget = folder === "" ? "index.md" : summary !== null && about === null ? ownAbout : null;
   const createAbout: LedeEditing | null =
     createTarget === null || setLede === undefined || !loaded.canEdit
       ? null

@@ -6,7 +6,7 @@
  */
 
 import { describe, expect, test } from "@jest/globals";
-import { buildTreeRows, findEntry, foldersToRefresh, listedEntries, markerFor, namesIn } from "../../features/console/files/tree";
+import { aboutNoteOf, buildTreeRows, findEntry, foldersToRefresh, listedEntries, markerFor, namesIn } from "../../features/console/files/tree";
 import { file, folder, listing } from "./fixtures";
 
 describe("a row is marked only when it differs from the folder it is in", () => {
@@ -188,7 +188,7 @@ describe("building tree rows", () => {
       "1-projects": listing("1-projects", [file("1-projects/about.md"), file("1-projects/overview.md"), file("1-projects/a.md")]),
     };
     const rows = buildTreeRows({ listings: withAbout, expanded: new Set(["1-projects"]), selectedPath: null });
-    // Only the first present is the about note: an overview.md beside an about.md is somebody's note.
+    // Only about.md is the about note: an overview.md beside it is somebody's note.
     expect(rows.map((row) => row.path)).toEqual(["1-projects", "1-projects/overview.md", "1-projects/a.md", "todo.md", "README.md"]);
     const open = buildTreeRows({ listings: withAbout, expanded: new Set(["1-projects"]), selectedPath: "1-projects/about.md" });
     expect(open.map((row) => row.path)).toContain("1-projects/about.md");
@@ -196,12 +196,14 @@ describe("building tree rows", () => {
 
   /**
    * An `overview.md` or `index.md` in a folder is a note somebody wrote, most
-   * often an agent's project overview. The folder's page still draws it at the
-   * top, but the sidebar is where people look for a note, and leaving it out
-   * there made it reachable only by a link (the owner, 2026-10-20). Restoring
-   * the old filter for every about note fails this.
+   * often an agent's project overview. The sidebar is where people look for a
+   * note, and leaving it out there made it reachable only by a link (the
+   * owner, 2026-10-20). Since 2026-11-17 the folder's page lists it too, with
+   * no `about.md` beside it: drawing it as the page's description left a
+   * project holding only its overview looking empty. Restoring either filter
+   * fails this.
    */
-  test("an older-named about note is still a row in the sidebar, and only the page leaves it out", () => {
+  test("an overview.md or index.md is a row in the sidebar and on the folder's page", () => {
     const older = {
       "": listing("", [folder("p"), folder("q")]),
       p: listing("p", [file("p/overview.md"), file("p/x.md")]),
@@ -210,7 +212,9 @@ describe("building tree rows", () => {
     const rows = buildTreeRows({ listings: older, expanded: new Set(["p", "q"]), selectedPath: null });
     expect(rows.map((row) => row.path)).toEqual(["p", "p/overview.md", "p/x.md", "q", "q/index.md", "q/y.md"]);
     expect(listedEntries(older.p.entries).map((entry) => entry.path)).toEqual(["p/overview.md", "p/x.md"]);
-    expect(listedEntries(older.p.entries, { aboutDrawn: true }).map((entry) => entry.path)).toEqual(["p/x.md"]);
+    expect(listedEntries(older.p.entries, { aboutDrawn: true }).map((entry) => entry.path)).toEqual(["p/overview.md", "p/x.md"]);
+    expect(listedEntries(older.q.entries, { aboutDrawn: true }).map((entry) => entry.path)).toEqual(["q/index.md", "q/y.md"]);
+    expect(aboutNoteOf(older.p.entries)).toBeNull();
   });
 
   test("a genuinely empty folder says that instead", () => {

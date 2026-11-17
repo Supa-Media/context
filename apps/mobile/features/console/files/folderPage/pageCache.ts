@@ -31,7 +31,7 @@
 
 import { isEncryptedNote } from "../../encryption/envelope";
 import type { FolderListSource, ListNote } from "../listBlock/model";
-import { summarizeFolder } from "./model";
+import { ABOUT_NOTE } from "../paths";
 import type { PanelBody } from "./panel/usePanelBody";
 
 export interface FolderRead {
@@ -218,10 +218,11 @@ export function readFronts(source: FolderListSource, folders: readonly string[],
   }, fresh);
 }
 
-/** The front note a page draws its words from, or null where the folder has none. */
+/** The about note a page draws its words from (`aboutNoteName`), or null where the folder has none. */
 export function aboutOf(folder: string, front: readonly ListNote[]): string | null {
-  const summary = summarizeFolder(folder, front);
-  return summary.creates ? null : summary.target;
+  if (folder === "") return null;
+  const path = `${folder}/${ABOUT_NOTE}`;
+  return front.some((note) => note.path === path) ? path : null;
 }
 
 /** A front note's words, read once and kept; read again with `fresh`. */

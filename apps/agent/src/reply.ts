@@ -210,8 +210,8 @@ export const COPY = {
     "That's all the questions I can answer for you today. Text me again tomorrow.",
   jobReportRefused: "One of the things I was working on for you has news, but I can't put it into words right now. Text me and I'll catch you up.",
   unavailable: "Something went wrong on my side. Please try again in a minute.",
-  /** A linked phone's SMS: never answered from the notes, since its sender can be faked. */
-  sms: "Hi, it's Tex. That text came through as SMS, and I only open your notes over iMessage, since anyone can send an SMS that looks like it's from your number. Send it again here and I'll answer.",
+  /** A linked phone's SMS or RCS text: never answered from the notes, since its sender can be faked. */
+  sms: "Hi, it's Tex. That text didn't come over iMessage, and I only open your notes over iMessage, since anyone can send a text that looks like it's from your number. Send it again from iMessage and I'll answer.",
   /**
    * No bucket yet: right after setup by text, a new one takes a minute or two
    * to answer (`setup.ts` says so), and a text in that window used to get

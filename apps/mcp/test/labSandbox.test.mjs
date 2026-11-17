@@ -504,3 +504,14 @@ test("a draft not saved yet opens with its history when the Lab sends it as draw
     w.restore();
   }
 });
+
+// A 1:1 test turn reads the person's group chats from the list the Lab read for this chat (`agent/groupChats.js`;
+// Dev2, 2026-11-17), never from the control plane with the Lab's own token, and its reads run for real.
+test("a 1:1 test turn's group list is the one the Lab read for the chat, and group_chats runs for real", async () => {
+  const gate = { record: () => {}, groups: [{ key: "a".repeat(64), name: "Tex Devs", people: ["jhon"], lastSeenAt: 1 }] };
+  assert.deepEqual(controlPlaneAnswer("/gateway/agent/identity", { accessToken: "lab_x", expectedWorkspaceId: "w", groups: true }, gate), { answer: { groups: gate.groups } });
+  assert.deepEqual(controlPlaneAnswer("/gateway/agent/identity", { accessToken: "lab_x", groups: true }, { record: () => {}, groups: null }), { answer: { groups: null } });
+  assert.deepEqual(controlPlaneAnswer("/gateway/agent/identity", { accessToken: "lab_x", expectedWorkspaceId: "w" }, gate), { pass: true });
+  assert.equal(await toolAnswer("group_chats", { op: "search", words: "texas" }, { record: () => assert.fail("not recorded as a write") }), null);
+  assert.equal(await toolAnswer("read_day", { day: "2026-11-09" }, { record: () => assert.fail("not recorded as a write") }), null);
+});

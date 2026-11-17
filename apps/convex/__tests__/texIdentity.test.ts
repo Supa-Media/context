@@ -166,3 +166,57 @@ describe("who is texting Tex", () => {
     expect(refused).not.toHaveProperty("phones");
   });
 });
+
+/*
+ * THE GROUP CHATS A PERSON IS IN, FOR THEIR 1:1 TEX (`lib/texIdentity/groups.ts`; Dev2, 2026-11-17).
+ *
+ * Sabotage record (temporary local edits, reverted):
+ *   the `homeUsers.includes(userId)` filter removed → "lists only the chats they are one of the people of" fails
+ *   the `clientId !== TEXTS_CLIENT_ID` check removed → "only the 1:1 texting grant asks" fails (routines list)
+ *   `home !== expectedWorkspaceId` check removed → "one person's token never lists another's groups" fails
+ */
+async function groups(t: T, accessToken: string, expectedWorkspaceId: string) {
+  const response = await gatewayPost(t, "/gateway/agent/identity", { accessToken, expectedWorkspaceId, groups: true });
+  return ((await response.json()) as { groups: Array<Record<string, unknown>> | null }).groups;
+}
+
+const key = (c: string) => c.repeat(64);
+
+async function chat(t: T, groupKey: string, homeUsers: Id<"users">[], extra: Record<string, unknown> = {}) {
+  await t.run((ctx) => ctx.db.insert("textGroups", { groupKey, lastSeenAt: 1, homeUsers, ...extra } as never));
+}
+
+describe("the group chats a person's 1:1 Tex may read", () => {
+  test("lists only the chats they are one of the people of, newest first, named, with the others' handles", async () => {
+    const t = setupTest();
+    const ada = await person(t, "ada");
+    const bo = await person(t, "bo");
+    await chat(t, key("a"), [ada.userId, bo.userId], { chatName: "Tex Devs", lastSeenAt: 5 });
+    await chat(t, key("b"), [ada.userId, bo.userId], { lastSeenAt: 9 });
+    await chat(t, key("c"), [bo.userId], { chatName: "Bo only", lastSeenAt: 20 });
+    const token = await grant(t, ada.workspaceId, ada.userId, TEXTS_CLIENT_ID);
+    expect(await groups(t, token, ada.workspaceId)).toEqual([
+      { key: key("b"), name: "@bo", people: ["bo"], lastSeenAt: 9 },
+      { key: key("a"), name: "Tex Devs", people: ["bo"], lastSeenAt: 5 },
+    ]);
+  });
+
+  test("only the 1:1 texting grant asks: routines, check-ins, a group chat's grant and other clients learn nothing", async () => {
+    const t = setupTest();
+    const ada = await person(t, "ada");
+    await chat(t, key("a"), [ada.userId], { chatName: "Tex Devs" });
+    for (const client of [ROUTINES_CLIENT_ID, HEARTBEAT_CLIENT_ID, "context_texts_group", "mcp_client_someone_else"]) {
+      expect(await groups(t, await grant(t, ada.workspaceId, ada.userId, client), ada.workspaceId)).toBeNull();
+    }
+  });
+
+  test("one person's token never lists another's groups, whatever workspace it names", async () => {
+    const t = setupTest();
+    const ada = await person(t, "ada");
+    const bo = await person(t, "bo");
+    await chat(t, key("c"), [bo.userId], { chatName: "Bo only" });
+    const token = await grant(t, ada.workspaceId, ada.userId, TEXTS_CLIENT_ID);
+    expect(await groups(t, token, bo.workspaceId)).toBeNull();
+    expect(await groups(t, "cat_unknown_token_000000000000000000", ada.workspaceId)).toBeNull();
+  });
+});

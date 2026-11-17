@@ -54,6 +54,7 @@ import { answerCheckNode } from "./nodes/answerCheck.js";
 import learn from "./nodes/learn.js";
 import { afterReplyNode } from "./nodes/afterReply.js";
 import chatDays from "./nodes/chatDays.js";
+import moveJudge from "./nodes/moveJudge.js";
 import { jobadv } from "./nodes/jobadv.js";
 import { staffNode } from "./nodes/staff.js";
 
@@ -126,4 +127,6 @@ export const GATEWAY_NODES = {
   get staff() { return staffNode; },
   // Chat day summaries: every chat's finished days summed up after a reply, groups included (`nodes/chatDays.js`).
   get chatDays() { return chatDays; },
+  // The move judge: whether their recent words, or their yes to Tex's offer, ask to move or archive a note of theirs (`nodes/moveJudge.js`).
+  get moveJudge() { return moveJudge; },
 };
