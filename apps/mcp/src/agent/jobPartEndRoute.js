@@ -39,7 +39,7 @@ export async function handleJobPartEnd(request, env, store, session, deps = {}) 
   if (body === null || typeof body.jobId !== "string" || body.input === null || typeof body.input !== "object") return json({ error: "bad_request" }, 400);
   // Only the facts the rule reads, so nothing else a caller sends reaches the node or its log.
   const i = body.input;
-  const input = { cause: String(i.cause ?? "").slice(0, 40), part: Number(i.part) || 1, startedAt: Number(i.startedAt) || 0, now: Number(i.now) || 0, machine: i.machine === true, hasDraft: i.hasDraft === true, idle: i.idle === true, wasIdle: i.wasIdle === true, rejected: i.rejected === true, ...(i.refusal === "daily_limit" || i.refusal === "no_model" ? { refusal: i.refusal } : {}) };
+  const input = { cause: String(i.cause ?? "").slice(0, 40), part: Number(i.part) || 1, startedAt: Number(i.startedAt) || 0, now: Number(i.now) || 0, machine: i.machine === true, hasDraft: i.hasDraft === true, idle: i.idle === true, wasIdle: i.wasIdle === true, rejected: i.rejected === true, ...(i.refusal === "daily_limit" || i.refusal === "no_model" ? { refusal: i.refusal } : {}), ...(i.checked === "done" || i.checked === "waiting" || i.checked === "stuck" ? { checked: i.checked } : {}) };
   const writer = store ? jobTagged(storeLedger(store, session), { id: body.jobId }) : null;
   const choice = await partEndFor(body.jobId, input, { config: env ? texConfigOf(env) : TEX_CONFIG, writer, env, ...deps });
   await writer?.flush?.();

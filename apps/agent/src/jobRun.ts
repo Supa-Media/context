@@ -370,7 +370,6 @@ export async function runJob(storage: InboxStorage, deps: JobDeps): Promise<JobN
   const mailed = changed && left.every((steer) => steer.mail !== undefined);
   // An answer the advisor says isn't finished (`apps/mcp/src/agent/jobCheck.js`; without it, `stopsShort.js`) is not done: the next part finishes it, on its advice.
   const unfinished = outcome.kind === "answer" && outcome.unfinished && !changed;
-  const carryOn = (outcome.kind === "answer" && outcome.exhausted) || outcome.kind === "broken" || changed || unfinished;
   const advice = outcome.kind === "answer" ? outcome.advice : undefined;
   const checked = outcome.kind === "answer" && outcome.verdict ? { verdict: outcome.verdict, ...(advice ? { advice } : {}) } : {};
   // The advisor's judgement of the part, said on the job's note too, so everyone on its mail sees it (`jobNote.ts`).
@@ -386,7 +385,7 @@ export async function runJob(storage: InboxStorage, deps: JobDeps): Promise<JobN
   const ends = withEnd(run.ends, run.attempt, cause);
   run.ends = ends;
   // What follows the part is the config's Part end node (`jobPartEnd.ts`), a pause at today's limit too; a stop or a service out of tries ends here.
-  const facts = { cause, part: run.attempt, startedAt: run.startedAt, now: deps.now(), machine: run.machine !== undefined, hasDraft: !!run.saved?.draft, idle, wasIdle: run.idle === true, ...(outcome.kind === "rejected" ? { rejected: true } : {}), ...(outcome.kind === "refused" ? { refusal: outcome.why } : {}) };
+  const facts = { cause, part: run.attempt, startedAt: run.startedAt, now: deps.now(), machine: run.machine !== undefined, hasDraft: !!run.saved?.draft, idle, wasIdle: run.idle === true, ...(outcome.kind === "rejected" ? { rejected: true } : {}), ...(outcome.kind === "refused" ? { refusal: outcome.why } : {}), ...(outcome.kind === "answer" ? { checked: checkedAs(outcome, unfinished) } : {}) };
   const choice = outcome.kind === "answer" || outcome.kind === "broken" || outcome.kind === "refused" || outcome.kind === "rejected" ? await partEndChoice(facts, (input) => askPartEnd(deps, () => jobToken(run, deps), run.id, input)) : null;
   const spinning = choice?.spinning === true;
   // A cause that would end the next part the same way (its checks' loop ran out on the same draft) delivers the last
@@ -396,7 +395,7 @@ export async function runJob(storage: InboxStorage, deps: JobDeps): Promise<JobN
     const draftTexts = textsFromAnswer(run.saved.draft);
     return await finish(storage, { ...run, sent, draft: run.saved.draft.slice(0, MAX_DRAFT) }, { state: choice.ended === "done" ? "done" : "stuck", status: `Sent its last draft: ${CAUSE_WORDS[outcome.cause]}`.slice(0, 280), texts: draftTexts, part: run.attempt, ends }, tell, deps.now(), pass);
   }
-  if (carryOn && choice?.to === "carry") {
+  if (choice?.to === "carry") {
     // An answer a later text replaces is not texted; the next part builds on it, so the person gets one result, not two that disagree.
     const draft = (changed || unfinished) && outcome.kind === "answer" ? outcome.texts.join("\n\n").slice(0, MAX_DRAFT) || run.draft : run.draft;
     // A part cut off before it answered (2026-11-08) no longer hands on step names (`cutOff`): everything it got is in `saved`.
@@ -427,9 +426,8 @@ export async function runJob(storage: InboxStorage, deps: JobDeps): Promise<JobN
     return { kind: "now" };
   }
 
-  // What the advisor said decides how it ended: waiting on them, stuck, or (still short when its room ran out) stuck too; else done.
   if (outcome.kind === "rejected") log("rejected", run.id, outcome.why); // 2026-11-05: a voice-only ask gave a job no question, and ten refused parts went in eight seconds, with no reason kept
-  const ended = outcome.kind !== "answer" || changed ? "done" : outcome.verdict === "waiting" ? "waiting" : outcome.verdict === "stuck" || outcome.verdict === "keep_going" || unfinished ? "stuck" : "done";
+  const ended = outcome.kind === "answer" && (choice?.ended === "waiting" || choice?.ended === "stuck") ? choice.ended : "done"; // how it ended is the Part end node's: waiting on them, stuck (short when its room ran out too), else done
   if (ended !== "done") log(spinning ? "ended_spinning" : `ended_${ended}`, run.id);
   const why = spinning ? "Two parts in a row did none of the work. " : ended === "stuck" && outcome.kind === "answer" && outcome.verdict !== "stuck" ? "Ran out of time. " : "";
   const update: Omit<JobUpdate, "id" | "first"> =
@@ -467,6 +465,8 @@ const CAUSE_WORDS: Record<"check_limit" | "timeout" | "crash", string> = {
   crash: "crashed before it answered",
 };
 
+/** How the part's own check read its answer, for the Part end node: short of done is stuck, waiting on them waits. */
+const checkedAs = (outcome: Extract<Outcome, { kind: "answer" }>, unfinished: boolean): "done" | "waiting" | "stuck" => (outcome.verdict === "waiting" ? "waiting" : outcome.verdict === "stuck" || outcome.verdict === "keep_going" || unfinished ? "stuck" : "done");
 /** Why a part ended, from its outcome (`jobProgress.ts` `PartCause`). */
 function partCause(outcome: Outcome, { changed, unfinished }: { changed: boolean; unfinished: boolean }): PartCause {
   if (outcome.kind === "broken") return outcome.cause;

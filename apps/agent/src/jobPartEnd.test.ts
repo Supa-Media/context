@@ -101,4 +101,15 @@ describe("runJob follows the node", () => {
     expect(asked).toEqual([{ jobId: RUN.id, input: expect.objectContaining({ cause: "refused", refusal: "daily_limit" }) }]);
     expect(reports.at(-1)).toMatchObject({ state: "waiting", resumeAt: NOW + 123 });
   });
+  it("how a job ends is the node's: out of steps with no room, its check's done answer ends done, a stuck one stuck", async () => {
+    vi.spyOn(console, "log").mockImplementation(() => {});
+    for (const ended of ["done", "stuck"] as const) {
+      const storage = new MemoryStorage();
+      await storage.put(RUN_KEY, RUN);
+      const { d, reports, asked } = deps({ to: "end", ended, cause: "steps_out", room: false });
+      await runJob(storage, d);
+      expect(asked).toEqual([{ jobId: RUN.id, input: expect.objectContaining({ cause: "steps_out", checked: "done" }) }]);
+      expect(reports.at(-1)?.state).toBe(ended);
+    }
+  });
 });
