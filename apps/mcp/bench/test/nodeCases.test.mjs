@@ -35,9 +35,9 @@ test("a missing folder is no cases, and a file names the step it is for", async 
   await assert.rejects(loadNodeCases(bad), /not an id/);
 });
 
-test("a step keeps at most 20 cases", async () => {
+test("a step keeps at most UNIT_LIMIT cases", async () => {
   const cases = Array.from({ length: UNIT_LIMIT + 1 }, (_, i) => ({ ...CASE, id: `c${i}` }));
-  await assert.rejects(loadNodeCases(await dirWith({ "egress.json": { node: "egress", cases } })), /at most 20/);
+  await assert.rejects(loadNodeCases(await dirWith({ "egress.json": { node: "egress", cases } })), new RegExp(`at most ${UNIT_LIMIT} cases`));
   const full = await dirWith({ "egress.json": { node: "egress", cases: cases.slice(0, UNIT_LIMIT) } });
   assert.equal((await loadNodeCases(full))[0].cases.length, UNIT_LIMIT);
 });
