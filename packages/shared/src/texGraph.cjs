@@ -275,6 +275,8 @@ function provisionalWiring(config) {
  * start. Both are on the log entry, so a run's cause is read from what ran, never inferred from times.
  */
 let runSeq = 0;
+/** A run id, unique in the isolate: every log entry gets its own, so a parent always names an entry that was kept. */
+const nextRunId = () => ((runSeq = (runSeq + 1) % Number.MAX_SAFE_INTEGER), `r${runSeq}`);
 function createGraph(config, impls, { log = () => {}, background = null, handOff = null, now = Date.now, onStart = null, start = null } = {}) {
   const problems = problemsOf(config);
   if (problems.length) throw new GraphError(problems.join("; "));
@@ -306,8 +308,7 @@ function createGraph(config, impls, { log = () => {}, background = null, handOff
     if (node.on === false) return { ran: false };
     const impl = impls[id];
     const at = now();
-    runSeq = (runSeq + 1) % Number.MAX_SAFE_INTEGER;
-    const self = `r${runSeq}`;
+    const self = nextRunId();
     const ids = { id: self, ...(typeof parent === "string" ? { parent } : {}) };
     // Shaped only for a watcher: a real turn sets none, and shaping costs a serialisation of the whole input.
     if (typeof onStart === "function") started({ node: id, ...ids, at, via, input: shaped(input) });
@@ -376,7 +377,7 @@ function createGraph(config, impls, { log = () => {}, background = null, handOff
         if (Number.isInteger(wire.rounds) && wire.rounds > 0 && generation + 1 >= wire.rounds) return { started: false, why: "spent" };
         if (typeof start !== "function") throw new GraphError(`"${id}" starts a run at "${to}", and this process has no start`);
         if (!fires(wire, arg)) return { started: false, why: "when" };
-        keep({ node: to, input: shaped(arg), output: null, ms: 0, own: 0, ok: true, at: now(), via: `${id}:generator`, started: true, id: self, parent: self });
+        keep({ node: to, input: shaped(arg), output: null, ms: 0, own: 0, ok: true, at: now(), via: `${id}:generator`, started: true, id: nextRunId(), parent: self });
         const result = await start(to, carried(arg), { from: id, generation: generation + 1, parent: self });
         return { started: true, ...(plain(result) ? result : {}) };
       }),
@@ -398,6 +399,14 @@ function createGraph(config, impls, { log = () => {}, background = null, handOff
       return { ran: true, output, id: self };
     } catch (error) {
       keep({ node: id, input: shaped(input), output: null, ...timing(), ok: false, error: error?.name === "GraphError" ? error.message : String(error?.name ?? "error"), at, via, ...ids });
+      // The failed run's id rides on the error, so a `failed` wire's target names the entry that failed as its parent.
+      if (error && typeof error === "object" && !("runId" in error)) {
+        try {
+          Object.defineProperty(error, "runId", { value: self, enumerable: false });
+        } catch {
+          /* a frozen error keeps no id; its catcher falls back */
+        }
+      }
       throw error;
     }
   }
@@ -463,8 +472,9 @@ function createGraph(config, impls, { log = () => {}, background = null, handOff
       const kept = progress ? await progress.get(id) : undefined;
       let r;
       if (kept !== undefined) {
-        keep({ node: id, input: shaped(given), output: shaped(kept), ms: 0, own: 0, ok: true, at: now(), via: "resumed", resumed: true, ...(fedBy.get(id) ? { parent: fedBy.get(id) } : {}) });
-        r = { ran: true, output: kept, id: `kept:${id}` };
+        const resumedId = nextRunId();
+        keep({ node: id, input: shaped(given), output: shaped(kept), ms: 0, own: 0, ok: true, at: now(), via: "resumed", resumed: true, id: resumedId, ...(fedBy.get(id) ? { parent: fedBy.get(id) } : {}) });
+        r = { ran: true, output: kept, id: resumedId };
       } else {
         try {
           r = await runNode(id, given, ctx, "wait", fedBy.get(id));
@@ -473,7 +483,7 @@ function createGraph(config, impls, { log = () => {}, background = null, handOff
           // on down that wire with what failed, never thrown away. With no such wire it throws, as before.
           const caught = [...out(id, "wait"), ...out(id, "background")].some((e) => Array.isArray(e.when) && e.when.includes("failed"));
           if (!caught) throw error;
-          r = { ran: true, output: { when: ["failed"], failed: { name: String(error?.name ?? "Error"), message: String(error?.message ?? "").slice(0, 300) } }, id: `failed:${id}` };
+          r = { ran: true, output: { when: ["failed"], failed: { name: String(error?.name ?? "Error"), message: String(error?.message ?? "").slice(0, 300) } }, id: error?.runId };
         }
         if (r.ran && progress && !r.output?.failed) await progress.put(id, r.output);
       }

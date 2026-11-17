@@ -7,6 +7,8 @@
  *   (i)   `progress.get` ignored in run: "a resumed run does not run again..." fails (b ran twice).
  *   (ii)  the failed catch removed: "a failure goes on down a failed wire" fails with the thrown error.
  *   (iii) the generation cap removed: "a generator wire's rounds cap the chain" fails (third start answered started).
+ *   (iv)  the generator entry keeping its source's id: "resumed, failed and started entries..." fails (two entries share one).
+ *   (v)   a failed entry's id not carried to its catcher: the same test fails (end's parent names no entry).
  */
 import { test } from "node:test";
 import assert from "node:assert/strict";
@@ -65,4 +67,26 @@ test("a node can start only what its generator wires reach", async () => {
   const config = { nodes: [node("a", { kind: "input" }), node("b", { kind: "input" })], edges: [] };
   const g = createGraph(config, { a: async (_x, io) => io.start.b({}), b: async () => ({}) }, { start: async () => ({}) });
   await assert.rejects(g.run("a", {}), /no generator wire to "b"/);
+});
+
+test("resumed, failed and started entries each get their own run id, and every parent names a kept entry", async () => {
+  const config = {
+    nodes: [node("a", { kind: "input" }), node("part"), node("end")],
+    edges: [wire("a", "part"), wire("part", "end", "wait", ["failed"]), { ...wire("end", "a", "generator"), rounds: 5 }],
+  };
+  const logs = [];
+  const store = new Map([["a", { x: 1 }]]);
+  const progress = { get: (id) => store.get(id), put: (id, out) => void store.set(id, out) };
+  const g = createGraph(config, {
+    a: async () => ({ x: 1 }),
+    part: async () => { throw new Error("stream died"); },
+    end: async (_x, io) => ({ next: await io.start.a({}) }),
+  }, { log: (e) => logs.push(e), start: async () => ({}) });
+  await g.run("a", {}, {}, { progress });
+  const ids = logs.map((e) => e.id);
+  assert.ok(ids.every((id) => typeof id === "string" && id.length), "every entry has an id");
+  assert.equal(new Set(ids).size, ids.length, "no two entries share one");
+  for (const e of logs) if (e.parent) assert.ok(ids.includes(e.parent), `${e.node}'s parent ${e.parent} is a kept entry`);
+  const failed = logs.find((e) => e.node === "part");
+  assert.equal(logs.find((e) => e.node === "end" && !e.started).parent, failed.id, "the failed wire's target names the run that failed");
 });
