@@ -28,9 +28,10 @@ export function worldChat({ env, token, group, tagger, textedEvent, postEvents, 
      * group's look has no such wait. Dated now, every Dev check-in row came back "(stayed quiet: busy)". A line with
      * `minutesBefore` is posted that long before the text, the clock set back for it (`clock.mjs` atEarlierTime), as
      * the Worker posted it live then: production's ledger keeps each text's own time. A note an earlier job report or
-     * text of Tex's links is written first if it isn't there, from the chat's own words (`earlierNotes.mjs`).
+     * text of Tex's links is written first if it isn't there, from the chat's own words (`earlierNotes.mjs`); `also` is
+     * the case's own job report, whose page is written last.
      */
-    async earlier(lines, { checkIn = false } = {}) {
+    async earlier(lines, { checkIn = false, also = [] } = {}) {
       const quietFor = checkIn && !group ? QUIET_MS + 60_000 : 0;
       const back = (line) => Math.max(quietFor, (line?.minutesBefore ?? 0) * 60_000);
       const at = () => Date.now();
@@ -83,6 +84,7 @@ export function worldChat({ env, token, group, tagger, textedEvent, postEvents, 
         });
       }
       await keepTrigger();
+      await seed(also); // the case's own job report: its job wrote the page before it reported
     },
 
     /** What a turn the Worker queues itself needs to know of this chat (`byCode.mjs`): its group's home and who tags, the zone, the mailbox. */

@@ -217,7 +217,9 @@ export async function converse(world, question, person, mode = null, background 
   const running = background ? benchRunning(question.running ?? 0) : null;
   const totals = { ms: 0, personMs: 0, tools: [], jobs: [], traces: [], usage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 }, usageByModel: {}, rounds: {}, model: null, error: null };
   // A Lab replay's chat before its text goes into the ledger first, as it was (`labReplay.mjs`).
-  if ((question.earlier ?? []).length > 0) await world.earlier(question.earlier, { checkIn: Boolean(question.checkinMail) });
+  // A job's report as the case's text: the page it says it wrote is written first (`earlierNotes.mjs`).
+  const also = question.jobReport ? [String(question.jobReport.text ?? "")] : [];
+  if ((question.earlier ?? []).length > 0 || also.length > 0) await world.earlier(question.earlier ?? [], { checkIn: Boolean(question.checkinMail), also });
   // A group's routine or check-in, or a job's report: one turn the Worker queues itself (`byCode.mjs`).
   const byCode = await byCodeStart(world, question, { running });
   if (byCode === null && (question.checkinMail || question.routine)) return await startedBy(world, question);

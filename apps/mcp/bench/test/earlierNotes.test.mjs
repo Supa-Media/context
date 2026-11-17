@@ -9,17 +9,25 @@ test("links come out once each, trailing punctuation dropped, no parent steps", 
 });
 
 test("the body is the chat's words with the links taken out", () => {
-  assert.equal(noteBody("projects/lisbon-wedding/trip.md", ["All on one page: context://@john/projects/lisbon-wedding/trip.md", "Ceremony 4pm."]), "# Trip\n\nAll on one page.\n\nCeremony 4pm.\n");
+  assert.equal(
+    noteBody("projects/garden/plan.md", [
+      "job you started 9 min ago finished: Beds measured. Page written: context://@sam/projects/garden/plan.md. Present to Sam.",
+      "All on one page: context://@sam/projects/garden/plan.md",
+      "Tomatoes go in the south bed.",
+      "Shed list is separate: context://@sam/projects/shed.md",
+    ]),
+    "# Plan\n\nBeds measured.\n\nTomatoes go in the south bed.\n",
+  );
 });
 
-test("only a missing note is written, and a refused write is skipped, never retried elsewhere", async () => {
+test("only a note read as not found is written; a refused write or any other read error is skipped", async () => {
   const calls = [];
   const dispatch = async (name, args) => {
     calls.push([name, args.path]);
-    if (name === "read_note") return args.path === "there.md" ? { content: [] } : { isError: true };
+    if (name === "read_note") return args.path === "there.md" ? { content: [] } : args.path === "flaky.md" ? { isError: true, content: [{ type: "text", text: "storage unavailable" }] } : { isError: true, content: [{ type: "text", text: "not found" }] };
     return args.path === "theirs.md" ? { isError: true } : { content: [] };
   };
-  const got = await seedLinkedNotes(dispatch, ["context://@me/there.md context://@me/new.md context://@other/theirs.md"]);
-  assert.deepEqual(got, { written: ["@me/new.md"], skipped: ["@other/theirs.md"] });
+  const got = await seedLinkedNotes(dispatch, ["context://@me/there.md context://@me/new.md context://@other/theirs.md context://@me/flaky.md"]);
+  assert.deepEqual(got, { written: ["@me/new.md"], skipped: ["@other/theirs.md", "@me/flaky.md"] });
   assert.deepEqual(calls.filter(([n]) => n === "write_note").map(([, p]) => p), ["new.md", "theirs.md"]);
 });

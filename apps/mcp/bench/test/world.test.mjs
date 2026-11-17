@@ -661,3 +661,18 @@ test("a note an earlier job report or Tex text links is written from the chat's 
     world.close();
   }
 });
+
+// A case whose text is the job's report: its job wrote the page before it reported (`run.mjs` passes the report as
+// `also`). Sabotage: drop `await seed(also)` in `worldChat.mjs` and the page is missing.
+test("the page a case's own job report links is there when the report runs", async () => {
+  const world = await createWorld(bench, "Maya", SETUP, { gatewayFetch: async () => new Response("{}", { status: 500 }), ledgerTurns: true });
+  try {
+    await world.earlier([], { also: ["job you started 4 min ago finished: Venues compared. Page written: context://@maya/projects/party/venues.md. Present to Maya."] });
+    const page = await world.readThrough("projects/party/venues.md");
+    assert.ok(page, "the page was written");
+    assert.match(page.body, /Venues compared\./);
+    assert.doesNotMatch(page.body, /Present to|job you started|Page written/);
+  } finally {
+    world.close();
+  }
+});
