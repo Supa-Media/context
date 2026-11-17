@@ -155,4 +155,6 @@ on the one browser would overlap, and a later call would no longer see that an
 earlier one in the round had failed or been held. `parallelReads.test.mjs`
 ("two slow reads finish in about the time of the slower one", "a write mixed
 into the round keeps it serial", "results stay in call order when the later
-read finishes first") fails.
+read finishes first") and `replay/cases/parallel-mail-searches.mjs` (two
+mailbox searches in one round start together, and the model still reads the
+first result first) fail.
