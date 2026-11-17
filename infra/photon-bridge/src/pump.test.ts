@@ -106,6 +106,15 @@ describe("pumpOnce", () => {
     expect(store.put).toHaveBeenCalledWith(`${CHECKPOINT_PREFIX}${LINE}`, 11);
   });
 
+  it("acks an event the bridge made itself (no sequence) and stores no frontier for it", async () => {
+    const store = { put: vi.fn(async () => {}) };
+    const agent = agentReplying(200);
+    const tcp = port([Response.json({ ...queued(14), seq: null }), Response.json({ ok: true, line: LINE, frontier: 9 })]);
+    await expect(pumpOnce({ port: tcp, agent, store, sleep: noSleep, log: vi.fn() })).resolves.toBe("acked");
+    expect(agent.event).toHaveBeenCalledTimes(1);
+    expect(store.put).not.toHaveBeenCalled();
+  });
+
   it("does not ack an event the agent has not taken", async () => {
     const store = { put: vi.fn(async () => {}) };
     const tcp = port([Response.json(queued(12))]);

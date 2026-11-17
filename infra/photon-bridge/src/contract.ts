@@ -4,7 +4,8 @@
  * too, so the agent can read them without guessing.
  */
 export type PhotonEvent = {
-  seq: number;
+  /** Photon's sequence; null for `message.status`, which the bridge makes itself (`container/delivery.mjs`). */
+  seq: number | null;
   eventId: string;
   type:
     | "message.received"
@@ -14,7 +15,8 @@ export type PhotonEvent = {
     | "message.reactionAdded"
     | "message.reactionRemoved"
     | "group.changed"
-    | "chat.other";
+    | "chat.other"
+    | "message.status";
   /** E.164 of Tex's dedicated line. */
   line: string;
   chat: { guid: string; kind: "dm" | "group"; name?: string };
@@ -33,6 +35,8 @@ export type PhotonEvent = {
     attachments?: { guid: string; name: string; mimeType: string; size: number | null }[];
     balloonBundleId?: string;
     appUrl?: string;
+    /** A poll started, changed or voted in, told in words (`map.mjs` `pollWords`). */
+    poll?: true;
   };
   reaction?: {
     kind: "love" | "like" | "dislike" | "laugh" | "emphasize" | "question" | "emoji" | "sticker" | "unknown";
@@ -47,4 +51,6 @@ export type PhotonEvent = {
   read?: { targetGuid: string };
   group?: { change: string; displayName?: string; address?: string };
   chatEvent?: string;
+  /** One of Tex's sends read back (`container/delivery.mjs`): failed with Apple's code, or not delivered yet. */
+  status?: { targetGuid: string; state: "failed" | "undelivered"; code?: number };
 };

@@ -620,3 +620,5 @@ test/weekHistory.test.mjs
 test/agentProvisional.test.mjs
 test/sharedFolderDefault.test.mjs
 test/moveJudge.test.mjs
+test/workspaceConventions.test.mjs
+test/workspaceConventionsTurn.test.mjs

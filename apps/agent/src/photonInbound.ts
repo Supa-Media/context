@@ -8,7 +8,7 @@
  * - a message from Tex's own side (`fromMe`) is never read;
  * - the sender is a phone number, E.164, or the event is ignored: an Apple ID
  *   email is not one Tex answers;
- * - an SMS is kept only so it gets its fixed answer; its files are not read;
+ * - an SMS or an RCS text is kept only so it gets its fixed answer; its files are not read;
  * - a 1:1 message from one of our iMessage apps is read as the words the card
  *   stands for (`cardReply`), Apple's own link preview is read as its words (the
  *   link), as a group's always is, and any other app's card is not a message;
@@ -92,7 +92,7 @@ const EVENT_TYPES = new Set([
 const NOT_A_MESSAGE = new Set(["message.read", "group.changed", "chat.other"]);
 const NOT_A_MESSAGE_REASON: Record<string, string> = { "message.read": "read", "group.changed": "group_change", "chat.other": "chat_event" };
 
-/** Photon's reaction kinds, read onto the tapback names `sendblueTapbacks.ts` uses. `emoji` and `sticker` are separate. */
+/** Photon's reaction kinds, read onto the tapback names `sendblueTapbacks.ts` uses. `emoji` and `sticker` are read apart (`reactionOf`). */
 const TAPBACKS: Record<string, Tapback> = {
   love: "Loved",
   like: "Liked",
@@ -111,6 +111,8 @@ const MAX_ID = 200;
 const MAX_NAME = 200;
 const MAX_PARTICIPANTS = 64;
 const MAX_EMOJI = 16;
+/** A sticker's reaction, as its text reads ("Reacted with a sticker to …"). */
+export const STICKER = "with a sticker";
 
 function isRecord(value: unknown): value is Rec {
   return typeof value === "object" && value !== null && !Array.isArray(value);
@@ -166,7 +168,7 @@ function targetOf(reaction: Rec): Pick<Reaction, "words" | "onTex" | "onOther"> 
   return { words: "" };
 }
 
-/** A reaction's tapback, or null when it names nothing this Worker reads (a sticker, a kind it does not know). */
+/** A reaction's tapback, or null when it names nothing this Worker reads (a kind it does not know). */
 function reactionOf(reaction: Rec, removed: boolean): Reaction | null {
   const kind = reaction.kind;
   if (typeof kind !== "string") return null;
@@ -178,6 +180,8 @@ function reactionOf(reaction: Rec, removed: boolean): Reaction | null {
   if (kind === "emoji" && typeof emoji === "string" && emoji !== "") {
     return { how: "Reacted", ...target, emoji: [...emoji].slice(0, MAX_EMOJI).join(""), ...removal };
   }
+  // A sticker stuck on a message, or a sticker tapback: a reaction whose own text names it (Sendblue never sent these).
+  if (kind === "sticker") return { how: "Reacted", ...target, emoji: STICKER, ...removal };
   return null;
 }
 
@@ -212,7 +216,8 @@ function received(body: Rec, env: Envelope, options: PhotonParseOptions): Photon
   const guid = message === null ? null : idOf(message.guid);
   if (message === null || guid === null) return { kind: "invalid" };
   if (env.from === undefined || !E164.test(env.from)) return { kind: "ignored", reason: "sender" };
-  const service = message.service;
+  // RCS (an Android phone) is answered as an SMS is, with the fixed answer and never its words (`reply.ts` `smsReply`).
+  const service = message.service === "RCS" ? "SMS" : message.service;
   if (service !== "iMessage" && service !== "SMS") {
     const where = env.where?.groupId !== undefined ? { groupId: env.where.groupId, line: env.line, participants: participantsOf(isRecord(body.chat) ? body.chat : {}, env.from) } : env.where?.chatId !== undefined ? { chatId: env.where.chatId } : {};
     return { kind: "ignored", reason: "service", ...where, from: env.from };

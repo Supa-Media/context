@@ -3,6 +3,7 @@
  * line, and executes the ops. The only module that imports the SDK.
  */
 import { createGrpcClient, MessageEffect } from "@photon-ai/advanced-imessage/grpc";
+import { createDeliveryWatch } from "./delivery.mjs";
 import { createEnricher, createLru } from "./enrich.mjs";
 import { RequestError } from "./errors.mjs";
 import { fetchFile, nameFor } from "./files.mjs";
@@ -44,6 +45,13 @@ export function createRuntime({
   };
   const tokens = new Map();
   const clients = new Map();
+  // Each send is read back for its error code and delivery (`delivery.mjs`): Photon has no delivery event.
+  const delivery = createDeliveryWatch({
+    get: (line, guid) => clientFor(line).messages.get(guid),
+    push: (line, event) => ledger.push(line, event),
+    log,
+  });
+  const watch = (args, sent) => delivery.watch(args.line, args.chat, sent);
   const controller = new AbortController();
   let startPromise;
 
@@ -73,6 +81,7 @@ export function createRuntime({
           const message = await client.messages.get(guid);
           return { text: message.content?.text ?? "", fromMe: message.isFromMe === true };
         },
+        poll: async (guid) => await client.polls.get(guid),
       });
       runLine({
         client,
@@ -158,6 +167,8 @@ export function createRuntime({
         started: startPromise !== undefined,
         lines: snapshot.lines.map(({ line, frontier }) => ({ line: last4(line), frontier })),
         queued: snapshot.queued,
+        skipped: snapshot.skipped,
+        checks: delivery.size(),
       };
     },
 
@@ -175,12 +186,14 @@ export function createRuntime({
             }),
           );
           rememberSent(sent, args.text);
+          watch(args, sent);
           return { ok: true, guid: sent.guid };
         }
         case "send/attachment": {
           const client = clientFor(args.line);
           const attachment = await uploadFile(client, args.file);
           const sent = await client.messages.sendAttachment(args.chat, attachment, compact({ replyTo: args.replyTo }));
+          watch(args, sent);
           return { ok: true, guid: sent.guid, attachment };
         }
         case "send/multipart": {
@@ -195,6 +208,7 @@ export function createRuntime({
             }
           }
           const sent = await client.messages.sendMultipart(args.chat, parts, compact({ replyTo: args.replyTo }));
+          watch(args, sent);
           return { ok: true, guid: sent.guid };
         }
         case "send/app": {
@@ -218,6 +232,7 @@ export function createRuntime({
               image: card.layout.image ? Buffer.from(card.layout.image, "base64") : undefined,
             }),
           }));
+          watch(args, sent);
           return { ok: true, guid: sent.guid, sessionId: sent.miniAppCardSession?.sessionId };
         }
         case "edit": {
