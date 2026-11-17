@@ -60,8 +60,8 @@ function github({ commits = [TIP], ci = {}, staging = {}, production = {}, tip =
 }
 const quiet = { sleep: async () => {}, log: () => {} };
 
-test('a green CI run of the tip, with green staging, deploys that commit', async () => {
-  const gh = github({ ci: { [TIP]: [green(TIP)] }, staging: { [TIP]: [green(TIP)] } });
+test('a green CI run of the tip deploys that commit without asking staging', async () => {
+  const gh = github({ ci: { [TIP]: [green(TIP)] } });
   const result = await promote(env, { ...quiet, request: gh.request });
   assert.equal(result.promoted, true);
   assert.equal(result.sha, TIP);
@@ -77,27 +77,20 @@ test('a skipped job inside a green CI run does not block the deploy', async () =
   assert.equal((await promote(env, { ...quiet, request: gh.request })).promoted, true);
 });
 
-test('it waits for staging of the newest green commit, then deploys it', async () => {
-  const pending = { ...green(TIP), status: 'in_progress', conclusion: null };
-  const gh = github({
-    ci: { [TIP]: [green(TIP)] },
-    staging: { [TIP]: [pending] },
-  });
-  let polls = 0;
+test('a still-pending staging run does not hold the deploy', async () => {
+  const gh = github({ ci: { [TIP]: [green(TIP)] } });
+  const seen = [];
   const request = async (url, init) => {
-    if (url.pathname.endsWith('/deploy-staging.yml/runs')) polls += 1;
-    if (polls > 1 && url.pathname.endsWith('/deploy-staging.yml/runs')) {
-      return { ok: true, status: 200, json: async () => ({ workflow_runs: [green(TIP)] }) };
-    }
+    seen.push(url.pathname);
     return gh.request(url, init);
   };
   const result = await promote(env, { ...quiet, request });
   assert.equal(result.promoted, true);
   assert.equal(result.sha, TIP);
-  assert.equal(gh.calls.length, 2);
+  assert.ok(seen.every(path => !path.includes('deploy-staging')));
 });
 
-test('red CI on the tip deploys nothing when it is the only commit, and deploys the older green one when that one is staged', async () => {
+test('red CI on the tip deploys nothing when it is the only commit, and deploys the older green one', async () => {
   const red = github({ ci: { [TIP]: [{ ...green(TIP), conclusion: 'failure' }] }, staging: { [TIP]: [green(TIP)] } });
   const blocked = await promote(env, { ...quiet, request: red.request });
   assert.equal(blocked.promoted, false);
@@ -123,17 +116,11 @@ test('a skipped CI workflow is not a pass, so a later green commit is the one de
   assert.equal(result.sha, OLDER);
 });
 
-test('staging that never finishes gives up without deploying', async () => {
-  let clock = 0;
-  const gh = github({
-    ci: { [TIP]: [green(TIP)] },
-    staging: { [TIP]: [{ ...green(TIP), status: 'queued', conclusion: null }] },
-  });
-  await assert.rejects(
-    promote(env, { ...quiet, request: gh.request, now: () => (clock += 60_000) }),
-    /did not succeed/,
-  );
-  assert.deepEqual(gh.calls, []);
+test('a green CI deploys even when staging never finishes', async () => {
+  const gh = github({ ci: { [TIP]: [green(TIP)] } });
+  const result = await promote(env, { ...quiet, request: gh.request });
+  assert.equal(result.promoted, true);
+  assert.equal(gh.calls.length, 2);
 });
 
 test('a commit already deploying or already in production is not deployed again', async () => {
@@ -182,22 +169,20 @@ test('a red or foreign wake-up starts nothing', async () => {
     { EVENT_BRANCH: 'feature' },
     { EVENT_REPO: 'other/app' },
     { EVENT_WORKFLOW: 'Deploy Staging', EVENT_EVENT: 'pull_request' },
+    { EVENT_WORKFLOW: 'Deploy Staging', EVENT_EVENT: 'workflow_dispatch' },
+    { EVENT_WORKFLOW: 'Deploy Staging', EVENT_EVENT: 'push' },
   ]) {
     const result = await promote({ ...env, ...change }, { ...quiet, request: () => assert.fail('must decide before any API call') });
     assert.equal(result.promoted, false);
   }
-  const staged = await promote(
-    { ...env, EVENT_WORKFLOW: 'Deploy Staging', EVENT_EVENT: 'workflow_dispatch' },
-    { ...quiet, request: github({ ci: { [TIP]: [green(TIP)] }, staging: { [TIP]: [green(TIP)] } }).request },
-  );
-  assert.equal(staged.promoted, true);
   await assert.rejects(promote({ ...env, EVENT_SHA: 'main' }, quiet), /invalid commit/);
 });
 
-test('the workflow follows CI and staging, and stays off when the variable says so', () => {
+test('the workflow follows CI only, and stays off when the variable says so', () => {
   const text = readFileSync(new URL('../.github/workflows/promote-production.yml', import.meta.url), 'utf8');
   assert.deepEqual([...parseOnBlock(text).keys()], ['workflow_run']);
-  assert.match(text, /workflows: \["CI", "Deploy Staging"\]/);
+  assert.match(text, /workflows: \["CI"\]/);
+  assert.doesNotMatch(text, /Deploy Staging/);
   assert.match(text, /vars\.AUTO_DEPLOY_PRODUCTION != 'off'/);
   assert.match(text, /github\.event\.workflow_run\.conclusion == 'success'/);
   assert.match(text, /github\.event\.workflow_run\.head_branch == 'main'/);

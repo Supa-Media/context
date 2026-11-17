@@ -318,8 +318,9 @@ statement of what is blocking, not a request for permission. Longer form:
 **Merging deploys staging, and production follows a green main CI.** Every
 merge to `main` runs `Deploy Staging`. `Promote to Production`
 (`promote-production.yml`) starts `Deploy to Production` when that CI run
-succeeds, for the newest commit on main that has also passed staging, and
-not before (decided by the owner, 2026-11-17). A red main CI does not deploy.
+succeeds, for the newest commit on main whose CI succeeded, and not before
+(decided by the owner, 2026-11-17). Staging does not gate it. A red main CI
+does not deploy.
 Check that production finished; do not dispatch it a second time. Set
 `AUTO_DEPLOY_PRODUCTION` to `off` to leave production to the manual press.
 Desktop releases, native builds, store submissions and secret rotation remain

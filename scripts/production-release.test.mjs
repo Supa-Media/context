@@ -41,7 +41,8 @@ test('a commit whose CI on main failed, is pending or never ran cannot be promot
     if (String(url.pathname).includes('/compare/')) return { ok: true, json: async () => ({ status: 'ahead' }) };
     return { ok: true, json: async () => ({ workflow_runs: [{ ...good, jobs: [{ name: 'ci / Test Shared Package', conclusion: 'skipped' }] }] }) };
   });
-  assert.deepEqual(asked, ['compare', 'deploy-staging.yml', 'ci.yml']);
+  assert.deepEqual(asked, ['compare', 'ci.yml']);
+  assert.ok(!asked.includes('deploy-staging.yml'));
 });
 
 test('a pin branch deploys its commit only when the name matches and the commit is on main', async () => {
@@ -64,7 +65,8 @@ test('a merge no longer starts production before CI, and nothing can skip the ch
   assert.doesNotMatch(production, /alongside_staging|ALONGSIDE_STAGING/);
   assert.doesNotMatch(production, /^ {2}deployment:/m);
   const promote = readFileSync(new URL('promote-production.yml', dir), 'utf8');
-  assert.match(promote, /workflows: \["CI", "Deploy Staging"\]/);
+  assert.match(promote, /workflows: \["CI"\]/);
+  assert.doesNotMatch(promote, /Deploy Staging/);
   assert.match(promote, /vars\.AUTO_DEPLOY_PRODUCTION != 'off'/);
   assert.doesNotMatch(promote, /gh workflow run deploy-/);
 });
@@ -75,10 +77,14 @@ test('automatic events and non-main refs cannot promote', async () => {
   }
 });
 
-test('missing, failed, pending, and other-commit staging runs block production', async () => {
-  for (const runs of [[], [{ ...good, conclusion: 'failure' }], [{ ...good, status: 'in_progress' }], [{ ...good, head_sha: 'b'.repeat(40) }], [{ ...good, head_branch: 'feature' }], [{ ...good, conclusion: 'failure' }, good]]) {
-    await assert.rejects(requireStagingRelease(env, reply(runs)), /not completed staging/);
-  }
+test('a release does not ask whether staging succeeded', async () => {
+  const seen = [];
+  await requireStagingRelease(env, async (url) => {
+    seen.push(url.pathname);
+    if (String(url.pathname).includes('/compare/')) return { ok: true, json: async () => ({ status: 'identical' }) };
+    return { ok: true, json: async () => ({ workflow_runs: [good] }) };
+  });
+  assert.ok(seen.every(path => !path.includes('deploy-staging')));
   await assert.rejects(requireStagingRelease(env, async () => ({ ok: false, status: 403 })), /HTTP 403/);
 });
 
@@ -165,11 +171,13 @@ test('web is one artifact and a failed router release restores its exact prior v
   assert.match(rollback, /wrangler rollback "\$VERSION_ID" --yes/);
 });
 
-test('production decides what to deploy only after proving staging passed', () => {
+test('production decides what to deploy only after proving CI passed', () => {
   const production = readFileSync(new URL('../.github/workflows/deploy-production.yml', import.meta.url), 'utf8');
   const proof = production.indexOf('run: node scripts/production-release.mjs');
   const plan = production.indexOf('run: node scripts/deploy-plan.mjs --target production');
-  assert.ok(proof !== -1 && plan > proof, 'the staging proof must run before the plan, in the same job');
+  assert.match(production, /name: Require a green CI run on main/);
+  assert.doesNotMatch(production, /Require a successful staging deployment/);
+  assert.ok(proof !== -1 && plan > proof, 'the CI proof must run before the plan, in the same job');
 });
 
 // The Mac app's updater reads `latest-mac.yml` from the release GitHub calls

@@ -5,13 +5,12 @@ The staging app is served at `https://staging.context.lc`, with MCP at
 It has a separate Convex deployment in the existing Context project.
 
 Every merge to `main` runs `Deploy Staging`; it can also be run manually
-against a selected branch. Production does not start from that push.
+against a selected branch. That run does not gate production.
 `Promote to Production` (`promote-production.yml`) starts `Deploy to
-Production` when CI on `main` succeeds, for the newest commit that has also
-passed staging (decided by the owner, 2026-11-17). A red CI run does not
-deploy. The starter waits outside staging's queue, so a queued staging run
-does not hold it, and it does not cancel a production deploy that has already
-started. Set `AUTO_DEPLOY_PRODUCTION` to `off` to leave production to the
+Production` when CI on `main` succeeds, for the newest commit whose CI
+succeeded (decided by the owner, 2026-11-17). A red CI run does not deploy.
+A collapsed or still-pending staging run does not hold the release. Set
+`AUTO_DEPLOY_PRODUCTION` to `off` to leave production to the
 manual press below. A merge made with `GITHUB_TOKEN` does not start CI, so
 it does not start production either. The automatic run is dispatched on
 `prod-deploy/<sha>`, a branch at that commit, because a dispatch of `main`
@@ -36,8 +35,8 @@ after rotating a staging secret, since a component's secrets are synced only
 when that component deploys.
 
 To release by hand, open **Actions → Deploy to Production → Run workflow** and select
-`main`. The action requires a successful staging deployment and a green CI
-run on `main` for that exact commit, then deploys the components that changed
+`main`. The action requires a green CI run on `main` for that exact commit,
+then deploys the components that changed
 since production's last successful run, chosen by the same planner with
 `--target production`: Convex, the Workers, web and router. Tick `full` to
 redeploy everything, for recovery or after rotating a production secret. The

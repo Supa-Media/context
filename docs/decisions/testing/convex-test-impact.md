@@ -58,8 +58,8 @@ behaviour reached through a path the map's last recording did not take. So
 the selection is not the last word: `main` runs the whole suite on every
 merge. `scripts/production-release.mjs` refuses a commit whose CI on `main`
 has not passed, so a missed failure stops the release. Production used to
-deploy beside staging without waiting for that run (owner, 2026-10-23); as of
-2026-11-17 it waits, and a red main CI does not deploy.
+deploy beside staging without waiting for that run (owner, 2026-10-23). As of
+2026-11-17 a red main CI does not deploy. Staging is not a gate.
 
 **What a simplification costs.** Dropping the coverage filter for plain
 imports puts every HTTP test back on every Tex change. Dropping the
