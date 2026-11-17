@@ -1,5 +1,5 @@
 import { DurableObject } from "cloudflare:workers";
-import { forwardContainerLogs, type LogCursor } from "./containerLogs";
+import { forwardContainerLogs, type LogCursor, type ReportedHealth } from "./containerLogs";
 import {
   CHECKPOINT_PREFIX,
   pumpOnce,
@@ -11,6 +11,17 @@ import {
 } from "./pump";
 import { lineOn } from "./lineSwitch";
 import { isBridgeRoute } from "./routes";
+import { shouldRestartContainer } from "../container/readHealth.mjs";
+import {
+  ALARM_MS,
+  containerErrorDetail,
+  containerGapDelayMs,
+  isMissingContainer,
+  nextAlarmDelay,
+  retryWake,
+  WAKE_AGAIN_MS,
+  type WakeOutcome,
+} from "./wake";
 
 interface Env {
   PHOTON_BRIDGE: DurableObjectNamespace<PhotonBridge>;
@@ -23,7 +34,6 @@ interface Env {
 }
 
 const PORT = 8080;
-const ALARM_MS = 60_000;
 const INACTIVITY_MS = 30 * 60_000;
 const READY_ATTEMPTS = 100;
 const READY_STEP_MS = 100;
@@ -60,6 +70,7 @@ export class PhotonBridge extends DurableObject<Env> {
   private pumping?: Promise<void>;
   private logCursor?: LogCursor;
   private forwarding?: Promise<void>;
+  private lastHealth: ReportedHealth | null = null;
 
   constructor(ctx: DurableObjectState, env: Env) {
     super(ctx, env);
@@ -153,24 +164,66 @@ export class PhotonBridge extends DurableObject<Env> {
         failures = 0;
       } catch (error) {
         this.live = false;
-        const delay = retryDelayMs(failures);
+        const missing = isMissingContainer(error);
+        const delay = missing ? containerGapDelayMs(failures) : retryDelayMs(failures);
         failures += 1;
-        log({ event: "pump.error", error: error instanceof Error ? error.name : "unknown", delay_ms: delay });
+        const detail = containerErrorDetail(error);
+        log({ event: "pump.error", error: error instanceof Error ? error.name : "unknown", ...(detail ? { detail } : {}), delay_ms: delay });
+        if (missing) await this.pullAlarmForward();
         await sleep(delay);
       }
     }
   }
 
-  /** Brings the listener up and the loop going; called by the alarm, cron and requests. */
-  private async wake(): Promise<void> {
+  /**
+   * Brings the listener up and the loop going; called by the alarm, cron and requests.
+   * `watch` is false when this wake is the restart itself, so a container that is
+   * still stale cannot restart again inside the same alarm.
+   */
+  private async wake(watch = true): Promise<WakeOutcome> {
+    let outcome: WakeOutcome;
     try {
-      await this.ensure();
+      outcome = await retryWake(() => this.ensure(), {
+        sleep,
+        log,
+        isFatal: (error) => error instanceof Unconfigured,
+      });
     } catch (error) {
-      log({ event: "wake.failed", error: error instanceof Error ? error.name : "unknown" });
-      return;
+      if (error instanceof Unconfigured) return "down";
+      throw error;
     }
+    if (outcome !== "up") return outcome;
     this.startPump();
     await this.forwardLogs();
+    if (watch) await this.watchdog();
+    return "up";
+  }
+
+  /** The next alarm was a minute away. A missing container should not wait that out. */
+  private async pullAlarmForward(): Promise<void> {
+    const sooner = Date.now() + WAKE_AGAIN_MS;
+    const current = await this.ctx.storage.getAlarm();
+    if (current == null || current > sooner) await this.ctx.storage.setAlarm(sooner);
+  }
+
+  /**
+   * The container says it is up, and no Photon read has succeeded for three
+   * minutes. Start it again. A process that only answers `/health` is how
+   * the 2026-11-17 stall stayed invisible.
+   */
+  private async watchdog(): Promise<void> {
+    if (!shouldRestartContainer(this.lastHealth)) return;
+    log({ event: "bridge.watchdog", read: this.lastHealth?.read, read_age_ms: this.lastHealth?.readAgeMs ?? null, action: "restart" });
+    this.live = false;
+    this.lastHealth = null;
+    try {
+      if (this.ctx.container?.running) await this.ctx.container.destroy();
+    } catch (error) {
+      const detail = containerErrorDetail(error);
+      log({ event: "bridge.watchdog", ok: false, error: error instanceof Error ? error.name : "unknown", ...(detail ? { detail } : {}) });
+    }
+    const outcome = await this.wake(false);
+    if (outcome === "missing") await this.pullAlarmForward();
   }
 
   /**
@@ -181,7 +234,9 @@ export class PhotonBridge extends DurableObject<Env> {
   private forwardLogs(): Promise<void> {
     this.forwarding ??= (async () => {
       const cursor = this.logCursor ?? (await this.ctx.storage.get<LogCursor>(LOG_CURSOR_KEY)) ?? { boot: "", next: 0 };
-      this.logCursor = await forwardContainerLogs(this.port(), cursor, log);
+      const forwarded = await forwardContainerLogs(this.port(), cursor, log);
+      this.logCursor = forwarded.cursor;
+      this.lastHealth = forwarded.health;
       await this.ctx.storage.put(LOG_CURSOR_KEY, this.logCursor);
     })().finally(() => {
       this.forwarding = undefined;
@@ -199,13 +254,16 @@ export class PhotonBridge extends DurableObject<Env> {
       return;
     }
     await this.ctx.storage.setAlarm(Date.now() + ALARM_MS);
-    await this.wake();
+    const outcome = await this.wake();
+    const delay = nextAlarmDelay(outcome);
+    if (delay !== ALARM_MS) await this.ctx.storage.setAlarm(Date.now() + delay);
   }
 
   async fetch(request: Request): Promise<Response> {
     const url = new URL(request.url);
     if (url.pathname === "/__wake") {
-      await this.wake();
+      const outcome = await this.wake();
+      if (outcome === "missing") await this.pullAlarmForward();
       return new Response(null, { status: 204 });
     }
     try {
