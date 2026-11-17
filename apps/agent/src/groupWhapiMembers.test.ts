@@ -5,6 +5,8 @@ import { MemoryStorage } from "./memoryStorage.testing";
 import type { Fetch } from "./clients";
 import { fakeJudge, setup } from "./groupWorld.testing";
 import { membersChanged } from "./groupMembers";
+import { setChatBound } from "./groupChat";
+import { groupLineFor, groupLineSeam } from "./groupLine";
 
 /**
  * A WhatsApp group's webhook names only the sender (`whapiInbound.ts`), so a turn whose member list can't be read
@@ -162,6 +164,42 @@ describe("an iMessage group whose events name only the sender", () => {
     await acceptGroup(storage, said(w, ADA, "Tex, hi"), 2);
     await drainGroup(storage, w.deps);
     expect(await acceptGroup(storage, said(w, CY, "who are you all"), 3)).toBe("ignored");
+  });
+
+  // Tex Devs, 2026-11-17: the list was kept only by a turn, and nobody had tagged Tex since, so Dev2's texts were dropped.
+  it("reads the list when none is kept, and a chat bound by one member alone keeps every member's line", async () => {
+    const storage = new MemoryStorage();
+    const w = setup(GROUP_ID, { decide: fakeJudge, members: [[ADA, BO, LINE]] });
+    const app = groupLineFor(groupLineSeam(w.deps), GROUP_ID);
+    await setChatBound(storage, said(w, ADA, "bound before any list was kept"));
+    expect(await acceptGroup(storage, said(w, BO, "here is the structure picture"), 1)).toBe("ignored"); // no app: as before
+    expect(await acceptGroup(storage, said(w, BO, "the eval structure is in the picture"), 2, app)).toBe("kept");
+    expect(await acceptGroup(storage, said(w, ADA, "surprised it made a PR"), 3, app)).toBe("kept");
+    await drainGroup(storage, w.deps);
+    await acceptGroup(storage, said(w, ADA, "Tex, what's in the picture Bo sent?"), 4, app);
+    await drainGroup(storage, w.deps);
+    expect(JSON.stringify(w.asks.at(-1))).toContain("eval structure");
+  });
+
+  it("never rebinds a chat bound by people the list does not name alone", async () => {
+    const storage = new MemoryStorage();
+    const w = setup(GROUP_ID, { decide: fakeJudge, members: [[ADA, BO, CY, LINE]] });
+    const app = groupLineFor(groupLineSeam(w.deps), GROUP_ID);
+    await setChatBound(storage, w.message("bound by two", { participants: [ADA, BO] }));
+    expect(await acceptGroup(storage, said(w, BO, "said in front of Cy"), 1, app)).toBe("ignored");
+  });
+
+  it("asks the app at most once a minute for a sender the kept list does not name", async () => {
+    const storage = new MemoryStorage();
+    let reads = 0;
+    const w = setup(GROUP_ID, { decide: fakeJudge, members: [[ADA, BO, LINE]] });
+    const real = groupLineFor(groupLineSeam(w.deps), GROUP_ID);
+    const app = { ...real, readMembers: async (place: Parameters<typeof real.readMembers>[0]) => (reads++, await real.readMembers(place)) };
+    await acceptGroup(storage, said(w, CY, "hi"), 1_000, app);
+    await acceptGroup(storage, said(w, CY, "hi again"), 30_000, app);
+    expect(reads).toBe(1);
+    await acceptGroup(storage, said(w, CY, "still here"), 62_000, app);
+    expect(reads).toBe(2);
   });
 
   it("never hands a turn lines said before someone joined", async () => {

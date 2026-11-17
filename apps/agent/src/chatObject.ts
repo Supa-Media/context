@@ -27,7 +27,7 @@ import type { Picture } from "./line";
 import { CARD_FOR_MS, hostPicture, MEDIA_FOR_MS, ORIGIN_KEY, serveMedia, workerOrigin } from "./media";
 import { tellNewLine } from "./newLine";
 import type { Line } from "./line";
-import type { GroupLine } from "./groupLine";
+import { groupLineFor, groupLineSeam, type GroupLine } from "./groupLine";
 import { sendblueKeys } from "./sendblue";
 import { noteSendStatus, resendPlain, type SendStatus } from "./sendblueStatus";
 import { type GroupMessage } from "./sendblueGroups";
@@ -173,7 +173,7 @@ export class SenderInbox implements DurableObject {
       const { routine: _routine, heard: _heard, edited: _edited, provider: brought, ...sent } = (await request.json()) as GroupMessage & { provider?: unknown };
       await this.keepWhere(sent);
       const message = await heardInGroup(sent, { fetch: this.out, gateway: this.env.GATEWAY_TEXTS });
-      const outcome = await acceptGroup(this.state.storage, message, Date.now());
+      const outcome = await acceptGroup(this.state.storage, message, Date.now(), this.groupApp(message.groupId));
       await this.logArrival(message.groupId, message.reaction ? "react" : "group", brought, outcome);
       // Counted under the sender's own inbox id, so one person is one person in a group and 1:1 (`textCounts.ts`).
       if ((outcome === "kept" || outcome === "queued") && message.routine === undefined && !message.reaction) {
@@ -278,6 +278,11 @@ export class SenderInbox implements DurableObject {
     return Response.json({ outcome });
   }
 
+  /** The app a group's member list is read from, for a message that names only its sender (`groupMembers.ts`). */
+  private groupApp(groupId: string): GroupLine {
+    return groupLineFor(groupLineSeam(this.deps()), groupId);
+  }
+
   /** What the `edit` step's answer does: nothing, an unsend kept as its line, or an edit queued as a text, in a 1:1 or a group. */
   private async takeEdit(edit: PhotonEdit, { to, edited }: EditOutcome): Promise<string> {
     if (to === "same") return "same";
@@ -288,7 +293,8 @@ export class SenderInbox implements DurableObject {
     if (edit.groupId !== undefined) {
       const message = editedGroupMessage(edit, edited);
       if (to === "withdraw") await withdraw(GROUP_QUEUE, message.groupId);
-      const outcome = to === "turn" ? await acceptGroup(storage, message, now) : await keepGroupEdit(storage, message, now);
+      const app = this.groupApp(message.groupId);
+      const outcome = to === "turn" ? await acceptGroup(storage, message, now, app) : await keepGroupEdit(storage, message, now, app);
       if (outcome === "kept" || outcome === "queued") this.handOff(this.flushChatter(message));
       return outcome;
     }

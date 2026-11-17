@@ -66,6 +66,14 @@ only its sender (`namesOnlySender`), whatever the app. A webhook that lists
 everyone is taken at its word. Trusting the kept list before sending still
 needs an app that reports changes.
 
+The list was still kept only by a turn, so a group nobody tagged Tex in after
+the change had none and its lines were still dropped (Tex Devs, 2026-11-17).
+Now a line that names only its sender reads the app's list when none is usable
+(`withMembers`; at most once a minute for a sender the list does not name),
+and a chat still bound by one member alone is bound by the whole list just
+read (`rebindSenderOnly`), as its next tagged turn would bind it. Lines kept
+under the old hash are never handed on.
+
 
 - Trusting the kept list with no freshness bound: a missed or late webhook
   would let a newcomer see answers drawn from the workspace for as long as
