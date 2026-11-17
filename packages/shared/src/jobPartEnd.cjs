@@ -20,6 +20,9 @@ const CAUSES = Object.freeze(["done", "waiting", "stuck", "check_limit", "timeou
 /** Causes that would end the next part the same way: running it again only burns a part, so the last draft goes. */
 const DETERMINISTIC = Object.freeze(["check_limit"]);
 
+/** How a part's own check can read its answer (`checked`). */
+const ENDS = Object.freeze(["done", "waiting", "stuck"]);
+
 /** Causes where the part broke before it answered. */
 const BROKEN = Object.freeze(["check_limit", "timeout", "crash"]);
 
@@ -86,7 +89,7 @@ function decidePartEnd(input, config) {
   }
   if (CARRY.includes(cause) && room && !spinning) return { to: "carry", cause, room };
   const pause = cause === "refused" && input?.rejected !== true && input?.refusal === "daily_limit" ? { resumeAt: limitResetAt(Number(input?.now) || 0, limits) } : {};
-  return { to: "end", ended: endedAs(cause, input?.rejected === true), cause, room, ...(spinning ? { spinning: true } : {}), ...pause };
+  return { to: "end", ended: endedAs(cause, input?.rejected === true, input?.checked), cause, room, ...(spinning ? { spinning: true } : {}), ...pause };
 }
 
 /** When a job paused at today's limit at `now` starts again: the next midnight UTC, plus `resumeAfterMinutes`. */
@@ -96,7 +99,9 @@ function limitResetAt(now, limits = DEFAULT_LIMITS) {
 }
 
 /** How a job that ends here ended, by why its last part did. */
-function endedAs(cause, rejected) {
+function endedAs(cause, rejected, checked) {
+  // Out of steps with no room left, its answer ends as the part's own check said (done unless it was judged short).
+  if (cause === "steps_out" && ENDS.includes(checked)) return checked;
   if (cause === "refused") return rejected ? "failed" : "waiting";
   if (cause === "waiting") return "waiting";
   if (cause === "done" || cause === "changed") return "done";
