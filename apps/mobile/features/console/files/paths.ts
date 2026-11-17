@@ -19,7 +19,6 @@ import { folderRole } from "@context/shared/src/folderRoles.cjs";
 import { restoreTarget } from "@context/shared/src/archiveMirror.cjs";
 import { archiveFolderNow } from "./jobIcons/jobFoldersNow";
 import { withoutSortPrefix as sharedWithoutSortPrefix } from "@context/shared/src/linkedHeading";
-import { FRONT_NOTES } from "../../../../mcp/src/lists/grammar.js";
 
 /** The folder a path sits in. `""` is the root. */
 export function parentPath(path: string): string {
@@ -287,25 +286,29 @@ export function isPrivacyManifest(path: string): boolean {
   return path.normalize("NFC").toLowerCase() === "privacy.md";
 }
 
+/** The one name a folder's description is drawn from atop its page. */
+export const ABOUT_NOTE = "about.md";
+
 /**
  * Which of `names` — the files listed directly in `folder` — is the note that
  * describes it, or null for none.
  *
- * A folder's is the first of `FRONT_NOTES` present (`about.md`, then the older
- * `overview.md`, `index.md`, `README.md`, which all mean the same thing:
- * decided by the owner, 2026-10-08). The top of the workspace's is its front
- * page, `index.md`, and nothing else: a `README.md` at the root is somebody's
- * file (see `isFolderPlaceholder`).
+ * A folder's is its `about.md`, and only that. The top of the workspace's is
+ * its front page, `index.md`, and nothing else: a `README.md` at the root is
+ * somebody's file (see `isFolderPlaceholder`).
  *
- * The folder page draws this note's words above everything in the folder,
- * with its filename in the corner, so the listing does not draw it again as a
- * row. Search, links, agents and Obsidian still see it as the ordinary note
- * it is. See "A folder's about note is its description" in
- * `docs/decisions/app-and-console/mobile-navigation-shell.md`.
+ * The folder page draws this note's words above everything in the folder, so
+ * the listing does not draw it again as a row. An `overview.md`, `index.md` or
+ * `README.md` in a folder still speaks for the folder's properties
+ * (`frontNoteOf`) but is never the description: it is a
+ * project's main note, which an agent writes and people open by name, so it
+ * stays a row (decided by the owner, 2026-11-17, after a project holding only
+ * its `overview.md` read as an empty folder). See "A folder's about note is
+ * its description" in `docs/decisions/app-and-console/mobile-navigation-shell.md`.
  */
 export function aboutNoteName(folder: string, names: readonly string[]): string | null {
   if (folder === "") return names.includes("index.md") ? "index.md" : null;
-  return FRONT_NOTES.find((name) => names.includes(name)) ?? null;
+  return names.includes(ABOUT_NOTE) ? ABOUT_NOTE : null;
 }
 
 /** A real file the console does not list: a folder placeholder or the manifest. */

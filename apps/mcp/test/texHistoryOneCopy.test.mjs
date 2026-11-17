@@ -42,7 +42,7 @@ import { texStoreStub, texBucket } from "../src/texStore/wire.js";
 
 const CHAT = "sendblue:line:+15555550100";
 const PERSON = "person:ws_egress";
-const BOOKKEEPING = /\.context\/agent\/(events|conversations|history|turns|running|cancel|steer)(\/|$)/;
+const BOOKKEEPING = /\.context\/agent\/(events|conversations|history|turns|running|cancel|steer|go)(\/|$)/;
 const ABOUT_ID = "01900000-0000-7000-8000-00000000a001";
 const JOBS_ID = "01900000-0000-7000-8000-00000000a002";
 
@@ -188,7 +188,7 @@ test("a copy sealed before the change is never used for the history or About me"
 });
 
 test("the bookkeeping keys go to the person's object and fail closed without it; nothing near them does", async () => {
-  for (const key of [".context/agent/history/texts.json", ".context/agent/turns/turn-abcd1234.json", ".context/agent/running/turn-abcd1234.json", ".context/agent/cancel/turn-abcd1234.json", ".context/agent/steer/turn-abcd1234/1-x.json"]) assert.equal(isAgentHomeKey(key), true, key);
+  for (const key of [".context/agent/history/texts.json", ".context/agent/turns/turn-abcd1234.json", ".context/agent/running/turn-abcd1234.json", ".context/agent/cancel/turn-abcd1234.json", ".context/agent/steer/turn-abcd1234/1-x.json", ".context/agent/go/turn-abcd1234.json"]) assert.equal(isAgentHomeKey(key), true, key);
   for (const key of [".context/agent/turns/../x.json", ".context/agent/turns/", ".context/agent/events/x.json", "x/.context/agent/turns/a.json", ".context/agent/turns//a.json", ".context/agent/turns/.hidden"]) assert.equal(isAgentHomeKey(key), false, key);
   const bucketKeys = [];
   const bucket = { get: async (key) => (bucketKeys.push(key), null), put: async (key) => (bucketKeys.push(key), {}), list: async () => ({ objects: [] }) };
@@ -196,6 +196,8 @@ test("the bookkeeping keys go to the person's object and fail closed without it;
   await assert.rejects(store.get(HISTORY_KEY), TexStoreUnavailable);
   await assert.rejects(store.put(".context/agent/turns/turn-abcd1234.json", "{}"), TexStoreUnavailable);
   await assert.rejects(store.list({ prefix: ".context/agent/turns/" }), TexStoreUnavailable);
+  // A Provisional run's go mark too (Dev2, 2026-11-17): in the bucket, a Lab test chat refused it and its go never landed.
+  await assert.rejects(store.put(".context/agent/go/turn-abcd1234.json", "{}"), TexStoreUnavailable);
   assert.deepEqual(bucketKeys, [], "never looked for in the bucket");
 });
 

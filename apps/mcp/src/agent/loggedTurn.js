@@ -25,7 +25,7 @@ import { readGroupMemory } from "./groupTurn.js";
 import { hasScope, SCOPE_WRITE } from "../session.js";
 import { EVENT_ID, isChatKey, readEvents } from "./log.js";
 import { oneLine, renderEvents, replyingTo, speaker, TIME_OF, words } from "./logRender.js";
-import { CANCEL_PREFIX, RUNNING_PREFIX } from "./steer.js";
+import { CANCEL_PREFIX, GO_PREFIX, RUNNING_PREFIX } from "./steer.js";
 import { sentByItself, withSentByItself } from "./sentByItself.js";
 import { dayFromLedger, earlierFromLedger, earlierRoom, faded, readLedger, summaryLines } from "./ledgerHistory.js";
 import { ledgerPlace } from "./ledger.js";
@@ -62,7 +62,7 @@ export async function pruneTurns(store, now = Date.now()) {
       return at > 0 && now - at > KEEP_MS;
     }).map((object) => object.key);
   };
-  const [marks, turns] = await Promise.all([Promise.all([RUNNING_PREFIX, CANCEL_PREFIX].map(old)).then((found) => found.flat()), old(TURNS_PREFIX)]);
+  const [marks, turns] = await Promise.all([Promise.all([RUNNING_PREFIX, CANCEL_PREFIX, GO_PREFIX].map(old)).then((found) => found.flat()), old(TURNS_PREFIX)]);
   await Promise.all([...marks, ...turns].slice(0, MAX_PRUNED).map((key) => store.delete(key)));
 }
 

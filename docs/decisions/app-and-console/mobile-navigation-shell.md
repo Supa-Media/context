@@ -42,6 +42,17 @@ sentence that the console hid. The owner decided (2026-10-08) that `about.md`,
 folders and new workspaces write `about.md`, and that a folder's description
 is shown, never hidden.
 
+**Only `about.md` is drawn atop the page** (decided by the owner,
+2026-11-17). An `overview.md`, `index.md` or `README.md` in a folder still
+holds the folder's properties (status, owner, priority: `frontNoteOf`), but
+it is never the description and the page lists it as a row. A project's
+`overview.md` is its main note, written by agents and opened by name;
+drawing it as the description left a project holding only its overview
+reading "This folder has nothing in it yet". With no `about.md`, a writer's
+first description creates one beside the overview. Drawing an overview atop
+the page again fails "an overview.md with no about.md is a row" in
+`folderAbout.test.ts` and the overview case in `treeMarkers.test.ts`.
+
 - **At the top of the page, not in the list.** The folder page draws the about
   note's words under its title (`folderPage/AboutBlock.tsx`) and its list
   leaves the row out (`tree.ts` `aboutNoteOf`, `aboutDrawn`). Search, AIs and

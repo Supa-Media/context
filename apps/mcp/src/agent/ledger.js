@@ -9,7 +9,8 @@
  * result, the advisor's asks, the Mail checker's verdicts, jobs. One thing is
  * left out, by the owner's rule: a call that read from another workspace keeps
  * what it asked for and how it went, never what came back
- * (`withheld: "other_workspace"`), because the ledger lives with this chat and
+ * (`withheld: "other_workspace"`), apart from its receipt (where it went and what it left: path, link,
+ * visibility, etag; `receiptOf`, owner 2026-11-17), because the ledger lives with this chat and
  * the other workspace's notes are not this chat's to keep. Arguments named
  * like a secret are kept as `[hidden]`; saved logins never reach a turn at all
  * (`vault.md`).
@@ -19,7 +20,7 @@
  * - `text`: `{from: {kind: "person"|"tex"|"system", name?, who?}, text, covers?, delivered?, reason?, told?, replyTo?, event?}`
  * - `thinking`: `{text, ms?, output?}`, the model's thinking in words, as it came back, with its model round's milliseconds and output tokens
  * - `said`: `{text}`, what the model said between its tools
- * - `tool`: `{name, args, as?, ok, ms, held?, reason?, result?, cut?, withheld?}`; `as` is `{name, args}` as the model wrote the call, when that differs; `grant` is the carry key the call ran under (`stretch.js` `carryKey`: a person, workspace and scopes run to about 130 characters), which a later text replays its result only under
+ * - `tool`: `{name, args, as?, ok, ms, held?, reason?, result?, cut?, withheld?, receipt?}`; `receipt` is a withheld call's header lines only (`receiptOf`); `as` is `{name, args}` as the model wrote the call, when that differs; `grant` is the carry key the call ran under (`stretch.js` `carryKey`: a person, workspace and scopes run to about 130 characters), which a later text replays its result only under
  * - `reply`: `{text, ms, model?, timing?, facts?, grant?, version?}`, the turn's answer as it left the gateway; `version` which Tex answered (`texVersion.js`: the deployed commit, the Worker version, the live setup's version); `timing` is where its time went (`turnTiming.js`); `facts` what it read for what it said, quoted from its source, with the carry key a note's quote was read under (`toldFacts.js`)
  * - `advisor`: `{question, answer, ms, steps?}` / `mail_check`: `{to, subject, verdict, why, ref?}` / `job`: `{job, title?, state}`
  * - `note`: `{text}`, anything else worth keeping (a routine's text, a check-in)
@@ -57,11 +58,46 @@ export function keptArgs(value, key = null, depth = 0) {
   return value;
 }
 
-/** The workspace a call named, as a handle without its `@`, or null when it named none (the turn's own). */
+/** A path that opens with a workspace's name (`tools/pathAddress.js`, the `@name/path` sugar). */
+const BY_NAME = /^@([a-z0-9][a-z0-9-]*)\//i;
+const PATH_FIELDS = ["path", "note", "prefix", "id", "source", "destination"];
+
+/**
+ * The workspace a call named, as a handle without its `@`, or null when it named none (the turn's own): its
+ * `context` argument, or else a path that opens with `@name/`, which routes the call there just the same
+ * (`tools/pathAddress.js`). Reading only `context` kept a `read_note {path: "@v2l/..."}` whole (2026-11-16).
+ */
 function namedContext(args) {
-  const named = args && typeof args === "object" ? args.context : undefined;
-  if (typeof named !== "string" || named.trim() === "") return null;
-  return named.trim().replace(/^@+/, "").toLowerCase();
+  if (!args || typeof args !== "object") return null;
+  const named = args.context;
+  if (typeof named === "string" && named.trim() !== "") return named.trim().replace(/^@+/, "").toLowerCase();
+  for (const field of PATH_FIELDS) {
+    const match = typeof args[field] === "string" ? BY_NAME.exec(args[field].trim()) : null;
+    if (match) return match[1].toLowerCase();
+  }
+  return null;
+}
+
+/** The header lines a receipt is made of: where a call went and what it left there, never a note's words. */
+const RECEIPT_LINE = /^(?:written|saved|moved|archived|unchanged|visibility changed|visibility|path|link|etag|document_id|from|to|workspace|kind|status): /;
+const MAX_RECEIPT_CHARS = 800;
+
+/**
+ * A withheld call's receipt (owner, 2026-11-17): the header lines of its result before the first blank line, each
+ * one a known `key: value` naming where the call went and what it left there (path, workspace link, visibility,
+ * etag, document id). A note's text never comes before that blank line, so none of it is kept; a result whose
+ * first line is not a receipt line keeps nothing. Tex lost where its own writes in another workspace had landed,
+ * and whether its visibility change worked, because the whole result was withheld (Sayo's chat, 2026-11-16).
+ */
+export function receiptOf(result) {
+  if (typeof result !== "string") return null;
+  const lines = [];
+  for (const line of result.split("\n")) {
+    if (line.trim() === "" || !RECEIPT_LINE.test(line)) break;
+    lines.push(line.length > 300 ? line.slice(0, 300) : line);
+  }
+  const receipt = lines.join("\n").slice(0, MAX_RECEIPT_CHARS);
+  return receipt === "" ? null : receipt;
 }
 
 /**
@@ -81,8 +117,11 @@ export function toolEntry({ name, args, as = null, ok, ms, held = false, reason 
   // The name and arguments the model wrote, when it called one of the six (`sixTools.js`): what a later text replays (`stretch.js`).
   if (as && typeof as.name === "string" && as.name !== entry.name) entry.as = { name: as.name.slice(0, 64), args: keptArgs(as.args ?? {}) };
   if (typeof reason === "string" && reason !== "") entry.reason = reason.slice(0, 400);
-  if (readsOtherWorkspace(args, ownSlug)) entry.withheld = "other_workspace";
-  else if (typeof result === "string") {
+  if (readsOtherWorkspace(args, ownSlug) || (as && readsOtherWorkspace(as.args, ownSlug))) {
+    entry.withheld = "other_workspace";
+    const receipt = receiptOf(result);
+    if (receipt !== null) entry.receipt = receipt;
+  } else if (typeof result === "string") {
     const kept = cutText(result, MAX_RESULT_CHARS);
     entry.result = kept.text;
     if (kept.cut !== undefined) entry.cut = kept.cut;

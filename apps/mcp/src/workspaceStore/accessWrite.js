@@ -111,7 +111,9 @@ export function writeAccess(ctx, body) {
   if (body.expectedVersion !== undefined && body.expectedVersion !== set.version) return refusal("CONFLICT", { version: set.version });
   if (set.sealsChats && touchesChatHomes(body.path) && actor.clientId !== CHAT_HOMES_CLIENT_ID) return refusal("FORBIDDEN");
 
-  const row = ctx.rows.byPath(body.path);
+  // A path that differs from a live row's only by case is that row (Sayo's chat, 2026-11-16: `projects/…` for the row
+  // `Projects/…` was kept as pending access, answered ok, and the note stayed private).
+  const row = ctx.rows.byPath(body.path) ?? ctx.rows.byFoldedPath?.(body.path) ?? null;
   if (row === null) return writePending(ctx, body, set, actor, asked);
   if (body.kind !== undefined && row.kind !== body.kind) return refusal("NO_ROW");
 

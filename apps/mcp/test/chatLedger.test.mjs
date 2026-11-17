@@ -177,3 +177,17 @@ test("a judging of a draft is kept as a judge entry: the draft, each judge, whet
   assert.equal(ledger.read("texts").entries[0].kind, "judge", "the ledger keeps the kind");
   assert.equal(judgeEntry({ by: "code", round: 1, draft: "x", went: false }).by, "code");
 });
+
+test("a call into another workspace keeps its receipt, never the note's words (2026-11-17)", () => {
+  const wrote = toolEntry({ name: "write_note", args: { path: "projects/x.md", context: "@v2l", content: "secret plans" }, ok: true, ms: 5, result: "written: projects/x.md (etag c2.a)\nvisibility: private\nlink: https://app.example/note/@v2l/projects/x.md (text this on its own line so they can open the note)" }, { ownSlug: "ada" });
+  assert.equal(wrote.withheld, "other_workspace");
+  assert.equal(wrote.result, undefined);
+  assert.match(wrote.receipt, /^written: projects\/x\.md/);
+  assert.match(wrote.receipt, /visibility: private/);
+  const read = toolEntry({ name: "read_note", args: { path: "@v2l/projects/x.md" }, ok: true, ms: 5, result: "etag: c2.a\npath: projects/x.md\nvisibility: team\n\n# Secret plans\nbody" }, { ownSlug: "ada" });
+  assert.equal(read.withheld, "other_workspace", "a path that opens with @name/ names that workspace");
+  assert.equal(read.receipt, "etag: c2.a\npath: projects/x.md\nvisibility: team");
+  assert.ok(!JSON.stringify(read).includes("Secret plans"));
+  const search = toolEntry({ name: "search", args: { query: "plans", context: "@v2l" }, ok: true, ms: 5, result: "plans.md: our secret plans" }, { ownSlug: "ada" });
+  assert.equal(search.receipt, undefined, "a result that does not open with a receipt line keeps nothing");
+});
