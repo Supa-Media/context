@@ -48,7 +48,14 @@ export function coreCases({ test, testRaw, resultRaw, keyRaw, setup = SETUP }) {
     if (cell === undefined || cell === "untested") continue;
     const q = questions.get(c.question);
     const results = [...Array(cell.passed).fill(true), ...Array(cell.runs - cell.passed).fill(false)];
+    // What went wrong, for a reader of the run (a Lab run's row, `setsFd.mjs`): each failed must or never line and
+    // the judge's reason, and the texts Tex sent. Kept beside the row, never in a score.
+    const runIds = key.filter((row) => row.question === c.question).map((row) => row.id);
+    const misses = runIds.flatMap((id) => (sections.at(-1).blocks.get(id)?.verdicts ?? []).filter((v) => !v.pass && v.kind !== "judge").map((v) => ({ kind: v.kind, line: v.line, reason: v.reason })));
+    const said = answers.filter((a) => runIds.includes(a.id)).flatMap((a) => (a.conversation ?? []).filter((turn) => turn.from !== "person" && turn.from !== "them").map((turn) => turn.text));
     rows.push({
+      misses,
+      said,
       id: `${test}/q${c.question}`,
       right: cell.runs > 0 && cell.passed === cell.runs,
       results,

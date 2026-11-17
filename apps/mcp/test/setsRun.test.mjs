@@ -87,6 +87,9 @@ test("decideRight scores act, also_react and why, and skips any", () => {
   assert.deepEqual(decideRight({ act: "respond", why: "any", also_react: "any" }, answer), { right: true, why: "" });
   // A react verdict is quiet on the act and yes on also_react.
   assert.deepEqual(decideRight({ act: "quiet", also_react: "yes" }, { ok: true, act: "react" }), { right: true, why: "" });
+  // An answer that also reacts (its emoji beside the act) is yes on also_react: reacting is decided on its own.
+  assert.deepEqual(decideRight({ act: "respond", also_react: "yes" }, { ...answer, emoji: "😂" }), { right: true, why: "" });
+  assert.deepEqual(decideRight({ act: "respond", also_react: "no" }, { ...answer, emoji: "😂" }), { right: false, why: "also_react yes, wanted no" });
   // A verdict with no why is "none" there.
   assert.equal(decideRight({ why: "none" }, { ok: true, act: "silent" }).right, true);
   assert.deepEqual(decideRight({ act: "respond" }, { ok: false }), { right: false, why: "no verdict" });

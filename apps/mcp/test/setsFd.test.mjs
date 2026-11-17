@@ -3,7 +3,7 @@ import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { test } from "node:test";
 
-import { LIVE_SETTINGS, cantRun, dayOf, earlierLines, fdTest, frontFor, groupFor, runFd } from "../bench/setsFd.mjs";
+import { LIVE_SETTINGS, cantRun, checkinMail, dayOf, earlierLines, fdTest, frontFor, groupFor, runFd } from "../bench/setsFd.mjs";
 import { parsePeople, parseTest } from "../bench/load.mjs";
 import sets from "../../../packages/shared/src/texSets.cjs";
 import { parseSetup } from "../src/agent/production.js";
@@ -98,10 +98,14 @@ test("each test's day is walked from the first dated time line", () => {
   assert.equal(dayOf(conv([{ id: "m1", who: "Maya", at: "Tue 9:00", text: "x" }]), 0, 2026), null, "no dated line: the test's own day");
 });
 
-test("what can't run says why: a check-in or routine row, a tapback, a picture; a group chat runs", () => {
+test("what can't run says why: a group's check-in or routine row, a check-in that found no email, a tapback, a picture; a group chat runs", () => {
   assert.equal(cantRun(chat, 4), null);
   assert.equal(cantRun({ ...chat, kind: "group" }, 4), null);
-  assert.match(cantRun(conv([{ id: "m1", who: "Routine", via: "routine", text: "rent reminder" }]), 0), /Routine row can't run/);
+  // A person's own check-in that found an email, and their routine, run; a group's do not yet.
+  assert.equal(cantRun(conv([{ id: "m1", who: "Routine", via: "routine", text: "rent reminder" }]), 0), null);
+  assert.equal(cantRun(conv([{ id: "m1", who: "Check-in", via: "checkin", text: "Gmail: TAP: flight delayed" }]), 0), null);
+  assert.match(cantRun(conv([{ id: "m1", who: "Check-in", via: "checkin", text: "calendar: dentist moved" }]), 0), /found an email/);
+  assert.match(cantRun(conv([{ id: "m1", who: "Routine", via: "routine", text: "rent reminder" }], { kind: "group" }), 0), /group's Routine row can't run/);
   assert.match(cantRun(chat, 2), /react/);
   assert.match(cantRun(conv([{ id: "m1", who: "Maya", text: "this?", pics: [{ url: "https://x.test/a.png" }] }]), 0), /pictures/);
 });
@@ -162,4 +166,25 @@ test("a group chat's test runs through the real bench on fake models end to end,
   const rows = await runFd([unit(flat, 2)], { tree: TREE, fake: true });
   assert.equal(rows.length, 1);
   assert.equal(rows[0].ran, true, rows[0].why);
+});
+
+test("a check-in row's email: the sender before the first colon, the rest as what it says", () => {
+  assert.deepEqual(checkinMail("Gmail: TAP: flight TP 237 delayed 50 minutes, new departure 2:05pm."), { from: "TAP", subject: "flight TP 237 delayed 50 minutes, new departure 2:05pm.", body: "flight TP 237 delayed 50 minutes, new departure 2:05pm." });
+  assert.equal(checkinMail("Gmail: no sender here at all").from, "(sender)");
+  assert.equal(checkinMail("rent reminder"), null);
+});
+
+test("a check-in or routine row becomes its case's start line, not a person's text", () => {
+  const c = conv([
+    { id: "m1", who: "Maya", text: "hi" },
+    { id: "m2", who: "Check-in", via: "checkin", text: "Gmail: TAP: flight delayed", labels: { fd: { must: ["say the delay"], star: true } } },
+    { id: "m3", who: "Routine", via: "routine", text: "reminder: meds", labels: { fd: { must: ["short"], star: true } } },
+  ]);
+  const md = fdTest([{ convo: c, at: 1, label: c.msgs[1].labels.fd }, { convo: c, at: 2, label: c.msgs[2].labels.fd }], "run_as: Maya");
+  assert.match(md, /- check-in mail: \{"from":"TAP"/);
+  assert.match(md, /- routine runs: "reminder: meds"/);
+  assert.doesNotMatch(md, /- person texts: "reminder: meds"/);
+  const parsed = parseTest(md).questions;
+  assert.deepEqual(parsed[0].checkinMail, { from: "TAP", subject: "flight delayed", body: "flight delayed" });
+  assert.equal(parsed[1].routine, "reminder: meds");
 });

@@ -101,3 +101,26 @@ test("task 12 end to end: found by sender, kept a text later, forwarded in a dra
     world.close();
   }
 });
+
+test("a check-in's look is shown the email that just arrived, and a routine runs with its words: what a Front door test that starts at one sends", async () => {
+  const loaded = await readBenchFolder(AI);
+  const bench = { people: [{ person: "Kofi", workspace: "kofi", role: "owner", personal: true }], workspaces: { kofi: loaded.workspaces.kofi } };
+  const asked = [];
+  const gatewayFetch = scripted([{ text: "Your TAP flight is 50 minutes late." }, { text: "Meds." }], asked);
+  const world = await createWorld(bench, "Kofi", SETUP, { gatewayFetch, ai: null }, "2026-10-12");
+  try {
+    world.mailArrives({ from: "TAP", subject: "flight TP 237 delayed 50 minutes", body: "flight TP 237 delayed 50 minutes, new departure 2:05pm." });
+    // The check-in's own Gmail question finds it: its inbox since the last look (`newMail.js`).
+    assert.deepEqual(searchMailbox([{ address: "a@x", id: "n", date: new Date(Date.now()).toISOString(), from: "TAP", to: "a@x", subject: "s", body: "", attachments: [] }], `after:${Math.floor((Date.now() - 60_000) / 1000)} in:inbox`).length, 1);
+    const look = await world.checkIn();
+    assert.equal(look.ok, true, look.error ?? "");
+    assert.equal(look.answer, "Your TAP flight is 50 minutes late.");
+    assert.match(JSON.stringify(asked[0]), /TP 237 delayed 50 minutes/, "the look was shown the new email");
+    const run = await world.routine("tex/routines/daily/bench-routine.md", "reminder: meds, 9:30pm");
+    assert.equal(run.ok, true, run.error ?? "");
+    assert.equal(run.answer, "Meds.");
+    assert.match(JSON.stringify(asked.at(-1)), /reminder: meds, 9:30pm/, "the run was given the routine's words");
+  } finally {
+    world.close();
+  }
+});
