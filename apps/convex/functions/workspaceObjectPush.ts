@@ -266,5 +266,30 @@ export const waitingSince = internalQuery({
   },
 });
 
+/**
+ * Whether a tree read must use Convex's rows instead of the object. True when a waiting push may narrow what a
+ * reader sees, replace the tree, or clear the binding, and when so many entries are waiting that this read cannot
+ * see the end of them. A content edit still waiting is false: the object holds the notes, and scanning every node
+ * document to show that one edit was most of `nodes.listLive` (137 GB, Oct 18 to Nov 17).
+ */
+const TREE_READS_WAIT_CAP = 50;
+
+export const treeReadsWait = internalQuery({
+  args: { workspaceId: v.id("workspaces") },
+  returns: v.boolean(),
+  handler: async (ctx, { workspaceId }) => {
+    let seen = 0;
+    for await (const entry of ctx.db
+      .query("workspaceObjectOutbox")
+      .withIndex("by_workspace_at", (q) => q.eq("workspaceId", workspaceId))) {
+      if (entry.access === true || entry.all === true || entry.unmarked === true || entry.binding === true) return true;
+      seen += 1;
+      // Fail closed: an entry past the cap might narrow, and this read has not seen it.
+      if (seen >= TREE_READS_WAIT_CAP) return true;
+    }
+    return false;
+  },
+});
+
 // What actions wait on, from where it lives (`lib/rowWatch/drain.ts`), for the callers that import it from here.
 export { drainWorkspace, GATEWAY_SETTLE, objectSettled, RETRY_MS, SETTLE_MS, settledAfter } from "./lib/rowWatch/drain";

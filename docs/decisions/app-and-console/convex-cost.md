@@ -34,6 +34,11 @@ patterns combined to produce the bill:
   `nodeTreeEdits`, not `nodeTrees`.
 - "Last seen" stamps are throttled. `touchGrant` writes at most once every
   five minutes.
+- A tree read of a workspace on its object stays on the object while the only
+  push still waiting is a content edit. A push that may narrow, replace the
+  tree, or clear the binding, and a waiting list too long to see the end of,
+  is read from Convex's rows. Scanning every node document for a content edit
+  was most of `nodes.listLive`.
 - A reader that needs both the mirror and the rules reads the access
   snapshot once (`readerView`).
 - A live frame with nobody to relay to is authorized at most every 30 seconds
@@ -50,3 +55,5 @@ bill back.
 - `gatewayTreeTouch.test.ts`: a save writes nothing a folder listing reads.
 - `grants.test.ts`: the stamp is written at most once every five minutes.
 - `relayV2SpeculativeUpdates.test.mjs`: solo keystrokes are authorized once.
+- `workspaceObjectTreeReads.test.ts`: a share taken back is not read from the
+  object, and a content edit still waiting is.
