@@ -103,10 +103,10 @@ const STYLE_RULES = {
 /**
  * Why the judge chose what it did: Clef never writes words, so its why is one of these, and each example is labelled
  * with one. Logged and kept in the chat's ledger (`judge` entry), so the owner can read why and add examples.
- * Each line says what the Training examples already label with it (2026-11-17): "about_tex" covers a jibe made to
- * Tex as well as one about it (a follow-up on what Tex's text said stays replies_to_tex), "asks_someone_else" a
- * follow-up question to the room that names nobody, and "corrects_tex" narrowing an ask. Read narrower, the judge
- * picked a neighbouring reason for the same act.
+ * Two lines say what the Training examples already label with them (2026-11-17): "asks_someone_else" a follow-up
+ * question to the room that names nobody, and "corrects_tex" narrowing an ask. Read narrower, the judge picked a
+ * neighbouring reason for the same act. Widening "about_tex" to remarks made to Tex was tried and dropped: the judge
+ * read it as a reason to answer banter (Dev runs, a quiet row turned respond on both).
  */
 const WHY = Object.freeze({
   tags_tex: "it @-tags Tex or names Tex as the one asked",
@@ -114,7 +114,7 @@ const WHY = Object.freeze({
   answers_tex: "it answers a question Tex asked: a yes, approve, a thumbs-up, a pick",
   asks_tex: "it asks Tex something or tells Tex to do something",
   corrects_tex: "it corrects Tex, pushes back on Tex, or changes what Tex was asked to do",
-  about_tex: "a remark about Tex itself, not what its text said, made to Tex or to the others",
+  about_tex: "people talking about Tex, not to it",
   thanks_or_ok: "only thanks, an ok or a laugh that asks nothing",
   people_talking: "people talking to each other",
   asks_someone_else: "it asks someone in the chat, named or not, and not Tex",
