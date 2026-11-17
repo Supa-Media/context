@@ -396,7 +396,7 @@ describe("PhotonEvents.event: a group's name and its people", () => {
   it("sends a group text's name to the app, as Sendblue's webhook gave it with every message", async () => {
     const cp = controlPlane();
     const { env: e } = env();
-    await entrypoint(e).event(event({ chat: { guid: GUID, kind: "group", name: " Gig‮ night ", participants: [PHONE, OTHER] }, from: OTHER, message: { guid: "g-n", text: "hi", service: "iMessage" } }));
+    await entrypoint(e).event(event({ chat: { guid: GUID, kind: "group", name: " Gig\u202e night ", participants: [PHONE, OTHER] }, from: OTHER, message: { guid: "g-n", text: "hi", service: "iMessage" } }));
     expect(cp.calls.find((c) => c.path === "/agent-texts/group/name")?.body).toEqual({ line: LINE, groupId: photonGroupId(GUID), name: "Gig night" });
   });
 
