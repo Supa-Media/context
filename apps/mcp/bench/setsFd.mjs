@@ -170,7 +170,7 @@ export function fdTest(units, front) {
  * day, judge and voice lines; failing that, the core set's own with `run_as:` them. One run each, on the scripted web,
  * on `today` and in the `group` when given. Null when nobody in `people.md` is called that.
  */
-export async function frontFor(dir, person, { today = null, group = null, calendar = false } = {}) {
+export async function frontFor(dir, person, { today = null, group = null, calendar = false, setting = null } = {}) {
   const people = parsePeople(await readFile(join(dir, "workspaces", "people.md"), "utf8"));
   if (!people.some((row) => row.person === person && row.personal)) return null;
   const names = (await readdir(join(dir, "tests"))).filter((n) => n.endsWith(".md")).sort((a, b) => (a === "core.md" ? -1 : b === "core.md" ? 1 : a.localeCompare(b)));
@@ -195,6 +195,9 @@ export async function frontFor(dir, person, { today = null, group = null, calend
   // Dev test does too: without it a test that wants a job started could never pass (Dev set, 2026-11-17).
   if (!/^background: on$/m.test(f)) f = f.replace(/^background: .*\n?/m, "") + "\nbackground: on";
   if (calendar && !/^calendar: /m.test(f)) f += "\ncalendar: connected";
+  // The outside world the chat takes for granted, played by a model where the fixtures have nothing (`simWorld.mjs`,
+  // Dev2 2026-11-17): it sees the chat's setting, never its labels.
+  if (setting !== null) f = f.replace(/^world(?:_setting)?: .*\n?/gm, "") + `\nworld: simulated\nworld_setting: ${JSON.stringify(String(setting).replace(/\s+/g, " ").trim())}`;
   if (today) f = f.replace(/^today: .*$/m, `today: ${today}`);
   if (group) f = f.replace(/^(run_as: .*)$/m, `$1\ngroup: ${group}`);
   return f;
@@ -238,13 +241,14 @@ export async function runFd(units, { tree, fake = false, runTests = null }) {
       const today = dayOf(u.convo, u.at, year);
       // A conversation whose setting gives Tex the calendar runs with one connected (`calendar.mjs` benchCalendar).
       const calendar = hasCalendar(u.convo);
-      const key = JSON.stringify([person, today, group, calendar]);
-      if (!batches.has(key)) batches.set(key, { person, today, group, calendar, units: [] });
+      const setting = String(u.convo.setting ?? "");
+      const key = JSON.stringify([person, today, group, calendar, setting]);
+      if (!batches.has(key)) batches.set(key, { person, today, group, calendar, setting, units: [] });
       batches.get(key).units.push(u);
     }
     const tests = [];
-    for (const { person, today, group, calendar, units } of batches.values()) {
-      const front = await frontFor(dir, person, { today, group, calendar });
+    for (const { person, today, group, calendar, setting, units } of batches.values()) {
+      const front = await frontFor(dir, person, { today, group, calendar, setting });
       if (front === null) {
         rows.push(...units.map((u) => ({ ...u.row, right: false, ran: false, usd: 0, why: `${person} has no bench world: a Dev chat's people are the bench's (apps/mcp/bench/ai/workspaces/people.md)` })));
         continue;

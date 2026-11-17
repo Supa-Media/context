@@ -27,6 +27,7 @@ import worker from "../src/index.js";
 import { PRODUCTION_TEXTING_PATH } from "../src/agent/production.js";
 import { skillPath } from "../src/agent/skills.js";
 import { createWeb } from "./sites.mjs";
+import { createSimWorld, simBinding, simulateServices } from "./simWorld.mjs";
 import { createBenchSite } from "./siteStub.mjs";
 import { CONTROL_PLANE_ORIGIN, GATEWAY_SECRET, createControlPlaneStub, createS3Backend } from "../test/controlPlaneStub.mjs";
 import { rmSync } from "node:fs";
@@ -230,6 +231,9 @@ export async function createWorld(bench, person, setupRaw, models, today = null,
   // The scripted web a golden task runs on (`sites.mjs`): the browser
   // Worker's stand-in, and the answers to web searches.
   const web = models.sites?.length ? createWeb(models.sites) : null;
+  // A Dev test's outside world where the scripted web and the fixtures have nothing (`simWorld.mjs`, Dev2 2026-11-17).
+  const sim = models.simulate ? createSimWorld({ ...models.simulate, today, person }) : null;
+  if (sim) simulateServices(sim, controlPlane, { connectedCalendar: models.calendar === "connected", connectMail: mail.length === 0 && /\b(?:g?mail|e-?mail|inbox)\b/i.test(models.simulate.setting ?? "") });
 
   // Model calls are the only traffic that leaves the world, and web searches
   // when the run has a search key and no scripted web: production searches
@@ -241,8 +245,10 @@ export async function createWorld(bench, person, setupRaw, models, today = null,
     const url = typeof input === "string" ? input : input.url;
     if (url.startsWith("https://gateway.ai.cloudflare.com/")) return modelCalls.fetch(url, init);
     if (url.startsWith(BRAVE_SEARCH)) {
-      if (web) {
-        const results = web.search(new URL(url).searchParams.get("q") ?? "");
+      if (web || sim) {
+        const q = new URL(url).searchParams.get("q") ?? "";
+        let results = web ? web.search(q) : [];
+        if (results.length === 0 && sim) results = await sim.search(q);
         return new Response(JSON.stringify({ web: { results } }), { status: 200, headers: { "content-type": "application/json" } });
       }
       if (typeof models.searchKey === "string" && models.searchKey) return below(input, init);
@@ -347,9 +353,9 @@ export async function createWorld(bench, person, setupRaw, models, today = null,
     // The hand-back judge, as production runs it (`agent/handbackJudge.js`); a scripted model leaves it off, since it would answer the judge's call too.
     ...(models.handbackJudge === true ? { HANDBACK_JUDGE: "on" } : {}),
     // A scripted web answers searches itself, so no real key is needed or sent.
-    ...(web ? { BRAVE_SEARCH_API_KEY: "bench-scripted-search", SITE_SHOTS: web.binding } : {}),
+    ...(web || sim ? { BRAVE_SEARCH_API_KEY: "bench-scripted-search", SITE_SHOTS: sim ? simBinding(sim, web) : web.binding } : {}),
     // An offline web (a socketed run) still offers search_web; the world answers it with nothing.
-    ...(!web && models.offlineWeb === true ? { BRAVE_SEARCH_API_KEY: "bench-offline-search" } : {}),
+    ...(!web && !sim && models.offlineWeb === true ? { BRAVE_SEARCH_API_KEY: "bench-offline-search" } : {}),
     // The deployment's search settings (`src/search/settings.js`): what a
     // search setup under test puts in the Worker's vars.
     ...(models.searchSettings ? { SEARCH_SETTINGS: JSON.stringify(wireSearchSettings(models.searchSettings)) } : {}),
@@ -577,7 +583,7 @@ export async function createWorld(bench, person, setupRaw, models, today = null,
 
     /** What the scripted browser did this conversation (`sites.mjs`); empty without one. */
     browser() {
-      return [...(web ? web.events() : []), ...site.events()];
+      return [...(web ? web.events() : []), ...(sim ? sim.events() : []), ...site.events()];
     },
 
     /** Each Gmail search and read this conversation made, in order (`mailbox.mjs`). */

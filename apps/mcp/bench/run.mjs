@@ -57,6 +57,7 @@ import { nodesCommand } from "./nodeCases.mjs";
 import { setsCommand } from "./setsRun.mjs";
 import { keyMarkdown, keyPathFor, resultMarkdown } from "./report.mjs";
 import { createWorld } from "./world.mjs";
+import { simMemo, simulateFor } from "./simWorld.mjs";
 import { filedNotes } from "./checks.mjs";
 import { realNow } from "./clock.mjs";
 import { benchFolder } from "./folder.mjs";
@@ -381,6 +382,8 @@ async function answerJobs(options, { bench, test, testName = options.test ?? opt
   // A test whose person has a calendar connected and nothing on it (`calendar: connected`, `calendar.mjs` benchCalendar).
   models.calendar = test.front.calendar ?? null;
   const person = { fake: options.fake === true, send, model: test.front.played_by };
+  // A Dev test's outside world, played by a model where the fixtures have nothing (`world: simulated`, `simWorld.mjs`).
+  const worldMemo = simMemo();
 
   // Warm by default (decided 2026-10-08): every workspace indexed once, every
   // conversation a clone of it. --cold measures the scan a fresh import gets.
@@ -394,8 +397,9 @@ async function answerJobs(options, { bench, test, testName = options.test ?? opt
   const records = [];
   try {
     for (const { setup, question, run: n } of jobs) {
-      const [worldSetup, worldModels] = setupInWorld(options.job, setup, models);
       const as = question.as ?? test.front.run_as;
+      const simulate = simulateFor(test.front, question, as, { send, memo: worldMemo, fake: options.fake === true });
+      const [worldSetup, worldModels] = setupInWorld(options.job, setup, simulate ? { ...models, simulate } : models);
       // An answer the model never gave is run once more in a fresh world
       // (decided 2026-10-09): the gateway has already retried the round and
       // the setup's fallback has had its turn, so what is left is a bad

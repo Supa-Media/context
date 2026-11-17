@@ -111,9 +111,10 @@ test("a run is told its answer is the text, and a one-off is told to text the re
   const question = routineQuestion(routine, { now: Date.UTC(2026, 9, 23, 13), timeZone: "UTC", recent: "Your last texts with them, oldest first:\nThem: hi" });
   assert.match(question, /texted to them exactly as you write it/);
   assert.match(question, /Text them the reminder itself/);
-  // Dev2, 2026-11-17: a reminder is a nudge at its time ("Meds 💊"), never "Reminder: meds tonight at 9:30pm".
-  assert.match(question, /as few words as a friend's nudge/);
-  assert.match(question, /never says "Reminder" or repeats its time/);
+  // Dev2, 2026-11-17: a reminder arrives at its time, so it need not say it is a reminder or when ("Reminder: meds
+  // tonight at 9:30pm" at 9:30 pm); and no fixed form is taught ("Reminder: call the bank" was, word for word).
+  assert.match(question, /as briefly as a friend would nudge them/);
+  assert.match(question, /the moment already says it is a reminder and when/);
   assert.doesNotMatch(question, /texts "Reminder:/);
   assert.doesNotMatch(question, /in their words/);
   assert.match(question, /nothing worth telling this time, call send with action say_nothing/);
