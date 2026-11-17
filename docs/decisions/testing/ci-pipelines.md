@@ -263,16 +263,33 @@ the push (#3544 failed typecheck and `ci / Architecture check`; #3538 and
 #3532 failed Fast repository guards). `pnpm precheck`
 (`scripts/precheck.mjs`) runs those three the way CI does. The guard steps
 are every `run:` step of `.github/workflows/fast-guards.yml` except the Node
-version line, so the Tex diagram check is in there. The app typecheck is
-`pnpm --dir apps/mobile typecheck` with a 6 GB heap. The architecture check
-is `pnpm exec supa-architecture-check --base origin/main` (or `main` when
-that is the ref that exists). It needs `pnpm install` already. CLAUDE.md
+version line, so the Tex diagram check is in there. Three of those steps also
+run `git fetch --no-tags --depth=1 origin "$BASE_SHA"`. CI needs that fetch,
+because its checkout is already shallow. Precheck has already resolved that
+commit as the merge-base, and the same fetch on a full clone writes
+`.git/shallow` and cuts history there, so each such line becomes `:` (an
+empty `then` is a bash syntax error) and the rest of the step runs. The app
+typecheck is the `mobile-typecheck` job: `pnpm typecheck` with
+`working-directory: apps/mobile` and `--max-old-space-size=6144`
+(`pnpm --dir apps/mobile typecheck` locally). The architecture check is
+`architecture-check: true` on the supa-framework workflow `ci.yml` calls. The
+command itself, `pnpm exec supa-architecture-check --base origin/<base>`,
+lives in that workflow; precheck runs it against `origin/main` (or `main`
+when that is the ref that exists). It needs `pnpm install` already. CLAUDE.md
 requires it before a push.
 
+The script is the main module only when `fileURLToPath(import.meta.url)` is
+`realpathSync` of `process.argv[1]`. Comparing `import.meta.url` to
+`` `file://${argv}` `` is false for a symlink or a path with a space, and the
+script then exits 0 having checked nothing.
+
 Dropping it, or letting the steps drift from the workflow, puts the fix loop
-back. `node scripts/precheck.mjs --self-test` fails if a guard `run:` is
-skipped for any reason other than `node --version`, or if the typecheck or
-architecture command is no longer CI's.
+back. Fast repository guards run `node scripts/precheck.mjs --self-test`. It
+fails if a guard `run:` is skipped for any reason other than `node --version`,
+if a guard line changes for any reason other than replacing `git fetch` of
+`$BASE_SHA` with `:`, if `mobile-typecheck` stops running `pnpm typecheck` in
+`apps/mobile` with `--max-old-space-size=6144`, or if `ci.yml` stops passing
+`architecture-check: true`.
 
 ## The Tex test set starts with the other checks
 
