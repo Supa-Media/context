@@ -1,24 +1,4 @@
 {
   "about": "Nodes whose code is merged into apps/mcp/src/agent/graph/gatewayNodes.js but not wired into texConfig.json yet (Dev2, 2026-11-16: \"for code changes, create the node inside the code first and merge it to main\"). A shelf node never runs: the runner runs only the config's nodes. A Lab draft wires it, and Promote takes it off the shelf in the same pull request that puts it in the config. Each entry: the node's id, its files (repository paths), and what it is for.",
-  "nodes": {
-    "crossChatGate": {
-      "files": [
-        "apps/mcp/src/agent/graph/nodes/crossChatGate.js",
-        "apps/mcp/src/agent/crossChat.js"
-      ],
-      "why": "The Cross-chat gate: before Tex in one chat asks Tex in another (send ask_chat), says who may ask whom (a 1:1 its person's groups, a group the tagger's personal Tex, never group to group) and holds the limits (one open ask per pair, 10 an hour, 40 a day) (Dev2, 2026-11-17, design N3ZawPjhhgYcNfHm7xWa37). Wired as tools -> crossChatGate (uses, ask_chat); unwired, no turn is offered ask_chat."
-    },
-    "chatAsk": {
-      "files": [
-        "apps/mcp/src/agent/graph/nodes/chatAsk.js"
-      ],
-      "why": "Another chat asks: the input that starts a run in a chat for another chat's ask (kind ask), or for the answer to its own ask (kind answer), as a new run (generators model). Wired as crossChatGate -> chatAsk and chatAnswer -> chatAsk (starts a new run), chatAsk -> lanes (wait)."
-    },
-    "chatAnswer": {
-      "files": [
-        "apps/mcp/src/agent/graph/nodes/chatAnswer.js"
-      ],
-      "why": "Answer the other chat: an ask-run's checked draft goes back to the chat that asked instead of being texted here, with a do-ask's one signed line for this group. Wired as answerCheck -> chatAnswer (wait, ask)."
-    }
-  }
+  "nodes": {}
 }

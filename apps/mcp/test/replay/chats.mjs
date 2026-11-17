@@ -125,6 +125,26 @@ export async function oneToOne() {
       if (flushed.status !== 200) throw new Error(`replay: the Worker's flush answered ${flushed.status}`);
       return { answer, calls, id: theirs.id, shown: world.model.requests.slice(before).map(shownIn).join("\n") };
     },
+    /**
+     * A run the Worker starts by code with no text of theirs (`queueByCode`): a cross-chat ask or answer
+     * (`apps/agent/src/crossChat.ts`), its `body` as the Worker adds it. Nothing is covered; Tex's reply, if any, is kept.
+     */
+    async byCode(question, reply, body) {
+      clock += 60_000;
+      const turn = `turn-replay-${String(++turns).padStart(4, "0")}`;
+      const before = world.model.requests.length;
+      world.model.install(script(reply));
+      const answered = await request(world.env, TOKEN_TEXTS, "/agent", { question, conversation: "texts", chat: LINE, turn, ...body, ...(warm ? { warm } : {}) });
+      if (answered.status !== 200) throw new Error(`replay: the run for "${question}" answered ${answered.status}: ${JSON.stringify(answered.body)}`);
+      warm = answered.body.warm ?? null;
+      clock += 5_000;
+      const answer = String(answered.body.answer ?? "");
+      if (answer) {
+        const flushed = await request(world.env, TOKEN_TEXTS, "/agent/events", { conversation: "texts", events: [event({ from: { kind: "tex" }, text: answer, turn, delivered: true })] });
+        if (flushed.status !== 200) throw new Error(`replay: the Worker's flush answered ${flushed.status}`);
+      }
+      return { answer, body: answered.body, shown: world.model.requests.slice(before).map(shownIn).join("\n") };
+    },
     /** Time passing between texts: the chat's clock moves on by `ms` (a case that fakes `Date.now` for its older texts). */
     later(ms) {
       clock += ms;

@@ -43,6 +43,7 @@ flowchart LR
   n_answerCheck["Answer check<br/>Haiku 5.5 · effort low<br/>graph/nodes/checks.js · graph/nodes/reviewer.js · replyJudge.js · sendBack.js"]:::model
   n_bypass["Confirmations & refusals<br/>code<br/>graph/nodes/bypass.js"]:::code
   n_chatDays["Chat day summaries<br/>Haiku 5.5 · effort low<br/>graph/nodes/chatDays.js · daySummaries.js"]:::model
+  n_chatAsk(["Another chat asks<br/>code<br/>graph/nodes/chatAsk.js"]):::start
   n_chatAnswer["Answer the other chat<br/>code<br/>graph/nodes/chatAnswer.js"]:::code
   subgraph n_group_intake["Intake"]
     n_text(["A text arrives<br/>code<br/>apps/agent"]):::start
@@ -52,7 +53,6 @@ flowchart LR
     n_lanes["Queue<br/>code<br/>apps/agent inbox.ts · groupTurn.ts"]:::code
     n_react["React<br/>code<br/>decide.ts reactionFor · reactions.ts"]:::code
     n_doorStep["Door<br/>code<br/>texEntryPoint/*"]:::code
-    n_chatAsk(["Another chat asks<br/>code<br/>graph/nodes/chatAsk.js"]):::start
   end
   subgraph n_group_staff_messages["Staff messages"]
     n_moveChat(["Staff move a chat<br/>code<br/>graph/nodes/moveChat.js · textsMove.js · apps/agent moveChats.ts · groupMoves.ts"]):::start
@@ -214,7 +214,7 @@ every wire, from the same config.
 | Chat day summaries | chatDays |  | on | Haiku 5.5 | low |  |  | graph/nodes/chatDays.js · daySummaries.js |
 | Move judge | moveJudge | tools-subagents | on | Haiku 5.5 | low | 8 s |  | graph/nodes/moveJudge.js · theirNotes.js |
 | Cross-chat gate | crossChatGate | tools-subagents | on | code |  |  |  | graph/nodes/crossChatGate.js · crossChat.js |
-| Another chat asks | chatAsk | intake | on | code |  |  |  | graph/nodes/chatAsk.js |
+| Another chat asks | chatAsk |  | on | code |  |  |  | graph/nodes/chatAsk.js |
 | Answer the other chat | chatAnswer |  | on | code |  |  |  | graph/nodes/chatAnswer.js |
 
 Wires: checkin → fd (wait, look) · notify → send (wait, send) · oldLine → send (wait, redirect) · edit → triage (wait, turn) · moveChat → send (wait, person, group) · triage → decide (wait, judge, running) · triage → lanes (wait, tex) · decide → react (wait) · decide → lanes (wait) · fd → tools (uses, action) · tools → mail (uses, email) · tools → card (uses, card) · fd → job (job, job) · job → handback (job, job) · tools → egress (uses, share) · tools → picture (uses, picture) · picture → card (uses) · nightly → dream (wait, dream) · dream → daysum (wait, summarize) · nightly → housekeep (wait, housekeeping) · tools → advisor (uses, ask_advisor) · job → jobadv (uses, job) · job → tools (uses, job) · lanes → doorStep (wait) · text → triage (wait) · doorStep → fd (wait, next) · send → learn (background, fired) · send → afterReply (background, sent, threads) · fd → answerCheck (wait) · answerCheck → send (wait) · answerCheck → fd (loop) · doorStep → bypass (wait, answered) · bypass → send (wait) · staff → moveChat (wait, move) · routine → fd (wait, run) · routine → bypass (wait, stopped) · fd → planner (uses, big) · send → chatDays (background, sent, ended, answered) · tools → moveJudge (uses, move) · tools → crossChatGate (uses, ask_chat) · chatAsk → lanes (wait, ask, answer) · answerCheck → chatAnswer (wait, ask) · crossChatGate → chatAsk (generator, ask) · chatAnswer → chatAsk (generator, back)

@@ -239,8 +239,9 @@ test("a provisional wire carries its allow, kept on a rewire, dropped by null, a
 test("a generator wire is a wire kind the Lab can draw and round-trip (Dev2, 2026-11-16)", () => {
   const g = main();
   const r = applyOps(g, [{ op: "wire", from: "send", to: "text", mode: "generator", when: ["answer"] }]);
-  assert.deepEqual(r.graph.edges.find((e) => e.mode === "generator"), { from: "send", to: "text", mode: "generator", when: ["answer"] });
+  const added = (graph) => graph.edges.find((e) => e.mode === "generator" && e.from === "send");
+  assert.deepEqual(added(r.graph), { from: "send", to: "text", mode: "generator", when: ["answer"] });
   assert.match(r.said[0], /wired send → text \(generator, when answer\)/);
-  assert.deepEqual(applyOps(g, diffGraphs(g, r.graph)).graph.edges.find((e) => e.mode === "generator"), r.graph.edges.find((e) => e.mode === "generator"));
+  assert.deepEqual(added(applyOps(g, diffGraphs(g, r.graph)).graph), added(r.graph));
   assert.throws(() => applyOps(g, [{ op: "wire", from: "send", to: "text", mode: "generator", allow: "read" }]), OpError);
 });
