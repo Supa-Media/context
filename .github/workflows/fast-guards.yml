@@ -50,6 +50,12 @@ jobs:
           EVENT_BODY: ${{ github.event.pull_request.body }}
         run: node scripts/pr-description.mjs --print-body > "$RUNNER_TEMP/pr-body"
 
+      # precheck runs these steps on a full clone before a push. This fails when a guard `run:` drifts, or when
+      # `mobile-typecheck` in ci.yml drifts. Node built-ins only, so it needs no install. It also runs as one of
+      # the guards below; that second pass is the same check, not a second copy of the rules.
+      - name: Precheck matches the fast guards and the app typecheck
+        run: node scripts/precheck.mjs --self-test
+
       - name: The public privacy page contains the current policy without app execution
         run: node --experimental-strip-types --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --test scripts/public-privacy.test.mjs
 

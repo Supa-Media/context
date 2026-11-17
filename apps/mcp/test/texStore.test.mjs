@@ -39,6 +39,7 @@ function durableSql() {
 function listPlans(sql) {
   const plans = sql.queries.map(({ query, binds }) => ({
     query,
+    binds,
     detail: sql.db
       .prepare(`EXPLAIN QUERY PLAN ${query}`)
       .all(...binds)
@@ -51,17 +52,24 @@ function listPlans(sql) {
 
 /**
  * A prefixed list must seek the primary-key index on both sides. `substr(key, 1, n) = prefix`
- * is still a SEARCH, but only on `key > cursor`, so it reads every later row.
+ * is still a SEARCH, but only on `key > cursor`, so it reads every later row. Two lower
+ * bounds in one statement seek at the cursor, and an empty cursor is the start of the table.
  */
 function assertBoundedKeySearch(sql) {
   const plans = listPlans(sql);
   assert.ok(plans.length > 0, "list ran no query");
   for (const plan of plans) {
-    assert.match(plan.query, /key > \? AND key >= \? AND key < \?/);
     assert.doesNotMatch(plan.query, /substr\s*\(/i);
     assert.match(plan.detail, /SEARCH objects USING INDEX sqlite_autoindex_objects_1/);
     assert.match(plan.detail, /key</);
     assert.doesNotMatch(plan.detail, /\bSCAN\b/);
+    const seek = sql.db
+      .prepare(`EXPLAIN ${plan.query}`)
+      .all(...plan.binds)
+      .find((row) => String(row.opcode).startsWith("Seek"));
+    if (/WHERE key >= \? AND key < \?/.test(plan.query)) assert.equal(seek.opcode, "SeekGE");
+    else if (/WHERE key > \? AND key < \?/.test(plan.query)) assert.equal(seek.opcode, "SeekGT");
+    else assert.fail(plan.query);
   }
 }
 
