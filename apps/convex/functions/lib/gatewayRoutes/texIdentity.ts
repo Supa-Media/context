@@ -2,7 +2,9 @@
  * `POST /gateway/agent/identity` — `{ accessToken, expectedWorkspaceId }` →
  * `{ identity: { name, handle, phones, emails, google } | null }`; with
  * `{ accessToken, asker: true }`, who tagged Tex in a group chat, on their own
- * tag only (`askerIdentityHandler`).
+ * tag only (`askerIdentityHandler`); with `{ accessToken, expectedWorkspaceId,
+ * groups: true }`, `{ groups: [{ key, name, people, lastSeenAt }] | null }`, the
+ * group chats the 1:1 texting grant's own person is in (`lib/texIdentity/groups.ts`).
  *
  * Who is texting Tex (`lib/texIdentity/identity.ts`). Behind the gateway's
  * secret, with the person's own access token: the person comes off the
@@ -23,6 +25,11 @@ export async function gatewayAgentIdentityHandler(ctx: ActionCtx, body: Record<s
     return json({ identity: await ctx.runQuery(internal.functions.texIdentity.askerForGateway, { hashedAccessToken: await hashToken(accessToken) }) });
   }
   const expected = stringField(body, "expectedWorkspaceId");
+  // `{ accessToken, expectedWorkspaceId, groups: true }`: the group chats the person texting their own Tex is in.
+  if (body.groups === true) {
+    if (accessToken === null || expected === null) return json({ groups: null });
+    return json({ groups: await ctx.runQuery(internal.functions.texIdentity.groupsForGateway, { hashedAccessToken: await hashToken(accessToken), expectedWorkspaceId: expected }) });
+  }
   if (accessToken === null || expected === null) return json({ identity: null });
   const identity = await ctx.runQuery(internal.functions.texIdentity.forGateway, {
     hashedAccessToken: await hashToken(accessToken),
