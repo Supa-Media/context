@@ -32,7 +32,8 @@
  * chat's own words), and those words are no outsider's (`markChatWords`).
  *
  * Stubbed, never replayed:
- * - a result read from another workspace (the ledger never kept it);
+ * - a result read from another workspace (the ledger never kept it), apart from its receipt and routing arguments
+ *   (`callOf`);
  * - in a group, every result of a turn asked by anyone but who asks now, read
  *   under a grant other than this turn's: one member's mail or notes never
  *   reach a turn for someone else. Read under this turn's own grant, it is
@@ -75,7 +76,7 @@ export function carryCounts(turns) {
   const counts = { carried: 0, stubOther: 0, stubGrant: 0, stubWorkspace: 0, outside: false, stretch: turns.length };
   for (const turn of turns) {
     for (const call of turn.calls ?? []) {
-      const stub = STUBS.get(call.result);
+      const stub = STUBS.get(call.result) ?? (typeof call.result === "string" && call.result.endsWith(`\n\n${STUB_WITHHELD}`) ? "stubWorkspace" : undefined);
       if (stub === undefined) {
         counts.carried += 1;
         if (turn.outside === true) counts.outside = true;
@@ -98,12 +99,35 @@ export function stretchSince(entries) {
 }
 
 
-/** A tool entry as a replayed call: `{id, name, args, result, isError}`. */
+/** The arguments a withheld call is replayed with: only where it went and what it set, never what it said or asked. */
+const ROUTING_ARGS = new Set(["path", "note", "id", "prefix", "context", "source", "destination", "source_context", "destination_context", "visibility", "action"]);
+
+function routingArgs(args) {
+  if (!args || typeof args !== "object" || Array.isArray(args)) return {};
+  const out = {};
+  for (const [key, value] of Object.entries(args)) {
+    if (ROUTING_ARGS.has(key) && (typeof value === "string" || typeof value === "boolean")) out[key] = value;
+    else if (key === "args" && value && typeof value === "object") out.args = routingArgs(value); // `manage {action, args}` (`sixTools.js`)
+  }
+  return out;
+}
+
+/**
+ * A tool entry as a replayed call: `{id, name, args, result, isError}`.
+ *
+ * A call into another workspace (`withheld`) is replayed with its routing arguments (path, workspace, visibility)
+ * and its receipt (`ledger.js` `receiptOf`), then the stub: Tex saw neither where its own write in @v2l had gone
+ * nor whether its visibility change took, and guessed again on every later text (owner, 2026-11-17). The note's
+ * words, a query or a recipient stay out, as before.
+ */
 function callOf(entry, stub, grant) {
   const as = entry.as && typeof entry.as.name === "string" ? entry.as : null; // the name the model wrote (`turn.js`)
+  const withheld = stub === null && entry.withheld !== undefined;
   const stubbed = stub ?? (entry.withheld !== undefined ? STUB_WITHHELD : typeof grant !== "string" || entry.grant !== grant ? STUB_GRANT : null);
-  const result = stubbed ?? (typeof entry.result === "string" ? entry.result : "(no result)");
-  return { id: `toolu_${String(entry.id).replace(/[^A-Za-z0-9_-]/g, "")}`, name: as?.name ?? entry.name, args: stubbed !== null ? {} : (as ?? entry).args ?? {}, result, isError: entry.ok !== true && entry.held !== true };
+  const receipt = withheld && typeof entry.receipt === "string" && entry.receipt !== "" ? entry.receipt : null;
+  const result = receipt !== null ? `${receipt}\n\n${STUB_WITHHELD}` : stubbed ?? (typeof entry.result === "string" ? entry.result : "(no result)");
+  const args = withheld ? routingArgs((as ?? entry).args) : stubbed !== null ? {} : (as ?? entry).args ?? {};
+  return { id: `toolu_${String(entry.id).replace(/[^A-Za-z0-9_-]/g, "")}`, name: as?.name ?? entry.name, args, result, isError: entry.ok !== true && entry.held !== true };
 }
 
 /**

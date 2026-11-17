@@ -27,6 +27,11 @@
  *     → "a page's link opens the page viewer, a plain note's the app" fails.
  *  8. `sentNoteLinks` reading only `/note/` links.
  *     → "a page link they text is read as the note" fails.
+ *
+ * Applied, suite run, named test observed failing, reverted (2026-11-17).
+ *
+ *  9. `slugFor` reading only `args.context`, as before.
+ *     → "a read that names its workspace only in the path links into that workspace" fails.
  */
 
 import assert from "node:assert/strict";
@@ -73,7 +78,17 @@ test("a page link they text is read as the note", () => {
 test("a failed write gets no link", async () => {
   const refused = { isError: true, content: [{ type: "text", text: "written: nothing (etag x)" }] };
   const call = withNoteLinks(async () => refused, { origin: ORIGIN, contexts: CONTEXTS });
-  assert.equal(await call("write_note", { path: "a.md" }), refused);
+  const result = await call("write_note", { path: "a.md" });
+  assert.equal(result.isError, true);
+  assert.doesNotMatch(result.content[0].text, /link:/);
+});
+
+test("a refused note call names the workspace that refused it (2026-11-17)", async () => {
+  const refused = { isError: true, content: [{ type: "text", text: "Projects is already here, and names in one folder can't differ only by case. Use Projects/x.md instead." }] };
+  const call = withNoteLinks(async () => refused, { origin: ORIGIN, contexts: CONTEXTS });
+  assert.match((await call("write_note", { path: "projects/x.md" })).content[0].text, /^In @maya: Projects is already here/);
+  assert.match((await call("write_note", { path: "projects/x.md", context: "@hangg" })).content[0].text, /^In @hangg: /);
+  assert.equal(await call("search", { query: "x" }), refused, "other tools' refusals pass through");
 });
 
 test("other tools pass through untouched", async () => {
@@ -111,7 +126,7 @@ test("a read links to where the note is now, not the path asked for", async () =
 test("a failed read, and a read of a note's mail, get no link", async () => {
   const refused = { isError: true, content: [{ type: "text", text: "etag: x\npath: a.md" }] };
   const call = withNoteLinks(async () => refused, { origin: ORIGIN, contexts: CONTEXTS });
-  assert.equal(await call("read_note", { path: "a.md" }), refused);
+  assert.doesNotMatch((await call("read_note", { path: "a.md" })).content[0].text, /link:/);
   const mail = { content: [{ type: "text", text: "etag: x\npath: a.md\n\nmail" }] };
   const mailCall = withNoteLinks(async () => mail, { origin: ORIGIN, contexts: CONTEXTS });
   assert.equal(await mailCall("read_note", { path: "a.md", mail: "new" }), mail);
@@ -136,4 +151,12 @@ test("an unknown context name gives no link rather than a guessed one", async ()
   const call = withNoteLinks(async () => written("a.md"), { origin: ORIGIN, contexts: [] });
   const result = await call("write_note", { path: "a.md" });
   assert.doesNotMatch(result.content[0].text, /link:/);
+});
+
+test("a read that names its workspace only in the path links into that workspace (Sayo's chat, 2026-11-16)", async () => {
+  const read = { content: [{ type: "text", text: "etag: c2.x\npath: projects/plan.md\nvisibility: team\n\nbody" }] };
+  const call = withNoteLinks(async () => read, { origin: ORIGIN, contexts: CONTEXTS });
+  const result = await call("read_note", { path: "@hangg/projects/plan.md" });
+  assert.match(result.content[0].text, /\nlink: https:\/\/app\.example\/note\/@hangg\/projects\/plan\.md/);
+  assert.doesNotMatch(result.content[0].text, /@maya/);
 });
