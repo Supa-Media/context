@@ -21,7 +21,7 @@
     {"id":"m13","tex":true,"text":"Yes. Supplies were budgeted at $400 a month; September came to $451 and October to $300, so September ran $51 over.","who":"Tex"},
     {"id":"m14","kind":"reply","labels":{"decide":{"act":"respond","star":true,"why":"replies_to_tex"}},"text":"over how, which part","to":"m13","who":"Lena"},
     {"id":"m15","tex":true,"text":"The $226 toner order. Paper and ink were under.","who":"Tex"},
-    {"id":"m16","labels":{"decide":{"act":"quiet","also_react":"no","star":true,"why":"people_talking"}},"text":"ok that's on me, i panic bought","who":"Marco"},
+    {"id":"m16","text":"ok that's on me, i panic bought","who":"Marco"},
     {"id":"m17","kind":"reply","text":"lol it's fine","to":"m16","who":"Kai"},
     {"at":"Wed 16:02","id":"m18","text":"[picture: the shop's front window with a new poster]","who":"Kai"},
     {"id":"m19","labels":{"decide":{"act":"quiet","also_react":"no","star":true,"why":"asks_someone_else"}},"text":"marco look what lena hung up","who":"Kai"},
@@ -30,10 +30,17 @@
     {"id":"m22","kind":"reply","text":"ok","to":"m21","who":"Lena"},
     {"id":"m23","kind":"reply","labels":{"decide":{"act":"respond","star":true,"why":"replies_to_tex"}},"text":"and the window, when does that change next","to":"m15","who":"Lena"},
     {"id":"m24","tex":true,"text":"December 1, for the holiday print sale.","who":"Tex"},
-    {"id":"m25","labels":{"decide":{"act":"quiet","also_react":"no","star":true,"why":"about_tex"}},"text":"tex knows everything about this shop lol","who":"Kai"},
+    {"id":"m25","text":"tex knows everything about this shop lol","who":"Kai"},
     {"id":"m26","labels":{"decide":{"act":"respond","star":true,"why":"corrects_tex"}},"text":"the sale is the 1st? i thought the 8th","who":"Marco"},
     {"id":"m27","tex":true,"text":"The calendar has it Monday, December 1. The 8th is the open studio night.","who":"Tex"},
     {"id":"m28","text":"lena can you do the 8th","who":"Marco"},
-    {"id":"m29","text":"probably, depends on the kid","who":"Lena"}
+    {"id":"m29","text":"probably, depends on the kid","who":"Lena"},
+    {"at":"Thu 10:15","id":"m30","text":"Tex can you read the supplier's new price sheet, the link from monday","who":"Kai"},
+    {"id":"m31","tex":true,"text":"That link opens a sign-in page, so I can't read the sheet. If someone pastes it here, I'll go through it.","who":"Tex"},
+    {"id":"m32","kind":"reply","labels":{"decide":{"act":"quiet","also_react":"no","star":true,"why":"asks_someone_else"}},"text":"lena you still have that login right","to":"m31","who":"Marco"},
+    {"id":"m33","text":"not since they reset it","who":"Lena"},
+    {"id":"m34","kind":"reply","labels":{"decide":{"act":"respond","star":true,"why":"replies_to_tex"}},"text":"find their old catalogue online then","to":"m31","who":"Kai"},
+    {"id":"m35","tex":true,"text":"Their spring catalogue is public: masters went from $38 to $46 a roll, ink stayed at $29.","who":"Tex"},
+    {"id":"m36","kind":"reply","text":"marco this is why we switched","to":"m35","who":"Lena"}
   ]
 }
