@@ -19,7 +19,7 @@
 
 import { checkEvent, EVENT_ID, EVENT_KINDS, READ_CHARS, READ_LIMIT } from "./log.js";
 import { DESK_LEDGER } from "../texStore/desk.js";
-import { sentOnItsOwn } from "./sentOnItsOwn.js";
+import { noteAbout, sentOnItsOwn } from "./sentOnItsOwn.js";
 import { shownFacts } from "./toldFacts.js";
 
 /** The most entries one read of the ledger asks for; a turn reads at most `MAX_PAGES` of them. */
@@ -224,7 +224,9 @@ function wholeDays(events) {
 
 /** A check-in or other text Tex sent by itself, as an event; anything else kept as a note is not shown. */
 function noteEvent(entry, chat) {
-  if (typeof entry.about !== "string" || !BY_ITSELF.test(entry.about) || typeof entry.text !== "string" || entry.text.trim() === "") return null;
+  // A routine's note keeps its path, not an `about`; one texted to other people is not this chat's (`finishARoutine.js`).
+  const about = entry.others === true ? null : noteAbout(entry);
+  if (about === null || !BY_ITSELF.test(about) || typeof entry.text !== "string" || entry.text.trim() === "") return null;
   // Why it went out stays with it (`sentOnItsOwn.js`): a ping another agent asked for is that agent's, passed on.
-  return { id: `note-${entry.id}`, at: entry.at, chat, from: { kind: "tex" }, kind: "text", text: entry.text.trim(), delivered: true, byItself: true, ...sentOnItsOwn(entry.about) };
+  return { id: `note-${entry.id}`, at: entry.at, chat, from: { kind: "tex" }, kind: "text", text: entry.text.trim(), delivered: true, byItself: true, ...sentOnItsOwn(about) };
 }

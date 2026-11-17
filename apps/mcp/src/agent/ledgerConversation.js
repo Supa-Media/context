@@ -33,6 +33,7 @@ import { BACKFILLED, eventEntry, ONE_TO_ONE_CHAT } from "./ledger.js";
 import { deskLedger } from "./history.js";
 import { words } from "./logRender.js";
 import { DESK_LEDGER } from "../texStore/desk.js";
+import { noteAbout } from "./sentOnItsOwn.js";
 
 /** Every line Tex sent without a text from them begins so (`heartbeat.js`, `conversation.js`, `attention.js`). */
 const BY_ITSELF = /^\(Not a text from them\./;
@@ -42,7 +43,6 @@ const SKIPPED_EVENTS = new Set(["delivery", "ask_settled"]);
 /** The Worker's copy of a fixed text and the gateway's are this close: further apart, it was texted again. */
 const SAME_TOLD_MS = 10 * 60_000;
 
-const routineLine = (path) => `(Not a text from them. Your routine ${path} ran on its schedule and you texted them what follows.)`;
 /*
   A Tex text that answers no text of theirs: a job's report, sent when the job
   finished (Dev2, 2026-11-09: a job texted that a Google Maps change was made at
@@ -149,7 +149,7 @@ export function conversationFromLedger(entries, { question: asQuestion = null, m
     } else if (entry.kind === "note" && entry.others !== true && entry.backfill === undefined && typeof entry.text === "string" && entry.text.trim() !== "") {
       // A routine's text to other people is not this chat's (`texEntryPoint.js`); a copied-in note is already among the texts.
       flush();
-      const about = typeof entry.about === "string" ? entry.about : typeof entry.routine === "string" ? routineLine(entry.routine) : null;
+      const about = noteAbout(entry);
       const at = Number.isSafeInteger(entry.at) ? { at: entry.at } : {};
       // One that answers them (a settled yes) takes their texts as its question; one Tex sent by itself leaves them waiting.
       const thread = typeof entry.thread === "string" ? { thread: entry.thread } : {};

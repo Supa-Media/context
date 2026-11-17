@@ -12,10 +12,16 @@
  *   - with no review wanted, or a turn that is no job's report or routine (`reviewedAs` null), no review runs and the
  *     send does (case c);
  *   - the runner logs the front door's rerun from the Answer check's loop wire as via "answerCheck:loop" (case d);
+ *   - a spent send-back budget lets the last draft go, marked `spent`, and the send runs: never a crash that throws the
+ *     answer away (case e; Dev2, 2026-11-17, the timecards job lost its answer ten times this way), and letting a draft
+ *     go spends nothing, so a budget of two takes two notices (case f, the live config before the wire had rounds).
  *
  * Sabotage record (temporary local edits, reverted, 2026-11-16):
  *   (i)  answerCheck.js: `continue` after a code notice removed. Case a fails: d1 is reviewed though the code sent it back.
  *   (ii) answerCheck.js: `&& t.reviewedAs` removed. "a chat turn's draft is never reviewed" fails.
+ *   (iii) answerCheck.js: the `back.left() === 0` let-go removed (2026-11-17). Case e fails with "sent work back
+ *        to fd more than 2 times", the incident's error.
+ *   (iv) texGraph.cjs: a release counted as a send. Case f fails the same way.
  */
 import { test } from "node:test";
 import assert from "node:assert/strict";
@@ -43,7 +49,7 @@ function stopOutput(stop) {
 }
 
 /** One turn: the fake front door, the real checks and reviewer, a recording send, all on the real runner. */
-async function runTurn(script, reviewedAs = "report") {
+async function runTurn(script, reviewedAs = "report", config = CONFIG) {
   const calls = [];
   const drafted = [];
   const logs = [];
@@ -69,7 +75,7 @@ async function runTurn(script, reviewedAs = "report") {
     return stopOutput(await drafts.start(modelLoop()));
   };
   const graph = createGraph(
-    CONFIG,
+    config,
     {
       fd,
       answerCheck: answerCheckNode,
@@ -139,3 +145,35 @@ test("a chat turn's draft is never reviewed: only a job's report or a routine's 
   assert.equal(sendRuns, 1);
 });
 
+
+const BUDGET = (rounds, onWire = true) => ({
+  nodes: [node("fd", onWire ? {} : { rounds }), node("answerCheck"), node("send")],
+  edges: [wire("fd", "answerCheck", "wait", ["*"]), wire("answerCheck", "send", "wait", ["*"]), { ...wire("answerCheck", "fd", "loop", ["*"]), ...(onWire ? { rounds } : {}) }],
+});
+
+test("a spent send-back budget lets the last draft go, marked spent, and it is sent", async () => {
+  const { calls, drafted, sendRuns, outputs } = await runTurn({ code: () => ({ notice: "again", review: false }), review: () => null }, "report", BUDGET(2));
+  assert.deepEqual(drafted, ["d1", "d2", "d3"]);
+  assert.deepEqual(calls, [["code", "d1"], ["code", "d2"], ["code", "d3"]]);
+  assert.equal(sendRuns, 1, "the draft is sent, not thrown away");
+  assert.equal(outputs.answerCheck.sentBack, 2);
+  assert.equal(outputs.answerCheck.spent, true);
+});
+
+test("letting a draft go spends no round: two notices then a clean draft fit a budget of two (fd rounds 2, no rounds on the wire)", async () => {
+  const { sendRuns, outputs } = await runTurn(
+    { code: (draft) => (draft === "d3" ? { notice: null, review: false } : { notice: "again", review: false }), review: () => null },
+    "report",
+    BUDGET(2, false),
+  );
+  assert.equal(sendRuns, 1);
+  assert.equal(outputs.answerCheck.sentBack, 2);
+  assert.equal(outputs.answerCheck.spent, undefined);
+});
+
+test("a review notice past the budget lets the draft go too", async () => {
+  const { sendRuns, outputs } = await runTurn({ code: () => ({ notice: null, review: true }), review: () => "shorter" }, "report", BUDGET(1));
+  assert.equal(sendRuns, 1);
+  assert.equal(outputs.answerCheck.sentBack, 1);
+  assert.equal(outputs.answerCheck.spent, true);
+});
