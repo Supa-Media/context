@@ -21,7 +21,10 @@
  *   (`turn.js`, `texEntryPoint.js`). `cancelled: false`, with nothing marked, when no
  *   turn of this person's runs under that id, or the running one already made
  *   a call that changed something or went out (`steer.js` `cancelTurn`): the
- *   Worker then queues the text instead.
+ *   Worker then queues the text instead. A provisional run, started ahead of the Worker's
+ *   checks (`provisional: true`) is stopped this way mid-call too (`steer.js` `stopWatch`).
+ * - `POST /agent/go` `{ turn }` → `{ go }`: the Worker's checks let a provisional
+ *   run go on: its held writing calls run (`steer.js` `goTurn`).
  * - `POST /agent/stale` `{ asks }` → `{ disarmed }`: ends the named pending
  *   asks of this person (`disarmRecords`). It can only end an ask: a record
  *   is dropped or disarmed, never armed or extended.
@@ -34,7 +37,7 @@ import { json } from "../http/responses.js";
 import { hasScope, SCOPE_WRITE } from "../session.js";
 import { EVERY_CHAT, disarmRecords, listPending, withdrawPending } from "../tools/approvals.js";
 import { appendEvents, checkEvents, EventRefusal } from "./log.js";
-import { cancelTurn, handleSteer } from "./steer.js";
+import { cancelTurn, goTurn, handleSteer } from "./steer.js";
 
 const TEXTS_CLIENT_ID = "context_texts";
 const TEXTS_GROUP_CLIENT_ID = "context_texts_group";
@@ -116,9 +119,18 @@ export async function handleChat(request, store, session, now = Date.now()) {
 /** `POST /agent/cancel`. */
 export async function handleCancel(request, store, session) {
   if (!texting(session) || !hasScope(session, SCOPE_WRITE)) return forbidden();
+  const body = await bodyOf(request);
+  const turn = body?.turn;
+  if (typeof turn !== "string" || !TURN.test(turn)) return invalid("turn");
+  return json({ cancelled: await cancelTurn(store, session, turn, { provisional: body?.provisional === true }) });
+}
+
+/** `POST /agent/go`: a provisional run of the Worker's checks may change things now (`steer.js` `goTurn`). */
+export async function handleGo(request, store, session) {
+  if (!texting(session) || !hasScope(session, SCOPE_WRITE)) return forbidden();
   const turn = (await bodyOf(request))?.turn;
   if (typeof turn !== "string" || !TURN.test(turn)) return invalid("turn");
-  return json({ cancelled: await cancelTurn(store, session, turn) });
+  return json({ go: await goTurn(store, session, turn) });
 }
 
 /**
@@ -151,5 +163,6 @@ export const TEXTING_ROUTES = new Map([
   ["/agent/events", handleEvents],
   ["/agent/chat", handleChat],
   ["/agent/cancel", handleCancel],
+  ["/agent/go", handleGo],
   ["/agent/stale", handleStale],
 ]);
