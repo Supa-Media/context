@@ -13,7 +13,7 @@ export interface NodeIO<Ctx = Record<string, unknown>> {
   /** The nodes this one's `uses` wires reach; any other name throws. */
   use: Record<string, (input: unknown) => Promise<unknown>>;
   /** The nodes this one's `loop` wires reach, at most their `rounds` times; the target runs, then the wait path back to this node. */
-  back: Record<string, (input: unknown) => Promise<unknown>>;
+  back: Record<string, ((input: unknown, how?: { release?: boolean }) => Promise<unknown>) & { left: () => number }>;
   /** The nodes this one's `job` wires reach, started in the background. */
   job: Record<string, (input: unknown) => Promise<unknown>>;
 }

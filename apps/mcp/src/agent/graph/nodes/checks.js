@@ -11,13 +11,13 @@ export async function checksNode(input, io) {
   while (stop.pending) {
     const waiting = t.drafts.waiting;
     const { notice, review } = await t.answerChecks.code(waiting.draft, waiting.info);
-    if (notice !== null && notice !== undefined) {
+    if (notice !== null && notice !== undefined && io.back.fd.left() > 0) {
       sentBack += 1;
       stop = await io.back.fd({ notice: String(notice) });
       continue;
     }
     if (review) return { ...stop, when: [t.reviewedAs ?? "action"], sentBack }; // a job's report or a routine's text: only those are wired to the Reply reviewer
-    stop = await io.back.fd({ notice: null }); // let go: the front door may still write it again with a text that came in
+    stop = await io.back.fd({ notice: null }, { release: true }); // let go (a spent budget lets it go too): the front door may still write it again with a text that came in
   }
   return { ...stop, when: [stop.ended ? "ended" : "done"], sentBack };
 }
