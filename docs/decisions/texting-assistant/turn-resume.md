@@ -37,7 +37,7 @@ keeps one; measure `turn_resumed` by `group` before widening that.
 
 **A background job's part** (Dev2, 2026-11-17: "jobs must be reliable"; plan reviewed by Fable). Each part keeps its
 rounds under its own key (job, restart, part), in the same chat home, and reads back only the part the Worker names
-(`apps/agent/src/jobResume.ts`): this part again when its last try died (a retry, or a pass whose object died
+(`apps/agent/src/jobPartResume.ts`): this part again when its last try died (a retry, or a pass whose object died
 mid-part), or the part before when it was cut off before it answered (a crash or its time running out). A part that
 ended any other way (done, waiting, stuck, out of check rounds or steps, changed by a text) is followed by a fresh part,
 as before. A try that was handed saved rounds and still did not answer is followed by a fresh try, so rounds that may

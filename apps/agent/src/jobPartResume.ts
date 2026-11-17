@@ -11,15 +11,28 @@
  */
 import type { JobAsk, JobRun } from "./jobs";
 
-/** What a part's ask carries, and whether the run changed (it is written before the ask, so a pass that dies keeps it). */
+/**
+ * What a part's ask carries. A changed run is written before the ask, so a pass that dies keeps the mark; a dead
+ * pass's progress, folded into the run in memory, is written then too and its key dropped, so a second dead pass
+ * never folds the same calls in again.
+ */
+export async function partResume(run: JobRun, leftOver: boolean, write: () => Promise<unknown>, dropLeftOver: () => Promise<unknown>): Promise<Pick<JobAsk, "resumes" | "resumeFrom">> {
+  const plan = resumePlan(run, leftOver);
+  if (plan.changed || leftOver) await write();
+  if (leftOver) await dropLeftOver();
+  return plan.ask;
+}
+
+/** What a part's ask carries, and whether the run changed. */
 export function resumePlan(run: JobRun, hadProgress: boolean): { ask: Pick<JobAsk, "resumes" | "resumeFrom">; changed: boolean } {
   const resumes = run.resumes ?? 0;
   const base = resumes > 0 ? { resumes } : {};
   if (run.machine !== undefined) return { ask: base, changed: false };
   // The last try was handed saved rounds and did not answer: this one starts fresh, and the mark goes.
+  // `resumeFrom: 0` has the gateway drop this part's saved rounds, which may still be that try's: never carried again.
   if (run.resumedTry !== undefined) {
     delete run.resumedTry;
-    return { ask: base, changed: true };
+    return { ask: { ...base, resumeFrom: 0 }, changed: true };
   }
   const from = run.tries > 0 || hadProgress ? run.attempt : run.carryFrom === run.attempt - 1 && run.attempt > 1 ? run.carryFrom : undefined;
   if (from === undefined) return { ask: base, changed: false };

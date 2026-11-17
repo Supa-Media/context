@@ -88,7 +88,7 @@ export function roundsKeeper({ messages, roundsFrom, readOnly, keep, marks = () 
 /** What a job's part is told when it goes on from a part's saved rounds: they are right below, so it reads them rather than its notes. */
 export function carriedLine(from) {
   if (!Number.isSafeInteger(from?.part)) return "";
-  return `\nThe calls after your task, with what each returned, were made by ${from.restart ? `part ${from.part}, cut off before it answered` : "this part's last try, which died"}. Go on from them: don't make them again, and read the note or the saved list below only for what they don't cover.`;
+  return `\nThe calls after your task, with what each returned, were made by ${from.restart ? `part ${from.part}, cut off before it answered` : "this part's last try, which died"}. Go on from them: don't make them again, and read the note or the list of saved calls in your task only for what they don't cover.`;
 }
 
 /** The rounds a job's part tried again is left to finish in, however far its last try got (`progress.js` `LONG_MAX_ROUNDS`). */
@@ -100,7 +100,7 @@ export const JOB_ROUNDS_LEFT = 10;
  * lands last; `from` only when the Worker says this is a try after one that failed (`again`). None for a turn whose text names no chat events, whose chat keeps no ledger, or, for `keep`, a
  * provisional run (`steer.js`): what it writes before its go may be put back, so nothing it did is carried on.
  * A background job's part (`job`, `background.js` `jobOf`) keeps under its own part and reads only the part the Worker
- * names in `resumeFrom` (`apps/agent/src/jobResume.ts`).
+ * names in `resumeFrom` (`apps/agent/src/jobPartResume.ts`).
  * An earlier try's outside-read mark goes on `egress` (`privacy/egress.js`): the resumed turn read what it read.
  */
 export async function carriedRounds({ store, session, body, question, job = null, egress = null, log = (line) => console.log(JSON.stringify(line)) }) {
@@ -111,7 +111,9 @@ export async function carriedRounds({ store, session, body, question, job = null
   // A job's part keeps under its own part, and reads the part the Worker names (`background.js` `jobOf`).
   const key = job ? await jobKey({ id: job.id, resumes: job.resumes, part: job.attempt }) : await textKey({ question, covers: body?.covers, groupChat });
   if (key === null) return null;
-  const readKey = !job ? (body?.again === true ? key : null) : job.resumeFrom === null || job.resumeFrom === undefined ? null : job.resumeFrom === job.attempt ? key : await jobKey({ id: job.id, resumes: job.resumes, part: job.resumeFrom });
+  // A job's try told to start fresh (`resumeFrom: 0`) drops what an earlier try of its part kept, so it is never carried again.
+  if (job && job.resumeFrom === 0) await home.forgetRounds?.(place.chat, key)?.catch?.(() => {});
+  const readKey = !job ? (body?.again === true ? key : null) : !job.resumeFrom ? null : job.resumeFrom === job.attempt ? key : await jobKey({ id: job.id, resumes: job.resumes, part: job.resumeFrom });
   // Read only on a try after one that failed (the Worker says so), so a first try costs no store call before its model.
   const read = readKey === null ? null : checkedSnapshot(await home.roundsOf(place.chat, readKey).catch(() => null));
   // A job's part from the part before starts its round count over; a part tried again keeps ten rounds to finish in.

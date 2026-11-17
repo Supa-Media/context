@@ -316,11 +316,19 @@ test("a job's part keeps under its own part and restart, and goes on only from t
   const again = await carriedRounds({ store: wrapped, session, body: {}, question: "x", job: job({ attempt: 1, resumeFrom: 1 }), log });
   assert.equal(again.from.leave, JOB_ROUNDS_LEFT);
   assert.equal(resumedRounds({ resumeFrom: again.from, rounds: 30, messages: [], held: { keep() {} }, steps: [], tell() {} }), 20);
+  // A try told to start fresh drops what its part kept, which a try handed saved rounds may have left.
+  const kept1 = `texts/${await jobKey({ id: "job-1234-abcd", part: 1 })}`;
+  assert.ok(store.has(kept1));
+  assert.equal((await carriedRounds({ store: wrapped, session, body: {}, question: "x", job: job({ attempt: 1, resumeFrom: 0 }), log })).from, null);
+  assert.ok(!store.has(kept1), "never carried again");
+  one.keep(snapshot);
+  await one.flush();
   // A restarted job (`resumeJob`) starts at part 1 again: the old run's part 1 is not its own.
   assert.equal((await carriedRounds({ store: wrapped, session, body: {}, question: "x", job: job({ attempt: 1, resumes: 1, resumeFrom: 1 }), log })).from, null);
   // The Worker may name only this part or the one before.
   assert.equal(job({ attempt: 3, resumeFrom: 1 }).resumeFrom, null);
-  assert.equal(job({ attempt: 1, resumeFrom: 0 }).resumeFrom, null);
+  assert.equal(job({ attempt: 1, resumeFrom: -1 }).resumeFrom, null);
+  assert.equal(job({ attempt: 2, resumeFrom: 0 }).resumeFrom, 0, "0: start fresh");
   assert.equal(job({ attempt: 2, resumeFrom: "1" }).resumeFrom, null);
   assert.equal(carriedLine(null), "");
   // A part that answered leaves nothing.

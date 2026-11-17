@@ -586,7 +586,7 @@ one runs in the same object starts no turn"), `apps/agent/src/jobWorkflow.test.t
 ## A part goes on from its last step (2026-11-17)
 
 A part that dies goes on from the rounds it saved in the chat's home, not from its prompt: the same part tried again,
-or the next part after one cut off before it answered. The Worker names the part (`apps/agent/src/jobResume.ts`); the
+or the next part after one cut off before it answered. The Worker names the part (`apps/agent/src/jobPartResume.ts`); the
 rounds never leave the chat's home. The rules and what never carries are in [turn-resume](./turn-resume.md).
-Tests: `apps/agent/src/jobResume.test.ts`, `apps/mcp/test/savedRounds.test.mjs` ("a job's part keeps under its own
+Tests: `apps/agent/src/jobPartResume.test.ts`, `apps/mcp/test/savedRounds.test.mjs` ("a job's part keeps under its own
 part"), replay case `job-part-resumed`.

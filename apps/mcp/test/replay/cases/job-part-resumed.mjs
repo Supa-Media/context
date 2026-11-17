@@ -51,7 +51,7 @@ export default {
     await assert.rejects(first.done, /gateway died/);
     await first.rounds.flush();
     assert.deepEqual(first.ran, ["search_email"]);
-    // The Worker names part 1 for part 2 (`apps/agent/src/jobResume.ts`): part 2 reads its saved rounds and searches nothing again.
+    // The Worker names part 1 for part 2 (`apps/agent/src/jobPartResume.ts`): part 2 reads its saved rounds and searches nothing again.
     const ai = model();
     const second = await part(ai, 2, { resumeFrom: 1 }, home);
     assert.ok(second.rounds.from, "part 2 found what part 1 had done");

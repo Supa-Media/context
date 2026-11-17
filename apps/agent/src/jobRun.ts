@@ -42,7 +42,7 @@ import { limitResetAt } from "./jobPause";
 import { STEER_TIMEOUT_MS } from "./steer";
 import { advisorVerdict, openJobNote } from "./jobNote";
 import { askPartEnd, partEndChoice } from "./jobPartEnd";
-import { carryPatch, mergeSaved, PROGRESS_KEY, readOutside, resumePlan, savedCall, withEnd, type JobSaved, type PartCause } from "./jobProgress";
+import { carryPatch, mergeSaved, partResume, PROGRESS_KEY, readOutside, savedCall, withEnd, type JobSaved, type PartCause } from "./jobProgress";
 
 export type JobDeps = {
   fetch: Fetch;
@@ -315,12 +315,12 @@ export async function runJob(storage: InboxStorage, deps: JobDeps): Promise<JobN
   const shown = (await storage.get<JobSteer[]>(STEERS_KEY)) ?? [];
   const turn: Live = { turn: crypto.randomUUID(), fetch: deps.fetch, gatewayOrigin: deps.gatewayOrigin };
   live.set(storage, turn);
-  const resume = resumePlan(run, leftOver !== undefined); if (resume.changed) await storage.put<Stored>(RUN_KEY, { ...run, sent }); // the saved rounds it goes on from (`jobResume.ts`), marked before it asks, so a pass that dies keeps the mark
+  const resume = await partResume(run, leftOver !== undefined, () => storage.put<Stored>(RUN_KEY, { ...run, sent }), () => storage.delete(PROGRESS_KEY)); // the saved rounds it goes on from, marked before it asks (`jobPartResume.ts`)
   const asked = { ...ask(
     run,
     shown.filter((steer) => steer.mail === undefined).map((steer) => steer.text),
     shown.flatMap((steer) => (steer.mail === undefined ? [] : [{ ...steer.mail, text: steer.text }])),
-  ), ...resume.ask };
+  ), ...resume };
   let outcome: Outcome;
   try {
     outcome =

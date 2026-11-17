@@ -189,9 +189,10 @@ export function jobOf(value) {
     doneWhen: line(value.doneWhen, MAX_STATUS),
     attempt,
     // Which restart of the job this is, and the part whose saved rounds this part goes on from (`turnResume.js`): this
-    // part again after a try that died, or the part before, cut off before it answered (`apps/agent/src/jobResume.ts`).
+    // part again after a try that died, or the part before, cut off before it answered (`apps/agent/src/jobPartResume.ts`).
     resumes: Number.isSafeInteger(value.resumes) && value.resumes >= 0 ? value.resumes : 0,
-    resumeFrom: value.resumeFrom === attempt || (value.resumeFrom === attempt - 1 && attempt > 1) ? value.resumeFrom : null,
+    // 0: start fresh, and drop this part's saved rounds, which a try that died after it was handed them may have left.
+    resumeFrom: value.resumeFrom === 0 || value.resumeFrom === attempt || (value.resumeFrom === attempt - 1 && attempt > 1) ? value.resumeFrom : null,
     tainted: value.tainted === true,
     // Their own texts that started it, oldest first, the last one the text it started from (`openAsk.js`; `apps/agent/src/jobRun.ts` `ask`).
     asked: Array.isArray(value.asked)
