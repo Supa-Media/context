@@ -1,0 +1,40 @@
+# A description edit used to re-run Fast repository guards and Tex replay
+# required (both listened for `edited`), which cancelled an in-progress run.
+# Those two no longer listen for `edited`. This workflow does, and it re-runs
+# them only when the owner's skip line changed. The re-run reads the live
+# description, so the new line is what the gate sees.
+#
+# `types: [edited]` is the one activity filter check-workflow-triggers.mjs
+# allows to omit opened, synchronize and reopened, and only on this file: it
+# does not grade the pull request, it re-runs the workflows that do.
+
+name: PR description
+
+on:
+  pull_request:
+    types: [edited]
+
+permissions:
+  contents: read
+  actions: write
+  pull-requests: read
+
+jobs:
+  rerun:
+    name: Re-run checks when the owner's skip line changed
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    if: github.event.changes.body != null && github.event.pull_request.head.repo.full_name == github.repository
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          package-manager-cache: false
+      - name: Re-run the guards and the replay check when the skip line changed
+        env:
+          GH_TOKEN: ${{ github.token }}
+          BEFORE: ${{ github.event.changes.body.from }}
+          AFTER: ${{ github.event.pull_request.body }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: node scripts/pr-description.mjs

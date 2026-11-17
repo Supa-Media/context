@@ -43,11 +43,16 @@ plan in [test-sets](./test-sets.md), piece 4.
 
 "Tex replay required" (`scripts/tex-replay-required.mjs`) passes a change that
 reaches a model area only on a successful `Tex test set` status on its head
-commit. When the rule fails it dispatches `tex-test-set.yml` with ref main and
-the pull request's number; that run takes the Test Set from the service, runs
-it with main's harness on the change's nodes and on main's
+commit. When the changed files themselves reach a model area,
+`scripts/tex-test-set-dispatch.mjs` dispatches `tex-test-set.yml` before the
+prompt fingerprints, so the run overlaps the other checks. A reach only the
+fingerprints can see (a file the area list does not name, whose prompts
+differ) still dispatches when the gate fails. Either way the workflow runs
+with ref main and the pull request's number; that run takes the Test Set from
+the service, runs it with main's harness on the change's nodes and on main's
 (`apps/mcp/bench/setsRun.mjs --tree`, output to /dev/null), has the service
-score it, marks the commit and re-runs the check. The full replay
+score it, marks the commit and re-runs the check. The pass rule is the same
+either way: a successful status, and no budget or threshold moves. The full replay
 (`tex-replay.yml`) no longer gates and no longer starts by itself; Training and
 Dev never slow CI. The held-out cases that lived in `@context-lc ai/held-out/`
 are moved in once by `tex-test-set-seed.yml` (same OIDC rule, seed door), which
