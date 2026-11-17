@@ -40,7 +40,7 @@ export function createEmailRoute(clearedOwnAccount, flags, clearedEditor = clear
     if (!cleared) answer = { ok: false, refused: "not_allowed" };
     else if (flags.mailRefusal) answer = { ok: false, refused: flags.mailRefusal, ...(flags.mailExtra ?? {}) };
     else if (path === "/gateway/email/search") {
-      const results = typeof flags.mailResults === "function" ? flags.mailResults(body.query) : (flags.mailResults ?? []);
+      const results = typeof flags.mailResults === "function" ? await flags.mailResults(body.query) : (flags.mailResults ?? []);
       answer = { ok: true, results, mailboxes: flags.mailboxes ?? [], ...(flags.mailExtra ?? {}) };
     } else if (body.attachment !== undefined) {
       answer = flags.mailMessage && flags.mailAttachment
@@ -48,7 +48,7 @@ export function createEmailRoute(clearedOwnAccount, flags, clearedEditor = clear
         : { ok: false, refused: "not_found" };
     } else {
       // A function answers per message (the benchmark's mailbox, `bench/mailbox.mjs`).
-      const message = typeof flags.mailMessage === "function" ? flags.mailMessage(body) : flags.mailMessage;
+      const message = typeof flags.mailMessage === "function" ? await flags.mailMessage(body) : flags.mailMessage;
       answer = message ? { ok: true, message } : { ok: false, refused: "not_found" };
     }
     const { accessToken: _token, ...rest } = body;

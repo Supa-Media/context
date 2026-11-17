@@ -549,3 +549,55 @@ test("Tex's calendar copy is housekeeping, never recorded as a change the answer
   const { CALENDAR_PATH } = await import("../../src/agent/calendarCache.js");
   assert.equal(CALENDAR_PATH, "tex/calendar.md", "world.mjs names the calendar copy by this path");
 });
+
+// An earlier picture (`earlierPictures.mjs`) is kept as the turn that answered it kept it, so the next turn's week of
+// history shows it where it was sent, as production's does. Sabotage: drop the `kind: "picture"` on the earlier
+// event, or the reply entry `keepEarlierPictures` writes, and the turn never learns where the picture is.
+test("a picture sent earlier in the chat is in the next turn's history, as production keeps it", async () => {
+  const sent = [];
+  const gatewayFetch = async (_url, init) => {
+    sent.push(JSON.parse(init.body));
+    return new Response(JSON.stringify({ content: [{ type: "text", text: "Saw it." }], stop_reason: "end_turn", usage: { input_tokens: 10, output_tokens: 5 } }), { status: 200, headers: { "Content-Type": "application/json" } });
+  };
+  const world = await createWorld(bench, "Maya", SETUP, { gatewayFetch, ledgerTurns: true });
+  try {
+    await world.earlier([{ from: "person", text: "look at this", pictures: ["link-preview.png"] }, { from: "tex", text: "Got it." }]);
+    const chat = await world.chatLedger();
+    const reply = chat.find((entry) => entry.kind === "reply" && typeof entry.attached === "string");
+    assert.match(reply.attached, /link-preview\.png \(image \S+ in tex\/pictures\/\d{4}-\d{2}\.md\)/);
+    assert.ok((await world.text("what did that say?")).ok);
+    assert.ok(sent.some((body) => /link-preview\.png \(image \S+ in tex\/pictures\/\d{4}-\d{2}\.md\)/.test(JSON.stringify(body.messages))), "the turn is shown the picture where it was sent, by where it is kept");
+  } finally {
+    world.close();
+  }
+});
+
+// A group's earlier picture is kept in the chat's home (`chatHome.js`), the bench group's home in the pin as the control
+// plane mints it, and the next turn is shown where it is. Sabotage: drop the home-only grant in `groupChat.mjs`, or
+// the stub's `homeOnly` row, and nothing is kept there.
+test("a group's earlier picture is kept in its home, where the next turn is shown it", async () => {
+  const sent = [];
+  const gatewayFetch = async (_url, init) => {
+    const body = JSON.parse(init.body);
+    sent.push(body);
+    const sorter = JSON.stringify(body.system ?? "").includes(THREADS_SYSTEM.slice(0, 60));
+    const text = sorter ? '{"thread":"new","title":"Gig","description":"the gig","finished":[]}' : "Saw it.";
+    return new Response(JSON.stringify({ content: [{ type: "text", text }], stop_reason: "end_turn", usage: { input_tokens: 10, output_tokens: 5 } }), { status: 200, headers: { "Content-Type": "application/json" } });
+  };
+  const world = await createWorld(bench, "Maya", SETUP, { gatewayFetch, ledgerTurns: true, group: "brand" });
+  try {
+    await world.earlier([{ from: "person", who: "priya", text: "tex look", pictures: ["link-preview.png"] }, { from: "tex", text: "Got it." }]);
+    const logged = [];
+    const log = console.log;
+    console.log = (line, ...rest) => (logged.push(String(line)), log(line, ...rest));
+    try {
+      assert.ok((await world.text("tex what did that say?")).ok);
+    } finally {
+      console.log = log;
+    }
+    assert.ok(!logged.some((line) => line.includes("group_home_unopened")), "the turn opens the chat's home, as production's does");
+    assert.ok(sent.some((body) => /link-preview\.png \(image \S+ in tex\/groups\/bench-brand\/pictures\/\d{4}-\d{2}\.md\)/.test(JSON.stringify(body.messages))), "the turn is shown the picture where it was sent, kept in the chat's home");
+  } finally {
+    world.close();
+  }
+});

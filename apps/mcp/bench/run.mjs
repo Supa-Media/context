@@ -57,6 +57,8 @@ import { nodesCommand } from "./nodeCases.mjs";
 import { setsCommand } from "./setsRun.mjs";
 import { keyMarkdown, keyPathFor, resultMarkdown } from "./report.mjs";
 import { createWorld } from "./world.mjs";
+import { simMemo, simulateFor } from "./simWorld.mjs";
+import { benchPicture } from "./earlierPictures.mjs";
 import { filedNotes } from "./checks.mjs";
 import { realNow } from "./clock.mjs";
 import { benchFolder } from "./folder.mjs";
@@ -180,12 +182,6 @@ export function handOffAnswer(turn, question, events) {
   return null;
 }
 
-/** A picture a test sends with its opening text (`- person sends picture:`), from the repository's `ai/pictures/`. */
-async function benchPicture(name) {
-  const data = await readFile(fileURLToPath(new URL(`./ai/pictures/${name}`, import.meta.url)));
-  return { name, mediaType: /\.png$/i.test(name) ? "image/png" : "image/jpeg", data: data.toString("base64") };
-}
-
 /** One conversation: the person's opening text, then as many turns as they take. */
 /**
  * A test's `computer: Studio Mac (claude, codex) 3 slots`: the one computer its
@@ -215,8 +211,9 @@ export async function converse(world, question, person, mode = null, background 
   let message = question.personStarts ?? question.texts ?? question.text;
   const limit = personTextLimit(question);
   for (let texts = 0; message !== null && texts < limit; texts += 1) {
-    const pictures = texts === 0 && question.sendsPicture ? [await benchPicture(question.sendsPicture)] : [];
-    conversation.push({ from: "person", text: pictures.length > 0 ? `${message}\n[Sent a picture: ${question.sendsPicture}]` : message });
+    const sent = texts === 0 ? (question.sendsPictures ?? (question.sendsPicture ? [question.sendsPicture] : [])) : [];
+    const pictures = await Promise.all(sent.map(benchPicture));
+    conversation.push({ from: "person", text: pictures.length > 0 ? `${message}\n${sent.map((name) => `[Sent a picture: ${name}]`).join("\n")}` : message });
     const seen = world.browser().length;
     const others = (question.others ?? []).filter((line) => line.before === texts + 1); // a group's other members, before this text (`load.mjs`)
     for (const line of others) conversation.push({ from: "person", text: `@${line.from}: ${line.text}` });
@@ -380,7 +377,12 @@ async function answerJobs(options, { bench, test, testName = options.test ?? opt
   models.group = test.front.group ?? null;
   // A test whose person has a calendar connected and nothing on it (`calendar: connected`, `calendar.mjs` benchCalendar).
   models.calendar = test.front.calendar ?? null;
+  // The person's zone, sent on every text as the Worker sends it, and the test's time of day in it (`clock.mjs` clockMs).
+  models.timeZone = test.front.time_zone ?? null;
+  models.clock = test.front.clock ?? null;
   const person = { fake: options.fake === true, send, model: test.front.played_by };
+  // A Dev test's outside world, played by a model where the fixtures have nothing (`world: simulated`, `simWorld.mjs`).
+  const worldMemo = simMemo();
 
   // Warm by default (decided 2026-10-08): every workspace indexed once, every
   // conversation a clone of it. --cold measures the scan a fresh import gets.
@@ -394,8 +396,9 @@ async function answerJobs(options, { bench, test, testName = options.test ?? opt
   const records = [];
   try {
     for (const { setup, question, run: n } of jobs) {
-      const [worldSetup, worldModels] = setupInWorld(options.job, setup, models);
       const as = question.as ?? test.front.run_as;
+      const simulate = simulateFor(test.front, question, as, { send, memo: worldMemo, fake: options.fake === true });
+      const [worldSetup, worldModels] = setupInWorld(options.job, setup, simulate ? { ...models, simulate } : models);
       // An answer the model never gave is run once more in a fresh world
       // (decided 2026-10-09): the gateway has already retried the round and
       // the setup's fallback has had its turn, so what is left is a bad

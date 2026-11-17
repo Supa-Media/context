@@ -27,6 +27,7 @@ import worker from "../src/index.js";
 import { PRODUCTION_TEXTING_PATH } from "../src/agent/production.js";
 import { skillPath } from "../src/agent/skills.js";
 import { createWeb } from "./sites.mjs";
+import { simBinding, simulatedWorld } from "./simWorld.mjs";
 import { createBenchSite } from "./siteStub.mjs";
 import { CONTROL_PLANE_ORIGIN, GATEWAY_SECRET, createControlPlaneStub, createS3Backend } from "../test/controlPlaneStub.mjs";
 import { rmSync } from "node:fs";
@@ -34,13 +35,14 @@ import { rmSync } from "node:fs";
 import { createWorkerCtx } from "../test/workerCtx.mjs";
 import { readStream, workerEvents } from "./workerWire.mjs";
 import { benchMachines } from "./benchMachines.mjs";
-import { benchGroup } from "./groupChat.mjs";
+import { benchGroup, benchHome } from "./groupChat.mjs";
 import { ACCOUNT_ID as D1_ACCOUNT_ID, API_TOKEN as D1_API_TOKEN, CLOUDFLARE_API_BASE, createD1Backend } from "../test/searchProjection/fixtures.mjs";
 import { createVectorizeBackend, meaningIndexFor } from "../test/vectorizeStub.mjs";
 import { wireSearchSettings } from "../src/search/settings.js";
 import { texStoreNamespace } from "../test/texStoreFixture.mjs";
-import { assertIsoDate, installClock, noonUtcMs, noteModifiedAt, realNow } from "./clock.mjs";
+import { assertIsoDate, clockMs, installClock, noonUtcMs, noteModifiedAt, realNow } from "./clock.mjs";
 import { benchCalendar } from "./calendar.mjs";
+import { keepEarlierPictures } from "./earlierPictures.mjs";
 import { chatEntries, modelLog } from "./modelLog.mjs";
 import { failedStatus, roundsOf } from "./trace.mjs";
 
@@ -225,11 +227,12 @@ export async function createWorld(bench, person, setupRaw, models, today = null,
   // conversation's copy and never in the snapshot or the next conversation.
   const vectorize = prepared?.vectors ? createVectorizeBackend({ seed: prepared.vectors }) : null;
   const restore = [s3.install(), controlPlane.install(), ...(d1 ? [d1.install()] : []), ...(vectorize ? [vectorize.install()] : [])];
-  if (today !== null) restore.push(installClock(today));
+  if (today !== null) restore.push(installClock(today, { at: clockMs(today, models.clock, models.timeZone ?? "UTC") })); // a test's `clock:` in its zone
 
   // The scripted web a golden task runs on (`sites.mjs`): the browser
   // Worker's stand-in, and the answers to web searches.
   const web = models.sites?.length ? createWeb(models.sites) : null;
+  const sim = simulatedWorld(models, controlPlane, { today, person, noMailbox: mail.length === 0 }); // a Dev test's outside world (`simWorld.mjs`)
 
   // Model calls are the only traffic that leaves the world, and web searches
   // when the run has a search key and no scripted web: production searches
@@ -241,8 +244,10 @@ export async function createWorld(bench, person, setupRaw, models, today = null,
     const url = typeof input === "string" ? input : input.url;
     if (url.startsWith("https://gateway.ai.cloudflare.com/")) return modelCalls.fetch(url, init);
     if (url.startsWith(BRAVE_SEARCH)) {
-      if (web) {
-        const results = web.search(new URL(url).searchParams.get("q") ?? "");
+      if (web || sim) {
+        const q = new URL(url).searchParams.get("q") ?? "";
+        let results = web ? web.search(q) : [];
+        if (results.length === 0 && sim) results = await sim.search(q);
         return new Response(JSON.stringify({ web: { results } }), { status: 200, headers: { "content-type": "application/json" } });
       }
       if (typeof models.searchKey === "string" && models.searchKey) return below(input, init);
@@ -270,7 +275,7 @@ export async function createWorld(bench, person, setupRaw, models, today = null,
   // Another job's setup under test (the dream's, `check.mjs`) sits beside the texting one, where production reads it.
   const pinnedNotes = models.pinnedNotes ?? [];
   pinned.set("privacy.md", {
-    body: manifest({ shared: true, files: [PRODUCTION_TEXTING_PATH, ...pinnedNotes.map((note) => note.path)] }),
+    body: manifest({ shared: true, files: [PRODUCTION_TEXTING_PATH, ...pinnedNotes.map((note) => note.path), ...(models.group ? [`${benchHome(models.group)}/about.md`] : [])] }),
     etag: "p0",
     lastModified: modified(baseMs),
   });
@@ -347,9 +352,9 @@ export async function createWorld(bench, person, setupRaw, models, today = null,
     // The hand-back judge, as production runs it (`agent/handbackJudge.js`); a scripted model leaves it off, since it would answer the judge's call too.
     ...(models.handbackJudge === true ? { HANDBACK_JUDGE: "on" } : {}),
     // A scripted web answers searches itself, so no real key is needed or sent.
-    ...(web ? { BRAVE_SEARCH_API_KEY: "bench-scripted-search", SITE_SHOTS: web.binding } : {}),
+    ...(web || sim ? { BRAVE_SEARCH_API_KEY: "bench-scripted-search", SITE_SHOTS: sim ? simBinding(sim, web) : web.binding } : {}),
     // An offline web (a socketed run) still offers search_web; the world answers it with nothing.
-    ...(!web && models.offlineWeb === true ? { BRAVE_SEARCH_API_KEY: "bench-offline-search" } : {}),
+    ...(!web && !sim && models.offlineWeb === true ? { BRAVE_SEARCH_API_KEY: "bench-offline-search" } : {}),
     // The deployment's search settings (`src/search/settings.js`): what a
     // search setup under test puts in the Worker's vars.
     ...(models.searchSettings ? { SEARCH_SETTINGS: JSON.stringify(wireSearchSettings(models.searchSettings)) } : {}),
@@ -413,7 +418,7 @@ export async function createWorld(bench, person, setupRaw, models, today = null,
           // What the chat has running, as the texting Worker sends it (`apps/agent/src/jobs.ts`): only a
           // turn that is sent it is offered background jobs (`background.js`), so a test with `background: on` sends it.
           // `covers` and `chat` as the Worker sends them (`apps/agent/src/inbox.ts`) on a real run (`run.mjs` `ledgerTurns`), so the turn reads the ledger and sorts its thread as production does.
-          body: JSON.stringify({ question: message, ...(group ? { group: { key: group.key, members: group.members, from: tagger.handle } } : { conversation: "texts" }), turn: said.turn, ...(models.ledgerTurns === true ? { covers, chat: said.chat } : {}), ...(attachments.length > 0 ? { attachments } : {}), ...(Array.isArray(running) ? { running } : {}), ...(job ? { job } : {}) }),
+          body: JSON.stringify({ question: message, ...(models.timeZone ? { timeZone: models.timeZone } : {}), ...(group ? { group: { key: group.key, members: group.members, from: tagger.handle } } : { conversation: "texts" }), turn: said.turn, ...(models.ledgerTurns === true ? { covers, chat: said.chat } : {}), ...(attachments.length > 0 ? { attachments } : {}), ...(Array.isArray(running) ? { running } : {}), ...(job ? { job } : {}) }),
         }),
         env,
         ctx,
@@ -482,19 +487,17 @@ export async function createWorld(bench, person, setupRaw, models, today = null,
       };
     },
 
-    /**
-     * A Lab replay's chat before its text (`labReplay.mjs`): each line posted to the chat's ledger as the texting
-     * Worker posts it, theirs as a text and Tex's as its delivered answer to the text before, so the replayed turn
-     * reads the chat it read then. Nothing is answered.
-     */
+    /** A chat before its text, each line posted as the Worker posts it (theirs a text, Tex's its answer to the one before); nothing is answered. */
     async earlier(lines) {
       let last = null;
       for (const line of lines) {
         const sender = line.who && group ? group.people.get(line.who) : tagger; // a group's other member: `- earlier @priya:`
         if (line.who && group && !sender) throw new Error(`@${line.who} is not in the group's workspace (people.md)`);
-        const event = textedEvent(line.text, line.from === "person" ? sender : null);
+        const event = { ...textedEvent(line.text, line.from === "person" ? sender : null), ...(line.pictures?.length ? { kind: "picture", pictures: line.pictures } : {}) };
         if (line.from === "person") last = event;
-        await postEvents([line.from === "person" ? event : { ...event, from: { kind: "tex" }, turn: last?.turn ?? event.turn, covers: last ? [last.id] : [], delivered: true }]);
+        const { pictures, ...posted } = line.from === "person" ? event : { ...event, from: { kind: "tex" }, turn: last?.turn ?? event.turn, covers: last ? [last.id] : [], delivered: true };
+        await postEvents([posted]); // Tex's answer to a picture kept it, as that turn did (`earlierPictures.mjs`)
+        if (line.from === "tex" && last?.pictures) await keepEarlierPictures({ env, token, workspaceId: ids.get(own.workspace), group, timeZone: models.timeZone ?? "UTC", at: last.at, turn: last.turn, names: last.pictures });
       }
     },
     /**
@@ -577,7 +580,7 @@ export async function createWorld(bench, person, setupRaw, models, today = null,
 
     /** What the scripted browser did this conversation (`sites.mjs`); empty without one. */
     browser() {
-      return [...(web ? web.events() : []), ...site.events()];
+      return [...(web ? web.events() : []), ...(sim ? sim.events() : []), ...site.events()];
     },
 
     /** Each Gmail search and read this conversation made, in order (`mailbox.mjs`). */

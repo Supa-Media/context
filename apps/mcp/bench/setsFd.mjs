@@ -51,12 +51,20 @@ export function earlierLines(c, i) {
   for (const m of c.msgs.slice(0, i)) {
     if (m.kind && m.kind !== "reply") continue; // a tapback, an edit or an unsend is not a line of the chat's text
     if (m.via) continue; // a check-in or a routine fired a turn; nobody texted it
-    if (typeof m.text !== "string" || m.text.trim() === "") continue;
-    if (m.tex) lines.push({ from: "tex", text: m.text });
-    else lines.push(c.kind === "group" ? { from: "person", who: handleOf(m.who), text: m.text } : { from: "person", text: m.text });
+    const pictures = m.tex ? [] : picturesOf(m);
+    if ((typeof m.text !== "string" || m.text.trim() === "") && pictures.length === 0) continue;
+    const text = typeof m.text === "string" ? m.text : "";
+    if (m.tex) lines.push({ from: "tex", text });
+    else lines.push({ from: "person", ...(c.kind === "group" ? { who: handleOf(m.who) } : {}), text, ...(pictures.length > 0 ? { pictures } : {}) });
   }
   return lines.slice(-MAX_EARLIER);
 }
+
+/** Where a Dev message's picture is kept in this repository: `pics` urls under `apps/mcp/bench/ai/pictures/`. */
+const REPO_PICTURE = /\/apps\/mcp\/bench\/ai\/pictures\/([A-Za-z0-9][A-Za-z0-9._-]*\.(?:png|jpe?g))$/i;
+
+/** The bench picture names of a message's `pics`, each one kept in this repository; one kept elsewhere is left out. */
+export const picturesOf = (m) => (Array.isArray(m.pics) ? m.pics : []).map((p) => REPO_PICTURE.exec(String(p?.url ?? ""))?.[1]).filter(Boolean);
 
 const DAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
@@ -84,6 +92,31 @@ export function dayOf(c, i, year) {
   return day ? iso(day) : null;
 }
 
+/** The time of day message `i` of `c` was sent, "HH:MM" from the latest `at` at or before it ("Fri Oct 23 8:02"), or null. */
+export function timeOf(c, i) {
+  let time = null;
+  for (const m of c.msgs.slice(0, i + 1)) {
+    const hm = /\b(\d{1,2}):(\d{2})\s*$/.exec(typeof m.at === "string" ? m.at.trim() : "");
+    if (hm && Number(hm[1]) < 24) time = `${hm[1].padStart(2, "0")}:${hm[2]}`;
+  }
+  return time;
+}
+
+/**
+ * The zone a person's chat times are read in, fixed for the conversation: their own workspace's `timezone:` (their
+ * calendar's, as Google sends it), else the gateway's default. Production's Worker sends the person's zone the same way.
+ */
+export async function zoneOf(dir, workspace) {
+  const root = join(dir, "workspaces", workspace);
+  const files = await readdir(root, { recursive: true }).catch(() => []);
+  for (const name of files.filter((n) => n.endsWith(".md")).sort()) {
+    const zone = /^timezone:\s*"?([A-Za-z_]+\/[A-Za-z_\/]+)"?\s*$/m.exec(await readFile(join(root, name), "utf8").catch(() => ""))?.[1];
+    if (zone) return zone;
+  }
+  return DEFAULT_ZONE;
+}
+const DEFAULT_ZONE = "America/New_York";
+
 /**
  * The shared workspace a group conversation runs in: one `people.md` puts every member in with nobody's personal
  * workspace, the one named like the conversation first. Null when there is none.
@@ -107,8 +140,8 @@ export function cantRun(c, i) {
   if (m.via === "checkin" && checkinMail(m.text) === null) return "a check-in row runs only when it found an email (\"Gmail: ...\")";
   if (m.via && m.via !== "checkin" && m.via !== "routine") return `a ${m.via} row can't run as a Front door test`;
   if (m.kind && m.kind !== "reply") return `a ${m.kind} can't run as a Front door test: only a text or a reply`;
-  if (Array.isArray(m.pics) && m.pics.length > 0) return "a text with pictures can't run as a Front door test yet";
-  if (typeof m.text !== "string" || m.text.trim() === "") return "the text is empty";
+  if (Array.isArray(m.pics) && picturesOf(m).length < m.pics.length) return "a picture of this text isn't kept in the repository (apps/mcp/bench/ai/pictures/)";
+  if ((typeof m.text !== "string" || m.text.trim() === "") && picturesOf(m).length === 0) return "the text is empty";
   if (!Array.isArray(c.members) || typeof c.members[0] !== "string") return "the conversation names no person";
   return null;
 }
@@ -155,8 +188,12 @@ export function fdTest(units, front) {
       `## ${k + 1}. ${String(m.text).replace(/\s+/g, " ").slice(0, 120)}`,
       "",
       "- kind: task",
-      m.via === "checkin" ? `- check-in mail: ${JSON.stringify(checkinMail(m.text))}` : m.via === "routine" ? `- routine runs: ${JSON.stringify(m.text)}` : `- person texts: ${JSON.stringify(m.text)}`,
-      ...earlierLines(u.convo, u.at).map((line) => `- earlier ${line.who ? `@${line.who}` : line.from}: ${JSON.stringify(line.text)}`),
+      m.via === "checkin" ? `- check-in mail: ${JSON.stringify(checkinMail(m.text))}` : m.via === "routine" ? `- routine runs: ${JSON.stringify(m.text)}` : `- person texts: ${JSON.stringify(m.text ?? "")}`,
+      ...picturesOf(m).map((name) => `- person sends picture: ${name}`),
+      ...earlierLines(u.convo, u.at).flatMap((line) => {
+        const who = line.who ? `@${line.who}` : line.from;
+        return [`- earlier ${who}: ${JSON.stringify(line.text)}`, ...(line.pictures ?? []).map((name) => `- earlier ${who} sends picture: ${name}`)];
+      }),
       ...(l.must || []).map((x) => `- must: ${x}`),
       ...(l.never || []).map((x) => `- must not: ${x}`),
     ];
@@ -170,7 +207,7 @@ export function fdTest(units, front) {
  * day, judge and voice lines; failing that, the core set's own with `run_as:` them. One run each, on the scripted web,
  * on `today` and in the `group` when given. Null when nobody in `people.md` is called that.
  */
-export async function frontFor(dir, person, { today = null, group = null, calendar = false } = {}) {
+export async function frontFor(dir, person, { today = null, group = null, calendar = false, setting = null, clock = null } = {}) {
   const people = parsePeople(await readFile(join(dir, "workspaces", "people.md"), "utf8"));
   if (!people.some((row) => row.person === person && row.personal)) return null;
   const names = (await readdir(join(dir, "tests"))).filter((n) => n.endsWith(".md")).sort((a, b) => (a === "core.md" ? -1 : b === "core.md" ? 1 : a.localeCompare(b)));
@@ -195,7 +232,14 @@ export async function frontFor(dir, person, { today = null, group = null, calend
   // Dev test does too: without it a test that wants a job started could never pass (Dev set, 2026-11-17).
   if (!/^background: on$/m.test(f)) f = f.replace(/^background: .*\n?/m, "") + "\nbackground: on";
   if (calendar && !/^calendar: /m.test(f)) f += "\ncalendar: connected";
+  // The outside world the chat takes for granted, played by a model where the fixtures have nothing (`simWorld.mjs`,
+  // Dev2 2026-11-17): it sees the chat's setting, never its labels.
+  if (setting !== null) f = f.replace(/^world(?:_setting)?: .*\n?/gm, "") + `\nworld: simulated\nworld_setting: ${JSON.stringify(String(setting).replace(/\s+/g, " ").trim())}`;
   if (today) f = f.replace(/^today: .*$/m, `today: ${today}`);
+  // The row's own time of day in the person's zone (`clock.mjs`), and that zone on every text as the Worker sends it.
+  const zone = await zoneOf(dir, people.find((row) => row.person === person && row.personal).workspace);
+  f = f.replace(/^(?:clock|time_zone): .*\n?/gm, "") + `\ntime_zone: ${zone}`;
+  if (clock) f += `\nclock: ${clock}`;
   if (group) f = f.replace(/^(run_as: .*)$/m, `$1\ngroup: ${group}`);
   return f;
 }
@@ -238,13 +282,15 @@ export async function runFd(units, { tree, fake = false, runTests = null }) {
       const today = dayOf(u.convo, u.at, year);
       // A conversation whose setting gives Tex the calendar runs with one connected (`calendar.mjs` benchCalendar).
       const calendar = hasCalendar(u.convo);
-      const key = JSON.stringify([person, today, group, calendar]);
-      if (!batches.has(key)) batches.set(key, { person, today, group, calendar, units: [] });
+      const setting = String(u.convo.setting ?? "");
+      const clock = timeOf(u.convo, u.at);
+      const key = JSON.stringify([person, today, group, calendar, setting, clock]);
+      if (!batches.has(key)) batches.set(key, { person, today, group, calendar, setting, clock, units: [] });
       batches.get(key).units.push(u);
     }
     const tests = [];
-    for (const { person, today, group, calendar, units } of batches.values()) {
-      const front = await frontFor(dir, person, { today, group, calendar });
+    for (const { person, today, group, calendar, setting, clock, units } of batches.values()) {
+      const front = await frontFor(dir, person, { today, group, calendar, setting, clock });
       if (front === null) {
         rows.push(...units.map((u) => ({ ...u.row, right: false, ran: false, usd: 0, why: `${person} has no bench world: a Dev chat's people are the bench's (apps/mcp/bench/ai/workspaces/people.md)` })));
         continue;

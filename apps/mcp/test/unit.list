@@ -595,6 +595,7 @@ test/texDevRuns.test.mjs
 test/texDevResponseCap.test.mjs
 test/texSetOps.test.mjs
 test/setsFd.test.mjs
+test/simWorld.test.mjs
 test/setsRun.test.mjs
 bench/test/nodeCases.test.mjs
 bench/test/nodeCases.test.mjs
