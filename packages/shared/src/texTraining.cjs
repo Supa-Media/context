@@ -64,8 +64,8 @@ function lineOf(m, earlier) {
  * (`apps/mcp/bench/setsRun.mjs`) still reads all of it.
  */
 const HISTORY_LINES = 4;
-/** Decide's examples share the judge's 24,000 characters with the live chat, so they keep the newest two. */
-const HISTORY_FOR = Object.freeze({ decide: 2 });
+/** Decide's examples share the judge's 24,000 characters with the live chat, so they keep the newest three (two hid what Tex had just done; 2026-11-17). */
+const HISTORY_FOR = Object.freeze({ decide: 3 });
 const historyLines = (node) => HISTORY_FOR[node] ?? HISTORY_LINES;
 
 /** The chat before message `at`, as lines, Tex's newest text marked when it asks something; older lines summed up. */

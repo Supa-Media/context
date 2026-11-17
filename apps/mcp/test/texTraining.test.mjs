@@ -27,7 +27,7 @@ test("the generated module is the conversations' (scripts/tex-training-module.mj
 });
 
 /** A label the judge's form can show: a real act and a reason from its list (textDecide.cjs `judgeForm`). */
-const judgeForm = (moment) => ["quiet", "respond", "wait"].includes(moment.label.act) && Object.hasOwn(WHY, moment.label.why);
+const judgeForm = (moment) => ["quiet", "respond", "wait"].includes(moment.label.act);
 
 test("Decide reads its examples from Training, each in the judge's own form", () => {
   assert.ok(TEX_CONFIG.nodes.find((n) => n.id === "decide").ctx.includes("train:decide"));
@@ -38,7 +38,9 @@ test("Decide reads its examples from Training, each in the judge's own form", ()
   assert.equal(blocks.length, TRAINING.nodes.decide.length, "every Decide label is one example");
   for (const [i, moment] of TRAINING.nodes.decide.entries()) {
     assert.ok(blocks[i].includes(`<newest>${moment.newest}</newest>`), `example ${i + 1} is ${moment.chat}'s message`);
-    if (judgeForm(moment)) assert.match(blocks[i], /<verdict>(quiet|respond|wait|react)<\/verdict>(\n<react>[^<]+<\/react>)?\n<why>[a-z_]+<\/why>\n<\/example>$/);
+    // Each answer under its question's name (act, also_react, emoji, why), never a "react" act the judge isn't offered.
+    if (judgeForm(moment)) assert.match(blocks[i], /<act>(quiet|respond|wait)<\/act>(\n<also_react>(yes|no)<\/also_react>)?(\n<emoji>[^<]+<\/emoji>)?(\n<why>[a-z_]+<\/why>)?\n<\/example>$/);
+    if (moment.label.also_react === "yes") assert.match(blocks[i], /<also_react>yes<\/also_react>/, `example ${i + 1} shows its reaction`);
   }
 });
 
@@ -56,7 +58,7 @@ test("an example from a long conversation shows its newest stretch and counts wh
     ],
   };
   const nodes = momentsOf([long]);
-  assert.deepEqual(nodes.decide[0].before, [`(${30 - historyLines("decide")} earlier messages)`, "@rosa: line 29", "@kim: line 30"]);
+  assert.deepEqual(nodes.decide[0].before, [`(${30 - historyLines("decide")} earlier messages)`, ...Array.from({ length: historyLines("decide") }, (_, k) => { const n = 31 - historyLines("decide") + k; return `${n % 2 ? "@rosa" : "@kim"}: line ${n}`; })]);
   assert.equal(nodes.fd[0].before.length, historyLines("fd") + 1);
   assert.equal(nodes.fd[0].before[0], `(${30 - historyLines("fd")} earlier messages)`);
   assert.equal(linesBefore(long, 30).length, 30, "a node run alone reads the whole chat");
