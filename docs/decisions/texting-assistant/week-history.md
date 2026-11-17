@@ -70,3 +70,10 @@ Main reads `summaries:all:40000` then `chat:7:40000`. Changing a span or cap is 
 reads, never code. Taking both out puts the front door back on its older view. The history modules run whether or
 not conversation threads are on. Test: `apps/mcp/test/weekHistory.test.mjs` ("the chat and its summaries are two
 modules…", "a summaries module of 3 days…") and the replay case `week-history-shown`.
+
+**In the bench (2026-11-17).** A Front door unit test posts the chat before its text at each line's own time
+(`apps/mcp/bench/setsFd.mjs` `minutesBefore`, `clock.mjs` `atEarlierTime`), as the Worker posted it live, so the
+turn reads the days the way production does. The bench chat has no day summaries, so a line older than the verbatim
+days is held just inside them (six days less an hour) rather than dropped, and a run says how many it held. Seeding
+real day summaries for those lines is the follow-up. Test: `apps/mcp/test/setsFd.test.mjs` ("each earlier line is
+dated…") and `apps/mcp/bench/test/world.test.mjs` ("an earlier line with minutes before…").

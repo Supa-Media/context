@@ -10,7 +10,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { createSimWorld, jsonIn, simBinding, simMemo, simSystem, simulateFor, simulateServices } from "../bench/simWorld.mjs";
+import { createSimWorld, jsonIn, simBinding, simMemo, simSystem, simulateFor, simulateServices, sitesIn } from "../bench/simWorld.mjs";
 import { benchCalendar } from "../bench/calendar.mjs";
 import { frontFor } from "../bench/setsFd.mjs";
 import { parseTest } from "../bench/load.mjs";
@@ -100,9 +100,13 @@ test("a connected calendar answers from its fixture's days, and the world plays 
   const played = await flags.calendarDays({ date: "2026-07-03" });
   assert.equal(played.days[0].address, "john@example.invalid");
   assert.match(played.days[0].text, /19:00–21:00 · House dinner/);
+  // A week's read with one fixture day: the world's days fill the rest, in date order (Dev set, 2026-11-17).
+  const week = await flags.calendarDays({ date: "2026-07-01", days: 7 });
+  assert.deepEqual(week.days.map((day) => day.date), ["2026-07-01", "2026-07-03"]);
+  assert.match(week.days[0].text, /Gym/, "the fixture's day stays the fixture's");
 });
 
-test("Gmail answers from the fixture first, and a search it has nothing for is the world's, readable after", async () => {
+test("Gmail answers with the fixture's mail first and the world's after it, each readable", async () => {
   const { send } = scriptedSend({
     "gmail search": { results: [{ id: "w1", date: "2026-10-01T10:00:00Z", from: "Ines <ines@wedding.example>", to: "remi@example.invalid", subject: "Wedding site login", snippet: "password: ..." }] },
     "gmail read": { body: "Hi Remi, the wedding site is paulo-and-ines.example, password lisbon24." },
@@ -110,7 +114,7 @@ test("Gmail answers from the fixture first, and a search it has nothing for is t
   const sim = createSimWorld({ send, setting: "Tex has Gmail" });
   const flags = { mailboxes: [{ address: "remi@example.invalid", folder: "0-inbox/email" }], mailResults: (q) => (q === "dentist" ? [{ id: "d1", address: "remi@example.invalid" }] : []), mailMessage: () => null };
   simulateServices(sim, { flags });
-  assert.deepEqual((await flags.mailResults("dentist")).map((r) => r.id), ["d1"], "the fixture's own mail wins");
+  assert.deepEqual((await flags.mailResults("dentist")).map((r) => r.id), ["d1", "w1"], "the fixture's own mail first, and a fixture hit no longer hides the world's");
   const [found] = await flags.mailResults("wedding login");
   assert.equal(found.subject, "Wedding site login");
   assert.equal(found.address, "remi@example.invalid", "in the person's own inbox");
@@ -154,4 +158,10 @@ test("a scripted site's page stays scripted; any other page and browser is the w
     { do: "click", ok: false, reason: "Seat 12A is taken" },
     { do: "click", ok: false, reason: "the page did not respond" },
   ], "a step succeeds only when the site took it");
+});
+
+test("a simulated world keeps only real hosts of the scripted web, so a made-up site never answers its searches", () => {
+  const sites = [{ host: "harborair.example" }, { host: "context.lc" }];
+  assert.deepEqual(sitesIn(sites, {}).map((site) => site.host), ["context.lc"]);
+  assert.deepEqual(sitesIn(sites, null).map((site) => site.host), ["harborair.example", "context.lc"], "a golden task keeps its sites");
 });

@@ -156,6 +156,42 @@ export function installClock(today, { stepped = steppedRun(), at = null } = {}) 
 }
 
 /**
+ * Runs `fn` with the clock `byMs` earlier than it is (whatever clock is installed, pinned or real), then puts it back:
+ * what the gateway does then, it does as at that time. The bench posts an earlier text this way, because the
+ * Worker posted it live when it was sent and the gateway refuses an event more than a day from its own clock
+ * (`log.js`): dated back by a field, a chat of days lost every line but the last day's.
+ */
+let earlierOpen = false;
+export async function atEarlierTime(byMs, fn) {
+  if (!(byMs > 0)) return fn();
+  // Two at once would put the clock back out of order and leave it shifted: one world posts its chat in order.
+  if (earlierOpen) throw new Error("atEarlierTime: already set back; the chat before a text is posted one line at a time");
+  earlierOpen = true;
+  const outer = globalThis.Date;
+  class EarlierDate extends outer {
+    constructor(...args) {
+      if (args.length === 0) super(outer.now() - byMs);
+      else super(...args);
+    }
+
+    static now() {
+      return outer.now() - byMs;
+    }
+
+    static [Symbol.hasInstance](value) {
+      return value instanceof RealDate;
+    }
+  }
+  globalThis.Date = EarlierDate;
+  try {
+    return await fn();
+  } finally {
+    globalThis.Date = outer;
+    earlierOpen = false;
+  }
+}
+
+/**
  * The front matter's top-level "key: value" lines, read leniently. Not the test
  * file's parser: that one refuses anything outside its own subset, and a note
  * is not a test file, so a note it cannot read still gets a date.

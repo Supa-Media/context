@@ -35,6 +35,8 @@ export const LIVE_SETTINGS = ["job: texting-assistant", "max_steps: 24", "open_w
 
 /** The most chat lines posted before a test's text: Tex's history reads at most about this much anyway. */
 export const MAX_EARLIER = 200;
+/** Six days less an hour (a change of clocks moves local midnight): the oldest an earlier line is dated, inside the Front door's seven days of verbatim chat. */
+export const MAX_MINUTES_BEFORE = 6 * 24 * 60 - 60;
 
 const FRONT = /^---\n([\s\S]*?)\n---/;
 
@@ -46,25 +48,36 @@ export const handleOf = (name) => String(name).toLowerCase().replace(/[^a-z0-9-]
  * Tex's. In a group each person's line names who said it (`who`, their handle). A check-in or routine row is not a
  * text anyone sent, so it is left out; Tex's answer to it stays.
  */
-export function earlierLines(c, i) {
+export function earlierLines(c, i, year = null) {
   const lines = [];
-  for (const m of c.msgs.slice(0, i)) {
+  const dated = (line, j) => {
+    const ago = year === null ? null : minutesBefore(c, j, i, year);
+    return ago === null ? line : { ...line, minutesBefore: ago };
+  };
+  for (const [j, m] of c.msgs.slice(0, i).entries()) {
     // A tapback, an edit or an unsend is not a line of the chat's text; Tex's own tapbacks are only a step in
     // production's ledger, which no history draws (`stepEvents.ts` `tapback`).
     if (m.kind && m.kind !== "reply") continue;
     // A check-in, a routine or a job's report fired a turn nobody texted: kept as production keeps it (`byCode.mjs`).
     if (m.via) {
-      const trigger = triggerOf(c, c.msgs.indexOf(m));
-      if (trigger !== null) lines.push(trigger);
+      const trigger = triggerOf(c, j);
+      if (trigger !== null) lines.push(dated(trigger, j));
       continue;
     }
     const pictures = m.tex ? [] : picturesOf(m);
     if ((typeof m.text !== "string" || m.text.trim() === "") && pictures.length === 0) continue;
     const text = typeof m.text === "string" ? m.text : "";
-    if (m.tex) lines.push({ from: "tex", text });
-    else lines.push({ from: "person", ...(c.kind === "group" ? { who: handleOf(m.who) } : {}), text, ...(pictures.length > 0 ? { pictures } : {}) });
+    if (m.tex) lines.push(dated({ from: "tex", text }, j));
+    else lines.push(dated({ from: "person", ...(c.kind === "group" ? { who: handleOf(m.who) } : {}), text, ...(pictures.length > 0 ? { pictures } : {}) }, j));
   }
-  return lines.slice(-MAX_EARLIER);
+  // A line before the chat's first date is as old as the dated line after it, so the order holds.
+  const kept = lines.slice(-MAX_EARLIER);
+  let later;
+  for (let k = kept.length - 1; k >= 0; k -= 1) {
+    if (kept[k].minutesBefore === undefined && later !== undefined) kept[k] = { ...kept[k], minutesBefore: later };
+    later = kept[k].minutesBefore ?? later;
+  }
+  return kept;
 }
 
 /** Where a Dev message's picture is kept in this repository: `pics` urls under `apps/mcp/bench/ai/pictures/`. */
@@ -97,6 +110,25 @@ export function dayOf(c, i, year) {
     }
   }
   return day ? iso(day) : null;
+}
+
+/**
+ * How many minutes before message `i` of `c` message `j` was sent, from their own days and times (weekdays walked in
+ * `year`, the test's), or null when either
+ * is undated. Production's ledger keeps each text's own time, so ten days of chat read as ten days, not as one burst
+ * a minute ago (Dev set, 2026-11-17: Tex read a payment set up days before as "set up at 12:04" today).
+ */
+export function minutesBefore(c, j, i, year) {
+  const when = (k) => {
+    const day = dayOf(c, k, year);
+    const time = timeOf(c, k);
+    return day === null || time === null ? null : Date.parse(`${day}T${time}:00Z`);
+  };
+  const [then, now] = [when(j), when(i)];
+  if (then === null || now === null || then > now) return null;
+  // Held inside the history's last-days window (`chat:7`): production reads older days as their day summaries, which
+  // the bench's chat has none of, so a line dated past the window would vanish from the turn rather than be summarised.
+  return Math.min(Math.round((now - then) / 60_000), MAX_MINUTES_BEFORE);
 }
 
 /** The time of day message `i` of `c` was sent, "HH:MM" from the latest `at` at or before it ("Fri Oct 23 8:02"), or null. */
@@ -223,10 +255,11 @@ export function senderOf(c, i, people = [], group = null) {
 /** One bench test of `units` (all one person's): the front matter given, then one case a unit, its chat before it. */
 export function fdTest(units, front) {
   const out = [`---\n${front}\n---\n\n# Sets\n\nThe Front door's unit tests from the test conversations (\`setsFd.mjs\`).\n`];
+  const year = /^today: (\d{4})-/m.test(front) ? Number(/^today: (\d{4})-/m.exec(front)[1]) : null;
   units.forEach((u, k) => {
     const m = u.convo.msgs[u.at];
     const l = u.label;
-    const { earlier, unanswered } = sinceTexAnswered(earlierLines(u.convo, u.at), picturesOf(m), u.convo.kind === "group");
+    const { earlier, unanswered } = sinceTexAnswered(earlierLines(u.convo, u.at, year), picturesOf(m), u.convo.kind === "group");
     const lines = [
       `## ${k + 1}. ${String(m.text).replace(/\s+/g, " ").slice(0, 120)}`,
       "",
@@ -234,9 +267,10 @@ export function fdTest(units, front) {
       m.via === "checkin" ? `- check-in mail: ${JSON.stringify(checkinMail(m.text))}` : m.via === "routine" ? `- routine runs: ${JSON.stringify(m.text)}` : m.via === "job" ? `- job reports: ${JSON.stringify(jobReportRow(u.convo, u.at))}` : `- person texts: ${JSON.stringify(m.text ?? "")}`,
       ...unanswered.map((name) => `- person sends picture: ${name}`),
       ...earlier.flatMap((line) => {
-        if (line.from === "trigger") return [triggerLine(line)];
+        const ago = line.minutesBefore === undefined ? [] : [`- earlier minutes before: ${line.minutesBefore}`];
+        if (line.from === "trigger") return [triggerLine(line), ...ago];
         const who = line.who ? `@${line.who}` : line.from;
-        return [`- earlier ${who}: ${JSON.stringify(line.text)}`, ...(line.pictures ?? []).map((name) => `- earlier ${who} sends picture: ${name}`)];
+        return [`- earlier ${who}: ${JSON.stringify(line.text)}`, ...(line.pictures ?? []).map((name) => `- earlier ${who} sends picture: ${name}`), ...ago];
       }),
       ...(l.must || []).map((x) => `- must: ${x}`),
       ...(l.never || []).map((x) => `- must not: ${x}`),
@@ -366,6 +400,9 @@ export async function runFd(units, { tree, fake = false, runTests = null, parall
       tests.push({ name, group: units });
     }
     if (tests.length === 0) return rows;
+    // Counts only, never words: how many earlier lines were older than the history's verbatim days and held at its edge.
+    const held = can.reduce((n, u) => n + earlierLines(u.convo, u.at, year).filter((l) => l.minutesBefore === MAX_MINUTES_BEFORE).length, 0);
+    if (held > 0) process.stderr.write(`sets: ${held} earlier lines older than ${MAX_MINUTES_BEFORE / 60} hours were held at that age (no day summaries in the bench)\n`);
     const got = await run(tree, tests.map((t) => t.name), { dir, scratch, tag: "sets", fake, parallel });
     const each = got.usd / tests.reduce((n, t) => n + t.group.length, 0);
     for (const t of tests) {
