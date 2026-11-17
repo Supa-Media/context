@@ -16,6 +16,7 @@
  *  8. `machineTurn` not waiting on `ask_first` → "a part waits for the computer owner's yes, then starts".
  *  9. `machineTurn` sleeping after a held read → "a read is held by the gateway until the run moves".
  *  6. `machineTurn` not asking for the check → "the advisor checks a part against the finish line" and the two after it.
+ * 10. the carry status always using `MAX_JOB_ATTEMPTS` → "a computer job's part 11 continues, and the status says part 12 of at most 96" (saw "of at most 10").
  */
 
 import { describe, expect, it } from "vitest";
@@ -154,6 +155,15 @@ describe("a job on the person's own computer", () => {
     await runJob(storage, deps);
     expect(calls.some((call) => call.path === "/agent/machine/assign")).toBe(false);
     expect(calls.find((call) => call.path === "/agent/machine/run")?.body.runId).toBe("run_000000000000000000000009");
+  });
+
+  it("a computer job's part 11 continues, and the status says part 12 of at most 96", async () => {
+    const storage = new MemoryStorage();
+    await storage.put(RUN_KEY, { ...run({ attempt: 11 }), sent: 0 });
+    const { deps, reports } = world({ reads: [{ state: "ended", result: { outcome: "limit", answer: "" }, session: null }] });
+    expect(await runJob(storage, deps)).toEqual({ kind: "now" });
+    expect(reports.find((update) => update.part === 12)?.status).toBe("Still going: part 12 of at most 96");
+    expect((await storage.get<JobRun>(RUN_KEY))?.attempt).toBe(12);
   });
 
   it("a machine job keeps going past a cloud job's thirty minutes", async () => {

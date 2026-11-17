@@ -3,7 +3,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 
-import { texObjects, CHUNK_BYTES, MAX_OBJECT_BYTES, TexObjectRefused } from "../src/texStore/objects.js";
+import { texObjects, CHUNK_BYTES, MAX_LIST, MAX_OBJECT_BYTES, TexObjectRefused } from "../src/texStore/objects.js";
 import { serveTexStore, texBucket, ownerName, texStoreStub } from "../src/texStore/wire.js";
 import { R2Store } from "../src/store/r2.js";
 
@@ -17,8 +17,12 @@ try {
 /** `node:sqlite` in the Durable Object's `sql.exec(...).toArray()` shape. */
 function durableSql() {
   const db = new DatabaseSync(":memory:");
-  return {
+  const sql = {
+    db,
+    /** List queries, in the order `list` ran them, so a test can EXPLAIN them. */
+    queries: [],
     exec(query, ...binds) {
+      if (/ORDER BY key LIMIT/.test(query)) sql.queries.push({ query, binds });
       const statement = db.prepare(query);
       if (/^\s*SELECT/i.test(query)) {
         const all = statement.all(...binds);
@@ -28,6 +32,37 @@ function durableSql() {
       return { toArray: () => [] };
     },
   };
+  return sql;
+}
+
+/** The plans of the list queries recorded since the last check. */
+function listPlans(sql) {
+  const plans = sql.queries.map(({ query, binds }) => ({
+    query,
+    detail: sql.db
+      .prepare(`EXPLAIN QUERY PLAN ${query}`)
+      .all(...binds)
+      .map((row) => row.detail)
+      .join("\n"),
+  }));
+  sql.queries.length = 0;
+  return plans;
+}
+
+/**
+ * A prefixed list must seek the primary-key index on both sides. `substr(key, 1, n) = prefix`
+ * is still a SEARCH, but only on `key > cursor`, so it reads every later row.
+ */
+function assertBoundedKeySearch(sql) {
+  const plans = listPlans(sql);
+  assert.ok(plans.length > 0, "list ran no query");
+  for (const plan of plans) {
+    assert.match(plan.query, /key > \? AND key >= \? AND key < \?/);
+    assert.doesNotMatch(plan.query, /substr\s*\(/i);
+    assert.match(plan.detail, /SEARCH objects USING INDEX sqlite_autoindex_objects_1/);
+    assert.match(plan.detail, /key</);
+    assert.doesNotMatch(plan.detail, /\bSCAN\b/);
+  }
 }
 
 function storeOver(objects) {
@@ -123,6 +158,145 @@ test("listing pages in key order, folds a delimiter into prefixes, and stays ins
   assert.deepEqual(folded.objects.map((object) => object.key), [".context/z.json"]);
   const all = await store.list({});
   assert.equal(all.objects.length, 7);
+});
+
+test("a prefix list seeks the primary key, folds common prefixes, and does not take a neighbour", { skip }, async () => {
+  const sql = durableSql();
+  const objects = texObjects(sql);
+  for (const key of ["p/a/1", "p/a/2", "p/b/1", "p/c", "p/a0", "p0/x", "exact", "exact/child", "exact0"]) {
+    await objects.put(key, key);
+  }
+  const folded = objects.list({ prefix: "p/", delimiter: "/" });
+  assert.deepEqual(folded.delimitedPrefixes, ["p/a/", "p/b/"]);
+  assert.deepEqual(
+    folded.objects.map((object) => object.key),
+    ["p/a0", "p/c"],
+  );
+  assert.equal(folded.truncated, false);
+  assert.equal(folded.cursor, undefined);
+  assertBoundedKeySearch(sql);
+
+  const slash = objects.list({ prefix: "a/" });
+  assert.deepEqual(
+    slash.objects.map((object) => object.key),
+    [],
+  );
+  assertBoundedKeySearch(sql);
+  const neighbour = objects.list({ prefix: "p/a/" });
+  assert.deepEqual(
+    neighbour.objects.map((object) => object.key),
+    ["p/a/1", "p/a/2"],
+  );
+  const beside = objects.list({ prefix: "p/a0" });
+  assert.deepEqual(
+    beside.objects.map((object) => object.key),
+    ["p/a0"],
+  );
+  // "exact" is a prefix of "exact0". The slash is what holds "exact/" back from it.
+  const exact = objects.list({ prefix: "exact" });
+  assert.deepEqual(
+    exact.objects.map((object) => object.key),
+    ["exact", "exact/child", "exact0"],
+  );
+  assert.deepEqual(
+    objects.list({ prefix: "exact/" }).objects.map((object) => object.key),
+    ["exact/child"],
+  );
+  assert.deepEqual(objects.list({ prefix: "no/such/" }).objects, []);
+  assert.equal(objects.list({ prefix: "no/such/" }).truncated, false);
+
+  // A folder of more than one page, then a neighbour the sentinel must not swallow.
+  for (let i = 0; i < MAX_LIST + 1; i += 1) await objects.put(`dir/fold/${String(i).padStart(4, "0")}`, "x");
+  await objects.put("dir/fold0", "n");
+  await objects.put("dir/other/a", "o");
+  await objects.put("dir/z", "z");
+  sql.queries.length = 0;
+  const deep = objects.list({ prefix: "dir/", delimiter: "/" });
+  assert.deepEqual(deep.delimitedPrefixes, ["dir/fold/", "dir/other/"]);
+  assert.deepEqual(
+    deep.objects.map((object) => object.key),
+    ["dir/fold0", "dir/z"],
+  );
+  assert.equal(deep.truncated, false);
+  assertBoundedKeySearch(sql);
+});
+
+test("a cursor pages past a thousand keys, and an empty prefix stays a primary-key search", { skip }, async () => {
+  const sql = durableSql();
+  const objects = texObjects(sql);
+  for (let i = 0; i < MAX_LIST + 1; i += 1) await objects.put(`notes/${String(i).padStart(4, "0")}.md`, "x");
+  await objects.put("notes-extra.md", "x");
+  const first = objects.list({ prefix: "notes/" });
+  assert.equal(first.objects.length, MAX_LIST);
+  assert.equal(first.truncated, true);
+  assert.equal(first.cursor, "notes/0999.md");
+  assert.deepEqual(
+    first.objects.map((object) => object.key),
+    Array.from({ length: MAX_LIST }, (_, i) => `notes/${String(i).padStart(4, "0")}.md`),
+  );
+  const second = objects.list({ prefix: "notes/", cursor: first.cursor });
+  assert.deepEqual(
+    second.objects.map((object) => object.key),
+    ["notes/1000.md"],
+  );
+  assert.equal(second.truncated, false);
+  assert.equal(second.cursor, undefined);
+  // A cursor wins over startAfter, and does not repeat or skip.
+  const fromCursor = objects.list({ prefix: "notes/", cursor: "notes/0998.md", startAfter: "notes/0000.md" });
+  assert.equal(fromCursor.objects[0].key, "notes/0999.md");
+  assertBoundedKeySearch(sql);
+
+  sql.queries.length = 0;
+  const all = objects.list({});
+  assert.equal(all.objects.length, MAX_LIST);
+  assert.equal(all.truncated, true);
+  assert.equal(all.objects[0].key, "notes-extra.md");
+  const plans = listPlans(sql);
+  assert.equal(plans.length, 1);
+  assert.match(plans[0].query, /key > \? AND key >= \? ORDER BY key/);
+  assert.doesNotMatch(plans[0].query, /key < \?/);
+  assert.doesNotMatch(plans[0].query, /substr\s*\(/i);
+  assert.match(plans[0].detail, /SEARCH objects USING (COVERING )?INDEX sqlite_autoindex_objects_1/);
+  assert.doesNotMatch(plans[0].detail, /\bSCAN\b/);
+});
+
+test("non-ASCII keys stay inside their prefix, and startAfter outside it does not leak in", { skip }, async () => {
+  const sql = durableSql();
+  const objects = texObjects(sql);
+  for (const key of ["notes/cafe.md", "notes/café.md", "notes/東京.md", "notes/😀.md", "a/1", "a/2", "a0", "b/1"]) {
+    await objects.put(key, key);
+  }
+  assert.deepEqual(
+    objects.list({ prefix: "notes/café" }).objects.map((object) => object.key),
+    ["notes/café.md"],
+  );
+  assert.deepEqual(
+    objects.list({ prefix: "notes/東" }).objects.map((object) => object.key),
+    ["notes/東京.md"],
+  );
+  assert.deepEqual(
+    objects.list({ prefix: "notes/😀" }).objects.map((object) => object.key),
+    ["notes/😀.md"],
+  );
+  assert.deepEqual(
+    objects.list({ prefix: "notes/caf" }).objects.map((object) => object.key),
+    ["notes/cafe.md", "notes/café.md"],
+  );
+  assert.deepEqual(
+    objects.list({ prefix: "a/", startAfter: "0" }).objects.map((object) => object.key),
+    ["a/1", "a/2"],
+  );
+  assert.deepEqual(objects.list({ prefix: "a/", startAfter: "a0" }).objects, []);
+  assert.deepEqual(objects.list({ prefix: "a/", startAfter: "b" }).objects, []);
+  assert.deepEqual(
+    objects.list({ prefix: "a/", startAfter: "a/1" }).objects.map((object) => object.key),
+    ["a/2"],
+  );
+  assert.deepEqual(
+    objects.list({ prefix: "a0" }).objects.map((object) => object.key),
+    ["a0"],
+  );
+  assertBoundedKeySearch(sql);
 });
 
 test("delete removes the keys given, and wipe removes everything", { skip }, async () => {

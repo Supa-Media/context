@@ -4,7 +4,8 @@
  * Sabotage (temporary local edits, reverted):
  *  - `partEndChoice` ignoring the gateway's answer: "the gateway's choice is the one runJob follows" fails;
  *  - `choiceOf` taking any object: "a malformed answer falls back to the same rule" fails;
- *  - runJob's carry ignoring `choice.to`: "a node that says end ends the job" fails.
+ *  - runJob's carry ignoring `choice.to`: "a node that says end ends the job" fails;
+ *  - runJob's pause ignoring `choice.resumeAt`: "a part refused at today's limit asks the node" fails.
  */
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { Fetch } from "./clients";
@@ -49,7 +50,7 @@ describe("runJob follows the node", () => {
     startedAt: NOW,
   };
 
-  function deps(partEnd: unknown) {
+  function deps(partEnd: unknown, refused = false) {
     const reports: JobUpdate[] = [];
     const asked: unknown[] = [];
     const d: JobDeps = {
@@ -61,7 +62,7 @@ describe("runJob follows the node", () => {
           asked.push(JSON.parse(String(init?.body)));
           return Response.json(partEnd);
         }
-        return Response.json({ answer: "Found three so far.", exhausted: true });
+        return refused ? Response.json({ error: "daily_limit" }, { status: 429 }) : Response.json({ answer: "Found three so far.", exhausted: true });
       }) as unknown as Fetch,
       controlPlaneOrigin: "https://cp.example",
       workerSecret: "s",
@@ -89,5 +90,26 @@ describe("runJob follows the node", () => {
     const { d, reports } = deps({ to: "end", ended: "stuck", cause: "steps_out", room: false });
     expect(await runJob(storage, d)).not.toEqual({ kind: "now" });
     expect(reports.at(-1)?.state).not.toBe("running");
+  });
+
+  it("a part refused at today's limit asks the node, and the job waits until the node's resumeAt", async () => {
+    vi.spyOn(console, "log").mockImplementation(() => {});
+    const storage = new MemoryStorage();
+    await storage.put(RUN_KEY, RUN);
+    const { d, reports, asked } = deps({ to: "end", ended: "waiting", cause: "refused", room: true, resumeAt: NOW + 123 }, true);
+    await runJob(storage, d);
+    expect(asked).toEqual([{ jobId: RUN.id, input: expect.objectContaining({ cause: "refused", refusal: "daily_limit" }) }]);
+    expect(reports.at(-1)).toMatchObject({ state: "waiting", resumeAt: NOW + 123 });
+  });
+  it("how a job ends is the node's: out of steps with no room, its check's done answer ends done, a stuck one stuck", async () => {
+    vi.spyOn(console, "log").mockImplementation(() => {});
+    for (const ended of ["done", "stuck"] as const) {
+      const storage = new MemoryStorage();
+      await storage.put(RUN_KEY, RUN);
+      const { d, reports, asked } = deps({ to: "end", ended, cause: "steps_out", room: false });
+      await runJob(storage, d);
+      expect(asked).toEqual([{ jobId: RUN.id, input: expect.objectContaining({ cause: "steps_out", checked: "done" }) }]);
+      expect(reports.at(-1)?.state).toBe(ended);
+    }
   });
 });

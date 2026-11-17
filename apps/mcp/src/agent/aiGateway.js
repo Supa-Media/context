@@ -53,6 +53,7 @@ import { prefixPrint } from "./prefixPrint.js";
 import { withToday } from "./localNow.js";
 import { TEX_CONFIG, texConfigOf } from "./texConfig.js";
 import { CREDIT_REST_MS, creditStoreOf, noteCreditPaid, noteCreditSpent, payerSkipped, resetCreditCache } from "./creditRest.js";
+import { fitHaikuBody } from "./promptBudget.js";
 
 /** The Anthropic API version this build is written against. */
 const ANTHROPIC_VERSION = "2023-06-01";
@@ -474,6 +475,14 @@ export async function requestViaGateway(call, config, options = {}) {
   let body = gatewayBody(withToday(call, { now: now(), timeZone: options.timeZone ?? null }));
   if (hourMarksRefused) body = withoutHourMarks(body);
   if (contextEditsRefused) body = withoutContextEdits(body);
+  // Tool results ride outside the history caps (`promptBudget.js`). A Haiku call is trimmed before it is sent, so it never crosses the 100k price cliff.
+  if (/haiku/i.test(call.model)) {
+    const fit = fitHaikuBody(body);
+    if (fit.shed > 0) {
+      body = fit.body;
+      console.log(JSON.stringify({ event: "tex_prompt_budget", before: fit.before, after: fit.after, shed: fit.shed }));
+    }
+  }
   // A 400 on a body with one-hour marks is resent once without them; when that
   // goes through, the refusal is remembered for this isolate, so an unaccepted
   // field never fails a turn.

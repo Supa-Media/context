@@ -252,6 +252,7 @@ describe("background jobs", () => {
     );
     for (let i = 0; i < MAX_JOB_ATTEMPTS; i += 1) await runJob(storage, deps);
     expect(asked.map((body) => (body.job as { attempt: number }).attempt)).toEqual(Array.from({ length: MAX_JOB_ATTEMPTS }, (_, i) => i + 1));
+    expect(reports.find((update) => update.part === 2)?.status).toBe("Still going: part 2 of at most 10");
     expect(reports.filter((update) => update.texts).map((update) => update.texts)).toEqual([["Wrote the note with what I have."]]);
     expect(reports.at(-1)?.state).toBe("done");
     expect(storage.data.has(RUN_KEY)).toBe(false);

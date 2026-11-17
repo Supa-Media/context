@@ -49,6 +49,15 @@ test("a job past its time, or past its parts, starts no more", () => {
   assert.equal(decidePartEnd(at({ cause: "steps_out", part: 9 })).to, "carry", "part 9 of 10 still has one after it");
 });
 
+test("out of steps with no room left, a job ends as the part's own check read its answer", () => {
+  const last = (checked) => decidePartEnd(at({ cause: "steps_out", part: 10, ...(checked ? { checked } : {}) })).ended;
+  assert.equal(last("done"), "done", "checked done: its answer is the result, not a stuck job");
+  assert.equal(last("waiting"), "waiting");
+  assert.equal(last("stuck"), "stuck");
+  assert.equal(last(undefined), "stuck", "no check: short until shown otherwise");
+  assert.equal(decidePartEnd(at({ cause: "steps_out", checked: "done" })).to, "carry", "with room left it still carries on");
+});
+
 test("two idle parts in a row end stuck instead of spending more", () => {
   assert.equal(decidePartEnd(at({ cause: "unfinished", idle: true })).to, "carry", "one idle part is allowed");
   assert.deepEqual(decidePartEnd(at({ cause: "unfinished", idle: true, wasIdle: true })), { to: "end", ended: "stuck", cause: "unfinished", room: true, spinning: true });
@@ -147,4 +156,18 @@ test("a job's limits everywhere are its Part end node's config, today's numbers 
   const { MAX_JOB_ATTEMPTS } = await import("../src/agent/background.js");
   const { TEX_CONFIG } = await import("../src/agent/texConfig.js");
   assert.equal(MAX_JOB_ATTEMPTS, configLimits(TEX_CONFIG).parts);
+});
+
+// Step 7c: a part refused at today's limit pauses the job in the Part end node, until just after the limit resets.
+test("a part refused at today's limit pauses the job until just after midnight UTC; no model or a turned-down part does not", () => {
+  const now = Date.UTC(2026, 10, 17, 22, 30);
+  const refused = decidePartEnd(at({ cause: "refused", refusal: "daily_limit", now }));
+  assert.equal(refused.to, "end");
+  assert.equal(refused.ended, "waiting");
+  assert.equal(refused.resumeAt, Date.UTC(2026, 10, 18, 0, 2));
+  assert.equal(decidePartEnd(at({ cause: "refused", refusal: "daily_limit", now }), { resumeAfterMinutes: 10 }).resumeAt, Date.UTC(2026, 10, 18, 0, 10), "the node's config sets how long after");
+  assert.equal(decidePartEnd(at({ cause: "refused", refusal: "no_model", now })).resumeAt, undefined);
+  const rejected = decidePartEnd(at({ cause: "refused", rejected: true, refusal: "daily_limit", now }));
+  assert.equal(rejected.ended, "failed");
+  assert.equal(rejected.resumeAt, undefined);
 });

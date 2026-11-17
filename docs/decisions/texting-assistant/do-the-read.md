@@ -93,6 +93,30 @@ Tainted words are still held back. Only the speaker is kept.
 covers each failure above as a golden case. `apps/mobile/__tests__/texHistoryLines.test.ts`
 covers the History view drawing a heard voice message once.
 
+## Read the record first (2026-11-17)
+
+The slow-turn note already tells a long turn to hand the rest to a job, and
+a question a few reads answer stays in the turn. Forcing every multi-step
+ask into a job would break that.
+
+An ask to read a note, a page, their mail or their calendar could be
+answered with no search and no fetch. The front door's check
+(`untriedWeb.js`) sends that draft back once. The ask has to be a read
+("what does the note say", "check my email"), not a mention: a check-in
+says "if nothing needs the chat", and "put it in a plain note" is where
+to write. The chat is not in the pattern for that reason. "note" and
+"page" count only with a determiner right against them, so "note the
+tulips" and "check the status page" are not asks to read the record. The claim check
+on every other turn is unchanged, so the reply reviewer is not.
+
+An extra "want me to" after a finished write is not caught in code. "Want
+me to book it?" after writing the options is the next step, and a phrase
+cannot tell that from an offer nobody asked for. That is the same limit
+as 2026-11-05.
+
+**The test that fails if this is reversed:** `apps/mcp/test/recordRead.test.mjs`
+and the replay case `record-before-answer`.
+
 ## Who is who in a group chat (2026-11-04)
 
 In a customer's group chat, Tex told the person asking that they "would

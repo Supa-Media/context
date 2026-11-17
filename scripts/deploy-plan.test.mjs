@@ -136,7 +136,8 @@ test("production selects the same way, per reusable workflow", () => {
 
 test("a production component's own workflow redeploys it", () => {
   assert.deepEqual(promote(".github/workflows/deploy-mcp.yml"), ["gateway"]);
-  assert.deepEqual(promote(".github/workflows/deploy-mobile-update.yml"), ["ota"]);
+  assert.deepEqual(promote(".github/workflows/build-mobile-ota.yml"), ["ota"]);
+  assert.deepEqual(promote(".github/workflows/deploy-production-ota.yml"), ["ota"]);
   assert.deepEqual(promote(".github/workflows/build-web.yml"), ["router", "web"]);
   assert.deepEqual(promote(".github/workflows/deploy-router.yml"), ["router", "web"]);
   const all = Object.keys(TARGETS.production.components).sort();

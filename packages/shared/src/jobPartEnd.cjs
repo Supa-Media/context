@@ -12,13 +12,16 @@
  */
 
 /** The limits a job's parts run under when the config names none: today's numbers, so wiring this changes nothing. */
-const DEFAULT_LIMITS = Object.freeze({ parts: 10, minutes: 30, machineParts: 96, machineMinutes: 240 });
+const DEFAULT_LIMITS = Object.freeze({ parts: 10, minutes: 30, machineParts: 96, machineMinutes: 240, resumeAfterMinutes: 2 });
 
 /** Why a part ended (`apps/agent/src/jobProgress.ts` `PartCause`). */
 const CAUSES = Object.freeze(["done", "waiting", "stuck", "check_limit", "timeout", "crash", "model_down", "steps_out", "unfinished", "changed", "stopped", "refused"]);
 
 /** Causes that would end the next part the same way: running it again only burns a part, so the last draft goes. */
 const DETERMINISTIC = Object.freeze(["check_limit"]);
+
+/** How a part's own check can read its answer (`checked`). */
+const ENDS = Object.freeze(["done", "waiting", "stuck"]);
 
 /** Causes where the part broke before it answered. */
 const BROKEN = Object.freeze(["check_limit", "timeout", "crash"]);
@@ -37,6 +40,7 @@ function limitsOf(config) {
     minutes: whole(given.minutes, DEFAULT_LIMITS.minutes),
     machineParts: whole(given.machineParts, DEFAULT_LIMITS.machineParts),
     machineMinutes: whole(given.machineMinutes, DEFAULT_LIMITS.machineMinutes),
+    resumeAfterMinutes: whole(given.resumeAfterMinutes, DEFAULT_LIMITS.resumeAfterMinutes),
   };
 }
 
@@ -61,7 +65,12 @@ function roomLeft({ part, startedAt, now, machine }, limits) {
  *
  * Input: `cause` (above), `part` (this part's number, from 1), `startedAt` and `now` (ms), `machine` (it runs on the
  * person's own computer), `hasDraft` (a draft is saved), `idle` (this part called no tool and wasn't done), `wasIdle`
- * (the part before it was idle too), `rejected` (turned down before it ran, as opposed to refused for now).
+ * (the part before it was idle too), `rejected` (turned down before it ran, as opposed to refused for now), `refusal`
+ * (why a part was refused for now: "daily_limit" or "no_model").
+ *
+ * A part refused at today's limit pauses the job: it ends waiting with `resumeAt`, just after the limit resets
+ * (counted per UTC day, `apps/convex/functions/lib/jev/meter.ts` `utcDay`), and starts again by itself then
+ * (`apps/agent/src/jobPause.ts`); `resumeAfterMinutes` is how long after the reset.
  */
 function decidePartEnd(input, config) {
   const limits = limitsOf(config);
@@ -79,11 +88,20 @@ function decidePartEnd(input, config) {
     return { to: "deliver", ended: DETERMINISTIC.includes(cause) ? "done" : "stuck", cause, room };
   }
   if (CARRY.includes(cause) && room && !spinning) return { to: "carry", cause, room };
-  return { to: "end", ended: endedAs(cause, input?.rejected === true), cause, room, ...(spinning ? { spinning: true } : {}) };
+  const pause = cause === "refused" && input?.rejected !== true && input?.refusal === "daily_limit" ? { resumeAt: limitResetAt(Number(input?.now) || 0, limits) } : {};
+  return { to: "end", ended: endedAs(cause, input?.rejected === true, input?.checked), cause, room, ...(spinning ? { spinning: true } : {}), ...pause };
+}
+
+/** When a job paused at today's limit at `now` starts again: the next midnight UTC, plus `resumeAfterMinutes`. */
+function limitResetAt(now, limits = DEFAULT_LIMITS) {
+  const day = new Date(now);
+  return Date.UTC(day.getUTCFullYear(), day.getUTCMonth(), day.getUTCDate() + 1) + limits.resumeAfterMinutes * 60_000;
 }
 
 /** How a job that ends here ended, by why its last part did. */
-function endedAs(cause, rejected) {
+function endedAs(cause, rejected, checked) {
+  // Out of steps with no room left, its answer ends as the part's own check said (done unless it was judged short).
+  if (cause === "steps_out" && ENDS.includes(checked)) return checked;
   if (cause === "refused") return rejected ? "failed" : "waiting";
   if (cause === "waiting") return "waiting";
   if (cause === "done" || cause === "changed") return "done";
@@ -91,4 +109,4 @@ function endedAs(cause, rejected) {
   return "failed"; // stopped, a crash or a timeout with nothing saved, a model that stayed down
 }
 
-module.exports = { CAUSES, DEFAULT_LIMITS, DETERMINISTIC, configLimits, decidePartEnd, limitsOf, roomLeft };
+module.exports = { CAUSES, DEFAULT_LIMITS, DETERMINISTIC, configLimits, decidePartEnd, limitResetAt, limitsOf, roomLeft };
