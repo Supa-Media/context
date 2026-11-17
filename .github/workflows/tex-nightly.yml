@@ -1,9 +1,12 @@
 # Tex's nightly scoreboard (Dev2, 2026-11-13: "I want to wake up to some
 # failed benchmarks, I guess, or passing benchmarks if it's truly passing").
-# Every area, three runs each, as the live setup (apps/mcp/bench/nightly.mjs):
-# the core set and simple asks, the golden tasks, the web facts, the one
-# judge's reply-or-quiet cases and the reply reviewer's, held-out cases
-# included. Each area is checked against the spend cap in
+# The night's areas (three runs each, held-out cases included) come from
+# NIGHTLY_ROTATION in apps/mcp/bench/nightly.mjs, on the America/New_York
+# civil date: web-facts, respond and review every night; core on Monday,
+# Wednesday and Friday; on Sunday, tasks on an even ISO week and jobs on an
+# odd one. A workflow_dispatch `areas` input (comma-separated, or all)
+# replaces that list. The budget check still applies. Each selected area is
+# checked against the spend cap in
 # `@context-lc ai/results/spend.md` first and refused past it; what it spent is
 # recorded there. One note, `ai/results/nightly/<date>.md`, says pass or fail
 # by area, the cases that fell short, the target cases (known bugs) apart, the
@@ -25,7 +28,7 @@ on:
   workflow_dispatch:
     inputs:
       areas:
-        description: "Areas to run, comma-separated (core, tasks, web-facts, respond, review); empty runs them all"
+        description: "Override the weekday rotation: comma-separated areas (core, tasks, web-facts, respond, review, jobs), or all. Empty uses NIGHTLY_ROTATION in America/New_York."
         required: false
         default: ""
       fake:
@@ -63,7 +66,7 @@ jobs:
         run: node scripts/bench-runner-lock.mjs --max-minutes 170
 
   nightly:
-    name: Every area, three runs, one scoreboard
+    name: Tonight's areas, one scoreboard
     needs: wait-turn
     runs-on: ubuntu-latest
     environment: production
@@ -129,7 +132,7 @@ jobs:
       - name: Pull the held-out cases (never written to the repository or the log)
         run: pnpm --silent ai gate held-out --dir "$RUNNER_TEMP/held-out"
 
-      - name: Run every area and write the scoreboard
+      - name: Run tonight's areas and write the scoreboard
         env:
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
         run: |

@@ -546,6 +546,7 @@ bench/test/coreArea.test.mjs
 bench/test/coreSocket.test.mjs
 bench/test/jobsSocket.test.mjs
 bench/test/nightly.test.mjs
+bench/test/nightlyRotation.test.mjs
 test/texWindowStep.test.mjs
 bench/test/jobTasks.test.mjs
 test/readsIndex.test.mjs
