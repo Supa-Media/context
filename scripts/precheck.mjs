@@ -8,10 +8,14 @@
  * The guard steps are the `run:` steps of `.github/workflows/fast-guards.yml`
  * (which includes `scripts/tex-diagram-check.mjs`). The Node version line is
  * the only one skipped: it records the runner, it checks nothing. A line that
- * `git fetch`es `"$BASE_SHA"` becomes `:`: CI's checkout is shallow and needs
- * that fetch, but precheck already has the merge-base, and
+ * is only `git fetch` of `"$BASE_SHA"` (optional flags, then `origin`, then
+ * the ref, nothing chained after it) becomes `:`. CI's checkout is shallow
+ * and needs that fetch, but precheck already has the merge-base, and
  * `git fetch --depth` on a full clone writes `.git/shallow` and cuts history
  * there. Deleting the line would leave an empty `then`, which bash rejects.
+ * A `git fetch` of `$BASE_SHA` with another command on the same line fails
+ * `--self-test`: replacing the whole line would drop that command, and
+ * leaving the fetch would shallow the clone.
  * The app typecheck is CI's `mobile-typecheck` job (`pnpm typecheck`
  * in `apps/mobile`, 6 GB heap). The architecture check is CI's
  * `architecture-check: true` on the supa-framework workflow; the command
@@ -33,6 +37,7 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync,
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
+import { assertChainedBaseFetchRefused } from "./precheck-fetch.mjs";
 
 const ROOT = fileURLToPath(new URL("..", import.meta.url));
 const GUARDS = join(ROOT, ".github/workflows/fast-guards.yml");
@@ -101,9 +106,28 @@ export function guardScripts(text) {
   return runScripts(text).filter((body) => body !== "node --version");
 }
 
-/** A shallow fetch of the base commit. CI needs it; a full clone already has that commit. */
-export function isShallowBaseFetch(line) {
+/**
+ * `git fetch` of `$BASE_SHA`, `${BASE_SHA}`, or either one in quotes, with
+ * nothing after the ref. Flags are `--name` or `--name=value` only.
+ * A chained command used to match too, and the whole line became `:`.
+ */
+const BARE_BASE_FETCH =
+  /^\s*git fetch(?:\s+--[A-Za-z0-9][\w-]*(?:=[^\s"'|&;]+)?)*\s+origin\s+(?:"\$\{BASE_SHA\}"|'\$\{BASE_SHA\}'|"\$BASE_SHA"|'\$BASE_SHA'|\$\{BASE_SHA\}|\$BASE_SHA)\s*$/;
+
+/** The old check: any line that starts with `git fetch` and mentions `$BASE_SHA`. */
+function isLooseBaseFetch(line) {
   return /^\s*git fetch\b/.test(line) && /\$\{?BASE_SHA\}?/.test(line);
+}
+
+/** A `git fetch` of `$BASE_SHA` that shares its line with another command. */
+function isEmbeddedBaseShaFetch(line) {
+  if (/^\s*#/.test(line) || /^\s*git fetch\b/.test(line)) return false;
+  return /\bgit fetch\b/.test(line) && /\$\{?BASE_SHA\}?/.test(line);
+}
+
+/** A bare shallow fetch of the base commit. CI needs it; a full clone already has that commit. */
+export function isShallowBaseFetch(line) {
+  return BARE_BASE_FETCH.test(line);
 }
 
 /**
@@ -202,6 +226,7 @@ export function assertGuards(workflowText) {
   if (guards.length + 1 !== runs.length) throw new Error("precheck skips something other than the Node version line");
   const dropped = runs.filter((body) => !guards.includes(body));
   if (dropped.length !== 1 || dropped[0] !== "node --version") throw new Error("precheck skips something other than the Node version line");
+  refuseUnsafeBaseFetches(guards);
   const executed = scriptsToRun(workflowText);
   if (executed.length !== guards.length) throw new Error("precheck dropped a guard while removing the shallow fetch");
   for (let i = 0; i < guards.length; i++) {
@@ -214,6 +239,26 @@ export function assertGuards(workflowText) {
   const blob = executed.join("\n");
   const missing = REQUIRED.filter((path) => !blob.includes(path));
   if (missing.length) throw new Error(`precheck dropped ${missing.join(", ")}`);
+}
+
+/**
+ * A fetch of `$BASE_SHA` that is not bare fails here. Replacing that line
+ * with `:` would drop whatever is chained after the fetch, and leaving the
+ * fetch in place would shallow a full clone. The loose check is what used
+ * to match; it stays so a bare-only `isShallowBaseFetch` is what refuses
+ * the line. Widening `isShallowBaseFetch` back to the loose check lets the
+ * line through again.
+ */
+function refuseUnsafeBaseFetches(bodies) {
+  for (const body of bodies) {
+    for (const line of body.split("\n")) {
+      const unsafe = (isLooseBaseFetch(line) && !isShallowBaseFetch(line)) || isEmbeddedBaseShaFetch(line);
+      if (!unsafe) continue;
+      throw new Error(
+        `precheck refuses a git fetch of $BASE_SHA that is not only that fetch; replacing the line would discard the rest of it, and running the fetch would shallow the clone: ${line.trim()}`,
+      );
+    }
+  }
 }
 
 /** Null when `executed` is `original` with only shallow `$BASE_SHA` fetches replaced by `:`. */
@@ -257,6 +302,7 @@ function selfTest() {
   if (!dropped) throw new Error("a workflow missing the guard scripts passed");
   assertGuards(readFileSync(GUARDS, "utf8"));
   assertShallowFetchStripped();
+  assertChainedBaseFetchRefused(assertGuards, scriptsToRun);
   assertDirectInvocation();
   assertCiDrift();
   const guards = readFileSync(GUARDS, "utf8");
@@ -278,14 +324,33 @@ const FETCH_FIXTURE = [
   "          if [ -n \"$BASE_SHA\" ]; then",
   "            git fetch --no-tags --depth=1 origin \"$BASE_SHA\"",
   "            git fetch --depth=1 origin '$BASE_SHA'",
+  "            git fetch --depth=1 origin \"${BASE_SHA}\"",
+  "            git fetch --depth=1 origin '${BASE_SHA}'",
+  "            git fetch origin ${BASE_SHA}",
+  "            git fetch origin $BASE_SHA",
+  "            git fetch origin \"$BASE_SHA\"",
   "          fi",
   "          node scripts/check-tex-change-has-case.mjs",
 ].join("\n");
 
+const NEUTRALIZED_FETCHES = [
+  'git fetch --no-tags --depth=1 origin "$BASE_SHA"',
+  "git fetch --depth=1 origin '$BASE_SHA'",
+  'git fetch --depth=1 origin "${BASE_SHA}"',
+  "git fetch --depth=1 origin '${BASE_SHA}'",
+  "git fetch origin ${BASE_SHA}",
+  "git fetch origin $BASE_SHA",
+  'git fetch origin "$BASE_SHA"',
+];
+
 function assertShallowFetchStripped() {
   const body = scriptsToRun(FETCH_FIXTURE)[0];
-  if (body.includes('git fetch --no-tags --depth=1 origin "$BASE_SHA"') || body.includes("git fetch --depth=1 origin '$BASE_SHA'")) {
-    throw new Error('shallow fetch of "$BASE_SHA" still runs');
+  for (const fetch of NEUTRALIZED_FETCHES) {
+    if (body.includes(fetch)) throw new Error(`shallow fetch of "$BASE_SHA" still runs: ${fetch}`);
+  }
+  const colons = body.split("\n").filter((line) => /^\s*:\s*$/.test(line));
+  if (colons.length !== NEUTRALIZED_FETCHES.length) {
+    throw new Error(`expected ${NEUTRALIZED_FETCHES.length} neutralized fetches, found ${colons.length}`);
   }
   if (!body.includes("git fetch origin main")) throw new Error("a fetch of something other than $BASE_SHA was dropped");
   if (!body.includes('if [ -n "$BASE_SHA" ]; then')) throw new Error("the fetch's if was dropped");
@@ -298,13 +363,25 @@ function assertShallowFetchStripped() {
   const workflow = readFileSync(GUARDS, "utf8");
   const original = guardScripts(workflow);
   const executed = scriptsToRun(workflow);
-  const fetched = original.filter((step) => step.split("\n").some((line) => line.includes('git fetch') && line.includes('"$BASE_SHA"')));
-  if (fetched.length !== 3) throw new Error(`expected three BASE_SHA fetches in fast-guards.yml, found ${fetched.length}`);
-  for (const step of executed) {
-    if (step.split("\n").some((line) => line.includes("git fetch") && line.includes('"$BASE_SHA"'))) {
-      throw new Error('a guard still fetches "$BASE_SHA"');
+  let fetches = 0;
+  for (let i = 0; i < original.length; i++) {
+    const sourceLines = original[i].split("\n");
+    const resultLines = executed[i].split("\n");
+    if (sourceLines.length !== resultLines.length) throw new Error("neutralizing a fetch changed a step's line count");
+    for (let j = 0; j < sourceLines.length; j++) {
+      const source = sourceLines[j];
+      const result = resultLines[j];
+      if (!source.includes("git fetch") || !source.includes("BASE_SHA")) {
+        if (source !== result) throw new Error(`neutralizing a bare fetch changed another line: ${source.trim()}`);
+        continue;
+      }
+      fetches += 1;
+      if (!isShallowBaseFetch(source)) throw new Error(`a workflow fetch of $BASE_SHA is not bare: ${source.trim()}`);
+      const indent = source.match(/^\s*/)[0];
+      if (result !== `${indent}:`) throw new Error(`a bare fetch was not neutralized: ${source.trim()} -> ${JSON.stringify(result)}`);
     }
   }
+  if (fetches !== 3) throw new Error(`expected three BASE_SHA fetches in fast-guards.yml, found ${fetches}`);
   assertGuardPhaseLeavesHistory(executed.filter((step, index) => original[index].includes('"$BASE_SHA"')));
 }
 
