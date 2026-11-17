@@ -207,8 +207,9 @@ jobs:
         run: node scripts/tex-lab-promote.mjs --self-test && node scripts/tex-lab-merge.mjs --self-test
 
       # The Architecture Lab's cases, module texts and test workspaces are the bench's own (tex.lc/lab).
-      - name: The Tex Lab's data matches the bench
-        run: node scripts/tex-lab-data.mjs --check
+      # Built on install and never committed (scripts/tex-generated.mjs); building it still fails on a bench past its caps.
+      - name: The Tex Lab's data builds from the bench
+        run: node scripts/tex-lab-data.mjs
 
       # Tex's test conversations (packages/shared/src/texSets.cjs; plan: tex-sets/plan.md). The Test Set is never in the
       # repo: its star count comes from the eval service, and an unreachable service falls back to Training against Dev.

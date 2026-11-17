@@ -84,18 +84,15 @@ jobs:
               answer "$(jq -cn --arg v "$id" --argjson at "$at" --arg why "${why#tex-lab-promote: refused: }" '{versionId: $v, at: $at, why: $why}')"
               continue
             fi
-            # tex_dev's bundles carry the config too; CI fails a config change that leaves them stale.
-            node scripts/tex-dev-canvas.mjs > /dev/null
-            node scripts/tex-dev-lab.mjs > /dev/null
-            node scripts/tex-dev-replay.mjs > /dev/null
-            node scripts/tex-lab-data.mjs > /dev/null
+            # The Lab's prompt catalogue (read at old commits by the Lab's Replay) follows the config's words and order.
+            node scripts/tex-prompt-catalog.mjs > /dev/null
             if git diff --quiet; then
               answer "$(jq -cn --arg v "$id" --argjson at "$at" '{versionId: $v, at: $at, why: "it is the same as main"}')"
               continue
             fi
             name=$(echo "$ask" | jq -r .name | tr -d '\r' | cut -c1-80)
             by=$(echo "$ask" | jq -r .by)
-            git add packages/shared/src/texConfig.json docs/architecture/tex.md apps/mcp/src/agent/texArchitecture.generated.js packages/shared/src/texPrompt packages/shared/src/texPrompt.generated.json apps/mcp/src/texDev apps/mobile/features/tex/lab/labData.generated.ts
+            git add packages/shared/src/texConfig.json docs/architecture/tex.md apps/mcp/src/agent/texArchitecture.generated.js packages/shared/src/texPrompt packages/shared/src/texPrompt.generated.json packages/shared/src/texNodeShelf.json apps/mobile/features/tex/lab/promptCatalog.generated.json
             git commit -q -m "Promote the Lab version \"$name\" to Tex's config" -m "Asked for in the Tex Architecture Lab by $by. The pull request merges only on green CI and the replay gate."
             git push -q -f origin "HEAD:refs/heads/tex-lab/promote-$id-$at"
             {
@@ -147,7 +144,7 @@ jobs:
           if [ "$(echo "$refused" | jq length)" != "0" ]; then
             answer "$(jq -cn --argjson r "$refused" --argjson at "$ats" '{items: [$r[] | {id, at: $at[.id], why}]}')"
           fi
-          git add apps/mcp/bench/sets packages/shared/src/texSetsRepo.generated.json apps/mcp/src/texDev apps/mobile/features/tex/lab/labData.generated.ts
+          git add apps/mcp/bench/sets packages/shared/src/texSetsRepo.generated.json
           if git diff --cached --quiet; then
             done_ids=$(echo "$result" | jq -c '[.written[], .removed[]]')
             [ "$(echo "$done_ids" | jq length)" = "0" ] || answer "$(jq -cn --argjson d "$done_ids" --argjson at "$ats" '{items: [$d[] | {id: ., at: $at[.], why: "it is the same as main"}]}')"

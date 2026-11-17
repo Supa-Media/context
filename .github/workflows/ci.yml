@@ -377,26 +377,15 @@ jobs:
           git diff --stat -- "$file"
           exit 1
 
-      # The gateway's `tex_dev snapshot` draws with the Tex Lab's own canvas code
-      # (render.ts, snapshot.ts, labCss.ts), bundled to plain JavaScript because
-      # the gateway imports no TypeScript. Same promise as the bundles above:
-      # the committed file is exactly what the Lab's sources build.
-      - name: The gateway's Tex canvas must be what the Lab's drawing builds
+      # `tex_dev` snapshot, Replay and the Lab engine run the Tex Lab's own code
+      # (canvas/snapshot.ts, engine/replayEntry.ts, engine/forMcp.ts), bundled
+      # to plain JavaScript because the gateway imports no TypeScript. The
+      # bundles are built on install, never committed (scripts/tex-generated.mjs,
+      # 2026-11-17: committed, every config or Lab change conflicted in them),
+      # so this only proves they build from this commit's sources.
+      - name: The gateway's Tex Lab bundles build from the Lab's sources
         if: steps.scope.outputs.affected == 'true'
-        run: node scripts/tex-dev-canvas.mjs --check
-
-      # `tex_dev`'s Replay actions (moments, turn, prompt, jobs, mine) are worked
-      # out by the Lab's own Replay code (engine/replayEntry.ts), bundled the same
-      # way: the committed file is exactly what the Lab's sources build.
-      - name: The gateway's Tex Replay must be what the Lab's Replay builds
-        if: steps.scope.outputs.affected == 'true'
-        run: node scripts/tex-dev-replay.mjs --check
-      # `tex_dev` sim, compare, config, bench, modules and reference answer with
-      # what the Tex Lab computes in the browser (engine/forMcp.ts and all it
-      # reads, the bench cases included), bundled the same way.
-      - name: The gateway's Tex Lab engine must be what the Lab's sources build
-        if: steps.scope.outputs.affected == 'true'
-        run: node scripts/tex-dev-lab.mjs --check
+        run: node scripts/tex-generated.mjs mcp
 
       # Uploaded only on failure, and only the rebuilt file: a reviewer needs to
       # compare it against the commit to see what was added, and scrolling a

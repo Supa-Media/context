@@ -83,7 +83,8 @@ The `ai/production/prompt/` notes are retired. Skills stay in `@context-lc` for 
 **Its data is the bench's own.** `scripts/tex-lab-data.mjs` writes the cases,
 the module texts (the map, the capability list, the judge examples, the test
 person's about note) and the test workspaces from the repo into
-`labData.generated.ts`. Fast repository guards fails when that file is stale.
+`labData.generated.ts`, built on install and never committed (`scripts/tex-generated.mjs`); fast repository
+guards fails when the bench cannot build it.
 
 **What a simplification would cost:** rebuilding the views "in the app's own
 style" instead of porting them would bring back the thing Dev2 named, a build
