@@ -12,19 +12,20 @@
  * `RETRY_MS` until the two hours are up; then the entry lapses to stuck as any ended wait does.
  */
 
+import partEndLib from "../../../packages/shared/src/jobPartEnd.cjs";
+import { TEX_CONFIG } from "../../../packages/shared/src/texConfig.cjs";
 import { armBy } from "./events";
 import type { InboxStorage } from "./inbox";
 import { JOB_PREFIX, JOB_SHOWN_MS, log, resumeJobs, type JobEntry, type JobSteer } from "./jobs";
 
-/** How long after the reset the job starts again, so the day's count has surely turned over. */
-export const AFTER_RESET_MS = 2 * 60_000;
+/** How long after the reset the job starts again, so the day's count has surely turned over: the Part end node's config. */
+export const AFTER_RESET_MS = partEndLib.configLimits(TEX_CONFIG).resumeAfterMinutes * 60_000;
 /** A restart that didn't fit is tried again this often. */
 export const RETRY_MS = 10 * 60_000;
 
 /** When a job refused at the daily limit at `now` starts again: just after the next midnight UTC. */
 export function limitResetAt(now: number): number {
-  const day = new Date(now);
-  return Date.UTC(day.getUTCFullYear(), day.getUTCMonth(), day.getUTCDate() + 1) + AFTER_RESET_MS;
+  return partEndLib.limitResetAt(now, partEndLib.configLimits(TEX_CONFIG));
 }
 
 /** From the chat inbox's alarm: restart every paused job whose time came, and keep the alarm for the next. */
