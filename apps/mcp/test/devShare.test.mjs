@@ -8,7 +8,7 @@
  *    "their personal workspace".
  *
  * Sabotage record (2026-11-17), each applied, this file run, named test failing, reverted:
- *  1. `devShareOn` always true → "the module is off on main" fails.
+ *  1. `devShareOn` always true → "the module is off on main" fails (before the Lab promote listed it in main's ctx).
  *  2. `devShareOf` keeping any string → "only handles reach the words" fails.
  *  3. `taggedLine` ignoring `cause` → "a check-in is never told it was tagged" fails.
  *  4. `!o.inGroup` dropped from `transcripts` → "a group turn is never told the 1:1's record" fails.
@@ -26,11 +26,10 @@ const KEY = "c3".repeat(32);
 const MEMBERS = "d4".repeat(32);
 const chat = (extra) => groupOf({ group: { key: KEY, members: MEMBERS, from: "shyoh", people: ["shyoh"], ...extra } });
 
-test("the module is off on main, and on where a draft's front door reads it", () => {
-  assert.equal(texStep("fd").ctx.includes(DEV_SHARE_MODULE), false, "main's front door doesn't read it until a Lab draft is promoted");
-  assert.equal(devShareOn({}), false);
-  const on = withDraft(TEX_CONFIG, { nodes: [{ id: "fd", ctx: [...texStep("fd").ctx, DEV_SHARE_MODULE] }] });
-  assert.equal(texStep("fd", on).ctx.includes(DEV_SHARE_MODULE), true);
+test("main's front door reads the chat's sharing (promoted from the Lab, 2026-11-17), and a draft can take it out", () => {
+  assert.equal(texStep("fd").ctx.includes(DEV_SHARE_MODULE), true, "the front door's ctx lists devShare");
+  const off = withDraft(TEX_CONFIG, { nodes: [{ id: "fd", ctx: texStep("fd").ctx.filter((id) => id !== DEV_SHARE_MODULE) }] });
+  assert.equal(texStep("fd", off).ctx.includes(DEV_SHARE_MODULE), false);
 });
 
 test("a shared chat is told it is shared and who said yes, and that nothing needs sending", () => {
