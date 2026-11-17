@@ -9,7 +9,7 @@
  * `pnpm ai nodes [--only egress,card] [--fake]` runs each case through the step's own code (`GATEWAY_NODES`) alone:
  * its helpers and wires are not there, so a step that needs its turn says so instead of passing. An exact want
  * compares the output field (yes/no, a choice, a number, words); a judge want asks Haiku through the AI gateway
- * whether the field does what the words say. At most 20 cases a step, as every step (`gateSample.mjs` UNIT_LIMIT).
+ * whether the field does what the words say. At most 50 cases a step, as every step (`gateSample.mjs` UNIT_LIMIT).
  */
 import { readdir, readFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
