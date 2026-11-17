@@ -10,7 +10,8 @@
  * fails on the tool count, since the model searches again; make `carriesOn` (`savedRounds.js`) answer true and "a call
  * held for their yes freezes" fails; let `carriesOn` take a picture or a note write and "a picture made or a note
  * written freezes" fails; make `rereadCarried` skip the claim check and "carried reads count as read" fails; drop `covers` from `textKey` and "another text, another key" fails; drop the
- * `untrusted` restore in `carriedRounds` and "the outside-read mark travels" fails.
+ * `untrusted` restore in `carriedRounds` and "the outside-read mark travels" fails; drop `prune` from `get` or
+ * `forget` (`texStore/rounds.js`) and "the expired row was deleted" or "forget deletes other expired snapshots" fails.
  */
 
 import assert from "node:assert/strict";
@@ -238,6 +239,38 @@ test("the chat's home keeps the newest snapshot per text, fresh for half an hour
   assert.throws(() => rounds.get("texts", "not-a-key"), TexObjectRefused);
   now += ROUNDS_FRESH_MS + 1;
   assert.equal(rounds.get("texts", key), null, "stale");
+  // Rewind the clock: a row that was only hidden would be readable again.
+  now -= ROUNDS_FRESH_MS;
+  assert.equal(rounds.get("texts", key), null, "the expired row was deleted, not hidden");
+  const expired = "c".repeat(64);
+  const also = "d".repeat(64);
+  const kept = "e".repeat(64);
+  now = 2_000_000;
+  rounds.put("texts", expired, { v: 1, old: true });
+  rounds.put("texts", also, { v: 1, also: true });
+  now = 2_000_000 + 1_000;
+  rounds.put("texts", kept, { v: 1, fresh: true });
+  now = 2_000_000 + ROUNDS_FRESH_MS + 1;
+  assert.equal(rounds.get("texts", expired), null, "stale on read");
+  now = 2_000_000 + 1_000;
+  assert.equal(rounds.get("texts", expired), null, "the expired row was deleted, not hidden");
+  assert.equal(rounds.get("texts", also), null, "a read deletes every other expired snapshot");
+  assert.deepEqual(rounds.get("texts", kept), { v: 1, fresh: true }, "a snapshot that is still fresh stays");
+  const gone = "a".repeat(63) + "1";
+  const sibling = "a".repeat(63) + "2";
+  const at = 3_000_000;
+  now = at;
+  rounds.put("texts", gone, { v: 1, g: true });
+  rounds.put("texts", sibling, { v: 1, s: true });
+  now = at + ROUNDS_FRESH_MS + 1;
+  rounds.forget("texts", gone);
+  now = at + 1;
+  assert.equal(rounds.get("texts", sibling), null, "forget deletes other expired snapshots");
+  rounds.put("texts", gone, { v: 1, g: true });
+  rounds.put("texts", sibling, { v: 1, s: true });
+  rounds.forget("texts", gone);
+  assert.equal(rounds.get("texts", gone), null);
+  assert.deepEqual(rounds.get("texts", sibling), { v: 1, s: true }, "forget leaves a fresh snapshot");
   rounds.put("texts", "b".repeat(64), { v: 1 });
   rounds.forget("texts", "b".repeat(64));
   assert.equal(rounds.get("texts", "b".repeat(64)), null);
