@@ -223,10 +223,19 @@ export class SenderInbox implements DurableObject {
     if (path === "/page-steer") return await pageSteerResponse(this.state.storage, await request.json().catch(() => null), async (id, next) => (await this.deps().steerJob?.(id, next)) ?? false);
     if (path === "/send-status") {
       const status = (await request.json()) as SendStatus;
-      const outcome = await noteSendStatus(this.state.storage, status, Date.now(), resendPlain(this.state.storage, this.deps(), Date.now));
-      // The chat's `send` step: the provider's status for one of Tex's texts, with its own times (`providerTiming.ts`).
-      if (status.report !== undefined) await logStep(this.state.storage, status.chat, sendStep(status.report), Date.now());
-      return Response.json({ outcome });
+      const note = async () => {
+        const outcome = await noteSendStatus(this.state.storage, status, Date.now(), resendPlain(this.state.storage, this.deps(), Date.now));
+        // The chat's `send` step: the provider's status for one of Tex's texts, with its own times (`providerTiming.ts`).
+        if (status.report !== undefined) await logStep(this.state.storage, status.chat, sendStep(status.report), Date.now());
+        return outcome;
+      };
+      // A Photon report may wait for its send to note the handle (`sendblueStatus.ts` `sentEvent`); the bridge's event
+      // stream never waits on that, so it is noted after the answer.
+      if (status.report?.name === "photon") {
+        this.handOff(note());
+        return Response.json({ outcome: "queued" });
+      }
+      return Response.json({ outcome: await note() });
     }
     if (path === "/host-picture") {
       // The Worker's line (`lineCalls.ts`) asks this object to host a picture its line sends; the same call `deps()` makes.

@@ -111,8 +111,8 @@ export function resendPlain(storage: InboxStorage, deps: LineDeps & GroupLineDep
 }
 
 /** Log one status, resend plain a threaded text that never went, and mark any other send that never went. The outcome, for the log and tests. */
-export async function noteSendStatus(storage: InboxStorage, status: SendStatus, now: number, resend?: Resend): Promise<"logged" | "marked" | "resent" | "unmatched"> {
-  const ev = ((await storage.get<{ h: string; ev: string }[]>(HANDLES_KEY)) ?? []).find((entry) => entry.h === status.handle)?.ev;
+export async function noteSendStatus(storage: InboxStorage, status: SendStatus, now: number, resend?: Resend, wait: (ms: number) => Promise<void> = pause): Promise<"logged" | "marked" | "resent" | "unmatched"> {
+  const ev = await sentEvent(storage, status, wait);
   let outcome: "logged" | "marked" | "resent" | "unmatched" = ev === undefined ? "unmatched" : "logged";
   const threaded = NEVER_WENT.has(status.status) && resend !== undefined ? await takeThreaded(storage, status.handle, now) : undefined;
   if (threaded !== undefined && resend !== undefined) {
@@ -135,6 +135,29 @@ export async function noteSendStatus(storage: InboxStorage, status: SendStatus, 
   }
   console.log(JSON.stringify({ event: "sendblue_status", ...(status.report && status.report.name !== "sendblue" ? { provider: status.report.name } : {}), status: status.status, ...(status.errorClass ? { error_class: status.errorClass } : {}), downgraded: status.downgraded, ...(ev ? { ev } : {}), outcome }));
   return outcome;
+}
+
+/** How long a Photon report waits for its send to note the handle: Apple's echo of a text can beat the send's own answer. */
+export const PHOTON_MATCH_WAIT_MS = 5_000;
+const PHOTON_MATCH_STEP_MS = 250;
+
+const pause = (ms: number): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms));
+
+/**
+ * The event of the send a status is for, by its handle. Photon's "sent" is Apple's echo of the text, which often lands
+ * before the bridge has answered the send with the guid, so before the sender noted it (260 of 268 unmatched,
+ * 2026-11-15/16): a Photon report waits for the handle, a little at a time, so the object can take the send's own
+ * write in between. Sendblue's callbacks come long after the send and are read once.
+ */
+async function sentEvent(storage: InboxStorage, status: SendStatus, wait: (ms: number) => Promise<void>): Promise<string | undefined> {
+  const read = async () => ((await storage.get<{ h: string; ev: string }[]>(HANDLES_KEY)) ?? []).find((entry) => entry.h === status.handle)?.ev;
+  let ev = await read();
+  if (status.report?.name !== "photon") return ev;
+  for (let waited = 0; ev === undefined && waited < PHOTON_MATCH_WAIT_MS; waited += PHOTON_MATCH_STEP_MS) {
+    await wait(PHOTON_MATCH_STEP_MS);
+    ev = await read();
+  }
+  return ev;
 }
 
 /** Whether two strings match, hashed first so the time taken says nothing of either. */
