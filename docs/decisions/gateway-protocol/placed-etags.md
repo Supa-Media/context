@@ -31,7 +31,11 @@ Every etag argument (`expected_etag`, `expected_source_etag`,
   see the bare version (`tools/dispatch.js` strips any placing left).
 
 A Lab test chat's writes are answered by the test chat, never routed, so they
-get the workspace half of the check from names alone.
+get the workspace half of the check from names alone. A call that names two
+workspaces is refused with the same words as routing (`addressByPath`),
+including when the turn saw two sessions and the etag half therefore checks
+nothing: that refusal does not depend on which session the call would have
+run in.
 
 ### What would break it
 

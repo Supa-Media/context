@@ -183,11 +183,17 @@ export function etagWorkspaceRefusal(args, { context, own }) {
   return null;
 }
 
-/** `etagWorkspaceRefusal` for a call not yet routed: the place it names by `context` or path, else `own` (`@name`). */
+/**
+ * `etagWorkspaceRefusal` for a call not yet routed: the place it names by `context` or path, else `own` (`@name`).
+ * A call that names two workspaces is refused with the gateway's own words (`pathAddress.js`), even when `own` is
+ * empty: the test chat answers a write before routing, and dropping that refusal is how it used to say the write saved.
+ */
 export function etagRefusalByName(name, supplied, own) {
   if (!supplied || typeof supplied !== "object" || Array.isArray(supplied)) return null;
   const args = { ...supplied };
-  if (addressByPath(name, args)) return null;
+  const crossed = addressByPath(name, args);
+  if (crossed) return crossed;
+  if (typeof own !== "string" || own === "") return null;
   const context = name === "move_note" ? args.source_context : args.context;
   return etagWorkspaceRefusal(args, { context: typeof context === "string" ? context : null, own });
 }
