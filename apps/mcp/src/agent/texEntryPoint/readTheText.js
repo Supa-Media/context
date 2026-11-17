@@ -62,7 +62,7 @@ export async function readTheText(t) {
   // Note mail (`tools/notes/mail.js`): a job's turn joins mail as the job, so mail reaches it at once; only Tex's own turn may interrupt one.
   store.mailTurn = job !== null ? { role: "job", job: job.id } : chatTurn || runner ? { role: "tex" } : null;
   store.contexts = contextsFor(session); store.ledger = chatTurn || runner ? chatLedger(store, session) : null; if (job !== null && store.ledger) store.ledger = session.ledger = jobTagged(store.ledger, job); // a job's turn marks all it writes as the job's (`ledger.js` `jobTagged`) // a texted, group or routine turn's chat ledger, which the email gate and a settled ask write to (`workEntries.js`)
-  if (report !== null) report = await tex.step("job_report", () => jobReportEvent(body, report, { config: texConfigOf(env), writer: store.ledger })); // node "A job reports" reads it once the config has it
+  if (report !== null) report = await tex.step("job_report", () => jobReportEvent(body, report, { env, config: texConfigOf(env), writer: store.ledger })); // node "A job reports" reads it once the config has it
   if (report !== null && store.ledger) { try { store.ledger.write(reportEntry(report, { turn: body.turn })); } catch { /* the history's line never costs the turn */ } } // what this turn was handed, before the model reads it (`workEntries.js` `reportEntry`)
   const hot = warmTurn(env, session, body, { eligible: session.actorClientId === TEXTS_CLIENT_ID && group === null && job === null && !runner, logEligible: group !== null && job === null && !runner, now: received }); // what the Worker kept of the last turn's reads, never the history or About me (`warmCopy.js`)
   const setupRead = readProductionSetup(store, session, { texting: session.actorClientId === TEXTS_CLIENT_ID || runner || group !== null, warm: hot.setup, config: texConfigOf(env) }); // read beside what comes before it, not after
@@ -89,9 +89,9 @@ export async function readTheText(t) {
  * has it, so the run is logged; until then (the node on the shelf) the code's own read stands. A report the node can't
  * read is the same null the code's read gives.
  */
-export async function jobReportEvent(body, report, { config, writer }) {
+export async function jobReportEvent(body, report, { env = null, config, writer }) {
   if (!config.nodes.some((node) => node.id === "jobReport" && node.on !== false)) return report;
-  const graph = gatewayGraph({ writer, turn: typeof body.turn === "string" ? body.turn : null, config });
+  const graph = gatewayGraph({ env, writer, turn: typeof body.turn === "string" ? body.turn : null, config });
   const { output } = await graph.runNode("jobReport", { jobReport: body.jobReport }, {}, "readTheText");
   return output?.to === "report" ? output.report : null;
 }
@@ -107,7 +107,7 @@ async function crossChatEvent(body, { chatTurn, job, group, env, writer }) {
   const id = typeof body.crossChat?.id === "string" ? body.crossChat.id.slice(0, 48) : "";
   const unread = { answer: "", quiet: true, ...(body.event === CHAT_ASK_EVENT && id ? { crossBack: { id, state: "refused", texts: [], why: "that chat can't take asks from other chats" } } : {}) };
   if (!config.nodes.some((node) => node.id === "chatAsk" && node.on !== false)) return { refused: unread };
-  const graph = gatewayGraph({ writer, turn: typeof body.turn === "string" ? body.turn : null, config });
+  const graph = gatewayGraph({ env, writer, turn: typeof body.turn === "string" ? body.turn : null, config });
   const { output } = await graph.runNode("chatAsk", { event: body.event, crossChat: body.crossChat, group: group !== null }, {}, "readTheText");
   if (output?.to !== "ask" && output?.to !== "answer") return { refused: unread };
   return { event: output.event, question: output.question, prompt: output.prompt };

@@ -89,7 +89,7 @@ export async function sendTheReply(t) {
   // A hard job, written down for next time (`reflect.js`): after the answer; a tainted turn reflects on their own text and step names only.
   // So does one shown an earlier tainted answer: its words never mark the turn, but they never become a skill or about-me either (`turn-trust.md`).
   const taintedTurn = ledger.untrusted === true || showsOutsideWords(history), ownText = !runner && job === null && group === null, canWrite = textingWriting.some((tool) => tool.name === "write_note"); // the background wires' inputs (`reflect.js`)
-  const afterCtx = { env, controlPlane, store, session, offered, turn, learned, timeZone }, afterGraph = gatewayGraph({ writer: chatLog, turn: ledgerTurn, config: texConfigOf(env) }); // each run kept in the chat's ledger as a node step; a Lab test chat's on its draft
+  const afterCtx = { env, controlPlane, store, session, offered, turn, learned, timeZone }, afterGraph = gatewayGraph({ env, writer: chatLog, turn: ledgerTurn, config: texConfigOf(env) }); // each run kept in the chat's ledger as a node step; a Lab test chat's on its draft
   if (afterGraph.wired("send", "learn")) {
     // A draft that draws Learn (the memory nudge, then reflect, one step: Dev2, 2026-11-16), fired by this code with its own input over the wire.
     await tex.after("learn", async () => afterGraph.fire("send", "learn", { question, answer: turn.answer ?? "", tainted: taintedTurn, ownText, canWrite }, afterCtx).catch(() => {}).then(() => chatLog?.flush()));
@@ -143,7 +143,7 @@ export async function sendTheReply(t) {
   if (job !== null && typeof answered === "function") await tex.step("answer_early", () => answered({ ...withoutSteps(reply), ...jobFields(null, { exhausted: turn.exhausted === true, unfinished: claims?.unfinished(turn.answer) === true, untrusted: ledger.untrusted === true }), ...(turn.steps?.length ? {} : { idle: true }) }));
   return json({
     ...reply,
-    ...(await tex.step("job_fields", () => jobChecked(session, { job, steps: turn.steps?.length ?? 0, turn: body.turn }, () => jobTurnFields(job, turn, { unfinished: claims?.unfinished(turn.answer) === true, untrusted: ledger.untrusted === true, model: [production?.advisor, router?.think, builtinUsed].find((name) => typeof name === "string" && canRunBuiltin(name, env)), efforts: production?.efforts, request: advisorRequest({ ai: env.AI, gateway: aiGatewayConfig(env), metadata: { feature: "assistant", workspace: String(session.workspaceId), client: "job-check" } }), meter, config: texConfigOf(env), check: jobCheckFor(job?.id, gatewayGraph({ writer: session.ledger ?? null, turn: typeof body.turn === "string" ? body.turn : null })) })))), // a job's part is checked by the advisor against its finish line (`jobCheck.js`)
+    ...(await tex.step("job_fields", () => jobChecked(session, { job, steps: turn.steps?.length ?? 0, turn: body.turn }, () => jobTurnFields(job, turn, { unfinished: claims?.unfinished(turn.answer) === true, untrusted: ledger.untrusted === true, model: [production?.advisor, router?.think, builtinUsed].find((name) => typeof name === "string" && canRunBuiltin(name, env)), efforts: production?.efforts, request: advisorRequest({ ai: env.AI, gateway: aiGatewayConfig(env), metadata: { feature: "assistant", workspace: String(session.workspaceId), client: "job-check" } }), meter, config: texConfigOf(env), check: jobCheckFor(job?.id, gatewayGraph({ env, writer: session.ledger ?? null, turn: typeof body.turn === "string" ? body.turn : null })) })))), // a job's part is checked by the advisor against its finish line (`jobCheck.js`)
     ...{ warm: (await tex.step("seal_warm", () => hot.seal({ wrote: turn.steps.length > 0 }))) ?? undefined }, // the copy the Worker hands back with the next text (`warmCopy.js`)
   });
 }
@@ -161,7 +161,7 @@ function hubField(offers, hub) {
 
 /** An ask-run's reply: nothing texted here, its draft and any signed post handed back by node `chatAnswer`. */
 async function crossBackOf(event, draft, post, { env, writer, turn }) {
-  const graph = gatewayGraph({ writer, turn, config: texConfigOf(env) });
+  const graph = gatewayGraph({ env, writer, turn, config: texConfigOf(env) });
   const input = crossBackInput(event, draft, post);
   const run = graph.wired("answerCheck", "chatAnswer") ? await graph.fire("answerCheck", "chatAnswer", input, { env }).catch(() => null) : null;
   const back = run?.to === "back" ? run : { id: event.id, state: "refused", texts: [], why: "the answer could not be sent back" };

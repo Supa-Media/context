@@ -215,7 +215,7 @@ async function adviseRoute(request, env, store, session, controlPlane, advise, c
   // While the job's pass runs here, its own mailadv wire is used (`graph/jobHandles.js`); otherwise the config's job wire.
   const lent = borrowJob(body.jobId);
   // A draft that draws the Job advisor answers as its `mail` role (`graph/nodes/jobadv.js`); main's config, the Advisor on job mail.
-  const graph = gatewayGraph({ writer: record, config: texConfigOf(env) });
+  const graph = gatewayGraph({ env, writer: record, config: texConfigOf(env) });
   const advised =
     lent !== null
       ? "jobadv" in lent.use ? await lent.use.jobadv({ role: "mail", ...advisorInput }, advisorLend) : await lent.use.mailadv(advisorInput, advisorLend)
