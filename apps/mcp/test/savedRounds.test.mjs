@@ -18,8 +18,9 @@ import { test } from "node:test";
 
 import { BUILTIN_PROVIDER } from "../src/agent/builtin.js";
 import { runTurn } from "../src/agent/turn.js";
-import { checkedSnapshot, PICTURE_LEFT_OUT, ROUNDS_RESULT_CHARS, textKey, keptMessage } from "../src/agent/savedRounds.js";
-import { carriedRounds, rereadCarried, roundsKeeper } from "../src/agent/turnResume.js";
+import { checkedSnapshot, jobKey, PICTURE_LEFT_OUT, ROUNDS_RESULT_CHARS, textKey, keptMessage } from "../src/agent/savedRounds.js";
+import { jobOf } from "../src/agent/background.js";
+import { carriedLine, carriedRounds, JOB_ROUNDS_LEFT, rereadCarried, resumedRounds, roundsKeeper } from "../src/agent/turnResume.js";
 import { claimCheck } from "../src/agent/claimCheck.js";
 import { ledgerFor, ledgerObserver, STEP_NAMES } from "../src/agent/ledger.js";
 import { texRounds, ROUNDS_FRESH_MS } from "../src/texStore/rounds.js";
@@ -288,4 +289,50 @@ test("carriedRounds reads the text's snapshot from the chat's home, keeps new on
   assert.equal((await carriedRounds({ store: wrapped, session, body: { ...body, provisional: true }, question: QUESTION, egress, log })).keep, null, "a provisional run keeps nothing");
   assert.equal(await carriedRounds({ store: wrapped, session, body: {}, question: QUESTION, egress, log }), null, "no events, no carry");
   assert.equal(await carriedRounds({ store: { texLedger: () => ({ append() {} }) }, session, body, question: QUESTION, egress, log }), null, "a home with no rounds (a Lab test chat)");
+});
+
+test("a job's part keeps under its own part and restart, and goes on only from the part the Worker names", async () => {
+  const store = new Map();
+  const home = { roundsOf: async (chat, key) => store.get(`${chat}/${key}`) ?? null, keepRounds: async (chat, key, data) => void store.set(`${chat}/${key}`, data), forgetRounds: async (chat, key) => void store.delete(`${chat}/${key}`) };
+  const wrapped = { texLedger: () => home };
+  const session = { workspaceKind: "personal", workspaceId: "ws1" };
+  const log = () => {};
+  const job = (fields) => jobOf({ id: "job-1234-abcd", title: "Timecards", ...fields });
+  const snapshot = { v: 1, round: 27, messages: [{ role: "assistant", text: "", toolCalls: [{ id: "c", name: "search_notes", args: {} }] }, { role: "tool", id: "c", name: "search_notes", text: "payroll" }] };
+
+  // Part 1 keeps; nothing is read on a first try.
+  const one = await carriedRounds({ store: wrapped, session, body: {}, question: "x", job: job({ attempt: 1 }), log });
+  assert.equal(one.from, null);
+  one.keep(snapshot);
+  await one.flush();
+  assert.ok(store.has(`texts/${await jobKey({ id: "job-1234-abcd", part: 1 })}`), "kept under part 1 of this run");
+  // Part 2, cut off part 1: goes on from it, its round count started over.
+  const two = await carriedRounds({ store: wrapped, session, body: {}, question: "x", job: job({ attempt: 2, resumeFrom: 1 }), log });
+  assert.equal(two.from.part, 1);
+  assert.equal(two.from.restart, true);
+  assert.equal(resumedRounds({ resumeFrom: two.from, rounds: 30, messages: [], held: { keep() {} }, steps: [], tell() {} }), 0, "a carried part starts at round 0");
+  assert.match(carriedLine(two.from), /part 1, cut off before it answered/);
+  // Part 1 tried again: goes on from its own try, with ten rounds left to finish in.
+  const again = await carriedRounds({ store: wrapped, session, body: {}, question: "x", job: job({ attempt: 1, resumeFrom: 1 }), log });
+  assert.equal(again.from.leave, JOB_ROUNDS_LEFT);
+  assert.equal(resumedRounds({ resumeFrom: again.from, rounds: 30, messages: [], held: { keep() {} }, steps: [], tell() {} }), 20);
+  // A try told to start fresh drops what its part kept, which a try handed saved rounds may have left.
+  const kept1 = `texts/${await jobKey({ id: "job-1234-abcd", part: 1 })}`;
+  assert.ok(store.has(kept1));
+  assert.equal((await carriedRounds({ store: wrapped, session, body: {}, question: "x", job: job({ attempt: 1, resumeFrom: 0 }), log })).from, null);
+  assert.ok(!store.has(kept1), "never carried again");
+  one.keep(snapshot);
+  await one.flush();
+  // A restarted job (`resumeJob`) starts at part 1 again: the old run's part 1 is not its own.
+  assert.equal((await carriedRounds({ store: wrapped, session, body: {}, question: "x", job: job({ attempt: 1, resumes: 1, resumeFrom: 1 }), log })).from, null);
+  // The Worker may name only this part or the one before.
+  assert.equal(job({ attempt: 3, resumeFrom: 1 }).resumeFrom, null);
+  assert.equal(job({ attempt: 1, resumeFrom: -1 }).resumeFrom, null);
+  assert.equal(job({ attempt: 2, resumeFrom: 0 }).resumeFrom, 0, "0: start fresh");
+  assert.equal(job({ attempt: 2, resumeFrom: "1" }).resumeFrom, null);
+  assert.equal(carriedLine(null), "");
+  // A part that answered leaves nothing.
+  await two.forget();
+  assert.equal(store.size, 0, "a part that answered leaves nothing, nor does the part it went on from");
+  assert.notEqual(await jobKey({ id: "job-1234-abcd", part: 1 }), await jobKey({ id: "job-1234-abcd", resumes: 1, part: 1 }));
 });
