@@ -190,7 +190,7 @@ every wire, from the same config.
 | Bookkeeping | prepareBookkeeping | retired | off | code |  |  |  | texEntryPoint/prepareBookkeeping.js |
 | Prepare the answer | prepareTheAnswer | retired | off | code |  |  |  | texEntryPoint/prepareTheAnswer.js |
 | Router | router | retired | off | Clef |  |  | recent | router.js |
-| Front door | fd |  | on | Haiku 5.5 | medium |  | tools, skills, map, p-about-tex, p-rules, p-tools, p-working, p-sound-like-a-person, p-pictures, p-how-you-talk, train:fd:all:60000, caps, groups, summaries:all:30000, chat:7:130000, threads, about, date, ask | turn.js runTurn · texEntryPoint/runTheModel.js |
+| Front door | fd |  | on | Haiku 5.5 | medium |  | tools, skills, map, p-about-tex, p-rules, p-tools, p-working, p-sound-like-a-person, p-pictures, p-how-you-talk, train:fd:all:60000, caps, groups, devShare, summaries:all:30000, chat:7:130000, threads, about, date, ask | turn.js runTurn · texEntryPoint/runTheModel.js |
 | Fallback | fallback | retired | off | GLM-4.7 Flash |  |  |  | builtin.js |
 | Big-ask planner | planner | retired | off | Opus 5.5 | high |  | own, train:planner, ask, caps | planBigAsk.js |
 | Tools | tools | tools-subagents | on | code |  |  |  | callToolForSession |

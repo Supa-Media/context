@@ -4,7 +4,7 @@ import { groupChat } from "../chats.mjs";
 export default {
   id: "group-told-why",
   incident: "2026-11-14 and 2026-11-17, Battle of the Bots: the chat's own check-in texted \"Yeah, what do you need?\" every four hours with nothing asked, and asked why, Tex said \"you'd just tagged me\" about a message nobody tagged. Every group turn was also told the chat's history is in \"their personal workspace\".",
-  cause: "Every group turn was told \"@<sponsor> tagged you.\" whatever ran it (a check-in, a routine, a follow-up the judge picked up), and the 1:1's own record, check-in and ping words were put in group turns too.",
+  cause: "No group turn was told whether the chat was shared with the developers, and every group turn was told \"@<sponsor> tagged you.\" whatever ran it (a check-in, a routine, a follow-up the judge picked up), and the 1:1's own record, check-in and ping words were put in group turns too.",
   path: "group tag",
   async run() {
     const chat = await groupChat();
@@ -18,9 +18,11 @@ export default {
       const tagged = await chat.tag("ada", "Tex what's on Thursday?", "Dinner at 7.", [], { group: { people: ["ada"], cause: "named" } });
       assert.match(tagged.shown, /@ada tagged you\./, "a text that names Tex is still a tag");
       // The 1:1-only blocks never reaching a group turn is proven in test/devShare.test.mjs: this harness keeps no ledger.
-      // The chat's sharing with the developers is told only where the front door reads `devShare` (a Lab draft first).
+      // The chat's sharing with the developers, as the control plane counted it (main's front door reads `devShare`).
       const shared = await chat.tag("ada", "Tex can the devs see this chat?", "Yes.", [], { group: { people: ["ada"], cause: "named", devShare: { shared: true, by: ["ada"], waiting: [] } } });
-      assert.doesNotMatch(shared.shown, /SHARED WITH THE DEVELOPERS/, "off on main until a draft is promoted");
+      assert.match(shared.shown, /this chat is shared with the developers who build Tex \(@ada said yes\)/, "a shared chat is told it is shared");
+      const waiting = await chat.tag("ada", "Tex can the devs see this chat?", "Not yet.", [], { group: { people: ["ada"], cause: "named", devShare: { shared: false, by: ["ada"], waiting: ["bo"] } } });
+      assert.match(waiting.shown, /is not shared[\s\S]*Still to say yes: @bo\./, "and one that isn't, who still has to say yes");
     } finally {
       chat.restore();
     }
