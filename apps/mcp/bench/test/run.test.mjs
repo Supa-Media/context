@@ -286,3 +286,15 @@ test("a test's computer line is read strictly", async () => {
   assert.throws(() => readComputer("Studio Mac with claude"), /is not/);
   assert.throws(() => readComputer("Studio Mac (vim) 2 slots"), /is not/);
 });
+
+test("a turn that ends in a tapback shows the judge that tapback, never silence, and it is not a text", async () => {
+  const { converse, tapbackLine } = await import("../run.mjs");
+  assert.equal(tapbackLine(undefined), null);
+  assert.equal(tapbackLine(null), null);
+  assert.equal(tapbackLine(""), "(Tex reacted to their text)");
+  assert.equal(tapbackLine("🗓️"), "(Tex reacted 🗓️ to their text)");
+  const world = scriptedWorld([{ answer: "", react: "" }]);
+  const result = await converse(world, { ...STREAMLY, ifAsked: [] }, { fake: true });
+  assert.deepEqual(result.conversation.map((turn) => turn.text), [STREAMLY.text, "", "(Tex reacted to their text)"]);
+  assert.equal(result.texts, 1, "the tapback is a line the person saw, not a text Tex sent");
+});

@@ -68,9 +68,23 @@ export function resultsOf(rows, ms) {
       got: r.ran === false ? `can't run: ${String(r.why ?? "no way to run alone yet").slice(0, 200)}` : String(r.got ?? (r.right ? "as labelled" : r.why ?? "")),
       want: String(r.want ?? ""),
       ...(r.ran === false ? { ran: false } : {}),
+      // A miss's whole story: each failed line with the judge's reason, then every text Tex sent, so a reader can find
+      // the cause without rerunning (Dev set, 2026-11-17: misses showed one cut line and nothing of the judge's reason).
+      ...(r.right ? {} : detailOf(r)),
     })),
   };
 }
+
+/** A missed row's detail: "never: <line> (<judge's reason>)" per failed line, then "Tex: <texts>"; empty when there is none. */
+export function detailOf(r) {
+  const misses = (Array.isArray(r.misses) ? r.misses : []).map((m) => `${m.kind === "must not" ? "never" : "must"}: ${m.line}${m.reason ? ` (${m.reason})` : ""}`);
+  const said = Array.isArray(r.said) ? r.said.filter((t) => typeof t === "string") : [];
+  const text = [...misses, ...(said.length > 0 ? [`Tex: ${said.join(" / ")}`] : [])].join("\n").slice(0, DETAIL_CHARS);
+  return text === "" ? {} : { detail: text };
+}
+
+/** At most this much of a row's detail is kept (`apps/convex/functions/texLabRuns.ts` keeps the same). */
+const DETAIL_CHARS = 1_500;
 
 async function main() {
   const [sub, a, b] = process.argv.slice(2);
