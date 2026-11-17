@@ -11,8 +11,9 @@ import { MODELS } from "../../engine/state";
 import type { LabNode } from "../../types";
 import { onCommit } from "./change";
 import { pickModel, setNode } from "./nodeEdit";
+import { EFFORTS } from "@context/shared/src/texConfigSchema.cjs";
 
-const EFFORTS = ["off", "low", "medium", "high", "xhigh"];
+
 
 export function SettingsCard({ n }: { n: LabNode }) {
   const m = MODELS[n.model] || MODELS.code;

@@ -14,10 +14,11 @@ import { loadSets } from "../bench/sets.mjs";
 import { parseTest } from "../bench/load.mjs";
 import sets from "../../../packages/shared/src/texSets.cjs";
 import decide from "../../../packages/shared/src/textDecide.cjs";
+import { readTexConfig } from "../../../scripts/lib/texConfigFile.mjs";
 
 const repo = new URL("../../../", import.meta.url);
 const repoRoot = new URL("../../..", import.meta.url).pathname;
-const config = JSON.parse(readFileSync(new URL("packages/shared/src/texConfig.json", repo), "utf8"));
+const config = readTexConfig();
 const bench = new URL("apps/mcp/bench/", repo);
 const run = promisify(execFile);
 

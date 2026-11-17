@@ -51,9 +51,9 @@
  */
 "use strict";
 
-const MODES = Object.freeze(["wait", "background", "uses", "loop", "job", "provisional", "generator"]);
-/** What a provisional run may do before its go: reads only, or reads and writes that can be undone (the default). */
-const ALLOW = Object.freeze(["read", "revertible"]);
+// The wire modes and a provisional run's allows (reads only, or reads and writes that can be undone, the default) are
+// the schema's (`texConfigSchema.cjs`).
+const { MODES, ALLOW } = require("./texConfigSchema.cjs");
 const MAX_LOG_CHARS = 3_500;
 
 class GraphError extends Error {

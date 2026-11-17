@@ -25,6 +25,7 @@
  *   node scripts/tex-lab-promote.mjs --self-test
  */
 import { readFileSync, writeFileSync } from "node:fs";
+import { createRequire } from "node:module";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -34,8 +35,10 @@ import { FOLDER as PROMPT_FOLDER, MODULE as PROMPT_MODULE, moduleFor as promptMo
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 const ID = /^[a-z][A-Za-z0-9_-]{0,30}$/;
-const MODES = new Set(["wait", "uses", "background", "job", "loop", "provisional", "generator"]);
-const EFFORTS = new Set(["off", "low", "medium", "high", "xhigh", "max"]);
+// The wire modes, efforts and migrations are the schema's (`texConfigSchema.cjs`).
+const SCHEMA = createRequire(import.meta.url)("../packages/shared/src/texConfigSchema.cjs");
+const MODES = new Set(SCHEMA.MODES);
+const EFFORTS = new Set(SCHEMA.EFFORTS);
 const PROMPT_KEY = /^p-([a-z][a-z0-9-]{0,47})$/;
 const MAX_WORDS = 40_000;
 /** Nodes merged but not wired (Dev2, 2026-11-16). */
@@ -70,6 +73,8 @@ export function wordsFrom(modules, currentWords) {
 export function configFrom(graph, current, currentWords = {}, shelf = []) {
   const refuse = (why) => ({ refused: why });
   if (!graph || !Array.isArray(graph.nodes) || !Array.isArray(graph.edges)) return refuse("the version has no steps and wires");
+  // A version saved under an older shape is brought to the current one first (`texConfigSchema.cjs` MIGRATIONS).
+  graph = SCHEMA.migrateGraph(graph);
   const madeWords = wordsFrom(graph.modules, currentWords);
   if (madeWords.refused) return madeWords;
   const known = new Set(current.nodes.map((n) => n.id));
@@ -86,8 +91,6 @@ export function configFrom(graph, current, currentWords = {}, shelf = []) {
   }
   for (const id of known) if (!ids.has(id)) return refuse(`step "${id}" is gone: the gateway still runs it, so turn it off instead of deleting it`);
   for (const e of graph.edges) {
-    // A version saved before "behind" was renamed "background" (Dev2, 2026-11-14) promotes with the new name.
-    if (e && e.mode === "behind") e.mode = "background";
     if (!e || !ids.has(e.from) || !ids.has(e.to)) return refuse(`a wire joins a step that is not there (${e?.from} → ${e?.to})`);
     if (!MODES.has(e.mode) || !Array.isArray(e.when) || !e.when.every((w) => typeof w === "string")) return refuse(`the wire ${e.from} → ${e.to} is malformed`);
     if (e.rounds !== undefined && !(Number.isInteger(e.rounds) && e.rounds > 0 && e.rounds <= 100)) return refuse(`the wire ${e.from} → ${e.to} has rounds that are not a whole number from 1 to 100`);

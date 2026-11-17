@@ -22,12 +22,13 @@
 import { execFileSync } from "node:child_process";
 import { createRequire } from "node:module";
 import { fileURLToPath } from "node:url";
+import { CONFIG_PATH } from "./lib/texConfigFile.mjs";
 
 const require = createRequire(import.meta.url);
 const { applyOps, conflicts, diffGraphs, keysOf } = require("../packages/shared/src/texLabOps.cjs");
 const { configStamp, isStamp } = require("../packages/shared/src/texConfigStamp.cjs");
 
-export const CONFIG_PATH = "packages/shared/src/texConfig.json";
+export { CONFIG_PATH };
 export const WORDS_PATH = "packages/shared/src/texPrompt";
 /** How far back on main a draft's base is looked for. */
 const LOOK_BACK = 400;

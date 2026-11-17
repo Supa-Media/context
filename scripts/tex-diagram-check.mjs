@@ -35,6 +35,7 @@ import { fileURLToPath } from "node:url";
 import { CONFIG, PAGE as DIAGRAM, generatedProblems } from "./tex-architecture.mjs";
 import { FOLDER as PROMPT_FOLDER, MODULE as PROMPT_MODULE, moduleIsCurrent as promptIsCurrent } from "./tex-prompt-module.mjs";
 import { FOLDER as TRAINING_FOLDER, MODULE as TRAINING_MODULE, moduleIsCurrent as trainingIsCurrent } from "./tex-training-module.mjs";
+import { readTexConfig } from "./lib/texConfigFile.mjs";
 
 const ROOT = resolve(fileURLToPath(new URL("..", import.meta.url)));
 export { DIAGRAM };
@@ -105,7 +106,7 @@ export function mapProblems(files) {
  * then each `steps.<name>(t` the entry file still calls itself (its failure path).
  */
 export function graphSteps(root) {
-  const config = JSON.parse(readFileSync(join(root, "packages/shared/src/texConfig.json"), "utf8"));
+  const config = readTexConfig(root);
   const table = readFileSync(join(root, "apps/mcp/src/agent/graph/gatewayNodes.js"), "utf8");
   const fileOf = new Map([...table.matchAll(/import \{ (\w+) \} from "\.\/nodes\/([\w-]+)\.js";/g)].map((m) => [m[1], m[2]]));
   const steps = [];

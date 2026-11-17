@@ -15,6 +15,7 @@
  * not open, so on the whole graph a nested group's steps fold into its top group's box, and with that group open its
  * child group is a box of its own inside it (`foldAround`).
  */
+import { migrateGraph } from "@context/shared/src/texConfigSchema.cjs";
 import type { LabEdge, LabGraph, LabNode } from "../types";
 
 /** `parent`: the group this one sits inside (Dev2, 2026-11-16: "make sure that groups can be nested"). */
@@ -271,6 +272,8 @@ export function foldAround(graph: LabGraph, focusId: string | null, groups: Grou
   return out;
 }
 
-/** A version saved before the "behind" wire was renamed "background" (Dev2, 2026-11-14) reads with the new name. */
-export const withCurrentModes = <G extends { edges?: Array<{ mode: string }> },>(g: G): G =>
-  Array.isArray(g.edges) ? { ...g, edges: g.edges.map((e) => (e.mode === "behind" ? { ...e, mode: "background" } : e)) } : g;
+/**
+ * A version saved under an older shape of the config reads in the current one: the schema's migrations, the same ones
+ * Promote runs (`texConfigSchema.cjs`; the first renamed the "behind" wire "background", Dev2, 2026-11-14).
+ */
+export const withCurrentModes = <G extends { edges?: Array<{ mode: string }> },>(g: G): G => migrateGraph(g);

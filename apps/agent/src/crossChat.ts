@@ -15,7 +15,7 @@
  * logged (`log`), and the turns themselves log every node on the gateway.
  */
 
-import bundled from "../../../packages/shared/src/texConfig.json" with { type: "json" };
+import { TEX_CONFIG as bundled } from "../../../packages/shared/src/texConfig.cjs";
 import { queueByCode, CHAT_KEY, type InboxStorage, type RememberedChat } from "./inbox";
 import { queueGroupByCode, groupInboxName } from "./groupInbox";
 import { sha256Hex } from "./groupChat";

@@ -16,6 +16,7 @@ import { readdirSync, readFileSync, writeFileSync, existsSync } from "node:fs";
 import { createRequire } from "node:module";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
+import { readTexConfig } from "./lib/texConfigFile.mjs";
 
 const require = createRequire(import.meta.url);
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
@@ -26,7 +27,7 @@ export const MODULE = "packages/shared/src/texTraining.generated.json";
 export function trainingConversations(root = ROOT) {
   const { check } = require(join(root, "packages/shared/src/texSets.cjs"));
   const { WHY } = require(join(root, "packages/shared/src/textDecide.cjs"));
-  const config = JSON.parse(readFileSync(join(root, "packages/shared/src/texConfig.json"), "utf8"));
+  const config = readTexConfig(root);
   const dir = join(root, FOLDER);
   if (!existsSync(dir)) return [];
   const out = [];

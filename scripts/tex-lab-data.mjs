@@ -12,6 +12,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { createRequire } from "node:module";
 import { fileURLToPath, pathToFileURL } from "node:url";
+import { readTexConfig } from "./lib/texConfigFile.mjs";
 
 const ROOT = fileURLToPath(new URL("..", import.meta.url));
 const OUT = path.join(ROOT, "apps/mobile/features/tex/lab/labData.generated.ts");
@@ -191,7 +192,7 @@ async function buildModText() {
   // in the judge's own form, the others' in the Training form. A step with no labels has no text.
   const { moduleText } = require(abs("packages/shared/src/texTraining.cjs"));
   const training = JSON.parse(readText("packages/shared/src/texTraining.generated.json"));
-  const config = JSON.parse(readText("packages/shared/src/texConfig.json"));
+  const config = readTexConfig(ROOT);
   const train = {};
   for (const n of config.nodes) {
     const text = n.id === "decide" ? judgeExamplesText(["decide"]) : moduleText(`train:${n.id}`, training);
