@@ -22,7 +22,7 @@ import { photonAttachmentUrl, photonGroupGuid } from "./photon";
 import { photonGroupMembers } from "./photonClient";
 import { arrivalOf } from "./providerTiming";
 import { photonSendStatusOf } from "./photonSendStatus";
-import { parsePhotonEvent, photonAttachmentGuids, type PhotonEdit } from "./photonInbound";
+import { parsePhotonEvent, photonAttachmentGuids, type PhotonDropped, type PhotonEdit } from "./photonInbound";
 import { sendGroupName } from "./sendblueGroups";
 import { workerOrigin } from "./media";
 
@@ -70,13 +70,15 @@ export async function photonEvent(env: Env, body: unknown): Promise<number> {
     log("invalid");
     return 400;
   }
+  // Apple's own time for the event (the bridge's `at`), for the chat's `text` step to show the provider's lag (`providerTiming.ts`).
+  const provider = arrivalOf("photon", (body as { at?: unknown }).at, Date.now());
   if (parsed.kind === "ignored") {
     log("ignored", parsed.reason);
+    // A message dropped in a chat it names is still a step of that chat: its history shows the drop and why (`dropped`).
+    if ("chatId" in parsed || "groupId" in parsed) await noteDropped(env, parsed as PhotonDropped, provider);
     return 200;
   }
   const known = origin ?? undefined;
-  // Apple's own time for the event (the bridge's `at`), for the chat's `text` step to show the provider's lag (`providerTiming.ts`).
-  const provider = arrivalOf("photon", (body as { at?: unknown }).at, Date.now());
   // An edit or an unsend goes to its chat's `edit` step (node "edit", `editStep.ts`): kept beside the text it changes; an
   // edit that changed what they said takes a turn, and an unsent text still waiting is taken back out of the queue.
   if (parsed.kind === "edited" || parsed.kind === "unsent") return await photonEdit(env, parsed, provider);
@@ -112,6 +114,31 @@ export async function photonEvent(env: Env, body: unknown): Promise<number> {
     (await toChat(env, "one", parsed.from, brought, known)) ??
     (await inboxByName(env.SENDER_INBOX, parsed.from).fetch(`https://inbox/accept?origin=${encodeURIComponent(known ?? "")}`, { method: "POST", body: JSON.stringify(brought) }));
   return result.ok ? 200 : 503;
+}
+
+/**
+ * A message the line read and dropped, told to its chat's object so the chat's `text` step shows it (outcome "dropped"
+ * and the reason, never the words). A group staff moved here is filed under its old id, as its messages are. Best effort:
+ * the drop already answered 200, and a note that fails is only logged.
+ */
+async function noteDropped(env: Env, dropped: PhotonDropped, provider: unknown): Promise<void> {
+  try {
+    let chat = dropped.chatId;
+    let name = dropped.from;
+    if (dropped.groupId !== undefined) {
+      const arrival = await arrivedAs(env.SENDER_INBOX, { photonGroupId: dropped.groupId, photonLine: dropped.line ?? "", from: dropped.from ?? "", participants: dropped.participants ?? [] });
+      chat = arrival.from?.groupId ?? dropped.groupId;
+      name = groupInboxName(chat);
+    }
+    if (chat === undefined || name === undefined) return;
+    const result = await inboxByName(env.SENDER_INBOX, name).fetch("https://inbox/dropped", {
+      method: "POST",
+      body: JSON.stringify({ chat, kind: dropped.groupId !== undefined ? "group" : "one", reason: dropped.reason, provider }),
+    });
+    if (!result.ok) log("drop_unnoted", dropped.reason);
+  } catch {
+    log("drop_unnoted", dropped.reason);
+  }
 }
 
 /** An edit or an unsend, to its chat's object: a group's, filed under its old id when staff moved it here (`groupMoves.ts`), or the sender's. */

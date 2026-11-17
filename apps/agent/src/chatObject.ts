@@ -51,7 +51,7 @@ import { noteCardDrawer } from "./noteCards";
 import { answerHanded, failHanded } from "./groupTurnRun";
 import type { GroupTurnParams } from "./groupTurnWorkflow";
 import { inboxByName, inboxIdOf, objectByName } from "./objectPlace";
-import { logStep, textStep, sendStep } from "./stepEvents";
+import { logDropped, logStep, textStep, sendStep } from "./stepEvents";
 import { readArrival } from "./providerTiming";
 import { movedAlarm, placeGate, type MoveStorage } from "./inboxMove";
 
@@ -166,6 +166,11 @@ export class SenderInbox implements DurableObject {
     }
     // The `group-moves` object (`groupMoves.ts`): which groups moved to the new number, by both ids.
     if (path.startsWith("/group-move/")) return await serveGroupMoves(this.state.storage, path, (await request.json().catch(() => ({}))) as Record<string, unknown>, Date.now());
+    // A message the line dropped in this chat (`photonEvents.ts` noteDropped): its `text` step, outcome "dropped" and why.
+    if (path === "/dropped") {
+      const noted = await logDropped(this.state.storage, await request.json().catch(() => null), Date.now());
+      return noted ? Response.json({ outcome: "noted" }) : new Response(null, { status: 400 });
+    }
     if (path === "/group-accept") {
       await this.keepOrigin(request);
       // Only this Worker's cron queues a routine's run (`/group-routine`); a webhook's message never names one.
