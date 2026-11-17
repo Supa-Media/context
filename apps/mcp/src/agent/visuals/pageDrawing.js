@@ -36,7 +36,7 @@ export const SCENE_ASK =
   "This page has no picture, so draw it one first: call draw_visual again with template page and data { path, scene }. " +
   "scene is a simple line drawing of what the page is about (its subject, not you: a venue and a stage for a concert, a desk and a laptop for onboarding, a clipboard and a hard hat for a claim), " +
   'as SVG shapes on a 1200 x 900 canvas: path, line, polyline, polygon, rect, circle, ellipse, g (transform: translate, rotate, scale) and text (a word or a number, never a sentence). ' +
-  'One ink: give no colours; fill is "none", "ink", "paper" (to cover what is behind) or "hatch" (shading). Five to fifteen bold, simple objects filling the canvas, like a quick confident sketch, nothing tiny. ' +
+  'One ink: give no colours; fill is "none", "ink", "paper" (to cover what is behind) or "hatch" (shading). Do not draw a background rectangle: the paper is already there, and a fill across most of the canvas is left out. Five to fifteen bold, simple objects filling the canvas, like a quick confident sketch, nothing tiny. ' +
   'You stand in the scene yourself, small: put <tex x="..." y="..." size="200"/> where your feet go (flip="true" faces left), or leave it out and you stand at the bottom right. ' +
   "It is drawn in your ink, light and dark, and saved into the page as its picture.";
 
@@ -103,7 +103,9 @@ export async function ensurePageDrawing({ path, text, scene, shots, callTool, tr
     tries.set(path, tried + 1);
     return { error };
   };
-  if (!given) return back(SCENE_ASK);
+  // Asking for the scene is the design, not a broken tool: `ask` so the turn log
+  // counts the call as one that worked (`turn.js`). The model still reads the error.
+  if (!given) return { ...back(SCENE_ASK), ask: true };
   const read = readScene(scene);
   if (read.error) return back(`The scene could not be drawn: ${read.error} Fix it and call draw_visual again.`);
   const [light, dark] = await Promise.all([photograph(shots, read, false, path), photograph(shots, read, true, path)]);

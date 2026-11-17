@@ -679,11 +679,16 @@ export async function runTurn(options) {
       timing.toolMs += toolMs;
       // A call the egress gate held for the person's yes is not a failure: it
       // runs when they give it (`texEntryPoint.js`), and a log that called it failed
-      // would read as a broken tool.
-      trace.push({ kind: "tool", tool: call.name, ok: result?.isError !== true, at: called - began, ms: toolMs, ...(result?.held === true ? { held: true } : {}), ...traceNames(made, call) }); // the six's name and action, for the Lab's Tools page (`turnLog.js`)
+      // would read as a broken tool. A designed send-back (`ask`: a page with no
+      // picture asking for its scene) is not one either. The model still reads it
+      // as an error and draws again, and the chat's ledger still shows the call
+      // as not done, so a later check does not skip the cover. The turn log
+      // counts it as a call that worked, so the Lab's tool stats do not.
+      const asked = result?.ask === true;
+      trace.push({ kind: "tool", tool: call.name, ok: result?.isError !== true || asked, at: called - began, ms: toolMs, ...(result?.held === true ? { held: true } : {}), ...(asked ? { ask: true } : {}), ...traceNames(made, call) }); // the six's name and action, for the Lab's Tools page (`turnLog.js`)
       steps.push({ tool: call.name, ok: result?.isError !== true, ...(Array.isArray(result?.sources) ? { sources: result.sources } : {}) });
-      // A failed step sends the next round to the planner; one held for the person's yes does not.
-      if (failedCall(result)) { escalate = true; failed({ tool: call.name, ...causeOf(thrown, ToolTimeout), result, ms: toolMs, round }); }
+      // A failed step sends the next round to the planner; one held for the person's yes, or a designed send-back, does not.
+      if (failedCall(result) && !asked) { escalate = true; failed({ tool: call.name, ...causeOf(thrown, ToolTimeout), result, ms: toolMs, round }); }
       tell({ kind: "tool", name: call.name, args: call.args, ...(made.name !== call.name ? { as: { name: made.name, args: made.args } } : {}), ok: result?.isError !== true, ms: toolMs, held: result?.held === true, reason: whyFailed(result), result: toolResultText(result), ...(typeof result?.thinking === "string" && result.thinking ? { thinking: result.thinking } : {}) }); // the result, for the chat's ledger (`ledger.js`)
       messages.push({
         role: "tool",

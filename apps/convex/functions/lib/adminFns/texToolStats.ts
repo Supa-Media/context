@@ -5,7 +5,9 @@
  * `texToolFailures`). Staff only; the page is the Lab's Tools tab.
  *
  * Counts and names only. A held call is left out of the counts: it was held
- * for the person's yes and never ran, so it is not a call that failed.
+ * for the person's yes and never ran, so it is not a call that failed. A
+ * designed send-back (`ask`, a page asking for its scene) did run, and it is
+ * a call that worked: it is not an error even when the trace also says `ok: false`.
  */
 
 import { v, type Infer } from "convex/values";
@@ -77,8 +79,9 @@ export async function toolStatsReport(ctx: QueryCtx, days: number, now: number):
       if (entry.kind !== "tool" || entry.tool === undefined || entry.held === true) continue;
       const name = entry.six ?? entry.tool;
       if (entry.six !== undefined) ranAs.set(entry.tool, entry.six);
-      tally(name, name, null, entry.ok, entry.ms);
-      if (entry.action !== undefined) tally(`${name}.${entry.action}`, name, entry.action, entry.ok, entry.ms);
+      const ok = entry.ok || entry.ask === true;
+      tally(name, name, null, ok, entry.ms);
+      if (entry.action !== undefined) tally(`${name}.${entry.action}`, name, entry.action, ok, entry.ms);
     }
   }
 

@@ -37,7 +37,7 @@ const TEMPLATES = {
   board: [board, "work by status: what's being worked on, a project's tasks. {kicker, title, columns:[{name, tone: blue|warn|good, items:[{name, progress (0-100), note, who}] ≤5}] ≤3}"],
   chart: [chart, "numbers that moved and what moved them: latency, weight, savings. {kicker, title, stats:[{label, value, tone: good|warn}] ≤3 (before → now → goal), bars_title, bars:[{name, value (number), display, state: done|doing|planned}] ≤6}"],
   spending: [spending, "where money went. {kicker, total ('$3,420'), change ('+$310 vs Sept'), title, items:[{name, amount (number), display, note}] ≤7, biggest first}"],
-  steps: [steps, "how to do something. {kicker, title, needs, steps:[{title, tip, photo, source}] ≤4}"],
+  steps: [steps, "how to do something. {kicker, title, needs, steps:[{title (≤34 characters), tip (≤60 characters), photo, source}] ≤4}. Leave photo out when you have none: an empty photo slot is not drawn"],
   people: [people, "who is in a meeting or chat. {kicker, title, people:[{name, role, last (when you last talked), ask (what to ask or know), photo, new (true if they've never met)}] ≤5}"],
   system: [system, "how a system, team or process fits together, top to bottom. {kicker, title, layers:[{label, core (true for the middle piece), link (label on the line to the next layer), parts:[{name, note, state: 'missing'}] ≤3}] ≤4}"],
   streak: [streak, "a habit over 5 weeks. {kicker, count, title, marks (35 chars oldest first, Monday first: 1 done, 0 missed, - not yet), facts:[{label, value}] ≤3}"],

@@ -180,6 +180,22 @@ test("a failed call sends the next round to think, once, then main drives again"
   assert.deepEqual(modelRounds(result), [OPUS, HAIKU, OPUS, HAIKU, HAIKU]);
 });
 
+test("a designed send-back does not escalate, and the model still reads it as an error", async () => {
+  const gw = scripted([tools(1), tools(2), answer()]);
+  let n = 0;
+  await turn(gw.fetchImpl, {
+    router: router({ thinkRounds: 1 }),
+    callTool: async () => {
+      n += 1;
+      return n === 2 ? { content: [{ type: "text", text: "This page has no picture, so draw it one first." }], isError: true, ask: true } : { content: [{ type: "text", text: "ok" }] };
+    },
+  });
+  assert.deepEqual(gw.models(), [OPUS, HAIKU, HAIKU]);
+  const results = gw.bodies[2].messages.flatMap((message) => (Array.isArray(message.content) ? message.content : [])).filter((block) => block.type === "tool_result");
+  assert.equal(results.at(-1).is_error, true);
+  assert.match(results.at(-1).content, /draw it one first/);
+});
+
 test("a call held for the person's yes does not escalate", async () => {
   const gw = scripted([tools(1), tools(2), answer()]);
   let n = 0;

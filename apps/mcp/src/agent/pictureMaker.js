@@ -284,7 +284,7 @@ export function pictureMaker(env, { gateway = null, attachments = [], outgoing, 
       let drawingNote = "";
       if (text.trim() !== "" && isPagePath(path)) {
         const drawing = await ensurePageDrawing({ path, text, scene: args?.data?.scene, shots, callTool, tries: drawingTries });
-        if (drawing.error) return say(drawing.error, true);
+        if (drawing.error) return { ...say(drawing.error, true), ...(drawing.ask === true ? { ask: true } : {}) };
         text = drawing.text;
         drawingNote = drawing.saved ? " Your drawing is saved in the page as its picture." : drawing.note ? ` ${drawing.note}` : "";
       }

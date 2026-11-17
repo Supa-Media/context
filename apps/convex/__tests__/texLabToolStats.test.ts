@@ -19,6 +19,7 @@ import { asUser, createUser, createWorkspace, gatewayPost, setupTest } from "./f
  *  2. Keep any action the gateway sends, without the name check. → "a malformed action is dropped, the turn is kept" fails.
  *  3. Read the window with no lower bound. → "a turn older than the window is not counted" fails.
  *  4. Key by the tool that ran instead of `six`. → "a call made as one of the six is counted under that name…" fails.
+ *  5. Count a designed send-back (`ask`) as an error. → "a designed send-back is a call that worked…" fails.
  */
 
 const STAFF = "staff@example.invalid";
@@ -157,6 +158,24 @@ describe("the Tex Architecture Lab's tool stats", () => {
     expect(byKey["manage.move"]).toMatchObject({ calls: 1, errors: 1 });
     expect(byKey.search_web).toMatchObject({ calls: 1 });
     expect(byKey.write_note).toBeUndefined();
+  });
+
+  test("a designed send-back is a call that worked, not an error, even when the trace also says it failed", async () => {
+    const t = setupTest();
+    const { staff, accessToken } = await world(t);
+    expect((await report(t, accessToken, [
+      { kind: "tool", tool: "send", action: "draw_visual", ok: false, ms: 74, ask: true },
+      { kind: "tool", tool: "send", action: "draw_visual", ok: false, ms: 40_000 },
+    ])).recorded).toBe(true);
+    const [row] = await turns(t);
+    expect(row.trace[0]).toEqual({ kind: "tool", tool: "send", action: "draw_visual", ok: true, ms: 74, ask: true });
+    // A row kept from before the log rewrote `ok`, or one that still says the call failed: `ask` alone keeps it out of the errors.
+    await t.run(async (ctx) => {
+      await ctx.db.patch(row._id, { trace: row.trace.map((entry, i) => (i === 0 ? { ...entry, ok: false } : entry)) });
+    });
+    const byKey = Object.fromEntries((await stats(t, staff)).rows.map((item) => [item.key, item]));
+    expect(byKey["send.draw_visual"]).toMatchObject({ calls: 2, errors: 1, medianMs: 40_000 });
+    expect(byKey.send).toMatchObject({ calls: 2, errors: 1 });
   });
 
   test("a turn older than the window is not counted", async () => {
