@@ -83,6 +83,8 @@ export function shapeProblems(config) {
 const when = (e) => ((e.when ?? ["*"]).join() === "*" ? "" : (e.when ?? []).join(", "));
 /** What a provisional run may do before its go, as the words say it: "provisional run (revertible)". */
 const provisionalAs = (e) => `provisional run (${e.allow === "read" ? "read only" : "revertible"})`;
+/** Bursts that do not start a provisional run early, as the words say it. */
+const unless = (e) => (Array.isArray(e.unless) && e.unless.length ? `, unless ${e.unless.join(", ")}` : "");
 const quote = (text) => String(text).replaceAll('"', "#quot;");
 const cell = (text) => String(text).replaceAll("|", "\\|");
 /** Mermaid ids: the node's id, kept clear of Mermaid's own words. */
@@ -123,7 +125,7 @@ export function drawingFor(config) {
   for (const e of config.edges) {
     const mode = modeOf(e.mode);
     const tags = when(e);
-    const kind = mode === "provisional" ? provisionalAs(e) : mode === "generator" ? "starts a new run" : mode;
+    const kind = mode === "provisional" ? `${provisionalAs(e)}${unless(e)}` : mode === "generator" ? "starts a new run" : mode;
     const label = mode === "wait" ? tags : tags ? `${kind}: ${tags}` : kind;
     const arrow = MODES[e.mode]?.arrow ?? "-->";
     lines.push(`  ${mid(e.from)} ${arrow}${label ? `|${quote(label)}|` : ""} ${mid(e.to)}`);
@@ -148,7 +150,7 @@ export function tableFor(config) {
     const reads = (n.ctx ?? []).join(", ");
     return `| ${cell(n.label)} | ${cell(n.id)} | ${cell(n.group ?? "")} | ${n.on ? "on" : "off"} | ${cell(model)} | ${effort} | ${limit} | ${cell(reads)} | ${cell(n.file ?? "")} |`;
   });
-  const wires = config.edges.map((e) => `${e.from} → ${e.to} (${modeOf(e.mode)}${when(e) ? `, ${when(e)}` : ""})`).join(" · ");
+  const wires = config.edges.map((e) => `${e.from} → ${e.to} (${modeOf(e.mode)}${when(e) ? `, ${when(e)}` : ""}${unless(e)})`).join(" · ");
   return [
     "| Step | Id | Group | | Model | Effort | Time limit | Reads, in order | Where |",
     "| --- | --- | --- | --- | --- | --- | --- | --- | --- |",
@@ -165,7 +167,7 @@ export function mapFor(config) {
   const out = (id, mode) => config.edges.filter((e) => e.from === id && modeOf(e.mode) === mode);
   const list = (edges) =>
     edges
-      .map((e) => `${name(e.to)}${e.mode === "provisional" ? ` as a ${provisionalAs(e)}` : ""}${when(e) ? ` (when ${when(e)})` : ""}`)
+      .map((e) => `${name(e.to)}${e.mode === "provisional" ? ` as a ${provisionalAs(e)}${unless(e)}` : ""}${when(e) ? ` (when ${when(e)})` : ""}`)
       .join("; ");
   const starts = config.nodes.filter((n) => n.kind === "input");
   const lines = [

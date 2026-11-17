@@ -14,7 +14,7 @@
  */
 
 import { TEX_CONFIG as bundled } from "../../../packages/shared/src/texConfig.cjs";
-import { provisionalWiring } from "../../../packages/shared/src/texGraph.cjs";
+import { provisionalHeld, provisionalWiring } from "../../../packages/shared/src/texGraph.cjs";
 import { post, record, type Fetch } from "./clients";
 
 export type Verdict = "go" | "stop";
@@ -36,12 +36,42 @@ export const GO_TRY_MS = 10_000;
 const GO_POLL_MS = 150;
 const CALL_MS = 5_000;
 
-/** What the config says: whether the Front door (`doorStep`) runs provisionally, and what it may do before the go. */
-export function provisionalDoor(graph?: unknown): { on: boolean; allow: Allow } {
-  const wiring = provisionalWiring((graph ?? bundled) as Parameters<typeof provisionalWiring>[0]) as unknown as { on: boolean; target: string | null; sources: { allow: Allow }[] };
-  if (!wiring.on || wiring.target !== "doorStep") return { on: false, allow: "read" };
+/** What the config says: whether the Front door (`doorStep`) runs provisionally, what it may do before the go, and which bursts do not start it (`unless`, the union of the wires'). */
+export function provisionalDoor(graph?: unknown): { on: boolean; allow: Allow; unless: string[] } {
+  const wiring = provisionalWiring((graph ?? bundled) as Parameters<typeof provisionalWiring>[0]) as unknown as { on: boolean; target: string | null; sources: { allow: Allow; unless?: string[] }[] };
+  if (!wiring.on || wiring.target !== "doorStep") return { on: false, allow: "read", unless: [] };
+  const unless: string[] = [];
+  for (const source of wiring.sources) for (const fact of source.unless ?? []) if (!unless.includes(fact)) unless.push(fact);
   // The narrowest of the wires' grants: one source that allows reads only holds every write.
-  return { on: true, allow: wiring.sources.some((source) => source.allow === "read") ? "read" : "revertible" };
+  return { on: true, allow: wiring.sources.some((source) => source.allow === "read") ? "read" : "revertible", unless };
+}
+
+/** The facts a group burst carries for the wires' `unless`: a first look, an SMS, and a worker with only one of the two paths. */
+export function earlyFacts(
+  items: ReadonlyArray<{ look?: boolean; message?: { sms?: boolean } }>,
+  deps: { startTurn?: unknown; answerFirst?: unknown },
+): string[] {
+  const facts: string[] = [];
+  if (items.some((item) => item.look === true)) facts.push("firstLook");
+  if (items.some((item) => item.message?.sms === true)) facts.push("sms");
+  if ((deps.startTurn === undefined) !== (deps.answerFirst === undefined)) facts.push("unpaired");
+  return facts;
+}
+
+/**
+ * Whether this burst starts the provisional run. `start` is false when the door is not wired, or when `held` names a
+ * fact the wires' `unless` lists (`provisionalHeld`, the same read the Lab's simulation uses). `held` is empty when
+ * the door is off, so a skip is logged only for a run the config would have started.
+ */
+export function earlyGate(
+  graph: unknown,
+  items: ReadonlyArray<{ look?: boolean; message?: { sms?: boolean } }>,
+  deps: { startTurn?: unknown; answerFirst?: unknown },
+): { start: boolean; allow: Allow; held: string[] } {
+  const door = provisionalDoor(graph);
+  if (!door.on) return { start: false, allow: door.allow, held: [] };
+  const held = provisionalHeld(door.unless, earlyFacts(items, deps)) as string[];
+  return { start: held.length === 0, allow: door.allow, held };
 }
 
 type GateDeps = { fetch: Fetch; gatewayOrigin: string; now: () => number; sleep?: (ms: number) => Promise<void> };
@@ -114,6 +144,6 @@ export function sameMessages(started: readonly string[], chosen: readonly string
 }
 
 /** The run's step, one line each: started, its verdict and why, and how long it had run (never words). */
-export function logProvisional(outcome: "started" | "go" | "stop" | "ended", fields: Record<string, string | number | boolean> = {}): void {
+export function logProvisional(outcome: "started" | "go" | "stop" | "ended" | "skipped", fields: Record<string, string | number | boolean> = {}): void {
   console.log(JSON.stringify({ event: "group_turn", step: "provisional", outcome, ...fields }));
 }

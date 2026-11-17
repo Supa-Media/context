@@ -40,6 +40,10 @@ its messages wait for the drain). Each verdict is the chat's `provisional` step 
 and how long the run had gone. The wiring comes from the config the Worker was built with, or a Lab test chat's draft
 (`env.TEX_GRAPH`). A 1:1 chat's judged path is next; its texts mostly go straight to Tex already (p50 wait 0.03 s).
 
+**When the early run starts is the wires' `unless`.** Each provisional wire may list `firstLook` (a chat Tex is not set up in), `sms`, and `unpaired` (the worker has the workflow or answer-first, not both). The texting Worker (`earlyGate`) and the Lab's simulation both ask `provisionalHeld`, so a burst the config names does not start the door early: the door still runs, after Decide. A wire with no `unless` starts on every burst. Production lists all three, which is the gate the Worker used to keep in code. A skip is logged (`provisional`, `skipped`, and why).
+
+**What a simplification would cost.** Putting that gate back in `groupInbox.ts` makes the Lab start the door early for a first look, an SMS, or a one-path worker, which is the drift this removes. `apps/agent/src/groupProvisional.test.ts` ("the early start is the wires' unless") and `apps/mobile/__tests__/texLabProvisional.test.ts` ("a first look, an SMS or an unpaired worker does not start the door early") fail if it is reversed.
+
 **What a simplification would cost.** Running writes before the go without the undo leaves a note changed by a turn
 that was never meant to answer; dropping the end-of-turn wait answers before Decide said so. Both are caught by
 `apps/mcp/test/agentProvisional.test.mjs` (its header lists the sabotage each test catches), the Worker's

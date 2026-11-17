@@ -98,7 +98,7 @@ export function diff(): Change[] {
     if (ch.length)
       out.push({ node: "module:" + k, label: x.name, what: "context module changed", from: y.name, to: ch.map((f) => (f === "stable" ? (x.stable ? "same every turn" : "changes every turn") : f === "tok" ? x.tok + " tokens" : f + ": " + String(x[f]).slice(0, 120))).join("; "), how: ch.every((f) => f === "tok") ? "guess" : howOf(x.kind), setup: x.kind === "ailc" || x.kind === "prompt" ? x.path : undefined, areas: ar });
   }
-  const key = (e: LabGraph["edges"][number]) => e.from + ">" + e.to + ":" + e.mode + ":" + e.when.join("/");
+  const key = (e: LabGraph["edges"][number]) => e.from + ">" + e.to + ":" + e.mode + ":" + e.when.join("/") + ":" + (e.unless ?? []).join("/");
   const ka = new Set(a.edges.map(key));
   const kb = new Set(b.edges.map(key));
   const labOf = (id: string, g: LabGraph) => node(id, g)?.label || id;

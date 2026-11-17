@@ -46,7 +46,7 @@ export const FIELD_NAMES: Array<[keyof LabNode | "inSchema", string]> = [
   ["icon", "icon"],
 ];
 
-export const wireKey = (e: Pick<LabEdge, "from" | "to" | "mode" | "when">) => `${e.from}>${e.to}:${e.mode}:${(e.when || []).join("/")}`;
+export const wireKey = (e: Pick<LabEdge, "from" | "to" | "mode" | "when" | "unless">) => `${e.from}>${e.to}:${e.mode}:${(e.when || []).join("/")}:${(e.unless || []).join("/")}`;
 const same = (a: unknown, b: unknown) => JSON.stringify(a ?? null) === JSON.stringify(b ?? null);
 
 /** The fields of a step that differ from its base. */

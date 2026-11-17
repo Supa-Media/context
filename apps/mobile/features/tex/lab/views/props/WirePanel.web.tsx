@@ -5,7 +5,7 @@
  */
 import type { ReactNode } from "react";
 import { useEffect } from "react";
-import { PROVISIONAL_ALLOW, PROVISIONAL_WHEN, WHEN, WIRES } from "../../data/graph";
+import { PROVISIONAL_ALLOW, PROVISIONAL_UNLESS, PROVISIONAL_WHEN, WHEN, WIRES } from "../../data/graph";
 import { delSel, edit, G, lab, node, set } from "../../engine/state";
 import type { LabEdge } from "../../types";
 import { useLab } from "../../store";
@@ -26,6 +26,15 @@ function toggleWhen(i: number, t: string) {
   });
 }
 
+/** A provisional wire's start gate: toggle a burst that does not start it early. None listed, every burst starts it. */
+function toggleUnless(i: number, fact: string) {
+  edit(() => {
+    const ed = G().edges[i];
+    const cur = ed.unless ?? [];
+    ed.unless = cur.includes(fact) ? cur.filter((x) => x !== fact) : [...cur, fact];
+  });
+}
+
 /** A provisional wire's verdicts: toggle "stop:<tag>" or "restart:<tag>"; with none, it only says go. */
 function toggleVerdict(i: number, v: string) {
   edit(() => {
@@ -42,7 +51,10 @@ function setMode(i: number, k: LabEdge["mode"]) {
     const ed = G().edges[i];
     const verdict = (x: string) => x.startsWith("stop:") || x.startsWith("restart:");
     ed.mode = k;
-    if (k !== "provisional") delete ed.allow;
+    if (k !== "provisional") {
+      delete ed.allow;
+      delete ed.unless;
+    }
     ed.when = ed.when.filter((x) => x === "*" || (k === "provisional") === verdict(x));
     if (!ed.when.length) ed.when = ["*"];
   });
@@ -101,6 +113,18 @@ export function WirePanel({ extra }: { extra?: ReactNode }) {
             {PROVISIONAL_ALLOW.map(([k, l, tip]) => (
               <button key={k} className="tg" data-allow={k} title={tip} aria-pressed={(e.allow ?? "revertible") === k} onClick={() => edit(() => (G().edges[i].allow = k))}>
                 {l}
+              </button>
+            ))}
+          </div>
+        </div>
+      ) : null}
+      {e.mode === "provisional" ? (
+        <div className="grp">
+          <h4>Does not start early when</h4>
+          <div className="chips" id="eUnless">
+            {PROVISIONAL_UNLESS.map(([fact, label, tip]) => (
+              <button key={fact} className="tg" data-unless={fact} title={tip} aria-pressed={(e.unless ?? []).includes(fact)} onClick={() => toggleUnless(i, fact)}>
+                {label}
               </button>
             ))}
           </div>

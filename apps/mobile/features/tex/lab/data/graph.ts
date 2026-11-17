@@ -34,8 +34,10 @@ export const WIRES: Record<string, { name: string; dash: string; c: string; w?: 
 export const PROVISIONAL_WHEN: Array<[string, string]> = [["running","A turn is running"],["quiet","Stay quiet"],["wait","Wait for more"]];
 /** What a provisional run may do before its go; a wire with no `allow` is "revertible". */
 export const PROVISIONAL_ALLOW: Array<[NonNullable<LabEdge["allow"]>, string, string]> = [["read","Read only","Only reads until its go"],["revertible","Revertible","Reads, and writes that can be undone; nothing that cannot be taken back"]];
-/** A wire's name as its label and tooltip say it: a provisional one with what it may do before its go. */
-export const wireName = (e: Pick<LabEdge, "mode" | "allow">, wires = WIRES) => (e.mode === "provisional" && wires.provisional ? `${wires.provisional.name} (${e.allow === "read" ? "read only" : "revertible"})` : (wires[e.mode] || wires.wait).name);
+/** Bursts that do not start a provisional run early (`unless` on the wire). The same list the texting Worker reads. */
+export const PROVISIONAL_UNLESS: Array<[string, string, string]> = [["firstLook","First look","A chat Tex is not set up in"],["sms","SMS","An SMS"],["unpaired","One path only","The worker has the workflow or answer-first, not both"]];
+/** A wire's name as its label and tooltip say it: a provisional one with what it may do before its go, and which bursts do not start it. */
+export const wireName = (e: Pick<LabEdge, "mode" | "allow" | "unless">, wires = WIRES) => (e.mode === "provisional" && wires.provisional ? `${wires.provisional.name} (${e.allow === "read" ? "read only" : "revertible"}${e.unless?.length ? `, unless ${e.unless.join(", ")}` : ""})` : (wires[e.mode] || wires.wait).name);
 
 export const ICONS: Record<string, string> = {
   text:'<path d="M4 5h16v11H9l-5 4z"/>',

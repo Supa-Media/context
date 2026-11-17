@@ -12,7 +12,7 @@
  *   { op: "add",    node: {...} }               a new step (its id must be new)
  *   { op: "remove", node }                      a step, with every wire that touches it and every read of its output
  *                                               (`out:<id>` in another step's `ctx`); never `text` or `send`
- *   { op: "wire",   from, to, mode, when? }     a wire (one per from, to and mode; an existing one gets the new `when`)
+ *   { op: "wire",   from, to, mode, when?, allow?, unless? }  a wire (one per from, to and mode; an existing one gets the new `when`)
  *   { op: "unwire", from, to, mode? }           a wire (every mode between the two when `mode` is left out)
  *   { op: "module", key, value }                one context module's edit (`graph.modules[key]`: words, size, cache); null drops it
  *   { op: "convo",  field, value }              one conversation setting (`graph.convo[field]`); null drops it
@@ -203,14 +203,20 @@ function applyOps(graph, ops) {
           // A provisional wire's allow (Dev2, 2026-11-17): what its step may do before the go; kept on a rewire that names
           // none, and dropped (back to the default, revertible) by null.
           if (op.allow !== undefined && op.allow !== null && !(op.mode === "provisional" && ALLOW.includes(op.allow))) throw at(`allow is only for a provisional wire, and one of ${ALLOW.join(", ")}`);
+          // `unless`: the bursts that do not start a provisional run early. null clears it (every burst starts it).
+          const unlessOk = Array.isArray(op.unless) && op.unless.every((fact) => SCHEMA.START_FACTS.includes(fact));
+          if (op.unless !== undefined && op.unless !== null && !(op.mode === "provisional" && unlessOk)) throw at(`unless is only for a provisional wire, and each one of ${SCHEMA.START_FACTS.join(", ")}`);
           const had = g.edges.find((e) => e.from === op.from && e.to === op.to && e.mode === op.mode);
           if (had) {
             had.when = [...when];
             if (op.allow === null) delete had.allow;
             else if (op.allow !== undefined) had.allow = op.allow;
-          } else g.edges.push({ from: op.from, to: op.to, mode: op.mode, when: [...when], ...(typeof op.allow === "string" ? { allow: op.allow } : {}) });
+            if (op.unless === null) delete had.unless;
+            else if (op.unless !== undefined) had.unless = [...op.unless];
+          } else g.edges.push({ from: op.from, to: op.to, mode: op.mode, when: [...when], ...(typeof op.allow === "string" ? { allow: op.allow } : {}), ...(Array.isArray(op.unless) ? { unless: [...op.unless] } : {}) });
           const allow = op.allow ?? had?.allow;
-          line(() => `${had ? "rewired" : "wired"} ${op.from} → ${op.to} (${op.mode}${allow ? " " + allow : ""}${when.join(",") === "*" ? "" : ", when " + when.join(", ")})`);
+          const unless = op.unless === null ? undefined : (op.unless ?? had?.unless);
+          line(() => `${had ? "rewired" : "wired"} ${op.from} → ${op.to} (${op.mode}${allow ? " " + allow : ""}${Array.isArray(unless) && unless.length ? ", unless " + unless.join(", ") : ""}${when.join(",") === "*" ? "" : ", when " + when.join(", ")})`);
           break;
         }
         case "unwire": {
@@ -382,7 +388,9 @@ function diffGraphs(a, b) {
   for (const [k, e] of wb) {
     const was = wa.get(k);
     const allow = was?.allow !== e.allow ? { allow: e.allow ?? null } : {};
-    if (!was || !same(was.when, e.when) || was.allow !== e.allow) ops.push({ op: "wire", from: e.from, to: e.to, mode: e.mode, when: [...(e.when ?? ["*"])], ...allow });
+    const unlessChanged = !same(was?.unless ?? null, e.unless ?? null);
+    const unless = unlessChanged ? { unless: e.unless ?? null } : {};
+    if (!was || !same(was.when, e.when) || was.allow !== e.allow || unlessChanged) ops.push({ op: "wire", from: e.from, to: e.to, mode: e.mode, when: [...(e.when ?? ["*"])], ...allow, ...unless });
   }
   return ops;
 }
