@@ -2,13 +2,18 @@ import assert from "node:assert/strict";
 import graphLib from "../../../../../packages/shared/src/texGraph.cjs";
 import { eventEntry, ledgerObserver, nodeLog } from "../../../src/agent/ledger.js";
 import { replyJudge, REVIEW_MODEL } from "../../../src/agent/replyJudge.js";
+import { claimCheck } from "../../../src/agent/claimCheck.js";
+
+/** A job's part that looked things up on the web and wrote its findings out as a long wall of words, with no figures. */
+const WALL = Array.from({ length: 14 }, (_, at) => `Finding ${at + 1} is that the staffing report for the week shows no rows and the sign-in still works.`).join(" ");
+const web = { tools: [{ name: "search_web" }, { name: "browse" }], call: async () => ({ content: [{ type: "text", text: "results" }] }) };
 
 /** A reviewer that lets every draft go, as the gateway answers it. */
 const passing = async () => ({ text: JSON.stringify({ verdict: "pass", kind: "chat", problems: [], feedback: "" }) });
 
 export default {
   id: "checks-step-logged",
-  incident: "2026-11-14: replaying a 1:1 turn in the Lab, Answer checks showed a bar but nothing it got or gave, and a turn whose review was skipped showed nothing for the reviewer either.",
+  incident: "2026-11-17: a job's checks sent each draft back once per check and crashed the part. 2026-11-14: replaying a 1:1 turn in the Lab, Answer checks showed a bar but nothing it got or gave, and a turn whose review was skipped showed nothing for the reviewer either.",
   cause: "With the reviewer on, the code checks run inside it and wrote to the chat's record only when they sent a draft back, and a skipped review went only to the console, so a check that passed or a review that was skipped left no trace.",
   path: "1:1 text",
   async run() {
@@ -48,5 +53,20 @@ export default {
     assert.equal(ran.own, 2, "but its own time is its code alone, never the front door's");
     const delivery = eventEntry({ id: "1794772822042-001207", at: 1794772822042, kind: "step", chat: "texts", turn: "turn-replay-0001", step: { name: "send", of: "delivery", ok: true, ms: 470, input: { parts: 1 }, output: { sent: 1 } } });
     assert.deepEqual([delivery.step, delivery.name, delivery.turn, delivery.ms], ["send", "delivery", "turn-replay-0001", 470], "Text them's delivery is kept under its turn, with its time");
+
+    // 2026-11-17: a background job's parts were each sent back three times in a row (make it a page, then that's an
+    // essay, then one casual line), and the third send-back crashed the part. The checks ran first-wins, one round each,
+    // and style blocked a job's answer like a false claim. Now every finding goes back in one notice, and advice alone
+    // never holds a job (`checkFindings.js`).
+    const job = claimCheck({ question: "check the timecards report", job: { id: "job-replay-0001" } });
+    await job.wrapWeb(web).call("search_web", { query: "timecards" });
+    assert.equal(await job.check(WALL), null, "a job's part is never held for advice alone");
+    const both = claimCheck({ question: "check the timecards report", job: { id: "job-replay-0002" } });
+    await both.wrapWeb(web).call("search_web", { query: "timecards" });
+    const draft = `${WALL} I've added it to your notes. Can you check the site and forward me the report?`;
+    const notice = await both.check(draft);
+    assert.match(String(notice), /^Before this goes, check 2 things/, "every finding in one notice");
+    assert.ok(!/that's an essay/.test(notice), "never a page and an essay notice together");
+    assert.equal(await both.check(draft), null, "and nothing goes back a second time");
   },
 };
