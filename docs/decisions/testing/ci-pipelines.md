@@ -236,9 +236,14 @@ generated-bundle check); the app typecheck, native bundles and Mac jobs skip;
 and the framework's lint, mobile and Convex jobs skip through its
 `skip-when-only` input, which must list exactly `TEX_DATA` (the self-test
 checks). The fast guards, the Tex replay check and the Tex test set run as
-before, and pushes to `main` run everything. Reversing it puts config pull
-requests back in the queue behind every suite; the `ci-change-scope`
-self-test fails if the rule or the list drifts.
+before, and pushes to `main` run everything. The three mobile shards still
+skip, and with them `apps/mobile/__tests__/texLab*.test.ts`, which check that
+the Lab still draws the config those files were generated from. A Lab Promote
+is config-only, so that wiring was proved only after merge (#3443). `Tex Lab
+wiring` runs just those tests, and only on a config-only pull request.
+Reversing the skip puts config pull requests back in the queue behind every
+suite; the `ci-change-scope` self-test fails if the rule, the list, or that
+job drifts.
 
 ## Mac jobs are decided on Linux
 
