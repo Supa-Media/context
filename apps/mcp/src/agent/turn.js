@@ -427,7 +427,7 @@ export async function runTurn(options) {
   // An earlier try's rounds (`savedRounds.js`): put back after the question, its calls counted as this turn's own, never run or logged again.
   const firstRound = resumedRounds({ resumeFrom, rounds, messages, held, steps, tell });
   const roundsFrom = historyMessages.length + 1; // where the rounds after the question start
-  const keeper = typeof keepRounds?.keep !== "function" ? null : roundsKeeper({ messages, roundsFrom, readOnly: new Set(tools.filter((tool) => tool?.annotations?.readOnlyHint === true).map((tool) => tool.name)), keep: keepRounds.keep, marks: keepRounds.marks });
+  const keeper = typeof keepRounds?.keep !== "function" ? null : roundsKeeper({ messages, roundsFrom, readOnly: new Set((options.tools ?? []).filter((tool) => tool?.annotations?.readOnlyHint === true && !webNames.has(tool.name) && !localCalls.has(tool.name)).map((tool) => tool.name)), keep: keepRounds.keep, marks: keepRounds.marks, carried: resumeFrom?.ran ?? {} });
   let lastWords = ""; // what the model last said, answered if the bound is reached (`lastRound.js`)
   for (let round = firstRound; round < rounds; round += 1) {
     const notice = roundNotice(round, rounds, { scheduled });

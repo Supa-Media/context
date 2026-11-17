@@ -498,6 +498,16 @@ export function claimCheck({ question, judge = null, waiting = false, corrects =
         },
       };
     },
+    /**
+     * A read an earlier try of this text ran, put back for this one (`turnResume.js`): what it showed counts as read,
+     * as if this try had run it. Only reads ever carry on (`savedRounds.js` `carriesOn`), so nothing here writes.
+     */
+    reread(name, args, result) {
+      if (readsAKeptFile(name, args)) keptRead = true;
+      figures.read(result, { args });
+      if (result?.isError !== true) links.read(result);
+      steps.push({ name, ok: result?.isError !== true, ...(typeof args?.action === "string" ? { action: args.action } : {}) });
+    },
     wrap(callTool) {
       return async (name, args) => {
         // "File this as a bug": a note write waits for the report (`bugCheck.js`).

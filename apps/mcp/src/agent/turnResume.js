@@ -9,6 +9,7 @@
  * and each call, so Replay shows that this try ran none of them (Dev2, 2026-11-14: replay shows only what ran).
  */
 import { ledgerPlace } from "./ledger.js";
+import { readOf } from "./toldFacts.js";
 import { callsIn, carriesOn, checkedSnapshot, keptMessage, ROUNDS_MAX_CHARS, textKey } from "./savedRounds.js";
 
 /**
@@ -18,7 +19,7 @@ import { callsIn, carriesOn, checkedSnapshot, keptMessage, ROUNDS_MAX_CHARS, tex
 export function resumedRounds({ resumeFrom, rounds, messages, held, steps, tell }) {
   if (resumeFrom === null || resumeFrom === undefined || !Array.isArray(resumeFrom.messages) || resumeFrom.messages.length === 0) return 0;
   messages.push(...resumeFrom.messages.map((message) => ({ ...message })));
-  const calls = callsIn(resumeFrom.messages);
+  const calls = callsIn(resumeFrom.messages, resumeFrom.ran);
   for (const call of calls) {
     held.keep({ kind: "tool", name: call.name, args: call.args, ok: call.ok, resumed: true });
     steps.push({ tool: call.name, ok: call.ok, resumed: true });
@@ -42,10 +43,11 @@ export function resumedRounds({ resumeFrom, rounds, messages, held, steps, tell 
  * first call that doesn't carry on freezes it, so a try after a crash runs that call again. `keep(snapshot)` is never
  * awaited and never throws into the turn.
  */
-export function roundsKeeper({ messages, roundsFrom, readOnly, keep, marks = () => ({}) }) {
+export function roundsKeeper({ messages, roundsFrom, readOnly, keep, marks = () => ({}), carried = {} }) {
   let frozen = false;
   let assistantAt = -1;
   let done = [];
+  const ran = { ...carried }; // each kept call as it ran, the six resolved (`sixTools.js`): what a try after tells its checks
   const snapshot = (round) => {
     const asked = messages[assistantAt];
     const ids = new Set(done);
@@ -56,7 +58,7 @@ export function roundsKeeper({ messages, roundsFrom, readOnly, keep, marks = () 
       delete answer.content;
     }
     const results = messages.slice(assistantAt + 1).filter((message) => message.role === "tool" && ids.has(message.id)).map(keptMessage);
-    return { v: 1, round: round + 1, ...marks(), messages: [...messages.slice(roundsFrom, assistantAt).map(keptMessage), answer, ...results] };
+    return { v: 1, round: round + 1, ...marks(), ran: { ...ran }, messages: [...messages.slice(roundsFrom, assistantAt).map(keptMessage), answer, ...results] };
   };
   return {
     roundStarted() {
@@ -67,6 +69,7 @@ export function roundsKeeper({ messages, roundsFrom, readOnly, keep, marks = () 
       if (frozen || assistantAt < roundsFrom) return;
       if (!carriesOn(call, result, readOnly)) return void (frozen = true);
       done.push(call.id);
+      ran[call.id] = { name: call.name, args: call.args };
       try {
         const kept = snapshot(round);
         if (JSON.stringify(kept).length <= ROUNDS_MAX_CHARS) keep(kept);
@@ -100,15 +103,42 @@ export async function carriedRounds({ store, session, body, question, egress = n
     if (egress && from.untrusted) egress.untrusted = true;
     if (egress && from.outside) egress.outside = true;
     // How often a try goes on from an earlier one, and how much it skipped: counts only, never words (Fable's review, 2026-11-17).
-    log({ event: "turn_resumed", round: from.round, calls: callsIn(from.messages).length, group: groupChat !== null });
+    log({ event: "turn_resumed", round: from.round, calls: callsIn(from.messages, from.ran).length, group: groupChat !== null });
   }
   let chain = Promise.resolve();
+  let stored = from !== null;
   const keep =
     body?.provisional === true
       ? null
       : (snapshot) => {
+          stored = true;
           chain = chain.then(() => home.keepRounds(place.chat, key, snapshot)).catch(() => {});
         };
   const marks = () => ({ ...(egress?.untrusted ? { untrusted: true } : {}), ...(egress?.outside ? { outside: true } : {}) });
-  return { from, keep, marks, flush: () => chain };
+  // The text is answered: its snapshot goes, after any keep still on its way, so none lands after. Never awaited by the
+  // reply; a row it misses goes stale in half an hour (`texStore/rounds.js`).
+  const forget = () => {
+    if (!stored) return chain; // nothing kept for this text: no store call
+    stored = false;
+    chain = chain.then(() => (typeof home.forgetRounds === "function" ? home.forgetRounds(place.chat, key) : null)).catch(() => {});
+    return chain;
+  };
+  return { from, keep, marks, forget, flush: () => chain };
+}
+
+/**
+ * What the carried calls read, told again to what keeps count of it this try: the claim check (`claimCheck.js`
+ * `reread`), so a figure or link the answer takes from a carried read is backed, and the facts its reply keeps
+ * (`toldFacts.js`). Returns the reads, for `t.reads`; empty with no snapshot.
+ */
+export function rereadCarried(from, claims = null) {
+  if (from === null || from === undefined) return [];
+  const reads = [];
+  for (const call of callsIn(from.messages, from.ran)) {
+    const result = { content: [{ type: "text", text: call.text }], ...(call.ok ? {} : { isError: true }) };
+    claims?.reread?.(call.name, call.args, result);
+    const read = readOf({ kind: "tool", ok: call.ok, name: call.name, args: call.args, result: call.text });
+    if (read !== null) reads.push(read);
+  }
+  return reads;
 }

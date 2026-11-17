@@ -13,12 +13,17 @@ from the person's text, so every search, page and note save ran again.
 returned. It is kept in the chat's own home, beside its ledger (`apps/mcp/src/texStore/rounds.js`): a person's in their
 personal workspace's object, a group chat's in its own Tex object. It never goes to the texting Worker, so a group's
 sealed memory never leaves the home only its people open ([chat-homes](./chat-homes.md)). One row per text, the newest
-snapshot, read back for 30 minutes, not a note (never listed, searched or exported), wiped with the ledger.
+snapshot, read back for 30 minutes and deleted once the text is answered, not a note (never listed, searched or
+exported), wiped with the ledger.
 
 **What is never carried on.** A snapshot is the transcript, not the turn's other state (asks held for a yes, jobs
 started, pictures made, vault links, cross-chat asks). So it holds only calls whose whole effect is the words they
-returned: a tool offered as read-only, a plain note save, a progress line (the Worker sends each once per text). The
-first other call freezes the snapshot before it, so a try after a crash runs that call again, as every try did before.
+returned: a read-only tool the MCP answered, and a progress line (the Worker sends each once per text). Web and browser
+steps, any call that returned a picture (its number holds for that try only), pictures and visuals made (marked
+read-only, yet each goes out with the reply) and every note write are not: the first such call freezes the snapshot before it, so a try after a crash runs that call again, as every try
+did before. What the carried reads showed is told again to the turn's claim check and to the facts its reply keeps,
+so an answer quoting a carried read is backed as if this try had read it; each call is told as the tool that ran
+(`read_note`), never the wrapper the model named (`fetch`).
 Never worse than starting over. A round cut part-way keeps the calls that returned, without that round's thinking.
 The outside-read mark ([agent-egress](../privacy-and-sharing/agent-egress.md)) is kept with it and put back, so a
 resumed turn is exactly as untrusted as the try that read the outside thing.
@@ -27,7 +32,8 @@ resumed turn is exactly as untrusted as the try that read the outside thing.
 a newer text merged in, or a group that moved on, starts over. A turn whose text names no events, a job's part (which
 keeps its own, [background-jobs](./background-jobs.md)) and a routine's run carry nothing. A provisional run
 ([provisional-run](./provisional-run.md)) reads a snapshot but keeps none, since what it does before its go may be
-put back.
+put back. A group text started early runs provisional, so in a group only a try that was not provisional
+keeps one; measure `turn_resumed` by `group` before widening that.
 
 **What it logs.** The resumed try writes one `resumed` step to the chat's ledger, naming the round and each call, and
 never logs the first try's calls again as run (Replay shows only what ran). The gateway's log gets `turn_resumed` with

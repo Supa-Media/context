@@ -4,7 +4,8 @@
  * a group chat's in its own Tex object, so a group's sealed memory never leaves the home only its people open.
  *
  * A cache, never a copy of record: one row per text being answered, the newest snapshot of what its turn has done,
- * read back only by the next try of that same text, gone once it is answered and unreadable after `ROUNDS_FRESH_MS`.
+ * read back only by the next try of that same text, deleted once it is answered (`turnResume.js` `forget`) and
+ * unreadable after `ROUNDS_FRESH_MS`.
  * Not notes, so never listed, searched or exported; wiped with the ledger (`wire.js` `wipe`).
  */
 import { TexObjectRefused } from "./objects.js";

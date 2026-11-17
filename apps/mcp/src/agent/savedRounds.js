@@ -9,10 +9,11 @@
  * (`texStore/rounds.js`), and the next try of the same text goes on from there (`turn.js` `resumeFrom`, `turnResume.js`).
  *
  * WHAT IS NEVER CARRIED ON. A snapshot is the transcript, not the turn's other state, so it only ever holds calls whose
- * whole effect is the words they returned: reads, a plain note save (which the store keeps either way), a progress
- * line (the Worker sends each once per text). The first call with an effect beyond that (anything held for the
- * person's yes, a job started, a picture made, a browser step, a call that settles the turn) freezes the snapshot
- * before it, so a try after a crash runs that call again, exactly as every try did before this. Never worse than
+ * whole effect is the words they returned: reads the MCP answered, and a progress line (the Worker sends each once per
+ * text). The first call with an effect beyond that (a note write, anything held for the person's yes, a job started, a
+ * picture made or read, a web or browser step, a call that settles the turn) freezes the snapshot before it, so a try after a
+ * crash runs that call again, exactly as every try did before this. What the carried reads told the turn's checks
+ * (figures, note links, facts its reply keeps) is told them again before the model runs (`runTheModel.js`). Never worse than
  * starting over; the outside-read mark (`privacy/egress.js`) travels with it, so a resumed turn is as untrusted as
  * the try that read the outside thing.
  *
@@ -20,7 +21,6 @@
  * so a newer text merged in, or a group that moved on, starts over. Pictures stay out (one line says so), long results
  * are cut, and a snapshot too large is not kept.
  */
-import { isPlainNoteWrite } from "./noteWriteRetry.js";
 import { PROGRESS_TOOL } from "./progress.js";
 
 /** One tool result's words, kept whole up to this: the model read it all, but a try after reads enough of it. */
@@ -61,14 +61,24 @@ export function keptMessage(message) {
 }
 
 /**
+ * Tools marked read-only whose effect is still more than their words: a picture or visual made goes out with the
+ * reply (`pictureMaker.js`, `visuals/index.js`), so a try after a crash makes it again. The turn's web and local tools
+ * never carry on either: `turn.js` leaves them out of `readOnly`.
+ */
+export const NEVER_CARRIED = new Set(["draw_picture", "make_picture", "draw_visual", "open_page", "search_web", "browse"]);
+
+/**
  * Whether a call's whole effect is the words it returned, so a try after a crash may read its result instead of
- * running it: a read the turn was offered as one, a plain note save, or a progress line; never one held for the
- * person's yes. `readOnly` is the set of offered tool names marked read-only.
+ * running it: a read the turn was offered as one and the MCP answered, or a progress line; never one held for the
+ * person's yes, and never a write, whose effects the turn's checks track beyond its words (`claimCheck.js`).
+ * `readOnly` is the set of offered MCP tool names marked read-only.
  */
 export function carriesOn(call, result, readOnly) {
   if (result?.held === true) return false;
+  // A picture it returned was numbered for this try alone (`outgoingPictures.js`): a try after could not text it.
+  if (Array.isArray(result?.content) && result.content.some((part) => part?.type === "image")) return false;
   if (call.name === PROGRESS_TOOL) return true;
-  return readOnly.has(call.name) || isPlainNoteWrite(call.name, call.args);
+  return readOnly.has(call.name) && !NEVER_CARRIED.has(call.name);
 }
 
 const ROLES = new Set(["user", "assistant", "tool"]);
@@ -81,13 +91,26 @@ export function checkedSnapshot(snapshot) {
   // Every call answered: a model given a call with no result is refused by its provider.
   const answered = new Set(snapshot.messages.filter((message) => message.role === "tool").map((message) => message.id));
   if (!snapshot.messages.every((message) => message.role !== "assistant" || !Array.isArray(message.toolCalls) || message.toolCalls.every((call) => answered.has(call.id)))) return null;
-  return { round: snapshot.round, messages: snapshot.messages, untrusted: snapshot.untrusted === true, outside: snapshot.outside === true };
+  // Each call once: a provider that numbers calls per round (`builtin.js`) would pair one round's name with another's result.
+  const ids = snapshot.messages.flatMap((message) => (message.role === "assistant" && Array.isArray(message.toolCalls) ? message.toolCalls.map((call) => call.id) : []));
+  if (new Set(ids).size !== ids.length) return null;
+  const ran = snapshot.ran !== null && typeof snapshot.ran === "object" && !Array.isArray(snapshot.ran) ? snapshot.ran : {};
+  return { round: snapshot.round, messages: snapshot.messages, ran, untrusted: snapshot.untrusted === true, outside: snapshot.outside === true };
 }
 
-/** The calls a snapshot holds, each with whether it went, for the turn's own record of what it did (`sendBack.js`). */
-export function callsIn(messages) {
+/**
+ * The calls a snapshot holds, each with whether it went, for the turn's own record of what it did (`sendBack.js`):
+ * by the tool that ran (`ran`, as the six resolved it: `read_note`, never `fetch`), else as the model named it.
+ */
+export function callsIn(messages, ran = {}) {
   const results = new Map(messages.filter((message) => message.role === "tool").map((message) => [message.id, message]));
+  const resolved = ran !== null && typeof ran === "object" ? ran : {};
   return messages
     .filter((message) => message.role === "assistant" && Array.isArray(message.toolCalls))
-    .flatMap((message) => message.toolCalls.map((call) => ({ id: call.id, name: call.name, args: call.args, ok: results.get(call.id)?.isError !== true })));
+    .flatMap((message) =>
+      message.toolCalls.map((call) => {
+        const as = Object.hasOwn(resolved, call.id) && typeof resolved[call.id]?.name === "string" ? resolved[call.id] : call;
+        return { id: call.id, name: as.name, args: as.args, ok: results.get(call.id)?.isError !== true, text: String(results.get(call.id)?.text ?? "") };
+      }),
+    );
 }
