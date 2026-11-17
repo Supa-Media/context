@@ -285,7 +285,9 @@ test("a tool start is told before the tool runs, never for a progress line (Dev2
     onToolStart: (name) => order.push(`start ${name}`),
     callTool: async (name) => (order.push(`ran ${name}`), { content: [{ type: "text", text: "found" }] }),
   });
-  assert.deepEqual(order, ["start search_notes", "ran search_notes", "start search_notes", "ran search_notes"]);
+  // Two reads in one round start together (`parallelReads.js`): both starts are told before either runs.
+  // A progress line is still not a start.
+  assert.deepEqual(order, ["start search_notes", "start search_notes", "ran search_notes", "ran search_notes"]);
 });
 
 test("a line goes only for something to act on or a change outside their notes, never to narrate a search (Dev2, 2026-11-12)", () => {
