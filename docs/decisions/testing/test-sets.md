@@ -41,6 +41,18 @@ theirs as prompt modules where their context puts them, and every other step
 whose prompt goes through `withArchitecture` after its own words. A step whose
 code does not read the module may not name it (`apps/mcp/test/texTraining.test.mjs`).
 
+**Whole conversations** (Dev2, 2026-11-17: "would it be better to add the
+entire conversation instead?", chose whole chats, capped in config):
+`train:<nodeId>:all:<chars>` shows every Training conversation that node has a
+label in, whole, each label under the message it is on, as many whole
+conversations as fit in `<chars>`; one that would pass the cap is left out whole
+and counted, never cut. The front door reads `train:fd:all:60000`, so it sees the
+back-and-forth and long history the Training chats were rebuilt for (from real
+texts, disguised). A setup built from modules may run to 200,000 characters; a
+note's own body keeps its 40,000. Simplifying back to snippets loses the rhythm
+of a long chat; `texTraining.test.mjs` fails if the front door stops reading
+whole conversations.
+
 `packages/shared/src/texSets.cjs` is the one contract every reader uses (the
 Lab's Testing tab, the store, the eval service, the prompts' examples).
 

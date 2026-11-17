@@ -16,7 +16,7 @@ import CONFIG from "../../../../packages/shared/src/texConfig.json" with { type:
 import PROMPT from "../../../../packages/shared/src/texPrompt.generated.json" with { type: "json" };
 import TRAINING from "../../../../packages/shared/src/texTraining.generated.json" with { type: "json" };
 import SHELF from "../../../../packages/shared/src/texNodeShelf.json" with { type: "json" };
-import { TRAIN_ENTRY, moduleText } from "../../../../packages/shared/src/texTraining.cjs";
+import { TRAIN_ENTRY, moduleText, trainName } from "../../../../packages/shared/src/texTraining.cjs";
 import { sandboxGateOf } from "../labSandbox/policy.js";
 
 export const TEX_CONFIG = CONFIG;
@@ -35,9 +35,16 @@ export const SHELF_NODES = Object.freeze(Object.keys(SHELF.nodes ?? {}));
  * that names it is given nothing extra.
  */
 const TEX_PROMPT = PROMPT.modules;
-const TRAINING_WORDS = Object.fromEntries(
-  CONFIG.nodes.map((node) => [`train-${node.id}`, moduleText(`train:${node.id}`, TRAINING)]).filter(([, text]) => text !== ""),
-);
+/**
+ * The Training words a config's steps name: `train-<nodeId>` for every node's short examples, and, for each
+ * `train:<nodeId>:all:<chars>` entry a step lists, `train-<nodeId>-all-<chars>` (its whole conversations within that
+ * cap). A Lab draft that names another cap is given its own words by `texWords`.
+ */
+function trainingWords(config) {
+  const entries = [...config.nodes.map((node) => `train:${node.id}`), ...config.nodes.flatMap((node) => (node.ctx ?? []).filter((entry) => TRAIN_ENTRY.test(entry)))];
+  return Object.fromEntries([...new Set(entries)].map((entry) => [trainName(entry), moduleText(entry, TRAINING)]).filter(([, text]) => text !== ""));
+}
+const TRAINING_WORDS = trainingWords(CONFIG);
 export const TEX_PROMPT_WORDS = { ...TEX_PROMPT, ...TRAINING_WORDS };
 
 /** The context entry that names a prompt module: `p-<name>`. */
@@ -104,7 +111,8 @@ export function texTimeoutMs(id, config = CONFIG) {
 
 /** The prompt words a config's steps read: the repository's, with a Lab draft's own words over them. */
 export function texWords(config = CONFIG) {
-  return config.words ? { ...TEX_PROMPT_WORDS, ...config.words } : TEX_PROMPT_WORDS;
+  const words = config === CONFIG ? TEX_PROMPT_WORDS : { ...TEX_PROMPT_WORDS, ...trainingWords(config) };
+  return config.words ? { ...words, ...config.words } : words;
 }
 
 /**
@@ -137,7 +145,7 @@ export function texSetupFront(config = CONFIG) {
 export function texModules(config = CONFIG) {
   const words = texWords(config);
   const of = (id) => {
-    const named = (entry) => PROMPT_ENTRY.exec(entry)?.[1] ?? (TRAIN_ENTRY.test(entry) && TRAINING_WORDS[`train-${entry.slice(6)}`] ? `train-${entry.slice(6)}` : null);
+    const named = (entry) => PROMPT_ENTRY.exec(entry)?.[1] ?? (TRAIN_ENTRY.test(entry) && typeof words[trainName(entry)] === "string" ? trainName(entry) : null);
     const names = (texStep(id, config).ctx ?? []).map(named).filter(Boolean);
     if (names.length === 0) throw new Error(`texConfig: step "${id}" reads no prompt module`);
     for (const name of names) if (typeof words[name] !== "string") throw new Error(`texConfig: step "${id}" reads module "${name}", which has no words`);

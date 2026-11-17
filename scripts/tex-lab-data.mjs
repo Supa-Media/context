@@ -196,6 +196,11 @@ async function buildModText() {
   for (const n of config.nodes) {
     const text = n.id === "decide" ? judgeExamplesText(["decide"]) : moduleText(`train:${n.id}`, training);
     if (text !== "") train[`train:${n.id}`] = text;
+    // A whole-conversation entry a step reads (`train:<nodeId>:all:<chars>`), under its own key.
+    for (const entry of (n.ctx ?? []).filter((e) => /^train:[A-Za-z][A-Za-z0-9]*:all:\d+$/.test(e))) {
+      const whole = moduleText(entry, training);
+      if (whole !== "") train[entry] = whole;
+    }
   }
   const about = readText("apps/mcp/bench/ai/workspaces/maya/tex/about-me.md");
   // Tex's prompt words, the repository's own (`scripts/tex-prompt-module.mjs`), under the Lab's module keys.

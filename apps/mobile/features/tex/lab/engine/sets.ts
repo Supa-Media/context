@@ -125,7 +125,8 @@ export function modValue(c: Conversation, i: number, id: string, n: LabNode, all
   const row = (value: string, plan?: string): ModRow => ({ id, name, value, plan });
   const trained = (of: string) => all.filter((x) => x.set === "training").reduce((a, x) => a + x.msgs.filter((y) => y.labels?.[of]).length, 0);
   if (id.startsWith("train:")) {
-    const of = id.slice("train:".length);
+    // `train:<nodeId>` or its whole conversations, `train:<nodeId>:all:<chars>`.
+    const of = id.slice("train:".length).split(":")[0];
     const k = trained(of);
     const label = g.nodes.find((x) => x.id === of)?.label || of;
     return { id, name: mod?.name || `Training · ${label}`, value: `${k} Training Set label${k === 1 ? "" : "s"} for ${of === n.id ? "this node" : label}` };

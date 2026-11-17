@@ -18,8 +18,13 @@
 
 const { before } = require("./texSets.cjs");
 
-/** The context entry that names a node's Training labels. */
-const TRAIN_ENTRY = /^train:([A-Za-z][A-Za-z0-9]{0,47})$/;
+/**
+ * The context entry that names a node's Training labels: `train:<nodeId>` shows each label as a short example (the
+ * newest few messages before it), `train:<nodeId>:all:<chars>` shows every Training conversation that node has a label
+ * in, whole, with its labels under the messages they are on, as many as fit in `<chars>` characters (Dev2,
+ * 2026-11-17: "would it be better to add the entire conversation instead?", chose whole chats, capped in config).
+ */
+const TRAIN_ENTRY = /^train:([A-Za-z][A-Za-z0-9]{0,47})(?::all:([1-9]\d{0,6}))?$/;
 
 /** A tapback's words, as a phone shows them under the emoji: the first 32 characters. */
 const QUOTE_CHARS = 32;
@@ -38,7 +43,10 @@ function quote(text) {
 function lineOf(m, earlier) {
   const target = m.to === undefined ? null : earlier.find((x) => x.id === m.to) ?? null;
   const whose = target === null ? "" : target.tex ? "You" : handle(target.who);
+  if (m.tex && m.kind === "react") return `You: ${m.text} on ${target?.tex ? "your message" : "the message"} "${quote(target?.text)}"`;
   if (m.tex) return `You: ${m.text}`;
+  // A turn nobody texted (`texSets.cjs` trigger rows): what the check-in, routine or send brought in.
+  if (m.via !== undefined) return `(${m.who}, nobody texted: ${m.text})`;
   const who = handle(m.who);
   if (m.kind === "react") return `${who}: ${m.text}${TAPBACK_ANSWER[m.text] ?? ""} on ${target?.tex ? "Tex's message" : "the message"} "${quote(target?.text)}"`;
   if (m.kind === "reply") return `${who}: (replying to ${whose}) ${m.text}`;
@@ -93,6 +101,75 @@ function momentsOf(conversations) {
   return nodes;
 }
 
+/**
+ * Every Training conversation as each node's whole chat, by node: `{ chat, kind, setting?, lines }`, in file order. The
+ * lines are the whole conversation as the judge reads a chat, each of that node's labels on the lines under the
+ * message it is on (`want` lines, star left out), so a step sees the back-and-forth and what was wanted where.
+ */
+function chatsOf(conversations) {
+  const nodes = {};
+  for (const c of conversations) {
+    if (c.set !== "training") continue;
+    const msgs = c.msgs || [];
+    const labelled = new Set();
+    for (const m of msgs) if (!m.tex) for (const [node, l] of Object.entries(m.labels || {})) if (Object.keys(withoutStar(l)).length > 0) labelled.add(node);
+    for (const node of labelled) {
+      const lines = [];
+      msgs.forEach((m, at) => {
+        if (typeof m.at === "string" && m.at !== "") lines.push(`(${m.at})`);
+        lines.push(lineOf(m, msgs.slice(0, at)));
+        const label = m.tex ? null : withoutStar(m.labels?.[node]);
+        if (label && Object.keys(label).length > 0) for (const want of wantLines(label)) lines.push(`    ${want}`);
+      });
+      (nodes[node] ??= []).push({ chat: c.id, kind: c.kind, ...(typeof c.setting === "string" ? { setting: c.setting } : {}), lines });
+    }
+  }
+  return nodes;
+}
+
+function withoutStar(label) {
+  const { star: _star, ...rest } = label || {};
+  return rest;
+}
+
+/** What a step's prompt is told before whole Training conversations. */
+const WHOLE_INTRO =
+  'Whole conversations from Tex\'s Training Set ("You" is Tex, a person\'s name starts with "@"). Under a message, its tags say what this step should do on it: its output, and for an answer what it must and must never do. Handle new chats the way these are handled.';
+
+/** One whole conversation in `<conversation>` tags. */
+function conversationText(chat) {
+  const about = chat.setting ? `\n<setting>${chat.setting}</setting>` : "";
+  return `<conversation>\n<chat>${chatLine({ kind: chat.kind })}</chat>${about}\n${chat.lines.join("\n")}\n</conversation>`;
+}
+
+/**
+ * A node's whole Training conversations within `chars` characters, intro included: whole conversations in file order,
+ * one that does not fit left out whole (never cut mid-chat) and counted, "" when the node has none.
+ */
+function wholeText(node, chars, generated) {
+  const chats = generated?.chats?.[node] ?? [];
+  if (chats.length === 0) return "";
+  const kept = [];
+  let used = WHOLE_INTRO.length + "\n\n<conversations>\n</conversations>".length;
+  for (const chat of chats) {
+    const text = conversationText(chat);
+    if (used + text.length + 1 > chars) continue;
+    kept.push(text);
+    used += text.length + 1;
+  }
+  const left = chats.length - kept.length;
+  const note = left === 0 ? "" : `\n(${left} more Training conversation${left === 1 ? "" : "s"} left out: over this module's ${chars} characters)`;
+  if (kept.length === 0) return "";
+  return `${WHOLE_INTRO}\n\n<conversations>\n${kept.join("\n")}\n</conversations>${note}`;
+}
+
+/** The prompt module name an entry is given among a step's modules: `train-<node>` or `train-<node>-all-<chars>`. */
+function trainName(entry) {
+  const m = TRAIN_ENTRY.exec(entry);
+  if (!m) return null;
+  return m[2] === undefined ? `train-${m[1]}` : `train-${m[1]}-all-${m[2]}`;
+}
+
 /** The nodes whose Training labels a step reads, in its context's order. */
 function trainingSources(step) {
   return (step?.ctx ?? []).map((entry) => TRAIN_ENTRY.exec(entry)?.[1]).filter(Boolean);
@@ -129,14 +206,17 @@ const TRAINING_INTRO =
  * when it reads none or they have no labels yet, so an empty Training Set changes no prompt by a byte.
  */
 function trainingText(step, generated) {
-  const moments = trainingSources(step).flatMap((source) => generated?.nodes?.[source] ?? []);
-  if (moments.length === 0) return "";
-  return `${TRAINING_INTRO}\n\n<examples>\n${moments.map(exampleText).join("\n")}\n</examples>`;
+  const entries = (step?.ctx ?? []).map((entry) => TRAIN_ENTRY.exec(entry)).filter(Boolean);
+  const moments = entries.filter((m) => m[2] === undefined).flatMap((m) => generated?.nodes?.[m[1]] ?? []);
+  const parts = [];
+  if (moments.length > 0) parts.push(`${TRAINING_INTRO}\n\n<examples>\n${moments.map(exampleText).join("\n")}\n</examples>`);
+  for (const m of entries) if (m[2] !== undefined) parts.push(wholeText(m[1], Number(m[2]), generated));
+  return parts.filter((p) => p !== "").join("\n\n");
 }
 
-/** One module's text by its entry (`train:<nodeId>`), as the Lab shows it: that node's examples alone. */
+/** One module's text by its entry (`train:<nodeId>` or `train:<nodeId>:all:<chars>`), as the Lab shows it. */
 function moduleText(entry, generated) {
   return TRAIN_ENTRY.test(entry) ? trainingText({ ctx: [entry] }, generated) : "";
 }
 
-module.exports = { TRAIN_ENTRY, QUOTE_CHARS, HISTORY_LINES, historyLines, TRAINING_INTRO, lineOf, linesBefore, momentsOf, trainingSources, wantLines, exampleText, trainingText, moduleText };
+module.exports = { TRAIN_ENTRY, WHOLE_INTRO, chatsOf, wholeText, conversationText, trainName, QUOTE_CHARS, HISTORY_LINES, historyLines, TRAINING_INTRO, lineOf, linesBefore, momentsOf, trainingSources, wantLines, exampleText, trainingText, moduleText };

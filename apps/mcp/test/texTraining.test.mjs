@@ -19,7 +19,7 @@ import { TEX_CONFIG, TEX_PROMPT_WORDS, TRAINING_READERS, texModules } from "../s
 
 const require = createRequire(import.meta.url);
 const TRAINING = require("../../../packages/shared/src/texTraining.generated.json");
-const { historyLines, linesBefore, lineOf, momentsOf, trainingText, moduleText, TRAIN_ENTRY } = require("../../../packages/shared/src/texTraining.cjs");
+const { historyLines, linesBefore, lineOf, momentsOf, trainingText, moduleText, TRAIN_ENTRY, trainName, chatsOf, wholeText } = require("../../../packages/shared/src/texTraining.cjs");
 const { EXAMPLES_TEXT, JUDGE_EXAMPLES, WHY } = require("../../../packages/shared/src/textDecide.cjs");
 
 test("the generated module is the conversations' (scripts/tex-training-module.mjs)", () => {
@@ -67,11 +67,11 @@ test("only steps that read Training name it in their context", () => {
     const entries = (node.ctx ?? []).filter((entry) => entry.startsWith("train"));
     for (const entry of entries) {
       assert.match(entry, TRAIN_ENTRY, `${node.id}: "${entry}" is train:<nodeId>`);
-      assert.ok(TEX_CONFIG.nodes.some((n) => n.id === entry.slice(6)), `${node.id}: "${entry}" names no node`);
+      assert.ok(TEX_CONFIG.nodes.some((n) => n.id === TRAIN_ENTRY.exec(entry)[1]), `${node.id}: "${entry}" names no node`);
     }
     if (entries.length > 0) assert.ok(TRAINING_READERS.includes(node.id), `${node.id} names ${entries.join(", ")} but its code reads no Training module`);
   }
-  for (const id of TRAINING_READERS) assert.ok(TEX_CONFIG.nodes.find((n) => n.id === id).ctx.includes(`train:${id}`), `${id} reads its own labels`);
+  for (const id of TRAINING_READERS) assert.ok(TEX_CONFIG.nodes.find((n) => n.id === id).ctx.some((c) => TRAIN_ENTRY.exec(c)?.[1] === id), `${id} reads its own labels`);
 });
 
 test("a step reads only the Training its context names", () => {
@@ -124,10 +124,11 @@ test("the front door is given its Training labels, in the chat's own marks", () 
 test("the front door's and the job's Training words, when they exist, are prompt modules where their context puts them", () => {
   for (const [kind, id] of [["texts", "fd"], ["job", "job"]]) {
     const names = texModules()[kind];
-    if (TEX_PROMPT_WORDS[`train-${id}`]) {
-      const ctx = TEX_CONFIG.nodes.find((n) => n.id === id).ctx.filter((c) => c.startsWith("p-") || c === `train:${id}`).map((c) => (c.startsWith("p-") ? c.slice(2) : `train-${id}`));
+    const own = TEX_CONFIG.nodes.find((n) => n.id === id).ctx.filter((c) => TRAIN_ENTRY.exec(c)?.[1] === id);
+    if (own.some((c) => TEX_PROMPT_WORDS[trainName(c)])) {
+      const ctx = TEX_CONFIG.nodes.find((n) => n.id === id).ctx.filter((c) => c.startsWith("p-") || (own.includes(c) && TEX_PROMPT_WORDS[trainName(c)])).map((c) => (c.startsWith("p-") ? c.slice(2) : trainName(c)));
       assert.deepEqual(names, ctx);
-    } else assert.ok(!names.includes(`train-${id}`));
+    } else assert.ok(!names.some((n) => n.startsWith(`train-${id}`)));
   }
 });
 
@@ -141,4 +142,61 @@ test("every other model step that reads Training is given it after its own words
     assert.equal(built, `${architectureFor(role)}\n\n---\n\nOWN WORDS${training === "" ? "" : `\n\n---\n\n${training}`}`);
     if (["fd", "job"].includes(ROLES[role].node)) assert.equal(training, "", "the front door and the job get theirs as prompt modules, never twice");
   }
+});
+
+// Whole conversations (Dev2, 2026-11-17: "would it be better to add the entire conversation instead?"; chose whole
+// chats, capped in config). Sabotage: cutting a conversation to fit, or dropping the labels from under their messages,
+// fails these.
+const WHOLE = (id, n) => ({
+  id,
+  title: id,
+  set: "training",
+  kind: "one",
+  members: ["Remi"],
+  msgs: [
+    { id: "m1", who: "Remi", text: "find me a dog walker", at: "Mon 9:00", labels: { fd: { must: ["react first, then look"], star: true } } },
+    { id: "m2", who: "Tex", tex: true, kind: "react", to: "m1", text: "🔍" },
+    { id: "m3", who: "Tex", tex: true, text: "Rovertown, $22 a walk." },
+    { id: "m4", who: "Check-in", via: "checkin", text: "Gmail: Dana confirmed Monday noon.", labels: { fd: { never: ["just say confirmed"] } } },
+    ...Array.from({ length: n }, (_, i) => ({ id: `x${i}`, who: "Remi", text: `filler ${i}` })),
+  ],
+});
+
+test("a whole Training conversation keeps every message, with the node's labels under the messages they are on", () => {
+  const chats = chatsOf([WHOLE("walker", 3)]).fd;
+  assert.equal(chats.length, 1);
+  const text = wholeText("fd", 100_000, { chats: { fd: chats } });
+  assert.match(text, /\(Mon 9:00\)\n@remi: find me a dog walker\n {4}<must>react first, then look<\/must>\nYou: 🔍 on the message "find me a dog walker"/);
+  assert.match(text, /\(Check-in, nobody texted: Gmail: Dana confirmed Monday noon\.\)\n {4}<never>just say confirmed<\/never>/);
+  assert.match(text, /@remi: filler 2\n<\/conversation>/, "the chat runs to its end");
+  assert.doesNotMatch(text, /<star>/);
+  assert.equal(chatsOf([WHOLE("walker", 3)]).decide, undefined, "a node with no label in a chat is not shown it");
+});
+
+test("whole conversations fit their cap whole: one that would pass it is left out and counted, never cut", () => {
+  const generated = { chats: chatsOf([WHOLE("short", 1), WHOLE("long", 400), WHOLE("short2", 1)]) };
+  const all = wholeText("fd", 1_000_000, generated);
+  const capped = wholeText("fd", 3_000, generated);
+  assert.ok(capped.length <= 3_000 + 120, "within the cap, the note aside");
+  assert.match(capped, /walker|short/);
+  assert.doesNotMatch(capped, /filler 399/);
+  assert.match(capped, /\(1 more Training conversation left out: over this module's 3000 characters\)/);
+  assert.equal((capped.match(/<conversation>/g) || []).length, 2, "the two that fit");
+  assert.ok(all.includes("filler 399"));
+  assert.equal(wholeText("fd", 100, generated), "", "none fits, no module");
+  assert.equal(wholeText("nobody", 100_000, generated), "");
+});
+
+test("train:<node>:all:<chars> is its own module: a step given it reads whole conversations, under its own name", () => {
+  assert.equal(trainName("train:fd"), "train-fd");
+  assert.equal(trainName("train:fd:all:60000"), "train-fd-all-60000");
+  assert.equal(trainName("train:fd:all:0"), null);
+  assert.equal(trainName("chat:7:40000"), null);
+  const generated = { nodes: momentsOf([WHOLE("walker", 2)]), chats: chatsOf([WHOLE("walker", 2)]) };
+  assert.match(moduleText("train:fd:all:60000", generated), /^Whole conversations from Tex's Training Set/);
+  assert.match(moduleText("train:fd", generated), /^Examples from Tex's Training Set/);
+  const fd = TEX_CONFIG.nodes.find((n) => n.id === "fd");
+  const whole = fd.ctx.find((c) => /^train:fd:all:\d+$/.test(c));
+  assert.ok(whole, "the front door reads its Training as whole conversations (Dev2, 2026-11-17)");
+  if (TRAINING.chats?.fd?.length) assert.ok(texModules().texts.includes(trainName(whole)), "and its prompt carries them");
 });
