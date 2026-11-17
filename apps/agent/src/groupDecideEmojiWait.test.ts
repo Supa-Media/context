@@ -7,13 +7,16 @@
  * when it ends or at once when a new message lands, at most `MAX_CHAT_WAITS`
  * times and never past `BURST_DEADLINE_MS` after the burst's first message;
  * only a real burst (`burstStillTyped`) is held; since 2026-11-11 whether a
- * burst that names Tex waits is the judge's, never a word rule's.
+ * burst that names Tex waits is the judge's, never a word rule's. A wait that
+ * is not held, or runs out, is judged again with no wait to choose (`settle`),
+ * and ends as that judging says: never an answer by default (Dev2, 2026-11-17).
  *
  * Sabotage (temporary local edits, reverted):
  *  - `reactionFor` returning decide's emoji unchecked: "an emoji outside the 64" fails;
  *  - `canWait` ignoring `MAX_CHAT_WAITS`: "answers after MAX_CHAT_WAITS waits" fails;
  *  - `step` "wait" ignoring the deadline: "the burst is answered by its deadline" fails;
- *  - decide's emoji sent with an answer again (`groupTurn.ts`): "an answer with decide's emoji sends no tapback" fails.
+ *  - decide's emoji sent with an answer again (`groupTurn.ts`): "an answer with decide's emoji sends no tapback" fails;
+ *  - an unheld wait answered by default again (`groupTurn.ts` `settleWait` bypassed): "a single message for somebody else stays quiet" fails.
  */
 import { describe, expect, it } from "vitest";
 import { acceptGroup, drainGroup } from "./groupInbox";
@@ -25,6 +28,9 @@ import { answerAll, LINES, newestLine, setup, type Answer, type Decide } from ".
 
 const react = (emoji?: string): Answer => ({ ok: true, act: "react", covers: [], stale: [], movedOn: false, confidence: 0.9, ...(emoji ? { emoji } : {}) });
 const wait = (seconds = 3): Answer => ({ ok: true, act: "wait", covers: [], stale: [], movedOn: false, confidence: 0.9, waitSeconds: seconds });
+const quiet = (): Answer => ({ ok: true, act: "silent", covers: [], stale: [], movedOn: false, confidence: 0.9 });
+/** Wait until the wait ends, then (asked to settle, with no wait to choose) the answer `then` gives. */
+const waitThen = (then: (body: Decide) => Answer, seconds = 3) => (body: Decide): Answer => (body.settle ? then(body) : wait(seconds));
 const STYLE = { engagement: "helpful", engagementChosen: true };
 
 /** The judge under test, with a chat's first look (no ledger key yet) answered so the chat is bound, as a real first tag is. */
@@ -114,7 +120,7 @@ for (const { name, groupId } of LINES) {
 
     it("answers after MAX_CHAT_WAITS waits, however often decide says wait", async () => {
       const storage = new AlarmStorage();
-      const w = setup(groupId, { decide: bindsFirst(() => wait(1)), control: STYLE });
+      const w = setup(groupId, { decide: bindsFirst(waitThen(answerAll, 1)), control: STYLE });
       await bound(storage, w);
       await acceptGroup(storage, w.message("so about friday"), 100);
       for (let i = 0; i <= MAX_CHAT_WAITS; i += 1) {
@@ -122,13 +128,15 @@ for (const { name, groupId } of LINES) {
         storage.fire();
         await drainGroup(storage, w.deps);
       }
-      expect(w.decided).toHaveLength(MAX_CHAT_WAITS + 1);
+      // The last wait is not held: decide settles it, with no wait to choose, and its answer goes.
+      expect(w.decided).toHaveLength(MAX_CHAT_WAITS + 2);
+      expect(w.decided.at(-1)?.settle).toBe(true);
       expect(w.asks.map((ask) => ask.question)).toEqual(["so about friday"]);
     });
 
     it("the burst is answered by its deadline, however long decide asks to wait", async () => {
       const storage = new AlarmStorage();
-      const w = setup(groupId, { decide: bindsFirst(() => wait(8)), control: STYLE });
+      const w = setup(groupId, { decide: bindsFirst(waitThen(answerAll, 8)), control: STYLE });
       await bound(storage, w);
       await acceptGroup(storage, w.message("so about friday"), 100);
       w.deps.now = () => 6_100;
@@ -142,14 +150,45 @@ for (const { name, groupId } of LINES) {
       expect(w.asks.map((ask) => ask.question)).toEqual(["so about friday"]);
     });
 
-    it("a single complete message is never held, whatever decide says", async () => {
+    it("a single complete message is never held: decide judges it again with no wait, and its answer goes", async () => {
+      const storage = new MemoryStorage();
+      const w = setup(groupId, { decide: bindsFirst(waitThen(answerAll)), control: STYLE });
+      await bound(storage, w);
+      await acceptGroup(storage, w.message("Which parts of about.md are out of date?"), 100);
+      await drainGroup(storage, w.deps);
+      expect(w.decided.map((body) => body.settle === true)).toEqual([false, true]);
+      expect(w.asks.map((ask) => ask.question)).toEqual(["Which parts of about.md are out of date?"]);
+    });
+
+    it("a single message for somebody else stays quiet when decide settles its wait as quiet", async () => {
+      const storage = new MemoryStorage();
+      const w = setup(groupId, { decide: bindsFirst(waitThen(quiet)), control: STYLE });
+      await bound(storage, w);
+      await acceptGroup(storage, w.message("What do you mean by that?"), 100);
+      await drainGroup(storage, w.deps);
+      expect(w.decided.map((body) => body.settle === true)).toEqual([false, true]);
+      expect(w.asks).toHaveLength(0);
+    });
+
+    it("a burst whose wait runs out stays quiet when decide settles it as quiet", async () => {
+      const storage = new AlarmStorage();
+      const w = setup(groupId, { decide: bindsFirst(waitThen(quiet, 8)), control: STYLE });
+      await bound(storage, w);
+      await acceptGroup(storage, w.message("so about friday"), 100);
+      w.deps.now = () => 100 + BURST_DEADLINE_MS;
+      storage.fire();
+      await drainGroup(storage, w.deps);
+      expect(w.decided.at(-1)?.settle).toBe(true);
+      expect(w.asks).toHaveLength(0);
+    });
+
+    it("a settle that still says wait (an older judge) is read as quiet, never an answer", async () => {
       const storage = new MemoryStorage();
       const w = setup(groupId, { decide: bindsFirst(() => wait()), control: STYLE });
       await bound(storage, w);
       await acceptGroup(storage, w.message("Which parts of about.md are out of date?"), 100);
       await drainGroup(storage, w.deps);
-      expect(w.decided).toHaveLength(1);
-      expect(w.asks.map((ask) => ask.question)).toEqual(["Which parts of about.md are out of date?"]);
+      expect(w.asks).toHaveLength(0);
     });
 
     // Since 2026-11-11 no word rule exempts a tag from a wait: the judge reads the burst, and its answer is not held.

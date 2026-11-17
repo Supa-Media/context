@@ -205,3 +205,12 @@ A week of production logs (2026-11-09 to 11-15) put the Haiku reviewer at 25.5% 
 - **The reviewer only on a job's report and a scheduled text, in the wiring** (Dev2's call on the drawing: the reviewer and its send-back loop hang off jobs and routines only). The wire from Answer checks to the Reply reviewer fires on `report` or `routine` (`texConfig.json`), the tag `runTheModel.js` `reviewedAs` gives such a turn; the judge is built only for them (`gated`), and heartbeat check-ins keep theirs. Every other chat turn has no wire to the reviewer and gets the code checks alone.
 
 Reversing either: `apps/mcp/test/agentSeenFigures.test.mjs`, `agentJobHaiku.test.mjs` ("nor since 2026-11-15 an ordinary text"), `scheduledReview.test.mjs` and the replay case `figures-read-whole` fail.
+
+## 2026-11-17: no speak-up line, and a wait never answers by default
+
+Decided by Dev2, 2026-11-17: "I dont want a follow along setting at all, I just want decide to know when to answer or not."
+
+- **No speak-up line in a group.** The judge is no longer told the group's level. What is for Tex is taught only by its examples and `FOR_TEX_RULE` (`textDecide.cjs` `STYLE_RULES` keeps only the 1:1 line). The follow-along line told the judge to answer "follow-ups about what Tex just said". In Tex Devs, 11-11 to 11-17, the judge said respond 68 times and quiet 49 times when Tex had spoken in the last three texts. Otherwise it said respond 26 times and quiet 111. Most replies to people talking to each other came from that warm state.
+- **A wait that ends goes back to the judge.** When the Worker does not hold a wait, it no longer turns it into an answer. That covers a wait with no real burst, and a wait the chat may not repeat or whose deadline has passed. Instead the judge reads the burst again with only quiet or respond to choose (`settle` in the body; `groupTurn.ts` `settleWait`). A literal tag is still answered (`taggedIndex`), and with the judge down the usual `judgeDownAnswer` applies. A settle that still says wait is read as quiet. About 10 replies in that week, including one to a question Seyi asked Shyoh, came from a wait turned into an answer.
+
+What reversing it costs: Tex answers whatever follows its own texts, and a hedged wait becomes a reply. Tests: `apps/agent/src/groupDecideEmojiWait.test.ts` ("a single message for somebody else stays quiet…", "a burst whose wait runs out stays quiet…", "a settle that still says wait…"), and the textDecide tests for the settle form and the missing group line.

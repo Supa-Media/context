@@ -132,6 +132,8 @@ export function judgedInput(body, facts = 0) {
   return {
     style: body.style ?? null,
     running: body.running === true,
+    // A wait judged again with no wait to choose (`settleWait`, Dev2 2026-11-17).
+    ...(body.settle === true ? { settle: true } : {}),
     newest: body.newest ?? null,
     candidates: Array.isArray(body.candidates) ? body.candidates : [],
     ...(typeof body.transcript === "string" ? { transcriptChars: body.transcript.length } : {}),

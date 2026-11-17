@@ -103,7 +103,7 @@ export async function logGroupInbound(storage: InboxStorage, message: GroupMessa
  * (`firstLook`), with no ledger to keep its verdict; otherwise the chat's log from its ledger, and the verdict kept
  * there as a `judge` entry (the gateway writes it, `textsDecide.js`).
  */
-async function ask(storage: InboxStorage, deps: ControlDeps & { now: () => number }, newest: GroupMessage, candidates: string[], running: boolean, look?: string): Promise<Decision> {
+async function ask(storage: InboxStorage, deps: ControlDeps & { now: () => number }, newest: GroupMessage, candidates: string[], running: boolean, look?: string, settle = false): Promise<Decision> {
   const style = (await groupStyle()).style;
   // The chat's ledger key: where its verdict is kept, and how its day is read when this object holds no token.
   const ledgerKey = look !== undefined ? undefined : await sha256Hex(`${newest.line}:${newest.groupId}`);
@@ -124,6 +124,7 @@ async function ask(storage: InboxStorage, deps: ControlDeps & { now: () => numbe
       newest: candidates.at(-1) ?? "",
       // The chat's ledger, where the verdict is kept: the control plane's key for it (`groupKeyOf`), never for a first look.
       ...(ledgerKey === undefined ? {} : { ledger: ledgerKey }),
+      ...(settle ? { settle: true as const } : {}),
     },
     running ? RUNNING_DECIDE_MS : GROUP_DECIDE_MS,
   );
@@ -135,7 +136,7 @@ async function ask(storage: InboxStorage, deps: ControlDeps & { now: () => numbe
       ...(decision.ok && decision.why ? { why: decision.why } : {}),
       ...(!decision.ok && decision.cause ? { reason: decision.cause } : {}),
       ...(decision.ms !== undefined ? { ms: decision.ms } : {}),
-      ...(running ? { kind: "running" } : look !== undefined ? { kind: "first_look" } : {}),
+      ...(running ? { kind: "running" } : look !== undefined ? { kind: "first_look" } : settle ? { kind: "settle" } : {}),
     }),
   );
   if (decision.ok) {
@@ -188,8 +189,14 @@ export async function chooseGroupTurn(storage: InboxStorage, deps: ControlDeps &
     const question = judgeDownAnswer(burst);
     return question === -1 ? { answer: [], chat: burst, drop: [] } : { answer: [burst[question]], chat: burst.filter((_, index) => index !== question), drop: [] };
   }
-  // A wait holds only a real burst, and only while the chat's state allows one more (`canWait`): otherwise an answer.
-  const act = decision.act === "wait" && !(waitAllowed && burstStillTyped(burst.map(([, item]) => item))) ? "answer" : decision.act;
+  // A wait holds only a real burst, and only while the chat's state allows one more (`canWait`). Otherwise Decide judges
+  // again with no wait to choose (`settleWait`): a wait never becomes an answer by default (Dev2, 2026-11-17).
+  if (decision.act === "wait" && !(waitAllowed && burstStillTyped(burst.map(([, item]) => item)))) return await settleWait(storage, deps, burst);
+  return chosen(burst, decision.act, decision);
+}
+
+/** What a judging's act does to the burst: a wait holds it, a tapback goes alone, an answer covers what decide named. */
+function chosen(burst: GroupEntry[], act: string, decision: Extract<Decision, { ok: true }>): GroupChoice {
   const newest = burst.at(-1)!;
   // A tapback only in place of words, never beside an answer or a wait (Dev2, 2026-11-10: "uses emojis way too much").
   const react = act === "react" && !newest[1].reacted ? { react: newest, ...(decision.emoji ? { emoji: decision.emoji } : {}) } : {};
@@ -200,6 +207,23 @@ export async function chooseGroupTurn(storage: InboxStorage, deps: ControlDeps &
   // Left out before the answer: chat (`gatherTheTurn.ts`). Nothing here is forced (`addressedTurn` took those), so nothing jumps the order.
   const { answer, left } = gatherTheTurn(burst, (entry) => entry[1].ev !== undefined && decision.covers.includes(entry[1].ev), (entry) => !soft(entry));
   return { answer, chat: left, drop: [], ...react };
+}
+
+/**
+ * A wait that is not held (no real burst, or the chat may not wait again) or that ran out: Decide judges the burst again
+ * with only quiet or respond to choose (`settle`), so the wait ends as Decide says and never in an answer by default
+ * (Dev2, 2026-11-17: "I just want decide to know when to answer or not"; Tex Devs 11-11..11-17, 10 replies to people
+ * talking to each other came from a wait turned into an answer). The judge down, as any judging (`judgeDownAnswer`).
+ */
+export async function settleWait(storage: InboxStorage, deps: ControlDeps & { now: () => number }, burst: GroupEntry[]): Promise<GroupChoice> {
+  const ids = burst.flatMap(([, item]) => (item.ev ? [item.ev] : []));
+  const decision = ids.length === 0 ? ({ ok: false, reason: "unavailable" } as const) : await ask(storage, deps, burst.at(-1)![1].message, ids, false, undefined, true);
+  // A settle that still says wait (an old gateway that ignores `settle`) is read as quiet: the wait has had its time.
+  if (!decision.ok) {
+    const question = judgeDownAnswer(burst);
+    return question === -1 ? { answer: [], chat: burst, drop: [] } : { answer: [burst[question]], chat: burst.filter((_, index) => index !== question), drop: [] };
+  }
+  return chosen(burst, decision.act === "wait" ? "silent" : decision.act, decision);
 }
 
 /**

@@ -309,3 +309,26 @@ test("the judge is told the names the chat gave its guests, the newest per guest
   const facts = await nowFacts(store, GROUP_KEY, { now: T0 });
   assert.deepEqual(facts, ["People here known by a guest label, by name: guest-6ce3 is Boba; guest-66ef is Instinct."]);
 });
+
+test("a group's judge is told no speak-up level; a 1:1's still is (Dev2, 2026-11-17)", () => {
+  const group = decideRequest(groupBody({ style: "followAlong" }));
+  for (const style of ["followAlong", "quiet", "attentive", "helpful"]) {
+    const asked = decideRequest(groupBody({ style }));
+    assert.equal(asked.questions.act.instructions, group.questions.act.instructions, style);
+  }
+  assert.doesNotMatch(group.questions.act.instructions, /speak-up|follow-ups about what Tex/);
+  assert.match(decideRequest(body()).questions.act.instructions, /one-to-one chat with Tex/);
+});
+
+test("a settle asks quiet or respond only, with no wait to choose (Dev2, 2026-11-17)", async () => {
+  const plain = decideRequest(groupBody());
+  assert.deepEqual(Object.keys(plain.questions.act.criteria), ["quiet", "respond", "wait"]);
+  assert.ok(plain.questions.wait_seconds);
+  let seen = null;
+  const engine = async (state, questions) => ((seen = questions), { act: { choice: "quiet", confidence: 0.7 } });
+  const response = await decideForTexts(ask(TEXTS_DECIDE_PATH, groupBody({ settle: true })), {}, { engine, ledger: () => ({ read: async () => ({ entries: [] }), append: async () => {} }), waitUntil: () => {} });
+  assert.equal(response.status, 200);
+  assert.deepEqual(Object.keys(seen.act.criteria), ["quiet", "respond"]);
+  assert.equal(seen.wait_seconds, undefined);
+  assert.equal((await response.json()).act, "silent");
+});
