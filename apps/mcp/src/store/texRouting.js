@@ -24,7 +24,8 @@
  *   shape under `person:`, or anything else under `state/`, is refused.
  * - One set of plumbing besides, a person's Tex bookkeeping
  *   (`isAgentHomeKey`): the one-to-one history record and the turn records,
- *   running, cancel and steer marks under `.context/agent/`. Those keys keep
+ *   running, cancel, steer and go marks under `.context/agent/` (go: a
+ *   Provisional run's, `agent/steer.js`). Those keys keep
  *   their names for every caller and live in the workspace's own
  *   `person:<workspaceId>` object at `state/agent/...` (the owner,
  *   2026-11-01: one copy, in the object, never the bucket), fail closed like
@@ -50,9 +51,9 @@ export class TexStoreUnavailable extends Error {
 const STATE_SHAPED = /^tex\/[^/]*:[^/]*\/state(?:\/|$)/;
 
 /** The `.context/agent/` folders a person's Tex bookkeeping lives under, in their object. */
-export const AGENT_HOME_FOLDERS = ["history", "turns", "running", "cancel", "steer"];
-const AGENT_HOME = /^\.context\/agent\/(history|turns|running|cancel|steer)\/((?:[A-Za-z0-9_-][A-Za-z0-9_.-]{0,127}\/){0,2}[A-Za-z0-9_-][A-Za-z0-9_.-]{0,127})$/;
-const AGENT_HOME_PREFIX = /^\.context\/agent\/(history|turns|running|cancel|steer)\/((?:[A-Za-z0-9_-][A-Za-z0-9_.-]{0,127}\/){0,2})$/;
+export const AGENT_HOME_FOLDERS = ["history", "turns", "running", "cancel", "steer", "go"];
+const AGENT_HOME = /^\.context\/agent\/(history|turns|running|cancel|steer|go)\/((?:[A-Za-z0-9_-][A-Za-z0-9_.-]{0,127}\/){0,2}[A-Za-z0-9_-][A-Za-z0-9_.-]{0,127})$/;
+const AGENT_HOME_PREFIX = /^\.context\/agent\/(history|turns|running|cancel|steer|go)\/((?:[A-Za-z0-9_-][A-Za-z0-9_.-]{0,127}\/){0,2})$/;
 
 /** Whether `key` is a person's Tex bookkeeping, kept in their object (`state/agent/...`). No `..`, no empty segment. */
 export function isAgentHomeKey(key) {
