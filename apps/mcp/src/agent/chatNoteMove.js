@@ -53,10 +53,13 @@ async function retract(note, etag) {
   }
 }
 
-/** The first old name that holds a note: `{...source, etag, body}`, or null. An unreadable name is skipped, never guessed. */
-async function firstHeld(sources) {
+/**
+ * The first old name that holds a note: `{...source, etag, body}`, or null. An unreadable name is skipped, never guessed.
+ * `known` is a read this turn already made, keyed by the source, so a missing name is not probed again.
+ */
+async function firstHeld(sources, known = new Map()) {
   for (const source of sources) {
-    const read = await readWithEtag(source.dispatch, source.path);
+    const read = known.has(source) ? known.get(source) : await readWithEtag(source.dispatch, source.path);
     if (read !== null && read.missing !== true) return { ...source, etag: read.etag, body: read.body };
   }
   return null;
@@ -70,7 +73,7 @@ async function firstHeld(sources) {
  *  - "copied": copied and read back, and the old note stays (a home's, or one not retractable);
  *  - "kept": nothing was retracted, and the next turn tries again. `fallback` is the old words when the target is still
  *    missing, so this turn's answer still reads the memory it had;
- *  - "none": no old note exists, so there is nothing to do.
+ *  - "none": no old note exists, so there is nothing to do. `held` is the empty note already read, so the caller does not read the target again.
  */
 export async function moveChatNote({ target, sources, adapt = (text) => text, log = console.log }) {
   // The target and every retractable old name side by side: once moved, each turn reads them all and finds only the target.
@@ -94,8 +97,10 @@ export async function moveChatNote({ target, sources, adapt = (text) => text, lo
     return { outcome: "kept", fallback: null, held };
   }
 
-  const first = await firstHeld(sources);
-  if (first === null) return { outcome: "none", fallback: null };
+  const known = new Map(retractable.map((source, index) => [source, olds[index]]));
+  const first = await firstHeld(sources, known);
+  // The target was read above and is absent. An empty note lets the caller skip reading it again (`readGroupVoice`).
+  if (first === null) return { outcome: "none", fallback: null, held: { etag: null, body: "" } };
 
   let current = first;
   let copied = null;
