@@ -7,6 +7,7 @@
  * hosts, outcomes and costs, never a path, a page, or a CDP url.
  */
 
+import { browserUseLedgerStub } from "./idle";
 import { BROWSER_USE_CEILING, browseLogRow, nyPeriod, summarizeBrowseLog, type BrowseLogRow, type BrowseLogSummary } from "./browserUsePolicy";
 
 export interface LedgerKv {
@@ -103,8 +104,8 @@ export class BrowseLedger {
 }
 
 export interface LedgerNamespace {
-  idFromName(name: string): DurableObjectId;
-  get(id: DurableObjectId): LedgerStub;
+  idFromName: (name: string) => DurableObjectId;
+  get: (id: DurableObjectId, options?: { locationHint?: "enam" }) => LedgerStub;
 }
 
 /** The methods the object exposes. A test passes a plain object with the same shape. */
@@ -124,9 +125,7 @@ export interface LedgerEnv {
 
 /** The one ledger, or null when this Worker has no binding (a test, a self-hoster). */
 export function ledgerStub(env: LedgerEnv): LedgerStub | null {
-  const namespace = env.BROWSER_USE_LEDGER;
-  if (!namespace) return null;
-  return namespace.get(namespace.idFromName("browser-use"));
+  return browserUseLedgerStub(env.BROWSER_USE_LEDGER);
 }
 
 /** Writes a row. A failure is logged and swallowed: the browse itself still answers. */

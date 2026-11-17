@@ -153,6 +153,15 @@ export function idleStub(namespace: IdleNamespace, owner: string): IdleStub {
   return namespace.get(namespace.idFromName(owner), { locationHint: "enam" });
 }
 
+/**
+ * The one Browser Use ledger, placed the same way. Spend and the block log
+ * live here, not in the per-person idle object.
+ */
+export function browserUseLedgerStub<T>(namespace: { idFromName(name: string): DurableObjectId; get(id: DurableObjectId, options?: { locationHint?: "enam" }): T } | undefined): T | null {
+  if (!namespace) return null;
+  return namespace.get(namespace.idFromName("browser-use"), { locationHint: "enam" });
+}
+
 /** Pushes this person's browser's end five minutes out (or `ms`). Never fails the step it rides on. */
 export async function touchIdle(namespace: IdleNamespace | undefined, owner: string, ms: number = IDLE_MS): Promise<void> {
   if (!namespace) return;

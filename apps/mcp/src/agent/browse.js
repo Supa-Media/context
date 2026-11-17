@@ -54,7 +54,7 @@ import { BROWSER_BUSY, newHolder } from "./browserLease.js";
 import { silentSubmits } from "./silentSubmit.js";
 import { waitsOnThem } from "./browserHold.js";
 import { notAStep } from "./browseNotAStep.js";
-import { browseHost, fallbackWanted, siteBlockAfterLadder } from "./browserUseFallback.js";
+import { browseHost, retryOnBrowserUse } from "./browserUseFallback.js";
 
 export const BROWSE_TOOL = "browse";
 
@@ -520,38 +520,10 @@ export function browserSession(computer, { allowed, addresses, takePages, say = 
         let cleared = false;
         if (done !== null) ({ done, line: captchaLine, cleared } = await captchas.settle(done, (s, o) => run(s, o)));
         if (!cleared && captchaLine === "") ({ done, line: captchaLine } = await submits.settle(done, planned, shownElements, (s, o) => run(s, o)));
-        // A site block, and only a site block, may be tried once on Browser Use.
-        // A Browserbase 403, a 402 or a 503 never reaches here as `trigger`.
-        if (done?.reading) {
-          trigger = siteBlockAfterLadder({
-            blocked: done.blocked,
-            captchaStuck: captchas.stuck(),
-            captchaKind: done.captchaKind,
-            submitStuck: submits.stuck(),
-          });
-          if (fallbackWanted({ flag: computer.browserUseFallback?.() ?? "off", reason: trigger, already: browserUseTried })) {
-            browserUseTried = true;
-            const again = await run(planned, { provider: "browser-use" }).catch(() => ({ refused: "browser-use could not be started" }));
-            if (!again?.reading) {
-              fallback = { ran: false, outcome: "refused" };
-              fallbackNote = `\n\nThe site blocked this browser (${trigger}). The other browser was not used: ${again?.refused ?? "browser-use could not be started"}.`;
-            } else {
-              const still = siteBlockAfterLadder({
-                blocked: again.blocked,
-                captchaStuck: again.captcha === "unsolved",
-                captchaKind: again.captchaKind,
-                submitStuck: false,
-              });
-              done = again;
-              fallback = { ran: true, outcome: still ?? "ok", ...(again.costUsd !== null && again.costUsd !== undefined ? { costUsd: again.costUsd } : {}) };
-              if (!still) {
-                captchaLine = "";
-                fallbackCleared = true;
-                handoff = false;
-              } else fallbackNote = `\n\nTried the other browser after a site block (${trigger}); it was blocked too (${still}).`;
-            }
-          }
-        }
+        // A site block may be tried once on Browser Use. A vendor 403, 402 or 503 is not one (`browserUseFallback.js`).
+        ({ done, captchaLine, handoff, trigger, fallbackNote, fallbackCleared, fallback, tried: browserUseTried } = await retryOnBrowserUse({
+          done, captchaLine, handoff, captchas, submits, computer, tried: browserUseTried, run, planned,
+        }));
         // Got past a captcha: nothing is left for the person to do there.
         if (cleared || fallbackCleared) handoff = false;
         // Only a sign-in, a code, a captcha, a card or their own ask is theirs (`handoffGate.js`).

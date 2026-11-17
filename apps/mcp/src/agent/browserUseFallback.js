@@ -66,6 +66,52 @@ export function fallbackWanted({ flag, reason, already }) {
   return flag === "on" && typeof reason === "string" && already !== true;
 }
 
+/**
+ * One retry on Browser Use after the ladder, or the same result when the
+ * flag is off or nothing was a site block. `run` is the browse tool's own
+ * step runner, so the retry is the same steps on the other browser.
+ */
+export async function retryOnBrowserUse({ done, captchaLine, handoff, captchas, submits, computer, tried, run, planned }) {
+  let trigger = null;
+  let fallbackNote = "";
+  let fallbackCleared = false;
+  let fallback = { ran: false };
+  let next = done;
+  let line = captchaLine;
+  let hand = handoff;
+  if (next?.reading) {
+    trigger = siteBlockAfterLadder({
+      blocked: next.blocked,
+      captchaStuck: captchas.stuck(),
+      captchaKind: next.captchaKind,
+      submitStuck: submits.stuck(),
+    });
+    if (fallbackWanted({ flag: computer.browserUseFallback?.() ?? "off", reason: trigger, already: tried })) {
+      tried = true;
+      const again = await run(planned, { provider: "browser-use" }).catch(() => ({ refused: "browser-use could not be started" }));
+      if (!again?.reading) {
+        fallback = { ran: false, outcome: "refused" };
+        fallbackNote = `\n\nThe site blocked this browser (${trigger}). The other browser was not used: ${again?.refused ?? "browser-use could not be started"}.`;
+      } else {
+        const still = siteBlockAfterLadder({
+          blocked: again.blocked,
+          captchaStuck: again.captcha === "unsolved",
+          captchaKind: again.captchaKind,
+          submitStuck: false,
+        });
+        next = again;
+        fallback = { ran: true, outcome: still ?? "ok", ...(again.costUsd != null ? { costUsd: again.costUsd } : {}) };
+        if (!still) {
+          line = "";
+          fallbackCleared = true;
+          hand = false;
+        } else fallbackNote = `\n\nTried the other browser after a site block (${trigger}); it was blocked too (${still}).`;
+      }
+    }
+  }
+  return { done: next, captchaLine: line, handoff: hand, trigger, fallbackNote, fallbackCleared, fallback, tried };
+}
+
 /** A host, and only a host, for the block log. */
 export function browseHost(url) {
   try {
