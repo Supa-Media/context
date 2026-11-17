@@ -218,8 +218,8 @@ The beside-staging lane shipped a commit whose CI on main failed the same
 afternoon (CI run 44150860615, Convex shard 6, sha 994abffb; production run
 44150879077 of that sha succeeded). `Start Production` is gone. `Promote to
 Production` runs on `workflow_run` of CI (push to main, conclusion success)
-and of Deploy Staging, and opens a deployment for the newest commit on main
-whose CI and staging have both succeeded. The SHA is pinned by dispatching
+and of Deploy Staging, and starts Deploy to Production for the newest commit
+on main whose CI and staging have both succeeded. The SHA is pinned by dispatching
 `prod-deploy/<sha>`, a branch at that commit: `workflow_dispatch` cannot
 take a commit, and dispatching `main` would ship the tip at creation time.
 The deployment event is not used, because it runs the workflow file at the
@@ -240,6 +240,12 @@ check inside the deploy is an API read, and the minutes are the wait until
 staging for that commit has succeeded, which the old lane skipped.
 `promote-production.test.mjs` and `production-release.test.mjs` pin the
 trigger, the refusal of a red CI, and the pin branch.
+
+The same day, production stopped treating a green staging run as a substitute
+for the gateway suite. Staging's copy can be a different commit by the time
+production starts, and a cancelled staging run never ran it. The suite runs
+on the commit being deployed, beside Convex, and only the gateway deploy
+waits for it. A failed suite fails the release.
 
 The import-coverage guard now checks `deploy-staging.yml`; its unfiltered main
 push covers every bundled file, including future packages. Production deploys

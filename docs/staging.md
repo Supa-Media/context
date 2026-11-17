@@ -42,9 +42,9 @@ since production's last successful run, chosen by the same planner with
 `--target production`: Convex, the Workers, web and router. Tick `full` to
 redeploy everything, for recovery or after rotating a production secret. The
 OTA bundle is exported during the deploy; the upload starts after the backends
-succeed and does not hold the production queue. The gateway suite is not
-rerun, because the staging run this action requires ran it whenever the
-gateway's inputs changed. All jobs use the commit fixed when the action
+succeed and does not hold the production queue. The gateway suite runs again on that same commit, beside the other deploy
+jobs; only the gateway deploy waits for it, and a failed suite fails the
+release. All jobs use the commit fixed when the action
 started, even if `main` moves while it runs. Production builds use production credentials; staging data is not
 copied. A failed deployment can be retried with GitHub's **Re-run failed jobs**.
 

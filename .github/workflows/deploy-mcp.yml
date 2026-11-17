@@ -5,12 +5,12 @@
 # the same reasoning as mcp.yml (this repo's gateway CI), which exists because
 # the most security-sensitive code here was once the least covered.
 #
-# The gate may be met by staging instead of by a second run here. The
-# production workflow passes `tested_in_staging` only after requiring this exact
-# commit to have passed `Deploy Staging`, and staging runs `pnpm --filter
-# @context/mcp test` (this suite and more) whenever the gateway's inputs change
-# (scripts/deploy-plan.mjs). A caller that cannot make that promise leaves it
-# false and gets the suite.
+# Production runs this suite on the commit it is deploying. It calls this
+# workflow twice: `phase: test` beside the other jobs, then `phase: deploy`
+# after that call has passed, so a failed suite never reaches `wrangler deploy`.
+# `phase: all` (the default) runs the suite and then deploys in one call.
+# `tested_in_staging` still skips the suite for a caller that has already run
+# it on this commit; production does not pass it.
 #
 # ── The Wrangler config question ───────────────────────────────────────────
 #
@@ -35,9 +35,13 @@ on:
   workflow_call:
     inputs:
       tested_in_staging:
-        description: This exact commit passed Deploy Staging, which ran the gateway suite
+        description: This exact commit already ran this suite. Skips it. Production does not pass this.
         type: boolean
         default: false
+      phase:
+        description: "test (suite only), deploy (deploy only; the caller ran test), or all (suite, then deploy)"
+        type: string
+        default: all
 
 # Never on `pull_request`: a deploy triggered by a pull request from a branch
 # pushed HERE would run unreviewed code with the account's Cloudflare
@@ -69,7 +73,7 @@ env:
 jobs:
   test:
     name: Test gateway
-    if: ${{ !inputs.tested_in_staging }}
+    if: ${{ inputs.phase == 'test' || (inputs.phase != 'deploy' && !inputs.tested_in_staging) }}
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
@@ -98,9 +102,11 @@ jobs:
   deploy:
     name: Deploy gateway
     needs: test
-    # Skipped tests count only when staging vouched for them; a failed or
-    # cancelled suite never deploys.
-    if: ${{ !cancelled() && (needs.test.result == 'success' || (needs.test.result == 'skipped' && inputs.tested_in_staging)) }}
+    # A skipped suite counts only when this call was not asked to run it:
+    # staging already did (`tested_in_staging`), or the caller ran `phase: test`
+    # on this same commit and is now deploying (`phase: deploy`). A failed or
+    # cancelled suite never deploys. `phase: test` does not deploy.
+    if: ${{ !cancelled() && inputs.phase != 'test' && (needs.test.result == 'success' || (needs.test.result == 'skipped' && (inputs.tested_in_staging || inputs.phase == 'deploy'))) }}
     runs-on: ubuntu-latest
     environment: production
     timeout-minutes: 15

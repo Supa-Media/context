@@ -108,6 +108,11 @@ test('only staging can deploy automatically; production services share one manua
   assert.match(production, /convex:\s+needs: validate/);
   assert.match(production, /web:\s+needs: validate/);
   assert.match(production, /uses: \.\/\.github\/workflows\/build-web\.yml/);
+  assert.match(production, /gateway-test:\n    name: Test gateway\n    needs: validate\n/);
+  assert.match(production, /with:\n      phase: test\n/);
+  assert.match(production, /gateway:\n    needs: \[validate, convex, gateway-test\]\n/);
+  assert.match(production, /phase: deploy\n/);
+  assert.doesNotMatch(production, /tested_in_staging:\s*true/);
   assert.match(production, /router:\s+needs: \[validate, convex, gateway, email, transcribe, egress, web\]/);
   assert.match(production, /mobile-publish:\n    name: Start OTA publish\n    needs: \[validate, convex, gateway, email, transcribe, egress, mobile-bundle\]/);
   assert.match(production, /gh workflow run deploy-production-ota\.yml --repo "\$GH_REPO" --ref main/);
