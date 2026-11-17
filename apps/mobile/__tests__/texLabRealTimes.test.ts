@@ -69,7 +69,8 @@ describe("realTimes", () => {
     expect(sim.T.fd.ms).toBe(2700 + 650);
     expect(sim.T.answerCheck).toBeUndefined();
     expect(sim.T.fd.parts.some((p) => p.id === "sendback")).toBe(false);
-    expect(sim.T.doorStep.start).toBe(sim.T.lanes.end);
+    // The Door starts with the text, beside the Queue (a Provisional run, Dev2, 2026-11-17).
+    expect(sim.T.doorStep.start).toBe(0);
   });
 });
 
@@ -89,11 +90,11 @@ test("Haiku's estimate misses Tex's real calls by a median of under 300 ms", () 
   expect(miss[Math.floor(miss.length / 2)]).toBeLessThan(300);
 });
 
-test("the wire key offers Next, Helper, Background, Send back and Provisional run: after-sending wires are drawn as Background", () => {
+test("the wire key offers Next, Helper, Background, Send back, Provisional run and Starts a new run: after-sending wires are drawn as Background", () => {
   // Dev2, 2026-11-14: "next, and background is really all we need".
   const { keywHtml } = jest.requireActual<typeof import("../features/tex/lab/views/canvas/render")>("../features/tex/lab/views/canvas/render");
   const { WIRES } = jest.requireActual<typeof import("../features/tex/lab/data/graph")>("../features/tex/lab/data/graph");
-  expect([...keywHtml().matchAll(/<\/svg>([^<]+)<\/span>/g)].map((m) => m[1])).toEqual(["Next", "Helper", "Background", "Send back", "Provisional run"]);
+  expect([...keywHtml().matchAll(/<\/svg>([^<]+)<\/span>/g)].map((m) => m[1])).toEqual(["Next", "Helper", "Background", "Send back", "Provisional run", "Starts a new run"]);
   expect({ ...WIRES.background, folded: undefined, tip: "" }).toEqual({ ...WIRES.job, folded: undefined, tip: "" });
 });
 

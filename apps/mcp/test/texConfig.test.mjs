@@ -111,7 +111,8 @@ test("both send-backs reach the front door through the Answer check's one loop, 
   const loops = TEX_CONFIG.edges.filter((e) => e.mode === "loop" && e.to === "fd").map((e) => [e.from, e.when.join()]);
   assert.deepEqual(loops, [["answerCheck", "*"]]);
   assert.ok(TEX_CONFIG.edges.some((e) => e.from === "fd" && e.to === "answerCheck" && e.mode === "wait"), "every draft reaches the Answer check");
-  assert.deepEqual(TEX_CONFIG.edges.filter((e) => e.from === "answerCheck" && e.mode !== "loop").map((e) => e.to), ["send"]);
+  // An ask from another chat goes back to it instead of being texted (Dev2, 2026-11-17, cross-chat asks).
+  assert.deepEqual(TEX_CONFIG.edges.filter((e) => e.from === "answerCheck" && e.mode !== "loop").map((e) => [e.to, e.when.join()]), [["send", "*"], ["chatAnswer", "ask"]]);
   for (const id of ["reviewer", "checks"]) assert.equal(texStep(id).on, false, `${id} is off`);
 });
 

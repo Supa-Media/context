@@ -43,6 +43,8 @@ flowchart LR
   n_answerCheck["Answer check<br/>Haiku 5.5 · effort low<br/>graph/nodes/checks.js · graph/nodes/reviewer.js · replyJudge.js · sendBack.js"]:::model
   n_bypass["Confirmations & refusals<br/>code<br/>graph/nodes/bypass.js"]:::code
   n_chatDays["Chat day summaries<br/>Haiku 5.5 · effort low<br/>graph/nodes/chatDays.js · daySummaries.js"]:::model
+  n_chatAsk(["Another chat asks<br/>code<br/>graph/nodes/chatAsk.js"]):::start
+  n_chatAnswer["Answer the other chat<br/>code<br/>graph/nodes/chatAnswer.js"]:::code
   subgraph n_group_intake["Intake"]
     n_text(["A text arrives<br/>code<br/>apps/agent"]):::start
     n_edit(["A text is edited or unsent<br/>code<br/>graph/nodes/edit.js · textsEdit.js · apps/agent editStep.ts"]):::start
@@ -88,6 +90,7 @@ flowchart LR
     n_egress["Egress judge<br/>Haiku 5.5 · effort low<br/>privacy/judge.js"]:::model
     n_picture["Picture maker<br/>google/gemini-2.5-flash-image · effort off<br/>pictureMaker.js"]:::model
     n_moveJudge["Move judge<br/>Haiku 5.5 · effort low<br/>graph/nodes/moveJudge.js · theirNotes.js"]:::model
+    n_crossChatGate["Cross-chat gate<br/>code<br/>graph/nodes/crossChatGate.js · crossChat.js"]:::code
   end
   subgraph n_group_jobs["Jobs"]
     n_job["Background job<br/>Haiku 5.5 · effort medium<br/>graph/nodes/job.js · texJob.js · apps/agent jobRun.ts"]:::model
@@ -117,7 +120,9 @@ flowchart LR
   n_tools -.->|uses: ask_advisor| n_advisor
   n_job -.->|uses: job| n_jobadv
   n_job -.->|uses: job| n_tools
-  n_lanes --> n_doorStep
+  n_triage -..->|provisional run (revertible): stop:running| n_doorStep
+  n_decide -..->|provisional run (revertible): stop:quiet, restart:wait| n_doorStep
+  n_lanes -..->|provisional run (revertible)| n_doorStep
   n_text --> n_triage
   n_doorStep -->|next| n_fd
   n_send -.->|background: fired| n_learn
@@ -133,6 +138,11 @@ flowchart LR
   n_fd -.->|uses: big| n_planner
   n_send -.->|background: sent, ended, answered| n_chatDays
   n_tools -.->|uses: move| n_moveJudge
+  n_tools -.->|uses: ask_chat| n_crossChatGate
+  n_chatAsk -->|ask, answer| n_lanes
+  n_answerCheck -->|ask| n_chatAnswer
+  n_crossChatGate -.->|starts a new run: ask| n_chatAsk
+  n_chatAnswer -.->|starts a new run: back| n_chatAsk
   classDef start fill:#ffe3ee,stroke:#ff4f8b,color:#1d1838
   classDef code fill:#dcf7f3,stroke:#11b5a4,color:#1d1838
   classDef model fill:#ece5ff,stroke:#7b4dff,color:#1d1838
@@ -205,8 +215,11 @@ every wire, from the same config.
 | Confirmations & refusals | bypass |  | on | code |  |  |  | graph/nodes/bypass.js |
 | Chat day summaries | chatDays |  | on | Haiku 5.5 | low |  |  | graph/nodes/chatDays.js · daySummaries.js |
 | Move judge | moveJudge | tools-subagents | on | Haiku 5.5 | low | 8 s |  | graph/nodes/moveJudge.js · theirNotes.js |
+| Cross-chat gate | crossChatGate | tools-subagents | on | code |  |  |  | graph/nodes/crossChatGate.js · crossChat.js |
+| Another chat asks | chatAsk |  | on | code |  |  |  | graph/nodes/chatAsk.js |
+| Answer the other chat | chatAnswer |  | on | code |  |  |  | graph/nodes/chatAnswer.js |
 
-Wires: checkin → fd (wait, look) · notify → send (wait, send) · oldLine → send (wait, redirect) · edit → triage (wait, turn) · moveChat → send (wait, person, group) · triage → decide (wait, judge, running) · triage → lanes (wait, tex) · decide → react (wait) · decide → lanes (wait) · fd → tools (uses, action) · tools → mail (uses, email) · tools → card (uses, card) · fd → job (job, job) · job → handback (job, job) · tools → egress (uses, share) · tools → picture (uses, picture) · picture → card (uses) · nightly → dream (wait, dream) · dream → daysum (wait, summarize) · nightly → housekeep (wait, housekeeping) · tools → advisor (uses, ask_advisor) · job → jobadv (uses, job) · job → tools (uses, job) · lanes → doorStep (wait) · text → triage (wait) · doorStep → fd (wait, next) · send → learn (background, fired) · send → afterReply (background, sent, threads) · fd → answerCheck (wait) · answerCheck → send (wait) · answerCheck → fd (loop) · doorStep → bypass (wait, answered) · bypass → send (wait) · staff → moveChat (wait, move) · routine → fd (wait, run) · routine → bypass (wait, stopped) · fd → planner (uses, big) · send → chatDays (background, sent, ended, answered) · tools → moveJudge (uses, move)
+Wires: checkin → fd (wait, look) · notify → send (wait, send) · oldLine → send (wait, redirect) · edit → triage (wait, turn) · moveChat → send (wait, person, group) · triage → decide (wait, judge, running) · triage → lanes (wait, tex) · decide → react (wait) · decide → lanes (wait) · fd → tools (uses, action) · tools → mail (uses, email) · tools → card (uses, card) · fd → job (job, job) · job → handback (job, job) · tools → egress (uses, share) · tools → picture (uses, picture) · picture → card (uses) · nightly → dream (wait, dream) · dream → daysum (wait, summarize) · nightly → housekeep (wait, housekeeping) · tools → advisor (uses, ask_advisor) · job → jobadv (uses, job) · job → tools (uses, job) · triage → doorStep (provisional, stop:running) · decide → doorStep (provisional, stop:quiet, restart:wait) · lanes → doorStep (provisional) · text → triage (wait) · doorStep → fd (wait, next) · send → learn (background, fired) · send → afterReply (background, sent, threads) · fd → answerCheck (wait) · answerCheck → send (wait) · answerCheck → fd (loop) · doorStep → bypass (wait, answered) · bypass → send (wait) · staff → moveChat (wait, move) · routine → fd (wait, run) · routine → bypass (wait, stopped) · fd → planner (uses, big) · send → chatDays (background, sent, ended, answered) · tools → moveJudge (uses, move) · tools → crossChatGate (uses, ask_chat) · chatAsk → lanes (wait, ask, answer) · answerCheck → chatAnswer (wait, ask) · crossChatGate → chatAsk (generator, ask) · chatAnswer → chatAsk (generator, back)
 <!-- tex-config: steps end -->
 
 ## The rule

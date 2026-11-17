@@ -1,3 +1,4 @@
+import type { CrossEvent } from "./crossChat";
 /**
  * Sendblue group chats (docs.sendblue.com: Groups): the receive webhook's
  * group shape, sending into a group, and reading who is in one.
@@ -78,6 +79,8 @@ export type GroupMessage = {
   routine?: { runId: string; path: string };
   /** A background job's report, queued by this Worker for the chat's own turn, which decides what is said (`jobTexts.ts`). */
   jobReport?: JobReport;
+  /** Another chat's ask, or the answer to this chat's own, queued by this Worker (`crossChat.ts`); never a webhook's. */
+  crossChat?: CrossEvent;
   /** A login Tex asked for in this chat was saved: the chat's own turn carries the task on, queued by this Worker (`vaultWatch.ts`). */
   event?: "vault_saved" | "browser_handed_back";
 };

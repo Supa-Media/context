@@ -5,7 +5,7 @@
  */
 
 /** How a wire runs: the next step, a helper inside a step, after the reply, a background job, a send-back, or a step run ahead. */
-export type WireMode = "wait" | "uses" | "background" | "job" | "loop" | "provisional";
+export type WireMode = "wait" | "uses" | "background" | "job" | "loop" | "provisional" | "generator";
 
 export type FieldType = "yesno" | "choice" | "score" | "text";
 export type OutField = { name: string; type: FieldType | string; options?: string };
@@ -134,5 +134,5 @@ export type LabCase = {
 
 export type Selection = { t: "node"; id: string } | { t: "edge"; i: number } | null;
 
-export type View = "canvas" | "modules" | "convo" | "tools" | "sim" | "tests" | "run" | "compare";
+export type View = "canvas" | "modules" | "convo" | "tools" | "sim" | "tests" | "run" | "compare" | "plan";
 export type Tool = "sel" | "con" | "pan";

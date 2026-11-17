@@ -352,3 +352,33 @@ test("a provisional wire takes only stop: and restart: tags and a known allow, a
   onWait.edges[0] = { ...onWait.edges[0], allow: "read" };
   assert.match(problemsOf(onWait).join(), /only a provisional wire has one/);
 });
+
+// A generator wire (Dev2, 2026-11-16, the generators model): it starts a new run at an input node, so the runner never
+// fires it, orderFrom never reaches through it, and it may point back up the graph. Sabotage: counting "generator" in the
+// cycle check fails the first test; dropping the input-node check fails the second.
+const generatorDraft = () => ({
+  nodes: [node("text", { kind: "input" }), node("fd"), node("gate"), node("ask", { kind: "input" }), node("answer"), node("send")],
+  edges: [
+    wire("text", "fd"), wire("fd", "send"), wire("fd", "gate", "uses"), wire("ask", "answer"),
+    wire("gate", "ask", "generator", ["ask"]),
+    wire("answer", "ask", "generator", ["answer"]),
+    wire("send", "text", "generator", ["answer"]),
+  ],
+});
+
+test("a generator wire is never fired by the runner, never in a run's order, and no part of the cycle check", async () => {
+  const config = generatorDraft();
+  assert.deepEqual(problemsOf(config), []);
+  assert.ok(!orderFrom(config, "text").includes("ask"));
+  const ran = [];
+  const impl = (id) => async () => (ran.push(id), { when: ["ask", "answer"] });
+  const g = createGraph(config, Object.fromEntries(config.nodes.map((n) => [n.id, impl(n.id)])));
+  await g.run("text", {});
+  assert.deepEqual(ran, ["text", "fd", "send"]);
+});
+
+test("a generator wire starts a run only at an input node", () => {
+  const bad = generatorDraft();
+  bad.edges.push(wire("fd", "answer", "generator"));
+  assert.match(problemsOf(bad).join(), /generator wire fd -> answer starts a run at "answer", which is not an input node/);
+});

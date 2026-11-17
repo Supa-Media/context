@@ -33,6 +33,7 @@ Invented people and the workspaces each can reach. A test runs as one of them, t
 - The-flat is the shared workspace of Priya, John and Kofi's flat, and the group chat Dev conversation `the-flat` runs in (`setsFd.mjs`): its bills note splits the $2,400 rent 880 / 820 / 700, and its lease's Section 9 needs the landlord's written permission for fixed appliances.
 
 - John's Gmail has Paulo's wedding email (Ines and Paulo, Saturday October 24, Quinta da Ribeira in Sintra, no ceremony time yet), and his people notes name one brother, Mateo: the Dev conversation `wedding-trip` relies on both.
+- John's calendar has two days in the-flat's week (Mon Jun 29 and Fri Jul 3, 2026), so the group's calendar asks (`the-flat` m26) find it connected.
 
 - Maya and John both work on fashion-brand. John's woodshop is his alone.
 - Priya is in seven workspaces and shares two with Maya (fashion-brand, band).

@@ -6,7 +6,7 @@
  */
 import type { View } from "../types";
 
-const VIEWS: View[] = ["canvas", "modules", "convo", "tools", "sim", "tests", "run", "compare"];
+const VIEWS: View[] = ["canvas", "modules", "convo", "tools", "sim", "tests", "run", "compare", "plan"];
 export type Place = { mode: "lab" | "testing"; view: View; chat: string; moment: string | null; node?: string | null; set?: string | null };
 
 const CHAT = /^[A-Za-z0-9_-]{1,80}$/;

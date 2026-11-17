@@ -32,6 +32,7 @@ import { watchForHandback } from "./handbackWatch";
 import { inviteEveryone } from "./groupInvite";
 import type { GroupPending } from "./groupTurn";
 import { ASK_KEY, filesFor, groupInboxName, routineDone, type GroupDeps, type OpenAsk } from "./groupInbox";
+import { answerCrossAsk, crossCounts, crossFields, crossWired, sendCrossAsks } from "./crossChat";
 
 export type TurnInput = {
   message: GroupMessage;
@@ -52,6 +53,7 @@ export async function groupTurn(storage: InboxStorage, deps: GroupDeps, { messag
   const app = groupLineFor(groupLineSeam(deps), message.groupId);
   const chat = { line: message.line, groupId: message.groupId };
   const routine = message.routine !== undefined;
+  const crossOn = deps.crossCall !== undefined && !message.sms && crossWired(deps.texGraph); // Tex asks Tex across chats, once the config wires the gate (`crossChat.ts`)
   const quoted = message.replyTo === undefined ? null : (message.quoted ?? (await app.readOwnMessage(chat, message.replyTo)));
   const kept = await chatBefore(storage, message, acceptedAt, deps.now());
   // A chat line this turn answers is its question, not what the chat said around it.
@@ -163,7 +165,7 @@ export async function groupTurn(storage: InboxStorage, deps: GroupDeps, { messag
         ...(covers.length > 0 ? { covers, chat: message.groupId, ...(await outbox(storage, message.groupId)) } : {}), // the chat's day is the gateway's ledger; the outbox goes on top
         ...(attachments.length > 0 ? { attachments } : {}),
         ...(asked.timeZone ? { timeZone: asked.timeZone } : {}),
-        ...(asked.instructions ? { instructions: asked.instructions } : {}), ...(asked.updates ? { updates: asked.updates } : {}), ...(message.jobReport ? { event: "job_report", jobReport: message.jobReport } : message.event !== undefined ? { event: message.event } : {}), // a job reporting to this chat's turn (`jobTexts.ts`), or a login it asked for saved (`vaultWatch.ts`)
+        ...(asked.instructions ? { instructions: asked.instructions } : {}), ...(asked.updates ? { updates: asked.updates } : {}), ...(message.jobReport ? { event: "job_report", jobReport: message.jobReport } : message.crossChat ? crossFields(message.crossChat) : message.event !== undefined ? { event: message.event } : {}), ...(crossOn ? { crossCounts: await crossCounts(storage, deps.now()) } : {}), // a job reporting to this chat's turn (`jobTexts.ts`), or a login it asked for saved (`vaultWatch.ts`)
         ...(deps.spawnJob ? { running: await chatJobs(storage, deps.now(), { results: true }) } : {}),
         ...(message.reaction !== undefined
           ? { quoted: message.reaction.words, tapback: message.reaction.how }
@@ -209,6 +211,18 @@ export async function groupTurn(storage: InboxStorage, deps: GroupDeps, { messag
   }
   // Long asks it handed off, and jobs it picked back up, also on a turn that texts nothing: a job's start is a tapback, never
   // a text (Dev2, 2026-11-11), and a quiet turn that returned first left the job never run.
+  // Asks the Cross-chat gate let go start in their chats; a run answering another chat's ask sends its answer back and
+  // texts nothing here but a do-ask's one signed line, and only to the people it was written for (`crossChat.ts`).
+  if (crossOn && answer.crossAsks) await sendCrossAsks(storage, { now: deps.now, call: deps.crossCall! }, { kind: "group", message }, answer.crossAsks);
+  if (message.crossChat?.kind === "ask") {
+    if (crossOn && answer.crossPost) {
+      const here = await readTwice();
+      if (here !== null && !here.some((phone) => phone !== message.line && !people.includes(phone))) await say(storage, deps, message, answer.crossPost, meta);
+      else log("cross_post_held");
+    }
+    if (crossOn) await answerCrossAsk({ now: deps.now, call: deps.crossCall! }, message.crossChat, answer.crossBack ?? { id: message.crossChat.id, state: "refused", texts: [], why: "no answer came out of the turn" });
+    return log("cross_answered");
+  }
   const ready = answer; // narrowed to an answer, for the closure
   const handOff = async () => {
     // Long asks it handed off run beside the chat (`jobs.ts`), each re-checking who is here when it answers.

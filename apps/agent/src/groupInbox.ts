@@ -117,6 +117,8 @@ export type GroupDeps = {
   remoteGroupLine?: (groupId: string) => GroupLine;
   /** Where a group staff moved to Tex's new number lives now (`groupMoves.ts`); read by `groupLine.ts`. */
   movedTo?: (groupId: string) => Promise<GroupPlace | null>;
+  /** A call to another of this Worker's chat objects by name (`crossChat.ts`); absent, no chat asks another. */
+  crossCall?: (inbox: string, path: string, body: unknown) => Promise<Response>;
   /** The Tex config the provisional wiring is read from (a Lab draft in a test chat); absent, the one built in (`provisional.ts`). */
   texGraph?: unknown;
   /** Set on a turn started before Decide chose (`groupTurnRun.ts` `startEarly`): nothing reaches the chat before its go. */
@@ -287,7 +289,7 @@ export async function queueGroupByCode(storage: InboxStorage, message: GroupMess
 export async function routineDone(deps: GroupDeps, message: GroupMessage, outcome: RoutineOutcome, texted = 0): Promise<void> {
   if (message.routine === undefined) return;
   log(`routine_${outcome}`);
-  if (message.jobReport !== undefined || message.event !== undefined) return; // a job's report and a saved login's turn run as a routine's turn does, but no run waits on them
+  if (message.jobReport !== undefined || message.event !== undefined || message.crossChat !== undefined) return; // a job's report, another chat's ask and a saved login's turn run as a routine's turn does, but no run waits on them
   await reportRoutineResult(deps.fetch, deps.controlPlaneOrigin, deps.workerSecret, { runId: message.routine.runId, outcome, texted }).catch(() => log("routine_unreported"));
 }
 
@@ -436,7 +438,11 @@ async function drainOnce(storage: InboxStorage, deps: GroupDeps): Promise<void> 
         return void (await answerBesideTurn(storage, deps, [...holding, ...burst.map(([key]) => key)]));
       }
       const door = provisionalDoor(deps.texGraph);
-      if (door.on) early = await startEarly(storage, deps, ownTurn(burst), door.allow);
+      // Only where its failure has the same retry a handed turn has (the answer-first path beside a workflow, or no
+      // workflow at all), and never on a first look: a chat Tex is not set up in, or an SMS, is read by the judge alone
+      // and nothing of it is kept or asked unless the judge answers it (`firstLook`).
+      const firstLooks = burst.some(([, item]) => item.look === true || item.message.sms === true);
+      if (door.on && !firstLooks && (deps.startTurn === undefined) === (deps.answerFirst === undefined)) early = await startEarly(storage, deps, ownTurn(burst), door.allow);
       const choice = await chooseGroupTurn(storage, deps, burst, untagged && canWait(state, deps.now()));
       // Decide held the burst: the early run stops now (`restart:wait`), and the turn after the wait starts afresh.
       if (early !== null && choice.wait !== undefined && choice.wait.length > 0) {
@@ -545,7 +551,8 @@ export async function turnFailed(storage: InboxStorage, deps: GroupDeps, message
     // Never lost in silence: the chat hears that news is waiting, and the job list holds it for the next tag (`chatJobs`).
     log("job_report_failed");
     await say(storage, deps, message, GROUP_LINES.jobReportRefused, { system: true, reason: "failed" }).catch(() => {});
-  } else if (message.routine !== undefined) await routineDone(deps, message, "failed");
+  } else if (message.crossChat !== undefined) log("cross_chat_failed"); // the asking chat hears it timed out (`crossChat.ts`)
+  else if (message.routine !== undefined) await routineDone(deps, message, "failed");
   else await say(storage, deps, message, failedLine(reason), { system: true, reason: reason === "gateway:504" ? "timed_out" : "failed" }).catch(() => {}).then(() => watchFailed(storage, deps, message));
 }
 
