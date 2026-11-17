@@ -93,6 +93,24 @@ Tainted words are still held back. Only the speaker is kept.
 covers each failure above as a golden case. `apps/mobile/__tests__/texHistoryLines.test.ts`
 covers the History view drawing a heard voice message once.
 
+## Read the record first, and don't offer more after the work (2026-11-17)
+
+The slow-turn note already tells a long turn to hand the rest to a job, and
+a question a few reads answer stays in the turn. Forcing every multi-step
+ask into a job would break that. Two gaps were still only words:
+
+- An ask about their notes, a page, their mail, their calendar or the chat
+  could be answered with no search and no fetch. `recordRead.js` sends that
+  draft back once. The check looks at the ask and the calls, not at how the
+  reply is phrased. A general question is left alone.
+- A write that already went through, with nothing held for a yes, could
+  still end "want me to…?". `finishedOffer.js` sends that back once. An
+  offer to email, change the calendar, post to Slack, pay or file a bug
+  stays with the hold check, which is why a phrase alone was not enough
+  in 2026-11-05.
+
+**The test that fails if this is reversed:** `apps/mcp/test/recordRead.test.mjs`.
+
 ## Who is who in a group chat (2026-11-04)
 
 In a customer's group chat, Tex told the person asking that they "would

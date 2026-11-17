@@ -22,15 +22,41 @@
  */
 
 import { TRY_NOTICE, saysItCouldNot } from "./claimCheck.js";
+import { finishedOfferNotice } from "./finishedOffer.js";
+import { recordReadNotice } from "./recordRead.js";
 import { seenFiguresNotice } from "./sourcedFigures.js";
+import { toolDefinitions } from "../tools/registry.js";
 
-/** `{ wrapWeb, check }`, shaped like `claimCheck`'s, for `runTurn`'s `web` and `answerCheck`. */
-export function untriedWebCheck() {
+const isWrite = (name) => {
+  const tool = toolDefinitions().find((entry) => entry.name === name);
+  return tool !== undefined && tool.annotations?.readOnlyHint !== true;
+};
+
+/**
+ * `{ wrap, wrapWeb, check }`, shaped like `claimCheck`'s, for the front door.
+ * `question` is their ask, so a record ask with no read can be sent back (`recordRead.js`).
+ */
+export function untriedWebCheck({ question = "" } = {}) {
   let hadWeb = false;
   let triedWeb = false;
   let noticed = false;
   let figuresChecked = false;
+  let wrote = false;
+  let held = false;
+  let recordNoticed = false;
+  let extraOfferNoticed = false;
+  const steps = [];
   return {
+    /** The turn's own tools, so a read or a finished write is visible to the checks. */
+    wrap(callTool) {
+      return async (name, args) => {
+        const result = await callTool(name, args);
+        steps.push({ name, ok: result?.isError !== true, ...(result?.held === true ? { held: true } : {}) });
+        if (result?.held === true) held = true;
+        if (result?.isError !== true && isWrite(name)) wrote = true;
+        return result;
+      };
+    },
     wrapWeb(web) {
       if (web === null || web === undefined) return null;
       hadWeb = true;
@@ -47,6 +73,21 @@ export function untriedWebCheck() {
       if (!noticed && hadWeb && !triedWeb && saysItCouldNot(answer)) {
         noticed = true;
         return TRY_NOTICE;
+      }
+      // An ask about a record with no read this turn, then an offer tacked on after a finished write.
+      if (!recordNoticed) {
+        const notice = recordReadNotice(question, steps);
+        if (notice !== null) {
+          recordNoticed = true;
+          return notice;
+        }
+      }
+      if (!extraOfferNoticed && wrote && !held) {
+        const notice = finishedOfferNotice(answer);
+        if (notice !== null) {
+          extraOfferNoticed = true;
+          return notice;
+        }
       }
       if (figuresChecked) return null;
       figuresChecked = true;
