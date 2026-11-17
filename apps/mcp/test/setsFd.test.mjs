@@ -46,6 +46,8 @@ test("a person's tests run in their bench world, on its day, once, on the script
   assert.match(front, /^today: 2026-10-08$/m, "the core set's day, which the Maya conversation's facts are on");
   assert.match(front, /^runs: 1$/m);
   assert.match(front, /^web: scripted$/m);
+  assert.match(front, /^background: on$/m, "offered background jobs, as every production text is");
+  assert.equal(parseTest(`---\n${front}\n---\n\n# T\n\n## 1. hi\n\n- person texts: "hi"\n`).front.background, "on");
   assert.equal(await frontFor(BENCH, "Nobody Here"), null);
 });
 

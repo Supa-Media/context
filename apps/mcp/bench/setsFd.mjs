@@ -188,6 +188,9 @@ export async function frontFor(dir, person, { today = null, group = null } = {})
   let f = found.replace(/^runs: .*$/m, "runs: 1").replace(/^web: .*$/m, "web: scripted").replace(/^group: .*\n?/m, "");
   if (!/^runs: /m.test(f)) f += "\nruns: 1";
   if (!/^web: /m.test(f)) f += "\nweb: scripted";
+  // Production offers every text background jobs (the texting Worker always sends what the chat has running), so a
+  // Dev test does too: without it a test that wants a job started could never pass (Dev set, 2026-11-17).
+  if (!/^background: on$/m.test(f)) f = f.replace(/^background: .*\n?/m, "") + "\nbackground: on";
   if (today) f = f.replace(/^today: .*$/m, `today: ${today}`);
   if (group) f = f.replace(/^(run_as: .*)$/m, `$1\ngroup: ${group}`);
   return f;
