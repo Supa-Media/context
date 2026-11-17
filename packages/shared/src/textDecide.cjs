@@ -167,7 +167,8 @@ const JUDGE_EXAMPLES = Object.freeze(
 
 /** One example as the judge reads it, in `<example>` tags, each answer under its question's name. */
 function exampleText(item) {
-  const chat = item.chat === "group" ? `group chat, speak-up ${item.setting ?? "follow along"}` : "one-to-one chat with Tex";
+  // No speak-up level in a group since 2026-11-17 (Dev2): the examples alone teach what is for Tex.
+  const chat = item.chat === "group" ? "group chat" : "one-to-one chat with Tex";
   const lines = item.lines.length > 0 ? item.lines.join("\n") : "(nothing before)";
   const answers = [`<act>${item.act}</act>`];
   if (item.alsoReact) answers.push(`<also_react>${item.alsoReact}</also_react>`);
