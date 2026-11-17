@@ -35,8 +35,6 @@ function deps(opts: {
   cardStatus?: number;
   readStatus?: number;
   progress?: string[];
-  /** Sealed rounds lines the stream carries before its last line (`savedRounds.ts`). */
-  rounds?: string[];
   /** The status the stream's last line carries after its progress lines. */
   streamStatus?: () => number;
   agentStatus?: () => number;
@@ -86,7 +84,7 @@ function deps(opts: {
       if (status !== 200) return Response.json({ error: "model_unavailable" }, { status });
       if (opts.progress) {
         const last = opts.streamStatus?.() ?? 200;
-        const lines = [...opts.progress.map((progress) => ({ progress })), ...(opts.rounds ?? []).map((rounds) => ({ rounds })), last === 200 ? { status: 200, body: { answer: `answer to ${body.question}` } } : { status: last, body: { error: "model_unavailable" } }];
+        const lines = [...opts.progress.map((progress) => ({ progress })), last === 200 ? { status: 200, body: { answer: `answer to ${body.question}` } } : { status: last, body: { error: "model_unavailable" } }];
         return new Response(lines.map((line) => JSON.stringify(line)).join("\n") + "\n", {
           headers: { "content-type": "application/x-ndjson" },
         });
@@ -220,20 +218,16 @@ describe("inbox", () => {
     expect(sent).toEqual([{ text: COPY.unavailable, idempotency: "reply:e1" }]);
   });
 
-  // Dev2, 2026-11-17: a try after a crash goes on from the rounds the last one sealed, not from the text (`savedRounds.ts`).
-  // Sabotage: drop `rounds` from `reply.ts`'s ask, or the `rounds` branch in `clients.ts`, and the second body has none.
-  it("hands a retried turn the newest rounds its last try sealed, and forgets them once it is answered", async () => {
+  // Dev2, 2026-11-17: a try after one that failed tells the gateway so, which goes on from what that try did
+  // (`apps/mcp/src/agent/savedRounds.js`); a first try never says it, so it costs no store call before its model.
+  // Sabotage: drop `again` from `reply.ts`'s ask, or send it on every try, and this fails.
+  it("tells the gateway a try is a retry, and only then", async () => {
     const storage = new MemoryStorage();
     await accept(storage, msg("e1", "q"), 1_000);
     const bodies: Record<string, unknown>[] = [];
-    await drain(storage, deps({ bodies, progress: [], rounds: ["tr1.first", "tr1.second"], streamStatus: () => 502 }));
-    expect(bodies[0].rounds).toBeUndefined();
-    expect([...storage.data.keys()].filter((key) => key.startsWith("rounds:"))).toHaveLength(1);
-    const sent: Sent[] = [];
-    await drain(storage, deps({ bodies, sent, progress: [] }));
-    expect(bodies[1].rounds).toBe("tr1.second");
-    expect(sent).toHaveLength(1);
-    expect([...storage.data.keys()].filter((key) => key.startsWith("rounds:"))).toEqual([]);
+    await drain(storage, deps({ bodies, agentStatus: () => 502 }));
+    await drain(storage, deps({ bodies }));
+    expect(bodies.map((body) => body.again)).toEqual([undefined, true]);
   });
 
   it("never retries a turn the gateway refused outright: it is refused the same way every time", async () => {

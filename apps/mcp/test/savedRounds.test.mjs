@@ -1,12 +1,15 @@
 /**
- * A TURN CARRIES ON WHERE ITS LAST TRY STOPPED (Dev2, 2026-11-17; `src/agent/savedRounds.js`, `turnResume.js`).
+ * A TURN CARRIES ON WHERE ITS LAST TRY STOPPED (Dev2, 2026-11-17; `src/agent/savedRounds.js`, `turnResume.js`,
+ * `texStore/rounds.js`; plan and code reviewed by Fable the same day).
  *
- * A texted turn that died after its tools ran is tried again by the Worker. The try after hands back the rounds the
- * first one sealed, and goes on from them: no tool runs twice, the model is asked once more, not from the start.
+ * A texted turn that died after its tools ran is tried again by the Worker. The try after reads the snapshot the
+ * first one kept in the chat's own home and goes on from it: no read runs twice, the model is asked once more, not
+ * from the start. A call whose effect is more than its words (held for a yes, a job, a picture) is never carried on.
  *
  * Sabotage: make `resumedRounds` (`turnResume.js`) put nothing back and "a crashed turn's next try runs no tool again"
- * fails on the tool count, since the model searches again; drop the question from `aad` in `savedRounds.js` and "never opens on another text" fails;
- * call `onRound` before the tool results are pushed and "the copy holds the tool's result" fails.
+ * fails on the tool count, since the model searches again; make `carriesOn` (`savedRounds.js`) answer true and "a call
+ * held for their yes freezes" fails; drop `covers` from `textKey` and "another text, another key" fails; drop the
+ * `untrusted` restore in `carriedRounds` and "the outside-read mark travels" fails.
  */
 
 import assert from "node:assert/strict";
@@ -14,61 +17,66 @@ import { test } from "node:test";
 
 import { BUILTIN_PROVIDER } from "../src/agent/builtin.js";
 import { runTurn } from "../src/agent/turn.js";
-import { ROUNDS_FRESH_MS, ROUNDS_MAX_CHARS, PICTURE_LEFT_OUT, openRounds, sealRounds } from "../src/agent/savedRounds.js";
+import { checkedSnapshot, PICTURE_LEFT_OUT, ROUNDS_RESULT_CHARS, textKey, keptMessage } from "../src/agent/savedRounds.js";
 import { carriedRounds } from "../src/agent/turnResume.js";
-import { ledgerObserver, STEP_NAMES } from "../src/agent/ledger.js";
+import { ledgerFor, ledgerObserver, STEP_NAMES } from "../src/agent/ledger.js";
+import { texRounds, ROUNDS_FRESH_MS } from "../src/texStore/rounds.js";
+import { TexObjectRefused } from "../src/texStore/objects.js";
+import { durableSql, texStoreNamespace } from "./texStoreFixture.mjs";
 
-const ENV = { GATEWAY_SECRET: "test-secret-that-is-long-enough" };
-const ME = { workspaceId: "w1", actorUserId: "u1", actorClientId: "texts" };
 const SEARCH = { name: "search_notes", description: "Search notes", inputSchema: { type: "object", properties: { query: { type: "string" } } }, annotations: { readOnlyHint: true } };
+const EMAIL = { name: "send_email", description: "Send an email", inputSchema: { type: "object", properties: { to: { type: "string" } } }, annotations: { readOnlyHint: false } };
 const QUESTION = "When is the dentist?";
 const USAGE = { prompt_tokens: 10, completion_tokens: 5 };
-const toolCall = (id, query) => ({ choices: [{ message: { content: "", tool_calls: [{ id, type: "function", function: { name: "search_notes", arguments: JSON.stringify({ query }) } }] } }], usage: USAGE });
+const calls = (...list) => ({ choices: [{ message: { content: "", tool_calls: list.map(([id, name, args]) => ({ id, type: "function", function: { name, arguments: JSON.stringify(args) } })) } }], usage: USAGE });
 const words = (text) => ({ choices: [{ message: { content: text } }], usage: USAGE });
-
-function scripted(replies) {
-  const calls = [];
-  return { calls, async run(_model, input) { calls.push(input); return replies.shift(); } };
-}
 
 /** A model that searches until it has read a search's result, then answers from it: what a real one does. */
 function searchesUntilFound() {
-  const calls = [];
-  return { calls, async run(_model, input) { calls.push(input); return input.messages.some((m) => m.role === "tool") ? words("Tuesday at 3pm.") : toolCall(`call_${calls.length}`, "dentist"); } };
+  const asked = [];
+  return { asked, async run(_model, input) { asked.push(input); return input.messages.some((m) => m.role === "tool") ? words("Tuesday at 3pm.") : calls([`call_${asked.length}`, "search_notes", { query: "dentist" }]); } };
+}
+
+function scripted(replies) {
+  const asked = [];
+  return { asked, async run(_model, input) { asked.push(input); return replies.shift(); } };
 }
 
 function turn(ai, extra = {}) {
-  const searched = [];
+  const ran = [];
   const done = runTurn({
     question: QUESTION,
     credential: { provider: BUILTIN_PROVIDER, apiKey: null },
-    tools: [SEARCH],
+    tools: [SEARCH, EMAIL],
     env: { AI: ai, AGENT_BUILTIN_MODEL: "@cf/acme/main" },
     providerOptions: { ai },
     texting: true,
-    callTool: async (_name, args) => (searched.push(args.query), { content: [{ type: "text", text: `Dentist: Tuesday 3pm (found by ${args.query})` }] }),
+    callTool: async (name, args) => {
+      ran.push(name);
+      if (name === "send_email") return { content: [{ type: "text", text: "Held for their yes." }], held: true };
+      return { content: [{ type: "text", text: `Dentist: Tuesday 3pm (found by ${args.query})` }] };
+    },
     ...extra,
   });
-  return { searched, done };
+  return { ran, done };
 }
 
-test("a crashed turn's next try runs no tool again and goes on from the last round", async () => {
-  // Try 1: one search, then the draft's check crashes (the gateway died in its checks).
+const keeping = () => {
   const kept = [];
-  const first = turn(searchesUntilFound(), {
-    onRound: (messages, round) => kept.push({ messages, round }),
-    answerCheck: async () => { throw new Error("checks crashed"); },
-  });
-  await assert.rejects(first.done, /checks crashed/);
-  assert.deepEqual(first.searched, ["dentist"]);
-  assert.equal(kept.length, 1, "one round of tools, one copy");
-  assert.equal(kept[0].round, 1);
-  assert.ok(kept[0].messages.some((m) => m.role === "tool" && /Tuesday 3pm/.test(m.text)), "the copy holds the tool's result");
+  return { kept, keepRounds: { keep: (snapshot) => kept.push(structuredClone(snapshot)), marks: () => ({}) } };
+};
 
-  // Sealed, through the Worker, and back.
-  const sealed = await sealRounds(ENV, ME, QUESTION, kept[0].messages, kept[0].round);
-  const resumeFrom = await openRounds(ENV, ME, QUESTION, sealed);
+test("a crashed turn's next try runs no tool again and goes on from where it was", async () => {
+  // Try 1: one search, then the draft's check crashes (the gateway died in its checks).
+  const { kept, keepRounds } = keeping();
+  const first = turn(searchesUntilFound(), { keepRounds, answerCheck: async () => { throw new Error("checks crashed"); } });
+  await assert.rejects(first.done, /checks crashed/);
+  assert.deepEqual(first.ran, ["search_notes"]);
+  assert.equal(kept.length, 1, "one call, one snapshot");
+  const resumeFrom = checkedSnapshot(kept.at(-1));
   assert.ok(resumeFrom);
+  assert.equal(resumeFrom.round, 1);
+  assert.ok(resumeFrom.messages.some((m) => m.role === "tool" && /Tuesday 3pm/.test(m.text)), "the snapshot holds the tool's result");
 
   // Try 2: the model is asked once, with the search's result already in front of it.
   const ai = searchesUntilFound();
@@ -76,14 +84,43 @@ test("a crashed turn's next try runs no tool again and goes on from the last rou
   const second = turn(ai, { resumeFrom, observe: (event) => told.push(event) });
   const result = await second.done;
   assert.equal(result.answer, "Tuesday at 3pm.");
-  assert.deepEqual(second.searched, [], "nothing it already did is done again");
-  assert.equal(ai.calls.length, 1, "one model round, not the whole turn");
-  assert.ok(JSON.stringify(ai.calls[0].messages).includes("Tuesday 3pm (found by dentist)"), "the model reads what the first try's search returned");
+  assert.deepEqual(second.ran, [], "nothing it already did is done again");
+  assert.equal(ai.asked.length, 1, "one model round, not the whole turn");
+  assert.ok(JSON.stringify(ai.asked[0].messages).includes("Tuesday 3pm (found by dentist)"), "the model reads what the first try's search returned");
   assert.deepEqual(result.steps, [{ tool: "search_notes", ok: true, resumed: true }], "its calls are the turn's own, marked resumed");
   const resumed = told.find((event) => event.kind === "model" && event.step === "resumed");
-  assert.ok(resumed, "the ledger is told it went on from an earlier try");
-  assert.deepEqual(resumed.input, { round: 1, calls: ["search_notes"] });
+  assert.deepEqual(resumed?.input, { round: 1, calls: ["search_notes"] });
   assert.equal(told.filter((event) => event.kind === "tool").length, 0, "the first try's calls are never logged again as run");
+});
+
+test("a call held for their yes freezes the snapshot before it, so the next try asks again", async () => {
+  // Round 1: a search (kept). Round 2: an email held for their yes (not kept), then a search (not kept: after the freeze).
+  const { kept, keepRounds } = keeping();
+  const first = turn(scripted([calls(["c1", "search_notes", { query: "a" }]), calls(["c2", "send_email", { to: "x@example.com" }]), calls(["c3", "search_notes", { query: "b" }]), words("Sent for your yes.")]), { keepRounds });
+  await first.done;
+  assert.deepEqual(first.ran, ["search_notes", "send_email", "search_notes"]);
+  assert.equal(kept.length, 1, "only the round before the held call");
+  assert.ok(!JSON.stringify(kept).includes("send_email"));
+});
+
+test("part of a round is kept as the calls that returned, without the round's thinking", async () => {
+  // One round, two calls: a search, then an email held for their yes. The snapshot keeps the search alone.
+  const { kept, keepRounds } = keeping();
+  const reply = calls(["c1", "search_notes", { query: "a" }], ["c2", "send_email", { to: "x@example.com" }]);
+  const first = turn(scripted([reply, words("Done.")]), { keepRounds });
+  await first.done;
+  assert.equal(kept.length, 1);
+  const asked = kept[0].messages.find((m) => m.role === "assistant");
+  assert.deepEqual(asked.toolCalls.map((c) => c.id), ["c1"]);
+  assert.equal(asked.content, undefined);
+  assert.deepEqual(kept[0].messages.filter((m) => m.role === "tool").map((m) => m.id), ["c1"]);
+  assert.ok(checkedSnapshot(kept[0]), "every call it keeps has its result");
+});
+
+test("a try that comes back on its last round still gets one round to answer", async () => {
+  const ai = scripted([words("Done.")]);
+  const { done } = turn(ai, { maxRounds: 2, resumeFrom: { round: 7, messages: [{ role: "assistant", text: "", toolCalls: [{ id: "c", name: "search_notes", args: { query: "x" } }] }, { role: "tool", id: "c", name: "search_notes", text: "nothing" }] } });
+  assert.equal((await done).answer, "Done.");
 });
 
 test("the resumed step reaches the chat's ledger as a step of its own", () => {
@@ -94,57 +131,83 @@ test("the resumed step reaches the chat's ledger as a step of its own", () => {
   assert.equal(written[0]?.turn, "t2");
 });
 
-test("a try that comes back on its last round still gets one round to answer", async () => {
-  const ai = scripted([words("Done.")]);
-  const { done } = turn(ai, { maxRounds: 2, resumeFrom: { round: 7, messages: [{ role: "assistant", text: "", toolCalls: [{ id: "c", name: "search_notes", args: { query: "x" } }] }, { role: "tool", id: "c", name: "search_notes", text: "nothing" }] } });
-  assert.equal((await done).answer, "Done.");
+test("a snapshot that would hand the model a call with no result, or the wrong shape, is never used", () => {
+  assert.equal(checkedSnapshot(null), null);
+  assert.equal(checkedSnapshot({ v: 2, round: 1, messages: [{ role: "user", text: "x" }] }), null);
+  assert.equal(checkedSnapshot({ v: 1, round: 0, messages: [{ role: "user", text: "x" }] }), null);
+  assert.equal(checkedSnapshot({ v: 1, round: 1, messages: [{ role: "system", text: "x" }] }), null);
+  assert.equal(checkedSnapshot({ v: 1, round: 1, messages: [{ role: "assistant", text: "", toolCalls: [{ id: "c", name: "s", args: {} }] }] }), null);
 });
 
-test("a sealed copy never opens on another text, another person, after it's stale, or tampered", async () => {
-  const messages = [{ role: "assistant", text: "", toolCalls: [{ id: "c", name: "search_notes", args: { query: "x" } }] }, { role: "tool", id: "c", name: "search_notes", text: "secret result" }];
-  const now = 1_800_000_000_000;
-  const sealed = await sealRounds(ENV, ME, QUESTION, messages, 1, now);
-  assert.match(sealed, /^tr1\./);
-  assert.ok(!sealed.includes("secret result"), "the Worker keeps bytes it can't read");
-  assert.ok(await openRounds(ENV, ME, QUESTION, sealed, now));
-  assert.equal(await openRounds(ENV, ME, "Something else?", sealed, now), null, "another text");
-  assert.equal(await openRounds(ENV, { ...ME, actorUserId: "u2" }, QUESTION, sealed, now), null, "another person");
-  assert.equal(await openRounds(ENV, { ...ME, workspaceId: "w2" }, QUESTION, sealed, now), null, "another workspace");
-  assert.equal(await openRounds({ GATEWAY_SECRET: "another-secret-entirely-long" }, ME, QUESTION, sealed, now), null, "another key");
-  assert.equal(await openRounds(ENV, ME, QUESTION, sealed, now + ROUNDS_FRESH_MS + 1), null, "stale");
-  const flipped = `${sealed.slice(0, -6)}${sealed.at(-6) === "A" ? "B" : "A"}${sealed.slice(-5)}`;
-  assert.equal(await openRounds(ENV, ME, QUESTION, flipped, now), null, "tampered");
-  assert.equal(await openRounds(ENV, ME, QUESTION, "tr1.bm90IHNlYWxlZA==", now), null, "not sealed");
-  assert.equal(await sealRounds({}, ME, QUESTION, messages, 1, now), null, "no key, no copy");
+test("pictures stay out of a snapshot and a long result is cut", () => {
+  const picture = keptMessage({ role: "tool", id: "p", name: "browse", text: "page", images: [{ data: "AAAA" }] });
+  assert.equal(picture.images, undefined);
+  assert.ok(picture.text.endsWith(PICTURE_LEFT_OUT));
+  assert.ok(keptMessage({ role: "tool", id: "q", name: "s", text: "y".repeat(50_000) }).text.length < ROUNDS_RESULT_CHARS + 100);
 });
 
-test("pictures stay out of the copy, a long result is cut, and a copy too big is not made", async () => {
-  const now = 1_800_000_000_000;
-  const messages = [
-    { role: "assistant", text: "", toolCalls: [{ id: "p", name: "browse", args: {} }] },
-    { role: "tool", id: "p", name: "browse", text: "page", images: [{ data: "AAAA", mediaType: "image/png" }] },
-    { role: "tool", id: "q", name: "search_notes", text: "y".repeat(50_000) },
-  ];
-  const opened = await openRounds(ENV, ME, QUESTION, await sealRounds(ENV, ME, QUESTION, messages, 1, now), now);
-  assert.equal(opened.messages[1].images, undefined);
-  assert.ok(opened.messages[1].text.endsWith(PICTURE_LEFT_OUT));
-  assert.ok(opened.messages[2].text.length < 13_000);
-  // Random words gzip badly: enough of them won't fit.
-  const noise = Array.from({ length: 60 }, (_, i) => ({ role: "tool", id: `n${i}`, name: "search_notes", text: Array.from({ length: 12_000 }, () => String.fromCharCode(33 + Math.floor(Math.random() * 90))).join("") }));
-  assert.equal(await sealRounds(ENV, ME, QUESTION, noise, 1, now), null);
-  assert.ok(ROUNDS_MAX_CHARS <= 400_000);
+test("another text, another key: the question, the chat events it answers, and a group's chat lines", async () => {
+  const one = await textKey({ question: "hi", covers: ["e1"] });
+  assert.match(one, /^[0-9a-f]{64}$/);
+  assert.equal(await textKey({ question: "hi", covers: ["e1"] }), one);
+  assert.notEqual(await textKey({ question: "hi", covers: ["e1", "e2"] }), one, "a newer text merged in");
+  assert.notEqual(await textKey({ question: "hello", covers: ["e1"] }), one);
+  assert.notEqual(await textKey({ question: "hi", covers: ["e1"], groupChat: [{ from: "A", text: "x" }] }), one, "a group that moved on");
+  assert.equal(await textKey({ question: "hi", covers: [] }), null, "a text no event names is not carried on");
 });
 
-test("carriedRounds opens body.rounds and sends each round's copy down the stream, in order", async () => {
-  const lines = [];
-  const step = async (text, how) => void lines.push({ text, how });
-  const empty = await carriedRounds({ env: ENV, session: ME, question: QUESTION, body: {}, step });
-  assert.equal(empty.from, null);
-  empty.save([{ role: "user", text: "one" }], 1);
-  empty.save([{ role: "user", text: "one" }, { role: "user", text: "two" }], 2);
-  await new Promise((resolve) => setTimeout(resolve, 50));
-  assert.equal(lines.length, 2);
-  assert.ok(lines.every((line) => line.text === "" && /^tr1\./.test(line.how.rounds)));
-  const carried = await carriedRounds({ env: ENV, session: ME, question: QUESTION, body: { rounds: lines[1].how.rounds }, step });
-  assert.equal(carried.from.round, 2, "the newest copy, kept last");
+test("the chat's home keeps the newest snapshot per text, fresh for half an hour, wiped with the ledger", async () => {
+  let now = 1_000_000;
+  const rounds = texRounds(durableSql(), { now: () => now });
+  const key = "a".repeat(64);
+  rounds.put("texts", key, { v: 1, n: 1 });
+  rounds.put("texts", key, { v: 1, n: 2 });
+  assert.deepEqual(rounds.get("texts", key), { v: 1, n: 2 });
+  assert.equal(rounds.get("other", key), null, "another chat's");
+  assert.throws(() => rounds.get("texts", "not-a-key"), TexObjectRefused);
+  now += ROUNDS_FRESH_MS + 1;
+  assert.equal(rounds.get("texts", key), null, "stale");
+  rounds.put("texts", "b".repeat(64), { v: 1 });
+  rounds.forget("texts", "b".repeat(64));
+  assert.equal(rounds.get("texts", "b".repeat(64)), null);
+  assert.throws(() => rounds.put("texts", key, { v: 1, big: "x".repeat(2_000_000) }), TexObjectRefused);
+
+  // Through the object, as the gateway reaches it: one person's never reaches another's, and wipe takes them.
+  const tex = texStoreNamespace();
+  const env = { TEX_STORE: tex.namespace };
+  await ledgerFor(env, { person: "ws1" }).keepRounds("texts", key, { v: 1, mine: true });
+  assert.deepEqual(await ledgerFor(env, { person: "ws1" }).roundsOf("texts", key), { v: 1, mine: true });
+  assert.equal(await ledgerFor(env, { person: "ws2" }).roundsOf("texts", key), null, "another person's home has none of it");
+  await tex.object("person:ws1").fetch(new Request("https://tex-store.internal/wipe", { method: "POST", headers: { "x-tex-call": encodeURIComponent(JSON.stringify({ op: "wipe" })), "x-tex-owner": "person:ws1" } }));
+  assert.equal(await ledgerFor(env, { person: "ws1" }).roundsOf("texts", key), null);
+});
+
+test("carriedRounds reads the text's snapshot from the chat's home, keeps new ones there, and carries the outside-read mark", async () => {
+  const store = new Map();
+  const home = { roundsOf: async (chat, key) => store.get(`${chat}/${key}`) ?? null, keepRounds: async (chat, key, data) => void store.set(`${chat}/${key}`, data) };
+  const session = { workspaceKind: "personal", workspaceId: "ws1" };
+  const asked = [];
+  const wrapped = { texLedger: (chat) => (asked.push(chat), home) };
+  const body = { covers: ["e1"] };
+  const again = { ...body, again: true };
+  const logs = [];
+  const log = (line) => logs.push(line);
+
+  const first = await carriedRounds({ store: wrapped, session, body, question: QUESTION, egress: { untrusted: true, outside: true }, log });
+  assert.equal(first.from, null);
+  assert.deepEqual(asked, [null], "the person's own home");
+  first.keep({ v: 1, round: 1, ...first.marks(), messages: [{ role: "assistant", text: "", toolCalls: [{ id: "c", name: "search_notes", args: {} }] }, { role: "tool", id: "c", name: "search_notes", text: "read from the web" }] });
+  await first.flush();
+
+  const egress = { untrusted: false, outside: false };
+  assert.equal((await carriedRounds({ store: wrapped, session, body, question: QUESTION, egress, log })).from, null, "a first try reads nothing: no store call before its model");
+  assert.deepEqual(egress, { untrusted: false, outside: false });
+  const second = await carriedRounds({ store: wrapped, session, body: again, question: QUESTION, egress, log });
+  assert.equal(second.from.round, 1);
+  assert.deepEqual(egress, { untrusted: true, outside: true }, "the outside-read mark travels");
+  assert.deepEqual(logs, [{ event: "turn_resumed", round: 1, calls: 1, group: false }], "counts only, never words");
+
+  assert.equal((await carriedRounds({ store: wrapped, session, body: { ...body, provisional: true }, question: QUESTION, egress, log })).keep, null, "a provisional run keeps nothing");
+  assert.equal(await carriedRounds({ store: wrapped, session, body: {}, question: QUESTION, egress, log }), null, "no events, no carry");
+  assert.equal(await carriedRounds({ store: { texLedger: () => ({ append() {} }) }, session, body, question: QUESTION, egress, log }), null, "a home with no rounds (a Lab test chat)");
 });

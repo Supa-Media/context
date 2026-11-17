@@ -1,14 +1,15 @@
 /**
- * An earlier try's rounds put back into a turn (`savedRounds.js`, Dev2 2026-11-17): after the question, as the model
- * left them, so its next round goes on from the last thing a tool returned.
+ * A texted turn's snapshot, kept as it goes and put back on the next try of the same text (`savedRounds.js`; Dev2,
+ * 2026-11-17).
  *
+ * Put back after the question, as the model left it, so its next round goes on from the last thing a tool returned.
  * Its calls are this turn's own from here: the record that refuses a write asked for twice after a send-back
  * (`sendBack.js`) has them, and so do the turn's `steps`, marked `resumed`. They are not told to the chat's ledger
- * again, because the try that ran them logged them as they ran; the ledger gets one `resumed` step saying from which
- * round, with each call's name, so Replay shows that this try ran none of them (Dev2, 2026-11-14: replay shows only
- * what ran).
+ * again, because the try that ran them logged them as they ran; the ledger gets one `resumed` step naming the round
+ * and each call, so Replay shows that this try ran none of them (Dev2, 2026-11-14: replay shows only what ran).
  */
-import { callsIn, openRounds, sealRounds } from "./savedRounds.js";
+import { ledgerPlace } from "./ledger.js";
+import { callsIn, carriesOn, checkedSnapshot, keptMessage, ROUNDS_MAX_CHARS, textKey } from "./savedRounds.js";
 
 /**
  * Puts `resumeFrom` (`{ round, messages }`, or null) after the question in `messages`, and returns the round the turn
@@ -35,21 +36,79 @@ export function resumedRounds({ resumeFrom, rounds, messages, held, steps, tell 
 }
 
 /**
- * A texted turn's carry: `from`, what an earlier try of this text did (the Worker hands it back as `body.rounds`), and
- * `save`, which seals the rounds so far and sends them down the stream (`{ rounds }`, `progress.js`) for the Worker to
- * keep until the text is answered. Saves go one after another, so the Worker keeps the newest last.
+ * Keeps a turn's snapshot as its calls return (`turn.js`): `roundStarted()` once a round's calls are in `messages`,
+ * `called(call, result, round)` after each one's result is, `freeze()` when a call settles the turn. Each snapshot is
+ * every round so far whose calls all carry on (`carriesOn`), and of the round running, the calls that returned; the
+ * first call that doesn't carry on freezes it, so a try after a crash runs that call again. `keep(snapshot)` is never
+ * awaited and never throws into the turn.
  */
-export async function carriedRounds({ env, session, question, body, step }) {
-  const from = typeof body?.rounds === "string" ? await openRounds(env, session, question, body.rounds) : null;
-  let chain = Promise.resolve();
-  const save = (messages, round) => {
-    const copy = messages.map((message) => ({ ...message }));
-    chain = chain
-      .then(async () => {
-        const sealed = await sealRounds(env, session, question, copy, round);
-        if (sealed !== null) await step("", { rounds: sealed });
-      })
-      .catch(() => {});
+export function roundsKeeper({ messages, roundsFrom, readOnly, keep, marks = () => ({}) }) {
+  let frozen = false;
+  let assistantAt = -1;
+  let done = [];
+  const snapshot = (round) => {
+    const asked = messages[assistantAt];
+    const ids = new Set(done);
+    const answer = keptMessage(asked);
+    if (done.length < (asked.toolCalls?.length ?? 0)) {
+      // Part of a round: only the calls that returned, and none of its thinking, which named the rest.
+      answer.toolCalls = answer.toolCalls.filter((call) => ids.has(call.id));
+      delete answer.content;
+    }
+    const results = messages.slice(assistantAt + 1).filter((message) => message.role === "tool" && ids.has(message.id)).map(keptMessage);
+    return { v: 1, round: round + 1, ...marks(), messages: [...messages.slice(roundsFrom, assistantAt).map(keptMessage), answer, ...results] };
   };
-  return { from, save };
+  return {
+    roundStarted() {
+      assistantAt = messages.length - 1;
+      done = [];
+    },
+    called(call, result, round) {
+      if (frozen || assistantAt < roundsFrom) return;
+      if (!carriesOn(call, result, readOnly)) return void (frozen = true);
+      done.push(call.id);
+      try {
+        const kept = snapshot(round);
+        if (JSON.stringify(kept).length <= ROUNDS_MAX_CHARS) keep(kept);
+      } catch {
+        /* a lost snapshot costs a later try its head start, never this turn */
+      }
+    },
+    freeze() {
+      frozen = true;
+    },
+  };
+}
+
+/**
+ * A texted turn's carry: `from`, the snapshot an earlier try of this text kept (checked, or null), and `keep`, which
+ * stores each new one in the chat's own home beside its ledger (`texStore/rounds.js`), one after another so the newest
+ * lands last; `from` only when the Worker says this is a try after one that failed (`again`). None for a turn whose text names no chat events, whose chat keeps no ledger, or, for `keep`, a
+ * provisional run (`steer.js`): what it writes before its go may be put back, so nothing it did is carried on.
+ * An earlier try's outside-read mark goes on `egress` (`privacy/egress.js`): the resumed turn read what it read.
+ */
+export async function carriedRounds({ store, session, body, question, egress = null, log = (line) => console.log(JSON.stringify(line)) }) {
+  const place = ledgerPlace(session);
+  const home = place === null || typeof store?.texLedger !== "function" ? null : store.texLedger(place.owner.chat ?? null);
+  if (home === null || typeof home?.roundsOf !== "function" || typeof home.keepRounds !== "function") return null;
+  const groupChat = Array.isArray(body?.group?.chat) ? body.group.chat : null;
+  const key = await textKey({ question, covers: body?.covers, groupChat });
+  if (key === null) return null;
+  // Read only on a try after one that failed (the Worker says so), so a first try costs no store call before its model.
+  const from = body?.again === true ? checkedSnapshot(await home.roundsOf(place.chat, key).catch(() => null)) : null;
+  if (from !== null) {
+    if (egress && from.untrusted) egress.untrusted = true;
+    if (egress && from.outside) egress.outside = true;
+    // How often a try goes on from an earlier one, and how much it skipped: counts only, never words (Fable's review, 2026-11-17).
+    log({ event: "turn_resumed", round: from.round, calls: callsIn(from.messages).length, group: groupChat !== null });
+  }
+  let chain = Promise.resolve();
+  const keep =
+    body?.provisional === true
+      ? null
+      : (snapshot) => {
+          chain = chain.then(() => home.keepRounds(place.chat, key, snapshot)).catch(() => {});
+        };
+  const marks = () => ({ ...(egress?.untrusted ? { untrusted: true } : {}), ...(egress?.outside ? { outside: true } : {}) });
+  return { from, keep, marks, flush: () => chain };
 }

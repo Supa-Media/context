@@ -146,7 +146,6 @@ export const NEW_TOPIC_AFTER_MS = 15 * 60 * 1000;
 
 export { CARD_KEY, CARD_EVERY_MS, cardSentKey, cardOfferedKey, NEW_LINE_KEY, NEW_LINE_TEXT, NEW_LINE_TOLD_KEY, profileSharedKey, profileSetKey } from "./offerCard";
 import { NEW_LINE_KEY, NEW_LINE_TEXT, NEW_LINE_TOLD_KEY, offerCard } from "./offerCard";
-import { forgetRounds, pruneRounds, roundsFor } from "./savedRounds";
 export type RememberedChat = { chatId: string; channel?: "simulator"; at: number };
 
 /** How long a text that is only a photo or file waits for its words. */
@@ -382,7 +381,7 @@ async function answerTurn(storage: InboxStorage, deps: InboxDeps, entries: Entry
   const timing: TurnTiming = { started: deps.now(), arrived: arrivedAt(entries) };
   let turn: Answered;
   try {
-    turn = await answering(message, work, { ...deps, retry: tries < MAX_ANSWER_ATTEMPTS, arrivedAt: timing.arrived }, storage, covers, presence, timing);
+    turn = await answering(message, work, { ...deps, retry: tries < MAX_ANSWER_ATTEMPTS, again: tries > 1, arrivedAt: timing.arrived }, storage, covers, presence, timing);
     if (typeof turn.turn === "string") timing.turn = turn.turn; // its timing row lines up with the gateway's (`textTiming.ts`)
   } catch (error) {
     if (!(error instanceof TryLater)) throw error;
@@ -395,7 +394,6 @@ async function answerTurn(storage: InboxStorage, deps: InboxDeps, entries: Entry
   if (turn.cancelled) return true;
   if (!turn.fixed && (await lookAgainTexts(storage, deps, entries, turn.parts)) === "held") return (turn.asks.length > 0 && turn.token !== undefined && (await staleAsks(deps, turn.token, turn.asks)), true);
   for (const sentKey of (await storage.list({ prefix: `${PROGRESS_PREFIX}${work}:` })).keys()) await storage.delete(sentKey); // answered: its lines (`answerTexts`) go
-  await forgetRounds(storage, work); // and its rounds (`savedRounds.ts`)
   let reply = turn.parts;
   // The first answer on the new line says it is Tex's new number, once.
   const movedTo = await storage.get<string>(NEW_LINE_KEY);
@@ -599,7 +597,6 @@ async function answering(message: Message, work: string, deps: InboxDeps, storag
       onPlace: (placed) => void (place = placed),
       onReact: (emoji) => void (react = emoji), // a hushed turn's tapback, sent once its answer is in (`apps/mcp/src/agent/respond.js`)
       warm: warmDeps(storage, deps.now), // the gateway's sealed copy (`warm.ts`)
-      rounds: roundsFor(storage, work, deps.now), // this text's rounds so far, for a try after a crash (`savedRounds.ts`)
       onShared: () => watchShared(storage, message.from, deps.now()),
       ...(await jobsFor(storage, message, deps)),
       ...(await crossFor(storage, message, deps)),
@@ -747,5 +744,4 @@ async function answerTexts(message: Message, work: string, deps: InboxDeps, stor
 async function pruneSeen(storage: InboxStorage, now: number): Promise<void> {
   // Progress lines go too, kept for work that was never answered (`PROGRESS_PREFIX`).
   for (const prefix of ["seen:", PROGRESS_PREFIX]) for (const [key, at] of await storage.list<number>({ prefix })) if (now - at > SEEN_FOR_MS) await storage.delete(key);
-  await pruneRounds(storage, now); // a text never answered: its rounds (`savedRounds.ts`)
 }

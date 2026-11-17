@@ -35,7 +35,6 @@ import { inviteEveryone } from "./groupInvite";
 import type { GroupPending } from "./groupTurn";
 import { ASK_KEY, filesFor, groupInboxName, routineDone, type GroupDeps, type OpenAsk } from "./groupInbox";
 import { answerCrossAsk, crossCounts, crossFields, crossWired, sendCrossAsks } from "./crossChat";
-import { forgetRounds, pruneRounds, roundsFor } from "./savedRounds";
 
 export type TurnInput = {
   message: GroupMessage;
@@ -152,10 +151,6 @@ export async function groupTurn(storage: InboxStorage, deps: GroupDeps, { messag
       log("progress_failed");
     }
   };
-  // This text's rounds across its tries, by the text's own id (`savedRounds.ts`); a turn with none (an event) starts over as before.
-  const roundsWork = message.messageId ? `group:${message.groupId}:${message.messageId}` : undefined;
-  if (roundsWork) await pruneRounds(storage, deps.now());
-  const rounds = roundsWork ? roundsFor(storage, roundsWork, deps.now) : undefined;
   let answer: AgentAnswer;
   const asking = deps.now();
   if (gate?.verdict === "stop") return end(), "cancelled";
@@ -169,7 +164,7 @@ export async function groupTurn(storage: InboxStorage, deps: GroupDeps, { messag
         group: { ...group, chat: said.lines.map((line) => ({ from: handles.get(line.from) ?? labels.get(line.from) ?? "", text: line.text || PICTURE_LINE })) },
         turn: steer.turn,
         ...(gate !== undefined ? { provisional: true, allow: gate.allow } : {}),
-        arrivedAt, ...(await fixedTimings(storage)), ...(rounds ? { rounds: await rounds.get() } : {}), // an earlier try's rounds (`savedRounds.ts`) // fixed replies since the last turn, for the chat's note
+        arrivedAt, ...(await fixedTimings(storage)), ...(deps.again ? { again: true } : {}), // a try after one that failed (`apps/mcp/src/agent/savedRounds.js`) // fixed replies since the last turn, for the chat's note
         ...(covers.length > 0 ? { covers, chat: message.groupId, ...(await outbox(storage, message.groupId)) } : {}), // the chat's day is the gateway's ledger; the outbox goes on top
         ...(attachments.length > 0 ? { attachments } : {}),
         ...(asked.timeZone ? { timeZone: asked.timeZone } : {}),
@@ -184,13 +179,11 @@ export async function groupTurn(storage: InboxStorage, deps: GroupDeps, { messag
               : {}),
       },
       progress,
-      // A step line is a tool starting, or this text's rounds so far, kept for a try after a crash (`savedRounds.ts`).
-      async (step, how) => (how?.rounds ? void (rounds && (await rounds.keep(how.rounds))) : toolStarted()),
+      toolStarted,
     );
   } finally {
     end();
   }
-  if (rounds && answer.kind !== "unavailable") await forgetRounds(storage, roundsWork!); // answered, or answered the same way every try: its rounds go
   const answered = deps.now();
   if (live.cancelled || answer.kind === "cancelled" || (await stopped())) {
     // Cancelled here though its answer came: what it armed is never left armed and unseen.

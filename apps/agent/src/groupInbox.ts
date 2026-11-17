@@ -88,6 +88,8 @@ import type { TimingDataset } from "./textTiming";
 
 export type GroupDeps = {
   fetch: Fetch;
+  /** A try of a handed turn after one that failed: the gateway goes on from what that try did (`apps/mcp/src/agent/savedRounds.js`). */
+  again?: boolean;
   /** Where each answered text's wait is written (`textTiming.ts`); absent, nowhere. */
   textTiming?: TimingDataset;
   controlPlaneOrigin: string;

@@ -40,7 +40,7 @@ export type JobProject = { path: string; name: string; context?: string };
 export type JobStep = { at: number; text: string; failed?: true; why?: string };
 /** Whether a streamed step failed, and why (`clients.ts`). */
 /** `result`, `held`, `outside`: what the call returned, whether it waits on their yes, whether the turn had read from outside by then; `draft`: a draft line, no step (`jobProgress.ts`). */
-export type StepHow = { failed?: true; why?: string; result?: string; held?: true; outside?: true; draft?: string; rounds?: string }; // `rounds`: a chat turn's rounds so far, sealed (`savedRounds.ts`)
+export type StepHow = { failed?: true; why?: string; result?: string; held?: true; outside?: true; draft?: string };
 /** One line of the chat's job list, sent with every texted turn, with its steps; `verdict`/`advice`: the advisor's last check (`apps/mcp/src/agent/jobCheck.js`); `result`: a finished job's report, for the chat's turns only. */
 /** `part`: the part it is on (or ended on); `ends`: how its parts ended (`jobProgress.ts`), for `job_status`. */
 export type RunningJob = { id: string; title: string; state: JobState; startedAt: number; finishedAt?: number; status?: string; steps?: JobStep[]; verdict?: JobVerdict; advice?: string; result?: string; on?: string; resumeAt?: number; part?: number; ends?: PartEnd[] };

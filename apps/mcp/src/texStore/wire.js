@@ -141,7 +141,25 @@ export async function serveTexStore(stored, request, timers = null, live = null,
       case "wipe":
         objects.wipe();
         objects.ledger?.wipe();
+        objects.rounds?.wipe();
         return Response.json({ ok: true });
+      // A texted turn's rounds, for a try of the same text after a crash (`rounds.js`, `agent/savedRounds.js`).
+      case "rounds_put": {
+        if (!objects.rounds) return unknownOp();
+        let data;
+        try {
+          data = JSON.parse(await request.text());
+        } catch {
+          throw new TexObjectRefused("not rounds");
+        }
+        return Response.json(objects.rounds.put(call.chat, call.key, data));
+      }
+      case "rounds_get":
+        if (!objects.rounds) return unknownOp();
+        return Response.json({ rounds: objects.rounds.get(call.chat, call.key) });
+      case "rounds_forget":
+        if (!objects.rounds) return unknownOp();
+        return Response.json(objects.rounds.forget(call.chat, call.key));
       case "ledger_append":
       case "ledger_prepend": {
         if (!objects.ledger) return unknownOp();
@@ -273,6 +291,16 @@ export function texBucket(stub) {
     async ledgerChats() {
       return (await (await call("ledger_chats")).json()).chats;
     },
+    /** A texted turn's rounds for a try after a crash (`rounds.js`): keep the newest, read it back, forget it once answered. */
+    async roundsPut(chat, key, data) {
+      await call("rounds_put", { chat, key }, new TextEncoder().encode(JSON.stringify(data)));
+    },
+    async roundsGet(chat, key) {
+      return (await (await call("rounds_get", { chat, key })).json()).rounds ?? null;
+    },
+    async roundsForget(chat, key) {
+      await call("rounds_forget", { chat, key });
+    },
     /** Everything in this Durable Object removed: an account, a phone link or a group chat ending. */
     async wipe() {
       await call("wipe");
@@ -313,7 +341,7 @@ export function texTimers(stub) {
 export function texBucketStore(bucket) {
   return Object.assign(new R2Store(bucket), {
     desk: () => bucket.desk(),
-    ledger: { append: (chat, entries) => bucket.ledgerAppend(chat, entries), read: (chat, options) => bucket.ledgerRead(chat, options), chats: () => bucket.ledgerChats(), prepend: (chat, entries) => bucket.ledgerPrepend(chat, entries), oldest: (chat) => bucket.ledgerOldest(chat) },
+    ledger: { append: (chat, entries) => bucket.ledgerAppend(chat, entries), read: (chat, options) => bucket.ledgerRead(chat, options), chats: () => bucket.ledgerChats(), prepend: (chat, entries) => bucket.ledgerPrepend(chat, entries), oldest: (chat) => bucket.ledgerOldest(chat), keepRounds: (chat, key, data) => bucket.roundsPut(chat, key, data), roundsOf: (chat, key) => bucket.roundsGet(chat, key), forgetRounds: (chat, key) => bucket.roundsForget(chat, key) },
   });
 }
 

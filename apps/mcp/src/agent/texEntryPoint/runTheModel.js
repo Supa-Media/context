@@ -149,10 +149,10 @@ export async function runTheModel(t, via) {
   const keptOptions = { question, on: !runner, ...(aiGatewayConfig(env) !== null && drawn.wired("tools", "moveJudge") ? { judge: (input) => drawn.fire("tools", "moveJudge", input, { env }), said: saidBefore(history) } : {}) };
   const pictureRun = (name, args, callTool) => gatewayGraph({ writer: chatLog, turn: ledgerAt?.turn ?? null }).fire("tools", "picture", { tool: name, args }, { env, maker, callTool, cardCheck }).then((out) => out.result); // interim: io.use.picture once tools is a node
   steer?.revertWith(dispatch); // a provisional run's note saves are read first and put back through the client's own dispatcher (`steer.js`)
-  // An earlier try of this same text, carried on from its last round (`savedRounds.js`): a chat's turn only, jobs keep their own (`jobSaved.js`).
-  const rounds = job === null && typeof step === "function" ? await carriedRounds(t) : null;
+  // An earlier try of this same text, carried on from what it had done (`savedRounds.js`): a chat's turn only; a job keeps its own (`jobSaved.js`), a routine's run has no text.
+  const rounds = job === null && !runner && chatTurn ? await carriedRounds({ store, session, body, question, egress: ledger }).catch(() => null) : null;
   stages?.ready(); const turn = await tex.step("model", () => runTurn({
-    resumeFrom: rounds?.from ?? null, onRound: rounds?.save ?? null,
+    resumeFrom: rounds?.from ?? null, keepRounds: rounds?.keep ? { keep: rounds.keep, marks: rounds.marks } : null,
     // With the log, the chat and its tapbacks are in the transcript, and the covered events are the question (`loggedTurn.js`).
     question: [logged === null && view === null ? chatLines(group) : "", logged === null ? reactedLine(reacted) : "", setAsideLine(setAside, dropped), paidLine(paid), sentNoteLinksLine(question, noteLinking.origin), (logged ? loggedQuestion(logged.question, quoted, logged.replying) : askedWith(question, quoted)), logged === null ? sleepLineNote(question) : ""].filter(Boolean).join("\n\n"),
     place: body.place ?? null,
