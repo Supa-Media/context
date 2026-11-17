@@ -104,6 +104,11 @@ export function anthropicMessages(messages) {
       out.push({ role: "user", content: withPreamble(anthropicAttachmentBlocks(message.attachments, message.text), message.preamble) });
       continue;
     }
+    // The week's history with its pictures (`weekHistory.js`): each picture's own block right after the line that names it.
+    if (Array.isArray(message.pictures) && message.pictures.length > 0) {
+      out.push({ role: "user", content: withPreamble(inlinePictureBlocks(message.text, message.pictures), message.preamble) });
+      continue;
+    }
     // Words after a tool round (`steer.js`) ride in the same turn as its answers.
     const last = out[out.length - 1];
     if (last && last.role === "user" && last.pendingTools) {
@@ -115,6 +120,25 @@ export function anthropicMessages(messages) {
   // `pendingTools` and `preamble` are this function's own bookkeeping and are not part of the
   // API's shape; a stray key here is a 400 from Anthropic, not a silent ignore.
   return out.map(({ pendingTools, preamble, ...message }) => message);
+}
+
+/**
+ * A history's words cut at each picture's marker (`[picture <id>]`, `logRender.js`), the picture's block after the
+ * line that names it; a marker that is not in the words, or a second picture with the same marker, is left out. The
+ * last block is always words, as `withPreamble` expects.
+ */
+export function inlinePictureBlocks(text, pictures) {
+  const blocks = [];
+  let rest = String(text ?? "");
+  for (const picture of pictures) {
+    const at = typeof picture?.marker === "string" && picture.marker !== "" ? rest.indexOf(picture.marker) : -1;
+    if (at < 0 || typeof picture.data !== "string" || typeof picture.mediaType !== "string") continue;
+    const end = at + picture.marker.length;
+    blocks.push({ type: "text", text: rest.slice(0, end) }, { type: "image", source: { type: "base64", media_type: picture.mediaType, data: picture.data } });
+    rest = rest.slice(end);
+  }
+  blocks.push({ type: "text", text: rest === "" ? "(end of the history)" : rest });
+  return blocks;
 }
 
 /**

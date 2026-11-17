@@ -129,6 +129,8 @@ export function renderEvents(events, { timeZone = "UTC", answeredBy = events, to
     const tag = tags?.get(event.id);
     if (typeof tag === "string") line += `   [${tag}]`; // its conversation (`conversationThreads.js`)
     lines.push(line);
+    // A picture it carried, by the id it is kept under, where the history message shows it inline (`weekHistory.js`).
+    if (Array.isArray(event.pictures)) for (const id of event.pictures) lines.push(`${NOTE_INDENT}[picture ${oneLine(String(id))}]`);
     if (event.delivered === false) lines.push(`${NOTE_INDENT}(not delivered: ${REASON_WORDS[event.reason] ?? "it didn't go out"})`);
     if (typeof event.why === "string" && event.why !== "") lines.push(`${NOTE_INDENT}(${oneLine(event.why)})`);
     const replied = replyingTo(event, byId, time);

@@ -1,4 +1,11 @@
 {
   "about": "Nodes whose code is merged into apps/mcp/src/agent/graph/gatewayNodes.js but not wired into texConfig.json yet (Dev2, 2026-11-16: \"for code changes, create the node inside the code first and merge it to main\"). A shelf node never runs: the runner runs only the config's nodes. A Lab draft wires it, and Promote takes it off the shelf in the same pull request that puts it in the config. Each entry: the node's id, its files (repository paths), and what it is for.",
-  "nodes": {}
+  "nodes": {
+    "chatDays": {
+      "files": [
+        "apps/mcp/src/agent/graph/nodes/chatDays.js"
+      ],
+      "why": "Chat day summaries: after a reply, on a background wire from Text them, each finished day of that chat in the last three weeks with no summary yet (three a run) is summed up into the chat's ledger, groups included, for the week's history to show before the last 7 days (Dev2, 2026-11-16)."
+    }
+  }
 }

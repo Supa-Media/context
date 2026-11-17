@@ -356,8 +356,8 @@ export async function runTurn(options) {
   const questionMessage = { role: "user", text: question, ...(attachments.length > 0 ? { attachments } : {}) };
   // Each of their earlier texts with its day and time, so "today" in one is that day's (Dev2, 2026-11-10; `localNow.js` `stamped`).
   // An answer in the chat's current stretch carries its calls and their results, then its words (`stretch.js`).
-  const historyMessages = datedTurns(history).flatMap(({ turn: { role, text, calls }, at }) => role === "user"
-    ? [{ role, text: stamped(text, at, localNow?.timeZone ?? null) }]
+  const historyMessages = datedTurns(history).flatMap(({ turn: { role, text, calls, pictures }, at }) => role === "user"
+    ? [{ role, text: stamped(text, at, localNow?.timeZone ?? null), ...(Array.isArray(pictures) && pictures.length > 0 ? { pictures } : {}) }] // the week's pictures, shown where each was sent (`weekHistory.js`)
     : Array.isArray(calls) && calls.length > 0
       ? [{ role, text: "", toolCalls: calls.map(({ id, name, args }) => ({ id, name, args })) }, ...calls.map(({ id, name, result, isError }) => ({ role: "tool", id, name, text: result, ...(isError ? { isError: true } : {}) })), { role, text }]
       : [{ role, text }]);
