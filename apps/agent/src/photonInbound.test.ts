@@ -146,8 +146,19 @@ describe("parsePhotonEvent: messages in a 1:1 chat", () => {
     expect(app).toMatchObject({ kind: "ignored", reason: "app_card" });
   });
 
+  it("answers an RCS text (an Android phone) as an SMS: kept for its fixed answer, its files not read", () => {
+    expect(parsePhotonEvent(event({ message: { guid: "m", text: "hi", service: "RCS" } }))).toMatchObject({ kind: "message", text: "hi", sms: true });
+    expect(parsePhotonEvent(groupEvent({ message: { guid: "m", text: "hi", service: "RCS" } }))).toMatchObject({ kind: "group-message", sms: true });
+  });
+
+  it("reads a poll's change, which the bridge tells in words, as the person's message", () => {
+    expect(parsePhotonEvent(groupEvent({ message: { guid: "poll-1:poll:150", text: "Started a poll “Dinner”: “Pizza”, “Tacos”", service: "iMessage", attachments: [], poll: true } }))).toMatchObject({
+      kind: "group-message", text: "Started a poll “Dinner”: “Pizza”, “Tacos”", messageId: "poll-1:poll:150",
+    });
+  });
+
   it("names the chat a dropped message was sent in, so its history can show the drop", () => {
-    expect(parsePhotonEvent(event({ message: { guid: "m", text: "hi", service: "RCS" } }))).toEqual({ kind: "ignored", reason: "service", chatId: photonChatId(LINE, PHONE), from: PHONE });
+    expect(parsePhotonEvent(event({ message: { guid: "m", text: "hi", service: "unknown" } }))).toEqual({ kind: "ignored", reason: "service", chatId: photonChatId(LINE, PHONE), from: PHONE });
     expect(parsePhotonEvent(groupEvent({ message: { guid: "m", text: " ", service: "iMessage" } }))).toEqual({
       kind: "ignored", reason: "empty", groupId: GROUP_ID, line: LINE, from: PHONE, participants: [PHONE, OTHER],
     });
@@ -248,9 +259,9 @@ describe("parsePhotonEvent: tapbacks", () => {
     expect(parsePhotonEvent(reactionEvent("love", {}, "message.reactionRemoved"))).toMatchObject({ kind: "reaction", reaction: { how: "Loved", words: "", removed: true } });
   });
 
-  it("reads any other emoji as Reacted with that emoji, and a sticker as nothing", () => {
+  it("reads any other emoji as Reacted with that emoji, and a sticker as Reacted with a sticker", () => {
     expect(parsePhotonEvent(reactionEvent("emoji", { emoji: "🎉" }))).toMatchObject({ kind: "reaction", reaction: { how: "Reacted", emoji: "🎉" } });
-    expect(parsePhotonEvent(reactionEvent("sticker"))).toEqual({ kind: "ignored", reason: "reaction" });
+    expect(parsePhotonEvent(reactionEvent("sticker"))).toMatchObject({ kind: "reaction", reaction: { how: "Reacted", emoji: "with a sticker" } });
     expect(parsePhotonEvent(reactionEvent("wave"))).toEqual({ kind: "ignored", reason: "reaction" });
   });
 });

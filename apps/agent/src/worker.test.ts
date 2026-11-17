@@ -201,8 +201,8 @@ describe("worker", () => {
       const { env: e, routedTo } = sbEnv();
       const lines: string[] = [];
       vi.spyOn(console, "log").mockImplementation((line: string) => void lines.push(line));
-      expect((await worker.fetch(post(inbound({ service: "RCS" }), SB_SECRET), e)).status).toBe(200);
-      expect((await worker.fetch(post(inbound({ group_id: "g", service: "RCS" }), SB_SECRET), e)).status).toBe(200);
+      expect((await worker.fetch(post(inbound({ service: "unknown" }), SB_SECRET), e)).status).toBe(200);
+      expect((await worker.fetch(post(inbound({ group_id: "g", service: "unknown" }), SB_SECRET), e)).status).toBe(200);
       expect(routedTo).toEqual([]);
       expect(lines.map((line) => JSON.parse(line))).toEqual([
         { event: "sendblue_webhook", outcome: "ignored", reason: "service" },

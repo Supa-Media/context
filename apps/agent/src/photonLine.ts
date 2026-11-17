@@ -15,6 +15,7 @@
  * No Node APIs: the gateway bundles this module (`line.ts`, `groupLine.ts`, `lineCalls.ts`).
  */
 
+import { noteLinkBubble } from "./photonLinkBubbles";
 import { CARD_MEDIA_TYPE, CARD_NAME, texCard } from "./card";
 import { ServiceError, MAX_REPLY_TEXT } from "./clients";
 import { cardsOn, noteCard, type AppCard } from "./appCards";
@@ -231,7 +232,8 @@ export async function sendPhotonWords(photon: Fetcher, place: PhotonPlace, text:
   const link = linksIn(words).find((found) => ONE_LINK.test(found));
   if (link !== undefined) {
     try {
-      await sendPhotonText(photon, place, link, { linkPreview: true });
+      // Its reports (echo, read, delivery) are the same send's (`photonLinkBubbles.ts`).
+      noteLinkBubble(await sendPhotonText(photon, place, link, { linkPreview: true }), guid);
     } catch {
       console.log(JSON.stringify({ event: "photon_link_preview", outcome: "failed" }));
     }

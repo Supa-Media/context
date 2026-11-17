@@ -1,7 +1,7 @@
 /**
  * Adds the words an event refers to, so the agent has them without a lookup of
  * its own: the text a reaction targets, the text an inline reply quotes, and
- * the text an edit replaced.
+ * the text an edit replaced, and a poll's title and options for a vote.
  *
  * Text comes from a bounded LRU of recent messages (filled by received events
  * and by our own sends), and from messages.get on a miss. A lookup that fails
@@ -44,7 +44,22 @@ function withTimeout(promise, ms) {
  * `lookup(guid)` resolves to {text, fromMe} or rejects. The cache may be shared
  * between lines: message guids are unique across them.
  */
-export function createEnricher({ lookup, cache = createLru(), timeoutMs = LOOKUP_TIMEOUT_MS }) {
+export function createEnricher({ lookup, poll, cache = createLru(), timeoutMs = LOOKUP_TIMEOUT_MS }) {
+  /** A poll's title and options (`polls.get`), or undefined when there is no lookup or it fails. */
+  async function pollOf(guid) {
+    if (typeof poll !== "function" || typeof guid !== "string") return undefined;
+    try {
+      const found = await withTimeout(Promise.resolve().then(() => poll(guid)), timeoutMs);
+      if (!found || !Array.isArray(found.options)) return undefined;
+      return {
+        title: typeof found.title === "string" ? found.title : "",
+        options: found.options.map((option) => ({ id: option.optionIdentifier, text: option.text })),
+      };
+    } catch {
+      return undefined;
+    }
+  }
+
   function remember(guid, text, fromMe) {
     if (typeof guid !== "string" || typeof text !== "string") return;
     cache.set(guid, { text, fromMe: fromMe === true });
@@ -88,6 +103,12 @@ export function createEnricher({ lookup, cache = createLru(), timeoutMs = LOOKUP
         remember(event.messageGuid, event.content?.text ?? "", event.isFromMe);
         break;
       }
+      case "poll.changed": {
+        const found = await pollOf(event.pollMessageGuid);
+        if (found) extras.poll = found;
+        break;
+      }
+      case "message.stickerPlaced":
       case "message.reactionAdded":
       case "message.reactionRemoved": {
         const target = await resolve(event.messageGuid);

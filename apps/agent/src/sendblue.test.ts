@@ -95,7 +95,9 @@ describe("sendblue webhook", () => {
   });
 
   it("drops what Tex must not answer: other services, groups, email senders, its own sends, nothing at all", () => {
-    expect(parseSendblueInbound(received({ service: "RCS" }))).toEqual({ kind: "ignored", reason: "service" });
+    expect(parseSendblueInbound(received({ service: "unknown" }))).toEqual({ kind: "ignored", reason: "service" });
+    // RCS (an Android phone) is answered as an SMS is, never from its words.
+    expect(parseSendblueInbound(received({ service: "RCS" }))).toMatchObject({ kind: "message", sms: true });
     expect(parseSendblueInbound(received({ service: "sms" }))).toEqual({ kind: "ignored", reason: "service" });
     expect(parseSendblueInbound(received({ service: undefined }))).toEqual({ kind: "ignored", reason: "service" });
     expect(parseSendblueInbound(received({ group_id: "g1" }))).toEqual({ kind: "ignored", reason: "group" });

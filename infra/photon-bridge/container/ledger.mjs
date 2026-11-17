@@ -18,6 +18,8 @@ export function createLedger({ checkpoints = {}, runId = randomBytes(6).toString
   const lines = new Map();
   const queue = [];
   const waiters = [];
+  // Raw events passed with nothing for the agent, by type, so the health line shows what the bridge does not read.
+  const skipped = new Map();
   let counter = 0;
 
   for (const [line, seq] of Object.entries(checkpoints)) {
@@ -73,6 +75,8 @@ export function createLedger({ checkpoints = {}, runId = randomBytes(6).toString
       if (seq <= state.frontier || state.completed.has(seq) || state.queued.has(seq)) return "seen";
       const mapped = mapEvent(event, line, extras);
       if (!mapped) {
+        const type = typeof event.type === "string" ? event.type.slice(0, 40) : "unknown";
+        skipped.set(type, (skipped.get(type) ?? 0) + 1);
         complete(line, seq);
         return "completed";
       }
@@ -81,6 +85,16 @@ export function createLedger({ checkpoints = {}, runId = randomBytes(6).toString
       state.queued.add(seq);
       wake();
       return "queued";
+    },
+
+    /**
+     * Queues an event the bridge made itself (a send's delivery check, `delivery.mjs`): it has no sequence in Photon's
+     * log, so it never moves a frontier, and a restart loses it (the check is best effort).
+     */
+    push(line, event) {
+      counter += 1;
+      queue.push({ id: `${runId}:${counter}`, line, seq: null, event });
+      wake();
     },
 
     /** The oldest queued event the object has not acked, or null. */
@@ -115,6 +129,7 @@ export function createLedger({ checkpoints = {}, runId = randomBytes(6).toString
       if (index < 0) return null;
       const [item] = queue.splice(index, 1);
       const state = stateOf(item.line);
+      if (item.seq === null) return { line: item.line, frontier: state.frontier };
       state.queued.delete(item.seq);
       return { line: item.line, frontier: complete(item.line, item.seq) };
     },
@@ -123,6 +138,7 @@ export function createLedger({ checkpoints = {}, runId = randomBytes(6).toString
     snapshot() {
       return {
         queued: queue.length,
+        skipped: Object.fromEntries(skipped),
         lines: [...lines.entries()].map(([line, state]) => ({ line, frontier: state.frontier ?? null })),
       };
     },
