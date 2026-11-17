@@ -219,16 +219,31 @@ export function texObjects(sql, { now = Date.now, guard = () => {}, tables = DEF
       const prefixes = [];
       let last = after;
       let truncated = false;
-      // Read in batches, so a delimiter folding many keys into one prefix never stops a page early.
+      // A range on `key`, so the primary-key index bounds the read. Matching
+      // `substr(key, 1, n) = prefix` cannot: the walk starts at the cursor and
+      // runs to the end of the table, and a list of `.context/…` then reads
+      // every row (2026-11-17, one Tex store read 327M rows in a day). The
+      // exclusive end is the prefix followed by U+10FFFF. An empty prefix has
+      // no upper bound. Read in batches, so a delimiter folding many keys into
+      // one prefix never stops a page early.
+      const upper = `${prefix}\u{10FFFF}`;
+      const columns = "key, etag, size, uploaded, content_type, custom, chunks";
       for (;;) {
         const batch = rows(
-          sql.exec(
-            `SELECT * FROM ${O} WHERE key > ? AND substr(key, 1, ?) = ? ORDER BY key LIMIT ?`,
-            last,
-            prefix.length,
-            prefix,
-            size + 1,
-          ),
+          prefix === ""
+            ? sql.exec(
+                `SELECT ${columns} FROM ${O} WHERE key > ? AND key >= ? ORDER BY key LIMIT ?`,
+                last,
+                prefix,
+                size + 1,
+              )
+            : sql.exec(
+                `SELECT ${columns} FROM ${O} WHERE key > ? AND key >= ? AND key < ? ORDER BY key LIMIT ?`,
+                last,
+                prefix,
+                upper,
+                size + 1,
+              ),
         );
         for (const row of batch) {
           if (objects.length + prefixes.length >= size) {
