@@ -106,7 +106,7 @@ test("a check-in's look is shown the email that just arrived, and a routine runs
   const loaded = await readBenchFolder(AI);
   const bench = { people: [{ person: "Kofi", workspace: "kofi", role: "owner", personal: true }], workspaces: { kofi: loaded.workspaces.kofi } };
   const asked = [];
-  const gatewayFetch = scripted([{ text: "Your TAP flight is 50 minutes late." }, { text: "Meds." }], asked);
+  const gatewayFetch = scripted([{ text: "Your TAP flight is 50 minutes late." }, { text: "Meds." }, { text: "Laundry to the dryer." }], asked);
   const world = await createWorld(bench, "Kofi", SETUP, { gatewayFetch, ai: null }, "2026-10-12");
   try {
     world.mailArrives({ from: "TAP", subject: "flight TP 237 delayed 50 minutes", body: "flight TP 237 delayed 50 minutes, new departure 2:05pm." });
@@ -120,6 +120,12 @@ test("a check-in's look is shown the email that just arrived, and a routine runs
     assert.equal(run.ok, true, run.error ?? "");
     assert.equal(run.answer, "Meds.");
     assert.match(JSON.stringify(asked.at(-1)), /reminder: meds, 9:30pm/, "the run was given the routine's words");
+    // A one-off's run is placed where production keeps one, so it reads the one-off's own framing (`routine.js`).
+    const { routinePathOf } = await import("../run.mjs");
+    assert.equal(routinePathOf({ routineOnce: false }), "tex/routines/daily/bench-routine.md");
+    const once = await world.routine(routinePathOf({ routineOnce: true }), "Remind them to move the laundry to the dryer.");
+    assert.equal(once.answer, "Laundry to the dryer.");
+    assert.match(JSON.stringify(asked.at(-1)), /one-off reminder the person set/, "the run was told it is a one-off");
   } finally {
     world.close();
   }
