@@ -37,9 +37,10 @@ this folder: it is public, like the rest of the repository.
 - A question marked `- target: <cause>` is a known bug not fixed yet: it
   runs and is reported apart, and never fails a bar or blocks a merge
   (`docs/decisions/testing/replay-gate.md`). The core set and the simple asks
-  are the replay gate's `core` area (`bench/coreArea.mjs`), and every set runs
-  three times a night (`pnpm ai nightly`, scoreboard in
-  `@context-lc ai/results/nightly/`).
+  are the replay gate's `core` area (`bench/coreArea.mjs`). The nightly
+  (`pnpm ai nightly`, `NIGHTLY_ROTATION` in `bench/nightly.mjs`) runs that
+  weekday rotation three times each and writes the scoreboard to
+  `@context-lc ai/results/nightly/`.
 - `tests/core.md`: the core set (decided by the owner 2026-10-14, reshaped
   2026-10-17), twenty basics Tex must do, each a gate like a golden task: a
   lookup, two facts, a lookup across workspaces, a missing fact, a to-do list,

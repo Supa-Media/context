@@ -602,7 +602,7 @@ const USAGE = [
   "       pnpm ai gate --base <main checkout> [--areas respond,review] [--held-out <dir>] | gate areas --base-sha <sha> | gate held-out --dir <dir>",
   "       pnpm ai nodes [--only a,b] [--fake]   each step's own cases (bench/nodes/<step>.json), the step's code alone",
   "       pnpm ai lab plan|apply|run --config <lab config.json>   run a Tex Architecture Lab version on the examiner path ($0)",
-  "       pnpm ai nightly [--held-out <dir>] [--areas core,tasks] [--out <file>] [--run-url <url>]   every area, 3 runs, one scoreboard note",
+  "       pnpm ai nightly [--held-out <dir>] [--areas core,tasks|all] [--out <file>] [--run-url <url>]   the night's rotation, or --areas, 3 runs, one scoreboard note",
   "       pnpm ai drift [--day YYYY-MM-DD]             live conversations' scores against the week before; exit 3 on a drop",
   "       pnpm ai jobstart [--concurrency <n>] [--fake]  score whether a job's start gets a line or only a tapback (Haiku) on held-out chats",
   "       pnpm ai jobs [--setup production] [--only a,b] [--gate-sample <main tree>] [--max-parts 4] [--strict] [--fake]  run Tex's job tasks end to end and grade them in code",

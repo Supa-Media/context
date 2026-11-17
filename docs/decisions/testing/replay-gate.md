@@ -133,12 +133,17 @@ did not have to leave a case behind.
    fixing the bug is removing the line. The first targets came from reading
    every Tex chat on 2026-11-13 (`bench/review/from_chats.json` and the
    `audit-1113` reply-or-quiet cases), all invented, each named by its cause.
-6. **Every night, everything.** `tex-nightly.yml` (`pnpm ai nightly`,
-   `bench/nightly.mjs`) runs every area three times as the live setup: core
-   and simple asks, the golden tasks, the web facts (once that set is on
-   main), the one judge's cases and the reviewer's, held-out cases included,
-   and the job tasks once (a whole job each).
-   Each area is checked against the month's limit and the day's cap in
+6. **Each night runs its rotation.** `tex-nightly.yml` (`pnpm ai nightly`,
+   `bench/nightly.mjs`) runs the night's areas as the live setup, three times
+   each (the job tasks once: a whole job each), held-out cases included.
+   Which areas is `NIGHTLY_ROTATION`, beside the area list: web-facts,
+   respond and review every night; core also on Monday, Wednesday and
+   Friday; on Sunday, tasks in an even ISO week and jobs in an odd one.
+   The weekday and the week are the America/New_York civil date, the same
+   zone as the spend caps. A manual run's `areas` input (comma-separated,
+   or `all`) replaces that list. That override does not touch the budget
+   check: each selected area is still checked against the month's limit and
+   the day's cap in
    `spend.md` before it starts and refused past either, and its cost is
    recorded there. A replay is checked against that same month and against
    its own monthly line, so it cannot spend the night's room. The nightly writes one note,
@@ -197,7 +202,9 @@ did not have to leave a case behind.
 Dropping rule 2 lets a fix land with no case, and the same break returns
 unseen. Running every model set on every change spends dollars on pull
 requests that cannot change them. Putting held-out cases in the repository
-lets a change pass by fitting the test instead of the cause.
+lets a change pass by fitting the test instead of the cause. Running every
+nightly area every night does not fit the $40 month: core every night is
+about $32 by itself, and tasks plus jobs every week is about $27.
 
 ## What fails if it is reversed
 
@@ -213,6 +220,10 @@ page edit that never saved has no page);
 every run passed; a target is never held to the bar);
 `apps/mcp/bench/test/nightly.test.mjs` (a quiet day is too few to tell; a hand
 edit to the live prompt is outside the gate; held-out cases by cause alone);
+`apps/mcp/bench/test/nightlyRotation.test.mjs` (Tuesday is the three cheap
+areas; Monday, Wednesday and Friday add core; an even ISO week runs tasks
+and an odd week runs jobs, including week 52 on 1 January; 04:30 UTC on a
+Monday in winter is still Sunday in New York);
 `apps/mcp/bench/test/promptFingerprint.test.mjs` and
 `node scripts/tex-replay-required.mjs --self-test` (one changed prompt changes
 an area's fingerprint; a changed area with no replay run fails the check;

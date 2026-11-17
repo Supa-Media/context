@@ -2,14 +2,16 @@
  * TEX'S NIGHTLY SCOREBOARD (Dev2, 2026-11-13: "I want to wake up to some failed benchmarks, I guess, or passing
  * benchmarks if it's truly passing ... That could be what we work towards fixing rather than vibes").
  *
- *   pnpm ai nightly [--held-out <dir>] [--out <file>] [--run-url <url>] [--fake] [--areas core,tasks]
+ *   pnpm ai nightly [--held-out <dir>] [--out <file>] [--run-url <url>] [--fake] [--areas core,tasks|all]
  *
- * Every area, three runs each, as the live setup: the core set and the simple asks, the golden tasks, the web facts,
- * the one judge's reply-or-quiet cases and the reply reviewer's, and (once, a whole job each) the background job tasks. Each area is checked against the monthly budget in
- * `@context-lc ai/results/spend.md` before it starts (this month's limit and today's cap), refused when it would pass either, and its cost recorded there after.
+ * The night's areas, three runs each, as the live setup. Which areas is `NIGHTLY_ROTATION` (America/New_York):
+ * web-facts, respond and review every night; core on Monday, Wednesday and Friday; on Sunday, tasks in an even
+ * ISO week and jobs in an odd one. `--areas` (comma-separated, or `all`) replaces that list. Each selected area
+ * is checked against the monthly budget in `@context-lc ai/results/spend.md` before it starts (this month's limit
+ * and today's cap), refused when it would pass either, and its cost recorded there after.
  * One note, `ai/results/nightly/<date>.md`, says pass or fail by each area's own bar, the cases that fell short, the
  * target cases (known bugs) apart, the live drift from people's conversations, and what changed in the live prompt
- * since the night before. A pull request's gate runs only the area it touches; this runs them all.
+ * since the night before. A pull request's gate runs only the area it touches; this runs the night's rotation.
  */
 import { mkdir, mkdtemp, readFile, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -51,6 +53,53 @@ export const NIGHTLY_AREAS = [
 
 /** How many times an area runs tonight. */
 export const runsOf = (spec) => spec.runs ?? NIGHTLY_RUNS;
+
+/**
+ * Which areas a scheduled night runs. Days are America/New_York civil dates,
+ * the same zone as the spend caps. `every` runs every night. A named day adds
+ * its areas. Sunday alternates by ISO week number: even weeks run `even`,
+ * odd weeks run `odd`.
+ */
+export const NIGHTLY_ROTATION = {
+  every: ["web-facts", "respond", "review"],
+  monday: ["core"],
+  wednesday: ["core"],
+  friday: ["core"],
+  sunday: { even: ["tasks"], odd: ["jobs"] },
+};
+
+const WEEKDAY_NAMES = ["sunday", "monday", "tuesday", "wednesday", "thursday", "friday", "saturday"];
+
+/** ISO week number of a civil date: the week that contains its Thursday. */
+function isoWeekNumber(day) {
+  const date = new Date(Date.UTC(day.year, day.month - 1, day.day));
+  const weekday = date.getUTCDay() || 7;
+  date.setUTCDate(date.getUTCDate() + 4 - weekday);
+  const yearStart = new Date(Date.UTC(date.getUTCFullYear(), 0, 1));
+  return Math.ceil(((date - yearStart) / 86400000 + 1) / 7);
+}
+
+/** Area names for one night, in scoreboard order. `when` is an instant; the day is America/New_York. */
+export function areasForNight(when = new Date(), rotation = NIGHTLY_ROTATION) {
+  const day = calendarDay(when instanceof Date ? when : new Date(when));
+  const chosen = new Set(rotation.every ?? []);
+  const extra = rotation[WEEKDAY_NAMES[new Date(Date.UTC(day.year, day.month - 1, day.day)).getUTCDay()]];
+  const added = Array.isArray(extra) ? extra : extra ? (isoWeekNumber(day) % 2 === 0 ? extra.even : extra.odd) : [];
+  for (const area of added ?? []) chosen.add(area);
+  return NIGHTLY_AREAS.map((spec) => spec.area).filter((area) => chosen.has(area));
+}
+
+/** Areas this run starts. No `areas` means the rotation. `all` means every area. A list replaces the rotation. */
+export function nightlyAreas(options = {}, when = new Date()) {
+  const raw = options.areas == null ? "" : String(options.areas).trim();
+  if (!raw) return areasForNight(when);
+  if (raw === "all") return NIGHTLY_AREAS.map((spec) => spec.area);
+  const wanted = new Set(raw.split(",").map((name) => name.trim()).filter(Boolean));
+  const known = NIGHTLY_AREAS.map((spec) => spec.area);
+  const unknown = [...wanted].filter((name) => !known.includes(name));
+  if (unknown.length) throw new Error(`no nightly area named ${unknown.join(", ")}`);
+  return known.filter((area) => wanted.has(area));
+}
 
 /** What an area is expected to cost tonight: a test's dearest earlier round, scaled to three runs; a scorer's cases at their price. */
 export async function expectedFor(spec, { rows, dir, heldOut = null }) {
@@ -112,7 +161,7 @@ export function scoreboardNote({ date, runUrl = null, areas, drift = null, produ
     "",
     `# Tex nightly, ${date}`,
     "",
-    `Written by the Tex nightly run${runUrl ? ` ([the run](${runUrl}))` : ""}: every area, ${NIGHTLY_RUNS} runs each (the job tasks once: each is a whole job), as the live setup. ${ran.filter((a) => a.status === "pass").length} of ${areas.length} areas pass their bar; tonight spent ${money(spent)}, and ${budgetLine} (ai/results/spend.md).`,
+    `Written by the Tex nightly run${runUrl ? ` ([the run](${runUrl}))` : ""}: ${areas.map((a) => a.area).join(", ") || "no areas"}, ${NIGHTLY_RUNS} runs each (the job tasks once: each is a whole job), as the live setup. ${ran.filter((a) => a.status === "pass").length} of ${areas.length} areas pass their bar; tonight spent ${money(spent)}, and ${budgetLine} (ai/results/spend.md).`,
     "",
     `| area | result | cases right in most runs | right in every run | spent |`,
     "| --- | --- | --- | --- | --- |",
@@ -184,17 +233,19 @@ export async function nightlyCommand(options, { write = (text) => process.stdout
   const scratch = options.scratch ?? (await mkdtemp(join(tmpdir(), "tex-nightly-")));
   await mkdir(scratch, { recursive: true });
   const heldOut = options["held-out"] ?? null;
-  const only = options.areas ? String(options.areas).split(",") : null;
   const connection = await signIn({ env: process.env });
   const spendNote = await readSpend(connection);
   if (!spendNote) throw new Error("ai/results/spend.md is not in Context: write it with monthly_cap_usd, rollover_max_usd and daily_cap_usd before running");
-  // The scoreboard file keeps the UTC date it has always used. Spend rows use the New York civil day, which is the same date at the 07:23 UTC schedule.
-  const today = calendarDay(new Date());
+  // The scoreboard file keeps the UTC date it has always used. Spend rows and the rotation use the New York civil day, which is the same date at the 07:23 UTC schedule.
+  const clock = new Date();
+  const today = calendarDay(clock);
   let budget = budgetAt(parseSpend(spendNote.content), today.iso);
   const run = options["run-url"] ? `[nightly](${options["run-url"]})` : "nightly";
+  // The rotation chooses areas. It does not raise a cap or skip the check below.
+  const selected = nightlyAreas(options, clock);
 
   const areas = [];
-  for (const spec of NIGHTLY_AREAS.filter((s) => !only || only.includes(s.area))) {
+  for (const spec of NIGHTLY_AREAS.filter((s) => selected.includes(s.area))) {
     const expected = options.fake ? 0 : await expectedFor(spec, { rows: budget.rows, dir, heldOut });
     const verdict = roundAllowed(budget, expected, `nightly-${spec.area}`);
     if (!verdict.ok) {
