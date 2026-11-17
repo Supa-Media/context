@@ -9,8 +9,9 @@
  * and the turn ends with no text; the Worker reacts to their text with it (`apps/agent/src/reactEmoji.ts` checks the
  * emoji again). When to use it is taught by examples, never a rule here (judgment by examples).
  *
- * Offered only while the config wires `tools -> tapback` (`texEntryPoint/runTheModel.js`), on a chat turn that is not
- * a job, a routine, a job's report or another chat's ask: on main it is on the shelf and no turn is offered it.
+ * Offered only while the config wires `tools -> tapback` (`texEntryPoint/runTheModel.js`; wired on main since the
+ * Promote of 2026-11-17), on a chat turn that is not a job, a routine, a job's report or another chat's ask, and that
+ * answers a text of theirs the Worker can react to (never their own tapback, a vault save or a hand-back).
  * Never beside words (Dev2, 2026-11-10): the call ends the turn, so nothing else is texted with it.
  */
 

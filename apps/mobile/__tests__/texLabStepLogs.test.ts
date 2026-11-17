@@ -42,6 +42,7 @@ const entries: LedgerEntry[] = [
   run("crossChatGate", { from: "one", to: { kind: "group", key: "k" }, what: "is the demo Friday?" }, { to: "ask", ask: { id: "xabcdefghij" } }),
   run("chatAsk", { event: "chat_answer", crossChat: { id: "xabcdefghij" } }, { to: "answer", question: "(Not a text from them.)" }),
   run("chatAnswer", { kind: "ask", id: "xabcdefghij", draft: "Yes." }, { to: "back", id: "xabcdefghij", state: "answered", texts: ["Yes."] }),
+  run("tapback", { emoji: "❤️", why: "they thanked me", lastFailed: false, tagged: false }, { to: "react", emoji: "❤️" }),
   run("jobadv", { role: "check" }, { state: "keep_going" }),
   run("learn", { question: "plan the trip" }, { nudge: { outcome: "skipped" }, reflect: { outcome: "skipped" } }),
   step("door", { input: { chat: "group", kind: "text", covers: ["1000-000001"] }, output: { model: "anthropic/claude-haiku-5-5", effort: "medium", reviewer: "on", advisor: "on", planner: "off" } }),
