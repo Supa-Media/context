@@ -35,6 +35,7 @@ import { heardInGroup } from "./groupVoice";
 import { acceptGroup, acceptGroupRoutine, askControlPlane, drainGroup, keepGroupEdit } from "./groupInbox";
 import { membersChanged } from "./groupMembers";
 import { flushWithReader } from "./chatRead";
+import { crossTimeouts, takeCrossAnswer, takeCrossAsk } from "./crossChat";
 import { CHAT_WHERE_KEY, chatDirectoryName, chatRoutineRunOf, chatWhereOf, WHERE_KEPT_KEY } from "./groupRoutines";
 import { isBound, sha256Hex } from "./groupChat";
 import { textsSessionDeps } from "./gatewaySession";
@@ -224,6 +225,9 @@ export class SenderInbox implements DurableObject {
       if (update === null) return new Response(null, { status: 400 });
       return Response.json({ known: await jobUpdate(this.state.storage, this.deps(), update) });
     }
+    // Tex asks Tex across chats (`crossChat.ts`): another chat's ask, queued as a turn here, and the answer to one of this chat's own.
+    if (path === "/cross-ask") return Response.json({ outcome: await takeCrossAsk(this.state.storage, await request.json().catch(() => null), Date.now()) });
+    if (path === "/cross-answer") return Response.json({ outcome: await takeCrossAnswer(this.state.storage, await request.json().catch(() => null), Date.now()) });
     if (path === "/page-jobs") return Response.json(await pageJobsOf(this.state.storage, Date.now()));
     if (path === "/page-steer") return await pageSteerResponse(this.state.storage, await request.json().catch(() => null), async (id, next) => (await this.deps().steerJob?.(id, next)) ?? false);
     if (path === "/send-status") {
@@ -347,6 +351,8 @@ export class SenderInbox implements DurableObject {
     // A job's object has only `jobrun`; every other object finds nothing to run.
     await logged("alarm_job", () => jobAlarm(this.state.storage, this.jobDeps(), this.env.JOB_RUN !== undefined));
     // A chat's job paused at the daily limit starts again once it resets (`jobPause.ts`).
+    // An ask to another chat still unanswered after its time comes back as one (`crossChat.ts`).
+    await logged("alarm_cross_chat", () => crossTimeouts(this.state.storage, Date.now()));
     await logged("alarm_paused_jobs", () => resumePausedJobs(this.state.storage, this.deps().steerJob, Date.now()));
   }
 
@@ -359,6 +365,12 @@ export class SenderInbox implements DurableObject {
     const asked = await askControlPlane(this.deps(), message, people, null);
     if (asked.status !== "ready" || asked.accessToken === undefined) return null;
     return { accessToken: asked.accessToken, ...(asked.handle ? { handle: asked.handle } : {}), names: asked.names ?? [] };
+  }
+
+  /** A call to another chat's object by its name (`crossChat.ts`): a GET when there is no body. */
+  private crossCall(inbox: string, path: string, body: unknown): Promise<Response> {
+    const stub = inboxByName(this.env.SENDER_INBOX, inbox);
+    return body === null ? stub.fetch(`https://inbox${path}`, { method: "GET" }) : stub.fetch(`https://inbox${path}`, { method: "POST", body: JSON.stringify(body) });
   }
 
   /** A job's word to the inbox it belongs to: taken once it answers 200. */
@@ -410,6 +422,7 @@ export class SenderInbox implements DurableObject {
       ...(workflow ? { startTurn: (turn: string) => startGroupTurn(workflow, this.state.id.toString(), turn), answerFirst: (work: Promise<unknown>) => this.handOff(work) } : {}),
       fetch: this.out,
       ...(this.env.TEX_GRAPH !== undefined ? { texGraph: this.env.TEX_GRAPH } : {}),
+      crossCall: (inbox: string, path: string, body: unknown) => this.crossCall(inbox, path, body),
       controlPlaneOrigin: this.env.CONTROL_PLANE_ORIGIN,
       workerSecret: this.env.AGENT_WORKER_SECRET,
       gatewayOrigin: this.env.GATEWAY_ORIGIN,

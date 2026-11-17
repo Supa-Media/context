@@ -22,6 +22,7 @@ import { linkedFrom, type LinkedSession } from "./gatewaySession";
 export { openGatewaySession, type TextsBinding } from "./gatewaySession";
 import type { Reaction, Tapback } from "./reactions";
 import type { JobReport } from "./jobs";
+import { readCrossAsks, readCrossBack, type CrossAsk, type CrossBack, type CrossEvent } from "./crossChat";
 import { readPictures, type OutgoingPicture } from "./outgoing";
 import { readChoices, type Choice } from "./pickCard";
 import { readOffers, type Offer } from "./dataCards";
@@ -239,7 +240,7 @@ export type AgentAnswer =
   /** `askIds`: the approval records the turn armed, one ask event each (`events.ts`). */
   /** `warm`: the gateway's sealed copy of what this turn read, handed back with the next text (`warm.ts`). */
   /** `heard`, `sent`: what the person said aloud this turn, and the gateway's line naming the files they sent: jobs it starts, changes or restarts get them beside their typed words (`jobs.ts` `jobQuestion`). */
-  | { kind: "answer"; text: string; pictures: OutgoingPicture[]; choices?: Choice[]; offers?: Offer[]; hub?: string; verbatim?: string[]; quiet?: true; react?: string; place?: ReplyPlace; steered?: string[]; jobs?: StartedJob[]; steers?: JobSteerAsk[]; exhausted?: true; unfinished?: true; untrusted?: true; idle?: true; verdict?: JobVerdict; advice?: string; vaultWatch?: true; vaultLinks?: string[]; handbackWatch?: string; invite?: ChatInvite; askFor?: string; askIds?: string[]; warm?: string; heard?: string; sent?: string }
+  | { kind: "answer"; text: string; pictures: OutgoingPicture[]; choices?: Choice[]; offers?: Offer[]; hub?: string; verbatim?: string[]; quiet?: true; react?: string; place?: ReplyPlace; steered?: string[]; jobs?: StartedJob[]; steers?: JobSteerAsk[]; exhausted?: true; unfinished?: true; untrusted?: true; idle?: true; verdict?: JobVerdict; advice?: string; vaultWatch?: true; vaultLinks?: string[]; handbackWatch?: string; invite?: ChatInvite; askFor?: string; askIds?: string[]; warm?: string; heard?: string; sent?: string; crossAsks?: CrossAsk[]; crossBack?: CrossBack; crossPost?: string }
   /** The turn was cancelled (`POST /agent/cancel`, a restart): nothing of it is sent. */
   | { kind: "cancelled" }
   | { kind: "no_model" }
@@ -294,6 +295,8 @@ export async function askAgent(
     onStep,
     event,
     jobReport,
+    crossChat,
+    crossCounts,
     covers,
     chat,
     told = [],
@@ -313,7 +316,10 @@ export async function askAgent(
     /** Handed each step a background job's turn takes, as it takes it (`jobRun.ts`). */
     onStep?: (text: string, how?: StepHow) => Promise<void>;
     /** A turn with no text of theirs: a login Tex asked for was saved (`vaultWatch.ts`). */
-    event?: "vault_saved" | "job_report" | "browser_handed_back";
+    event?: "vault_saved" | "job_report" | "browser_handed_back" | "chat_ask" | "chat_answer";
+    /** Another chat's ask, or the answer to this chat's own (`crossChat.ts` `crossFields`); and what this chat holds of its asks, for the Cross-chat gate. */
+    crossChat?: Omit<CrossEvent, "reply">;
+    crossCounts?: { hour: number; day: number; open: string[] };
     /** A background job's report to this chat's own turn, which decides what they get (`jobTexts.ts`). */
     jobReport?: JobReport;
     /** The chat's event ids this turn answers (`events.ts`), and the chat key those events carry. */
@@ -348,6 +354,8 @@ export async function askAgent(
     ...(job ? { job } : {}),
     ...(event ? { event } : {}),
     ...(jobReport ? { jobReport } : {}),
+    ...(crossChat ? { crossChat } : {}),
+    ...(crossCounts ? { crossCounts } : {}),
     ...(covers && covers.length > 0 && chat ? { covers, chat } : {}),
     ...(told.length > 0 ? { told } : {}),
     ...settings,
@@ -413,6 +421,8 @@ export function agentAnswer(status: number, json: unknown): AgentAnswer {
       ...(askIds.length > 0 ? { askIds } : {}),
       ...(typeof body.askFor === "string" && /^[a-z0-9](?:[a-z0-9-]{0,63})$/.test(body.askFor) ? { askFor: body.askFor } : {}),
       ...(typeof body.warm === "string" && body.warm.length <= MAX_WARM_CHARS ? { warm: body.warm } : {}),
+      ...(readCrossAsks(body.crossAsks).length > 0 ? { crossAsks: readCrossAsks(body.crossAsks) } : {}), // asks the Cross-chat gate let go (`crossChat.ts`)
+      ...(readCrossBack(body.crossBack) !== null ? { crossBack: readCrossBack(body.crossBack)!, ...(typeof body.crossPost === "string" && body.crossPost.trim() ? { crossPost: body.crossPost.trim().slice(0, 1_200) } : {}) } : {}), // an ask-run's answer, sent back and never texted here
       ...(typeof body.heard === "string" && body.heard.trim() ? { heard: body.heard.trim().slice(0, MAX_HEARD) } : {}), ...(typeof body.sent === "string" && body.sent.trim() ? { sent: body.sent.trim().slice(0, MAX_HEARD) } : {}),
     };
   }

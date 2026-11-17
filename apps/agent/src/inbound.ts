@@ -1,3 +1,4 @@
+import type { CrossEvent } from "./crossChat";
 /**
  * The one shape of Linq's webhook this Worker acts on: a `message.received`
  * in a direct chat, from a phone number, with some text or a file in it.
@@ -95,7 +96,9 @@ export type Inbound =
        * saved (`vaultWatch.ts`). It has no words, and the gateway asks its
        * own fixed question for it. Never set from a webhook.
        */
-      event?: "vault_saved" | "job_report" | "browser_handed_back";
+      event?: "vault_saved" | "job_report" | "browser_handed_back" | "chat_ask" | "chat_answer";
+      /** On `event: "chat_ask"` or `"chat_answer"`: another chat's ask, or the answer to this chat's own (`crossChat.ts`). Never from a webhook. */
+      crossChat?: CrossEvent;
       /** On `event: "job_report"`: what a background job would have said, handed to this chat's own turn (`jobTexts.ts`). Never from a webhook. */
       jobReport?: JobReport;
       /**

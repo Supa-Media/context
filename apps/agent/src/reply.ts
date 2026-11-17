@@ -52,6 +52,7 @@ import type { OutgoingPicture } from "./outgoing";
 import type { Choice } from "./pickCard";
 import type { Offer } from "./dataCards";
 import type { JobSaid, JobSteerAsk, RunningJob, StartedJob } from "./jobs";
+import { crossFields, type CrossAsk, type CrossBack } from "./crossChat";
 import type { Inbound } from "./inbound";
 import type { WarmDeps } from "./warm";
 
@@ -65,6 +66,10 @@ import type { WarmDeps } from "./warm";
 export type Message = Extract<Inbound, { kind: "message" }> & { channel?: "simulator"; setting?: true; askYes?: true };
 
 export type ReplyDeps = {
+  /** Tex asks Tex across chats (`crossChat.ts`), once the config wires the gate: what this chat holds of its asks, and where its asks and an ask-run's answer go. */
+  crossCounts?: { hour: number; day: number; open: string[] };
+  onCrossAsks?: (asks: CrossAsk[]) => Promise<void>;
+  onCrossBack?: (back: CrossBack) => Promise<void>;
   fetch: Fetch;
   /** The gateway's sealed warm copy, kept in this sender's object (`warm.ts`). */
   warm?: WarmDeps;
@@ -316,7 +321,7 @@ async function answer(message: Message, deps: ReplyDeps): Promise<string | strin
       // Somebody else's words, kept apart from the person's (`apps/mcp/src/agent/quoted.js`).
       message.quoted ?? (message.threaded ? "" : undefined),
       message.threadStart,
-      { tapback: message.tapback, reacted: message.reacted, turn: deps.steer?.turn, running: deps.running, event: message.event, jobReport: message.jobReport, covers: deps.covers, chat: message.chatId, told: deps.told, settings: session.settings, arrivedAt: deps.arrivedAt, worker, ...warm },
+      { tapback: message.tapback, reacted: message.reacted, turn: deps.steer?.turn, running: deps.running, event: message.event, jobReport: message.jobReport, ...(message.crossChat ? { crossChat: crossFields(message.crossChat).crossChat } : {}), ...(deps.crossCounts ? { crossCounts: deps.crossCounts } : {}), covers: deps.covers, chat: message.chatId, told: deps.told, settings: session.settings, arrivedAt: deps.arrivedAt, worker, ...warm },
     );
     if (answer.kind === "unavailable") await deps.warm?.keep(undefined); // a turn that may have written and never said what: the next one starts a new copy (`warm.ts`); the rest wrote nothing
     // Cancelled for a restart (`steer.ts`): the turn that replaces it answers.
@@ -329,6 +334,9 @@ async function answer(message: Message, deps: ReplyDeps): Promise<string | strin
       if (answer.askIds) deps.onAsks?.(answer.askIds, askLine(answer));
       if (answer.vaultWatch) await deps.onVaultLink?.(answer.vaultLinks);
       if (answer.handbackWatch) await deps.onHandedOver?.(answer.handbackWatch);
+      if (answer.crossAsks) await deps.onCrossAsks?.(answer.crossAsks); // asks the Cross-chat gate let go, each started in its chat (`crossChat.ts`)
+      // A run answering another chat's ask texts nothing here: its answer goes back (`crossChat.ts`).
+      if (message.crossChat?.kind === "ask") return await deps.onCrossBack?.(answer.crossBack ?? { id: message.crossChat.id, state: "refused", texts: [], why: "no answer came out of the turn" }), [];
       const notStarted = answer.jobs ? await deps.onJobs?.(answer.jobs, answer) : undefined;
       const notResumed = answer.steers ? await deps.onSteers?.(answer.steers, answer) : undefined;
       if (answer.steered) await deps.steer?.onSteered(answer.steered);
