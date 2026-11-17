@@ -486,7 +486,9 @@ export async function createWorld(bench, person, setupRaw, models, today = null,
     async earlier(lines) {
       let last = null;
       for (const line of lines) {
-        const event = textedEvent(line.text, line.from === "person" ? tagger : null);
+        const sender = line.who && group ? group.people.get(line.who) : tagger; // a group's other member: `- earlier @priya:`
+        if (line.who && group && !sender) throw new Error(`@${line.who} is not in the group's workspace (people.md)`);
+        const event = textedEvent(line.text, line.from === "person" ? sender : null);
         if (line.from === "person") last = event;
         await postEvents([line.from === "person" ? event : { ...event, from: { kind: "tex" }, turn: last?.turn ?? event.turn, covers: last ? [last.id] : [], delivered: true }]);
       }

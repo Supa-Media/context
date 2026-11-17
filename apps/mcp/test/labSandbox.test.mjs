@@ -321,10 +321,10 @@ test("a stranger is refused; the chats are the person's 1:1 and their groups", a
   }
 });
 
-test("Maya's conversation opens as a test chat; another person's test chat does not exist for them", async () => {
+test("a Dev conversation opens as a test chat; another person's test chat does not exist for them", async () => {
   const w = routeWorld({ [ALICE]: { userId: "u_alice", workspaceId: "ws_alice" }, [BOB]: { userId: "u_bob", workspaceId: "ws_bob" } });
   try {
-    const opened = await w.call(ALICE, { op: "open", source: "maya" });
+    const opened = await w.call(ALICE, { op: "open", source: "set", convId: "wedding-trip" });
     assert.equal(opened.status, 200);
     assert.match(opened.body.sandboxId, /^[0-9a-f]{16}$/);
     assert.ok(opened.body.rows.length > 0 && opened.body.rows.every((row) => row.prod === true && row.eid === undefined));
@@ -337,7 +337,11 @@ test("Maya's conversation opens as a test chat; another person's test chat does 
     assert.equal((await w.call(ALICE, { op: "open", source: "set", convId: "no-such-conversation" })).status, 404);
     assert.equal((await w.call(ALICE, { op: "reset", sandboxId: opened.body.sandboxId })).status, 200);
     assert.equal((await w.call(ALICE, { op: "get", sandboxId: opened.body.sandboxId })).status, 404, "reset deletes it");
+    // Maya's own conversation left the sets (Dev2, 2026-11-17): her test account opens fresh, with no history.
     assert.equal(MAYA_CONVO, "maya-and-tex");
+    const maya = await w.call(ALICE, { op: "open", source: "maya" });
+    assert.equal(maya.status, 200);
+    assert.deepEqual(maya.body.rows, []);
   } finally {
     w.restore();
   }
@@ -346,11 +350,11 @@ test("Maya's conversation opens as a test chat; another person's test chat does 
 test("about, use and read answer only the person's own test chat, and read only its own history file", async () => {
   const w = routeWorld({ [ALICE]: { userId: "u_alice", workspaceId: "ws_alice" }, [BOB]: { userId: "u_bob", workspaceId: "ws_bob" } });
   try {
-    const opened = await w.call(ALICE, { op: "open", source: "maya" });
+    const opened = await w.call(ALICE, { op: "open", source: "set", convId: "wedding-trip" });
     const sandboxId = opened.body.sandboxId;
     const about = await w.call(ALICE, { op: "about", sandboxId });
     assert.equal(about.status, 200);
-    assert.equal(about.body.source, "maya");
+    assert.equal(about.body.source, "set");
     assert.equal(about.body.kind, "1:1");
     assert.equal(about.body.versionId, "main");
     assert.equal(about.body.rows, opened.body.rows.length);
@@ -370,8 +374,8 @@ test("about, use and read answer only the person's own test chat, and read only 
 test("list shows the person's own test chats, who opened and last used each; never another's; reset takes one off", async () => {
   const w = routeWorld({ [ALICE]: { userId: "u_alice", workspaceId: "ws_alice" }, [BOB]: { userId: "u_bob", workspaceId: "ws_bob" } });
   try {
-    const ai = await w.call(ALICE, { op: "open", source: "maya", by: "AI (Claude Code)" });
-    const lab = await w.call(ALICE, { op: "open", source: "maya" });
+    const ai = await w.call(ALICE, { op: "open", source: "set", convId: "wedding-trip", by: "AI (Claude Code)" });
+    const lab = await w.call(ALICE, { op: "open", source: "set", convId: "wedding-trip" });
     await w.call(ALICE, { op: "use", sandboxId: lab.body.sandboxId, versionId: "main", by: "AI (Claude Code)" });
     const listed = (await w.call(ALICE, { op: "list" })).body.chats;
     assert.deepEqual(listed.map((c) => c.sandboxId), [lab.body.sandboxId, ai.body.sandboxId], "newest used first");
@@ -380,7 +384,7 @@ test("list shows the person's own test chats, who opened and last used each; nev
     assert.equal(listed[0].lastBy, "AI (Claude Code)");
     assert.equal(listed[0].running, null);
     assert.equal(listed[0].rows, lab.body.rows.length);
-    assert.equal((await w.call(ALICE, { op: "open", source: "maya", by: "<script>" })).status, 200);
+    assert.equal((await w.call(ALICE, { op: "open", source: "set", convId: "wedding-trip", by: "<script>" })).status, 200);
     assert.ok((await w.call(ALICE, { op: "list" })).body.chats.every((c) => c.openedBy !== "<script>"), "a name that is not a name is the Lab");
     assert.deepEqual((await w.call(BOB, { op: "list" })).body.chats, [], "one person never lists another's");
     await w.call(ALICE, { op: "reset", sandboxId: ai.body.sandboxId });
@@ -470,14 +474,14 @@ test("a draft not saved yet opens with its history when the Lab sends it as draw
   try {
     const first = TEX_CONFIG.nodes[0];
     const drawn = { nodes: [{ id: first.id, on: false }], edges: [] };
-    const refusedOpen = await w.call(ALICE, { op: "open", source: "maya", versionId: "vunsaved1" });
+    const refusedOpen = await w.call(ALICE, { op: "open", source: "set", convId: "wedding-trip", versionId: "vunsaved1" });
     assert.equal(refusedOpen.status, 404, "a draft neither saved nor sent is still not there");
-    assert.equal((await w.call(ALICE, { op: "open", source: "maya", versionId: "vunsaved1", graph: "{not json" })).status, 400);
-    assert.equal((await w.call(ALICE, { op: "open", source: "maya", versionId: "vunsaved1", graph: JSON.stringify({ nodes: [] }) })).status, 400, "a graph has steps and wires");
-    assert.equal((await w.call(ALICE, { op: "open", source: "maya", versionId: "vunsaved1", graph: "x".repeat(MAX_DRAWN_GRAPH + 1) })).status, 400);
+    assert.equal((await w.call(ALICE, { op: "open", source: "set", convId: "wedding-trip", versionId: "vunsaved1", graph: "{not json" })).status, 400);
+    assert.equal((await w.call(ALICE, { op: "open", source: "set", convId: "wedding-trip", versionId: "vunsaved1", graph: JSON.stringify({ nodes: [] }) })).status, 400, "a graph has steps and wires");
+    assert.equal((await w.call(ALICE, { op: "open", source: "set", convId: "wedding-trip", versionId: "vunsaved1", graph: "x".repeat(MAX_DRAWN_GRAPH + 1) })).status, 400);
 
-    const opened = await w.call(ALICE, { op: "open", source: "maya", versionId: "vunsaved1", graph: JSON.stringify(drawn) });
-    assert.equal(opened.status, 200);
+    const opened = await w.call(ALICE, { op: "open", source: "set", convId: "wedding-trip", versionId: "vunsaved1", graph: JSON.stringify(drawn) });
+    assert.equal(opened.status, 200, JSON.stringify(opened.body));
     assert.ok(opened.body.rows.length > 0, "the chat's history shows, to read and play");
     const sandboxId = opened.body.sandboxId;
     const about = await w.call(ALICE, { op: "about", sandboxId });
@@ -492,7 +496,7 @@ test("a draft not saved yet opens with its history when the Lab sends it as draw
 
     // A text the Lab sends carries the draft as drawn now, and the chat keeps it.
     const later = { nodes: [{ id: first.id, on: true }], edges: [] };
-    const other = (await w.call(ALICE, { op: "open", source: "maya", versionId: "vunsaved1", graph: JSON.stringify(drawn) })).body.sandboxId;
+    const other = (await w.call(ALICE, { op: "open", source: "set", convId: "wedding-trip", versionId: "vunsaved1", graph: JSON.stringify(drawn) })).body.sandboxId;
     assert.equal((await w.call(ALICE, { op: "send", sandboxId: other, text: "hi", graph: JSON.stringify(later) })).status, 200);
     assert.deepEqual(ran.at(-1), later);
     assert.deepEqual((await w.call(ALICE, { op: "about", sandboxId: other, graph: true })).body.graph, later, "the chat keeps the draft its last text ran");

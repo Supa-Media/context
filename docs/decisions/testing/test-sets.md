@@ -109,10 +109,23 @@ ratio counts labels instead of stars, or if the drift limit is ignored.
   asks, and the judge's examples) sit inside ten invented chats of 140 to 300
   messages, five one-to-one and five groups, each case one unbroken run of
   messages named in its conversation's `from`, with ordinary history around it.
-  `node apps/mcp/bench/setsMigrate.mjs --check` holds every case to that, and
-  `caseToConversation` still converts a held-out case for the eval service.
-  Maya's chat is in Dev: its answers are facts from her setup notes, which would
-  mislead a step shown them as examples.
+  `node apps/mcp/bench/setsMigrate.mjs --check` holds every case a conversation
+  names to that, and `caseToConversation` still converts a held-out case for the
+  eval service. Dev2 removed those ten on 2026-11-17 for chats rebuilt from real
+  texts, disguised; a case no conversation names is retired from the sets and
+  still runs in its own bench area.
+- **A Dev chat's people are the bench's** (Dev2, 2026-11-17: "why dont we use
+  existing people that we do have worlds for then, and then why dont we
+  restrict the people that can be put in these test sets"). Each Dev unit test
+  runs as a real turn in its person's invented bench world
+  (`apps/mcp/bench/setsFd.mjs`), so `texSets.cjs` `BENCH_PEOPLE` (exactly the
+  people of `apps/mcp/bench/ai/workspaces/people.md`) is the only cast a Dev
+  chat may have, and the facts it leans on live in their notes and Gmail. A
+  group runs in the shared workspace that has all its members, each earlier
+  line sent as its speaker, and each test on its own day, walked from the
+  first time line that names a date ("Tue Oct 13 10:14"). Training is read as
+  examples and never run, so anyone may be in it. `texSets.test.mjs` and
+  `setsFd.test.mjs` fail if either part is undone.
 - **A step's examples show the recent stretch.** Each Training example carries
   the newest four messages before it (two for Decide) and a line counting the
   earlier ones (`texTraining.cjs` `historyLines`), because every example rides

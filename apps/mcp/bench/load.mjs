@@ -114,7 +114,7 @@ function readQuestion(sec) {
     // In a group test (`group:`), what other members text before the person's nth text: `- @priya before text 2: "..."`.
     others: [],
     // A Lab replay (`labReplay.mjs`): the one text, exactly as it was sent (`- person texts:` with a JSON string, so a
-    // text of several lines keeps them), and the chat before it (`- earlier person:` / `- earlier tex:`), posted to the
+    // text of several lines keeps them), and the chat before it (`- earlier person:` / `- earlier tex:`, and in a group `- earlier @priya:` for another member), posted to the
     // chat's ledger before the text, never answered again. A replay is one text: nobody plays the person.
     texts: null,
     earlier: [],
@@ -132,6 +132,7 @@ function readQuestion(sec) {
     else if ((m = line.match(/^- person starts:\s*(.*)$/))) q.personStarts = unquote(m[1]);
     else if ((m = line.match(/^- person texts:\s*(.*)$/))) q.texts = jsonText(m[1], sec.n);
     else if ((m = line.match(/^- earlier (person|tex):\s*(.*)$/))) q.earlier.push({ from: m[1], text: jsonText(m[2], sec.n) });
+    else if ((m = line.match(/^- earlier @([a-z0-9-]+):\s*(.*)$/))) q.earlier.push({ from: "person", who: m[1], text: jsonText(m[2], sec.n) });
     else if ((m = line.match(/^- @([a-z0-9-]+) before text (\d+):\s*(.*)$/))) q.others.push({ from: m[1], before: Number(m[2]), text: unquote(m[3]) });
     else if ((m = line.match(/^- person sends picture:\s*(.*)$/))) q.sendsPicture = pictureName(m[1].trim());
     else if (/^- person answers asks\s*$/.test(line)) q.answersAsks = true;

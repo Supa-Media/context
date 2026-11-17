@@ -198,7 +198,7 @@ const ALICE = "tok_alice_example_000000000000";
 test("pictures, replies, tapbacks, edits and unsends are refused when they are not what a chat can carry", async () => {
   const w = routeWorld();
   try {
-    const { body: opened } = await w.call({ op: "open", source: "maya" });
+    const { body: opened } = await w.call({ op: "open", source: "set", convId: "wedding-trip" });
     const sandboxId = opened.sandboxId;
     const real = opened.rows[0].id;
     const pic = (url) => ({ url });
@@ -228,7 +228,7 @@ test("pictures, replies, tapbacks, edits and unsends are refused when they are n
 test("a picture text and a quoted reply run a turn and show on their rows; retry sends them again whole", async () => {
   const w = routeWorld();
   try {
-    const { body: opened } = await w.call({ op: "open", source: "maya" });
+    const { body: opened } = await w.call({ op: "open", source: "set", convId: "wedding-trip" });
     const sandboxId = opened.sandboxId;
     const pics = [{ url: "https://img.example.test/a.png", type: "image/png", name: "a.png" }];
     const sent = await w.call({ op: "send", sandboxId, text: "", pics, replyTo: opened.rows[0].id });
@@ -320,9 +320,9 @@ test("chats say their kind and people; sets lists Training and Dev only; the Tes
     assert.ok(sets.length > 1);
     assert.ok(sets.every((s) => s.set === "training" || s.set === "dev"));
     assert.deepEqual(sets.find((s) => s.id === "fresh-one"), { id: "fresh-one", title: "Fresh", set: "dev", kind: "group", people: 2, texts: 1 });
-    assert.ok(sets.some((s) => s.id === "maya-and-tex"));
+    assert.ok(sets.some((s) => s.id === "wedding-trip"));
     assert.equal((await w.call({ op: "open", source: "set", convId: "secret-test" })).status, 403);
-    assert.equal((await w.call({ op: "open", source: "set", convId: "group-1", chatId: KEY })).status, 200);
+    assert.equal((await w.call({ op: "open", source: "set", convId: "the-flat", chatId: KEY })).status, 200);
   } finally {
     w.restore();
   }

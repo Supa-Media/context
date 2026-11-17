@@ -20,12 +20,12 @@ import decide from "../../../packages/shared/src/textDecide.cjs";
 const config = JSON.parse(readFileSync(new URL("../../../packages/shared/src/texConfig.json", import.meta.url), "utf8"));
 const why = Object.keys(decide.WHY);
 const chat = (over = {}) => ({
-  id: "ferry-trip", title: "Ferry trip planning", set: "dev", kind: "group", members: ["Rosa", "Kim"],
+  id: "ferry-trip", title: "Ferry trip planning", set: "dev", kind: "group", members: ["Maya", "Priya"],
   msgs: [
-    { id: "m1", who: "Rosa", text: "are we still doing the island on Saturday?" },
-    { id: "m2", who: "Kim", text: "Tex can you check?", labels: { decide: { act: "respond", why: "asks_tex", star: true }, fd: { must: ["say 7:40"], star: true } } },
+    { id: "m1", who: "Maya", text: "are we still doing the island on Saturday?" },
+    { id: "m2", who: "Priya", text: "Tex can you check?", labels: { decide: { act: "respond", why: "asks_tex", star: true }, fd: { must: ["say 7:40"], star: true } } },
     { id: "m3", who: "Tex", tex: true, text: "First ferry is 7:40." },
-    { id: "m4", who: "Rosa", kind: "react", to: "m3", text: "👍", labels: { decide: { act: "quiet", why: "thanks_or_ok" } } },
+    { id: "m4", who: "Maya", kind: "react", to: "m3", text: "👍", labels: { decide: { act: "quiet", why: "thanks_or_ok" } } },
   ],
   ...over,
 });
@@ -61,15 +61,15 @@ test("labels use the node's required output fields, from the config", () => {
   assert.ok(p.some((x) => x.includes('act "shout"')));
   assert.ok(p.some((x) => x.includes('"mood" is not one of its output fields')));
   assert.ok(p.some((x) => x.includes("lines are for the front door")));
-  assert.ok(sets.check(chat({ msgs: [{ id: "m1", who: "Rosa", text: "hi", labels: { nope: {} } }] }), config).some((x) => x.includes('no node "nope"')));
+  assert.ok(sets.check(chat({ msgs: [{ id: "m1", who: "Maya", text: "hi", labels: { nope: {} } }] }), config).some((x) => x.includes('no node "nope"')));
 });
 
 test("members, ids and sets are checked", () => {
-  const p = sets.check(chat({ id: "Bad Id", set: "held", members: ["Rosa", "Tex"] }), config, { why });
+  const p = sets.check(chat({ id: "Bad Id", set: "held", members: ["Maya", "Tex"] }), config, { why });
   assert.ok(p.some((x) => x.includes("lowercase")));
   assert.ok(p.some((x) => x.includes("set \"held\"")));
   assert.ok(p.some((x) => x.includes("never a member")));
-  assert.ok(p.some((x) => x.includes("Kim is not in the chat's members")));
+  assert.ok(p.some((x) => x.includes("Priya is not in the chat's members")));
 });
 
 test("a unit test is one starred label: one message × one node", () => {
@@ -96,14 +96,22 @@ test("a set may drift ten points, not more", () => {
 });
 
 test("a trigger row is the input that fired it, never a member, and can be a unit test", () => {
-  const c = chat({ kind: "one", members: ["Rosa"], msgs: [
-    { id: "m1", who: "Check-in", via: "checkin", at: "Wed 9:20", text: "Gmail: the ferry company moved Saturday's first boat to 8:10", labels: { fd: { must: ["tell Rosa the new time"], star: true } } },
+  const c = chat({ kind: "one", members: ["Maya"], msgs: [
+    { id: "m1", who: "Check-in", via: "checkin", at: "Wed 9:20", text: "Gmail: the ferry company moved Saturday's first boat to 8:10", labels: { fd: { must: ["tell Maya the new time"], star: true } } },
     { id: "m2", who: "Tex", tex: true, text: "Heads up, Saturday's first ferry is now 8:10." },
   ] });
   assert.deepEqual(sets.check(c, config), []);
   assert.equal(sets.unitTests(c).length, 1);
-  const wrongWho = chat({ kind: "one", members: ["Rosa"], msgs: [{ id: "m1", who: "Rosa", via: "checkin", text: "x" }] });
+  const wrongWho = chat({ kind: "one", members: ["Maya"], msgs: [{ id: "m1", who: "Maya", via: "checkin", text: "x" }] });
   assert.match(sets.check(wrongWho, config).join("\n"), /fired by checkin, so its speaker is Check-in/);
-  const unknown = chat({ kind: "one", members: ["Rosa"], msgs: [{ id: "m1", who: "Cron", via: "cron", text: "x" }] });
+  const unknown = chat({ kind: "one", members: ["Maya"], msgs: [{ id: "m1", who: "Cron", via: "cron", text: "x" }] });
   assert.match(sets.check(unknown, config).join("\n"), /via "cron" must be one of checkin, routine, notify/);
+});
+
+test("a Dev chat's people are the bench's, since each Dev test runs in that person's bench world", () => {
+  const stranger = chat({ members: ["Maya", "Remi"], msgs: [{ id: "m1", who: "Remi", text: "hi" }] });
+  assert.ok(sets.check(stranger, config).some((x) => x.startsWith("Remi has no bench world")), "Dev refuses someone with no world");
+  assert.deepEqual(sets.check({ ...stranger, set: "training" }, config).filter((x) => x.includes("bench world")), [], "Training is read as examples, never run, so anyone may be in it");
+  assert.deepEqual(sets.check(stranger, config, { bench: false }).filter((x) => x.includes("bench world")), [], "the old cases' migration keeps their names");
+  assert.ok(sets.BENCH_PEOPLE.includes("Maya"));
 });
