@@ -22,8 +22,7 @@
 import { readMailbox, searchMailbox } from "./mailbox.mjs";
 import { TRANSCRIPTS_FOLDER } from "../src/agent/transcript.js";
 import { HOUSEKEEPING_CLIENT_ID } from "../src/agent/housekeeping.js";
-import { HEARTBEAT_CLIENT_ID } from "../src/agent/heartbeat.js";
-import { ROUTINES_CLIENT_ID } from "../src/agent/routine.js";
+import { arrivedEmail, checkInTurn, houseTurn, routineTurn, startCall, startGrants } from "./worldStarts.mjs";
 import worker from "../src/index.js";
 import { PRODUCTION_TEXTING_PATH } from "../src/agent/production.js";
 import { skillPath } from "../src/agent/skills.js";
@@ -318,22 +317,8 @@ export async function createWorld(bench, person, setupRaw, models, today = null,
     alsoMemberOf: [{ workspaceId: "ws_pinned", role: "member" }],
   });
 
-  // Tex's check-ins and routine runs come in on their own clients' grants, over the person's own workspace, as in
-  // production (`heartbeat.js` HEARTBEAT_CLIENT_ID, `routine.js` ROUTINES_CLIENT_ID): what a Front door test that
-  // starts at a check-in or a routine sends (`world.checkIn`, `world.routine`).
-  const startTokens = {};
-  for (const [kind, clientId] of [["checkin", HEARTBEAT_CLIENT_ID], ["routine", ROUTINES_CLIENT_ID]]) {
-    startTokens[kind] = `cat_${kind}_${person.toLowerCase().replace(/[^a-z]/g, "")}_${"0".repeat(24)}`;
-    await controlPlane.addGrant({
-      workspaceId: ids.get(own.workspace),
-      role: "owner",
-      userId: `user_bench_${own.workspace}`,
-      accessToken: startTokens[kind],
-      scopes: ["context:read", "context:write", "context:private"],
-      clientId,
-      alsoMemberOf: [{ workspaceId: "ws_pinned", role: "member" }],
-    });
-  }
+  // Tex's check-ins and routine runs, on their own clients' grants (`worldStarts.mjs`).
+  const startTokens = await startGrants(controlPlane, { person, workspaceId: ids.get(own.workspace), userId: `user_bench_${own.workspace}` });
 
   const before = new Map([...ids].map(([name]) => [name, snapshot(s3.bucketFor(`bench-${name}`))]));
   const env = {
@@ -518,32 +503,19 @@ export async function createWorld(bench, person, setupRaw, models, today = null,
      * no mailbox yet gets one at their bench address.
      */
     mailArrives(email) {
-      const address = mail[0]?.address ?? `${handleOfPerson(person)}@bench.invalid`;
-      const id = `arrived${mail.length + 1}`;
-      const body = String(email.body ?? "");
-      mail.unshift({ address, id, threadId: id, date: new Date(Date.now() - 5 * 60_000).toISOString(), from: String(email.from), to: address, subject: String(email.subject), body, attachments: [], snippet: body.replace(/\s+/g, " ").slice(0, 140) });
+      mail.unshift(arrivedEmail(email, mail[0]?.address ?? `${String(person).toLowerCase().replace(/[^a-z0-9]/g, "") || "person"}@bench.invalid`, mail.length + 1));
       if (mail.length === 1) connectMail();
     },
 
-    /** One check-in, through the real `/agent` as Tex's check-in client: what it would text, or nothing when it stayed quiet. */
+    /** One check-in, as Tex's check-in client: what it would text (`worldStarts.mjs`). */
     async checkIn() {
-      return startedTurn(await this.as(startTokens.checkin, { heartbeat: { timeZone: "UTC", since: Date.now() - 60 * 60_000 } }), (body) => (body?.outcome === "speak" ? body.answer : ""));
+      return checkInTurn((body) => startCall({ worker, env, token: startTokens.checkin, body, controlPlane }));
     },
 
-    /** One run of the routine at `path` (a note under `tex/routines/<schedule>/`), placed with `text` as its words, as the routine runner asks. */
+    /** One run of the routine at `path`, placed with `text` as its words (`worldStarts.mjs`). */
     async routine(path, text) {
       this.place(path, `${text}\n`);
-      return startedTurn(await this.as(startTokens.routine, { routine: { path, timeZone: "UTC" } }), (body) => (body?.skipped ? "" : body?.answer));
-    },
-
-    /** One `/agent` call with `token`'s grant. */
-    async as(token, body) {
-      const { ctx, settle } = createWorkerCtx();
-      const started = realNow();
-      const response = await worker.fetch(new Request("https://mcp.bench.invalid/agent", { method: "POST", headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" }, body: JSON.stringify(body) }), env, ctx);
-      const answer = await response.json().catch(() => null);
-      await settle();
-      return { status: response.status, body: answer, ms: realNow() - started, usage: controlPlane.builtinReports.at(-1) ?? {} };
+      return routineTurn(path, (body) => startCall({ worker, env, token: startTokens.routine, body, controlPlane }));
     },
 
     /**
@@ -551,37 +523,7 @@ export async function createWorld(bench, person, setupRaw, models, today = null,
      * is: its answer is the line it would text and the log it wrote.
      */
     async keepHouse() {
-      const { ctx, settle } = createWorkerCtx();
-      const started = realNow();
-      const response = await worker.fetch(
-        new Request("https://mcp.bench.invalid/agent", {
-          method: "POST",
-          headers: { Authorization: `Bearer ${houseToken}`, "Content-Type": "application/json" },
-          body: JSON.stringify({ housekeeping: { timeZone: "UTC" } }),
-        }),
-        env,
-        ctx,
-      );
-      const ms = realNow() - started;
-      const body = await response.json().catch(() => null);
-      await settle();
-      const usage = controlPlane.builtinReports.at(-1) ?? {};
-      const log = typeof body?.log === "string" ? (await this.readThrough(body.log))?.body ?? "" : "";
-      return {
-        ok: response.status === 200 && typeof body?.outcome === "string",
-        answer: [body?.line || `(${body?.outcome ?? "no outcome"}: nothing to text)`, log].filter(Boolean).join("\n\n"),
-        asked: 0,
-        error: response.status === 200 ? null : String(body?.error ?? `status ${response.status}`),
-        ms,
-        model: usage.model ?? null,
-        tools: [],
-        usage: {
-          input: usage.inputTokens ?? 0,
-          output: usage.outputTokens ?? 0,
-          cacheRead: usage.cacheReadTokens ?? 0,
-          cacheWrite: usage.cacheWriteTokens ?? 0,
-        },
-      };
+      return houseTurn(await startCall({ worker, env, token: houseToken, body: { housekeeping: { timeZone: "UTC" } }, controlPlane }), (path) => this.readThrough(path));
     },
 
     /**
@@ -752,23 +694,3 @@ export async function createWorld(bench, person, setupRaw, models, today = null,
   };
 }
 
-/** A person's bench mail handle. */
-function handleOfPerson(person) {
-  return String(person).toLowerCase().replace(/[^a-z0-9]/g, "") || "person";
-}
-
-/** A check-in's or routine run's answer, shaped as a turn is (`converse` reads it): `said` picks what it would text. */
-function startedTurn(got, said) {
-  const ok = got.status === 200 && got.body !== null;
-  const text = ok ? String(said(got.body) ?? "") : "";
-  return {
-    ok,
-    answer: text === "" ? `(stayed quiet: ${String(got.body?.outcome ?? got.body?.reason ?? "nothing texted")})` : text,
-    error: ok ? null : String(got.body?.error ?? `status ${got.status}`),
-    ms: got.ms,
-    model: got.usage.model ?? null,
-    tools: [],
-    jobs: [],
-    usage: { input: got.usage.inputTokens ?? 0, output: got.usage.outputTokens ?? 0, cacheRead: got.usage.cacheReadTokens ?? 0, cacheWrite: got.usage.cacheWriteTokens ?? 0 },
-  };
-}
