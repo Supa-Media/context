@@ -84,10 +84,13 @@ function holds(email, term) {
     else if (field === "to") yes = lower(email.to).includes(value);
     else if (field === "subject") yes = lower(email.subject).includes(value);
     else {
-      const at = dayMs(op[2]);
+      // A day (2026/10/13) or, as a check-in asks (`newMail.js`), seconds since 1970.
+      const at = /^\d{9,11}$/.test(op[2]) ? Number(op[2]) * 1000 : dayMs(op[2]);
       const ms = Date.parse(email.date);
       yes = at === null ? true : field === "after" || field === "newer" ? ms >= at : ms < at;
     }
+  } else if (/^(in|is|label|category|has|older_than|newer_than):\S/i.test(bare)) {
+    yes = true; // a folder, label or flag the bench's mailbox doesn't keep: every email is in the inbox
   } else {
     yes = haystack(email).includes(lower(bare.replace(/^"|"$/g, "")));
   }

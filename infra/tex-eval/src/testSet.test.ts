@@ -35,13 +35,16 @@ describe("the rules", () => {
     expect(problemWith({ ...conv("x"), msgs: [{ id: "m", who: "Sam", text: "x".repeat(250_000) }] })).toMatch(/bytes/);
   });
 
-  it("caps runs at 1 a commit, 3 a pull request, 1000 a day, unless a person allowed one more", () => {
-    expect(CAPS).toEqual({ commit: 1, pr: 3, day: 1000 });
-    expect(mayRun({ commit: 0, pr: 2, day: 9, allowed: 0 })).toEqual({ ok: true, spendsAllowance: false });
+  it("caps runs at 1 a commit, 10 changes a pull request, 1000 a day, unless a person allowed one more", () => {
+    expect(CAPS).toEqual({ commit: 1, pr: 10, day: 1000 });
+    expect(mayRun({ commit: 0, pr: 9, day: 9, allowed: 0 })).toEqual({ ok: true, spendsAllowance: false });
     expect(mayRun({ commit: 1, pr: 1, day: 1, allowed: 0 })).toMatchObject({ ok: false, why: expect.stringMatching(/commit/) });
-    expect(mayRun({ commit: 0, pr: 3, day: 1, allowed: 0 })).toMatchObject({ ok: false, why: expect.stringMatching(/pull request/) });
+    expect(mayRun({ commit: 0, pr: 10, day: 1, allowed: 0 })).toMatchObject({ ok: false, why: expect.stringMatching(/pull request/) });
+    // Only main moved: the same change re-runs past the pull request cap, never past the commit or day caps.
+    expect(mayRun({ commit: 0, pr: 10, sameChange: true, day: 1, allowed: 0 })).toEqual({ ok: true, spendsAllowance: false });
+    expect(mayRun({ commit: 0, pr: 10, sameChange: true, day: 1000, allowed: 0 })).toMatchObject({ ok: false, why: expect.stringMatching(/today/) });
     expect(mayRun({ commit: 0, pr: 0, day: 1000, allowed: 0 })).toMatchObject({ ok: false, why: expect.stringMatching(/today/) });
-    expect(mayRun({ commit: 1, pr: 3, day: 1000, allowed: 1 })).toEqual({ ok: true, spendsAllowance: true });
+    expect(mayRun({ commit: 1, pr: 10, day: 1000, allowed: 1 })).toEqual({ ok: true, spendsAllowance: true });
   });
 
   it("passes only when no node gets fewer right than on main, and counts a missing answer as wrong", () => {
@@ -88,7 +91,7 @@ describe("the Test Set object", () => {
     expect(text).not.toContain("Chat lease");
   });
 
-  it("hands a run every conversation once per commit, three per pull request and a thousand a day", () => {
+  it("hands a run every conversation once per commit, ten changes per pull request and a thousand a day", () => {
     const s = set();
     s.put(conv("lease"), "user_1");
     const now = Date.UTC(2026, 10, 15, 12);
@@ -98,16 +101,47 @@ describe("the Test Set object", () => {
     expect(s.startRun({ pr: 7, sha: sha("a"), base: sha("f"), ghRun: "1" }, now)).toMatchObject({ ok: true, run: first.ok ? first.run : "" });
     expect(s.startRun({ pr: 7, sha: sha("a"), base: sha("f"), ghRun: "2" }, now)).toMatchObject({ ok: false, why: expect.stringMatching(/commit/) });
     expect(s.startRun({ pr: 7, sha: sha("b"), base: sha("f"), ghRun: "3" }, now).ok).toBe(true);
-    expect(s.startRun({ pr: 7, sha: sha("c"), base: sha("f"), ghRun: "4" }, now).ok).toBe(true);
+    for (let i = 3; i <= CAPS.pr; i += 1) expect(s.startRun({ pr: 7, sha: (0xc00 + i).toString(16).padStart(40, "c"), base: sha("f"), ghRun: `c${i}` }, now).ok).toBe(true);
     expect(s.startRun({ pr: 7, sha: sha("d"), base: sha("f"), ghRun: "5" }, now)).toMatchObject({ ok: false, why: expect.stringMatching(/pull request/) });
     // A person allows one more: it is spent by the next run, and only that one.
     expect(s.allow(7, "user_1")).toEqual({ ok: true, pr: 7, left: 1 });
     expect(s.startRun({ pr: 7, sha: sha("d"), base: sha("f"), ghRun: "5" }, now).ok).toBe(true);
     expect(s.startRun({ pr: 7, sha: sha("e"), base: sha("f"), ghRun: "6" }, now).ok).toBe(false);
-    // PR 7 spent 4 of the day's runs; the rest of the day's cap goes to other pull requests.
-    for (let pr = 8; pr < 4 + CAPS.day; pr += 1) expect(s.startRun({ pr, sha: pr.toString(16).padStart(40, "0"), base: sha("f"), ghRun: `p${pr}` }, now).ok).toBe(true);
+    // PR 7 spent CAPS.pr + 1 of the day's runs; the rest of the day's cap goes to other pull requests.
+    for (let pr = 8; pr < 8 + CAPS.day - CAPS.pr - 1; pr += 1) expect(s.startRun({ pr, sha: pr.toString(16).padStart(40, "0"), base: sha("f"), ghRun: `p${pr}` }, now).ok).toBe(true);
     expect(s.startRun({ pr: 99, sha: sha("9"), base: sha("f"), ghRun: "x" }, now)).toMatchObject({ ok: false, why: expect.stringMatching(/today/) });
     expect(s.startRun({ pr: 99, sha: sha("9"), base: sha("f"), ghRun: "y" }, now + 86_400_000).ok).toBe(true);
+  });
+
+  it("re-runs a change whose commit only merged main without spending a pull request run", () => {
+    const s = set();
+    s.put(conv("lease"), "user_1");
+    const now = Date.UTC(2026, 10, 17, 5);
+    const change = (c: string) => c.repeat(40);
+    // Ten changes: the cap.
+    for (let i = 0; i < CAPS.pr; i += 1) expect(s.startRun({ pr: 7, sha: (0xa00 + i).toString(16).padStart(40, "a"), base: sha("f"), ghRun: `r${i}`, change: (0xb00 + i).toString(16).padStart(40, "b") }, now).ok).toBe(true);
+    expect(s.startRun({ pr: 7, sha: sha("1"), base: sha("e"), ghRun: "new", change: change("c") }, now)).toMatchObject({ ok: false, why: expect.stringMatching(/pull request/) });
+    // Main moved and the branch merged it: a new commit, the last change's diff, so it runs.
+    const last = (0xb00 + CAPS.pr - 1).toString(16).padStart(40, "b");
+    expect(s.startRun({ pr: 7, sha: sha("2"), base: sha("e"), ghRun: "merge1", change: last }, now).ok).toBe(true);
+    expect(s.startRun({ pr: 7, sha: sha("3"), base: sha("d"), ghRun: "merge2", change: last }, now).ok).toBe(true);
+    // The commit cap still holds for a merge-only commit, and a change on another pull request is that one's own.
+    expect(s.startRun({ pr: 7, sha: sha("3"), base: sha("d"), ghRun: "merge3", change: last }, now)).toMatchObject({ ok: false, why: expect.stringMatching(/commit/) });
+    expect(s.startRun({ pr: 8, sha: sha("4"), base: sha("d"), ghRun: "other", change: last }, now).ok).toBe(true);
+    // A run that names no change, or a malformed one, counts as a change of its own.
+    expect(s.startRun({ pr: 9, sha: sha("5"), base: sha("d"), ghRun: "n1", change: "not-a-patch-id" }, now).ok).toBe(true);
+  });
+
+  it("adds the change column to a Test Set kept before it, keeping its runs", async () => {
+    const { DatabaseSync } = await import("node:sqlite");
+    const db = new DatabaseSync(":memory:");
+    db.exec(`CREATE TABLE runs (id TEXT PRIMARY KEY, pr INTEGER NOT NULL, sha TEXT NOT NULL, base TEXT NOT NULL, day TEXT NOT NULL, at INTEGER NOT NULL, gh_run TEXT NOT NULL, tests TEXT NOT NULL, verdict TEXT, allowance INTEGER NOT NULL DEFAULT 0)`);
+    db.exec(`INSERT INTO runs VALUES ('old1', 7, '${sha("a")}', '${sha("f")}', '2026-11-17', 1, 'g1', '[]', NULL, 0), ('old2', 7, '${sha("b")}', '${sha("f")}', '2026-11-17', 2, 'g2', '[]', NULL, 0)`);
+    const s = new TestSet({ storage: { sql: sqlStorage(db) } } as never, {});
+    // The two old runs count as two changes; the column exists for new ones.
+    for (let i = 2; i < CAPS.pr; i += 1) expect(s.startRun({ pr: 7, sha: (0xc00 + i).toString(16).padStart(40, "c"), base: sha("f"), ghRun: `n${i}`, change: (0xd00 + i).toString(16).padStart(40, "d") }, Date.UTC(2026, 10, 17, 6)).ok).toBe(true);
+    expect(s.startRun({ pr: 7, sha: sha("e"), base: sha("f"), ghRun: "over", change: sha("e") }, Date.UTC(2026, 10, 17, 6)).ok).toBe(false);
+    expect(s.runs(100).map((r) => r.id)).toEqual(expect.arrayContaining(["old1", "old2"]));
   });
 
   it("scores a run once, only for the GitHub run that started it, against the tests it was handed", () => {

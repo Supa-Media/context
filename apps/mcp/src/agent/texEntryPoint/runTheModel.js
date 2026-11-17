@@ -136,7 +136,7 @@ export async function runTheModel(t, via) {
   t.settings = doorOut({ production, productionModel, fallback, router, gated, advising, planning, computers, skills, delegation, threaded });
   const egressJudge = aiGatewayConfig(env) === null ? null : (input) => gatewayGraph({ writer: chatLog, turn: ledgerAt?.turn ?? null }).fire("tools", "egress", input, { env }); // interim: io.use.egress once tools is a node
   if (typeof session.sharingJudge === "function" && egressJudge) session.sharingJudge = egressJudge; // interim: io.use.egress once tools is a node
-  // The move judge, only where a Lab draft wires it (`graph/nodes/moveJudge.js`, on the shelf); main keeps the word list.
+  // The move judge, where the config wires tools -> moveJudge (`graph/nodes/moveJudge.js`); without the wire, the word list.
   const drawn = gatewayGraph({ writer: chatLog, turn: ledgerAt?.turn ?? null, config: texConfigOf(env) });
   // Tex asks Tex across chats (`crossChat.js`), once a config wires the Cross-chat gate: it replaces ask_personal_tex in a group.
   const crossWired = chatTurn && job === null && !routine && drawn.wired("tools", "crossChatGate");

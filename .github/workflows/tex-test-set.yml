@@ -9,7 +9,8 @@
 # is judged (apps/mcp/bench/setsRun.mjs --tree). The conversations and answers are written to a folder only this
 # job's user reads, never printed, uploaded or cached, and deleted at the end; the runner's own output goes to
 # /dev/null. The service scores the answers and says pass or fail and counts by node, which is all this prints.
-# Capped by the service: 1 run a commit, 3 a pull request, 1000 a day.
+# Capped by the service: 1 run a commit, 10 changes a pull request, 1000 a day. The change is the patch-id of the
+# pull request's diff from main, so a commit that only merges main re-runs without spending a pull request run.
 
 name: Tex test set
 
@@ -91,9 +92,12 @@ jobs:
           HEAD: ${{ steps.pr.outputs.head }}
           BASE: ${{ steps.pr.outputs.base }}
         run: |
-          set -uo pipefail
+          # GitHub runs this with bash -e: without +e a capped start (exit 3) ends the step before "capped" is set,
+          # and the commit is marked "failed before a verdict" instead of the cap's own reason.
+          set +e -uo pipefail
           umask 077
-          node scripts/tex-test-set.mjs start --pr "$PR" --sha "$HEAD" --base "$BASE" --dir "$RUNNER_TEMP/sealed" | tee -a "$GITHUB_STEP_SUMMARY"
+          change="$(git diff "$BASE" "$HEAD" | git patch-id --stable | cut -d' ' -f1)"
+          node scripts/tex-test-set.mjs start --pr "$PR" --sha "$HEAD" --base "$BASE" ${change:+--change "$change"} --dir "$RUNNER_TEMP/sealed" | tee -a "$GITHUB_STEP_SUMMARY"
           code="${PIPESTATUS[0]}"
           if [ "$code" = "3" ]; then echo "capped=true" >> "$GITHUB_OUTPUT"; exit 0; fi
           exit "$code"

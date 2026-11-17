@@ -22,6 +22,7 @@
 import { readMailbox, searchMailbox } from "./mailbox.mjs";
 import { TRANSCRIPTS_FOLDER } from "../src/agent/transcript.js";
 import { HOUSEKEEPING_CLIENT_ID } from "../src/agent/housekeeping.js";
+import { arrivedEmail, checkInTurn, houseTurn, routineTurn, startCall, startGrants } from "./worldStarts.mjs";
 import worker from "../src/index.js";
 import { PRODUCTION_TEXTING_PATH } from "../src/agent/production.js";
 import { skillPath } from "../src/agent/skills.js";
@@ -205,16 +206,17 @@ export async function createWorld(bench, person, setupRaw, models, today = null,
   // read live, and a mailbox that may keep drafts. Sending stays off, as it is
   // until Google's review adds the send scope (tests/tasks.md, task 9). Each
   // search and read is kept for the result's `Mail:` line.
-  const mail = bench.workspaces[own.workspace]?.mail ?? [];
+  const mail = [...(bench.workspaces[own.workspace]?.mail ?? [])];
   const mailEvents = [];
-  if (mail.length > 0) {
+  const connectMail = () => {
     const address = mail[0].address;
     controlPlane.flags.mailboxes = [{ address, folder: "0-inbox/email" }];
     const logged = (event, value) => (mailEvents.push(event(value)), value);
     controlPlane.flags.mailResults = (query) => logged((found) => `mail search ${JSON.stringify(String(query))}: ${found.length} found`, searchMailbox(mail, query));
     controlPlane.flags.mailMessage = (body) => logged(() => `mail read ${body.id}`, readMailbox(mail, body.address, body.id));
     controlPlane.flags.emailDrafter = address;
-  }
+  };
+  if (mail.length > 0) connectMail();
   // The listing tools list from the Convex tree, copied here from each S3 bucket.
   controlPlane.serveTreesFrom(null, { s3 });
   // A warmed world answers searches from a copy of the snapshot's database.
@@ -314,6 +316,9 @@ export async function createWorld(bench, person, setupRaw, models, today = null,
     clientId: HOUSEKEEPING_CLIENT_ID,
     alsoMemberOf: [{ workspaceId: "ws_pinned", role: "member" }],
   });
+
+  // Tex's check-ins and routine runs, on their own clients' grants (`worldStarts.mjs`).
+  const startTokens = await startGrants(controlPlane, { person, workspaceId: ids.get(own.workspace), userId: `user_bench_${own.workspace}` });
 
   const before = new Map([...ids].map(([name]) => [name, snapshot(s3.bucketFor(`bench-${name}`))]));
   const env = {
@@ -494,41 +499,31 @@ export async function createWorld(bench, person, setupRaw, models, today = null,
       }
     },
     /**
+     * An email arriving in the person's Gmail now (`{ from, subject, body }`), as a check-in's new mail: a person with
+     * no mailbox yet gets one at their bench address.
+     */
+    mailArrives(email) {
+      mail.unshift(arrivedEmail(email, mail[0]?.address ?? `${String(person).toLowerCase().replace(/[^a-z0-9]/g, "") || "person"}@bench.invalid`, mail.length + 1));
+      if (mail.length === 1) connectMail();
+    },
+
+    /** One check-in, as Tex's check-in client: what it would text (`worldStarts.mjs`). */
+    async checkIn() {
+      return checkInTurn((body) => startCall({ worker, env, token: startTokens.checkin, body, controlPlane }));
+    },
+
+    /** One run of the routine at `path`, placed with `text` as its words (`worldStarts.mjs`). */
+    async routine(path, text) {
+      this.place(path, `${text}\n`);
+      return routineTurn(path, (body) => startCall({ worker, env, token: startTokens.routine, body, controlPlane }));
+    },
+
+    /**
      * One housekeeping run over the person's own workspace, answered as a turn
      * is: its answer is the line it would text and the log it wrote.
      */
     async keepHouse() {
-      const { ctx, settle } = createWorkerCtx();
-      const started = realNow();
-      const response = await worker.fetch(
-        new Request("https://mcp.bench.invalid/agent", {
-          method: "POST",
-          headers: { Authorization: `Bearer ${houseToken}`, "Content-Type": "application/json" },
-          body: JSON.stringify({ housekeeping: { timeZone: "UTC" } }),
-        }),
-        env,
-        ctx,
-      );
-      const ms = realNow() - started;
-      const body = await response.json().catch(() => null);
-      await settle();
-      const usage = controlPlane.builtinReports.at(-1) ?? {};
-      const log = typeof body?.log === "string" ? (await this.readThrough(body.log))?.body ?? "" : "";
-      return {
-        ok: response.status === 200 && typeof body?.outcome === "string",
-        answer: [body?.line || `(${body?.outcome ?? "no outcome"}: nothing to text)`, log].filter(Boolean).join("\n\n"),
-        asked: 0,
-        error: response.status === 200 ? null : String(body?.error ?? `status ${response.status}`),
-        ms,
-        model: usage.model ?? null,
-        tools: [],
-        usage: {
-          input: usage.inputTokens ?? 0,
-          output: usage.outputTokens ?? 0,
-          cacheRead: usage.cacheReadTokens ?? 0,
-          cacheWrite: usage.cacheWriteTokens ?? 0,
-        },
-      };
+      return houseTurn(await startCall({ worker, env, token: houseToken, body: { housekeeping: { timeZone: "UTC" } }, controlPlane }), (path) => this.readThrough(path));
     },
 
     /**
@@ -698,3 +693,4 @@ export async function createWorld(bench, person, setupRaw, models, today = null,
     },
   };
 }
+

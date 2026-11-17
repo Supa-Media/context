@@ -26,6 +26,10 @@ link, and the 1:1 asked which website, because it could not see the group.
 - **The tool:** `group_chats`, read only: `list`; `search` {words, chat?, since?} over one chat or all of them, each
   hit with its chat, day, time and who said it, best and newest first; `summaries` {chat, from?, to?}, each day's
   summary with the call that opens it; `read` {chat, day, part?}, one day word for word, as `read_day` reads its own.
+  The model holds only the six tools, so it reaches this one as `fetch {"id": "groups:<chat>", "args": {...}}` and
+  `search {query, args: {groups: true}}` (`sixTools.js`); `read_day` and `read_thread` likewise as `fetch day:<day>`
+  and `fetch thread:<id>`. A local tool with no route there is never called: in the first Lab test Tex said it had no
+  group tool, and no live turn had ever called `read_day` (`groupChats.test.mjs` "the model reaches every chat reader").
 - **Read only.** Nothing here writes to a group, and a group's turn never gets the tool. Asking another chat's Tex to
   do something is its own design (thread "Design Tex-to-Tex messaging between chats").
 - **Untrusted from the first read.** Other people's words reach the turn, so a read marks it untrusted, as a read
