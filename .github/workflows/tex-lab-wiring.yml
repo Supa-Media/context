@@ -1,0 +1,55 @@
+# Config-only pull requests skip the three mobile shards in ci.yml, and with
+# them apps/mobile/__tests__/texLab*.test.ts, which check that the Lab still
+# draws the config those files were generated from. A Lab Promote is
+# config-only, so that wiring was proved only after merge (#3443). This runs
+# just those tests, and only then. A push to main is never "Tex data only";
+# the full mobile shards already cover a diff that also has code.
+# Its own workflow so ci.yml stays under the handwritten-file line limit.
+
+name: Tex Lab wiring
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event_name == 'pull_request' && github.ref || github.sha }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  tex-lab-wiring:
+    name: Tex Lab wiring
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          package-manager-cache: false
+
+      - name: Is this only Tex config and data?
+        id: tex
+        uses: ./.github/actions/ci-scope
+        with:
+          mode: tex-data-only
+
+      - uses: pnpm/action-setup@v4
+        if: steps.tex.outputs.only == 'true'
+
+      - uses: actions/setup-node@v5
+        if: steps.tex.outputs.only == 'true'
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install dependencies
+        if: steps.tex.outputs.only == 'true'
+        run: pnpm install --frozen-lockfile
+
+      - name: Run the Tex Lab wiring tests
+        if: steps.tex.outputs.only == 'true'
+        working-directory: apps/mobile
+        run: pnpm exec jest --testPathPattern '__tests__/texLab' --watchman=false
