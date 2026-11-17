@@ -29,7 +29,7 @@ import { pinnedContextWorkspace } from "./lib/pinnedContext";
 import { getMembership } from "./lib/workspaceAuth";
 import { pageForUser, handleFor } from "./texPage";
 import { listDrafts } from "./texSets";
-import { sharedChats } from "./lib/texLabShared";
+import { sharedChats, devShareOf } from "./lib/texLabShared";
 import { engagementOf, TEXTS_GROUP_CLIENT_ID } from "./textGroups";
 import { oldLineSetting } from "./texOldLine";
 import { TEXTS_CLIENT_ID } from "./textLinks";
@@ -120,7 +120,7 @@ async function sessionFor(ctx: QueryCtx, userId: Id<"users">, chat: string) {
     if (live === null) continue;
     const people = await Promise.all((group.homeUsers ?? []).map(async (id) => ({ handle: await handleFor(ctx, id), name: id === userId ? "You" : (await handleFor(ctx, id)) || "Someone" })));
     // What the control plane tells the chat's object about it on each turn (`textGroups.ts` "ready"), read without minting.
-    const chat = { slug: live.workspace.slug, ...engagementOf(group), oldLine: await oldLineSetting(ctx) };
+    const chat = { slug: live.workspace.slug, ...engagementOf(group), oldLine: await oldLineSetting(ctx), ...(await devShareOf(ctx, group)) };
     return { status: "ok" as const, session: await sessionOf(ctx, live), people, chat };
   }
   return { status: "not_found" as const, error: "Tex has not answered you in this chat yet: tag it there once first." };

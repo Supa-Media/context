@@ -50,6 +50,11 @@ export function callsTex(text: string, repliesToTex: boolean): boolean {
   return repliesToTex || NAMED.test(unquoted(text));
 }
 
+/** Tex named by either of its names ("Tex, ...", "context what's 2+2"), as `callsTex` reads it, without the reply. */
+export function namesTex(text: string): boolean {
+  return NAMED.test(unquoted(text));
+}
+
 /** A literal "@Tex" tag (any case), as a word: never the bare name, which stays the judge's to read. */
 const TAGGED = /(?<![\w-])@tex(?![\w-])/i;
 
