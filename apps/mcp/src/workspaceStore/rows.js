@@ -465,6 +465,14 @@ export function workspaceRows(sql) {
     foldersByRole(role) {
       return all(sql.exec("SELECT * FROM ws_rows WHERE role = ? AND gone = 0 AND kind = 'folder' ORDER BY path", role)).map(rowOut);
     },
+    /**
+     * The one live row whose path matches `path` but for case, or null when there is none or more than one. Names in
+     * one folder never differ only by case (`createNote.js` twins), so a single match is the row a caller meant.
+     */
+    byFoldedPath(path) {
+      const rows = all(sql.exec("SELECT * FROM ws_rows WHERE lower(path) = lower(?) AND gone = 0 LIMIT 2", path));
+      return rows.length === 1 ? rowOut(rows[0]) : null;
+    },
     /** The live row at a path, or null. */
     byPath(path) {
       const row = all(sql.exec("SELECT * FROM ws_rows WHERE path = ? AND gone = 0 ORDER BY at DESC LIMIT 1", path))[0];

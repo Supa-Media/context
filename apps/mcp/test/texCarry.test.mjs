@@ -182,3 +182,12 @@ test("a result read under another grant, or none recorded, is stubbed, arguments
   assert.equal(same.result, "secret plans");
   assert.deepEqual(same.args, { path: "a.md" });
 });
+
+test("a write into another workspace is carried with where it went, and none of its words (2026-11-17)", () => {
+  const entries = [text("1", 10, A, "q"), text("2", 12, "tex", "a", "t1"), reply("t1", 13)];
+  const call = tool("t1", 11, { withheld: "other_workspace", result: undefined, receipt: "written: projects/x.md (etag c2.a)\nvisibility: private", name: "write_note", args: { path: "projects/x.md", context: "@v2l", content: "secret words" } });
+  const [, answer] = stretchTurns(entries, [call], { since: 0, ...G });
+  assert.equal(answer.calls[0].result, `written: projects/x.md (etag c2.a)\nvisibility: private\n\n${STUB_WITHHELD}`);
+  assert.deepEqual(answer.calls[0].args, { path: "projects/x.md", context: "@v2l" });
+  assert.equal(carryCounts([answer]).stubWorkspace, 1);
+});

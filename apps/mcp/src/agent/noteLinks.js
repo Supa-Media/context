@@ -72,10 +72,21 @@ export function noteLinkUrl(origin, slug, path) {
   return `${origin}/${route}/@${encodeURIComponent(slug)}/${encoded}`;
 }
 
-/** The context a call named (`context: "@name"`), else the turn's own. */
+/** A path that opens with a workspace's name: the `@name/path` sugar the router reads (`tools/pathAddress.js`). */
+const PATH_NAMED = /^@([a-z0-9][a-z0-9-]*)\//i;
+
+/**
+ * The context a call named (`context: "@name"`, or a `path`/`id` that opens with `@name/`), else the turn's own.
+ * A read of `@v2l/projects/x.md` named its workspace only in the path, and its link said the turn's own
+ * workspace, which Tex then believed and texted (2026-11-16).
+ */
 function slugFor(args, contexts) {
   const named = typeof args?.context === "string" ? args.context.trim().replace(/^@/, "") : "";
   if (named !== "") return named;
+  for (const field of ["path", "id", "note"]) {
+    const match = typeof args?.[field] === "string" ? PATH_NAMED.exec(args[field].trim()) : null;
+    if (match) return match[1];
+  }
   // A context may be listed by its address ("@band"); the link names it once.
   const own = (contexts || []).find((entry) => entry?.current)?.name;
   const slug = typeof own === "string" ? own.trim().replace(/^@/, "") : "";
@@ -96,6 +107,22 @@ function linked(name, args, text, origin, slug) {
   return null;
 }
 
+/** The note tools whose refusals can name a path or a folder to use instead. */
+const NAMES_PLACES = new Set(["write_note", "read_note", "move_note", "archive_note", "set_visibility"]);
+
+/**
+ * A refused note call says which workspace refused it (owner, 2026-11-17): a write that named no workspace was
+ * refused in the turn's own with "Projects is already here … Use Projects/…", and Tex took that folder's name into
+ * another workspace. The message is the tool's own words; only the workspace is put in front.
+ */
+function inWorkspace(name, args, contexts, result) {
+  if (!NAMES_PLACES.has(name)) return result;
+  const first = result?.content?.[0];
+  const slug = slugFor(args, contexts);
+  if (typeof first?.text !== "string" || slug === null || first.text.startsWith("In @")) return result;
+  return { ...result, content: [{ ...first, text: `In @${slug}: ${first.text}` }, ...result.content.slice(1)] };
+}
+
 /**
  * Wrap a dispatcher so a successful `write_note` or `read_note` answers with
  * the note's link as well. Everything else, a failed call included, passes
@@ -105,7 +132,8 @@ export function withNoteLinks(callTool, { origin, contexts }) {
   if (origin === null) return callTool;
   return async (name, args) => {
     const result = await callTool(name, args);
-    if ((name !== "write_note" && name !== "read_note") || result?.isError) return result;
+    if (result?.isError) return inWorkspace(name, args, contexts, result);
+    if (name !== "write_note" && name !== "read_note") return result;
     const first = result?.content?.[0];
     const slug = slugFor(args, contexts);
     if (typeof first?.text !== "string" || slug === null) return result;
