@@ -1,5 +1,5 @@
 /**
- * The step panel's "Test cases" (Dev2, 2026-11-15: "an easy way to add test cases"): how many of its 20 cases test
+ * The step panel's "Test cases" (Dev2, 2026-11-15: "an easy way to add test cases"): how many of its 50 cases test
  * this step, the bench areas they come from, and its own cases with their add form (`tests/NodeCases.tsx`).
  */
 import { AREAS } from "../../data/areas";

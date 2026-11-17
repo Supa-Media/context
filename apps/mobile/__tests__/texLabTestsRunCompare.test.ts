@@ -64,6 +64,7 @@ import { config } from "../features/tex/lab/engine/diff";
 import { mods } from "../features/tex/lab/engine/modules";
 import { clone, emit, lab, MAIN, node, set as setLab, stepsOf } from "../features/tex/lab/engine/state";
 import { caseFit } from "../features/tex/lab/views/tests/caseParts";
+import { CASE_CAP } from "../features/tex/lab/engine/cases";
 import { parseReport, promptText } from "../features/tex/lab/views/run/runText";
 import { Workspace } from "../features/tex/lab/views/Workspace.web";
 import type { LabCase, LabNode } from "../features/tex/lab/types";
@@ -316,12 +317,16 @@ describe("/lab: the Tests, Run, Compare and Workspace views", () => {
   });
 
   // Dev2, 2026-11-15: "a max of 20 test cases per unit". A full step has no Add; a new case swaps one out.
-  test("Tests: a full step offers Swap in, and Keep trades one case for the new one so the step stays at 20", async () => {
-    expect(coreCount()).toBe(20);
+  test("Tests: a full step offers Swap in, and Keep trades one case for the new one so the step stays at the cap", async () => {
+    // The bench's core cases plus cases added in the Lab fill the step to CASE_CAP.
+    expect(coreCount()).toBeLessThanOrEqual(CASE_CAP);
+    const fill = Array.from({ length: CASE_CAP - coreCount() }, (_, i) => ({ key: `core/fill-${i}`, data: JSON.stringify({ area: "core", id: `fill-${i}`, ask: "x", expect: "y", isNew: true }) }));
     mountLab();
+    mockAnswers.set(LIST, { me: "u1", versions: [], caseEdits: fill });
+    await act(async () => {});
     openTests("core");
     expect(q("#addCase")).toBeNull();
-    expect(q("#capBanner")?.textContent).toContain("20");
+    expect(q("#capBanner")?.textContent).toContain(String(CASE_CAP));
     click(q("#swapIn"));
     expect(q("#swapCard")).not.toBeNull();
     setValue(q<HTMLTextAreaElement>("#swapAsk")!, "A sharper case");

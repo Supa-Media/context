@@ -34,16 +34,16 @@ test("held-out cases always run; no sample runs everything", () => {
   assert.ok(inSample(null)({ id: "anything" }));
 });
 
-test("the reviewer and Decide keep 20 cases each, every reviewer set and both kinds in; jobs runs one task of each kind", async () => {
-  assert.equal(UNIT_LIMIT, 20);
+test("the reviewer and Decide keep at most UNIT_LIMIT cases each, every reviewer set and both kinds in; jobs runs one task of each kind", async () => {
+  assert.equal(UNIT_LIMIT, 50);
   const sets = await loadSets();
   const review = Object.values(sets).flat();
-  assert.equal(review.length, UNIT_LIMIT);
+  assert.ok(review.length <= UNIT_LIMIT, `${review.length} reviewer cases`);
   assert.ok(Object.values(sets).every((cases) => cases.length > 0), "every reviewer set keeps a case");
   const faults = review.filter((item) => item.fault).length;
-  assert.ok(faults >= 8 && faults <= 12, `${faults} faults of 20`);
+  assert.ok(faults >= review.length * 0.4 && faults <= review.length * 0.6, `${faults} faults of ${review.length}`);
   const decide = await loadRespond();
-  assert.equal(decide.length, UNIT_LIMIT);
+  assert.ok(decide.length <= UNIT_LIMIT, `${decide.length} Decide cases`);
   assert.ok(decide.some((item) => item.must) && decide.some((item) => item.want === "hush") && decide.some((item) => item.want !== "hush" && !item.must));
   const tasks = await loadCases();
   const kept = tasks.filter((item) => jobsSample(tasks, tasks).has(item.id));
