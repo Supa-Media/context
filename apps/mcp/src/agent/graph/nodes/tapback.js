@@ -1,5 +1,5 @@
 /**
- * The Tapback node, `tapback` (`texNodeShelf.json` until a Lab draft wires `tools -> tapback`; `../../tapbackEnding.js`).
+ * The Tapback node, `tapback` (config wire `tools -> tapback`, promoted 2026-11-17; `../../tapbackEnding.js`).
  * When the front door answers their text with only a tapback (Dev2, 2026-11-17: "Front door picks the tapback"), it
  * says whether the turn may end that way, and with which of the 64 emoji (`textDecide.cjs` `REACT_EMOJI`).
  *
