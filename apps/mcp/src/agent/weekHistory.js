@@ -43,8 +43,9 @@ const MAX_PAGES = 15;
 /** `read_day`: the most of a day's words one call answers; a longer day is read in parts. */
 export const READ_DAY_CHARS = 60_000;
 
-/** The reads Dev2 named first (2026-11-17): the last 7 days within 40k characters, every summary within 40k. */
-export const DEFAULT_READS = Object.freeze({ chat: Object.freeze({ days: 7, chars: 40_000 }), summaries: Object.freeze({ days: null, chars: 40_000 }) });
+/** The reads when a config names none: the last 7 days within 200k characters, every summary within 120k (Dev2 named
+ * 40k each first, 2026-11-17; raised the same day, when 40k cut a busy group's week to its newest third). */
+export const DEFAULT_READS = Object.freeze({ chat: Object.freeze({ days: 7, chars: 200_000 }), summaries: Object.freeze({ days: null, chars: 120_000 }) });
 
 /** The tool every older day names. */
 export const READ_DAY = "read_day";
