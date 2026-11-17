@@ -174,6 +174,37 @@ test("a loop wire's rounds limit how often work goes back, before the target's o
   assert.equal(n, 3);
 });
 
+test("a release hands work back without spending a round, and left() says how many sends remain", async () => {
+  const config = {
+    nodes: [node("fd", { kind: "input" }), node("check")],
+    edges: [wire("fd", "check"), { ...wire("check", "fd", "loop"), rounds: 2 }],
+  };
+  const seen = [];
+  const g = createGraph(config, {
+    fd: async () => ({}),
+    check: async (_x, io) => {
+      const back = io.back.fd;
+      seen.push(back.left());
+      await back({});
+      await back({}, { release: true });
+      await back({}, { release: true });
+      seen.push(back.left());
+      await back({});
+      seen.push(back.left());
+      await back({}, { release: true }); // a spent budget can still let the work go
+      return {};
+    },
+  });
+  await g.run("fd", {});
+  assert.deepEqual(seen, [2, 1, 0]);
+});
+
+test("every loop wire in live Tex's config names its own rounds, the send-back budget the Lab shows and edits", () => {
+  const loops = TEX_CONFIG.edges.filter((e) => e.mode === "loop");
+  assert.ok(loops.length > 0);
+  for (const e of loops) assert.ok(Number.isInteger(e.rounds) && e.rounds > 0, `${e.from} -> ${e.to} has no rounds`);
+});
+
 test("fire runs one node over a config wire, for code not on the runner yet, and refuses a wire the config lacks", async () => {
   const logs = [];
   const config = { nodes: [node("send", { kind: "input" }), node("classifier"), node("other")], edges: [wire("send", "classifier", "background")] };
