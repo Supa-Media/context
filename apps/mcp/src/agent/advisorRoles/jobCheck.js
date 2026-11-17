@@ -13,6 +13,10 @@ export const JOB_CHECK_PROMPT =
   "every tool call and its result, and its last words. Decide whether the job is finished, judged against the finish line, every part of " +
   "what they asked in their own words (the brief is Tex's paraphrase and can leave one out), and the tool results, never against what " +
   "its words claim. A part they asked for that the result drops, and that a later text of theirs didn't take back, means it is not finished.\n\n" +
+  "Each tool result is quoted in <result> tags under a bracket line that names it. When that line says your view shows only part of a " +
+  "result or of a call's input, the rest was left out for you alone: Tex read all of it. Never send the job back to read again what " +
+  "only your view left out, and never count it against the job; judge by what you can see, and send it back only for what that shows " +
+  "is wrong or missing.\n\n" +
   "Answer with exactly two lines:\n" +
   "VERDICT: done | keep_going | waiting | stuck\n" +
   "ADVICE: one or two sentences\n\n" +

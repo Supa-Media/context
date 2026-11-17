@@ -42,13 +42,23 @@ export const CASES = join(HERE, "advisor");
 export const ADVISOR_MODEL = "anthropic/claude-opus-5-5";
 export const ADVISOR_EFFORT = "high";
 
+/**
+ * A `did` row's result: its text, or a long one written short as `{ each, times, then? }`: `each` once per
+ * `times`, `{n}` in it the count from 1, then `then` (a two-week calendar read, 2026-11-17).
+ */
+export function caseResult(result) {
+  if (result === null || typeof result !== "object") return String(result ?? "");
+  const each = Array.from({ length: result.times ?? 1 }, (_, index) => String(result.each ?? "").replaceAll("{n}", String(index + 1)));
+  return [...each, ...(result.then ? [result.then] : [])].join("\n\n");
+}
+
 /** A case's earlier texts and its turn so far as the turn's messages: `did` rows are [tool, args, result, "failed"?]. */
 export function caseMessages(item) {
   const messages = (item.earlier ?? []).map(([who, text]) => ({ role: who === "tex" ? "assistant" : "user", text }));
   if (typeof item.q === "string") messages.push({ role: "user", text: item.q });
   for (const [name, args, result, failed] of item.did ?? []) {
     messages.push({ role: "assistant", text: "", toolCalls: [{ name, args: args ?? {} }] });
-    messages.push({ role: "tool", name, text: String(result ?? ""), isError: failed === "failed" });
+    messages.push({ role: "tool", name, text: caseResult(result), isError: failed === "failed" });
   }
   if (typeof item.draft === "string") messages.push({ role: "assistant", text: item.draft });
   return messages;

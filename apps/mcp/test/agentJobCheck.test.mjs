@@ -69,7 +69,7 @@ test("the advisor reads the job, its finish line, their texts and every tool res
   // The context review, 2026-11-06: 20,000 characters of texting rules, cut mid-sentence, and never the job's own brief.
   assert.doesNotMatch(brief, /tex_instructions|You are Tex/, "the texting rules are not the check's");
   assert.match(brief, /\[Tex calls send \{"action":"open_page"/);
-  assert.match(brief, /\[result of send\]\nPage: Sign in to apply/);
+  assert.match(brief, /\[result of send\]\n<result>\nPage: Sign in to apply/);
   assert.match(brief, /Tex's last words: I'll begin with the sign-in\./);
   assert.match(JOB_CHECK_PROMPT, /VERDICT: done \| keep_going \| waiting \| stuck/);
 

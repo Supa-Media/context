@@ -18,7 +18,11 @@
           {
             "q": "dentist 10025 Aetna PPO"
           },
-          "Riverside Dental, 2700 Broadway, (212) 555-0141, in network: Aetna PPO; Columbus Smiles, 912 Columbus Ave, (212) 555-0177, in network: Aetna PPO; Morningside Dental Care, 1180 Amsterdam Ave, (212) 555-0102, in network: Aetna PPO"
+          {
+            "each": "Result {n}: a dental office near 10025 listed on a directory page, with its hours (Mon to Fri 8:00 AM to 6:00 PM, Sat 9:00 AM to 2:00 PM), its accepted plans (Cigna DPPO, MetLife PDP, Guardian, United Concordia; Aetna PPO not listed), patient reviews averaging 4.3 stars, a note that new patients wait about two weeks, and a link to book online that the directory says it can't vouch for.",
+            "times": 30,
+            "then": "Matches for in network: Aetna PPO:\nRiverside Dental, 2700 Broadway, (212) 555-0141, in network: Aetna PPO; Columbus Smiles, 912 Columbus Ave, (212) 555-0177, in network: Aetna PPO; Morningside Dental Care, 1180 Amsterdam Ave, (212) 555-0102, in network: Aetna PPO"
+          }
         ],
         [
           "write",
@@ -30,7 +34,7 @@
       ],
       "answer": "Saved three dentists taking Aetna PPO to areas/health/dentists.md: Riverside Dental, Columbus Smiles and Morningside Dental Care, each with address and phone.",
       "want": "done",
-      "fixed": "2026-11-13: the phone numbers were only in the saved note, never in a tool result, so the check was right to doubt it; the search result now carries them, and the ask names the zip"
+      "fixed": "2026-11-13: the phone numbers were only in the saved note, never in a tool result, so the check was right to doubt it; the search result now carries them, and the ask names the zip; 2026-11-17: the three Aetna matches now sit past character 8,000 of the search result, where the check's old 8,000 cut hid them (a dentist job was sent back twice for calendar days Tex had read), so the check must see the whole result"
     },
     {
       "id": "promise-is-not-done",
