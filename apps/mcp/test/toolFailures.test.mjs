@@ -16,6 +16,8 @@
  *     → "a reason keeps our words and loses every value" fails
  *   a held call counted as a failure
  *     → "a call held for the person's yes is not a failure" fails
+ *   an `ask` send-back counted as a failure
+ *     → "a designed send-back is not a failure" fails
  */
 
 import assert from "node:assert/strict";
@@ -95,6 +97,23 @@ test("a tool that throws is kept as threw with its class, which the model never 
 test("a tool it was never given is kept as not_offered, under the name the model wrote", async () => {
   const { result } = await turn([calls(["delete_everything", {}]), answer], async () => ({ content: [{ type: "text", text: "ok" }] }));
   assert.deepEqual(result.timing.failures.map(({ tool, cause }) => ({ tool, cause })), [{ tool: "delete_everything", cause: "not_offered" }]);
+});
+
+test("a designed send-back is not a failure: the model still reads it as an error, and the turn log counts the call as one that worked", async () => {
+  const { result, logged } = await turn([calls(["read_note", { path: "a.md" }]), answer], async () => ({
+    content: [{ type: "text", text: "This page has no picture, so draw it one first." }],
+    isError: true,
+    ask: true,
+  }));
+  assert.deepEqual(result.timing.failures, []);
+  assert.equal(logged.length, 0);
+  const entry = result.timing.trace.find((item) => item.kind === "tool");
+  assert.equal(entry.ok, true);
+  assert.equal(entry.ask, true);
+  assert.equal(result.steps.find((step) => step.tool === "read_note").ok, false, "the turn's own steps still say the cover was not drawn");
+  const shown = result.live.messages.find((message) => message.role === "tool");
+  assert.equal(shown.isError, true);
+  assert.match(shown.text, /draw it one first/);
 });
 
 test("a call held for the person's yes is not a failure, and a call that worked is not either", async () => {

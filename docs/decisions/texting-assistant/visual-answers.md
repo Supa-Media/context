@@ -596,6 +596,17 @@ Two causes, both fixed:
   At most six things, 24 seconds each; `draw_visual`'s limit went from 40 s to
   75 s. What is still missing is named in the result.
 
+### A steps card with no photo draws no empty tile (2026-11-17)
+
+A `steps` card drew a photo slot for every step. With no photo that slot was
+a "No photo found" tile, and the card check held the card. Titles were cut at
+34 characters and tips at 60, with an ellipsis, and the schema never said so,
+so the check also held a card whose words were cut mid-phrase. A step with
+no photo now has no photo slot. The template line names the limits (`title`
+≤34, `tip` ≤60) and says to leave `photo` out when there is none. The cut
+stays, so a longer line still cannot overflow the card. Tests:
+`apps/mcp/test/agentVisuals.test.mjs`.
+
 `VISUALS_LINE` and the page design skill now say a compared option always
 shows a real picture, and that one failed try is not a reason to answer in
 words. A wrong photo is still worse than none, which the card self-check

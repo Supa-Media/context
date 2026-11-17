@@ -86,7 +86,7 @@ export function turnTiming({ steps = [], trace = [], waitMs = null, worker = nul
     const at = loopAt + whole(entry?.at);
     const ms = whole(entry?.ms);
     if (entry?.kind === "router") timing.router = { at, ms, ...(typeof entry.model === "string" ? { model: name(entry.model) } : {}) };
-    else if (entry?.kind === "tool" && timing.tools.length < MAX_TOOLS) timing.tools.push({ at, ms, name: name(entry.tool), ...(entry.ok === false ? { ok: false } : {}), ...(entry.held ? { held: true } : {}) });
+    else if (entry?.kind === "tool" && timing.tools.length < MAX_TOOLS) timing.tools.push({ at, ms, name: name(entry.tool), ...(entry.ok === false ? { ok: false } : {}), ...(entry.held ? { held: true } : {}), ...(entry.ask ? { ask: true } : {}) });
     else if ((entry?.kind === "model" || entry?.kind === "fallback") && timing.rounds.length < MAX_ROUNDS) {
       const usage = entry.usage ?? {};
       timing.rounds.push({

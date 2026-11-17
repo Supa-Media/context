@@ -27,7 +27,14 @@ and the judges hold none. So `runTurn` records each failure there
   A thrown error's class and shaped message are kept here, and still never
   reach the model.
 
-A call held for the person's yes is not a failure.
+A call held for the person's yes is not a failure. A designed send-back is
+not one either (2026-11-17): a page with no picture asks for a scene
+(`SCENE_ASK` in `visuals/pageDrawing.js`, marked `ask`). The model still
+reads that as an error and draws again, the chat's ledger still shows the
+call as not done so a later check does not skip the cover, and it does not
+send the next round back to the planner. The turn log counts it as a call
+that worked (`ok`, with `ask`), so the Lab's tool stats do not call it an
+error. Counting it was most of the fast `draw_visual` failures.
 
 **Where it goes.** A `tex_tool_failed` line in the gateway's logs at once, with
 the client and workspace like every other log line. After the answer, the

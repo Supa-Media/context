@@ -32,7 +32,7 @@ import { test } from "node:test";
 
 import { outgoingPictures, sentPicturesLine } from "../src/agent/outgoingPictures.js";
 import { DRAW_TOOL, MAKE_TOOL, pictureMaker, withDrawnImages, withPictureMaker } from "../src/agent/pictureMaker.js";
-import { VISUALS_LINE, VISUAL_TEMPLATES, VISUAL_TOOL, buildVisual } from "../src/agent/visuals/index.js";
+import { VISUALS_LINE, VISUAL_DEFINITION, VISUAL_TEMPLATES, VISUAL_TOOL, buildVisual } from "../src/agent/visuals/index.js";
 import { esc, photoUrl } from "../src/agent/visuals/kit.js";
 import { hours } from "../src/agent/visuals/time.js";
 import { MAX_PHOTO_BYTES, downloadPhoto, fillPictures, pagesIn } from "../src/agent/visuals/photos.js";
@@ -87,6 +87,28 @@ const EXAMPLES = {
   system: { title: "How the pieces connect", layers: [{ parts: [{ name: "Kiosk iPad" }] }, { core: true, parts: [{ name: "Convex backend" }] }] },
   streak: { count: 12, title: "days in a row", marks: "0111111111111" },
 };
+
+test("a steps card with no photo draws no empty tile, and the schema names the text limits", () => {
+  const bare = buildVisual({ template: "steps", data: EXAMPLES.steps }).html;
+  assert.doesNotMatch(bare, /No photo found|data-no-photo/);
+  assert.match(bare, /Shut the water off/);
+  assert.match(bare, />1</);
+  const mixed = buildVisual({
+    template: "steps",
+    data: { title: "Pasta", steps: [{ title: "Salt the water", tip: "It should taste like the sea" }, { title: "Boil", tip: "Eight minutes", photo: "https://cdn.example/boil.jpg", source: "The kit" }] },
+  }).html;
+  assert.doesNotMatch(mixed, /No photo found|data-no-photo/);
+  assert.match(mixed, /url\('https:\/\/cdn\.example\/boil\.jpg'\)/);
+  assert.match(mixed, /photo · The kit/);
+  assert.equal(buildVisual({ template: "steps", data: { title: "x", steps: [{ title: "Boil", photo: "not a url" }] } }).html.includes("No photo found"), false);
+  const line = VISUAL_DEFINITION.description.split("\n").find((row) => row.startsWith("- steps:"));
+  assert.match(line, /title \(≤34 characters\), tip \(≤60 characters\)/);
+  assert.match(line, /Leave photo out when you have none/);
+  // The cut stays, so a longer line still cannot overflow the card. The schema is what tells the model not to need it.
+  const cut = buildVisual({ template: "steps", data: { title: "x", steps: [{ title: "A title that is far too long for a step card", tip: "A tip that runs on well past sixty characters and would be cut off mid-phrase" }] } }).html;
+  assert.match(cut, /A title that is far too long for…/);
+  assert.match(cut, /A tip that runs on well past sixty characters and would be…/);
+});
 
 test("a card that won't draw leaves the whole answer in words", () => {
   // Hand-back bench case 10 (gh-104): "The card won't draw right now" and one line in place of the list.

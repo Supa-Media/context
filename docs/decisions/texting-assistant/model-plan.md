@@ -19,9 +19,10 @@ every later round runs on `main` (`src/agent/modelPlan.js`). A round whose tool
 calls included a failure (a refusal, an unknown tool, a call that threw or
 timed out) sends the next round back to `think` once: a driver that just hit a
 wall is when the planner is worth paying for. A call the egress gate held for
-the person's yes (`held: true`) is not a failure and never escalates; a call
-refused because the turn is out of time does not either, since the next round
-must answer anyway. Absent, a routed turn is exactly what it was.
+the person's yes (`held: true`) is not a failure and never escalates; a
+designed send-back (`ask`, a page asking for its scene) is not one either; a
+call refused because the turn is out of time does not either, since the next
+round must answer anyway. Absent, a routed turn is exactly what it was.
 
 - **A switch is the fallback's switch** (`turn.js` `switchTo`): the prompt is
   rebuilt for the model now answering (it is told which model it is), and the
@@ -59,7 +60,8 @@ Tests (`apps/mcp/test/agentThinkRounds.test.mjs`, `bench/test/world.test.mjs`,
 "without think_rounds, a text routed to think stays on think for the whole
 turn, as before", "think_rounds 1: round 0 plans on think, every later round
 drives on main", "a failed call sends the next round to think, once, then main
-drives again", "a call held for the person's yes does not escalate", "the
+drives again", "a call held for the person's yes does not escalate", "a
+designed send-back does not escalate", "the
 switch drops the planner's thinking and re-tells the model who it is",
 "per-model usage adds up to the turn's total, and the meter gets one report per
 model", "the fallback still takes over mid-plan, and the turn stays on it",

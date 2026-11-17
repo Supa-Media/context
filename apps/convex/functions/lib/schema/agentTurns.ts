@@ -28,6 +28,8 @@ export const agentTurnTraceEntry = v.object({
   cut: v.optional(v.boolean()),
   // tool: the egress gate held the call for the person's yes; it ran later or not at all.
   held: v.optional(v.boolean()),
+  // tool: a designed send-back (a page with no picture asking for its scene). A call that worked.
+  ask: v.optional(v.boolean()),
   ok: v.boolean(),
   ms: v.number(),
 });
