@@ -1,3 +1,4 @@
+bench/test/byCode.test.mjs
 bench/test/checks.test.mjs
 bench/test/fluff.test.mjs
 bench/test/judge.test.mjs

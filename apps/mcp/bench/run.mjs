@@ -63,6 +63,7 @@ import { filedNotes } from "./checks.mjs";
 import { realNow } from "./clock.mjs";
 import { benchFolder } from "./folder.mjs";
 import { benchModels } from "./worldModels.mjs";
+import { byCodeStart } from "./byCode.mjs";
 
 /**
  * The fewest texts the played person may send in one conversation. A brief
@@ -217,17 +218,19 @@ export async function converse(world, question, person, mode = null, background 
   const totals = { ms: 0, personMs: 0, tools: [], jobs: [], traces: [], usage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 }, usageByModel: {}, rounds: {}, model: null, error: null };
   // A Lab replay's chat before its text goes into the ledger first, as it was (`labReplay.mjs`).
   if ((question.earlier ?? []).length > 0) await world.earlier(question.earlier);
-  if (question.checkinMail || question.routine) return await startedBy(world, question);
-  let message = question.personStarts ?? question.texts ?? question.text;
+  // A group's routine or check-in, or a job's report: one turn the Worker queues itself (`byCode.mjs`).
+  const byCode = await byCodeStart(world, question, { running });
+  if (byCode === null && (question.checkinMail || question.routine)) return await startedBy(world, question);
+  let message = byCode?.message ?? question.personStarts ?? question.texts ?? question.text;
   const limit = personTextLimit(question);
   for (let texts = 0; message !== null && texts < limit; texts += 1) {
     const sent = texts === 0 ? (question.sendsPictures ?? (question.sendsPicture ? [question.sendsPicture] : [])) : [];
     const pictures = await Promise.all(sent.map(benchPicture));
-    conversation.push({ from: "person", text: pictures.length > 0 ? `${message}\n${sent.map((name) => `[Sent a picture: ${name}]`).join("\n")}` : message });
+    if (byCode === null) conversation.push({ from: "person", text: pictures.length > 0 ? `${message}\n${sent.map((name) => `[Sent a picture: ${name}]`).join("\n")}` : message });
     const seen = world.browser().length;
     const others = (question.others ?? []).filter((line) => line.before === texts + 1); // a group's other members, before this text (`load.mjs`)
     for (const line of others) conversation.push({ from: "person", text: `@${line.from}: ${line.text}` });
-    const turn = await world.text(message, pictures, { running, others });
+    const turn = await world.text(message, pictures, { running: byCode?.running ?? running, others, ...(byCode?.options ?? {}) });
     totals.ms += turn.ms;
     totals.tools.push(...turn.tools);
     totals.traces.push(turn.trace ?? []);
@@ -254,6 +257,8 @@ export async function converse(world, question, person, mode = null, background 
     if (tapback !== null) conversation.push({ from: "assistant", text: tapback, tapback: true });
     // Only a back-and-forth has a person who answers back. The time the played
     // person takes is the run's, not the setup's: it is kept apart from `ms`.
+    // Nobody texted it, so nobody answers back.
+    if (byCode !== null) break;
     const personStarted = realNow();
     message =
       personAnswers(turn, question) ??
