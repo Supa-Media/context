@@ -5,7 +5,8 @@
  *
  * A cache, never a copy of record: one row per text being answered, the newest snapshot of what its turn has done,
  * read back only by the next try of that same text, deleted once it is answered (`turnResume.js` `forget`) and
- * unreadable after `ROUNDS_FRESH_MS`.
+ * unreadable after `ROUNDS_FRESH_MS`. Expired rows are deleted on read and on forget as well as on save, so a
+ * snapshot of mail or note text does not sit until the next text is saved.
  * Not notes, so never listed, searched or exported; wiped with the ledger (`wire.js` `wipe`).
  */
 import { TexObjectRefused } from "./objects.js";
@@ -39,22 +40,25 @@ export function texRounds(sql, { now = Date.now, guard = () => {} } = {}) {
       sql.exec("INSERT OR REPLACE INTO ledger_rounds (chat, key, at, data) VALUES (?, ?, ?, ?)", chat, key, now(), text);
       return { ok: true };
     },
-    /** A text's snapshot while fresh, or null. */
+    /** A text's snapshot while fresh, or null. Expired rows of any text go with the read. */
     get(chat, key) {
       check(chat, key);
-      const row = rows(sql.exec("SELECT at, data FROM ledger_rounds WHERE chat = ? AND key = ?", chat, key))[0];
-      if (!row || now() - Number(row.at) > ROUNDS_FRESH_MS) return null;
+      guard();
+      prune();
+      const row = rows(sql.exec("SELECT data FROM ledger_rounds WHERE chat = ? AND key = ?", chat, key))[0];
+      if (!row) return null;
       try {
         return JSON.parse(row.data);
       } catch {
         return null;
       }
     },
-    /** The text is answered: its snapshot goes. */
+    /** The text is answered: its snapshot goes, and so does every expired one. */
     forget(chat, key) {
       check(chat, key);
       guard();
       sql.exec("DELETE FROM ledger_rounds WHERE chat = ? AND key = ?", chat, key);
+      prune();
       return { ok: true };
     },
     wipe() {

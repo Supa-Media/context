@@ -13,8 +13,9 @@ from the person's text, so every search, page and note save ran again.
 returned. It is kept in the chat's own home, beside its ledger (`apps/mcp/src/texStore/rounds.js`): a person's in their
 personal workspace's object, a group chat's in its own Tex object. It never goes to the texting Worker, so a group's
 sealed memory never leaves the home only its people open ([chat-homes](./chat-homes.md)). One row per text, the newest
-snapshot, read back for 30 minutes and deleted once the text is answered, not a note (never listed, searched or
-exported), wiped with the ledger.
+snapshot, read back for 30 minutes and deleted once the text is answered. An expired snapshot is also deleted when
+any snapshot in that home is read or forgotten, so its mail and note text does not wait for the next save. Not a note
+(never listed, searched or exported), wiped with the ledger.
 
 **What is never carried on.** A snapshot is the transcript, not the turn's other state (asks held for a yes, jobs
 started, pictures made, vault links, cross-chat asks). So it holds only calls whose whole effect is the words they
