@@ -132,7 +132,7 @@ export async function adaptersFor(tree, { fake = false, env = process.env } = {}
   const socketed = Boolean(socket?.covers("claude"));
   return {
     // The front door runs as a whole turn in the bench's world, so its tests go as one batch (`setsFd.mjs`).
-    fd: { batch: (units) => runFd(units, { tree, fake }) },
+    fd: { batch: (units, { parallel = 1 } = {}) => runFd(units, { tree, fake, parallel }) },
     decide: async () => {
       const { judgeCase, fakeEngine } = await mod("apps/mcp/bench/respond.mjs");
       const engine = fake ? null : (await mod("apps/mcp/src/agent/decide.js")).decisionEngine((await mod("apps/mcp/bench/models.mjs")).workersAi(env.CLOUDFLARE_ACCOUNT_ID, env.CLOUDFLARE_AI_TOKEN));
@@ -187,21 +187,28 @@ export async function adaptersFor(tree, { fake = false, env = process.env } = {}
   };
 }
 
-/** Every unit test of the conversations (one node when `node` is named), each run alone. */
-export async function runSets(convs, { tree, node = null, fake = false, env = process.env, adapters = null } = {}) {
+/**
+ * Every unit test of the conversations (one node when `node` is named), each run alone. The nodes that run in this
+ * process (Decide, the job check, the reviewer) go one after another while the batched ones (the Front door, whose
+ * tests are processes of their own) go beside them, `parallel` tests at a time; rows come back in the same order.
+ */
+export async function runSets(convs, { tree, node = null, fake = false, env = process.env, adapters = null, parallel = 1 } = {}) {
   const table = adapters ?? (await adaptersFor(tree, { fake, env }));
   const ready = {};
-  const rows = [];
+  const singles = [];
   const batches = {};
   for (const c of convs) {
     for (const t of unitTests(c)) {
       if (node && t.node !== node) continue;
       const label = c.msgs[t.at].labels[t.node];
       const row = { chat: c.id, msg: t.msg, at: t.at, node: t.node };
-      if (table[t.node]?.batch) {
-        (batches[t.node] ??= []).push({ convo: c, at: t.at, label, row });
-        continue;
-      }
+      if (table[t.node]?.batch) (batches[t.node] ??= []).push({ convo: c, at: t.at, label, row });
+      else singles.push({ c, t, label, row });
+    }
+  }
+  const alone = async () => {
+    const rows = [];
+    for (const { c, t, label, row } of singles) {
       if (!table[t.node]) {
         rows.push({ ...row, right: false, ran: false, usd: 0, why: `${t.node} can't run alone yet: it runs in the whole-turn replay` });
         continue;
@@ -213,15 +220,17 @@ export async function runSets(convs, { tree, node = null, fake = false, env = pr
         rows.push({ ...row, right: false, ran: false, usd: 0, why: `could not run: ${String(error?.message ?? error).slice(0, 200)}` });
       }
     }
-  }
-  for (const [n, units] of Object.entries(batches)) {
+    return rows;
+  };
+  const batched = Object.entries(batches).map(async ([n, units]) => {
     try {
-      rows.push(...(await table[n].batch(units)));
+      return await table[n].batch(units, { parallel });
     } catch (error) {
-      rows.push(...units.map((u) => ({ ...u.row, right: false, ran: false, usd: 0, why: `could not run: ${String(error?.message ?? error).slice(0, 200)}` })));
+      return units.map((u) => ({ ...u.row, right: false, ran: false, usd: 0, why: `could not run: ${String(error?.message ?? error).slice(0, 200)}` }));
     }
-  }
-  return rows;
+  });
+  const [first, ...rest] = await Promise.all([alone(), ...batched]);
+  return [...first, ...rest.flat()];
 }
 
 /** Counts by node, never words: what standard output may say. */
@@ -242,7 +251,7 @@ export function countsLine(rows) {
 
 /** `sets run`: the CLI half. */
 export async function setsCommand(sub, options, { write = (t) => process.stdout.write(t) } = {}) {
-  if (sub !== "run") throw new Error("usage: sets run [--conversations <file.json>] [--set dev] [--tree <dir>] [--node <id>] [--out <file.json>] [--fake]");
+  if (sub !== "run") throw new Error("usage: sets run [--conversations <file.json>] [--set dev] [--tree <dir>] [--node <id>] [--out <file.json>] [--parallel n] [--fake]");
   let convs;
   if (options.conversations) convs = JSON.parse(await readFile(resolve(options.conversations), "utf8"));
   else {
@@ -252,7 +261,9 @@ export async function setsCommand(sub, options, { write = (t) => process.stdout.
   }
   if (!Array.isArray(convs)) throw new Error("--conversations is a JSON list of conversations");
   const tree = resolve(options.tree ?? join(import.meta.dirname, "../../.."));
-  const rows = await runSets(convs, { tree, node: options.node ?? null, fake: Boolean(options.fake) });
+  // Front door tests at once: each is a process waiting on models, and the Lab's runner has room for these.
+  const parallel = Math.max(1, Math.min(Number(options.parallel ?? 8) || 1, 16));
+  const rows = await runSets(convs, { tree, node: options.node ?? null, fake: Boolean(options.fake), parallel });
   if (options.out) await writeFile(resolve(options.out), JSON.stringify(rows, null, 1) + "\n");
   write(`${countsLine(rows)}\n`);
   // The repo's sets name what missed (their words are public); a file handed in may be sealed, so it never does.

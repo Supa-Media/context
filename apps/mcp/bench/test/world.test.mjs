@@ -576,6 +576,37 @@ test("a picture sent earlier in the chat is in the next turn's history, as produ
   }
 });
 
+// An earlier check-in's email arrived when it did, not now. Sabotage: post its mail outside `atEarlierTime`.
+test("an earlier check-in's email is dated with its line, not now", async () => {
+  const world = await createWorld(bench, "Maya", SETUP, { gatewayFetch: async () => new Response("{}", { status: 500 }), ledgerTurns: true });
+  try {
+    const arrived = [];
+    world.mailArrives = () => arrived.push(Date.now());
+    const now = Date.now();
+    await world.earlier([{ from: "trigger", via: "checkin", mail: { from: "bank", subject: "Paid", body: "done" }, minutesBefore: 2 * 24 * 60 }]);
+    assert.equal(arrived.length, 1);
+    assert.ok(Math.abs(now - arrived[0] - 2 * 24 * 3_600_000) < 60_000, `arrived ${Math.round((now - arrived[0]) / 60_000)} minutes before`);
+  } finally {
+    world.close();
+  }
+});
+
+// Production's ledger keeps each text's own time. Sabotage: date every earlier line `Date.now()` in `worldChat.mjs`
+// and the turn reads a chat of days as one burst a minute ago.
+test("an earlier line with minutes before is dated that long before the text, as the ledger keeps it", async () => {
+  const gatewayFetch = async () => new Response(JSON.stringify({ content: [{ type: "text", text: "ok" }], stop_reason: "end_turn", usage: { input_tokens: 1, output_tokens: 1 } }), { status: 200, headers: { "Content-Type": "application/json" } });
+  const world = await createWorld(bench, "Maya", SETUP, { gatewayFetch, ledgerTurns: true });
+  try {
+    await world.earlier([{ from: "person", text: "set up the payment", minutesBefore: 3 * 24 * 60 }, { from: "tex", text: "Done.", minutesBefore: 3 * 24 * 60 - 1 }, { from: "person", text: "thanks" }]);
+    const now = Date.now();
+    const ages = (await world.ledgerEntries()).filter((e) => e.kind === "text").map((e) => [e.from?.kind, Math.round((now - e.at) / 60_000)]);
+    const want = [4320, 4319, 0];
+    assert.ok(ages.length === 3 && ages.every(([, m], k) => Math.abs(m - want[k]) <= 1), JSON.stringify(ages));
+  } finally {
+    world.close();
+  }
+});
+
 // A group's earlier picture is kept in the chat's home (`chatHome.js`), the bench group's home in the pin as the control
 // plane mints it, and the next turn is shown where it is. Sabotage: drop the home-only grant in `groupChat.mjs`, or
 // the stub's `homeOnly` row, and nothing is kept there.

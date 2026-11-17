@@ -61,13 +61,14 @@ export const STEP_LOGS: Record<string, StepLog> = {
   crossChatGate: { got: "node run crossChatGate: which chat asks, the chat it asks, the ask and this chat's counts", gave: "node run crossChatGate: ask (with its id) or refuse, and why", settings: "code (no model): one open ask per pair, 10 an hour, 40 a day", time: "node run: its own time (plain code: under 1 ms)" },
   chatAsk: { got: "node run chatAsk: the Worker's event (another chat's ask, or the answer to this chat's own)", gave: "node run chatAsk: ask, answer or refuse, with the run's question and what it is told", settings: "code (no model)", time: "node run: its own time (plain code: under 1 ms)" },
   chatAnswer: { got: "node run chatAnswer: the ask-run's checked draft and any signed post", gave: "node run chatAnswer: the answer handed back to the chat that asked", settings: "code (no model)", time: "node run: its own time (plain code: under 1 ms)" },
+  tapback: { got: "node run tapback: the emoji the Front door picked, its why, whether this turn's last call failed and whether they tagged Tex", gave: "node run tapback: react (with the emoji the Worker sends) or refuse, and why", settings: "code (no model): one of the 64 emoji, never right after a failed call or on a literal @Tex tag", time: "node run: its own time (plain code: under 1 ms)" },
   chatDays: { got: "node run chatDays: the send result (texts, card, reaction, status)", gave: "node run chatDays: the outcome, days written and days still missing", settings: "its model and effort" , time: "node run: its own time, in the background" },
   daysum: { got: "step daysum: the time zone and now", gave: "step daysum: the outcome", settings: "its model" , time: "node run: its own time" },
   housekeep: { got: "step housekeep: the time zone", gave: "step housekeep: the outcome and the status", settings: "its model" , time: "node run: its own time" },
 };
 
 /** Step names the gateway and Worker log under another canvas step's name. */
-export const STEP_ALIAS: Record<string, string> = { door: "doorStep", lane: "lanes", model: "fd", steer: "fd", recheck: "decide", provisional: "fd" };
+export const STEP_ALIAS: Record<string, string> = { door: "doorStep", lane: "lanes", model: "fd", steer: "fd", recheck: "decide", provisional: "fd", resumed: "fd" };
 
 /** The canvas step a `step` entry belongs to, or null (`timing` entries are Door steps' gathering, read from the reply). */
 export const nodeOfStep = (step: unknown): string | null => (typeof step !== "string" || step === "timing" ? null : (STEP_ALIAS[step] ?? (step in STEP_LOGS ? step : null)));

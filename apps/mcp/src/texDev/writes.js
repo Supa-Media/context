@@ -37,7 +37,7 @@ export function createDraftWrites({ plane, json, linkOf }) {
   const graphOf = async (draft) => {
     const { answer } = await plane("get", { draft });
     const graph = readJson(answer?.graph, null);
-    return graph && Array.isArray(graph.nodes) ? graph : null;
+    return graph && Array.isArray(graph.nodes) ? { graph, base: answer.base ?? null } : null;
   };
 
   return async function write(action, args = {}) {
@@ -102,8 +102,8 @@ export function createDraftWrites({ plane, json, linkOf }) {
         const { answer, error } = await plane("revert", { draft: args.draft, rev: args.rev, to: args.to });
         if (error) return error;
         if (answer.status === "conflict") return json({ refused: "a later change touched the same thing; nothing was undone", pieces: answer.keys, later: answer.later, rev: answer.rev, next: answer.next });
-        const graph = answer.said?.length ? await graphOf(args.draft) : null;
-        return json({ rev: answer.rev, kept: answer.said, ...(answer.note ? { note: answer.note } : {}), problems: graph ? draftProblems(graph) : null, link: linkOf(args.draft) });
+        const got = answer.said?.length ? await graphOf(args.draft) : null;
+        return json({ rev: answer.rev, kept: answer.said, ...(answer.note ? { note: answer.note } : {}), problems: got ? draftProblems(got.graph, undefined, undefined, got.base) : null, link: linkOf(args.draft) });
       }
       default:
         return null;

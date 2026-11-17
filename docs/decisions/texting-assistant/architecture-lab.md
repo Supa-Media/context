@@ -65,7 +65,9 @@ made impossible refuses the Promote and names each, with main's value and the dr
 those clashes (`views/bar/PromoteClashes.web.tsx`): the person picks main's or this draft's for each and promotes
 again, and tex_dev does the same with `promote { draft, picks }`; the picks travel on the ask
 (`texLabVersions.promote.picks`) and the pull request names them. An edit main made impossible has no draft side to
-pick and is made again in a fresh draft. A draft saved before drafts kept a base is taken to start from main as it was when
+pick and is made again in a fresh draft. A copy keeps its source's base, in the Lab and in tex_dev; a copy of a
+draft saved before drafts kept a base keeps when that draft was made (`madeAt`), never today's main, which would make
+the copy's Promote undo everything merged since. A draft saved before drafts kept a base is taken to start from main as it was when
 it was made, and its pull request says so. *Simplifying it back* to writing the whole graph brings the silent
 overwrites back; `node scripts/tex-lab-merge.mjs --self-test` (fast guards) fails "a stale draft wrote over main's
 newer change". The config stays one file: the conflicts that kept stopping parallel work were in the committed

@@ -178,9 +178,9 @@ describe("Photon 1:1 line (photonLine.ts)", () => {
     expect(refusing.calls.filter((c) => c.op === "react").map((c) => c.body.kind)).toEqual(["love", "like"]);
   });
 
-  it("the tapback never throws, even when the bridge is down", async () => {
+  it("the tapback never throws, even when the bridge is down, and says none went", async () => {
     const b = bridge(() => "throw");
-    await expect(lineFor(deps(b.photon), DM).acknowledge(DM, "msg-3", "👍")).resolves.toBeUndefined();
+    await expect(lineFor(deps(b.photon), DM).acknowledge(DM, "msg-3", "👍")).resolves.toBeNull();
   });
 
   it("the emoji map reads each of iMessage's six tapbacks, and only them as their own kinds", () => {

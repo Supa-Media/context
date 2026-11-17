@@ -56,6 +56,21 @@ describe("tex_dev drafts", () => {
     expect([baseOf(made.id), baseOf(copied.id), baseOf(loose.id)]).toEqual(["c0123456789abcd", "c0123456789abcd", undefined]);
   });
 
+  test("a copy of an older draft with no base keeps when that draft was made, never today's main", async () => {
+    const { t, dev } = await world();
+    await t.run(async (ctx) => {
+      await ctx.db.insert("texLabVersions", { versionId: "vold", name: "Old", graph: JSON.stringify(GRAPH), picks: "{}", results: "[]", createdAt: 1000, updatedAt: 1000 });
+    });
+    const copied = await dev("create", { name: "Copy of old", from: "vold", base: "c00000000000000" });
+    const again = await dev("create", { name: "Copy of the copy", from: copied.id });
+    for (const id of [copied.id, again.id]) await dev("promote", { draft: id });
+    const asks = await t.query(internal.functions.texLabPromote.asked, {});
+    expect(asks.filter((a) => a.versionId === copied.id || a.versionId === again.id).map((a) => [a.base, a.made])).toEqual([
+      ["", 1000],
+      ["", 1000],
+    ]);
+  });
+
   test("an editor of the pinned context makes, reads and edits a draft, and sees it in the list", async () => {
     const { dev } = await world();
     const made = await dev("create", { name: "Lighter reviewer", graph: JSON.stringify(GRAPH) });

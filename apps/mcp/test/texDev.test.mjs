@@ -20,7 +20,7 @@ import { guideText } from "../src/texDev/guide.js";
 import { draftProblems } from "../src/texDev/check.js";
 import { turnsOf } from "../src/texDev/probe.js";
 import { turnAnswer } from "../src/texDev/replay.js";
-import { TEX_CONFIG } from "../src/agent/texConfig.js";
+import { CONFIG_STAMP, TEX_CONFIG } from "../src/agent/texConfig.js";
 
 function session(role) {
   return {
@@ -140,6 +140,23 @@ test("check and promote use the runner's and Promote's own checks", async () => 
   const refused = await createTexDev({ env: {}, session: session("editor"), controlPlane: plane })("promote", { draft: "vabc" });
   assert.equal(refused.isError, true);
   assert.ok(!plane.calls.some((c) => c.action === "promote"), "a draft that would be refused is not asked for");
+});
+
+test("a step main added after a draft was made is not one the draft deleted", async () => {
+  const g = mainGraph();
+  const gone = TEX_CONFIG.nodes[1].id;
+  g.nodes = g.nodes.filter((n) => n.id !== gone);
+  g.edges = g.edges.filter((e) => e.from !== gone && e.to !== gone);
+  // Made from main as it is now (or a graph with no draft): the step is gone, and Promote would refuse it.
+  assert.ok(draftProblems(g).some((p) => /is gone/.test(p)));
+  assert.ok(draftProblems(g, undefined, undefined, CONFIG_STAMP).some((p) => /is gone/.test(p)));
+  // Made from an older main, or before drafts kept one: the merge keeps main's step, so nothing is gone.
+  assert.ok(!draftProblems(g, undefined, undefined, "c00000000000000").some((p) => /is gone/.test(p)));
+  assert.ok(!draftProblems(g, undefined, undefined, null).some((p) => /is gone/.test(p)));
+  const plane = fakePlane({ get: { status: "ok", rev: 2, graph: JSON.stringify(g), base: "c00000000000000" }, promote: { status: "ok" } });
+  const said = await createTexDev({ env: {}, session: session("editor"), controlPlane: plane })("promote", { draft: "vabc" });
+  assert.notEqual(said.isError, true);
+  assert.ok(plane.calls.some((c) => c.action === "promote"));
 });
 
 test("promote passes the clash picks on, and only main or draft", async () => {

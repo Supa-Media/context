@@ -251,9 +251,15 @@ export function simulateServices(sim, controlPlane, { connectedCalendar = false,
     const fixture = flags.calendarDays;
     const address = flags.calendarAddress ?? sim.address;
     flags.calendarAddress = address;
+    // Day by day: the fixture's days, and the world's for each day the fixture has nothing on. One fixture day in a
+    // week's read hid every event the chat had put on the others (Dev set, 2026-11-17).
     flags.calendarDays = async (body) => {
       const got = typeof fixture === "function" ? await fixture(body) : null;
-      return got?.ok && got.days.length > 0 ? got : await sim.calendarDays(body, address);
+      if (!got?.ok || got.days.length === 0) return await sim.calendarDays(body, address);
+      const simmed = await sim.calendarDays(body, address);
+      if (!simmed?.ok) return got;
+      const have = new Set(got.days.map((day) => day.date));
+      return { ...got, days: [...got.days, ...simmed.days.filter((day) => !have.has(day.date))].sort((a, b) => String(a.date).localeCompare(String(b.date))) };
     };
   }
   if (connectMail) {
@@ -265,8 +271,10 @@ export function simulateServices(sim, controlPlane, { connectedCalendar = false,
   if (!flags.mailboxes?.length) return;
   const inbox = flags.mailboxes[0].address;
   flags.mailResults = async (query) => {
+    // The fixture's mail and the world's together: a fixture hit no longer hides what the chat says arrived.
     const found = typeof search === "function" ? await search(query) : search ?? [];
-    return found.length > 0 ? found : (await sim.mailSearch(query)).map((row) => ({ ...row, address: inbox }));
+    const ids = new Set(found.map((row) => row.id));
+    return [...found, ...(await sim.mailSearch(query)).filter((row) => !ids.has(row.id)).map((row) => ({ ...row, address: inbox }))];
   };
   flags.mailMessage = async (body) => {
     const fixture = typeof read === "function" ? await read(body) : read;
@@ -304,6 +312,15 @@ export function simulateFor(front, question, person, { send = null, memo, fake =
  * The world's simulated services for a test that asks for them (`models.simulate`), wired into the control plane's
  * answers, or null. A person with no mailbox gets one only when the chat's setting gives Tex their email.
  */
+/**
+ * The scripted sites a world keeps: all of them, but in a simulated world only real hosts. The made-up golden-task
+ * sites (`*.example`) are not part of a Dev chat's world: matched on any word ("flights"), they answered its searches
+ * and pages before the world could (Dev set, 2026-11-17).
+ */
+export function sitesIn(sites, sim) {
+  return sim ? (sites ?? []).filter((site) => !String(site.host).endsWith(".example")) : sites;
+}
+
 export function simulatedWorld(models, controlPlane, { today = null, person, noMailbox = false }) {
   if (!models.simulate) return null;
   const sim = createSimWorld({ ...models.simulate, today, person });

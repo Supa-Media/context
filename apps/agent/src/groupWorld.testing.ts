@@ -17,7 +17,7 @@ export const LINES = [
   { name: "WhatsApp (Whapi)", groupId: whapiGroupId(JID) },
 ];
 
-export type Decide = { style: string; candidates: string[]; newest: string; running: boolean; transcript: string; line?: string; waitingAsks: string[]; ledger?: string };
+export type Decide = { style: string; candidates: string[]; newest: string; running: boolean; transcript: string; line?: string; waitingAsks: string[]; ledger?: string; settle?: true };
 export type Answer = { ok: true; act: "silent" | "react" | "answer" | "wait"; covers: string[]; midTurn?: string; stale: string[]; movedOn: boolean; confidence: number; emoji?: string; waitSeconds?: number } | { ok: false; reason: string };
 
 export const answerAll = (body: Decide): Answer => ({ ok: true, act: "answer", covers: body.candidates, stale: [], movedOn: false, confidence: 0.9 });

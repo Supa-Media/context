@@ -82,6 +82,16 @@ test("the core area answers in the tree's own code, as production alone, and rea
   assert.deepEqual(again.rows.map((row) => [row.id, row.results]), [["core/q2", [false, false]]], "only the named cases run again");
 });
 
+test("tests run several at once and read back in the tests' order, the same as one at a time", async () => {
+  const dir = await folder();
+  const scratch = await mkdtemp(join(tmpdir(), "core-scratch-"));
+  const serial = await runTests(TREE, ["simple-asks", "core"], { dir, fake: true, scratch, tag: "serial" });
+  const together = await runTests(TREE, ["simple-asks", "core"], { dir, fake: true, scratch, tag: "together", parallel: 3 });
+  assert.deepEqual(together.missing, serial.missing);
+  assert.deepEqual(together.rows.map((row) => [row.id, row.right]), serial.rows.map((row) => [row.id, row.right]));
+  assert.deepEqual(Object.keys(together.bars), ["core"]);
+});
+
 test("a question is right only when every run passed", async () => {
   const dir = await folder();
   const scratch = await mkdtemp(join(tmpdir(), "core-scratch-"));

@@ -306,6 +306,7 @@ export async function askAgent(
     worker,
     warm, beside,
     recent,
+    again,
   }: {
     tapback?: Tapback;
     reacted?: Reaction[];
@@ -337,6 +338,8 @@ export async function askAgent(
     /** The sealed copy the last answer handed back, and this chat's newest events (`warm.ts`). */
     warm?: string; beside?: readonly string[]; // and what was written to the history beside it (`warm.ts` `keepBeside`)
     recent?: readonly TexEvent[]; // the outbox: what the gateway has not taken yet, added to the ledger's day (`warmCopy.js` `mergeEvents`)
+    /** A try after one that failed: the gateway goes on from what that try did (`apps/mcp/src/agent/savedRounds.js`). */
+    again?: boolean;
   } = {},
 ): Promise<AgentAnswer> {
   // The person's zone, so the turn knows the time where they are, and what
@@ -364,6 +367,7 @@ export async function askAgent(
     ...(worker ? { worker } : {}),
     ...(warm ? { warm, ...(beside && beside.length > 0 ? { beside } : {}) } : {}),
     ...(recent && recent.length > 0 ? { recent } : {}),
+    ...(again ? { again: true } : {}),
   };
   if (onProgress) return askAgentStream(fetcher, gatewayOrigin, accessToken, ask, onProgress, onStep);
   let result: { status: number; json: unknown };

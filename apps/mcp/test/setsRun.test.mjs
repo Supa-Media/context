@@ -199,6 +199,24 @@ test("a batch that throws reports each of its units, not the run", async () => {
   assert.deepEqual(rows.map((r) => [r.node, r.ran, r.why]), [["fd", false, "could not run: gateway down"]]);
 });
 
+test("the in-process nodes run beside the batched ones, which get the parallel count, and rows keep their order", { timeout: 5000 }, async () => {
+  const c = conv("both", [
+    { id: "m1", who: "Ann", text: "hi", labels: { decide: { act: "respond", star: true }, fd: { must: ["x"], star: true } } },
+    { id: "m2", who: "Ann", text: "and you?", labels: { decide: { act: "wait", star: true }, fd: { must: ["y"], star: true } } },
+  ]);
+  let release;
+  const fdStarted = new Promise((r) => (release = r));
+  const seen = [];
+  const adapters = {
+    // Decide waits for the Front door's batch to have started: run one after the other, this never resolves.
+    decide: async () => async () => (await fdStarted, { right: true, ran: true, usd: 0 }),
+    fd: { batch: async (units, opts) => (seen.push(opts.parallel), release(), units.map((u) => ({ ...u.row, right: true, ran: true, usd: 0 }))) },
+  };
+  const rows = await runSets([c], { adapters, tree: "/x", parallel: 5 });
+  assert.deepEqual(seen, [5]);
+  assert.deepEqual(rows.map((r) => [r.node, r.msg]), [["decide", "m1"], ["decide", "m2"], ["fd", "m1"], ["fd", "m2"]]);
+});
+
 test("countsLine has counts by node, the cost, and never a message's words", () => {
   const rows = [
     { chat: "c", msg: "m1", node: "decide", right: true, ran: true, usd: 0.001, why: "secret words" },
@@ -252,9 +270,10 @@ test("setsCommand refuses another subcommand and a file that is not a list", asy
 test("the fake run gets the repo's conversations right for decide and reviewer, and runs every one of them", async () => {
   // Training and Dev together: which set holds a node's labels moves with the ratio, the runner's job does not.
   const dev = REPO.sets;
-  const rows = await runSets(dev, { tree: REPO_ROOT, fake: true });
+  // One node per run: running every node's fake for every row took ~110 s and hit the file's two-minute limit.
   for (const node of ["decide", "reviewer"]) {
-    const mine = rows.filter((r) => r.node === node);
+    const mine = await runSets(dev, { tree: REPO_ROOT, fake: true, node });
+    assert.ok(mine.every((r) => r.node === node), `only ${node} rows ran`);
     const expected = dev.reduce((n, c) => n + unitTests(c).filter((t) => t.node === node).length, 0);
     // The reviewer's labels left with the old conversations (Dev2, 2026-11-17); Decide's must always be there.
     if (node === "decide") assert.ok(expected > 0, `the repo has ${node} unit tests`);

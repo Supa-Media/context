@@ -143,24 +143,33 @@ export function triageStep(candidates: string[], to: "tex" | "judge" | "running"
  * judge, the classifier, a tool starting), the emoji it asked for (sent when
  * it is one of the 64, else one picked from the text's words: `reactionFor`,
  * `ackEmoji`), the one sent, on which event, how long the line took, and
- * whether it went. A send that throws is kept as failed and thrown on.
+ * whether it went. A send that throws is kept as failed and thrown on. A line that
+ * says which tapback went (`Line.acknowledge`) is believed: a fallback is kept as
+ * the one sent, and none at all is kept as failed and answered with null.
  */
 export async function tapback(
   storage: InboxStorage,
   where: { chat: string; now: () => number; by: string; asked?: string; on?: string; turn?: string },
   words: string,
   send: (emoji: string) => Promise<unknown>,
-): Promise<void> {
+): Promise<string | null> {
   const emoji = reactionFor(where.asked, ackEmoji(words));
   // Timed on the wall clock: `now` is when it happened, which some callers fix for the whole text.
   const began = Date.now();
   const input = { by: where.by, ...(where.asked ? { asked: where.asked } : {}), ...(where.on ? { on: where.on } : {}) };
-  const kept = (ok: boolean, cause?: string) => logStep(storage, where.chat, { name: "react", of: where.by, ok, ms: Date.now() - began, input, output: { emoji }, ...(cause ? { cause } : {}) }, where.now(), where.turn);
+  const kept = (ok: boolean, sent: string, cause?: string) => logStep(storage, where.chat, { name: "react", of: where.by, ok, ms: Date.now() - began, input, output: { emoji: sent }, ...(cause ? { cause } : {}) }, where.now(), where.turn);
+  let went: unknown;
   try {
-    await send(emoji);
+    went = await send(emoji);
   } catch (error) {
-    await kept(false, error instanceof Error ? error.name : "error");
+    await kept(false, emoji, error instanceof Error ? error.name : "error");
     throw error;
   }
-  await kept(true);
+  if (went === null) {
+    await kept(false, emoji, "refused");
+    return null;
+  }
+  const sent = typeof went === "string" && went !== "" ? went : emoji;
+  await kept(true, sent);
+  return sent;
 }

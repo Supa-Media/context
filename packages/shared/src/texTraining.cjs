@@ -194,7 +194,7 @@ function trainingSources(step) {
   return (step?.ctx ?? []).map((entry) => TRAIN_ENTRY.exec(entry)?.[1]).filter(Boolean);
 }
 
-const chatLine = (moment) => (moment.kind === "group" ? `group chat, speak-up ${moment.setting ?? "follow along"}` : "one-to-one chat with Tex");
+const chatLine = (moment) => (moment.kind === "group" ? "group chat" : "one-to-one chat with Tex");
 
 /** A label as the lines an example ends with: each output field, then the front door's must and never lines. */
 function wantLines(label) {

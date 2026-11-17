@@ -65,6 +65,8 @@ const NODE_SHAPE = Object.freeze({
   y: [isNum, "a number"],
   group: [isText, "a group id"],
   fallback: [isText, "a model key"],
+  // A step's own limits (Part end: parts, minutes, machineParts, machineMinutes; `jobPartEnd.cjs`), each a whole number.
+  limits: [(v) => v !== null && typeof v === "object" && !Array.isArray(v) && Object.values(v).every(isCount), "an object of whole numbers"],
 });
 const NODE_FIELDS = Object.freeze(Object.keys(NODE_SHAPE));
 const REQUIRED = Object.freeze(["label", "on", "model"]);

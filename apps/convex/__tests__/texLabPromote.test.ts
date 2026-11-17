@@ -55,6 +55,16 @@ describe("promoting a Lab version", () => {
       ["vabc123", "c0123456789abcd", 1],
       ["vnobase", "", 1],
     ]);
+    // The Lab's copy of an older draft with no base sends that draft's time; the list hands the Lab both back.
+    await staff.mutation(api.functions.texLab.saveVersion, { ...version, versionId: "vcopy", createdAt: 5, madeAt: 2 });
+    await staff.mutation(api.functions.texLab.saveVersion, { ...version, versionId: "vfuture", createdAt: 5, madeAt: Date.now() + 1e9 });
+    await staff.mutation(api.functions.texLabPromote.ask, { versionId: "vcopy" });
+    await staff.mutation(api.functions.texLabPromote.ask, { versionId: "vfuture" });
+    const made = Object.fromEntries((await t.query(internal.functions.texLabPromote.asked, {})).map((a) => [a.versionId, a.made]));
+    expect([made.vcopy, made.vfuture]).toEqual([2, 5]);
+    const listed = (await staff.query(api.functions.texLab.list, {})).versions;
+    expect(listed.find((v) => v.versionId === "vabc123")?.base).toBe("c0123456789abcd");
+    expect(listed.find((v) => v.versionId === "vcopy")?.madeAt).toBe(2);
   });
 
   test("a refusal says why, and an answer for an older ask leaves the newer one waiting", async () => {

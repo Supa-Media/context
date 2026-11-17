@@ -40,6 +40,8 @@ export interface DecideBody {
   sender?: string;
   /** Groups: the chat's ledger key (`chat:<groupKey>`), where the gateway keeps the judge's verdict. */
   ledger?: string;
+  /** A wait that was not held, or ran out, judged again with no wait to choose: quiet or respond. */
+  settle?: true;
 }
 
 export type DecideResult =

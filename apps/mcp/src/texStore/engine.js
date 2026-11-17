@@ -15,6 +15,7 @@
 import { cancel, clearAlarms, due, nextAt, retry, schedule, settle } from "./alarms.js";
 import { DEFAULT_TABLES, texObjects } from "./objects.js";
 import { texLedger } from "./ledger.js";
+import { texRounds } from "./rounds.js";
 import { PAGE_LIVE_PATH, pageLive } from "./pageLive.js";
 import { logChatOf, pageViews, sectionsForKinds } from "./pageViews.js";
 import { serveTexStore } from "./wire.js";
@@ -54,6 +55,8 @@ export class TexEngine {
     this.objects = texObjects(sql, { now: this.now, guard, tables: this.tables });
     // The chat's one record of everything that happened (`ledger.js`), beside the notes.
     this.objects.ledger = texLedger(sql, { now: this.now, guard });
+    // A texted turn's rounds, beside its chat's ledger, for a try of the same text after a crash (`rounds.js`).
+    this.objects.rounds = texRounds(sql, { now: this.now, guard });
     // The chat's Tex page: the open pages' sockets (`pageLive.js`), and its records as views of the chat's one log
     // (`pageViews.js`), which pushes what changed to an open page on every append.
     this.objects.records = pageViews(() => this.objects.ledger);
