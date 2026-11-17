@@ -7,6 +7,11 @@
   "exclude": [],
   "generated": [
     {
+      "path": "apps/mobile/features/tex/lab/promptCatalog.generated.json",
+      "reason": "Every prompt module's words at this commit, one line each, written by scripts/tex-prompt-catalog.mjs; it grows with the prompts and is never hand-edited.",
+      "command": "node scripts/tex-prompt-catalog.mjs"
+    },
+    {
       "path": "pnpm-lock.yaml",
       "reason": "Package manager lockfile; machine-generated.",
       "command": "pnpm install"
