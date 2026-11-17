@@ -87,5 +87,5 @@ export function typedCallNotice(action) {
 
 /** `runTurn`'s `endsTurn` with silence added: a `say_nothing` call settles the turn with nothing to text, before any judge reads it. */
 export function withSayNothing(endsTurn) {
-  return (name, args) => (name === SAY_NOTHING_TOOL ? SAID_NOTHING : typeof endsTurn === "function" ? endsTurn(name, args) : null);
+  return (name, args, round) => (name === SAY_NOTHING_TOOL ? SAID_NOTHING : typeof endsTurn === "function" ? endsTurn(name, args, round) : null);
 }
