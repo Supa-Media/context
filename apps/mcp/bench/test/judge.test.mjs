@@ -565,12 +565,13 @@ test("the judge is told a rule worded never or at most is kept by a reply that d
 test("the judge is shown the chat before a replayed text and the jobs an answer started", async () => {
   const { buildJudgeRequest } = await import("../judge.mjs");
   const earlier = Array.from({ length: 15 }, (_, i) => ({ from: i % 2 ? "tex" : "person", ...(i % 2 ? {} : { who: "kofi" }), text: `line ${i + 1}` }));
-  const { body } = buildJudgeRequest({ model: "m", question: { text: "traitor", must: ["one cheeky line"], mustNot: [], judge: [], may: [], earlier }, answers: [{ id: "a", conversation: [], toolsLine: "", changes: [], jobs: [{ title: "Compare flights" }] }] });
+  const { body } = buildJudgeRequest({ model: "m", question: { text: "traitor", must: ["one cheeky line"], mustNot: [], judge: [], may: [], earlier }, answers: [{ id: "a", conversation: [], toolsLine: "", changes: [], jobs: [{ title: "Compare flights" }, { title: "Venue", brief: "Read the venue site with the login from the invite email." }] }] });
   const payload = JSON.parse(/<answers>\n([\s\S]*)\n<\/answers>/.exec(JSON.parse(body).messages[0].content)[1]);
   assert.equal(payload.chat_before.length, 12, "the newest twelve lines");
   assert.equal(payload.chat_before.at(-1), "@kofi: line 15");
   assert.equal(payload.chat_before.at(-2), "Tex: line 14");
-  assert.deepEqual(payload.answers[0].jobs_started, ["Compare flights"]);
+  assert.deepEqual(payload.answers[0].jobs_started, ["Compare flights", { title: "Venue", brief_given: "Read the venue site with the login from the invite email." }], "each job with the brief Tex gave it");
+  assert.match(JSON.parse(body).system, /brief_given is what Tex told it to do, not work done/);
   const plain = JSON.parse(/<answers>\n([\s\S]*)\n<\/answers>/.exec(JSON.parse(buildJudgeRequest({ model: "m", question: { text: "q", must: [], mustNot: [], judge: [], may: [] }, answers: [{ id: "a", conversation: [], toolsLine: "", changes: [] }] }).body).messages[0].content)[1]);
   assert.equal("chat_before" in plain, false, "a question with no chat before it is judged as before");
   assert.equal("jobs_started" in plain.answers[0], false);

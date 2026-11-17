@@ -31,6 +31,8 @@ export type ControlAnswer =
       guests?: { phone: string; label: string }[];
       /** Mailboxes shared with this chat (`chat-mail.md`): the turn is told whose and which. */
       mail?: { handle: string; address: string }[];
+      /** Whether this chat is shared with the developers who build Tex, by handle (`lib/texLabShared.ts` `devShareOf`). */
+      devShare?: DevShare;
       /** How Tex talks in this chat (`texStyle.ts`): the group's own instructions, never a member's personal ones, and its progress updates. */
       instructions?: string;
       updates?: Updates;
@@ -49,6 +51,18 @@ export function blockedOf(value: unknown): { blocked?: { slug: string; who: stri
       : [],
   );
   return blocked.length > 0 ? { blocked } : {};
+}
+
+export type DevShare = { shared: boolean; by: string[]; waiting: string[] };
+
+/** The chat's sharing with the developers, as the control plane named it: handles only, never a number or free text. */
+export function devShareOf(value: unknown): { devShare?: DevShare } {
+  if (value === null || typeof value !== "object" || Array.isArray(value)) return {};
+  const entry = value as Record<string, unknown>;
+  const handle = /^[a-z0-9][a-z0-9-]{0,64}$/;
+  const handles = (list: unknown) => (Array.isArray(list) ? list.slice(0, 64).filter((name): name is string => typeof name === "string" && (handle.test(name) || name === "someone")) : []);
+  if (typeof entry.shared !== "boolean") return {};
+  return { devShare: { shared: entry.shared, by: handles(entry.by), waiting: handles(entry.waiting) } };
 }
 
 /** `mint: false` asks without minting a grant: the turn already holds a kept token (`groupKept.ts`). */
@@ -96,6 +110,7 @@ export async function askControlPlane(deps: GroupDeps, message: GroupMessage, pe
         slug: body.slug as string,
         ...(Array.isArray(body.reach) ? { reach: (body.reach.filter(slug) as string[]).slice(0, 12) } : {}),
         ...blockedOf(body.blocked),
+        ...devShareOf(body.devShare),
         intro: body.intro === true,
         ...(typeof body.timeZone === "string" && /^[A-Za-z0-9_+\-/]{1,64}$/.test(body.timeZone) ? { timeZone: body.timeZone } : {}),
         ...(slug(body.handle) ? { handle: body.handle as string } : {}),
