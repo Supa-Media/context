@@ -393,6 +393,18 @@ because *"the filename changes when the bytes do"*. So:
 - **`/_expo/` and `/assets/` are cache-first.** Their names contain a hash of
   their bytes, so a cached one cannot be the wrong version of anything.
 
+**The browser is told the same thing, on the response Static Assets actually
+sends.** That binding's own header is `public, max-age=0, must-revalidate`,
+and the Static Assets branch returns before the route's `cache: "immutable"`
+hint is read (#2850), so a visit revalidated the entry. A 200 that is not
+HTML, and a 304 that still names a non-HTML type, are sent
+`public, max-age=31536000, immutable`. A missing name is not one of those:
+the binding answers it with the shell at 200, and that answer is a 404 with
+`Cache-Control: no-store`, so the shell cannot be stored under a script name
+for a year. A page stays `no-cache` (the shell's nonce is per response).
+`infra/router/src/expoCache.test.ts` fails if a hashed asset is revalidated,
+if a missing name is stored as HTML, or if a page is cached for a year.
+
 A stale shell is served only when the alternative is nothing, and it points at
 hashed assets cached beside it.
 
