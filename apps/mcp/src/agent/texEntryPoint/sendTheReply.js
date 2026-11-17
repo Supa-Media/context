@@ -6,6 +6,7 @@ import { offerLine } from "../../tools/offerFor.js";
 import { advisorRequest } from "../advisor.js";
 import { aiGatewayConfig } from "../aiGateway.js";
 import { attachmentsLine } from "../attachments.js";
+import { crossBackInput } from "../crossChat.js";
 import { QUIET_ACK, QUIET_ACK_LINE, QUIET_REPORT_LINE, reportReply, startedJobs } from "../background.js";
 import { canRunBuiltin } from "../builtin.js";
 import { chatHubUrl } from "../hubLinks.js";
@@ -56,6 +57,7 @@ export async function sendTheReply(t) {
   // relaying it is a courtesy rather than the mechanism.
   // An answer still empty after its notice is never sent as nothing (`replyChecks.js`); a routine's empty run is its SKIP.
   // A flattering opener ("You're so right!") comes off first (`pushback.js`).
+  const crossAskRun = t.crossChat?.kind === "ask"; // its answer goes back to the chat that asked, never texted here (`crossChat.js`)
   const hushed = turn.answer === QUIET_ACK; // a job's start or restart texts nothing; their text gets a tapback instead (`background.js`)
   const { answer: replied, quiet } = hushed ? { answer: "", quiet: true } : reportReply(report, turn.answer), silent = job === null && (((group !== null || turn.settled === "say_nothing") && /^\W*SKIP\W*$/.test(String(replied ?? ""))) || typedCallOf(replied) !== null), { answer: told, pictures, captions, choices = [], offers = [] } = outgoing.take(quiet ? "" : silent ? (group?.tagged === true ? EMPTY_FALLBACK : "") : !runner && isEmptyAnswer(replied) ? EMPTY_FALLBACK : withoutFlattery(replied)); // a report's quiet is a flag, and an ended job always gets a line (`jobReport.js`); a group's bare SKIP, or any say_nothing (`sayNothing.js`), is silence, never the fallback, and only SKIP: "Quiet." answers a question (Dev2, 2026-11-01: Tex texted "my answer got lost" to a message for Instinct); a literal "@Tex" is never silent: its silence is the fallback (Dev2, 2026-11-12)
   // An email's ask is texted exactly as written (`apps/agent/src/reply.ts`), or withdrawn if it would not fit; asks their text corrected are dropped (`claimCheck.js` rule 6).
@@ -72,13 +74,13 @@ export async function sendTheReply(t) {
   const handoff = opened?.browser?.handoffLine() ?? null;
   const sent = handoff === null ? answer : `${answer}\n\n${handoff}`;
   // A turn no text of theirs asked (a job's report, a vault save) keeps the gateway's line it was asked, so the chat rebuilt from the ledger shows what Tex answered.
-  const eventAsked = report !== null || question === VAULT_SAVED_QUESTION || question === HANDED_BACK_QUESTION ? String(question).slice(0, 2_000) : null;
+  const eventAsked = report !== null || t.crossChat || question === VAULT_SAVED_QUESTION || question === HANDED_BACK_QUESTION ? String(question).slice(0, 2_000) : null;
   // What the person's chat rebuilt from the ledger shows beside this answer (`ledgerConversation.js`): the files they sent and where a picture is kept, the pages it read, the thread it was typed in.
   const attached = attachmentsLine(attachments, attachments.length > 0 ? ((await tex.step("pictures_kept", keepPictures)) ?? []) : []), sources = turn.steps.flatMap((step) => step.sources ?? []);
   // What this group turn knew, for the judge's next look (`judgeBrief.js`): its work, what it waits on, the chat's own rules.
   const brief = group !== null && job === null ? briefEntry({ group, question, steps: turn.steps, asked: ledger.asked, offered: ledger.offered ?? null, instructions: readInstructions(body.instructions), turn: ledgerTurn }) : null;
   tex.logTo?.(chatLog, ledgerTurn); // every step's time and outcome so far, and each one after the response (`texTiming.js`)
-  chatLog?.write([...startedJobEntries(background?.started, { turn: body.turn }), ...(brief ? [brief] : []), wordsEntry("reply", sent, { turn: ledgerTurn, model: turn.model, ms: Date.now() - received, ...versionField(env, production), timing: turnTiming({ steps: tex.steps, trace: turn.timing?.trace, waitMs: waitBefore(body.arrivedAt, received), worker: body.worker, replyMs: Date.now() - received }), clean: ledger.untrusted !== true, outside: ledger.outside === true, ...(turn.exhausted ? { outcome: "exhausted" } : {}), ...(attached ? { attached } : {}), ...(sources.length > 0 ? { sources } : {}), ...factsEntry(sent, t.reads, t.ledgerAt?.grant), ...(typeof inThread.thread === "string" ? { thread: inThread.thread } : {}), ...(eventAsked !== null ? { about: eventAsked } : {}) })]); await tex.after("ledger", () => chatLog?.flush()); // with the jobs it started (`workEntries.js`); `clean`: what a later turn trusts it by (`ledgerHistory.js`); `outside`: whether a later turn replaying its calls is marked (`stretch.js`)
+  chatLog?.write([...startedJobEntries(background?.started, { turn: body.turn }), ...(brief ? [brief] : []), wordsEntry(crossAskRun ? "note" : "reply", crossAskRun ? `(Your answer, sent back to Tex in ${t.crossChat.from}; nothing was texted here:)\n${sent}` : sent, { turn: ledgerTurn, model: turn.model, ms: Date.now() - received, ...versionField(env, production), timing: turnTiming({ steps: tex.steps, trace: turn.timing?.trace, waitMs: waitBefore(body.arrivedAt, received), worker: body.worker, replyMs: Date.now() - received }), clean: ledger.untrusted !== true, outside: ledger.outside === true, ...(turn.exhausted ? { outcome: "exhausted" } : {}), ...(attached ? { attached } : {}), ...(sources.length > 0 ? { sources } : {}), ...factsEntry(sent, t.reads, t.ledgerAt?.grant), ...(typeof inThread.thread === "string" ? { thread: inThread.thread } : {}), ...(eventAsked !== null ? { about: eventAsked } : {}) })]); await tex.after("ledger", () => chatLog?.flush()); // with the jobs it started (`workEntries.js`); `clean`: what a later turn trusts it by (`ledgerHistory.js`); `outside`: whether a later turn replaying its calls is marked (`stretch.js`)
   // A job's answer that a later text will replace is never texted, so it isn't kept as said; the next part is shown it (`jobPrompt`).
   const replaced = (job !== null && steer !== null && (await tex.step("steer_pending", () => steer.pending()))) || (!turn.exhausted && claims?.unfinished(turn.answer) === true); // or one that stopped short (`stopsShort.js`)
   if (steer !== null) await tex.after("steer_clear", () => begun.catch(() => {}).then(() => steer.clear()));
@@ -94,7 +96,7 @@ export async function sendTheReply(t) {
     await tex.after("memory_nudge", async () => afterGraph.fire("send", "nudge", { question, answer: turn.answer ?? "", tainted: taintedTurn, canWrite }, afterCtx).catch(() => {}).then(() => chatLog?.flush())); // interim: fired by this code with its own input over the wire (tagged "fired", so the run never fires it with send's output) until send's output carries it
   }
 
-  if (group !== null && job === null && !turn.exhausted && !replaced && !(silent && answer === "")) await tex.behind(front, "save_group_chat", () => keepGroupExchange(store, group, history, question, [answer, sentPicturesLine(pictures, captions)].filter(Boolean).join("\n"), { tainted: ledger.untrusted, tools: turn.steps.filter((step) => step.ok).map((step) => step.tool), sources: turn.steps.flatMap((step) => step.sources ?? []), timing: groupTimingLine({ arrivedAt: body.arrivedAt, received, done: Date.now(), fixed: body.fixed }), dispatch }).catch(() => {})); // with its cards' words (`sentPicturesLine`)
+  if (group !== null && job === null && !crossAskRun && !turn.exhausted && !replaced && !(silent && answer === "")) await tex.behind(front, "save_group_chat", () => keepGroupExchange(store, group, history, question, [answer, sentPicturesLine(pictures, captions)].filter(Boolean).join("\n"), { tainted: ledger.untrusted, tools: turn.steps.filter((step) => step.ok).map((step) => step.tool), sources: turn.steps.flatMap((step) => step.sources ?? []), timing: groupTimingLine({ arrivedAt: body.arrivedAt, received, done: Date.now(), fixed: body.fixed }), dispatch }).catch(() => {})); // with its cards' words (`sentPicturesLine`)
   const saving = conversation !== null && job === null && !turn.exhausted && !replaced, said = [answer || (hushed ? QUIET_ACK_LINE : quiet ? QUIET_REPORT_LINE : ""), sentPicturesLine(pictures, captions)].filter(Boolean).join("\n");
   if (saving) await tex.behind(front, "save_chat", () => (async () => { // a job's answer is its report, never texted: only the coordinator's turn is kept as said (`jobReport.js`)
     try {
@@ -126,10 +128,13 @@ export async function sendTheReply(t) {
     ...(ledger.chatInvite ? { invite: ledger.chatInvite } : {}), // the Worker invites this chat's people, as its asker, after the answer (`settingsTools.js`)
     ...(ledger.vaultLink === true ? { vaultWatch: true, ...(ledger.vaultLinks?.length ? { vaultLinks: ledger.vaultLinks } : {}) } : {}), // the Worker watches for the save, in a group too, on the links this chat texted (`vaultSaved.js`)
     ...(await tex.step("handback_watch", () => handbackField(opened))), // the browser it handed over, whose Done carries the task on (`handback.js`)
+    ...(ledger.crossAsks?.length ? { crossAsks: ledger.crossAsks } : {}), // asks the Cross-chat gate let go: the Worker starts each in its chat (`crossChat.js`)
     provider: turn.provider,
     model: turn.model,
     steps: turn.steps,
   };
+  // A run answering another chat's ask texts nothing here: node "Answer the other chat" sends its draft back (`crossChat.js`).
+  if (crossAskRun) Object.assign(reply, await tex.step("chat_answer", () => crossBackOf(t.crossChat, turn.answer, ledger.crossPost, { env, writer: chatLog, turn: ledgerTurn })));
   // A job's part says its answer before the advisor's check, unchecked: a gateway that dies during the check (out of
   // memory, 2026-11-08) no longer loses a finished part, which the Worker then ran again from nothing (`progress.js`).
   if (job !== null && typeof answered === "function") await tex.step("answer_early", () => answered({ ...withoutSteps(reply), ...jobFields(null, { exhausted: turn.exhausted === true, unfinished: claims?.unfinished(turn.answer) === true, untrusted: ledger.untrusted === true }), ...(turn.steps?.length ? {} : { idle: true }) }));
@@ -150,3 +155,13 @@ function withoutSteps({ steps: _steps, provider: _provider, model: _model, ...sa
 function hubField(offers, hub) {
   return offers.includes("threads") && hub !== null ? { hub } : {};
 }
+
+/** An ask-run's reply: nothing texted here, its draft and any signed post handed back by node `chatAnswer`. */
+async function crossBackOf(event, draft, post, { env, writer, turn }) {
+  const graph = gatewayGraph({ writer, turn, config: texConfigOf(env) });
+  const input = crossBackInput(event, draft, post);
+  const run = graph.wired("answerCheck", "chatAnswer") ? await graph.fire("answerCheck", "chatAnswer", input, { env }).catch(() => null) : null;
+  const back = run?.to === "back" ? run : { id: event.id, state: "refused", texts: [], why: "the answer could not be sent back" };
+  return { answer: "", quiet: true, crossBack: { id: back.id, state: back.state, texts: back.texts ?? [], ...(back.why ? { why: back.why } : {}) }, ...(back.post ? { crossPost: back.post } : {}) };
+}
+
