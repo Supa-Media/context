@@ -244,6 +244,33 @@
       "must": true,
       "from": "eager-1117",
       "cause": "a short follow-up sent under Tex's own text is for Tex"
+    },
+    {
+      "id": "g-new-ask-under-tex-cant",
+      "chat": "group",
+      "lines": [
+        "@ines: Tex can you check what the venue charges for the back room",
+        "You: Their pricing page needs a login, so I couldn't see it.",
+        "@ines: hm",
+        "@pavel: we could just call them"
+      ],
+      "text": "@ines: (replying to You) look for an old menu with prices then",
+      "want": "reply",
+      "must": true,
+      "from": "eager-1117",
+      "cause": "a new ask sent under Tex's text after it couldn't do the first one is for Tex, with no name in it"
+    },
+    {
+      "id": "g-reply-under-tex-to-someone",
+      "chat": "group",
+      "lines": [
+        "@ines: Tex can you check what the venue charges for the back room",
+        "You: Their pricing page needs a login, so I couldn't see it."
+      ],
+      "text": "@pavel: (replying to You) ines didn't you book there last year",
+      "want": "hush",
+      "from": "eager-1117",
+      "cause": "a reply under Tex's text that asks another person is theirs, not Tex's"
     }
   ]
 }
