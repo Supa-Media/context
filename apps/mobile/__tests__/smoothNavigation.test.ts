@@ -204,6 +204,9 @@ describe("pageCache: a folder page's reads, kept and read ahead", () => {
   test("the front note a page draws its words from", () => {
     expect(aboutOf("1-projects/trip", [note("1-projects/trip/about.md")])).toBe("1-projects/trip/about.md");
     expect(aboutOf("1-projects/plain", [])).toBeNull();
+    // A project's overview is its main note, a row on the page, never the words atop it.
+    expect(aboutOf("1-projects/shoot", [note("1-projects/shoot/overview.md")])).toBeNull();
+    expect(aboutOf("1-projects/both", [note("1-projects/both/overview.md"), note("1-projects/both/about.md")])).toBe("1-projects/both/about.md");
   });
 
   test("signing out forgets every page, and a read already on its way files nothing", async () => {

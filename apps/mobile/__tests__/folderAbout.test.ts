@@ -6,9 +6,10 @@
  * EVERY FOLDER PAGE OPENS WITH ITS ABOUT NOTE, AS A SUBTITLE.
  *
  * Decided by the owner on 2026-10-08 (the folder-about boards): a folder's
- * `about.md` — or the older `overview.md`, `index.md`, `README.md`, which
- * mean the same — is shown at the top of its page and is not a row as well;
- * the top of the workspace's is `index.md`. Redesigned on 2026-10-09 ("I
+ * `about.md` is shown at the top of its page and is not a row as well; the
+ * top of the workspace's is `index.md`. Since 2026-11-17 an `overview.md`,
+ * `index.md` or `README.md` in a folder is never drawn there: it is a
+ * project's main note and stays a row. Redesigned on 2026-10-09 ("I
  * hate how the about.md looks… sometimes about will be long, sometimes
  * short"): its opening words only, no filename, Read more when there is more
  * (the side panel where it fits, a sheet where it does not), and an Edit
@@ -79,7 +80,7 @@ const listing = (path: string, entries: FileEntry[]): FolderListing => ({
 });
 
 const NOTES: ListNote[] = [
-  { path: "1-projects/web/overview.md", updatedAt: 50, properties: { status: "active", owner: "Seyi" }, heading: "Website folder", lede: "Publish a folder as a site." },
+  { path: "1-projects/web/about.md", updatedAt: 50, properties: { status: "active", owner: "Seyi" }, heading: "Website folder", lede: "Publish a folder as a site." },
   { path: "1-projects/app/index.md", updatedAt: 40, properties: { status: "paused" } },
   { path: "1-projects/do this/README.md", updatedAt: 30, properties: {}, lede: "Folder placeholder." },
   { path: "1-projects/loose.md", updatedAt: 20, properties: {} },
@@ -88,7 +89,7 @@ const NOTES: ListNote[] = [
 const LONG_LIST = "# Design\n\n- Brand colours\n- Type scale\n- Icon rules\n- Where the files live\n- Who signs off\n";
 
 const BODIES: Record<string, string> = {
-  "1-projects/web/overview.md": "---\nstatus: active\n---\n# Website folder\n\nPublish a [folder](https://example.invalid) as a site.\n\n## Domains\n\nOne per site.\n",
+  "1-projects/web/about.md": "---\nstatus: active\n---\n# Website folder\n\nPublish a [folder](https://example.invalid) as a site.\n\n## Domains\n\nOne per site.\n",
   "index.md": "# Seyi\n\nEverything I am working on.\n",
   "1-projects/do this/README.md": "Folder placeholder.\n\nObject storage has no empty folders.\n",
   "1-projects/fresh/about.md": "",
@@ -167,7 +168,7 @@ async function press(node: HTMLElement) {
 
 
 describe("a folder's about note", () => {
-  const WEB = listing("1-projects/web", [entry("file", "1-projects/web/overview.md"), entry("file", "1-projects/web/dns.md")]);
+  const WEB = listing("1-projects/web", [entry("file", "1-projects/web/about.md"), entry("file", "1-projects/web/dns.md")]);
   const ROOT = listing("", [entry("folder", "1-projects"), entry("file", "index.md"), entry("file", "todo.md")]);
   const DO_THIS = listing("1-projects/do this", [entry("file", "1-projects/do this/README.md")]);
   const FRESH = listing("1-projects/fresh", [entry("file", "1-projects/fresh/about.md"), entry("file", "1-projects/fresh/a.md")]);
@@ -184,7 +185,7 @@ describe("a folder's about note", () => {
     expect(all("about-editor")).toHaveLength(0);
     const page = strip(one("folder-column").textContent);
     expect(page).toContain("dns");
-    expect(page).not.toMatch(/overview|\.md\b/);
+    expect(page).not.toMatch(/\.md\b/);
   });
 
   test("a short one offers no Read more", async () => {
@@ -200,7 +201,7 @@ describe("a folder's about note", () => {
     const editing: PeekEditing = {
       open: (path) => (calls.push(`open ${path}`), true),
       close: (path) => (calls.push(`close ${path}`), true),
-      editor: { path: "1-projects/web/overview.md", draft: BODIES["1-projects/web/overview.md"]!, status: "clean", readOnly: false, encrypted: false },
+      editor: { path: "1-projects/web/about.md", draft: BODIES["1-projects/web/about.md"]!, status: "clean", readOnly: false, encrypted: false },
       canEdit: true,
       onChange: (text) => void calls.push(`type ${text}`),
       onSave: () => void calls.push("save"),
@@ -212,10 +213,10 @@ describe("a folder's about note", () => {
     await press(one("folder-about-more"));
     await act(async () => {});
     expect(strip(one("about-panel-title").textContent)).toBe("About Website folder");
-    expect(calls).toEqual(["open 1-projects/web/overview.md"]);
+    expect(calls).toEqual(["open 1-projects/web/about.md"]);
     await press(one("task-panel-close"));
     expect(all("about-panel")).toHaveLength(0);
-    expect(calls).toEqual(["open 1-projects/web/overview.md", "close 1-projects/web/overview.md"]);
+    expect(calls).toEqual(["open 1-projects/web/about.md", "close 1-projects/web/about.md"]);
   });
 
   test("a heading that only repeats the folder's name is not the panel's title: the page's own name is", async () => {
@@ -243,7 +244,7 @@ describe("a folder's about note", () => {
     expect(all("about-sheet")).toHaveLength(1);
     expect(strip(one("about-editor").textContent)).toContain("## Domains");
     await press(one("about-sheet-open"));
-    expect(view.selected).toEqual(["1-projects/web/overview.md"]);
+    expect(view.selected).toEqual(["1-projects/web/about.md"]);
     expect(all("about-sheet")).toHaveLength(0);
   });
 
@@ -272,7 +273,7 @@ describe("a folder's about note", () => {
     const field = one("folder-lede-input") as HTMLTextAreaElement;
     expect(field.value).toBe("Publish a [folder](https://example.invalid) as a site.");
     await type(field, "Publish a [folder](https://example.invalid) as a website.");
-    expect(writes).toEqual([["1-projects/web/overview.md", "lede", "Publish a [folder](https://example.invalid) as a website.", undefined]]);
+    expect(writes).toEqual([["1-projects/web/about.md", "lede", "Publish a [folder](https://example.invalid) as a website.", undefined]]);
   });
 
   test("an about that opens with a list shows its first items on one line, and pressing them opens the whole note", async () => {
@@ -314,6 +315,26 @@ describe("a folder's about note", () => {
     expect(writes).toEqual([["1-projects/fresh/about.md", "lede", "Fresh start.", undefined]]);
   });
 
+  /*
+    Owner, 2026-11-17: a project holding only its overview.md showed the
+    overview as its description and "This folder has nothing in it yet." The
+    overview is the project's main note: a row, with no about.md above it.
+  */
+  test("an overview.md with no about.md is a row, never the words atop the page", async () => {
+    const SHOOT = listing("1-projects/shoot", [entry("file", "1-projects/shoot/overview.md")]);
+    const writes: Write[] = [];
+    await mount(entry("folder", "1-projects/shoot"), SHOOT, host(writes));
+    await act(async () => {});
+    expect(all("folder-about-words")).toHaveLength(0);
+    expect(strip(one("folder-column").textContent)).toContain("overview");
+    expect(strip(document.body.textContent)).not.toContain("nothing in it yet");
+    // A writer's description goes to a new about.md, never into the overview.
+    await press(one("folder-lede-edit"));
+    await act(async () => {});
+    await type(one("folder-lede-input") as HTMLTextAreaElement, "A video shoot.");
+    expect(writes).toEqual([["1-projects/shoot/about.md", "lede", "A video shoot.", { create: true }]]);
+  });
+
   test("a member is offered nothing where there is none", async () => {
     await mount(entry("folder", "1-projects/do this"), DO_THIS, host(null));
     await act(async () => {});
@@ -342,19 +363,17 @@ async function type(field: HTMLTextAreaElement, text: string) {
   note, read by name ahead of the rest.
 */
 describe("the description is read ahead of the folder's notes", () => {
-  test("a README's words are drawn while the full read is still on its way", async () => {
-    // A listed README waits for the notes' word that it is not the untouched placeholder;
-    // that word now comes from the front note alone.
-    const readme: ListNote = { path: "2-areas/README.md", updatedAt: 10, properties: {}, heading: "2-areas", lede: "Health, home and money." };
+  test("an about.md's words are drawn while the full read is still on its way", async () => {
+    const readme: ListNote = { path: "2-areas/about.md", updatedAt: 10, properties: {}, heading: "2-areas", lede: "Health, home and money." };
     const page = host(null);
     const source = {
       ...page.source!,
       load: () => new Promise<never>(() => {}),
       loadFront: async (folders: readonly string[]) => (folders.includes("2-areas") ? [readme] : []),
       readBody: async (path: string) =>
-        path === "2-areas/README.md" ? { text: "# 2-areas\n\nHealth, home and money.\n", encrypted: false } : null,
+        path === "2-areas/about.md" ? { text: "# 2-areas\n\nHealth, home and money.\n", encrypted: false } : null,
     };
-    const AREAS = listing("2-areas", [entry("file", "2-areas/README.md"), entry("file", "2-areas/gym.md")]);
+    const AREAS = listing("2-areas", [entry("file", "2-areas/about.md"), entry("file", "2-areas/gym.md")]);
     await mount(entry("folder", "2-areas"), AREAS, { ...page, source });
     await act(async () => {});
     await act(async () => {});
@@ -372,7 +391,7 @@ describe("the description is read ahead of the folder's notes", () => {
   has, else two unseen lines and the Read more line.
 */
 describe("while the about note is read", () => {
-  const WEB = listing("1-projects/web", [entry("file", "1-projects/web/overview.md"), entry("file", "1-projects/web/dns.md")]);
+  const WEB = listing("1-projects/web", [entry("file", "1-projects/web/about.md"), entry("file", "1-projects/web/dns.md")]);
 
   function slow(notes: ListNote[] = NOTES): { page: FolderPageHost; arrive: () => Promise<void> } {
     const page = host([], notes);
@@ -407,7 +426,7 @@ describe("while the about note is read", () => {
   });
 
   test("with no words to hand, the room is held unseen and what arrives fades in", async () => {
-    const { page, arrive } = slow(NOTES.map((note) => (note.path === "1-projects/web/overview.md" ? { ...note, lede: null } : note)));
+    const { page, arrive } = slow(NOTES.map((note) => (note.path === "1-projects/web/about.md" ? { ...note, lede: null } : note)));
     await mount(entry("folder", "1-projects/web"), WEB, page);
     const held = one("folder-about-waiting");
     expect(held.getAttribute("aria-hidden")).toBe("true");
