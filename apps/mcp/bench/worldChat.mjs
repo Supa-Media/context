@@ -78,7 +78,7 @@ export function worldChat({ env, token, group, tagger, textedEvent, postEvents, 
           }
           const event = { ...textedEvent(line.text, line.from === "person" ? sender : null, at()), ...(line.pictures?.length ? { kind: "picture", pictures: line.pictures } : {}) };
           if (line.from === "person") last = event;
-          const { pictures, ...posted } = line.from === "person" ? event : { ...event, from: { kind: "tex" }, turn: last?.turn ?? event.turn, covers: last ? [last.id] : [], delivered: true };
+          const { pictures, ...posted } = line.from === "person" ? event : { ...event, ...(line.tapback ? { kind: "reaction" } : {}), from: { kind: "tex" }, turn: last?.turn ?? event.turn, covers: last ? [last.id] : [], delivered: true }; // a tapback as the Worker posts it (`inbox.ts`)
           await postEvents([posted]); // Tex's answer to a picture kept it, as that turn did (`earlierPictures.mjs`)
           if (line.from === "tex" && last?.pictures) await keepEarlierPictures({ env, token, workspaceId: workspaceId(), group, timeZone, at: last.at, turn: last.turn, names: last.pictures });
         });

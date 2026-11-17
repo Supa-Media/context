@@ -350,6 +350,8 @@ test("a tapback that was Tex's whole answer is an earlier line; one beside its w
   const c = {
     kind: "group",
     msgs: [
+      { id: "m0", who: "Ben", text: "lol", labels: { decide: { act: "quiet", also_react: "yes" } } },
+      { id: "m0b", who: "Tex", tex: true, kind: "react", to: "m0", text: "😂" },
       { id: "m1", who: "Ana", text: "Tex move the dinner to 8" },
       { id: "m2", who: "Tex", tex: true, kind: "react", to: "m1", text: "🗓️" },
       { id: "m3", who: "Ben", text: "Tex what's on friday" },
@@ -359,12 +361,25 @@ test("a tapback that was Tex's whole answer is an earlier line; one beside its w
     ],
   };
   assert.deepEqual(
-    earlierLines(c, 5).map((l) => [l.from, l.text]),
+    earlierLines(c, 7).map((l) => [l.from, l.text]),
     [
+      ["person", "lol"],
       ["person", "Tex move the dinner to 8"],
       ["tex", "(You texted them nothing and reacted 🗓️ to their text.)"],
       ["person", "Tex what's on friday"],
       ["tex", "Dinner at 8."],
     ],
   );
+});
+
+// In a one-to-one chat the Worker keeps a tapback answer as Tex's `reaction` event (`inbox.ts`), so the bench posts it
+// as one (`- earlier tex tapback:`), never as a sentence. Sabotage: post the group's said line in a one-to-one chat.
+test("a one-to-one tapback answer is an earlier tapback, written and read back as one", async () => {
+  const c = { kind: "one", members: ["John"], msgs: [{ id: "m1", who: "John", text: "remind me at 9" }, { id: "m2", who: "Tex", tex: true, kind: "react", to: "m1", text: "⏰" }, { id: "m3", who: "John", text: "thanks" }] };
+  assert.deepEqual(earlierLines(c, 2).at(-1), { from: "tex", text: "⏰", tapback: true });
+  const front = "run_as: John\ntoday: 2026-10-13";
+  const md = fdTest([{ convo: c, at: 2, label: { must: ["x"] } }], front);
+  assert.match(md, /- earlier tex tapback: "⏰"/);
+  const q = parseTest(md, "sets-1.md").questions[0];
+  assert.deepEqual(q.earlier.at(-1), { from: "tex", text: "⏰", tapback: true });
 });

@@ -57,12 +57,15 @@ export function earlierLines(c, i, year = null) {
   };
   for (const [j, m] of c.msgs.slice(0, i).entries()) {
     // A tapback, an edit or an unsend is not a line of the chat's text, with one exception: Tex's tapback that was its
-    // whole answer (no text of Tex's after it before the next message of theirs). Production keeps that turn as said,
-    // "(You texted them nothing and reacted 🗓️ to their text.)" (`sendTheReply.js` tapbackSaidLine), so the next turn
-    // knows it acted; dropped, a later "put it back" read as nothing having moved (Dev set, 2026-11-17). A tapback
-    // beside Tex's words was only an acknowledgement and stays out.
+    // whole answer (no text of Tex's after it before the next message of theirs), kept as production keeps it so the
+    // next turn knows it acted (dropped, a later "put it back" read as nothing having moved; Dev set, 2026-11-17). In a
+    // one-to-one chat the Worker posts it as Tex's `reaction` event ("(a tapback) ⏰", `inbox.ts`); in a group the
+    // Front door's tapback is kept as said, "(You texted them nothing and reacted 🗓️ to their text.)"
+    // (`sendTheReply.js` tapbackSaidLine), while Decide's own react on a text it stayed quiet on is only a step
+    // (`groupInbox.ts`) and stays out. A tapback beside Tex's words was only an acknowledgement and stays out too.
     if (m.kind === "react" && m.tex && endsTexTurn(c, j)) {
-      lines.push(dated({ from: "tex", text: tapbackSaidLine(m.text) }, j));
+      if (c.kind !== "group") lines.push(dated({ from: "tex", text: String(m.text ?? ""), tapback: true }, j));
+      else if (!decideStayedQuiet(c, m.to)) lines.push(dated({ from: "tex", text: tapbackSaidLine(m.text) }, j));
       continue;
     }
     if (m.kind && m.kind !== "reply") continue;
@@ -87,6 +90,9 @@ export function earlierLines(c, i, year = null) {
   }
   return kept;
 }
+
+/** Whether the group text `id` is one Decide stayed quiet on (its react then is Decide's, never the Front door's). */
+const decideStayedQuiet = (c, id) => c.msgs.find((m) => m.id === id)?.labels?.decide?.act === "quiet";
 
 /** Whether Tex's tapback at `j` was its whole answer: no text of Tex's follows it before the next message of theirs. */
 export function endsTexTurn(c, j) {
@@ -289,6 +295,7 @@ export function fdTest(units, front) {
         const ago = line.minutesBefore === undefined ? [] : [`- earlier minutes before: ${line.minutesBefore}`];
         if (line.from === "trigger") return [triggerLine(line), ...ago];
         const who = line.who ? `@${line.who}` : line.from;
+        if (line.tapback) return [`- earlier tex tapback: ${JSON.stringify(line.text)}`, ...ago];
         return [`- earlier ${who}: ${JSON.stringify(line.text)}`, ...(line.pictures ?? []).map((name) => `- earlier ${who} sends picture: ${name}`), ...ago];
       }),
       ...(l.must || []).map((x) => `- must: ${x}`),
@@ -331,7 +338,8 @@ export function burstBefore(c, i) {
  * The pictures a turn reads, as production's: its own and those sent since Tex last answered, oldest first. A group
  * turn reads the newest four of the chat's, any member's (`groupInbox.ts` `filesFor`); a one-to-one turn merges the
  * burst and reads the first eight (`inboxTurn.ts` `merged`). Tex answered when it texted, or when a routine ran, which
- * clears the chat's lines even when it stays quiet (`groupModelTurn.ts`); a tapback is not a line here. The earlier
+ * clears the chat's lines even when it stays quiet (`groupModelTurn.ts`); a tapback that was Tex's whole answer is its
+ * line too (`earlierLines`), and so answers what came before it. The earlier
  * lines keep their words without the picture, so none is sent twice.
  */
 export function sinceTexAnswered(lines, own = [], group = false) {
