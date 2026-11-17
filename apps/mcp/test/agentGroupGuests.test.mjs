@@ -95,7 +95,7 @@ before(async () => {
 });
 after(() => world.restore());
 
-const chat = (from, extra = {}) => ({ key: KEY, members: MEMBERS, from, people: ["ada"], ...extra });
+const chat = (from, extra = {}) => ({ key: KEY, members: MEMBERS, from, people: ["ada"], cause: "tagged", ...extra });
 const tagged = (from, question, extra = {}, group = {}) =>
   request(world.env, TOKEN_CHAT, "/agent", { question, group: chat(from, group), timeZone: "UTC", ...extra });
 const sends = () => world.controlPlane.emailCalls.filter((entry) => !entry.check);

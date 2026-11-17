@@ -50,7 +50,7 @@ before(async () => {
 });
 after(() => world.restore());
 
-const chat = (from) => ({ key: KEY, members: MEMBERS, from, people: ["seyi"] });
+const chat = (from) => ({ key: KEY, members: MEMBERS, from, people: ["seyi"], cause: "tagged" });
 const tagged = (from, question, extra = {}) => request(world.env, TOKEN_CHAT, "/agent", { question, group: chat(from), timeZone: "UTC", ...extra });
 const sends = () => world.controlPlane.emailCalls.filter((entry) => !entry.check);
 const live = () => [...world.team.keys()].filter((key) => key.startsWith(PENDING_PREFIX) && !String(world.team.get(key)?.body ?? "").startsWith("context.logical-delete"));

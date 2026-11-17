@@ -56,3 +56,21 @@ A turn grows by roughly the size of its moment-built modules (6 to 20 KB in a gr
 never includes a reply's timing (`conversation.js` `keptTurn`). What a simplification would cost: dropping the words
 again hides the next wrong fact the same way (`apps/mcp/test/promptManifest.test.mjs`); showing kept words without the
 fingerprint check shows words that did not run (`apps/mobile/__tests__/texLabPromptAt.test.ts`).
+
+## Each fact line says "not known" when its field is missing (2026-11-17)
+
+Step two of the same category. A fact line that had no field to read either fell back to a stock sentence or was left
+out, and both read to the model as facts: a turn with no cause was told "@<sponsor> tagged you.", a judged text from an
+invited person was told "The person who tagged you is invited", and a group whose sharing state did not arrive was
+told nothing, so Tex guessed.
+
+- `groupTurnCause.js` `taggedLine` says `CAUSE_NOT_KNOWN` for a missing or unknown cause, names a sender only from a
+  field (else "who sent it is not known"), and words a judged invited person as "The person who texted".
+- `devShare.js` says `DEV_SHARE_NOT_KNOWN` when the front door reads `devShare` and no state came.
+- The bench names each group turn's cause as the Worker does (`bench/benchCause.mjs`, `byCode.mjs`), so the Dev and
+  Test sets run what production runs.
+- `apps/mcp/test/turnFactClaims.test.mjs` walks every value each field can take, and its absence, and fails when a
+  line claims what its field doesn't hold; it also fails when the Worker's `TurnCause` gains a cause the gateway doesn't
+  word. Replay case `group-told-not-known`.
+
+What a simplification costs: a fallback sentence for a missing field is the original bug again, said confidently.

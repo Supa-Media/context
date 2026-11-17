@@ -92,16 +92,16 @@ export async function keepOneToOne({ env, workspaceId, trigger, texts, at, turn 
 export async function byCodeStart(world, question, { running = null, now = Date.now() } = {}) {
   if (question.jobReport) {
     const report = jobReportOf(question.jobReport);
-    return { message: String(question.jobReport.asked ?? ""), options: { byCode: true, event: { event: "job_report", jobReport: report } }, running: [...(running ?? []), runningJob(report, now)] };
+    return { message: String(question.jobReport.asked ?? ""), options: { byCode: true, cause: "job_report", event: { event: "job_report", jobReport: report } }, running: [...(running ?? []), runningJob(report, now)] };
   }
   if (!(question.checkinMail || question.routine)) return null;
   const chat = world.chatSide();
   if (chat.group === null) return null;
   if (question.routine) {
     await world.placeInHome(BENCH_ROUTINE, `${question.routine}\n`);
-    return { message: groupRoutineQuestion(routinePath(chat.group), undefined, chat.timeZone), options: { byCode: true }, running };
+    return { message: groupRoutineQuestion(routinePath(chat.group), undefined, chat.timeZone), options: { byCode: true, cause: "routine" }, running };
   }
   world.mailArrives(question.checkinMail);
   const mailbox = world.chatSide().mailbox;
-  return { message: groupCheckInQuestion(now - 60 * 60_000, chat.timeZone), options: { byCode: true, groupMail: [{ handle: chat.handle, address: mailbox }] }, running };
+  return { message: groupCheckInQuestion(now - 60 * 60_000, chat.timeZone), options: { byCode: true, cause: "check_in", groupMail: [{ handle: chat.handle, address: mailbox }] }, running };
 }

@@ -648,3 +648,4 @@ test/jobReportNode.test.mjs
 test/devShare.test.mjs
 test/jobCheckView.test.mjs
 test/jobStart.test.mjs
+test/turnFactClaims.test.mjs
