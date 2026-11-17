@@ -118,6 +118,10 @@ function readQuestion(sec) {
     // chat's ledger before the text, never answered again. A replay is one text: nobody plays the person.
     texts: null,
     earlier: [],
+    // A Front door test that starts at a check-in or a routine, not a text (`setsFd.mjs`): the email the check-in
+    // finds (`- check-in mail:` {from, subject, body}), or the routine's words (`- routine runs:` a JSON string).
+    checkinMail: null,
+    routine: null,
     body: sec.lines.join("\n").trim(),
   };
   for (const raw of sec.lines) {
@@ -131,6 +135,8 @@ function readQuestion(sec) {
     else if ((m = line.match(/^- running:\s*(\d+)\s*(?:jobs?)?\s*$/))) q.running = Number(m[1]);
     else if ((m = line.match(/^- person starts:\s*(.*)$/))) q.personStarts = unquote(m[1]);
     else if ((m = line.match(/^- person texts:\s*(.*)$/))) q.texts = jsonText(m[1], sec.n);
+    else if ((m = line.match(/^- routine runs:\s*(.*)$/))) q.routine = jsonText(m[1], sec.n);
+    else if ((m = line.match(/^- check-in mail:\s*(.*)$/))) q.checkinMail = mailLine(m[1], sec.n);
     else if ((m = line.match(/^- earlier (person|tex):\s*(.*)$/))) q.earlier.push({ from: m[1], text: jsonText(m[2], sec.n) });
     else if ((m = line.match(/^- earlier @([a-z0-9-]+):\s*(.*)$/))) q.earlier.push({ from: "person", who: m[1], text: jsonText(m[2], sec.n) });
     else if ((m = line.match(/^- @([a-z0-9-]+) before text (\d+):\s*(.*)$/))) q.others.push({ from: m[1], before: Number(m[2]), text: unquote(m[3]) });
@@ -152,6 +158,18 @@ function readQuestion(sec) {
     }
   }
   return q;
+}
+
+/** A check-in's email on a case line: JSON `{ from, subject, body }`, each a string. */
+function mailLine(raw, n) {
+  let value;
+  try {
+    value = JSON.parse(raw.trim());
+  } catch {
+    value = null;
+  }
+  if (!value || typeof value !== "object" || !["from", "subject", "body"].every((k) => typeof value[k] === "string")) throw new Error(`question ${n}: a check-in mail line is JSON {from, subject, body}`);
+  return { from: value.from, subject: value.subject, body: value.body };
 }
 
 /** A JSON string on a case line (a Lab replay's words, which may hold quotes and line breaks). */

@@ -211,6 +211,7 @@ export async function converse(world, question, person, mode = null, background 
   const totals = { ms: 0, personMs: 0, tools: [], jobs: [], traces: [], usage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 }, usageByModel: {}, rounds: {}, model: null, error: null };
   // A Lab replay's chat before its text goes into the ledger first, as it was (`labReplay.mjs`).
   if ((question.earlier ?? []).length > 0) await world.earlier(question.earlier);
+  if (question.checkinMail || question.routine) return await startedBy(world, question);
   let message = question.personStarts ?? question.texts ?? question.text;
   const limit = personTextLimit(question);
   for (let texts = 0; message !== null && texts < limit; texts += 1) {
@@ -250,6 +251,17 @@ export async function converse(world, question, person, mode = null, background 
     totals.personMs += realNow() - personStarted;
   }
   return { conversation, ...totals, texts: conversation.filter((turn) => turn.from === "assistant").length };
+}
+
+/**
+ * A test that starts at a check-in or a routine run, not a text (`setsFd.mjs`): the check-in finds the case's email,
+ * or the routine runs with the case's words, through the real `/agent` on that client's grant. Nobody texts; what Tex
+ * would text is the one answer.
+ */
+async function startedBy(world, question) {
+  if (question.checkinMail) world.mailArrives(question.checkinMail);
+  const turn = question.checkinMail ? await world.checkIn() : await world.routine("tex/routines/daily/bench-routine.md", question.routine);
+  return { conversation: turn.ok ? [{ from: "assistant", text: turn.answer }] : [], ms: turn.ms, personMs: 0, tools: [], jobs: [], traces: [], usage: turn.usage, usageByModel: {}, rounds: {}, model: turn.model, error: turn.error, texts: turn.ok ? 1 : 0 };
 }
 
 /**
