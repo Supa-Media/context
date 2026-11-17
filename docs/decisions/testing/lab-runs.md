@@ -42,10 +42,10 @@ over a GitHub listener), with a Models pick of the AI gateway or Claude Code on
   Test chats (the sandbox) still run on production's gateway: a Worker with
   Durable Objects gets no per-version preview, so a branch's gateway would be a
   deployment of its own.
-- **Caps:** 20 waiting or running per person, 200 a day (raised from 3 and 20,
-  then 6 and 60, on 2026-11-17: every thread of a person runs as them, and Dev2
-  asked that limits be the real ones, money being the only one: 200 runs is at
-  most about $200 a day, most cost cents). A run still open after
+- **Caps:** 20 waiting or running per person, 300 a day (raised from 3 and 20,
+  then 6 and 60, by Dev2, 2026-11-17: every thread of a person runs as them,
+  and the caps only guard against a runaway loop; GitHub queues jobs past the
+  account's concurrent limit rather than failing them). A run still open after
   three hours no longer holds a place.
 - **Public logs say counts and ids.** Results go to Convex, never into the log.
 - **Promote starts at once.** Asking dispatches `tex-lab-promote.yml`

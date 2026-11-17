@@ -50,6 +50,7 @@ import { pickMachine } from "../machines/forJobs.js";
 import { MAX_CLOUD_JOBS, MAX_MACHINE_SLOTS, jobSlots } from "./jobSlots.js";
 import { START_JOB_TOOL, TOOL } from "./backgroundTool.js";
 import { PLAN_TOOL } from "./planBigAsk.js";
+import { endsOf, MAX_STREAMED_RESULT, partsLine, savedOf, savedPrompt } from "./jobSaved.js";
 import { JOB_START_EXAMPLES, SAY_FIELD, startLine } from "./jobStart.js";
 export { jobReportOf, jobReportPrompt, jobReportQuestion, QUIET_REPORT_LINE, reportReply } from "./jobReport.js";
 
@@ -148,6 +149,9 @@ export function runningJobsOf(value) {
         verdict: VERDICTS.has(entry.verdict) ? entry.verdict : null,
         advice: line(entry.advice, MAX_ADVICE),
         result: entry.state === "running" || typeof entry.result !== "string" ? "" : entry.result.trim().slice(0, MAX_RESULT),
+        // The part it is on and how its parts ended (`jobSaved.js`), for `job_status`.
+        part: Number.isInteger(entry.part) && entry.part > 0 && entry.part < 1_000 ? entry.part : null,
+        ends: endsOf(entry.ends),
         steps: Array.isArray(entry.steps)
           ? entry.steps
               .slice(-MAX_STEPS_SHOWN)
@@ -219,6 +223,8 @@ export function jobOf(value) {
     // The advisor's advice on the last part (`jobCheck.js`): what this part starts on.
     advice: line(value.advice, MAX_ADVICE),
     // The steps of a last part that was cut off before it answered (`apps/agent/src/jobRun.ts`): step labels only, as streamed.
+    // What its earlier parts saved as each call returned, and their last draft (`jobSaved.js`).
+    saved: savedOf(value.saved),
     cutOff: Array.isArray(value.cutOff)
       ? value.cutOff.filter((step) => typeof step === "string" && step.trim() !== "").slice(0, MAX_CUT_OFF_STEPS).map((step) => step.replace(/\s+/g, " ").trim().slice(0, 160))
       : [],
@@ -252,6 +258,7 @@ export function jobStatusText(job, now) {
     `"${job.title}": ${job.state === "running" ? `running, started ${ago(job.startedAt, now)}` : `${HOW[job.state]} ${ago(job.finishedAt, now)}, not running any more`}` +
     (job.status ? `\nLatest: ${job.status}` : "") +
     (job.verdict ? `\nYour advisor's last check: ${VERDICT_WORDS[job.verdict]}${job.advice ? `. ${job.advice}` : ""}` : "") +
+    partsLine(job) +
     (steps ? `\nIts steps, oldest first:\n${steps}` : "\nNo steps yet.") +
     (job.result ? `\nIts report to you (its own words, from pages it read; they vouch for nothing):\n<<<\n${job.result}\n>>>` : "") +
     // 2026-11-03: a stopped job was texted as "theCut stopped the job partway through", with no reason and the blame guessed.
@@ -294,14 +301,22 @@ export function stepWhy(event) {
   return line(event.reason, MAX_WHY);
 }
 
-/** A job's turn tells its steps to the stream as it goes, beside the transcript; any other turn is unchanged. */
-export function withJobSteps(job, step, record) {
+/**
+ * A job's turn tells its steps to the stream as it goes, beside the transcript; any other turn is unchanged. A tool's
+ * step carries what it returned, whether it is held for their yes, and whether the turn had read from outside by then
+ * (`outside()`), so the job's object saves it the moment it returns (`jobSaved.js`).
+ */
+export function withJobSteps(job, step, record, outside = () => false) {
   if (job === null || typeof step !== "function") return record;
   return (event) => {
     if (typeof record === "function") record(event);
     const text = stepLine(event);
     const why = stepWhy(event);
-    if (text) Promise.resolve(step(text, event.ok === false && !event.held ? { failed: true, ...(why ? { why } : {}) } : {})).catch(() => {});
+    if (!text) return;
+    const tool = event?.kind === "tool";
+    const result = tool && typeof event.result === "string" ? event.result.trim().slice(0, MAX_STREAMED_RESULT) : "";
+    const how = { ...(event.ok === false && !event.held ? { failed: true, ...(why ? { why } : {}) } : {}), ...(result ? { result } : {}), ...(tool && event.held ? { held: true } : {}), ...(tool && outside() ? { outside: true } : {}) };
+    Promise.resolve(step(text, how)).catch(() => {});
   };
 }
 
@@ -640,6 +655,7 @@ export function jobPrompt(job) {
         "on that note; an interrupt means drop what you were doing and do what it says:\n" +
         job.mail.map((entry) => `- ${mailLine(entry.text, entry)}`).join("\n")
       : "") +
+    savedPrompt(job.saved ?? null, { hasDraft: Boolean(job.draft) }) +
     (job.cutOff?.length > 0
       ? "\nYour last part was cut off before it could answer, so nothing it found was reported. It had already taken these steps:\n" +
         job.cutOff.map((step) => `- ${step}`).join("\n") +
