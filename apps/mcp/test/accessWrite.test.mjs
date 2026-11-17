@@ -364,3 +364,10 @@ test("a revoked grant is in neither audience's rules once it is taken back; taki
   }
   assert.deepEqual(store.access.set().rows.find((row) => row.token === ME), { token: ME, kind: "file", path: "notes/me.md", base: "private", grantees: [] });
 });
+
+test("a base written with a path that differs only by case lands on the note's own row, never as pending (Sayo's chat, 2026-11-16)", async () => {
+  const { store } = await ready();
+  assert.deepEqual(await write(store, { path: "Projects/Plan.md", base: "private", actor: OWNER }), { status: 200, body: { ok: true, version: 6 } });
+  assert.deepEqual(store.rows.rules("member").notes, [planRule("private")], "the real row took the base");
+  assert.deepEqual(store.access.set().pending, [], "nothing was kept as pending access for a note that exists");
+});
