@@ -69,19 +69,6 @@ const NOT_SYNCED = new Map([
     "BENCH_RUNNER_REFRESH_TOKEN_LIVE",
     "Written by ai-benchmark.yml itself: the gateway rotates the benchmark runner's refresh token on every use, and a sync from the vault would restore the retired seed (BENCH_RUNNER_REFRESH_TOKEN), which the gateway treats as a replay and answers by revoking the grant.",
   ],
-  // The Lab's runner slots 1..3 (scripts/lab-runner-lease.mjs). A slot's client id and
-  // refresh token come from `pnpm ai connect --lab-slot N`; tex-lab-run.yml then writes the
-  // rotated refresh token back after every run. The same rule as the live token above.
-  ...[1, 2, 3].flatMap((slot) => [
-    [
-      `LAB_RUNNER_${slot}_CLIENT_ID`,
-      `Written by \`pnpm ai connect --lab-slot ${slot}\` once, by a person, straight into the production environment; never synced from the vault. It is not a secret the vault could hold for the grant, and a sync would only copy a value the grant already keeps.`,
-    ],
-    [
-      `LAB_RUNNER_${slot}_REFRESH_TOKEN`,
-      `Written by \`pnpm ai connect --lab-slot ${slot}\` and then by tex-lab-run.yml's write-token job after every run: the gateway rotates the slot's refresh token on every use, so a vault copy goes stale at the next run, and a sync would restore a spent token, which the gateway treats as a replay and answers by revoking the slot's grant.`,
-    ],
-  ]),
 ]);
 
 function readAllowlist() {

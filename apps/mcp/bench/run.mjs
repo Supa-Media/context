@@ -640,7 +640,7 @@ const USAGE = [
   "       pnpm ai jobs [--setup production] [--only a,b] [--gate-sample <main tree>] [--max-parts 4] [--strict] [--fake]  run Tex's job tasks end to end and grade them in code",
   "       pnpm ai search [--dir <benchmarks folder>] [--setups a,b] [--questions 1,2] [--out <note>] [--fake]",
   "       pnpm ai check <dream|heartbeat|meeting-summaries|meeting-transcription|connected-ais> [--dir <folder>] [--setups a,b] [--questions 1,2] [--out <note>] [--fake]",
-  "       pnpm ai connect [--endpoint <url>] [--lab-slot <1|2|3>]   once, by a person: the runner's grant on Context (a Lab slot's secrets with --lab-slot)",
+  "       pnpm ai connect [--endpoint <url>]           once, by a person: the runner's grant on Context",
   "       pnpm ai signin [--show refresh-token]        the runner's sign-in, from BENCH_RUNNER_* in the environment",
   "       pnpm ai pull <job> [--dir <benchmarks folder>]   the job's setups from Context into setups/<job>/",
   "       pnpm ai publish <result file> [--run-url <url>]  the result's scores note into Context",
