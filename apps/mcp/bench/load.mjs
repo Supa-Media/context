@@ -109,7 +109,7 @@ function readQuestion(sec) {
     in: null,
     // Lines graded from the run's record, never by the judge (`checks.mjs`).
     checks: [],
-    // Background jobs the chat already has running, with `background: on` (`run.mjs` `benchRunning`).
+    // Background jobs the chat already has running, with `background: on` (`byCode.mjs` `benchRunning`).
     running: 0,
     // Jobs a Tex 🔎 started that are still running at the text (`- running job:` {title, minutesBefore?}; `setsFd.mjs` runningJobOf).
     runningJobs: [],

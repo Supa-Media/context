@@ -65,7 +65,9 @@ import { filedNotes } from "./checks.mjs";
 import { realNow } from "./clock.mjs";
 import { benchFolder } from "./folder.mjs";
 import { benchModels } from "./worldModels.mjs";
-import { benchJobId, byCodeStart, runningJob } from "./byCode.mjs";
+import { benchRunning, byCodeStart } from "./byCode.mjs";
+
+export { benchRunning };
 
 /**
  * The fewest texts the played person may send in one conversation. A brief
@@ -195,18 +197,6 @@ export function readComputer(value) {
   const m = String(value).trim().match(/^(.+?) \(((?:claude|codex)(?:, (?:claude|codex))?)\)(?: (\d) slots?)?$/);
   if (!m) throw new Error(`computer: "${value}" is not "<name> (claude, codex) <n> slots"`);
   return { name: m[1], tools: m[2].split(", "), slots: m[3] ? Number(m[3]) : 1 };
-}
-
-/**
- * The jobs a case's chat has running before it starts: the same for every setup, so each has the same free slots.
- * `titled` are the jobs its earlier lines started and that are still going (`setsFd.mjs` runningJobOf), each titled and
- * started `minutesBefore` ago, as the chat's running list shows a job it started (`byCode.mjs` runningJob).
- */
-export function benchRunning(count, titled = []) {
-  const now = Date.now();
-  const named = titled.map((job, i) => runningJob({ id: benchJobId(i + 1), title: job.title, state: "running" }, now, job.minutesBefore === undefined ? undefined : job.minutesBefore * 60_000));
-  const counted = Array.from({ length: Math.max(0, Math.min(6, count)) }, (_, i) => ({ id: `bench-running-${i + 1}`, title: `Earlier job ${i + 1}`, state: "running", startedAt: now - 10 * 60_000, status: "working" }));
-  return [...named, ...counted];
 }
 
 /**
