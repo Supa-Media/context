@@ -82,10 +82,12 @@ jobs:
       # slowest check (173s against 94-106s for the other shards).
       convex-typecheck: false
       # The mobile suite (737 files) took 2m45 on one runner once the Convex
-      # one was split, so it gets the same treatment. Each shard appends
+      # one was split. Three shards left shard 1 at about 78 seconds of tests
+      # (measured 2026-11-17, p50) against 42 and 57 for the other two. Six is
+      # the most the reusable workflow's matrix allows. Each shard appends
       # --shard=i/n, which `pnpm run test` forwards to jest and the bare
       # `pnpm test` shorthand would refuse.
-      mobile-test-shards: 3
+      mobile-test-shards: 6
       mobile-test-command: "pnpm run test"
       # The upstream filters, with `convex` widened to everything the
       # control-plane suite reads outside apps/convex: the gateway, the
