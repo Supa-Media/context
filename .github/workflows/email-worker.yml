@@ -73,6 +73,15 @@ jobs:
           node scripts/check-workflow-yaml.mjs --self-test
           node scripts/check-workflow-yaml.mjs
 
+      # Second host for the benchmark writer-token guard. fast-guards.yml is the
+      # other. A branch's install must not share a job with the token that writes
+      # the production secret.
+      - name: The benchmark writer token stays on main's checkout
+        run: |
+          node scripts/check-bench-token-writer.mjs --self-test
+          node scripts/check-bench-token-writer.mjs
+          node scripts/bench-token-open.mjs --self-test
+
       # The second half of the same idea, and the second host for it: this
       # asserts what the `on:` blocks SAY rather than what their run blocks do.
       # fast-guards.yml runs it too, so narrowing either host is caught by the

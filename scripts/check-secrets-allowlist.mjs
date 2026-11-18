@@ -54,6 +54,10 @@ const NOT_SYNCED = new Map([
     "The other half of the bootstrap — the PAT that writes GitHub secrets. Same reason.",
   ],
   [
+    "BENCH_SECRET_WRITER_TOKEN",
+    "A fine-grained GitHub token (this repository only, Environments read/write and Metadata read, expires 2027-11-18) used by the Lab run and Tex replay writer jobs to store the rotated benchmark refresh token. It is minted in GitHub, not in 1Password: putting it through the vault sync would hand the credential that writes environment secrets to the same admin path this token exists to keep off branch code. A person rotates it before it expires.",
+  ],
+  [
     "Sentry",
     "Local development reads the Sentry item's dsn field; no deploy workflow reads a Sentry secret today.",
   ],

@@ -52,10 +52,33 @@ over a GitHub listener), with a Models pick of the AI gateway or Claude Code on
   its refresh token on every use and revokes itself when a retired one is
   presented. A Lab run waits until no earlier runner sign-in is still going
   (`scripts/bench-runner-lock.mjs`, the same list as the benchmark, replay,
-  nightly and the Test Set seed), then writes the rotated token back to the
-  production environment secret `BENCH_RUNNER_REFRESH_TOKEN_LIVE` before the
-  Dev set runs and again after the spend line. The admin token that writes
-  the secret is on those two steps only, not in the job's environment.
+  nightly and the Test Set seed). The run job, which checks out the draft,
+  seals the rotated token after that sign-in and again after the spend line.
+  It does not write the secret. A later job checks out `main` only, opens the
+  seal, checks the value is a refresh token (`crt1.…` or the legacy `crt_…`
+  form), and writes `BENCH_RUNNER_REFRESH_TOKEN_LIVE` in the production
+  environment. Tex replay writes that same secret the same way.
+  The key is an RSA key made for the run. Its public half is all the branch
+  job receives. Its private half is wrapped with AES under
+  `BENCH_SECRET_WRITER_TOKEN` and leaves the key job only as ciphertext, as a
+  job output. The branch job needs the job that forwards the public half, not
+  the key job, and `needs` does not carry outputs through, so the wrapped key
+  is not in the branch job's context. A public artifact is the ciphertext of
+  the refresh token. The writer token is a fine-grained PAT owned by
+  Supa-Media, limited to this repository, with Environments read/write and
+  Metadata read. It expires on 2027-11-18. Rotate it before that day.
+  The branch already sees the refresh token it just rotated. What it must not
+  see is a token that can write production secrets. GitHub-hosted runners have
+  passwordless sudo, so a branch can replace `/usr/bin/openssl` after install
+  and upload a blob that is not a seal; the writer then fails the write
+  instead of storing it. The writer token is only on the key job and the
+  writer job, both of which run main's code. An empty writer token fails the
+  key job, before sign-in. A refused write fails the writer job. If the seal
+  after the run fails, the writer does not store the earlier token: the spend
+  line may have rotated it. If the run dies after the first seal and before
+  the second, the first seal is what gets written. The workflow stays in
+  progress until the writer finishes, so the next run still reads the secret
+  after the write.
 - **Promote starts at once.** Asking dispatches `tex-lab-promote.yml`
   straight away (the quarter-hour schedule stays as the fallback) and makes a
   "gate" run, which follows the pull request's **Tex test set** status and
@@ -76,4 +99,11 @@ Two Lab runs signing in together, or a Lab run that spends the refresh token
 and does not write it back, presents a retired token next time and the
 gateway revokes the grant; the next Dev run then stops at `invalid_grant`
 until someone runs `pnpm ai connect` again. `bench-runner-lock.mjs` lists
-`tex-lab-run.yml` so the other runner workflows wait for it too.
+`tex-lab-run.yml` so the other runner workflows wait for it too. Putting the
+writer token back on the job that checks out the draft, or naming the
+repository admin token in `tex-lab-run.yml` or `tex-replay.yml`, lets that
+draft's install read a credential that writes production secrets.
+`scripts/check-bench-token-writer.mjs` fails on either. The writer token
+expires on 2027-11-18; leaving it past that date means the next Lab run and
+the next replay cannot store a rotated refresh token, and the following
+sign-in revokes the grant.

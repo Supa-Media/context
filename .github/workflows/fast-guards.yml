@@ -78,6 +78,9 @@ jobs:
           node scripts/check-workflow-cloudflare-preflight.mjs
           node scripts/check-workflow-secret-order.mjs --self-test
           node scripts/check-workflow-secret-order.mjs
+          node scripts/check-bench-token-writer.mjs --self-test
+          node scripts/check-bench-token-writer.mjs
+          node scripts/bench-token-open.mjs --self-test
           node scripts/check-wrangler-vars-not-secrets.mjs --self-test
           node scripts/check-wrangler-vars-not-secrets.mjs
           node scripts/check-convex-run-stderr.mjs --self-test
