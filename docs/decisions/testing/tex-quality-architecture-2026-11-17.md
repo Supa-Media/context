@@ -310,6 +310,23 @@ What the code showed, each reproduced in a test
 On fake models, 62 of Training's 63 front-door tests run, none a harness row.
 The one left is a group check-in that found only a calendar event.
 
+### Change 1, built and off (18 November): Decide's reason is asked again
+
+The step `decideWhy` is in the config, wired from Decide, and switched off.
+When it is on, a verdict that stays quiet or only reacts for one of the five
+reasons that mean "this is for Tex" is asked for its reason once more, told
+the act, from the seven reasons a quiet message can have. The verdict comes
+back with that one field replaced: the question it asks has no act in it, so
+it cannot turn quiet into an answer
+(`replay/cases/decide-why-told-the-act.mjs`). A second look that fails or
+names no such reason keeps the verdict as it was. The bench asks Decide the
+same way, so a Lab draft that switches the step on is scored with it.
+
+Not scored: it stays off until a Training run (Decide must not drop, and the
+contradiction test should pass) and one Dev run say keep it. Decide runs on
+Clef, which the credit outage does not touch, but a Lab run also runs the
+front door, so none was started.
+
 ## What this adds up to
 
 If changes 1, 2, 4 and the handoff each land in the middle of their range:
