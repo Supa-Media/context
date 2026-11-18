@@ -396,9 +396,8 @@ export function withIdLayout(store, { lookup, lookupRead, wrote, adopt, removed,
     if (typeof store.readInObject === "function") {
       define("readInObject", async (path, { start = false, whole = false } = {}) => {
         if (!mirroredPath(path)) return null;
-        const { entry } = await resolveWith(ask, path);
-        if (!keyedEntry(entry) || typeof entry.noteId !== "string") return null;
-        return await store.readInObject({ path, key: entry.key, noteId: entry.noteId, ...(start === true ? { start: true } : {}), ...(whole === true ? { whole: true } : {}) });
+        // The object resolves the row (`collabRead.js` `byPath`): one call, not a lookup and then the read.
+        return await store.readInObject({ path, byPath: true, ...(start === true ? { start: true } : {}), ...(whole === true ? { whole: true } : {}) });
       });
     }
     // A read that hands its view on (`read_notes` to `read_note`) keeps the one it has.

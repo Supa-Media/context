@@ -26,11 +26,112 @@
  */
 
 import { CollaborationError, commitUpdate, replaceText } from "@context/collaboration";
+import { etagHex } from "../texStore/sha256.js";
 import { HOMES, isRevisionKey } from "./api.js";
 import { liveRowByPath } from "./rowsByPath.js";
 import { objectRowId } from "./treeOps.js";
 import { WRITE_OPS, WriteOpRefused } from "./writeOps.js";
 import { lastWriteEach } from "./lastWrite.js";
+
+/** A flush whose live rows moved while the save was computed. The transaction rolls back; the save runs again. */
+class FlushConflict extends Error {}
+
+const encoder = new TextEncoder();
+
+/** Whether `meta` (or none) passes `onlyIf`, as `texStore/objects.js` `passes` does. */
+function passes(meta, onlyIf) {
+  if (!onlyIf || typeof onlyIf !== "object") return true;
+  const { etagMatches, etagDoesNotMatch } = onlyIf;
+  if (typeof etagMatches === "string") {
+    if (meta === null) return false;
+    if (etagMatches !== "*" && etagMatches.replace(/"/g, "") !== meta.etag) return false;
+  }
+  if (typeof etagDoesNotMatch === "string") {
+    if (etagDoesNotMatch === "*") return meta === null;
+    if (meta !== null && etagDoesNotMatch.replace(/"/g, "") === meta.etag) return false;
+  }
+  return true;
+}
+
+/**
+ * The engine's object store, with its writes held until `flush` lands them in one storage transaction.
+ *
+ * Each `put` used to commit on its own: the engine awaits between them, and a Durable Object commits at an await, so
+ * a save waited out three durable commits (production, 2026-11-17: `obj:ws.collab.replace` median 451 ms, and the
+ * object's own clock on the work read 0 — the wait is the commits after the handler). Held here, the same writes
+ * commit once. A row that moved meanwhile fails the whole flush, and the save is computed again.
+ */
+function heldObjects(objects) {
+  const ops = [];
+  const overlay = new Map();
+  const liveHead = (key) => {
+    if (overlay.has(key)) {
+      const held = overlay.get(key);
+      return held.deleted ? null : { etag: held.etag, size: held.size };
+    }
+    const head = typeof objects.head === "function" ? objects.head(key) : null;
+    return head;
+  };
+  const api = {
+    get(key, options = {}) {
+      if (overlay.has(key)) {
+        const held = overlay.get(key);
+        if (held.deleted) return null;
+        const meta = { key, etag: held.etag, size: held.size };
+        if (!passes(meta, options.onlyIf)) return meta;
+        return { ...meta, body: held.body };
+      }
+      return objects.get(key, options);
+    },
+    head(key) {
+      if (overlay.has(key)) {
+        const held = overlay.get(key);
+        return held.deleted ? null : { key, etag: held.etag, size: held.size };
+      }
+      return objects.head(key);
+    },
+    async put(key, value, options = {}) {
+      const bytes = typeof value === "string" ? encoder.encode(value) : value instanceof Uint8Array ? value : encoder.encode(String(value ?? ""));
+      const existing = liveHead(key);
+      if (!passes(existing, options.onlyIf)) return null;
+      const etag = etagHex(bytes);
+      overlay.set(key, { etag, size: bytes.byteLength, body: bytes, deleted: false });
+      ops.push({ op: "put", key, bytes, etag, onlyIf: options.onlyIf });
+      return { etag, size: bytes.byteLength };
+    },
+    delete(keys) {
+      const list = Array.isArray(keys) ? keys : [keys];
+      for (const key of list) overlay.set(key, { deleted: true });
+      ops.push({ op: "delete", keys: list });
+    },
+  };
+  return {
+    api,
+    ops,
+    /** Land every held write, or `"conflict"` when a row moved. One transaction when `transact` is given. */
+    flush(transact) {
+      if (ops.length === 0) return "empty";
+      const apply = () => {
+        for (const op of ops) {
+          if (op.op === "delete") {
+            objects.delete(op.keys);
+            continue;
+          }
+          const written = objects.putPrepared(op.key, op.bytes, op.etag, op.onlyIf ? { onlyIf: op.onlyIf } : {});
+          if (written === null) throw new FlushConflict();
+        }
+      };
+      try {
+        if (typeof transact === "function") transact(apply);
+        else apply();
+        return "ok";
+      } catch (error) {
+        if (error instanceof FlushConflict) return "conflict";
+        throw error;
+      }
+    },
+  };
+}
 
 const COLLABORATION_ROOT = ".context/collaboration/";
 const NOTE_KEY = /^notes\/[A-Za-z0-9-]{1,128}\.md$/;
@@ -208,18 +309,26 @@ async function serveInObject(store, fields, run) {
   const live = liveNoteAt(sql, path);
   if (live === null || live.key !== key || live.noteId !== noteId) return { served: false, reason: "row_moved" };
 
-  const engine = engineStore(objects, { path, key, noteId, legacyEtag: typeof fields.legacyEtag === "string" ? fields.legacyEtag : null, rowEtag: typeof fields.rowEtag === "string" ? fields.rowEtag : null });
-  // Only where each key ended goes back: a save writes its document state twice, and the bucket keeps the last.
-  const handedBack = () => ({ writes: lastWriteEach(engine.writes), deletes: engine.deletes });
-  try {
-    const result = await run(engine.store, path);
-    const markdown = engine.writes.filter((write) => write.key === key).at(-1) ?? null;
-    const recorded = markdown !== null && wantsRecord(fields) && recordVersion(store, fields, markdown);
-    return timed({ served: true, result, markdown: markdown === null ? null : { etag: markdown.etag, size: markdown.size }, recorded, sizes: sizesOf(engine.writes, key), ...handedBack() });
-  } catch (error) {
-    const held = heldBack(error);
-    if (held !== null) return timed({ served: false, reason: `not_held_${held.what}`, ...handedBack() });
-    if (error instanceof CollaborationError) return timed({ served: true, error: { code: error.code, message: error.message }, ...handedBack() });
-    throw error;
+  // A save that loses a race against another writer is computed again. Three is the engine's own bound for one attempt
+  // (`MAX_RETRIES` there covers a retry inside the attempt); past that the caller is told it was a conflict.
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    const held = heldObjects(objects);
+    const engine = engineStore(held.api, { path, key, noteId, legacyEtag: typeof fields.legacyEtag === "string" ? fields.legacyEtag : null, rowEtag: typeof fields.rowEtag === "string" ? fields.rowEtag : null });
+    // Only where each key ended goes back: a save writes its document state twice, and the bucket keeps the last.
+    // Nothing is handed back until the flush commits: a refused save wrote nothing.
+    const handedBack = () => ({ writes: lastWriteEach(engine.writes), deletes: engine.deletes });
+    try {
+      const result = await run(engine.store, path);
+      if (held.flush(store.transact) === "conflict") continue;
+      const markdown = engine.writes.filter((write) => write.key === key).at(-1) ?? null;
+      const recorded = markdown !== null && wantsRecord(fields) && recordVersion(store, fields, markdown);
+      return timed({ served: true, result, markdown: markdown === null ? null : { etag: markdown.etag, size: markdown.size }, recorded, sizes: sizesOf(engine.writes, key), ...handedBack() });
+    } catch (error) {
+      const missed = heldBack(error);
+      if (missed !== null) return timed({ served: false, reason: `not_held_${missed.what}`, writes: [], deletes: [] });
+      if (error instanceof CollaborationError) return timed({ served: true, error: { code: error.code, message: error.message }, writes: [], deletes: [] });
+      throw error;
+    }
   }
+  return timed({ served: true, error: { code: "CONFLICT", message: "collaboration state kept changing during replacement" }, writes: [], deletes: [] });
 }

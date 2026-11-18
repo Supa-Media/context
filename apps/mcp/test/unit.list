@@ -351,6 +351,7 @@ test/agentWarmCopy.test.mjs
 test/texHistoryOneCopy.test.mjs
 test/agentHeldLog.test.mjs
 test/texStore.test.mjs
+test/sha256.test.mjs
 test/texStoreTicketCache.test.mjs
 test/texMerge.test.mjs
 test/texStoreMove.test.mjs

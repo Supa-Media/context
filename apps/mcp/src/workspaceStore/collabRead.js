@@ -58,13 +58,23 @@ export async function serveCollabRead(store, fields) {
   // The object's own clock, which moves only across its awaits: the call's time inside, without the trip.
   const started = Date.now();
   const timed = (answer) => ({ ...answer, took: Date.now() - started });
-  const { path, key, noteId } = fields ?? {};
-  if (typeof path !== "string" || typeof key !== "string" || !NOTE_KEY.test(key) || typeof noteId !== "string" || !NOTE_ID.test(noteId)) {
-    return { served: false, reason: "bad_call" };
-  }
+  let { path, key, noteId } = fields ?? {};
+  if (typeof path !== "string") return { served: false, reason: "bad_call" };
   const { rows, sql, objects } = store;
   if (!sql || !objects || rows.home() !== HOMES.OBJECT || typeof rows.backfilledAt() !== "number") {
     return { served: false, reason: "not_held" };
+  }
+  // The row resolved here, so the gateway does not spend a lookup before the read (`tools/notes/read.js`).
+  if (fields?.byPath === true) {
+    const found = liveNoteAt(sql, path);
+    if (found === null || typeof found.key !== "string" || !NOTE_KEY.test(found.key) || typeof found.noteId !== "string" || !NOTE_ID.test(found.noteId)) {
+      return { served: false, reason: "absent" };
+    }
+    key = found.key;
+    noteId = found.noteId;
+  }
+  if (typeof key !== "string" || !NOTE_KEY.test(key) || typeof noteId !== "string" || !NOTE_ID.test(noteId)) {
+    return { served: false, reason: "bad_call" };
   }
   const live = liveNoteAt(sql, path);
   if (live === null || live.key !== key || live.noteId !== noteId) return { served: false, reason: "row_moved" };
@@ -72,7 +82,7 @@ export async function serveCollabRead(store, fields) {
   if (markdown === null) return { served: false, reason: "not_held" };
   // What the gateway would not have asked the engine for: answered as the Markdown it is.
   if (isEncryptedNote(markdown.text) || !eligible(path, markdown.text)) {
-    return timed({ served: true, markdown, collaboration: null, writes: [], deletes: [] });
+    return timed({ served: true, markdown, collaboration: null, noteId, writes: [], deletes: [] });
   }
 
   const engine = engineStore(objects, { path, key, noteId });
@@ -85,7 +95,7 @@ export async function serveCollabRead(store, fields) {
     // `whole: true` (the editor's live read, `live/collaborationRoute.js`) carries the document as the engine answers
     // it, its snapshot included, which the editor merges from; any other read only its identity, version and text.
     const collaboration = document === null ? null : fields.whole === true ? document : { documentId: document.documentId, etag: document.etag, text: document.text };
-    return timed({ served: true, markdown: current, collaboration, ...handedBack() });
+    return timed({ served: true, markdown: current, collaboration, noteId, ...handedBack() });
   } catch (error) {
     if (notHeldHere(error)) return timed({ served: false, reason: "not_held", ...handedBack() });
     if (error instanceof CollaborationError) return timed({ served: true, error: { code: error.code, message: error.message }, ...handedBack() });

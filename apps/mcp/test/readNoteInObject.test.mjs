@@ -6,7 +6,7 @@
 //  1. `readInObject` in `read.js` returning null at once.
 //     → "a note people edited together is read in one object call…" fails (the collaboration keys are read).
 //  2. `serveCollabRead` skipping the live-row check.
-//     → "a row that names another note is not served…" fails (served true).
+//     → "a path read serves the live row…" fails (`row_moved` is not the reason).
 //  (`serveCollabRead` without its `isEncryptedNote` check passes: `eligible` already refuses an encrypted note's
 //  front matter. The check stays, so the two cannot drift apart.)
 //  3. `readInObject` asked before `canSee` decides (for every read).
@@ -141,13 +141,18 @@ test("a note nobody edited together is its Markdown, in one call, with the Markd
   assert.equal((await read(long)).content[0].text, fast.content[0].text);
 });
 
-test("a row that names another note is not served, and the read goes the long way with nothing written", async () => {
+test("a path read serves the live row in one call, and a call naming another note is refused", async () => {
+  // The read resolves the row in the object (`byPath`), so a lookup stub that names another note is not consulted
+  // and the live note is the answer. A call that still brings a key and a note id is refused when they are not the
+  // live row's, as before: that is the check a move between the two used to need.
   const { store, logged, calls } = await world({ lookupNoteId: "0199a000-0000-7000-8000-000000000009" });
   const answer = await read(store);
   assert.equal(answer.isError, undefined, answer.content[0].text);
-  assert.ok(ops(calls).includes("ws.collab.read"));
-  assert.ok(!ops(calls).includes("put"), "the object wrote for a read it refused");
-  assert.deepEqual(logged.filter(([event]) => event === "workspace_object_read_not_served"), [["workspace_object_read_not_served", { workspaceId: "ws", reason: "row_moved" }]]);
+  assert.match(answer.content[0].text, /Second words\./);
+  assert.deepEqual(ops(calls).filter((op) => op !== "head"), ["ws.collab.read"]);
+  assert.deepEqual(logged.filter(([event]) => event === "workspace_object_read_not_served"), []);
+  const side = objectSide();
+  assert.equal((await serveCollabRead(side.store, { path: PATH, key: KEY, noteId: "0199a000-0000-7000-8000-000000000009" })).reason, "row_moved");
 });
 
 test("a note this reader may not see never reaches the object's read: the refusal costs what it cost", async () => {

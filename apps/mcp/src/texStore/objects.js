@@ -14,6 +14,8 @@
  * `node:sqlite` and the Durable Object (`texStore.js`) runs it as it is.
  */
 
+import { etagHex } from "./sha256.js";
+
 /** One stored value; under the Durable Object's 2 MB per value. */
 export const CHUNK_BYTES = 1024 * 1024;
 /** The largest object kept: a picture or a long transcript fits; a video does not. */
@@ -82,9 +84,12 @@ function bytesOf(value) {
   throw new TexObjectRefused("a body this store reads whole: bytes or text");
 }
 
-async function etagOf(bytes) {
-  const digest = new Uint8Array(await crypto.subtle.digest("SHA-256", bytes));
-  return Array.from(digest.subarray(0, 16), (byte) => byte.toString(16).padStart(2, "0")).join("");
+/**
+ * The etag, computed here rather than with `crypto.subtle`: that digest is an await, and an await between a save's
+ * writes ends each one as its own Durable Object transaction (`collabReplace.js` flushes them as one).
+ */
+function etagOf(bytes) {
+  return etagHex(bytes);
 }
 
 function metaOf(row) {
@@ -154,6 +159,40 @@ export function texObjects(sql, { now = Date.now, guard = () => {}, tables = DEF
     sql.exec(`DELETE FROM ${O} WHERE key = ?`, key);
   }
 
+  /** `bytes` at `key` under `etag`, after `onlyIf` has passed. `existing` is the row that was there, or null. */
+  function writeBody(key, bytes, etag, options, existing) {
+    const contentType = options.httpMetadata?.contentType ?? null;
+    const custom = options.customMetadata && Object.keys(options.customMetadata).length > 0 ? JSON.stringify(options.customMetadata) : null;
+    // An empty body keeps no chunk: SQLite stores an empty blob as NULL.
+    const count = Math.ceil(bytes.byteLength / CHUNK_BYTES);
+    // One Durable Object runs one request's synchronous code at a time, so
+    // the check above and these writes cannot interleave with another put.
+    guard();
+    remove(key);
+    for (let n = 0; n < count; n += 1) {
+      sql.exec(`INSERT INTO ${C} (key, n, data) VALUES (?, ?, ?)`, key, n, bytes.subarray(n * CHUNK_BYTES, (n + 1) * CHUNK_BYTES));
+    }
+    const uploaded = now();
+    sql.exec(
+      `INSERT INTO ${O} (key, etag, size, uploaded, content_type, custom, chunks) VALUES (?, ?, ?, ?, ?, ?, ?)`,
+      key,
+      etag,
+      bytes.byteLength,
+      uploaded,
+      contentType,
+      custom,
+      count,
+    );
+    if (typeof onPut === "function") {
+      try {
+        onPut(key, { created: existing === null, changed: existing === null || existing.etag !== etag });
+      } catch {
+        // Counting never fails a write.
+      }
+    }
+    return metaOf({ key, etag, size: bytes.byteLength, uploaded, content_type: contentType, custom });
+  }
+
   return {
     /** Metadata only, or `null`. */
     head(key) {
@@ -173,44 +212,28 @@ export function texObjects(sql, { now = Date.now, guard = () => {}, tables = DEF
       return { ...meta, body: bodyOf(row, options.range) };
     },
 
+    /**
+     * Store `bytes` under `etag` (already computed). Synchronous, so a caller inside `transactionSync` can land
+     * several keys in one commit. `null` when `onlyIf` fails and nothing is written.
+     */
+    putPrepared(key, bytes, etag, options = {}) {
+      checkKey(key);
+      if (!(bytes instanceof Uint8Array)) throw new TexObjectRefused("prepared body is bytes");
+      if (bytes.byteLength > MAX_OBJECT_BYTES) throw new TexObjectRefused(`larger than ${MAX_OBJECT_BYTES} bytes`);
+      if (typeof etag !== "string" || etag === "") throw new TexObjectRefused("prepared body needs its etag");
+      const existing = metaRow(key);
+      if (!passes(existing ? metaOf(existing) : null, options.onlyIf)) return null;
+      return writeBody(key, bytes, etag, options, existing);
+    },
+
     /** The new object's metadata, or `null` when `onlyIf` failed and nothing was written. */
     async put(key, value, options = {}) {
       checkKey(key);
       const bytes = bytesOf(value);
       if (bytes.byteLength > MAX_OBJECT_BYTES) throw new TexObjectRefused(`larger than ${MAX_OBJECT_BYTES} bytes`);
-      const etag = await etagOf(bytes);
       const existing = metaRow(key);
       if (!passes(existing ? metaOf(existing) : null, options.onlyIf)) return null;
-      const contentType = options.httpMetadata?.contentType ?? null;
-      const custom = options.customMetadata && Object.keys(options.customMetadata).length > 0 ? JSON.stringify(options.customMetadata) : null;
-      // An empty body keeps no chunk: SQLite stores an empty blob as NULL.
-      const count = Math.ceil(bytes.byteLength / CHUNK_BYTES);
-      // One Durable Object runs one request's synchronous code at a time, so
-      // the check above and these writes cannot interleave with another put.
-      guard();
-      remove(key);
-      for (let n = 0; n < count; n += 1) {
-        sql.exec(`INSERT INTO ${C} (key, n, data) VALUES (?, ?, ?)`, key, n, bytes.subarray(n * CHUNK_BYTES, (n + 1) * CHUNK_BYTES));
-      }
-      const uploaded = now();
-      sql.exec(
-        `INSERT INTO ${O} (key, etag, size, uploaded, content_type, custom, chunks) VALUES (?, ?, ?, ?, ?, ?, ?)`,
-        key,
-        etag,
-        bytes.byteLength,
-        uploaded,
-        contentType,
-        custom,
-        count,
-      );
-      if (typeof onPut === "function") {
-        try {
-          onPut(key, { created: existing === null, changed: existing === null || existing.etag !== etag });
-        } catch {
-          // Counting never fails a write.
-        }
-      }
-      return metaOf({ key, etag, size: bytes.byteLength, uploaded, content_type: contentType, custom });
+      return writeBody(key, bytes, etagOf(bytes), options, existing);
     },
 
     /** Removes each key given; a missing one is not an error, as in R2. */
