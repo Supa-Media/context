@@ -119,6 +119,9 @@ export function createSimWorld({ send = null, setting = "", chat = [], today = n
     return answer;
   }
 
+  // Closed for new: a check-in's look (`withClosedForNew`) asks no invented mail or calendar; the fixtures' answers stand.
+  let closed = false;
+
   const browsers = new Map();
   /** Every message a simulated search listed, by id, so its read is the same message. */
   const listed = new Map();
@@ -137,6 +140,12 @@ export function createSimWorld({ send = null, setting = "", chat = [], today = n
 
   return {
     events: () => [...events],
+
+    /** Turns the closed-for-new mode on or off (`withClosedForNew`): while on, no new mail or calendar is invented. */
+    closeForNew(on = true) {
+      closed = on === true;
+    },
+    newClosed: () => closed,
 
     /** Results for a `search_web` query, as Brave's `web.results` lists them. */
     async search(query) {
@@ -292,6 +301,8 @@ export function simulateServices(sim, controlPlane, { connectedCalendar = false,
     // week's read hid every event the chat had put on the others (Dev set, 2026-11-17).
     flags.calendarDays = async (body) => {
       const got = typeof fixture === "function" ? await fixture(body) : null;
+      // A check-in's look: the fixture's days only, never a made-up event (`closeForNew`).
+      if (sim.newClosed()) return got?.ok ? got : { ok: true, days: [] };
       if (!got?.ok || got.days.length === 0) return await sim.calendarDays(body, address);
       const simmed = await sim.calendarDays(body, address);
       if (!simmed?.ok) return got;
@@ -311,6 +322,8 @@ export function simulateServices(sim, controlPlane, { connectedCalendar = false,
     // The fixture's mail, the run's real sends and the world's together: a fixture hit no longer hides what the chat
     // says arrived, and what was really sent is in Sent whoever searches (`mailbox.mjs` sentMail).
     const found = typeof search === "function" ? await search(query) : search ?? [];
+    // A check-in's look: the fixture's mail and the row's own, never a made-up message (`closeForNew`).
+    if (sim.newClosed()) return found;
     const ids = new Set(found.map((row) => row.id));
     const beside = [];
     for (const row of [...sim.sentRows(), ...(await sim.mailSearch(query))]) {
@@ -326,6 +339,21 @@ export function simulateServices(sim, controlPlane, { connectedCalendar = false,
     const message = await sim.mailRead(body);
     return message ? { ...message, address: inbox } : null;
   };
+}
+
+/**
+ * Runs `look` with the simulated world closed for new (`closeForNew`): a check-in's look, which sees the fixtures'
+ * mail and calendar and the row's own, never invented ones. Off again after, even when the look throws. `sim` may be
+ * null (a run with no simulated world), and then `look` runs as it is.
+ */
+export async function withClosedForNew(sim, look) {
+  if (!sim) return await look();
+  sim.closeForNew(true);
+  try {
+    return await look();
+  } finally {
+    sim.closeForNew(false);
+  }
 }
 
 /** A front matter value that may be a JSON string (`world_setting: "..."`). */
@@ -347,8 +375,9 @@ const unquoted = (value) => {
 export function simulateFor(front, question, person, { send = null, memo, fake = false }) {
   if (front?.world !== "simulated") return null;
   const chat = (question.earlier ?? []).map((line) => (line.from === "trigger" ? { who: "(not a text)", text: triggerWords(line) } : { who: line.from === "tex" ? "Tex" : line.who ?? person, text: line.text }));
-  const said = question.routine ?? question.checkinMail?.subject ?? question.personStarts ?? question.texts ?? question.text;
-  if (said) chat.push({ who: question.routine ? "Routine" : question.checkinMail ? "Check-in" : person, text: String(said) });
+  const checkin = Boolean(question.checkinMail || question.checkinCalendar);
+  const said = question.routine ?? question.checkinMail?.subject ?? question.checkinCalendar ?? question.personStarts ?? question.texts ?? question.text;
+  if (said) chat.push({ who: question.routine ? "Routine" : checkin ? "Check-in" : person, text: String(said) });
   return { send: fake ? null : send, memo, setting: unquoted(front.world_setting), chat };
 }
 

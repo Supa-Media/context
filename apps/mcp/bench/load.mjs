@@ -121,6 +121,8 @@ function readQuestion(sec) {
     // A Front door test that starts at a check-in or a routine, not a text (`setsFd.mjs`): the email the check-in
     // finds (`- check-in mail:` {from, subject, body}), or the routine's words (`- routine runs:` a JSON string).
     checkinMail: null,
+    // The calendar event a check-in names (`- check-in calendar:` a JSON string): on the bench calendar for its look.
+    checkinCalendar: null,
     routine: null,
     // A one-off reminder's run (`- one-off routine runs:`), placed in `tex/routines/once/` as production keeps one, so
     // its run reads the one-off's own framing (`routine.js` routineQuestion); `- routine runs:` is a daily routine.
@@ -146,6 +148,7 @@ function readQuestion(sec) {
       q.routineOnce = true;
     }
     else if ((m = line.match(/^- check-in mail:\s*(.*)$/))) q.checkinMail = mailLine(m[1], sec.n);
+    else if ((m = line.match(/^- check-in calendar:\s*(.*)$/))) q.checkinCalendar = jsonText(m[1], sec.n);
     else if ((m = line.match(/^- job reports:\s*(.*)$/))) q.jobReport = jobLine(m[1], sec.n);
     // An earlier trigger (`byCode.mjs`): Tex's texts after it are kept as production keeps that kind.
     else if ((m = line.match(/^- earlier check-in mail:\s*(.*)$/))) q.earlier.push({ from: "trigger", via: "checkin", mail: mailLine(m[1], sec.n) });

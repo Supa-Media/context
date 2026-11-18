@@ -263,7 +263,7 @@ export function jobReportRow(c, i) {
 /** Why message `i` of `c` can't run as a Front door test yet, or null when it can. */
 export function cantRun(c, i) {
   const m = c.msgs[i];
-  if (m.via === "checkin" && checkinMail(m.text) === null) return "a check-in row runs only when it found an email (\"Gmail: ...\")";
+  if (m.via === "checkin" && checkinMail(m.text) === null && checkinCalendar(m.text) === null) return "a check-in row runs only when it names an email (\"Gmail: ...\") or a calendar event (\"Calendar: ...\")";
   if (m.via && m.via !== "checkin" && m.via !== "routine" && m.via !== "job") return `a ${m.via} row can't run as a Front door test`;
   if (m.kind && m.kind !== "reply") return `a ${m.kind} can't run as a Front door test: only a text or a reply`;
   if (Array.isArray(m.pics) && picturesOf(m).length < m.pics.length) return "a picture of this text isn't kept in the repository (apps/mcp/bench/ai/pictures/)";
@@ -283,22 +283,51 @@ export function missedLine(r) {
   return `${line.slice(0, 90)} | Tex: ${said.slice(0, 100) || "(said nothing)"}`;
 }
 
+/** A check-in row's labelled parts: "Gmail: ..." (or "Gmail to the group inbox: ...") and "Calendar: ..." (or "shared calendar: ..."), each to the next label. */
+const CHECKIN_LABEL = /(?:^\s*|[;.]\s+)((?:shared\s+)?calendar|gmail(?:\s+to\s+[^:;.]{1,40})?):\s*/gi;
+
+/** The text of each labelled part of a check-in row (`gmail`, `calendar`), the first of each; a part left empty is absent. */
+function checkinParts(text) {
+  const s = String(text ?? "");
+  const found = [...s.matchAll(CHECKIN_LABEL)];
+  const parts = {};
+  found.forEach((m, i) => {
+    const key = /^gmail/i.test(m[1]) ? "gmail" : "calendar";
+    const start = m.index + m[0].length;
+    const part = s.slice(start, i + 1 < found.length ? found[i + 1].index : undefined).trim();
+    if (parts[key] === undefined && part !== "") parts[key] = part;
+  });
+  return parts;
+}
+
 /**
  * The email a check-in row found, as the bench's Gmail holds it: "Gmail: <from>: <what it says>" (the sender is the
  * words before the first colon when they are short enough to be one). The row may say what else the check-in saw
- * first ("shared calendar: ...; Gmail to the group inbox: Kenji asks to move to 3pm"): the email is the part from
- * "Gmail" on. Null when the row names no mail.
+ * first ("shared calendar: ...; Gmail to the group inbox: Kenji asks to move to 3pm"), and what its calendar holds
+ * ("Gmail: TAP: flight delayed. Calendar: Dinner at 7"): the email is only its own part (`checkinCalendar`). Null when
+ * the row names no mail.
  */
 export function checkinMail(text) {
-  const m = /(?:^\s*|[;.]\s+)Gmail(?:\s+to\s+[^:;.]{1,40})?:\s*([\s\S]+)$/i.exec(String(text ?? ""));
-  if (!m) return null;
-  const rest = m[1].trim();
+  const rest = checkinParts(text).gmail;
+  if (rest === undefined) return null;
   const colon = rest.indexOf(":");
   const named = colon > 0 && colon <= 60 && !/[;.]/.test(rest.slice(0, colon));
   const from = named ? rest.slice(0, colon).trim() : "(sender)";
   const said = named ? rest.slice(colon + 1).trim() : rest;
   const subject = said.split(/(?<=[.!?;])\s/)[0].slice(0, 120);
   return { from, subject, body: said };
+}
+
+/** The calendar event a check-in row names ("calendar: Mon standup at 9", "Calendar: Dinner at 7"), or null when it names none. */
+export function checkinCalendar(text) {
+  return checkinParts(text).calendar ?? null;
+}
+
+/** A check-in row's case lines: its email (`- check-in mail:`) and its calendar event (`- check-in calendar:`), each only when it names one. */
+function checkinLines(text) {
+  const mail = checkinMail(text);
+  const calendar = checkinCalendar(text);
+  return [...(mail ? [`- check-in mail: ${JSON.stringify(mail)}`] : []), ...(calendar ? [`- check-in calendar: ${JSON.stringify(calendar)}`] : [])];
 }
 
 /** Whether a conversation's setting says Tex has the calendar ("Tex has Gmail, Calendar, ...", "the shared calendar"). */
@@ -341,7 +370,7 @@ export function fdTest(units, front, from = null) {
       `## ${k + 1}. ${String(m.text).replace(/\s+/g, " ").slice(0, 120)}`,
       "",
       "- kind: task",
-      m.via === "checkin" ? `- check-in mail: ${JSON.stringify(checkinMail(m.text))}` : m.via === "routine" ? `- ${isOneOff(m.text) ? "one-off routine" : "routine"} runs: ${JSON.stringify(m.text)}` : m.via === "job" ? `- job reports: ${JSON.stringify(jobReportRow(u.convo, u.at))}` : `- person texts: ${JSON.stringify([...burst, m.text ?? ""].filter(Boolean).join("\n"))}`,
+      ...(m.via === "checkin" ? checkinLines(m.text) : [m.via === "routine" ? `- ${isOneOff(m.text) ? "one-off routine" : "routine"} runs: ${JSON.stringify(m.text)}` : m.via === "job" ? `- job reports: ${JSON.stringify(jobReportRow(u.convo, u.at))}` : `- person texts: ${JSON.stringify([...burst, m.text ?? ""].filter(Boolean).join("\n"))}`]),
       ...unanswered.map((name) => `- person sends picture: ${name}`),
       ...earlier.flatMap((line) => {
         const ago = line.minutesBefore === undefined ? [] : [`- earlier minutes before: ${line.minutesBefore}`];
