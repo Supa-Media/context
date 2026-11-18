@@ -80,6 +80,8 @@ jobs:
           node scripts/merge-group.mjs --self-test
           node scripts/check-workflow-interpolation.mjs --self-test
           node scripts/check-workflow-interpolation.mjs
+          node scripts/check-workflow-output-secrets.mjs --self-test
+          node scripts/check-workflow-output-secrets.mjs
           node scripts/bench-runner-lock.mjs --self-test
           node scripts/check-package-tests-run.mjs --self-test
           node scripts/check-package-tests-run.mjs
