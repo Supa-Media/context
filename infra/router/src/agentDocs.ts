@@ -31,9 +31,9 @@ const GROK_TITLE = "Set up Context in Grok Bot";
 const CLAUDE_TITLE = "Set up Context in Claude";
 
 /**
- * Grok Bot. Every step is something the gateway or the app actually does.
- * Grok's own "add another account" control is named only as a check, because
- * a custom connector may not offer it.
+ * Grok Bot. The connector steps are Grok Bot's own account controls: one
+ * connector, more than one signed-in account, each with a label. The token
+ * and sign-out lines are what Context does on that second approval.
  */
 export const GROK_MARKDOWN = `# ${GROK_TITLE}
 
@@ -80,15 +80,18 @@ Private notes stay with the owners. Team notes are what members can open. No set
 
 ## 4. Two people on one Grok Bot
 
-Each person still needs their own Context account.
+Each person still needs their own Context account. Grok Bot holds more than one account on the same connector, and each account has a label. The connector can add, rename, and remove those accounts.
 
-A second sign-in to the same MCP URL mints a new access token and a new refresh token for the person who approves. The two grants do not replace each other. Calls are authorized by that bearer token. The MCP server does not use a cookie to decide who is calling, so the tokens do not collide.
+1. Add the Context connector once, at \`${MCP_ENDPOINT}\`.
+2. Person A signs in.
+3. Person A signs out of context.lc in the browser. The approval page is whoever is signed in there. Sign out from the account menu, or the second approval is still person A.
+4. Add a second account on the same connector, and person B signs in.
+5. Label each account with the person's name.
+6. Tell the bot which label to use for whom.
 
-The browser step does use the Context session. The approval page is whoever is signed in at context.lc. Sign out from the account menu before the second person approves, or the second connection is the first person's.
+A second sign-in mints a new access token and a new refresh token. The two grants do not replace each other. Calls are authorized by that bearer token. The MCP server does not use a cookie to decide who is calling.
 
-You do not need a different URL per person. A different URL does not create a separate account.
-
-If this connector shows a way to add another account and a label, connect each Context account, label it with the person's name, and tell the bot which label to use. If that control is not there, the connector holds one Context account. The second person needs their own Grok Bot sign-in, or you invite them into a shared workspace instead of sharing one sign-in.
+One URL is enough. A different URL does not create a separate account. \`https://mcp.context.lc/@name/mcp\` only chooses which workspace that connection opens in.
 
 ## 5. Separate workspaces for separate projects
 

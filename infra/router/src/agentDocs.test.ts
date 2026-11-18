@@ -73,9 +73,11 @@ describe("agent docs", () => {
   });
 
   it("says only what the two clients actually do for a second account", () => {
-    expect(GROK_MARKDOWN).toContain("If this connector shows a way to add another account");
+    expect(GROK_MARKDOWN).toContain("Add a second account on the same connector");
+    expect(GROK_MARKDOWN).toContain("Label each account with the person's name");
+    expect(GROK_MARKDOWN).toContain("Tell the bot which label to use for whom");
     expect(GROK_MARKDOWN).toContain("does not use a cookie");
-    expect(GROK_MARKDOWN).not.toContain("Add another account, then label");
+    expect(GROK_MARKDOWN).not.toContain("If this connector shows a way to add another account");
     expect(CLAUDE_MARKDOWN).toContain("does not give that login a second Context account");
     expect(CLAUDE_MARKDOWN).toContain("does not create two Context accounts");
     expect(CLAUDE_MARKDOWN).toContain("Register automatically");
