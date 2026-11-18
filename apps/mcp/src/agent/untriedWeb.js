@@ -29,19 +29,18 @@ import { seenFiguresNotice } from "./sourcedFigures.js";
  * `{ wrap, wrapWeb, check }`, shaped like `claimCheck`'s, for the front door.
  * `question` is their ask, so a record ask with no read can be sent back (`recordRead.js`).
  */
-export function untriedWebCheck({ question = "" } = {}) {
+export function untriedWebCheck({ question = "", priorSteps = [] } = {}) {
   let hadWeb = false;
   let triedWeb = false;
   let noticed = false;
   let figuresChecked = false;
-  let recordNoticed = false;
-  const steps = [];
+  const steps = [...priorSteps];
   return {
-    /** The turn's own tools, so a read is visible to the record check. */
+    /** The turn's own tools, so a read is visible to the record check. Arguments stay, so a named link is that link. */
     wrap(callTool) {
       return async (name, args) => {
         const result = await callTool(name, args);
-        steps.push({ name, ok: result?.isError !== true });
+        steps.push({ name, args, ok: result?.isError !== true });
         return result;
       };
     },
@@ -52,6 +51,8 @@ export function untriedWebCheck({ question = "" } = {}) {
         ...web,
         call: (name, args) => {
           triedWeb = true;
+          // A page opened on the web is a read of that page, same as a note fetch (`recordRead.js`).
+          steps.push({ name, args, ok: true });
           return web.call(name, args);
         },
       };
@@ -62,15 +63,11 @@ export function untriedWebCheck({ question = "" } = {}) {
         noticed = true;
         return TRY_NOTICE;
       }
-      // An ask to read a record, with no read this turn. An offer after a finished write is not caught here:
-      // "Want me to book it?" after writing the options is the next step, and a phrase cannot tell that from an extra offer.
-      if (!recordNoticed) {
-        const notice = recordReadNotice(question, steps);
-        if (notice !== null) {
-          recordNoticed = true;
-          return notice;
-        }
-      }
+      // An ask to read a record, with no matching read this turn. Sent back on every such draft: the
+      // answer-check wire's own budget is what stops it, and a search of something else is not the read.
+      // An offer after a finished write is not caught here.
+      const notice = recordReadNotice(question, steps);
+      if (notice !== null) return notice;
       if (figuresChecked) return null;
       figuresChecked = true;
       return seenFiguresNotice(answer, context ?? {}); // the prompt it answered with and the messages so far

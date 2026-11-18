@@ -185,3 +185,26 @@ finishes first") and
 start together, and the model still reads the first result first) and
 `replay/cases/serial-vault-fetch.mjs` (a search and a `send api` in one round
 start one after the other) fail.
+
+## A named record is read before the answer (2026-11-18)
+
+The record check that shipped on 17 November sent a draft back when the ask
+matched a narrow pattern and any search counted as the read. On the 14 full
+Lab runs that day it did not move the front door.
+Training already says what a read is: a `context://` note is that note, a
+short question after a page they just sent is that page, "did he send it"
+is mail, "what we budgeted" is a note, "what's on today" is the calendar.
+
+`recordRead.js` now requires that call. A named `context://` link or https
+page in the ask (or a page address that is the whole previous message, when
+the new message is a short question) is opened before the model speaks, and
+the check counts only that open. A mail, note or calendar ask is not
+satisfied by a search of a different kind. The notice still goes back on
+every draft that has not made the matching read; the answer-check wire's
+own budget is what stops the loop.
+
+**What a simplification would cost:** counting any search as the read lets
+an answer about a note go out after a web search. `recordRead.test.mjs`
+("a named note is not read by a search of something else", "Training asks
+that name no link still have to open the record they are about", "a short
+question after a page they just sent is about that page") fails.
