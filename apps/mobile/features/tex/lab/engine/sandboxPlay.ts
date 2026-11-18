@@ -118,7 +118,7 @@ function stopTimer() {
   if (timer) clearInterval(timer);
   timer = null;
 }
-function tick() {
+function tick(step?: number) {
   if (!play?.playing) return stopTimer();
   const r = runOf(play.id);
   if (!r) {
@@ -127,7 +127,9 @@ function tick() {
     return emit();
   }
   const now = clock();
-  const dt = Math.max(0, now - last);
+  // A test step is exact. A live tick is the wall time since the last one: `setInterval` passes no argument in a
+  // browser, and anything that is not a number is ignored so a stray argument cannot become the step.
+  const dt = typeof step === "number" ? step : Math.max(0, now - last);
   last = now;
   // Never past what has happened: a running text's total is how long it has run. A finished run plays in the
   // timeline's drawn time, so a long stretch where nothing ran passes in a moment (engine/timeMap.ts).
@@ -144,10 +146,10 @@ let held = false;
 export function holdPlayClock(hold: boolean) {
   held = hold;
 }
-/** For tests: one tick of the clock, `ms` later. */
+/** For tests: one tick of the clock, exactly `ms` later, however long the tick itself takes. */
 export function stepPlayClock(ms: number) {
   last = clock() - ms;
-  tick();
+  tick(ms);
 }
 function startTimer() {
   stopTimer();
