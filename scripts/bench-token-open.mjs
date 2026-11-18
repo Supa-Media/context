@@ -60,6 +60,9 @@ function decryptFile(privatePath, cipherPath) {
 }
 
 function writeToken(path, token) {
+  // Exact bytes, no trailing newline. `gh secret set` reads stdin and strips trailing CR/LF only
+  // (gh 2.103.0, bytes.TrimRight). A refresh token matches REFRESH_TOKEN, which has neither, so the
+  // stored secret equals this file.
   writeFileSync(path, token, { mode: 0o600 });
   chmodSync(path, 0o600);
 }

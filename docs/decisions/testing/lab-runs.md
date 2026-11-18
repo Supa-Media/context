@@ -103,7 +103,13 @@ until someone runs `pnpm ai connect` again. `bench-runner-lock.mjs` lists
 writer token back on the job that checks out the draft, or naming the
 repository admin token in `tex-lab-run.yml` or `tex-replay.yml`, lets that
 draft's install read a credential that writes production secrets.
-`scripts/check-bench-token-writer.mjs` fails on either. The writer token
-expires on 2027-11-18; leaving it past that date means the next Lab run and
-the next replay cannot store a rotated refresh token, and the following
-sign-in revokes the grant.
+`scripts/check-bench-token-writer.mjs` fails on either. Passing `gh secret set`
+a flag it does not have exits before the API call. There is no `--body-file`,
+so that write never stores the rotated token and the next sign-in revokes the
+grant. The write reads the value from stdin or from `--body`. The same script
+fails otherwise. The opener writes the token with no trailing
+newline; `gh` strips trailing CR/LF from stdin, and a refresh token has
+neither, so the stored value is the token. The writer token expires on
+2027-11-18; leaving it past that date means the next Lab run and the next
+replay cannot store a rotated refresh token, and the following sign-in
+revokes the grant.

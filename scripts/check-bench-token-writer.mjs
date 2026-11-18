@@ -23,6 +23,12 @@
  * and then runs code must not name the writer token, and must not receive
  * the seal key's private half (`outputs.wrapped`).
  *
+ * That write is `gh secret set` of BENCH_RUNNER_REFRESH_TOKEN_LIVE. The
+ * command reads the value from `--body` or from stdin. It has no
+ * `--body-file`. An unknown flag exits 1 before the API call, the rotated
+ * token is never stored, and the next sign-in presents a retired token,
+ * which revokes the grant.
+ *
  *   node scripts/check-bench-token-writer.mjs
  *   node scripts/check-bench-token-writer.mjs --self-test
  */
@@ -40,6 +46,141 @@ const FILES = ["tex-lab-run.yml", "tex-replay.yml"];
 const BRANCH_FORBIDDEN = ["BENCH_SECRET_WRITER_TOKEN", "outputs.wrapped", "outputs.private"];
 
 const SEAL_MARKERS = [...TOKEN_PKEYOPTS, WRAP_CIPHER.join(" ")];
+
+/**
+ * Flags `gh secret set` accepts in gh 2.103.0, plus the inherited `--repo`.
+ * `true` means the next word is the flag's value, unless the flag is `--name=value`.
+ */
+const SECRET_SET_FLAGS = new Map([
+  ["-a", true],
+  ["--app", true],
+  ["-b", true],
+  ["--body", true],
+  ["-e", true],
+  ["--env", true],
+  ["-f", true],
+  ["--env-file", true],
+  ["--no-repos-selected", false],
+  ["--no-store", false],
+  ["-o", true],
+  ["--org", true],
+  ["-r", true],
+  ["--repos", true],
+  ["-R", true],
+  ["--repo", true],
+  ["-u", false],
+  ["--user", false],
+  ["-v", true],
+  ["--visibility", true],
+  ["--help", false],
+]);
+
+/** Join backslash-continued lines and drop comments, so a flag is not hidden on the next line. */
+function commandLines(text) {
+  const lines = [];
+  let pending = "";
+  for (const raw of text.split("\n")) {
+    if (raw.trim().startsWith("#")) {
+      if (pending) {
+        lines.push(pending);
+        pending = "";
+      }
+      continue;
+    }
+    const continued = /\\$/.test(raw);
+    const piece = continued ? raw.slice(0, -1) : raw;
+    pending = pending ? `${pending} ${piece.trim()}` : piece;
+    if (!continued) {
+      lines.push(pending);
+      pending = "";
+    }
+  }
+  if (pending) lines.push(pending);
+  return lines;
+}
+
+/** Words of one shell command, up to an unquoted `;` or `#`. Quotes are removed, not interpreted. */
+function shellWords(line) {
+  const words = [];
+  let current = "";
+  let quote = null;
+  for (let i = 0; i < line.length; i += 1) {
+    const ch = line[i];
+    if (quote) {
+      if (ch === quote) quote = null;
+      else current += ch;
+      continue;
+    }
+    if (ch === "'" || ch === '"') {
+      quote = ch;
+      continue;
+    }
+    if (ch === "#") break;
+    if (ch === ";") {
+      if (current) words.push(current);
+      return words;
+    }
+    if (ch === " " || ch === "\t") {
+      if (current) words.push(current);
+      current = "";
+      continue;
+    }
+    current += ch;
+  }
+  if (current) words.push(current);
+  return words;
+}
+
+/**
+ * A production write that `gh secret set` will not perform. `--body-file` is
+ * the case that shipped: gh exits 1 before the API call. The value has to
+ * come from `--body` or from a stdin redirect. `--env-file` is a real flag
+ * and the wrong shape: it parses dotenv, not the token file.
+ */
+function secretSetProblems(name, text) {
+  const problems = [];
+  for (const line of commandLines(text)) {
+    if (!line.includes("gh secret set")) continue;
+    const words = shellWords(line);
+    const at = words.findIndex((word, index) => word === "gh" && words[index + 1] === "secret" && words[index + 2] === "set");
+    if (at < 0) {
+      problems.push(`${name} has a gh secret set the checker could not read: ${line.trim()}`);
+      continue;
+    }
+    const secretName = words[at + 3];
+    if (!secretName || secretName.startsWith("-")) {
+      problems.push(`${name} has a gh secret set with no secret name.`);
+      continue;
+    }
+    let readsBody = false;
+    let readsStdin = false;
+    const rest = words.slice(at + 4);
+    for (let i = 0; i < rest.length; i += 1) {
+      const word = rest[i];
+      if (word === "<" || (word.startsWith("<") && !word.startsWith("<<"))) {
+        readsStdin = true;
+        continue;
+      }
+      if (!word.startsWith("-")) continue;
+      const flag = word.includes("=") ? word.slice(0, word.indexOf("=")) : word;
+      const takesValue = SECRET_SET_FLAGS.get(flag);
+      if (takesValue === undefined) {
+        problems.push(
+          `${name} writes with \`gh secret set ${secretName}\` using ${flag}, which gh secret set does not have. The value comes from --body or from stdin.`,
+        );
+        continue;
+      }
+      if (flag === "--body" || flag === "-b") readsBody = true;
+      if (takesValue && !word.includes("=")) i += 1;
+    }
+    if (secretName === "BENCH_RUNNER_REFRESH_TOKEN_LIVE" && !readsBody && !readsStdin) {
+      problems.push(
+        `${name} writes BENCH_RUNNER_REFRESH_TOKEN_LIVE without --body and without reading stdin. gh secret set would prompt, or store a dotenv file, instead of the token.`,
+      );
+    }
+  }
+  return problems;
+}
 
 function stripComments(text) {
   return text
@@ -134,6 +275,7 @@ export function problemsIn(name, text) {
   if (!writerOnMain) {
     problems.push(`${name} does not read BENCH_SECRET_WRITER_TOKEN from a job whose checkout is main.`);
   }
+  problems.push(...secretSetProblems(name, text));
   return problems;
 }
 
@@ -255,6 +397,40 @@ ${SEAL_MARKERS.map((marker) => `      - run: echo ${marker}\n      - run: echo $
   expect("parses a job", onMain.length === 1 && onMain[0].id === "prep");
   expect("main is not a branch checkout", checksOutNonMain(onMain[0].text) === false);
 
+  const stdinWrite = good.replace(
+    "run: echo Using secret BENCH_SECRET_WRITER_TOKEN",
+    'run: gh secret set BENCH_RUNNER_REFRESH_TOKEN_LIVE --env production --repo "$GITHUB_REPOSITORY" < "$RUNNER_TEMP/refresh-token"',
+  );
+  expect("stdin is how the production secret is written", problemsIn("stdin.yml", stdinWrite).length === 0);
+
+  const bodyWrite = good.replace(
+    "run: echo Using secret BENCH_SECRET_WRITER_TOKEN",
+    'run: gh secret set BENCH_RUNNER_REFRESH_TOKEN_LIVE --env production --repo "$GITHUB_REPOSITORY" --body "$next"',
+  );
+  expect("--body is how the production secret is written", problemsIn("body.yml", bodyWrite).length === 0);
+
+  const brokenWrite = good.replace(
+    "run: echo Using secret BENCH_SECRET_WRITER_TOKEN",
+    'run: |\n          if ! gh secret set BENCH_RUNNER_REFRESH_TOKEN_LIVE --env production --repo "$GITHUB_REPOSITORY" --body-file "$RUNNER_TEMP/refresh-token"; then\n            exit 1\n          fi',
+  );
+  const brokenProblems = problemsIn("broken.yml", brokenWrite);
+  expect(
+    "gh secret set --body-file fails",
+    brokenProblems.some((line) => line.includes("--body-file") && line.includes("does not have")),
+  );
+
+  const envFile = good.replace(
+    "run: echo Using secret BENCH_SECRET_WRITER_TOKEN",
+    'run: gh secret set BENCH_RUNNER_REFRESH_TOKEN_LIVE --env production --env-file "$RUNNER_TEMP/refresh-token"',
+  );
+  expect(
+    "a dotenv file is not the token",
+    problemsIn("envfile.yml", envFile).some((line) => line.includes("without --body")),
+  );
+
+  const commentedFlag = `${stdinWrite}\n# gh secret set BENCH_RUNNER_REFRESH_TOKEN_LIVE --body-file "$RUNNER_TEMP/refresh-token"\n`;
+  expect("a comment may name --body-file", problemsIn("comment-flag.yml", commentedFlag).length === 0);
+
   const live = scan();
   // Before the fix this list is non-empty. The self-test does not require the
   // live files to be clean: that is what running the checker without
@@ -278,11 +454,11 @@ function run() {
   }
   const problems = scan();
   if (problems.length) {
-    console.error("The benchmark token writer is in a job that runs branch code:\n");
+    console.error("The benchmark token writer check failed:\n");
     for (const problem of problems) console.error(`  - ${problem}`);
     process.exit(1);
   }
-  console.log(`OK — ${FILES.join(" and ")} keep the writer token on main's checkout.`);
+  console.log(`OK — ${FILES.join(" and ")} keep the writer token on main's checkout, and the refresh-token write is stdin or --body.`);
 }
 
 if (import.meta.url === pathToFileURL(process.argv[1] ?? "").href) {

@@ -575,6 +575,10 @@ jobs:
           echo "::add-mask::$mask"
           unset mask
           echo "Writing BENCH_RUNNER_REFRESH_TOKEN_LIVE to the production environment"
+          # `gh secret set` has no `--body-file`. That flag exits 1 before the API call, so the rotated
+          # token is never stored and the next sign-in revokes the grant. The value is stdin.
+          # bench-token-open.mjs writes the token with no trailing newline; gh strips only trailing CR/LF
+          # from stdin, and a refresh token has neither, so the stored secret equals the token.
           if ! gh secret set BENCH_RUNNER_REFRESH_TOKEN_LIVE --env production --repo "$GITHUB_REPOSITORY" < "$RUNNER_TEMP/refresh-token"; then
             echo "::error::BENCH_SECRET_WRITER_TOKEN could not write BENCH_RUNNER_REFRESH_TOKEN_LIVE"
             exit 1
