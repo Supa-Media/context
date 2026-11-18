@@ -159,17 +159,28 @@ function isContainer(statement: ts.Statement): boolean {
   });
 }
 
+/**
+ * Parsed source files, by path and text. Every `analyze` call indexes every
+ * real module again, and parsing them was most of what the structure suites
+ * spent their time on; a parsed file is never mutated after this, so the same
+ * text parses once per test file.
+ */
+const PARSED = new Map<string, ts.SourceFile>();
+function parsed(path: string, source: string): ts.SourceFile {
+  const key = `${path}\0${source}`;
+  let sourceFile = PARSED.get(key);
+  if (sourceFile === undefined) {
+    sourceFile = ts.createSourceFile(path, source, ts.ScriptTarget.Latest, true, ts.ScriptKind.TS);
+    PARSED.set(key, sourceFile);
+  }
+  return sourceFile;
+}
+
 export function indexModule(
   module: AnalyzedModule,
   known: ReadonlySet<string>,
 ): ModuleIndex {
-  const sourceFile = ts.createSourceFile(
-    module.path,
-    module.source,
-    ts.ScriptTarget.Latest,
-    true,
-    ts.ScriptKind.TS,
-  );
+  const sourceFile = parsed(module.path, module.source);
   const units: Unit[] = [];
   const byName = new Map<string, Unit>();
   const imports = new Map<string, Binding>();

@@ -370,4 +370,24 @@ export function formatBucketName(name: string) {
     );
     expect(violations).toEqual([]);
   });
+  // The analyzer reuses a module's index between calls (`cachedIndex` in
+  // `analyzer/imports.helpers.ts`). An index records how each import resolved,
+  // so one built while `./lib/lateHelper` did not exist must not be reused
+  // once it does: the same caller object, analyzed again beside the helper,
+  // has to reach the decrypt through it.
+  test("an import that resolves only in a later analysis is followed there", () => {
+    const caller = callerOf(
+      "lateCaller",
+      'import { loadBucketConfig } from "./lib/lateHelper";',
+      "await loadBucketConfig(ctx, args.workspaceId)",
+    );
+    const real = realModules();
+    analyze([...real, caller]);
+    const { decryptCapable } = analyze([
+      ...real,
+      lib("lateHelper", DISPATCHING_HELPER),
+      caller,
+    ]);
+    expect(decryptCapable.has("functions.lateCaller.fetchBucketConfig")).toBe(true);
+  });
 });
