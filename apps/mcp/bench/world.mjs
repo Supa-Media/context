@@ -117,6 +117,24 @@ export function binding(bucket, n, searchIndex = null, meaningIndex = null) {
 }
 
 /**
+ * Each person `people.md` names, by the handle an AI client names them with (`@maya`: the name lower-cased, letters,
+ * digits and hyphens only, as `groupChat.mjs` names a member), and the account the control plane's directory resolves
+ * it to. A person's personal workspace names their account (`user_bench_<workspace>`, the user its grant carries); a
+ * person with none gets an account of their own name. Nobody outside `people.md` is in it.
+ */
+export function benchHandles(bench) {
+  const handles = new Map();
+  const nameOf = (row) => String(row.person).toLowerCase().replace(/[^a-z0-9-]/g, "");
+  for (const row of bench.people.filter((entry) => entry.personal)) {
+    if (nameOf(row) !== "") handles.set(`@${nameOf(row)}`, { kind: "user", id: `user_bench_${row.workspace}` });
+  }
+  for (const row of bench.people) {
+    if (nameOf(row) !== "" && !handles.has(`@${nameOf(row)}`)) handles.set(`@${nameOf(row)}`, { kind: "user", id: `user_bench_${nameOf(row)}` });
+  }
+  return handles;
+}
+
+/**
  * The visibility a fixture note is written at, as `manifest` above declares it:
  * a shared workspace's notes are team unless held back by name, a personal
  * workspace's are private. The meaning index records the same tier.
@@ -206,6 +224,8 @@ export async function createWorld(bench, person, setupRaw, models, today = null,
   // read from the buckets placed below.
   let site = null;
   const controlPlane = createControlPlaneStub({ site: (cleared, body) => site.answer(cleared, body) });
+  // The people `people.md` names, as the control plane's directory resolves their handles (`set_visibility`'s `people`).
+  for (const [handle, who] of benchHandles(bench)) controlPlane.knownHandles.set(handle, who);
   // The person's calendar, as Google would answer for it: their personal
   // workspace's calendar days, read live by `calendar:` (`load.mjs`).
   Object.assign(controlPlane.flags, benchCalendar(bench.workspaces[own.workspace]?.calendar ?? [], models.calendar === "connected" ? person : null));
