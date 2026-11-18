@@ -3,6 +3,7 @@ import { Redirect, useLocalSearchParams } from "expo-router";
 import NotFound from "../+not-found";
 import { firstParam } from "../../features/share/share";
 import { homeRedirect } from "../../features/home/homeSite";
+import { recoveredHref } from "../../features/app/unmatched";
 import { HandleSite } from "../../features/site/HandleSite";
 
 /**
@@ -22,6 +23,11 @@ export default function NestedWebsiteRoute() {
       ? []
       : [path];
   const handle = firstParam(params.handle);
+  // `/p/@slug/<path>` (a page link Tex texted) and a stray `/note/…` land here, with `p` or `note` as the
+  // "handle", before the not-found screen could see them: on a phone this was "That link did not go
+  // anywhere", and on the web the homepage's "Nothing here" (Dev2's StafferLink page, 2026-11-17).
+  const recovered = handle === null ? null : recoveredHref([handle, ...segments]);
+  if (recovered !== null) return <Redirect href={recovered} />;
   if (handle === null || !/^@[a-z0-9][a-z0-9-]{0,62}$/i.test(handle)) {
     // `/pricing` is the homepage on its Pricing page, and a name the site has
     // no page for gets the homepage's own "Nothing here". A malformed
