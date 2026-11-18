@@ -8,7 +8,7 @@
  * and the tests edited in Context are pulled into each tree first (`pnpm ai pull texting-assistant`).
  */
 import { execFile } from "node:child_process";
-import { handoffTotals } from "./jobDelivery.mjs";
+import { handoffTotals } from "./handoffTotals.mjs";
 import { readFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { promisify } from "node:util";

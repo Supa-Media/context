@@ -25,6 +25,7 @@ import { priceUsd } from "./report.mjs";
 import { runningJob } from "./byCode.mjs";
 import { readTexConfig } from "../../../scripts/lib/texConfigFile.mjs";
 import { realNow } from "./clock.mjs";
+export { handoffTotals } from "./handoffTotals.mjs";
 
 /** Jobs one test may run after its texts: production runs three at once per chat (`jobStart` `cloudSlots`). */
 export const MAX_DELIVERED_JOBS = 2;
@@ -78,13 +79,6 @@ export async function deliverJobs(world, jobs, { running = null, config = null, 
 
 /** What a report turn cost, model by model. */
 const turnUsd = (turn) => Object.entries(turn?.usageByModel ?? {}).reduce((sum, [model, usage]) => sum + (priceUsd(model, usage, { perCall: false }) ?? 0), 0);
-
-/** What every delivered job of `runs` added: jobs run, parts, the job advisor's calls and spend. */
-export function handoffTotals(delivered) {
-  const ran = (Array.isArray(delivered) ? delivered : []).filter((d) => d && d.state !== "not run");
-  const usd = ran.reduce((sum, d) => sum + (Number(d.usd) || 0), 0);
-  return { jobs: ran.length, parts: ran.reduce((n, d) => n + (Number(d.parts) || 0), 0), advisorCalls: ran.reduce((n, d) => n + (Number(d.advisorCalls) || 0), 0), usd: Math.round(usd * 10_000) / 10_000 };
-}
 
 /** The usage of every model in `byModel`, added up. */
 export const sumUsage = (byModel) => Object.values(byModel ?? {}).reduce((sum, u) => ({ input: sum.input + (u.input ?? 0), output: sum.output + (u.output ?? 0), cacheRead: sum.cacheRead + (u.cacheRead ?? 0), cacheWrite: sum.cacheWrite + (u.cacheWrite ?? 0) }), { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 });
