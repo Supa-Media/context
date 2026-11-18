@@ -17,7 +17,7 @@ import type { InboxStorage } from "./inbox";
 import type { GroupMessage } from "./sendblueGroups";
 import { sha256Hex } from "./groupChat";
 import { writeTextTiming, type TimingDataset } from "./textTiming";
-import { isControlWord } from "./controlWords";
+import { maySend } from "./outboundGuard";
 import { keepThreaded } from "./threadedResend";
 
 /** The handles of Tex's last thirty texts in this group, so an inline reply to one wakes it. */
@@ -145,7 +145,7 @@ export type SayMeta = { turn?: string; covers?: string[]; people?: string; syste
 
 /** One text into the group, threaded under the message it answers, remembered so a reply to it wakes Tex, and logged. */
 export async function say(storage: InboxStorage, deps: GroupSayDeps, message: Pick<GroupMessage, "line" | "groupId" | "messageId" | "reaction" | "answersTapback">, text: string, meta: SayMeta = {}): Promise<void> {
-  if (isControlWord(text)) return; // a word meant for us, never a text (`controlWords.ts`)
+  if (!maySend(text, "group")) return; // a word meant for us, alone or closing its reasoning, never a text (`outboundGuard.ts`)
   await once(storage, message.messageId, `text:${text}`, () => sayNow(storage, deps, message, text, meta));
 }
 
@@ -156,7 +156,7 @@ export async function say(storage: InboxStorage, deps: GroupSayDeps, message: Pi
  * send a line one before it sent over any of them.
  */
 export async function sayProgress(storage: InboxStorage, deps: GroupSayDeps, message: Pick<GroupMessage, "line" | "groupId" | "messageId" | "reaction" | "answersTapback">, text: string, meta: SayMeta): Promise<void> {
-  if (isControlWord(text)) return;
+  if (!maySend(text, "group_progress")) return;
   const over = meta.covers ?? [];
   if (over.length > 0 && (await chatEvents(storage, message.groupId)).some((event) => event.from.kind === "tex" && event.delivered === true && event.text === text && (event.covers ?? []).some((cover) => over.includes(cover)))) return;
   const scope = scopeOf(storage, message.messageId);
