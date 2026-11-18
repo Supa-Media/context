@@ -65,8 +65,8 @@ function deletedSinceBase(base, current) {
  * exactly what a replay carries. Only a run mostly kept in one unchanged
  * stretch is text the writer still has.
  */
-function keepsDeletedRun(baseText, desired, deleted) {
-  const { parts, tier } = diffTextDetail(baseText, desired);
+function keepsDeletedRun(baseText, desired, deleted, diff) {
+  const { parts, tier } = diff(baseText, desired);
   // Only a character diff can say a run inside a rewritten line survived it.
   // Coarser, answer as though the writer kept the run, so the exact-base
   // merge keeps the peer's deletion rather than the replacement undoing it.
@@ -94,8 +94,11 @@ function keepsDeletedRun(baseText, desired, deleted) {
  *   everything the replacement says; `rebase`: apply the replacement as a
  *   plain edit of the current text; `null`: a genuine concurrent edit, which
  *   keeps the exact-base merge.
+ *
+ * `diff` is the caller's `diffTextDetail`, so a replacement that goes on to apply the same diff computes it once
+ * (`textDiff.js` `rememberedDiffs`).
  */
-export function replayResolution(base, current, desired) {
+export function replayResolution(base, current, desired, diff = diffTextDetail) {
   const currentText = current.getText("note").toString();
   if (currentText === desired) return "unchanged";
 
@@ -103,13 +106,13 @@ export function replayResolution(base, current, desired) {
   // to the current text would put that text back; the exact-base merge keeps
   // the peer's deletion, so it keeps deciding.
   const deleted = deletedSinceBase(base, current);
-  if (deleted.size > 0 && keepsDeletedRun(base.getText("note").toString(), desired, deleted)) return null;
+  if (deleted.size > 0 && keepsDeletedRun(base.getText("note").toString(), desired, deleted, diff)) return null;
 
   // Any tier is safe to read here: a gained run the diff reports as removed
   // sets `dropsGained` and sends this to `null`, and one it reports as kept
   // sits in a stretch the writer really did keep. Only the deleted runs above
   // need the character tier.
-  const { parts } = diffTextDetail(currentText, desired);
+  const { parts } = diff(currentText, desired);
   const gained = gainedSinceBase(current, Y.decodeStateVector(Y.encodeStateVector(base)), currentText.length);
   // Which unchanged stretch of the diff each current character sits in, or -1
   // when the desired text removes it.
