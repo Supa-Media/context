@@ -133,6 +133,8 @@ jobs:
           - 'pnpm-workspace.yaml'
           # How the mobile job runs is set here, so a change to it runs it.
           - '.github/workflows/ci.yml'
+          # editorBundle/mapBundle tests read the rebuild job there.
+          - '.github/workflows/editor-bundle.yml'
         convex:
           - 'apps/convex/**'
           # Not all of apps/mcp: only the gateway files Convex code and tests
