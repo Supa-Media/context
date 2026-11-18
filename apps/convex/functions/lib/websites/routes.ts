@@ -217,19 +217,10 @@ async function readScanPages(
           continue;
         }
         progressed = true;
-        // A file deleted between listing and read simply is not in this
-        // snapshot; hidden and missing are already the same result below the
-        // barrier, so no existence detail escapes.
+        // Deleted since the listing, or hidden (one answer below the barrier): not in this snapshot.
+        // Any other refusal fails the scan (`docs/decisions/websites/scan-read-errors.md`).
         if (result.outcome === "error" && result.code === "FILE_NOT_FOUND") continue;
-        // Any other refusal (a collaboration history that could not be opened,
-        // a note too large) says nothing about whether the page is still
-        // published. Read as absent, it narrowed the page off the site and,
-        // the note still being there, wiped its copies from every kept version
-        // as if `privacy.md` held it back: four sites lost pages that way
-        // (2026-11-18). Like a listing that cannot finish, it fails the scan.
-        if (result.outcome !== "read") {
-          throw scanError("A website page could not be read.");
-        }
+        if (result.outcome !== "read") throw scanError("A website page could not be read.");
         // Ciphertext can never be published, so a publication snapshot holds
         // it as it holds a private note: absent. As a "problem" it would stop
         // every later rebuild while it sat in the folder.
