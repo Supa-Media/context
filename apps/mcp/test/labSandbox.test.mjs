@@ -205,6 +205,17 @@ test("a test turn's env has no texting Worker, jobs, browser, chats or sandboxes
   assert.equal(out.SITE_SHOTS, undefined, "a screenshot binding with no fetch is not handed on");
 });
 
+test("a test turn may search Tex's example index, and never write it", async () => {
+  const calls = [];
+  const index = { query: async (v, o) => (calls.push([v, o]), { matches: [{ id: "a#1", score: 1 }] }), upsert: () => assert.fail("never"), deleteByIds: () => assert.fail("never") };
+  const out = sandboxEnvOf({ TEX_EXAMPLES: index }, { gate: {} });
+  assert.deepEqual(await out.TEX_EXAMPLES.query([1], { topK: 2 }), { matches: [{ id: "a#1", score: 1 }] });
+  assert.deepEqual(calls, [[[1], { topK: 2 }]]);
+  assert.equal(out.TEX_EXAMPLES.upsert, undefined);
+  assert.equal(out.TEX_EXAMPLES.deleteByIds, undefined);
+  assert.equal(sandboxEnvOf({}, { gate: {} }).TEX_EXAMPLES, undefined, "no index bound: none handed on");
+});
+
 test("retry, back and drop cut a test text's rows, writes, overlay and ledger entries, and keep the real start", () => {
   const tables = sandboxTables(durableSql());
   const real = { v: 1, id: "ev0", eid: "0000000000001-000001", at: 1, kind: "text", event: "text", from: { kind: "person" }, text: "real" };
