@@ -69,7 +69,6 @@ export const operationResultValidator = v.union(
     runs: v.array(v.object({ at: v.number(), outcome: v.string(), text: v.string() })),
   }),
   v.object({ kind: v.literal("websiteReleaseWritten"), pages: v.number() }),
-  v.object({ kind: v.literal("websiteReleaseDesign"), text: v.union(v.string(), v.null()) }),
   v.object({ kind: v.literal("nodesKept"), complete: v.boolean() }),
   v.object({ kind: v.literal("indexPruned"), deleted: v.number(), checked: v.boolean() }),
   v.object({ kind: v.literal("trashedText"), path: v.string(), text: v.string(), encrypted: v.boolean() }),
@@ -216,8 +215,6 @@ export const operationValidator = v.union(
       v.object({ releaseId: v.string(), pageId: v.string(), path: v.string() }),
     ),
   }),
-  v.object({ kind: v.literal("writeWebsiteReleaseDesign"), releaseId: v.string(), text: v.string() }),
-  v.object({ kind: v.literal("readWebsiteReleaseDesign"), releaseId: v.string() }),
   v.object({
     kind: v.literal("deleteWebsiteRelease"),
     releaseId: v.string(),

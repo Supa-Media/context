@@ -33,7 +33,6 @@ const PAGE = {
 let revision: string | null;
 let pageAnswer: () => Response;
 let asked: Array<{ path: string; body: unknown }>;
-let stored: Map<string, Response>;
 
 beforeEach(() => {
   revision = "4:rel_1:scanned";
@@ -51,7 +50,7 @@ beforeEach(() => {
       return new Response("<html></html>", { headers: { "Content-Type": "text/html" } });
     }),
   );
-  stored = new Map<string, Response>();
+  const stored = new Map<string, Response>();
   vi.stubGlobal("caches", {
     default: {
       match: async (request: Request) => stored.get(request.url)?.clone(),
@@ -107,54 +106,6 @@ describe("a page is read once per revision", () => {
       { handle: "acme", routePath: "/", legacySlug: "hello" },
       { handle: "other", routePath: "/about" },
     ]);
-  });
-});
-
-describe("an answer Convex calls incomplete", () => {
-  const ABOUT = "https://context.lc/_site/page?handle=acme&path=%2Fabout";
-  const UNSTYLED = { ...PAGE, markdown: "We make things.\n" };
-  const STYLED = { ...PAGE, design: { frame: null, template: null, css: ".ctx-site h1{color:red}", fonts: [] } };
-  /** The fresh copy has aged out (five minutes); the longer-kept one has not. */
-  const ageOutFreshCopies = () => {
-    for (const key of [...stored.keys()]) if (!key.includes("-stale/")) stored.delete(key);
-  };
-
-  it("is answered with the copy kept for the same revision, and is never kept itself", async () => {
-    pageAnswer = () => Response.json({ revision, cacheable: true, address: STYLED });
-    await visit(ABOUT);
-    ageOutFreshCopies();
-    // Part of the page could not be read just now: Convex answers without its look.
-    pageAnswer = () => Response.json({ revision, cacheable: false, stale: true, address: UNSTYLED });
-    const during = await visit(ABOUT);
-    expect(await during.json()).toEqual(STYLED);
-    // Nothing of the incomplete answer was kept: the next visit asks again.
-    ageOutFreshCopies();
-    await visit(ABOUT);
-    expect(pagesAsked()).toHaveLength(3);
-  });
-
-  it("is passed on as it is when there is no copy for this revision", async () => {
-    pageAnswer = () => Response.json({ revision, cacheable: true, address: STYLED });
-    await visit(ABOUT);
-    revision = "5:rel_2:scanned";
-    pageAnswer = () => Response.json({ revision, cacheable: false, stale: true, address: UNSTYLED });
-    expect(await (await visit(ABOUT)).json()).toEqual(UNSTYLED);
-  });
-
-  it("never stands in for an answer Convex did not call incomplete", async () => {
-    pageAnswer = () => Response.json({ revision, cacheable: true, address: STYLED });
-    await visit(ABOUT);
-    ageOutFreshCopies();
-    // A restriction: the page is gone, and that is the answer.
-    const gone = { kind: "unavailable", siteName: "Acme", navigation: [] };
-    pageAnswer = () => Response.json({ revision, cacheable: false, address: gone });
-    expect(await (await visit(ABOUT)).json()).toEqual(gone);
-  });
-
-  it("reads `stale` only beside an answer that may not be kept", () => {
-    expect(parseSitePage({ revision: "4:r:scanned", cacheable: false, stale: true, address: PAGE })?.stale).toBe(true);
-    expect(parseSitePage({ revision: "4:r:scanned", cacheable: true, stale: true, address: PAGE })?.stale).toBe(false);
-    expect(parseSitePage({ revision: null, cacheable: false, stale: true, address: PAGE })?.stale).toBe(false);
   });
 });
 

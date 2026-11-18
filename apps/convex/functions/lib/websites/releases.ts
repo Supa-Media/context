@@ -11,7 +11,6 @@ import { ConvexError } from "convex/values";
 import { internal } from "../../../_generated/api";
 import type { Id } from "../../../_generated/dataModel";
 import type { ActionCtx } from "../../../_generated/server";
-import { keepReleaseDesign } from "./bakedDesign";
 import { wipeWithheldCopies } from "./history";
 
 export const READ_BATCH = 50;
@@ -145,9 +144,6 @@ async function stageWebsiteRelease(
         throw scanError("The bucket returned an invalid website release result.");
       }
     }
-    // The look is composed once, here, from the copies just kept, so a visit
-    // reads it instead of rebuilding it from the live notes (`bakedDesign.ts`).
-    await keepReleaseDesign(ctx, workspaceId, releaseId, released);
   } catch (error) {
     await ctx
       .runAction(internal.functions.files.runFileOperation, {

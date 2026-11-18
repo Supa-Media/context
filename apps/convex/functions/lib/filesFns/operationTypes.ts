@@ -91,8 +91,6 @@ export type FileOperation =
       kind: "readWebsiteRelease";
       pages: Array<{ releaseId: string; pageId: string; path: string }>;
     }
-  | { kind: "writeWebsiteReleaseDesign"; releaseId: string; text: string }
-  | { kind: "readWebsiteReleaseDesign"; releaseId: string }
   | {
       kind: "deleteWebsiteRelease";
       releaseId: string;
@@ -260,7 +258,6 @@ export type OperationResult =
   | { kind: "activity"; entries: ActivityEntry[] }
   | { kind: "routineRuns"; runs: Array<{ at: number; outcome: string; text: string }> }
   | { kind: "websiteReleaseWritten"; pages: number }
-  | { kind: "websiteReleaseDesign"; text: string | null }
   | {
       kind: "websiteReleasePages";
       results: Array<
