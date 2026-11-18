@@ -391,6 +391,16 @@ service = "context-tex-eval"
 [ai]
 binding = "AI"
 
+# Tex's example index (`src/agent/graph/nodes/examples.js`): the front door's
+# Training moments, filled by the control plane after each deploy
+# (`apps/convex/functions/texExamplesIndex.ts`). Tex's own, never a workspace's
+# (`context-meaning-<id>`). Read only when a config wires `fd -> examples`;
+# without it, or self-hosting without the index (delete this block), the front
+# door keeps its fixed examples.
+[[vectorize]]
+binding = "TEX_EXAMPLES"
+index_name = "tex-examples"
+
 # Pictures are kept compressed (`packages/shared/src/pictureCompression.cjs`,
 # `docs/decisions/storage-and-credentials/files-bucket.md`): Cloudflare's Images
 # binding re-encodes each one to WebP before it is stored. Self-hosting without
