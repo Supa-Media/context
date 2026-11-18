@@ -525,8 +525,11 @@ export async function frontFor(dir, person, { today = null, group = null, calend
   return f;
 }
 
-/** The variable that holds one Training conversation out of the Front door's examples (`texTraining.cjs` `heldOutOf`). */
-const { HOLD_OUT_ENV } = createRequire(import.meta.url)("../../../packages/shared/src/texTraining.cjs");
+/**
+ * The variables that hold one Training conversation out of the Front door's examples (`texTraining.cjs` `heldOutOf`),
+ * or end it at a test's moment (`trainingOf`).
+ */
+const { HOLD_OUT_ENV, UNTIL_ENV } = createRequire(import.meta.url)("../../../packages/shared/src/texTraining.cjs");
 
 /**
  * A row the bench failed, not Tex: a stand-in of the bench's had no answer for a call the turn made (`benchGaps.mjs`),
@@ -543,7 +546,7 @@ export function benchFailed(r) {
  * of its own with its world laid in (`setsWorld.mjs`), its units grouped by person and day, each group one test.
  * `runTests` is `coreArea.mjs`'s from the tree, swapped by a test; `parallel` tests go at once. With `holdOut`, a
  * Training conversation's tests run in processes that leave it out of the Front door's examples (`heldOutOf`): the
- * held-out score. Without, they read it as production does: the in-context score. Answers one row a unit.
+ * held-out score. Without, they read it as production does, but each test cut at its moment: the in-context score. Answers one row a unit.
  */
 export async function runFd(units, { tree, fake = false, runTests = null, parallel = 1, holdOut = false, env = process.env }) {
   const rows = [];
@@ -626,13 +629,19 @@ async function runConvo(units, { tree, run, scratch, fake, parallel, env }) {
     }
     const name = `sets-${tests.length + 1}`;
     await writeFile(join(dir, "tests", `${name}.md`), fdTest(mine, front, from));
-    tests.push({ name, group: mine });
+    tests.push({ name, group: mine, cut: Math.min(...mine.map((u) => u.at)) });
   }
   if (tests.length === 0) return rows;
   // Counts only, never words: how many earlier lines were older than the history's verbatim days and held at its edge.
   const held = units.reduce((n, u) => n + earlierLines(c, u.at, year, from).filter((l) => l.minutesBefore === MAX_MINUTES_BEFORE).length, 0);
   if (held > 0) process.stderr.write(`sets: ${held} earlier lines older than ${MAX_MINUTES_BEFORE / 60} hours were held at that age (no day summaries in the bench)\n`);
-  const got = await run(tree, tests.map((t) => t.name), { dir, scratch, tag: "sets", fake, parallel, env });
+  // A Training conversation scored in context reads itself as an example only up to the scored moment
+  // (`texTraining.cjs` UNTIL_ENV): its later texts are its future (truck-crew 96, 2026-11-18, quoted message 98). A test
+  // is one person's day and clock, often several moments; it is cut at its earliest, so none of them reads ahead, and
+  // the later ones still have their own past in the live chat. A held-out chat is gone whole and needs no cut.
+  const cuts = c.set === "training" && env[HOLD_OUT_ENV] !== c.id;
+  const envOf = cuts ? (name) => ({ ...env, [UNTIL_ENV]: `${c.id}:${tests.find((t) => t.name === name)?.cut ?? 0}` }) : null;
+  const got = await run(tree, tests.map((t) => t.name), { dir, scratch, tag: "sets", fake, parallel, env, envOf });
   const each = got.usd / tests.reduce((n, t) => n + t.group.length, 0);
   for (const t of tests) {
     t.group.forEach((u, k) => {
