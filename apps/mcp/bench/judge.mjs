@@ -59,6 +59,19 @@ const MAX_TOKENS_CEILING = 32000;
 /** A rough count: four characters to a token, which overestimates English. */
 const CHARS_PER_TOKEN = 4;
 
+/**
+ * What the words labels share mean, written once for every set and every row, never per row (Dev2, 2026-11-18). From
+ * the words Training's Front door labels actually use (`react twice to the three texts`, `react to both messages`,
+ * `react done on the original ask`, `mark the original ask done`, `react first, then go look`, `a reaction says it`; `answer yes/no first`, `give a
+ * verdict first`, `answer the worry directly first`). Two Training misses were the judge reading them otherwise:
+ * "react to both messages" failed a reply that answered both in words, and "yes/no first" failed one opening "Mostly.",
+ * as the conversation's own gold reply opens.
+ */
+export const LABEL_VOCABULARY = [
+  "In the checks, react, reacts and reaction mean a tapback: an emoji put on a text, shown as a line like (Tex reacted 👀 to their text). They never mean replying in words, so a reply that answers two texts in words has not reacted to either, and \"react to both messages\" is a tapback on each. To react done on an ask, or mark an ask done, is a ✅ tapback on that ask.",
+  "A check that asks for yes/no first, a verdict first or a direct answer first is met when the reply's first words are a plain verdict: \"Yes\", \"No\", \"Mostly\", \"Not quite\", \"Yes, but\" and the like all count, and so does a short overall call on the thing asked about, with the reasons after.",
+];
+
 const SYSTEM = [
   "You grade answers from a notes assistant against a checklist.",
   "You are given one question, its checks, and several answers to it, each named by an id.",
@@ -76,6 +89,7 @@ const SYSTEM = [
   "A must line may describe something to leave undone (\"write nothing into any other note\", \"leave the other lines as they were\"): does: true means the answer is as the line says, so an answer that wrote nothing else does what \"write nothing into any other note\" says.",
   "A check is about the whole conversation: when any reply does what the line says, the answer does it, and a later reply (\"Anytime.\" after a thanks) does not undo it.",
   "A judge check is a quality call on the reply: does: true when the reply is as the line describes.",
+  ...LABEL_VOCABULARY,
   // 2026-11-13 replay records: on judge lines worded "never ..." or "at most one ...", Haiku's does was the
   // opposite of its own reason ("mentions no searching, tools or paths" graded false; "includes a link with
   // the note's path" graded true; "ends on no question" failing "at most one next step or one question").

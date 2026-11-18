@@ -55,6 +55,7 @@ jobs:
     outputs:
       models: ${{ steps.job.outputs.models }}
       node: ${{ steps.job.outputs.node }}
+      set: ${{ steps.job.outputs.set }}
       sha: ${{ steps.code.outputs.sha }}
       why: ${{ steps.why.outputs.why }}
     steps:
@@ -97,10 +98,13 @@ jobs:
           [[ "$models" =~ ^(gw|cc)$ ]] || { echo "::error::unknown models"; exit 1; }
           [[ -z "$node" || "$node" =~ ^[a-z][A-Za-z0-9_-]{0,30}$ ]] || { echo "::error::not a step id"; exit 1; }
           # The seal key is derived above, masked, never a job output or env: value (the public log prints both).
+          set=$(jq -r '.set // "dev"' "$RUNNER_TEMP/job.json")
+          [[ "$set" =~ ^(dev|training)$ ]] || { echo "::error::unknown set"; exit 1; }
           mkdir -p "$RUNNER_TEMP/sealed"
           gzip -9c "$RUNNER_TEMP/job.json" | openssl enc -aes-256-cbc -pbkdf2 -salt -pass env:SEAL -out "$RUNNER_TEMP/sealed/job.bin"
           echo "models=$models" >> "$GITHUB_OUTPUT"
           echo "node=$node" >> "$GITHUB_OUTPUT"
+          echo "set=$set" >> "$GITHUB_OUTPUT"
           echo "Run: $(jq -c '{versionId, kind, convId, nodeId, models, code}' "$RUNNER_TEMP/job.json")"
 
       # Main, a same-repository pull request's head, or a branch here. A fork's pull request is refused: only code
@@ -393,6 +397,7 @@ jobs:
         env:
           MODELS: ${{ needs.prep.outputs.models }}
           NODE_ID: ${{ needs.prep.outputs.node }}
+          SET: ${{ needs.prep.outputs.set }}
           CLAUDE_CODE_OAUTH_TOKEN: ${{ needs.prep.outputs.models == 'cc' && secrets.CLAUDE_CODE_OAUTH_TOKEN || '' }}
           # The hold-out switch (`setsRun.mjs`): the repository variable set to "on" scores each Training conversation's
           # Front door tests without that conversation among the examples; anything else scores them in context.
@@ -412,6 +417,14 @@ jobs:
           node apps/mcp/bench/run.mjs sets run --conversations "$RUNNER_TEMP/lab/convs.json" --out "$RUNNER_TEMP/lab/rows.json" --parallel 8 ${NODE_ID:+--node "$NODE_ID"}
           code=$?
           echo "$(( $(date +%s%3N) - started ))" > "$RUNNER_TEMP/lab/ms"
+          # The gold self-check (`apps/mcp/bench/setsGold.mjs`; Dev2, 2026-11-18): a Training run on Claude Code also judges
+          # each Front door label against the conversation's own gold reply, at $0 through the same answerer. A label its
+          # own gold fails makes its row ambiguous, out of the score. Counts only here; a failed check scores without it.
+          if [ -n "$answerer" ] && [ "$SET" = "training" ] && [ -z "$NODE_ID" -o "$NODE_ID" = "fd" ]; then
+            node apps/mcp/bench/setsGold.mjs --set training --conversations "$RUNNER_TEMP/lab/convs.json" --out "$RUNNER_TEMP/lab/gold.json" > /dev/null \
+              && echo "Gold self-check: $(jq -c '{rows, goldFails: (.goldFails | length)}' "$RUNNER_TEMP/lab/gold.json")" \
+              || { rm -f "$RUNNER_TEMP/lab/gold.json"; echo "::warning::the gold self-check did not finish; scored without it"; }
+          fi
           if [ -n "$answerer" ]; then
             touch "$RUNNER_TEMP/run-done"
             wait "$answerer" || code=1
@@ -430,8 +443,8 @@ jobs:
           SEAL=$(printf '%s' "tex-lab-seal.$GITHUB_RUN_ID" | openssl dgst -sha256 -hmac "$LAB_SEAL_SOURCE" -r | cut -d' ' -f1)
           echo "::add-mask::$SEAL"
           export SEAL; unset LAB_SEAL_SOURCE
-          node scripts/tex-lab-run.mjs results "$RUNNER_TEMP/lab/rows.json" "$(cat "$RUNNER_TEMP/lab/ms")" > "$RUNNER_TEMP/results.json"
-          echo "Results: $(jq -c '{pass, total, costUsd, ms, perNode, fallbacks, valid}' "$RUNNER_TEMP/results.json")"
+          node scripts/tex-lab-run.mjs results "$RUNNER_TEMP/lab/rows.json" "$(cat "$RUNNER_TEMP/lab/ms")" "$RUNNER_TEMP/lab/gold.json" > "$RUNNER_TEMP/results.json"
+          echo "Results: $(jq -c '{pass, total, couldNotRun: (.couldNotRun | length), ambiguous: (.ambiguous | length), goldFails, costUsd, ms, perNode, fallbacks, valid}' "$RUNNER_TEMP/results.json")"
           usd="$(jq -r '.costUsd // 0' "$RUNNER_TEMP/results.json")"
           if awk -v u="$usd" 'BEGIN { exit !(u + 0 >= 0.005) }'; then
             pnpm --silent ai spend add dev-set --usd "$usd" --answers "$(jq -r '.total // 0' "$RUNNER_TEMP/results.json")" --run "lab-${{ github.run_number }}" --run-url "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
