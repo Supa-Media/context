@@ -220,3 +220,22 @@ To go back, set the five advisor steps' `model` back to `opus-5-5` and run
 Tests: `apps/mcp/test/texConfig.test.mjs` ("the advisor runs on Sonnet 5.5 at
 effort high", and "the advisor's four roles share one model and effort in
 code, so the config gives them one").
+
+## The advisor caches its instructions, never its brief (Dev2, 2026-11-18)
+
+AI Gateway logs, 1 to 18 November: the advisor roles' 182 calls wrote 1.28M
+tokens to the prompt cache and read 1.11M. The reads were the stable system
+prompt (the map and the role's instructions), and that was hitting. The writes
+were mostly each ask's brief: `gatewayBody`'s one-off tail mark put a
+five-minute mark on the last message, so every brief was written at 1.25x and
+never read back, since every brief is new.
+
+`adviseOnce` now sends `cacheTail: false`. The system prompt keeps its
+five-minute mark, and the brief is plain input at 1x. The life stays five
+minutes: 172 of the 181 gaps between advisor calls were under five minutes, so
+an hour's 2x write would not pay back.
+
+**What a simplification would cost:** marking the tail again brings back a
+cache write of every brief, paid at 1.25x and read by nothing. Tests:
+`apps/mcp/test/advisorCache.test.mjs`, which holds that the request prefix is
+the same bytes across two turns and that only the messages change.
