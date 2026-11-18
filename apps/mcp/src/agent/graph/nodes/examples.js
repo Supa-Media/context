@@ -19,7 +19,8 @@ const MAX_TOP_K = 50;
 export async function examplesNode(input, io) {
   const started = Date.now();
   const ms = () => Date.now() - started;
-  const env = io?.ctx?.env ?? io?.env ?? null;
+  // The turn's graph hands nodes the turn (`turnGraph.js`: ctx.turn, its env on it); a node run alone may carry env itself.
+  const env = io?.ctx?.turn?.env ?? io?.ctx?.env ?? io?.env ?? null;
   const index = env?.TEX_EXAMPLES ?? null;
   if (!index || typeof index.query !== "function") return { when: ["fallback"], why: "no index", ms: ms() };
   try {
