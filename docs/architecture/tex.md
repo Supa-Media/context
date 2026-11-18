@@ -179,7 +179,7 @@ every wire, from the same config.
 | Staff move a chat | moveChat | staff-messages | on | code |  |  |  | graph/nodes/moveChat.js · textsMove.js · apps/agent moveChats.ts · groupMoves.ts |
 | Triage | triage | intake | on | code |  |  |  | inboxTurn.ts chooseTurn · groupInbox.ts acceptGroup |
 | Decide | decide | intake | on | Clef |  |  | train:decide, recent, groupBrief, date | textsDecide.js · textDecide.cjs |
-| Decide's reason | decideWhy | intake | off | Clef |  |  | train:decide, recent | graph/nodes/decideWhy.js · textDecide.cjs |
+| Decide's reason | decideWhy | intake | off | Clef |  |  |  | graph/nodes/decideWhy.js · textDecide.cjs |
 | Queue | lanes | intake | on | code |  |  |  | apps/agent inbox.ts · groupTurn.ts |
 | Read the text | readTheText | retired | off | code |  |  |  | texEntryPoint/readTheText.js |
 | Run a routine | runARoutine | retired | off | code |  |  |  | texEntryPoint/runARoutine.js |

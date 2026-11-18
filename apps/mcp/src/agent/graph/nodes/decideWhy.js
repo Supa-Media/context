@@ -22,7 +22,7 @@ export const decideWhyOn = (config = TEX_CONFIG) => (config?.nodes ?? []).find((
  * @param {{ engine: (state: string, questions: object) => Promise<object|null> }} deps Clef, as Decide asks it.
  * @returns {Promise<{ to: "kept" | "changed", verdict: object, was?: string, ms: number }>}
  */
-export async function decideWhyNode({ verdict, state }, { engine }) {
+export async function decideWhyNode({ verdict, state } = {}, { engine } = {}) {
   if (!whyContradictsAct(verdict) || typeof engine !== "function") return { to: "kept", verdict, ms: 0 };
   const asked = decideWhyRequest(state, verdict);
   const started = Date.now();
