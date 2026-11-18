@@ -748,6 +748,7 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 - [Lab runs go to GitHub, on the Dev set only](./testing/lab-runs.md)
 - [A Sonnet front door stays inside the Haiku band (2026-11-17)](./testing/sonnet-front-door.md)
 - [The Dev set's front door moves a few points between repeats](./testing/dev-front-door-measure.md)
+- [Lab Dev failures on 17 November 2026](./testing/dev-failure-breakdown-2026-11-17.md)
 - [The advisor is four roles, each replayed on its own](./testing/advisor-roles.md)
 - [Pull-request checks report broadly and work narrowly](./testing/ci-pipelines.md)
 - [The Convex suite watches the gateway files Convex reaches](./testing/ci-pipelines.md)
