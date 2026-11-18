@@ -88,7 +88,7 @@ export function turnStages(env, now = Date.now) {
       const perCall = callPoints(point.blobs[0], rounds ?? report?.trace ?? [], turn);
       // Each round's prefix fingerprints beside its numbers (`prefixPrint.js`), so a cache miss names what changed; same order as `callPoints`.
       const prints = (rounds ?? report?.trace ?? []).filter((entry) => entry?.kind === "model").map((entry) => (entry.prefix ? { ...entry.prefix, modules: (entry.prompt?.modules ?? []).map((m) => `${m.id}:${m.h}`) } : null));
-      for (const [i, call] of perCall.entries()) if (env?.TEX_TIMING_LOG !== "off") console.log(JSON.stringify({ event: "model_call", kind: call.blobs[0], model: call.blobs[1], turn: call.blobs[3], ...Object.fromEntries(CALL_COLUMNS.map((name, at) => [name, call.doubles[at]])), ...(prints[i] ? { prefix: prints[i] } : {}) }));
+      for (const [i, call] of perCall.entries()) if (env?.TEX_TIMING_LOG !== "off") console.log(JSON.stringify({ event: "model_call", kind: call.blobs[0], model: call.blobs[1], turn: call.blobs[3], ...(call.blobs[4] ? { ttl: call.blobs[4] } : {}), ...Object.fromEntries(CALL_COLUMNS.map((name, at) => [name, call.doubles[at]])), ...(prints[i] ? { prefix: prints[i] } : {}) }));
       write(env?.TEX_CALLS, perCall);
       return write(env?.TEX_TIMING, [point]) ? point : null;
     },
@@ -115,10 +115,13 @@ function write(dataset, points) {
  * "ok" or "failed", the turn's id. doubles, in order (`CALL_COLUMNS`): the round's number in
  * the turn, its milliseconds, the uncached input tokens, the cache reads, the
  * cache writes, the output tokens, the characters of words it wrote, and how
- * many tools it called. Output tokens past what the words and calls explain
+ * many tools it called, and how many of the cache writes were kept an hour
+ * (billed 2x input; the rest are five-minute writes at 1.25x). blob5 is the
+ * cache life the prefix was sent with, "1h" or "5m", empty for a call with no
+ * prefix. Output tokens past what the words and calls explain
  * are its thinking. Counts only, never a word; at most `MAX_CALL_POINTS`.
  */
-export const CALL_COLUMNS = ["round", "ms", "input", "cacheRead", "cacheWrite", "output", "said", "calls"];
+export const CALL_COLUMNS = ["round", "ms", "input", "cacheRead", "cacheWrite", "output", "said", "calls", "cacheWrite1h"];
 export const MAX_CALL_POINTS = 24;
 
 export function callPoints(kind, trace, turn = "") {
@@ -132,8 +135,8 @@ export function callPoints(kind, trace, turn = "") {
     const n = (value) => (Number.isFinite(value) && value > 0 ? value : 0);
     const model = typeof entry.model === "string" ? entry.model.replace(/^[^/]*\//, "").slice(0, 64) : "unknown";
     points.push({
-      blobs: [String(kind), model, entry.ok === false ? "failed" : "ok", String(turn)],
-      doubles: [round, n(entry.ms), n(usage.input), n(usage.cacheRead), n(usage.cacheWrite), n(usage.output), n(entry.said), n(entry.calls)],
+      blobs: [String(kind), model, entry.ok === false ? "failed" : "ok", String(turn), usage.ttl === "1h" || usage.ttl === "5m" ? usage.ttl : ""],
+      doubles: [round, n(entry.ms), n(usage.input), n(usage.cacheRead), n(usage.cacheWrite), n(usage.output), n(entry.said), n(entry.calls), n(usage.cacheWrite1h)],
       indexes: [String(kind)],
     });
   }

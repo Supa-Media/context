@@ -109,6 +109,14 @@ export function texEffort(id, config = CONFIG) {
   return { effort };
 }
 
+/**
+ * How long a step's cached prompt prefix is kept, "1h" or "5m" (`aiGateway.js` `gatewayBody`): the step's `cacheTtl`,
+ * an hour when it sets none. Set the front door's to "5m" to go back to five minutes without a code change.
+ */
+export function texCacheTtl(id, config = CONFIG) {
+  return texStep(id, config).cacheTtl === "5m" ? "5m" : "1h";
+}
+
 /** A step's time limit in milliseconds. Throws when the file gives it none. */
 export function texTimeoutMs(id, config = CONFIG) {
   const seconds = texStep(id, config).timeoutS;

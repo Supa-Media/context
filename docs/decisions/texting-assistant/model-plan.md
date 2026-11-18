@@ -158,6 +158,19 @@ the isolate, so a refused field never fails a turn.
 field fail every texted turn; dropping the hour brings the re-writes back.
 Tests: `apps/mcp/test/agentHourCache.test.mjs`.
 
+**The life is config, and every call logs it (Dev2, 2026-11-18).** The front
+door's `cacheTtl` in `texConfig.json` is `"1h"`; setting it to `"5m"` goes back
+to five minutes with no code change (`texConfig.js` `texCacheTtl`; a step that
+sets none keeps the hour). Finance approved the hour with a guard: each call's
+point in `tex_model_calls` carries its cache reads, its cache writes, the
+hour's share of the writes (`cacheWrite1h`, billed 2x input) and, in blob5, the
+life the prefix was really sent with, which reads `5m` after a refusal; a
+refusal also logs `tex_hour_marks_refused`. If the front door's cost per turn
+rises more than 10% over three days, set `cacheTtl` to `"5m"`. The hour only
+helps gaps under an hour: on one chat, 11-11 to 11-17, 22 of 29 first-round
+misses followed a longer gap and 6 a deploy that changed the stable prompt.
+Tests: the same file, and the replay case `cache-miss-named`.
+
 ## The front door is back at effort medium (Dev2, 2026-11-12)
 
 The reply latency audit (`@supa projects/tex-reliability/2026-11-12-reply-latency-audit.md`)

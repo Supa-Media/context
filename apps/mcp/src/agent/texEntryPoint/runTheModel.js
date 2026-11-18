@@ -8,7 +8,7 @@ import { markUntrusted } from "../../privacy/egress.js";
 import { devShareOn, devSharePrompt } from "../devShare.js";
 import { groupChatsForTurn, groupsOn } from "../groupChats.js";
 import { ADVISOR_TOOL, advisorRequest, advisorTimeoutMs, advisorTools, jobAdvisorLine } from "../advisor.js";
-import { texConfigOf } from "../texConfig.js";
+import { texCacheTtl, texConfigOf } from "../texConfig.js";
 import { aiGatewayConfig } from "../aiGateway.js";
 import { carriesData, withAttachmentImages } from "../attachments.js";
 import { jobPrompt, jobReportPrompt, withBackground, withJobSteps } from "../background.js";
@@ -232,6 +232,7 @@ export async function runTheModel(t, via) {
     notes: production !== null ? { prompt: setupWithMap(setupPromptFor(production, turnKind({ group, job })), turnKind({ group, job })) } : null, // a 1:1 text, a group or a job: each its own modules (`promptModules.js`)
     builtinModelOverride: productionModel ?? undefined,
     router,
+    cacheTtl: texCacheTtl(job === null ? "fd" : "job", texConfigOf(env)), // the prefix cache's life, the step's own in Tex's config
     efforts: turnEfforts(production, job), // a job's turn thinks as `models.job_effort` says (`production.js`)
     fallback: via.fallback(fallback),
     maxRounds: production?.maxSteps ?? undefined,

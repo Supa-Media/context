@@ -276,6 +276,8 @@ export async function runTurn(options) {
     workspaces = null, groups = "", devShare = "", mail = null, // and their mailboxes with each one's state (`mailAccounts.js`)
     // How hard each model thinks, by model name (`production.js`); absent: the model's own default.
     efforts = null,
+    // The life of the prefix's cache, "1h" or "5m" (`texConfig.js` `texCacheTtl`); absent: the gateway's own, an hour.
+    cacheTtl = undefined,
     // What the person sent with the question, checked (`attachments.js`): shown to the model with it.
     attachments = [],
     // Told each step as it happens (`transcript.js`): thinking, words between tools, each call.
@@ -488,7 +490,7 @@ export async function runTurn(options) {
     try {
       const call = requestBuiltin(
         // `cachedThrough`: the history is the cached stretch; the question and what follows it are not (`aiGateway.js`).
-        { model, system: prompt.system, messages, tools: offered, effort: efforts?.[model], cachedThrough: historyMessages.length, ...(observe ? { display: "summarized" } : {}) },
+        { model, system: prompt.system, messages, tools: offered, effort: efforts?.[model], cachedThrough: historyMessages.length, ...(cacheTtl === undefined ? {} : { cacheTtl }), ...(observe ? { display: "summarized" } : {}) },
         providerOptions.ai,
         providerOptions,
       );
