@@ -184,7 +184,7 @@ const byPath = (a, b) => (a < b ? -1 : a > b ? 1 : 0);
  * Splits `files` (repository paths) across `count` shards by greedy
  * longest-processing-time on recorded milliseconds. `timings` is keyed by path
  * relative to apps/convex. A file with no entry weighs the median of the
- * recorded timings, or UNKNOWN_MS if there are none.
+ * recorded timings (the `*` entry when present), or UNKNOWN_MS if there are none.
  *
  * Heaviest files go first (ties by path), each to the currently lightest shard
  * (ties to the lowest index), so every runner computes the same split. Returns
@@ -193,10 +193,12 @@ const byPath = (a, b) => (a < b ? -1 : a > b ? 1 : 0);
  */
 export function balanceShards(files, timings, count) {
   if (!Number.isInteger(count) || count < 1) throw new Error(`shard count must be a positive integer: ${count}`);
-  const fallback = median(Object.values(timings)) ?? UNKNOWN_MS;
+  // `*` is the median of every file at the last refresh; only slow files are listed.
+  const listed = Object.entries(timings).filter(([key]) => key !== "*").map(([, ms]) => ms);
+  const fallback = timings["*"] ?? median(listed) ?? UNKNOWN_MS;
   const weighed = files.map((file) => {
     const key = file.startsWith(CONVEX_PREFIX) ? file.slice(CONVEX_PREFIX.length) : file;
-    return { file, ms: Object.hasOwn(timings, key) ? timings[key] : fallback };
+    return { file, ms: key !== "*" && Object.hasOwn(timings, key) ? timings[key] : fallback };
   });
   weighed.sort((a, b) => b.ms - a.ms || byPath(a.file, b.file));
 

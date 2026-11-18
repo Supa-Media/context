@@ -58,8 +58,9 @@ Vitest's own split is by hash, so two of the slow files could land on one
 runner and make it the slowest job. `scripts/convex-tests.mjs` instead
 partitions the files by greedy longest-processing-time over
 `apps/convex/.test-timings.json` (median per file across main's shard logs,
-refreshed by `scripts/convex-test-timings.mjs`). A file with no entry weighs
-the median of the rest. The split is deterministic, so every runner computes
+refreshed by `scripts/convex-test-timings.mjs`). Only files of at least two
+seconds are listed, since they decide the balance; the `*` entry is the median
+of every file, and a file with no entry weighs that. The split is deterministic, so every runner computes
 the same partition, and it is a true partition: every selected file runs on
 exactly one shard.
 

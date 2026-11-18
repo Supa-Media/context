@@ -5,7 +5,7 @@ import { spawnSync } from 'node:child_process';
 import { join, relative } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { parseChanged, selectTests, RUN_EVERYTHING, balanceShard, balanceShards, parseShard, withoutShard } from './convex-tests.mjs';
-import { median, medianTimings, parseTimings } from './convex-test-timings.mjs';
+import { compactTimings, median, medianTimings, parseTimings } from './convex-test-timings.mjs';
 
 const T = 'apps/convex/__tests__/';
 const F = 'apps/convex/functions/';
@@ -191,4 +191,14 @@ test('the refresh takes the median of each file across the logs, sorted by key',
   assert.deepEqual(medianTimings([log(100), log(300), log(200)]), { '__tests__/a.test.ts': 50, '__tests__/b.test.ts': 200 });
   assert.deepEqual(medianTimings([log(100), log(300)]), { '__tests__/a.test.ts': 50, '__tests__/b.test.ts': 200 });
   assert.deepEqual(medianTimings(['no results here\n']), {});
+});
+
+test('the refresh keeps only slow files, and the rest weigh the median of all of them', () => {
+  const all = { '__tests__/a.test.ts': 100, '__tests__/b.test.ts': 900, '__tests__/c.test.ts': 5000 };
+  const compact = compactTimings(all, 2000);
+  assert.deepEqual(compact, { '*': 900, '__tests__/c.test.ts': 5000 });
+  const files = Object.keys(all).map((key) => `apps/convex/${key}`);
+  // a and b are not listed, so each weighs `*`, not the median of the listed files.
+  assert.equal(balanceShards(files, compact, 1)[0].ms, 900 + 900 + 5000);
+  assert.deepEqual(compactTimings({}), {});
 });

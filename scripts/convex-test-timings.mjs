@@ -10,9 +10,10 @@
  *
  *   node scripts/convex-test-timings.mjs shard-1.log ... shard-6.log
  *
- * A file's entry is the median of its durations across the logs given. A
- * file that appears in no log keeps no entry, and the selector weighs it at
- * the median of the rest. The timings only decide which runner takes a file,
+ * A file's entry is the median of its durations across the logs given. Only
+ * files of at least FLOOR_MS are written, because those are the ones a
+ * balance depends on; the key `*` holds the median of every file, and the
+ * selector weighs any file without an entry at that. The timings only decide which runner takes a file,
  * never which files run, so a stale file costs balance, not coverage.
  */
 import { readFileSync, writeFileSync } from "node:fs";
@@ -64,18 +65,30 @@ export function medianTimings(logs) {
   return Object.fromEntries(keys.map((file) => [file, Math.round(median(durations.get(file)))]));
 }
 
+/** Files faster than this are weighed at the `*` median instead of listed. */
+export const FLOOR_MS = 2000;
+
+/** `timings` reduced to `*` (the median of all of them) plus the files of at least `floorMs`. */
+export function compactTimings(timings, floorMs = FLOOR_MS) {
+  const values = Object.values(timings);
+  if (values.length === 0) return {};
+  const kept = Object.entries(timings).filter(([, ms]) => ms >= floorMs);
+  return { "*": Math.round(median(values)), ...Object.fromEntries(kept) };
+}
+
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
   const logs = process.argv.slice(2);
   if (logs.length === 0) {
     console.error("usage: node scripts/convex-test-timings.mjs <shard log>...");
     process.exit(2);
   }
-  const timings = medianTimings(logs.map((path) => readFileSync(path, "utf8")));
-  const count = Object.keys(timings).length;
+  const all = medianTimings(logs.map((path) => readFileSync(path, "utf8")));
+  const count = Object.keys(all).length;
   if (count === 0) {
     console.error("no vitest result lines in those logs; nothing written");
     process.exit(1);
   }
+  const timings = compactTimings(all);
   writeFileSync(OUT, `${JSON.stringify(timings, null, 1)}\n`);
-  console.log(`Wrote ${count} file timings from ${logs.length} log(s) to ${OUT}`);
+  console.log(`Read ${count} file timings from ${logs.length} log(s); wrote the ${Object.keys(timings).length - 1} of at least ${FLOOR_MS} ms and their median to ${OUT}`);
 }
