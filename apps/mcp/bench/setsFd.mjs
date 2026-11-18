@@ -99,6 +99,40 @@ export function earlierLines(c, i, year = null, from = null) {
 /** Whether the group text `id` is one Decide stayed quiet on (its react then is Decide's, never the Front door's). */
 const decideStayedQuiet = (c, id) => c.msgs.find((m) => m.id === id)?.labels?.decide?.act === "quiet";
 
+/**
+ * The tapbacks that start a job, bare (no variation selector). Production has no emoji-to-job table: a job's start with
+ * no `say` gets the Worker's own pick from the ask's words (`sendTheReply.js` `react: ""`, `apps/agent/src/ackEmoji.ts`),
+ * and its find and search rule picks 🔎 or 🕵️. The Front door's own tapback can't be 🔎 (not one of the 64,
+ * `textDecide.cjs` REACT_EMOJI), so a 🔎 that was Tex's whole answer came from that start.
+ */
+const JOB_TAPBACKS = new Set(["🔎", "🕵"]);
+const bareEmoji = (text) => String(text ?? "").replace(/️/g, "").trim();
+
+/** A job's title from the words it was started with: their first sentence, at most 120 characters (`jobReportRow`). */
+export const titleOf = (words) => (words.split(/(?<=[.!?])\s/)[0] || "the job you started").slice(0, 120);
+
+/**
+ * The job a Tex tapback of 🔎 started that is still running at message `i` of `c`, or null. Scanning back from `i`: a
+ * job report in the chat means it finished (its report is an earlier line), and Tex's words after the tapback mean it
+ * was answered in words, so neither leaves a job running. A tapback that was Tex's whole answer and nothing else of
+ * Tex's came after it, with no report, is still going when the row comes. Its title is its ask's first sentence, the
+ * way a job's title is (`jobReportRow`); `minutesBefore` says when it started, when the chat's dates place it.
+ */
+export function runningJobOf(c, i, year = null, from = null) {
+  for (let k = i - 1; k >= 0; k -= 1) {
+    const m = c.msgs[k];
+    if (m.via === "job") return null;
+    if (m.tex && m.kind !== "react" && typeof m.text === "string" && m.text.trim() !== "") return null;
+    if (!(m.tex && m.kind === "react" && JOB_TAPBACKS.has(bareEmoji(m.text)))) continue;
+    if (c.kind === "group" && decideStayedQuiet(c, m.to)) continue;
+    const words = String(c.msgs.find((x) => x.id === m.to)?.text ?? "").replace(/\s+/g, " ").trim();
+    if (words === "") return null;
+    const minutes = year === null ? null : minutesBefore(c, k, i, year, from);
+    return { title: titleOf(words), ...(minutes === null ? {} : { minutesBefore: minutes }) };
+  }
+  return null;
+}
+
 /** Whether Tex's tapback at `j` was its whole answer: no text of Tex's follows it before the next message of theirs. */
 export function endsTexTurn(c, j) {
   for (const m of c.msgs.slice(j + 1)) {
@@ -256,7 +290,7 @@ export function jobReportRow(c, i) {
   const m = c.msgs[i];
   const asked = [...c.msgs.slice(0, i)].reverse().find((x) => !x.tex && !x.via && !x.kind && typeof x.text === "string" && x.text.trim() !== "");
   const words = String(asked?.text ?? "").replace(/\s+/g, " ").trim();
-  const title = (words.split(/(?<=[.!?])\s/)[0] || "the job you started").slice(0, 120);
+  const title = titleOf(words);
   return { title, state: m.state ?? "done", text: String(m.text ?? ""), asked: words, askedBy: asked?.who ?? null };
 }
 
@@ -366,6 +400,8 @@ export function fdTest(units, front, from = null) {
     const burst = burstBefore(u.convo, u.at);
     const before = earlierLines(u.convo, u.at, year, from);
     const { earlier, unanswered } = sinceTexAnswered(before.slice(0, before.length - burst.length), picturesOf(m), u.convo.kind === "group");
+    // A job a Tex 🔎 started and no report or words have settled: running now, as production's running list says (`background.js` runningNow).
+    const running = m.via === undefined ? runningJobOf(u.convo, u.at, year, from) : null;
     const lines = [
       `## ${k + 1}. ${String(m.text).replace(/\s+/g, " ").slice(0, 120)}`,
       "",
@@ -379,6 +415,7 @@ export function fdTest(units, front, from = null) {
         if (line.tapback) return [`- earlier tex tapback: ${JSON.stringify(line.text)}`, ...ago];
         return [`- earlier ${who}: ${JSON.stringify(line.text)}`, ...(line.pictures ?? []).map((name) => `- earlier ${who} sends picture: ${name}`), ...ago];
       }),
+      ...(running ? [`- running job: ${JSON.stringify(running)}`] : []),
       ...(l.must || []).map((x) => `- must: ${x}`),
       ...(l.never || []).map((x) => `- must not: ${x}`),
     ];
