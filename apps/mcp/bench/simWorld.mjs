@@ -290,7 +290,8 @@ export function simBinding(sim, web = null) {
  * The control plane's Google answers, where the fixtures have none: a connected calendar's days with nothing on them,
  * and a Gmail search that finds nothing (or a mailbox when the person's fixture has none at all).
  */
-export function simulateServices(sim, controlPlane, { connectedCalendar = false, connectMail = false, sends = false } = {}) {
+export function simulateServices(sim, controlPlane, { connectedCalendar = false, connectMail = false, sends = false, writtenMail = false } = {}) {
+  // `writtenMail`: the conversation's own world defines this person's Gmail (`world.mjs`). Then the world is the record.
   // `connectMail`: the person's fixture has no mailbox and the chat's setting gives Tex their email.
   const flags = controlPlane.flags;
   if (connectedCalendar) {
@@ -316,14 +317,19 @@ export function simulateServices(sim, controlPlane, { connectedCalendar = false,
   if (!flags.mailboxes?.length) return;
   const inbox = flags.mailboxes[0].address;
   flags.mailResults = async (query) => {
-    // The fixture's mail, the run's real sends and the world's together: a fixture hit no longer hides what the chat
-    // says arrived, and what was really sent is in Sent whoever searches (`mailbox.mjs` sentMail).
+    // The fixture's mail, the run's real sends and, where the fixture finds nothing, the world's: what was really sent is
+    // in Sent whoever searches (`mailbox.mjs` sentMail). A written mailbox is the record (2026-11-18, Training
+    // trial-hire 4): once its fixture has a hit, the simulated world is not asked, since an invented mail beside the
+    // written one contradicted it ("three emails say it's attached", when the one email attached only an invite). A
+    // search the fixture finds nothing for still asks the world, so what the chat says arrived can turn up. A mailbox
+    // with no written mail keeps the world beside the fixture, as before.
     const found = typeof search === "function" ? await search(query) : search ?? [];
     // A check-in's look: the fixture's mail and the row's own, never a made-up message (`closeForNew`).
     if (sim.newClosed()) return found;
     const ids = new Set(found.map((row) => row.id));
     const beside = [];
-    for (const row of [...sim.sentRows(), ...(await sim.mailSearch(query))]) {
+    const invented = writtenMail && found.length > 0 ? [] : await sim.mailSearch(query);
+    for (const row of [...sim.sentRows(), ...invented]) {
       if (ids.has(row.id)) continue;
       ids.add(row.id);
       beside.push({ ...row, address: inbox });
@@ -393,10 +399,10 @@ export function sitesIn(sites, sim, own = []) {
   return sim ? (sites ?? []).filter((site) => !String(site.host).endsWith(".example") || own.includes(String(site.host))) : sites;
 }
 
-export function simulatedWorld(models, controlPlane, { today = null, person, noMailbox = false, gaps = null }) {
+export function simulatedWorld(models, controlPlane, { today = null, person, noMailbox = false, writtenMail = false, gaps = null }) {
   if (!models.simulate) return null;
   const sim = createSimWorld({ ...models.simulate, today, person, gaps, sent: (address) => sentMail(controlPlane.emailCalls, address) });
   const setting = String(models.simulate.setting ?? "");
-  simulateServices(sim, controlPlane, { connectedCalendar: models.calendar === "connected", connectMail: noMailbox && /\b(?:g?mail|e-?mail|inbox)\b/i.test(setting), sends: models.gmail === "sends" });
+  simulateServices(sim, controlPlane, { connectedCalendar: models.calendar === "connected", connectMail: noMailbox && /\b(?:g?mail|e-?mail|inbox)\b/i.test(setting), sends: models.gmail === "sends", writtenMail });
   return sim;
 }
