@@ -94,6 +94,26 @@ const SPEAK_UP = Object.freeze(["quiet", "attentive", "follow along", "helpful",
  */
 const VIA_READERS = Object.freeze({ checkin: "checkin" });
 
+/** The steps that judge a job's work: their examples show the job's brief, finish line and what it did, which is what they judge. */
+const JOB_READERS = Object.freeze(["jobadv", "jobcheck"]);
+/** How much of each step's result an example quotes. */
+const DID_CHARS = 240;
+
+/**
+ * A job's recorded run (`rec.job`: title, brief, doneWhen, did) as an example's lines, or null without one. Without it
+ * a check's examples were the job's report alone, and "the site doesn't post prices" read the same whether the job had
+ * opened the page or never looked (a Fable review, 2026-11-18).
+ */
+function jobOf(rec) {
+  if (!rec || typeof rec !== "object") return null;
+  const did = (Array.isArray(rec.did) ? rec.did : []).map(([name, args, result, failed]) => {
+    const words = typeof result === "string" ? result : JSON.stringify(result ?? "");
+    const cut = words.length > DID_CHARS ? `${words.slice(0, DID_CHARS - 1)}…` : words;
+    return `- ${name} ${JSON.stringify(args ?? {})}${failed === "failed" ? " (failed)" : ""}: ${cut}`;
+  });
+  return [`Brief: ${rec.brief ?? ""}`, `Finish line: ${rec.doneWhen ?? ""}`, did.length ? `What it did:\n${did.join("\n")}` : "What it did: nothing"].join("\n");
+}
+
 /**
  * Every Training label as a moment, by node: `{ chat, kind, setting?, before, newest, label }`, in file order, then
  * message order. The label is the node's own fields without `star` (a star makes it a unit test, not a different
@@ -111,7 +131,8 @@ function momentsOf(conversations) {
         // The check-in's own label is its code's output (`to: look`), which no model reads; its examples are the
         // Front door's answers to the turns a check-in started (`VIA_READERS`).
         if (node === "checkin") continue;
-        const moment = { chat: c.id, kind: c.kind, ...(SPEAK_UP.includes(c.setting) ? { setting: c.setting } : {}), before: linesBefore(c, at, historyLines(node)), newest: lineOf(m, before(c, at)), label };
+        const job = JOB_READERS.includes(node) ? jobOf(m.rec?.job) : null;
+        const moment = { chat: c.id, kind: c.kind, ...(SPEAK_UP.includes(c.setting) ? { setting: c.setting } : {}), before: linesBefore(c, at, historyLines(node)), newest: lineOf(m, before(c, at)), ...(job ? { job } : {}), label };
         (nodes[node] ??= []).push(moment);
         if (node === "fd" && VIA_READERS[m.via]) (nodes[VIA_READERS[m.via]] ??= []).push(moment);
       }
@@ -213,7 +234,7 @@ function wantLines(label) {
 /** One moment as an example, in `<example>` tags: the chat, what came before, the newest message, what is wanted. */
 function exampleText(moment) {
   const lines = moment.before.length > 0 ? moment.before.join("\n") : "(nothing before)";
-  return `<example>\n<chat>${chatLine(moment)}</chat>\n<before>\n${lines}\n</before>\n<newest>${moment.newest}</newest>\n${wantLines(moment.label).join("\n")}\n</example>`;
+  return `<example>\n<chat>${chatLine(moment)}</chat>\n<before>\n${lines}\n</before>\n<newest>${moment.newest}</newest>\n${moment.job ? `<job>\n${moment.job}\n</job>\n` : ""}${wantLines(moment.label).join("\n")}\n</example>`;
 }
 
 /** What a step's prompt is told before its Training examples. */

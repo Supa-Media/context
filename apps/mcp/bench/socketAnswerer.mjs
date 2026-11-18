@@ -50,6 +50,20 @@ function blockText(block) {
 
 const contentText = (content) => (Array.isArray(content) ? content.map(blockText).filter(Boolean).join("\n") : blockText(content));
 
+/**
+ * One message's words. A call comes in the Messages API's shape (`content` blocks) or in Tex's own (`aiGateway.js`):
+ * `text`, an assistant's `toolCalls`, and a `tool` message's result with `name` and `isError`. Reading only
+ * `content` sent the CLI an empty conversation for every call in Tex's shape (2026-11-18: the job check's brief,
+ * finish line and tool results never reached it, and it answered "this check received nothing").
+ */
+export function messageText(message) {
+  if (message?.content !== undefined) return contentText(message.content);
+  const calls = (message?.toolCalls ?? []).map((call) => `[called tool ${call.name} with ${JSON.stringify(call.args ?? call.input ?? {})}]`);
+  const words = String(message?.text ?? "");
+  if (message?.role === "tool") return `[result of tool call ${message.name ?? ""}${message.isError ? " (error)" : ""}]\n${words}`;
+  return [words, ...calls].filter(Boolean).join("\n");
+}
+
 /** The call's system prompt as one string (a Messages API system may be blocks). */
 export function systemText(system) {
   return Array.isArray(system) ? system.map(blockText).join("\n\n") : String(system ?? "");
@@ -74,7 +88,7 @@ export const TOOL_ANSWER_SCHEMA = {
 
 /** The one message the CLI is sent for a call: the conversation so far, the tools on offer, and what to write. */
 export function promptFor(request) {
-  const turns = (request?.messages ?? []).map((message) => `<${message.role}>\n${contentText(message.content)}\n</${message.role}>`).join("\n\n");
+  const turns = (request?.messages ?? []).map((message) => `<${message.role}>\n${messageText(message)}\n</${message.role}>`).join("\n\n");
   const tools = request?.tools?.length ? toolsText(request.tools) : "";
   return [
     "Below is a conversation so far. Write the next assistant turn, exactly as you would send it, following the system prompt.",

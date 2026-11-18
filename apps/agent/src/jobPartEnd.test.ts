@@ -5,8 +5,10 @@
  *  - `partEndChoice` ignoring the gateway's answer: "the gateway's choice is the one runJob follows" fails;
  *  - `choiceOf` taking any object: "a malformed answer falls back to the same rule" fails;
  *  - runJob's carry ignoring `choice.to`: "a node that says end ends the job" fails;
- *  - runJob's pause ignoring `choice.resumeAt`: "a part refused at today's limit asks the node" fails.
+ *  - runJob's pause ignoring `choice.resumeAt`: "a part refused at today's limit asks the node" fails;
+ *  - `freshness` counting a seen result as fresh: "counts results no earlier part read" fails.
  */
+import { freshness } from "./jobProgress";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { Fetch } from "./clients";
 import { bundledLimits, choiceOf, partEndChoice } from "./jobPartEnd";
@@ -81,6 +83,8 @@ describe("runJob follows the node", () => {
     expect(await runJob(storage, d)).toEqual({ kind: "now" });
     expect(asked).toEqual([{ jobId: RUN.id, input: expect.objectContaining({ cause: "steps_out", part: 1, machine: false, hasDraft: false }) }]);
     expect((await storage.get<JobRun>(RUN_KEY))?.attempt).toBe(2);
+    expect(asked[0]).toEqual({ jobId: RUN.id, input: expect.objectContaining({ fresh: 0, staleBefore: 0 }) });
+    expect((await storage.get<JobRun>(RUN_KEY))?.stale).toBe(1); // it read nothing, so the next part knows one went by
   });
 
   it("a node that says end ends the job, though the old code would have carried it", async () => {
@@ -111,5 +115,22 @@ describe("runJob follows the node", () => {
       expect(asked).toEqual([{ jobId: RUN.id, input: expect.objectContaining({ cause: "steps_out", checked: "done" }) }]);
       expect(reports.at(-1)?.state).toBe(ended);
     }
+  });
+});
+
+describe("what a part found that is new", () => {
+  const call = (result: string, failed = false) => ({ part: 2, step: "read", result, ...(failed ? { failed: true as const } : {}) });
+  it("counts results no earlier part read, spacing and case aside, and how many parts in a row found none", () => {
+    const first = freshness({}, { calls: [call("Day pass: contact us"), call("Hours 9 to 6")] });
+    expect(first).toMatchObject({ fresh: 2, staleBefore: 0, stale: 0 });
+    const again = freshness({ seen: first.seen, stale: first.stale }, { calls: [{ ...call("day pass:   CONTACT us"), step: "READ" }, call("Timed out", true)] });
+    expect(again).toMatchObject({ fresh: 0, staleBefore: 0, stale: 1 });
+    const third = freshness({ seen: again.seen, stale: again.stale }, { calls: [] });
+    expect(third).toMatchObject({ fresh: 0, staleBefore: 1, stale: 2 });
+    expect(freshness({ seen: third.seen, stale: third.stale }, { calls: [call("Day pass $35")] })).toMatchObject({ fresh: 1, staleBefore: 2, stale: 0 });
+    expect(freshness({ seen: first.seen }, { calls: [{ ...call("Hours 9 to 6"), step: "write the note" }] }).fresh).toBe(1); // same words from another step: new work
+  });
+  it("a part that doesn't count (a retry, a broken part, a computer's) leaves the count alone and gives none", () => {
+    expect(freshness({ seen: ["a"], stale: 1 }, { calls: [] }, false)).toEqual({ fresh: 0, staleBefore: 1, seen: ["a"], stale: 1, counted: false });
   });
 });

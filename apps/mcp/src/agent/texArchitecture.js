@@ -54,7 +54,7 @@ export const ROLES = Object.freeze({
     you: "the Advisor on job mail: you read a job note's mail and answer the job. You never text the person; Tex does.",
   },
   jobCheck: {
-    node: "jobcheck",
+    node: "jobadv",
     you: "the Job check: a Background job stopped, and you decide whether it really finished before Tex texts them about it.",
   },
   threads: {

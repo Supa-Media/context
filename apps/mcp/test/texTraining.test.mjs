@@ -11,6 +11,7 @@
  *   5. an empty Training module still adding words to a prompt            "a step with no labels gets no extra words" fails
  *   6. a front-door label not reaching the front door's prompt            "the front door is given its Training labels" fails
  *   8. Training grown past a step's whole-chat cap, so a chat drops out   "every Training conversation fits" fails
+ *   9. a job check's example without what the job did                     "a job check's example shows the job's brief" fails
  */
 import assert from "node:assert/strict";
 import { createRequire } from "node:module";
@@ -234,3 +235,22 @@ test("the check-in reads the Front door's labels on the turns a check-in started
   const { trainingFor } = await import("../src/agent/texArchitecture.js");
   assert.match(trainingFor("checkIn"), /Check-in, nobody texted/, "main's config gives the check-in its Training check-ins");
 });
+
+test("a job check's example shows the job's brief, finish line and what it did, which is what it judges", () => {
+  const convo = {
+    id: "t", set: "training", kind: "one", members: ["Ana"],
+    msgs: [
+      { id: "m1", who: "Ana", text: "prices for 2 studios please" },
+      { id: "m2", who: "Background job", via: "job", text: "One posts $20; the other doesn't publish prices.",
+        rec: { job: { brief: "Find 2 studios' prices.", doneWhen: "Both prices.", did: [["browse", { url: "https://a.example" }, "Drop-in $20"], ["browse", { url: "https://b.example" }, "x".repeat(400), "failed"]] } },
+        labels: { jobadv: { verdict: "done" } } },
+    ],
+  };
+  const [moment] = momentsOf([convo]).jobadv;
+  assert.match(moment.job, /Brief: Find 2 studios' prices\./);
+  assert.match(moment.job, /Finish line: Both prices\./);
+  assert.match(moment.job, /- browse \{"url":"https:\/\/a\.example"\}: Drop-in \$20/);
+  assert.match(moment.job, /\(failed\): x{239}…/, "a long result is cut, and a failed step says so");
+  assert.equal(momentsOf([{ ...convo, msgs: convo.msgs.map((m) => (m.labels ? { ...m, labels: { fd: { must: ["say it"] } } } : m)) }]).fd[0].job, undefined, "other steps' examples are unchanged");
+});
+

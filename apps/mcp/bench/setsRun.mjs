@@ -130,7 +130,7 @@ export async function adaptersFor(tree, { fake = false, env = process.env } = {}
   const { modelSocket, socketRequest } = await import("./modelSocket.mjs");
   const socket = fake ? null : modelSocket(env);
   const socketed = Boolean(socket?.covers("claude"));
-  return {
+  const table = {
     // The front door runs as a whole turn in the bench's world, so its tests go as one batch (`setsFd.mjs`).
     fd: { batch: (units, { parallel = 1 } = {}) => runFd(units, { tree, fake, parallel }) },
     decide: async () => {
@@ -161,7 +161,9 @@ export async function adaptersFor(tree, { fake = false, env = process.env } = {}
         const rec = (c.msgs[i].rec || {}).job;
         if (!rec) return { right: false, ran: false, usd: 0, why: "no job: record the job's run (rec.job) on this message" };
         const asked = c.msgs.slice(0, i + 1).filter((m) => !m.tex && !m.kind).map((m) => m.text);
-        const item = { job: { title: rec.title, brief: rec.brief, doneWhen: rec.doneWhen, asked }, did: rec.did ?? [], want: label.verdict };
+        // A job row (via "job") is the job's own report: its words are the answer the check reads.
+        const answer = c.msgs[i].via === "job" ? String(c.msgs[i].text ?? "") : rec.answer;
+        const item = { job: { title: rec.title, brief: rec.brief, doneWhen: rec.doneWhen, asked }, did: rec.did ?? [], ...(answer ? { answer } : {}), ...(rec.exhausted ? { exhausted: true } : {}), want: label.verdict };
         if (!fake && !socketed && config === null) return { right: false, ran: false, usd: 0, why: "no AI gateway (AI_GATEWAY_ACCOUNT_ID, AI_GATEWAY_ID, AI_GATEWAY_TOKEN)" };
         const request = fake ? fakeRequest("advisor-job-check", item) : socketed ? socketRequest(socket) : (params) => requestViaGateway(params, config, { metadata: { feature: "bench", client: "sets" } });
         const out = await role.ask(item, request);
@@ -185,6 +187,9 @@ export async function adaptersFor(tree, { fake = false, env = process.env } = {}
       };
     },
   };
+  // The live Job advisor runs the same check (`graph/nodes/jobcheck.js`), labelled under its own id.
+  table.jobadv = table.jobcheck;
+  return table;
 }
 
 /**

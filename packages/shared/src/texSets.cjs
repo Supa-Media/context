@@ -52,12 +52,14 @@ const BENCH_PEOPLE = Object.freeze(["Maya", "John", "Priya", "Tomas", "Nia", "Ko
  * The fields a node is labelled with, from its config `outSchema`: a required choice or yes/no field becomes a
  * pick (with "any"), any other required field free text. Two nodes report the whole turn rather than a verdict, so
  * they are labelled by what matters in it: the front door by must / never lines about its draft, the reply reviewer
- * by how often it sent the draft back. `why` on Decide is the judge's own list of reasons.
+ * by how often it sent the draft back. The Job advisor is labelled as its check: verdict, advice and thinking. `why` on Decide is the judge's own list of reasons.
  */
 function labelFields(node, opts = {}) {
   if (!node) return { picks: {}, texts: [], lines: false };
   if (node.id === "fd") return { picks: {}, texts: [], lines: true };
   if (node.id === "reviewer") return { picks: { sentBack: ["0", "1", "2+"] }, texts: [], lines: false };
+  // The Job advisor's fields are optional because it has two roles (check and mail): its check is labelled by them.
+  if (node.id === "jobadv") return { picks: { verdict: ["done", "keep_going", "waiting", "stuck", "none"] }, texts: ["advice", "thinking"], lines: false };
   const picks = {};
   const texts = [];
   for (const f of node.outSchema || []) {
