@@ -119,8 +119,11 @@ function selfTest() {
     expect("wrap", wrap.status === 0 && existsSync(wrapped));
     const unwrap = openssl(["enc", "-d", ...WRAP_CIPHER, "-pass", "env:SEAL", "-in", wrapped, "-out", unwrapped], { SEAL: password });
     expect("unwrap", unwrap.status === 0 && existsSync(unwrapped) && readFileSync(unwrapped).equals(readFileSync(priv)));
-    const wrong = openssl(["enc", "-d", ...WRAP_CIPHER, "-pass", "env:SEAL", "-in", wrapped, "-out", join(dir, "nope.pem")], { SEAL: "other-password" });
-    expect("a different password does not unwrap", wrong.status !== 0);
+    const nope = join(dir, "nope.pem");
+    const wrong = openssl(["enc", "-d", ...WRAP_CIPHER, "-pass", "env:SEAL", "-in", wrapped, "-out", nope], { SEAL: "other-password" });
+    // AES-CBC under a wrong key ends in valid padding about once in 256 tries, so openssl can exit 0 with garbage: what
+    // must hold is that a wrong password never gives back the key (this failed CI that way twice on 2026-11-18).
+    expect("a different password does not unwrap", wrong.status !== 0 || !existsSync(nope) || !readFileSync(nope).equals(readFileSync(priv)));
 
     for (const token of samples()) {
       const plain = join(dir, "plain");
