@@ -278,6 +278,8 @@ releases and native store builds are their own manual workflows. See
 
 - [`CLAUDE.md`](CLAUDE.md) — the non-negotiables, architecture and vocabulary;
   read it before changing anything.
+- [`AGENTS.md`](AGENTS.md) — points Codex and Cursor at `CLAUDE.md`, including
+  the pull request flow.
 - [`docs/decisions/`](docs/decisions/README.md) — every durable decision, by
   area, with what reversing it would cost.
 - [`CONTRIBUTING.md`](CONTRIBUTING.md) — setup and review expectations.

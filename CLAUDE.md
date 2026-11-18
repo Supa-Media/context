@@ -364,7 +364,12 @@ checked is not a guard.**
      credentials. Auto-merge is approved for agent pull requests. Never merge
      with `GITHUB_TOKEN`; that merge does not start the deploy. Skip a pull
      request Seyi said to hold, and skip jewunetie's.
-  3. Done means live in production. Open to live in 10 minutes, 30 at most.
+  3. After opening, do not merge or rebase main into the branch unless GitHub
+     reports a merge conflict (`mergeable_state` `dirty`). Main does not
+     require an up-to-date branch. Every merge from main restarts CI and the
+     Tex replay on a new commit. To retry a flaky check, re-run the failed
+     job (`gh run rerun <id> --failed`). Do not push.
+  4. Done means live in production. Open to live in 10 minutes, 30 at most.
 - **Sabotage-test rather than trusting a green run**: break the invariant
   deliberately and confirm the right tests fail.
 - **Small, tested increments.** Atomic commits; describe *why*.
