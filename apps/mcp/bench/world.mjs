@@ -396,7 +396,7 @@ export async function createWorld(bench, person, setupRaw, models, today = null,
       for (const name of before.keys()) before.set(name, snapshot(s3.bucketFor(`bench-${name}`)));
     },
     /** One texted message, answered with the conversation so far; with `job`, one part of a job, as `jobRun.ts` asks it (`jobTasks.mjs`): their text is posted on part 1 only, the report never, and the done check's verdict and advice come back (`jobCheck.js` `jobFields`). */
-    async text(message, attachments = [], { running = null, others = [], job = null, byCode = false, as = null, event = null, groupMail = null, cause = null } = {}) {
+    async text(message, attachments = [], { running = null, others = [], job = null, byCode = false, as = null, event = null, groupMail = null, cause = null, posted = false } = {}) {
       // The person opened the last handoff's link and signed in before texting.
       web?.personSignsIn();
       const { ctx, settle } = createWorkerCtx();
@@ -420,7 +420,7 @@ export async function createWorld(bench, person, setupRaw, models, today = null,
       const sender = as !== null && group ? group.people.get(as) : tagger;
       if (as !== null && group && !sender) throw new Error(`@${as} is not in the group's workspace (people.md)`);
       const said = textedEvent(message, sender);
-      if (!byCode && (job === null || job.attempt === 1)) await postEvents([said]);
+      if (!byCode && !posted && (job === null || job.attempt === 1)) await postEvents([said]); // `posted`: a job the test's own turn started, whose ask the chat holds (`jobDelivery.mjs`)
       const covers = byCode ? [] : [...before.map((event) => event.id), said.id];
       // Asked for as a stream, as the texting Worker asks (`apps/agent/src/clients.ts`):
       // a streamed turn is the long one, with the setup's max_steps, and a
@@ -453,7 +453,7 @@ export async function createWorld(bench, person, setupRaw, models, today = null,
         // Lines the turn texted while it worked: each is a text the person got,
         // sent before the answer, as the texting Worker sends them (`apps/agent/src/inbox.ts`).
         progress,
-        // The background jobs the turn started, for the start checks (`checks.mjs`): nothing runs them here.
+        // The background jobs the turn started, for the start checks (`checks.mjs`); `run.mjs` then runs them (`jobDelivery.mjs`).
         jobs: (Array.isArray(body?.jobs) ? body.jobs : []).map((job) => ({ title: String(job?.title ?? ""), brief: String(job?.brief ?? ""), mail: job?.mail?.path ?? null, name: job?.mail?.name ?? null, on: job?.machine?.name ?? null })),
         // Held calls the answer asks a YES for (`route.js`); the played person answers.
         asked: typeof body?.asked === "number" ? body.asked : 0,
