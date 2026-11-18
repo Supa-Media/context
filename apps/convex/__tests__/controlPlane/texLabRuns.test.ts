@@ -335,6 +335,26 @@ test("gateCounts and cleanResults read only counts", () => {
   expect(cleanResults({ fallbacks: 3, valid: false, invalid: "3 Claude call(s) fell back" })).toMatchObject({ fallbacks: 3, valid: false, invalid: "3 Claude call(s) fell back" });
   expect(cleanResults({ fallbacks: 1 })).toMatchObject({ fallbacks: 1, valid: false, invalid: "a Claude call fell back to another model" });
   expect(cleanResults({ rows: [{ convId: "w", ok: true, fallbacks: 2 }] }).rows[0]).toMatchObject({ fallbacks: 2 });
+  // Rows that could not run, and ambiguous rows (labels whose own gold reply fails), are out of the score and listed
+  // beside it (Dev2, 2026-11-18); the gold count is kept apart from the score.
+  const cleaned = cleanResults({
+    pass: 1,
+    total: 2,
+    couldNotRun: [{ convId: "a", msgIndex: 3, node: "fd", why: "w".repeat(300), title: "secret" }, { convId: 7 }],
+    ambiguous: [{ convId: "b", msgIndex: 0, node: "fd", why: "its label's own gold reply fails: must y (z)" }],
+    goldFails: 2,
+    rows: [{ convId: "b", msgIndex: 0, node: "fd", ok: false, got: "x", want: "y", ambiguous: true }, { convId: "c", ok: true, ambiguous: "yes" }],
+  });
+  expect(cleaned.couldNotRun).toEqual([
+    { convId: "a", msgIndex: 3, node: "fd", why: "w".repeat(200) },
+    { convId: "", msgIndex: 0, node: "", why: "" },
+  ]);
+  expect(cleaned.ambiguous).toEqual([{ convId: "b", msgIndex: 0, node: "fd", why: "its label's own gold reply fails: must y (z)" }]);
+  expect(cleaned.goldFails).toBe(2);
+  expect(cleaned.rows[0]).toMatchObject({ ambiguous: true });
+  expect(cleaned.rows[1]).not.toHaveProperty("ambiguous");
+  expect(cleanResults({})).toMatchObject({ couldNotRun: [], ambiguous: [], goldFails: null });
+  expect(cleanResults({ goldFails: "many" }).goldFails).toBeNull();
 });
 
 test("POST /gateway/tex/dev passes run and runs on", async () => {

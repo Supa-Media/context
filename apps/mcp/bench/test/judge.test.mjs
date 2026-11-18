@@ -582,3 +582,21 @@ test("the judge is shown the chat before a replayed text and the jobs an answer 
   assert.equal("chat_before" in plain, false, "a question with no chat before it is judged as before");
   assert.equal("jobs_started" in plain.answers[0], false);
 });
+
+test("the labels' shared words are defined once, in the judge's shared instructions, and a row's own lines are sent unchanged (2026-11-18)", async () => {
+  const { buildJudgeRequest, LABEL_VOCABULARY } = await import("../judge.mjs");
+  const must = ["read the page and answer yes/no first"];
+  const mustNot = ["react to both messages"];
+  const { body, checks } = buildJudgeRequest({ model: "m", question: { text: "q", must, mustNot, judge: [], may: [] }, answers: [{ id: "a", conversation: [], toolsLine: "", changes: [] }] });
+  const request = JSON.parse(body);
+  assert.ok(LABEL_VOCABULARY.length >= 2);
+  for (const line of LABEL_VOCABULARY) {
+    assert.equal(request.system.split(line).length - 1, 1, `once in the shared instructions: ${line}`);
+    assert.equal(request.messages[0].content.includes(line), false, "never in a row's own text");
+  }
+  assert.match(request.system, /react[\s\S]*tapback/i, "react means a tapback");
+  assert.match(request.system, /"Mostly"/, "a plain verdict word counts as yes/no first");
+  const payload = JSON.parse(/<answers>\n([\s\S]*)\n<\/answers>/.exec(request.messages[0].content)[1]);
+  assert.deepEqual(payload.checks.map((c) => c.line), [...must, ...mustNot], "the row's lines as written");
+  assert.deepEqual(checks.map((c) => c.line), [...must, ...mustNot]);
+});

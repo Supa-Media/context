@@ -115,6 +115,11 @@ export function cleanResults(r: unknown) {
     ms: num(o.ms),
     perConv: list(o.perConv).map((c) => ({ id: str(c.id), pass: num(c.pass), total: num(c.total) })),
     perNode: list(o.perNode).map((c) => ({ node: str(c.node, 40), pass: num(c.pass), total: num(c.total) })),
+    // Rows that could not run, and ambiguous rows (an fd label whose own gold reply fails), each beside the score and out of
+    // it (`scripts/tex-lab-run.mjs` resultsOf). goldFails is the count of such labels, null when the run had no gold report.
+    couldNotRun: list(o.couldNotRun).map((c) => ({ convId: str(c.convId), msgIndex: num(c.msgIndex), node: str(c.node, 40), why: str(c.why, 200) })),
+    ambiguous: list(o.ambiguous).map((c) => ({ convId: str(c.convId), msgIndex: num(c.msgIndex), node: str(c.node, 40), why: str(c.why, 200) })),
+    goldFails: typeof o.goldFails === "number" && Number.isFinite(o.goldFails) ? o.goldFails : null,
     rows: list(o.rows).map((x) => ({
       convId: str(x.convId),
       msgIndex: num(x.msgIndex),
@@ -123,6 +128,7 @@ export function cleanResults(r: unknown) {
       got: str(x.got, 200),
       want: str(x.want, 200),
       ...(x.ran === false ? { ran: false } : {}),
+      ...(x.ambiguous === true ? { ambiguous: true } : {}),
       ...(num(x.fallbacks) > 0 ? { fallbacks: num(x.fallbacks) } : {}),
       // A miss's failed lines with the judge's reasons and Tex's texts (`scripts/tex-lab-run.mjs` detailOf).
       ...(typeof x.detail === "string" && x.detail !== "" ? { detail: str(x.detail, 1_500) } : {}),

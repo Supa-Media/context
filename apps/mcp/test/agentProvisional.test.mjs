@@ -274,9 +274,14 @@ const bodyOf = (key) => {
   if (entry === null) return null;
   return typeof entry.body === "string" ? entry.body : new TextDecoder().decode(entry.body);
 };
+// The check's own answer, never a second call: `/agent/go` is not idempotent, so asking again after a true go raced the
+// turn's end (it finishes and clears its running mark at once) and read false (PR #3673, CI: "false !== true" at the go).
 const until = async (check, ms = 3_000) => {
-  for (let waited = 0; waited < ms && !(await check()); waited += 10) await new Promise((r) => setTimeout(r, 10));
-  return check();
+  for (let waited = 0; ; waited += 10) {
+    const ok = await check();
+    if (ok || waited >= ms) return ok;
+    await new Promise((r) => setTimeout(r, 10));
+  }
 };
 /** The Worker's go, once the run has marked itself running. */
 const goWhenRunning = (turn) => until(async () => (await call("/agent/go", { turn })).body?.go === true);

@@ -670,3 +670,4 @@ bench/test/fallbacks.test.mjs
 test/checkinOnceInChat.test.mjs
 test/advisorCache.test.mjs
 test/setsTrace.test.mjs
+test/setsGold.test.mjs

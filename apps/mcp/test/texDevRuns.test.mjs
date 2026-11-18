@@ -145,12 +145,78 @@ test("results count by chat and by step, with each test's verdict and no words",
     { chat: "m", msg: "m2", at: 1, node: "fd", right: false, ran: false, usd: 0, why: "runs alone only on a one-ask chat" },
   ];
   const r = resultsOf(rows, "1200");
-  assert.deepEqual([r.pass, r.total, r.costUsd, r.ms], [1, 3, 0.0008, 1200]);
+  // A row that could not run is out of the score (Dev2, 2026-11-18: a ran:false row counted as Tex's miss in v57mf0),
+  // so the ran:false fd row no longer counts in total, perConv or perNode. Before this, total was 3.
+  assert.deepEqual([r.pass, r.total, r.costUsd, r.ms], [1, 2, 0.0008, 1200]);
   assert.deepEqual(r.handoff, { jobs: 0, parts: 0, advisorCalls: 0, usd: 0, perJobUsd: 0, advisorCallsPerJob: 0 }, "no hand-off, all zero");
-  assert.deepEqual(r.perConv, [{ id: "g", pass: 1, total: 2 }, { id: "m", pass: 0, total: 1 }]);
-  assert.deepEqual(r.perNode, [{ node: "decide", pass: 1, total: 2 }, { node: "fd", pass: 0, total: 1 }]);
+  assert.deepEqual(r.perConv, [{ id: "g", pass: 1, total: 2 }], "a conversation whose only row could not run is absent");
+  assert.deepEqual(r.perNode, [{ node: "decide", pass: 1, total: 2 }]);
+  assert.deepEqual(r.couldNotRun, [{ convId: "m", msgIndex: 1, node: "fd", why: "runs alone only on a one-ask chat" }]);
+  assert.deepEqual(r.ambiguous, []);
+  assert.equal(r.goldFails, null, "no gold report, no gold count");
   assert.deepEqual(r.rows[1], { convId: "g", msgIndex: 8, node: "decide", ok: false, got: "quiet", want: "respond" });
-  assert.deepEqual(r.rows[2], { convId: "m", msgIndex: 1, node: "fd", ok: false, got: "can't run: runs alone only on a one-ask chat", want: "", ran: false }, "a test that did not run says why");
+  assert.deepEqual(r.rows[2], { convId: "m", msgIndex: 1, node: "fd", ok: false, got: "can't run: runs alone only on a one-ask chat", want: "", ran: false }, "a test that did not run says why, and stays listed");
+});
+
+test("a row that could not run is out of total, pass, perConv and perNode, and listed in couldNotRun with its why", () => {
+  const rows = [
+    { chat: "a", at: 1, node: "fd", right: true, ran: true, usd: 0 },
+    { chat: "a", at: 3, node: "fd", right: false, ran: false, usd: 0, why: "Zed has no bench world" },
+    { chat: "b", at: 2, node: "decide", right: false, ran: false, usd: 0, why: "x".repeat(300) },
+  ];
+  const r = resultsOf(rows, "1");
+  assert.deepEqual([r.pass, r.total], [1, 1]);
+  assert.deepEqual(r.perConv, [{ id: "a", pass: 1, total: 1 }]);
+  assert.deepEqual(r.perNode, [{ node: "fd", pass: 1, total: 1 }]);
+  assert.deepEqual(r.couldNotRun, [
+    { convId: "a", msgIndex: 3, node: "fd", why: "Zed has no bench world" },
+    { convId: "b", msgIndex: 2, node: "decide", why: "x".repeat(200) },
+  ], "why is sliced to 200");
+  assert.equal(r.rows.length, 3, "every row stays listed");
+  assert.equal(r.rows[1].ran, false);
+  assert.equal(r.rows[1].ambiguous, undefined, "a could-not-run row is never also ambiguous");
+});
+
+test("an fd row whose label's own gold reply fails is ambiguous: out of the score, listed, flagged on its row", () => {
+  const rows = [
+    { chat: "a", at: 1, node: "fd", right: true, ran: true, usd: 0 },
+    { chat: "a", at: 3, node: "fd", right: false, ran: true, usd: 0 },
+    { chat: "a", at: 3, node: "decide", right: false, ran: true, usd: 0 },
+    { chat: "b", at: 0, node: "fd", right: false, ran: false, usd: 0, why: "w" },
+  ];
+  const gold = {
+    model: "gw",
+    rows: 4,
+    goldFails: [
+      { convId: "a", msgIndex: 3, msgId: "m4", failed: [{ kind: "must", line: "say hi", reason: "said bye" }, { kind: "must not", line: "x", reason: "" }] },
+      { convId: "b", msgIndex: 0, msgId: "m1", failed: [{ kind: "must", line: "y", reason: "z" }] },
+    ],
+    skipped: [],
+  };
+  const r = resultsOf(rows, "1", gold);
+  // The fd row at a/3 is ambiguous, so the decide row at a/3 (a different step) still counts. b/0 could not run.
+  assert.deepEqual([r.pass, r.total], [1, 2]);
+  assert.deepEqual(r.perConv, [{ id: "a", pass: 1, total: 2 }]);
+  assert.deepEqual(r.perNode, [{ node: "fd", pass: 1, total: 1 }, { node: "decide", pass: 0, total: 1 }]);
+  assert.deepEqual(r.ambiguous, [{ convId: "a", msgIndex: 3, node: "fd", why: "its label's own gold reply fails: must say hi (said bye)" }]);
+  assert.deepEqual(r.couldNotRun, [{ convId: "b", msgIndex: 0, node: "fd", why: "w" }]);
+  assert.equal(r.goldFails, 2, "the count of labels whose gold fails, apart from the score");
+  assert.equal(r.rows.length, 4, "every row stays listed");
+  assert.equal(r.rows[1].ambiguous, true);
+  assert.equal(r.rows[2].ambiguous, undefined, "a non-fd row at the same message is not ambiguous");
+  assert.equal(r.rows[3].ambiguous, undefined, "a could-not-run row is not ambiguous");
+  assert.equal(r.rows[3].ran, false);
+});
+
+test("the results CLI reads an optional gold report; a missing gold file is no gold", () => {
+  const dir = mkdtempSync(join(tmpdir(), "tex-lab-gold-"));
+  writeFileSync(join(dir, "rows.json"), JSON.stringify([{ chat: "a", at: 3, node: "fd", right: false, ran: true, usd: 0 }, { chat: "a", at: 4, node: "fd", right: true, ran: true, usd: 0 }]));
+  writeFileSync(join(dir, "gold.json"), JSON.stringify({ model: "gw", rows: 2, goldFails: [{ convId: "a", msgIndex: 3, msgId: "m4", failed: [{ kind: "must", line: "l", reason: "r" }] }], skipped: [] }));
+  const withGold = JSON.parse(execFileSync(process.execPath, [LAB_RUN, "results", join(dir, "rows.json"), "7", join(dir, "gold.json")], { encoding: "utf8" }));
+  assert.deepEqual([withGold.pass, withGold.total, withGold.goldFails, withGold.ms], [1, 1, 1, 7]);
+  assert.equal(withGold.ambiguous[0].why, "its label's own gold reply fails: must l (r)");
+  const noGold = JSON.parse(execFileSync(process.execPath, [LAB_RUN, "results", join(dir, "rows.json"), "7", join(dir, "absent.json")], { encoding: "utf8" }));
+  assert.deepEqual([noGold.total, noGold.goldFails, noGold.ambiguous], [2, null, []], "a path that does not exist is no gold");
 });
 
 test("a missed Front door row keeps the judge's reasons and Tex's texts, so its cause can be read", () => {

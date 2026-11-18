@@ -5,7 +5,9 @@
  * (`node apps/mcp/bench/run.mjs sets run`):
  *
  *   node scripts/tex-lab-run.mjs prepare <job.json> <dir>     the conversations to run, and the draft's graph
- *   node scripts/tex-lab-run.mjs results <rows.json> <ms>     the results the run reports back, as JSON
+ *   node scripts/tex-lab-run.mjs results <rows.json> <ms> [gold.json]
+ *                                                             the results the run reports back, as JSON; with the gold
+ *                                                             report (`setsGold.mjs`), its ambiguous rows are out of the score
  *   node scripts/tex-lab-run.mjs ran <rows.json>              fails when a step had tests and none of them could run
  *
  * `prepare` reads the run Convex hands the workflow (`texLabRuns:job`): the Dev set is the repo's
@@ -108,8 +110,21 @@ export function trainingConversations(repo, drafts, convId = null) {
   return convId === null ? all : all.filter((c) => c.id === convId);
 }
 
-/** The runner's rows as the Lab reads a run's results (`texLabRuns.cleanResults`). */
-export function resultsOf(rows, ms) {
+/**
+ * The runner's rows as the Lab reads a run's results (`texLabRuns.cleanResults`). A row that could not run (`ran: false`)
+ * and, with the gold report (`apps/mcp/bench/setsGold.mjs`), an fd row whose label's own gold reply fails (ambiguous)
+ * are out of the score: pass, total, perConv and perNode. Each is listed beside it (couldNotRun, ambiguous).
+ */
+export function resultsOf(rows, ms, gold = null) {
+  const goldKey = (convId, msgIndex) => `${convId}\u0000${msgIndex}`;
+  const goldFail = new Map();
+  for (const g of Array.isArray(gold?.goldFails) ? gold.goldFails : []) {
+    if (!goldFail.has(goldKey(g.convId, g.msgIndex))) goldFail.set(goldKey(g.convId, g.msgIndex), g);
+  }
+  const ambiguousOf = (r) => r.node === "fd" && r.ran !== false && goldFail.has(goldKey(r.chat, r.at ?? 0));
+  const isAmbiguous = new Set(rows.filter(ambiguousOf));
+  const counted = rows.filter((r) => r.ran !== false && !isAmbiguous.has(r));
+
   const perConv = new Map();
   const perNode = new Map();
   const add = (map, key, field, ok) => {
@@ -118,13 +133,26 @@ export function resultsOf(rows, ms) {
     if (ok) b.pass += 1;
     map.set(key, b);
   };
-  for (const r of rows) {
+  for (const r of counted) {
     add(perConv, r.chat, "id", r.right);
     add(perNode, r.node, "node", r.right);
   }
+  const couldNotRun = rows
+    .filter((r) => r.ran === false)
+    .map((r) => ({ convId: r.chat, msgIndex: r.at ?? 0, node: r.node, why: String(r.why ?? "no way to run alone yet").slice(0, 200) }));
+  const ambiguous = rows
+    .filter((r) => isAmbiguous.has(r))
+    .map((r) => {
+      const first = goldFail.get(goldKey(r.chat, r.at ?? 0)).failed?.[0];
+      const why = `its label's own gold reply fails${first ? `: ${first.kind} ${first.line}${first.reason ? ` (${first.reason})` : ""}` : ""}`;
+      return { convId: r.chat, msgIndex: r.at ?? 0, node: r.node, why: why.slice(0, 200) };
+    });
   return {
-    pass: rows.filter((r) => r.right).length,
-    total: rows.length,
+    pass: counted.filter((r) => r.right).length,
+    total: counted.length,
+    couldNotRun,
+    ambiguous,
+    goldFails: gold ? (Array.isArray(gold.goldFails) ? gold.goldFails.length : 0) : null,
     costUsd: Math.round(rows.reduce((a, r) => a + (r.usd || 0), 0) * 10_000) / 10_000,
     // What the background jobs the Front door handed off added, already inside costUsd (Dev2, 2026-11-18: "report how
     // many advisor calls and how much cost a handed-off job adds per run ... so Finance can check spend").
@@ -144,6 +172,7 @@ export function resultsOf(rows, ms) {
       got: r.ran === false ? `can't run: ${String(r.why ?? "no way to run alone yet").slice(0, 200)}` : String(r.got ?? (r.right ? "as labelled" : r.why ?? "")),
       want: String(r.want ?? ""),
       ...(r.ran === false ? { ran: false } : {}),
+      ...(isAmbiguous.has(r) ? { ambiguous: true } : {}),
       ...(Number(r.fallbacks) > 0 ? { fallbacks: Number(r.fallbacks) } : {}),
       // A row's whole story: each failed line with the judge's reason, each line that held with its reason, then every
       // text Tex sent, so a reader can find the cause, or audit a pass, without rerunning (Dev2, 2026-11-17).
@@ -214,7 +243,9 @@ async function main() {
     return;
   }
   if (sub === "results") {
-    process.stdout.write(JSON.stringify(resultsOf(JSON.parse(readFileSync(a, "utf8")), b)));
+    // The optional gold report (`apps/mcp/bench/setsGold.mjs`): a path that does not exist is no gold.
+    const gold = process.argv[5] && existsSync(process.argv[5]) ? JSON.parse(readFileSync(process.argv[5], "utf8")) : null;
+    process.stdout.write(JSON.stringify(resultsOf(JSON.parse(readFileSync(a, "utf8")), b, gold)));
     return;
   }
   if (sub === "ran") {
@@ -228,7 +259,7 @@ async function main() {
     console.log("Every step with tests ran some");
     return;
   }
-  throw new Error("usage: tex-lab-run.mjs prepare <job.json> <dir> | results <rows.json> <ms> | ran <rows.json>");
+  throw new Error("usage: tex-lab-run.mjs prepare <job.json> <dir> | results <rows.json> <ms> [gold.json] | ran <rows.json>");
 }
 
 if (import.meta.url === `file://${process.argv[1]}`) {
