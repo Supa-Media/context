@@ -59,6 +59,15 @@ async function withEnv(env, fn) {
   }
 }
 
+test("in a texted turn the node finds the index on the turn's env, as the turn's graph hands it (ctx.turn)", async () => {
+  // turnGraph.js runs nodes with ctx = { turn: t }, the env on the turn; reading only ctx.env saw no index in every turn.
+  const index = stubIndex([{ id: fdIds[0], score: 0.9 }]);
+  const out = await withEnv({}, () => examplesNode({ question: "who has the van?", recent: [] }, { ctx: { turn: { env: { TEX_EXAMPLES: index, AI: stubAi() } } } }));
+  assert.equal(index.calls, 1);
+  assert.deepEqual(out.when, ["found"]);
+  assert.deepEqual(out.ids, [fdIds[0]]);
+});
+
 test("the nearest Training moments are read from the index, the scored conversation never among them", async () => {
   const matches = [{ id: truckIds[0], score: 0.99 }, { id: fdIds[0], score: 0.9 }, { id: fdIds[1], score: 0.8 }];
   const index = stubIndex(matches);
