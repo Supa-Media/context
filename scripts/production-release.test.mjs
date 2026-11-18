@@ -232,8 +232,9 @@ test('production decides what to deploy only after proving CI passed', () => {
 
 // POST /actions/runs/{id}/cancel needs actions: write. The workflow token is
 // actions: read, and a job permissions block replaces it, so validate has to
-// restate contents and packages. mobile-publish already dispatches the OTA
-// workflow and is the only other job with actions: write.
+// restate contents and packages. mobile-publish dispatches the OTA workflow
+// and site-health dispatches the site check; they are the only other jobs
+// with actions: write.
 test('validate can cancel its own run, and other jobs do not gain actions: write', () => {
   const production = readFileSync(new URL('../.github/workflows/deploy-production.yml', import.meta.url), 'utf8');
   const header = production.slice(0, production.indexOf('\njobs:\n'));
@@ -246,7 +247,7 @@ test('validate can cancel its own run, and other jobs do not gain actions: write
       assert.match(job, /permissions:\n      contents: read\n      packages: read\n      actions: write\n/);
       continue;
     }
-    if (id === 'mobile-publish') {
+    if (id === 'mobile-publish' || id === 'site-health') {
       assert.match(job, /permissions:\n      actions: write\n      contents: read\n/);
       continue;
     }
