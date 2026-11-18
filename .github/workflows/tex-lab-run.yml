@@ -1,7 +1,7 @@
 # A Lab run on GitHub (Dev2, 2026-11-16: "Ok go ahead and build everything"; picked "Convex dispatches directly").
 #
 # Run Dev set, Run this chat and Run node in the Tex Lab (context.lc/lab), and tex_dev's `run`, record a run in
-# Convex (apps/convex/functions/texLabRuns.ts), which dispatches this workflow at once with GH_ADMIN_TOKEN. Three jobs:
+# Convex (apps/convex/functions/texLabRuns.ts), which dispatches this workflow at once. Jobs:
 #
 #   prep    main's code, with the deploy key: says the run is running, reads it, and resolves the code it runs on
 #           (main, or the same-repository pull request or branch the draft names; Dev2, 2026-11-16: "when we run
@@ -12,6 +12,13 @@
 #           Training set, never the Test set (people only, in the eval service). Models "gw" asks the AI gateway as the
 #           bench always does; "cc" answers every Claude call with Claude Code on CLAUDE_CODE_OAUTH_TOKEN
 #           (apps/mcp/bench/socketAnswerer.mjs), and the token never leaves this job. Clef stays on Workers AI.
+#           The spend check rotates the benchmark refresh token. This job seals that token and does not write the
+#           production secret: a secret in this job would be the branch's to read, because its install can change PATH.
+#   token-key    no checkout. An RSA key for this run. The private half is wrapped with the writer token and leaves
+#                only as ciphertext. The run job does not need this job, so that output is not in the branch's hands.
+#   publish-pub  the public half only. needs is not transitive, which is why this job exists.
+#   write-token  main's checkout only, after the run: unwraps, checks the token's shape, and writes the production
+#                secret. An empty writer token or a refused write fails the job.
 #   report  main's code, with the deploy key: the results (cleaned again by Convex) or why it failed.
 #
 # The run and its results pass between jobs as artifacts sealed with a key made for this run (a public repository's
@@ -154,8 +161,62 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: node scripts/bench-runner-lock.mjs --max-minutes 170
 
+  # The private half never enters the run job. This job does not check out the draft.
+  token-key:
+    name: Make this run's seal key
+    runs-on: ubuntu-latest
+    environment: production
+    timeout-minutes: 5
+    outputs:
+      public: ${{ steps.key.outputs.public }}
+      wrapped: ${{ steps.key.outputs.wrapped }}
+    steps:
+      - name: Wrap a key the branch job cannot open
+        id: key
+        env:
+          WRITER: ${{ secrets.BENCH_SECRET_WRITER_TOKEN }}
+        run: |
+          set -euo pipefail
+          if [ -z "$WRITER" ]; then
+            echo "::error::BENCH_SECRET_WRITER_TOKEN is empty"
+            exit 1
+          fi
+          echo "Using secret BENCH_SECRET_WRITER_TOKEN to wrap this run's seal key"
+          umask 077
+          /usr/bin/openssl genpkey -algorithm RSA -pkeyopt rsa_keygen_bits:2048 -out "$RUNNER_TEMP/priv.pem"
+          /usr/bin/openssl pkey -in "$RUNNER_TEMP/priv.pem" -pubout -out "$RUNNER_TEMP/pub.pem"
+          export SEAL="$WRITER"
+          /usr/bin/openssl enc -aes-256-cbc -pbkdf2 -iter 100000 -salt -pass env:SEAL -in "$RUNNER_TEMP/priv.pem" -out "$RUNNER_TEMP/priv.enc"
+          wrapped=$(/usr/bin/base64 -w0 "$RUNNER_TEMP/priv.enc")
+          pub=$(/usr/bin/base64 -w0 "$RUNNER_TEMP/pub.pem")
+          rm -f "$RUNNER_TEMP/priv.pem" "$RUNNER_TEMP/priv.enc" "$RUNNER_TEMP/pub.pem"
+          {
+            echo "wrapped<<EOF"
+            echo "$wrapped"
+            echo "EOF"
+          } >> "$GITHUB_OUTPUT"
+          echo "public=$pub" >> "$GITHUB_OUTPUT"
+          echo "Seal key: RSA-2048, public ${#pub} characters. The private half is wrapped."
+
+  # Forwards the public key and nothing else. The run job needs this job, not token-key.
+  publish-pub:
+    name: Hand on the seal's public key
+    needs: token-key
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      public: ${{ needs.token-key.outputs.public }}
+    steps:
+      - name: The public key is the only half this job keeps
+        env:
+          PUB: ${{ needs.token-key.outputs.public }}
+        run: |
+          set -euo pipefail
+          [ -n "$PUB" ] || { echo "::error::no public key"; exit 1; }
+          echo "Public key: ${#PUB} characters. The private half stays wrapped on the key job."
+
   run:
-    needs: [prep, wait-turn]
+    needs: [prep, wait-turn, publish-pub]
     runs-on: ubuntu-latest
     environment: production
     timeout-minutes: 90
@@ -171,6 +232,8 @@ jobs:
       CLOUDFLARE_AI_TOKEN: ${{ secrets.CLOUDFLARE_AI_TOKEN }}
     outputs:
       why: ${{ steps.why.outputs.why }}
+      early: ${{ steps.seal-early.outputs.early }}
+      final: ${{ steps.seal-final.outputs.final }}
     steps:
       - uses: actions/checkout@v5
         with:
@@ -205,21 +268,74 @@ jobs:
       - name: Refuse a Dev set the spend cap does not allow
         run: pnpm --silent ai spend check dev-set --setups production
 
-      # The check just rotated the refresh token. Write it back before the
-      # long run, from the file sign-in wrote, not by running the checkout's
-      # scripts with the admin token. A retired token presented again revokes
-      # the grant.
-      - name: Keep the runner's rotated token
+      # The spend check rotated the refresh token. Seal it before the long run. The writer job, on main's
+      # checkout, opens it. This job does not hold the writer token: the branch's install can change PATH, and a
+      # secret in a later step would be that install's to read. A retired token presented again revokes the grant,
+      # so a failed seal is a failure, not a skip.
+      - name: Seal the rotated token after sign-in
+        id: seal-early
         if: always()
         env:
-          GH_TOKEN: ${{ secrets.GH_ADMIN_TOKEN }}
+          PUB: ${{ needs.publish-pub.outputs.public }}
+          DEST: ${{ runner.temp }}/bench-token-early.bin
+          WHICH: early
         run: |
           set -euo pipefail
+          echo "Sealing the refresh token after sign-in"
           f="$RUNNER_TEMP/bench-runner.json"
-          [ -f "$f" ] || exit 0
-          next="$(node -e 'const j=JSON.parse(require("fs").readFileSync(process.argv[1],"utf8")); if(typeof j.refreshToken!=="string"||!j.refreshToken) process.exit(1); process.stdout.write(j.refreshToken)' "$f")"
-          echo "::add-mask::$next"
-          gh secret set BENCH_RUNNER_REFRESH_TOKEN_LIVE --env production --repo "$GITHUB_REPOSITORY" --body "$next"
+          if [ ! -f "$f" ]; then
+            echo "${WHICH}=absent" >> "$GITHUB_OUTPUT"
+            echo "No runner file after sign-in; nothing to seal"
+            exit 0
+          fi
+          if [ -z "${PUB:-}" ]; then
+            echo "${WHICH}=failed" >> "$GITHUB_OUTPUT"
+            echo "::error::no public key to seal the rotated token"
+            exit 1
+          fi
+          if ! printf '%s' "$PUB" | /usr/bin/base64 -d > "$RUNNER_TEMP/seal-pub.pem"; then
+            echo "${WHICH}=failed" >> "$GITHUB_OUTPUT"
+            echo "::error::the public key could not be read"
+            exit 1
+          fi
+          if ! /usr/bin/python3 -c '
+          import json, pathlib, subprocess, sys
+          src, dest, pub = sys.argv[1:]
+          try:
+              data = json.loads(pathlib.Path(src).read_text())
+          except Exception:
+              sys.stderr.write("the runner file is not json\n")
+              sys.exit(1)
+          token = data.get("refreshToken") if isinstance(data, dict) else None
+          if not isinstance(token, str) or token == "":
+              sys.stderr.write("the runner file has no refresh token\n")
+              sys.exit(1)
+          plain = pathlib.Path(dest + ".plain")
+          plain.write_bytes(token.encode())
+          plain.chmod(0o600)
+          result = subprocess.run(["/usr/bin/openssl", "pkeyutl", "-encrypt", "-pubin", "-inkey", pub, "-pkeyopt", "rsa_padding_mode:oaep", "-pkeyopt", "rsa_oaep_md:sha256", "-pkeyopt", "rsa_mgf1_md:sha256", "-in", str(plain), "-out", dest], capture_output=True, text=True)
+          plain.unlink(missing_ok=True)
+          if result.returncode != 0:
+              sys.stderr.write(result.stderr or "openssl could not seal the token\n")
+              sys.exit(result.returncode or 1)
+          print("Sealed", pathlib.Path(dest).stat().st_size, "bytes")
+          ' "$f" "$DEST" "$RUNNER_TEMP/seal-pub.pem"; then
+            echo "${WHICH}=failed" >> "$GITHUB_OUTPUT"
+            echo "::error::could not seal the rotated token after sign-in"
+            exit 1
+          fi
+          rm -f "$RUNNER_TEMP/seal-pub.pem"
+          echo "${WHICH}=present" >> "$GITHUB_OUTPUT"
+          echo "Sealed the refresh token after sign-in"
+
+      - name: Keep the seal from after sign-in
+        if: steps.seal-early.outputs.early == 'present'
+        uses: actions/upload-artifact@v4
+        with:
+          name: bench-token-early
+          path: ${{ runner.temp }}/bench-token-early.bin
+          retention-days: 1
+          if-no-files-found: error
 
       - name: The Dev conversations, and the draft's graph
         env:
@@ -301,18 +417,72 @@ jobs:
           mkdir -p "$RUNNER_TEMP/out"
           gzip -9c "$RUNNER_TEMP/results.json" | openssl enc -aes-256-cbc -pbkdf2 -salt -pass env:SEAL -out "$RUNNER_TEMP/out/results.bin"
 
-      # spend add may have rotated the token again after the hour.
-      - name: Keep the runner's rotated token again
+      # spend add may have rotated the token again. Seal whatever the file holds now. The writer prefers this
+      # seal over the one from sign-in, and refuses to store the older one if this seal fails.
+      - name: Seal the rotated token after the run
+        id: seal-final
         if: always()
         env:
-          GH_TOKEN: ${{ secrets.GH_ADMIN_TOKEN }}
+          PUB: ${{ needs.publish-pub.outputs.public }}
+          DEST: ${{ runner.temp }}/bench-token-final.bin
+          WHICH: final
         run: |
           set -euo pipefail
+          echo "Sealing the refresh token after the run"
           f="$RUNNER_TEMP/bench-runner.json"
-          [ -f "$f" ] || exit 0
-          next="$(node -e 'const j=JSON.parse(require("fs").readFileSync(process.argv[1],"utf8")); if(typeof j.refreshToken!=="string"||!j.refreshToken) process.exit(1); process.stdout.write(j.refreshToken)' "$f")"
-          echo "::add-mask::$next"
-          gh secret set BENCH_RUNNER_REFRESH_TOKEN_LIVE --env production --repo "$GITHUB_REPOSITORY" --body "$next"
+          if [ ! -f "$f" ]; then
+            echo "${WHICH}=absent" >> "$GITHUB_OUTPUT"
+            echo "No runner file after the run; nothing to seal"
+            exit 0
+          fi
+          if [ -z "${PUB:-}" ]; then
+            echo "${WHICH}=failed" >> "$GITHUB_OUTPUT"
+            echo "::error::no public key to seal the rotated token"
+            exit 1
+          fi
+          if ! printf '%s' "$PUB" | /usr/bin/base64 -d > "$RUNNER_TEMP/seal-pub.pem"; then
+            echo "${WHICH}=failed" >> "$GITHUB_OUTPUT"
+            echo "::error::the public key could not be read"
+            exit 1
+          fi
+          if ! /usr/bin/python3 -c '
+          import json, pathlib, subprocess, sys
+          src, dest, pub = sys.argv[1:]
+          try:
+              data = json.loads(pathlib.Path(src).read_text())
+          except Exception:
+              sys.stderr.write("the runner file is not json\n")
+              sys.exit(1)
+          token = data.get("refreshToken") if isinstance(data, dict) else None
+          if not isinstance(token, str) or token == "":
+              sys.stderr.write("the runner file has no refresh token\n")
+              sys.exit(1)
+          plain = pathlib.Path(dest + ".plain")
+          plain.write_bytes(token.encode())
+          plain.chmod(0o600)
+          result = subprocess.run(["/usr/bin/openssl", "pkeyutl", "-encrypt", "-pubin", "-inkey", pub, "-pkeyopt", "rsa_padding_mode:oaep", "-pkeyopt", "rsa_oaep_md:sha256", "-pkeyopt", "rsa_mgf1_md:sha256", "-in", str(plain), "-out", dest], capture_output=True, text=True)
+          plain.unlink(missing_ok=True)
+          if result.returncode != 0:
+              sys.stderr.write(result.stderr or "openssl could not seal the token\n")
+              sys.exit(result.returncode or 1)
+          print("Sealed", pathlib.Path(dest).stat().st_size, "bytes")
+          ' "$f" "$DEST" "$RUNNER_TEMP/seal-pub.pem"; then
+            echo "${WHICH}=failed" >> "$GITHUB_OUTPUT"
+            echo "::error::could not seal the rotated token after the run"
+            exit 1
+          fi
+          rm -f "$RUNNER_TEMP/seal-pub.pem"
+          echo "${WHICH}=present" >> "$GITHUB_OUTPUT"
+          echo "Sealed the refresh token after the run"
+
+      - name: Keep the seal from the end of the run
+        if: steps.seal-final.outputs.final == 'present'
+        uses: actions/upload-artifact@v4
+        with:
+          name: bench-token-final
+          path: ${{ runner.temp }}/bench-token-final.bin
+          retention-days: 1
+          if-no-files-found: error
 
       - uses: actions/upload-artifact@v4
         with:
@@ -328,6 +498,106 @@ jobs:
           why="the GitHub run failed: read its log"
           [ -s "$RUNNER_TEMP/why" ] && why="$(head -c 280 "$RUNNER_TEMP/why" | tr '\n' ' ')"
           echo "why=$why" >> "$GITHUB_OUTPUT"
+
+  # Main's checkout only. Opens the seal and writes the production secret. Runs after the run job even when that
+  # job failed, because a sign-in that already rotated the token still has to be stored.
+  write-token:
+    name: Write the rotated refresh token
+    needs: [token-key, run]
+    if: always() && (needs.run.outputs.early == 'present' || needs.run.outputs.early == 'failed' || needs.run.outputs.final == 'present' || needs.run.outputs.final == 'failed')
+    runs-on: ubuntu-latest
+    environment: production
+    timeout-minutes: 10
+    steps:
+      - name: The writer token is set
+        env:
+          GH_TOKEN: ${{ secrets.BENCH_SECRET_WRITER_TOKEN }}
+        run: |
+          set -euo pipefail
+          if [ -z "$GH_TOKEN" ]; then
+            echo "::error::BENCH_SECRET_WRITER_TOKEN is empty"
+            exit 1
+          fi
+          echo "Using secret BENCH_SECRET_WRITER_TOKEN"
+
+      - uses: actions/checkout@v5
+        with:
+          ref: main
+          persist-credentials: false
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          package-manager-cache: false
+
+      - name: The seal from the end of the run
+        if: needs.run.outputs.final == 'present'
+        uses: actions/download-artifact@v4
+        with:
+          name: bench-token-final
+          path: ${{ runner.temp }}/final
+
+      - name: The seal from after sign-in
+        if: needs.run.outputs.final != 'present' && needs.run.outputs.final != 'failed' && needs.run.outputs.early == 'present'
+        uses: actions/download-artifact@v4
+        with:
+          name: bench-token-early
+          path: ${{ runner.temp }}/early
+
+      - name: Open the seal and write the production secret
+        if: always()
+        env:
+          GH_TOKEN: ${{ secrets.BENCH_SECRET_WRITER_TOKEN }}
+          WRAPPED: ${{ needs.token-key.outputs.wrapped }}
+          EARLY: ${{ needs.run.outputs.early }}
+          FINAL: ${{ needs.run.outputs.final }}
+        run: |
+          set -euo pipefail
+          trap 'rm -f "$RUNNER_TEMP/priv.pem" "$RUNNER_TEMP/priv.enc" "$RUNNER_TEMP/refresh-token"' EXIT
+          if [ -z "$GH_TOKEN" ]; then
+            echo "::error::BENCH_SECRET_WRITER_TOKEN is empty"
+            exit 1
+          fi
+          echo "Using secret BENCH_SECRET_WRITER_TOKEN"
+          if [ "$FINAL" = "failed" ]; then
+            echo "::error::the last seal failed; not writing an older token"
+            exit 1
+          fi
+          if [ "$FINAL" = "present" ]; then
+            cipher="$RUNNER_TEMP/final/bench-token-final.bin"
+            echo "Using the seal from the end of the run"
+          elif [ "$EARLY" = "failed" ]; then
+            echo "::error::the seal after sign-in failed"
+            exit 1
+          elif [ "$EARLY" = "present" ]; then
+            cipher="$RUNNER_TEMP/early/bench-token-early.bin"
+            echo "Using the seal from after sign-in; the run ended before the last seal"
+          else
+            echo "::error::no sealed token to write"
+            exit 1
+          fi
+          if [ ! -s "$cipher" ]; then
+            echo "::error::the sealed token file is missing"
+            exit 1
+          fi
+          if [ -z "$WRAPPED" ]; then
+            echo "::error::this run has no wrapped seal key"
+            exit 1
+          fi
+          umask 077
+          printf '%s' "$WRAPPED" | /usr/bin/base64 -d > "$RUNNER_TEMP/priv.enc"
+          export SEAL="$GH_TOKEN"
+          /usr/bin/openssl enc -d -aes-256-cbc -pbkdf2 -iter 100000 -salt -pass env:SEAL -in "$RUNNER_TEMP/priv.enc" -out "$RUNNER_TEMP/priv.pem"
+          node scripts/bench-token-open.mjs --private "$RUNNER_TEMP/priv.pem" --cipher "$cipher" --out "$RUNNER_TEMP/refresh-token"
+          mask=$(/usr/bin/python3 -c 'import pathlib,sys; sys.stdout.write(pathlib.Path(sys.argv[1]).read_text())' "$RUNNER_TEMP/refresh-token")
+          echo "::add-mask::$mask"
+          unset mask
+          echo "Writing BENCH_RUNNER_REFRESH_TOKEN_LIVE to the production environment"
+          if ! gh secret set BENCH_RUNNER_REFRESH_TOKEN_LIVE --env production --repo "$GITHUB_REPOSITORY" --body-file "$RUNNER_TEMP/refresh-token"; then
+            echo "::error::BENCH_SECRET_WRITER_TOKEN could not write BENCH_RUNNER_REFRESH_TOKEN_LIVE"
+            exit 1
+          fi
+          echo "Wrote BENCH_RUNNER_REFRESH_TOKEN_LIVE"
 
   report:
     needs: [prep, run]
