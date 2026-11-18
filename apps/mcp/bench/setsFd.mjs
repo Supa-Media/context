@@ -41,8 +41,6 @@ export const LIVE_SETTINGS = ["job: texting-assistant", "max_steps: 24", "open_w
 
 /** The most chat lines posted before a test's text: Tex's history reads at most about this much anyway. */
 export const MAX_EARLIER = 200;
-/** Six days less an hour (a change of clocks moves local midnight): the oldest an earlier line is dated, inside the Front door's seven days of verbatim chat. */
-export const MAX_MINUTES_BEFORE = 6 * 24 * 60 - 60;
 
 const FRONT = /^---\n([\s\S]*?)\n---/;
 
@@ -204,9 +202,8 @@ export function minutesBefore(c, j, i, year, from = null) {
   };
   const [then, now] = [when(j), when(i)];
   if (then === null || now === null || then > now) return null;
-  // Held inside the history's last-days window (`chat:7`): production reads older days as their day summaries, which
-  // the bench's chat has none of, so a line dated past the window would vanish from the turn rather than be summarised.
-  return Math.min(Math.round((now - then) / 60_000), MAX_MINUTES_BEFORE);
+  // The real age, however old: a line past the Front door's word-for-word window is summed up as a day (`benchDays.mjs`).
+  return Math.round((now - then) / 60_000);
 }
 
 /** The time of day message `i` of `c` was sent, "HH:MM" from the latest `at` at or before it ("Fri Oct 23 8:02"), or null. */
@@ -634,9 +631,6 @@ async function runConvo(units, { tree, run, scratch, fake, parallel, env }) {
     tests.push({ name, group: mine, cut: Math.min(...mine.map((u) => u.at)) });
   }
   if (tests.length === 0) return rows;
-  // Counts only, never words: how many earlier lines were older than the history's verbatim days and held at its edge.
-  const held = units.reduce((n, u) => n + earlierLines(c, u.at, year, from).filter((l) => l.minutesBefore === MAX_MINUTES_BEFORE).length, 0);
-  if (held > 0) process.stderr.write(`sets: ${held} earlier lines older than ${MAX_MINUTES_BEFORE / 60} hours were held at that age (no day summaries in the bench)\n`);
   // A Training conversation scored in context reads itself as an example only up to the scored moment
   // (`texTraining.cjs` UNTIL_ENV): its later texts are its future (truck-crew 96, 2026-11-18, quoted message 98). A test
   // is one person's day and clock, often several moments; it is cut at its earliest, so none of them reads ahead, and

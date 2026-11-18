@@ -12,6 +12,7 @@ import { ledgerFor, ONE_TO_ONE_CHAT } from "../src/agent/ledger.js";
 import { keepOneToOne } from "./byCode.mjs";
 import { clientDispatch, keepEarlierPictures } from "./earlierPictures.mjs";
 import { linksIn, seedLinkedNotes } from "./earlierNotes.mjs";
+import { benchDaySummaries, chatWindowDays } from "./benchDays.mjs";
 
 /**
  * The chat's side of a bench world. `workspaceId` and `mailbox` are read when used (the person's mailbox can open
@@ -38,6 +39,7 @@ export function worldChat({ env, token, group, tagger, textedEvent, postEvents, 
       let last = null;
       let trigger = null;
       let held = [];
+      const sayings = []; // the texts and answers posted here, each at its own time: the days past the window are summed up below
       const keepTrigger = async () => {
         if (trigger === null) return;
         await atEarlierTime(back(trigger), keepTriggerThen);
@@ -54,7 +56,13 @@ export function worldChat({ env, token, group, tagger, textedEvent, postEvents, 
         const texts = held.map((line) => line.text);
         await seed([trigger.report?.text ?? trigger.text ?? "", ...texts]);
         const post = group ? texts : await keepOneToOne({ env, workspaceId: workspaceId(), trigger, texts, at: at(), turn });
-        for (const text of post) await postEvents([{ ...textedEvent(text, null, at()), from: { kind: "tex" }, turn, covers: [], delivered: true }]);
+        // The trigger and Tex's answers to it are what its day's summary names (`benchDays.mjs`), at the trigger's time.
+        const words = String(trigger.report?.text ?? trigger.text ?? trigger.mail?.body ?? "").replace(/\s+/g, " ").trim();
+        if (words !== "") sayings.push({ at: at(), from: "trigger", via: trigger.via, text: words });
+        for (const text of post) {
+          await postEvents([{ ...textedEvent(text, null, at()), from: { kind: "tex" }, turn, covers: [], delivered: true }]);
+          sayings.push({ at: at(), from: "tex", text });
+        }
       };
       for (const [k, line] of lines.entries()) {
         if (trigger !== null && line.from === "tex") {
@@ -80,11 +88,16 @@ export function worldChat({ env, token, group, tagger, textedEvent, postEvents, 
           if (line.from === "person") last = event;
           const { pictures, ...posted } = line.from === "person" ? event : { ...event, ...(line.tapback ? { kind: "reaction" } : {}), from: { kind: "tex" }, turn: last?.turn ?? event.turn, covers: last ? [last.id] : [], delivered: true }; // a tapback as the Worker posts it (`inbox.ts`)
           await postEvents([posted]); // Tex's answer to a picture kept it, as that turn did (`earlierPictures.mjs`)
+          if (!line.tapback && (line.from === "person" || line.from === "tex")) sayings.push({ at: at(), from: line.from, who: line.who, text: line.text });
           if (line.from === "tex" && last?.pictures) await keepEarlierPictures({ env, token, workspaceId: workspaceId(), group, timeZone, at: last.at, turn: last.turn, names: last.pictures });
         });
       }
       await keepTrigger();
       await seed(also); // the case's own job report: its job wrote the page before it reported
+      // The days before the Front door's word-for-word window: production sums each up the night after, and the bench has
+      // no nights, so each is written now (`benchDays.mjs`).
+      const days = benchDaySummaries({ lines: sayings, now: at(), timeZone, days: chatWindowDays(env), group: Boolean(group) });
+      if (days.length > 0) await ledgerFor(env, group ? { chat: group.key } : { person: workspaceId() }).append(group ? group.key : ONE_TO_ONE_CHAT, days);
     },
 
     /** What a turn the Worker queues itself needs to know of this chat (`byCode.mjs`): its group's home and who tags, the zone, the mailbox. */

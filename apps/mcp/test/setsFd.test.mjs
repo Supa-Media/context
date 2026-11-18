@@ -3,7 +3,7 @@ import { readFile, readdir } from "node:fs/promises";
 import { join } from "node:path";
 import { test } from "node:test";
 
-import { LIVE_SETTINGS, MAX_MINUTES_BEFORE, PURE_ACK, burstBefore, cantRun, minutesBefore, checkinMail, dayOf, earlierLines, fdTest, frontFor, groupFor, jobReportRow, runFd, senderOf, sinceTexAnswered, timeOf, zoneOf } from "../bench/setsFd.mjs";
+import { LIVE_SETTINGS, PURE_ACK, burstBefore, cantRun, minutesBefore, checkinMail, dayOf, earlierLines, fdTest, frontFor, groupFor, jobReportRow, runFd, senderOf, sinceTexAnswered, timeOf, zoneOf } from "../bench/setsFd.mjs";
 import { clockMs, installClock } from "../bench/clock.mjs";
 import { parsePeople, parseTest } from "../bench/load.mjs";
 import sets from "../../../packages/shared/src/texSets.cjs";
@@ -43,11 +43,23 @@ test("each earlier line is dated by its own day and time, held inside the seven 
   assert.equal(minutesBefore(c, 1, 3, 2026), 23 * 60);
   assert.equal(minutesBefore(c, 2, 3, 2026), 23 * 60 - 1);
   assert.equal(minutesBefore(c, 3, 1, 2026), null, "never dated after the text");
-  assert.equal(minutesBefore(c, 1, 4, 2026), MAX_MINUTES_BEFORE, "sixteen days back is held inside six");
+  assert.equal(minutesBefore(c, 1, 4, 2026), 16 * 24 * 60 - 60, "sixteen days less an hour back reads as that, not held at six days");
   assert.deepEqual(earlierLines(c, 3).map((l) => l.minutesBefore), [undefined, undefined, undefined], "no year, no dates");
   assert.deepEqual(earlierLines(c, 3, 2026).map((l) => l.minutesBefore), [1380, 1380, 1379], "a line before the first date is as old as the next");
   const raw = fdTest([unit(c, 3)], "job: texting-assistant\nrun_as: Maya\ntoday: 2026-10-06\nruns: 1\nweb: scripted");
   assert.deepEqual(parseTest(raw).questions[0].earlier.map((l) => [l.from, l.minutesBefore]), [["person", 1380], ["person", 1380], ["tex", 1379]]);
+});
+
+// The bench used to hold a line older than six days at six days. The Front door reads seven days word for word and
+// production summarises the older days, so a chat spanning weeks reads its real ages now, and `benchDays.mjs` writes
+// the days past the window. Sabotage: clamp `minutesBefore` to a cap again.
+test("a line weeks back reads its real age, not a cap", () => {
+  const c = conv([
+    { id: "m0", who: "Maya", text: "the first ask", at: "Mon Sep 14 10:00" },
+    { id: "m1", who: "Maya", text: "and now?", at: "Sun Oct 4 10:00", labels: { fd: { must: ["answers"] } } },
+  ]);
+  assert.equal(minutesBefore(c, 0, 1, 2026), 20 * 24 * 60, "twenty days back is twenty days");
+  assert.deepEqual(earlierLines(c, 1, 2026).map((l) => l.minutesBefore), [20 * 24 * 60]);
 });
 
 test("a test runs one text with the chat before it and its must and never lines, as the bench parses it", () => {
