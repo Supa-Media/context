@@ -19,7 +19,7 @@
  * matter, so "untouched for a month" means the same on every run.
  */
 
-import { readMailbox, searchMailbox } from "./mailbox.mjs";
+import { readMailbox, searchMailbox, sentMail } from "./mailbox.mjs";
 import { TRANSCRIPTS_FOLDER } from "../src/agent/transcript.js";
 import { HOUSEKEEPING_CLIENT_ID } from "../src/agent/housekeeping.js";
 import { arrivedEmail, checkInTurn, houseTurn, routineTurn, startCall, startGrants } from "./worldStarts.mjs";
@@ -42,6 +42,7 @@ import { wireSearchSettings } from "../src/search/settings.js";
 import { texStoreNamespace } from "../test/texStoreFixture.mjs";
 import { assertIsoDate, clockMs, installClock, noonUtcMs, noteModifiedAt, realNow } from "./clock.mjs";
 import { benchCalendar } from "./calendar.mjs";
+import { connectChat } from "./chat.mjs";
 import { worldChat } from "./worldChat.mjs";
 import { chatEntries, modelLog } from "./modelLog.mjs";
 import { failedStatus, roundsOf } from "./trace.mjs";
@@ -217,8 +218,10 @@ export async function createWorld(bench, person, setupRaw, models, today = null,
     const address = mail[0].address;
     controlPlane.flags.mailboxes = [{ address, folder: "0-inbox/email" }];
     const logged = (event, value) => (mailEvents.push(event(value)), value);
-    controlPlane.flags.mailResults = (query) => logged((found) => `mail search ${JSON.stringify(String(query))}: ${found.length} found`, searchMailbox(mail, query));
-    controlPlane.flags.mailMessage = (body) => logged(() => `mail read ${body.id}`, readMailbox(mail, body.address, body.id));
+    // The fixture's inbox and what the run really sent (Sent, `mailbox.mjs` sentMail), each searched and read.
+    const everything = () => [...mail, ...sentMail(controlPlane.emailCalls, address)];
+    controlPlane.flags.mailResults = (query) => logged((found) => `mail search ${JSON.stringify(String(query))}: ${found.length} found`, searchMailbox(everything(), query));
+    controlPlane.flags.mailMessage = (body) => logged(() => `mail read ${body.id}`, readMailbox(everything(), body.address, body.id));
     controlPlane.flags.emailDrafter = address;
   };
   if (mail.length > 0) connectMail();
@@ -236,6 +239,8 @@ export async function createWorld(bench, person, setupRaw, models, today = null,
   // The scripted web a golden task runs on (`sites.mjs`): the browser
   // Worker's stand-in, and the answers to web searches.
   const sim = simulatedWorld(models, controlPlane, { today, person, noMailbox: mail.length === 0, gaps }); // a Dev test's outside world (`simWorld.mjs`)
+  // A chat whose setting names Google Chat is connected, its reads answered by the world (`chat.mjs`).
+  if (models.chat === "connected") connectChat(controlPlane.googleChat, { person, sim });
   const kept = sitesIn(models.sites, sim, models.ownSites ?? []);
   const web = kept?.length ? createWeb(kept) : null;
 

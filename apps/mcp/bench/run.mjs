@@ -420,6 +420,8 @@ async function answerJobs(options, { bench, test, testName = options.test ?? opt
   models.group = test.front.group ?? null;
   // A test whose person has a calendar connected and nothing on it (`calendar: connected`, `calendar.mjs` benchCalendar).
   models.calendar = test.front.calendar ?? null;
+  // A test whose person has Google Chat connected (`chat: connected`, a setting that names it; `chat.mjs` connectChat).
+  models.chat = test.front.chat ?? null;
   // The person's zone, sent on every text as the Worker sends it, and the test's time of day in it (`clock.mjs` clockMs).
   models.timeZone = test.front.time_zone ?? null;
   models.clock = test.front.clock ?? null;

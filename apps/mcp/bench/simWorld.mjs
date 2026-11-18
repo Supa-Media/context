@@ -25,6 +25,7 @@
 
 import { triggerWords } from "./load.mjs";
 import { blankPng } from "./sites.mjs";
+import { sentMail } from "./mailbox.mjs";
 
 export const SIM_MODEL = "claude-haiku-5-5";
 const MAX_TOKENS = 1500;
@@ -39,12 +40,16 @@ export function simMemo() {
 }
 
 /** The world's instructions: what it plays, and what it never does. */
-export function simSystem({ setting, chat, today }) {
+export function simSystem({ setting, chat, today, sent = [] }) {
   const lines = (chat ?? []).slice(-CHAT_LINES).map((line) => `${line.who}: ${line.text}`);
   return [
     "You play the outside world for a texting assistant called Tex: the websites, search engine, Google Calendar and Gmail it calls.",
     "Answer each call exactly as the real service would, as JSON only, in the shape asked for. Answer the literal request, not what the asker seems to hope for.",
     "What the setting and the chat say exists, exists, as they say it. Nothing else exists just because a request assumes it: a search finds what a real search engine would for those words (sometimes nothing useful), a page shows what that site would show (a sign-in page, an error, a sold-out notice, a changed price), and an action on a site succeeds only if a real site would let it.",
+    "A draft the chat quotes is still a draft: it is not in Sent, nor in the inbox, unless the chat says it was sent or received. Mail is in Sent only as the chat or the list below says it was sent.",
+    sent.length > 0
+      ? `The Sent folder holds this mail, really sent during the run, and nothing else from the run:\n${sent.map((mail) => `- to ${mail.to}: ${mail.subject}`).join("\n")}`
+      : "The Sent folder holds no mail from the run.",
     "Where they say nothing, invent ordinary, specific details (real-looking names, times, prices, addresses), and keep them as a real service would. Never mention a test or a simulation, and never decide what Tex should do.",
     today ? `Today is ${today}.` : "",
     setting ? `Setting: ${setting}` : "",
@@ -69,12 +74,14 @@ export function jsonIn(text) {
  * The world for one conversation. `send(body)` posts a Messages request (a JSON string) and answers a Response;
  * null answers every ask with `fallback` (a run with no model, `--fake`).
  */
-export function createSimWorld({ send = null, setting = "", chat = [], today = null, person = "person", memo = simMemo(), model = SIM_MODEL, gaps = null }) {
-  const system = simSystem({ setting, chat, today });
+export function createSimWorld({ send = null, setting = "", chat = [], today = null, person = "person", memo = simMemo(), model = SIM_MODEL, gaps = null, sent = () => [] }) {
   const events = [];
   const address = `${String(person).toLowerCase().replace(/[^a-z0-9]/g, "") || "person"}@gmail.example`;
+  // `sent(address)`: the run's real sends, read at each ask, so a send made during the run is in the world's Sent.
+  const sentNow = () => sent(address);
 
   async function ask(kind, request, shape, fallback) {
+    const system = simSystem({ setting, chat, today, sent: sentNow() });
     const key = JSON.stringify([system, kind, request]);
     if (memo.answers.has(key)) return memo.answers.get(key);
     let answer = fallback;
@@ -198,6 +205,25 @@ export function createSimWorld({ send = null, setting = "", chat = [], today = n
       return rows;
     },
 
+    /** The run's real sends, as Sent holds them (`mailbox.mjs` sentMail): found beside the world's own mail. */
+    sentRows: () => sentNow(),
+
+    /** `/gateway/chat/recent`: the messages a Chat read asks for, as the world plays the person's Chat (`chat.mjs`). */
+    async chatRecent(body) {
+      const request = {
+        ...(typeof body.to === "string" ? { to: body.to } : {}),
+        ...(typeof body.space === "string" ? { space: body.space } : {}),
+        ...(typeof body.account === "string" ? { account: body.account } : {}),
+      };
+      const got = await ask(
+        "google chat recent",
+        request,
+        '{"messages": [{"from": string, "text": string, "at": ISO string}] (0 to 8, newest first, as the person\'s Chat shows them)}',
+        { messages: [] },
+      );
+      return (Array.isArray(got.messages) ? got.messages : []).slice(0, 8).map((m, i) => ({ id: `spaces/AAA/messages/sim-${i + 1}`, from: String(m?.from ?? ""), text: String(m?.text ?? ""), at: String(m?.at ?? "") }));
+    },
+
     /** `/gateway/email/read`: one message the search listed, in full. */
     async mailRead(body) {
       const row = listed.get(String(body.id));
@@ -282,10 +308,17 @@ export function simulateServices(sim, controlPlane, { connectedCalendar = false,
   if (!flags.mailboxes?.length) return;
   const inbox = flags.mailboxes[0].address;
   flags.mailResults = async (query) => {
-    // The fixture's mail and the world's together: a fixture hit no longer hides what the chat says arrived.
+    // The fixture's mail, the run's real sends and the world's together: a fixture hit no longer hides what the chat
+    // says arrived, and what was really sent is in Sent whoever searches (`mailbox.mjs` sentMail).
     const found = typeof search === "function" ? await search(query) : search ?? [];
     const ids = new Set(found.map((row) => row.id));
-    return [...found, ...(await sim.mailSearch(query)).filter((row) => !ids.has(row.id)).map((row) => ({ ...row, address: inbox }))];
+    const beside = [];
+    for (const row of [...sim.sentRows(), ...(await sim.mailSearch(query))]) {
+      if (ids.has(row.id)) continue;
+      ids.add(row.id);
+      beside.push({ ...row, address: inbox });
+    }
+    return [...found, ...beside];
   };
   flags.mailMessage = async (body) => {
     const fixture = typeof read === "function" ? await read(body) : read;
@@ -336,7 +369,7 @@ export function sitesIn(sites, sim, own = []) {
 
 export function simulatedWorld(models, controlPlane, { today = null, person, noMailbox = false, gaps = null }) {
   if (!models.simulate) return null;
-  const sim = createSimWorld({ ...models.simulate, today, person, gaps });
+  const sim = createSimWorld({ ...models.simulate, today, person, gaps, sent: (address) => sentMail(controlPlane.emailCalls, address) });
   const setting = String(models.simulate.setting ?? "");
   simulateServices(sim, controlPlane, { connectedCalendar: models.calendar === "connected", connectMail: noMailbox && /\b(?:g?mail|e-?mail|inbox)\b/i.test(setting) });
   return sim;

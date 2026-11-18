@@ -89,12 +89,46 @@ function holds(email, term) {
       const ms = Date.parse(email.date);
       yes = at === null ? true : field === "after" || field === "newer" ? ms >= at : ms < at;
     }
+  } else if (/^(in|is|label):sent$/i.test(bare)) {
+    // Sent holds only what was really sent in the run (`sentMail`), never a fixture's inbox mail.
+    yes = email.sent === true;
+  } else if (/^in:inbox$/i.test(bare)) {
+    yes = email.sent !== true;
   } else if (/^(in|is|label|category|has|older_than|newer_than):\S/i.test(bare)) {
     yes = true; // a folder, label or flag the bench's mailbox doesn't keep: every email is in the inbox
   } else {
     yes = haystack(email).includes(lower(bare.replace(/^"|"$/g, "")));
   }
   return negate ? !yes : yes;
+}
+
+/**
+ * The bench's Sent folder (2026-11-18): every send the run really made, as the control plane's email calls keep them
+ * (`world.mjs` `controlPlane.emailCalls`). Only a send that answered ok counts; a draft, a check and a refusal are not
+ * sent. `at` is the time a search finds them at (newest first, as Gmail does).
+ */
+export function sentMail(calls, address, at = new Date().toISOString()) {
+  const own = String(address ?? "").toLowerCase();
+  return (calls ?? [])
+    .filter((entry) => entry && entry.check !== true && entry.draft !== true && entry.answer?.ok === true)
+    .map((entry, i) => {
+      const email = entry.email ?? {};
+      const id = `sent-${i + 1}`;
+      const body = String(email.body ?? "");
+      return {
+        address: own,
+        id,
+        threadId: id,
+        date: at,
+        from: String(email.from ?? entry.answer?.from ?? own),
+        to: [].concat(email.to ?? []).map(String).join(", "),
+        subject: String(email.subject ?? ""),
+        body,
+        attachments: [],
+        snippet: body.replace(/\s+/g, " ").slice(0, 140),
+        sent: true,
+      };
+    });
 }
 
 /** The terms of a Gmail query: quoted phrases, `{…}` groups and words. Unknown operators match anything. */
