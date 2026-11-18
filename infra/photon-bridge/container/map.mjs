@@ -76,7 +76,7 @@ function envelope(event, line, type, eventId, chat, at) {
 function received(event, line, extras) {
   const message = event.message;
   if (!isObject(message) || typeof message.guid !== "string") return null;
-  const chat = chatOf(event.chatGuid ?? message.chatGuids?.[0], message.groupTitle);
+  const chat = chatOf(event.chatGuid ?? message.chatGuids?.[0], message.groupTitle || extras.chatName);
   if (!chat) return null;
   const base = envelope(
     event,

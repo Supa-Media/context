@@ -85,6 +85,7 @@ export function createRuntime({
           return { text: message.content?.text ?? "", fromMe: message.isFromMe === true };
         },
         poll: async (guid) => await client.polls.get(guid),
+        chat: async (guid) => await client.chats.get(guid),
       });
       runLine({
         client,
