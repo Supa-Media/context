@@ -25,7 +25,7 @@ export async function notify(input, io) {
   const { dispatch, store, session, deliver, turn } = io.ctx.notify;
   const { now, timeZone } = input;
   const until = quietHoursEnd((await readWithEtag(dispatch, HEARTBEAT_SETTINGS_PATH))?.body, now, timeZone); // their quiet hours: when to come back, or null
-  const delivered = await deliver(dispatch, store, { now, timeZone, onlyEmergencies: until !== null, turn });
+  const delivered = await deliver(dispatch, store, { now, timeZone, onlyEmergencies: until !== null, ...(turn ? { turn } : {}) });
   console.log(
     JSON.stringify({
       event: "attention_delivery",
