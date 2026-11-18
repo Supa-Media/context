@@ -17,9 +17,17 @@ import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { loadSets } from "../apps/mcp/bench/sets.mjs";
 
-/** The Dev conversations a run covers: the repo's with the Lab's drafts over them, one chat when the run names one. */
-export function devConversations(repo, drafts, convId = null) {
-  const byId = new Map(repo.filter((c) => c.set === "dev").map((c) => [c.id, c]));
+/**
+ * The conversations a run covers. `set` is "dev" (the Lab's drafts over the repo's Dev set)
+ * or "training" (the repo's Training set alone, no drafts). One chat when the run names one.
+ * A scoring run passes "training"; the Lab's own runs leave it off.
+ */
+export function devConversations(repo, drafts, convId = null, set = "dev") {
+  const byId = new Map(repo.filter((c) => c.set === set).map((c) => [c.id, c]));
+  if (set !== "dev") {
+    const all = [...byId.values()];
+    return convId === null ? all : all.filter((c) => c.id === convId);
+  }
   for (const d of drafts ?? []) {
     if (d.set !== "dev" || d.removed) {
       byId.delete(d.id);
@@ -97,11 +105,12 @@ async function main() {
     const job = JSON.parse(readFileSync(a, "utf8"));
     if (!job || typeof job !== "object") throw new Error("no such run");
     mkdirSync(b, { recursive: true });
-    const convs = devConversations(await loadSets(), job.drafts, job.kind === "chat" ? job.convId : null);
-    if (job.kind === "chat" && convs.length === 0) throw new Error(`${job.convId} is not a Dev conversation`);
+    const scoreSet = "training";
+    const convs = devConversations(await loadSets(), job.drafts, job.kind === "chat" ? job.convId : null, scoreSet);
+    if (job.kind === "chat" && convs.length === 0) throw new Error(`${job.convId} is not a ${scoreSet} conversation`);
     writeFileSync(join(b, "convs.json"), JSON.stringify(convs));
     if (job.graph) writeFileSync(join(b, "graph.json"), job.graph);
-    console.log(`Dev conversations: ${convs.length} (${convs.map((c) => c.id).join(", ")}); ${job.graph ? "draft graph" : "main"}`);
+    console.log(`${scoreSet} conversations: ${convs.length} (${convs.map((c) => c.id).join(", ")}); ${job.graph ? "draft graph" : "main"}`);
     return;
   }
   if (sub === "results") {
