@@ -89,6 +89,8 @@ function readBlock(id, lines) {
   const deliveredLine = tail.find((line) => line.startsWith("Delivered: "));
   // Each texted turn's rounds of its bound (`report.mjs`).
   const roundsLine = tail.find((line) => line.startsWith("Rounds: "));
+  // What the turn did, short (`turnSteps.mjs`): read back for a Lab row's steps line.
+  const stepsLine = tail.find((line) => line.startsWith("Steps: "));
   let time = null;
   if (timeLine) {
     const m = timeLine.match(TIME);
@@ -109,6 +111,7 @@ function readBlock(id, lines) {
     delivered: deliveredLine ? readJobsLine(deliveredLine.slice("Delivered: ".length)) : [],
     rounds: roundsLine ? readJobsLine(roundsLine.slice("Rounds: ".length)) : [],
     time,
+    ...(stepsLine ? { steps: stepsLine.slice("Steps: ".length) } : {}),
     error: errorLine ? errorLine.slice("Error: ".length) : null,
   };
 }

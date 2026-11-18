@@ -165,3 +165,10 @@ test("the jobs an answer started are written as one line and read back for the s
   assert.deepEqual(read.find((list) => list.length > 0), jobs);
   assert.deepEqual(read.find((list) => list.length === 0), [], "an answer that started none reads none");
 });
+
+test("a run's steps line is written and read back, so a Lab row can say what its turn did (Lab, 2026-11-18)", () => {
+  const steps = "tools search_mail ok | answer check: let go (only_acknowledged) | outcome: quiet (send say_nothing)";
+  const result = { ...RESULT, runs: [{ ...RESULT.runs[0], said: null, steps }, RESULT.runs[1]] };
+  const { answers } = parseResult(resultMarkdown(result));
+  assert.deepEqual(answers.filter((a) => "steps" in a).map((a) => a.steps), [steps], "only the run with steps says so");
+});

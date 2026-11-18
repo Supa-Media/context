@@ -66,6 +66,8 @@ export function coreCases({ test, testRaw, resultRaw, keyRaw, setup = SETUP }) {
     const rounds = answers.filter((a) => runIds.includes(a.id) && (a.rounds ?? []).length > 0).map((a) => a.rounds); // one list per run
     // Calls its runs answered with the fallback model (`fallbacks.mjs`): a Lab run with any is not Tex's score.
     const fallbacks = answers.filter((a) => runIds.includes(a.id)).reduce((n, a) => n + fallbacksIn(a.tools), 0);
+    // What the turn did (`turnSteps.mjs`): the first answered run's steps line, shown on the row beside its rounds, never a score.
+    const steps = answers.find((a) => runIds.includes(a.id) && typeof a.steps === "string" && a.steps !== "")?.steps ?? null;
     rows.push({
       ...(bench.length > 0 ? { bench } : {}),
       misses,
@@ -74,6 +76,7 @@ export function coreCases({ test, testRaw, resultRaw, keyRaw, setup = SETUP }) {
       ...(handoff.jobs > 0 ? { handoff } : {}),
       ...(rounds.length > 0 ? { rounds } : {}),
       ...(fallbacks > 0 ? { fallbacks } : {}),
+      ...(steps !== null ? { steps } : {}),
       id: `${test}/q${c.question}`,
       right: cell.runs > 0 && cell.passed === cell.runs,
       results,
