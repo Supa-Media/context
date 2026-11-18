@@ -51,6 +51,7 @@ flowchart LR
     n_triage["Triage<br/>code<br/>inboxTurn.ts chooseTurn · groupInbox.ts acceptGroup"]:::code
     n_decide["Decide<br/>Clef<br/>textsDecide.js · textDecide.cjs"]:::model
     n_lanes["Queue<br/>code<br/>apps/agent inbox.ts · groupTurn.ts"]:::code
+    n_router["Router<br/>Clef · off<br/>graph/nodes/router.js · specialistRoute.js · doorTools.js"]:::off
     n_react["React<br/>code<br/>decide.ts reactionFor · reactions.ts"]:::code
     n_doorStep["Door<br/>code<br/>texEntryPoint/*"]:::code
   end
@@ -83,7 +84,6 @@ flowchart LR
     n_readTheSetup["Read the setup<br/>code · off<br/>texEntryPoint/readTheSetup.js"]:::off
     n_prepareBookkeeping["Bookkeeping<br/>code · off<br/>texEntryPoint/prepareBookkeeping.js"]:::off
     n_prepareTheAnswer["Prepare the answer<br/>code · off<br/>texEntryPoint/prepareTheAnswer.js"]:::off
-    n_router["Router<br/>Clef · off<br/>router.js"]:::off
     n_fallback["Fallback<br/>GLM-4.7 Flash · off<br/>builtin.js"]:::off
     n_planner["Big-ask planner<br/>Sonnet 5.5 · effort high · off<br/>planBigAsk.js"]:::off
     n_checks["Answer checks<br/>code · off<br/>graph/nodes/checks.js · doItChecks.js · untriedWeb.js · sourcedFigures.js seenFiguresNotice · replyJudge.js codeCheck"]:::off
@@ -194,7 +194,7 @@ every wire, from the same config.
 | Read the setup | readTheSetup | retired | off | code |  |  |  | texEntryPoint/readTheSetup.js |
 | Bookkeeping | prepareBookkeeping | retired | off | code |  |  |  | texEntryPoint/prepareBookkeeping.js |
 | Prepare the answer | prepareTheAnswer | retired | off | code |  |  |  | texEntryPoint/prepareTheAnswer.js |
-| Router | router | retired | off | Clef |  |  | recent | router.js |
+| Router | router | intake | off | Clef |  | 3 s |  | graph/nodes/router.js · specialistRoute.js · doorTools.js |
 | Front door | fd |  | on | Haiku 5.5 | medium |  | tools, skills, map, p-about-tex, p-rules, p-tools, p-working, p-sound-like-a-person, p-pictures, p-how-you-talk, train:fd:all:60000, caps, groups, devShare, summaries:all:30000, chat:7:130000, threads, about, date, ask | turn.js runTurn · texEntryPoint/runTheModel.js |
 | Fallback | fallback | retired | off | GLM-4.7 Flash |  |  |  | builtin.js |
 | Big-ask planner | planner | retired | off | Sonnet 5.5 | high |  | own, train:planner, ask, caps | planBigAsk.js |
