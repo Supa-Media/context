@@ -19,7 +19,7 @@
  * matter, so "untouched for a month" means the same on every run.
  */
 
-import { readMailbox, searchMailbox, sentMail } from "./mailbox.mjs";
+import { connectMailbox, readMailbox, searchMailbox, sentMail } from "./mailbox.mjs";
 import { TRANSCRIPTS_FOLDER } from "../src/agent/transcript.js";
 import { HOUSEKEEPING_CLIENT_ID } from "../src/agent/housekeeping.js";
 import { arrivedEmail, checkInTurn, houseTurn, routineTurn, startCall, startGrants } from "./worldStarts.mjs";
@@ -214,21 +214,20 @@ export async function createWorld(bench, person, setupRaw, models, today = null,
   const arrivedEvents = [];
   controlPlane.flags.calendarDays = withArrivedEvents(controlPlane.flags.calendarDays, arrivedEvents, () => controlPlane.flags.calendarAddress);
   // Their Gmail, as Google would answer for it (`mailbox.mjs`): searched and
-  // read live, and a mailbox that may keep drafts. Sending stays off, as it is
-  // until Google's review adds the send scope (tests/tasks.md, task 9). Each
-  // search and read is kept for the result's `Mail:` line.
+  // read live, and a mailbox that may keep drafts. It sends only for a test
+  // with `gmail: sends` (`connectMailbox`); a send is recorded by the stub,
+  // never delivered. Each search and read is kept for the result's `Mail:` line.
   const stand = worldStandIns({ models, person }), { gaps } = stand; // the stand-ins beyond these (`worldStandIns.mjs`), and what none could answer
   const mail = (bench.workspaces[own.workspace]?.mail ?? []).filter(stand.arrived);
   const mailEvents = [];
   const connectMail = () => {
     const address = mail[0].address;
-    controlPlane.flags.mailboxes = [{ address, folder: "0-inbox/email" }];
+    connectMailbox(controlPlane.flags, address, { sends: models.gmail === "sends" });
     const logged = (event, value) => (mailEvents.push(event(value)), value);
     // The fixture's inbox and what the run really sent (Sent, `mailbox.mjs` sentMail), each searched and read.
     const everything = () => [...mail, ...sentMail(controlPlane.emailCalls, address)];
     controlPlane.flags.mailResults = (query) => logged((found) => `mail search ${JSON.stringify(String(query))}: ${found.length} found`, searchMailbox(everything(), query));
     controlPlane.flags.mailMessage = (body) => logged(() => `mail read ${body.id}`, readMailbox(everything(), body.address, body.id));
-    controlPlane.flags.emailDrafter = address;
   };
   if (mail.length > 0) connectMail();
   // The listing tools list from the Convex tree, copied here from each S3 bucket.
