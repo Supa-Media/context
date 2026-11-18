@@ -39,9 +39,10 @@ jobs:
     steps:
       - uses: actions/checkout@v5
       - uses: pnpm/action-setup@v4
-      # No pnpm cache: most runs install nothing, and when the lockfile changed
-      # the cache misses, so the post-job save finds no store and fails the job
-      # ("Path Validation Error") although the rule passed.
+      # No cache on setup-node. Most runs install nothing, and a cache whose
+      # post step runs anyway fails the job with "Path Validation Error" when
+      # the store was never created, after the rule had already passed. The
+      # fingerprint step below caches the store only when it is about to install.
       - uses: actions/setup-node@v5
         with:
           node-version: 22
@@ -66,6 +67,39 @@ jobs:
           set -euo pipefail
           git fetch --no-tags --depth=1 origin "$BASE_SHA"
           node scripts/tex-test-set-dispatch.mjs --early
+
+      # The same diff the fingerprint step installs for. The cache runs only
+      # then, so a change that builds no prompt never creates a store and
+      # never fails the post-cache step.
+      - name: Does this change reach code that builds a prompt?
+        id: reach
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        run: |
+          set -euo pipefail
+          git fetch --no-tags --depth=1 origin "$BASE_SHA"
+          if git diff --name-only "$BASE_SHA" HEAD | grep -qE '^(apps/mcp/|apps/agent/|packages/)'; then
+            echo "code=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "code=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: pnpm store path
+        id: store
+        if: steps.reach.outputs.code == 'true'
+        run: |
+          path="$(pnpm store path)"
+          mkdir -p "$path"
+          echo "path=$path" >> "$GITHUB_OUTPUT"
+
+      - name: Restore the pnpm store
+        if: steps.reach.outputs.code == 'true'
+        uses: actions/cache@v4
+        with:
+          path: ${{ steps.store.outputs.path }}
+          key: pnpm-store-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}
+          restore-keys: |
+            pnpm-store-${{ runner.os }}-
 
       # Every area's prompts built on main and on the change, with no model and no key
       # (apps/mcp/bench/promptFingerprint.mjs): an area whose prompts differ by a byte is

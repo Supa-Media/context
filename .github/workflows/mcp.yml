@@ -121,20 +121,19 @@ jobs:
             packages/meetings/**
             packages/obsidian-runtime/**
 
+      - uses: pnpm/action-setup@v4
+        if: steps.scope.outputs.affected == 'true'
+
       - uses: actions/setup-node@v5
         if: steps.scope.outputs.affected == 'true'
         with:
           node-version: 22
-          # pnpm is installed below; do not try to locate its cache before then.
-          package-manager-cache: false
+          cache: pnpm
 
       # Yjs is confined to the explicit collaboration package boundary.
       - name: Worker fetch options workerd implements
         if: steps.scope.outputs.affected == 'true'
         run: node scripts/check-worker-fetch-options.mjs
-
-      - uses: pnpm/action-setup@v4
-        if: steps.scope.outputs.affected == 'true'
 
       - name: Install the collaboration engine
         if: steps.scope.outputs.affected == 'true'
@@ -192,15 +191,14 @@ jobs:
             packages/meetings/**
             packages/obsidian-runtime/**
 
+      - uses: pnpm/action-setup@v4
+        if: steps.scope.outputs.affected == 'true'
+
       - uses: actions/setup-node@v5
         if: steps.scope.outputs.affected == 'true'
         with:
           node-version: 22
-          # pnpm is installed below; do not try to locate its cache before then.
-          package-manager-cache: false
-
-      - uses: pnpm/action-setup@v4
-        if: steps.scope.outputs.affected == 'true'
+          cache: pnpm
 
       - name: Install the collaboration engine
         if: steps.scope.outputs.affected == 'true'

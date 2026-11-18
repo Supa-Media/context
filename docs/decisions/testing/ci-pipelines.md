@@ -338,6 +338,14 @@ on work the gate does not ask for. `tex-test-set-dispatch.mjs --self-test`
 fails if a file area waits for the fingerprints, if a prompt-only reach starts
 early, or if an existing status starts another run.
 
+The fingerprint step installs the workspace twice, once for the change and
+once for main, and that step measured 87 seconds on a code change. The pnpm
+store is cached only when that install is about to run. A change that builds
+no prompt still installs nothing: `setup-node`'s own cache stays off, because
+its post step failed the job with "Path Validation Error" when the store had
+never been created. The gateway's `Test Gateway` and unit jobs cache pnpm the
+same way, and only on the steps that install.
+
 ## A description edit re-runs checks only when the skip line changes
 
 _Decided 2026-11-17._ Fast repository guards and Tex replay required listened
