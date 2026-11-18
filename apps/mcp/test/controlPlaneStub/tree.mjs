@@ -137,6 +137,8 @@ export function createTreeRoutes(grantForAccessToken, bindings, gatewayJobs = ne
   const ledgers = new Map();
   /** Icon moves the gateway recorded, `{ workspaceId, from, to }`, oldest first. */
   const iconMoves = [];
+  /** The member directory `addGrantees` resolves a handle through: a test adds the names it needs. */
+  const knownHandles = new Map();
 
   function touch(body) {
     const workspaceId = typeof body?.workspaceId === "string" ? body.workspaceId : null;
@@ -287,15 +289,28 @@ export function createTreeRoutes(grantForAccessToken, bindings, gatewayJobs = ne
     };
   }
 
+  /** workspaceId → path → who → `{kind, id, role}`: the people `addGrantees` added to a row's list. */
+  const granted = new Map();
+  /** The role the grant holds in the workspace it reaches, or null. */
+  function roleIn(grant, workspaceId) {
+    if (grant.workspaceId === workspaceId) return grant.role;
+    return (grant.alsoMemberOf || []).find((entry) => entry.workspaceId === workspaceId)?.role ?? null;
+  }
+
   /** `/gateway/privacy`: one row's base (`setAccess`), written back into the workspace's rules text. */
   async function privacy(body) {
     let workspaceId = null;
+    let role = null;
     if (typeof body.ticket === "string") workspaceId = jobWorkspace(body.ticket);
     else {
       const grant = await grantForAccessToken(body.accessToken);
-      if (grant?.scopes?.includes("context:write")) workspaceId = await reached(body);
+      if (grant?.scopes?.includes("context:write")) {
+        workspaceId = await reached(body);
+        role = workspaceId === null ? null : roleIn(grant, workspaceId);
+      }
     }
     if (workspaceId === null || workspaceId !== body.expectedWorkspaceId) return { ok: false, code: "FORBIDDEN" };
+    if (body.op === "addGrantees") return await addGrantees(body, workspaceId, role);
     if (body.op !== "setAccess") return { ok: false, code: "NOT_SUPPORTED" };
     const version = versions.get(workspaceId) ?? 1;
     if (Number.isFinite(body.expectedVersion) && body.expectedVersion !== version) return { ok: false, code: "CONFLICT" };
@@ -315,8 +330,56 @@ export function createTreeRoutes(grantForAccessToken, bindings, gatewayJobs = ne
     return { ok: true, version: version + 1, etag: (await rulesFor(workspaceId)).etag };
   }
 
+  /**
+   * `addGrantees` (`apps/convex/functions/lib/gatewayRoutes/privacySetAccess.ts`, `lib/nodes/addGrantees.ts`): owner
+   * only (an editor is FORBIDDEN; a ticket or a lesser grant is refused bare, as the route refuses it). Each entry
+   * names one `handle` (a name in `knownHandles`, the stub's member directory) or one `email` (well formed, lower-cased);
+   * a name that resolves to nobody is GRANTEE_NOT_FOUND and nothing is held. The people join the list already there,
+   * a person already listed takes the role named, the row's base is untouched, and the access version moves on.
+   * The stub's rules carry bases only, as `setAccess` does, so the list is kept for a test to read (`granteesOf`).
+   */
+  async function addGrantees(body, workspaceId, role) {
+    if (role === null) return { ok: false };
+    if (role !== "owner") return role === "editor" ? { ok: false, code: "FORBIDDEN" } : { ok: false };
+    const path = typeof body.path === "string" ? body.path : "";
+    if (path === "" || path.length > 1_024) return { ok: false, code: "INVALID" };
+    if (!Array.isArray(body.entries) || body.entries.length === 0 || body.entries.length > 100) return { ok: false, code: "INVALID" };
+    const source = sources.has(workspaceId) ? sources.get(workspaceId) : boundSource(workspaceId);
+    if (!source) return { ok: false, code: "NOT_FOUND" };
+    const isNote = (await source.get(path)) !== null;
+    if (!isNote && (await allKeys(source, `${path}/`)).length === 0) return { ok: false, code: "NOT_FOUND" };
+    const additions = [];
+    for (const entry of body.entries) {
+      const named = [entry?.handle, entry?.email].filter((field) => typeof field === "string");
+      if (named.length !== 1 || (entry.role !== "view" && entry.role !== "edit")) return { ok: false, code: "INVALID" };
+      if (entry.handle !== undefined) {
+        const who = knownHandles.get(entry.handle);
+        if (!who) return { ok: false, code: "GRANTEE_NOT_FOUND" };
+        additions.push({ ...who, role: entry.role });
+      } else {
+        const email = entry.email.trim().toLowerCase();
+        if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email) || email.length > 1_024) return { ok: false, code: "GRANTEE_NOT_FOUND" };
+        additions.push({ kind: "email", id: email, role: entry.role });
+      }
+    }
+    if (!granted.has(workspaceId)) granted.set(workspaceId, new Map());
+    const byPath = granted.get(workspaceId);
+    if (!byPath.has(path)) byPath.set(path, new Map());
+    const list = byPath.get(path);
+    for (const grantee of additions) list.set(`${grantee.kind}:${grantee.id}`, grantee);
+    const version = (versions.get(workspaceId) ?? 1) + 1;
+    versions.set(workspaceId, version);
+    return { ok: true, version };
+  }
+
   const routes = {
     requests,
+    /** handle → `{kind, id}`: the names `addGrantees` resolves, as the control plane's directory would. */
+    knownHandles,
+    /** The people `addGrantees` added to one row's list, in the order they were added: `{kind, id, role}`. */
+    granteesOf(workspaceId, path) {
+      return [...(granted.get(workspaceId)?.get(path)?.values() ?? [])];
+    },
     rulesFor,
     iconMoves,
     /** The ledger the control plane holds for a workspace, oldest first. */
@@ -362,6 +425,8 @@ export function createTreeRoutes(grantForAccessToken, bindings, gatewayJobs = ne
   };
   /** What the stub hands a test: serving trees, and the small data held. */
   routes.controls = {
+    knownHandles,
+    granteesOf: routes.granteesOf,
     serveTree: routes.serveTree,
     serveTreesFrom: routes.serveTreesFrom,
     stopServing: routes.stopServing,
