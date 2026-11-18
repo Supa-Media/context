@@ -1,5 +1,6 @@
 /** Builds the reply that gets texted, writes it to the chat's ledger, and saves the exchange. One step of Tex's turn (`../texEntryPoint.js`). */
 
+import { splitUnder, underOf } from "../replyUnder.js";
 import { openAskBefore } from "../openAsk.js";
 import { json } from "../../http/responses.js";
 import { offerLine } from "../../tools/offerFor.js";
@@ -62,7 +63,9 @@ export async function sendTheReply(t) {
   const crossAskRun = t.crossChat?.kind === "ask"; // its answer goes back to the chat that asked, never texted here (`crossChat.js`)
   const tapped = tapbackOf(turn); // the front door answered with only a tapback (`tapbackEnding.js`)
   const hushed = turn.answer === QUIET_ACK || tapped !== null; // a job's start or restart texts nothing; their text gets a tapback instead (`background.js`)
-  const { answer: replied, quiet } = hushed ? { answer: "", quiet: true } : reportReply(report, turn.answer), silent = job === null && (((group !== null || turn.settled === "say_nothing") && /^\W*SKIP\W*$/.test(String(replied ?? ""))) || typedCallOf(replied) !== null || (report === null && scheduledSkip(group, replied))), { answer: told, pictures, captions, choices = [], offers = [] } = outgoing.take(quiet ? "" : silent ? (group?.tagged === true ? EMPTY_FALLBACK : "") : !runner && isEmptyAnswer(replied) ? EMPTY_FALLBACK : withoutFlattery(replied)); // a report's quiet is a flag, and an ended job always gets a line (`jobReport.js`); a group's bare SKIP, or any say_nothing (`sayNothing.js`), is silence, never the fallback, and only SKIP: "Quiet." answers a question (Dev2, 2026-11-01: Tex texted "my answer got lost" to a message for Instinct); a scheduled group turn's skip is silence however it was worded, its reasoning never a text (2026-11-17, `scheduledQuiet.js`); a literal "@Tex" is never silent: its silence is the fallback (Dev2, 2026-11-12)
+  const { answer: replied, quiet } = hushed ? { answer: "", quiet: true } : reportReply(report, turn.answer), silent = job === null && (((group !== null || turn.settled === "say_nothing") && /^\W*SKIP\W*$/.test(String(replied ?? ""))) || typedCallOf(replied) !== null || (report === null && scheduledSkip(group, replied))), { answer: toldMarked, pictures, captions, choices = [], offers = [] } = outgoing.take(quiet ? "" : silent ? (group?.tagged === true ? EMPTY_FALLBACK : "") : !runner && isEmptyAnswer(replied) ? EMPTY_FALLBACK : withoutFlattery(replied)); // a report's quiet is a flag, and an ended job always gets a line (`jobReport.js`); a group's bare SKIP, or any say_nothing (`sayNothing.js`), is silence, never the fallback, and only SKIP: "Quiet." answers a question (Dev2, 2026-11-01: Tex texted "my answer got lost" to a message for Instinct); a scheduled group turn's skip is silence however it was worded, its reasoning never a text (2026-11-17, `scheduledQuiet.js`); a literal "@Tex" is never silent: its silence is the fallback (Dev2, 2026-11-12)
+  // A group turn answering several texts: the front door's "[2] " numbers come out, and say which text each paragraph goes under (`replyUnder.js`).
+  const { answer: told, parts: underParts } = group !== null && job === null ? splitUnder(toldMarked, t.logged?.covered) : { answer: toldMarked, parts: null };
   // An email's ask is texted exactly as written (`apps/agent/src/reply.ts`), or withdrawn if it would not fit; asks their text corrected are dropped (`claimCheck.js` rule 6).
   const { ask, verbatim } = await tex.step("ask_line", () => textedAsk(store, session, ledger.asked, told, { who: group?.from || null, stale: claims?.stale() === true ? setAside.map((entry) => entry.id) : null, chat: askChat }));
   const offerText = ledger.offered ? offerLine(ledger.offered) : null; // shown to whoever it goes from (`offerFor.js`)
@@ -76,6 +79,7 @@ export async function sendTheReply(t) {
   */
   const handoff = opened?.browser?.handoffLine() ?? null;
   const sent = handoff === null ? answer : `${answer}\n\n${handoff}`;
+  const under = underOf(underParts, told, sent); // each part of what is sent, with the text it goes under (`replyUnder.js`)
   // A turn no text of theirs asked (a job's report, a vault save) keeps the gateway's line it was asked, so the chat rebuilt from the ledger shows what Tex answered.
   const eventAsked = report !== null || t.crossChat || question === VAULT_SAVED_QUESTION || question === HANDED_BACK_QUESTION ? String(question).slice(0, 2_000) : null;
   // What the person's chat rebuilt from the ledger shows beside this answer (`ledgerConversation.js`): the files they sent and where a picture is kept, the pages it read, the thread it was typed in.
@@ -118,6 +122,7 @@ export async function sendTheReply(t) {
   const reply = {
     answer: sent, ...((quiet || silent) && sent === "" ? { quiet: true } : {}), // nothing to text, as a flag the Worker reads, never a word (`jobReport.js`)
     ...(hushed && report === null && sent === "" ? { react: tapped ?? "" } : {}), // a tapback in place of a text: a job start's, the Worker's own pick from their words; the Worker checks the emoji (`reactEmoji.ts`)
+    ...(under !== null ? { under } : {}), // which text each part goes under, when one turn answered several (`replyUnder.js`)
     ...(replyPlace === "under" || replyPlace === "plain" ? { place: replyPlace } : {}), // under the text it answers, or plain in the chat (`conversationThreads.js`)
     // How many held calls the answer's last line asks about, so a caller that
     // plays the person (the bench) knows a YES is awaited; zero on a clean turn.

@@ -13,10 +13,10 @@ import { CHAT_LOOK_PATH, saysSkip } from "./groupRoutines";
 import { maySend } from "./outboundGuard";
 import type { ControlAnswer } from "./groupControl";
 import { GROUP_LINES, PICTURE_LINE } from "./groupLines";
-import { fixedTimings, log, logTiming, say, sayProgress, sendPicture, type SayMeta } from "./groupSay";
+import { fixedTimings, log, logTiming, say, sayProgress, sendPicture, threadUnder, type SayMeta } from "./groupSay";
 import { prepareAttachments } from "./attachments";
 import { E164 } from "./sendblue";
-import { textsWithExact } from "./format";
+import { bubblesUnder } from "./bubblesUnder";
 import type { InboxStorage } from "./inbox";
 import { groupLineFor, groupLineSeam } from "./groupLine";
 import { membersBeforeSend } from "./groupMembers";
@@ -50,10 +50,12 @@ export type TurnInput = {
   people: string[];
   asked: Extract<ControlAnswer, { status: "ready" }>;
   accessToken: string;
+  /** Each text it answers, its event id to its message id: where a part of the answer threads (`bubblesUnder.ts`). */
+  messages?: Readonly<Record<string, string>>;
 };
 
 /** The model's turn on a group message, its answer sent only to the people it was written for. */
-export async function groupTurn(storage: InboxStorage, deps: GroupDeps, { message, covered, acceptedAt, upTo, arrivedAt, covers, people, asked, accessToken }: TurnInput): Promise<"cancelled" | void> {
+export async function groupTurn(storage: InboxStorage, deps: GroupDeps, { message, covered, acceptedAt, upTo, arrivedAt, covers, people, asked, accessToken, messages = {} }: TurnInput): Promise<"cancelled" | void> {
   const app = groupLineFor(groupLineSeam(deps), message.groupId);
   const chat = { line: message.line, groupId: message.groupId };
   const routine = message.routine !== undefined;
@@ -282,9 +284,14 @@ export async function groupTurn(storage: InboxStorage, deps: GroupDeps, { messag
     return void (await routineDone(deps, message, "skipped"));
   }
   const checkIn = message.routine?.path === CHAT_LOOK_PATH; // A check-in posts one bubble and no card (Dev2, 2026-10-28).
-  const toSend = textsWithExact(answer.text, answer.verbatim, checkIn);
+  // Each part under the text it answers when one turn answered several (`bubblesUnder.ts`); else every bubble under the newest.
+  const bubbles = bubblesUnder(answer.text, routine ? [] : (answer.under ?? []), messages, answer.verbatim, checkIn);
+  const toSend = bubbles.map((bubble) => bubble.text);
   const threaded = checkIn ? toSend : await withThreadsLine(toSend, answer.offers, viewLink(answer.hub, deps.threadsLink), answer.verbatim); // the live view rides in the first text (`jobs.ts`)
   const texts = withIntro(threaded, !routine && asked.intro === true ? GROUP_LINES.intro(asked.reach ?? []) : null, answer.verbatim);
+  // A line added after the answer (the view, the intro) goes where the answer's last bubble went.
+  const underOf = (index: number): string | undefined => bubbles[Math.min(index, bubbles.length - 1)]?.messageId;
+  const eventOf = (messageId: string): string | undefined => Object.entries(messages).find(([, id]) => id === messageId)?.[0];
   const now = await readTwice();
   if (now === null || now.some((phone) => phone !== message.line && !people.includes(phone))) {
     log(now === null ? "members_unread_after" : "joined");
@@ -303,8 +310,12 @@ export async function groupTurn(storage: InboxStorage, deps: GroupDeps, { messag
   const parts = texts.length + (checkIn ? 0 : answer.pictures.length);
   let went = 0;
   try {
-    for (const text of texts) {
-      await say(storage, deps, message, text, meta);
+    for (const [index, text] of texts.entries()) {
+      const messageId = meta.plain ? undefined : underOf(index);
+      const under = messageId === undefined ? message : { ...message, messageId };
+      // Logged as a reply to the text it went under, so Replay shows where each bubble went.
+      const replyTo = meta.plain || threadUnder(under) !== under.messageId ? undefined : eventOf(under.messageId);
+      await say(storage, deps, under, text, replyTo === undefined ? meta : { ...meta, replyTo });
       firstSent ??= deps.now();
       went += 1;
     }

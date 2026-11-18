@@ -141,7 +141,8 @@ export async function timedReply<T>(storage: InboxStorage, arrivedAt: number, ha
  * what it covers; a fixed line (`system`), with no turn, as the system's.
  */
 /** `plain`: sent straight into the chat, not under the message it answers (the conversation classifier's call, `apps/mcp/src/agent/respond.js`). */
-export type SayMeta = { turn?: string; covers?: string[]; people?: string; system?: true; reason?: EventReason; plain?: true };
+/** `replyTo`: the event id of the text it went under, logged on Tex's text so Replay shows where it went (`bubblesUnder.ts`). */
+export type SayMeta = { turn?: string; covers?: string[]; people?: string; system?: true; reason?: EventReason; plain?: true; replyTo?: string };
 
 /** One text into the group, threaded under the message it answers, remembered so a reply to it wakes Tex, and logged. */
 export async function say(storage: InboxStorage, deps: GroupSayDeps, message: Pick<GroupMessage, "line" | "groupId" | "messageId" | "reaction" | "answersTapback">, text: string, meta: SayMeta = {}): Promise<void> {
@@ -231,6 +232,7 @@ export async function logOut(storage: InboxStorage, deps: GroupSayDeps, chat: st
     ...(turn && meta.covers?.length ? { covers: meta.covers.slice(-MAX_CANDIDATES) } : {}),
     ...(meta.people ? { people: meta.people } : {}),
     ...(meta.reason ? { reason: meta.reason } : {}),
+    ...(turn && meta.replyTo ? { replyTo: meta.replyTo } : {}),
   });
 }
 
