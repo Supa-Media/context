@@ -195,13 +195,14 @@ test("a test turn's env has no texting Worker, jobs, browser, chats or sandboxes
   };
   const gate = { record() {} };
   const out = sandboxEnvOf(env, { gate, workspaces: { idFromName() {} }, tex: null });
-  for (const name of ["TEXTING", "SITE_SHOTS", "TEX_JOB", "TEX_CHAT", "LAB_SANDBOX", "PRESENCE_ROOM", "LIVE_TICKET", "TEX_EVAL", "AGENT_WORKER_SECRET", "TEX_STORE"]) assert.equal(out[name], undefined, name);
+  for (const name of ["TEXTING", "TEX_JOB", "TEX_CHAT", "LAB_SANDBOX", "PRESENCE_ROOM", "LIVE_TICKET", "TEX_EVAL", "AGENT_WORKER_SECRET", "TEX_STORE"]) assert.equal(out[name], undefined, name);
   assert.equal(out.PLAIN, "x");
   assert.equal(out.AI, env.AI);
   out.TEX_TIMING.writeDataPoint({ n: 1 });
   assert.deepEqual(kept, []);
   assert.equal(sandboxGateOf(out), gate);
   assert.equal(sandboxGateOf(env), null, "a real env carries no gate");
+  assert.equal(out.SITE_SHOTS, undefined, "a screenshot binding with no fetch is not handed on");
 });
 
 test("retry, back and drop cut a test text's rows, writes, overlay and ledger entries, and keep the real start", () => {
