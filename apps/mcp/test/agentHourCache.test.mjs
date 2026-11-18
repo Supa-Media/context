@@ -11,6 +11,8 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
+import { texCacheTtl, texStep } from "../src/agent/texConfig.js";
+import { callPoints, CALL_COLUMNS } from "../src/agent/turnStages.js";
 import { aiGatewayConfig, gatewayBody, HOUR_MARK, requestViaGateway, resetCreditState, resetHourMarks, withoutHourMarks } from "../src/agent/aiGateway.js";
 
 const MODEL = "anthropic/claude-haiku-5-5";
@@ -125,4 +127,48 @@ test("a spent credit's 400 is not resent without the hour: the credit is rested 
   assert.equal(run.calls.length, 2, "the credit call, then Unified Billing: no extra round");
   assert.ok(marks(run.calls[1]).some((mark) => mark.ttl === "1h"), "the hour stays on");
   resetCreditState();
+});
+
+test("the front door's cache life is Tex's config's: an hour, and five minutes when the config says so", () => {
+  assert.equal(texStep("fd").cacheTtl, "1h", "texConfig.json sets the front door's");
+  assert.equal(texCacheTtl("fd"), "1h");
+  const config = { nodes: [{ id: "fd", cacheTtl: "5m" }, { id: "job" }] };
+  assert.equal(texCacheTtl("fd", config), "5m", "switched back in config, no code change");
+  assert.equal(texCacheTtl("job", config), "1h", "a step that sets none keeps the hour");
+});
+
+test("cacheTtl 1h marks the prefix an hour and the tail five minutes; 5m sends no one-hour mark and the same bytes otherwise", () => {
+  const hour = gatewayBody({ ...TEXTED, cacheTtl: "1h" });
+  assert.deepEqual(hour, gatewayBody(TEXTED), "an hour is what an unset life sends");
+  for (const block of hour.system) assert.deepEqual(block.cache_control, HOUR_MARK);
+  assert.deepEqual(hour.messages[HISTORY.length - 1].content.at(-1).cache_control, HOUR_MARK);
+  assert.deepEqual(hour.messages.at(-1).content.at(-1).cache_control, { type: "ephemeral" }, "the per-turn tail");
+  const short = gatewayBody({ ...TEXTED, cacheTtl: "5m" });
+  assert.ok(marks(short).every((mark) => mark.ttl === undefined));
+  assert.deepEqual(short, withoutHourMarks(hour), "only the marks differ: the prompt's words are the same");
+  assert.ok(marks(gatewayBody({ ...ONE_OFF, cacheTtl: "1h" })).every((mark) => mark.ttl === undefined), "a one-off call has no prefix to keep");
+});
+
+test("every texted call says its cache reads, its writes, the hour's share of them and the life it was sent with", async () => {
+  resetCreditState();
+  resetHourMarks();
+  const cfg = aiGatewayConfig(env());
+  const usage = { input_tokens: 4, output_tokens: 9, cache_read_input_tokens: 700, cache_creation_input_tokens: 300, cache_creation: { ephemeral_1h_input_tokens: 250, ephemeral_5m_input_tokens: 50 } };
+  const paid = { status: 200, body: { ...OK.body, usage } };
+  const hour = await requestViaGateway(TEXTED, cfg, { fetchImpl: scripted([paid]).fetchImpl });
+  assert.deepEqual(hour.usage, { input: 4, output: 9, cacheRead: 700, cacheWrite: 300, cacheWrite1h: 250, ttl: "1h" });
+  const short = await requestViaGateway({ ...TEXTED, cacheTtl: "5m" }, cfg, { fetchImpl: scripted([paid]).fetchImpl });
+  assert.equal(short.usage.ttl, "5m");
+  const refused = await requestViaGateway(TEXTED, cfg, { fetchImpl: scripted([REFUSED, paid]).fetchImpl });
+  assert.equal(refused.usage.ttl, "5m", "a refused hour is logged as what was really sent");
+  resetHourMarks();
+  const oneOff = await requestViaGateway(ONE_OFF, cfg, { fetchImpl: scripted([paid]).fetchImpl });
+  assert.equal(oneOff.usage.ttl, undefined);
+
+  const [point] = callPoints("one", [{ kind: "model", model: MODEL, ms: 5, usage: hour.usage, said: 2, calls: 0 }], "turn-1");
+  const row = Object.fromEntries(CALL_COLUMNS.map((name, i) => [name, point.doubles[i]]));
+  assert.equal(row.cacheRead, 700);
+  assert.equal(row.cacheWrite, 300);
+  assert.equal(row.cacheWrite1h, 250);
+  assert.equal(point.blobs[4], "1h", "tex_model_calls blob5 is the life used");
 });

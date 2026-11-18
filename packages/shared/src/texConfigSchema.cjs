@@ -41,6 +41,7 @@ const START_FACTS = Object.freeze(["firstLook", "sms", "unpaired"]);
  */
 const REQUIRED_HOLDS = Object.freeze(["firstLook", "sms"]);
 const KINDS = Object.freeze(["input", "tool"]);
+const CACHE_TTLS = Object.freeze(["5m", "1h"]);
 /** The types a node's input and output fields may have (`inSchema`, `outSchema`; checked by the runner, `texGraph.cjs`). */
 const IO_TYPES = Object.freeze(["text", "number", "choice", "object", "yesno", "score", "ids", "list"]);
 const GROUP_FIELDS = Object.freeze(["label", "goal", "icon", "x", "y", "parent"]);
@@ -69,6 +70,8 @@ const NODE_SHAPE = Object.freeze({
   icon: [isText, "words"],
   model: [isText, "a model key"],
   effort: [(v) => EFFORTS.includes(v), `one of ${EFFORTS.join(", ")}`],
+  // How long the step's cached prompt prefix is kept (`aiGateway.js`): Anthropic's two cache lives.
+  cacheTtl: [(v) => CACHE_TTLS.includes(v), `one of ${CACHE_TTLS.join(", ")}`],
   kind: [(v) => KINDS.includes(v), `one of ${KINDS.join(", ")}`],
   inSchema: [isIo, "a list of { name, type, optional?, options? } (options in words, as texGraph.cjs reads them)"],
   outSchema: [isIo, "a list of { name, type, optional?, options? } (options in words, as texGraph.cjs reads them)"],

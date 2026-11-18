@@ -116,7 +116,7 @@ export function turnTiming({ steps = [], trace = [], waitMs = null, worker = nul
         ...(entry.retried ? { retried: true } : {}),
         ...(entry.cut ? { cut: true } : {}),
         ...(entry.stopped ? { stopped: true } : {}), // a provisional run stopped mid-call (`steer.js`)
-        ...(entry.usage ? { input: whole(usage.input), output: whole(usage.output), cacheRead: whole(usage.cacheRead), cacheWrite: whole(usage.cacheWrite), said: whole(entry.said), calls: whole(entry.calls) } : {}),
+        ...(entry.usage ? { input: whole(usage.input), output: whole(usage.output), cacheRead: whole(usage.cacheRead), cacheWrite: whole(usage.cacheWrite), said: whole(entry.said), calls: whole(entry.calls), ...(usage.ttl === "1h" || usage.ttl === "5m" ? { cacheWrite1h: whole(usage.cacheWrite1h), ttl: usage.ttl } : {}) } : {}),
         ...promptPart(entry.prompt, wordsSeen),
       });
     }
