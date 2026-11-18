@@ -25,7 +25,7 @@
 
 import { triggerWords } from "./load.mjs";
 import { blankPng } from "./sites.mjs";
-import { sentMail } from "./mailbox.mjs";
+import { connectMailbox, sentMail } from "./mailbox.mjs";
 
 export const SIM_MODEL = "claude-haiku-5-5";
 const MAX_TOKENS = 1500;
@@ -310,10 +310,7 @@ export function simulateServices(sim, controlPlane, { connectedCalendar = false,
       return { ...got, days: [...got.days, ...simmed.days.filter((day) => !have.has(day.date))].sort((a, b) => String(a.date).localeCompare(String(b.date))) };
     };
   }
-  if (connectMail) {
-    flags.mailboxes = [{ address: sim.address, folder: "0-inbox/email" }];
-    flags.emailDrafter = sim.address;
-  }
+  if (connectMail) connectMailbox(flags, sim.address); // as a connect made today: it may send too (`mailbox.mjs`)
   const search = flags.mailResults;
   const read = flags.mailMessage;
   if (!flags.mailboxes?.length) return;

@@ -103,6 +103,18 @@ function holds(email, term) {
 }
 
 /**
+ * Connects the bench's Gmail to the control plane stub's flags as a connection made today would (2026-11-18): listed
+ * as the mailbox, able to keep drafts, and able to send. Every Gmail connect asks for `gmail.send`
+ * (`googleOAuth.ts` WRITE_SCOPES), so the connected address is the one that sends. Nothing real is sent: the stub
+ * only records the send, and `sentMail` shows it in Sent.
+ */
+export function connectMailbox(flags, address) {
+  flags.mailboxes = [{ address, folder: "0-inbox/email" }];
+  flags.emailDrafter = address;
+  flags.emailSender = address;
+}
+
+/**
  * The bench's Sent folder (2026-11-18): every send the run really made, as the control plane's email calls keep them
  * (`world.mjs` `controlPlane.emailCalls`). Only a send that answered ok counts; a draft, a check and a refusal are not
  * sent. `at` is the time a search finds them at (newest first, as Gmail does).
