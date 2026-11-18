@@ -507,6 +507,8 @@ export async function frontFor(dir, person, { today = null, group = null, calend
   if (calendar && !/^calendar: /m.test(f)) f += "\ncalendar: connected";
   // A setting that names Google Chat connects it (`chat.mjs`), as one that names the calendar connects that.
   if (chat && !/^chat: /m.test(f)) f += "\nchat: connected";
+  // A set conversation's Gmail may send (`connectMailbox`): the same for every one, as the set is written to be sent.
+  if (!/^gmail: /m.test(f)) f += "\ngmail: sends";
   // The outside world the chat takes for granted, played by a model where the fixtures have nothing (`simWorld.mjs`,
   // Dev2 2026-11-17): it sees the chat's setting, never its labels.
   if (setting !== null) f = f.replace(/^world(?:_setting)?: .*\n?/gm, "") + `\nworld: simulated\nworld_setting: ${JSON.stringify(String(setting).replace(/\s+/g, " ").trim())}`;

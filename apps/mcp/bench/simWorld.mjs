@@ -290,7 +290,7 @@ export function simBinding(sim, web = null) {
  * The control plane's Google answers, where the fixtures have none: a connected calendar's days with nothing on them,
  * and a Gmail search that finds nothing (or a mailbox when the person's fixture has none at all).
  */
-export function simulateServices(sim, controlPlane, { connectedCalendar = false, connectMail = false } = {}) {
+export function simulateServices(sim, controlPlane, { connectedCalendar = false, connectMail = false, sends = false } = {}) {
   // `connectMail`: the person's fixture has no mailbox and the chat's setting gives Tex their email.
   const flags = controlPlane.flags;
   if (connectedCalendar) {
@@ -310,7 +310,7 @@ export function simulateServices(sim, controlPlane, { connectedCalendar = false,
       return { ...got, days: [...got.days, ...simmed.days.filter((day) => !have.has(day.date))].sort((a, b) => String(a.date).localeCompare(String(b.date))) };
     };
   }
-  if (connectMail) connectMailbox(flags, sim.address); // as a connect made today: it may send too (`mailbox.mjs`)
+  if (connectMail) connectMailbox(flags, sim.address, { sends }); // the test's `gmail: sends` decides whether it may send (`mailbox.mjs`)
   const search = flags.mailResults;
   const read = flags.mailMessage;
   if (!flags.mailboxes?.length) return;
@@ -397,6 +397,6 @@ export function simulatedWorld(models, controlPlane, { today = null, person, noM
   if (!models.simulate) return null;
   const sim = createSimWorld({ ...models.simulate, today, person, gaps, sent: (address) => sentMail(controlPlane.emailCalls, address) });
   const setting = String(models.simulate.setting ?? "");
-  simulateServices(sim, controlPlane, { connectedCalendar: models.calendar === "connected", connectMail: noMailbox && /\b(?:g?mail|e-?mail|inbox)\b/i.test(setting) });
+  simulateServices(sim, controlPlane, { connectedCalendar: models.calendar === "connected", connectMail: noMailbox && /\b(?:g?mail|e-?mail|inbox)\b/i.test(setting), sends: models.gmail === "sends" });
   return sim;
 }

@@ -14,6 +14,10 @@ import { test } from "node:test";
 import { createSimWorld, simMemo, simSystem, simulateServices } from "../simWorld.mjs";
 import { readMailbox, searchMailbox, sentMail } from "../mailbox.mjs";
 import { createEmailRoute } from "../../test/controlPlaneStub/email.mjs";
+import { frontFor } from "../setsFd.mjs";
+import { parseTest } from "../load.mjs";
+
+const BENCH = new URL("../ai", import.meta.url).pathname;
 
 /** A model that answers each call kind with `answers[kind]`, keeping what it was asked. */
 function scriptedSend(answers) {
@@ -93,22 +97,40 @@ test("the sends the bench made answer a Gmail search even when the person has no
 });
 
 /**
- * A Gmail connect asks for `gmail.send` (`googleOAuth.ts` WRITE_SCOPES), so the bench's connected mailbox sends as
- * the stub's `emailSender`, and a send through the gateway's route lands in Sent. Sabotage: leaving `emailSender`
- * unset in `connectMailbox`, or the simulated world's connect not calling it, fails this.
+ * Sending is opt-in in the bench (2026-11-18). A Gmail connect asks for `gmail.send` (`googleOAuth.ts` WRITE_SCOPES),
+ * but the core tasks were written while send was refused and expect that, so only a test that says `gmail: sends`
+ * (every Training and Dev set conversation does, `frontFor`) connects a mailbox that may send. Without it a send is
+ * refused with no_sender, as before. Sabotage: `connectMailbox` setting `emailSender` unconditionally, or `frontFor`
+ * dropping the line, fails these.
  */
-test("a connected Gmail may send: the send route accepts the mailbox, and the send is in Sent", async () => {
-  const { send } = scriptedSend({ "gmail search": { results: [] } });
+
+test("without `gmail: sends` the connected mailbox refuses a send: no_sender, and nothing in Sent", async () => {
   const flags = {};
   const route = createEmailRoute(async () => true, flags);
-  const sim = createSimWorld({ send, setting: "Tex has Gmail", person: "John", memo: simMemo(), sent: (address) => sentMail(route.calls, address) });
+  const sim = createSimWorld({ send: null, setting: "Tex has Gmail", person: "John", memo: simMemo(), sent: (address) => sentMail(route.calls, address) });
   simulateServices(sim, { flags }, { connectMail: true });
+  assert.equal(flags.emailSender ?? null, null, "a core test's mailbox has no sender (the stub's default is null)");
+  const answer = await route.handle("/gateway/email/send", { accessToken: "bench-token", email: { from: sim.address, to: ["priya@example.invalid"], subject: "Dinner Friday", body: "Friday 7?" } });
+  assert.deepEqual(answer, { ok: false, refused: "no_sender" });
+  assert.deepEqual((await flags.mailResults("in:sent")).map((row) => row.subject), []);
+});
+
+test("with `gmail: sends` the connected mailbox sends: the route accepts it, and the send is in Sent", async () => {
+  const flags = {};
+  const route = createEmailRoute(async () => true, flags);
+  const sim = createSimWorld({ send: null, setting: "Tex has Gmail", person: "John", memo: simMemo(), sent: (address) => sentMail(route.calls, address) });
+  simulateServices(sim, { flags }, { connectMail: true, sends: true });
   assert.equal(flags.emailSender, sim.address, "the connected mailbox is the one that sends");
   const answer = await route.handle("/gateway/email/send", {
     accessToken: "bench-token",
     email: { from: sim.address, to: ["priya@example.invalid"], subject: "Dinner Friday", body: "Friday 7?" },
   });
   assert.deepEqual(answer, { ok: true, from: sim.address }, "the route sends rather than answering no_sender");
-  const sent = await flags.mailResults("in:sent");
-  assert.deepEqual(sent.map((row) => row.subject), ["Dinner Friday"], "the send is in Sent");
+  assert.deepEqual((await flags.mailResults("in:sent")).map((row) => row.subject), ["Dinner Friday"], "the send is in Sent");
+});
+
+test("frontFor gives every set conversation `gmail: sends`, and parseTest reads it", async () => {
+  const front = await frontFor(BENCH, "John", { today: "2026-10-13", setting: "Tex has Gmail." });
+  assert.match(front, /^gmail: sends$/m);
+  assert.equal(parseTest(`---\n${front}\n---\n\n# T\n\n## 1. hi\n\n- person texts: "hi"\n`).front.gmail, "sends");
 });

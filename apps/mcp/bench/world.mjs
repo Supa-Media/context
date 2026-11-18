@@ -214,16 +214,15 @@ export async function createWorld(bench, person, setupRaw, models, today = null,
   const arrivedEvents = [];
   controlPlane.flags.calendarDays = withArrivedEvents(controlPlane.flags.calendarDays, arrivedEvents, () => controlPlane.flags.calendarAddress);
   // Their Gmail, as Google would answer for it (`mailbox.mjs`): searched and
-  // read live, and a mailbox that may keep drafts and send. Every Gmail connect
-  // asks for `gmail.send`, so the connected address sends (`connectMailbox`);
-  // a send is recorded by the stub, never delivered. Each search and read is
-  // kept for the result's `Mail:` line.
+  // read live, and a mailbox that may keep drafts. It sends only for a test
+  // with `gmail: sends` (`connectMailbox`); a send is recorded by the stub,
+  // never delivered. Each search and read is kept for the result's `Mail:` line.
   const stand = worldStandIns({ models, person }), { gaps } = stand; // the stand-ins beyond these (`worldStandIns.mjs`), and what none could answer
   const mail = (bench.workspaces[own.workspace]?.mail ?? []).filter(stand.arrived);
   const mailEvents = [];
   const connectMail = () => {
     const address = mail[0].address;
-    connectMailbox(controlPlane.flags, address);
+    connectMailbox(controlPlane.flags, address, { sends: models.gmail === "sends" });
     const logged = (event, value) => (mailEvents.push(event(value)), value);
     // The fixture's inbox and what the run really sent (Sent, `mailbox.mjs` sentMail), each searched and read.
     const everything = () => [...mail, ...sentMail(controlPlane.emailCalls, address)];
