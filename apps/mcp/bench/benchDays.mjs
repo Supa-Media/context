@@ -18,16 +18,21 @@ import { DEFAULT_READS, historyReadsOf, weekStart } from "../src/agent/weekHisto
 export const BENCH_MODEL = "bench";
 
 /**
- * The days of the word-for-word window the Front door reads for this config: the chat module's days, `null` for the
- * whole chat (no day is older than the window then), or the default 7 when the config names none.
+ * The days of the word-for-word window the Front door reads for this config, or `null` when there is no window to sum
+ * days past: a config with no chat module (nothing is read word for word, so no day is written) or one that reads the
+ * whole chat. The default 7 when the config names none.
  */
 export function chatWindowDays(env) {
   const reads = historyReadsOf(env) ?? DEFAULT_READS;
-  return reads.chat === null ? 0 : reads.chat.days;
+  return reads.chat === null ? null : reads.chat.days;
 }
 
-/** One line in a day summary: the person's text, or Tex's answer, named as production's summary names them. */
+/** How a trigger that ran (a turn nobody texted) is named in its day's summary. */
+const TRIGGER_LABEL = { checkin: "A check-in found", routine: "A routine ran", job: "A job reported" };
+
+/** One line in a day summary: the person's text, Tex's answer, or a trigger that ran, named as the bench's summary names them. */
 function sentence(line, group, words) {
+  if (line.from === "trigger") return `${TRIGGER_LABEL[line.via] ?? "Something ran"}: "${words}".`;
   if (line.from === "tex") return `You answered: "${words}".`;
   const who = group && line.who ? `@${line.who}` : "They";
   return `${who} texted: "${words}".`;

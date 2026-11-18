@@ -627,6 +627,21 @@ test("a line twenty days back is kept as a day entry, and a line inside the wind
   }
 });
 
+// A routine that ran weeks back is a sentence of its day, not dropped: its trigger goes into the day's summary.
+// Sabotage: drop the trigger push in `worldChat.mjs` `keepTriggerThen`, and no sentence names the routine.
+test("a routine that ran twenty days back is named in its day entry", async () => {
+  const gatewayFetch = async () => new Response(JSON.stringify({ content: [{ type: "text", text: "ok" }], stop_reason: "end_turn", usage: { input_tokens: 1, output_tokens: 1 } }), { status: 200, headers: { "Content-Type": "application/json" } });
+  const world = await createWorld(bench, "Maya", SETUP, { gatewayFetch, ledgerTurns: true });
+  try {
+    await world.earlier([{ from: "trigger", via: "routine", text: "Loose ends", minutesBefore: 20 * 24 * 60 }]);
+    const days = (await world.ledgerEntries()).filter((e) => e.kind === "day");
+    assert.equal(days.length, 1, JSON.stringify(days));
+    assert.match(days[0].text, /^A routine ran: "Loose ends"\.$/);
+  } finally {
+    world.close();
+  }
+});
+
 // A group's earlier picture is kept in the chat's home (`chatHome.js`), the bench group's home in the pin as the control
 // plane mints it, and the next turn is shown where it is. Sabotage: drop the home-only grant in `groupChat.mjs`, or
 // the stub's `homeOnly` row, and nothing is kept there.

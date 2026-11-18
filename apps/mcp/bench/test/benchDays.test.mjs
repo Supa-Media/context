@@ -58,3 +58,21 @@ test("nothing older than the window, and no window at all, writes no day entries
   assert.deepEqual(benchDaySummaries({ ...base, lines }), []);
   assert.deepEqual(benchDaySummaries({ ...base, days: null, lines: [{ at: at("2026-09-01T10:00:00Z"), from: "person", text: "old" }] }), [], "every day is word for word when the window is the whole chat");
 });
+
+// A check-in, a routine or a job's report is a turn nobody texted, and Tex's answer to it is what a later turn reads of
+// that day (the loose-ends routine's Chase and Glazeco answers, weeks back). Sabotage: drop the trigger push in
+// `worldChat.mjs` `keepTriggerThen`, or the trigger sentence in `sentence()`, and the day loses them.
+test("a trigger and Tex's answer to it are sentences of their day, in the order they came", () => {
+  const lines = [
+    { at: at("2026-10-01T09:00:00Z"), from: "trigger", via: "checkin", text: "Chase has not answered about the deposit" },
+    { at: at("2026-10-01T09:00:00Z"), from: "tex", text: "Asked Chase again." },
+    { at: at("2026-10-01T10:00:00Z"), from: "trigger", via: "routine", text: "Loose ends" },
+    { at: at("2026-10-01T10:00:00Z"), from: "tex", text: "Nothing new." },
+    { at: at("2026-10-01T11:00:00Z"), from: "trigger", via: "job", text: "Venues compared" },
+  ];
+  const [entry] = benchDaySummaries({ ...base, lines });
+  assert.equal(
+    entry.text,
+    'A check-in found: "Chase has not answered about the deposit". You answered: "Asked Chase again.". A routine ran: "Loose ends". You answered: "Nothing new.". A job reported: "Venues compared".',
+  );
+});

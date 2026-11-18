@@ -56,7 +56,13 @@ export function worldChat({ env, token, group, tagger, textedEvent, postEvents, 
         const texts = held.map((line) => line.text);
         await seed([trigger.report?.text ?? trigger.text ?? "", ...texts]);
         const post = group ? texts : await keepOneToOne({ env, workspaceId: workspaceId(), trigger, texts, at: at(), turn });
-        for (const text of post) await postEvents([{ ...textedEvent(text, null, at()), from: { kind: "tex" }, turn, covers: [], delivered: true }]);
+        // The trigger and Tex's answers to it are what its day's summary names (`benchDays.mjs`), at the trigger's time.
+        const words = String(trigger.report?.text ?? trigger.text ?? trigger.mail?.body ?? "").replace(/\s+/g, " ").trim();
+        if (words !== "") sayings.push({ at: at(), from: "trigger", via: trigger.via, text: words });
+        for (const text of post) {
+          await postEvents([{ ...textedEvent(text, null, at()), from: { kind: "tex" }, turn, covers: [], delivered: true }]);
+          sayings.push({ at: at(), from: "tex", text });
+        }
       };
       for (const [k, line] of lines.entries()) {
         if (trigger !== null && line.from === "tex") {
