@@ -47,6 +47,13 @@ on:
 # the in-progress rollout and at most the newest green SHA. A run that has
 # started is not cancelled. Its first step refuses to deploy when a newer
 # commit on main already has green CI, before any component changes.
+# That step cancels its own run. POST /actions/runs/{id}/cancel needs
+# actions: write, and write includes read. The token below is actions: read,
+# which returns 403, so the run fails instead of ending cancelled. validate
+# is the job that cancels, so it is the one that raises actions to write.
+# mobile-publish already has actions: write to start the OTA workflow.
+# A job's permissions replace this block, so validate also keeps
+# contents: read and packages: read.
 concurrency:
   group: deploy-production
   cancel-in-progress: false
@@ -60,6 +67,10 @@ jobs:
   validate:
     name: Require a green CI run on main
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: read
+      actions: write
     outputs:
       convex: ${{ steps.plan.outputs.convex }}
       gateway: ${{ steps.plan.outputs.gateway }}

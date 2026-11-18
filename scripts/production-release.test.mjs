@@ -230,6 +230,30 @@ test('production decides what to deploy only after proving CI passed', () => {
   assert.ok(proof !== -1 && plan > proof, 'the CI proof must run before the plan, in the same job');
 });
 
+// POST /actions/runs/{id}/cancel needs actions: write. The workflow token is
+// actions: read, and a job permissions block replaces it, so validate has to
+// restate contents and packages. mobile-publish already dispatches the OTA
+// workflow and is the only other job with actions: write.
+test('validate can cancel its own run, and other jobs do not gain actions: write', () => {
+  const production = readFileSync(new URL('../.github/workflows/deploy-production.yml', import.meta.url), 'utf8');
+  const header = production.slice(0, production.indexOf('\njobs:\n'));
+  assert.match(header, /permissions:\n  contents: read\n  packages: read\n  actions: read\n/);
+  const jobs = production.slice(production.indexOf('\njobs:\n')).split(/^  (?=[a-z-]+:$)/m).slice(1);
+  assert.ok(jobs.length >= 9);
+  for (const job of jobs) {
+    const id = job.split(':')[0].trim();
+    if (id === 'validate') {
+      assert.match(job, /permissions:\n      contents: read\n      packages: read\n      actions: write\n/);
+      continue;
+    }
+    if (id === 'mobile-publish') {
+      assert.match(job, /permissions:\n      actions: write\n      contents: read\n/);
+      continue;
+    }
+    assert.doesNotMatch(job, /^\s*permissions:/m, `${id} keeps the workflow token`);
+  }
+});
+
 // The Mac app's updater reads `latest-mac.yml` from the release GitHub calls
 // latest. A machine-runner release has no such file, so if it takes that pointer
 // every installed app says "could not check for updates" (2026-11-05).
