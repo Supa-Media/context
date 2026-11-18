@@ -17,7 +17,9 @@
  *   CLAUDE_CODE_OAUTH_TOKEN=... node apps/mcp/bench/socketAnswerer.mjs --dir <sock> --stop <file> [--parallel 4]
  *
  * It runs until the stop file exists and nothing is waiting. A call the CLI fails three times stops it with exit 1,
- * leaving the call unanswered, so the gate's run fails rather than scoring a path the model never chose.
+ * leaving the call unanswered, so the gate's run fails rather than scoring a path the model never chose. A tool call
+ * the model makes to a tool the call does not offer is not a CLI failure: the schema names only the offered tools,
+ * and one that still gets through is dropped from that answer, so the row scores as Tex's miss.
  */
 import { spawn } from "node:child_process";
 import { writeFile } from "node:fs/promises";
@@ -76,15 +78,49 @@ export function toolsText(tools = []) {
     .join("\n");
 }
 
-/** The JSON schema a tool-offering call is answered in: the shape `claudeAnswer` keeps. */
-export const TOOL_ANSWER_SCHEMA = {
-  type: "object",
-  properties: {
-    text: { type: "string" },
-    toolCalls: { type: "array", items: { type: "object", properties: { name: { type: "string" }, input: { type: "object" } }, required: ["name", "input"] } },
-  },
-  required: ["text", "toolCalls"],
-};
+const toolName = (tool) => String(typeof tool === "string" ? tool : tool?.name ?? "");
+
+/** The names of the tools a call offers, once each. */
+export function offeredTools(request) {
+  return [...new Set((request?.tools ?? []).map(toolName).filter(Boolean))];
+}
+
+/**
+ * The JSON schema a tool-offering call is answered in: the shape `claudeAnswer` keeps, with the tool's name limited to
+ * the tools this call offers. One fixed schema let the model name any tool (2026-11-18: Lab run 44313860768 died on
+ * "the call offers no tool \"draw_visual\"" three times over).
+ */
+export function toolAnswerSchema(request) {
+  return {
+    type: "object",
+    properties: {
+      text: { type: "string" },
+      toolCalls: {
+        type: "array",
+        items: { type: "object", properties: { name: { type: "string", enum: offeredTools(request) }, input: { type: "object" } }, required: ["name", "input"] },
+      },
+    },
+    required: ["text", "toolCalls"],
+  };
+}
+
+/**
+ * The tool calls of an answer the call can take, and the ones it cannot: a tool it never offered, or an input that is
+ * not an object. A dropped call is the model's mistake, so the answer stands without it and the row counts as Tex's
+ * miss; it never stops the run.
+ */
+export function keepOffered(request, toolCalls) {
+  const offered = new Set(offeredTools(request));
+  const kept = [];
+  const dropped = [];
+  for (const call of Array.isArray(toolCalls) ? toolCalls : []) {
+    const name = String(call?.name ?? "");
+    const input = call?.input ?? call?.args ?? {};
+    if (offered.has(name) && input && typeof input === "object" && !Array.isArray(input)) kept.push({ name, input });
+    else dropped.push(name || "(no name)");
+  }
+  return { kept, dropped };
+}
 
 /** The one message the CLI is sent for a call: the conversation so far, the tools on offer, and what to write. */
 export function promptFor(request) {
@@ -114,17 +150,22 @@ export function promptFor(request) {
  */
 export function cliArgs(request, systemFile) {
   const args = ["-p", "--model", modelAlias(request?.model), "--system-prompt-file", systemFile, "--tools", "", "--output-format", "json", "--strict-mcp-config"];
-  if (request?.tools?.length) args.push("--json-schema", JSON.stringify(TOOL_ANSWER_SCHEMA));
+  if (request?.tools?.length) args.push("--json-schema", JSON.stringify(toolAnswerSchema(request)));
   return args;
 }
 
-/** The answer kept for a call, from the CLI's `--output-format json` result. */
-export function answerFrom(request, stdout) {
+/**
+ * The answer kept for a call, from the CLI's `--output-format json` result. Tool calls the call cannot take are left
+ * out and named to `onDropped` (`keepOffered`).
+ */
+export function answerFrom(request, stdout, onDropped = () => {}) {
   const result = JSON.parse(stdout);
   if (result.is_error) throw new Error(`the CLI answered with an error: ${String(result.result ?? result.subtype ?? "").slice(0, 200)}`);
   if (!request?.tools?.length) return { text: String(result.result ?? "") };
   const given = result.structured_output ?? JSON.parse(String(result.result ?? "{}"));
-  return { text: String(given.text ?? ""), toolCalls: Array.isArray(given.toolCalls) ? given.toolCalls : [] };
+  const { kept, dropped } = keepOffered(request, given.toolCalls);
+  if (dropped.length) onDropped(dropped);
+  return { text: String(given.text ?? ""), toolCalls: kept };
 }
 
 /**
@@ -167,7 +208,9 @@ export async function answerOne(dir, call, { cli = (request) => runCli(request),
   let last;
   for (let attempt = 1; attempt <= tries; attempt += 1) {
     try {
-      const answer = answerFrom(call.request, await cli(call.request));
+      const answer = answerFrom(call.request, await cli(call.request), (names) =>
+        log(`answered ${call.hash.slice(0, 12)} without ${names.length} tool call(s) it does not offer: ${names.map((name) => name.slice(0, 40)).join(", ")}`),
+      );
       await answerCall(dir, call.hash, answer);
       log(`answered ${call.hash.slice(0, 12)} (${modelAlias(call.request?.model)})`);
       return answer;
