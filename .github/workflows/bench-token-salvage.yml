@@ -1,0 +1,179 @@
+# Store a rotated benchmark refresh token that a failed run sealed but never wrote (Seyi, 2026-11-18: "the bench
+# grant can't wait").
+#
+# Tex Lab run 44313860768 rotated the token at its spend check and sealed it (`bench-token-early`). Its run job then
+# failed, the upload of the final seal was skipped because the job had already failed, and the write-token job, told
+# a final seal existed, found no file and wrote nothing. BENCH_RUNNER_REFRESH_TOKEN_LIVE kept the retired token,
+# and the next sign-in that presents it revokes the grant.
+#
+# This workflow does what that write-token job should have done, from main's checkout and never signing in:
+#   - refuses to run beside a benchmark run (bench-runner-lock.mjs --check), and refuses a source run that is not a
+#     Tex Lab run or a Tex replay of this repository;
+#   - downloads the source run's seal (final if it exists, else the one from after sign-in), kept one day;
+#   - reads that run's wrapped seal key from its write-token job's log, where it is ciphertext under
+#     BENCH_SECRET_WRITER_TOKEN by design (needs.token-key.outputs.wrapped);
+#   - refuses when BENCH_RUNNER_REFRESH_TOKEN_LIVE was written after the seal was made: that write is newer;
+#   - unwraps the key with BENCH_SECRET_WRITER_TOKEN exactly as the write-token job does, opens the seal with
+#     bench-token-open.mjs (which checks the token's shape and never prints it), masks it and writes the secret.
+name: Bench token salvage
+
+on:
+  workflow_dispatch:
+    inputs:
+      source_run:
+        description: "The GitHub run id of the Lab run or Tex replay whose sealed token was never written"
+        required: true
+        type: string
+
+permissions:
+  contents: read
+  actions: read
+
+run-name: Bench token salvage from run ${{ inputs.source_run }}
+
+concurrency:
+  group: bench-token-salvage
+  cancel-in-progress: false
+
+jobs:
+  salvage:
+    name: Write the sealed token from an earlier run
+    runs-on: ubuntu-latest
+    environment: production
+    timeout-minutes: 10
+    env:
+      SOURCE_RUN: ${{ inputs.source_run }}
+    steps:
+      - name: The source is a run id
+        run: '[[ "$SOURCE_RUN" =~ ^[0-9]{6,20}$ ]] || { echo "::error::not a GitHub run id"; exit 1; }'
+
+      - name: The writer token is set
+        env:
+          GH_TOKEN: ${{ secrets.BENCH_SECRET_WRITER_TOKEN }}
+        run: |
+          set -euo pipefail
+          if [ -z "$GH_TOKEN" ]; then
+            echo "::error::BENCH_SECRET_WRITER_TOKEN is empty"
+            exit 1
+          fi
+          echo "Using secret BENCH_SECRET_WRITER_TOKEN"
+
+      - uses: actions/checkout@v5
+        with:
+          ref: main
+          persist-credentials: false
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          package-manager-cache: false
+
+      - name: Refuse to run beside a benchmark run
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: node scripts/bench-runner-lock.mjs --check
+
+      - name: The source run and its seal
+        id: source
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          path=$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$SOURCE_RUN" --jq '.path')
+          case "$path" in
+            .github/workflows/tex-lab-run.yml|.github/workflows/tex-replay.yml) echo "Source: $path" ;;
+            *) echo "::error::run $SOURCE_RUN is not a Tex Lab run or a Tex replay ($path)"; exit 1 ;;
+          esac
+          arts=$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$SOURCE_RUN/artifacts?per_page=100" --jq '.artifacts[] | select(.expired | not) | [.name, .created_at] | @tsv')
+          which=""
+          for name in bench-token-final bench-token-early; do
+            line=$(printf '%s\n' "$arts" | awk -F'\t' -v n="$name" '$1 == n' | head -n1)
+            if [ -n "$line" ]; then which=$name; created=$(printf '%s' "$line" | cut -f2); break; fi
+          done
+          if [ -z "$which" ]; then
+            echo "::error::run $SOURCE_RUN has no unexpired sealed token"
+            exit 1
+          fi
+          echo "Using $which, sealed at $created"
+          echo "name=$which" >> "$GITHUB_OUTPUT"
+          echo "created=$created" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: ${{ steps.source.outputs.name }}
+          run-id: ${{ inputs.source_run }}
+          github-token: ${{ github.token }}
+          path: ${{ runner.temp }}/seal
+
+      - name: The wrapped seal key from the source run's writer log
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          umask 077
+          job=$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$SOURCE_RUN/jobs?per_page=100" --jq '.jobs[] | select(.name == "Write the rotated refresh token") | .id' | head -n1)
+          if [ -z "$job" ]; then
+            echo "::error::run $SOURCE_RUN has no write-token job, so no wrapped seal key"
+            exit 1
+          fi
+          gh api --allow-escape-sequences "repos/$GITHUB_REPOSITORY/actions/jobs/$job/logs" > "$RUNNER_TEMP/writer.log"
+          # The step's env block prints `WRAPPED: <base64>` on one line (base64 -w0). Ciphertext only.
+          /usr/bin/python3 -c '
+          import re, sys
+          found = [m.group(1) for m in (re.match(r"^\S+\s+WRAPPED: ([A-Za-z0-9+/=]{100,})\s*$", line) for line in open(sys.argv[1], encoding="utf-8", errors="replace")) if m]
+          if not found:
+              sys.exit("no WRAPPED line in the writer log")
+          open(sys.argv[2], "w").write(found[-1])
+          ' "$RUNNER_TEMP/writer.log" "$RUNNER_TEMP/wrapped.b64"
+          rm -f "$RUNNER_TEMP/writer.log"
+          echo "Wrapped seal key: $(wc -c < "$RUNNER_TEMP/wrapped.b64") characters of ciphertext"
+
+      - name: Refuse when a newer token was already written
+        env:
+          GH_TOKEN: ${{ secrets.BENCH_SECRET_WRITER_TOKEN }}
+          CREATED: ${{ steps.source.outputs.created }}
+        run: |
+          set -euo pipefail
+          if ! updated=$(gh api "repos/$GITHUB_REPOSITORY/environments/production/secrets/BENCH_RUNNER_REFRESH_TOKEN_LIVE" --jq '.updated_at' 2>/dev/null); then
+            echo "::warning::could not read when BENCH_RUNNER_REFRESH_TOKEN_LIVE was last written; going on"
+            exit 0
+          fi
+          echo "BENCH_RUNNER_REFRESH_TOKEN_LIVE last written $updated; seal made $CREATED"
+          if [ "$(date -d "$updated" +%s)" -gt "$(date -d "$CREATED" +%s)" ]; then
+            echo "::error::the secret was written after this seal was made; that token is newer, not writing an older one"
+            exit 1
+          fi
+
+      - name: Open the seal and write the production secret
+        env:
+          GH_TOKEN: ${{ secrets.BENCH_SECRET_WRITER_TOKEN }}
+          WHICH: ${{ steps.source.outputs.name }}
+        run: |
+          set -euo pipefail
+          trap 'rm -f "$RUNNER_TEMP/priv.pem" "$RUNNER_TEMP/priv.enc" "$RUNNER_TEMP/wrapped.b64" "$RUNNER_TEMP/refresh-token"' EXIT
+          if [ -z "$GH_TOKEN" ]; then
+            echo "::error::BENCH_SECRET_WRITER_TOKEN is empty"
+            exit 1
+          fi
+          echo "Using secret BENCH_SECRET_WRITER_TOKEN"
+          cipher="$RUNNER_TEMP/seal/$WHICH.bin"
+          if [ ! -s "$cipher" ]; then
+            echo "::error::the sealed token file is missing"
+            exit 1
+          fi
+          umask 077
+          /usr/bin/base64 -d "$RUNNER_TEMP/wrapped.b64" > "$RUNNER_TEMP/priv.enc"
+          export SEAL="$GH_TOKEN"
+          /usr/bin/openssl enc -d -aes-256-cbc -pbkdf2 -iter 100000 -salt -pass env:SEAL -in "$RUNNER_TEMP/priv.enc" -out "$RUNNER_TEMP/priv.pem"
+          unset SEAL
+          node scripts/bench-token-open.mjs --private "$RUNNER_TEMP/priv.pem" --cipher "$cipher" --out "$RUNNER_TEMP/refresh-token"
+          mask=$(/usr/bin/python3 -c 'import pathlib,sys; sys.stdout.write(pathlib.Path(sys.argv[1]).read_text())' "$RUNNER_TEMP/refresh-token")
+          echo "::add-mask::$mask"
+          unset mask
+          echo "Writing BENCH_RUNNER_REFRESH_TOKEN_LIVE to the production environment"
+          # stdin, not --body-file (gh secret set has no such flag; check-bench-token-writer.mjs).
+          if ! gh secret set BENCH_RUNNER_REFRESH_TOKEN_LIVE --env production --repo "$GITHUB_REPOSITORY" < "$RUNNER_TEMP/refresh-token"; then
+            echo "::error::BENCH_SECRET_WRITER_TOKEN could not write BENCH_RUNNER_REFRESH_TOKEN_LIVE"
+            exit 1
+          fi
+          echo "Wrote BENCH_RUNNER_REFRESH_TOKEN_LIVE"

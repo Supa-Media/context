@@ -41,6 +41,8 @@ import { TOKEN_PKEYOPTS, WRAP_CIPHER } from "./bench-token-open.mjs";
 const ROOT = fileURLToPath(new URL("..", import.meta.url));
 const WORKFLOWS = join(ROOT, ".github/workflows");
 const FILES = ["tex-lab-run.yml", "tex-replay.yml"];
+/** Writers that open an earlier run's seal and do not seal anything themselves (no seal-marker count). */
+const OPEN_ONLY = ["bench-token-salvage.yml"];
 
 /** What a branch job must not be able to see. The admin token is banned in the whole file. */
 const BRANCH_FORBIDDEN = ["BENCH_SECRET_WRITER_TOKEN", "outputs.wrapped", "outputs.private"];
@@ -242,7 +244,7 @@ function runsCode(jobText) {
  * sentence must be able to name the writer token, and must not be able to
  * put the admin token back into the file under the excuse that it is prose.
  */
-export function problemsIn(name, text) {
+export function problemsIn(name, text, { seals = true } = {}) {
   const problems = [];
   if (text.includes("GH_ADMIN_TOKEN")) {
     problems.push(`${name} names GH_ADMIN_TOKEN. The writer job uses BENCH_SECRET_WRITER_TOKEN, and this file does not name the admin token.`);
@@ -268,7 +270,7 @@ export function problemsIn(name, text) {
       problems.push(`${name} job ${job.id} reads BENCH_SECRET_WRITER_TOKEN while running non-main code.`);
     }
   }
-  for (const marker of SEAL_MARKERS) {
+  for (const marker of seals ? SEAL_MARKERS : []) {
     const seen = text.split(marker).length - 1;
     if (seen < 2) problems.push(`${name} uses ${marker} ${seen} time(s); the seal and the open both need it, twice (two seals, or a wrap and an unwrap).`);
   }
@@ -281,7 +283,7 @@ export function problemsIn(name, text) {
 
 function scan(dir = WORKFLOWS) {
   const problems = [];
-  for (const name of FILES) {
+  for (const name of [...FILES, ...OPEN_ONLY]) {
     let text;
     try {
       text = readFileSync(join(dir, name), "utf8");
@@ -289,7 +291,7 @@ function scan(dir = WORKFLOWS) {
       problems.push(`${name} could not be read (${error.code ?? error.message}).`);
       continue;
     }
-    problems.push(...problemsIn(name, text));
+    problems.push(...problemsIn(name, text, { seals: !OPEN_ONLY.includes(name) }));
   }
   return problems;
 }
@@ -431,6 +433,14 @@ ${SEAL_MARKERS.map((marker) => `      - run: echo ${marker}\n      - run: echo $
   const commentedFlag = `${stdinWrite}\n# gh secret set BENCH_RUNNER_REFRESH_TOKEN_LIVE --body-file "$RUNNER_TEMP/refresh-token"\n`;
   expect("a comment may name --body-file", problemsIn("comment-flag.yml", commentedFlag).length === 0);
 
+  const openOnly = good.replace(/^.*echo (rsa_|-aes).*\n/gm, "");
+  expect("an open-only writer needs no seal markers", problemsIn("salvage.yml", openOnly, { seals: false }).length === 0);
+  expect("a sealing writer still needs them", problemsIn("salvage.yml", openOnly).length > 0);
+  expect(
+    "an open-only writer still may not write with --body-file",
+    problemsIn("salvage.yml", brokenWrite, { seals: false }).some((line) => line.includes("--body-file")),
+  );
+
   const live = scan();
   // Before the fix this list is non-empty. The self-test does not require the
   // live files to be clean: that is what running the checker without
@@ -458,7 +468,7 @@ function run() {
     for (const problem of problems) console.error(`  - ${problem}`);
     process.exit(1);
   }
-  console.log(`OK — ${FILES.join(" and ")} keep the writer token on main's checkout, and the refresh-token write is stdin or --body.`);
+  console.log(`OK — ${[...FILES, ...OPEN_ONLY].join(", ")} keep the writer token on main's checkout, and the refresh-token write is stdin or --body.`);
 }
 
 if (import.meta.url === pathToFileURL(process.argv[1] ?? "").href) {
