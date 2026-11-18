@@ -60,7 +60,8 @@ export function createGoogleChatRoute(clearedOwnAccount) {
       const named = typeof body.to === "string" || typeof body.space === "string";
       const account = named ? pick(body.account, true) : { from: flags.from };
       if (account.from === undefined) return account;
-      const messages = typeof flags.recent === "function" ? flags.recent(body) : (flags.recent ?? []);
+      // A function may answer later (the bench's simulated world asks a model, `bench/simWorld.mjs`).
+      const messages = typeof flags.recent === "function" ? await flags.recent(body) : (flags.recent ?? []);
       // One conversation the person named (`fetch chat:`, `tools/googleChatRead.js`) answers where it is, as the real route does.
       const place = typeof body.to === "string" ? { person: body.to } : typeof body.space === "string" ? { space: body.space } : null;
       return { ok: true, from: account.from, messages, ...(place ? { place } : {}) };

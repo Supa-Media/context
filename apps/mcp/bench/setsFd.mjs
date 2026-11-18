@@ -304,6 +304,9 @@ export function checkinMail(text) {
 /** Whether a conversation's setting says Tex has the calendar ("Tex has Gmail, Calendar, ...", "the shared calendar"). */
 export const hasCalendar = (c) => /\bcalendar\b/i.test(String(c?.setting ?? ""));
 
+/** Whether a conversation's setting says Tex has Google Chat ("Tex has John's Gmail, Calendar, Google Chat, ..."). */
+export const hasChat = (c) => /\bgoogle chat\b/i.test(String(c?.setting ?? ""));
+
 /**
  * Who message `i` of `c` runs as: the one person of a one-to-one chat; in a group its speaker, and for a trigger the
  * person the Worker queues it as: a job's asker, a routine's or check-in's writer (`groupRoutines.ts` `run.phone`), the
@@ -411,7 +414,7 @@ function triggerLine(line) {
  * day, judge and voice lines; failing that, the core set's own with `run_as:` them. One run each, on the scripted web,
  * on `today` and in the `group` when given. Null when nobody in `people.md` is called that.
  */
-export async function frontFor(dir, person, { today = null, group = null, calendar = false, setting = null, clock = null, sites = [], dated = false } = {}) {
+export async function frontFor(dir, person, { today = null, group = null, calendar = false, chat = false, setting = null, clock = null, sites = [], dated = false } = {}) {
   const people = parsePeople(await readFile(join(dir, "workspaces", "people.md"), "utf8"));
   if (!people.some((row) => row.person === person && row.personal)) return null;
   const names = (await readdir(join(dir, "tests"))).filter((n) => n.endsWith(".md")).sort((a, b) => (a === "core.md" ? -1 : b === "core.md" ? 1 : a.localeCompare(b)));
@@ -436,6 +439,8 @@ export async function frontFor(dir, person, { today = null, group = null, calend
   // Dev test does too: without it a test that wants a job started could never pass (Dev set, 2026-11-17).
   if (!/^background: on$/m.test(f)) f = f.replace(/^background: .*\n?/m, "") + "\nbackground: on";
   if (calendar && !/^calendar: /m.test(f)) f += "\ncalendar: connected";
+  // A setting that names Google Chat connects it (`chat.mjs`), as one that names the calendar connects that.
+  if (chat && !/^chat: /m.test(f)) f += "\nchat: connected";
   // The outside world the chat takes for granted, played by a model where the fixtures have nothing (`simWorld.mjs`,
   // Dev2 2026-11-17): it sees the chat's setting, never its labels.
   if (setting !== null) f = f.replace(/^world(?:_setting)?: .*\n?/gm, "") + `\nworld: simulated\nworld_setting: ${JSON.stringify(String(setting).replace(/\s+/g, " ").trim())}`;
@@ -548,7 +553,7 @@ async function runConvo(units, { tree, run, scratch, fake, parallel, env }) {
   const tests = [];
   for (const { person, today, clock, units: mine } of batches.values()) {
     // A conversation whose setting gives Tex the calendar runs with one connected (`calendar.mjs` benchCalendar).
-    const front = await frontFor(dir, person, { today, group, calendar: hasCalendar(c), setting: String(c.setting ?? ""), clock, sites: world.sites, dated: world.laid });
+    const front = await frontFor(dir, person, { today, group, calendar: hasCalendar(c), chat: hasChat(c), setting: String(c.setting ?? ""), clock, sites: world.sites, dated: world.laid });
     if (front === null) {
       rows.push(...mine.map((u) => ({ ...u.row, right: false, ran: false, usd: 0, why: `${person} has no bench world: a set chat's people are the bench's (apps/mcp/bench/ai/workspaces/people.md)` })));
       continue;

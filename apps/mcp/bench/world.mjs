@@ -19,7 +19,7 @@
  * matter, so "untouched for a month" means the same on every run.
  */
 
-import { readMailbox, searchMailbox } from "./mailbox.mjs";
+import { readMailbox, searchMailbox, sentMail } from "./mailbox.mjs";
 import { TRANSCRIPTS_FOLDER } from "../src/agent/transcript.js";
 import { HOUSEKEEPING_CLIENT_ID } from "../src/agent/housekeeping.js";
 import { arrivedEmail, checkInTurn, houseTurn, routineTurn, startCall, startGrants } from "./worldStarts.mjs";
@@ -36,12 +36,14 @@ import { createWorkerCtx } from "../test/workerCtx.mjs";
 import { readStream, workerEvents } from "./workerWire.mjs";
 import { benchMachines } from "./benchMachines.mjs";
 import { benchGroup, benchHome } from "./groupChat.mjs";
-import { ACCOUNT_ID as D1_ACCOUNT_ID, API_TOKEN as D1_API_TOKEN, CLOUDFLARE_API_BASE, createD1Backend } from "../test/searchProjection/fixtures.mjs";
+import { ACCOUNT_ID as D1_ACCOUNT_ID, API_TOKEN as D1_API_TOKEN, createD1Backend } from "../test/searchProjection/fixtures.mjs";
 import { createVectorizeBackend, meaningIndexFor } from "../test/vectorizeStub.mjs";
 import { wireSearchSettings } from "../src/search/settings.js";
 import { texStoreNamespace } from "../test/texStoreFixture.mjs";
 import { assertIsoDate, clockMs, installClock, noonUtcMs, noteModifiedAt, realNow } from "./clock.mjs";
 import { benchCalendar } from "./calendar.mjs";
+import { connectChat } from "./chat.mjs";
+import { interceptFetch } from "./worldFetch.mjs";
 import { worldChat } from "./worldChat.mjs";
 import { chatEntries, modelLog } from "./modelLog.mjs";
 import { failedStatus, roundsOf } from "./trace.mjs";
@@ -50,7 +52,6 @@ import { homeChanges, noteChanges, worldStandIns } from "./worldStandIns.mjs";
 import { lastWords } from "./worldStarts.mjs";
 
 /** Brave's search endpoint (`src/agent/search.js`). */
-const BRAVE_SEARCH = "https://api.search.brave.com/";
 
 export const S3_ENDPOINT = "https://s3.bench.invalid";
 /** How much of a filed note's text a record keeps, for `containing` checks. */
@@ -217,8 +218,10 @@ export async function createWorld(bench, person, setupRaw, models, today = null,
     const address = mail[0].address;
     controlPlane.flags.mailboxes = [{ address, folder: "0-inbox/email" }];
     const logged = (event, value) => (mailEvents.push(event(value)), value);
-    controlPlane.flags.mailResults = (query) => logged((found) => `mail search ${JSON.stringify(String(query))}: ${found.length} found`, searchMailbox(mail, query));
-    controlPlane.flags.mailMessage = (body) => logged(() => `mail read ${body.id}`, readMailbox(mail, body.address, body.id));
+    // The fixture's inbox and what the run really sent (Sent, `mailbox.mjs` sentMail), each searched and read.
+    const everything = () => [...mail, ...sentMail(controlPlane.emailCalls, address)];
+    controlPlane.flags.mailResults = (query) => logged((found) => `mail search ${JSON.stringify(String(query))}: ${found.length} found`, searchMailbox(everything(), query));
+    controlPlane.flags.mailMessage = (body) => logged(() => `mail read ${body.id}`, readMailbox(everything(), body.address, body.id));
     controlPlane.flags.emailDrafter = address;
   };
   if (mail.length > 0) connectMail();
@@ -236,38 +239,14 @@ export async function createWorld(bench, person, setupRaw, models, today = null,
   // The scripted web a golden task runs on (`sites.mjs`): the browser
   // Worker's stand-in, and the answers to web searches.
   const sim = simulatedWorld(models, controlPlane, { today, person, noMailbox: mail.length === 0, gaps }); // a Dev test's outside world (`simWorld.mjs`)
+  // A chat whose setting names Google Chat is connected, its reads answered by the world (`chat.mjs`).
+  if (models.chat === "connected") connectChat(controlPlane.googleChat, { person, sim });
   const kept = sitesIn(models.sites, sim, models.ownSites ?? []);
   const web = kept?.length ? createWeb(kept) : null;
 
-  // Model calls are the only traffic that leaves the world, and web searches
-  // when the run has a search key and no scripted web: production searches
-  // the real web, so a run does too (decided 2026-10-09; until 2026-10-11 the
-  // world refused the call, so every search_web in a result had failed).
-  const below = globalThis.fetch;
+  // Model calls are the only traffic that leaves the world, and web searches when the run has a search key and no scripted web (`worldFetch.mjs`).
   const modelCalls = modelLog(stand.modelFetch); // every model call kept, for the conversation's ledger file (`modelLog.mjs`)
-  globalThis.fetch = async (input, init) => {
-    const url = typeof input === "string" ? input : input.url;
-    if (url.startsWith("https://gateway.ai.cloudflare.com/")) return modelCalls.fetch(url, init);
-    if (url.startsWith(BRAVE_SEARCH)) {
-      if (web || sim) {
-        const q = new URL(url).searchParams.get("q") ?? "";
-        let results = web ? web.search(q) : [];
-        if (results.length === 0 && sim) results = await sim.search(q);
-        return new Response(JSON.stringify({ web: { results } }), { status: 200, headers: { "content-type": "application/json" } });
-      }
-      if (typeof models.searchKey === "string" && models.searchKey) return below(input, init);
-      // A socketed run (`modelSocket.mjs`) offers web search and finds nothing, the same live and replayed.
-      if (models.offlineWeb === true) return new Response(JSON.stringify({ web: { results: [] } }), { status: 200, headers: { "content-type": "application/json" } });
-    }
-    if (url.startsWith(CONTROL_PLANE_ORIGIN)) return stand.controlPlane(url, input, init, below);
-    if (url.startsWith(S3_ENDPOINT)) return below(input, init);
-    if ((d1 || vectorize) && url.startsWith(CLOUDFLARE_API_BASE)) return below(input, init);
-    stand.noStandIn(url);
-    throw new Error("a benchmark turn tried to reach the network outside the model");
-  };
-  restore.push(() => {
-    globalThis.fetch = below;
-  });
+  restore.push(interceptFetch({ modelCalls, web, sim, models, stand, s3Endpoint: S3_ENDPOINT, local: Boolean(d1 || vectorize) }));
 
   const ids = placeWorkspaces(bench, { s3, controlPlane, baseMs, search: prepared ? "ready" : null, meaning: vectorize !== null, prepared });
 
