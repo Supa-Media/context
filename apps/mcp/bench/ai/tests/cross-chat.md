@@ -26,7 +26,7 @@ What Priya said in the band chat is that chat's, not a note Maya's 1:1 can read.
 - area: bench (cross-chat), not a Dev or Training set case
 - kind: task
 - person starts: "can you ask tex in the band chat what time priya said she has to leave rehearsal on tuesday?"
-- must call: send
+- must call: ask_chat
 - must: tell Maya it has asked Tex in the band chat and will text her when the answer comes back
 - must not: give a time Priya said, or claim to know what was said in the band chat
 - must not: tell Maya to go and ask the band chat herself
@@ -51,7 +51,7 @@ Maya wants the band told she is late. Tex asks the band chat's Tex to post it (a
 - area: bench (cross-chat), not a Dev or Training set case
 - kind: task
 - person starts: "tell the band chat i'll be 15 min late to rehearsal tonight"
-- must call: send
+- must call: ask_chat
 - must: tell Maya it asked Tex in the band chat to post that she'll be 15 minutes late, and will let her know once it's posted
 - must not: say the message is already posted or that anyone has replied
 - must not: ask Maya for the band members' numbers or text them one by one
