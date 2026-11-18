@@ -15,11 +15,24 @@ over a GitHub listener), with a Models pick of the AI gateway or Claude Code on
   control plane at deploy. The workflow reports its stage and results back
   with the deploy key (`texLabRuns:report`); the Lab and `tex_dev` `runs` read
   them.
-- **The Dev set only.** The workflow runs the bench's node-alone runner
-  (`node apps/mcp/bench/run.mjs sets run`) on the repo's Dev conversations
-  with the Lab's Dev drafts over them (`scripts/tex-lab-run.mjs`). Never
-  Training (a step has seen it as examples) and never the Test set (people
-  only, in the eval service; it gates only a Promote's pull request).
+- **What handed-off jobs add is reported beside the score.** A Front door
+  test whose turn started a background job runs that job and its report
+  (`apps/mcp/bench/jobDelivery.mjs`), and a run's results carry `handoff`:
+  jobs run, parts, the job advisor's calls (its done check on each part), their
+  spend and the spend per job, already inside `costUsd` (Dev2, 2026-11-18:
+  "report how many advisor calls and how much cost a handed-off job adds per
+  run ... so Finance can check spend"). The Lab's Runs panel says it after the
+  cost.
+- **The Dev set, or Training when asked.** The workflow runs the bench's
+  node-alone runner (`node apps/mcp/bench/run.mjs sets run`) on the repo's Dev
+  conversations with the Lab's Dev drafts over them (`scripts/tex-lab-run.mjs`).
+  A run with `set: "training"` (`tex_dev` `run`) runs the repo's Training
+  conversations instead, less any the Lab moved to Dev or removed (Dev2,
+  2026-11-18: "prove it on Training ... a scored Lab Training run"). A step has
+  seen Training as examples, so a Training score shows a change works where it
+  was taught, and Dev is still the score that says it generalizes. Never the
+  Test set (people only, in the eval service; it gates only a Promote's pull
+  request).
 - **The draft is the config of that run.** Its graph is written into the
   checkout by the promote script's own check and write, so a draft Promote
   would refuse fails the run with the same reason.

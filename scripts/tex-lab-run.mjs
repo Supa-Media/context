@@ -9,8 +9,8 @@
  *
  * `prepare` reads the run Convex hands the workflow (`texLabRuns:job`): the Dev set is the repo's
  * (`apps/mcp/bench/sets/dev`) with the Lab's drafts over it (a draft in Dev replaces or adds a conversation; one moved
- * to Training or removed leaves it out). Never Training, and never the Test set, which is not in the repo or in the
- * Lab's drafts at all. It writes `<dir>/convs.json`, and `<dir>/graph.json` when the run is a draft's. Standard output
+ * to Training or removed leaves it out). A run with `set: "training"` runs the repo's Training set instead
+ * (`trainingConversations`). Never the Test set, which is not in the repo or in the Lab's drafts at all. It writes `<dir>/convs.json`, and `<dir>/graph.json` when the run is a draft's. Standard output
  * says counts and ids only: the workflow's log is public.
  */
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
@@ -38,6 +38,17 @@ export function devConversations(repo, drafts, convId = null) {
   return all.filter((c) => c.id === convId);
 }
 
+/**
+ * The Training conversations a Training run covers: the repo's, less any the Lab moved to Dev or removed (Dev2,
+ * 2026-11-18: "prove it on Training ... a scored Lab Training run"). The Lab's Training drafts carry only their id and
+ * set, so a conversation edited in the Lab runs as the repo has it until its Promote.
+ */
+export function trainingConversations(repo, drafts, convId = null) {
+  const gone = new Set((drafts ?? []).filter((d) => d.set !== "training" || d.removed).map((d) => d.id));
+  const all = repo.filter((c) => c.set === "training" && !gone.has(c.id));
+  return convId === null ? all : all.filter((c) => c.id === convId);
+}
+
 /** The runner's rows as the Lab reads a run's results (`texLabRuns.cleanResults`). */
 export function resultsOf(rows, ms) {
   const perConv = new Map();
@@ -56,6 +67,9 @@ export function resultsOf(rows, ms) {
     pass: rows.filter((r) => r.right).length,
     total: rows.length,
     costUsd: Math.round(rows.reduce((a, r) => a + (r.usd || 0), 0) * 10_000) / 10_000,
+    // What the background jobs the Front door handed off added, already inside costUsd (Dev2, 2026-11-18: "report how
+    // many advisor calls and how much cost a handed-off job adds per run ... so Finance can check spend").
+    handoff: handoffOf(rows),
     ms: Number(ms) || 0,
     perConv: [...perConv.values()],
     perNode: [...perNode.values()],
@@ -73,6 +87,18 @@ export function resultsOf(rows, ms) {
       ...detailOf(r),
     })),
   };
+}
+
+/** The hand-off jobs of a run's rows summed: jobs, parts, the job advisor's calls, their spend, and per job. */
+export function handoffOf(rows) {
+  const sum = { jobs: 0, parts: 0, advisorCalls: 0, usd: 0 };
+  for (const r of rows) {
+    const h = r?.handoff;
+    if (!h || typeof h !== "object") continue;
+    for (const key of Object.keys(sum)) sum[key] += Number(h[key]) || 0;
+  }
+  const usd = Math.round(sum.usd * 10_000) / 10_000;
+  return { ...sum, usd, perJobUsd: sum.jobs > 0 ? Math.round((sum.usd / sum.jobs) * 10_000) / 10_000 : 0, advisorCallsPerJob: sum.jobs > 0 ? Math.round((sum.advisorCalls / sum.jobs) * 100) / 100 : 0 };
 }
 
 /**
@@ -97,11 +123,14 @@ async function main() {
     const job = JSON.parse(readFileSync(a, "utf8"));
     if (!job || typeof job !== "object") throw new Error("no such run");
     mkdirSync(b, { recursive: true });
-    const convs = devConversations(await loadSets(), job.drafts, job.kind === "chat" ? job.convId : null);
-    if (job.kind === "chat" && convs.length === 0) throw new Error(`${job.convId} is not a Dev conversation`);
+    const training = job.set === "training";
+    const pick = training ? trainingConversations : devConversations;
+    const convs = pick(await loadSets(), job.drafts, job.kind === "chat" ? job.convId : null);
+    const name = training ? "Training" : "Dev";
+    if (job.kind === "chat" && convs.length === 0) throw new Error(`${job.convId} is not a ${name} conversation`);
     writeFileSync(join(b, "convs.json"), JSON.stringify(convs));
     if (job.graph) writeFileSync(join(b, "graph.json"), job.graph);
-    console.log(`Dev conversations: ${convs.length} (${convs.map((c) => c.id).join(", ")}); ${job.graph ? "draft graph" : "main"}`);
+    console.log(`${name} conversations: ${convs.length} (${convs.map((c) => c.id).join(", ")}); ${job.graph ? "draft graph" : "main"}`);
     return;
   }
   if (sub === "results") {

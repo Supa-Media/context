@@ -9,6 +9,7 @@ import { texConfigOf } from "../texConfig.js";
 import { aiGatewayConfig } from "../aiGateway.js";
 import { carriesData, withAttachmentImages } from "../attachments.js";
 import { jobPrompt, jobReportPrompt, withBackground, withJobSteps } from "../background.js";
+import { handoffHook } from "../handoff.js";
 import { withJobDrafts } from "../jobSaved.js";
 import { canRunBuiltin } from "../builtin.js";
 import { withChatSkills } from "../chatSkills.js";
@@ -98,7 +99,7 @@ function answerChecksFor({ judge, doIt, claims, tries, chatLog, ledgerAt }) {
 
 // TEX ENTRY POINT: begin (every await below is a timed `tex` call: `texTiming.js`, checked by `scripts/tex-entry-check.mjs`)
 export async function runTheModel(t, via) {
-  const { allowedBeside = false, allowedRead, attachments, background, begun, body, channel, chatLog, chatTurn, claims, computersRead, mailRead = null, groupsRead = null, controlPlane, keptReads = null, delegation: delegated, dispatch, dropped, earlier, env, fallback, forwarding, group, groupWriting, history, home, inThread, job, knowsRead, learned, ledger, ledgerAt, logTurn, logged, cardCheck, maker, meter, noteLinking, offered, opened, outcome, outgoing, paid, production, productionModel, question, quoted, reacted, recordPreface = "", refused, report, router, routine, runner, seenWeb, session, setAside, shown, skills, stages, steer, step, store, streamed, supervision, tex, texted, texting, textingWriting, threadsRun, timeZone, view = null, week = null } = t;
+  const { allowedBeside = false, allowedRead, attachments, background, begun, body, channel, chatLog, chatTurn, claims, computersRead, mailRead = null, groupsRead = null, controlPlane, keptReads = null, delegation: delegated, dispatch, dropped, earlier, env, fallback, forwarding, group, groupWriting, history, home, inThread, job, knowsRead, learned, ledger, ledgerAt, logTurn, logged, cardCheck, maker, meter, noteLinking, offered, opened, outcome, outgoing, paid, production, productionModel, question, quoted, reacted, refused, report, router, routine, runner, seenWeb, session, setAside, shown, skills, stages, steer, step, store, streamed, supervision, tex, texted, texting, textingWriting, threadsRun, timeZone, view = null, week = null } = t;
   // What this chat has read before, under this turn's own carry key: listed in the per-text block, opened with read_back (`readsIndex.js`).
   const reads = keptReads === null ? null : readsOf(keptReads.entries, { grant: carryKey(session), before: logged?.parts?.since ?? null, notes: group === null });
   // When the setup's reply reviewer reads a draft, it replaces the older word checks (`untriedWeb.js`, `doItChecks.js`); a draft it does not read (one written with no action, `replyJudge.js`) gets them instead.
@@ -151,6 +152,8 @@ export async function runTheModel(t, via) {
   // `groupModelTurn.ts`, `inbox.ts` `acknowledgeText`), nor on a turn the gateway asked (a vault save, a hand-back).
   const reactable = !quoted?.tapback && question !== VAULT_SAVED_QUESTION && question !== HANDED_BACK_QUESTION;
   const tapping = chatTurn && reactable && job === null && !routine && report === null && !t.crossChat && drawn.wired("tools", "tapback") ? tapbackEnding({ gate: (input) => drawn.fire("tools", "tapback", input, { env }), tagged: group?.tagged === true }) : null;
+  // A draft the Answer check would send back with no send-back left hands the job to a background worker, when the config wires the Hand-off node (`../handoff.js`).
+  t.handoff = chatTurn && job === null && !routine && report === null && Boolean(background) && drawn.wired("answerCheck", "handoff") ? handoffHook({ background, gate: (input) => drawn.fire("answerCheck", "handoff", input, { env }), ask: question }) : null;
   const keptOptions = { question, on: !runner, ...(aiGatewayConfig(env) !== null && drawn.wired("tools", "moveJudge") ? { judge: (input) => drawn.fire("tools", "moveJudge", input, { env }), said: saidBefore(history) } : {}) };
   const pictureRun = (name, args, callTool) => gatewayGraph({ env, writer: chatLog, turn: ledgerAt?.turn ?? null }).fire("tools", "picture", { tool: name, args }, { env, maker, callTool, cardCheck }).then((out) => out.result); // interim: io.use.picture once tools is a node
   steer?.revertWith(dispatch); // a provisional run's note saves are read first and put back through the client's own dispatcher (`steer.js`)
@@ -160,7 +163,7 @@ export async function runTheModel(t, via) {
   stages?.ready(); const turn = await tex.step("model", () => runTurn({
     resumeFrom: rounds?.from ?? null, keepRounds: rounds?.keep ? { keep: rounds.keep, marks: rounds.marks } : null,
     // With the log, the chat and its tapbacks are in the transcript, and the covered events are the question (`loggedTurn.js`).
-    question: [recordPreface, logged === null && view === null ? chatLines(group) : "", logged === null ? reactedLine(reacted) : "", setAsideLine(setAside, dropped), paidLine(paid), sentNoteLinksLine(question, noteLinking.origin), (logged ? loggedQuestion(logged.question, quoted, logged.replying) : askedWith(question, quoted)), logged === null ? sleepLineNote(question) : ""].filter(Boolean).join("\n\n"),
+    question: [logged === null && view === null ? chatLines(group) : "", logged === null ? reactedLine(reacted) : "", setAsideLine(setAside, dropped), paidLine(paid), sentNoteLinksLine(question, noteLinking.origin), (logged ? loggedQuestion(logged.question, quoted, logged.replying) : askedWith(question, quoted)), logged === null ? sleepLineNote(question) : ""].filter(Boolean).join("\n\n"),
     place: body.place ?? null,
     tools: [
       ...agentTools(offered),

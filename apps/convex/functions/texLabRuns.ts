@@ -92,6 +92,13 @@ const num = (x: unknown) => (typeof x === "number" && Number.isFinite(x) ? x : 0
 const str = (x: unknown, n = 80) => (typeof x === "string" ? x.slice(0, n) : "");
 
 /** A workflow's results as the Lab reads them: numbers, ids, each verdict's short got/want and a miss's detail, nothing else. */
+/** A run's hand-off spend, cleaned (`cleanResults`). */
+function handoffOf(x: unknown) {
+  const h = (x && typeof x === "object" ? x : {}) as Record<string, unknown>;
+  const usd = (v: unknown) => Math.round(num(v) * 10_000) / 10_000;
+  return { jobs: num(h.jobs), parts: num(h.parts), advisorCalls: num(h.advisorCalls), usd: usd(h.usd), perJobUsd: usd(h.perJobUsd), advisorCallsPerJob: num(h.advisorCallsPerJob) };
+}
+
 export function cleanResults(r: unknown) {
   const o = (r && typeof r === "object" ? r : {}) as Record<string, unknown>;
   const list = (x: unknown) => (Array.isArray(x) ? x.slice(0, MAX_ROWS) : []) as Record<string, unknown>[];
@@ -99,6 +106,8 @@ export function cleanResults(r: unknown) {
     pass: num(o.pass),
     total: num(o.total),
     costUsd: Math.round(num(o.costUsd) * 10_000) / 10_000,
+    // The handed-off jobs' share of the run (`scripts/tex-lab-run.mjs` handoffOf): jobs, parts, advisor calls, spend.
+    handoff: handoffOf(o.handoff),
     ms: num(o.ms),
     perConv: list(o.perConv).map((c) => ({ id: str(c.id), pass: num(c.pass), total: num(c.total) })),
     perNode: list(o.perNode).map((c) => ({ node: str(c.node, 40), pass: num(c.pass), total: num(c.total) })),
@@ -128,6 +137,7 @@ const shown = async (ctx: QueryCtx, r: Run, names = new Map<string, string>()) =
     id: r._id,
     versionId: r.versionId,
     kind: r.kind,
+    set: r.set ?? "dev",
     convId: r.convId ?? null,
     nodeId: r.nodeId ?? null,
     models: r.models,
@@ -198,6 +208,9 @@ export async function startRun(ctx: MutationCtx, who: Who, a: Record<string, unk
   if (models !== "gw" && models !== "cc") return { status: "bad_request", error: "models is gw (the AI gateway) or cc (Claude Code)" };
   const convId = kind === "chat" ? a.convId : undefined;
   const nodeId = kind === "node" ? a.nodeId : undefined;
+  // Training is the repo's Training set (Dev2, 2026-11-18: "prove it on Training ... a scored Lab Training run").
+  const set = a.set === undefined || a.set === null || a.set === "dev" ? undefined : a.set === "training" ? "training" : null;
+  if (set === null) return { status: "bad_request", error: "set is dev (default) or training" };
   if (kind === "chat" && (typeof convId !== "string" || !CONVO_ID.test(convId))) return { status: "bad_request", error: "a chat run names the Dev conversation (convId)" };
   if (kind === "node" && (typeof nodeId !== "string" || !NODE_ID.test(nodeId))) return { status: "bad_request", error: "a node run names the step (nodeId)" };
   let code = a.code === undefined ? null : codeOf(a.code);
@@ -223,6 +236,7 @@ export async function startRun(ctx: MutationCtx, who: Who, a: Record<string, unk
     kind,
     ...(typeof convId === "string" ? { convId } : {}),
     ...(typeof nodeId === "string" ? { nodeId } : {}),
+    ...(set ? { set } : {}),
     models,
     ...(code ? { code } : {}),
     stage: "queued",
@@ -279,7 +293,7 @@ export async function promoteAnswered(ctx: MutationCtx, versionId: string, pr: s
 // ── The Lab's door ────────────────────────────────────────────────────────
 
 export const start = mutation({
-  args: { versionId: v.string(), kind: v.string(), convId: v.optional(v.string()), nodeId: v.optional(v.string()), models: v.optional(v.string()), code: v.optional(v.string()) },
+  args: { versionId: v.string(), kind: v.string(), convId: v.optional(v.string()), nodeId: v.optional(v.string()), models: v.optional(v.string()), code: v.optional(v.string()), set: v.optional(v.string()) },
   returns: v.object({ runId: v.id("texLabRuns") }),
   handler: async (ctx, a) => {
     const actor = await requireAdmin(ctx);
@@ -351,7 +365,7 @@ export const get = query({
 /** `tex_dev` `run` and `runs`; null for any other action. */
 export async function runAction(ctx: MutationCtx, who: Who, action: string, a: Record<string, unknown>, now: number): Promise<Record<string, unknown> | null> {
   if (action === "run") {
-    const answer = await startRun(ctx, who, { versionId: a.draft, kind: a.kind, convId: a.conv, nodeId: a.node, models: a.models, code: a.code }, now);
+    const answer = await startRun(ctx, who, { versionId: a.draft, kind: a.kind, convId: a.conv, nodeId: a.node, models: a.models, code: a.code, set: a.set }, now);
     return answer.status === "ok" ? { status: "ok", id: answer.runId } : answer.status === "not_found" ? { status: "not_found" } : { status: "bad_request", error: answer.error };
   }
   if (action === "code") return await setDraftCode(ctx, a.draft, a.code, now);
@@ -388,7 +402,7 @@ export const job = internalQuery({
     // Every draft conversation: a Dev draft is run in place of its repo copy; a repo Dev conversation moved to
     // Training or removed in the Lab is left out. Training drafts carry only their id and set.
     const drafts = (await ctx.db.query("texSetConvos").collect()).map((d) => ({ id: d.convoId, set: d.set, removed: d.removed, ...(d.set === "dev" && !d.removed ? { conv: d.data } : {}) }));
-    return { id: r._id, versionId: r.versionId, kind: r.kind, convId: r.convId ?? null, nodeId: r.nodeId ?? null, models: r.models, code: r.code ?? null, graph: draft?.graph ?? null, drafts };
+    return { id: r._id, versionId: r.versionId, kind: r.kind, set: r.set ?? "dev", convId: r.convId ?? null, nodeId: r.nodeId ?? null, models: r.models, code: r.code ?? null, graph: draft?.graph ?? null, drafts };
   },
 });
 

@@ -27,7 +27,7 @@ export type LabRun = {
   by?: string;
   startedAt: number;
   finishedAt?: number;
-  results: { pass: number; total: number; costUsd: number; ms: number; perConv?: Array<{ id: string; pass: number; total: number }>; perNode?: Array<{ node: string; pass: number; total: number }>; rows?: RunRow[] } | null;
+  results: { pass: number; total: number; costUsd: number; handoff?: Handoff; ms: number; perConv?: Array<{ id: string; pass: number; total: number }>; perNode?: Array<{ node: string; pass: number; total: number }>; rows?: RunRow[] } | null;
   error?: string;
   /** GitHub refused this run, and a later run has started since: the cause is fixed (`functions/texLabRuns.ts` `fixedSince`). */
   fixedSince?: boolean;
@@ -56,7 +56,13 @@ export const runLabel = (r: LabRun, title?: (id: string) => string, node?: (id: 
 export const stageWords: Record<RunStage, [string, string]> = { queued: ["q", "Queued on GitHub"], running: ["r", "Running"], done: ["d", "Done"], failed: ["f", "Failed"] };
 export const modelsWords = (r: Pick<LabRun, "kind" | "models">) => (r.kind === "gate" ? "eval service" : r.models === "cc" ? "Claude Code" : "AI gateway");
 export const scoreWords = (r: LabRun) => (r.results ? `${r.results.pass}/${r.results.total} right` : "");
-export const costWords = (r: LabRun) => (r.kind === "gate" ? "eval service's own" : r.models === "cc" ? "$0.00 (subscription)" : r.results ? `$${r.results.costUsd.toFixed(3)} (AI gateway)` : "");
+export const costWords = (r: LabRun) => (r.kind === "gate" ? "eval service's own" : r.models === "cc" ? "$0.00 (subscription)" : r.results ? `$${r.results.costUsd.toFixed(3)} (AI gateway)${handoffWords(r.results.handoff)}` : "");
+
+/** What handed-off background jobs added to a run, already inside its cost (Dev2, 2026-11-18: for Finance). */
+export type Handoff = { jobs: number; parts: number; advisorCalls: number; usd: number; perJobUsd: number; advisorCallsPerJob: number };
+
+export const handoffWords = (h: Handoff | undefined) =>
+  h && h.jobs > 0 ? `, of which ${h.jobs} handed-off job${h.jobs === 1 ? "" : "s"}: ${h.advisorCalls} advisor call${h.advisorCalls === 1 ? "" : "s"}, $${h.usd.toFixed(3)} ($${h.perJobUsd.toFixed(3)} a job)` : "";
 export const ago = (at: number, now = Date.now()) => {
   const s = Math.max(0, Math.round((now - at) / 1000));
   return s < 60 ? "just now" : s < 3600 ? `${Math.round(s / 60)} min ago` : s < 86400 ? `${Math.round(s / 3600)} h ago` : `${Math.round(s / 86400)} d ago`;

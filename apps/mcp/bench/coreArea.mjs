@@ -8,6 +8,7 @@
  * and the tests edited in Context are pulled into each tree first (`pnpm ai pull texting-assistant`).
  */
 import { execFile } from "node:child_process";
+import { handoffTotals } from "./handoffTotals.mjs";
 import { readFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { promisify } from "node:util";
@@ -56,10 +57,13 @@ export function coreCases({ test, testRaw, resultRaw, keyRaw, setup = SETUP }) {
     // And each line that held with the judge's reason, so a passed row can be audited too (Dev2, 2026-11-17).
     const held = verdicts.filter((v) => v.pass).map((v) => ({ kind: v.kind, line: v.line, reason: v.reason }));
     const said = answers.filter((a) => runIds.includes(a.id)).flatMap((a) => (a.conversation ?? []).filter((turn) => turn.from !== "person" && turn.from !== "them").map((turn) => turn.text));
+    // The background jobs its runs handed off and ran (`jobDelivery.mjs`): what they added, never a score.
+    const handoff = handoffTotals(answers.filter((a) => runIds.includes(a.id)).flatMap((a) => a.delivered ?? []));
     rows.push({
       misses,
       held,
       said,
+      ...(handoff.jobs > 0 ? { handoff } : {}),
       id: `${test}/q${c.question}`,
       right: cell.runs > 0 && cell.passed === cell.runs,
       results,
