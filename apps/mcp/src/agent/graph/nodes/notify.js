@@ -9,7 +9,7 @@
  * check-in route's answer as the texting Worker reads it.
  *
  * `dispatch`, `store`, `session` and `deliver` (the delivery, handed in so no node imports another's code) come from
- * `io.ctx.notify`.
+ * `io.ctx.notify`. `turn`, when given, is the run's turn: the ping's note carries it (`attention.js`).
  */
 
 import { readWithEtag } from "../../jobLog.js";
@@ -22,10 +22,10 @@ import { disarmTexting } from "../../../tools/approvals.js";
  * @param {{ ctx: { notify: { dispatch: Function, store: object, session: object, deliver: Function } } }} io
  */
 export async function notify(input, io) {
-  const { dispatch, store, session, deliver } = io.ctx.notify;
+  const { dispatch, store, session, deliver, turn } = io.ctx.notify;
   const { now, timeZone } = input;
   const until = quietHoursEnd((await readWithEtag(dispatch, HEARTBEAT_SETTINGS_PATH))?.body, now, timeZone); // their quiet hours: when to come back, or null
-  const delivered = await deliver(dispatch, store, { now, timeZone, onlyEmergencies: until !== null });
+  const delivered = await deliver(dispatch, store, { now, timeZone, onlyEmergencies: until !== null, turn });
   console.log(
     JSON.stringify({
       event: "attention_delivery",

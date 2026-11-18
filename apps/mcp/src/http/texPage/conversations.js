@@ -13,6 +13,7 @@
  */
 
 import { listedThreads, readThreads } from "../../agent/conversationThreads.js";
+import { OWN_SOURCES } from "../../agent/sentOnItsOwn.js";
 
 /** The most threads one list answers, and the most lines one thread does. */
 export const MAX_THREADS = 500;
@@ -57,6 +58,8 @@ export function threadLines(thread, entries) {
       continue;
     }
     if (from !== "tex") continue;
+    // A text Tex sent on its own that was never said is in no thread (`sentOnItsOwn.js`).
+    if (entry.delivered === false && OWN_SOURCES.has(entry.source)) continue;
     const covers = Array.isArray(entry.covers) ? entry.covers : [];
     const answers = covers.length > 0 ? covers.some((id) => mine.has(id)) : since.some((id) => mine.has(id));
     since = [];

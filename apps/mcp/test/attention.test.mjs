@@ -45,6 +45,7 @@ import { CONTROL_PLANE_ORIGIN, GATEWAY_SECRET, createControlPlaneStub, createS3B
 import { createWorkerCtx } from "./workerCtx.mjs";
 import { fullToolList } from "./fullToolList.mjs";
 import { conversationTurns } from "./agentConversationFixture.mjs";
+import { ledgerFor, ONE_TO_ONE_CHAT } from "../src/agent/ledger.js";
 import { texStoreNamespace, withAgentHome } from "./texStoreFixture.mjs";
 
 const S3_ENDPOINT = "https://s3.example-attention.test";
@@ -271,6 +272,13 @@ test("the check-in's claim texts what is waiting, and the reply has it in front 
   assert.equal(delivered.status, 200);
   assert.equal(delivered.body.outcome, "speak");
   assert.equal(delivered.body.answer, "Claude Code: The attention agent is in production.");
+  assert.equal(delivered.body.source, "ping");
+  assert.match(delivered.body.turn, /^ck/);
+  const pingNotes = (await ledgerFor(env, { person: "ws_attention" }).read(ONE_TO_ONE_CHAT, { kinds: ["note"] })).entries;
+  assert.ok(
+    pingNotes.some((entry) => entry.turn === delivered.body.turn && entry.text === delivered.body.answer),
+    "the ping's note in the ledger carries the same turn as the text",
+  );
   assert.match(log(), /· asked · texted /);
   const conversation = { turns: conversationTurns(bucket) };
   assert.equal(conversation.turns?.at(-2)?.text, ATTENTION_QUESTION);

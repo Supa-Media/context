@@ -25,7 +25,8 @@ export async function finishARoutine(t) {
   const { afterAnswer, body, chatLog, dispatch, env, ledger, ledgerTurn, production, received, routine, runner, runs, session, store, supervision, tex, turn } = t;
   if (runner) {
     const ran = turn.exhausted ? { outcome: "failed", text: "" } : runOutcome(turn.answer, { routine, runs });
-    chatLog?.write(wordsEntry("note", ran.text, { turn: ledgerTurn, routine: routine.path, outcome: ran.outcome, ...runFacts(env, production, tex, turn, received), ...(ledger.untrusted === true ? { tainted: true } : {}), ...(Array.isArray(routine.settings?.to) && routine.settings.to.length > 0 ? { others: true } : {}) })); await tex.after("ledger", () => chatLog?.flush());
+    // `send: note` is a routine kept, not texted: readers show the note and no text (`sentOnItsOwn.js` `keptNotTexted`).
+    chatLog?.write(wordsEntry("note", ran.text, { turn: ledgerTurn, routine: routine.path, outcome: ran.outcome, ...runFacts(env, production, tex, turn, received), ...(ledger.untrusted === true ? { tainted: true } : {}), ...(Array.isArray(routine.settings?.to) && routine.settings.to.length > 0 ? { others: true } : {}), ...(typeof routine.settings?.send === "string" ? { send: routine.settings.send } : {}) })); await tex.after("ledger", () => chatLog?.flush());
     await tex.step("keep_run", () => keepRun(store, routine, runs, ran.outcome, ran.text));
     /*
       A routine that texts the person is a message they may answer with a bare
@@ -40,7 +41,7 @@ export async function finishARoutine(t) {
       await tex.step("stop_routine", () => stopRoutine(dispatch, routine.path));
     }
     // A one-off has run: it stays where it is, marked done (`finishOnce`).
-    if (supervision !== null) await tex.step("deliver_supervision", () => deliverSupervision(store, dispatch, supervision, ran, afterAnswer));
+    if (supervision !== null) await tex.step("deliver_supervision", () => deliverSupervision(store, dispatch, supervision, ran, afterAnswer, ledgerTurn));
     if (routine.cadence.unit === "once" && ran.outcome !== "failed") {
       await tex.step("finish_once", () => finishOnce(dispatch, routine.path, {
         now: Date.now(),
@@ -56,6 +57,9 @@ export async function finishARoutine(t) {
       provider: turn.provider,
       model: turn.model,
       steps: turn.steps,
+      // The run's turn and where its text came from: a text sent on its own links to its note by the turn (`log.js`).
+      turn: ledgerTurn,
+      source: supervision !== null ? "update" : "routine",
     });
   }
 }

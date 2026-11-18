@@ -34,6 +34,9 @@ import { record } from "./simulator";
 import { rememberText, threadUnder } from "./threads";
 import { keepBeside } from "./warm";
 import { inboxByName } from "./objectPlace";
+import { addEvent, kindOf, type TextSource } from "./events";
+import { flushWithReader } from "./chatRead";
+import { ownSourceOf, recordedTurn, sendRecorded } from "./texSends";
 
 /** Runs worked on at once in one tick. */
 export const ROUTINE_CONCURRENCY = 4;
@@ -47,7 +50,7 @@ export type RoutineDeps = {
   workerSecret: string | undefined;
   gatewayOrigin: string | undefined;
   /** Text one phone the answer, through that phone's own inbox. */
-  textPhone: (phone: string, text: string, idempotencyKey: string, continues?: string, beside?: string) => Promise<PhoneTexted>;
+  textPhone: (phone: string, text: string, idempotencyKey: string, continues?: string, beside?: string, source?: string, turn?: string) => Promise<PhoneTexted>;
   /**
    * Hand a chat routine's run to its chat's own queue (`groupRoutines.ts`),
    * which reports how it went; `no_chat` when this Worker doesn't know the chat.
@@ -135,7 +138,7 @@ export async function runScopedRoutine(deps: RoutineDeps, scope: RoutineScope): 
 /** The inbox's internal route for a routine's text. Only this Worker reaches it. */
 const ROUTINE_TEXT_URL = "https://inbox/routine-text";
 
-/** Ask one phone's inbox to text it a routine's answer, or a check-in under the text it `continues`. */
+/** Ask one phone's inbox to text it a routine's answer, or a check-in under the text it `continues`; `source` and `turn` tag the Tex text it records. */
 export async function textPhone(
   env: { SENDER_INBOX: DurableObjectNamespace },
   phone: string,
@@ -143,11 +146,20 @@ export async function textPhone(
   idempotencyKey: string,
   continues?: string,
   beside?: string,
+  source?: string,
+  turn?: string,
 ): Promise<PhoneTexted> {
   const stub = inboxByName(env.SENDER_INBOX, phone);
   const response = await stub.fetch(ROUTINE_TEXT_URL, {
     method: "POST",
-    body: JSON.stringify({ text, idempotencyKey, ...(continues !== undefined ? { continues } : {}), ...(beside !== undefined ? { beside } : {}) }),
+    body: JSON.stringify({
+      text,
+      idempotencyKey,
+      ...(continues !== undefined ? { continues } : {}),
+      ...(beside !== undefined ? { beside } : {}),
+      ...(source !== undefined ? { source } : {}),
+      ...(turn !== undefined ? { turn } : {}),
+    }),
   });
   if (!response.ok) return "failed";
   const { status } = (await response.json()) as { status?: unknown };
@@ -187,7 +199,7 @@ async function runOne(run: DueRoutine, deps: RoutineDeps, origin: string, secret
     const results: PhoneTexted[] = [];
     for (const phone of run.phones) {
       try {
-        results.push(await deps.textPhone(phone, ran.answer, `routine:${run.runId}:${phone}`, undefined, ran.beside));
+        results.push(await deps.textPhone(phone, ran.answer, `routine:${run.runId}:${phone}`, undefined, ran.beside, ran.source ?? "routine", ran.turn));
       } catch {
         results.push("failed");
       }
@@ -224,46 +236,58 @@ export type RoutineTextDeps = LineDeps & {
   simulator: boolean;
 };
 
+/** The source a `/routine-text` text is recorded under when none is named: a check-in's key says so, anything else is a routine's. */
+function sourceOfKey(idempotencyKey: string): TextSource {
+  return idempotencyKey.startsWith("heartbeat:") ? "checkin" : "routine";
+}
+
 /**
  * Text this sender a routine's answer, in the chat they last texted from,
  * split the way a reply is, under the earlier text it `continues` when that
- * one is remembered (a check-in's). The answer itself is not stored: only
- * each sent text's handle and a salted hash of its opening words
- * (`threads.ts`).
+ * one is remembered (a check-in's). Each part goes through `sendRecorded`
+ * (`texSends.ts`), so it is kept in the outbox as a Tex text tagged with its
+ * source and the run's turn, for the ledger; the outbox goes to the gateway
+ * with the chat's token when a turn left one here, and waits for the next
+ * turn otherwise. Only each sent text's handle and a salted hash of its
+ * opening words are kept here (`threads.ts`).
  */
 export async function textRoutine(
   storage: InboxStorage,
-  body: { text: string; idempotencyKey: string; continues?: string; beside?: string },
+  body: { text: string; idempotencyKey: string; continues?: string; beside?: string; source?: string; turn?: string },
   deps: RoutineTextDeps,
 ): Promise<PhoneTexted> {
   const chat = await storage.get<RememberedChat>(CHAT_KEY);
   if (!chat || typeof chat.chatId !== "string" || chat.chatId === "") return "no_chat";
   await keepBeside(storage, body.beside, deps.now()); // what the gateway wrote to the history for this text reaches the warm copy, or the copy goes (`warm.ts`)
   const texts = textsFromAnswer(body.text);
+  const source: TextSource = ownSourceOf(body.source) ?? sourceOfKey(body.idempotencyKey);
+  const turn = recordedTurn(body.turn);
   if (chat.channel === "simulator") {
     if (!deps.simulator) return "no_chat";
-    for (const text of texts) await record(storage, "in", text, deps.now());
+    for (const text of texts) {
+      await record(storage, "in", text, deps.now());
+      await addEvent(storage, { at: deps.now(), chat: chat.chatId, from: { kind: "tex" }, kind: kindOf(text), text, delivered: true, source, ...(turn ? { turn } : {}) });
+    }
     return "texted";
   }
   // A check-in that continues an earlier text goes as a reply under it (`threads.ts`); a thread Sendblue refuses goes plain (`sendblue.ts`).
   const thread = await threadUnder(storage, chat.chatId, body.continues);
   if (body.continues !== undefined) console.log(JSON.stringify({ event: "check_in_thread", outcome: thread ? "found" : "no_match" }));
   let sent = 0;
+  let status: PhoneTexted = "texted";
   try {
+    const line = lineFor(lineSeam(deps), chat.chatId);
     for (const [index, text] of texts.entries()) {
-      const handle = await lineFor(lineSeam(deps), chat.chatId).sendText(
-        chat.chatId,
-        text,
-        index === 0 ? body.idempotencyKey : `${body.idempotencyKey}:${index}`,
-        thread,
-      );
+      const handle = await sendRecorded(storage, line, { chatId: chat.chatId, text, key: index === 0 ? body.idempotencyKey : `${body.idempotencyKey}:${index}`, thread }, { source, turn, now: deps.now });
       sent++;
       await rememberText(storage, chat.chatId, handle, text, deps.now());
     }
   } catch {
     // The first text is the answer; a link that followed it failing does
     // not un-text the person.
-    return sent > 0 ? "texted" : "failed";
+    status = sent > 0 ? "texted" : "failed";
   }
-  return "texted";
+  // Best effort: the texts go to the ledger now when this object holds the chat's token, and wait in the outbox otherwise.
+  await flushWithReader(storage, chat.chatId, deps.now).catch(() => {});
+  return status;
 }

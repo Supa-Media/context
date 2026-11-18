@@ -189,6 +189,16 @@ export async function runAgentRoutineTexChecks(check) {
       ranNote?.ms >= 0 && ranNote.timing?.v === 2 && ranNote.timing.rounds.length === 1 && ranNote.timing.rounds[0].prompt?.modules?.length > 0,
     );
 
+    // A routine kept and not texted (`send: note`): its note says so, and the response carries the run's turn and source.
+    bucket.set("tex/routines/daily/quiet-note.md", { body: "---\nat: 7:30 am\nsend: note\n---\nNote quietly what the day was.\n", etag: "g5" });
+    model.install([{ text: "Quiet: noted." }]);
+    const kept = await ask(env, TOKEN_RUNNER, { routine: { path: "tex/routines/daily/quiet-note.md", timeZone: "UTC" } });
+    const keptNote = (await ledgerFor(env, { person: "ws_texroutine" }).read(ONE_TO_ONE_CHAT, { kinds: ["note"] })).entries.find((entry) => entry.routine === "tex/routines/daily/quiet-note.md");
+    check(
+      "a send: note routine's note says it was kept, not texted, and the response carries its turn and source",
+      kept.status === 200 && kept.body?.turn !== undefined && kept.body?.source === "routine" && keptNote?.send === "note" && keptNote?.turn === kept.body.turn,
+    );
+
     model.install([{ text: "Old: the old one answered." }]);
     const old = await ask(env, TOKEN_RUNNER, { routine: { path: "routines/daily/standup.md", timeZone: "UTC" } });
     check(

@@ -18,6 +18,8 @@
 
 import { ServiceError, post, record, type Fetch } from "./clients";
 import type { PhoneTexted } from "./routines";
+import type { TextSource } from "./events";
+import { ownSourceOf, recordedTurn } from "./texSends";
 
 /** How a check-in ended, as the control plane records it. */
 export type HeartbeatOutcome =
@@ -46,7 +48,7 @@ export type DueHeartbeat = {
 
 /** What the gateway's look came to: a text to send, or an outcome with nothing to say. */
 export type Looked =
-  | { outcome: "speak"; answer: string; continues?: string; beside?: string; until?: number }
+  | { outcome: "speak"; answer: string; continues?: string; beside?: string; until?: number; turn?: string; source?: TextSource }
   | { outcome: Exclude<HeartbeatOutcome, "texted" | "no_chat">; reason?: string; until?: number };
 
 /** When the gateway says to come back: a time within a day, or nothing. */
@@ -77,7 +79,7 @@ export type HeartbeatDeps = {
   workerSecret: string | undefined;
   gatewayOrigin: string | undefined;
   /** Text one phone, through that phone's own inbox; under the earlier text it `continues`, when the inbox finds it. */
-  textPhone: (phone: string, text: string, idempotencyKey: string, continues?: string, beside?: string) => Promise<PhoneTexted>;
+  textPhone: (phone: string, text: string, idempotencyKey: string, continues?: string, beside?: string, source?: string, turn?: string) => Promise<PhoneTexted>;
   log: (entry: Record<string, unknown>) => void;
 };
 
@@ -117,12 +119,17 @@ export async function runHeartbeat(fetcher: Fetch, gatewayOrigin: string, beat: 
   if (result.status === 200) {
     if (body.outcome === "speak" && typeof body.answer === "string" && body.answer.trim() !== "") {
       const continues = typeof body.continues === "string" && body.continues.trim() !== "" ? body.continues : undefined;
+      const turn = recordedTurn(body.turn);
+      const source = ownSourceOf(body.source);
       // `beside`: what it wrote to their texts, sealed for the warm copy (`warm.ts` `keepBeside`).
       return {
         outcome: "speak",
         answer: body.answer,
         ...(continues !== undefined ? { continues } : {}),
         ...(typeof body.beside === "string" ? { beside: body.beside } : {}),
+        // The run's turn and why it speaks (`texSends.ts`): the text it records carries both, and links to its note.
+        ...(turn !== undefined ? { turn } : {}),
+        ...(source !== undefined ? { source } : {}),
         ...untilOf(body),
       };
     }
@@ -145,7 +152,7 @@ async function runOne(beat: DueHeartbeat, deps: HeartbeatDeps, gateway: string):
   const results: PhoneTexted[] = [];
   for (const phone of beat.phones) {
     try {
-      results.push(await deps.textPhone(phone, looked.answer, `heartbeat:${beat.runId}:${phone}`, looked.continues, looked.beside));
+      results.push(await deps.textPhone(phone, looked.answer, `heartbeat:${beat.runId}:${phone}`, looked.continues, looked.beside, looked.source ?? "checkin", looked.turn));
     } catch {
       results.push("failed");
     }

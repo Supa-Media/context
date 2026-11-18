@@ -22,6 +22,12 @@ import type { StepRecord } from "./stepEvents";
 /** `step`: one of this Worker's own steps for the ledger (`stepEvents.ts`), never a line of the chat: no reader of the outbox shows it. */
 export type EventKind = "text" | "picture" | "file" | "link" | "reaction" | "ask" | "ask_settled" | "delivery" | "step";
 export type EventReason = "upload_failed" | "send_refused" | "held_newcomer" | "failed" | "timed_out" | "too_long";
+/** Why a Tex text went: a reply, a progress line, or one Tex sent on its own (a check-in, a routine, a ping, an update, a job, the new number). */
+export type TextSource = "reply" | "progress" | "checkin" | "routine" | "ping" | "update" | "job" | "new_line";
+export const TEXT_SOURCES: ReadonlySet<string> = new Set<TextSource>(["reply", "progress", "checkin", "routine", "ping", "update", "job", "new_line"]);
+export function isTextSource(value: unknown): value is TextSource {
+  return typeof value === "string" && TEXT_SOURCES.has(value);
+}
 
 export type TexEvent = {
   id: string;
@@ -49,6 +55,8 @@ export type TexEvent = {
   ask?: string;
   /** On kind "step" only: the step (`stepEvents.ts`). */
   step?: StepRecord;
+  /** On a Tex text only: why it went (`TextSource`). */
+  source?: TextSource;
 };
 
 /** Where the gateway files a chat's events: the person's own texts, or a group's chat by its chat key (the group id). */
@@ -69,6 +77,8 @@ export const KEEP_EVENTS_MS = 24 * 60 * 60 * 1000;
 export const SEND_WITHIN_MS = 23 * 60 * 60 * 1000;
 /** The gateway takes at most this many per call. */
 export const EVENTS_PER_POST = 50;
+/** What an older gateway (mid-deploy) refuses an event for when it knows no `source` field. */
+const UNKNOWN_EVENT_FIELD = "event";
 const FLUSH_TIMEOUT_MS = 5_000;
 
 const WEB_ADDRESS_ONLY = /^\s*https?:\/\/\S+\s*$/i;
@@ -210,7 +220,12 @@ async function flushOutbox(
   for (const events of batches) {
     let written: string[];
     try {
-      const { status, json } = await send(events);
+      let answer = await send(events);
+      // The same refusal names the `source` field of an older gateway that does not know it yet: that batch goes once more without it, so the deploy window never drops a chat's lines.
+      if (answer.status === 400 && record(answer.json).error_description === UNKNOWN_EVENT_FIELD && events.some((event) => event.source !== undefined)) {
+        answer = await send(events.map(withoutSource));
+      }
+      const { status, json } = answer;
       const field = record(json).error_description;
       if (status === 400 && keepUnnamed && typeof field !== "string") return;
       if (status === 400) {
@@ -227,6 +242,11 @@ async function flushOutbox(
     }
     for (const id of written) await storage.delete(`${PREFIX}${id}`);
   }
+}
+
+function withoutSource(event: TexEvent): TexEvent {
+  const { source: _source, ...rest } = event;
+  return rest;
 }
 
 /** What an older version of this object kept after the gateway had it (`w`), and its marks of a whole day held: the ledger holds them. */

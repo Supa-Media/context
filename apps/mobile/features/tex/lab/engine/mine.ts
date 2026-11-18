@@ -137,7 +137,9 @@ export function chatLines(entries: LedgerEntry[], texts: MyText[], { group = fal
   // A check-in that sent nothing still ran (its steps are logged under its `ck…` turn): a line of its own, so it can be replayed too.
   const said = new Set(lines.map((l) => l.turn).filter(Boolean));
   const looks = new Map<string, LedgerEntry[]>();
-  for (const e of entries) if (typeof e.turn === "string" && e.turn.startsWith("ck") && !said.has(e.turn)) looks.set(e.turn, [...(looks.get(e.turn) ?? []), e]);
+  // A check-in whose text was recorded (sent or not) is not one that only looked: it has its own line or none (`textLines`).
+  const texted = new Set(entries.filter((e) => fromKind(e) === "tex" && e.kind === "text" && typeof e.turn === "string").map((e) => e.turn as string));
+  for (const e of entries) if (typeof e.turn === "string" && e.turn.startsWith("ck") && !said.has(e.turn) && !texted.has(e.turn)) looks.set(e.turn, [...(looks.get(e.turn) ?? []), e]);
   const quiet: ChatLine[] = [...looks]
     .map(([turn, es]): ChatLine => ({ id: "ck:" + turn, at: Math.max(...es.map((e) => e.at)), from: "tex", who: "Tex", text: "", play: null, start: "checkin", turn, quiet: true }))
     .sort((a, b) => a.at - b.at);
@@ -150,8 +152,28 @@ export function chatLines(entries: LedgerEntry[], texts: MyText[], { group = fal
   return [...out, ...quiet];
 }
 
+/** A text Tex sent on its own (`apps/mcp/src/agent/sentOnItsOwn.js` OWN_SOURCES): it has a note of its own turn. */
+const OWN_SOURCE = new Set(["checkin", "routine", "ping", "update", "job", "new_line"]);
+const ownSend = (e: LedgerEntry) => fromKind(e) === "tex" && typeof e.turn === "string" && e.turn !== "" && OWN_SOURCE.has(str(e.source));
+
+/**
+ * The turns of the chat's notes that stand for a text Tex sent on its own (`startOf`), and of the own sends that were
+ * said (delivered) or recorded undelivered. A note is drawn once, with its reason, so its linked text event is left
+ * out; a note whose send never went out is not drawn at all (`sentOnItsOwn.js`).
+ */
+function linkedTurns(entries: LedgerEntry[]) {
+  const noted = new Set(entries.filter((e) => startOf(e) !== null && typeof e.turn === "string").map((e) => e.turn as string));
+  const said = new Set(entries.filter((e) => ownSend(e) && e.delivered !== false).map((e) => e.turn as string));
+  const unsaid = new Set(entries.filter((e) => ownSend(e) && e.delivered === false && !said.has(e.turn as string)).map((e) => e.turn as string));
+  return { noted, unsaid };
+}
+
 function textLines(entries: LedgerEntry[], byId: Map<string, MyText>, group: boolean): ChatLine[] {
+  const { noted, unsaid } = linkedTurns(entries);
   return [...entries]
+    .filter((e) => !(ownSend(e) && noted.has(str(e.turn)))) // the note stands for it
+    .filter((e) => !(ownSend(e) && e.delivered === false)) // an own send that never went out is not shown
+    .filter((e) => !(startOf(e) !== null && unsaid.has(str(e.turn)))) // nor the note of one
     .filter((e) => startOf(e) !== null || (e.kind === "text" && !e.job && (fromKind(e) === "person" || fromKind(e) === "tex") && str(e.text).trim() !== ""))
     .sort((a, b) => (a.seq ?? 0) - (b.seq ?? 0) || a.at - b.at)
     .map((e): ChatLine => {

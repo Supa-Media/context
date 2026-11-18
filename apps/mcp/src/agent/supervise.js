@@ -278,13 +278,14 @@ export async function prepareSupervision(callTool, routine, { runs = [], handle 
  * What a supervisor texted reaches the main loop: it goes in the texting
  * conversation of the person's own workspace, so their next text to Tex
  * carries it, marked as read from outside. A finished job is tidied. Best
- * effort: the text is still owed.
+ * effort: the text is still owed. `turn`, when given, is the run's turn: the note carries it, the link to the Tex text
+ * event the Worker records for the same send (`sentOnItsOwn.js`).
  */
-export async function deliverSupervision(store, callTool, supervision, ran, afterAnswer) {
+export async function deliverSupervision(store, callTool, supervision, ran, afterAnswer, turn = null) {
   const personal = store.contexts?.find((entry) => entry.current)?.kind === "personal";
   if (ran.text && personal) {
     try {
-      await appendConversation(store, "texts", updateLine(supervision.task, supervision.title), ran.text, { tainted: true });
+      await appendConversation(store, "texts", updateLine(supervision.task, supervision.title), ran.text, { tainted: true, entry: typeof turn === "string" && turn !== "" ? { turn } : null });
     } catch {
       // See above.
     }

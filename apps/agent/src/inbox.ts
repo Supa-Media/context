@@ -79,7 +79,7 @@ import { answers, clearReactions, noteReaction, notedReactions, reactionLine, ta
 import { dropThumb, dueThumb, holdsAsAnswer, holdThumb, onTexText, onTheAsk, rememberAskReply } from "./thumbs";
 import { runningTurn, startTurn } from "./steer";
 import { chooseTurn, decideWhileRunning, logInbound, mediaOnly, merged, pureAck, wordsOnly, type Entry, type Pending } from "./inboxTurn";
-import { addEvent, flushChat, kindOf, logAsk, pruneEvents } from "./events"; import { warmDeps } from "./warm";
+import { addEvent, flushChat, kindOf, logAsk, pruneEvents, type TextSource } from "./events"; import { warmDeps } from "./warm";
 import { sha256Hex } from "./groupChat";
 import { chatJobs, jobQuestion, notResumedText, notStartedText, resumeJobs, startJobs, steerJobs, viewLink, type JobRun, type JobSteer } from "./jobs";
 import { checkVaultSaved, logVaultWatch, queueSavedInGroup, watchForSave } from "./vaultWatch"; import { watchForHandback } from "./handbackWatch";
@@ -424,12 +424,15 @@ async function sendReply(storage: InboxStorage, deps: InboxDeps, [key, item]: En
   const out = (part: PartLogged, system = item.system === true) => {
     // Each part is logged once it went: the first is when the person's wait ended (`textTiming.ts`).
     if (timing && timing.firstSent === undefined) timing.firstSent = deps.now();
+    // A reply's text says what it is: a job's report to its chat's turn, else the answer (`events.ts` `TextSource`).
+    const source: TextSource = item.message.event === "job_report" ? "job" : "reply";
     return addEvent(storage, {
       at: deps.now(),
       chat: item.message.chatId,
       from: { kind: system ? "system" : "tex" },
       ...(!system && item.turn ? { turn: item.turn } : {}),
       ...(!system && item.covers ? { covers: item.covers } : {}),
+      ...(!system && part.kind !== "reaction" ? { source } : {}),
       ...part,
     });
   };
@@ -717,7 +720,7 @@ async function answerTexts(message: Message, work: string, deps: InboxDeps, stor
         if (line === null) await record(storage, "in", text, deps.now());
         else await line.sendText(message.chatId, text, `progress:${work}:${hash.slice(0, 16)}`, threadFor(message));
         await storage.put(sentKey, deps.now());
-        await addEvent(storage, { at: deps.now(), chat: message.chatId, from: { kind: "tex" }, kind: kindOf(text), text, delivered: true, ...(deps.steer ? { turn: deps.steer.turn } : {}) });
+        await addEvent(storage, { at: deps.now(), chat: message.chatId, from: { kind: "tex" }, kind: kindOf(text), text, delivered: true, source: "progress", ...(deps.steer ? { turn: deps.steer.turn } : {}) });
         // Sending a text clears the bubble; the task is still going. Asked for again beside the next line, never before it.
         if (line) bubbles.push(line.startTyping(message.chatId));
       } catch {

@@ -56,6 +56,7 @@ import REPO from "../../../../packages/shared/src/texSetsRepo.generated.json" wi
 import { createControlPlane } from "../controlPlane.js";
 import { ONE_TO_ONE_CHAT } from "../agent/ledger.js";
 import { loggedSteps, oneRowPerText, realLedger, realRow } from "./realChat.js";
+import { saidTexts } from "../agent/sentOnItsOwn.js";
 import { bearerToken } from "../session.js";
 import { json } from "../http/responses.js";
 import { callSandbox, carryWith, SANDBOX_TTL_MS, sandboxStub, SEED_CHUNK } from "./object.js";
@@ -245,7 +246,7 @@ export async function open(env, controlPlane, token, who, input, origin) {
     people = group ? (conv.members ?? []).map((name) => ({ handle: handleOf(name), name: String(name) })) : [{ handle: "", name: "You" }];
   } else {
     const entries = await realLedger(env, owner, ledgerChat, input.base);
-    rows = oneRowPerText(entries.filter((entry) => entry.kind === "text")).map((entry) => realRow(entry, kind));
+    rows = oneRowPerText(saidTexts(entries)).map((entry) => realRow(entry, kind)); // a text never said is no row
     history = entries.map(({ seq: _seq, ...entry }) => entry);
     people = (answer.people ?? []).filter((person) => person && typeof person.handle === "string");
   }

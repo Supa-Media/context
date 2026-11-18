@@ -1,4 +1,6 @@
 import { AGENT_TIMEOUT_MS, post, record, ServiceError, type Fetch } from "./clients";
+import type { TextSource } from "./events";
+import { ownSourceOf, recordedTurn } from "./texSends";
 
 // ── Routines ──────────────────────────────────────────────────────────────
 //
@@ -100,6 +102,10 @@ export type RoutineAnswer = {
   send: RoutineSend | null;
   /** What the gateway wrote to their texts for it, sealed for the next text (`warm.ts` `keepBeside`). */
   beside?: string;
+  /** The run's turn, which its note in the ledger carries; the text Tex records for it carries the same (`texSends.ts`). */
+  turn?: string;
+  /** Why the text goes, when the gateway says: an update for a job's report, else a routine. */
+  source?: TextSource;
 };
 
 const GATEWAY_OUTCOMES = new Set(["answered", "skipped", "finished", "failed", "paused"]);
@@ -127,10 +133,14 @@ export async function runRoutine(
     if (typeof body.outcome !== "string" || !GATEWAY_OUTCOMES.has(body.outcome)) return failed;
     const outcome = body.outcome as RoutineAnswer["outcome"];
     const speaks = outcome === "answered" || outcome === "finished";
+    const turn = recordedTurn(body.turn);
+    const source = ownSourceOf(body.source);
     return {
       outcome,
       answer: speaks && typeof body.answer === "string" ? body.answer.trim() : "",
       send: isSend(body.send) ? body.send : null, ...(typeof body.beside === "string" ? { beside: body.beside } : {}), // what it wrote to their texts, sealed (`warm.ts` `keepBeside`)
+      ...(turn !== undefined ? { turn } : {}),
+      ...(source !== undefined ? { source } : {}),
     };
   }
   if (result.status === 404) return { ...failed, outcome: "routine_gone" };

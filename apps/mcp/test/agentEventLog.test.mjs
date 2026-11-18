@@ -414,3 +414,21 @@ test("a turn writes no turn record, and prunes old marks on every exit", async (
 test("the setup line owes a new person's first text an answer (Dev2, 2026-11-11: it was dropped by the handle question)", () => {
   assert.match(TOLD.setup, /first text.*still unanswered: answer it soon/);
 });
+
+/* ---------------- a Tex text's source (the text sent on its own links to its note by turn) ---------------- */
+
+test("a Tex text keeps its source, a text sent on its own with its run's turn", () => {
+  const TURN = "ck0123456789abcdef";
+  const sent = event({ from: { kind: "tex" }, kind: "text", text: "Morning check-in.", turn: TURN, source: "checkin", delivered: true });
+  assert.deepEqual(checkEvent(sent, { chat: CHAT, now: NOW }), sent);
+});
+
+test("a source is refused when it is unknown, or on anything but a Tex text", () => {
+  const check = (fields) => refusedField(() => checkEvent(event(fields), { chat: CHAT, now: NOW }));
+  const TURN = "ck0123456789abcdef";
+  assert.equal(check({ from: { kind: "tex" }, turn: TURN, source: "wizard" }), "source");
+  assert.equal(check({ from: { kind: "tex" }, turn: TURN, source: 3 }), "source");
+  assert.equal(check({ from: { kind: "person" }, source: "checkin" }), "source", "a person's text cannot claim a source");
+  assert.equal(check({ from: { kind: "system" }, kind: "text", source: "checkin" }), "source", "a system text cannot claim a source");
+  assert.equal(check({ from: { kind: "tex" }, kind: "reaction", source: "reply" }), "source", "only a text-ish kind carries a source");
+});
