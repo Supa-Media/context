@@ -15,6 +15,8 @@
  */
 
 import { DECISION_MODEL, decisionEngine } from "./decide.js";
+import { decideWhyNode, decideWhyOn } from "./graph/nodes/decideWhy.js";
+import { texConfigOf } from "./texConfig.js";
 import { eventEntry, ledgerFor, ledgerWriter, stepEntry } from "./ledger.js";
 import { checkEvents, EventRefusal } from "./log.js";
 import { dayFromLedger } from "./ledgerHistory.js";
@@ -68,12 +70,17 @@ export async function decideForTexts(request, env, { engine = decisionEngine(env
   const started = Date.now();
   const answers = await engine(asked.state, asked.questions);
   meter.ms = Date.now() - started;
-  const result =
+  const first =
     answers === null
       ? { ok: false, reason: "unavailable", cause: "model_failed" }
       : recheck
         ? readRecheckAnswers(answers)
         : readDecideAnswers(body, answers);
+  // A quiet verdict whose reason says the message is for Tex is asked for its reason once more, told the act
+  // (`graph/nodes/decideWhy.js`): only when the config runs that step, and never changing the act.
+  const again = !recheck && first.ok === true && decideWhyOn(texConfigOf(env)) ? await decideWhyNode({ verdict: first, state: asked.state }, { engine }) : null;
+  const result = again?.verdict ?? first;
+  meter.ms += again?.ms ?? 0;
   // Counts and codes only: never the transcript, a draft, or a number.
   console.log(
     JSON.stringify({
@@ -88,7 +95,13 @@ export async function decideForTexts(request, env, { engine = decisionEngine(env
   // A look again, or a judging that failed, is a step there instead, so every judging of the chat is in its record (Dev2, 2026-11-13).
   if (body.ledger) {
     const entry = !recheck && result.ok ? judgeVerdictEntry(body, result, meter.ms, facts.length) : stepEntry({ step: "decide", name: recheck ? "recheck" : "decide", ok: result.ok === true, ms: meter.ms, input: judgedInput(body, facts.length), output: result.ok ? (recheck ? { fits: result.fits } : null) : { cause: result.cause ?? null }, model: DECISION_MODEL });
-    const written = ledgerWriter(ledger(body.ledger), body.ledger)?.write(entry) ?? Promise.resolve();
+    const writer = ledgerWriter(ledger(body.ledger), body.ledger);
+    const written = (async () => {
+      await (writer?.write(entry) ?? Promise.resolve());
+      // The second look as a node run of its own (`step: "node"`, named, as the graph runner writes one), names only:
+      // the act it was told, the reason before and after.
+      if (again !== null && again.ms > 0) await (writer?.write(stepEntry({ step: "node", name: "decideWhy", ok: again.to === "changed", ms: again.ms, input: { act: VERDICT[first.act], why: first.why }, output: { to: again.to, why: again.verdict.why } })) ?? Promise.resolve());
+    })();
     if (typeof waitUntil === "function") waitUntil(written);
   }
   return Response.json({ ...result, meter: { ...meter, answered: answers !== null } });
