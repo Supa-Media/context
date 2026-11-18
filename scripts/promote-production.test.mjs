@@ -24,6 +24,7 @@ const green = sha => ({ head_sha: sha, head_branch: 'main', status: 'completed',
  * any production runs already open for a sha.
  */
 function github({ commits = [TIP], ci = {}, staging = {}, production = {}, tip = TIP } = {}) {
+  production.queued ??= [];
   const calls = [];
   const request = async (url, init = {}) => {
     assert.equal(init.headers.Authorization, 'Bearer fake-test-token');
@@ -44,7 +45,12 @@ function github({ commits = [TIP], ci = {}, staging = {}, production = {}, tip =
     }
     if (path.endsWith('/deploy-production.yml/runs')) {
       const sha = url.searchParams.get('head_sha');
+      if (!sha) return { ok: true, status: 200, json: async () => ({ workflow_runs: production.queued ?? [] }) };
       return { ok: true, status: 200, json: async () => ({ workflow_runs: production[sha] ?? [] }) };
+    }
+    if (path.includes('/actions/runs/') && path.endsWith('/cancel') && init.method === 'POST') {
+      calls.push({ cancel: path });
+      return { ok: true, status: 202, json: async () => ({}) };
     }
     if (path.endsWith('/git/refs') && init.method === 'POST') {
       calls.push(JSON.parse(init.body));
@@ -158,6 +164,37 @@ test('a newer green commit wins over an older one whose CI finished later', asyn
   // The wake-up names the older commit. Selection still deploys the tip.
   const result = await promote({ ...env, EVENT_SHA: OLDER }, { ...quiet, request: gh.request });
   assert.equal(result.sha, TIP);
+});
+
+test('a queued deploy of another commit is cancelled, and one that has started is not', async () => {
+  const queued = { id: 5, head_sha: OLDER, status: 'queued' };
+  const waiting = { id: 6, head_sha: 'd'.repeat(40), status: 'waiting' };
+  const started = { id: 7, head_sha: 'e'.repeat(40), status: 'in_progress' };
+  const same = { id: 8, head_sha: TIP, status: 'queued' };
+  const gh = github({
+    ci: { [TIP]: [green(TIP)] },
+    production: { queued: [queued, waiting, started, same] },
+  });
+  const result = await promote(env, { ...quiet, request: gh.request });
+  assert.equal(result.promoted, true);
+  assert.equal(result.sha, TIP);
+  assert.deepEqual(gh.calls.filter(call => call.cancel).map(call => call.cancel), [
+    '/repos/example/app/actions/runs/5/cancel',
+    '/repos/example/app/actions/runs/6/cancel',
+  ]);
+});
+
+test('the newest commit already deploying still cancels a queued older deploy', async () => {
+  const gh = github({
+    ci: { [TIP]: [green(TIP)] },
+    production: {
+      [TIP]: [{ head_sha: TIP, status: 'in_progress', conclusion: null }],
+      queued: [{ id: 11, head_sha: OLDER, status: 'pending' }],
+    },
+  });
+  const result = await promote(env, { ...quiet, request: gh.request });
+  assert.equal(result.promoted, false);
+  assert.deepEqual(gh.calls, [{ cancel: '/repos/example/app/actions/runs/11/cancel' }]);
 });
 
 test('a red or foreign wake-up starts nothing', async () => {

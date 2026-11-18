@@ -43,9 +43,11 @@ on:
         type: boolean
         default: false
 
-# One deploy runs. A newer run replaces one that has not started, so a burst
-# keeps the in-progress rollout and at most one queued deploy. The queued run
-# is the newest pin Promote dispatched, which is the newest green SHA.
+# One deploy runs. A newer run replaces one that has not started, and
+# Promote also cancels a queued run of any other commit, so a burst keeps
+# the in-progress rollout and at most the newest green SHA. A run that has
+# started is not cancelled. Its first step refuses to deploy when a newer
+# commit on main already has green CI, before any component changes.
 concurrency:
   group: deploy-production
   cancel-in-progress: false

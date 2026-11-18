@@ -21,7 +21,11 @@ import { PRODUCTION_DEPLOY_BRANCH } from './production-release.mjs';
 //
 // One starter runs and one waits. Each pass picks the newest green commit,
 // so a burst leaves at most one production run in progress and one queued.
-// An in-progress production run is not cancelled.
+// A queued deploy of any other commit is cancelled here. Concurrency on
+// Deploy to Production does the same, and this does not depend on it.
+// An in-progress production run is not cancelled: it may already have
+// deployed. Its own first step stops instead, before it changes anything,
+// when a newer commit is already green (scripts/production-release.mjs).
 
 const API = 'https://api.github.com';
 const COMMIT_LIMIT = 30;
@@ -74,6 +78,21 @@ async function select(api) {
   return null;
 }
 
+const QUEUED = new Set(['queued', 'waiting', 'pending', 'requested']);
+
+// A queued run has not deployed. Cancelling it lets the newest pin take
+// the one waiting slot. An in-progress run is left alone.
+async function cancelQueuedOthers(api, sha) {
+  const data = await api('/actions/workflows/deploy-production.yml/runs?per_page=30');
+  let cancelled = 0;
+  for (const run of data.workflow_runs ?? []) {
+    if (run.head_sha === sha || !QUEUED.has(run.status) || !run.id) continue;
+    await api(`/actions/runs/${run.id}/cancel`, { method: 'POST' });
+    cancelled += 1;
+  }
+  return cancelled;
+}
+
 async function dispatchDecision(api, sha) {
   const data = await api(`/actions/workflows/deploy-production.yml/runs?head_sha=${sha}&per_page=5`);
   const newest = (data.workflow_runs ?? []).find(run => run.head_sha === sha);
@@ -104,6 +123,8 @@ export async function promote(env, { request = fetch, log = console.log } = {}) 
   const api = client(env, request);
   const sha = await select(api);
   if (!sha) return { promoted: false, reason: 'no commit on main has a green CI run' };
+  const cancelled = await cancelQueuedOthers(api, sha);
+  if (cancelled) log(`Cancelled ${cancelled} queued deploy${cancelled === 1 ? '' : 's'} of an older commit.`);
   const decision = await dispatchDecision(api, sha);
   if (decision !== 'dispatch') return { promoted: false, reason: decision, sha };
   await openDeployment(api, sha);
