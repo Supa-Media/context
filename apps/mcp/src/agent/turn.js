@@ -46,7 +46,7 @@ import { addModelUsage, failedCall, modelForRound, thinkRoundsFor, whyFailed } f
 import { PROGRESS_TOOL } from "./progress.js";
 import { turnLedger } from "./sendBack.js";
 import { SIX_TOOLS, sixToolsOver } from "./sixTools.js";
-import { roundIsParallel } from "./parallelReads.js";
+import { isParallelRead } from "./parallelReads.js";
 import { resultInV2Names } from "../tools/v2/speak.js";
 import { goalsIn } from "./aboutMe.js";
 import { pushbackNudge } from "./pushback.js";
@@ -597,14 +597,16 @@ export async function runTurn(options) {
       `settleNoteWrite`. Results are recorded in call order after they finish.
       `timing.toolMs` for a round that ran together is the wall time, so a
       turn that opened three mailboxes counts the slowest search, not the sum.
-      One call, or any call outside the allowlist, keeps the round serial:
-      the next call still sees the clock and the ledger the previous one left.
+      One call, a name outside the allowlist, or `vault_list` carrying
+      `fetch` (`send` action `api`) keeps the round serial: the next call
+      still sees the clock and the ledger the previous one left.
     */
-    const resolvedNames = answer.toolCalls.map((made) => {
-      const resolved = six.resolve(made.name, made.args);
-      return resolved.error ? null : resolved.name;
-    });
-    const together = roundIsParallel(resolvedNames);
+    const together =
+      answer.toolCalls.length > 1 &&
+      answer.toolCalls.every((made) => {
+        const resolved = six.resolve(made.name, made.args);
+        return !resolved.error && isParallelRead(resolved.name, resolved.args);
+      });
     // One call, returned for `apply` to record in order. `effects` replay the
     // serial side effects; `{ time }` is this call's own duration, added to
     // `timing.toolMs` only when the round is serial.

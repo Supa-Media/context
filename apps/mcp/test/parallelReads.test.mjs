@@ -1,16 +1,16 @@
 /**
  * A front-door round runs its tool calls together only when every one is a
  * read on the allowlist (`parallelReads.js`). Two slow mailbox searches take
- * the time of the slower one. A write in the round keeps every call serial.
- * Results are still appended in call order, and a thrown call is still that
- * call's error.
+ * the time of the slower one. A write in the round keeps every call serial,
+ * and so does `vault_list` with `fetch` (`send` action `api`). Results are
+ * still appended in call order, and a thrown call is still that call's error.
  */
 
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
 import { BUILTIN_PROVIDER } from "../src/agent/builtin.js";
-import { PARALLEL_READS, roundIsParallel } from "../src/agent/parallelReads.js";
+import { isParallelRead, PARALLEL_READS, roundIsParallel } from "../src/agent/parallelReads.js";
 import { sixToolsOver } from "../src/agent/sixTools.js";
 import { runTurn } from "../src/agent/turn.js";
 import { translateFetch, translateSearch } from "../src/tools/v2/searchFetch.js";
@@ -54,6 +54,14 @@ const SEARCH_WEB = {
   inputSchema: { type: "object", properties: { query: { type: "string" } }, required: ["query"], additionalProperties: false },
   annotations: { readOnlyHint: true },
 };
+const VAULT_LIST = {
+  name: "vault_list",
+  description: "List saved logins, or call one API with a saved key",
+  inputSchema: { type: "object", properties: { fetch: { type: "object" } }, additionalProperties: false },
+  annotations: { readOnlyHint: true },
+};
+// A vault fetch: an outbound request with a saved key attached. No secret here.
+const VAULT_FETCH = { entry: "entry-1", field: "API_KEY", url: "https://api.example.com/v1/items", method: "POST" };
 
 function scripted(replies) {
   const calls = [];
@@ -208,6 +216,134 @@ test("two slow reads finish in about the time of the slower one", async () => {
   assert.ok(result.timing.toolMs < sum - 40, `toolMs ${result.timing.toolMs} summed the calls (${sum})`);
   assert.deepEqual(toolTexts(ai), ["one@example.com", "two@example.com"]);
   assert.equal(result.answer, "Both mailboxes are in.");
+});
+
+test("vault_list with fetch is not a parallel read, and a plain listing is", () => {
+  assert.equal(isParallelRead("vault_list"), true);
+  assert.equal(isParallelRead("vault_list", {}), true);
+  assert.equal(isParallelRead("vault_list", { fetch: null }), true);
+  assert.equal(isParallelRead("vault_list", { fetch: VAULT_FETCH }), false);
+  assert.equal(isParallelRead("search_notes", { query: "dentist" }), true);
+  assert.equal(isParallelRead("write_note"), false);
+
+  const six = sixToolsOver([SEARCH_NOTES, VAULT_LIST]);
+  const api = six.resolve("send", { action: "api", args: VAULT_FETCH });
+  assert.equal(api.error, undefined, api.error);
+  assert.equal(api.name, "vault_list");
+  assert.deepEqual(api.args.fetch, VAULT_FETCH);
+  assert.equal(isParallelRead(api.name, api.args), false, "send api");
+  const listing = six.resolve("fetch", { id: "vault:" });
+  assert.equal(listing.error, undefined, listing.error);
+  assert.equal(listing.name, "vault_list");
+  assert.equal(listing.args.fetch, undefined);
+  assert.equal(isParallelRead(listing.name, listing.args), true, "fetch vault:");
+
+  assert.equal(
+    roundIsParallel([
+      { name: "search_notes", args: { query: "dentist" } },
+      { name: "vault_list", args: {} },
+    ]),
+    true,
+  );
+  assert.equal(
+    roundIsParallel([
+      { name: "search_notes", args: { query: "dentist" } },
+      { name: "vault_list", args: { fetch: VAULT_FETCH } },
+    ]),
+    false,
+  );
+  assert.equal(
+    roundIsParallel([
+      { name: "vault_list", args: { fetch: VAULT_FETCH } },
+      { name: "vault_list", args: { fetch: { ...VAULT_FETCH, method: "PATCH", url: "https://api.example.com/v1/items/1" } } },
+    ]),
+    false,
+  );
+});
+
+test("a vault fetch mixed into the round keeps it serial", async () => {
+  let active = 0;
+  let maxActive = 0;
+  const spans = [];
+  const ai = scripted([
+    completion("", [
+      { name: "search_notes", args: { query: "dentist" } },
+      { name: "vault_list", args: { fetch: VAULT_FETCH } },
+    ]),
+    completion("Called it."),
+  ]);
+  const result = await turn(ai, {
+    tools: [SEARCH_NOTES, VAULT_LIST],
+    callTool: async (name) => {
+      const start = Date.now();
+      active += 1;
+      maxActive = Math.max(maxActive, active);
+      await delay(80);
+      active -= 1;
+      spans.push({ name, start, end: Date.now() });
+      return { content: [{ type: "text", text: name }] };
+    },
+  });
+  assert.equal(maxActive, 1);
+  assert.ok(spans[1].start >= spans[0].end, "the vault fetch started before the search finished");
+  assert.deepEqual(
+    result.steps.map((step) => step.tool),
+    ["search_notes", "vault_list"],
+  );
+});
+
+test("send api beside a search keeps the round serial", async () => {
+  let active = 0;
+  let maxActive = 0;
+  const ai = scripted([
+    completion("", [
+      { name: "search", args: { query: "dentist" } },
+      { name: "send", args: { action: "api", args: VAULT_FETCH } },
+    ]),
+    completion("Called it."),
+  ]);
+  const result = await turn(ai, {
+    tools: [SEARCH_NOTES, VAULT_LIST],
+    callTool: async () => {
+      active += 1;
+      maxActive = Math.max(maxActive, active);
+      await delay(80);
+      active -= 1;
+      return { content: [{ type: "text", text: "ok" }] };
+    },
+  });
+  assert.equal(maxActive, 1);
+  assert.deepEqual(
+    result.steps.map((step) => step.tool),
+    ["search_notes", "vault_list"],
+  );
+});
+
+test("two vault fetches in one round stay serial", async () => {
+  let active = 0;
+  let maxActive = 0;
+  const spans = [];
+  const ai = scripted([
+    completion("", [
+      { name: "vault_list", args: { fetch: VAULT_FETCH } },
+      { name: "vault_list", args: { fetch: { ...VAULT_FETCH, method: "PATCH", url: "https://api.example.com/v1/items/1" } } },
+    ]),
+    completion("Both calls landed."),
+  ]);
+  await turn(ai, {
+    tools: [VAULT_LIST],
+    callTool: async (name) => {
+      const start = Date.now();
+      active += 1;
+      maxActive = Math.max(maxActive, active);
+      await delay(80);
+      active -= 1;
+      spans.push({ name, start, end: Date.now() });
+      return { content: [{ type: "text", text: name }] };
+    },
+  });
+  assert.equal(maxActive, 1);
+  assert.ok(spans[1].start >= spans[0].end, "the second vault fetch started before the first finished");
 });
 
 test("a write mixed into the round keeps it serial", async () => {
