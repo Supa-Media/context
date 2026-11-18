@@ -276,6 +276,12 @@ test("with background on, every text sends the case's running jobs, and the jobs
   assert.equal(benchRunning(0).length, 0);
   assert.ok(benchRunning(9).length <= 6);
   for (const job of benchRunning(3)) assert.match(job.id, /^[A-Za-z0-9_-]{8,64}$/, "an id the gateway reads");
+  // A job a case's earlier 🔎 started is running with its title, started when that tapback was (`setsFd.mjs` runningJobOf).
+  const [named] = benchRunning(0, [{ title: "Compare the tortilla places", minutesBefore: 5 }]);
+  assert.equal(named.title, "Compare the tortilla places");
+  assert.equal(named.state, "running");
+  assert.ok(Math.abs(Date.now() - 5 * 60_000 - named.startedAt) < 1000, "started five minutes before");
+  assert.equal(benchRunning(2, [{ title: "Compare the tortilla places" }]).length, 3, "named jobs run beside the counted ones");
 });
 
 test("a test's computer line is read strictly", async () => {

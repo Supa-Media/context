@@ -111,6 +111,8 @@ function readQuestion(sec) {
     checks: [],
     // Background jobs the chat already has running, with `background: on` (`run.mjs` `benchRunning`).
     running: 0,
+    // Jobs a Tex 🔎 started that are still running at the text (`- running job:` {title, minutesBefore?}; `setsFd.mjs` runningJobOf).
+    runningJobs: [],
     // In a group test (`group:`), what other members text before the person's nth text: `- @priya before text 2: "..."`.
     others: [],
     // A Lab replay (`labReplay.mjs`): the one text, exactly as it was sent (`- person texts:` with a JSON string, so a
@@ -140,6 +142,7 @@ function readQuestion(sec) {
     else if ((m = line.match(/^- kind:\s*(.*)$/))) q.kind = m[1].trim();
     else if (/^- gate:/.test(line)) q.gate = true;
     else if ((m = line.match(/^- running:\s*(\d+)\s*(?:jobs?)?\s*$/))) q.running = Number(m[1]);
+    else if ((m = line.match(/^- running job:\s*(.*)$/))) q.runningJobs.push(runningJobLine(m[1], sec.n));
     else if ((m = line.match(/^- person starts:\s*(.*)$/))) q.personStarts = unquote(m[1]);
     else if ((m = line.match(/^- person texts:\s*(.*)$/))) q.texts = jsonText(m[1], sec.n);
     else if ((m = line.match(/^- routine runs:\s*(.*)$/))) q.routine = jsonText(m[1], sec.n);
@@ -211,6 +214,20 @@ function jobLine(raw, n) {
   }
   if (!value || typeof value !== "object" || typeof value.title !== "string" || typeof value.text !== "string" || !["done", "failed", "running", "waiting", "stuck"].includes(value.state)) {
     throw new Error(`question ${n}: a job reports line is JSON {title, state, text, asked?}, state done, failed, running, waiting or stuck`);
+  }
+  return value;
+}
+
+/** A running job on a case line: JSON `{ title, minutesBefore? }`, the job it started that is still running (`setsFd.mjs`). */
+function runningJobLine(raw, n) {
+  let value;
+  try {
+    value = JSON.parse(raw.trim());
+  } catch {
+    value = null;
+  }
+  if (!value || typeof value !== "object" || typeof value.title !== "string" || value.title.trim() === "" || (value.minutesBefore !== undefined && !Number.isInteger(value.minutesBefore))) {
+    throw new Error(`question ${n}: a running job line is JSON {title, minutesBefore?}`);
   }
   return value;
 }

@@ -445,3 +445,46 @@ test("a one-to-one tapback answer is an earlier tapback, written and read back a
   const q = parseTest(md, "sets-1.md").questions[0];
   assert.deepEqual(q.earlier.at(-1), { from: "tex", text: "⏰", tapback: true });
 });
+
+// A Tex 🔎 that was its whole answer to a find or search ask started a background job: the Worker picks 🔎 from the
+// ask's words (`apps/agent/src/ackEmoji.ts`), and the Front door's own tapback can't be 🔎 (not in `REACT_EMOJI`). With
+// no words of Tex's and no job report after it, the job is still running when the labelled row comes, so the row's
+// turn is offered it as production's running list does (`background.js` `runningNow`). Sabotage: drop `runningJobOf`
+// from fdTest, and the row reads as if nothing ran.
+const jobChat = (between = []) =>
+  conv([
+    { id: "m1", who: "John", text: "Tex compare the three tortilla places, which one's cheapest for 2000 a week", at: "Tue 9:12" },
+    { id: "m2", tex: true, kind: "react", to: "m1", text: "🔎" },
+    ...between,
+    { id: "m9", who: "Kofi", text: "la estrella tastes the best imo" },
+    { id: "m10", who: "Priya", text: "agree but they're pricey", labels: { fd: { must: ["take the taste opinion into the answer"] } } },
+  ]);
+const runningOf = (c, at = c.msgs.length - 1) => parseTest(fdTest([unit(c, at)], "job: texting-assistant\nrun_as: Priya\ntoday: 2026-11-18\nruns: 1\nweb: scripted")).questions[0].runningJobs;
+
+test("a Tex 🔎 that was its whole answer is a job still running at the row, titled from its ask", () => {
+  assert.deepEqual(runningOf(jobChat()), [{ title: "Tex compare the three tortilla places, which one's cheapest for 2000 a week" }]);
+});
+
+test("a job is not running once Tex has texted words after its 🔎, or once its report is in the chat", () => {
+  const words = { id: "m3", tex: true, text: "Looking into the tortilla places now." };
+  assert.deepEqual(runningOf(jobChat([words])), [], "Tex answered in words");
+  const report = { id: "m3", who: "Background job", via: "job", state: "done", text: "La Estrella $220 a week, free delivery." };
+  assert.deepEqual(runningOf(jobChat([report])), [], "its report came back: an earlier job report, not a running job");
+  assert.deepEqual(runningOf(jobChat([{ id: "m3", who: "Kofi", text: "they'll deliver free?" }])), [{ title: "Tex compare the three tortilla places, which one's cheapest for 2000 a week" }], "the people talking is not an answer");
+});
+
+test("only a find or search tapback starts a job: a 👍 or a 🔎 beside Tex's words does not", () => {
+  const c = jobChat();
+  const thumbs = conv([c.msgs[0], { id: "m2", tex: true, kind: "react", to: "m1", text: "👍" }, c.msgs[2], c.msgs[3]]);
+  assert.deepEqual(runningOf(thumbs), [], "a thumbs-up is no job");
+  assert.deepEqual(runningOf(jobChat([{ id: "m3", tex: true, text: "On it." }])), [], "a tapback beside Tex's words was only an acknowledgement");
+});
+
+test("the truck-crew row runs with its research job still going, as Training has it", async () => {
+  const raw = JSON.parse(await readFile(new URL("../bench/sets/training/truck-crew.json", import.meta.url), "utf8"));
+  const at = raw.msgs.findIndex((m) => m.id === "m43");
+  assert.ok(at > 0, "the labelled row is in the conversation");
+  const jobs = parseTest(fdTest([{ convo: raw, at, label: raw.msgs[at].labels.fd, row: {} }], "job: texting-assistant\nrun_as: Priya\ntoday: 2026-11-18\nruns: 1\nweb: scripted")).questions[0].runningJobs;
+  assert.equal(jobs.length, 1);
+  assert.match(jobs[0].title, /wholesale tortilla places/);
+});

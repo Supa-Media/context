@@ -65,7 +65,7 @@ import { filedNotes } from "./checks.mjs";
 import { realNow } from "./clock.mjs";
 import { benchFolder } from "./folder.mjs";
 import { benchModels } from "./worldModels.mjs";
-import { byCodeStart } from "./byCode.mjs";
+import { benchJobId, byCodeStart, runningJob } from "./byCode.mjs";
 
 /**
  * The fewest texts the played person may send in one conversation. A brief
@@ -197,9 +197,16 @@ export function readComputer(value) {
   return { name: m[1], tools: m[2].split(", "), slots: m[3] ? Number(m[3]) : 1 };
 }
 
-/** The jobs a case's chat has running before it starts: the same for every setup, so each has the same free slots. */
-export function benchRunning(count) {
-  return Array.from({ length: Math.max(0, Math.min(6, count)) }, (_, i) => ({ id: `bench-running-${i + 1}`, title: `Earlier job ${i + 1}`, state: "running", startedAt: Date.now() - 10 * 60_000, status: "working" }));
+/**
+ * The jobs a case's chat has running before it starts: the same for every setup, so each has the same free slots.
+ * `titled` are the jobs its earlier lines started and that are still going (`setsFd.mjs` runningJobOf), each titled and
+ * started `minutesBefore` ago, as the chat's running list shows a job it started (`byCode.mjs` runningJob).
+ */
+export function benchRunning(count, titled = []) {
+  const now = Date.now();
+  const named = titled.map((job, i) => runningJob({ id: benchJobId(i + 1), title: job.title, state: "running" }, now, job.minutesBefore === undefined ? undefined : job.minutesBefore * 60_000));
+  const counted = Array.from({ length: Math.max(0, Math.min(6, count)) }, (_, i) => ({ id: `bench-running-${i + 1}`, title: `Earlier job ${i + 1}`, state: "running", startedAt: now - 10 * 60_000, status: "working" }));
+  return [...named, ...counted];
 }
 
 /**
@@ -215,8 +222,8 @@ export function tapbackLine(react) {
 export async function converse(world, question, person, mode = null, background = false) {
   if (mode === "housekeeping") return await keepHouse(world, question);
   const conversation = [];
-  // A test with `background: on` is offered background jobs, the chat running the case's `- running:` count already (`benchRunning`).
-  const running = background ? benchRunning(question.running ?? 0) : null;
+  // A test with `background: on` is offered background jobs, the chat running the case's `- running:` count and the jobs its `- running job:` lines name (`benchRunning`).
+  const running = background ? benchRunning(question.running ?? 0, question.runningJobs ?? []) : null;
   const totals = { ms: 0, personMs: 0, jobMs: 0, tools: [], jobs: [], delivered: [], turnRounds: [], traces: [], usage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 }, usageByModel: {}, rounds: {}, model: null, error: null };
   // A Lab replay's chat before its text goes into the ledger first, as it was (`labReplay.mjs`).
   // A job's report as the case's text: the page it says it wrote is written first (`earlierNotes.mjs`).
