@@ -1,4 +1,5 @@
 bench/test/byCode.test.mjs
+bench/test/benchTools.test.mjs
 bench/test/checks.test.mjs
 bench/test/fluff.test.mjs
 bench/test/judge.test.mjs
@@ -583,6 +584,7 @@ test/sets.test.mjs
 test/setsMigrate.test.mjs
 test/texGraphHome.test.mjs
 test/searchQuality.test.mjs
+test/setsWorld.test.mjs
 test/textsArrive.test.mjs
 test/texChatMove.test.mjs
 test/reflectNudgeNodes.test.mjs

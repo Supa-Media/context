@@ -81,11 +81,10 @@ test("someone with no test of their own runs on the core set's lines as themselv
   assert.equal((front.match(/^group: /gm) ?? []).length, 1);
 });
 
-test("the bench's people are exactly the people a Dev chat may have, and the Training chats' people", async () => {
+test("the bench's people are exactly the people a Dev or Training chat may have", async () => {
   const people = parsePeople(await readFile(join(BENCH, "workspaces/people.md"), "utf8"));
   const withWorld = [...new Set(people.filter((r) => r.personal).map((r) => r.person))].sort();
-  assert.deepEqual([...sets.BENCH_PEOPLE, ...sets.TRAINING_PEOPLE].sort(), withWorld);
-  assert.ok(!sets.TRAINING_PEOPLE.some((name) => sets.BENCH_PEOPLE.includes(name)), "a Dev chat still has only the bench's own people");
+  assert.deepEqual([...sets.BENCH_PEOPLE].sort(), withWorld);
 });
 
 test("every Training chat's Front door rows have a world to run in: each member a person, each group a shared workspace", async () => {
@@ -151,7 +150,34 @@ test("each test's day is walked from the first dated time line", () => {
     { id: "m6", who: "Maya", at: "Sat Oct 24 7:15", text: "f" },
   ]);
   assert.deepEqual([0, 1, 2, 3, 4, 5].map((i) => dayOf(c, i, 2026)), ["2026-10-13", "2026-10-13", "2026-10-16", "2026-10-16", "2026-10-19", "2026-10-24"]);
-  assert.equal(dayOf(conv([{ id: "m1", who: "Maya", at: "Tue 9:00", text: "x" }]), 0, 2026), null, "no dated line: the test's own day");
+  assert.equal(dayOf(conv([{ id: "m1", who: "Maya", at: "Tue 9:00", text: "x" }]), 0, 2026), null, "no dated line and no day to start from: the test's own day");
+});
+
+test("a chat that names no date still runs each row on its own weekday, from the bench's day on", () => {
+  // The bench's day, 2026-10-08, is a Thursday: a Monday routine that ran on it stayed quiet (Training, 2026-11-18).
+  const c = conv([
+    { id: "m1", who: "Maya", text: "before any time" },
+    { id: "m2", who: "Maya", at: "Thu 15:20", text: "a" },
+    { id: "m3", who: "Maya", at: "Fri 07:12", text: "b" },
+    { id: "m4", who: "Routine", via: "routine", at: "Mon 09:00", text: "Monday week-ahead" },
+    { id: "m5", who: "Maya", at: "Mon 13:22", text: "c" },
+    { id: "m6", who: "Maya", at: "Sun 10:00", text: "d" },
+  ]);
+  const days = [0, 1, 2, 3, 4, 5].map((i) => dayOf(c, i, 2026, "2026-10-08"));
+  assert.deepEqual(days, ["2026-10-08", "2026-10-08", "2026-10-09", "2026-10-12", "2026-10-12", "2026-10-18"]);
+  assert.deepEqual(days.map((d) => new Date(`${d}T00:00:00Z`).getUTCDay()), [4, 4, 5, 1, 1, 0], "Thu, Thu, Fri, Mon, Mon, Sun");
+  assert.equal(dayOf(conv([{ id: "m1", who: "Maya", at: "Mon 9:00", text: "x" }]), 0, 2026, "2026-10-08"), "2026-10-12", "the first Monday on or after the bench's day");
+});
+
+test("rows before a chat's first dated line are walked back from it, each on its own weekday", () => {
+  const c = conv([
+    { id: "m1", who: "Maya", at: "Mon 19:15", text: "a" },
+    { id: "m2", who: "Maya", at: "Wed 17:30", text: "b" },
+    { id: "m3", who: "Maya", at: "Mon 17:18", text: "c" },
+    { id: "m4", who: "Maya", at: "Thu Nov 12 14:08", text: "d" },
+    { id: "m5", who: "Maya", at: "Fri 8:40", text: "e" },
+  ]);
+  assert.deepEqual([0, 1, 2, 3, 4].map((i) => dayOf(c, i, 2026, "2026-10-08")), ["2026-11-02", "2026-11-04", "2026-11-09", "2026-11-12", "2026-11-13"]);
 });
 
 test("what can't run says why: a check-in that found no email, a tapback, a picture; a group chat and its check-in and routine rows run", () => {
@@ -189,13 +215,13 @@ test("the batch runs each person's tests as one bench test and maps each judged 
   assert.deepEqual(seen[0].tests, ["sets-1"]);
   assert.match(seen[0].setup, /max_steps: 24/, "an unpulled tree runs with the live settings");
   assert.equal(parseTest(seen[0].raw).questions.length, 2);
-  assert.match(rows[0].why, /no shared workspace .* has all of Maya, Remi/);
+  assert.match(rows[2].why, /no shared workspace .* has all of Maya, Remi/);
   assert.deepEqual(rows.map((r) => [r.chat, r.msg, r.ran, r.right]), [
-    ["g1", "m5", false, false],
     ["c1", "m5", true, true],
     ["c1", "m6", true, false],
-  ]);
-  assert.equal(rows[1].usd, 0.01);
+    ["g1", "m5", false, false],
+  ], "rows come back in their units' order");
+  assert.equal(rows[0].usd, 0.01);
 });
 
 test("a case the bench gave no answer for did not run, and the scratch folder is gone after", async () => {

@@ -120,10 +120,10 @@ test("a trigger row is the input that fired it, never a member, and can be a uni
   assert.match(sets.check(unknown, config).join("\n"), /via "cron" must be one of checkin, routine, notify/);
 });
 
-test("a Dev chat's people are the bench's and a Training chat's anyone with a bench world, since each Front door test runs in that person's world", () => {
+test("a Dev or Training chat's people are the bench's own, since each Front door test runs in that person's world", () => {
   const stranger = chat({ members: ["Maya", "Remi"], msgs: [{ id: "m1", who: "Remi", text: "hi" }] });
   assert.ok(sets.check(stranger, config).some((x) => x.startsWith("Remi has no bench world")), "Dev refuses someone who is not the bench's own");
-  assert.deepEqual(sets.check({ ...stranger, set: "training" }, config).filter((x) => x.includes("bench world")), [], "Remi has a thin world, so Training may have them");
+  assert.ok(sets.check({ ...stranger, set: "training" }, config).some((x) => x.startsWith("Remi has no bench world: a Training chat's people")), "the thin Training worlds are gone: a conversation brings its own world for its people (setsWorld.mjs)");
   // Training runs too since 2026-11-18 (a scored Lab Training run), and read 0/63 on the Front door while anyone could be in it.
   const nobody = chat({ set: "training", members: ["Maya", "Zed"], msgs: [{ id: "m1", who: "Zed", text: "hi" }] });
   assert.ok(sets.check(nobody, config).some((x) => x.startsWith("Zed has no bench world: a Training chat's people")), "Training refuses someone with no world");

@@ -23,23 +23,10 @@ Invented people and the workspaces each can reach. A test runs as one of them, t
 | Priya | the-flat | owner |
 | John | the-flat | editor |
 | Kofi | the-flat | editor |
-| Lucia | lucia (personal) | owner |
-| Remi | remi (personal) | owner |
-| Omar | omar (personal) | owner |
-| Jess | jess (personal) | owner |
-| Wren | wren (personal) | owner |
-| Nadia | nadia (personal) | owner |
-| Theo | theo (personal) | owner |
-| Omar | build-crew | owner |
-| Jess | build-crew | editor |
-| Wren | build-crew | editor |
-| Remi | truck-crew | owner |
-| Nadia | truck-crew | editor |
-| Theo | truck-crew | editor |
 
 ## Things tests rely on
 
-- Lucia, Remi, Omar, Jess, Wren, Nadia and Theo were the Training conversations' people until those were recast onto the bench's own people (Seyi, 2026-11-17: `trial-hire` and `running-the-shop` are John's, `loose-ends` Maya's, `truck-crew` runs in the-flat, `build-crew` and `side-talk` in fashion-brand). Each still has a personal workspace with only an index and `tex/about-me.md` (their time zone), and `build-crew` and `truck-crew` are shared workspaces of theirs (Dev2, 2026-11-17: no can't-run rows); no conversation in the repo runs in them now. What a Training chat takes for granted is played by the simulated world (`simWorld.mjs`) from the conversation's setting.
+- The Training and Dev conversations are cast from these people (`texSets.cjs` BENCH_PEOPLE), and each may bring a world of its own: the notes, mail, calendar days and sites it refers to, in `apps/mcp/bench/sets/worlds/<conversation id>/`, laid over a copy of this folder for that conversation's tests alone (`setsWorld.mjs`). A group conversation's own workspace there is the shared workspace it runs in, its members the conversation's people; nothing of it is listed above. What a conversation's world leaves out is played by the simulated world (`simWorld.mjs`) from its setting.
 
 - Tomas's workspace is deliberately messy for Tex's housekeeping (`tests/housekeeping.md`): a finished project, a done one still marked in progress, duplicate contacts, a one-note folder, inbox notes older than three months, and a running folder crowded with 240 dated run logs (from `_bank/run-logs/`).
 

@@ -22,8 +22,11 @@
 import { TEX_MAP } from "./texArchitecture.generated.js";
 import { capabilitiesFor } from "./capabilities.js";
 import { texStep } from "./texConfig.js";
-import TRAINING from "../../../../packages/shared/src/texTraining.generated.json" with { type: "json" };
-import { trainingText } from "../../../../packages/shared/src/texTraining.cjs";
+import GENERATED_TRAINING from "../../../../packages/shared/src/texTraining.generated.json" with { type: "json" };
+import { heldOutOf, trainingText } from "../../../../packages/shared/src/texTraining.cjs";
+
+/** Every Training conversation, less the one a bench process scores (`texTraining.cjs` `heldOutOf`; production holds none out). */
+const TRAINING = heldOutOf(GENERATED_TRAINING);
 
 export { TEX_MAP };
 

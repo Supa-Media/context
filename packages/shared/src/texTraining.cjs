@@ -259,4 +259,26 @@ function moduleText(entry, generated) {
   return TRAIN_ENTRY.test(entry) ? trainingText({ ctx: [entry] }, generated) : "";
 }
 
-module.exports = { TRAIN_ENTRY, VIA_READERS, WHOLE_INTRO, chatsOf, wholeText, conversationText, trainName, QUOTE_CHARS, HISTORY_LINES, historyLines, TRAINING_INTRO, lineOf, linesBefore, momentsOf, trainingSources, wantLines, exampleText, trainingText, moduleText };
+/** The name of the variable that holds a conversation out of the examples (`heldOutOf`). */
+const HOLD_OUT_ENV = "TEX_TRAINING_HOLD_OUT";
+
+/** The generated module without one conversation: none of its moments, and not its whole chat, for any node. */
+function withoutChat(generated, chat) {
+  const drop = (byNode) => Object.fromEntries(Object.entries(byNode ?? {}).map(([node, list]) => [node, list.filter((item) => item.chat !== chat)]));
+  return { ...generated, nodes: drop(generated?.nodes), chats: drop(generated?.chats) };
+}
+
+/**
+ * The Training examples a process's steps read: all of them, or, in a bench process that scores one Training
+ * conversation, all but that one (`apps/mcp/bench/setsFd.mjs` runs each conversation's Front door tests in processes
+ * of their own with `TEX_TRAINING_HOLD_OUT` naming it). A front door scored on a chat it reads as an example, labels
+ * and Tex's own later answers included, flatters itself (Training run of 2026-11-18: a routine stayed quiet "because
+ * the last tidy already closed these", an answer it had only read in its own examples). Production sets no such
+ * variable, so its steps read every conversation.
+ */
+function heldOutOf(generated, env = globalThis.process?.env) {
+  const chat = typeof env?.[HOLD_OUT_ENV] === "string" ? env[HOLD_OUT_ENV].trim() : "";
+  return chat === "" ? generated : withoutChat(generated, chat);
+}
+
+module.exports = { HOLD_OUT_ENV, withoutChat, heldOutOf, TRAIN_ENTRY, VIA_READERS, WHOLE_INTRO, chatsOf, wholeText, conversationText, trainName, QUOTE_CHARS, HISTORY_LINES, historyLines, TRAINING_INTRO, lineOf, linesBefore, momentsOf, trainingSources, wantLines, exampleText, trainingText, moduleText };

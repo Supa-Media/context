@@ -14,9 +14,12 @@
  */
 import { TEX_CONFIG as CONFIG } from "../../../../packages/shared/src/texConfig.cjs";
 import PROMPT from "../../../../packages/shared/src/texPrompt.generated.json" with { type: "json" };
-import TRAINING from "../../../../packages/shared/src/texTraining.generated.json" with { type: "json" };
+import GENERATED_TRAINING from "../../../../packages/shared/src/texTraining.generated.json" with { type: "json" };
 import SHELF from "../../../../packages/shared/src/texNodeShelf.json" with { type: "json" };
-import { TRAIN_ENTRY, moduleText, trainName } from "../../../../packages/shared/src/texTraining.cjs";
+import { TRAIN_ENTRY, heldOutOf, moduleText, trainName } from "../../../../packages/shared/src/texTraining.cjs";
+
+/** Every Training conversation, less the one a bench process scores (`texTraining.cjs` `heldOutOf`; production holds none out). */
+const TRAINING = heldOutOf(GENERATED_TRAINING);
 import { configStamp } from "../../../../packages/shared/src/texConfigStamp.cjs";
 import { sandboxGateOf } from "../labSandbox/policy.js";
 import { EFFORTS as SCHEMA_EFFORTS } from "../../../../packages/shared/src/texConfigSchema.cjs";

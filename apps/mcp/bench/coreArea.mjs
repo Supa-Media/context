@@ -59,7 +59,10 @@ export function coreCases({ test, testRaw, resultRaw, keyRaw, setup = SETUP }) {
     const said = answers.filter((a) => runIds.includes(a.id)).flatMap((a) => (a.conversation ?? []).filter((turn) => turn.from !== "person" && turn.from !== "them").map((turn) => turn.text));
     // The background jobs its runs handed off and ran (`jobDelivery.mjs`): what they added, never a score.
     const handoff = handoffTotals(answers.filter((a) => runIds.includes(a.id)).flatMap((a) => a.delivered ?? []));
+    // What the bench could not stand in for on its runs (`benchGaps.mjs`): the row's reader treats it as a harness error.
+    const bench = [...new Set(answers.filter((a) => runIds.includes(a.id)).flatMap((a) => a.bench ?? []))];
     rows.push({
+      ...(bench.length > 0 ? { bench } : {}),
       misses,
       held,
       said,
@@ -87,7 +90,7 @@ export function coreCases({ test, testRaw, resultRaw, keyRaw, setup = SETUP }) {
  * run reads (its own `apps/mcp/bench/ai` unless named). Returns rows whose `results` hold one boolean a run, what it
  * cost, each test's bar, and the tests the tree does not have.
  */
-export async function runTests(tree, tests, { only = null, runs = 1, fake = false, scratch, tag, dir = null, parallel = 1 }) {
+export async function runTests(tree, tests, { only = null, runs = 1, fake = false, scratch, tag, dir = null, parallel = 1, env = process.env }) {
   const folder = dir ?? join(tree, "apps/mcp/bench/ai");
   const script = join(tree, "apps/mcp/bench/run.mjs");
   // Each test is its own run and judge process writing its own files, so `parallel` of them can go at once (a Lab
@@ -107,8 +110,8 @@ export async function runTests(tree, tests, { only = null, runs = 1, fake = fals
     const args = ["run", "texting-assistant", "--dir", folder, "--test", test, "--setups", SETUP, "--runs", String(runs), "--out", out];
     if (numbers) args.push("--questions", numbers.join(","));
     if (fake) args.push("--fake");
-    await run(process.execPath, [script, ...args], { cwd: tree, maxBuffer: 64 * 1024 * 1024, env: process.env });
-    await run(process.execPath, [script, "judge", out, "--dir", folder, "--max-usd", "1", ...(fake ? ["--fake"] : [])], { cwd: tree, maxBuffer: 64 * 1024 * 1024, env: process.env });
+    await run(process.execPath, [script, ...args], { cwd: tree, maxBuffer: 64 * 1024 * 1024, env });
+    await run(process.execPath, [script, "judge", out, "--dir", folder, "--max-usd", "1", ...(fake ? ["--fake"] : [])], { cwd: tree, maxBuffer: 64 * 1024 * 1024, env });
     const resultRaw = await readFile(out, "utf8");
     const keyRaw = await readFile(join(dirname(out), frontMatter(resultRaw).key), "utf8");
     return { cases: coreCases({ test, testRaw, resultRaw, keyRaw }) };

@@ -28,6 +28,7 @@ import { basename, join, resolve } from "node:path";
 
 import { PRODUCTION_HOUSEKEEPING_PATH, frontOf, parseSetup } from "../src/agent/production.js";
 import { MODULE_FOLDER, assembleSetup } from "../src/agent/promptModules.js";
+import { sentPicturesLine } from "../src/agent/outgoingPictures.js";
 import { expandWorkspaces, readBenchFolder, runnableQuestions } from "./load.mjs";
 import { cachedEmbeddings, claudeTransport, fakeAi, playPerson } from "./models.mjs";
 import { prepareRun } from "./warm.mjs";
@@ -247,7 +248,7 @@ export async function converse(world, question, person, mode = null, background 
     // Each progress line is a text the person got before the answer, as the
     // texting Worker sends them (`apps/agent/src/inbox.ts`), so it counts as one.
     for (const line of turn.progress ?? []) conversation.push({ from: "assistant", text: line });
-    conversation.push({ from: "assistant", text: turn.answer });
+    conversation.push({ from: "assistant", text: saidLine(turn) });
     // A turn that ends in a tapback instead of words (a job's start, `sendTheReply.js`) showed the person that tapback:
     // the judge reads it as the line they saw, never as silence (Dev set, 2026-11-17: three such turns read "said nothing").
     const tapback = tapbackLine(turn.react);
@@ -268,6 +269,24 @@ export async function converse(world, question, person, mode = null, background 
   }
   // The reply's texts: a job's later report is not one.
   return { conversation, ...totals, texts: conversation.filter((turn) => turn.from === "assistant" && turn.tapback !== true && turn.later === undefined).length };
+}
+
+/**
+ * What the person got from one texted turn, as the record's line. Words are the words, with the pictures sent beside
+ * them said as the chat's own record says them (`outgoingPictures.js` sentPicturesLine): a drawn card was invisible to
+ * the judge, and an answer that was only a picture read as nothing. A turn with no words, no picture and no tapback is
+ * one of three things, and the line says which (Training, 2026-11-18: such rows read "Tex: " with nothing, and nobody
+ * could tell a chosen silence from a lost answer): Tex chose to say nothing (`quiet`, with its model's last words and
+ * call), the Worker stopped the turn, or the gateway answered with nothing at all, which production's Worker retries
+ * and then texts an apology for (`apps/agent/src/reply.ts`), so it is a failed turn, never a reply.
+ */
+export function saidLine(turn) {
+  const pictures = sentPicturesLine(Array.from({ length: Number(turn.pictures) || 0 }));
+  if (turn.answer !== "" || pictures !== "") return [turn.answer, pictures].filter(Boolean).join("\n");
+  if (typeof turn.react === "string") return "";
+  if (turn.cancelled === true) return "(the turn was stopped before it answered)";
+  if (turn.quiet === true) return `(stayed quiet${turn.quietWhy ? `: ${turn.quietWhy}` : ""})`;
+  return `(no answer came back${turn.quietWhy ? `: ${turn.quietWhy}` : ""}; the texting Worker would retry, then text that something went wrong)`;
 }
 
 /**
@@ -403,6 +422,10 @@ async function answerJobs(options, { bench, test, testName = options.test ?? opt
   // The person's zone, sent on every text as the Worker sends it, and the test's time of day in it (`clock.mjs` clockMs).
   models.timeZone = test.front.time_zone ?? null;
   models.clock = test.front.clock ?? null;
+  // The last day whose mail has arrived, for a test conversation's dated world (`setsWorld.mjs`).
+  models.mailUntil = test.front.mail_until ?? null;
+  // The sites a test conversation's own world declared (`setsWorld.mjs`): kept in a simulated world, made-up hosts too.
+  models.ownSites = String(test.front.world_sites ?? "").split(",").map((host) => host.trim()).filter(Boolean);
   const person = { fake: options.fake === true, send, model: test.front.played_by };
   // A Dev test's outside world, played by a model where the fixtures have nothing (`world: simulated`, `simWorld.mjs`).
   const worldMemo = simMemo();
@@ -459,6 +482,8 @@ async function answerJobs(options, { bench, test, testName = options.test ?? opt
           browser: world.browser(),
           // Each Gmail search and read, so a result shows a search that missed.
           mail: world.mail(),
+          // What the bench's own stand-ins could not answer (`benchGaps.mjs`): the row is the harness's, not Tex's.
+          bench: world.gaps?.() ?? [],
           // The emails it saved or sent, for the forward check (`checks.mjs`).
           emails: world.emails(),
           // Wall time for the whole conversation, worlds and the played person

@@ -295,6 +295,7 @@ function runBlock(run, setup) {
   lines.push(`Tools: ${tools}`, "");
   // What a scripted browser did (`sites.mjs`): one line, read back by the checks.
   if (run.browser?.length) lines.push(`Browser: ${run.browser.map((event) => event.replace(/\s+/g, " ").replaceAll(" | ", " / ")).join(" | ")}`, "");
+  if (run.bench?.length) lines.push(`Bench: ${run.bench.join(" | ")}`, "");
   if (run.mail?.length) lines.push(`Mail: ${run.mail.map((event) => event.replace(/\s+/g, " ").replaceAll(" | ", " / ")).join(" | ")}`, "");
   // Where housekeeping left each note a `file` check names, and what it holds: one JSON line, read back by the checks.
   if (Object.keys(run.where ?? {}).length) lines.push(`Filed: ${JSON.stringify(run.where)}`, "");
