@@ -165,6 +165,11 @@ test('only staging can deploy automatically; production services share one manua
   assert.match(production, /phase: deploy\n/);
   assert.doesNotMatch(production, /tested_in_staging:\s*true/);
   assert.match(production, /router:\s+needs: \[validate, convex, gateway, email, transcribe, egress, web\]/);
+  assert.match(production, /photon-test:\n    needs: validate\n/);
+  assert.match(production, /photon:\n    needs: \[validate, convex, agent, photon-test\]\n/);
+  const photon = readFileSync(new URL('deploy-photon-bridge.yml', dir), 'utf8');
+  assert.match(photon, /phase != 'deploy'/);
+  assert.match(photon, /phase == 'deploy' \|\| needs\.test\.result == 'success'/);
   assert.match(production, /mobile-publish:\n    name: Start OTA publish\n    needs: \[validate, convex, gateway, email, transcribe, egress, mobile-bundle\]/);
   assert.match(production, /gh workflow run deploy-production-ota\.yml --repo "\$GH_REPO" --ref main/);
   assert.doesNotMatch(production, /phase: publish/);
