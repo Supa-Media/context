@@ -22,6 +22,7 @@ import { DESK_LEDGER } from "../texStore/desk.js";
 import { noteAbout, sentOnItsOwn } from "./sentOnItsOwn.js";
 import { isLinkedText, isUnsentNote, isUnsentText, keptNotTexted, linkedSends, notesByTurn } from "./sentOnItsOwn.js";
 import { shownFacts } from "./toldFacts.js";
+import { withGuestNames } from "./groupGuestNames.js";
 
 /** The most entries one read of the ledger asks for; a turn reads at most `MAX_PAGES` of them. */
 const PAGE = DESK_LEDGER.options.limit;
@@ -67,7 +68,7 @@ export async function readLedger(ledger, chat, { chars = READ_CHARS, first = nul
     console.log(JSON.stringify({ event: "ledger_history_unread", reason: String(error?.name ?? "error").slice(0, 40) }));
     return [];
   }
-  return entries;
+  return withGuestNames(entries, ledger, chat);
 }
 
 /**
@@ -93,7 +94,10 @@ export function dayFromLedger(entries, chat, covers) {
     if (isUnsentText(entry, links)) continue;
     let event;
     try {
-      event = checkEvent(asEvent(entry, chat), { chat, now: entry.at });
+      // A guest's kept name (`withGuestNames`) is the reader's, never the log's: checked without it, kept on after.
+      const { guestName, ...from } = entry.from ?? {};
+      event = checkEvent(asEvent(entry.from ? { ...entry, from } : entry, chat), { chat, now: entry.at });
+      if (typeof guestName === "string") event = { ...event, from: { ...event.from, guestName } };
     } catch {
       continue; // Not one the log would have kept.
     }

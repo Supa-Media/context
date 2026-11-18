@@ -504,6 +504,7 @@ test/agentJobSlots.test.mjs
 test/morningChat.test.mjs
 test/thumbsUpMerge.test.mjs
 test/groupNames.test.mjs
+test/guestNamesInHistory.test.mjs
 test/replyJudge.test.mjs
 
 test/directoryEndpoint.test.mjs

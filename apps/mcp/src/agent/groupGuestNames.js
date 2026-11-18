@@ -9,7 +9,7 @@
  * So a name is kept in the chat's ledger, the chat's one copy (`chat-ledger.md`), as a `name` entry
  * `{guest, name, by?}`: the newest per guest is that guest's name. Every group turn reads them beside its history
  * (`groupTurn.js` `readGroupMemory`), and the list, the chat's lines, who tagged it and its earlier history show the
- * name, with the number beside it; the judge reads them as facts (`textsDecide.js` `nowFacts`). A name is a person's
+ * name (the week's history and `read_day` too, through `withGuestNames`), with the number beside it; the judge reads them as facts (`textsDecide.js` `nowFacts`). A name is a person's
  * text: it is kept to the letters and marks names use (`cleanName`), so it can't carry an instruction.
  */
 
@@ -67,6 +67,23 @@ export async function readGuestNames(ledger, chat) {
     console.log(JSON.stringify({ event: "group_guest_names_unread", reason: String(error?.name ?? "error").slice(0, 40) }));
     return [];
   }
+}
+
+/**
+ * Ledger entries with each guest's kept name beside its label, as `from.guestName`, so every line rendered from them
+ * reads "@guest-1a2b (Sam): ..." (`logRender.js` `speaker`). Dev2, 2026-11-18: the week's history printed bare labels
+ * while only the chat's list named them, and Tex mixed up who said what in Battle of the Bots. Names are read only when
+ * an entry is from a guest, so a one-to-one chat costs no read; a name that can't be read leaves the label alone.
+ */
+export async function withGuestNames(entries, ledger, chat) {
+  if (!Array.isArray(entries) || !entries.some(fromGuest)) return entries;
+  const names = new Map((await readGuestNames(ledger, chat)).map(({ guest, name }) => [guest, name]));
+  if (names.size === 0) return entries;
+  return entries.map((entry) => (fromGuest(entry) && names.has(entry.from.name) ? { ...entry, from: { ...entry.from, guestName: names.get(entry.from.name) } } : entry));
+}
+
+function fromGuest(entry) {
+  return entry?.from?.kind === "person" && typeof entry.from.name === "string" && GUEST.test(entry.from.name);
 }
 
 /** A name as an about note writes one: up to three capitalised words. */
