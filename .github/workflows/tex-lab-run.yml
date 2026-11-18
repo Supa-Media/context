@@ -329,7 +329,9 @@ jobs:
           echo "Sealed the refresh token after sign-in"
 
       - name: Keep the seal from after sign-in
-        if: steps.seal-early.outputs.early == 'present'
+        # always(): a failed step before this one must not skip the upload (Lab run 44313860768 sealed the
+        # final token, skipped this upload because the run had already failed, and the writer wrote nothing).
+        if: always() && steps.seal-early.outputs.early == 'present'
         uses: actions/upload-artifact@v4
         with:
           name: bench-token-early
@@ -484,7 +486,9 @@ jobs:
           echo "Sealed the refresh token after the run"
 
       - name: Keep the seal from the end of the run
-        if: steps.seal-final.outputs.final == 'present'
+        # always(): a failed step before this one must not skip the upload (Lab run 44313860768 sealed the
+        # final token, skipped this upload because the run had already failed, and the writer wrote nothing).
+        if: always() && steps.seal-final.outputs.final == 'present'
         uses: actions/upload-artifact@v4
         with:
           name: bench-token-final
@@ -538,15 +542,19 @@ jobs:
           node-version: 22
           package-manager-cache: false
 
+      # Both seals, each when its job said it exists, and neither may fail the job: the write below prefers the
+      # final seal only when its file is here, and otherwise falls back to the one from after sign-in.
       - name: The seal from the end of the run
         if: needs.run.outputs.final == 'present'
+        continue-on-error: true
         uses: actions/download-artifact@v4
         with:
           name: bench-token-final
           path: ${{ runner.temp }}/final
 
       - name: The seal from after sign-in
-        if: needs.run.outputs.final != 'present' && needs.run.outputs.final != 'failed' && needs.run.outputs.early == 'present'
+        if: always() && needs.run.outputs.early == 'present'
+        continue-on-error: true
         uses: actions/download-artifact@v4
         with:
           name: bench-token-early
@@ -571,15 +579,24 @@ jobs:
             echo "::error::the last seal failed; not writing an older token"
             exit 1
           fi
-          if [ "$FINAL" = "present" ]; then
-            cipher="$RUNNER_TEMP/final/bench-token-final.bin"
+          final="$RUNNER_TEMP/final/bench-token-final.bin"
+          early="$RUNNER_TEMP/early/bench-token-early.bin"
+          if [ "$FINAL" = "present" ] && [ -s "$final" ]; then
+            cipher="$final"
             echo "Using the seal from the end of the run"
           elif [ "$EARLY" = "failed" ]; then
             echo "::error::the seal after sign-in failed"
             exit 1
-          elif [ "$EARLY" = "present" ]; then
-            cipher="$RUNNER_TEMP/early/bench-token-early.bin"
-            echo "Using the seal from after sign-in; the run ended before the last seal"
+          elif [ "$EARLY" = "present" ] && [ -s "$early" ]; then
+            cipher="$early"
+            if [ "$FINAL" = "present" ]; then
+              echo "::warning::the seal from the end of the run is missing or empty; using the seal from after sign-in"
+            else
+              echo "Using the seal from after sign-in; the run ended before the last seal"
+            fi
+          elif [ "$FINAL" = "present" ] || [ "$EARLY" = "present" ]; then
+            echo "::error::the sealed token file is missing"
+            exit 1
           else
             echo "::error::no sealed token to write"
             exit 1
