@@ -326,3 +326,16 @@ minutes) and can cancel a green run that was still in progress.
 `pr-description.yml` only; the same filter on any other workflow fails its
 self-test. `pr-description.mjs --self-test` fails if prose around an unchanged
 skip line would re-run, or if a changed skip line would not.
+
+## The mobile suite runs in six shards
+
+_Decided 2026-11-17._ `ci / Test Mobile App` was three shards. On the pull
+requests that ran it, shard 1 spent about 78 seconds in tests and the other
+two 42 and 57, and `ci / Test Summary` waits for the slowest. Six is the
+most the reusable workflow's matrix allows (`mobile-test-shards`). The
+summary check's name does not change. The Convex suite is already at that
+cap of six; raising it is a change in supa-framework, which this repository
+calls at `@main`.
+
+Folding the mobile suite back to one runner puts about three minutes of Jest
+in front of `ci / Test Summary` on every app change.
