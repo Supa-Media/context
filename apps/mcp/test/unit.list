@@ -18,6 +18,7 @@ bench/test/sites.test.mjs
 bench/test/tasks.test.mjs
 bench/test/warm.test.mjs
 bench/test/world.test.mjs
+bench/test/worldDays.test.mjs
 test/agentAboutMe.test.mjs
 test/agentAttachments.test.mjs
 test/agentBrowserbaseRefused.test.mjs
