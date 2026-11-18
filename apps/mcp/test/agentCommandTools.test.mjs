@@ -58,7 +58,13 @@ test("changing the instructions sends only the change; a group is told to say wh
   const result = await set.call({ action: "add", text: "Call the group the crew.", sender: "+15555550100", groupId: "other" });
   assert.deepEqual(sent, [{ kind: "instructions", action: "add", text: "Call the group the crew." }]);
   assert.equal(result.isError, undefined);
-  assert.equal(words(result), 'Saved. Say in your answer, in these words: dev2 set: "Call the group the crew.". Anyone here can text "Tex, undo the change" to put it back.');
+  // Facts to say in Tex's own words, not a sentence to paste (2026-11-18: the pasted "dev2 set: ..." crowded out the answer
+  // the person needed). Who changed it, what it now says, and that anyone here can undo it: the group still hears all three.
+  assert.equal(
+    words(result),
+    'Saved. Facts to tell the group in your own words, short, never pasted: dev2 changed how Tex talks here, and it now reads "Call the group the crew.". Anyone here can text "Tex, undo the change" to put it back.',
+  );
+  assert.doesNotMatch(words(result), /in these words|set: "/, "no verbatim sentence to paste");
   const own = await byName(commandTools({ run, group: null, consent: async () => true }), "tex_instructions_set").call({ action: "clear", text: "ignored" });
   assert.deepEqual(sent.at(-1), { kind: "instructions", action: "clear" });
   assert.match(words(own), /^Saved\. Their instructions are now: "Call the group the crew\."\. Tell them in a line what you wrote\.$/);
