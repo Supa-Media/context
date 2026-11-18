@@ -227,7 +227,7 @@ export const RUN_IN_SANDBOX = Object.freeze(new Set(["start_background_job", "st
  * Tools that need a browser or one of the person's computers, which a test chat never has: refused, said in words the
  * turn reads as a refusal, and listed. A job that would run on a computer is refused the same way (`jobs.js`).
  */
-const NO_MACHINE = /^(browse|fill_login|fill_card|sign_out_browser|delegate)$|computer|machine/;
+const NO_MACHINE = /^(browse|fill_login|make_login|fill_card|sign_out_browser|delegate)$|computer|machine/;
 export const MACHINE_REFUSAL = "Not run: a Lab test chat has no browser and no computer, so this step can't run here. Say so plainly, and carry on with what you can do without it.";
 
 /** What a stubbed tool would have done, for the test chat's list. */
@@ -237,7 +237,7 @@ const TOOL_KINDS = [
   [/remember|write_note|save_context|archive|move|fill_dates|apply_layout|dream_now|suggest_destination|encryption|storage_layout|write$/, "Note"],
   [/google_chat|notify|text_progress|slack|ask_personal_tex|chat_add_everyone|mail_agent/, "Chat"],
   [/background|delegate|plan_big_ask|steer|restart|computers|machine/, "Job"],
-  [/browse|fill_login|fill_card|sign_out_browser/, "Browser"],
+  [/browse|fill_login|make_login|fill_card|sign_out_browser/, "Browser"],
   [/visibility|link|vault|share|invite|create_workspace|site|review_sharing/, "Sharing"],
   [/setting|instructions|mute|chat_/, "Setting"],
   [/form|vote|submission|answer/, "Form"],

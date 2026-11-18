@@ -90,6 +90,7 @@ export const ASSISTANT_SEND_ACTIONS = {
   travel_time: { tool: "travel_time", summary: "How long a trip takes, from Google Maps directions; never estimate one.", take: own },
   browse: { tool: "browse", summary: "Drive a browser step by step.", take: own },
   fill_login: { tool: "fill_login", summary: "Sign in on the open page with a saved login you never see.", take: ownAndWhere },
+  make_login: { tool: "make_login", summary: "Make a new account's password on its sign-up page: saved to their vault first, typed in, never shown to you.", take: ownAndWhere },
   fill_card: { tool: "fill_card", summary: "Fill the checkout's card boxes with a saved card you never see, on the person's yes in the app.", take: ownAndWhere },
   progress: { tool: "text_progress", summary: "Text the person a short line while you work.", take: own },
   delegate: { tool: "delegate", summary: "Hand a whole sub-project to Claude Code, Codex, Claude, Claude Design or ChatGPT.", take: ownAndWhere },
