@@ -16,6 +16,20 @@ const PATH_ARGUMENTS = [
 ];
 
 /**
+ * A pasted note link, `context://@name/path` or `context://note/@name/path`, as Tex writes it and
+ * `noteUrl` (`notes/paths.js`) prints it. Only the scheme and the `note/` route segment come off; what is
+ * left is the sugar's own form, so the rest of this file routes it exactly as `@name/path` is routed.
+ */
+const LINK_SCHEME = "context://";
+const LINK_ROUTE = /^note\//;
+
+/** `context://…` → its sugar form (`@name/path`, or a plain path); anything else is returned as it was. */
+function withoutLinkScheme(value) {
+  if (typeof value !== "string" || !value.startsWith(LINK_SCHEME)) return value;
+  return value.slice(LINK_SCHEME.length).replace(LINK_ROUTE, "");
+}
+
+/**
  * Route a call from a path that opens with a workspace's name.
  *
  * Returns a refusal when the call's paths name more than one place, and
@@ -34,6 +48,10 @@ const PATH_ARGUMENTS = [
  */
 export function addressByPath(tool, args) {
   if (!args || typeof args !== "object") return;
+  // A link is normalised first, so the early return below and the two-place check see the sugar form.
+  for (const [field] of PATH_ARGUMENTS) {
+    if (typeof args[field] === "string" && args[field].startsWith(LINK_SCHEME)) args[field] = withoutLinkScheme(args[field]);
+  }
   if (tool === "move_note") {
     for (const [field, into] of PATH_ARGUMENTS) {
       if (args[into] !== undefined && args[into] !== null) {
