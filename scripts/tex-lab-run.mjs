@@ -6,16 +6,66 @@
  *
  *   node scripts/tex-lab-run.mjs prepare <job.json> <dir>     the conversations to run, and the draft's graph
  *   node scripts/tex-lab-run.mjs results <rows.json> <ms>     the results the run reports back, as JSON
+ *   node scripts/tex-lab-run.mjs ran <rows.json>              fails when a step had tests and none of them could run
  *
  * `prepare` reads the run Convex hands the workflow (`texLabRuns:job`): the Dev set is the repo's
  * (`apps/mcp/bench/sets/dev`) with the Lab's drafts over it (a draft in Dev replaces or adds a conversation; one moved
  * to Training or removed leaves it out). A run with `set: "training"` runs the repo's Training set instead
  * (`trainingConversations`). Never the Test set, which is not in the repo or in the Lab's drafts at all. It writes `<dir>/convs.json`, and `<dir>/graph.json` when the run is a draft's. Standard output
  * says counts and ids only: the workflow's log is public.
+ *
+ * A run that could not run its tests FAILS, it never reads as a score (Lab run 2026-11-17: Training's Front door came
+ * back 0/63 in thirty seconds, every row "has no bench world", and looked like a result). `prepare` refuses a
+ * conversation whose people the bench has no world or shared workspace for when the Front door's tests are to run
+ * (`castProblems`), and `ran` refuses rows where a whole step did not run. Each says why to the file `TEX_LAB_WHY`
+ * names, which the workflow reports to the Lab as the run's error; standard error keeps to ids and counts.
  */
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { createRequire } from "node:module";
 import { join } from "node:path";
+import { fileURLToPath } from "node:url";
+import { parsePeople } from "../apps/mcp/bench/load.mjs";
 import { loadSets } from "../apps/mcp/bench/sets.mjs";
+import { castProblems } from "../apps/mcp/bench/setsFd.mjs";
+
+const { unitTests } = createRequire(import.meta.url)("../packages/shared/src/texSets.cjs");
+const PEOPLE = fileURLToPath(new URL("../apps/mcp/bench/ai/workspaces/people.md", import.meta.url));
+
+/** An error whose `why` is for the Lab (the run's error, kept in Convex) and whose message is for the public log. */
+class Refused extends Error {
+  constructor(message, why) {
+    super(message);
+    this.why = why;
+  }
+}
+
+/**
+ * The conversations of a run whose Front door tests could not run in the bench, each with why: `[{ id, problems }]`.
+ * Only those with a Front door test, and only when the run covers the Front door (`node` null or "fd").
+ */
+export function uncast(convs, people, node = null) {
+  if (node && node !== "fd") return [];
+  return convs
+    .filter((c) => unitTests(c).some((t) => t.node === "fd"))
+    .map((c) => ({ id: c.id, problems: castProblems(c, people) }))
+    .filter((x) => x.problems.length > 0);
+}
+
+/**
+ * The steps of a run's rows that had tests and ran none of them: `[{ node, total, why }]`, `why` the first row's. A
+ * test that can't run alone is its row's to say (`ran: false`); a whole step that did not run is a broken run.
+ */
+export function unrun(rows) {
+  const by = new Map();
+  for (const r of rows) {
+    const b = by.get(r.node) ?? { node: r.node, total: 0, ran: 0, why: "" };
+    b.total += 1;
+    if (r.ran !== false) b.ran += 1;
+    else if (b.why === "") b.why = String(r.why ?? "no way to run alone yet").slice(0, 160);
+    by.set(r.node, b);
+  }
+  return [...by.values()].filter((b) => b.ran === 0).map(({ node, total, why }) => ({ node, total, why }));
+}
 
 /** The Dev conversations a run covers: the repo's with the Lab's drafts over them, one chat when the run names one. */
 export function devConversations(repo, drafts, convId = null) {
@@ -128,6 +178,13 @@ async function main() {
     const convs = pick(await loadSets(), job.drafts, job.kind === "chat" ? job.convId : null);
     const name = training ? "Training" : "Dev";
     if (job.kind === "chat" && convs.length === 0) throw new Error(`${job.convId} is not a ${name} conversation`);
+    const lost = uncast(convs, parsePeople(readFileSync(PEOPLE, "utf8")), job.nodeId || null);
+    if (lost.length > 0) {
+      throw new Refused(
+        `${lost.length} ${name} conversation${lost.length === 1 ? "" : "s"} can't run the Front door's tests (${lost.map((x) => x.id).join(", ")}): people with no bench world or shared workspace`,
+        `the Front door's tests can't run: ${lost.map((x) => `${x.id}: ${x.problems.join("; ")}`).join(" | ")} (the bench's people: apps/mcp/bench/ai/workspaces/people.md)`,
+      );
+    }
     writeFileSync(join(b, "convs.json"), JSON.stringify(convs));
     if (job.graph) writeFileSync(join(b, "graph.json"), job.graph);
     console.log(`${name} conversations: ${convs.length} (${convs.map((c) => c.id).join(", ")}); ${job.graph ? "draft graph" : "main"}`);
@@ -137,12 +194,27 @@ async function main() {
     process.stdout.write(JSON.stringify(resultsOf(JSON.parse(readFileSync(a, "utf8")), b)));
     return;
   }
-  throw new Error("usage: tex-lab-run.mjs prepare <job.json> <dir> | results <rows.json> <ms>");
+  if (sub === "ran") {
+    const none = unrun(JSON.parse(readFileSync(a, "utf8")));
+    if (none.length > 0) {
+      throw new Refused(
+        `none of these steps' tests could run: ${none.map((x) => `${x.node} 0/${x.total}`).join(", ")}`,
+        none.map((x) => `none of ${x.node}'s ${x.total} tests could run: ${x.why}`).join(" | "),
+      );
+    }
+    console.log("Every step with tests ran some");
+    return;
+  }
+  throw new Error("usage: tex-lab-run.mjs prepare <job.json> <dir> | results <rows.json> <ms> | ran <rows.json>");
 }
 
 if (import.meta.url === `file://${process.argv[1]}`) {
   main().catch((error) => {
     console.error(`tex-lab-run: ${error.message}`);
+    // The Lab's copy of why (private, at most the 280 characters the workflow reports); never the reason this exits.
+    try {
+      if (process.env.TEX_LAB_WHY) writeFileSync(process.env.TEX_LAB_WHY, String(error.why ?? error.message).slice(0, 280));
+    } catch {}
     process.exit(1);
   });
 }

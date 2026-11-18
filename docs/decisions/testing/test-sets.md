@@ -137,9 +137,34 @@ ratio counts labels instead of stars, or if the drift limit is ignored.
   chat may have, and the facts it leans on live in their notes and Gmail. A
   group runs in the shared workspace that has all its members, each earlier
   line sent as its speaker, and each test on its own day, walked from the
-  first time line that names a date ("Tue Oct 13 10:14"). Training is read as
-  examples and never run, so anyone may be in it. `texSets.test.mjs` and
+  first time line that names a date ("Tue Oct 13 10:14"). `texSets.test.mjs` and
   `setsFd.test.mjs` fail if either part is undone.
+- **Training is cast from the bench's own people** (Seyi, 2026-11-17,
+  reversing "Training is read as examples and never run, so anyone may be in
+  it"). Training is run and scored from the Lab, and its Front door read 0/63
+  in thirty seconds, each row "has no bench world", because Remi, Lucia, Omar
+  and the rest were nobody `people.md` knew. Two fixes landed the same day.
+  #3631 gave those seven people thin worlds (`texSets.cjs` `TRAINING_PEOPLE`).
+  Then, on Seyi's decision, the six Training conversations were recast onto
+  people who already had worlds, their words otherwise unchanged:
+  `trial-hire` and `running-the-shop` are John's (his brother is Mateo in both
+  worlds), `loose-ends` is Maya's, `truck-crew` runs in the-flat (Priya, John,
+  Kofi), `build-crew` and `side-talk` in fashion-brand (Maya, John, Priya). A
+  recast chat reads its person's real notes and Gmail; a thin world has only a
+  time zone. The thin worlds are still there and no conversation uses them:
+  removing them is the owner's call. Another AI assistant in a group
+  (`side-talk`'s Nova, `OTHER_ASSISTANTS`) is a member and never a person, so
+  it needs no world. A Training chat may have anyone with a world, a Dev chat
+  only the bench's own six. `sets.test.mjs` fails when any Training or Dev
+  conversation has someone without a world or a group without a shared
+  workspace.
+- **A run that could not run fails; it never scores 0.** A Lab run refuses, in
+  `prepare`, a conversation whose Front door tests the bench has no cast for,
+  and fails after the tests when a whole step ran none of its tests
+  (`scripts/tex-lab-run.mjs` `uncast`, `unrun`), with why as the run's error.
+  One test that can't run alone (a picture not kept, a check-in with no
+  email) still says so on its own row. `texDevRuns.test.mjs` fails if either
+  is undone.
 - **A step's examples show the recent stretch.** Each Training example carries
   the newest four messages before it (two for Decide) and a line counting the
   earlier ones (`texTraining.cjs` `historyLines`), because every example rides

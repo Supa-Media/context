@@ -337,9 +337,11 @@ jobs:
           retention-days: 1
           if-no-files-found: error
 
+      # Refuses conversations whose people the bench has no world for: a run that can't run fails, it never scores 0.
       - name: The Dev conversations, and the draft's graph
         env:
           SEAL: ${{ needs.prep.outputs.key }}
+          TEX_LAB_WHY: ${{ runner.temp }}/why
         run: |
           set -euo pipefail
           openssl enc -d -aes-256-cbc -pbkdf2 -pass env:SEAL -in "$RUNNER_TEMP/sealed/job.bin" | gunzip > "$RUNNER_TEMP/job.json"
@@ -406,6 +408,7 @@ jobs:
       - name: The results
         env:
           SEAL: ${{ needs.prep.outputs.key }}
+          TEX_LAB_WHY: ${{ runner.temp }}/why
         run: |
           set -euo pipefail
           node scripts/tex-lab-run.mjs results "$RUNNER_TEMP/lab/rows.json" "$(cat "$RUNNER_TEMP/lab/ms")" > "$RUNNER_TEMP/results.json"
@@ -414,6 +417,8 @@ jobs:
           if awk -v u="$usd" 'BEGIN { exit !(u + 0 >= 0.005) }'; then
             pnpm --silent ai spend add dev-set --usd "$usd" --answers "$(jq -r '.total // 0' "$RUNNER_TEMP/results.json")" --run "lab-${{ github.run_number }}" --run-url "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
           fi
+          # A step whose tests all could not run is a failed run, with why, never a score of 0 (after the spend is kept).
+          node scripts/tex-lab-run.mjs ran "$RUNNER_TEMP/lab/rows.json"
           mkdir -p "$RUNNER_TEMP/out"
           gzip -9c "$RUNNER_TEMP/results.json" | openssl enc -aes-256-cbc -pbkdf2 -salt -pass env:SEAL -out "$RUNNER_TEMP/out/results.bin"
 

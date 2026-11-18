@@ -214,7 +214,7 @@ test("set_create with an unsound conversation is refused locally, before the con
 test("set_create with a sound conversation sends the repo's ids so a clash is refused there", async () => {
   const dev = repoDev();
   const { plane, call } = tool({ set_create: { status: "ok", id: "fresh-one", rev: 1, conv: "{}" } });
-  const sound = { id: "fresh-one", title: "Fine", set: "training", kind: "one", members: ["Ann"], msgs: [{ id: "m1", who: "Ann", text: "is it on?" }] };
+  const sound = { id: "fresh-one", title: "Fine", set: "training", kind: "one", members: ["Maya"], msgs: [{ id: "m1", who: "Maya", text: "is it on?" }] };
   const res = jsonOf(await call("set_create", { conv: sound }));
   const sent = plane.calls.find((c) => c.action === "set_create").args;
   assert.deepEqual(sent.repoIds, REPO.sets.map((c) => c.id));
@@ -261,7 +261,7 @@ test("set_history lists the revisions with the repo's copy last, and set_back pu
 
 test("set_promote refuses when a draft has problems, and asks for the sound ones", async () => {
   const bad = { id: "bad-one", title: "Bad", set: "dev", kind: "one", members: ["Maya"], msgs: [{ id: "m1", who: "Bob", text: "hi" }] };
-  const ok = { id: "ok-one", title: "Fine", set: "training", kind: "one", members: ["Ann"], msgs: [{ id: "m1", who: "Ann", text: "hi there" }] };
+  const ok = { id: "ok-one", title: "Fine", set: "training", kind: "one", members: ["Maya"], msgs: [{ id: "m1", who: "Maya", text: "hi there" }] };
   const drafts = [draftOf(bad, 1, { isNew: true }), draftOf(ok, 1, { isNew: true })];
   const { plane, call } = tool({ set_drafts: { status: "ok", drafts }, set_promote: { status: "ok", asked: ["ok-one"], then: "later" } });
   const refused = await call("set_promote", {});
