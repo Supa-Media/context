@@ -353,10 +353,18 @@ checked is not a guard.**
   authorization scopes, etag conflicts, storage failures, ingestion idempotency
   and revocation all need real coverage.
 - **Before every push, run `pnpm precheck`.** It runs the fast guards
-  (including the Tex diagram check), the app typecheck, and the architecture
-  check that CI runs. Those are the checks that failed after a push and turned
-  into a fix loop (#3544, #3538). Do not push a red precheck. It needs
+  (including the Tex diagram check and the replay-case check), the app
+  typecheck, and the architecture check. Do not push a red precheck. It needs
   `pnpm install` and stays within a couple of minutes.
+- **Pull request flow.**
+  1. Open a pull request only when the work is finished. `pnpm precheck` passes,
+     and the branch was rebased on main once before opening. A follow-up is a
+     new pull request, not another push.
+  2. Right after opening, run `gh pr merge <n> --auto --squash` with your own
+     credentials. Auto-merge is approved for agent pull requests. Never merge
+     with `GITHUB_TOKEN`; that merge does not start the deploy. Skip a pull
+     request Seyi said to hold, and skip jewunetie's.
+  3. Done means live in production. Open to live in 10 minutes, 30 at most.
 - **Sabotage-test rather than trusting a green run**: break the invariant
   deliberately and confirm the right tests fail.
 - **Small, tested increments.** Atomic commits; describe *why*.
