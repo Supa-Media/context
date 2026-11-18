@@ -280,12 +280,22 @@ before changing anything for it.
 
 ## Measured so far
 
-**Nothing below is a score yet.** The bench's Anthropic keys stopped answering
-at 8:22 PM ET on 17 November, and every Lab run after that, including the
-Training run that first scored the front door (27 of 63), ran Tex and the
-judges on the fallback model. Those numbers are not Tex's. Each change is
-proved by unit tests and a run on fake models until a Training and a Dev run
-can be trusted again.
+The bench's Anthropic keys stopped answering at 8:22 PM ET on 17 November,
+so the first Training score (27 of 63) ran on the fallback model and is not
+Tex's. From 18 November, Lab runs answer every Claude call through Claude Code
+(`models: "cc"`). Each run below had no fallbacks and was marked valid.
+
+| Run (18 November) | Front door | Decide | Total |
+|---|---|---|---|
+| Training, in context, main 4f2d7d4 | 40/63 | 24/27 | 68/94 |
+| Training, held out, main 4f2d7d4 | 23/63 | 24/27 | 51/94 |
+| Dev, main 4f2d7d4 | 15/30 | 18/23 | 33/53 |
+
+**The front door's noise is large.** Two Training runs on the same code each
+scored 40/63, but 9 rows passed only in one and 9 only in the other. Twelve
+rows missed in all three runs, and those are the ones worth working on. A
+front-door change needs several runs, or a gain far above nine rows, before
+one Training run can say it helped.
 
 ### Change 3, built (18 November): Training measures Tex, not the test world
 
@@ -310,7 +320,7 @@ What the code showed, each reproduced in a test
 On fake models, 62 of Training's 63 front-door tests run, none a harness row.
 The one left is a group check-in that found only a calendar event.
 
-### Change 1, built and off (18 November): Decide's reason is asked again
+### Change 1, built (18 November) and on: Decide's reason is asked again
 
 The step `decideWhy` is in the config, wired from Decide, and switched off.
 When it is on, a verdict that stays quiet or only reacts for one of the five
@@ -322,12 +332,13 @@ it cannot turn quiet into an answer
 names no such reason keeps the verdict as it was. The bench asks Decide the
 same way, so a Lab draft that switches the step on is scored with it.
 
-Not scored: it stays off until a Training run (Decide must not drop, and the
-contradiction test should pass) and one Dev run say keep it. Decide runs on
-Clef, which the credit outage does not touch, but a Lab run also runs the
-front door, so none was started.
+**Scored and kept on (18 November).** With the step on, Training's Decide
+held at 24/27 (Lab run v57pwqb6), and Dev's Decide went from 18 to 19 of 23
+(v57npa0q). Training's three Decide misses are not the contradiction it
+targets: a wrong quiet reason (thanks versus people talking), a wrong answer
+reason, and a missed tapback, so it did not fire on them. Promoted on (#3674).
 
-### Change 2, built and off (18 November): the shape gate
+### Change 2, built (18 November), scored, off: the shape gate
 
 The step `shapeGate` is in the config, wired from the Door as a helper, on
 Clef, and switched off. When it is on, the Door calls it as soon as it has
@@ -359,8 +370,14 @@ A gate that failed, ran out of its three seconds or was not sure says
 nothing, and the turn is what it was
 (`replay/cases/shape-gate-types-the-turn.mjs`, `shapeGate.test.mjs`).
 
-Not scored: it stays off until a Training run and two Dev runs, read as a
-mean against the baseline after change 3, say keep it.
+**Scored and dropped (18 November).** With the gate on, the Training front
+door scored 40/63 (v57r4n6g), the same as main on that code. The first Dev run
+scored 11/30 (v57xs8dn) against main's 14/30 on nearly the same code. The rule
+was to keep it only if both improved. Training did not, and a second Dev run
+could not change that, so it was skipped. The step stays in the config, off.
+The misses it was built for are better explained by what the Lab rows now
+show (#3675): steps the bench could not run (send, calendar, a picture
+read), and quiet turns, more than answers of the wrong shape.
 
 ## What this adds up to
 
