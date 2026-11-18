@@ -267,7 +267,7 @@ export async function groupChat({ key = "a".repeat(64), members = "b".repeat(64)
       model.install(script(reply));
       const { result: answered, calls } = await counted(tex, () => request(env, TOKEN_GROUP, "/agent", { question: words, group: { ...group, key, members, from, chat: said, ...(tagged ? { tagged: true } : {}) } }));
       if (answered.status !== 200) throw new Error(`replay: the group turn for "${words}" answered ${answered.status}: ${JSON.stringify(answered.body)}`);
-      return { answer: String(answered.body.answer ?? ""), calls, shown: model.requests.slice(before).map(shownIn).join("\n"), requests: model.requests.slice(before) };
+      return { answer: String(answered.body.answer ?? ""), body: answered.body, calls, shown: model.requests.slice(before).map(shownIn).join("\n"), requests: model.requests.slice(before) };
     },
     /** The workspace's notes and memory files, live ones only. */
     notes: (prefix = "") => live(prefix),

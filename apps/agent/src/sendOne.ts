@@ -11,7 +11,7 @@
  */
 
 import { kindOf, type TexEvent } from "./events";
-import { isControlWord } from "./controlWords";
+import { maySend, type SendDecision } from "./outboundGuard";
 import { PICTURE_FAILED } from "./outgoing";
 
 export type PartLogged = Omit<TexEvent, "id" | "at" | "chat" | "from">;
@@ -29,12 +29,10 @@ export type PartLine<P> = {
   log(part: PartLogged, system: boolean): Promise<string | void>;
 };
 
-/** Send one text. False when it was only a control word, so nothing went. */
-export async function sendWords<P>(line: PartLine<P>, text: string): Promise<boolean> {
-  if (isControlWord(text)) {
-    console.log(JSON.stringify({ event: "reply", outcome: "control_word_dropped" })); // a word meant for us, never a text (`controlWords.ts`)
-    return false;
-  }
+/** Send one text. False when its decision was skip or quiet, or its words were (or ended in) a control word, so nothing went. */
+export async function sendWords<P>(line: PartLine<P>, text: string, decision?: SendDecision): Promise<boolean> {
+  // A skip or quiet decision, a word meant for us, or words that end in one: never a text, and never logged as one (`outboundGuard.ts`).
+  if (!maySend(text, "part", decision)) return false;
   // A picture that never uploaded (`partsFor`) stands in the answer as the line saying so.
   if (text === PICTURE_FAILED) return (await saidFailed(line, "upload_failed"), true);
   const handle = await line.sendText(text, false);

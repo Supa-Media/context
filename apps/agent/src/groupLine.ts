@@ -19,6 +19,7 @@ import { ServiceError, type Fetch } from "./clients";
 import { isRefusal } from "./carousel";
 import { linkPictureFinder, sendWithLinkPictures } from "./linkPreviews";
 import { counted, type CountDataset } from "./textCounts";
+import { guardedLine } from "./outboundGuard";
 import type { Picture } from "./line";
 import { hostedNoteCard, linkAfterCard, whapiNotePreview, type NoteCardDrawer } from "./noteCards";
 import type { SendblueKeys } from "./sendblue";
@@ -85,16 +86,17 @@ export type GroupLineDeps = {
 };
 
 export function groupLineFor(deps: GroupLineDeps, groupId: string): GroupLine {
-  if (deps.remote) return deps.remote(groupId);
+  // Every group line, whichever app and wherever it is served from, behind the last guard: a skip is never a text (`outboundGuard.ts`).
+  if (deps.remote) return guardedLine(deps.remote(groupId), "group");
   const line = isPhotonGroupId(groupId) ? photonGroupLine(deps) : isWhapiGroup(groupId) ? whapiGroupLine(deps, groupId) : movableGroupLine(deps, sendblueGroupLine(deps));
   const dataset = deps.textCounts;
-  if (dataset === undefined) return line;
+  if (dataset === undefined) return guardedLine(line, "group");
   // Every message Tex sends in a group, counted once the app took it (`textCounts.ts`).
-  return {
+  return guardedLine<GroupLine>({
     ...line,
     sendText: (place, text, replyTo) => counted(dataset, "group", "text", () => line.sendText(place, text, replyTo)),
     sendMedia: (place, url, replyTo) => counted(dataset, "group", "media", () => line.sendMedia(place, url, replyTo)),
-  };
+  }, "group");
 }
 
 /**

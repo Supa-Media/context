@@ -36,7 +36,7 @@ export const TURN_CAUSES = Object.freeze(["check_in", "routine", "job_report", "
 export function taggedLine(group) {
   const cause = TURN_CAUSES.includes(group?.cause) ? group.cause : null;
   if (cause === null) return CAUSE_NOT_KNOWN;
-  if (cause === "check_in") return "Nobody texted you: this is the chat's own check-in, run on its schedule. Its words say what to look at and when to answer SKIP.";
+  if (cause === "check_in") return "Nobody texted you: this is the chat's own check-in, run on its schedule. Its words say what to look at and when to stay quiet.";
   if (cause === "routine") return "Nobody texted you: this is one of the chat's routines, run on its schedule.";
   if (cause === "job_report") return "Nobody texted you: work you started for this chat reported back.";
   if (cause === "cross_chat") return "Nobody here texted you: another of your chats with these people asked this one something.";

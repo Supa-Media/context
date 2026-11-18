@@ -16,6 +16,7 @@ import { hostedNoteCard, linkAfterCard, whapiNotePreview, type NoteCardDrawer } 
 import { isRefusal } from "./carousel";
 import { linkPictureFinder, sendWithLinkPictures } from "./linkPreviews";
 import { counted, type CountDataset } from "./textCounts";
+import { guardedLine } from "./outboundGuard";
 import type { LinkNotes } from "./photonLinkBubbles";
 import { isPhotonChatId, photonLine } from "./photonLine";
 import {
@@ -100,9 +101,10 @@ export type LineDeps = {
 };
 
 export function lineFor(deps: LineDeps, chatId: string): Line {
-  if (deps.remote) return deps.remote(chatId);
+  // Every 1:1 line, whichever app and wherever it is served from, behind the last guard: a skip is never a text (`outboundGuard.ts`).
+  if (deps.remote) return guardedLine(deps.remote(chatId), "one");
   const line = isPhotonChatId(chatId) ? photonLine(deps) : isWhapiChat(chatId) ? whapiLine(deps) : isSendblueChat(chatId) ? sendblueLine(deps) : linqLine(deps);
-  return countedLine(line, deps.textCounts);
+  return guardedLine(countedLine(line, deps.textCounts), "one");
 }
 
 /** The line deps an object's deps stand for: its `remoteLine` (`chatObject.ts`) is the seam, and it is read as `remote`. */
