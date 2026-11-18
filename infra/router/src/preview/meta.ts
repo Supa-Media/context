@@ -342,9 +342,9 @@ export function renderPreviewHtml(meta: PreviewMeta): string {
 <body>
   ${agentNav}<main>
     <h1>${title}</h1>
-    <p>${description}</p>${agentLine}
+    <p>${description}</p>
     <p><a href="${escapeHtml(home)}">${homeLabel}</a></p>
-  </main>
+  </main>${agentLine === "" ? "" : `\n  <footer>${agentLine}\n  </footer>`}
 </body>
 </html>
 `;

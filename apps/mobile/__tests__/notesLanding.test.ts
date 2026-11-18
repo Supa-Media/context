@@ -44,13 +44,16 @@ describe("page a, the notes page", () => {
     expect(new Set(starts)).toEqual(new Set(["join"]));
   });
 
-  test("the first screen says how an agent connects, and links the guides", () => {
-    expect(PAGE).toContain("https://mcp.context.lc/mcp");
-    expect(PAGE).toContain('href="/agents"');
-    expect(PAGE).toContain('href="/claude"');
-    expect(PAGE).toContain('href="/llms.txt"');
-    expect(PAGE).toContain("<nav");
-    expect(PAGE).toContain("signs in with OAuth");
+  test("the footer says how an agent connects, and the hero does not", () => {
+    const hero = PAGE.slice(PAGE.indexOf("<main"), PAGE.indexOf("<footer"));
+    const foot = PAGE.slice(PAGE.indexOf("<footer"));
+    expect(foot).toContain("https://mcp.context.lc/mcp");
+    expect(foot).toContain('href="/agents"');
+    expect(foot).toContain('href="/claude"');
+    expect(foot).toContain('href="/llms.txt"');
+    expect(foot).toContain("signs in with OAuth");
+    expect(hero).not.toContain("signs in with OAuth");
+    expect(hero).not.toContain('href="/agents"');
   });
 
   test("leads with Dev2's own words, and sends texting to tex.lc rather than drawing a chat", () => {

@@ -172,15 +172,13 @@ Invite people into a shared workspace. The personal one stays with its owner.
 
 One shared workspace per project. Invite only the people who should see it. Do not add the MCP server again for each project.
 
-## 6. People sharing one Claude account
+## 6. Several people
 
-claude.ai keeps one connection for the person who is signed in. It does not give that login a second Context account, with its own label, on the same connector. On Team and Enterprise, each member connects the connector the owner added and signs in with their own Context account. Two people who share one Claude login share that one Context sign-in.
+On a Claude Team or Enterprise plan, an Owner or Primary Owner adds the Context connector once. Each member connects it and signs in with their own Context account. Each person's private notes stay private. A workspace is shared only when its owner invites the other person.
 
-Claude Code stores the sign-in per URL, not per name. Adding \`${MCP_ENDPOINT}\` twice under two names does not create two Context accounts. A scope (\`local\`, \`user\`, or \`project\`) chooses where the server config is stored. It does not choose a second Context account.
+One Claude login does not hold two Context accounts.
 
-Use a separate Claude account, or a separate computer user with their own \`~/.claude.json\` and their own \`/mcp\` sign-in. To share notes on purpose, invite both people into one Context workspace and let each connect as themselves.
-
-On Context's side, each approval is still its own token. A second sign-in does not erase the first. The approval page is whoever is signed in at context.lc, so sign out before the other person approves.
+Claude Code stores one sign-in per server URL. Adding \`${MCP_ENDPOINT}\` twice under two names does not make two Context accounts. \`--scope project\` writes \`.mcp.json\`, so the team shares the address. Each person still runs \`/mcp\` and signs in as themselves. The approval page is whoever is signed in at context.lc, so sign out before the next person approves.
 `;
 
 export const LLMS_TEXT = `# Context
