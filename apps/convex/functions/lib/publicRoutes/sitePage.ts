@@ -30,7 +30,7 @@ export async function siteRevisionRouteHandler(ctx: ActionCtx, request: Request)
 }
 
 /**
- * `{ revision, cacheable, address }`. The revision is read before the page, so
+ * `{ revision, cacheable, stale?, address }`. The revision is read before the page, so
  * a copy is never kept under a revision newer than what it shows. `cacheable`
  * is false for "unavailable", which is also what a bucket that did not answer
  * looks like; a moment's outage must not be kept for a whole revision. It is
@@ -52,9 +52,15 @@ export async function sitePageHandler(ctx: ActionCtx, request: Request): Promise
     { handle, routePath, ...(legacySlug === undefined ? {} : { legacySlug }) },
     null,
   );
+  // Part of the page could not be read (its design, or the note itself): never
+  // kept, and, on a settled revision, the router may serve the copy it kept
+  // for this same revision instead (`stale`), since nothing a visitor may see
+  // has changed since that copy was made.
+  const incomplete = (address.kind === "page" || address.kind === "unavailable") && address.incomplete === true;
   return json({
     revision,
-    cacheable: settled(revision) && address.kind !== "unavailable",
+    cacheable: settled(revision) && address.kind !== "unavailable" && !incomplete,
+    ...(incomplete && settled(revision) ? { stale: true } : {}),
     address: named(address),
   });
 }

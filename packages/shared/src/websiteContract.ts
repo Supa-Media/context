@@ -192,6 +192,13 @@ export type ResolvedWebsitePage =
        * is drawn. Absent, the page has the default look.
        */
       design?: WebsiteDesign;
+      /**
+       * Set when part of the answer could not be read (its design, most
+       * often): the page is drawn as far as it can be, and the answer is
+       * never kept at the edge as if it were the site. Never sent to a
+       * browser (`publicRoutes/sitePage.ts` names its fields).
+       */
+      incomplete?: true;
     }
   | {
       kind: "authentication_required";
@@ -207,6 +214,8 @@ export type ResolvedWebsitePage =
       siteName: string | null;
       /** Empty beside a null site name; otherwise the same public menu. */
       navigation: WebsiteNavigationItem[];
+      /** The page could not be read, which is not the page being gone (see above). */
+      incomplete?: true;
     };
 
 /** Website-first address resolution, with an existing named share as fallback. */
