@@ -1,7 +1,7 @@
 /**
  * The router node, `router` (texConfig.json, group "intake", off in main's config): beside the Door, Clef picks the
  * specialist door a text's turn goes through (`../../specialistRoute.js`, `../../doorTurn.js`). Wires: `doorStep ->
- * router` and `fd -> router` (uses), and `router -> handoff` (uses) when a long job should go to the Hand-off node at once.
+ * router` (uses; a check-in or a routine skips the Door and stays on today's front door), and `router -> handoff` (uses) when a long job should go to the Hand-off node at once.
  *
  * Input: the text, whether it came in a group, what started the turn, and the Shape gate's read when it had one.
  * Output: `{ route, sure, when }` with route quick, read, act, job, or "none" when there is no model here, the call
