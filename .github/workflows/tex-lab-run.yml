@@ -6,20 +6,25 @@
 #   prep    main's code, with the deploy key: says the run is running, reads it, and resolves the code it runs on
 #           (main, or the same-repository pull request or branch the draft names; Dev2, 2026-11-16: "when we run
 #           things it should run on the PRs code instead of main"), and reports the commit to Convex.
+#   lease   main's checkout, with the deploy key: takes one of the Lab runner slots (LAB_RUNNER_<N>_*, three grants of
+#           the bench test account) for this run, or waits for a free one (up to 170 minutes; a busy slot never fails
+#           a run). scripts/lab-runner-lease.mjs; the slot and attempt are its only outputs.
 #   run     that commit's code, WITHOUT the deploy key (a branch's code never sees it, and cannot touch the job that
 #           reports): writes the draft's graph into the config with that code's own promote check, and runs the Dev
 #           set's unit tests with the bench's node-alone runner (`node apps/mcp/bench/run.mjs sets run`): never the
 #           Training set, never the Test set (people only, in the eval service). Models "gw" asks the AI gateway as the
 #           bench always does; "cc" answers every Claude call with Claude Code on CLAUDE_CODE_OAUTH_TOKEN
 #           (apps/mcp/bench/socketAnswerer.mjs), and the token never leaves this job. Clef stays on Workers AI.
-#           The spend check rotates the benchmark refresh token. This job seals that token and does not write the
-#           production secret: a secret in this job would be the branch's to read, because its install can change PATH.
+#           The spend check rotates the leased slot's refresh token. This job seals that token and does not write
+#           the production secret: a secret in this job would be the branch's to read, because its install can change PATH.
 #   token-key    no checkout. An RSA key for this run. The private half is wrapped with the writer token and leaves
 #                only as ciphertext. The run job does not need this job, so that output is not in the branch's hands.
 #   publish-pub  the public half only. needs is not transitive, which is why this job exists.
-#   write-token  main's checkout only, after the run: unwraps, checks the token's shape, and writes the production
-#                secret. An empty writer token or a refused write fails the job.
+#   write-token  main's checkout only, after the run: unwraps, checks the token's shape, and writes the leased slot's
+#                production secret (LAB_RUNNER_<N>_REFRESH_TOKEN, N checked against 1-3). An empty writer token or a
+#                refused write fails the job.
 #   report  main's code, with the deploy key: the results (cleaned again by Convex) or why it failed.
+#   release main's code, with the deploy key, after write-token: frees the slot, so the next lease reads the new token.
 #
 # The run and its results pass between jobs as artifacts sealed with a key (a public repository's artifacts can be
 # downloaded by anyone). The key is never passed between jobs: each step that seals or opens derives it from the run's
@@ -152,24 +157,55 @@ jobs:
           [ -s "$RUNNER_TEMP/why" ] && why="$(head -c 280 "$RUNNER_TEMP/why" | tr '\n' ' ')"
           echo "why=$why" >> "$GITHUB_OUTPUT"
 
-  # The spend check signs in as the benchmark runner. That grant rotates its
-  # refresh token on every use and revokes itself when a retired one comes
-  # back, so this waits until no earlier runner sign-in is still going. The
-  # wait is its own job: the run job reads the secret when it starts, after
-  # the earlier run has written the rotated token back.
-  wait-turn:
-    name: Wait for earlier benchmark runs
+  # Each slot is its own grant of the bench test account. A grant rotates its refresh token on every sign-in and
+  # revokes itself when a retired one comes back, so a slot serves one run at a time. A run with no free slot waits
+  # here; it does not fail. Lab runs no longer share the benchmark runner's grant.
+  lease:
+    name: Lease a Lab runner slot
+    needs: prep
     runs-on: ubuntu-latest
+    environment: production
     timeout-minutes: 180
+    outputs:
+      slot: ${{ steps.lease.outputs.slot }}
+      attempt: ${{ steps.lease.outputs.attempt }}
+      why: ${{ steps.why.outputs.why }}
     steps:
       - uses: actions/checkout@v5
         with:
-          sparse-checkout: scripts
+          ref: main
           persist-credentials: false
-      - name: Wait until no earlier run signs in as the benchmark runner
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+
+      - name: Take a Lab runner slot, or wait for one
+        id: lease
         env:
           GH_TOKEN: ${{ github.token }}
-        run: node scripts/bench-runner-lock.mjs --max-minutes 170
+          RUN_ID: ${{ inputs.run_id }}
+          CONVEX_DEPLOY_KEY: ${{ secrets.CONVEX_DEPLOY_KEY }}
+          LAB_RUNNER_1_CLIENT_ID: ${{ secrets.LAB_RUNNER_1_CLIENT_ID }}
+          LAB_RUNNER_1_REFRESH_TOKEN: ${{ secrets.LAB_RUNNER_1_REFRESH_TOKEN }}
+          LAB_RUNNER_2_CLIENT_ID: ${{ secrets.LAB_RUNNER_2_CLIENT_ID }}
+          LAB_RUNNER_2_REFRESH_TOKEN: ${{ secrets.LAB_RUNNER_2_REFRESH_TOKEN }}
+          LAB_RUNNER_3_CLIENT_ID: ${{ secrets.LAB_RUNNER_3_CLIENT_ID }}
+          LAB_RUNNER_3_REFRESH_TOKEN: ${{ secrets.LAB_RUNNER_3_REFRESH_TOKEN }}
+        run: node scripts/lab-runner-lease.mjs acquire --max-minutes 170
+
+      - name: Why it stopped
+        id: why
+        if: failure()
+        run: |
+          why="the lease for a Lab runner slot failed: read its log"
+          [ -s "$RUNNER_TEMP/why" ] && why="$(head -c 280 "$RUNNER_TEMP/why" | tr '\n' ' ')"
+          echo "why=$why" >> "$GITHUB_OUTPUT"
 
   # The private half never enters the run job. This job does not check out the draft.
   token-key:
@@ -226,7 +262,7 @@ jobs:
           echo "Public key: ${#PUB} characters. The private half stays wrapped on the key job."
 
   run:
-    needs: [prep, wait-turn, publish-pub]
+    needs: [prep, lease, publish-pub]
     runs-on: ubuntu-latest
     environment: production
     timeout-minutes: 90
@@ -235,9 +271,9 @@ jobs:
       AI_GATEWAY_ID: ${{ secrets.AI_GATEWAY_ID }}
       AI_GATEWAY_TOKEN: ${{ secrets.AI_GATEWAY_TOKEN }}
       AI_GATEWAY_KEY_ALIASES: dev-claude-credits,dev2-claude-credits # aliases on the gateway's Provider Keys page, not secrets
-      BENCH_RUNNER_CLIENT_ID: ${{ secrets.BENCH_RUNNER_CLIENT_ID }}
-      BENCH_RUNNER_REFRESH_TOKEN: ${{ secrets.BENCH_RUNNER_REFRESH_TOKEN }}
-      BENCH_RUNNER_REFRESH_TOKEN_LIVE: ${{ secrets.BENCH_RUNNER_REFRESH_TOKEN_LIVE }}
+      # The leased slot's grant only. The shared benchmark runner's secrets are not given to a Lab run.
+      BENCH_RUNNER_CLIENT_ID: ${{ needs.lease.outputs.slot == '1' && secrets.LAB_RUNNER_1_CLIENT_ID || needs.lease.outputs.slot == '2' && secrets.LAB_RUNNER_2_CLIENT_ID || needs.lease.outputs.slot == '3' && secrets.LAB_RUNNER_3_CLIENT_ID || '' }}
+      BENCH_RUNNER_REFRESH_TOKEN_LIVE: ${{ needs.lease.outputs.slot == '1' && secrets.LAB_RUNNER_1_REFRESH_TOKEN || needs.lease.outputs.slot == '2' && secrets.LAB_RUNNER_2_REFRESH_TOKEN || needs.lease.outputs.slot == '3' && secrets.LAB_RUNNER_3_REFRESH_TOKEN || '' }}
       CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
       CLOUDFLARE_AI_TOKEN: ${{ secrets.CLOUDFLARE_AI_TOKEN }}
     outputs:
@@ -245,6 +281,17 @@ jobs:
       early: ${{ steps.seal-early.outputs.early }}
       final: ${{ steps.seal-final.outputs.final }}
     steps:
+      # "Re-run failed jobs" keeps the lease of an earlier attempt, and that slot may now belong to another run.
+      - name: This attempt holds a Lab runner slot
+        env:
+          SLOT: ${{ needs.lease.outputs.slot }}
+          LEASED_ATTEMPT: ${{ needs.lease.outputs.attempt }}
+        run: |
+          set -euo pipefail
+          [[ "$SLOT" =~ ^[1-3]$ ]] || { echo "::error::no Lab runner slot was leased"; exit 1; }
+          [ "$LEASED_ATTEMPT" = "$GITHUB_RUN_ATTEMPT" ] || { echo "::error::slot $SLOT was leased by attempt $LEASED_ATTEMPT; dispatch the run again"; exit 1; }
+          echo "Lab runner slot $SLOT"
+
       - uses: actions/checkout@v5
         with:
           ref: ${{ needs.prep.outputs.sha }}
@@ -269,11 +316,6 @@ jobs:
         with:
           name: job
           path: ${{ runner.temp }}/sealed
-
-      - name: Refuse to sign in beside another benchmark run
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: node scripts/bench-runner-lock.mjs --check
 
       - name: Refuse a Dev set the spend cap does not allow
         run: pnpm --silent ai spend check dev-set --setups production
@@ -538,12 +580,12 @@ jobs:
           [ -s "$RUNNER_TEMP/why" ] && why="$(head -c 280 "$RUNNER_TEMP/why" | tr '\n' ' ')"
           echo "why=$why" >> "$GITHUB_OUTPUT"
 
-  # Main's checkout only. Opens the seal and writes the production secret. Runs after the run job even when that
-  # job failed, because a sign-in that already rotated the token still has to be stored.
+  # Main's checkout only. Opens the seal and writes the leased slot's production secret. Runs after the run job even
+  # when that job failed, because a sign-in that already rotated the token still has to be stored.
   write-token:
     name: Write the rotated refresh token
-    needs: [token-key, run]
-    if: always() && (needs.run.outputs.early == 'present' || needs.run.outputs.early == 'failed' || needs.run.outputs.final == 'present' || needs.run.outputs.final == 'failed')
+    needs: [token-key, lease, run]
+    if: always() && needs.lease.result == 'success' && (needs.run.outputs.early == 'present' || needs.run.outputs.early == 'failed' || needs.run.outputs.final == 'present' || needs.run.outputs.final == 'failed')
     runs-on: ubuntu-latest
     environment: production
     timeout-minutes: 10
@@ -592,6 +634,8 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.BENCH_SECRET_WRITER_TOKEN }}
           WRAPPED: ${{ needs.token-key.outputs.wrapped }}
+          SLOT: ${{ needs.lease.outputs.slot }}
+          LEASED_ATTEMPT: ${{ needs.lease.outputs.attempt }}
           EARLY: ${{ needs.run.outputs.early }}
           FINAL: ${{ needs.run.outputs.final }}
         run: |
@@ -602,6 +646,17 @@ jobs:
             exit 1
           fi
           echo "Using secret BENCH_SECRET_WRITER_TOKEN"
+          # The slot is checked before any secret name is built from it.
+          if [[ ! "$SLOT" =~ ^[1-3]$ ]]; then
+            echo "::error::no Lab runner slot to write"
+            exit 1
+          fi
+          # "Re-run failed jobs" would write an earlier attempt's token after its slot was freed and leased again,
+          # over the newer holder's token, and the next sign-in would revoke that grant.
+          if [ "$LEASED_ATTEMPT" != "$GITHUB_RUN_ATTEMPT" ]; then
+            echo "::error::slot $SLOT was leased by attempt $LEASED_ATTEMPT and has been freed; not writing an older token"
+            exit 1
+          fi
           if [ "$FINAL" = "failed" ]; then
             echo "::error::the last seal failed; not writing an older token"
             exit 1
@@ -644,19 +699,19 @@ jobs:
           mask=$(/usr/bin/python3 -c 'import pathlib,sys; sys.stdout.write(pathlib.Path(sys.argv[1]).read_text())' "$RUNNER_TEMP/refresh-token")
           echo "::add-mask::$mask"
           unset mask
-          echo "Writing BENCH_RUNNER_REFRESH_TOKEN_LIVE to the production environment"
+          echo "Writing LAB_RUNNER_${SLOT}_REFRESH_TOKEN to the production environment"
           # `gh secret set` has no `--body-file`. That flag exits 1 before the API call, so the rotated
           # token is never stored and the next sign-in revokes the grant. The value is stdin.
           # bench-token-open.mjs writes the token with no trailing newline; gh strips only trailing CR/LF
           # from stdin, and a refresh token has neither, so the stored secret equals the token.
-          if ! gh secret set BENCH_RUNNER_REFRESH_TOKEN_LIVE --env production --repo "$GITHUB_REPOSITORY" < "$RUNNER_TEMP/refresh-token"; then
-            echo "::error::BENCH_SECRET_WRITER_TOKEN could not write BENCH_RUNNER_REFRESH_TOKEN_LIVE"
+          if ! gh secret set "LAB_RUNNER_${SLOT}_REFRESH_TOKEN" --env production --repo "$GITHUB_REPOSITORY" < "$RUNNER_TEMP/refresh-token"; then
+            echo "::error::BENCH_SECRET_WRITER_TOKEN could not write LAB_RUNNER_${SLOT}_REFRESH_TOKEN"
             exit 1
           fi
-          echo "Wrote BENCH_RUNNER_REFRESH_TOKEN_LIVE"
+          echo "Wrote LAB_RUNNER_${SLOT}_REFRESH_TOKEN"
 
   report:
-    needs: [prep, run]
+    needs: [prep, lease, run]
     if: always()
     runs-on: ubuntu-latest
     environment: production
@@ -695,6 +750,7 @@ jobs:
           LAB_SEAL_SOURCE: ${{ secrets.AI_GATEWAY_TOKEN }}
           RUN_WHY: ${{ needs.run.outputs.why }}
           PREP_WHY: ${{ needs.prep.outputs.why }}
+          LEASE_WHY: ${{ needs.lease.outputs.why }}
         run: |
           set -euo pipefail
           if [ "$RAN" = "success" ] && [ -s "$RUNNER_TEMP/sealed/results.bin" ]; then
@@ -708,6 +764,35 @@ jobs:
             npx convex run functions/texLabRuns:report "$(jq -cn --arg id "$RUN_ID" --slurpfile r "$RUNNER_TEMP/results.json" '{runId: $id, stage: "done", results: $r[0]}')" > /dev/null 2>&1
             exit 0
           fi
-          why="${RUN_WHY:-${PREP_WHY:-the GitHub run failed: read its log}}"
+          why="${RUN_WHY:-${PREP_WHY:-${LEASE_WHY:-the GitHub run failed: read its log}}}"
           [ "$RAN" = "cancelled" ] && why="the GitHub run was cancelled"
           npx convex run functions/texLabRuns:report "$(jq -cn --arg id "$RUN_ID" --arg why "$why" '{runId: $id, stage: "failed", error: $why}')" > /dev/null 2>&1
+
+  # Frees the leased slot once write-token has stored its token, so the next lease of that slot signs in with the
+  # new one. Skipped when no slot was leased.
+  release:
+    name: Free the Lab runner slot
+    needs: [lease, write-token, report]
+    if: always() && needs.lease.outputs.slot != ''
+    runs-on: ubuntu-latest
+    environment: production
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: main
+          persist-credentials: false
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+
+      - name: Free the slot
+        env:
+          CONVEX_DEPLOY_KEY: ${{ secrets.CONVEX_DEPLOY_KEY }}
+        run: node scripts/lab-runner-lease.mjs release

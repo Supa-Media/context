@@ -27,9 +27,12 @@
  *
  * Nothing here prints a token. `connect` prints the two values once, for
  * 1Password; `signIn --show refresh-token` prints the live one for the
- * Action's secret write, and the Action masks it first.
+ * Action's secret write, and the Action masks it first. `connect --lab-slot N`
+ * is the Lab's own pool (`scripts/lab-runner-lease.mjs`): it writes the two
+ * values to the production secrets `LAB_RUNNER_<N>_*` and prints only their names.
  */
 
+import { spawn } from "node:child_process";
 import { createHash, randomBytes } from "node:crypto";
 import { mkdir, readdir, readFile, rm, writeFile } from "node:fs/promises";
 import { createServer } from "node:http";
@@ -55,6 +58,10 @@ export const LIVE_SETUP = "production";
 export const RUNNER_SCOPE = "context:read context:write";
 export const RUNNER_CLIENT_NAME = "Benchmark runner (GitHub Actions)";
 const LOOPBACK_PATH = "/context-bench/callback";
+/** The Lab's runner slots (`scripts/lab-runner-lease.mjs`): one bench login each, kept as production secrets. */
+export const LAB_REPOSITORY = "Supa-Media/context";
+export const LAB_ENVIRONMENT = "production";
+export const LAB_SLOTS = [1, 2, 3];
 const CONNECT_TIMEOUT_MS = 5 * 60 * 1000;
 /** An access token is treated as spent this long before it is. */
 const EXPIRY_SKEW_MS = 60 * 1000;
@@ -68,6 +75,34 @@ export function runnerEnv(env = process.env) {
     refreshToken: env.BENCH_RUNNER_REFRESH_TOKEN_LIVE || env.BENCH_RUNNER_REFRESH_TOKEN || null,
     tokenFile: env.BENCH_RUNNER_TOKEN_FILE || join(env.RUNNER_TEMP || tmpdir(), "bench-runner.json"),
   };
+}
+
+/** `--lab-slot` takes 1, 2 or 3. */
+export function parseLabSlot(value) {
+  const text = String(value ?? "");
+  if (!/^[1-3]$/.test(text)) throw new Error("--lab-slot takes 1, 2 or 3");
+  return Number(text);
+}
+
+/** The two production secrets of a Lab runner slot. Refuses any other slot before anything is asked. */
+export function labSlotSecretNames(slot) {
+  if (!LAB_SLOTS.includes(slot)) throw new Error("--lab-slot takes 1, 2 or 3");
+  return { clientId: `LAB_RUNNER_${slot}_CLIENT_ID`, refreshToken: `LAB_RUNNER_${slot}_REFRESH_TOKEN` };
+}
+
+/**
+ * Writes one secret into the production environment with `gh`. The value
+ * goes in on stdin, never in argv (a process list shows argv), and gh's own
+ * output is dropped so nothing it echoes reaches a log.
+ */
+export function ghSecretWriter() {
+  return (name, value) =>
+    new Promise((resolve, reject) => {
+      const child = spawn("gh", ["secret", "set", name, "--env", LAB_ENVIRONMENT, "--repo", LAB_REPOSITORY], { stdio: ["pipe", "ignore", "ignore"] });
+      child.on("error", () => reject(new Error(`gh could not run to set ${name}`)));
+      child.on("close", (code) => (code === 0 ? resolve() : reject(new Error(`gh secret set ${name} failed (exit ${code})`))));
+      child.stdin.end(value);
+    });
 }
 
 function base64Url(buffer) {
@@ -478,7 +513,9 @@ function listenForCode({ timeoutMs = CONNECT_TIMEOUT_MS } = {}) {
  * consent once, over a loopback redirect, signed in as the test account.
  * Prints the two values 1Password keeps, and nothing else that is a secret.
  */
-export async function connect({ endpoint = DEFAULT_ENDPOINT, fetchImpl = fetch, log = console.log, listen = listenForCode } = {}) {
+export async function connect({ endpoint = DEFAULT_ENDPOINT, fetchImpl = fetch, log = console.log, listen = listenForCode, labSlot = null, setSecret = ghSecretWriter() } = {}) {
+  // Refused before the network: a slot that does not exist must not spend a consent.
+  const names = labSlot === null ? null : labSlotSecretNames(labSlot);
   const discovery = await discover(endpoint, fetchImpl);
   const listener = await listen();
   try {
@@ -519,6 +556,17 @@ export async function connect({ endpoint = DEFAULT_ENDPOINT, fetchImpl = fetch, 
       { grant_type: "authorization_code", code, client_id: clientId, code_verifier: verifier, redirect_uri: listener.redirectUri, resource: endpoint },
       fetchImpl,
     );
+    if (names) {
+      // Both values go straight to the production secrets; neither is printed, and a failure names only the secret.
+      try {
+        await setSecret(names.clientId, clientId);
+        await setSecret(names.refreshToken, pair.refreshToken);
+      } catch (error) {
+        throw new Error(`${error.message}: the grant made here is not kept; run pnpm ai connect --lab-slot ${labSlot} again`);
+      }
+      log(`Connected. Wrote ${names.clientId} and ${names.refreshToken} to the ${LAB_ENVIRONMENT} environment of ${LAB_REPOSITORY}. No value is printed; a Lab run takes slot ${labSlot} when its turn comes.`);
+      return { clientId, labSlot };
+    }
     log(
       [
         "Connected. Put these two in 1Password as the production environment's secrets, and nowhere else: never in a note, a chat, a commit or a log.",
@@ -564,10 +612,12 @@ export async function publishCommand(options) {
 }
 
 /**
- * `pnpm ai connect [--endpoint <url>]`: the one-time consent, by a person.
+ * `pnpm ai connect [--endpoint <url>] [--lab-slot <1|2|3>]`: the one-time consent, by a person.
  * Written to stderr: `run.mjs` silences console.log unless `--verbose`, and
  * the URL to open and the two values to keep are the whole point of this.
+ * With `--lab-slot` the values go to the Lab's production secrets instead.
  */
 export async function connectCommand(options) {
-  await connect({ endpoint: options.endpoint || DEFAULT_ENDPOINT, log: (text) => process.stderr.write(`${text}\n`) });
+  const labSlot = "lab-slot" in options ? parseLabSlot(options["lab-slot"]) : null;
+  await connect({ endpoint: options.endpoint || DEFAULT_ENDPOINT, labSlot, log: (text) => process.stderr.write(`${text}\n`) });
 }
