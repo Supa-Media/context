@@ -118,6 +118,17 @@ test("dateGaps: only notes with an empty date key the reader may see, in pages",
   assert.deepEqual(second.gaps.map((gap) => gap.path), ["projects/secret/hidden.md"]);
 });
 
+test("dates: the owner's zone is remembered and read back with the clocks", { skip }, async () => {
+  const { ws } = await seeded();
+  await ws.facts({ ask: "dates", path: "projects/plan.md", ...team });
+  assert.equal((await ws.facts({ ask: "rememberZone", zone: "America/Chicago", ...team })).served, true);
+  const answer = await ws.facts({ ask: "dates", path: "projects/plan.md", ...team });
+  assert.equal(answer.dates.zone, "America/Chicago");
+  assert.equal(answer.dates.style, "linter");
+  assert.equal((await ws.facts({ ask: "rememberZone", zone: "not a zone", ...team })).served, true);
+  assert.equal((await ws.facts({ ask: "dates", path: "projects/plan.md", ...team })).dates.zone, "America/Chicago");
+});
+
 test("dates asks are not served before the notes live in the object", { skip }, async () => {
   const { ws } = await seeded({ home: HOMES.BUCKET });
   assert.equal((await ws.facts({ ask: "dates", path: "projects/plan.md", ...team })).served, false);

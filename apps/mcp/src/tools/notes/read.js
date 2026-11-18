@@ -94,9 +94,19 @@ export async function toolReadNote(store, scope, rules, overrides, pathArg, hist
   const view = typeof store.oneRead === "function" ? store.oneRead(store) : store;
   const seen = canSee(requested, scope, rules, overrides);
   let path = requested;
-  let present = await notePresent(view, requested);
-  // Only for a note this caller may read: its Markdown and editing history in one call to its workspace object.
-  const inObject = seen && present ? await readInObject(view, requested) : null;
+  // A note this caller may read is resolved and read in one call (`readInObject`). One they may not is looked up
+  // and not read, so a hidden note and a missing one still cost one round trip and neither returns a body.
+  let inObject = seen ? await readInObject(view, requested) : null;
+  let present;
+  if (inObject?.miss === true) {
+    present = false;
+    inObject = null;
+  } else if (inObject?.obj) {
+    present = true;
+  } else {
+    inObject = null;
+    present = await notePresent(view, requested);
+  }
   // Asked beside the body, only for a note this caller may read: whether a collaboration document holds it.
   let started = inObject?.started ?? (seen && present ? startedDocument(view, requested) : null);
   // Metadata may describe a deletion marker. Resolve only authorized bytes
@@ -189,7 +199,7 @@ export async function toolReadNote(store, scope, rules, overrides, pathArg, hist
    * explicitly rather than trusting anyone to notice.
    */
   // The note's id, from the read's one lookup, so its etag can name the note it is the version of (`tools/etagPlace.js`).
-  const noteId = typeof store.oneRead === "function" && typeof view.noteIdAt === "function" ? await view.noteIdAt(path).catch(() => null) : null;
+  const noteId = inObject?.noteId ?? (typeof view.noteIdAt === "function" ? await view.noteIdAt(path).catch(() => null) : null);
   if (isDrawingPath(path) && !opened.encrypted) {
     const drawing = parseDrawing(opened.text, path);
     return withOpened(toolText(
@@ -264,6 +274,7 @@ async function readInObject(view, path) {
   if (typeof view.readInObject !== "function") return null;
   const answer = await view.readInObject(path).catch(() => null);
   if (answer === null || answer === undefined) return null;
+  if (answer.miss === true) return { miss: true };
   phaseTook(view, "collab_read", answer.took);
   const { etag, size, text } = answer.markdown;
   const obj = { key: path, etag, size, text: async () => text };
@@ -271,7 +282,7 @@ async function readInObject(view, path) {
     ? Promise.reject(new CollaborationError(String(answer.error.code ?? "STORAGE_READ_FAILED"), String(answer.error.message ?? "collaboration read failed")))
     : Promise.resolve(answer.collaboration ?? null);
   started.catch(() => {});
-  return { obj, started };
+  return { obj, started, noteId: typeof answer.noteId === "string" ? answer.noteId : null };
 }
 
 /**

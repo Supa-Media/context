@@ -317,14 +317,22 @@ export function withWorkspaceRouting(store, { workspaceId, client = null, known 
    * did not serve it, and the caller reads the Markdown and the history through this store, as before.
    */
   if (typeof client.collab?.read === "function") {
-    wrapped.readInObject = async ({ path, key, noteId, start = false, whole = false }) => {
+    wrapped.readInObject = async ({ path, key, noteId, start = false, whole = false, byPath = false }) => {
       if (held.home !== HOMES.OBJECT || typeof held.backfilledAt !== "number") return null;
       // Only a workspace note's own key: a Tex note's (`tex/…`) lives in Tex's store, so asking would be a wasted trip.
-      if (typeof key !== "string" || !OBJECT_NOTE_KEY.test(key)) return null;
-      const answer = await client.collab.read({ path, key, noteId, ...(start === true ? { start: true } : {}), ...(whole === true ? { whole: true } : {}) });
+      // `byPath` resolves the key in the object, one call instead of a lookup and then this (`collabRead.js`).
+      if (!byPath && (typeof key !== "string" || !OBJECT_NOTE_KEY.test(key))) return null;
+      const answer = await client.collab.read({
+        path,
+        ...(byPath ? { byPath: true } : { key, noteId }),
+        ...(start === true ? { start: true } : {}),
+        ...(whole === true ? { whole: true } : {}),
+      });
       await copyHandedBack(answer);
       const markdown = answer?.markdown;
       if (answer?.served === true && typeof markdown?.etag === "string" && typeof markdown.text === "string") return answer;
+      // The row is not there. Distinct from "not served", so the caller does not look the path up again.
+      if (answer?.reason === "absent") return { miss: true };
       // Why the read went the long way instead: a short code from the object, never the path.
       log("workspace_object_read_not_served", { workspaceId, reason: typeof answer?.reason === "string" ? answer.reason : null });
       return null;

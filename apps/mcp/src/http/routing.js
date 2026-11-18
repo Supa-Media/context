@@ -177,6 +177,14 @@ export function attachLinkCalls(store, session, controlPlane, env) {
     writable: false,
     configurable: true,
   });
+  // The same zone, kept on the workspace's object after the control plane answers it (`dateFacts.js` `rememberZone`),
+  // so the next save does not ask again.
+  Object.defineProperty(store, "rememberTimeZone", {
+    value: (zone) => (typeof store.objectFacts === "function" ? store.objectFacts({ ask: "rememberZone", zone }) : null),
+    enumerable: false,
+    writable: false,
+    configurable: true,
+  });
   // `report_problem`: filed as this connection's person, resolved from its own
   // token by the control plane. Not tied to a workspace, so the same call on
   // every store a request touches. `texts` only from `tools/reportGate.js`.

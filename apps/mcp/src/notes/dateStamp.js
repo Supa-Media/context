@@ -36,6 +36,20 @@ function said(store, event, fields = {}) {
   }
 }
 
+/** Leave `zone` on the workspace's object for the next save. Behind the response when the host allows it. */
+function rememberZone(store, zone) {
+  if (typeof store?.rememberTimeZone !== "function") return;
+  const pending = Promise.resolve()
+    .then(() => store.rememberTimeZone(zone))
+    .catch(() => {});
+  if (typeof store?.defer !== "function") return;
+  try {
+    store.defer(pending);
+  } catch {
+    // A host that refuses waitUntil still has the promise running.
+  }
+}
+
 /** The workspace owner's zone, or null. */
 async function ownerZone(store) {
   if (typeof store?.ownerTimeZone !== "function") return null;
@@ -49,14 +63,19 @@ async function ownerZone(store) {
 
 /** `{created, saved, style}` for `path` from the workspace's object, or nulls where it does not answer. */
 async function noteDates(store, path) {
-  const none = { created: null, saved: null, style: null };
+  const none = { created: null, saved: null, style: null, zone: null };
   if (typeof store?.objectFacts !== "function") return none;
   try {
     const answer = await store.objectFacts({ ask: "dates", path });
     const dates = answer?.dates;
     if (!dates || typeof dates !== "object") return none;
     const clock = (value) => (Number.isFinite(value) ? value : null);
-    return { created: clock(dates.created), saved: clock(dates.saved), style: typeof dates.style === "string" ? dates.style : null };
+    return {
+      created: clock(dates.created),
+      saved: clock(dates.saved),
+      style: typeof dates.style === "string" ? dates.style : null,
+      zone: typeof dates.zone === "string" && dates.zone !== "" ? dates.zone : null,
+    };
   } catch {
     return none;
   }
@@ -85,7 +104,13 @@ export function stampWanted(previous, text) {
  */
 export async function datedForWrite(store, path, content, storedBody, now = Date.now()) {
   if (typeof content !== "string" || !stampsPath(path) || !hasDateKeys(content) || !stampWanted(storedBody, content)) return content;
-  const [timeZone, dates] = await Promise.all([ownerZone(store), noteDates(store, path)]);
+  const dates = await noteDates(store, path);
+  // The zone kept beside the facts (`dateFacts.js` `rememberZone`) answers without the control plane. The first save
+  // after it expires still asks, then leaves the answer there for the next one. Asking beside the facts, not after,
+  // so a miss waits on the slower of the two, not on their sum.
+  const zoneAsked = dates.zone === null ? ownerZone(store) : null;
+  const timeZone = dates.zone ?? (await zoneAsked);
+  if (zoneAsked !== null && timeZone !== null) rememberZone(store, timeZone);
   const changed = contentChanged(storedBody, content);
   return stampDates(content, {
     previous: storedBody,
@@ -111,7 +136,9 @@ export function stampAfterQuiet(store, path, committed, before, savedAt, { quiet
       const current = await readCollaborationDocument(store, path);
       // A later save is waiting its own pause; this one is not the last.
       if (current?.etag !== committed.etag || typeof current.text !== "string") return "superseded";
-      const [timeZone, dates] = await Promise.all([ownerZone(store), noteDates(store, path)]);
+      const dates = await noteDates(store, path);
+      const timeZone = dates.zone ?? (await ownerZone(store));
+      if (dates.zone === null && timeZone !== null) rememberZone(store, timeZone);
       const text = stampDates(current.text, { previous: before, modifiedAt: savedAt, createdAt: dates.created, timeZone, workspaceStyle: dates.style });
       if (text === current.text) return "unchanged";
       const result = await replaceNoteText(store, path, { expectedEtag: current.etag, onlyCurrent: true, text });

@@ -13,6 +13,7 @@
  */
 
 import { commonStyle, roleOfKey } from "../notes/dateProperties.js";
+import { TIME_ZONE_TTL_MS } from "../controlPlane/timeZone.js";
 
 /** Notes one gaps page names. */
 export const DATE_GAPS_PAGE = 100;
@@ -22,6 +23,8 @@ const STYLE_SAMPLE = 400;
 const STYLE_CATCH_UP = 50;
 const PATH_LENGTH = 4096;
 const NOT_SERVED = Object.freeze({ served: false });
+/** The same shape `/gateway/time-zone` keeps (`controlPlane/timeZone.js`). */
+const ZONE = /^[A-Za-z0-9_+\-/]{1,64}$/;
 
 const all = (cursor) => (typeof cursor?.toArray === "function" ? cursor.toArray() : []);
 const finite = (value) => (value === null || value === undefined || !Number.isFinite(Number(value)) ? null : Number(value));
@@ -55,6 +58,16 @@ const MENTIONS = "(f.props LIKE '%created%' OR f.props LIKE '%modified%' OR f.pr
  *   `facts.js`'s own helpers over the same object, and its SQL for a row's note key.
  */
 export function dateFactAsks({ sql, key, notes, current, catchUp, parsed, stale, read }) {
+  sql.exec("CREATE TABLE IF NOT EXISTS ws_date_zone (id INTEGER PRIMARY KEY CHECK (id = 1), zone TEXT NOT NULL, at INTEGER NOT NULL)");
+  /** Whether any note's facts have been built. A save does not rebuild them (`dates`). */
+  const factsBuilt = () => all(sql.exec("SELECT 1 AS n FROM ws_facts LIMIT 1")).length > 0;
+  /** The owner's zone, kept here so a save does not ask the control plane again for ten minutes. */
+  function rememberedZone(now = Date.now()) {
+    const row = all(sql.exec("SELECT zone, at FROM ws_date_zone WHERE id = 1"))[0];
+    if (!row || typeof row.zone !== "string" || !Number.isFinite(Number(row.at))) return null;
+    if (now - Number(row.at) > TIME_ZONE_TTL_MS || now - Number(row.at) < -60_000) return null;
+    return row.zone;
+  }
   /** The workspace's date format by name, from notes the reader may see; null when none has a readable date. */
   function styleFor(sees) {
     const rows = all(
@@ -82,11 +95,26 @@ export function dateFactAsks({ sql, key, notes, current, catchUp, parsed, stale,
   return {
     dates({ path }, sees) {
       if (typeof path !== "string" || path === "" || path.length > PATH_LENGTH) return { served: true, dates: { created: null, saved: null, style: null } };
-      catchUp(notes(), STYLE_CATCH_UP);
+      // Facts already built: the format is read from them. Catching up every stale note, and deleting orphan facts,
+      // scanned the whole tree on every save (production, 2026-11-17: `obj:ws.facts` median 237 ms). A workspace
+      // whose facts have never been built still catches up once, so the format is learned.
+      if (!factsBuilt()) catchUp(notes(), STYLE_CATCH_UP);
       const style = styleFor(sees);
       // Judged before the row is read, so a path the reader may not see answers what a missing one does.
       const own = sees(path) ? clocks(path) : null;
-      return { served: true, dates: { created: own?.created ?? null, saved: own?.saved ?? null, style } };
+      const zone = rememberedZone();
+      return { served: true, dates: { created: own?.created ?? null, saved: own?.saved ?? null, style, ...(zone === null ? {} : { zone }) } };
+    },
+
+    /** Remember the owner's zone (`notes/dateStamp.js`), so the next save reads it here. */
+    rememberZone({ zone }) {
+      if (typeof zone !== "string" || !ZONE.test(zone)) return { served: true };
+      sql.exec(
+        "INSERT INTO ws_date_zone (id, zone, at) VALUES (1, ?, ?) ON CONFLICT(id) DO UPDATE SET zone = excluded.zone, at = excluded.at",
+        zone,
+        Date.now(),
+      );
+      return { served: true };
     },
 
     dateGaps({ after = null, limit = DATE_GAPS_PAGE }, sees) {

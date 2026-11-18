@@ -38,14 +38,20 @@ export class BindingSealRefused extends Error {
   }
 }
 
+/** One derived key per isolate: every open of a binding used to run HKDF again (three WebCrypto calls). */
+let derived = null;
+
 async function sealKey(secret) {
   if (typeof secret !== "string" || secret.length < 16) throw new BindingSealRefused("no gateway secret to seal with");
+  if (derived !== null && derived.secret === secret) return derived.key;
   const hmac = await crypto.subtle.importKey("raw", new TextEncoder().encode(secret), { name: "HMAC", hash: "SHA-256" }, false, ["sign"]);
   const block = new Uint8Array(INFO.length + 1);
   block.set(INFO);
   block[INFO.length] = 1;
-  const derived = new Uint8Array(await crypto.subtle.sign("HMAC", hmac, block));
-  return await crypto.subtle.importKey("raw", derived, "AES-GCM", false, ["encrypt", "decrypt"]);
+  const signed = new Uint8Array(await crypto.subtle.sign("HMAC", hmac, block));
+  const key = await crypto.subtle.importKey("raw", signed, "AES-GCM", false, ["encrypt", "decrypt"]);
+  derived = { secret, key };
+  return key;
 }
 
 function boundTo(workspaceId) {
