@@ -99,6 +99,8 @@ function readBlock(id, lines) {
     tools: toolList === "none" ? [] : toolList.split(", "),
     changes: tail.filter((line) => line.startsWith("- ")),
     browser: browserLine ? browserLine.slice("Browser: ".length).split(" | ").filter(Boolean) : [],
+    // What the bench's own stand-ins could not answer (`benchGaps.mjs`).
+    bench: (tail.find((line) => line.startsWith("Bench: ")) ?? "").slice("Bench: ".length).split(" | ").filter(Boolean),
     mail: mailLine ? mailLine.slice("Mail: ".length).split(" | ").filter(Boolean) : [],
     where: filedLine ? filedWhere(filedLine.slice("Filed: ".length)) : {},
     jobs: jobsLine ? readJobsLine(jobsLine.slice("Jobs: ".length)) : [],

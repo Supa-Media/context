@@ -46,6 +46,10 @@ import { worldChat } from "./worldChat.mjs";
 import { chatEntries, modelLog } from "./modelLog.mjs";
 import { failedStatus, roundsOf } from "./trace.mjs";
 import { benchCause } from "./benchCause.mjs";
+import { benchGaps, isRouteGap, watchedBinding } from "./benchGaps.mjs";
+import { lastWords } from "./worldStarts.mjs";
+import { createTexCommands } from "./texCommands.mjs";
+import { drawnPictures, keepsRenders, looksPastDrawn } from "./drawnPictures.mjs";
 
 /** Brave's search endpoint (`src/agent/search.js`). */
 const BRAVE_SEARCH = "https://api.search.brave.com/";
@@ -208,7 +212,10 @@ export async function createWorld(bench, person, setupRaw, models, today = null,
   // read live, and a mailbox that may keep drafts. Sending stays off, as it is
   // until Google's review adds the send scope (tests/tasks.md, task 9). Each
   // search and read is kept for the result's `Mail:` line.
-  const mail = [...(bench.workspaces[own.workspace]?.mail ?? [])];
+  // A test conversation's world dates its mail (`setsWorld.mjs`): an email dated after the test's own day has not
+  // arrived yet for that test (`mail_until:`), or Monday's email would sit in the inbox of the Thursday before.
+  const arrived = (email) => typeof models.mailUntil !== "string" || Number.isNaN(Date.parse(email.date)) || Date.parse(email.date) <= Date.parse(`${models.mailUntil}T23:59:59Z`) + 12 * 3_600_000;
+  const mail = (bench.workspaces[own.workspace]?.mail ?? []).filter(arrived);
   const mailEvents = [];
   const connectMail = () => {
     const address = mail[0].address;
@@ -232,15 +239,23 @@ export async function createWorld(bench, person, setupRaw, models, today = null,
 
   // The scripted web a golden task runs on (`sites.mjs`): the browser
   // Worker's stand-in, and the answers to web searches.
-  const sim = simulatedWorld(models, controlPlane, { today, person, noMailbox: mail.length === 0 }); // a Dev test's outside world (`simWorld.mjs`)
-  const web = sitesIn(models.sites, sim)?.length ? createWeb(sitesIn(models.sites, sim)) : null;
+  // What the bench's stand-ins could not answer this conversation, kept on its record (`benchGaps.mjs`).
+  const gaps = benchGaps();
+  // The chat's own settings, changed by the settings tools (`texCommands.mjs`).
+  const commands = createTexCommands({ group: models.group ?? null, setBy: String(person).toLowerCase().replace(/[^a-z0-9-]/g, "") });
+  let commandsBefore = 0;
+  const sim = simulatedWorld(models, controlPlane, { today, person, noMailbox: mail.length === 0, gaps }); // a Dev test's outside world (`simWorld.mjs`)
+  const kept = sitesIn(models.sites, sim, models.ownSites ?? []);
+  const web = kept?.length ? createWeb(kept) : null;
 
   // Model calls are the only traffic that leaves the world, and web searches
   // when the run has a search key and no scripted web: production searches
   // the real web, so a run does too (decided 2026-10-09; until 2026-10-11 the
   // world refused the call, so every search_web in a result had failed).
   const below = globalThis.fetch;
-  const modelCalls = modelLog(models.gatewayFetch); // every model call kept, for the conversation's ledger file (`modelLog.mjs`)
+  // A look at a picture the bench itself drew is answered here, never by a model (`drawnPictures.mjs`).
+  const drawn = drawnPictures();
+  const modelCalls = modelLog(typeof models.gatewayFetch === "function" ? looksPastDrawn(models.gatewayFetch, drawn) : models.gatewayFetch); // every model call kept, for the conversation's ledger file (`modelLog.mjs`)
   globalThis.fetch = async (input, init) => {
     const url = typeof input === "string" ? input : input.url;
     if (url.startsWith("https://gateway.ai.cloudflare.com/")) return modelCalls.fetch(url, init);
@@ -255,8 +270,24 @@ export async function createWorld(bench, person, setupRaw, models, today = null,
       // A socketed run (`modelSocket.mjs`) offers web search and finds nothing, the same live and replayed.
       if (models.offlineWeb === true) return new Response(JSON.stringify({ web: { results: [] } }), { status: 200, headers: { "content-type": "application/json" } });
     }
-    if (url.startsWith(S3_ENDPOINT) || url.startsWith(CONTROL_PLANE_ORIGIN)) return below(input, init);
+    if (url.startsWith(CONTROL_PLANE_ORIGIN)) {
+      // Tex's chat commands (the settings tools), which the control plane's stand-in never learnt (`texCommands.mjs`).
+      if (new URL(url).pathname === "/gateway/tex/command") {
+        const asked = JSON.parse(typeof init?.body === "string" ? init.body : await new Request(input, init).text());
+        return new Response(JSON.stringify(commands.answer(asked?.command)), { status: 200, headers: { "content-type": "application/json" } });
+      }
+      // No bench person has connected an app (Slack and the rest): the list is empty and a call says so, as the
+      // control plane does (`functions/connect*.ts` "not_connected"), instead of a route nobody answers.
+      if (new URL(url).pathname === "/gateway/connect/apps") return new Response(JSON.stringify({ apps: [] }), { status: 200, headers: { "content-type": "application/json" } });
+      if (new URL(url).pathname === "/gateway/connect/call") return new Response(JSON.stringify({ ok: false, refused: "not_connected" }), { status: 200, headers: { "content-type": "application/json" } });
+      // A route the control plane's stand-in never learnt answers 404: the tool that asked fails on the bench, not on Tex.
+      const response = await below(input, init);
+      if (response.status === 404 && isRouteGap(new URL(url).pathname) && (await response.clone().json().catch(() => null))?.error === "not_found") gaps.add(`the bench's control plane has no ${new URL(url).pathname}`);
+      return response;
+    }
+    if (url.startsWith(S3_ENDPOINT)) return below(input, init);
     if ((d1 || vectorize) && url.startsWith(CLOUDFLARE_API_BASE)) return below(input, init);
+    gaps.add(`the bench has no stand-in for ${(() => { try { return new URL(url).host; } catch { return "a host"; } })()}`);
     throw new Error("a benchmark turn tried to reach the network outside the model");
   };
   restore.push(() => {
@@ -326,6 +357,10 @@ export async function createWorld(bench, person, setupRaw, models, today = null,
   const startTokens = await startGrants(controlPlane, { person, workspaceId: ids.get(own.workspace), userId: `user_bench_${own.workspace}` });
 
   const before = new Map([...ids].map(([name]) => [name, snapshot(s3.bucketFor(`bench-${name}`))]));
+  // A group chat's own home in the pin (its voice note, its memory, its routines): what a turn writes there is a
+  // change it made too. Left out, "less emojis" kept in the chat's voice note read as nothing done (Training, 2026-11-18).
+  const homeNotes = () => (group ? new Map([...snapshot(pinned)].filter(([key]) => key.startsWith(`${group.home}/`))) : new Map());
+  let homeBefore = homeNotes();
   const env = {
     CONTROL_PLANE_URL: CONTROL_PLANE_ORIGIN,
     GATEWAY_SECRET,
@@ -353,7 +388,7 @@ export async function createWorld(bench, person, setupRaw, models, today = null,
     // The hand-back judge, as production runs it (`agent/handbackJudge.js`); a scripted model leaves it off, since it would answer the judge's call too.
     ...(models.handbackJudge === true ? { HANDBACK_JUDGE: "on" } : {}),
     // A scripted web answers searches itself, so no real key is needed or sent.
-    ...(web || sim ? { BRAVE_SEARCH_API_KEY: "bench-scripted-search", SITE_SHOTS: sim ? simBinding(sim, web) : web.binding } : {}),
+    ...(web || sim ? { BRAVE_SEARCH_API_KEY: "bench-scripted-search", SITE_SHOTS: keepsRenders(watchedBinding(sim ? simBinding(sim, web) : web.binding, gaps), drawn) } : {}),
     // An offline web (a socketed run) still offers search_web; the world answers it with nothing.
     ...(!web && !sim && models.offlineWeb === true ? { BRAVE_SEARCH_API_KEY: "bench-offline-search" } : {}),
     // The deployment's search settings (`src/search/settings.js`): what a
@@ -394,7 +429,11 @@ export async function createWorld(bench, person, setupRaw, models, today = null,
     async earlier(...args) {
       await chat.earlier(...args);
       for (const name of before.keys()) before.set(name, snapshot(s3.bucketFor(`bench-${name}`)));
+      homeBefore = homeNotes();
+      commandsBefore = commands.changes().length;
     },
+    /** What the bench's own stand-ins could not answer this conversation (`benchGaps.mjs`). */
+    gaps: () => gaps.list(),
     /** One texted message, answered with the conversation so far; with `job`, one part of a job, as `jobRun.ts` asks it (`jobTasks.mjs`): their text is posted on part 1 only, the report never, and the done check's verdict and advice come back (`jobCheck.js` `jobFields`). */
     async text(message, attachments = [], { running = null, others = [], job = null, byCode = false, as = null, event = null, groupMail = null, cause = null, posted = false } = {}) {
       // The person opened the last handoff's link and signed in before texting.
@@ -403,6 +442,7 @@ export async function createWorld(bench, person, setupRaw, models, today = null,
       // The real clock, not the world's: a turn's recorded time is how long it took.
       const started = realNow();
       const reportsBefore = controlPlane.builtinReports.length;
+      const callsBefore = modelCalls.calls().length;
       // Their text posted to the chat's ledger first, as the texting Worker does (`apps/agent/src/events.ts`): the ledger is
       // the chat's one record, so the next text sees this one only through it.
       // In a group, what the other members said since Tex's last answer is posted first, each from its own sender.
@@ -448,6 +488,13 @@ export async function createWorld(bench, person, setupRaw, models, today = null,
         answer: body?.answer ?? "",
         // Nothing to text, and the tapback the Worker sends instead (`texEntryPoint/sendTheReply.js`).
         quiet: body?.quiet === true,
+        // The pictures sent with the answer (a drawn card, a made picture): the person saw them, so the record says so.
+        pictures: Array.isArray(body?.pictures) ? body.pictures.length : 0,
+        // A turn the Worker stopped texts nothing and is not Tex's silence (`textingRoutes.js`).
+        cancelled: body?.cancelled === true,
+        // Why it texted nothing, from its last model call's words and calls (`worldStarts.mjs` `lastWords`), so a quiet
+        // row tells a model that chose silence from an answer the gateway dropped.
+        ...(body?.answer === "" ? { quietWhy: lastWords(modelCalls.calls().slice(callsBefore)) } : {}),
         ...(job ? { verdict: typeof body?.verdict === "string" ? body.verdict : null, advice: typeof body?.advice === "string" ? body.advice : "", unfinished: body?.unfinished === true, exhausted: body?.exhausted === true } : {}),
         react: typeof body?.react === "string" ? body.react : null,
         // Lines the turn texted while it worked: each is a text the person got,
@@ -605,6 +652,14 @@ export async function createWorld(bench, person, setupRaw, models, today = null,
         for (const path of was.keys()) {
           if (!now.has(path) && !isPlumbingPath(path)) out.push({ workspace: name, path, kind: "deleted", detail: "" });
         }
+      }
+      // A settings tool's change is a change the turn made, kept by the control plane, never in a note.
+      for (const detail of commands.changes().slice(commandsBefore)) out.push({ workspace: "this chat's settings", path: "tex", kind: "set", detail });
+      for (const [key, text] of homeNotes()) {
+        const path = key.slice(group.home.length + 1);
+        if (homeBefore.get(key) === text || isPlumbingPath(path) || path.startsWith("routines/")) continue;
+        const was = homeBefore.get(key);
+        out.push({ workspace: "this chat's home", path, kind: "written", detail: (was !== undefined && text.startsWith(was) ? text.slice(was.length) : text).replace(/\s+/g, " ").trim().slice(0, 300) });
       }
       return out;
     },

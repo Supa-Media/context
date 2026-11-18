@@ -24,6 +24,7 @@
  */
 
 import { triggerWords } from "./load.mjs";
+import { blankPng } from "./sites.mjs";
 
 export const SIM_MODEL = "claude-haiku-5-5";
 const MAX_TOKENS = 1500;
@@ -68,7 +69,7 @@ export function jsonIn(text) {
  * The world for one conversation. `send(body)` posts a Messages request (a JSON string) and answers a Response;
  * null answers every ask with `fallback` (a run with no model, `--fake`).
  */
-export function createSimWorld({ send = null, setting = "", chat = [], today = null, person = "person", memo = simMemo(), model = SIM_MODEL }) {
+export function createSimWorld({ send = null, setting = "", chat = [], today = null, person = "person", memo = simMemo(), model = SIM_MODEL, gaps = null }) {
   const system = simSystem({ setting, chat, today });
   const events = [];
   const address = `${String(person).toLowerCase().replace(/[^a-z0-9]/g, "") || "person"}@gmail.example`;
@@ -77,6 +78,7 @@ export function createSimWorld({ send = null, setting = "", chat = [], today = n
     const key = JSON.stringify([system, kind, request]);
     if (memo.answers.has(key)) return memo.answers.get(key);
     let answer = fallback;
+    let answered = false;
     const record = () => events.push(`world ${kind} ${JSON.stringify(request).slice(0, 200)} -> ${JSON.stringify(answer).slice(0, 600)}`);
     if (send) {
       const body = JSON.stringify({
@@ -95,12 +97,17 @@ export function createSimWorld({ send = null, setting = "", chat = [], today = n
           memo.usage.output += reply.usage?.output_tokens ?? 0;
           const text = (reply.content ?? []).filter((b) => b.type === "text").map((b) => b.text).join("");
           answer = jsonIn(text) ?? fallback;
-        }
+          answered = true;
+        } else gaps?.add(`the simulated world's model did not answer a ${kind} (status ${response.status})`);
       } catch {
-        // The world failing to answer is a page that did not load, as a real one can be; never the run's error.
+        // The world failing to answer is a page that did not load, as a real one can be; never the run's error. It is
+        // the bench's failure all the same, so the row says so (`benchGaps.mjs`).
+        gaps?.add(`the simulated world's model did not answer a ${kind}`);
       }
     }
-    memo.answers.set(key, answer);
+    // Only an answer the world gave is kept for the run: a call its model failed is asked again next time, never
+    // remembered as "the page did not load" for every later ask of the same thing.
+    if (answered || send === null) memo.answers.set(key, answer);
     record();
     return answer;
   }
@@ -233,6 +240,10 @@ export function simBinding(sim, web = null) {
         return json(200, await sim.browse(body));
       }
       if (web) return await web.binding.fetch(url, init);
+      // A card drawn (`draw_visual`) in a world with no scripted site: the same blank picture the scripted web gives
+      // (`sites.mjs`). Without it every card failed to draw in a simulated world, whose made-up sites are left out
+      // (Training run of 2026-11-18: "I couldn't make the picture come out").
+      if (path === "/render") return json(200, { png: blankPng(body.width ?? 600, body.height ?? 800), width: body.width ?? 600, height: body.height ?? 800, blocked: [] });
       if (path === "/browse/close") return json(200, { ok: true });
       if (path === "/browse/hold") return json(200, { held: true });
       return json(404, { error: "not found" });
@@ -317,13 +328,15 @@ export function simulateFor(front, question, person, { send = null, memo, fake =
  * sites (`*.example`) are not part of a Dev chat's world: matched on any word ("flights"), they answered its searches
  * and pages before the world could (Dev set, 2026-11-17).
  */
-export function sitesIn(sites, sim) {
-  return sim ? (sites ?? []).filter((site) => !String(site.host).endsWith(".example")) : sites;
+export function sitesIn(sites, sim, own = []) {
+  // `own`: the hosts the conversation's own world declared (`setsWorld.mjs`, `world_sites:`): each is part of its chat,
+  // made-up or not.
+  return sim ? (sites ?? []).filter((site) => !String(site.host).endsWith(".example") || own.includes(String(site.host))) : sites;
 }
 
-export function simulatedWorld(models, controlPlane, { today = null, person, noMailbox = false }) {
+export function simulatedWorld(models, controlPlane, { today = null, person, noMailbox = false, gaps = null }) {
   if (!models.simulate) return null;
-  const sim = createSimWorld({ ...models.simulate, today, person });
+  const sim = createSimWorld({ ...models.simulate, today, person, gaps });
   const setting = String(models.simulate.setting ?? "");
   simulateServices(sim, controlPlane, { connectedCalendar: models.calendar === "connected", connectMail: noMailbox && /\b(?:g?mail|e-?mail|inbox)\b/i.test(setting) });
   return sim;

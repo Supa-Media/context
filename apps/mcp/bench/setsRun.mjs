@@ -123,7 +123,7 @@ export function reviewerRight(label, verdict) {
 }
 
 /** Each node's way to run alone: how to ask it, given the tree's code, and how to score its answer. */
-export async function adaptersFor(tree, { fake = false, env = process.env } = {}) {
+export async function adaptersFor(tree, { fake = false, env = process.env, holdOut = false } = {}) {
   const mod = (rel) => import(pathToFileURL(join(tree, rel)).href);
   // Claude's calls through the model socket when one is set (`modelSocket.mjs`): the Lab's Claude Code runs
   // (`tex-lab-run.yml`, models "cc") answer them with `socketAnswerer.mjs`; nothing is priced then.
@@ -132,7 +132,7 @@ export async function adaptersFor(tree, { fake = false, env = process.env } = {}
   const socketed = Boolean(socket?.covers("claude"));
   const table = {
     // The front door runs as a whole turn in the bench's world, so its tests go as one batch (`setsFd.mjs`).
-    fd: { batch: (units, { parallel = 1 } = {}) => runFd(units, { tree, fake, parallel }) },
+    fd: { batch: (units, { parallel = 1 } = {}) => runFd(units, { tree, fake, parallel, holdOut, env }) },
     decide: async () => {
       const { judgeCase, fakeEngine } = await mod("apps/mcp/bench/respond.mjs");
       const engine = fake ? null : (await mod("apps/mcp/src/agent/decide.js")).decisionEngine((await mod("apps/mcp/bench/models.mjs")).workersAi(env.CLOUDFLARE_ACCOUNT_ID, env.CLOUDFLARE_AI_TOKEN));
@@ -197,8 +197,8 @@ export async function adaptersFor(tree, { fake = false, env = process.env } = {}
  * process (Decide, the job check, the reviewer) go one after another while the batched ones (the Front door, whose
  * tests are processes of their own) go beside them, `parallel` tests at a time; rows come back in the same order.
  */
-export async function runSets(convs, { tree, node = null, fake = false, env = process.env, adapters = null, parallel = 1 } = {}) {
-  const table = adapters ?? (await adaptersFor(tree, { fake, env }));
+export async function runSets(convs, { tree, node = null, fake = false, env = process.env, adapters = null, parallel = 1, holdOut = false } = {}) {
+  const table = adapters ?? (await adaptersFor(tree, { fake, env, holdOut }));
   const ready = {};
   const singles = [];
   const batches = {};
@@ -254,9 +254,12 @@ export function countsLine(rows) {
     .join(" · ");
 }
 
+/** Whether the hold-out switch's value means on. */
+export const holdOutOn = (value) => /^(?:on|yes|true|1)$/i.test(String(value ?? "").trim());
+
 /** `sets run`: the CLI half. */
 export async function setsCommand(sub, options, { write = (t) => process.stdout.write(t) } = {}) {
-  if (sub !== "run") throw new Error("usage: sets run [--conversations <file.json>] [--set dev] [--tree <dir>] [--node <id>] [--out <file.json>] [--parallel n] [--fake]");
+  if (sub !== "run") throw new Error("usage: sets run [--conversations <file.json>] [--set dev] [--tree <dir>] [--node <id>] [--out <file.json>] [--parallel n] [--hold-out on] [--fake]");
   let convs;
   if (options.conversations) convs = JSON.parse(await readFile(resolve(options.conversations), "utf8"));
   else {
@@ -268,7 +271,13 @@ export async function setsCommand(sub, options, { write = (t) => process.stdout.
   const tree = resolve(options.tree ?? join(import.meta.dirname, "../../.."));
   // Front door tests at once: each is a process waiting on models, and the Lab's runner has room for these.
   const parallel = Math.max(1, Math.min(Number(options.parallel ?? 8) || 1, 16));
-  const rows = await runSets(convs, { tree, node: options.node ?? null, fake: Boolean(options.fake), parallel });
+  // The hold-out switch (Seyi, 2026-11-17: "keep the hold-out as a switch, and report both Training numbers"): off, a
+  // Training conversation's Front door tests read it among their examples, as production does (the in-context score);
+  // on (`--hold-out on`, or TEX_SETS_HOLD_OUT=on, the Lab run workflow's repository variable), each runs without its
+  // own conversation (the held-out score). It changes nothing for a Dev conversation, which is never an example.
+  const holdOut = holdOutOn(options["hold-out"] ?? process.env.TEX_SETS_HOLD_OUT);
+  const rows = await runSets(convs, { tree, node: options.node ?? null, fake: Boolean(options.fake), parallel, holdOut });
+  if (convs.some((c) => c.set === "training")) write(`Training Front door: ${holdOut ? "held out (each conversation left out of its own examples)" : "in context (each conversation among its own examples)"}\n`);
   if (options.out) await writeFile(resolve(options.out), JSON.stringify(rows, null, 1) + "\n");
   write(`${countsLine(rows)}\n`);
   // The repo's sets name what missed (their words are public); a file handed in may be sealed, so it never does.

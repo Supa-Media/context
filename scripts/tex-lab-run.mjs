@@ -20,7 +20,7 @@
  * (`castProblems`), and `ran` refuses rows where a whole step did not run. Each says why to the file `TEX_LAB_WHY`
  * names, which the workflow reports to the Lab as the run's error; standard error keeps to ids and counts.
  */
-import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { createRequire } from "node:module";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -39,6 +39,14 @@ class Refused extends Error {
   }
 }
 
+/** Whether a conversation's own world (`apps/mcp/bench/setsWorld.mjs`) brings a shared workspace: a folder there that is nobody's personal one. */
+function ownShared(c, people) {
+  const dir = new URL(`../apps/mcp/bench/sets/worlds/${c.id}/workspaces/`, import.meta.url);
+  if (!/^[a-z0-9][a-z0-9-]{0,79}$/.test(String(c.id)) || !existsSync(dir)) return false;
+  const personal = new Set(people.filter((row) => row.personal).map((row) => row.workspace));
+  return readdirSync(dir, { withFileTypes: true }).some((entry) => entry.isDirectory() && !personal.has(entry.name));
+}
+
 /**
  * The conversations of a run whose Front door tests could not run in the bench, each with why: `[{ id, problems }]`.
  * Only those with a Front door test, and only when the run covers the Front door (`node` null or "fd").
@@ -47,7 +55,7 @@ export function uncast(convs, people, node = null) {
   if (node && node !== "fd") return [];
   return convs
     .filter((c) => unitTests(c).some((t) => t.node === "fd"))
-    .map((c) => ({ id: c.id, problems: castProblems(c, people) }))
+    .map((c) => ({ id: c.id, problems: castProblems(c, people, { ownWorkspace: ownShared(c, people) }) }))
     .filter((x) => x.problems.length > 0);
 }
 

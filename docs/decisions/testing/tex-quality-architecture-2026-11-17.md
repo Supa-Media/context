@@ -278,6 +278,38 @@ after the draft would cost about a second on every casual text and would be
 graded by the same judgment that flips. Read voice as a mean over three runs
 before changing anything for it.
 
+## Measured so far
+
+**Nothing below is a score yet.** The bench's Anthropic keys stopped answering
+at 8:22 PM ET on 17 November, and every Lab run after that, including the
+Training run that first scored the front door (27 of 63), ran Tex and the
+judges on the fallback model. Those numbers are not Tex's. Each change is
+proved by unit tests and a run on fake models until a Training and a Dev run
+can be trusted again.
+
+### Change 3, built (18 November): Training measures Tex, not the test world
+
+What the code showed, each reproduced in a test
+([test-sets](./test-sets.md), "A conversation brings its own world"):
+
+- **Every undated row ran on a Thursday.** No Training chat names a date, so
+  each test ran on the bench's own day. A Monday routine stayed quiet, rightly.
+- **A drawn card always failed twice.** The bench renders a blank picture, the
+  card check looks at it and holds it back, twice, and the tool says "Not
+  sent". The bench now answers the look at its own stand-in.
+- **A settings change always failed.** The bench's control plane had no route
+  for Tex's chat commands. It has one now.
+- **Empty replies were never empty texts.** The gateway cannot text nothing:
+  a model's empty answer becomes "my answer got lost", and the Worker treats
+  an empty body as a failed turn. The rows that read "Tex: " with nothing were
+  Tex choosing to say nothing, or an answer that was only a picture, which
+  the record dropped. The record now says which.
+- **The chats' records did not exist.** Each conversation now declares its
+  world, and runs in a folder of its own.
+
+On fake models, 62 of Training's 63 front-door tests run, none a harness row.
+The one left is a group check-in that found only a calendar event.
+
 ## What this adds up to
 
 If changes 1, 2, 4 and the handoff each land in the middle of their range:

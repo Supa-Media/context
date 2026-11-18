@@ -32,6 +32,7 @@ import { createRequire } from "node:module";
 
 import { tapbackSaidLine } from "../src/agent/tapbackEnding.js";
 import { parsePeople } from "./load.mjs";
+import { seedWorld, worldDirOf } from "./setsWorld.mjs";
 
 const { OTHER_ASSISTANTS } = createRequire(import.meta.url)("../../../packages/shared/src/texSets.cjs");
 
@@ -53,10 +54,10 @@ export const handleOf = (name) => String(name).toLowerCase().replace(/[^a-z0-9-]
  * Tex's. In a group each person's line names who said it (`who`, their handle). A check-in or routine row is not a
  * text anyone sent, so it is left out; Tex's answer to it stays.
  */
-export function earlierLines(c, i, year = null) {
+export function earlierLines(c, i, year = null, from = null) {
   const lines = [];
   const dated = (line, j) => {
-    const ago = year === null ? null : minutesBefore(c, j, i, year);
+    const ago = year === null ? null : minutesBefore(c, j, i, year, from);
     return ago === null ? line : { ...line, minutesBefore: ago };
   };
   for (const [j, m] of c.msgs.slice(0, i).entries()) {
@@ -119,25 +120,41 @@ const iso = (d) => d.toISOString().slice(0, 10);
 
 /**
  * The day message `i` of `c` was sent, YYYY-MM-DD, or null. `at` lines are times ("Tue 15:05"); the first that names a
- * date ("Tue Oct 13 10:14") anchors them, in `year`, and each later weekday is the next one on or after the day before.
+ * date ("Tue Oct 13 10:14") anchors them, in `year`: each later weekday is the next one on or after the day before, and
+ * each earlier weekday the last one on or before the day after. A conversation that names no date at all starts on the
+ * first day on or after `from` (the bench's own day) that is its first line's weekday, so every row still runs on its
+ * own weekday. Left on the bench's day, a Thursday, a Monday routine ran on a Thursday and rightly stayed quiet, and
+ * every "tomorrow" in the chat was the wrong day (Training, 2026-11-18: no Training chat names a date).
  */
-export function dayOf(c, i, year) {
-  let day = null;
-  for (const m of c.msgs.slice(0, i + 1)) {
+export function dayOf(c, i, year, from = null) {
+  const marks = [];
+  for (const [k, m] of c.msgs.entries()) {
     const at = typeof m.at === "string" ? m.at.trim() : "";
     const dated = /^(?:[A-Z][a-z]{2} )?([A-Z][a-z]{2}) (\d{1,2})\b/.exec(at);
-    if (dated && MONTHS.includes(dated[1])) {
-      day = new Date(Date.UTC(year, MONTHS.indexOf(dated[1]), Number(dated[2])));
-      continue;
-    }
-    const weekday = /^([A-Z][a-z]{2})\b/.exec(at)?.[1];
-    if (day && weekday && DAYS.includes(weekday)) {
-      const ahead = (DAYS.indexOf(weekday) - day.getUTCDay() + 7) % 7;
-      day = new Date(day.getTime() + ahead * 86_400_000);
+    if (dated && MONTHS.includes(dated[1])) marks.push({ k, day: new Date(Date.UTC(year, MONTHS.indexOf(dated[1]), Number(dated[2]))) });
+    else {
+      const weekday = /^([A-Z][a-z]{2})\b/.exec(at)?.[1];
+      if (weekday && DAYS.includes(weekday)) marks.push({ k, weekday: DAYS.indexOf(weekday) });
     }
   }
-  return day ? iso(day) : null;
+  let anchor = marks.findIndex((mark) => mark.day);
+  if (anchor < 0) {
+    if (marks.length === 0 || typeof from !== "string" || Number.isNaN(Date.parse(`${from}T00:00:00Z`))) return null;
+    const start = new Date(`${from}T00:00:00Z`);
+    marks[0].day = new Date(start.getTime() + ((marks[0].weekday - start.getUTCDay() + 7) % 7) * DAY_MS);
+    anchor = 0;
+  }
+  for (let n = anchor + 1; n < marks.length; n += 1) {
+    if (!marks[n].day) marks[n].day = new Date(marks[n - 1].day.getTime() + ((marks[n].weekday - marks[n - 1].day.getUTCDay() + 7) % 7) * DAY_MS);
+  }
+  for (let n = anchor - 1; n >= 0; n -= 1) {
+    marks[n].day = new Date(marks[n + 1].day.getTime() - ((marks[n + 1].day.getUTCDay() - marks[n].weekday + 7) % 7) * DAY_MS);
+  }
+  // A row takes the day of the last timed line at or before it; one before the first timed line, that line's day.
+  const mark = marks.findLast((x) => x.k <= i) ?? marks[0];
+  return mark ? iso(mark.day) : null;
 }
+const DAY_MS = 86_400_000;
 
 /**
  * How many minutes before message `i` of `c` message `j` was sent, from their own days and times (weekdays walked in
@@ -145,9 +162,9 @@ export function dayOf(c, i, year) {
  * is undated. Production's ledger keeps each text's own time, so ten days of chat read as ten days, not as one burst
  * a minute ago (Dev set, 2026-11-17: Tex read a payment set up days before as "set up at 12:04" today).
  */
-export function minutesBefore(c, j, i, year) {
+export function minutesBefore(c, j, i, year, from = null) {
   const when = (k) => {
-    const day = dayOf(c, k, year);
+    const day = dayOf(c, k, year, from);
     const time = timeOf(c, k);
     return day === null || time === null ? null : Date.parse(`${day}T${time}:00Z`);
   };
@@ -192,11 +209,12 @@ export const castOf = (c) => (Array.isArray(c?.members) ? c.members : []).filter
  * The set tests hold every Training and Dev conversation to it, and a Lab run refuses one that fails it rather than
  * scoring its tests wrong (Lab run 2026-11-17: Training's Front door read 0/63, none of its people in the bench).
  */
-export function castProblems(c, people) {
+export function castProblems(c, people, { ownWorkspace = false } = {}) {
   const cast = castOf(c);
   if (cast.length === 0) return ["the conversation names no person"];
   const out = cast.filter((name) => !people.some((row) => row.person === name && row.personal)).map((name) => `${name} has no bench world`);
-  if (out.length === 0 && c.kind === "group" && groupFor(people, c) === null) out.push(`no shared workspace has all of ${cast.join(", ")}`);
+  // `ownWorkspace`: the conversation's own world brings the shared workspace it runs in (`setsWorld.mjs` worldHasShared).
+  if (out.length === 0 && c.kind === "group" && !ownWorkspace && groupFor(people, c) === null) out.push(`no shared workspace has all of ${cast.join(", ")}`);
   return out;
 }
 
@@ -267,16 +285,19 @@ export function missedLine(r) {
 
 /**
  * The email a check-in row found, as the bench's Gmail holds it: "Gmail: <from>: <what it says>" (the sender is the
- * words before the first colon when they are short enough to be one). Null when the row is not mail.
+ * words before the first colon when they are short enough to be one). The row may say what else the check-in saw
+ * first ("shared calendar: ...; Gmail to the group inbox: Kenji asks to move to 3pm"): the email is the part from
+ * "Gmail" on. Null when the row names no mail.
  */
 export function checkinMail(text) {
-  const m = /^\s*Gmail:\s*([\s\S]+)$/.exec(String(text ?? ""));
+  const m = /(?:^\s*|[;.]\s+)Gmail(?:\s+to\s+[^:;.]{1,40})?:\s*([\s\S]+)$/i.exec(String(text ?? ""));
   if (!m) return null;
   const rest = m[1].trim();
   const colon = rest.indexOf(":");
-  const from = colon > 0 && colon <= 60 ? rest.slice(0, colon).trim() : "(sender)";
-  const said = colon > 0 && colon <= 60 ? rest.slice(colon + 1).trim() : rest;
-  const subject = said.split(/(?<=[.!?])\s/)[0].slice(0, 120);
+  const named = colon > 0 && colon <= 60 && !/[;.]/.test(rest.slice(0, colon));
+  const from = named ? rest.slice(0, colon).trim() : "(sender)";
+  const said = named ? rest.slice(colon + 1).trim() : rest;
+  const subject = said.split(/(?<=[.!?;])\s/)[0].slice(0, 120);
   return { from, subject, body: said };
 }
 
@@ -296,21 +317,28 @@ export function senderOf(c, i, people = [], group = null) {
   return m.who;
 }
 
+/**
+ * Whether a routine row is a one-off reminder: its words open by saying so ("one-off reminder Maya asked for: move the
+ * car"). It then runs from `tex/routines/once/`, with a one-off's own framing (`routine.js` routineQuestion); placed as
+ * a daily routine, a reminder was asked "is there anything to say today" and could answer no.
+ */
+export const isOneOff = (text) => /^\s*(?:a\s+)?one[- ]off\b/i.test(String(text ?? ""));
+
 /** One bench test of `units` (all one person's): the front matter given, then one case a unit, its chat before it. */
-export function fdTest(units, front) {
+export function fdTest(units, front, from = null) {
   const out = [`---\n${front}\n---\n\n# Sets\n\nThe Front door's unit tests from the test conversations (\`setsFd.mjs\`).\n`];
   const year = /^today: (\d{4})-/m.test(front) ? Number(/^today: (\d{4})-/m.exec(front)[1]) : null;
   units.forEach((u, k) => {
     const m = u.convo.msgs[u.at];
     const l = u.label;
     const burst = burstBefore(u.convo, u.at);
-    const before = earlierLines(u.convo, u.at, year);
+    const before = earlierLines(u.convo, u.at, year, from);
     const { earlier, unanswered } = sinceTexAnswered(before.slice(0, before.length - burst.length), picturesOf(m), u.convo.kind === "group");
     const lines = [
       `## ${k + 1}. ${String(m.text).replace(/\s+/g, " ").slice(0, 120)}`,
       "",
       "- kind: task",
-      m.via === "checkin" ? `- check-in mail: ${JSON.stringify(checkinMail(m.text))}` : m.via === "routine" ? `- routine runs: ${JSON.stringify(m.text)}` : m.via === "job" ? `- job reports: ${JSON.stringify(jobReportRow(u.convo, u.at))}` : `- person texts: ${JSON.stringify([...burst, m.text ?? ""].filter(Boolean).join("\n"))}`,
+      m.via === "checkin" ? `- check-in mail: ${JSON.stringify(checkinMail(m.text))}` : m.via === "routine" ? `- ${isOneOff(m.text) ? "one-off routine" : "routine"} runs: ${JSON.stringify(m.text)}` : m.via === "job" ? `- job reports: ${JSON.stringify(jobReportRow(u.convo, u.at))}` : `- person texts: ${JSON.stringify([...burst, m.text ?? ""].filter(Boolean).join("\n"))}`,
       ...unanswered.map((name) => `- person sends picture: ${name}`),
       ...earlier.flatMap((line) => {
         const ago = line.minutesBefore === undefined ? [] : [`- earlier minutes before: ${line.minutesBefore}`];
@@ -383,7 +411,7 @@ function triggerLine(line) {
  * day, judge and voice lines; failing that, the core set's own with `run_as:` them. One run each, on the scripted web,
  * on `today` and in the `group` when given. Null when nobody in `people.md` is called that.
  */
-export async function frontFor(dir, person, { today = null, group = null, calendar = false, setting = null, clock = null } = {}) {
+export async function frontFor(dir, person, { today = null, group = null, calendar = false, setting = null, clock = null, sites = [], dated = false } = {}) {
   const people = parsePeople(await readFile(join(dir, "workspaces", "people.md"), "utf8"));
   if (!people.some((row) => row.person === person && row.personal)) return null;
   const names = (await readdir(join(dir, "tests"))).filter((n) => n.endsWith(".md")).sort((a, b) => (a === "core.md" ? -1 : b === "core.md" ? 1 : a.localeCompare(b)));
@@ -411,7 +439,13 @@ export async function frontFor(dir, person, { today = null, group = null, calend
   // The outside world the chat takes for granted, played by a model where the fixtures have nothing (`simWorld.mjs`,
   // Dev2 2026-11-17): it sees the chat's setting, never its labels.
   if (setting !== null) f = f.replace(/^world(?:_setting)?: .*\n?/gm, "") + `\nworld: simulated\nworld_setting: ${JSON.stringify(String(setting).replace(/\s+/g, " ").trim())}`;
+  // The conversation's own sites (`setsWorld.mjs`) are part of its chat, made-up hosts included (`simWorld.mjs` sitesIn).
+  f = f.replace(/^world_sites: .*\n?/gm, "");
+  if (sites.length > 0) f += `\nworld_sites: ${sites.join(", ")}`;
   if (today) f = f.replace(/^today: .*$/m, `today: ${today}`);
+  // A conversation's world dates its mail: what is dated after this test's day has not arrived for it (`world.mjs`).
+  f = f.replace(/^mail_until: .*\n?/gm, "");
+  if (today && dated) f += `\nmail_until: ${today}`;
   // The row's own time of day in the person's zone (`clock.mjs`), and that zone on every text as the Worker sends it.
   const zone = await zoneOf(dir, people.find((row) => row.person === person && row.personal).workspace);
   f = f.replace(/^(?:clock|time_zone): .*\n?/gm, "") + `\ntime_zone: ${zone}`;
@@ -420,11 +454,27 @@ export async function frontFor(dir, person, { today = null, group = null, calend
   return f;
 }
 
+/** The variable that holds one Training conversation out of the Front door's examples (`texTraining.cjs` `heldOutOf`). */
+const { HOLD_OUT_ENV } = createRequire(import.meta.url)("../../../packages/shared/src/texTraining.cjs");
+
 /**
- * The Front door's batch: every unit through the tree's own bench, grouped by person, each group one test. `runTests`
- * is `coreArea.mjs`'s from the tree, swapped by a test; `parallel` tests go at once. Answers one row a unit.
+ * A row the bench failed, not Tex: a stand-in of the bench's had no answer for a call the turn made (`benchGaps.mjs`),
+ * so a miss there is a harness error, shown as a row that could not run with what the bench lacked. A test that held
+ * anyway is a pass: the gap was not in its way.
  */
-export async function runFd(units, { tree, fake = false, runTests = null, parallel = 1 }) {
+export function benchFailed(r) {
+  const gaps = Array.isArray(r?.bench) ? r.bench : [];
+  return !r?.right && gaps.length > 0 ? `the bench failed, not Tex: ${gaps.join("; ")}`.slice(0, 280) : null;
+}
+
+/**
+ * The Front door's batch: every unit through the tree's own bench. Each conversation runs in a copy of the bench folder
+ * of its own with its world laid in (`setsWorld.mjs`), its units grouped by person and day, each group one test.
+ * `runTests` is `coreArea.mjs`'s from the tree, swapped by a test; `parallel` tests go at once. With `holdOut`, a
+ * Training conversation's tests run in processes that leave it out of the Front door's examples (`heldOutOf`): the
+ * held-out score. Without, they read it as production does: the in-context score. Answers one row a unit.
+ */
+export async function runFd(units, { tree, fake = false, runTests = null, parallel = 1, holdOut = false, env = process.env }) {
   const rows = [];
   const can = [];
   for (const u of units) {
@@ -436,61 +486,93 @@ export async function runFd(units, { tree, fake = false, runTests = null, parall
   const run = runTests ?? (await import(pathToFileURL(join(tree, "apps/mcp/bench/coreArea.mjs")).href)).runTests;
   const scratch = await mkdtemp(join(tmpdir(), "tex-sets-fd-"));
   try {
-    const dir = join(scratch, "ai");
-    await cp(join(tree, "apps/mcp/bench/ai"), dir, { recursive: true });
-    const setup = join(dir, "setups", "texting-assistant");
-    const pulled = await readFile(join(setup, "production.md"), "utf8").then(() => true, () => false);
-    if (!pulled) {
-      await rm(setup, { recursive: true, force: true });
-      await mkdir(setup, { recursive: true });
-      await writeFile(join(setup, "production.md"), `---\n${LIVE_SETTINGS}\n---\n\nTex's rules are its prompt modules, read from Tex's config.\n`);
-    }
-    const people = parsePeople(await readFile(join(dir, "workspaces", "people.md"), "utf8"));
-    const year = Number(/^today: (\d{4})/m.exec(FRONT.exec(await readFile(join(dir, "tests", "core.md"), "utf8"))?.[1] ?? "")?.[1] ?? new Date().getUTCFullYear());
-    const batches = new Map();
-    for (const u of can) {
-      const group = u.convo.kind === "group" ? groupFor(people, u.convo) : null;
-      const person = senderOf(u.convo, u.at, people, group);
-      if (u.convo.kind === "group" && group === null) {
-        rows.push({ ...u.row, right: false, ran: false, usd: 0, why: `no shared workspace in apps/mcp/bench/ai/workspaces/people.md has all of ${castOf(u.convo).join(", ")}` });
-        continue;
+    const byConvo = new Map();
+    for (const u of can) byConvo.set(u.convo.id, [...(byConvo.get(u.convo.id) ?? []), u]);
+    // Conversations beside each other, sharing the room `parallel` gives: each is its own folder and its own processes.
+    const each = Math.max(1, Math.floor(parallel / Math.max(1, Math.min(byConvo.size, parallel))));
+    const queue = [...byConvo.values()];
+    const lanes = Array.from({ length: Math.max(1, Math.min(queue.length, parallel)) }, async () => {
+      for (let mine = queue.shift(); mine !== undefined; mine = queue.shift()) {
+        const c = mine[0].convo;
+        try {
+          rows.push(...(await runConvo(mine, { tree, run, scratch: join(scratch, `c${byConvo.size - queue.length}-${handleOf(c.id)}`), fake, parallel: each, env: holdOut && c.set === "training" ? { ...env, [HOLD_OUT_ENV]: c.id } : env })));
+        } catch (error) {
+          rows.push(...mine.map((u) => ({ ...u.row, right: false, ran: false, usd: 0, why: `could not run: ${String(error?.message ?? error).slice(0, 200)}` })));
+        }
       }
-      const today = dayOf(u.convo, u.at, year);
-      // A conversation whose setting gives Tex the calendar runs with one connected (`calendar.mjs` benchCalendar).
-      const calendar = hasCalendar(u.convo);
-      const setting = String(u.convo.setting ?? "");
-      const clock = timeOf(u.convo, u.at);
-      const key = JSON.stringify([person, today, group, calendar, setting, clock]);
-      if (!batches.has(key)) batches.set(key, { person, today, group, calendar, setting, clock, units: [] });
-      batches.get(key).units.push(u);
-    }
-    const tests = [];
-    for (const { person, today, group, calendar, setting, clock, units } of batches.values()) {
-      const front = await frontFor(dir, person, { today, group, calendar, setting, clock });
-      if (front === null) {
-        rows.push(...units.map((u) => ({ ...u.row, right: false, ran: false, usd: 0, why: `${person} has no bench world: a set chat's people are the bench's (apps/mcp/bench/ai/workspaces/people.md)` })));
-        continue;
-      }
-      const name = `sets-${tests.length + 1}`;
-      await writeFile(join(dir, "tests", `${name}.md`), fdTest(units, front));
-      tests.push({ name, group: units });
-    }
-    if (tests.length === 0) return rows;
-    // Counts only, never words: how many earlier lines were older than the history's verbatim days and held at its edge.
-    const held = can.reduce((n, u) => n + earlierLines(u.convo, u.at, year).filter((l) => l.minutesBefore === MAX_MINUTES_BEFORE).length, 0);
-    if (held > 0) process.stderr.write(`sets: ${held} earlier lines older than ${MAX_MINUTES_BEFORE / 60} hours were held at that age (no day summaries in the bench)\n`);
-    const got = await run(tree, tests.map((t) => t.name), { dir, scratch, tag: "sets", fake, parallel });
-    const each = got.usd / tests.reduce((n, t) => n + t.group.length, 0);
-    for (const t of tests) {
-      t.group.forEach((u, k) => {
-        const r = got.rows.find((x) => x.id === `${t.name}/q${k + 1}`);
-        const usd = Math.round(each * 10_000) / 10_000;
-        if (!r) rows.push({ ...u.row, right: false, ran: false, usd, why: "the bench gave no judged answer" });
-        else rows.push({ ...u.row, right: Boolean(r.right), ran: true, usd, got: r.right ? "every line held" : missedLine(r), want: "every must and never line", misses: r.misses ?? [], held: r.held ?? [], said: r.said ?? [], ...(r.handoff ? { handoff: r.handoff } : {}) });
-      });
-    }
-    return rows;
+    });
+    await Promise.all(lanes);
+    // Rows in the order their units came, whichever conversation finished first.
+    const place = new Map(units.map((u, k) => [`${u.row.chat}\n${u.row.msg}\n${u.row.node}`, k]));
+    return rows.sort((a, b) => (place.get(`${a.chat}\n${a.msg}\n${a.node}`) ?? 0) - (place.get(`${b.chat}\n${b.msg}\n${b.node}`) ?? 0));
   } finally {
     await rm(scratch, { recursive: true, force: true });
   }
+}
+
+/** One conversation's units, in its own copy of the bench folder with its world laid in. */
+async function runConvo(units, { tree, run, scratch, fake, parallel, env }) {
+  const rows = [];
+  const c = units[0].convo;
+  const dir = join(scratch, "ai");
+  await mkdir(scratch, { recursive: true });
+  await cp(join(tree, "apps/mcp/bench/ai"), dir, { recursive: true });
+  const setup = join(dir, "setups", "texting-assistant");
+  const pulled = await readFile(join(setup, "production.md"), "utf8").then(() => true, () => false);
+  if (!pulled) {
+    await rm(setup, { recursive: true, force: true });
+    await mkdir(setup, { recursive: true });
+    await writeFile(join(setup, "production.md"), `---\n${LIVE_SETTINGS}\n---\n\nTex's rules are its prompt modules, read from Tex's config.\n`);
+  }
+  // The conversation's own records, pages, mail and calendar (`setsWorld.mjs`), over the copy; a group's own workspace
+  // is the one it runs in.
+  const world = await seedWorld(dir, worldDirOf(tree, c.id), c, castOf(c));
+  const people = parsePeople(await readFile(join(dir, "workspaces", "people.md"), "utf8"));
+  const base = /^today: (\d{4}-\d{2}-\d{2})/m.exec(FRONT.exec(await readFile(join(dir, "tests", "core.md"), "utf8"))?.[1] ?? "")?.[1] ?? new Date().toISOString().slice(0, 10);
+  // The day the chat's first line was sent: its world's, else the first such weekday from the bench's day on (`dayOf`).
+  const from = world.starts ?? base;
+  const year = Number(from.slice(0, 4));
+  const group = c.kind === "group" ? (world.group ?? groupFor(people, c)) : null;
+  if (c.kind === "group" && group === null) {
+    return units.map((u) => ({ ...u.row, right: false, ran: false, usd: 0, why: `no shared workspace in apps/mcp/bench/ai/workspaces/people.md has all of ${castOf(c).join(", ")}` }));
+  }
+  const batches = new Map();
+  for (const u of units) {
+    const person = senderOf(c, u.at, people, group);
+    const today = dayOf(c, u.at, year, from);
+    const clock = timeOf(c, u.at);
+    const key = JSON.stringify([person, today, clock]);
+    if (!batches.has(key)) batches.set(key, { person, today, clock, units: [] });
+    batches.get(key).units.push(u);
+  }
+  const tests = [];
+  for (const { person, today, clock, units: mine } of batches.values()) {
+    // A conversation whose setting gives Tex the calendar runs with one connected (`calendar.mjs` benchCalendar).
+    const front = await frontFor(dir, person, { today, group, calendar: hasCalendar(c), setting: String(c.setting ?? ""), clock, sites: world.sites, dated: world.laid });
+    if (front === null) {
+      rows.push(...mine.map((u) => ({ ...u.row, right: false, ran: false, usd: 0, why: `${person} has no bench world: a set chat's people are the bench's (apps/mcp/bench/ai/workspaces/people.md)` })));
+      continue;
+    }
+    const name = `sets-${tests.length + 1}`;
+    await writeFile(join(dir, "tests", `${name}.md`), fdTest(mine, front, from));
+    tests.push({ name, group: mine });
+  }
+  if (tests.length === 0) return rows;
+  // Counts only, never words: how many earlier lines were older than the history's verbatim days and held at its edge.
+  const held = units.reduce((n, u) => n + earlierLines(c, u.at, year, from).filter((l) => l.minutesBefore === MAX_MINUTES_BEFORE).length, 0);
+  if (held > 0) process.stderr.write(`sets: ${held} earlier lines older than ${MAX_MINUTES_BEFORE / 60} hours were held at that age (no day summaries in the bench)\n`);
+  const got = await run(tree, tests.map((t) => t.name), { dir, scratch, tag: "sets", fake, parallel, env });
+  const each = got.usd / tests.reduce((n, t) => n + t.group.length, 0);
+  for (const t of tests) {
+    t.group.forEach((u, k) => {
+      const r = got.rows.find((x) => x.id === `${t.name}/q${k + 1}`);
+      const usd = Math.round(each * 10_000) / 10_000;
+      const story = r ? { misses: r.misses ?? [], held: r.held ?? [], said: r.said ?? [], ...(r.handoff ? { handoff: r.handoff } : {}) } : {};
+      const bench = benchFailed(r);
+      if (!r) rows.push({ ...u.row, right: false, ran: false, usd, why: "the bench gave no judged answer" });
+      else if (bench !== null) rows.push({ ...u.row, right: false, ran: false, usd, why: bench, ...story });
+      else rows.push({ ...u.row, right: Boolean(r.right), ran: true, usd, got: r.right ? "every line held" : missedLine(r), want: "every must and never line", ...story });
+    });
+  }
+  return rows;
 }

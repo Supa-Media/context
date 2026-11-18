@@ -144,7 +144,8 @@ ratio counts labels instead of stars, or if the drift limit is ignored.
   it"). Training is run and scored from the Lab, and its Front door read 0/63
   in thirty seconds, each row "has no bench world", because Remi, Lucia, Omar
   and the rest were nobody `people.md` knew. Two fixes landed the same day.
-  #3631 gave those seven people thin worlds (`texSets.cjs` `TRAINING_PEOPLE`).
+  #3631 gave those seven people thin worlds (removed 2026-11-18: nothing ran in
+  them, and a conversation now brings its own world, below).
   Then, on Seyi's decision, the six Training conversations were recast onto
   people who already had worlds, their words otherwise unchanged:
   `trial-hire` and `running-the-shop` are John's (his brother is Mateo in both
@@ -176,3 +177,51 @@ ratio counts labels instead of stars, or if the drift limit is ignored.
 Reverting to cases outside conversations, or to a store an agent can write
 the Test Set into, fails `apps/mcp/test/sets.test.mjs` and
 `apps/mcp/test/texDevSets.test.mjs`.
+
+## A conversation brings its own world (2026-11-18)
+
+Asked by the owner, 2026-11-17: "Make Training measure Tex, not the test
+world." Recast onto the bench's people, a podcast crew's chat ran in the
+fashion brand's workspace: the gear note, the outreach email and the budget it
+talks about did not exist, and Tex was graded on not finding them.
+
+- **A world is declared with the conversation**, in
+  `apps/mcp/bench/sets/worlds/<conversation id>/`: `workspaces/<name>/` holds
+  notes, emails and calendar days in the forms every bench workspace uses, and
+  `sites/` holds scripted sites. A name that is a member's own workspace is
+  laid over it, so the person keeps their bench world. Any other name is a new
+  shared workspace of the conversation's people, and a group chat runs in it.
+  Training and Dev conversations work the same way (`setsWorld.mjs`).
+- **Each conversation runs in a copy of the bench folder of its own**, so one
+  person's two conversations never see each other's records.
+- **A world is the state of things when the chat began.** Notes are as they
+  were then. Mail is dated, and an email dated after a test's own day has not
+  arrived for that test. A world is written from what the conversation's own
+  lines say exists, never from a test's must and never lines.
+- **Every row runs on its own weekday.** A chat that names no date starts on
+  the first day on or after the bench's day that is its first line's weekday;
+  rows before a chat's first dated line are walked back from it. A world may
+  say the day its chat begins (`world.md`, `starts:`), so its dated mail and
+  the chat agree without touching the chat's words. Before this
+  every undated Training row ran on the bench's day, a Thursday, so a Monday
+  routine rightly stayed quiet. A routine row whose words open "one-off" runs
+  as a one-off reminder.
+- **The bench's failures are the bench's rows.** A stand-in with no answer for
+  a call a turn made is kept on the conversation's record (`benchGaps.mjs`),
+  and a missed test whose turn hit one is a row that could not run, with what
+  the bench lacked, never a miss of Tex's. The settings tools, a drawn card
+  and the connected-apps list now have stand-ins
+  (`texCommands.mjs`, `drawnPictures.mjs`, `world.mjs`).
+- **The hold-out is a switch** (the owner, 2026-11-17: "keep the hold-out as a
+  switch, and report both Training numbers"). Off, a Training conversation's
+  Front door tests read it among their examples, as production does: the
+  in-context score, whose bar is 95%. On (`sets run --hold-out on`, or the
+  repository variable `TEX_SETS_HOLD_OUT=on` for a Lab run), each runs with
+  its own conversation left out of every step's examples
+  (`texTraining.cjs` `heldOutOf`): the held-out score.
+
+What a simplification would cost: one shared world for every conversation
+puts each chat's records in front of every other chat's tests; reading the
+bench's own failures as misses spends a week tuning Tex against a blank
+picture. `setsWorld.test.mjs`, `setsFd.test.mjs` and
+`bench/test/benchTools.test.mjs` fail if any part is undone.
