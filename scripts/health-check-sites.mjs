@@ -30,8 +30,11 @@
  *      A members-only page ("authentication_required") is present, not
  *      missing.
  *
- * And for context.lc, whose homepage is @context-lc's website drawn in the
- * app, that the document carries the site's pages (`homeSite.ts`).
+ * And for context.lc, that the homepage loads: a 200 HTML shell with the
+ * app's root and its script. The homepage draws its own pages and is not
+ * linked to the @context-lc site (decided by Seyi, 2026-11-18), so a document
+ * that carries no site is the expected state, not a failure. If a site is
+ * embedded (`homeSite.ts`), it must still be one the app can draw.
  *
  * ── WHAT "HONEST" MEANS HERE ───────────────────────────────────────────────
  *
@@ -176,15 +179,24 @@ export function menuPaths(body) {
   return paths.slice(0, MAX_PAGES);
 }
 
-/** Problems with context.lc's homepage document. */
-export function checkHomeDocument({ status, body }) {
+/**
+ * Problems with context.lc's homepage document. The homepage draws its own
+ * pages, so no embedded site is expected; what must hold is that it loads.
+ */
+export function checkHomeDocument({ status, headers, body }) {
   if (status !== 200) return [`context.lc: expected 200, got ${status}`];
+  const problems = [];
+  const type = headers?.get("content-type") ?? "";
+  if (!type.includes("text/html")) problems.push(`context.lc: content type is ${JSON.stringify(type)}, not HTML`);
+  if (!body.includes('id="root"')) problems.push("context.lc: no app root (`id=\"root\"`), so nothing can draw");
+  if (scriptOf(body) === null) problems.push("context.lc: names no app script under /_expo/");
   const match = /<script type="application\/json" id="context-home-site">([\s\S]*?)<\/script>/.exec(body);
-  if (!match) return ["context.lc: the homepage carries no site, so it draws its fallback pages"];
-  const { json, problem } = asJson(match[1]);
-  if (problem) return [`context.lc: the homepage's site is not JSON (${problem})`];
-  if (!Array.isArray(json.pages) || json.pages.length === 0) return ["context.lc: the homepage's site has no pages"];
-  return [];
+  if (match) {
+    const { json, problem } = asJson(match[1]);
+    if (problem) problems.push(`context.lc: the homepage's embedded site is not JSON (${problem})`);
+    else if (!Array.isArray(json.pages) || json.pages.length === 0) problems.push("context.lc: the homepage's embedded site has no pages");
+  }
+  return problems;
 }
 
 async function ask(fetchImpl, url, accept) {
@@ -241,7 +253,11 @@ export async function checkSites({ fetchImpl = fetch, sitesDomain = DEFAULT_SITE
 // ── Self-test ──────────────────────────────────────────────────────────────
 
 const SHELL = '<html><head></head><body><div id="root"></div><script src="/_expo/static/js/web/entry-abc.js" defer></script></body></html>';
-const HOME_SHELL = `<html><head><script type="application/json" id="context-home-site">${JSON.stringify({ pages: [{ path: "website/index.md" }] })}</script></head><body><div id="root"></div></body></html>`;
+const HOME_SHELL = SHELL;
+const HOME_SHELL_WITH_SITE = SHELL.replace(
+  "<head></head>",
+  `<head><script type="application/json" id="context-home-site">${JSON.stringify({ pages: [{ path: "website/index.md" }] })}</script></head>`,
+);
 const STYLED_PAGE = {
   kind: "page",
   markdown: "# Hello",
@@ -336,9 +352,35 @@ async function selfTest() {
     await expect("a 503 is red", routes, /page \/: expected 200, got 503/);
   }
   {
+    // The homepage draws its own pages: no embedded site is the expected state.
     const routes = healthyRoutes();
-    routes["https://home.test/"] = { type: "text/html", body: SHELL };
-    await expect("a homepage without its site is red", routes, /context\.lc: the homepage carries no site/);
+    routes["https://home.test/"] = { type: "text/html", body: HOME_SHELL };
+    await expect("a homepage drawing its own pages is green", routes, null);
+  }
+  {
+    const routes = healthyRoutes();
+    routes["https://home.test/"] = { type: "text/html", body: HOME_SHELL_WITH_SITE };
+    await expect("a homepage with a drawable embedded site is green", routes, null);
+  }
+  {
+    const routes = healthyRoutes();
+    routes["https://home.test/"] = { status: 502, type: "text/html", body: "bad gateway" };
+    await expect("a homepage that does not load is red", routes, /context\.lc: expected 200, got 502/);
+  }
+  {
+    const routes = healthyRoutes();
+    routes["https://home.test/"] = new Error("connection reset");
+    await expect("a homepage request that fails is red", routes, /context\.lc: request failed/);
+  }
+  {
+    const routes = healthyRoutes();
+    routes["https://home.test/"] = { type: "text/html", body: "<html>parked</html>" };
+    await expect("a homepage 200 that is not the app is red", routes, /context\.lc: no app root/);
+  }
+  {
+    const routes = healthyRoutes();
+    routes["https://home.test/"] = { type: "text/html", body: SHELL.replace("<head></head>", '<head><script type="application/json" id="context-home-site">{"pages":[]}</script></head>') };
+    await expect("a homepage with an empty embedded site is red", routes, /embedded site has no pages/);
   }
 
   let failures = 0;
