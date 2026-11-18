@@ -338,6 +338,7 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 - A page's emoji travel with the page
 - [A website's design is code notes](./websites/code-notes.md)
 - [A lagging row is read before a page is left out](./websites/lagging-facts.md)
+- [A page the scan could not read is not a page that left the site](./websites/scan-read-errors.md)
 - [Every website is also at `<handle>.ctxlc.site`](./websites/sites-domain.md)
 - A page's pasted pictures travel with the page
 - A website page can name a folder, and the folder narrows

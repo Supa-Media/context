@@ -217,10 +217,10 @@ async function readScanPages(
           continue;
         }
         progressed = true;
-        // A file deleted between listing and read simply is not in this
-        // snapshot; hidden and missing are already the same result below the
-        // barrier, so no existence detail escapes.
-        if (result.outcome !== "read") continue;
+        // Deleted since the listing, or hidden (one answer below the barrier): not in this snapshot.
+        // Any other refusal fails the scan (`docs/decisions/websites/scan-read-errors.md`).
+        if (result.outcome === "error" && result.code === "FILE_NOT_FOUND") continue;
+        if (result.outcome !== "read") throw scanError("A website page could not be read.");
         // Ciphertext can never be published, so a publication snapshot holds
         // it as it holds a private note: absent. As a "problem" it would stop
         // every later rebuild while it sat in the folder.
