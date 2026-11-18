@@ -217,7 +217,7 @@ every wire, from the same config.
 | Housekeeping | housekeep |  | on | Haiku 5.5 | low |  |  | housekeeping.js |
 | Door | doorStep | intake | on | code |  |  |  | texEntryPoint/* |
 | Staff messages | staff | staff-messages | on | code |  |  |  | graph/nodes/moveChat.js · textsMove.js |
-| Job advisor | jobadv | jobs | on | Opus 5.5 | high |  | own, brief, ask, ledger, out:job | graph/nodes/jobcheck.js · jobCheck.js · advisorRoles/jobMail.js |
+| Job advisor | jobadv | jobs | on | Opus 5.5 | high |  | own, train:jobadv, brief, ask, ledger, out:job, tools | graph/nodes/jobcheck.js · jobCheck.js · advisorRoles/jobMail.js |
 | Learn | learn |  | on | Haiku 5.5 | low |  |  | reflect.js · memoryNudge.js |
 | After the reply | afterReply |  | on | Haiku 5.5 | off | 4 s | own, threads, recent, hist | conversationThreads.js · selfReview.js |
 | Answer check | answerCheck |  | on | Haiku 5.5 | low | 8 s | own, ledger, ask, draft, hist, date | graph/nodes/checks.js · graph/nodes/reviewer.js · replyJudge.js · sendBack.js |
