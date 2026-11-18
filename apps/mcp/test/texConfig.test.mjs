@@ -102,6 +102,10 @@ test("the advisor's four roles share one model and effort in code, so the config
   assert.deepEqual([texModel("job"), texStep("job").model], [texModel("fd"), texStep("fd").model], "a job runs on main");
 });
 
+test("the advisor runs on Sonnet 5.5 at effort high (Finance, approved 2026-11-18; model-plan.md)", () => {
+  assert.deepEqual([texModel("advisor"), texStep("advisor").effort], ["anthropic/claude-sonnet-5-5", "high"]);
+});
+
 test("a step the code cannot run is never on: the router needs a thinking model the config does not name yet", () => {
   assert.equal(texStep("router").on, false);
 });

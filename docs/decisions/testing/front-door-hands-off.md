@@ -73,9 +73,9 @@ rounds is several times one short reply: on the order of a few cents if it
 does not wander. A job that uses the full ten parts is the expensive case,
 still Haiku, and it is the same cap every background job already has.
 
-**The existing job advisor is Opus.** `jobadv` is on, model `opus-5-5`,
-effort high, and it reads each part. That call is about forty times Haiku
-on the token. One Opus check of a long part can cost more than the Haiku
+**The existing job advisor was Opus.** `jobadv` was on, model `opus-5-5`,
+effort high, and it read each part. It is Sonnet 5.5 since 2026-11-18 (see
+model-plan.md). That call, on Opus, was about forty times Haiku on the token. One Opus check of a long part can cost more than the Haiku
 work. This plan does not add that. It is already what a job pays today.
 Finance should say whether a job the front door hands off keeps that Opus
 check or skips it, so the extra spend is Haiku only. Until that is said,
