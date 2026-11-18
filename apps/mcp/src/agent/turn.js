@@ -293,6 +293,10 @@ export async function runTurn(options) {
     // The Training moments nearest to this text (`graph/nodes/examples.js`), started by the front door: awaited once, within
     // `examplesBudgetMs`, before the first prompt; `examplesFallback` stands when they are not there (`turnExamples.js`).
     examples = null, examplesBudgetMs, examplesFallback = "",
+    // A specialist door's check on each call, before any call of its round runs: a reason ends the run (`doorTurn.js`, `doorTools.js` `outsideFor`).
+    outside = null,
+    // `() => Promise<string|null>`, asked before the first round: a line ends the turn at once, the job having gone to a background worker (`handoff.js`, route).
+    startWith = null,
   } = options;
   const held = turnLedger({ tools: options.tools, ranHere: (name) => webNames.has(name) || localCalls.has(name) }); // the turn as its ledger keeps it (`sendBack.js`)
   const tell = (event) => {
@@ -468,6 +472,15 @@ export async function runTurn(options) {
     keeper?.freeze();
     return { answer: ack, provider, model, steps, usage, usageByModel, timing: { ...timing, trace }, settled: START_JOB_TOOL, handedOff: "rounds", live: liveTurn(prompt, messages, offered) };
   };
+  // A job the router sent here goes to the Hand-off node before any round (`doorTurn.js`): its start line ends the turn, or null goes on.
+  if (typeof startWith === "function") {
+    const ack = await Promise.resolve().then(startWith).catch(() => null);
+    if (typeof ack === "string" && ack !== "") {
+      tell({ kind: "judge", by: "code", round: firstRound, went: false, reason: "routed as a job: the job went to a background worker" });
+      keeper?.freeze();
+      return { answer: ack, provider, model, steps, usage, usageByModel, timing: { ...timing, trace }, settled: START_JOB_TOOL, handedOff: "route", live: liveTurn(prompt, messages, offered) };
+    }
+  }
   let lastWords = ""; // what the model last said, answered if the bound is reached (`lastRound.js`)
   for (let round = firstRound; round < rounds; round += 1) {
     const notice = roundNotice(round, rounds, { scheduled });
@@ -635,6 +648,13 @@ export async function runTurn(options) {
     if (answer.text?.trim()) {
       tell({ kind: "say", text: answer.text });
       lastWords = answer.text;
+    }
+    // A specialist door's run ends here when a call leaves its tools: before any call of this round runs, so nothing is done twice.
+    const leaving = outside === null ? null : answer.toolCalls.map((made) => outside(made.name, made.args)).find((why) => typeof why === "string") ?? null;
+    if (leaving !== null) {
+      tell({ kind: "judge", by: "code", round, went: false, reason: `${leaving}: the full front door takes this turn` });
+      keeper?.freeze();
+      return { answer: "", provider, model, steps, usage, usageByModel, timing: { ...timing, trace }, outside: leaving };
     }
     messages.push({
       role: "assistant",

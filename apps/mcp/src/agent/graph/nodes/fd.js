@@ -12,6 +12,7 @@
 import { ADVISOR_TOOL } from "../../advisor.js";
 import { runTheModel } from "../../texEntryPoint/runTheModel.js";
 import { draftBridge } from "../draftBridge.js";
+import { DOOR_NODES } from "../../doorTools.js";
 
 /** A stop of the model loop as this node's output: a draft waiting on its checks, or the turn done. */
 function stopOutput(t, stop) {
@@ -21,8 +22,10 @@ function stopOutput(t, stop) {
     return { when: ["ended"], pending: false, ended: true, status: stop.value?.status };
   }
   const turn = t.turn ?? {};
-  // `log.handedOff`: the turn ran out of rounds and the Hand-off node gave the job to a background worker (`../../handoff.js`).
-  return { when: ["done"], pending: false, draftChars: String(turn.answer ?? "").length, answeredBy: turn.model ?? undefined, steps: Array.isArray(turn.steps) ? turn.steps.length : 0, exhausted: turn.exhausted === true, ...(turn.handedOff === "rounds" ? { log: { handedOff: "rounds" } } : {}) };
+  // `log.handedOff`: the turn ran out of rounds, or was routed a job, and the Hand-off node gave the job to a background worker (`../../handoff.js`).
+  // `log.route`: the specialist door the router picked, its sure and the fallback (`../../doorTurn.js`); never a top-level field.
+  const log = { ...(turn.handedOff === "rounds" || turn.handedOff === "route" ? { handedOff: turn.handedOff } : {}), ...(turn.route ? { route: turn.route } : {}) };
+  return { when: ["done"], pending: false, draftChars: String(turn.answer ?? "").length, answeredBy: turn.model ?? undefined, steps: Array.isArray(turn.steps) ? turn.steps.length : 0, exhausted: turn.exhausted === true, ...(Object.keys(log).length > 0 ? { log } : {}) };
 }
 
 /** How many tool calls the turn has made by this draft: what the reviewer reads it against. */
@@ -88,6 +91,9 @@ export async function fdNode(input, io) {
       calls.fallback = spec;
       return async (model) => (await io.use.fallback({ from: model }))?.model ?? null;
     },
+    // The router and the specialist doors, each through its wire the config may not draw: a missing one answers null.
+    router: (input) => guarded(() => io.use.router(input)),
+    door: (route, input) => guarded(() => io.use[DOOR_NODES[route]](input)),
     planner: (plan) => {
       calls.planner = plan;
       return async (args, callTool) => {
@@ -99,6 +105,15 @@ export async function fdNode(input, io) {
   };
   const first = stopOutput(t, await drafts.start(runTheModel(t, via)));
   return { ...first, ...settingsOf(t.settings) };
+}
+
+/** A wire's answer, or null when the config does not draw it (the handle throws) or it failed. */
+function guarded(call) {
+  try {
+    return Promise.resolve(call()).catch(() => null);
+  } catch {
+    return Promise.resolve(null);
+  }
 }
 
 /** The last few lines of the chat before this text, as plain text for the examples' query (`examples.js`). */

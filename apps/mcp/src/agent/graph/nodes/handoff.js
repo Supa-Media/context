@@ -53,20 +53,21 @@ export function foundSoFar(found) {
 }
 
 /**
- * @param {{ ask: string, draft?: string, notice?: string, found?: { name: string, text: string, isError?: boolean }[], cause?: "rounds" | "check" }} input
+ * @param {{ ask: string, draft?: string, notice?: string, found?: { name: string, text: string, isError?: boolean }[], cause?: "rounds" | "check" | "route" }} input
  */
 export async function handoffNode(input) {
   const ask = String(input?.ask ?? "").trim();
   const notice = String(input?.notice ?? "").trim();
   const rounds = input?.cause === "rounds";
+  const routed = input?.cause === "route"; // the router read it as a job before any draft (`doorTurn.js`): no draft to hold back
   if (ask === "") return { to: "keep", why: "no ask of theirs to hand on" };
-  if (!rounds && notice === "") return { to: "keep", why: "the draft was not held back" };
+  if (!rounds && !routed && notice === "") return { to: "keep", why: "the draft was not held back" };
   const found = foundSoFar(input?.found);
   const brief = [
     `Finish what they asked, all of it, and text them the result: ${clip(ask, MAX_ASK)}`,
     ...(found.length > 0 ? ["Already found this turn (use it; anything that changed something is done, so don't do it again):", ...found] : []),
-    rounds ? "The front door ran out of rounds in its turn while it was still looking." : `The front door ran out of tries in its turn. Its last draft was never sent, because: ${clip(notice, 200)}`,
-    ...(input?.draft ? [rounds ? `What it last said while working, not sent: ${clip(input.draft, MAX_DRAFT)}` : `That draft, not sent (do what it offered or promised instead of offering it): ${clip(input.draft, MAX_DRAFT)}`] : []),
+    routed ? "The router read this ask as a long job before any answer was drafted: it has several steps." : rounds ? "The front door ran out of rounds in its turn while it was still looking." : `The front door ran out of tries in its turn. Its last draft was never sent, because: ${clip(notice, 200)}`,
+    ...(input?.draft && !routed ? [rounds ? `What it last said while working, not sent: ${clip(input.draft, MAX_DRAFT)}` : `That draft, not sent (do what it offered or promised instead of offering it): ${clip(input.draft, MAX_DRAFT)}`] : []),
   ].join("\n").slice(0, MAX_BRIEF);
   return { to: "hand", title: handoffTitle(ask), brief, doneWhen: "every part of their ask is done and they have the result" };
 }

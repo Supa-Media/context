@@ -71,6 +71,8 @@ import { threadsSortAndWrite } from "../conversationThreads.js";
 import { withArchitecture } from "../texArchitecture.js";
 import { withChatWriteLock } from "../chatWriteLock.js";
 import { carriedLine, carriedRounds, rereadCarried } from "../turnResume.js";
+import { runWithDoors } from "../doorTurn.js";
+import { startRoute } from "../doorTools.js";
 
 /** The settings this turn runs the front door with, as the Front door node logs them (`../graph/nodes/fd.js`). */
 function doorOut({ production, productionModel, fallback, router, gated, advising, planning, computers, skills, delegation, threaded }) {
@@ -113,6 +115,8 @@ export async function runTheModel(t, via) {
   // Only a job's report and a scheduled text are reviewed (Dev2, 2026-11-15): on every other chat turn the code checks run alone, the figure check over what the model saw among them (`untriedWeb.js`).
   const gated = ((chatTurn && job === null && !runner && (texted || group !== null) && report !== null) || scheduled !== null) && Boolean(production?.replyJudge) && aiGatewayConfig(env) !== null; // no AI Gateway, no reviewer: the word checks stay
   const tries = t.tries;
+  // A routine's run has no text beside the Door, so the router starts here, before the first await (`doorTurn.js`, `graph/nodes/router.js`).
+  if (t.routeRead === undefined && runner === true) t.routeRead = startRoute(() => via.router({ question: String(question ?? ""), group: group !== null, trigger: "routine" }));
   if (!tex.lean) await tex.wait("steer_begin", begun);
   const knows = knowsRead === null ? null : await tex.wait("tex_notes", knowsRead);
   // A big ask the advisor plans and the gateway splits into jobs, when the setup says so (`planBigAsk.js`).
@@ -161,17 +165,27 @@ export async function runTheModel(t, via) {
   // A job the front door can't finish in its turn goes to a background worker, when the config wires the Hand-off node (`../handoff.js`):
   // from a draft the Answer check would send back with no send-back left (`answerCheck -> handoff`), and from a turn two
   // rounds from its bound and still gathering (`fd -> handoff`). Neither wired, nothing changes.
-  const handoffFrom = chatTurn && job === null && !routine && report === null && Boolean(background) ? ["answerCheck", "fd"].filter((from) => drawn.wired(from, "handoff")) : [];
+  const handoffFrom = chatTurn && job === null && !routine && report === null && Boolean(background) ? ["answerCheck", "fd", "router"].filter((from) => drawn.wired(from, "handoff")) : [];
   const handOff = handoffFrom.length > 0 ? handoffHook({ background, gate: (input, from) => drawn.fire(from, "handoff", input, { env }), ask: question }) : null;
   t.handoff = handOff !== null && handoffFrom.includes("answerCheck") ? (draft, info, notice) => handOff(draft, info, notice, "answerCheck") : null;
   const roundsOut = handOff !== null && handoffFrom.includes("fd") ? ({ messages, lastWords }) => handOff(lastWords, { messages }, "", "fd") : null;
+  // A job the router reads as long goes to the Hand-off node before any round, when the config wires `router -> handoff` (`doorTurn.js`).
+  const routeHandOff = handOff !== null && handoffFrom.includes("router") ? () => handOff("", { messages: [] }, "", "router") : null;
+  // The specialist doors' own prompts, when the setup gives them (`texConfig.js` `texModules`); none, the front door's notes.
+  const doorNotes = (door) => (typeof production?.prompts?.[`door-${door}`] === "string" ? { prompt: setupWithMap(production.prompts[`door-${door}`], turnKind({ group, job })) } : null);
   const keptOptions = { question, on: !runner, ...(aiGatewayConfig(env) !== null && drawn.wired("tools", "moveJudge") ? { judge: (input) => drawn.fire("tools", "moveJudge", input, { env }), said: saidBefore(history) } : {}) };
   const pictureRun = (name, args, callTool) => gatewayGraph({ env, writer: chatLog, turn: ledgerAt?.turn ?? null }).fire("tools", "picture", { tool: name, args }, { env, maker, callTool, cardCheck }).then((out) => out.result); // interim: io.use.picture once tools is a node
   steer?.revertWith(dispatch); // a provisional run's note saves are read first and put back through the client's own dispatcher (`steer.js`)
   // An earlier try of this same text, or a job's part cut off before it answered, carried on from what it had done (`savedRounds.js`); a routine's run has no text.
   const rounds = !runner && (job !== null || chatTurn) ? await tex.step("carried_rounds", () => carriedRounds({ store, session, body, question, job, egress: ledger }).catch(() => null)) : null;
   t.rounds = rounds; // its snapshot goes once the reply is made (`sendTheReply.js`)
-  stages?.ready(); const turn = await tex.step("model", () => runTurn({
+  stages?.ready();
+  // The router's read, awaited only by a turn that may use a door (`doorTurn.js`); its wait is logged. A text's read was started beside the Door.
+  const eligible = chatTurn === true && job === null && report === null && !t.crossChat && (rounds?.from ?? null) === null;
+  const waitStart = eligible && t.routeRead ? Date.now() : null;
+  const routed = eligible && t.routeRead ? await tex.wait("route", t.routeRead) : null;
+  const waitedMs = waitStart === null ? null : Date.now() - waitStart;
+  const args = {
     ...examplesOptions(via.examples ?? null, texConfigOf(env), TRAINING, env?.TEX_EXAMPLES), // the nearest Training examples, when the front door is wired to them (`turnExamples.js`)
     resumeFrom: rounds?.from ?? null, keepRounds: rounds?.keep ? { keep: rounds.keep, marks: rounds.marks } : null,
     // With the log, the chat and its tapbacks are in the transcript, and the covered events are the question (`loggedTurn.js`).
@@ -251,7 +265,9 @@ export async function runTheModel(t, via) {
     // A background job is long whether or not it streams (`background.js`).
     // So is a data file to work through: Opus plans it, so a breakdown isn't guessed on the everyday model (2026-10-24).
     planned: job !== null || carriesData(attachments), ...(streamed || job !== null ? { ...(channel?.offered ? { progress: channel } : {}), roundCap: LONG_MAX_ROUNDS, toolBudgetMs: LONG_TOOL_BUDGET_MS } : {}),
-  }));
+  };
+  // The front door's turn, or the specialist door the router picked first (`doorTurn.js`): its runTurn is this one, with the door's tools.
+  const turn = await tex.step("model", () => runWithDoors({ runTurn, args, eligible, route: routed, waitedMs, via, handOffRoute: routeHandOff, doorNotes }));
   const notAllowed = allowedBeside ? await tex.wait("allowed", allowedRead).then(() => null, (thrown) => thrown) : null; // beside the model, its no ends the turn here: no tool ran (`allowedFirst`), nothing is kept or sent
   if (notAllowed !== null) return (opened !== null && tex.after("browser_close", () => opened.close()), steer !== null && tex.after("steer_clear", () => begun.catch(() => {}).then(() => steer.clear())), await tex.step("refused", () => refused(notAllowed)));
   // The question's browser is not left running, unless held while the answer waits on them (`browserHold.js`).

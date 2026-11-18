@@ -72,7 +72,8 @@ export function moduleBody(text) {
 /** Each kind's rules: its modules' bodies in order, or `undefined` when a named module has no text. */
 export function moduleTexts(lists, modules) {
   const out = {};
-  for (const kind of MODULE_KINDS) {
+  // The specialist doors' kinds (`door-quick`, ...) come after the three, when a config draws their nodes (`texConfig.js` `texModules`).
+  for (const kind of [...MODULE_KINDS, ...Object.keys(lists).filter((kind) => !MODULE_KINDS.includes(kind))]) {
     const parts = lists[kind].map((name) => (typeof modules?.[name] === "string" ? moduleBody(modules[name]) : ""));
     if (parts.some((part) => part === "")) return undefined;
     out[kind] = parts.join("\n\n");

@@ -6,10 +6,11 @@
  * to the Front door fires on, handing it what the last part found.
  */
 import { runDoor } from "../door.js";
+import { startRoute } from "../../doorTools.js";
 
 export async function doorStepNode(_input, io) {
   const t = io.ctx.turn;
-  const door = await runDoor(t, io.ctx, undefined, undefined, { afterRead: () => void (t.shapeRead = shapeBeside(t, io)) });
+  const door = await runDoor(t, io.ctx, undefined, undefined, { afterRead: () => { t.shapeRead = shapeBeside(t, io); t.routeRead = routeBeside(t, io); } });
   if (door.answer !== undefined) t.response = door.answer;
   return doorOutput(door);
 }
@@ -30,6 +31,27 @@ export function shapeBeside(t, io) {
   } catch {
     return null;
   }
+}
+
+/**
+ * The router, started beside the Shape gate for the same texts (`../../doorTools.js` `startRoute`): a promise of
+ * `{ route, sure, ms }`, or null when this turn has no such text or the config has no wire to the router. It waits for
+ * the Shape gate's read first, so the router is told what the gate found; a gate that failed is a router with none.
+ */
+export function routeBeside(t, io) {
+  const texted = t.chatTurn === true && t.job === null && t.report === null && t.routine === null && !t.runner && !t.crossChat && typeof t.question === "string" && t.question.trim() !== "";
+  if (!texted) return null;
+  let router;
+  try {
+    router = io.use.router; // throws when the config has no wire to the router: a turn without one
+  } catch {
+    return null;
+  }
+  return startRoute(async () => {
+    const read = t.shapeRead ? await t.shapeRead : null;
+    const shape = read ? { ending: read.ending, endingSure: read.endingSure, order: read.order, records: read.records } : null;
+    return router({ question: t.question, group: t.group !== null, trigger: "text", ...(shape ? { shape } : {}) });
+  });
 }
 
 /** The step's output for what the door did: tagged for the step it goes to, its parts under `log`, never handed on. */
