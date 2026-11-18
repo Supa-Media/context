@@ -35,7 +35,7 @@ export function shapeBeside(t, io) {
 
 /**
  * The router, started beside the Shape gate for the same texts (`../../doorTools.js` `startRoute`): a promise of
- * `{ route, sure, ms }`, or null when this turn has no such text or the config has no wire to the router. It waits for
+ * `{ route, sure, ms }`, or null when this turn has no such text, the config has no wire to the router or it is off. It waits for
  * the Shape gate's read first, so the router is told what the gate found; a gate that failed is a router with none.
  */
 export function routeBeside(t, io) {
@@ -47,6 +47,8 @@ export function routeBeside(t, io) {
   } catch {
     return null;
   }
+  // An off router answers nothing, so the turn must not wait on the Shape gate for it.
+  if (typeof io.on === "function" && !io.on("router")) return null;
   return startRoute(async () => {
     const read = t.shapeRead ? await t.shapeRead : null;
     const shape = read ? { ending: read.ending, endingSure: read.endingSure, order: read.order, records: read.records } : null;

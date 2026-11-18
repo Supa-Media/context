@@ -17,6 +17,7 @@ import { DOOR_NODES, NEED_TOOLS, ROUTE_AT, WEB_READS, doorAllows, narrowForDoor,
 import { readRoute, routeRequest } from "../src/agent/specialistRoute.js";
 import { routerNode } from "../src/agent/graph/nodes/router.js";
 import { doorNode, fdActNode, fdQuickNode } from "../src/agent/graph/nodes/doors.js";
+import { routeBeside } from "../src/agent/graph/nodes/doorStep.js";
 import { addSpend, runWithDoors } from "../src/agent/doorTurn.js";
 import { runTurn } from "../src/agent/turn.js";
 import { sixToolsOver } from "../src/agent/sixTools.js";
@@ -330,36 +331,36 @@ test("door nodes: each returns the door it is, and fd's wires name the nodes the
   assert.deepEqual(DOOR_NODES, { quick: "fdQuick", read: "fdRead", act: "fdAct" });
 });
 
-test("texModules: main's config draws no door prompts; a config that draws fdQuick gets the front door's list with door-quick last", () => {
-  const plain = texModules(TEX_CONFIG);
+test("texModules: main's config draws the three doors' prompts, each the front door's list with its door words last; a config without them draws none", () => {
+  const drawn = texModules(TEX_CONFIG);
+  assert.deepEqual(Object.keys(drawn), ["texts", "group", "job", "door-quick", "door-read", "door-act"]);
+  for (const door of ["quick", "read", "act"]) assert.deepEqual(drawn[`door-${door}`], [...drawn.texts, `door-${door}`]);
+
+  const bare = { ...TEX_CONFIG, nodes: TEX_CONFIG.nodes.filter((node) => !Object.values(DOOR_NODES).includes(node.id)) };
+  const plain = texModules(bare);
   assert.deepEqual(Object.keys(plain), ["texts", "group", "job"]);
-  assert.equal(Object.keys(plain).some((key) => key.startsWith("door-")), false);
+  assert.deepEqual(plain.texts, drawn.texts, "the front door's own lists are unchanged");
 
   const fd = TEX_CONFIG.nodes.find((node) => node.id === "fd");
-  const drawn = { ...TEX_CONFIG, nodes: [...TEX_CONFIG.nodes, { ...fd, id: "fdQuick", ctx: [] }] };
-  const modules = texModules(drawn);
-  assert.deepEqual(Object.keys(modules), ["texts", "group", "job", "door-quick"]);
-  assert.deepEqual(modules["door-quick"], [...plain.texts, "door-quick"]);
-  assert.deepEqual(modules.texts, plain.texts, "the front door's own lists are unchanged");
-
-  const own = { ...TEX_CONFIG, nodes: [...TEX_CONFIG.nodes, { ...fd, id: "fdRead", ctx: ["p-tools"] }] };
+  const own = { ...bare, nodes: [...bare.nodes, { ...fd, id: "fdRead", ctx: ["p-tools"] }] };
   assert.deepEqual(texModules(own)["door-read"], ["tools"]);
-  const none = { ...TEX_CONFIG, nodes: [...TEX_CONFIG.nodes, { ...fd, id: "fdAct", ctx: ["p-no-such-words"] }] };
+  const none = { ...bare, nodes: [...bare.nodes, { ...fd, id: "fdAct", ctx: ["p-no-such-words"] }] };
   assert.throws(() => texModules(none), /no words/);
 });
 
 test("the act door, chosen by the router, holds a handle claim for the person's yes, as the front door does (the egress hold, end to end)", async () => {
-  // agentEgressTexting.test.mjs's handle claim, through the worker, with the router drawn in a draft of the config: the
+  // agentEgressTexting.test.mjs's handle claim, through the worker, with main's wires and the router switched on: the
   // router reads the text as an act, and the turn runs through fdAct. The claim is held, nothing is claimed, and the
   // route record says the act door answered with no fallback.
   const world = await createEgressWorld();
   const { model, controlPlane, env, pending, restore } = world;
   const router = TEX_CONFIG.nodes.find((node) => node.id === "router");
-  const fd = TEX_CONFIG.nodes.find((node) => node.id === "fd");
-  const drawn = { on: router.on, nodes: TEX_CONFIG.nodes.length, edges: TEX_CONFIG.edges.length };
+  // Main draws the doors and the wires (doorStep -> router, fd -> fdAct); the router's `on` is the switch.
+  assert.equal(router.on, false, "main ships the router off");
+  assert.ok(TEX_CONFIG.edges.some((e) => e.from === "doorStep" && e.to === "router" && e.mode === "uses"));
+  assert.ok(TEX_CONFIG.edges.some((e) => e.from === "fd" && e.to === "fdAct" && e.mode === "uses"));
+  const drawn = { on: router.on };
   router.on = true;
-  TEX_CONFIG.nodes.push({ ...fd, id: "fdAct", ctx: [], inSchema: [], outSchema: [] });
-  TEX_CONFIG.edges.push({ from: "doorStep", to: "router", mode: "uses", when: ["*"] }, { from: "fd", to: "router", mode: "uses", when: ["*"] }, { from: "fd", to: "fdAct", mode: "uses", when: ["act"] });
   env.AI = { run: async (_model, input) => ({ answers: input?.questions?.route ? { route: { choice: "act", confidence: 0.9 } } : {} }) };
   const claimed = (slug) => controlPlane.workspaceSetupCalls.some((entry) => entry.dryRun === false && entry.slug === slug);
   try {
@@ -375,8 +376,20 @@ test("the act door, chosen by the router, holds a handle claim for the person's 
     assert.equal(pending().length, 1, "the held call is waiting");
   } finally {
     router.on = drawn.on;
-    TEX_CONFIG.nodes.length = drawn.nodes;
-    TEX_CONFIG.edges.length = drawn.edges;
     restore();
   }
+});
+
+test("routeBeside: an off router starts nothing and never waits on the Shape gate; an on one is asked with the gate's read", async () => {
+  const t = { chatTurn: true, job: null, report: null, routine: null, runner: null, crossChat: false, question: "is it raining", group: null };
+  let asked = 0;
+  const use = { router: async (input) => { asked += 1; return { route: "quick", sure: 0.9, input }; } };
+  const never = new Promise(() => {});
+  assert.equal(routeBeside({ ...t, shapeRead: never }, { use, on: (id) => id !== "router" }), null);
+  assert.equal(asked, 0);
+  assert.equal(routeBeside(t, { use: new Proxy({}, { get() { throw new Error("no wire"); } }), on: () => true }), null);
+  const read = Promise.resolve({ to: "read", ending: "answer", endingSure: 0.8, order: [], records: [] });
+  const got = await routeBeside({ ...t, shapeRead: read }, { use, on: () => true });
+  assert.equal(asked, 1);
+  assert.equal(got.route, "quick");
 });
