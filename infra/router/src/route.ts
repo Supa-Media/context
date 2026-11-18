@@ -22,6 +22,9 @@
  *     /og/card.png     -> the Worker's own OpenGraph card
  *     /favicon.ico etc -> the Worker's own icons (icons.ts)
  *     /robots.txt      -> allow everything, plain text (icons.ts)
+ *     /llms.txt        -> the agent index, plain text (agentDocs.ts)
+ *     /grokbot.md, /claude.md -> the setup guides, markdown
+ *     /agents, /claude -> those guides as HTML, from the same source
  *     everything else  -> a link-preview crawler gets server-rendered meta
  *                         tags; everyone else gets the Expo web app on EAS
  *                         Hosting, path unchanged
@@ -66,6 +69,7 @@ import {
   type PreviewMeta,
 } from "./preview";
 import { handleSiteFrom, siteCardFrom } from "./preview/sites";
+import { agentDocFor, type AgentDocName } from "./agentDocs";
 import { downloadFor } from "./download";
 import { PAGE_VIEWER_PREFIX } from "./pageViewer";
 export { downloadResponse } from "./download";
@@ -137,6 +141,9 @@ export type RouteDecision =
   | { kind: "icon"; name: IconName }
   // The apex's robots.txt, plain text from the Worker. See `icons.ts`.
   | { kind: "robots"; tex?: true }
+  // Agent docs: /llms.txt, the guides as markdown, and the same guides as HTML.
+  // No auth. Ahead of the crawler branch so a bot gets the file, not a card.
+  | { kind: "agent-doc"; doc: AgentDocName }
   // `path` is the full path + query to request from the upstream. It is never
   // rewritten today, but naming it separately keeps the tests honest about
   // that and makes a future prefix rule a one-line change.
@@ -268,6 +275,11 @@ export function route(url: URL, userAgent?: string | null): RouteDecision {
   // robots.txt too: it is the first thing Googlebot fetches, and the crawler
   // branch below would answer it with the HTML product card.
   if (pathname === ROBOTS_PATH) return tex ? { kind: "robots", tex: true } : { kind: "robots" };
+
+  // Same reason as robots.txt: a crawler that asked for the guide wants the
+  // guide. Tex's hosts are a different front door and do not serve these.
+  const agentDoc = tex ? null : agentDocFor(pathname);
+  if (agentDoc !== null) return { kind: "agent-doc", doc: agentDoc };
 
   // A download link pasted into Slack is still a download link: ahead of the
   // crawler check, so the unfurler is sent to the file rather than a card.

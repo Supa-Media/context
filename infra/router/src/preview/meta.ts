@@ -6,6 +6,8 @@
  * ever fetches a workspace.
  */
 
+import { AGENT_SENTENCE } from "../agentFront";
+
 /** Canonical origin. Every absolute URL a preview emits is built from this. */
 export const ORIGIN = "https://context.lc";
 
@@ -281,6 +283,18 @@ export function renderPreviewHtml(meta: PreviewMeta): string {
     ? `\n  <meta name="robots" content="${escapeHtml(meta.robots)}">`
     : "";
 
+  // The homepage card is what a crawler reads instead of the app. It names
+  // the endpoint and the guides. Every other card stays the short page it was.
+  const agentNav = meta.structuredData
+    ? `<nav>
+    <a href="${ORIGIN}/agents">Grok Bot guide</a>
+    <a href="${ORIGIN}/claude">Claude guide</a>
+    <a href="${ORIGIN}/llms.txt">llms.txt</a>
+  </nav>
+  `
+    : "";
+  const agentLine = meta.structuredData ? `\n    <p>${escapeHtml(AGENT_SENTENCE)}</p>` : "";
+
   return `<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -326,9 +340,9 @@ export function renderPreviewHtml(meta: PreviewMeta): string {
   </style>
 </head>
 <body>
-  <main>
+  ${agentNav}<main>
     <h1>${title}</h1>
-    <p>${description}</p>
+    <p>${description}</p>${agentLine}
     <p><a href="${escapeHtml(home)}">${homeLabel}</a></p>
   </main>
 </body>

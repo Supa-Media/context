@@ -252,6 +252,21 @@ describe("route: machine endpoints are decided before the crawler check", () => 
     expect(at("https://context.lc/x/robots.txt", BROWSER_UA).kind).toBe("proxy");
   });
 
+  it("the agent docs are the Worker's own files, crawler or not, and not on tex.lc", () => {
+    const googlebot = "Mozilla/5.0 (compatible; Googlebot/2.1; +http://www.google.com/bot.html)";
+    for (const path of ["/llms.txt", "/grokbot.md", "/claude.md", "/agents", "/claude", "/agents/"]) {
+      for (const ua of [googlebot, SLACKBOT_UA, BROWSER_UA, undefined]) {
+        expect(at(`https://context.lc${path}`, ua).kind).toBe("agent-doc");
+      }
+      expect(at(`https://tex.lc${path}`, BROWSER_UA).kind).not.toBe("agent-doc");
+    }
+    expect(at("https://context.lc/llms.txt?x=1", BROWSER_UA)).toEqual({ kind: "agent-doc", doc: "llms" });
+    expect(at("https://context.lc/grokbot.md", BROWSER_UA)).toEqual({ kind: "agent-doc", doc: "grok-md" });
+    expect(at("https://context.lc/claude.md", BROWSER_UA)).toEqual({ kind: "agent-doc", doc: "claude-md" });
+    expect(at("https://context.lc/agents", BROWSER_UA)).toEqual({ kind: "agent-doc", doc: "agents" });
+    expect(at("https://context.lc/claude", BROWSER_UA)).toEqual({ kind: "agent-doc", doc: "claude" });
+  });
+
   it("a crawler on an auth route still goes to Convex", () => {
     expect(at("https://context.lc/api/auth/callback/github", SLACKBOT_UA)).toEqual(
       { kind: "proxy", upstream: "convex", path: "/api/auth/callback/github" },

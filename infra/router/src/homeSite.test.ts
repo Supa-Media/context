@@ -184,12 +184,18 @@ describe("the homepage's HTML", () => {
     ["a throw", () => {
       throw new Error("down");
     }],
-  ])("%s leaves the HTML untouched", async (_name, answer) => {
+  ])("%s leaves the site block out", async (_name, answer) => {
     convexAnswer = answer;
     revisionAnswer = () => Response.json({ revision: "fresh" });
     const response = await get("/");
-    expect(await response.text()).toBe(HTML);
-    expect(response.headers.get("ETag")).toBe('"abc"');
+    const html = await response.text();
+    // The live site is absent. The agent front is still there: it does not
+    // come from the site, and `/` is the page an agent fetches.
+    expect(html).not.toContain("context-home-site");
+    expect(html).toContain('id="context-for-agents"');
+    expect(html).toContain("<nav");
+    expect(html).toContain("<h1>");
+    expect(response.headers.get("ETag")).toBeNull();
   });
 });
 

@@ -19,6 +19,7 @@ import { textsSimulatorResponse } from "./textsSimulator";
 import { messagesCardResponse } from "./messagesCards";
 import { pictureResponse } from "./messagesPicture";
 import { threadsResponse } from "./messagesThreads";
+import { agentDocResponse } from "./agentDocs";
 import { iconResponse, robotsResponse, staticAsset } from "./icons";
 import { originFor, readOrigin, VAR_NAME } from "./upstream";
 // Bundled as bytes by the `Data` rule in wrangler.jsonc, so the OpenGraph card
@@ -240,6 +241,9 @@ async function respond(
 
       case "robots":
         return robotsResponse(decision.tex ? TEX_ROBOTS_TXT : undefined);
+
+      case "agent-doc":
+        return agentDocResponse(decision.doc, request.method);
 
       case "redirect":
         // Deterministic (host-only) redirects are safe to cache. A plain

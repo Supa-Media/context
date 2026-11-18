@@ -44,6 +44,15 @@ describe("page a, the notes page", () => {
     expect(new Set(starts)).toEqual(new Set(["join"]));
   });
 
+  test("the first screen says how an agent connects, and links the guides", () => {
+    expect(PAGE).toContain("https://mcp.context.lc/mcp");
+    expect(PAGE).toContain('href="/agents"');
+    expect(PAGE).toContain('href="/claude"');
+    expect(PAGE).toContain('href="/llms.txt"');
+    expect(PAGE).toContain("<nav");
+    expect(PAGE).toContain("signs in with OAuth");
+  });
+
   test("leads with Dev2's own words, and sends texting to tex.lc rather than drawing a chat", () => {
     expect(PAGE).toMatch(
       /<h1 className="np-h1">Context gives your brain that feeling you have when your room is clean\.<\/h1>/,
