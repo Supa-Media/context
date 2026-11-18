@@ -177,8 +177,45 @@ export function resultsOf(rows, ms, gold = null) {
       // A row's whole story: each failed line with the judge's reason, each line that held with its reason, then every
       // text Tex sent, so a reader can find the cause, or audit a pass, without rerunning (Dev2, 2026-11-17).
       ...detailOf(r),
+      // The row's route and cost (Dev2, 2026-11-18: cost per turn and the route summary, `texRouteSummary.cjs`).
+      ...routeSpread(r),
+      ...(typeof r.usd === "number" && Number.isFinite(r.usd) ? { usd: r.usd } : {}),
     })),
   };
+}
+
+/**
+ * A row's route, as the Lab keeps it (`cleanResults`): the router node's own `route` when the row ran it alone, else its
+ * first texted turn's (`routes`, the bench's Route line, `coreArea.mjs`). Only the words and the sure number that are there.
+ */
+export function routeOf(r) {
+  const firstRun = Array.isArray(r?.routes) ? r.routes.find((run) => Array.isArray(run) && run.length > 0) : null;
+  const from = r?.route && typeof r.route === "object" ? r.route : firstRun?.[0] && typeof firstRun[0] === "object" ? firstRun[0] : null;
+  if (!from) return null;
+  const out = {
+    ...(typeof from.pick === "string" && from.pick !== "" ? { pick: from.pick } : {}),
+    ...(typeof from.sure === "number" && Number.isFinite(from.sure) ? { sure: from.sure } : {}),
+    ...(typeof from.door === "string" && from.door !== "" ? { door: from.door } : {}),
+    ...(typeof from.fellBack === "string" && from.fellBack !== "" ? { fellBack: from.fellBack } : {}),
+  };
+  return Object.keys(out).length > 0 ? out : null;
+}
+
+/** A row's `route` field, when it has one. */
+export function routeSpread(r) {
+  const route = routeOf(r);
+  return route === null ? {} : { route };
+}
+
+/** A row's route words for its detail: "route: pick read (sure 0.9), door read", and "fell back: <why>" when a specialist handed over. */
+export function routeLine(route) {
+  if (!route) return null;
+  const parts = [
+    ...(route.pick ? [`pick ${route.pick}${route.sure === undefined ? "" : ` (sure ${route.sure})`}`] : []),
+    ...(route.door ? [`door ${route.door}`] : []),
+    ...(route.fellBack ? [`fell back: ${route.fellBack}`] : []),
+  ];
+  return parts.length > 0 ? `route: ${parts.join(", ")}` : null;
 }
 
 /** The hand-off jobs of a run's rows summed: jobs, parts, the job advisor's calls, their spend, and per job. */
@@ -195,8 +232,8 @@ export function handoffOf(rows) {
 
 /**
  * A row's detail: first "rounds: <used>/<of>, ..." with "ran out" or "handed off" on a turn that ran to its bound (Dev2,
- * 2026-11-18: "prove from traces which Training fd misses are round exhaustion"), then "steps: <what the turn did>" (the
- * row's `steps`, `turnSteps.mjs`), then "never: <line> (<judge's reason>)" per failed line, "held: must: <line> (<reason>)" per
+ * 2026-11-18: "prove from traces which Training fd misses are round exhaustion"), then "route: pick ..., door ..." (`routeLine`),
+ * then "steps: <what the turn did>" (the row's `steps`, `turnSteps.mjs`), then "never: <line> (<judge's reason>)" per failed line, "held: must: <line> (<reason>)" per
  * line that held, then "Tex: <texts>"; empty when there is none.
  */
 export function roundsLine(rounds) {
@@ -213,9 +250,10 @@ export function detailOf(r) {
   const held = (Array.isArray(r.held) ? r.held : []).map((m) => `held: ${line(m)}`);
   const said = Array.isArray(r.said) ? r.said.filter((t) => typeof t === "string") : [];
   const rounds = roundsLine(r.rounds);
+  const route = routeLine(routeOf(r));
   // Before the judge's lines, so the cut never takes it: what the turn did, to read a quiet or missed row against.
   const steps = typeof r.steps === "string" && r.steps !== "" ? `steps: ${r.steps}` : null;
-  const text = [...(rounds !== null ? [rounds] : []), ...(steps !== null ? [steps] : []), ...misses, ...held, ...(said.length > 0 ? [`Tex: ${said.join(" / ")}`] : [])].join("\n").slice(0, DETAIL_CHARS);
+  const text = [...(rounds !== null ? [rounds] : []), ...(route !== null ? [route] : []), ...(steps !== null ? [steps] : []), ...misses, ...held, ...(said.length > 0 ? [`Tex: ${said.join(" / ")}`] : [])].join("\n").slice(0, DETAIL_CHARS);
   return text === "" ? {} : { detail: text };
 }
 

@@ -643,7 +643,7 @@ async function runConvo(units, { tree, run, scratch, fake, parallel, env }) {
     t.group.forEach((u, k) => {
       const r = got.rows.find((x) => x.id === `${t.name}/q${k + 1}`);
       const usd = Math.round(each * 10_000) / 10_000;
-      const story = r ? { misses: r.misses ?? [], held: r.held ?? [], said: r.said ?? [], ...(r.handoff ? { handoff: r.handoff } : {}), ...(r.rounds ? { rounds: r.rounds } : {}), ...(r.fallbacks ? { fallbacks: r.fallbacks } : {}), ...(r.steps ? { steps: r.steps } : {}) } : {};
+      const story = r ? { misses: r.misses ?? [], held: r.held ?? [], said: r.said ?? [], ...(r.handoff ? { handoff: r.handoff } : {}), ...(r.rounds ? { rounds: r.rounds } : {}), ...(r.routes ? { routes: r.routes } : {}), ...(r.fallbacks ? { fallbacks: r.fallbacks } : {}), ...(r.steps ? { steps: r.steps } : {}) } : {};
       const bench = benchFailed(r);
       if (!r) rows.push({ ...u.row, right: false, ran: false, usd, why: "the bench gave no judged answer" });
       else if (bench !== null) rows.push({ ...u.row, right: false, ran: false, usd, why: bench, ...story });

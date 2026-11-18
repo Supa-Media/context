@@ -501,6 +501,7 @@ export async function createWorld(bench, person, setupRaw, models, today = null,
         // What each model spent and how many rounds it ran: a planned turn is priced model by model.
         usageByModel: spent.usageByModel,
         rounds: roundsOf(turn.trace), ...(body?.rounds && typeof body.rounds === "object" ? { turnRounds: body.rounds } : {}), // and its rounds of its bound (`lastRound.js` roundsField)
+        ...(body?.route && typeof body.route === "object" ? { turnRoute: body.route } : {}), // and the route it took: the router's pick, its door, a fallback (the reply's `route`)
         trace: turn.trace ?? [],
         // What the turn did, short (`turnSteps.mjs`): tools, the reviewer's verdicts and the outcome, for a Lab row.
         steps: turnSteps(turn.trace, { answer: body?.answer ?? "", cancelled: body?.cancelled === true }),

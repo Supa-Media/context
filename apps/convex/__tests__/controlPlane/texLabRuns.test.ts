@@ -335,6 +335,14 @@ test("gateCounts and cleanResults read only counts", () => {
   expect(cleanResults({ fallbacks: 3, valid: false, invalid: "3 Claude call(s) fell back" })).toMatchObject({ fallbacks: 3, valid: false, invalid: "3 Claude call(s) fell back" });
   expect(cleanResults({ fallbacks: 1 })).toMatchObject({ fallbacks: 1, valid: false, invalid: "a Claude call fell back to another model" });
   expect(cleanResults({ rows: [{ convId: "w", ok: true, fallbacks: 2 }] }).rows[0]).toMatchObject({ fallbacks: 2 });
+  // A row's route and cost (Dev2, 2026-11-18): pick and door cut to 10, fellBack to 120, sure a number; the rest dropped.
+  expect(cleanResults({ rows: [{ convId: "w", ok: true, usd: 0.0123456, route: { pick: "read", sure: 0.9, door: "read", fellBack: "x".repeat(300), secret: "no" } }] }).rows[0]).toMatchObject({
+    usd: 0.0123456,
+    route: { pick: "read", sure: 0.9, door: "read", fellBack: "x".repeat(120) },
+  });
+  expect(cleanResults({ rows: [{ convId: "w", ok: true, route: { pick: "quickly-quickly", door: "fd" } }] }).rows[0].route).toEqual({ pick: "quickly-qu", door: "fd" });
+  expect(cleanResults({ rows: [{ convId: "w", ok: true, route: { door: 3 }, usd: "x" }] }).rows[0]).not.toHaveProperty("route");
+  expect(cleanResults({ rows: [{ convId: "w", ok: true, usd: "x" }] }).rows[0]).not.toHaveProperty("usd");
   // Rows that could not run, and ambiguous rows (labels whose own gold reply fails), are out of the score and listed
   // beside it (Dev2, 2026-11-18); the gold count is kept apart from the score.
   const cleaned = cleanResults({

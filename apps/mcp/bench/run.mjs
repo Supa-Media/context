@@ -214,7 +214,7 @@ export async function converse(world, question, person, mode = null, background 
   const conversation = [];
   // A test with `background: on` is offered background jobs, the chat running the case's `- running:` count and the jobs its `- running job:` lines name (`benchRunning`).
   const running = background ? benchRunning(question.running ?? 0, question.runningJobs ?? []) : null;
-  const totals = { ms: 0, personMs: 0, jobMs: 0, tools: [], jobs: [], delivered: [], turnRounds: [], traces: [], usage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 }, usageByModel: {}, rounds: {}, model: null, error: null, steps: null };
+  const totals = { ms: 0, personMs: 0, jobMs: 0, tools: [], jobs: [], delivered: [], turnRounds: [], turnRoutes: [], traces: [], usage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 }, usageByModel: {}, rounds: {}, model: null, error: null, steps: null };
   // A Lab replay's chat before its text goes into the ledger first, as it was (`labReplay.mjs`).
   // A job's report as the case's text: the page it says it wrote is written first (`earlierNotes.mjs`).
   const also = question.jobReport ? [String(question.jobReport.text ?? "")] : [];
@@ -239,6 +239,7 @@ export async function converse(world, question, person, mode = null, background 
     totals.traces.push(turn.trace ?? []);
     totals.jobs.push(...(turn.jobs ?? []));
     if (turn.turnRounds) totals.turnRounds.push(turn.turnRounds); // each texted turn's rounds of its bound (`world.mjs`)
+    if (turn.turnRoute) totals.turnRoutes.push(turn.turnRoute); // each texted turn's route (`world.mjs`, the reply's `route`)
     addSpend(totals, turn);
     totals.model = turn.model ?? totals.model;
     totals.steps = turn.steps ?? totals.steps; // the row's steps: its last texted turn's (`turnSteps.mjs`)
