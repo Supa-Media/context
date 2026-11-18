@@ -3,6 +3,7 @@ import test from "node:test";
 
 import { createEnricher, createLru } from "../container/enrich.mjs";
 import { createLedger } from "../container/ledger.mjs";
+import { mapEvent } from "../container/map.mjs";
 import { formatLog, last4 } from "../container/log.mjs";
 import { basicAuth, linesOf, parseTokenData, renewalDelayMs, issueTokens, TokenError } from "../container/tokens.mjs";
 
@@ -148,6 +149,45 @@ test("a failed or slow lookup leaves the field out and does not stall the event"
 
   const slow = createEnricher({ timeoutMs: 5, lookup: () => new Promise((resolve) => setTimeout(() => resolve({ text: "late", fromMe: false }), 200)) });
   assert.deepEqual(await slow.enrich(reaction), {});
+});
+
+test("a group message carries its group's name, read from the chat because iMessage only names a rename", async () => {
+  const GROUP = "iMessage;+;chat-fixture-1";
+  let reads = 0;
+  let clock = 0;
+  let name = "Weekend Plans";
+  const enricher = createEnricher({
+    lookup: async () => undefined,
+    chat: async (guid) => {
+      reads += 1;
+      assert.equal(guid, GROUP);
+      return { guid, displayName: name, isGroup: true };
+    },
+    now: () => clock,
+  });
+  const inGroup = (seq, extra = {}) => ({ ...text(seq), chatGuid: GROUP, message: { ...text(seq).message, chatGuids: [GROUP], ...extra } });
+  const first = await enricher.enrich(inGroup(40));
+  assert.deepEqual(first, { chatName: "Weekend Plans" });
+  assert.deepEqual(mapEvent(inGroup(40), LINE, first).chat, { guid: GROUP, kind: "group", name: "Weekend Plans" });
+  await enricher.enrich(inGroup(41));
+  assert.equal(reads, 1, "the name is kept a while per chat");
+
+  // A rename keeps the new name without a read; the message that renames carries its own.
+  await enricher.enrich({ type: "group.changed", sequence: 42, chatGuid: GROUP, occurredAt: WHEN, change: { type: "displayNameChanged", displayName: "Beach Week" } });
+  assert.deepEqual(await enricher.enrich(inGroup(43)), { chatName: "Beach Week" });
+  assert.deepEqual(await enricher.enrich(inGroup(44, { groupTitle: "Beach Week" })), {});
+  assert.equal(reads, 1);
+
+  // After the keep time it reads again; a 1:1 never asks, and an unnamed group or a failed read sends no name.
+  clock += 11 * 60_000;
+  name = "";
+  assert.deepEqual(await enricher.enrich(inGroup(45)), {});
+  assert.equal(reads, 2);
+  assert.deepEqual(await enricher.enrich(text(46)), {});
+  assert.equal(reads, 2);
+  const failing = createEnricher({ lookup: async () => undefined, chat: async () => { throw new Error("chatNotFound"); } });
+  assert.deepEqual(await failing.enrich(inGroup(47)), {});
+  assert.deepEqual(mapEvent(inGroup(47), LINE, {}).chat, { guid: GROUP, kind: "group" });
 });
 
 test("an edit reports the words it replaced, from what the bridge saw before", async () => {

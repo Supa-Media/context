@@ -1,7 +1,11 @@
 /**
  * Adds the words an event refers to, so the agent has them without a lookup of
  * its own: the text a reaction targets, the text an inline reply quotes, and
- * the text an edit replaced, and a poll's title and options for a vote.
+ * the text an edit replaced, a poll's title and options for a vote, and a
+ * group's name. iMessage puts a group's name on a message only when the
+ * message renames it (`groupTitle`), so an ordinary group message carries
+ * none: the name is the chat's `displayName` (`chats.get`), kept a few
+ * minutes per chat and dropped when the group is renamed.
  *
  * Text comes from a bounded LRU of recent messages (filled by received events
  * and by our own sends), and from messages.get on a miss. A lookup that fails
@@ -10,6 +14,7 @@
 
 export const LOOKUP_TIMEOUT_MS = 1500;
 export const CACHE_SIZE = 2000;
+export const CHAT_NAME_TTL_MS = 10 * 60_000;
 
 export function createLru(limit = CACHE_SIZE) {
   const map = new Map();
@@ -44,7 +49,24 @@ function withTimeout(promise, ms) {
  * `lookup(guid)` resolves to {text, fromMe} or rejects. The cache may be shared
  * between lines: message guids are unique across them.
  */
-export function createEnricher({ lookup, poll, cache = createLru(), timeoutMs = LOOKUP_TIMEOUT_MS }) {
+export function createEnricher({ lookup, poll, chat, cache = createLru(), names = createLru(500), timeoutMs = LOOKUP_TIMEOUT_MS, now = Date.now }) {
+  /** A group's name (`chats.get` displayName), "" for an unnamed group, or undefined when it cannot be read. */
+  async function chatNameOf(guid) {
+    if (typeof chat !== "function" || typeof guid !== "string" || !guid.includes(";+;")) return undefined;
+    const kept = names.get(guid);
+    if (kept && now() - kept.at < CHAT_NAME_TTL_MS) return kept.name;
+    try {
+      const found = await withTimeout(Promise.resolve().then(() => chat(guid)), timeoutMs);
+      if (found && typeof found.displayName === "string") {
+        names.set(guid, { name: found.displayName, at: now() });
+        return found.displayName;
+      }
+    } catch {
+      // Best effort: the event goes out without the name, and the next message asks again.
+    }
+    return kept?.name;
+  }
+
   /** A poll's title and options (`polls.get`), or undefined when there is no lookup or it fails. */
   async function pollOf(guid) {
     if (typeof poll !== "function" || typeof guid !== "string") return undefined;
@@ -88,6 +110,10 @@ export function createEnricher({ lookup, poll, cache = createLru(), timeoutMs = 
         const message = event.message;
         if (!message || typeof message.guid !== "string") break;
         remember(message.guid, message.content?.text ?? "", message.isFromMe);
+        if (!message.groupTitle) {
+          const name = await chatNameOf(event.chatGuid ?? message.chatGuids?.[0]);
+          if (name) extras.chatName = name;
+        }
         if (message.replyTargetGuid) {
           const target = await resolve(message.replyTargetGuid);
           if (target) {
@@ -101,6 +127,13 @@ export function createEnricher({ lookup, poll, cache = createLru(), timeoutMs = 
         const previous = cache.get(event.messageGuid);
         if (previous) extras.previousText = previous.text;
         remember(event.messageGuid, event.content?.text ?? "", event.isFromMe);
+        break;
+      }
+      case "group.changed": {
+        // A rename keeps the new name; any other change means the kept one may be old, so the next message reads it again.
+        if (typeof event.chatGuid !== "string") break;
+        const renamed = event.change?.type === "displayNameChanged" && typeof event.change.displayName === "string";
+        names.set(event.chatGuid, renamed ? { name: event.change.displayName, at: now() } : { name: "", at: -Infinity });
         break;
       }
       case "poll.changed": {
