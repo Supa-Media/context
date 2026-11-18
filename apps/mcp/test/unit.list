@@ -1,3 +1,4 @@
+bench/test/benchDays.test.mjs
 bench/test/byCode.test.mjs
 bench/test/benchTools.test.mjs
 bench/test/checks.test.mjs
