@@ -36,13 +36,14 @@ import { createWorkerCtx } from "../test/workerCtx.mjs";
 import { readStream, workerEvents } from "./workerWire.mjs";
 import { benchMachines } from "./benchMachines.mjs";
 import { benchGroup, benchHome } from "./groupChat.mjs";
-import { ACCOUNT_ID as D1_ACCOUNT_ID, API_TOKEN as D1_API_TOKEN, CLOUDFLARE_API_BASE, createD1Backend } from "../test/searchProjection/fixtures.mjs";
+import { ACCOUNT_ID as D1_ACCOUNT_ID, API_TOKEN as D1_API_TOKEN, createD1Backend } from "../test/searchProjection/fixtures.mjs";
 import { createVectorizeBackend, meaningIndexFor } from "../test/vectorizeStub.mjs";
 import { wireSearchSettings } from "../src/search/settings.js";
 import { texStoreNamespace } from "../test/texStoreFixture.mjs";
 import { assertIsoDate, clockMs, installClock, noonUtcMs, noteModifiedAt, realNow } from "./clock.mjs";
 import { benchCalendar } from "./calendar.mjs";
 import { connectChat } from "./chat.mjs";
+import { interceptFetch } from "./worldFetch.mjs";
 import { worldChat } from "./worldChat.mjs";
 import { chatEntries, modelLog } from "./modelLog.mjs";
 import { failedStatus, roundsOf } from "./trace.mjs";
@@ -51,7 +52,6 @@ import { homeChanges, noteChanges, worldStandIns } from "./worldStandIns.mjs";
 import { lastWords } from "./worldStarts.mjs";
 
 /** Brave's search endpoint (`src/agent/search.js`). */
-const BRAVE_SEARCH = "https://api.search.brave.com/";
 
 export const S3_ENDPOINT = "https://s3.bench.invalid";
 /** How much of a filed note's text a record keeps, for `containing` checks. */
@@ -244,35 +244,9 @@ export async function createWorld(bench, person, setupRaw, models, today = null,
   const kept = sitesIn(models.sites, sim, models.ownSites ?? []);
   const web = kept?.length ? createWeb(kept) : null;
 
-  // Model calls are the only traffic that leaves the world, and web searches
-  // when the run has a search key and no scripted web: production searches
-  // the real web, so a run does too (decided 2026-10-09; until 2026-10-11 the
-  // world refused the call, so every search_web in a result had failed).
-  const below = globalThis.fetch;
+  // Model calls are the only traffic that leaves the world, and web searches when the run has a search key and no scripted web (`worldFetch.mjs`).
   const modelCalls = modelLog(stand.modelFetch); // every model call kept, for the conversation's ledger file (`modelLog.mjs`)
-  globalThis.fetch = async (input, init) => {
-    const url = typeof input === "string" ? input : input.url;
-    if (url.startsWith("https://gateway.ai.cloudflare.com/")) return modelCalls.fetch(url, init);
-    if (url.startsWith(BRAVE_SEARCH)) {
-      if (web || sim) {
-        const q = new URL(url).searchParams.get("q") ?? "";
-        let results = web ? web.search(q) : [];
-        if (results.length === 0 && sim) results = await sim.search(q);
-        return new Response(JSON.stringify({ web: { results } }), { status: 200, headers: { "content-type": "application/json" } });
-      }
-      if (typeof models.searchKey === "string" && models.searchKey) return below(input, init);
-      // A socketed run (`modelSocket.mjs`) offers web search and finds nothing, the same live and replayed.
-      if (models.offlineWeb === true) return new Response(JSON.stringify({ web: { results: [] } }), { status: 200, headers: { "content-type": "application/json" } });
-    }
-    if (url.startsWith(CONTROL_PLANE_ORIGIN)) return stand.controlPlane(url, input, init, below);
-    if (url.startsWith(S3_ENDPOINT)) return below(input, init);
-    if ((d1 || vectorize) && url.startsWith(CLOUDFLARE_API_BASE)) return below(input, init);
-    stand.noStandIn(url);
-    throw new Error("a benchmark turn tried to reach the network outside the model");
-  };
-  restore.push(() => {
-    globalThis.fetch = below;
-  });
+  restore.push(interceptFetch({ modelCalls, web, sim, models, stand, s3Endpoint: S3_ENDPOINT, local: Boolean(d1 || vectorize) }));
 
   const ids = placeWorkspaces(bench, { s3, controlPlane, baseMs, search: prepared ? "ready" : null, meaning: vectorize !== null, prepared });
 
