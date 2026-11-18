@@ -662,3 +662,4 @@ test/turnFactClaims.test.mjs
 test/searchSpeedEquality.test.mjs
 test/labSandboxPages.test.mjs
 test/replyUnder.test.mjs
+bench/test/fallbacks.test.mjs

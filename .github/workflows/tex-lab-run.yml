@@ -417,7 +417,7 @@ jobs:
         run: |
           set -euo pipefail
           node scripts/tex-lab-run.mjs results "$RUNNER_TEMP/lab/rows.json" "$(cat "$RUNNER_TEMP/lab/ms")" > "$RUNNER_TEMP/results.json"
-          echo "Results: $(jq -c '{pass, total, costUsd, ms, perNode}' "$RUNNER_TEMP/results.json")"
+          echo "Results: $(jq -c '{pass, total, costUsd, ms, perNode, fallbacks, valid}' "$RUNNER_TEMP/results.json")"
           usd="$(jq -r '.costUsd // 0' "$RUNNER_TEMP/results.json")"
           if awk -v u="$usd" 'BEGIN { exit !(u + 0 >= 0.005) }'; then
             pnpm --silent ai spend add dev-set --usd "$usd" --answers "$(jq -r '.total // 0' "$RUNNER_TEMP/results.json")" --run "lab-${{ github.run_number }}" --run-url "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"

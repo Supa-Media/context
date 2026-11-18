@@ -108,6 +108,10 @@ export function cleanResults(r: unknown) {
     costUsd: Math.round(num(o.costUsd) * 10_000) / 10_000,
     // The handed-off jobs' share of the run (`scripts/tex-lab-run.mjs` handoffOf): jobs, parts, advisor calls, spend.
     handoff: handoffOf(o.handoff),
+    // Claude calls the fallback model answered (`apps/mcp/bench/fallbacks.mjs`): any makes the run's score not Tex's.
+    fallbacks: num(o.fallbacks),
+    valid: o.valid !== false && num(o.fallbacks) === 0,
+    ...(o.valid === false || num(o.fallbacks) > 0 ? { invalid: str(o.invalid, 200) || "a Claude call fell back to another model" } : {}),
     ms: num(o.ms),
     perConv: list(o.perConv).map((c) => ({ id: str(c.id), pass: num(c.pass), total: num(c.total) })),
     perNode: list(o.perNode).map((c) => ({ node: str(c.node, 40), pass: num(c.pass), total: num(c.total) })),
@@ -119,6 +123,7 @@ export function cleanResults(r: unknown) {
       got: str(x.got, 200),
       want: str(x.want, 200),
       ...(x.ran === false ? { ran: false } : {}),
+      ...(num(x.fallbacks) > 0 ? { fallbacks: num(x.fallbacks) } : {}),
       // A miss's failed lines with the judge's reasons and Tex's texts (`scripts/tex-lab-run.mjs` detailOf).
       ...(typeof x.detail === "string" && x.detail !== "" ? { detail: str(x.detail, 1_500) } : {}),
     })),

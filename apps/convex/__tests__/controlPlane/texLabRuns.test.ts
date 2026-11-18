@@ -329,6 +329,12 @@ test("gateCounts and cleanResults read only counts", () => {
   // What handed-off jobs added (Dev2, 2026-11-18, for Finance): numbers only, anything else zero.
   expect(cleanResults({ handoff: { jobs: 2, parts: 4, advisorCalls: 3, usd: 0.040049, perJobUsd: 0.02, advisorCallsPerJob: 1.5, title: "secret" } }).handoff).toEqual({ jobs: 2, parts: 4, advisorCalls: 3, usd: 0.04, perJobUsd: 0.02, advisorCallsPerJob: 1.5 });
   expect(cleanResults({}).handoff).toEqual({ jobs: 0, parts: 0, advisorCalls: 0, usd: 0, perJobUsd: 0, advisorCallsPerJob: 0 });
+  // A run that fell back is kept invalid, even when the workflow's own flag is missing.
+  expect(cleanResults({})).toMatchObject({ fallbacks: 0, valid: true });
+  expect(cleanResults({})).not.toHaveProperty("invalid");
+  expect(cleanResults({ fallbacks: 3, valid: false, invalid: "3 Claude call(s) fell back" })).toMatchObject({ fallbacks: 3, valid: false, invalid: "3 Claude call(s) fell back" });
+  expect(cleanResults({ fallbacks: 1 })).toMatchObject({ fallbacks: 1, valid: false, invalid: "a Claude call fell back to another model" });
+  expect(cleanResults({ rows: [{ convId: "w", ok: true, fallbacks: 2 }] }).rows[0]).toMatchObject({ fallbacks: 2 });
 });
 
 test("POST /gateway/tex/dev passes run and runs on", async () => {

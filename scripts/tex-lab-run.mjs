@@ -24,6 +24,7 @@ import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from 
 import { createRequire } from "node:module";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
+import { fallbackVerdict } from "../apps/mcp/bench/fallbacks.mjs";
 import { parsePeople } from "../apps/mcp/bench/load.mjs";
 import { loadSets } from "../apps/mcp/bench/sets.mjs";
 import { castProblems } from "../apps/mcp/bench/setsFd.mjs";
@@ -128,6 +129,9 @@ export function resultsOf(rows, ms) {
     // What the background jobs the Front door handed off added, already inside costUsd (Dev2, 2026-11-18: "report how
     // many advisor calls and how much cost a handed-off job adds per run ... so Finance can check spend").
     handoff: handoffOf(rows),
+    // Claude calls answered by the fallback model, and whether the score is Tex's (`fallbacks.mjs`): one is enough to
+    // mark the run invalid, so a fallback model's score cannot pass as Tex's (2026-11-18).
+    ...fallbackVerdict(rows),
     ms: Number(ms) || 0,
     perConv: [...perConv.values()],
     perNode: [...perNode.values()],
@@ -140,6 +144,7 @@ export function resultsOf(rows, ms) {
       got: r.ran === false ? `can't run: ${String(r.why ?? "no way to run alone yet").slice(0, 200)}` : String(r.got ?? (r.right ? "as labelled" : r.why ?? "")),
       want: String(r.want ?? ""),
       ...(r.ran === false ? { ran: false } : {}),
+      ...(Number(r.fallbacks) > 0 ? { fallbacks: Number(r.fallbacks) } : {}),
       // A row's whole story: each failed line with the judge's reason, each line that held with its reason, then every
       // text Tex sent, so a reader can find the cause, or audit a pass, without rerunning (Dev2, 2026-11-17).
       ...detailOf(r),

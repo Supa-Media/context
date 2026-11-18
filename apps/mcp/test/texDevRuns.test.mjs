@@ -197,6 +197,10 @@ test("a run reports what its handed-off jobs added: jobs, parts, advisor calls a
   ];
   assert.deepEqual(handoffOf(rows), { jobs: 2, parts: 4, advisorCalls: 3, usd: 0.04, perJobUsd: 0.02, advisorCallsPerJob: 1.5 });
   assert.deepEqual(resultsOf(rows, "1").handoff, handoffOf(rows));
+  assert.deepEqual([resultsOf(rows, "1").fallbacks, resultsOf(rows, "1").valid], [0, true], "no fallback: the score is Tex's");
+  const fell = resultsOf([{ chat: "c", node: "fd", right: true, fallbacks: 2 }, { chat: "c", node: "fd", right: true }], "1");
+  assert.deepEqual([fell.fallbacks, fell.valid, fell.rows[0].fallbacks], [2, false, 2], "a fallback marks the run invalid");
+  assert.match(fell.invalid, /fell back/);
 });
 
 test("a row's detail opens with each turn's rounds of its bound, so a miss reads against running out (Dev2, 2026-11-18)", () => {

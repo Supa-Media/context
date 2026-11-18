@@ -8,6 +8,7 @@
  * and the tests edited in Context are pulled into each tree first (`pnpm ai pull texting-assistant`).
  */
 import { execFile } from "node:child_process";
+import { fallbacksIn } from "./fallbacks.mjs";
 import { handoffTotals } from "./handoffTotals.mjs";
 import { readFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
@@ -63,6 +64,8 @@ export function coreCases({ test, testRaw, resultRaw, keyRaw, setup = SETUP }) {
     const bench = [...new Set(answers.filter((a) => runIds.includes(a.id)).flatMap((a) => a.bench ?? []))];
     // Each texted turn's rounds of its bound, and whether it ran out (`report.mjs`): what a miss is read against, never a score.
     const rounds = answers.filter((a) => runIds.includes(a.id) && (a.rounds ?? []).length > 0).map((a) => a.rounds); // one list per run
+    // Calls its runs answered with the fallback model (`fallbacks.mjs`): a Lab run with any is not Tex's score.
+    const fallbacks = answers.filter((a) => runIds.includes(a.id)).reduce((n, a) => n + fallbacksIn(a.tools), 0);
     rows.push({
       ...(bench.length > 0 ? { bench } : {}),
       misses,
@@ -70,6 +73,7 @@ export function coreCases({ test, testRaw, resultRaw, keyRaw, setup = SETUP }) {
       said,
       ...(handoff.jobs > 0 ? { handoff } : {}),
       ...(rounds.length > 0 ? { rounds } : {}),
+      ...(fallbacks > 0 ? { fallbacks } : {}),
       id: `${test}/q${c.question}`,
       right: cell.runs > 0 && cell.passed === cell.runs,
       results,
