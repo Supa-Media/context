@@ -94,3 +94,19 @@ describe("the links a not-found route recovers", () => {
     expect(recoveredHref([])).toBeNull();
   });
 });
+
+test("the website catch-all recovers a page link before its own not-found (Dev2, 2026-11-17)", () => {
+  /*
+    `/p/@slug/<path>` matches `app/[handle]/[...path].tsx` with `p` as the
+    handle, so `+not-found` never saw it: the phone app showed "That link did
+    not go anywhere", the web the homepage's "Nothing here". The route asks
+    `recoveredHref` with the handle first.
+  */
+  const fs = require("node:fs") as typeof import("node:fs");
+  const path = require("node:path") as typeof import("node:path");
+  const source = fs.readFileSync(path.join(__dirname, "../app/[handle]/[...path].tsx"), "utf8");
+  const recovers = source.indexOf("recoveredHref([handle, ...segments])");
+  expect(recovers).toBeGreaterThan(-1);
+  expect(recovers).toBeLessThan(source.indexOf("homeRedirect([handle, ...segments]"));
+  expect(recoveredHref(["p", "@crystal-care", "projects", "stafferlink-vs-shiftmed.page.md"])).toBe("/note/@crystal-care/projects/stafferlink-vs-shiftmed.page.md");
+});
