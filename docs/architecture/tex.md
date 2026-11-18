@@ -50,7 +50,6 @@ flowchart LR
     n_edit(["A text is edited or unsent<br/>code<br/>graph/nodes/edit.js · textsEdit.js · apps/agent editStep.ts"]):::start
     n_triage["Triage<br/>code<br/>inboxTurn.ts chooseTurn · groupInbox.ts acceptGroup"]:::code
     n_decide["Decide<br/>Clef<br/>textsDecide.js · textDecide.cjs"]:::model
-    n_decideWhy["Decide's reason<br/>Clef · off<br/>graph/nodes/decideWhy.js · textDecide.cjs"]:::off
     n_lanes["Queue<br/>code<br/>apps/agent inbox.ts · groupTurn.ts"]:::code
     n_react["React<br/>code<br/>decide.ts reactionFor · reactions.ts"]:::code
     n_doorStep["Door<br/>code<br/>texEntryPoint/*"]:::code
@@ -58,6 +57,18 @@ flowchart LR
   subgraph n_group_staff_messages["Staff messages"]
     n_moveChat(["Staff move a chat<br/>code<br/>graph/nodes/moveChat.js · textsMove.js · apps/agent moveChats.ts · groupMoves.ts"]):::start
     n_staff(["Staff messages<br/>code<br/>graph/nodes/moveChat.js · textsMove.js"]):::start
+  end
+  subgraph n_group_tools_subagents["Tools & subagents"]
+    n_decideWhy["Decide's reason<br/>Clef · off<br/>graph/nodes/decideWhy.js · textDecide.cjs"]:::off
+    n_tools["Tools<br/>code<br/>callToolForSession"]:::tool
+    n_advisor["Advisor<br/>Opus 5.5 · effort high<br/>advisor.js · advisorRoles/chat.js"]:::model
+    n_mail["Mail checker<br/>Haiku 5.5 · effort low<br/>mailChecker.js"]:::model
+    n_card["Card check<br/>Haiku 5.5 · effort medium<br/>cardCheck.js"]:::model
+    n_egress["Egress judge<br/>Haiku 5.5 · effort low<br/>privacy/judge.js"]:::model
+    n_picture["Picture maker<br/>google/gemini-2.5-flash-image · effort off<br/>pictureMaker.js"]:::model
+    n_moveJudge["Move judge<br/>Haiku 5.5 · effort low<br/>graph/nodes/moveJudge.js · theirNotes.js"]:::model
+    n_crossChatGate["Cross-chat gate<br/>code<br/>graph/nodes/crossChatGate.js · crossChat.js"]:::code
+    n_tapback["Tapback<br/>code<br/>graph/nodes/tapback.js · tapbackEnding.js"]:::code
   end
   subgraph n_group_retired["Turned off (deleted after Promote)"]
     n_readTheText["Read the text<br/>code · off<br/>texEntryPoint/readTheText.js"]:::off
@@ -82,17 +93,6 @@ flowchart LR
     n_mailadv["Advisor on job mail<br/>Opus 5.5 · effort high · off<br/>graph/nodes/mailadv.js · jobNote.js · advisorRoles/jobMail.js"]:::off
     n_nudge["Memory nudge<br/>Haiku 5.5 · effort off · off<br/>memoryNudge.js"]:::off
     n_reflect["Reflect<br/>Haiku 5.5 · effort off · off<br/>reflect.js"]:::off
-  end
-  subgraph n_group_tools_subagents["Tools & subagents"]
-    n_tools["Tools<br/>code<br/>callToolForSession"]:::tool
-    n_advisor["Advisor<br/>Opus 5.5 · effort high<br/>advisor.js · advisorRoles/chat.js"]:::model
-    n_mail["Mail checker<br/>Haiku 5.5 · effort low<br/>mailChecker.js"]:::model
-    n_card["Card check<br/>Haiku 5.5 · effort medium<br/>cardCheck.js"]:::model
-    n_egress["Egress judge<br/>Haiku 5.5 · effort low<br/>privacy/judge.js"]:::model
-    n_picture["Picture maker<br/>google/gemini-2.5-flash-image · effort off<br/>pictureMaker.js"]:::model
-    n_moveJudge["Move judge<br/>Haiku 5.5 · effort low<br/>graph/nodes/moveJudge.js · theirNotes.js"]:::model
-    n_crossChatGate["Cross-chat gate<br/>code<br/>graph/nodes/crossChatGate.js · crossChat.js"]:::code
-    n_tapback["Tapback<br/>code<br/>graph/nodes/tapback.js · tapbackEnding.js"]:::code
   end
   subgraph n_group_jobs["Jobs"]
     n_job["Background job<br/>Haiku 5.5 · effort medium<br/>graph/nodes/job.js · texJob.js · apps/agent jobRun.ts"]:::model
@@ -179,7 +179,7 @@ every wire, from the same config.
 | Staff move a chat | moveChat | staff-messages | on | code |  |  |  | graph/nodes/moveChat.js · textsMove.js · apps/agent moveChats.ts · groupMoves.ts |
 | Triage | triage | intake | on | code |  |  |  | inboxTurn.ts chooseTurn · groupInbox.ts acceptGroup |
 | Decide | decide | intake | on | Clef |  |  | train:decide, recent, groupBrief, date | textsDecide.js · textDecide.cjs |
-| Decide's reason | decideWhy | intake | off | Clef |  |  |  | graph/nodes/decideWhy.js · textDecide.cjs |
+| Decide's reason | decideWhy | tools-subagents | off | Clef |  |  |  | graph/nodes/decideWhy.js · textDecide.cjs |
 | Queue | lanes | intake | on | code |  |  |  | apps/agent inbox.ts · groupTurn.ts |
 | Read the text | readTheText | retired | off | code |  |  |  | texEntryPoint/readTheText.js |
 | Run a routine | runARoutine | retired | off | code |  |  |  | texEntryPoint/runARoutine.js |

@@ -119,6 +119,8 @@ describe("focus on the intake box", () => {
     expect(opened.edges.filter((e) => MEMBERS.includes(e.from) && !MEMBERS.includes(e.to))).toEqual([
       { from: "doorStep", to: "fd", mode: "wait", when: ["next"] },
       { from: "doorStep", to: "bypass", mode: "wait", when: ["answered"] },
+      // Decide's helper, Decide's reason (`decideWhy`), sits with the other helpers, folded here into their box.
+      { from: "decide", to: "tools-subagents", mode: "uses", when: ["contradiction"] },
     ]);
   });
 
@@ -130,7 +132,7 @@ describe("focus on the intake box", () => {
     expect(inner).toHaveLength(9);
     expect(inner.every((i) => MEMBERS.includes(opened.edges[i].from) && MEMBERS.includes(opened.edges[i].to))).toBe(true);
     // Wires that leave the group are pills naming the thing outside, never steps drawn beside it.
-    expect(outs.map((p) => [p.item, p.other])).toEqual([["doorStep", "fd"], ["doorStep", "bypass"]]);
+    expect(outs.map((p) => [p.item, p.other])).toEqual([["doorStep", "fd"], ["doorStep", "bypass"], ["decide", "tools-subagents"]]);
     expect(ins.every((p) => !MEMBERS.includes(p.other))).toBe(true);
     // The steps are the graph's own: moving one there moves it in the graph.
     expect(items[0]).toBe(opened.nodes.find((n) => n.id === items[0].id));
