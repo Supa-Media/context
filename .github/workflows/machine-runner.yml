@@ -21,6 +21,11 @@ name: Machine runner
 
 on:
   pull_request:
+  # The merge queue asks for the required checks on its trial commit. No path
+  # filter exists for this event, so every job reports; ci-scope decides what
+  # runs from the merge group's own diff.
+  merge_group:
+    types: [checks_requested]
   push:
     branches: [main]
     paths:
@@ -41,7 +46,7 @@ permissions:
 # A newer push to a pull request supersedes the run for the older commit. Pushes
 # to main are each kept: the group is the commit there.
 concurrency:
-  group: ${{ github.workflow }}-${{ github.event_name == 'pull_request' && github.ref || github.sha }}
+  group: ${{ github.workflow }}-${{ github.event_name == 'pull_request' && github.ref || github.event.merge_group.head_ref || github.sha }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
@@ -57,6 +62,9 @@ jobs:
       - uses: dorny/paths-filter@v3
         id: filter
         with:
+          # A merge group is diffed against the commit it was built on: this
+          # pull request alone. Empty on every other event, which keeps the default.
+          base: ${{ github.event.merge_group.base_sha }}
           filters: |
             code:
               - "apps/machine-runner/**"

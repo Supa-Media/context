@@ -376,3 +376,60 @@ calls at `@main`.
 
 Folding the mobile suite back to one runner puts about three minutes of Jest
 in front of `ci / Test Summary` on every app change.
+
+## Required checks run on the merge queue's trial commit
+
+_Decided 2026-11-17._ Main does not require an up-to-date branch, so two pull
+requests that are each green can land one after the other and leave main red:
+neither was ever tested with the other. GitHub's merge queue closes that. It
+builds a trial commit for each queued pull request (a merge group: main, the
+pull requests ahead of it, then this one), asks for the required checks on it
+(`merge_group`, `checks_requested`) and merges only what passed there.
+
+Every workflow that grades a pull request therefore also listens for
+`merge_group`. A required check whose workflow does not listen never reports,
+and the queue waits on it until it times out with nothing red to read.
+`check-workflow-triggers.mjs` rule M fails a workflow that has
+`pull_request` and not `merge_group`, or that filters it; rule B fails a
+deploy workflow that has it.
+
+What each check does there:
+
+- **Jobs scoped by `ci-scope`** diff the merge group against the commit it was
+  built on (`merge_group.base_sha`), which is this pull request alone on the
+  tree it will land on. The pull requests ahead were proven by their own
+  groups, and the queue rebuilds a group when one ahead of it drops out. A
+  payload whose head is not the checkout names no base, and the job runs.
+- **Jobs scoped by `dorny/paths-filter`**: the machine runner passes the same
+  base. The app typecheck, the native bundle and the Mac decision in `ci.yml`
+  pass none, so the action diffs the group against where it left main: this
+  pull request and the ones queued ahead of it. That runs a job more often
+  than it must and never less. `ci.yml` is at its 1,000-line limit, and three
+  `base:` lines did not fit.
+- **`ci / Test Summary`** is supa-framework's reusable workflow, which treats
+  anything that is not a pull request as a push: it lints, runs every Convex
+  shard and checks the whole tree. Scoping it is a change there.
+- **Fast repository guards** grade the merge group's diff, and read the
+  description of the pull request the group was built for. The event carries
+  no pull request, so the number comes from the branch name
+  (`gh-readonly-queue/main/pr-<n>-<sha>`, `scripts/merge-group.mjs`). A
+  description that cannot be read fails the step; it is never graded as empty.
+- **Tex replay passed on this commit** does not run its gate again. The Test
+  Set's status is on the pull request's head commit, and a trial commit must
+  not spend a capped, sealed run twice. It passes only when the same check
+  concluded `success` on that head commit, read live, and fails on anything
+  else. So a model change is proven against the main it was scored on, not
+  against the pull requests queued ahead of it; the queue does not close that
+  gap for the Test Set.
+
+A merge group never deploys. Deploy workflows are `push`-only, and
+`promote-production.yml` starts production only for a CI run whose event is
+`push` on `main`. A merge group's CI run wakes that workflow and its job is
+skipped.
+
+Turning the queue on is a branch-protection setting, made after this landed.
+Dropping `merge_group` from a required check's workflow while the queue is on
+stops every merge. `merge-group.mjs --self-test` fails if a newer failed run
+would lose to an older pass, or if a branch that only resembles a queue
+branch named a pull request; `ci-change-scope.mjs --self-test` fails if a
+merge group were diffed without its head being the checkout.

@@ -203,6 +203,10 @@ test('a red or foreign wake-up starts nothing', async () => {
     { EVENT_CONCLUSION: 'skipped' },
     { EVENT_CONCLUSION: 'cancelled' },
     { EVENT_EVENT: 'pull_request' },
+    // The merge queue's trial commit: a green CI run there is not main's.
+    { EVENT_EVENT: 'merge_group' },
+    { EVENT_EVENT: 'merge_group', EVENT_BRANCH: 'gh-readonly-queue/main/pr-1-0123456789abcdef0123456789abcdef01234567' },
+    { EVENT_BRANCH: 'gh-readonly-queue/main/pr-1-0123456789abcdef0123456789abcdef01234567' },
     { EVENT_BRANCH: 'feature' },
     { EVENT_REPO: 'other/app' },
     { EVENT_WORKFLOW: 'Deploy Staging', EVENT_EVENT: 'pull_request' },

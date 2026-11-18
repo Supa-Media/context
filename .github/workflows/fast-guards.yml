@@ -9,6 +9,11 @@ on:
     # unchanged because" and "Speed budget raised:" are read on the next push,
     # and on that re-run.
     types: [opened, synchronize, reopened]
+  # The merge queue asks for the required checks on its trial commit. The
+  # guards that grade a diff or read the description grade the merge group's
+  # diff and the description of the pull request it was built for.
+  merge_group:
+    types: [checks_requested]
   push:
     branches: [main]
 
@@ -20,7 +25,7 @@ permissions:
 # that run is cancelled rather than holding runners (a free account gets 20
 # at once). Pushes to main are each kept: the group is the commit there.
 concurrency:
-  group: ${{ github.workflow }}-${{ github.event_name == 'pull_request' && github.ref || github.sha }}
+  group: ${{ github.workflow }}-${{ github.event_name == 'pull_request' && github.ref || github.event.merge_group.head_ref || github.sha }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
@@ -43,10 +48,13 @@ jobs:
         run: node --version
 
       - name: The pull request description, as it is now
-        if: github.event_name == 'pull_request'
+        if: github.event_name == 'pull_request' || github.event_name == 'merge_group'
         env:
           GH_TOKEN: ${{ github.token }}
           PR: ${{ github.event.pull_request.number }}
+          # A merge group carries no pull request; its branch names the one it
+          # was built for (gh-readonly-queue/main/pr-<n>-<sha>).
+          MERGE_GROUP_REF: ${{ github.event.merge_group.head_ref }}
           EVENT_BODY: ${{ github.event.pull_request.body }}
         run: node scripts/pr-description.mjs --print-body > "$RUNNER_TEMP/pr-body"
 
@@ -69,6 +77,7 @@ jobs:
           node scripts/check-workflow-triggers.mjs --self-test
           node scripts/check-workflow-triggers.mjs
           node scripts/pr-description.mjs --self-test
+          node scripts/merge-group.mjs --self-test
           node scripts/check-workflow-interpolation.mjs --self-test
           node scripts/check-workflow-interpolation.mjs
           node scripts/bench-runner-lock.mjs --self-test
@@ -189,7 +198,7 @@ jobs:
       # A change to Tex ships with the case it is replayed against (docs/decisions/testing/replay-gate.md, Dev2 2026-11-13).
       - name: A Tex change adds the case that proves it
         env:
-          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.merge_group.base_sha }}
           TEX_PR_BODY: ${{ github.event.pull_request.body }}
         run: |
           if [ -f "$RUNNER_TEMP/pr-body" ]; then TEX_PR_BODY="$(cat "$RUNNER_TEMP/pr-body")"; export TEX_PR_BODY; fi
@@ -202,7 +211,7 @@ jobs:
       # Tex's speed budgets move up only with a stated reason (Dev2 2026-11-13: "the speed keeps regressing").
       - name: Tex speed budgets are not raised without a reason
         env:
-          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.merge_group.base_sha }}
           TEX_PR_BODY: ${{ github.event.pull_request.body }}
         run: |
           if [ -f "$RUNNER_TEMP/pr-body" ]; then TEX_PR_BODY="$(cat "$RUNNER_TEMP/pr-body")"; export TEX_PR_BODY; fi
@@ -215,7 +224,7 @@ jobs:
       # The one Tex drawing moves with the code it draws (docs/architecture/tex.md, Dev2 2026-11-05).
       - name: The Tex diagram matches the code
         env:
-          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.merge_group.base_sha }}
           TEX_PR_BODY: ${{ github.event.pull_request.body }}
         run: |
           if [ -f "$RUNNER_TEMP/pr-body" ]; then TEX_PR_BODY="$(cat "$RUNNER_TEMP/pr-body")"; export TEX_PR_BODY; fi
