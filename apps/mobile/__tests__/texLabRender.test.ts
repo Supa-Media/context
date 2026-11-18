@@ -38,6 +38,9 @@ jest.mock("expo-router", () => {
   const { createElement } = jest.requireActual<typeof import("react")>("react");
   return { Redirect: ({ href }: { href: string }) => createElement("div", { "data-testid": "redirect", "data-href": href }) };
 });
+const mockSignOut = jest.fn(async () => {});
+jest.mock("@convex-dev/auth/react", () => ({ useAuthActions: () => ({ signOut: mockSignOut }) }));
+jest.mock("../features/offline/forget", () => ({ unsentOnDevice: async () => ({ pending: 0, conflicted: 0, rejected: 0 }), forgetLocalCopies: async () => {} }));
 jest.mock("../features/site/host", () => ({ isTexHost: () => mockTexHost }));
 // The test chat under the canvas reaches the gateway with the person's own grant; no gateway here.
 jest.mock("../features/tex/lab/views/canvas/sandboxCall", () => ({ useSandboxCall: () => false }));
@@ -96,11 +99,18 @@ describe("/lab", () => {
     act(() => root.unmount());
   });
 
-  test("somebody who is not staff sees Staff only, and the shared list is not asked for", () => {
+  test("somebody who is not staff sees Staff only, and the shared list is not asked for", async () => {
     mockAnswers.set(ADMIN, false);
     mount();
     expect(q('[data-testid="tex-lab-staff-only"]')).not.toBeNull();
     expect(mockArgs.get(LIST)).toBe("skip");
+    // It says which account is signed in, and switching comes back here (Dev2, 2026-11-18).
+    expect(q('[data-testid="staff-only-email"]')).toBeNull();
+    act(() => mockAnswers.set("functions/accountSetup:mySetup", { email: "someone@example.com", suggestedName: "Someone" }));
+    mount();
+    expect(q('[data-testid="staff-only-email"]')?.textContent).toBe("someone@example.com");
+    await act(async () => (q('[data-testid="staff-only-switch"]') as HTMLButtonElement).click());
+    expect(mockSignOut).toHaveBeenCalled();
   });
 
   test("staff whose session has not typed its code are asked for it, not told Staff only (Dev2, 2026-11-13)", () => {
