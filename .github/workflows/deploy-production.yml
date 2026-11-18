@@ -19,8 +19,7 @@ name: Deploy to Production
 #             │          ├─ email ───────────┤
 #             │          ├─ transcribe ──────┤
 #             │          ├─ egress ──────────┤
-#             │          ├─ photon ──────────┤
-#             │          └─ agent            │
+#             │          └─ agent ── photon ─┤
 #             ├─ mobile-bundle (export) ─────┴─ start OTA publish
 #             └─ sentry
 #
@@ -137,10 +136,22 @@ jobs:
     uses: ./.github/workflows/deploy-egress-service.yml
     secrets: inherit
 
-  photon:
-    needs: [validate, convex, agent]
+  # The suite starts with the other jobs. Only the deploy waits for Convex
+  # and the agent, so the test's half minute is not on the tail.
+  photon-test:
+    needs: validate
     if: ${{ !cancelled() && !failure() && needs.validate.outputs.photon == 'true' }}
     uses: ./.github/workflows/deploy-photon-bridge.yml
+    with:
+      phase: test
+    secrets: inherit
+
+  photon:
+    needs: [validate, convex, agent, photon-test]
+    if: ${{ !cancelled() && !failure() && needs.validate.outputs.photon == 'true' }}
+    uses: ./.github/workflows/deploy-photon-bridge.yml
+    with:
+      phase: deploy
     secrets: inherit
 
   sentry:

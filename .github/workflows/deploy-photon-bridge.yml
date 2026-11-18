@@ -9,8 +9,17 @@
 # bridge to work.
 name: Deploy Photon Bridge (production)
 
+# Production calls this twice: `phase: test` beside Convex, then `phase:
+# deploy` after Convex and the agent. The test is about 25 seconds and used
+# to sit on the tail, after the agent deploy. `phase: all` (the default)
+# runs the test and then the deploy in one call.
 on:
   workflow_call:
+    inputs:
+      phase:
+        description: "test (suite only), deploy (deploy only; the caller ran test), or all (suite, then deploy)"
+        type: string
+        default: all
 
 concurrency:
   group: deploy-photon-bridge-production
@@ -25,6 +34,7 @@ env:
 
 jobs:
   test:
+    if: ${{ inputs.phase != 'deploy' }}
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
@@ -44,6 +54,7 @@ jobs:
 
   deploy:
     needs: test
+    if: ${{ !cancelled() && inputs.phase != 'test' && (inputs.phase == 'deploy' || needs.test.result == 'success') }}
     runs-on: ubuntu-latest
     environment: production
     timeout-minutes: 25
