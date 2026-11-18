@@ -1,5 +1,5 @@
 import { describe, expect, test } from "@jest/globals";
-import { unmatchedSegments } from "../features/app/unmatched";
+import { recoveredHref, unmatchedSegments } from "../features/app/unmatched";
 
 /**
  * The screen a URL nobody anticipated lands on, and the one link it recovers.
@@ -62,5 +62,35 @@ describe("reading the path a not-found route was reached with", () => {
 
   test("no params at all is no path", () => {
     expect(unmatchedSegments({})).toEqual([]);
+  });
+});
+
+describe("the links a not-found route recovers", () => {
+  test("a note link goes to the console", () => {
+    expect(recoveredHref(["note", "@supa", "projects", "a.md"])).toBe("/console/@supa?note=projects%2Fa.md");
+  });
+
+  test("a page link (`/p/@slug/<path>`) goes to its note link, which opens it for a member, a guest or a grantee", () => {
+    /*
+      Tex texts a page as `/p/@slug/<path>.page.md`, which the edge serves as
+      the page viewer. When the app itself is at that address (a held shell,
+      a hand-off the viewer did not get to), this screen dead-ended it
+      (Dev2, 2026-11-17: the StafferLink page "did not go anywhere").
+    */
+    expect(recoveredHref(["p", "@crystal-care", "projects", "stafferlink-vs-shiftmed.page.md"])).toBe(
+      "/note/@crystal-care/projects/stafferlink-vs-shiftmed.page.md",
+    );
+  });
+
+  test("a percent-encoded handle is read the same", () => {
+    expect(recoveredHref(["p", "%40supa", "a.page.md"])).toBe("/note/@supa/a.page.md");
+  });
+
+  test("refuses what the note grammar refuses", () => {
+    expect(recoveredHref(["p", "supa", "a.page.md"])).toBeNull();
+    expect(recoveredHref(["p", "@supa"])).toBeNull();
+    expect(recoveredHref(["p", "@supa", "..", "x.md"])).toBeNull();
+    expect(recoveredHref(["typo"])).toBeNull();
+    expect(recoveredHref([])).toBeNull();
   });
 });
