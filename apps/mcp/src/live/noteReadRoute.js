@@ -81,7 +81,8 @@ export async function handleNoteRead(request, store, session) {
     return json({ error: "unavailable" }, 503);
   }
   // Not this object's to answer (a Tex note, a row that moved on the way): the control plane reads it, as before.
-  if (answer === null || answer === undefined) return notServed();
+  // A row gone since the lookup above is `{miss: true}` (`store/workspaceRouting.js`), with no Markdown to read.
+  if (answer === null || answer === undefined || answer.miss === true) return notServed();
   // The engine could not give the history's text just now (a save still waiting on an earlier one, say). Not a
   // refusal: the reader may read this note, and the app keeps what it shows and asks again.
   if (answer.error) return json({ error: "unavailable" }, 503);
