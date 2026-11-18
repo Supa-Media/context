@@ -492,13 +492,38 @@ test("only a find or search tapback starts a job: a 👍 or a 🔎 beside Tex's 
   assert.deepEqual(runningOf(jobChat([{ id: "m3", tex: true, text: "On it." }])), [], "a tapback beside Tex's words was only an acknowledgement");
 });
 
-test("the truck-crew row runs with its research job still going, as Training has it", async () => {
+// The Front door label sits on the job's report row (Dev, 2026-11-18: production delivers a result as its own turn, so
+// the gold reply is that turn's). The report names John's ask at m39, the message the 🔎 tapback reacted to, not
+// Priya's line in between. Sabotage: fall back to the last person text, and `asked` becomes Priya's line and this fails.
+test("the truck-crew job report row names John's ask, the one its 🔎 tapback reacted to", async () => {
   const raw = JSON.parse(await readFile(new URL("../bench/sets/training/truck-crew.json", import.meta.url), "utf8"));
-  const at = raw.msgs.findIndex((m) => m.id === "m43");
-  assert.ok(at > 0, "the labelled row is in the conversation");
-  const jobs = parseTest(fdTest([{ convo: raw, at, label: raw.msgs[at].labels.fd, row: {} }], "job: texting-assistant\nrun_as: Priya\ntoday: 2026-11-18\nruns: 1\nweb: scripted")).questions[0].runningJobs;
-  assert.equal(jobs.length, 1);
-  assert.match(jobs[0].title, /wholesale tortilla places/);
+  const at = raw.msgs.findIndex((m) => m.id === "m42j");
+  assert.ok(at > 0, "the labelled job report row is in the conversation");
+  assert.equal(raw.msgs[at].via, "job");
+  assert.equal(raw.msgs[at].labels.fd.star, true);
+  const row = jobReportRow(raw, at);
+  assert.equal(row.askedBy, "John");
+  assert.match(row.asked, /^Tex compare the three wholesale tortilla places/);
+  assert.equal(row.state, "done");
+  assert.match(row.text, /La Estrella \$220 \(free delivery\)/);
+  assert.equal(cantRun(raw, at), null);
+});
+
+// An older 🔎 job Tex answered in words must not be the tapback of a new job started in words (no tapback). Sabotage:
+// drop the bound in jobReportRow's scan and `asked` becomes the old ask (a1), so this fails.
+test("a job row with no tapback takes the new ask, not an older tapbacked job Tex already answered", () => {
+  const c = {
+    msgs: [
+      { id: "a1", who: "John", text: "Tex compare the tortilla places" },
+      { id: "a2", tex: true, kind: "react", who: "Tex", text: "🔎", to: "a1" },
+      { id: "a3", tex: true, who: "Tex", text: "Basically a tie, go with La Estrella." },
+      { id: "a4", who: "John", text: "Tex what's the weekend look like" },
+      { id: "a5", via: "job", who: "Background job", text: "Sat: generator pickup 7am." },
+    ],
+  };
+  const row = jobReportRow(c, 4);
+  assert.equal(row.asked, "Tex what's the weekend look like");
+  assert.equal(row.askedBy, "John");
 });
 
 // A Training conversation scored in context reads itself as an example only up to its moment (`texTraining.cjs`

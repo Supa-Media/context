@@ -310,12 +310,14 @@ test("with no cut named, the examples are production's to the byte", () => {
   assert.throws(() => cutAt(generated, "truck-crew", "x"), /message index/);
 });
 
-test("the real truck-crew 96 is cut before message 98, its own reply kept", () => {
-  const cut = moduleText("train:fd:all:60000", trainingOf(TRAINING, { [UNTIL_ENV]: "truck-crew:96" }));
+// Kofi's "out sunday" was message 96 when this was found; a job-report row added above it moved it to 97.
+test("the real truck-crew Sunday text is cut before Tex's reply's successor, its own reply kept", () => {
   const c = require("../../../apps/mcp/bench/sets/training/truck-crew.json");
-  assert.match(c.msgs[96].text, /out sunday/i);
-  assert.ok(cut.includes(c.msgs[97].text), "msg 97, Tex's reply, is kept");
-  for (const m of c.msgs.slice(98)) if (!m.tex && m.text && m.text.length > 12) assert.ok(!cut.includes(m.text), `msg ${c.msgs.indexOf(m)} "${m.text}" is the chat's future`);
+  const i = c.msgs.findIndex((m) => /out sunday/i.test(String(m.text ?? "")));
+  assert.ok(i > 0, "the Sunday text is in the chat");
+  const cut = moduleText("train:fd:all:60000", trainingOf(TRAINING, { [UNTIL_ENV]: `truck-crew:${i}` }));
+  assert.ok(cut.includes(c.msgs[i + 1].text), "the next message, Tex's reply, is kept");
+  for (const m of c.msgs.slice(i + 2)) if (!m.tex && m.text && m.text.length > 12) assert.ok(!cut.includes(m.text), `msg ${c.msgs.indexOf(m)} "${m.text}" is the chat's future`);
   assert.ok(cut.length < moduleText("train:fd:all:60000", TRAINING).length);
 });
 
