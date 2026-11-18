@@ -95,9 +95,10 @@ export function coreCases({ test, testRaw, resultRaw, keyRaw, setup = SETUP }) {
 /**
  * `tests` answered in `tree`: every case, or `only` those, `runs` times each. `dir` is the bench folder the tree's
  * run reads (its own `apps/mcp/bench/ai` unless named). Returns rows whose `results` hold one boolean a run, what it
- * cost, each test's bar, and the tests the tree does not have.
+ * cost, each test's bar, and the tests the tree does not have. `envOf(test)`, when given, is that test's own environment
+ * (a Training conversation cut at its moment, `setsFd.mjs`).
  */
-export async function runTests(tree, tests, { only = null, runs = 1, fake = false, scratch, tag, dir = null, parallel = 1, env = process.env }) {
+export async function runTests(tree, tests, { only = null, runs = 1, fake = false, scratch, tag, dir = null, parallel = 1, env = process.env, envOf = null }) {
   const folder = dir ?? join(tree, "apps/mcp/bench/ai");
   const script = join(tree, "apps/mcp/bench/run.mjs");
   // Each test is its own run and judge process writing its own files, so `parallel` of them can go at once (a Lab
@@ -117,8 +118,9 @@ export async function runTests(tree, tests, { only = null, runs = 1, fake = fals
     const args = ["run", "texting-assistant", "--dir", folder, "--test", test, "--setups", SETUP, "--runs", String(runs), "--out", out];
     if (numbers) args.push("--questions", numbers.join(","));
     if (fake) args.push("--fake");
-    await run(process.execPath, [script, ...args], { cwd: tree, maxBuffer: 64 * 1024 * 1024, env });
-    await run(process.execPath, [script, "judge", out, "--dir", folder, "--max-usd", "1", ...(fake ? ["--fake"] : [])], { cwd: tree, maxBuffer: 64 * 1024 * 1024, env });
+    const own = envOf?.(test) ?? env;
+    await run(process.execPath, [script, ...args], { cwd: tree, maxBuffer: 64 * 1024 * 1024, env: own });
+    await run(process.execPath, [script, "judge", out, "--dir", folder, "--max-usd", "1", ...(fake ? ["--fake"] : [])], { cwd: tree, maxBuffer: 64 * 1024 * 1024, env: own });
     const resultRaw = await readFile(out, "utf8");
     const keyRaw = await readFile(join(dirname(out), frontMatter(resultRaw).key), "utf8");
     return { cases: coreCases({ test, testRaw, resultRaw, keyRaw }) };

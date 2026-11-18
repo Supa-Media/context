@@ -36,7 +36,7 @@ test("a group conversation's world makes the shared workspace it runs in, with i
   try {
     const c = byId("build-crew");
     const world = await seedWorld(dir, worldDirOf(TREE, c.id), c, castOf(c));
-    assert.deepEqual(world, { group: "driftline", sites: [], laid: true, starts: null });
+    assert.deepEqual(world, { group: "driftline", sites: ["showpivots.example"], laid: true, starts: null });
     const people = parsePeople(await readFile(join(dir, "workspaces/people.md"), "utf8"));
     assert.deepEqual(people.filter((row) => row.workspace === "driftline").map((row) => [row.person, row.role]), [["John", "owner"], ["Maya", "editor"], ["Priya", "editor"]]);
     const bench = await readBenchFolder(dir);
