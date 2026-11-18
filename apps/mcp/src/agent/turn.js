@@ -269,6 +269,8 @@ export async function runTurn(options) {
     sayNothing = false, mustAnswer = false, // offers `say_nothing`: a call ends the turn with nothing texted, or with `mustAnswer` (a literal @Tex tag) is refused (`sayNothing.js`)
     sayNothingNotice = null, // when set, the first say_nothing is refused with this notice and the next one stands (`checkInSpeak.js`)
     scheduled = false, // a routine's run or a check-in, nobody waiting on it: its last steps end quiet, and its last answer is still reviewed (`lastRound.js`)
+    // `() => boolean`: whether the draft `answerCheck` last sent back said the text is not for them (`replyJudge.js` `silences`). Only then does a scheduled run's last step end quiet; null keeps silence for any send-back.
+    silences = null,
     roundNote = null, // `(round, elapsedMs) => string|null`: a line told before a round (`background.js`)
     // `{ now, timeZone }`: the person's own clock, told every round (`localNow.js`).
     localNow = null,
@@ -601,10 +603,16 @@ export async function runTurn(options) {
         keeper?.freeze();
         return { answer: recheck.handedOff, provider, model, steps, usage, usageByModel, timing: { ...timing, trace }, settled: START_JOB_TOOL, live: liveTurn(prompt, messages, offered) };
       }
-      // A scheduled run's last answer the reviewer sent back has no round left to be written again: nothing is texted (`lastRound.js`).
-      if (lastRound && recheck !== null) {
+      // A scheduled run's last answer the reviewer sent back has no round left to be written again. Silence is right only
+      // when the verdict says the text should not be sent at all (not for them); any other fault (a hands_back, an unsourced
+      // figure) lets the draft go as it is, since a finding a check-in made is worth more than the fault (2026-11-18, `lastRound.js`).
+      if (lastRound && recheck !== null && (silences === null || silences())) {
         tell({ kind: "judge", by: "code", round, draft: answer.text, went: false, reason: "sent back on a scheduled run's last step: nothing is texted" });
         return { answer: SAID_NOTHING, provider, model, steps, usage, usageByModel, timing: { ...timing, trace }, settled: SAY_NOTHING_TOOL, live: liveTurn(prompt, messages, offered) };
+      }
+      if (lastRound && recheck !== null) {
+        tell({ kind: "judge", by: "code", round, draft: answer.text, went: true, reason: "sent back on a scheduled run's last step for a fault that is not whether it goes: it goes as it is" });
+        return { answer: answer.text, provider, model, steps, usage, usageByModel, timing: { ...timing, trace }, live: liveTurn(prompt, messages, offered) };
       }
       // A text that came in while it wrote this reply (a follow-up, a correction) joins it before it goes, not after (Dev2, 2026-10-31).
       const late = recheck === null && steer?.late === true && round < rounds - 1 ? await steer.next() : null;
