@@ -67,7 +67,13 @@ async function answerSitePages(browserPage: Page, answers: Record<string, unknow
   return asked;
 }
 
-test.use({ viewport: { width: 1280, height: 800 }, isMobile: false, hasTouch: false });
+// The exported app registers its service worker, and once it controls the
+// page WebKit sends the page's fetches through it, where `page.route` never
+// sees them: the edge copy is then asked of the static server, misses, and
+// the page waits on the fixture's unreachable Convex. The worker passes
+// `/_site/page` through untouched (`public/sw.js`), so blocking it changes
+// nothing this spec checks (as in `googleConnect.spec.ts`).
+test.use({ viewport: { width: 1280, height: 800 }, isMobile: false, hasTouch: false, serviceWorkers: "block" });
 
 test.describe("a published website in the browser", () => {
   test.skip(process.env.E2E_HTTPS !== "1", "the edge copy is asked only over https: run with E2E_HTTPS=1");

@@ -57,7 +57,7 @@ describe("a site's adopted stylesheet", () => {
     (globalThis as { CSSStyleSheet?: unknown }).CSSStyleSheet = FakeSheet;
     const doc = {} as Document & { adoptedStyleSheets: FakeSheet[] };
     let held: FakeSheet[] = [];
-    Object.defineProperty(doc, "adoptedStyleSheets", { get: () => held, set: () => undefined });
+    Object.defineProperty(doc, "adoptedStyleSheets", { get: () => held, set: () => {} });
     expect(adoptSiteSheet("a{}", doc)).toBeNull();
     held = [];
   });
