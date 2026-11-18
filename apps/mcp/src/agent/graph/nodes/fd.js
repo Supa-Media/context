@@ -50,7 +50,11 @@ export async function fdNode(input, io) {
     }
   };
   const via = {
-    answerCheck: (draft, info) => drafts.answerCheck(draft, info),
+    // A draft the Answer check handed to a background job (`handoff.js`) ends the loop on the job's start line.
+    answerCheck: async (draft, info) => {
+      const notice = await drafts.answerCheck(draft, info);
+      return typeof t.handedOff === "string" ? { handedOff: t.handedOff } : notice;
+    },
     tools: (inner) => {
       calls.mcp = inner;
       return (name, args) => through(io.use.tools, "mcp", name, args);

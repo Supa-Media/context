@@ -137,6 +137,8 @@ export const texLabTables = {
     kind: v.union(v.literal("dev"), v.literal("chat"), v.literal("node"), v.literal("gate")),
     convId: v.optional(v.string()),
     nodeId: v.optional(v.string()),
+    /** Which set's unit tests it runs: unset is Dev; "training" is the repo's Training set (Dev2, 2026-11-18). */
+    set: v.optional(v.literal("training")),
     models: v.union(v.literal("gw"), v.literal("cc")),
     stage: v.union(v.literal("queued"), v.literal("running"), v.literal("done"), v.literal("failed")),
     ghRunUrl: v.optional(v.string()),

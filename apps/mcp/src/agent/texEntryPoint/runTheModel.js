@@ -9,6 +9,7 @@ import { texConfigOf } from "../texConfig.js";
 import { aiGatewayConfig } from "../aiGateway.js";
 import { carriesData, withAttachmentImages } from "../attachments.js";
 import { jobPrompt, jobReportPrompt, withBackground, withJobSteps } from "../background.js";
+import { handoffHook } from "../handoff.js";
 import { withJobDrafts } from "../jobSaved.js";
 import { canRunBuiltin } from "../builtin.js";
 import { withChatSkills } from "../chatSkills.js";
@@ -151,6 +152,8 @@ export async function runTheModel(t, via) {
   // `groupModelTurn.ts`, `inbox.ts` `acknowledgeText`), nor on a turn the gateway asked (a vault save, a hand-back).
   const reactable = !quoted?.tapback && question !== VAULT_SAVED_QUESTION && question !== HANDED_BACK_QUESTION;
   const tapping = chatTurn && reactable && job === null && !routine && report === null && !t.crossChat && drawn.wired("tools", "tapback") ? tapbackEnding({ gate: (input) => drawn.fire("tools", "tapback", input, { env }), tagged: group?.tagged === true }) : null;
+  // A draft the Answer check would send back with no send-back left hands the job to a background worker, when the config wires the Hand-off node (`../handoff.js`).
+  t.handoff = chatTurn && job === null && !routine && report === null && Boolean(background) && drawn.wired("answerCheck", "handoff") ? handoffHook({ background, gate: (input) => drawn.fire("answerCheck", "handoff", input, { env }), ask: question }) : null;
   const keptOptions = { question, on: !runner, ...(aiGatewayConfig(env) !== null && drawn.wired("tools", "moveJudge") ? { judge: (input) => drawn.fire("tools", "moveJudge", input, { env }), said: saidBefore(history) } : {}) };
   const pictureRun = (name, args, callTool) => gatewayGraph({ env, writer: chatLog, turn: ledgerAt?.turn ?? null }).fire("tools", "picture", { tool: name, args }, { env, maker, callTool, cardCheck }).then((out) => out.result); // interim: io.use.picture once tools is a node
   steer?.revertWith(dispatch); // a provisional run's note saves are read first and put back through the client's own dispatcher (`steer.js`)

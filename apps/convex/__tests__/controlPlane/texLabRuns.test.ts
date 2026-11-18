@@ -106,6 +106,16 @@ describe("starting a run", () => {
     expect(await door("run", { draft: "vnothere", kind: "dev" })).toEqual({ status: "not_found" });
   });
 
+  test("a run may name the Training set; the workflow is told it, and any other set is refused", async () => {
+    const { door, t } = await world();
+    const ran = await door("run", { draft: "main", kind: "node", node: "fd", set: "training" });
+    expect(ran).toMatchObject({ status: "ok" });
+    expect(await t.query(internal.functions.texLabRuns.job, { runId: ran.id })).toMatchObject({ set: "training", nodeId: "fd" });
+    const dev = await door("run", { draft: "main", kind: "dev" });
+    expect(await t.query(internal.functions.texLabRuns.job, { runId: dev.id })).toMatchObject({ set: "dev" });
+    expect(await door("run", { draft: "main", kind: "dev", set: "test" })).toMatchObject({ status: "bad_request", error: expect.stringContaining("training") });
+  });
+
   test("MAX_QUEUED waiting runs is the most a person has; a finished one frees its place", async () => {
     const { door, t } = await world();
     const ids = [];
@@ -316,6 +326,9 @@ test("gateCounts and cleanResults read only counts", () => {
   expect(cleanResults({ rows: [{ convId: "w", ok: false, detail: "must: a (b)\nTex: c" }] }).rows[0]).toMatchObject({ detail: "must: a (b)\nTex: c" });
   expect(cleanResults({ rows: [{ convId: "w", ok: false, detail: "x".repeat(5_000) }] }).rows[0].detail).toHaveLength(1_500);
   expect(cleanResults({ rows: [{ convId: "w", ok: true }] }).rows[0]).not.toHaveProperty("detail");
+  // What handed-off jobs added (Dev2, 2026-11-18, for Finance): numbers only, anything else zero.
+  expect(cleanResults({ handoff: { jobs: 2, parts: 4, advisorCalls: 3, usd: 0.040049, perJobUsd: 0.02, advisorCallsPerJob: 1.5, title: "secret" } }).handoff).toEqual({ jobs: 2, parts: 4, advisorCalls: 3, usd: 0.04, perJobUsd: 0.02, advisorCallsPerJob: 1.5 });
+  expect(cleanResults({}).handoff).toEqual({ jobs: 0, parts: 0, advisorCalls: 0, usd: 0, perJobUsd: 0, advisorCallsPerJob: 0 });
 });
 
 test("POST /gateway/tex/dev passes run and runs on", async () => {

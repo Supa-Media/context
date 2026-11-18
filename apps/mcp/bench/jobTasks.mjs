@@ -72,12 +72,12 @@ export function endedAs(parts) {
 }
 
 /** One job, part after part, as the Worker runs it: the next part on the check's advice while it says not finished. */
-export async function runJob(world, item, { maxParts = MAX_PARTS } = {}) {
+export async function runJob(world, item, { maxParts = MAX_PARTS, posted = false } = {}) {
   let job = { id: `bench-${item.id}`, title: item.job.title, brief: item.job.brief, ...(item.job.doneWhen ? { doneWhen: item.job.doneWhen } : {}), asked: [item.text], attempt: 1 };
   const parts = [];
   for (let attempt = 1; attempt <= maxParts; attempt += 1) {
     const before = world.modelCalls?.().length ?? 0;
-    const turn = await world.text(item.text, [], { job: { ...job, attempt } });
+    const turn = await world.text(item.text, [], { job: { ...job, attempt }, ...(posted ? { posted: true } : {}) });
     // Whether production's done check was asked about this part: its brief ends "Is the job finished?" (`jobCheckBrief`).
     const checked = (world.modelCalls?.() ?? []).slice(before).some((call) => JSON.stringify(call.messages ?? []).includes("Is the job finished?"));
     parts.push({ attempt, checked, ok: turn.ok, error: turn.error, answer: turn.answer, verdict: turn.verdict ?? null, advice: turn.advice ?? "", unfinished: turn.unfinished === true, tools: turn.tools.map((call) => `${call.tool}${call.ok === false ? " (failed)" : ""}`), ms: turn.ms, usageByModel: turn.usageByModel ?? {} });

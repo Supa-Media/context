@@ -243,13 +243,14 @@ export function createTexDev({ env, session, controlPlane, defer = null, sleep =
         const { error } = await plane("promote", { draft: args.draft, ...(picks && Object.keys(picks).length > 0 ? { picks: Object.entries(picks).map(([what, take]) => ({ what, take })) } : {}) });
         return error ?? json({ promote: "asked", ...(picks && Object.keys(picks).length > 0 ? { picks } : {}), then: "The promote workflow starts now and opens its pull request within minutes, merging only this draft's own changes onto main; it merges only through CI and the replay gate. If main changed a setting this draft changed too, it is refused and get's promote.clashes names each with both values: promote again with picks { \"<what>\": \"main\" | \"draft\" }. Its gate run (runs) follows the pull request's Test set status, counts only; list shows the pull request." });
       }
-      // Runs on GitHub (Dev2, 2026-11-16): the Lab's Run Dev set, Run this chat and Run node, on the Dev set only.
+      // Runs on GitHub (Dev2, 2026-11-16): the Lab's Run Dev set, Run this chat and Run node, on the Dev set; `set:
+      // "training"` runs the repo's Training set instead (Dev2, 2026-11-18: "a scored Lab Training run").
       case "run": {
         const draft = args.draft ?? "main";
         if (draft !== "main" && needDraft({ draft })) return needDraft({ draft });
         const kind = args.kind ?? "dev";
-        const { answer, error } = await plane("run", { draft, kind, conv: args.conv, node: args.node, models: args.models ?? "gw", ...(args.code !== undefined ? { code: args.code } : {}) });
-        return error ?? json({ run: answer.id, stage: "queued", then: "A GitHub run starts within a minute and runs the Dev set's unit tests on the draft's code (main unless code names a pull request or branch); runs { id } shows its stage, the commit that ran and, when done, every test's verdict. The Lab's Runs panel shows the same run." });
+        const { answer, error } = await plane("run", { draft, kind, conv: args.conv, node: args.node, models: args.models ?? "gw", ...(args.code !== undefined ? { code: args.code } : {}), ...(args.set !== undefined ? { set: args.set } : {}) });
+        return error ?? json({ run: answer.id, stage: "queued", then: `A GitHub run starts within a minute and runs the ${args.set === "training" ? "Training" : "Dev"} set's unit tests on the draft's code (main unless code names a pull request or branch); runs { id } shows its stage, the commit that ran and, when done, every test's verdict. The Lab's Runs panel shows the same run.` });
       }
       // The code a draft runs on (Dev2, 2026-11-16: "when we run things it should run on the PRs code instead of main").
       case "code": {

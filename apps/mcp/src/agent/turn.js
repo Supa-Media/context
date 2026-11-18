@@ -54,6 +54,7 @@ import { causeOf, failureRecorder } from "./toolFailures.js";
 import { exhaustedAnswer, roundNotice } from "./lastRound.js";
 import { traceNames } from "./turnLog.js";
 import { TAPBACK_TOOL } from "./tapbackEnding.js";
+import { START_JOB_TOOL } from "./backgroundTool.js";
 import { resumedRounds, roundsKeeper } from "./turnResume.js";
 import { SAID_NOTHING, SAY_NOTHING_TOOL, sayNothingLocal, sayNothingOnce, sayNothingRefused, typedCallNotice, typedCallOf, withSayNothing } from "./sayNothing.js";
 
@@ -559,6 +560,12 @@ export async function runTurn(options) {
       }
       const lastRound = round === rounds - 1;
       const recheck = !lastRound || scheduled ? (await answerCheck?.(answer.text, { messages, system: [systemText(prompt.system), prompt.preamble].join("\n\n"), mark: (entry) => trace.push({ ...entry, kind: "judge", at: clock() - began }), tell })) ?? null : null;
+      // The Answer check handed the job to a background worker (`handoff.js`): the turn ends on the job's start line, as a job the model started does.
+      if (typeof recheck?.handedOff === "string") {
+        tell({ kind: "judge", by: "code", round, draft: answer.text, went: false, reason: "the send-backs were spent: the job went to a background worker" });
+        keeper?.freeze();
+        return { answer: recheck.handedOff, provider, model, steps, usage, usageByModel, timing: { ...timing, trace }, settled: START_JOB_TOOL, live: liveTurn(prompt, messages, offered) };
+      }
       // A scheduled run's last answer the reviewer sent back has no round left to be written again: nothing is texted (`lastRound.js`).
       if (lastRound && recheck !== null) {
         tell({ kind: "judge", by: "code", round, draft: answer.text, went: false, reason: "sent back on a scheduled run's last step: nothing is texted" });
