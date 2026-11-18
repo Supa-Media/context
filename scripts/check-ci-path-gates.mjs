@@ -191,7 +191,7 @@ export function assertBundleSourcesWatched(root = ROOT, bundle = BUNDLE, minimum
   if (sources.length < minimum) {
     throw new Error(`read only ${sources.length} sources from ${bundle}; the reader is wrong`);
   }
-  const watched = scopePaths(readFileSync(join(root, ".github/workflows/ci.yml"), "utf8"), "editor-bundle");
+  const watched = scopePaths(readFileSync(join(root, ".github/workflows/editor-bundle.yml"), "utf8"), "editor-bundle");
   const unwatched = unwatchedSources(sources, watched);
   if (unwatched.length > 0) {
     throw new Error(
@@ -224,7 +224,7 @@ export function assertBundleSourcesWatched(root = ROOT, bundle = BUNDLE, minimum
  * So the output is asserted here, beside the inputs, with the same matcher.
  */
 export function assertBundleArtifactWatched(root = ROOT, bundle = BUNDLE) {
-  const watched = scopePaths(readFileSync(join(root, ".github/workflows/ci.yml"), "utf8"), "editor-bundle");
+  const watched = scopePaths(readFileSync(join(root, ".github/workflows/editor-bundle.yml"), "utf8"), "editor-bundle");
   if (unwatchedSources([bundle], watched).length > 0) {
     throw new Error(
       `editor-bundle does not run when ${bundle} itself changes, so a commit that edits only the ` +
@@ -533,7 +533,7 @@ export function check(root = ROOT) {
   }
 
   const scoped = [
-    [".github/workflows/ci.yml", "editor-bundle", []],
+    [".github/workflows/editor-bundle.yml", "editor-bundle", []],
     [".github/workflows/ci.yml", "convex-deploy-typecheck", ["@context/convex"]],
     [".github/workflows/gateway-contracts.yml", "contracts", ["@context/mcp", "@context/convex"]],
     [".github/workflows/mcp.yml", "test", ["@context/mcp"]],
