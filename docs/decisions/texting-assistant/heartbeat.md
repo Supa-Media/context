@@ -223,3 +223,21 @@ down" until morning. Tests: `apps/mcp/test/quietHours.test.mjs`,
 `apps/mcp/test/agentHeartbeat.test.mjs`,
 `apps/convex/__tests__/heartbeats.test.ts`,
 `apps/convex/__tests__/attention.test.ts`, `apps/agent/src/heartbeats.test.ts`.
+
+## Worth-mail is not quiet on the first try (2026-11-18)
+
+The instructions already say a newsletter, a receipt or marketing is not
+worth a text, and that most looks stay quiet. Training splits the rest: an
+approval that leaves the facts out, or a commitment coming up, is said, and
+the next step is offered rather than started. On the 17 November Lab runs
+the check-in followed "stay quiet" past mail that was worth a text.
+
+The first `say_nothing` on a look whose new mail is not a newsletter, a
+receipt or marketing is refused once, with that split named. A second
+silence stands. A newsletter still ends on the first call. The model is
+unchanged.
+
+**What a simplification would cost:** letting the first silence stand puts
+the check-in back to staying quiet on mail the person would want to hear.
+`apps/mcp/test/checkInSpeak.test.mjs` fails if worth-mail no longer holds
+the first silence, or if a newsletter is held.

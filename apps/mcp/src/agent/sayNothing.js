@@ -57,6 +57,24 @@ export const sayNothingRefused = {
 };
 
 /**
+ * The first `say_nothing` is refused with `notice`, so the model writes the text.
+ * The next call ends the turn, the same as `sayNothingLocal`. One hold, then silence stands.
+ */
+export function sayNothingOnce(notice) {
+  let held = false;
+  return {
+    tool: SAY_NOTHING_DEFINITION,
+    call: async () => {
+      if (!held) {
+        held = true;
+        return { isError: true, content: [{ type: "text", text: notice }] };
+      }
+      return { content: [{ type: "text", text: "Nothing will be texted. Your turn ends here." }] };
+    },
+  };
+}
+
+/**
  * The answer a turn that called it hands on: the quiet word its readers already treat as nothing to send
  * (`QUIET_WORD` in `checkInGuards.js`, written out because that module reaches back to `turn.js`; a test holds them equal).
  */

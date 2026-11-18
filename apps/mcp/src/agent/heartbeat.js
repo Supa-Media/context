@@ -54,6 +54,7 @@ import { replyJudge } from "./replyJudge.js";
 import { aiGatewayConfig } from "./aiGateway.js";
 import { ProviderError } from "./providers.js";
 import { SKIP_WORD } from "./routine.js";
+import { CHECK_IN_SPEAK_NOTICE, mailWorthAText } from "./checkInSpeak.js";
 import { SAY_NOTHING } from "./sayNothing.js";
 import { READ_SOURCE_PREFIX } from "./sources.js";
 import { appendConversation } from "./conversation.js";
@@ -378,6 +379,8 @@ export async function handleHeartbeat(request, env, store, session, controlPlane
       // "no such action" (found 2026-11-07, beside a routine that texted why).
       grants: { send: ["say_nothing"] },
       sayNothing: true,
+      // Worth-mail (not a newsletter, a receipt or marketing) cannot stay quiet on the first try (`checkInSpeak.js`).
+      sayNothingNotice: mailWorthAText(mail.map((entry) => entry.line)) ? CHECK_IN_SPEAK_NOTICE : null,
       scheduled: true, // nobody waits on a look: its last steps end quiet (`lastRound.js`)
       callTool: heartbeatCallTool(dispatch),
       env,
