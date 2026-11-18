@@ -195,6 +195,9 @@ describe("the homepage's HTML", () => {
     expect(html).toContain('id="context-for-agents"');
     expect(html).toContain("<nav");
     expect(html).toContain("<h1>");
+    expect(html).toContain("<footer>");
+    expect(html.slice(html.indexOf("<footer>"))).toContain("signs in with OAuth");
+    expect(html.slice(html.indexOf("<main>"), html.indexOf("<footer>"))).not.toContain("signs in with OAuth");
     expect(response.headers.get("ETag")).toBeNull();
   });
 });

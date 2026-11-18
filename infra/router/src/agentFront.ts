@@ -27,8 +27,10 @@ const BLOCK = `<div id="context-for-agents" aria-hidden="true" style="position:a
 <main>
 <h1>${LANDING_H1}</h1>
 <p>It is an opinionated way to put everything away in plain notes that you can always edit and export, and so can the AI tools you connect.</p>
-<p>${AGENT_SENTENCE} <a href="/agents">Grok Bot guide</a>. <a href="/claude">Claude guide</a>. <a href="/llms.txt">llms.txt</a>.</p>
 </main>
+<footer>
+<p>An agent connects at <a href="${MCP_ENDPOINT}">mcp.context.lc/mcp</a> and signs in with OAuth. <a href="/agents">Grok Bot guide</a>. <a href="/claude">Claude guide</a>. <a href="/llms.txt">llms.txt</a>.</p>
+</footer>
 </div>`;
 
 /** The homepage HTML with the block as the first thing in `<body>`, or unchanged. */

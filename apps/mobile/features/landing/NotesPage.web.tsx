@@ -80,14 +80,6 @@ export function NotesPage() {
             It's an opinionated way to put everything away in plain notes that you can always edit, export, do whatever you
             want with it, and so can all your AI tools.
           </p>
-          <p className="np-connect">
-            An agent connects at <a href="https://mcp.context.lc/mcp">mcp.context.lc/mcp</a> and signs in with OAuth.{" "}
-            <span className="np-guides">
-              <a href="/agents">Grok Bot guide</a>
-              <a href="/claude">Claude guide</a>
-              <a href="/llms.txt">llms.txt</a>
-            </span>
-          </p>
           <div className="np-sign" id="join">
             <InlineSignUp />
           </div>
@@ -105,14 +97,19 @@ export function NotesPage() {
         <a className="np-mac" href="/download/mac">
           Download for Mac
         </a>
-        <a href="/agents">Agents</a>
-        <a href="/claude">Claude</a>
-        <a href="/llms.txt">llms.txt</a>
         <a href="/privacy">Privacy</a>
         <a href="/terms">Terms</a>
         <span className="np-tex">
           Tex, from Context: <a href="https://tex.lc">tex.lc</a>
         </span>
+        <p className="np-connect">
+          An agent connects at <a href="https://mcp.context.lc/mcp">mcp.context.lc/mcp</a> and signs in with OAuth.{" "}
+          <span className="np-guides">
+            <a href="/agents">Grok Bot guide</a>
+            <a href="/claude">Claude guide</a>
+            <a href="/llms.txt">llms.txt</a>
+          </span>
+        </p>
       </footer>
     </div>
   );

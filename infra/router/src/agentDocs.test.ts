@@ -78,8 +78,11 @@ describe("agent docs", () => {
     expect(GROK_MARKDOWN).toContain("Tell the bot which label to use for whom");
     expect(GROK_MARKDOWN).toContain("does not use a cookie");
     expect(GROK_MARKDOWN).not.toContain("If this connector shows a way to add another account");
-    expect(CLAUDE_MARKDOWN).toContain("does not give that login a second Context account");
-    expect(CLAUDE_MARKDOWN).toContain("does not create two Context accounts");
+    expect(CLAUDE_MARKDOWN).toContain("Each member connects it and signs in with their own Context account");
+    expect(CLAUDE_MARKDOWN).toContain("private notes stay private");
+    expect(CLAUDE_MARKDOWN).toContain("One Claude login does not hold two Context accounts");
+    expect(CLAUDE_MARKDOWN).not.toContain("separate Claude account");
+    expect(CLAUDE_MARKDOWN).not.toContain("separate computer");
     expect(CLAUDE_MARKDOWN).toContain("Register automatically");
     expect(CLAUDE_MARKDOWN).toContain("Free can add one");
   });
