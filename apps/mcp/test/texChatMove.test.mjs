@@ -17,6 +17,7 @@
  *      on" failed (the gateway without it answered the simulator).
  *   5. `chat` left a rejected `this.opening` in place (2026-11-17): "a rejected copy is forgotten, and the next call
  *      copies" failed, the second call awaiting the same rejection.
+ *   6. The failure log put `chat: name` back (2026-11-17): the same test failed, the line containing the phone number.
  */
 import assert from "node:assert/strict";
 import { afterEach, describe, it } from "node:test";
@@ -273,7 +274,7 @@ describe("TexChat runs the Worker's chat object", () => {
           }
         })
         .find((line) => line?.event === "tex_chat_move_failed");
-      assert.equal(failed.chat, PHONE);
+      assert.equal(JSON.stringify(failed).includes(PHONE), false);
       assert.equal(failed.error, "CopyFailed");
       assert.equal(JSON.stringify(failed).includes(text), false);
     } finally {

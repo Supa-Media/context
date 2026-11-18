@@ -110,8 +110,8 @@ export function texChatClass({ gateway, texts }) {
           this.opening = opening;
           opening.catch((error) => {
             if (this.opening === opening) this.opening = undefined;
-            // The chat id and the error's name only. The message can carry the text being copied.
-            console.log(JSON.stringify({ event: "tex_chat_move_failed", chat: name, error: String(error?.name ?? "error").slice(0, 40) }));
+            // The error's name only. A 1:1 inbox name is the person's phone number, and the message can carry the text being copied.
+            console.log(JSON.stringify({ event: "tex_chat_move_failed", error: String(error?.name ?? "error").slice(0, 40) }));
           });
         }
         const moved = await this.opening;
@@ -143,7 +143,8 @@ export function texChatClass({ gateway, texts }) {
 
 /**
  * Copy the Worker's chat object in (`inboxMove.ts` `arrive`, run against the Worker over RPC), and keep its name and
- * id. Never throws; anything but `arrived` leaves this object empty and the Worker's answering.
+ * id. A storage failure throws, and the caller drops the attempt so the next call retries. Anything but `arrived`
+ * leaves this object empty and the Worker's answering.
  */
 async function copyIn(rpc, storage, name) {
   const { arrive } = await import("../../agent/src/gatewayChat.js");
