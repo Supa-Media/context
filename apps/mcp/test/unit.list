@@ -89,6 +89,7 @@ test/listingProps.test.mjs
 test/liveGrantAccess.test.js
 test/liveToolList.test.mjs
 test/logicalDelete.test.mjs
+test/logicalDeleteListing.test.mjs
 test/managedEncryption.test.mjs
 test/mailAccounts.test.mjs
 test/meaningCatchup.test.mjs
