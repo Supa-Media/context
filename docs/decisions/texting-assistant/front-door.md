@@ -4,7 +4,7 @@ On 2026-10-31 a one-to-one "hi Tex" took about three minutes, and the model
 answered in 3.5 seconds of it. The new architecture (Tex Devs meeting,
 2026-10-30; `@supa projects/tex/new-architecture.md`) makes Haiku the
 interaction agent, the fast front door, with Opus as an advisor it calls when
-stuck. The first build (PR #2494) swapped the model and left the old turn
+stuck (Sonnet 5.5 since 2026-11-18). The first build (PR #2494) swapped the model and left the old turn
 around it. The owner agreed the front door from a drawing
 (`@supa projects/tex/front-door-plan.md`) and said go the same day.
 

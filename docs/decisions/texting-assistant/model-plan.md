@@ -77,7 +77,8 @@ rounds".
 **Approved by the owner (2026-10-31)**, from the review of Tex's slowdown: the
 production setup moved to Haiku answering every text with Opus as its advisor
 and dropped the router (`haiku-advisor`), so no setup named a thinking model
-and every part of every background job ran on Haiku. A Mercor job was called
+and every part of every background job ran on Haiku. (The advisor is Sonnet 5.5
+since 2026-11-18; see the section at the end.) A Mercor job was called
 done on a promise. The owner's split is still the rule: Opus plans, Haiku
 carries it out, about 20/80, and jobs and judgment run on Opus.
 
@@ -201,3 +202,21 @@ at high too.
 **What a simplification would cost:** hardcoding the effort makes undoing it a
 deploy instead of a note edit. Tests: `apps/mcp/test/agentAdvisorSetup.test.mjs`
 reads efforts from the setup.
+
+## The advisor and the job advisor run on Sonnet 5.5 (Dev2, 2026-11-18)
+
+Finance found the advisor steps on `claude-opus-5-5` cost $8.83 over 182 calls
+from 1 to 18 November in the AI Gateway logs, 73% of it cache writes. Seyi
+approved on 2026-11-18 moving the `advisor` and `jobadv` steps in
+`texConfig.json` to Sonnet 5.5 ($2 and $10 per million tokens, against Opus
+5.5's $4 and $20), at effort high. The retired advisor roles (`planner`,
+`jobcheck`, `mailadv`, all off) follow: in code every advisor role runs on
+`models.advisor`, so the config names one model for all of them.
+
+To go back, set the five advisor steps' `model` back to `opus-5-5` and run
+`node scripts/tex-architecture.mjs`, which regenerates the drawing and the map
+(the diagram check fails until they are regenerated).
+
+Tests: `apps/mcp/test/texConfig.test.mjs` ("the advisor runs on Sonnet 5.5 at
+effort high", and "the advisor's four roles share one model and effort in
+code, so the config gives them one").
