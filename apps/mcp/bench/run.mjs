@@ -57,6 +57,7 @@ import { nodesCommand } from "./nodeCases.mjs";
 import { setsCommand } from "./setsRun.mjs";
 import { keyMarkdown, keyPathFor, resultMarkdown } from "./report.mjs";
 import { createWorld } from "./world.mjs";
+import { addSpend, deliverInto } from "./jobDelivery.mjs";
 import { simMemo, simulateFor } from "./simWorld.mjs";
 import { benchPicture } from "./earlierPictures.mjs";
 import { filedNotes } from "./checks.mjs";
@@ -215,7 +216,7 @@ export async function converse(world, question, person, mode = null, background 
   const conversation = [];
   // A test with `background: on` is offered background jobs, the chat running the case's `- running:` count already (`benchRunning`).
   const running = background ? benchRunning(question.running ?? 0) : null;
-  const totals = { ms: 0, personMs: 0, tools: [], jobs: [], traces: [], usage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 }, usageByModel: {}, rounds: {}, model: null, error: null };
+  const totals = { ms: 0, personMs: 0, jobMs: 0, tools: [], jobs: [], delivered: [], traces: [], usage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 }, usageByModel: {}, rounds: {}, model: null, error: null };
   // A Lab replay's chat before its text goes into the ledger first, as it was (`labReplay.mjs`).
   // A job's report as the case's text: the page it says it wrote is written first (`earlierNotes.mjs`).
   const also = question.jobReport ? [String(question.jobReport.text ?? "")] : [];
@@ -237,13 +238,7 @@ export async function converse(world, question, person, mode = null, background 
     totals.tools.push(...turn.tools);
     totals.traces.push(turn.trace ?? []);
     totals.jobs.push(...(turn.jobs ?? []));
-    for (const key of Object.keys(totals.usage)) totals.usage[key] += turn.usage[key];
-    // What each model spent and how many rounds it ran (`src/agent/modelPlan.js`): priced model by model.
-    for (const [model, spent] of Object.entries(turn.usageByModel ?? {})) {
-      const into = (totals.usageByModel[model] ??= { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 });
-      for (const key of Object.keys(into)) into[key] += spent[key] ?? 0;
-    }
-    for (const [model, count] of Object.entries(turn.rounds ?? {})) totals.rounds[model] = (totals.rounds[model] ?? 0) + count;
+    addSpend(totals, turn);
     totals.model = turn.model ?? totals.model;
     if (!turn.ok) {
       totals.error = turn.error;
@@ -257,6 +252,9 @@ export async function converse(world, question, person, mode = null, background 
     // the judge reads it as the line they saw, never as silence (Dev set, 2026-11-17: three such turns read "said nothing").
     const tapback = tapbackLine(turn.react);
     if (tapback !== null) conversation.push({ from: "assistant", text: tapback, tapback: true });
+    // A job this text's turn started runs, and its report is texted, as the Worker does (`jobDelivery.mjs`), before the
+    // person texts again: the person's later text, in the order they would have had it.
+    if (background && byCode === null && (turn.jobs ?? []).length > 0) await deliverInto(world, turn.jobs.map((job) => ({ ...job, asked: message })), { conversation, totals, running });
     // Only a back-and-forth has a person who answers back. The time the played
     // person takes is the run's, not the setup's: it is kept apart from `ms`.
     // Nobody texted it, so nobody answers back.
@@ -268,7 +266,8 @@ export async function converse(world, question, person, mode = null, background 
       (question.personStarts !== null || question.ifAsked.length > 0 ? await playPerson(person, question.body, conversation) : null);
     totals.personMs += realNow() - personStarted;
   }
-  return { conversation, ...totals, texts: conversation.filter((turn) => turn.from === "assistant" && turn.tapback !== true).length };
+  // The reply's texts: a job's later report is not one.
+  return { conversation, ...totals, texts: conversation.filter((turn) => turn.from === "assistant" && turn.tapback !== true && turn.later === undefined).length };
 }
 
 /**

@@ -298,3 +298,55 @@ test("a turn that ends in a tapback shows the judge that tapback, never silence,
   assert.deepEqual(result.conversation.map((turn) => turn.text), [STREAMLY.text, "", "(Tex reacted to their text)"]);
   assert.equal(result.texts, 1, "the tapback is a line the person saw, not a text Tex sent");
 });
+
+test("a job a texted turn started runs part after part, and its report is the person's later text", async () => {
+  const { converse } = await import("../run.mjs");
+  const calls = [];
+  const usage = { input: 10, output: 5, cacheRead: 0, cacheWrite: 0 };
+  const turn = (fields) => ({ ok: true, ms: 1, model: null, asked: 0, usage, usageByModel: { "anthropic/claude-haiku-5-5": usage }, progress: [], tools: [], jobs: [], answer: "", ...fields });
+  const world = {
+    browser: () => [],
+    async text(message, _pictures, options = {}) {
+      calls.push({ message, job: options.job ?? null, posted: options.posted === true, event: options.event ?? null });
+      if (options.job) return turn(options.job.attempt === 1 ? { answer: "Found two flights so far.", verdict: "keep_going", advice: "check the second airline" } : { answer: "Two flights: 7:10 am $210, 1:40 pm $180. Saved to Trip.", verdict: "done" });
+      if (options.event?.event === "job_report") return turn({ answer: `Flights: ${options.event.jobReport.texts[0]}` });
+      return turn({ answer: "On it.", jobs: [{ title: "Find flights", brief: "Compare the two airlines", mail: null, name: null, on: null }] });
+    },
+  };
+  const result = await converse(world, { ...STREAMLY, ifAsked: [] }, { fake: true }, null, true);
+  const parts = calls.filter((call) => call.job !== null);
+  assert.deepEqual(parts.map((call) => call.job.attempt), [1, 2], "the check said not finished, so a second part ran on its advice");
+  assert.equal(parts[1].job.advice, "check the second airline");
+  assert.ok(parts.every((call) => call.posted && call.message === STREAMLY.text), "the job runs on the ask its turn started from, which the chat already holds");
+  const report = calls.find((call) => call.event?.event === "job_report");
+  assert.deepEqual(report.event.jobReport.texts, ["Two flights: 7:10 am $210, 1:40 pm $180. Saved to Trip."], "the last part's words are the report");
+  assert.equal(report.event.jobReport.state, "done");
+  assert.deepEqual(result.conversation.at(-1), { from: "assistant", text: "Flights: Two flights: 7:10 am $210, 1:40 pm $180. Saved to Trip.", later: "texted when the background job finished" });
+  assert.equal(result.texts, 1, "the reply is one text; the report came later");
+  assert.equal(result.usage.input, 40, "the job's parts and its report are the test's spend");
+  assert.deepEqual(result.delivered, [{ title: "Find flights", state: "done", parts: 2 }]);
+  const quiet = [];
+  await converse({ ...world, async text(m, p, o) { quiet.push(o ?? {}); return world.text(m, p, o); } }, { ...STREAMLY, ifAsked: [] }, { fake: true });
+  assert.ok(quiet.every((o) => !o.job && !o.event), "without background no job is offered, so none runs");
+});
+
+test("a job past the bench's bound is recorded as not run, and a job its parts ran out on is marked capped", async () => {
+  const { converse } = await import("../run.mjs");
+  const usage = { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 };
+  const turn = (fields) => ({ ok: true, ms: 1, model: null, asked: 0, usage, progress: [], tools: [], jobs: [], answer: "", ...fields });
+  const world = {
+    browser: () => [],
+    async text(_m, _p, options = {}) {
+      if (options.job) return turn({ answer: "Still going.", verdict: "keep_going" });
+      if (options.event?.event === "job_report") return turn({ answer: "Here's where it got to." });
+      return turn({ answer: "On it.", jobs: ["A", "B", "C"].map((title) => ({ title, brief: title })) });
+    },
+  };
+  const result = await converse(world, { ...STREAMLY, ifAsked: [] }, { fake: true }, null, true);
+  assert.deepEqual(result.delivered, [
+    { title: "A", state: "stuck", parts: 4, capped: true },
+    { title: "B", state: "stuck", parts: 4, capped: true },
+    { title: "C", state: "not run", parts: 0 },
+  ]);
+  assert.deepEqual(result.conversation.map((line) => line.later ? "later" : line.from), ["person", "assistant", "later", "later"], "each report follows the reply it came from");
+});
