@@ -36,6 +36,8 @@ import { createWorkerCtx } from "../test/workerCtx.mjs";
 import { readStream, workerEvents } from "./workerWire.mjs";
 import { benchMachines } from "./benchMachines.mjs";
 import { benchGroup, benchHome } from "./groupChat.mjs";
+import { seedHandles } from "./benchHandles.mjs";
+import { bodyText, snapshot } from "./bucketSnapshot.mjs";
 import { ACCOUNT_ID as D1_ACCOUNT_ID, API_TOKEN as D1_API_TOKEN, createD1Backend } from "../test/searchProjection/fixtures.mjs";
 import { createVectorizeBackend, meaningIndexFor } from "../test/vectorizeStub.mjs";
 import { wireSearchSettings } from "../src/search/settings.js";
@@ -117,24 +119,6 @@ export function binding(bucket, n, searchIndex = null, meaningIndex = null) {
 }
 
 /**
- * Each person `people.md` names, by the handle an AI client names them with (`@maya`: the name lower-cased, letters,
- * digits and hyphens only, as `groupChat.mjs` names a member), and the account the control plane's directory resolves
- * it to. A person's personal workspace names their account (`user_bench_<workspace>`, the user its grant carries); a
- * person with none gets an account of their own name. Nobody outside `people.md` is in it.
- */
-export function benchHandles(bench) {
-  const handles = new Map();
-  const nameOf = (row) => String(row.person).toLowerCase().replace(/[^a-z0-9-]/g, "");
-  for (const row of bench.people.filter((entry) => entry.personal)) {
-    if (nameOf(row) !== "") handles.set(`@${nameOf(row)}`, { kind: "user", id: `user_bench_${row.workspace}` });
-  }
-  for (const row of bench.people) {
-    if (nameOf(row) !== "" && !handles.has(`@${nameOf(row)}`)) handles.set(`@${nameOf(row)}`, { kind: "user", id: `user_bench_${nameOf(row)}` });
-  }
-  return handles;
-}
-
-/**
  * The visibility a fixture note is written at, as `manifest` above declares it:
  * a shared workspace's notes are team unless held back by name, a personal
  * workspace's are private. The meaning index records the same tier.
@@ -143,17 +127,6 @@ export function fixtureVisibility(bench, name, path) {
   const shared = !bench.people.some((row) => row.workspace === name && row.personal);
   if (!shared) return "private";
   return (bench.workspaces[name].heldBack ?? []).includes(path) ? "private" : "team";
-}
-
-function bodyText(object) {
-  const body = object?.body;
-  if (typeof body === "string") return body;
-  if (body instanceof Uint8Array) return new TextDecoder().decode(body);
-  return String(body ?? "");
-}
-
-function snapshot(bucket) {
-  return new Map([...bucket].map(([key, object]) => [key, bodyText(object)]));
 }
 
 /**
@@ -225,7 +198,7 @@ export async function createWorld(bench, person, setupRaw, models, today = null,
   let site = null;
   const controlPlane = createControlPlaneStub({ site: (cleared, body) => site.answer(cleared, body) });
   // The people `people.md` names, as the control plane's directory resolves their handles (`set_visibility`'s `people`).
-  for (const [handle, who] of benchHandles(bench)) controlPlane.knownHandles.set(handle, who);
+  seedHandles(controlPlane, bench);
   // The person's calendar, as Google would answer for it: their personal
   // workspace's calendar days, read live by `calendar:` (`load.mjs`).
   Object.assign(controlPlane.flags, benchCalendar(bench.workspaces[own.workspace]?.calendar ?? [], models.calendar === "connected" ? person : null));

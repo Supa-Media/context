@@ -9,7 +9,8 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { benchHandles, createWorld } from "../world.mjs";
+import { createWorld } from "../world.mjs";
+import { benchHandles } from "../benchHandles.mjs";
 
 const SETUP = "---\njob: texting-assistant\nmodels:\n  main: anthropic/claude-haiku-5-5\n---\n\nYou are a test assistant.\n";
 
