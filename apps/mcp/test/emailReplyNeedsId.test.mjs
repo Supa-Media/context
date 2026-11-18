@@ -30,10 +30,11 @@ test("a Re: send with no in_reply_to says Not sent once, not twice (2026-11-18)"
   assert.equal(text.split("Not sent:").length - 1, 1);
 });
 
-test("the same Re: refusal reads once through the draft path and the send gate", async () => {
+test("the same Re: refusal reads once through the draft path and the send gate, each with its own verb", async () => {
   const subject = "Re: Plan recommended";
   const draft = await toolSaveEmailDraft({ email: { draft: () => assert.fail("nothing is saved") } }, { ...BASE, subject });
-  assert.equal(draft.content[0].text, REPLY_NEEDS_ID);
+  // A draft is not saved, never "not sent", and the verb is said once.
+  assert.equal(draft.content[0].text, REPLY_NEEDS_ID.replace(/^Not sent:/, "Not saved:"));
   const gated = await emailGate({ ...BASE, subject }, { store: {}, session: { workspaceId: "w" }, target: { workspaceId: "w" } });
   assert.equal(gated.content[0].text, REPLY_NEEDS_ID);
 });

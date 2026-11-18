@@ -231,11 +231,12 @@ export function attachedWords(files, attached, { draft }) {
 
 /**
  * A refusal with its verb in front: `Not sent: ...`, or `Not saved: ...`. An
- * error that already opens with one of those (REPLY_NEEDS_ID does) is returned
- * as it is, so the verb is never said twice.
+ * error that already opens with one of those (REPLY_NEEDS_ID does) has it
+ * swapped for the caller's, so the verb is said once and is the right one: a
+ * draft is "Not saved", never "Not sent".
  */
 export function refusalText(prefix, error) {
-  return /^Not (sent|saved):/.test(error) ? error : `${prefix} ${error}`;
+  return `${prefix} ${String(error).replace(/^Not (?:sent|saved):\s*/, "")}`;
 }
 
 /** What each refusal from the control plane tells the model. */
