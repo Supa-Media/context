@@ -1,5 +1,5 @@
 /**
- * The router node, `router` (texConfig.json, group "intake", off in main's config): beside the Door, Clef picks the
+ * The router node, `router` (texConfig.json, group "tools-subagents", off in main's config): beside the Door, Clef picks the
  * specialist door a text's turn goes through (`../../specialistRoute.js`, `../../doorTurn.js`). Wires: `doorStep ->
  * router` (uses; a check-in or a routine skips the Door and stays on today's front door), and `router -> handoff` (uses) when a long job should go to the Hand-off node at once.
  *
