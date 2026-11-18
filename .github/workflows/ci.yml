@@ -836,6 +836,11 @@ jobs:
         id: scope
         with:
           packages: "@context/convex"
+          # On main, diff against the commit this push replaced. A merge that
+          # does not touch this list skips the minute of tsc. An unavailable
+          # base fails open and runs it. The Convex suite on main is still the
+          # backstop for the tests.
+          push-diff: "true"
           # packages/** too: Convex reaches packages/communications and
           # packages/meetings by relative path, not as declared dependencies,
           # and this is now the only place the deploy typecheck runs.
@@ -939,6 +944,18 @@ jobs:
       - name: Install dependencies
         if: steps.scope.outputs.affected == 'true'
         run: pnpm install --frozen-lockfile
+
+      # tsc --incremental (apps/convex/tsconfig.json) rechecks files whose
+      # content changed. The checkout's mtimes are new; the build info stores
+      # content hashes, so a restored info still skips unchanged files.
+      - name: Restore the Convex typecheck
+        if: steps.scope.outputs.affected == 'true'
+        uses: actions/cache@v4
+        with:
+          path: apps/convex/.tsbuildinfo
+          key: convex-typecheck-${{ hashFiles('pnpm-lock.yaml', 'apps/convex/tsconfig.json') }}-${{ github.sha }}
+          restore-keys: |
+            convex-typecheck-${{ hashFiles('pnpm-lock.yaml', 'apps/convex/tsconfig.json') }}-
 
       - name: Typecheck what the Convex deploy would push
         if: steps.scope.outputs.affected == 'true'

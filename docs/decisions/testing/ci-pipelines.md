@@ -52,6 +52,24 @@ or importing an agent module from a Convex test, fails the path-gates check;
 declaring `canSee` in an agent module fails `privacyEngine/portParity.test.ts`
 in Gateway Contracts.
 
+## The Convex deploy typecheck is cached, and a main push skips it when nothing it reads changed
+
+_Decided 2026-11-17._ `pnpm exec convex typecheck` was about 63 seconds, plus a
+22 second install, on every push to main: the job's scope had no `push-diff`,
+so the main-branch backstop ran it even when the push did not touch Convex.
+Measured over the last 30 main runs, the job's wall time was 2m22 at the
+median while `ci / Test Summary` was at 5m12, and the typecheck held a runner
+the shards were waiting for. It now diffs a main push the way a pull request
+already did (`push-diff`), and `tsc` is incremental with the build info in
+the Actions cache, keyed by the lockfile and `apps/convex/tsconfig.json`.
+The job still reports success when it skips. The Convex suite on main is
+unchanged and still runs the whole suite when its own filter matches.
+
+Dropping the cache, or the incremental flag, puts the full typecheck back on
+every Convex change. Skipping the job entirely on main, instead of diffing,
+would let a filter bug through. `ci-change-scope.mjs --self-test` fails if a
+push with `push-diff` is not diffed, and if one without it skips the backstop.
+
 ## The gateway suite runs as two jobs, and its slow file in shards
 
 _Decided 2026-10-20, from the same ask._ `Test Gateway` ran every
