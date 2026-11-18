@@ -24,6 +24,7 @@
 import { wallClock } from "../../../../packages/shared/src/routines.cjs";
 import { dayOf } from "./jobLog.js";
 import { earlierFromLedger } from "./ledgerHistory.js";
+import { withGuestNames } from "./groupGuestNames.js";
 import { renderEvents } from "./logRender.js";
 import { DESK_LEDGER } from "../texStore/desk.js";
 import { texConfigOf, texStep } from "./texConfig.js";
@@ -149,7 +150,7 @@ export async function readSpan(ledger, chat, { since, until = null, kinds = DESK
     }
     before = read.before;
   }
-  return { entries, whole };
+  return { entries: await withGuestNames(entries, ledger, chat), whole };
 }
 
 /**
