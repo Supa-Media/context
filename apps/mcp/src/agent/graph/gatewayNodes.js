@@ -61,6 +61,7 @@ import { chatAskNode } from "./nodes/chatAsk.js";
 import { chatAnswerNode } from "./nodes/chatAnswer.js";
 import { tapbackNode } from "./nodes/tapback.js";
 import { decideWhyNode } from "./nodes/decideWhy.js";
+import { shapeGateNode } from "./nodes/shapeGate.js";
 import { partEndNode } from "./nodes/partEnd.js";
 import { jobReportNode } from "./nodes/jobReport.js";
 import { jobStartNode } from "./nodes/jobStart.js";
@@ -148,6 +149,8 @@ export const GATEWAY_NODES = {
   get tapback() { return tapbackNode; },
   // Decide's reason, asked again when it contradicts the act (`nodes/decideWhy.js`): Decide's route calls it with Clef (`../textsDecide.js`).
   get decideWhy() { return decideWhyNode; },
+  // The Shape gate: what kind of answer this turn is, read by Clef beside the door (`nodes/shapeGate.js`, `../shapeGate.js`).
+  get shapeGate() { return shapeGateNode; },
   // After each part of a background job: the next part, the last draft, or the end, under the limits in its config (`nodes/partEnd.js`).
   get partEnd() { return partEndNode; },
   // A background job's report, a new run of its chat: read strictly, asked the gateway's own line (`nodes/jobReport.js`).
