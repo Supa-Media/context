@@ -186,7 +186,10 @@ test("what can't run says why: a check-in that found no email, a tapback, a pict
   // A check-in that found an email, a routine and a job's report run, in a group too (`byCode.mjs`).
   assert.equal(cantRun(conv([{ id: "m1", who: "Routine", via: "routine", text: "rent reminder" }]), 0), null);
   assert.equal(cantRun(conv([{ id: "m1", who: "Check-in", via: "checkin", text: "Gmail: TAP: flight delayed" }]), 0), null);
-  assert.match(cantRun(conv([{ id: "m1", who: "Check-in", via: "checkin", text: "calendar: dentist moved" }]), 0), /found an email/);
+  // A check-in that names only a calendar runs too: its event goes on the bench calendar (`checkinWorld.test.mjs`). A row
+  // naming neither mail nor a calendar still can't run.
+  assert.equal(cantRun(conv([{ id: "m1", who: "Check-in", via: "checkin", text: "calendar: dentist moved" }]), 0), null);
+  assert.match(cantRun(conv([{ id: "m1", who: "Check-in", via: "checkin", text: "rent reminder" }]), 0), /names an email/);
   assert.equal(cantRun(conv([{ id: "m1", who: "Routine", via: "routine", text: "rent reminder" }], { kind: "group" }), 0), null);
   assert.equal(cantRun(conv([{ id: "m1", who: "Check-in", via: "checkin", text: "Gmail: TAP: flight delayed" }], { kind: "group" }), 0), null);
   assert.equal(cantRun(conv([{ id: "m1", who: "Maya", text: "find the venue" }, { id: "m2", who: "Background job", via: "job", text: "venue booked" }]), 1), null);

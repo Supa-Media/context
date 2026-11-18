@@ -27,7 +27,7 @@ import worker from "../src/index.js";
 import { PRODUCTION_TEXTING_PATH } from "../src/agent/production.js";
 import { skillPath } from "../src/agent/skills.js";
 import { createWeb } from "./sites.mjs";
-import { simBinding, simulatedWorld, sitesIn } from "./simWorld.mjs";
+import { simBinding, simulatedWorld, sitesIn, withClosedForNew } from "./simWorld.mjs";
 import { createBenchSite } from "./siteStub.mjs";
 import { CONTROL_PLANE_ORIGIN, GATEWAY_SECRET, createControlPlaneStub, createS3Backend } from "../test/controlPlaneStub.mjs";
 import { rmSync } from "node:fs";
@@ -41,7 +41,7 @@ import { createVectorizeBackend, meaningIndexFor } from "../test/vectorizeStub.m
 import { wireSearchSettings } from "../src/search/settings.js";
 import { texStoreNamespace } from "../test/texStoreFixture.mjs";
 import { assertIsoDate, clockMs, installClock, noonUtcMs, noteModifiedAt, realNow } from "./clock.mjs";
-import { benchCalendar } from "./calendar.mjs";
+import { benchCalendar, calendarChanges, withArrivedEvents } from "./calendar.mjs";
 import { connectChat } from "./chat.mjs";
 import { interceptFetch } from "./worldFetch.mjs";
 import { worldChat } from "./worldChat.mjs";
@@ -207,6 +207,10 @@ export async function createWorld(bench, person, setupRaw, models, today = null,
   // The person's calendar, as Google would answer for it: their personal
   // workspace's calendar days, read live by `calendar:` (`load.mjs`).
   Object.assign(controlPlane.flags, benchCalendar(bench.workspaces[own.workspace]?.calendar ?? [], models.calendar === "connected" ? person : null));
+  // A check-in's calendar line: the events it names, on their day, read beside the calendar's days from then on
+  // (`calendarArrives`). Under the simulated world's wrapper (`simulateServices`), so a made-up day never hides one.
+  const arrivedEvents = [];
+  controlPlane.flags.calendarDays = withArrivedEvents(controlPlane.flags.calendarDays, arrivedEvents, () => controlPlane.flags.calendarAddress);
   // Their Gmail, as Google would answer for it (`mailbox.mjs`): searched and
   // read live, and a mailbox that may keep drafts. Sending stays off, as it is
   // until Google's review adds the send scope (tests/tasks.md, task 9). Each
@@ -505,10 +509,19 @@ export async function createWorld(bench, person, setupRaw, models, today = null,
       if (mail.length === 1) connectMail();
     },
 
-    /** One check-in, as Tex's check-in client: what it would text (`worldStarts.mjs`). */
+    /** One check-in, as Tex's check-in client: what it would text (`worldStarts.mjs`). Its look sees no invented mail or events. */
     async checkIn() {
-      return checkInTurn((body) => startCall({ worker, env, token: startTokens.checkin, body, controlPlane }), () => modelCalls.calls(), models.timeZone ?? "UTC");
+      return withClosedForNew(sim, () => checkInTurn((body) => startCall({ worker, env, token: startTokens.checkin, body, controlPlane }), () => modelCalls.calls(), models.timeZone ?? "UTC"));
     },
+
+    /** A check-in's own calendar line (`- check-in calendar:`): the event on the day of the look, on the bench calendar from then on. */
+    calendarArrives(text) {
+      arrivedEvents.push({ date: today ?? new Date(realNow()).toISOString().slice(0, 10), text: String(text) });
+      controlPlane.flags.calendarAddress ??= `${String(person).toLowerCase().replace(/[^a-z0-9]/g, "") || "person"}@calendar.bench.invalid`;
+    },
+
+    /** Runs `look` with the simulated world closed for new (`simWorld.mjs` `withClosedForNew`): a group check-in's turn. */
+    closedForNew: (look) => withClosedForNew(sim, look),
 
     /** One run of the routine at `path`, placed with `text` as its words (`worldStarts.mjs`). */
     async routine(path, text) {
@@ -585,7 +598,8 @@ export async function createWorld(bench, person, setupRaw, models, today = null,
     /** What the conversation changed in the invented workspaces, as a list. */
     changes() {
       const workspaces = [...before].flatMap(([name, was]) => noteChanges(name, was, snapshot(s3.bucketFor(`bench-${name}`)), isPlumbingPath));
-      return [...workspaces, ...stand.settingsChanges(), ...(group ? homeChanges(homeBefore, homeNotes(), group.home, isPlumbingPath) : [])];
+      // Tex's calendar writes (`calendarChanges`): a move or an add is a change the judge reads, as a note's is.
+      return [...workspaces, ...stand.settingsChanges(), ...calendarChanges(controlPlane.calendarCalls), ...(group ? homeChanges(homeBefore, homeNotes(), group.home, isPlumbingPath) : [])];
     },
 
     /**

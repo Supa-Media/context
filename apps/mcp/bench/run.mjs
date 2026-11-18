@@ -221,10 +221,10 @@ export async function converse(world, question, person, mode = null, background 
   // A Lab replay's chat before its text goes into the ledger first, as it was (`labReplay.mjs`).
   // A job's report as the case's text: the page it says it wrote is written first (`earlierNotes.mjs`).
   const also = question.jobReport ? [String(question.jobReport.text ?? "")] : [];
-  if ((question.earlier ?? []).length > 0 || also.length > 0) await world.earlier(question.earlier ?? [], { checkIn: Boolean(question.checkinMail), also });
+  if ((question.earlier ?? []).length > 0 || also.length > 0) await world.earlier(question.earlier ?? [], { checkIn: Boolean(question.checkinMail || question.checkinCalendar), also });
   // A group's routine or check-in, or a job's report: one turn the Worker queues itself (`byCode.mjs`).
   const byCode = await byCodeStart(world, question, { running });
-  if (byCode === null && (question.checkinMail || question.routine)) return await startedBy(world, question);
+  if (byCode === null && (question.checkinMail || question.checkinCalendar || question.routine)) return await startedBy(world, question);
   let message = byCode?.message ?? question.personStarts ?? question.texts ?? question.text;
   const limit = personTextLimit(question);
   for (let texts = 0; message !== null && texts < limit; texts += 1) {
@@ -234,7 +234,9 @@ export async function converse(world, question, person, mode = null, background 
     const seen = world.browser().length;
     const others = (question.others ?? []).filter((line) => line.before === texts + 1); // a group's other members, before this text (`load.mjs`)
     for (const line of others) conversation.push({ from: "person", text: `@${line.from}: ${line.text}` });
-    const turn = await world.text(message, pictures, { running: byCode?.running ?? running, others, ...(byCode?.options ?? {}) });
+    const text = () => world.text(message, pictures, { running: byCode?.running ?? running, others, ...(byCode?.options ?? {}) });
+    // A group's check-in looks at the fixtures' mail and calendar only, as a one-to-one check-in does (`world.checkIn`).
+    const turn = byCode?.options?.cause === "check_in" ? await world.closedForNew(text) : await text();
     totals.ms += turn.ms;
     totals.tools.push(...turn.tools);
     totals.traces.push(turn.trace ?? []);
@@ -300,7 +302,9 @@ export const routinePathOf = (question) => (question.routineOnce === true ? "tex
 
 async function startedBy(world, question) {
   if (question.checkinMail) world.mailArrives(question.checkinMail);
-  const turn = question.checkinMail ? await world.checkIn() : await world.routine(routinePathOf(question), question.routine);
+  if (question.checkinCalendar) world.calendarArrives(question.checkinCalendar);
+  const checkin = Boolean(question.checkinMail || question.checkinCalendar);
+  const turn = checkin ? await world.checkIn() : await world.routine(routinePathOf(question), question.routine);
   return { conversation: turn.ok ? [{ from: "assistant", text: turn.answer }] : [], ms: turn.ms, personMs: 0, tools: [], jobs: [], traces: [], usage: turn.usage, usageByModel: {}, rounds: {}, model: turn.model, error: turn.error, texts: turn.ok ? 1 : 0 };
 }
 
