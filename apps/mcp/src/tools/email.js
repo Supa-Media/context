@@ -229,6 +229,16 @@ export function attachedWords(files, attached, { draft }) {
   );
 }
 
+/**
+ * A refusal with its verb in front: `Not sent: ...`, or `Not saved: ...`. An
+ * error that already opens with one of those (REPLY_NEEDS_ID does) has it
+ * swapped for the caller's, so the verb is said once and is the right one: a
+ * draft is "Not saved", never "Not sent".
+ */
+export function refusalText(prefix, error) {
+  return `${prefix} ${String(error).replace(/^Not (?:sent|saved):\s*/, "")}`;
+}
+
 /** What each refusal from the control plane tells the model. */
 export const REFUSED = {
   invalid: "Not sent: the email was not valid.",
@@ -252,10 +262,10 @@ export const REFUSED = {
 
 export async function toolSendEmail(store, args) {
   const read = readEmail(args);
-  if (read.error) return toolError(`Not sent: ${read.error}`);
+  if (read.error) return toolError(refusalText("Not sent:", read.error));
   if (typeof store?.email?.send !== "function") return toolError(REFUSED.not_configured);
   const ready = await withFiles(store, read.email);
-  if (ready.error) return toolError(`Not sent: ${ready.error}.`);
+  if (ready.error) return toolError(`${refusalText("Not sent:", ready.error)}.`);
   let answer;
   try {
     answer = await store.email.send(ready.email);
@@ -290,10 +300,10 @@ export const DRAFT_REFUSED = {
 
 export async function toolSaveEmailDraft(store, args) {
   const read = readEmail(args);
-  if (read.error) return toolError(`Not saved: ${read.error}`);
+  if (read.error) return toolError(refusalText("Not saved:", read.error));
   if (typeof store?.email?.draft !== "function") return toolError(DRAFT_REFUSED.not_configured);
   const ready = await withFiles(store, read.email);
-  if (ready.error) return toolError(`Not saved: ${ready.error}.`);
+  if (ready.error) return toolError(`${refusalText("Not saved:", ready.error)}.`);
   let answer;
   try {
     answer = await store.email.draft(ready.email);
