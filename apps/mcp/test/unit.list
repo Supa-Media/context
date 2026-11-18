@@ -19,6 +19,7 @@ bench/test/tasks.test.mjs
 bench/test/warm.test.mjs
 bench/test/world.test.mjs
 bench/test/worldDays.test.mjs
+bench/test/worldHandles.test.mjs
 test/agentAboutMe.test.mjs
 test/agentAttachments.test.mjs
 test/agentBrowserbaseRefused.test.mjs
@@ -121,6 +122,7 @@ test/privacyAuthority.test.mjs
 test/privacy/rowAccess.test.mjs
 test/privacy/rowTokens.test.mjs
 test/privacy/notePeople.test.mjs
+test/privacy/notePeopleStub.test.mjs
 test/privacy/rowsWrites.test.mjs
 test/privacy/setAccessBody.test.mjs
 test/queuedFolderMove.test.mjs

@@ -36,6 +36,8 @@ import { createWorkerCtx } from "../test/workerCtx.mjs";
 import { readStream, workerEvents } from "./workerWire.mjs";
 import { benchMachines } from "./benchMachines.mjs";
 import { benchGroup, benchHome } from "./groupChat.mjs";
+import { seedHandles } from "./benchHandles.mjs";
+import { bodyText, snapshot } from "./bucketSnapshot.mjs";
 import { ACCOUNT_ID as D1_ACCOUNT_ID, API_TOKEN as D1_API_TOKEN, createD1Backend } from "../test/searchProjection/fixtures.mjs";
 import { createVectorizeBackend, meaningIndexFor } from "../test/vectorizeStub.mjs";
 import { wireSearchSettings } from "../src/search/settings.js";
@@ -127,17 +129,6 @@ export function fixtureVisibility(bench, name, path) {
   return (bench.workspaces[name].heldBack ?? []).includes(path) ? "private" : "team";
 }
 
-function bodyText(object) {
-  const body = object?.body;
-  if (typeof body === "string") return body;
-  if (body instanceof Uint8Array) return new TextDecoder().decode(body);
-  return String(body ?? "");
-}
-
-function snapshot(bucket) {
-  return new Map([...bucket].map(([key, object]) => [key, bodyText(object)]));
-}
-
 /**
  * Register every workspace and fill its bucket, from the fixture or from a
  * prepared run's snapshot. Every workspace exists whoever is asking, so a leak
@@ -206,6 +197,8 @@ export async function createWorld(bench, person, setupRaw, models, today = null,
   // read from the buckets placed below.
   let site = null;
   const controlPlane = createControlPlaneStub({ site: (cleared, body) => site.answer(cleared, body) });
+  // The people `people.md` names, as the control plane's directory resolves their handles (`set_visibility`'s `people`).
+  seedHandles(controlPlane, bench);
   // The person's calendar, as Google would answer for it: their personal
   // workspace's calendar days, read live by `calendar:` (`load.mjs`).
   Object.assign(controlPlane.flags, benchCalendar(bench.workspaces[own.workspace]?.calendar ?? [], models.calendar === "connected" ? person : null));
