@@ -21,7 +21,8 @@ function stopOutput(t, stop) {
     return { when: ["ended"], pending: false, ended: true, status: stop.value?.status };
   }
   const turn = t.turn ?? {};
-  return { when: ["done"], pending: false, draftChars: String(turn.answer ?? "").length, answeredBy: turn.model ?? undefined, steps: Array.isArray(turn.steps) ? turn.steps.length : 0, exhausted: turn.exhausted === true };
+  // `log.handedOff`: the turn ran out of rounds and the Hand-off node gave the job to a background worker (`../../handoff.js`).
+  return { when: ["done"], pending: false, draftChars: String(turn.answer ?? "").length, answeredBy: turn.model ?? undefined, steps: Array.isArray(turn.steps) ? turn.steps.length : 0, exhausted: turn.exhausted === true, ...(turn.handedOff === "rounds" ? { log: { handedOff: "rounds" } } : {}) };
 }
 
 /** How many tool calls the turn has made by this draft: what the reviewer reads it against. */

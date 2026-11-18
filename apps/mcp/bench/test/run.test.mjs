@@ -365,3 +365,13 @@ test("a result's Delivered line carries each job's advisor calls and spend to th
   const [answer] = parseResult(md).answers;
   assert.deepEqual(answer?.delivered, delivered);
 });
+
+test("a result's Rounds line carries each texted turn's rounds of its bound to the Lab run's row", async () => {
+  const { parseResult } = await import("../resultNote.mjs");
+  const rounds = [{ used: 3, of: 12 }, { used: 10, of: 12, out: true }];
+  const md = ["## Answers", "", "### 1. text", "", "#### s/q1/r1", "", "**Person:** hi", "", "**Assistant:** On it.", "", "Tools: none", "", `Rounds: ${JSON.stringify(rounds)}`, "", "Time 1.0 s, $0.0100, 1 text", ""].join("\n");
+  const [answer] = parseResult(md).answers;
+  assert.deepEqual(answer?.rounds, rounds);
+  const [none] = parseResult(md.replace(/Rounds: .*\n\n/, "")).answers;
+  assert.deepEqual(none?.rounds, [], "a result from before the line reads no rounds");
+});

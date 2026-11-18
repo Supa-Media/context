@@ -5,9 +5,10 @@
       "files": [
         "apps/mcp/src/agent/graph/nodes/handoff.js",
         "apps/mcp/src/agent/handoff.js",
-        "apps/mcp/src/agent/graph/nodes/answerCheck.js"
+        "apps/mcp/src/agent/graph/nodes/answerCheck.js",
+        "apps/mcp/src/agent/turn.js"
       ],
-      "why": "Hands a job the front door could not finish inside its turn to a background worker (Dev2, 2026-11-18: the front door stays fast; a long or multi-step job is acknowledged at once and a worker with more rounds delivers it). Asked only when the Answer check would send a draft back and its send-back budget is spent: the job's brief is their ask, the check's notice, the unsent draft and what the turn already found; the person gets the job's start tapback and the worker's report. Wired as answerCheck -> handoff (uses); unwired, such a draft goes as it is, as today."
+      "why": "Hands a job the front door could not finish inside its turn to a background worker (Dev2, 2026-11-18: the front door stays fast; a long or multi-step job is acknowledged at once and a worker with more rounds delivers it). Asked at two moments, each by its own wire, its input's cause saying which: fd -> handoff (uses) when the front door is two rounds from its bound and still calling tools (cause rounds), and answerCheck -> handoff (uses) when the Answer check would send a draft back and its send-back budget is spent (cause check). The job's brief is their ask, why it was handed on, the unsent words and what the turn already found; the person gets the job's start tapback and the worker's report. Unwired, nothing changes."
     }
   }
 }

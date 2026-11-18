@@ -512,7 +512,7 @@ export async function createWorld(bench, person, setupRaw, models, today = null,
         usage: spent.usage,
         // What each model spent and how many rounds it ran: a planned turn is priced model by model.
         usageByModel: spent.usageByModel,
-        rounds: roundsOf(turn.trace),
+        rounds: roundsOf(turn.trace), ...(body?.rounds && typeof body.rounds === "object" ? { turnRounds: body.rounds } : {}), // and its rounds of its bound (`lastRound.js` roundsField)
         trace: turn.trace ?? [],
       };
     },
