@@ -16,6 +16,7 @@
 
 import REPO from "../../../../packages/shared/src/texSetsRepo.generated.json" with { type: "json" };
 import { BENCH_PEOPLE, check, KINDS, labelFields, missingTest, ratio, unitTests } from "../../../../packages/shared/src/texSets.cjs";
+import { goldRouteAt } from "../../../../packages/shared/src/texRouteSummary.cjs";
 import { WHY } from "../../../../packages/shared/src/textDecide.cjs";
 import { MAX_OPS, OPEN_SETS } from "../../../../packages/shared/src/texSetOps.cjs";
 import { TEX_CONFIG } from "../agent/texConfig.js";
@@ -41,6 +42,9 @@ const parse = (s) => {
 
 /** The nodes a message can be labelled for: every step of the config with output fields. */
 export const labelNodes = () => TEX_CONFIG.nodes.filter((n) => Array.isArray(n.outSchema) && n.outSchema.length > 0);
+
+/** The gold route of a message in the repo's Training and Dev conversations (`labels.router.route`), for a run's `byRoute`. Never the Test set: the repo does not hold it. */
+export const repoGoldRoute = () => goldRouteAt(REPO.sets.filter((c) => c.set === "training" || c.set === "dev"));
 
 const problemsOf = (c) => check(c, TEX_CONFIG, { why: WHY_LIST });
 

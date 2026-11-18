@@ -22,36 +22,6 @@
         "packages/shared/src/texExamples.cjs"
       ],
       "why": "The Training moments nearest to the text the front door is answering (Dev2, 2026-11-18: the front door's examples are picked for this text, not fixed). The front door starts it at its first step with the text and its recent lines; it embeds them with the meaning-search model and reads the nearest of the Training moments from the Tex-owned index, dropping the scored conversation, and the front door reads them in its preamble after a budget (ms, default 100). Without the index, a model, or an answer in time, the front door keeps its fixed examples. Unwired, nothing changes: a Lab draft turns it on with fd -> examples (uses)."
-    },
-    "fdQuick": {
-      "files": [
-        "apps/mcp/src/agent/graph/nodes/doors.js",
-        "apps/mcp/src/agent/doorTools.js",
-        "apps/mcp/src/agent/doorTurn.js",
-        "apps/mcp/src/agent/turn.js",
-        "apps/mcp/src/agent/graph/nodes/fd.js"
-      ],
-      "why": "The quick door (Dev2, 2026-11-18: specialist front doors behind a Clef router): a text the router reads as answerable from the chat itself, or as a quick reply, is answered with no tools at all (only the reply-shaping ones and need_more_tools). Anything it asks past its tools, the full front door takes the turn from scratch before the call runs. Fed from the front door (fd -> fdQuick, uses) when the router is sure; unwired, nothing changes."
-    },
-    "fdRead": {
-      "files": [
-        "apps/mcp/src/agent/graph/nodes/doors.js",
-        "apps/mcp/src/agent/doorTools.js",
-        "apps/mcp/src/agent/doorTurn.js",
-        "apps/mcp/src/agent/turn.js",
-        "apps/mcp/src/agent/graph/nodes/fd.js"
-      ],
-      "why": "The read door (Dev2, 2026-11-18): a text the router reads as needing something stored of theirs or on the web read first is answered with the read-only tools only (readOnlyHint tools and the web reads), and nothing changes. A call outside those tools hands the turn to the full front door before it runs. Fed from the front door (fd -> fdRead, uses) when the router is sure; unwired, nothing changes."
-    },
-    "fdAct": {
-      "files": [
-        "apps/mcp/src/agent/graph/nodes/doors.js",
-        "apps/mcp/src/agent/doorTools.js",
-        "apps/mcp/src/agent/doorTurn.js",
-        "apps/mcp/src/agent/turn.js",
-        "apps/mcp/src/agent/graph/nodes/fd.js"
-      ],
-      "why": "The act door (Dev2, 2026-11-18): a text the router reads as a change (a note, a setting, a calendar event, a draft, a picture) runs through the same tool chain as the front door, with every tool, so the yes-code confirm and the egress hold are untouched. Its only difference is its prompt words. Fed from the front door (fd -> fdAct, uses) when the router is sure; unwired, nothing changes."
     }
   }
 }

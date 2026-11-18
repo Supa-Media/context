@@ -99,6 +99,17 @@ function handoffOf(x: unknown) {
   return { jobs: num(h.jobs), parts: num(h.parts), advisorCalls: num(h.advisorCalls), usd: usd(h.usd), perJobUsd: usd(h.perJobUsd), advisorCallsPerJob: num(h.advisorCallsPerJob) };
 }
 
+/** A row's route, cleaned (`cleanResults`): the router's pick and sure, its door, a fallback's reason; only what is there. */
+function routeOf(x: unknown) {
+  const o = (x && typeof x === "object" ? x : {}) as Record<string, unknown>;
+  const pick = str(o.pick, 10);
+  const door = str(o.door, 10);
+  const fellBack = str(o.fellBack, 120);
+  const sure = typeof o.sure === "number" && Number.isFinite(o.sure) ? o.sure : undefined;
+  if (!pick && !door && !fellBack && sure === undefined) return undefined;
+  return { ...(pick ? { pick } : {}), ...(sure !== undefined ? { sure } : {}), ...(door ? { door } : {}), ...(fellBack ? { fellBack } : {}) };
+}
+
 export function cleanResults(r: unknown) {
   const o = (r && typeof r === "object" ? r : {}) as Record<string, unknown>;
   const list = (x: unknown) => (Array.isArray(x) ? x.slice(0, MAX_ROWS) : []) as Record<string, unknown>[];
@@ -132,6 +143,9 @@ export function cleanResults(r: unknown) {
       ...(num(x.fallbacks) > 0 ? { fallbacks: num(x.fallbacks) } : {}),
       // A miss's failed lines with the judge's reasons and Tex's texts (`scripts/tex-lab-run.mjs` detailOf).
       ...(typeof x.detail === "string" && x.detail !== "" ? { detail: str(x.detail, 1_500) } : {}),
+      // The row's route (`scripts/tex-lab-run.mjs` routeOf) and its cost, so cost per turn and the route summary read it.
+      ...(routeOf(x.route) !== undefined ? { route: routeOf(x.route) } : {}),
+      ...(typeof x.usd === "number" && Number.isFinite(x.usd) ? { usd: num(x.usd) } : {}),
     })),
   };
 }

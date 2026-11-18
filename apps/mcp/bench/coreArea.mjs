@@ -64,6 +64,8 @@ export function coreCases({ test, testRaw, resultRaw, keyRaw, setup = SETUP }) {
     const bench = [...new Set(answers.filter((a) => runIds.includes(a.id)).flatMap((a) => a.bench ?? []))];
     // Each texted turn's rounds of its bound, and whether it ran out (`report.mjs`): what a miss is read against, never a score.
     const rounds = answers.filter((a) => runIds.includes(a.id) && (a.rounds ?? []).length > 0).map((a) => a.rounds); // one list per run
+    // Each texted turn's route (`report.mjs`): one list per run, read for the Lab's route summary, never a score.
+    const routes = answers.filter((a) => runIds.includes(a.id) && (a.routes ?? []).length > 0).map((a) => a.routes);
     // Calls its runs answered with the fallback model (`fallbacks.mjs`): a Lab run with any is not Tex's score.
     const fallbacks = answers.filter((a) => runIds.includes(a.id)).reduce((n, a) => n + fallbacksIn(a.tools), 0);
     // What the turn did (`turnSteps.mjs`): the first answered run's steps line, shown on the row beside its rounds, never a score.
@@ -75,6 +77,7 @@ export function coreCases({ test, testRaw, resultRaw, keyRaw, setup = SETUP }) {
       said,
       ...(handoff.jobs > 0 ? { handoff } : {}),
       ...(rounds.length > 0 ? { rounds } : {}),
+      ...(routes.length > 0 ? { routes } : {}),
       ...(fallbacks > 0 ? { fallbacks } : {}),
       ...(steps !== null ? { steps } : {}),
       id: `${test}/q${c.question}`,

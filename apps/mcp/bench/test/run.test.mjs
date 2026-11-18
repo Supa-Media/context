@@ -381,3 +381,13 @@ test("a result's Rounds line carries each texted turn's rounds of its bound to t
   const [none] = parseResult(md.replace(/Rounds: .*\n\n/, "")).answers;
   assert.deepEqual(none?.rounds, [], "a result from before the line reads no rounds");
 });
+
+test("a result's Route line carries each texted turn's route to the Lab run's row (the router's pick, its door, a fallback)", async () => {
+  const { parseResult } = await import("../resultNote.mjs");
+  const routes = [{ pick: "read", sure: 0.9, door: "read" }, { pick: "act", door: "fd", fellBack: "outside the read door's tools: send_email" }];
+  const md = ["## Answers", "", "### 1. text", "", "#### s/q1/r1", "", "**Person:** hi", "", "**Assistant:** On it.", "", "Tools: none", "", `Route: ${JSON.stringify(routes)}`, "", "Time 1.0 s, $0.0100, 1 text", ""].join("\n");
+  const [answer] = parseResult(md).answers;
+  assert.deepEqual(answer?.routes, routes);
+  const [none] = parseResult(md.replace(/Route: .*\n\n/, "")).answers;
+  assert.deepEqual(none?.routes, [], "a result from before the line reads no routes");
+});

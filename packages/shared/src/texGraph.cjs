@@ -363,6 +363,9 @@ function createGraph(config, impls, { log = () => {}, background = null, handOff
     const io = {
       node,
       ctx,
+      // Whether a node this one may reach is on: a caller that would wait on other work before calling an off node
+      // (the Door waits on the Shape gate before the router) asks first, so an off node never holds anything up.
+      on: (to) => byId.get(to)?.on !== false,
       use: handles("uses", (to) => async (arg, lend) => waited(async () => (await runNode(to, arg, withLend(lend), `${id}:uses`, self)).output)),
       // A send-back spends one of the wire's rounds; a `release` (the caller letting the work go on unchanged, the
       // answer check's "let it go") spends none, so a spent budget can always hand the work back. `left()` says how

@@ -17,7 +17,7 @@ import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { parsePeople } from "../bench/load.mjs";
-import { detailOf, devConversations, handoffOf, resultsOf, roundsLine, trainingConversations, uncast, unrun } from "../../../scripts/tex-lab-run.mjs";
+import { detailOf, devConversations, handoffOf, resultsOf, roundsLine, routeLine, routeOf, trainingConversations, uncast, unrun } from "../../../scripts/tex-lab-run.mjs";
 import { decideSaid } from "../bench/setsRun.mjs";
 
 const textOf = (result) => result.content.find((c) => c.type === "text")?.text ?? "";
@@ -53,7 +53,9 @@ test("run says the control plane's refusal; runs lists, and runs { id } answers 
   assert.equal(refused.isError, true);
   assert.match(textOf(refused), /at most 3/);
   assert.deepEqual(jsonOf(await call("runs", {})), { runs: [{ id: "k1" }] });
-  assert.deepEqual(jsonOf(await call("runs", { id: "k1" })), { id: "k1", stage: "done", results: { rows: [] } });
+  const { byRoute, ...one } = jsonOf(await call("runs", { id: "k1" }));
+  assert.deepEqual(one, { id: "k1", stage: "done", results: { rows: [] } });
+  assert.equal(byRoute.any, false, "a run with no route data says so");
 });
 
 test("the Dev set is the repo's with the Lab's drafts over it; never Training", () => {
@@ -154,8 +156,8 @@ test("results count by chat and by step, with each test's verdict and no words",
   assert.deepEqual(r.couldNotRun, [{ convId: "m", msgIndex: 1, node: "fd", why: "runs alone only on a one-ask chat" }]);
   assert.deepEqual(r.ambiguous, []);
   assert.equal(r.goldFails, null, "no gold report, no gold count");
-  assert.deepEqual(r.rows[1], { convId: "g", msgIndex: 8, node: "decide", ok: false, got: "quiet", want: "respond" });
-  assert.deepEqual(r.rows[2], { convId: "m", msgIndex: 1, node: "fd", ok: false, got: "can't run: runs alone only on a one-ask chat", want: "", ran: false }, "a test that did not run says why, and stays listed");
+  assert.deepEqual(r.rows[1], { convId: "g", msgIndex: 8, node: "decide", ok: false, got: "quiet", want: "respond", usd: 0.0004 });
+  assert.deepEqual(r.rows[2], { convId: "m", msgIndex: 1, node: "fd", ok: false, got: "can't run: runs alone only on a one-ask chat", want: "", ran: false, usd: 0 }, "a test that did not run says why, and stays listed");
 });
 
 test("a row that could not run is out of total, pass, perConv and perNode, and listed in couldNotRun with its why", () => {
@@ -288,4 +290,37 @@ test("a row's steps line comes right after its rounds, before the judge's lines,
   assert.equal(detail.length, 1_500);
   assert.equal(detailOf({ steps: "tools none | outcome: replied" }).detail, "steps: tools none | outcome: replied", "alone it is the whole detail");
   assert.deepEqual(detailOf({ steps: "" }), {}, "an empty steps line is no line");
+});
+
+test("a row's route is its first turn's (or the router's own), with its cost, and its detail says the route after the rounds (Dev2, 2026-11-18)", () => {
+  const routes = [[{ pick: "read", sure: 0.9, door: "read" }, { pick: "act", door: "fd", fellBack: "outside the read door's tools: send_email" }]];
+  assert.deepEqual(routeOf({ routes }), { pick: "read", sure: 0.9, door: "read" }, "the first turn of the first run");
+  assert.deepEqual(routeOf({ route: { pick: "quick", sure: 0.8 } }), { pick: "quick", sure: 0.8 }, "the router node alone");
+  assert.equal(routeOf({ rounds: [] }), null, "no route, no field");
+  assert.equal(routeOf({ routes: [[]] }), null);
+  assert.equal(routeLine({ pick: "act", sure: 0.5, door: "fd", fellBack: "not sure" }), "route: pick act (sure 0.5), door fd, fell back: not sure");
+  assert.equal(routeLine(null), null);
+  const rows = resultsOf([{ chat: "c", at: 0, node: "fd", right: false, got: "x", want: "y", usd: 0.0123, routes, rounds: [{ used: 2, of: 12 }], said: ["hi"] }], "5");
+  assert.deepEqual(rows.rows[0].route, { pick: "read", sure: 0.9, door: "read" });
+  assert.equal(rows.rows[0].usd, 0.0123);
+  assert.equal(rows.rows[0].detail, "rounds: 2/12\nroute: pick read (sure 0.9), door read\nTex: hi");
+  const bare = resultsOf([{ chat: "c", at: 0, node: "fd", right: true, got: "x", want: "y" }], "5");
+  assert.equal("route" in bare.rows[0], false, "a row with no route says none");
+  assert.equal("usd" in bare.rows[0], false);
+});
+
+test("runs { id } says the run's route summary as byRoute, from the repo's gold (Lab = MCP parity, 2026-11-18)", async () => {
+  const rows = [
+    { convId: "not-in-the-repo", msgIndex: 0, node: "fd", ok: true, usd: 0.02, route: { pick: "read", door: "read" } },
+    { convId: "not-in-the-repo", msgIndex: 1, node: "fd", ok: false, usd: 0.02, ran: true },
+  ];
+  const { call } = tool({ runs: { run: { id: "r1", kind: "dev", results: { pass: 1, total: 2, rows } } } });
+  const body = jsonOf(await call("runs", { id: "r1" }));
+  assert.equal(body.id, "r1");
+  assert.equal(body.byRoute.any, true);
+  assert.deepEqual(body.byRoute.fallback, { fellBack: 0, specialist: 1, total: 1 });
+  assert.deepEqual(body.byRoute.costPerTurn, { usd: 0.04, turns: 2, perTurn: 0.02 });
+  assert.equal(body.byRoute.perRoute.find((b) => b.route === "untagged").total, 2, "no repo label: all untagged");
+  const queued = tool({ runs: { run: { id: "r2", stage: "queued" } } });
+  assert.equal(jsonOf(await queued.call("runs", { id: "r2" })).byRoute, undefined, "a run with no results says no route summary");
 });

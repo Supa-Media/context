@@ -9,7 +9,7 @@ import { useSyncExternalStore } from "react";
 
 export type RunKind = "dev" | "chat" | "node" | "gate";
 export type RunStage = "queued" | "running" | "done" | "failed";
-export type RunRow = { convId: string; msgIndex: number; node: string; ok: boolean; got: string; want: string; ran?: boolean; ambiguous?: boolean };
+export type RunRow = { convId: string; msgIndex: number; node: string; ok: boolean; got: string; want: string; ran?: boolean; ambiguous?: boolean; usd?: number; route?: { pick?: string; sure?: number; door?: string; fellBack?: string } };
 /** A row out of a run's score: one that could not run, or an ambiguous one (its label's own gold reply fails). */
 export type RunNote = { convId: string; msgIndex: number; node: string; why: string };
 export type LabRun = {

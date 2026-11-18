@@ -304,6 +304,8 @@ function runBlock(run, setup) {
   // The jobs it started that ran and texted their report (`jobDelivery.mjs`): one JSON line, read back for the Lab run's spend.
   // Each texted turn's rounds of its bound, and whether it reached its end or ran out (`run.mjs`; a job's parts are not texted turns): one JSON line, read back for a Lab run's row.
   if (run.turnRounds?.length) lines.push(`Rounds: ${JSON.stringify(run.turnRounds.map(({ used, of, toEnd, exhausted, handedOff }) => ({ used, of, ...(toEnd ? { toEnd } : {}), ...(exhausted ? { exhausted } : {}), ...(handedOff ? { handedOff } : {}) })))}`, "");
+  // Each texted turn's route: the router's pick and sure, the door it ran, and why it fell back (`world.mjs` turnRoute): one JSON line, read back for a Lab run's row.
+  if (run.turnRoutes?.length) lines.push(`Route: ${JSON.stringify(run.turnRoutes.map(({ pick, sure, door, fellBack }) => ({ ...(pick ? { pick } : {}), ...(typeof sure === "number" ? { sure } : {}), ...(door ? { door } : {}), ...(fellBack ? { fellBack } : {}) })))}`, "");
   // What the turn did, short (`turnSteps.mjs`): one line, read back for a Lab row's steps.
   if (run.steps) lines.push(`Steps: ${run.steps}`, "");
   if (run.delivered?.length) lines.push(`Delivered: ${JSON.stringify(run.delivered.map(({ title, state, parts, advisorCalls, usd, capped }) => ({ title, state, parts, advisorCalls, usd, ...(capped ? { capped } : {}) })))}`, "");

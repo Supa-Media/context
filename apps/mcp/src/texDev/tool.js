@@ -19,7 +19,8 @@ import { chatsOf, entriesOf, openChat, turnsOf } from "./probe.js";
 import { jobsAnswer, linkAnswer, mineAnswer, momentsAnswer, promptAnswer, turnAnswer } from "./replay.js";
 import { nodeStatsAnswer } from "./nodeStats.js";
 import { createSandboxActions } from "./sandbox.js";
-import { createSetActions } from "./sets.js";
+import { createSetActions, repoGoldRoute } from "./sets.js";
+import { routeSummary } from "../../../../packages/shared/src/texRouteSummary.cjs";
 import { snapshotGraph } from "./snapshot.js";
 import { createDraftWrites } from "./writes.js";
 import { testSetSummary } from "../http/texTestSet.js";
@@ -266,7 +267,10 @@ export function createTexDev({ env, session, controlPlane, defer = null, sleep =
       }
       case "runs": {
         const { answer, error } = await plane("runs", { draft: args.draft, id: args.id });
-        return error ?? json(args.id ? answer.run : { runs: answer.runs });
+        // One run whole also says its route summary (`byRoute`, the Lab's "By route" block: the same arithmetic, the repo's gold).
+        const run = answer?.run;
+        const byRoute = run?.results && Array.isArray(run.results.rows) ? routeSummary(run.results.rows, repoGoldRoute()) : null;
+        return error ?? json(args.id ? (byRoute ? { ...run, byRoute } : run) : { runs: answer.runs });
       }
       case "tool_stats": {
         const { answer, error } = await plane("tool_stats", { days: args.days });

@@ -31,6 +31,13 @@ over a GitHub listener), with a Models pick of the AI gateway or Claude Code on
   A miss is read against running out from this line, never guessed (Dev2,
   2026-11-18: "prove from traces which Training fd misses are round exhaustion
   before wiring").
+- **Each run says how it routed.** A Front door row carries its first turn's
+  route (`pick`, `sure`, `door`, `fellBack`, the reply's `route`), and the run's
+  detail says it after the rounds. The run's "By route" block and tex_dev's
+  `runs { id }` `byRoute` are one summary (`packages/shared/src/texRouteSummary.cjs`):
+  per-route pass rate and cost per turn, the router's confusion against the set's
+  gold `labels.router.route`, the specialist doors' fallback rate, cost per turn.
+  Rows that did not run and ambiguous rows are out of it, as out of the score.
 - **The Dev set, or Training when asked.** The workflow runs the bench's
   node-alone runner (`node apps/mcp/bench/run.mjs sets run`) on the repo's Dev
   conversations with the Lab's Dev drafts over them (`scripts/tex-lab-run.mjs`).

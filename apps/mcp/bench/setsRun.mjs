@@ -16,6 +16,7 @@
  * says counts by node, never a message's words, so a sealed Test Set can run through it (the eval service).
  * A node without a way to run alone yet says so (`ran: false`) instead of passing.
  */
+import { existsSync } from "node:fs";
 import { readFile, writeFile } from "node:fs/promises";
 import { createRequire } from "node:module";
 import { join, resolve } from "node:path";
@@ -122,8 +123,27 @@ export function reviewerRight(label, verdict) {
   return { right, why: right ? "" : sentBack ? "sent it back, wanted it to go" : "let it go, wanted it sent back" };
 }
 
+/**
+ * The router's case for message `i`: the message's words as the question, whether the chat is a group, and the trigger
+ * that started the turn. A check-in or a routine is its own trigger; every other message, a text.
+ */
+export function routeCase(c, i) {
+  const m = c.msgs[i];
+  const trigger = m.via === "checkin" || m.via === "routine" ? m.via : "text";
+  return { question: String(m.text ?? ""), group: c.kind === "group", trigger };
+}
+
+/** Whether the router's pick is the labelled route. No pick is wrong, and says so. */
+export function routeRight(label, pick) {
+  const right = pick === label.route;
+  return { right, why: right ? "" : pick ? `routed ${pick}, wanted ${label.route}` : `no route, wanted ${label.route}` };
+}
+
+/** The router's code, as a tree has it: the module that builds its question and reads its answer (`specialistRoute.js`). */
+const ROUTER_MODULE = "apps/mcp/src/agent/specialistRoute.js";
+
 /** Each node's way to run alone: how to ask it, given the tree's code, and how to score its answer. */
-export async function adaptersFor(tree, { fake = false, env = process.env, holdOut = false } = {}) {
+export async function adaptersFor(tree, { fake = false, env = process.env, holdOut = false, routeEngine = null } = {}) {
   const mod = (rel) => import(pathToFileURL(join(tree, rel)).href);
   // Claude's calls through the model socket when one is set (`modelSocket.mjs`): the Lab's Claude Code runs
   // (`tex-lab-run.yml`, models "cc") answer them with `socketAnswerer.mjs`; nothing is priced then.
@@ -186,6 +206,28 @@ export async function adaptersFor(tree, { fake = false, env = process.env, holdO
         return { ...reviewerRight(label, verdict), ...said, ran: true, usd: socketed ? 0 : USD.reviewer };
       };
     },
+  };
+  // The router alone: its question and reader from the tree (`routeRequest`, `readRoute`), asked of the same Clef
+  // engine Decide is asked on (`decisionEngine` over `workersAi`). A tree without the module says so on each row.
+  table.router = async () => {
+    if (!existsSync(join(tree, ROUTER_MODULE))) {
+      return () => ({ right: false, ran: false, usd: 0, why: `router can't run alone yet: ${ROUTER_MODULE} is not in this tree` });
+    }
+    const { routeRequest, readRoute } = await mod(ROUTER_MODULE);
+    // Without the Clef credentials the engine answers nothing, which would score every row wrong rather than not run.
+    if (!fake && !routeEngine && !(env.CLOUDFLARE_ACCOUNT_ID && env.CLOUDFLARE_AI_TOKEN)) {
+      return () => ({ right: false, ran: false, usd: 0, why: "no Clef engine: CLOUDFLARE_ACCOUNT_ID and CLOUDFLARE_AI_TOKEN are not set" });
+    }
+    const engine = routeEngine ?? (fake ? null : (await mod("apps/mcp/src/agent/decide.js")).decisionEngine((await mod("apps/mcp/bench/models.mjs")).workersAi(env.CLOUDFLARE_ACCOUNT_ID, env.CLOUDFLARE_AI_TOKEN)));
+    return async (c, i, label) => {
+      // The fake run answers what the label says, as Decide's does: right by construction, and it proves the wiring.
+      if (fake) return { ...routeRight(label, label.route), got: label.route, want: label.route, route: { pick: label.route, sure: null }, ran: true, usd: 0 };
+      const { state, questions } = routeRequest(routeCase(c, i));
+      const read = readRoute(await engine(state, questions));
+      const pick = read?.route ?? null;
+      const sure = typeof read?.sure === "number" ? read.sure : null;
+      return { ...routeRight(label, pick), got: pick, want: label.route, route: { pick, sure }, ran: true, usd: 0 };
+    };
   };
   // The live Job advisor runs the same check (`graph/nodes/jobcheck.js`), labelled under its own id.
   table.jobadv = table.jobcheck;
