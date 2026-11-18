@@ -69,9 +69,7 @@ import {
   deleteWebsiteRelease,
   deleteWebsiteReleasePages,
   readWebsiteRelease,
-  readWebsiteReleaseDesign,
   writeWebsiteRelease,
-  writeWebsiteReleaseDesign,
 } from "../fileOps/websiteReleases";
 import type { ManagedInstalls, PluginInventory } from "./pluginValidators";
 import {
@@ -235,18 +233,6 @@ export async function executeOperation(
         return {
           kind: "websiteReleasePages",
           results: await readWebsiteRelease(store, operation.pages),
-        };
-      }
-      case "writeWebsiteReleaseDesign": {
-        return {
-          kind: "websiteReleaseWritten",
-          pages: await writeWebsiteReleaseDesign(store, operation),
-        };
-      }
-      case "readWebsiteReleaseDesign": {
-        return {
-          kind: "websiteReleaseDesign",
-          text: await readWebsiteReleaseDesign(store, operation.releaseId),
         };
       }
       case "deleteWebsiteRelease": {

@@ -115,15 +115,11 @@ Two checks hold this, and each was seen failing first:
 ## Code notes publish like pages
 
 A code note is a route-index row with a `code` role and no address. Publish
-releases it with the pages and composes the site's look from the copies it
-keeps ([kept-design](./kept-design.md)); a visit draws that, so saving a
-stylesheet changes nothing a visitor sees. Where a release has no kept look,
-or a restriction is pending, a visit draws a code note unchanged since Publish
-from its live bytes and one edited since from the release copy, both read at
-the publication clearance. A restriction marks the site pending, which takes
-the visit to that path, and the narrowing then drops the note's row, so one
-`privacy.md` now holds back, or one deleted, encrypted or drafted, stops being
-drawn at once. A members-only
+releases it with the pages; a visit draws a code note unchanged since Publish
+from its live bytes and one edited since from the release copy, so saving a
+stylesheet changes nothing a visitor sees. Its live bytes are read at the
+publication clearance on every visit, so one `privacy.md` now holds back, or
+one deleted, encrypted or drafted, stops being drawn at once. A members-only
 code note is drawn only for members. Folder references (`folder:`) never make
 a code note: a note a folder publishes is a note, whatever it is called.
 

@@ -93,7 +93,6 @@ const unavailableValidator = v.object({
   kind: v.literal("unavailable"),
   siteName: v.union(v.string(), v.null()),
   navigation: navigationValidator,
-  incomplete: v.optional(v.literal(true)),
 });
 const resolvedPageValidator = v.union(
   v.object({
@@ -108,7 +107,6 @@ const resolvedPageValidator = v.union(
     emoji: v.optional(v.record(v.string(), v.string())),
     images: v.optional(v.record(v.string(), v.string())),
     design: v.optional(designValidator),
-    incomplete: v.optional(v.literal(true)),
   }),
   authenticationRequiredValidator,
   unavailableValidator,

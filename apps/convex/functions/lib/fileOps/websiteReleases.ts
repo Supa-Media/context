@@ -17,50 +17,6 @@ function releaseKey(releaseId: string, pageId: string): string {
   return `${WEBSITE_RELEASE_PREFIX}${releaseId}/${pageId}.md`;
 }
 
-/**
- * The design Publish composed and sanitized for one release
- * (`lib/websites/bakedDesign.ts`), kept beside its page copies so a visit
- * reads one object instead of rebuilding the look from the live notes.
- */
-function designKey(releaseId: string): string {
-  if (!RELEASE_ID.test(releaseId)) {
-    throw new FileOpError("PATH_INVALID", "That website release reference is not valid.");
-  }
-  return `${WEBSITE_RELEASE_PREFIX}${releaseId}/design.json`;
-}
-
-const MAX_DESIGN_BYTES = 12_000_000;
-
-export async function writeWebsiteReleaseDesign(
-  store: FileStore,
-  options: { releaseId: string; text: string },
-): Promise<number> {
-  if (options.text.length > MAX_DESIGN_BYTES) {
-    throw new FileOpError("BATCH_TOO_LARGE", "That website design is too large to keep.");
-  }
-  const key = designKey(options.releaseId);
-  const prior = await store.get(key);
-  if (prior !== null) {
-    if ((await prior.text()) === options.text) return 1;
-    throw new FileOpError("CONFLICT", "A website release design already holds different bytes.");
-  }
-  const written =
-    store.capabilities?.conditionalCreate === true
-      ? await store.put(key, options.text, { onlyIf: { absent: true } })
-      : await store.put(key, options.text);
-  const verified = written === null ? await store.get(key) : await store.get(key);
-  if (verified === null || (await verified.text()) !== options.text) {
-    throw new FileOpError("CONFLICT", "The bucket did not keep the website design it accepted.");
-  }
-  return 1;
-}
-
-/** The release's design, or null when it has none (a release kept before designs were). */
-export async function readWebsiteReleaseDesign(store: FileStore, releaseId: string): Promise<string | null> {
-  const object = await store.get(designKey(releaseId));
-  return object === null ? null : await object.text();
-}
-
 export async function writeWebsiteRelease(
   store: FileStore,
   clearance: Clearance,
@@ -155,10 +111,6 @@ export async function deleteWebsiteReleasePages(
     throw new FileOpError("PATH_INVALID", "Too many website release pages.");
   }
   const keys = pageIds.map((pageId) => releaseKey(releaseId, pageId));
-  // The release's design was composed from its code notes' copies, and a page
-  // withheld now may be one of them: the design goes too, so nothing it held
-  // outlives the note, and visits draw from the copies that remain.
-  if (keys.length > 0) await store.delete(designKey(releaseId));
   for (const key of keys) await store.delete(key);
   return keys.length;
 }

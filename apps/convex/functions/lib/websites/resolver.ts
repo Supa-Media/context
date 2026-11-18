@@ -12,7 +12,6 @@ import {
   websiteRouteLookupKey,
   type ResolvedWebsiteAddress,
   type ResolvedWebsitePage,
-  type WebsiteDesign,
   type WebsiteNavigationItem,
   type WebsiteRouteAudience,
 } from "@context/shared";
@@ -35,8 +34,7 @@ import { readPublishedEmoji } from "./emoji";
 import { readPublishedImages } from "./images";
 import { readableSharePaths } from "./shareReadability";
 import { folderListFor, folderPagesUnder, routeStatusKey, type FolderPage } from "./folders";
-import { pageDesign } from "./bakedDesign";
-import { siteDesignsAllowed, type DesignNote } from "./design";
+import { readWebsiteDesign, siteDesignsAllowed, type DesignNote } from "./design";
 
 type SiteShell = {
   siteName: string;
@@ -385,11 +383,9 @@ export async function resolveWebsitePageAs(
       });
       return restrictedUnavailable;
     }
-    // The note could not be read: that says nothing about whether the page is
-    // still published, so an answer without it is `incomplete`, never kept.
     return (
       (await resolveReleasedPage(ctx, plan, args.handle).catch(() => null)) ??
-      { ...sourceUnavailable, incomplete: true }
+      sourceUnavailable
     );
   }
   if (result.kind !== "file") {
@@ -468,9 +464,10 @@ export async function resolveWebsitePageAs(
   // The live bytes still publish this page. Unchanged since Publish, they are
   // the published copy; changed, the copy Publish kept is served instead.
   if (result.etag !== plan.sourceEtag) {
-    const released = await resolveReleasedPage(ctx, plan, args.handle, true).catch(() => "failed" as const);
-    if (released === "failed") return { ...sourceUnavailable, incomplete: true };
-    return released ?? sourceUnavailable;
+    return (
+      (await resolveReleasedPage(ctx, plan, args.handle, true).catch(() => null)) ??
+      sourceUnavailable
+    );
   }
   return await renderWebsitePage(ctx, {
     workspaceId: plan.workspaceId,
@@ -478,7 +475,7 @@ export async function resolveWebsitePageAs(
     objectKey: plan.objectKey,
     body: folderListFor(plan.objectKey, result.text, parsed.body, plan.folderPages ?? []),
     viewerAudience: plan.viewerAudience,
-    design: { notes: plan.designNotes ?? [], text: result.text, html: plan.code === "html", kept: plan.releaseFallback },
+    design: { notes: plan.designNotes ?? [], text: result.text, html: plan.code === "html" },
     page: {
       kind: "page",
       siteName: plan.siteName,
@@ -554,7 +551,7 @@ async function resolveReleasedPage(
     objectKey: plan.objectKey,
     body: folderListFor(plan.objectKey, page.text, parsed.body, plan.folderPages ?? []),
     viewerAudience: plan.viewerAudience,
-    design: { notes: plan.designNotes ?? [], text: page.text, html: plan.code === "html", kept: plan.releaseFallback },
+    design: { notes: plan.designNotes ?? [], text: page.text, html: plan.code === "html" },
     page: {
       kind: "page",
       siteName: plan.siteName,
@@ -618,29 +615,25 @@ async function renderWebsitePage(
     body: string;
     viewerAudience: WebsiteRouteAudience;
     page: Extract<ResolvedWebsitePage, { kind: "page" }>;
-    /**
-     * The site's published code notes and the served text, for its design;
-     * `kept` when no restriction is pending, so the release's kept design may
-     * be drawn.
-     */
-    design?: { notes: DesignNote[]; text: string; html: boolean; kept?: boolean };
+    /** The site's published code notes and the served text, for its design. */
+    design?: { notes: DesignNote[]; text: string; html: boolean };
   },
 ): Promise<ResolvedWebsitePage> {
-  // The look Publish kept, or rebuilt from the live notes where it kept none
-  // that still matches (`bakedDesign.ts`). A failure to read either is
-  // `incomplete`: the page is answered without its look, and never kept at the
-  // edge as if that were the site.
-  const designing: Promise<{ design: WebsiteDesign | null } | "failed"> =
+  const designing =
     args.design === undefined || (args.design.notes.length === 0 && !args.design.html)
-      ? Promise.resolve({ design: null })
-      : pageDesign(ctx, args.workspaceId, args.objectKey, args.viewerAudience, args.design);
+      ? Promise.resolve(null)
+      : readWebsiteDesign(ctx, {
+          workspaceId: args.workspaceId,
+          notes: args.design.notes,
+          pageKey: args.objectKey,
+          pageText: args.design.text,
+          pageIsHtml: args.design.html,
+          viewerAudience: args.viewerAudience,
+        }).catch(() => null);
   // An HTML page's words are its HTML; its prose is notes, never published.
   if (args.design?.html === true) {
-    const drawn = await designing;
-    if (drawn === "failed" || drawn.design === null) {
-      return { ...args.page, kind: "page", ...(drawn === "failed" ? { incomplete: true as const } : {}) };
-    }
-    return { ...args.page, markdown: "", design: drawn.design };
+    const design = await designing;
+    return design === null ? { ...args.page, kind: "page" } : { ...args.page, markdown: "", design };
   }
   const catalog = await ctx
     .runQuery(internal.functions.websites.websiteLinkCatalog, {
@@ -670,18 +663,16 @@ async function renderWebsitePage(
   );
 
   const markdown = rewriteWebsiteLinks(withLists, linkOptions, readableShares);
-  const [emoji, images, drawn] = await Promise.all([
+  const [emoji, images, design] = await Promise.all([
     readPublishedEmoji(ctx, args.workspaceId, [markdown]).catch(() => ({})),
     readPublishedImages(ctx, args.workspaceId, [markdown]).catch(() => ({})),
     designing,
   ]);
-  const design = drawn === "failed" ? null : drawn.design;
   return {
     ...args.page,
     markdown,
     ...(Object.keys(emoji).length > 0 ? { emoji } : {}),
     ...(Object.keys(images).length > 0 ? { images } : {}),
     ...(design === null ? {} : { design }),
-    ...(drawn === "failed" ? { incomplete: true as const } : {}),
   };
 }
