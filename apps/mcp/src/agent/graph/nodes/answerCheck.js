@@ -8,7 +8,9 @@
  *
  * The wire's rounds are the send-back budget. Letting a draft go is a release and spends none. Once the budget is
  * spent, a draft that would be sent back goes on as it is, and the output says `spent` (Dev2, 2026-11-17: a job whose
- * part got a third notice crashed and lost its finished answer ten times running).
+ * part got a third notice crashed and lost its finished answer ten times running). When the config wires
+ * `answerCheck -> handoff`, such a draft hands the job to a background worker instead (`handoff.js`), and the output
+ * logs `handedOff`.
  */
 export async function answerCheckNode(input, io) {
   const t = io.ctx.turn;
@@ -17,14 +19,24 @@ export async function answerCheckNode(input, io) {
   let sentBack = 0;
   let reviews = 0;
   let spent = false;
+  let handedOff = false;
   const letGo = () => back({ notice: null }, { release: true });
+  // The budget is spent and the draft would be sent back: when the config wires the Hand-off node, the job goes to a
+  // background worker instead of the draft going as it is (`../../handoff.js`); the Front door ends on its start line.
+  const spentOn = async (waiting, notice) => {
+    spent = true;
+    const ack = typeof t.handoff === "function" ? await t.handoff(waiting.draft, waiting.info, notice) : null;
+    if (typeof ack !== "string" || ack === "") return letGo();
+    handedOff = true;
+    t.handedOff = ack; // the Front door's model loop ends on it (`turn.js`), and the wire carries no notice
+    return letGo();
+  };
   while (stop.pending) {
     const waiting = t.drafts.waiting;
     const { notice, review } = await t.answerChecks.code(waiting.draft, waiting.info);
     if (notice !== null && notice !== undefined) {
       if (back.left() === 0) {
-        spent = true;
-        stop = await letGo();
+        stop = await spentOn(waiting, String(notice));
         continue;
       }
       sentBack += 1;
@@ -38,12 +50,11 @@ export async function answerCheckNode(input, io) {
         sentBack += 1;
         stop = await back({ notice: String(said) });
       } else {
-        if (said !== null && said !== undefined) spent = true;
-        stop = await letGo();
+        stop = said !== null && said !== undefined ? await spentOn(waiting, String(said)) : await letGo();
       }
       continue;
     }
     stop = await letGo(); // let go: the front door may still write it again with a text that came in
   }
-  return { ...stop, when: [stop.ended ? "ended" : "done"], sentBack, reviews, ...(spent ? { spent: true } : {}) };
+  return { ...stop, when: [stop.ended ? "ended" : "done"], sentBack, reviews, ...(spent ? { spent: true } : {}), ...(handedOff ? { log: { handedOff: true } } : {}) };
 }

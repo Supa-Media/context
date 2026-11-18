@@ -51,6 +51,7 @@ import { watchWhatLeavesNode } from "./nodes/watchWhatLeaves.js";
 import { doorStepNode } from "./nodes/doorStep.js";
 import { bypassNode } from "./nodes/bypass.js";
 import { answerCheckNode } from "./nodes/answerCheck.js";
+import { handoffNode } from "./nodes/handoff.js";
 import learn from "./nodes/learn.js";
 import { afterReplyNode } from "./nodes/afterReply.js";
 import chatDays from "./nodes/chatDays.js";
@@ -128,6 +129,7 @@ export const GATEWAY_NODES = {
   get doorStep() { return doorStepNode; },
   get bypass() { return bypassNode; },
   get answerCheck() { return answerCheckNode; },
+  get handoff() { return handoffNode; },
   get learn() { return learn; },
   get afterReply() { return afterReplyNode; },
   get jobadv() { return jobadv; },
