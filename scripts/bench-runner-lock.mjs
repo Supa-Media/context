@@ -35,7 +35,7 @@
 import { execFileSync } from "node:child_process";
 
 /** The workflows that sign in as the benchmark runner. */
-export const RUNNER_WORKFLOWS = ["ai-benchmark.yml", "ai-promote.yml", "tex-replay.yml", "tex-nightly.yml", "tex-lab-run.yml", "tex-test-set-seed.yml"];
+export const RUNNER_WORKFLOWS = ["ai-benchmark.yml", "ai-promote.yml", "tex-replay.yml", "tex-nightly.yml", "tex-lab-run.yml", "tex-test-set-seed.yml", "bench-token-salvage.yml"];
 const ACTIVE = new Set(["queued", "in_progress", "waiting", "requested", "pending"]);
 
 /** Whether run `a` comes before run `b`: its latest attempt started first, then the lower id. */
