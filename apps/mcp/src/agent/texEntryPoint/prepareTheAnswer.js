@@ -13,6 +13,8 @@ import { turnPictures } from "../pictureMaker.js";
 import { routineCalendarTools } from "../routine.js";
 import { deskTexts } from "../texDesk.js";
 import { TEXTS_CLIENT_ID } from "./clients.js";
+import { prefetchNamedRecords, recordAskText } from "../recordRead.js";
+import { theirEarlierWords } from "../turnWeb.js";
 import { untriedWebCheck } from "../untriedWeb.js";
 import { stepLog } from "../ledger.js";
 
@@ -25,7 +27,14 @@ export async function prepareTheAnswer(t) {
   const forwarding = runner ? [...(await tex.step("forward_tools", () => standingForwardTools(store, routine.path, offered))), ...routineCalendarTools(offered)] : []; // and their own calendar (`routine.js`)
   // A small model also reads it for work handed back to them (`handbackJudge.js`).
   const claims = !runner && (!front || job !== null) && (texted || group !== null) ? claimCheck({ question, job, waiting: setAside.length > 0, corrects: correctsTheAsk(question, setAside), pictures: carriesPictures(attachments), kept: keptIdsOf(attachments, keptInHistory(history, { texts: Infinity })), keptShown: attachments.some((file) => file.kept), history, detailed: asksDetailed(readInstructions(body.instructions)), origin: noteLinking.origin, visuals: () => maker?.has("draw_visual") === true, judge: env.HANDBACK_JUDGE !== "on" ? null : handbackFor(job?.id, gatewayGraph({ env, writer: chatLog, turn: ledgerTurn }), { question, config: aiGatewayConfig(env), metadata: { feature: "handback-judge", workspace: String(session.workspaceId) } }) }) : null;
-  const tries = claims === null && !runner && (texted || group !== null) ? untriedWebCheck({ question }) : null; // on the front door, "I can't open it" with nothing tried still goes back once (`untriedWeb.js`)
+  // A named note or page is opened before the model speaks, and the record check
+  // counts that open (`recordRead.js`). A front-door turn only: a routine's body is not the person's ask.
+  // The can't-open and figure checks stay on every front-door turn (`untriedWeb.js`).
+  const onFront = !runner && (texted || group !== null);
+  const recordAsk = onFront ? recordAskText(question, theirEarlierWords(history)) : question;
+  const prefetched = onFront ? await prefetchNamedRecords(dispatch, recordAsk) : { preface: "", steps: [] };
+  t.recordPreface = prefetched.preface;
+  const tries = claims === null && onFront ? untriedWebCheck({ question: recordAsk, priorSteps: prefetched.steps }) : null;
   // A page's cover it draws is kept for the page's link card (`/gateway/page-cover`).
   const keepCover = async (path, png) => controlPlane.recordPageCover(session.accessToken, session.workspaceId, path, png);
   const { outgoing, maker, cardCheck } = await tex.step("pictures_setup", () => turnPictures(env, { texted: texted || group !== null, question, attachments, store, keep: conversation === "texts", meter, workspaceId: session.workspaceId, keepCover, steps: chatLog ? stepLog(chatLog, { turn: ledgerTurn }) : null })); stages?.mark("pictures");
