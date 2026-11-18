@@ -364,6 +364,8 @@ export function sandboxEnvOf(env, { gate, workspaces, tex }) {
     else if (ANALYTICS.has(key)) out[key] = { writeDataPoint() {} };
   }
   if (typeof env?.SITE_SHOTS?.fetch === "function") out.SITE_SHOTS = readOnlySiteShots(env.SITE_SHOTS);
+  // Tex's example index (`graph/nodes/examples.js`): Training moments only, so a test turn may search it; never write it.
+  if (typeof env?.TEX_EXAMPLES?.query === "function") out.TEX_EXAMPLES = Object.freeze({ query: (vector, options) => env.TEX_EXAMPLES.query(vector, options) });
   if (workspaces) out.WORKSPACE_STORE = workspaces;
   if (tex) out.TEX_STORE = tex;
   out[LAB_SANDBOX_KEY] = gate;
