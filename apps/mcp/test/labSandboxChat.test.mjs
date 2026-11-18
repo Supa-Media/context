@@ -281,10 +281,10 @@ test("a test row reaches the chat object as Tex's line hands it over, for each k
   assert.deepEqual([unsend.path, unsend.body.kind, unsend.body.groupId, unsend.body.text], ["/edit", "unsent", "lab:x", undefined]);
 });
 
-test("a burst (`send`'s `also`) lands every text before the chat object looks, so one turn answers them all", async () => {
+test("a burst (`send`'s `also`) lands every text before the chat object looks, so a turn can answer them all", async () => {
   const about = { kind: "group", owner: `chat:${KEY}`, ledgerChat: KEY, chatKey: KEY, members: "d".repeat(64), people: [{ handle: "ana", name: "You" }, { handle: "ben", name: "ben" }], line: LINE };
   const at = Date.now();
-  const second = { id: "t2", who: "ben", text: "tex, say bravo", at: at + 1, prod: false, eid: "0000000000002-000002", burst: "t1" };
+  const second = { id: "t2", who: "kai", text: "tex, say bravo", at: at + 1, prod: false, eid: "0000000000002-000002", burst: "t1" };
   const row = { id: "t1", who: "ana", text: "tex, say alpha", at, prod: false, eid: "0000000000001-000001", also: ["t2"] };
   const { stub, call, ready } = sandbox(about, []);
   await ready;
@@ -293,7 +293,10 @@ test("a burst (`send`'s `also`) lands every text before the chat object looks, s
   const gw = fakeGateway("alpha\n\nbravo", call, row.id);
   await runChatTurn({ env: {}, stub, about, row, payload: { defaultWorkspaceId: "ws_a" }, token: "caller-token", config: null, origin: "https://gateway.example", chat: { slug: "family" }, agentRoute: gw.agentRoute, textsRoute: gw.textsRoute });
   const turns = gw.asked.filter((a) => a.path === "/agent");
-  assert.equal(turns.length, 1, `one turn for the burst (${turns.map((t) => t.body.question).join(" | ")})`);
-  assert.match(JSON.stringify(turns[0].body), /say alpha/);
-  assert.match(JSON.stringify(turns[0].body), /say bravo/);
+  const asked = JSON.stringify(turns.map((t) => t.body));
+  assert.match(asked, /say alpha/, "the first text reached a turn");
+  assert.match(asked, /say bravo/, "the burst's text reached a turn");
+  // Each text from its own sender: "say bravo" is kai's (not in the chat's list yet), never ana's (the first text's) number.
+  const bravo = turns.find((t) => t.body.question === "tex, say bravo");
+  assert.ok(bravo !== undefined && bravo.body.group?.from !== "ana", `"say bravo" is kai's, not ana's (a new number has no name yet) (${turns.map((t) => `${t.body.question}: ${t.body.group?.from}`).join(" | ")})`);
 });

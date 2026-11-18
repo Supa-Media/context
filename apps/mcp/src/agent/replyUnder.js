@@ -38,7 +38,7 @@ export function underNote(covered, { group = false, speaker = (from) => `@${from
   return [
     `This turn answers ${texts.length} texts at once:`,
     ...lines,
-    "Each answer bubble is threaded under one of them in the chat. When a paragraph answers one text in particular, start it with that text's number, like \"[2] \", and it goes under that text; the number itself is never sent. A paragraph with no number goes under the newest text. One reply that answers them all together needs no numbers.",
+    "Each answer bubble is threaded under one of them in the chat. When the texts ask different things, answer each in its own paragraph (a blank line between them) that starts with that text's number, like \"[2] \", so each answer goes under the text it answers; the number itself is never sent. A paragraph with no number goes under the newest text. Only one reply that answers them all together, as one thought, goes without numbers.",
   ].join("\n");
 }
 
