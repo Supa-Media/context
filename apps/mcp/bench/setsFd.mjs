@@ -15,7 +15,7 @@
  *
  * What runs: a text or a reply from one of the bench's people (Dev2, 2026-11-17: "why dont we use existing people that
  * we do have worlds for then, and then why dont we restrict the people that can be put in these test sets"; the
- * contract refuses anyone else in a Dev chat, `texSets.cjs` BENCH_PEOPLE), as them: their own test's front matter when
+ * contract refuses anyone else in a Dev or Training chat, `texSets.cjs` BENCH_PEOPLE), as them: their own test's front matter when
  * one runs as them, else the core set's. A group chat runs in the shared workspace `people.md` puts all its members in
  * (the one named like the conversation first), each earlier line sent as the member who said it. Each test runs on its
  * own day: the conversation's `at` lines walked from the first one that names a date ("Tue Oct 13 10:14"). A check-in
@@ -28,8 +28,12 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
 
+import { createRequire } from "node:module";
+
 import { tapbackSaidLine } from "../src/agent/tapbackEnding.js";
 import { parsePeople } from "./load.mjs";
+
+const { OTHER_ASSISTANTS } = createRequire(import.meta.url)("../../../packages/shared/src/texSets.cjs");
 
 /** The live setup note's settings, without its task skills (Context `@context-lc ai/production/texting-assistant.md`). */
 export const LIVE_SETTINGS = ["job: texting-assistant", "max_steps: 24", "open_web: yes", "search:", "  everywhere: true"].join("\n");
@@ -179,12 +183,29 @@ export async function zoneOf(dir, workspace) {
 }
 const DEFAULT_ZONE = "America/New_York";
 
+/** A conversation's people: its members, less another AI assistant in the chat (`texSets.cjs` OTHER_ASSISTANTS). */
+export const castOf = (c) => (Array.isArray(c?.members) ? c.members : []).filter((name) => !OTHER_ASSISTANTS.includes(name));
+
+/**
+ * Why a conversation's Front door tests could not run in the bench, as sentences; empty when they can: each of its
+ * people has a bench world (a personal workspace in `people.md`) and a group has a shared workspace with them all.
+ * The set tests hold every Training and Dev conversation to it, and a Lab run refuses one that fails it rather than
+ * scoring its tests wrong (Lab run 2026-11-17: Training's Front door read 0/63, none of its people in the bench).
+ */
+export function castProblems(c, people) {
+  const cast = castOf(c);
+  if (cast.length === 0) return ["the conversation names no person"];
+  const out = cast.filter((name) => !people.some((row) => row.person === name && row.personal)).map((name) => `${name} has no bench world`);
+  if (out.length === 0 && c.kind === "group" && groupFor(people, c) === null) out.push(`no shared workspace has all of ${cast.join(", ")}`);
+  return out;
+}
+
 /**
  * The shared workspace a group conversation runs in: one `people.md` puts every member in with nobody's personal
  * workspace, the one named like the conversation first. Null when there is none.
  */
 export function groupFor(people, c) {
-  const want = c.members.map(handleOf);
+  const want = castOf(c).map(handleOf);
   const byWs = new Map();
   for (const row of people) {
     if (row.personal) continue;
@@ -431,7 +452,7 @@ export async function runFd(units, { tree, fake = false, runTests = null, parall
       const group = u.convo.kind === "group" ? groupFor(people, u.convo) : null;
       const person = senderOf(u.convo, u.at, people, group);
       if (u.convo.kind === "group" && group === null) {
-        rows.push({ ...u.row, right: false, ran: false, usd: 0, why: `no shared workspace in apps/mcp/bench/ai/workspaces/people.md has all of ${u.convo.members.join(", ")}` });
+        rows.push({ ...u.row, right: false, ran: false, usd: 0, why: `no shared workspace in apps/mcp/bench/ai/workspaces/people.md has all of ${castOf(u.convo).join(", ")}` });
         continue;
       }
       const today = dayOf(u.convo, u.at, year);
@@ -447,7 +468,7 @@ export async function runFd(units, { tree, fake = false, runTests = null, parall
     for (const { person, today, group, calendar, setting, clock, units } of batches.values()) {
       const front = await frontFor(dir, person, { today, group, calendar, setting, clock });
       if (front === null) {
-        rows.push(...units.map((u) => ({ ...u.row, right: false, ran: false, usd: 0, why: `${person} has no bench world: a Dev chat's people are the bench's (apps/mcp/bench/ai/workspaces/people.md)` })));
+        rows.push(...units.map((u) => ({ ...u.row, right: false, ran: false, usd: 0, why: `${person} has no bench world: a set chat's people are the bench's (apps/mcp/bench/ai/workspaces/people.md)` })));
         continue;
       }
       const name = `sets-${tests.length + 1}`;

@@ -226,6 +226,21 @@ test("a group chat's test runs through the real bench on fake models end to end,
   assert.equal(rows[0].ran, true, rows[0].why);
 });
 
+// Lab run v57nzej7ky4nwymkc5txz7vsd18jfj16 (2026-11-17): every Training Front door row was `ran: false`, "Remi has no
+// bench world", and the run read 0/63. Training is cast from the bench now (Seyi, 2026-11-17). Sabotage: rename a
+// member of `training/trial-hire.json` or `training/truck-crew.json` to anyone `people.md` doesn't have, and this fails.
+test("the repo's Training conversations run their Front door tests through the real bench on fake models, one-to-one and group", async () => {
+  const { loadSets } = await import("../bench/sets.mjs");
+  const training = (await loadSets()).filter((c) => c.set === "training");
+  const first = (id) => {
+    const c = training.find((x) => x.id === id);
+    const at = sets.unitTests(c).find((t) => t.node === "fd" && cantRun(c, t.at) === null).at;
+    return unit(c, at);
+  };
+  const rows = await runFd([first("trial-hire"), first("truck-crew")], { tree: TREE, fake: true });
+  assert.deepEqual(rows.map((r) => [r.chat, r.ran, r.why]), [["trial-hire", true, undefined], ["truck-crew", true, undefined]]);
+});
+
 test("a check-in row's email: the sender before the first colon, the rest as what it says", () => {
   assert.deepEqual(checkinMail("Gmail: TAP: flight TP 237 delayed 50 minutes, new departure 2:05pm."), { from: "TAP", subject: "flight TP 237 delayed 50 minutes, new departure 2:05pm.", body: "flight TP 237 delayed 50 minutes, new departure 2:05pm." });
   assert.equal(checkinMail("Gmail: no sender here at all").from, "(sender)");

@@ -12,7 +12,12 @@ import { test } from "node:test";
 import { createTexDev } from "../src/texDev/tool.js";
 import { guideText } from "../src/texDev/guide.js";
 import { texDevToolDefinitions } from "../src/tools/schemas/texDev.js";
-import { detailOf, devConversations, handoffOf, resultsOf, trainingConversations } from "../../../scripts/tex-lab-run.mjs";
+import { execFileSync, spawnSync } from "node:child_process";
+import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { parsePeople } from "../bench/load.mjs";
+import { detailOf, devConversations, handoffOf, resultsOf, trainingConversations, uncast, unrun } from "../../../scripts/tex-lab-run.mjs";
 import { decideSaid } from "../bench/setsRun.mjs";
 
 const textOf = (result) => result.content.find((c) => c.type === "text")?.text ?? "";
@@ -77,6 +82,60 @@ test("a Training run is the repo's Training set, less what the Lab moved to Dev 
   assert.deepEqual(trainingConversations(repo, drafts).map((c) => c.id), ["t1"]);
   assert.deepEqual(trainingConversations(repo, [], "t3").map((c) => c.id), ["t3"]);
   assert.deepEqual(trainingConversations(repo, [], "d"), [], "a Dev chat is never in a Training run");
+});
+
+// Lab run v57nzej7ky4nwymkc5txz7vsd18jfj16 (2026-11-17): Training's Front door read 0/63 in thirty seconds, every row
+// "has no bench world", and the run was "done". Sabotage: make `uncast` or `unrun` return [] and these fail.
+const LAB_RUN = new URL("../../../scripts/tex-lab-run.mjs", import.meta.url).pathname;
+const PEOPLE = parsePeople(readFileSync(new URL("../bench/ai/workspaces/people.md", import.meta.url), "utf8"));
+const fdChat = (id, members, kind = "one") => ({ id, set: "training", kind, members, msgs: [{ id: "m1", who: members[0], text: "hi", labels: { fd: { must: ["say hi"], star: true } } }] });
+
+test("a run names the conversations whose Front door tests the bench has no world for, only when the Front door runs", () => {
+  const convs = [fdChat("a", ["Maya"]), fdChat("b", ["Zed"]), fdChat("c", ["Maya", "Kofi"], "group"), { ...fdChat("d", ["Zed"]), msgs: [{ id: "m1", who: "Zed", text: "hi" }] }];
+  assert.deepEqual(uncast(convs, PEOPLE), [
+    { id: "b", problems: ["Zed has no bench world"] },
+    { id: "c", problems: ["no shared workspace has all of Maya, Kofi"] },
+  ], "a chat with no Front door test is not held to the cast");
+  assert.deepEqual(uncast(convs, PEOPLE, "fd").map((x) => x.id), ["b", "c"]);
+  assert.deepEqual(uncast(convs, PEOPLE, "decide"), [], "a Decide-only run needs nobody's world");
+});
+
+test("a step whose tests all could not run is named with its first reason; one that ran some is not", () => {
+  const rows = [
+    { node: "fd", ran: false, right: false, why: "Zed has no bench world" },
+    { node: "fd", ran: false, right: false, why: "another" },
+    { node: "decide", ran: true, right: false },
+    { node: "decide", ran: false, right: false, why: "x" },
+  ];
+  assert.deepEqual(unrun(rows), [{ node: "fd", total: 2, why: "Zed has no bench world" }]);
+  assert.deepEqual(unrun(rows.slice(2)), []);
+  assert.deepEqual(unrun([]), []);
+});
+
+test("the workflow's halves fail, with why for the Lab, when the cast has no world or a whole step did not run", () => {
+  const dir = mkdtempSync(join(tmpdir(), "tex-lab-run-"));
+  const why = join(dir, "why");
+  const run = (...args) => spawnSync(process.execPath, [LAB_RUN, ...args], { encoding: "utf8", env: { ...process.env, TEX_LAB_WHY: why } });
+  writeFileSync(join(dir, "rows.json"), JSON.stringify([{ chat: "trial-hire", node: "fd", ran: false, right: false, why: "Zed has no bench world" }, { chat: "g", node: "decide", ran: true, right: true }]));
+  const none = run("ran", join(dir, "rows.json"));
+  assert.equal(none.status, 1);
+  assert.match(none.stderr, /tex-lab-run: none of these steps' tests could run: fd 0\/1/);
+  assert.doesNotMatch(none.stderr, /Zed/, "the public log keeps to steps and counts");
+  assert.equal(readFileSync(why, "utf8"), "none of fd's 1 tests could run: Zed has no bench world");
+  writeFileSync(join(dir, "ok.json"), JSON.stringify([{ node: "fd", ran: true, right: false }, { node: "fd", ran: false, right: false, why: "a picture" }]));
+  assert.equal(run("ran", join(dir, "ok.json")).status, 0, "a test that can't run alone is its row's to say");
+  // The repo's own Training set is cast from the bench, so its run prepares.
+  writeFileSync(join(dir, "job.json"), JSON.stringify({ kind: "set", set: "training", models: "gw", drafts: [] }));
+  const out = execFileSync(process.execPath, [LAB_RUN, "prepare", join(dir, "job.json"), join(dir, "lab")], { encoding: "utf8" });
+  assert.match(out, /^Training conversations: 6 /);
+  // A Dev draft from the Lab with someone the bench has no world for is refused before anything runs.
+  const draft = { ...fdChat("stranger", ["Zed"]), set: "dev" };
+  writeFileSync(join(dir, "job2.json"), JSON.stringify({ kind: "set", models: "gw", drafts: [{ id: "stranger", set: "dev", removed: false, conv: JSON.stringify(draft) }] }));
+  const refused = run("prepare", join(dir, "job2.json"), join(dir, "lab2"));
+  assert.equal(refused.status, 1);
+  assert.match(refused.stderr, /1 Dev conversation can't run the Front door's tests \(stranger\)/);
+  assert.doesNotMatch(refused.stderr, /Zed/);
+  assert.match(readFileSync(why, "utf8"), /^the Front door's tests can't run: stranger: Zed has no bench world/);
 });
 
 test("results count by chat and by step, with each test's verdict and no words", () => {

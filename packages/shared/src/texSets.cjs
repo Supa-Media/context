@@ -42,17 +42,25 @@ const LABEL_KEYS = Object.freeze(["star", "run", "must", "never"]);
 const ID = /^[a-z0-9][a-z0-9-]{0,79}$/;
 /**
  * The people a Dev conversation may have (Dev2, 2026-11-17: "why dont we use existing people that we do have worlds
- * for then, and then why dont we restrict the people that can be put in these test sets"). A Dev test runs as a real
- * turn in the bench's invented world for its person (`apps/mcp/bench/setsFd.mjs`), so a chat with anyone else can't
- * run. With TRAINING_PEOPLE, exactly the people in `apps/mcp/bench/ai/workspaces/people.md`; `setsFd.test.mjs` fails when they part.
+ * for then, and then why dont we restrict the people that can be put in these test sets"). A Front door test runs as
+ * a real turn in the bench's invented world for its person (`apps/mcp/bench/setsFd.mjs`), so a chat with anyone else
+ * can't run. With TRAINING_PEOPLE, exactly the people in `apps/mcp/bench/ai/workspaces/people.md`; `setsFd.test.mjs`
+ * fails when they part. The repo's Training conversations are cast from these six too (Seyi, 2026-11-17: recast
+ * Training onto people who already have bench worlds; its Front door had read 0/63, nobody in it having a world).
  */
 const BENCH_PEOPLE = Object.freeze(["Maya", "John", "Priya", "Tomas", "Nia", "Kofi"]);
 /**
- * The Training conversations' people, who have thin bench worlds of their own so a Training Front door row runs as a
- * real turn too (Dev2, 2026-11-18: "prove it on Training ... a scored Lab Training run"). Kept apart from BENCH_PEOPLE,
- * so a Dev chat still has only the bench's own people.
+ * The people the Training conversations had before they were recast, who have thin bench worlds of their own (Dev2,
+ * 2026-11-18: "prove it on Training ... a scored Lab Training run"; #3631). A Training chat may still have them, since
+ * they have worlds; no conversation in the repo does now. Kept apart from BENCH_PEOPLE, so a Dev chat still has only
+ * the bench's own people.
  */
 const TRAINING_PEOPLE = Object.freeze(["Lucia", "Remi", "Omar", "Jess", "Wren", "Nadia", "Theo"]);
+/**
+ * Another AI assistant a group may have beside Tex (Training `side-talk`): a member whose lines are in the chat, never
+ * a person, so it needs no bench world and no test runs as it.
+ */
+const OTHER_ASSISTANTS = Object.freeze(["Nova"]);
 
 /**
  * The fields a node is labelled with, from its config `outSchema`: a required choice or yes/no field becomes a
@@ -90,9 +98,12 @@ function check(c, config, opts = {}) {
   const members = Array.isArray(c.members) ? c.members : [];
   if (!members.length) out.push("needs at least one member");
   if (members.includes(TEX)) out.push("Tex is never a member; Tex rows say tex: true");
-  if (c.set === "dev" && opts.bench !== false) {
+  // A Dev chat is cast from the bench's own people; a Training chat from anyone with a bench world. Training is run
+  // and scored too, and with anyone else in it every Front door row came back "has no bench world" (0/63).
+  if ((c.set === "dev" || c.set === "training") && opts.bench !== false) {
+    const cast = c.set === "dev" ? BENCH_PEOPLE : [...BENCH_PEOPLE, ...TRAINING_PEOPLE];
     for (const name of members) {
-      if (name !== TEX && !BENCH_PEOPLE.includes(name)) out.push(`${name} has no bench world: a Dev chat's people are the bench's (${BENCH_PEOPLE.join(", ")})`);
+      if (name !== TEX && !OTHER_ASSISTANTS.includes(name) && !cast.includes(name)) out.push(`${name} has no bench world: a ${c.set === "dev" ? "Dev" : "Training"} chat's people are the bench's (${cast.join(", ")})`);
     }
   }
   const seen = new Set();
@@ -189,4 +200,4 @@ function missingTest(convs, testByScope) {
     .sort((a, b) => (a.scope < b.scope ? -1 : a.scope > b.scope ? 1 : 0));
 }
 
-module.exports = { SETS, TARGET, DRIFT, KINDS, TRIGGERS, JOB_STATES, RUN, TEX, LABEL_KEYS, BENCH_PEOPLE, TRAINING_PEOPLE, labelFields, check, unitTests, before, ratio, missingTest };
+module.exports = { SETS, TARGET, DRIFT, KINDS, TRIGGERS, JOB_STATES, RUN, TEX, LABEL_KEYS, BENCH_PEOPLE, TRAINING_PEOPLE, OTHER_ASSISTANTS, labelFields, check, unitTests, before, ratio, missingTest };

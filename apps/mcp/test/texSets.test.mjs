@@ -120,10 +120,16 @@ test("a trigger row is the input that fired it, never a member, and can be a uni
   assert.match(sets.check(unknown, config).join("\n"), /via "cron" must be one of checkin, routine, notify/);
 });
 
-test("a Dev chat's people are the bench's, since each Dev test runs in that person's bench world", () => {
+test("a Dev chat's people are the bench's and a Training chat's anyone with a bench world, since each Front door test runs in that person's world", () => {
   const stranger = chat({ members: ["Maya", "Remi"], msgs: [{ id: "m1", who: "Remi", text: "hi" }] });
-  assert.ok(sets.check(stranger, config).some((x) => x.startsWith("Remi has no bench world")), "Dev refuses someone with no world");
-  assert.deepEqual(sets.check({ ...stranger, set: "training" }, config).filter((x) => x.includes("bench world")), [], "Training is read as examples, never run, so anyone may be in it");
+  assert.ok(sets.check(stranger, config).some((x) => x.startsWith("Remi has no bench world")), "Dev refuses someone who is not the bench's own");
+  assert.deepEqual(sets.check({ ...stranger, set: "training" }, config).filter((x) => x.includes("bench world")), [], "Remi has a thin world, so Training may have them");
+  // Training runs too since 2026-11-18 (a scored Lab Training run), and read 0/63 on the Front door while anyone could be in it.
+  const nobody = chat({ set: "training", members: ["Maya", "Zed"], msgs: [{ id: "m1", who: "Zed", text: "hi" }] });
+  assert.ok(sets.check(nobody, config).some((x) => x.startsWith("Zed has no bench world: a Training chat's people")), "Training refuses someone with no world");
+  const withNova = chat({ set: "training", members: ["Maya", "Nova"], msgs: [{ id: "m1", who: "Nova", text: "hi" }] });
+  assert.deepEqual(sets.check(withNova, config).filter((x) => x.includes("bench world")), [], "another AI assistant in the chat is not a person");
+  assert.deepEqual(sets.OTHER_ASSISTANTS, ["Nova"]);
   assert.deepEqual(sets.check(stranger, config, { bench: false }).filter((x) => x.includes("bench world")), [], "the old cases' migration keeps their names");
   assert.ok(sets.BENCH_PEOPLE.includes("Maya"));
 });
