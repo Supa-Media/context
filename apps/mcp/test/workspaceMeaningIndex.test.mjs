@@ -338,9 +338,14 @@ test("a note changed while the model answers is not written; its change waits fo
   await note(object, 1, "plans/a.md", "# A\ncedar");
   let release;
   const gate = new Promise((resolve) => (release = resolve));
+  // The note is changed only once the model has been asked: a put lands in the call that makes it (#3618), so one
+  // made before the build reads the note is simply the text the build embeds.
+  let asked;
+  const reached = new Promise((resolve) => (asked = resolve));
   const inner = object.store.meaning;
-  object.store.meaning = workspaceMeaning(object.store.sql, { rows: object.store.rows, objects: object.store.objects, embed: async (texts) => (await gate, texts.map(fingerprint)) });
+  object.store.meaning = workspaceMeaning(object.store.sql, { rows: object.store.rows, objects: object.store.objects, embed: async (texts) => (asked(), await gate, texts.map(fingerprint)) });
   const building = object.call("ws.meaning.build");
+  await reached;
   await putBody(object, ID(1), "# A\nmaple");
   release();
   assert.equal((await building).body.waiting, 1, "the change made during the build is still waiting");
