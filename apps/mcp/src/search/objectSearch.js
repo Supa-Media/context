@@ -15,6 +15,7 @@
 import { canSee } from "../privacy/engine.js";
 import { folderPrefix } from "./indexable.js";
 import { answerFromProjection } from "./d1/serve.js";
+import { phaseTook } from "../mcp/phase.js";
 
 /** Catch-up calls one search sends behind its response: a bounded slice each (`BUILD_ROWS`, `BUILD_BYTES`), one after another. */
 export const BUILD_CALLS = 40;
@@ -49,8 +50,12 @@ export async function objectSearchAnswer(store, scope, rules, overrides, query, 
   if (object === null || typeof object.search !== "function") return null;
   const client = {
     search: async (asks) => {
+      const sent = Date.now();
       const answer = await object.search(asks);
       if (answer?.served !== true || !Array.isArray(answer.answers)) throw new NotServed(answer?.waiting ?? null);
+      // The call's round trip by whether the object ran the any-word retry (`inside:word_retry_run`) or left it unrun
+      // because the strict half found rows (`inside:word_retry_skipped`); a search with no retry to run is neither.
+      if (asks.some((ask) => Array.isArray(ask.unlessRows))) phaseTook(store, answer.answers.some((rows) => rows === null) ? "word_retry_skipped" : "word_retry_run", Date.now() - sent);
       return answer.answers;
     },
   };
@@ -66,6 +71,11 @@ export async function objectSearchAnswer(store, scope, rules, overrides, query, 
       },
       // A current index's miss is the answer, as a ready search database's is.
       missIsAnswer: true,
+      // The any-word retry is left unrun while the strict half finds rows, for a private-scope caller alone. Such a
+      // caller may read every row, so the retry is asked again only by a change between the two calls. For a team
+      // caller a second call would mean "a note you may not read holds every word you typed", and a second call
+      // can be timed; theirs is always run beside the strict half, as before.
+      lazyRetry: scope === "private",
     });
     trace.set("objectSearch", answer === null ? "unanswered" : "served");
     return answer;

@@ -12,7 +12,7 @@ import {
   meaningSearchable,
   searchBothWays,
 } from "../search/meaning/serve.js";
-import { meaningEmbedderFor } from "../search/meaning/store.js";
+import { queryEmbedderFor } from "../search/meaning/queryVectors.js";
 import { DEFAULT_SEARCH_SETTINGS, searchSettingsOf } from "../search/settings.js";
 import { loadPrivacyState } from "../privacy/state.js";
 import { folderPrefix } from "../search/indexable.js";
@@ -176,7 +176,7 @@ function sharedEmbedder(store) {
   // ones that ask while the first embedding is still out wait for it.
   let vector = null;
   return async (texts) => {
-    vector ??= meaningEmbedderFor(store)(texts).then(([first]) => first);
+    vector ??= queryEmbedderFor(store)(texts).then(([first]) => first);
     return [await vector];
   };
 }

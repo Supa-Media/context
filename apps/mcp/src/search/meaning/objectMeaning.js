@@ -9,6 +9,8 @@
  * build is sent behind the response, so the object catches up with what changed.
  */
 
+import { phaseTook } from "../../mcp/phase.js";
+
 /** Build calls one search sends behind its response, each at most `BUILD_PASSAGES` passages, one after another. */
 export const MEANING_BUILD_CALLS = 8;
 
@@ -53,6 +55,27 @@ export function meaningBuildBehind(store) {
 }
 
 /**
+ * Have the object read its index into memory now, as a search starts (`workspaceStore/meaningIndex.js` `warm`): an
+ * object just woken reads every passage's bits before its first query, and that reading then runs while the gateway
+ * waits on the model for the query's fingerprint, not after it. Nothing is waited on here and no answer changes: the
+ * query that follows is the same query. Never throws, and a no-op where the object is not asked.
+ *
+ * @returns {Promise<void>} settled when the object has answered (tests); a search never waits on it
+ */
+export function objectMeaningWarm(store) {
+  const object = store?.objectMeaning ?? null;
+  if (object === null || typeof object.meaningWarm !== "function") return Promise.resolve();
+  const sent = Date.now();
+  return Promise.resolve()
+    .then(() => object.meaningWarm())
+    .then((answer) => {
+      // Timed by whether it did the reading (`inside:meaning_warm_loaded`) or found it done (`inside:meaning_warm_held`).
+      if (answer?.served === true) phaseTook(store, answer.loaded === true ? "meaning_warm_loaded" : "meaning_warm_held", Date.now() - sent);
+    })
+    .catch(() => {});
+}
+
+/**
  * @param {object} store the request's store; `store.objectMeaning` is the object's client where it may answer
  * @param {number[]} vector the query's fingerprint
  * @param {{tiers: string[]|null}} options
@@ -63,8 +86,13 @@ export async function objectMeaningMatches(store, vector, { tiers = null } = {})
   if (object === null || typeof object.meaningQuery !== "function") return null;
   meaningBuildBehind(store);
   try {
+    const sent = Date.now();
     const answer = await object.meaningQuery(vector, { tiers });
-    return answer?.served === true && Array.isArray(answer.matches) ? answer.matches : null;
+    const served = answer?.served === true && Array.isArray(answer.matches);
+    // The query's round trip by whether the object had to read its index first (`inside:meaning_query_cold`) or held
+    // it (`inside:meaning_query_held`): the object's own clock does not move while it computes, so the gateway times it.
+    if (served && typeof answer.cold === "boolean") phaseTook(store, answer.cold ? "meaning_query_cold" : "meaning_query_held", Date.now() - sent);
+    return served ? answer.matches : null;
   } catch {
     return null;
   }

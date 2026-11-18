@@ -48,6 +48,31 @@ build call held Seyi's workspace object for about 1.2 s, fetches queued behind i
 at 60 s. It was switched off in production (`SEARCH_FROM_OBJECT=off`, #2775) until the triggers, rowid removal and
 text budget above replaced it.
 
+## A query cuts a snippet for the rows it keeps, and the retry runs only when it is read
+
+Decided 2026-11-18, from production's `mcp_entry` (search median 974 ms over 271 calls, of which `obj:ws.search` was
+about 200 ms a call) and a local copy of the same queries.
+
+- **Rows are read in FTS5's own rank order** (`rankedSearchSql`, `search/d1/query.js`). `searchSql` sorts by an
+  expression, so SQLite built every matching row whole, snippet and chunk text included, before keeping 200: a
+  query whose words matched 4,600 chunks cut 4,600 snippets. Ordered by `rank`, the snippet is cut for the rows
+  read. The rows and their order are the same: rows of one score are put back in the table's own order
+  (`rankedRows`), and a query whose cut falls between rows of one score is answered by `searchSql` itself, as is
+  every query with a folder prefix (most of its matches are outside the folder, so rank order reads more, not less).
+- **The any-word retry waits on the strict half** (`unlessRows`). It is the dearest of a search's three expressions
+  and was run on every search, though it is read only when no strict row is one the caller may see. The object now
+  leaves it unrun (`null`) when the strict half found rows; if none of those rows passes the gateway's `canSee`, the
+  gateway asks for the retry alone (`answerFromProjection`, `SKIPPED`). The search database's path is unchanged: a
+  round trip there costs more than the query.
+- **Only a private-scope search leaves the retry unrun** (`lazyRetry`, `search/objectSearch.js`). A second call is
+  one a caller can time. For a team caller it would be made exactly when a note they may not read holds every word
+  they typed, which is the existence of that note told by a stopwatch. A private-scope caller may read every row, so
+  there is nothing for the second call to tell. A team search runs the retry beside the strict half, as before.
+
+Locally (4,000 notes, 16,000 chunks) a search's call went from 115 to 334 ms down to 53 to 165 ms.
+`apps/mcp/test/searchSpeedEquality.test.mjs` answers a fixed set of queries both ways and fails on any difference in
+the rows, the hits or their order.
+
 ## What it costs
 
 - Each object holds a second copy of its notes' words, as the search database does; dropping the tables loses

@@ -38,6 +38,24 @@ search is then the embedding and one call to the object, and the embedding is th
   its object, one whose object has not finished building, the console's own searches, and every search while
   `MEANING_FROM_OBJECT=off`.
 
+## The index is read into memory while the model is asked
+
+Decided 2026-11-18. An object that has just woken reads every passage's bits from its tables before its first
+query. That reading used to start when the query arrived, after the gateway had waited on the model for the query's
+fingerprint (production: `phase:meaning_embed` about 150 to 200 ms, then `obj:ws.meaning.query` about 290 ms a
+call). A search now sends `ws.meaning.warm` as it starts (`objectMeaningWarm`), so the object reads while the model
+answers and the query that follows only scans. The warm call keeps nothing and changes no answer. The gateway times
+each call by what the object says it did: `inside:meaning_query_cold` or `inside:meaning_query_held`, and
+`inside:meaning_warm_loaded` or `inside:meaning_warm_held`.
+
+A query's fingerprint is also kept in the gateway's memory for ten minutes for the person who asked it
+(`search/meaning/queryVectors.js`), so the same words asked again skip the model. It is kept per person, never per
+workspace: shared, a member could tell that somebody else had just searched the same words by their own search
+coming back faster.
+
+`apps/mcp/test/searchSpeedEquality.test.mjs` fails if a warmed query answers differently from one on an object just
+woken, or if one person's kept fingerprint answers another's search.
+
 ## What it costs
 
 - Each object holds about 1.2 KB per passage: some 60 MB for a workspace of 50,000 passages, within an object's 10 GB.
