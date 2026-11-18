@@ -258,6 +258,20 @@ every restriction behind it. A menu kept the title of a page just made
 members-only, and a release kept the plaintext of a page just encrypted,
 for as long as the other page stayed broken.
 
+**A page the scan could not read is not absent** (2026-11-18). Only
+`FILE_NOT_FOUND`, the one answer the barrier gives for missing and held back
+alike, counts as a page gone. Any other refusal of a page's read
+(`STORAGE_UNSAFE` from a collaboration history that would not open, a note too
+large) fails the scan, which changes nothing, as a listing that cannot finish
+already did. Read as absent, such a failure narrowed the page off the site and,
+because the note was still there, wiped its copies from every kept version as
+if `privacy.md` held it back. Only Publish widens, so nothing put it back:
+seyi, public-worship and context-lc lost every page, and supa its layout. The
+cost of the rule is that a page whose read keeps failing holds the scan, and
+with it a restriction elsewhere, until it reads; the resolver still re-reads a
+served page's live bytes for a restriction on every visit.
+`apps/convex/__tests__/websiteScanReadErrors.test.ts` fails if it is reversed.
+
 A clean rebuild applies the same rule. **A release copy must not outlive the
 plaintext it copies** when that plaintext is still in the bucket but withheld:
 the copies are a derivative in the customer's bucket under the same credential
