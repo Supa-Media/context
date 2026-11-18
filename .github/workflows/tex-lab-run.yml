@@ -21,9 +21,12 @@
 #                secret. An empty writer token or a refused write fails the job.
 #   report  main's code, with the deploy key: the results (cleaned again by Convex) or why it failed.
 #
-# The run and its results pass between jobs as artifacts sealed with a key made for this run (a public repository's
-# artifacts can be downloaded by anyone; the key goes only through job outputs, which are not), kept one day. The log
-# is public: it names the run's id, conversation ids, the commit and counts, never a conversation's words.
+# The run and its results pass between jobs as artifacts sealed with a key (a public repository's artifacts can be
+# downloaded by anyone). The key is never passed between jobs: each step that seals or opens derives it from the run's
+# id with HMAC-SHA256 keyed by the AI_GATEWAY_TOKEN secret, masks it, and holds it only in its own shell. Job outputs
+# and step `env:` values are printed in the public log, which is why neither ever holds it
+# (scripts/check-workflow-output-secrets.mjs). Artifacts are kept one day. The log is public: it names the run's id,
+# conversation ids, the commit and counts, never a conversation's words.
 name: Tex Lab run
 
 on:
@@ -52,7 +55,6 @@ jobs:
     outputs:
       models: ${{ steps.job.outputs.models }}
       node: ${{ steps.job.outputs.node }}
-      key: ${{ steps.job.outputs.key }}
       sha: ${{ steps.code.outputs.sha }}
       why: ${{ steps.why.outputs.why }}
     steps:
@@ -80,21 +82,25 @@ jobs:
 
       - name: Read the run
         id: job
+        env:
+          LAB_SEAL_SOURCE: ${{ secrets.AI_GATEWAY_TOKEN }}
         run: |
           set -euo pipefail
+          [ -n "${LAB_SEAL_SOURCE:-}" ] || { echo "::error::no AI_GATEWAY_TOKEN to derive the run's seal key from"; exit 1; }
+          SEAL=$(printf '%s' "tex-lab-seal.$GITHUB_RUN_ID" | openssl dgst -sha256 -hmac "$LAB_SEAL_SOURCE" -r | cut -d' ' -f1)
+          echo "::add-mask::$SEAL"
+          export SEAL; unset LAB_SEAL_SOURCE
           npx convex run functions/texLabRuns:job "$(jq -cn --arg id "$RUN_ID" '{runId: $id}')" 2>/dev/null > "$RUNNER_TEMP/job.json"
           [ "$(jq -r 'type' "$RUNNER_TEMP/job.json")" = "object" ] || { echo "::error::no such run"; exit 1; }
           models=$(jq -r .models "$RUNNER_TEMP/job.json")
           node=$(jq -r '.nodeId // ""' "$RUNNER_TEMP/job.json")
           [[ "$models" =~ ^(gw|cc)$ ]] || { echo "::error::unknown models"; exit 1; }
           [[ -z "$node" || "$node" =~ ^[a-z][A-Za-z0-9_-]{0,30}$ ]] || { echo "::error::not a step id"; exit 1; }
-          # The run's own key, which seals what passes between the jobs. Never printed.
-          key=$(openssl rand -hex 32)
+          # The seal key is derived above, masked, never a job output or env: value (the public log prints both).
           mkdir -p "$RUNNER_TEMP/sealed"
-          gzip -9c "$RUNNER_TEMP/job.json" | SEAL="$key" openssl enc -aes-256-cbc -pbkdf2 -salt -pass env:SEAL -out "$RUNNER_TEMP/sealed/job.bin"
+          gzip -9c "$RUNNER_TEMP/job.json" | openssl enc -aes-256-cbc -pbkdf2 -salt -pass env:SEAL -out "$RUNNER_TEMP/sealed/job.bin"
           echo "models=$models" >> "$GITHUB_OUTPUT"
           echo "node=$node" >> "$GITHUB_OUTPUT"
-          echo "key=$key" >> "$GITHUB_OUTPUT"
           echo "Run: $(jq -c '{versionId, kind, convId, nodeId, models, code}' "$RUNNER_TEMP/job.json")"
 
       # Main, a same-repository pull request's head, or a branch here. A fork's pull request is refused: only code
@@ -342,10 +348,14 @@ jobs:
       # Refuses conversations whose people the bench has no world for: a run that can't run fails, it never scores 0.
       - name: The Dev conversations, and the draft's graph
         env:
-          SEAL: ${{ needs.prep.outputs.key }}
+          LAB_SEAL_SOURCE: ${{ secrets.AI_GATEWAY_TOKEN }}
           TEX_LAB_WHY: ${{ runner.temp }}/why
         run: |
           set -euo pipefail
+          [ -n "${LAB_SEAL_SOURCE:-}" ] || { echo "::error::no AI_GATEWAY_TOKEN to derive the run's seal key from"; exit 1; }
+          SEAL=$(printf '%s' "tex-lab-seal.$GITHUB_RUN_ID" | openssl dgst -sha256 -hmac "$LAB_SEAL_SOURCE" -r | cut -d' ' -f1)
+          echo "::add-mask::$SEAL"
+          export SEAL; unset LAB_SEAL_SOURCE
           openssl enc -d -aes-256-cbc -pbkdf2 -pass env:SEAL -in "$RUNNER_TEMP/sealed/job.bin" | gunzip > "$RUNNER_TEMP/job.json"
           node scripts/tex-lab-run.mjs prepare "$RUNNER_TEMP/job.json" "$RUNNER_TEMP/lab"
 
@@ -412,10 +422,14 @@ jobs:
 
       - name: The results
         env:
-          SEAL: ${{ needs.prep.outputs.key }}
+          LAB_SEAL_SOURCE: ${{ secrets.AI_GATEWAY_TOKEN }}
           TEX_LAB_WHY: ${{ runner.temp }}/why
         run: |
           set -euo pipefail
+          [ -n "${LAB_SEAL_SOURCE:-}" ] || { echo "::error::no AI_GATEWAY_TOKEN to derive the run's seal key from"; exit 1; }
+          SEAL=$(printf '%s' "tex-lab-seal.$GITHUB_RUN_ID" | openssl dgst -sha256 -hmac "$LAB_SEAL_SOURCE" -r | cut -d' ' -f1)
+          echo "::add-mask::$SEAL"
+          export SEAL; unset LAB_SEAL_SOURCE
           node scripts/tex-lab-run.mjs results "$RUNNER_TEMP/lab/rows.json" "$(cat "$RUNNER_TEMP/lab/ms")" > "$RUNNER_TEMP/results.json"
           echo "Results: $(jq -c '{pass, total, costUsd, ms, perNode, fallbacks, valid}' "$RUNNER_TEMP/results.json")"
           usd="$(jq -r '.costUsd // 0' "$RUNNER_TEMP/results.json")"
@@ -665,12 +679,17 @@ jobs:
       - name: Report the results, or why it failed
         env:
           RAN: ${{ needs.run.result }}
-          SEAL: ${{ needs.prep.outputs.key }}
+          LAB_SEAL_SOURCE: ${{ secrets.AI_GATEWAY_TOKEN }}
           RUN_WHY: ${{ needs.run.outputs.why }}
           PREP_WHY: ${{ needs.prep.outputs.why }}
         run: |
           set -euo pipefail
           if [ "$RAN" = "success" ] && [ -s "$RUNNER_TEMP/sealed/results.bin" ]; then
+            # Derived only here, so a missing secret still reaches the failure report below.
+            [ -n "${LAB_SEAL_SOURCE:-}" ] || { echo "::error::no AI_GATEWAY_TOKEN to derive the run's seal key from"; exit 1; }
+            SEAL=$(printf '%s' "tex-lab-seal.$GITHUB_RUN_ID" | openssl dgst -sha256 -hmac "$LAB_SEAL_SOURCE" -r | cut -d' ' -f1)
+            echo "::add-mask::$SEAL"
+            export SEAL; unset LAB_SEAL_SOURCE
             openssl enc -d -aes-256-cbc -pbkdf2 -pass env:SEAL -in "$RUNNER_TEMP/sealed/results.bin" | gunzip > "$RUNNER_TEMP/results.json"
             jq -e 'type == "object"' "$RUNNER_TEMP/results.json" > /dev/null
             npx convex run functions/texLabRuns:report "$(jq -cn --arg id "$RUN_ID" --slurpfile r "$RUNNER_TEMP/results.json" '{runId: $id, stage: "done", results: $r[0]}')" > /dev/null 2>&1
