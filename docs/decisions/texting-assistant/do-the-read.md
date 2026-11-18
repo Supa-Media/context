@@ -106,7 +106,11 @@ answered with no search and no fetch. The front door's check
 says "if nothing needs the chat", and "put it in a plain note" is where
 to write. The chat is not in the pattern for that reason. "note" and
 "page" count only with a determiner right against them, so "note the
-tulips" and "check the status page" are not asks to read the record. The claim check
+tulips" and "check the status page" are not asks to read the record. A
+read counts when this turn opened one, including a read an earlier try
+of the same text already ran (put back with `reread`) and a local read
+(`read_back`, `read_day`, `read_thread`, `group_chats`), which does not
+go through `callTool`. The claim check
 on every other turn is unchanged, so the reply reviewer is not.
 
 An extra "want me to" after a finished write is not caught in code. "Want
@@ -115,7 +119,7 @@ cannot tell that from an offer nobody asked for. That is the same limit
 as 2026-11-05.
 
 **The test that fails if this is reversed:** `apps/mcp/test/recordRead.test.mjs`
-and the replay case `record-before-answer`.
+and the replay cases `record-before-answer` and `record-read-local`.
 
 ## Who is who in a group chat (2026-11-04)
 

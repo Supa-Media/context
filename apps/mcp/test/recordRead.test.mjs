@@ -1,16 +1,19 @@
 /**
- * An ask about a record is not answered from memory, and a finished write
- * does not grow an extra offer (`recordRead.js`, `finishedOffer.js`).
+ * An ask about a record is not answered from memory (`recordRead.js`).
  *
- * Sabotage: `recordReadNotice` ignoring the calls → "a read this turn lets
- * the answer go" fails. `finishedOfferNotice` matching an email offer →
- * "an offer to send the email is left to the hold" fails.
+ * Sabotage: drop `reread` from `untriedWebCheck`, or pass only `claims` to
+ * `rereadCarried` in `runTheModel.js` → "a carried search or fetch lets the
+ * answer go" fails. Drop `wrapLocal` from `untriedWebCheck`, or stop
+ * `doItChecks` forwarding local calls to its inner check → "a read_back
+ * local call lets the answer go" fails.
  */
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import test from "node:test";
 
-import { FINISHED_OFFER_NOTICE, finishedOfferNotice } from "../src/agent/finishedOffer.js";
+import { doItChecks } from "../src/agent/doItChecks.js";
 import { RECORD_READ_NOTICE, recordReadNotice } from "../src/agent/recordRead.js";
+import { rereadCarried } from "../src/agent/turnResume.js";
 import { untriedWebCheck } from "../src/agent/untriedWeb.js";
 
 test("an ask to read a note, with no read, is sent back; a mention is not", () => {
@@ -37,9 +40,35 @@ test("the front door's check sends a record ask back, and lets it go after a rea
   assert.equal(read.check("Paulo says the ceremony is at 4."), null);
 });
 
-test("an extra offer is recognised, and an email or a booking offer is not this check", () => {
-  assert.equal(finishedOfferNotice("Added. Want me to set up a weekly grocery order too?"), FINISHED_OFFER_NOTICE);
-  assert.equal(finishedOfferNotice("Want me to send the email?"), null);
-  assert.equal(finishedOfferNotice("All 3 fit. Want me to book it?"), null);
-  assert.equal(finishedOfferNotice("Added."), null);
+test("a carried search or fetch lets the answer go", () => {
+  const ask = "what does the note say about the trip";
+  const carried = (name, args) => ({
+    round: 1,
+    messages: [
+      { role: "assistant", text: "", toolCalls: [{ id: "c", name, args }] },
+      { role: "tool", id: "c", name, text: "Lisbon in October." },
+    ],
+  });
+  for (const name of ["search", "fetch"]) {
+    const check = untriedWebCheck({ question: ask });
+    rereadCarried(carried(name, name === "fetch" ? { id: "projects/trip.md" } : { query: "trip" }), check);
+    assert.equal(check.check("The note says Lisbon in October."), null, `a carried ${name} lets the answer go`);
+  }
+  const sent = untriedWebCheck({ question: ask });
+  rereadCarried(carried("send_email", { to: "ada@example.test" }), sent);
+  assert.match(String(sent.check("The note says Lisbon in October.")), /have not read any of it/, "a carried send is not a read");
+  // The front door's check is what a resumed turn tells (`runTheModel.js`); `claims` is null there.
+  const source = readFileSync(new URL("../src/agent/texEntryPoint/runTheModel.js", import.meta.url), "utf8");
+  assert.match(source, /rereadCarried\(rounds\?\.from \?\? null, claims \?\? tries\)/);
+});
+
+test("a read_back local call lets the answer go", async () => {
+  const ask = "what does the note say about the trip";
+  const door = doItChecks({ question: ask, inner: untriedWebCheck({ question: ask }) });
+  const [readBack] = door.wrapLocal([{ tool: { name: "read_back" }, call: async () => ({ content: [{ type: "text", text: "Lisbon in October." }] }) }]);
+  await readBack.call({ ref: "r1abcdef" });
+  assert.equal(await door.check("The note says Lisbon in October."), null, "reopening a kept read is a read");
+  const listed = doItChecks({ question: ask, inner: untriedWebCheck({ question: ask }) });
+  listed.wrapLocal([{ tool: { name: "read_back" }, call: async () => ({ content: [{ type: "text", text: "Lisbon in October." }] }) }]);
+  assert.match(String(await listed.check("The note says Lisbon in October.")), /have not read any of it/, "offering the tool without calling it is not a read");
 });
