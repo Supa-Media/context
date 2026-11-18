@@ -142,6 +142,7 @@ export async function sendTheReply(t) {
     model: turn.model,
     steps: turn.steps,
     ...roundsField(turn), // how many rounds it took of how many, and whether it ran to its bound or handed the job off (`lastRound.js`)
+    ...(turn.route ? { route: turn.route } : {}), // the specialist door the router picked, its sure and any fallback (`doorTurn.js`)
   };
   // A run answering another chat's ask texts nothing here: node "Answer the other chat" sends its draft back (`crossChat.js`).
   if (crossAskRun) Object.assign(reply, await tex.step("chat_answer", () => crossBackOf(t.crossChat, turn.answer, ledger.crossPost, { env, writer: chatLog, turn: ledgerTurn })));

@@ -17,6 +17,7 @@ import PROMPT from "../../../../packages/shared/src/texPrompt.generated.json" wi
 import GENERATED_TRAINING from "../../../../packages/shared/src/texTraining.generated.json" with { type: "json" };
 import SHELF from "../../../../packages/shared/src/texNodeShelf.json" with { type: "json" };
 import { TRAIN_ENTRY, trainingOf, moduleText, trainName } from "../../../../packages/shared/src/texTraining.cjs";
+import { DOORS, DOOR_NODES } from "./doorTools.js";
 
 /** Every Training conversation, less what a bench process scores of it (`texTraining.cjs` `trainingOf`; production reads all). */
 export const TRAINING = trainingOf(GENERATED_TRAINING);
@@ -159,15 +160,25 @@ export function texSetupFront(config = CONFIG) {
  */
 export function texModules(config = CONFIG) {
   const words = texWords(config);
+  const named = (entry) => PROMPT_ENTRY.exec(entry)?.[1] ?? (TRAIN_ENTRY.test(entry) && typeof words[trainName(entry)] === "string" ? trainName(entry) : null);
   const of = (id) => {
-    const named = (entry) => PROMPT_ENTRY.exec(entry)?.[1] ?? (TRAIN_ENTRY.test(entry) && typeof words[trainName(entry)] === "string" ? trainName(entry) : null);
     const names = (texStep(id, config).ctx ?? []).map(named).filter(Boolean);
     if (names.length === 0) throw new Error(`texConfig: step "${id}" reads no prompt module`);
     for (const name of names) if (typeof words[name] !== "string") throw new Error(`texConfig: step "${id}" reads module "${name}", which has no words`);
     return names;
   };
   const texts = of("fd");
-  return { texts, group: texts, job: of("job") };
+  // The specialist doors a config draws (`doorTools.js`): each its own node's modules, or the front door's with its own module added.
+  const doors = {};
+  for (const route of DOORS) {
+    const id = DOOR_NODES[route];
+    if (!config.nodes.some((node) => node.id === id)) continue;
+    const own = (texStep(id, config).ctx ?? []).map(named).filter(Boolean);
+    const names = own.length > 0 ? own : [...texts, `door-${route}`];
+    for (const name of names) if (typeof words[name] !== "string") throw new Error(`texConfig: door "${id}" reads module "${name}", which has no words`);
+    doors[`door-${route}`] = names;
+  }
+  return { texts, group: texts, job: of("job"), ...doors };
 }
 
 const EFFORTS = new Set(SCHEMA_EFFORTS);

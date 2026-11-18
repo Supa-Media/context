@@ -13,8 +13,8 @@ import { QUIET_ACK, START_JOB_TOOL } from "./background.js";
 /** The turn's tool results so far, from its messages, oldest first. */
 export const toolResultsOf = (messages) => (Array.isArray(messages) ? messages : []).filter((m) => m?.role === "tool").map((m) => ({ name: String(m.name ?? ""), text: typeof m.text === "string" ? m.text : "", ...(m.isError ? { isError: true } : {}) }));
 
-/** Which moment asked, by the wire's source: the front door out of rounds, or the answer check out of send-backs. */
-export const causeOf = (from) => (from === "fd" ? "rounds" : "check");
+/** Which moment asked, by the wire's source: the front door out of rounds, the router's job (`doorTurn.js`), or the answer check out of send-backs. */
+export const causeOf = (from) => (from === "fd" ? "rounds" : from === "router" ? "route" : "check");
 
 /**
  * `background` is the turn's (`background.js`), `gate(input, from)` fires the Hand-off node over the wire from `from`

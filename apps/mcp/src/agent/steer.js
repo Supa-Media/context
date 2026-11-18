@@ -39,6 +39,7 @@ import { hasScope, SCOPE_WRITE } from "../session.js";
 import { toolIsWriting } from "../tools/registry.js";
 import { actionOf } from "../tools/v2/actions.js";
 import { sleepLineNote } from "./timeLog.js";
+import { WEB_READS } from "./doorTools.js";
 
 const TEXTS_CLIENT_ID = "context_texts";
 /** A group chat's grant (`apps/convex/functions/textGroups.ts`): only its background jobs name a turn. */
@@ -114,7 +115,7 @@ const etagOf = (result) => /^etag: (.+)$/m.exec(textOf(result))?.[1]?.trim() ?? 
 /** A named turn while it runs: `{ user, wrote }` (`wrote`: a writing call may have started; written before it runs). */
 export const RUNNING_PREFIX = ".context/agent/running/";
 /** Calls outside the MCP's own tools that only read; any other one that succeeds may have changed something. */
-const READS = new Set(["search_web", "open_page", "read_skill", "read_learned_skill", "travel_time"]);
+const READS = WEB_READS; // the web reads a specialist read door may use (`doorTools.js`)
 const writing = (name) => !READS.has(name) && toolIsWriting(name);
 /** Refused when the running record cannot say a write may start: a cancel could otherwise succeed after it. */
 const UNRECORDED = { isError: true, content: [{ type: "text", text: "Could not record that this turn is about to change something, so it did not run. Try again." }] };

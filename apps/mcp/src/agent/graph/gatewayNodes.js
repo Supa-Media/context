@@ -68,6 +68,8 @@ import { jobStartNode } from "./nodes/jobStart.js";
 import { jobadv } from "./nodes/jobadv.js";
 import { staffNode } from "./nodes/staff.js";
 import { examplesNode } from "./nodes/examples.js";
+import { routerNode } from "./nodes/router.js";
+import { fdQuickNode, fdReadNode, fdActNode } from "./nodes/doors.js";
 
 /**
  * Each entry is a getter, so the table reads a node's code when the runner asks for it, never while the modules load: the
@@ -150,6 +152,12 @@ export const GATEWAY_NODES = {
   get tapback() { return tapbackNode; },
   // Decide's reason, asked again when it contradicts the act (`nodes/decideWhy.js`): Decide's route calls it with Clef (`../textsDecide.js`).
   get decideWhy() { return decideWhyNode; },
+  // The router: which specialist door a text's turn goes through, read by Clef beside the door (`nodes/router.js`, `../../specialistRoute.js`).
+  get router() { return routerNode; },
+  // The specialist doors, on the shelf: the tools each holds (`nodes/doors.js`, `../../doorTools.js`).
+  get fdQuick() { return fdQuickNode; },
+  get fdRead() { return fdReadNode; },
+  get fdAct() { return fdActNode; },
   // The Shape gate: what kind of answer this turn is, read by Clef beside the door (`nodes/shapeGate.js`, `../shapeGate.js`).
   get shapeGate() { return shapeGateNode; },
   // After each part of a background job: the next part, the last draft, or the end, under the limits in its config (`nodes/partEnd.js`).
