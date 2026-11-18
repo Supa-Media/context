@@ -61,12 +61,15 @@ export function coreCases({ test, testRaw, resultRaw, keyRaw, setup = SETUP }) {
     const handoff = handoffTotals(answers.filter((a) => runIds.includes(a.id)).flatMap((a) => a.delivered ?? []));
     // What the bench could not stand in for on its runs (`benchGaps.mjs`): the row's reader treats it as a harness error.
     const bench = [...new Set(answers.filter((a) => runIds.includes(a.id)).flatMap((a) => a.bench ?? []))];
+    // Each texted turn's rounds of its bound, and whether it ran out (`report.mjs`): what a miss is read against, never a score.
+    const rounds = answers.filter((a) => runIds.includes(a.id) && (a.rounds ?? []).length > 0).map((a) => a.rounds); // one list per run
     rows.push({
       ...(bench.length > 0 ? { bench } : {}),
       misses,
       held,
       said,
       ...(handoff.jobs > 0 ? { handoff } : {}),
+      ...(rounds.length > 0 ? { rounds } : {}),
       id: `${test}/q${c.question}`,
       right: cell.runs > 0 && cell.passed === cell.runs,
       results,

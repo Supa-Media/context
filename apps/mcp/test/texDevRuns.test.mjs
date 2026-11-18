@@ -17,7 +17,7 @@ import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { parsePeople } from "../bench/load.mjs";
-import { detailOf, devConversations, handoffOf, resultsOf, trainingConversations, uncast, unrun } from "../../../scripts/tex-lab-run.mjs";
+import { detailOf, devConversations, handoffOf, resultsOf, roundsLine, trainingConversations, uncast, unrun } from "../../../scripts/tex-lab-run.mjs";
 import { decideSaid } from "../bench/setsRun.mjs";
 
 const textOf = (result) => result.content.find((c) => c.type === "text")?.text ?? "";
@@ -197,4 +197,15 @@ test("a run reports what its handed-off jobs added: jobs, parts, advisor calls a
   ];
   assert.deepEqual(handoffOf(rows), { jobs: 2, parts: 4, advisorCalls: 3, usd: 0.04, perJobUsd: 0.02, advisorCallsPerJob: 1.5 });
   assert.deepEqual(resultsOf(rows, "1").handoff, handoffOf(rows));
+});
+
+test("a row's detail opens with each turn's rounds of its bound, so a miss reads against running out (Dev2, 2026-11-18)", () => {
+  const rounds = [{ used: 3, of: 12 }, { used: 11, of: 12, toEnd: true }, { used: 12, of: 12, toEnd: true, exhausted: true }, { used: 10, of: 12, toEnd: true, handedOff: true }];
+  assert.equal(roundsLine(rounds), "rounds: 3/12, 11/12 reached its end, 12/12 ran out, 10/12 handed off");
+  assert.equal(roundsLine([[{ used: 2, of: 12 }], [{ used: 12, of: 12, exhausted: true }]]), "rounds: 2/12 | 12/12 ran out", "runs apart");
+  assert.equal(roundsLine([]), null);
+  assert.equal(roundsLine([{ used: "x" }]), null, "only whole counts");
+  const { detail } = detailOf({ rounds, misses: [{ kind: "must", line: "do it", reason: "it didn't" }], said: ["hi"] });
+  assert.equal(detail.split("\n")[0], "rounds: 3/12, 11/12 reached its end, 12/12 ran out, 10/12 handed off", "first, so a long detail never cuts it");
+  assert.equal(detailOf({ rounds: [] , said: ["hi"] }).detail, "Tex: hi");
 });

@@ -87,6 +87,8 @@ function readBlock(id, lines) {
   const jobsLine = tail.find((line) => line.startsWith("Jobs: "));
   // The jobs that ran and reported (`jobDelivery.mjs`), with their advisor calls and spend.
   const deliveredLine = tail.find((line) => line.startsWith("Delivered: "));
+  // Each texted turn's rounds of its bound (`report.mjs`).
+  const roundsLine = tail.find((line) => line.startsWith("Rounds: "));
   let time = null;
   if (timeLine) {
     const m = timeLine.match(TIME);
@@ -105,6 +107,7 @@ function readBlock(id, lines) {
     where: filedLine ? filedWhere(filedLine.slice("Filed: ".length)) : {},
     jobs: jobsLine ? readJobsLine(jobsLine.slice("Jobs: ".length)) : [],
     delivered: deliveredLine ? readJobsLine(deliveredLine.slice("Delivered: ".length)) : [],
+    rounds: roundsLine ? readJobsLine(roundsLine.slice("Rounds: ".length)) : [],
     time,
     error: errorLine ? errorLine.slice("Error: ".length) : null,
   };

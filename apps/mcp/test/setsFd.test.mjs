@@ -265,6 +265,12 @@ test("the repo's Training conversations run their Front door tests through the r
   };
   const rows = await runFd([first("trial-hire"), first("truck-crew")], { tree: TREE, fake: true });
   assert.deepEqual(rows.map((r) => [r.chat, r.ran, r.why]), [["trial-hire", true, undefined], ["truck-crew", true, undefined]]);
+  // Each texted turn's rounds of its bound reach the row, the gateway's own count (Dev2, 2026-11-18: "prove from traces
+  // which Training fd misses are round exhaustion"). Sabotage: drop `roundsField` from the reply (`sendTheReply.js`) and this fails.
+  for (const r of rows) {
+    assert.ok(Array.isArray(r.rounds) && r.rounds.length > 0, `${r.chat}: its turns' rounds are on the row`);
+    for (const t of r.rounds.flat()) assert.ok(Number.isInteger(t.used) && t.used >= 1 && Number.isInteger(t.of) && t.used <= t.of, JSON.stringify(t));
+  }
 });
 
 test("a check-in row's email: the sender before the first colon, the rest as what it says", () => {

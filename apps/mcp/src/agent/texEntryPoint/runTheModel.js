@@ -152,8 +152,13 @@ export async function runTheModel(t, via) {
   // `groupModelTurn.ts`, `inbox.ts` `acknowledgeText`), nor on a turn the gateway asked (a vault save, a hand-back).
   const reactable = !quoted?.tapback && question !== VAULT_SAVED_QUESTION && question !== HANDED_BACK_QUESTION;
   const tapping = chatTurn && reactable && job === null && !routine && report === null && !t.crossChat && drawn.wired("tools", "tapback") ? tapbackEnding({ gate: (input) => drawn.fire("tools", "tapback", input, { env }), tagged: group?.tagged === true }) : null;
-  // A draft the Answer check would send back with no send-back left hands the job to a background worker, when the config wires the Hand-off node (`../handoff.js`).
-  t.handoff = chatTurn && job === null && !routine && report === null && Boolean(background) && drawn.wired("answerCheck", "handoff") ? handoffHook({ background, gate: (input) => drawn.fire("answerCheck", "handoff", input, { env }), ask: question }) : null;
+  // A job the front door can't finish in its turn goes to a background worker, when the config wires the Hand-off node (`../handoff.js`):
+  // from a draft the Answer check would send back with no send-back left (`answerCheck -> handoff`), and from a turn two
+  // rounds from its bound and still gathering (`fd -> handoff`). Neither wired, nothing changes.
+  const handoffFrom = chatTurn && job === null && !routine && report === null && Boolean(background) ? ["answerCheck", "fd"].filter((from) => drawn.wired(from, "handoff")) : [];
+  const handOff = handoffFrom.length > 0 ? handoffHook({ background, gate: (input, from) => drawn.fire(from, "handoff", input, { env }), ask: question }) : null;
+  t.handoff = handOff !== null && handoffFrom.includes("answerCheck") ? (draft, info, notice) => handOff(draft, info, notice, "answerCheck") : null;
+  const roundsOut = handOff !== null && handoffFrom.includes("fd") ? ({ messages, lastWords }) => handOff(lastWords, { messages }, "", "fd") : null;
   const keptOptions = { question, on: !runner, ...(aiGatewayConfig(env) !== null && drawn.wired("tools", "moveJudge") ? { judge: (input) => drawn.fire("tools", "moveJudge", input, { env }), said: saidBefore(history) } : {}) };
   const pictureRun = (name, args, callTool) => gatewayGraph({ env, writer: chatLog, turn: ledgerAt?.turn ?? null }).fire("tools", "picture", { tool: name, args }, { env, maker, callTool, cardCheck }).then((out) => out.result); // interim: io.use.picture once tools is a node
   steer?.revertWith(dispatch); // a provisional run's note saves are read first and put back through the client's own dispatcher (`steer.js`)
@@ -225,6 +230,7 @@ export async function runTheModel(t, via) {
     efforts: turnEfforts(production, job), // a job's turn thinks as `models.job_effort` says (`production.js`)
     fallback: via.fallback(fallback),
     maxRounds: production?.maxSteps ?? undefined,
+    roundsOut, // out of rounds with the job not done: the Hand-off node, when the config wires `fd -> handoff`
     // A browser call can open a page and settle it (`infra/site-shots`
     // budgets 17 s); the default would cut a slow one short and lose it. A captcha on the page
     // adds Browserbase's 30 s solver wait, then a reload and a fresh browser (`captchaLadder.js`):

@@ -1,6 +1,7 @@
 /** Builds the reply that gets texted, writes it to the chat's ledger, and saves the exchange. One step of Tex's turn (`../texEntryPoint.js`). */
 
 import { openAskBefore } from "../openAsk.js";
+import { roundsField } from "../lastRound.js";
 import { json } from "../../http/responses.js";
 import { offerLine } from "../../tools/offerFor.js";
 import { advisorRequest } from "../advisor.js";
@@ -135,6 +136,7 @@ export async function sendTheReply(t) {
     provider: turn.provider,
     model: turn.model,
     steps: turn.steps,
+    ...roundsField(turn), // how many rounds it took of how many, and whether it ran to its bound or handed the job off (`lastRound.js`)
   };
   // A run answering another chat's ask texts nothing here: node "Answer the other chat" sends its draft back (`crossChat.js`).
   if (crossAskRun) Object.assign(reply, await tex.step("chat_answer", () => crossBackOf(t.crossChat, turn.answer, ledger.crossPost, { env, writer: chatLog, turn: ledgerTurn })));

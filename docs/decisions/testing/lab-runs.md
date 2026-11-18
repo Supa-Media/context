@@ -23,6 +23,14 @@ over a GitHub listener), with a Models pick of the AI gateway or Claude Code on
   "report how many advisor calls and how much cost a handed-off job adds per
   run ... so Finance can check spend"). The Lab's Runs panel says it after the
   cost.
+- **Each row says how many rounds its turns took.** A Front door row's detail
+  opens with each texted turn's rounds of its bound (`rounds: 3/12, 12/12 ran
+  out`): "reached its end" when it was told to stop gathering, "ran out" when
+  its last round still ended on tool calls, "handed off" when the Hand-off node
+  took the job from there (`lastRound.js` `roundsField`, the reply's `rounds`).
+  A miss is read against running out from this line, never guessed (Dev2,
+  2026-11-18: "prove from traces which Training fd misses are round exhaustion
+  before wiring").
 - **The Dev set, or Training when asked.** The workflow runs the bench's
   node-alone runner (`node apps/mcp/bench/run.mjs sets run`) on the repo's Dev
   conversations with the Lab's Dev drafts over them (`scripts/tex-lab-run.mjs`).

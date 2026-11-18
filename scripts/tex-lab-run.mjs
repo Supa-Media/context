@@ -160,15 +160,25 @@ export function handoffOf(rows) {
 }
 
 /**
- * A row's detail: "never: <line> (<judge's reason>)" per failed line, "held: must: <line> (<reason>)" per line that
- * held, then "Tex: <texts>"; empty when there is none.
+ * A row's detail: first "rounds: <used>/<of>, ..." with "ran out" or "handed off" on a turn that ran to its bound (Dev2,
+ * 2026-11-18: "prove from traces which Training fd misses are round exhaustion"), then "never: <line> (<judge's reason>)"
+ * per failed line, "held: must: <line> (<reason>)" per line that held, then "Tex: <texts>"; empty when there is none.
  */
+export function roundsLine(rounds) {
+  const list = Array.isArray(rounds) ? rounds : [];
+  const runs = (list.some(Array.isArray) ? list : [list]).map((run) => (Array.isArray(run) ? run : []).filter((t) => t && Number.isInteger(t.used) && Number.isInteger(t.of))).filter((run) => run.length > 0);
+  if (runs.length === 0) return null;
+  const turn = (t) => `${t.used}/${t.of}${t.handedOff ? " handed off" : t.exhausted ? " ran out" : t.toEnd ? " reached its end" : ""}`;
+  return `rounds: ${runs.map((run) => run.map(turn).join(", ")).join(" | ")}`; // turns of one run by commas, runs by bars
+}
+
 export function detailOf(r) {
   const line = (m) => `${m.kind === "must not" ? "never" : "must"}: ${m.line}${m.reason ? ` (${m.reason})` : ""}`;
   const misses = (Array.isArray(r.misses) ? r.misses : []).map(line);
   const held = (Array.isArray(r.held) ? r.held : []).map((m) => `held: ${line(m)}`);
   const said = Array.isArray(r.said) ? r.said.filter((t) => typeof t === "string") : [];
-  const text = [...misses, ...held, ...(said.length > 0 ? [`Tex: ${said.join(" / ")}`] : [])].join("\n").slice(0, DETAIL_CHARS);
+  const rounds = roundsLine(r.rounds);
+  const text = [...(rounds !== null ? [rounds] : []), ...misses, ...held, ...(said.length > 0 ? [`Tex: ${said.join(" / ")}`] : [])].join("\n").slice(0, DETAIL_CHARS);
   return text === "" ? {} : { detail: text };
 }
 

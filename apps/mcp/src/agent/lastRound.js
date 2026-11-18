@@ -49,6 +49,19 @@ export function roundNotice(round, rounds, { scheduled = false } = {}) {
 
 export const OUT_OF_STEPS = "I ran out of steps before I finished that one. Text me to carry on and I'll pick up where I stopped.";
 
+/**
+ * A turn's rounds for its caller (the bench records them per turn: Dev2, 2026-11-18, "prove from traces which misses are
+ * round exhaustion"): `used` of `of`, an earlier try's rounds counted (`timing.from`); `toEnd` when it reached its last
+ * two rounds (told to stop gathering), `exhausted` when its last round still ended on tool calls, `handedOff` when the
+ * Hand-off node took the job from there. Counts only, never words.
+ */
+export function roundsField(turn) {
+  const timing = turn?.timing ?? {};
+  if (!Number.isInteger(timing.rounds) || !Number.isInteger(timing.bound) || timing.bound <= 0) return {};
+  const from = Number.isInteger(timing.from) ? timing.from : 0;
+  return { rounds: { used: from + timing.rounds, of: timing.bound, ...(timing.toEnd === true ? { toEnd: true } : {}), ...(turn.exhausted === true ? { exhausted: true } : {}), ...(turn.handedOff === "rounds" ? { handedOff: true } : {}) } };
+}
+
 /** What a turn that hit its bound answers: the model's last words, with the reason, or the reason alone. */
 export function exhaustedAnswer(lastWords) {
   const words = typeof lastWords === "string" ? lastWords.trim() : "";
