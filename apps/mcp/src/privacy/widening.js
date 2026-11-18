@@ -157,7 +157,9 @@ async function classify(name, args, { into, privacy }) {
     case "create_form": {
       const facets = [];
       if (name === "write_note") {
-        if (a.site?.action === "publish") facets.push({ audience: "anyone", summary: "publish the website" });
+        if (a.site?.action === "publish") {
+          facets.push({ audience: "anyone", summary: elsewhere ? `publish the ${into} website` : "publish the website" });
+        }
         if (SHARE_VALUES.has(a.share)) {
           facets.push(
             a.share === "members"
@@ -175,7 +177,12 @@ async function classify(name, args, { into, privacy }) {
           facets.push({ audience: "outside", summary: `fetch an image from ${[...new Set(hosts)].join(", ")} into ${a.path}` });
         }
       }
-      if (elsewhere) facets.push({ audience: "team", summary: `write ${a.path} into ${into}`, elsewhere: true });
+      // A site action writes no note (`tools/notes/site.js` refuses content
+      // beside it), so it is never also a write into the other workspace: a
+      // judge asked about one would find no words for it (2026-11-18).
+      if (elsewhere && a.site === undefined) {
+        facets.push({ audience: "team", summary: `write ${a.path} into ${into}`, elsewhere: true });
+      }
       // The ask is the flag: without it the tool refuses a publication itself,
       // and the gate supplies the flag only for a call that carried it, so an
       // approval given for an image address cannot publish the note as well.
