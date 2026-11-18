@@ -6,7 +6,8 @@
  */
 import assert from "node:assert/strict";
 import test from "node:test";
-import { REPLY_NEEDS_ID, readEmail } from "../src/tools/email.js";
+import { REPLY_NEEDS_ID, readEmail, toolSendEmail, toolSaveEmailDraft } from "../src/tools/email.js";
+import { emailGate } from "../src/tools/emailGate.js";
 
 const BASE = { to: ["jo@example.com"], body: "Hi Jo,\n\nWhere does the review stand?\n\nSeyi" };
 
@@ -17,6 +18,24 @@ test("a Re: subject with no in_reply_to is refused, and says to search_email fir
     assert.match(read.error, /search_email/);
     assert.match(read.error, /in_reply_to/);
   }
+});
+
+test("a Re: send with no in_reply_to says Not sent once, not twice (2026-11-18)", async () => {
+  const store = { email: { send: () => assert.fail("nothing is sent") } };
+  const result = await toolSendEmail(store, { ...BASE, subject: "Re: Plan recommended" });
+  assert.equal(result.isError, true);
+  const text = result.content[0].text;
+  assert.equal(text, REPLY_NEEDS_ID);
+  assert.match(text, /^Not sent: the subject/);
+  assert.equal(text.split("Not sent:").length - 1, 1);
+});
+
+test("the same Re: refusal reads once through the draft path and the send gate", async () => {
+  const subject = "Re: Plan recommended";
+  const draft = await toolSaveEmailDraft({ email: { draft: () => assert.fail("nothing is saved") } }, { ...BASE, subject });
+  assert.equal(draft.content[0].text, REPLY_NEEDS_ID);
+  const gated = await emailGate({ ...BASE, subject }, { store: {}, session: { workspaceId: "w" }, target: { workspaceId: "w" } });
+  assert.equal(gated.content[0].text, REPLY_NEEDS_ID);
 });
 
 test("a Re: subject with in_reply_to goes inside that thread", () => {
