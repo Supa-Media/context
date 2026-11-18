@@ -13,6 +13,7 @@
  * bench stops at 4 to bound its cost). Then, in plain code:
  *
  *   - the page: a note it wrote under `page.under`, or the placed page at `page.at`, rewritten;
+ *   - when `page.suffix` is set (for example `.page.md`), that note's path ends with it; left off, this check is not run;
  *   - its sources: at least `sources.min` distinct links on `sources.hosts`;
  *   - every part of the ask: each `covers` entry in the page (`a|b` is either), no `absent` one;
  *   - a page edit keeps the placed lines named in `keeps`;
@@ -129,6 +130,9 @@ export function pickPage(item, changes, read, placed = {}) {
 export function checkTask(item, { page, status, browser = [], parts = [] }) {
   const checks = [];
   checks.push({ line: item.page.at ? `rewrote ${item.page.at}` : `wrote a page under ${item.page.under}`, pass: page !== null });
+  // Optional. The quality judge never decides, so a designed page (`.page.md`) is a code failure only when a case names the suffix.
+  const suffix = typeof item.page?.suffix === "string" ? item.page.suffix.trim() : "";
+  if (suffix !== "") checks.push({ line: `page path ends with ${suffix} (${page?.path ?? "none"})`, pass: typeof page?.path === "string" && page.path.endsWith(suffix) });
   const text = page?.text ?? "";
   if (item.sources?.min) {
     const found = sourcesIn(text, item.sources.hosts);

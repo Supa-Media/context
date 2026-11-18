@@ -1,13 +1,14 @@
 /**
  * TEX'S JOB TASKS, RUN END TO END AND GRADED IN CODE (`bench/jobTasks.mjs`; Dev2, 2026-11-13).
  *
- * Sabotage record (applied, run, observed failing, reverted, 2026-11-13):
+ * Sabotage record (applied, run, observed failing, reverted, 2026-11-13; the suffix check on 2026-11-17):
  *  1. `checkTask` dropping the sources check -> "a page without its sources fails" fails;
  *  2. `runJob` not carrying the check's advice into the next part -> "a part the check says isn't finished is followed
  *     by another, on its advice" fails;
  *  3. `endedAs` reading keep_going on the last part as done -> "a job still not finished when its parts run out ends
  *     stuck" fails;
  *  4. `pickPage` taking a placed page nobody rewrote -> "a page edit that never saved has no page" fails.
+ *  5. `checkTask` ignoring `page.suffix` -> "a page.suffix check passes only when the written path ends with it" fails.
  */
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
@@ -31,6 +32,19 @@ test("a page that cites its sources and covers every part of the ask passes ever
   const page = { path: "maya/p.md", text: "Lucky Wok $4000 https://caterers.example/lucky-wok and caterers.example/rosa." };
   const checks = checkTask(caterers, { page, status: "done", parts: checked });
   assert.deepEqual(checks.filter((check) => !check.pass), []);
+});
+
+test("a page.suffix check passes only when the written path ends with it", () => {
+  const asked = { ...caterers, page: { under: "maya/", suffix: ".page.md" } };
+  const text = "Lucky Wok $4000 https://caterers.example/lucky-wok and caterers.example/rosa.";
+  const matched = checkTask(asked, { page: { path: "maya/lunch.page.md", text }, status: "done", parts: checked });
+  assert.deepEqual(matched.filter((check) => !check.pass), []);
+  const missed = checkTask(asked, { page: { path: "maya/lunch.md", text }, status: "done", parts: checked }).filter((check) => !check.pass).map((check) => check.line);
+  assert.deepEqual(missed, ["page path ends with .page.md (maya/lunch.md)"]);
+  const missing = checkTask(asked, { page: null, status: "done", parts: checked }).filter((check) => !check.pass).map((check) => check.line);
+  assert.ok(missing.includes("page path ends with .page.md (none)"));
+  const lines = checkTask(caterers, { page: { path: "maya/lunch.md", text }, status: "done", parts: checked }).map((check) => check.line);
+  assert.equal(lines.some((line) => line.startsWith("page path ends with")), false);
 });
 
 test("a page without its sources fails", () => {
