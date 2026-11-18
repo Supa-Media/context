@@ -51,6 +51,23 @@ Replayed against the recorded map: #2094 runs 15 of 545 files, #2097 and
 edit `http.ts`, which every HTTP test runs), and #2107 all of it (it edits a
 schema file). Recording costs about 8% on the full run.
 
+## Shards are balanced by recorded time
+
+CI runs the selected or whole suite on six runners, each given `--shard=i/6`.
+Vitest's own split is by hash, so two of the slow files could land on one
+runner and make it the slowest job. `scripts/convex-tests.mjs` instead
+partitions the files by greedy longest-processing-time over
+`apps/convex/.test-timings.json` (median per file across main's shard logs,
+refreshed by `scripts/convex-test-timings.mjs`). A file with no entry weighs
+the median of the rest. The split is deterministic, so every runner computes
+the same partition, and it is a true partition: every selected file runs on
+exactly one shard.
+
+**What a simplification costs.** Returning to hash sharding puts the slow
+files back on whichever runner the hash picks. The timings only decide which
+runner takes a file: a stale or missing entry costs balance, never coverage,
+and `scripts/convex-tests.test.mjs` pins the partition property.
+
 ## Why this is safe enough
 
 A selection can miss a test: a constant read only at module load, or a

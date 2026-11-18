@@ -70,8 +70,8 @@ jobs:
       # exclusion. `pnpm architecture` runs the same check locally.
       architecture-check: true
       # The Convex suite is the longest job on main: six runners each take a
-      # sixth of the files (vitest --shard); `ci / Test Summary` still fails
-      # if any shard does.
+      # time-balanced share (--shard=i/6, apps/convex/.test-timings.json);
+      # `ci / Test Summary` still fails if any shard does.
       convex-test-shards: 6
       # On a pull request, run only the Convex tests the change reaches: main
       # records which files each test used, and `scripts/convex-tests.mjs`
