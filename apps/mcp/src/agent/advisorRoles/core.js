@@ -20,11 +20,12 @@ import { withArchitecture } from "../texArchitecture.js";
 
 /**
  * One ask of the advisor in one of its roles: its instructions behind the drawing (`texArchitecture.js`, `role` the
- * box it is), one user message, no tools. `display: "summarized"`: its thinking comes back in words, kept with its
+ * box it is), one user message, no tools. The instructions are the cached prefix; the brief changes every ask, so it is
+ * never cached (`cacheTail: false`, `aiGateway.js`). `display: "summarized"`: its thinking comes back in words, kept with its
  * answer in the chat's history (Dev, 2026-11-02: "'Its private reasoning isn't kept.' - why?"); it never goes to Tex.
  */
 export function adviseOnce({ request, model, effort, prompt, role, brief }) {
-  return request({ model, system: withArchitecture(prompt, role), messages: [{ role: "user", text: brief }], tools: [], display: "summarized", ...(effort ? { effort } : {}) });
+  return request({ model, system: withArchitecture(prompt, role), messages: [{ role: "user", text: brief }], tools: [], cacheTail: false, display: "summarized", ...(effort ? { effort } : {}) });
 }
 
 /** The advisor's thinking in words (`aiGateway.js` hands back the answer's blocks when it thought), or "". */

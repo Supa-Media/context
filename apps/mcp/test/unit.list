@@ -667,3 +667,4 @@ test/labSandboxPages.test.mjs
 test/replyUnder.test.mjs
 bench/test/fallbacks.test.mjs
 test/checkinOnceInChat.test.mjs
+test/advisorCache.test.mjs

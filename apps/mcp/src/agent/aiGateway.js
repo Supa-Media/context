@@ -319,7 +319,7 @@ export function resetContextEdits() {
 const namesContextEdits = (answer) => answer.status === 400 && /context_management|context-management/i.test(answer.text ?? "");
 const withoutContextEdits = ({ context_management: _edits, ...body }) => body;
 
-export function gatewayBody({ model, system, messages, tools, maxTokens, toolChoice, effort, display, thinking, cachedThrough = null, cacheTtl = "1h" }) {
+export function gatewayBody({ model, system, messages, tools, maxTokens, toolChoice, effort, display, thinking, cachedThrough = null, cacheTtl = "1h", cacheTail = true }) {
   const layered = Number.isInteger(cachedThrough) && cachedThrough >= 0;
   // The prefix's cache life is the step's `cacheTtl` in Tex's config (`texConfig.js` `texCacheTtl`): "1h" unless it says "5m".
   const prefixMark = cacheTtl === "5m" ? { type: "ephemeral" } : HOUR_MARK;
@@ -343,7 +343,10 @@ export function gatewayBody({ model, system, messages, tools, maxTokens, toolCho
     markLastBlock(wire, historyEnd - 1, prefixMark);
     // And the round's last block, so the next round reads this one's tool results instead of sending them as new.
     if (wire.length > historyEnd) markLastBlock(wire, wire.length - 1);
-  } else {
+  } else if (cacheTail !== false) {
+    // A one-off call whose last message is never sent again (the advisor's brief, `advisorRoles/core.js`) leaves its
+    // tail unmarked: only the stable prefix is written to the cache, and the brief is billed as plain input (1x), not
+    // a cache write (1.25x) that nothing reads back.
     markLastBlock(wire, wire.length - 1);
   }
   const systemText = systemBlocks(system, stableMark);
