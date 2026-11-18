@@ -72,7 +72,8 @@ async function publishedTexts(
   // Existence, sealing, draft and the narrowing a public note may not carry are
   // the tree's answer; a note it rules out is never opened.
   const rows = await currentRows(ctx, workspaceId, notes.map((note) => note.objectKey));
-  if (rows === null) return texts;
+  // The tree did not answer: that is not the notes being gone.
+  if (rows === null) throw new Error("website design: the tree did not answer");
   const eligible = notes.filter((note) => {
     // Absent at the publication clearance: held back, deleted or moved. Gone now.
     const row = rows.get(note.objectKey);
@@ -87,14 +88,12 @@ async function publishedTexts(
   const unchanged = eligible.filter((note) => rows.get(note.objectKey)!.etag === note.sourceEtag);
   const live = new Map<string, { text: string; etag: string }>();
   if (unchanged.length > 0) {
-    const read = await ctx
-      .runAction(internal.functions.files.runFileOperation, {
-        workspaceId,
-        ...PUBLICATION_CLEARANCE,
-        operation: { kind: "readMany", paths: unchanged.map((note) => note.objectKey) },
-      })
-      .catch(() => null);
-    if (read?.kind === "notes") {
+    const read = await ctx.runAction(internal.functions.files.runFileOperation, {
+      workspaceId,
+      ...PUBLICATION_CLEARANCE,
+      operation: { kind: "readMany", paths: unchanged.map((note) => note.objectKey) },
+    });
+    if (read.kind === "notes") {
       for (const result of read.results) {
         if (result.outcome !== "read" || isEncryptedNote(result.note.text)) continue;
         live.set(result.path, { text: result.note.text, etag: result.note.etag });
@@ -112,15 +111,13 @@ async function publishedTexts(
       : [{ releaseId: note.releaseId, pageId: note.releasePageId, path: note.objectKey }],
   );
   if (wanted.length > 0) {
-    const released = await ctx
-      .runAction(internal.functions.files.runFileOperation, {
-        workspaceId,
-        scope: "private",
-        grantedNames: [],
-        operation: { kind: "readWebsiteRelease", pages: wanted },
-      })
-      .catch(() => null);
-    if (released?.kind === "websiteReleasePages") {
+    const released = await ctx.runAction(internal.functions.files.runFileOperation, {
+      workspaceId,
+      scope: "private",
+      grantedNames: [],
+      operation: { kind: "readWebsiteRelease", pages: wanted },
+    });
+    if (released.kind === "websiteReleasePages") {
       for (const page of released.results) {
         if (page.outcome === "read" && !isEncryptedNote(page.text)) texts.set(page.path, page.text);
       }
@@ -163,7 +160,7 @@ export async function sanitizeDesign(
           ctx,
           workspaceId,
           [[...wanted].map((name) => `![[${name}]]`).join("\n")],
-        ).catch(() => ({}) as Record<string, string>);
+        );
   const image = (name: string) => (pictures as Record<string, string>)[name] ?? null;
   const frame = source.frame === null ? null : sanitizeSiteHtml(source.frame, { image });
   const template = source.template === null ? null : sanitizeSiteHtml(source.template, { image });
@@ -185,6 +182,11 @@ export async function sanitizeDesign(
 /**
  * The design a page is drawn with, or null for the default look: a site with
  * no code notes, on a plan without designs, looks exactly as it did.
+ *
+ * Rebuilt from the live notes, so it is the path a visit takes only where the
+ * release has no design of its own (`bakedDesign.ts`) or a restriction is
+ * pending. A failure to read is thrown, never answered as "no design": a page
+ * that came without its look must not be kept as if it were the site.
  */
 export async function readWebsiteDesign(
   ctx: ActionCtx,
@@ -202,9 +204,27 @@ export async function readWebsiteDesign(
   const chosen = designNotesFor(args.notes, layout, args.viewerAudience);
   if (chosen.length === 0 && !args.pageIsHtml) return null;
   const texts = await publishedTexts(ctx, args.workspaceId, chosen);
+  return await composeDesign(ctx, args.workspaceId, chosen, texts, {
+    template: args.pageIsHtml ? blockOf(args.pageKey, args.pageText) : null,
+    base: !args.pageIsHtml || parseWebsitePage(args.pageText).base,
+  });
+}
+
+/**
+ * The design `chosen` makes from `texts` (each note's published words), with
+ * an HTML page's own block as the template. Notes with no text are left out:
+ * the tree said they are no longer drawn.
+ */
+export async function composeDesign(
+  ctx: ActionCtx,
+  workspaceId: Id<"workspaces">,
+  chosen: readonly DesignNote[],
+  texts: ReadonlyMap<string, string>,
+  page: { template: string | null; base: boolean },
+): Promise<WebsiteDesign | null> {
   let frame: string | null = null;
-  let template: string | null = args.pageIsHtml ? blockOf(args.pageKey, args.pageText) : null;
-  let base = !args.pageIsHtml || parseWebsitePage(args.pageText).base;
+  let template = page.template;
+  let base = page.base;
   const styles: string[] = [];
   for (const note of chosen) {
     const text = texts.get(note.objectKey);
@@ -218,8 +238,13 @@ export async function readWebsiteDesign(
     else styles.push(block);
   }
   if (frame === null && template === null && styles.length === 0) return null;
-  const design = await sanitizeDesign(ctx, args.workspaceId, { frame, template, styles });
+  const design = await sanitizeDesign(ctx, workspaceId, { frame, template, styles });
   return base ? design : { ...design, base: false };
+}
+
+/** An HTML page's own block, sanitized, for drawing inside a kept design. */
+export function htmlPageBlock(pageKey: string, pageText: string): string | null {
+  return blockOf(pageKey, pageText);
 }
 
 /**
