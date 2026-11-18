@@ -50,6 +50,8 @@ import { failedStatus, roundsOf } from "./trace.mjs";
 import { benchCause } from "./benchCause.mjs";
 import { homeChanges, noteChanges, worldStandIns } from "./worldStandIns.mjs";
 import { lastWords } from "./worldStarts.mjs";
+import { quietCallsOf } from "./frontDoorCall.mjs";
+import { turnSteps } from "./turnSteps.mjs";
 
 /** Brave's search endpoint (`src/agent/search.js`). */
 
@@ -446,7 +448,8 @@ export async function createWorld(bench, person, setupRaw, models, today = null,
         // What else makes a wordless turn (`run.mjs` saidLine): pictures sent, a turn the Worker stopped, and the model's last words.
         pictures: Array.isArray(body?.pictures) ? body.pictures.length : 0,
         cancelled: body?.cancelled === true,
-        ...(body?.answer === "" ? { quietWhy: lastWords(modelCalls.calls().slice(callsBefore)) } : {}),
+        // A quiet turn's words are the Front door's own last call (`frontDoorCall.mjs`), not a judge's that ran after it.
+        ...(body?.answer === "" ? { quietWhy: lastWords(quietCallsOf(modelCalls.calls().slice(callsBefore))) } : {}),
         ...(job ? { verdict: typeof body?.verdict === "string" ? body.verdict : null, advice: typeof body?.advice === "string" ? body.advice : "", unfinished: body?.unfinished === true, exhausted: body?.exhausted === true } : {}),
         react: typeof body?.react === "string" ? body.react : null,
         // Lines the turn texted while it worked: each is a text the person got,
@@ -497,6 +500,8 @@ export async function createWorld(bench, person, setupRaw, models, today = null,
         usageByModel: spent.usageByModel,
         rounds: roundsOf(turn.trace), ...(body?.rounds && typeof body.rounds === "object" ? { turnRounds: body.rounds } : {}), // and its rounds of its bound (`lastRound.js` roundsField)
         trace: turn.trace ?? [],
+        // What the turn did, short (`turnSteps.mjs`): tools, the reviewer's verdicts and the outcome, for a Lab row.
+        steps: turnSteps(turn.trace, { answer: body?.answer ?? "", cancelled: body?.cancelled === true }),
       };
     },
 

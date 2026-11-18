@@ -279,3 +279,13 @@ test("a row's detail opens with each turn's rounds of its bound, so a miss reads
   assert.equal(detail.split("\n")[0], "rounds: 3/12, 11/12 reached its end, 12/12 ran out, 10/12 handed off", "first, so a long detail never cuts it");
   assert.equal(detailOf({ rounds: [] , said: ["hi"] }).detail, "Tex: hi");
 });
+
+test("a row's steps line comes right after its rounds, before the judge's lines, and survives the cut (Lab, 2026-11-18)", () => {
+  const rounds = [{ used: 2, of: 12 }];
+  const steps = "tools search_mail ok | answer check: let go (only_acknowledged) | outcome: quiet (send say_nothing)";
+  const { detail } = detailOf({ rounds, steps, misses: [{ kind: "must", line: "do it", reason: "it didn't" }], said: ["x".repeat(3_000)] });
+  assert.deepEqual(detail.split("\n").slice(0, 3), ["rounds: 2/12", `steps: ${steps}`, "must: do it (it didn't)"]);
+  assert.equal(detail.length, 1_500);
+  assert.equal(detailOf({ steps: "tools none | outcome: replied" }).detail, "steps: tools none | outcome: replied", "alone it is the whole detail");
+  assert.deepEqual(detailOf({ steps: "" }), {}, "an empty steps line is no line");
+});

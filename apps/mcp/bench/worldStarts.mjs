@@ -8,6 +8,8 @@ import { HEARTBEAT_CLIENT_ID } from "../src/agent/heartbeat.js";
 import { ROUTINES_CLIENT_ID } from "../src/agent/routine.js";
 import { createWorkerCtx } from "../test/workerCtx.mjs";
 import { realNow } from "./clock.mjs";
+import { quietCallsOf } from "./frontDoorCall.mjs";
+import { turnSteps } from "./turnSteps.mjs";
 
 /** The check-in and routine grants for `person`'s own workspace: `{ checkin, routine }` tokens. */
 export async function startGrants(controlPlane, { person, workspaceId, userId }) {
@@ -31,10 +33,13 @@ export async function startGrants(controlPlane, { person, workspaceId, userId })
 export async function startCall({ worker, env, token, body, controlPlane }) {
   const { ctx, settle } = createWorkerCtx();
   const started = realNow();
+  const reportsBefore = controlPlane.turnReports.length;
   const response = await worker.fetch(new Request("https://mcp.bench.invalid/agent", { method: "POST", headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" }, body: JSON.stringify(body) }), env, ctx);
   const answer = await response.json().catch(() => null);
   await settle();
-  return { status: response.status, body: answer, ms: realNow() - started, usage: controlPlane.builtinReports.at(-1) ?? {} };
+  // The turn's trace as the turn log has it, for the row's steps (`turnSteps.mjs`); none when this call made no turn.
+  const trace = controlPlane.turnReports.length > reportsBefore ? controlPlane.turnReports.at(-1)?.trace ?? [] : [];
+  return { status: response.status, body: answer, ms: realNow() - started, usage: controlPlane.builtinReports.at(-1) ?? {}, trace };
 }
 
 /**
@@ -69,13 +74,14 @@ export async function routineTurn(path, call, calls = () => [], timeZone = "UTC"
 export function startedTurn(got, said, calls = []) {
   const ok = got.status === 200 && got.body !== null;
   const text = ok ? String(said(got.body) ?? "") : "";
-  const why = text === "" ? lastWords(calls) : "";
+  const why = text === "" ? lastWords(quietCallsOf(calls)) : "";
   return {
     ok,
     answer: text === "" ? `(stayed quiet: ${String(got.body?.outcome ?? got.body?.reason ?? "nothing texted")}${why ? `: ${why}` : ""})` : text,
     error: ok ? null : String(got.body?.error ?? `status ${got.status}`),
     ms: got.ms,
     model: got.usage.model ?? null,
+    steps: turnSteps(got.trace, { answer: text }),
     tools: [],
     jobs: [],
     usage: { input: got.usage.inputTokens ?? 0, output: got.usage.outputTokens ?? 0, cacheRead: got.usage.cacheReadTokens ?? 0, cacheWrite: got.usage.cacheWriteTokens ?? 0 },

@@ -195,8 +195,9 @@ export function handoffOf(rows) {
 
 /**
  * A row's detail: first "rounds: <used>/<of>, ..." with "ran out" or "handed off" on a turn that ran to its bound (Dev2,
- * 2026-11-18: "prove from traces which Training fd misses are round exhaustion"), then "never: <line> (<judge's reason>)"
- * per failed line, "held: must: <line> (<reason>)" per line that held, then "Tex: <texts>"; empty when there is none.
+ * 2026-11-18: "prove from traces which Training fd misses are round exhaustion"), then "steps: <what the turn did>" (the
+ * row's `steps`, `turnSteps.mjs`), then "never: <line> (<judge's reason>)" per failed line, "held: must: <line> (<reason>)" per
+ * line that held, then "Tex: <texts>"; empty when there is none.
  */
 export function roundsLine(rounds) {
   const list = Array.isArray(rounds) ? rounds : [];
@@ -212,7 +213,9 @@ export function detailOf(r) {
   const held = (Array.isArray(r.held) ? r.held : []).map((m) => `held: ${line(m)}`);
   const said = Array.isArray(r.said) ? r.said.filter((t) => typeof t === "string") : [];
   const rounds = roundsLine(r.rounds);
-  const text = [...(rounds !== null ? [rounds] : []), ...misses, ...held, ...(said.length > 0 ? [`Tex: ${said.join(" / ")}`] : [])].join("\n").slice(0, DETAIL_CHARS);
+  // Before the judge's lines, so the cut never takes it: what the turn did, to read a quiet or missed row against.
+  const steps = typeof r.steps === "string" && r.steps !== "" ? `steps: ${r.steps}` : null;
+  const text = [...(rounds !== null ? [rounds] : []), ...(steps !== null ? [steps] : []), ...misses, ...held, ...(said.length > 0 ? [`Tex: ${said.join(" / ")}`] : [])].join("\n").slice(0, DETAIL_CHARS);
   return text === "" ? {} : { detail: text };
 }
 
