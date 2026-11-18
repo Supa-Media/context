@@ -16,6 +16,10 @@ on:
         description: "Which call, e.g. tools/call:fetch, tools/call:manage (every action) or tools/call:manage:archive (one action)."
         required: true
         default: "tools/call:write"
+      exact:
+        description: "Only this call, without its actions: tools/call:write alone is a plain save, not save_many or remember."
+        type: boolean
+        default: false
       hours:
         description: "How far back to read, in hours (1 to 168)."
         required: true
@@ -44,6 +48,7 @@ jobs:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           CALL: ${{ inputs.call }}
+          EXACT: ${{ inputs.exact }}
           HOURS: ${{ inputs.hours }}
           MINUTES: ${{ inputs.minutes }}
           SPLIT: ${{ inputs.split }}
@@ -61,6 +66,9 @@ jobs:
             window="$MINUTES' MINUTE"
             span="$MINUTES min"
           fi
+          # A save names no action, so `tools/call:write` with its actions mixes a plain save with save_many's many notes.
+          calls="(blob2 = '$CALL' OR blob2 LIKE '$CALL:%')"
+          if [ "${EXACT:-false}" = "true" ]; then calls="blob2 = '$CALL'"; fi
           by=""
           limit=60
           case "${SPLIT:-none}" in none) ;; client) by=", blob5 AS part"; limit=150 ;; place) by=", blob6 AS part"; limit=200 ;; *) echo "split must be none, client or place" >&2; exit 1 ;; esac
@@ -69,7 +77,7 @@ jobs:
             quantileWeighted(0.95)(double1, _sample_interval) AS p95_ms,
             SUM(double3 * _sample_interval) / SUM(_sample_interval) AS calls
             FROM $DATASET
-            WHERE blob1 = 'mcp' AND (blob2 = '$CALL' OR blob2 LIKE '$CALL:%') AND timestamp > NOW() - INTERVAL '$window
+            WHERE blob1 = 'mcp' AND $calls AND timestamp > NOW() - INTERVAL '$window
             GROUP BY step, state${by:+, part} ORDER BY ${by:+part, }p50_ms DESC LIMIT $limit FORMAT JSON"
           curl -sS --fail-with-body -X POST \
             "https://api.cloudflare.com/client/v4/accounts/$CLOUDFLARE_ACCOUNT_ID/analytics_engine/sql" \
