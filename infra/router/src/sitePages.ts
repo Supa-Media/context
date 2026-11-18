@@ -34,6 +34,13 @@ const PAGE_TIMEOUT_MS = 10_000;
 /** See above: the bound on a restriction nobody told Context about. */
 const PAGE_CACHE_SECONDS = 300;
 /**
+ * How long a copy stays as the fallback for an answer Convex calls
+ * incomplete (`stale`): part of the page could not be read, which is not the
+ * site changing. Only ever served for the same revision it was made under,
+ * so it never outlives a Publish or a restriction made through Context.
+ */
+const STALE_CACHE_SECONDS = 86_400;
+/**
  * A page's words plus the pictures it carries: Convex caps those at 4 MB of
  * bytes (`lib/websites/images.ts`), which is under 5.6 MB as base64.
  */
@@ -101,17 +108,18 @@ async function postJson(url: string, body: unknown, limitMs: number): Promise<un
 const PAGE_FORMAT = "v3";
 
 /** Our own key, built from checked parts; the request's URL never reaches it. */
-export function pageKey(ask: SitePageAsk, revision: string): Request {
+export function pageKey(ask: SitePageAsk, revision: string, kind: "fresh" | "stale" = "fresh"): Request {
   const legacy = ask.legacySlug === null ? "" : `?legacy=${ask.legacySlug}`;
+  const format = kind === "fresh" ? PAGE_FORMAT : `${PAGE_FORMAT}-stale`;
   return new Request(
-    `https://site-page.invalid/${PAGE_FORMAT}/${ask.handle}/${encodeURIComponent(revision)}/${encodeURIComponent(ask.routePath)}${legacy}`,
+    `https://site-page.invalid/${format}/${ask.handle}/${encodeURIComponent(revision)}/${encodeURIComponent(ask.routePath)}${legacy}`,
   );
 }
 
 /** Convex's answer, or `null` when it is not one. The address is passed on as it came. */
 export function parseSitePage(
   value: unknown,
-): { revision: string | null; cacheable: boolean; address: string } | null {
+): { revision: string | null; cacheable: boolean; stale: boolean; address: string } | null {
   if (typeof value !== "object" || value === null) return null;
   const body = value as Record<string, unknown>;
   const revision = body.revision;
@@ -120,7 +128,13 @@ export function parseSitePage(
   if (typeof address !== "object" || address === null || !KINDS.has(address.kind as string)) return null;
   const text = JSON.stringify(address);
   if (text.length > MAX_ANSWER) return null;
-  return { revision, cacheable: body.cacheable === true && revision !== null, address: text };
+  return {
+    revision,
+    cacheable: body.cacheable === true && revision !== null,
+    // Never both: an answer that may be kept is the copy, not a reason to want one.
+    stale: body.stale === true && body.cacheable !== true && revision !== null,
+    address: text,
+  };
 }
 
 function answer(status: number, body: string): Response {
@@ -173,10 +187,18 @@ export async function sitePageResponse(
     );
     if (page === null) return answer(503, "{}");
     if (cache !== null && page.cacheable && page.revision !== null) {
-      const stored = new Response(page.address, {
-        headers: { "Content-Type": "application/json", "Cache-Control": `public, max-age=${PAGE_CACHE_SECONDS}` },
-      });
-      ctx.waitUntil(cache.put(pageKey(ask, page.revision), stored).catch(() => undefined));
+      const kept = (seconds: number) =>
+        new Response(page.address, {
+          headers: { "Content-Type": "application/json", "Cache-Control": `public, max-age=${seconds}` },
+        });
+      ctx.waitUntil(cache.put(pageKey(ask, page.revision), kept(PAGE_CACHE_SECONDS)).catch(() => undefined));
+      ctx.waitUntil(cache.put(pageKey(ask, page.revision, "stale"), kept(STALE_CACHE_SECONDS)).catch(() => undefined));
+    }
+    // Part of the page could not be read just now (its look, or the note):
+    // the copy kept for this same revision is the site, this answer is not.
+    if (cache !== null && page.stale && page.revision !== null) {
+      const fallback = await cache.match(pageKey(ask, page.revision, "stale")).catch(() => undefined);
+      if (fallback) return answer(200, await fallback.text());
     }
     return answer(200, page.address);
   } catch {
