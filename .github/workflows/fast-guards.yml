@@ -195,6 +195,9 @@ jobs:
       - name: Gateway health probe can still fail
         run: node scripts/health-check-gateway.mjs --self-test
 
+      - name: Site health probe can still fail
+        run: node scripts/health-check-sites.mjs --self-test
+
       # A change to Tex ships with the case it is replayed against (docs/decisions/testing/replay-gate.md, Dev2 2026-11-13).
       - name: A Tex change adds the case that proves it
         env:

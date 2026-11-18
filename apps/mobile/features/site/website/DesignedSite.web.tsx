@@ -4,8 +4,9 @@
  * The page's HTML is composed from the sanitized frame and layout and the
  * page's own words, and sanitized again as a whole (`designHtml.ts`,
  * `composeSitePage`), then set as the inner HTML of one container. Its
- * stylesheet is set as text, never parsed as markup, after the base sheet,
- * and every rule in it is scoped to the container (`.ctx-site`).
+ * stylesheet, after the base sheet, is a constructed sheet the document
+ * adopts (`siteSheet.ts`), never parsed as markup, and every rule in it is
+ * scoped to the container (`.ctx-site`).
  *
  * A link to a page on this site is followed in place, as the default look's
  * menu is, and carries the real address so a new tab opens the right page.
@@ -16,12 +17,13 @@
  * be read past its first screen, and a site should not have to know that.
  */
 
-import { createElement, useEffect, useMemo, useRef } from "react";
+import { createElement, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { SITE_BASE_CSS, SITE_SCOPE_CLASS, googleFontsUrl, type ResolvedWebsitePage, type WebsiteDesign } from "@context/shared";
 import { emojiPictures } from "../../share/emojiPictures";
 import { publishedImages } from "../../share/publishedImages";
 import { PREFETCH_LIMIT } from "../siteAnswers";
 import { designedPageHtml, sitePathOf } from "./designHtml";
+import { adoptSiteSheet, canAdoptSheets } from "./siteSheet";
 
 export const designedSiteAvailable = true;
 
@@ -46,6 +48,20 @@ export function DesignedSite({
     () => designedPageHtml(view, design, { emoji: emojiPictures(view.emoji), images: publishedImages(view.images) }),
     [view, design],
   );
+  // `base: off` on a code note: the site starts from nothing but its own CSS.
+  const css = design.base === false ? design.css : `${SITE_BASE_CSS}\n${design.css}`;
+  // The sheet is adopted, not written into a <style>, so a style policy cannot
+  // refuse it (`siteSheet.ts`); a browser that cannot adopt keeps the element.
+  const [inlineStyle, setInlineStyle] = useState(() => !canAdoptSheets());
+  useLayoutEffect(() => {
+    if (inlineStyle) return;
+    const release = adoptSiteSheet(css);
+    if (release === null) {
+      setInlineStyle(true);
+      return;
+    }
+    return release;
+  }, [css, inlineStyle]);
 
   // The site's fonts, from Google Fonts only, the way the default look loads its serif.
   useEffect(() => {
@@ -128,8 +144,7 @@ export function DesignedSite({
       style: { height: "100%", flex: "1 1 0%", minHeight: 0, overflowY: "auto", WebkitOverflowScrolling: "touch" },
     },
     // Set as text, so it is never read as markup; every rule is scoped below.
-    // `base: off` on a code note: the site starts from nothing but its own CSS.
-    createElement("style", null, design.base === false ? design.css : `${SITE_BASE_CSS}\n${design.css}`),
+    inlineStyle ? createElement("style", null, css) : null,
     createElement("div", {
       className: SITE_SCOPE_CLASS,
       "data-testid": "site-designed",

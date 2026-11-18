@@ -1,0 +1,53 @@
+# Are published websites still drawn, and drawn with their own look? Asked
+# from outside, the way a visitor asks, every hour and right after each
+# production deploy (`scripts/health-check-sites.mjs`, which says what it
+# checks and why).
+#
+# Websites have gone unstyled or blank in production more than once with every
+# unit test green (#1201, #2335, #2053/#2098/#2102, #944/#951); each was found
+# by a person looking at a site. This is the check that finds the next one.
+#
+# Like `gateway-health.yml`: it needs no secret (every address it asks is
+# public), it never redeploys, and it never retries, so a real failure is not
+# averaged away. A red run is a report, not a remedy.
+
+name: Site Health
+
+on:
+  schedule:
+    - cron: "23 * * * *"
+  workflow_run:
+    workflows: ["Deploy to Production"]
+    types: [completed]
+  workflow_dispatch:
+
+# Least privilege: this reads public addresses and writes nothing.
+permissions:
+  contents: read
+
+concurrency:
+  group: site-health
+  cancel-in-progress: false
+
+jobs:
+  probe:
+    if: ${{ github.event_name != 'workflow_run' || github.event.workflow_run.conclusion == 'success' }}
+    name: Published websites are drawn and styled
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          # No pnpm in this job: the probe is plain Node over `fetch`.
+          package-manager-cache: false
+
+      # First, as in gateway-health.yml: a probe whose checks have stopped
+      # matching anything reports healthy sites forever.
+      - name: The probe catches what it claims to
+        run: node scripts/health-check-sites.mjs --self-test
+
+      - name: Ask every watched site
+        run: node scripts/health-check-sites.mjs
