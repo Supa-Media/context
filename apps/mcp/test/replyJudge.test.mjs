@@ -425,3 +425,12 @@ test("the code checks are a step whether they pass or send back, and a skipped r
   assert.ok(steps.every((s) => !JSON.stringify(s).includes("it says")), "sizes and counts, never the draft's words");
   assert.ok(STEP_NAMES.has("checks") && STEP_NAMES.has("reviewer"), "both reach the chat's ledger");
 });
+
+test("the reviewer judges a report by whether the person can follow it, never by counting sentences, and never writes Tex's words (Dev2 2026-11-18)", () => {
+  // The StafferLink report was sent back four times under "a write-up of more than three sentences",
+  // each time with the reviewer's own one-liner, which Tex then sent word for word.
+  assert.doesNotMatch(REVIEW_SYSTEM, /more than three sentences/);
+  assert.match(REVIEW_SYSTEM, /never by counting sentences/);
+  assert.match(REVIEW_SYSTEM, /never write the replacement text/);
+  assert.match(sendBackNotice("Fix one."), /in your own words/);
+});
