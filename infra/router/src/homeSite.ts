@@ -14,11 +14,14 @@
  * (`apps/convex/functions/lib/websites/snapshot.ts`), re-checked field by
  * field here, and written so it cannot close its own `<script>` element.
  * Every failure (no CONVEX_ORIGIN, a timeout, a non-200, a site that is off)
- * is the untouched HTML, and the app falls back on its own.
+ * leaves the site block out, and the app falls back on its own. `/` and `/a`
+ * still carry the agent front (`agentFront.ts`), which does not come from the site.
  *
  * A page's own address, `/pricing`, carries it as well when the site has that
  * page: the app opens that address as the homepage on that page.
  */
+
+import { injectAgentFront } from "./agentFront";
 
 /** The element the app reads (`apps/mobile/features/home/homeSnapshot.ts`). */
 export const HOME_SITE_ELEMENT_ID = "context-home-site";
@@ -300,11 +303,16 @@ export async function homeDocumentResponse(
   const type = upstream.headers.get("Content-Type") ?? "";
   if (upstream.status !== 200 || !type.toLowerCase().includes("text/html")) return upstream;
   const site = await snapshot;
-  if (site === null) return upstream;
-  // `/pricing` carries the site only when the site has a Pricing page; any
-  // other name is not the homepage's, and its document is left as it came.
-  if (routePath !== "/" && !site.pages.some((page) => page.routePath === routePath)) return upstream;
-  const html = await upstream.text();
+  // `/` and `/a` are the notes page. The agent block goes in even when the
+  // live site cannot be read, so a fetch of the homepage still says how to
+  // connect. Any other address carries the site only when the site has that
+  // page, and is left as it came otherwise.
+  const landing = routePath === "/" || routePath === "/a";
+  const carriesSite = site !== null && (routePath === "/" || site.pages.some((page) => page.routePath === routePath));
+  if (!landing && !carriesSite) return upstream;
+  let html = await upstream.text();
+  if (landing) html = injectAgentFront(html);
+  if (carriesSite && site !== null) html = injectHomeSnapshot(html, site);
   const headers = new Headers(upstream.headers);
   // The body is no longer the upstream's bytes: its length, encoding and
   // validator describe something else now.
@@ -313,7 +321,7 @@ export async function homeDocumentResponse(
   }
   // A browser keeping this would keep a site that has since been edited.
   headers.set("Cache-Control", "no-cache");
-  return new Response(injectHomeSnapshot(html, site), { status: 200, headers });
+  return new Response(html, { status: 200, headers });
 }
 
 /**

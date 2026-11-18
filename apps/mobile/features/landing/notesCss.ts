@@ -22,6 +22,9 @@ export const NOTES_CSS = `
 .np-hero{padding-top:clamp(32px,7vh,72px);padding-bottom:48px;text-align:center}
 .np-h1{max-width:1000px;margin:0 auto;font-family:var(--serif);font-weight:500;font-size:clamp(40px,6vw,72px);line-height:1.04;letter-spacing:-.02em;text-wrap:balance}
 .np-sub{max-width:600px;margin:22px auto 0;font-size:19px;line-height:1.5;color:var(--ink2);text-wrap:pretty}
+.np-connect{max-width:640px;margin:8px auto 0;font-size:14.5px;line-height:1.4;color:var(--ink2)}
+.np-connect a{color:var(--blue);text-decoration:underline;text-underline-offset:.12em}
+.np-guides a{margin-left:12px}
 .np-sign{display:flex;justify-content:center;margin-top:30px;text-align:left;scroll-margin-top:24px}
 .np-sign .tp-in{width:100%}
 

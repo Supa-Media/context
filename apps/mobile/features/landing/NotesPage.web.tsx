@@ -49,7 +49,7 @@ export function NotesPage() {
   return (
     <div className="np" style={vars} data-landing="a">
       <style>{NOTES_CSS + SIGN_UP_CSS}</style>
-      <header className="np-wrap np-nav">
+      <nav className="np-wrap np-nav" aria-label="Context">
         <a className="np-brand" href="/" aria-label="Context">
           Context<span className="np-dot" aria-hidden />
         </a>
@@ -72,13 +72,21 @@ export function NotesPage() {
             </a>
           </>
         )}
-      </header>
+      </nav>
       <main>
         <section className="np-wrap np-hero">
           <h1 className="np-h1">Context gives your brain that feeling you have when your room is clean.</h1>
           <p className="np-sub">
             It's an opinionated way to put everything away in plain notes that you can always edit, export, do whatever you
             want with it, and so can all your AI tools.
+          </p>
+          <p className="np-connect">
+            An agent connects at <a href="https://mcp.context.lc/mcp">mcp.context.lc/mcp</a> and signs in with OAuth.{" "}
+            <span className="np-guides">
+              <a href="/agents">Grok Bot guide</a>
+              <a href="/claude">Claude guide</a>
+              <a href="/llms.txt">llms.txt</a>
+            </span>
           </p>
           <div className="np-sign" id="join">
             <InlineSignUp />
@@ -97,6 +105,9 @@ export function NotesPage() {
         <a className="np-mac" href="/download/mac">
           Download for Mac
         </a>
+        <a href="/agents">Agents</a>
+        <a href="/claude">Claude</a>
+        <a href="/llms.txt">llms.txt</a>
         <a href="/privacy">Privacy</a>
         <a href="/terms">Terms</a>
         <span className="np-tex">
