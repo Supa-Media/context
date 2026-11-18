@@ -136,7 +136,7 @@ export class TexRoutines extends WorkerEntrypoint<TexRoutineEnv> {
       controlPlaneOrigin: env.CONTROL_PLANE_ORIGIN,
       workerSecret: env.AGENT_WORKER_SECRET,
       gatewayOrigin: env.GATEWAY_ORIGIN,
-      textPhone: (phone, text, idempotencyKey, continues, beside) => textPhone(env, phone, text, idempotencyKey, continues, beside),
+      textPhone: (phone, text, idempotencyKey, continues, beside, source, turn) => textPhone(env, phone, text, idempotencyKey, continues, beside, source, turn),
       log: (entry) => console.log(JSON.stringify(entry)),
     };
   }

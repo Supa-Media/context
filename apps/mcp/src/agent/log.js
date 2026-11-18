@@ -23,6 +23,7 @@
 
 import { sha256Hex } from "../ingestion/inbox.js";
 import { TOLD } from "./conversation.js";
+import { TEXT_SOURCES } from "./sentOnItsOwn.js";
 
 export const LOG_PREFIX = ".context/agent/log/";
 export const MAX_EVENTS_PER_CALL = 50;
@@ -37,7 +38,7 @@ const MAX_COVERS = 32;
 export const EVENT_KINDS = new Set(["text", "picture", "file", "link", "reaction", "ask", "ask_settled", "delivery"]);
 export const FROM_KINDS = new Set(["person", "tex", "system"]);
 export const REASONS = new Set(["upload_failed", "send_refused", "held_newcomer", "failed", "timed_out", "too_long"]);
-const FIELDS = new Set(["id", "at", "chat", "from", "kind", "text", "left", "replyTo", "quoted", "edited", "unsent", "delivered", "reason", "turn", "covers", "people", "told", "ask", "heard"]);
+const FIELDS = new Set(["id", "at", "chat", "from", "kind", "text", "left", "replyTo", "quoted", "edited", "unsent", "delivered", "reason", "turn", "covers", "people", "told", "ask", "heard", "source"]);
 const FROM_FIELDS = new Set(["kind", "who", "name"]);
 /** The kinds a person's own message is: what an edit may be. */
 const INBOUND_KINDS = new Set(["text", "picture", "file", "link"]);
@@ -107,8 +108,11 @@ export function checkEvent(event, { chat, now }) {
   // `heard`: a voice message's words, written by the gateway once it heard them (`heardWords.js`); only on a person's file.
   if (event.heard !== undefined && (event.heard !== "voice" || event.kind !== "file" || from.kind !== "person")) throw new EventRefusal("heard");
   if (event.ask !== undefined && (event.kind !== "ask" || typeof event.ask !== "string" || !ASK.test(event.ask))) throw new EventRefusal("ask");
+  // `source`: the Worker tags every Tex text with where it came from (`apps/agent/src/texSends.ts`), and a text sent on its own
+  // carries its run's `turn`, its link to the gateway's note (`sentOnItsOwn.js`). Only a Tex text may say so.
+  if (event.source !== undefined && (typeof event.source !== "string" || !TEXT_SOURCES.has(event.source) || from.kind !== "tex" || !["text", "picture", "file", "link"].includes(event.kind))) throw new EventRefusal("source");
   const kept = { id, at, chat, from: { kind: from.kind, ...(from.who ? { who: from.who } : {}), ...(from.name ? { name: from.name } : {}) }, kind: event.kind };
-  for (const field of ["text", "left", "replyTo", "quoted", "edited", "unsent", "delivered", "reason", "turn", "covers", "people", "told", "ask", "heard"]) {
+  for (const field of ["text", "left", "replyTo", "quoted", "edited", "unsent", "delivered", "reason", "turn", "covers", "people", "told", "ask", "heard", "source"]) {
     if (event[field] !== undefined) kept[field] = event[field];
   }
   return kept;

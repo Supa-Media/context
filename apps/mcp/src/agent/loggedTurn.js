@@ -27,6 +27,7 @@ import { EVENT_ID, isChatKey, readEvents } from "./log.js";
 import { oneLine, renderEvents, replyingTo, speaker, TIME_OF, words } from "./logRender.js";
 import { CANCEL_PREFIX, GO_PREFIX, RUNNING_PREFIX } from "./steer.js";
 import { sentByItself, withSentByItself } from "./sentByItself.js";
+import { notSaidOwn } from "./sentOnItsOwn.js";
 import { dayFromLedger, earlierFromLedger, earlierRoom, faded, readLedger, summaryLines } from "./ledgerHistory.js";
 import { ledgerPlace } from "./ledger.js";
 import { deskLedger } from "./history.js";
@@ -121,7 +122,7 @@ export function momentView(read, { chat = null, timeZone = "UTC", now = Date.now
   const earlier = earlierFromLedger(read.entries, read.chat, { before: day.length > 0 ? day[0].at : Number.MAX_SAFE_INTEGER, chars: room, known: new Set(day.map((event) => event.id)), fade: true, fadeFrom: now, grant });
   const seen = [...earlier.events, ...day.map((event) => faded(event, now))];
   // A one-to-one chat's check-ins and routine texts kept in the person's record, as a reply shows them (`sentByItself.js`).
-  const own = group === null ? sentByItself(record, seen, { chat: key, newest: now }) : { shown: [] };
+  const own = group === null ? sentByItself(record, [...seen, ...notSaidOwn(read.entries)], { chat: key, newest: now }) : { shown: [] };
   const all = withSentByItself(seen, own.shown);
   const transcript = all.length === 0 ? "" : renderEvents(all, { timeZone, answeredBy: all, tools: earlier.tools, facts: earlier.facts });
   const told = [summaryLines(earlier.summaries), transcript].filter((part) => part !== "").join("\n\n");
@@ -182,7 +183,8 @@ export async function loggedTurn(store, body, { group = null, timeZone = "UTC", 
   // Everything before the day the turn holds, from the chat's ledger (`ledgerHistory.js`).
   const earlier = Array.isArray(read?.entries) ? earlierFromLedger(read.entries, read.chat, { before: events.length > 0 ? events[0].at : Number.MAX_SAFE_INTEGER, chars: earlierRoom(shown.reduce((sum, event) => sum + String(event.text ?? "").length, 0)), known: new Set(events.map((event) => event.id)), fade: true, fadeFrom: answering, grant }) : { events: [], tools: new Map(), facts: new Map(), summaries: [] }; // older days faded by age (`ledgerHistory.js` `faded`)
   // A one-to-one chat's check-ins and routine texts are in the person's record, not the log (`sentByItself.js`).
-  const own = group === null && record !== null ? sentByItself(await record, [...earlier.events, ...events], { chat: body.chat, newest: Math.max(...covered.map((event) => event.at)) }) : { shown: [] };
+  // The texts Tex sent on its own that were not said are passed too, so the record's copy of one is not shown (`sentOnItsOwn.js`).
+  const own = group === null && record !== null ? sentByItself(await record, [...earlier.events, ...events, ...notSaidOwn(read?.entries)], { chat: body.chat, newest: Math.max(...covered.map((event) => event.at)) }) : { shown: [] };
   const all = withSentByItself([...earlier.events, ...shown.map((event) => faded(event, answering))], own.shown);
   // Under each earlier text, what its turn read for it, quoted (`toldFacts.js`).
   const transcript = renderEvents(all.filter(before), { timeZone, answeredBy: [...earlier.events, ...events], tools: earlier.tools, facts: earlier.facts });

@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { Fetch } from "./clients";
 import { runRoutine } from "./routineClients";
+import { keptEvents } from "./events";
 import { accept, CHAT_KEY } from "./inbox";
 import { MemoryStorage } from "./memoryStorage.testing";
 import type { Message } from "./reply";
@@ -386,8 +387,12 @@ describe("the chat a routine texts", () => {
       { url: expect.stringContaining("/chats/chat_1/messages"), text: "Your plan for today", key: "routine:r1:+15555550100" },
       { url: expect.stringContaining("/chats/chat_1/messages"), text: "second paragraph", key: "routine:r1:+15555550100:1" },
     ]);
-    // Nothing of the answer is kept.
-    expect(JSON.stringify([...storage.data.values()])).not.toContain("plan");
+    // The answer waits in the outbox as Tex's own texts, for the ledger (`texSends.ts`).
+    const kept = (await keptEvents(storage, "chat_1")).filter((event) => event.from.kind === "tex");
+    expect(kept.map((event) => [event.from.kind, event.text, event.source])).toEqual([
+      ["tex", "Your plan for today", "routine"],
+      ["tex", "second paragraph", "routine"],
+    ]);
   });
 
   it("is no_chat for a phone that never texted", async () => {

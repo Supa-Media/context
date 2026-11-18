@@ -641,6 +641,12 @@ export async function runAgentHeartbeatChecks(check) {
       meta.status === 200 && meta.body?.answer?.startsWith("Anthropic sent a failed-payment notice") && !log().includes("new thread"),
     );
     bucket.delete("tex/attention.md");
+    // A check-in that speaks answers with its turn and where its text came from; its note carries the same turn (`log.js`, `sentOnItsOwn.js`).
+    const spokeNotes = (await ledgerFor(env, { person: "ws_beat" }).read(ONE_TO_ONE_CHAT, { kinds: ["note"] })).entries;
+    check(
+      "a check-in that speaks answers with its turn and source, and its note carries that turn",
+      meta.body?.source === "checkin" && /^ck/.test(meta.body?.turn ?? "") && spokeNotes.some((entry) => entry.turn === meta.body.turn),
+    );
 
     /* ---------------- paused ---------------- */
 

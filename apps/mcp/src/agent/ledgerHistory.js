@@ -20,6 +20,7 @@
 import { checkEvent, EVENT_ID, EVENT_KINDS, READ_CHARS, READ_LIMIT } from "./log.js";
 import { DESK_LEDGER } from "../texStore/desk.js";
 import { noteAbout, sentOnItsOwn } from "./sentOnItsOwn.js";
+import { isLinkedText, isUnsentNote, isUnsentText, keptNotTexted, linkedSends, notesByTurn } from "./sentOnItsOwn.js";
 import { shownFacts } from "./toldFacts.js";
 
 /** The most entries one read of the ledger asks for; a turn reads at most `MAX_PAGES` of them. */
@@ -83,15 +84,20 @@ export function dayFromLedger(entries, chat, covers) {
   const events = [];
   const seen = new Set();
   let room = READ_CHARS;
+  // A text Tex sent on its own that was never said is not shown (`sentOnItsOwn.js`); one that was carries why it went out, from its note.
+  const links = linkedSends(entries);
+  const notes = notesByTurn(entries);
   for (const entry of entries) {
     if (events.length >= READ_LIMIT) break;
     if (entry?.kind !== "text" || entry.backfill === "record" || typeof entry.eid !== "string" || seen.has(entry.eid) || !Number.isSafeInteger(entry.at)) continue;
+    if (isUnsentText(entry, links)) continue;
     let event;
     try {
       event = checkEvent(asEvent(entry, chat), { chat, now: entry.at });
     } catch {
       continue; // Not one the log would have kept.
     }
+    if (isLinkedText(entry, links)) event = withNoteReason(event, notes.get(entry.turn));
     room -= JSON.stringify(event).length;
     if (room < 0) break;
     seen.add(event.id);
@@ -131,7 +137,14 @@ export function earlierFromLedger(entries, chat, { before = Number.MAX_SAFE_INTE
   const events = [];
   const seen = new Set(known);
   let room = chars;
-  for (const entry of Array.isArray(entries) ? entries : []) {
+  // A text Tex sent on its own is shown by its note, which carries why it went out (`sentOnItsOwn.js`): the text's own
+  // event is left out here, and the note too when the day already shows the text (`known` holds its id).
+  const list = Array.isArray(entries) ? entries : [];
+  const links = linkedSends(list);
+  const eidOf = new Map(list.filter((entry) => isLinkedText(entry, links)).map((entry) => [entry.turn, entry.eid]));
+  for (const entry of list) {
+    if (isLinkedText(entry, links) || isUnsentText(entry, links) || isUnsentNote(entry, links) || keptNotTexted(entry)) continue;
+    if (entry?.kind === "note" && eidOf.has(entry.turn) && seen.has(eidOf.get(entry.turn))) continue;
     if (entry?.kind === "tool" && typeof entry.turn === "string" && entry.ok === true && typeof entry.name === "string") {
       const names = tools.get(entry.turn) ?? [];
       if (!names.includes(entry.name)) names.unshift(entry.name);
@@ -220,6 +233,12 @@ function wholeDays(events) {
   const oldest = dayOf(events.at(-1).at);
   const whole = events.filter((event) => dayOf(event.at) !== oldest);
   return whole.length > 0 ? whole : events;
+}
+
+/** A day's text Tex sent on its own, with the reason from its note (`sentOnItsOwn.js`), as `noteEvent` gives it. */
+function withNoteReason(event, note) {
+  const about = note === undefined || note.others === true ? null : noteAbout(note);
+  return about === null || !BY_ITSELF.test(about) ? event : { ...event, byItself: true, ...sentOnItsOwn(about) };
 }
 
 /** A check-in or other text Tex sent by itself, as an event; anything else kept as a note is not shown. */
