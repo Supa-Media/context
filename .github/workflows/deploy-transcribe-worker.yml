@@ -328,32 +328,22 @@ jobs:
 
       # ── Verification 2: the secret is bound, not merely uploaded. ──────────
       #
-      # Only the NAME and type are read. The value is never fetched, printed, or
+      # Only the NAME is read. The value is never fetched, printed, or
       # compared — the API does not return it, and this step must never become
       # the reason someone wishes it did.
+      #
+      # The list can lag the put. Production email deploy 44202720278 uploaded
+      # its secrets and, one second later, read `(none)`. The existence check
+      # above does not wait, so a single read here can fail a deploy whose
+      # secret is bound. This step looks again for about 30 seconds, then
+      # fails with the same words the single read used. REQUIRED_SECRETS
+      # selects this Worker's name; the default pair belongs to the email Worker.
       - name: Verify TRANSCRIBE_WORKER_SECRET is bound to the Worker
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-        run: |
-          set -euo pipefail
-          resp="$(curl -sS -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN" \
-            "https://api.cloudflare.com/client/v4/accounts/$CLOUDFLARE_ACCOUNT_ID/workers/scripts/$WORKER_NAME/secrets")"
-          node -e '
-            const d = JSON.parse(process.argv[1] || "{}");
-            if (!d.success) {
-              console.error("[FAIL] could not list the Worker secrets: " + JSON.stringify(d.errors));
-              process.exit(1);
-            }
-            const names = (d.result || []).map((s) => s.name);
-            if (!names.includes("TRANSCRIBE_WORKER_SECRET")) {
-              console.error("[FAIL] TRANSCRIBE_WORKER_SECRET is not bound to this Worker.");
-              console.error("       Bound secrets: " + (names.join(", ") || "(none)"));
-              console.error("       Without it every transcribe call is answered 401.");
-              process.exit(1);
-            }
-            console.log("[ok] TRANSCRIBE_WORKER_SECRET is bound.");
-          ' "$resp"
+          REQUIRED_SECRETS: TRANSCRIBE_WORKER_SECRET
+        run: node scripts/email-worker-binding.mjs
 
       # ── Verification 3: WORKERS AI IS ACTUALLY ENABLED ON THIS ACCOUNT. ────
       #
