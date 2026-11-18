@@ -256,6 +256,12 @@ test("a read the engine cannot finish is unavailable, never the note's Markdown 
   assert.deepEqual([response.status, await response.json()], [503, { error: "unavailable" }]);
 });
 
+// Sabotage (2026-11-17): without the `miss` check in `handleNoteRead`, this throws reading `markdown.text`.
+test("a row gone between the lookup and the object's read is handed to the control plane, not an error", async () => {
+  const response = await handleNoteRead(request({ path: PLAN }), handlerStore({ miss: true }), TEAM);
+  assert.deepEqual([response.status, await response.json()], [409, { error: "not_object" }]);
+});
+
 test("a password-encrypted note is its ciphertext, read-only", async () => {
   const text = renderEncryptedNote({ v: 1, kdf: { name: "x" }, iv: "i", ciphertext: "c" });
   const store = handlerStore({ served: true, markdown: { etag: "raw", size: text.length, text }, collaboration: null });

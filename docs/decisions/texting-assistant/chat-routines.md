@@ -32,8 +32,32 @@ of the owner's defaults on 2026-10-27.
   the writer must be in the chat by Sendblue's own list, the control plane
   resolves who is in it and mints the chat's grant at team tier, and the
   answer goes only if nobody joined meanwhile (`groupInbox.ts`). It is never
-  threaded, never acknowledged with a tapback, and a lone `SKIP` says nothing.
+  threaded and never acknowledged with a tapback.
   Whatever stops it is reported as an outcome code and the chat hears nothing.
+- **Its skip is a decision, never a text** (2026-11-17, after a WhatsApp
+  group's check-in with no new mail posted its reasoning and the word `SKIP`
+  at 23:00 UTC). Until then these turns were the last ones still asked to
+  answer "exactly SKIP", and only a bare `SKIP` was read as silence, so a
+  skip that explained itself was a text like any other. Three layers now,
+  each tested on its own:
+  1. The turn is asked for the `say_nothing` call, never a word
+     (`packages/shared/src/groupRunQuestions.cjs`).
+  2. The gateway decides a scheduled turn's answer in code: one that is the
+     quiet word, or opens or closes with it, becomes the same structured
+     nothing a `say_nothing` call is, no words and `quiet: true`
+     (`apps/mcp/src/agent/scheduledQuiet.js`).
+  3. The Worker's last guard wraps every line's `sendText`, 1:1 and group,
+     on every app (`apps/agent/src/outboundGuard.ts`): a skip or quiet
+     decision, a bare control word, or words that end in `SKIP` as a token of
+     their own are dropped, and the drop is logged without the words. A text
+     that only uses the word in a sentence goes.
+
+  **What a simplification would cost:** dropping layer 2 or 3 because layer 1
+  "fixed the prompt" puts the chat one model slip away from reading Tex's
+  reasoning again; `test/replay/cases/scheduled-skip-never-texted.mjs`,
+  `test/scheduledQuiet.test.mjs` and `apps/agent/src/outboundGuard.test.ts`
+  fail when either goes. The guard's known price: an answer whose very last
+  word is `SKIP` in capitals is dropped too.
 - `send:` and `to:` are ignored: a chat routine answers in its chat.
 - `wake: new mail` also runs one soon after new mail reaches a mailbox shared with its chat ([chat-mail](./chat-mail.md)).
 

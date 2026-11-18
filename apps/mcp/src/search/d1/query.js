@@ -312,6 +312,57 @@ export function searchParams(match, { limit = 25, prefix = null } = {}) {
 }
 
 /**
+ * `searchSql`'s rows for a search with no folder prefix, asked the way FTS5 ranks on its own (`ORDER BY rank`), for a
+ * caller that holds the database and can run a second statement for free (a workspace object's index,
+ * `workspaceStore/searchIndex.js`).
+ *
+ * `searchSql` sorts by an expression, so SQLite builds every matching row whole, its snippet and its chunk's text
+ * included, before it keeps `limit` of them: a query whose words match 4,600 chunks cut 4,600 snippets to show 200
+ * (measured 2026-11-18: 185 ms against 81 ms for the same rows). Ordered by `rank`, FTS5 sorts rowids and scores
+ * alone and the snippet is cut for the rows that are read. The score is the same `bm25()` with the same weights.
+ *
+ * The rows are the same rows in the same order, which `rankedRows` makes certain rather than likely: it is handed one
+ * row more than the limit, and the row's `id` beside each.
+ */
+export function rankedSearchSql(table, { firstChunk = false } = {}) {
+  const where = [`${table} MATCH ?`, `rank MATCH 'bm25(${COLUMN_WEIGHTS.join(", ")})'`];
+  if (firstChunk === true) where.push("ord = 0");
+  return `SELECT rowid AS id,
+                 path,
+                 ord,
+                 title,
+                 rank AS score,
+                 snippet(${table}, 5, '${SNIPPET_OPEN}', '${SNIPPET_CLOSE}', '…', ${SNIPPET_TOKENS}) AS snippet,
+                 body AS chunk
+            FROM ${table}
+           WHERE ${where.join(" AND ")}
+        ORDER BY rank
+           LIMIT ?`;
+}
+
+/** The bound parameters for `rankedSearchSql`: one row past `limit`, so a tie across the cut can be seen. */
+export function rankedSearchParams(match, { limit = 25 } = {}) {
+  return [match, limit + 1];
+}
+
+/**
+ * `rankedSearchSql`'s rows as `searchSql` gives them: best score first, rows of one score in the table's own order
+ * (`searchSql` keeps them in the order the table is read, which is by rowid), cut at `limit`, the `id` taken off.
+ *
+ * `null` where that cannot be told from these rows: the row past the limit scores exactly what the last kept row
+ * does, so which of the tied rows `searchSql` would keep depends on rows not read here. The caller then asks
+ * `searchSql` itself.
+ */
+export function rankedRows(rows, limit) {
+  if (!Array.isArray(rows)) return null;
+  if (rows.length > limit && rows[limit].score === rows[limit - 1].score) return null;
+  return rows
+    .slice(0, limit)
+    .sort((a, b) => a.score - b.score || a.id - b.id)
+    .map(({ id: _id, ...row }) => row);
+}
+
+/**
  * Merge per-table, per-chunk hits into one ranked list of notes.
  *
  * Three things happen here and each is a decision:

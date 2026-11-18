@@ -10,6 +10,7 @@ import { ackEmoji } from "./ackEmoji";
 import { canRedraft, chatEvent, readChatState } from "./chatState";
 import { askAgentStream, askLine, ServiceError, type AgentAnswer } from "./clients";
 import { CHAT_LOOK_PATH, saysSkip } from "./groupRoutines";
+import { maySend } from "./outboundGuard";
 import type { ControlAnswer } from "./groupControl";
 import { GROUP_LINES, PICTURE_LINE } from "./groupLines";
 import { fixedTimings, log, logTiming, say, sayProgress, sendPicture, type SayMeta } from "./groupSay";
@@ -273,7 +274,10 @@ export async function groupTurn(storage: InboxStorage, deps: GroupDeps, { messag
   // turn's people would run the other way, and this is the only thing standing
   // between an answer drawn from the bound workspace and somebody who is not a
   // member of it. So a list unread twice holds the answer, as a joiner does.
-  if (routine && (answer.quiet || saysSkip(answer.text)) && (answer.verbatim?.length ?? 0) === 0 && answer.pictures.length === 0) {
+  // A scheduled turn's skip is a decision, read off the whole answer before it is cut into bubbles: the gateway's flag, or,
+  // behind it, words that are or end in the quiet word (2026-11-17: a check-in's reasoning and "SKIP" posted; `outboundGuard.ts`).
+  const skipped = routine && !answer.quiet && !saysSkip(answer.text) && !maySend(answer.text, "group_routine");
+  if (routine && (answer.quiet || skipped || saysSkip(answer.text)) && (answer.verbatim?.length ?? 0) === 0 && answer.pictures.length === 0) {
     await handOff();
     return void (await routineDone(deps, message, "skipped"));
   }

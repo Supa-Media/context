@@ -21,7 +21,7 @@ import { effectiveVisibility } from "../privacy/engine.js";
 import { indexableText } from "../encryption/format.js";
 import { isIndexableNote } from "../search/indexable.js";
 import { deleteStatements, FTS_TABLE, projectNote, upsertStatements } from "../search/d1/project.js";
-import { searchParams, searchSql, withWholeLines } from "../search/d1/query.js";
+import { rankedRows, rankedSearchParams, rankedSearchSql, searchParams, searchSql, withWholeLines } from "../search/d1/query.js";
 import { parsedRules } from "./serve.js";
 import { TEX_TABLES, texObjects } from "../texStore/objects.js";
 import { changeLog, PERSON_TEX_KEY } from "./changeLog.js";
@@ -233,6 +233,26 @@ export function workspaceSearch(sql, { rows, objects }) {
     return waiting();
   };
 
+  /**
+   * One query's rows, as `searchSql` gives them. With no folder prefix they are asked in FTS5's own rank order
+   * (`rankedSearchSql`), which cuts a snippet for the rows kept and not for every row that matched; `searchSql` itself
+   * answers a prefixed query (most of its matches are outside the folder, so reading them in rank order costs more),
+   * and any query whose cut falls between rows of one score.
+   */
+  const rowsFor = (table, match, options) => {
+    if (options.prefix === "") {
+      let ranked = null;
+      try {
+        ranked = rankedRows(all(sql.exec(rankedSearchSql(table, options), ...rankedSearchParams(match, options))), options.limit);
+      } catch {
+        // A database that will not rank this way still answers the way it always has.
+        ranked = null;
+      }
+      if (ranked !== null) return ranked;
+    }
+    return all(sql.exec(searchSql(table, options), ...searchParams(match, options)));
+  };
+
   return {
     /** Catch up behind a response: `BUILD_ROWS` rows and `BUILD_BYTES` of text at most. */
     catchUp(budget = { rows: BUILD_ROWS, bytes: BUILD_BYTES, whole: true }) {
@@ -247,14 +267,17 @@ export function workspaceSearch(sql, { rows, objects }) {
      */
     search(asks) {
       if (!Array.isArray(asks) || asks.length === 0 || asks.length > MAX_ASKS) throw new SearchAskRefused(`a search sends 1 to ${MAX_ASKS} queries`);
-      const checked = asks.map((ask) => {
+      const checked = asks.map((ask, at) => {
         if (!ask || typeof ask !== "object" || !TABLES.has(ask.table)) throw new SearchAskRefused("a query names one of the search tables");
         if (typeof ask.match !== "string" || ask.match === "" || ask.match.length > MAX_TEXT) throw new SearchAskRefused("a query needs its match expression");
         const prefix = ask.prefix ?? "";
         if (typeof prefix !== "string" || prefix.length > MAX_TEXT) throw new SearchAskRefused("not a prefix");
         const limit = Number(ask.limit);
         if (!Number.isInteger(limit) || limit < 1 || limit > MAX_LIMIT) throw new SearchAskRefused(`a query asks for 1 to ${MAX_LIMIT} rows`);
-        return { table: ask.table, match: ask.match, options: { limit, prefix, firstChunk: ask.firstChunk === true } };
+        // An ask may name asks before it in the same search: it is run only when every one of them found no row.
+        const unless = ask.unlessRows ?? [];
+        if (!Array.isArray(unless) || unless.some((earlier) => !Number.isInteger(earlier) || earlier < 0 || earlier >= at)) throw new SearchAskRefused("an ask waits only on asks before it");
+        return { table: ask.table, match: ask.match, unless, options: { limit, prefix, firstChunk: ask.firstChunk === true } };
       });
       schema();
       // Far behind (a first build, a change of rules): not served, and nothing spent here; the build catches up.
@@ -262,7 +285,12 @@ export function workspaceSearch(sql, { rows, objects }) {
       if (before > 2 * QUERY_ROWS) return { served: false, waiting: before };
       const left = catchUp({ rows: QUERY_ROWS, bytes: QUERY_BYTES });
       if (left === null || left > 0) return { served: false, waiting: left };
-      return { served: true, answers: checked.map(({ table, match, options }) => all(sql.exec(searchSql(table, options), ...searchParams(match, options))).map(withWholeLines)) };
+      const answers = [];
+      for (const { table, match, unless, options } of checked) {
+        // `null`: not run, because an ask it waits on found rows. The gateway asks for it alone if it needs it after all.
+        answers.push(unless.some((earlier) => (answers[earlier]?.length ?? 0) > 0) ? null : rowsFor(table, match, options).map(withWholeLines));
+      }
+      return { served: true, answers };
     },
   };
 }

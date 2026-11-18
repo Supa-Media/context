@@ -77,6 +77,15 @@
  *   - The deploy-command detector is a denylist and is not a shape check at
  *     all. See DEPLOY_COMMANDS.
  *
+ * ── THE MERGE QUEUE ───────────────────────────────────────────────────────
+ *
+ * The merge queue tests a trial commit (`merge_group`) before it lets a pull
+ * request into `main`, and asks for every required check there. Two rules
+ * follow, both below: a workflow that grades pull requests must listen for
+ * `merge_group` (rule M), or its required check never reports and the queue
+ * waits forever; and a deploy workflow must not (rule B), because the trial
+ * commit is not `main` and may be dropped.
+ *
  * ── HOW THE TWO SETS ARE DERIVED ──────────────────────────────────────────
  *
  * Not from two hand-maintained lists, which would drift the day somebody adds a
@@ -478,6 +487,16 @@ export function analyse(files) {
       fail("B", name, "is a deploy workflow triggered by `workflow_run`. That chains production credentials onto the completion of another workflow, which may itself have been triggered by a fork's pull request; deploy workflows are `push`-only.");
     }
 
+    // B — the merge queue. `merge_group` runs the queue's trial commit, which
+    // is a pull request's code that has not landed, with repository secrets.
+    // A deploy there ships a commit main may never contain: the queue drops a
+    // group whose checks fail, and the deploy has already happened. It also
+    // must not reach production by the back door: promote-production.yml
+    // starts a deploy only for a CI run whose event is `push`.
+    if (isDeploy && triggers.has("merge_group")) {
+      fail("B", name, "is a deploy workflow with a `merge_group` trigger. A merge group is the merge queue's trial commit, not main; deploy workflows are `push`-only.");
+    }
+
     // B2 — `pull_request_target` runs with the base branch's secrets and a
     // writable token while checking out a contributor's changes on request.
     // Nothing here uses it and nothing here should; it is the shape that turns
@@ -535,6 +554,29 @@ export function analyse(files) {
       }
     }
 
+    // M — the merge queue asks for every required check on its trial commit,
+    // and a required check whose workflow does not listen never reports: the
+    // pull request waits in the queue until it times out, with nothing red to
+    // read. Which checks are required is a GitHub setting this repository
+    // cannot read from a workflow, so the rule is the property that holds
+    // whichever they are: a workflow that grades pull requests grades merge
+    // groups. `types: [checks_requested]` is the event's only activity, and
+    // it is spelled out so a later one does not start runs nobody chose.
+    // pr-description.yml grades nothing (see EDIT_ONLY) and is excused.
+    const gradesPullRequests = pr && !isDeploy && !EDIT_ONLY.has(name);
+    if (gradesPullRequests && !triggers.has("merge_group")) {
+      fail("M", name, "runs on `pull_request` but not on `merge_group`. A required check from this workflow would never report on a merge queue's trial commit, and the queue would wait on it forever. Add `merge_group:` with `types: [checks_requested]`.");
+    }
+    if (triggers.has("merge_group")) {
+      const config = triggers.get("merge_group");
+      const keys = config === null ? [] : Object.keys(config);
+      const types = config === null ? undefined : config.types;
+      const exact = keys.length === 1 && Array.isArray(types) && types.length === 1 && types[0] === "checks_requested";
+      if (!exact) {
+        fail("M", name, `has \`merge_group\` with ${keys.length === 0 ? "no configuration" : keys.map((key) => `\`${key}: ${describe(config[key])}\``).join(", ")}. It must be exactly \`types: [checks_requested]\`: a branch filter there is a required check that never reports for the branches it leaves out.`);
+      }
+    }
+
     if (!isDeploy && (triggers.has("push") || pr)) ci += 1;
 
     // D — the anchor. Without it, deleting a `pull_request:` trigger outright
@@ -574,7 +616,7 @@ function readWorkflows() {
  */
 function selfTest() {
   const good = [
-    { name: "mcp.yml", text: "name: A\non:\n  pull_request:\n  push:\n    branches: [main]\njobs: {}\n" },
+    { name: "mcp.yml", text: "name: A\non:\n  merge_group:\n    types: [checks_requested]\n  pull_request:\n  push:\n    branches: [main]\njobs: {}\n" },
     { name: "deploy-mcp.yml", text: "name: B\n# never on pull_request, see header\non:\n  push:\n    branches: [main]\n    paths:\n      - \"apps/mcp/**\"\n  workflow_dispatch:\njobs:\n  d:\n    steps:\n      - run: pnpm exec wrangler deploy\n" },
     { name: "health-check.yml", text: "name: C\non:\n  workflow_dispatch:\njobs: {}\n" },
     { name: "gateway-health.yml", text: "name: D\non:\n  schedule:\n    - cron: \"*/15 * * * *\"\n  workflow_dispatch:\njobs: {}\n" },
@@ -593,17 +635,17 @@ function selfTest() {
   const cases = [
     [
       "a test workflow filtered to one base branch",
-      [{ name: "mcp.yml", text: "on:\n  pull_request:\n    branches: [main]\n  push:\n    branches: [main]\njobs: {}\n" }],
+      [{ name: "mcp.yml", text: "on:\n  merge_group:\n    types: [checks_requested]\n  pull_request:\n    branches: [main]\n  push:\n    branches: [main]\njobs: {}\n" }],
       ["A mcp.yml"],
     ],
     [
       "a base filter written as a list item rather than a flow sequence",
-      [{ name: "mcp.yml", text: "on:\n  pull_request:\n    branches:\n      - main\n  push:\n    branches: [main]\njobs: {}\n" }],
+      [{ name: "mcp.yml", text: "on:\n  merge_group:\n    types: [checks_requested]\n  pull_request:\n    branches:\n      - main\n  push:\n    branches: [main]\njobs: {}\n" }],
       ["A mcp.yml"],
     ],
     [
       "the `*` that does not match a slashed branch name",
-      [{ name: "mcp.yml", text: "on:\n  pull_request:\n    branches: ['*']\n  push:\n    branches: [main]\njobs: {}\n" }],
+      [{ name: "mcp.yml", text: "on:\n  merge_group:\n    types: [checks_requested]\n  pull_request:\n    branches: ['*']\n  push:\n    branches: [main]\njobs: {}\n" }],
       ["A mcp.yml"],
     ],
     [
@@ -613,17 +655,17 @@ function selfTest() {
     ],
     [
       "pull_request_target anywhere",
-      [{ name: "mcp.yml", text: "on:\n  pull_request:\n  pull_request_target:\n  push:\n    branches: [main]\njobs: {}\n" }],
+      [{ name: "mcp.yml", text: "on:\n  merge_group:\n    types: [checks_requested]\n  pull_request:\n  pull_request_target:\n  push:\n    branches: [main]\njobs: {}\n" }],
       ["B mcp.yml"],
     ],
     [
       "a push filter that is not main",
-      [{ name: "mcp.yml", text: "on:\n  pull_request:\n  push:\n    branches: [main, release]\njobs: {}\n" }],
+      [{ name: "mcp.yml", text: "on:\n  merge_group:\n    types: [checks_requested]\n  pull_request:\n  push:\n    branches: [main, release]\njobs: {}\n" }],
       ["C mcp.yml"],
     ],
     [
       "a push trigger with no branch filter at all",
-      [{ name: "mcp.yml", text: "on:\n  pull_request:\n  push:\n    paths:\n      - \"apps/mcp/**\"\njobs: {}\n" }],
+      [{ name: "mcp.yml", text: "on:\n  merge_group:\n    types: [checks_requested]\n  pull_request:\n  push:\n    paths:\n      - \"apps/mcp/**\"\njobs: {}\n" }],
       ["C mcp.yml"],
     ],
     [
@@ -693,7 +735,7 @@ function selfTest() {
     ],
     [
       "prose about deploying is not a deploy",
-      [{ name: "mcp.yml", text: "# Never on pull_request: a wrangler deploy from a fork would be a breach.\non:\n  pull_request:\n  push:\n    branches: [main]\njobs: {}\n" }],
+      [{ name: "mcp.yml", text: "# Never on pull_request: a wrangler deploy from a fork would be a breach.\non:\n  merge_group:\n    types: [checks_requested]\n  pull_request:\n  push:\n    branches: [main]\njobs: {}\n" }],
       [],
     ],
     [
@@ -721,27 +763,27 @@ function selfTest() {
       // effectively as `branches:` does, and each passed silently while the
       // header claimed a shape it did not understand was a failure.
       "a base filter inverted into branches-ignore",
-      [{ name: "mcp.yml", text: "on:\n  pull_request:\n    branches-ignore: ['**']\n  push:\n    branches: [main]\njobs: {}\n" }],
+      [{ name: "mcp.yml", text: "on:\n  merge_group:\n    types: [checks_requested]\n  pull_request:\n    branches-ignore: ['**']\n  push:\n    branches: [main]\njobs: {}\n" }],
       ["A mcp.yml"],
     ],
     [
       "the path filter every workflow header spends a paragraph forbidding",
-      [{ name: "mcp.yml", text: "on:\n  pull_request:\n    paths:\n      - \"apps/mcp/**\"\n  push:\n    branches: [main]\njobs: {}\n" }],
+      [{ name: "mcp.yml", text: "on:\n  merge_group:\n    types: [checks_requested]\n  pull_request:\n    paths:\n      - \"apps/mcp/**\"\n  push:\n    branches: [main]\njobs: {}\n" }],
       ["A mcp.yml"],
     ],
     [
       "that filter inverted",
-      [{ name: "mcp.yml", text: "on:\n  pull_request:\n    paths-ignore: ['docs/**']\n  push:\n    branches: [main]\njobs: {}\n" }],
+      [{ name: "mcp.yml", text: "on:\n  merge_group:\n    types: [checks_requested]\n  pull_request:\n    paths-ignore: ['docs/**']\n  push:\n    branches: [main]\njobs: {}\n" }],
       ["A mcp.yml"],
     ],
     [
       "an activity filter that never fires while a pull request is open",
-      [{ name: "mcp.yml", text: "on:\n  pull_request:\n    types: [closed]\n  push:\n    branches: [main]\njobs: {}\n" }],
+      [{ name: "mcp.yml", text: "on:\n  merge_group:\n    types: [checks_requested]\n  pull_request:\n    types: [closed]\n  push:\n    branches: [main]\njobs: {}\n" }],
       ["A mcp.yml"],
     ],
     [
       "an activity filter that stops re-checking a pull request as it evolves",
-      [{ name: "mcp.yml", text: "on:\n  pull_request:\n    types: [opened, reopened]\n  push:\n    branches: [main]\njobs: {}\n" }],
+      [{ name: "mcp.yml", text: "on:\n  merge_group:\n    types: [checks_requested]\n  pull_request:\n    types: [opened, reopened]\n  push:\n    branches: [main]\njobs: {}\n" }],
       ["A mcp.yml"],
     ],
     [
@@ -749,12 +791,12 @@ function selfTest() {
       // could be "restrict nothing is the only pass", which would fail the
       // repository's own six CI workflows the moment one spelled its default out.
       "the explicit every-branch filter, which is the documented allowance",
-      [{ name: "mcp.yml", text: "on:\n  pull_request:\n    branches: ['**']\n  push:\n    branches: [main]\njobs: {}\n" }],
+      [{ name: "mcp.yml", text: "on:\n  merge_group:\n    types: [checks_requested]\n  pull_request:\n    branches: ['**']\n  push:\n    branches: [main]\njobs: {}\n" }],
       [],
     ],
     [
       "the default activity set, written out",
-      [{ name: "mcp.yml", text: "on:\n  pull_request:\n    types: [opened, synchronize, reopened]\n  push:\n    branches: [main]\njobs: {}\n" }],
+      [{ name: "mcp.yml", text: "on:\n  merge_group:\n    types: [checks_requested]\n  pull_request:\n    types: [opened, synchronize, reopened]\n  push:\n    branches: [main]\njobs: {}\n" }],
       [],
     ],
     [
@@ -768,13 +810,42 @@ function selfTest() {
     ],
     [
       "another workflow cannot listen only for edits",
-      [{ name: "mcp.yml", text: "on:\n  pull_request:\n    types: [edited]\n  push:\n    branches: [main]\njobs: {}\n" }],
+      [{ name: "mcp.yml", text: "on:\n  merge_group:\n    types: [checks_requested]\n  pull_request:\n    types: [edited]\n  push:\n    branches: [main]\njobs: {}\n" }],
       ["A mcp.yml"],
     ],
     [
       "the description workflow still cannot take a path filter",
       [{ name: "pr-description.yml", text: "on:\n  pull_request:\n    types: [edited]\n    paths:\n      - 'docs/**'\njobs: {}\n" }],
       ["A pr-description.yml"],
+    ],
+    [
+      // Rule M. Without the trigger a required check never reports on the
+      // merge queue's trial commit, and the queue waits on it.
+      "a workflow that grades pull requests and not merge groups",
+      [{ name: "mcp.yml", text: "on:\n  pull_request:\n  push:\n    branches: [main]\njobs: {}\n" }],
+      ["M mcp.yml"],
+    ],
+    [
+      "a merge group trigger that does not name its one activity",
+      [{ name: "mcp.yml", text: "on:\n  pull_request:\n  merge_group:\n  push:\n    branches: [main]\njobs: {}\n" }],
+      ["M mcp.yml"],
+    ],
+    [
+      "a merge group trigger filtered to one base branch",
+      [{ name: "mcp.yml", text: "on:\n  pull_request:\n  merge_group:\n    types: [checks_requested]\n    branches: [main]\n  push:\n    branches: [main]\njobs: {}\n" }],
+      ["M mcp.yml"],
+    ],
+    [
+      // The queue's trial commit is not main, and a deploy from it ships code
+      // the queue may still drop.
+      "a deploy workflow given a merge_group trigger",
+      [{ name: "deploy-mcp.yml", text: "on:\n  merge_group:\n    types: [checks_requested]\n  push:\n    branches: [main]\njobs:\n  d:\n    steps:\n      - run: pnpm exec wrangler deploy\n" }],
+      ["B deploy-mcp.yml"],
+    ],
+    [
+      "the description workflow grades nothing, so it need not listen for merge groups",
+      [{ name: "pr-description.yml", text: "on:\n  pull_request:\n    types: [edited]\njobs: {}\n" }],
+      [],
     ],
     [
       // Rule E, which no case reached until now: `parseOnBlock` throws for every
@@ -811,7 +882,7 @@ function selfTest() {
       // depth-3 `branches` overwrote the depth-2 one and rule A passed a
       // workflow filtered to `main`.
       "a filter hidden from rule A by one level of nesting",
-      [{ name: "mcp.yml", text: "on:\n  pull_request:\n    branches: [main]\n    extra:\n      branches: ['**']\n  push:\n    branches: [main]\njobs: {}\n" }],
+      [{ name: "mcp.yml", text: "on:\n  merge_group:\n    types: [checks_requested]\n  pull_request:\n    branches: [main]\n    extra:\n      branches: ['**']\n  push:\n    branches: [main]\njobs: {}\n" }],
       ["PARSE mcp.yml"],
     ],
     [

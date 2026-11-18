@@ -10,11 +10,16 @@ name: Tex Lab wiring
 
 on:
   pull_request:
+  # The merge queue asks for the required checks on its trial commit. No path
+  # filter exists for this event, so every job reports; ci-scope decides what
+  # runs from the merge group's own diff.
+  merge_group:
+    types: [checks_requested]
   push:
     branches: [main]
 
 concurrency:
-  group: ${{ github.workflow }}-${{ github.event_name == 'pull_request' && github.ref || github.sha }}
+  group: ${{ github.workflow }}-${{ github.event_name == 'pull_request' && github.ref || github.event.merge_group.head_ref || github.sha }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:

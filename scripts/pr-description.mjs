@@ -14,10 +14,12 @@
  *
  *   node scripts/pr-description.mjs --self-test
  *   PR=<n> EVENT_BODY=... node scripts/pr-description.mjs --print-body
+ *   MERGE_GROUP_REF=refs/heads/gh-readonly-queue/main/pr-<n>-<sha> node scripts/pr-description.mjs --print-body
  *   BEFORE= AFTER= HEAD_SHA= node scripts/pr-description.mjs
  */
 import { execFileSync } from "node:child_process";
 
+import { mergeGroupPr } from "./merge-group.mjs";
 import { SKIP_LINE } from "./tex-replay-required.mjs";
 
 export const WORKFLOWS = ["fast-guards.yml", "tex-replay-check.yml"];
@@ -77,6 +79,12 @@ function selfTest() {
     ["no pull request keeps a preset body", printedBody({ pr: "", eventBody: "", preset: "local", run: () => "live" }) === "local"],
     ["a pull request ignores the preset and reads live", printedBody({ pr: "1", eventBody: "event", preset: "local", run: () => "live\n" }) === "live"],
   ];
+  const queueRef = "refs/heads/gh-readonly-queue/main/pr-41-0123456789abcdef0123456789abcdef01234567";
+  cases.push(
+    ["a merge group reads the pull request its branch names", bodySource({ pr: "", mergeGroupRef: queueRef }).pr === "41" && bodySource({ pr: "", mergeGroupRef: queueRef }).queued === true],
+    ["an event's pull request wins over a merge group ref", bodySource({ pr: "7", mergeGroupRef: queueRef }).pr === "7" && bodySource({ pr: "7", mergeGroupRef: queueRef }).queued === false],
+    ["a push names no pull request", bodySource({ pr: "", mergeGroupRef: "" }).pr === "" && bodySource({ pr: "", mergeGroupRef: "refs/heads/main" }).queued === false],
+  );
   const calls = [];
   rerun("o/r", "abc123", {
     ghRun: (args) => {
@@ -144,13 +152,40 @@ export function rerun(repo, sha, { ghRun = gh, sleepFor = sleep, waitMs = 12 * 6
   }
 }
 
+/**
+ * The pull request to read: the event's, or the one a merge group's branch
+ * was built for. A merge group event carries no description at all, so there
+ * a failed live read is `queued: true` and must not be graded as an empty one.
+ */
+export function bodySource({ pr, mergeGroupRef }) {
+  if (pr) return { pr: String(pr), queued: false };
+  const queued = mergeGroupPr(mergeGroupRef);
+  return { pr: queued, queued: Boolean(queued) };
+}
+
 function printBody() {
-  const pr = process.env.PR || process.env.PR_NUMBER || "";
+  const { pr, queued } = bodySource({ pr: process.env.PR || process.env.PR_NUMBER || "", mergeGroupRef: process.env.MERGE_GROUP_REF });
+  if (process.env.MERGE_GROUP_REF && !queued && !process.env.PR && !process.env.PR_NUMBER) {
+    console.error(`::error::pr-description: "${process.env.MERGE_GROUP_REF}" is not a merge group branch, so its pull request's description cannot be read.`);
+    process.exit(1);
+  }
+  const read = () => gh(["pr", "view", pr, "--repo", process.env.GITHUB_REPOSITORY, "--json", "body", "--jq", ".body"]);
+  if (queued) {
+    // No event body to fall back on: an unread description would silently
+    // drop a "No replay case:" line and fail the guard for the wrong reason.
+    try {
+      process.stdout.write(String(read() ?? "").replace(/\n$/, ""));
+    } catch (error) {
+      console.error(`::error::pr-description: could not read #${pr}'s description for its merge group: ${error instanceof Error ? error.message.split("\n")[0] : error}`);
+      process.exit(1);
+    }
+    return;
+  }
   const body = printedBody({
     pr,
     eventBody: process.env.EVENT_BODY ?? "",
     preset: process.env.TEX_PR_BODY ?? "",
-    run: () => gh(["pr", "view", pr, "--repo", process.env.GITHUB_REPOSITORY, "--json", "body", "--jq", ".body"]),
+    run: read,
   });
   process.stdout.write(body);
 }
