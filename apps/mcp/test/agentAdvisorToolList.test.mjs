@@ -94,7 +94,7 @@ test("only a step whose reads name tools is shown them: main's names it for both
   const live = { about: "Name: Ada.", now: "Monday", tools, messages: MESSAGES };
   // Main's config: both steps read "tools" (promoted from the Lab, 2026-11-16).
   assert.equal(readsTools("advisor"), true);
-  assert.equal(readsTools("jobcheck"), true);
+  assert.equal(readsTools("jobadv"), true, "the job check's live node (its role reads jobadv since 2026-11-18)");
   const asked = [];
   const request = async (params) => (asked.push(params), { text: "VERDICT: done\nADVICE: fine." });
   const ask = async (config) => {
@@ -104,7 +104,7 @@ test("only a step whose reads name tools is shown them: main's names it for both
   };
   assert.match(await ask(), /<tex_tools>\n- orient: [\s\S]*- browse: Drive a browser/);
   // A draft that takes "tools" out of both: no list at all, never the names-only one there was.
-  const draft = drafted("advisor", "jobcheck");
+  const draft = drafted("advisor", "jobadv");
   const config = withDraft(TEX_CONFIG, draft);
   assert.equal(readsTools("advisor", config), false);
   assert.doesNotMatch(await ask(config), /<tex_tools>/);

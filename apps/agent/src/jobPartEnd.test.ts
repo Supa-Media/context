@@ -83,8 +83,8 @@ describe("runJob follows the node", () => {
     expect(await runJob(storage, d)).toEqual({ kind: "now" });
     expect(asked).toEqual([{ jobId: RUN.id, input: expect.objectContaining({ cause: "steps_out", part: 1, machine: false, hasDraft: false }) }]);
     expect((await storage.get<JobRun>(RUN_KEY))?.attempt).toBe(2);
-    expect(asked[0]).toEqual({ jobId: RUN.id, input: expect.objectContaining({ fresh: 0, staleBefore: 0 }) });
-    expect((await storage.get<JobRun>(RUN_KEY))?.stale).toBe(1); // it read nothing, so the next part knows one went by
+    expect((asked[0] as { input: object }).input).not.toHaveProperty("fresh"); // it read nothing at all: the idle rule's, not the stale rule's
+    expect((await storage.get<JobRun>(RUN_KEY))?.stale ?? 0).toBe(0);
   });
 
   it("a node that says end ends the job, though the old code would have carried it", async () => {
@@ -125,7 +125,8 @@ describe("what a part found that is new", () => {
     expect(first).toMatchObject({ fresh: 2, staleBefore: 0, stale: 0 });
     const again = freshness({ seen: first.seen, stale: first.stale }, { calls: [{ ...call("day pass:   CONTACT us"), step: "READ" }, call("Timed out", true)] });
     expect(again).toMatchObject({ fresh: 0, staleBefore: 0, stale: 1 });
-    const third = freshness({ seen: again.seen, stale: again.stale }, { calls: [] });
+    expect(freshness({ seen: again.seen, stale: again.stale }, { calls: [] })).toMatchObject({ counted: false, stale: 1 }); // read nothing: not counted
+    const third = freshness({ seen: again.seen, stale: again.stale }, { calls: [call("Hours 9 to 6")] });
     expect(third).toMatchObject({ fresh: 0, staleBefore: 1, stale: 2 });
     expect(freshness({ seen: third.seen, stale: third.stale }, { calls: [call("Day pass $35")] })).toMatchObject({ fresh: 1, staleBefore: 2, stale: 0 });
     expect(freshness({ seen: first.seen }, { calls: [{ ...call("Hours 9 to 6"), step: "write the note" }] }).fresh).toBe(1); // same words from another step: new work

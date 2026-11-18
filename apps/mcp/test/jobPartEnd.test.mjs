@@ -117,7 +117,7 @@ test("Part end is wired in the config (off the shelf), with its limits, and its 
   const { TEX_CONFIG } = await import("../src/agent/texConfig.js");
   assert.ok(!SHELF.nodes.partEnd, "off the shelf once promoted");
   assert.ok(TEX_CONFIG.edges.some((e) => e.from === "job" && e.to === "partEnd" && e.mode === "uses"), "the job -> partEnd wire");
-  assert.deepEqual(partEndLib.configLimits(TEX_CONFIG), DEFAULT_LIMITS, "today's limits, now from the node's config");
+  assert.deepEqual(partEndLib.configLimits(TEX_CONFIG), { ...DEFAULT_LIMITS, staleParts: 2 }, "today's limits from the node's config; the stale rule on at 2 (2026-11-18)");
   assert.equal(GATEWAY_NODES.partEnd, partEndNode);
 });
 

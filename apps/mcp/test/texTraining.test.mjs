@@ -139,7 +139,9 @@ test("the front door's and the job's Training words, when they exist, are prompt
 test("every other model step that reads Training is given it after its own words, through withArchitecture", async () => {
   const { ROLES, trainingFor, withArchitecture, architectureFor } = await import("../src/agent/texArchitecture.js");
   const roled = new Set(Object.values(ROLES).map((r) => r.node));
-  for (const id of TRAINING_READERS) if (!["decide", "fd", "job"].includes(id)) assert.ok(roled.has(id), `${id} reads Training but has no role in texArchitecture.js`);
+  // A step turned off runs nowhere (the retired Job check, whose role reads the live Job advisor since 2026-11-18).
+  const off = (id) => TEX_CONFIG.nodes.find((n) => n.id === id)?.on === false;
+  for (const id of TRAINING_READERS) if (!["decide", "fd", "job"].includes(id) && !off(id)) assert.ok(roled.has(id), `${id} reads Training but has no role in texArchitecture.js`);
   for (const role of Object.keys(ROLES)) {
     const training = trainingFor(role);
     const built = withArchitecture("OWN WORDS", role);

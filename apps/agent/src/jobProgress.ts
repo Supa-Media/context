@@ -92,12 +92,14 @@ export function resultPrint(result: string): string {
  * `fresh` counts its results, failed ones left out, whose words no earlier part read; `seen` is every fingerprint so
  * far; `stale` is how many parts in a row, this one included, found nothing new (0 once one does). A step's print is its
  * step line with its result, so a write that answers "Saved." each time still counts as new work. A part that doesn't
- * count (`counts` false: a retry, a part that broke, a job on a computer, whose steps carry no results) leaves both as
+ * count (`counts` false: a retry, a part that broke, a job on a computer, whose steps carry no results; or a part that
+ * read nothing at all, which the idle rule judges) leaves both as
  * they were and says `counted: false`, so the Part end node is given no count and never ends it as stale.
  */
 export function freshness(run: { seen?: string[]; stale?: number }, part: JobSaved | undefined, counts = true): { fresh: number; staleBefore: number; seen: string[]; stale: number; counted: boolean } {
   const staleBefore = run.stale ?? 0;
-  if (!counts) return { fresh: 0, staleBefore, seen: run.seen ?? [], stale: staleBefore, counted: false };
+  // A part that read nothing at all is the idle rule's (`spinning`), not this one's.
+  if (!counts || !(part?.calls ?? []).some((call) => call.result !== undefined || call.failed)) return { fresh: 0, staleBefore, seen: run.seen ?? [], stale: staleBefore, counted: false };
   const seen = new Set(run.seen ?? []);
   let fresh = 0;
   for (const call of part?.calls ?? []) {
