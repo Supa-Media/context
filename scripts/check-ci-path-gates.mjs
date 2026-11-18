@@ -446,9 +446,9 @@ export function check(root = ROOT) {
   if (!scopeStep.includes('push-diff: "true"')) throw new Error("a merge that does not touch the editor runs its browser tests again");
   const scopedSpecs = [...scopeStep.matchAll(/^ {12}(apps\/mobile\/e2e\/webkit\/[\w.]+\.spec\.ts)$/gm)].map((m) => m[1]).sort();
   const editorJob = jobBlock(browser, "webkit_editor");
-  // The CSP candidate's script and style-nonce jobs run per push on this scope too (daily plugin specs aside).
-  const perPush = editorJob + jobBlock(browser, "webkit_csp_script").split('if [ "$DAILY" = true ]')[0] + jobBlock(browser, "webkit_csp_nonce");
-  for (const job of ["webkit_csp_script", "webkit_csp_nonce"]) {
+  // The CSP candidate's script and style-nonce jobs, and the published website's, run per push on this scope too (daily plugin specs aside).
+  const perPush = editorJob + jobBlock(browser, "webkit_csp_script").split('if [ "$DAILY" = true ]')[0] + jobBlock(browser, "webkit_csp_nonce") + jobBlock(browser, "webkit_website");
+  for (const job of ["webkit_csp_script", "webkit_csp_nonce", "webkit_website"]) {
     if (!jobBlock(browser, "editor_webkit").includes(`needs.${job}.result`)) throw new Error(`Editor in WebKit no longer requires ${job}`);
   }
   const perPushSpecs = [...new Set([...perPush.matchAll(/(e2e\/webkit\/[\w.]+\.spec\.ts)/g)].map((m) => `apps/mobile/${m[1]}`))].sort();
