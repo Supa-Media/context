@@ -65,19 +65,27 @@ export async function serveCollabRead(store, fields) {
     return { served: false, reason: "not_held" };
   }
   // The row resolved here, so the gateway does not spend a lookup before the read (`tools/notes/read.js`).
-  if (fields?.byPath === true) {
+  const byPath = fields?.byPath === true;
+  if (byPath) {
     const found = liveNoteAt(sql, path);
-    if (found === null || typeof found.key !== "string" || !NOTE_KEY.test(found.key) || typeof found.noteId !== "string" || !NOTE_ID.test(found.noteId)) {
-      return { served: false, reason: "absent" };
-    }
-    key = found.key;
+    // `absent` is only a path with no live row: the gateway answers "not found" on it without another lookup.
+    if (found === null) return { served: false, reason: "absent" };
+    // A row with no key of its own is the note under its id, as the lookup names it (`serve.js` `ws.rows.at`).
+    key = found.key ?? (typeof found.noteId === "string" ? `notes/${found.noteId}.md` : null);
     noteId = found.noteId;
+    // A live row kept somewhere else (a Tex note in Tex's store, a file in the files bucket) is there, and is not
+    // this read's to answer: the gateway reads it the long way, as it did when it brought the key itself.
+    if (typeof key !== "string" || !NOTE_KEY.test(key) || typeof noteId !== "string" || !NOTE_ID.test(noteId)) {
+      return { served: false, reason: "elsewhere" };
+    }
+  } else {
+    if (typeof key !== "string" || !NOTE_KEY.test(key) || typeof noteId !== "string" || !NOTE_ID.test(noteId)) {
+      return { served: false, reason: "bad_call" };
+    }
+    // A call that brings its own key and note id is refused when they are not the live row's.
+    const live = liveNoteAt(sql, path);
+    if (live === null || live.key !== key || live.noteId !== noteId) return { served: false, reason: "row_moved" };
   }
-  if (typeof key !== "string" || !NOTE_KEY.test(key) || typeof noteId !== "string" || !NOTE_ID.test(noteId)) {
-    return { served: false, reason: "bad_call" };
-  }
-  const live = liveNoteAt(sql, path);
-  if (live === null || live.key !== key || live.noteId !== noteId) return { served: false, reason: "row_moved" };
   const markdown = markdownAt(objects, key);
   if (markdown === null) return { served: false, reason: "not_held" };
   // What the gateway would not have asked the engine for: answered as the Markdown it is.

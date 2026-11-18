@@ -333,6 +333,8 @@ export function withWorkspaceRouting(store, { workspaceId, client = null, known 
       if (answer?.served === true && typeof markdown?.etag === "string" && typeof markdown.text === "string") return answer;
       // The row is not there. Distinct from "not served", so the caller does not look the path up again.
       if (answer?.reason === "absent") return { miss: true };
+      // The row is there and kept somewhere else (a Tex note, a file): the long way, as before, and nothing to report.
+      if (answer?.reason === "elsewhere") return null;
       // Why the read went the long way instead: a short code from the object, never the path.
       log("workspace_object_read_not_served", { workspaceId, reason: typeof answer?.reason === "string" ? answer.reason : null });
       return null;

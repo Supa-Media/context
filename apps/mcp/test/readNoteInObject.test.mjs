@@ -155,6 +155,35 @@ test("a path read serves the live row in one call, and a call naming another not
   assert.equal((await serveCollabRead(side.store, { path: PATH, key: KEY, noteId: "0199a000-0000-7000-8000-000000000009" })).reason, "row_moved");
 });
 
+// Sabotage (2026-11-17): `serveCollabRead` answering `absent` for a live row with no note key of its own, as it did
+// when `byPath` landed, fails all three below: the note reads "not found", and the Tex note's read is a miss.
+test("a live note whose row keeps no storage key is read by its note id, as the lookup names it", async () => {
+  const { store, long, calls } = await world({ rowKey: null });
+  const fast = await read(store);
+  assert.equal(fast.isError, undefined, fast.content[0].text);
+  assert.match(fast.content[0].text, /Second words\./);
+  assert.deepEqual(ops(calls).filter((op) => op !== "head"), ["ws.collab.read"]);
+  assert.equal((await read(long)).content[0].text, fast.content[0].text);
+});
+
+test("a live row kept somewhere else (a Tex note, a file) is not a missing note: the read goes the long way", async () => {
+  for (const rowKey of [`tex/person:ws/notes/${NOTE_ID}.md`, `files/${NOTE_ID}.pdf`]) {
+    const { store, logged } = await world({ rowKey, edited: false });
+    const side = objectSide({ rowKey });
+    assert.deepEqual(await serveCollabRead(side.store, { path: PATH, byPath: true }), { served: false, reason: "elsewhere" }, rowKey);
+    assert.equal(await store.readInObject(PATH), null, `${rowKey}: a miss would answer "not found" for a note that is there`);
+    assert.deepEqual(logged.filter(([event]) => event === "workspace_object_read_not_served"), [], rowKey);
+    const answer = await read(store);
+    assert.equal(answer.isError, undefined, `${rowKey}: ${answer.content[0].text}`);
+    assert.match(answer.content[0].text, /First words\./);
+  }
+});
+
+test("a path with no live row is the one miss the object names", async () => {
+  const side = objectSide();
+  assert.deepEqual(await serveCollabRead(side.store, { path: "1-projects/none.md", byPath: true }), { served: false, reason: "absent" });
+});
+
 test("a note this reader may not see never reaches the object's read: the refusal costs what it cost", async () => {
   const { store, calls } = await world();
   const overrides = new PrivacyOverrides();
