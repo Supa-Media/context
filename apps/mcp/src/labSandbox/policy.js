@@ -307,9 +307,33 @@ const ANALYTICS = new Set(["TEX_TIMING", "TEX_CALLS", "TEX_ENTRY", "MCP_ENTRY", 
 const WITHHELD_STRINGS = new Set(["TRANSCRIBE_WORKER_SECRET", "AGENT_WORKER_SECRET", "TRANSCRIBE_WORKER_URL"]);
 
 /**
+ * The screenshot Worker's paths a test turn may reach (`infra/site-shots`): reading a page (`open_page`,
+ * `travel_time`), photographing one (`/shoot`) and drawing static HTML (`/render`, `draw_picture`). Each answers from
+ * the page and keeps nothing, so they are reads, which `READ_TOOLS` already runs for real; left out, a test chat's turn
+ * and its jobs were never offered `open_page` and said the pages "weren't readable from this job" (Lab, 2026-11-18).
+ * Every browser path (`/browse*`, `/view/*`) is refused here as well as at the tool (`NO_MACHINE`).
+ */
+export const SITE_SHOTS_READS = Object.freeze(new Set(["/read", "/shoot", "/render"]));
+
+/** The screenshot Worker narrowed to `SITE_SHOTS_READS`: any other path is a 403 that never reaches it. */
+export function readOnlySiteShots(binding) {
+  return {
+    async fetch(input, init) {
+      const url = new URL(typeof input === "string" ? input : input?.url ?? String(input));
+      const method = String(init?.method ?? (typeof input === "object" && input?.method) ?? "GET").toUpperCase();
+      if (method !== "POST" || !SITE_SHOTS_READS.has(url.pathname)) {
+        return new Response(JSON.stringify({ error: "a Lab test chat has no browser" }), { status: 403, headers: { "content-type": "application/json" } });
+      }
+      return await binding.fetch(input, init);
+    },
+  };
+}
+
+/**
  * A test turn's env: the real one's plain settings, the model's bindings, the objects through `wire.js`, analytics that
- * keep nothing, and `gate` under `LAB_SANDBOX_KEY`. Every other binding (the texting Worker, site shots, Tex's jobs and
- * chat queues, live rooms, tickets, the eval service) is left out, so no code path can reach one.
+ * keep nothing, the screenshot Worker for reads only (`readOnlySiteShots`), and `gate` under `LAB_SANDBOX_KEY`. Every
+ * other binding (the texting Worker, Tex's jobs and chat queues, live rooms, tickets, the eval service) is left out, so
+ * no code path can reach one.
  */
 /**
  * The bucket a chat shared with the developers gets in place of its person's notes (Dev2 chose "run without the
@@ -339,6 +363,7 @@ export function sandboxEnvOf(env, { gate, workspaces, tex }) {
     } else if (PASSED_BINDINGS.has(key)) out[key] = value;
     else if (ANALYTICS.has(key)) out[key] = { writeDataPoint() {} };
   }
+  if (typeof env?.SITE_SHOTS?.fetch === "function") out.SITE_SHOTS = readOnlySiteShots(env.SITE_SHOTS);
   if (workspaces) out.WORKSPACE_STORE = workspaces;
   if (tex) out.TEX_STORE = tex;
   out[LAB_SANDBOX_KEY] = gate;
