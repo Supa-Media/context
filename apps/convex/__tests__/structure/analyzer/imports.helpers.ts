@@ -79,6 +79,45 @@ export function outsideImports(
   return found;
 }
 
+/**
+ * Module indexes, reused across `analyze` calls. An index depends only on its
+ * module and on which candidate paths `known.has` answered yes or no to while
+ * it was built, and nothing changes an index afterwards. So each module keeps
+ * the indexes it was given with the answers they were built from, and one is
+ * reused only when every one of those answers is the same for the new set of
+ * paths. A test that analyzes the real modules plus one synthetic caller then
+ * walks only the modules whose imports the caller's paths change.
+ */
+const INDEXES = new WeakMap<
+  AnalyzedModule,
+  { probes: Map<string, boolean>; index: ModuleIndex }[]
+>();
+function cachedIndex(module: AnalyzedModule, known: ReadonlySet<string>): ModuleIndex {
+  const built = INDEXES.get(module) ?? [];
+  for (const { probes, index } of built) {
+    let same = true;
+    for (const [path, answer] of probes) {
+      if (known.has(path) !== answer) {
+        same = false;
+        break;
+      }
+    }
+    if (same) return index;
+  }
+  const probes = new Map<string, boolean>();
+  const recording: ReadonlySet<string> = Object.assign(Object.create(known), {
+    has: (path: string) => {
+      const answer = known.has(path);
+      probes.set(path, answer);
+      return answer;
+    },
+  });
+  const index = indexModule(module, recording);
+  built.push({ probes, index });
+  INDEXES.set(module, built);
+  return index;
+}
+
 export function followHelpers(
   modules: AnalyzedModule[],
   knownNodes: ReadonlySet<string>,
@@ -89,7 +128,7 @@ export function followHelpers(
   const indexOf = (path: string): ModuleIndex => {
     let index = indexes.get(path);
     if (index === undefined) {
-      index = indexModule(byPath.get(path)!, paths);
+      index = cachedIndex(byPath.get(path)!, paths);
       indexes.set(path, index);
     }
     return index;
