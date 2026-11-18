@@ -11,7 +11,7 @@ import { mkdir, mkdtemp, readdir, readFile, stat, writeFile } from "node:fs/prom
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import { callTool, connect, connectCommand, labSlotSecretNames, liveScoreRow, notePaths, parseLabSlot, publishSetup, pullSetups, publishResult, runnerEnv, scoresNote, scoresPathFor, signIn, splitNote } from "../context.mjs";
+import { callTool, connect, liveScoreRow, notePaths, publishSetup, pullSetups, publishResult, runnerEnv, scoresNote, scoresPathFor, signIn, splitNote } from "../context.mjs";
 
 const ENDPOINT = "https://mcp.context.test/@context-lc/mcp";
 
@@ -438,75 +438,4 @@ test("pullSetups brings the live setup's prompt modules, so a run parses it and 
   const bare = await mkdtemp(join(tmpdir(), "bench-pull-modules-missing-"));
   await pullSetups({ job: "texting-assistant", dir: bare, connection, fetchImpl });
   await assert.rejects(readSetups(bare, "texting-assistant", ["production"]), /not a valid setup file with its prompt modules/);
-});
-
-/** A loopback listener that approves the consent the connect printed, as the browser would. */
-function approvingListener(logs) {
-  return async () => ({
-    redirectUri: "http://127.0.0.1:4242/context-bench/callback",
-    waitForCode: async () => {
-      const url = new URL(logs.find((line) => line.includes("https://mcp.context.test/oauth/authorize")).match(/https:\/\/\S+/)[0]);
-      return { code: "code-1", state: url.searchParams.get("state") };
-    },
-    close() {},
-  });
-}
-
-test("connect --lab-slot writes the slot's two secrets, and prints neither value", async () => {
-  const { fetchImpl } = fakeGateway();
-  const logs = [];
-  const written = [];
-  const result = await connect({
-    endpoint: ENDPOINT,
-    fetchImpl,
-    log: (line) => logs.push(line),
-    listen: approvingListener(logs),
-    labSlot: 2,
-    setSecret: async (name, value) => {
-      written.push([name, value]);
-    },
-  });
-  assert.deepEqual(result, { clientId: "client_bench_0001", labSlot: 2 });
-  assert.deepEqual(written.map(([name]) => name), ["LAB_RUNNER_2_CLIENT_ID", "LAB_RUNNER_2_REFRESH_TOKEN"]);
-  assert.equal(written[0][1], "client_bench_0001");
-  assert.equal(written[1][1], "crt_1", "the rotated pair's refresh token is the one kept");
-  const done = logs[logs.length - 1];
-  assert.match(done, /LAB_RUNNER_2_CLIENT_ID and LAB_RUNNER_2_REFRESH_TOKEN/);
-  assert.doesNotMatch(done, /client_bench_0001|crt_1|cat_1/, "the final line names the secrets and carries no value");
-  assert.doesNotMatch(logs.join("\n"), /crt_\d|cat_\d/, "no token is printed anywhere");
-});
-
-test("connect --lab-slot refuses a slot outside 1..3 before any network or consent", async () => {
-  const fetchImpl = async () => {
-    throw new Error("the network must not be reached");
-  };
-  const listen = async () => {
-    throw new Error("the consent must not start");
-  };
-  for (const labSlot of [0, 4, 1.5]) {
-    await assert.rejects(connect({ endpoint: ENDPOINT, fetchImpl, listen, log: () => {}, labSlot, setSecret: async () => {} }), /--lab-slot takes 1, 2 or 3/, `slot ${labSlot}`);
-  }
-  await assert.rejects(connectCommand({ "lab-slot": "4" }), /--lab-slot takes 1, 2 or 3/);
-  await assert.rejects(connectCommand({ "lab-slot": undefined }), /--lab-slot takes 1, 2 or 3/, "a flag with no value is refused, not run as a bench connect");
-});
-
-test("the Lab slot names and the slot parser accept only 1, 2 and 3", () => {
-  assert.deepEqual(labSlotSecretNames(1), { clientId: "LAB_RUNNER_1_CLIENT_ID", refreshToken: "LAB_RUNNER_1_REFRESH_TOKEN" });
-  assert.deepEqual(labSlotSecretNames(3), { clientId: "LAB_RUNNER_3_CLIENT_ID", refreshToken: "LAB_RUNNER_3_REFRESH_TOKEN" });
-  assert.equal(parseLabSlot("2"), 2);
-  for (const bad of ["0", "4", "02", "1 ", "a", "", undefined]) assert.throws(() => parseLabSlot(bad), /--lab-slot takes 1, 2 or 3/, `${JSON.stringify(bad)}`);
-  assert.throws(() => labSlotSecretNames(4), /--lab-slot takes 1, 2 or 3/);
-});
-
-test("a failed write of a Lab secret fails the connect, names only the secret, and keeps no token", async () => {
-  const { fetchImpl } = fakeGateway();
-  const logs = [];
-  const failing = async (name) => {
-    if (name.endsWith("REFRESH_TOKEN")) throw new Error(`gh secret set ${name} failed (exit 1)`);
-  };
-  await assert.rejects(
-    connect({ endpoint: ENDPOINT, fetchImpl, log: (line) => logs.push(line), listen: approvingListener(logs), labSlot: 3, setSecret: failing }),
-    (error) => /LAB_RUNNER_3_REFRESH_TOKEN failed \(exit 1\)/.test(error.message) && /run pnpm ai connect --lab-slot 3 again/.test(error.message) && !/crt_|cat_/.test(error.message),
-  );
-  assert.doesNotMatch(logs.join("\n"), /crt_\d|cat_\d/);
 });
