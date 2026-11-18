@@ -234,6 +234,26 @@ export function checksOutNonMain(jobText) {
   return false;
 }
 
+/**
+ * A step that uploads a sealed token (`bench-token-*`) without `always()` in its `if:`. Without it, any earlier step
+ * that failed skips the upload, and the writer finds no seal: Lab run 44313860768 (2026-11-18) sealed the final token,
+ * skipped this upload because the run had already failed, wrote nothing, and left the retired token in production.
+ */
+export function sealUploadProblems(name, text) {
+  const problems = [];
+  for (const job of jobsOf(stripComments(text))) {
+    for (const step of stepsOf(job.text)) {
+      if (!step.includes("actions/upload-artifact@") || !/^\s+name:\s*['"]?bench-token-/m.test(step)) continue;
+      const condition = step.match(/^\s+if:\s*(.+)$/m)?.[1] ?? "";
+      if (!/^(\$\{\{\s*)?always\(\)/.test(condition.trim())) {
+        const artifact = step.match(/^\s+name:\s*['"]?(bench-token-[A-Za-z0-9_-]+)/m)?.[1];
+        problems.push(`${name} job ${job.id} uploads ${artifact} without always() in its if:, so a failed earlier step skips the seal and the writer stores nothing.`);
+      }
+    }
+  }
+  return problems;
+}
+
 function runsCode(jobText) {
   return /^\s+run:/m.test(jobText);
 }
@@ -278,6 +298,7 @@ export function problemsIn(name, text, { seals = true } = {}) {
     problems.push(`${name} does not read BENCH_SECRET_WRITER_TOKEN from a job whose checkout is main.`);
   }
   problems.push(...secretSetProblems(name, text));
+  problems.push(...sealUploadProblems(name, text));
   return problems;
 }
 
@@ -440,6 +461,13 @@ ${SEAL_MARKERS.map((marker) => `      - run: echo ${marker}\n      - run: echo $
     "an open-only writer still may not write with --body-file",
     problemsIn("salvage.yml", brokenWrite, { seals: false }).some((line) => line.includes("--body-file")),
   );
+  const upload = (condition) =>
+    `jobs:\n  run:\n    steps:\n      - name: Keep the seal\n${condition ? `        if: ${condition}\n` : ""}        uses: actions/upload-artifact@v4\n        with:\n          name: bench-token-final\n          path: x.bin\n`;
+  expect("a seal upload gated on its seal alone fails", sealUploadProblems("u.yml", upload("steps.seal-final.outputs.final == 'present'")).length === 1);
+  expect("a seal upload with no if: fails", sealUploadProblems("u.yml", upload("")).length === 1);
+  expect("a seal upload with always() passes", sealUploadProblems("u.yml", upload("always() && steps.seal-final.outputs.final == 'present'")).length === 0);
+  expect("${{ always() }} passes", sealUploadProblems("u.yml", upload("${{ always() && steps.seal-final.outputs.final == 'present' }}")).length === 0);
+  expect("another artifact is not a seal", sealUploadProblems("u.yml", upload("").replace("bench-token-final", "job")).length === 0);
 
   const live = scan();
   // Before the fix this list is non-empty. The self-test does not require the
