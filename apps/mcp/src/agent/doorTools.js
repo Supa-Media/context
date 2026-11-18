@@ -4,7 +4,8 @@
  * Today's Front door (`fd`) holds every tool and answers every text. A specialist door holds a part of them, so a
  * turn the router sends to it cannot reach past its set:
  *
- * - quick: no tools, only the reply-shaping ones (`say_nothing`, `tapback`, `text_progress`) and `need_more_tools`.
+ * - quick: no tools, only the reply-shaping ones (`say_nothing`, `tapback`) and `need_more_tools`; no progress line, since
+ *   a quick reply needs none and one sent before a hand-over would be texted twice.
  * - read: the read-only tools (an MCP or local definition with `annotations.readOnlyHint`), the web reads (`WEB_READS`),
  *   the reply-shaping ones and `need_more_tools`.
  * - act: every tool, exactly as the Front door holds them: the yes-code confirm and the egress hold are untouched.
@@ -34,7 +35,8 @@ const REPLY_TOOLS = new Set(["say_nothing", "tapback", "text_progress"]);
 /** Whether a door may be offered, or may run, a tool of this name and definition. */
 export function doorAllows(door, name, definition) {
   if (door === "act") return true;
-  if (REPLY_TOOLS.has(name) || name === NEED_TOOLS) return true;
+  if (name === NEED_TOOLS) return true;
+  if (REPLY_TOOLS.has(name)) return door === "read" || name !== "text_progress";
   if (door === "read") return WEB_READS.has(name) || definition?.annotations?.readOnlyHint === true;
   return false;
 }
@@ -66,8 +68,9 @@ export function narrowForDoor(door, { tools = [], local = [], web = null } = {})
   }
   const keptTools = tools.filter((tool) => doorAllows(door, tool?.name, tool));
   const keptLocal = [...local.filter((entry) => doorAllows(door, entry?.tool?.name, entry?.tool)), needToolsLocal];
-  const keptWeb = web === null ? null : { ...web, tools: (web.tools ?? []).filter((tool) => doorAllows(door, tool?.name, tool)) };
-  const names = [...namesOf(keptTools), ...namesOf(keptLocal.map((entry) => entry.tool)), ...namesOf(keptWeb?.tools), ...REPLY_TOOLS, NEED_TOOLS];
+  // Over the turn's web object, so what it inherits (the front door's own `call`) still answers.
+  const keptWeb = web === null ? null : Object.assign(Object.create(web), { tools: (web.tools ?? []).filter((tool) => doorAllows(door, tool?.name, tool)) });
+  const names = [...namesOf(keptTools), ...namesOf(keptLocal.map((entry) => entry.tool)), ...namesOf(keptWeb?.tools), ...[...REPLY_TOOLS].filter((name) => doorAllows(door, name, null)), NEED_TOOLS];
   return { tools: keptTools, local: keptLocal, web: keptWeb, allowed: new Set(names) };
 }
 

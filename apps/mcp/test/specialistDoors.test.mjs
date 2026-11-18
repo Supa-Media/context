@@ -107,6 +107,8 @@ test("the doors' tool sets: quick holds nothing but reply words, read holds the 
   assert.equal(doorAllows("quick", "search_notes", search), false);
   assert.equal(doorAllows("quick", "say_nothing"), true);
   assert.equal(doorAllows("quick", NEED_TOOLS), true);
+  assert.equal(doorAllows("quick", "text_progress"), false); // no progress line before a possible hand-over
+  assert.equal(doorAllows("read", "text_progress"), true);
 
   assert.equal(doorAllows("read", "search_notes", search), true);
   assert.equal(doorAllows("read", "write_note", write), false);

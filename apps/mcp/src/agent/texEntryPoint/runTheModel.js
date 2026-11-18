@@ -72,7 +72,6 @@ import { withArchitecture } from "../texArchitecture.js";
 import { withChatWriteLock } from "../chatWriteLock.js";
 import { carriedLine, carriedRounds, rereadCarried } from "../turnResume.js";
 import { runWithDoors } from "../doorTurn.js";
-import { startRoute } from "../doorTools.js";
 
 /** The settings this turn runs the front door with, as the Front door node logs them (`../graph/nodes/fd.js`). */
 function doorOut({ production, productionModel, fallback, router, gated, advising, planning, computers, skills, delegation, threaded }) {
@@ -115,8 +114,6 @@ export async function runTheModel(t, via) {
   // Only a job's report and a scheduled text are reviewed (Dev2, 2026-11-15): on every other chat turn the code checks run alone, the figure check over what the model saw among them (`untriedWeb.js`).
   const gated = ((chatTurn && job === null && !runner && (texted || group !== null) && report !== null) || scheduled !== null) && Boolean(production?.replyJudge) && aiGatewayConfig(env) !== null; // no AI Gateway, no reviewer: the word checks stay
   const tries = t.tries;
-  // A routine's run has no text beside the Door, so the router starts here, before the first await (`doorTurn.js`, `graph/nodes/router.js`).
-  if (t.routeRead === undefined && runner === true) t.routeRead = startRoute(() => via.router({ question: String(question ?? ""), group: group !== null, trigger: "routine" }));
   if (!tex.lean) await tex.wait("steer_begin", begun);
   const knows = knowsRead === null ? null : await tex.wait("tex_notes", knowsRead);
   // A big ask the advisor plans and the gateway splits into jobs, when the setup says so (`planBigAsk.js`).

@@ -91,8 +91,8 @@ export async function fdNode(input, io) {
       calls.fallback = spec;
       return async (model) => (await io.use.fallback({ from: model }))?.model ?? null;
     },
-    // The router and the specialist doors, each through its wire the config may not draw: a missing one answers null.
-    router: (input) => guarded(() => io.use.router(input)),
+    // The specialist doors, each through its wire the config may not draw: a missing one answers null. The router is
+    // the Door's (`doorStep.js`): a check-in or a routine skips the Door, so it is answered by today's front door.
     door: (route, input) => guarded(() => io.use[DOOR_NODES[route]](input)),
     planner: (plan) => {
       calls.planner = plan;
