@@ -111,6 +111,10 @@ In the PR description, say what you changed, how you tested it, and anything
 you're unsure about. Flagging your own uncertainty is genuinely useful and
 never counts against you.
 
+Agents follow **Pull request flow** in `CLAUDE.md`. After a pull request is
+open, do not merge or rebase main into the branch unless GitHub reports a
+merge conflict (`mergeable_state` `dirty`).
+
 ## Security
 
 Found a vulnerability? **Don't open an issue.** See [SECURITY.md](SECURITY.md)

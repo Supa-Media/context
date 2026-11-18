@@ -129,6 +129,11 @@ behaviour, a change that would break one of the non-negotiables above, or work
 the person explicitly framed as a spike. In each of those, say what is blocking
 and what you propose — a statement, not a request for permission to continue.
 
+A branch that is behind main can still merge. Do not merge or rebase main
+into an open pull request unless GitHub reports a merge conflict
+(`mergeable_state` `dirty`). Main does not require an up-to-date branch. The
+numbered steps are **Pull request flow** in `CLAUDE.md`.
+
 ## A deploy filter is a copy of an import graph, and it drifted
 
 `apps/convex` is not self-contained and never has been: `convex deploy` bundles
