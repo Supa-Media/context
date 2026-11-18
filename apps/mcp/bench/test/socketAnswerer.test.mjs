@@ -8,14 +8,16 @@
  *  2. `cliArgs` dropping `--tools ""` -> "the CLI runs with no tools of its own" fails;
  *  3. `promptFor` leaving out tool results -> "the conversation carries tool calls and their results" fails.
  *  4. `promptFor` reading only `content` -> "a call in Tex's own message shape reaches the CLI whole" fails.
+ *  5. (2026-11-18) the schema's tool name back to a bare string -> "the answer schema names only the tools this call
+ *     offers" fails; `answerFrom` keeping every tool call -> "a tool the call did not offer is dropped" fails.
  */
 import assert from "node:assert/strict";
-import { mkdir, mkdtemp, readdir, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, readdir, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
 
-import { answerFrom, answerLoop, answerOne, cliArgs, failureText, modelAlias, promptFor, systemText } from "../socketAnswerer.mjs";
+import { answerFrom, answerLoop, answerOne, cliArgs, failureText, keepOffered, modelAlias, promptFor, systemText, toolAnswerSchema } from "../socketAnswerer.mjs";
 import { requestHash } from "../modelSocket.mjs";
 
 const TOOL = { name: "search", description: "Search the notes", input_schema: { type: "object", properties: { query: { type: "string" } } } };
@@ -77,15 +79,43 @@ test("a plain call keeps the CLI's text; a tool call keeps its structured answer
   assert.throws(() => answerFrom({}, cliResult({ is_error: true, result: "rate limited" })), /rate limited/);
 });
 
-test("answers land where the gate reads them, and a tool the call did not offer is refused", async () => {
+test("the answer schema names only the tools this call offers", () => {
+  const request = { model: "haiku", messages: [], tools: [TOOL, "write", { name: "search" }] };
+  const schema = JSON.parse(cliArgs(request, "/tmp/s")[cliArgs(request, "/tmp/s").indexOf("--json-schema") + 1]);
+  assert.deepEqual(schema.properties.toolCalls.items.properties.name.enum, ["search", "write"]);
+  assert.deepEqual(toolAnswerSchema(request), schema);
+  assert.deepEqual(toolAnswerSchema({ tools: ["fetch"] }).properties.toolCalls.items.properties.name.enum, ["fetch"]);
+});
+
+test("a tool call the call cannot take is dropped from the answer, and named", () => {
+  assert.deepEqual(keepOffered({ tools: [TOOL] }, [{ name: "search", input: { query: "x" } }, { name: "draw_visual", input: {} }, { name: "search", input: "x" }]), {
+    kept: [{ name: "search", input: { query: "x" } }],
+    dropped: ["draw_visual", "search"],
+  });
+  const seen = [];
+  const answer = answerFrom({ tools: ["search"] }, cliResult({ structured_output: { text: "Here.", toolCalls: [{ name: "draw_visual", input: {} }] } }), (names) => seen.push(...names));
+  assert.deepEqual(answer, { text: "Here.", toolCalls: [] });
+  assert.deepEqual(seen, ["draw_visual"]);
+});
+
+test("answers land where the gate reads them, and a tool the call did not offer is dropped, not a dead run", async () => {
   const { dir, calls } = await socketWith([{ model: "claude-haiku-4-5", messages: [{ role: "user", content: "hi" }], tools: [TOOL] }]);
   const good = () => Promise.resolve(cliResult({ structured_output: { text: "", toolCalls: [{ name: "search", input: { query: "hi" } }] } }));
   await answerOne(dir, calls[0], { cli: good });
   assert.deepEqual(await readdir(join(dir, "answers")), [`${calls[0].hash}.json`]);
 
   const other = await socketWith([{ model: "haiku", messages: [{ role: "user", content: "x" }], tools: [TOOL] }]);
-  const bad = () => Promise.resolve(cliResult({ structured_output: { text: "", toolCalls: [{ name: "delete_everything", input: {} }] } }));
-  await assert.rejects(answerOne(other.dir, other.calls[0], { cli: bad, tries: 2 }), /offers no tool "delete_everything"/);
+  let tries = 0;
+  const lines = [];
+  const bad = () => {
+    tries += 1;
+    return Promise.resolve(cliResult({ structured_output: { text: "", toolCalls: [{ name: "delete_everything", input: {} }] } }));
+  };
+  const answer = await answerOne(other.dir, other.calls[0], { cli: bad, tries: 3, log: (line) => lines.push(line) });
+  assert.deepEqual(answer, { text: "", toolCalls: [] });
+  assert.equal(tries, 1, "a model's mistake is its answer, not a CLI failure to retry");
+  assert.deepEqual(JSON.parse(await readFile(join(other.dir, "answers", `${other.calls[0].hash}.json`), "utf8")), { text: "" });
+  assert.ok(lines.some((line) => /without 1 tool call\(s\) it does not offer: delete_everything/.test(line)));
 });
 
 test("a call the CLI keeps failing stays unanswered and stops the loop", async () => {
