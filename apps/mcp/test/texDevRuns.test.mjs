@@ -12,7 +12,7 @@ import { test } from "node:test";
 import { createTexDev } from "../src/texDev/tool.js";
 import { guideText } from "../src/texDev/guide.js";
 import { texDevToolDefinitions } from "../src/tools/schemas/texDev.js";
-import { detailOf, devConversations, resultsOf } from "../../../scripts/tex-lab-run.mjs";
+import { detailOf, devConversations, resultsOf, trainingConversations } from "../../../scripts/tex-lab-run.mjs";
 import { decideSaid } from "../bench/setsRun.mjs";
 
 const textOf = (result) => result.content.find((c) => c.type === "text")?.text ?? "";
@@ -65,6 +65,18 @@ test("the Dev set is the repo's with the Lab's drafts over it; never Training", 
   assert.equal(got[0].msgs[0].text, "edited");
   assert.deepEqual(devConversations(repo, [], "b").map((c) => c.id), ["b"]);
   assert.deepEqual(devConversations(repo, [], "t"), [], "a Training chat is never run");
+});
+
+test("a Training run is the repo's Training set, less what the Lab moved to Dev or removed; never Dev", () => {
+  const conv = (id, set) => ({ id, set, kind: "one", msgs: [{ id: "m1", who: "Jo", text: "hi" }] });
+  const repo = [conv("d", "dev"), conv("t1", "training"), conv("t2", "training"), conv("t3", "training")];
+  const drafts = [
+    { id: "t2", set: "dev", removed: false, conv: "{}" },
+    { id: "t3", set: "training", removed: true },
+  ];
+  assert.deepEqual(trainingConversations(repo, drafts).map((c) => c.id), ["t1"]);
+  assert.deepEqual(trainingConversations(repo, [], "t3").map((c) => c.id), ["t3"]);
+  assert.deepEqual(trainingConversations(repo, [], "d"), [], "a Dev chat is never in a Training run");
 });
 
 test("results count by chat and by step, with each test's verdict and no words", () => {

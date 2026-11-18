@@ -106,6 +106,16 @@ describe("starting a run", () => {
     expect(await door("run", { draft: "vnothere", kind: "dev" })).toEqual({ status: "not_found" });
   });
 
+  test("a run may name the Training set; the workflow is told it, and any other set is refused", async () => {
+    const { door, t } = await world();
+    const ran = await door("run", { draft: "main", kind: "node", node: "fd", set: "training" });
+    expect(ran).toMatchObject({ status: "ok" });
+    expect(await t.query(internal.functions.texLabRuns.job, { runId: ran.id })).toMatchObject({ set: "training", nodeId: "fd" });
+    const dev = await door("run", { draft: "main", kind: "dev" });
+    expect(await t.query(internal.functions.texLabRuns.job, { runId: dev.id })).toMatchObject({ set: "dev" });
+    expect(await door("run", { draft: "main", kind: "dev", set: "test" })).toMatchObject({ status: "bad_request", error: expect.stringContaining("training") });
+  });
+
   test("MAX_QUEUED waiting runs is the most a person has; a finished one frees its place", async () => {
     const { door, t } = await world();
     const ids = [];

@@ -9,8 +9,8 @@
  *
  * `prepare` reads the run Convex hands the workflow (`texLabRuns:job`): the Dev set is the repo's
  * (`apps/mcp/bench/sets/dev`) with the Lab's drafts over it (a draft in Dev replaces or adds a conversation; one moved
- * to Training or removed leaves it out). Never Training, and never the Test set, which is not in the repo or in the
- * Lab's drafts at all. It writes `<dir>/convs.json`, and `<dir>/graph.json` when the run is a draft's. Standard output
+ * to Training or removed leaves it out). A run with `set: "training"` runs the repo's Training set instead
+ * (`trainingConversations`). Never the Test set, which is not in the repo or in the Lab's drafts at all. It writes `<dir>/convs.json`, and `<dir>/graph.json` when the run is a draft's. Standard output
  * says counts and ids only: the workflow's log is public.
  */
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
@@ -36,6 +36,17 @@ export function devConversations(repo, drafts, convId = null) {
   const all = [...byId.values()];
   if (convId === null) return all;
   return all.filter((c) => c.id === convId);
+}
+
+/**
+ * The Training conversations a Training run covers: the repo's, less any the Lab moved to Dev or removed (Dev2,
+ * 2026-11-18: "prove it on Training ... a scored Lab Training run"). The Lab's Training drafts carry only their id and
+ * set, so a conversation edited in the Lab runs as the repo has it until its Promote.
+ */
+export function trainingConversations(repo, drafts, convId = null) {
+  const gone = new Set((drafts ?? []).filter((d) => d.set !== "training" || d.removed).map((d) => d.id));
+  const all = repo.filter((c) => c.set === "training" && !gone.has(c.id));
+  return convId === null ? all : all.filter((c) => c.id === convId);
 }
 
 /** The runner's rows as the Lab reads a run's results (`texLabRuns.cleanResults`). */
@@ -97,11 +108,14 @@ async function main() {
     const job = JSON.parse(readFileSync(a, "utf8"));
     if (!job || typeof job !== "object") throw new Error("no such run");
     mkdirSync(b, { recursive: true });
-    const convs = devConversations(await loadSets(), job.drafts, job.kind === "chat" ? job.convId : null);
-    if (job.kind === "chat" && convs.length === 0) throw new Error(`${job.convId} is not a Dev conversation`);
+    const training = job.set === "training";
+    const pick = training ? trainingConversations : devConversations;
+    const convs = pick(await loadSets(), job.drafts, job.kind === "chat" ? job.convId : null);
+    const name = training ? "Training" : "Dev";
+    if (job.kind === "chat" && convs.length === 0) throw new Error(`${job.convId} is not a ${name} conversation`);
     writeFileSync(join(b, "convs.json"), JSON.stringify(convs));
     if (job.graph) writeFileSync(join(b, "graph.json"), job.graph);
-    console.log(`Dev conversations: ${convs.length} (${convs.map((c) => c.id).join(", ")}); ${job.graph ? "draft graph" : "main"}`);
+    console.log(`${name} conversations: ${convs.length} (${convs.map((c) => c.id).join(", ")}); ${job.graph ? "draft graph" : "main"}`);
     return;
   }
   if (sub === "results") {
