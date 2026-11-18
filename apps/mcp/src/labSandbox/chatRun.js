@@ -535,8 +535,9 @@ export async function runChatTurn({ env, stub, about, row, payload, token, confi
       for (const id of Array.isArray(row.also) ? row.also : []) {
         const next = fresh.find((r) => r.id === id);
         if (next === undefined) continue;
-        const { path: nextPath, body: nextMessage } = inboundOf({ about, row: next, rows: fresh, address, sentHandles });
+        // Their number first, so the text is from them and not from whoever sent the first one.
         if (about.kind === "group" && typeof next.who === "string" && !address.phones.has(next.who)) address.phones.set(next.who, await phoneOf(next.who));
+        const { path: nextPath, body: nextMessage } = inboundOf({ about, row: next, rows: fresh, address, sentHandles });
         await inbox.fetch(new Request(`https://inbox${nextPath}`, { method: "POST", body: JSON.stringify({ ...nextMessage, provider: { ...provider, providerAt: next.at ?? provider.providerAt, receivedAt: now() } }) }));
       }
     }

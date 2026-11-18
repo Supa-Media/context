@@ -18,6 +18,9 @@ export default {
       const both = await chat.tag("ada", "tex, say alpha\ntex, say bravo", "[1] alpha\n\n[2] bravo", [], { group: { people: ["ada"], cause: "named" }, body });
       assert.match(both.shown, /\[1\] @ada: tex, say alpha/, "the turn is shown the texts it answers, numbered");
       assert.match(both.shown, /\[2\] @ada: tex, say bravo/);
+      // Lab, 2026-11-18: told "one reply that answers them all together needs no numbers", the front door answered
+      // "say charlie" and "say delta" as one bubble. Texts that ask different things are each answered on their own.
+      assert.match(both.shown, /When the texts ask different things, answer each in its own paragraph/, "different asks are answered apart");
       assert.equal(both.answer, "alpha\n\nbravo", "no number reaches the chat");
       assert.deepEqual(both.body.under, [{ under: alpha.id, text: "alpha" }, { under: bravo.id, text: "bravo" }], "each part names the text it goes under");
       // One text: no numbers shown, nothing to place.
