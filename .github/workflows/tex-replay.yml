@@ -575,7 +575,7 @@ jobs:
           echo "::add-mask::$mask"
           unset mask
           echo "Writing BENCH_RUNNER_REFRESH_TOKEN_LIVE to the production environment"
-          if ! gh secret set BENCH_RUNNER_REFRESH_TOKEN_LIVE --env production --repo "$GITHUB_REPOSITORY" --body-file "$RUNNER_TEMP/refresh-token"; then
+          if ! gh secret set BENCH_RUNNER_REFRESH_TOKEN_LIVE --env production --repo "$GITHUB_REPOSITORY" < "$RUNNER_TEMP/refresh-token"; then
             echo "::error::BENCH_SECRET_WRITER_TOKEN could not write BENCH_RUNNER_REFRESH_TOKEN_LIVE"
             exit 1
           fi
