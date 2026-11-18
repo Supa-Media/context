@@ -128,13 +128,18 @@ export async function acquireSlot({
   }
   const started = now();
   for (;;) {
-    const reply = await callConvex(ACQUIRE_FN, {
-      ghRunId,
-      attempt,
-      labRunId,
-      connected,
-      active: await listActive(),
-    });
+    // A failed GitHub or Convex call skips this poll; it never sends an empty active list (that would reclaim every
+    // holder) and never ends the wait early.
+    let reply;
+    try {
+      const active = await listActive();
+      reply = await callConvex(ACQUIRE_FN, { ghRunId, attempt, labRunId, connected, active });
+    } catch (error) {
+      if (now() - started >= maxMinutes * 60_000) return { code: 1, why: `the Lab runner pool could not be reached: ${String(error?.message ?? error).slice(0, 200)}` };
+      log(`::warning::could not ask for a Lab runner slot this time (${String(error?.message ?? error).slice(0, 200)}); trying again`);
+      await sleep(POLL_MS);
+      continue;
+    }
     if (Number.isInteger(reply?.slot)) {
       log(`Leased Lab runner slot ${reply.slot}`);
       return { code: 0, slot: reply.slot, attempt };

@@ -218,3 +218,29 @@ test("release through runCommand exits 0 and logs no secret", async () => {
   assert.deepEqual(seen, [["functions/labRunnerSlots:release", { ghRunId: "4242", attempt: 1 }]]);
   assert.deepEqual(logs, ["No Lab runner slot was held by this run"]);
 });
+
+test("a failed GitHub listing skips the poll instead of ending the wait or sending an empty active list", async () => {
+  const { acquireSlot } = await import("./lab-runner-lease.mjs");
+  let calls = 0;
+  const sent = [];
+  let t = 0;
+  const r = await acquireSlot({
+    env: { LAB_RUNNER_1_CLIENT_ID: "c", LAB_RUNNER_1_REFRESH_TOKEN: "t", GITHUB_RUN_ID: "5", GITHUB_RUN_ATTEMPT: "1", RUN_ID: "k" },
+    listActive: async () => {
+      calls += 1;
+      if (calls === 1) throw new Error("HTTP 502");
+      return ["5"];
+    },
+    callConvex: async (_fn, args) => {
+      sent.push(args.active);
+      return { slot: 1 };
+    },
+    sleep: async () => {
+      t += 30_000;
+    },
+    now: () => t,
+    log: () => {},
+  });
+  assert.equal(r.code, 0);
+  assert.deepEqual(sent, [["5"]]);
+});
