@@ -153,23 +153,40 @@ test("a late call to the old store, from a gateway still on the old code, is pas
   assert.ok(!everyAlarm(old.state.storage.sql).some((alarm) => alarm.id === "tex/routines/late.md"));
 });
 
-// A put has no await between its check and its writes since the etag is computed in place (#3618), so no write can be
-// under way when the store moves: one started before the move has landed, and one started after it is stopped here.
-test("a write started before the store moves lands whole, and one started after it is stopped before it writes", async () => {
+// A put has no await between its guard and its rows (`objects.js`: the etag is computed without one), so no write
+// is ever half way when the store moves: one made before lands whole, one made after is refused.
+// Sabotage: delete the `guard()` call in `writeBody` and both refusals below go missing.
+test("a write made once the store has moved is stopped before it writes; one made before lands whole", async () => {
   const sql = durableSql();
   let moved = false;
   const objects = texObjects(sql, { guard: () => {
     if (moved) throw new TexMoved();
   } });
-  const writing = objects.put("notes/a.md", new TextEncoder().encode("in time"));
+  const bytes = (text) => new TextEncoder().encode(text);
+  const early = objects.put("notes/early.md", bytes("early"));
   moved = true;
-  assert.ok((await writing) !== null);
-  assert.equal(new TextDecoder().decode(objects.get("notes/a.md").body), "in time");
-  await assert.rejects(objects.put("notes/b.md", new TextEncoder().encode("late")), TexMoved);
-  assert.equal(objects.head("notes/b.md"), null);
-  // The guard runs before the old body is removed: a refused write over a kept note leaves the note as it was.
-  await assert.rejects(objects.put("notes/a.md", new TextEncoder().encode("late")), TexMoved);
-  assert.equal(new TextDecoder().decode(objects.get("notes/a.md").body), "in time");
+  assert.equal((await early).size, 5);
+  assert.equal(new TextDecoder().decode(objects.get("notes/early.md").body), "early", "the write made before the move is whole");
+
+  await assert.rejects(objects.put("notes/a.md", bytes("late")), TexMoved);
+  assert.equal(objects.head("notes/a.md"), null);
+  await assert.rejects(objects.put("notes/early.md", bytes("over")), TexMoved);
+  assert.equal(new TextDecoder().decode(objects.get("notes/early.md").body), "early", "the refused write removed nothing");
+});
+
+test("a prepared write made once the store has moved is stopped the same way", () => {
+  const sql = durableSql();
+  let moved = false;
+  const objects = texObjects(sql, { guard: () => {
+    if (moved) throw new TexMoved();
+  } });
+  const bytes = (text) => new TextEncoder().encode(text);
+  assert.equal(objects.putPrepared("notes/early.md", bytes("early"), "e1").etag, "e1");
+  moved = true;
+  assert.throws(() => objects.putPrepared("notes/a.md", bytes("late"), "e2"), TexMoved);
+  assert.equal(objects.head("notes/a.md"), null);
+  assert.throws(() => objects.putPrepared("notes/early.md", bytes("over"), "e3"), TexMoved);
+  assert.equal(objects.head("notes/early.md").etag, "e1", "the refused write removed nothing");
 });
 
 test("the old store runs no routine once moved, and clears its copy after three days, keeping where it went", async () => {
