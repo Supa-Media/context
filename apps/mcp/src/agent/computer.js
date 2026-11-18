@@ -41,6 +41,7 @@ import { READ_FAILED_NEXT, thinPageHint } from "./otherSites.js";
 import { BROWSE_TOOL, browserSession } from "./browse.js";
 export { BROWSE_TIMED_OUT, BROWSE_TOOL } from "./browse.js";
 import { FILL_LOGIN_TOOL, fillLoginTool, savedLoginOn } from "./fillLogin.js";
+import { MAKE_LOGIN_TOOL, makeLoginTool } from "./makeLogin.js";
 import { FILL_CARD_TOOL, fillCardTool } from "./fillCard.js";
 import { siteShotsComputer } from "./browserProviders.js";
 import { browserJar } from "./browserJar.js";
@@ -242,6 +243,9 @@ export function webPrompt(webNames) {
         "Hand the browser over (a browse handoff step) only for what truly needs them, a code they can't text you, a captcha browse said outlasted Browserbase's solver, a reload and a fresh browser, or a payment with no saved card, or when they say they'd rather sign in themselves. Never ask for a password, and never say you can't use a site just because no login is saved.",
     );
   }
+  if (webNames.has(MAKE_LOGIN_TOOL)) {
+    lines.push("When you create a new account for them on a site, use send action make_login on its sign-up page: it makes a strong password, saves the login to their vault before typing it, and you never see it. Only for an account that doesn't exist yet: one they already have is signed into with fill_login, or with none saved you send vault_add's link.");
+  }
   if (webNames.has(FILL_CARD_TOOL)) {
     lines.push(
       "To pay, check fetch vault: for a saved card and use send action fill_card at the payment step; the person allows each payment in the Context app, so tell them what you're buying and the total when it asks. Press pay only after that. Never ask for a card number: with no card saved, send manage action vault_add's link with type card, or hand the browser over for the payment.",
@@ -385,6 +389,8 @@ export function webSession(computer, question, { decide = null, search = null, a
       : null;
   // Saved logins, filled by the gateway into this browser (`fillLogin.js`).
   const logins = browser && store ? fillLoginTool(browser, store) : null;
+  // New accounts' logins, made and vaulted by the gateway before they're typed (`makeLogin.js`).
+  const newLogins = browser && store ? makeLoginTool(browser, store) : null;
   // Saved cards, filled the same way, each on the person's yes (`fillCard.js`).
   const cards = browser && store ? fillCardTool(browser, store, { asks }) : null;
   // Google Maps directions, read like a page (`travelTime.js`).
@@ -406,6 +412,7 @@ export function webSession(computer, question, { decide = null, search = null, a
     ...(computer ? [OPEN_PAGE_DEFINITION] : []),
     ...(browser ? [browser.definition] : []),
     ...(logins ? [logins.definition] : []),
+    ...(newLogins ? [newLogins.definition] : []),
     ...(cards ? [cards.definition] : []),
     ...(search ? [SEARCH_WEB_DEFINITION] : []),
     ...(travel ? [travel.definition] : []),
@@ -455,6 +462,7 @@ export function webSession(computer, question, { decide = null, search = null, a
       if (name === SEARCH_WEB_TOOL && search) return searchWeb(args);
       if (name === BROWSE_TOOL && browser) return browser.call(args);
       if (name === FILL_LOGIN_TOOL && logins) return logins.call(args);
+      if (name === MAKE_LOGIN_TOOL && newLogins) return newLogins.call(args);
       if (name === FILL_CARD_TOOL && cards) return cards.call(args);
       if (name === TRAVEL_TIME_TOOL && travel) return travel.call(args);
       if (name === SIGN_OUT_BROWSER_TOOL && signOut) return signOut.call(args);

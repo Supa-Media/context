@@ -24,6 +24,7 @@ test/agentBrowserHold.test.mjs
 test/agentCatalog.test.mjs
 test/agentConversation.test.mjs
 test/agentDayWords.test.mjs
+test/agentMakeLogin.test.mjs
 test/agentWarmBudget.test.mjs
 test/agentFillLogin.test.mjs
 test/agentFillCard.test.mjs
