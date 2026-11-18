@@ -19,6 +19,11 @@ name: Email Worker
 # The `push:` filter below stays on `main`.
 on:
   pull_request:
+  # The merge queue asks for the required checks on its trial commit. No path
+  # filter exists for this event, so every job reports; ci-scope decides what
+  # runs from the merge group's own diff.
+  merge_group:
+    types: [checks_requested]
   push:
     branches: [main]
     paths:
@@ -37,8 +42,8 @@ permissions:
   packages: read
 
 concurrency:
-  group: email-worker-ci-${{ github.ref }}
-  cancel-in-progress: true
+  group: email-worker-ci-${{ github.event.merge_group.head_ref || github.ref }}
+  cancel-in-progress: ${{ github.event_name != 'merge_group' }}
 
 jobs:
   test:

@@ -5,7 +5,9 @@
  *
  * The workflow still starts and reports a check. Only setup and test steps are
  * skipped, so a required context can never remain pending because a trigger
- * filter prevented it from existing. Pushes to main always run as a backstop.
+ * filter prevented it from existing. A merge group (the merge queue's trial
+ * commit) is scoped the same way, against the commit it was built on. Pushes
+ * to main always run as a backstop.
  */
 import { execFileSync } from "node:child_process";
 import { appendFileSync, existsSync, mkdtempSync, readFileSync, realpathSync, writeFileSync } from "node:fs";
@@ -127,13 +129,39 @@ export function pullRequestBase(event, parents) {
   return event.pull_request?.base?.sha;
 }
 
+/**
+ * What a merge group's checkout is diffed against.
+ *
+ * A merge group is the queue's trial commit for one pull request: main, the
+ * pull requests ahead of it in the queue, then this one. `base_sha` is that
+ * commit's parent, so the diff is this pull request alone, on top of the tree
+ * it will actually land on. The pull requests ahead were proven by their own
+ * groups, and the queue rebuilds this group when one of them drops out. A
+ * payload whose head is not the commit checked out is not trusted: no base,
+ * so the job runs.
+ */
+export function mergeGroupBase(event, head) {
+  const group = event.merge_group;
+  if (!group?.base_sha || !group.head_sha || group.head_sha !== head) return undefined;
+  return group.base_sha;
+}
+
+function headSha() {
+  try {
+    return git("rev-parse", "HEAD");
+  } catch {
+    return "";
+  }
+}
+
 export function changedFiles(env = process.env) {
   // A push is diffed against the commit it replaced only when the job asks
   // (`push-diff`): the editor's browser run must not run on a merge that did
   // not touch the editor (Dev2, 2026-10-07). Every other job keeps the
   // unconditional main-branch backstop.
   const pushDiff = env.GITHUB_EVENT_NAME === "push" && env.CI_SCOPE_PUSH_DIFF === "true";
-  if (env.GITHUB_EVENT_NAME !== "pull_request" && !pushDiff) {
+  const mergeGroup = env.GITHUB_EVENT_NAME === "merge_group";
+  if (env.GITHUB_EVENT_NAME !== "pull_request" && !pushDiff && !mergeGroup) {
     return { files: [], backstop: `${env.GITHUB_EVENT_NAME || "local"} runs the main-branch backstop` };
   }
   if (!env.GITHUB_EVENT_PATH || !existsSync(env.GITHUB_EVENT_PATH)) {
@@ -141,7 +169,11 @@ export function changedFiles(env = process.env) {
   }
   const event = JSON.parse(readFileSync(env.GITHUB_EVENT_PATH, "utf8"));
   // A new branch or a force push reports no usable `before`; that runs.
-  const base = pushDiff ? event.before : pullRequestBase(event, commitParents("HEAD"));
+  const base = pushDiff
+    ? event.before
+    : mergeGroup
+      ? mergeGroupBase(event, headSha())
+      : pullRequestBase(event, commitParents("HEAD"));
   if (!/^[0-9a-f]{40}$/.test(base ?? "") || /^0+$/.test(base)) {
     return { files: [], backstop: "the base commit is unavailable" };
   }
@@ -281,6 +313,21 @@ export function selfTest() {
   if (!push(head, undefined).backstop) throw new Error("a push without push-diff skipped the backstop");
   if (push(head, "true").backstop) throw new Error("a push with push-diff was not diffed");
   if (!push("0".repeat(40), "true").backstop) throw new Error("a push with no previous commit did not fail open");
+  // A merge group is diffed against its parent, and only when its head is the checkout.
+  const group = { merge_group: { base_sha: "a".repeat(40), head_sha: "b".repeat(40) } };
+  if (mergeGroupBase(group, "b".repeat(40)) !== "a".repeat(40)) throw new Error("a merge group was not diffed against its parent");
+  if (mergeGroupBase(group, "c".repeat(40)) !== undefined) throw new Error("a merge group that is not the checkout was trusted");
+  if (mergeGroupBase({}, "b".repeat(40)) !== undefined) throw new Error("an event with no merge group named a base");
+  const queued = (payload) => {
+    writeFileSync(event, JSON.stringify(payload));
+    return changedFiles({ GITHUB_EVENT_NAME: "merge_group", GITHUB_EVENT_PATH: event });
+  };
+  const own = queued({ merge_group: { base_sha: head, head_sha: head } });
+  if (own.backstop || own.files.length) throw new Error("a merge group was not diffed against its base");
+  if (!queued({ merge_group: { base_sha: head, head_sha: "c".repeat(40) } }).backstop) {
+    throw new Error("a merge group whose head is not the checkout did not fail open");
+  }
+  if (!queued({}).backstop) throw new Error("a merge group event with no payload did not fail open");
 }
 
 async function main(env = process.env) {
