@@ -12,7 +12,7 @@ import { test } from "node:test";
 import { createTexDev } from "../src/texDev/tool.js";
 import { guideText } from "../src/texDev/guide.js";
 import { texDevToolDefinitions } from "../src/tools/schemas/texDev.js";
-import { detailOf, devConversations, resultsOf, trainingConversations } from "../../../scripts/tex-lab-run.mjs";
+import { detailOf, devConversations, handoffOf, resultsOf, trainingConversations } from "../../../scripts/tex-lab-run.mjs";
 import { decideSaid } from "../bench/setsRun.mjs";
 
 const textOf = (result) => result.content.find((c) => c.type === "text")?.text ?? "";
@@ -87,6 +87,7 @@ test("results count by chat and by step, with each test's verdict and no words",
   ];
   const r = resultsOf(rows, "1200");
   assert.deepEqual([r.pass, r.total, r.costUsd, r.ms], [1, 3, 0.0008, 1200]);
+  assert.deepEqual(r.handoff, { jobs: 0, parts: 0, advisorCalls: 0, usd: 0, perJobUsd: 0, advisorCallsPerJob: 0 }, "no hand-off, all zero");
   assert.deepEqual(r.perConv, [{ id: "g", pass: 1, total: 2 }, { id: "m", pass: 0, total: 1 }]);
   assert.deepEqual(r.perNode, [{ node: "decide", pass: 1, total: 2 }, { node: "fd", pass: 0, total: 1 }]);
   assert.deepEqual(r.rows[1], { convId: "g", msgIndex: 8, node: "decide", ok: false, got: "quiet", want: "respond" });
@@ -127,4 +128,14 @@ test("code points a draft's runs at a pull request or branch; run passes its own
   assert.equal(jsonOf(await call("code", { draft: "vabc", code: "main" })).code, "main");
   await call("run", { draft: "vabc", code: "claude/x" });
   assert.deepEqual(calls.map((c) => c.args), [{ draft: "vabc", code: "3401" }, { draft: "vabc", code: "main" }, { draft: "vabc", kind: "dev", conv: undefined, node: undefined, models: "gw", code: "claude/x" }]);
+});
+
+test("a run reports what its handed-off jobs added: jobs, parts, advisor calls and spend, per job too (Dev2, 2026-11-18, for Finance)", () => {
+  const rows = [
+    { chat: "a", at: 1, node: "fd", right: true, ran: true, usd: 0.05, handoff: { jobs: 1, parts: 3, advisorCalls: 2, usd: 0.03 } },
+    { chat: "a", at: 3, node: "fd", right: false, ran: true, usd: 0.04, handoff: { jobs: 1, parts: 1, advisorCalls: 1, usd: 0.01 } },
+    { chat: "b", at: 2, node: "decide", right: true, ran: true, usd: 0.001 },
+  ];
+  assert.deepEqual(handoffOf(rows), { jobs: 2, parts: 4, advisorCalls: 3, usd: 0.04, perJobUsd: 0.02, advisorCallsPerJob: 1.5 });
+  assert.deepEqual(resultsOf(rows, "1").handoff, handoffOf(rows));
 });

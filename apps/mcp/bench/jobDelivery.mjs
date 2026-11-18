@@ -20,7 +20,8 @@
  * Nothing here decides when a job starts: that is the turn's, from its own config.
  */
 
-import { endedAs, runJob } from "./jobTasks.mjs";
+import { endedAs, partsUsd, runJob } from "./jobTasks.mjs";
+import { priceUsd } from "./report.mjs";
 import { runningJob } from "./byCode.mjs";
 import { readTexConfig } from "../../../scripts/lib/texConfigFile.mjs";
 import { realNow } from "./clock.mjs";
@@ -75,6 +76,16 @@ export async function deliverJobs(world, jobs, { running = null, config = null, 
   return out;
 }
 
+/** What a report turn cost, model by model. */
+const turnUsd = (turn) => Object.entries(turn?.usageByModel ?? {}).reduce((sum, [model, usage]) => sum + (priceUsd(model, usage, { perCall: false }) ?? 0), 0);
+
+/** What every delivered job of `runs` added: jobs run, parts, the job advisor's calls and spend. */
+export function handoffTotals(delivered) {
+  const ran = (Array.isArray(delivered) ? delivered : []).filter((d) => d && d.state !== "not run");
+  const usd = ran.reduce((sum, d) => sum + (Number(d.usd) || 0), 0);
+  return { jobs: ran.length, parts: ran.reduce((n, d) => n + (Number(d.parts) || 0), 0), advisorCalls: ran.reduce((n, d) => n + (Number(d.advisorCalls) || 0), 0), usd: Math.round(usd * 10_000) / 10_000 };
+}
+
 /** The usage of every model in `byModel`, added up. */
 export const sumUsage = (byModel) => Object.values(byModel ?? {}).reduce((sum, u) => ({ input: sum.input + (u.input ?? 0), output: sum.output + (u.output ?? 0), cacheRead: sum.cacheRead + (u.cacheRead ?? 0), cacheWrite: sum.cacheWrite + (u.cacheWrite ?? 0) }), { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 });
 
@@ -104,9 +115,11 @@ export async function deliverInto(world, jobs, { conversation, totals, running, 
       addSpend(totals, done.turn);
       totals.traces.push(done.turn.trace ?? []);
     }
-    totals.delivered.push({ title: done.title, state: done.state, parts: done.parts.length, ...(done.capped ? { capped: true } : {}) });
+    // What the job added, for Finance beside the score (Dev2, 2026-11-18): its done checks (the job advisor's calls) and its spend.
+    const usd = partsUsd(done.parts) + turnUsd(done.turn);
+    totals.delivered.push({ title: done.title, state: done.state, parts: done.parts.length, advisorCalls: done.parts.filter((part) => part.checked).length, usd: Math.round(usd * 1e6) / 1e6, ...(done.capped ? { capped: true } : {}) });
     if (done.text !== "") conversation.push({ from: "assistant", text: done.text, later: "texted when the background job finished" });
   }
-  for (const job of jobs.slice(room)) totals.delivered.push({ title: job.title, state: "not run", parts: 0 });
+  for (const job of jobs.slice(room)) totals.delivered.push({ title: job.title, state: "not run", parts: 0, advisorCalls: 0, usd: 0 });
   totals.jobMs += clock() - started;
 }

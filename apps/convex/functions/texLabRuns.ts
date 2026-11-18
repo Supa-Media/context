@@ -92,6 +92,13 @@ const num = (x: unknown) => (typeof x === "number" && Number.isFinite(x) ? x : 0
 const str = (x: unknown, n = 80) => (typeof x === "string" ? x.slice(0, n) : "");
 
 /** A workflow's results as the Lab reads them: numbers, ids, each verdict's short got/want and a miss's detail, nothing else. */
+/** A run's hand-off spend, cleaned (`cleanResults`). */
+function handoffOf(x: unknown) {
+  const h = (x && typeof x === "object" ? x : {}) as Record<string, unknown>;
+  const usd = (v: unknown) => Math.round(num(v) * 10_000) / 10_000;
+  return { jobs: num(h.jobs), parts: num(h.parts), advisorCalls: num(h.advisorCalls), usd: usd(h.usd), perJobUsd: usd(h.perJobUsd), advisorCallsPerJob: num(h.advisorCallsPerJob) };
+}
+
 export function cleanResults(r: unknown) {
   const o = (r && typeof r === "object" ? r : {}) as Record<string, unknown>;
   const list = (x: unknown) => (Array.isArray(x) ? x.slice(0, MAX_ROWS) : []) as Record<string, unknown>[];
@@ -99,6 +106,8 @@ export function cleanResults(r: unknown) {
     pass: num(o.pass),
     total: num(o.total),
     costUsd: Math.round(num(o.costUsd) * 10_000) / 10_000,
+    // The handed-off jobs' share of the run (`scripts/tex-lab-run.mjs` handoffOf): jobs, parts, advisor calls, spend.
+    handoff: handoffOf(o.handoff),
     ms: num(o.ms),
     perConv: list(o.perConv).map((c) => ({ id: str(c.id), pass: num(c.pass), total: num(c.total) })),
     perNode: list(o.perNode).map((c) => ({ node: str(c.node, 40), pass: num(c.pass), total: num(c.total) })),

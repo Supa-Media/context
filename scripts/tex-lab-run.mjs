@@ -67,6 +67,9 @@ export function resultsOf(rows, ms) {
     pass: rows.filter((r) => r.right).length,
     total: rows.length,
     costUsd: Math.round(rows.reduce((a, r) => a + (r.usd || 0), 0) * 10_000) / 10_000,
+    // What the background jobs the Front door handed off added, already inside costUsd (Dev2, 2026-11-18: "report how
+    // many advisor calls and how much cost a handed-off job adds per run ... so Finance can check spend").
+    handoff: handoffOf(rows),
     ms: Number(ms) || 0,
     perConv: [...perConv.values()],
     perNode: [...perNode.values()],
@@ -84,6 +87,18 @@ export function resultsOf(rows, ms) {
       ...detailOf(r),
     })),
   };
+}
+
+/** The hand-off jobs of a run's rows summed: jobs, parts, the job advisor's calls, their spend, and per job. */
+export function handoffOf(rows) {
+  const sum = { jobs: 0, parts: 0, advisorCalls: 0, usd: 0 };
+  for (const r of rows) {
+    const h = r?.handoff;
+    if (!h || typeof h !== "object") continue;
+    for (const key of Object.keys(sum)) sum[key] += Number(h[key]) || 0;
+  }
+  const usd = Math.round(sum.usd * 10_000) / 10_000;
+  return { ...sum, usd, perJobUsd: sum.jobs > 0 ? Math.round((sum.usd / sum.jobs) * 10_000) / 10_000 : 0, advisorCallsPerJob: sum.jobs > 0 ? Math.round((sum.advisorCalls / sum.jobs) * 100) / 100 : 0 };
 }
 
 /**

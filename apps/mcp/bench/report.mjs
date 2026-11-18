@@ -300,6 +300,8 @@ function runBlock(run, setup) {
   if (Object.keys(run.where ?? {}).length) lines.push(`Filed: ${JSON.stringify(run.where)}`, "");
   // The background jobs it started (`checks.mjs` `start`): one JSON line, read back by the checks.
   if (run.jobs?.length) lines.push(`Jobs: ${JSON.stringify(run.jobs)}`, "");
+  // The jobs it started that ran and texted their report (`jobDelivery.mjs`): one JSON line, read back for the Lab run's spend.
+  if (run.delivered?.length) lines.push(`Delivered: ${JSON.stringify(run.delivered.map(({ title, state, parts, advisorCalls, usd, capped }) => ({ title, state, parts, advisorCalls, usd, ...(capped ? { capped } : {}) })))}`, "");
   if (run.changes?.length) {
     lines.push("Changes recorded:", "");
     for (const c of run.changes) {

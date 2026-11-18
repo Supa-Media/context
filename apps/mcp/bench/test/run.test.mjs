@@ -304,10 +304,13 @@ test("a job a texted turn started runs part after part, and its report is the pe
   const calls = [];
   const usage = { input: 10, output: 5, cacheRead: 0, cacheWrite: 0 };
   const turn = (fields) => ({ ok: true, ms: 1, model: null, asked: 0, usage, usageByModel: { "anthropic/claude-haiku-5-5": usage }, progress: [], tools: [], jobs: [], answer: "", ...fields });
+  const modelCalls = [];
   const world = {
     browser: () => [],
+    modelCalls: () => modelCalls,
     async text(message, _pictures, options = {}) {
       calls.push({ message, job: options.job ?? null, posted: options.posted === true, event: options.event ?? null });
+      if (options.job) modelCalls.push({ messages: [{ role: "user", text: "Is the job finished?" }] }); // the job advisor's done check, each part
       if (options.job) return turn(options.job.attempt === 1 ? { answer: "Found two flights so far.", verdict: "keep_going", advice: "check the second airline" } : { answer: "Two flights: 7:10 am $210, 1:40 pm $180. Saved to Trip.", verdict: "done" });
       if (options.event?.event === "job_report") return turn({ answer: `Flights: ${options.event.jobReport.texts[0]}` });
       return turn({ answer: "On it.", jobs: [{ title: "Find flights", brief: "Compare the two airlines", mail: null, name: null, on: null }] });
@@ -324,7 +327,9 @@ test("a job a texted turn started runs part after part, and its report is the pe
   assert.deepEqual(result.conversation.at(-1), { from: "assistant", text: "Flights: Two flights: 7:10 am $210, 1:40 pm $180. Saved to Trip.", later: "texted when the background job finished" });
   assert.equal(result.texts, 1, "the reply is one text; the report came later");
   assert.equal(result.usage.input, 40, "the job's parts and its report are the test's spend");
-  assert.deepEqual(result.delivered, [{ title: "Find flights", state: "done", parts: 2 }]);
+  const [delivered] = result.delivered;
+  assert.deepEqual({ ...delivered, usd: undefined }, { title: "Find flights", state: "done", parts: 2, advisorCalls: 2, usd: undefined }, "each part's done check is one advisor call");
+  assert.ok(delivered.usd > 0, "and what the job cost is kept beside it");
   const quiet = [];
   await converse({ ...world, async text(m, p, o) { quiet.push(o ?? {}); return world.text(m, p, o); } }, { ...STREAMLY, ifAsked: [] }, { fake: true });
   assert.ok(quiet.every((o) => !o.job && !o.event), "without background no job is offered, so none runs");
@@ -344,9 +349,19 @@ test("a job past the bench's bound is recorded as not run, and a job its parts r
   };
   const result = await converse(world, { ...STREAMLY, ifAsked: [] }, { fake: true }, null, true);
   assert.deepEqual(result.delivered, [
-    { title: "A", state: "stuck", parts: 4, capped: true },
-    { title: "B", state: "stuck", parts: 4, capped: true },
-    { title: "C", state: "not run", parts: 0 },
+    { title: "A", state: "stuck", parts: 4, advisorCalls: 0, usd: 0, capped: true },
+    { title: "B", state: "stuck", parts: 4, advisorCalls: 0, usd: 0, capped: true },
+    { title: "C", state: "not run", parts: 0, advisorCalls: 0, usd: 0 },
   ]);
   assert.deepEqual(result.conversation.map((line) => line.later ? "later" : line.from), ["person", "assistant", "later", "later"], "each report follows the reply it came from");
+});
+
+test("a result's Delivered line carries each job's advisor calls and spend to the Lab run's row", async () => {
+  const { handoffTotals } = await import("../jobDelivery.mjs");
+  const { parseResult } = await import("../resultNote.mjs");
+  const delivered = [{ title: "A", state: "done", parts: 3, advisorCalls: 3, usd: 0.0212 }, { title: "B", state: "not run", parts: 0, advisorCalls: 0, usd: 0 }];
+  assert.deepEqual(handoffTotals(delivered), { jobs: 1, parts: 3, advisorCalls: 3, usd: 0.0212 }, "a job that never ran adds nothing");
+  const md = ["## Answers", "", "### 1. hi", "", "#### s/q1/r1", "", "**Person:** hi", "", "**Assistant:** On it.", "", "Tools: none", "", `Delivered: ${JSON.stringify(delivered)}`, "", "Time 1.0 s, $0.0100, 1 text", ""].join("\n");
+  const [answer] = parseResult(md).answers;
+  assert.deepEqual(answer?.delivered, delivered);
 });
