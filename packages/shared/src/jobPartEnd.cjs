@@ -12,7 +12,7 @@
  */
 
 /** The limits a job's parts run under when the config names none: today's numbers, so wiring this changes nothing. */
-const DEFAULT_LIMITS = Object.freeze({ parts: 10, minutes: 30, machineParts: 96, machineMinutes: 240, resumeAfterMinutes: 2 });
+const DEFAULT_LIMITS = Object.freeze({ parts: 10, minutes: 30, machineParts: 96, machineMinutes: 240, resumeAfterMinutes: 2, staleParts: 0 });
 
 /** Why a part ended (`apps/agent/src/jobProgress.ts` `PartCause`). */
 const CAUSES = Object.freeze(["done", "waiting", "stuck", "check_limit", "timeout", "crash", "model_down", "steps_out", "unfinished", "changed", "stopped", "refused"]);
@@ -29,6 +29,9 @@ const BROKEN = Object.freeze(["check_limit", "timeout", "crash"]);
 /** Causes that leave work to do, so a next part picks it up while there is room. */
 const CARRY = Object.freeze(["check_limit", "timeout", "crash", "steps_out", "unfinished", "changed"]);
 
+/** Causes where the part answered but was not done, so a next part would go on looking (the `stale` rule). */
+const LOOKING = Object.freeze(["steps_out", "unfinished"]);
+
 /** A whole, positive number from config, or the default. */
 const whole = (value, fallback) => (Number.isInteger(value) && value > 0 ? value : fallback);
 
@@ -41,6 +44,7 @@ function limitsOf(config) {
     machineParts: whole(given.machineParts, DEFAULT_LIMITS.machineParts),
     machineMinutes: whole(given.machineMinutes, DEFAULT_LIMITS.machineMinutes),
     resumeAfterMinutes: whole(given.resumeAfterMinutes, DEFAULT_LIMITS.resumeAfterMinutes),
+    staleParts: whole(given.staleParts, DEFAULT_LIMITS.staleParts),
   };
 }
 
@@ -66,7 +70,12 @@ function roomLeft({ part, startedAt, now, machine }, limits) {
  * Input: `cause` (above), `part` (this part's number, from 1), `startedAt` and `now` (ms), `machine` (it runs on the
  * person's own computer), `hasDraft` (a draft is saved), `idle` (this part called no tool and wasn't done), `wasIdle`
  * (the part before it was idle too), `rejected` (turned down before it ran, as opposed to refused for now), `refusal`
- * (why a part was refused for now: "daily_limit" or "no_model").
+ * (why a part was refused for now: "daily_limit" or "no_model"), `fresh` (how many of this part's tool results brought
+ * back something no earlier part had), `staleBefore` (how many parts in a row before it brought back nothing new).
+ *
+ * A job still looking that found nothing new in `staleParts` parts in a row ends (`stale`), its answer sent as it
+ * stands: another part would read the same pages again (2026-11-17, a coworking job whose check sent back six parts
+ * for day pass prices the spaces' own sites don't publish). 0 turns the rule off.
  *
  * A part refused at today's limit pauses the job: it ends waiting with `resumeAt`, just after the limit resets
  * (counted per UTC day, `apps/convex/functions/lib/jev/meter.ts` `utcDay`), and starts again by itself then
@@ -87,9 +96,10 @@ function decidePartEnd(input, config) {
   if (BROKEN.includes(cause) && input?.hasDraft === true && (DETERMINISTIC.includes(cause) || !room)) {
     return { to: "deliver", ended: DETERMINISTIC.includes(cause) ? "done" : "stuck", cause, room };
   }
-  if (CARRY.includes(cause) && room && !spinning) return { to: "carry", cause, room };
+  const stale = limits.staleParts > 0 && LOOKING.includes(cause) && input?.fresh === 0 && (Number(input?.staleBefore) || 0) + 1 >= limits.staleParts;
+  if (CARRY.includes(cause) && room && !spinning && !stale) return { to: "carry", cause, room };
   const pause = cause === "refused" && input?.rejected !== true && input?.refusal === "daily_limit" ? { resumeAt: limitResetAt(Number(input?.now) || 0, limits) } : {};
-  return { to: "end", ended: endedAs(cause, input?.rejected === true, input?.checked), cause, room, ...(spinning ? { spinning: true } : {}), ...pause };
+  return { to: "end", ended: endedAs(cause, input?.rejected === true, input?.checked), cause, room, ...(spinning ? { spinning: true } : {}), ...(stale && !spinning ? { stale: true } : {}), ...pause };
 }
 
 /** When a job paused at today's limit at `now` starts again: the next midnight UTC, plus `resumeAfterMinutes`. */

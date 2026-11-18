@@ -7,6 +7,7 @@
  *  1. `answerOne` writing an empty answer after the last failed try -> "a call the CLI keeps failing stays unanswered" fails;
  *  2. `cliArgs` dropping `--tools ""` -> "the CLI runs with no tools of its own" fails;
  *  3. `promptFor` leaving out tool results -> "the conversation carries tool calls and their results" fails.
+ *  4. `promptFor` reading only `content` -> "a call in Tex's own message shape reaches the CLI whole" fails.
  */
 import assert from "node:assert/strict";
 import { mkdir, mkdtemp, readdir, writeFile } from "node:fs/promises";
@@ -121,4 +122,19 @@ test("a failed CLI run says why: the JSON result's error first, stderr after", (
   assert.equal(failureText(cliResult({ result: "a model's private words" }), ""), "success", "a non-error result's text is never logged");
   assert.equal(failureText("", "boom"), "boom");
   assert.equal(failureText("", ""), "no output");
+});
+
+test("a call in Tex's own message shape reaches the CLI whole: text, tool calls and tool results", () => {
+  const prompt = promptFor({
+    messages: [
+      { role: "user", text: "<job>\nBrief: find my dentist\n</job>" },
+      { role: "assistant", text: "", toolCalls: [{ name: "search", args: { query: "dentist" } }] },
+      { role: "tool", name: "search", text: "Dr. Ada, 555-0100", isError: false },
+      { role: "tool", name: "browse", text: "timed out", isError: true },
+    ],
+  });
+  assert.match(prompt, /Brief: find my dentist/);
+  assert.match(prompt, /\[called tool search with \{"query":"dentist"\}\]/);
+  assert.match(prompt, /\[result of tool call search\]\nDr\. Ada, 555-0100/);
+  assert.match(prompt, /\[result of tool call browse \(error\)\]\ntimed out/);
 });

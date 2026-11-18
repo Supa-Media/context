@@ -42,7 +42,7 @@ import { limitResetAt } from "./jobPause";
 import { STEER_TIMEOUT_MS } from "./steer";
 import { advisorVerdict, openJobNote } from "./jobNote";
 import { askPartEnd, partEndChoice } from "./jobPartEnd";
-import { carryPatch, mergeSaved, partResume, PROGRESS_KEY, readOutside, savedCall, withEnd, type JobSaved, type PartCause } from "./jobProgress";
+import { carryPatch, freshness, mergeSaved, partResume, PROGRESS_KEY, readOutside, savedCall, withEnd, type JobSaved, type PartCause } from "./jobProgress";
 
 export type JobDeps = {
   fetch: Fetch;
@@ -340,8 +340,9 @@ export async function runJob(storage: InboxStorage, deps: JobDeps): Promise<JobN
     return { kind: "done" };
   }
   // Everything saved so far, this part's included, is the run's now: every write of the run below carries it.
-  const saved = mergeSaved(run.saved, partSaved);
+  const saved = mergeSaved(run.saved, partSaved), found = freshness(run, partSaved, outcome.kind === "answer" && run.machine === undefined); // what it found that's new: only a cloud part that answered counts (a computer's steps carry no results)
   if (saved !== undefined) run.saved = saved;
+  [run.seen, run.stale] = [found.seen, found.stale];
   await storage.delete(PROGRESS_KEY);
   // Nothing ran on a retry, so what it was shown is shown again.
   const left =
@@ -385,7 +386,7 @@ export async function runJob(storage: InboxStorage, deps: JobDeps): Promise<JobN
   const ends = withEnd(run.ends, run.attempt, cause);
   run.ends = ends;
   // What follows the part is the config's Part end node (`jobPartEnd.ts`), a pause at today's limit too; a stop or a service out of tries ends here.
-  const facts = { cause, part: run.attempt, startedAt: run.startedAt, now: deps.now(), machine: run.machine !== undefined, hasDraft: !!run.saved?.draft, idle, wasIdle: run.idle === true, ...(outcome.kind === "rejected" ? { rejected: true } : {}), ...(outcome.kind === "refused" ? { refusal: outcome.why } : {}), ...(outcome.kind === "answer" ? { checked: checkedAs(outcome, unfinished) } : {}) };
+  const facts = { cause, part: run.attempt, startedAt: run.startedAt, now: deps.now(), machine: run.machine !== undefined, hasDraft: !!run.saved?.draft, idle, wasIdle: run.idle === true, ...(outcome.kind === "rejected" ? { rejected: true } : {}), ...(outcome.kind === "refused" ? { refusal: outcome.why } : {}), ...(outcome.kind === "answer" ? { checked: checkedAs(outcome, unfinished), ...(found.counted ? { fresh: found.fresh, staleBefore: found.staleBefore } : {}) } : {}) };
   const choice = outcome.kind === "answer" || outcome.kind === "broken" || outcome.kind === "refused" || outcome.kind === "rejected" ? await partEndChoice(facts, (input) => askPartEnd(deps, () => jobToken(run, deps), run.id, input)) : null;
   const spinning = choice?.spinning === true;
   // A cause that would end the next part the same way (its checks' loop ran out on the same draft) delivers the last
@@ -425,11 +426,10 @@ export async function runJob(storage: InboxStorage, deps: JobDeps): Promise<JobN
     log("carry_on", run.id, outcome.kind === "broken" ? `broken:${outcome.cause}` : changed ? "changed" : unfinished ? "unfinished" : "exhausted");
     return { kind: "now" };
   }
-
   if (outcome.kind === "rejected") log("rejected", run.id, outcome.why); // 2026-11-05: a voice-only ask gave a job no question, and ten refused parts went in eight seconds, with no reason kept
   const ended = outcome.kind === "answer" && (choice?.ended === "waiting" || choice?.ended === "stuck") ? choice.ended : "done"; // how it ended is the Part end node's: waiting on them, stuck (short when its room ran out too), else done
-  if (ended !== "done") log(spinning ? "ended_spinning" : `ended_${ended}`, run.id);
-  const why = spinning ? "Two parts in a row did none of the work. " : ended === "stuck" && outcome.kind === "answer" && outcome.verdict !== "stuck" ? "Ran out of time. " : "";
+  if (ended !== "done") log(spinning ? "ended_spinning" : choice?.stale ? "ended_stale" : `ended_${ended}`, run.id);
+  const why = spinning ? "Two parts in a row did none of the work. " : choice?.stale ? "Its last parts found nothing new. " : ended === "stuck" && outcome.kind === "answer" && outcome.verdict !== "stuck" ? "Ran out of time. " : "";
   const update: Omit<JobUpdate, "id" | "first"> =
     outcome.kind === "answer"
       ? {

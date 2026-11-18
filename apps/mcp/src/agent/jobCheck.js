@@ -86,7 +86,7 @@ export async function checkJob({ job, live, answer, exhausted = false, model, ef
   let reply;
   try {
     // Its thinking comes back in words, for the chat's history only (`workEntries.js` `jobChecked`).
-    reply = await adviseOnce({ request, model, effort, prompt: JOB_CHECK_PROMPT, role: "jobCheck", brief: jobCheckBrief({ job, messages: live?.messages, answer, exhausted, tools: readsTools("jobcheck", config) ? (live?.tools ?? []) : null }) });
+    reply = await adviseOnce({ request, model, effort, prompt: JOB_CHECK_PROMPT, role: "jobCheck", brief: jobCheckBrief({ job, messages: live?.messages, answer, exhausted, tools: readsTools("jobadv", config) ? (live?.tools ?? []) : null }) });
   } catch {
     await meter(null, true, model, false);
     return null;

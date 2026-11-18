@@ -58,6 +58,17 @@ test("out of steps with no room left, a job ends as the part's own check read it
   assert.equal(decidePartEnd(at({ cause: "steps_out", checked: "done" })).to, "carry", "with room left it still carries on");
 });
 
+test("a job still looking that found nothing new in staleParts parts in a row ends, its answer sent", () => {
+  const limits = { staleParts: 2 };
+  assert.equal(decidePartEnd(at({ cause: "unfinished", fresh: 0, staleBefore: 0 }), limits).to, "carry", "one part with nothing new may be bad luck");
+  assert.deepEqual(decidePartEnd(at({ cause: "unfinished", fresh: 0, staleBefore: 1 }), limits), { to: "end", ended: "stuck", cause: "unfinished", room: true, stale: true });
+  assert.equal(decidePartEnd(at({ cause: "steps_out", fresh: 0, staleBefore: 1, checked: "done" }), limits).ended, "done", "ends as its check read it");
+  assert.equal(decidePartEnd(at({ cause: "unfinished", fresh: 3, staleBefore: 1 }), limits).to, "carry", "a part that found something carries on");
+  assert.equal(decidePartEnd(at({ cause: "unfinished", staleBefore: 5 }), limits).to, "carry", "no count given: never stale");
+  assert.equal(decidePartEnd(at({ cause: "crash", fresh: 0, staleBefore: 4 }), limits).to, "carry", "a part that broke is not a part that looked");
+  assert.equal(decidePartEnd(at({ cause: "unfinished", fresh: 0, staleBefore: 9 })).to, "carry", "off unless the node's config sets it");
+});
+
 test("two idle parts in a row end stuck instead of spending more", () => {
   assert.equal(decidePartEnd(at({ cause: "unfinished", idle: true })).to, "carry", "one idle part is allowed");
   assert.deepEqual(decidePartEnd(at({ cause: "unfinished", idle: true, wasIdle: true })), { to: "end", ended: "stuck", cause: "unfinished", room: true, spinning: true });
@@ -106,7 +117,7 @@ test("Part end is wired in the config (off the shelf), with its limits, and its 
   const { TEX_CONFIG } = await import("../src/agent/texConfig.js");
   assert.ok(!SHELF.nodes.partEnd, "off the shelf once promoted");
   assert.ok(TEX_CONFIG.edges.some((e) => e.from === "job" && e.to === "partEnd" && e.mode === "uses"), "the job -> partEnd wire");
-  assert.deepEqual(partEndLib.configLimits(TEX_CONFIG), DEFAULT_LIMITS, "today's limits, now from the node's config");
+  assert.deepEqual(partEndLib.configLimits(TEX_CONFIG), { ...DEFAULT_LIMITS, staleParts: 2 }, "today's limits from the node's config; the stale rule on at 2 (2026-11-18)");
   assert.equal(GATEWAY_NODES.partEnd, partEndNode);
 });
 
