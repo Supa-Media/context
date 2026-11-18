@@ -62,6 +62,10 @@ const NOT_SYNCED = new Map([
     "Local development reads the Sentry item's dsn field; no deploy workflow reads a Sentry secret today.",
   ],
   [
+    "BENCH_RUNNER_REFRESH_TOKEN",
+    "The benchmark runner's seed refresh token, set in GitHub directly from `pnpm ai connect` output. The gateway rotates it on first use and revokes the grant on a replay, so any vault copy is stale after the next renewal or run; syncing it would overwrite the working seed with a dead one (this revoked the grant on 2026-11-17).",
+  ],
+  [
     "BENCH_RUNNER_REFRESH_TOKEN_LIVE",
     "Written by ai-benchmark.yml itself: the gateway rotates the benchmark runner's refresh token on every use, and a sync from the vault would restore the retired seed (BENCH_RUNNER_REFRESH_TOKEN), which the gateway treats as a replay and answers by revoking the grant.",
   ],
