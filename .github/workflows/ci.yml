@@ -464,6 +464,7 @@ jobs:
           node --test scripts/convex-tests.test.mjs
           node --test scripts/deploy-plan.test.mjs
           node --test scripts/worker-secrets.test.mjs
+          node --test scripts/email-worker-binding.test.mjs
           node --test scripts/photon-secrets-file.test.mjs
           node --test scripts/sendblue-status-url.test.mjs
           node --test scripts/ci-performance-report.test.mjs
