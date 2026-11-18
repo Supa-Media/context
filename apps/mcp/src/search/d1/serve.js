@@ -97,6 +97,12 @@ export function pageDepth(limit) {
 }
 
 /**
+ * An expression's answer when the client left it unrun (`searchProjectionEach`, an entry's `unless`): never an empty
+ * answer, and never "not asked". A caller that needs it asks for it alone.
+ */
+export const SKIPPED = Object.freeze({ skipped: true });
+
+/**
  * Ask one context's projection.
  *
  * Returns `null` — never an empty result — for every case where the projection
@@ -153,7 +159,9 @@ export async function searchProjectionEach(
 ) {
   // An empty MATCH is a syntax error in FTS5 and the other reading of it —
   // "match everything" — returns the whole context. Neither is an answer.
-  // An entry is an expression, or `{ match, firstChunk }` for one asked of each note's first chunk alone (`named.js`).
+  // An entry is an expression, or `{ match, firstChunk }` for one asked of each note's first chunk alone (`named.js`),
+  // or `{ match, unless }` for one a client that holds the database may leave unrun (`SKIPPED`) when the entries
+  // `unless` names found rows.
   const entries = matches.map((entry) => (entry !== null && typeof entry === "object" ? entry : { match: entry, firstChunk: false }));
   const asked = entries.filter((entry) => entry.match !== null);
   if (asked.length === 0) return matches.map(() => null);
@@ -190,7 +198,15 @@ export async function searchProjectionEach(
    * plausible, quietly wrong order instead of a slow correct one; half a
    * corpus is not a smaller answer, it is a different question.
    */
-  const asks = asked.flatMap(({ match, firstChunk }) => tables.map((table) => ({ table, match, firstChunk: firstChunk === true })));
+  // Each ask's place among the asks, by its entry: the asks an `unless` entry waits on are those entries' asks.
+  const asksOf = (entry) => {
+    const at = asked.indexOf(entry);
+    return at < 0 ? [] : tables.map((_, table) => at * tables.length + table);
+  };
+  const asks = asked.flatMap(({ match, firstChunk, unless }) => {
+    const unlessRows = Array.isArray(unless) ? unless.flatMap((index) => asksOf(entries[index])) : [];
+    return tables.map((table) => ({ table, match, firstChunk: firstChunk === true, unlessRows }));
+  });
   const statements = asks.map(({ table, match, firstChunk }) => ({ sql: searchSql(table, { ...options, firstChunk }), params: searchParams(match, options) }));
   if (budget) {
     for (let n = 0; n < statements.length; n += 1) {
@@ -202,7 +218,7 @@ export async function searchProjectionEach(
   // A workspace object's own index (`workspaceStore/searchIndex.js`) takes the asks and builds the same SQL itself.
   const answers =
     typeof client.search === "function"
-      ? await client.search(asks.map(({ table, match, firstChunk }) => ({ table, match, prefix: options.prefix, limit: options.limit, ...(firstChunk ? { firstChunk } : {}) })))
+      ? await client.search(asks.map(({ table, match, firstChunk, unlessRows }) => ({ table, match, prefix: options.prefix, limit: options.limit, ...(firstChunk ? { firstChunk } : {}), ...(unlessRows.length > 0 ? { unlessRows } : {}) })))
       : typeof client.queryAll === "function"
         ? await client.queryAll(statements)
         : await Promise.all(statements.map(({ sql, params }) => client.query(sql, params)));
@@ -210,7 +226,10 @@ export async function searchProjectionEach(
   const results = asked.map((_, index) => {
     const rows = [];
     let truncated = false;
-    for (const answered of answers.slice(index * tables.length, (index + 1) * tables.length)) {
+    const mine = answers.slice(index * tables.length, (index + 1) * tables.length);
+    // Left unrun in any table is left unrun: half a corpus is a different question.
+    if (mine.some((answered) => answered === null)) return SKIPPED;
+    for (const answered of mine) {
       // A table that filled its cap may have had more to say. Reported rather
       // than hidden, because the count above this becomes "N+" and not "N".
       if (answered.length >= chunkCap) truncated = true;
@@ -280,6 +299,10 @@ export async function searchProjectionEach(
  * @param {boolean} [options.missIsAnswer] a ready projection's caller: a
  *   query nothing matched, strictly or relaxed, answers no notes rather than
  *   `null`.
+ * @param {boolean} [options.lazyRetry] leave the any-word retry unrun while the strict half finds rows, and ask
+ *   for it alone when none of those rows is the caller's to see. **Only for a caller who may see every row**
+ *   (`search/objectSearch.js`): the second request is one a caller could time, and for anyone else it would say
+ *   that a note they may not read holds every word they typed.
  * @param {number} [options.limit] how far down the caller wants to read, in
  *   notes, clamped by `pageDepth`. Ten by default, which is every caller that
  *   renders a palette. A dedicated search page reading a second page asks for
@@ -302,6 +325,7 @@ export async function answerFromProjection(
     onCounts = null,
     limit = SEARCH_RESULT_LIMIT,
     missIsAnswer = false,
+    lazyRetry = false,
   } = {}
 ) {
   const depth = pageDepth(limit);
@@ -313,8 +337,11 @@ export async function answerFromProjection(
   const relaxed = relaxedExpression === strict ? null : relaxedExpression;
   // And the query's content words against each note's name (`named.js`), in the same request.
   const nameMatch = nameMatchExpression(query);
+  // With `lazyRetry`, the retry waits on the strict half: a client that holds the database (a workspace object)
+  // leaves it unrun when the strict half found rows, since it is the dearest of the three (any word matches a large
+  // share of a context) and is read only below, when no strict row is one this caller may see.
   let [result, second, byName] = await searchProjectionEach(client, {
-    matches: [strict, relaxed, { match: nameMatch, firstChunk: true }],
+    matches: [strict, lazyRetry === true ? { match: relaxed, unless: [0] } : relaxed, { match: nameMatch, firstChunk: true }],
     prefix,
     tier,
     budget,
@@ -332,6 +359,8 @@ export async function answerFromProjection(
   // Nothing had every word: the retry's rows, any of the words with prefixes
   // included, before calling it a miss (`toRelaxedMatchExpression`).
   let loose = false;
+  // The strict half found rows and none of them is this caller's to see: the retry that was left unrun, asked now.
+  if (visible.length === 0 && second === SKIPPED) [second] = await searchProjectionEach(client, { matches: [relaxed], prefix, tier, budget, reserve });
   if (visible.length === 0 && second) {
     result = second;
     loose = true;

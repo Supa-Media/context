@@ -389,6 +389,9 @@ export function workspaceMeaning(sql, { rows, objects, embed }) {
       if (!Number.isInteger(limit) || limit < 1 || limit > QUERY_TOP_K) throw new MeaningAskRefused(`a query asks for 1 to ${QUERY_TOP_K} matches`);
       schema();
       if (meta("complete") === null) return { served: false, waiting: log.pending() };
+      // Whether this call read every passage's bits back into memory (an object just woken): told to the gateway,
+      // which times the call, so the two kinds of query can be read apart (`search/meaning/objectMeaning.js`).
+      const cold = held === null;
       const index = pack();
       const allowed = tiers === null ? null : new Set(tiers.map((tier) => TIERS.indexOf(tier)));
       const want = signBits(asked);
@@ -428,7 +431,21 @@ export function workspaceMeaning(sql, { rows, objects, embed }) {
         }
       }
       scored.sort((a, b) => b.score - a.score || (a.path < b.path ? -1 : a.path > b.path ? 1 : a.chunk - b.chunk));
-      return { served: true, matches: scored.slice(0, limit) };
+      return { served: true, matches: scored.slice(0, limit), cold };
+    },
+
+    /**
+     * Read every passage's bits into memory now, where a query would on its first call: `{served: true, loaded}`,
+     * `loaded` when this call did the reading; `{served: false}` until the first build has finished. A search sends it
+     * as it starts, so the reading is done while the gateway waits on the model for the query's fingerprint and the
+     * query that follows only scans. It changes nothing kept and no answer.
+     */
+    warm() {
+      schema();
+      if (meta("complete") === null) return { served: false };
+      const loaded = held === null;
+      pack();
+      return { served: true, loaded };
     },
 
     /**

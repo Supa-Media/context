@@ -26,10 +26,10 @@
 import { ACTIVITY_PATH } from "../../../../../packages/shared/src/activity.cjs";
 import { isPlumbing } from "../../privacy/engine.js";
 import { createMeaningClient } from "./client.js";
-import { objectMeaningMatches, objectMeaningSnippets } from "./objectMeaning.js";
+import { objectMeaningMatches, objectMeaningSnippets, objectMeaningWarm } from "./objectMeaning.js";
+import { queryEmbedderFor } from "./queryVectors.js";
 import { snippetFromText } from "./snippet.js";
 import { rankMeaningMatches } from "./project.js";
-import { meaningEmbedderFor } from "./store.js";
 import { DEFAULT_SEARCH_SETTINGS, searchSettingsOf } from "../settings.js";
 import { isSearchProbe, notePrior } from "../priors.js";
 import { createD1Client } from "../d1/client.js";
@@ -153,8 +153,10 @@ export async function meaningMatches(
     return null;
   }
   try {
+    // The object reads its index into memory while the model is asked, not after it answers (`objectMeaningWarm`).
+    objectMeaningWarm(store);
     // Timed as `phase:meaning_embed` and `phase:meaning_query` beside the word search (`mcp/phase.js`).
-    const [vector] = await phase(store, "meaning_embed", () => (embed ?? meaningEmbedderFor(store, { fetchImpl }))([query.trim()]));
+    const [vector] = await phase(store, "meaning_embed", () => (embed ?? queryEmbedderFor(store, { fetchImpl }))([query.trim()]));
     // A team caller with no group grants sees team notes only, so asking the
     // index for anything else would only crowd the top of the list. One who
     // answers to a group can see some notes indexed as `private` (a group

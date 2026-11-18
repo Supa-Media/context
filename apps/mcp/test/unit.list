@@ -654,3 +654,4 @@ test/devShare.test.mjs
 test/jobCheckView.test.mjs
 test/jobStart.test.mjs
 test/turnFactClaims.test.mjs
+test/searchSpeedEquality.test.mjs
