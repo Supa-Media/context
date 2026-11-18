@@ -262,7 +262,9 @@ have shipped a component. Its first step reads main again and stops, before
 the plan, when a newer commit already has green CI. On #3552 two deploys of
 older commits ran to completion after the newer commit was green, and the
 merge waited 14.6 minutes to start. Stopping at that step releases the queue
-in the time the check takes. `promote-production.test.mjs` pins the cancel,
+in the time the check takes. The `validate` job needs `actions: write` for
+that cancel; `actions: read` makes the POST a 403 and the run a failure.
+`promote-production.test.mjs` pins the cancel,
 and `production-release.test.mjs` pins the stop.
 
 The import-coverage guard now checks `deploy-staging.yml`; its unfiltered main
