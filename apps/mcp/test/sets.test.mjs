@@ -13,6 +13,7 @@ import { join } from "node:path";
 import { SETS_DIR, conversationFile, loadSets, loadContract, problemsOf, ratioCheck } from "../bench/sets.mjs";
 import { cantRun, castProblems, frontFor, groupFor, senderOf } from "../bench/setsFd.mjs";
 import { parsePeople } from "../bench/load.mjs";
+import { findingLine, traceTraining } from "../bench/setsTrace.mjs";
 import texSets from "../../../packages/shared/src/texSets.cjs";
 import { readFileSync } from "node:fs";
 
@@ -155,4 +156,12 @@ test("a conversation file is one line per field and per message, and every repo 
     const file = readFileSync(join(SETS_DIR, conv.set, `${conv.id}.json`), "utf8");
     assert.equal(file, conversationFile(JSON.parse(file)), `${conv.id} is written as conversationFile writes it`);
   }
+});
+
+test("every hard fact in a Training row's gold has a source the bench lays in, or a listed reason (`setsTrace.mjs`)", async () => {
+  const tree = new URL("../../..", import.meta.url).pathname;
+  const { findings, stale, gaps } = await traceTraining(await loadSets(), { tree });
+  assert.deepEqual(findings.map(findingLine), [], "add what the chat's own story says existed to worlds/<id>/; never change the gold");
+  assert.deepEqual(stale, []);
+  for (const line of gaps) console.log(`gold fact the bench can't hold yet: ${line}`);
 });
