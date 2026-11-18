@@ -33,6 +33,7 @@ import { createRequire } from "node:module";
 import { tapbackSaidLine } from "../src/agent/tapbackEnding.js";
 import { parsePeople } from "./load.mjs";
 import { seedWorld, worldDirOf } from "./setsWorld.mjs";
+import { runPool, scheduleOrder } from "./setsPool.mjs";
 
 const { OTHER_ASSISTANTS } = createRequire(import.meta.url)("../../../packages/shared/src/texSets.cjs");
 
@@ -543,9 +544,17 @@ export function benchFailed(r) {
 /**
  * The Front door's batch: every unit through the tree's own bench. Each conversation runs in a copy of the bench folder
  * of its own with its world laid in (`setsWorld.mjs`), its units grouped by person and day, each group one test.
- * `runTests` is `coreArea.mjs`'s from the tree, swapped by a test; `parallel` tests go at once. With `holdOut`, a
- * Training conversation's tests run in processes that leave it out of the Front door's examples (`heldOutOf`): the
- * held-out score. Without, they read it as production does, but each test cut at its moment: the in-context score. Answers one row a unit.
+ * `runTests` is `coreArea.mjs`'s from the tree, swapped by a test; `parallel` tests go at once.
+ *
+ * One shared pool: every conversation is prepared first (its folder, its world, its `sets-N.md` tests; a few at a time),
+ * then every test of every conversation is one job in a single pool of `parallel` lanes (`setsPool.mjs`), so no lane
+ * sits idle waiting for its own conversation. Each job is one test of one conversation, run alone in that conversation's
+ * folder, cut at its own moment where the conversation is a Training one (`envOf`). A test that throws marks only its own
+ * units. Rows come back in the units' order.
+ *
+ * With `holdOut`, a Training conversation's tests run in processes that leave it out of the Front door's examples
+ * (`heldOutOf`): the held-out score. Without, they read it as production does, but each test cut at its moment: the
+ * in-context score. Answers one row a unit.
  */
 export async function runFd(units, { tree, fake = false, runTests = null, parallel = 1, holdOut = false, env = process.env }) {
   const rows = [];
@@ -561,20 +570,30 @@ export async function runFd(units, { tree, fake = false, runTests = null, parall
   try {
     const byConvo = new Map();
     for (const u of can) byConvo.set(u.convo.id, [...(byConvo.get(u.convo.id) ?? []), u]);
-    // Conversations beside each other, sharing the room `parallel` gives: each is its own folder and its own processes.
-    const each = Math.max(1, Math.floor(parallel / Math.max(1, Math.min(byConvo.size, parallel))));
-    const queue = [...byConvo.values()];
-    const lanes = Array.from({ length: Math.max(1, Math.min(queue.length, parallel)) }, async () => {
-      for (let mine = queue.shift(); mine !== undefined; mine = queue.shift()) {
-        const c = mine[0].convo;
-        try {
-          rows.push(...(await runConvo(mine, { tree, run, scratch: join(scratch, `c${byConvo.size - queue.length}-${handleOf(c.id)}`), fake, parallel: each, env: holdOut && c.set === "training" ? { ...env, [HOLD_OUT_ENV]: c.id } : env })));
-        } catch (error) {
-          rows.push(...mine.map((u) => ({ ...u.row, right: false, ran: false, usd: 0, why: `could not run: ${String(error?.message ?? error).slice(0, 200)}` })));
-        }
+    const convos = [...byConvo.values()];
+    // Every conversation's folder and tests first, a few at a time.
+    const prepared = new Array(convos.length);
+    await runPool(convos, PREPARE_LANES, async (mine, k) => {
+      const c = mine[0].convo;
+      const convoEnv = holdOut && c.set === "training" ? { ...env, [HOLD_OUT_ENV]: c.id } : env;
+      try {
+        prepared[k] = { ...(await prepareConvo(mine, { tree, scratch: join(scratch, `c${k + 1}-${handleOf(c.id)}`), env: convoEnv })) };
+      } catch (error) {
+        prepared[k] = { rows: mine.map((u) => ({ ...u.row, right: false, ran: false, usd: 0, why: `could not run: ${String(error?.message ?? error).slice(0, 200)}` })), tests: [] };
       }
     });
-    await Promise.all(lanes);
+    // The one pool: every test of every conversation, longest conversations first and round-robin across them.
+    for (const p of prepared) for (const t of p.tests) t.p = p;
+    const jobs = scheduleOrder(prepared.map((p) => p.tests));
+    await runPool(jobs, parallel, async (t) => {
+      const p = t.p;
+      try {
+        t.got = await run(tree, [t.name], { dir: p.dir, scratch: p.scratch, tag: "sets", fake, parallel: 1, env: p.env, envOf: p.envOf });
+      } catch (error) {
+        t.error = error;
+      }
+    });
+    for (const p of prepared) rows.push(...collectConvo(p));
     // Rows in the order their units came, whichever conversation finished first.
     const place = new Map(units.map((u, k) => [`${u.row.chat}\n${u.row.msg}\n${u.row.node}`, k]));
     return rows.sort((a, b) => (place.get(`${a.chat}\n${a.msg}\n${a.node}`) ?? 0) - (place.get(`${b.chat}\n${b.msg}\n${b.node}`) ?? 0));
@@ -583,8 +602,14 @@ export async function runFd(units, { tree, fake = false, runTests = null, parall
   }
 }
 
-/** One conversation's units, in its own copy of the bench folder with its world laid in. */
-async function runConvo(units, { tree, run, scratch, fake, parallel, env }) {
+/** How many conversations are prepared at once (their folders are copies of the bench folder). */
+const PREPARE_LANES = 4;
+
+/**
+ * One conversation's units, prepared to run: its own copy of the bench folder with its world laid in, and one `sets-N`
+ * test a person-day. Returns the rows that cannot run already (`rows`), and `tests` (name, group, cut) for the pool.
+ */
+async function prepareConvo(units, { tree, scratch, env }) {
   const rows = [];
   const c = units[0].convo;
   const dir = join(scratch, "ai");
@@ -607,7 +632,7 @@ async function runConvo(units, { tree, run, scratch, fake, parallel, env }) {
   const year = Number(from.slice(0, 4));
   const group = c.kind === "group" ? (world.group ?? groupFor(people, c)) : null;
   if (c.kind === "group" && group === null) {
-    return units.map((u) => ({ ...u.row, right: false, ran: false, usd: 0, why: `no shared workspace in apps/mcp/bench/ai/workspaces/people.md has all of ${castOf(c).join(", ")}` }));
+    return { dir, scratch, env, envOf: null, tests: [], rows: units.map((u) => ({ ...u.row, right: false, ran: false, usd: 0, why: `no shared workspace in apps/mcp/bench/ai/workspaces/people.md has all of ${castOf(c).join(", ")}` })) };
   }
   const batches = new Map();
   for (const u of units) {
@@ -630,24 +655,34 @@ async function runConvo(units, { tree, run, scratch, fake, parallel, env }) {
     await writeFile(join(dir, "tests", `${name}.md`), fdTest(mine, front, from));
     tests.push({ name, group: mine, cut: Math.min(...mine.map((u) => u.at)) });
   }
-  if (tests.length === 0) return rows;
   // A Training conversation scored in context reads itself as an example only up to the scored moment
   // (`texTraining.cjs` UNTIL_ENV): its later texts are its future (truck-crew 96, 2026-11-18, quoted message 98). A test
   // is one person's day and clock, often several moments; it is cut at its earliest, so none of them reads ahead, and
   // the later ones still have their own past in the live chat. A held-out chat is gone whole and needs no cut.
   const cuts = c.set === "training" && env[HOLD_OUT_ENV] !== c.id;
   const envOf = cuts ? (name) => ({ ...env, [UNTIL_ENV]: `${c.id}:${tests.find((t) => t.name === name)?.cut ?? 0}` }) : null;
-  const got = await run(tree, tests.map((t) => t.name), { dir, scratch, tag: "sets", fake, parallel, env, envOf });
-  const each = got.usd / tests.reduce((n, t) => n + t.group.length, 0);
-  for (const t of tests) {
+  return { dir, scratch, env, envOf, tests, rows };
+}
+
+/**
+ * One prepared conversation's rows, once its tests ran: each unit's judged case from its test's run, the conversation's
+ * cost split evenly over its units. A test that threw marks only its own units. Units with no test are already in `rows`.
+ */
+function collectConvo(p) {
+  const rows = [...p.rows];
+  const units = p.tests.reduce((n, t) => n + t.group.length, 0);
+  const usd = p.tests.reduce((sum, t) => sum + (t.got?.usd ?? 0), 0);
+  const each = units === 0 ? 0 : usd / units;
+  for (const t of p.tests) {
     t.group.forEach((u, k) => {
-      const r = got.rows.find((x) => x.id === `${t.name}/q${k + 1}`);
-      const usd = Math.round(each * 10_000) / 10_000;
+      const share = Math.round(each * 10_000) / 10_000;
+      if (t.error) return void rows.push({ ...u.row, right: false, ran: false, usd: share, why: `could not run: ${String(t.error?.message ?? t.error).slice(0, 200)}` });
+      const r = t.got?.rows.find((x) => x.id === `${t.name}/q${k + 1}`);
       const story = r ? { misses: r.misses ?? [], held: r.held ?? [], said: r.said ?? [], ...(r.handoff ? { handoff: r.handoff } : {}), ...(r.rounds ? { rounds: r.rounds } : {}), ...(r.routes ? { routes: r.routes } : {}), ...(r.fallbacks ? { fallbacks: r.fallbacks } : {}), ...(r.steps ? { steps: r.steps } : {}) } : {};
       const bench = benchFailed(r);
-      if (!r) rows.push({ ...u.row, right: false, ran: false, usd, why: "the bench gave no judged answer" });
-      else if (bench !== null) rows.push({ ...u.row, right: false, ran: false, usd, why: bench, ...story });
-      else rows.push({ ...u.row, right: Boolean(r.right), ran: true, usd, got: r.right ? "every line held" : missedLine(r), want: "every must and never line", ...story });
+      if (!r) rows.push({ ...u.row, right: false, ran: false, usd: share, why: "the bench gave no judged answer" });
+      else if (bench !== null) rows.push({ ...u.row, right: false, ran: false, usd: share, why: bench, ...story });
+      else rows.push({ ...u.row, right: Boolean(r.right), ran: true, usd: share, got: r.right ? "every line held" : missedLine(r), want: "every must and never line", ...story });
     });
   }
   return rows;

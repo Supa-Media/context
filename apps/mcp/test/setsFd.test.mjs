@@ -5,6 +5,7 @@ import { test } from "node:test";
 
 import { LIVE_SETTINGS, PURE_ACK, burstBefore, cantRun, minutesBefore, checkinMail, dayOf, earlierLines, fdTest, frontFor, groupFor, jobReportRow, runFd, senderOf, sinceTexAnswered, timeOf, zoneOf } from "../bench/setsFd.mjs";
 import { clockMs, installClock } from "../bench/clock.mjs";
+import { runPool, scheduleOrder } from "../bench/setsPool.mjs";
 import { parsePeople, parseTest } from "../bench/load.mjs";
 import sets from "../../../packages/shared/src/texSets.cjs";
 import { parseSetup } from "../src/agent/production.js";
@@ -520,4 +521,110 @@ test("each test is cut at its own moment: units in one test at their earliest, h
   seen.length = 0;
   await runFd([unit({ ...c, set: "dev" }, 4)], { tree: TREE, fake: true, runTests, env: {} });
   assert.deepEqual(seen.map(([, cut]) => cut), [null], "a Dev chat is never an example");
+});
+
+// The Front door's pool (`setsFd.mjs` runFd): one pool of `parallel` lanes over every test of every conversation, not a
+// slice of it per conversation. Each conversation here has one test a day, so every test is one unit. Sabotage: give
+// each conversation its own `parallel / conversations` lanes again, and the peak is five, not eight.
+const manyDays = (id, n, more = {}) => conv(Array.from({ length: n }, (_, k) => ({ id: `${id}-m${k + 1}`, who: "Maya", text: `ask ${k + 1}`, at: `Oct ${k + 1} 9:00`, labels: { fd: { must: ["answer"] } } })), { id, ...more });
+const unitsOf = (c) => c.msgs.map((_, at) => unit(c, at));
+const pause = () => new Promise((resolve) => setTimeout(resolve, 15));
+
+test("the pool keeps all eight lanes busy across conversations of 17, 13, 11, 11 and 11 tests, and never runs more", async () => {
+  const convos = [17, 13, 11, 11, 11].map((n, k) => manyDays(`p${k + 1}`, n));
+  let inFlight = 0;
+  let peak = 0;
+  let calls = 0;
+  const runTests = async (_tree, tests) => {
+    calls += 1;
+    inFlight += 1;
+    peak = Math.max(peak, inFlight);
+    await pause();
+    inFlight -= 1;
+    return { rows: [{ id: `${tests[0]}/q1`, right: true }], usd: 0, bars: {}, missing: [] };
+  };
+  const rows = await runFd(convos.flatMap(unitsOf), { tree: TREE, fake: true, runTests, parallel: 8, env: {} });
+  assert.equal(calls, 63, "every test ran once");
+  assert.equal(peak, 8, "all eight lanes went at once");
+  assert.equal(rows.length, 63);
+  assert.ok(rows.every((r) => r.ran), "every unit answered");
+});
+
+test("tests of one conversation overlap in time, not one after another", async () => {
+  const convos = [manyDays("q1", 4), manyDays("q2", 4)];
+  const busy = new Map();
+  let overlap = 0;
+  const runTests = async (_tree, tests, { dir }) => {
+    busy.set(dir, (busy.get(dir) ?? 0) + 1);
+    overlap = Math.max(overlap, busy.get(dir));
+    await pause();
+    busy.set(dir, busy.get(dir) - 1);
+    return { rows: [{ id: `${tests[0]}/q1`, right: true }], usd: 0, bars: {}, missing: [] };
+  };
+  await runFd(convos.flatMap(unitsOf), { tree: TREE, fake: true, runTests, parallel: 8, env: {} });
+  assert.ok(overlap >= 2, `two tests of one conversation in flight together (peak ${overlap})`);
+});
+
+test("rows come back in the units' order, each with the fields a row had before", async () => {
+  const c1 = manyDays("o1", 3);
+  const c2 = manyDays("o2", 2);
+  const units = [unit(c2, 1), unit(c1, 2), unit(c1, 0), unit(c2, 0)];
+  const runTests = async (_tree, tests) => ({ rows: [{ id: `${tests[0]}/q1`, right: true, misses: [], held: [{ kind: "must", line: "answer", reason: "yes" }], said: ["Hi"] }], usd: 0.004, bars: {}, missing: [] });
+  const rows = await runFd(units, { tree: TREE, fake: true, runTests, parallel: 8, env: {} });
+  assert.deepEqual(rows.map((r) => [r.chat, r.msg]), units.map((u) => [u.row.chat, u.row.msg]));
+  for (const r of rows) {
+    assert.deepEqual(Object.keys(r).sort(), ["at", "chat", "got", "held", "misses", "msg", "node", "ran", "right", "said", "usd", "want"].sort());
+    assert.equal(r.ran, true);
+    assert.equal(r.got, "every line held");
+    assert.equal(r.want, "every must and never line");
+  }
+  // Each conversation's two tests cost 0.004 each: 0.008 over its two units, 0.004 a unit.
+  assert.deepEqual(rows.map((r) => r.usd), [0.004, 0.004, 0.004, 0.004]);
+});
+
+test("one test that throws marks only its own units could not run; the rest of its conversation still answers", async () => {
+  const a = manyDays("f1", 2);
+  const b = manyDays("f2", 2);
+  const runTests = async (_tree, tests, { dir }) => {
+    if (tests[0] === "sets-1" && dir.endsWith(join("c2-f2", "ai"))) throw new Error("the bench fell over");
+    return { rows: [{ id: `${tests[0]}/q1`, right: true }], usd: 0, bars: {}, missing: [] };
+  };
+  const rows = await runFd([...unitsOf(a), ...unitsOf(b)], { tree: TREE, fake: true, runTests, parallel: 8, env: {} });
+  const failed = rows.filter((r) => !r.ran);
+  assert.deepEqual(failed.map((r) => [r.chat, r.msg, r.why]), [["f2", "f2-m1", "could not run: the bench fell over"]]);
+  assert.equal(rows.filter((r) => r.ran).length, 3, "the other three units answered");
+});
+
+test("each test's cut reaches its own environment through the pool", async () => {
+  const fd = (text, at) => ({ id: `t${at}`, who: "Maya", text, at, labels: { fd: { must: ["answer"], star: true } } });
+  const c = conv([...chat.msgs.slice(0, 4), fd("first", "Oct 1 9:00"), fd("second", "Oct 2 9:00"), fd("third", "Oct 3 9:00")], { id: "c9", set: "training" });
+  const seen = [];
+  const runTests = async (_tree, tests, opts) => {
+    seen.push(opts.envOf(tests[0])?.TEX_TRAINING_UNTIL ?? null);
+    return { rows: [], usd: 0, bars: {}, missing: [] };
+  };
+  await runFd([unit(c, 4), unit(c, 5), unit(c, 6)], { tree: TREE, fake: true, runTests, parallel: 8, env: {} });
+  assert.deepEqual(seen.sort(), ["c9:4", "c9:5", "c9:6"]);
+});
+
+test("the schedule starts the longest conversations first and deals their tests round-robin", () => {
+  assert.deepEqual(scheduleOrder([["A0", "A1", "A2"], ["B0"], ["C0", "C1"]]), ["A0", "C0", "B0", "A1", "C1", "A2"]);
+  assert.deepEqual(scheduleOrder([["x0", "x1"], ["y0", "y1"]]), ["x0", "y0", "x1", "y1"], "equal lengths keep the input's order");
+  assert.deepEqual(scheduleOrder([[], ["z0"]]), ["z0"]);
+  assert.deepEqual(scheduleOrder([]), []);
+});
+
+test("the pool runs every item, never more than its lanes at once", async () => {
+  let inFlight = 0;
+  let peak = 0;
+  const done = [];
+  await runPool([1, 2, 3, 4, 5, 6, 7], 3, async (n) => {
+    inFlight += 1;
+    peak = Math.max(peak, inFlight);
+    await pause();
+    inFlight -= 1;
+    done.push(n);
+  });
+  assert.equal(peak, 3);
+  assert.deepEqual(done.sort((a, b) => a - b), [1, 2, 3, 4, 5, 6, 7]);
 });
