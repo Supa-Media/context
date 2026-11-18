@@ -14,6 +14,8 @@
  * 2. turn.js back to `round < rounds - 1 ? answerCheck : null`: "the reviewer reads a scheduled run's last answer ..." fails.
  * 3. `scheduled` not passed in runTheModel.js / heartbeat.js: the source checks below fail.
  * 4. `flush` back to dropping a reply with no question: "a job's report is kept ..." fails.
+ * 5. (2026-11-18) turn.js's last-step check with `(true)` for `silences()`: "a scheduled run's last answer sent back for a
+ *    fault that is not whether to text goes as it is" fails.
  */
 
 import assert from "node:assert/strict";
@@ -122,11 +124,32 @@ test("the reviewer reads a scheduled run's last answer, and one it sends back is
   assert.equal(texted.answer, LEAKED);
 });
 
-test("routine runs and check-ins are run as scheduled", () => {
+// 2026-11-18: a check-in found a price change ($22 to $28) and its last-step draft also said "I couldn't check Monday's
+// calendar". The reviewer sent it back for hands_back, and the last step went silent, losing the news. Silence on the
+// last step is for a send-back that says the text is not for them; any other fault lets the draft go as it is.
+test("a scheduled run's last answer sent back for a fault that is not whether to text goes as it is", async () => {
+  const PRICE = "Lumen is $28 now, up from $22. I couldn't check Monday's calendar.";
+  const read = [];
+  const answerCheck = async (text) => {
+    read.push(text);
+    return "hands_back: this asks them to do what Tex could do itself.";
+  };
+  const kept = await turn(scripted([...browsing(3), chat(PRICE)]), { scheduled: true, answerCheck, silences: () => false });
+  assert.deepEqual(read, [PRICE], "read on the last round");
+  assert.equal(kept.answer, PRICE, "the finding goes: the fault is not about whether it should be sent");
+  assert.notEqual(kept.settled, SAY_NOTHING_TOOL);
+
+  const quiet = await turn(scripted([...browsing(3), chat(PRICE)]), { scheduled: true, answerCheck: async () => "not_for_them: this explains Tex's own run.", silences: () => true });
+  assert.equal(quiet.answer, SAID_NOTHING, "a send-back that says not for them is silence");
+});
+
+test("routine runs and check-ins are run as scheduled, and their reviewer's verdict reaches the last step", () => {
   const model = readFileSync(new URL("../src/agent/texEntryPoint/runTheModel.js", import.meta.url), "utf8");
   assert.match(model, /scheduled: runner === true/);
+  assert.match(model, /silences: judge\?\.silences \?\? null/);
   const heartbeat = readFileSync(new URL("../src/agent/heartbeat.js", import.meta.url), "utf8");
   assert.match(heartbeat, /scheduled: true,/);
+  assert.match(heartbeat, /silences: judge\?\.silences \?\? null/);
 });
 
 test("a routine is told only DONE: stops it, since a run can't archive its note", () => {

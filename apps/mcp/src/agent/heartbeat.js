@@ -378,6 +378,7 @@ export async function handleHeartbeat(request, env, store, session, controlPlane
     turn = await runTurn({
       question,
       answerCheck: judge?.check ?? null,
+      silences: judge?.silences ?? null, // a last step is silent only for a send-back that says not for them (`turn.js`)
       tools: heartbeatTools(offered),
       // Reads only: no write or manage action, and of send only say_nothing, which ends the look with no words
       // (`sayNothing.js`). With `{}` it was offered no send at all, so the call its prompt names came back

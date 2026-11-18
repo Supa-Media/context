@@ -187,7 +187,7 @@ export async function runTheModel(t, via) {
     onModel: (model) => void (store.usageModel = model),
     // A group turn's tool start goes down the stream as a step line: the Worker taps the asked message once on the first (`groupModelTurn.ts`).
     ...(group !== null && job === null && typeof step === "function" ? { onToolStart: (name) => void Promise.resolve(step(name)).catch(() => {}) } : {}),
-    answerCheck: t.answerChecks === null ? null : withJobDrafts(job, step, via.answerCheck), endsTurn: eitherEnds(background?.endsTurn ?? null, tapping?.endsTurn ?? null), sayNothing: job === null, mustAnswer: group?.tagged === true, scheduled: runner === true, roundNote: background?.roundNote ?? null, // a job's start answers at once (`background.js`); a routine's run may say nothing too, as its prompt tells it (`routine.js`; 2026-11-07: offered none, it texted why)
+    answerCheck: t.answerChecks === null ? null : withJobDrafts(job, step, via.answerCheck), silences: judge?.silences ?? null,endsTurn: eitherEnds(background?.endsTurn ?? null, tapping?.endsTurn ?? null), sayNothing: job === null, mustAnswer: group?.tagged === true, scheduled: runner === true, roundNote: background?.roundNote ?? null, // a job's start answers at once (`background.js`); a routine's run may say nothing too, as its prompt tells it (`routine.js`; 2026-11-07: offered none, it texted why)
     // Each draft is checked by the nodes the config wires after the front door (`../graph/draftBridge.js`): Answer checks, then the Reply reviewer.
     // A job's turn streams each draft first, so a part that dies in its checks hands it on (`jobSaved.js`).
     // A group turn's changing calls take the chat's write lock, one at a time across its turns side by side (`chatWriteLock.js`).
