@@ -5,6 +5,9 @@
  * The texting Worker queues a due chat routine or a chat's own check-in as a turn of the chat itself, its writer's tag
  * in these words (`apps/agent/src/groupRoutines.ts` `chatRoutineMessage`). They live here, plain JS, so the bench asks
  * a Dev test's group routine or check-in in exactly the words production does (`apps/mcp/bench/setsFd.mjs`).
+ *
+ * Silence is the `say_nothing` call, never a word (2026-11-17: these words asked for "exactly SKIP", and a check-in
+ * with nothing new posted its reasoning and the word into a WhatsApp group; `apps/mcp/src/agent/scheduledQuiet.js`).
  */
 "use strict";
 
@@ -37,7 +40,8 @@ function chatRoutineQuestion(path, lastRan = null) {
     `(It's time for this chat's routine, ${path}${inChatHome(path) ? ` (context: "@context-lc")` : ""}. Read that note and do what it says now, for everyone here, ` +
     "as if it had just been asked. " +
     (lastRan === null ? "" : `It last ran ${lastRan}: anything "new" means since then. `) +
-    "If it only wants a word when there is something to say and there isn't, answer exactly SKIP.)"
+    "If it only wants a word when there is something to say and there isn't, call send with action say_nothing: nothing is posted, " +
+    "and never write why you are quiet as your answer, since an answer is posted to everyone here.)"
   );
 }
 
@@ -58,7 +62,8 @@ function chatLookQuestion(since, lastRan) {
     "what happened and who should handle it. " +
     "Leave out mail that concerns only the mailbox's owner personally: their own check-ins text them about it. " +
     "Never post just to say hello or to summarize; newsletters, receipts and automated notices are not worth a message, " +
-    "and neither is anything you already posted here. If nothing needs the chat, answer exactly SKIP.)"
+    "and neither is anything you already posted here. If nothing needs the chat, call send with action say_nothing: nothing is posted, " +
+    "and never write why you are quiet as your answer, since an answer is posted to everyone here.)"
   );
 }
 

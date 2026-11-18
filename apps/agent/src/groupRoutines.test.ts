@@ -24,7 +24,7 @@ const RUN: ChatRoutineRun = { runId: "run_abc123", path: "tex/routines/daily/shi
 
 type World = { sends: Record<string, unknown>[]; control: Record<string, unknown>[]; asks: Record<string, unknown>[]; results: Record<string, unknown>[]; reactions: number; members: string[] | null };
 
-function deps(world: World, answers: { control?: unknown; answer?: string } = {}): GroupDeps {
+function deps(world: World, answers: { control?: unknown; answer?: string; quiet?: true } = {}): GroupDeps {
   const fetcher = (async (url: string, init: RequestInit) => {
     const path = new URL(url).pathname;
     if (path.startsWith("/api/v2/groups/")) {
@@ -50,7 +50,7 @@ function deps(world: World, answers: { control?: unknown; answer?: string } = {}
     }
     if (path === "/agent") {
       world.asks.push(body);
-      return Response.json({ answer: answers.answer ?? "On shift today: Bo." });
+      return Response.json({ answer: answers.answer ?? "On shift today: Bo.", ...(answers.quiet ? { quiet: true } : {}) });
     }
     throw new Error(`unexpected ${path}`);
   }) as unknown as Fetch;
@@ -108,6 +108,49 @@ describe("a chat routine's run", () => {
     await run(w, { answer: "SKIP" });
     expect(w.sends).toEqual([]);
     expect(w.results[0]).toMatchObject({ outcome: "skipped" });
+  });
+
+  /*
+   * 2026-11-17 23:00 UTC, a WhatsApp group: the chat's check-in found no new mail and posted its reasoning with
+   * "SKIP" at the end. Invented words in that shape. Sabotage record (2026-11-17), each fails the test below:
+   *  - `groupModelTurn.ts` without `skipped` (only a bare SKIP read as one): the run reports "answered";
+   *  - `groupLine.ts` `groupLineFor` without `guardedLine`, with the check above also off: the words are sent.
+   */
+  it("a scheduled check with nothing new posts nothing, however the skip was worded", async () => {
+    const leaks = [
+      "Nothing new in the shared folder since 5:52 PM, and nobody here is waiting on an answer. Nothing needs the group now. SKIP",
+      "No new mail, and no follow-up is owed.\n\nSKIP",
+      "SKIP. Nothing new since the last look.",
+    ];
+    for (const path of [CHAT_LOOK_PATH, RUN.path]) {
+      for (const answer of leaks) {
+        const w = world();
+        const storage = new MemoryStorage();
+        expect(await acceptGroupRoutine(storage, { ...RUN, path, timeZone: "UTC" }, 1_000)).toBe("queued");
+        await drainGroup(storage, deps(w, { answer }));
+        expect(w.sends, answer).toEqual([]);
+        expect(w.results, answer).toEqual([{ runId: "run_abc123", outcome: "skipped", texted: 0 }]);
+      }
+    }
+  });
+
+  it("a scheduled check the gateway decided to keep quiet posts nothing: the flag, with no words", async () => {
+    const w = world();
+    const storage = new MemoryStorage();
+    expect(await acceptGroupRoutine(storage, { ...RUN, path: CHAT_LOOK_PATH, timeZone: "UTC" }, 1_000)).toBe("queued");
+    await drainGroup(storage, deps(w, { answer: "", quiet: true }));
+    expect(w.sends).toEqual([]);
+    expect(w.results[0]).toMatchObject({ outcome: "skipped" });
+  });
+
+  it("a scheduled check with news still posts it, the word skip in a sentence included", async () => {
+    const w = world();
+    const storage = new MemoryStorage();
+    const said = "The plumber moved Thursday's visit to Friday at 9. Bo, can you be home, or should we skip this week?";
+    expect(await acceptGroupRoutine(storage, { ...RUN, path: CHAT_LOOK_PATH, timeZone: "UTC" }, 1_000)).toBe("queued");
+    await drainGroup(storage, deps(w, { answer: said }));
+    expect(w.sends.map((send) => send.content)).toEqual([said]);
+    expect(w.results[0]).toMatchObject({ outcome: "answered" });
   });
 
   it("runs only while its writer is in the chat", async () => {
@@ -193,7 +236,9 @@ describe("handing a chat routine out", () => {
     expect(text).not.toContain("fetch activity:");
     expect(text).toContain("other agents' work");
     expect(text).toContain("concerns only the mailbox's owner personally");
-    expect(text).toContain("SKIP");
+    // Silence is the say_nothing call, never a word to type (2026-11-17: "exactly SKIP" came back with its reasoning, and both were posted).
+    expect(text).toContain("call send with action say_nothing");
+    expect(text).not.toContain("SKIP");
     expect(text).not.toContain("routine");
     expect(saysSkip("Skip the meeting today")).toBe(false);
   });
@@ -211,16 +256,16 @@ describe("a routine kept in its chat's home", () => {
   });
 });
 
-describe("the words a chat's routine and check-in turns are asked (moved to packages/shared, unchanged)", () => {
+describe("the words a chat's routine and check-in turns are asked (kept in packages/shared)", () => {
   const where = { line: "+15555550100", groupId: "g1", runId: "run_1", phone: "+15555550101" };
   it("asks a chat routine in the same words", () => {
     expect(chatRoutineMessage({ ...where, path: "tex/groups/orbit-lamp-river/routines/rent.md" }).text).toBe(
-      '(It\'s time for this chat\'s routine, tex/groups/orbit-lamp-river/routines/rent.md (context: "@context-lc"). Read that note and do what it says now, for everyone here, as if it had just been asked. If it only wants a word when there is something to say and there isn\'t, answer exactly SKIP.)',
+      '(It\'s time for this chat\'s routine, tex/groups/orbit-lamp-river/routines/rent.md (context: "@context-lc"). Read that note and do what it says now, for everyone here, as if it had just been asked. If it only wants a word when there is something to say and there isn\'t, call send with action say_nothing: nothing is posted, and never write why you are quiet as your answer, since an answer is posted to everyone here.)',
     );
   });
   it("asks a chat's own check-in in the same words", () => {
     expect(chatRoutineMessage({ ...where, path: CHAT_LOOK_PATH, since: 1_790_000_000_000, timeZone: "UTC" }).text).toBe(
-      "(Time for this chat's check-in: look on your own at what is new since Sep 21, 2:13 PM UTC, in three places only: mail shared with this chat (search it with after:1790000000), mail sent to this chat's own address (the notes in its folder's email/ that arrived since), and what was asked of you in this chat that you said you would follow up on. Never post about the workspace's other activity, notes or other agents' work: nobody here asked. Post here only what someone in this chat needs to act on or know now, in one short line: what happened and who should handle it. Leave out mail that concerns only the mailbox's owner personally: their own check-ins text them about it. Never post just to say hello or to summarize; newsletters, receipts and automated notices are not worth a message, and neither is anything you already posted here. If nothing needs the chat, answer exactly SKIP.)",
+      "(Time for this chat's check-in: look on your own at what is new since Sep 21, 2:13 PM UTC, in three places only: mail shared with this chat (search it with after:1790000000), mail sent to this chat's own address (the notes in its folder's email/ that arrived since), and what was asked of you in this chat that you said you would follow up on. Never post about the workspace's other activity, notes or other agents' work: nobody here asked. Post here only what someone in this chat needs to act on or know now, in one short line: what happened and who should handle it. Leave out mail that concerns only the mailbox's owner personally: their own check-ins text them about it. Never post just to say hello or to summarize; newsletters, receipts and automated notices are not worth a message, and neither is anything you already posted here. If nothing needs the chat, call send with action say_nothing: nothing is posted, and never write why you are quiet as your answer, since an answer is posted to everyone here.)",
     );
   });
 });

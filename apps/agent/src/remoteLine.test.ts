@@ -160,19 +160,19 @@ describe("the seam: a line served from elsewhere is used, and nothing is fetched
   it("lineFor with deps.remote returns the remote line and never calls fetch", () => {
     const remote = remoteLine(fakeRpc().rpc, INBOX, LINQ_CHAT);
     const got = lineFor({ fetch: noFetch, linqApiKey: "fake-linq-key", remote: () => remote }, LINQ_CHAT);
-    expect(got).toBe(remote);
+    expect({ ...got, sendText: remote.sendText }).toEqual(remote); // the remote line itself, its sendText behind the last guard (`outboundGuard.ts`)
   });
 
   it("groupLineFor with deps.remote returns the remote group line and never calls fetch", () => {
     const remote = remoteGroupLine(fakeGroupRpc().rpc, INBOX, SENDBLUE_GROUP);
     const got = groupLineFor({ fetch: noFetch, remote: () => remote }, SENDBLUE_GROUP);
-    expect(got).toBe(remote);
+    expect({ ...got, sendText: remote.sendText }).toEqual(remote); // the remote line itself, its sendText behind the last guard (`outboundGuard.ts`)
   });
 
   it("the inbox's lineDeps passes its remoteLine on as the line seam", () => {
     const remote = remoteLine(fakeRpc().rpc, INBOX, LINQ_CHAT);
     const inbox = { fetch: noFetch, linqApiKey: "fake-linq-key", controlPlaneOrigin: "https://control.example.test", workerSecret: "fake-secret", remoteLine: () => remote } as unknown as InboxDeps;
-    expect(lineFor(lineDeps(inbox), LINQ_CHAT)).toBe(remote);
+    expect({ ...lineFor(lineDeps(inbox), LINQ_CHAT), sendText: remote.sendText }).toEqual(remote);
   });
 
   it("a group's say sends through its remoteGroupLine and never fetches", async () => {

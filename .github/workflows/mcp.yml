@@ -41,6 +41,11 @@ name: MCP Gateway
 # lane's neighbour, not a pull request's check.
 on:
   pull_request:
+  # The merge queue asks for the required checks on its trial commit. No path
+  # filter exists for this event, so every job reports; ci-scope decides what
+  # runs from the merge group's own diff.
+  merge_group:
+    types: [checks_requested]
   push:
     branches: [main]
     paths:
@@ -77,7 +82,7 @@ permissions:
 # that run is cancelled rather than holding runners (a free account gets 20
 # at once). Pushes to main are each kept: the group is the commit there.
 concurrency:
-  group: ${{ github.workflow }}-${{ github.event_name == 'pull_request' && github.ref || github.sha }}
+  group: ${{ github.workflow }}-${{ github.event_name == 'pull_request' && github.ref || github.event.merge_group.head_ref || github.sha }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
