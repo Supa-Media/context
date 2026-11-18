@@ -53,9 +53,9 @@ const HANDED = ["texted", "claims", "tries", "forwarding", "pictures", "knowsSta
  * Run the door on `t`. Answers `{ answer, answeredBy, parts, handed }`: `answer` the Response of the part that answered
  * the turn (`answeredBy` its name), or undefined when every part ran; `parts` each part's log; `handed` what the last
  * part found, for the Front door. A part that throws stops the door, its error carried with its part logged. `steps`
- * is the door's parts, swapped only by a test.
+ * is the door's parts, swapped only by a test. `afterRead(t)` is called once the first part has read the text.
  */
-export async function runDoor(t, ctx = {}, now = Date.now, steps = DOOR_PARTS) {
+export async function runDoor(t, ctx = {}, now = Date.now, steps = DOOR_PARTS, { afterRead = null } = {}) {
   const parts = [];
   for (const [name, step, found] of steps) {
     const began = now();
@@ -71,6 +71,8 @@ export async function runDoor(t, ctx = {}, now = Date.now, steps = DOOR_PARTS) {
       parts.push({ part: name, ms: now() - began, ok: true, answered: true, status: answer?.status ?? null });
       return { answer, answeredBy: name, parts, handed: {} };
     }
+    // The text is read: what runs beside the rest of the door starts now (`nodes/doorStep.js`, the Shape gate).
+    if (name === "readTheText" && typeof afterRead === "function") afterRead(t);
     const seen = found(t, ctx);
     parts.push({ part: name, ms: now() - began, ok: true, ...seen });
     if (name === "prepareTheAnswer") return { answer: undefined, answeredBy: "", parts, handed: Object.fromEntries(HANDED.map((k) => [k, seen[k]])) };

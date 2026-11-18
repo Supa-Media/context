@@ -26,6 +26,7 @@
  * check (`replyJudge.js`), which reads the whole turn rather than a phrase.
  */
 
+import { callsIn, shapeFindings } from "./shapeGate.js";
 import { ADVISOR_TOOL } from "./advisor.js";
 import { combineFindings, finding } from "./checkFindings.js";
 
@@ -49,11 +50,13 @@ export function namesTheAdvisor(question) {
  * or `untriedWeb.js`, or none): `wrapLocal` watches the turn's own tools for
  * the advisor; `check` runs these first, then the other's.
  */
-export function doItChecks({ question, inner = null }) {
+export function doItChecks({ question, inner = null, shape = null, tagged = false }) {
   const advisorAsked = namesTheAdvisor(question);
   let hasAdvisor = false;
   let askedAdvisor = false;
   let advisorNoticed = false;
+  // The Shape gate's contracts already sent back this turn: each goes once (`shapeGate.js`).
+  const shaped = new Set();
   return {
     wrapLocal(local) {
       return (Array.isArray(local) ? local : []).map((entry) => {
@@ -69,6 +72,8 @@ export function doItChecks({ question, inner = null }) {
         advisorNoticed = true;
         before.push(finding("advisor", ADVISOR_NOTICE));
       }
+      // What kind of answer the gate read this turn as, held where it was sure (`shapeGate.js`); nothing without a read.
+      if (shape !== null) before.push(...shapeFindings(shape, { answer, ...callsIn(context?.messages), tagged, done: shaped }));
       if (typeof inner?.check !== "function") return combineFindings(before);
       if (before.length === 0) return await inner.check(answer, context);
       if (inner.takesFindings === true) return await inner.check(answer, { ...(context ?? {}), before });

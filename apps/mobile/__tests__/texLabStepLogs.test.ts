@@ -33,6 +33,7 @@ const entries: LedgerEntry[] = [
   step("react", { input: { on: "1000-000001" }, output: { emoji: "👍" } }),
   step("lane", { name: "write_note", output: { before: "t0" } }),
   run("decideWhy", { act: "quiet", why: "replies_to_tex" }, { to: "changed", why: "thanks_or_ok" }),
+  run("shapeGate", { question: "is the bakery open sunday", group: false }, { to: "read", ending: "one_line", endingSure: 0.9, order: 0.1, records: 0.8 }),
   run("doorStep", { chat: "group", kind: "text" }, { when: ["next"], log: { parts: [{ part: "readTheText", ok: true, ms: 1, chat: "group", covers: ["1000-000001"] }] } }),
   run("bypass", { answeredBy: "settleAYesOrNo" }, { sent: true }),
   run("staff", { kind: "person" }, { text: "We moved." }),

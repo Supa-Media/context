@@ -9,9 +9,27 @@ import { runDoor } from "../door.js";
 
 export async function doorStepNode(_input, io) {
   const t = io.ctx.turn;
-  const door = await runDoor(t, io.ctx);
+  const door = await runDoor(t, io.ctx, undefined, undefined, { afterRead: () => void (t.shapeRead = shapeBeside(t, io)) });
   if (door.answer !== undefined) t.response = door.answer;
   return doorOutput(door);
+}
+
+/**
+ * The Shape gate, started beside the rest of the door for a text a person sent that the Front door will answer
+ * (`../../shapeGate.js`): a promise of its read, or null when this turn has no such text, the config has no wire to
+ * the gate, or the gate is off (the runner answers nothing for an off step). Never throws and never rejects: a gate
+ * that could not run is a turn without one.
+ */
+export function shapeBeside(t, io) {
+  const texted = t.chatTurn === true && t.job === null && t.report === null && t.routine === null && !t.runner && !t.crossChat && typeof t.question === "string" && t.question.trim() !== "";
+  if (!texted) return null;
+  try {
+    return Promise.resolve(io.use.shapeGate({ question: t.question, group: t.group !== null }))
+      .then((read) => (read?.to === "read" ? read : null))
+      .catch(() => null);
+  } catch {
+    return null;
+  }
 }
 
 /** The step's output for what the door did: tagged for the step it goes to, its parts under `log`, never handed on. */

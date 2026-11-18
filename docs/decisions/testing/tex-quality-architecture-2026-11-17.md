@@ -327,6 +327,41 @@ contradiction test should pass) and one Dev run say keep it. Decide runs on
 Clef, which the credit outage does not touch, but a Lab run also runs the
 front door, so none was started.
 
+### Change 2, built and off (18 November): the shape gate
+
+The step `shapeGate` is in the config, wired from the Door as a helper, on
+Clef, and switched off. When it is on, the Door calls it as soon as it has
+read the text and goes on gathering, so its one call runs beside the Door. It
+asks three typed questions about the text alone: how the turn ends (a
+tapback, one line, an answer, a report, or "on it" and a job), whether the
+text is an order to act, and whether it asks about something stored. Only a
+text a person sent is typed: never a routine's run, a check-in, a job's part
+or a report.
+
+Three things in the design above did not match the code, and the build
+follows the code:
+
+- **There is no notice on the front door's first call.** `notice` is read
+  only on a send-back. The read goes into the turn's own note, the words said
+  per text after the cached prefix, from a confidence of 0.6.
+- **`doItChecks.js` had no "order with no call" check.** The gate adds one,
+  with the other two contracts, as findings in the code checks.
+- **The Answer check cannot end a turn on a tapback, and "nothing new to say"
+  is not something code can know.** So the tapback contract sends the draft
+  back once, toward the tapback tool, and the front door decides. It never
+  forces the ending.
+
+The contracts, each sent back at most once a turn, only from a confidence of
+0.85, and never on a text that tagged Tex: a tapback ending with a call that
+worked and words drafted; a one-line ending with a draft over three times a
+line; an order with no call behind the draft (unless the ending is a job).
+A gate that failed, ran out of its three seconds or was not sure says
+nothing, and the turn is what it was
+(`replay/cases/shape-gate-types-the-turn.mjs`, `shapeGate.test.mjs`).
+
+Not scored: it stays off until a Training run and two Dev runs, read as a
+mean against the baseline after change 3, say keep it.
+
 ## What this adds up to
 
 If changes 1, 2, 4 and the handoff each land in the middle of their range:
