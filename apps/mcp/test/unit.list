@@ -675,3 +675,5 @@ test/checkinOnceInChat.test.mjs
 test/advisorCache.test.mjs
 test/setsTrace.test.mjs
 test/setsGold.test.mjs
+test/texExamples.test.mjs
+test/examplesNode.test.mjs

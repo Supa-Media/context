@@ -8,7 +8,7 @@ import { markUntrusted } from "../../privacy/egress.js";
 import { devShareOn, devSharePrompt } from "../devShare.js";
 import { groupChatsForTurn, groupsOn } from "../groupChats.js";
 import { ADVISOR_TOOL, advisorRequest, advisorTimeoutMs, advisorTools, jobAdvisorLine } from "../advisor.js";
-import { texCacheTtl, texConfigOf } from "../texConfig.js";
+import { TRAINING, texCacheTtl, texConfigOf } from "../texConfig.js";
 import { aiGatewayConfig } from "../aiGateway.js";
 import { carriesData, withAttachmentImages } from "../attachments.js";
 import { jobPrompt, jobReportPrompt, withBackground, withJobSteps } from "../background.js";
@@ -62,6 +62,7 @@ import { ownWorkspaceName, withWorkspaceConventions } from "../workspaceConventi
 import { threadPrompt } from "../threadView.js";
 import { sleepLineNote } from "../timeLog.js";
 import { agentTools, runTurn } from "../turn.js";
+import { examplesOptions } from "../turnExamples.js";
 import { chatHubUrl, hubPrompt } from "../hubLinks.js";
 import { VAULT_SAVED_QUESTION, withGroupVault, withVaultWatch } from "../vaultSaved.js";
 import { doItChecks } from "../doItChecks.js";
@@ -171,6 +172,7 @@ export async function runTheModel(t, via) {
   const rounds = !runner && (job !== null || chatTurn) ? await tex.step("carried_rounds", () => carriedRounds({ store, session, body, question, job, egress: ledger }).catch(() => null)) : null;
   t.rounds = rounds; // its snapshot goes once the reply is made (`sendTheReply.js`)
   stages?.ready(); const turn = await tex.step("model", () => runTurn({
+    ...examplesOptions(via.examples ?? null, texConfigOf(env), TRAINING, env?.TEX_EXAMPLES), // the nearest Training examples, when the front door is wired to them (`turnExamples.js`)
     resumeFrom: rounds?.from ?? null, keepRounds: rounds?.keep ? { keep: rounds.keep, marks: rounds.marks } : null,
     // With the log, the chat and its tapbacks are in the transcript, and the covered events are the question (`loggedTurn.js`).
     question: [logged === null && view === null ? chatLines(group) : "", logged === null ? reactedLine(reacted) : "", setAsideLine(setAside, dropped), paidLine(paid), sentNoteLinksLine(question, noteLinking.origin), (logged ? loggedQuestion(logged.question, quoted, logged.replying) : askedWith(question, quoted)), logged === null ? sleepLineNote(question) : ""].filter(Boolean).join("\n\n"),

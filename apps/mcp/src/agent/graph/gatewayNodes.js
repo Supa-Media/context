@@ -67,6 +67,7 @@ import { jobReportNode } from "./nodes/jobReport.js";
 import { jobStartNode } from "./nodes/jobStart.js";
 import { jobadv } from "./nodes/jobadv.js";
 import { staffNode } from "./nodes/staff.js";
+import { examplesNode } from "./nodes/examples.js";
 
 /**
  * Each entry is a getter, so the table reads a node's code when the runner asks for it, never while the modules load: the
@@ -157,4 +158,6 @@ export const GATEWAY_NODES = {
   get jobReport() { return jobReportNode; },
   // Whether a background job the front door asks for starts now, under the slots in its config (`nodes/jobStart.js`).
   get jobStart() { return jobStartNode; },
+  // The Training moments nearest to a text, for the front door's preamble (`nodes/examples.js`, `texExamples.cjs`); on the shelf until a Lab draft wires fd -> examples.
+  get examples() { return examplesNode; },
 };

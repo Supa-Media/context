@@ -59,6 +59,17 @@ jobs:
         env:
           CONVEX_DEPLOY_KEY: ${{ secrets.CONVEX_DEPLOY_KEY }}
 
+      # Tex's example index (`functions/texExamplesIndex.ts`): the Training
+      # moments the front door is answered from, embedded and written to a
+      # Vectorize index after each deploy. Best effort: a failure leaves the
+      # front door on its fixed examples, which is what it does without it, so
+      # it never fails the deploy. Only the status and a count are printed.
+      - name: Fill Tex's example index
+        continue-on-error: true
+        env:
+          CONVEX_DEPLOY_KEY: ${{ secrets.CONVEX_DEPLOY_KEY }}
+        run: npx convex run functions/texExamplesIndex:sync 2>/dev/null
+
       # After the deploy, so a function that reads a new variable is already
       # deployed when the variable arrives rather than the other way round.
       #

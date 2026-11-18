@@ -35,6 +35,7 @@
 import { sandboxedTool } from "../labSandbox/policy.js";
 import { datedTurns, stamped } from "./localNow.js";
 import { attachmentsLine } from "./attachments.js";
+import { awaitExamples } from "./turnExamples.js";
 import { BUILTIN_PROVIDER, builtinModel, hasBuiltinModel, liveTurn, requestBuiltin, systemText } from "./builtin.js";
 import { ProviderError, THINKING_REFUSED } from "./providers.js";
 import { BROWSE_TIMED_OUT, BROWSE_TOOL } from "./computer.js";
@@ -289,6 +290,9 @@ export async function runTurn(options) {
     resumeFrom = null,
     // Keeps what the turn has done after each call returns, for a try after a crash to go on from (`turnResume.js` `roundsKeeper`): `{ keep, marks }`.
     keepRounds = null,
+    // The Training moments nearest to this text (`graph/nodes/examples.js`), started by the front door: awaited once, within
+    // `examplesBudgetMs`, before the first prompt; `examplesFallback` stands when they are not there (`turnExamples.js`).
+    examples = null, examplesBudgetMs, examplesFallback = "",
   } = options;
   const held = turnLedger({ tools: options.tools, ranHere: (name) => webNames.has(name) || localCalls.has(name) }); // the turn as its ledger keeps it (`sendBack.js`)
   const tell = (event) => {
@@ -371,7 +375,8 @@ export async function runTurn(options) {
     trace.push({ kind: "router", tier: routed.tier, pick: routed.pick, model, at: asked - began, ms: clock() - asked, ...confidence });
     tell({ kind: "model", step: "router", model, ms: clock() - asked, input: options.planned || nudge !== "" ? undefined : question, output: { tier: routed.tier, pick: routed.pick, ...confidence }, reason: options.planned ? "a long job is planned on the thinking model" : routed.tier === "think" ? "the router judged it needs thinking" : "picked by the router" });
   }
-  const promptFor = (answering) => turnPrompt(place, answering, { texting, inGroup, pictures, notes, models: router !== null ? { main: mainModel, think: router.think, jobsOnly: router.jobsOnly === true } : null, tools, history, threadNote, turnNote, webNames, progress, aboutMe, identity, jobs, voice, calendar, observe, workspaces, groups, devShare, mail, localNow, plan, nudge }); // `turnPrompt.js`
+  const examplesText = examples ? await awaitExamples(examples, { budgetMs: examplesBudgetMs, fallback: examplesFallback, trace, clock }) : "";
+  const promptFor = (answering) => turnPrompt(place, answering, { texting, inGroup, pictures, notes, models: router !== null ? { main: mainModel, think: router.think, jobsOnly: router.jobsOnly === true } : null, tools, history, threadNote, turnNote, examples: examplesText, webNames, progress, aboutMe, identity, jobs, voice, calendar, observe, workspaces, groups, devShare, mail, localNow, plan, nudge }); // `turnPrompt.js`
   let prompt = promptFor(model);
   // The person's own text, with the turn's facts carried ahead of it (`providers.js`): set before every round.
   const questionMessage = { role: "user", text: question, ...(attachments.length > 0 ? { attachments } : {}) };

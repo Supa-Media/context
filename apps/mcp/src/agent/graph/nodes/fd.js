@@ -35,6 +35,9 @@ export async function fdNode(input, io) {
   const t = io.ctx.turn;
   if (t.drafts?.waiting) return stopOutput(t, await t.drafts.resume(input?.notice ?? null)); // back from a check, on its loop wire
   const drafts = (t.drafts = draftBridge());
+  // The Training moments nearest to this text, started now so they are ready by the first prompt (`examples.js`); only when the
+  // config wires `fd -> examples`. Its answer never throws, and a rejection is answered as a fallback, so none can go unhandled.
+  const examples = "examples" in io.use ? io.use.examples({ question: String(t.question ?? ""), recent: recentLines(t.history) }).catch(() => ({ when: ["fallback"], why: "error" })) : null;
   // What a call carries that the log must not (its arguments, the turn so far, its result): kept here by the call's number, and the wire carries only the number and the tool's name.
   // Each call's arguments and result are kept already, with their privacy rules, as the turn's own tool entry (`ledger.js` `toolEntry`).
   const calls = (t.toolCalls = { mcp: null, web: null, local: new Map(), held: new Map(), planner: null, fallback: null });
@@ -51,6 +54,7 @@ export async function fdNode(input, io) {
     }
   };
   const via = {
+    examples,
     // A draft the Answer check handed to a background job (`handoff.js`) ends the loop on the job's start line.
     answerCheck: async (draft, info) => {
       const notice = await drafts.answerCheck(draft, info);
@@ -95,6 +99,11 @@ export async function fdNode(input, io) {
   };
   const first = stopOutput(t, await drafts.start(runTheModel(t, via)));
   return { ...first, ...settingsOf(t.settings) };
+}
+
+/** The last few lines of the chat before this text, as plain text for the examples' query (`examples.js`). */
+function recentLines(history) {
+  return (Array.isArray(history) ? history : []).slice(-4).map((turn) => `${turn?.role === "assistant" ? "You" : "Them"}: ${String(turn?.text ?? "")}`);
 }
 
 /** The settings the turn runs the front door with (`runTheModel.js` `doorOut`), on its first output only. */

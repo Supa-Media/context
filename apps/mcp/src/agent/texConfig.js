@@ -19,7 +19,7 @@ import SHELF from "../../../../packages/shared/src/texNodeShelf.json" with { typ
 import { TRAIN_ENTRY, trainingOf, moduleText, trainName } from "../../../../packages/shared/src/texTraining.cjs";
 
 /** Every Training conversation, less what a bench process scores of it (`texTraining.cjs` `trainingOf`; production reads all). */
-const TRAINING = trainingOf(GENERATED_TRAINING);
+export const TRAINING = trainingOf(GENERATED_TRAINING);
 import { configStamp } from "../../../../packages/shared/src/texConfigStamp.cjs";
 import { sandboxGateOf } from "../labSandbox/policy.js";
 import { EFFORTS as SCHEMA_EFFORTS } from "../../../../packages/shared/src/texConfigSchema.cjs";
