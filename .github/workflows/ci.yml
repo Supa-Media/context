@@ -662,6 +662,19 @@ jobs:
         if: steps.changes.outputs.mobile == 'true' && steps.tex.outputs.only != 'true'
         run: pnpm install --frozen-lockfile
 
+      # tsc --incremental (apps/mobile/tsconfig.json) rechecks only files whose
+      # content changed. The build info stores content hashes, so a restored
+      # info skips unchanged files, and a changed file is always checked again:
+      # a stale cache cannot let a wrong file pass.
+      - name: Restore the app typecheck
+        if: steps.changes.outputs.mobile == 'true' && steps.tex.outputs.only != 'true'
+        uses: actions/cache@v4
+        with:
+          path: apps/mobile/.tsbuildinfo
+          key: app-typecheck-${{ hashFiles('pnpm-lock.yaml', 'apps/mobile/tsconfig.json') }}-${{ github.sha }}
+          restore-keys: |
+            app-typecheck-${{ hashFiles('pnpm-lock.yaml', 'apps/mobile/tsconfig.json') }}-
+
       - name: Typecheck the app
         if: steps.changes.outputs.mobile == 'true' && steps.tex.outputs.only != 'true'
         working-directory: apps/mobile
