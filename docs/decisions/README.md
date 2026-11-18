@@ -750,6 +750,7 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 - [The Dev set's front door moves a few points between repeats](./testing/dev-front-door-measure.md)
 - [Lab Dev failures on 17 November 2026](./testing/dev-failure-breakdown-2026-11-17.md)
 - [The front door hands a long job to the worker it already has](./testing/front-door-hands-off.md)
+- [Tex quality: what the graph has to change to text like Instinct (2026-11-17)](./testing/tex-quality-architecture-2026-11-17.md)
 - [The advisor is four roles, each replayed on its own](./testing/advisor-roles.md)
 - [Pull-request checks report broadly and work narrowly](./testing/ci-pipelines.md)
 - [The Convex suite watches the gateway files Convex reaches](./testing/ci-pipelines.md)
