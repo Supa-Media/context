@@ -145,12 +145,15 @@ export interface MeaningIndexInfo {
   name: string;
 }
 
-async function createIndex(config: MeaningConfig, name: string): Promise<MeaningIndexInfo> {
+/** The default label for a workspace's index. Other indexes pass their own. */
+const WORKSPACE_INDEX_DESCRIPTION = "Context: search by meaning for one workspace";
+
+async function createIndex(config: MeaningConfig, name: string, description: string): Promise<MeaningIndexInfo> {
   return await call<MeaningIndexInfo>(config, `/accounts/${config.accountId}/vectorize/v2/indexes`, {
     method: "POST",
     body: {
       name,
-      description: "Context: search by meaning for one workspace",
+      description,
       config: { dimensions: MEANING_DIMENSIONS, metric: "cosine" },
     },
   });
@@ -183,9 +186,10 @@ async function getIndex(config: MeaningConfig, name: string): Promise<MeaningInd
 export async function ensureMeaningIndex(
   config: MeaningConfig,
   name: string,
+  description = WORKSPACE_INDEX_DESCRIPTION,
 ): Promise<{ index: MeaningIndexInfo; adopted: boolean }> {
   try {
-    const index = await createIndex(config, name);
+    const index = await createIndex(config, name, description);
     return { index: { name: index?.name ?? name }, adopted: false };
   } catch (error) {
     if (!(error instanceof MeaningIndexError)) throw error;

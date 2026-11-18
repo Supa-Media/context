@@ -41,6 +41,7 @@ import type * as functions_texLabDrafts from "../functions/texLabDrafts.js";
 import type * as functions_texLabPromote from "../functions/texLabPromote.js";
 import type * as functions_texLabRuns from "../functions/texLabRuns.js";
 import type * as functions_texLabToolStats from "../functions/texLabToolStats.js";
+import type * as functions_texExamplesIndex from "../functions/texExamplesIndex.js";
 import type * as functions_texSets from "../functions/texSets.js";
 import type * as functions_accessObjects from "../functions/accessObjects.js";
 import type * as functions_accessObjectsExpected from "../functions/accessObjectsExpected.js";
@@ -335,6 +336,7 @@ declare const fullApi: ApiFromModules<{
   "functions/texLabPromote": typeof functions_texLabPromote;
   "functions/texLabRuns": typeof functions_texLabRuns;
   "functions/texLabToolStats": typeof functions_texLabToolStats;
+  "functions/texExamplesIndex": typeof functions_texExamplesIndex;
   "functions/texSets": typeof functions_texSets;
   "functions/accessObjects": typeof functions_accessObjects;
   "functions/accessObjectsExpected": typeof functions_accessObjectsExpected;

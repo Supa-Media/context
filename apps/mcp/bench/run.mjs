@@ -407,7 +407,7 @@ async function answerJobs(options, { bench, test, testName = options.test ?? opt
   if (!options.fake && !socketed && !scripted && options.job === "texting-assistant" && !process.env.BRAVE_SEARCH_API_KEY) {
     throw new Error("BRAVE_SEARCH_API_KEY is not set: production offers search_web and open_page, so a texting-assistant run must too (task 15 says where the key is)");
   }
-  const models = benchModels(options, { scripted, sites: bench.sites, send });
+  const models = benchModels(options, { scripted, socketed, sites: bench.sites, send });
   if (socketed) {
     // Workers AI (the embeddings for search by meaning, Clef) answers with the scripted stand-in: the examiner session
     // holds no Cloudflare key, and a real model's numbers would differ live and replayed and change what the turn reads.
