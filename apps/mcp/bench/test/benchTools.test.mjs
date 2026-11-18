@@ -60,7 +60,7 @@ test("a settings change works in the bench: how Tex talks is saved in a group ch
     const turn = await world.text("@Tex from now on use fewer emojis please");
     assert.equal(turn.ok, true, turn.error);
     assert.match(turn.answer, /^WORKED: Saved\./, turn.answer);
-    assert.match(turn.answer, /maya set: "Use fewer emojis\."/, "a group's change is said with who made it");
+    assert.match(turn.answer, /maya changed how Tex talks here, and it now reads "Use fewer emojis\."/, "a group's change is said with who made it");
     assert.deepEqual(world.gaps(), [], "no stand-in was missing");
     assert.deepEqual(world.changes().filter((c) => c.kind === "set").map((c) => c.detail), ['how Tex talks here is now: "Use fewer emojis."']);
   } finally {

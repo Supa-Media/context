@@ -132,8 +132,10 @@ a group turn gets the group's alone, never a member's.
   it only for a clear lasting request ("from now on...", "always...",
   "stop..."), never for a one-off ("make this one shorter"), and its answer
   carries the text now saved, which Tex confirms in its own words. In a group
-  the answer tells Tex to say `tester set: "<the text now>". Anyone here can
-  text "Tex, undo the change" to put it back.` In a person's own chat it
+  the answer gives Tex the facts to say in its own short words, never pasted
+  (2026-11-18: a dictated `tester set: "..."` sentence crowded out the answer
+  the person needed): who changed it, the text now, and that anyone here can
+  text "Tex, undo the change" to put it back. In a person's own chat it
   edits theirs; in a group, the group's.
 - That tool writes free text every later turn reads, so it runs only when the
   turn's own message, from the person the grant names, asks for it: a code
@@ -142,9 +144,9 @@ a group turn gets the group's alone, never a member's.
   email, a quote or another member's text cannot write it.
 - Quick-pick words are code's, no model: "Tex, no emoji", "Tex, less emoji",
   "Tex, tone efficient", "Tex, one bubble", "Tex, short answers", "Tex, more
-  humor", "Tex, clear instructions". In a group Tex says `tester set: "<the
-  line>". Anyone here can text "Tex, undo the change" to put it back.` (the
-  setter's handle, as "(set by tester)" was).
+  humor", "Tex, clear instructions". In a group the same facts go to Tex as
+  the instructions tool's answer gives them (who set it, the line, how to
+  undo), said in Tex's own words, not pasted.
 - "Tex, undo the change" (or "undo that change") swaps the text back to the
   one before the last change, once. Anyone in a group may. A bare "Tex, undo"
   is not it: people say that about an email or an event, so it goes to the
