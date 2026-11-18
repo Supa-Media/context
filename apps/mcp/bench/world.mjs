@@ -334,8 +334,7 @@ export async function createWorld(bench, person, setupRaw, models, today = null,
     // same turn then fails: the 2026-10-08 results measured exactly that.
     SEARCH_SUBREQUEST_BUDGET: "600",
     ...(models.ai ? { AI: models.ai } : {}),
-    // The front door's nearest Training examples, when a run has an index (`run.mjs`, `texExamplesIndex.mjs`); else the node falls back.
-    ...(models.examples ? { TEX_EXAMPLES: models.examples } : {}),
+    ...(models.examples ? { TEX_EXAMPLES: models.examples } : {}), // the front door's nearest Training examples (`texExamplesIndex.mjs`)
     AI_GATEWAY_ACCOUNT_ID: "0123456789abcdef0123456789abcdef",
     AI_GATEWAY_ID: "bench",
     AI_GATEWAY_TOKEN: "bench-gateway-token-not-a-real-one",
