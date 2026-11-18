@@ -165,12 +165,12 @@ test("a tool that changes or sends is answered as done and listed; a read runs; 
     const answer = await toolAnswer(name, { to: "x@example.invalid" }, gate);
     assert.equal(answer.content[0].text, "Done.", `${name}: read as a real call's success, never as a test`);
   }
-  for (const name of ["browse", "fill_login", "delegate", "add_computer"]) {
+  for (const name of ["browse", "fill_login", "make_login", "delegate", "add_computer"]) {
     const answer = await toolAnswer(name, {}, gate);
     assert.equal(answer.isError, true, name);
     assert.match(answer.content[0].text, /no browser and no computer/, name);
   }
-  assert.equal(writes.filter((w) => w.kind === "Refused").length, 4);
+  assert.equal(writes.filter((w) => w.kind === "Refused").length, 5);
   assert.equal(await toolAnswer("read_note", { path: "a.md" }, gate), null);
   assert.equal(await toolAnswer("search_email", {}, gate), null);
   // A job tool runs: the job it starts runs in the test chat (`jobs.js`), on the same fences.
