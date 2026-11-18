@@ -509,6 +509,23 @@ test("the truck-crew job report row names John's ask, the one its 🔎 tapback r
   assert.equal(cantRun(raw, at), null);
 });
 
+// An older 🔎 job Tex answered in words must not be the tapback of a new job started in words (no tapback). Sabotage:
+// drop the bound in jobReportRow's scan and `asked` becomes the old ask (a1), so this fails.
+test("a job row with no tapback takes the new ask, not an older tapbacked job Tex already answered", () => {
+  const c = {
+    msgs: [
+      { id: "a1", who: "John", text: "Tex compare the tortilla places" },
+      { id: "a2", tex: true, kind: "react", who: "Tex", text: "🔎", to: "a1" },
+      { id: "a3", tex: true, who: "Tex", text: "Basically a tie, go with La Estrella." },
+      { id: "a4", who: "John", text: "Tex what's the weekend look like" },
+      { id: "a5", via: "job", who: "Background job", text: "Sat: generator pickup 7am." },
+    ],
+  };
+  const row = jobReportRow(c, 4);
+  assert.equal(row.asked, "Tex what's the weekend look like");
+  assert.equal(row.askedBy, "John");
+});
+
 // A Training conversation scored in context reads itself as an example only up to its moment (`texTraining.cjs`
 // UNTIL_ENV; truck-crew 96, 2026-11-18, quoted message 98). Sabotage: drop `envOf` in runConvo, or cut every test at
 // the conversation's first unit, and this fails.

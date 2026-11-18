@@ -286,7 +286,15 @@ export function triggerOf(c, i) {
 export function jobReportRow(c, i) {
   const m = c.msgs[i];
   // The ask is the message the job's 🔎 tapback reacted to: people may talk in between (the job's report comes later).
-  const tapback = c.msgs.slice(0, i).reverse().find((x) => x.tex && x.kind === "react" && JOB_TAPBACKS.has(bareEmoji(x.text)));
+  // Bounded as runningJobOf bounds it: scanning back, an earlier job row or Tex's words end the search, so an older job
+  // Tex answered is never this job's tapback. A job started in words, with no tapback, falls back to the last person text.
+  let tapback = null;
+  for (let k = i - 1; k >= 0; k -= 1) {
+    const x = c.msgs[k];
+    if (x.via === "job") break;
+    if (x.tex && x.kind !== "react" && typeof x.text === "string" && x.text.trim() !== "") break;
+    if (x.tex && x.kind === "react" && JOB_TAPBACKS.has(bareEmoji(x.text))) { tapback = x; break; }
+  }
   const tapped = tapback ? c.msgs.find((x) => x.id === tapback.to) : null;
   const asked = tapped && !tapped.tex && typeof tapped.text === "string" && tapped.text.trim() !== "" ? tapped : [...c.msgs.slice(0, i)].reverse().find((x) => !x.tex && !x.via && !x.kind && typeof x.text === "string" && x.text.trim() !== "");
   const words = String(asked?.text ?? "").replace(/\s+/g, " ").trim();
