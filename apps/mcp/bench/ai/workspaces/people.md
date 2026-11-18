@@ -23,8 +23,23 @@ Invented people and the workspaces each can reach. A test runs as one of them, t
 | Priya | the-flat | owner |
 | John | the-flat | editor |
 | Kofi | the-flat | editor |
+| Lucia | lucia (personal) | owner |
+| Remi | remi (personal) | owner |
+| Omar | omar (personal) | owner |
+| Jess | jess (personal) | owner |
+| Wren | wren (personal) | owner |
+| Nadia | nadia (personal) | owner |
+| Theo | theo (personal) | owner |
+| Omar | build-crew | owner |
+| Jess | build-crew | editor |
+| Wren | build-crew | editor |
+| Remi | truck-crew | owner |
+| Nadia | truck-crew | editor |
+| Theo | truck-crew | editor |
 
 ## Things tests rely on
+
+- The Training conversations' people (Lucia, Remi, Omar, Jess, Wren, Nadia, Theo) each have a personal workspace with only an index and `tex/about-me.md` (their time zone), and the group ones run in `build-crew` and `truck-crew`, so every Training Front door row runs (Dev2, 2026-11-17: no can't-run rows). Keep them this thin: what each chat takes for granted is played by the simulated world (`simWorld.mjs`) from the conversation's setting, so nothing here answers a row for it.
 
 - Tomas's workspace is deliberately messy for Tex's housekeeping (`tests/housekeeping.md`): a finished project, a done one still marked in progress, duplicate contacts, a one-note folder, inbox notes older than three months, and a running folder crowded with 240 dated run logs (from `_bank/run-logs/`).
 

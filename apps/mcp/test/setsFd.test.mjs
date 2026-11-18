@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { readFile } from "node:fs/promises";
+import { readFile, readdir } from "node:fs/promises";
 import { join } from "node:path";
 import { test } from "node:test";
 
@@ -81,10 +81,22 @@ test("someone with no test of their own runs on the core set's lines as themselv
   assert.equal((front.match(/^group: /gm) ?? []).length, 1);
 });
 
-test("the bench's people are exactly the people a Dev chat may have", async () => {
+test("the bench's people are exactly the people a Dev chat may have, and the Training chats' people", async () => {
   const people = parsePeople(await readFile(join(BENCH, "workspaces/people.md"), "utf8"));
   const withWorld = [...new Set(people.filter((r) => r.personal).map((r) => r.person))].sort();
-  assert.deepEqual([...sets.BENCH_PEOPLE].sort(), withWorld);
+  assert.deepEqual([...sets.BENCH_PEOPLE, ...sets.TRAINING_PEOPLE].sort(), withWorld);
+  assert.ok(!sets.TRAINING_PEOPLE.some((name) => sets.BENCH_PEOPLE.includes(name)), "a Dev chat still has only the bench's own people");
+});
+
+test("every Training chat's Front door rows have a world to run in: each member a person, each group a shared workspace", async () => {
+  const people = parsePeople(await readFile(join(BENCH, "workspaces/people.md"), "utf8"));
+  const dir = join(BENCH, "..", "sets", "training");
+  for (const name of (await readdir(dir)).filter((n) => n.endsWith(".json"))) {
+    const c = JSON.parse(await readFile(join(dir, name), "utf8"));
+    if (!c.msgs.some((m) => m.labels?.fd?.star)) continue;
+    for (const member of c.members) assert.ok(people.some((r) => r.person === member && r.personal), `${c.id}: ${member} has a bench world`);
+    if (c.kind === "group") assert.ok(groupFor(people, c) !== null, `${c.id} runs in a shared workspace`);
+  }
 });
 
 test("a group runs in the shared workspace that has all its members, and each earlier line is its sender's", async () => {

@@ -44,9 +44,15 @@ const ID = /^[a-z0-9][a-z0-9-]{0,79}$/;
  * The people a Dev conversation may have (Dev2, 2026-11-17: "why dont we use existing people that we do have worlds
  * for then, and then why dont we restrict the people that can be put in these test sets"). A Dev test runs as a real
  * turn in the bench's invented world for its person (`apps/mcp/bench/setsFd.mjs`), so a chat with anyone else can't
- * run. Exactly the people in `apps/mcp/bench/ai/workspaces/people.md`; `setsFd.test.mjs` fails when they part.
+ * run. With TRAINING_PEOPLE, exactly the people in `apps/mcp/bench/ai/workspaces/people.md`; `setsFd.test.mjs` fails when they part.
  */
 const BENCH_PEOPLE = Object.freeze(["Maya", "John", "Priya", "Tomas", "Nia", "Kofi"]);
+/**
+ * The Training conversations' people, who have thin bench worlds of their own so a Training Front door row runs as a
+ * real turn too (Dev2, 2026-11-18: "prove it on Training ... a scored Lab Training run"). Kept apart from BENCH_PEOPLE,
+ * so a Dev chat still has only the bench's own people.
+ */
+const TRAINING_PEOPLE = Object.freeze(["Lucia", "Remi", "Omar", "Jess", "Wren", "Nadia", "Theo"]);
 
 /**
  * The fields a node is labelled with, from its config `outSchema`: a required choice or yes/no field becomes a
@@ -183,4 +189,4 @@ function missingTest(convs, testByScope) {
     .sort((a, b) => (a.scope < b.scope ? -1 : a.scope > b.scope ? 1 : 0));
 }
 
-module.exports = { SETS, TARGET, DRIFT, KINDS, TRIGGERS, JOB_STATES, RUN, TEX, LABEL_KEYS, BENCH_PEOPLE, labelFields, check, unitTests, before, ratio, missingTest };
+module.exports = { SETS, TARGET, DRIFT, KINDS, TRIGGERS, JOB_STATES, RUN, TEX, LABEL_KEYS, BENCH_PEOPLE, TRAINING_PEOPLE, labelFields, check, unitTests, before, ratio, missingTest };
