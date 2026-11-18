@@ -254,6 +254,17 @@ commit whose CI succeeded. `Deploy to Production` no longer requires a
 staging run, on the automatic path or the manual press. `Deploy Staging`
 keeps running on its own. A red CI run still does not deploy.
 
+A queued deploy of an older commit is cancelled when a newer one is green.
+`concurrency: deploy-production` already drops a pending run, and
+`promote-production.mjs` cancels one too, so the replacement does not depend
+on that. A deploy that has started is not cancelled, because it may already
+have shipped a component. Its first step reads main again and stops, before
+the plan, when a newer commit already has green CI. On #3552 two deploys of
+older commits ran to completion after the newer commit was green, and the
+merge waited 14.6 minutes to start. Stopping at that step releases the queue
+in the time the check takes. `promote-production.test.mjs` pins the cancel,
+and `production-release.test.mjs` pins the stop.
+
 The import-coverage guard now checks `deploy-staging.yml`; its unfiltered main
 push covers every bundled file, including future packages. Production deploys
 the whole backend when explicitly promoted, so it has no path filter to drift.

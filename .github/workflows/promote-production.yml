@@ -17,8 +17,9 @@ on:
 
 # One starter runs, and a newer wake-up replaces one that has not started.
 # The run that starts reads main then, so it deploys the newest green commit
-# even when an older CI run finished later. It does not cancel a production
-# deploy that has already started.
+# even when an older CI run finished later. It cancels a queued deploy of
+# any other commit. It does not cancel a production deploy that has already
+# started; that run's first step stops on its own if a newer commit is green.
 concurrency:
   group: start-production
   cancel-in-progress: false

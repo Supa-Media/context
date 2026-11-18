@@ -36,13 +36,58 @@ test('a commit whose CI on main failed, is pending or never ran cannot be promot
   }
   // A green conclusion is enough. A skipped job listed beside it is not consulted.
   const asked = [];
+  const newer = 'c'.repeat(40);
   await requireStagingRelease(env, async (url) => {
     asked.push(String(url.pathname).includes('/compare/') ? 'compare' : url.pathname.split('/').at(-2));
-    if (String(url.pathname).includes('/compare/')) return { ok: true, json: async () => ({ status: 'ahead' }) };
-    return { ok: true, json: async () => ({ workflow_runs: [{ ...good, jobs: [{ name: 'ci / Test Shared Package', conclusion: 'skipped' }] }] }) };
+    if (String(url.pathname).includes('/compare/')) {
+      return { ok: true, json: async () => ({ status: 'ahead', ahead_by: 1, commits: [{ sha: newer }] }) };
+    }
+    const sha = url.searchParams.get('head_sha');
+    const run = sha === newer
+      ? { ...good, head_sha: newer, conclusion: 'failure' }
+      : { ...good, jobs: [{ name: 'ci / Test Shared Package', conclusion: 'skipped' }] };
+    return { ok: true, json: async () => ({ workflow_runs: [run] }) };
   });
-  assert.deepEqual(asked, ['compare', 'ci.yml']);
+  assert.deepEqual(asked, ['compare', 'ci.yml', 'ci.yml']);
   assert.ok(!asked.includes('deploy-staging.yml'));
+});
+
+test('a deploy stops before it changes anything when a newer commit is already green', async () => {
+  const newer = 'c'.repeat(40);
+  const cancelled = [];
+  const request = async (url, init = {}) => {
+    if (String(url.pathname).endsWith('/cancel')) {
+      cancelled.push(init.method);
+      return { ok: true, status: 202, json: async () => ({}) };
+    }
+    if (String(url.pathname).includes('/compare/')) {
+      return { ok: true, json: async () => ({ status: 'ahead', commits: [{ sha: newer }] }) };
+    }
+    const sha = url.searchParams.get('head_sha');
+    const run = sha === newer ? { ...good, head_sha: newer } : good;
+    return { ok: true, json: async () => ({ workflow_runs: [run] }) };
+  };
+  await assert.rejects(requireStagingRelease({ ...env, GITHUB_RUN_ID: '99' }, request), /superseded/);
+  assert.deepEqual(cancelled, ['POST']);
+  await assert.rejects(requireStagingRelease(env, request), /superseded/);
+});
+
+test('a newer commit whose CI is still running or red does not block this deploy', async () => {
+  const newer = 'c'.repeat(40);
+  for (const run of [
+    { ...good, head_sha: newer, status: 'in_progress', conclusion: null },
+    { ...good, head_sha: newer, conclusion: 'failure' },
+    { ...good, head_sha: newer, conclusion: 'skipped' },
+  ]) {
+    const request = async (url) => {
+      if (String(url.pathname).includes('/compare/')) {
+        return { ok: true, json: async () => ({ status: 'ahead', commits: [{ sha: newer }] }) };
+      }
+      const sha = url.searchParams.get('head_sha');
+      return { ok: true, json: async () => ({ workflow_runs: [sha === newer ? run : good] }) };
+    };
+    assert.equal(await requireStagingRelease(env, request), good.html_url);
+  }
 });
 
 test('a pin branch deploys its commit only when the name matches and the commit is on main', async () => {
