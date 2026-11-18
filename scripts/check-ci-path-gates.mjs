@@ -584,8 +584,8 @@ function expectFailure(name, fn, includes) {
 
 export function selfTest() {
   const mcp = readFileSync(join(ROOT, ".github/workflows/mcp.yml"), "utf8");
-  expectFailure("a unit slice dropped from the matrix", () => assertUnitSlices(mcp.replace("shard: [1, 2, 3]", "shard: [1, 2]")), "does not run slice");
-  expectFailure("a unit slice numbered wrong", () => assertUnitSlices(mcp.replace("shard: [1, 2, 3]", "shard: [1, 3, 4]")), "not 1 to 3");
+  expectFailure("a unit slice dropped from the matrix", () => assertUnitSlices(mcp.replace("shard: [1, 2, 3, 4, 5, 6]", "shard: [1, 2, 3, 4, 5]")), "does not run slice");
+  expectFailure("a unit slice numbered wrong", () => assertUnitSlices(mcp.replace("shard: [1, 2, 3, 4, 5, 6]", "shard: [1, 2, 3, 4, 5, 7]")), "not 1 to 6");
   expectFailure("the units check stops waiting", () => assertUnitSlices(mcp.replace("    needs: unit\n", "")), "is not the one");
   expectFailure(
     "broad package scope",
