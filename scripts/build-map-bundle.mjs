@@ -10,7 +10,7 @@
  * step is the editor's argument (`build-editor-bundle.mjs`) and holds the same
  * here: the app ships over the air with a pinned runtime, and the map must
  * open with no network. `__tests__/mapBundle.test.ts` fails when a source
- * changed and this was not re-run; the `editor-bundle` job in `ci.yml`
+ * changed and this was not re-run; the `editor-bundle` job in `editor-bundle.yml`
  * rebuilds both bundles and fails when the committed bytes differ.
  */
 

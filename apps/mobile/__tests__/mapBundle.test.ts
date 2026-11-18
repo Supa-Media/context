@@ -6,7 +6,7 @@
  * `scripts/build-map-bundle.mjs` and run in a web view. Same shape and same
  * two halves as `editorBundle.test.ts`: this file proves the staleness half
  * (every recorded source hashes to what it did at build time); the
- * `editor-bundle` job in `ci.yml` rebuilds and diffs the bytes, and the last
+ * `editor-bundle` job in `editor-bundle.yml` rebuilds and diffs the bytes, and the last
  * test pins that it still does.
  */
 
@@ -73,7 +73,7 @@ describe("what shipped is a script and nothing else", () => {
   });
 
   test("and what it IS is proved by rebuilding in CI, which must still be there", () => {
-    const workflow = readFileSync(join(repoRoot, ".github/workflows/ci.yml"), "utf8");
+    const workflow = readFileSync(join(repoRoot, ".github/workflows/editor-bundle.yml"), "utf8");
     const code = workflow
       .split("\n")
       .filter((line) => !line.trim().startsWith("#"))
