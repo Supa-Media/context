@@ -488,3 +488,24 @@ test("the truck-crew row runs with its research job still going, as Training has
   assert.equal(jobs.length, 1);
   assert.match(jobs[0].title, /wholesale tortilla places/);
 });
+
+// A Training conversation scored in context reads itself as an example only up to its moment (`texTraining.cjs`
+// UNTIL_ENV; truck-crew 96, 2026-11-18, quoted message 98). Sabotage: drop `envOf` in runConvo, or cut every test at
+// the conversation's first unit, and this fails.
+test("each test is cut at its own moment: units in one test at their earliest, held out none", async () => {
+  const fd = (text, at) => ({ id: `t${at}`, who: "Maya", text, at, labels: { fd: { must: ["answer"], star: true } } });
+  const c = conv([...chat.msgs.slice(0, 4), fd("first ask", "Mon 9:00"), fd("second ask", "Mon 9:00"), { id: "t6", who: "Tex", tex: true, text: "ok" }, fd("later ask", "Mon 15:30")], { id: "c9", set: "training" });
+  const seen = [];
+  const runTests = async (_tree, tests, opts) => {
+    for (const t of tests) seen.push([t, opts.envOf?.(t)?.TEX_TRAINING_UNTIL ?? null]);
+    return { rows: [], usd: 0, bars: {}, missing: [] };
+  };
+  await runFd([unit(c, 4), unit(c, 5), unit(c, 7)], { tree: TREE, fake: true, runTests, env: {} });
+  assert.deepEqual(seen, [["sets-1", "c9:4"], ["sets-2", "c9:7"]]);
+  seen.length = 0;
+  await runFd([unit(c, 4), unit(c, 7)], { tree: TREE, fake: true, runTests, holdOut: true, env: {} });
+  assert.deepEqual(seen.map(([, cut]) => cut), [null, null], "a held-out chat is dropped whole, never cut");
+  seen.length = 0;
+  await runFd([unit({ ...c, set: "dev" }, 4)], { tree: TREE, fake: true, runTests, env: {} });
+  assert.deepEqual(seen.map(([, cut]) => cut), [null], "a Dev chat is never an example");
+});
