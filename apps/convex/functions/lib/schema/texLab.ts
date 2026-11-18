@@ -174,4 +174,21 @@ export const texLabTables = {
     at: v.number(),
     data: v.optional(v.string()),
   }).index("by_convo_rev", ["convoId", "rev"]),
+  /**
+   * Which Lab runner slot a Lab run on GitHub holds (`functions/labRunnerSlots.ts`; `.github/workflows/tex-lab-run.yml`'s
+   * `lease` job). The Lab's runs share a pool of benchmark runner grants, one per connected slot, each signed in as the
+   * bench test account; a run with no free slot waits. One row per GitHub run attempt. `slot` is unset while the run
+   * waits. A holder's row is reclaimed when its GitHub run is no longer queued or running, or when it expires.
+   */
+  labRunnerLeases: defineTable({
+    ghRunId: v.string(),
+    attempt: v.number(),
+    labRunId: v.string(),
+    slot: v.optional(v.number()),
+    requestedAt: v.number(),
+    seenAt: v.number(),
+    expiresAt: v.number(),
+  })
+    .index("by_ghRun", ["ghRunId"])
+    .index("by_slot", ["slot"]),
 };

@@ -76,16 +76,25 @@ over a GitHub listener), with a Models pick of the AI gateway or Claude Code on
   account's concurrent limit rather than failing them). A run still open after
   three hours no longer holds a place.
 - **Public logs say counts and ids.** Results go to Convex, never into the log.
-- **The spend check signs in as the benchmark runner.** That grant rotates
-  its refresh token on every use and revokes itself when a retired one is
-  presented. A Lab run waits until no earlier runner sign-in is still going
-  (`scripts/bench-runner-lock.mjs`, the same list as the benchmark, replay,
-  nightly and the Test Set seed). The run job, which checks out the draft,
+- **A Lab run leases a runner slot.** The spend check signs in as one of three
+  Lab runner slots (`LAB_RUNNER_1`…`3`): each is its own grant of the bench
+  test account, made with `pnpm ai connect --lab-slot N`, and a slot's grant
+  rotates its refresh token on every use and revokes itself when a retired one
+  is presented. The `lease` job (main's checkout, the deploy key) takes a free
+  slot for the run through `functions/labRunnerSlots:acquire`, or waits for one
+  (`scripts/lab-runner-lease.mjs`, up to 170 minutes; a busy slot never fails a
+  run). A slot is held by one run at a time, and a holder whose GitHub run has
+  ended is reclaimed. The lease is released by the `release` job after the
+  write, so the next run that takes the slot reads the token it wrote. Lab runs
+  do not share the benchmark runner's grant, so they do not wait for
+  `scripts/bench-runner-lock.mjs`. The run job, which checks out the draft,
   seals the rotated token after that sign-in and again after the spend line.
   It does not write the secret. A later job checks out `main` only, opens the
   seal, checks the value is a refresh token (`crt1.…` or the legacy `crt_…`
-  form), and writes `BENCH_RUNNER_REFRESH_TOKEN_LIVE` in the production
-  environment. Tex replay writes that same secret the same way.
+  form), checks the slot is 1-3, and writes `LAB_RUNNER_<N>_REFRESH_TOKEN` in
+  the production environment with stdin. Tex replay still writes
+  `BENCH_RUNNER_REFRESH_TOKEN_LIVE` the same way. A salvage of a Lab run reads
+  the slot from its lease job's log line (`Leased Lab runner slot N`).
   The key is an RSA key made for the run. Its public half is all the branch
   job receives. Its private half is wrapped with AES under
   `BENCH_SECRET_WRITER_TOKEN` and leaves the key job only as ciphertext, as a
@@ -123,12 +132,12 @@ fails if a run could cover a Training chat. Without the deploy key split, a
 branch's code could rewrite the files the reporting step runs and act with the
 production deploy key; the code tests in `texLabRuns.test.ts` fail if a code
 name could be an option, a path climb or another repository's pull request.
-Two Lab runs signing in together, or a Lab run that spends the refresh token
-and does not write it back, presents a retired token next time and the
-gateway revokes the grant; the next Dev run then stops at `invalid_grant`
-until someone runs `pnpm ai connect` again. `bench-runner-lock.mjs` lists
-`tex-lab-run.yml` so the other runner workflows wait for it too. Putting the
-writer token back on the job that checks out the draft, or naming the
+Two Lab runs signing in on one slot's grant, or a Lab run that spends the
+refresh token and does not write it back, presents a retired token next time
+and the gateway revokes the grant; the next Dev run then stops at
+`invalid_grant` until someone runs `pnpm ai connect --lab-slot N` again. The
+lease is what keeps one run per slot. Putting the writer token back on the
+job that checks out the draft, or naming the
 repository admin token in `tex-lab-run.yml` or `tex-replay.yml`, lets that
 draft's install read a credential that writes production secrets.
 `scripts/check-bench-token-writer.mjs` fails on either. Passing `gh secret set`
