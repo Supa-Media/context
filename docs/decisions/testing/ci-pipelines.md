@@ -71,21 +71,28 @@ a minute. A suite that reads the shared fixture (`call`, `contextStore`,
 read an unseeded fixture and fail, which is the signal. Sabotage: a suite in a
 shard that throws fails `run.mjs integration` with a non-zero exit.
 
-## The gateway's unit files run in three slices
+## The gateway's unit files run in six slices
 
 _Decided 2026-11-02, from the owner's ask that CI for a Tex change be "super
 super quick"._ After the split above, `Test Gateway units` was the longest
 check on every gateway pull request: about 110 seconds of `node --test` over
-358 files on one four-core runner, against 65 for `Test Gateway`. It now runs
-as `Test Gateway units (1/3)` to `(3/3)`, each `pnpm test:unit INDEX/3`
-(`node --test --test-shard`, which splits by file), about 40 seconds of tests
-each; one job still named `Test Gateway units` is red unless every slice
-passed. `pnpm test` and `pnpm test:unit` with no slice still run everything.
+358 files on one four-core runner, against 65 for `Test Gateway`. It ran as
+three slices, about 40 seconds of tests each at the time.
 
-Dropping to one runner costs every gateway pull request about a minute.
-`check-ci-path-gates.mjs` (`assertUnitSlices`) fails when the matrix is not
-1 to N, when the run or the name does not say `/N`, or when the summary job
-stops waiting for the slices, because any of those runs some files nowhere.
+_Amended 2026-11-17._ The last 30 pull requests measured about 90 to 110
+seconds of tests on each of those three slices, and the summary check's wall
+time was 2m41 at the median and 4m40 at the 90th. Six slices,
+`Test Gateway units (1/6)` to `(6/6)`, each `pnpm test:unit INDEX/6`, halve
+the files on a runner. One job still named `Test Gateway units` is red unless
+every slice passed. `pnpm test` and `pnpm test:unit` with no slice still run
+everything. The required check stays `Test Gateway`, which is the integration
+suite, not a slice name.
+
+Dropping a slice, or folding them back onto fewer runners, puts those files
+on the queue in front of the required checks. `check-ci-path-gates.mjs`
+(`assertUnitSlices`) fails when the matrix is not 1 to N, when the run or the
+name does not say `/N`, or when the summary job stops waiting for the slices,
+because any of those runs some files nowhere.
 
 ## A Worker's secrets go up in one request
 
