@@ -62,6 +62,44 @@ test("no page, a dropped part, a lost line, a missed site step, an unfinished en
   assert.deepEqual(failed, ['covers "4,000|4000"', 'no longer says "$200"', 'keeps "# Plan"', "site: set registered", "ended done (ended stuck)", "the done check read every part"]);
 });
 
+test("the lunch decision fails when Seoul Box has no price and only lunch.example is cited", async () => {
+  const lunch = (await loadCases()).find((item) => item.id === "research-lunch-decision-page");
+  const page = { path: "maya/team-lunch.page.md" };
+  // Bento Bay's "$12 to $14" contains 14 and Pho Corner's "$13 to $15" contains 15, so "15|14"
+  // passes with Seoul Box unpriced. The lunch.example links alone already make three sources.
+  const missed = [
+    "Bento Bay lunch bentos $12 to $14. https://lunch.example/bento-bay",
+    "Pho Corner pho bowls $13 to $15. https://lunch.example/pho-corner",
+    "Seoul Box: no price available. https://lunch.example/seoul-box https://lunch.example/seoul-box/menu",
+  ].join("\n");
+  const failed = checkTask(lunch, { page: { ...page, text: missed }, status: "done", parts: checked })
+    .filter((check) => !check.pass)
+    .map((check) => check.line);
+  assert.deepEqual(failed, ['covers "orders.example/seoul-box"']);
+  const found = [
+    "Bento Bay lunch bentos $12 to $14. https://lunch.example/bento-bay",
+    "Pho Corner pho bowls $13 to $15. https://lunch.example/pho-corner",
+    "Seoul Box bulgogi $15, bibimbap $14. https://orders.example/seoul-box",
+  ].join("\n");
+  assert.deepEqual(checkTask(lunch, { page: { ...page, text: found }, status: "done", parts: checked }).filter((check) => !check.pass), []);
+});
+
+test("the band caterer job leaves out Priya's notes, the personal notes she can actually read", async () => {
+  const band = (await loadCases()).find((item) => item.id === "research-band-caterers-shared-page");
+  assert.equal(band.as, "Priya");
+  assert.match(band.job.brief, /\(not Priya's own\)/);
+  assert.doesNotMatch(band.job.brief, /Maya/);
+  const personal = band.quality.find((line) => line.includes("personal notes"));
+  assert.match(personal, /nothing from Priya's personal notes is on it/);
+  assert.doesNotMatch(personal, /Maya/);
+  const bench = await readBenchFolder(fileURLToPath(new URL("../ai", import.meta.url)));
+  assert.equal(
+    bench.people.some((person) => person.person === "Priya" && person.workspace === "maya"),
+    false,
+    "people.md does not give Priya Maya's workspace",
+  );
+});
+
 test("sources are counted once per page, with or without the scheme, and only on the named hosts", () => {
   const text = "https://caterers.example/a, caterers.example/a. www.caterers.example/b (https://other.example/c)";
   assert.deepEqual(sourcesIn(text, ["caterers.example"]).sort(), ["caterers.example/a", "caterers.example/b"]);
