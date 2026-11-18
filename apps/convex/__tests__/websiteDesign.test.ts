@@ -125,6 +125,16 @@ describe("website designs", () => {
     const page = await resolve(f, "/");
     if (page.kind !== "page") throw new Error("expected a page");
     expect(page.design?.css ?? "").not.toContain("--accent");
+
+    // Once the narrowing scan has landed (nothing pending), the look Publish
+    // kept is not drawn in its place, and no kept copy of it survives.
+    await asUser(f.t, f.owner).action(api.functions.websites.refreshRouteStatuses, { workspaceId: f.workspaceId });
+    const settled = await resolve(f, "/");
+    if (settled.kind !== "page") throw new Error("expected a page");
+    expect(settled.design?.css ?? "").not.toContain("--accent");
+    expect(settled.design?.frame).toContain("<main>{ content }</main>");
+    const kept = Object.entries(f.backend.snapshot()).filter(([key]) => key.startsWith(".context/website/releases/"));
+    expect(kept.filter(([, body]) => body.includes("--accent"))).toEqual([]);
   });
 
   test("a members-only stylesheet is drawn for members only", async () => {
