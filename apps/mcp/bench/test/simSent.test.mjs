@@ -134,3 +134,39 @@ test("frontFor gives every set conversation `gmail: sends`, and parseTest reads 
   assert.match(front, /^gmail: sends$/m);
   assert.equal(parseTest(`---\n${front}\n---\n\n# T\n\n## 1. hi\n\n- person texts: "hi"\n`).front.gmail, "sends");
 });
+
+/**
+ * A written world is the record (2026-11-18, Training trial-hire 4): the conversation's own world defines the person's
+ * Gmail, and an invented mail beside it contradicted it ("three emails say it's attached", when the one email from
+ * Bram attached only an invite). So a search the fixture has hits for returns those hits and the real sends, and the
+ * simulated world is not asked; a search the fixture finds nothing for still asks it. A mailbox with no written mail
+ * keeps the simulated world beside it, as before. Sabotage: dropping the `writtenMail` condition in `simulateServices`
+ * fails the first test (the invented row shows beside the fixture hit).
+ */
+test("a written mailbox with a fixture hit: the hit and the real sends, and the simulated world is not asked", async () => {
+  const { send, asked } = scriptedSend({ "gmail search": { results: [{ id: "inv1", from: "Bram <bram@example.invalid>", subject: "Resume attached", snippet: "Resume attached" }] } });
+  const calls = [{ email: { to: ["priya@example.invalid"], subject: "Dinner Friday", body: "Friday 7?" }, check: false, draft: false, answer: { ok: true, from: INBOX } }];
+  const sim = createSimWorld({ send, setting: "Tex has Gmail", person: "John", memo: simMemo(), sent: (address) => sentMail(calls, address) });
+  const flags = { mailResults: async () => inboxMail };
+  simulateServices(sim, { flags }, { connectMail: true, writtenMail: true });
+  const found = await flags.mailResults("resume");
+  assert.deepEqual(found.map((row) => row.subject), ["Flat rent", "Dinner Friday"], "the written mail and the real send, and no invented mail");
+  assert.equal(asked.length, 0, "the simulated world is not asked when the fixture has a hit");
+});
+
+test("a written mailbox with no fixture hit still asks the simulated world", async () => {
+  const { send, asked } = scriptedSend({ "gmail search": { results: [{ id: "inv1", from: "Bram <bram@example.invalid>", subject: "Invoice", snippet: "Invoice" }] } });
+  const sim = createSimWorld({ send, setting: "Tex has Gmail", person: "John", memo: simMemo(), sent: () => [] });
+  const flags = { mailResults: async () => [] };
+  simulateServices(sim, { flags }, { connectMail: true, writtenMail: true });
+  assert.deepEqual((await flags.mailResults("invoice")).map((row) => row.subject), ["Invoice"], "a search the fixture finds nothing for still turns up what the world has");
+  assert.equal(asked.length, 1);
+});
+
+test("a mailbox with no written mail keeps the simulated world beside a fixture hit, as before", async () => {
+  const { send } = scriptedSend({ "gmail search": { results: [{ id: "inv1", from: "Bram <bram@example.invalid>", subject: "Invoice", snippet: "Invoice" }] } });
+  const sim = createSimWorld({ send, setting: "Tex has Gmail", person: "John", memo: simMemo(), sent: () => [] });
+  const flags = { mailResults: async () => inboxMail };
+  simulateServices(sim, { flags }, { connectMail: true, writtenMail: false });
+  assert.deepEqual((await flags.mailResults("x")).map((row) => row.subject), ["Flat rent", "Invoice"]);
+});
