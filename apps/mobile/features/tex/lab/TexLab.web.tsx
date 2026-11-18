@@ -14,6 +14,7 @@
 import { useEffect, useState } from "react";
 import { useQuery } from "convex/react";
 import { AdminChrome } from "../../admin/AdminPane";
+import { StaffOnly } from "../../admin/StaffOnly.web";
 import { StaffFactorGate } from "../../admin/StaffFactorGate";
 import { api } from "@context/convex/_generated/api";
 import { allCases, cvDiff, diff } from "./engine/diff";
@@ -111,10 +112,7 @@ export function TexLab() {
       <style href="tex-lab-css" precedence="default">{LAB_CSS}</style>
       <title>{TEX_LAB_TITLE}</title>
       {isAdmin === false ? (
-        <div className="pgin" data-testid="tex-lab-staff-only" style={{ paddingTop: 60 }}>
-          <h1>Staff only</h1>
-          <p className="lede">This page is for the people who run Tex. If that is you, sign in with your staff account.</p>
-        </div>
+        <StaffOnly runs="Tex" testID="tex-lab-staff-only" textClass="lede" />
       ) : isAdmin === true ? (
         <Lab />
       ) : null}
