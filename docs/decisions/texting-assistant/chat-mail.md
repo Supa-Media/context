@@ -128,3 +128,23 @@ Letting anyone in the chat share, or reading a mailbox through the binder's
 grant, puts one person's mail in front of people they never chose. Dropping
 the per-message re-check lets a turn read any message by id once it knows
 one, whatever the share was narrowed to.
+
+## A calendar shared with a group chat
+
+Decided by Dev2, 2026-11-19, after a Training chat where a member's calendar
+had a wedding on Saturday while the chat planned around Sunday, and the
+chat's check-in could not see the calendar at all.
+
+A calendar is shared the way a mailbox is: only by its own person, in a chat
+they are in, by asking Tex there (`chat_share_calendar`, judged against their
+own words); left without an address it shares every calendar they connected.
+`read_calendar` on the chat's grant reaches only the calendars shared with
+that chat (`lib/textGroupCalendar.ts`, `claimPersonCalendarRead`), read live
+and kept nowhere, each against its own person's hourly reads, and only while
+the chat is not muted, the person is still in it and the calendar is still
+connected. Only the sharer stops it. The chat's check-in reads the shared
+calendars and holds them against what the chat said: a clash is one short
+question to the person it is about, never a guess
+(`groupRunQuestions.cjs`). `apps/convex/__tests__/textGroupCalendar.test.ts`
+fails if a chat reads a calendar nobody shared with it, or one shared into
+another chat.

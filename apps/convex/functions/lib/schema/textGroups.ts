@@ -170,4 +170,18 @@ export const textGroupTables = {
   })
     .index("by_group", ["groupKey"])
     .index("by_user", ["userId"]),
+  /**
+   * A Google calendar shared with one group chat (`lib/textGroupCalendar.ts`): the mirror of `chatMailShares`, without
+   * a search. Lower-cased address, one of the sharer's own connected calendars; the sharer's personal workspace holds
+   * the connection. Nothing of a day is kept here.
+   */
+  chatCalendarShares: defineTable({
+    groupKey: v.string(),
+    workspaceId: v.id("workspaces"),
+    userId: v.id("users"),
+    address: v.string(),
+    createdAt: v.number(),
+  })
+    .index("by_group", ["groupKey"])
+    .index("by_user", ["userId"]),
 };

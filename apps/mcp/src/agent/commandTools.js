@@ -55,6 +55,8 @@ const REFUSALS = {
   bad_request: "That value isn't one of the options, so nothing was changed. Offer the valid options.",
   mail_refused:
     "Not shared: only the mailbox's own person can share it, from a connected Gmail, in a chat they are in. Nothing was changed.",
+  calendar_refused:
+    "Not shared: only the calendar's own person can share it, from a connected Google Calendar, in a chat they are in. Nothing was changed.",
   too_long: "Not saved: the instructions can hold at most 1,500 characters. Nothing was changed; say so and offer to shorten them.",
   nothing_to_undo: "There's nothing to undo. Nothing was changed.",
 };
@@ -63,6 +65,8 @@ const REFUSALS = {
 const CONSENT_WORDS = {
   share_mail: /\b(mail|email|e-mail|inbox|gmail)\b/i,
   unshare_mail: /\b(mail|email|e-mail|inbox|gmail)\b/i,
+  share_calendar: /\b(calendars?|schedule|cal|gcal)\b/i,
+  unshare_calendar: /\b(calendars?|schedule|cal|gcal)\b/i,
   review_sharing: /\b(shar\w*|review\w*|conversations?|chats?)\b/i,
   // A lasting request about how Tex talks, in their own words (Dev2, 2026-11-01): never a line an email or a quote put there.
   instructions: /\b(from now on|going forward|always|never|stop|don'?t|do not|no more|call (?:me|us)|instructions?|settings?|remember|be (?:more|less)|answer in|reply in|talk|write|use|undo|remove|forget|emoji\w*|humou?r|jokes?|tone|bubbles?|warm\w*|enthusias\w*|short\w*|long\w*|detail\w*|formal|casual|brief)\b/i,
@@ -70,6 +74,8 @@ const CONSENT_WORDS = {
 const CONSENT_ACTIONS = {
   share_mail: "share the person's own email inbox with this group chat",
   unshare_mail: "stop sharing the person's own email inbox with this group chat",
+  share_calendar: "share the person's own Google Calendar with this group chat",
+  unshare_calendar: "stop sharing the person's own Google Calendar with this group chat",
   review_sharing: "change whether the person's finished conversations are shared with the Context team",
   instructions: "change, from now on, how Tex talks in this chat",
 };
@@ -149,7 +155,8 @@ export function commandTools({ run, group, consent = async () => false, snapshot
           const personal = group !== null ? " Personal instructions don't apply in groups." : "";
           const sharing = typeof result.sharing === "boolean" ? ` Sharing their finished chats with the Context team: ${result.sharing ? "on" : "off"}.` : "";
           const mail = Array.isArray(result.mail) && result.mail.length ? ` Mail shared with this chat: ${result.mail.map((row) => `@${row.handle}'s ${row.address}`).join(", ")}.` : group !== null ? " No one's mail is shared with this chat." : "";
-          return `Instructions: ${saidText(result)}.${personal}${sharing}${mail} There is no menu: they change any of it by telling you, in their own words.`;
+          const calendar = Array.isArray(result.calendar) && result.calendar.length ? ` Calendars shared with this chat: ${result.calendar.map((row) => `@${row.handle}'s ${row.address}`).join(", ")}.` : group !== null ? " No one's calendar is shared with this chat." : "";
+          return `Instructions: ${saidText(result)}.${personal}${sharing}${mail}${calendar} There is no menu: they change any of it by telling you, in their own words.`;
         })(),
         typeof snapshot === "function" ? snapshot().catch(() => "") : Promise.resolve(""),
       ]);
@@ -246,7 +253,31 @@ export function commandTools({ run, group, consent = async () => false, snapshot
         result.count > 0 ? `Stopped sharing ${result.count === 1 ? "that mailbox" : `${result.count} mailboxes`} with this chat.` : "None of their mail was shared here, so nothing changed.",
       )(),
   };
-  return [settingsGet, instructionsSet, mute, status, shareMail, unshareMail];
+  const shareCalendar = {
+    tool: {
+      name: "chat_share_calendar",
+      description:
+        "Share the asking person's own connected Google Calendar with this group chat: one address, or every calendar they connected when none is given. Only the calendar's own " +
+        "person can, in a chat they are in; anything else is refused and changes nothing.",
+      inputSchema: { type: "object", properties: { address: { type: "string", description: "one of their connected calendar addresses; left out shares every calendar they connected" } } },
+    },
+    call: async (args) =>
+      !(await asked("share_calendar")) ? text(OWN_WORDS_REFUSAL, true) : await call({ kind: "share_calendar", ...(args?.address ? { address: args.address } : {}) }, (result) =>
+        `Shared ${result.addresses.join(", ")} with this chat: anyone here can ask what's on it, and the chat's check-ins compare it with what's said here.`,
+      )(),
+  };
+  const unshareCalendar = {
+    tool: {
+      name: "chat_unshare_calendar",
+      description: "Stop sharing the asking person's own calendar with this chat: one address, or all of theirs when no address is given. Never anyone else's.",
+      inputSchema: { type: "object", properties: { address: { type: "string" } } },
+    },
+    call: async (args) =>
+      !(await asked("unshare_calendar")) ? text(OWN_WORDS_REFUSAL, true) : await call({ kind: "unshare_calendar", ...(args?.address ? { address: args.address } : {}) }, (result) =>
+        result.count > 0 ? `Stopped sharing ${result.count === 1 ? "that calendar" : `${result.count} calendars`} with this chat.` : "None of their calendars was shared here, so nothing changed.",
+      )(),
+  };
+  return [settingsGet, instructionsSet, mute, status, shareMail, unshareMail, shareCalendar, unshareCalendar];
 }
 
 /** The `send` actions these tools are shown as (`sixTools.js`). */
@@ -257,5 +288,7 @@ export const COMMAND_SEND_ACTIONS = {
   chat_status: { tool: "chat_status", summary: "Which workspace this group chat uses." },
   chat_share_mail: { tool: "chat_share_mail", summary: "Share the asker's own Gmail with this group chat." },
   chat_unshare_mail: { tool: "chat_unshare_mail", summary: "Stop sharing the asker's own mail with this chat." },
+  chat_share_calendar: { tool: "chat_share_calendar", summary: "Share the asker's own Google Calendar with this group chat." },
+  chat_unshare_calendar: { tool: "chat_unshare_calendar", summary: "Stop sharing the asker's own calendar with this chat." },
   review_sharing: { tool: "review_sharing_set", summary: "Turn sharing their finished conversations with the Context team on or off." },
 };
