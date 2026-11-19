@@ -33,6 +33,7 @@
 
 import { folded } from "../agent/folded.js";
 import { offersAHeldChange } from "../agent/claimCheck.js";
+import { recipientsShown } from "./shownEmail.js";
 
 const MIN_TEXT = 20;
 
@@ -109,4 +110,17 @@ export function agreedToForward(session, recipients) {
   const liked = session?.egress?.liked;
   if (typeof liked !== "string" || !offersAHeldChange(liked) || !Array.isArray(recipients) || recipients.length === 0) return false;
   return agreedWordsHold(session, recipients);
+}
+
+/*
+  AN EMAIL THEY SAID "SEND" TO, ITS RECIPIENT NAMED EARLIER IN THE SAME ASK (trial-hire 123, 2026-11-19;
+  `shownEmail.js`). Tex named the recipient ("Send to bram.visser@example.com on his thread?"), then showed a reworded
+  body and asked "Send?". Their "send" holds the body word for word but not the address. It goes at once only when Tex
+  itself named every recipient in its recent texts and the Mail checker, reading those same texts, said they asked for
+  this email (`emailGate.js`), as a forward needs the checker's yes. Once a turn, as above.
+*/
+/** Whether the words they agreed to hold this email's body and Tex named every recipient lately; spends the agreement when so. */
+export function agreedToShownEmail(session, recipients, body) {
+  if (!recipientsShown(session?.egress?.turn?.history, recipients)) return false;
+  return agreedWordsHold(session, [body]);
 }

@@ -93,6 +93,8 @@ function readBlock(id, lines) {
   const routeLine = tail.find((line) => line.startsWith("Route: "));
   // What the turn did, short (`turnSteps.mjs`): read back for a Lab row's steps line.
   const stepsLine = tail.find((line) => line.startsWith("Steps: "));
+  // Each failed tool's own error (`toolErrors.mjs`).
+  const errorsLine = tail.find((line) => line.startsWith("Tool errors: "));
   let time = null;
   if (timeLine) {
     const m = timeLine.match(TIME);
@@ -115,6 +117,7 @@ function readBlock(id, lines) {
     routes: routeLine ? readJobsLine(routeLine.slice("Route: ".length)) : [],
     time,
     ...(stepsLine ? { steps: stepsLine.slice("Steps: ".length) } : {}),
+    ...(errorsLine ? { toolErrors: errorsLine.slice("Tool errors: ".length).split(" | ").filter(Boolean) } : {}),
     error: errorLine ? errorLine.slice("Error: ".length) : null,
   };
 }

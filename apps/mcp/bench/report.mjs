@@ -308,6 +308,8 @@ function runBlock(run, setup) {
   if (run.turnRoutes?.length) lines.push(`Route: ${JSON.stringify(run.turnRoutes.map(({ pick, sure, door, fellBack }) => ({ ...(pick ? { pick } : {}), ...(typeof sure === "number" ? { sure } : {}), ...(door ? { door } : {}), ...(fellBack ? { fellBack } : {}) })))}`, "");
   // What the turn did, short (`turnSteps.mjs`): one line, read back for a Lab row's steps.
   if (run.steps) lines.push(`Steps: ${run.steps}`, "");
+  // Each failed tool's own error, short (`toolErrors.mjs`): read back for a Lab row's detail.
+  if (run.toolErrors?.length) lines.push(`Tool errors: ${run.toolErrors.join(" | ")}`, "");
   if (run.delivered?.length) lines.push(`Delivered: ${JSON.stringify(run.delivered.map(({ title, state, parts, advisorCalls, usd, capped }) => ({ title, state, parts, advisorCalls, usd, ...(capped ? { capped } : {}) })))}`, "");
   if (run.changes?.length) {
     lines.push("Changes recorded:", "");

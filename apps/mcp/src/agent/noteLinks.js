@@ -42,6 +42,9 @@
  * nothing, and that is worse than none.
  */
 
+import { isPagePath } from "../pages.js";
+import { isTexOwnNote, noteWrite } from "./pageNotice.js";
+
 const WRITTEN = /^written: (.+?) \(etag /;
 const READ = /^(etag: [^\n]*\npath: ([^\n]+))/;
 
@@ -124,23 +127,93 @@ function inWorkspace(name, args, contexts, result) {
 }
 
 /**
- * Wrap a dispatcher so a successful `write_note` or `read_note` answers with
- * the note's link as well. Everything else, a failed call included, passes
- * through untouched.
+ * A TEXTED TURN'S FLOOR: THE SAVED NOTE'S LINK ON ITS OWN LINE (owner's report, 2026-11-19).
+ *
+ * Tex saved an offboarding checklist, then texted "Here it is" with no link. The `link:` line above
+ * is the model's to pass on, and it sometimes drops it. So the turn keeps `saved`, the deliverable
+ * notes it made, and `withSavedLink` (run on the reply that gets texted, `texEntryPoint/sendTheReply.js`)
+ * adds the last one's link when the reply does not already link it.
+ *
+ * A deliverable is a write_note that made a note this turn (or a page, created or changed), and it is
+ * not a comment, a mail, a site or a share (a share's own result carries the link to send), nor one of
+ * Tex's own notes and records (`isTexOwnNote`: memory, to-dos, routines, the inbox). An update to a plain
+ * note that already existed does not count: it is often a fact kept in a topic note, not the answer. A
+ * later archive or move of a saved note takes it back out, since its plain copy is no longer there
+ * (a page written, then the plain copy archived by the page's own steps). `remember` never counts.
  */
-export function withNoteLinks(callTool, { origin, contexts }) {
+
+/** The write_note's path (from its `written:` line) when the save counts as a deliverable, else null. */
+function deliverablePath(name, args, result) {
+  const written = noteWrite(name, args, result);
+  const path = WRITTEN.exec(result?.content?.[0]?.text ?? "")?.[1];
+  if (written === null || !path || ["comment", "mail", "site", "share"].some((key) => args?.[key] != null)) return null;
+  if (isTexOwnNote(path)) return null;
+  return written.created === true || isPagePath(path) ? path : null;
+}
+
+/** The path a saved call's key: no leading slash, case-insensitive. */
+const keyOf = (path) => String(path ?? "").trim().replace(/^\/+/, "").toLowerCase();
+
+/** The path an archive or move took out of its place, or undefined for any other call. */
+function leftBehind(name, args) {
+  if (name === "archive_note") return args?.path;
+  if (name === "move_note") return args?.source;
+  return undefined;
+}
+
+/** Add `entry` to `saved` at the end, replacing one for the same note. */
+function remember(saved, entry) {
+  const at = saved.findIndex((item) => item.slug.toLowerCase() === entry.slug.toLowerCase() && keyOf(item.path) === keyOf(entry.path));
+  if (at !== -1) saved.splice(at, 1);
+  saved.push(entry);
+}
+
+/** Take every saved note at `path` back out. */
+function forget(saved, path) {
+  const key = keyOf(path);
+  if (key === "") return;
+  for (let at = saved.length - 1; at >= 0; at--) if (keyOf(saved[at].path) === key) saved.splice(at, 1);
+}
+
+/**
+ * Wrap a dispatcher so a successful `write_note` or `read_note` answers with
+ * the note's link as well, and `saved` (the turn's own array) keeps the
+ * deliverable notes it saved (`withSavedLink`). Everything else, a failed call
+ * included, passes through untouched.
+ */
+export function withNoteLinks(callTool, { origin, contexts, saved = null }) {
   if (origin === null) return callTool;
   return async (name, args) => {
     const result = await callTool(name, args);
     if (result?.isError) return inWorkspace(name, args, contexts, result);
+    const gone = saved !== null ? leftBehind(name, args) : undefined;
+    if (gone !== undefined) forget(saved, gone);
     if (name !== "write_note" && name !== "read_note") return result;
     const first = result?.content?.[0];
     const slug = slugFor(args, contexts);
     if (typeof first?.text !== "string" || slug === null) return result;
     const text = linked(name, args, first.text, origin, slug);
     if (!text) return result;
+    const path = saved !== null && name === "write_note" ? deliverablePath(name, args, result) : null;
+    if (path !== null) remember(saved, { slug, path, url: noteLinkUrl(origin, slug, path) });
     return { ...result, content: [{ ...first, text }, ...result.content.slice(1)] };
   };
+}
+
+/**
+ * The reply with the last saved note's link on its own line, when it does not already link one
+ * of them (`withNoteLinks`). Unchanged for no origin, no saved note, or a blank reply. A link
+ * matches by its exact url or by the note it points at (slug and path, case-insensitive, so the
+ * `/p/` and `/note/` shapes and encoded variants count). Only one link is ever appended.
+ */
+export function withSavedLink(answer, saved, origin) {
+  if (origin === null || !Array.isArray(saved) || saved.length === 0 || typeof answer !== "string" || answer.trim() === "") return answer;
+  if (saved.some((entry) => answer.includes(entry.url))) return answer;
+  const linkedAlready = sentNoteLinks(answer, origin, { limit: 20 }).some((link) =>
+    saved.some((entry) => entry.slug.toLowerCase() === link.slug.toLowerCase() && keyOf(entry.path) === keyOf(link.path)),
+  );
+  if (linkedAlready) return answer;
+  return `${answer.replace(/\s+$/, "")}\n${saved[saved.length - 1].url}`;
 }
 
 /**

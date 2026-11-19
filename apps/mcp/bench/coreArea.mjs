@@ -111,6 +111,8 @@ export function coreCases({ test, testRaw, resultRaw, keyRaw, setup = SETUP }) {
     const fallbacks = answers.filter((a) => runIds.includes(a.id)).reduce((n, a) => n + fallbacksIn(a.tools), 0);
     // What the turn did (`turnSteps.mjs`): the first answered run's steps line, shown on the row beside its rounds, never a score.
     const steps = answers.find((a) => runIds.includes(a.id) && typeof a.steps === "string" && a.steps !== "")?.steps ?? null;
+    // Each failed tool's own error on its runs (`toolErrors.mjs`): why a tool failed, shown on the row, never a score.
+    const toolErrors = [...new Set(answers.filter((a) => runIds.includes(a.id)).flatMap((a) => a.toolErrors ?? []))].slice(0, 6);
     rows.push({
       ...(bench.length > 0 ? { bench } : {}),
       misses,
@@ -121,6 +123,7 @@ export function coreCases({ test, testRaw, resultRaw, keyRaw, setup = SETUP }) {
       ...(routes.length > 0 ? { routes } : {}),
       ...(fallbacks > 0 ? { fallbacks } : {}),
       ...(steps !== null ? { steps } : {}),
+      ...(toolErrors.length > 0 ? { toolErrors } : {}),
       id: `${test}/q${c.question}`,
       right: cell.runs > 0 && cell.passed === cell.runs,
       results,

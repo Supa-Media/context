@@ -1,6 +1,7 @@
 bench/test/benchDays.test.mjs
 bench/test/byCode.test.mjs
 bench/test/benchTools.test.mjs
+bench/test/benchSetupBugs.test.mjs
 bench/test/checks.test.mjs
 bench/test/fluff.test.mjs
 bench/test/judge.test.mjs
@@ -266,6 +267,7 @@ test/agentClaimCheck.test.mjs
 test/agentHandback.test.mjs
 test/calendarWords.test.mjs
 test/emailGateTiming.test.mjs
+test/emailShownCopy.test.mjs
 test/checkInSources.test.mjs
 test/sessionInstructionsTree.test.mjs
 test/agentTravelTime.test.mjs
