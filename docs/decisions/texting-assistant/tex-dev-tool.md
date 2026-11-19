@@ -122,7 +122,9 @@ row rules live in `packages/shared/src/texFailures.cjs`, which the Lab can read 
 Each row also carries `tags`, a heuristic read of its failed gold lines and the judge's reasons (`tagsOf`: missed_checkin,
 broken_deliverable, facts, didnt_act, asked_instead, too_long; none is "other"). The scoring run stores them on each failing row;
 older runs get them computed at read time. `group: true` files the rows under their first tag with counts. Tags never change
-what passes, the score or the total.
+what passes, the score or the total. Each row also carries `stability` (`stable` when it failed every repeat, `flaky` when it
+passed some, `once` when it did not repeat), `only: "stable" | "flaky"` keeps just one kind, and stable rows sort before flaky
+ones, which sort before once.
 *What a "simplification" would cost:* a triage that reads each row again, and a flaky row that a failed-only filter hides
 (`apps/mcp/test/texDevFailures.test.mjs` "failingRows keeps failed and flaky rows", "the view: ... a flaky row's passes").
 
