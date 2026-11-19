@@ -201,9 +201,9 @@ export function texLedger(sql, { now = Date.now, guard = () => {} } = {}) {
      * arguments and result and a reply's words (what a turn's prompt reads);
      * `since` / `until` keep entries in that span of time. `ids` keeps only those entries (`read_back` opens one), and
      * `keepArgs` keeps a slim read's arguments for tool calls of those names (the reads index, `agent/readsIndex.js`,
-     * lists where each page or note came from without loading what it said). `steps` keeps only `step` entries of those names.
+     * lists where each page or note came from without loading what it said).
      */
-    read(chat, { after = null, before = null, kinds = null, limit = MAX_READ, slim = false, since = null, until = null, job = null, jobs = true, ids = null, keepArgs = null, steps = null } = {}) {
+    read(chat, { after = null, before = null, kinds = null, limit = MAX_READ, slim = false, since = null, until = null, job = null, jobs = true, ids = null, keepArgs = null } = {}) {
       checkChat(chat);
       const size = Math.min(MAX_READ, Number.isSafeInteger(limit) && limit > 0 ? limit : MAX_READ);
       const wanted = Array.isArray(kinds) ? kinds.filter((kind) => LEDGER_KINDS.has(kind)) : null;
@@ -218,15 +218,12 @@ export function texLedger(sql, { now = Date.now, guard = () => {} } = {}) {
       const jobClause = oneJob !== null ? " AND (json_extract(entry, '$.jobId') = ? OR (kind = 'job' AND json_extract(entry, '$.job') = ?))" : jobs === false ? " AND json_extract(entry, '$.jobId') IS NULL" : "";
       const picked = Array.isArray(ids) ? ids.filter((id) => typeof id === "string" && ID.test(id)).slice(0, 50) : null;
       const idClause = picked === null ? "" : picked.length === 0 ? " AND 0" : ` AND json_extract(entry, '$.id') IN (${picked.map(() => "?").join(",")})`;
-      // `steps`: only `step` entries of those names (a turn's `failed` line, `agent/ledger.js` `STEP_NAMES`), other kinds as `kinds` says.
-      const stepNames = Array.isArray(steps) ? steps.filter((name) => typeof name === "string" && /^[a-z_]{1,32}$/.test(name)).slice(0, 20) : null;
-      const stepClause = stepNames === null ? "" : stepNames.length === 0 ? " AND kind != 'step'" : ` AND (kind != 'step' OR json_extract(entry, '$.step') IN (${stepNames.map(() => "?").join(",")}))`;
-      const binds = [...(wanted ?? []), ...(from === null ? [] : [from]), ...(to === null ? [] : [to]), ...(oneJob !== null ? [oneJob, oneJob] : []), ...(picked ?? []), ...(stepNames ?? [])];
+      const binds = [...(wanted ?? []), ...(from === null ? [] : [from]), ...(to === null ? [] : [to]), ...(oneJob !== null ? [oneJob, oneJob] : []), ...(picked ?? [])];
       const argsKept = new Set(Array.isArray(keepArgs) ? keepArgs.filter((name) => typeof name === "string") : []);
       const newest = Number.isSafeInteger(before);
       const found = newest
-        ? rows(sql.exec(`SELECT seq, entry FROM ledger WHERE chat = ? AND seq < ?${kindClause}${timeClause}${jobClause}${idClause}${stepClause} ORDER BY seq DESC LIMIT ?`, chat, before, ...binds, size + 1))
-        : rows(sql.exec(`SELECT seq, entry FROM ledger WHERE chat = ? AND seq > ?${kindClause}${timeClause}${jobClause}${idClause}${stepClause} ORDER BY seq LIMIT ?`, chat, Number.isSafeInteger(after) ? after : -Number.MAX_SAFE_INTEGER, ...binds, size + 1));
+        ? rows(sql.exec(`SELECT seq, entry FROM ledger WHERE chat = ? AND seq < ?${kindClause}${timeClause}${jobClause}${idClause} ORDER BY seq DESC LIMIT ?`, chat, before, ...binds, size + 1))
+        : rows(sql.exec(`SELECT seq, entry FROM ledger WHERE chat = ? AND seq > ?${kindClause}${timeClause}${jobClause}${idClause} ORDER BY seq LIMIT ?`, chat, Number.isSafeInteger(after) ? after : -Number.MAX_SAFE_INTEGER, ...binds, size + 1));
       const more = found.length > size;
       const entries = found.slice(0, size).map((row) => {
         const entry = { ...JSON.parse(row.entry), seq: Number(row.seq) };
