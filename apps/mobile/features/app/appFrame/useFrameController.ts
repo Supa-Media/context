@@ -41,6 +41,17 @@ import { NO_CONTENT_INSETS, type FrameApi } from "./context";
  * exactly the sequence the frame always called them in. `AppFrame` still owns
  * the provider and the drawing; this owns the arithmetic.
  */
+/**
+ * The top bar's panel button on an open panel: unfold it when it is folded to
+ * its strip, close it when it is unfolded. The strip has no button of its own
+ * to unfold the panel as it was (Dev2, 2026-11-19: that corner, a chevron and a
+ * rule over the strip's tabs under the top bar's own panel button, "looks
+ * crazy"), so this button is that way back; a closed panel opens unfolded.
+ */
+export function asideAfterToggle(open: boolean, folded: boolean): { asideOpen: boolean; asideFolded: false } {
+  return { asideOpen: open && folded ? true : !open, asideFolded: false };
+}
+
 export function useFrameController({
   explorer,
   aside,
@@ -204,8 +215,8 @@ export function useFrameController({
       if (current.focus) return { ...current, focus: false };
       const field = asideToggleFor(densityFor(width));
       if (field === null) return current;
-      // Opening it from the top bar brings it back unfolded.
-      return { ...current, [field]: !current[field], asideFolded: false, explorerPeeking: false };
+      // From the top bar a folded panel unfolds, an unfolded one closes, a closed one opens unfolded.
+      return { ...current, ...asideAfterToggle(current[field], current.asideFolded), explorerPeeking: false };
     });
   }, [width]);
 

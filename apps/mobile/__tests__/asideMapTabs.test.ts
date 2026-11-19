@@ -35,6 +35,7 @@ import { AsidePanel } from "../features/console/aside/AsidePanel";
 import { MapSideProvider, useOfferMapSide, type MapSide } from "../features/console/aside/mapSide";
 import { FrameContext, type FrameApi } from "../features/app/appFrame/context";
 import { initialFrame } from "../features/app/frame";
+import { asideAfterToggle } from "../features/app/appFrame/useFrameController";
 
 function Offer({ side }: { side: MapSide | null }) {
   useOfferMapSide(side);
@@ -149,10 +150,15 @@ describe("folding the panel (Dev2, 2026-11-05: 'collapsable')", () => {
     expect(byTest("activity-body")).toHaveLength(1);
   });
 
-  test("the strip's top button unfolds it as it was", async () => {
+  test("the strip is only its tabs: no chevron or rule of its own, the top bar's button unfolds it", async () => {
     await framed(mapOpen("ws\na.md"));
     await act(async () => (byTest("aside-fold")[0] as HTMLElement).click());
-    await act(async () => (byTest("aside-unfold")[0] as HTMLElement).click());
-    expect(byTest("note-body")).toHaveLength(1);
+    const strip = byTest("aside-strip")[0] as HTMLElement;
+    const children = Array.from(strip.children).map((child) => child.getAttribute("data-testid"));
+    expect(children).toEqual(["aside-strip-activity", "aside-strip-note", "aside-strip-meetings"]);
+    // The top bar's panel button on a folded panel unfolds it; on an unfolded one it closes it.
+    expect(asideAfterToggle(true, true)).toEqual({ asideOpen: true, asideFolded: false });
+    expect(asideAfterToggle(true, false)).toEqual({ asideOpen: false, asideFolded: false });
+    expect(asideAfterToggle(false, false)).toEqual({ asideOpen: true, asideFolded: false });
   });
 });

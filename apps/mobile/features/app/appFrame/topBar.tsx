@@ -31,6 +31,7 @@ export function frameTopBar({
   topTrailing,
   onSearch,
   asideToggle,
+  asideFolded = false,
   regions,
   toggleAside,
   hasExplorer,
@@ -52,6 +53,8 @@ export function frameTopBar({
   topTrailing?: ReactNode;
   onSearch?: () => void;
   asideToggle: boolean;
+  /** The open panel is folded to its strip: the button unfolds it (`asideAfterToggle`). */
+  asideFolded?: boolean;
   regions: Regions;
   toggleAside: () => void;
   hasExplorer: boolean;
@@ -284,8 +287,8 @@ export function frameTopBar({
           */}
           {asideToggle ? (
             <FrameIconButton
-              label={regions.aside === "hidden" ? "Show meetings" : "Hide meetings"}
-              icon={regions.aside === "hidden" ? "panelRight" : "panelLeft"}
+              label={regions.aside === "hidden" || asideFolded ? "Show the side panel" : "Hide the side panel"}
+              icon={regions.aside === "hidden" || asideFolded ? "panelRight" : "panelLeft"}
               onPress={toggleAside}
               testID="frame-aside-toggle"
             />
