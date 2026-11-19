@@ -262,7 +262,7 @@ export async function adaptersFor(tree, { fake = false, env = process.env, holdO
     return async (c, i, label) => {
       // The fake run answers what the label says, as Decide's does: right by construction, and it proves the wiring.
       if (fake) return { ...routeRight(label, label.route), got: label.route, want: label.route, route: { pick: label.route, sure: null, probs: null }, ran: true, usd: 0 };
-      const { state, questions } = routeRequest(routeCase(c, i, { ctx, training: training ? routeTraining(c, i, generated, { holdOut, withoutChat: training.withoutChat, cutAt: training.cutAt }) : null }));
+      const { state, questions } = routeRequest(routeCase(c, i, { ctx, training: training ? routeTraining(c, i, generated, { holdOut: true /* TEMP: tuning run, reverted */, withoutChat: training.withoutChat, cutAt: training.cutAt }) : null }));
       const read = readRoute(await engine(state, questions));
       const pick = read?.route ?? null;
       const sure = typeof read?.sure === "number" ? read.sure : null;
