@@ -15,6 +15,7 @@ import { workspaceRows } from "../src/workspaceStore/rows.js";
 import { serveWorkspaceStore } from "../src/workspaceStore/serve.js";
 import { mirrorOutbox } from "../src/workspaceStore/mirrorOutbox.js";
 import { durableSqlite } from "./durableSqlite.mjs";
+import { etagHex } from "../src/texStore/sha256.js";
 
 const PATH = "1-projects/plan.md";
 const NOTE_ID = "0199a000-0000-7000-8000-000000000001";
@@ -330,7 +331,9 @@ test("the object says how long it spent on the save, and write_note's store reco
   // And the save's shape beside it: its trip by state size, its wait, its sizes and writes (2026-11-06).
   const named = Object.fromEntries(took);
   assert.deepEqual(took.map(([name]) => name), ["collab_replace", "collab_trip_small", "collab_waited", "collab_state_kb", "collab_written_kb", "collab_writes"]);
-  assert.equal(named.collab_writes, 3, "a first-try save makes three writes");
+  // The state is landed once (its pending copy and its final one are one put: `heldObjects` in collabReplace.js), so a
+  // first-try save is two writes: the state and the Markdown.
+  assert.equal(named.collab_writes, 2, "a first-try save makes two writes");
   for (const [name, value] of took) assert.ok(Number.isFinite(value) && value >= 0, `${name} is ${value}`);
 });
 
@@ -358,4 +361,57 @@ test("a save the object declines says why in its timings, and the gateway's engi
   assert.equal(result.text, "# Plan\n\nThird words.\n");
   assert.deepEqual(took.map(([name]) => name), ["collab_declined_not_held_version"]);
   assert.ok(Number.isFinite(took[0][1]));
+});
+
+const STATE_KEY_PREFIX = `${COLLAB}v1/documents/`;
+const isDocumentState = (key) => key.startsWith(STATE_KEY_PREFIX) && !key.includes("/operations/");
+
+test("a first-try save puts the document state into the object once, and what it leaves is a readable, saveable note", async () => {
+  const { routed, store, saved, settle } = await started();
+  const landed = [];
+  const putPrepared = store.objects.putPrepared;
+  store.objects.putPrepared = (key, ...rest) => {
+    landed.push(key);
+    return putPrepared(key, ...rest);
+  };
+  const answer = await routed.replaceInObject({ path: PATH, key: KEY, noteId: NOTE_ID, expectedEtag: saved.etag, text: "# Plan\n\nThird words.\n" });
+  store.objects.putPrepared = putPrepared;
+  await settle();
+  assert.equal(answer?.served, true);
+  assert.equal(landed.filter(isDocumentState).length, 1, `the state landed ${landed.filter(isDocumentState).length} times`);
+  assert.equal(landed.filter((key) => key === KEY).length, 1, "the Markdown landed more than once");
+  // The state the object keeps is the one the save ended with: nothing pending, and the text it names.
+  const stateKey = landed.find(isDocumentState);
+  const stored = JSON.parse(new TextDecoder().decode(store.objects.get(stateKey).body));
+  assert.equal(stored.pending, null, "the stored state still says a save is pending");
+  // The engine reads the note at the version the object answered, and a second save on that etag lands.
+  const read = await readDocument(atPath(routed), PATH);
+  assert.equal(read.text, "# Plan\n\nThird words.\n");
+  assert.equal(read.etag, answer.result.etag);
+  const again = await routed.replaceInObject({ path: PATH, key: KEY, noteId: NOTE_ID, expectedEtag: answer.result.etag, text: "# Plan\n\nFourth words.\n" });
+  assert.equal(again?.error, undefined, JSON.stringify(again?.error));
+  assert.equal(again.result.text, "# Plan\n\nFourth words.\n");
+});
+
+test("a state put that finds its row moved makes the flush report a conflict: the first put's condition is honoured", async () => {
+  const { routed, store, client, saved, settle, bucket } = await started();
+  const before = await text(client.bodies, KEY);
+  const putPrepared = store.objects.putPrepared;
+  // A rival writer lands on the state's key before each save's first state put: a different etag, so every attempt conflicts.
+  store.objects.putPrepared = (key, bytes, etag, options = {}) => {
+    if (isDocumentState(key) && options.onlyIf) {
+      const current = store.objects.get(key);
+      const rival = new Uint8Array([...current.body, 0x20]);
+      putPrepared(key, rival, etagHex(rival), {});
+    }
+    return putPrepared(key, bytes, etag, options);
+  };
+  const answer = await routed.replaceInObject({ path: PATH, key: KEY, noteId: NOTE_ID, expectedEtag: saved.etag, text: "# Plan\n\nThird words.\n" });
+  store.objects.putPrepared = putPrepared;
+  await settle();
+  assert.equal(answer?.served, true);
+  assert.equal(answer.error?.code, "CONFLICT", JSON.stringify(answer));
+  assert.equal(await text(client.bodies, KEY), before, "the Markdown moved though the state's condition failed");
+  assert.equal(answer.writes.length, 0);
+  assert.equal(await text(bucket, KEY), before);
 });
