@@ -21,6 +21,7 @@ export default {
   cause: "search covers notes and mail but not Google Chat, which only fetch chat: reads, and nothing told Tex so; the reply check listed only notes, mail and earlier texts as the record to check a claim against, and never asked it to say what rests only on the person's memory; Tex's six-tool resolver passed a workspace written inside a search's args on to the gateway, which refuses it there, and nothing checked a claim of an every-workspace search against the calls that ran. Since the owner's 2026-11-19 decision a workspace a search names is a boost, never a fence: the 1:1 search covers every workspace the person reaches and says which ones it covered on its last line, and only \"only in @x\" keeps a search to one workspace.",
   path: "one-to-one text; a background job part that claims every workspace",
   // Sabotage (2026-11-19): drop the `chat` line in sixTools.js searchTool, or put rules.md item 8 back, and this fails.
+  // Sabotage (2026-11-19): drop `withSearchedLine` in sendTheReply.js, or `withSearchRecord` in runTheModel.js, and the 1:1 check below fails.
   async run() {
     const own = searchOf(["search_notes", "read_note", "read_google_chat"]);
     assert.match(own.description, /Google Chat is not in this search/, "a turn that reads their Chat is told search does not cover it");
@@ -38,13 +39,17 @@ export default {
         { toolCalls: [{ name: "search", args: { query: "reading list", args: { context: "@guild" } } }] },
         { text: "Nothing on the guild reading list." },
       ]);
-      assert.equal(turn.answer, "Nothing on the guild reading list.");
+      // The model left the Searched line out; the gateway's floor adds the line the search returned, so what is texted ends with it.
+      assert.equal(turn.answer, "Nothing on the guild reading list.\n\nSearched: @egress, @egress-team.", "the texted reply carries the Searched line the search returned");
       const results = resultsOf(chat.world.model.requests);
       assert.equal(results.length, 1, "the search was answered");
       assert.ok(results.every((text) => !/goes beside args/.test(text)), "the nested workspace was not refused");
       const { entries } = await ledgerFor(chat.world.env, { person: "ws_egress" }).read(ONE_TO_ONE_CHAT);
       const reply = entries.find((entry) => entry.kind === "reply");
       assert.ok((reply?.timing?.tools ?? []).some((tool) => tool.name === "search_notes"), "the nested search ran as search_notes");
+      // The ledger keeps the text as sent (`wordsEntry` puts it in `text`): the same reply, ending with the line the result carried.
+      assert.ok(String(reply?.text ?? "").startsWith("Nothing on the guild reading list."), "the kept reply starts with what the model said");
+      assert.ok(String(reply?.text ?? "").endsWith("\n\nSearched: @egress, @egress-team."), "the kept reply ends with the Searched line");
       // What the gateway ran, as the ledger kept it: no workspace fenced the search, and the named one only boosts it.
       const ran = entries.filter((entry) => entry.kind === "tool" && entry.name === "search_notes");
       assert.equal(ran.length, 1, "one search ran");

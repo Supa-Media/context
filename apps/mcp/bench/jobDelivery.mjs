@@ -111,7 +111,9 @@ export async function deliverInto(world, jobs, { conversation, totals, running, 
     }
     // What the job added, for Finance beside the score (Dev2, 2026-11-18): its done checks (the job advisor's calls) and its spend.
     const usd = partsUsd(done.parts) + turnUsd(done.turn);
-    totals.delivered.push({ title: done.title, state: done.state, parts: done.parts.length, advisorCalls: done.parts.filter((part) => part.checked).length, usd: Math.round(usd * 1e6) / 1e6, ...(done.capped ? { capped: true } : {}) });
+    // Each part's tool calls, in order, duplicates kept: the judge and the checks read them from the note (`resultNote.mjs`).
+    const tools = done.parts.flatMap((part) => (Array.isArray(part.tools) ? part.tools : []));
+    totals.delivered.push({ title: done.title, state: done.state, parts: done.parts.length, advisorCalls: done.parts.filter((part) => part.checked).length, usd: Math.round(usd * 1e6) / 1e6, tools, ...(done.capped ? { capped: true } : {}) });
     if (done.text !== "") conversation.push({ from: "assistant", text: done.text, later: "texted when the background job finished" });
   }
   for (const job of jobs.slice(room)) totals.delivered.push({ title: job.title, state: "not run", parts: 0, advisorCalls: 0, usd: 0 });
