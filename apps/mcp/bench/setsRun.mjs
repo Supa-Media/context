@@ -124,20 +124,30 @@ export function reviewerRight(label, verdict) {
 }
 
 /**
- * The router's case for message `i`: the message's words as the question, whether the chat is a group, and the trigger
- * that started the turn. A check-in or a routine is its own trigger; every other message, a text.
+ * The router's case for message `i`: the message's words as the question, whether the chat is a group, the trigger
+ * that started the turn (a check-in or a routine is its own; every other message, a text), and the parts its config
+ * `ctx` reads (`routerContext.js`), as the bench gives Decide its chat: the conversation before the message as the
+ * judge reads a chat line (`lineOf`), its time as the date, and `training`, the Training module the router reads for
+ * this conversation (`routeTraining`). The bench has no ledger, so no day summaries and no facts of the moment.
  */
-export function routeCase(c, i) {
+export function routeCase(c, i, { ctx = [], training = null } = {}) {
   const m = c.msgs[i];
   const trigger = m.via === "checkin" || m.via === "routine" ? m.via : "text";
-  // The chat's last lines before it, as the live router reads them from the turn's history (`doorStep.js` `recentOf`):
-  // Tex's side (its own texts, a job's report, a check-in, a routine) as "Tex", everyone else as "Them".
-  const recent = c.msgs
-    .slice(0, i)
-    .filter((x) => typeof x.text === "string" && x.text.trim() !== "" && x.kind !== "react" && x.kind !== "delete")
-    .slice(-8)
-    .map((x) => ({ who: x.tex || x.via === "job" || x.via === "checkin" || x.via === "routine" ? "Tex" : "Them", text: x.text }));
-  return { question: String(m.text ?? ""), group: c.kind === "group", trigger, recent };
+  const history = c.msgs.slice(0, i).map((x) => lineOf(c, x)).join("\n");
+  const today = typeof m.at === "string" && m.at.trim() !== "" ? m.at.trim() : "";
+  return { question: String(m.text ?? ""), group: c.kind === "group", trigger, context: { ctx, training, history, facts: [], today } };
+}
+
+/**
+ * The Training module the router reads on message `i` of `c`, as the front door's is in its bench (`setsFd.mjs`): with
+ * the hold-out on, every conversation but this one; off, this one ended at the message (`texTraining.cjs` `cutAt`), so
+ * no example shows its own label or what came after. Any other conversation's examples are all of them.
+ */
+export function routeTraining(c, i, generated, { holdOut = false, withoutChat, cutAt }) {
+  if (c.set !== "training" || !generated) return generated;
+  const drop = holdOut ? withoutChat : cutAt;
+  if (typeof drop !== "function") return null; // a tree without the cut reads no examples rather than this chat's own
+  return holdOut ? withoutChat(generated, c.id) : cutAt(generated, c.id, i);
 }
 
 /** Whether the router's pick is the labelled route. No pick is wrong, and says so. */
@@ -148,6 +158,10 @@ export function routeRight(label, pick) {
 
 /** The router's code, as a tree has it: the module that builds its question and reads its answer (`specialistRoute.js`). */
 const ROUTER_MODULE = "apps/mcp/src/agent/specialistRoute.js";
+/** The tree's config, Training code and Training module, for the router's context modules. */
+const TREE_CONFIG = "packages/shared/src/texConfig.cjs";
+const TREE_TRAINING = "packages/shared/src/texTraining.cjs";
+const TREE_GENERATED = "packages/shared/src/texTraining.generated.json";
 
 /** Each node's way to run alone: how to ask it, given the tree's code, and how to score its answer. */
 export async function adaptersFor(tree, { fake = false, env = process.env, holdOut = false, routeEngine = null } = {}) {
@@ -221,6 +235,10 @@ export async function adaptersFor(tree, { fake = false, env = process.env, holdO
       return () => ({ right: false, ran: false, usd: 0, why: `router can't run alone yet: ${ROUTER_MODULE} is not in this tree` });
     }
     const { routeRequest, readRoute } = await mod(ROUTER_MODULE);
+    // The router's context modules as the tree's config names them, with the tree's own Training module.
+    const ctx = existsSync(join(tree, TREE_CONFIG)) ? (require(join(tree, TREE_CONFIG)).TEX_CONFIG?.nodes?.find((n) => n.id === "router")?.ctx ?? []) : [];
+    const training = existsSync(join(tree, TREE_TRAINING)) ? require(join(tree, TREE_TRAINING)) : null;
+    const generated = existsSync(join(tree, TREE_GENERATED)) ? JSON.parse(await readFile(join(tree, TREE_GENERATED), "utf8")) : null;
     // Without the Clef credentials the engine answers nothing, which would score every row wrong rather than not run.
     if (!fake && !routeEngine && !(env.CLOUDFLARE_ACCOUNT_ID && env.CLOUDFLARE_AI_TOKEN)) {
       return () => ({ right: false, ran: false, usd: 0, why: "no Clef engine: CLOUDFLARE_ACCOUNT_ID and CLOUDFLARE_AI_TOKEN are not set" });
@@ -229,7 +247,7 @@ export async function adaptersFor(tree, { fake = false, env = process.env, holdO
     return async (c, i, label) => {
       // The fake run answers what the label says, as Decide's does: right by construction, and it proves the wiring.
       if (fake) return { ...routeRight(label, label.route), got: label.route, want: label.route, route: { pick: label.route, sure: null }, ran: true, usd: 0 };
-      const { state, questions } = routeRequest(routeCase(c, i));
+      const { state, questions } = routeRequest(routeCase(c, i, { ctx, training: training ? routeTraining(c, i, generated, { holdOut, withoutChat: training.withoutChat, cutAt: training.cutAt }) : null }));
       const read = readRoute(await engine(state, questions));
       const pick = read?.route ?? null;
       const sure = typeof read?.sure === "number" ? read.sure : null;
