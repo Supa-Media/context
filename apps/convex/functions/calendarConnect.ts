@@ -544,9 +544,12 @@ export const applyCalendarConnectionBinding = internalMutation({
       // set — while clearing the `disconnectedAt` that explained it — would
       // leave a working connection permanently showing a fault with no error
       // code and nothing to clear it but a Gmail reconnect it may not want.
+      // A grant that now covers everything on the row clears a
+      // `reconnect_required` left by an earlier, narrower grant: nothing else
+      // would, since the meetings claim never mints for such a row.
       health: starved.length
         ? ("reconnect_required" as const)
-        : existing === null || revived
+        : existing === null || revived || existing.health === "reconnect_required"
           ? ("active" as const)
           : existing.health,
       lastError: starved.length

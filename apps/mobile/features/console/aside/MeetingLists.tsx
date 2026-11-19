@@ -104,7 +104,10 @@ function Lists({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [records, notes]);
 
-  const empty = today.length === 0 && past.length === 0 && notes !== null && scheduled.reconnect.length === 0;
+  const unanswered = scheduled.unanswered ?? [];
+  const unavailable = scheduled.unavailable === true;
+  const trouble = scheduled.reconnect.length > 0 || unanswered.length > 0 || unavailable;
+  const empty = today.length === 0 && past.length === 0 && notes !== null && !trouble;
 
   return (
     <ScrollView contentContainerStyle={styles.body} testID="aside-meetings">
@@ -114,7 +117,7 @@ function Lists({
         </Text>
       ) : null}
 
-      {today.length === 0 && scheduled.reconnect.length === 0 ? null : (
+      {today.length === 0 && !trouble ? null : (
         <View style={styles.section} testID="aside-today">
           <SectionHead label="Today" />
           {today.map((meeting) => {
@@ -149,6 +152,16 @@ function Lists({
           {scheduled.reconnect.length === 0 ? null : (
             <Text variant="foot" style={styles.quiet} testID="aside-today-reconnect">
               {`Reconnect ${scheduled.reconnect.join(", ")} in Settings › Mail and calendar.`}
+            </Text>
+          )}
+          {unanswered.length === 0 ? null : (
+            <Text variant="foot" style={styles.quiet} testID="aside-today-unanswered">
+              {`Google didn't answer for ${unanswered.join(", ")} just now. Trying again.`}
+            </Text>
+          )}
+          {!unavailable ? null : (
+            <Text variant="foot" style={styles.quiet} testID="aside-today-unavailable">
+              Google didn't answer just now. Trying again.
             </Text>
           )}
         </View>
