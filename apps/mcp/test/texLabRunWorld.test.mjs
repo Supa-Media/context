@@ -106,6 +106,9 @@ test("heal workflow: after a Lab run or a world recording on main, main's code m
   assert.match(HEAL, /git merge -q -s ours --no-edit FETCH_HEAD/);
   assert.match(HEAL, /git push -q origin "HEAD:refs\/heads\/\$OPEN"\n\s+echo .*\n\s+exit 0/);
   assert.doesNotMatch(HEAL, /push (-q )?(-f|--force)/, "never a force push");
+  // A heal pull request that later gains answers is checked against its first base (#3756): it names why the Tex
+  // drawing is unchanged (scripts/tex-diagram-check.mjs), on a line of its own.
+  assert.match(HEAL, /\n\s*Tex diagram: unchanged because this pull request changes only the bench's world fixtures/);
   // setup-node v5 caches for the repo's package manager by default and fails with no pnpm (heal run 44567301956).
   assert.match(HEAL, /node-version: 22\n(\s+#.*\n)*\s+package-manager-cache: false\n/);
   assert.match(jobOf(RECORD, "push"), /node-version: 22\n\s+package-manager-cache: false\n/);
