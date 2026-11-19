@@ -2,7 +2,7 @@ import { useState, type ReactNode } from "react";
 import { Image, Pressable, StyleSheet, View } from "react-native";
 import { Button } from "../../design/components/Button";
 import { Text } from "../../design/components/Text";
-import { radii, space } from "../../design/tokens";
+import { pointerType, radii, space } from "../../design/tokens";
 import { useThemedStyles, type Colors } from "../../design/theme";
 import {
   TAPBACKS,
@@ -403,7 +403,7 @@ const makeStyles = (colors: Colors) =>
       borderBottomRightRadius: 14,
       borderBottomLeftRadius: 4,
     },
-    words: { fontSize: 14, lineHeight: 20, fontWeight: "400" },
+    words: { fontSize: pointerType.lede, lineHeight: 20, fontWeight: "400" },
     wordsMine: { color: colors.ink },
     wordsTheirs: { color: colors.text },
     link: { textDecorationLine: "underline" },
@@ -421,7 +421,7 @@ const makeStyles = (colors: Colors) =>
     },
     badgeMine: { backgroundColor: colors.accentDim, borderColor: colors.lineStrong },
     badgeTheirs: { backgroundColor: colors.surface2, borderColor: colors.lineStrong },
-    badgeText: { fontSize: 12, lineHeight: 16, color: colors.text },
+    badgeText: { fontSize: pointerType.meta, lineHeight: 16, color: colors.text },
     answer: { alignSelf: "flex-start" },
     answerText: { color: colors.muted },
     decisions: { flexDirection: "row", flexWrap: "wrap", gap: space.x2 },
@@ -438,7 +438,7 @@ const makeStyles = (colors: Colors) =>
       maxWidth: "100%",
     },
     tapback: { width: 36, height: 36, alignItems: "center", justifyContent: "center", borderRadius: radii.control },
-    tapbackText: { fontSize: 16, lineHeight: 20 },
+    tapbackText: { fontSize: pointerType.body, lineHeight: 20 },
     barAction: { minHeight: 36, paddingHorizontal: space.x2, justifyContent: "center", borderRadius: radii.control },
     barText: { color: colors.text2 },
   });

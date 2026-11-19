@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { Animated, Image, Pressable, ScrollView, StyleSheet, View } from "react-native";
 import { Tex } from "../../chaos/Tex";
 import { Text } from "../../design/components/Text";
-import { radii, space } from "../../design/tokens";
+import { pointerType, radii, space } from "../../design/tokens";
 import { useColors, useThemedStyles, type Colors } from "../../design/theme";
 import { useReducedMotion } from "../../design/useReducedMotion";
 import {
@@ -253,7 +253,7 @@ const makeStyles = (colors: Colors) =>
       borderBottomColor: colors.line,
     },
     headWords: { flex: 1, minWidth: 0, gap: 2 },
-    name: { fontWeight: "600", fontSize: 15, color: colors.text },
+    name: { fontWeight: "600", fontSize: pointerType.lede, color: colors.text },
     sub: { color: colors.muted },
     muted: { color: colors.muted },
     log: { flex: 1, minHeight: 0 },

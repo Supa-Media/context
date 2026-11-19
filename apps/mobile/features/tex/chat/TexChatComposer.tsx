@@ -2,7 +2,8 @@ import { useEffect, useRef, useState } from "react";
 import { Image, Pressable, StyleSheet, TextInput, View } from "react-native";
 import { Icon } from "../../design/components/Icon";
 import { Text } from "../../design/components/Text";
-import { radii, space } from "../../design/tokens";
+import { useFieldFont } from "../../design/fieldFont";
+import { pointerType, radii, space } from "../../design/tokens";
 import { useColors, useThemedStyles, type Colors } from "../../design/theme";
 import { MAX_PICTURES, MAX_TEXT } from "./appChatGateway";
 
@@ -87,6 +88,7 @@ export function TexChatComposer({
   onSend: (text: string, pictures: Blob[]) => void;
 }) {
   const styles = useThemedStyles(makeStyles);
+  const fieldFont = useFieldFont(pointerType.lede);
   const colors = useColors();
   const [text, setText] = useState("");
   const [pictures, setPictures] = useState<Picture[]>([]);
@@ -227,7 +229,7 @@ export function TexChatComposer({
             }
           }}
           accessibilityLabel="Message to Tex"
-          style={styles.input}
+          style={[styles.input, fieldFont]}
           testID="tex-input"
         />
         <Pressable
@@ -311,7 +313,7 @@ const makeStyles = (colors: Colors) =>
       borderColor: colors.lineStrong,
       backgroundColor: colors.surface2,
       color: colors.text,
-      fontSize: 14,
+      fontSize: pointerType.lede,
       lineHeight: 20,
       textAlignVertical: "top",
     },
