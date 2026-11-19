@@ -14,6 +14,8 @@ import { carriesData, withAttachmentImages } from "../attachments.js";
 import { jobPrompt, jobReportPrompt, withBackground, withJobSteps } from "../background.js";
 import { handoffHook, routeSureOf } from "../handoff.js";
 import { withJobDrafts } from "../jobSaved.js";
+import { SAY_NOTHING_TOOL } from "../sayNothing.js";
+import { standsGate } from "../standsCheck.js";
 import { canRunBuiltin } from "../builtin.js";
 import { withChatSkills } from "../chatSkills.js";
 import { OPEN_PAGE_TIMEOUT_MS } from "../computer.js";
@@ -95,12 +97,32 @@ function doorOut({ production, productionModel, fallback, router, gated, advisin
 const setupWithMap = (prompt, kind) => (typeof prompt === "string" && prompt !== "" ? withArchitecture(prompt, kind) : prompt);
 
 /** The reviewer's two halves, or the code checks alone with no reviewer (`replyJudge.js`); null when a turn has neither. */
-function answerChecksFor({ judge, doIt, claims, tries, chatLog, ledgerAt }) {
+function answerChecksFor({ judge, doIt, claims, tries, chatLog, ledgerAt, stands = null }) {
+  return withStands(stands, checksOf({ judge, doIt, claims, tries, chatLog, ledgerAt }));
+}
+
+function checksOf({ judge, doIt, claims, tries, chatLog, ledgerAt }) {
   if (judge !== null) return { code: judge.codeCheck, review: judge.review };
   const codeChecks = doIt ?? claims ?? tries;
   const plainCheck = doIt === null && claims !== null ? loggedCheck(chatLog, ledgerAt ?? {}, "handback", claims) : typeof codeChecks?.check === "function" ? (answer, context) => codeChecks.check(answer, context) : null;
   if (plainCheck === null) return null;
   return { code: async (answer, context) => ({ notice: (await plainCheck(answer, context)) ?? null, review: false }), review: null };
+}
+
+/**
+ * The stands gate first, then the turn's own checks (2026-11-19: #3769's check ran only on the console's front door and
+ * only through `untriedWeb.js`, so a texted, group, job, `doIt` or reviewed turn never saw it). Composed, never replacing.
+ */
+export function withStands(stands, checks) {
+  if (stands === null) return checks;
+  return {
+    code: async (answer, context) => {
+      const notice = stands.check(answer, context);
+      if (notice !== null) return { notice, review: false };
+      return checks === null ? { notice: null, review: false } : checks.code(answer, context);
+    },
+    review: checks?.review ?? null,
+  };
 }
 
 // TEX ENTRY POINT: begin (every await below is a timed `tex` call: `texTiming.js`, checked by `scripts/tex-entry-check.mjs`)
@@ -137,7 +159,9 @@ export async function runTheModel(t, via) {
   const judge = gated ? replyJudge({ setting: production.replyJudge, config: aiGatewayConfig(env), metadata: { feature: "assistant", workspace: String(session.workspaceId), client: "reviewer" }, report, scheduled, timeZone, question: askedNow, history: logged?.history ?? shown, inner: claims, plain: doIt ?? claims ?? tries, advisor: advising }) : null;
   // What the Answer checks and Reply reviewer nodes run on each draft (`../graph/nodes/checks.js`, `reviewer.js`): the reviewer's two halves, or the code checks alone.
   // A job's claim check is still the Hand-back judge's own step in the ledger (`loggedCheck`) until the job's nodes move onto the runner.
-  t.answerChecks = answerChecksFor({ judge, doIt, claims, tries, chatLog, ledgerAt });
+  // The stands gate (`standsCheck.js`): on every chat turn, whatever door and checker it runs, and fail-closed on the answer the turn returns.
+  const stands = runner ? null : standsGate({ question: askedNow });
+  t.answerChecks = answerChecksFor({ judge, doIt, claims, tries, chatLog, ledgerAt, stands });
   t.reviewedAs = judge === null ? null : report !== null ? "report" : "routine"; // the tag the wire to the Reply reviewer fires on (`texConfig.json`: Answer checks to reviewer, when report or routine)
   // A progress line goes unreviewed (Dev2, 2026-11-11, one-judge PR 3): it says what Tex is doing, and a review held each one up to 8 s.
   if (planning) background.plan = via.planner(planCall({ model: production.advisor, effort: production.efforts?.[production.advisor], history: shown, question, background, meter, request: advisorRequest({ ai: env.AI, gateway: aiGatewayConfig(env), metadata: { feature: "assistant", workspace: String(session.workspaceId), client: "advisor" } }) }));
@@ -207,12 +231,12 @@ export async function runTheModel(t, via) {
     // Each draft is checked by the nodes the config wires after the front door (`../graph/draftBridge.js`): Answer checks, then the Reply reviewer.
     // A job's turn streams each draft first, so a part that dies in its checks hands it on (`jobSaved.js`).
     // A group turn's changing calls take the chat's write lock, one at a time across its turns side by side (`chatWriteLock.js`).
-    callTool: via.tools(allowedFirst(allowedBeside ? allowedRead : null, withChatWriteLock({ env, group, steps: chatLog === null ? null : stepLog(chatLog, ledgerAt ?? {}) }, (steer?.track ?? ((call) => call))(withVaultWatch(ledger, withGroupVault(group, (claims?.wrap ?? tries?.wrap ?? ((call) => call))(withSameAsk({ on: claims !== null, store, session, ledger, history, question }, withBackground(background, outgoing.wrap(
+    callTool: via.tools(allowedFirst(allowedBeside ? allowedRead : null, withChatWriteLock({ env, group, steps: chatLog === null ? null : stepLog(chatLog, ledgerAt ?? {}) }, (steer?.track ?? ((call) => call))(withVaultWatch(ledger, withGroupVault(group, (stands?.wrap ?? ((call) => call))((claims?.wrap ?? tries?.wrap ?? ((call) => call))(withSameAsk({ on: claims !== null, store, session, ledger, history, question }, withBackground(background, outgoing.wrap(
       withPictureMaker(maker, withDrawnImages(outgoing, withAttachmentImages(
         attachments,
         withEmailFiles({ store, attachments }, withKeptFiles(store, () => markUntrusted(ledger), withMailAgent(supervision?.mail ?? null, withDelegate(delegation, withChatSkills(group, learned, withLearnedSkills(group !== null ? null : learned, withSkills(skills, withWorkspaceConventions(withNoteLinks(withSearchRecord(withFolderFit(group !== null ? groupAwareCallTool(withTheirNotesKept(dispatch, keptOptions), groupWriting, { store, group }) : textingAwareCallTool(withTheirNotesKept(dispatch, keptOptions), textingWriting, { timeZone })), noteLinking.searched), noteLinking), { own: ownWorkspaceName(noteLinking.contexts) })), { tainted: () => ledger.untrusted === true, dispatch }), { outside: () => ledger.outside === true }))))),
       )), pictureRun),
-    )))))))))),
+    ))))))))))),
     pictures: texted || group !== null,
     attachments,
     env,
@@ -281,6 +305,16 @@ export async function runTheModel(t, via) {
   if (stopped || turn.cancelled || (steer !== null && (await tex.step("cancel_check", () => steer.endCancelled())))) {
     if (steer !== null && steer.changed.length > 0) await tex.step("provisional_undo", () => steer.revert()); // what it changed before its go is put back
     return await tex.step("cancelled", () => begun.catch(() => {}).then(() => cancelledTurn(store, session, { ledger, steer, steps: turn.steps })));
+  }
+  // Fail-closed (`standsCheck.js` `final`): an answer that still says it stands, skips or waits on an earlier turn with nothing this turn behind it,
+  // on the last round or after its one send-back, goes as an honest line, never as it is. A settled ending (a tapback, silence, a job's start) is not a reply in words.
+  // After its send-back, an empty retry, a 1:1's silence or spent rounds get the honest line too: the gate never drops a reply.
+  // A group chat's silence stands: saying nothing there is a choice the chat's rules allow (`sendTheReply.js`).
+  const silent = turn.settled === SAY_NOTHING_TOOL && group === null;
+  const honest = stands !== null && (turn.settled === undefined || silent) ? stands.final(turn.answer, { exhausted: turn.exhausted === true, silent }) : null;
+  if (honest !== null) {
+    turn.answer = honest;
+    if (silent) delete turn.settled;
   }
   Object.assign(t, { turn, replyPlace: null }); // the classifier no longer runs before the reply, so it places none (`threadedTurn.js`)
 }

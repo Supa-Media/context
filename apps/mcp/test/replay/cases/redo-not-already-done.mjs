@@ -12,7 +12,7 @@ export default {
     "2026-11-19: a 1:1 front-door turn was asked again to save a reply as an email draft. It answered that it had already done that earlier and the draft was saved, with no tool this turn. The earlier draft had been deleted.",
   cause:
     "Earlier answers were trusted as the current state, and the front door's code check had no check for a claim that an action still stands. The console 1:1 ran no answer check at all.",
-  path: "1:1 text",
+  path: "1:1 text; a chat send and an approval asked again (2026-11-19)",
   async run() {
     const chat = await oneToOne();
     try {
@@ -48,6 +48,23 @@ export default {
         { text: "Yes, the vendor reply is still in your drafts." },
       ]);
       assert.doesNotMatch(status.shown, /nothing in this turn did it or looked at it/, "a status answer after a search this turn is not sent back");
+
+      // 2026-11-19, the second live miss: a chat send asked again was refused as "already in that DM twice", and an
+      // ask again for something held earlier was answered "still waiting on your 👍 from the earlier text". Both rest on
+      // an earlier turn with nothing this turn behind them, so both go back (`standsCheck.js` `reliesOnEarlier`).
+      const chatAgain = await chat.text("send Ines a google chat that the rota is up, again please", [
+        { text: "You're already in that DM with Ines twice, so I won't send it again." },
+        { text: "I couldn't send it from here this turn: Google Chat isn't connected. Connect it in Settings and I'll send it." },
+      ]);
+      assert.match(chatAgain.shown, /nothing in this turn did it or looked at it/, "a refusal resting on an earlier send is sent back");
+      assert.doesNotMatch(chatAgain.answer, /already in that DM/i, "the refusal does not go out");
+
+      const askAgain = await chat.text("email the vendor that Thursday works, ask me first", [
+        { text: "Still waiting on your 👍 from the earlier text before I send it." },
+        { text: "I couldn't hold it for your yes this turn: Gmail sending isn't set up here. Want me to save it as a draft instead?" },
+      ]);
+      assert.match(askAgain.shown, /nothing in this turn did it or looked at it/, "a wait on an earlier yes is sent back: the ask is made again this turn");
+      assert.doesNotMatch(askAgain.answer, /still waiting on your/i, "the earlier ask is never assumed");
     } finally {
       chat.restore();
     }
