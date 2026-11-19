@@ -34,7 +34,7 @@ import { pathToFileURL } from "node:url";
 
 import { regradeCommand } from "./regrade.mjs";
 import { runFd } from "./setsFd.mjs";
-import { worldMode } from "./simFixtures.mjs";
+import { RECORD_SETS, worldMode } from "./simFixtures.mjs";
 
 const require = createRequire(import.meta.url);
 const { unitTests, TEX } = require("../../../packages/shared/src/texSets.cjs");
@@ -356,6 +356,43 @@ export function worldLine(rows) {
   return `world: ${misses.length} simulated call(s) not in fixtures (${kinds})`;
 }
 
+/**
+ * How a run treats its misses (`--world-strict`, or TEX_SETS_WORLD_STRICT): `off` says nothing, `warn` writes a GitHub
+ * warning annotation, `fail` an error annotation and a failed run. Only a replay can miss on purpose: a record or a
+ * refresh answers every call and writes the answers, so it never warns or fails. Unknown values are `off`.
+ */
+export const WORLD_STRICT = ["off", "warn", "fail"];
+export function worldStrict(value) {
+  const v = String(value ?? "").trim();
+  return WORLD_STRICT.includes(v) ? v : "off";
+}
+
+/**
+ * The strict check on a run's rows: `{ misses, line, fail }`. `line` is the annotation to write (or "" for none) and
+ * `fail` is true only for `fail` with misses. `set` names the set in the line's hint to record them.
+ */
+export function strictWorld(rows, strict, { world = "replay", set = "dev" } = {}) {
+  const misses = worldMisses(rows).length;
+  if (world !== "replay" || misses === 0 || strict === "off") return { misses, line: "", fail: false };
+  const text = `world: ${misses} simulated call(s) not in fixtures; the model invented them (record them: sets run --set ${set} --node fd --world record)`;
+  const level = strict === "fail" ? "error" : "warning";
+  return { misses, line: `::${level}::${text}`, fail: strict === "fail" };
+}
+
+/**
+ * Whether a run's world mode may run on these sets (`setsCommand`): record and refresh write the repo's fixtures, so
+ * only the repo's Training or Dev set, never the sealed Test set. `conversations` says a file was handed in; `convs`
+ * is the loaded list, checked once read. Returns the refusal, or null when the run may go.
+ */
+export function worldModeRefusal({ world = "replay", set = "dev", conversations = false, convs = null } = {}) {
+  if (world === "replay") return null;
+  if (conversations) return "--world record|refresh writes the repo's fixtures, so it runs on the repo's sets only (--set), never a handed-in or sealed file";
+  const never = "record/refresh runs only on the repo's Training or Dev set, never the sealed Test set";
+  if (!RECORD_SETS.includes(set)) return never;
+  if (Array.isArray(convs) && convs.some((c) => !RECORD_SETS.includes(c?.set))) return never;
+  return null;
+}
+
 /** A unit test's key: its chat, message index and node. Its repeats share it. */
 export const testKeyOf = (r) => `${r.chat}\u0000${r.at ?? 0}\u0000${r.node}`;
 
@@ -431,7 +468,7 @@ export const holdOutOn = (value) => /^(?:on|yes|true|1)$/i.test(String(value ?? 
 /** `sets run` and `sets regrade`: the CLI half. */
 export async function setsCommand(sub, options, { write = (t) => process.stdout.write(t) } = {}) {
   if (sub === "regrade") return regradeCommand(options, { write });
-  const usage = "usage: sets run [--conversations <file.json>] [--set dev] [--tree <dir>] [--node <id>] [--out <file.json>] [--parallel n] [--hold-out on] [--repeat n] [--keep <dir>] [--world replay|record|refresh] [--fake]\n       sets regrade --kept <dir> [--times n] [--votes n] [--out <file.json>] [--fake]";
+  const usage = "usage: sets run [--conversations <file.json>] [--set dev] [--tree <dir>] [--node <id>] [--out <file.json>] [--parallel n] [--hold-out on] [--repeat n] [--keep <dir>] [--world replay|record|refresh] [--world-strict off|warn|fail] [--fake]\n       sets regrade --kept <dir> [--times n] [--votes n] [--out <file.json>] [--fake]";
   if (sub !== "run") throw new Error(usage);
   // Each Front door test's repeats (Dev2, 2026-11-19): --repeat, else TEX_SETS_REPEAT, else 3; a whole number 1..5. A bare
   // `--repeat` (no value) is refused, not read as 1 or as the default.
@@ -443,15 +480,20 @@ export async function setsCommand(sub, options, { write = (t) => process.stdout.
   // The world's mode: replay (the default) answers from the repo's fixtures; record and refresh write them, so they
   // only ever run on the repo's own sets, never on a file handed in (which may be sealed).
   const world = worldMode(options.world ?? process.env.TEX_SETS_WORLD);
-  if (world !== "replay" && options.conversations) throw new Error("--world record|refresh writes the repo's fixtures, so it runs on the repo's sets only (--set), never a handed-in or sealed file");
+  // Record and refresh only ever run on the repo's Training or Dev set: refused before any file is read, and again on
+  // the loaded conversations.
+  const set = options.set ?? "dev";
+  const refused = worldModeRefusal({ world, set, conversations: Boolean(options.conversations) });
+  if (refused) throw new Error(refused);
   let convs;
   if (options.conversations) convs = JSON.parse(await readFile(resolve(options.conversations), "utf8"));
   else {
     const { loadSets } = await import("./sets.mjs");
-    const set = options.set ?? "dev";
     convs = (await loadSets()).filter((c) => c.set === set);
   }
   if (!Array.isArray(convs)) throw new Error("--conversations is a JSON list of conversations");
+  const refusedConvs = worldModeRefusal({ world, set, convs });
+  if (refusedConvs) throw new Error(refusedConvs);
   const tree = resolve(options.tree ?? join(import.meta.dirname, "../../.."));
   // Front door tests at once: each is a process waiting on models, and the Lab's runner has room for these.
   const parallel = Math.max(1, Math.min(Number(options.parallel ?? 8) || 1, 16));
@@ -472,6 +514,11 @@ export async function setsCommand(sub, options, { write = (t) => process.stdout.
   write(`${countsLine(rows)}\n`);
   const worldText = worldLine(rows);
   if (worldText !== "") write(`${worldText}\n`);
+  // `--world-strict`: a GitHub annotation for the misses, and a failed run on `fail`. Set after --out and the rows are
+  // written, so a failing run still leaves its rows behind.
+  const strict = strictWorld(rows, worldStrict(options["world-strict"] ?? process.env.TEX_SETS_WORLD_STRICT), { world, set });
+  if (strict.line) process.stderr.write(`${strict.line}\n`);
+  if (strict.fail) process.exitCode = 1;
   // The repo's sets name what missed (their words are public); a file handed in may be sealed, so it never does.
   if (!options.conversations && !options.out) {
     for (const r of rows.filter((x) => !x.right)) write(`MISS ${r.chat}/${r.msg} ${r.node}: ${r.why ?? ""}\n`);

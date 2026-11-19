@@ -1,0 +1,109 @@
+# THE SIMULATED WORLD, RECORDED ONCE (`apps/mcp/bench/simFixtures.mjs`, `apps/mcp/bench/simWorld.mjs`).
+#
+# A Front door test's outside world (web search, page reads, browser, calendar, Gmail) is played by a model where the
+# conversation's fixtures (`apps/mcp/bench/sets/sim/<id>.json`) have no answer. Two runs of the same commit used to
+# invent different worlds (62 vs 60 answers, Dev 11/30 vs 15/30 on 249c2bd), so the answers are recorded and committed,
+# and every Lab run replays them. This workflow records (or checks) them on the repo's own Training or Dev set only,
+# never the sealed Test set, on Claude Code (CLAUDE_CODE_OAUTH_TOKEN, $0) with Clef on Workers AI as a Lab run has it.
+#
+#   world: record   runs the set once and adds every miss to the fixtures; uploads `world-fixtures` for a person to commit
+#          refresh  re-asks every call and replaces the fixtures; uploads the same
+#          replay   checks the committed fixtures: prints the misses and a hash of the world answers the run was shown,
+#                   so two replays of one commit can be compared (same hash, zero misses = the same world)
+#
+# The log prints counts, kinds and hashes, never a conversation's words or an answer. The fixtures are public bench data.
+name: Tex world record
+
+on:
+  workflow_dispatch:
+    inputs:
+      set:
+        description: "The repo's set to run (never the sealed Test set)"
+        required: true
+        default: training
+        type: choice
+        options:
+          - training
+          - dev
+      world:
+        description: "record adds misses, refresh re-asks every call, replay checks the committed fixtures"
+        required: true
+        default: record
+        type: choice
+        options:
+          - record
+          - refresh
+          - replay
+      repeat:
+        description: "How many times each Front door test runs (1 to 5)"
+        required: false
+        default: "1"
+        type: string
+
+permissions:
+  contents: read
+
+run-name: Tex world ${{ inputs.world }} (${{ inputs.set }})
+
+jobs:
+  run:
+    runs-on: ubuntu-latest
+    environment: production
+    timeout-minutes: 180
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          persist-credentials: false
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+
+      - name: Install Claude Code
+        run: npm install -g @anthropic-ai/claude-code@2.1.325
+
+      - name: Run the set's Front door tests
+        env:
+          SET: ${{ inputs.set }}
+          WORLD: ${{ inputs.world }}
+          REPEAT: ${{ inputs.repeat }}
+          CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          CLOUDFLARE_AI_TOKEN: ${{ secrets.CLOUDFLARE_AI_TOKEN }}
+        run: |
+          set +e -uo pipefail
+          [[ "$SET" =~ ^(training|dev)$ ]] || { echo "::error::only the repo's Training or Dev set"; exit 1; }
+          [[ "$WORLD" =~ ^(replay|record|refresh)$ ]] || { echo "::error::unknown world mode"; exit 1; }
+          [[ "$REPEAT" =~ ^[1-5]$ ]] || { echo "::error::repeat is 1 to 5"; exit 1; }
+          [ -n "${CLAUDE_CODE_OAUTH_TOKEN:-}" ] || { echo "::error::no Claude Code token"; exit 1; }
+          export BENCH_MODEL_SOCKET="$RUNNER_TEMP/sock"
+          mkdir -p "$BENCH_MODEL_SOCKET" "$RUNNER_TEMP/out"
+          node apps/mcp/bench/socketAnswerer.mjs --dir "$BENCH_MODEL_SOCKET" --stop "$RUNNER_TEMP/run-done" --parallel 8 > "$RUNNER_TEMP/answerer.log" 2>&1 &
+          answerer=$!
+          ( while kill -0 "$answerer" 2>/dev/null; do sleep 5; done; [ -f "$RUNNER_TEMP/run-done" ] || pkill -f "bench/run.mjs sets run" || true ) &
+          strict=()
+          if [ "$WORLD" = "replay" ]; then strict=(--world-strict warn); fi
+          # --out keeps the run's words in a file, out of the public log; only the summary lines print.
+          node apps/mcp/bench/run.mjs sets run --set "$SET" --node fd --world "$WORLD" "${strict[@]}" --repeat "$REPEAT" --parallel 8 \
+            --keep "$RUNNER_TEMP/kept" --out "$RUNNER_TEMP/out/rows.json"
+          code=$?
+          touch "$RUNNER_TEMP/run-done"
+          wait "$answerer" || code=1
+          tail -n 5 "$RUNNER_TEMP/answerer.log"
+          node apps/mcp/bench/worldHash.mjs --rows "$RUNNER_TEMP/out/rows.json" --kept "$RUNNER_TEMP/kept" || true
+          ls apps/mcp/bench/sets/sim/ 2>/dev/null | wc -l | xargs echo "fixture files:"
+          exit "$code"
+
+      - name: Upload the recorded world
+        if: always() && inputs.world != 'replay'
+        uses: actions/upload-artifact@v4
+        with:
+          name: world-fixtures
+          path: apps/mcp/bench/sets/sim/
+          retention-days: 7
+          if-no-files-found: warn
