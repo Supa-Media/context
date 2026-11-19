@@ -204,32 +204,12 @@ jobs:
           echo "::add-mask::$sub"
           echo "WORKERS_DEV_SUBDOMAIN=$sub" >> "$GITHUB_ENV"
 
-      # Fail closed, before anything deploys: no line or mail key may be set on
-      # the preview. Every name here is one the sync supplies or deploy-photon-bridge.yml
-      # reads. SENDBLUE_STATUS_URL is not mapped: nothing syncs it, and
-      # deploy-agent-worker.yml derives it at deploy time (scripts/sendblue-status-url.mjs).
-      # It stays in the guard's list, but the guard only sees names mapped here,
-      # so that entry checks nothing in CI until a value is mapped.
+      # Fails closed, before anything deploys. It checks that this workflow never
+      # reads a texting, SMS, email or billing secret and puts only allowed names
+      # on the preview Workers. Those keys are repository secrets every environment
+      # inherits, so this job never reads them; after the deploy, each Worker's own
+      # secret list is checked.
       - name: Refuse any line, mail or payment key on the preview
-        env:
-          LINQ_API_KEY: ${{ secrets.LINQ_API_KEY }}
-          LINQ_WEBHOOK_SECRET: ${{ secrets.LINQ_WEBHOOK_SECRET }}
-          SENDBLUE_API_KEY_ID: ${{ secrets.SENDBLUE_API_KEY_ID }}
-          SENDBLUE_API_SECRET: ${{ secrets.SENDBLUE_API_SECRET }}
-          SENDBLUE_WEBHOOK_SECRET: ${{ secrets.SENDBLUE_WEBHOOK_SECRET }}
-          WHAPI_TOKEN: ${{ secrets.WHAPI_TOKEN }}
-          WHAPI_LINE: ${{ secrets.WHAPI_LINE }}
-          WHAPI_WEBHOOK_SECRET: ${{ secrets.WHAPI_WEBHOOK_SECRET }}
-          PHOTON_PROJECT_ID: ${{ secrets.PHOTON_PROJECT_ID }}
-          PHOTON_PROJECT_SECRET: ${{ secrets.PHOTON_PROJECT_SECRET }}
-          TEX_LINE_NUMBERS: ${{ secrets.TEX_LINE_NUMBERS }}
-          TWILIO_ACCOUNT_SID: ${{ secrets.TWILIO_ACCOUNT_SID }}
-          TWILIO_API_KEY_SID: ${{ secrets.TWILIO_API_KEY_SID }}
-          TWILIO_API_KEY_SECRET: ${{ secrets.TWILIO_API_KEY_SECRET }}
-          TWILIO_VERIFY_SERVICE_SID: ${{ secrets.TWILIO_VERIFY_SERVICE_SID }}
-          TWILIO_MESSAGING_SERVICE_SID: ${{ secrets.TWILIO_MESSAGING_SERVICE_SID }}
-          RESEND_API_KEY: ${{ secrets.RESEND_API_KEY }}
-          STRIPE_WEBHOOK_SECRET: ${{ secrets.STRIPE_WEBHOOK_SECRET }}
         run: node scripts/preview-guards.mjs silence
 
       # The Convex key is checked before Convex is deployed, with --before-deploy:
@@ -367,6 +347,26 @@ jobs:
       - name: Set the router's Convex origin
         if: ${{ needs.resolve.outputs.app == 'true' || needs.resolve.outputs.router == 'true' }}
         run: printf '%s' "$PREVIEW_CONTROL_PLANE_URL" | pnpm --dir infra/router exec wrangler secret put CONVEX_ORIGIN --config wrangler.preview.jsonc --env preview --name "context-router-pr$PR"
+
+      # Each Worker's own secret list must hold no texting, SMS, email or billing
+      # name, and no name the workflow never puts. Only names are read.
+      - name: Check the gateway holds no line, mail or payment key
+        if: ${{ needs.resolve.outputs.mcp == 'true' }}
+        run: |
+          set -euo pipefail
+          pnpm --dir apps/mcp exec wrangler secret list --format json --config wrangler.preview.toml --env preview --name "context-mcp-pr$PR" | node scripts/preview-guards.mjs worker-secrets "context-mcp-pr$PR"
+
+      - name: Check the texting assistant holds no line, mail or payment key
+        if: ${{ needs.resolve.outputs.agent == 'true' }}
+        run: |
+          set -euo pipefail
+          pnpm --dir apps/agent exec wrangler secret list --format json --config wrangler.preview.jsonc --env preview --name "context-agent-pr$PR" | node scripts/preview-guards.mjs worker-secrets "context-agent-pr$PR"
+
+      - name: Check the router holds no line, mail or payment key
+        if: ${{ needs.resolve.outputs.app == 'true' || needs.resolve.outputs.router == 'true' }}
+        run: |
+          set -euo pipefail
+          pnpm --dir infra/router exec wrangler secret list --format json --config wrangler.preview.jsonc --env preview --name "context-router-pr$PR" | node scripts/preview-guards.mjs worker-secrets "context-router-pr$PR"
 
       - name: Record when the Workers were done
         run: echo "T_WORKERS=$(date +%s)" >> "$GITHUB_ENV"

@@ -3,7 +3,10 @@
 /**
  * Guards that run in CI around a preview deploy.
  *
- *   silence                       no texting, SMS, email or billing key may be set in the preview's environment
+ *   silence [workflowPath]        the deploy workflow names no texting, SMS, email or billing secret or variable,
+ *                                 and puts only allowed secret names on the preview Workers (static, before any deploy)
+ *   worker-secrets <workerName>   stdin is a deployed preview Worker's `wrangler secret list --format json`: it holds
+ *                                 no texting, SMS, email or billing name, and no name the workflow never puts
  *   identity --before-deploy      the Convex deploy key must be a preview's, and name no production resource
  *                                 (run before the deploy, when the preview's URL does not exist yet)
  *   identity                      the same, and the preview's Convex URL must be a preview one too
@@ -12,12 +15,14 @@
  * Every problem names a variable or a check, never the value that failed it. The subdomain is an account
  * identifier, so the agent origin is never printed either.
  */
+import { readFileSync } from "node:fs";
 import { pathToFileURL } from "node:url";
 
 /**
  * Texting-line secrets: a preview must never be able to send a text on a real line. Only names the
- * deploy reads belong here: Photon's are the two that scripts/deploy-photon-bridge.yml reads, and each
- * name must be one a workflow maps into `silence`'s environment, or the guard never sees it.
+ * deploy reads belong here: Photon's are the two that scripts/deploy-photon-bridge.yml reads. The list
+ * is what `silence` and `worker-secrets` refuse, and what scripts/preview-convex-env.mjs removes from
+ * the preview's Convex deployment.
  */
 export const TEXTING_LINE_KEYS = [
   "LINQ_API_KEY",
@@ -68,6 +73,104 @@ export function silenceProblems(env = process.env) {
   return FORBIDDEN_PREVIEW_KEYS
     .filter((key) => nonEmpty(env[key]))
     .map((key) => `${key} is set; a preview must have no texting, SMS, email or billing key`);
+}
+
+/**
+ * The only secret names the preview workflow may put on a preview Worker (`wrangler secret put` or
+ * `worker-secrets.mjs`). A name outside this list is refused, so a new secret needs a line here.
+ */
+export const PREVIEW_WORKER_SECRET_NAMES = [
+  "CONTROL_PLANE_URL",
+  "CONTROL_PLANE_ORIGIN",
+  "GATEWAY_SECRET",
+  "TRANSCRIBE_WORKER_SECRET",
+  "TRANSCRIBE_WORKER_URL",
+  "BRAVE_SEARCH_API_KEY",
+  "GOOGLE_MAPS_KEY",
+  "AI_GATEWAY_ACCOUNT_ID",
+  "AI_GATEWAY_ID",
+  "AI_GATEWAY_TOKEN",
+  "AI_GATEWAY_KEY_ALIASES",
+  "ANTHROPIC_CREDIT_KEY",
+  "AGENT_WORKER_SECRET",
+  "CONVEX_ORIGIN",
+];
+
+/** Static check of the deploy workflow text. Names only, never values. */
+export function workflowSilenceProblems(text) {
+  const forbidden = new Set(FORBIDDEN_PREVIEW_KEYS);
+  const allowed = new Set(PREVIEW_WORKER_SECRET_NAMES);
+  const problems = new Set();
+  const lines = text
+    .split("\n")
+    .filter((line) => !line.trimStart().startsWith("#"));
+  const body = lines.join("\n");
+
+  for (const match of body.matchAll(/\b(secrets|vars)\.([A-Za-z0-9_]+)/g)) {
+    const [, word, name] = match;
+    if (forbidden.has(name)) problems.add(`deploy-preview.yml reads ${word}.${name}; a preview must never receive a texting, SMS, email or billing key`);
+  }
+  for (const line of lines) {
+    const mapping = /^\s+([A-Za-z0-9_]+):/.exec(line);
+    if (mapping && forbidden.has(mapping[1])) {
+      problems.add(`deploy-preview.yml maps ${mapping[1]} into an environment; a preview must never receive a texting, SMS, email or billing key`);
+    }
+  }
+  for (const match of body.matchAll(/wrangler\s+secret\s+put\s+([A-Za-z0-9_]+)/g)) {
+    if (!allowed.has(match[1])) problems.add(`deploy-preview.yml puts ${match[1]} on a preview Worker, which the preview workflow never puts`);
+  }
+  for (const match of body.matchAll(/convex\s+env\s+set\s+([A-Za-z0-9_]+)/g)) {
+    if (!allowed.has(match[1])) problems.add(`deploy-preview.yml sets ${match[1]} on the Convex deployment, which the preview workflow never sets`);
+  }
+  let workerSecretsLines = 0;
+  for (const line of lines) {
+    const at = line.search(/\bscripts\/worker-secrets\.mjs\b/);
+    if (at === -1) continue;
+    workerSecretsLines += 1;
+    // Stop at a pipe; drop the line-continuation backslash so it is not read as a name.
+    const args = line.slice(at).split("|")[0].replace(/\\\s*$/, "");
+    const tokens = args.split(/\s+/).slice(1).filter((token) => token !== "");
+    for (const raw of tokens) {
+      const unquoted = raw.replace(/^['"]+|['"]+$/g, "").replace(/^[?!]/, "");
+      const target = unquoted.split("=")[0];
+      if (target !== "" && !allowed.has(target)) {
+        problems.add(`deploy-preview.yml passes ${target} to worker-secrets.mjs, which the preview workflow never puts`);
+      }
+    }
+  }
+  if (workerSecretsLines === 0 && /wrangler\s+secret\s+bulk/.test(body)) {
+    problems.add("deploy-preview.yml runs wrangler secret bulk without a scripts/worker-secrets.mjs line to feed it");
+  }
+  return [...problems];
+}
+
+/**
+ * Problems in one deployed preview Worker's secret list (stdout of `wrangler secret list --format json`).
+ * Wrangler may print lines around the JSON array, so the array is the text from the first `[` to the last `]`.
+ */
+export function workerSecretListProblems(worker, listText) {
+  const forbidden = new Set(FORBIDDEN_PREVIEW_KEYS);
+  const allowed = new Set(PREVIEW_WORKER_SECRET_NAMES);
+  const start = listText.indexOf("[");
+  const end = listText.lastIndexOf("]");
+  let entries = null;
+  if (start !== -1 && end > start) {
+    try {
+      const parsed = JSON.parse(listText.slice(start, end + 1));
+      if (Array.isArray(parsed)) entries = parsed;
+    } catch {
+      entries = null;
+    }
+  }
+  if (entries === null) return [`${worker}: the secret list could not be read`];
+  const problems = new Set();
+  for (const entry of entries) {
+    const name = entry !== null && typeof entry === "object" ? entry.name : undefined;
+    if (typeof name !== "string") continue;
+    if (forbidden.has(name)) problems.add(`${worker} has ${name} set; a preview must have no texting, SMS, email or billing key`);
+    else if (!allowed.has(name)) problems.add(`${worker} has ${name} set, which the preview workflow never puts`);
+  }
+  return [...problems];
 }
 
 /**
@@ -165,9 +268,29 @@ function report(name, problems) {
   return problems.length === 0 ? 0 : 1;
 }
 
+const DEPLOY_WORKFLOW = new URL("../.github/workflows/deploy-preview.yml", import.meta.url);
+
+/** Reads all of stdin as text. */
+async function readStdin() {
+  let text = "";
+  for await (const chunk of process.stdin) text += chunk;
+  return text;
+}
+
 async function main(argv) {
   const [command, origin] = argv;
-  if (command === "silence") return report("silence", silenceProblems(process.env));
+  if (command === "silence") {
+    let text;
+    try {
+      text = readFileSync(origin ?? DEPLOY_WORKFLOW, "utf8");
+    } catch {
+      return report("silence", ["the deploy workflow file could not be read"]);
+    }
+    return report("silence", workflowSilenceProblems(text));
+  }
+  if (command === "worker-secrets" && typeof origin === "string") {
+    return report("worker-secrets", workerSecretListProblems(origin, await readStdin()));
+  }
   if (command === "identity" && origin === undefined) return report("identity", identityProblems(process.env));
   if (command === "identity" && origin === "--before-deploy") {
     return report("identity", identityProblems(process.env, { beforeDeploy: true }));
@@ -182,7 +305,7 @@ async function main(argv) {
     }
     return report("agent-health", problems);
   }
-  process.stderr.write("usage: preview-guards.mjs silence | identity [--before-deploy] | agent-health <agentOrigin>\n");
+  process.stderr.write("usage: preview-guards.mjs silence [workflowPath] | worker-secrets <workerName> | identity [--before-deploy] | agent-health <agentOrigin>\n");
   return 2;
 }
 
