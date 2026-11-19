@@ -5,3 +5,13 @@ export function arrive(stubs: (name: string) => { fetch(request: Request): Promi
 export function remoteLine(rpc: unknown, inbox: string, chatId: string): unknown;
 export function remoteGroupLine(rpc: unknown, inbox: string, groupId: string): unknown;
 export function setChatBound(storage: unknown, bound: unknown | null, muted?: boolean): Promise<void>;
+export function appLine(storage: unknown, now?: () => number): unknown;
+export function isAppChat(chatId: unknown): boolean;
+export function appUserOf(chatId: string): string | null;
+export const APP_TYPING_KEY: "app:typing";
+export const APP_PICTURE_ORIGIN: "https://app-chat.invalid";
+export function keepAppPicture(storage: unknown, bytes: Uint8Array, now: number): Promise<string | null>;
+export function readAppPicture(storage: unknown, id: string): Promise<{ mediaType: string; bytes: Uint8Array } | null>;
+export function forgetAppPicture(storage: unknown, id: string): Promise<void>;
+export function serveAppPicture(storage: unknown, url: string): Promise<Response>;
+export const HANDLES_KEY: "evhandles";

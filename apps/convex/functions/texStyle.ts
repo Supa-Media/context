@@ -55,11 +55,19 @@ async function linkedUser(ctx: QueryCtx, phone: string): Promise<Id<"users"> | n
 export const textsStyle = internalQuery({
   args: { phone: v.string() },
   returns: settingsValidator,
-  handler: async (ctx, args) => {
-    const userId = await linkedUser(ctx, args.phone);
-    return userId === null ? {} : settingsOf((await personRow(ctx, userId)) ?? {});
-  },
+  handler: async (ctx, args) => await settingsForUser(ctx, await linkedUser(ctx, args.phone)),
 });
+
+/** The same settings for an in-app chat, by user id (`appChat.ts`): `{}` for a malformed id, as for an unlinked phone. */
+export const textsStyleOfUser = internalQuery({
+  args: { userId: v.string() },
+  returns: settingsValidator,
+  handler: async (ctx, args) => await settingsForUser(ctx, ctx.db.normalizeId("users", args.userId)),
+});
+
+async function settingsForUser(ctx: QueryCtx, userId: Id<"users"> | null) {
+  return userId === null ? {} : settingsOf((await personRow(ctx, userId)) ?? {});
+}
 
 /** "Tex, settings" in a 1:1 chat: the linked person's settings changed. Their settings now, or null unlinked. */
 export const setTextsStyle = internalMutation({

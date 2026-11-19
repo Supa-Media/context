@@ -9,6 +9,7 @@ import { layout, radii, space } from "../../design/tokens";
 import { useColors, useThemedStyles, type Colors } from "../../design/theme";
 import { useMeetingsSnapshot } from "../../meetings/useMeetings";
 import { MeetingsTab } from "./MeetingsTab";
+import { TexChatTab } from "../../tex/chat/TexChatTab";
 import { useMapSide } from "./mapSide";
 import { AsideStrip } from "./AsideStrip";
 import { useFrame } from "../../app/AppFrame";
@@ -53,6 +54,7 @@ export function AsidePanel({
   onOpenNote,
   approvals,
   onJoin = null,
+  tex = null,
 }: {
   /**
    * When somebody last asked for a meeting, from the console's + menu.
@@ -80,6 +82,12 @@ export function AsidePanel({
   approvals?: ApprovalsView;
   /** Join and take notes, for today's meetings in the Meetings tab. `null` where there is no calendar. */
   onJoin?: ((meeting: CalendarEvent) => void) | null;
+  /**
+   * The chat with Tex, for the owner of the personal workspace this console has open: that
+   * workspace's id and the MCP endpoint the console shows. `null` elsewhere, and then there is no
+   * Tex tab. The tab mounts only while it is showing, so the chat polls only then.
+   */
+  tex?: { workspaceId: string; endpoint: string } | null;
 }) {
   const styles = useThemedStyles(makeStyles);
   const [chosen, setChosen] = useState<AsideTab>(DEFAULT_ASIDE_TAB);
@@ -95,6 +103,7 @@ export function AsidePanel({
     failed: approvals?.phase === "failed",
     map: map !== null,
     note: map?.noteKey != null,
+    tex: tex !== null,
   });
   // A chosen tab that has gone (the note closed, the map left) falls back to the map's Activity, else Meetings.
   const showing: AsideTab = tabs.includes(wanted) ? wanted : tabs.includes("activity") ? "activity" : "meetings";
@@ -216,6 +225,10 @@ export function AsidePanel({
       ) : showing === "note" && map !== null ? (
         <View style={styles.body} testID="aside-map-note">
           {map.note}
+        </View>
+      ) : showing === "tex" && tex !== null ? (
+        <View style={styles.body} testID="aside-tex">
+          <TexChatTab workspaceId={tex.workspaceId} endpoint={tex.endpoint} />
         </View>
       ) : showing === "approvals" && approvals !== undefined ? (
         <View style={styles.body} testID="aside-approvals">

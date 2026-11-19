@@ -491,6 +491,25 @@ export const applyTextsGrant = internalMutation({
 });
 
 /**
+ * The same grant for the in-app chat (`appChat.ts`): the person is named by user id, not phone, and nothing else
+ * about the grant changes. An id that is not a user's (malformed, or none) is "unlinked", never a throw.
+ */
+export const applyAppTextsGrant = internalMutation({
+  args: {
+    userId: v.string(),
+    hashedAccessToken: v.string(),
+    hashedRefreshToken: v.string(),
+    expiresAt: v.number(),
+  },
+  returns: v.union(v.literal("linked"), v.literal("unlinked")),
+  handler: async (ctx, args) => {
+    const userId = ctx.db.normalizeId("users", args.userId);
+    if (userId === null) return "unlinked";
+    return await keepTextsGrantForUser(ctx, userId, { ...args, via: "app" });
+  },
+});
+
+/**
  * The texting grant for whoever linked `phone`, with this token's hash: re-checked (linked, not paused, a member who
  * may operate) on every text, then the dream, check-in and housekeeping re-armed and the audit row written. Also how a
  * session the person object opened is copied here (`textingObjects.ts` `keepOpened`), with `personalWorkspaceId`
@@ -500,71 +519,84 @@ export async function keepTextsGrant(
   ctx: MutationCtx,
   args: { phone: string; hashedAccessToken: string; hashedRefreshToken: string; expiresAt: number; personalWorkspaceId?: Id<"workspaces"> },
 ): Promise<"linked" | "unlinked"> {
-  {
-    if (!isPhoneNumber(args.phone)) return "unlinked";
-    const link = await ctx.db
-      .query("phoneLinks")
-      .withIndex("by_phone", (q) => q.eq("phone", args.phone))
-      .first();
-    if (link === null) return "unlinked";
-    // "This wasn't me" stops the assistant answering until it is turned back on.
-    if (await phoneSignInPaused(ctx, link.userId)) return "unlinked";
-    const workspaceId = await personalWorkspaceOf(ctx, link.userId);
-    if (workspaceId === null) return "unlinked";
-    if (args.personalWorkspaceId !== undefined && args.personalWorkspaceId !== workspaceId) return "unlinked";
+  if (!isPhoneNumber(args.phone)) return "unlinked";
+  const link = await ctx.db
+    .query("phoneLinks")
+    .withIndex("by_phone", (q) => q.eq("phone", args.phone))
+    .first();
+  if (link === null) return "unlinked";
+  return await keepTextsGrantForUser(ctx, link.userId, args);
+}
 
-    const membership = await getMembership(ctx, workspaceId, link.userId);
-    if (membership === null) return "unlinked";
-    const scopes = clampScopes(TEXTS_SCOPES, membership.role);
-    if (!hasOperationScope(scopes)) return "unlinked";
+/**
+ * `keepTextsGrant` once the person is known: the in-app chat's session comes straight here (`applyAppTextsGrant`),
+ * with no phone. Every other check is the same for both: not paused, a personal workspace the person is a member of
+ * who may operate, one live texting grant, and the re-armed schedules and audit row.
+ */
+export async function keepTextsGrantForUser(
+  ctx: MutationCtx,
+  userId: Id<"users">,
+  args: { hashedAccessToken: string; hashedRefreshToken: string; expiresAt: number; personalWorkspaceId?: Id<"workspaces">; via?: "app" },
+): Promise<"linked" | "unlinked"> {
+  // "This wasn't me" stops the assistant answering until it is turned back on.
+  if (await phoneSignInPaused(ctx, userId)) return "unlinked";
+  const workspaceId = await personalWorkspaceOf(ctx, userId);
+  if (workspaceId === null) return "unlinked";
+  if (args.personalWorkspaceId !== undefined && args.personalWorkspaceId !== workspaceId) return "unlinked";
 
-    await ensureTextsClient(ctx);
+  const membership = await getMembership(ctx, workspaceId, userId);
+  if (membership === null) return "unlinked";
+  const scopes = clampScopes(TEXTS_SCOPES, membership.role);
+  if (!hasOperationScope(scopes)) return "unlinked";
 
-    // One live texting grant per person: each mint replaces the last token.
-    // The replaced one stays good until its own expiry (`textsEarlierTokens`),
-    // since a turn, a job or a review may be using it right now.
-    const grants = await ctx.db
-      .query("oauthGrants")
-      .withIndex("by_workspace_user", (q) =>
-        q.eq("workspaceId", workspaceId).eq("userId", link.userId),
-      )
-      .collect();
-    const reusable = grants.find((g) => g.clientId === TEXTS_CLIENT_ID && g.status === "active");
-    const token = {
-      scopes,
-      hashedRefreshToken: args.hashedRefreshToken,
-      hashedAccessToken: args.hashedAccessToken,
-      accessTokenExpiresAt: args.expiresAt,
-    };
-    if (reusable === undefined) {
-      await ctx.db.insert("oauthGrants", {
-        workspaceId,
-        userId: link.userId,
-        clientId: TEXTS_CLIENT_ID,
-        ...token,
-        status: "active",
-        createdAt: Date.now(),
-      });
-    } else {
-      await keepEarlierToken(ctx, reusable);
-      await ctx.db.patch(reusable._id, token);
-    }
-    // Tonight's dream reads this text (`lib/dreams/`), and a check-in that
-    // stopped for want of a model or a chat starts again (`lib/heartbeats/`).
-    const zone = effectiveTimeZone(undefined, await accountTimeZone(ctx, link.userId));
-    await armDream(ctx, { userId: link.userId, workspaceId, timeZone: zone, now: Date.now(), texted: true });
-    await armHeartbeat(ctx, { userId: link.userId, workspaceId, timeZone: zone, now: Date.now() });
-    // And tomorrow's housekeeping, likewise restarted (`lib/housekeeping/`).
-    await armHousekeeping(ctx, { userId: link.userId, workspaceId, timeZone: zone, now: Date.now() });
-    await recordAudit(ctx, {
+  await ensureTextsClient(ctx);
+
+  // One live texting grant per person: each mint replaces the last token.
+  // The replaced one stays good until its own expiry (`textsEarlierTokens`),
+  // since a turn, a job or a review may be using it right now.
+  const grants = await ctx.db
+    .query("oauthGrants")
+    .withIndex("by_workspace_user", (q) =>
+      q.eq("workspaceId", workspaceId).eq("userId", userId),
+    )
+    .collect();
+  const reusable = grants.find((g) => g.clientId === TEXTS_CLIENT_ID && g.status === "active");
+  const token = {
+    scopes,
+    hashedRefreshToken: args.hashedRefreshToken,
+    hashedAccessToken: args.hashedAccessToken,
+    accessTokenExpiresAt: args.expiresAt,
+  };
+  if (reusable === undefined) {
+    await ctx.db.insert("oauthGrants", {
       workspaceId,
-      actorUserId: link.userId,
-      actorClientId: TEXTS_CLIENT_ID,
-      action: "texts.session.opened",
-      details: { scopes: scopes.join(" ") },
+      userId,
+      clientId: TEXTS_CLIENT_ID,
+      ...token,
+      status: "active",
+      createdAt: Date.now(),
     });
-    return "linked";
+  } else {
+    await keepEarlierToken(ctx, reusable);
+    await ctx.db.patch(reusable._id, token);
   }
+  // Tonight's dream reads this text (`lib/dreams/`), and a check-in that
+  // stopped for want of a model or a chat starts again (`lib/heartbeats/`).
+  const zone = effectiveTimeZone(undefined, await accountTimeZone(ctx, userId));
+  await armDream(ctx, { userId, workspaceId, timeZone: zone, now: Date.now(), texted: true });
+  // Check-ins go out as texts, not on the app's chat yet (`docs/decisions/texting-assistant/app-chat.md`): the app's
+  // session never starts them for someone who only chats in the app.
+  if (args.via !== "app") await armHeartbeat(ctx, { userId, workspaceId, timeZone: zone, now: Date.now() });
+  // And tomorrow's housekeeping, likewise restarted (`lib/housekeeping/`).
+  await armHousekeeping(ctx, { userId, workspaceId, timeZone: zone, now: Date.now() });
+  await recordAudit(ctx, {
+    workspaceId,
+    actorUserId: userId,
+    actorClientId: TEXTS_CLIENT_ID,
+    action: "texts.session.opened",
+    details: { scopes: scopes.join(" "), ...(args.via === "app" ? { via: "app" } : {}) },
+  });
+  return "linked";
 }
 
 async function ensureTextsClient(ctx: MutationCtx): Promise<void> {
@@ -614,9 +646,20 @@ export const textsTimeZone = internalQuery({
       .query("phoneLinks")
       .withIndex("by_phone", (q) => q.eq("phone", args.phone))
       .first();
-    return effectiveTimeZone(undefined, link === null ? null : await accountTimeZone(ctx, link.userId));
+    return await zoneOfUser(ctx, link === null ? null : link.userId);
   },
 });
+
+/** The same zone for an in-app chat, by user id (`appChat.ts`): a malformed id has the routines' default, as an unlinked phone does. */
+export const textsTimeZoneOfUser = internalQuery({
+  args: { userId: v.string() },
+  returns: v.string(),
+  handler: async (ctx, args) => await zoneOfUser(ctx, ctx.db.normalizeId("users", args.userId)),
+});
+
+async function zoneOfUser(ctx: QueryCtx, userId: Id<"users"> | null): Promise<string> {
+  return effectiveTimeZone(undefined, userId === null ? null : await accountTimeZone(ctx, userId));
+}
 
 /**
  * The workspace a 1:1 text's decision is metered against: the sender's personal workspace, resolved as

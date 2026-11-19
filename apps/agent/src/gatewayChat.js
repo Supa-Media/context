@@ -10,3 +10,7 @@ export { arrive } from "./inboxMove";
 export { remoteLine, remoteGroupLine } from "./remoteLine";
 // A Lab test chat's object starts as the real chat's is once Tex answered in it: set up for the people it was texted in front of.
 export { setChatBound } from "./groupChat";
+// The in-app chat with Tex (`appChat.ts`): its chat ids, its line, and the typing mark the gateway reads back.
+export { appLine, isAppChat, appUserOf, APP_TYPING_KEY } from "./appChat";
+export { APP_PICTURE_ORIGIN, forgetAppPicture, keepAppPicture, readAppPicture, serveAppPicture } from "./appPictures";
+export { HANDLES_KEY } from "./replyQuote";

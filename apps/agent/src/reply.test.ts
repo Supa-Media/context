@@ -390,3 +390,101 @@ describe("which unanswered 1:1 turns are tried again (`triedAgain`)", () => {
     expect(triedAgain({ kind: "no_storage" })).toBe(false);
   });
 });
+
+describe("an in-app chat's turn (appChat.ts)", () => {
+  const USER = "k7m2q9x4b8n3c6v1";
+  const appMessage = (text: string): Message => ({ ...message(text), chatId: `app:${USER}`, from: `app:${USER}` });
+  // The object the gateway placed for this app chat (`env.ts` `APP_CHAT`).
+  const appDeps = (...args: Parameters<typeof deps>) => ({ ...deps(...args), appChat: `app:${USER}` });
+
+  it("asks the control plane by user id for its session, never by phone, and answers with that grant", async () => {
+    const seen: string[] = [];
+    const reply = await replyTo(
+      appMessage("what's on my list?"),
+      appDeps(
+        {
+          "/agent-texts/app-session": (body, auth) => {
+            expect(body).toEqual({ userId: USER });
+            expect(auth).toBe("Bearer worker-secret");
+            return [200, { status: "linked", accessToken: "grant-for-the-app" }];
+          },
+          "/agent": (_body, auth) => {
+            expect(auth).toBe("Bearer grant-for-the-app");
+            return [200, { answer: "Three things." }];
+          },
+        },
+        seen,
+      ),
+    );
+    expect(reply).toEqual(["Three things."]);
+    expect(seen).toEqual(["/agent-texts/app-session", "/agent"]);
+  });
+
+  it("does not treat a link code as a link command: the text goes to the session and the turn", async () => {
+    const seen: string[] = [];
+    const reply = await replyTo(
+      appMessage("link ABCD2345"),
+      appDeps(
+        {
+          "/agent-texts/app-session": () => [200, { status: "linked", accessToken: "grant-for-the-app" }],
+          "/agent": () => [200, { answer: "Which link do you mean?" }],
+        },
+        seen,
+      ),
+    );
+    expect(reply).toEqual(["Which link do you mean?"]);
+    expect(seen).not.toContain("/agent-texts/link");
+  });
+
+  it("does not treat UNLINK as the unlink command", async () => {
+    const seen: string[] = [];
+    await replyTo(
+      appMessage("unlink"),
+      appDeps(
+        {
+          "/agent-texts/app-session": () => [200, { status: "linked", accessToken: "grant-for-the-app" }],
+          "/agent": () => [200, { answer: "Still here." }],
+        },
+        seen,
+      ),
+    );
+    expect(seen).not.toContain("/agent-texts/unlink");
+  });
+
+  it("answers nothing when the app user has no linked session, and runs no setup, invite or sign-in step", async () => {
+    const seen: string[] = [];
+    const reply = await replyTo(
+      appMessage("hi"),
+      appDeps({ "/agent-texts/app-session": () => [200, { status: "unlinked" }] }, seen),
+    );
+    expect(reply).toEqual([]);
+    expect(seen).toEqual(["/agent-texts/app-session"]);
+  });
+
+  it("answers nothing, and asks nobody, for an app chat id that names no user", async () => {
+    const seen: string[] = [];
+    const reply = await replyTo({ ...message("hi"), chatId: "app:NOT-A-USER", from: "app:NOT-A-USER" }, deps({}, seen));
+    expect(reply).toEqual([]);
+    expect(seen).toEqual([]);
+  });
+
+  it("runs as nobody when an app chat id reaches any object but the one the gateway placed for it", async () => {
+    const seen: string[] = [];
+    // A provider's webhook naming `app:<someone>` as its chat lands in a phone's object: no session is asked for.
+    const reply = await replyTo(appMessage("hi"), deps({ "/agent-texts/app-session": () => [200, { status: "linked", accessToken: "x" }] }, seen));
+    expect(reply).toEqual([]);
+    expect(seen).toEqual([]);
+    const other = await replyTo(appMessage("hi"), { ...deps({}, seen), appChat: "app:someoneelse0000" });
+    expect(other).toEqual([]);
+    expect(seen).toEqual([]);
+  });
+
+  it("asks a phone's text by phone, as before", async () => {
+    const seen: string[] = [];
+    await replyTo(
+      message("hi"),
+      deps({ "/agent-texts/session": () => [200, { status: "unlinked" }], "/agent-texts/setup": () => [200, { status: "not_eligible" }], "/agent-texts/invite": () => [200, { status: "refused" }] }, seen),
+    );
+    expect(seen[0]).toBe("/agent-texts/session");
+  });
+});
