@@ -30,6 +30,10 @@ export const PREVIEW_CEILING = 45;
 const PREVIEW_WORKER = /^context-(mcp|agent|router)-pr([1-9][0-9]{0,6})$/;
 const RESOURCE_PREFIX = /^pr([1-9][0-9]{0,6})-/;
 const PREVIEW_WORKFLOWS = ["group-turn", "job-run"];
+const WORKFLOW_PREVIEW = /^(group-turn|job-run)-pr([1-9][0-9]{0,6})$/;
+/** Pages read from a paginated list before the sweep gives up rather than guess. */
+const MAX_PAGES = 100;
+const PAGE_SIZE = 100;
 /** Each Worker's checkout, where its own wrangler is installed. */
 const WORKER_DIRS = { router: "infra/router", agent: "apps/agent", mcp: "apps/mcp" };
 /** Deleted in this order: a Worker bound by another goes after it. */
@@ -56,6 +60,35 @@ export function resourcePullRequest(name) {
 export function workerPullRequest(name) {
   const match = PREVIEW_WORKER.exec(name);
   return match ? match[2] : null;
+}
+
+/** The pull request number a preview Workflow (`group-turn-pr<N>`, `job-run-pr<N>`) belongs to, or null. */
+export function workflowPullRequest(name) {
+  const match = WORKFLOW_PREVIEW.exec(name);
+  return match ? match[2] : null;
+}
+
+/**
+ * Every item of a paginated Cloudflare list. Pages are read until one brings
+ * nothing new, so a list that ignores `page` still ends. Past MAX_PAGES it
+ * throws, so a truncated list is never used.
+ */
+async function listAll(api, path, key) {
+  const out = [];
+  const seen = new Set();
+  for (let page = 1; page <= MAX_PAGES; page += 1) {
+    const separator = path.includes("?") ? "&" : "?";
+    const batch = items(await api.request("GET", `${path}${separator}per_page=${PAGE_SIZE}&page=${page}`), key);
+    const fresh = batch.filter((item) => {
+      const id = JSON.stringify(item);
+      if (seen.has(id)) return false;
+      seen.add(id);
+      return true;
+    });
+    if (fresh.length === 0) return out;
+    out.push(...fresh);
+  }
+  throw new Error(`${path.split("?")[0]} has more than ${MAX_PAGES} pages; nothing was swept.`);
 }
 
 /**
@@ -158,7 +191,7 @@ export async function deletePreview(env, n, { log = console.log, runWrangler = w
     }
   }
   const workflowNames = new Set(PREVIEW_WORKFLOWS.map((base) => `${base}-pr${n}`));
-  for (const workflow of items(await api.request("GET", `/accounts/${env.CLOUDFLARE_ACCOUNT_ID}/workflows`), "workflows")) {
+  for (const workflow of await listAll(api, `/accounts/${env.CLOUDFLARE_ACCOUNT_ID}/workflows`, "workflows")) {
     if (!workflowNames.has(workflow.name)) continue;
     try {
       await api.request("DELETE", `/accounts/${env.CLOUDFLARE_ACCOUNT_ID}/workflows/${workflow.name}`);
@@ -178,14 +211,23 @@ export async function deletePreview(env, n, { log = console.log, runWrangler = w
  * delete the previews of the rest. Live previews are counted against the ceiling.
  */
 export async function sweep(env, { log = console.log, runWrangler = wrangler, openPullRequests, api = cloudflareApi(env.CLOUDFLARE_API_TOKEN) } = {}) {
-  const scripts = items(await api.request("GET", `/accounts/${env.CLOUDFLARE_ACCOUNT_ID}/workers/scripts`), "result")
+  const scripts = (await listAll(api, `/accounts/${env.CLOUDFLARE_ACCOUNT_ID}/workers/scripts`, "result"))
     .map((script) => script.id);
+  // Throws when the list is truncated or fails: nothing below runs, so nothing is deleted.
   const open = new Set(await openPullRequests());
   const storage = await listStorage(api, env);
   const storageNumbers = storage.map((item) => resourcePullRequest(item.name)).filter(Boolean);
-  const previews = new Set([...scripts.map(workerPullRequest).filter(Boolean), ...storageNumbers]);
-  // Worker scripts decide by `orphanNames`; storage names by their prefix.
-  const closed = new Set([...orphanNames(scripts, [...open]).map(workerPullRequest), ...storageNumbers].filter((n) => !open.has(n)));
+  // A Workflow whose Worker was deleted is still a preview of its pull request.
+  const workflowNumbers = (await listAll(api, `/accounts/${env.CLOUDFLARE_ACCOUNT_ID}/workflows`, "workflows"))
+    .map((workflow) => workflowPullRequest(workflow.name))
+    .filter(Boolean);
+  const previews = new Set([...scripts.map(workerPullRequest).filter(Boolean), ...storageNumbers, ...workflowNumbers]);
+  // Worker scripts decide by `orphanNames`; storage and Workflow names by their pattern.
+  const closed = new Set([
+    ...orphanNames(scripts, [...open]).map(workerPullRequest),
+    ...storageNumbers,
+    ...workflowNumbers,
+  ].filter((n) => !open.has(n)));
   for (const n of [...closed].sort((a, b) => Number(a) - Number(b))) {
     log(`pull request #${n} is not open; deleting its preview`);
     await deletePreview(env, n, { log, runWrangler, api });
@@ -196,12 +238,27 @@ export async function sweep(env, { log = console.log, runWrangler = wrangler, op
   return { live, closed: [...closed] };
 }
 
-async function openPullRequestNumbers(token, repo) {
-  const response = await fetch(`https://api.github.com/repos/${repo}/pulls?state=open&per_page=100`, {
-    headers: { Authorization: `Bearer ${token}`, Accept: "application/vnd.github+json", "X-GitHub-Api-Version": "2022-11-28" },
-  });
-  if (!response.ok) throw new Error(`Could not list open pull requests (HTTP ${response.status}).`);
-  return (await response.json()).map((pr) => String(pr.number));
+/**
+ * Every open pull request number, read page by page until a short page. Any
+ * failure or a page that is not a list throws: a partial list would make live
+ * previews look closed.
+ */
+export async function openPullRequestNumbers(token, repo, { fetchImpl = fetch } = {}) {
+  const numbers = [];
+  for (let page = 1; page <= MAX_PAGES; page += 1) {
+    const response = await fetchImpl(
+      `https://api.github.com/repos/${repo}/pulls?state=open&per_page=${PAGE_SIZE}&page=${page}`,
+      {
+        headers: { Authorization: `Bearer ${token}`, Accept: "application/vnd.github+json", "X-GitHub-Api-Version": "2022-11-28" },
+      },
+    );
+    if (!response.ok) throw new Error(`Could not list open pull requests (HTTP ${response.status}, page ${page}).`);
+    const batch = await response.json();
+    if (!Array.isArray(batch)) throw new Error(`Could not list open pull requests (page ${page} is not a list).`);
+    for (const pr of batch) numbers.push(String(pr.number));
+    if (batch.length < PAGE_SIZE) return numbers;
+  }
+  throw new Error(`Open pull requests have more than ${MAX_PAGES} pages; nothing was swept.`);
 }
 
 async function main(argv) {

@@ -1,7 +1,17 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 
-import { deletePreview, isPreviewResource, orphanNames, resourcePullRequest, storageAccounts, workerPullRequest } from "./preview-cleanup.mjs";
+import {
+  deletePreview,
+  isPreviewResource,
+  openPullRequestNumbers,
+  orphanNames,
+  resourcePullRequest,
+  storageAccounts,
+  sweep,
+  workerPullRequest,
+  workflowPullRequest,
+} from "./preview-cleanup.mjs";
 
 test("a resource belongs to pull request N only by its complete prefix or suffix", () => {
   assert.equal(isPreviewResource("pr1-ctx-abc", 1), true);
@@ -68,7 +78,7 @@ test("deleting a preview removes its Workers in order, and tolerates one that is
   await deletePreview(env, 7, { log: (line) => logs.push(line), runWrangler, api });
   assert.deepEqual(calls, [["router", "context-router-pr7"], ["agent", "context-agent-pr7"], ["mcp", "context-mcp-pr7"]]);
   assert.ok(logs.some((line) => line.includes("context-agent-pr7 was already gone")));
-  assert.deepEqual(requests, ["GET /accounts/gateway/workflows", "GET /accounts/gateway/r2/buckets?per_page=1000", "GET /accounts/gateway/d1/database?per_page=1000", "GET /accounts/gateway/vectorize/v2/indexes"]);
+  assert.deepEqual(requests, ["GET /accounts/gateway/workflows?per_page=100&page=1", "GET /accounts/gateway/r2/buckets?per_page=1000", "GET /accounts/gateway/d1/database?per_page=1000", "GET /accounts/gateway/vectorize/v2/indexes"]);
 });
 
 test("a storage resource of another pull request is never deleted", async () => {
@@ -90,4 +100,109 @@ test("a storage resource of another pull request is never deleted", async () => 
     "/accounts/gateway/vectorize/v2/indexes/pr1-vec",
     "/accounts/gateway/vectorize/v2/indexes/group-pr1",
   ]);
+});
+
+/** A fake Cloudflare API: `routes` maps a path prefix to the page result for that request. */
+function fakeCloudflare(routes) {
+  const deleted = [];
+  const requested = [];
+  const api = {
+    request: async (method, path) => {
+      requested.push(`${method} ${path}`);
+      if (method === "DELETE") {
+        deleted.push(path);
+        return null;
+      }
+      const page = Number(/page=(\d+)/.exec(path)?.[1] ?? 1);
+      for (const [prefix, pages] of Object.entries(routes)) {
+        if (path.startsWith(prefix)) return pages[page - 1] ?? null;
+      }
+      return null;
+    },
+  };
+  return { api, deleted, requested };
+}
+
+const GONE = () => {
+  const error = new Error("wrangler failed");
+  error.stderr = "Error: Worker not found (code 10007)";
+  throw error;
+};
+
+test("a Workflow left behind after its Worker is gone is swept, and the shared Workflows are never touched", async () => {
+  const { api, deleted } = fakeCloudflare({
+    "/accounts/gateway/workers/scripts": [[]],
+    "/accounts/gateway/workflows": [[{ name: "group-turn-pr7" }, { name: "group-turn" }, { name: "group-turn-staging" }, { name: "job-run-staging" }, { name: "job-run" }]],
+  });
+  const logs = [];
+  await sweep({ CLOUDFLARE_API_TOKEN: "t", CLOUDFLARE_ACCOUNT_ID: "gateway" }, {
+    api,
+    log: (line) => logs.push(line),
+    runWrangler: GONE,
+    openPullRequests: async () => [],
+  });
+  assert.deepEqual(deleted, ["/accounts/gateway/workflows/group-turn-pr7"]);
+  assert.ok(logs.some((line) => line.includes("pull request #7 is not open")));
+});
+
+test("workflow names match only the exact preview pattern", () => {
+  assert.equal(workflowPullRequest("group-turn-pr7"), "7");
+  assert.equal(workflowPullRequest("job-run-pr1234567"), "1234567");
+  for (const name of ["group-turn", "group-turn-staging", "job-run", "job-run-staging", "group-turn-pr0", "group-turn-pr12345678", "group-turn-pr07", "x-group-turn-pr7"]) {
+    assert.equal(workflowPullRequest(name), null, name);
+  }
+});
+
+test("a PR on page 2 of the open pull requests keeps its preview", async () => {
+  const page1 = Array.from({ length: 100 }, (_, i) => ({ number: 1000 + i }));
+  const page2 = [{ number: 7 }];
+  const seenUrls = [];
+  const fetchImpl = async (url) => {
+    seenUrls.push(url);
+    const page = Number(/page=(\d+)/.exec(url)[1]);
+    return new Response(JSON.stringify(page === 1 ? page1 : page === 2 ? page2 : []), { status: 200 });
+  };
+  const numbers = await openPullRequestNumbers("t", "owner/repo", { fetchImpl });
+  assert.equal(numbers.length, 101);
+  assert.ok(numbers.includes("7"));
+  assert.equal(seenUrls.length, 2, "a short page ends the listing");
+
+  const { api, deleted } = fakeCloudflare({
+    "/accounts/gateway/workers/scripts": [[{ id: "context-mcp-pr7" }]],
+    "/accounts/gateway/workflows": [[{ name: "group-turn-pr7" }]],
+  });
+  await sweep({ CLOUDFLARE_API_TOKEN: "t", CLOUDFLARE_ACCOUNT_ID: "gateway" }, {
+    api,
+    log: () => {},
+    runWrangler: () => {},
+    openPullRequests: async () => numbers,
+  });
+  assert.deepEqual(deleted, [], "PR 7 is open on page 2, so nothing of it is deleted");
+});
+
+test("a failing or truncated pull request list throws and deletes nothing", async () => {
+  const { api, deleted } = fakeCloudflare({
+    "/accounts/gateway/workers/scripts": [[{ id: "context-mcp-pr7" }]],
+    "/accounts/gateway/workflows": [[{ name: "group-turn-pr7" }]],
+  });
+  const env = { CLOUDFLARE_API_TOKEN: "t", CLOUDFLARE_ACCOUNT_ID: "gateway" };
+  await assert.rejects(
+    sweep(env, { api, log: () => {}, runWrangler: () => {}, openPullRequests: async () => { throw new Error("Could not list open pull requests (HTTP 500, page 2)."); } }),
+    /Could not list/,
+  );
+  assert.deepEqual(deleted, []);
+
+  const fullPage = Array.from({ length: 100 }, (_, i) => ({ number: 2000 + i }));
+  const failingSecondPage = async (url) => {
+    const page = Number(/page=(\d+)/.exec(url)[1]);
+    if (page === 1) return new Response(JSON.stringify(fullPage), { status: 200 });
+    return new Response("{}", { status: 500 });
+  };
+  await assert.rejects(openPullRequestNumbers("t", "owner/repo", { fetchImpl: failingSecondPage }), /HTTP 500, page 2/);
+  const notAList = async () => new Response("{}", { status: 200 });
+  await assert.rejects(openPullRequestNumbers("t", "owner/repo", { fetchImpl: notAList }), /not a list/);
+  await assert.rejects(
+    openPullRequestNumbers("t", "owner/repo", { fetchImpl: async () => { throw new Error("network down"); } }),
+    /network down/,
+  );
 });

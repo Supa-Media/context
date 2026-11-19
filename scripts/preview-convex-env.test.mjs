@@ -117,7 +117,7 @@ test('applyPreviewEnv sets from a 0600 file, then removes forbidden names, and d
 });
 
 test('a failed removal fails the whole command', () => {
-  const cli = (args) => ({ status: args[1] === 'remove' ? 1 : 0 });
+  const cli = (args) => (args[1] === 'list' ? { status: 0, stdout: 'RESEND_API_KEY\n' } : { status: args[1] === 'remove' ? 1 : 0 });
   assert.throws(() => applyPreviewEnv({ ...env, CONVEX_DEPLOY_KEY: KEY }, { cli }), /convex env remove/);
 });
 
@@ -160,4 +160,51 @@ test('error messages name variables only, never a value', () => {
   } catch (error) {
     assert.doesNotMatch(error.message, /value with/);
   }
+});
+
+test('a names-only listing removes only the forbidden names the deployment holds', () => {
+  const calls = [];
+  const cli = (args, key, options) => {
+    calls.push({ args, options });
+    if (args[0] === 'env' && args[1] === 'list') return { status: 0, stdout: 'GATEWAY_SECRET\nRESEND_API_KEY\nLINQ_API_KEY\n' };
+    return { status: 0 };
+  };
+  const result = applyPreviewEnv({ ...env, CONVEX_DEPLOY_KEY: KEY }, { cli });
+  const list = calls.filter((call) => call.args[1] === 'list');
+  assert.equal(list.length, 1, 'one listing, not one per name');
+  assert.deepEqual(list[0].args, ['env', 'list', '--deployment', 'example-preview-123', '--names-only']);
+  assert.equal(list[0].options.capture, true, 'only the listing captures stdout');
+  assert.ok(calls.filter((call) => call.args[1] !== 'list').every((call) => !call.options), 'other calls capture nothing');
+  const removed = calls.filter((call) => call.args[1] === 'remove').map((call) => call.args[call.args.length - 1]);
+  assert.deepEqual(removed.sort(), ['LINQ_API_KEY', 'RESEND_API_KEY']);
+  assert.deepEqual(result.removed.sort(), ['LINQ_API_KEY', 'RESEND_API_KEY']);
+});
+
+test('a listing that fails falls back to removing every forbidden name', () => {
+  for (const listing of [{ status: 1, stdout: '' }, () => { throw new Error('spawn failed'); }]) {
+    const removed = [];
+    const cli = (args) => {
+      if (args[1] === 'list') {
+        if (typeof listing === 'function') return listing();
+        return listing;
+      }
+      if (args[1] === 'remove') removed.push(args[args.length - 1]);
+      return { status: 0 };
+    };
+    const result = applyPreviewEnv({ ...env, CONVEX_DEPLOY_KEY: KEY }, { cli });
+    assert.deepEqual(removed.sort(), [...result.removed].sort());
+    assert.ok(removed.includes('RESEND_API_KEY'));
+    assert.ok(removed.includes('STAGING_CONVEX_DEPLOYMENT'));
+  }
+});
+
+test('the names listing is read as names, and a value in it is never a name to remove', () => {
+  const removed = [];
+  const cli = (args) => {
+    if (args[1] === 'list') return { status: 0, stdout: '' };
+    if (args[1] === 'remove') removed.push(args[args.length - 1]);
+    return { status: 0 };
+  };
+  applyPreviewEnv({ ...env, CONVEX_DEPLOY_KEY: KEY }, { cli });
+  assert.deepEqual(removed, [], 'an empty listing means nothing is present to remove');
 });

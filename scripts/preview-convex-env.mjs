@@ -138,12 +138,15 @@ export function outputLines(name) {
   ];
 }
 
-/** The convex CLI with a minimal environment: the deploy key and no staging secrets. */
-function convexCli(args, key) {
+/**
+ * The convex CLI with a minimal environment: the deploy key and no staging secrets. Its stdout is kept
+ * only when `capture` is set, for the names-only listing; everything else is discarded.
+ */
+function convexCli(args, key, { capture = false } = {}) {
   return spawnSync(process.execPath, [CLI, ...args], {
     cwd: REPO_ROOT,
     encoding: 'utf8',
-    stdio: ['ignore', 'ignore', 'ignore'],
+    stdio: ['ignore', capture ? 'pipe' : 'ignore', 'ignore'],
     env: {
       PATH: process.env.PATH,
       HOME: process.env.HOME,
@@ -170,17 +173,36 @@ export function applyPreviewEnv(env, { cli = convexCli } = {}) {
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
-  for (const variable of remove) {
+  // One names-only listing says which forbidden names exist, so only those are removed. If the listing
+  // fails, every forbidden name is removed, as before. Only names are read from its output.
+  const present = presentNames(cli, name, env.CONVEX_DEPLOY_KEY);
+  const toRemove = present === null ? remove : remove.filter((variable) => present.has(variable));
+  for (const variable of toRemove) {
     const result = cli(['env', 'remove', '--deployment', name, variable], env.CONVEX_DEPLOY_KEY);
     if (result.status !== 0) throw new Error(`convex env remove ${variable} failed (exit ${result.status}).`);
   }
-  return { name, set: Object.keys(set), removed: remove };
+  return { name, set: Object.keys(set), removed: toRemove };
+}
+
+/**
+ * The variable names the deployment holds, from `env list --names-only`, or null when the listing fails.
+ * Its stdout is read here and nowhere else; a value is never in this output.
+ */
+export function presentNames(cli, deployment, key) {
+  let result;
+  try {
+    result = cli(['env', 'list', '--deployment', deployment, '--names-only'], key, { capture: true });
+  } catch {
+    return null;
+  }
+  if (!result || result.status !== 0 || typeof result.stdout !== 'string') return null;
+  return new Set(result.stdout.split(/\s+/).filter(Boolean));
 }
 
 export function run(env = process.env, { cli = convexCli, log = console.log } = {}) {
   const { name, set, removed } = applyPreviewEnv(env, { cli });
   log(`Set on the preview: ${set.join(' ')}`);
-  log(`Removed if present: ${removed.join(' ')}`);
+  log(`Removed (only those the preview held): ${removed.join(' ') || 'none'}`);
   const target = env.PREVIEW_OUTPUT || env.GITHUB_OUTPUT;
   if (target) appendFileSync(target, `${outputLines(name).join('\n')}\n`);
   return { name };
