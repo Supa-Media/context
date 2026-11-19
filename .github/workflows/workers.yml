@@ -39,9 +39,7 @@ on:
       - "infra/site-shots/**"
       - "infra/tex-eval/**"
       - "apps/agent/**"
-      - "packages/shared/src/texConfig.json"
-      - "packages/shared/src/texGraph.cjs"
-      - "packages/shared/src/texNumber.cjs"
+      - "packages/shared/src/**"
       - "pnpm-lock.yaml"
       - ".github/workflows/workers.yml"
 
@@ -230,12 +228,12 @@ jobs:
         with:
           tex-data: "true"
           packages: "@context/agent"
-          # The Worker imports Tex's config and graph by path, not as a package: a wiring change is a Worker change (#3443).
+          # The Worker imports packages/shared/src modules by relative path, not as a
+          # package, so any of them is a Worker change (#3443; #3733 skipped this
+          # suite and broke main). check-ci-path-gates.mjs checks every such import is watched.
           paths: |
             .github/workflows/workers.yml
-            packages/shared/src/texConfig.json
-            packages/shared/src/texGraph.cjs
-            packages/shared/src/texNumber.cjs
+            packages/shared/src/**
 
       - name: Install (Agent)
         if: ${{ !cancelled() && steps.agent.outputs.affected == 'true' }}

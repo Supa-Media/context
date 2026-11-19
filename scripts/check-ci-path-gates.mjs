@@ -11,7 +11,7 @@
  * a browser run.
  */
 import { existsSync, readFileSync, readdirSync, realpathSync } from "node:fs";
-import { dirname, join, relative } from "node:path";
+import { dirname, join, relative, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
 import { assertUnitSlices, jobBlock, stepBlocks } from "./lib/workflow-jobs.mjs";
@@ -135,11 +135,14 @@ export function assertPaths(actual, required, label) {
  * reindented file — which reads as "this job watches nothing" and would be
  * believed.
  */
-export function scopePaths(yaml, job, key = "paths") {
-  const scope = stepBlocks(jobBlock(yaml, job)).find((step) =>
-    step.includes("uses: ./.github/actions/ci-scope"),
-  );
-  if (scope === undefined) throw new Error(`${job} has no shared CI scope step`);
+export function scopePaths(yaml, job, key = "paths", id = undefined) {
+  const steps = stepBlocks(jobBlock(yaml, job)).filter((step) => step.includes("uses: ./.github/actions/ci-scope"));
+  const scope = id === undefined
+    ? steps[0]
+    : steps.find((step) => new RegExp(`\\bid:\\s*${id}\\b`).test(step));
+  if (scope === undefined) {
+    throw new Error(id === undefined ? `${job} has no shared CI scope step` : `${job} has no CI scope step ${id}`);
+  }
   const lines = scope.split("\n");
   const at = lines.findIndex((line) => new RegExp(`^\\s+${key}: \\|\\s*$`).test(line));
   if (at === -1) throw new Error(`${job}'s scope step has no ${key}: | block`);
@@ -157,6 +160,46 @@ export function scopePaths(yaml, job, key = "paths") {
 /** Which of `sources` no pattern in `watched` covers. */
 export function unwatchedSources(sources, watched) {
   return [...sources].filter((source) => ![...watched].some((pattern) => matches(source, pattern)));
+}
+
+const SOURCE_EXTENSIONS = [".ts", ".tsx", ".js", ".mjs", ".cjs", ".mts", ".cts"];
+const RELATIVE_IMPORT = /(?:from\s+|import\s+|import\s*\(\s*|require\s*\(\s*)["'](\.{1,2}\/[^"']+)["']/g;
+
+/**
+ * The repo-relative files that sources under `dir` import by relative path and
+ * that live outside `dir`, sorted and unique.
+ */
+export function relativeImportsOutside(dir, root = ROOT) {
+  const found = new Set();
+  const walk = (abs) => {
+    for (const entry of readdirSync(abs, { withFileTypes: true })) {
+      if (entry.name === "node_modules") continue;
+      const path = join(abs, entry.name);
+      if (entry.isDirectory()) {
+        walk(path);
+      } else if (SOURCE_EXTENSIONS.some((ext) => entry.name.endsWith(ext))) {
+        const text = readFileSync(path, "utf8");
+        for (const match of text.matchAll(RELATIVE_IMPORT)) {
+          const target = relative(root, resolve(dirname(path), match[1])).replaceAll("\\", "/");
+          if (!target.startsWith(`${dir}/`)) found.add(target);
+        }
+      }
+    }
+  };
+  walk(join(root, dir));
+  return [...found].sort();
+}
+
+/**
+ * apps/agent imports packages/shared files by relative path, not as a workspace
+ * dependency, so package-based scope cannot see them. PR #3733 changed
+ * groupRunQuestions.cjs, skipped the agent tests, and broke main.
+ */
+export function assertPathImportsWatched(imports, watched, label) {
+  const missing = unwatchedSources(imports, watched);
+  if (missing.length) {
+    throw new Error(`${label} imports ${missing.join(", ")} by path, but its CI scope does not watch it; a change there would skip its tests`);
+  }
 }
 
 /**
@@ -560,6 +603,8 @@ export function check(root = ROOT) {
     siteshots: { packages: ["@context/site-shots"], runs: "infra/site-shots" }, texeval: { packages: ["@context/tex-eval"], runs: "infra/tex-eval" },
     agent: { packages: ["@context/agent"], runs: "apps/agent" },
   });
+  const workers = readFileSync(join(root, ".github/workflows/workers.yml"), "utf8");
+  assertPathImportsWatched(relativeImportsOutside("apps/agent/src", root), scopePaths(workers, "test", "paths", "agent"), "workers.yml:test:agent");
   assertUnitSlices(readFileSync(join(root, ".github/workflows/mcp.yml"), "utf8"));
 
   for (const [workflow, job, packages] of scoped) {
@@ -689,6 +734,14 @@ export function selfTest() {
   const reindented = `  editor-bundle:\n    steps:\n      - uses: ./.github/actions/ci-scope\n        id: scope\n        with:\n          paths: |\n              apps/mcp/src/lists.js\n              scripts/build-editor-bundle.mjs\n`;
   if (scopePaths(reindented, "editor-bundle").size !== 2) {
     throw new Error("a reindented paths block was not read");
+  }
+  expectFailure(
+    "a path import the scope does not watch",
+    () => assertPathImportsWatched(["packages/shared/src/groupRunQuestions.cjs"], new Set(["packages/shared/src/texConfig.json"]), "agent"),
+    "groupRunQuestions.cjs",
+  );
+  if (!relativeImportsOutside("apps/agent/src").includes("packages/shared/src/groupRunQuestions.cjs")) {
+    throw new Error("the agent's path import of groupRunQuestions.cjs was not found");
   }
 }
 
