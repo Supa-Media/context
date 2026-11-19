@@ -131,6 +131,61 @@ export function storeStorageToken({ deployment, deployKey, token, run = spawnSyn
   }
 }
 
+const CLOUDFLARE_API = 'https://api.cloudflare.com/client/v4';
+
+/**
+ * Asks Cloudflare which of the token's permissions are missing, when a preview's storage is refused. Each
+ * GET returns its HTTP status and the numeric error codes in its body, and nothing else: no message text, no
+ * ids and no body, so a result can be logged without a secret. A network failure is status 'network'.
+ */
+export async function probeCloudflare({ token, accountId, fetchImpl = fetch } = {}) {
+  const account = encodeURIComponent(accountId ?? '');
+  const probes = [
+    ['user token verify', '/user/tokens/verify'],
+    ['account token verify', `/accounts/${account}/tokens/verify`],
+    ['R2 bucket list', `/accounts/${account}/r2/buckets?per_page=1`],
+    ['account token permission groups', `/accounts/${account}/tokens/permission_groups`],
+    ['user token permission groups', '/user/tokens/permission_groups'],
+  ];
+  return await Promise.all(probes.map(async ([label, path]) => {
+    try {
+      const response = await fetchImpl(`${CLOUDFLARE_API}${path}`, {
+        method: 'GET',
+        headers: { Authorization: `Bearer ${token}` },
+        signal: AbortSignal.timeout(20000),
+      });
+      let codes = [];
+      try {
+        const body = await response.json();
+        if (Array.isArray(body?.errors)) codes = body.errors.map((error) => error?.code).filter(Number.isInteger);
+      } catch {
+        codes = [];
+      }
+      return { label, status: response.status, codes };
+    } catch {
+      return { label, status: 'network', codes: [] };
+    }
+  }));
+}
+
+/**
+ * The error to throw when a workspace's storage failed. When Cloudflare refused it, the token's permissions are
+ * probed first and one line per result is logged. A failed probe is logged and never replaces the error.
+ */
+async function storageFailure({ slug, errorCode, env, log }) {
+  if (errorCode === 'CLOUDFLARE_REFUSED' && env.PREVIEW_R2_API_TOKEN && env.CLOUDFLARE_ACCOUNT_ID) {
+    try {
+      const results = await probeCloudflare({ token: env.PREVIEW_R2_API_TOKEN, accountId: env.CLOUDFLARE_ACCOUNT_ID });
+      for (const result of results) {
+        log(`preview-seed: Cloudflare probe: ${result.label} -> ${result.status}${result.codes.length ? ` codes ${result.codes.join(',')}` : ''}`);
+      }
+    } catch {
+      log('preview-seed: Cloudflare probe failed.');
+    }
+  }
+  return new Error(`${slug}: storage provisioning failed (${errorCode ?? 'unknown'}).`);
+}
+
 /** Visibility for a fixture note, the rule staging uses: personal and owner-only notes are private. */
 export function visibilityFor(slug, path) {
   return ['alpha', 'delta'].includes(slug) || path.includes('/leadership/') ? 'private' : 'team';
@@ -211,11 +266,11 @@ export async function seedPreview(env = process.env, { log = console.log } = {})
     for (let attempt = 0; attempt < 90; attempt++) {
       const binding = await client.query(ref('functions/storage:getStorageBinding'), { workspaceId });
       if (binding?.status === 'connected') { ready = true; break; }
-      if (binding?.status === 'error') throw new Error(`${slug}: storage provisioning failed (${binding.errorCode ?? 'unknown'}).`);
+      if (binding?.status === 'error') throw await storageFailure({ slug, errorCode: binding.errorCode, env, log });
       if (owner) {
         const status = await client.query(ref('functions/billing:status'), { workspaceId });
         if (status.managedProvisioning === 'failed') {
-          throw new Error(`${slug}: storage provisioning failed (${status.managedProvisioningError ?? 'unknown'}).`);
+          throw await storageFailure({ slug, errorCode: status.managedProvisioningError, env, log });
         }
       }
       await pause(2000);

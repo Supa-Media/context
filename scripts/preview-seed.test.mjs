@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 
-import { cliFailureReason, issuePersonaCode, runConvexSeed, storeStorageToken } from "./preview-seed.mjs";
+import { cliFailureReason, issuePersonaCode, probeCloudflare, runConvexSeed, storeStorageToken } from "./preview-seed.mjs";
 
 test("a failed CLI run names its cause from stderr", () => {
   const reason = cliFailureReason(
@@ -120,4 +120,44 @@ test("a failed storage token store names the exit status, never stderr or the to
       return true;
     },
   );
+});
+
+test("the Cloudflare probe asks the five paths with the bearer token and returns status and codes only", async () => {
+  const token = "cf-token-probe-fixture";
+  const accountId = "a".repeat(32);
+  const message = "secret account detail text";
+  const asked = [];
+  const fetchImpl = async (url, options) => {
+    asked.push({ url, auth: options.headers.Authorization, method: options.method });
+    if (url.endsWith("/user/tokens/verify")) return { status: 200, json: async () => ({ success: true, errors: [] }) };
+    if (url.includes("/tokens/verify")) return { status: 403, json: async () => ({ errors: [{ code: 1000, message }] }) };
+    if (url.includes("/r2/buckets")) return { status: 403, json: async () => ({ errors: [{ code: 10000, message }, { code: 9109 }] }) };
+    if (url.endsWith("/user/tokens/permission_groups")) throw new TypeError(`fetch failed for ${token}`);
+    return { status: 200, json: async () => { throw new SyntaxError("not json"); } };
+  };
+  const results = await probeCloudflare({ token, accountId, fetchImpl });
+
+  assert.deepEqual(asked.map((call) => call.url.replace(accountId, "ACCOUNT")), [
+    "https://api.cloudflare.com/client/v4/user/tokens/verify",
+    "https://api.cloudflare.com/client/v4/accounts/ACCOUNT/tokens/verify",
+    "https://api.cloudflare.com/client/v4/accounts/ACCOUNT/r2/buckets?per_page=1",
+    "https://api.cloudflare.com/client/v4/accounts/ACCOUNT/tokens/permission_groups",
+    "https://api.cloudflare.com/client/v4/user/tokens/permission_groups",
+  ]);
+  for (const call of asked) {
+    assert.equal(call.auth, `Bearer ${token}`);
+    assert.equal(call.method, "GET");
+  }
+
+  assert.deepEqual(results, [
+    { label: "user token verify", status: 200, codes: [] },
+    { label: "account token verify", status: 403, codes: [1000] },
+    { label: "R2 bucket list", status: 403, codes: [10000, 9109] },
+    { label: "account token permission groups", status: 200, codes: [] },
+    { label: "user token permission groups", status: "network", codes: [] },
+  ]);
+  const serialized = JSON.stringify(results);
+  assert.doesNotMatch(serialized, /secret account detail|fetch failed|not json/);
+  assert.doesNotMatch(serialized, new RegExp(token));
+  assert.doesNotMatch(serialized, new RegExp(accountId));
 });
