@@ -111,6 +111,26 @@ export function runConvexSeed({ deployment, deployKey, run = spawnSync } = {}) {
   }
 }
 
+/**
+ * Stores the preview environment's Cloudflare token as the deployment's `MANAGED_R2_API_TOKEN`, through
+ * `functions/seed:previewStorageToken`, so the preview's managed buckets are created in its own Workers account.
+ * The token travels as an argument, so a failure names only the exit status: stderr and the arguments could carry it.
+ */
+export function storeStorageToken({ deployment, deployKey, token, run = spawnSync } = {}) {
+  if (typeof token !== 'string' || token.trim() === '') {
+    throw new Error('PREVIEW_R2_API_TOKEN is not set: the preview cannot create its storage.');
+  }
+  const result = run(process.execPath, [CLI, 'run', '--deployment', deployment, 'functions/seed:previewStorageToken', JSON.stringify({ token })], {
+    cwd: REPO_ROOT,
+    encoding: 'utf8',
+    stdio: ['ignore', 'pipe', 'pipe'],
+    env: { PATH: process.env.PATH, HOME: process.env.HOME, CONVEX_DEPLOY_KEY: deployKey, CONVEX_DEPLOYMENT: '', NO_COLOR: '1' },
+  });
+  if (result.error || result.status !== 0) {
+    throw new Error(`Storing the preview's storage token failed (exit ${result.status ?? 'unknown'}).`);
+  }
+}
+
 /** Visibility for a fixture note, the rule staging uses: personal and owner-only notes are private. */
 export function visibilityFor(slug, path) {
   return ['alpha', 'delta'].includes(slug) || path.includes('/leadership/') ? 'private' : 'team';
@@ -141,6 +161,8 @@ export async function seedPreview(env = process.env, { log = console.log } = {})
   // `convex deploy --preview-run` runs only when the preview deployment is new; the seed is idempotent, so it runs on every deploy to make sure the persona accounts exist.
   runConvexSeed({ deployment, deployKey });
   log('preview-seed: Convex fixtures seeded.');
+  storeStorageToken({ deployment, deployKey, token: env.PREVIEW_R2_API_TOKEN });
+  log('preview-seed: storage token stored.');
   const clients = {};
   for (const name of PERSONAS) {
     clients[name] = await signIn(url, deployment, deployKey, name);
@@ -172,16 +194,30 @@ export async function seedPreview(env = process.env, { log = console.log } = {})
     }
     const client = clients[writer.persona];
     const { workspaceId } = entry;
-    if (writer.role === 'owner') {
+    const owner = writer.role === 'owner';
+    if (owner) {
       await client.mutation(ref('functions/billing:setEntitlements'), { workspaceId, managedStorage: true, fastSearch: false });
       // Staging's test upgrade, as staging calls it. The server accepts it on an isolated preview as well.
       await client.mutation(ref('functions/billing:activateTestPremium'), { workspaceId });
+      // A plan that failed on an earlier deploy stays `failed`, and activating an active plan does not schedule
+      // provisioning again, so ask once here unless a run is already going or has finished.
+      const binding = await client.query(ref('functions/storage:getStorageBinding'), { workspaceId });
+      const status = await client.query(ref('functions/billing:status'), { workspaceId });
+      if (binding?.status !== 'connected' && status.managedProvisioning !== 'running' && status.managedProvisioning !== 'ready') {
+        await client.mutation(ref('functions/managedProvisioning:retryManagedProvisioning'), { workspaceId });
+      }
     }
     let ready = false;
     for (let attempt = 0; attempt < 90; attempt++) {
       const binding = await client.query(ref('functions/storage:getStorageBinding'), { workspaceId });
       if (binding?.status === 'connected') { ready = true; break; }
       if (binding?.status === 'error') throw new Error(`${slug}: storage provisioning failed (${binding.errorCode ?? 'unknown'}).`);
+      if (owner) {
+        const status = await client.query(ref('functions/billing:status'), { workspaceId });
+        if (status.managedProvisioning === 'failed') {
+          throw new Error(`${slug}: storage provisioning failed (${status.managedProvisioningError ?? 'unknown'}).`);
+        }
+      }
       await pause(2000);
     }
     if (!ready) throw new Error(`${slug}: storage did not become ready.`);

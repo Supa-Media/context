@@ -141,3 +141,44 @@ describe("seed:preview on an isolated preview", () => {
     expect(await counts(t)).toEqual(before);
   });
 });
+
+describe("seed:previewStorageToken stores the preview's storage token", () => {
+  const TOKEN = "cf-preview-token-not-real-0000";
+  // A fake 32-byte key, base64: the shape `requireEncryptionKey` expects (as in admin.test.ts).
+  const ENCRYPTION_KEY = "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=";
+
+  test("refuses on production and stores nothing", async () => {
+    stubEnvironment({
+      APP_ENV: "production",
+      APP_ORIGIN: "https://context.lc",
+      CONVEX_CLOUD_URL: `https://prod-example-1.${CONVEX_CLOUD}`,
+      ADMIN_EMAILS: "staff@example.com",
+    });
+    const t = setupTest();
+    await expect(t.action(internal.functions.seed.previewStorageToken, { token: TOKEN })).rejects.toThrow(/only on a preview deployment/);
+    expect(await t.run(ctx => ctx.db.query("appSecrets").collect())).toHaveLength(0);
+  });
+
+  describe("on an isolated preview", () => {
+    beforeEach(() => stubEnvironment({ ...PREVIEW_ENV, STORAGE_SECRET_ENCRYPTION_KEY: ENCRYPTION_KEY }));
+
+    test("an empty token is refused and stores nothing", async () => {
+      const t = setupTest();
+      await t.mutation(internal.functions.seed.preview, {});
+      await expect(t.action(internal.functions.seed.previewStorageToken, { token: "   " })).rejects.toThrow(/needs a token/);
+      expect(await t.run(ctx => ctx.db.query("appSecrets").collect())).toHaveLength(0);
+    });
+
+    test("stores the token as MANAGED_R2_API_TOKEN, sealed, never in plaintext", async () => {
+      const t = setupTest();
+      await t.mutation(internal.functions.seed.preview, {});
+      await t.action(internal.functions.seed.previewStorageToken, { token: `  ${TOKEN}\n` });
+      const rows = await t.run(ctx => ctx.db.query("appSecrets").collect());
+      expect(rows).toHaveLength(1);
+      expect(rows[0].name).toBe("MANAGED_R2_API_TOKEN");
+      expect(rows[0].encryptedValue.startsWith("v2:")).toBe(true);
+      expect(rows[0].encryptedValue).not.toContain(TOKEN);
+      expect(JSON.stringify(rows)).not.toContain(TOKEN);
+    });
+  });
+});

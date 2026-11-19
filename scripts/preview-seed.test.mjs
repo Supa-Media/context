@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 
-import { cliFailureReason, issuePersonaCode, runConvexSeed } from "./preview-seed.mjs";
+import { cliFailureReason, issuePersonaCode, runConvexSeed, storeStorageToken } from "./preview-seed.mjs";
 
 test("a failed CLI run names its cause from stderr", () => {
   const reason = cliFailureReason(
@@ -64,5 +64,60 @@ test("a failed Convex seed throws with the redacted reason", () => {
   assert.throws(
     () => runConvexSeed({ deployment: "example-preview-123", deployKey: "preview:team|key456", run }),
     /Seeding the preview deployment failed: .*account is missing/,
+  );
+});
+
+test("the storage token is stored through the seed action, with the minimal environment", () => {
+  let captured;
+  const run = (command, args, options) => {
+    captured = { command, args, options };
+    return { status: 0, error: undefined, stdout: "", stderr: "" };
+  };
+  storeStorageToken({ deployment: "example-preview-123", deployKey: "preview:team|key456", token: "cf-token-fixture", run });
+  assert.deepEqual(captured.args.slice(1), [
+    "run",
+    "--deployment",
+    "example-preview-123",
+    "functions/seed:previewStorageToken",
+    JSON.stringify({ token: "cf-token-fixture" }),
+  ]);
+  assert.equal(captured.options.env.CONVEX_DEPLOY_KEY, "preview:team|key456");
+  assert.equal(captured.options.env.CONVEX_DEPLOYMENT, "");
+  for (const name of Object.keys(captured.options.env)) {
+    assert.ok(["PATH", "HOME", "CONVEX_DEPLOY_KEY", "CONVEX_DEPLOYMENT", "NO_COLOR"].includes(name), `${name} must not be passed`);
+  }
+});
+
+test("storing the storage token refuses a missing or blank token without running anything", () => {
+  let called = false;
+  const run = () => {
+    called = true;
+    return { status: 0 };
+  };
+  for (const token of [undefined, "", "   "]) {
+    assert.throws(
+      () => storeStorageToken({ deployment: "example-preview-123", deployKey: "preview:team|key456", token, run }),
+      /PREVIEW_R2_API_TOKEN is not set: the preview cannot create its storage\./,
+    );
+  }
+  assert.equal(called, false);
+});
+
+test("a failed storage token store names the exit status, never stderr or the token", () => {
+  const token = "cf-token-secret-fixture";
+  const run = () => ({
+    status: 1,
+    error: undefined,
+    stdout: "",
+    stderr: `Uncaught Error: rejected ${token} in account text\n`,
+  });
+  assert.throws(
+    () => storeStorageToken({ deployment: "example-preview-123", deployKey: "preview:team|key456", token, run }),
+    (error) => {
+      assert.equal(error.message, "Storing the preview's storage token failed (exit 1).");
+      assert.doesNotMatch(error.message, /cf-token-secret-fixture/);
+      assert.doesNotMatch(error.message, /rejected/);
+      return true;
+    },
   );
 });

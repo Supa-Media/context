@@ -29,7 +29,7 @@ const CLI = fileURLToPath(new URL('../node_modules/convex/bin/main.js', import.m
 const REPO_ROOT = fileURLToPath(new URL('../', import.meta.url));
 
 /** Names this script sets itself, so a staging value for them is never copied. */
-const OWN_NAMES = ['APP_ENV', 'APP_ORIGIN', 'SITE_URL', 'STORAGE_MOVER_ORIGIN', 'PREVIEW_NAME'];
+const OWN_NAMES = ['APP_ENV', 'APP_ORIGIN', 'SITE_URL', 'STORAGE_MOVER_ORIGIN', 'PREVIEW_NAME', 'MANAGED_R2_ACCOUNT_ID'];
 
 /** Staging values a preview never gets: custom domains, Google push and the Stripe price. */
 const NOT_COPIED = ['STAGING_CONVEX_DEPLOYMENT', 'CUSTOM_DOMAINS_ZONE_ID', 'CUSTOM_DOMAINS_TARGET', 'GOOGLE_PUSH', 'STRIPE_PRICE_ID'];
@@ -52,6 +52,21 @@ export function previewNameOf(value) {
 export function workersDevOf(value) {
   if (!/^[a-z0-9][a-z0-9-]{0,61}\.workers\.dev$/.test(value ?? '')) {
     throw new Error('PREVIEW_WORKERS_DEV must be <subdomain>.workers.dev.');
+  }
+  return value;
+}
+
+/**
+ * The preview's own Workers account id, lowercased, or null when the environment has none. Its managed buckets
+ * are created there, so a deny-listed id (a production resource) is refused here and the value is never echoed.
+ */
+export function previewAccountIdOf(env) {
+  if (typeof env.CLOUDFLARE_ACCOUNT_ID !== 'string' || env.CLOUDFLARE_ACCOUNT_ID.trim() === '') return null;
+  const value = env.CLOUDFLARE_ACCOUNT_ID.trim().toLowerCase();
+  if (!/^[0-9a-f]{32}$/.test(value)) throw new Error('CLOUDFLARE_ACCOUNT_ID must be a Cloudflare account id.');
+  const denied = String(env.PREVIEW_DENY_IDENTIFIERS ?? '').split(/[\s,]+/).filter(Boolean);
+  if (denied.some((identifier) => value.includes(identifier))) {
+    throw new Error('CLOUDFLARE_ACCOUNT_ID names a production resource (PREVIEW_DENY_IDENTIFIERS).');
   }
   return value;
 }
@@ -93,6 +108,10 @@ export function previewEnvValues(env) {
     if (value !== undefined && value !== '') set[key] = value;
   }
   const app = `https://context-router-${name}.${workers}`;
+  // A preview's managed buckets live in its own Workers account, never the customer-data account, so the id is
+  // derived here from CLOUDFLARE_ACCOUNT_ID and never copied from MANAGED_R2_ACCOUNT_ID.
+  const accountId = previewAccountIdOf(env);
+  if (accountId !== null) set.MANAGED_R2_ACCOUNT_ID = accountId;
   Object.assign(set, {
     APP_ENV: 'preview',
     PREVIEW_NAME: name,

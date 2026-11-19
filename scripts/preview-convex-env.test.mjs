@@ -212,3 +212,45 @@ test('the names listing is read as names, and a value in it is never a name to r
   applyPreviewEnv({ ...env, CONVEX_DEPLOY_KEY: KEY }, { cli });
   assert.deepEqual(removed, [], 'an empty listing means nothing is present to remove');
 });
+
+test('a copied managed account id is ignored: the preview sets its own Workers account id', () => {
+  const account = 'a'.repeat(32);
+  const { set } = previewEnvValues({ ...env, CLOUDFLARE_ACCOUNT_ID: account, MANAGED_R2_ACCOUNT_ID: 'b'.repeat(32) });
+  assert.equal(set.MANAGED_R2_ACCOUNT_ID, account);
+  assert.equal(COPIED_KEYS.includes('MANAGED_R2_ACCOUNT_ID'), false);
+});
+
+test('the preview account id is trimmed and lowercased', () => {
+  const { set } = previewEnvValues({ ...env, CLOUDFLARE_ACCOUNT_ID: ` ${'A'.repeat(32)} ` });
+  assert.equal(set.MANAGED_R2_ACCOUNT_ID, 'a'.repeat(32));
+});
+
+test('a preview account id on the deny list is refused, without echoing it', () => {
+  const account = `${'c'.repeat(16)}${'d'.repeat(16)}`;
+  assert.throws(
+    () => previewEnvValues({ ...env, CLOUDFLARE_ACCOUNT_ID: account, PREVIEW_DENY_IDENTIFIERS: `${'x'.repeat(4)}, ${'d'.repeat(8)}` }),
+    (error) => {
+      assert.match(error.message, /names a production resource \(PREVIEW_DENY_IDENTIFIERS\)/);
+      assert.doesNotMatch(error.message, /cccc|dddd/);
+      return true;
+    },
+  );
+});
+
+test('a malformed preview account id is refused, without echoing it', () => {
+  for (const bad of ['a'.repeat(31), 'g'.repeat(32), `${'a'.repeat(31)}-`, 'not an account id']) {
+    assert.throws(
+      () => previewEnvValues({ ...env, CLOUDFLARE_ACCOUNT_ID: bad }),
+      (error) => {
+        assert.equal(error.message, 'CLOUDFLARE_ACCOUNT_ID must be a Cloudflare account id.');
+        assert.doesNotMatch(error.message, /not an account/);
+        return true;
+      },
+    );
+  }
+});
+
+test('an absent preview account id sets no managed account id', () => {
+  const { set } = previewEnvValues({ ...env, CLOUDFLARE_ACCOUNT_ID: undefined, MANAGED_R2_ACCOUNT_ID: 'b'.repeat(32) });
+  assert.equal('MANAGED_R2_ACCOUNT_ID' in set, false);
+});

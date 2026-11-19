@@ -8,15 +8,19 @@
  * and nothing is a real phone number.
  */
 import { ConvexError, v } from "convex/values";
-import { internalMutation } from "./lib/rowWatch/mutations";
+import { internalAction, internalMutation, internalQuery } from "./lib/rowWatch/mutations";
 import { isIsolatedPreview } from "./lib/previewDeployment";
 import { seedPersonaWorkspaces } from "./lib/personaSeed";
 import { insertFolder } from "./lib/nodes/rowMove";
 import { claimName, findName } from "./lib/nameClaims";
 import { seedIngestionSettings } from "./lib/ingestionStore";
 import { keyIfBornEmpty } from "./lib/noteIds/born";
+import { internal } from "../_generated/api";
 import type { Doc, Id } from "../_generated/dataModel";
-import type { MutationCtx } from "../_generated/server";
+import type { MutationCtx, QueryCtx } from "../_generated/server";
+import type { AdminActor } from "./lib/admin";
+import { setSecretHandler } from "./lib/adminFns/secrets";
+import { MANAGED_R2_API_TOKEN_SECRET } from "./lib/managedStorage";
 
 /**
  * The personal workspace each texting persona answers from. `beta` is a reserved name, so its slug is `beta-preview`;
@@ -94,7 +98,7 @@ async function liveFolder(ctx: MutationCtx, workspaceId: Id<"workspaces">, path:
   return rows.find((row) => row.kind === "folder" && row.goneAt === undefined) ?? null;
 }
 
-async function userByEmail(ctx: MutationCtx, persona: string): Promise<Id<"users">> {
+async function userByEmail(ctx: Pick<QueryCtx, "db">, persona: string): Promise<Id<"users">> {
   const user = await ctx.db.query("users").withIndex("by_email", q => q.eq("email", `${persona}@supa.media`)).unique();
   if (user === null) throw new Error(`Preview seed: ${persona}'s account is missing.`);
   return user._id;
@@ -132,3 +136,38 @@ async function linkPhone(ctx: MutationCtx, userId: Id<"users">, phone: string, n
   // The same row `textLinks.consumeLinkCode` and `textSetup` write for a number proven by text.
   await ctx.db.insert("phoneLinks", { userId, phone, linkedAt: now, via: "text" });
 }
+
+/** The alpha persona's account, the actor a preview's storage token is stored under. Preview only. */
+export const previewSeedActor = internalQuery({
+  args: {},
+  returns: v.id("users"),
+  handler: async (ctx) => {
+    if (!isIsolatedPreview()) throw new Error("seed:previewSeedActor runs only on a preview deployment.");
+    return await userByEmail(ctx, "alpha");
+  },
+});
+
+/**
+ * Stores the preview environment's Cloudflare token as the deployment's `MANAGED_R2_API_TOKEN` integration secret,
+ * so a preview's managed buckets are created in its own Workers account (`scripts/preview-seed.mjs` runs this with
+ * the token from the workflow). Preview only. The token is never logged and never returned.
+ */
+export const previewStorageToken = internalAction({
+  args: { token: v.string() },
+  returns: v.null(),
+  handler: async (ctx, args): Promise<null> => {
+    if (!isIsolatedPreview()) throw new Error("seed:previewStorageToken runs only on a preview deployment.");
+    const token = args.token.trim();
+    if (token === "") throw new Error("seed:previewStorageToken needs a token.");
+    const userId = await ctx.runQuery(internal.functions.seed.previewSeedActor, {});
+    const actor: AdminActor = { userId, email: "alpha@supa.media" };
+    await setSecretHandler(
+      ctx,
+      actor,
+      MANAGED_R2_API_TOKEN_SECRET,
+      token,
+      "Preview only: creates this preview's pr<N>- buckets in its own Workers account.",
+    );
+    return null;
+  },
+});

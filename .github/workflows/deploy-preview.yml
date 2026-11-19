@@ -254,7 +254,8 @@ jobs:
           CALENDAR_CONNECT_ENABLED: ${{ vars.CALENDAR_CONNECT_ENABLED || secrets.CALENDAR_CONNECT_ENABLED }}
           PLUGIN_EGRESS_URL: ${{ secrets.PLUGIN_EGRESS_URL }}
           PLUGIN_EGRESS_SECRET: ${{ secrets.PLUGIN_EGRESS_SECRET }}
-          MANAGED_R2_ACCOUNT_ID: ${{ secrets.MANAGED_R2_ACCOUNT_ID }}
+          # The managed account is the preview's own CLOUDFLARE_ACCOUNT_ID (job env), set by preview-convex-env.mjs.
+          PREVIEW_DENY_IDENTIFIERS: ${{ secrets.PREVIEW_DENY_IDENTIFIERS }}
         # preview-convex-env.mjs builds the preview's Worker hosts from this.
         run: PREVIEW_WORKERS_DEV="$WORKERS_DEV_SUBDOMAIN.workers.dev" pnpm exec convex deploy --yes --preview-name "pr$PR" --cmd 'node scripts/preview-convex-env.mjs' --cmd-url-env-var-name PREVIEW_CONVEX_URL --preview-run functions/seed:preview
 
@@ -421,6 +422,7 @@ jobs:
         env:
           CONVEX_DEPLOY_KEY: ${{ secrets.CONVEX_PREVIEW_DEPLOY_KEY }}
           APP_ENV: preview
+          PREVIEW_R2_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
         run: node scripts/preview-seed.mjs
 
       - name: Smoke the preview
