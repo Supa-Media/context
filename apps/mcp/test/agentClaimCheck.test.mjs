@@ -272,8 +272,13 @@ test("a search with no workspace or folder named covered every one; a scoped one
   assert.equal(searchedEverywhere("search", { query: "reading list", args: { context: "@guild" } }, ""), false);
   assert.equal(searchedEverywhere("search", { query: "reading list", args: { prefix: "2-reading/" } }, ""), false);
   assert.equal(searchedEverywhere("search", { query: "reading list", args: {} }, ""), true);
-  assert.equal(searchedEverywhere("search_notes", { query: "reading list", context: "@guild" }, "Results.\nThis search was asked of @guild; it also looked in the other workspaces they reach."), true);
-  assert.equal(searchedEverywhere("search_notes", { query: "reading list", context: "@guild" }, "This search was asked of @guild, and in the other workspaces they reach too."), true);
+  // The gateway's own account: a last-paragraph `Searched:` line naming two or more workspaces (2026-11-19).
+  assert.equal(searchedEverywhere("search_notes", { query: "reading list", context: "@guild" }, "- @seyi/reading.md\n\nSearched: @maya, @kiln-guild."), true);
+  assert.equal(searchedEverywhere("search_notes", { query: "reading list", context: "@guild" }, "No matches.\n\nSearched: @maya, @kiln-guild. Not reachable just now, so not searched: @x."), false, "a workspace it could not open was not searched");
+  assert.equal(searchedEverywhere("search_notes", { query: "reading list" }, "No matches.\n\nSearched: @maya. Not reachable just now, so not searched: @x."), false, "nor is an unscoped search that missed one");
+  assert.equal(searchedEverywhere("search_notes", { query: "reading list", context: "@guild" }, "Searched: @guild."), false, "one workspace is no every-workspace search");
+  assert.equal(searchedEverywhere("search_notes", { query: "reading list", context: "@guild" }, "Searched: @maya, @kiln-guild.\n\nNo matches in the rest."), false, "a Searched line not in the last paragraph does not count");
+  assert.equal(searchedEverywhere("search_notes", { query: "reading list", context: "@guild" }, "This search was asked of @guild; it also looked in the other workspaces they reach."), false, "the retired phrase counts for nothing");
   assert.equal(searchedEverywhere("read_note", { path: "a.md" }, ""), false);
 });
 
@@ -285,6 +290,29 @@ test("an answer that says it searched every workspace after only scoped searches
   const unscoped = claimCheck({ question: "what's on the guild reading list?" });
   await unscoped.wrap(found("No matches."))("search_notes", { query: "reading list" });
   assert.equal(unscoped.check("I searched all your workspaces and found nothing."), null);
+});
+
+test("a search that named one workspace, with no Searched line, does not back a claim of every workspace; with one, it does (2026-11-19)", async () => {
+  // The guild incident: a background job's scoped search, then "I searched all your workspaces and found nothing."
+  const scoped = claimCheck({ question: "what's on the guild reading list?" });
+  await scoped.wrap(found("- @seyi/resources/director-reading-list.md\n\nNothing else on the guild list."))("search_notes", { query: "reading list", context: "@guild" });
+  assert.equal(scoped.check("I searched all your workspaces and found nothing."), EVERYWHERE_NOTICE);
+
+  // The same answer after a search whose result says it covered @maya and @guild: the claim has its search under it.
+  const covered = claimCheck({ question: "what's on the guild reading list?" });
+  await covered.wrap(found("No matches.\n\nSearched: @maya, @guild."))("search_notes", { query: "reading list", context: "@guild" });
+  assert.equal(covered.check("I searched all your workspaces and found nothing."), null);
+});
+
+test("a boosted search covers every workspace, and the gateway's searched list of two or more backs the claim", async () => {
+  const boosted = claimCheck({ question: "what's on the guild reading list?" });
+  await boosted.wrap(found("No matches.\n\nSearched: @seyi, @guild."))("search_notes", { query: "reading list", boost: "@guild" });
+  assert.equal(boosted.check("I searched all your workspaces and found nothing."), null);
+
+  const listed = claimCheck({ question: "what's on the guild reading list?" });
+  const result = { content: [{ type: "text", text: "No matches." }], searched: ["@seyi", "@guild"] };
+  await listed.wrap(async () => result)("search_notes", { query: "reading list", context: "@guild" });
+  assert.equal(listed.check("I searched all your workspaces and found nothing."), null, "result.searched of two backs it");
 });
 
 test("a failed unscoped search is no search of every workspace, and an offer is never sent back", async () => {
@@ -304,8 +332,9 @@ test("a turn that only relays a background job's report is not checked for its s
 });
 
 test("the notice goes back in the second round, and the answer is then the one that follows it", async () => {
+  // "only in @guild" (`args: { only: true }`): a plain `context` is a boost now, which searches every workspace (2026-11-19).
   const ai = scripted([
-    { calls: [{ name: "search_notes", args: { query: "reading list", context: "@guild" } }] },
+    { calls: [{ name: "search", args: { query: "reading list", context: "@guild", args: { only: true } } }] },
     { text: "I searched all your workspaces and found nothing." },
     { text: "The guild list has no matches in the workspace you named." },
   ]);

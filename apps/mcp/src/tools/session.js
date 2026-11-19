@@ -15,7 +15,6 @@ import { reportOpenedNote } from "../search/quality.js";
 import { inWordsOf, translateV2Params } from "./v2/translate.js";
 import { SAVE_MANY_TOOL, saveMany } from "./v2/saveMany.js";
 import { readNotesAcross, readsAcross } from "./readNotesAcross.js";
-import { namedOtherWorkspace, titledKeys, withElsewhere } from "./searchNamed.js";
 import { checkEtagPlaces, etagRefusalByName, noteOwnWorkspace, placeAnswerEtags } from "./etagPlace.js";
 import { addressByPath } from "./pathAddress.js";
 import { disabledToolNames, disabledToolRefusal } from "../plugins/enablement.js";
@@ -291,14 +290,7 @@ export async function callToolForSession(params, store, session, options = {}) {
   if (readsAcross(call?.name, call?.arguments)) {
     return inWordsOf(v2, await readNotesAcross(call.arguments, (args) => callToolForSession({ name: "read_notes", arguments: args }, store, session, { ...options, legacy: true })));
   }
-  let result = await measuredCall(store, session, call, (routed) => routeToolCall(call, store, session, routed, options));
-  // A search asked of one workspace also names its title matches elsewhere (`searchNamed.js`). The wide search is the
-  // caller's own unscoped call, back through here and every gate; this function resolves no context of its own.
-  const named = namedOtherWorkspace(call, store);
-  if (named !== null && !result?.isError && titledKeys(result?.content?.[0]?.text ?? "", call.arguments.query, { skip: null }).length === 0) {
-    const wide = await callToolForSession({ name: "search_notes", arguments: { query: call.arguments.query } }, store, session, { ...options, legacy: true });
-    result = withElsewhere(result, wide, call.arguments.query, named);
-  }
+  const result = await measuredCall(store, session, call, (routed) => routeToolCall(call, store, session, routed, options));
   // A real read in a Lab test chat, with what its turns wrote put in (`labSandbox/sandboxTools.js`).
   if (sandbox !== null && typeof sandbox.call === "function") return inWordsOf(v2, await afterRead(canonicalToolName(call?.name), call?.arguments, result, sandbox));
   return inWordsOf(v2, result);

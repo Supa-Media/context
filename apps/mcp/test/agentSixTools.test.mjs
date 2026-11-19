@@ -211,14 +211,78 @@ test("an older tool name called with an argument its schema does not take is ref
   assert.deepEqual(resolve("open_note", { anything: 1 }), { name: "open_note", args: { anything: 1 } });
 });
 
-test("a context the model nested inside a search's args is hoisted to the top of the call (2026-11-19)", () => {
+test("a context the model nested inside a search's args is moved out of it, then boosted, not fenced (2026-11-19)", () => {
   // Guild reading list, 2026-11-19: a fallback model wrote search { query, args: { context: "@guild" } }; the gateway refused
-  // it ("context goes beside args"), so three searches never ran. The MCP tool still refuses; only Tex's resolver moves it.
+  // it ("context goes beside args"), so three searches never ran. The MCP tool still refuses; only Tex's resolver moves it,
+  // and a workspace it moves is a boost (see the next test), so the search still covers every workspace.
   const { resolve } = sixToolsOver(held("search_notes", "read_note"));
   assert.deepEqual(resolve("search", { query: "reading list", args: { context: "@guild" } }), {
     name: "search_notes",
-    args: { query: "reading list", context: "@guild" },
+    args: { query: "reading list", boost: "@guild" },
   });
   // Both present: nothing is changed, so the gateway's refusal still stands.
   assert.match(resolve("search", { query: "reading list", context: "@guild", args: { context: "@other" } }).error, /goes beside args/);
+});
+
+/*
+  Tex's search never fences a person's workspaces (2026-11-19: "the <org> reading list" read as a workspace, every search
+  pinned to it, and the person's own workspace, where the note was, never searched; the owner's decision: search every
+  workspace they reach, a named one only boosts, and `only: true` alone keeps it a filter). Only Tex's resolver does this;
+  an MCP client's `context` still filters.
+  Sabotage (2026-11-19): remove the rewrite in `sixSearchCall` and `resolve`'s older-name branch (make `searchWorkspace`
+  return `{ context }` always) → the boost and only tests below fail; the older-name test fails too.
+*/
+test("a workspace a search names boosts it: every workspace is still searched (2026-11-19)", () => {
+  const { resolve } = sixToolsOver(held("search_notes", "read_note"));
+  assert.deepEqual(resolve("search", { query: "reading list", context: "@guild" }), {
+    name: "search_notes",
+    args: { query: "reading list", boost: "@guild" },
+  });
+  assert.deepEqual(resolve("search", { query: "reading list", args: { context: "@guild" } }), {
+    name: "search_notes",
+    args: { query: "reading list", boost: "@guild" },
+  });
+  // The older name, with the same words: it is widened the same way once its schema takes the call.
+  assert.deepEqual(resolve("search_notes", { query: "reading list", context: "@guild" }), {
+    name: "search_notes",
+    args: { query: "reading list", boost: "@guild" },
+  });
+  // A blank workspace names none, so nothing is boosted and nothing is kept.
+  assert.deepEqual(resolve("search", { query: "reading list", context: "  " }), { name: "search_notes", args: { query: "reading list" } });
+});
+
+test("`only: true` keeps a workspace as a filter, and it is never sent to the gateway", () => {
+  // "only in @guild" is the person's own word for a fence: context stays, and the `only` flag, which translateSearch
+  // refuses, is dropped.
+  const { resolve } = sixToolsOver(held("search_notes", "read_note"));
+  assert.deepEqual(resolve("search", { query: "reading list", context: "@guild", args: { only: true } }), {
+    name: "search_notes",
+    args: { query: "reading list", context: "@guild" },
+  });
+  assert.deepEqual(resolve("search", { query: "reading list", args: { context: "@guild", only: true } }), {
+    name: "search_notes",
+    args: { query: "reading list", context: "@guild" },
+  });
+});
+
+test("a folder or a date range the call asked for keeps its workspace as a filter", () => {
+  const { resolve } = sixToolsOver(held("search_notes", "read_note"));
+  assert.deepEqual(resolve("search", { query: "reading list", context: "@guild", args: { prefix: "x" } }), {
+    name: "search_notes",
+    args: { query: "reading list", prefix: "x", context: "@guild" },
+  });
+  assert.deepEqual(resolve("search", { query: "reading list", context: "@guild", args: { from: "2026-11-01", to: "2026-11-07" } }), {
+    name: "search_notes",
+    args: { query: "reading list", from: "2026-11-01", to: "2026-11-07", context: "@guild" },
+  });
+});
+
+test("the search's description says every workspace is covered, a named one only ranks, and what the Searched line is for", () => {
+  const search = sixToolsOver(held("search_notes", "read_note")).tools.find((tool) => tool.name === "search");
+  assert.match(search.description, /Every search covers every workspace they reach, ranked together/);
+  assert.match(search.description, /only ranks its notes first; it never narrows the search/);
+  assert.match(search.description, /args \{ only: true \}/);
+  assert.match(search.description, /"Searched: …", names the workspaces it covered/);
+  // Without search_notes the six have no search to describe.
+  assert.equal(sixToolsOver(held("read_note")).tools.find((tool) => tool.name === "search"), undefined);
 });
