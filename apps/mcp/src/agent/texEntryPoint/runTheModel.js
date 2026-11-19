@@ -12,7 +12,7 @@ import { TRAINING, texCacheTtl, texConfigOf } from "../texConfig.js";
 import { aiGatewayConfig } from "../aiGateway.js";
 import { carriesData, withAttachmentImages } from "../attachments.js";
 import { jobPrompt, jobReportPrompt, withBackground, withJobSteps } from "../background.js";
-import { handoffHook } from "../handoff.js";
+import { handoffHook, routeSureOf } from "../handoff.js";
 import { withJobDrafts } from "../jobSaved.js";
 import { canRunBuiltin } from "../builtin.js";
 import { withChatSkills } from "../chatSkills.js";
@@ -168,6 +168,8 @@ export async function runTheModel(t, via) {
   const roundsOut = handOff !== null && handoffFrom.includes("fd") ? ({ messages, lastWords }) => handOff(lastWords, { messages }, "", "fd") : null;
   // A job the router reads as long goes to the Hand-off node before any round, when the config wires `router -> handoff` (`doorTurn.js`).
   const routeHandOff = handOff !== null && handoffFrom.includes("router") ? () => handOff("", { messages: [] }, "", "router") : null;
+  // The bar a job pick must clear, when the Hand-off node sets its own (`handoff.js` `routeSureOf`); none, the doors' 0.6.
+  const jobAt = routeHandOff !== null ? routeSureOf(texConfigOf(env)) : null;
   // The specialist doors' own prompts, when the setup gives them (`texConfig.js` `texModules`); none, the front door's notes.
   const doorNotes = (door) => (typeof production?.prompts?.[`door-${door}`] === "string" ? { prompt: setupWithMap(production.prompts[`door-${door}`], turnKind({ group, job })) } : null);
   const keptOptions = { question, on: !runner, ...(aiGatewayConfig(env) !== null && drawn.wired("tools", "moveJudge") ? { judge: (input) => drawn.fire("tools", "moveJudge", input, { env }), said: saidBefore(history) } : {}) };
@@ -264,7 +266,7 @@ export async function runTheModel(t, via) {
     planned: job !== null || carriesData(attachments), ...(streamed || job !== null ? { ...(channel?.offered ? { progress: channel } : {}), roundCap: LONG_MAX_ROUNDS, toolBudgetMs: LONG_TOOL_BUDGET_MS } : {}),
   };
   // The front door's turn, or the specialist door the router picked first (`doorTurn.js`): its runTurn is this one, with the door's tools.
-  const turn = await tex.step("model", () => runWithDoors({ runTurn, args, eligible, route: routed, waitedMs, via, handOffRoute: routeHandOff, doorNotes }));
+  const turn = await tex.step("model", () => runWithDoors({ runTurn, args, eligible, route: routed, waitedMs, via, handOffRoute: routeHandOff, doorNotes, jobAt }));
   const notAllowed = allowedBeside ? await tex.wait("allowed", allowedRead).then(() => null, (thrown) => thrown) : null; // beside the model, its no ends the turn here: no tool ran (`allowedFirst`), nothing is kept or sent
   if (notAllowed !== null) return (opened !== null && tex.after("browser_close", () => opened.close()), steer !== null && tex.after("steer_clear", () => begun.catch(() => {}).then(() => steer.clear())), await tex.step("refused", () => refused(notAllowed)));
   // The question's browser is not left running, unless held while the answer waits on them (`browserHold.js`).
