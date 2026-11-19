@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 
-import { cliFailureReason, issuePersonaCode } from "./preview-seed.mjs";
+import { cliFailureReason, issuePersonaCode, runConvexSeed } from "./preview-seed.mjs";
 
 test("a failed CLI run names its cause from stderr", () => {
   const reason = cliFailureReason(
@@ -39,5 +39,30 @@ test("a failed run throws with the redacted reason and never the stdout", () => 
       assert.doesNotMatch(error.message, /abc123/);
       return true;
     },
+  );
+});
+
+test("the Convex seed runs functions/seed:preview on the named deployment with the deploy key", () => {
+  let captured;
+  const run = (command, args, options) => {
+    captured = { command, args, options };
+    return { status: 0, error: undefined, stdout: "", stderr: "" };
+  };
+  runConvexSeed({ deployment: "example-preview-123", deployKey: "preview:team|key456", run });
+  assert.deepEqual(captured.args.slice(1), ["run", "--deployment", "example-preview-123", "functions/seed:preview", "{}"]);
+  assert.equal(captured.options.env.CONVEX_DEPLOY_KEY, "preview:team|key456");
+  assert.equal(captured.options.env.CONVEX_DEPLOYMENT, "");
+});
+
+test("a failed Convex seed throws with the redacted reason", () => {
+  const run = () => ({
+    status: 1,
+    error: undefined,
+    stdout: "",
+    stderr: "Uncaught Error: Preview seed: alpha's account is missing.\n",
+  });
+  assert.throws(
+    () => runConvexSeed({ deployment: "example-preview-123", deployKey: "preview:team|key456", run }),
+    /Seeding the preview deployment failed: .*account is missing/,
   );
 });

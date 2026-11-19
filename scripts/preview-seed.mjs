@@ -93,6 +93,24 @@ export function issuePersonaCode(email, { deployment, deployKey, run = spawnSync
   return parseIssuedCode(result.stdout);
 }
 
+/**
+ * Runs `functions/seed:preview` on the named preview deployment, so the persona
+ * accounts, workspaces, memberships and Tex chats exist before any code is issued.
+ * The function finds-or-creates everything, so running it again is harmless.
+ * Stdout is not printed: it names fixture workspaces and phone numbers.
+ */
+export function runConvexSeed({ deployment, deployKey, run = spawnSync } = {}) {
+  const result = run(process.execPath, [CLI, 'run', '--deployment', deployment, 'functions/seed:preview', '{}'], {
+    cwd: REPO_ROOT,
+    encoding: 'utf8',
+    stdio: ['ignore', 'pipe', 'pipe'],
+    env: { PATH: process.env.PATH, HOME: process.env.HOME, CONVEX_DEPLOY_KEY: deployKey, CONVEX_DEPLOYMENT: '', NO_COLOR: '1' },
+  });
+  if (result.error || result.status !== 0) {
+    throw new Error(`Seeding the preview deployment failed: ${cliFailureReason(result.stderr, result.status, result.error)}`);
+  }
+}
+
 /** Visibility for a fixture note, the rule staging uses: personal and owner-only notes are private. */
 export function visibilityFor(slug, path) {
   return ['alpha', 'delta'].includes(slug) || path.includes('/leadership/') ? 'private' : 'team';
@@ -120,6 +138,9 @@ const pause = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 export async function seedPreview(env = process.env, { log = console.log } = {}) {
   const { deployment, url } = previewConfig(env);
   const deployKey = env.CONVEX_DEPLOY_KEY;
+  // `convex deploy --preview-run` runs only when the preview deployment is new; the seed is idempotent, so it runs on every deploy to make sure the persona accounts exist.
+  runConvexSeed({ deployment, deployKey });
+  log('preview-seed: Convex fixtures seeded.');
   const clients = {};
   for (const name of PERSONAS) {
     clients[name] = await signIn(url, deployment, deployKey, name);
