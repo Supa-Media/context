@@ -185,8 +185,9 @@ function stranded(over: Record<string, unknown> = {}, session: Record<string, un
 /** react-native-web renders `TextInput` as an `input`; this is how one is typed in. */
 function type(field: HTMLElement, text: string): void {
   act(() => {
+    // The panel's title is a textarea since it wraps (2026-11-19); the composer is an input.
     const setter = Object.getOwnPropertyDescriptor(
-      HTMLInputElement.prototype,
+      field instanceof HTMLTextAreaElement ? HTMLTextAreaElement.prototype : HTMLInputElement.prototype,
       "value",
     )?.set;
     setter?.call(field, text);
@@ -246,6 +247,8 @@ function mount(
     rerender: () => act(render),
     press: (testId: string) => {
       const node = find(testId);
+      // Meetings alone draws no tab strip (2026-11-19): it is already showing.
+      if (node === null && testId === "aside-tab-meetings" && find("aside-meetings") !== null) return;
       if (node === null) throw new Error(`no element with testID ${testId}`);
       act(() => {
         node.dispatchEvent(new MouseEvent("mousedown", { bubbles: true }));
@@ -277,14 +280,16 @@ describe("the tabs", () => {
 
   test("with nothing waiting there is no Approvals tab", () => {
     const panel = mount({ approvals: NOTHING_WAITING });
-    expect(panel.find("aside-tab-meetings")).not.toBeNull();
+    expect(panel.find("aside-meetings")).not.toBeNull();
     expect(panel.find("aside-tab-approvals")).toBeNull();
   });
 
-  test("a console that cannot answer approvals shows Meetings alone", () => {
+  test("a console that cannot answer approvals shows Meetings alone, with no tab strip over it", () => {
     const panel = mount();
-    expect(panel.find("aside-tab-meetings")).not.toBeNull();
+    expect(panel.find("aside-meetings")).not.toBeNull();
+    expect(panel.find("aside-tab-meetings")).toBeNull();
     expect(panel.find("aside-tab-approvals")).toBeNull();
+    expect(panel.find("aside-fold")).not.toBeNull();
   });
 
   test("an empty tab says what would put something in it", () => {
@@ -390,11 +395,14 @@ describe("what a running meeting shows", () => {
     expect(String(note!.args[1])).toMatch(/^- \[\d+:\d\d\] ops goes async$/);
   });
 
-  test("an empty composer writes nothing", () => {
+  test("an empty composer offers no add, and writes nothing", () => {
     mockLive = recording();
     const panel = mount();
     panel.press("aside-tab-meetings");
-    panel.press("aside-meeting-note-add");
+    // The add mark shows only once something is typed (2026-11-19).
+    expect(panel.find("aside-meeting-note-add")).toBeNull();
+    type(panel.find("aside-meeting-note-field")!, "   ");
+    expect(panel.find("aside-meeting-note-add")).toBeNull();
     expect(mockCalls.some((call) => call.name === "setNotes")).toBe(false);
   });
 

@@ -114,6 +114,14 @@ All of it runs `engine/forMcpCases.ts` and `changeMarks.ts`'s `computeMarks` and
 marks or Put back anywhere but the Lab's functions lets the panel and the MCP name different changes ("marks names
 each changed field", "put_back lands the edits that bring one step back to main").
 
+**A run's failing rows come in one call** (triage of a Lab run took minutes, reading `runs { id }`,
+about 100 KB, and then each conversation one by one). `failures { id, node?, conv?, limit? }` answers only the rows that
+failed or, when repeated, passed fewer repeats than they ran (a flaky 2 of 3 counts), each with its ask, Tex's reply, its
+tool calls (a failed one marked), the gold label's must and never lines and the judge's reasons. The parsing and the
+row rules live in `packages/shared/src/texFailures.cjs`, which the Lab can read the same way.
+*What a "simplification" would cost:* a triage that reads each row again, and a flaky row that a failed-only filter hides
+(`apps/mcp/test/texDevFailures.test.mjs` "failingRows keeps failed and flaky rows", "the view: ... a flaky row's passes").
+
 **Nothing here changes live Tex.** `promote` is the Lab's Promote: a pull request that merges only through CI and the
 replay gate. A draft changes config; a node's code or a new kind of step still needs a pull request.
 

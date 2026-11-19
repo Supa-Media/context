@@ -192,6 +192,19 @@ describe("buildRows", () => {
 });
 
 describe("POST /tex/app-chat", () => {
+  it("every answer carries the open CORS header, so the console on another origin can read it", async () => {
+    // Without it the browser hid a 200 and the app said "I could not reach Tex" (Dev2, 2026-11-19).
+    const sent = await call({ op: "send", text: "hi" }, { chat: chatNamespace({ arrive: { outcome: "queued", ev: "17000000000000001" } }) });
+    assert.equal(sent.response.status, 200);
+    assert.equal(sent.response.headers.get("access-control-allow-origin"), "*");
+    const listed = await call({ op: "get" });
+    assert.equal(listed.response.status, 200);
+    assert.equal(listed.response.headers.get("access-control-allow-origin"), "*");
+    const refused = await call({ op: "get" }, { session: { ...OWNER, actorClientId: "someone_else" } });
+    assert.equal(refused.response.status, 403);
+    assert.equal(refused.response.headers.get("access-control-allow-origin"), "*");
+  });
+
   it("refuses anyone but the owner's console on their personal workspace", async () => {
     for (const session of [
       { ...OWNER, actorClientId: "some_ai_client" },

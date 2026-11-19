@@ -136,14 +136,25 @@ export function consoleAsidePanel({
     `hasExplorer` term for it.
   */
   /*
-    Tex's chat is the owner's own, so the tab is there only while their personal workspace is the
-    one open (the owner of a shared context has no Tex chat in it). Never on the demo.
+    Tex's chat is the person's own, not the open workspace's, so the tab is
+    there in every workspace they open, always on their personal workspace's
+    chat (Dev2, 2026-11-19: it was missing from a shared workspace). Not on
+    the demo, and not for someone without a personal workspace.
+  */
+  const tex = texChatTarget(data);
+  /*
+    Past meetings come from the person's own workspace, where meetings are
+    filed by default, and from the one open, when that is another: a
+    meeting filed into a shared workspace is listed while you are in it.
   */
   const own = ownPersonalContext(data.contexts);
-  const tex =
-    !data.demo && own !== null && own.id === data.selectedContextId
-      ? { workspaceId: own.id, endpoint: data.endpoint }
-      : null;
+  const open = data.contexts.find((c) => c.id === data.selectedContextId) ?? null;
+  const pastFrom = data.demo
+    ? null
+    : [own, open]
+        .filter((c): c is NonNullable<typeof c> => c !== null)
+        .filter((c, i, all) => all.findIndex((x) => x.id === c.id) === i)
+        .map((c) => ({ id: c.id, slug: c.slug }));
   return (
     data.demo && data.visitor?.meetings === undefined ? undefined : (
       <AsidePanel
@@ -155,6 +166,7 @@ export function consoleAsidePanel({
         */
         approvals={data.demo ? undefined : approvals}
         onJoin={joinMeeting}
+        pastFrom={pastFrom}
         /*
           A finished meeting's note, opened in the editor behind the
           panel. `noteEditorHref` builds a console address out of the
@@ -318,4 +330,12 @@ export function consoleBottomBar({
       />
     ) : undefined
   );
+}
+
+/** The person's own Tex chat, whichever workspace is open; null on the demo or with no personal workspace. */
+export function texChatTarget(
+  data: Pick<ConsoleData, "demo" | "contexts" | "endpoint">,
+): { workspaceId: string; endpoint: string } | null {
+  const own = ownPersonalContext(data.contexts);
+  return !data.demo && own !== null ? { workspaceId: own.id, endpoint: data.endpoint } : null;
 }
