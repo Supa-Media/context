@@ -127,12 +127,12 @@ export const TARGETS = {
     // Staging runs no Sentry inbox.
     ignored: [...SHARED_IGNORED, "infra/sentry-worker/**"],
   },
-  // A preview is one pull request's own backend (.github/workflows/preview.yml),
+  // A preview is one pull request's own backend (.github/workflows/deploy-preview.yml),
   // so its base is the newest run on the same branch, not on main. Its Workers
   // are the preview's own copies; the staging Workers it binds stay shared.
   preview: {
     title: "Preview",
-    workflow: "preview.yml",
+    workflow: "deploy-preview.yml",
     perBranch: true,
     components: {
       convex: { packages: ["@context/convex"], files: ["convex.json", "scripts/staging-env.mjs", PREVIEW_CONVEX_ENV] },
@@ -143,7 +143,7 @@ export const TARGETS = {
     },
     // The preview's own scripts decide what a preview is allowed to deploy, so
     // a change to any of them deploys every component.
-    fanOut: [...SHARED_FAN_OUT, workflow("preview"), ...PREVIEW_SCRIPTS],
+    fanOut: [...SHARED_FAN_OUT, workflow("deploy-preview"), ...PREVIEW_SCRIPTS],
     ignored: [...SHARED_IGNORED, "infra/sentry-worker/**"],
   },
   production: {

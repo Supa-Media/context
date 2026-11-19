@@ -9,7 +9,7 @@ people, and sends no text and no email.
 ## What a preview is
 
 A preview is named `pr<N>`, where `N` is the pull request number (the pattern
-is `^pr[1-9][0-9]{0,6}$`). For each one, `.github/workflows/preview.yml`
+is `^pr[1-9][0-9]{0,6}$`). For each one, `.github/workflows/deploy-preview.yml`
 deploys:
 
 - a **Convex preview deployment**, made with `npx convex deploy --preview-name
@@ -19,6 +19,18 @@ deploys:
   `context-agent-pr<N>`, both Workers on `workers.dev`, on every run;
 - the **router** `context-router-pr<N>` with the **web app** export, only when
   `apps/mobile` or `infra/router` changed.
+
+**When it runs.** On a push to any branch but main, and by a manual dispatch
+of the workflow on a branch (`pr` is optional: the pull request to name the
+preview after, which must be open and have that branch as its head). It has no
+`pull_request` trigger, on purpose. A deploy workflow never runs on a pull
+request (`scripts/check-workflow-triggers.mjs`, rule B), and a same-repository
+pull request runs with the repository's secrets. The cost is stated here: a pull
+request opened on a branch that was already pushed gets its preview on the next
+push to that branch, or from a dispatch. The one named allowance for a push to
+any branch but main is `deploy-preview.yml`'s own `branches-ignore: [main]`,
+and the checker's header records what bounds it; the residual risk is in
+[open risks](#open-risks).
 
 `scripts/deploy-plan.mjs --target preview` chooses the Workers from the files
 that changed. A preview's first deployment has no Worker to compare with, so it
@@ -121,9 +133,11 @@ widening. Each caller asks `isIsolatedPreview()` or the function built on it.
 
 ## Production identifiers are refused before the deploy
 
-`preview-guards.mjs identity` runs before and after the Convex deploy. It
-requires the Convex deploy key to start with `preview:`, and the preview URL
-to be `https://<name>.convex.cloud`. Neither may contain an entry from
+`preview-guards.mjs identity --before-deploy` runs before the Convex deploy and
+checks only the deploy key and the deny list: the deployment's URL does not
+exist until the deploy creates it. `preview-guards.mjs identity` runs after the
+deploy and also requires the preview URL to be `https://<name>.convex.cloud`.
+Both require the Convex deploy key to start with `preview:`. Neither may contain an entry from
 `PREVIEW_DENY_IDENTIFIERS` (a secret listing the production deployment names
 and resource names), and neither may name the staging deployment.
 `preview-config.mjs check` applies the same deny list to each rendered config's
@@ -173,10 +187,14 @@ as evidence for a merge.
 
 ## Cleanup
 
-`.github/workflows/preview-cleanup.yml` deletes a pull request's preview when
-the pull request closes, or when its branch is deleted (the closed pull requests
-of that branch are found and cleaned). A daily sweep at 05:23 UTC deletes any
-preview whose pull request is closed, as a backstop for every other case. The
+`.github/workflows/preview-cleanup.yml` runs on a push to main, which is how a
+merge's preview is found (a merge closes its pull request, and the push is the
+event that follows it), and on a deleted branch, whose closed pull requests are
+found through the API and cleaned. A daily sweep at 05:23 UTC deletes any
+preview whose pull request is closed, as a backstop for every other case. A
+pull request closed without merging is therefore cleaned by the next sweep, not
+at once. There is no `pull_request` trigger: the trigger checker requires one to
+carry the default types, and this workflow needs only the close. The
 matching is exact: `scripts/preview-cleanup.mjs` deletes only names that are
 `context-<kind>-pr<N>` or carry the `pr<N>-` prefix, so one preview's cleanup
 cannot touch another's. The sweep warns when live previews reach
@@ -266,7 +284,9 @@ Each of these would reopen a risk this decision closed.
 
 A bot working on a branch uses a preview like this.
 
-1. Push the branch, and open a pull request. A draft is fine.
+1. Push the branch, and open a pull request. A draft is fine. If the branch was
+   pushed before the pull request existed, push it again or dispatch
+   `deploy-preview.yml` on it, because the pull request opening does not deploy.
 2. Wait for the **Preview** check to finish green.
 3. Read the pull request comment written by the workflow. It names each Worker
    and the Convex preview deployment, and gives the timings. It does not print a

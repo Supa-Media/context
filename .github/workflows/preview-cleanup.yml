@@ -1,19 +1,33 @@
 name: Preview cleanup
 
-# Deletes a pull request's preview (its Workers, Workflows and storage) once the
-# pull request closes or its branch is deleted, and sweeps daily for any that
-# were left behind. The matching is exact, so one preview's cleanup can never
-# touch another's (scripts/preview-cleanup.mjs explains the names).
+# Deletes a pull request's preview (its Workers, Workflows and storage) and
+# sweeps for any left behind. The matching is exact, so one preview's cleanup
+# can never touch another's (scripts/preview-cleanup.mjs explains the names).
+#
+# Four ways in:
+#
+#   push to main       a merge closes its pull request, and a push to main is the
+#                      only event that follows a merge: the sweep finds the
+#                      merged pull request's preview there.
+#   delete             a branch was deleted: the closed pull requests that
+#                      branch had are looked up through the API and cleaned.
+#   schedule           a daily sweep, the backstop for every other case. It is
+#                      also how a pull request closed WITHOUT merging is cleaned,
+#                      so that preview lives until the next sweep.
+#   workflow_dispatch  one pull request (`pr`), or the sweep when `pr` is empty.
+#
+# There is no `pull_request` trigger. Scripts/check-workflow-triggers.mjs requires
+# any pull_request trigger to carry the default types, and this workflow only
+# needs the close, so a `closed`-only trigger is refused (rule A).
 #
 # Convex expires its own preview deployments, so nothing here deletes one.
 #
-# A deleted branch is found through the pull requests it had: GitHub closes a
-# pull request when its branch goes, so the state filter below keeps only the
-# closed ones. The `delete` event runs only from the default branch's copy of
-# this file.
+# This workflow runs `wrangler delete`, inside scripts/preview-cleanup.mjs. The
+# trigger checker does not count a delete as a deploy, so the file keeps its
+# name. Its deletions are exact-name only, and no production name can match.
 on:
-  pull_request:
-    types: [closed]
+  push:
+    branches: [main]
   delete:
   schedule:
     - cron: "23 5 * * *"
@@ -34,8 +48,8 @@ permissions:
 jobs:
   cleanup:
     name: Delete preview resources
-    # A fork's pull request never had a preview here, and gets no secrets.
-    if: ${{ (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && (github.event_name != 'delete' || github.event.ref_type == 'branch') }}
+    # A deleted tag is not a branch, and has no preview.
+    if: ${{ github.event_name != 'delete' || github.event.ref_type == 'branch' }}
     runs-on: ubuntu-latest
     environment: preview
     timeout-minutes: 30
@@ -44,7 +58,6 @@ jobs:
       CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
       CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
       MANAGED_R2_ACCOUNT_ID: ${{ secrets.MANAGED_R2_ACCOUNT_ID }}
-      EVENT_PR: ${{ github.event.pull_request.number }}
       EVENT_BRANCH: ${{ github.event.ref }}
       INPUT_PR: ${{ inputs.pr }}
       OWNER: ${{ github.repository_owner }}
@@ -61,17 +74,13 @@ jobs:
       # Wrangler, from each Worker's own checkout, does the Worker deletions.
       - run: pnpm install --frozen-lockfile
 
-      - name: Delete a closed pull request's preview
-        if: ${{ github.event_name == 'pull_request' }}
-        run: node scripts/preview-cleanup.mjs delete "$EVENT_PR"
-
       - name: Delete the previews of a deleted branch's closed pull requests
         if: ${{ github.event_name == 'delete' }}
         run: |
           set -euo pipefail
           numbers="$(gh api --method GET "repos/$GITHUB_REPOSITORY/pulls" -f state=all -f "head=$OWNER:$EVENT_BRANCH" --jq '.[] | select(.state == "closed") | .number')"
           if [ -z "$numbers" ]; then
-            echo "Branch $EVENT_BRANCH had no closed pull request; no preview to delete."
+            echo "Branch $EVENT_BRANCH had no closed pull request; no preview to delete. The sweep is the backstop."
             exit 0
           fi
           for number in $numbers; do
@@ -83,7 +92,8 @@ jobs:
         run: node scripts/preview-cleanup.mjs delete "$INPUT_PR"
 
       # Every preview whose pull request is closed, and a count of the live ones
-      # against the ceiling. The scheduled run is the backstop for every case above.
+      # against the ceiling. Runs after a merge, on the daily schedule, and on a
+      # dispatch that names no pull request.
       - name: Sweep for previews whose pull request is closed
-        if: ${{ github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && inputs.pr == '') }}
+        if: ${{ github.event_name == 'push' || github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && inputs.pr == '') }}
         run: node scripts/preview-cleanup.mjs sweep

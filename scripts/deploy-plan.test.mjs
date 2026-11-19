@@ -161,13 +161,13 @@ test("a preview selects its own components, and its scripts redeploy every one",
   assert.ok(previewPlan("apps/agent/wrangler.jsonc").includes("agent"));
   assert.deepEqual(previewPlan("scripts/preview-guards.mjs"), every);
   assert.deepEqual(previewPlan("scripts/preview-config.mjs"), every);
-  assert.deepEqual(previewPlan(".github/workflows/preview.yml"), every);
+  assert.deepEqual(previewPlan(".github/workflows/deploy-preview.yml"), every);
   assert.deepEqual(previewPlan("docs/staging.md"), []);
 });
 
 test("a preview's base is the newest run on its own branch, pull requests included", () => {
   const url = recentRunsUrl({ GITHUB_REPOSITORY: "a/b", PLAN_BRANCH: "feature/x" }, "preview");
-  assert.equal(url.pathname, "/repos/a/b/actions/workflows/preview.yml/runs");
+  assert.equal(url.pathname, "/repos/a/b/actions/workflows/deploy-preview.yml/runs");
   assert.equal(url.searchParams.get("branch"), "feature/x");
   assert.equal(url.searchParams.has("exclude_pull_requests"), false);
   assert.throws(() => recentRunsUrl({ GITHUB_REPOSITORY: "a/b" }, "preview"), /PLAN_BRANCH/);

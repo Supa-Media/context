@@ -1,7 +1,7 @@
 /**
  * Is this deployment a per-branch preview, and which one?
  *
- * A preview is a Convex preview deployment created by `.github/workflows/preview.yml`
+ * A preview is a Convex preview deployment created by `.github/workflows/deploy-preview.yml`
  * for one pull request, with its own Workers on `workers.dev`
  * (`docs/decisions/testing/preview-environments.md`). It holds only seeded,
  * fictional data, so a few staging-only conveniences (persona sign-in codes,

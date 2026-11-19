@@ -949,6 +949,58 @@ function selfTest() {
       [{ name: "health-check.yml", text: "on:\n  workflow_dispatch:\n    inputs:\n      force_redeploy:\n        description: \"Force redeploy\"\n        type: boolean\njobs: {}\n" }],
       [],
     ],
+    [
+      // The preview lane's one allowed shape: a push to any branch but main,
+      // from a deploy workflow with that exact name.
+      "the preview workflow's exact push lane passes",
+      [{ name: "deploy-preview.yml", text: "on:\n  push:\n    branches-ignore: [main]\n  workflow_dispatch:\n    inputs:\n      pr:\n        type: string\njobs:\n  d:\n    steps:\n      - run: pnpm exec wrangler deploy\n" }],
+      [],
+    ],
+    [
+      // The same shape on any other deploy name is not an allowance: only the
+      // preview may run on branches, so a production-shaped deploy is refused.
+      "the preview's push shape on another deploy workflow fails C",
+      [{ name: "deploy-mcp.yml", text: "on:\n  push:\n    branches-ignore: [main]\n  workflow_dispatch:\njobs:\n  d:\n    steps:\n      - run: pnpm exec wrangler deploy\n" }],
+      ["C deploy-mcp.yml"],
+    ],
+    [
+      // The preview may not take pull requests either way: a deploy on a pull
+      // request runs unreviewed code with the account's credentials.
+      "the preview workflow given a pull_request trigger fails B",
+      [{ name: "deploy-preview.yml", text: "on:\n  push:\n    branches-ignore: [main]\n  pull_request:\n  workflow_dispatch:\njobs:\n  d:\n    steps:\n      - run: pnpm exec wrangler deploy\n" }],
+      ["B deploy-preview.yml"],
+    ],
+    [
+      "the preview workflow with a second ignored branch fails C",
+      [{ name: "deploy-preview.yml", text: "on:\n  push:\n    branches-ignore: [main, x]\n  workflow_dispatch:\njobs:\n  d:\n    steps:\n      - run: pnpm exec wrangler deploy\n" }],
+      ["C deploy-preview.yml"],
+    ],
+    [
+      "the preview workflow with an extra push key fails C",
+      [{ name: "deploy-preview.yml", text: "on:\n  push:\n    branches-ignore: [main]\n    paths:\n      - \"apps/**\"\n  workflow_dispatch:\njobs:\n  d:\n    steps:\n      - run: pnpm exec wrangler deploy\n" }],
+      ["C deploy-preview.yml"],
+    ],
+    [
+      // The preview allowance is for push only. A merge_group on it is refused
+      // by rule B, as on every deploy workflow.
+      "the preview workflow with a merge_group trigger fails B",
+      [{ name: "deploy-preview.yml", text: "on:\n  merge_group:\n    types: [checks_requested]\n  push:\n    branches-ignore: [main]\njobs:\n  d:\n    steps:\n      - run: pnpm exec wrangler deploy\n" }],
+      ["B deploy-preview.yml"],
+    ],
+    [
+      // Rule D's one named excuse. The cleanup sweeps on a merge to main and
+      // grades no pull request, so it has no pull_request trigger to pair with.
+      "the preview cleanup runs on a merge to main without pull_request",
+      [{ name: "preview-cleanup.yml", text: "on:\n  push:\n    branches: [main]\n  delete:\n  schedule:\n    - cron: \"23 5 * * *\"\n  workflow_dispatch:\njobs: {}\n" }],
+      [],
+    ],
+    [
+      // The excuse is the name, not the shape: any other workflow on a push to
+      // main alone still has to see pull requests.
+      "the same push shape on another name still fails D",
+      [{ name: "sweep.yml", text: "on:\n  push:\n    branches: [main]\njobs: {}\n" }],
+      ["D sweep.yml"],
+    ],
   ];
 
   for (const [label, files, expected] of cases) {
