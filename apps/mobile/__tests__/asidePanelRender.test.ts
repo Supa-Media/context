@@ -116,7 +116,7 @@ import { act, createElement } from "react";
 import { createRoot } from "react-dom/client";
 import { AsidePanel } from "../features/console/aside/AsidePanel";
 import { NO_MEETING } from "../features/console/aside/tabs";
-import { APPROVALS, NOTHING_WAITING } from "./approvalsFixture";
+import { APPROVALS } from "./approvalsFixture";
 import type { ApprovalsView } from "../features/approvals/useApprovals";
 
 /** The Tex chat's place in the panel: the owner's personal workspace, and its MCP endpoint. */

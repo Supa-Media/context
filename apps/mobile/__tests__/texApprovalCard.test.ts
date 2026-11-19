@@ -14,25 +14,35 @@
  * Fake values only: "Claude Desktop", example.test addresses.
  */
 
-(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
+(
+  globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }
+).IS_REACT_ACT_ENVIRONMENT = true;
 
 import { afterEach, describe, expect, jest, test } from "@jest/globals";
 
 // The hook is replaced: the tab is drawn from the view it is given.
 jest.mock("../features/tex/chat/useAppChat", () => ({
   useAppChat: () => {
-    throw new Error("the Tex tab is drawn from the view it is given, in these tests");
+    throw new Error(
+      "the Tex tab is drawn from the view it is given, in these tests",
+    );
   },
 }));
 
 import { act, createElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import type { Approval, DecisionAction } from "../features/approvals/gateway";
-import type { DecidedApproval } from "../features/approvals/useApprovals";
+import type {
+  ApprovalsView,
+  DecidedApproval,
+} from "../features/approvals/useApprovals";
 import type { AppChatRow, ChatLine } from "../features/tex/chat/appChatGateway";
 import type { AppChatView } from "../features/tex/chat/useAppChat";
 import { TEX_EMPTY, TexChatView } from "../features/tex/chat/TexChatTab";
-import { chatTimeline, type TimelineApprovals } from "../features/tex/chat/approvalTimeline";
+import {
+  chatTimeline,
+  type TimelineApprovals,
+} from "../features/tex/chat/approvalTimeline";
 
 const AT = Date.UTC(2026, 10, 19, 9, 0);
 const MIN = 60_000;
@@ -55,7 +65,11 @@ function approval(over: Partial<Approval> & { id: string }): Approval {
   };
 }
 
-function decided(item: Approval, outcome: DecidedApproval["outcome"], note: string | null): DecidedApproval {
+function decided(
+  item: Approval,
+  outcome: DecidedApproval["outcome"],
+  note: string | null,
+): DecidedApproval {
   return { approval: item, outcome, note };
 }
 
@@ -89,23 +103,21 @@ function fakeApprovals(
   } = {},
 ) {
   const decides: Decides = [];
-  return {
-    decides,
-    view: {
-      available: true,
-      phase: over.phase ?? "listed",
-      loading: false,
-      items: over.items ?? [],
-      decided: over.decided ?? [],
-      error: over.error ?? null,
-      busyId: over.busyId ?? null,
-      notice: over.notice ?? null,
-      refresh: () => {},
-      decide: (id: string, action: DecisionAction) => {
-        decides.push([id, action]);
-      },
+  const view: ApprovalsView = {
+    available: true,
+    phase: over.phase ?? "listed",
+    loading: false,
+    items: [...(over.items ?? [])],
+    decided: [...(over.decided ?? [])],
+    error: over.error ?? null,
+    busyId: over.busyId ?? null,
+    notice: over.notice ?? null,
+    refresh: () => {},
+    decide: (id: string, action: DecisionAction) => {
+      decides.push([id, action]);
     },
   };
+  return { decides, view };
 }
 
 const roots: Array<() => void> = [];
@@ -114,18 +126,32 @@ afterEach(() => {
   document.body.innerHTML = "";
 });
 
-function mount(lines: ChatLine[], approvals: ReturnType<typeof fakeApprovals>["view"] | undefined) {
+function mount(
+  lines: ChatLine[],
+  approvals: ReturnType<typeof fakeApprovals>["view"] | undefined,
+) {
   const container = document.createElement("div");
   document.body.appendChild(container);
-  const root: Root = createRoot(container, { onUncaughtError: () => {}, onCaughtError: () => {} });
+  const root: Root = createRoot(container, {
+    onUncaughtError: () => {},
+    onCaughtError: () => {},
+  });
   roots.push(() => {
     act(() => root.unmount());
     container.remove();
   });
   const draw = (nextLines: ChatLine[], nextApprovals: typeof approvals) =>
-    act(() => root.render(createElement(TexChatView, { view: fakeChat(nextLines), approvals: nextApprovals })));
+    act(() =>
+      root.render(
+        createElement(TexChatView, {
+          view: fakeChat(nextLines),
+          approvals: nextApprovals,
+        }),
+      ),
+    );
   draw(lines, approvals);
-  const find = (testId: string) => container.querySelector<HTMLElement>(`[data-testid="${testId}"]`);
+  const find = (testId: string) =>
+    container.querySelector<HTMLElement>(`[data-testid="${testId}"]`);
   return {
     find,
     text: () => container.textContent ?? "",
@@ -144,9 +170,11 @@ function mount(lines: ChatLine[], approvals: ReturnType<typeof fakeApprovals>["v
       for (let i = 0; i < nodes.length - 1; i += 1) {
         const a = nodes[i];
         const b = nodes[i + 1];
-        if (a === null || b === null || a === undefined || b === undefined) return false;
+        if (a === null || b === null || a === undefined || b === undefined)
+          return false;
         // DOCUMENT_POSITION_FOLLOWING: the second node comes after the first.
-        if (!(a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING)) return false;
+        if (!(a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING))
+          return false;
       }
       return true;
     },
@@ -155,14 +183,20 @@ function mount(lines: ChatLine[], approvals: ReturnType<typeof fakeApprovals>["v
 
 describe("a pending approval in the log", () => {
   const first = row({ id: "r1", text: "Hi, what's up?", at: AT });
-  const second = row({ id: "r2", text: "Share the plan with Sam?", at: AT + 2 * MIN });
+  const second = row({
+    id: "r2",
+    text: "Share the plan with Sam?",
+    at: AT + 2 * MIN,
+  });
   const item = approval({ id: "ap_1" });
 
   test("is drawn between the two rows it sits between, with Approve and Decline", () => {
     const approvals = fakeApprovals({ items: [item] });
     const tab = mount([first, second], approvals.view);
 
-    expect(tab.order("tex-row-r1", "tex-approval-ap_1", "tex-row-r2")).toBe(true);
+    expect(tab.order("tex-row-r1", "tex-approval-ap_1", "tex-row-r2")).toBe(
+      true,
+    );
     expect(tab.text()).toContain("Waiting for your OK");
     expect(tab.text()).toContain(item.summary);
     expect(tab.text()).toContain("Asked by Claude Desktop");
@@ -178,7 +212,12 @@ describe("a pending approval in the log", () => {
     tab.press("tex-approval-approve-ap_1");
     expect(approvals.decides).toEqual([["ap_1", "approve"]]);
 
-    tab.draw([first, second], fakeApprovals({ decided: [decided(item, "approved", "Approved. It ran as asked.")] }).view);
+    tab.draw(
+      [first, second],
+      fakeApprovals({
+        decided: [decided(item, "approved", "Approved. It ran as asked.")],
+      }).view,
+    );
     expect(tab.find("tex-approval-state-ap_1")?.textContent).toBe("Approved");
     expect(tab.text()).toContain("Approved. It ran as asked.");
     expect(tab.find("tex-approval-approve-ap_1")).toBeNull();
@@ -192,49 +231,86 @@ describe("a pending approval in the log", () => {
     tab.press("tex-approval-decline-ap_1");
     expect(approvals.decides).toEqual([["ap_1", "deny"]]);
 
-    tab.draw([first, second], fakeApprovals({ decided: [decided(item, "declined", "Denied. Nothing ran.")] }).view);
+    tab.draw(
+      [first, second],
+      fakeApprovals({
+        decided: [decided(item, "declined", "Denied. Nothing ran.")],
+      }).view,
+    );
     expect(tab.find("tex-approval-state-ap_1")?.textContent).toBe("Declined");
     expect(tab.find("tex-approval-decline-ap_1")).toBeNull();
   });
 
   test("a card that was gone says so", () => {
-    const tab = mount([first, second], fakeApprovals({ decided: [decided(item, "gone", "It expired.")] }).view);
-    expect(tab.find("tex-approval-state-ap_1")?.textContent).toBe("No longer waiting");
+    const tab = mount(
+      [first, second],
+      fakeApprovals({ decided: [decided(item, "gone", "It expired.")] }).view,
+    );
+    expect(tab.find("tex-approval-state-ap_1")?.textContent).toBe(
+      "No longer waiting",
+    );
   });
 
   test("while a decision is in flight the card says Sending and its buttons are disabled", () => {
-    const tab = mount([first, second], fakeApprovals({ items: [item], busyId: "ap_1" }).view);
+    const tab = mount(
+      [first, second],
+      fakeApprovals({ items: [item], busyId: "ap_1" }).view,
+    );
     expect(tab.find("tex-approval-busy-ap_1")?.textContent).toBe("Sending…");
-    expect(tab.find("tex-approval-approve-ap_1")?.getAttribute("aria-disabled")).toBe("true");
-    expect(tab.find("tex-approval-decline-ap_1")?.getAttribute("aria-disabled")).toBe("true");
+    expect(
+      tab.find("tex-approval-approve-ap_1")?.getAttribute("aria-disabled"),
+    ).toBe("true");
+    expect(
+      tab.find("tex-approval-decline-ap_1")?.getAttribute("aria-disabled"),
+    ).toBe("true");
   });
 });
 
 describe("a vault key's first use", () => {
   test("has a 'Yes, from now on' button that sends approve_always", () => {
-    const key = approval({ id: "ap_key", kind: "vault_use", summary: "use your bank key", tool: "vault_use", args: {} });
+    const key = approval({
+      id: "ap_key",
+      kind: "vault_use",
+      summary: "use your bank key",
+      tool: "vault_use",
+      args: {},
+    });
     const approvals = fakeApprovals({ items: [key] });
     const tab = mount([row({ id: "r1" })], approvals.view);
 
-    expect(tab.find("tex-approval-always-ap_key")?.textContent).toBe("Yes, from now on");
+    expect(tab.find("tex-approval-always-ap_key")?.textContent).toBe(
+      "Yes, from now on",
+    );
     tab.press("tex-approval-always-ap_key");
     expect(approvals.decides).toEqual([["ap_key", "approve_always"]]);
   });
 
   test("a card payment has no Always button", () => {
-    const pay = approval({ id: "ap_pay", kind: "vault_pay", summary: "fill your card at a shop", tool: "vault_pay", args: {} });
+    const pay = approval({
+      id: "ap_pay",
+      kind: "vault_pay",
+      summary: "fill your card at a shop",
+      tool: "vault_pay",
+      args: {},
+    });
     const tab = mount([], fakeApprovals({ items: [pay] }).view);
     expect(tab.find("tex-approval-always-ap_pay")).toBeNull();
     expect(tab.find("tex-approval-approve-ap_pay")).not.toBeNull();
-    expect(tab.find("tex-approval-pay-ap_pay")?.textContent).toContain("once, on this site only");
+    expect(tab.find("tex-approval-pay-ap_pay")?.textContent).toContain(
+      "once, on this site only",
+    );
   });
 });
 
 describe("a decision that did not go through", () => {
   test("leaves the card waiting and says why under it", () => {
     const item = approval({ id: "ap_1" });
-    const text = "That did not go through. Nothing was approved or denied. Try again in a moment.";
-    const tab = mount([], fakeApprovals({ items: [item], notice: { tone: "warn", text } }).view);
+    const text =
+      "That did not go through. Nothing was approved or denied. Try again in a moment.";
+    const tab = mount(
+      [],
+      fakeApprovals({ items: [item], notice: { tone: "warn", text } }).view,
+    );
     expect(tab.find("tex-approval-approve-ap_1")).not.toBeNull();
     expect(tab.find("tex-approvals-notice")?.textContent).toBe(text);
   });
@@ -244,7 +320,10 @@ describe("a decision that did not go through", () => {
     const text = "Approved, but it did not run.";
     const tab = mount(
       [],
-      fakeApprovals({ decided: [{ approval: item, outcome: "approved", note: text }], notice: { tone: "warn", text } }).view,
+      fakeApprovals({
+        decided: [{ approval: item, outcome: "approved", note: text }],
+        notice: { tone: "warn", text },
+      }).view,
     );
     expect(tab.find("tex-approval-note-ap_1")?.textContent).toBe(text);
     expect(tab.find("tex-approvals-notice")).toBeNull();
@@ -253,7 +332,10 @@ describe("a decision that did not go through", () => {
 
 describe("the empty chat and a failed listing", () => {
   test("an empty chat with one pending approval shows the card, not the empty line", () => {
-    const tab = mount([], fakeApprovals({ items: [approval({ id: "ap_1" })] }).view);
+    const tab = mount(
+      [],
+      fakeApprovals({ items: [approval({ id: "ap_1" })] }).view,
+    );
     expect(tab.find("tex-approval-ap_1")).not.toBeNull();
     expect(tab.find("tex-empty")).toBeNull();
     expect(tab.text()).not.toContain(TEX_EMPTY);
@@ -265,8 +347,16 @@ describe("the empty chat and a failed listing", () => {
   });
 
   test("a failed listing shows its sentence under the rows", () => {
-    const tab = mount([row({ id: "r1", text: "Hi" })], fakeApprovals({ phase: "failed", error: "I could not reach your context. Try again in a moment." }).view);
-    expect(tab.find("tex-approvals-error")?.textContent).toBe("I could not reach your context. Try again in a moment.");
+    const tab = mount(
+      [row({ id: "r1", text: "Hi" })],
+      fakeApprovals({
+        phase: "failed",
+        error: "I could not reach your context. Try again in a moment.",
+      }).view,
+    );
+    expect(tab.find("tex-approvals-error")?.textContent).toBe(
+      "I could not reach your context. Try again in a moment.",
+    );
   });
 
   test("no approvals prop draws the chat as before", () => {
@@ -278,7 +368,11 @@ describe("the empty chat and a failed listing", () => {
 
 describe("Tex's own asks use the same card", () => {
   test("the open ask is headed Waiting for your OK and answered Declined", () => {
-    const ask = row({ id: "a1", text: "Send the invoice to Sam?", ask: { id: "ap_9", open: true } });
+    const ask = row({
+      id: "a1",
+      text: "Send the invoice to Sam?",
+      ask: { id: "ap_9", open: true },
+    });
     const tab = mount([ask], undefined);
     expect(tab.text()).toContain("Waiting for your OK");
     expect(tab.find("tex-deny-a1")?.textContent).toBe("Decline");
@@ -289,12 +383,24 @@ describe("chatTimeline", () => {
   const line = (id: string, at: number) => row({ id, at });
   const card = (id: string, createdAt: number) => approval({ id, createdAt });
   const kinds = (entries: ReturnType<typeof chatTimeline>) =>
-    entries.map((entry) => (entry.kind === "line" ? entry.line.id : entry.approval.id));
+    entries.map((entry) =>
+      entry.kind === "line" ? (entry.line as AppChatRow).id : entry.approval.id,
+    );
 
   test("lines keep their order and a card sits where it was asked", () => {
     const lines = [line("a", 100), line("b", 300), line("c", 500)];
-    const approvals = { items: [card("x", 200), card("y", 400)], decided: [], busyId: null };
-    expect(kinds(chatTimeline(lines, approvals))).toEqual(["a", "x", "b", "y", "c"]);
+    const approvals = {
+      items: [card("x", 200), card("y", 400)],
+      decided: [],
+      busyId: null,
+    };
+    expect(kinds(chatTimeline(lines, approvals))).toEqual([
+      "a",
+      "x",
+      "b",
+      "y",
+      "c",
+    ]);
   });
 
   test("a card asked at the same moment as a line comes after that line", () => {
@@ -305,8 +411,17 @@ describe("chatTimeline", () => {
 
   test("cards asked in the same gap are ordered by when they were asked", () => {
     const lines = [line("a", 100), line("b", 900)];
-    const approvals = { items: [card("late", 500), card("early", 200)], decided: [], busyId: null };
-    expect(kinds(chatTimeline(lines, approvals))).toEqual(["a", "early", "late", "b"]);
+    const approvals = {
+      items: [card("late", 500), card("early", 200)],
+      decided: [],
+      busyId: null,
+    };
+    expect(kinds(chatTimeline(lines, approvals))).toEqual([
+      "a",
+      "early",
+      "late",
+      "b",
+    ]);
   });
 
   test("a card asked after the last line goes at the foot", () => {
@@ -330,10 +445,17 @@ describe("chatTimeline", () => {
     };
     const entries = chatTimeline(lines, approvals);
     expect(entries).toHaveLength(3);
-    const busy = entries.find((entry) => entry.kind === "approval" && entry.approval.id === "busy");
+    const busy = entries.find(
+      (entry) => entry.kind === "approval" && entry.approval.id === "busy",
+    );
     expect(busy).toMatchObject({ state: "busy" });
-    const done = entries.find((entry) => entry.kind === "approval" && entry.approval.id === "done");
-    expect(done).toMatchObject({ state: "declined", note: "Denied. Nothing ran." });
+    const done = entries.find(
+      (entry) => entry.kind === "approval" && entry.approval.id === "done",
+    );
+    expect(done).toMatchObject({
+      state: "declined",
+      note: "Denied. Nothing ran.",
+    });
   });
 
   test("null and undefined approvals leave just the lines", () => {
