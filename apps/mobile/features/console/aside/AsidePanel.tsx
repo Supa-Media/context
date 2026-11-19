@@ -143,7 +143,7 @@ export function AsidePanel({
         showing={showing}
         recording={meetingLive}
         onUnfold={(tab) => {
-          if (tab !== null) setChosen(tab);
+          setChosen(tab);
           setFolded(false);
         }}
       />

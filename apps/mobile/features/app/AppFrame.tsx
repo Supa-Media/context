@@ -272,6 +272,7 @@ export function AppFrame({
           topTrailing,
           onSearch,
           asideToggle,
+          asideFolded: state.asideFolded,
           regions,
           toggleAside,
           hasExplorer,

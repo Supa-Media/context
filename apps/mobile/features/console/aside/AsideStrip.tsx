@@ -17,8 +17,10 @@ const ICONS: Record<Exclude<AsideTab, "tex">, IconName> = {
 /**
  * The right panel folded (Dev2, 2026-11-05: "i would also like the panel to
  * be collapsable"): a slim strip down the right edge with one button per tab.
- * A press on one unfolds the panel on that tab; the top button unfolds it as
- * it was. The marks the tab row carries (a meeting recording) stay here too,
+ * A press on one unfolds the panel on that tab; the top bar's panel button
+ * unfolds it as it was (`asideAfterToggle`). No chevron or rule of its own
+ * (Dev2, 2026-11-19: that corner "looks crazy"), so its first tab lines up
+ * with the note's own buttons. The marks the tab row carries (a meeting recording) stay here too,
  * so folding it never hides something running.
  */
 export function AsideStrip({
@@ -30,22 +32,12 @@ export function AsideStrip({
   tabs: readonly AsideTab[];
   showing: AsideTab;
   recording: boolean;
-  onUnfold: (tab: AsideTab | null) => void;
+  onUnfold: (tab: AsideTab) => void;
 }) {
   const styles = useThemedStyles(makeStyles);
   const colors = useColors();
   return (
     <View style={styles.strip} testID="aside-strip">
-      <Pressable
-        onPress={() => onUnfold(null)}
-        accessibilityRole="button"
-        accessibilityLabel="Unfold the panel"
-        style={({ hovered }: { hovered?: boolean; pressed: boolean }) => [styles.button, hovered && styles.hover]}
-        testID="aside-unfold"
-      >
-        <Icon name="chevronLeft" size={16} color={colors.text2} />
-      </Pressable>
-      <View style={styles.rule} />
       {ASIDE_TABS.filter((tab) => tabs.includes(tab.key)).map((tab) => (
         <Pressable
           key={tab.key}
@@ -78,6 +70,5 @@ const makeStyles = (colors: Colors) =>
     button: { width: 36, height: 36, borderRadius: radii.control, alignItems: "center", justifyContent: "center" },
     current: { backgroundColor: colors.chrome },
     hover: { backgroundColor: colors.chrome },
-    rule: { width: 20, height: StyleSheet.hairlineWidth, backgroundColor: colors.line, marginVertical: space.x1 },
     dot: { position: "absolute", top: 6, right: 6 },
   });
