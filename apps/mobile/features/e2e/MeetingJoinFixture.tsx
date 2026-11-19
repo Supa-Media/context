@@ -47,6 +47,31 @@ const DAY: CalendarEvent[] = [
   { id: "a:ruth", title: "Dinner with Ruth", startsAt: at(334), endsAt: at(454), attendees: PEOPLE.slice(0, 1).concat(PEOPLE[3]!) },
 ];
 
+/** Filed meetings, for the panel's Past list. */
+function filed(id: string, title: string, daysAgo: number, minutes: number, notePath: string): MeetingRecord {
+  const started = new Date(Date.now() - daysAgo * 86_400_000).toISOString();
+  return {
+    version: 1,
+    workspaceId: "ws1",
+    session: {
+      id, title, state: "complete", startedAt: started, endedAt: started, recordedMs: minutes * 60_000,
+      attendees: [], source: { kind: "in-person" }, notes: "", transcript: [], notePath, enhanced: null, log: [],
+    },
+    acked: { notes: 0, transcript: 0, log: 0 },
+    destination: { kind: "personalInbox", contextSlug: "seyi", folder: "inbox/meetings" },
+    runningSince: null,
+    updatedAt: 0,
+    attempts: 0,
+  } as unknown as MeetingRecord;
+}
+
+const PAST: MeetingRecord[] = [
+  filed("p1", "Charisma / Seyi", 1, 59, "areas/public-worship/2026-11-18-charisma-seyi-p1.md"),
+  filed("p2", "AJ / Seyi", 3, 14, "projects/vision/2026-11-16-aj-seyi-p2.md"),
+  filed("p3", "Keianna / Seyi: financial planning", 9, 109, "projects/finances/2026-11-10-keianna-p3.md"),
+  filed("p4", "Kansi / Seyi", 30, 6, "inbox/meetings/2026-10-20-kansi-p4.md"),
+];
+
 export function MeetingJoinFixture({ view }: { view?: string }) {
   const colors = useColors();
   const [ready, setReady] = useState(false);
@@ -78,7 +103,7 @@ export function MeetingJoinFixture({ view }: { view?: string }) {
             attempts: 0,
           } as unknown as MeetingRecord)
         : null;
-    meetings.set({ ...meetings.snapshot, status: "ready", records: live === null ? [] : [live], live } as typeof meetings.snapshot);
+    meetings.set({ ...meetings.snapshot, status: "ready", records: live === null ? PAST : [live], live } as typeof meetings.snapshot);
     setReady(true);
   }, [view]);
   if (!ready) return null;
@@ -87,7 +112,7 @@ export function MeetingJoinFixture({ view }: { view?: string }) {
   return (
     <View style={{ flex: 1, flexDirection: "row", backgroundColor: colors.surface, gap: 40, padding: 24 }} testID="meeting-join-fixture">
       <View style={{ width: 340 }}>
-        <MeetingsTab onOpenNote={null} onJoin={() => {}} />
+        <MeetingsTab onOpenNote={() => {}} onJoin={() => {}} />
       </View>
       <View style={{ flex: 1, position: "relative" }}>
         <CreateButton

@@ -12,7 +12,6 @@ import { LiveMeters } from "../../meetings/components/LiveMeters";
 import { MeetingTitleField } from "../../meetings/components/MeetingTitleField";
 import { TransportMark } from "../../meetings/components/TransportMark";
 import { OpenCallButton } from "../../meetings/components/OpenCallButton";
-import { TodayMeetings } from "../../meetings/components/TodayMeetings";
 import type { CalendarEvent } from "../../meetings/protocol";
 import { writeClipboard } from "../../design/clipboard";
 import { meetingElapsedMs, meetings } from "../../meetings/controller";
@@ -28,10 +27,10 @@ import {
   continuationFromRecord,
   mayResume,
   meetingIdOf,
-  oneRowPerMeeting,
 } from "../../meetings/resume";
 import { useMeetingsSnapshot, useTick } from "../../meetings/useMeetings";
-import { NO_MEETING } from "./tabs";
+import { MeetingLists } from "./MeetingLists";
+import type { PastWorkspace } from "../../meetings/usePastMeetings";
 import { useFieldFont } from "../../design/fieldFont";
 
 /**
@@ -77,6 +76,7 @@ import { useFieldFont } from "../../design/fieldFont";
 export function MeetingsTab({
   onOpenNote,
   onJoin = null,
+  pastFrom = null,
 }: {
   /**
    * Open a finished meeting's note in the console, by its href.
@@ -87,6 +87,12 @@ export function MeetingsTab({
   onOpenNote: ((href: string, path: string) => void) | null;
   /** Join and take notes, for today's meetings on the calendar. `null` where there is none. */
   onJoin?: ((meeting: CalendarEvent) => void) | null;
+  /**
+   * The workspaces whose meeting notes the Past list reads, from the server.
+   * `null` on the demo console and the fixtures, which have no control plane:
+   * Past then lists this device's recordings alone.
+   */
+  pastFrom?: readonly PastWorkspace[] | null;
 }) {
   const styles = useThemedStyles(makeStyles);
   const snapshot = useMeetingsSnapshot();
@@ -130,50 +136,16 @@ export function MeetingsTab({
   }
 
   return (
-    <ScrollView contentContainerStyle={styles.body} testID="aside-meetings">
-      <Text variant="rowSub" style={styles.empty} testID="aside-no-meeting">
-        {NO_MEETING}
-      </Text>
-      {/* Today's meetings from the calendar, each one press from notes (board w1). */}
-      {onJoin === null ? null : <TodayMeetings onJoin={onJoin} testID="aside-today" />}
-      {snapshot.records.length === 0 ? null : (
-        <View style={styles.recent}>
-          <Text variant="railHead" style={styles.recentHead}>
-            Recent
-          </Text>
-          {oneRowPerMeeting(snapshot.records)
-            .slice(0, RECENT)
-            .map((record) => (
-              <Pressable
-                key={record.session.id}
-                onPress={() => setOpenId(record.session.id)}
-                role="button"
-                accessibilityLabel={`${record.session.title}, ${meetingSubtitle(record.session)}`}
-                style={styles.row}
-                testID={`aside-meeting-row-${record.session.id}`}
-              >
-                <Text variant="rowTitle" style={styles.rowTitle} numberOfLines={1}>
-                  {record.session.title}
-                </Text>
-                <Text variant="foot" style={styles.rowSub} numberOfLines={1}>
-                  {meetingSubtitle(record.session)}
-                </Text>
-              </Pressable>
-            ))}
-        </View>
-      )}
-    </ScrollView>
+    <MeetingLists
+      records={snapshot.records}
+      onOpenRecord={setOpenId}
+      onOpenNote={onOpenNote}
+      onJoin={onJoin}
+      pastFrom={pastFrom}
+    />
   );
 }
 
-/**
- * How many meetings the panel lists.
- *
- * Enough to reach the one you recorded this morning, not a list to scroll —
- * `/meetings` is the list, and it is still reachable from the switcher. A panel
- * that grows without bound beside a note is a panel that stops being a panel.
- */
-const RECENT = 6;
 
 function LiveMeeting({ record }: { record: MeetingRecord }) {
   const styles = useThemedStyles(makeStyles);
@@ -613,16 +585,7 @@ function Stranded({ record }: { record: MeetingRecord }) {
 const makeStyles = (colors: Colors) =>
   StyleSheet.create({
     body: { paddingBottom: space.x4 },
-    empty: { color: colors.muted, padding: space.x4 },
-    recent: { paddingHorizontal: space.x3, gap: space.x1 },
     recentHead: { color: colors.muted, paddingHorizontal: space.x1 },
-    row: {
-      paddingVertical: space.x2,
-      paddingHorizontal: space.x3,
-      borderRadius: radii.control,
-      gap: 2,
-    },
-    rowTitle: { color: colors.text },
     rowSub: { color: colors.muted },
     liveCard: {
       margin: space.x3,

@@ -246,6 +246,8 @@ function mount(
     rerender: () => act(render),
     press: (testId: string) => {
       const node = find(testId);
+      // Meetings alone draws no tab strip (2026-11-19): it is already showing.
+      if (node === null && testId === "aside-tab-meetings" && find("aside-meetings") !== null) return;
       if (node === null) throw new Error(`no element with testID ${testId}`);
       act(() => {
         node.dispatchEvent(new MouseEvent("mousedown", { bubbles: true }));
@@ -277,14 +279,16 @@ describe("the tabs", () => {
 
   test("with nothing waiting there is no Approvals tab", () => {
     const panel = mount({ approvals: NOTHING_WAITING });
-    expect(panel.find("aside-tab-meetings")).not.toBeNull();
+    expect(panel.find("aside-meetings")).not.toBeNull();
     expect(panel.find("aside-tab-approvals")).toBeNull();
   });
 
-  test("a console that cannot answer approvals shows Meetings alone", () => {
+  test("a console that cannot answer approvals shows Meetings alone, with no tab strip over it", () => {
     const panel = mount();
-    expect(panel.find("aside-tab-meetings")).not.toBeNull();
+    expect(panel.find("aside-meetings")).not.toBeNull();
+    expect(panel.find("aside-tab-meetings")).toBeNull();
     expect(panel.find("aside-tab-approvals")).toBeNull();
+    expect(panel.find("aside-fold")).not.toBeNull();
   });
 
   test("an empty tab says what would put something in it", () => {

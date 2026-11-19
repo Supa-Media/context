@@ -123,12 +123,9 @@ export function meetingNeedsAttention(showing: AsideTab, meetingLive: boolean): 
 }
 
 /**
- * What the Meetings tab says when nothing is recording.
- *
- * A sentence and not an empty box, because "nothing here" and "this is broken"
- * look the same to somebody who has just opened a panel for the first time.
- * It names the control that starts one rather than describing the absence.
+ * What the Meetings tab says with nothing recording, nothing left today and no
+ * meeting notes: one short line (owner, 2026-11-19: "less text"). It used to be
+ * a sentence over every list, explaining what would land there.
  */
-export const NO_MEETING =
-  "Nothing is recording. Start a meeting and its clock, its transcript and the note it becomes all land here.";
+export const NO_MEETING = "No meetings yet.";
 

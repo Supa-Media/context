@@ -9,6 +9,7 @@ import { layout, radii, space } from "../../design/tokens";
 import { useColors, useThemedStyles, type Colors } from "../../design/theme";
 import { useMeetingsSnapshot } from "../../meetings/useMeetings";
 import { MeetingsTab } from "./MeetingsTab";
+import type { PastWorkspace } from "../../meetings/usePastMeetings";
 import { TexChatTab } from "../../tex/chat/TexChatTab";
 import { useMapSide } from "./mapSide";
 import { AsideStrip } from "./AsideStrip";
@@ -55,7 +56,10 @@ export function AsidePanel({
   approvals,
   onJoin = null,
   tex = null,
+  pastFrom = null,
 }: {
+  /** The workspaces whose meeting notes the Meetings tab lists under Past; `null` where there is no control plane. */
+  pastFrom?: readonly PastWorkspace[] | null;
   /**
    * When somebody last asked for a meeting, from the console's + menu.
    *
@@ -130,6 +134,7 @@ export function AsidePanel({
     if (noteKey !== null) setChosen("note");
   }, [noteKey]);
 
+  const single = tabs.length === 1;
   const live = useMeetingsSnapshot().live;
   const meetingLive = live !== null;
   const colors = useColors();
@@ -157,8 +162,13 @@ export function AsidePanel({
 
   return (
     <View style={styles.panel} testID="aside-panel">
-      <View style={styles.tabs} accessibilityRole="tablist">
-        {ASIDE_TABS.filter((tab) => tabs.includes(tab.key)).map((tab) => {
+      {/*
+        One tab is a title, not a choice (owner, 2026-11-19: "Dont love the
+        meeting header"): with Meetings alone the strip and its rule go, and
+        the fold arrow is all that is left of it.
+      */}
+      <View style={single ? styles.bare : styles.tabs} accessibilityRole={single ? undefined : "tablist"}>
+        {single ? null : ASIDE_TABS.filter((tab) => tabs.includes(tab.key)).map((tab) => {
           const current = tab.key === showing;
           const count = tab.key === "approvals" ? pendingCount(waiting) : "";
           return (
@@ -216,10 +226,10 @@ export function AsidePanel({
           onPress={() => setFolded(true)}
           accessibilityRole="button"
           accessibilityLabel="Fold the panel"
-          style={({ hovered }: { hovered?: boolean; pressed: boolean }) => [styles.fold, hovered && styles.tabCurrent]}
+          style={({ hovered }: { hovered?: boolean; pressed: boolean }) => [single ? styles.foldBare : styles.fold, hovered && styles.tabCurrent]}
           testID="aside-fold"
         >
-          <Icon name="chevronRight" size={16} color={colors.text2} />
+          <Icon name="chevronRight" size={single ? 14 : 16} color={single ? colors.muted : colors.text2} />
         </Pressable>
       </View>
 
@@ -240,7 +250,7 @@ export function AsidePanel({
           <ApprovalsPanel view={approvals} />
         </View>
       ) : (
-        <MeetingsTab onOpenNote={onOpenNote} onJoin={onJoin} />
+        <MeetingsTab onOpenNote={onOpenNote} onJoin={onJoin} pastFrom={pastFrom} />
       )}
     </View>
   );
@@ -269,6 +279,8 @@ const makeStyles = (colors: Colors) =>
     },
     tabCurrent: { backgroundColor: colors.chrome },
     tabsGap: { flex: 1 },
+    bare: { flexDirection: "row", alignItems: "center", paddingHorizontal: space.x2, paddingTop: space.x2 },
+    foldBare: { width: 28, height: 28, borderRadius: radii.md, alignItems: "center", justifyContent: "center" },
     fold: { width: 36, minHeight: layout.minTouchTarget, borderRadius: radii.control, alignItems: "center", justifyContent: "center" },
     tabLabel: { color: colors.muted },
     count: { color: colors.muted },
