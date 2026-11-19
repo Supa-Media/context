@@ -419,3 +419,61 @@ test("a repeated Front door run's rows still mark it unrun only when no repeat o
   assert.deepEqual(unrun(rows), [{ node: "fd", total: 3, why: "no bench world" }]);
   assert.deepEqual(unrun(rows.map((r, i) => (i === 1 ? { ...r, ran: true } : r))), []);
 });
+
+test("a Dev gold report: an fd row whose label's own gold fails could not run, with no label line or reason", () => {
+  const rows = [
+    { chat: "a", at: 1, node: "fd", right: true, ran: true, usd: 0 },
+    { chat: "a", at: 3, node: "fd", right: false, ran: true, usd: 0 },
+    { chat: "a", at: 3, node: "decide", right: false, ran: true, usd: 0 },
+  ];
+  const gold = { model: "gw", set: "dev", rows: 2, goldFails: [{ convId: "a", msgIndex: 3, msgId: "m4", failed: [{ kind: "must" }] }], impossible: [], skipped: [] };
+  const r = resultsOf(rows, "1", gold);
+  assert.deepEqual([r.pass, r.total], [1, 2], "the failed Dev fd row is out of the score");
+  assert.deepEqual(r.ambiguous, [], "a Dev row is not ambiguous");
+  assert.deepEqual(r.couldNotRun, [{ convId: "a", msgIndex: 3, node: "fd", why: "its label's own gold reply fails (gold self-check)" }]);
+  assert.equal(r.rows[1].ran, false);
+  assert.equal(r.rows[1].got, "can't run: its label's own gold reply fails (gold self-check)");
+  assert.equal(r.rows[2].ran, undefined, "a non-fd row at the same message still counts");
+  assert.equal(r.goldFails, 1);
+  assert.equal(r.impossible, 0);
+  assert.doesNotMatch(JSON.stringify(r), /must say|said/, "no label line or reason reaches the results");
+});
+
+test("an impossible fd row could not run in training and in dev, with why: its first must line's missing ability", () => {
+  const rows = [
+    { chat: "a", at: 0, node: "fd", right: false, ran: true, usd: 0 },
+    { chat: "a", at: 2, node: "fd", right: true, ran: true, usd: 0 },
+    { chat: "b", at: 0, node: "fd", right: false, ran: true, usd: 0 },
+  ];
+  const impossible = [{ convId: "a", msgIndex: 0, msgId: "m1", lines: [{ line: "find the phone's contacts", missing: "the phone's address book" }] }];
+  const training = resultsOf(rows, "1", { model: "gw", set: "training", rows: 3, goldFails: [], impossible, skipped: [] });
+  const dev = resultsOf(rows, "1", { model: "gw", set: "dev", rows: 3, goldFails: [], impossible, skipped: [] });
+  for (const r of [training, dev]) {
+    assert.deepEqual([r.pass, r.total], [1, 2], "the impossible row is out of pass and total");
+    assert.deepEqual(r.couldNotRun, [{ convId: "a", msgIndex: 0, node: "fd", why: "can't pass honestly: needs the phone's address book" }]);
+    assert.deepEqual(r.perConv, [{ id: "a", pass: 1, total: 1, min: 1, max: 1 }, { id: "b", pass: 0, total: 1, min: 0, max: 0 }]);
+    assert.equal(r.rows[0].ran, false);
+    assert.equal(r.rows[0].got, "can't run: can't pass honestly: needs the phone's address book");
+    assert.equal(r.rows[0].ambiguous, undefined);
+    assert.equal(r.rows[1].ran, undefined);
+    assert.equal(r.impossible, 1);
+  }
+});
+
+test("training is unchanged: a failed fd row is ambiguous, not could-not-run, and a gold without a set is training", () => {
+  const rows = [
+    { chat: "a", at: 3, node: "fd", right: false, ran: true, usd: 0 },
+    { chat: "a", at: 4, node: "fd", right: true, ran: true, usd: 0 },
+  ];
+  const goldFails = [{ convId: "a", msgIndex: 3, msgId: "m4", failed: [{ kind: "must", line: "say hi", reason: "said bye" }] }];
+  for (const gold of [{ model: "gw", set: "training", rows: 2, goldFails, skipped: [] }, { model: "gw", rows: 2, goldFails, skipped: [] }]) {
+    const r = resultsOf(rows, "1", gold);
+    assert.deepEqual([r.pass, r.total, r.couldNotRun], [1, 1, []]);
+    assert.deepEqual(r.ambiguous, [{ convId: "a", msgIndex: 3, node: "fd", why: "its label's own gold reply fails: must say hi (said bye)" }]);
+    assert.equal(r.rows[0].ambiguous, true);
+    assert.equal(r.rows[0].ran, undefined);
+    assert.equal(r.goldFails, 1);
+    assert.equal(r.impossible, 0);
+  }
+  assert.equal(resultsOf(rows, "1").impossible, null, "no gold report, no impossible count");
+});

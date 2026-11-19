@@ -147,8 +147,10 @@ export function trainingConversations(repo, drafts, convId = null) {
 
 /**
  * The runner's rows as the Lab reads a run's results (`texLabRuns.cleanResults`). A row that could not run (`ran: false`)
- * and, with the gold report (`apps/mcp/bench/setsGold.mjs`), an fd row whose label's own gold reply fails (ambiguous)
- * are out of the score: pass, total, perConv and perNode. Each is listed beside it (couldNotRun, ambiguous).
+ * is out of the score: pass, total, perConv and perNode, and listed in couldNotRun with its why. The gold report
+ * (`apps/mcp/bench/setsGold.mjs`) puts an fd row out the same way when it is impossible (a must line needs an ability
+ * Tex does not have: "can't pass honestly"), in either set. For a Training report an fd row whose label's own gold reply
+ * fails is ambiguous instead; for a Dev report it could not run ("its label's own gold reply fails (gold self-check)").
  *
  * Repeated rows (`rep`, Dev2, 2026-11-19) collapse to one row a unit test: `pass` is the mean over repeats
  * (`scoreByRepeat`), `score` its band (`texRunBand.cjs`: mean, min, max, the interval) and `repeats` how many. A test's
@@ -162,9 +164,29 @@ export function resultsOf(rows, ms, gold = null, { models } = {}) {
   for (const g of Array.isArray(gold?.goldFails) ? gold.goldFails : []) {
     if (!goldFail.has(goldKey(g.convId, g.msgIndex))) goldFail.set(goldKey(g.convId, g.msgIndex), g);
   }
-  const ambiguousOf = (r) => r.node === "fd" && r.ran !== false && goldFail.has(goldKey(r.chat, r.at ?? 0));
+  const impossibleAt = new Map();
+  for (const g of Array.isArray(gold?.impossible) ? gold.impossible : []) {
+    if (!impossibleAt.has(goldKey(g.convId, g.msgIndex))) impossibleAt.set(goldKey(g.convId, g.msgIndex), g);
+  }
+  const dev = gold?.set === "dev";
+  const judged = (r) => r.node === "fd" && r.ran !== false;
+  const impossibleOf = (r) => judged(r) && impossibleAt.has(goldKey(r.chat, r.at ?? 0));
+  const failedOf = (r) => judged(r) && !impossibleOf(r) && goldFail.has(goldKey(r.chat, r.at ?? 0));
+  const ambiguousOf = (r) => !dev && failedOf(r);
+  const devFailOf = (r) => dev && failedOf(r);
   const isAmbiguous = new Set(rows.filter(ambiguousOf));
-  const counted = rows.filter((r) => r.ran !== false && !isAmbiguous.has(r));
+  // Why a row is out of the score: it did not run, or the gold report says it is impossible or (Dev) its gold fails.
+  const cannotPass = (r) => {
+    const first = impossibleAt.get(goldKey(r.chat, r.at ?? 0)).lines?.[0];
+    return `can't pass honestly: needs ${first?.missing || "an ability Tex does not have"}`.slice(0, 200);
+  };
+  const notRunWhy = new Map();
+  for (const r of rows) {
+    if (r.ran === false) notRunWhy.set(r, String(r.why ?? "no way to run alone yet").slice(0, 200));
+    else if (impossibleOf(r)) notRunWhy.set(r, cannotPass(r));
+    else if (devFailOf(r)) notRunWhy.set(r, "its label's own gold reply fails (gold self-check)");
+  }
+  const counted = rows.filter((r) => !notRunWhy.has(r) && !isAmbiguous.has(r));
   const score = scoreByRepeat(counted);
   const subsetScore = (field) =>
     [...new Set(counted.map((r) => r[field]))].map((key) => {
@@ -184,11 +206,11 @@ export function resultsOf(rows, ms, gold = null, { models } = {}) {
   const tests = [];
   for (const g of groups.values()) {
     const first = g[0];
-    const run = g.filter((r) => r.ran !== false && !isAmbiguous.has(r));
+    const run = g.filter((r) => !notRunWhy.has(r) && !isAmbiguous.has(r));
     const amb = g.some((r) => isAmbiguous.has(r));
     const base = run[0] ?? first;
     if (run.length === 0 && !amb) {
-      couldNotRun.push({ convId: first.chat, msgIndex: first.at ?? 0, node: first.node, why: String(base.why ?? "no way to run alone yet").slice(0, 200) });
+      couldNotRun.push({ convId: first.chat, msgIndex: first.at ?? 0, node: first.node, why: notRunWhy.get(first) ?? "no way to run alone yet" });
     }
     if (amb) {
       const failed = goldFail.get(goldKey(first.chat, first.at ?? 0)).failed?.[0];
@@ -200,7 +222,7 @@ export function resultsOf(rows, ms, gold = null, { models } = {}) {
     const multi = runs > 1;
     // The detail is the first failing repeat's, else the first run's.
     const detail = run.find((r) => !r.right) ?? base;
-    const said = detail.ran === false ? `can't run: ${String(detail.why ?? "no way to run alone yet").slice(0, 200)}` : String(detail.got ?? (detail.right ? "as labelled" : detail.why ?? ""));
+    const said = notRunWhy.has(detail) ? `can't run: ${notRunWhy.get(detail)}` : String(detail.got ?? (detail.right ? "as labelled" : detail.why ?? ""));
     const usds = g.filter((r) => typeof r.usd === "number" && Number.isFinite(r.usd));
     const fallbacks = g.reduce((a, r) => a + (Number(r.fallbacks) > 0 ? Number(r.fallbacks) : 0), 0);
     tests.push({
@@ -233,6 +255,7 @@ export function resultsOf(rows, ms, gold = null, { models } = {}) {
     couldNotRun,
     ambiguous,
     goldFails: gold ? (Array.isArray(gold.goldFails) ? gold.goldFails.length : 0) : null,
+    impossible: gold ? (Array.isArray(gold.impossible) ? gold.impossible.length : 0) : null,
     // Every raw row's spend: each repeat is real spend, so the total is the sum of all of them.
     costUsd: Math.round(rows.reduce((a, r) => a + (r.usd || 0), 0) * 10_000) / 10_000,
     // What the background jobs the Front door handed off added, already inside costUsd (Dev2, 2026-11-18: "report how
