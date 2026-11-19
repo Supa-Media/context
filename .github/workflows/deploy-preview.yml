@@ -8,10 +8,17 @@ name: Preview
 # scripts/preview-guards.mjs refuse to deploy a preview that holds a line or a
 # mail key, and they run before the first deploy.
 #
-# Triggers. `push` covers every branch but main. `pull_request` covers a pull
-# request opened on a branch that was pushed before the pull request existed,
-# which `push` never sees. A pull request from a fork never runs: its jobs are
-# skipped, and a fork's run gets no secrets in any case.
+# Triggers. `push` covers every branch but main, and `workflow_dispatch`
+# deploys a branch on request (`pr`, optional: the pull request to name the
+# preview after; empty means the open pull request of the branch the run is on).
+#
+# There is deliberately no `pull_request` trigger. This is a deploy workflow,
+# and a deploy must never run on a pull request (scripts/check-workflow-triggers.mjs
+# rule B). Consequence: a pull request opened on a branch that was already
+# pushed gets its preview on the next push to that branch, or from a manual
+# dispatch of this workflow on that branch. A pull request opened after its
+# last push waits for one of those. A pull request from a fork never gets a
+# preview, and a fork's run never gets secrets.
 #
 # No hostname is printed here, in a log or in the pull request comment. A
 # workers.dev subdomain names the account, and this repository is public. The
@@ -34,8 +41,12 @@ name: Preview
 on:
   push:
     branches-ignore: [main]
-  pull_request:
-    types: [opened, synchronize, reopened, ready_for_review]
+  workflow_dispatch:
+    inputs:
+      pr:
+        description: "Pull request number to deploy the branch's preview as. Leave empty to use the open pull request of the branch this runs on."
+        type: string
+        default: ""
 
 concurrency:
   group: preview-${{ github.head_ref || github.ref_name }}
@@ -47,7 +58,6 @@ permissions:
 jobs:
   resolve:
     name: Find the pull request and choose what to deploy
-    if: ${{ github.event_name == 'push' || github.event.pull_request.head.repo.full_name == github.repository }}
     runs-on: ubuntu-latest
     timeout-minutes: 5
     environment: preview
@@ -72,15 +82,11 @@ jobs:
       CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
       BRANCH: ${{ github.head_ref || github.ref_name }}
       OWNER: ${{ github.repository_owner }}
-      EVENT_NAME: ${{ github.event_name }}
-      EVENT_PR: ${{ github.event.pull_request.number }}
+      INPUT_PR: ${{ inputs.pr }}
     steps:
-      # The head of the pull request, not the merge commit GitHub checks out
-      # for a pull_request event: the plan diffs against this commit.
       - uses: actions/checkout@v5
         with:
           fetch-depth: 0
-          ref: ${{ github.event.pull_request.head.sha || github.sha }}
 
       - uses: actions/setup-node@v5
         with:
@@ -91,8 +97,18 @@ jobs:
         id: pr
         run: |
           set -euo pipefail
-          if [ "$EVENT_NAME" = "pull_request" ]; then
-            pr="$EVENT_PR"
+          if [ -n "$INPUT_PR" ]; then
+            # A dispatched number must be an open pull request whose head is this branch.
+            if ! [[ "$INPUT_PR" =~ ^[1-9][0-9]{0,6}$ ]]; then
+              echo "::error::Pull request number '$INPUT_PR' cannot name a preview." >&2
+              exit 1
+            fi
+            state="$(gh api --method GET "repos/$GITHUB_REPOSITORY/pulls/$INPUT_PR" --jq '.state + " " + .head.ref')"
+            if [ "$state" != "open $BRANCH" ]; then
+              echo "::error::Pull request $INPUT_PR is not an open pull request of branch $BRANCH." >&2
+              exit 1
+            fi
+            pr="$INPUT_PR"
           else
             pr="$(gh api --method GET "repos/$GITHUB_REPOSITORY/pulls" -f "head=$OWNER:$BRANCH" -f state=open --jq '.[0].number // empty')"
           fi
@@ -155,7 +171,7 @@ jobs:
       pull-requests: write
     env:
       PR: ${{ needs.resolve.outputs.pr }}
-      HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+      HEAD_SHA: ${{ github.sha }}
       CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
       CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
       PREVIEW_STARTED_AT: ${{ needs.resolve.outputs.started_at }}
@@ -165,7 +181,7 @@ jobs:
     steps:
       - uses: actions/checkout@v5
         with:
-          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          ref: ${{ github.sha }}
 
       - uses: pnpm/action-setup@v4
 
@@ -189,9 +205,11 @@ jobs:
           echo "WORKERS_DEV_SUBDOMAIN=$sub" >> "$GITHUB_ENV"
 
       # Fail closed, before anything deploys: no line or mail key may be set on
-      # the preview. The names are the ones scripts/preview-guards.mjs refuses.
-      # Names the allowlist does not sync (PHOTON_SECRET_KEY and the others) are
-      # read here as the guard requires, and are empty unless set by hand.
+      # the preview. Every name here is one the sync supplies or deploy-photon-bridge.yml
+      # reads. SENDBLUE_STATUS_URL is not mapped: nothing syncs it, and
+      # deploy-agent-worker.yml derives it at deploy time (scripts/sendblue-status-url.mjs).
+      # It stays in the guard's list, but the guard only sees names mapped here,
+      # so that entry checks nothing in CI until a value is mapped.
       - name: Refuse any line, mail or payment key on the preview
         env:
           LINQ_API_KEY: ${{ secrets.LINQ_API_KEY }}
@@ -199,15 +217,11 @@ jobs:
           SENDBLUE_API_KEY_ID: ${{ secrets.SENDBLUE_API_KEY_ID }}
           SENDBLUE_API_SECRET: ${{ secrets.SENDBLUE_API_SECRET }}
           SENDBLUE_WEBHOOK_SECRET: ${{ secrets.SENDBLUE_WEBHOOK_SECRET }}
-          SENDBLUE_STATUS_URL: ${{ secrets.SENDBLUE_STATUS_URL }}
           WHAPI_TOKEN: ${{ secrets.WHAPI_TOKEN }}
           WHAPI_LINE: ${{ secrets.WHAPI_LINE }}
           WHAPI_WEBHOOK_SECRET: ${{ secrets.WHAPI_WEBHOOK_SECRET }}
           PHOTON_PROJECT_ID: ${{ secrets.PHOTON_PROJECT_ID }}
           PHOTON_PROJECT_SECRET: ${{ secrets.PHOTON_PROJECT_SECRET }}
-          PHOTON_SECRET_KEY: ${{ secrets.PHOTON_SECRET_KEY }}
-          PHOTON_API_KEY: ${{ secrets.PHOTON_API_KEY }}
-          PHOTON_WEBHOOK_SECRET: ${{ secrets.PHOTON_WEBHOOK_SECRET }}
           TEX_LINE_NUMBERS: ${{ secrets.TEX_LINE_NUMBERS }}
           TWILIO_ACCOUNT_SID: ${{ secrets.TWILIO_ACCOUNT_SID }}
           TWILIO_API_KEY_SID: ${{ secrets.TWILIO_API_KEY_SID }}
@@ -218,13 +232,14 @@ jobs:
           STRIPE_WEBHOOK_SECRET: ${{ secrets.STRIPE_WEBHOOK_SECRET }}
         run: node scripts/preview-guards.mjs silence
 
-      # The Convex key is checked before Convex is deployed. The deny list is
-      # for the production and staging names, which only the deploy knows.
+      # The Convex key is checked before Convex is deployed, with --before-deploy:
+      # the deployment's URL does not exist until the deploy below, so only the
+      # key and the deny list are checked here. The URL is checked after it.
       - name: Check the Convex key is a preview's
         env:
           CONVEX_DEPLOY_KEY: ${{ secrets.CONVEX_PREVIEW_DEPLOY_KEY }}
           PREVIEW_DENY_IDENTIFIERS: ${{ secrets.PREVIEW_DENY_IDENTIFIERS }}
-        run: node scripts/preview-guards.mjs identity
+        run: node scripts/preview-guards.mjs identity --before-deploy
 
       # The Worker configs are rendered and checked before anything deploys.
       - name: Render the preview's wrangler configs

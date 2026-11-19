@@ -3,16 +3,22 @@
 /**
  * Guards that run in CI around a preview deploy.
  *
- *   silence                  no texting, SMS, email or billing key may be set in the preview's environment
- *   identity                 the preview's Convex deploy key and URL must be preview ones, and name no production resource
- *   agent-health <origin>    the deployed texting Worker reports no live line, and its texts simulator answers
+ *   silence                       no texting, SMS, email or billing key may be set in the preview's environment
+ *   identity --before-deploy      the Convex deploy key must be a preview's, and name no production resource
+ *                                 (run before the deploy, when the preview's URL does not exist yet)
+ *   identity                      the same, and the preview's Convex URL must be a preview one too
+ *   agent-health <origin>         the deployed texting Worker reports no live line, and its texts simulator answers
  *
  * Every problem names a variable or a check, never the value that failed it. The subdomain is an account
  * identifier, so the agent origin is never printed either.
  */
 import { pathToFileURL } from "node:url";
 
-/** Texting-line secrets: a preview must never be able to send a text on a real line. */
+/**
+ * Texting-line secrets: a preview must never be able to send a text on a real line. Only names the
+ * deploy reads belong here: Photon's are the two that scripts/deploy-photon-bridge.yml reads, and each
+ * name must be one a workflow maps into `silence`'s environment, or the guard never sees it.
+ */
 export const TEXTING_LINE_KEYS = [
   "LINQ_API_KEY",
   "LINQ_WEBHOOK_SECRET",
@@ -24,9 +30,7 @@ export const TEXTING_LINE_KEYS = [
   "WHAPI_LINE",
   "WHAPI_WEBHOOK_SECRET",
   "PHOTON_PROJECT_ID",
-  "PHOTON_SECRET_KEY",
-  "PHOTON_API_KEY",
-  "PHOTON_WEBHOOK_SECRET",
+  "PHOTON_PROJECT_SECRET",
   "TEX_LINE_NUMBERS",
 ];
 
@@ -66,21 +70,23 @@ export function silenceProblems(env = process.env) {
     .map((key) => `${key} is set; a preview must have no texting, SMS, email or billing key`);
 }
 
-/** Problems with the preview's Convex identity: a preview deploy key, a preview URL, and no production names. */
-export function identityProblems(env = process.env) {
+/**
+ * Problems with the preview's Convex identity: a preview deploy key, no production names and, unless
+ * `beforeDeploy`, a preview URL too. Before the deploy there is no URL yet (the deploy creates the
+ * deployment), so checking it then would fail every run; the URL is checked after the deploy.
+ */
+export function identityProblems(env = process.env, { beforeDeploy = false } = {}) {
   const problems = [];
   const deployKey = env.CONVEX_DEPLOY_KEY ?? "";
   const previewUrl = env.PREVIEW_CONVEX_URL ?? "";
   if (!deployKey.startsWith("preview:")) {
     problems.push('CONVEX_DEPLOY_KEY must be a preview deploy key (it must start with "preview:")');
   }
-  if (!/^https:\/\/[a-z0-9][a-z0-9-]*\.convex\.cloud$/.test(previewUrl)) {
+  if (!beforeDeploy && !/^https:\/\/[a-z0-9][a-z0-9-]*\.convex\.cloud$/.test(previewUrl)) {
     problems.push("PREVIEW_CONVEX_URL must be https://<name>.convex.cloud");
   }
-  const values = [
-    ["CONVEX_DEPLOY_KEY", deployKey],
-    ["PREVIEW_CONVEX_URL", previewUrl],
-  ];
+  const values = [["CONVEX_DEPLOY_KEY", deployKey]];
+  if (!beforeDeploy) values.push(["PREVIEW_CONVEX_URL", previewUrl]);
   for (const [name, value] of values) {
     if (denyEntries(env).some((entry) => value.includes(entry))) {
       problems.push(`${name} names a production deployment or resource (PREVIEW_DENY_IDENTIFIERS)`);
@@ -162,7 +168,10 @@ function report(name, problems) {
 async function main(argv) {
   const [command, origin] = argv;
   if (command === "silence") return report("silence", silenceProblems(process.env));
-  if (command === "identity") return report("identity", identityProblems(process.env));
+  if (command === "identity" && origin === undefined) return report("identity", identityProblems(process.env));
+  if (command === "identity" && origin === "--before-deploy") {
+    return report("identity", identityProblems(process.env, { beforeDeploy: true }));
+  }
   if (command === "agent-health" && typeof origin === "string") {
     // The Worker can take a minute to answer after deploy, so retry /health a few times before failing.
     let problems = [];
@@ -173,7 +182,7 @@ async function main(argv) {
     }
     return report("agent-health", problems);
   }
-  process.stderr.write("usage: preview-guards.mjs silence | identity | agent-health <agentOrigin>\n");
+  process.stderr.write("usage: preview-guards.mjs silence | identity [--before-deploy] | agent-health <agentOrigin>\n");
   return 2;
 }
 

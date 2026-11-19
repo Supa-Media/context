@@ -1,5 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import {
   FORBIDDEN_PREVIEW_KEYS,
   TEXTING_LINE_KEYS,
@@ -10,6 +11,15 @@ import {
 } from "./preview-guards.mjs";
 
 const FAKE_VALUE = "fake-value-that-must-never-print";
+
+test("the Photon names are the two the Photon bridge deploy reads, and no others", () => {
+  const bridge = readFileSync(new URL("../.github/workflows/deploy-photon-bridge.yml", import.meta.url), "utf8");
+  const photon = FORBIDDEN_PREVIEW_KEYS.filter((key) => key.startsWith("PHOTON_")).sort();
+  assert.deepEqual(photon, ["PHOTON_PROJECT_ID", "PHOTON_PROJECT_SECRET"]);
+  for (const key of photon) {
+    assert.ok(bridge.includes(`secrets.${key}`), `${key} must be a name the bridge deploy reads`);
+  }
+});
 
 const goodIdentity = {
   CONVEX_DEPLOY_KEY: "preview:example-team:example-project|fake-secret",
@@ -25,7 +35,7 @@ test("silence passes when no texting, SMS, email or billing key is set", () => {
 });
 
 test("silence names each forbidden key that is set, and never its value", () => {
-  assert.ok(FORBIDDEN_PREVIEW_KEYS.length >= 20);
+  assert.ok(FORBIDDEN_PREVIEW_KEYS.length >= 19);
   assert.ok(TEXTING_LINE_KEYS.includes("SENDBLUE_API_SECRET"));
   for (const key of FORBIDDEN_PREVIEW_KEYS) {
     const problems = silenceProblems({ [key]: FAKE_VALUE });
@@ -37,6 +47,20 @@ test("silence names each forbidden key that is set, and never its value", () => 
 
 test("identity passes for a preview key and URL with no production names", () => {
   assert.deepEqual(identityProblems(goodIdentity), []);
+});
+
+test("identity before the deploy checks the key and deny list, not a URL that does not exist yet", () => {
+  const beforeDeploy = { CONVEX_DEPLOY_KEY: goodIdentity.CONVEX_DEPLOY_KEY, PREVIEW_DENY_IDENTIFIERS: goodIdentity.PREVIEW_DENY_IDENTIFIERS };
+  assert.deepEqual(identityProblems(beforeDeploy, { beforeDeploy: true }), []);
+  // The full check still demands the URL, so a missing URL is refused after the deploy.
+  assert.ok(identityProblems(beforeDeploy).some((problem) => problem.includes("PREVIEW_CONVEX_URL")));
+  // The key and the deny list are checked before the deploy as well.
+  const prod = identityProblems({ ...beforeDeploy, CONVEX_DEPLOY_KEY: "prod:example-team:example-project|fake-secret" }, { beforeDeploy: true });
+  assert.ok(prod.some((problem) => problem.includes("CONVEX_DEPLOY_KEY")));
+  const denied = identityProblems({ ...beforeDeploy, CONVEX_DEPLOY_KEY: "preview:example-team:prod-deployment-xyz|fake-secret" }, { beforeDeploy: true });
+  assert.ok(denied.some((problem) => problem.includes("PREVIEW_DENY_IDENTIFIERS")));
+  // No URL is read before the deploy, so an empty one is not a problem there.
+  assert.deepEqual(identityProblems({ ...beforeDeploy, PREVIEW_CONVEX_URL: "" }, { beforeDeploy: true }), []);
 });
 
 test("identity rejects a production deploy key, a missing key and a non-preview URL", () => {

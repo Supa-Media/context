@@ -86,6 +86,35 @@
  * waits forever; and a deploy workflow must not (rule B), because the trial
  * commit is not `main` and may be dropped.
  *
+ * ── THE PREVIEW PUSH LANE (ONE NAMED ALLOWANCE) ───────────────────────────
+ *
+ * `deploy-preview.yml` deploys each branch's own code to a preview, and that
+ * is its purpose: a preview of unreviewed branch code is the feature, not a
+ * leak. It therefore may run on `push` to any branch but main, written exactly
+ * as `push: branches-ignore: [main]` with no other push key. Rule C allows that
+ * one shape for that one name, and nothing else: any other file with it fails
+ * C, and `deploy-preview.yml` with any other push filter fails C too. It still
+ * may not have `pull_request`, `pull_request_target` or `merge_group` (rule B).
+ *
+ * What bounds a preview's run is the `preview` GitHub environment, not this
+ * file. It holds no production Convex key and no texting, SMS, mail or payment
+ * key, and scripts/preview-guards.mjs refuses to deploy a preview that holds
+ * one. Any same-repository pusher can already add a workflow that names that
+ * environment, so this allowance does not widen what a pusher can reach; it
+ * only makes the existing reach the documented behaviour.
+ *
+ * The residual risk is the Cloudflare API token that the preview environment
+ * holds. It can deploy any Worker in the gateway account, production's
+ * included, and the preview guards do not narrow that. It is an open risk in
+ * docs/decisions/testing/preview-environments.md, and it is not closed here.
+ *
+ * `preview-cleanup.yml` is the other push workflow that is not a check. It
+ * grades no pull request and runs no check of one: its push to main is how a
+ * merge's preview is swept, because a merge closes its pull request and this is
+ * the event that follows a merge. Rule D, which asks a push workflow to see
+ * pull requests too, is excused for that one name, as EDIT_ONLY excuses
+ * pr-description.yml.
+ *
  * ── HOW THE TWO SETS ARE DERIVED ──────────────────────────────────────────
  *
  * Not from two hand-maintained lists, which would drift the day somebody adds a
@@ -207,6 +236,19 @@ const REQUIRED_PR_TYPES = ["opened", "synchronize", "reopened"];
  * with that filter drops the three events a pull request is checked on.
  */
 const EDIT_ONLY = new Set(["pr-description.yml"]);
+
+/**
+ * The one deploy workflow that may run on `push` to every branch but main, and
+ * the only shape it may take. See "THE PREVIEW PUSH LANE" in the header.
+ */
+const PREVIEW_FILE = "deploy-preview.yml";
+const PREVIEW_PUSH_IGNORED = ["main"];
+
+/**
+ * Workflows that run on `push` to main without a `pull_request` trigger, because
+ * they grade no pull request. See "THE PREVIEW PUSH LANE" in the header.
+ */
+const PUSH_WITHOUT_PULL_REQUEST = new Set(["preview-cleanup.yml"]);
 
 /**
  * The two triggers whose configuration a rule below actually reads (A and C).
@@ -583,18 +625,33 @@ export function analyse(files) {
     // would escape rule A silently. A workflow that runs on pushes to `main` is
     // a workflow whose jobs are meant to see this repository's code; running
     // them only after the merge is checking the wrong side of the door.
-    if (!isDeploy && triggers.has("push") && !pr) {
+    if (!isDeploy && triggers.has("push") && !pr && !PUSH_WITHOUT_PULL_REQUEST.has(name)) {
       fail("D", name, "runs on `push` but not on `pull_request`, so its jobs only see code that has already landed.");
     }
 
     // C — the push lane is unchanged and must stay that way: it is the deploy
-    // workflows' neighbour, not a pull request's check.
+    // workflows' neighbour, not a pull request's check. The one exception is
+    // deploy-preview.yml, which takes exactly `branches-ignore: [main]` and
+    // nothing else under `push:` (see "THE PREVIEW PUSH LANE" in the header).
     if (triggers.has("push")) {
       const config = triggers.get("push");
-      const branches = config === null ? undefined : config.branches;
-      const onlyMain = Array.isArray(branches) && branches.length === 1 && branches[0] === "main";
-      if (!onlyMain) {
-        fail("C", name, `has \`push: branches: ${describe(branches)}\`, and it must be [main]. Every push run of this repository is a run against the default branch.`);
+      if (name === PREVIEW_FILE) {
+        const keys = config === null ? [] : Object.keys(config);
+        const ignored = config === null ? undefined : config["branches-ignore"];
+        const exact =
+          keys.length === 1 &&
+          Array.isArray(ignored) &&
+          ignored.length === PREVIEW_PUSH_IGNORED.length &&
+          ignored.every((branch, i) => branch === PREVIEW_PUSH_IGNORED[i]);
+        if (!exact) {
+          fail("C", name, `has \`push:\` with ${keys.length === 0 ? "no configuration" : keys.map((key) => `\`${key}: ${describe(config[key])}\``).join(", ")}. ${PREVIEW_FILE} may take exactly \`branches-ignore: [main]\` and no other push key.`);
+        }
+      } else {
+        const branches = config === null ? undefined : config.branches;
+        const onlyMain = Array.isArray(branches) && branches.length === 1 && branches[0] === "main";
+        if (!onlyMain) {
+          fail("C", name, `has \`push: branches: ${describe(branches)}\`, and it must be [main]. Every push run of this repository is a run against the default branch.`);
+        }
       }
     }
   }
