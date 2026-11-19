@@ -156,15 +156,14 @@ function participantsOf(chat: Rec, from: string): string[] {
 }
 
 /**
- * The words a tapback was on, as Sendblue's reads give them: Tex's own text carries its words (`onTex`), another
- * person's message is flagged `onOther`, and a target the bridge could not tell is neither.
+ * The words a tapback was on, as the bridge read them: Tex's own text carries its words (`onTex`), another person's
+ * message is flagged `onOther` with its words apart (`otherWords`), and a target the bridge could not tell is neither.
  */
-function targetOf(reaction: Rec): Pick<Reaction, "words" | "onTex" | "onOther"> {
-  if (reaction.targetFromMe === true) {
-    const words = typeof reaction.targetText === "string" ? reaction.targetText.trim().slice(0, MAX_QUOTED_TEXT) : "";
-    return words === "" ? { words: "" } : { words, onTex: true as const };
-  }
-  if (reaction.targetFromMe === false) return { words: "", onOther: true as const };
+function targetOf(reaction: Rec): Pick<Reaction, "words" | "onTex" | "onOther" | "otherWords"> {
+  const read = typeof reaction.targetText === "string" ? reaction.targetText.trim().slice(0, MAX_QUOTED_TEXT) : "";
+  if (reaction.targetFromMe === true) return read === "" ? { words: "" } : { words: read, onTex: true as const };
+  // Somebody else's words are shown with the tapback (`otherWords`), never taken for an ask of Tex's (`words`).
+  if (reaction.targetFromMe === false) return { words: "", onOther: true as const, ...(read !== "" ? { otherWords: read } : {}) };
   return { words: "" };
 }
 

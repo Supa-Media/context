@@ -369,7 +369,7 @@ export function inboundOf({ about, row, rows, address, sentHandles }) {
   const target = typeof row.on === "string" ? (rows ?? []).find((r) => r.id === row.on) : undefined;
   if (row.kind === "reaction") {
     const onTex = target !== undefined && (target.who === "Tex" || target.reply !== undefined);
-    const reaction = { how: TAPBACKS[row.emoji] ?? "Liked", ...(onTex ? { words: String(target.text ?? "").trim().slice(0, MAX_QUOTED), onTex: true } : { words: "", onOther: true }) };
+    const reaction = { how: TAPBACKS[row.emoji] ?? "Liked", ...(onTex ? { words: String(target.text ?? "").trim().slice(0, MAX_QUOTED), onTex: true } : { words: "", onOther: true, ...(target !== undefined && String(target.text ?? "").trim() !== "" ? { otherWords: String(target.text).trim().slice(0, MAX_QUOTED) } : {}) }) };
     if (!group) return { path: "/react", body: { kind: "reaction", eventId, chatId: address.chatId, from, messageId: eventId, reaction } };
     return { path: "/group-accept", body: { kind: "group-message", eventId, groupId: address.groupId, line: address.line, from, participants: people, messageId: eventId, text: "", reaction } };
   }
