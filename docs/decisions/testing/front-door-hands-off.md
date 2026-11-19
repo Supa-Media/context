@@ -152,3 +152,23 @@ slower than the Door (it runs beside it; Clef answers in about half a
 second, capped at the router's 3 s limit). A handed-off job's tapback goes
 out right after the router's read, before any front-door round. The result
 is a later text, minutes not seconds.
+
+### Result on Training (19 November): not promoted
+
+Draft `vmwnm8gr0zo9r` (router on, `router -> handoff`, `routeSure` 10, no
+doors), cc, three repeats, run `v57ra9vj3xg123hpcy1yn8dez58jhbvh`: 124.67/158
+(front door 39.67/63, Decide 24/27), against main's 123/158 (front door
+38/63, Decide 24/27) earlier the same day. That gap is inside the noise
+(+5.7 rows, 95% interval −5.8 to +17.1 against the newest main-code run).
+
+Read row by row, only three front-door turns went to the worker, because in
+the bench most turns get no route at all: the router's read is capped at
+1.5 s beside the Door (`ROUTE_WAIT_MS`), and a cc run's model answers slower
+than that. Of the three: one job label passed before and after, one false
+job pick still passed (the worker answered it), and one job label went from
+3/3 to 0/3: the worker asked a question instead of looking in the chat,
+notes and meetings first. Every other row that moved had no job route, so
+its move is noise. The hand-off's own effect on Training is about −1 row.
+
+So the bar ships as code (off unless a config sets `limits.routeSure`), and
+the draft is not promoted. Dev was not run: the rule is Training first.
