@@ -73,6 +73,7 @@
     }
   ],
   "reviewed": {
+    "apps/mcp/test/unit.list": "The Gateway unit-test list, at the 700-line review threshold before this change (700); it grew by two lines only so jobHandoff.test.mjs and the retired site-block-fallback case (now siteBlockFallback.test.mjs) stay listed, the way every node:test file must be.",
     "apps/mcp/src/agent/turn.js": "The model loop's one tool funnel, at the 700-line review threshold before this change; it grew by one import line only so a Lab test chat's turn answers every non-read tool as done there (labSandbox/policy.js sandboxedTool), the one place Tex's local, web and MCP tools all pass.",
     "apps/agent/src/inbox.ts": "The chat queue's one drain and reply path, at the 700-line review threshold before this change; it grew by two lines only to hand the chat's remote line to lineDeps (the step 3 line seam, lineCalls.ts and remoteLine.ts), and it moves out with the rest of the head.",
     "apps/machine-runner/src/protocol.rs": "The runner's whole wire protocol: every frame the gateway and the runner exchange, each a serde struct with deny_unknown_fields mirroring packages/shared/src/machineProtocol.schema.json one to one, so one file can be read against the schema field by field.",
