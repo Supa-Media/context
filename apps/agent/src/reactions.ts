@@ -38,8 +38,13 @@ export type Tapback = "Loved" | "Liked" | "Disliked" | "Laughed at" | "Emphasize
  * could not tell" (`thumbs.ts` `onTheAsk`). `onTex`: it was read and is one of
  * Tex's own texts (WhatsApp names the message). `emoji`: the emoji itself, for
  * a reaction that is no named tapback ("Reacted 🎉 to …", any WhatsApp emoji).
+ * `otherWords`: the words of somebody else's message it was on, when the line
+ * read them (Photon's `targetText`). Kept apart from `words`, which only ever
+ * hold Tex's own text, because a yes is matched on `words` (`thumbs.ts`); these
+ * are only shown, so a vote by tapback names what it voted on (Dev2,
+ * 2026-11-19: Tex said "there's no poll" to a thumbs-up/thumbs-down poll).
  */
-export type Reaction = { how: Tapback; words: string; removed?: true; onOther?: true; onTex?: true; emoji?: string };
+export type Reaction = { how: Tapback; words: string; removed?: true; onOther?: true; onTex?: true; emoji?: string; otherWords?: string };
 type Kept = Reaction & { at: number };
 
 const NAMES: [RegExp, Tapback][] = [
@@ -112,7 +117,9 @@ export function reactionEmoji(reaction: Reaction): string {
  */
 export function reactionLine(reaction: Reaction, onTex: boolean): string {
   const answer = reaction.removed ? "" : reaction.how === "Disliked" ? " (no)" : reaction.how === "Liked" || reaction.how === "Loved" || reaction.how === "Emphasized" ? " (yes)" : "";
-  const words = reaction.words.replace(/\s+/g, " ").trim();
+  const own = reaction.words.replace(/\s+/g, " ").trim();
+  // Somebody else's message is named by its own words when the line read them, so a vote by tapback says what it voted on.
+  const words = own !== "" || onTex ? own : (reaction.otherWords ?? "").replace(/\s+/g, " ").trim();
   const quote = words === "" ? "" : ` "${[...words].slice(0, 120).join("")}${[...words].length > 120 ? "…" : ""}"`;
   const target = onTex ? `Tex's message${quote}` : words === "" ? "a message" : `the message${quote}`;
   return `${reaction.removed ? "took back " : ""}${reactionEmoji(reaction)}${answer} on ${target}`;

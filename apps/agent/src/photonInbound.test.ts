@@ -237,10 +237,21 @@ describe("parsePhotonEvent: tapbacks", () => {
     expect(parsed).toMatchObject({ kind: "reaction", reaction: { how: "Liked", words: "Want me to book it?", onTex: true } });
   });
 
-  it("flags a tapback on somebody else's message as onOther, with no words", () => {
-    const parsed = parsePhotonEvent(reactionEvent("like", { targetText: "lunch?", targetFromMe: false }));
-    expect(parsed).toMatchObject({ kind: "reaction", reaction: { how: "Liked", words: "", onOther: true } });
+  it("flags a tapback on somebody else's message as onOther, its words apart from Tex's (a vote names what it voted on)", () => {
+    const parsed = parsePhotonEvent(reactionEvent("like", { targetText: "  Thumbs up here if lunch at noon  ", targetFromMe: false }));
+    expect(parsed).toMatchObject({ kind: "reaction", reaction: { how: "Liked", words: "", onOther: true, otherWords: "Thumbs up here if lunch at noon" } });
     expect(parsed).toMatchObject({ reaction: expect.not.objectContaining({ onTex: true }) });
+  });
+
+  it("a tapback on somebody else's message the bridge could not read carries no words of it", () => {
+    const parsed = parsePhotonEvent(reactionEvent("dislike", { targetFromMe: false }));
+    expect(parsed).toMatchObject({ kind: "reaction", reaction: { how: "Disliked", words: "", onOther: true } });
+    expect(parsed).toMatchObject({ reaction: expect.not.objectContaining({ otherWords: expect.anything() }) });
+  });
+
+  it("a group tapback on somebody else's message keeps its words for the line", () => {
+    const parsed = parsePhotonEvent(groupEvent({ type: "message.reactionAdded", message: undefined, reaction: { kind: "dislike", targetGuid: "t", targetText: "thumbs down if friday", targetFromMe: false } }));
+    expect(parsed).toMatchObject({ kind: "group-message", reaction: { how: "Disliked", words: "", onOther: true, otherWords: "thumbs down if friday" } });
   });
 
   it("says nothing about a target it could not read: no words and no flag", () => {

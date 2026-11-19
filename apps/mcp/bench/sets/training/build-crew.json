@@ -78,6 +78,16 @@
     {"id":"m70","who":"Maya","text":"Tex is the 42 outreach out yet","labels":{"fd":{"must":["check, then answer in one line"]}}},
     {"id":"m71","who":"Tex","tex":true,"text":"Yes, sent Wednesday at 5 to all three. No replies yet."},
     {"id":"m72","who":"Maya","text":"Tex can you text them a nudge monday","labels":{"decide":{"act":"respond","why":"tags_tex"}}},
-    {"id":"m73","who":"Tex","tex":true,"kind":"react","to":"m72","text":"👍"}
+    {"id":"m73","who":"Tex","tex":true,"kind":"react","to":"m72","text":"👍"},
+    {"id":"m74","who":"Priya","text":"Tex can we do a poll for the ep 44 title","at":"Sat 11:05"},
+    {"id":"m75","who":"Tex","tex":true,"text":"I can't start an iMessage poll. I can post the options as a list and count the answers. What are they?"},
+    {"id":"m76","who":"John","text":"nah just tapback it. 👍 this one for Night Shift"},
+    {"id":"m77","who":"John","text":"👍 this one for Graveyard Hours"},
+    {"id":"m78","who":"Maya","kind":"react","to":"m76","text":"👍"},
+    {"id":"m79","who":"Priya","kind":"react","to":"m77","text":"👍"},
+    {"id":"m80","who":"John","kind":"react","to":"m76","text":"👍"},
+    {"id":"m81","who":"Maya","text":"priya always picks the spooky one"},
+    {"id":"m82","who":"Priya","text":"Tex who won","labels":{"fd":{"must":["count the tapbacks on each option's message and name who gave them","say which option won"],"never":["say there was no poll because Tex didn't post the options"],"star":true},"router":{"route":"quick","star":true}}},
+    {"id":"m83","who":"Tex","tex":true,"text":"Night Shift, 2 to 1. Maya and John liked it, Priya went for Graveyard Hours."}
   ]
 }

@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { accept, drain, react, type InboxDeps } from "./inbox";
 import { MemoryStorage } from "./memoryStorage.testing";
 import { addEvent, keptEvents } from "./events";
-import { answers, notedReactions, readTapback, REACTIONS_FOR_MS, REACTIONS_KEY } from "./reactions";
+import { answers, notedReactions, reactionLine, readTapback, REACTIONS_FOR_MS, REACTIONS_KEY } from "./reactions";
 
 const NOW = 1_800_000_000_000;
 
@@ -42,6 +42,17 @@ function deps(asks: Record<string, unknown>[], sent: string[]): InboxDeps {
 }
 
 describe("tapbacks", () => {
+  it("a tapback on somebody else's message reads as the message's own words, so a vote by tapback names what it voted on", () => {
+    expect(reactionLine({ how: "Liked", words: "", onOther: true, otherWords: "Thumbs up here if lunch at noon" }, false)).toBe('👍 (yes) on the message "Thumbs up here if lunch at noon"');
+    expect(reactionLine({ how: "Disliked", words: "", onOther: true }, false)).toBe("👎 (no) on a message");
+    // Tex's own text is still named as Tex's, by its own words.
+    expect(reactionLine({ how: "Loved", words: "Want me to book it?", onTex: true }, true)).toBe('❤️ (yes) on Tex\'s message "Want me to book it?"');
+  });
+
+  it("somebody else's words never answer as an ask of Tex's", () => {
+    expect(answers({ how: "Liked", words: "", onOther: true, otherWords: "should I book it?" })).toBe(false);
+  });
+
   it("reads a tapback's name and the words it was on, and drops one taken back", () => {
     expect(readTapback("Liked “Want me to book it?”")).toEqual({ how: "Liked", words: "Want me to book it?" });
     expect(readTapback("Reacted 🎉 to “done”")).toEqual({ how: "Reacted", words: "done", emoji: "🎉" });

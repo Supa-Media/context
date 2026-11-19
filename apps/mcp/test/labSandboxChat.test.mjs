@@ -269,7 +269,7 @@ test("a test row reaches the chat object as Tex's line hands it over, for each k
   assert.equal(tap.path, "/react");
   assert.deepEqual(tap.body.reaction, { how: "Liked", words: "Sounds good.", onTex: true });
   const own = inboundOf({ about: one, row: { id: "t3", who: "ana", kind: "reaction", emoji: "😂", on: "t1" }, rows, address, sentHandles: sent });
-  assert.deepEqual(own.body.reaction, { how: "Laughed at", words: "", onOther: true });
+  assert.deepEqual(own.body.reaction, { how: "Laughed at", words: "", onOther: true, otherWords: "dinner at 7?" }, "somebody else's words apart, as Photon's targetText");
   const groupTap = inboundOf({ about: group, row: { id: "t3", who: "kai", kind: "reaction", emoji: "❤️", on: "t1r" }, rows, address, sentHandles: sent });
   assert.equal(groupTap.path, "/group-accept");
   assert.equal(groupTap.body.text, "");
