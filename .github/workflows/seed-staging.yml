@@ -20,7 +20,7 @@ jobs:
       APP_ENV: staging
       STAGING_CONVEX_DEPLOYMENT: ${{ vars.STAGING_CONVEX_DEPLOYMENT }}
       CONVEX_DEPLOY_KEY: ${{ secrets.CONVEX_DEPLOY_KEY }}
-      EXPO_PUBLIC_CONVEX_URL: ${{ secrets.EXPO_PUBLIC_CONVEX_URL }}
+      EXPO_PUBLIC_CONVEX_URL: ${{ vars.EXPO_PUBLIC_CONVEX_URL || secrets.EXPO_PUBLIC_CONVEX_URL }}
       RESET_FIXTURES: ${{ inputs.reset }}
     steps:
       - uses: actions/checkout@v5

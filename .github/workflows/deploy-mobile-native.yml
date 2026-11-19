@@ -121,7 +121,7 @@ jobs:
       # remote worker, so this has to be a real value here too — separately
       # from the "Inject build-time values into eas.json" step below, which
       # supplies the *remote* worker's own copy.
-      EAS_PROJECT_ID: ${{ secrets.EAS_PROJECT_ID }}
+      EAS_PROJECT_ID: ${{ vars.EAS_PROJECT_ID || secrets.EAS_PROJECT_ID }}
     steps:
       - uses: actions/checkout@v4
 
@@ -138,10 +138,10 @@ jobs:
       - name: Preflight
         env:
           EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}
-          EAS_PROJECT_ID: ${{ secrets.EAS_PROJECT_ID }}
-          EXPO_PUBLIC_CONVEX_URL: ${{ secrets.EXPO_PUBLIC_CONVEX_URL }}
-          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
-          ASC_APP_ID: ${{ secrets.ASC_APP_ID }}
+          EAS_PROJECT_ID: ${{ vars.EAS_PROJECT_ID || secrets.EAS_PROJECT_ID }}
+          EXPO_PUBLIC_CONVEX_URL: ${{ vars.EXPO_PUBLIC_CONVEX_URL || secrets.EXPO_PUBLIC_CONVEX_URL }}
+          APPLE_TEAM_ID: ${{ vars.APPLE_TEAM_ID || secrets.APPLE_TEAM_ID }}
+          ASC_APP_ID: ${{ vars.ASC_APP_ID || secrets.ASC_APP_ID }}
           # Passed as env rather than interpolated into the node script below,
           # so a profile or platform name can never become JavaScript. They are
           # `choice` inputs today, but that is a property of this file's `on:`
@@ -252,15 +252,15 @@ jobs:
       - name: Inject account values into eas.json
         working-directory: apps/mobile
         env:
-          EAS_PROJECT_ID: ${{ secrets.EAS_PROJECT_ID }}
-          EXPO_PUBLIC_CONVEX_URL: ${{ secrets.EXPO_PUBLIC_CONVEX_URL }}
+          EAS_PROJECT_ID: ${{ vars.EAS_PROJECT_ID || secrets.EAS_PROJECT_ID }}
+          EXPO_PUBLIC_CONVEX_URL: ${{ vars.EXPO_PUBLIC_CONVEX_URL || secrets.EXPO_PUBLIC_CONVEX_URL }}
           EXPO_PUBLIC_SENTRY_DSN: ${{ secrets.EXPO_PUBLIC_SENTRY_DSN }}
-          EXPO_PUBLIC_POSTHOG_KEY: ${{ secrets.EXPO_PUBLIC_POSTHOG_KEY }}
-          EXPO_PUBLIC_POSTHOG_HOST: ${{ secrets.EXPO_PUBLIC_POSTHOG_HOST }}
+          EXPO_PUBLIC_POSTHOG_KEY: ${{ vars.EXPO_PUBLIC_POSTHOG_KEY || secrets.EXPO_PUBLIC_POSTHOG_KEY }}
+          EXPO_PUBLIC_POSTHOG_HOST: ${{ vars.EXPO_PUBLIC_POSTHOG_HOST || secrets.EXPO_PUBLIC_POSTHOG_HOST }}
           SENTRY_AUTH_TOKEN: ${{ secrets.SENTRY_AUTH_TOKEN }}
-          SENTRY_ORG: ${{ secrets.SENTRY_ORG }}
-          SENTRY_PROJECT: ${{ secrets.SENTRY_PROJECT }}
-          ASC_APP_ID: ${{ secrets.ASC_APP_ID }}
+          SENTRY_ORG: ${{ vars.SENTRY_ORG || secrets.SENTRY_ORG }}
+          SENTRY_PROJECT: ${{ vars.SENTRY_PROJECT || secrets.SENTRY_PROJECT }}
+          ASC_APP_ID: ${{ vars.ASC_APP_ID || secrets.ASC_APP_ID }}
           PROFILE: ${{ inputs.profile }}
           SUBMIT: ${{ inputs.submit }}
         run: |
@@ -326,7 +326,7 @@ jobs:
           # EAS needs the team identifier during the build too: adding a native
           # extension creates a second target whose provisioning profile must
           # be resolved before the remote build can be created.
-          EXPO_APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          EXPO_APPLE_TEAM_ID: ${{ vars.APPLE_TEAM_ID || secrets.APPLE_TEAM_ID }}
         run: |
           umask 077
           BUILD_JSON=/tmp/context-build.json
@@ -353,7 +353,7 @@ jobs:
           # eas-cli reads this directly — apps/mobile/eas.json no longer
           # commits an `appleTeamId`, since it is an account identifier this
           # public repository does not hold.
-          EXPO_APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          EXPO_APPLE_TEAM_ID: ${{ vars.APPLE_TEAM_ID || secrets.APPLE_TEAM_ID }}
         run: eas submit --platform ios --path /tmp/context-build.ipa --profile ${{ inputs.profile }} --non-interactive
 
       - name: Submit Android to Play Console

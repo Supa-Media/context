@@ -17,18 +17,18 @@ jobs:
     environment: production
     timeout-minutes: 15
     env:
-      EXPO_PUBLIC_CONVEX_URL: ${{ secrets.EXPO_PUBLIC_CONVEX_URL }}
+      EXPO_PUBLIC_CONVEX_URL: ${{ vars.EXPO_PUBLIC_CONVEX_URL || secrets.EXPO_PUBLIC_CONVEX_URL }}
       EXPO_PUBLIC_SENTRY_DSN: ${{ secrets.EXPO_PUBLIC_SENTRY_DSN }}
       # The commit, so a feedback report names the build it came from.
       EXPO_PUBLIC_APP_BUILD: ${{ github.sha }}
       EXPO_PUBLIC_SENTRY_TRACES_SAMPLE_RATE: "0.1"
-      EXPO_PUBLIC_POSTHOG_KEY: ${{ secrets.EXPO_PUBLIC_POSTHOG_KEY }}
-      EXPO_PUBLIC_POSTHOG_HOST: ${{ secrets.EXPO_PUBLIC_POSTHOG_HOST }}
+      EXPO_PUBLIC_POSTHOG_KEY: ${{ vars.EXPO_PUBLIC_POSTHOG_KEY || secrets.EXPO_PUBLIC_POSTHOG_KEY }}
+      EXPO_PUBLIC_POSTHOG_HOST: ${{ vars.EXPO_PUBLIC_POSTHOG_HOST || secrets.EXPO_PUBLIC_POSTHOG_HOST }}
       EXPO_PUBLIC_POSTHOG_REPLAY_SAMPLE_RATE: "0.1"
-      EXPO_PUBLIC_TURNSTILE_SITE_KEY: ${{ secrets.EXPO_PUBLIC_TURNSTILE_SITE_KEY }}
+      EXPO_PUBLIC_TURNSTILE_SITE_KEY: ${{ vars.EXPO_PUBLIC_TURNSTILE_SITE_KEY || secrets.EXPO_PUBLIC_TURNSTILE_SITE_KEY }}
       SENTRY_AUTH_TOKEN: ${{ secrets.SENTRY_AUTH_TOKEN }}
-      SENTRY_ORG: ${{ secrets.SENTRY_ORG }}
-      SENTRY_PROJECT: ${{ secrets.SENTRY_PROJECT }}
+      SENTRY_ORG: ${{ vars.SENTRY_ORG || secrets.SENTRY_ORG }}
+      SENTRY_PROJECT: ${{ vars.SENTRY_PROJECT || secrets.SENTRY_PROJECT }}
     steps:
       - uses: actions/checkout@v5
 

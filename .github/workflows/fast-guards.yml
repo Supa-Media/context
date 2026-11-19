@@ -168,6 +168,7 @@ jobs:
       - name: Secrets, identifiers, and export remain safe
         run: |
           node scripts/check-secrets-allowlist.mjs --self-test
+          node --test scripts/secrets-sync-plan.test.mjs
           node --test scripts/staging-config.test.mjs
           # What a manual job prints into its own public log is the same rule:
           # the image probe repeats a provider's prose, and prose quotes ids.

@@ -2,6 +2,13 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 const read = (path) => readFileSync(new URL(`../${path}`, import.meta.url), 'utf8');
+// A name the sync writes as a GitHub Environment variable is read as
+// `vars.NAME || secrets.NAME` until its old secret is deleted
+// (scripts/secrets-allowlist.json, `variables`); any other name as a secret.
+const allowlist = JSON.parse(read('scripts/secrets-allowlist.json'));
+const variableNames = new Set([...(allowlist.variables?.required ?? []), ...(allowlist.variables?.optional ?? [])]);
+const source = (name) => (variableNames.has(name) ? `vars.${name} || secrets.${name}` : `secrets.${name}`);
+const reads = (workflow, name, rest = '') => workflow.includes(`${name}: \u0024{{ ${source(name)}${rest} }}`);
 test('staging gateway has its own origins and presence namespace', () => {
   const config = read('apps/mcp/wrangler.toml').split('[env.staging]')[1];
   assert.ok(config, 'staging environment must exist');
@@ -70,7 +77,7 @@ test('staging deployment syncs its own custom domain identifiers', () => {
   const workflow = read('.github/workflows/deploy-staging.yml');
   for (const name of ['CUSTOM_DOMAINS_ZONE_ID', 'CUSTOM_DOMAINS_TARGET']) {
     assert.ok(backendKeys.includes(name));
-    assert.ok(workflow.includes(`${name}: \u0024{{ secrets.${name} }}`));
+    assert.ok(reads(workflow, name), name);
   }
 });
 
@@ -81,15 +88,15 @@ test('Twilio credentials sync in both deployments and phone check only in stagin
   assert.ok(productionSync);
   for (const name of ['TWILIO_ACCOUNT_SID', 'TWILIO_API_KEY_SID', 'TWILIO_API_KEY_SECRET', 'TWILIO_VERIFY_SERVICE_SID', 'TWILIO_MESSAGING_SERVICE_SID']) {
     assert.ok(backendKeys.includes(name));
-    assert.ok(staging.includes(`${name}: \u0024{{ secrets.${name} }}`));
-    assert.ok(production.includes(`${name}: \u0024{{ secrets.${name} }}`));
+    assert.ok(reads(staging, name), name);
+    assert.ok(reads(production, name), name);
     assert.ok(productionSync.includes(name));
   }
   assert.ok(backendKeys.includes('PHONE_CHECK'));
-  assert.ok(staging.includes('PHONE_CHECK: \u0024{{ secrets.PHONE_CHECK }}'));
+  assert.ok(reads(staging, 'PHONE_CHECK'));
   // On in production since 2026-10-09 (Dev2 chose it with phone sign-in),
   // with the GitHub secret as the switch back off.
-  assert.ok(production.includes("PHONE_CHECK: \u0024{{ secrets.PHONE_CHECK || 'required' }}"));
+  assert.ok(reads(production, 'PHONE_CHECK', " || 'required'"));
   assert.ok(productionSync.includes('PHONE_CHECK'));
   assert.doesNotMatch(staging + production, /TWILIO_AUTH_TOKEN/);
 });
@@ -108,8 +115,8 @@ test('Google push settings sync in both deployments', () => {
   assert.ok(productionSync);
   for (const name of ['GOOGLE_PUSH_TOPIC', 'GOOGLE_PUSH_SERVICE_ACCOUNT', 'GOOGLE_PUSH_AUDIENCE', 'GOOGLE_PUSH']) {
     assert.ok(backendKeys.includes(name));
-    assert.ok(staging.includes(`${name}: \u0024{{ secrets.${name} }}`));
-    assert.ok(production.includes(`${name}: \u0024{{ secrets.${name} }}`));
+    assert.ok(reads(staging, name), name);
+    assert.ok(reads(production, name), name);
     assert.ok(productionSync.includes(name));
   }
 });

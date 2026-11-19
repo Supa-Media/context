@@ -12,11 +12,11 @@ describe("native release workflow artifact safety", () => {
   });
   test("provides the Apple team ID while EAS provisions the iOS build", () => {
     expect(source).toMatch(
-      /- name: Build iOS[\s\S]*?env:\s*\n\s*#.*\n(?:\s*#.*\n)*\s*EXPO_APPLE_TEAM_ID: \$\{\{ secrets\.APPLE_TEAM_ID \}\}[\s\S]*?eas build --platform ios/,
+      /- name: Build iOS[\s\S]*?env:\s*\n\s*#.*\n(?:\s*#.*\n)*\s*EXPO_APPLE_TEAM_ID: \$\{\{ vars\.APPLE_TEAM_ID \|\| secrets\.APPLE_TEAM_ID \}\}[\s\S]*?eas build --platform ios/,
     );
   });
-  test("injects the App Store app ID from a secret for non-interactive submission", () => {
-    expect(source).toMatch(/ASC_APP_ID: \$\{\{ secrets\.ASC_APP_ID \}\}/);
+  test("injects the App Store app ID from the environment variable (secret fallback) for non-interactive submission", () => {
+    expect(source).toMatch(/ASC_APP_ID: \$\{\{ vars\.ASC_APP_ID \|\| secrets\.ASC_APP_ID \}\}/);
     expect(source).toMatch(/submitProfile\.ios\.ascAppId = process\.env\.ASC_APP_ID/);
     expect(source).not.toMatch(/ascAppId\s*:\s*["']\d+/);
   });
