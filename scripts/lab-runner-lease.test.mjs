@@ -206,6 +206,7 @@ test("workflow: slot 0 signs in and writes back with the shared BENCH_RUNNER sec
   assert.match(write.run, /BENCH_RUNNER_REFRESH_TOKEN_LIVE/);
   assert.match(write.run, /LAB_RUNNER_\$\{SLOT\}_REFRESH_TOKEN/);
   assert.match(jobs.release.if, /needs\.lease\.outputs\.slot != '0'/, "slot 0 has no lease to release");
+  assert.match(jobs.release.if, /^always\(\) &&/, "a failed or cancelled run still frees its slot");
 });
 
 test("bench-runner-lock lists tex-lab-run.yml, so a slot-0 Lab run and the other runner workflows wait for each other", async () => {

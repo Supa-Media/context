@@ -78,6 +78,13 @@ export function earlierLines(c, i, year = null, from = null) {
       else if (!decideStayedQuiet(c, m.to)) lines.push(dated({ from: "tex", text: tapbackSaidLine(m.text) }, j));
       continue;
     }
+    // A person's tapback is a line of the chat: production logs every tapback as its line (`reactionLine`, Dev2
+    // 2026-11-01), and since #3712 it names the message it was on, so a vote by tapback reads as a vote. The bench
+    // dropped them, and Training build-crew 81 "Tex who won" could not count them.
+    if (m.kind === "react" && !m.tex) {
+      if (String(m.text ?? "").trim() !== "") lines.push(dated({ from: "person", ...(c.kind === "group" ? { who: handleOf(m.who) } : {}), text: personTapbackLine(c, m) }, j));
+      continue;
+    }
     if (m.kind && m.kind !== "reply") continue;
     // A check-in, a routine or a job's report fired a turn nobody texted: kept as production keeps it (`byCode.mjs`).
     if (m.via) {
@@ -99,6 +106,31 @@ export function earlierLines(c, i, year = null, from = null) {
     later = kept[k].minutesBefore ?? later;
   }
   return kept;
+}
+
+/** Messages' six tapbacks by their emoji, as the Lab sends them (`apps/mcp/src/labSandbox/inbound.js` `TAPBACK_OF`, copied so this bench needs no gateway code). */
+const TAPBACK_OF = Object.freeze({ "❤️": "Loved", "👍": "Liked", "👎": "Disliked", "😂": "Laughed at", "‼️": "Emphasized", "❓": "Questioned" });
+
+/**
+ * A person's tapback as the chat's line, what production logs for it (`apps/agent/src/reactions.ts` `reactionLine`): the
+ * emoji, its yes or no for like, love, emphasis and dislike, and the message it was on, Tex's or somebody else's, named
+ * by its words (120 characters at most). Any other emoji is just itself.
+ */
+export function personTapbackLine(c, m) {
+  const given = String(m.text ?? "").trim();
+  // A tapback written without its variation selector ("❤" for "❤️") is still that tapback, shown as the Worker shows it.
+  const named = Object.keys(TAPBACK_OF).find((e) => e.replace(/\uFE0F/g, "") === given.replace(/\uFE0F/g, ""));
+  const emoji = named ?? given;
+  const how = named === undefined ? undefined : TAPBACK_OF[named];
+  const answer = how === "Disliked" ? " (no)" : how === "Liked" || how === "Loved" || how === "Emphasized" ? " (yes)" : "";
+  const target = c.msgs.find((x) => x.id === m.to);
+  const onTex = target?.tex === true;
+  const own = String(target?.text ?? "").replace(/\s+/g, " ").trim();
+  const chars = [...own];
+  const words = chars.length > 120 ? `${chars.slice(0, 120).join("")}…` : own;
+  const quote = words === "" ? "" : ` "${words}"`;
+  if (onTex) return `${emoji}${answer} on Tex's message${quote}`;
+  return words === "" ? `${emoji}${answer} on a message` : `${emoji}${answer} on the message${quote}`;
 }
 
 /** Whether the group text `id` is one Decide stayed quiet on (its react then is Decide's, never the Front door's). */

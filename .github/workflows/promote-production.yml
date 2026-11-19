@@ -33,7 +33,8 @@ jobs:
     name: Start Deploy to Production
     if: ${{ vars.AUTO_DEPLOY_PRODUCTION != 'off' && github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.head_branch == 'main' && github.event.workflow_run.head_repository.full_name == github.repository && github.event.workflow_run.name == 'CI' && github.event.workflow_run.event == 'push' }}
     runs-on: ubuntu-latest
-    timeout-minutes: 5
+    # The script waits up to 15 minutes for a GitHub API rate limit to reset.
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v5
       - uses: actions/setup-node@v5
