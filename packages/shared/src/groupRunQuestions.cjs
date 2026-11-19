@@ -50,13 +50,18 @@ function chatRoutineQuestion(path, lastRan = null) {
  * stuff just as dm Tex would do ... it should just work, and know when an
  * email needs to go to the group vs me personally"). Mail that needs only the
  * mailbox's own person is theirs: their own check-ins text them about it.
+ * Calendars shared with the chat are looked at too, and held against what the chat said (Dev2, 2026-11-19: a member's
+ * calendar had the wedding on Saturday while the chat planned around Sunday, and the check-in stayed quiet).
  */
 function chatLookQuestion(since, lastRan) {
   const after = since === undefined ? "" : ` (search it with after:${Math.floor(since / 1000)})`;
   return (
     `(Time for this chat's check-in: look on your own at what is new${lastRan === null ? "" : ` since ${lastRan}`}, ` +
-    `in three places only: mail shared with this chat${after}, mail sent to this chat's own address (the notes in its folder's email/ that arrived since), ` +
+    `in four places only: mail shared with this chat${after}, mail sent to this chat's own address (the notes in its folder's email/ that arrived since), ` +
+    "calendars shared with this chat (read_calendar from today for the next 7 days, one account at a time; none shared, skip it), " +
     "and what was asked of you in this chat that you said you would follow up on. " +
+    "Hold what you find against what people here said or planned: when an email or a shared calendar disagrees with the chat " +
+    "(a different day, time or place), that is worth one short question to the person it's about, asking which is right; never guess which one is. " +
     "Never post about the workspace's other activity, notes or other agents' work: nobody here asked. " +
     "Post here only what someone in this chat needs to act on or know now, in one short line: " +
     "what happened and who should handle it. " +

@@ -72,7 +72,7 @@ export const CAPABILITIES = Object.freeze([
     guest: "only this chat's folder and notes someone shared with the chat: write a page there or move one; what you make goes in the chat's folder as a page",
     cant: [
       { where: "everywhere", what: "delete a note", workaround: { kind: "words", text: "archive it (manage archive): it moves to the Archive folder, where it can be found or moved back" } },
-      { where: "group", what: "read anyone's personal notes, calendar or saved logins", workaround: { kind: "words", text: "they text you on their own for it, or put the note in a shared workspace everyone here is in" } },
+      { where: "group", what: "read anyone's personal notes or saved logins, or a calendar its person hasn't shared with this chat", workaround: { kind: "words", text: "they text you on their own for it, or put the note in a shared workspace everyone here is in" } },
       { where: "guest", what: "archive, comment on, add a picture to or remember in a note, or move a folder", workaround: { kind: "words", text: "someone here who is on Context texts you on their own for it" } },
       { where: "everywhere", what: "delete a workspace or close their account", workaround: { kind: "app_path", text: "Context app → Settings → General → Delete this workspace, or Settings → Profile → Delete account" } },
       { where: "everywhere", what: "make or change a people group, or switch a plugin on or off", workaround: { kind: "app_path", text: "Context app → Settings → People & sharing (groups), or Settings → Plugins (that row shows only to people already using plugins)" } },
@@ -175,6 +175,15 @@ export const CAPABILITIES = Object.freeze([
     cant: [{ where: "1:1", what: "share someone's mail with a group chat from a 1:1 text", workaround: { kind: "words", text: "they type \"Tex, share my mail from <their address> here\" in that group chat" } }],
   },
   {
+    name: "Sharing someone's calendar with a group chat",
+    actions: ["command.chat_share_calendar", "command.chat_unshare_calendar"],
+    texts: "is done from inside the group, never from here: tell them to ask you in that chat to share their calendar there (naming an address shares only that one), and to ask you there to stop",
+    group: "the calendar's own person asks you in this chat and you call send action chat_share_calendar with their address (left out shares every calendar they connected). It needs their own connected Google Calendar and them being in this chat. Once shared, anyone here can ask you what's on it, and the chat's check-ins compare it with what the chat said and ask the person it's about when they disagree",
+    guest: "shared the same way by its own person; you read it only when someone asks, and nothing checks it",
+    who: "Only the calendar's own person can share it or stop sharing it",
+    cant: [{ where: "1:1", what: "share someone's calendar with a group chat from a 1:1 text", workaround: { kind: "words", text: "they ask you to share their calendar in that group chat" } }],
+  },
+  {
     name: "A group chat's own email address",
     actions: [],
     texts: "each group chat you're in has its own address, group-<its three words>@context.lc (the group's turn knows it); a person asks for it in that chat",
@@ -195,7 +204,7 @@ export const CAPABILITIES = Object.freeze([
     actions: ["send.calendar"],
     texts: "read any day or run of days on their connected Google calendars live (fetch calendar:), and add, move, change, cancel or answer an event; their own event changes at once, one that tells a guest waits for their 👍",
     group:
-      "one event on someone here's own calendar, by as as with email; a change to the tagger's own that tells nobody is made at once, and one that invites guests (the chat's people by email, say) or tells them is shown here and waits for the calendar owner's 👍 or yes alone, then Google emails the guests",
+      "reading: only calendars their own person shared with this chat (see Sharing someone's calendar with a group chat); nobody else's. Writing: one event on someone here's own calendar, by as as with email; a change to the tagger's own that tells nobody is made at once, and one that invites guests (the chat's people by email, say) or tells them is shown here and waits for the calendar owner's 👍 or yes alone, then Google emails the guests",
     guest: "only on the calendar of someone here who is on Context, always with as",
   },
   {
