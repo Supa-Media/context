@@ -17,7 +17,7 @@ import { DOOR_NODES, NEED_TOOLS, ROUTE_AT, WEB_READS, doorAllows, narrowForDoor,
 import { readRoute, routeRequest } from "../src/agent/specialistRoute.js";
 import { routerNode } from "../src/agent/graph/nodes/router.js";
 import { doorNode, fdActNode, fdQuickNode } from "../src/agent/graph/nodes/doors.js";
-import { routeBeside } from "../src/agent/graph/nodes/doorStep.js";
+import { recentOf, routeBeside } from "../src/agent/graph/nodes/doorStep.js";
 import { addSpend, runWithDoors } from "../src/agent/doorTurn.js";
 import { runTurn } from "../src/agent/turn.js";
 import { sixToolsOver } from "../src/agent/sixTools.js";
@@ -378,6 +378,60 @@ test("the act door, chosen by the router, holds a handle claim for the person's 
     router.on = drawn.on;
     restore();
   }
+});
+
+test("routeRequest puts the chat's last lines before the text, oldest first, capped and cut; none, no block", () => {
+  const recent = [
+    { who: "Them", text: "draft an email to the landlord about the leak" },
+    { who: "Tex", text: "Here's a draft:\n\nHi, the kitchen tap is leaking." },
+  ];
+  const { state } = routeRequest({ question: "send", recent });
+  assert.match(state, /<recent-chat>\nThem: draft an email to the landlord about the leak\nTex: Here's a draft: Hi, the kitchen tap is leaking\.\n<\/recent-chat>/, "each line one line, who first");
+  assert.ok(state.indexOf("<recent-chat>") < state.indexOf("<text>"), "the recent chat comes before the text");
+  assert.doesNotMatch(routeRequest({ question: "send" }).state, /recent-chat/, "no recent lines, no block");
+  assert.doesNotMatch(routeRequest({ question: "send", recent: [{ who: "Tex", text: "   " }] }).state, /recent-chat/, "empty lines are dropped");
+  assert.doesNotMatch(routeRequest({ question: "send", recent: "not a list" }).state, /recent-chat/);
+  const many = Array.from({ length: 12 }, (_, i) => ({ who: "Them", text: `line ${i}` }));
+  const kept = routeRequest({ question: "ok", recent: many }).state;
+  assert.doesNotMatch(kept, /line 3\n/, "only the last 8");
+  assert.match(kept, /Them: line 4\n[\s\S]*Them: line 11\n<\/recent-chat>/);
+  const long = routeRequest({ question: "ok", recent: [{ text: "x".repeat(500) }] }).state;
+  assert.match(long, new RegExp(`someone: ${"x".repeat(240)}…\n`), "a long line is cut, a missing who is someone");
+});
+
+test("recentOf reads the door's history read: last 8 texts as Tex or Them; a slow, failed or missing read is none", async () => {
+  const history = [
+    { role: "user", text: "find me a plumber" },
+    { role: "assistant", text: "On it, I'll look around." },
+    { role: "user", text: "" },
+    { role: "tool", text: "ignored" },
+    { role: "user", text: "actually only ones open sunday" },
+  ];
+  assert.deepEqual(await recentOf({ historyRead: Promise.resolve([{ history }, null]) }), [
+    { who: "Them", text: "find me a plumber" },
+    { who: "Tex", text: "On it, I'll look around." },
+    { who: "Them", text: "actually only ones open sunday" },
+  ]);
+  const many = Array.from({ length: 11 }, (_, i) => ({ role: "user", text: `t${i}` }));
+  assert.deepEqual((await recentOf({ historyRead: Promise.resolve([{ history: many }]) })).map((l) => l.text), ["t3", "t4", "t5", "t6", "t7", "t8", "t9", "t10"]);
+  assert.deepEqual(await recentOf({}), [], "no history read started");
+  assert.deepEqual(await recentOf({ historyRead: Promise.reject(new Error("store down")) }), [], "a failed read is none");
+  assert.deepEqual(await recentOf({ historyRead: Promise.resolve([{ history: null }]) }), []);
+  const started = Date.now();
+  assert.deepEqual(await recentOf({ historyRead: new Promise(() => {}) }, 30), [], "a read that never comes is none");
+  assert.ok(Date.now() - started < 1000, "and the wait is capped");
+});
+
+test("routeBeside hands the router the recent lines, waited on beside the Shape gate and capped", async () => {
+  const t = { chatTurn: true, job: null, report: null, routine: null, runner: null, crossChat: false, question: "yes", group: null };
+  let input = null;
+  const use = { router: async (got) => { input = got; return { route: "act", sure: 0.8 }; } };
+  await routeBeside({ ...t, historyRead: Promise.resolve([{ history: [{ role: "assistant", text: "Want me to send it?" }] }]) }, { use, on: () => true });
+  assert.deepEqual(input.recent, [{ who: "Tex", text: "Want me to send it?" }]);
+  const started = Date.now();
+  await routeBeside({ ...t, historyRead: new Promise(() => {}) }, { use, on: () => true });
+  assert.deepEqual(input.recent, [], "a history read that hangs never holds the router past its cap");
+  assert.ok(Date.now() - started < 2000);
 });
 
 test("routeBeside: an off router starts nothing and never waits on the Shape gate; an on one is asked with the gate's read", async () => {

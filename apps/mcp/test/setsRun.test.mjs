@@ -320,11 +320,26 @@ test("routeCase takes the message's words, the chat's kind, and a check-in or ro
     ],
     { kind: "group" },
   );
-  assert.deepEqual(routeCase(c, 0), { question: "hi", group: true, trigger: "text" });
-  assert.deepEqual(routeCase(c, 1), { question: "Gmail: a permit came in", group: true, trigger: "checkin" });
-  assert.deepEqual(routeCase(c, 2), { question: "weekly tidy", group: true, trigger: "routine" });
+  assert.deepEqual(routeCase(c, 0), { question: "hi", group: true, trigger: "text", recent: [] });
+  assert.deepEqual(routeCase(c, 1), { question: "Gmail: a permit came in", group: true, trigger: "checkin", recent: [{ who: "Them", text: "hi" }] });
+  assert.deepEqual(routeCase(c, 2), { question: "weekly tidy", group: true, trigger: "routine", recent: [{ who: "Them", text: "hi" }, { who: "Tex", text: "Gmail: a permit came in" }] });
   assert.deepEqual(routeCase(c, 3).trigger, "text", "a job's own report is a text, not a trigger");
   assert.equal(routeCase(conv("one", [{ id: "m1", who: "Ann", text: "hi" }]), 0).group, false);
+});
+
+test("routeCase gives the router the chat's last 8 texts before the message, as the live router reads them", () => {
+  const msgs = [
+    ...Array.from({ length: 9 }, (_, i) => ({ id: `m${i}`, who: "Ann", text: `t${i}` })),
+    { id: "r1", who: "Ann", kind: "react", to: "m8", text: "👍" },
+    { id: "d1", who: "Ann", kind: "delete", to: "m7" },
+    { id: "x1", who: "Tex", tex: true, text: "Here's the draft." },
+    { id: "j1", who: "Background job", via: "job", text: "Still looking." },
+    { id: "q", who: "Ann", text: "send" },
+  ];
+  const { recent } = routeCase(conv("c", msgs), msgs.length - 1);
+  assert.deepEqual(recent.map((l) => l.text), ["t3", "t4", "t5", "t6", "t7", "t8", "Here's the draft.", "Still looking."], "no reactions or deletes, only the last 8");
+  assert.deepEqual(recent.slice(-2).map((l) => l.who), ["Tex", "Tex"], "Tex's own and its job's lines are Tex's");
+  assert.equal(recent[0].who, "Them");
 });
 
 test("routeRight is right only when the pick is the labelled route; no pick is wrong and says so", () => {

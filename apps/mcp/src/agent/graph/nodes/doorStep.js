@@ -50,10 +50,38 @@ export function routeBeside(t, io) {
   // An off router answers nothing, so the turn must not wait on the Shape gate for it.
   if (typeof io.on === "function" && !io.on("router")) return null;
   return startRoute(async () => {
-    const read = t.shapeRead ? await t.shapeRead : null;
+    // The recent lines are waited on beside the Shape gate, never after it, and for at most `RECENT_WAIT_MS`.
+    const [read, recent] = await Promise.all([t.shapeRead ? t.shapeRead : null, recentOf(t)]);
     const shape = read ? { ending: read.ending, endingSure: read.endingSure, order: read.order, records: read.records } : null;
-    return router({ question: t.question, group: t.group !== null, trigger: "text", ...(shape ? { shape } : {}) });
+    return router({ question: t.question, group: t.group !== null, trigger: "text", ...(shape ? { shape } : {}), recent });
   });
+}
+
+/** How long the router waits on the turn's history read for its recent lines before it goes without them. */
+const RECENT_WAIT_MS = 400;
+/** How many of the chat's last lines the router is given (`specialistRoute.js` keeps as many). */
+const RECENT_LINES = 8;
+
+/**
+ * The chat's last lines before this text, oldest first, as `{ who, text }`, from the history read the door started
+ * (`checkItMayRun.js` `historyRead`); none when it isn't read within `RECENT_WAIT_MS` or failed. Never rejects.
+ */
+export async function recentOf(t, waitMs = RECENT_WAIT_MS) {
+  if (!t?.historyRead || typeof t.historyRead.then !== "function") return [];
+  let timer;
+  const read = await Promise.race([
+    Promise.resolve(t.historyRead).catch(() => null),
+    new Promise((resolve) => {
+      timer = setTimeout(() => resolve(null), waitMs);
+    }),
+  ]).finally(() => clearTimeout(timer));
+  const history = Array.isArray(read) ? read[0]?.history : read?.history;
+  if (!Array.isArray(history)) return [];
+  return history
+    .filter((turn) => typeof turn?.text === "string" && turn.text.trim() !== "")
+    .filter((turn) => turn.role === "user" || turn.role === "assistant")
+    .slice(-RECENT_LINES)
+    .map((turn) => ({ who: turn.role === "assistant" ? "Tex" : "Them", text: turn.text }));
 }
 
 /** The step's output for what the door did: tagged for the step it goes to, its parts under `log`, never handed on. */
