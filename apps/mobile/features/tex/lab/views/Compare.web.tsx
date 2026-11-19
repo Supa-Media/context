@@ -7,12 +7,32 @@ import { AREAS } from "../data/areas";
 import { fmtS, fmtUsd, simulate } from "../engine/sim";
 import { scnLabel } from "../engine/traces";
 import { go, lab, openVersion } from "../engine/state";
+import { bandVerdict, devScoreWords, fidelityWords, modelsWords, type LabRun } from "../engine/labRuns";
 import { useLab } from "../store";
 import { PageHead } from "./parts";
 import { latest } from "./run/runText";
+import { useRuns } from "./runs/Runs.web";
+
+/** A version's latest finished Dev set run, the one its Dev set column shows (Dev2, 2026-11-19). */
+const devRunOf = (runs: LabRun[], versionId: string) => runs.find((r) => r.versionId === versionId && r.kind === "dev" && r.stage === "done" && r.results);
+
+/**
+ * A draft's Dev set run against main's latest on the same models (Dev2, 2026-11-19): "wins" only when the draft's worst
+ * repeat beats main's best. A draft with no run says so; a base on other models is no base, since they aren't comparable.
+ */
+function verdictOf(runs: LabRun[], draft: LabRun | undefined, models: "gw" | "cc") {
+  if (!draft) return { verdict: "no run", why: "this version has no finished Dev set run" };
+  const base = devRunOf(
+    runs.filter((r) => r.models === models),
+    "main",
+  );
+  if (!base) return { verdict: "no base", why: `main has no finished Dev set run on ${modelsWords({ kind: "dev", models })} to compare with` };
+  return bandVerdict(draft.results, base.results);
+}
 
 export function Compare() {
   useLab();
+  const runs = useRuns();
   const names = lab.names || {};
   const ac = Object.keys(AREAS);
   return (
@@ -25,7 +45,7 @@ export function Compare() {
         }
         title="Compare versions"
       >
-        {"Speed and cost are guesses from each version's steps, for the test picked on the canvas. Area columns are each version's latest pasted run."}
+        {"Speed and cost are guesses from each version's steps, for the test picked on the canvas. Area columns are each version's latest pasted run. Dev set run is each version's latest run on GitHub: the mean of its repeats, with their min–max band. A draft wins only when its worst repeat beats main's best; a run on Claude Code is model family only, so measure an effort, temperature or token-cap change with an AI gateway run."}
       </PageHead>
       <div className="tbl">
         <table>
@@ -35,6 +55,8 @@ export function Compare() {
               <th>By</th>
               <th>{`Reply · ${scnLabel(lab.scn).slice(0, 40)}`}</th>
               <th>Cost</th>
+              <th>Dev set run</th>
+              <th>vs main</th>
               {ac.map((a) => (
                 <th key={a}>{AREAS[a]}</th>
               ))}
@@ -42,6 +64,8 @@ export function Compare() {
             {lab.versions.map((v) => {
               const L = latest(v);
               const sim = simulate(v.graph, lab.scn, null);
+              const run = devRunOf(runs, v.id);
+              const verdict = v.id === "main" ? null : verdictOf(runs, run, run?.models ?? "gw");
               return (
                 <tr key={v.id}>
                   <td>
@@ -66,6 +90,34 @@ export function Compare() {
                   </td>
                   <td>{fmtS(sim.reply)}</td>
                   <td>{fmtUsd(sim.usd)}</td>
+                  <td>
+                    {run ? (
+                      <>
+                        {devScoreWords(run)}
+                        <br />
+                        <span className="hint">
+                          {modelsWords(run)}
+                          {fidelityWords(run) ? ` · ${fidelityWords(run)}` : ""}
+                        </span>
+                      </>
+                    ) : (
+                      <span className="hint">·</span>
+                    )}
+                  </td>
+                  <td>
+                    {verdict === null ? (
+                      <span className="hint">base</span>
+                    ) : (
+                      <span
+                        data-verdict={verdict.verdict}
+                        title={verdict.why}
+                        className={verdict.verdict === "loses" ? "c-bad" : verdict.verdict === "no run" || verdict.verdict === "no base" ? "hint" : undefined}
+                        style={verdict.verdict === "wins" ? { color: "var(--ok)", fontWeight: 600 } : undefined}
+                      >
+                        {verdict.verdict}
+                      </span>
+                    )}
+                  </td>
                   {ac.map((a) => (
                     <td key={a}>
                       {L[a] ? (

@@ -7,7 +7,9 @@
  *   node scripts/tex-lab-run.mjs prepare <job.json> <dir>     the conversations to run, and the draft's graph
  *   node scripts/tex-lab-run.mjs results <rows.json> <ms> [gold.json]
  *                                                             the results the run reports back, as JSON; with the gold
- *                                                             report (`setsGold.mjs`), its ambiguous rows are out of the score
+ *                                                             report (`setsGold.mjs`), its ambiguous rows are out of the score.
+ *                                                             TEX_LAB_MODELS names the run's models: "cc" marks the run
+ *                                                             "model family only" (`texRunBand.cjs`)
  *   node scripts/tex-lab-run.mjs ran <rows.json>              fails when a step had tests and none of them could run
  *
  * `prepare` reads the run Convex hands the workflow (`texLabRuns:job`): the Dev set is the repo's
@@ -30,8 +32,11 @@ import { fallbackVerdict } from "../apps/mcp/bench/fallbacks.mjs";
 import { parsePeople } from "../apps/mcp/bench/load.mjs";
 import { loadSets } from "../apps/mcp/bench/sets.mjs";
 import { castProblems } from "../apps/mcp/bench/setsFd.mjs";
+import { scoreByRepeat, testKeyOf } from "../apps/mcp/bench/setsRun.mjs";
 
-const { unitTests } = createRequire(import.meta.url)("../packages/shared/src/texSets.cjs");
+const requireHere = createRequire(import.meta.url);
+const { unitTests } = requireHere("../packages/shared/src/texSets.cjs");
+const { CC_FIDELITY_WHY, fidelityOf } = requireHere("../packages/shared/src/texRunBand.cjs");
 const PEOPLE = fileURLToPath(new URL("../apps/mcp/bench/ai/workspaces/people.md", import.meta.url));
 
 /** An error whose `why` is for the Lab (the run's error, kept in Convex) and whose message is for the public log. */
@@ -146,8 +151,14 @@ export function trainingConversations(repo, drafts, convId = null) {
  * (`apps/mcp/bench/setsGold.mjs`) puts an fd row out the same way when it is impossible (a must line needs an ability
  * Tex does not have: "can't pass honestly"), in either set. For a Training report an fd row whose label's own gold reply
  * fails is ambiguous instead; for a Dev report it could not run ("its label's own gold reply fails (gold self-check)").
+ *
+ * Repeated rows (`rep`, Dev2, 2026-11-19) collapse to one row a unit test: `pass` is the mean over repeats
+ * (`scoreByRepeat`), `score` its band (`texRunBand.cjs`: mean, min, max, the interval) and `repeats` how many. A test's
+ * `ok` is its majority; `runs` and `passes` appear when it repeated; `got` names the passes and the first failing
+ * repeat's words; `usd` sums every repeat. `costUsd` still sums every raw row, since each repeat is real spend. A test
+ * is couldNotRun only when none of its repeats ran. `options.models` ("cc") adds `fidelity` and `fidelityWhy`.
  */
-export function resultsOf(rows, ms, gold = null) {
+export function resultsOf(rows, ms, gold = null, { models } = {}) {
   const goldKey = (convId, msgIndex) => `${convId}\u0000${msgIndex}`;
   const goldFail = new Map();
   for (const g of Array.isArray(gold?.goldFails) ? gold.goldFails : []) {
@@ -176,36 +187,76 @@ export function resultsOf(rows, ms, gold = null) {
     else if (devFailOf(r)) notRunWhy.set(r, "its label's own gold reply fails (gold self-check)");
   }
   const counted = rows.filter((r) => !notRunWhy.has(r) && !isAmbiguous.has(r));
-
-  const perConv = new Map();
-  const perNode = new Map();
-  const add = (map, key, field, ok) => {
-    const b = map.get(key) ?? { [field]: key, pass: 0, total: 0 };
-    b.total += 1;
-    if (ok) b.pass += 1;
-    map.set(key, b);
-  };
-  for (const r of counted) {
-    add(perConv, r.chat, "id", r.right);
-    add(perNode, r.node, "node", r.right);
-  }
-  const couldNotRun = rows
-    .filter((r) => notRunWhy.has(r))
-    .map((r) => ({ convId: r.chat, msgIndex: r.at ?? 0, node: r.node, why: notRunWhy.get(r) }));
-  const ambiguous = rows
-    .filter((r) => isAmbiguous.has(r))
-    .map((r) => {
-      const first = goldFail.get(goldKey(r.chat, r.at ?? 0)).failed?.[0];
-      const why = `its label's own gold reply fails${first ? `: ${first.kind} ${first.line}${first.reason ? ` (${first.reason})` : ""}` : ""}`;
-      return { convId: r.chat, msgIndex: r.at ?? 0, node: r.node, why: why.slice(0, 200) };
+  const score = scoreByRepeat(counted);
+  const subsetScore = (field) =>
+    [...new Set(counted.map((r) => r[field]))].map((key) => {
+      const s = scoreByRepeat(counted.filter((r) => r[field] === key)).score;
+      return { [field === "chat" ? "id" : "node"]: key, pass: s.mean, total: s.total, min: s.min, max: s.max };
     });
+
+  // One group per unit test, in the order the rows came, each with its repeats in that order.
+  const groups = new Map();
+  for (const r of rows) {
+    const key = testKeyOf(r);
+    if (!groups.has(key)) groups.set(key, []);
+    groups.get(key).push(r);
+  }
+  const couldNotRun = [];
+  const ambiguous = [];
+  const tests = [];
+  for (const g of groups.values()) {
+    const first = g[0];
+    const run = g.filter((r) => !notRunWhy.has(r) && !isAmbiguous.has(r));
+    const amb = g.some((r) => isAmbiguous.has(r));
+    const base = run[0] ?? first;
+    if (run.length === 0 && !amb) {
+      couldNotRun.push({ convId: first.chat, msgIndex: first.at ?? 0, node: first.node, why: notRunWhy.get(first) ?? "no way to run alone yet" });
+    }
+    if (amb) {
+      const failed = goldFail.get(goldKey(first.chat, first.at ?? 0)).failed?.[0];
+      const why = `its label's own gold reply fails${failed ? `: ${failed.kind} ${failed.line}${failed.reason ? ` (${failed.reason})` : ""}` : ""}`;
+      ambiguous.push({ convId: first.chat, msgIndex: first.at ?? 0, node: first.node, why: why.slice(0, 200) });
+    }
+    const passes = run.filter((r) => r.right).length;
+    const runs = run.length;
+    const multi = runs > 1;
+    // The detail is the first failing repeat's, else the first run's.
+    const detail = run.find((r) => !r.right) ?? base;
+    const said = notRunWhy.has(detail) ? `can't run: ${notRunWhy.get(detail)}` : String(detail.got ?? (detail.right ? "as labelled" : detail.why ?? ""));
+    const usds = g.filter((r) => typeof r.usd === "number" && Number.isFinite(r.usd));
+    const fallbacks = g.reduce((a, r) => a + (Number(r.fallbacks) > 0 ? Number(r.fallbacks) : 0), 0);
+    tests.push({
+      convId: first.chat,
+      msgIndex: first.at ?? 0,
+      node: first.node,
+      ok: runs > 0 ? passes * 2 > runs : Boolean(first.right),
+      got: multi && passes < runs ? `passed ${passes}/${runs}; ${said}` : said,
+      want: String(detail.want ?? ""),
+      // Ran none of its repeats: "ran: false" (its why is in got).
+      ...(run.length === 0 && !amb ? { ran: false } : {}),
+      ...(multi ? { runs, passes } : {}),
+      ...(amb ? { ambiguous: true } : {}),
+      ...(fallbacks > 0 ? { fallbacks } : {}),
+      // A row's whole story: each failed line with the judge's reason, each line that held with its reason, then every
+      // text Tex sent, so a reader can find the cause, or audit a pass, without rerunning (Dev2, 2026-11-17).
+      ...detailOf(detail),
+      // The row's route and cost (Dev2, 2026-11-18: cost per turn and the route summary, `texRouteSummary.cjs`).
+      ...routeSpread(base),
+      ...(usds.length > 0 ? { usd: Math.round(usds.reduce((a, r) => a + r.usd, 0) * 1e6) / 1e6 } : {}),
+    });
+  }
+  const fidelity = fidelityOf(models);
   return {
-    pass: counted.filter((r) => r.right).length,
-    total: counted.length,
+    // The mean over repeats, two places (a single repeat's is its whole count); `score` is the band.
+    pass: score.score.mean,
+    total: score.score.total,
+    score: score.score,
+    repeats: score.repeats,
     couldNotRun,
     ambiguous,
     goldFails: gold ? (Array.isArray(gold.goldFails) ? gold.goldFails.length : 0) : null,
     impossible: gold ? (Array.isArray(gold.impossible) ? gold.impossible.length : 0) : null,
+    // Every raw row's spend: each repeat is real spend, so the total is the sum of all of them.
     costUsd: Math.round(rows.reduce((a, r) => a + (r.usd || 0), 0) * 10_000) / 10_000,
     // What the background jobs the Front door handed off added, already inside costUsd (Dev2, 2026-11-18: "report how
     // many advisor calls and how much cost a handed-off job adds per run ... so Finance can check spend").
@@ -215,26 +266,11 @@ export function resultsOf(rows, ms, gold = null) {
     // And a run whose Claude calls ran out of credit, or most of one step's tests could not run, is not valid either.
     ...runVerdict(rows),
     ms: Number(ms) || 0,
-    perConv: [...perConv.values()],
-    perNode: [...perNode.values()],
-    rows: rows.map((r) => ({
-      convId: r.chat,
-      msgIndex: r.at ?? 0,
-      node: r.node,
-      ok: Boolean(r.right),
-      // A test that did not run says why (Dev2, 2026-11-16: twenty Front door tests read only "can't run alone").
-      got: notRunWhy.has(r) ? `can't run: ${notRunWhy.get(r)}` : String(r.got ?? (r.right ? "as labelled" : r.why ?? "")),
-      want: String(r.want ?? ""),
-      ...(notRunWhy.has(r) ? { ran: false } : {}),
-      ...(isAmbiguous.has(r) ? { ambiguous: true } : {}),
-      ...(Number(r.fallbacks) > 0 ? { fallbacks: Number(r.fallbacks) } : {}),
-      // A row's whole story: each failed line with the judge's reason, each line that held with its reason, then every
-      // text Tex sent, so a reader can find the cause, or audit a pass, without rerunning (Dev2, 2026-11-17).
-      ...detailOf(r),
-      // The row's route and cost (Dev2, 2026-11-18: cost per turn and the route summary, `texRouteSummary.cjs`).
-      ...routeSpread(r),
-      ...(typeof r.usd === "number" && Number.isFinite(r.usd) ? { usd: r.usd } : {}),
-    })),
+    // Claude Code runs are "model family only" (Dev2, 2026-11-19): the label a reader sees beside the score.
+    ...(fidelity !== null ? { fidelity, fidelityWhy: CC_FIDELITY_WHY } : {}),
+    perConv: subsetScore("chat"),
+    perNode: subsetScore("node"),
+    rows: tests,
   };
 }
 
@@ -340,7 +376,7 @@ async function main() {
   if (sub === "results") {
     // The optional gold report (`apps/mcp/bench/setsGold.mjs`): a path that does not exist is no gold.
     const gold = process.argv[5] && existsSync(process.argv[5]) ? JSON.parse(readFileSync(process.argv[5], "utf8")) : null;
-    process.stdout.write(JSON.stringify(resultsOf(JSON.parse(readFileSync(a, "utf8")), b, gold)));
+    process.stdout.write(JSON.stringify(resultsOf(JSON.parse(readFileSync(a, "utf8")), b, gold, { models: process.env.TEX_LAB_MODELS })));
     return;
   }
   if (sub === "ran") {

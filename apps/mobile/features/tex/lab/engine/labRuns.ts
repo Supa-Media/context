@@ -6,10 +6,16 @@
  * the tab's own choices: which version runs, which models, and whether the Runs panel is open.
  */
 import { useSyncExternalStore } from "react";
+import { CC_FIDELITY, DEFAULT_REPEATS } from "@context/shared/src/texRunBand.cjs";
+import type { RunScore } from "@context/shared/src/texRunBand.d.cts";
+
+export { bandVerdict, CC_FIDELITY, CC_FIDELITY_WHY, DEFAULT_REPEATS, MAX_REPEATS } from "@context/shared/src/texRunBand.cjs";
+export type { BandVerdict, RunScore } from "@context/shared/src/texRunBand.d.cts";
 
 export type RunKind = "dev" | "chat" | "node" | "gate";
 export type RunStage = "queued" | "running" | "done" | "failed";
-export type RunRow = { convId: string; msgIndex: number; node: string; ok: boolean; got: string; want: string; ran?: boolean; ambiguous?: boolean; usd?: number; route?: { pick?: string; sure?: number; door?: string; fellBack?: string } };
+/** `runs` and `passes` are set when the Front door test ran more than once: how many repeats, and how many passed. */
+export type RunRow = { convId: string; msgIndex: number; node: string; ok: boolean; got: string; want: string; ran?: boolean; ambiguous?: boolean; usd?: number; route?: { pick?: string; sure?: number; door?: string; fellBack?: string }; runs?: number; passes?: number };
 /** A row out of a run's score: one that could not run, or an ambiguous one (its label's own gold reply fails). */
 export type RunNote = { convId: string; msgIndex: number; node: string; why: string };
 export type LabRun = {
@@ -19,6 +25,10 @@ export type LabRun = {
   convId?: string;
   nodeId?: string;
   models: "gw" | "cc";
+  /** How many times each Front door test ran; 1 for runs from before repeats. */
+  repeats?: number;
+  /** "model family only" for a run on Claude Code, else null. */
+  fidelity?: string | null;
   stage: RunStage;
   ghRunUrl?: string;
   pr?: string;
@@ -29,14 +39,33 @@ export type LabRun = {
   by?: string;
   startedAt: number;
   finishedAt?: number;
-  results: { pass: number; total: number; costUsd: number; handoff?: Handoff; ms: number; perConv?: Array<{ id: string; pass: number; total: number }>; perNode?: Array<{ node: string; pass: number; total: number }>; rows?: RunRow[]; couldNotRun?: RunNote[]; ambiguous?: RunNote[]; goldFails?: number | null } | null;
+  results: {
+    /** The mean over repeats when the run repeated (a fraction), also `score.mean`. */
+    pass: number;
+    total: number;
+    costUsd: number;
+    handoff?: Handoff;
+    ms: number;
+    perConv?: Array<{ id: string; pass: number; total: number; min?: number; max?: number }>;
+    perNode?: Array<{ node: string; pass: number; total: number; min?: number; max?: number }>;
+    rows?: RunRow[];
+    couldNotRun?: RunNote[];
+    ambiguous?: RunNote[];
+    goldFails?: number | null;
+    /** The repeats' band: mean, min, max and the interval. Absent on runs from before repeats. */
+    score?: RunScore;
+    repeats?: number;
+    fidelity?: string | null;
+    fidelityWhy?: string | null;
+  } | null;
   error?: string;
   /** GitHub refused this run, and a later run has started since: the cause is fixed (`functions/texLabRuns.ts` `fixedSince`). */
   fixedSince?: boolean;
 };
 
-export type RunsUi = { open: boolean; run: string | null; models: "gw" | "cc"; ver: string };
-export const runsUi: RunsUi = { open: false, run: null, models: "gw", ver: "main" };
+/** `repeats`: how many times each Front door test runs in a run the Lab starts (Dev2, 2026-11-19; the default is 3). */
+export type RunsUi = { open: boolean; run: string | null; models: "gw" | "cc"; ver: string; repeats: number };
+export const runsUi: RunsUi = { open: false, run: null, models: "gw", ver: "main", repeats: DEFAULT_REPEATS };
 const subs = new Set<() => void>();
 let n = 0;
 export function setRunsUi(p: Partial<RunsUi>) {
@@ -57,14 +86,39 @@ export const runLabel = (r: LabRun, title?: (id: string) => string, node?: (id: 
   r.kind === "dev" ? "Dev set" : r.kind === "chat" ? `Chat: ${title ? title(r.convId || "") : r.convId}` : r.kind === "node" ? `Node: ${node ? node(r.nodeId || "") : r.nodeId}` : "Test set gate";
 export const stageWords: Record<RunStage, [string, string]> = { queued: ["q", "Queued on GitHub"], running: ["r", "Running"], done: ["d", "Done"], failed: ["f", "Failed"] };
 export const modelsWords = (r: Pick<LabRun, "kind" | "models">) => (r.kind === "gate" ? "eval service" : r.models === "cc" ? "Claude Code" : "AI gateway");
-/** The score, with the rows left out of it beside it: "40/62 right · 1 couldn't run · 2 ambiguous" (each part only when > 0). */
+/** A count to one decimal place, trimming a trailing .0: 13.33 reads 13.3, 12 reads 12. */
+export const oneDp = (x: number) => String(Math.round(x * 10) / 10);
+/**
+ * The score, with the rows left out of it beside it: "40/62 right · 1 couldn't run · 2 ambiguous" (each part only when > 0).
+ * A run that repeated reads its mean with the band of its repeats: "13.3/30 right (11–15 over 3 repeats)" (Dev2, 2026-11-19).
+ */
 export const scoreWords = (r: LabRun) => {
   if (!r.results) return "";
   const cannot = r.results.couldNotRun?.length ?? 0;
   const amb = r.results.ambiguous?.length ?? 0;
-  return [`${r.results.pass}/${r.results.total} right`, ...(cannot > 0 ? [`${cannot} couldn't run`] : []), ...(amb > 0 ? [`${amb} ambiguous`] : [])].join(" · ");
+  const s = r.results.score;
+  const right = s && s.repeats > 1 ? `${oneDp(s.mean)}/${s.total} right (${s.min}–${s.max} over ${s.repeats} repeats)` : `${r.results.pass}/${r.results.total} right`;
+  return [right, ...(cannot > 0 ? [`${cannot} couldn't run`] : []), ...(amb > 0 ? [`${amb} ambiguous`] : [])].join(" · ");
 };
-export const costWords = (r: LabRun) => (r.kind === "gate" ? "eval service's own" : r.models === "cc" ? "$0.00 (subscription)" : r.results ? `$${r.results.costUsd.toFixed(3)} (AI gateway)${handoffWords(r.results.handoff)}` : "");
+/** "model family only" for a run on Claude Code, whose models can't match production's; "" for the AI gateway. */
+export const fidelityWords = (r: Pick<LabRun, "models">) => (r.models === "cc" ? CC_FIDELITY : "");
+/** A row's passes over its repeats: "2/3 passed"; "" when the row ran once. */
+export const rowRate = (row: Pick<RunRow, "runs" | "passes">) => ((row.runs ?? 1) > 1 ? `${oneDp(row.passes ?? 0)}/${row.runs} passed` : "");
+/** A version's dev score in a list: "13.3/30 (11–15 ×3)", or "40/62" when the run had one repeat. */
+export const devScoreWords = (r: LabRun) => {
+  if (!r.results) return "";
+  const s = r.results.score;
+  return s && s.repeats > 1 ? `${oneDp(s.mean)}/${s.total} (${s.min}–${s.max} ×${s.repeats})` : `${r.results.pass}/${r.results.total}`;
+};
+/** A gw run's cost covers every repeat, so a repeated one says so: "$0.012 (AI gateway) for 3 repeats". */
+export const costWords = (r: LabRun) =>
+  r.kind === "gate"
+    ? "eval service's own"
+    : r.models === "cc"
+      ? "$0.00 (subscription)"
+      : r.results
+        ? `$${r.results.costUsd.toFixed(3)} (AI gateway)${(r.repeats ?? 1) > 1 ? ` for ${r.repeats} repeats` : ""}${handoffWords(r.results.handoff)}`
+        : "";
 
 /** What handed-off background jobs added to a run, already inside its cost (Dev2, 2026-11-18: for Finance). */
 export type Handoff = { jobs: number; parts: number; advisorCalls: number; usd: number; perJobUsd: number; advisorCallsPerJob: number };
@@ -89,6 +143,7 @@ export function mcpLines(r: LabRun) {
   const remove = live(r) ? "" : `\ntex_dev { action: "run_remove", id: "${r.id}" }`;
   if (r.kind === "gate") return `tex_dev { action: "test_set" }\ntex_dev { action: "runs", id: "${r.id}" }${remove}`;
   const extra = r.kind === "chat" ? `, conv: "${r.convId}"` : r.kind === "node" ? `, node: "${r.nodeId}"` : "";
+  const repeats = typeof r.repeats === "number" ? `, repeats: ${r.repeats}` : "";
   const code = r.code ? `, code: "${r.code}"` : "";
-  return `tex_dev { action: "run", draft: "${r.versionId}", kind: "${r.kind}"${extra}, models: "${r.models}"${code} }\ntex_dev { action: "runs", id: "${r.id}" }${remove}`;
+  return `tex_dev { action: "run", draft: "${r.versionId}", kind: "${r.kind}"${extra}, models: "${r.models}"${repeats}${code} }\ntex_dev { action: "runs", id: "${r.id}" }${remove}`;
 }

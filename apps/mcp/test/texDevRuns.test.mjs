@@ -18,7 +18,9 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { parsePeople } from "../bench/load.mjs";
 import { brokenRun, detailOf, devConversations, handoffOf, resultsOf, roundsLine, routeLine, routeOf, trainingConversations, uncast, unrun } from "../../../scripts/tex-lab-run.mjs";
-import { decideSaid } from "../bench/setsRun.mjs";
+import { decideSaid, scoreByRepeat } from "../bench/setsRun.mjs";
+import { createRequire } from "node:module";
+const { CC_FIDELITY, CC_FIDELITY_WHY } = createRequire(import.meta.url)("../../../packages/shared/src/texRunBand.cjs");
 
 const textOf = (result) => result.content.find((c) => c.type === "text")?.text ?? "";
 const jsonOf = (result) => JSON.parse(textOf(result));
@@ -151,8 +153,8 @@ test("results count by chat and by step, with each test's verdict and no words",
   // so the ran:false fd row no longer counts in total, perConv or perNode. Before this, total was 3.
   assert.deepEqual([r.pass, r.total, r.costUsd, r.ms], [1, 2, 0.0008, 1200]);
   assert.deepEqual(r.handoff, { jobs: 0, parts: 0, advisorCalls: 0, usd: 0, perJobUsd: 0, advisorCallsPerJob: 0 }, "no hand-off, all zero");
-  assert.deepEqual(r.perConv, [{ id: "g", pass: 1, total: 2 }], "a conversation whose only row could not run is absent");
-  assert.deepEqual(r.perNode, [{ node: "decide", pass: 1, total: 2 }]);
+  assert.deepEqual(r.perConv, [{ id: "g", pass: 1, total: 2, min: 1, max: 1 }], "a conversation whose only row could not run is absent");
+  assert.deepEqual(r.perNode, [{ node: "decide", pass: 1, total: 2, min: 1, max: 1 }]);
   assert.deepEqual(r.couldNotRun, [{ convId: "m", msgIndex: 1, node: "fd", why: "runs alone only on a one-ask chat" }]);
   assert.deepEqual(r.ambiguous, []);
   assert.equal(r.goldFails, null, "no gold report, no gold count");
@@ -168,8 +170,8 @@ test("a row that could not run is out of total, pass, perConv and perNode, and l
   ];
   const r = resultsOf(rows, "1");
   assert.deepEqual([r.pass, r.total], [1, 1]);
-  assert.deepEqual(r.perConv, [{ id: "a", pass: 1, total: 1 }]);
-  assert.deepEqual(r.perNode, [{ node: "fd", pass: 1, total: 1 }]);
+  assert.deepEqual(r.perConv, [{ id: "a", pass: 1, total: 1, min: 1, max: 1 }]);
+  assert.deepEqual(r.perNode, [{ node: "fd", pass: 1, total: 1, min: 1, max: 1 }]);
   assert.deepEqual(r.couldNotRun, [
     { convId: "a", msgIndex: 3, node: "fd", why: "Zed has no bench world" },
     { convId: "b", msgIndex: 2, node: "decide", why: "x".repeat(200) },
@@ -198,8 +200,8 @@ test("an fd row whose label's own gold reply fails is ambiguous: out of the scor
   const r = resultsOf(rows, "1", gold);
   // The fd row at a/3 is ambiguous, so the decide row at a/3 (a different step) still counts. b/0 could not run.
   assert.deepEqual([r.pass, r.total], [1, 2]);
-  assert.deepEqual(r.perConv, [{ id: "a", pass: 1, total: 2 }]);
-  assert.deepEqual(r.perNode, [{ node: "fd", pass: 1, total: 1 }, { node: "decide", pass: 0, total: 1 }]);
+  assert.deepEqual(r.perConv, [{ id: "a", pass: 1, total: 2, min: 1, max: 1 }]);
+  assert.deepEqual(r.perNode, [{ node: "fd", pass: 1, total: 1, min: 1, max: 1 }, { node: "decide", pass: 0, total: 1, min: 0, max: 0 }]);
   assert.deepEqual(r.ambiguous, [{ convId: "a", msgIndex: 3, node: "fd", why: "its label's own gold reply fails: must say hi (said bye)" }]);
   assert.deepEqual(r.couldNotRun, [{ convId: "b", msgIndex: 0, node: "fd", why: "w" }]);
   assert.equal(r.goldFails, 2, "the count of labels whose gold fails, apart from the score");
@@ -356,6 +358,68 @@ test("a run whose Claude calls ran out of credit, or most of one step's tests co
   assert.match(readFileSync(why, "utf8"), /credit balance is too low/);
 });
 
+test("repeated rows collapse to one row a unit test: the mean, its band, the majority verdict, every repeat's spend, and couldNotRun only when no repeat ran (Dev2, 2026-11-19)", () => {
+  const rows = [
+    { chat: "r", at: 1, node: "fd", rep: 0, right: true, ran: true, usd: 0.01, got: "ok", want: "w" },
+    { chat: "r", at: 1, node: "fd", rep: 1, right: false, ran: true, usd: 0.01, got: "late", want: "w", misses: [{ kind: "must", line: "say hi", reason: "no" }] },
+    { chat: "r", at: 1, node: "fd", rep: 2, right: true, ran: true, usd: 0.01, got: "ok", want: "w" },
+    { chat: "r", at: 4, node: "fd", rep: 0, right: false, ran: false, usd: 0, why: "no draft" },
+    { chat: "r", at: 4, node: "fd", rep: 1, right: false, ran: false, usd: 0, why: "no draft" },
+    { chat: "r", at: 4, node: "fd", rep: 2, right: false, ran: false, usd: 0, why: "no draft" },
+    { chat: "s", at: 0, node: "fd", rep: 0, right: false, ran: true, usd: 0.02, got: "x", want: "y" },
+    { chat: "s", at: 0, node: "fd", rep: 1, right: true, ran: true, usd: 0.02, got: "y", want: "y" },
+    { chat: "s", at: 0, node: "fd", rep: 2, right: true, ran: true, usd: 0.02, got: "y", want: "y" },
+  ];
+  const r = resultsOf(rows, "1");
+  // Per repeat: r is right at 0 and 2, s at 1 and 2: [1, 1, 2], so the mean 1.33 over two tests, band 1 to 2.
+  assert.deepEqual([r.pass, r.total, r.repeats], [1.33, 2, 3]);
+  assert.deepEqual(r.score, { mean: 1.33, min: 1, max: 2, lo: r.score.lo, hi: r.score.hi, repeats: 3, total: 2 });
+  assert.deepEqual(r.couldNotRun, [{ convId: "r", msgIndex: 4, node: "fd", why: "no draft" }], "one entry for the test none of whose repeats ran");
+  assert.equal(r.rows.length, 3, "one row a test");
+  assert.deepEqual(r.rows[0], {
+    convId: "r", msgIndex: 1, node: "fd", ok: true, got: "passed 2/3; late", want: "w", runs: 3, passes: 2,
+    detail: "must: say hi (no)", usd: 0.03,
+  });
+  assert.deepEqual(r.rows[1], { convId: "r", msgIndex: 4, node: "fd", ok: false, got: "can't run: no draft", want: "", ran: false, usd: 0 });
+  assert.deepEqual(r.rows[2], { convId: "s", msgIndex: 0, node: "fd", ok: true, got: "passed 2/3; x", want: "y", runs: 3, passes: 2, usd: 0.06 });
+  assert.equal(r.costUsd, 0.09, "costUsd is every raw row's spend: each repeat is real");
+  assert.deepEqual(r.perNode, [{ node: "fd", pass: 1.33, total: 2, min: 1, max: 2 }]);
+  assert.deepEqual(r.perConv, [
+    { id: "r", pass: 0.67, total: 1, min: 0, max: 1 },
+    { id: "s", pass: 0.67, total: 1, min: 0, max: 1 },
+  ]);
+});
+
+test("a single repeat reads as before: the integer pass, one repeat in the band, and the fidelity label only for Claude Code runs", () => {
+  const rows = [{ chat: "c", at: 0, node: "decide", right: true, ran: true, usd: 0.0004 }];
+  const r = resultsOf(rows, "1");
+  assert.equal(r.pass, 1);
+  assert.equal(r.repeats, 1);
+  assert.deepEqual(r.score, { mean: 1, min: 1, max: 1, lo: 1, hi: 1, repeats: 1, total: 1 });
+  assert.equal("fidelity" in r, false, "no models named: no fidelity label");
+  const gw = resultsOf(rows, "1", null, { models: "gw" });
+  assert.equal("fidelity" in gw, false, "a gateway run is not labelled");
+  const cc = resultsOf(rows, "1", null, { models: "cc" });
+  assert.deepEqual([cc.fidelity, cc.fidelityWhy], [CC_FIDELITY, CC_FIDELITY_WHY]);
+  assert.equal(cc.fidelity, "model family only");
+});
+
+test("resultsOf and scoreByRepeat agree on a repeated test: its pass is the mean of its repeats", () => {
+  const rows = [
+    { chat: "a", at: 1, node: "fd", rep: 0, right: true, ran: true },
+    { chat: "a", at: 1, node: "fd", rep: 1, right: true, ran: true },
+    { chat: "a", at: 1, node: "fd", rep: 2, right: false, ran: true },
+  ];
+  assert.equal(resultsOf(rows, "1").pass, scoreByRepeat(rows).score.mean);
+  assert.equal(resultsOf(rows, "1").pass, 0.67);
+});
+
+test("a repeated Front door run's rows still mark it unrun only when no repeat of a step ran", () => {
+  const rows = [0, 1, 2].map((rep) => ({ chat: "u", at: 0, node: "fd", rep, right: false, ran: false, usd: 0, why: "no bench world" }));
+  assert.deepEqual(unrun(rows), [{ node: "fd", total: 3, why: "no bench world" }]);
+  assert.deepEqual(unrun(rows.map((r, i) => (i === 1 ? { ...r, ran: true } : r))), []);
+});
+
 test("a Dev gold report: an fd row whose label's own gold fails could not run, with no label line or reason", () => {
   const rows = [
     { chat: "a", at: 1, node: "fd", right: true, ran: true, usd: 0 },
@@ -387,7 +451,7 @@ test("an impossible fd row could not run in training and in dev, with why: its f
   for (const r of [training, dev]) {
     assert.deepEqual([r.pass, r.total], [1, 2], "the impossible row is out of pass and total");
     assert.deepEqual(r.couldNotRun, [{ convId: "a", msgIndex: 0, node: "fd", why: "can't pass honestly: needs the phone's address book" }]);
-    assert.deepEqual(r.perConv, [{ id: "a", pass: 1, total: 1 }, { id: "b", pass: 0, total: 1 }]);
+    assert.deepEqual(r.perConv, [{ id: "a", pass: 1, total: 1, min: 1, max: 1 }, { id: "b", pass: 0, total: 1, min: 0, max: 0 }]);
     assert.equal(r.rows[0].ran, false);
     assert.equal(r.rows[0].got, "can't run: can't pass honestly: needs the phone's address book");
     assert.equal(r.rows[0].ambiguous, undefined);
