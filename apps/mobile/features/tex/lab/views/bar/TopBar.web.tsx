@@ -9,7 +9,7 @@ import { api } from "@context/convex/_generated/api";
 import { emit, isMain, lab, newVersion, openVersion, PLAY_SPEEDS, set, setSpeed, toast, type PlaySpeed } from "../../engine/state";
 import { isLive, live } from "../../engine/live";
 import { promoteVersion, useLab } from "../../store";
-import { codeWords, scoreWords, setRunsUi, useRunsUi } from "../../engine/labRuns";
+import { CC_FIDELITY, codeWords, MAX_REPEATS, scoreWords, setRunsUi, useRunsUi } from "../../engine/labRuns";
 import { setLabTheme, THEMES, useLabTheme } from "../../theme.web";
 import { ChangeToggles, LiveChanges } from "../LiveChanges.web";
 import { StagePill, useRuns, useStartRun } from "../runs/Runs.web";
@@ -214,8 +214,19 @@ export function RunSplit() {
                 As live Tex <span className="meta">AI gateway</span>
               </button>
               <button className="mi" data-models="cc" aria-current={ui.models === "cc"} onClick={() => (setRunsUi({ models: "cc" }), close())}>
-                Claude Code token <span className="meta">GitHub</span>
+                Claude Code token <span className="meta">GitHub · {CC_FIDELITY}</span>
               </button>
+              <hr />
+              {/* How many times each Front door test runs: the score is the mean with its min–max band (Dev2, 2026-11-19). */}
+              <div className="mh">Repeats</div>
+              <div className="seg" role="radiogroup" aria-label="Repeats" id="runRepeats">
+                {Array.from({ length: MAX_REPEATS }, (_, i) => i + 1).map((n) => (
+                  <button key={n} data-repeats={n} role="radio" aria-checked={ui.repeats === n} aria-current={ui.repeats === n} onClick={() => setRunsUi({ repeats: n })}>
+                    {n}
+                  </button>
+                ))}
+              </div>
+              <div className="mnote">Each Front door test runs this many times; the score is the mean with its min–max band.</div>
               <hr />
               <CodeField />
               <hr />
