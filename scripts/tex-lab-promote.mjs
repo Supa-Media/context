@@ -147,6 +147,19 @@ export function configText(config) {
   return `{\n  "texConfig": ${config.texConfig},\n  "about": ${JSON.stringify(config.about)},\n  "models": ${models},${browsers}${groups}\n  "nodes": ${lines(config.nodes)},\n  "edges": ${lines(config.edges)}\n}\n`;
 }
 
+/**
+ * A draft merged onto main from the base it was found on, with the line Promote prints. A draft refused against its
+ * own base (or once merged) answers `{ refused }` and no note: it has no `kept` to count, and reading one crashed
+ * Promote (draft vmwmxtcxerrji, 2026-11-18).
+ */
+export function mergeDraft({ graph, found, base, main, shelf = [], picks = {} }) {
+  const merged = mergeOntoMain({ graph, base, main, shelf, configFrom, picks });
+  if (merged.refused || merged.clashes?.length) return merged;
+  const kept = merged.kept.length;
+  const note = `merged onto main from ${String(found.commit).slice(0, 7)}${found.guessed ? " (taken from when the draft was made: it was saved before drafts kept their base)" : ""}: ${kept} change${kept === 1 ? "" : "s"} of its own, ${merged.theirs} of main's since kept`;
+  return { ...merged, note };
+}
+
 function selfTest() {
   const expect = (cond, what) => {
     if (!cond) throw new Error(`self-test: ${what}`);
@@ -242,6 +255,17 @@ function selfTest() {
   g10.nodes.find((n) => n.id === "fd").group = "inner";
   const nested = configFrom(g10, current, words).config;
   expect(nested?.groups?.inner?.parent === "outer" && nested?.groups?.outer?.label === "Outer", "a nested group lost the group it sits in");
+  // A draft refused against its own base is refused, not a crash (draft vmwmxtcxerrji, 2026-11-18).
+  const emptied = { ...graph(), modules: { [`p-${Object.keys(words)[0]}`]: { text: "" } } };
+  let refusedMerge;
+  try {
+    refusedMerge = mergeDraft({ graph: emptied, found: { commit: "c02926e99ed6376", guessed: true }, base: { config: current, words }, main: { config: current, words } });
+  } catch (error) {
+    throw new Error(`self-test: a draft refused against its base crashed the merge (${error.message})`);
+  }
+  expect(typeof refusedMerge.refused === "string" && refusedMerge.note === undefined, "a draft refused against its base was not refused");
+  const plain = mergeDraft({ graph: graph(), found: { commit: "abcdef0123456", guessed: false }, base: { config: current, words }, main: { config: current, words } });
+  expect(!plain.refused && /^merged onto main from abcdef0: 0 changes of its own, 0 of main's since kept$/.test(plain.note ?? ""), `an unchanged draft's merge note was wrong (${plain.refused ?? plain.note})`);
   console.log("tex-lab-promote self-test: ok");
 }
 
@@ -287,14 +311,18 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
           picks = {};
         }
       }
-      const merged = mergeOntoMain({ graph, base: sideAt(found.commit), main: { config: current, words: wordsOf(ROOT) }, shelf: shelfIds, configFrom, picks });
+      const merged = mergeDraft({ graph, found, base: sideAt(found.commit), main: { config: current, words: wordsOf(ROOT) }, shelf: shelfIds, picks });
       if (merged.clashes?.length) {
         if (flag("--clashes")) writeFileSync(flag("--clashes"), JSON.stringify(merged.clashes.slice(0, 50).map((c) => ({ what: c.what.slice(0, 300), main: String(c.main).slice(0, 200), draft: String(c.draft).slice(0, 200), pick: c.pick === true }))));
         console.error(`tex-lab-promote: refused: ${clashText(merged.clashes, found.commit)}`);
         process.exit(1);
       }
+      if (merged.refused) {
+        console.error(`tex-lab-promote: refused: ${merged.refused}`);
+        process.exit(1);
+      }
       made = merged;
-      note = `merged onto main from ${found.commit.slice(0, 7)}${found.guessed ? " (taken from when the draft was made: it was saved before drafts kept their base)" : ""}: ${merged.kept.length} change${merged.kept.length === 1 ? "" : "s"} of its own, ${merged.theirs} of main's since kept`;
+      note = merged.note;
       const summary = flag("--summary");
       if (summary && !args.includes("--check")) writeFileSync(summary, JSON.stringify({ base: found.commit, guessed: found.guessed, kept: merged.kept, theirs: merged.theirs }));
     } else made = configFrom(graph, current, wordsOf(ROOT), shelfIds);

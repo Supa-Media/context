@@ -14,12 +14,14 @@ import { TEX_CONFIG, TRAINING, TRAINING_READERS } from "../src/agent/texConfig.j
 const moment = (n, route = "act") => ({ chat: `c${n}`, at: 0, kind: "one", before: ["@ann: earlier"], newest: `@ann: ask ${n}`, label: { route } });
 const training = { nodes: { router: [moment(1, "act"), moment(2, "read")], fd: [moment(3)] }, chats: {} };
 
-test("main's router reads its Training labels, the chat's history, what Tex is doing now and the date, and stays off", () => {
+test("main's router reads its Training labels, the recent chat, what Tex is doing now and the date, and stays off", () => {
+  // The recent chat, not the 7-day history: router-only Lab runs scored the same (57/63 in-context, 54/63 held-out)
+  // at far fewer tokens.
   const router = TEX_CONFIG.nodes.find((n) => n.id === "router");
-  assert.deepEqual(router.ctx, ["train:router", "summaries:all:30000", "chat:7:130000", "groupBrief", "date"]);
+  assert.deepEqual(router.ctx, ["train:router", "recent", "groupBrief", "date"]);
   assert.equal(router.on, false, "the router stays off on main");
   assert.ok(TRAINING_READERS.includes("router"), "its code reads the Training module it names");
-  assert.deepEqual(routerWants(router.ctx), { training: true, history: true, recent: false, facts: true, date: true });
+  assert.deepEqual(routerWants(router.ctx), { training: true, history: false, recent: true, facts: true, date: true });
 });
 
 test("routerContextText: each module where the config names it, in its tags; what the config doesn't name is not given", () => {

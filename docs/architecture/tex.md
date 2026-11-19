@@ -201,7 +201,7 @@ every wire, from the same config.
 | Read the setup | readTheSetup | retired | off | code |  |  |  | texEntryPoint/readTheSetup.js |
 | Bookkeeping | prepareBookkeeping | retired | off | code |  |  |  | texEntryPoint/prepareBookkeeping.js |
 | Prepare the answer | prepareTheAnswer | retired | off | code |  |  |  | texEntryPoint/prepareTheAnswer.js |
-| Router | router | tools-subagents | off | Clef |  | 3 s | train:router, summaries:all:30000, chat:7:130000, groupBrief, date | graph/nodes/router.js · specialistRoute.js · doorTools.js |
+| Router | router | tools-subagents | off | Clef |  | 3 s | train:router, recent, groupBrief, date | graph/nodes/router.js · specialistRoute.js · doorTools.js |
 | Quick door | fdQuick | tools-subagents | on | Haiku 5.5 | medium |  |  | graph/nodes/doors.js · doorTools.js · doorTurn.js |
 | Read door | fdRead | tools-subagents | on | Haiku 5.5 | medium |  |  | graph/nodes/doors.js · doorTools.js · doorTurn.js |
 | Act door | fdAct | tools-subagents | on | Haiku 5.5 | medium |  |  | graph/nodes/doors.js · doorTools.js · doorTurn.js |
