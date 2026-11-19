@@ -597,6 +597,7 @@ test/searchQuality.test.mjs
 test/setsWorld.test.mjs
 test/shapeGate.test.mjs
 test/specialistDoors.test.mjs
+test/routerContext.test.mjs
 test/textsArrive.test.mjs
 test/texChatMove.test.mjs
 test/reflectNudgeNodes.test.mjs
