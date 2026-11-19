@@ -5,6 +5,9 @@
  *
  *   node apps/mcp/bench/run.mjs sets run --conversations <file.json> --tree <dir> --out <file.json> [--node <id>] [--fake]
  *   pnpm ai sets run [--set dev] [--node decide] [--fake] [--out <file.json>]      (the repo's Dev Set by default)
+ *   pnpm ai sets run --set dev --node fd --world record|refresh   record the simulated world's answers as fixtures
+ *     (`simFixtures.mjs`, apps/mcp/bench/sets/sim/<conversation>.json): record adds this run's misses, refresh re-asks
+ *     every call; commit the files. Every other run replays them and reports its misses (`world:` line).
  *
  * A unit test is a starred label: one person's message × one node (`texSets.cjs` `unitTests`). Each runs through
  * that node's own code from `--tree` (the checkout whose nodes are judged), put the way production puts it, with
@@ -23,6 +26,7 @@ import { join, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 
 import { runFd } from "./setsFd.mjs";
+import { worldMode } from "./simFixtures.mjs";
 
 const require = createRequire(import.meta.url);
 const { unitTests, TEX } = require("../../../packages/shared/src/texSets.cjs");
@@ -164,7 +168,7 @@ const TREE_TRAINING = "packages/shared/src/texTraining.cjs";
 const TREE_GENERATED = "packages/shared/src/texTraining.generated.json";
 
 /** Each node's way to run alone: how to ask it, given the tree's code, and how to score its answer. */
-export async function adaptersFor(tree, { fake = false, env = process.env, holdOut = false, routeEngine = null } = {}) {
+export async function adaptersFor(tree, { fake = false, env = process.env, holdOut = false, routeEngine = null, world = "replay" } = {}) {
   const mod = (rel) => import(pathToFileURL(join(tree, rel)).href);
   // Claude's calls through the model socket when one is set (`modelSocket.mjs`): the Lab's Claude Code runs
   // (`tex-lab-run.yml`, models "cc") answer them with `socketAnswerer.mjs`; nothing is priced then.
@@ -173,7 +177,7 @@ export async function adaptersFor(tree, { fake = false, env = process.env, holdO
   const socketed = Boolean(socket?.covers("claude"));
   const table = {
     // The front door runs as a whole turn in the bench's world, so its tests go as one batch (`setsFd.mjs`).
-    fd: { batch: (units, { parallel = 1 } = {}) => runFd(units, { tree, fake, parallel, holdOut, env }) },
+    fd: { batch: (units, { parallel = 1 } = {}) => runFd(units, { tree, fake, parallel, holdOut, env, world }) },
     decide: async () => {
       const { judgeCase, fakeEngine } = await mod("apps/mcp/bench/respond.mjs");
       const engine = fake ? null : (await mod("apps/mcp/src/agent/decide.js")).decisionEngine((await mod("apps/mcp/bench/models.mjs")).workersAi(env.CLOUDFLARE_ACCOUNT_ID, env.CLOUDFLARE_AI_TOKEN));
@@ -264,8 +268,8 @@ export async function adaptersFor(tree, { fake = false, env = process.env, holdO
  * process (Decide, the job check, the reviewer) go one after another while the batched ones (the Front door, whose
  * tests are processes of their own) go beside them, `parallel` tests at a time; rows come back in the same order.
  */
-export async function runSets(convs, { tree, node = null, fake = false, env = process.env, adapters = null, parallel = 1, holdOut = false } = {}) {
-  const table = adapters ?? (await adaptersFor(tree, { fake, env, holdOut }));
+export async function runSets(convs, { tree, node = null, fake = false, env = process.env, adapters = null, parallel = 1, holdOut = false, world = "replay" } = {}) {
+  const table = adapters ?? (await adaptersFor(tree, { fake, env, holdOut, world }));
   const ready = {};
   const singles = [];
   const batches = {};
@@ -305,6 +309,38 @@ export async function runSets(convs, { tree, node = null, fake = false, env = pr
   return [...first, ...rest.flat()];
 }
 
+/**
+ * The calls the world had no fixture for, deduped by conversation, kind and call: `[{ chat, kind, call }]`. Each unit of a
+ * test carries its test's calls, so one call would count once per unit without this. Rows without `world` contribute nothing.
+ */
+export function worldMisses(rows) {
+  const seen = new Map();
+  for (const r of rows) {
+    for (const c of Array.isArray(r.world?.calls) ? r.world.calls : []) {
+      const key = `${r.chat}\n${c.kind}\n${c.call}`;
+      if (!seen.has(key)) seen.set(key, { chat: r.chat, kind: c.kind, call: c.call });
+    }
+  }
+  return [...seen.values()];
+}
+
+/**
+ * The world's line for standard output: counts and kinds only, never a call's text. "" when no row has a `world`.
+ * A row with none (a node that has no Front door test) says nothing about the world.
+ */
+export function worldLine(rows) {
+  if (!rows.some((r) => r.world)) return "";
+  const misses = worldMisses(rows);
+  if (misses.length === 0) return "world: every simulated call replayed from fixtures";
+  const by = {};
+  for (const m of misses) by[m.kind] = (by[m.kind] ?? 0) + 1;
+  const kinds = Object.entries(by)
+    .sort(([a, x], [b, y]) => y - x || a.localeCompare(b))
+    .map(([k, n]) => `${k} ${n}`)
+    .join(", ");
+  return `world: ${misses.length} simulated call(s) not in fixtures (${kinds})`;
+}
+
 /** Counts by node, never words: what standard output may say. */
 export function countsLine(rows) {
   const by = {};
@@ -326,7 +362,11 @@ export const holdOutOn = (value) => /^(?:on|yes|true|1)$/i.test(String(value ?? 
 
 /** `sets run`: the CLI half. */
 export async function setsCommand(sub, options, { write = (t) => process.stdout.write(t) } = {}) {
-  if (sub !== "run") throw new Error("usage: sets run [--conversations <file.json>] [--set dev] [--tree <dir>] [--node <id>] [--out <file.json>] [--parallel n] [--hold-out on] [--fake]");
+  if (sub !== "run") throw new Error("usage: sets run [--conversations <file.json>] [--set dev] [--tree <dir>] [--node <id>] [--out <file.json>] [--parallel n] [--hold-out on] [--world replay|record|refresh] [--fake]");
+  // The world's mode: replay (the default) answers from the repo's fixtures; record and refresh write them, so they
+  // only ever run on the repo's own sets, never on a file handed in (which may be sealed).
+  const world = worldMode(options.world ?? process.env.TEX_SETS_WORLD);
+  if (world !== "replay" && options.conversations) throw new Error("--world record|refresh writes the repo's fixtures, so it runs on the repo's sets only (--set), never a handed-in or sealed file");
   let convs;
   if (options.conversations) convs = JSON.parse(await readFile(resolve(options.conversations), "utf8"));
   else {
@@ -343,11 +383,16 @@ export async function setsCommand(sub, options, { write = (t) => process.stdout.
   // on (`--hold-out on`, or TEX_SETS_HOLD_OUT=on, the Lab run workflow's repository variable), each runs without its
   // own conversation (the held-out score). It changes nothing for a Dev conversation, which is never an example.
   const holdOut = holdOutOn(options["hold-out"] ?? process.env.TEX_SETS_HOLD_OUT);
-  const rows = await runSets(convs, { tree, node: options.node ?? null, fake: Boolean(options.fake), parallel, holdOut });
+  const rows = await runSets(convs, { tree, node: options.node ?? null, fake: Boolean(options.fake), parallel, holdOut, world });
   if (convs.some((c) => c.set === "training")) write(`Training Front door: ${holdOut ? "held out (each conversation left out of its own examples)" : "in context (each conversation among its own examples)"}\n`);
   if (options.out) await writeFile(resolve(options.out), JSON.stringify(rows, null, 1) + "\n");
   write(`${countsLine(rows)}\n`);
+  const worldText = worldLine(rows);
+  if (worldText !== "") write(`${worldText}\n`);
   // The repo's sets name what missed (their words are public); a file handed in may be sealed, so it never does.
-  if (!options.conversations && !options.out) for (const r of rows.filter((x) => !x.right)) write(`MISS ${r.chat}/${r.msg} ${r.node}: ${r.why ?? ""}\n`);
+  if (!options.conversations && !options.out) {
+    for (const r of rows.filter((x) => !x.right)) write(`MISS ${r.chat}/${r.msg} ${r.node}: ${r.why ?? ""}\n`);
+    for (const m of worldMisses(rows)) write(`WORLD MISS ${m.chat} ${m.kind} ${m.call}\n`);
+  }
   return rows;
 }

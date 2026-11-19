@@ -7,7 +7,7 @@
 import { useMutation, useQuery } from "convex/react";
 import { api } from "@context/convex/_generated/api";
 import { lab, node, toast } from "../../engine/state";
-import { ago, codeLink, commitLink, costWords, fixedWords, live, mcpLines, modelsWords, runLabel, runsUi, scoreWords, setRunsUi, stageWords, useRunsUi, type LabRun, type RunKind } from "../../engine/labRuns";
+import { ago, codeLink, commitLink, costWords, fixedWords, live, mcpLines, modelsWords, runLabel, runsUi, scoreWords, setRunsUi, stageWords, useRunsUi, worldWords, type LabRun, type RunKind } from "../../engine/labRuns";
 import { setUi, sets } from "../../engine/setsStore";
 import { RouteSummaryBlock } from "./RouteSummary.web";
 
@@ -154,6 +154,7 @@ export function RunsPanel() {
               <>
                 <div>
                   <b>{scoreWords(full)}</b> · {costWords(full)}
+                  {worldWords(full.results?.world) !== "" ? <> · {worldWords(full.results?.world)}</> : null}
                 </div>
                 {(full.results.perNode ?? []).length ? (
                   <div className="small">

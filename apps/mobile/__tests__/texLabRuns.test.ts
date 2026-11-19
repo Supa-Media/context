@@ -58,7 +58,7 @@ import { TexLab } from "../features/tex/lab/TexLab.web";
 import { clone, MAIN, set } from "../features/tex/lab/engine/state";
 import { type Conversation } from "../features/tex/lab/engine/sets";
 import { sets } from "../features/tex/lab/engine/setsStore";
-import { costWords, handoffWords, setRunsUi, type LabRun } from "../features/tex/lab/engine/labRuns";
+import { costWords, handoffWords, setRunsUi, worldWords, type LabRun } from "../features/tex/lab/engine/labRuns";
 import { resetSandboxState, setSandboxCall } from "../features/tex/lab/engine/sandbox";
 
 const CHAT: Conversation = {
@@ -358,4 +358,11 @@ test("a run's cost says what its handed-off jobs added, for Finance (Dev2, 2026-
   expect(handoffWords({ jobs: 0, parts: 0, advisorCalls: 0, usd: 0, perJobUsd: 0, advisorCallsPerJob: 0 })).toBe("");
   const run = { kind: "run", results: { pass: 1, total: 2, costUsd: 0.5, ms: 1, handoff: { jobs: 2, parts: 5, advisorCalls: 5, usd: 0.08, perJobUsd: 0.04, advisorCallsPerJob: 2.5 } } } as unknown as LabRun;
   expect(costWords(run)).toBe("$0.500 (AI gateway), of which 2 handed-off jobs: 5 advisor calls, $0.080 ($0.040 a job)");
+});
+
+test("worldWords says the world replayed from fixtures, or how many simulated calls had none; nothing when there is no world", () => {
+  expect(worldWords(undefined)).toBe("");
+  expect(worldWords({ misses: 0, byKind: {}, calls: [] })).toBe("world replayed from fixtures");
+  expect(worldWords({ misses: 1, byKind: { "web search": 1 }, calls: [{ chat: "a", kind: "web search", call: "{}" }] })).toBe("world: 1 simulated call not in fixtures");
+  expect(worldWords({ misses: 3, byKind: { "web search": 2, "gmail search": 1 }, calls: [] })).toBe("world: 3 simulated calls not in fixtures");
 });

@@ -24,6 +24,9 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
 import { adaptersFor, countsLine, decideCase, decideRight, lineOf, reviewerCase, reviewerRight, routeCase, routeRight, routeTraining, runSets, setsCommand } from "../bench/setsRun.mjs";
+import { runFd } from "../bench/setsFd.mjs";
+import { openWorldStore, worldKey } from "../bench/simFixtures.mjs";
+import { worldLine, worldMisses } from "../bench/setsRun.mjs";
 
 const require = createRequire(import.meta.url);
 const REPO = require("../../../packages/shared/src/texSetsRepo.generated.json");
@@ -446,4 +449,63 @@ test("a tree without the router module says so on each row instead of passing it
   } finally {
     await rm(dir, { recursive: true, force: true });
   }
+});
+
+test("worldLine counts the calls the world had no fixture for, deduped, by kind; never a call's text", () => {
+  const miss = (chat, kind, call) => ({ kind, call });
+  const rows = [
+    // Two units of one test share its calls: each counts once.
+    { chat: "c", msg: "m1", node: "fd", world: { misses: 2, calls: [miss("c", "web search", "{\"query\":\"secret flight\"}"), miss("c", "gmail search", "{\"q\":\"secret\"}")] } },
+    { chat: "c", msg: "m2", node: "fd", world: { misses: 2, calls: [miss("c", "web search", "{\"query\":\"secret flight\"}"), miss("c", "gmail search", "{\"q\":\"secret\"}")] } },
+    { chat: "d", msg: "m3", node: "fd", world: { misses: 1, calls: [miss("d", "web search", "{\"query\":\"other\"}")] } },
+    { chat: "c", msg: "m4", node: "decide", right: true, ran: true, usd: 0 },
+  ];
+  assert.deepEqual(worldMisses(rows), [
+    { chat: "c", kind: "web search", call: "{\"query\":\"secret flight\"}" },
+    { chat: "c", kind: "gmail search", call: "{\"q\":\"secret\"}" },
+    { chat: "d", kind: "web search", call: "{\"query\":\"other\"}" },
+  ]);
+  const line = worldLine(rows);
+  assert.equal(line, "world: 3 simulated call(s) not in fixtures (web search 2, gmail search 1)");
+  assert.doesNotMatch(line, /secret|other|query/);
+  assert.equal(worldLine([{ chat: "c", msg: "m1", node: "fd", world: { misses: 0, calls: [] } }]), "world: every simulated call replayed from fixtures");
+  assert.equal(worldLine([{ chat: "c", msg: "m4", node: "decide", right: true }]), "", "no row has a world: nothing to say");
+  assert.deepEqual(worldMisses([{ chat: "c", msg: "m4", node: "decide" }]), []);
+});
+
+test("setsCommand refuses --world record or refresh with --conversations: the repo's fixtures only", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "sets-run-test-"));
+  try {
+    const input = join(dir, "convs.json");
+    await writeFile(input, JSON.stringify([]));
+    for (const world of ["record", "refresh"]) {
+      await assert.rejects(setsCommand("run", { conversations: input, world, tree: REPO_ROOT, fake: true }, { write() {} }), /repo's sets only/);
+    }
+    // Replay is the default and reads a handed-in file as before.
+    const rows = await setsCommand("run", { conversations: input, world: "replay", tree: REPO_ROOT, fake: true }, { write() {} });
+    assert.deepEqual(rows, []);
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
+test("runFd records each test's world misses on its rows, from the fixture's run folder the test was given", { timeout: 60000 }, async () => {
+  const c = { ...conv("world-1", [{ id: "m1", who: "Maya", text: "what does the flight cost?", labels: { fd: { must: ["answer"], star: true } } }]), members: ["Maya"], world: "maya" };
+  const seenFronts = [];
+  const runTests = async (_tree, tests, opts) => {
+    const name = tests[0];
+    const md = await readFile(join(opts.dir, "tests", `${name}.md`), "utf8");
+    const runDir = /^world_run: (.+)$/m.exec(md)?.[1];
+    seenFronts.push(/^world_mode: (.+)$/m.exec(md)?.[1]);
+    // What simWorld does on a miss: claim the answer in the conversation's run folder, under this test's name.
+    const store = openWorldStore({ runDir, mode: "replay", test: /^world_test: (.+)$/m.exec(md)?.[1] });
+    store.claim(worldKey("web search", { query: "flight" }), "web search", { query: "flight" }, { answer: "$689" });
+    return { rows: [{ id: `${name}/q1`, right: true, bench: [] }], usd: 0.002, bars: {}, missing: [] };
+  };
+  const rows = await runFd([{ convo: c, at: 0, label: c.msgs[0].labels.fd, row: { chat: c.id, msg: "m1", at: 0, node: "fd" } }], { tree: REPO_ROOT, runTests, env: {} });
+  assert.deepEqual(seenFronts, ["replay"]);
+  assert.equal(rows.length, 1);
+  assert.equal(rows[0].right, true);
+  assert.deepEqual(rows[0].world, { misses: 1, calls: [{ kind: "web search", call: JSON.stringify({ query: "flight" }) }] });
+  assert.equal(worldLine(rows), "world: 1 simulated call(s) not in fixtures (web search 1)");
 });

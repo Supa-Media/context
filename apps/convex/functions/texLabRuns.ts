@@ -110,6 +110,19 @@ function routeOf(x: unknown) {
   return { ...(pick ? { pick } : {}), ...(sure !== undefined ? { sure } : {}), ...(door ? { door } : {}), ...(fellBack ? { fellBack } : {}) };
 }
 
+/** A run's world, cleaned (`cleanResults`): the simulated calls no fixture answered (`scripts/tex-lab-run.mjs` worldOf). */
+function worldOf(x: unknown) {
+  if (!x || typeof x !== "object") return undefined;
+  const w = x as Record<string, unknown>;
+  const byKind = (w.byKind && typeof w.byKind === "object" ? w.byKind : {}) as Record<string, unknown>;
+  const calls = (Array.isArray(w.calls) ? w.calls.slice(0, 40) : []) as Record<string, unknown>[];
+  return {
+    misses: num(w.misses),
+    byKind: Object.fromEntries(Object.entries(byKind).slice(0, 12).map(([k, n]) => [str(k, 40), num(n)])),
+    calls: calls.map((c) => ({ chat: str(c.chat), kind: str(c.kind, 40), call: str(c.call, 300) })),
+  };
+}
+
 export function cleanResults(r: unknown) {
   const o = (r && typeof r === "object" ? r : {}) as Record<string, unknown>;
   const list = (x: unknown) => (Array.isArray(x) ? x.slice(0, MAX_ROWS) : []) as Record<string, unknown>[];
@@ -119,6 +132,8 @@ export function cleanResults(r: unknown) {
     costUsd: Math.round(num(o.costUsd) * 10_000) / 10_000,
     // The handed-off jobs' share of the run (`scripts/tex-lab-run.mjs` handoffOf): jobs, parts, advisor calls, spend.
     handoff: handoffOf(o.handoff),
+    // The simulated world's misses: which calls no recorded fixture answered, so a run says what was invented.
+    world: worldOf(o.world),
     // Claude calls the fallback model answered (`apps/mcp/bench/fallbacks.mjs`): any makes the run's score not Tex's.
     fallbacks: num(o.fallbacks),
     valid: o.valid !== false && num(o.fallbacks) === 0,
