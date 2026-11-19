@@ -1,6 +1,6 @@
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import worker, { type Env } from "./index";
-import { PhotonEvents } from "./photonEvents";
+import { PhotonEvents, STALE_REPLAY_MS } from "./photonEvents";
 import { photonAttachmentUrl, photonChatId, photonGroupId, verifyPhotonAttachment } from "./photon";
 import { groupInboxName } from "./groupInbox";
 import { clearGroupMoveCache } from "./groupMoves";
@@ -77,7 +77,15 @@ function event(over: Record<string, unknown> = {}): Record<string, unknown> {
   };
 }
 
+/** "Now" for every test: seven seconds after the fixture's `at`, so a fixture event is fresh, never a stale replay. */
+const NOW = Date.parse("2026-11-14T10:00:07.000Z");
+
+beforeEach(() => {
+  vi.useFakeTimers({ now: NOW, toFake: ["Date"] });
+});
+
 afterEach(() => {
+  vi.useRealTimers();
   vi.unstubAllGlobals();
   clearGroupMoveCache();
 });
@@ -423,5 +431,50 @@ describe("PhotonEvents.event: a group's name and its people", () => {
     const { env: e, routed } = env();
     expect(await entrypoint(e).event(change({ change: "groupIconChanged" }))).toEqual({ status: 200 });
     expect(routed).toEqual([]);
+  });
+});
+
+describe("PhotonEvents.event: catch-up replays (2026-11-19)", () => {
+  const ago = (ms: number) => new Date(NOW - ms).toISOString();
+  const HOUR = 60 * 60 * 1000;
+
+  it("sits below the inbox's one-day seen window", () => {
+    expect(STALE_REPLAY_MS).toBe(12 * HOUR);
+  });
+
+  it("never hands over a text Apple timed 13 hours ago, notes it dropped without its words, and resolves 200", async () => {
+    const { env: e, routed } = env();
+    expect(await entrypoint(e).event(event({ at: ago(13 * HOUR) }))).toEqual({ status: 200 });
+    expect(routed.map((r) => r.path)).toEqual(["/dropped"]);
+    expect(routed[0]).toMatchObject({ to: PHONE, body: { chat: photonChatId(LINE, PHONE), kind: "one", reason: "stale_replay" } });
+    expect(JSON.stringify(routed[0].body)).not.toContain("hello");
+  });
+
+  it("hands over a text Apple timed an hour ago, as today", async () => {
+    const { env: e, routed } = env();
+    expect(await entrypoint(e).event(event({ at: ago(HOUR) }))).toEqual({ status: 200 });
+    expect(routed.map((r) => r.path)).toEqual(["/accept"]);
+  });
+
+  it("never hands over a tapback Apple timed 30 hours ago", async () => {
+    const { env: e, routed } = env();
+    const tapback = event({ eventId: "photon:message.reactionAdded:msg-1:3", type: "message.reactionAdded", message: undefined, reaction: { kind: "like", targetGuid: "msg-1" }, at: ago(30 * HOUR) });
+    expect(await entrypoint(e).event(tapback)).toEqual({ status: 200 });
+    expect(routed.map((r) => r.path)).not.toContain("/react");
+  });
+
+  it("never hands over a group's text, or an edit, Apple timed a day ago", async () => {
+    vi.stubGlobal("fetch", async () => Response.json({}));
+    const { env: e, routed } = env();
+    await entrypoint(e).event(event({ chat: { guid: GUID, kind: "group", participants: [PHONE, OTHER] }, from: OTHER, message: { guid: "g-1", text: "hi all", service: "iMessage" }, at: ago(24 * HOUR) }));
+    await entrypoint(e).event(event({ eventId: "photon:message.edited:msg-1:8", type: "message.edited", message: { guid: "msg-1", text: "friday works", service: "iMessage" }, edited: { targetGuid: "msg-1" }, at: ago(24 * HOUR) }));
+    expect(routed.map((r) => r.path)).toEqual(["/dropped", "/dropped"]);
+    expect(routed[0]).toMatchObject({ to: groupInboxName(photonGroupId(GUID)), body: { kind: "group", reason: "stale_replay" } });
+  });
+
+  it("hands over a text whose time it cannot read, as today", async () => {
+    const { env: e, routed } = env();
+    expect(await entrypoint(e).event(event({ at: "not-a-time" }))).toEqual({ status: 200 });
+    expect(routed.map((r) => r.path)).toEqual(["/accept"]);
   });
 });
