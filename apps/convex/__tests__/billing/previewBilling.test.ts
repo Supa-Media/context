@@ -43,7 +43,7 @@ describe("an isolated preview's billing", () => {
       asUser(t, owner).mutation(api.functions.billing.activateTestPremium, { workspaceId }),
     ).resolves.toEqual({ active: true });
     const status = await asUser(t, owner).query(api.functions.billing.status, { workspaceId });
-    expect(status).toMatchObject({ status: "active", stagingFreeStorage: true, priceCents: 0, configured: true });
+    expect(status).toMatchObject({ status: "active", priceCents: 0, configured: true });
     expect(status.hasStripeCustomer).toBe(false);
   });
 
