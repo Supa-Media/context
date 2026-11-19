@@ -11,6 +11,8 @@
  * person sent, one the picture model made) is looked at as in production.
  */
 
+import { sharedRenderer } from "./benchRender.mjs";
+
 /** The pictures the bench drew this conversation: `keep(png)` one, `isIn(text)` whether a request's words carry one. */
 export function drawnPictures() {
   const drawn = new Set();
@@ -23,12 +25,29 @@ export function drawnPictures() {
   };
 }
 
-/** `env.SITE_SHOTS` with every picture its `/render` drew kept in `drawn`. */
-export function keepsRenders(binding, drawn) {
+/**
+ * `env.SITE_SHOTS` with every picture its `/render` drew kept in `drawn`. Where the machine has a browser
+ * (`benchRender.mjs`), the card's HTML is photographed for real in place of the stand-in's white rectangle, so the
+ * front door sees the card it drew, as in production.
+ */
+export function keepsRenders(binding, drawn, renderer = sharedRenderer()) {
   return {
     async fetch(url, init) {
       const response = await binding.fetch(url, init);
-      if (new URL(url).pathname === "/render" && response.status === 200) drawn.keep((await response.clone().json().catch(() => null))?.png);
+      if (new URL(url).pathname !== "/render" || response.status !== 200) return response;
+      const stood = await response.clone().json().catch(() => null);
+      let request = null;
+      try {
+        request = JSON.parse(typeof init?.body === "string" ? init.body : "null");
+      } catch {
+        request = null;
+      }
+      const real = renderer?.available ? await renderer.render(request) : null;
+      if (real) {
+        drawn.keep(real.png);
+        return new Response(JSON.stringify({ ...(stood ?? {}), png: real.png, width: real.width, height: real.height, blocked: stood?.blocked ?? [] }), { status: 200, headers: { "content-type": "application/json" } });
+      }
+      drawn.keep(stood?.png);
       return response;
     },
   };

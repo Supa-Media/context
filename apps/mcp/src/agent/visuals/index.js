@@ -131,5 +131,6 @@ export const VISUALS_LINE =
   "(index, of) and send them all: they arrive as one swipeable set, answered with a number. Places to go or buy from (restaurants, bars, shops, florists) are one places card, never option cards. Never draw for a yes or no, one fact, " +
   "a draft, hard news, or after they ask for text only. COMPARISONS ARE SEEN: each option (food, place, country, product) shows a real picture, from " +
   "pages you open, search_web pictures: true, or its page in your browser; the card hunts any you leave out. Never give up on pictures after one try. " +
-  "If draw_visual fails, fix what it says and draw again; only after that, text it all in words, no word of the card. To keep the card in a " +
+  "If draw_visual fails, fix what it says and draw again; only after that, say in one line it didn't come out and text the short version in words: the pick " +
+  "and the one or two facts that decide it, never every row of the card. To keep the card in a " +
   "note: write with args { images: [{ name: 'card.png', data: 'picture:N' }] } and ![[card.png]] in the content.";
