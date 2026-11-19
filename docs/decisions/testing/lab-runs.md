@@ -76,25 +76,36 @@ over a GitHub listener), with a Models pick of the AI gateway or Claude Code on
   account's concurrent limit rather than failing them). A run still open after
   three hours no longer holds a place.
 - **Public logs say counts and ids.** Results go to Convex, never into the log.
-- **A Lab run leases a runner slot.** The spend check signs in as one of three
-  Lab runner slots (`LAB_RUNNER_1`…`3`): each is its own grant of the bench
-  test account, made with `pnpm ai connect --lab-slot N`, and a slot's grant
-  rotates its refresh token on every use and revokes itself when a retired one
-  is presented. The `lease` job (main's checkout, the deploy key) takes a free
-  slot for the run through `functions/labRunnerSlots:acquire`, or waits for one
-  (`scripts/lab-runner-lease.mjs`, up to 170 minutes; a busy slot never fails a
-  run). A slot is held by one run at a time, and a holder whose GitHub run has
-  ended is reclaimed. The lease is released by the `release` job after the
-  write, so the next run that takes the slot reads the token it wrote. Lab runs
-  do not share the benchmark runner's grant, so they do not wait for
-  `scripts/bench-runner-lock.mjs`. The run job, which checks out the draft,
+- **A Lab run leases a runner slot, or falls back to the shared runner.** The
+  spend check signs in as one of three Lab runner slots (`LAB_RUNNER_1`…`3`):
+  each is its own grant of the bench test account, made with
+  `pnpm ai connect --lab-slot N`, and a slot's grant rotates its refresh token
+  on every use and revokes itself when a retired one is presented. The `lease`
+  job (main's checkout, the deploy key) asks
+  `functions/labRunnerSlots:acquire` once for a free connected slot
+  (`scripts/lab-runner-lease.mjs`). **It never blocks a run** (Dev2,
+  2026-11-19, after #3682 stopped every Lab run with "no Lab runner slot is
+  connected" and was reverted in #3701): with no slot connected, none free, or
+  the pool or the job itself failing, the slot is 0, and the run signs in with
+  the shared benchmark runner (`BENCH_RUNNER_*`) behind
+  `scripts/bench-runner-lock.mjs` (`wait-turn`, then `--check`), exactly as
+  before slots. `tex-lab-run.yml` stays on the lock's list, so the other
+  runner workflows wait for any earlier Lab run. A slot is held by one run at a
+  time, and a holder whose GitHub run has ended is reclaimed. The lease is
+  released by the `release` job after the write, so the next run that takes
+  the slot reads the token it wrote. The run job, which checks out the draft,
   seals the rotated token after that sign-in and again after the spend line.
   It does not write the secret. A later job checks out `main` only, opens the
   seal, checks the value is a refresh token (`crt1.…` or the legacy `crt_…`
-  form), checks the slot is 1-3, and writes `LAB_RUNNER_<N>_REFRESH_TOKEN` in
-  the production environment with stdin. Tex replay still writes
-  `BENCH_RUNNER_REFRESH_TOKEN_LIVE` the same way. A salvage of a Lab run reads
-  the slot from its lease job's log line (`Leased Lab runner slot N`).
+  form), checks the slot is 0-3, and writes `LAB_RUNNER_<N>_REFRESH_TOKEN`
+  (slot 0: `BENCH_RUNNER_REFRESH_TOKEN_LIVE`) in the production environment
+  with stdin. Tex replay writes `BENCH_RUNNER_REFRESH_TOKEN_LIVE` the same way.
+  A salvage of a Lab run reads the slot from its lease job's log line
+  (`Leased Lab runner slot N`, or `Using the shared benchmark runner`).
+  `scripts/lab-runner-lease.test.mjs` fails if zero connected slots, a busy
+  pool or a failing lease could stop a run, or if the workflow's slot-0 wiring
+  (wait-turn, the shared secrets only behind `slot == '0'`, the shared write)
+  goes.
   The key is an RSA key made for the run. Its public half is all the branch
   job receives. Its private half is wrapped with AES under
   `BENCH_SECRET_WRITER_TOKEN` and leaves the key job only as ciphertext, as a

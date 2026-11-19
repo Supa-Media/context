@@ -2,7 +2,7 @@
 /**
  * The Lab's runner slots: a Lab run takes one of three bench logins, so
  * several Lab runs can go at once (the shared benchmark runner grant is
- * one-at-a-time, see bench-runner-lock.mjs; a Lab run does not use it).
+ * one-at-a-time, see bench-runner-lock.mjs; a Lab run uses it only as the fallback).
  *
  * Each slot N in 1..3 is its own OAuth grant of the bench test account,
  * made by `pnpm ai connect --lab-slot N`, and kept as two production
@@ -12,10 +12,14 @@
  * a value, only whether one is there.
  *
  * The pool itself is a Convex table (`labRunnerLeases`, functions/labRunnerSlots.ts).
- * `acquire` polls it until a connected slot is free for this run, then writes
- * `slot=` and `attempt=` to $GITHUB_OUTPUT and nothing else. `release` frees it.
+ * `acquire` asks it once for a free connected slot and writes `slot=` and
+ * `attempt=` to $GITHUB_OUTPUT and nothing else. It never blocks a run: with no
+ * slot connected, none free, or the pool unreachable it writes `slot=0`, and the
+ * workflow signs in with the shared benchmark runner behind bench-runner-lock.mjs
+ * exactly as before slots (Dev2, 2026-11-19, after #3682 stopped every Lab run
+ * when no slot was connected). `release` frees a slot.
  *
- *   node scripts/lab-runner-lease.mjs acquire [--max-minutes 170]
+ *   node scripts/lab-runner-lease.mjs acquire
  *   node scripts/lab-runner-lease.mjs release
  *   node scripts/lab-runner-lease.mjs --self-test
  *
@@ -39,8 +43,6 @@ export const LAB_SLOTS = [1, 2, 3];
 /** The Lab's workflow file: its runs are the holders the pool checks are still alive. */
 export const LAB_WORKFLOW = "tex-lab-run.yml";
 const ACTIVE = ["queued", "in_progress", "waiting", "requested", "pending"];
-const POLL_MS = 30 * 1000;
-const DEFAULT_MAX_MINUTES = 170;
 const ACQUIRE_FN = "functions/labRunnerSlots:acquire";
 const RELEASE_FN = "functions/labRunnerSlots:release";
 
@@ -99,62 +101,47 @@ export async function activeLabRuns(repo, ghToken, env = process.env) {
   return [...ids];
 }
 
-const sleepFor = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+/** The slot a run falls back to: the shared benchmark runner grant, behind `bench-runner-lock.mjs`, exactly as before slots. */
+export const SHARED_SLOT = 0;
 
 /**
- * Wait for a connected Lab slot and take it. Resolves to `{ code, slot?, why? }`;
- * the caller writes the files and sets the exit code. Every dependency is
- * injected so the loop runs without network: `listActive()` gives the active
- * Lab run ids, `callConvex(fn, args)` the parsed answer, `sleep(ms)`, `now()`.
+ * Take a free connected Lab slot, or fall back to the shared runner (slot 0). Never blocks and never fails a run
+ * (Dev2, 2026-11-19, after #3682 stopped every Lab run with "no Lab runner slot is connected"): no connected slot, no
+ * free slot, the GitHub listing or Convex failing, or an answer this script does not understand each mean slot 0, and
+ * the workflow then waits for the shared runner's lock as it always did. Resolves to `{ code: 0, slot, attempt, why? }`,
+ * or `{ code: 1, why }` only when the run's own ids are missing. `listActive()` gives the active Lab run ids,
+ * `callConvex(fn, args)` the parsed answer.
  */
-export async function acquireSlot({
-  env,
-  listActive,
-  callConvex,
-  sleep = sleepFor,
-  now = Date.now,
-  maxMinutes = DEFAULT_MAX_MINUTES,
-  log = (line) => process.stdout.write(`${line}\n`),
-}) {
-  const connected = connectedSlots(env);
-  if (connected.length === 0) {
-    return { code: 1, why: "no Lab runner slot is connected: run `pnpm ai connect --lab-slot 1` signed in as the bench test account (it writes both secrets)" };
-  }
+export async function acquireSlot({ env, listActive, callConvex, log = (line) => process.stdout.write(`${line}\n`) }) {
   const ghRunId = env.GITHUB_RUN_ID ?? "";
   const attempt = Number(env.GITHUB_RUN_ATTEMPT ?? "");
   const labRunId = env.RUN_ID ?? "";
+  const shared = (why) => {
+    log(`Using the shared benchmark runner: ${why}`);
+    return { code: 0, slot: SHARED_SLOT, attempt: env.GITHUB_RUN_ATTEMPT ?? "", why };
+  };
   if (!/^\d{1,20}$/.test(ghRunId) || !Number.isInteger(attempt) || attempt < 1 || !labRunId) {
-    return { code: 1, why: "the run's GITHUB_RUN_ID, GITHUB_RUN_ATTEMPT or RUN_ID is missing" };
+    return shared("the run's GITHUB_RUN_ID, GITHUB_RUN_ATTEMPT or RUN_ID is missing");
   }
-  const started = now();
-  for (;;) {
-    // A failed GitHub or Convex call skips this poll; it never sends an empty active list (that would reclaim every
-    // holder) and never ends the wait early.
-    let reply;
-    try {
-      const active = await listActive();
-      reply = await callConvex(ACQUIRE_FN, { ghRunId, attempt, labRunId, connected, active });
-    } catch (error) {
-      if (now() - started >= maxMinutes * 60_000) return { code: 1, why: `the Lab runner pool could not be reached: ${String(error?.message ?? error).slice(0, 200)}` };
-      log(`::warning::could not ask for a Lab runner slot this time (${String(error?.message ?? error).slice(0, 200)}); trying again`);
-      await sleep(POLL_MS);
-      continue;
-    }
-    if (Number.isInteger(reply?.slot)) {
-      log(`Leased Lab runner slot ${reply.slot}`);
-      return { code: 0, slot: reply.slot, attempt };
-    }
-    const waiting = Number(reply?.waiting);
-    const free = Number(reply?.free);
-    if (!Number.isInteger(waiting) || !Number.isInteger(free)) {
-      return { code: 1, why: "the Lab runner pool gave an answer this script does not understand" };
-    }
-    if (now() - started >= maxMinutes * 60_000) {
-      return { code: 1, why: `waited ${maxMinutes} min for a Lab runner slot (${waiting} ahead, ${free} free); the run was not started` };
-    }
-    log(`Waiting for a Lab runner slot: ${waiting} ahead, ${free} free`);
-    await sleep(POLL_MS);
+  const connected = connectedSlots(env);
+  if (connected.length === 0) return shared("no Lab runner slot is connected");
+  let reply;
+  try {
+    // Never an empty active list on a failed listing: that would reclaim every holder. A failure falls back instead.
+    const active = await listActive();
+    reply = await callConvex(ACQUIRE_FN, { ghRunId, attempt, labRunId, connected, active });
+  } catch (error) {
+    return shared(`the Lab runner pool could not be reached (${String(error?.message ?? error).slice(0, 200)})`);
   }
+  if (Number.isInteger(reply?.slot) && reply.slot >= 1 && reply.slot <= LAB_SLOTS.length) {
+    log(`Leased Lab runner slot ${reply.slot}`);
+    return { code: 0, slot: reply.slot, attempt };
+  }
+  // Busy or an odd answer: leave the queue, so no waiting row holds a place this run will not take.
+  try {
+    await callConvex(RELEASE_FN, { ghRunId, attempt });
+  } catch {}
+  return shared(Number.isInteger(reply?.waiting) ? `every connected Lab runner slot is busy (${reply.free ?? 0} free)` : "the Lab runner pool gave an answer this script does not understand");
 }
 
 /** Free this run's slot. Resolves to `{ code, released }`. */
@@ -178,8 +165,6 @@ export async function runCommand(argv, {
   env = process.env,
   listActive,
   callConvex = (fn, args) => convexRun(fn, args, env),
-  sleep,
-  now,
   log = (line) => process.stdout.write(`${line}\n`),
 } = {}) {
   const [command, ...rest] = argv;
@@ -195,24 +180,17 @@ export async function runCommand(argv, {
     return 0;
   }
   if (command !== "acquire") {
-    process.stderr.write("usage: node scripts/lab-runner-lease.mjs acquire [--max-minutes 170] | release\n");
-    return 2;
-  }
-  const at = rest.indexOf("--max-minutes");
-  const maxMinutes = at === -1 ? DEFAULT_MAX_MINUTES : Number(rest[at + 1]);
-  if (!Number.isFinite(maxMinutes) || maxMinutes <= 0) {
-    process.stderr.write("--max-minutes takes a positive number\n");
+    process.stderr.write("usage: node scripts/lab-runner-lease.mjs acquire | release\n");
     return 2;
   }
   const repo = env.GITHUB_REPOSITORY ?? "";
-  if (!/^[\w.-]+\/[\w.-]+$/.test(repo)) return fail("GITHUB_REPOSITORY is not set");
   const result = await acquireSlot({
     env,
-    maxMinutes,
-    listActive: listActive ?? (() => activeLabRuns(repo, env.GH_TOKEN ?? "", env)),
+    listActive: listActive ?? (() => {
+      if (!/^[\w.-]+\/[\w.-]+$/.test(repo)) throw new Error("GITHUB_REPOSITORY is not set");
+      return activeLabRuns(repo, env.GH_TOKEN ?? "", env);
+    }),
     callConvex,
-    sleep,
-    now,
     log,
   });
   if (result.code !== 0) return fail(result.why);

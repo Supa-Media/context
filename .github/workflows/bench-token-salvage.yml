@@ -13,7 +13,8 @@
 #   - reads that run's wrapped seal key from its write-token job's log, where it is ciphertext under
 #     BENCH_SECRET_WRITER_TOKEN by design (needs.token-key.outputs.wrapped);
 #   - names the secret the source wrote: a Tex replay's BENCH_RUNNER_REFRESH_TOKEN_LIVE, or for a Lab run the
-#     LAB_RUNNER_<N>_REFRESH_TOKEN of the slot its lease job logged (`Leased Lab runner slot N`);
+#     LAB_RUNNER_<N>_REFRESH_TOKEN of the slot its lease job logged (`Leased Lab runner slot N`), or the shared
+#     BENCH_RUNNER_REFRESH_TOKEN_LIVE when its lease fell back (`Using the shared benchmark runner`);
 #   - refuses when that secret was written after the seal was made: that write is newer;
 #   - unwraps the key with BENCH_SECRET_WRITER_TOKEN exactly as the write-token job does, opens the seal with
 #     bench-token-open.mjs (which checks the token's shape and never prints it), masks it and writes the secret.
@@ -90,9 +91,16 @@ jobs:
           if [ "$path" = ".github/workflows/tex-lab-run.yml" ]; then
             lease=$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$SOURCE_RUN/jobs?per_page=100" --jq '.jobs[] | select(.name == "Lease a Lab runner slot") | .id' | head -n1)
             [ -n "$lease" ] || { echo "::error::run $SOURCE_RUN has no lease job, so no slot to write"; exit 1; }
-            slot=$(gh api --allow-escape-sequences "repos/$GITHUB_REPOSITORY/actions/jobs/$lease/logs" | { grep -o 'Leased Lab runner slot [0-9]*' || true; } | tail -n1 | awk '{print $NF}')
-            [[ "$slot" =~ ^[1-3]$ ]] || { echo "::error::run $SOURCE_RUN's lease log names no Lab runner slot"; exit 1; }
-            secret="LAB_RUNNER_${slot}_REFRESH_TOKEN"
+            log=$(gh api --allow-escape-sequences "repos/$GITHUB_REPOSITORY/actions/jobs/$lease/logs")
+            slot=$({ grep -o 'Leased Lab runner slot [0-9]*' <<<"$log" || true; } | tail -n1 | awk '{print $NF}')
+            if [[ "$slot" =~ ^[1-3]$ ]]; then
+              secret="LAB_RUNNER_${slot}_REFRESH_TOKEN"
+            elif grep -q 'Using the shared benchmark runner' <<<"$log"; then
+              echo "Run $SOURCE_RUN fell back to the shared benchmark runner (slot 0)"
+            else
+              echo "::error::run $SOURCE_RUN's lease log names no Lab runner slot"; exit 1
+            fi
+            unset log
           fi
           echo "Secret: $secret"
           echo "secret=$secret" >> "$GITHUB_OUTPUT"
