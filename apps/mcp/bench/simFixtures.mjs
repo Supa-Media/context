@@ -121,19 +121,23 @@ function readEntry(file) {
  * folder every test process of the run shares (null: this process only). `mode` decides whether the fixtures are
  * read at all. `test` names the test that is asking, so a miss says which test it came from.
  */
-export function openWorldStore({ fixtures = null, runDir = null, mode = "replay", test = null, closed = false } = {}) {
+export function openWorldStore({ fixtures = null, runDir = null, mode = "replay", test = null } = {}) {
   // This process's own claims, by key, and the calls it asked the model for, in order.
   const own = new Map();
   const claimed = [];
 
   return {
     mode,
-    /** A closed world (a replay with a fixtures file) never asks its model: a miss gets the nearest fixture or nothing. */
-    closed: closed && mode === "replay",
-
-    /** The recorded answer nearest a call no key matched (`nearestFixture`), or null. */
+    /**
+     * The answer nearest a call no key matched (`nearestFixture`), from the fixtures and what this run already
+     * answered, or null. Only a replay looks: a recording asks for each wording, and a fake answer is never near.
+     */
     near(kind, request) {
-      return mode === "replay" ? nearestFixture(fixtures, kind, request) : null;
+      if (mode !== "replay") return null;
+      const shown = new Map(fixtures ?? []);
+      for (const entry of runMisses(runDir)) if (!entry.fake && !shown.has(entry.key)) shown.set(entry.key, entry);
+      for (const [key, entry] of own) if (!entry.fake && !shown.has(key)) shown.set(key, entry);
+      return nearestFixture(shown, kind, request);
     },
 
     /** The answer for `key` and where it came from: this process, another process of the run, or the fixtures. */
@@ -294,15 +298,25 @@ export function testWorld(missed, test) {
   return { misses: calls.length, calls };
 }
 
+/** Whether `id` is a conversation of the tree's own Training or Dev set (`apps/mcp/bench/sets/<set>/<id>.json`). */
+export function isRepoConversation(tree, id) {
+  return /^[a-z0-9][a-z0-9-]{0,80}$/.test(String(id)) && RECORD_SETS.some((set) => existsSync(join(tree, "apps/mcp/bench/sets", set, `${id}.json`)));
+}
+
 /**
- * A recording run's answers into the tree's fixtures, one file a conversation (`prepared`: `{ id, runDir }`), before
- * the run folders go. `record` keeps the fixtures' own answers, `refresh` replaces them; `replay` writes nothing.
+ * A run's answers into the tree's fixtures, one file a conversation (`prepared`: `{ id, set, runDir }`), before the
+ * run folders go. `record` keeps the fixtures' own answers, `refresh` replaces them. A `replay` heals: what it had to
+ * ask the model is added the way `record` adds it, so the next run replays it (owner, 2026-11-19), and only for a
+ * Training or Dev conversation, never one whose set is not the repo's.
  */
 export function saveRunFixtures(prepared, tree, mode, log = (line) => process.stderr.write(line)) {
-  if (mode === "replay") return;
   for (const p of prepared) {
     if (!p?.id) continue;
-    const n = saveFixtures(fixturePath(tree, p.id), p.id, runMisses(p.runDir), mode);
+    const answers = runMisses(p.runDir);
+    // A replay writes only a Training or Dev conversation of the tree's own sets, and only when the model gave it
+    // something new: never one the run was handed from elsewhere.
+    if (mode === "replay" && (!RECORD_SETS.includes(p.set) || !isRepoConversation(tree, p.id) || !answers.some((entry) => !entry.fake))) continue;
+    const n = saveFixtures(fixturePath(tree, p.id), p.id, answers, mode === "replay" ? "record" : mode);
     log(`world fixtures: ${n} answers written to ${FIXTURES_DIR}/${p.id}.json\n`);
   }
 }

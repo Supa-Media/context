@@ -20,9 +20,11 @@
 #           The spend check rotates the leased slot's refresh token. This job seals that token and does not write
 #           the production secret: a secret in this job would be the branch's to read, because its install can change PATH.
 #           The `world` input (replay by default) picks the simulated world's mode (`setsRun.mjs`, `simFixtures.mjs`): replay
-#           answers its calls from the committed fixtures and warns on each miss; record adds the misses on the repo's
-#           Training or Dev set and uploads them as the `world-fixtures` artifact for a person to commit; refresh re-asks
-#           every call, and uploads the same. Only the repo's own sets, never the Test set.
+#           answers its calls from the committed fixtures (the nearest answer for a reworded call), asks the model only
+#           for a call nothing is near, and warns on each; record adds the misses on the repo's Training or Dev set;
+#           refresh re-asks every call. Only the repo's own sets, never the Test set.
+#   heal-ready   no secret, main's checkout: when the run ran main's code, uploads its world fixtures as `world-heal`
+#                for tex-world-heal.yml to merge into main, so the next run replays them.
 #   token-key    no checkout. An RSA key for this run. The private half is wrapped with the writer token and leaves
 #                only as ciphertext. The run job does not need this job, so that output is not in the branch's hands.
 #   publish-pub  the public half only. needs is not transitive, which is why this job exists.
@@ -49,7 +51,7 @@ on:
         required: true
         type: string
       world:
-        description: "The simulated world: replay answers its calls from the committed fixtures (a miss is warned); record adds the misses on the repo's Training or Dev set and uploads them as an artifact for a person to commit; refresh re-asks every call and uploads them the same way"
+        description: "The simulated world: replay answers from the committed fixtures and keeps what it had to ask (a miss is warned); record adds the misses on the repo's Training or Dev set; refresh re-asks every call. New answers come back as a pull request that merges itself"
         required: false
         default: replay
         type: choice
@@ -561,16 +563,17 @@ jobs:
           fi
           exit "$code"
 
-      # The recorded fixtures (`apps/mcp/bench/sets/sim/`) are bench data: the repo's own Training and Dev conversations, never
-      # the sealed Test set. A person downloads the artifact and commits the files; nothing here pushes them.
-      - name: Upload the recorded world
-        if: always() && (inputs.world == 'record' || inputs.world == 'refresh')
+      # The world's fixtures (`apps/mcp/bench/sets/sim/`) as the run left them: a replay adds the answers it had to ask
+      # for (`simFixtures.mjs` saveRunFixtures), a record or refresh what it recorded. Bench data from the repo's own
+      # Training and Dev conversations, never the sealed Test set; heal-ready and tex-world-heal.yml merge them into main.
+      - name: Upload the run's world
+        if: always()
         uses: actions/upload-artifact@v4
         with:
           name: world-fixtures
           path: apps/mcp/bench/sets/sim/
           retention-days: 7
-          if-no-files-found: warn
+          if-no-files-found: ignore
 
       - name: The results
         env:
@@ -898,3 +901,42 @@ jobs:
         env:
           CONVEX_DEPLOY_KEY: ${{ secrets.CONVEX_DEPLOY_KEY }}
         run: node scripts/lab-runner-lease.mjs release
+
+
+  # Self-healing world (owner, 2026-11-19): when the run ran main's code, its world fixtures go up again as
+  # `world-heal`, which `tex-world-heal.yml` merges into main as a pull request that merges itself. A branch's run could
+  # hand back any file, so its answers wait for a replay on main. No secret here; main's checkout and git only.
+  heal-ready:
+    needs: [prep, run]
+    if: ${{ always() && needs.run.result != 'cancelled' && needs.run.result != 'skipped' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: main
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: The run ran main's code
+        id: main
+        env:
+          SHA: ${{ needs.prep.outputs.sha }}
+        run: |
+          if [[ "$SHA" =~ ^[0-9a-f]{40}$ ]] && git merge-base --is-ancestor "$SHA" HEAD; then echo "ok=true" >> "$GITHUB_OUTPUT"
+          else echo "The run's code is not on main; its world answers are not kept"; fi
+
+      - uses: actions/download-artifact@v4
+        if: steps.main.outputs.ok == 'true'
+        continue-on-error: true
+        with:
+          name: world-fixtures
+          path: ${{ runner.temp }}/world-in/
+
+      - uses: actions/upload-artifact@v4
+        if: steps.main.outputs.ok == 'true'
+        with:
+          name: world-heal
+          path: ${{ runner.temp }}/world-in/
+          retention-days: 7
+          if-no-files-found: ignore
