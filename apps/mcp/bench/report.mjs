@@ -315,7 +315,9 @@ function runBlock(run, setup) {
   if (run.steps) lines.push(`Steps: ${run.steps}`, "");
   // Each failed tool's own error, short (`toolErrors.mjs`): read back for a Lab row's detail.
   if (run.toolErrors?.length) lines.push(`Tool errors: ${run.toolErrors.join(" | ")}`, "");
-  if (run.delivered?.length) lines.push(`Delivered: ${JSON.stringify(run.delivered.map(({ title, state, parts, advisorCalls, usd, capped }) => ({ title, state, parts, advisorCalls, usd, ...(capped ? { capped } : {}) })))}`, "");
+  // Each job's parts' tool calls are kept too (`jobDelivery.mjs`), so the judge and the checks see what a job did. Written only
+  // when a job's part called a tool, so an older note stays byte-identical.
+  if (run.delivered?.length) lines.push(`Delivered: ${JSON.stringify(run.delivered.map(({ title, state, parts, advisorCalls, usd, tools, capped }) => ({ title, state, parts, advisorCalls, usd, ...(tools?.length ? { tools } : {}), ...(capped ? { capped } : {}) })))}`, "");
   if (run.changes?.length) {
     lines.push("Changes recorded:", "");
     for (const c of run.changes) {

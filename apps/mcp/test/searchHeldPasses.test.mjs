@@ -195,7 +195,8 @@ test("a Tex turn's searches start no index pass until the model has answered", a
     );
     const body = await response.json();
     assert.equal(response.status, 200);
-    assert.equal(body.answer, "Five dollars.");
+    // Both searches covered two workspaces, so the front door ends the reply with the last result's Searched line (`searchClaims.js` withSearchedLine, 2026-11-19).
+    assert.equal(body.answer, "Five dollars.\n\nSearched: @held, @band.");
     assert.deepEqual(body.steps.map((step) => step.tool), ["search_notes", "search_notes"]);
     assert.equal(waited, false, "every workspace was searched at once, the person's own included");
     const lastModel = timeline.lastIndexOf("model");

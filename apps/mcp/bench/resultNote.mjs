@@ -118,11 +118,17 @@ function readBlock(id, lines) {
     const m = timeLine.match(TIME);
     time = { seconds: m[1] === undefined ? null : Number(m[1]), price: m[2] === "unknown" ? null : Number(m[2].slice(1)), texts: Number(m[3]) };
   }
+  const frontDoorTools = toolList === "none" ? [] : toolList.split(", ");
+  // The tool calls each background job's parts made (`jobDelivery.mjs` writes them on `Delivered`): they are the turn's calls
+  // too, so the checks and the judge see them. A note with none reads as before.
+  const delivered = deliveredLine ? readJobsLine(deliveredLine.slice("Delivered: ".length)) : [];
+  const jobTools = delivered.flatMap((d) => (Array.isArray(d?.tools) ? d.tools.map(String) : []));
   return {
     id,
     conversation,
-    toolsLine,
-    tools: toolList === "none" ? [] : toolList.split(", "),
+    // The judge reads this line, so the job calls are named in it, labelled as the jobs'.
+    toolsLine: jobTools.length ? `${toolsLine ?? "Tools: none"}; in its background jobs: ${jobTools.join(", ")}` : toolsLine,
+    tools: [...frontDoorTools, ...jobTools],
     changes: tail.filter((line) => line.startsWith("- ")),
     browser: browserLine ? browserLine.slice("Browser: ".length).split(" | ").filter(Boolean) : [],
     // What the bench's own stand-ins could not answer (`benchGaps.mjs`).
@@ -130,7 +136,7 @@ function readBlock(id, lines) {
     mail: mailLine ? mailLine.slice("Mail: ".length).split(" | ").filter(Boolean) : [],
     where: filedLine ? filedWhere(filedLine.slice("Filed: ".length)) : {},
     jobs: jobsLine ? readJobsLine(jobsLine.slice("Jobs: ".length)) : [],
-    delivered: deliveredLine ? readJobsLine(deliveredLine.slice("Delivered: ".length)) : [],
+    delivered,
     rounds: roundsLine ? readJobsLine(roundsLine.slice("Rounds: ".length)) : [],
     routes: routeLine ? readJobsLine(routeLine.slice("Route: ".length)) : [],
     time,

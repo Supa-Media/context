@@ -334,7 +334,7 @@ test("a job a texted turn started runs part after part, and its report is the pe
   assert.equal(result.texts, 1, "the reply is one text; the report came later");
   assert.equal(result.usage.input, 40, "the job's parts and its report are the test's spend");
   const [delivered] = result.delivered;
-  assert.deepEqual({ ...delivered, usd: undefined }, { title: "Find flights", state: "done", parts: 2, advisorCalls: 2, usd: undefined }, "each part's done check is one advisor call");
+  assert.deepEqual({ ...delivered, usd: undefined }, { title: "Find flights", state: "done", parts: 2, advisorCalls: 2, usd: undefined, tools: [] }, "each part's done check is one advisor call");
   assert.ok(delivered.usd > 0, "and what the job cost is kept beside it");
   const quiet = [];
   await converse({ ...world, async text(m, p, o) { quiet.push(o ?? {}); return world.text(m, p, o); } }, { ...STREAMLY, ifAsked: [] }, { fake: true });
@@ -355,11 +355,31 @@ test("a job past the bench's bound is recorded as not run, and a job its parts r
   };
   const result = await converse(world, { ...STREAMLY, ifAsked: [] }, { fake: true }, null, true);
   assert.deepEqual(result.delivered, [
-    { title: "A", state: "stuck", parts: 4, advisorCalls: 0, usd: 0, capped: true },
-    { title: "B", state: "stuck", parts: 4, advisorCalls: 0, usd: 0, capped: true },
+    { title: "A", state: "stuck", parts: 4, advisorCalls: 0, usd: 0, tools: [], capped: true },
+    { title: "B", state: "stuck", parts: 4, advisorCalls: 0, usd: 0, tools: [], capped: true },
     { title: "C", state: "not run", parts: 0, advisorCalls: 0, usd: 0 },
   ]);
   assert.deepEqual(result.conversation.map((line) => line.later ? "later" : line.from), ["person", "assistant", "later", "later"], "each report follows the reply it came from");
+});
+
+test("a delivered job keeps its parts' tool calls in order, failed ones labelled, and a job not run keeps none (2026-11-19)", async () => {
+  const { deliverInto } = await import("../jobDelivery.mjs");
+  const usage = { input: 10, output: 5, cacheRead: 0, cacheWrite: 0 };
+  const turn = (fields) => ({ ok: true, ms: 1, model: null, asked: 0, usage, usageByModel: {}, progress: [], tools: [], jobs: [], answer: "", ...fields });
+  const world = {
+    modelCalls: () => [],
+    async text(_message, _pictures, options = {}) {
+      if (options.job?.attempt === 1) return turn({ answer: "Searched the notes.", verdict: "keep_going", advice: "ask the advisor", tools: [{ tool: "search_notes", ok: true }, { tool: "ask_advisor", ok: true }] });
+      if (options.job) return turn({ answer: "Done, and the email did not go.", verdict: "done", tools: [{ tool: "send_email", ok: false }] });
+      return turn({ answer: "Here is the report." });
+    },
+  };
+  const totals = { usage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 }, usageByModel: {}, rounds: {}, delivered: [], traces: [], jobMs: 0 };
+  const jobs = [{ title: "Plan the trip", brief: "Plan it", asked: "plan my trip" }, { title: "Second", brief: "b", asked: "plan my trip" }, { title: "Third", brief: "c", asked: "plan my trip" }];
+  await deliverInto(world, jobs, { conversation: [], totals, running: [], clock: () => 0 });
+  assert.deepEqual(totals.delivered[0].tools, ["search_notes", "ask_advisor", "send_email (failed)"], "the parts' calls, in order, duplicates kept");
+  assert.equal("tools" in totals.delivered[2], false, "a job past the bound is not run and has no calls");
+  assert.equal(totals.delivered[2].state, "not run");
 });
 
 test("a result's Delivered line carries each job's advisor calls and spend to the Lab run's row", async () => {
