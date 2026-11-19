@@ -43,6 +43,10 @@ const parse = (s) => {
 /** The nodes a message can be labelled for: every step of the config with output fields. */
 export const labelNodes = () => TEX_CONFIG.nodes.filter((n) => Array.isArray(n.outSchema) && n.outSchema.length > 0);
 
+/** One conversation of the repo's Training or Dev sets by id (the copy as the repo has it; a Lab draft is not read here), or null. */
+const REPO_BY_ID = new Map(REPO.sets.filter((c) => c.set === "training" || c.set === "dev").map((c) => [c.id, c]));
+export const repoConversation = (id) => REPO_BY_ID.get(id) ?? null;
+
 /** The gold route of a message in the repo's Training and Dev conversations (`labels.router.route`), for a run's `byRoute`. Never the Test set: the repo does not hold it. */
 export const repoGoldRoute = () => goldRouteAt(REPO.sets.filter((c) => c.set === "training" || c.set === "dev"));
 
