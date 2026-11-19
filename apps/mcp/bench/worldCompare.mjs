@@ -14,9 +14,11 @@
  *   - **Shared miss memo.** A call nothing in the snapshot is near (the same 0.5 likeness rule, `simFixtures.mjs`) is
  *     answered once into `memo/<conversation>/`, one file per call claimed atomically (`openWorldStore` claim), and
  *     the other arm, in this process or another, replays that answer for the same or a near ask.
- *   - **Write-back once.** Nothing is written to `apps/mcp/bench/sets/sim/` while an arm runs. `finish` writes the memo
- *     back once, through the same `saveRunFixtures` a single run uses (so the heal workflow is unchanged), and a
- *     `written` marker made with an exclusive create makes a second `finish` a no-op.
+ *   - **Write-back once.** Nothing is written to `apps/mcp/bench/sets/sim/` while an arm runs. Each arm marks itself
+ *     done (`done-<arm>`), and `finish`, once both are, writes the memo back once, through the same `saveRunFixtures` a
+ *     single run uses in replay mode (so the heal workflow is unchanged), under an exclusive lock; the `written` marker
+ *     then makes a second `finish` a no-op and a reused folder an error. A compare is always a replay: `record` and
+ *     `refresh` stay single runs.
  *   - **Misses per arm.** Each arm marks every memo answer it used (`touched-<arm>/`). `finish` reports
  *     "world misses: base N, draft M" and, when the arms differ by at least max(5, 25% of the larger), says the compare
  *     was "not the same recorded world" and gives no verdict on it.
@@ -29,8 +31,8 @@
  *   node apps/mcp/bench/worldCompare.mjs finish --dir <compare> [--tree <repo>]
  */
 
-import { createHash } from "node:crypto";
-import { existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
+import { createHash, randomBytes } from "node:crypto";
+import { existsSync, mkdirSync, readFileSync, readdirSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { fixturePath, saveRunFixtures } from "./simFixtures.mjs";
 
@@ -58,27 +60,44 @@ export function snapshotFixtures(tree, convs) {
   return { hash: hash.digest("hex"), files, sets };
 }
 
-/** Where the compare keeps a conversation's snapshot copy, its shared memo, and an arm's marks. */
-export const snapshotPath = (dir, id) => join(dir, "snapshot", `${id}.json`);
+/**
+ * Where the compare keeps its snapshot (`frozen/`: the record and one copy per conversation), a conversation's shared
+ * memo, and its markers.
+ */
+const frozenDir = (dir) => join(dir, "frozen");
+export const snapshotPath = (dir, id) => join(frozenDir(dir), `${id}.json`);
 export const memoDir = (dir, id) => join(dir, "memo", id);
+const recordPath = (dir) => join(frozenDir(dir), "snapshot.json");
 
 /**
- * Opens a compare folder: the first call takes the snapshot and writes it in; every later call (the other arm, another
- * process) reads the one already there, whatever the fixtures on disk now hold. Returns `{ hash, ids, sets }`.
+ * Opens a compare folder: the first call takes the snapshot and publishes it; every later call (the other arm, another
+ * process) reads the one already there, whatever the fixtures on disk now hold. The snapshot is written whole into a
+ * folder of its own and published by one rename, which fails when another process published first, so no reader ever
+ * sees a half-written snapshot and a late process never overwrites one. A compare already finished is refused: its
+ * misses were written back, and a new compare needs a new folder. Returns `{ hash, ids, sets }`.
  */
 export function openCompare(dir, { tree, convs }) {
-  const record = join(dir, "snapshot.json");
-  if (!existsSync(record)) {
+  if (existsSync(join(dir, "written"))) throw new Error(`the compare in ${dir} is finished; start a new compare in a new folder`);
+  if (!existsSync(recordPath(dir))) {
     const snap = snapshotFixtures(tree, convs);
-    mkdirSync(join(dir, "snapshot"), { recursive: true });
-    for (const [id, text] of Object.entries(snap.files)) if (text !== "") writeFileSync(snapshotPath(dir, id), text);
+    const tmp = join(dir, `.frozen-${process.pid}-${randomBytes(6).toString("hex")}`);
+    mkdirSync(tmp, { recursive: true });
+    for (const [id, text] of Object.entries(snap.files)) if (text !== "") writeFileSync(join(tmp, `${id}.json`), text);
+    writeFileSync(join(tmp, "snapshot.json"), `${JSON.stringify({ hash: snap.hash, ids: Object.keys(snap.files), sets: snap.sets }, null, 1)}\n`);
     try {
-      writeFileSync(record, `${JSON.stringify({ hash: snap.hash, ids: Object.keys(snap.files), sets: snap.sets }, null, 1)}\n`, { flag: "wx" });
+      renameSync(tmp, frozenDir(dir));
     } catch (error) {
-      if (error?.code !== "EEXIST") throw error; // another arm took it first: its snapshot stands
+      if (!["EEXIST", "ENOTEMPTY", "EPERM"].includes(error?.code)) throw error; // another arm published first: its snapshot stands
+    } finally {
+      rmSync(tmp, { recursive: true, force: true });
     }
   }
-  return JSON.parse(readFileSync(record, "utf8"));
+  return JSON.parse(readFileSync(recordPath(dir), "utf8"));
+}
+
+/** Marks an arm's run over, so `finish` knows every arm has asked all it will. */
+export function armDone(dir, arm) {
+  writeFileSync(join(dir, `done-${arm}`), "");
 }
 
 /** How many memo answers an arm used across the compare's conversations: its world misses. */
@@ -109,17 +128,34 @@ export function worldVerdict(base, draft) {
  * mode: only the repo's Training and Dev conversations, a committed answer stands). A second call writes nothing.
  * Returns the report, also kept as `report.json`.
  */
-export function finishCompare(dir, { tree, mode = "replay", log = (line) => process.stderr.write(line) } = {}) {
-  const snap = JSON.parse(readFileSync(join(dir, "snapshot.json"), "utf8"));
+export function finishCompare(dir, { tree, mode = "replay", arms = ARMS, force = false, log = (line) => process.stderr.write(line) } = {}) {
+  const snap = JSON.parse(readFileSync(recordPath(dir), "utf8"));
+  const waiting = arms.filter((arm) => !existsSync(join(dir, `done-${arm}`)));
+  // An arm still running may ask more: writing back now would leave its later misses out for good.
+  if (waiting.length > 0 && !force) throw new Error(`the compare's ${waiting.join(" and ")} arm has not finished; finish after it (or pass --force)`);
   const verdict = worldVerdict(armMisses(dir, "base"), armMisses(dir, "draft"));
+  // One writer: the lock is taken with an exclusive create. `written` is made only after the write-back succeeded, so a
+  // failed write leaves the compare finishable again, and a finished one writes nothing more.
   let wrote = false;
-  try {
-    writeFileSync(join(dir, "written"), `${snap.hash}\n`, { flag: "wx" });
-    wrote = true;
-  } catch (error) {
-    if (error?.code !== "EEXIST") throw error;
+  if (!existsSync(join(dir, "written"))) {
+    const lock = join(dir, "finishing");
+    let locked = false;
+    try {
+      writeFileSync(lock, `${process.pid}\n`, { flag: "wx" });
+      locked = true;
+    } catch (error) {
+      if (error?.code !== "EEXIST") throw error;
+    }
+    if (locked) {
+      try {
+        saveRunFixtures(snap.ids.map((id) => ({ id, set: snap.sets?.[id] ?? null, runDir: memoDir(dir, id) })), tree, mode, log);
+        writeFileSync(join(dir, "written"), `${snap.hash}\n`);
+        wrote = true;
+      } finally {
+        rmSync(lock, { force: true });
+      }
+    }
   }
-  if (wrote) saveRunFixtures(snap.ids.map((id) => ({ id, set: snap.sets?.[id] ?? null, runDir: memoDir(dir, id) })), tree, mode, log);
   const report = { snapshot: snap.hash, ...verdict, wroteBack: wrote };
   writeFileSync(join(dir, "report.json"), `${JSON.stringify(report, null, 1)}\n`);
   return report;
@@ -132,9 +168,9 @@ if (import.meta.url === `file://${process.argv[1]}`) {
     return i >= 0 ? args[i + 1] : undefined;
   };
   if (args[0] !== "finish" || !flag("dir")) {
-    process.stderr.write("usage: node apps/mcp/bench/worldCompare.mjs finish --dir <compare> [--tree <repo>]\n");
+    process.stderr.write("usage: node apps/mcp/bench/worldCompare.mjs finish --dir <compare> [--tree <repo>] [--force]\n");
     process.exit(2);
   }
-  const report = finishCompare(resolve(flag("dir")), { tree: resolve(flag("tree") ?? join(import.meta.dirname, "../../..")) });
+  const report = finishCompare(resolve(flag("dir")), { tree: resolve(flag("tree") ?? join(import.meta.dirname, "../../..")), force: args.includes("--force") });
   process.stdout.write(`world snapshot ${report.snapshot.slice(0, 12)}: ${report.line}\n`);
 }

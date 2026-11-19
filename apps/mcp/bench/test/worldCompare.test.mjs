@@ -2,11 +2,11 @@
 // write-back once at the end, and each arm's misses counted.
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import { armMisses, finishCompare, memoDir, missGap, openCompare, snapshotPath, worldVerdict } from "../worldCompare.mjs";
+import { armDone, armMisses, finishCompare, memoDir, missGap, openCompare, snapshotPath, worldVerdict } from "../worldCompare.mjs";
 import { fixturePath, fixtureText, nearestFixture, openWorldStore, readFixtures, worldKey } from "../simFixtures.mjs";
 import { createSimWorld, simSystem } from "../simWorld.mjs";
 import { installClock } from "../clock.mjs";
@@ -81,6 +81,10 @@ test("nothing is written back while the arms run, then once at finish, and never
   await armWorld(dir, "base", send).search("flights to lisbon");
   await armWorld(dir, "draft", send).search("hotels in lisbon");
   assert.equal(readFileSync(fixturePath(root, ID), "utf8"), original, "no write-back mid-compare");
+  armDone(dir, "base");
+  assert.throws(() => finishCompare(dir, { tree: root, log: () => {} }), /draft arm has not finished/);
+  assert.equal(readFileSync(fixturePath(root, ID), "utf8"), original, "no write-back while an arm runs");
+  armDone(dir, "draft");
   const first = finishCompare(dir, { tree: root, log: () => {} });
   assert.equal(first.wroteBack, true);
   const healed = readFixtures(fixturePath(root, ID));
@@ -90,6 +94,20 @@ test("nothing is written back while the arms run, then once at finish, and never
   assert.equal(second.wroteBack, false);
   assert.equal(readFileSync(fixturePath(root, ID), "utf8"), "sentinel", "a second finish writes nothing");
   assert.equal(second.line, "world misses: base 1, draft 1");
+  assert.throws(() => openCompare(dir, { tree: root, convs: [{ id: ID, set: "dev" }] }), /finished/);
+});
+
+test("the snapshot is published as one folder, and a later open leaves nothing half-written behind", () => {
+  const root = tree();
+  const dir = join(root, "compare");
+  const first = openCompare(dir, { tree: root, convs: [{ id: ID, set: "dev" }] });
+  const copy = readFileSync(snapshotPath(dir, ID), "utf8");
+  assert.deepEqual(readdirSync(join(dir, "frozen")).sort(), [`${ID}.json`, "snapshot.json"]);
+  writeFileSync(fixturePath(root, ID), fixtureText(ID, []));
+  const late = openCompare(dir, { tree: root, convs: [{ id: ID, set: "dev" }] });
+  assert.equal(late.hash, first.hash);
+  assert.equal(readFileSync(snapshotPath(dir, ID), "utf8"), copy);
+  assert.deepEqual(readdirSync(dir).filter((name) => name.startsWith(".frozen-")), [], "no snapshot left half-published");
 });
 
 test("world misses per arm, and a compare whose arms differ a lot is not the same recorded world", () => {
