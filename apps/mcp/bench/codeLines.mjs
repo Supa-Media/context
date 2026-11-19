@@ -23,6 +23,9 @@ const MAIL_TOOLS = ["search_email", "read_email", "mail_", "gmail"];
 const READ_START = ["read the note", "read the linked"];
 const READ_TOOLS = ["read_note", "read_notes", "search_notes", "fetch", "read_file", "read_meeting", "read_day"];
 const JOB_ASKS = ["start a job", "kick off a job", "start a background job", "background job"];
+const ACCESS_TOOLS = ["set_visibility", "set_folder_visibility"];
+const ACCESS_CHECKS = ["check", "make sure", "confirm", "verify"];
+const ACCESS_OBJECTS = /\b(doc|document|note|page|file|folder)\b/;
 
 /** The line as the rules read it: trimmed, lower case, one trailing period dropped. */
 function norm(line) {
@@ -199,6 +202,23 @@ export const RULES = [
     verdict: (line, f) => {
       const sent = f.tools.some((t) => toolName(t) === "send_email" && toolState(t) === "ok");
       return sent ? null : { does: false, reason: "no email was sent" };
+    },
+  },
+  // Last: no earlier rule claims a line that names access.
+  {
+    name: "access",
+    kind: "must",
+    full: () => false,
+    // WHY: grade access from what the record shows, not from Tex's claim or a judge's misreading. Training 2026-11-19: Tex
+    // said "Bram can open the week one doc now" after a visibility call had been refused, and the judge read that as
+    // "set_visibility failed twice". A line about someone's access to a doc or note is settled by the access tools' states.
+    match: (line) => /\baccess\b/.test(line) && ACCESS_CHECKS.some((p) => line.includes(p)) && ACCESS_OBJECTS.test(line),
+    verdict: (line, f) => {
+      const calls = f.tools.filter((t) => ACCESS_TOOLS.includes(toolName(t)));
+      // A line that asks for more than access ("check the doc's access and email Sam") is still the model's to pass.
+      if (calls.some((t) => toolState(t) === "ok")) return /\band\b/.test(line) ? null : { does: true, reason: "access was set" };
+      if (calls.some((t) => toolState(t) === "failed")) return { does: false, reason: "every access change failed" };
+      return null;
     },
   },
 ];

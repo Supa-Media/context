@@ -1,0 +1,29 @@
+{
+  "id": "garden-rota",
+  "kind": "group",
+  "members": ["Nia","Tomas","Kofi"],
+  "set": "training",
+  "setting": "Nia, Tomas and Kofi keep the watering rota for Alder Court community garden, and use this group to swap slots. Tex is in the group with the rota note, the shared calendar and the web. Tex speaks when someone asks it or when it truly helps; most of the chat is the three of them.",
+  "title": "The garden rota",
+  "msgs": [
+    {"at":"Mon 08:02","id":"m1","labels":{"fd":{"must":["list each slot with its person, short"],"star":true},"router":{"route":"read","star":true}},"text":"morning. tex what does watering look like this week","who":"Nia"},
+    {"id":"m2","tex":true,"text":"Mon and Wed evenings are Kofi's. Thu 8am is Tomas's, Sat 8am is Nia's, and Sun is Kofi's again.","who":"Tex"},
+    {"id":"m3","text":"ta. the back hose is leaking again","who":"Kofi"},
+    {"id":"m4","text":"i'll look at it thurs when i'm there","who":"Tomas"},
+    {"id":"m5","text":"did anyone else get the council water notice","who":"Tomas"},
+    {"id":"m6","text":"yeah just the usual flushing, no action","who":"Nia"},
+    {"id":"m7","text":"lol the usual","who":"Kofi"},
+    {"id":"m8","text":"[pic: a tomato the size of a fist]","who":"Tomas"},
+    {"id":"m9","text":"from the bed by the gate. i'll bring some saturday","who":"Nia"},
+    {"id":"m10","text":"bring the big ones, not the sad ones","who":"Kofi"},
+    {"at":"Tue 19:14","id":"m11","text":"sat 8am is still yours nia right","who":"Tomas"},
+    {"id":"m12","kind":"reply","labels":{"decide":{"act":"respond","star":true,"why":"replies_to_tex"},"fd":{"must":["name the gap and ask who covers it"],"never":["hand saturday to the rest of the crew","just say ok"],"star":true},"router":{"route":"quick","star":true}},"text":"actually i can't do saturday morning, my shift moved. sorry","to":"m2","who":"Nia"},
+    {"id":"m13","tex":true,"text":"Got it. Saturday's 8am watering is open now. Who can take it?","who":"Tex"},
+    {"id":"m14","labels":{"fd":{"must":["the number from the garden note, one line"]},"router":{"route":"read","star":true}},"text":"tex how many litres does the big can hold","who":"Kofi"},
+    {"id":"m15","tex":true,"text":"20 litres. It lives in the shed by the gate.","who":"Tex"},
+    {"id":"m16","text":"i'll do sat 8am","who":"Tomas"},
+    {"id":"m17","tex":true,"text":"Done: Saturday 8am watering is Tomas's.","who":"Tex"},
+    {"id":"m18","text":"legend","who":"Kofi"},
+    {"at":"Tue 19:31","id":"m19","text":"thanks tomas, you're a saint","who":"Nia"}
+  ]
+}

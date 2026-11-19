@@ -34,6 +34,7 @@ import { GUEST_NAME_SEND_ACTIONS } from "./groupGuestNames.js";
 import { PERSONAL_TEX_SEND_ACTIONS } from "./askPersonalTex.js";
 import { CROSS_CHAT_SEND_ACTIONS } from "./crossChat.js";
 import { TEXTS_ID_PREFIX } from "../tools/texts.js";
+import { withNothingChanged } from "./noteLinks.js";
 
 /**
  * The first top-level argument a closed schema does not take, as the refusal to send back, or null. Only unknown names:
@@ -67,6 +68,27 @@ const own = (call) => {
   const beside = Object.fromEntries(Object.entries(call).filter(([key]) => !CALL_KEYS.has(key)));
   return { ...beside, ...nested };
 };
+
+/**
+ * A manage call's arguments written beside its action, folded into `args` where the action's carrying tool takes them.
+ * WHY: Training 2026-11-19: a visibility call with `path` beside the action was refused ("unknown argument "path";
+ * permitted here: action, args, context, mailbox, person_said") and Tex retried. `manage` takes no top-level arguments
+ * of its own, so the schema refused the key before the action ran. A key the carrier does not take stays beside the
+ * action and is refused as it always was; inside `args` wins where both name a key.
+ */
+function manageOwn(call, held) {
+  const table = ACTIONS.manage;
+  if (typeof call.action !== "string" || !Object.hasOwn(table, call.action)) return call;
+  const takes = held.get(table[call.action].tool)?.inputSchema?.properties;
+  if (!takes || (call.args !== undefined && (call.args === null || typeof call.args !== "object" || Array.isArray(call.args)))) return call;
+  const beside = Object.fromEntries(Object.entries(call).filter(([key]) => !CALL_KEYS.has(key) && Object.hasOwn(takes, key)));
+  if (Object.keys(beside).length === 0) return call;
+  const rest = Object.fromEntries(Object.entries(call).filter(([key]) => !Object.hasOwn(beside, key)));
+  return { ...rest, args: { ...beside, ...(call.args ?? {}) } };
+}
+
+/** The visibility actions whose refusal ends with the NOTHING_CHANGED sentence (Training 2026-11-19). */
+const VISIBILITY_ACTIONS = ["visibility", "folder_visibility"];
 
 /**
  * The same, for an action whose tool takes a workspace: the call's `context`, where every Context tool reads it,
@@ -375,7 +397,19 @@ export function sixToolsOver(granted, grants = null) {
     if (actions.length > 0) tools.push(familyTool(family, base.get(family), actions, held));
   }
 
+  /**
+   * A refused visibility change ends with the sentence that says nothing changed, so the model cannot take a refused
+   * change for a made one (Training 2026-11-19: "set_visibility failed twice" was the judge's reading of a refusal
+   * followed by a success; the reply then said view-only access that had been set on the second call).
+   */
   function resolve(name, args) {
+    const out = resolveCall(name, args);
+    const action = args && typeof args === "object" && !Array.isArray(args) ? args.action : undefined;
+    if (out.error === undefined || name !== "manage" || !VISIBILITY_ACTIONS.includes(action)) return out;
+    return { ...out, error: withNothingChanged(out.error) };
+  }
+
+  function resolveCall(name, args) {
     // An older name is itself: the turn's allowlist decides it. An argument its schema does not take is refused,
     // naming the ones it does: `search_email { mailbox }` was run with the address dropped, over every mailbox, and Tex
     // took the answer for that one mailbox's (2026-11-14).
@@ -398,7 +432,7 @@ export function sixToolsOver(granted, grants = null) {
       return { name: "group_chats", args: { op: "search", words: call.query, ...(chat !== undefined ? { chat } : {}), ...(since !== undefined ? { since } : {}) } };
     }
     // A notes search's workspace is a boost, not a fence (`searchWorkspace`); `only` leaves it a filter and is dropped.
-    const searched = name === "search" ? sixSearchCall(call) : { call };
+    const searched = name === "search" ? sixSearchCall(call) : { call: name === "manage" ? manageOwn(call, held) : call };
     // A file kept from a text reads as itself, whatever else the call carries (`keptFiles.js`): `fetch { id: "download:…",
     // args: { mail: false } }` was refused as a mail read, and Tex told the person their PDF "won't load" (2026-10-26).
     if (name === "fetch" && typeof call.id === "string" && call.id.trim().startsWith("download:")) {

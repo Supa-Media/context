@@ -170,3 +170,20 @@ test("a silent quiet-turn marker is not words, and a stay-quiet line passes on i
   const failed = { conversation: [{ from: "assistant", text: "(no answer came back; the texting Worker would retry)" }] };
   assert.equal(wordsSent(failed), true, "a failed turn's apology line is not silent and still counts as words");
 });
+
+// Training 2026-11-19 (trial-hire): a first visibility call was refused, a later one set the access, and the judge
+// misread the refusals as "set_visibility failed twice". An access line is graded from the access tools' states.
+test("access: a line about checking someone's access to a doc is graded from the access tools' states", () => {
+  const ACCESS = "check the doc's access, not assume";
+  assert.equal(codeRule(must(ACCESS)).name, "access");
+  assert.equal(codeOnly(must(ACCESS)), false, "the model still reads the line");
+  assert.equal(verdictOf(must(ACCESS), answer({ tools: ["read_note", "set_visibility (failed)", "set_visibility"] })), true);
+  const failed = codeVerdict(must(ACCESS), answer({ tools: ["set_visibility (failed)"] }));
+  assert.equal(failed.does, false);
+  assert.match(failed.reason, /every access change failed/);
+  assert.equal(verdictOf(must(ACCESS), answer({ tools: ["read_note"] })), undefined, "no access change: the model decides");
+  assert.equal(verdictOf(must(ACCESS), answer({ tools: ["set_visibility (held for OK)"] })), undefined);
+  assert.equal(codeRule(must("make sure Bram can open the doc")), null, "no access word, the model decides");
+  assert.equal(codeRule(must("check the access logs")), null, "no doc, note, page, file or folder named");
+  assert.equal(verdictOf(must("check the doc's access and send Sam the link"), answer({ tools: ["set_visibility"] })), undefined, "a compound line is still the model's to pass");
+});

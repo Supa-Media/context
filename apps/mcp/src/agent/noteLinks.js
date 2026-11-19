@@ -1,4 +1,25 @@
 /**
+ * What a refused visibility change ends with (Training 2026-11-19): the model reads it, so a refusal is never taken for a
+ * change made. The sixTools resolver appends it to its own refusals (`sixTools.js`); a set_visibility or
+ * set_folder_visibility result that is an error gets it here.
+ */
+export const NOTHING_CHANGED = "Nothing changed: who can open it is as it was, so don't tell anyone it changed.";
+const VISIBILITY_TOOLS = new Set(["set_visibility", "set_folder_visibility"]);
+
+/** A refusal's text with the NOTHING_CHANGED sentence after it, on its own sentence (a full stop added where it has none). */
+export function withNothingChanged(text) {
+  const refusal = text.replace(/\s+$/, "");
+  return `${/[.!?]$/.test(refusal) ? refusal : `${refusal}.`} ${NOTHING_CHANGED}`;
+}
+
+/** A failed visibility change's text, with the NOTHING_CHANGED sentence last; any other result as it came. */
+function nothingChanged(name, result) {
+  const first = result?.content?.[0];
+  if (result?.isError !== true || !VISIBILITY_TOOLS.has(name) || typeof first?.text !== "string") return result;
+  return { ...result, content: [{ ...first, text: withNothingChanged(first.text) }, ...result.content.slice(1)] };
+}
+
+/**
  * A TEXTED WRITE ANSWERS WITH THE NOTE'S LINK (the owner, 2026-10-18).
  *
  * Dev asked for the landing page to show Tex replying to a link "with the
@@ -182,10 +203,11 @@ function forget(saved, path) {
  * included, passes through untouched.
  */
 export function withNoteLinks(callTool, { origin, contexts, saved = null }) {
-  if (origin === null) return callTool;
+  // No origin means no links, but a refused visibility change still says nothing changed.
+  if (origin === null) return async (name, args) => nothingChanged(name, await callTool(name, args));
   return async (name, args) => {
     const result = await callTool(name, args);
-    if (result?.isError) return inWorkspace(name, args, contexts, result);
+    if (result?.isError) return nothingChanged(name, inWorkspace(name, args, contexts, result));
     const gone = saved !== null ? leftBehind(name, args) : undefined;
     if (gone !== undefined) forget(saved, gone);
     if (name !== "write_note" && name !== "read_note") return result;

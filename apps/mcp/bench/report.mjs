@@ -293,6 +293,11 @@ function runBlock(run, setup) {
   }
   const tools = run.tools?.length ? run.tools.map(toolLabel).join(", ") : "none";
   lines.push(`Tools: ${tools}`, "");
+  // Which conversation entries were silent turns: one JSON line of their 0-based indexes, read back by resultNote.mjs.
+  // The judge runs in another process and reads silence from this record, not from the marker's words. Written only when
+  // some turn is silent, so an older note stays byte-identical.
+  const silent = (run.conversation ?? []).flatMap((m, i) => (m.silent === true ? [i] : []));
+  if (silent.length) lines.push(`Silent: ${JSON.stringify(silent)}`, "");
   // What a scripted browser did (`sites.mjs`): one line, read back by the checks.
   if (run.browser?.length) lines.push(`Browser: ${run.browser.map((event) => event.replace(/\s+/g, " ").replaceAll(" | ", " / ")).join(" | ")}`, "");
   if (run.bench?.length) lines.push(`Bench: ${run.bench.join(" | ")}`, "");
