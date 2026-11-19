@@ -29,6 +29,10 @@
  * token is never stored, and the next sign-in presents a retired token,
  * which revokes the grant.
  *
+ * Lab runs (tex-lab-run.yml) write a leased slot's secret, LAB_RUNNER_<N>_REFRESH_TOKEN, with N checked
+ * against 1-3 before the name is built. They never name the shared benchmark runner's secrets, which Tex replay
+ * keeps. Each write is stdin or --body, the same rule as before.
+ *
  *   node scripts/check-bench-token-writer.mjs
  *   node scripts/check-bench-token-writer.mjs --self-test
  */
@@ -43,6 +47,11 @@ const WORKFLOWS = join(ROOT, ".github/workflows");
 const FILES = ["tex-lab-run.yml", "tex-replay.yml"];
 /** Writers that open an earlier run's seal and do not seal anything themselves (no seal-marker count). */
 const OPEN_ONLY = ["bench-token-salvage.yml"];
+/** The Lab's writer: its secrets are per slot, and it never names the shared benchmark runner's. */
+const LAB_FILE = "tex-lab-run.yml";
+const LAB_SECRET_PREFIX = "LAB_RUNNER_";
+/** The shared runner's secrets (BENCH_RUNNER_REFRESH_TOKEN, and its live copy) as a secret reference. */
+const SHARED_RUNNER_SECRET = /secrets\.BENCH_RUNNER_REFRESH_TOKEN(?:_LIVE)?(?![A-Za-z0-9_])/;
 
 /** What a branch job must not be able to see. The admin token is banned in the whole file. */
 const BRANCH_FORBIDDEN = ["BENCH_SECRET_WRITER_TOKEN", "outputs.wrapped", "outputs.private"];
@@ -175,9 +184,13 @@ function secretSetProblems(name, text) {
       if (flag === "--body" || flag === "-b") readsBody = true;
       if (takesValue && !word.includes("=")) i += 1;
     }
-    if (secretName === "BENCH_RUNNER_REFRESH_TOKEN_LIVE" && !readsBody && !readsStdin) {
+    if (name === LAB_FILE && !secretName.startsWith(LAB_SECRET_PREFIX)) {
+      problems.push(`${name} writes ${secretName} with gh secret set. A Lab run writes only its leased slot's LAB_RUNNER_<N>_REFRESH_TOKEN.`);
+    }
+    // A refresh token, or a name built at run time (a slot's), must be written from stdin or --body.
+    if (/REFRESH_TOKEN|\$/.test(secretName) && !readsBody && !readsStdin) {
       problems.push(
-        `${name} writes BENCH_RUNNER_REFRESH_TOKEN_LIVE without --body and without reading stdin. gh secret set would prompt, or store a dotenv file, instead of the token.`,
+        `${name} writes ${secretName} without --body and without reading stdin. gh secret set would prompt, or store a dotenv file, instead of the token.`,
       );
     }
   }
@@ -296,6 +309,19 @@ export function problemsIn(name, text, { seals = true } = {}) {
   }
   if (!writerOnMain) {
     problems.push(`${name} does not read BENCH_SECRET_WRITER_TOKEN from a job whose checkout is main.`);
+  }
+  if (name === LAB_FILE) {
+    // Comments count here too, as for the admin token: the shared secret is not to be named in this file at all.
+    if (SHARED_RUNNER_SECRET.test(text)) {
+      problems.push(`${name} names the shared benchmark runner's secret. A Lab run leases a slot and reads only its LAB_RUNNER_<N>_* secrets.`);
+    }
+    for (const job of jobs) {
+      if (!/gh secret set "?LAB_RUNNER_/.test(job.text)) continue;
+      const check = job.text.indexOf("^[1-3]$");
+      if (check < 0 || check > job.text.indexOf("gh secret set")) {
+        problems.push(`${name} job ${job.id} writes a slot's secret without first checking the slot is 1-3 (^[1-3]$).`);
+      }
+    }
   }
   problems.push(...secretSetProblems(name, text));
   problems.push(...sealUploadProblems(name, text));
@@ -468,6 +494,54 @@ ${SEAL_MARKERS.map((marker) => `      - run: echo ${marker}\n      - run: echo $
   expect("a seal upload with always() passes", sealUploadProblems("u.yml", upload("always() && steps.seal-final.outputs.final == 'present'")).length === 0);
   expect("${{ always() }} passes", sealUploadProblems("u.yml", upload("${{ always() && steps.seal-final.outputs.final == 'present' }}")).length === 0);
   expect("another artifact is not a seal", sealUploadProblems("u.yml", upload("").replace("bench-token-final", "job")).length === 0);
+
+  // Lab runs: a leased slot's secret, written from stdin after the slot is checked, passes.
+  const slotCheck = '[[ "$SLOT" =~ ^[1-3]$ ]] || exit 1';
+  const slotWrite = (write) =>
+    good.replace("run: echo Using secret BENCH_SECRET_WRITER_TOKEN", `run: |\n          ${slotCheck}\n          ${write}`);
+  const slotStdin = 'gh secret set "LAB_RUNNER_${SLOT}_REFRESH_TOKEN" --env production --repo "$GITHUB_REPOSITORY" < "$RUNNER_TEMP/refresh-token"';
+  expect("a per-slot write from stdin, after the slot check, passes", problemsIn(LAB_FILE, slotWrite(slotStdin)).length === 0);
+
+  // ...and fails without the slot check, since the secret name is built from the slot.
+  expect(
+    "a per-slot write with no slot check fails",
+    problemsIn(LAB_FILE, slotWrite(slotStdin).replace(slotCheck, "true")).some((line) => line.includes("1-3")),
+  );
+
+  // ...and fails when the slot's value is passed with --env-file, which is a dotenv parse, not the token.
+  expect(
+    "a per-slot write with --env-file fails",
+    problemsIn(LAB_FILE, slotWrite(slotStdin.replace("< \"$RUNNER_TEMP/refresh-token\"", '--env-file "$RUNNER_TEMP/refresh-token"'))).some((line) =>
+      line.includes("without --body"),
+    ),
+  );
+
+  // Writing the shared runner's live secret from tex-lab-run.yml fails, even with stdin.
+  const sharedWrite = slotWrite(
+    'gh secret set BENCH_RUNNER_REFRESH_TOKEN_LIVE --env production --repo "$GITHUB_REPOSITORY" < "$RUNNER_TEMP/refresh-token"',
+  );
+  expect(
+    "writing BENCH_RUNNER_REFRESH_TOKEN_LIVE from tex-lab-run.yml fails",
+    problemsIn(LAB_FILE, sharedWrite).some((line) => line.includes("BENCH_RUNNER_REFRESH_TOKEN_LIVE")),
+  );
+
+  // Giving the run job the shared seed (or the live secret) fails.
+  const seedInRun = good.replace("  run:\n    steps:", "  run:\n    env:\n      SEED: ${{ secrets.BENCH_RUNNER_REFRESH_TOKEN }}\n    steps:");
+  expect(
+    "giving the run job BENCH_RUNNER_REFRESH_TOKEN fails",
+    problemsIn(LAB_FILE, seedInRun).some((line) => line.includes("names the shared benchmark runner's secret")),
+  );
+  const liveInRun = good.replace("  run:\n    steps:", "  run:\n    env:\n      LIVE: ${{ secrets.BENCH_RUNNER_REFRESH_TOKEN_LIVE }}\n    steps:");
+  expect(
+    "giving the run job BENCH_RUNNER_REFRESH_TOKEN_LIVE fails",
+    problemsIn(LAB_FILE, liveInRun).some((line) => line.includes("names the shared benchmark runner's secret")),
+  );
+  // The env name is not a secret reference: the run job's slot-chosen env names pass.
+  const slotEnv = good.replace(
+    "  run:\n    steps:",
+    "  run:\n    env:\n      BENCH_RUNNER_REFRESH_TOKEN_LIVE: ${{ secrets.LAB_RUNNER_1_REFRESH_TOKEN }}\n    steps:",
+  );
+  expect("a slot's secret under the env name the client reads passes", problemsIn(LAB_FILE, slotEnv).length === 0);
 
   const live = scan();
   // Before the fix this list is non-empty. The self-test does not require the
