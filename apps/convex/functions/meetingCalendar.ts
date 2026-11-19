@@ -87,6 +87,17 @@ export const claimMeetingCalendars = internalMutation({
     const readable = calendars
       .filter((row) => row.health !== "reconnect_required")
       .map((row) => ({ connectionId: row._id, address: row.address.toLowerCase() }));
+    const disconnected = connections.filter((row) => row.disconnectedAt !== undefined).length;
+    const noCalendarProduct = connections.filter((row) => row.disconnectedAt === undefined && !row.products.includes("calendar")).length;
+    log({
+      outcome: "claimed",
+      connections: connections.length,
+      disconnected,
+      noCalendarProduct,
+      switchedOff: connections.length - disconnected - noCalendarProduct - calendars.length,
+      reconnect: reconnect.length,
+      readable: readable.length,
+    });
     if (readable.length === 0 && reconnect.length === 0) return { ok: false as const, refused: "no_calendar" as const };
     const room = await tryConsumeRateLimit(ctx, {
       key: `meeting.calendar.read:${userId}`,
@@ -178,12 +189,15 @@ export const readMeetingCalendars = internalAction({
     }
 
     const unanswered: string[] = [];
+    let events = 0;
+    let notMeetings = 0;
     const perCalendar = await Promise.all(
       claimed.calendars.map(async (calendar: Calendar): Promise<ScheduledMeeting[]> => {
         const minted = await ctx.runAction(internal.functions.googleConnect.mintGoogleAccessToken, { role: "standard" as const,
           connectionId: calendar.connectionId,
         });
         if (minted === null) {
+          log({ outcome: "mint_refused" });
           unanswered.push(calendar.address);
           return [];
         }
@@ -198,9 +212,12 @@ export const readMeetingCalendars = internalAction({
             windowEnd: utcDate(to + DAY_MS),
             timezone: "UTC",
           });
-          return page.items
+          const meetings = page.items
             .map((item: object) => scheduledMeetingOf(normalizeGoogleEvent(item, { account: calendar.address, calendarId: "primary" })))
             .filter((meeting): meeting is ScheduledMeeting => meeting !== null);
+          events += page.items.length;
+          notMeetings += page.items.length - meetings.length;
+          return meetings;
         } catch (error) {
           unanswered.push(calendar.address);
           log({ outcome: "google_error", status: Number((error as { status?: unknown })?.status) || 0 });
@@ -208,12 +225,23 @@ export const readMeetingCalendars = internalAction({
         }
       }),
     );
-    if (claimed.calendars.length > 0 && unanswered.length === claimed.calendars.length) {
+    // Every readable calendar failed: an empty day would be a lie, so say
+    // unavailable. But a calendar that needs reconnecting is named either way,
+    // so when there is one it is returned with the failures rather than hidden.
+    if (claimed.calendars.length > 0 && unanswered.length === claimed.calendars.length && claimed.reconnect.length === 0) {
       log({ outcome: "unavailable", calendars: claimed.calendars.length });
       return { ok: false as const, refused: "unavailable" as const };
     }
     const meetings = mergeScheduled(perCalendar.flat(), { from, to }) as ScheduledMeeting[];
-    log({ outcome: "ok", calendars: claimed.calendars.length, failed: unanswered.length, meetings: meetings.length });
+    log({
+      outcome: "ok",
+      calendars: claimed.calendars.length,
+      failed: unanswered.length,
+      meetings: meetings.length,
+      events,
+      notMeetings,
+      reconnect: claimed.reconnect.length,
+    });
     return { ok: true as const, meetings, reconnect: claimed.reconnect, unanswered };
   },
 });

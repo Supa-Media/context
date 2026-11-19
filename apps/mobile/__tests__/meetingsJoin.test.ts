@@ -30,6 +30,8 @@ import { setCallAudioStorage, noteCallAudioShare } from "../features/meetings/ca
  *     takes the pill away` fails.
  *  4. `NextUpPill` ignoring its Not now set. → `Not now hides that meeting
  *     and no other` fails.
+ *  5. `mergeAnswer` dropping the meetings kept for an unanswered calendar. →
+ *     `a meeting from B is kept when B is in unanswered` fails.
  */
 
 jest.mock("react-native-safe-area-context", () => ({
@@ -47,7 +49,8 @@ const { fakeGateway } = require("../features/meetings/fakeGateway") as typeof im
 const { fakeRecorder } = require("../features/meetings/capture/fake") as typeof import("../features/meetings/capture/fake");
 const { memoryStore } = require("../features/offline/memory") as typeof import("../features/offline/memory");
 const { joinStartInput, startsWhen, openCallLabel } = require("../features/meetings/join") as typeof import("../features/meetings/join");
-const { setScheduledMeetings, clearScheduledMeetings } = require("../features/meetings/scheduled") as typeof import("../features/meetings/scheduled");
+const { setScheduledMeetings, clearScheduledMeetings, mergeAnswer } = require("../features/meetings/scheduled") as typeof import("../features/meetings/scheduled");
+const { MeetingLists } = require("../features/console/aside/MeetingLists") as typeof import("../features/console/aside/MeetingLists");
 const { NextUpPill, resetNextUpDismissals } = require("../features/meetings/components/NextUpPill") as typeof import("../features/meetings/components/NextUpPill");
 const { CreateButton } = require("../features/console/CreateButton") as typeof import("../features/console/CreateButton");
 const { OpenCallButton } = require("../features/meetings/components/OpenCallButton") as typeof import("../features/meetings/components/OpenCallButton");
@@ -361,5 +364,78 @@ describe("the Mac app's menu bar is handed the same meetings", () => {
     setScheduledMeetings({ status: "ready", meetings: [weekly], reconnect: [] });
     clearScheduledMeetings();
     expect(fake.upcomingPushes.at(-1)?.meetings).toEqual([]);
+  });
+});
+
+describe("a calendar Google did not answer for", () => {
+  const OTHER = "other@example.test";
+
+  function aside(onJoin: ((m: CalendarEvent) => void) | null = () => {}) {
+    return createElement(MeetingLists, { records: [], onOpenRecord: () => {}, onOpenNote: null, onJoin, pastFrom: null });
+  }
+
+  test("the unanswered line names the address and says it is trying again", async () => {
+    await configure();
+    setScheduledMeetings({ status: "ready", meetings: [], reconnect: [], unanswered: [OTHER] });
+    const unmount = mount(aside());
+    const line = document.body.querySelector('[data-testid="aside-today-unanswered"]');
+    expect(line?.textContent).toBe(`Google didn't answer for ${OTHER} just now. Trying again.`);
+    unmount();
+  });
+
+  test("the unavailable line shows when the last read failed for every calendar", async () => {
+    await configure();
+    setScheduledMeetings({ status: "ready", meetings: [], reconnect: [], unavailable: true });
+    const unmount = mount(aside());
+    const line = document.body.querySelector('[data-testid="aside-today-unavailable"]');
+    expect(line?.textContent).toBe("Google didn't answer just now. Trying again.");
+    expect(document.body.querySelector('[data-testid="aside-no-meeting"]')).toBeNull();
+    unmount();
+  });
+
+  test("a reconnect line and a meeting from another account render together", async () => {
+    await configure();
+    setScheduledMeetings({
+      status: "ready",
+      meetings: [meeting({ id: "work@example.test:ok", title: "Design review", account: OTHER })],
+      reconnect: ["lost@example.test"],
+      unanswered: [],
+    });
+    const unmount = mount(aside());
+    expect(document.body.querySelector('[data-testid="aside-today-reconnect"]')?.textContent).toBe(
+      "Reconnect lost@example.test in Settings › Mail and calendar.",
+    );
+    expect(document.body.textContent).toContain("Design review");
+    unmount();
+  });
+});
+
+describe("mergeAnswer keeps an account that Google did not answer for", () => {
+  const A = "a@example.test";
+  const B = "b@example.test";
+  const at = (minutes: number) => new Date(Date.UTC(2026, 10, 19, 9, minutes)).toISOString();
+  const event = (id: string, account: string, minutes: number) =>
+    ({ ...meeting({ id, title: id, startsAt: at(minutes), endsAt: at(minutes + 30), account }), account }) as CalendarEvent;
+
+  test("a meeting from B is kept when B is in unanswered", () => {
+    const previous = [event("b:1", B, 0), event("a:1", A, 60)];
+    const fresh = [event("a:2", A, 120)];
+    const merged = mergeAnswer(previous, { meetings: fresh, unanswered: [B] });
+    expect(merged.map((m) => m.id)).toEqual(["b:1", "a:2"]);
+  });
+
+  test("a meeting from B is dropped when B answered without it", () => {
+    const previous = [event("b:1", B, 0), event("a:1", A, 60)];
+    const fresh = [event("a:2", A, 120)];
+    const merged = mergeAnswer(previous, { meetings: fresh, unanswered: [] });
+    expect(merged.map((m) => m.id)).toEqual(["a:2"]);
+  });
+
+  test("a meeting the answer also carries is not doubled, and the answer's copy wins", () => {
+    const previous = [event("b:1", B, 0)];
+    const fresh = [{ ...event("b:1", B, 0), title: "Fresh title" }];
+    const merged = mergeAnswer(previous, { meetings: fresh, unanswered: [B] });
+    expect(merged).toHaveLength(1);
+    expect(merged[0]?.title).toBe("Fresh title");
   });
 });

@@ -29,9 +29,33 @@ export interface ScheduledMeetings {
   meetings: readonly CalendarEvent[];
   /** Calendars whose sign-in Google stopped honouring, by address. */
   reconnect: readonly string[];
+  /** Addresses Google did not answer for on the last read; their meetings are kept from before. */
+  unanswered?: readonly string[];
+  /** The last read failed for every calendar, so what is shown may be a little old. */
+  unavailable?: boolean;
 }
 
+/** A meeting as the server answers it: `account` names the calendar it came from. */
+type AccountedEvent = CalendarEvent & { account?: string };
+
 const EMPTY: ScheduledMeetings = Object.freeze({ status: "idle", meetings: Object.freeze([]), reconnect: Object.freeze([]) });
+
+/**
+ * The meetings to show after an answer that worked: what Google sent, plus
+ * the meetings already shown for any calendar it did not answer for, so a
+ * hiccup on one account does not blank that account. Deduped by id (the
+ * answer's copy wins), soonest first.
+ */
+export function mergeAnswer(
+  previous: readonly CalendarEvent[],
+  answer: { meetings: readonly CalendarEvent[]; unanswered: readonly string[] },
+): CalendarEvent[] {
+  const missed = new Set(answer.unanswered);
+  const kept = previous.filter((m) => missed.has((m as AccountedEvent).account ?? ""));
+  const byId = new Map<string, CalendarEvent>();
+  for (const meeting of [...kept, ...answer.meetings]) byId.set(meeting.id, meeting);
+  return [...byId.values()].sort((a, b) => Date.parse(a.startsAt) - Date.parse(b.startsAt));
+}
 
 let state: ScheduledMeetings = EMPTY;
 const listeners = new Set<() => void>();
@@ -111,11 +135,24 @@ export function useScheduledMeetingsSource({ enabled }: { enabled: boolean }): v
         const answer = await convex.action(api.functions.meetingCalendar.upcomingMeetings, todayWindow(Date.now()));
         if (stopped) return;
         if (answer.ok) {
-          setScheduledMeetings({ status: "ready", meetings: answer.meetings, reconnect: answer.reconnect });
+          setScheduledMeetings({
+            status: "ready",
+            meetings: mergeAnswer(state.meetings, answer),
+            reconnect: answer.reconnect,
+            unanswered: answer.unanswered,
+            unavailable: false,
+          });
         } else if (answer.refused === "no_calendar") {
           setScheduledMeetings({ status: "none", meetings: [], reconnect: [] });
+        } else if (answer.refused === "unavailable") {
+          // Keep what was there, and say so: a Google hiccup is not an empty day.
+          setScheduledMeetings({
+            ...state,
+            status: state.status === "idle" ? "ready" : state.status,
+            unavailable: true,
+          });
         }
-        // Anything else keeps what was there: a Google hiccup is not an empty day.
+        // Invalid or rate-limited requests keep what was there.
       } catch {
         // Offline or signed out mid-request: the next refresh asks again.
       } finally {

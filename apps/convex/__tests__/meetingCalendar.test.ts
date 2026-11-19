@@ -77,6 +77,35 @@ async function connected() {
   return { ...tenants, connectionId: id };
 }
 
+/** Google answers the calendar whose token is `failingToken` with a 500, every other with ITEMS. */
+function calendarFailingFor(failingToken: string) {
+  vi.stubGlobal("fetch", async (input: RequestInfo | URL, init?: RequestInit) => {
+    const url = typeof input === "string" ? input : input instanceof URL ? input.href : input.url;
+    if (!url.startsWith("https://www.googleapis.com/calendar/")) return await realFetch(input, init);
+    const auth = new Headers(init?.headers).get("authorization") ?? "";
+    if (auth === `Bearer ${failingToken}`) return new Response("{}", { status: 500 });
+    return new Response(JSON.stringify({ timeZone: "America/New_York", items: ITEMS }), { headers: { "content-type": "application/json" } });
+  });
+}
+
+/** A second calendar of the same person, healthy and holding a live access token. */
+async function addCalendar(
+  t: Awaited<ReturnType<typeof connected>>["t"],
+  options: { workspaceId: Parameters<typeof seedGoogleConnection>[1]["workspaceId"]; boundBy: Parameters<typeof seedGoogleConnection>[1]["boundBy"]; address: string; token: string },
+) {
+  const id = await seedGoogleConnection(t, { ...options, googleAccountId: `google-${options.address}` });
+  const encryptedAccessToken = await encryptSecret(options.token, requireKeyset(), { workspaceId: options.workspaceId });
+  await t.run((ctx) =>
+    ctx.db.patch(id, {
+      products: ["calendar"],
+      scopes: ["https://www.googleapis.com/auth/calendar.events.readonly"],
+      encryptedAccessToken,
+      accessTokenExpiresAt: Date.now() + HOUR,
+    }),
+  );
+  return id;
+}
+
 const FROM = Date.parse("2026-10-28T04:00:00Z");
 const TO = Date.parse("2026-10-29T04:00:00Z");
 
@@ -148,6 +177,32 @@ describe("meetings to join, from the person's own calendars", () => {
       unanswered: [],
     });
     expect(urls).toHaveLength(0);
+  });
+
+  test("a calendar that needs reconnecting does not hide another's failure", async () => {
+    vi.useFakeTimers({ now: Date.parse("2026-10-28T12:00:00Z"), toFake: ["Date"] });
+    calendarFailingFor("ya29.broken-token");
+    const { t, alice, aliceWs, connectionId } = await connected();
+    await t.run((ctx) => ctx.db.patch(connectionId, { health: "reconnect_required" }));
+    await addCalendar(t, { workspaceId: aliceWs, boundBy: alice, address: "broken@gmail.example", token: "ya29.broken-token" });
+    expect(await at(t, alice).action(api.functions.meetingCalendar.upcomingMeetings, { from: FROM, to: TO })).toEqual({
+      ok: true,
+      meetings: [],
+      reconnect: ["alice@gmail.example"],
+      unanswered: ["broken@gmail.example"],
+    });
+  });
+
+  test("one calendar failing does not hide another's meetings", async () => {
+    vi.useFakeTimers({ now: Date.parse("2026-10-28T12:00:00Z"), toFake: ["Date"] });
+    calendarFailingFor("ya29.broken-token");
+    const { t, alice, aliceWs } = await connected();
+    await addCalendar(t, { workspaceId: aliceWs, boundBy: alice, address: "broken@gmail.example", token: "ya29.broken-token" });
+    const answer = await at(t, alice).action(api.functions.meetingCalendar.upcomingMeetings, { from: FROM, to: TO });
+    expect(answer).toMatchObject({ ok: true, reconnect: [], unanswered: ["broken@gmail.example"] });
+    if (!answer.ok) return;
+    expect(answer.meetings.map((m: { title: string }) => m.title)).toEqual(["Leadership Weekly"]);
+    expect(answer.meetings[0]).toMatchObject({ account: "alice@gmail.example" });
   });
 
   test("an hour holds a bounded number of reads", async () => {
