@@ -48,3 +48,17 @@ One at a time, each in three steps: its last readers move to the ledger, its wri
 ## Tests
 
 `apps/mcp/test/chatLedger.test.mjs`: one document, manifest first, in order; a retried append keeps one copy; two chats never read each other; paging with `after`, `before` and `kinds`; refused envelopes keep nothing; wipe removes every ledger; a person's and a group's ledgers live in their own objects; an open page is told what changed; a call that read another workspace keeps no result; secrets hidden; long results cut; the writer keeps order and never throws. `chatLedgerWrites.test.mjs`: a texted turn keeps its thinking, tools with results and a clean reply; events kept once; a check-in kept as a note. `chatLedgerReads.test.mjs`: a turn is shown the week before today with tool names; every answer is shown in its words and no turn record is read for it; the budget holds. `chatLedgerBackfill.test.mjs`: the old chat goes in once, oldest first, a part at a time; every old answer shown, a tainted one too. `texPageRoutes.test.mjs`: the history file raw, by kind and day, and what Tex sees. `apps/convex/__tests__/texLedgerExport.test.ts` and `apps/mobile/__tests__/ledgerDownload.test.ts`: the export, owner only, whole or said to be short.
+
+## Every text Tex sends is a Tex text in the chat (2026-11-18)
+
+A check-in Tex texted at 8:01 AM was missing from the chat's history: `POST /routine-text` (check-ins, routines, pings,
+job updates) and `/new-line` sent without recording a Tex `text` event, so only the gateway's `note` held them, and
+every reader that reads texts alone (the Lab, `/agent/chat` for triage and the judge, the Tex page) lost them. Now
+every text Tex delivers goes through one recorder in the Worker (`apps/agent/src/texSends.ts`) and lands as a Tex
+`text` event with its `source` (`reply`, `progress`, `checkin`, `routine`, `ping`, `update`, `job`, `new_line`). A text
+sent on its own carries its run's `turn`, the same turn as the gateway's note, which is the link: readers that show
+notes show the note and skip its linked text, a note whose send was recorded undelivered is never shown as said, and a
+routine's note kept with `send: note` is never a sent text (`apps/mcp/src/agent/sentOnItsOwn.js`). Old notes with no
+linked text keep working; nothing is backfilled. Reverting it brings the missing check-ins back:
+`apps/agent/src/texSends.test.ts`, `apps/mcp/test/checkinOnceInChat.test.mjs` and the replay case
+`checkin-answered-later` fail.

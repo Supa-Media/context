@@ -77,7 +77,8 @@ rounds".
 **Approved by the owner (2026-10-31)**, from the review of Tex's slowdown: the
 production setup moved to Haiku answering every text with Opus as its advisor
 and dropped the router (`haiku-advisor`), so no setup named a thinking model
-and every part of every background job ran on Haiku. A Mercor job was called
+and every part of every background job ran on Haiku. (The advisor is Sonnet 5.5
+since 2026-11-18; see the section at the end.) A Mercor job was called
 done on a promise. The owner's split is still the rule: Opus plans, Haiku
 carries it out, about 20/80, and jobs and judgment run on Opus.
 
@@ -158,6 +159,19 @@ the isolate, so a refused field never fails a turn.
 field fail every texted turn; dropping the hour brings the re-writes back.
 Tests: `apps/mcp/test/agentHourCache.test.mjs`.
 
+**The life is config, and every call logs it (Dev2, 2026-11-18).** The front
+door's `cacheTtl` in `texConfig.json` is `"1h"`; setting it to `"5m"` goes back
+to five minutes with no code change (`texConfig.js` `texCacheTtl`; a step that
+sets none keeps the hour). Finance approved the hour with a guard: each call's
+point in `tex_model_calls` carries its cache reads, its cache writes, the
+hour's share of the writes (`cacheWrite1h`, billed 2x input) and, in blob5, the
+life the prefix was really sent with, which reads `5m` after a refusal; a
+refusal also logs `tex_hour_marks_refused`. If the front door's cost per turn
+rises more than 10% over three days, set `cacheTtl` to `"5m"`. The hour only
+helps gaps under an hour: on one chat, 11-11 to 11-17, 22 of 29 first-round
+misses followed a longer gap and 6 a deploy that changed the stable prompt.
+Tests: the same file, and the replay case `cache-miss-named`.
+
 ## The front door is back at effort medium (Dev2, 2026-11-12)
 
 The reply latency audit (`@supa projects/tex-reliability/2026-11-12-reply-latency-audit.md`)
@@ -188,3 +202,40 @@ at high too.
 **What a simplification would cost:** hardcoding the effort makes undoing it a
 deploy instead of a note edit. Tests: `apps/mcp/test/agentAdvisorSetup.test.mjs`
 reads efforts from the setup.
+
+## The advisor and the job advisor run on Sonnet 5.5 (Dev2, 2026-11-18)
+
+Finance found the advisor steps on `claude-opus-5-5` cost $8.83 over 182 calls
+from 1 to 18 November in the AI Gateway logs, 73% of it cache writes. Seyi
+approved on 2026-11-18 moving the `advisor` and `jobadv` steps in
+`texConfig.json` to Sonnet 5.5 ($2 and $10 per million tokens, against Opus
+5.5's $4 and $20), at effort high. The retired advisor roles (`planner`,
+`jobcheck`, `mailadv`, all off) follow: in code every advisor role runs on
+`models.advisor`, so the config names one model for all of them.
+
+To go back, set the five advisor steps' `model` back to `opus-5-5` and run
+`node scripts/tex-architecture.mjs`, which regenerates the drawing and the map
+(the diagram check fails until they are regenerated).
+
+Tests: `apps/mcp/test/texConfig.test.mjs` ("the advisor runs on Sonnet 5.5 at
+effort high", and "the advisor's four roles share one model and effort in
+code, so the config gives them one").
+
+## The advisor caches its instructions, never its brief (Dev2, 2026-11-18)
+
+AI Gateway logs, 1 to 18 November: the advisor roles' 182 calls wrote 1.28M
+tokens to the prompt cache and read 1.11M. The reads were the stable system
+prompt (the map and the role's instructions), and that was hitting. The writes
+were mostly each ask's brief: `gatewayBody`'s one-off tail mark put a
+five-minute mark on the last message, so every brief was written at 1.25x and
+never read back, since every brief is new.
+
+`adviseOnce` now sends `cacheTail: false`. The system prompt keeps its
+five-minute mark, and the brief is plain input at 1x. The life stays five
+minutes: 172 of the 181 gaps between advisor calls were under five minutes, so
+an hour's 2x write would not pay back.
+
+**What a simplification would cost:** marking the tail again brings back a
+cache write of every brief, paid at 1.25x and read by nothing. Tests:
+`apps/mcp/test/advisorCache.test.mjs`, which holds that the request prefix is
+the same bytes across two turns and that only the messages change.

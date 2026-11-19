@@ -276,6 +276,12 @@ test("with background on, every text sends the case's running jobs, and the jobs
   assert.equal(benchRunning(0).length, 0);
   assert.ok(benchRunning(9).length <= 6);
   for (const job of benchRunning(3)) assert.match(job.id, /^[A-Za-z0-9_-]{8,64}$/, "an id the gateway reads");
+  // A job a case's earlier 🔎 started is running with its title, started when that tapback was (`setsFd.mjs` runningJobOf).
+  const [named] = benchRunning(0, [{ title: "Compare the tortilla places", minutesBefore: 5 }]);
+  assert.equal(named.title, "Compare the tortilla places");
+  assert.equal(named.state, "running");
+  assert.ok(Math.abs(Date.now() - 5 * 60_000 - named.startedAt) < 1000, "started five minutes before");
+  assert.equal(benchRunning(2, [{ title: "Compare the tortilla places" }]).length, 3, "named jobs run beside the counted ones");
 });
 
 test("a test's computer line is read strictly", async () => {
@@ -364,4 +370,24 @@ test("a result's Delivered line carries each job's advisor calls and spend to th
   const md = ["## Answers", "", "### 1. hi", "", "#### s/q1/r1", "", "**Person:** hi", "", "**Assistant:** On it.", "", "Tools: none", "", `Delivered: ${JSON.stringify(delivered)}`, "", "Time 1.0 s, $0.0100, 1 text", ""].join("\n");
   const [answer] = parseResult(md).answers;
   assert.deepEqual(answer?.delivered, delivered);
+});
+
+test("a result's Rounds line carries each texted turn's rounds of its bound to the Lab run's row", async () => {
+  const { parseResult } = await import("../resultNote.mjs");
+  const rounds = [{ used: 3, of: 12 }, { used: 10, of: 12, out: true }];
+  const md = ["## Answers", "", "### 1. text", "", "#### s/q1/r1", "", "**Person:** hi", "", "**Assistant:** On it.", "", "Tools: none", "", `Rounds: ${JSON.stringify(rounds)}`, "", "Time 1.0 s, $0.0100, 1 text", ""].join("\n");
+  const [answer] = parseResult(md).answers;
+  assert.deepEqual(answer?.rounds, rounds);
+  const [none] = parseResult(md.replace(/Rounds: .*\n\n/, "")).answers;
+  assert.deepEqual(none?.rounds, [], "a result from before the line reads no rounds");
+});
+
+test("a result's Route line carries each texted turn's route to the Lab run's row (the router's pick, its door, a fallback)", async () => {
+  const { parseResult } = await import("../resultNote.mjs");
+  const routes = [{ pick: "read", sure: 0.9, door: "read" }, { pick: "act", door: "fd", fellBack: "outside the read door's tools: send_email" }];
+  const md = ["## Answers", "", "### 1. text", "", "#### s/q1/r1", "", "**Person:** hi", "", "**Assistant:** On it.", "", "Tools: none", "", `Route: ${JSON.stringify(routes)}`, "", "Time 1.0 s, $0.0100, 1 text", ""].join("\n");
+  const [answer] = parseResult(md).answers;
+  assert.deepEqual(answer?.routes, routes);
+  const [none] = parseResult(md.replace(/Route: .*\n\n/, "")).answers;
+  assert.deepEqual(none?.routes, [], "a result from before the line reads no routes");
 });

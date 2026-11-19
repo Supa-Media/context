@@ -1,7 +1,6 @@
 import { Redirect, useGlobalSearchParams } from "expo-router";
 import { DeadLinkScreen } from "../features/app/DeadLinkScreen";
-import { NOTE_LINK_SEGMENT, canonicalHrefFor, noteAddressFromSegments } from "../features/console/noteLink";
-import { unmatchedSegments } from "../features/app/unmatched";
+import { recoveredHref, unmatchedSegments } from "../features/app/unmatched";
 
 /**
  * Every URL that matched nothing.
@@ -12,7 +11,7 @@ import { unmatchedSegments } from "../features/app/unmatched";
  * ChatGPT got on iOS on 2026-09-03. `getNavigationConfig` installs the built-in
  * only when the app has not declared one.
  *
- * ## It recovers a note link before giving up
+ * ## It recovers a note or page link before giving up
  *
  * `app/note/[...address].tsx` is the route for the link grammar and handles
  * every well-formed one. This is the second chance, and it exists because the
@@ -34,10 +33,9 @@ import { unmatchedSegments } from "../features/app/unmatched";
 export default function NotFoundRoute() {
   const segments = unmatchedSegments(useGlobalSearchParams());
 
-  if (segments[0] === NOTE_LINK_SEGMENT) {
-    const address = noteAddressFromSegments(segments.slice(1));
-    if (address !== null) return <Redirect href={canonicalHrefFor(address)} />;
-  }
+  // A `/note/…` link, or a `/p/…` page link Tex texted (`recoveredHref`).
+  const href = recoveredHref(segments);
+  if (href !== null) return <Redirect href={href} />;
 
   return <DeadLinkScreen />;
 }

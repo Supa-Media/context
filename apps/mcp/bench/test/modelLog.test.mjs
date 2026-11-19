@@ -67,3 +67,13 @@ test("a ledger is a note named after its conversation, beside the result, with i
   const json = note.slice(note.indexOf("```json\n") + 8, note.lastIndexOf("\n```"));
   assert.equal(JSON.parse(json).conversation[0].text.replace("\u200b", ""), "a ``` fence", "a fence inside a text cannot end the block");
 });
+
+test("a call keeps its request labels (feature, client, setup) and never the other labels, so the Front door's call can be told", async () => {
+  const log = modelLog(async () => answer([{ type: "text", text: "ok" }]), { now: () => 1 });
+  const headers = { "cf-aig-metadata": JSON.stringify({ feature: "assistant", workspace: "ws_1", client: "texts", setup: "v3", payer: "plan" }) };
+  await log.fetch("https://gateway.ai.cloudflare.com/x", { headers, body: JSON.stringify({ model: "m", system: "s", messages: [] }) });
+  await log.fetch("https://gateway.ai.cloudflare.com/x", { body: JSON.stringify({ model: "m", messages: [] }) });
+  const [withLabels, without] = log.calls();
+  assert.deepEqual(withLabels.metadata, { feature: "assistant", client: "texts", setup: "v3" });
+  assert.equal(without.metadata, undefined, "a call with no labels says nothing");
+});

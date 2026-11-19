@@ -76,6 +76,8 @@ test("the core area answers in the tree's own code, as production alone, and rea
   assert.deepEqual(first.missing, ["simple-asks"], "a test the folder lacks is named, not invented");
   assert.deepEqual(first.rows.map((row) => [row.id, row.right, row.results.length]), [["core/q1", true, 1], ["core/q2", false, 1]], "production alone answered, once a question");
   assert.equal(first.rows[1].target, "books before checking the calendar");
+  // Each row says what its turn did (`turnSteps.mjs`), through the run, the result note and the reading back.
+  assert.match(first.rows[0].steps ?? "", /^tools .*\| outcome: replied$/, "the steps line reaches the row");
   assert.equal(first.bars.core.goodEnough, true, "a target is reported, never held to the bar");
 
   const again = await runTests(TREE, ["core"], { dir, fake: true, scratch, tag: "branch-2", only: ["core/q2"], runs: 2 });

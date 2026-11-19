@@ -43,12 +43,27 @@ export function clipDeep(value, depth = 0) {
   return Object.fromEntries(Object.entries(value).map(([key, item]) => [key, clipDeep(item, depth + 1)]));
 }
 
+/** The labels a request names itself by (`cf-aig-metadata`, `aiGateway.js`): feature, client and setup only, never the rest. */
+const LABELS = ["feature", "client", "setup"];
+export function labelsOf(headers) {
+  const raw = typeof headers?.get === "function" ? headers.get("cf-aig-metadata") : headers?.["cf-aig-metadata"];
+  if (typeof raw !== "string") return null;
+  try {
+    const value = JSON.parse(raw);
+    const labels = Object.fromEntries(LABELS.filter((key) => typeof value?.[key] === "string").map((key) => [key, value[key]]));
+    return Object.keys(labels).length > 0 ? labels : null;
+  } catch {
+    return null;
+  }
+}
+
 /**
  * A model fetch that keeps every call it passes on: `{ fetch, calls() }`.
- * A call is `{ at, ms, status, model, system?, messages, answer }`: the system
+ * A call is `{ at, ms, status, model, metadata?, system?, messages, answer }`: the system
  * prompt only when it changed, and only the messages new since the call
- * before, so a long turn is not kept once per round. Recording never changes
- * or fails the call.
+ * before, so a long turn is not kept once per round. `metadata` is the call's
+ * request labels (`labelsOf`), which tell the Front door's call from a judge's
+ * (`frontDoorCall.mjs`). Recording never changes or fails the call.
  */
 export function modelLog(inner, { now = realNow } = {}) {
   const calls = [];
@@ -65,6 +80,7 @@ export function modelLog(inner, { now = realNow } = {}) {
         const fresh = continues ? messages.slice(lastMessages.length) : messages;
         lastMessages = messages;
         const system = typeof body?.system === "string" ? body.system : body?.system ? JSON.stringify(body.system) : null;
+        const labels = labelsOf(init?.headers);
         const text = await response.clone().text();
         let answer;
         try {
@@ -77,6 +93,7 @@ export function modelLog(inner, { now = realNow } = {}) {
           ms: now() - started,
           status: response.status,
           model: body?.model ?? null,
+          ...(labels ? { metadata: labels } : {}),
           ...(system !== lastSystem ? { system } : {}),
           ...(continues ? {} : { restarted: true }),
           tools: Array.isArray(body?.tools) ? body.tools.map((tool) => tool?.name).filter(Boolean) : [],

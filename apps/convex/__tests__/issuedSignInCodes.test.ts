@@ -4,7 +4,7 @@ import { api, internal } from "../_generated/api";
 import { setupTest, type TestConvex } from "./fixtures.helpers";
 import { TEST_ACCOUNT_EMAIL } from "../functions/lib/testAccount";
 import { DIRECTORY_REVIEW_EMAIL, GOOGLE_REVIEW_EMAIL, REVIEWER_EMAIL } from "../functions/lib/reviewerAccount";
-import { MAX_ISSUED_CODE_MISSES } from "../functions/lib/issuedSignInCodes";
+import { MAX_ISSUED_CODE_MISSES, issueTarget } from "../functions/lib/issuedSignInCodes";
 import { hashOneTimeCode } from "../functions/lib/oneTimeCodes";
 
 /**
@@ -25,7 +25,6 @@ const ACCOUNTS = [
   { email: TEST_ACCOUNT_EMAIL, provider: "test-email" },
   { email: REVIEWER_EMAIL, provider: "test-email-reviewer" },
   { email: DIRECTORY_REVIEW_EMAIL, provider: "test-email-directory-review" },
-  { email: GOOGLE_REVIEW_EMAIL, provider: "test-email-google-review" },
 ] as const;
 const REVIEWER = ACCOUNTS[1];
 
@@ -237,6 +236,20 @@ describe("an issued code", () => {
     const [row] = await t.run((ctx) => ctx.db.query("authVerificationCodes").collect());
     await expect(signIn(t, REVIEWER.provider, REVIEWER.email, row!.code)).rejects.toThrow(/Could not verify code/);
     expect((await signIn(t, REVIEWER.provider, REVIEWER.email, code)).tokens).toBeTruthy();
+  });
+});
+
+describe("Google's reviewer is not issued codes", () => {
+  test("issueTarget refuses its address, so no code is minted for it", () => {
+    expect(issueTarget(GOOGLE_REVIEW_EMAIL, {})).toEqual({ refused: expect.any(String) });
+  });
+
+  test("its retired issued-code provider opens nothing, even with a correct-looking code", async () => {
+    const t = setupTest();
+    await expect(
+      t.action(api.auth.signIn, { provider: "test-email-google-review", params: { email: GOOGLE_REVIEW_EMAIL, code: "123456" } }),
+    ).rejects.toThrow();
+    expect(await t.run((ctx) => ctx.db.query("authVerificationCodes").collect())).toEqual([]);
   });
 });
 

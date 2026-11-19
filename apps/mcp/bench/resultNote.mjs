@@ -87,6 +87,12 @@ function readBlock(id, lines) {
   const jobsLine = tail.find((line) => line.startsWith("Jobs: "));
   // The jobs that ran and reported (`jobDelivery.mjs`), with their advisor calls and spend.
   const deliveredLine = tail.find((line) => line.startsWith("Delivered: "));
+  // Each texted turn's rounds of its bound (`report.mjs`).
+  const roundsLine = tail.find((line) => line.startsWith("Rounds: "));
+  // Each texted turn's route (`report.mjs`).
+  const routeLine = tail.find((line) => line.startsWith("Route: "));
+  // What the turn did, short (`turnSteps.mjs`): read back for a Lab row's steps line.
+  const stepsLine = tail.find((line) => line.startsWith("Steps: "));
   let time = null;
   if (timeLine) {
     const m = timeLine.match(TIME);
@@ -99,11 +105,16 @@ function readBlock(id, lines) {
     tools: toolList === "none" ? [] : toolList.split(", "),
     changes: tail.filter((line) => line.startsWith("- ")),
     browser: browserLine ? browserLine.slice("Browser: ".length).split(" | ").filter(Boolean) : [],
+    // What the bench's own stand-ins could not answer (`benchGaps.mjs`).
+    bench: (tail.find((line) => line.startsWith("Bench: ")) ?? "").slice("Bench: ".length).split(" | ").filter(Boolean),
     mail: mailLine ? mailLine.slice("Mail: ".length).split(" | ").filter(Boolean) : [],
     where: filedLine ? filedWhere(filedLine.slice("Filed: ".length)) : {},
     jobs: jobsLine ? readJobsLine(jobsLine.slice("Jobs: ".length)) : [],
     delivered: deliveredLine ? readJobsLine(deliveredLine.slice("Delivered: ".length)) : [],
+    rounds: roundsLine ? readJobsLine(roundsLine.slice("Rounds: ".length)) : [],
+    routes: routeLine ? readJobsLine(routeLine.slice("Route: ".length)) : [],
     time,
+    ...(stepsLine ? { steps: stepsLine.slice("Steps: ".length) } : {}),
     error: errorLine ? errorLine.slice("Error: ".length) : null,
   };
 }

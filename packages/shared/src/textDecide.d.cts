@@ -70,6 +70,15 @@ export declare function readDecideBody(body: Record<string, unknown>): DecideBod
 /** `facts`: lines the gateway knows about the chat now (its running jobs), shown to the judge as `<now>`. */
 export declare function decideRequest(body: DecideBody, options?: { facts?: readonly string[] }): DecisionRequest;
 export declare function readDecideAnswers(body: DecideBody, answers: DecisionAnswers): DecideResult;
+/** The reasons that mean a message is for Tex, and every other reason: the ones a quiet message can have. */
+export declare const FOR_TEX_WHY: readonly string[];
+export declare const QUIET_WHY: Readonly<Record<string, string>>;
+/** Whether a verdict stays quiet (or only reacts) for a reason that says the message is for Tex. */
+export declare function whyContradictsAct(verdict: DecideResult | null | undefined): boolean;
+/** The second look's one question, told the act (`decideWhy`). */
+export declare function decideWhyRequest(state: string, verdict: DecideResult): DecisionRequest;
+/** The second look's reason, or null when the model named none a quiet message can have. */
+export declare function readDecideWhy(answers: DecisionAnswers | null): string | null;
 export declare function readRecheckBody(body: Record<string, unknown>): RecheckBody | null;
 export declare function recheckRequest(body: RecheckBody): DecisionRequest;
 export declare function readRecheckAnswers(answers: DecisionAnswers): RecheckResult;

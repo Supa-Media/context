@@ -60,11 +60,16 @@ import { crossChatGateNode } from "./nodes/crossChatGate.js";
 import { chatAskNode } from "./nodes/chatAsk.js";
 import { chatAnswerNode } from "./nodes/chatAnswer.js";
 import { tapbackNode } from "./nodes/tapback.js";
+import { decideWhyNode } from "./nodes/decideWhy.js";
+import { shapeGateNode } from "./nodes/shapeGate.js";
 import { partEndNode } from "./nodes/partEnd.js";
 import { jobReportNode } from "./nodes/jobReport.js";
 import { jobStartNode } from "./nodes/jobStart.js";
 import { jobadv } from "./nodes/jobadv.js";
 import { staffNode } from "./nodes/staff.js";
+import { examplesNode } from "./nodes/examples.js";
+import { routerNode } from "./nodes/router.js";
+import { fdQuickNode, fdReadNode, fdActNode } from "./nodes/doors.js";
 
 /**
  * Each entry is a getter, so the table reads a node's code when the runner asks for it, never while the modules load: the
@@ -145,10 +150,22 @@ export const GATEWAY_NODES = {
   get chatAnswer() { return chatAnswerNode; },
   // A tapback as the whole answer: whether the front door may end the turn with one, and which emoji (`nodes/tapback.js`, `../tapbackEnding.js`).
   get tapback() { return tapbackNode; },
+  // Decide's reason, asked again when it contradicts the act (`nodes/decideWhy.js`): Decide's route calls it with Clef (`../textsDecide.js`).
+  get decideWhy() { return decideWhyNode; },
+  // The router: which specialist door a text's turn goes through, read by Clef beside the door (`nodes/router.js`, `../../specialistRoute.js`).
+  get router() { return routerNode; },
+  // The specialist doors, on the shelf: the tools each holds (`nodes/doors.js`, `../../doorTools.js`).
+  get fdQuick() { return fdQuickNode; },
+  get fdRead() { return fdReadNode; },
+  get fdAct() { return fdActNode; },
+  // The Shape gate: what kind of answer this turn is, read by Clef beside the door (`nodes/shapeGate.js`, `../shapeGate.js`).
+  get shapeGate() { return shapeGateNode; },
   // After each part of a background job: the next part, the last draft, or the end, under the limits in its config (`nodes/partEnd.js`).
   get partEnd() { return partEndNode; },
   // A background job's report, a new run of its chat: read strictly, asked the gateway's own line (`nodes/jobReport.js`).
   get jobReport() { return jobReportNode; },
   // Whether a background job the front door asks for starts now, under the slots in its config (`nodes/jobStart.js`).
   get jobStart() { return jobStartNode; },
+  // The Training moments nearest to a text, for the front door's preamble (`nodes/examples.js`, `texExamples.cjs`); on the shelf until a Lab draft wires fd -> examples.
+  get examples() { return examplesNode; },
 };

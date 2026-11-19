@@ -7,7 +7,7 @@ be evaluated separately?", then "split by role, one model" on the card.
 
 ## Why
 
-One model (`models.advisor`, Opus 5.5) answers four different questions: the
+One model (`models.advisor`, Opus 5.5 until 2026-11-18, Sonnet 5.5 since) answers four different questions: the
 front door's `ask_advisor`, the job check at every stop of a background job,
 the big-ask planner, and the advisor on a job note's mail. Their instructions
 sat in four files mixed in with the code around them, and the replay gate had
@@ -38,7 +38,7 @@ told apart from a change to the front door's advisor, and neither ran a case.
 
 ## Cost
 
-Opus 5.5 at effort high. AI Gateway, 2026-11-06 to 11-13: a job check about
+Opus 5.5 at effort high (Sonnet 5.5 at effort high since 2026-11-18). AI Gateway, 2026-11-06 to 11-13: a job check about
 $0.05 a call, a front door ask about $0.25 (it reads a whole live turn). A
 case's invented turn is short and its instructions are cached after the first
 ask, so the sets are kept small (three or four cases a role) and a core change

@@ -1,13 +1,17 @@
 import { hashOneTimeCode } from "./oneTimeCodes";
 
 /**
- * The YC review account, and the password staff set for it (owner, 2026-11-14).
+ * The review accounts that sign in with a password staff set: YC's, and
+ * Google's OAuth verification reviewer's (owner, 2026-11-14; Google's approved
+ * by Seyi, 2026-11-18).
  *
  * YC's partners review an application whenever they get to it, so neither a
  * code mailed to an inbox they cannot read nor an issued code that lives ten
- * minutes (`issuedSignInCodes.ts`) lets them in. This account signs in with a
- * password instead, under the same controls CASA holds a code to (1.2.1,
- * 1.3.x, 2.x; the fixed codes failed it on 2026-11-11):
+ * minutes (`issuedSignInCodes.ts`) lets them in. Google's reviewer works on
+ * Google's schedule for the same reason: a ten-minute issued code cannot sit
+ * in Google's review form. Both accounts sign in with a password under the
+ * same controls CASA holds a code to (1.2.1, 1.3.x, 2.x; the fixed codes
+ * failed it on 2026-11-11):
  *
  *  - Staff set it (`functions/reviewerPasswords.ts`, run only with the deploy
  *    key). It is 20 random letters and digits, about 117 bits, never chosen by
@@ -23,18 +27,23 @@ import { hashOneTimeCode } from "./oneTimeCodes";
  *    not deleted by wrong guesses: the address is public, so a stranger could
  *    otherwise end the reviewer's access at will. The worst a stranger can do
  *    is hold it shut an hour at a time, and the workflow says so.
- *  - It opens only this account, which is held to its own workspace like the
- *    other reviewer accounts (`reviewerAccount.ts`, `isReservedReviewer`).
+ *  - It opens only its own account. Each account is held to its own workspace
+ *    like the other reviewer accounts (`reviewerAccount.ts`,
+ *    `isReservedReviewer`). Google's may still connect Google
+ *    (`mayHoldGoogleConnection`), because that is what its review is of.
+ *  - Google's account's issued-code provider is retired, so no second path
+ *    opens it.
  *
- * The address is public, because the sign-in screen routes it to a password
- * box. It holds no privilege.
+ * The addresses are public, because the sign-in screen routes them to a
+ * password box. They hold no privilege.
  */
 
 export const YC_REVIEW_EMAIL = "yc-review@supa.media";
+export const GOOGLE_REVIEW_EMAIL = "google-review@supa.media";
 export const REVIEWER_PASSWORD_PROVIDER_ID = "reviewer-password";
 
 /** The accounts a staff-set password may open. Every other address is refused before anything is read. */
-export const PASSWORD_ACCOUNTS: ReadonlyArray<string> = [YC_REVIEW_EMAIL];
+export const PASSWORD_ACCOUNTS: ReadonlyArray<string> = [YC_REVIEW_EMAIL, GOOGLE_REVIEW_EMAIL];
 
 export const REVIEWER_PASSWORD_LIFETIME_MS = 30 * 24 * 60 * 60 * 1000;
 export const MAX_REVIEWER_PASSWORD_MISSES = 10;

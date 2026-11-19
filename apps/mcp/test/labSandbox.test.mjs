@@ -165,12 +165,12 @@ test("a tool that changes or sends is answered as done and listed; a read runs; 
     const answer = await toolAnswer(name, { to: "x@example.invalid" }, gate);
     assert.equal(answer.content[0].text, "Done.", `${name}: read as a real call's success, never as a test`);
   }
-  for (const name of ["browse", "fill_login", "delegate", "add_computer"]) {
+  for (const name of ["browse", "fill_login", "make_login", "delegate", "add_computer"]) {
     const answer = await toolAnswer(name, {}, gate);
     assert.equal(answer.isError, true, name);
     assert.match(answer.content[0].text, /no browser and no computer/, name);
   }
-  assert.equal(writes.filter((w) => w.kind === "Refused").length, 4);
+  assert.equal(writes.filter((w) => w.kind === "Refused").length, 5);
   assert.equal(await toolAnswer("read_note", { path: "a.md" }, gate), null);
   assert.equal(await toolAnswer("search_email", {}, gate), null);
   // A job tool runs: the job it starts runs in the test chat (`jobs.js`), on the same fences.
@@ -195,13 +195,25 @@ test("a test turn's env has no texting Worker, jobs, browser, chats or sandboxes
   };
   const gate = { record() {} };
   const out = sandboxEnvOf(env, { gate, workspaces: { idFromName() {} }, tex: null });
-  for (const name of ["TEXTING", "SITE_SHOTS", "TEX_JOB", "TEX_CHAT", "LAB_SANDBOX", "PRESENCE_ROOM", "LIVE_TICKET", "TEX_EVAL", "AGENT_WORKER_SECRET", "TEX_STORE"]) assert.equal(out[name], undefined, name);
+  for (const name of ["TEXTING", "TEX_JOB", "TEX_CHAT", "LAB_SANDBOX", "PRESENCE_ROOM", "LIVE_TICKET", "TEX_EVAL", "AGENT_WORKER_SECRET", "TEX_STORE"]) assert.equal(out[name], undefined, name);
   assert.equal(out.PLAIN, "x");
   assert.equal(out.AI, env.AI);
   out.TEX_TIMING.writeDataPoint({ n: 1 });
   assert.deepEqual(kept, []);
   assert.equal(sandboxGateOf(out), gate);
   assert.equal(sandboxGateOf(env), null, "a real env carries no gate");
+  assert.equal(out.SITE_SHOTS, undefined, "a screenshot binding with no fetch is not handed on");
+});
+
+test("a test turn may search Tex's example index, and never write it", async () => {
+  const calls = [];
+  const index = { query: async (v, o) => (calls.push([v, o]), { matches: [{ id: "a#1", score: 1 }] }), upsert: () => assert.fail("never"), deleteByIds: () => assert.fail("never") };
+  const out = sandboxEnvOf({ TEX_EXAMPLES: index }, { gate: {} });
+  assert.deepEqual(await out.TEX_EXAMPLES.query([1], { topK: 2 }), { matches: [{ id: "a#1", score: 1 }] });
+  assert.deepEqual(calls, [[[1], { topK: 2 }]]);
+  assert.equal(out.TEX_EXAMPLES.upsert, undefined);
+  assert.equal(out.TEX_EXAMPLES.deleteByIds, undefined);
+  assert.equal(sandboxEnvOf({}, { gate: {} }).TEX_EXAMPLES, undefined, "no index bound: none handed on");
 });
 
 test("retry, back and drop cut a test text's rows, writes, overlay and ledger entries, and keep the real start", () => {

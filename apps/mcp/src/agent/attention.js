@@ -215,7 +215,7 @@ export function attentionText(pings) {
  * never sends a ping twice. Pings waiting when the person has since paused
  * them are marked held instead. A log that changed under it is re-read once.
  */
-export async function deliverAttention(dispatch, store, { now, timeZone, onlyEmergencies = false }) {
+export async function deliverAttention(dispatch, store, { now, timeZone, onlyEmergencies = false, turn = null }) {
   const settings = readAttentionSettings((await readWithEtag(dispatch, ATTENTION_SETTINGS_PATH))?.body ?? "");
   const days = [...new Set([attentionPath(now - DAY_MS, timeZone), attentionPath(now, timeZone)])];
   const sending = [];
@@ -244,7 +244,8 @@ export async function deliverAttention(dispatch, store, { now, timeZone, onlyEme
   try {
     // Their reply is answered with the ping in front of the turn, which is how Tex learns their tolerance.
     // An agent chose these words, so the turn that follows treats them as untrusted.
-    await appendConversation(store, "texts", ATTENTION_QUESTION, text, { tainted: true });
+    // The note carries the run's turn when there is one: the link to the Tex text event the Worker records for the same send (`sentOnItsOwn.js`).
+    await appendConversation(store, "texts", ATTENTION_QUESTION, text, { tainted: true, entry: typeof turn === "string" && turn !== "" ? { turn } : null });
   } catch {
     // A history that could not be written costs the reply some context, never the ping.
   }

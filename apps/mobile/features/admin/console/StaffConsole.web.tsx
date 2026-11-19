@@ -15,6 +15,7 @@ import { Component, memo, useEffect, useLayoutEffect, useReducer, useRef, useSta
 import { useQuery } from "convex/react";
 import { api } from "@context/convex/_generated/api";
 import { AdminChrome } from "../AdminPane";
+import { StaffOnly } from "../StaffOnly.web";
 import { StaffFactorGate } from "../StaffFactorGate";
 import { isTexHost } from "../../site/host";
 import { ensureFontsLoaded } from "../../design/fonts.web";
@@ -55,10 +56,7 @@ export function StaffConsole() {
       </style>
       <title>{STAFF_CONSOLE_TITLE}</title>
       {isAdmin === false ? (
-        <div className="pgin" data-testid="staff-console-staff-only" style={{ paddingTop: 60 }}>
-          <h1>Staff only</h1>
-          <p className="sub">This page is for the people who run Context. If that is you, sign in with your staff account.</p>
-        </div>
+        <StaffOnly runs="Context" testID="staff-console-staff-only" textClass="sub" />
       ) : isAdmin === true ? (
         <Console offerFactor={factor?.staff === true && !factor.enrolled ? factor : null} />
       ) : null}

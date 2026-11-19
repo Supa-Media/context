@@ -18,11 +18,12 @@
  */
 import assert from "node:assert/strict";
 import { createRequire } from "node:module";
-import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { existsSync } from "node:fs";
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
-import { countsLine, decideCase, decideRight, lineOf, reviewerCase, reviewerRight, runSets, setsCommand } from "../bench/setsRun.mjs";
+import { adaptersFor, countsLine, decideCase, decideRight, lineOf, reviewerCase, reviewerRight, routeCase, routeRight, routeTraining, runSets, setsCommand } from "../bench/setsRun.mjs";
 
 const require = createRequire(import.meta.url);
 const REPO = require("../../../packages/shared/src/texSetsRepo.generated.json");
@@ -294,4 +295,155 @@ test("lineOf tells the judge a picture came with a text", () => {
   ]);
   assert.equal(lineOf(c, c.msgs[0]), "@jo: look (sent a picture)");
   assert.equal(lineOf(c, c.msgs[1]), "@jo: (sent 2 pictures)");
+});
+
+/** Router rows: the message's words are the question, the labelled route is the want. */
+const routerChat = () =>
+  conv(
+    "router-1",
+    [
+      { id: "m1", who: "Ann", text: "is the bin out?", labels: { router: { route: "quick", star: true } } },
+      { id: "m2", who: "Ann", text: "send the invoice to Jo", labels: { router: { route: "act", star: true } } },
+      { id: "m3", who: "Ann", text: "what's the wifi code", labels: { router: { route: "read", star: true } } },
+    ],
+    { set: "training" },
+  );
+
+test("routeCase takes the message's words, the chat's kind, and a check-in or routine as its trigger, else a text", () => {
+  const c = conv(
+    "c",
+    [
+      { id: "m1", who: "Ann", text: "hi" },
+      { id: "m2", who: "Check-in", via: "checkin", text: "Gmail: a permit came in" },
+      { id: "m3", who: "Routine", via: "routine", text: "weekly tidy" },
+      { id: "m4", who: "Background job", via: "job", state: "done", text: "done" },
+    ],
+    { kind: "group" },
+  );
+  assert.deepEqual(routeCase(c, 0), { question: "hi", group: true, trigger: "text", context: { ctx: [], training: null, history: "", facts: [], today: "" } });
+  assert.equal(routeCase(c, 1).trigger, "checkin");
+  assert.equal(routeCase(c, 2).trigger, "routine");
+  assert.deepEqual(routeCase(c, 3).trigger, "text", "a job's own report is a text, not a trigger");
+  assert.equal(routeCase(conv("one", [{ id: "m1", who: "Ann", text: "hi" }]), 0).group, false);
+});
+
+test("routeCase reads the router's config context from the conversation, as the bench reads Decide's chat", () => {
+  const msgs = [
+    { id: "m1", who: "Ann", text: "draft an email to the landlord", at: "Mon 9:00" },
+    { id: "x1", who: "Tex", tex: true, text: "Here's the draft." },
+    { id: "r1", who: "Ann", kind: "react", to: "x1", text: "👍" },
+    { id: "q", who: "Ann", text: "send", at: "Mon 9:02" },
+  ];
+  const c = conv("c", msgs);
+  const ctx = ["train:router", "chat:7:130000", "date"];
+  const training = { nodes: {} };
+  const { context } = routeCase(c, 3, { ctx, training });
+  assert.deepEqual(context.ctx, ctx, "the config's entries, as they are");
+  assert.equal(context.training, training);
+  assert.equal(context.history, msgs.slice(0, 3).map((m) => lineOf(c, m)).join("\n"), "everything before the message, each line as Decide's bench reads it");
+  assert.doesNotMatch(context.history, /send/, "never the message itself or after it");
+  assert.equal(context.today, "Mon 9:02");
+  assert.deepEqual(context.facts, [], "no ledger in the bench, so no facts of the moment");
+});
+
+test("routeTraining: a Training conversation is held out whole, or cut at the message; others read every example", () => {
+  const { withoutChat, cutAt } = createRequire(import.meta.url)("../../../packages/shared/src/texTraining.cjs");
+  const generated = {
+    nodes: { router: [{ chat: "c", at: 0, kind: "one", before: [], newest: "@ann: hi", label: { route: "quick" } }, { chat: "c", at: 2, kind: "one", before: [], newest: "@ann: send", label: { route: "act" } }, { chat: "o", at: 0, kind: "one", before: [], newest: "@bo: yo", label: { route: "quick" } }] },
+    chats: {},
+  };
+  const own = conv("c", [{ id: "m1", who: "Ann", text: "hi" }, { id: "m2", who: "Ann", text: "x" }, { id: "m3", who: "Ann", text: "send" }], { set: "training" });
+  const held = routeTraining(own, 2, generated, { holdOut: true, withoutChat, cutAt });
+  assert.deepEqual(held.nodes.router.map((m) => m.chat), ["o"], "held out: none of its own");
+  const cut = routeTraining(own, 1, generated, { holdOut: false, withoutChat, cutAt });
+  assert.deepEqual(cut.nodes.router.map((m) => `${m.chat}${m.at}`), ["c0", "o0"], "in context: never its own label on the message or after it");
+  assert.equal(routeTraining(conv("d", [{ id: "m1", who: "Ann", text: "hi" }], { set: "dev" }), 0, generated, { holdOut: true, withoutChat, cutAt }), generated);
+  assert.equal(routeTraining(own, 1, generated, { holdOut: true }), null, "a tree without the cut reads no examples");
+});
+
+test("routeRight is right only when the pick is the labelled route; no pick is wrong and says so", () => {
+  assert.deepEqual(routeRight({ route: "read" }, "read"), { right: true, why: "" });
+  assert.equal(routeRight({ route: "read" }, "act").right, false);
+  assert.equal(routeRight({ route: "read" }, "act").why, "routed act, wanted read");
+  assert.equal(routeRight({ route: "read" }, null).right, false);
+  assert.equal(routeRight({ route: "read" }, null).why, "no route, wanted read");
+});
+
+test("the router runs alone with a fake engine: right, wrong and none rows, each with its pick and sure", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "router-stub-"));
+  try {
+    // A tree whose router module answers the way the contract says: the question is the state, the reader takes route.
+    await mkdir(join(dir, "apps/mcp/src/agent"), { recursive: true });
+    await writeFile(join(dir, "package.json"), '{"type":"module"}\n');
+    await writeFile(
+      join(dir, "apps/mcp/src/agent/specialistRoute.js"),
+      [
+        "export function routeRequest({ question }) { return { state: question, questions: [{ name: \"route\" }] }; }",
+        "export function readRoute(answers) { return answers && typeof answers.route === \"string\" ? { route: answers.route, sure: 0.9 } : null; }",
+        "",
+      ].join("\n"),
+    );
+    const said = { "is the bin out?": "quick", "send the invoice to Jo": "quick", "what's the wifi code": null };
+    const seen = [];
+    const routeEngine = async (state) => {
+      seen.push(state);
+      return said[state] ? { route: said[state] } : null;
+    };
+    const rows = await runSets([routerChat()], { adapters: await adaptersFor(dir, { routeEngine }), node: "router" });
+    assert.deepEqual(seen, ["is the bin out?", "send the invoice to Jo", "what's the wifi code"]);
+    assert.deepEqual(
+      rows.map((r) => [r.msg, r.node, r.right, r.ran, r.got, r.want, r.usd, r.route]),
+      [
+        ["m1", "router", true, true, "quick", "quick", 0, { pick: "quick", sure: 0.9 }],
+        ["m2", "router", false, true, "quick", "act", 0, { pick: "quick", sure: 0.9 }],
+        ["m3", "router", false, true, null, "read", 0, { pick: null, sure: null }],
+      ],
+    );
+    assert.equal(rows[1].why, "routed quick, wanted act");
+    assert.equal(rows[2].why, "no route, wanted read");
+    assert.equal(rows[0].chat, "router-1");
+    assert.equal(rows[0].at, 0);
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
+test("the router's real module, with a fake engine: every row runs, none is right by accident", { skip: !existsSync(join(REPO_ROOT, "apps/mcp/src/agent/specialistRoute.js")) && "specialistRoute.js is not in this tree yet" }, async () => {
+  const routeEngine = async () => null;
+  const rows = await runSets([routerChat()], { adapters: await adaptersFor(REPO_ROOT, { routeEngine }), node: "router" });
+  assert.equal(rows.length, 3);
+  assert.ok(rows.every((r) => r.node === "router" && r.ran === true && r.right === false && r.got === null), "no answer is no route");
+});
+
+test("the router's bench reads its config context: Training examples and the chat before, within what Clef reads", { skip: !existsSync(join(REPO_ROOT, "apps/mcp/src/agent/routerContext.js")) && "routerContext.js is not in this tree yet" }, async () => {
+  const seen = [];
+  const routeEngine = async (state) => {
+    seen.push(state);
+    return null;
+  };
+  const c = conv("router-ctx", [{ id: "m1", who: "Ann", text: "draft a note to Jo about the leak" }, { id: "x1", who: "Tex", tex: true, text: "Here's a draft for Jo." }, { id: "m2", who: "Ann", text: "send it", labels: { router: { route: "act", star: true } } }], { set: "dev" });
+  await runSets([c], { adapters: await adaptersFor(REPO_ROOT, { routeEngine }), node: "router" });
+  assert.equal(seen.length, 1);
+  assert.match(seen[0], /<examples>[\s\S]*<route>(quick|read|act|job)<\/route>/, "train:router's labelled examples");
+  assert.match(seen[0], /<chat-history>\n@ann: draft a note to Jo about the leak\nYou: Here's a draft for Jo\.\n<\/chat-history>/, "the chat before it, newest last");
+  assert.ok(seen[0].indexOf("<chat-history>") < seen[0].indexOf("<text>\nsend it"), "the text last");
+  const { MAX_DECISION_STATE_CHARS } = await import("../src/agent/decide.js");
+  assert.ok(seen[0].length <= MAX_DECISION_STATE_CHARS, `within what Clef reads (${seen[0].length})`);
+});
+
+test("the router without Clef credentials says so on each row, rather than scoring every row wrong", { skip: !existsSync(join(REPO_ROOT, "apps/mcp/src/agent/specialistRoute.js")) && "specialistRoute.js is not in this tree yet" }, async () => {
+  const rows = await runSets([routerChat()], { adapters: await adaptersFor(REPO_ROOT, { env: {} }), node: "router" });
+  assert.equal(rows.length, 3);
+  assert.ok(rows.every((r) => r.ran === false && r.right === false && /CLOUDFLARE_ACCOUNT_ID/.test(r.why)));
+});
+
+test("a tree without the router module says so on each row instead of passing it", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "router-absent-"));
+  try {
+    const rows = await runSets([routerChat()], { adapters: await adaptersFor(dir, {}), node: "router" });
+    assert.equal(rows.length, 3);
+    assert.ok(rows.every((r) => r.ran === false && r.right === false && /can't run alone yet/.test(r.why)));
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
 });

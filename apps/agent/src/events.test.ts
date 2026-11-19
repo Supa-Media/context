@@ -181,6 +181,37 @@ describe("a person's chat as events", () => {
     expect(await unwritten(storage)).toEqual([]);
   });
 
+  it("a gateway that does not know `source` refuses the batch naming `event`: it goes once more without `source`, and is written", async () => {
+    const storage = new MemoryStorage();
+    await addEvent(storage, { at: 1_000, chat: "c", from: { kind: "tex" }, kind: "text", text: "Tex says", delivered: true, source: "checkin", turn: "ck0123456789abcdef" });
+    const bodies: { events: Record<string, unknown>[] }[] = [];
+    const older = (async (_url: string, init: RequestInit) => {
+      const body = JSON.parse(String(init.body));
+      bodies.push(body);
+      if (body.events.some((event: Record<string, unknown>) => "source" in event)) return Response.json({ error: "invalid_request", error_description: "event" }, { status: 400 });
+      return Response.json({ written: body.events.map((event: TexEvent) => event.id) });
+    }) as unknown as Fetch;
+    await flushEvents(storage, { fetch: older, gatewayOrigin: "https://gw.example", now: () => 1_000 }, "tok", "texts");
+    expect(bodies).toHaveLength(2);
+    expect(bodies[0].events[0]).toHaveProperty("source", "checkin");
+    expect(bodies[1].events[0]).not.toHaveProperty("source");
+    expect(bodies[1].events[0]).toMatchObject({ text: "Tex says", turn: "ck0123456789abcdef", delivered: true });
+    expect(await unwritten(storage)).toEqual([]);
+  });
+
+  it("a refusal naming `event` for a batch with no source is dropped at once, never retried", async () => {
+    const storage = new MemoryStorage();
+    await addEvent(storage, { at: 1_000, chat: "c", from: { kind: "person" }, kind: "text", text: "x" });
+    let calls = 0;
+    const refusing = (async () => {
+      calls++;
+      return Response.json({ error: "invalid_request", error_description: "event" }, { status: 400 });
+    }) as unknown as Fetch;
+    await flushEvents(storage, { fetch: refusing, gatewayOrigin: "https://gw.example", now: () => 1_000 }, "tok", "texts");
+    expect(calls).toBe(1);
+    expect(await unwritten(storage)).toEqual([]);
+  });
+
   it("a name decide's transcript reserves (you, tex, context, system, them) is sent as no name, and the batch still goes", async () => {
     const storage = new MemoryStorage();
     for (const [at, name] of ["You", " tex ", "CONTEXT", "System", "them", "Ada"].entries()) {

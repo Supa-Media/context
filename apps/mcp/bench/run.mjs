@@ -28,6 +28,7 @@ import { basename, join, resolve } from "node:path";
 
 import { PRODUCTION_HOUSEKEEPING_PATH, frontOf, parseSetup } from "../src/agent/production.js";
 import { MODULE_FOLDER, assembleSetup } from "../src/agent/promptModules.js";
+import { sentPicturesLine } from "../src/agent/outgoingPictures.js";
 import { expandWorkspaces, readBenchFolder, runnableQuestions } from "./load.mjs";
 import { cachedEmbeddings, claudeTransport, fakeAi, playPerson } from "./models.mjs";
 import { prepareRun } from "./warm.mjs";
@@ -64,7 +65,9 @@ import { filedNotes } from "./checks.mjs";
 import { realNow } from "./clock.mjs";
 import { benchFolder } from "./folder.mjs";
 import { benchModels } from "./worldModels.mjs";
-import { byCodeStart } from "./byCode.mjs";
+import { benchRunning, byCodeStart } from "./byCode.mjs";
+
+export { benchRunning };
 
 /**
  * The fewest texts the played person may send in one conversation. A brief
@@ -196,11 +199,6 @@ export function readComputer(value) {
   return { name: m[1], tools: m[2].split(", "), slots: m[3] ? Number(m[3]) : 1 };
 }
 
-/** The jobs a case's chat has running before it starts: the same for every setup, so each has the same free slots. */
-export function benchRunning(count) {
-  return Array.from({ length: Math.max(0, Math.min(6, count)) }, (_, i) => ({ id: `bench-running-${i + 1}`, title: `Earlier job ${i + 1}`, state: "running", startedAt: Date.now() - 10 * 60_000, status: "working" }));
-}
-
 /**
  * The line a tapback ending shows the judge: "(Tex reacted 🗓️ to their text)", or, when the Worker picks the emoji
  * (`react: ""`), "(Tex reacted to their text)". Null when the turn sent no tapback.
@@ -214,16 +212,16 @@ export function tapbackLine(react) {
 export async function converse(world, question, person, mode = null, background = false) {
   if (mode === "housekeeping") return await keepHouse(world, question);
   const conversation = [];
-  // A test with `background: on` is offered background jobs, the chat running the case's `- running:` count already (`benchRunning`).
-  const running = background ? benchRunning(question.running ?? 0) : null;
-  const totals = { ms: 0, personMs: 0, jobMs: 0, tools: [], jobs: [], delivered: [], traces: [], usage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 }, usageByModel: {}, rounds: {}, model: null, error: null };
+  // A test with `background: on` is offered background jobs, the chat running the case's `- running:` count and the jobs its `- running job:` lines name (`benchRunning`).
+  const running = background ? benchRunning(question.running ?? 0, question.runningJobs ?? []) : null;
+  const totals = { ms: 0, personMs: 0, jobMs: 0, tools: [], jobs: [], delivered: [], turnRounds: [], turnRoutes: [], traces: [], usage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 }, usageByModel: {}, rounds: {}, model: null, error: null, steps: null };
   // A Lab replay's chat before its text goes into the ledger first, as it was (`labReplay.mjs`).
   // A job's report as the case's text: the page it says it wrote is written first (`earlierNotes.mjs`).
   const also = question.jobReport ? [String(question.jobReport.text ?? "")] : [];
-  if ((question.earlier ?? []).length > 0 || also.length > 0) await world.earlier(question.earlier ?? [], { checkIn: Boolean(question.checkinMail), also });
+  if ((question.earlier ?? []).length > 0 || also.length > 0) await world.earlier(question.earlier ?? [], { checkIn: Boolean(question.checkinMail || question.checkinCalendar), also });
   // A group's routine or check-in, or a job's report: one turn the Worker queues itself (`byCode.mjs`).
   const byCode = await byCodeStart(world, question, { running });
-  if (byCode === null && (question.checkinMail || question.routine)) return await startedBy(world, question);
+  if (byCode === null && (question.checkinMail || question.checkinCalendar || question.routine)) return await startedBy(world, question);
   let message = byCode?.message ?? question.personStarts ?? question.texts ?? question.text;
   const limit = personTextLimit(question);
   for (let texts = 0; message !== null && texts < limit; texts += 1) {
@@ -233,13 +231,18 @@ export async function converse(world, question, person, mode = null, background 
     const seen = world.browser().length;
     const others = (question.others ?? []).filter((line) => line.before === texts + 1); // a group's other members, before this text (`load.mjs`)
     for (const line of others) conversation.push({ from: "person", text: `@${line.from}: ${line.text}` });
-    const turn = await world.text(message, pictures, { running: byCode?.running ?? running, others, ...(byCode?.options ?? {}) });
+    const text = () => world.text(message, pictures, { running: byCode?.running ?? running, others, ...(byCode?.options ?? {}) });
+    // A group's check-in looks at the fixtures' mail and calendar only, as a one-to-one check-in does (`world.checkIn`).
+    const turn = byCode?.options?.cause === "check_in" ? await world.closedForNew(text) : await text();
     totals.ms += turn.ms;
     totals.tools.push(...turn.tools);
     totals.traces.push(turn.trace ?? []);
     totals.jobs.push(...(turn.jobs ?? []));
+    if (turn.turnRounds) totals.turnRounds.push(turn.turnRounds); // each texted turn's rounds of its bound (`world.mjs`)
+    if (turn.turnRoute) totals.turnRoutes.push(turn.turnRoute); // each texted turn's route (`world.mjs`, the reply's `route`)
     addSpend(totals, turn);
     totals.model = turn.model ?? totals.model;
+    totals.steps = turn.steps ?? totals.steps; // the row's steps: its last texted turn's (`turnSteps.mjs`)
     if (!turn.ok) {
       totals.error = turn.error;
       break;
@@ -247,7 +250,7 @@ export async function converse(world, question, person, mode = null, background 
     // Each progress line is a text the person got before the answer, as the
     // texting Worker sends them (`apps/agent/src/inbox.ts`), so it counts as one.
     for (const line of turn.progress ?? []) conversation.push({ from: "assistant", text: line });
-    conversation.push({ from: "assistant", text: turn.answer });
+    conversation.push({ from: "assistant", text: saidLine(turn) });
     // A turn that ends in a tapback instead of words (a job's start, `sendTheReply.js`) showed the person that tapback:
     // the judge reads it as the line they saw, never as silence (Dev set, 2026-11-17: three such turns read "said nothing").
     const tapback = tapbackLine(turn.react);
@@ -271,6 +274,24 @@ export async function converse(world, question, person, mode = null, background 
 }
 
 /**
+ * What the person got from one texted turn, as the record's line. Words are the words, with the pictures sent beside
+ * them said as the chat's own record says them (`outgoingPictures.js` sentPicturesLine): a drawn card was invisible to
+ * the judge, and an answer that was only a picture read as nothing. A turn with no words, no picture and no tapback is
+ * one of three things, and the line says which (Training, 2026-11-18: such rows read "Tex: " with nothing, and nobody
+ * could tell a chosen silence from a lost answer): Tex chose to say nothing (`quiet`, with its model's last words and
+ * call), the Worker stopped the turn, or the gateway answered with nothing at all, which production's Worker retries
+ * and then texts an apology for (`apps/agent/src/reply.ts`), so it is a failed turn, never a reply.
+ */
+export function saidLine(turn) {
+  const pictures = sentPicturesLine(Array.from({ length: Number(turn.pictures) || 0 }));
+  if (turn.answer !== "" || pictures !== "") return [turn.answer, pictures].filter(Boolean).join("\n");
+  if (typeof turn.react === "string") return "";
+  if (turn.cancelled === true) return "(the turn was stopped before it answered)";
+  if (turn.quiet === true) return `(stayed quiet${turn.quietWhy ? `: ${turn.quietWhy}` : ""})`;
+  return `(no answer came back${turn.quietWhy ? `: ${turn.quietWhy}` : ""}; the texting Worker would retry, then text that something went wrong)`;
+}
+
+/**
  * A test that starts at a check-in or a routine run, not a text (`setsFd.mjs`): the check-in finds the case's email,
  * or the routine runs with the case's words, through the real `/agent` on that client's grant. Nobody texts; what Tex
  * would text is the one answer.
@@ -280,8 +301,10 @@ export const routinePathOf = (question) => (question.routineOnce === true ? "tex
 
 async function startedBy(world, question) {
   if (question.checkinMail) world.mailArrives(question.checkinMail);
-  const turn = question.checkinMail ? await world.checkIn() : await world.routine(routinePathOf(question), question.routine);
-  return { conversation: turn.ok ? [{ from: "assistant", text: turn.answer }] : [], ms: turn.ms, personMs: 0, tools: [], jobs: [], traces: [], usage: turn.usage, usageByModel: {}, rounds: {}, model: turn.model, error: turn.error, texts: turn.ok ? 1 : 0 };
+  if (question.checkinCalendar) world.calendarArrives(question.checkinCalendar);
+  const checkin = Boolean(question.checkinMail || question.checkinCalendar);
+  const turn = checkin ? await world.checkIn() : await world.routine(routinePathOf(question), question.routine);
+  return { conversation: turn.ok ? [{ from: "assistant", text: turn.answer }] : [], ms: turn.ms, personMs: 0, tools: [], jobs: [], traces: [], usage: turn.usage, usageByModel: {}, rounds: {}, model: turn.model, error: turn.error, texts: turn.ok ? 1 : 0, steps: turn.steps ?? null };
 }
 
 /**
@@ -385,7 +408,7 @@ async function answerJobs(options, { bench, test, testName = options.test ?? opt
   if (!options.fake && !socketed && !scripted && options.job === "texting-assistant" && !process.env.BRAVE_SEARCH_API_KEY) {
     throw new Error("BRAVE_SEARCH_API_KEY is not set: production offers search_web and open_page, so a texting-assistant run must too (task 15 says where the key is)");
   }
-  const models = benchModels(options, { scripted, sites: bench.sites, send });
+  const models = benchModels(options, { scripted, socketed, sites: bench.sites, send });
   if (socketed) {
     // Workers AI (the embeddings for search by meaning, Clef) answers with the scripted stand-in: the examiner session
     // holds no Cloudflare key, and a real model's numbers would differ live and replayed and change what the turn reads.
@@ -400,9 +423,17 @@ async function answerJobs(options, { bench, test, testName = options.test ?? opt
   models.group = test.front.group ?? null;
   // A test whose person has a calendar connected and nothing on it (`calendar: connected`, `calendar.mjs` benchCalendar).
   models.calendar = test.front.calendar ?? null;
+  // A test whose person has Google Chat connected (`chat: connected`, a setting that names it; `chat.mjs` connectChat).
+  models.chat = test.front.chat ?? null;
+  // `gmail: sends`: the mailbox may send (set by `frontFor`, read by `connectMailbox`); core tests keep it refused.
+  models.gmail = test.front.gmail ?? null;
   // The person's zone, sent on every text as the Worker sends it, and the test's time of day in it (`clock.mjs` clockMs).
   models.timeZone = test.front.time_zone ?? null;
   models.clock = test.front.clock ?? null;
+  // The last day whose mail has arrived, for a test conversation's dated world (`setsWorld.mjs`).
+  models.mailUntil = test.front.mail_until ?? null;
+  // The sites a test conversation's own world declared (`setsWorld.mjs`): kept in a simulated world, made-up hosts too.
+  models.ownSites = String(test.front.world_sites ?? "").split(",").map((host) => host.trim()).filter(Boolean);
   const person = { fake: options.fake === true, send, model: test.front.played_by };
   // A Dev test's outside world, played by a model where the fixtures have nothing (`world: simulated`, `simWorld.mjs`).
   const worldMemo = simMemo();
@@ -459,6 +490,8 @@ async function answerJobs(options, { bench, test, testName = options.test ?? opt
           browser: world.browser(),
           // Each Gmail search and read, so a result shows a search that missed.
           mail: world.mail(),
+          // What the bench's own stand-ins could not answer (`benchGaps.mjs`): the row is the harness's, not Tex's.
+          bench: world.gaps?.() ?? [],
           // The emails it saved or sent, for the forward check (`checks.mjs`).
           emails: world.emails(),
           // Wall time for the whole conversation, worlds and the played person
@@ -607,7 +640,7 @@ const USAGE = [
   "       pnpm ai jobs [--setup production] [--only a,b] [--gate-sample <main tree>] [--max-parts 4] [--strict] [--fake]  run Tex's job tasks end to end and grade them in code",
   "       pnpm ai search [--dir <benchmarks folder>] [--setups a,b] [--questions 1,2] [--out <note>] [--fake]",
   "       pnpm ai check <dream|heartbeat|meeting-summaries|meeting-transcription|connected-ais> [--dir <folder>] [--setups a,b] [--questions 1,2] [--out <note>] [--fake]",
-  "       pnpm ai connect [--endpoint <url>]           once, by a person: the runner's grant on Context",
+  "       pnpm ai connect [--endpoint <url>] [--lab-slot <1|2|3>]   once, by a person: the runner's grant on Context (a Lab slot's secrets with --lab-slot)",
   "       pnpm ai signin [--show refresh-token]        the runner's sign-in, from BENCH_RUNNER_* in the environment",
   "       pnpm ai pull <job> [--dir <benchmarks folder>]   the job's setups from Context into setups/<job>/",
   "       pnpm ai publish <result file> [--run-url <url>]  the result's scores note into Context",

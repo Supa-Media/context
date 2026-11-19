@@ -11,11 +11,19 @@
  *   - on the real graph runner, a spent budget with the hook set hands off (logged `handedOff`, the model loop told),
  *     and with no hook (the node not wired) the draft goes as it is, as today;
  *   - `runTurn` ends on the hand-off's line, settled as a started job, with no round after.
+ *   - out of rounds (`fd -> handoff`, cause "rounds"): the node hands the job on with no notice, its brief saying the
+ *     turn ran out of rounds; the hook fires over the front door's wire; `runTurn` asks `roundsOut` once, at the round
+ *     two from its bound, and ends there on its line with no round after; unasked (not wired) it runs to its bound as
+ *     today; and every turn says its rounds of its bound and whether it ran out (`roundsField`), as the bench records.
  *
  * Sabotage record (temporary local edits, reverted, 2026-11-18):
  *   (i)   answerCheck.js: `spentOn` calling `letGo()` without asking `t.handoff`. "a spent budget hands the job off" fails.
  *   (ii)  handoff.js: the `started.length === before` check removed. "no job started" fails: the turn would end on a tapback for a job that never ran.
  *   (iii) turn.js: the `recheck?.handedOff` return removed. "runTurn ends on the hand-off's line" fails (the object is pushed as a notice).
+ *   (iv)  turn.js: the `roundsOut` call removed. "out of rounds, runTurn hands the job off" fails (it runs all four rounds).
+ *   (v)   handoff.js node: the `rounds` exception to the notice check removed. "out of rounds the node hands on" fails (keep).
+ *   (vi)  turn.js: the "last round ended on tool calls" check removed. "a turn sent back into its last rounds" fails.
+ *   (vii) turn.js: the only-read check removed. "a turn that changed something is never handed on" fails.
  */
 import { test } from "node:test";
 import assert from "node:assert/strict";
@@ -28,6 +36,7 @@ import { handoffHook, toolResultsOf } from "../src/agent/handoff.js";
 import { QUIET_ACK } from "../src/agent/background.js";
 import { BUILTIN_PROVIDER } from "../src/agent/builtin.js";
 import { runTurn } from "../src/agent/turn.js";
+import { roundsField } from "../src/agent/lastRound.js";
 
 const { createGraph } = graphLib;
 
@@ -90,7 +99,7 @@ test("the hook starts the node's job and ends on its start line, once a turn", a
   const ack = await hook("Want me to?", { messages: [{ role: "tool", name: "read", text: "r" }] }, "do it");
   assert.equal(ack, "On it, I'll text you the result.");
   assert.deepEqual(background.calls, [{ title: "T", brief: "B", done_when: "D" }]);
-  assert.deepEqual(gated, { ask: "do the thing", draft: "Want me to?", notice: "do it", found: [{ name: "read", text: "r" }] });
+  assert.deepEqual(gated, { ask: "do the thing", draft: "Want me to?", notice: "do it", found: [{ name: "read", text: "r" }], cause: "check" });
   assert.equal(await hook("again", {}, "do it"), null, "once a turn");
   assert.equal(background.calls.length, 1);
 });
@@ -182,4 +191,158 @@ test("runTurn ends on the hand-off's line, settled as a started job, with no rou
   assert.equal(result.answer, QUIET_ACK);
   assert.equal(result.settled, "start_background_job");
   assert.equal(calls.length, 1, "no model round after the hand-off");
+});
+
+test("out of rounds the node hands the job on with no notice, saying the turn ran out of rounds", async () => {
+  const out = await handoffNode({ ask: "Compare the readers' prices and pick one.", draft: "Checking the third site.", found: [{ name: "fetch", text: "Reader A $40/mo" }], cause: "rounds" });
+  assert.equal(out.to, "hand");
+  assert.match(out.brief, /ran out of rounds/);
+  assert.match(out.brief, /Checking the third site\./);
+  assert.match(out.brief, /fetch: Reader A \$40\/mo/);
+  assert.doesNotMatch(out.brief, /never sent, because/);
+  assert.equal((await handoffNode({ ask: "x", cause: "check" })).to, "keep", "from the check, a draft nobody held back still stays");
+});
+
+test("the hook fires over the wire it was asked from, with that wire's cause", async () => {
+  const background = fakeBackground();
+  const seen = [];
+  const hook = handoffHook({ background, gate: async (input, from) => (seen.push([from, input.cause]), HAND()), ask: "x" });
+  assert.equal(await hook("words", { messages: [] }, "", "fd"), QUIET_ACK);
+  assert.deepEqual(seen, [["fd", "rounds"]]);
+});
+
+/** A model that calls a tool every round, so a turn only ends at its bound. */
+function toolEveryRound(calls) {
+  return {
+    async run(_model, input) {
+      calls.push(input.messages);
+      return { choices: [{ message: { content: "Checking another site.", tool_calls: [{ id: `c${calls.length}`, type: "function", function: { name: "look", arguments: "{}" } }] } }], usage: { prompt_tokens: 10, completion_tokens: 5 } };
+    },
+  };
+}
+
+const LOOK = { name: "look", description: "look something up", inputSchema: { type: "object", properties: {} }, annotations: { readOnlyHint: true } };
+
+async function turnOf(ai, extra = {}) {
+  const MAIN = "@cf/acme/main-model";
+  return runTurn({
+    question: "compare the readers' prices",
+    credential: { provider: BUILTIN_PROVIDER, apiKey: null },
+    tools: [LOOK],
+    env: { AI: ai, AGENT_BUILTIN_MODEL: MAIN },
+    providerOptions: { ai },
+    texting: true,
+    builtinModelOverride: MAIN,
+    maxRounds: 4,
+    callTool: async () => ({ content: [{ type: "text", text: "Reader A $40/mo" }] }),
+    ...extra,
+  });
+}
+
+test("out of rounds, runTurn hands the job off at the round two from its bound, and ends on its line", async () => {
+  const calls = [];
+  const asked = [];
+  const result = await turnOf(toolEveryRound(calls), { roundsOut: async (at) => (asked.push(at), QUIET_ACK) });
+  assert.equal(asked.length, 1, "asked once");
+  assert.equal(calls.length, 2, "two rounds of four ran, then the job went on: no round after");
+  assert.ok(asked[0].messages.some((m) => m.role === "tool"), "with what the turn found");
+  assert.equal(asked[0].lastWords, "Checking another site.");
+  assert.equal(result.answer, QUIET_ACK);
+  assert.equal(result.settled, "start_background_job");
+  assert.equal(result.handedOff, "rounds");
+  assert.deepEqual(roundsField(result), { rounds: { used: 2, of: 4, toEnd: true, handedOff: true } });
+});
+
+test("not wired (no roundsOut), or the node kept it, the turn runs to its bound as today, and says it ran out", async () => {
+  const calls = [];
+  const result = await turnOf(toolEveryRound(calls));
+  assert.equal(calls.length, 4);
+  assert.equal(result.exhausted, true);
+  assert.deepEqual(roundsField(result), { rounds: { used: 4, of: 4, toEnd: true, exhausted: true } });
+  const kept = [];
+  const goesOn = await turnOf(toolEveryRound(kept), { roundsOut: async () => null });
+  assert.equal(kept.length, 4, "a null answer goes on");
+  assert.notEqual(goesOn.settled, "start_background_job");
+});
+
+test("a turn that answers inside its bound says its rounds and nothing ran out", async () => {
+  const ai = { async run() { return { choices: [{ message: { content: "Hi.", tool_calls: [] } }], usage: { prompt_tokens: 1, completion_tokens: 1 } }; } };
+  let asked = 0;
+  const result = await turnOf(ai, { roundsOut: async () => ((asked += 1), QUIET_ACK) });
+  assert.equal(asked, 0, "never asked inside the bound");
+  assert.deepEqual(roundsField(result), { rounds: { used: 1, of: 4 } });
+  assert.deepEqual(roundsField({}), {}, "no timing, nothing said");
+});
+
+// The schema a Lab draft gives the shelf node: `cause` is one of its inputs, so a hand-off from either wire passes the
+// runner's strict shape check. Sabotage: drop `cause` from it and the fire throws "has "cause", which its schema does not name".
+const HANDOFF_SCHEMA = {
+  inSchema: [{ name: "ask", type: "text" }, { name: "draft", type: "text", optional: true }, { name: "notice", type: "text", optional: true }, { name: "found", type: "list", optional: true }, { name: "cause", type: "choice", options: "rounds, check", optional: true }],
+  outSchema: [{ name: "to", type: "choice", options: "hand, keep" }, { name: "title", type: "text", optional: true }, { name: "brief", type: "text", optional: true }, { name: "doneWhen", type: "text", optional: true }, { name: "why", type: "text", optional: true }],
+};
+
+test("on the real runner, the front door's wire fires the node with cause rounds, and only when drawn", async () => {
+  const config = { nodes: [node("fd"), node("handoff", HANDOFF_SCHEMA)], edges: [wire("fd", "handoff", "uses")] };
+  const graph = createGraph(config, { fd: async () => ({ when: ["done"] }), handoff: handoffNode }, { log: () => {} });
+  assert.equal(graph.wired("fd", "handoff"), true);
+  assert.equal(graph.wired("answerCheck", "handoff"), false, "the answer check's moment stays off unless drawn too");
+  const background = fakeBackground();
+  const hook = handoffHook({ background, gate: (input, from) => graph.fire(from, "handoff", input), ask: "compare the readers' prices" });
+  assert.equal(await hook("Checking another site.", { messages: [{ role: "tool", name: "look", text: "A $40" }] }, "", "fd"), QUIET_ACK);
+  assert.match(background.calls[0].brief, /ran out of rounds/);
+});
+
+/** A model that calls `name` every round. */
+function calling(calls, name) {
+  return { async run(_m, input) { calls.push(input.messages); return { choices: [{ message: { content: "", tool_calls: [{ id: `c${calls.length}`, type: "function", function: { name, arguments: "{}" } }] } }], usage: { prompt_tokens: 1, completion_tokens: 1 } }; } };
+}
+
+test("a turn that changed something is never handed on: a worker could do the write again", async () => {
+  const WRITE = { name: "write_it", description: "writes", inputSchema: { type: "object", properties: {} } };
+  const calls = [];
+  let asked = 0;
+  const result = await turnOf(calling(calls, "write_it"), { tools: [WRITE], roundsOut: async () => ((asked += 1), QUIET_ACK) });
+  assert.equal(asked, 0, "never asked after a write");
+  assert.equal(calls.length, 4);
+  assert.equal(result.exhausted, true);
+});
+
+test("a turn sent back into its last rounds is drafting, not gathering: never handed on", async () => {
+  const calls = [];
+  const ai = {
+    async run(_m, input) {
+      calls.push(input.messages);
+      if (calls.length === 1) return { choices: [{ message: { content: "", tool_calls: [{ id: "c1", type: "function", function: { name: "look", arguments: "{}" } }] } }], usage: { prompt_tokens: 1, completion_tokens: 1 } };
+      return { choices: [{ message: { content: `Draft ${calls.length}.`, tool_calls: [] } }], usage: { prompt_tokens: 1, completion_tokens: 1 } };
+    },
+  };
+  let checks = 0;
+  let asked = 0;
+  const result = await turnOf(ai, { answerCheck: async () => ((checks += 1) === 1 ? "say it plainly" : null), roundsOut: async () => ((asked += 1), QUIET_ACK) });
+  assert.equal(asked, 0, "never asked on a send-back");
+  assert.equal(result.answer, "Draft 3.");
+});
+
+test("a hook that throws lets the turn go on as it would unwired", async () => {
+  const calls = [];
+  const result = await turnOf(toolEveryRound(calls), { roundsOut: async () => { throw new Error("schema"); } });
+  assert.equal(calls.length, 4);
+  assert.equal(result.exhausted, true);
+  const background = fakeBackground();
+  assert.equal(await handoffHook({ background, gate: async () => { throw new Error("has cause, which its schema does not name"); }, ask: "x" })("d", {}, "n"), null, "the hook itself answers null");
+});
+
+test("a bound too short for its last-two notice still hands on at the bound", async () => {
+  const calls = [];
+  const result = await turnOf(toolEveryRound(calls), { maxRounds: 2, roundsOut: async () => QUIET_ACK });
+  assert.equal(calls.length, 2);
+  assert.equal(result.handedOff, "rounds");
+  assert.equal(result.settled, "start_background_job");
+});
+
+test("the brief fits the job's cap with what was found ahead of the unsent words", async () => {
+  const out = await handoffNode({ ask: "a".repeat(3_000), draft: "d".repeat(3_000), cause: "rounds", found: Array.from({ length: 10 }, (_, i) => ({ name: `t${i}`, text: "x".repeat(1_000) })) });
+  assert.ok(out.brief.length <= 2_000, String(out.brief.length));
+  assert.ok(out.brief.indexOf("Already found") < out.brief.indexOf("What it last said"), "found first");
+  assert.match(out.brief, /- t9:/, "the newest result kept");
 });

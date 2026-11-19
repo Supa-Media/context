@@ -109,8 +109,10 @@ function readQuestion(sec) {
     in: null,
     // Lines graded from the run's record, never by the judge (`checks.mjs`).
     checks: [],
-    // Background jobs the chat already has running, with `background: on` (`run.mjs` `benchRunning`).
+    // Background jobs the chat already has running, with `background: on` (`byCode.mjs` `benchRunning`).
     running: 0,
+    // Jobs a Tex 🔎 started that are still running at the text (`- running job:` {title, minutesBefore?}; `setsFd.mjs` runningJobOf).
+    runningJobs: [],
     // In a group test (`group:`), what other members text before the person's nth text: `- @priya before text 2: "..."`.
     others: [],
     // A Lab replay (`labReplay.mjs`): the one text, exactly as it was sent (`- person texts:` with a JSON string, so a
@@ -121,6 +123,8 @@ function readQuestion(sec) {
     // A Front door test that starts at a check-in or a routine, not a text (`setsFd.mjs`): the email the check-in
     // finds (`- check-in mail:` {from, subject, body}), or the routine's words (`- routine runs:` a JSON string).
     checkinMail: null,
+    // The calendar event a check-in names (`- check-in calendar:` a JSON string): on the bench calendar for its look.
+    checkinCalendar: null,
     routine: null,
     // A one-off reminder's run (`- one-off routine runs:`), placed in `tex/routines/once/` as production keeps one, so
     // its run reads the one-off's own framing (`routine.js` routineQuestion); `- routine runs:` is a daily routine.
@@ -138,6 +142,7 @@ function readQuestion(sec) {
     else if ((m = line.match(/^- kind:\s*(.*)$/))) q.kind = m[1].trim();
     else if (/^- gate:/.test(line)) q.gate = true;
     else if ((m = line.match(/^- running:\s*(\d+)\s*(?:jobs?)?\s*$/))) q.running = Number(m[1]);
+    else if ((m = line.match(/^- running job:\s*(.*)$/))) q.runningJobs.push(runningJobLine(m[1], sec.n));
     else if ((m = line.match(/^- person starts:\s*(.*)$/))) q.personStarts = unquote(m[1]);
     else if ((m = line.match(/^- person texts:\s*(.*)$/))) q.texts = jsonText(m[1], sec.n);
     else if ((m = line.match(/^- routine runs:\s*(.*)$/))) q.routine = jsonText(m[1], sec.n);
@@ -146,6 +151,7 @@ function readQuestion(sec) {
       q.routineOnce = true;
     }
     else if ((m = line.match(/^- check-in mail:\s*(.*)$/))) q.checkinMail = mailLine(m[1], sec.n);
+    else if ((m = line.match(/^- check-in calendar:\s*(.*)$/))) q.checkinCalendar = jsonText(m[1], sec.n);
     else if ((m = line.match(/^- job reports:\s*(.*)$/))) q.jobReport = jobLine(m[1], sec.n);
     // An earlier trigger (`byCode.mjs`): Tex's texts after it are kept as production keeps that kind.
     else if ((m = line.match(/^- earlier check-in mail:\s*(.*)$/))) q.earlier.push({ from: "trigger", via: "checkin", mail: mailLine(m[1], sec.n) });
@@ -208,6 +214,20 @@ function jobLine(raw, n) {
   }
   if (!value || typeof value !== "object" || typeof value.title !== "string" || typeof value.text !== "string" || !["done", "failed", "running", "waiting", "stuck"].includes(value.state)) {
     throw new Error(`question ${n}: a job reports line is JSON {title, state, text, asked?}, state done, failed, running, waiting or stuck`);
+  }
+  return value;
+}
+
+/** A running job on a case line: JSON `{ title, minutesBefore? }`, the job it started that is still running (`setsFd.mjs`). */
+function runningJobLine(raw, n) {
+  let value;
+  try {
+    value = JSON.parse(raw.trim());
+  } catch {
+    value = null;
+  }
+  if (!value || typeof value !== "object" || typeof value.title !== "string" || value.title.trim() === "" || (value.minutesBefore !== undefined && !Number.isInteger(value.minutesBefore))) {
+    throw new Error(`question ${n}: a running job line is JSON {title, minutesBefore?}`);
   }
   return value;
 }

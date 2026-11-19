@@ -409,7 +409,7 @@ describe("worker", () => {
       vi.spyOn(console, "log").mockImplementation(() => {});
       await tick(e);
       expect(inboxCalls).toEqual([
-        { name: "+15555550100", url: "https://inbox/routine-text", body: { text: "hi", idempotencyKey: "routine:r1:+15555550100" } },
+        { name: "+15555550100", url: "https://inbox/routine-text", body: { text: "hi", idempotencyKey: "routine:r1:+15555550100", source: "routine" } },
       ]);
       expect(reported).toEqual([{ runId: "r1", outcome: "answered", texted: 1 }]);
     });
@@ -445,7 +445,7 @@ describe("worker", () => {
       vi.spyOn(console, "log").mockImplementation(() => {});
       await tick(e);
       expect(inboxCalls).toEqual([
-        { name: "+15555550100", url: "https://inbox/routine-text", body: { text: "Found it.", idempotencyKey: "heartbeat:b1:+15555550100", continues: "can you find it?" } },
+        { name: "+15555550100", url: "https://inbox/routine-text", body: { text: "Found it.", idempotencyKey: "heartbeat:b1:+15555550100", continues: "can you find it?", source: "checkin" } },
       ]);
       expect(reported).toEqual([{ runId: "b1", outcome: "texted" }]);
     });

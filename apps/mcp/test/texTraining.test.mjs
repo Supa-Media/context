@@ -11,6 +11,7 @@
  *   5. an empty Training module still adding words to a prompt            "a step with no labels gets no extra words" fails
  *   6. a front-door label not reaching the front door's prompt            "the front door is given its Training labels" fails
  *   8. Training grown past a step's whole-chat cap, so a chat drops out   "every Training conversation fits" fails
+ *   9. a job check's example without what the job did                     "a job check's example shows the job's brief" fails
  */
 import assert from "node:assert/strict";
 import { createRequire } from "node:module";
@@ -79,7 +80,7 @@ test("only steps that read Training name it in their context", () => {
 
 test("a step reads only the Training its context names", () => {
   assert.equal(trainingText({ ctx: ["recent"] }, TRAINING), "");
-  assert.match(trainingText({ ctx: ["train:decide"] }, TRAINING), /<newest>@remi: Tex pull up prices/);
+  assert.match(trainingText({ ctx: ["train:decide"] }, TRAINING), /<newest>@john: Tex pull up prices/);
   assert.equal(trainingText({ ctx: ["train:fd"] }, { nodes: {} }), "");
 });
 
@@ -138,7 +139,9 @@ test("the front door's and the job's Training words, when they exist, are prompt
 test("every other model step that reads Training is given it after its own words, through withArchitecture", async () => {
   const { ROLES, trainingFor, withArchitecture, architectureFor } = await import("../src/agent/texArchitecture.js");
   const roled = new Set(Object.values(ROLES).map((r) => r.node));
-  for (const id of TRAINING_READERS) if (!["decide", "fd", "job"].includes(id)) assert.ok(roled.has(id), `${id} reads Training but has no role in texArchitecture.js`);
+  // A step turned off runs nowhere (the retired Job check, whose role reads the live Job advisor since 2026-11-18).
+  const off = (id) => TEX_CONFIG.nodes.find((n) => n.id === id)?.on === false;
+  for (const id of TRAINING_READERS) if (!["decide", "fd", "job"].includes(id) && !off(id)) assert.ok(roled.has(id), `${id} reads Training but has no role in texArchitecture.js`);
   for (const role of Object.keys(ROLES)) {
     const training = trainingFor(role);
     const built = withArchitecture("OWN WORDS", role);
@@ -184,7 +187,7 @@ test("whole conversations fit their cap whole: one that would pass it is left ou
   assert.match(capped, /walker|short/);
   assert.doesNotMatch(capped, /filler 399/);
   assert.match(capped, /\(1 more Training conversation left out: over this module's 3000 characters\)/);
-  assert.equal((capped.match(/<conversation>/g) || []).length, 2, "the two that fit");
+  assert.equal((capped.match(/<conversation example="\d of 2">/g) || []).length, 2, "the two that fit");
   assert.ok(all.includes("filler 399"));
   assert.equal(wholeText("fd", 100, generated), "", "none fits, no module");
   assert.equal(wholeText("nobody", 100_000, generated), "");
@@ -233,4 +236,94 @@ test("the check-in reads the Front door's labels on the turns a check-in started
   assert.ok(asked.startsWith(`OWN WORDS\n\n${text}\n\n## This look`));
   const { trainingFor } = await import("../src/agent/texArchitecture.js");
   assert.match(trainingFor("checkIn"), /Check-in, nobody texted/, "main's config gives the check-in its Training check-ins");
+});
+
+test("a job check's example shows the job's brief, finish line and what it did, which is what it judges", () => {
+  const convo = {
+    id: "t", set: "training", kind: "one", members: ["Ana"],
+    msgs: [
+      { id: "m1", who: "Ana", text: "prices for 2 studios please" },
+      { id: "m2", who: "Background job", via: "job", text: "One posts $20; the other doesn't publish prices.",
+        rec: { job: { brief: "Find 2 studios' prices.", doneWhen: "Both prices.", did: [["browse", { url: "https://a.example" }, "Drop-in $20"], ["browse", { url: "https://b.example" }, "x".repeat(400), "failed"]] } },
+        labels: { jobadv: { verdict: "done" } } },
+    ],
+  };
+  const [moment] = momentsOf([convo]).jobadv;
+  assert.match(moment.job, /Brief: Find 2 studios' prices\./);
+  assert.match(moment.job, /Finish line: Both prices\./);
+  assert.match(moment.job, /- browse \{"url":"https:\/\/a\.example"\}: Drop-in \$20/);
+  assert.match(moment.job, /\(failed\): x{239}…/, "a long result is cut, and a failed step says so");
+  assert.equal(momentsOf([{ ...convo, msgs: convo.msgs.map((m) => (m.labels ? { ...m, labels: { fd: { must: ["say it"] } } } : m)) }]).fd[0].job, undefined, "other steps' examples are unchanged");
+});
+
+
+// A chat's own future (truck-crew 96, 2026-11-18: in context, Tex said "John and Priya already said they've got it",
+// which is message 98, read off the same chat whole in its examples). A bench process that scores a Training
+// conversation in context names it and its moment (`UNTIL_ENV`), and that chat's examples end at the moment's own
+// reply. Sabotage: drop the cut in `trainingOf`, or keep lines past `ends[at]`, and "a scored chat's example ends
+// at its moment" fails; drop the fence or the intro's sentence and "every example is fenced" fails.
+const { UNTIL_ENV, HOLD_OUT_ENV, trainingOf, cutAt } = require("../../../packages/shared/src/texTraining.cjs");
+
+const FUTURE = (id) => ({
+  id,
+  title: id,
+  set: "training",
+  kind: "group",
+  members: ["Remi", "Kim"],
+  msgs: [
+    { id: "m1", who: "Remi", text: "who's on sunday", at: "Fri 9:00", labels: { fd: { must: ["ask who"] } } },
+    { id: "m2", who: "Tex", tex: true, text: "Not sure yet, who can do it?" },
+    { id: "m3", who: "Kim", text: "i'm out sunday", at: "Fri 9:05", labels: { fd: { must: ["say nobody has it yet"] }, decide: { act: "respond", why: "tags_tex" } } },
+    { id: "m4", who: "Tex", tex: true, kind: "react", to: "m3", text: "👍" },
+    { id: "m5", who: "Tex", tex: true, text: "Got it, still looking." },
+    { id: "m6", who: "Remi", text: "me and lou can do it", at: "Fri 9:10", labels: { fd: { must: ["thank them"] }, decide: { act: "respond", why: "tags_tex" } } },
+    { id: "m7", who: "Tex", tex: true, text: "Thanks, Sunday's covered." },
+  ],
+});
+
+test("a scored chat's example ends at its moment: its reply kept, nothing after it, the other chats whole", () => {
+  const convos = [FUTURE("crew"), WHOLE("walker", 2)];
+  const generated = { nodes: momentsOf(convos), chats: chatsOf(convos) };
+  const whole = wholeText("fd", 100_000, generated);
+  const cut = wholeText("fd", 100_000, trainingOf(generated, { [UNTIL_ENV]: "crew:2" }));
+  const crew = cut.match(/<conversation example="1 of 2">[\s\S]*?<\/conversation>/)[0];
+  assert.match(crew, /@kim: i'm out sunday\n {4}<must>say nobody has it yet<\/must>\nYou: 👍 on the message "i'm out sunday"\nYou: Got it, still looking\.\n\(the rest of this chat is not shown\)\n<\/conversation>$/);
+  for (const later of ["me and lou can do it", "thank them", "Sunday's covered", "Fri 9:10"]) assert.ok(!cut.includes(later), `"${later}" is the chat's future`);
+  const walker = (t) => t.match(/<conversation example="2 of 2">[\s\S]*?<\/conversation>/)[0];
+  assert.equal(walker(cut), walker(whole), "another chat is unchanged");
+  // Short examples of the same chat after the moment are its future too; those at or before it stay.
+  const decide = trainingOf(generated, { [UNTIL_ENV]: "crew:2" }).nodes.decide.map((m) => m.newest);
+  assert.deepEqual(decide, ["@kim: i'm out sunday"]);
+  // The first message of a chat keeps only itself and its reply.
+  const first = wholeText("fd", 100_000, trainingOf(generated, { [UNTIL_ENV]: "crew:0" }));
+  assert.ok(!first.includes("i'm out sunday") && first.includes("Not sure yet, who can do it?"));
+});
+
+test("with no cut named, the examples are production's to the byte", () => {
+  const generated = TRAINING;
+  assert.equal(trainingOf(generated, {}), generated, "production sets no such variable");
+  assert.equal(trainingOf(generated, { [UNTIL_ENV]: " " }), generated);
+  assert.equal(moduleText("train:fd:all:60000", trainingOf(generated, {})), moduleText("train:fd:all:60000", generated));
+  // A held-out chat is dropped whole, as before; a cut on another chat leaves the held-out one dropped.
+  const held = trainingOf(generated, { [HOLD_OUT_ENV]: "truck-crew" });
+  assert.ok(!held.chats.fd.some((c) => c.chat === "truck-crew"));
+  assert.throws(() => cutAt(generated, "truck-crew", "x"), /message index/);
+});
+
+// Kofi's "out sunday" was message 96 when this was found; a job-report row added above it moved it to 97.
+test("the real truck-crew Sunday text is cut before Tex's reply's successor, its own reply kept", () => {
+  const c = require("../../../apps/mcp/bench/sets/training/truck-crew.json");
+  const i = c.msgs.findIndex((m) => /out sunday/i.test(String(m.text ?? "")));
+  assert.ok(i > 0, "the Sunday text is in the chat");
+  const cut = moduleText("train:fd:all:60000", trainingOf(TRAINING, { [UNTIL_ENV]: `truck-crew:${i}` }));
+  assert.ok(cut.includes(c.msgs[i + 1].text), "the next message, Tex's reply, is kept");
+  for (const m of c.msgs.slice(i + 2)) if (!m.tex && m.text && m.text.length > 12) assert.ok(!cut.includes(m.text), `msg ${c.msgs.indexOf(m)} "${m.text}" is the chat's future`);
+  assert.ok(cut.length < moduleText("train:fd:all:60000", TRAINING).length);
+});
+
+test("every example is fenced from the live chat, numbered, and the intro says none of it happened here", () => {
+  const text = moduleText("train:fd:all:60000", TRAINING);
+  const n = TRAINING.chats.fd.length;
+  for (let i = 1; i <= n; i += 1) assert.ok(text.includes(`<conversation example="${i} of ${n}">`));
+  assert.match(text, /These are other chats: nothing in them happened in this chat or to the people in it unless this chat's own texts say so\./);
 });

@@ -20,6 +20,9 @@ const MAX_PREFIX_SCAN_PAGES = 100;
 // exact versions carried a generation footer, never their text, so the
 // conditional writes derived from those reads do not fetch every body twice.
 const INSPECTION_CACHE_LIMIT = 256;
+// How many of one page's objects a listing reads at once to tell a marker from a live object. A Worker holds six
+// connections open for a request; more would only queue behind them.
+const LIST_INSPECT_CONCURRENCY = 6;
 
 const encoder = new TextEncoder();
 const decoder = new TextDecoder();
@@ -521,15 +524,38 @@ export function withLogicalDelete(store, { logicalDelete = true } = {}) {
       // consumed its pagination budget and could drop a cursor's tail. An
       // empty filtered page is meaningful: callers must follow its cursor.
       const page = await raw.list(options);
-      for (const listed of page.objects || []) {
-        if (listed.size !== undefined && listed.size !== MARKER_BODY_BYTES) {
-          objects.push(listed);
-        } else {
-          const object = await raw.get(listed.key);
-          const inspected = await inspect(object, listed.key);
-          if (inspected && !inspected.marker) objects.push(listed);
+      const listedObjects = page.objects || [];
+      // Only an object the size of a marker (or of no known size) has to be read to be told from one. Markers are
+      // never physically deleted, so a folder whose objects come and go holds one for each it ever had, and reading
+      // them one after another made its listing cost a round trip apiece: a person's `.context/approvals/pending/`
+      // took a median 3.1 s to list (production, 2026-11-18), five times in a texted turn that holds an email.
+      // Read a few at a time instead: the same reads, started in the same order, each charged as before.
+      const unsure = [];
+      listedObjects.forEach((listed, index) => {
+        if (listed.size === undefined || listed.size === MARKER_BODY_BYTES) unsure.push(index);
+      });
+      const hidden = new Set();
+      const failures = new Map();
+      let next = 0;
+      const reader = async () => {
+        while (next < unsure.length && failures.size === 0) {
+          const index = unsure[next];
+          next += 1;
+          try {
+            const listed = listedObjects[index];
+            const inspected = await inspect(await raw.get(listed.key), listed.key);
+            if (!inspected || inspected.marker) hidden.add(index);
+          } catch (error) {
+            failures.set(index, error);
+          }
         }
-      }
+      };
+      await Promise.all(Array.from({ length: Math.min(LIST_INSPECT_CONCURRENCY, unsure.length) }, reader));
+      // The failure reading them in turn would have met first.
+      if (failures.size > 0) throw failures.get(Math.min(...failures.keys()));
+      listedObjects.forEach((listed, index) => {
+        if (!hidden.has(index)) objects.push(listed);
+      });
       for (const prefix of page.delimitedPrefixes || []) {
         if (seenPrefixes.has(prefix) || !(await hasVisibleObject(prefix, raw))) continue;
         seenPrefixes.add(prefix);

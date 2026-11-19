@@ -402,8 +402,9 @@ The decision above says a long review window is not a reason to extend a
 verifier's lifetime. The owner made one exception on 2026-11-14, after the
 tradeoff was put to them: YC's partners review an application whenever they
 get to it, and a ten-minute code cannot sit in that form. So one account,
-`yc-review@supa.media`, signs in with a password instead, and nothing else
-does (`functions/lib/reviewerPassword.ts`, `functions/reviewerPasswords.ts`,
+`yc-review@supa.media`, signs in with a password instead, and until
+2026-11-18, when Google's reviewer joined it (below), nothing else did
+(`functions/lib/reviewerPassword.ts`, `functions/reviewerPasswords.ts`,
 the "Set a reviewer password" workflow):
 
 - staff set it with the deploy key; it is 20 random characters (about 117
@@ -423,6 +424,57 @@ another password account is a line in `PASSWORD_ACCOUNTS` and so a diff a
 reviewer sees. `reviewerPasswords.test.ts` fails if the password stops
 expiring, loses its guess limit, is stored readable, or opens any other
 address.
+
+### Google's reviewer signs in with the same password (2026-11-18)
+
+Seyi approved on 2026-11-18 extending the staff-set password to
+`google-review@supa.media`. Google's verification reviewer also reviews
+whenever they get to it, so a ten-minute code has the same problem it had for
+YC. The account uses the same controls, and the same code path, as YC's: 20
+random characters, a salted keyed hash under purpose `reviewer-password`, 30
+days, replaced by setting again, ended by revoking, and the ten-wrong-tries
+lock for an hour. It is the second entry in `PASSWORD_ACCOUNTS`.
+
+Its issued-code provider, `test-email-google-review`, is retired, so no
+weaker or second path opens the account. It is still held to its own
+workspace (`isReservedReviewer`), and it may still connect Google
+(`mayHoldGoogleConnection`). The CASA controls the 2026-11-11 and 2026-11-13
+decisions name still hold for it: no fixed code, no code that never expires
+(the password lasts 30 days, the one exception to the ten-minute rule that the
+YC section above records), and a keyed salted hash.
+
+#### Issuing and revoking a review password
+
+1. In GitHub, open Actions and run **Set a reviewer password**
+   (`.github/workflows/set-reviewer-password.yml`).
+2. Fill in the inputs:
+   - `environment`: `production` or `staging`.
+   - `account`: `yc-review@supa.media` or `google-review@supa.media`.
+   - `action`: `set` or `revoke`.
+
+   The same from the command line:
+
+   ```
+   gh workflow run set-reviewer-password.yml -f environment=production -f account=google-review@supa.media -f action=set
+   ```
+
+   Use `-f action=revoke` to end the current password.
+
+3. Where the password goes:
+   - The password is mailed only to the deployment's team inbox
+     (`SIGNUP_ALERTS_EMAIL`).
+   - The Actions log prints only the expiry (for `set`) or the count revoked
+     (for `revoke`). This repository and its logs are public, so the password
+     never appears there.
+   - Give it to Google only through the verification's private review form, in
+     the reviewer instructions or test credentials field.
+4. Its life:
+   - It lasts 30 days. Run `set` again before it lapses. That replaces the old
+     password.
+   - Run `revoke` when the review ends.
+   - Ten wrong tries in an hour lock the account for that hour. Nothing to do
+     but wait, or run `set` for a new password. Setting replaces the row, so the
+     miss count starts again at zero.
 
 ### The reviewer account reaches nothing beyond its own workspace
 
@@ -444,8 +496,8 @@ holds a reviewer's code read whatever anyone shares with a public address.
 `reviewerReach.test.ts` fails if any of the six doors loses its check.
 
 Google's verification reviewer has to press Connect Google, so it gets a
-principal of its own, `google-review@supa.media` (2026-10-28), whose codes are
-issued for it alone and given only through Google's private review form. This
-account may connect Google (`mayHoldGoogleConnection`) and is held to its own
-workspace like the other. `functions/reviewerReachAudit.ts` counts, without naming anything,
-what either account already holds from before these checks.
+principal of its own, `google-review@supa.media` (2026-10-28). Since 2026-11-18
+it signs in with the staff-set password above, given only through Google's
+private review form, not with issued codes. This account may connect Google
+(`mayHoldGoogleConnection`) and is held to its own workspace like the other.
+`functions/reviewerReachAudit.ts` counts, without naming anything, what either account already holds from before these checks.

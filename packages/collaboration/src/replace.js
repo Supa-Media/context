@@ -1,7 +1,7 @@
 /** Replacing text against an exact retained base, preserving unseen Yjs items. */
 
 import * as Y from "yjs";
-import { diffText } from "./textDiff.js";
+import { diffTextDetail, rememberedDiffs } from "./textDiff.js";
 import { eligible } from "./eligibility.js";
 import {
   MAX_RETRIES,
@@ -23,10 +23,10 @@ import { markedRevision } from "./versions.js";
 import { commitSnapshot } from "./commit.js";
 import { replayResolution } from "./replay.js";
 
-function editOperations(before, after) {
+function editOperations(before, after, diff) {
   const operations = [];
   let baseIndex = 0;
-  for (const part of diffText(before, after)) {
+  for (const part of diff(before, after).parts) {
     if (part.added) {
       const previous = operations.at(-1);
       if (previous && previous.index + previous.deleteCount === baseIndex && previous.deleteCount > 0) previous.insert += part.value;
@@ -39,10 +39,10 @@ function editOperations(before, after) {
   return operations;
 }
 
-/** Edit `doc`'s text into `targetText`, in place. */
-function applyTextDiff(doc, targetText) {
+/** Edit `doc`'s text into `targetText`, in place. `diff` is the replacement's own (`rememberedDiffs`). */
+function applyTextDiff(doc, targetText, diff = diffTextDetail) {
   const text = doc.getText("note");
-  const operations = editOperations(text.toString(), targetText);
+  const operations = editOperations(text.toString(), targetText, diff);
   for (let index = operations.length - 1; index >= 0; index -= 1) {
     const operation = operations[index];
     if (operation.deleteCount) text.delete(operation.index, operation.deleteCount);
@@ -50,14 +50,14 @@ function applyTextDiff(doc, targetText) {
   }
 }
 
-function replacementUpdate(baseSnapshot, targetText) {
+function replacementUpdate(baseSnapshot, targetText, diff) {
   const base = docFromSnapshot(baseSnapshot);
   const beforeVector = Y.encodeStateVector(base);
-  applyTextDiff(base, targetText);
+  applyTextDiff(base, targetText, diff);
   return { base, update: Y.encodeStateAsUpdate(base, beforeVector) };
 }
 
-async function cachedReplacementUpdate(store, documentId, generation, expectedEtag, text, baseSnapshot) {
+async function cachedReplacementUpdate(store, documentId, generation, expectedEtag, text, baseSnapshot, diff) {
   const key = await operationKey(documentId, expectedEtag, text);
   const existing = await readObject(store, key);
   if (existing) {
@@ -73,7 +73,7 @@ async function cachedReplacementUpdate(store, documentId, generation, expectedEt
     ) throw fail("CORRUPT_STATE", "replacement operation identity was reused");
     return base64ToBytes(value.update);
   }
-  const generated = replacementUpdate(baseSnapshot, text).update;
+  const generated = replacementUpdate(baseSnapshot, text, diff).update;
   const value = {
     schemaVersion: SCHEMA_VERSION,
     kind: "replacement",
@@ -115,6 +115,8 @@ export async function replaceText(store, path, input) {
     throw fail("INVALID_ARGUMENT", "expectedEtag and text are required");
   }
   let loaded = await ready(store, path);
+  // Deciding how to apply the text and then applying it ask for the same diff: computed once for this replacement.
+  const diff = rememberedDiffs();
   for (let attempt = 0; attempt < MAX_RETRIES; attempt += 1) {
     if (input.documentId !== undefined && loaded.state.documentId !== input.documentId) throw fail("GENERATION_MISMATCH", "document generation does not match");
     if (loaded.state.deferredUpdates.length > 0) throw fail("DEPENDENCY_PENDING", "replacement waits for missing Yjs dependencies");
@@ -141,10 +143,10 @@ export async function replaceText(store, path, input) {
     const current = docFromSnapshot(loaded.revision.value.snapshot);
     // The writer's own typing, replayed against a base from before it landed,
     // must not be inserted a second time. See `replay.js`.
-    const replay = replayResolution(docFromSnapshot(baseRevision.value.snapshot), current, input.text);
+    const replay = replayResolution(docFromSnapshot(baseRevision.value.snapshot), current, input.text, diff);
     if (replay === "unchanged") return makeResult(loaded.state, loaded.revision);
     if (replay === "rebase") {
-      applyTextDiff(current, input.text);
+      applyTextDiff(current, input.text, diff);
       const result = await commitSnapshot(store, path, loaded, loaded.state.documentId, current);
       if (result) return result;
       loaded = await ready(store, path);
@@ -157,6 +159,7 @@ export async function replaceText(store, path, input) {
       input.expectedEtag,
       input.text,
       baseRevision.value.snapshot,
+      diff,
     );
     applyUpdateTo(current, update);
     const result = await commitSnapshot(store, path, loaded, loaded.state.documentId, current);

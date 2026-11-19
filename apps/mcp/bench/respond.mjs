@@ -14,6 +14,7 @@
  * only: its stand-in judge answers by the label, so it proves nothing about judgment. Nothing is written anywhere.
  */
 
+import { decideWhyNode, decideWhyOn } from "../src/agent/graph/nodes/decideWhy.js";
 import { readFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -58,11 +59,14 @@ export function caseBody(item) {
 }
 
 /** The judge's verdict on one case: `(state, questions) => answers` is Clef's engine (`decisionEngine`). */
-export async function judgeCase(item, engine) {
+export async function judgeCase(item, engine, { whyAgain = decideWhyOn() } = {}) {
   const body = caseBody(item);
   const asked = decideRequest(body);
   const answers = await engine(asked.state, asked.questions);
-  return answers === null ? null : readDecideAnswers(body, answers);
+  if (answers === null) return null;
+  const verdict = readDecideAnswers(body, answers);
+  // The second look at a quiet verdict's reason, when the tree's config runs it (`graph/nodes/decideWhy.js`), as the gateway does.
+  return whyAgain && verdict.ok === true ? (await decideWhyNode({ verdict, state: asked.state }, { engine })).verdict : verdict;
 }
 
 /** Whether a verdict ends with no text back: quiet or a tapback. A wait is answered once the burst ends. */

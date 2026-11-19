@@ -8,6 +8,7 @@
  * and the tests edited in Context are pulled into each tree first (`pnpm ai pull texting-assistant`).
  */
 import { execFile } from "node:child_process";
+import { fallbacksIn } from "./fallbacks.mjs";
 import { handoffTotals } from "./handoffTotals.mjs";
 import { readFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
@@ -59,11 +60,26 @@ export function coreCases({ test, testRaw, resultRaw, keyRaw, setup = SETUP }) {
     const said = answers.filter((a) => runIds.includes(a.id)).flatMap((a) => (a.conversation ?? []).filter((turn) => turn.from !== "person" && turn.from !== "them").map((turn) => turn.text));
     // The background jobs its runs handed off and ran (`jobDelivery.mjs`): what they added, never a score.
     const handoff = handoffTotals(answers.filter((a) => runIds.includes(a.id)).flatMap((a) => a.delivered ?? []));
+    // What the bench could not stand in for on its runs (`benchGaps.mjs`): the row's reader treats it as a harness error.
+    const bench = [...new Set(answers.filter((a) => runIds.includes(a.id)).flatMap((a) => a.bench ?? []))];
+    // Each texted turn's rounds of its bound, and whether it ran out (`report.mjs`): what a miss is read against, never a score.
+    const rounds = answers.filter((a) => runIds.includes(a.id) && (a.rounds ?? []).length > 0).map((a) => a.rounds); // one list per run
+    // Each texted turn's route (`report.mjs`): one list per run, read for the Lab's route summary, never a score.
+    const routes = answers.filter((a) => runIds.includes(a.id) && (a.routes ?? []).length > 0).map((a) => a.routes);
+    // Calls its runs answered with the fallback model (`fallbacks.mjs`): a Lab run with any is not Tex's score.
+    const fallbacks = answers.filter((a) => runIds.includes(a.id)).reduce((n, a) => n + fallbacksIn(a.tools), 0);
+    // What the turn did (`turnSteps.mjs`): the first answered run's steps line, shown on the row beside its rounds, never a score.
+    const steps = answers.find((a) => runIds.includes(a.id) && typeof a.steps === "string" && a.steps !== "")?.steps ?? null;
     rows.push({
+      ...(bench.length > 0 ? { bench } : {}),
       misses,
       held,
       said,
       ...(handoff.jobs > 0 ? { handoff } : {}),
+      ...(rounds.length > 0 ? { rounds } : {}),
+      ...(routes.length > 0 ? { routes } : {}),
+      ...(fallbacks > 0 ? { fallbacks } : {}),
+      ...(steps !== null ? { steps } : {}),
       id: `${test}/q${c.question}`,
       right: cell.runs > 0 && cell.passed === cell.runs,
       results,
@@ -85,9 +101,10 @@ export function coreCases({ test, testRaw, resultRaw, keyRaw, setup = SETUP }) {
 /**
  * `tests` answered in `tree`: every case, or `only` those, `runs` times each. `dir` is the bench folder the tree's
  * run reads (its own `apps/mcp/bench/ai` unless named). Returns rows whose `results` hold one boolean a run, what it
- * cost, each test's bar, and the tests the tree does not have.
+ * cost, each test's bar, and the tests the tree does not have. `envOf(test)`, when given, is that test's own environment
+ * (a Training conversation cut at its moment, `setsFd.mjs`).
  */
-export async function runTests(tree, tests, { only = null, runs = 1, fake = false, scratch, tag, dir = null, parallel = 1 }) {
+export async function runTests(tree, tests, { only = null, runs = 1, fake = false, scratch, tag, dir = null, parallel = 1, env = process.env, envOf = null }) {
   const folder = dir ?? join(tree, "apps/mcp/bench/ai");
   const script = join(tree, "apps/mcp/bench/run.mjs");
   // Each test is its own run and judge process writing its own files, so `parallel` of them can go at once (a Lab
@@ -107,8 +124,9 @@ export async function runTests(tree, tests, { only = null, runs = 1, fake = fals
     const args = ["run", "texting-assistant", "--dir", folder, "--test", test, "--setups", SETUP, "--runs", String(runs), "--out", out];
     if (numbers) args.push("--questions", numbers.join(","));
     if (fake) args.push("--fake");
-    await run(process.execPath, [script, ...args], { cwd: tree, maxBuffer: 64 * 1024 * 1024, env: process.env });
-    await run(process.execPath, [script, "judge", out, "--dir", folder, "--max-usd", "1", ...(fake ? ["--fake"] : [])], { cwd: tree, maxBuffer: 64 * 1024 * 1024, env: process.env });
+    const own = envOf?.(test) ?? env;
+    await run(process.execPath, [script, ...args], { cwd: tree, maxBuffer: 64 * 1024 * 1024, env: own });
+    await run(process.execPath, [script, "judge", out, "--dir", folder, "--max-usd", "1", ...(fake ? ["--fake"] : [])], { cwd: tree, maxBuffer: 64 * 1024 * 1024, env: own });
     const resultRaw = await readFile(out, "utf8");
     const keyRaw = await readFile(join(dirname(out), frontMatter(resultRaw).key), "utf8");
     return { cases: coreCases({ test, testRaw, resultRaw, keyRaw }) };

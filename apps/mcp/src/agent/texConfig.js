@@ -14,9 +14,13 @@
  */
 import { TEX_CONFIG as CONFIG } from "../../../../packages/shared/src/texConfig.cjs";
 import PROMPT from "../../../../packages/shared/src/texPrompt.generated.json" with { type: "json" };
-import TRAINING from "../../../../packages/shared/src/texTraining.generated.json" with { type: "json" };
+import GENERATED_TRAINING from "../../../../packages/shared/src/texTraining.generated.json" with { type: "json" };
 import SHELF from "../../../../packages/shared/src/texNodeShelf.json" with { type: "json" };
-import { TRAIN_ENTRY, moduleText, trainName } from "../../../../packages/shared/src/texTraining.cjs";
+import { TRAIN_ENTRY, trainingOf, moduleText, trainName } from "../../../../packages/shared/src/texTraining.cjs";
+import { DOORS, DOOR_NODES } from "./doorTools.js";
+
+/** Every Training conversation, less what a bench process scores of it (`texTraining.cjs` `trainingOf`; production reads all). */
+export const TRAINING = trainingOf(GENERATED_TRAINING);
 import { configStamp } from "../../../../packages/shared/src/texConfigStamp.cjs";
 import { sandboxGateOf } from "../labSandbox/policy.js";
 import { EFFORTS as SCHEMA_EFFORTS } from "../../../../packages/shared/src/texConfigSchema.cjs";
@@ -56,12 +60,13 @@ const PROMPT_ENTRY = /^p-([a-z][a-z0-9-]{0,47})$/;
 
 /**
  * The steps whose code reads the Training modules their context names (`train:<nodeId>`): Decide in the judge's state
- * (`textDecide.cjs`), the front door and the background job among their prompt modules (`texModules`), and every
+ * (`textDecide.cjs`), the router in its state (`routerContext.js`), the front door and the background job among their
+ * prompt modules (`texModules`), and every
  * other step whose prompt goes through `withArchitecture` after its own words (`texArchitecture.js`). The suite
  * refuses a `train:` entry on any other step (`texTraining.test.mjs`), so the config never says a step reads examples
  * it is not given.
  */
-export const TRAINING_READERS = Object.freeze(["decide", "fd", "job", "advisor", "mailadv", "jobcheck", "planner", "classifier", "reviewer", "handback", "mail", "card", "selfreview", "checkin"]);
+export const TRAINING_READERS = Object.freeze(["decide", "router", "fd", "job", "advisor", "mailadv", "jobcheck", "jobadv", "planner", "classifier", "reviewer", "handback", "mail", "card", "selfreview", "checkin"]);
 
 /**
  * Every accessor below takes the config to read, main's by default. A Lab test chat's turn passes its draft's
@@ -106,6 +111,14 @@ export function texEffort(id, config = CONFIG) {
   return { effort };
 }
 
+/**
+ * How long a step's cached prompt prefix is kept, "1h" or "5m" (`aiGateway.js` `gatewayBody`): the step's `cacheTtl`,
+ * an hour when it sets none. Set the front door's to "5m" to go back to five minutes without a code change.
+ */
+export function texCacheTtl(id, config = CONFIG) {
+  return texStep(id, config).cacheTtl === "5m" ? "5m" : "1h";
+}
+
 /** A step's time limit in milliseconds. Throws when the file gives it none. */
 export function texTimeoutMs(id, config = CONFIG) {
   const seconds = texStep(id, config).timeoutS;
@@ -148,15 +161,25 @@ export function texSetupFront(config = CONFIG) {
  */
 export function texModules(config = CONFIG) {
   const words = texWords(config);
+  const named = (entry) => PROMPT_ENTRY.exec(entry)?.[1] ?? (TRAIN_ENTRY.test(entry) && typeof words[trainName(entry)] === "string" ? trainName(entry) : null);
   const of = (id) => {
-    const named = (entry) => PROMPT_ENTRY.exec(entry)?.[1] ?? (TRAIN_ENTRY.test(entry) && typeof words[trainName(entry)] === "string" ? trainName(entry) : null);
     const names = (texStep(id, config).ctx ?? []).map(named).filter(Boolean);
     if (names.length === 0) throw new Error(`texConfig: step "${id}" reads no prompt module`);
     for (const name of names) if (typeof words[name] !== "string") throw new Error(`texConfig: step "${id}" reads module "${name}", which has no words`);
     return names;
   };
   const texts = of("fd");
-  return { texts, group: texts, job: of("job") };
+  // The specialist doors a config draws (`doorTools.js`): each its own node's modules, or the front door's with its own module added.
+  const doors = {};
+  for (const route of DOORS) {
+    const id = DOOR_NODES[route];
+    if (!config.nodes.some((node) => node.id === id)) continue;
+    const own = (texStep(id, config).ctx ?? []).map(named).filter(Boolean);
+    const names = own.length > 0 ? own : [...texts, `door-${route}`];
+    for (const name of names) if (typeof words[name] !== "string") throw new Error(`texConfig: door "${id}" reads module "${name}", which has no words`);
+    doors[`door-${route}`] = names;
+  }
+  return { texts, group: texts, job: of("job"), ...doors };
 }
 
 const EFFORTS = new Set(SCHEMA_EFFORTS);

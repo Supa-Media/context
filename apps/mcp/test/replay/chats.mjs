@@ -180,7 +180,22 @@ export async function oneToOne() {
       world.model.install(script(reply));
       const ran = await request(world.env, TOKEN_CHECKIN, "/agent", { heartbeat: { timeZone: "UTC", since: Date.now() - HOUR } });
       if (ran.status !== 200) throw new Error(`replay: the check-in answered ${ran.status}: ${JSON.stringify(ran.body)}`);
-      return { answer: String(ran.body.answer ?? ""), shown: world.model.requests.slice(before).map(shownIn).join("\n") };
+      return { answer: String(ran.body.answer ?? ""), turn: ran.body.turn ?? null, body: ran.body, shown: world.model.requests.slice(before).map(shownIn).join("\n"), requests: world.model.requests.slice(before) };
+    },
+    /**
+     * The text a check-in (or another text Tex sent on its own) reached them as, which the Worker records in the chat's
+     * ledger with the run's `turn` and its `source` (`apps/agent/src/texSends.ts`): posted as the Worker's own flush does.
+     */
+    /** The chat's clock at the real time now, so a note the gateway writes now and the Worker's text beside it agree on when. */
+    atNow() {
+      clock = Date.now() - 60_000; // the check-in that follows moves it on a minute, as a look takes one (`checkIn`)
+    },
+    async sentOwn(text, { turn, source, delivered = true }) {
+      clock += 3_000;
+      const sent = event({ from: { kind: "tex" }, kind: "text", text, turn, source, delivered });
+      const flushed = await request(world.env, TOKEN_TEXTS, "/agent/events", { conversation: "texts", events: [sent] });
+      if (flushed.status !== 200) throw new Error(`replay: the Worker's flush of its own text answered ${flushed.status}: ${JSON.stringify(flushed.body)}`);
+      return sent.id;
     },
     /** One part of a background job started from this chat: `job` as the Worker hands it (title, brief, attempt, followUps). */
     async jobPart(words, job, reply) {
@@ -262,10 +277,10 @@ export async function groupChat({ key = "a".repeat(64), members = "b".repeat(64)
     model,
     team,
     controlPlane,
-    async tag(from, words, reply, said = [], { tagged = false, group = {} } = {}) {
+    async tag(from, words, reply, said = [], { tagged = false, group = {}, body = {} } = {}) {
       const before = model.requests.length;
       model.install(script(reply));
-      const { result: answered, calls } = await counted(tex, () => request(env, TOKEN_GROUP, "/agent", { question: words, group: { ...group, key, members, from, chat: said, ...(tagged ? { tagged: true } : {}) } }));
+      const { result: answered, calls } = await counted(tex, () => request(env, TOKEN_GROUP, "/agent", { question: words, ...body, group: { ...group, key, members, from, chat: said, ...(tagged ? { tagged: true } : {}) } }));
       if (answered.status !== 200) throw new Error(`replay: the group turn for "${words}" answered ${answered.status}: ${JSON.stringify(answered.body)}`);
       return { answer: String(answered.body.answer ?? ""), body: answered.body, calls, shown: model.requests.slice(before).map(shownIn).join("\n"), requests: model.requests.slice(before) };
     },

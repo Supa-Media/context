@@ -15,6 +15,54 @@
       "did": [],
       "reply": "Your last ten merged PRs: #2839 search rework (risk: index rebuild on deploy), #2812 calendar sync (duplicate events), #2790 mail labels (none), #2754 billing page (tax rounding), #2731 sign-in (session expiry), #2702 export (large files), #2684 a 74-file rework (high), #2655 tests only, #2610 docs, #2563 queue retries (double sends).",
       "fault": true
+    },
+    {
+      "id": "explained-not-cut",
+      "cause": "an explanation the person asked for was sent back as too long and cut to a line of terms they did not know (Dev2 2026-11-17)",
+      "q": "(Not a text from them. Your background job reported back to you; nothing from it has reached them yet.) Before it, they asked: what's the difference between my HSA and my FSA? which one do I use for the dentist bill?",
+      "report": {
+        "title": "HSA vs FSA for the dentist bill",
+        "state": "done",
+        "texts": [
+          "HSA: health savings account, linked to the high-deductible plan, money rolls over year to year and is theirs. FSA: flexible spending account through the employer, use-it-or-lose-it by March 15; balance $410. Dentist bill $380 qualifies for both. Suggest FSA since that money expires. Sources on the page: https://context.lc/p/@kit/projects/hsa-vs-fsa.page.md"
+        ]
+      },
+      "did": [
+        [
+          "write",
+          {
+            "path": "projects/hsa-vs-fsa.page.md"
+          },
+          "saved projects/hsa-vs-fsa.page.md, link https://context.lc/p/@kit/projects/hsa-vs-fsa.page.md"
+        ]
+      ],
+      "reply": "Both pay for medical stuff, but they work differently. Your HSA is your own savings account tied to your health plan, and whatever you don't spend stays yours. Your FSA comes through work and anything left on March 15 is gone, and you have $410 in it. So pay the $380 dentist bill from the FSA. Sources: https://context.lc/p/@kit/projects/hsa-vs-fsa.page.md",
+      "fault": false,
+      "target": "an explanation the person asked for stays in the text, a few sentences included"
+    },
+    {
+      "id": "names-not-explained",
+      "cause": "a report cut to a line of names and terms the person never heard of, when they asked what the difference is (Dev2 2026-11-17)",
+      "q": "(Not a text from them. Your background job reported back to you; nothing from it has reached them yet.) Before it, they asked: what's the difference between my HSA and my FSA? which one do I use for the dentist bill?",
+      "report": {
+        "title": "HSA vs FSA for the dentist bill",
+        "state": "done",
+        "texts": [
+          "HSA: health savings account, linked to the high-deductible plan, money rolls over year to year and is theirs. FSA: flexible spending account through the employer, use-it-or-lose-it by March 15; balance $410. Dentist bill $380 qualifies for both. Suggest FSA since that money expires. Sources on the page: https://context.lc/p/@kit/projects/hsa-vs-fsa.page.md"
+        ]
+      },
+      "did": [
+        [
+          "write",
+          {
+            "path": "projects/hsa-vs-fsa.page.md"
+          },
+          "saved projects/hsa-vs-fsa.page.md, link https://context.lc/p/@kit/projects/hsa-vs-fsa.page.md"
+        ]
+      ],
+      "reply": "HSA is the HDHP-linked account, FSA is the employer one, use FSA. https://context.lc/p/@kit/projects/hsa-vs-fsa.page.md",
+      "fault": true,
+      "target": "a line of names instead of the explanation they asked for is sent back"
     }
   ]
 }

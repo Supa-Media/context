@@ -9,6 +9,7 @@ import { api } from "@context/convex/_generated/api";
 import { lab, node, toast } from "../../engine/state";
 import { ago, codeLink, commitLink, costWords, fixedWords, live, mcpLines, modelsWords, runLabel, runsUi, scoreWords, setRunsUi, stageWords, useRunsUi, type LabRun, type RunKind } from "../../engine/labRuns";
 import { setUi, sets } from "../../engine/setsStore";
+import { RouteSummaryBlock } from "./RouteSummary.web";
 
 const nodeName = (id: string) => node(id)?.label ?? id;
 const chatTitle = (id: string) => sets.convs.find((c) => c.id === id)?.title ?? id;
@@ -163,6 +164,7 @@ export function RunsPanel() {
                     ))}
                   </div>
                 ) : null}
+                <RouteSummaryBlock rows={full.results.rows ?? []} />
                 {misses.map((x, k) => (
                   <div className="miss" key={k}>
                     <b>

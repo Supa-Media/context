@@ -27,7 +27,7 @@
  * message. The point is to fail with the command to run.
  *
  * **The other half — that the committed bytes are what those sources build — is
- * the `editor-bundle` job in `.github/workflows/ci.yml`**, which rebuilds and
+ * the `editor-bundle` job in `.github/workflows/editor-bundle.yml`**, which rebuilds and
  * diffs. It can only live there for the same reason this file cannot run
  * esbuild, and the last test below pins it, because a check that exists in one
  * file and is relied upon by the header of another is a check that gets deleted
@@ -225,11 +225,11 @@ describe("what shipped is a script and nothing else", () => {
    *
    * A guard in another file is a guard that can be deleted without this suite
    * noticing, so the job is read. Named steps rather than the whole script: the
-   * message and the artifact are free to be reworded, but a `ci.yml` with no
+   * message and the artifact are free to be reworded, but an `editor-bundle.yml` with no
    * rebuild and no diff in it is this file's header become false again.
    */
   test("and what it IS is proved by rebuilding, in CI, which must still be there", () => {
-    const workflow = readFileSync(join(repoRoot, ".github/workflows/ci.yml"), "utf8");
+    const workflow = readFileSync(join(repoRoot, ".github/workflows/editor-bundle.yml"), "utf8");
     /*
       Comments stripped, and every assertion anchored to a line of shell rather
       than to a substring — because the first version of this test was not, and

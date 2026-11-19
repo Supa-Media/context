@@ -1,3 +1,5 @@
+import { NOTE_LINK_SEGMENT, canonicalHrefFor, noteAddressFromSegments, noteLinkPath } from "../console/noteLink";
+
 /**
  * The path segments a `+not-found` route was reached with.
  *
@@ -40,4 +42,34 @@ export function unmatchedSegments(params: Record<string, unknown>): string[] {
 
 function isSegment(value: unknown): value is string {
   return typeof value === "string";
+}
+
+/** The `/p/@slug/<path>` page link Tex texts (`apps/mcp/src/agent/noteLinks.js`), served at the edge as the page viewer. */
+export const PAGE_LINK_SEGMENT = "p";
+
+/**
+ * Where a not-found address that is really a note goes, or null when it is not one.
+ *
+ * A `/note/…` link goes to the console, as it always has. A `/p/…` page link
+ * goes to the same note's `/note/…` link, so the note route decides, as it
+ * does for every link, whether this is a member, a guest or someone the note
+ * was shared with. The edge answers `/p/` with the page viewer, but the app can
+ * still find itself at that address (a held shell, a hand-off the viewer never
+ * made), and it used to dead-end here (Dev2, 2026-11-17). Both are parsed by
+ * the note grammar, so this recovers addresses and never invents one.
+ */
+export function recoveredHref(segments: readonly string[]): string | null {
+  const [kind, head, ...rest] = segments;
+  if ((kind !== NOTE_LINK_SEGMENT && kind !== PAGE_LINK_SEGMENT) || head === undefined) return null;
+  const address = noteAddressFromSegments([decodedHead(head), ...rest]);
+  if (address === null) return null;
+  return kind === NOTE_LINK_SEGMENT ? canonicalHrefFor(address) : noteLinkPath(address.slug, address.path);
+}
+
+function decodedHead(segment: string): string {
+  try {
+    return decodeURIComponent(segment);
+  } catch {
+    return segment;
+  }
 }

@@ -35,6 +35,7 @@
 import { sandboxedTool } from "../labSandbox/policy.js";
 import { datedTurns, stamped } from "./localNow.js";
 import { attachmentsLine } from "./attachments.js";
+import { awaitExamples } from "./turnExamples.js";
 import { BUILTIN_PROVIDER, builtinModel, hasBuiltinModel, liveTurn, requestBuiltin, systemText } from "./builtin.js";
 import { ProviderError, THINKING_REFUSED } from "./providers.js";
 import { BROWSE_TIMED_OUT, BROWSE_TOOL } from "./computer.js";
@@ -51,7 +52,7 @@ import { resultInV2Names } from "../tools/v2/speak.js";
 import { goalsIn } from "./aboutMe.js";
 import { pushbackNudge } from "./pushback.js";
 import { causeOf, failureRecorder } from "./toolFailures.js";
-import { exhaustedAnswer, roundNotice } from "./lastRound.js";
+import { FINISH_NOTICE, FINISH_SCHEDULED_NOTICE, exhaustedAnswer, roundNotice } from "./lastRound.js";
 import { traceNames } from "./turnLog.js";
 import { TAPBACK_TOOL } from "./tapbackEnding.js";
 import { START_JOB_TOOL } from "./backgroundTool.js";
@@ -261,11 +262,16 @@ export async function runTurn(options) {
     aboutMe = null, identity = null, // who they are by their account (`identity.js`), told beside it
     jobs = null, // `tex/jobs.md`'s text on a texted turn (`jobs.js`); null says nothing about jobs.
     voice = null, calendar = null, // `tex/voice.md`'s text on a texted turn (`personVoice.js`); null says nothing about it.
+    // The front door is two rounds from its bound and still gathering: when the config wires `fd -> handoff`, this may
+    // hand the job to a background worker (`handoff.js`), answering the line the turn ends on, or null to go on.
+    roundsOut = null,
     answerCheck = null, // reads a final answer and the turn's messages, and may send one more round (`claimCheck.js`, `replyJudge.js`)
     endsTurn = null, // `(name, result) => string|null`: a call that settles the turn, answered with its line at once (`background.js`)
     sayNothing = false, mustAnswer = false, // offers `say_nothing`: a call ends the turn with nothing texted, or with `mustAnswer` (a literal @Tex tag) is refused (`sayNothing.js`)
     sayNothingNotice = null, // when set, the first say_nothing is refused with this notice and the next one stands (`checkInSpeak.js`)
     scheduled = false, // a routine's run or a check-in, nobody waiting on it: its last steps end quiet, and its last answer is still reviewed (`lastRound.js`)
+    // `() => boolean`: whether the draft `answerCheck` last sent back said the text is not for them (`replyJudge.js` `silences`). Only then does a scheduled run's last step end quiet; null keeps silence for any send-back.
+    silences = null,
     roundNote = null, // `(round, elapsedMs) => string|null`: a line told before a round (`background.js`)
     // `{ now, timeZone }`: the person's own clock, told every round (`localNow.js`).
     localNow = null,
@@ -273,6 +279,8 @@ export async function runTurn(options) {
     workspaces = null, groups = "", devShare = "", mail = null, // and their mailboxes with each one's state (`mailAccounts.js`)
     // How hard each model thinks, by model name (`production.js`); absent: the model's own default.
     efforts = null,
+    // The life of the prefix's cache, "1h" or "5m" (`texConfig.js` `texCacheTtl`); absent: the gateway's own, an hour.
+    cacheTtl = undefined,
     // What the person sent with the question, checked (`attachments.js`): shown to the model with it.
     attachments = [],
     // Told each step as it happens (`transcript.js`): thinking, words between tools, each call.
@@ -282,6 +290,13 @@ export async function runTurn(options) {
     resumeFrom = null,
     // Keeps what the turn has done after each call returns, for a try after a crash to go on from (`turnResume.js` `roundsKeeper`): `{ keep, marks }`.
     keepRounds = null,
+    // The Training moments nearest to this text (`graph/nodes/examples.js`), started by the front door: awaited once, within
+    // `examplesBudgetMs`, before the first prompt; `examplesFallback` stands when they are not there (`turnExamples.js`).
+    examples = null, examplesBudgetMs, examplesFallback = "",
+    // A specialist door's check on each call, before any call of its round runs: a reason ends the run (`doorTurn.js`, `doorTools.js` `outsideFor`).
+    outside = null,
+    // `() => Promise<string|null>`, asked before the first round: a line ends the turn at once, the job having gone to a background worker (`handoff.js`, route).
+    startWith = null,
   } = options;
   const held = turnLedger({ tools: options.tools, ranHere: (name) => webNames.has(name) || localCalls.has(name) }); // the turn as its ledger keeps it (`sendBack.js`)
   const tell = (event) => {
@@ -364,7 +379,8 @@ export async function runTurn(options) {
     trace.push({ kind: "router", tier: routed.tier, pick: routed.pick, model, at: asked - began, ms: clock() - asked, ...confidence });
     tell({ kind: "model", step: "router", model, ms: clock() - asked, input: options.planned || nudge !== "" ? undefined : question, output: { tier: routed.tier, pick: routed.pick, ...confidence }, reason: options.planned ? "a long job is planned on the thinking model" : routed.tier === "think" ? "the router judged it needs thinking" : "picked by the router" });
   }
-  const promptFor = (answering) => turnPrompt(place, answering, { texting, inGroup, pictures, notes, models: router !== null ? { main: mainModel, think: router.think, jobsOnly: router.jobsOnly === true } : null, tools, history, threadNote, turnNote, webNames, progress, aboutMe, identity, jobs, voice, calendar, observe, workspaces, groups, devShare, mail, localNow, plan, nudge }); // `turnPrompt.js`
+  const examplesText = examples ? await awaitExamples(examples, { budgetMs: examplesBudgetMs, fallback: examplesFallback, trace, clock }) : "";
+  const promptFor = (answering) => turnPrompt(place, answering, { texting, inGroup, pictures, notes, models: router !== null ? { main: mainModel, think: router.think, jobsOnly: router.jobsOnly === true } : null, tools, history, threadNote, turnNote, examples: examplesText, webNames, progress, aboutMe, identity, jobs, voice, calendar, observe, workspaces, groups, devShare, mail, localNow, plan, nudge }); // `turnPrompt.js`
   let prompt = promptFor(model);
   // The person's own text, with the turn's facts carried ahead of it (`providers.js`): set before every round.
   const questionMessage = { role: "user", text: question, ...(attachments.length > 0 ? { attachments } : {}) };
@@ -388,7 +404,7 @@ export async function runTurn(options) {
     Where the time went, in milliseconds and counts only: what a slow answer
     is diagnosed from (the owner, 2026-10-07: "it was EXTREMELY slow"); no note or question in it.
   */
-  const timing = { rounds: 0, modelMs: 0, toolMs: 0, failures: [] }; // `failures`: each failed tool call, logged as it happens (`toolFailures.js`)
+  const timing = { rounds: 0, modelMs: 0, toolMs: 0, failures: [], bound: rounds, from: 0, toEnd: false }; // `bound`: the most rounds it may take; `toEnd`: it reached its last two // `failures`: each failed tool call, logged as it happens (`toolFailures.js`)
   const failed = failureRecorder(timing.failures, providerOptions, () => model);
   /*
     The same, in order: each model round and each tool call between them, by
@@ -433,9 +449,48 @@ export async function runTurn(options) {
   const firstRound = resumedRounds({ resumeFrom, rounds, messages, held, steps, tell });
   const roundsFrom = historyMessages.length + 1; // where the rounds after the question start
   const keeper = typeof keepRounds?.keep !== "function" ? null : roundsKeeper({ messages, roundsFrom, readOnly: new Set((options.tools ?? []).filter((tool) => tool?.annotations?.readOnlyHint === true && !webNames.has(tool.name) && !localCalls.has(tool.name)).map((tool) => tool.name)), keep: keepRounds.keep, marks: keepRounds.marks, carried: resumeFrom?.ran ?? {} });
+  timing.from = firstRound; // rounds an earlier try already ran (`savedRounds.js`): `from + rounds` is the turn's own count
+  /*
+    OUT OF ROUNDS, HANDED ON (Dev2, 2026-11-18: "wire Hand-off to fire when the Front door runs out of rounds"; off
+    unless the config wires `fd -> handoff`, `runTheModel.js`). Asked at the round two from the bound, and at the bound,
+    only while the turn is plainly still gathering: its last round ended on tool calls (never a draft, a send-back or a
+    late text), it texted them no progress line, and every call it made only read (a worker given the brief could
+    otherwise do a write again). The hook's answer is the line the turn ends on, or null to go on as before; a hook
+    that throws goes on as before too.
+  */
+  const readOnlyCalls = new Set([...(options.tools ?? []), ...local.map((entry) => entry.tool)].filter((tool) => tool?.annotations?.readOnlyHint === true).map((tool) => tool.name));
+  const onlyRead = () => steps.every((step) => step.ok === false || readOnlyCalls.has(step.tool) || webNames.has(step.tool));
+  const handOffNow = async (round) => {
+    if (typeof roundsOut !== "function") return null;
+    if (messages.at(-1)?.role !== "tool") return null;
+    if (steps.some((step) => step.tool === PROGRESS_TOOL) || !onlyRead()) return null;
+    const ack = await Promise.resolve()
+      .then(() => roundsOut({ messages, lastWords }))
+      .catch(() => null);
+    if (typeof ack !== "string" || ack === "") return null;
+    tell({ kind: "judge", by: "code", round, went: false, reason: "out of rounds: the job went to a background worker" });
+    keeper?.freeze();
+    return { answer: ack, provider, model, steps, usage, usageByModel, timing: { ...timing, trace }, settled: START_JOB_TOOL, handedOff: "rounds", live: liveTurn(prompt, messages, offered) };
+  };
+  // A job the router sent here goes to the Hand-off node before any round (`doorTurn.js`): its start line ends the turn, or null goes on.
+  if (typeof startWith === "function") {
+    const ack = await Promise.resolve().then(startWith).catch(() => null);
+    if (typeof ack === "string" && ack !== "") {
+      tell({ kind: "judge", by: "code", round: firstRound, went: false, reason: "routed as a job: the job went to a background worker" });
+      keeper?.freeze();
+      return { answer: ack, provider, model, steps, usage, usageByModel, timing: { ...timing, trace }, settled: START_JOB_TOOL, handedOff: "route", live: liveTurn(prompt, messages, offered) };
+    }
+  }
   let lastWords = ""; // what the model last said, answered if the bound is reached (`lastRound.js`)
   for (let round = firstRound; round < rounds; round += 1) {
     const notice = roundNotice(round, rounds, { scheduled });
+    // Its last two rounds: the turn reached them (`timing.toEnd`, what the bench records per turn), and, still gathering,
+    // the Hand-off node may give the job to a background worker with more rounds (`handOffNow`).
+    if (notice === FINISH_NOTICE || notice === FINISH_SCHEDULED_NOTICE) timing.toEnd = true;
+    if (notice === FINISH_NOTICE) {
+      const handed = await handOffNow(round);
+      if (handed !== null) return handed;
+    }
     if (notice !== null && messages.at(-1)?.text !== notice) messages.push({ role: "user", text: notice });
     const jobNudge = typeof roundNote === "function" ? roundNote(round, clock() - began) : null;
     if (typeof jobNudge === "string" && jobNudge !== "") messages.push({ role: "user", text: jobNudge });
@@ -455,7 +510,7 @@ export async function runTurn(options) {
     try {
       const call = requestBuiltin(
         // `cachedThrough`: the history is the cached stretch; the question and what follows it are not (`aiGateway.js`).
-        { model, system: prompt.system, messages, tools: offered, effort: efforts?.[model], cachedThrough: historyMessages.length, ...(observe ? { display: "summarized" } : {}) },
+        { model, system: prompt.system, messages, tools: offered, effort: efforts?.[model], cachedThrough: historyMessages.length, ...(cacheTtl === undefined ? {} : { cacheTtl }), ...(observe ? { display: "summarized" } : {}) },
         providerOptions.ai,
         providerOptions,
       );
@@ -566,10 +621,16 @@ export async function runTurn(options) {
         keeper?.freeze();
         return { answer: recheck.handedOff, provider, model, steps, usage, usageByModel, timing: { ...timing, trace }, settled: START_JOB_TOOL, live: liveTurn(prompt, messages, offered) };
       }
-      // A scheduled run's last answer the reviewer sent back has no round left to be written again: nothing is texted (`lastRound.js`).
-      if (lastRound && recheck !== null) {
+      // A scheduled run's last answer the reviewer sent back has no round left to be written again. Silence is right only
+      // when the verdict says the text should not be sent at all (not for them); any other fault (a hands_back, an unsourced
+      // figure) lets the draft go as it is, since a finding a check-in made is worth more than the fault (2026-11-18, `lastRound.js`).
+      if (lastRound && recheck !== null && (silences === null || silences())) {
         tell({ kind: "judge", by: "code", round, draft: answer.text, went: false, reason: "sent back on a scheduled run's last step: nothing is texted" });
         return { answer: SAID_NOTHING, provider, model, steps, usage, usageByModel, timing: { ...timing, trace }, settled: SAY_NOTHING_TOOL, live: liveTurn(prompt, messages, offered) };
+      }
+      if (lastRound && recheck !== null) {
+        tell({ kind: "judge", by: "code", round, draft: answer.text, went: true, reason: "sent back on a scheduled run's last step for a fault that is not whether it goes: it goes as it is" });
+        return { answer: answer.text, provider, model, steps, usage, usageByModel, timing: { ...timing, trace }, live: liveTurn(prompt, messages, offered) };
       }
       // A text that came in while it wrote this reply (a follow-up, a correction) joins it before it goes, not after (Dev2, 2026-10-31).
       const late = recheck === null && steer?.late === true && round < rounds - 1 ? await steer.next() : null;
@@ -587,6 +648,13 @@ export async function runTurn(options) {
     if (answer.text?.trim()) {
       tell({ kind: "say", text: answer.text });
       lastWords = answer.text;
+    }
+    // A specialist door's run ends here when a call leaves its tools: before any call of this round runs, so nothing is done twice.
+    const leaving = outside === null ? null : answer.toolCalls.map((made) => outside(made.name, made.args)).find((why) => typeof why === "string") ?? null;
+    if (leaving !== null) {
+      tell({ kind: "judge", by: "code", round, went: false, reason: `${leaving}: the full front door takes this turn` });
+      keeper?.freeze();
+      return { answer: "", provider, model, steps, usage, usageByModel, timing: { ...timing, trace }, outside: leaving };
     }
     messages.push({
       role: "assistant",
@@ -776,7 +844,10 @@ export async function runTurn(options) {
     }
   }
 
-  // The bound was reached: answered, not thrown, with what the model last said (`lastRound.js`).
+  // The bound was reached: a job still not done may go to a background worker (`handOffNow`), else it is
+  // answered, not thrown, with what the model last said (`lastRound.js`).
+  const handedAtBound = scheduled ? null : await handOffNow(rounds);
+  if (handedAtBound !== null) return handedAtBound;
   return {
     answer: exhaustedAnswer(lastWords),
     provider,

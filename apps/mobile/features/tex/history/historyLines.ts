@@ -323,13 +323,26 @@ export function dayTitle(key: string, now: Date): string {
   return new Date(y!, m! - 1, d!).toLocaleDateString("en-US", { weekday: "long", month: "short", day: "numeric" });
 }
 
+/** The chat's own sends (`apps/mcp/src/agent/sentOnItsOwn.js` OWN_SOURCES) that never went out: their text and note are not drawn. */
+const OWN_SENDS = new Set(["checkin", "routine", "ping", "update", "job", "new_line"]);
+function withoutUnsaid(entries: readonly LedgerEntry[]): readonly LedgerEntry[] {
+  const own = (e: LedgerEntry) => e.kind === "text" && str(record(e.from)?.kind) === "tex" && typeof e.turn === "string" && e.turn !== "" && OWN_SENDS.has(str(e.source));
+  const said = new Set<string>();
+  const unsaid = new Set<string>();
+  for (const e of entries) if (own(e)) (e.delivered === false ? unsaid : said).add(e.turn as string);
+  for (const turn of said) unsaid.delete(turn);
+  if (unsaid.size === 0) return entries;
+  return entries.filter((e) => !(own(e) && e.delivered === false) && !(e.kind === "note" && unsaid.has(str(e.turn))));
+}
+
 /**
  * The entries (newest first, as the gateway answers) as days of turns: the
  * newest day first, and each day in the order it happened. An entry with no
  * turn is a turn of its own, but a person's text joins the turn just after it. `group` names people by name rather
  * than "You".
  */
-export function historyDays(entries: readonly LedgerEntry[], now: Date, { group = false, thinking = false, fold = true, timing = false, tools = true }: { group?: boolean; thinking?: boolean; /** Fold each job's work under its line; off on one job's own page, where all of it is that job's. */ fold?: boolean; /** Staff: each turn's first text from Tex carries where the turn's time went. */ timing?: boolean; /** Tool calls are drawn; off, they were read only for the timing. */ tools?: boolean } = {}): HistoryDay[] {
+export function historyDays(allEntries: readonly LedgerEntry[], now: Date, { group = false, thinking = false, fold = true, timing = false, tools = true }: { group?: boolean; thinking?: boolean; /** Fold each job's work under its line; off on one job's own page, where all of it is that job's. */ fold?: boolean; /** Staff: each turn's first text from Tex carries where the turn's time went. */ timing?: boolean; /** Tool calls are drawn; off, they were read only for the timing. */ tools?: boolean } = {}): HistoryDay[] {
+  const entries = withoutUnsaid(allEntries);
   const timed = timing ? timingByTurn(entries) : new Map<string, TurnTimingSource>();
   // Newest first: an event written again (a voice message once heard) is drawn once, where it first came, in its newest words.
   const byEventId = new Map<string, LedgerEntry>();

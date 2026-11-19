@@ -80,6 +80,8 @@ jobs:
           node scripts/merge-group.mjs --self-test
           node scripts/check-workflow-interpolation.mjs --self-test
           node scripts/check-workflow-interpolation.mjs
+          node scripts/check-workflow-output-secrets.mjs --self-test
+          node scripts/check-workflow-output-secrets.mjs
           node scripts/bench-runner-lock.mjs --self-test
           node scripts/check-package-tests-run.mjs --self-test
           node scripts/check-package-tests-run.mjs
@@ -166,6 +168,7 @@ jobs:
       - name: Secrets, identifiers, and export remain safe
         run: |
           node scripts/check-secrets-allowlist.mjs --self-test
+          node --test scripts/secrets-sync-plan.test.mjs
           node --test scripts/staging-config.test.mjs
           # What a manual job prints into its own public log is the same rule:
           # the image probe repeats a provider's prose, and prose quotes ids.
@@ -194,6 +197,9 @@ jobs:
 
       - name: Gateway health probe can still fail
         run: node scripts/health-check-gateway.mjs --self-test
+
+      - name: Site health probe can still fail
+        run: node scripts/health-check-sites.mjs --self-test
 
       # A change to Tex ships with the case it is replayed against (docs/decisions/testing/replay-gate.md, Dev2 2026-11-13).
       - name: A Tex change adds the case that proves it

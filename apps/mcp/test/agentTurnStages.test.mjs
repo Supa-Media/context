@@ -137,9 +137,10 @@ test("call points skip tools and the router, cap their count, and read a missing
   const trace = [{ kind: "router", ms: 5 }, { kind: "model", model: "anthropic/claude-haiku-5-5", ms: 3_000, usage: { input: 10, output: -1 } }, { kind: "tool", tool: "search", ms: 40 }, { kind: "model", ok: false, ms: 9 }];
   const points = callPoints("one", trace);
   assert.equal(points.length, 2);
-  assert.deepEqual(points[0].blobs, ["one", "claude-haiku-5-5", "ok", ""]);
-  assert.deepEqual(points[0].doubles, [1, 3_000, 10, 0, 0, 0, 0, 0]);
-  assert.deepEqual(points[1].blobs, ["one", "unknown", "failed", ""]);
+  // The fifth blob is the cache life the prefix was sent with and the ninth double the hour's share of the writes (the cost guard on the one-hour cache, 2026-11-18): empty and 0 for a call that says neither.
+  assert.deepEqual(points[0].blobs, ["one", "claude-haiku-5-5", "ok", "", ""]);
+  assert.deepEqual(points[0].doubles, [1, 3_000, 10, 0, 0, 0, 0, 0, 0]);
+  assert.deepEqual(points[1].blobs, ["one", "unknown", "failed", "", ""]);
   assert.equal(callPoints("one", trace, "turn-9")[0].blobs[3], "turn-9", "the turn's id, when known");
   assert.equal(callPoints("job", Array.from({ length: 40 }, () => ({ kind: "model", ms: 1 }))).length, MAX_CALL_POINTS);
 });

@@ -319,13 +319,15 @@ export function resetContextEdits() {
 const namesContextEdits = (answer) => answer.status === 400 && /context_management|context-management/i.test(answer.text ?? "");
 const withoutContextEdits = ({ context_management: _edits, ...body }) => body;
 
-export function gatewayBody({ model, system, messages, tools, maxTokens, toolChoice, effort, display, thinking, cachedThrough = null }) {
+export function gatewayBody({ model, system, messages, tools, maxTokens, toolChoice, effort, display, thinking, cachedThrough = null, cacheTtl = "1h", cacheTail = true }) {
   const layered = Number.isInteger(cachedThrough) && cachedThrough >= 0;
+  // The prefix's cache life is the step's `cacheTtl` in Tex's config (`texConfig.js` `texCacheTtl`): "1h" unless it says "5m".
+  const prefixMark = cacheTtl === "5m" ? { type: "ephemeral" } : HOUR_MARK;
   // A texted turn's prefix (tools, system, history) is kept an hour, since people reply minutes apart and a five-minute
   // mark made the first round of almost every text rewrite ~80% of its prompt (owner, 2026-11-05: "just set it").
   // The round's own end stays five minutes: the next round reads it seconds later, and Anthropic needs the longer
   // marks first. One-off callers keep five minutes: nothing reads them back, so an hour's 2x write would be waste.
-  const stableMark = layered ? { ...HOUR_MARK } : { type: "ephemeral" };
+  const stableMark = layered ? { ...prefixMark } : { type: "ephemeral" };
   const toolList = tools.map((tool) => ({
     name: tool.name,
     description: tool.description,
@@ -338,10 +340,13 @@ export function gatewayBody({ model, system, messages, tools, maxTokens, toolCho
     // Up to the history's last message, which is everything before the person's new text.
     // The wire is built message by message, so the history's own wire is a prefix of the whole.
     const historyEnd = anthropicMessages(messages.slice(0, cachedThrough)).length;
-    markLastBlock(wire, historyEnd - 1, HOUR_MARK);
+    markLastBlock(wire, historyEnd - 1, prefixMark);
     // And the round's last block, so the next round reads this one's tool results instead of sending them as new.
     if (wire.length > historyEnd) markLastBlock(wire, wire.length - 1);
-  } else {
+  } else if (cacheTail !== false) {
+    // A one-off call whose last message is never sent again (the advisor's brief, `advisorRoles/core.js`) leaves its
+    // tail unmarked: only the stable prefix is written to the cache, and the brief is billed as plain input (1x), not
+    // a cache write (1.25x) that nothing reads back.
     markLastBlock(wire, wire.length - 1);
   }
   const systemText = systemBlocks(system, stableMark);
@@ -499,6 +504,8 @@ export async function requestViaGateway(call, config, options = {}) {
     const plain = withoutHourMarks(body);
     const again = await sendWithRetry(config, plain, { payer, metadata: options.metadata }, fetchImpl, wait);
     if (again.status === 200) {
+      // Named in the log: from here this isolate's texted turns keep five minutes, which the cache numbers alone cannot say.
+      console.log(JSON.stringify({ event: "tex_hour_marks_refused", code: "cache_ttl_400" }));
       hourMarksRefused = true; // only when the marks were what it refused
       body = plain;
     }
@@ -573,6 +580,9 @@ export async function requestViaGateway(call, config, options = {}) {
       output: count(usage.output_tokens),
       cacheRead: count(usage.cache_read_input_tokens),
       cacheWrite: count(usage.cache_creation_input_tokens),
+      // The cost guard on the one-hour cache (Finance, 2026-11-18): how much of the write was billed at the hour's 2x,
+      // and the life the prefix was sent with after any refusal. Only a texted turn has a prefix to say it of.
+      ...(Number.isInteger(call.cachedThrough) ? { cacheWrite1h: count(usage.cache_creation?.ephemeral_1h_input_tokens), ttl: hasHourMarks(body) ? "1h" : "5m" } : {}),
     },
     paidBy,
     retried: answer.retried ?? null,

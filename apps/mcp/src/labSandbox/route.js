@@ -54,8 +54,9 @@
 
 import REPO from "../../../../packages/shared/src/texSetsRepo.generated.json" with { type: "json" };
 import { createControlPlane } from "../controlPlane.js";
-import { ledgerFor, ONE_TO_ONE_CHAT } from "../agent/ledger.js";
-import { LEDGER_KINDS } from "../texStore/ledger.js";
+import { ONE_TO_ONE_CHAT } from "../agent/ledger.js";
+import { loggedSteps, oneRowPerText, realLedger, realRow } from "./realChat.js";
+import { saidTexts } from "../agent/sentOnItsOwn.js";
 import { bearerToken } from "../session.js";
 import { json } from "../http/responses.js";
 import { callSandbox, carryWith, SANDBOX_TTL_MS, sandboxStub, SEED_CHUNK } from "./object.js";
@@ -68,12 +69,11 @@ import { inboundEvent, picsOf, reactionOf, TAPBACK_OF, targetOf } from "./inboun
 import { lineOf, measuredLine, rowLine } from "./line.js";
 import { sandboxAsset } from "./pages.js";
 
+export { oneRowPerText };
+
 export const LAB_SANDBOX_PATH = "/tex-lab/sandbox";
 /** A person's test texts a day, across all their test chats: each runs the real models. */
 export const DAILY_SENDS = 200;
-/** One read of a real chat's texts; a chat is read whole, page after page, up to `MAX_PAGES` (a million texts). */
-const PAGE_TEXTS = 5_000;
-const MAX_PAGES = 200;
 export const MAX_TEXT = 4_000;
 const SANDBOX_ID = /^[0-9a-f]{16}$/;
 const CHAT_KEY = /^[0-9a-f]{64}$/;
@@ -100,64 +100,6 @@ async function sha256Hex(text) {
 
 /** A row as the Lab reads it: the ledger's event id left out. */
 const shown = ({ eid: _eid, ...row }) => row;
-
-/** What a test chat copies of the real chat's ledger: every kind a turn reads (replies, notes, tools, days, ...), never the steps' logs. */
-const COPIED_KINDS = [...LEDGER_KINDS].filter((kind) => kind !== "step");
-
-/**
- * A real chat's ledger before its text `base` (left out), oldest first: read only, and all of it, paged on with `after`
- * (Dev2, 2026-11-16: "its not truly loading the entire converstation history ... thats not gonna do"). Every kind a turn
- * reads, not the texts alone: Tex's history is rebuilt from the texts with their `reply` entries, and with texts only it
- * rebuilt nothing (`ledgerConversation.js`), so a test turn read no history. A read the ledger cannot answer leaves what
- * was read so far.
- */
-async function realLedger(env, owner, chat, base) {
-  const ledger = ledgerFor(env, owner);
-  if (ledger === null) return [];
-  const entries = [];
-  let after = null;
-  for (let page = 0; page < MAX_PAGES; page += 1) {
-    const read = await ledger.read(chat, { ...(after === null ? {} : { after }), kinds: COPIED_KINDS, limit: PAGE_TEXTS, jobs: false }).catch(() => null);
-    if (read === null) break;
-    for (const entry of read.entries ?? []) if (entry && typeof entry === "object" && (entry.kind !== "text" || (typeof entry.eid === "string" && typeof entry.text === "string"))) entries.push(entry);
-    if (!Number.isSafeInteger(read.next)) break;
-    after = read.next;
-  }
-  entries.sort((a, b) => (a.seq ?? 0) - (b.seq ?? 0));
-  if (typeof base !== "string" || base === "") return entries;
-  const at = entries.findIndex((entry) => entry.kind === "text" && entry.eid === base);
-  return at < 0 ? entries : entries.slice(0, at);
-}
-
-/** How many of the real chat's newest logged steps a test chat reads at open for its line's delays (`line.js`). */
-const LINE_STEPS = 2_000;
-
-/** The real chat's logged steps, newest first, for the line's measured delays; none when they cannot be read. */
-async function loggedSteps(env, owner, chat) {
-  const ledger = ledgerFor(env, owner);
-  if (ledger === null) return [];
-  const read = await ledger.read(chat, { before: Number.MAX_SAFE_INTEGER, kinds: ["step"], limit: LINE_STEPS, jobs: false }).catch(() => null);
-  return Array.isArray(read?.entries) ? read.entries : [];
-}
-
-/**
- * One row per real text. A voice note is logged twice under one event id (the audio, then what was heard, `heard`),
- * and the test chat keys its rows by that id, so the pair is one row: the one with words. Its history keeps both.
- */
-export function oneRowPerText(entries) {
-  const byEid = new Map();
-  for (const entry of entries) {
-    const had = byEid.get(entry.eid);
-    if (!had || (String(had.text ?? "").trim() === "" && String(entry.text ?? "").trim() !== "")) byEid.set(entry.eid, entry);
-  }
-  return [...new Set(entries.map((entry) => entry.eid))].map((eid) => byEid.get(eid));
-}
-
-/** The Lab's row for a real text. */
-function realRow(entry, kind) {
-  const who = entry.from?.kind === "tex" ? "Tex" : typeof entry.from?.name === "string" && entry.from.name !== "" ? entry.from.name : kind === "group" ? "Someone" : "You";
-  return { id: entry.eid, eid: entry.eid, who, text: entry.text, at: entry.at, prod: true };
-}
 
 /** A Training or Dev conversation as the Lab has it: its draft over the repo's copy. Never the Test Set. */
 async function conversationOf(controlPlane, token, id) {
@@ -304,7 +246,7 @@ export async function open(env, controlPlane, token, who, input, origin) {
     people = group ? (conv.members ?? []).map((name) => ({ handle: handleOf(name), name: String(name) })) : [{ handle: "", name: "You" }];
   } else {
     const entries = await realLedger(env, owner, ledgerChat, input.base);
-    rows = oneRowPerText(entries.filter((entry) => entry.kind === "text")).map((entry) => realRow(entry, kind));
+    rows = oneRowPerText(saidTexts(entries)).map((entry) => realRow(entry, kind)); // a text never said is no row
     history = entries.map(({ seq: _seq, ...entry }) => entry);
     people = (answer.people ?? []).filter((person) => person && typeof person.handle === "string");
   }
@@ -394,7 +336,7 @@ function speakerOf(about, as) {
  * A test row into the chat, and its run through the chat object in the background: the object logs its event and
  * decides, as in production, whether it takes a turn (a tapback it only notes, an unsend, an edit that changed nothing
  * end quiet, their reply row saying what the object did). Every row is counted; asks of other chats run after it. */
-async function addRow({ env, ctx, controlPlane, token, who, stub, state, row, origin, runTurn, graph, cut = null }) {
+async function addRow({ env, ctx, controlPlane, token, who, stub, state, row, origin, runTurn, graph, cut = null, also = [] }) {
   const about = state.meta.chat;
   // The draft as drawn now (unsaved edits) or as saved now, not as at open: a Lab edit since then is what runs next.
   const drafted = await draftConfig(controlPlane, token, about.versionId, graph, about.drawn === true ? about.config : undefined);
@@ -414,10 +356,13 @@ async function addRow({ env, ctx, controlPlane, token, who, stub, state, row, or
     if (graph !== undefined && graph !== null) await callSandbox(stub, "meta", { key: "chat", value: { ...about, config: drafted.config, drawn: true } });
     // A retry cuts its old text only once everything that could refuse it has passed, so a refusal loses nothing.
     if (cut !== null) await callSandbox(stub, "cut.from", { id: cut });
-    await callSandbox(stub, "row.add", { row });
-    // The text's event as the Worker logs it, unless the chat object the turn runs through logs it itself.
-    const logged = typeof runTurn.logsText === "function" && runTurn.logsText(row);
-    if (!logged) await callSandbox(stub, "ledger.append", { entries: [await inboundEvent({ about, row, rows: [...(state.rows ?? []), row] })], by: row.id });
+    // A burst's texts are rows of their own, right behind it: the chat object takes them all before it looks (`chatRun.js`).
+    for (const added of [row, ...also]) {
+      await callSandbox(stub, "row.add", { row: added });
+      // The text's event as the Worker logs it, unless the chat object the turn runs through logs it itself.
+      const logged = typeof runTurn.logsText === "function" && runTurn.logsText(added);
+      if (!logged) await callSandbox(stub, "ledger.append", { entries: [await inboundEvent({ about, row: added, rows: [...(state.rows ?? []), row, ...also] })], by: added.id });
+    }
   } catch (error) {
     await callSandbox(stub, "release", { msgId: row.id }).catch(() => {});
     throw error;
@@ -436,8 +381,30 @@ async function addRow({ env, ctx, controlPlane, token, who, stub, state, row, or
 export const newIds = (at = Date.now(), eid = eventId(at)) => ({ at, eid, id: `t${eid.replace("-", "")}` });
 carryWith((env, state, body, op) => (op === "text.run" ? objectRun : objectCarry)(env, state, body, async () => ({ open, newIds, runTurn: runTestText, max: DAILY_SENDS })));
 
+/** The most texts one `send` lands together (`also`): a burst, as people send "say alpha", "say bravo" a second apart. */
+export const MAX_ALSO = 4;
+
+/**
+ * `also`: texts that land right behind this one, before the chat object looks at any (Dev2, 2026-11-18: a burst
+ * answered in one turn could not be tried in a test chat). Each `{ text, as? }`, words only; checked like `send`'s.
+ */
+function alsoRows(about, also, first) {
+  if (also === undefined || also === null) return { rows: [] };
+  if (!Array.isArray(also) || also.length === 0 || also.length > MAX_ALSO) return { error: [400, `also is 1 to ${MAX_ALSO} texts, each { text, as? }`] };
+  const rows = [];
+  for (const [index, item] of also.entries()) {
+    const words = typeof item === "string" ? item : item?.text;
+    if (typeof words !== "string" || words.trim() === "" || words.length > MAX_TEXT) return { error: [400, `each also text is 1 to ${MAX_TEXT} characters`] };
+    const speaker = speakerOf(about, typeof item === "object" ? item?.as : undefined);
+    if (speaker.error) return { error: speaker.error };
+    const { at, eid, id } = newIds(first.at + index + 1);
+    rows.push({ id, eid, who: speaker.speaker, text: words, at, prod: false, line: first.line, burst: first.id });
+  }
+  return { rows };
+}
+
 /** `send`, and `retry`'s second half: a text, with its pictures and the row it replies to, and its turn. */
-async function send(deps, state, { as, text = "", pics: given, replyTo }, cut = null) {
+async function send(deps, state, { as, text = "", pics: given, replyTo, also }, cut = null) {
   if (typeof text !== "string" || text.length > MAX_TEXT) return refused(400, `text is at most ${MAX_TEXT} characters`);
   const { pics, error } = picsOf(given);
   if (error) return refused(400, error);
@@ -452,7 +419,9 @@ async function send(deps, state, { as, text = "", pics: given, replyTo }, cut = 
   if (speaker.error) return refused(...speaker.error);
   const { at, eid, id } = newIds();
   const row = { id, eid, who: speaker.speaker, text, at, prod: false, line: rowLine(lineOf(about)), ...(pics.length > 0 ? { pics } : {}), ...(typeof replyTo === "string" ? { replyTo } : {}) };
-  return await addRow({ ...deps, state, row, cut });
+  const burst = alsoRows(about, also, row);
+  if (burst.error) return refused(...burst.error);
+  return await addRow({ ...deps, state, row: burst.rows.length > 0 ? { ...row, also: burst.rows.map((r) => r.id) } : row, cut, also: burst.rows });
 }
 
 /** `react`: a tapback on a row with words, handed to the chat object as Tex's line hands one over. */

@@ -102,9 +102,13 @@ entries with it, and the ledger is rebuilt from what is left. A real text is nev
 **Egress is stubbed in four fences, each deny by default** (`labSandbox/policy.js`, `labSandbox/wire.js`):
 
 1. *The env.* A test turn's env is the real one's plain settings, the model's bindings (`AI`, `IMAGES`), analytics
-   datasets that keep nothing, and the two object namespaces wrapped. The texting Worker, site shots, Tex's jobs and
-   chat objects, live rooms, tickets, the eval service and the sandboxes themselves are left out, so no code path can
-   reach one, and `AGENT_WORKER_SECRET`/`TRANSCRIBE_WORKER_*` are withheld.
+   datasets that keep nothing, the two object namespaces wrapped, and the screenshot Worker for its reads only
+   (`readOnlySiteShots`: `/read`, `/shoot`, `/render`; every `/browse*` and `/view/*` path is a 403 that never reaches
+   it). The texting Worker, Tex's jobs and chat objects, live rooms, tickets, the eval service and the sandboxes
+   themselves are left out, so no code path can reach one, and `AGENT_WORKER_SECRET`/`TRANSCRIBE_WORKER_*` are
+   withheld. Site shots were left out whole until 2026-11-18, which took `open_page` from every test turn and job
+   although `READ_TOOLS` runs it for real: a Lab job called it as a send action for three parts and reported the
+   coworking sites "weren't readable from this job", while production's jobs read pages all along.
 2. *The objects.* Every call to a workspace or Tex object passes `sandboxedStub`, decided by its op name: a read goes
    to the real object (a key the test chat changed is answered from the overlay; the test chat's own ledger from its
    object); a put or delete lands in the overlay; an alarm, a lock or a page push answers as done and never arms;

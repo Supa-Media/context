@@ -42,13 +42,13 @@ jobs:
       # Inlined into the OTA JS bundle at export time. The export already
       # happened in the production run; `eas update` still evaluates
       # app.config.js for the manifest, so the same values have to be present.
-      EXPO_PUBLIC_CONVEX_URL: ${{ secrets.EXPO_PUBLIC_CONVEX_URL }}
+      EXPO_PUBLIC_CONVEX_URL: ${{ vars.EXPO_PUBLIC_CONVEX_URL || secrets.EXPO_PUBLIC_CONVEX_URL }}
       EXPO_PUBLIC_SENTRY_DSN: ${{ secrets.EXPO_PUBLIC_SENTRY_DSN }}
       # The commit the bundle was exported from, not the tip of main.
       EXPO_PUBLIC_APP_BUILD: ${{ inputs.deploy_sha }}
       EXPO_PUBLIC_SENTRY_TRACES_SAMPLE_RATE: "0.1"
-      EXPO_PUBLIC_POSTHOG_KEY: ${{ secrets.EXPO_PUBLIC_POSTHOG_KEY }}
-      EXPO_PUBLIC_POSTHOG_HOST: ${{ secrets.EXPO_PUBLIC_POSTHOG_HOST }}
+      EXPO_PUBLIC_POSTHOG_KEY: ${{ vars.EXPO_PUBLIC_POSTHOG_KEY || secrets.EXPO_PUBLIC_POSTHOG_KEY }}
+      EXPO_PUBLIC_POSTHOG_HOST: ${{ vars.EXPO_PUBLIC_POSTHOG_HOST || secrets.EXPO_PUBLIC_POSTHOG_HOST }}
       EXPO_PUBLIC_POSTHOG_REPLAY_SAMPLE_RATE: "0.1"
       # The site key for the human check in front of a collect link — the
       # public half of the pair whose secret half `deploy-convex.yml` pushes.
@@ -57,13 +57,13 @@ jobs:
       # `CLAUDE.md` keeps account identifiers out of it. Absent is a working
       # state and a deliberate one: the form says it is not taking answers,
       # which is the same thing the control plane says with no secret set.
-      EXPO_PUBLIC_TURNSTILE_SITE_KEY: ${{ secrets.EXPO_PUBLIC_TURNSTILE_SITE_KEY }}
+      EXPO_PUBLIC_TURNSTILE_SITE_KEY: ${{ vars.EXPO_PUBLIC_TURNSTILE_SITE_KEY || secrets.EXPO_PUBLIC_TURNSTILE_SITE_KEY }}
       # Build-only source-map credentials; none has an EXPO_PUBLIC_ prefix.
       SENTRY_AUTH_TOKEN: ${{ secrets.SENTRY_AUTH_TOKEN }}
-      SENTRY_ORG: ${{ secrets.SENTRY_ORG }}
-      SENTRY_PROJECT: ${{ secrets.SENTRY_PROJECT }}
+      SENTRY_ORG: ${{ vars.SENTRY_ORG || secrets.SENTRY_ORG }}
+      SENTRY_PROJECT: ${{ vars.SENTRY_PROJECT || secrets.SENTRY_PROJECT }}
       # Read by app.config.js to resolve extra.eas.projectId — see build-mobile-ota.yml.
-      EAS_PROJECT_ID: ${{ secrets.EAS_PROJECT_ID }}
+      EAS_PROJECT_ID: ${{ vars.EAS_PROJECT_ID || secrets.EAS_PROJECT_ID }}
     steps:
       - uses: actions/checkout@v5
         with:

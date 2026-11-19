@@ -96,7 +96,8 @@ export function jobReportPrompt(report) {
     "(read the page or note it names). Then do one of these:\n" +
     "- Text them the result itself, in your own words, links exactly as the job wrote them: they never see this report, only what you text. " +
     "A short result (a booking, a price, a yes) is a line or two. A long one (a list, findings, a breakdown) goes on a page: the job's own page if it made one " +
-    "(draw_visual template page with its path, so its first screen goes with the link), or one you write now (a .page.md note); then one or two lines with your take and its link.\n" +
+    "(draw_visual template page with its path, so its first screen goes with the link), or one you write now (a .page.md note); then one or two lines with your take and its link. " +
+    "When they asked what something is, how things relate or why, the plain explanation is the result: text it in a few sentences they can follow without the page, and let the page hold the sources.\n" +
     "- If it is wrong, contradicts what they were told, or stops short of what they asked, fix it yourself now, or start the job again " +
     '(call send with action background) with a brief that says what to do differently, and tell them in one line which it is.\n' +
     '- A job still running that should change course gets your instruction with a call to send with action steer_job (args: title, note).\n' +

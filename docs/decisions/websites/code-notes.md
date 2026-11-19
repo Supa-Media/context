@@ -86,14 +86,44 @@ nothing a site publishes; it does shadow a one-segment short link literally
 named `index` once the site has a home page, which is the website-first rule
 every other address already follows.
 
+## A site's look is applied as an adopted sheet, and checked in a browser
+
+_2026-11-18, after sites regressed to unstyled more than once (#1201, #2335)._
+
+A designed page's stylesheet reaches the document as a constructed sheet the
+document adopts (`apps/mobile/features/site/website/siteSheet.ts`), not as a
+`<style>` element. A `<style>` whose text script writes is inline style to a
+Content Security Policy, so the day the shell's style policy is enforced
+(today it is report-only, with a nonce and no `'unsafe-inline'`) every
+designed site would draw unstyled. A browser that cannot adopt keeps the
+`<style>` element, which is what every browser drew before. The note editor
+applies its own rules the same way (#2434).
+
+Two checks hold this, and each was seen failing first:
+
+- `apps/mobile/e2e/webkit/websiteDesign.spec.ts` draws a designed page in a
+  real browser and asserts the site's own rule wins the cascade on its
+  heading and frame, on the first page and the next. The browser workflow
+  runs it per push when a site screen changes, under production's headers
+  and again with the whole candidate policy enforced; with a `<style>`
+  element the second run draws the heading black and fails.
+- `scripts/health-check-sites.mjs` (`site-health.yml`, hourly and after each
+  production deploy) asks real sites for their pages the way the app does
+  and is red when a page is missing, draws blank, or comes without the
+  design its site has, or when the enforced policy would refuse inline style.
+
 ## Code notes publish like pages
 
 A code note is a route-index row with a `code` role and no address. Publish
-releases it with the pages; a visit draws a code note unchanged since Publish
-from its live bytes and one edited since from the release copy, so saving a
-stylesheet changes nothing a visitor sees. Its live bytes are read at the
-publication clearance on every visit, so one `privacy.md` now holds back, or
-one deleted, encrypted or drafted, stops being drawn at once. A members-only
+releases it with the pages and composes the site's look from the copies it
+keeps ([kept-design](./kept-design.md)); a visit draws that, so saving a
+stylesheet changes nothing a visitor sees. Where a release has no kept look,
+or a restriction is pending, a visit draws a code note unchanged since Publish
+from its live bytes and one edited since from the release copy, both read at
+the publication clearance. A restriction marks the site pending, which takes
+the visit to that path, and the narrowing then drops the note's row, so one
+`privacy.md` now holds back, or one deleted, encrypted or drafted, stops being
+drawn at once. A members-only
 code note is drawn only for members. Folder references (`folder:`) never make
 a code note: a note a folder publishes is a note, whatever it is called.
 

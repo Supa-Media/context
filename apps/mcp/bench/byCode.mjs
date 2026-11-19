@@ -94,14 +94,27 @@ export async function byCodeStart(world, question, { running = null, now = Date.
     const report = jobReportOf(question.jobReport);
     return { message: String(question.jobReport.asked ?? ""), options: { byCode: true, cause: "job_report", event: { event: "job_report", jobReport: report } }, running: [...(running ?? []), runningJob(report, now)] };
   }
-  if (!(question.checkinMail || question.routine)) return null;
+  if (!(question.checkinMail || question.checkinCalendar || question.routine)) return null;
   const chat = world.chatSide();
   if (chat.group === null) return null;
   if (question.routine) {
     await world.placeInHome(BENCH_ROUTINE, `${question.routine}\n`);
     return { message: groupRoutineQuestion(routinePath(chat.group), undefined, chat.timeZone), options: { byCode: true, cause: "routine" }, running };
   }
-  world.mailArrives(question.checkinMail);
+  if (question.checkinMail) world.mailArrives(question.checkinMail);
+  if (question.checkinCalendar) world.calendarArrives(question.checkinCalendar);
   const mailbox = world.chatSide().mailbox;
   return { message: groupCheckInQuestion(now - 60 * 60_000, chat.timeZone), options: { byCode: true, cause: "check_in", groupMail: [{ handle: chat.handle, address: mailbox }] }, running };
+}
+
+/**
+ * The jobs a case's chat has running before it starts: the same for every setup, so each has the same free slots.
+ * `titled` are the jobs its earlier lines started and that are still going (`setsFd.mjs` runningJobOf), each titled and
+ * started `minutesBefore` ago, as the chat's running list shows a job it started (`runningJob`).
+ */
+export function benchRunning(count, titled = []) {
+  const now = Date.now();
+  const named = titled.map((job, i) => runningJob({ id: benchJobId(i + 1), title: job.title, state: "running" }, now, job.minutesBefore === undefined ? undefined : job.minutesBefore * 60_000));
+  const counted = Array.from({ length: Math.max(0, Math.min(6, count)) }, (_, i) => ({ id: `bench-running-${i + 1}`, title: `Earlier job ${i + 1}`, state: "running", startedAt: now - 10 * 60_000, status: "working" }));
+  return [...named, ...counted];
 }

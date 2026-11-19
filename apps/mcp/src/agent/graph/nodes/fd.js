@@ -12,6 +12,7 @@
 import { ADVISOR_TOOL } from "../../advisor.js";
 import { runTheModel } from "../../texEntryPoint/runTheModel.js";
 import { draftBridge } from "../draftBridge.js";
+import { DOOR_NODES } from "../../doorTools.js";
 
 /** A stop of the model loop as this node's output: a draft waiting on its checks, or the turn done. */
 function stopOutput(t, stop) {
@@ -21,7 +22,10 @@ function stopOutput(t, stop) {
     return { when: ["ended"], pending: false, ended: true, status: stop.value?.status };
   }
   const turn = t.turn ?? {};
-  return { when: ["done"], pending: false, draftChars: String(turn.answer ?? "").length, answeredBy: turn.model ?? undefined, steps: Array.isArray(turn.steps) ? turn.steps.length : 0, exhausted: turn.exhausted === true };
+  // `log.handedOff`: the turn ran out of rounds, or was routed a job, and the Hand-off node gave the job to a background worker (`../../handoff.js`).
+  // `log.route`: the specialist door the router picked, its sure and the fallback (`../../doorTurn.js`); never a top-level field.
+  const log = { ...(turn.handedOff === "rounds" || turn.handedOff === "route" ? { handedOff: turn.handedOff } : {}), ...(turn.route ? { route: turn.route } : {}) };
+  return { when: ["done"], pending: false, draftChars: String(turn.answer ?? "").length, answeredBy: turn.model ?? undefined, steps: Array.isArray(turn.steps) ? turn.steps.length : 0, exhausted: turn.exhausted === true, ...(Object.keys(log).length > 0 ? { log } : {}) };
 }
 
 /** How many tool calls the turn has made by this draft: what the reviewer reads it against. */
@@ -34,6 +38,9 @@ export async function fdNode(input, io) {
   const t = io.ctx.turn;
   if (t.drafts?.waiting) return stopOutput(t, await t.drafts.resume(input?.notice ?? null)); // back from a check, on its loop wire
   const drafts = (t.drafts = draftBridge());
+  // The Training moments nearest to this text, started now so they are ready by the first prompt (`examples.js`); only when the
+  // config wires `fd -> examples`. Its answer never throws, and a rejection is answered as a fallback, so none can go unhandled.
+  const examples = "examples" in io.use ? io.use.examples({ question: String(t.question ?? ""), recent: recentLines(t.history) }).catch(() => ({ when: ["fallback"], why: "error" })) : null;
   // What a call carries that the log must not (its arguments, the turn so far, its result): kept here by the call's number, and the wire carries only the number and the tool's name.
   // Each call's arguments and result are kept already, with their privacy rules, as the turn's own tool entry (`ledger.js` `toolEntry`).
   const calls = (t.toolCalls = { mcp: null, web: null, local: new Map(), held: new Map(), planner: null, fallback: null });
@@ -50,6 +57,7 @@ export async function fdNode(input, io) {
     }
   };
   const via = {
+    examples,
     // A draft the Answer check handed to a background job (`handoff.js`) ends the loop on the job's start line.
     answerCheck: async (draft, info) => {
       const notice = await drafts.answerCheck(draft, info);
@@ -83,6 +91,9 @@ export async function fdNode(input, io) {
       calls.fallback = spec;
       return async (model) => (await io.use.fallback({ from: model }))?.model ?? null;
     },
+    // The specialist doors, each through its wire the config may not draw: a missing one answers null. The router is
+    // the Door's (`doorStep.js`): a check-in or a routine skips the Door, so it is answered by today's front door.
+    door: (route, input) => guarded(() => io.use[DOOR_NODES[route]](input)),
     planner: (plan) => {
       calls.planner = plan;
       return async (args, callTool) => {
@@ -94,6 +105,20 @@ export async function fdNode(input, io) {
   };
   const first = stopOutput(t, await drafts.start(runTheModel(t, via)));
   return { ...first, ...settingsOf(t.settings) };
+}
+
+/** A wire's answer, or null when the config does not draw it (the handle throws) or it failed. */
+function guarded(call) {
+  try {
+    return Promise.resolve(call()).catch(() => null);
+  } catch {
+    return Promise.resolve(null);
+  }
+}
+
+/** The last few lines of the chat before this text, as plain text for the examples' query (`examples.js`). */
+function recentLines(history) {
+  return (Array.isArray(history) ? history : []).slice(-4).map((turn) => `${turn?.role === "assistant" ? "You" : "Them"}: ${String(turn?.text ?? "")}`);
 }
 
 /** The settings the turn runs the front door with (`runTheModel.js` `doorOut`), on its first output only. */

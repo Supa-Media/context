@@ -34,6 +34,7 @@ import { deskLedger } from "./history.js";
 import { words } from "./logRender.js";
 import { DESK_LEDGER } from "../texStore/desk.js";
 import { noteAbout } from "./sentOnItsOwn.js";
+import { isUnsentNote, keptNotTexted, linkedSends } from "./sentOnItsOwn.js";
 
 /** Every line Tex sent without a text from them begins so (`heartbeat.js`, `conversation.js`, `attention.js`). */
 const BY_ITSELF = /^\(Not a text from them\./;
@@ -58,6 +59,9 @@ const bySeq = (a, b) => (a.seq ?? 0) - (b.seq ?? 0);
 /** The turns of a ledger's entries (any order), oldest first, unbounded: `keep` bounds them. */
 export function conversationFromLedger(entries, { question: asQuestion = null, marked = false } = {}) {
   const list = (Array.isArray(entries) ? entries : []).filter((entry) => entry !== null && typeof entry === "object").sort(bySeq);
+  // A note of a text Tex sent on its own is shown only if the text was said: a send that never went out, and a routine's
+  // note kept and not texted, are not shown as said (`sentOnItsOwn.js`). The turn still counts as one of their notes below.
+  const links = linkedSends(list);
   const replies = new Map();
   const tools = new Map();
   const byItself = new Set();
@@ -146,7 +150,7 @@ export function conversationFromLedger(entries, { question: asQuestion = null, m
           answering = { turn, texts: [entry.text.trim()], at: entry.at };
         }
       }
-    } else if (entry.kind === "note" && entry.others !== true && entry.backfill === undefined && typeof entry.text === "string" && entry.text.trim() !== "") {
+    } else if (entry.kind === "note" && entry.others !== true && entry.backfill === undefined && typeof entry.text === "string" && entry.text.trim() !== "" && !keptNotTexted(entry) && !isUnsentNote(entry, links)) {
       // A routine's text to other people is not this chat's (`texEntryPoint.js`); a copied-in note is already among the texts.
       flush();
       const about = noteAbout(entry);

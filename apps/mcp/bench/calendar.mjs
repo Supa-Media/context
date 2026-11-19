@@ -39,3 +39,51 @@ export function benchCalendar(days, connectedFor = null) {
   const address = `${String(connectedFor).toLowerCase().replace(/[^a-z0-9]/g, "") || "person"}@calendar.bench.invalid`;
   return { ...flags, calendarDays: () => ({ ok: true, days: [] }), calendarAddress: address };
 }
+
+/** The calendar days a range from `date` for `days` holds, as ISO dates. */
+function datesFrom(date, days = 1) {
+  const start = Date.parse(`${date}T00:00:00Z`);
+  return Array.from({ length: days }, (_, i) => new Date(start + i * 86_400_000).toISOString().slice(0, 10));
+}
+
+/**
+ * A calendar days answer with a check-in's own calendar events added on their days (`world.mjs` `calendarArrives`): a
+ * check-in's calendar line is what the calendar holds for that day, read beside the fixture's days and never a made-up
+ * one. `answer` is the calendar's days function (or null for none), `arrived` the events `{ date, text }`, and `address`
+ * the calendar's address (a function, read when asked).
+ */
+export function withArrivedEvents(answer, arrived, address) {
+  return async (body) => {
+    const got = typeof answer === "function" ? await answer(body) : null;
+    // Without arrivals the calendar answers as it did: no calendar connected when it has no days function.
+    if (arrived.length === 0) return got ?? { ok: false, refused: "no_calendar" };
+    const base = got?.ok === true ? got : { ok: true, days: [] };
+    const wanted = new Set(datesFrom(body.date, body.days ?? 1));
+    const extra = arrived.filter((event) => wanted.has(event.date));
+    if (extra.length === 0) return base;
+    const days = base.days.map((day) => ({ ...day }));
+    for (const event of extra) {
+      const line = `### ${event.text}`;
+      const day = days.find((x) => x.date === event.date);
+      if (day) day.text = day.text === "" ? line : `${day.text}\n\n${line}`;
+      else days.push({ address: address() ?? "calendar@bench.invalid", date: event.date, text: line });
+    }
+    return { ...base, days: days.sort((a, b) => String(a.date).localeCompare(String(b.date))) };
+  };
+}
+
+const VERBS = { create: "added", edit: "edited", move: "moved", cancel: "cancelled", rsvp: "answered" };
+
+/**
+ * The changes Tex made to the person's calendar, as change rows (`world.mjs` `changes()`), from the control plane's
+ * calls: each create, edit, move, cancel or rsvp that was answered ok. A check (`check: true`) changed nothing and a
+ * refused change changed nothing either, so neither is listed.
+ */
+export function calendarChanges(calls) {
+  return calls
+    .filter((entry) => entry.check !== true && entry.answer?.ok === true && VERBS[entry.change?.action])
+    .map(({ change }) => {
+      const when = change.start ? (change.action === "move" ? ` to ${change.start}` : change.action === "create" ? ` at ${change.start}` : "") : "";
+      return { workspace: "calendar", path: "calendar", kind: change.action, detail: `${VERBS[change.action]} "${change.title ?? ""}"${when}` };
+    });
+}

@@ -227,7 +227,7 @@ export const RUN_IN_SANDBOX = Object.freeze(new Set(["start_background_job", "st
  * Tools that need a browser or one of the person's computers, which a test chat never has: refused, said in words the
  * turn reads as a refusal, and listed. A job that would run on a computer is refused the same way (`jobs.js`).
  */
-const NO_MACHINE = /^(browse|fill_login|fill_card|sign_out_browser|delegate)$|computer|machine/;
+const NO_MACHINE = /^(browse|fill_login|make_login|fill_card|sign_out_browser|delegate)$|computer|machine/;
 export const MACHINE_REFUSAL = "Not run: a Lab test chat has no browser and no computer, so this step can't run here. Say so plainly, and carry on with what you can do without it.";
 
 /** What a stubbed tool would have done, for the test chat's list. */
@@ -237,7 +237,7 @@ const TOOL_KINDS = [
   [/remember|write_note|save_context|archive|move|fill_dates|apply_layout|dream_now|suggest_destination|encryption|storage_layout|write$/, "Note"],
   [/google_chat|notify|text_progress|slack|ask_personal_tex|chat_add_everyone|mail_agent/, "Chat"],
   [/background|delegate|plan_big_ask|steer|restart|computers|machine/, "Job"],
-  [/browse|fill_login|fill_card|sign_out_browser/, "Browser"],
+  [/browse|fill_login|make_login|fill_card|sign_out_browser/, "Browser"],
   [/visibility|link|vault|share|invite|create_workspace|site|review_sharing/, "Sharing"],
   [/setting|instructions|mute|chat_/, "Setting"],
   [/form|vote|submission|answer/, "Form"],
@@ -307,9 +307,33 @@ const ANALYTICS = new Set(["TEX_TIMING", "TEX_CALLS", "TEX_ENTRY", "MCP_ENTRY", 
 const WITHHELD_STRINGS = new Set(["TRANSCRIBE_WORKER_SECRET", "AGENT_WORKER_SECRET", "TRANSCRIBE_WORKER_URL"]);
 
 /**
+ * The screenshot Worker's paths a test turn may reach (`infra/site-shots`): reading a page (`open_page`,
+ * `travel_time`), photographing one (`/shoot`) and drawing static HTML (`/render`, `draw_picture`). Each answers from
+ * the page and keeps nothing, so they are reads, which `READ_TOOLS` already runs for real; left out, a test chat's turn
+ * and its jobs were never offered `open_page` and said the pages "weren't readable from this job" (Lab, 2026-11-18).
+ * Every browser path (`/browse*`, `/view/*`) is refused here as well as at the tool (`NO_MACHINE`).
+ */
+export const SITE_SHOTS_READS = Object.freeze(new Set(["/read", "/shoot", "/render"]));
+
+/** The screenshot Worker narrowed to `SITE_SHOTS_READS`: any other path is a 403 that never reaches it. */
+export function readOnlySiteShots(binding) {
+  return {
+    async fetch(input, init) {
+      const url = new URL(typeof input === "string" ? input : input?.url ?? String(input));
+      const method = String(init?.method ?? (typeof input === "object" && input?.method) ?? "GET").toUpperCase();
+      if (method !== "POST" || !SITE_SHOTS_READS.has(url.pathname)) {
+        return new Response(JSON.stringify({ error: "a Lab test chat has no browser" }), { status: 403, headers: { "content-type": "application/json" } });
+      }
+      return await binding.fetch(input, init);
+    },
+  };
+}
+
+/**
  * A test turn's env: the real one's plain settings, the model's bindings, the objects through `wire.js`, analytics that
- * keep nothing, and `gate` under `LAB_SANDBOX_KEY`. Every other binding (the texting Worker, site shots, Tex's jobs and
- * chat queues, live rooms, tickets, the eval service) is left out, so no code path can reach one.
+ * keep nothing, the screenshot Worker for reads only (`readOnlySiteShots`), and `gate` under `LAB_SANDBOX_KEY`. Every
+ * other binding (the texting Worker, Tex's jobs and chat queues, live rooms, tickets, the eval service) is left out, so
+ * no code path can reach one.
  */
 /**
  * The bucket a chat shared with the developers gets in place of its person's notes (Dev2 chose "run without the
@@ -339,6 +363,9 @@ export function sandboxEnvOf(env, { gate, workspaces, tex }) {
     } else if (PASSED_BINDINGS.has(key)) out[key] = value;
     else if (ANALYTICS.has(key)) out[key] = { writeDataPoint() {} };
   }
+  if (typeof env?.SITE_SHOTS?.fetch === "function") out.SITE_SHOTS = readOnlySiteShots(env.SITE_SHOTS);
+  // Tex's example index (`graph/nodes/examples.js`): Training moments only, so a test turn may search it; never write it.
+  if (typeof env?.TEX_EXAMPLES?.query === "function") out.TEX_EXAMPLES = Object.freeze({ query: (vector, options) => env.TEX_EXAMPLES.query(vector, options) });
   if (workspaces) out.WORKSPACE_STORE = workspaces;
   if (tex) out.TEX_STORE = tex;
   out[LAB_SANDBOX_KEY] = gate;

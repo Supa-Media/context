@@ -280,6 +280,44 @@ function decideRequest(body, { facts = [] } = {}) {
   return { state: judgeState(body.transcript, facts), questions };
 }
 
+/**
+ * The reasons that mean "this is for Tex": a message with one of them is answered. A verdict that stays quiet (or only
+ * reacts) with one of these is a pair that cannot be: Clef answers each typed question on its own, so `why` was never
+ * told what `act` chose (Dev and Training runs, 2026-11-17: the act right, the reason "it replies to one of Tex's
+ * texts"). `QUIET_WHY` is every other reason, the ones a quiet message can have.
+ */
+const FOR_TEX_WHY = Object.freeze(["tags_tex", "replies_to_tex", "answers_tex", "asks_tex", "corrects_tex"]);
+const QUIET_WHY = Object.freeze(Object.fromEntries(Object.entries(WHY).filter(([name]) => !FOR_TEX_WHY.includes(name))));
+
+/** Whether a verdict's reason contradicts its act: quiet or only a reaction, for a reason that says it is for Tex. */
+function whyContradictsAct(verdict) {
+  return verdict?.ok === true && (verdict.act === "silent" || verdict.act === "react") && FOR_TEX_WHY.includes(verdict.why);
+}
+
+/**
+ * The second look (`decideWhy`): one question over the same state, told the act, with only the reasons a quiet message
+ * can have. It asks for the reason and nothing else, so it cannot turn quiet into an answer.
+ */
+function decideWhyRequest(state, verdict) {
+  const did = verdict?.act === "react" ? "only reacted to the newest message with an emoji, and sent no words" : "stayed quiet on the newest message";
+  return {
+    state,
+    questions: {
+      why: {
+        type: "choice",
+        instructions: `Tex ${did}: it was judged not to need an answer from Tex. Which reason best explains that, as the examples label theirs?`,
+        criteria: { ...QUIET_WHY },
+      },
+    },
+  };
+}
+
+/** The second look's reason, one a quiet message can have, or null when the model gave none of them. */
+function readDecideWhy(answers) {
+  const why = answers && typeof answers === "object" ? answerOf(answers, "why")?.choice : null;
+  return typeof why === "string" && Object.hasOwn(QUIET_WHY, why) ? why : null;
+}
+
 function answerOf(answers, name) {
   const answer = answers[name];
   return answer && typeof answer === "object" && !Array.isArray(answer) ? answer : null;
@@ -478,6 +516,11 @@ module.exports = {
   CHAT_MARKS,
   FOR_TEX_RULE,
   WHY,
+  FOR_TEX_WHY,
+  QUIET_WHY,
+  whyContradictsAct,
+  decideWhyRequest,
+  readDecideWhy,
   JUDGE_EXAMPLES,
   EXAMPLES_TEXT,
   judgeExamplesText,

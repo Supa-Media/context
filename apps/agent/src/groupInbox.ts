@@ -645,7 +645,9 @@ export async function answerGroup(storage: InboxStorage, entries: GroupEntry[], 
   const upTo = Math.max(acceptedAt, ...entries.map(([, entry]) => entry.at ?? 0));
   // Addressed: decide is asked now, beside the turn, and its verdict is waited on only before anything is sent.
   // A turn that fails on a kept token (the gateway refused it, say) drops it, so its retry asks the control plane first.
-  const outcome = await groupTurn(storage, deps, { message, covered, acceptedAt: contextUntil, upTo, arrivedAt: acceptedAt, covers, people, asked, accessToken: asked.accessToken }).catch(async (error: unknown) => {
+  // Each text's event to its message, so a part of the answer can go under the text it answers (`bubblesUnder.ts`).
+  const messages = Object.fromEntries(entries.flatMap(([, entry]) => (entry.ev && entry.message.messageId ? [[entry.ev, entry.message.messageId]] : [])));
+  const outcome = await groupTurn(storage, deps, { message, covered, acceptedAt: contextUntil, upTo, arrivedAt: acceptedAt, covers, people, asked, accessToken: asked.accessToken, messages }).catch(async (error: unknown) => {
     if (kept !== null) await dropKept(storage);
     throw error;
   });

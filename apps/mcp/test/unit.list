@@ -1,4 +1,6 @@
+bench/test/benchDays.test.mjs
 bench/test/byCode.test.mjs
+bench/test/benchTools.test.mjs
 bench/test/checks.test.mjs
 bench/test/fluff.test.mjs
 bench/test/judge.test.mjs
@@ -16,6 +18,8 @@ bench/test/sites.test.mjs
 bench/test/tasks.test.mjs
 bench/test/warm.test.mjs
 bench/test/world.test.mjs
+bench/test/worldDays.test.mjs
+bench/test/worldHandles.test.mjs
 test/agentAboutMe.test.mjs
 test/agentAttachments.test.mjs
 test/agentBrowserbaseRefused.test.mjs
@@ -23,6 +27,7 @@ test/agentBrowserHold.test.mjs
 test/agentCatalog.test.mjs
 test/agentConversation.test.mjs
 test/agentDayWords.test.mjs
+test/agentMakeLogin.test.mjs
 test/agentWarmBudget.test.mjs
 test/agentFillLogin.test.mjs
 test/agentFillCard.test.mjs
@@ -39,6 +44,7 @@ test/agentJobs.test.mjs
 test/contextOpenOnce.test.mjs
 test/chatHomeWrite.test.mjs
 test/chatSkills.test.mjs
+test/decideWhy.test.mjs
 test/homeRoutines.test.mjs
 test/historyFile.test.mjs
 test/conversationsView.test.mjs
@@ -63,6 +69,7 @@ test/agentTranscript.test.mjs
 test/agentTrustedSites.test.mjs
 test/agentTurnLimits.test.mjs
 test/parallelReads.test.mjs
+test/pathAddressLinks.test.mjs
 test/agentHeldEcho.test.mjs
 test/agentWorkspaces.test.mjs
 test/appOriginMetadata.test.mjs
@@ -87,6 +94,7 @@ test/listingProps.test.mjs
 test/liveGrantAccess.test.js
 test/liveToolList.test.mjs
 test/logicalDelete.test.mjs
+test/logicalDeleteListing.test.mjs
 test/managedEncryption.test.mjs
 test/mailAccounts.test.mjs
 test/meaningCatchup.test.mjs
@@ -114,6 +122,7 @@ test/privacyAuthority.test.mjs
 test/privacy/rowAccess.test.mjs
 test/privacy/rowTokens.test.mjs
 test/privacy/notePeople.test.mjs
+test/privacy/notePeopleStub.test.mjs
 test/privacy/rowsWrites.test.mjs
 test/privacy/setAccessBody.test.mjs
 test/queuedFolderMove.test.mjs
@@ -285,6 +294,7 @@ test/fileParts.test.mjs
 test/calendarRetry.test.mjs
 test/agentSlowMoves.test.mjs
 test/movesInsideAnotherWorkspace.test.mjs
+test/sitePublishElsewhere.test.mjs
 test/agentPushback.test.mjs
 test/collaborationByNoteId.test.mjs
 test/agentRoutineWhen.test.mjs
@@ -499,6 +509,7 @@ test/agentJobSlots.test.mjs
 test/morningChat.test.mjs
 test/thumbsUpMerge.test.mjs
 test/groupNames.test.mjs
+test/guestNamesInHistory.test.mjs
 test/replyJudge.test.mjs
 
 test/directoryEndpoint.test.mjs
@@ -583,6 +594,10 @@ test/sets.test.mjs
 test/setsMigrate.test.mjs
 test/texGraphHome.test.mjs
 test/searchQuality.test.mjs
+test/setsWorld.test.mjs
+test/shapeGate.test.mjs
+test/specialistDoors.test.mjs
+test/routerContext.test.mjs
 test/textsArrive.test.mjs
 test/texChatMove.test.mjs
 test/reflectNudgeNodes.test.mjs
@@ -612,6 +627,7 @@ test/texDevRuns.test.mjs
 test/texDevResponseCap.test.mjs
 test/texSetOps.test.mjs
 test/setsFd.test.mjs
+test/texRouteSummary.test.mjs
 test/simWorld.test.mjs
 test/setsRun.test.mjs
 bench/test/nodeCases.test.mjs
@@ -657,3 +673,12 @@ test/jobCheckView.test.mjs
 test/jobStart.test.mjs
 test/turnFactClaims.test.mjs
 test/searchSpeedEquality.test.mjs
+test/labSandboxPages.test.mjs
+test/replyUnder.test.mjs
+bench/test/fallbacks.test.mjs
+test/checkinOnceInChat.test.mjs
+test/advisorCache.test.mjs
+test/setsTrace.test.mjs
+test/setsGold.test.mjs
+test/texExamples.test.mjs
+test/examplesNode.test.mjs

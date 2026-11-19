@@ -84,32 +84,33 @@ export const TEST_EMAIL_PROVIDER_ID = "test-email";
 /** The directory reviewer's address; see apps/convex/functions/lib/reviewerAccount.ts. */
 export const REVIEWER_EMAIL = "connector-review@supa.media";
 export const REVIEWER_PROVIDER_ID = "test-email-reviewer";
-/** Google's verification reviewer; same file. */
+/**
+ * Google's verification reviewer. Signs in with the staff-set reviewer
+ * password, like YC's (2026-11-18); its issued-code provider is retired.
+ */
 export const GOOGLE_REVIEW_EMAIL = "google-review@supa.media";
-export const GOOGLE_REVIEW_PROVIDER_ID = "test-email-google-review";
 
 export const DIRECTORY_REVIEW_EMAIL = "directory-review@supa.media";
 export const DIRECTORY_REVIEW_PROVIDER_ID = "test-email-directory-review";
 
 /**
- * The YC review account signs in with a password staff set, not a code
- * (apps/convex/functions/lib/reviewerPassword.ts).
+ * The YC review account and Google's verification reviewer sign in with a
+ * password staff set, not a code (apps/convex/functions/lib/reviewerPassword.ts).
  */
 export const YC_REVIEW_EMAIL = "yc-review@supa.media";
 export const REVIEWER_PASSWORD_PROVIDER_ID = "reviewer-password";
 
 /** Client routing only: whether this address gets a password box. The provider refuses every other address. */
 export function usesPassword(email: string): boolean {
-  return email === YC_REVIEW_EMAIL;
+  return email === YC_REVIEW_EMAIL || email === GOOGLE_REVIEW_EMAIL;
 }
 
 /** Client routing only; the provider repeats the exact check server-side. */
 export function signInProviderForEmail(
   email: string,
-): "email" | typeof TEST_EMAIL_PROVIDER_ID | typeof REVIEWER_PROVIDER_ID | typeof GOOGLE_REVIEW_PROVIDER_ID | typeof DIRECTORY_REVIEW_PROVIDER_ID {
+): "email" | typeof TEST_EMAIL_PROVIDER_ID | typeof REVIEWER_PROVIDER_ID | typeof DIRECTORY_REVIEW_PROVIDER_ID {
   if (email === PRODUCTION_TEST_EMAIL) return TEST_EMAIL_PROVIDER_ID;
   if (email === DIRECTORY_REVIEW_EMAIL) return DIRECTORY_REVIEW_PROVIDER_ID;
   if (email === REVIEWER_EMAIL) return REVIEWER_PROVIDER_ID;
-  if (email === GOOGLE_REVIEW_EMAIL) return GOOGLE_REVIEW_PROVIDER_ID;
   return "email";
 }

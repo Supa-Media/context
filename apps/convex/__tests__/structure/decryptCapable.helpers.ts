@@ -311,6 +311,10 @@ export const DECRYPT_CAPABLE_FUNCTIONS: readonly string[] = [
       "functions.meaningProvision.provisionMeaningIndex",
       "functions.meaningProvision.releaseMeaningIndex",
       "functions.messagesExport.eraseBackupPage",
+      // Tex's example index (`tex-examples`, never a workspace's), same credential: an internalAction with no caller in
+      // code, run only by `npx convex run` after a deploy (`deploy-convex.yml`). It reads no customer data; what it
+      // embeds is the repository's Training file, and it writes back only a status and a count.
+      "functions.texExamplesIndex.sync",
       // THE PAYMENT KEY, WHICH IS ALSO OURS AND NOT A CUSTOMER'S.
       //
       // Both open `STRIPE_SECRET_KEY` to mint a hosted Checkout or customer

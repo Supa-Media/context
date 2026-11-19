@@ -26,6 +26,8 @@ Invented people and the workspaces each can reach. A test runs as one of them, t
 
 ## Things tests rely on
 
+- The Training and Dev conversations are cast from these people (`texSets.cjs` BENCH_PEOPLE), and each may bring a world of its own: the notes, mail, calendar days and sites it refers to, in `apps/mcp/bench/sets/worlds/<conversation id>/`, laid over a copy of this folder for that conversation's tests alone (`setsWorld.mjs`). A group conversation's own workspace there is the shared workspace it runs in, its members the conversation's people; nothing of it is listed above. What a conversation's world leaves out is played by the simulated world (`simWorld.mjs`) from its setting.
+
 - Tomas's workspace is deliberately messy for Tex's housekeeping (`tests/housekeeping.md`): a finished project, a done one still marked in progress, duplicate contacts, a one-note folder, inbox notes older than three months, and a running folder crowded with 240 dated run logs (from `_bank/run-logs/`).
 
 - Nia is brand new (`tests/onboarding.md`): just set up by text, with only the five starting folders, no `tex/about.md`, and the ten emails Gmail's first import brought (`0-inbox/email/`). She codes, has a side design studio (Lumen Studio, with Theo), and uses Claude through a shared team account and ChatGPT Plus. Keep her workspace this empty: the onboarding cases are about a first look.

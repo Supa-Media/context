@@ -6,24 +6,35 @@
 #   prep    main's code, with the deploy key: says the run is running, reads it, and resolves the code it runs on
 #           (main, or the same-repository pull request or branch the draft names; Dev2, 2026-11-16: "when we run
 #           things it should run on the PRs code instead of main"), and reports the commit to Convex.
+#   lease   main's checkout, with the deploy key: takes one of the Lab runner slots (LAB_RUNNER_<N>_*, three grants of
+#           the bench test account) for this run when one is connected and free; otherwise slot 0, the shared
+#           benchmark runner, exactly as before slots. It never fails or blocks a run. scripts/lab-runner-lease.mjs;
+#           the slot and attempt are its only outputs.
+#   wait-turn  slot 0 only: waits for the shared runner's lock (scripts/bench-runner-lock.mjs), as before slots.
 #   run     that commit's code, WITHOUT the deploy key (a branch's code never sees it, and cannot touch the job that
 #           reports): writes the draft's graph into the config with that code's own promote check, and runs the Dev
 #           set's unit tests with the bench's node-alone runner (`node apps/mcp/bench/run.mjs sets run`): never the
 #           Training set, never the Test set (people only, in the eval service). Models "gw" asks the AI gateway as the
 #           bench always does; "cc" answers every Claude call with Claude Code on CLAUDE_CODE_OAUTH_TOKEN
 #           (apps/mcp/bench/socketAnswerer.mjs), and the token never leaves this job. Clef stays on Workers AI.
-#           The spend check rotates the benchmark refresh token. This job seals that token and does not write the
-#           production secret: a secret in this job would be the branch's to read, because its install can change PATH.
+#           The spend check rotates the leased slot's refresh token. This job seals that token and does not write
+#           the production secret: a secret in this job would be the branch's to read, because its install can change PATH.
 #   token-key    no checkout. An RSA key for this run. The private half is wrapped with the writer token and leaves
 #                only as ciphertext. The run job does not need this job, so that output is not in the branch's hands.
 #   publish-pub  the public half only. needs is not transitive, which is why this job exists.
-#   write-token  main's checkout only, after the run: unwraps, checks the token's shape, and writes the production
-#                secret. An empty writer token or a refused write fails the job.
+#   write-token  main's checkout only, after the run: unwraps, checks the token's shape, and writes the leased slot's
+#                production secret (LAB_RUNNER_<N>_REFRESH_TOKEN, N checked against 1-3), or on slot 0 the shared
+#                BENCH_RUNNER_REFRESH_TOKEN_LIVE. An empty writer token or a
+#                refused write fails the job.
 #   report  main's code, with the deploy key: the results (cleaned again by Convex) or why it failed.
+#   release main's code, with the deploy key, after write-token: frees the slot, so the next lease reads the new token.
 #
-# The run and its results pass between jobs as artifacts sealed with a key made for this run (a public repository's
-# artifacts can be downloaded by anyone; the key goes only through job outputs, which are not), kept one day. The log
-# is public: it names the run's id, conversation ids, the commit and counts, never a conversation's words.
+# The run and its results pass between jobs as artifacts sealed with a key (a public repository's artifacts can be
+# downloaded by anyone). The key is never passed between jobs: each step that seals or opens derives it from the run's
+# id with HMAC-SHA256 keyed by the AI_GATEWAY_TOKEN secret, masks it, and holds it only in its own shell. Job outputs
+# and step `env:` values are printed in the public log, which is why neither ever holds it
+# (scripts/check-workflow-output-secrets.mjs). Artifacts are kept one day. The log is public: it names the run's id,
+# conversation ids, the commit and counts, never a conversation's words.
 name: Tex Lab run
 
 on:
@@ -52,7 +63,7 @@ jobs:
     outputs:
       models: ${{ steps.job.outputs.models }}
       node: ${{ steps.job.outputs.node }}
-      key: ${{ steps.job.outputs.key }}
+      set: ${{ steps.job.outputs.set }}
       sha: ${{ steps.code.outputs.sha }}
       why: ${{ steps.why.outputs.why }}
     steps:
@@ -80,21 +91,28 @@ jobs:
 
       - name: Read the run
         id: job
+        env:
+          LAB_SEAL_SOURCE: ${{ secrets.AI_GATEWAY_TOKEN }}
         run: |
           set -euo pipefail
+          [ -n "${LAB_SEAL_SOURCE:-}" ] || { echo "::error::no AI_GATEWAY_TOKEN to derive the run's seal key from"; exit 1; }
+          SEAL=$(printf '%s' "tex-lab-seal.$GITHUB_RUN_ID" | openssl dgst -sha256 -hmac "$LAB_SEAL_SOURCE" -r | cut -d' ' -f1)
+          echo "::add-mask::$SEAL"
+          export SEAL; unset LAB_SEAL_SOURCE
           npx convex run functions/texLabRuns:job "$(jq -cn --arg id "$RUN_ID" '{runId: $id}')" 2>/dev/null > "$RUNNER_TEMP/job.json"
           [ "$(jq -r 'type' "$RUNNER_TEMP/job.json")" = "object" ] || { echo "::error::no such run"; exit 1; }
           models=$(jq -r .models "$RUNNER_TEMP/job.json")
           node=$(jq -r '.nodeId // ""' "$RUNNER_TEMP/job.json")
           [[ "$models" =~ ^(gw|cc)$ ]] || { echo "::error::unknown models"; exit 1; }
           [[ -z "$node" || "$node" =~ ^[a-z][A-Za-z0-9_-]{0,30}$ ]] || { echo "::error::not a step id"; exit 1; }
-          # The run's own key, which seals what passes between the jobs. Never printed.
-          key=$(openssl rand -hex 32)
+          # The seal key is derived above, masked, never a job output or env: value (the public log prints both).
+          set=$(jq -r '.set // "dev"' "$RUNNER_TEMP/job.json")
+          [[ "$set" =~ ^(dev|training)$ ]] || { echo "::error::unknown set"; exit 1; }
           mkdir -p "$RUNNER_TEMP/sealed"
-          gzip -9c "$RUNNER_TEMP/job.json" | SEAL="$key" openssl enc -aes-256-cbc -pbkdf2 -salt -pass env:SEAL -out "$RUNNER_TEMP/sealed/job.bin"
+          gzip -9c "$RUNNER_TEMP/job.json" | openssl enc -aes-256-cbc -pbkdf2 -salt -pass env:SEAL -out "$RUNNER_TEMP/sealed/job.bin"
           echo "models=$models" >> "$GITHUB_OUTPUT"
           echo "node=$node" >> "$GITHUB_OUTPUT"
-          echo "key=$key" >> "$GITHUB_OUTPUT"
+          echo "set=$set" >> "$GITHUB_OUTPUT"
           echo "Run: $(jq -c '{versionId, kind, convId, nodeId, models, code}' "$RUNNER_TEMP/job.json")"
 
       # Main, a same-repository pull request's head, or a branch here. A fork's pull request is refused: only code
@@ -142,13 +160,70 @@ jobs:
           [ -s "$RUNNER_TEMP/why" ] && why="$(head -c 280 "$RUNNER_TEMP/why" | tr '\n' ' ')"
           echo "why=$why" >> "$GITHUB_OUTPUT"
 
-  # The spend check signs in as the benchmark runner. That grant rotates its
-  # refresh token on every use and revokes itself when a retired one comes
-  # back, so this waits until no earlier runner sign-in is still going. The
-  # wait is its own job: the run job reads the secret when it starts, after
-  # the earlier run has written the rotated token back.
+  # Each slot is its own grant of the bench test account. A grant rotates its refresh token on every sign-in and
+  # revokes itself when a retired one comes back, so a slot serves one run at a time. This job never blocks a run
+  # (Dev2, 2026-11-19, after #3682 stopped every Lab run when no slot was connected): with no slot connected, none
+  # free, or anything here failing, the slot is 0, the shared benchmark runner, and wait-turn takes its lock exactly
+  # as before slots. Every step continues on error and the slot output defaults to 0.
+  lease:
+    name: Lease a Lab runner slot
+    needs: prep
+    runs-on: ubuntu-latest
+    environment: production
+    timeout-minutes: 15
+    outputs:
+      slot: ${{ steps.lease.outputs.slot || '0' }}
+      attempt: ${{ steps.lease.outputs.attempt || github.run_attempt }}
+      why: ${{ steps.why.outputs.why }}
+    steps:
+      - uses: actions/checkout@v5
+        continue-on-error: true
+        with:
+          ref: main
+          persist-credentials: false
+
+      - uses: pnpm/action-setup@v4
+        continue-on-error: true
+
+      - uses: actions/setup-node@v5
+        continue-on-error: true
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+        continue-on-error: true
+
+      - name: Take a free Lab runner slot, or the shared runner
+        id: lease
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RUN_ID: ${{ inputs.run_id }}
+          CONVEX_DEPLOY_KEY: ${{ secrets.CONVEX_DEPLOY_KEY }}
+          LAB_RUNNER_1_CLIENT_ID: ${{ secrets.LAB_RUNNER_1_CLIENT_ID }}
+          LAB_RUNNER_1_REFRESH_TOKEN: ${{ secrets.LAB_RUNNER_1_REFRESH_TOKEN }}
+          LAB_RUNNER_2_CLIENT_ID: ${{ secrets.LAB_RUNNER_2_CLIENT_ID }}
+          LAB_RUNNER_2_REFRESH_TOKEN: ${{ secrets.LAB_RUNNER_2_REFRESH_TOKEN }}
+          LAB_RUNNER_3_CLIENT_ID: ${{ secrets.LAB_RUNNER_3_CLIENT_ID }}
+          LAB_RUNNER_3_REFRESH_TOKEN: ${{ secrets.LAB_RUNNER_3_REFRESH_TOKEN }}
+        run: node scripts/lab-runner-lease.mjs acquire
+
+      - name: Why it stopped
+        id: why
+        if: failure()
+        run: |
+          why="the lease for a Lab runner slot failed: read its log"
+          [ -s "$RUNNER_TEMP/why" ] && why="$(head -c 280 "$RUNNER_TEMP/why" | tr '\n' ' ')"
+          echo "why=$why" >> "$GITHUB_OUTPUT"
+
+  # Slot 0 only: the shared benchmark runner grant, which every runner workflow signs in with one at a time. Waits
+  # until no earlier runner sign-in is still going, as before slots. The wait is its own job: the run job reads the
+  # secret when it starts, after the earlier run has written the rotated token back. A leased slot skips this.
   wait-turn:
     name: Wait for earlier benchmark runs
+    needs: lease
+    if: needs.lease.outputs.slot == '0'
     runs-on: ubuntu-latest
     timeout-minutes: 180
     steps:
@@ -216,7 +291,8 @@ jobs:
           echo "Public key: ${#PUB} characters. The private half stays wrapped on the key job."
 
   run:
-    needs: [prep, wait-turn, publish-pub]
+    needs: [prep, lease, wait-turn, publish-pub]
+    if: ${{ !cancelled() && needs.prep.result == 'success' && needs.lease.result == 'success' && needs.publish-pub.result == 'success' && (needs.wait-turn.result == 'success' || needs.wait-turn.result == 'skipped') }}
     runs-on: ubuntu-latest
     environment: production
     timeout-minutes: 90
@@ -225,9 +301,10 @@ jobs:
       AI_GATEWAY_ID: ${{ secrets.AI_GATEWAY_ID }}
       AI_GATEWAY_TOKEN: ${{ secrets.AI_GATEWAY_TOKEN }}
       AI_GATEWAY_KEY_ALIASES: dev-claude-credits,dev2-claude-credits # aliases on the gateway's Provider Keys page, not secrets
-      BENCH_RUNNER_CLIENT_ID: ${{ secrets.BENCH_RUNNER_CLIENT_ID }}
-      BENCH_RUNNER_REFRESH_TOKEN: ${{ secrets.BENCH_RUNNER_REFRESH_TOKEN }}
-      BENCH_RUNNER_REFRESH_TOKEN_LIVE: ${{ secrets.BENCH_RUNNER_REFRESH_TOKEN_LIVE }}
+      # The leased slot's grant only, or on slot 0 the shared benchmark runner's (behind wait-turn's lock), as before slots.
+      BENCH_RUNNER_CLIENT_ID: ${{ needs.lease.outputs.slot == '0' && secrets.BENCH_RUNNER_CLIENT_ID || needs.lease.outputs.slot == '1' && secrets.LAB_RUNNER_1_CLIENT_ID || needs.lease.outputs.slot == '2' && secrets.LAB_RUNNER_2_CLIENT_ID || needs.lease.outputs.slot == '3' && secrets.LAB_RUNNER_3_CLIENT_ID || '' }}
+      BENCH_RUNNER_REFRESH_TOKEN: ${{ needs.lease.outputs.slot == '0' && secrets.BENCH_RUNNER_REFRESH_TOKEN || '' }}
+      BENCH_RUNNER_REFRESH_TOKEN_LIVE: ${{ needs.lease.outputs.slot == '0' && secrets.BENCH_RUNNER_REFRESH_TOKEN_LIVE || needs.lease.outputs.slot == '1' && secrets.LAB_RUNNER_1_REFRESH_TOKEN || needs.lease.outputs.slot == '2' && secrets.LAB_RUNNER_2_REFRESH_TOKEN || needs.lease.outputs.slot == '3' && secrets.LAB_RUNNER_3_REFRESH_TOKEN || '' }}
       CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
       CLOUDFLARE_AI_TOKEN: ${{ secrets.CLOUDFLARE_AI_TOKEN }}
     outputs:
@@ -235,6 +312,19 @@ jobs:
       early: ${{ steps.seal-early.outputs.early }}
       final: ${{ steps.seal-final.outputs.final }}
     steps:
+      # "Re-run failed jobs" keeps the lease of an earlier attempt, and that slot may now belong to another run. Slot 0
+      # is checked by the shared runner's lock below instead, as before slots.
+      - name: This attempt holds its Lab runner slot
+        env:
+          SLOT: ${{ needs.lease.outputs.slot }}
+          LEASED_ATTEMPT: ${{ needs.lease.outputs.attempt }}
+        run: |
+          set -euo pipefail
+          [[ "$SLOT" =~ ^[0-3]$ ]] || { echo "::error::the lease gave no slot"; exit 1; }
+          if [ "$SLOT" = "0" ]; then echo "The shared benchmark runner"; exit 0; fi
+          [ "$LEASED_ATTEMPT" = "$GITHUB_RUN_ATTEMPT" ] || { echo "::error::slot $SLOT was leased by attempt $LEASED_ATTEMPT; dispatch the run again"; exit 1; }
+          echo "Lab runner slot $SLOT"
+
       - uses: actions/checkout@v5
         with:
           ref: ${{ needs.prep.outputs.sha }}
@@ -261,6 +351,7 @@ jobs:
           path: ${{ runner.temp }}/sealed
 
       - name: Refuse to sign in beside another benchmark run
+        if: needs.lease.outputs.slot == '0'
         env:
           GH_TOKEN: ${{ github.token }}
         run: node scripts/bench-runner-lock.mjs --check
@@ -329,7 +420,9 @@ jobs:
           echo "Sealed the refresh token after sign-in"
 
       - name: Keep the seal from after sign-in
-        if: steps.seal-early.outputs.early == 'present'
+        # always(): a failed step before this one must not skip the upload (Lab run 44313860768 sealed the
+        # final token, skipped this upload because the run had already failed, and the writer wrote nothing).
+        if: always() && steps.seal-early.outputs.early == 'present'
         uses: actions/upload-artifact@v4
         with:
           name: bench-token-early
@@ -337,11 +430,17 @@ jobs:
           retention-days: 1
           if-no-files-found: error
 
+      # Refuses conversations whose people the bench has no world for: a run that can't run fails, it never scores 0.
       - name: The Dev conversations, and the draft's graph
         env:
-          SEAL: ${{ needs.prep.outputs.key }}
+          LAB_SEAL_SOURCE: ${{ secrets.AI_GATEWAY_TOKEN }}
+          TEX_LAB_WHY: ${{ runner.temp }}/why
         run: |
           set -euo pipefail
+          [ -n "${LAB_SEAL_SOURCE:-}" ] || { echo "::error::no AI_GATEWAY_TOKEN to derive the run's seal key from"; exit 1; }
+          SEAL=$(printf '%s' "tex-lab-seal.$GITHUB_RUN_ID" | openssl dgst -sha256 -hmac "$LAB_SEAL_SOURCE" -r | cut -d' ' -f1)
+          echo "::add-mask::$SEAL"
+          export SEAL; unset LAB_SEAL_SOURCE
           openssl enc -d -aes-256-cbc -pbkdf2 -pass env:SEAL -in "$RUNNER_TEMP/sealed/job.bin" | gunzip > "$RUNNER_TEMP/job.json"
           node scripts/tex-lab-run.mjs prepare "$RUNNER_TEMP/job.json" "$RUNNER_TEMP/lab"
 
@@ -379,7 +478,11 @@ jobs:
         env:
           MODELS: ${{ needs.prep.outputs.models }}
           NODE_ID: ${{ needs.prep.outputs.node }}
+          SET: ${{ needs.prep.outputs.set }}
           CLAUDE_CODE_OAUTH_TOKEN: ${{ needs.prep.outputs.models == 'cc' && secrets.CLAUDE_CODE_OAUTH_TOKEN || '' }}
+          # The hold-out switch (`setsRun.mjs`): the repository variable set to "on" scores each Training conversation's
+          # Front door tests without that conversation among the examples; anything else scores them in context.
+          TEX_SETS_HOLD_OUT: ${{ vars.TEX_SETS_HOLD_OUT }}
         run: |
           set +e -uo pipefail
           answerer=""
@@ -395,6 +498,14 @@ jobs:
           node apps/mcp/bench/run.mjs sets run --conversations "$RUNNER_TEMP/lab/convs.json" --out "$RUNNER_TEMP/lab/rows.json" --parallel 8 ${NODE_ID:+--node "$NODE_ID"}
           code=$?
           echo "$(( $(date +%s%3N) - started ))" > "$RUNNER_TEMP/lab/ms"
+          # The gold self-check (`apps/mcp/bench/setsGold.mjs`; Dev2, 2026-11-18): a Training run on Claude Code also judges
+          # each Front door label against the conversation's own gold reply, at $0 through the same answerer. A label its
+          # own gold fails makes its row ambiguous, out of the score. Counts only here; a failed check scores without it.
+          if [ -n "$answerer" ] && [ "$SET" = "training" ] && [ -z "$NODE_ID" -o "$NODE_ID" = "fd" ]; then
+            node apps/mcp/bench/setsGold.mjs --set training --conversations "$RUNNER_TEMP/lab/convs.json" --out "$RUNNER_TEMP/lab/gold.json" > /dev/null \
+              && echo "Gold self-check: $(jq -c '{rows, goldFails: (.goldFails | length)}' "$RUNNER_TEMP/lab/gold.json")" \
+              || { rm -f "$RUNNER_TEMP/lab/gold.json"; echo "::warning::the gold self-check did not finish; scored without it"; }
+          fi
           if [ -n "$answerer" ]; then
             touch "$RUNNER_TEMP/run-done"
             wait "$answerer" || code=1
@@ -405,15 +516,22 @@ jobs:
 
       - name: The results
         env:
-          SEAL: ${{ needs.prep.outputs.key }}
+          LAB_SEAL_SOURCE: ${{ secrets.AI_GATEWAY_TOKEN }}
+          TEX_LAB_WHY: ${{ runner.temp }}/why
         run: |
           set -euo pipefail
-          node scripts/tex-lab-run.mjs results "$RUNNER_TEMP/lab/rows.json" "$(cat "$RUNNER_TEMP/lab/ms")" > "$RUNNER_TEMP/results.json"
-          echo "Results: $(jq -c '{pass, total, costUsd, ms, perNode}' "$RUNNER_TEMP/results.json")"
+          [ -n "${LAB_SEAL_SOURCE:-}" ] || { echo "::error::no AI_GATEWAY_TOKEN to derive the run's seal key from"; exit 1; }
+          SEAL=$(printf '%s' "tex-lab-seal.$GITHUB_RUN_ID" | openssl dgst -sha256 -hmac "$LAB_SEAL_SOURCE" -r | cut -d' ' -f1)
+          echo "::add-mask::$SEAL"
+          export SEAL; unset LAB_SEAL_SOURCE
+          node scripts/tex-lab-run.mjs results "$RUNNER_TEMP/lab/rows.json" "$(cat "$RUNNER_TEMP/lab/ms")" "$RUNNER_TEMP/lab/gold.json" > "$RUNNER_TEMP/results.json"
+          echo "Results: $(jq -c '{pass, total, couldNotRun: (.couldNotRun | length), ambiguous: (.ambiguous | length), goldFails, costUsd, ms, perNode, fallbacks, valid}' "$RUNNER_TEMP/results.json")"
           usd="$(jq -r '.costUsd // 0' "$RUNNER_TEMP/results.json")"
           if awk -v u="$usd" 'BEGIN { exit !(u + 0 >= 0.005) }'; then
             pnpm --silent ai spend add dev-set --usd "$usd" --answers "$(jq -r '.total // 0' "$RUNNER_TEMP/results.json")" --run "lab-${{ github.run_number }}" --run-url "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
           fi
+          # A step whose tests all could not run is a failed run, with why, never a score of 0 (after the spend is kept).
+          node scripts/tex-lab-run.mjs ran "$RUNNER_TEMP/lab/rows.json"
           mkdir -p "$RUNNER_TEMP/out"
           gzip -9c "$RUNNER_TEMP/results.json" | openssl enc -aes-256-cbc -pbkdf2 -salt -pass env:SEAL -out "$RUNNER_TEMP/out/results.bin"
 
@@ -476,7 +594,9 @@ jobs:
           echo "Sealed the refresh token after the run"
 
       - name: Keep the seal from the end of the run
-        if: steps.seal-final.outputs.final == 'present'
+        # always(): a failed step before this one must not skip the upload (Lab run 44313860768 sealed the
+        # final token, skipped this upload because the run had already failed, and the writer wrote nothing).
+        if: always() && steps.seal-final.outputs.final == 'present'
         uses: actions/upload-artifact@v4
         with:
           name: bench-token-final
@@ -499,12 +619,12 @@ jobs:
           [ -s "$RUNNER_TEMP/why" ] && why="$(head -c 280 "$RUNNER_TEMP/why" | tr '\n' ' ')"
           echo "why=$why" >> "$GITHUB_OUTPUT"
 
-  # Main's checkout only. Opens the seal and writes the production secret. Runs after the run job even when that
-  # job failed, because a sign-in that already rotated the token still has to be stored.
+  # Main's checkout only. Opens the seal and writes the leased slot's production secret. Runs after the run job even
+  # when that job failed, because a sign-in that already rotated the token still has to be stored.
   write-token:
     name: Write the rotated refresh token
-    needs: [token-key, run]
-    if: always() && (needs.run.outputs.early == 'present' || needs.run.outputs.early == 'failed' || needs.run.outputs.final == 'present' || needs.run.outputs.final == 'failed')
+    needs: [token-key, lease, run]
+    if: always() && needs.lease.result == 'success' && (needs.run.outputs.early == 'present' || needs.run.outputs.early == 'failed' || needs.run.outputs.final == 'present' || needs.run.outputs.final == 'failed')
     runs-on: ubuntu-latest
     environment: production
     timeout-minutes: 10
@@ -530,15 +650,19 @@ jobs:
           node-version: 22
           package-manager-cache: false
 
+      # Both seals, each when its job said it exists, and neither may fail the job: the write below prefers the
+      # final seal only when its file is here, and otherwise falls back to the one from after sign-in.
       - name: The seal from the end of the run
         if: needs.run.outputs.final == 'present'
+        continue-on-error: true
         uses: actions/download-artifact@v4
         with:
           name: bench-token-final
           path: ${{ runner.temp }}/final
 
       - name: The seal from after sign-in
-        if: needs.run.outputs.final != 'present' && needs.run.outputs.final != 'failed' && needs.run.outputs.early == 'present'
+        if: always() && needs.run.outputs.early == 'present'
+        continue-on-error: true
         uses: actions/download-artifact@v4
         with:
           name: bench-token-early
@@ -549,6 +673,8 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.BENCH_SECRET_WRITER_TOKEN }}
           WRAPPED: ${{ needs.token-key.outputs.wrapped }}
+          SLOT: ${{ needs.lease.outputs.slot }}
+          LEASED_ATTEMPT: ${{ needs.lease.outputs.attempt }}
           EARLY: ${{ needs.run.outputs.early }}
           FINAL: ${{ needs.run.outputs.final }}
         run: |
@@ -559,19 +685,40 @@ jobs:
             exit 1
           fi
           echo "Using secret BENCH_SECRET_WRITER_TOKEN"
+          # The slot is checked before any secret name is built from it. Slot 0 is the shared runner's, as before slots.
+          if [[ ! "$SLOT" =~ ^[0-3]$ ]]; then
+            echo "::error::no Lab runner slot to write"
+            exit 1
+          fi
+          if [ "$SLOT" = "0" ]; then name=BENCH_RUNNER_REFRESH_TOKEN_LIVE; else name="LAB_RUNNER_${SLOT}_REFRESH_TOKEN"; fi
+          # "Re-run failed jobs" would write an earlier attempt's token after its slot was freed and leased again,
+          # over the newer holder's token, and the next sign-in would revoke that grant.
+          if [ "$SLOT" != "0" ] && [ "$LEASED_ATTEMPT" != "$GITHUB_RUN_ATTEMPT" ]; then
+            echo "::error::slot $SLOT was leased by attempt $LEASED_ATTEMPT and has been freed; not writing an older token"
+            exit 1
+          fi
           if [ "$FINAL" = "failed" ]; then
             echo "::error::the last seal failed; not writing an older token"
             exit 1
           fi
-          if [ "$FINAL" = "present" ]; then
-            cipher="$RUNNER_TEMP/final/bench-token-final.bin"
+          final="$RUNNER_TEMP/final/bench-token-final.bin"
+          early="$RUNNER_TEMP/early/bench-token-early.bin"
+          if [ "$FINAL" = "present" ] && [ -s "$final" ]; then
+            cipher="$final"
             echo "Using the seal from the end of the run"
           elif [ "$EARLY" = "failed" ]; then
             echo "::error::the seal after sign-in failed"
             exit 1
-          elif [ "$EARLY" = "present" ]; then
-            cipher="$RUNNER_TEMP/early/bench-token-early.bin"
-            echo "Using the seal from after sign-in; the run ended before the last seal"
+          elif [ "$EARLY" = "present" ] && [ -s "$early" ]; then
+            cipher="$early"
+            if [ "$FINAL" = "present" ]; then
+              echo "::warning::the seal from the end of the run is missing or empty; using the seal from after sign-in"
+            else
+              echo "Using the seal from after sign-in; the run ended before the last seal"
+            fi
+          elif [ "$FINAL" = "present" ] || [ "$EARLY" = "present" ]; then
+            echo "::error::the sealed token file is missing"
+            exit 1
           else
             echo "::error::no sealed token to write"
             exit 1
@@ -592,19 +739,20 @@ jobs:
           mask=$(/usr/bin/python3 -c 'import pathlib,sys; sys.stdout.write(pathlib.Path(sys.argv[1]).read_text())' "$RUNNER_TEMP/refresh-token")
           echo "::add-mask::$mask"
           unset mask
-          echo "Writing BENCH_RUNNER_REFRESH_TOKEN_LIVE to the production environment"
+          echo "Writing $name to the production environment"
           # `gh secret set` has no `--body-file`. That flag exits 1 before the API call, so the rotated
           # token is never stored and the next sign-in revokes the grant. The value is stdin.
           # bench-token-open.mjs writes the token with no trailing newline; gh strips only trailing CR/LF
           # from stdin, and a refresh token has neither, so the stored secret equals the token.
-          if ! gh secret set BENCH_RUNNER_REFRESH_TOKEN_LIVE --env production --repo "$GITHUB_REPOSITORY" < "$RUNNER_TEMP/refresh-token"; then
-            echo "::error::BENCH_SECRET_WRITER_TOKEN could not write BENCH_RUNNER_REFRESH_TOKEN_LIVE"
-            exit 1
+          if [ "$SLOT" = "0" ]; then
+            gh secret set BENCH_RUNNER_REFRESH_TOKEN_LIVE --env production --repo "$GITHUB_REPOSITORY" < "$RUNNER_TEMP/refresh-token" || { echo "::error::BENCH_SECRET_WRITER_TOKEN could not write $name"; exit 1; }
+          else
+            gh secret set "LAB_RUNNER_${SLOT}_REFRESH_TOKEN" --env production --repo "$GITHUB_REPOSITORY" < "$RUNNER_TEMP/refresh-token" || { echo "::error::BENCH_SECRET_WRITER_TOKEN could not write $name"; exit 1; }
           fi
-          echo "Wrote BENCH_RUNNER_REFRESH_TOKEN_LIVE"
+          echo "Wrote $name"
 
   report:
-    needs: [prep, run]
+    needs: [prep, lease, run]
     if: always()
     runs-on: ubuntu-latest
     environment: production
@@ -640,17 +788,52 @@ jobs:
       - name: Report the results, or why it failed
         env:
           RAN: ${{ needs.run.result }}
-          SEAL: ${{ needs.prep.outputs.key }}
+          LAB_SEAL_SOURCE: ${{ secrets.AI_GATEWAY_TOKEN }}
           RUN_WHY: ${{ needs.run.outputs.why }}
           PREP_WHY: ${{ needs.prep.outputs.why }}
+          LEASE_WHY: ${{ needs.lease.outputs.why }}
         run: |
           set -euo pipefail
           if [ "$RAN" = "success" ] && [ -s "$RUNNER_TEMP/sealed/results.bin" ]; then
+            # Derived only here, so a missing secret still reaches the failure report below.
+            [ -n "${LAB_SEAL_SOURCE:-}" ] || { echo "::error::no AI_GATEWAY_TOKEN to derive the run's seal key from"; exit 1; }
+            SEAL=$(printf '%s' "tex-lab-seal.$GITHUB_RUN_ID" | openssl dgst -sha256 -hmac "$LAB_SEAL_SOURCE" -r | cut -d' ' -f1)
+            echo "::add-mask::$SEAL"
+            export SEAL; unset LAB_SEAL_SOURCE
             openssl enc -d -aes-256-cbc -pbkdf2 -pass env:SEAL -in "$RUNNER_TEMP/sealed/results.bin" | gunzip > "$RUNNER_TEMP/results.json"
             jq -e 'type == "object"' "$RUNNER_TEMP/results.json" > /dev/null
             npx convex run functions/texLabRuns:report "$(jq -cn --arg id "$RUN_ID" --slurpfile r "$RUNNER_TEMP/results.json" '{runId: $id, stage: "done", results: $r[0]}')" > /dev/null 2>&1
             exit 0
           fi
-          why="${RUN_WHY:-${PREP_WHY:-the GitHub run failed: read its log}}"
+          why="${RUN_WHY:-${PREP_WHY:-${LEASE_WHY:-the GitHub run failed: read its log}}}"
           [ "$RAN" = "cancelled" ] && why="the GitHub run was cancelled"
           npx convex run functions/texLabRuns:report "$(jq -cn --arg id "$RUN_ID" --arg why "$why" '{runId: $id, stage: "failed", error: $why}')" > /dev/null 2>&1
+
+  # Frees the leased slot once write-token has stored its token, so the next lease of that slot signs in with the
+  # new one. Skipped when no slot was leased.
+  release:
+    name: Free the Lab runner slot
+    needs: [lease, write-token, report]
+    if: always() && needs.lease.outputs.slot != '' && needs.lease.outputs.slot != '0'
+    runs-on: ubuntu-latest
+    environment: production
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: main
+          persist-credentials: false
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+
+      - name: Free the slot
+        env:
+          CONVEX_DEPLOY_KEY: ${{ secrets.CONVEX_DEPLOY_KEY }}
+        run: node scripts/lab-runner-lease.mjs release

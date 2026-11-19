@@ -16,6 +16,7 @@
  * says counts by node, never a message's words, so a sealed Test Set can run through it (the eval service).
  * A node without a way to run alone yet says so (`ran: false`) instead of passing.
  */
+import { existsSync } from "node:fs";
 import { readFile, writeFile } from "node:fs/promises";
 import { createRequire } from "node:module";
 import { join, resolve } from "node:path";
@@ -122,17 +123,57 @@ export function reviewerRight(label, verdict) {
   return { right, why: right ? "" : sentBack ? "sent it back, wanted it to go" : "let it go, wanted it sent back" };
 }
 
+/**
+ * The router's case for message `i`: the message's words as the question, whether the chat is a group, the trigger
+ * that started the turn (a check-in or a routine is its own; every other message, a text), and the parts its config
+ * `ctx` reads (`routerContext.js`), as the bench gives Decide its chat: the conversation before the message as the
+ * judge reads a chat line (`lineOf`), its time as the date, and `training`, the Training module the router reads for
+ * this conversation (`routeTraining`). The bench has no ledger, so no day summaries and no facts of the moment.
+ */
+export function routeCase(c, i, { ctx = [], training = null } = {}) {
+  const m = c.msgs[i];
+  const trigger = m.via === "checkin" || m.via === "routine" ? m.via : "text";
+  const history = c.msgs.slice(0, i).map((x) => lineOf(c, x)).join("\n");
+  const today = typeof m.at === "string" && m.at.trim() !== "" ? m.at.trim() : "";
+  return { question: String(m.text ?? ""), group: c.kind === "group", trigger, context: { ctx, training, history, facts: [], today } };
+}
+
+/**
+ * The Training module the router reads on message `i` of `c`, as the front door's is in its bench (`setsFd.mjs`): with
+ * the hold-out on, every conversation but this one; off, this one ended at the message (`texTraining.cjs` `cutAt`), so
+ * no example shows its own label or what came after. Any other conversation's examples are all of them.
+ */
+export function routeTraining(c, i, generated, { holdOut = false, withoutChat, cutAt }) {
+  if (c.set !== "training" || !generated) return generated;
+  const drop = holdOut ? withoutChat : cutAt;
+  if (typeof drop !== "function") return null; // a tree without the cut reads no examples rather than this chat's own
+  return holdOut ? withoutChat(generated, c.id) : cutAt(generated, c.id, i);
+}
+
+/** Whether the router's pick is the labelled route. No pick is wrong, and says so. */
+export function routeRight(label, pick) {
+  const right = pick === label.route;
+  return { right, why: right ? "" : pick ? `routed ${pick}, wanted ${label.route}` : `no route, wanted ${label.route}` };
+}
+
+/** The router's code, as a tree has it: the module that builds its question and reads its answer (`specialistRoute.js`). */
+const ROUTER_MODULE = "apps/mcp/src/agent/specialistRoute.js";
+/** The tree's config, Training code and Training module, for the router's context modules. */
+const TREE_CONFIG = "packages/shared/src/texConfig.cjs";
+const TREE_TRAINING = "packages/shared/src/texTraining.cjs";
+const TREE_GENERATED = "packages/shared/src/texTraining.generated.json";
+
 /** Each node's way to run alone: how to ask it, given the tree's code, and how to score its answer. */
-export async function adaptersFor(tree, { fake = false, env = process.env } = {}) {
+export async function adaptersFor(tree, { fake = false, env = process.env, holdOut = false, routeEngine = null } = {}) {
   const mod = (rel) => import(pathToFileURL(join(tree, rel)).href);
   // Claude's calls through the model socket when one is set (`modelSocket.mjs`): the Lab's Claude Code runs
   // (`tex-lab-run.yml`, models "cc") answer them with `socketAnswerer.mjs`; nothing is priced then.
   const { modelSocket, socketRequest } = await import("./modelSocket.mjs");
   const socket = fake ? null : modelSocket(env);
   const socketed = Boolean(socket?.covers("claude"));
-  return {
+  const table = {
     // The front door runs as a whole turn in the bench's world, so its tests go as one batch (`setsFd.mjs`).
-    fd: { batch: (units, { parallel = 1 } = {}) => runFd(units, { tree, fake, parallel }) },
+    fd: { batch: (units, { parallel = 1 } = {}) => runFd(units, { tree, fake, parallel, holdOut, env }) },
     decide: async () => {
       const { judgeCase, fakeEngine } = await mod("apps/mcp/bench/respond.mjs");
       const engine = fake ? null : (await mod("apps/mcp/src/agent/decide.js")).decisionEngine((await mod("apps/mcp/bench/models.mjs")).workersAi(env.CLOUDFLARE_ACCOUNT_ID, env.CLOUDFLARE_AI_TOKEN));
@@ -161,7 +202,9 @@ export async function adaptersFor(tree, { fake = false, env = process.env } = {}
         const rec = (c.msgs[i].rec || {}).job;
         if (!rec) return { right: false, ran: false, usd: 0, why: "no job: record the job's run (rec.job) on this message" };
         const asked = c.msgs.slice(0, i + 1).filter((m) => !m.tex && !m.kind).map((m) => m.text);
-        const item = { job: { title: rec.title, brief: rec.brief, doneWhen: rec.doneWhen, asked }, did: rec.did ?? [], want: label.verdict };
+        // A job row (via "job") is the job's own report: its words are the answer the check reads.
+        const answer = c.msgs[i].via === "job" ? String(c.msgs[i].text ?? "") : rec.answer;
+        const item = { job: { title: rec.title, brief: rec.brief, doneWhen: rec.doneWhen, asked }, did: rec.did ?? [], ...(answer ? { answer } : {}), ...(rec.exhausted ? { exhausted: true } : {}), want: label.verdict };
         if (!fake && !socketed && config === null) return { right: false, ran: false, usd: 0, why: "no AI gateway (AI_GATEWAY_ACCOUNT_ID, AI_GATEWAY_ID, AI_GATEWAY_TOKEN)" };
         const request = fake ? fakeRequest("advisor-job-check", item) : socketed ? socketRequest(socket) : (params) => requestViaGateway(params, config, { metadata: { feature: "bench", client: "sets" } });
         const out = await role.ask(item, request);
@@ -185,6 +228,35 @@ export async function adaptersFor(tree, { fake = false, env = process.env } = {}
       };
     },
   };
+  // The router alone: its question and reader from the tree (`routeRequest`, `readRoute`), asked of the same Clef
+  // engine Decide is asked on (`decisionEngine` over `workersAi`). A tree without the module says so on each row.
+  table.router = async () => {
+    if (!existsSync(join(tree, ROUTER_MODULE))) {
+      return () => ({ right: false, ran: false, usd: 0, why: `router can't run alone yet: ${ROUTER_MODULE} is not in this tree` });
+    }
+    const { routeRequest, readRoute } = await mod(ROUTER_MODULE);
+    // The router's context modules as the tree's config names them, with the tree's own Training module.
+    const ctx = existsSync(join(tree, TREE_CONFIG)) ? (require(join(tree, TREE_CONFIG)).TEX_CONFIG?.nodes?.find((n) => n.id === "router")?.ctx ?? []) : [];
+    const training = existsSync(join(tree, TREE_TRAINING)) ? require(join(tree, TREE_TRAINING)) : null;
+    const generated = existsSync(join(tree, TREE_GENERATED)) ? JSON.parse(await readFile(join(tree, TREE_GENERATED), "utf8")) : null;
+    // Without the Clef credentials the engine answers nothing, which would score every row wrong rather than not run.
+    if (!fake && !routeEngine && !(env.CLOUDFLARE_ACCOUNT_ID && env.CLOUDFLARE_AI_TOKEN)) {
+      return () => ({ right: false, ran: false, usd: 0, why: "no Clef engine: CLOUDFLARE_ACCOUNT_ID and CLOUDFLARE_AI_TOKEN are not set" });
+    }
+    const engine = routeEngine ?? (fake ? null : (await mod("apps/mcp/src/agent/decide.js")).decisionEngine((await mod("apps/mcp/bench/models.mjs")).workersAi(env.CLOUDFLARE_ACCOUNT_ID, env.CLOUDFLARE_AI_TOKEN)));
+    return async (c, i, label) => {
+      // The fake run answers what the label says, as Decide's does: right by construction, and it proves the wiring.
+      if (fake) return { ...routeRight(label, label.route), got: label.route, want: label.route, route: { pick: label.route, sure: null }, ran: true, usd: 0 };
+      const { state, questions } = routeRequest(routeCase(c, i, { ctx, training: training ? routeTraining(c, i, generated, { holdOut, withoutChat: training.withoutChat, cutAt: training.cutAt }) : null }));
+      const read = readRoute(await engine(state, questions));
+      const pick = read?.route ?? null;
+      const sure = typeof read?.sure === "number" ? read.sure : null;
+      return { ...routeRight(label, pick), got: pick, want: label.route, route: { pick, sure }, ran: true, usd: 0 };
+    };
+  };
+  // The live Job advisor runs the same check (`graph/nodes/jobcheck.js`), labelled under its own id.
+  table.jobadv = table.jobcheck;
+  return table;
 }
 
 /**
@@ -192,8 +264,8 @@ export async function adaptersFor(tree, { fake = false, env = process.env } = {}
  * process (Decide, the job check, the reviewer) go one after another while the batched ones (the Front door, whose
  * tests are processes of their own) go beside them, `parallel` tests at a time; rows come back in the same order.
  */
-export async function runSets(convs, { tree, node = null, fake = false, env = process.env, adapters = null, parallel = 1 } = {}) {
-  const table = adapters ?? (await adaptersFor(tree, { fake, env }));
+export async function runSets(convs, { tree, node = null, fake = false, env = process.env, adapters = null, parallel = 1, holdOut = false } = {}) {
+  const table = adapters ?? (await adaptersFor(tree, { fake, env, holdOut }));
   const ready = {};
   const singles = [];
   const batches = {};
@@ -249,9 +321,12 @@ export function countsLine(rows) {
     .join(" · ");
 }
 
+/** Whether the hold-out switch's value means on. */
+export const holdOutOn = (value) => /^(?:on|yes|true|1)$/i.test(String(value ?? "").trim());
+
 /** `sets run`: the CLI half. */
 export async function setsCommand(sub, options, { write = (t) => process.stdout.write(t) } = {}) {
-  if (sub !== "run") throw new Error("usage: sets run [--conversations <file.json>] [--set dev] [--tree <dir>] [--node <id>] [--out <file.json>] [--parallel n] [--fake]");
+  if (sub !== "run") throw new Error("usage: sets run [--conversations <file.json>] [--set dev] [--tree <dir>] [--node <id>] [--out <file.json>] [--parallel n] [--hold-out on] [--fake]");
   let convs;
   if (options.conversations) convs = JSON.parse(await readFile(resolve(options.conversations), "utf8"));
   else {
@@ -263,7 +338,13 @@ export async function setsCommand(sub, options, { write = (t) => process.stdout.
   const tree = resolve(options.tree ?? join(import.meta.dirname, "../../.."));
   // Front door tests at once: each is a process waiting on models, and the Lab's runner has room for these.
   const parallel = Math.max(1, Math.min(Number(options.parallel ?? 8) || 1, 16));
-  const rows = await runSets(convs, { tree, node: options.node ?? null, fake: Boolean(options.fake), parallel });
+  // The hold-out switch (Seyi, 2026-11-17: "keep the hold-out as a switch, and report both Training numbers"): off, a
+  // Training conversation's Front door tests read it among their examples, as production does (the in-context score);
+  // on (`--hold-out on`, or TEX_SETS_HOLD_OUT=on, the Lab run workflow's repository variable), each runs without its
+  // own conversation (the held-out score). It changes nothing for a Dev conversation, which is never an example.
+  const holdOut = holdOutOn(options["hold-out"] ?? process.env.TEX_SETS_HOLD_OUT);
+  const rows = await runSets(convs, { tree, node: options.node ?? null, fake: Boolean(options.fake), parallel, holdOut });
+  if (convs.some((c) => c.set === "training")) write(`Training Front door: ${holdOut ? "held out (each conversation left out of its own examples)" : "in context (each conversation among its own examples)"}\n`);
   if (options.out) await writeFile(resolve(options.out), JSON.stringify(rows, null, 1) + "\n");
   write(`${countsLine(rows)}\n`);
   // The repo's sets name what missed (their words are public); a file handed in may be sealed, so it never does.

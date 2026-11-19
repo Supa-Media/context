@@ -94,6 +94,26 @@ const SPEAK_UP = Object.freeze(["quiet", "attentive", "follow along", "helpful",
  */
 const VIA_READERS = Object.freeze({ checkin: "checkin" });
 
+/** The steps that judge a job's work: their examples show the job's brief, finish line and what it did, which is what they judge. */
+const JOB_READERS = Object.freeze(["jobadv", "jobcheck"]);
+/** How much of each step's result an example quotes. */
+const DID_CHARS = 240;
+
+/**
+ * A job's recorded run (`rec.job`: title, brief, doneWhen, did) as an example's lines, or null without one. Without it
+ * a check's examples were the job's report alone, and "the site doesn't post prices" read the same whether the job had
+ * opened the page or never looked (a Fable review, 2026-11-18).
+ */
+function jobOf(rec) {
+  if (!rec || typeof rec !== "object") return null;
+  const did = (Array.isArray(rec.did) ? rec.did : []).map(([name, args, result, failed]) => {
+    const words = typeof result === "string" ? result : JSON.stringify(result ?? "");
+    const cut = words.length > DID_CHARS ? `${words.slice(0, DID_CHARS - 1)}…` : words;
+    return `- ${name} ${JSON.stringify(args ?? {})}${failed === "failed" ? " (failed)" : ""}: ${cut}`;
+  });
+  return [`Brief: ${rec.brief ?? ""}`, `Finish line: ${rec.doneWhen ?? ""}`, did.length ? `What it did:\n${did.join("\n")}` : "What it did: nothing"].join("\n");
+}
+
 /**
  * Every Training label as a moment, by node: `{ chat, kind, setting?, before, newest, label }`, in file order, then
  * message order. The label is the node's own fields without `star` (a star makes it a unit test, not a different
@@ -111,7 +131,8 @@ function momentsOf(conversations) {
         // The check-in's own label is its code's output (`to: look`), which no model reads; its examples are the
         // Front door's answers to the turns a check-in started (`VIA_READERS`).
         if (node === "checkin") continue;
-        const moment = { chat: c.id, kind: c.kind, ...(SPEAK_UP.includes(c.setting) ? { setting: c.setting } : {}), before: linesBefore(c, at, historyLines(node)), newest: lineOf(m, before(c, at)), label };
+        const job = JOB_READERS.includes(node) ? jobOf(m.rec?.job) : null;
+        const moment = { chat: c.id, at, kind: c.kind, ...(SPEAK_UP.includes(c.setting) ? { setting: c.setting } : {}), before: linesBefore(c, at, historyLines(node)), newest: lineOf(m, before(c, at)), ...(job ? { job } : {}), label };
         (nodes[node] ??= []).push(moment);
         if (node === "fd" && VIA_READERS[m.via]) (nodes[VIA_READERS[m.via]] ??= []).push(moment);
       }
@@ -134,13 +155,17 @@ function chatsOf(conversations) {
     for (const m of msgs) if (!m.tex) for (const [node, l] of Object.entries(m.labels || {})) if (Object.keys(withoutStar(l)).length > 0) labelled.add(node);
     for (const node of labelled) {
       const lines = [];
+      const ends = [];
       msgs.forEach((m, at) => {
         if (typeof m.at === "string" && m.at !== "") lines.push(`(${m.at})`);
         lines.push(lineOf(m, msgs.slice(0, at)));
         const label = m.tex ? null : withoutStar(m.labels?.[node]);
         if (label && Object.keys(label).length > 0) for (const want of wantLines(label)) lines.push(`    ${want}`);
+        ends.push(lines.length);
       });
-      (nodes[node] ??= []).push({ chat: c.id, kind: c.kind, ...(typeof c.setting === "string" ? { setting: c.setting } : {}), lines });
+      // A moment's chat runs through Tex's own texts after it, up to the next person's or trigger's line (`cutAt`).
+      for (let at = msgs.length - 2; at >= 0; at -= 1) if (msgs[at + 1].tex) ends[at] = ends[at + 1];
+      (nodes[node] ??= []).push({ chat: c.id, kind: c.kind, ...(typeof c.setting === "string" ? { setting: c.setting } : {}), lines, ends });
     }
   }
   return nodes;
@@ -151,14 +176,18 @@ function withoutStar(label) {
   return rest;
 }
 
-/** What a step's prompt is told before whole Training conversations. */
+/**
+ * What a step's prompt is told before whole Training conversations. Its second sentence fences them from the live chat
+ * (2026-11-18: the front door took an example chat's later texts, and the same names in another chat, as things that
+ * had happened in the chat it was answering).
+ */
 const WHOLE_INTRO =
-  'Whole conversations from Tex\'s Training Set ("You" is Tex, a person\'s name starts with "@"). Under a message, its tags say what this step should do on it: its output, and for an answer what it must and must never do. Handle new chats the way these are handled.';
+  'Whole conversations from Tex\'s Training Set ("You" is Tex, a person\'s name starts with "@"). These are other chats: nothing in them happened in this chat or to the people in it unless this chat\'s own texts say so. Under a message, its tags say what this step should do on it: its output, and for an answer what it must and must never do. Handle new chats the way these are handled.';
 
-/** One whole conversation in `<conversation>` tags. */
-function conversationText(chat) {
+/** One whole conversation in `<conversation>` tags, numbered among the module's (`n` of `of`) so each reads as its own chat. */
+function conversationText(chat, n = 1, of = 1) {
   const about = chat.setting ? `\n<setting>${chat.setting}</setting>` : "";
-  return `<conversation>\n<chat>${chatLine({ kind: chat.kind })}</chat>${about}\n${chat.lines.join("\n")}\n</conversation>`;
+  return `<conversation example="${n} of ${of}">\n<chat>${chatLine({ kind: chat.kind })}</chat>${about}\n${chat.lines.join("\n")}\n</conversation>`;
 }
 
 /**
@@ -170,16 +199,17 @@ function wholeText(node, chars, generated) {
   if (chats.length === 0) return "";
   const kept = [];
   let used = WHOLE_INTRO.length + "\n\n<conversations>\n</conversations>".length;
-  for (const chat of chats) {
-    const text = conversationText(chat);
+  // Measured numbered against them all, so the header written against those kept is never longer.
+  for (const [i, chat] of chats.entries()) {
+    const text = conversationText(chat, i + 1, chats.length);
     if (used + text.length + 1 > chars) continue;
-    kept.push(text);
+    kept.push(chat);
     used += text.length + 1;
   }
   const left = chats.length - kept.length;
   const note = left === 0 ? "" : `\n(${left} more Training conversation${left === 1 ? "" : "s"} left out: over this module's ${chars} characters)`;
   if (kept.length === 0) return "";
-  return `${WHOLE_INTRO}\n\n<conversations>\n${kept.join("\n")}\n</conversations>${note}`;
+  return `${WHOLE_INTRO}\n\n<conversations>\n${kept.map((chat, i) => conversationText(chat, i + 1, kept.length)).join("\n")}\n</conversations>${note}`;
 }
 
 /** The prompt module name an entry is given among a step's modules: `train-<node>` or `train-<node>-all-<chars>`. */
@@ -213,7 +243,7 @@ function wantLines(label) {
 /** One moment as an example, in `<example>` tags: the chat, what came before, the newest message, what is wanted. */
 function exampleText(moment) {
   const lines = moment.before.length > 0 ? moment.before.join("\n") : "(nothing before)";
-  return `<example>\n<chat>${chatLine(moment)}</chat>\n<before>\n${lines}\n</before>\n<newest>${moment.newest}</newest>\n${wantLines(moment.label).join("\n")}\n</example>`;
+  return `<example>\n<chat>${chatLine(moment)}</chat>\n<before>\n${lines}\n</before>\n<newest>${moment.newest}</newest>\n${moment.job ? `<job>\n${moment.job}\n</job>\n` : ""}${wantLines(moment.label).join("\n")}\n</example>`;
 }
 
 /** What a step's prompt is told before its Training examples. */
@@ -238,4 +268,70 @@ function moduleText(entry, generated) {
   return TRAIN_ENTRY.test(entry) ? trainingText({ ctx: [entry] }, generated) : "";
 }
 
-module.exports = { TRAIN_ENTRY, VIA_READERS, WHOLE_INTRO, chatsOf, wholeText, conversationText, trainName, QUOTE_CHARS, HISTORY_LINES, historyLines, TRAINING_INTRO, lineOf, linesBefore, momentsOf, trainingSources, wantLines, exampleText, trainingText, moduleText };
+/** The name of the variable that holds a conversation out of the examples (`heldOutOf`). */
+const HOLD_OUT_ENV = "TEX_TRAINING_HOLD_OUT";
+
+/** The generated module without one conversation: none of its moments, and not its whole chat, for any node. */
+function withoutChat(generated, chat) {
+  const drop = (byNode) => Object.fromEntries(Object.entries(byNode ?? {}).map(([node, list]) => [node, list.filter((item) => item.chat !== chat)]));
+  return { ...generated, nodes: drop(generated?.nodes), chats: drop(generated?.chats) };
+}
+
+/**
+ * The Training examples a process's steps read: all of them, or, in a bench process that scores one Training
+ * conversation, all but that one (`apps/mcp/bench/setsFd.mjs` runs each conversation's Front door tests in processes
+ * of their own with `TEX_TRAINING_HOLD_OUT` naming it). A front door scored on a chat it reads as an example, labels
+ * and Tex's own later answers included, flatters itself (Training run of 2026-11-18: a routine stayed quiet "because
+ * the last tidy already closed these", an answer it had only read in its own examples). Production sets no such
+ * variable, so its steps read every conversation.
+ */
+function heldOutOf(generated, env = globalThis.process?.env) {
+  const chat = typeof env?.[HOLD_OUT_ENV] === "string" ? env[HOLD_OUT_ENV].trim() : "";
+  return chat === "" ? generated : withoutChat(generated, chat);
+}
+
+/**
+ * The name of the variable that ends one conversation's examples at a moment (`trainingOf`): `<chat>:<at>`, `at` the
+ * scored message's index in it.
+ */
+const UNTIL_ENV = "TEX_TRAINING_UNTIL";
+
+/** The line that closes a conversation cut at a moment. */
+const CUT_LINE = "(the rest of this chat is not shown)";
+
+/**
+ * The generated module with one conversation ended at message `at`: its whole chat runs through that message, its labels
+ * and Tex's own texts after it, up to the next person's or trigger's line (`chatsOf` `ends`), then says the rest is not
+ * shown; its short examples after `at` are left out. Every other conversation is as it was. A chat generated without
+ * `ends` is left out whole, never shown past the moment.
+ */
+function cutAt(generated, chat, at) {
+  if (!Number.isInteger(at) || at < 0) throw new Error(`${UNTIL_ENV}: "${at}" is not a message index`);
+  const nodes = Object.fromEntries(Object.entries(generated?.nodes ?? {}).map(([node, list]) => [node, list.filter((m) => m.chat !== chat || (Number.isInteger(m.at) && m.at <= at))]));
+  const cut = (c) => {
+    if (c.chat !== chat) return c;
+    const end = c.ends?.[Math.min(at, c.ends.length - 1)];
+    if (!Number.isInteger(end)) return null;
+    return end >= c.lines.length ? c : { ...c, lines: [...c.lines.slice(0, end), CUT_LINE] };
+  };
+  const chats = Object.fromEntries(Object.entries(generated?.chats ?? {}).map(([node, list]) => [node, list.map(cut).filter(Boolean)]));
+  return { ...generated, nodes, chats };
+}
+
+/**
+ * The Training examples a process's steps read (`apps/mcp/src/agent/texConfig.js`): every conversation in production,
+ * which sets neither variable, so the same object comes back. A bench process that scores a Training conversation sets
+ * one: held out (`HOLD_OUT_ENV`), it is gone whole; scored in context (`UNTIL_ENV`, `apps/mcp/bench/setsFd.mjs` per test),
+ * it ends at the scored moment. Its later texts are its future (Lab run, 2026-11-18: on truck-crew message 96 the front
+ * door said "John and Priya already said they've got it", which is message 98, read off the same chat in its examples).
+ */
+function trainingOf(generated, env = globalThis.process?.env) {
+  const held = heldOutOf(generated, env);
+  const until = typeof env?.[UNTIL_ENV] === "string" ? env[UNTIL_ENV].trim() : "";
+  if (until === "") return held;
+  const k = until.lastIndexOf(":");
+  const at = k > 0 && /^\d+$/.test(until.slice(k + 1)) ? Number(until.slice(k + 1)) : NaN;
+  return cutAt(held, k > 0 ? until.slice(0, k) : until, at);
+}
+
+module.exports = { HOLD_OUT_ENV, UNTIL_ENV, CUT_LINE, cutAt, trainingOf, withoutChat, heldOutOf, TRAIN_ENTRY, VIA_READERS, WHOLE_INTRO, chatsOf, wholeText, conversationText, trainName, QUOTE_CHARS, HISTORY_LINES, historyLines, TRAINING_INTRO, lineOf, linesBefore, momentsOf, trainingSources, wantLines, exampleText, trainingText, moduleText };

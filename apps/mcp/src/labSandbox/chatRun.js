@@ -529,6 +529,18 @@ export async function runChatTurn({ env, stub, about, row, payload, token, confi
     const provider = { name: line.name === "photon" ? "photon" : "lab", providerAt: row.at ?? started, receivedAt: now() };
     const accepted = await inbox.fetch(new Request(`https://inbox${path}`, { method: "POST", body: JSON.stringify(inbound === null ? { ...message, provider } : message) }));
     const outcome = (await accepted.json().catch(() => ({}))).outcome ?? `status ${accepted.status}`;
+    // A burst (`send`'s `also`): the texts right behind this one reach the object before it looks at any.
+    if (inbound === null) {
+      const fresh = (await callSandbox(stub, "state", {})).rows ?? rows;
+      for (const id of Array.isArray(row.also) ? row.also : []) {
+        const next = fresh.find((r) => r.id === id);
+        if (next === undefined) continue;
+        // Their number first, so the text is from them and not from whoever sent the first one.
+        if (about.kind === "group" && typeof next.who === "string" && !address.phones.has(next.who)) address.phones.set(next.who, await phoneOf(next.who));
+        const { path: nextPath, body: nextMessage } = inboundOf({ about, row: next, rows: fresh, address, sentHandles });
+        await inbox.fetch(new Request(`https://inbox${nextPath}`, { method: "POST", body: JSON.stringify({ ...nextMessage, provider: { ...provider, providerAt: next.at ?? provider.providerAt, receivedAt: now() } }) }));
+      }
+    }
     const deadline = started + TURN_LIMIT_MS;
     await drainChat(inbox, storage, work, deadline, now);
     await within(Promise.allSettled(after.splice(0)), AFTER_LIMIT_MS);

@@ -87,6 +87,7 @@ export function turnPrompt(place, answering, o) {
     // cached system prompt every refresh wrote the history after it to the cache again (2026-11-14 21:26Z: 79,000 tokens).
     ["calendar", o.calendar == null ? "" : calendarPrompt(o.calendar)],
     ["calendarAge", o.calendar == null ? "" : calendarAge(o.calendar, o.localNow?.now ?? Date.now())],
+    ["examples", o.examples ?? ""], // the Training moments nearest to this text (`nodes/examples.js`), "" unless the front door is wired to them
     ["turnNote", o.turnNote], // per-text words from the entry point: who tagged it, the thread, the jobs running now (`runTheModel.js`)
     ["mailStates", mailAccountsFacts(o.mail)], // only a mailbox that is not fine right now
     ["volatile", parts.volatile],

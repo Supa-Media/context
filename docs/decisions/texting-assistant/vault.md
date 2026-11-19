@@ -151,7 +151,7 @@ gives me a link where I can share it."
 - The page opens only for the signed-in person whose grant asked, lasts 30
   minutes, and is spent once. Saving and sharing happen in
   `apps/convex/functions/vault.ts`, after that check. The gateway only reads
-  the vault; there is no tool that writes one.
+  the vault, with one exception below.
 - A link is spent by the write that landed, not by the press. Save and Share
   check the link, write the bucket, then spend it in one transaction that
   re-checks it, so a storage failure (`VAULT_STORAGE_FAILED`) leaves the same
@@ -165,6 +165,7 @@ gives me a link where I can share it."
 - `functions.vault.runVaultOperation` is a credential barrier, pinned in
   `__tests__/structure/analyzer/pins.helpers.ts`. It returns at most an entry's
   name, sites and people.
+- One exception, decided by the owner on 2026-11-18 ("if they already have an account send a vault link, but if not generate a password and save to the vault"): `make_login` (`apps/mcp/src/agent/makeLogin.js`), for an account Tex is creating on the sign-up page in its own browser. The gateway makes the password with a crypto RNG (`vault/newPassword.js`), writes a new login entry owned by the person (and, in a group chat, given to that chat to use) before anything is typed, and fills it with the same origin-checked `fillSecret` as `fill_login`. The model supplies only the username and box numbers; the site comes from the browser, and the result carries the entry's id and name, never the password. It needs the editor clearance a `vault_add` link needs (owner or editor in the workspace written to), never overwrites or shares an entry, and refuses a site that already has a saved login in any vault the turn reaches, so an injected page can at most leave the person an unused login for that one site. It runs only in Tex's own browser, never on a person's computer.
 
 **What a simplification would cost:** letting the gateway write the vault
 gives every prompt injection a way to plant or share a login; a bearer link
@@ -176,7 +177,7 @@ the person who asked can spend it, and only once", "a request row holds ids
 and times, nothing of a login", "a share names a member of a shared workspace,
 never a stranger or a personal login"), `apps/convex/__tests__/vaultRetry.test.ts`
 ("a failed write leaves the link usable…", "two saves at once spend the link
-once and write one entry").
+once and write one entry"). `apps/mcp/test/agentMakeLogin.test.mjs` (the write lands before any box is filled; the password is in no result or log).
 
 ### A vault holds secrets too: named fields, most with a value for dev, staging and prod
 

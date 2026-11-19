@@ -14,6 +14,15 @@
       the flag requires `noEmit` or `emitDeclarationOnly`.
     */
     "allowImportingTsExtensions": true,
+    /*
+      `tsc --noEmit` with `incremental` writes a build-info file that records
+      each file's content hash. A warm run rechecks only the files whose hash
+      changed, and CI restores that file from a cache (see mobile-typecheck in
+      .github/workflows/ci.yml). A stale or restored file cannot pass a wrong
+      file: any changed file is hashed and checked again.
+    */
+    "incremental": true,
+    "tsBuildInfoFile": ".tsbuildinfo",
     "paths": {
       "@/*": ["./*"]
     }

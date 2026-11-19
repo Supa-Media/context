@@ -157,10 +157,11 @@ export function commandTools({ run, group, consent = async () => false, snapshot
       return text(words, talk.isError === true && rest === "");
     },
   };
-  // In a group the change is said with who made it, so anyone there can put it back (Dev2, 2026-11-01).
+  // In a group the change is said with who made it, so anyone there can put it back (Dev2, 2026-11-01). The facts go in
+  // as facts, to be said in Tex's own short words: a verbatim sentence to paste crowded out the answer (2026-11-18).
   const confirm = (result) =>
     group !== null
-      ? `Saved. Say in your answer, in these words: ${result.setBy ?? "someone here"} set: ${saidText(result)}. Anyone here can text "Tex, undo the change" to put it back.`
+      ? `Saved. Facts to tell the group in your own words, short, never pasted: ${result.setBy ?? "someone here"} changed how Tex talks here, and it now reads ${saidText(result)}. Anyone here can text "Tex, undo the change" to put it back.`
       : `Saved. Their instructions are now: ${saidText(result)}. Tell them in a line what you wrote.`;
   const instructionsSet = {
     tool: {

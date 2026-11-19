@@ -297,11 +297,13 @@ describe("website route index", () => {
     ).toBe(true);
     expect(JSON.stringify(rows)).not.toContain("# Hello");
     expect(JSON.stringify(rows)).not.toContain("Members\\n");
-    expect(
-      Object.keys(f.backend.snapshot()).filter((key) =>
-        key.startsWith(".context/website/releases/"),
-      ),
-    ).toHaveLength(2);
+    const released = Object.keys(f.backend.snapshot()).filter((key) =>
+      key.startsWith(".context/website/releases/"),
+    );
+    // One copy per live page, and the design Publish composed beside them
+    // (`lib/websites/bakedDesign.ts`).
+    expect(released.filter((key) => key.endsWith(".md"))).toHaveLength(2);
+    expect(released.filter((key) => key.endsWith("/design.json"))).toHaveLength(1);
   }, 15_000);
 
   test("reconciliation removes a route deleted from the bucket", async () => {

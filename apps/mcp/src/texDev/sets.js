@@ -15,7 +15,8 @@
  */
 
 import REPO from "../../../../packages/shared/src/texSetsRepo.generated.json" with { type: "json" };
-import { check, KINDS, labelFields, missingTest, ratio, unitTests } from "../../../../packages/shared/src/texSets.cjs";
+import { BENCH_PEOPLE, check, KINDS, labelFields, missingTest, ratio, unitTests } from "../../../../packages/shared/src/texSets.cjs";
+import { goldRouteAt } from "../../../../packages/shared/src/texRouteSummary.cjs";
 import { WHY } from "../../../../packages/shared/src/textDecide.cjs";
 import { MAX_OPS, OPEN_SETS } from "../../../../packages/shared/src/texSetOps.cjs";
 import { TEX_CONFIG } from "../agent/texConfig.js";
@@ -41,6 +42,9 @@ const parse = (s) => {
 
 /** The nodes a message can be labelled for: every step of the config with output fields. */
 export const labelNodes = () => TEX_CONFIG.nodes.filter((n) => Array.isArray(n.outSchema) && n.outSchema.length > 0);
+
+/** The gold route of a message in the repo's Training and Dev conversations (`labels.router.route`), for a run's `byRoute`. Never the Test set: the repo does not hold it. */
+export const repoGoldRoute = () => goldRouteAt(REPO.sets.filter((c) => c.set === "training" || c.set === "dev"));
 
 const problemsOf = (c) => check(c, TEX_CONFIG, { why: WHY_LIST });
 
@@ -279,6 +283,7 @@ export function createSetActions({ plane, json, page, env, ledgerOf, repo = REPO
           rules: [
             "Rewrite it, never copy it: invent every name, place, number and detail, and reword every line, keeping only the shape of the chat and what Tex should have done.",
             `A line that shares ${COPY_RUN} words in a row with a real text, or a member named as someone in the chat, is refused.`,
+            `Its people are the bench's (${BENCH_PEOPLE.join(", ")}), each cast by role, since every Front door test runs in its person's bench world; a group needs a shared bench workspace with them all.`,
             "Put it in Training (examples Tex's steps read) or Dev (replayed for tuning); the Test Set is people only.",
             "Keep Tex rows as what Tex should have said, drop a Tex row where Tex should have stayed quiet, and label the moments that matter (set_fields), starring the ones that are unit tests.",
           ],

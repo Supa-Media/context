@@ -59,6 +59,17 @@ jobs:
         env:
           CONVEX_DEPLOY_KEY: ${{ secrets.CONVEX_DEPLOY_KEY }}
 
+      # Tex's example index (`functions/texExamplesIndex.ts`): the Training
+      # moments the front door is answered from, embedded and written to a
+      # Vectorize index after each deploy. Best effort: a failure leaves the
+      # front door on its fixed examples, which is what it does without it, so
+      # it never fails the deploy. Only the status and a count are printed.
+      - name: Fill Tex's example index
+        continue-on-error: true
+        env:
+          CONVEX_DEPLOY_KEY: ${{ secrets.CONVEX_DEPLOY_KEY }}
+        run: npx convex run functions/texExamplesIndex:sync 2>/dev/null
+
       # After the deploy, so a function that reads a new variable is already
       # deployed when the variable arrives rather than the other way round.
       #
@@ -99,17 +110,17 @@ jobs:
           # The phone check (`lib/phoneCheck.ts`), on in production since people
           # sign in with their phone (Dev2, 2026-10-09). A `PHONE_CHECK` secret
           # set to anything but `required` turns it back off.
-          PHONE_CHECK: ${{ secrets.PHONE_CHECK || 'required' }}
+          PHONE_CHECK: ${{ vars.PHONE_CHECK || secrets.PHONE_CHECK || 'required' }}
           # The From: address on sign-in codes and invitations. Missing from this
           # list until 2026-09-05, so it was the one Convex variable the deploy
           # did not keep in step with GitHub.
-          AUTH_EMAIL_FROM: ${{ secrets.AUTH_EMAIL_FROM }}
+          AUTH_EMAIL_FROM: ${{ vars.AUTH_EMAIL_FROM || secrets.AUTH_EMAIL_FROM }}
           # The From: address on form notifications, separate from AUTH_EMAIL_FROM
           # so an operator can give them their own subdomain and reputation.
           # Absent is a working state: `functions/formNotify.ts` falls back to
           # forms@context.lc, which has to be a domain Resend will send for.
-          FORM_NOTIFY_EMAIL_FROM: ${{ secrets.FORM_NOTIFY_EMAIL_FROM }}
-          APP_ORIGIN: ${{ secrets.APP_ORIGIN }}
+          FORM_NOTIFY_EMAIL_FROM: ${{ vars.FORM_NOTIFY_EMAIL_FROM || secrets.FORM_NOTIFY_EMAIL_FROM }}
+          APP_ORIGIN: ${{ vars.APP_ORIGIN || secrets.APP_ORIGIN }}
           EMAIL_WORKER_SECRET: ${{ secrets.EMAIL_WORKER_SECRET }}
           # Opens only /agent-texts/*, for the Worker people text (apps/agent).
           # Absent is a working state: those routes refuse every request.
@@ -126,37 +137,37 @@ jobs:
           # but keeping both halves beside the feature gates in the production
           # environment stops a deploy from serving UI whose control plane
           # cannot start the OAuth flow.
-          GOOGLE_OAUTH_CLIENT_ID: ${{ secrets.GOOGLE_OAUTH_CLIENT_ID }}
+          GOOGLE_OAUTH_CLIENT_ID: ${{ vars.GOOGLE_OAUTH_CLIENT_ID || secrets.GOOGLE_OAUTH_CLIENT_ID }}
           GOOGLE_OAUTH_CLIENT_SECRET: ${{ secrets.GOOGLE_OAUTH_CLIENT_SECRET }}
           # The client AI reads Google through, and its switch
           # (`docs/decisions/communications/google-clients.md`). Absent or
           # not `true`: AI stays on the standard grant, as before.
-          GOOGLE_AGENT_OAUTH_CLIENT_ID: ${{ secrets.GOOGLE_AGENT_OAUTH_CLIENT_ID }}
+          GOOGLE_AGENT_OAUTH_CLIENT_ID: ${{ vars.GOOGLE_AGENT_OAUTH_CLIENT_ID || secrets.GOOGLE_AGENT_OAUTH_CLIENT_ID }}
           GOOGLE_AGENT_OAUTH_CLIENT_SECRET: ${{ secrets.GOOGLE_AGENT_OAUTH_CLIENT_SECRET }}
-          GOOGLE_AGENT_CLIENT_ACTIVE: ${{ secrets.GOOGLE_AGENT_CLIENT_ACTIVE }}
+          GOOGLE_AGENT_CLIENT_ACTIVE: ${{ vars.GOOGLE_AGENT_CLIENT_ACTIVE || secrets.GOOGLE_AGENT_CLIENT_ACTIVE }}
           # `required` closes the staff console to staff with no authenticator
           # (`docs/decisions/identity-and-access/staff-second-factor.md`).
           # Absent: enrolled staff step up, the rest are offered enrollment.
-          STAFF_SECOND_FACTOR: ${{ secrets.STAFF_SECOND_FACTOR }}
+          STAFF_SECOND_FACTOR: ${{ vars.STAFF_SECOND_FACTOR || secrets.STAFF_SECOND_FACTOR }}
           # `owned` narrows Calendar's consent to the calendars the person owns
           # (`docs/decisions/communications/google-clients.md`). Absent: the
           # broader pair, as before; grants of either pair work either way.
-          GOOGLE_CALENDAR_SCOPE: ${{ secrets.GOOGLE_CALENDAR_SCOPE }}
+          GOOGLE_CALENDAR_SCOPE: ${{ vars.GOOGLE_CALENDAR_SCOPE || secrets.GOOGLE_CALENDAR_SCOPE }}
           # Up to three workspace ids that run as though both cutover settings
           # above were on (`cutoverCanary`, google-clients.md). Absent or `none`: nobody.
           GOOGLE_CUTOVER_CANARY_WORKSPACES: ${{ secrets.GOOGLE_CUTOVER_CANARY_WORKSPACES }}
           # The Slack connector's app (`docs/decisions/connectors.md`). Absent: off.
-          SLACK_CLIENT_ID: ${{ secrets.SLACK_CLIENT_ID }}
+          SLACK_CLIENT_ID: ${{ vars.SLACK_CLIENT_ID || secrets.SLACK_CLIENT_ID }}
           SLACK_CLIENT_SECRET: ${{ secrets.SLACK_CLIENT_SECRET }}
-          MAIL_CONNECT_ENABLED: ${{ secrets.MAIL_CONNECT_ENABLED }}
-          CALENDAR_CONNECT_ENABLED: ${{ secrets.CALENDAR_CONNECT_ENABLED }}
+          MAIL_CONNECT_ENABLED: ${{ vars.MAIL_CONNECT_ENABLED || secrets.MAIL_CONNECT_ENABLED }}
+          CALENDAR_CONNECT_ENABLED: ${{ vars.CALENDAR_CONNECT_ENABLED || secrets.CALENDAR_CONNECT_ENABLED }}
           # Google push for Gmail and Chat (`functions/lib/googlePush/config.ts`).
           # Absent: they poll, as before. Calendar push needs neither.
           GOOGLE_PUSH_TOPIC: ${{ secrets.GOOGLE_PUSH_TOPIC }}
           GOOGLE_PUSH_SERVICE_ACCOUNT: ${{ secrets.GOOGLE_PUSH_SERVICE_ACCOUNT }}
           # Optional: a custom push audience, and `off` as the brake.
           GOOGLE_PUSH_AUDIENCE: ${{ secrets.GOOGLE_PUSH_AUDIENCE }}
-          GOOGLE_PUSH: ${{ secrets.GOOGLE_PUSH }}
+          GOOGLE_PUSH: ${{ vars.GOOGLE_PUSH || secrets.GOOGLE_PUSH }}
           # The transcription Worker `functions/meetings/transcribe.ts` posts a
           # chunk of meeting audio to, and the shared secret that proves the
           # post came from this control plane. Both or neither: the action
@@ -205,7 +216,7 @@ jobs:
           # `appSecrets` as CUSTOM_DOMAINS_API_TOKEN. Absent is a working
           # state: the Domain section says the deployment does not offer them.
           CUSTOM_DOMAINS_ZONE_ID: ${{ secrets.CUSTOM_DOMAINS_ZONE_ID }}
-          CUSTOM_DOMAINS_TARGET: ${{ secrets.CUSTOM_DOMAINS_TARGET }}
+          CUSTOM_DOMAINS_TARGET: ${{ vars.CUSTOM_DOMAINS_TARGET || secrets.CUSTOM_DOMAINS_TARGET }}
           # Where in-app feedback reports go (`functions/feedback.ts`): the
           # app's own Sentry DSN, now read by the control plane, which checks
           # a report and counts it against the day's ten before sending it on.
@@ -258,7 +269,7 @@ jobs:
           # Promote waits for the quarter-hour schedule.
           GH_ADMIN_TOKEN: ${{ secrets.GH_ADMIN_TOKEN }}
           # The deployment the batched call goes to; checked against the key.
-          EXPO_PUBLIC_CONVEX_URL: ${{ secrets.EXPO_PUBLIC_CONVEX_URL }}
+          EXPO_PUBLIC_CONVEX_URL: ${{ vars.EXPO_PUBLIC_CONVEX_URL || secrets.EXPO_PUBLIC_CONVEX_URL }}
         # One request for every variable (scripts/convex-env-sync.mjs) rather
         # than one `convex env set` process each, which took ~30s per deploy.
         # Same rules: an absent value is never pushed as empty, nothing is

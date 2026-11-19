@@ -213,3 +213,23 @@ jobs:
         # `--ref` is a branch. The workflow checks out deploy_sha, the commit
         # this run exported, which is not always the tip.
         run: gh workflow run deploy-production-ota.yml --repo "$GH_REPO" --ref main -f "source_run_id=$SOURCE_RUN_ID" -f "deploy_sha=$DEPLOY_SHA"
+
+  # Ask the published websites, as a visitor would, once this deploy is live
+  # (`site-health.yml`). Started rather than waited on, like the OTA publish.
+  # A `workflow_run` trigger there never fires: this run is dispatched with
+  # GITHUB_TOKEN, and GitHub starts no workflow from that token's events
+  # except a dispatch.
+  site-health:
+    name: Start the site check
+    needs: [validate, convex, gateway, router]
+    if: ${{ !cancelled() && !failure() }}
+    runs-on: ubuntu-latest
+    permissions:
+      actions: write
+      contents: read
+    steps:
+      - name: Check every watched site against this deploy
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: gh workflow run site-health.yml --repo "$GH_REPO" --ref main

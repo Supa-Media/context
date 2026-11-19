@@ -22,8 +22,11 @@
 import { TEX_MAP } from "./texArchitecture.generated.js";
 import { capabilitiesFor } from "./capabilities.js";
 import { texStep } from "./texConfig.js";
-import TRAINING from "../../../../packages/shared/src/texTraining.generated.json" with { type: "json" };
-import { trainingText } from "../../../../packages/shared/src/texTraining.cjs";
+import GENERATED_TRAINING from "../../../../packages/shared/src/texTraining.generated.json" with { type: "json" };
+import { trainingOf, trainingText } from "../../../../packages/shared/src/texTraining.cjs";
+
+/** Every Training conversation, less what a bench process scores of it (`texTraining.cjs` `trainingOf`; production reads all). */
+const TRAINING = trainingOf(GENERATED_TRAINING);
 
 export { TEX_MAP };
 
@@ -54,7 +57,7 @@ export const ROLES = Object.freeze({
     you: "the Advisor on job mail: you read a job note's mail and answer the job. You never text the person; Tex does.",
   },
   jobCheck: {
-    node: "jobcheck",
+    node: "jobadv",
     you: "the Job check: a Background job stopped, and you decide whether it really finished before Tex texts them about it.",
   },
   threads: {

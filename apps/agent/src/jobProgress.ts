@@ -77,4 +77,38 @@ export function withEnd(ends: PartEnd[] | undefined, part: number, cause: PartCa
 /** Whether any saved call read from outside: the next part built on it is marked as the part that read it was. */
 export const readOutside = (saved: JobSaved | undefined) => (saved?.calls ?? []).some((call) => call.outside === true);
 
+/** Fingerprints of results a job's parts have read, newest kept: what the Part end node's `fresh` counts against. */
+export const MAX_SEEN = 300;
+
+/** A short fingerprint of a result's words (FNV-1a over its text with spacing and case evened out). */
+export function resultPrint(result: string): string {
+  let hash = 0x811c9dc5;
+  for (const ch of result.replace(/\s+/g, " ").trim().toLowerCase()) hash = Math.imul(hash ^ ch.charCodeAt(0), 0x01000193) >>> 0;
+  return hash.toString(36);
+}
+
+/**
+ * What a part found that no earlier part had (2026-11-17: a coworking job re-read the same sites for six parts):
+ * `fresh` counts its results, failed ones left out, whose words no earlier part read; `seen` is every fingerprint so
+ * far; `stale` is how many parts in a row, this one included, found nothing new (0 once one does). A step's print is its
+ * step line with its result, so a write that answers "Saved." each time still counts as new work. A part that doesn't
+ * count (`counts` false: a retry, a part that broke, a job on a computer, whose steps carry no results; or a part that
+ * read nothing at all, which the idle rule judges) leaves both as
+ * they were and says `counted: false`, so the Part end node is given no count and never ends it as stale.
+ */
+export function freshness(run: { seen?: string[]; stale?: number }, part: JobSaved | undefined, counts = true): { fresh: number; staleBefore: number; seen: string[]; stale: number; counted: boolean } {
+  const staleBefore = run.stale ?? 0;
+  // A part that read nothing at all is the idle rule's (`spinning`), not this one's.
+  if (!counts || !(part?.calls ?? []).some((call) => call.result !== undefined || call.failed)) return { fresh: 0, staleBefore, seen: run.seen ?? [], stale: staleBefore, counted: false };
+  const seen = new Set(run.seen ?? []);
+  let fresh = 0;
+  for (const call of part?.calls ?? []) {
+    if (call.failed || call.result === undefined) continue;
+    const print = resultPrint(`${call.step}\n${call.result}`);
+    if (!seen.has(print)) fresh += 1;
+    seen.add(print);
+  }
+  return { fresh, staleBefore, seen: [...seen].slice(-MAX_SEEN), stale: fresh === 0 ? staleBefore + 1 : 0, counted: true };
+}
+
 export { carryPatch, partResume } from "./jobPartResume"; // which saved rounds a part goes on from

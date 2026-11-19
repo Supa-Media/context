@@ -29,7 +29,7 @@
 
 import { DETAIL_CAP, createPending, disarmTexting, findPending, ALREADY_ASKED, shownBefore, takeDone } from "./approvals.js";
 import { toolError } from "./results.js";
-import { EMAIL_TOOL, REFUSED, emailCopy, emailSummary, readEmail } from "./email.js";
+import { EMAIL_TOOL, REFUSED, emailCopy, emailSummary, readEmail, refusalText } from "./email.js";
 import { readHelperCallers } from "../agent/production.js";
 import { parseEmailId } from "./emailRead.js";
 import { standingForward } from "./forwardRule.js";
@@ -79,12 +79,12 @@ export async function emailGate(supplied, { store, session, target }) {
     return toolError("Not sent: send_email takes no context. It always sends as the person, from their own Gmail.");
   }
   const read = readEmail(supplied);
-  if (read.error) return toolError(`Not sent: ${read.error}`);
+  if (read.error) return toolError(refusalText("Not sent:", read.error));
   const email = read.email;
 
   // Somebody else in a group chat sends it, from their own Gmail, on their own yes (`offerFor.js`).
   const offer = offerTarget(session, supplied, "email");
-  if (offer?.error) return toolError(`Not sent: ${offer.error}`);
+  if (offer?.error) return toolError(refusalText("Not sent:", offer.error));
   if (offer) {
     if (email.forward || email.replyTo || email.attach || email.from) {
       return toolError("Not sent: a reply, a forward, an attachment or a chosen sender goes from a mailbox only its owner can name. Leave them out, or have them ask you.");

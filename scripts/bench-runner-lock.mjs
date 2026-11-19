@@ -4,8 +4,13 @@
  *
  * The gateway rotates the benchmark runner's refresh token on every use and
  * revokes the grant when a spent one comes back, so the workflows that sign in
- * as the runner (AI Benchmark, AI Promote, Tex replay, Tex nightly, Tex Lab
- * and the Test Set seed) must never overlap. They shared one `concurrency`
+ * as the runner (AI Benchmark, AI Promote, Tex replay, Tex nightly and the
+ * Test Set seed, and a Tex Lab run on slot 0) must never overlap. A Lab run
+ * that leased one of its own runner slots (scripts/lab-runner-lease.mjs) never
+ * spends this grant's token and does not wait here; one that found no slot
+ * connected or free falls back to this grant and this lock, as before slots.
+ * The list keeps tex-lab-run.yml, so the others wait for any earlier Lab run
+ * (it cannot tell a slot run from a slot-0 run; waiting is the safe side). They shared one `concurrency`
  * group for that, but a group holds one
  * running and ONE pending run: a third run cancels the pending one, which then
  * ran no job at all. With several agents dispatching Tex replay, replays
@@ -35,7 +40,7 @@
 import { execFileSync } from "node:child_process";
 
 /** The workflows that sign in as the benchmark runner. */
-export const RUNNER_WORKFLOWS = ["ai-benchmark.yml", "ai-promote.yml", "tex-replay.yml", "tex-nightly.yml", "tex-lab-run.yml", "tex-test-set-seed.yml"];
+export const RUNNER_WORKFLOWS = ["ai-benchmark.yml", "ai-promote.yml", "tex-replay.yml", "tex-nightly.yml", "tex-lab-run.yml", "tex-test-set-seed.yml", "bench-token-salvage.yml"];
 const ACTIVE = new Set(["queued", "in_progress", "waiting", "requested", "pending"]);
 
 /** Whether run `a` comes before run `b`: its latest attempt started first, then the lower id. */

@@ -321,9 +321,14 @@ export async function handleHeartbeat(request, env, store, session, controlPlane
   // A claim for the pings their agents asked for starts at Send through Tex (`graph/nodes/notify.js`): no look, no model.
   // The texting Worker sends its answer; once Text them is on the runner, the notify -> send wire does.
   if (given.attention === true) {
-    const ping = await graph.runNode("notify", { now: started, timeZone }, { notify: { dispatch, store, session, deliver: deliverAttention } }, "handleHeartbeat");
+    const ping = await graph.runNode("notify", { now: started, timeZone }, { notify: { dispatch, store, session, deliver: deliverAttention, turn: ledgerTurn } }, "handleHeartbeat");
     await chatLog?.flush();
-    return json({ outcome: ping.output.outcome, ...(ping.output.to === "send" ? { answer: ping.output.answer } : {}), ...(ping.output.until === undefined ? {} : { until: ping.output.until }) });
+    // A text sent through the Worker carries its run's turn, the link to the ping's note, and where it came from (`log.js`).
+    return json({
+      outcome: ping.output.outcome,
+      ...(ping.output.to === "send" ? { answer: ping.output.answer, turn: ledgerTurn, source: "ping" } : {}),
+      ...(ping.output.until === undefined ? {} : { until: ping.output.until }),
+    });
   }
   // Every other claim starts at Check-in (`graph/nodes/checkin.js`): `ctxObj.look` is what the rest of the look reads.
   const ctxObj = { dispatch, store, session, env, controlPlane, look: null };
@@ -373,6 +378,7 @@ export async function handleHeartbeat(request, env, store, session, controlPlane
     turn = await runTurn({
       question,
       answerCheck: judge?.check ?? null,
+      silences: judge?.silences ?? null, // a last step is silent only for a send-back that says not for them (`turn.js`)
       tools: heartbeatTools(offered),
       // Reads only: no write or manage action, and of send only say_nothing, which ends the look with no words
       // (`sayNothing.js`). With `{}` it was offered no send at all, so the call its prompt names came back
@@ -491,7 +497,8 @@ export async function handleHeartbeat(request, env, store, session, controlPlane
   // Which failure, as a code the Worker logs (`heartbeats.ts` failedBecause): out of rounds is not the model failing.
   if (outcome === "failed") return json({ error: "model_unavailable", reason: turn?.exhausted ? "rounds_exhausted" : failure, outcome }, 502);
   if (!text) return json({ outcome });
-  return json({ outcome, answer: text, ...(marked.continues !== null ? { continues: marked.continues } : {}) });
+  // The turn and source link this check-in's text to its note, as a text sent on its own (`log.js`, `sentOnItsOwn.js`).
+  return json({ outcome, answer: text, turn: ledgerTurn, source: "checkin", ...(marked.continues !== null ? { continues: marked.continues } : {}) });
 }
 
 /**

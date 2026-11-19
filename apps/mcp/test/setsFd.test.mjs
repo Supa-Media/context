@@ -1,10 +1,11 @@
 import assert from "node:assert/strict";
-import { readFile } from "node:fs/promises";
+import { readFile, readdir } from "node:fs/promises";
 import { join } from "node:path";
 import { test } from "node:test";
 
-import { LIVE_SETTINGS, MAX_MINUTES_BEFORE, PURE_ACK, burstBefore, cantRun, minutesBefore, checkinMail, dayOf, earlierLines, fdTest, frontFor, groupFor, jobReportRow, runFd, senderOf, sinceTexAnswered, timeOf, zoneOf } from "../bench/setsFd.mjs";
+import { LIVE_SETTINGS, PURE_ACK, burstBefore, cantRun, minutesBefore, checkinMail, dayOf, earlierLines, fdTest, frontFor, groupFor, jobReportRow, runFd, senderOf, sinceTexAnswered, timeOf, zoneOf } from "../bench/setsFd.mjs";
 import { clockMs, installClock } from "../bench/clock.mjs";
+import { runPool, scheduleOrder } from "../bench/setsPool.mjs";
 import { parsePeople, parseTest } from "../bench/load.mjs";
 import sets from "../../../packages/shared/src/texSets.cjs";
 import { parseSetup } from "../src/agent/production.js";
@@ -43,11 +44,23 @@ test("each earlier line is dated by its own day and time, held inside the seven 
   assert.equal(minutesBefore(c, 1, 3, 2026), 23 * 60);
   assert.equal(minutesBefore(c, 2, 3, 2026), 23 * 60 - 1);
   assert.equal(minutesBefore(c, 3, 1, 2026), null, "never dated after the text");
-  assert.equal(minutesBefore(c, 1, 4, 2026), MAX_MINUTES_BEFORE, "sixteen days back is held inside six");
+  assert.equal(minutesBefore(c, 1, 4, 2026), 16 * 24 * 60 - 60, "sixteen days less an hour back reads as that, not held at six days");
   assert.deepEqual(earlierLines(c, 3).map((l) => l.minutesBefore), [undefined, undefined, undefined], "no year, no dates");
   assert.deepEqual(earlierLines(c, 3, 2026).map((l) => l.minutesBefore), [1380, 1380, 1379], "a line before the first date is as old as the next");
   const raw = fdTest([unit(c, 3)], "job: texting-assistant\nrun_as: Maya\ntoday: 2026-10-06\nruns: 1\nweb: scripted");
   assert.deepEqual(parseTest(raw).questions[0].earlier.map((l) => [l.from, l.minutesBefore]), [["person", 1380], ["person", 1380], ["tex", 1379]]);
+});
+
+// The bench used to hold a line older than six days at six days. The Front door reads seven days word for word and
+// production summarises the older days, so a chat spanning weeks reads its real ages now, and `benchDays.mjs` writes
+// the days past the window. Sabotage: clamp `minutesBefore` to a cap again.
+test("a line weeks back reads its real age, not a cap", () => {
+  const c = conv([
+    { id: "m0", who: "Maya", text: "the first ask", at: "Mon Sep 14 10:00" },
+    { id: "m1", who: "Maya", text: "and now?", at: "Sun Oct 4 10:00", labels: { fd: { must: ["answers"] } } },
+  ]);
+  assert.equal(minutesBefore(c, 0, 1, 2026), 20 * 24 * 60, "twenty days back is twenty days");
+  assert.deepEqual(earlierLines(c, 1, 2026).map((l) => l.minutesBefore), [20 * 24 * 60]);
 });
 
 test("a test runs one text with the chat before it and its must and never lines, as the bench parses it", () => {
@@ -81,10 +94,21 @@ test("someone with no test of their own runs on the core set's lines as themselv
   assert.equal((front.match(/^group: /gm) ?? []).length, 1);
 });
 
-test("the bench's people are exactly the people a Dev chat may have", async () => {
+test("the bench's people are exactly the people a Dev or Training chat may have", async () => {
   const people = parsePeople(await readFile(join(BENCH, "workspaces/people.md"), "utf8"));
   const withWorld = [...new Set(people.filter((r) => r.personal).map((r) => r.person))].sort();
   assert.deepEqual([...sets.BENCH_PEOPLE].sort(), withWorld);
+});
+
+test("every Training chat's Front door rows have a world to run in: each member a person, each group a shared workspace", async () => {
+  const people = parsePeople(await readFile(join(BENCH, "workspaces/people.md"), "utf8"));
+  const dir = join(BENCH, "..", "sets", "training");
+  for (const name of (await readdir(dir)).filter((n) => n.endsWith(".json"))) {
+    const c = JSON.parse(await readFile(join(dir, name), "utf8"));
+    if (!c.msgs.some((m) => m.labels?.fd?.star)) continue;
+    for (const member of c.members) assert.ok(people.some((r) => r.person === member && r.personal), `${c.id}: ${member} has a bench world`);
+    if (c.kind === "group") assert.ok(groupFor(people, c) !== null, `${c.id} runs in a shared workspace`);
+  }
 });
 
 test("a group runs in the shared workspace that has all its members, and each earlier line is its sender's", async () => {
@@ -139,7 +163,34 @@ test("each test's day is walked from the first dated time line", () => {
     { id: "m6", who: "Maya", at: "Sat Oct 24 7:15", text: "f" },
   ]);
   assert.deepEqual([0, 1, 2, 3, 4, 5].map((i) => dayOf(c, i, 2026)), ["2026-10-13", "2026-10-13", "2026-10-16", "2026-10-16", "2026-10-19", "2026-10-24"]);
-  assert.equal(dayOf(conv([{ id: "m1", who: "Maya", at: "Tue 9:00", text: "x" }]), 0, 2026), null, "no dated line: the test's own day");
+  assert.equal(dayOf(conv([{ id: "m1", who: "Maya", at: "Tue 9:00", text: "x" }]), 0, 2026), null, "no dated line and no day to start from: the test's own day");
+});
+
+test("a chat that names no date still runs each row on its own weekday, from the bench's day on", () => {
+  // The bench's day, 2026-10-08, is a Thursday: a Monday routine that ran on it stayed quiet (Training, 2026-11-18).
+  const c = conv([
+    { id: "m1", who: "Maya", text: "before any time" },
+    { id: "m2", who: "Maya", at: "Thu 15:20", text: "a" },
+    { id: "m3", who: "Maya", at: "Fri 07:12", text: "b" },
+    { id: "m4", who: "Routine", via: "routine", at: "Mon 09:00", text: "Monday week-ahead" },
+    { id: "m5", who: "Maya", at: "Mon 13:22", text: "c" },
+    { id: "m6", who: "Maya", at: "Sun 10:00", text: "d" },
+  ]);
+  const days = [0, 1, 2, 3, 4, 5].map((i) => dayOf(c, i, 2026, "2026-10-08"));
+  assert.deepEqual(days, ["2026-10-08", "2026-10-08", "2026-10-09", "2026-10-12", "2026-10-12", "2026-10-18"]);
+  assert.deepEqual(days.map((d) => new Date(`${d}T00:00:00Z`).getUTCDay()), [4, 4, 5, 1, 1, 0], "Thu, Thu, Fri, Mon, Mon, Sun");
+  assert.equal(dayOf(conv([{ id: "m1", who: "Maya", at: "Mon 9:00", text: "x" }]), 0, 2026, "2026-10-08"), "2026-10-12", "the first Monday on or after the bench's day");
+});
+
+test("rows before a chat's first dated line are walked back from it, each on its own weekday", () => {
+  const c = conv([
+    { id: "m1", who: "Maya", at: "Mon 19:15", text: "a" },
+    { id: "m2", who: "Maya", at: "Wed 17:30", text: "b" },
+    { id: "m3", who: "Maya", at: "Mon 17:18", text: "c" },
+    { id: "m4", who: "Maya", at: "Thu Nov 12 14:08", text: "d" },
+    { id: "m5", who: "Maya", at: "Fri 8:40", text: "e" },
+  ]);
+  assert.deepEqual([0, 1, 2, 3, 4].map((i) => dayOf(c, i, 2026, "2026-10-08")), ["2026-11-02", "2026-11-04", "2026-11-09", "2026-11-12", "2026-11-13"]);
 });
 
 test("what can't run says why: a check-in that found no email, a tapback, a picture; a group chat and its check-in and routine rows run", () => {
@@ -148,7 +199,10 @@ test("what can't run says why: a check-in that found no email, a tapback, a pict
   // A check-in that found an email, a routine and a job's report run, in a group too (`byCode.mjs`).
   assert.equal(cantRun(conv([{ id: "m1", who: "Routine", via: "routine", text: "rent reminder" }]), 0), null);
   assert.equal(cantRun(conv([{ id: "m1", who: "Check-in", via: "checkin", text: "Gmail: TAP: flight delayed" }]), 0), null);
-  assert.match(cantRun(conv([{ id: "m1", who: "Check-in", via: "checkin", text: "calendar: dentist moved" }]), 0), /found an email/);
+  // A check-in that names only a calendar runs too: its event goes on the bench calendar (`checkinWorld.test.mjs`). A row
+  // naming neither mail nor a calendar still can't run.
+  assert.equal(cantRun(conv([{ id: "m1", who: "Check-in", via: "checkin", text: "calendar: dentist moved" }]), 0), null);
+  assert.match(cantRun(conv([{ id: "m1", who: "Check-in", via: "checkin", text: "rent reminder" }]), 0), /names an email/);
   assert.equal(cantRun(conv([{ id: "m1", who: "Routine", via: "routine", text: "rent reminder" }], { kind: "group" }), 0), null);
   assert.equal(cantRun(conv([{ id: "m1", who: "Check-in", via: "checkin", text: "Gmail: TAP: flight delayed" }], { kind: "group" }), 0), null);
   assert.equal(cantRun(conv([{ id: "m1", who: "Maya", text: "find the venue" }, { id: "m2", who: "Background job", via: "job", text: "venue booked" }]), 1), null);
@@ -177,13 +231,13 @@ test("the batch runs each person's tests as one bench test and maps each judged 
   assert.deepEqual(seen[0].tests, ["sets-1"]);
   assert.match(seen[0].setup, /max_steps: 24/, "an unpulled tree runs with the live settings");
   assert.equal(parseTest(seen[0].raw).questions.length, 2);
-  assert.match(rows[0].why, /no shared workspace .* has all of Maya, Remi/);
+  assert.match(rows[2].why, /no shared workspace .* has all of Maya, Remi/);
   assert.deepEqual(rows.map((r) => [r.chat, r.msg, r.ran, r.right]), [
-    ["g1", "m5", false, false],
     ["c1", "m5", true, true],
     ["c1", "m6", true, false],
-  ]);
-  assert.equal(rows[1].usd, 0.01);
+    ["g1", "m5", false, false],
+  ], "rows come back in their units' order");
+  assert.equal(rows[0].usd, 0.01);
 });
 
 test("a case the bench gave no answer for did not run, and the scratch folder is gone after", async () => {
@@ -212,6 +266,27 @@ test("a group chat's test runs through the real bench on fake models end to end,
   const rows = await runFd([unit(flat, 2)], { tree: TREE, fake: true });
   assert.equal(rows.length, 1);
   assert.equal(rows[0].ran, true, rows[0].why);
+});
+
+// Lab run v57nzej7ky4nwymkc5txz7vsd18jfj16 (2026-11-17): every Training Front door row was `ran: false`, "Remi has no
+// bench world", and the run read 0/63. Training is cast from the bench now (Seyi, 2026-11-17). Sabotage: rename a
+// member of `training/trial-hire.json` or `training/truck-crew.json` to anyone `people.md` doesn't have, and this fails.
+test("the repo's Training conversations run their Front door tests through the real bench on fake models, one-to-one and group", async () => {
+  const { loadSets } = await import("../bench/sets.mjs");
+  const training = (await loadSets()).filter((c) => c.set === "training");
+  const first = (id) => {
+    const c = training.find((x) => x.id === id);
+    const at = sets.unitTests(c).find((t) => t.node === "fd" && cantRun(c, t.at) === null).at;
+    return unit(c, at);
+  };
+  const rows = await runFd([first("trial-hire"), first("truck-crew")], { tree: TREE, fake: true });
+  assert.deepEqual(rows.map((r) => [r.chat, r.ran, r.why]), [["trial-hire", true, undefined], ["truck-crew", true, undefined]]);
+  // Each texted turn's rounds of its bound reach the row, the gateway's own count (Dev2, 2026-11-18: "prove from traces
+  // which Training fd misses are round exhaustion"). Sabotage: drop `roundsField` from the reply (`sendTheReply.js`) and this fails.
+  for (const r of rows) {
+    assert.ok(Array.isArray(r.rounds) && r.rounds.length > 0, `${r.chat}: its turns' rounds are on the row`);
+    for (const t of r.rounds.flat()) assert.ok(Number.isInteger(t.used) && t.used >= 1 && Number.isInteger(t.of) && t.used <= t.of, JSON.stringify(t));
+  }
 });
 
 test("a check-in row's email: the sender before the first colon, the rest as what it says", () => {
@@ -382,4 +457,199 @@ test("a one-to-one tapback answer is an earlier tapback, written and read back a
   assert.match(md, /- earlier tex tapback: "⏰"/);
   const q = parseTest(md, "sets-1.md").questions[0];
   assert.deepEqual(q.earlier.at(-1), { from: "tex", text: "⏰", tapback: true });
+});
+
+// A Tex 🔎 that was its whole answer to a find or search ask started a background job: the Worker picks 🔎 from the
+// ask's words (`apps/agent/src/ackEmoji.ts`), and the Front door's own tapback can't be 🔎 (not in `REACT_EMOJI`). With
+// no words of Tex's and no job report after it, the job is still running when the labelled row comes, so the row's
+// turn is offered it as production's running list does (`background.js` `runningNow`). Sabotage: drop `runningJobOf`
+// from fdTest, and the row reads as if nothing ran.
+const jobChat = (between = []) =>
+  conv([
+    { id: "m1", who: "John", text: "Tex compare the three tortilla places, which one's cheapest for 2000 a week", at: "Tue 9:12" },
+    { id: "m2", tex: true, kind: "react", to: "m1", text: "🔎" },
+    ...between,
+    { id: "m9", who: "Kofi", text: "la estrella tastes the best imo" },
+    { id: "m10", who: "Priya", text: "agree but they're pricey", labels: { fd: { must: ["take the taste opinion into the answer"] } } },
+  ]);
+const runningOf = (c, at = c.msgs.length - 1) => parseTest(fdTest([unit(c, at)], "job: texting-assistant\nrun_as: Priya\ntoday: 2026-11-18\nruns: 1\nweb: scripted")).questions[0].runningJobs;
+
+test("a Tex 🔎 that was its whole answer is a job still running at the row, titled from its ask", () => {
+  assert.deepEqual(runningOf(jobChat()), [{ title: "Tex compare the three tortilla places, which one's cheapest for 2000 a week" }]);
+});
+
+test("a job is not running once Tex has texted words after its 🔎, or once its report is in the chat", () => {
+  const words = { id: "m3", tex: true, text: "Looking into the tortilla places now." };
+  assert.deepEqual(runningOf(jobChat([words])), [], "Tex answered in words");
+  const report = { id: "m3", who: "Background job", via: "job", state: "done", text: "La Estrella $220 a week, free delivery." };
+  assert.deepEqual(runningOf(jobChat([report])), [], "its report came back: an earlier job report, not a running job");
+  assert.deepEqual(runningOf(jobChat([{ id: "m3", who: "Kofi", text: "they'll deliver free?" }])), [{ title: "Tex compare the three tortilla places, which one's cheapest for 2000 a week" }], "the people talking is not an answer");
+});
+
+test("only a find or search tapback starts a job: a 👍 or a 🔎 beside Tex's words does not", () => {
+  const c = jobChat();
+  const thumbs = conv([c.msgs[0], { id: "m2", tex: true, kind: "react", to: "m1", text: "👍" }, c.msgs[2], c.msgs[3]]);
+  assert.deepEqual(runningOf(thumbs), [], "a thumbs-up is no job");
+  assert.deepEqual(runningOf(jobChat([{ id: "m3", tex: true, text: "On it." }])), [], "a tapback beside Tex's words was only an acknowledgement");
+});
+
+// The Front door label sits on the job's report row (Dev, 2026-11-18: production delivers a result as its own turn, so
+// the gold reply is that turn's). The report names John's ask at m39, the message the 🔎 tapback reacted to, not
+// Priya's line in between. Sabotage: fall back to the last person text, and `asked` becomes Priya's line and this fails.
+test("the truck-crew job report row names John's ask, the one its 🔎 tapback reacted to", async () => {
+  const raw = JSON.parse(await readFile(new URL("../bench/sets/training/truck-crew.json", import.meta.url), "utf8"));
+  const at = raw.msgs.findIndex((m) => m.id === "m42j");
+  assert.ok(at > 0, "the labelled job report row is in the conversation");
+  assert.equal(raw.msgs[at].via, "job");
+  assert.equal(raw.msgs[at].labels.fd.star, true);
+  const row = jobReportRow(raw, at);
+  assert.equal(row.askedBy, "John");
+  assert.match(row.asked, /^Tex compare the three wholesale tortilla places/);
+  assert.equal(row.state, "done");
+  assert.match(row.text, /La Estrella \$220 \(free delivery\)/);
+  assert.equal(cantRun(raw, at), null);
+});
+
+// An older 🔎 job Tex answered in words must not be the tapback of a new job started in words (no tapback). Sabotage:
+// drop the bound in jobReportRow's scan and `asked` becomes the old ask (a1), so this fails.
+test("a job row with no tapback takes the new ask, not an older tapbacked job Tex already answered", () => {
+  const c = {
+    msgs: [
+      { id: "a1", who: "John", text: "Tex compare the tortilla places" },
+      { id: "a2", tex: true, kind: "react", who: "Tex", text: "🔎", to: "a1" },
+      { id: "a3", tex: true, who: "Tex", text: "Basically a tie, go with La Estrella." },
+      { id: "a4", who: "John", text: "Tex what's the weekend look like" },
+      { id: "a5", via: "job", who: "Background job", text: "Sat: generator pickup 7am." },
+    ],
+  };
+  const row = jobReportRow(c, 4);
+  assert.equal(row.asked, "Tex what's the weekend look like");
+  assert.equal(row.askedBy, "John");
+});
+
+// A Training conversation scored in context reads itself as an example only up to its moment (`texTraining.cjs`
+// UNTIL_ENV; truck-crew 96, 2026-11-18, quoted message 98). Sabotage: drop `envOf` in runConvo, or cut every test at
+// the conversation's first unit, and this fails.
+test("each test is cut at its own moment: units in one test at their earliest, held out none", async () => {
+  const fd = (text, at) => ({ id: `t${at}`, who: "Maya", text, at, labels: { fd: { must: ["answer"], star: true } } });
+  const c = conv([...chat.msgs.slice(0, 4), fd("first ask", "Mon 9:00"), fd("second ask", "Mon 9:00"), { id: "t6", who: "Tex", tex: true, text: "ok" }, fd("later ask", "Mon 15:30")], { id: "c9", set: "training" });
+  const seen = [];
+  const runTests = async (_tree, tests, opts) => {
+    for (const t of tests) seen.push([t, opts.envOf?.(t)?.TEX_TRAINING_UNTIL ?? null]);
+    return { rows: [], usd: 0, bars: {}, missing: [] };
+  };
+  await runFd([unit(c, 4), unit(c, 5), unit(c, 7)], { tree: TREE, fake: true, runTests, env: {} });
+  assert.deepEqual(seen, [["sets-1", "c9:4"], ["sets-2", "c9:7"]]);
+  seen.length = 0;
+  await runFd([unit(c, 4), unit(c, 7)], { tree: TREE, fake: true, runTests, holdOut: true, env: {} });
+  assert.deepEqual(seen.map(([, cut]) => cut), [null, null], "a held-out chat is dropped whole, never cut");
+  seen.length = 0;
+  await runFd([unit({ ...c, set: "dev" }, 4)], { tree: TREE, fake: true, runTests, env: {} });
+  assert.deepEqual(seen.map(([, cut]) => cut), [null], "a Dev chat is never an example");
+});
+
+// The Front door's pool (`setsFd.mjs` runFd): one pool of `parallel` lanes over every test of every conversation, not a
+// slice of it per conversation. Each conversation here has one test a day, so every test is one unit. Sabotage: give
+// each conversation its own `parallel / conversations` lanes again, and the peak is five, not eight.
+const manyDays = (id, n, more = {}) => conv(Array.from({ length: n }, (_, k) => ({ id: `${id}-m${k + 1}`, who: "Maya", text: `ask ${k + 1}`, at: `Oct ${k + 1} 9:00`, labels: { fd: { must: ["answer"] } } })), { id, ...more });
+const unitsOf = (c) => c.msgs.map((_, at) => unit(c, at));
+const pause = () => new Promise((resolve) => setTimeout(resolve, 15));
+
+test("the pool keeps all eight lanes busy across conversations of 17, 13, 11, 11 and 11 tests, and never runs more", async () => {
+  const convos = [17, 13, 11, 11, 11].map((n, k) => manyDays(`p${k + 1}`, n));
+  let inFlight = 0;
+  let peak = 0;
+  let calls = 0;
+  const runTests = async (_tree, tests) => {
+    calls += 1;
+    inFlight += 1;
+    peak = Math.max(peak, inFlight);
+    await pause();
+    inFlight -= 1;
+    return { rows: [{ id: `${tests[0]}/q1`, right: true }], usd: 0, bars: {}, missing: [] };
+  };
+  const rows = await runFd(convos.flatMap(unitsOf), { tree: TREE, fake: true, runTests, parallel: 8, env: {} });
+  assert.equal(calls, 63, "every test ran once");
+  assert.equal(peak, 8, "all eight lanes went at once");
+  assert.equal(rows.length, 63);
+  assert.ok(rows.every((r) => r.ran), "every unit answered");
+});
+
+test("tests of one conversation overlap in time, not one after another", async () => {
+  const convos = [manyDays("q1", 4), manyDays("q2", 4)];
+  const busy = new Map();
+  let overlap = 0;
+  const runTests = async (_tree, tests, { dir }) => {
+    busy.set(dir, (busy.get(dir) ?? 0) + 1);
+    overlap = Math.max(overlap, busy.get(dir));
+    await pause();
+    busy.set(dir, busy.get(dir) - 1);
+    return { rows: [{ id: `${tests[0]}/q1`, right: true }], usd: 0, bars: {}, missing: [] };
+  };
+  await runFd(convos.flatMap(unitsOf), { tree: TREE, fake: true, runTests, parallel: 8, env: {} });
+  assert.ok(overlap >= 2, `two tests of one conversation in flight together (peak ${overlap})`);
+});
+
+test("rows come back in the units' order, each with the fields a row had before", async () => {
+  const c1 = manyDays("o1", 3);
+  const c2 = manyDays("o2", 2);
+  const units = [unit(c2, 1), unit(c1, 2), unit(c1, 0), unit(c2, 0)];
+  const runTests = async (_tree, tests) => ({ rows: [{ id: `${tests[0]}/q1`, right: true, misses: [], held: [{ kind: "must", line: "answer", reason: "yes" }], said: ["Hi"] }], usd: 0.004, bars: {}, missing: [] });
+  const rows = await runFd(units, { tree: TREE, fake: true, runTests, parallel: 8, env: {} });
+  assert.deepEqual(rows.map((r) => [r.chat, r.msg]), units.map((u) => [u.row.chat, u.row.msg]));
+  for (const r of rows) {
+    assert.deepEqual(Object.keys(r).sort(), ["at", "chat", "got", "held", "misses", "msg", "node", "ran", "right", "said", "usd", "want"].sort());
+    assert.equal(r.ran, true);
+    assert.equal(r.got, "every line held");
+    assert.equal(r.want, "every must and never line");
+  }
+  // Each conversation's two tests cost 0.004 each: 0.008 over its two units, 0.004 a unit.
+  assert.deepEqual(rows.map((r) => r.usd), [0.004, 0.004, 0.004, 0.004]);
+});
+
+test("one test that throws marks only its own units could not run; the rest of its conversation still answers", async () => {
+  const a = manyDays("f1", 2);
+  const b = manyDays("f2", 2);
+  const runTests = async (_tree, tests, { dir }) => {
+    if (tests[0] === "sets-1" && dir.endsWith(join("c2-f2", "ai"))) throw new Error("the bench fell over");
+    return { rows: [{ id: `${tests[0]}/q1`, right: true }], usd: 0, bars: {}, missing: [] };
+  };
+  const rows = await runFd([...unitsOf(a), ...unitsOf(b)], { tree: TREE, fake: true, runTests, parallel: 8, env: {} });
+  const failed = rows.filter((r) => !r.ran);
+  assert.deepEqual(failed.map((r) => [r.chat, r.msg, r.why]), [["f2", "f2-m1", "could not run: the bench fell over"]]);
+  assert.equal(rows.filter((r) => r.ran).length, 3, "the other three units answered");
+});
+
+test("each test's cut reaches its own environment through the pool", async () => {
+  const fd = (text, at) => ({ id: `t${at}`, who: "Maya", text, at, labels: { fd: { must: ["answer"], star: true } } });
+  const c = conv([...chat.msgs.slice(0, 4), fd("first", "Oct 1 9:00"), fd("second", "Oct 2 9:00"), fd("third", "Oct 3 9:00")], { id: "c9", set: "training" });
+  const seen = [];
+  const runTests = async (_tree, tests, opts) => {
+    seen.push(opts.envOf(tests[0])?.TEX_TRAINING_UNTIL ?? null);
+    return { rows: [], usd: 0, bars: {}, missing: [] };
+  };
+  await runFd([unit(c, 4), unit(c, 5), unit(c, 6)], { tree: TREE, fake: true, runTests, parallel: 8, env: {} });
+  assert.deepEqual(seen.sort(), ["c9:4", "c9:5", "c9:6"]);
+});
+
+test("the schedule starts the longest conversations first and deals their tests round-robin", () => {
+  assert.deepEqual(scheduleOrder([["A0", "A1", "A2"], ["B0"], ["C0", "C1"]]), ["A0", "C0", "B0", "A1", "C1", "A2"]);
+  assert.deepEqual(scheduleOrder([["x0", "x1"], ["y0", "y1"]]), ["x0", "y0", "x1", "y1"], "equal lengths keep the input's order");
+  assert.deepEqual(scheduleOrder([[], ["z0"]]), ["z0"]);
+  assert.deepEqual(scheduleOrder([]), []);
+});
+
+test("the pool runs every item, never more than its lanes at once", async () => {
+  let inFlight = 0;
+  let peak = 0;
+  const done = [];
+  await runPool([1, 2, 3, 4, 5, 6, 7], 3, async (n) => {
+    inFlight += 1;
+    peak = Math.max(peak, inFlight);
+    await pause();
+    inFlight -= 1;
+    done.push(n);
+  });
+  assert.equal(peak, 3);
+  assert.deepEqual(done.sort((a, b) => a - b), [1, 2, 3, 4, 5, 6, 7]);
 });

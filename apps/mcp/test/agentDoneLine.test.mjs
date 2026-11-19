@@ -29,6 +29,7 @@ test("every summary the gateway builds reads as done", () => {
     "let Claude use your GitHub key on api.github.com": "Done, I let Claude use your GitHub key on api.github.com.",
     "change something in @woodshop (write_note)": "Done, I changed something in @woodshop (write_note).",
     "publish the website": "Done, I published the website.",
+    "publish the @woodshop website": "Done, I published the @woodshop website.",
     "fetch an image from example.com into a.md": "Done, I fetched an image from example.com into a.md.",
     "write projects/x.md into @woodshop": "Done, I wrote projects/x.md into @woodshop.",
     "make a.md visible to the team": "Done, I made a.md visible to the team.",

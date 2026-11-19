@@ -50,7 +50,9 @@ export function speaker(from) {
   if (from?.kind === "system") return "Context";
   // A person is always "@name" ("@someone" unnamed): no name, a look-alike of "You" included, renders as Tex's or Context's label.
   const name = typeof from?.name === "string" ? oneLine(from.name).replace(/^@+/, "") : "";
-  return `@${name || "someone"}`;
+  // A guest's kept name beside its label (`groupGuestNames.js` `withGuestNames`): "@guest-1a2b (Sam)".
+  const known = name !== "" && typeof from?.guestName === "string" ? oneLine(from.guestName).replace(/[()]/g, "") : "";
+  return `@${name || "someone"}${known ? ` (${known})` : ""}`;
 }
 
 /*

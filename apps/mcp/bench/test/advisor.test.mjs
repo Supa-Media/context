@@ -67,7 +67,7 @@ test("every role asks the one way: its own instructions behind the drawing, no t
   const asked = [];
   const request = async (params) => (asked.push(params), { text: "VERDICT: done\nADVICE: ok." });
   await adviseOnce({ request, model: "m", effort: "high", prompt: "P", role: "planner", brief: "B" });
-  assert.deepEqual(asked[0], { model: "m", system: withArchitecture("P", "planner"), messages: [{ role: "user", text: "B" }], tools: [], display: "summarized", effort: "high" });
+  assert.deepEqual(asked[0], { model: "m", system: withArchitecture("P", "planner"), messages: [{ role: "user", text: "B" }], tools: [], cacheTail: false, display: "summarized", effort: "high" });
   await adviseOnce({ request, model: "m", prompt: "P", role: "planner", brief: "B" });
   assert.equal("effort" in asked[1], false, "no effort named, none sent");
 });

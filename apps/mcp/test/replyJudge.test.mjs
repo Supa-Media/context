@@ -20,6 +20,10 @@
  *  5. `sendBacksFor` giving every kind `MAX_SEND_BACKS` → "a task is sent back up to five times…" fails.
  *  6. `askAdvisor` without the `sentBack >= ADVISOR_AFTER_SEND_BACKS` check → the same test fails on the first two notices.
  *  7. The `SEND_BACK_WINDOW_MS` check removed → "a send-back past the first waits on the turn's time…" fails.
+ *
+ * (2026-11-18, scheduled follow-ups and the last step)
+ *  8. `silencing = !review.problems.every(...)` set to `true`, or `GOES_ON_A_LAST_STEP` given "claims_undone" → "silences() says the last send-back was not_for_them…" fails.
+ *  9. The prompt's "repeats what an earlier text already told them" rule put back → "a scheduled run's follow-up, last call or close-out…" fails.
  */
 
 import { withArchitecture } from "../src/agent/texArchitecture.js";
@@ -28,7 +32,7 @@ import { test } from "node:test";
 
 import { BUILTIN_PROVIDER } from "../src/agent/builtin.js";
 import { parseSetup } from "../src/agent/production.js";
-import { actionsOf, ADVISOR_WINDOW_MS, ASK_ADVISOR_FIRST, judgeState, MAX_SEND_BACKS, PROBLEMS, SEND_BACK_WINDOW_MS, TASK_SEND_BACKS, readReplyJudge, readReview, replyJudge, reviewMessage, REVIEW_MODEL, REVIEW_SYSTEM, sendBackNotice, takesBack } from "../src/agent/replyJudge.js";
+import { actionsOf, GOES_ON_A_LAST_STEP, ADVISOR_WINDOW_MS, ASK_ADVISOR_FIRST, judgeState, MAX_SEND_BACKS, PROBLEMS, SEND_BACK_WINDOW_MS, TASK_SEND_BACKS, readReplyJudge, readReview, replyJudge, reviewMessage, REVIEW_MODEL, REVIEW_SYSTEM, sendBackNotice, takesBack } from "../src/agent/replyJudge.js";
 import { runTurn } from "../src/agent/turn.js";
 import { wireTraceEntry } from "../src/agent/turnLog.js";
 import { STEP_NAMES } from "../src/agent/ledger.js";
@@ -424,4 +428,54 @@ test("the code checks are a step whether they pass or send back, and a skipped r
   assert.deepEqual(steps.map((s) => s.input?.set).slice(0, 3), ["full", "full", "plain"]);
   assert.ok(steps.every((s) => !JSON.stringify(s).includes("it says")), "sizes and counts, never the draft's words");
   assert.ok(STEP_NAMES.has("checks") && STEP_NAMES.has("reviewer"), "both reach the chat's ledger");
+});
+
+test("the reviewer judges a report by whether the person can follow it, never by counting sentences, and never writes Tex's words (Dev2 2026-11-18)", () => {
+  // The StafferLink report was sent back four times under "a write-up of more than three sentences",
+  // each time with the reviewer's own one-liner, which Tex then sent word for word.
+  assert.doesNotMatch(REVIEW_SYSTEM, /more than three sentences/);
+  assert.match(REVIEW_SYSTEM, /never by counting sentences/);
+  assert.match(REVIEW_SYSTEM, /never write the replacement text/);
+  assert.match(sendBackNotice("Fix one."), /in your own words/);
+});
+
+// 2026-11-18: a routine's follow-up ("Harbor Post closes in 2 days, and they never answered") and a weekly tidy that closes
+// out stale asks named things an earlier text named, and the reviewer dropped them as "repeats what an earlier text said".
+// A follow-up, a last call before a deadline and a close-out are new news; only a text that adds nothing at all is not for them.
+test("a scheduled run's follow-up, last call or close-out is new news; only a text that adds nothing is not_for_them", () => {
+  assert.doesNotMatch(REVIEW_SYSTEM, /repeats what an earlier text already told them/, "the rule that dropped follow-ups is gone");
+  assert.match(REVIEW_SYSTEM, /follow-up or reminder that someone \(the person or Tex\) set up/);
+  assert.match(REVIEW_SYSTEM, /last call before a deadline/);
+  assert.match(REVIEW_SYSTEM, /close-out of open items/);
+  assert.match(REVIEW_SYSTEM, /a text that adds nothing at all is not_for_them/, "a routine's or check-in's text that adds nothing is still dropped");
+});
+
+// The reviewer's verdict reaches the turn's last step (`turn.js`): silence there is for a send-back that says the text is not
+// for them, and a draft's own review resets it, so an earlier draft's verdict never silences a later one.
+test("silences() says the last send-back was not_for_them, for that draft only", async () => {
+  const { request } = reviewer([
+    { kind: "scheduled", send: false, problems: ["not_for_them"], feedback: "Quote: \"The say_nothing action isn't available\". This is about your own run. Call send with action say_nothing." },
+    { kind: "scheduled", send: true, problems: [], feedback: "" },
+  ]);
+  const judge = replyJudge({ setting: { model: REVIEW_MODEL }, question: "check on the Lumen charge", history: [], request, log: () => {}, scheduled: "routine" });
+  assert.equal(judge.silences(), false, "no review yet: nothing silences");
+  assert.ok(await judge.check("Your own run text.", { messages: ACTED }), "the first draft is sent back");
+  assert.equal(judge.silences(), true, "and its send-back names not_for_them: the last step may stay silent");
+  assert.equal(await judge.check("Lumen is $28 now, up from $22.", { messages: ACTED }), null, "a rewrite that passes");
+  assert.equal(judge.silences(), false, "the passed draft's verdict replaces the old one");
+
+  const price = reviewer([{ kind: "scheduled", send: false, problems: ["hands_back"], feedback: "Quote: \"I couldn't check Monday's calendar\". Tex can look that up itself." }]);
+  const judgeHands = replyJudge({ setting: { model: REVIEW_MODEL }, question: "check on the Lumen charge", history: [], request: price.request, log: () => {}, scheduled: "routine" });
+  assert.ok(await judgeHands.check("Lumen is $28 now, up from $22. I couldn't check Monday's calendar.", { messages: ACTED }));
+  assert.equal(judgeHands.silences(), false, "a send-back for hands_back alone is not a verdict that the text should not go");
+});
+
+// A last step goes anyway only for a fault that says the text could be better: a claim the turn doesn't back, mixed in
+// with a hands_back, still ends it quiet, since a wrong text is worse than none.
+test("silences() holds for a claim fault, even beside a fault that would go", async () => {
+  const mixed = reviewer([{ kind: "scheduled", send: false, problems: ["hands_back", "claims_undone"], feedback: "Quote: \"I moved the walk\". Nothing moved it this turn." }]);
+  const judge = replyJudge({ setting: { model: REVIEW_MODEL }, question: "check on the walker", history: [], request: mixed.request, log: () => {}, scheduled: "routine" });
+  assert.ok(await judge.check("I moved the walk to 3. Can you check Monday's calendar?", { messages: ACTED }));
+  assert.equal(judge.silences(), true);
+  assert.ok(!GOES_ON_A_LAST_STEP.has("claims_undone") && !GOES_ON_A_LAST_STEP.has("unsourced") && !GOES_ON_A_LAST_STEP.has("not_for_them"));
 });

@@ -85,6 +85,9 @@ jobs:
             apps/mobile/features/console/files/LiveEditor.web.tsx
             apps/mobile/features/console/files/LiveEditor.tsx
             apps/mobile/features/console/files/webview/entry.ts
+            apps/mobile/app/[handle]/index.tsx
+            apps/mobile/app/[handle]/[...path].tsx
+            apps/mobile/features/site/website/WebsitePage.tsx
           # The per-push browser tests (the editor's, and the CSP candidate's
           # own), the harness they share, and the fixture route they open.
           paths: |
@@ -104,6 +107,7 @@ jobs:
             apps/mobile/e2e/webkit/cspStyleNonce.spec.ts
             apps/mobile/e2e/webkit/offlineStyleNonce.spec.ts
             apps/mobile/e2e/webkit/cspDiagramStyle.spec.ts
+            apps/mobile/e2e/webkit/websiteDesign.spec.ts
             apps/mobile/e2e/webkit/helpers.ts
             apps/mobile/e2e/webkit/playwright.config.ts
             apps/mobile/e2e/webkit/static-server.mjs
@@ -528,6 +532,68 @@ jobs:
           retention-days: 7
           if-no-files-found: ignore
 
+  # A published website, drawn the way a signed-out visitor sees it, with its
+  # own stylesheet and frame applied: per push whenever the site's screens or
+  # what they import changed. Sites have regressed to unstyled or blank more
+  # than once (#1201, #2335) with every unit test green, because nothing
+  # checked that a page's CSS reaches the page a browser draws. Run under
+  # production's headers and again with the whole candidate policy enforced
+  # (style nonce included), so a style policy that would refuse a site's
+  # look fails here, not on every customer's site.
+  webkit_website:
+    name: Published website drawn styled in WebKit
+    needs: webkit_build
+    if: needs.webkit_build.outputs.affected == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    container:
+      image: mcr.microsoft.com/playwright:v1.56.1-noble
+    steps:
+      - uses: actions/checkout@v5
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --filter "@context/mobile..." --frozen-lockfile
+      - uses: actions/download-artifact@v4
+        with:
+          name: webkit-fixture
+          path: apps/mobile
+      - name: A designed page under production's headers
+        working-directory: apps/mobile
+        env:
+          CI: "true"
+          E2E_HTTPS: "1"
+          E2E_CSP_CANDIDATE: production
+        run: pnpm exec playwright test --config e2e/webkit/playwright.config.ts --project=webkit --reporter=list --output e2e/webkit/test-results-website e2e/webkit/websiteDesign.spec.ts
+      - name: The same page with the whole policy enforced and a style nonce per response
+        if: ${{ !cancelled() }}
+        working-directory: apps/mobile
+        env:
+          CI: "true"
+          E2E_HTTPS: "1"
+          E2E_CSP_CANDIDATE: full
+          E2E_CSP_NONCE: "1"
+        shell: bash
+        run: |
+          set -euo pipefail
+          pnpm exec playwright test --config e2e/webkit/playwright.config.ts --project=webkit --reporter=list \
+            --output e2e/webkit/test-results-website-full e2e/webkit/websiteDesign.spec.ts
+          log=e2e/webkit/csp-candidate/full-https/csp-candidate-reports.jsonl
+          if [ -s "$log" ]; then node e2e/webkit/csp-candidate-check.mjs "$log" style-src script-src; fi
+      - name: Keep website failure evidence
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: webkit-website-results
+          path: |
+            apps/mobile/e2e/webkit/test-results-website/
+            apps/mobile/e2e/webkit/test-results-website-full/
+            apps/mobile/e2e/webkit/csp-candidate/
+          retention-days: 7
+          if-no-files-found: ignore
+
   webkit_offline:
     name: Offline shell in Chromium
     needs: webkit_build
@@ -629,7 +695,7 @@ jobs:
 
   editor_webkit:
     name: Editor in WebKit
-    needs: [webkit_build, webkit_full, webkit_editor, webkit_offline, webkit_csp_script, webkit_csp_nonce]
+    needs: [webkit_build, webkit_full, webkit_editor, webkit_offline, webkit_csp_script, webkit_csp_nonce, webkit_website]
     if: always()
     runs-on: ubuntu-latest
     timeout-minutes: 8
@@ -683,6 +749,7 @@ jobs:
           OFFLINE_RESULT: ${{ needs.webkit_offline.result }}
           CSP_SCRIPT_RESULT: ${{ needs.webkit_csp_script.result }}
           CSP_NONCE_RESULT: ${{ needs.webkit_csp_nonce.result }}
+          WEBSITE_RESULT: ${{ needs.webkit_website.result }}
         run: |
           set -euo pipefail
           [ "$BUILD_RESULT" = success ] || { echo "Fixture build: $BUILD_RESULT"; exit 1; }
@@ -692,6 +759,7 @@ jobs:
           fi
           [ "$CSP_SCRIPT_RESULT" = success ] || { echo "Script policy enforced in WebKit: $CSP_SCRIPT_RESULT"; exit 1; }
           [ "$CSP_NONCE_RESULT" = success ] || { echo "Style nonce enforced in WebKit: $CSP_NONCE_RESULT"; exit 1; }
+          [ "$WEBSITE_RESULT" = success ] || { echo "Published website drawn styled in WebKit: $WEBSITE_RESULT"; exit 1; }
           if [ "$DAILY" = true ]; then
             [ "$FULL_RESULT" = success ] || { echo "Full WebKit suite: $FULL_RESULT"; exit 1; }
             [ "$OFFLINE_RESULT" = success ] || { echo "Offline shell: $OFFLINE_RESULT"; exit 1; }

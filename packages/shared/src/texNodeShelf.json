@@ -5,9 +5,23 @@
       "files": [
         "apps/mcp/src/agent/graph/nodes/handoff.js",
         "apps/mcp/src/agent/handoff.js",
-        "apps/mcp/src/agent/graph/nodes/answerCheck.js"
+        "apps/mcp/src/agent/graph/nodes/answerCheck.js",
+        "apps/mcp/src/agent/turn.js",
+        "apps/mcp/src/agent/doorTurn.js"
       ],
-      "why": "Hands a job the front door could not finish inside its turn to a background worker (Dev2, 2026-11-18: the front door stays fast; a long or multi-step job is acknowledged at once and a worker with more rounds delivers it). Asked only when the Answer check would send a draft back and its send-back budget is spent: the job's brief is their ask, the check's notice, the unsent draft and what the turn already found; the person gets the job's start tapback and the worker's report. Wired as answerCheck -> handoff (uses); unwired, such a draft goes as it is, as today."
+      "why": "Hands a job the front door could not finish inside its turn to a background worker (Dev2, 2026-11-18: the front door stays fast; a long or multi-step job is acknowledged at once and a worker with more rounds delivers it). Asked at two moments, each by its own wire, its input's cause saying which: fd -> handoff (uses) when the front door is two rounds from its bound and still calling tools (cause rounds), answerCheck -> handoff (uses) when the Answer check would send a draft back and its send-back budget is spent (cause check), and router -> handoff (uses) when the router reads the text as a long job before any answer is drafted (cause route, `doorTurn.js`). The job's brief is their ask, why it was handed on, the unsent words and what the turn already found; the person gets the job's start tapback and the worker's report. Unwired, nothing changes."
+    },
+    "examples": {
+      "files": [
+        "apps/mcp/src/agent/graph/nodes/examples.js",
+        "apps/mcp/src/agent/turnExamples.js",
+        "apps/mcp/src/agent/graph/nodes/fd.js",
+        "apps/mcp/src/agent/texEntryPoint/runTheModel.js",
+        "apps/mcp/src/agent/turn.js",
+        "apps/mcp/src/agent/turnPrompt.js",
+        "packages/shared/src/texExamples.cjs"
+      ],
+      "why": "The Training moments nearest to the text the front door is answering (Dev2, 2026-11-18: the front door's examples are picked for this text, not fixed). The front door starts it at its first step with the text and its recent lines; it embeds them with the meaning-search model and reads the nearest of the Training moments from the Tex-owned index, dropping the scored conversation, and the front door reads them in its preamble after a budget (ms, default 100). Without the index, a model, or an answer in time, the front door keeps its fixed examples. Unwired, nothing changes: a Lab draft turns it on with fd -> examples (uses)."
     }
   }
 }

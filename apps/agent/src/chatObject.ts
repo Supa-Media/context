@@ -110,13 +110,20 @@ export class SenderInbox implements DurableObject {
       );
     }
     if (path === "/routine-text") {
-      const body = (await request.json()) as { text?: unknown; idempotencyKey?: unknown; continues?: unknown; beside?: unknown };
+      const body = (await request.json()) as { text?: unknown; idempotencyKey?: unknown; continues?: unknown; beside?: unknown; source?: unknown; turn?: unknown };
       if (typeof body.text !== "string" || typeof body.idempotencyKey !== "string") {
         return new Response(null, { status: 400 });
       }
       const status = await textRoutine(
         this.state.storage,
-        { text: body.text, idempotencyKey: body.idempotencyKey, ...(typeof body.continues === "string" ? { continues: body.continues } : {}), ...(typeof body.beside === "string" ? { beside: body.beside } : {}) },
+        {
+          text: body.text,
+          idempotencyKey: body.idempotencyKey,
+          ...(typeof body.continues === "string" ? { continues: body.continues } : {}),
+          ...(typeof body.beside === "string" ? { beside: body.beside } : {}),
+          ...(typeof body.source === "string" ? { source: body.source } : {}),
+          ...(typeof body.turn === "string" ? { turn: body.turn } : {}),
+        },
         {
           fetch: this.out,
           linqApiKey: this.env.LINQ_API_KEY,

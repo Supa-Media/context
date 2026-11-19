@@ -9,7 +9,9 @@ import { useSyncExternalStore } from "react";
 
 export type RunKind = "dev" | "chat" | "node" | "gate";
 export type RunStage = "queued" | "running" | "done" | "failed";
-export type RunRow = { convId: string; msgIndex: number; node: string; ok: boolean; got: string; want: string; ran?: boolean };
+export type RunRow = { convId: string; msgIndex: number; node: string; ok: boolean; got: string; want: string; ran?: boolean; ambiguous?: boolean; usd?: number; route?: { pick?: string; sure?: number; door?: string; fellBack?: string } };
+/** A row out of a run's score: one that could not run, or an ambiguous one (its label's own gold reply fails). */
+export type RunNote = { convId: string; msgIndex: number; node: string; why: string };
 export type LabRun = {
   id: string;
   versionId: string;
@@ -27,7 +29,7 @@ export type LabRun = {
   by?: string;
   startedAt: number;
   finishedAt?: number;
-  results: { pass: number; total: number; costUsd: number; handoff?: Handoff; ms: number; perConv?: Array<{ id: string; pass: number; total: number }>; perNode?: Array<{ node: string; pass: number; total: number }>; rows?: RunRow[] } | null;
+  results: { pass: number; total: number; costUsd: number; handoff?: Handoff; ms: number; perConv?: Array<{ id: string; pass: number; total: number }>; perNode?: Array<{ node: string; pass: number; total: number }>; rows?: RunRow[]; couldNotRun?: RunNote[]; ambiguous?: RunNote[]; goldFails?: number | null } | null;
   error?: string;
   /** GitHub refused this run, and a later run has started since: the cause is fixed (`functions/texLabRuns.ts` `fixedSince`). */
   fixedSince?: boolean;
@@ -55,7 +57,13 @@ export const runLabel = (r: LabRun, title?: (id: string) => string, node?: (id: 
   r.kind === "dev" ? "Dev set" : r.kind === "chat" ? `Chat: ${title ? title(r.convId || "") : r.convId}` : r.kind === "node" ? `Node: ${node ? node(r.nodeId || "") : r.nodeId}` : "Test set gate";
 export const stageWords: Record<RunStage, [string, string]> = { queued: ["q", "Queued on GitHub"], running: ["r", "Running"], done: ["d", "Done"], failed: ["f", "Failed"] };
 export const modelsWords = (r: Pick<LabRun, "kind" | "models">) => (r.kind === "gate" ? "eval service" : r.models === "cc" ? "Claude Code" : "AI gateway");
-export const scoreWords = (r: LabRun) => (r.results ? `${r.results.pass}/${r.results.total} right` : "");
+/** The score, with the rows left out of it beside it: "40/62 right · 1 couldn't run · 2 ambiguous" (each part only when > 0). */
+export const scoreWords = (r: LabRun) => {
+  if (!r.results) return "";
+  const cannot = r.results.couldNotRun?.length ?? 0;
+  const amb = r.results.ambiguous?.length ?? 0;
+  return [`${r.results.pass}/${r.results.total} right`, ...(cannot > 0 ? [`${cannot} couldn't run`] : []), ...(amb > 0 ? [`${amb} ambiguous`] : [])].join(" · ");
+};
 export const costWords = (r: LabRun) => (r.kind === "gate" ? "eval service's own" : r.models === "cc" ? "$0.00 (subscription)" : r.results ? `$${r.results.costUsd.toFixed(3)} (AI gateway)${handoffWords(r.results.handoff)}` : "");
 
 /** What handed-off background jobs added to a run, already inside its cost (Dev2, 2026-11-18: for Finance). */

@@ -1,11 +1,14 @@
 /** Runs the model with every tool, then closes the browser, records usage, and stops on a refusal or a cancel. One step of Tex's turn (`../texEntryPoint.js`). */
 
+import { underNote } from "../replyUnder.js";
+import { speaker } from "../logRender.js";
+import { shapeNote } from "../shapeGate.js";
 import { contextsFor } from "../../context/identity.js";
 import { markUntrusted } from "../../privacy/egress.js";
 import { devShareOn, devSharePrompt } from "../devShare.js";
 import { groupChatsForTurn, groupsOn } from "../groupChats.js";
 import { ADVISOR_TOOL, advisorRequest, advisorTimeoutMs, advisorTools, jobAdvisorLine } from "../advisor.js";
-import { texConfigOf } from "../texConfig.js";
+import { TRAINING, texCacheTtl, texConfigOf } from "../texConfig.js";
 import { aiGatewayConfig } from "../aiGateway.js";
 import { carriesData, withAttachmentImages } from "../attachments.js";
 import { jobPrompt, jobReportPrompt, withBackground, withJobSteps } from "../background.js";
@@ -59,6 +62,7 @@ import { ownWorkspaceName, withWorkspaceConventions } from "../workspaceConventi
 import { threadPrompt } from "../threadView.js";
 import { sleepLineNote } from "../timeLog.js";
 import { agentTools, runTurn } from "../turn.js";
+import { examplesOptions } from "../turnExamples.js";
 import { chatHubUrl, hubPrompt } from "../hubLinks.js";
 import { VAULT_SAVED_QUESTION, withGroupVault, withVaultWatch } from "../vaultSaved.js";
 import { doItChecks } from "../doItChecks.js";
@@ -67,6 +71,7 @@ import { threadsSortAndWrite } from "../conversationThreads.js";
 import { withArchitecture } from "../texArchitecture.js";
 import { withChatWriteLock } from "../chatWriteLock.js";
 import { carriedLine, carriedRounds, rereadCarried } from "../turnResume.js";
+import { runWithDoors } from "../doorTurn.js";
 
 /** The settings this turn runs the front door with, as the Front door node logs them (`../graph/nodes/fd.js`). */
 function doorOut({ production, productionModel, fallback, router, gated, advising, planning, computers, skills, delegation, threaded }) {
@@ -121,7 +126,9 @@ export async function runTheModel(t, via) {
   t.groups = groupsRead === null ? null : await tex.wait("my_groups", groupsRead); // `[{ key, name, people, lastSeenAt }]`, also read by the cross-chat ask
   const groupChats = t.groups === null || !groupsOn(env) ? null : groupChatsForTurn({ env, groups: t.groups, timeZone, onRead: () => markUntrusted(ledger) });
   // A read offered back instead of done, and an advisor they asked for and nobody asked, go back once, on the front door too, without judges (`doItChecks.js`).
-  const doIt = chatTurn && job === null && !runner && (texted || group !== null) ? doItChecks({ question, inner: claims ?? tries }) : null;
+  // The Shape gate's read of this text, started beside the door (`graph/nodes/doorStep.js`); null with no gate, or one that was not sure (`shapeGate.js`).
+  const shape = t.shapeRead ? await tex.wait("shape_gate", t.shapeRead) : null;
+  const doIt = chatTurn && job === null && !runner && (texted || group !== null) ? doItChecks({ question, inner: claims ?? tries, shape, tagged: group?.tagged === true }) : null;
   // The setup's reply reviewer, after `claimCheck.js`: one Haiku call reads the reply against every action this turn took and the kind of turn it is, and sends it back with feedback only for a problem they would notice, at most once (five times for a task or a job's report, the advisor brought in from the third), and only on a draft written after an action (`replyJudge.js`; Dev2, 2026-11-06 and 2026-11-11). A job's report turn shows it the report.
   const askedNow = (logged ? loggedQuestion(logged.question, quoted, logged.replying) : askedWith(question, quoted)); // what the reviewers read as their text
   // The advisor, when the setup names one this deployment can run: offered on every chat turn, a job's included (`advisor.js`).
@@ -152,15 +159,31 @@ export async function runTheModel(t, via) {
   // `groupModelTurn.ts`, `inbox.ts` `acknowledgeText`), nor on a turn the gateway asked (a vault save, a hand-back).
   const reactable = !quoted?.tapback && question !== VAULT_SAVED_QUESTION && question !== HANDED_BACK_QUESTION;
   const tapping = chatTurn && reactable && job === null && !routine && report === null && !t.crossChat && drawn.wired("tools", "tapback") ? tapbackEnding({ gate: (input) => drawn.fire("tools", "tapback", input, { env }), tagged: group?.tagged === true }) : null;
-  // A draft the Answer check would send back with no send-back left hands the job to a background worker, when the config wires the Hand-off node (`../handoff.js`).
-  t.handoff = chatTurn && job === null && !routine && report === null && Boolean(background) && drawn.wired("answerCheck", "handoff") ? handoffHook({ background, gate: (input) => drawn.fire("answerCheck", "handoff", input, { env }), ask: question }) : null;
+  // A job the front door can't finish in its turn goes to a background worker, when the config wires the Hand-off node (`../handoff.js`):
+  // from a draft the Answer check would send back with no send-back left (`answerCheck -> handoff`), and from a turn two
+  // rounds from its bound and still gathering (`fd -> handoff`). Neither wired, nothing changes.
+  const handoffFrom = chatTurn && job === null && !routine && report === null && Boolean(background) ? ["answerCheck", "fd", "router"].filter((from) => drawn.wired(from, "handoff")) : [];
+  const handOff = handoffFrom.length > 0 ? handoffHook({ background, gate: (input, from) => drawn.fire(from, "handoff", input, { env }), ask: question }) : null;
+  t.handoff = handOff !== null && handoffFrom.includes("answerCheck") ? (draft, info, notice) => handOff(draft, info, notice, "answerCheck") : null;
+  const roundsOut = handOff !== null && handoffFrom.includes("fd") ? ({ messages, lastWords }) => handOff(lastWords, { messages }, "", "fd") : null;
+  // A job the router reads as long goes to the Hand-off node before any round, when the config wires `router -> handoff` (`doorTurn.js`).
+  const routeHandOff = handOff !== null && handoffFrom.includes("router") ? () => handOff("", { messages: [] }, "", "router") : null;
+  // The specialist doors' own prompts, when the setup gives them (`texConfig.js` `texModules`); none, the front door's notes.
+  const doorNotes = (door) => (typeof production?.prompts?.[`door-${door}`] === "string" ? { prompt: setupWithMap(production.prompts[`door-${door}`], turnKind({ group, job })) } : null);
   const keptOptions = { question, on: !runner, ...(aiGatewayConfig(env) !== null && drawn.wired("tools", "moveJudge") ? { judge: (input) => drawn.fire("tools", "moveJudge", input, { env }), said: saidBefore(history) } : {}) };
   const pictureRun = (name, args, callTool) => gatewayGraph({ env, writer: chatLog, turn: ledgerAt?.turn ?? null }).fire("tools", "picture", { tool: name, args }, { env, maker, callTool, cardCheck }).then((out) => out.result); // interim: io.use.picture once tools is a node
   steer?.revertWith(dispatch); // a provisional run's note saves are read first and put back through the client's own dispatcher (`steer.js`)
   // An earlier try of this same text, or a job's part cut off before it answered, carried on from what it had done (`savedRounds.js`); a routine's run has no text.
   const rounds = !runner && (job !== null || chatTurn) ? await tex.step("carried_rounds", () => carriedRounds({ store, session, body, question, job, egress: ledger }).catch(() => null)) : null;
   t.rounds = rounds; // its snapshot goes once the reply is made (`sendTheReply.js`)
-  stages?.ready(); const turn = await tex.step("model", () => runTurn({
+  stages?.ready();
+  // The router's read, awaited only by a turn that may use a door (`doorTurn.js`); its wait is logged. A text's read was started beside the Door.
+  const eligible = chatTurn === true && job === null && report === null && !t.crossChat && (rounds?.from ?? null) === null;
+  const waitStart = eligible && t.routeRead ? Date.now() : null;
+  const routed = eligible && t.routeRead ? await tex.wait("route", t.routeRead) : null;
+  const waitedMs = waitStart === null ? null : Date.now() - waitStart;
+  const args = {
+    ...examplesOptions(via.examples ?? null, texConfigOf(env), TRAINING, env?.TEX_EXAMPLES), // the nearest Training examples, when the front door is wired to them (`turnExamples.js`)
     resumeFrom: rounds?.from ?? null, keepRounds: rounds?.keep ? { keep: rounds.keep, marks: rounds.marks } : null,
     // With the log, the chat and its tapbacks are in the transcript, and the covered events are the question (`loggedTurn.js`).
     question: [logged === null && view === null ? chatLines(group) : "", logged === null ? reactedLine(reacted) : "", setAsideLine(setAside, dropped), paidLine(paid), sentNoteLinksLine(question, noteLinking.origin), (logged ? loggedQuestion(logged.question, quoted, logged.replying) : askedWith(question, quoted)), logged === null ? sleepLineNote(question) : ""].filter(Boolean).join("\n\n"),
@@ -177,7 +200,7 @@ export async function runTheModel(t, via) {
     onModel: (model) => void (store.usageModel = model),
     // A group turn's tool start goes down the stream as a step line: the Worker taps the asked message once on the first (`groupModelTurn.ts`).
     ...(group !== null && job === null && typeof step === "function" ? { onToolStart: (name) => void Promise.resolve(step(name)).catch(() => {}) } : {}),
-    answerCheck: t.answerChecks === null ? null : withJobDrafts(job, step, via.answerCheck), endsTurn: eitherEnds(background?.endsTurn ?? null, tapping?.endsTurn ?? null), sayNothing: job === null, mustAnswer: group?.tagged === true, scheduled: runner === true, roundNote: background?.roundNote ?? null, // a job's start answers at once (`background.js`); a routine's run may say nothing too, as its prompt tells it (`routine.js`; 2026-11-07: offered none, it texted why)
+    answerCheck: t.answerChecks === null ? null : withJobDrafts(job, step, via.answerCheck), silences: judge?.silences ?? null,endsTurn: eitherEnds(background?.endsTurn ?? null, tapping?.endsTurn ?? null), sayNothing: job === null, mustAnswer: group?.tagged === true, scheduled: runner === true, roundNote: background?.roundNote ?? null, // a job's start answers at once (`background.js`); a routine's run may say nothing too, as its prompt tells it (`routine.js`; 2026-11-07: offered none, it texted why)
     // Each draft is checked by the nodes the config wires after the front door (`../graph/draftBridge.js`): Answer checks, then the Reply reviewer.
     // A job's turn streams each draft first, so a part that dies in its checks hands it on (`jobSaved.js`).
     // A group turn's changing calls take the chat's write lock, one at a time across its turns side by side (`chatWriteLock.js`).
@@ -205,7 +228,7 @@ export async function runTheModel(t, via) {
     web: via.web(steer?.trackWeb((claims ?? tries)?.wrapWeb(seenWeb) ?? seenWeb) ?? (claims ?? tries)?.wrapWeb(seenWeb) ?? seenWeb), // whether the web was tried before "I couldn't open it" (`claimCheck.js`)
     history: threaded?.history ? [...threaded.history, ...(logged?.carried ?? [])] : logged?.history ?? shown, // the stretch's turns after it (`stretch.js`)
     // Per text, so said in their turn after the cached prefix (`turnPrompt.js`): who tagged it, the thread, the jobs running now, whether their computers are online.
-    turnNote: [group !== null ? taggedLine(group) : "", threaded?.note ?? "", threaded?.timeNote ?? "", threadPrompt(logged ? { thread: null } : inThread), readsNote(reads?.listed ?? []), background?.runningNow ?? "", job === null ? computersLine(computers, { planning }) : ""].map((part) => part.trim()).filter(Boolean).join("\n\n"),
+    turnNote: [group !== null ? taggedLine(group) : "", job === null ? underNote(logged?.covered, { group: group !== null, speaker }) : "", shapeNote(shape), threaded?.note ?? "", threaded?.timeNote ?? "", threadPrompt(logged ? { thread: null } : inThread), readsNote(reads?.listed ?? []), background?.runningNow ?? "", job === null ? computersLine(computers, { planning }) : ""].map((part) => part.trim()).filter(Boolean).join("\n\n"),
     // In parts, so the prompt's manifest names which one changed between two texts (a cache miss, 2026-11-14); sent as one block.
     threadNote: [["group", group !== null ? (crossWired ? groupPrompt(group, home).replace(PERSONAL_TEX_LINE, CROSS_CHAT_GROUP_LINE) : groupPrompt(group, home)) : ""], ["cross", t.crossPrompt ?? ""], ["learned", learnedSkillsLine(learned)], ["background", background?.prompt ?? ""], ["plan", planning ? PLAN_HINT : ""], ["hub", chatTurn && job === null ? hubPrompt(chatHubUrl(env, session, group), { group: group !== null }) : ""], ["job", jobPrompt(job) + carriedLine(rounds?.from)], ["jobAdvisor", jobAdvisorLine(job, advising)], ["report", jobReportPrompt(report)], ["instructions", chatTurn ? instructionsPrompt(readInstructions(body.instructions)) : ""]], steer,
     local: via.local((doIt?.wrapLocal ?? ((local) => local))([...earlier, ...(groupChats ? [groupChats.tool] : []), ...(reads !== null ? [readBackTool({ reads: reads.all, open: keptReads.open, reread: dispatch, onRead: (read) => markRead(ledger, read) })] : []), ...(threaded?.read_thread ? [threaded.read_thread] : []), ...(threaded?.read_day ? [threaded.read_day] : week?.read_day ? [week.read_day] : []), ...(chatTurn && job === null && !routine ? commandTools({ run: (command) => settingsChanged(env, controlPlane.texCommand(session.accessToken, command), command, group ? { chat: group.key } : { person: session.workspaceId }), group, consent: consentFor(question, egressJudge), snapshot: () => settingsSnapshot({ session, controlPlane, group, dispatch }) }) : []), ...(chatTurn && job === null && !routine ? computerTools({ env, session, controlPlane, group, words: question, judge: egressJudge }) : []), ...(chatTurn && job === null && !routine ? settingsTools({ session, controlPlane, group, dispatch, words: question, judge: egressJudge, onInvite: (invite) => void (ledger.chatInvite = invite) }) : []), ...crossTools, ...(tapping ? [tapping.local] : []), ...personalTex(chatTurn && job === null && !routine && !crossWired ? personalTexTool({ group, ledger, say: channel ? (line) => channel.say(line) : null, asker: typeof controlPlane?.askerIdentity === "function" ? () => controlPlane.askerIdentity(session.accessToken) : null }) : null), ...personalTex(chatTurn && job === null && !routine && group !== null ? guestNameTool({ group, ledger: groupLedger(store, group) }) : null), ...(advising ? advisorTools({ model: production.advisor, effort: production.efforts?.[production.advisor], history: shown, question, request: advisorRequest({ ai: env.AI, gateway: aiGatewayConfig(env), metadata: { feature: "assistant", workspace: String(session.workspaceId), client: "advisor" } }), meter, config: texConfigOf(env) }) : [])])), // the advisor, when the setup names one (`advisor.js`); watched for whether they asked for it (`doItChecks.js`)
@@ -222,9 +245,11 @@ export async function runTheModel(t, via) {
     notes: production !== null ? { prompt: setupWithMap(setupPromptFor(production, turnKind({ group, job })), turnKind({ group, job })) } : null, // a 1:1 text, a group or a job: each its own modules (`promptModules.js`)
     builtinModelOverride: productionModel ?? undefined,
     router,
+    cacheTtl: texCacheTtl(job === null ? "fd" : "job", texConfigOf(env)), // the prefix cache's life, the step's own in Tex's config
     efforts: turnEfforts(production, job), // a job's turn thinks as `models.job_effort` says (`production.js`)
     fallback: via.fallback(fallback),
     maxRounds: production?.maxSteps ?? undefined,
+    roundsOut, // out of rounds with the job not done: the Hand-off node, when the config wires `fd -> handoff`
     // A browser call can open a page and settle it (`infra/site-shots`
     // budgets 17 s); the default would cut a slow one short and lose it. A captcha on the page
     // adds Browserbase's 30 s solver wait, then a reload and a fresh browser (`captchaLadder.js`):
@@ -233,11 +258,13 @@ export async function runTheModel(t, via) {
     // An email or calendar change is checked by the control plane and the Mail checker before it is held (2026-10-22: three "timed out" for one email;
     // the owner: "at least 2 minutes … it's a crucial thing"). A quick group turn cuts it to its own end (`turn.js`).
     // The advisor (Opus, thinking) answers in 20 to 38 s: its own limit, longer in a job (`advisor.js`, 2026-11-12).
-    toolTimeouts: { open_page: OPEN_PAGE_TIMEOUT_MS, browse: 160_000, fill_login: 30_000, fill_card: 60_000, draw_picture: 40_000, draw_visual: 75_000, make_picture: 70_000, send_email: 120_000, save_email_draft: 120_000, calendar_event: 40_000, slack_api: 40_000, google_chat: 40_000, [ADVISOR_TOOL]: advisorTimeoutMs(job !== null, texConfigOf(env)) },
+    toolTimeouts: { open_page: OPEN_PAGE_TIMEOUT_MS, browse: 160_000, fill_login: 30_000, make_login: 30_000, fill_card: 60_000, draw_picture: 40_000, draw_visual: 75_000, make_picture: 70_000, send_email: 120_000, save_email_draft: 120_000, calendar_event: 40_000, slack_api: 40_000, google_chat: 40_000, [ADVISOR_TOOL]: advisorTimeoutMs(job !== null, texConfigOf(env)) },
     // A background job is long whether or not it streams (`background.js`).
     // So is a data file to work through: Opus plans it, so a breakdown isn't guessed on the everyday model (2026-10-24).
     planned: job !== null || carriesData(attachments), ...(streamed || job !== null ? { ...(channel?.offered ? { progress: channel } : {}), roundCap: LONG_MAX_ROUNDS, toolBudgetMs: LONG_TOOL_BUDGET_MS } : {}),
-  }));
+  };
+  // The front door's turn, or the specialist door the router picked first (`doorTurn.js`): its runTurn is this one, with the door's tools.
+  const turn = await tex.step("model", () => runWithDoors({ runTurn, args, eligible, route: routed, waitedMs, via, handOffRoute: routeHandOff, doorNotes }));
   const notAllowed = allowedBeside ? await tex.wait("allowed", allowedRead).then(() => null, (thrown) => thrown) : null; // beside the model, its no ends the turn here: no tool ran (`allowedFirst`), nothing is kept or sent
   if (notAllowed !== null) return (opened !== null && tex.after("browser_close", () => opened.close()), steer !== null && tex.after("steer_clear", () => begun.catch(() => {}).then(() => steer.clear())), await tex.step("refused", () => refused(notAllowed)));
   // The question's browser is not left running, unless held while the answer waits on them (`browserHold.js`).

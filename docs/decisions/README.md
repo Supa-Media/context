@@ -338,6 +338,8 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 - A page's emoji travel with the page
 - [A website's design is code notes](./websites/code-notes.md)
 - [A lagging row is read before a page is left out](./websites/lagging-facts.md)
+- [A page the scan could not read is not a page that left the site](./websites/scan-read-errors.md)
+- [Publish keeps a site's look; a visit never rebuilds it into "no design"](./websites/kept-design.md)
 - [Every website is also at `<handle>.ctxlc.site`](./websites/sites-domain.md)
 - A page's pasted pictures travel with the page
 - A website page can name a folder, and the folder narrows
@@ -750,6 +752,7 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 - [The Dev set's front door moves a few points between repeats](./testing/dev-front-door-measure.md)
 - [Lab Dev failures on 17 November 2026](./testing/dev-failure-breakdown-2026-11-17.md)
 - [The front door hands a long job to the worker it already has](./testing/front-door-hands-off.md)
+- [Tex quality: what the graph has to change to text like Instinct (2026-11-17)](./testing/tex-quality-architecture-2026-11-17.md)
 - [The advisor is four roles, each replayed on its own](./testing/advisor-roles.md)
 - [Pull-request checks report broadly and work narrowly](./testing/ci-pipelines.md)
 - [The Convex suite watches the gateway files Convex reaches](./testing/ci-pipelines.md)
@@ -819,6 +822,7 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 - [The front door keeps one check: "I can't open it" with nothing tried (2026-11-03)](./texting-assistant/front-door.md#one-check-stays-i-cant-open-it-with-nothing-tried-2026-11-03)
 - [No waiting asks step (2026-11-03)](./texting-assistant/front-door.md#no-waiting-asks-step-2026-11-03)
 - [Read-only calls in one round run together (2026-11-17)](./texting-assistant/front-door.md#read-only-calls-in-one-round-run-together-2026-11-17)
+- [The front door's nearest examples (2026-11-18)](./texting-assistant/example-retrieval.md)
 - [A text reaches Tex without Convex (2026-11-04)](./texting-assistant/texting-in-objects.md)
 - [Tex's warm copy, sealed in the sender's object (2026-10-31)](./texting-assistant/warm-copy.md)
 - [The setup and skills are served stale while read again (2026-11-04)](./texting-assistant/warm-copy.md#served-stale-while-read-again-2026-11-04)

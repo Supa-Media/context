@@ -147,6 +147,8 @@ export function modelSocket(env = process.env, options = {}) {
 }
 
 function socketFor(env, { wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms)), waitMs = ANSWER_WAIT_MS, pollMs = 500, blocking = false } = {}) {
+  // pollMs: how often an answer file is looked for. 100 ms, not 500: a Lab run's answerer answers in ~2 s, so a 500 ms
+  // poll added ~0.25 s of average wait per call (2026-11-18).
   const kinds = new Set(String(env[KINDS_ENV] || "claude").split(",").map((kind) => kind.trim()).filter(Boolean));
   const covers = (kind) => kinds.has(kind);
   // Every call left with no answer. The code that asked may well survive one (a turn falls back to another model, a

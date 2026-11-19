@@ -24,6 +24,8 @@
  */
 
 import { triggerWords } from "./load.mjs";
+import { blankPng } from "./sites.mjs";
+import { connectMailbox, sentMail } from "./mailbox.mjs";
 
 export const SIM_MODEL = "claude-haiku-5-5";
 const MAX_TOKENS = 1500;
@@ -38,12 +40,16 @@ export function simMemo() {
 }
 
 /** The world's instructions: what it plays, and what it never does. */
-export function simSystem({ setting, chat, today }) {
+export function simSystem({ setting, chat, today, sent = [] }) {
   const lines = (chat ?? []).slice(-CHAT_LINES).map((line) => `${line.who}: ${line.text}`);
   return [
     "You play the outside world for a texting assistant called Tex: the websites, search engine, Google Calendar and Gmail it calls.",
     "Answer each call exactly as the real service would, as JSON only, in the shape asked for. Answer the literal request, not what the asker seems to hope for.",
     "What the setting and the chat say exists, exists, as they say it. Nothing else exists just because a request assumes it: a search finds what a real search engine would for those words (sometimes nothing useful), a page shows what that site would show (a sign-in page, an error, a sold-out notice, a changed price), and an action on a site succeeds only if a real site would let it.",
+    "A draft the chat quotes is still a draft: it is not in Sent, nor in the inbox, unless the chat says it was sent or received. Mail is in Sent only as the chat or the list below says it was sent.",
+    sent.length > 0
+      ? `The Sent folder holds this mail, really sent during the run, and nothing else from the run:\n${sent.map((mail) => `- to ${mail.to}: ${mail.subject}`).join("\n")}`
+      : "The Sent folder holds no mail from the run.",
     "Where they say nothing, invent ordinary, specific details (real-looking names, times, prices, addresses), and keep them as a real service would. Never mention a test or a simulation, and never decide what Tex should do.",
     today ? `Today is ${today}.` : "",
     setting ? `Setting: ${setting}` : "",
@@ -68,15 +74,18 @@ export function jsonIn(text) {
  * The world for one conversation. `send(body)` posts a Messages request (a JSON string) and answers a Response;
  * null answers every ask with `fallback` (a run with no model, `--fake`).
  */
-export function createSimWorld({ send = null, setting = "", chat = [], today = null, person = "person", memo = simMemo(), model = SIM_MODEL }) {
-  const system = simSystem({ setting, chat, today });
+export function createSimWorld({ send = null, setting = "", chat = [], today = null, person = "person", memo = simMemo(), model = SIM_MODEL, gaps = null, sent = () => [] }) {
   const events = [];
   const address = `${String(person).toLowerCase().replace(/[^a-z0-9]/g, "") || "person"}@gmail.example`;
+  // `sent(address)`: the run's real sends, read at each ask, so a send made during the run is in the world's Sent.
+  const sentNow = () => sent(address);
 
   async function ask(kind, request, shape, fallback) {
+    const system = simSystem({ setting, chat, today, sent: sentNow() });
     const key = JSON.stringify([system, kind, request]);
     if (memo.answers.has(key)) return memo.answers.get(key);
     let answer = fallback;
+    let answered = false;
     const record = () => events.push(`world ${kind} ${JSON.stringify(request).slice(0, 200)} -> ${JSON.stringify(answer).slice(0, 600)}`);
     if (send) {
       const body = JSON.stringify({
@@ -95,15 +104,23 @@ export function createSimWorld({ send = null, setting = "", chat = [], today = n
           memo.usage.output += reply.usage?.output_tokens ?? 0;
           const text = (reply.content ?? []).filter((b) => b.type === "text").map((b) => b.text).join("");
           answer = jsonIn(text) ?? fallback;
-        }
+          answered = true;
+        } else gaps?.add(`the simulated world's model did not answer a ${kind} (status ${response.status})`);
       } catch {
-        // The world failing to answer is a page that did not load, as a real one can be; never the run's error.
+        // The world failing to answer is a page that did not load, as a real one can be; never the run's error. It is
+        // the bench's failure all the same, so the row says so (`benchGaps.mjs`).
+        gaps?.add(`the simulated world's model did not answer a ${kind}`);
       }
     }
-    memo.answers.set(key, answer);
+    // Only an answer the world gave is kept for the run: a call its model failed is asked again next time, never
+    // remembered as "the page did not load" for every later ask of the same thing.
+    if (answered || send === null) memo.answers.set(key, answer);
     record();
     return answer;
   }
+
+  // Closed for new: a check-in's look (`withClosedForNew`) asks no invented mail or calendar; the fixtures' answers stand.
+  let closed = false;
 
   const browsers = new Map();
   /** Every message a simulated search listed, by id, so its read is the same message. */
@@ -123,6 +140,12 @@ export function createSimWorld({ send = null, setting = "", chat = [], today = n
 
   return {
     events: () => [...events],
+
+    /** Turns the closed-for-new mode on or off (`withClosedForNew`): while on, no new mail or calendar is invented. */
+    closeForNew(on = true) {
+      closed = on === true;
+    },
+    newClosed: () => closed,
 
     /** Results for a `search_web` query, as Brave's `web.results` lists them. */
     async search(query) {
@@ -191,6 +214,25 @@ export function createSimWorld({ send = null, setting = "", chat = [], today = n
       return rows;
     },
 
+    /** The run's real sends, as Sent holds them (`mailbox.mjs` sentMail): found beside the world's own mail. */
+    sentRows: () => sentNow(),
+
+    /** `/gateway/chat/recent`: the messages a Chat read asks for, as the world plays the person's Chat (`chat.mjs`). */
+    async chatRecent(body) {
+      const request = {
+        ...(typeof body.to === "string" ? { to: body.to } : {}),
+        ...(typeof body.space === "string" ? { space: body.space } : {}),
+        ...(typeof body.account === "string" ? { account: body.account } : {}),
+      };
+      const got = await ask(
+        "google chat recent",
+        request,
+        '{"messages": [{"from": string, "text": string, "at": ISO string}] (0 to 8, newest first, as the person\'s Chat shows them)}',
+        { messages: [] },
+      );
+      return (Array.isArray(got.messages) ? got.messages : []).slice(0, 8).map((m, i) => ({ id: `spaces/AAA/messages/sim-${i + 1}`, from: String(m?.from ?? ""), text: String(m?.text ?? ""), at: String(m?.at ?? "") }));
+    },
+
     /** `/gateway/email/read`: one message the search listed, in full. */
     async mailRead(body) {
       const row = listed.get(String(body.id));
@@ -233,6 +275,10 @@ export function simBinding(sim, web = null) {
         return json(200, await sim.browse(body));
       }
       if (web) return await web.binding.fetch(url, init);
+      // A card drawn (`draw_visual`) in a world with no scripted site: the same blank picture the scripted web gives
+      // (`sites.mjs`). Without it every card failed to draw in a simulated world, whose made-up sites are left out
+      // (Training run of 2026-11-18: "I couldn't make the picture come out").
+      if (path === "/render") return json(200, { png: blankPng(body.width ?? 600, body.height ?? 800), width: body.width ?? 600, height: body.height ?? 800, blocked: [] });
       if (path === "/browse/close") return json(200, { ok: true });
       if (path === "/browse/hold") return json(200, { held: true });
       return json(404, { error: "not found" });
@@ -244,7 +290,8 @@ export function simBinding(sim, web = null) {
  * The control plane's Google answers, where the fixtures have none: a connected calendar's days with nothing on them,
  * and a Gmail search that finds nothing (or a mailbox when the person's fixture has none at all).
  */
-export function simulateServices(sim, controlPlane, { connectedCalendar = false, connectMail = false } = {}) {
+export function simulateServices(sim, controlPlane, { connectedCalendar = false, connectMail = false, sends = false, writtenMail = false } = {}) {
+  // `writtenMail`: the conversation's own world defines this person's Gmail (`world.mjs`). Then the world is the record.
   // `connectMail`: the person's fixture has no mailbox and the chat's setting gives Tex their email.
   const flags = controlPlane.flags;
   if (connectedCalendar) {
@@ -255,6 +302,8 @@ export function simulateServices(sim, controlPlane, { connectedCalendar = false,
     // week's read hid every event the chat had put on the others (Dev set, 2026-11-17).
     flags.calendarDays = async (body) => {
       const got = typeof fixture === "function" ? await fixture(body) : null;
+      // A check-in's look: the fixture's days only, never a made-up event (`closeForNew`).
+      if (sim.newClosed()) return got?.ok ? got : { ok: true, days: [] };
       if (!got?.ok || got.days.length === 0) return await sim.calendarDays(body, address);
       const simmed = await sim.calendarDays(body, address);
       if (!simmed?.ok) return got;
@@ -262,19 +311,30 @@ export function simulateServices(sim, controlPlane, { connectedCalendar = false,
       return { ...got, days: [...got.days, ...simmed.days.filter((day) => !have.has(day.date))].sort((a, b) => String(a.date).localeCompare(String(b.date))) };
     };
   }
-  if (connectMail) {
-    flags.mailboxes = [{ address: sim.address, folder: "0-inbox/email" }];
-    flags.emailDrafter = sim.address;
-  }
+  if (connectMail) connectMailbox(flags, sim.address, { sends }); // the test's `gmail: sends` decides whether it may send (`mailbox.mjs`)
   const search = flags.mailResults;
   const read = flags.mailMessage;
   if (!flags.mailboxes?.length) return;
   const inbox = flags.mailboxes[0].address;
   flags.mailResults = async (query) => {
-    // The fixture's mail and the world's together: a fixture hit no longer hides what the chat says arrived.
+    // The fixture's mail, the run's real sends and, where the fixture finds nothing, the world's: what was really sent is
+    // in Sent whoever searches (`mailbox.mjs` sentMail). A written mailbox is the record (2026-11-18, Training
+    // trial-hire 4): once its fixture has a hit, the simulated world is not asked, since an invented mail beside the
+    // written one contradicted it ("three emails say it's attached", when the one email attached only an invite). A
+    // search the fixture finds nothing for still asks the world, so what the chat says arrived can turn up. A mailbox
+    // with no written mail keeps the world beside the fixture, as before.
     const found = typeof search === "function" ? await search(query) : search ?? [];
+    // A check-in's look: the fixture's mail and the row's own, never a made-up message (`closeForNew`).
+    if (sim.newClosed()) return found;
     const ids = new Set(found.map((row) => row.id));
-    return [...found, ...(await sim.mailSearch(query)).filter((row) => !ids.has(row.id)).map((row) => ({ ...row, address: inbox }))];
+    const beside = [];
+    const invented = writtenMail && found.length > 0 ? [] : await sim.mailSearch(query);
+    for (const row of [...sim.sentRows(), ...invented]) {
+      if (ids.has(row.id)) continue;
+      ids.add(row.id);
+      beside.push({ ...row, address: inbox });
+    }
+    return [...found, ...beside];
   };
   flags.mailMessage = async (body) => {
     const fixture = typeof read === "function" ? await read(body) : read;
@@ -282,6 +342,21 @@ export function simulateServices(sim, controlPlane, { connectedCalendar = false,
     const message = await sim.mailRead(body);
     return message ? { ...message, address: inbox } : null;
   };
+}
+
+/**
+ * Runs `look` with the simulated world closed for new (`closeForNew`): a check-in's look, which sees the fixtures'
+ * mail and calendar and the row's own, never invented ones. Off again after, even when the look throws. `sim` may be
+ * null (a run with no simulated world), and then `look` runs as it is.
+ */
+export async function withClosedForNew(sim, look) {
+  if (!sim) return await look();
+  sim.closeForNew(true);
+  try {
+    return await look();
+  } finally {
+    sim.closeForNew(false);
+  }
 }
 
 /** A front matter value that may be a JSON string (`world_setting: "..."`). */
@@ -303,8 +378,9 @@ const unquoted = (value) => {
 export function simulateFor(front, question, person, { send = null, memo, fake = false }) {
   if (front?.world !== "simulated") return null;
   const chat = (question.earlier ?? []).map((line) => (line.from === "trigger" ? { who: "(not a text)", text: triggerWords(line) } : { who: line.from === "tex" ? "Tex" : line.who ?? person, text: line.text }));
-  const said = question.routine ?? question.checkinMail?.subject ?? question.personStarts ?? question.texts ?? question.text;
-  if (said) chat.push({ who: question.routine ? "Routine" : question.checkinMail ? "Check-in" : person, text: String(said) });
+  const checkin = Boolean(question.checkinMail || question.checkinCalendar);
+  const said = question.routine ?? question.checkinMail?.subject ?? question.checkinCalendar ?? question.personStarts ?? question.texts ?? question.text;
+  if (said) chat.push({ who: question.routine ? "Routine" : checkin ? "Check-in" : person, text: String(said) });
   return { send: fake ? null : send, memo, setting: unquoted(front.world_setting), chat };
 }
 
@@ -317,14 +393,16 @@ export function simulateFor(front, question, person, { send = null, memo, fake =
  * sites (`*.example`) are not part of a Dev chat's world: matched on any word ("flights"), they answered its searches
  * and pages before the world could (Dev set, 2026-11-17).
  */
-export function sitesIn(sites, sim) {
-  return sim ? (sites ?? []).filter((site) => !String(site.host).endsWith(".example")) : sites;
+export function sitesIn(sites, sim, own = []) {
+  // `own`: the hosts the conversation's own world declared (`setsWorld.mjs`, `world_sites:`): each is part of its chat,
+  // made-up or not.
+  return sim ? (sites ?? []).filter((site) => !String(site.host).endsWith(".example") || own.includes(String(site.host))) : sites;
 }
 
-export function simulatedWorld(models, controlPlane, { today = null, person, noMailbox = false }) {
+export function simulatedWorld(models, controlPlane, { today = null, person, noMailbox = false, writtenMail = false, gaps = null }) {
   if (!models.simulate) return null;
-  const sim = createSimWorld({ ...models.simulate, today, person });
+  const sim = createSimWorld({ ...models.simulate, today, person, gaps, sent: (address) => sentMail(controlPlane.emailCalls, address) });
   const setting = String(models.simulate.setting ?? "");
-  simulateServices(sim, controlPlane, { connectedCalendar: models.calendar === "connected", connectMail: noMailbox && /\b(?:g?mail|e-?mail|inbox)\b/i.test(setting) });
+  simulateServices(sim, controlPlane, { connectedCalendar: models.calendar === "connected", connectMail: noMailbox && /\b(?:g?mail|e-?mail|inbox)\b/i.test(setting), sends: models.gmail === "sends", writtenMail });
   return sim;
 }
