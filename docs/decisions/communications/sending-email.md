@@ -274,6 +274,21 @@ asking them. Tests: `emailGateTiming.test.mjs`, `a texted turn gives a held
 send long enough` in `gatewaySourceGuards.test.mjs`, and `a tool's own limit
 is cut` in `agentProgress.test.mjs`.
 
+### "Send" to a copy Tex showed sends that copy (2026-11-19)
+
+Tex showed the whole email and asked "Send?"; the person said "send". That
+"Send?" was not read as an offer, so the yes agreed to nothing, and Tex then
+reworded the email before calling `send_email`, which the Mail checker refused
+as a copy the person never saw. Now a text that ends by asking whether to send
+is the words a typed yes agrees to (`shownEmail.js` lastShownSend), a reworded
+copy is handed back to Tex once a turn with the copy they saw, to send exactly
+(`shownCopyOf`), and an email whose body is in those words goes at once when
+the Mail checker says they asked for it and Tex itself named every recipient
+in its recent texts (`likedPreview.js` agreedToShownEmail). Anything else is
+held as before. Cost of reverting: "send" to a shown email asks for a second
+👍, or is refused for a rewrite nobody asked for. Tests:
+`emailShownCopy.test.mjs`.
+
 ### What is deliberately not built
 
 Attaching a file that is not already on an email (a note's PDF, a picture),

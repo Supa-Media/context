@@ -28,6 +28,7 @@ import { routineTimeZone } from "../routine.js";
 import { pagesOpenedBefore } from "../turnWeb.js";
 import { TEXTS_CLIENT_ID } from "./clients.js";
 import { asksOn, groupsOn, readTexterGroups } from "../groupChats.js";
+import { lastShownSend } from "../../tools/shownEmail.js";
 
 // TEX ENTRY POINT: begin (every await below is a timed `tex` call: `texTiming.js`, checked by `scripts/tex-entry-check.mjs`)
 export async function readTheHistory(t) {
@@ -63,8 +64,9 @@ export async function readTheHistory(t) {
   const groupsRead = chatTurn && job === null && !runner && group === null && session.actorClientId === TEXTS_CLIENT_ID && (groupsOn(env) || asksOn(env)) ? tex.ahead("my_groups", () => readTexterGroups(controlPlane, session), null).catch(() => null) : null;
   const background = chatTurn ? backgroundSession({ running: runningJobsOf(body.running), job, now: received, report: report !== null, read: () => markUntrusted(ledger), machines: group !== null || session.actorClientId === TEXTS_CLIENT_ID ? () => computersRead ?? machinesFor(env, session, controlPlane) : null, inGroup: group !== null, opened: () => pagesOpenedBefore(history), chooseStart: jobStartChooser({ env, config: texConfigOf(env), writer: store.ledger ?? null, turn: typeof body.turn === "string" ? body.turn : null }) }) : null; // a job starts with the pages the chat opened (`jobPages.js`)
   session.egress.turn = runner ? { note: routine?.body ?? "" } : { history, question }; // the sharing judge's
-  // A typed yes, nothing armed, to Tex's last text offering a held change in its own words (`tools/likedPreview.js`).
-  if (session.egress.liked === undefined && approvalVerdict(question) === "approve") session.egress.liked = [lastOffer(history)].find((offer) => group === null || addressedTo(offer, group.from)) ?? undefined;
+  // A typed yes, nothing armed, to Tex's last text offering a held change in its own words (`tools/likedPreview.js`),
+  // or showing an email and asking "Send?" (`tools/shownEmail.js`).
+  if (session.egress.liked === undefined && approvalVerdict(question) === "approve") session.egress.liked = [lastOffer(history) ?? lastShownSend(history)].find((offer) => group === null || addressedTo(offer, group.from)) ?? undefined;
 
   /*
     The Mail checker reads this thread's texts and nothing else the turn read

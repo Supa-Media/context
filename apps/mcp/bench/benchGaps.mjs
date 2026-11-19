@@ -66,8 +66,19 @@ export function watchedBinding(binding, gaps) {
   return {
     async fetch(url, init) {
       if (BEHIND_A_BROWSE.has(new URL(url).pathname)) return new Response(JSON.stringify({ ok: true, shots: [] }), { status: 200, headers: { "content-type": "application/json" } });
-      const response = await binding.fetch(url, init);
-      if (response.status === 404) gaps.add(`the bench's browser Worker has no ${new URL(url).pathname}`);
+      const path = new URL(url).pathname;
+      const started = Date.now();
+      const late = () => init?.signal?.aborted === true && gaps.add(`the bench's browser Worker answered ${path} after the gateway stopped waiting (${Math.round((Date.now() - started) / 1000)} s)`);
+      let response;
+      try {
+        response = await binding.fetch(url, init);
+      } catch (error) {
+        late();
+        throw error;
+      }
+      // A simulated page slower than the browse's own limit failed the step on the bench, not on Tex (`worldStandIns.mjs` lateAnswer).
+      late();
+      if (response.status === 404) gaps.add(`the bench's browser Worker has no ${path}`);
       return response;
     },
   };

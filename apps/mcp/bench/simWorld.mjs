@@ -27,7 +27,7 @@
 
 import { triggerWords } from "./load.mjs";
 import { blankPng } from "./sites.mjs";
-import { connectMailbox, sentMail } from "./mailbox.mjs";
+import { connectMailbox, sentMail, settingMailbox } from "./mailbox.mjs";
 import { knownFacts, openWorldStore, readFixtures, worldKey, worldMode } from "./simFixtures.mjs";
 
 export const SIM_MODEL = "claude-haiku-5-5";
@@ -47,7 +47,7 @@ export function simMemo() {
 }
 
 /** The world's instructions: what it plays, and what it never does. */
-export function simSystem({ setting, chat, today, sent = [], known = "" }) {
+export function simSystem({ setting, chat, today, sent = [], known = "", own = null }) {
   const lines = (chat ?? []).slice(-CHAT_LINES).map((line) => `${line.who}: ${line.text}`);
   return [
     "You play the outside world for a texting assistant called Tex: the websites, search engine, Google Calendar and Gmail it calls.",
@@ -58,6 +58,10 @@ export function simSystem({ setting, chat, today, sent = [], known = "" }) {
       ? `The Sent folder holds this mail, really sent during the run, and nothing else from the run:\n${sent.map((mail) => `- to ${mail.to}: ${mail.subject}`).join("\n")}`
       : "The Sent folder holds no mail from the run.",
     "Where they say nothing, invent ordinary, specific details (real-looking names, times, prices, addresses), and keep them as a real service would. An email address you invent ends in .example (maria.lopez@gmail.example, bookings@airline.example) and a phone number you invent is a 555-01xx one, so no real person's is ever used. Never mention a test or a simulation, and never decide what Tex should do.",
+    // One address for the person's own Gmail (`mailbox.mjs` settingMailbox): trial-hire's world invented mail from
+    // john@lantern.example at john@gmail.example while the connected mailbox was a third address, so a send from the
+    // address Tex had read was refused as "no sender" (2026-11-19).
+    own ? `The person's own Gmail address is ${own}: mail they sent is from it, mail to them is to it, and they have no other address.` : "",
     today ? `Today is ${today}.` : "",
     known ? `What the world has already shown in this conversation. Keep every detail of it the same (names, prices, times, ids, what a page says), and never contradict it:\n${known}` : "",
     setting ? `Setting: ${setting}` : "",
@@ -82,9 +86,10 @@ export function jsonIn(text) {
  * The world for one conversation. `send(body)` posts a Messages request (a JSON string) and answers a Response;
  * null answers every ask with `fallback` (a run with no model, `--fake`).
  */
-export function createSimWorld({ send = null, setting = "", chat = [], today = null, person = "person", memo = simMemo(), model = SIM_MODEL, gaps = null, sent = () => [], store = null }) {
+export function createSimWorld({ send = null, setting = "", chat = [], today = null, person = "person", memo = simMemo(), model = SIM_MODEL, gaps = null, sent = () => [], store = null, address: named = null }) {
   const events = [];
-  const address = `${String(person).toLowerCase().replace(/[^a-z0-9]/g, "") || "person"}@gmail.example`;
+  // The mailbox the setting names (`mailbox.mjs` settingMailbox), else one made up from the person's name.
+  const address = named ?? settingMailbox(setting) ?? `${String(person).toLowerCase().replace(/[^a-z0-9]/g, "") || "person"}@gmail.example`;
   // `sent(address)`: the run's real sends, read at each ask, so a send made during the run is in the world's Sent.
   const sentNow = () => sent(address);
 
@@ -99,7 +104,7 @@ export function createSimWorld({ send = null, setting = "", chat = [], today = n
       }
     } else if (memo.answers.has(key)) return memo.answers.get(key);
     const known = knownFacts(store ? store.known() : memo.entries);
-    const system = simSystem({ setting, chat, today, sent: sentNow(), known });
+    const system = simSystem({ setting, chat, today, sent: sentNow(), known, own: address });
     let answer = fallback;
     let answered = false;
     const record = () => events.push(`world ${kind} ${JSON.stringify(request).slice(0, 200)} -> ${JSON.stringify(answer).slice(0, 600)}`);
@@ -443,9 +448,9 @@ export function sitesIn(sites, sim, own = []) {
   return sim ? (sites ?? []).filter((site) => !String(site.host).endsWith(".example") || own.includes(String(site.host))) : sites;
 }
 
-export function simulatedWorld(models, controlPlane, { today = null, person, noMailbox = false, writtenMail = false, gaps = null }) {
+export function simulatedWorld(models, controlPlane, { today = null, person, noMailbox = false, writtenMail = false, gaps = null, address = null }) {
   if (!models.simulate) return null;
-  const sim = createSimWorld({ ...models.simulate, today, person, gaps, sent: (address) => sentMail(controlPlane.emailCalls, address) });
+  const sim = createSimWorld({ ...models.simulate, today, person, gaps, address, sent: (address) => sentMail(controlPlane.emailCalls, address) });
   const setting = String(models.simulate.setting ?? "");
   simulateServices(sim, controlPlane, { connectedCalendar: models.calendar === "connected", connectMail: noMailbox && /\b(?:g?mail|e-?mail|inbox)\b/i.test(setting), sends: models.gmail === "sends", writtenMail });
   return sim;
