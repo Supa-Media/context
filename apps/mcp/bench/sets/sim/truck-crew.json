@@ -1,18 +1,845 @@
-{"conversation": "truck-crew", "answers": [
-{"key":"browser page {\"open\":\"https://squareup.com/us/en/hardware\",\"signedIn\":false}","kind":"browser page","request":{"open":"https://squareup.com/us/en/hardware","signedIn":false},"answer":{"ran":[{"ok":true}],"url":"https://squareup.com/us/en/hardware","title":"Square Hardware: Card Readers, Terminals & POS Devices | Square","text":"Square hardware\n\nPick the device that fits how you sell. Every Square device works with the free Square Point of Sale app, and orders over $50 ship free.\n\nSquare Reader (contactless and chip)\n$59.00 USD\nAccepts chip, tap and swipe. Connects to your phone or tablet over Bluetooth.\n\nSquare Terminal\n$299.00 USD\nAll-in-one countertop terminal with a built-in printer and touchscreen.\n\nSquare Handheld\nPrice shown at checkout\nPortable terminal for taking payments at the table or the window.\n\nSquare Stand\nPrice shown at checkout\nTablet stand with a built-in card reader slot.\n\nNot sure which one to get? Compare devices side by side, or see how hardware pricing works with software plans.\n\nProcessing fees apply to every card payment. See Square pricing for details.","elements":[{"kind":"link","label":"Order Square hardware","href":"https://squareup.com/us/en/hardware/order-hardware"},{"kind":"link","label":"Square point of sale software","href":"https://squareup.com/us/en/point-of-sale"},{"kind":"link","label":"Square pricing","href":"https://squareup.com/us/en/pricing"},{"kind":"link","label":"Compare Square hardware","href":"https://squareup.com/us/en/hardware/compare"},{"kind":"button","label":"Shop Square Reader"},{"kind":"button","label":"Shop Square Terminal"}]}},
-{"key":"browser page {\"open\":\"https://squareup.com/us/en/hardware/compare\",\"signedIn\":false}","kind":"browser page","request":{"open":"https://squareup.com/us/en/hardware/compare","signedIn":false},"answer":{"ran":[{"ok":true}],"url":"https://squareup.com/us/en/hardware/compare","title":"Compare Square Hardware | Square","text":"Compare Square hardware\n\nFind the device that fits how you sell. Every Square device works with the free Square Point of Sale app, and orders over $50 ship free.\n\nSquare Reader (contactless and chip)\n$59.00 USD\nBest for mobile vendors and farmers markets. Accepts chip, tap and swipe. Connects to your phone or tablet over Bluetooth.\n\nSquare Terminal\n$299.00 USD\nBest for fixed counters. All-in-one countertop terminal with a built-in printer and touchscreen. Works without Wi-Fi using cellular.\n\nSquare Handheld\nPrice shown at checkout\nBest for table service. Portable terminal with a built-in printer and touchscreen.\n\nNot sure which to pick? Start with the Square Reader if you take payments away from a fixed location.\n\nOrder Square hardware","elements":[{"kind":"link","label":"Order Square hardware","href":"https://squareup.com/us/en/hardware/order-hardware"},{"kind":"link","label":"Square point of sale software","href":"https://squareup.com/us/en/point-of-sale"},{"kind":"link","label":"Square pricing","href":"https://squareup.com/us/en/pricing"},{"kind":"button","label":"Add Square Reader to cart"},{"kind":"button","label":"Add Square Terminal to cart"}]}},
-{"key":"browser page {\"open\":\"https://squareup.com/us/en/hardware/order-hardware\",\"signedIn\":false}","kind":"browser page","request":{"open":"https://squareup.com/us/en/hardware/order-hardware","signedIn":false},"answer":{"ran":[{"ok":true}],"url":"https://squareup.com/us/en/hardware/order-hardware","title":"Order Square Hardware | Square","text":"Order Square hardware\n\nAccept payments anywhere with Square hardware. Every device works with Square's free point of sale app and comes with free shipping on orders over $50.\n\nSquare Reader (contactless and chip)\n$59.00 USD\nAccepts chip, tap and swipe. Plugs into your phone or tablet with Bluetooth. Ships in 1 to 2 business days.\n\nSquare Terminal\n$299.00 USD\nAll-in-one countertop terminal with a built-in printer and touchscreen. Works without Wi-Fi using cellular data. Ships in 2 to 3 business days.\n\nSquare Register\n$599.00 USD\nFull countertop register with a 14-inch screen, cash drawer and receipt printer. Ships in 3 to 5 business days.\n\nSquare Stand\n$149.00 USD\nAdjustable stand that holds an iPad at the counter. Ships in 2 to 3 business days.\n\nIn-person processing: 2.6% + 15¢ per card transaction. No monthly fee on the free plan. Hardware can also be paid in monthly installments on approved orders.\n\nTo place an order, sign in to your Square account.\n\nSign in   Create account","elements":[{"kind":"link","label":"Square","href":"https://squareup.com/us/en"},{"kind":"link","label":"Hardware","href":"https://squareup.com/us/en/hardware"},{"kind":"link","label":"Pricing","href":"https://squareup.com/us/en/pricing"},{"kind":"link","label":"Help","href":"https://squareup.com/help/us/en"},{"kind":"button","label":"Sign in"},{"kind":"button","label":"Create account"},{"kind":"button","label":"Add to cart (Square Reader)"},{"kind":"button","label":"Add to cart (Square Terminal)"},{"kind":"button","label":"Add to cart (Square Register)"},{"kind":"button","label":"Add to cart (Square Stand)"},{"kind":"link","label":"Shipping and returns","href":"https://squareup.com/us/en/hardware/shipping"}]}},
-{"key":"browser page {\"open\":\"https://squareup.com/us/en/hardware/register\",\"signedIn\":false}","kind":"browser page","request":{"open":"https://squareup.com/us/en/hardware/register","signedIn":false},"answer":{"ran":[{"ok":true}],"url":"https://squareup.com/us/en/hardware/register","title":"Page not found | Square","text":"Page not found\n\nSorry, we couldn't find the page you were looking for. It may have been moved or no longer exists.\n\nTry one of these instead:\nOrder Square hardware\nSquare point of sale software\nSquare pricing","elements":[{"kind":"link","label":"Order Square hardware","href":"https://squareup.com/us/en/hardware/order-hardware"},{"kind":"link","label":"Square point of sale software","href":"https://squareup.com/us/en/point-of-sale"},{"kind":"link","label":"Square pricing","href":"https://squareup.com/us/en/pricing"},{"kind":"link","label":"Square home","href":"https://squareup.com/us/en"}]}},
-{"key":"browser page {\"open\":\"https://squareup.com/us/en/pricing\",\"signedIn\":false}","kind":"browser page","request":{"open":"https://squareup.com/us/en/pricing","signedIn":false},"answer":{"ran":[{"ok":true}],"url":"https://squareup.com/us/en/pricing","title":"Square Pricing: Plans & Fees for Small Businesses | Square","text":"Simple, transparent pricing for in-person payments\n\nNo monthly fee for the Free software plan. Pay only for what you process.\n\nIn-person processing: 2.6% + 15¢ per tap, dip or swipe transaction. Keyed-in transactions: 3.5% + 15¢.\n\nSoftware plans\nFree: $0/mo. Core point-of-sale features, inventory basics, and reporting for one location.\nPlus: $29/mo per location. Adds staff management, advanced reporting, and priority support.\nPremium: Custom pricing. For businesses with multiple locations and complex needs.\n\nHardware\nSquare Reader (contactless and chip): $59.\nSquare Terminal: $299.\nSquare Register: $699 for the full register bundle.\nSquare Stand: $149.\n\nHardware prices are one-time purchases. Some devices are also available through monthly financing with approved credit. Prices exclude tax and shipping. Processing rates may vary for certain card types and sales channels.\n\nSign up for free or log in to see your current plan and rates.","elements":[{"kind":"link","label":"Square Pricing","href":"https://squareup.com/us/en/pricing"},{"kind":"link","label":"Hardware","href":"https://squareup.com/us/en/hardware"},{"kind":"link","label":"Point of Sale","href":"https://squareup.com/us/en/point-of-sale"},{"kind":"link","label":"Log in","href":"https://squareup.com/login"},{"kind":"button","label":"Get started"},{"kind":"button","label":"Compare plans"},{"kind":"link","label":"Square Reader","href":"https://squareup.com/us/en/hardware/reader"},{"kind":"link","label":"Square Terminal","href":"https://squareup.com/us/en/hardware/terminal"},{"kind":"link","label":"Square Register","href":"https://squareup.com/us/en/hardware/register"},{"kind":"link","label":"Contact sales","href":"https://squareup.com/us/en/contact-sales"}]}},
-{"key":"browser page {\"open\":\"https://www.clover.com/pricing\",\"signedIn\":false}","kind":"browser page","request":{"open":"https://www.clover.com/pricing","signedIn":false},"answer":{"ran":[{"ok":true}],"url":"https://www.clover.com/us/en/pricing","title":"Clover Pricing: Hardware, Software Plans and Processing Fees","text":"Clover Pricing\n\nSimple, transparent pricing for in-person payments.\n\nSoftware plans\nStarter: $0/month. Accept cards and basic payments. Clover Go and Clover Flex supported.\nStandard: $14.95/month per device. Adds reporting, inventory tracking and employee management.\nPro: $34.95/month per device. Adds advanced reporting, kitchen display integration and priority support.\nSoftware plans are billed monthly and can be changed or cancelled at any time.\n\nIn-person processing\n2.3% + 15¢ per tap, dip or swipe transaction on Starter, Standard and Pro plans.\nKeyed-in transactions: 3.5% + 15¢.\n\nHardware is sold separately. Clover Flex starts at $89 upfront or $4/month device payment plan. Clover Mini starts at $699 upfront.\n\nGet started","elements":[{"kind":"link","label":"Clover Hardware","href":"https://www.clover.com/us/en/hardware"},{"kind":"link","label":"Compare plans","href":"https://www.clover.com/us/en/pricing#plans"},{"kind":"link","label":"Processing rates","href":"https://www.clover.com/us/en/pricing#processing"},{"kind":"button","label":"Get started"},{"kind":"link","label":"Contact sales","href":"https://www.clover.com/us/en/contact-sales"}]}},
-{"key":"browser page {\"open\":\"https://www.clover.com/us/en/hardware\",\"signedIn\":false}","kind":"browser page","request":{"open":"https://www.clover.com/us/en/hardware","signedIn":false},"answer":{"ran":[{"ok":true}],"url":"https://www.clover.com/us/en/hardware","title":"Clover Hardware | Clover Point of Sale Devices","text":"Clover Hardware\n\nFind the right device for your business. Compare Clover Flex, Clover Mini, Clover Go and Clover Station.\n\nClover Flex: Handheld countertop terminal with built-in printer and Wi-Fi/cellular connectivity. Accepts chip, tap and swipe. Starts at $89 upfront or $4/month device payment plan.\n\nClover Mini: Compact countertop POS with 12.2\" touchscreen and built-in receipt printer. Starts at $699 upfront.\n\nClover Go: Mobile card reader that pairs with your smartphone. Starts at $49 upfront.\n\nClover Station: Full countertop POS system for high-volume locations. Starts at $1,349 upfront.\n\nDevice prices vary by model. Processing rates and software plans are sold separately. See Clover Pricing for software plan options and in-person card processing rates.\n\nFinancing available on select devices. Taxes and shipping calculated at checkout.\n\nSign in to view your account, order history and saved carts.\n\nAll devices include a 1-year limited hardware warranty.","elements":[{"kind":"link","label":"Clover Flex","href":"https://www.clover.com/us/en/hardware/clover-flex"},{"kind":"link","label":"Clover Mini","href":"https://www.clover.com/us/en/hardware/clover-mini"},{"kind":"link","label":"Clover Go","href":"https://www.clover.com/us/en/hardware/clover-go"},{"kind":"link","label":"Clover Station","href":"https://www.clover.com/us/en/hardware/clover-station"},{"kind":"link","label":"Pricing","href":"https://www.clover.com/us/en/pricing"},{"kind":"button","label":"Sign in"},{"kind":"textbox","label":"Search hardware"},{"kind":"link","label":"Compare devices","href":"https://www.clover.com/us/en/hardware/compare"}]}},
-{"key":"browser page {\"open\":\"https://www.clover.com/us/en/pricing\",\"signedIn\":false}","kind":"browser page","request":{"open":"https://www.clover.com/us/en/pricing","signedIn":false},"answer":{"ran":[{"ok":true}],"url":"https://www.clover.com/us/en/pricing","title":"Clover Pricing: Hardware, Software Plans and Processing Fees","text":"Clover Pricing\n\nSimple, transparent pricing for in-person payments.\n\nSoftware plans\nStarter: $0/month. Accept cards and basic payments. Clover Go and Clover Flex supported.\nStandard: $14.95/month per device. Adds reporting, inventory tracking and employee management.\nPro: $34.95/month per device. Adds advanced reporting, kitchen display integration and priority support.\nSoftware plans are billed monthly and can be changed or cancelled at any time.\n\nIn-person processing\nCard-present rate: 2.6% + 15¢ per transaction on Clover Flex, Clover Mini and Clover Go, depending on plan.\nKeyed-in transactions: 3.5% + 15¢.\nRates shown are starting rates. Final rates depend on your business type, volume and plan.\n\nHardware\nDevice prices vary by model. Hardware can be paid upfront or financed through a monthly device payment plan. See Clover Hardware for current device prices.\n\nSign in to view your account pricing.\n\nContact sales | Compare plans | Clover Hardware","elements":[{"kind":"link","label":"Clover Hardware","href":"https://www.clover.com/us/en/hardware"},{"kind":"link","label":"Compare plans","href":"https://www.clover.com/us/en/pricing#compare"},{"kind":"link","label":"Contact sales","href":"https://www.clover.com/us/en/contact-sales"},{"kind":"button","label":"Sign in"}]}},
-{"key":"google calendar days {\"date\":\"2026-10-17\",\"days\":2}","kind":"google calendar days","request":{"date":"2026-10-17","days":2},"answer":{"days":[{"date":"2026-10-17","events":[{"start":"07:00","end":"08:00","title":"Generator pickup","where":"Midwest Rental Yard, 4420 S Cicero Ave, Chicago, IL"},{"start":"10:00","end":"16:00","title":"Logan Square market","where":"Logan Square Farmers Market, 2600 N Milwaukee Ave, Chicago, IL"},{"start":"16:00","end":"22:00","title":"Kofi's cousin's wedding","where":"St. Hyacinth Basilica Hall, 3300 N Wolcott Ave, Chicago, IL"}]},{"date":"2026-10-18","events":[{"start":"09:00","end":"12:00","title":"Commissary deep clean","where":"Ember commissary, 1840 W Fullerton Ave, Chicago, IL"}]}]}},
-{"key":"web search {\"query\":\"clover card reader hardware price monthly fees\"}","kind":"web search","request":{"query":"Clover card reader hardware price monthly fees"},"answer":{"results":[{"title":"Clover Hardware | Clover Point of Sale Devices","url":"https://www.clover.com/us/en/hardware","description":"Compare Clover Flex, Clover Mini, Clover Go and Clover Station hardware. Device prices vary by model, and processing rates and software plans are sold separately."},{"title":"Clover Pricing: Hardware, Software Plans and Processing Fees","url":"https://www.clover.com/us/en/pricing","description":"Breakdown of Clover's monthly software plan options and in-person card processing rates. Hardware is typically paid upfront or financed through a monthly device payment plan."},{"title":"Clover Flex vs Clover Mini vs Clover Go: Which Card Reader Is Right for a Food Truck?","url":"https://www.posreviewsguide.com/clover-flex-mini-go-comparison","description":"Review comparing battery life, connectivity and price of the Clover Flex, Mini and Go. Covers which models work offline, which take tap-to-pay, and typical monthly costs for small vendors."},{"title":"Clover Card Reader Monthly Fees Explained (2026)","url":"https://www.merchantcostsguide.com/clover-monthly-fees-2026","description":"Explains the Clover Basic, Standard and Advanced software tiers, per-device fees, and the difference between flat-rate and interchange-plus processing for mobile food businesses."},{"title":"Clover Reviews - Pros, Cons and Hidden Costs","url":"https://www.trustpilot.com/review/clover.com","description":"Customer reviews mention hardware costs, contract length, early termination fees and support quality. Many reviewers note that the advertised device price does not include the monthly software plan."}]}},
-{"key":"web search {\"query\":\"clover flex\"}","kind":"web search","request":{"query":"Clover Flex"},"answer":{"results":[{"title":"Clover Flex | Handheld Countertop Terminal | Clover","url":"https://www.clover.com/us/en/hardware/flex","description":"Clover Flex is a handheld countertop terminal with a built-in printer and Wi-Fi or cellular connectivity. It accepts chip, tap and swipe payments. Starts at $89 upfront or $4/month on a device payment plan."},{"title":"Clover Hardware | Clover Point of Sale Devices","url":"https://www.clover.com/us/en/hardware","description":"Compare Clover Flex, Clover Mini, Clover Go and Clover Station. Clover Flex starts at $89 upfront or $4/month device payment plan."},{"title":"Clover Pricing: Hardware, Software Plans and Processing Fees","url":"https://www.clover.com/us/en/pricing","description":"Software plans: Starter at $0/month, Standard at $14.95/month per device and Pro at $34.95/month per device. Clover Flex is supported on all plans. Processing rates are billed separately."},{"title":"Clover Flex review: pros, cons and who it suits | Small Business Tech Guide","url":"https://www.smallbiztechguide.com/reviews/clover-flex","description":"A hands-on look at Clover Flex for food trucks and mobile vendors, covering battery life, cellular versus Wi-Fi setup, printer quality and how it compares with Square Terminal."}]}},
-{"key":"web search {\"query\":\"clover go\"}","kind":"web search","request":{"query":"Clover Go"},"answer":{"results":[{"title":"Clover Go | Mobile Card Reader for Clover POS","url":"https://www.clover.com/us/en/hardware/clover-go","description":"Clover Go is a compact mobile card reader that pairs with your phone or tablet over Bluetooth. Accepts chip, tap and swipe payments and works with Clover's free point of sale app."},{"title":"Clover Hardware | Clover Point of Sale Devices","url":"https://www.clover.com/us/en/hardware","description":"Compare Clover Flex, Clover Mini, Clover Go and Clover Station. Device prices vary by model, and processing rates and software plans are sold separately."},{"title":"Clover Go Setup Guide | Clover Help Center","url":"https://help.clover.com/en/articles/clover-go-setup","description":"Step-by-step instructions for pairing Clover Go with the Clover Go app, charging the battery, and running your first test transaction."},{"title":"Clover Go Review: Pros, Cons and Who It's Best For","url":"https://www.pcmag.com/reviews/clover-go","description":"Our hands-on review of Clover Go covers battery life, card reader speed, and how it compares with Square Reader for food trucks and pop-up sellers."}]}},
-{"key":"web search {\"query\":\"clover mini\"}","kind":"web search","request":{"query":"Clover Mini"},"answer":{"results":[{"title":"Clover Mini | Compact Countertop POS System","url":"https://www.clover.com/us/en/point-of-sale/mini","description":"Clover Mini is a compact countertop POS with a 12.2\" touchscreen and built-in receipt printer. Starts at $699 upfront. Accepts chip, tap, swipe and contactless payments."},{"title":"Clover Hardware | Clover Point of Sale Devices","url":"https://www.clover.com/us/en/hardware","description":"Compare Clover Flex, Clover Mini, Clover Go and Clover Station. Clover Mini is listed alongside the other devices, with upfront pricing and device payment options."},{"title":"Clover Mini Review: Is It Worth It for Small Restaurants?","url":"https://www.pcmag.com/reviews/clover-mini","description":"Hands-on review of the Clover Mini covering setup, printer speed, screen size and how it handles busy counter service. Notes it needs Wi-Fi or ethernet for card processing."},{"title":"Clover Mini Specs and Setup Guide - Clover Help Center","url":"https://help.clover.com/s/article/clover-mini-setup","description":"Setup steps for the Clover Mini, including connecting to Wi-Fi or ethernet, activating your merchant account and installing apps from the Clover App Market."},{"title":"Clover Mini Pricing, Monthly Fees and Processing Rates","url":"https://www.clover.com/us/en/pricing","description":"Software plans for Clover devices, including Starter at $0/month and Standard at $14.95/month per device. Card processing rates apply on top of device cost."}]}},
-{"key":"web search {\"query\":\"clover standard\"}","kind":"web search","request":{"query":"Clover Standard"},"answer":{"results":[{"title":"Clover Pricing: Hardware, Software Plans and Processing Fees","url":"https://www.clover.com/us/en/pricing","description":"Standard: $14.95/month per device. Adds reporting, inventory tracking and employee management. Software plans are billed monthly and can be changed or cancelled at any time."},{"title":"Clover Standard Plan: What's Included | Clover Help Center","url":"https://community.clover.com/articles/clover-standard-plan-features","description":"Overview of features on the Clover Standard software plan, including inventory tracking, sales reports by employee and item, and staff permission settings. Compare against Starter and Pro before you switch plans."},{"title":"Clover Point of Sale Review 2026: Plans, Hardware and Fees","url":"https://www.smallbizpos-reviews.com/clover-review","description":"Independent review of Clover's software tiers. The Standard plan at $14.95 per device per month is the most common pick for single-location restaurants and food trucks that need inventory tracking."},{"title":"Clover Starter vs Standard vs Pro: Which Plan Fits?","url":"https://www.paymentprocessingguide.com/clover-plans-compared","description":"Side-by-side comparison of Clover's three software plans. Standard adds reporting and employee management over Starter, and Pro adds kitchen display integration and priority support."}]}},
-{"key":"web search {\"query\":\"clover starter\"}","kind":"web search","request":{"query":"Clover Starter"},"answer":{"results":[{"title":"Clover Pricing: Hardware, Software Plans and Processing Fees","url":"https://www.clover.com/us/en/pricing","description":"Clover's Starter plan is $0/month and covers accepting cards and basic payments, with Clover Go and Clover Flex supported. Standard is $14.95/month per device and Pro is $34.95/month per device. Software plans are billed monthly and can be changed or cancelled at any time."},{"title":"Clover Hardware | Clover Point of Sale Devices","url":"https://www.clover.com/us/en/hardware","description":"Compare Clover Flex, Clover Mini, Clover Go and Clover Station. Clover Flex starts at $89 upfront or $4/month on a device payment plan. Software plans and processing rates are sold separately."},{"title":"What is the Clover Starter plan? - Clover Help Center","url":"https://help.clover.com/s/article/clover-starter-plan","description":"The Starter plan includes card acceptance, basic sales reporting and a single user account. Upgrade to Standard or Pro at any time from your Clover dashboard to add inventory tracking, employee management or kitchen display integration."},{"title":"Clover Starter vs Standard: Which Plan Fits a Food Truck?","url":"https://www.pointofsalereview.com/clover-starter-vs-standard","description":"A comparison of Clover's two entry plans for small food businesses. Starter covers basic card payments at no monthly software cost, while Standard adds reporting and inventory tracking for $14.95 per device per month. Processing fees are charged separately on each plan."}]}},
-{"key":"web search {\"query\":\"clover station\"}","kind":"web search","request":{"query":"Clover Station"},"answer":{"results":[{"title":"Clover Station | Clover Point of Sale Devices","url":"https://www.clover.com/us/en/hardware/clover-station","description":"Clover Station is a countertop point-of-sale system with a touchscreen, built-in receipt printer and cash drawer support. It accepts chip, tap and swipe payments and is sold alongside Clover Flex, Clover Mini and Clover Go."},{"title":"Clover Hardware | Clover Point of Sale Devices","url":"https://www.clover.com/us/en/hardware","description":"Compare Clover Flex, Clover Mini, Clover Go and Clover Station hardware. Device prices vary by model, and processing rates and software plans are sold separately."},{"title":"Clover Pricing: Hardware, Software Plans and Processing Fees","url":"https://www.clover.com/us/en/pricing","description":"Breakdown of Clover's monthly software plan options and in-person card processing rates. Hardware is typically paid upfront or financed through a monthly device payment plan."},{"title":"Clover Station Duo | Clover","url":"https://www.clover.com/us/en/hardware/clover-station-duo","description":"Clover Station Duo adds a customer-facing second screen to the Clover Station setup, so customers can see totals and tip or sign on their own display."},{"title":"Clover Station vs. Clover Mini: Which Is Right for Your Business? | Clover Blog","url":"https://blog.clover.com/clover-station-vs-clover-mini/","description":"A comparison of Clover's two countertop systems covering screen size, printer and drawer options, and which types of counter-service businesses each one suits."}]}}
-]}
+{
+ "conversation": "truck-crew",
+ "answers": [
+  {
+   "key": "browser page {\"open\":\"https://squareup.com/us/en/hardware\",\"signedIn\":false}",
+   "kind": "browser page",
+   "request": {
+    "open": "https://squareup.com/us/en/hardware",
+    "signedIn": false
+   },
+   "answer": {
+    "ran": [
+     {
+      "ok": true
+     }
+    ],
+    "url": "https://squareup.com/us/en/hardware",
+    "title": "Square Hardware: Card Readers, Terminals & POS Devices | Square",
+    "text": "Square hardware\n\nPick the device that fits how you sell. Every Square device works with the free Square Point of Sale app, and orders over $50 ship free.\n\nSquare Reader (contactless and chip)\n$59.00 USD\nAccepts chip, tap and swipe. Connects to your phone or tablet over Bluetooth.\n\nSquare Terminal\n$299.00 USD\nAll-in-one countertop terminal with a built-in printer and touchscreen.\n\nSquare Handheld\nPrice shown at checkout\nPortable terminal for taking payments at the table or the window.\n\nSquare Stand\nPrice shown at checkout\nTablet stand with a built-in card reader slot.\n\nNot sure which one to get? Compare devices side by side, or see how hardware pricing works with software plans.\n\nProcessing fees apply to every card payment. See Square pricing for details.",
+    "elements": [
+     {
+      "kind": "link",
+      "label": "Order Square hardware",
+      "href": "https://squareup.com/us/en/hardware/order-hardware"
+     },
+     {
+      "kind": "link",
+      "label": "Square point of sale software",
+      "href": "https://squareup.com/us/en/point-of-sale"
+     },
+     {
+      "kind": "link",
+      "label": "Square pricing",
+      "href": "https://squareup.com/us/en/pricing"
+     },
+     {
+      "kind": "link",
+      "label": "Compare Square hardware",
+      "href": "https://squareup.com/us/en/hardware/compare"
+     },
+     {
+      "kind": "button",
+      "label": "Shop Square Reader"
+     },
+     {
+      "kind": "button",
+      "label": "Shop Square Terminal"
+     }
+    ]
+   }
+  },
+  {
+   "key": "browser page {\"open\":\"https://squareup.com/us/en/hardware/compare\",\"signedIn\":false}",
+   "kind": "browser page",
+   "request": {
+    "open": "https://squareup.com/us/en/hardware/compare",
+    "signedIn": false
+   },
+   "answer": {
+    "ran": [
+     {
+      "ok": true
+     }
+    ],
+    "url": "https://squareup.com/us/en/hardware/compare",
+    "title": "Compare Square Hardware | Square",
+    "text": "Compare Square hardware\n\nFind the device that fits how you sell. Every Square device works with the free Square Point of Sale app, and orders over $50 ship free.\n\nSquare Reader (contactless and chip)\n$59.00 USD\nBest for mobile vendors and farmers markets. Accepts chip, tap and swipe. Connects to your phone or tablet over Bluetooth.\n\nSquare Terminal\n$299.00 USD\nBest for fixed counters. All-in-one countertop terminal with a built-in printer and touchscreen. Works without Wi-Fi using cellular.\n\nSquare Handheld\nPrice shown at checkout\nBest for table service. Portable terminal with a built-in printer and touchscreen.\n\nNot sure which to pick? Start with the Square Reader if you take payments away from a fixed location.\n\nOrder Square hardware",
+    "elements": [
+     {
+      "kind": "link",
+      "label": "Order Square hardware",
+      "href": "https://squareup.com/us/en/hardware/order-hardware"
+     },
+     {
+      "kind": "link",
+      "label": "Square point of sale software",
+      "href": "https://squareup.com/us/en/point-of-sale"
+     },
+     {
+      "kind": "link",
+      "label": "Square pricing",
+      "href": "https://squareup.com/us/en/pricing"
+     },
+     {
+      "kind": "button",
+      "label": "Add Square Reader to cart"
+     },
+     {
+      "kind": "button",
+      "label": "Add Square Terminal to cart"
+     }
+    ]
+   }
+  },
+  {
+   "key": "browser page {\"open\":\"https://squareup.com/us/en/hardware/order-hardware\",\"signedIn\":false}",
+   "kind": "browser page",
+   "request": {
+    "open": "https://squareup.com/us/en/hardware/order-hardware",
+    "signedIn": false
+   },
+   "answer": {
+    "ran": [
+     {
+      "ok": true
+     }
+    ],
+    "url": "https://squareup.com/us/en/hardware/order-hardware",
+    "title": "Order Square Hardware | Square",
+    "text": "Order Square hardware\n\nAccept payments anywhere with Square hardware. Every device works with Square's free point of sale app and comes with free shipping on orders over $50.\n\nSquare Reader (contactless and chip)\n$59.00 USD\nAccepts chip, tap and swipe. Plugs into your phone or tablet with Bluetooth. Ships in 1 to 2 business days.\n\nSquare Terminal\n$299.00 USD\nAll-in-one countertop terminal with a built-in printer and touchscreen. Works without Wi-Fi using cellular data. Ships in 2 to 3 business days.\n\nSquare Register\n$599.00 USD\nFull countertop register with a 14-inch screen, cash drawer and receipt printer. Ships in 3 to 5 business days.\n\nSquare Stand\n$149.00 USD\nAdjustable stand that holds an iPad at the counter. Ships in 2 to 3 business days.\n\nIn-person processing: 2.6% + 15¢ per card transaction. No monthly fee on the free plan. Hardware can also be paid in monthly installments on approved orders.\n\nTo place an order, sign in to your Square account.\n\nSign in   Create account",
+    "elements": [
+     {
+      "kind": "link",
+      "label": "Square",
+      "href": "https://squareup.com/us/en"
+     },
+     {
+      "kind": "link",
+      "label": "Hardware",
+      "href": "https://squareup.com/us/en/hardware"
+     },
+     {
+      "kind": "link",
+      "label": "Pricing",
+      "href": "https://squareup.com/us/en/pricing"
+     },
+     {
+      "kind": "link",
+      "label": "Help",
+      "href": "https://squareup.com/help/us/en"
+     },
+     {
+      "kind": "button",
+      "label": "Sign in"
+     },
+     {
+      "kind": "button",
+      "label": "Create account"
+     },
+     {
+      "kind": "button",
+      "label": "Add to cart (Square Reader)"
+     },
+     {
+      "kind": "button",
+      "label": "Add to cart (Square Terminal)"
+     },
+     {
+      "kind": "button",
+      "label": "Add to cart (Square Register)"
+     },
+     {
+      "kind": "button",
+      "label": "Add to cart (Square Stand)"
+     },
+     {
+      "kind": "link",
+      "label": "Shipping and returns",
+      "href": "https://squareup.com/us/en/hardware/shipping"
+     }
+    ]
+   }
+  },
+  {
+   "key": "browser page {\"open\":\"https://squareup.com/us/en/hardware/reader\",\"signedIn\":false}",
+   "kind": "browser page",
+   "request": {
+    "open": "https://squareup.com/us/en/hardware/reader",
+    "signedIn": false
+   },
+   "answer": {
+    "ran": [
+     {
+      "ok": true
+     }
+    ],
+    "url": "https://squareup.com/us/en/hardware/reader",
+    "title": "Square Reader | Contactless and Chip Card Reader | Square",
+    "text": "Square Reader (contactless and chip)\n\n$59.00 USD\n\nAccept chip, tap and swipe payments anywhere. Square Reader connects to your phone or tablet over Bluetooth and works with the free Square Point of Sale app.\n\nWhat's included:\n- Square Reader\n- Quick-start guide\n\nSpecs:\n- Payment types: chip, contactless (tap), magstripe (swipe)\n- Connection: Bluetooth\n- Works with iOS and Android devices\n\nShipping: ships in 1 to 2 business days. Orders over $50 ship free.\n\nFor processing rates, see Square pricing.\n\nAdd to cart",
+    "elements": [
+     {
+      "kind": "button",
+      "label": "Add to cart"
+     },
+     {
+      "kind": "link",
+      "label": "Order Square hardware",
+      "href": "https://squareup.com/us/en/hardware/order-hardware"
+     },
+     {
+      "kind": "link",
+      "label": "Compare Square hardware",
+      "href": "https://squareup.com/us/en/hardware/compare"
+     },
+     {
+      "kind": "link",
+      "label": "Square pricing",
+      "href": "https://squareup.com/us/en/pricing"
+     }
+    ]
+   }
+  },
+  {
+   "key": "browser page {\"open\":\"https://squareup.com/us/en/hardware/register\",\"signedIn\":false}",
+   "kind": "browser page",
+   "request": {
+    "open": "https://squareup.com/us/en/hardware/register",
+    "signedIn": false
+   },
+   "answer": {
+    "ran": [
+     {
+      "ok": true
+     }
+    ],
+    "url": "https://squareup.com/us/en/hardware/register",
+    "title": "Page not found | Square",
+    "text": "Page not found\n\nSorry, we couldn't find the page you were looking for. It may have been moved or no longer exists.\n\nTry one of these instead:\nOrder Square hardware\nSquare point of sale software\nSquare pricing",
+    "elements": [
+     {
+      "kind": "link",
+      "label": "Order Square hardware",
+      "href": "https://squareup.com/us/en/hardware/order-hardware"
+     },
+     {
+      "kind": "link",
+      "label": "Square point of sale software",
+      "href": "https://squareup.com/us/en/point-of-sale"
+     },
+     {
+      "kind": "link",
+      "label": "Square pricing",
+      "href": "https://squareup.com/us/en/pricing"
+     },
+     {
+      "kind": "link",
+      "label": "Square home",
+      "href": "https://squareup.com/us/en"
+     }
+    ]
+   }
+  },
+  {
+   "key": "browser page {\"open\":\"https://squareup.com/us/en/pricing\",\"signedIn\":false}",
+   "kind": "browser page",
+   "request": {
+    "open": "https://squareup.com/us/en/pricing",
+    "signedIn": false
+   },
+   "answer": {
+    "ran": [
+     {
+      "ok": true
+     }
+    ],
+    "url": "https://squareup.com/us/en/pricing",
+    "title": "Square Pricing: Plans & Fees for Small Businesses | Square",
+    "text": "Simple, transparent pricing for in-person payments\n\nNo monthly fee for the Free software plan. Pay only for what you process.\n\nIn-person processing: 2.6% + 15¢ per tap, dip or swipe transaction. Keyed-in transactions: 3.5% + 15¢.\n\nSoftware plans\nFree: $0/mo. Core point-of-sale features, inventory basics, and reporting for one location.\nPlus: $29/mo per location. Adds staff management, advanced reporting, and priority support.\nPremium: Custom pricing. For businesses with multiple locations and complex needs.\n\nHardware\nSquare Reader (contactless and chip): $59.\nSquare Terminal: $299.\nSquare Register: $699 for the full register bundle.\nSquare Stand: $149.\n\nHardware prices are one-time purchases. Some devices are also available through monthly financing with approved credit. Prices exclude tax and shipping. Processing rates may vary for certain card types and sales channels.\n\nSign up for free or log in to see your current plan and rates.",
+    "elements": [
+     {
+      "kind": "link",
+      "label": "Square Pricing",
+      "href": "https://squareup.com/us/en/pricing"
+     },
+     {
+      "kind": "link",
+      "label": "Hardware",
+      "href": "https://squareup.com/us/en/hardware"
+     },
+     {
+      "kind": "link",
+      "label": "Point of Sale",
+      "href": "https://squareup.com/us/en/point-of-sale"
+     },
+     {
+      "kind": "link",
+      "label": "Log in",
+      "href": "https://squareup.com/login"
+     },
+     {
+      "kind": "button",
+      "label": "Get started"
+     },
+     {
+      "kind": "button",
+      "label": "Compare plans"
+     },
+     {
+      "kind": "link",
+      "label": "Square Reader",
+      "href": "https://squareup.com/us/en/hardware/reader"
+     },
+     {
+      "kind": "link",
+      "label": "Square Terminal",
+      "href": "https://squareup.com/us/en/hardware/terminal"
+     },
+     {
+      "kind": "link",
+      "label": "Square Register",
+      "href": "https://squareup.com/us/en/hardware/register"
+     },
+     {
+      "kind": "link",
+      "label": "Contact sales",
+      "href": "https://squareup.com/us/en/contact-sales"
+     }
+    ]
+   }
+  },
+  {
+   "key": "browser page {\"open\":\"https://www.clover.com/pricing\",\"signedIn\":false}",
+   "kind": "browser page",
+   "request": {
+    "open": "https://www.clover.com/pricing",
+    "signedIn": false
+   },
+   "answer": {
+    "ran": [
+     {
+      "ok": true
+     }
+    ],
+    "url": "https://www.clover.com/us/en/pricing",
+    "title": "Clover Pricing: Hardware, Software Plans and Processing Fees",
+    "text": "Clover Pricing\n\nSimple, transparent pricing for in-person payments.\n\nSoftware plans\nStarter: $0/month. Accept cards and basic payments. Clover Go and Clover Flex supported.\nStandard: $14.95/month per device. Adds reporting, inventory tracking and employee management.\nPro: $34.95/month per device. Adds advanced reporting, kitchen display integration and priority support.\nSoftware plans are billed monthly and can be changed or cancelled at any time.\n\nIn-person processing\n2.3% + 15¢ per tap, dip or swipe transaction on Starter, Standard and Pro plans.\nKeyed-in transactions: 3.5% + 15¢.\n\nHardware is sold separately. Clover Flex starts at $89 upfront or $4/month device payment plan. Clover Mini starts at $699 upfront.\n\nGet started",
+    "elements": [
+     {
+      "kind": "link",
+      "label": "Clover Hardware",
+      "href": "https://www.clover.com/us/en/hardware"
+     },
+     {
+      "kind": "link",
+      "label": "Compare plans",
+      "href": "https://www.clover.com/us/en/pricing#plans"
+     },
+     {
+      "kind": "link",
+      "label": "Processing rates",
+      "href": "https://www.clover.com/us/en/pricing#processing"
+     },
+     {
+      "kind": "button",
+      "label": "Get started"
+     },
+     {
+      "kind": "link",
+      "label": "Contact sales",
+      "href": "https://www.clover.com/us/en/contact-sales"
+     }
+    ]
+   }
+  },
+  {
+   "key": "browser page {\"open\":\"https://www.clover.com/us/en/hardware\",\"signedIn\":false}",
+   "kind": "browser page",
+   "request": {
+    "open": "https://www.clover.com/us/en/hardware",
+    "signedIn": false
+   },
+   "answer": {
+    "ran": [
+     {
+      "ok": true
+     }
+    ],
+    "url": "https://www.clover.com/us/en/hardware",
+    "title": "Clover Hardware | Clover Point of Sale Devices",
+    "text": "Clover Hardware\n\nFind the right device for your business. Compare Clover Flex, Clover Mini, Clover Go and Clover Station.\n\nClover Flex: Handheld countertop terminal with built-in printer and Wi-Fi/cellular connectivity. Accepts chip, tap and swipe. Starts at $89 upfront or $4/month device payment plan.\n\nClover Mini: Compact countertop POS with 12.2\" touchscreen and built-in receipt printer. Starts at $699 upfront.\n\nClover Go: Mobile card reader that pairs with your smartphone. Starts at $49 upfront.\n\nClover Station: Full countertop POS system for high-volume locations. Starts at $1,349 upfront.\n\nDevice prices vary by model. Processing rates and software plans are sold separately. See Clover Pricing for software plan options and in-person card processing rates.\n\nFinancing available on select devices. Taxes and shipping calculated at checkout.\n\nSign in to view your account, order history and saved carts.\n\nAll devices include a 1-year limited hardware warranty.",
+    "elements": [
+     {
+      "kind": "link",
+      "label": "Clover Flex",
+      "href": "https://www.clover.com/us/en/hardware/clover-flex"
+     },
+     {
+      "kind": "link",
+      "label": "Clover Mini",
+      "href": "https://www.clover.com/us/en/hardware/clover-mini"
+     },
+     {
+      "kind": "link",
+      "label": "Clover Go",
+      "href": "https://www.clover.com/us/en/hardware/clover-go"
+     },
+     {
+      "kind": "link",
+      "label": "Clover Station",
+      "href": "https://www.clover.com/us/en/hardware/clover-station"
+     },
+     {
+      "kind": "link",
+      "label": "Pricing",
+      "href": "https://www.clover.com/us/en/pricing"
+     },
+     {
+      "kind": "button",
+      "label": "Sign in"
+     },
+     {
+      "kind": "textbox",
+      "label": "Search hardware"
+     },
+     {
+      "kind": "link",
+      "label": "Compare devices",
+      "href": "https://www.clover.com/us/en/hardware/compare"
+     }
+    ]
+   }
+  },
+  {
+   "key": "browser page {\"open\":\"https://www.clover.com/us/en/hardware/clover-go\",\"signedIn\":false}",
+   "kind": "browser page",
+   "request": {
+    "open": "https://www.clover.com/us/en/hardware/clover-go",
+    "signedIn": false
+   },
+   "answer": {
+    "ran": [
+     {
+      "ok": true
+     }
+    ],
+    "url": "https://www.clover.com/us/en/hardware/clover-go",
+    "title": "Clover Go | Mobile Card Reader for Clover POS",
+    "text": "Clover Go\n\nA compact mobile card reader that pairs with your phone or tablet over Bluetooth.\n\n$49 upfront, or a monthly device payment plan.\n\nAccept chip, tap and swipe payments wherever you sell. Works with Clover's free point of sale app.\n\nWhat's included:\n- Clover Go card reader\n- USB-C charging cable\n- Quick-start guide\n\nSpecs:\n- Payment types: chip, contactless (tap), magstripe (swipe)\n- Connection: Bluetooth\n- Works with iOS and Android devices\n\nProcessing rates and software plans are sold separately. See Clover pricing for details.",
+    "elements": [
+     {
+      "kind": "link",
+      "label": "Clover Pricing",
+      "href": "https://www.clover.com/us/en/pricing"
+     },
+     {
+      "kind": "link",
+      "label": "Clover Hardware",
+      "href": "https://www.clover.com/us/en/hardware"
+     },
+     {
+      "kind": "link",
+      "label": "Clover Flex",
+      "href": "https://www.clover.com/us/en/hardware/flex"
+     },
+     {
+      "kind": "link",
+      "label": "Clover Mini",
+      "href": "https://www.clover.com/us/en/point-of-sale/mini"
+     },
+     {
+      "kind": "button",
+      "label": "Buy Clover Go"
+     }
+    ]
+   }
+  },
+  {
+   "key": "browser page {\"open\":\"https://www.clover.com/us/en/hardware/flex\",\"signedIn\":false}",
+   "kind": "browser page",
+   "request": {
+    "open": "https://www.clover.com/us/en/hardware/flex",
+    "signedIn": false
+   },
+   "answer": {
+    "ran": [
+     {
+      "ok": true
+     }
+    ],
+    "url": "https://www.clover.com/us/en/hardware/flex",
+    "title": "Clover Flex | Handheld Countertop Terminal | Clover",
+    "text": "Clover Flex\n\nA handheld countertop terminal with a built-in printer and Wi-Fi or cellular connectivity.\n\nStarts at $89 upfront or $4/month on a device payment plan.\n\nAccept chip, tap and swipe payments anywhere you sell. Clover Flex runs Clover's point of sale apps and works with Clover's software plans.\n\nWhat's included:\n- Clover Flex terminal\n- Power adapter\n- Printer paper roll\n- Quick-start guide\n\nSpecs:\n- Payment types: chip, contactless (tap), magstripe (swipe)\n- Connectivity: Wi-Fi and cellular\n- Built-in receipt printer\n\nProcessing rates and software plans are sold separately. See Clover pricing for details.\n\nAdd to cart\nCompare Clover hardware",
+    "elements": [
+     {
+      "kind": "link",
+      "label": "Clover Hardware",
+      "href": "https://www.clover.com/us/en/hardware"
+     },
+     {
+      "kind": "link",
+      "label": "Clover pricing",
+      "href": "https://www.clover.com/us/en/pricing"
+     },
+     {
+      "kind": "button",
+      "label": "Add to cart"
+     },
+     {
+      "kind": "link",
+      "label": "Compare Clover hardware",
+      "href": "https://www.clover.com/us/en/hardware"
+     }
+    ]
+   }
+  },
+  {
+   "key": "browser page {\"open\":\"https://www.clover.com/us/en/pricing\",\"signedIn\":false}",
+   "kind": "browser page",
+   "request": {
+    "open": "https://www.clover.com/us/en/pricing",
+    "signedIn": false
+   },
+   "answer": {
+    "ran": [
+     {
+      "ok": true
+     }
+    ],
+    "url": "https://www.clover.com/us/en/pricing",
+    "title": "Clover Pricing: Hardware, Software Plans and Processing Fees",
+    "text": "Clover Pricing\n\nSimple, transparent pricing for in-person payments.\n\nSoftware plans\nStarter: $0/month. Accept cards and basic payments. Clover Go and Clover Flex supported.\nStandard: $14.95/month per device. Adds reporting, inventory tracking and employee management.\nPro: $34.95/month per device. Adds advanced reporting, kitchen display integration and priority support.\nSoftware plans are billed monthly and can be changed or cancelled at any time.\n\nIn-person processing\nCard-present rate: 2.6% + 15¢ per transaction on Clover Flex, Clover Mini and Clover Go, depending on plan.\nKeyed-in transactions: 3.5% + 15¢.\nRates shown are starting rates. Final rates depend on your business type, volume and plan.\n\nHardware\nDevice prices vary by model. Hardware can be paid upfront or financed through a monthly device payment plan. See Clover Hardware for current device prices.\n\nSign in to view your account pricing.\n\nContact sales | Compare plans | Clover Hardware",
+    "elements": [
+     {
+      "kind": "link",
+      "label": "Clover Hardware",
+      "href": "https://www.clover.com/us/en/hardware"
+     },
+     {
+      "kind": "link",
+      "label": "Compare plans",
+      "href": "https://www.clover.com/us/en/pricing#compare"
+     },
+     {
+      "kind": "link",
+      "label": "Contact sales",
+      "href": "https://www.clover.com/us/en/contact-sales"
+     },
+     {
+      "kind": "button",
+      "label": "Sign in"
+     }
+    ]
+   }
+  },
+  {
+   "key": "google calendar days {\"date\":\"2026-10-17\",\"days\":2}",
+   "kind": "google calendar days",
+   "request": {
+    "date": "2026-10-17",
+    "days": 2
+   },
+   "answer": {
+    "days": [
+     {
+      "date": "2026-10-17",
+      "events": [
+       {
+        "start": "07:00",
+        "end": "08:00",
+        "title": "Generator pickup",
+        "where": "Midwest Rental Yard, 4420 S Cicero Ave, Chicago, IL"
+       },
+       {
+        "start": "10:00",
+        "end": "16:00",
+        "title": "Logan Square market",
+        "where": "Logan Square Farmers Market, 2600 N Milwaukee Ave, Chicago, IL"
+       },
+       {
+        "start": "16:00",
+        "end": "22:00",
+        "title": "Kofi's cousin's wedding",
+        "where": "St. Hyacinth Basilica Hall, 3300 N Wolcott Ave, Chicago, IL"
+       }
+      ]
+     },
+     {
+      "date": "2026-10-18",
+      "events": [
+       {
+        "start": "09:00",
+        "end": "12:00",
+        "title": "Commissary deep clean",
+        "where": "Ember commissary, 1840 W Fullerton Ave, Chicago, IL"
+       }
+      ]
+     }
+    ]
+   }
+  },
+  {
+   "key": "web search {\"query\":\"clover card reader hardware price monthly fees\"}",
+   "kind": "web search",
+   "request": {
+    "query": "Clover card reader hardware price monthly fees"
+   },
+   "answer": {
+    "results": [
+     {
+      "title": "Clover Hardware | Clover Point of Sale Devices",
+      "url": "https://www.clover.com/us/en/hardware",
+      "description": "Compare Clover Flex, Clover Mini, Clover Go and Clover Station hardware. Device prices vary by model, and processing rates and software plans are sold separately."
+     },
+     {
+      "title": "Clover Pricing: Hardware, Software Plans and Processing Fees",
+      "url": "https://www.clover.com/us/en/pricing",
+      "description": "Breakdown of Clover's monthly software plan options and in-person card processing rates. Hardware is typically paid upfront or financed through a monthly device payment plan."
+     },
+     {
+      "title": "Clover Flex vs Clover Mini vs Clover Go: Which Card Reader Is Right for a Food Truck?",
+      "url": "https://www.posreviewsguide.com/clover-flex-mini-go-comparison",
+      "description": "Review comparing battery life, connectivity and price of the Clover Flex, Mini and Go. Covers which models work offline, which take tap-to-pay, and typical monthly costs for small vendors."
+     },
+     {
+      "title": "Clover Card Reader Monthly Fees Explained (2026)",
+      "url": "https://www.merchantcostsguide.com/clover-monthly-fees-2026",
+      "description": "Explains the Clover Basic, Standard and Advanced software tiers, per-device fees, and the difference between flat-rate and interchange-plus processing for mobile food businesses."
+     },
+     {
+      "title": "Clover Reviews - Pros, Cons and Hidden Costs",
+      "url": "https://www.trustpilot.com/review/clover.com",
+      "description": "Customer reviews mention hardware costs, contract length, early termination fees and support quality. Many reviewers note that the advertised device price does not include the monthly software plan."
+     }
+    ]
+   }
+  },
+  {
+   "key": "web search {\"query\":\"clover card reader price in-person processing rate\"}",
+   "kind": "web search",
+   "request": {
+    "query": "Clover card reader price in-person processing rate"
+   },
+   "answer": {
+    "results": [
+     {
+      "title": "Clover Pricing: Hardware, Software Plans and Processing Fees",
+      "url": "https://www.clover.com/us/en/pricing",
+      "description": "Breakdown of Clover's monthly software plan options and in-person card processing rates. Hardware is typically paid upfront or financed through a monthly device payment plan."
+     },
+     {
+      "title": "Clover Hardware | Clover Point of Sale Devices",
+      "url": "https://www.clover.com/us/en/hardware",
+      "description": "Compare Clover Flex, Clover Mini, Clover Go and Clover Station hardware. Device prices vary by model, and processing rates and software plans are sold separately."
+     },
+     {
+      "title": "Clover Go | Mobile Card Reader for Clover POS",
+      "url": "https://www.clover.com/us/en/hardware/clover-go",
+      "description": "Clover Go is a compact mobile card reader that pairs with your phone or tablet over Bluetooth. Accepts chip, tap and swipe payments and works with Clover's free point of sale app."
+     },
+     {
+      "title": "Clover Flex | Handheld Countertop Terminal | Clover",
+      "url": "https://www.clover.com/us/en/hardware/flex",
+      "description": "Clover Flex is a handheld countertop terminal with a built-in printer and Wi-Fi or cellular connectivity. It accepts chip, tap and swipe payments. Starts at $89 upfront or $4/month on a device payment plan."
+     }
+    ]
+   }
+  },
+  {
+   "key": "web search {\"query\":\"clover flex\"}",
+   "kind": "web search",
+   "request": {
+    "query": "Clover Flex"
+   },
+   "answer": {
+    "results": [
+     {
+      "title": "Clover Flex | Handheld Countertop Terminal | Clover",
+      "url": "https://www.clover.com/us/en/hardware/flex",
+      "description": "Clover Flex is a handheld countertop terminal with a built-in printer and Wi-Fi or cellular connectivity. It accepts chip, tap and swipe payments. Starts at $89 upfront or $4/month on a device payment plan."
+     },
+     {
+      "title": "Clover Hardware | Clover Point of Sale Devices",
+      "url": "https://www.clover.com/us/en/hardware",
+      "description": "Compare Clover Flex, Clover Mini, Clover Go and Clover Station. Clover Flex starts at $89 upfront or $4/month device payment plan."
+     },
+     {
+      "title": "Clover Pricing: Hardware, Software Plans and Processing Fees",
+      "url": "https://www.clover.com/us/en/pricing",
+      "description": "Software plans: Starter at $0/month, Standard at $14.95/month per device and Pro at $34.95/month per device. Clover Flex is supported on all plans. Processing rates are billed separately."
+     },
+     {
+      "title": "Clover Flex review: pros, cons and who it suits | Small Business Tech Guide",
+      "url": "https://www.smallbiztechguide.com/reviews/clover-flex",
+      "description": "A hands-on look at Clover Flex for food trucks and mobile vendors, covering battery life, cellular versus Wi-Fi setup, printer quality and how it compares with Square Terminal."
+     }
+    ]
+   }
+  },
+  {
+   "key": "web search {\"query\":\"clover go\"}",
+   "kind": "web search",
+   "request": {
+    "query": "Clover Go"
+   },
+   "answer": {
+    "results": [
+     {
+      "title": "Clover Go | Mobile Card Reader for Clover POS",
+      "url": "https://www.clover.com/us/en/hardware/clover-go",
+      "description": "Clover Go is a compact mobile card reader that pairs with your phone or tablet over Bluetooth. Accepts chip, tap and swipe payments and works with Clover's free point of sale app."
+     },
+     {
+      "title": "Clover Hardware | Clover Point of Sale Devices",
+      "url": "https://www.clover.com/us/en/hardware",
+      "description": "Compare Clover Flex, Clover Mini, Clover Go and Clover Station. Device prices vary by model, and processing rates and software plans are sold separately."
+     },
+     {
+      "title": "Clover Go Setup Guide | Clover Help Center",
+      "url": "https://help.clover.com/en/articles/clover-go-setup",
+      "description": "Step-by-step instructions for pairing Clover Go with the Clover Go app, charging the battery, and running your first test transaction."
+     },
+     {
+      "title": "Clover Go Review: Pros, Cons and Who It's Best For",
+      "url": "https://www.pcmag.com/reviews/clover-go",
+      "description": "Our hands-on review of Clover Go covers battery life, card reader speed, and how it compares with Square Reader for food trucks and pop-up sellers."
+     }
+    ]
+   }
+  },
+  {
+   "key": "web search {\"query\":\"clover mini\"}",
+   "kind": "web search",
+   "request": {
+    "query": "Clover Mini"
+   },
+   "answer": {
+    "results": [
+     {
+      "title": "Clover Mini | Compact Countertop POS System",
+      "url": "https://www.clover.com/us/en/point-of-sale/mini",
+      "description": "Clover Mini is a compact countertop POS with a 12.2\" touchscreen and built-in receipt printer. Starts at $699 upfront. Accepts chip, tap, swipe and contactless payments."
+     },
+     {
+      "title": "Clover Hardware | Clover Point of Sale Devices",
+      "url": "https://www.clover.com/us/en/hardware",
+      "description": "Compare Clover Flex, Clover Mini, Clover Go and Clover Station. Clover Mini is listed alongside the other devices, with upfront pricing and device payment options."
+     },
+     {
+      "title": "Clover Mini Review: Is It Worth It for Small Restaurants?",
+      "url": "https://www.pcmag.com/reviews/clover-mini",
+      "description": "Hands-on review of the Clover Mini covering setup, printer speed, screen size and how it handles busy counter service. Notes it needs Wi-Fi or ethernet for card processing."
+     },
+     {
+      "title": "Clover Mini Specs and Setup Guide - Clover Help Center",
+      "url": "https://help.clover.com/s/article/clover-mini-setup",
+      "description": "Setup steps for the Clover Mini, including connecting to Wi-Fi or ethernet, activating your merchant account and installing apps from the Clover App Market."
+     },
+     {
+      "title": "Clover Mini Pricing, Monthly Fees and Processing Rates",
+      "url": "https://www.clover.com/us/en/pricing",
+      "description": "Software plans for Clover devices, including Starter at $0/month and Standard at $14.95/month per device. Card processing rates apply on top of device cost."
+     }
+    ]
+   }
+  },
+  {
+   "key": "web search {\"query\":\"clover standard\"}",
+   "kind": "web search",
+   "request": {
+    "query": "Clover Standard"
+   },
+   "answer": {
+    "results": [
+     {
+      "title": "Clover Pricing: Hardware, Software Plans and Processing Fees",
+      "url": "https://www.clover.com/us/en/pricing",
+      "description": "Standard: $14.95/month per device. Adds reporting, inventory tracking and employee management. Software plans are billed monthly and can be changed or cancelled at any time."
+     },
+     {
+      "title": "Clover Standard Plan: What's Included | Clover Help Center",
+      "url": "https://community.clover.com/articles/clover-standard-plan-features",
+      "description": "Overview of features on the Clover Standard software plan, including inventory tracking, sales reports by employee and item, and staff permission settings. Compare against Starter and Pro before you switch plans."
+     },
+     {
+      "title": "Clover Point of Sale Review 2026: Plans, Hardware and Fees",
+      "url": "https://www.smallbizpos-reviews.com/clover-review",
+      "description": "Independent review of Clover's software tiers. The Standard plan at $14.95 per device per month is the most common pick for single-location restaurants and food trucks that need inventory tracking."
+     },
+     {
+      "title": "Clover Starter vs Standard vs Pro: Which Plan Fits?",
+      "url": "https://www.paymentprocessingguide.com/clover-plans-compared",
+      "description": "Side-by-side comparison of Clover's three software plans. Standard adds reporting and employee management over Starter, and Pro adds kitchen display integration and priority support."
+     }
+    ]
+   }
+  },
+  {
+   "key": "web search {\"query\":\"clover starter\"}",
+   "kind": "web search",
+   "request": {
+    "query": "Clover Starter"
+   },
+   "answer": {
+    "results": [
+     {
+      "title": "Clover Pricing: Hardware, Software Plans and Processing Fees",
+      "url": "https://www.clover.com/us/en/pricing",
+      "description": "Clover's Starter plan is $0/month and covers accepting cards and basic payments, with Clover Go and Clover Flex supported. Standard is $14.95/month per device and Pro is $34.95/month per device. Software plans are billed monthly and can be changed or cancelled at any time."
+     },
+     {
+      "title": "Clover Hardware | Clover Point of Sale Devices",
+      "url": "https://www.clover.com/us/en/hardware",
+      "description": "Compare Clover Flex, Clover Mini, Clover Go and Clover Station. Clover Flex starts at $89 upfront or $4/month on a device payment plan. Software plans and processing rates are sold separately."
+     },
+     {
+      "title": "What is the Clover Starter plan? - Clover Help Center",
+      "url": "https://help.clover.com/s/article/clover-starter-plan",
+      "description": "The Starter plan includes card acceptance, basic sales reporting and a single user account. Upgrade to Standard or Pro at any time from your Clover dashboard to add inventory tracking, employee management or kitchen display integration."
+     },
+     {
+      "title": "Clover Starter vs Standard: Which Plan Fits a Food Truck?",
+      "url": "https://www.pointofsalereview.com/clover-starter-vs-standard",
+      "description": "A comparison of Clover's two entry plans for small food businesses. Starter covers basic card payments at no monthly software cost, while Standard adds reporting and inventory tracking for $14.95 per device per month. Processing fees are charged separately on each plan."
+     }
+    ]
+   }
+  },
+  {
+   "key": "web search {\"query\":\"clover station\"}",
+   "kind": "web search",
+   "request": {
+    "query": "Clover Station"
+   },
+   "answer": {
+    "results": [
+     {
+      "title": "Clover Station | Clover Point of Sale Devices",
+      "url": "https://www.clover.com/us/en/hardware/clover-station",
+      "description": "Clover Station is a countertop point-of-sale system with a touchscreen, built-in receipt printer and cash drawer support. It accepts chip, tap and swipe payments and is sold alongside Clover Flex, Clover Mini and Clover Go."
+     },
+     {
+      "title": "Clover Hardware | Clover Point of Sale Devices",
+      "url": "https://www.clover.com/us/en/hardware",
+      "description": "Compare Clover Flex, Clover Mini, Clover Go and Clover Station hardware. Device prices vary by model, and processing rates and software plans are sold separately."
+     },
+     {
+      "title": "Clover Pricing: Hardware, Software Plans and Processing Fees",
+      "url": "https://www.clover.com/us/en/pricing",
+      "description": "Breakdown of Clover's monthly software plan options and in-person card processing rates. Hardware is typically paid upfront or financed through a monthly device payment plan."
+     },
+     {
+      "title": "Clover Station Duo | Clover",
+      "url": "https://www.clover.com/us/en/hardware/clover-station-duo",
+      "description": "Clover Station Duo adds a customer-facing second screen to the Clover Station setup, so customers can see totals and tip or sign on their own display."
+     },
+     {
+      "title": "Clover Station vs. Clover Mini: Which Is Right for Your Business? | Clover Blog",
+      "url": "https://blog.clover.com/clover-station-vs-clover-mini/",
+      "description": "A comparison of Clover's two countertop systems covering screen size, printer and drawer options, and which types of counter-service businesses each one suits."
+     }
+    ]
+   }
+  }
+ ]
+}
