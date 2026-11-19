@@ -185,8 +185,9 @@ function stranded(over: Record<string, unknown> = {}, session: Record<string, un
 /** react-native-web renders `TextInput` as an `input`; this is how one is typed in. */
 function type(field: HTMLElement, text: string): void {
   act(() => {
+    // The panel's title is a textarea since it wraps (2026-11-19); the composer is an input.
     const setter = Object.getOwnPropertyDescriptor(
-      HTMLInputElement.prototype,
+      field instanceof HTMLTextAreaElement ? HTMLTextAreaElement.prototype : HTMLInputElement.prototype,
       "value",
     )?.set;
     setter?.call(field, text);
@@ -394,11 +395,14 @@ describe("what a running meeting shows", () => {
     expect(String(note!.args[1])).toMatch(/^- \[\d+:\d\d\] ops goes async$/);
   });
 
-  test("an empty composer writes nothing", () => {
+  test("an empty composer offers no add, and writes nothing", () => {
     mockLive = recording();
     const panel = mount();
     panel.press("aside-tab-meetings");
-    panel.press("aside-meeting-note-add");
+    // The add mark shows only once something is typed (2026-11-19).
+    expect(panel.find("aside-meeting-note-add")).toBeNull();
+    type(panel.find("aside-meeting-note-field")!, "   ");
+    expect(panel.find("aside-meeting-note-add")).toBeNull();
     expect(mockCalls.some((call) => call.name === "setNotes")).toBe(false);
   });
 

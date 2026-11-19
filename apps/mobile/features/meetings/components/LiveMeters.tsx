@@ -17,7 +17,16 @@ import { Waveform } from "./Waveform";
  * Its own component for `LiveWaveform`'s reason: the level arrives ten times a
  * second, and only this leaf re-renders for it.
  */
-export function LiveMeters({ live, testID }: { live: boolean; testID?: string }) {
+export function LiveMeters({
+  live,
+  inline = false,
+  testID,
+}: {
+  live: boolean;
+  /** You and Call side by side on one line, for the side panel. */
+  inline?: boolean;
+  testID?: string;
+}) {
   const styles = useThemedStyles(makeStyles);
   const snapshot = useMeetingsSnapshot();
   const level = useSplitAudioLevel(live);
@@ -28,9 +37,9 @@ export function LiveMeters({ live, testID }: { live: boolean; testID?: string })
   const hearingCall = live && !callMissing && callLevel !== null;
 
   return (
-    <View style={styles.grid} testID={testID}>
+    <View style={inline ? styles.inline : styles.grid} testID={testID}>
       <View style={styles.row}>
-        <Text variant="foot" style={styles.label}>
+        <Text variant="foot" style={inline ? styles.inlineLabel : styles.label}>
           {room ? "Room" : "You"}
         </Text>
         <Waveform
@@ -42,7 +51,7 @@ export function LiveMeters({ live, testID }: { live: boolean; testID?: string })
       </View>
       {room ? null : (
         <View style={styles.row}>
-          <Text variant="foot" style={styles.label}>
+          <Text variant="foot" style={inline ? styles.inlineLabel : styles.label}>
             Call
           </Text>
           <Waveform
@@ -62,4 +71,6 @@ const makeStyles = (colors: Colors) =>
     grid: { gap: 6 },
     row: { flexDirection: "row", alignItems: "center", gap: 10 },
     label: { color: colors.muted, width: 40 },
+    inline: { flexDirection: "row", alignItems: "center", gap: 16 },
+    inlineLabel: { color: colors.muted },
   });

@@ -79,7 +79,7 @@ export function MeetingJoinFixture({ view }: { view?: string }) {
   useEffect(() => {
     setScheduledMeetings({ status: "ready", meetings: DAY, reconnect: view === "console" ? ["seyi.personal@gmail.example"] : [] });
     const live =
-      view === "live"
+      view === "live" || view === "panel-live"
         ? ({
             version: 1,
             workspaceId: "ws1",
@@ -91,8 +91,14 @@ export function MeetingJoinFixture({ view }: { view?: string }) {
               recordedMs: 0,
               attendees: [],
               source: { kind: "meet", url: DAY[0]!.conferenceUrl, calendarEventId: DAY[0]!.id },
-              notes: "",
-              transcript: [],
+              notes: view === "panel-live" ? "- [3:12] LK owns the transparency page\n- [9:40] Ship the Q4 roadmap draft Friday" : "",
+              transcript:
+                view === "panel-live"
+                  ? [
+                      { id: "s1", speaker: "Zay", text: "we can move onboarding to Monday", startMs: 0, endMs: 1 },
+                      { id: "s2", speaker: "Seyi", text: "works for me, put it in the notes", startMs: 2, endMs: 3 },
+                    ]
+                  : [],
               notePath: null,
               enhanced: null,
               log: [],
@@ -112,8 +118,8 @@ export function MeetingJoinFixture({ view }: { view?: string }) {
   if (view === "settings") return <SettingsCard />;
   return (
     <View style={{ flex: 1, flexDirection: "row", backgroundColor: colors.surface, gap: 40, padding: 24 }} testID="meeting-join-fixture">
-      <View style={{ width: 340, height: view === "panel" ? 640 : undefined }}>
-        {view === "panel" ? (
+      <View style={{ width: 340, height: view === "panel" || view === "panel-live" ? 640 : undefined }}>
+        {view === "panel" || view === "panel-live" ? (
           <AsidePanel started={null} onOpenNote={() => {}} onJoin={() => {}} tex={{ workspaceId: "ws1", endpoint: "https://e2e-fixture.invalid" }} />
         ) : (
           <MeetingsTab onOpenNote={() => {}} onJoin={() => {}} />
