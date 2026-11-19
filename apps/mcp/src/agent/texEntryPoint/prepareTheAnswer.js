@@ -28,14 +28,14 @@ export async function prepareTheAnswer(t) {
   const claims = !runner && (!front || job !== null) && (texted || group !== null) ? claimCheck({ question, job, waiting: setAside.length > 0, corrects: correctsTheAsk(question, setAside), pictures: carriesPictures(attachments), kept: keptIdsOf(attachments, keptInHistory(history, { texts: Infinity })), keptShown: attachments.some((file) => file.kept), history, detailed: asksDetailed(readInstructions(body.instructions)), origin: noteLinking.origin, reported: report !== null, visuals: () => maker?.has("draw_visual") === true, judge: env.HANDBACK_JUDGE !== "on" ? null : handbackFor(job?.id, gatewayGraph({ env, writer: chatLog, turn: ledgerTurn }), { question, config: aiGatewayConfig(env), metadata: { feature: "handback-judge", workspace: String(session.workspaceId) } }) }) : null;
   // A finished report that asks to be presented gets its notice once (`jobHandoff.js`): beside the claim check, or as the front door's check when there is none.
   const checked = report === null || claims === null ? claims : presentCheck(report, claims);
-  const doorChecks = frontDoorChecks({ claims, runner, texted, group, job, front, client: session.actorClientId, question });
-  const tries = report !== null && claims === null ? presentCheck(report, doorChecks) : doorChecks; // on the front door: "I can't open it" with nothing tried goes back once (`untriedWeb.js`), and so does "already saved" with nothing checked (`standsCheck.js`)
+  const tries = frontDoorChecks({ claims, runner, texted, group, job, front, client: session.actorClientId, question }); // on the front door: "I can't open it" with nothing tried goes back once (`untriedWeb.js`), and so does "already saved" with nothing checked (`standsCheck.js`)
+  const presented = report !== null && claims === null ? presentCheck(report, tries) : tries; // a report turn with no claim check gets the present check alone
   // A page's cover it draws is kept for the page's link card (`/gateway/page-cover`).
   const keepCover = async (path, png) => controlPlane.recordPageCover(session.accessToken, session.workspaceId, path, png);
   const { outgoing, maker, cardCheck } = await tex.step("pictures_setup", () => turnPictures(env, { texted: texted || group !== null, question, attachments, store, keep: conversation === "texts", meter, workspaceId: session.workspaceId, keepCover, steps: chatLog ? stepLog(chatLog, { turn: ledgerTurn }) : null })); stages?.mark("pictures");
   const seenWeb = outgoing.wrapWeb(web); // pages read like any tool result, so cards get their photos; a card hunts more through it (`visuals/hunt.js`)
   maker?.useWeb?.(seenWeb === null ? null : (name, args) => seenWeb.call(name, args));
   const begun = steer === null ? Promise.resolve() : tex.ahead("steer_begin", () => steer.begin()); // `/agent/cancel` may stop it from now (`steer.js`); on a chat's text, beside the model
-  Object.assign(t, { begun, cardCheck, claims: checked, forwarding, knowsRead, maker, outgoing, seenWeb, texted, tries });
+  Object.assign(t, { begun, cardCheck, claims: checked, forwarding, knowsRead, maker, outgoing, seenWeb, texted, tries: presented });
 }
 // TEX ENTRY POINT: end

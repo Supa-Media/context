@@ -24,9 +24,9 @@
 
 const LINK_PATTERNS = [/context:\/\/\S+/g, /https?:\/\/\S+/g, /(?:@[\w-]+\/)?[\w./-]+\.(?:page\.)?md\b/g];
 const TRAILING = /[).,;:!?"']+$/;
-const PRESENT_RE = /\bpresent\b|\bpage (?:is )?(?:written|ready|saved)\b|\bhand(?:ed)?[- ]?off\b|\bready to (?:share|send|present)\b/i;
-const LOGIN_RE = /\b(?:log ?in|login|sign ?in|password|account)\b/i;
-const LOGIN_TEXT_RE = /\b(?:log ?in|login|sign ?in|credentials?|vault|account)\b/i;
+const PRESENT_RE = /\bpresent(?: it| this| the [\w-]+)? to\b|\bpage (?:is )?(?:written|ready|saved)\b|\bhand(?:ed)?[- ]?off\b|\bready to (?:share|send|present)\b/i;
+const LOGIN_RE = /\b(?:log ?in|login|sign ?in|password)\b/i;
+const LOGIN_TEXT_RE = /\b(?:log ?in|login|sign ?in|password|credentials?|vault|account)\b/i;
 const DOMAIN_RE = /\b[a-z0-9-]+(?:\.[a-z0-9-]+)*\.(?:com|org|net|io|co|ai|app|dev|gov|edu|uk|ca)\b/gi;
 
 export const PRESENT_NOTICE =
