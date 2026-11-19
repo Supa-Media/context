@@ -255,6 +255,23 @@ export function withMoreRoom(body) {
   return JSON.stringify({ ...request, max_tokens: Math.min(MAX_TOKENS_CEILING, request.max_tokens * 2) });
 }
 
+/**
+ * The bench gateway keys have no credit left: every judge call fails the same way, so the judging stops at the first
+ * and says so in words a Lab row keeps (gw Lab runs, 2026-11-18: every Claude call failed, and 69 of 101 rows were
+ * stored as valid). The message is fixed, never the gateway's own text.
+ */
+export const OUT_OF_CREDIT = "bench gateway keys out of credit (AI_GATEWAY_KEY_ALIASES); judge cannot run on gw";
+
+export class OutOfCredit extends Error {
+  constructor() {
+    super(OUT_OF_CREDIT);
+    this.outOfCredit = true;
+  }
+}
+
+/** A 402, or a 400 whose message names the credit balance. */
+export const outOfCredit = (status, message = "") => status === 402 || (status === 400 && /credit balance/i.test(message));
+
 /** The verdicts for every answer in one request, or an error naming only the question. */
 async function judgeQuestion({ send, body, checks, answers, n }) {
   let lastError = null;
@@ -275,6 +292,7 @@ async function judgeOnce({ send, body, checks, answers, n }) {
   if (!response.ok) {
     const reply = await response.json().catch(() => ({}));
     const detail = reply?.error?.message ? ` (${reply.error.message})` : "";
+    if (outOfCredit(response.status, detail)) throw new OutOfCredit();
     throw new Error(`judge call for question ${n} failed: status ${response.status}${detail}`);
   }
   const reply = await response.json();
@@ -326,10 +344,18 @@ async function readSidecar(path, model) {
 }
 
 /** Runs `work` over `items` with at most `limit` in flight, in order of start. */
-async function inFlight(items, limit, work) {
+export async function inFlight(items, limit, work) {
   const queue = [...items];
   const workers = Array.from({ length: Math.max(1, limit) }, async () => {
-    while (queue.length) await work(queue.shift());
+    while (queue.length) {
+      try {
+        await work(queue.shift());
+      } catch (error) {
+        // Out of credit, every later call fails the same way: none of them is sent.
+        if (error?.outOfCredit) queue.length = 0;
+        throw error;
+      }
+    }
   });
   await Promise.all(workers);
 }

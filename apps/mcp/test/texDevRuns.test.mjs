@@ -17,7 +17,7 @@ import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { parsePeople } from "../bench/load.mjs";
-import { detailOf, devConversations, handoffOf, resultsOf, roundsLine, routeLine, routeOf, trainingConversations, uncast, unrun } from "../../../scripts/tex-lab-run.mjs";
+import { brokenRun, detailOf, devConversations, handoffOf, resultsOf, roundsLine, routeLine, routeOf, trainingConversations, uncast, unrun } from "../../../scripts/tex-lab-run.mjs";
 import { decideSaid } from "../bench/setsRun.mjs";
 
 const textOf = (result) => result.content.find((c) => c.type === "text")?.text ?? "";
@@ -323,4 +323,35 @@ test("runs { id } says the run's route summary as byRoute, from the repo's gold 
   assert.equal(body.byRoute.perRoute.find((b) => b.route === "untagged").total, 2, "no repo label: all untagged");
   const queued = tool({ runs: { run: { id: "r2", stage: "queued" } } });
   assert.equal(jsonOf(await queued.call("runs", { id: "r2" })).byRoute, undefined, "a run with no results says no route summary");
+});
+
+// gw Lab runs, 2026-11-18: every Claude call failed for lack of credit, yet 69 of 101 rows were stored and the run read
+// valid. Sabotage: make `brokenRun` return null, and this fails.
+test("a run whose Claude calls ran out of credit, or most of one step's tests could not run, is invalid with why", () => {
+  const credit = "could not run: judge failed: judge call for question 1 failed: status 400 (Your credit balance is too low…)";
+  const rows = [
+    { chat: "a", node: "fd", ran: true, right: true },
+    { chat: "b", node: "fd", ran: true, right: false },
+    { chat: "c", node: "fd", ran: false, right: false, why: credit },
+  ];
+  const out = resultsOf(rows, 10);
+  assert.equal(out.valid, false);
+  assert.match(out.invalid, /credit balance is too low/);
+  assert.doesNotMatch(out.invalid, /sk-|Bearer/);
+  assert.match(out.couldNotRun[0].why, /credit balance/);
+  const most = [{ node: "decide", ran: true, right: true }, { node: "decide", ran: false, why: "x broke" }, { node: "decide", ran: false, why: "y" }, { node: "fd", ran: true, right: true }];
+  assert.equal(brokenRun(most), "2 of decide's 3 tests could not run: x broke");
+  assert.equal(resultsOf(most, 1).valid, false);
+  const half = [{ node: "decide", ran: true, right: true }, { node: "decide", ran: false, why: "a picture" }];
+  assert.equal(brokenRun(half), null, "half is not more than half");
+  assert.equal(resultsOf(half, 1).valid, true);
+  // The workflow's ran step fails an out-of-credit run, the reason kept for the Lab and the public log counts only.
+  const dir = mkdtempSync(join(tmpdir(), "tex-lab-run-"));
+  const why = join(dir, "why");
+  writeFileSync(join(dir, "rows.json"), JSON.stringify(rows));
+  const ran = spawnSync(process.execPath, [LAB_RUN, "ran", join(dir, "rows.json")], { encoding: "utf8", env: { ...process.env, TEX_LAB_WHY: why } });
+  assert.equal(ran.status, 1);
+  assert.match(ran.stderr, /ran out of credit: 1 of 3 tests could not run/);
+  assert.doesNotMatch(ran.stderr, /question 1/);
+  assert.match(readFileSync(why, "utf8"), /credit balance is too low/);
 });

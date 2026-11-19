@@ -289,7 +289,7 @@ export async function runSets(convs, { tree, node = null, fake = false, env = pr
         ready[t.node] ??= await table[t.node]();
         rows.push({ ...row, ...(await ready[t.node](c, t.at, label)) });
       } catch (error) {
-        rows.push({ ...row, right: false, ran: false, usd: 0, why: `could not run: ${String(error?.message ?? error).slice(0, 200)}` });
+        rows.push({ ...row, right: false, ran: false, usd: 0, why: `could not run: ${String(error?.message ?? error).slice(0, 300)}` });
       }
     }
     return rows;
@@ -298,7 +298,7 @@ export async function runSets(convs, { tree, node = null, fake = false, env = pr
     try {
       return await table[n].batch(units, { parallel });
     } catch (error) {
-      return units.map((u) => ({ ...u.row, right: false, ran: false, usd: 0, why: `could not run: ${String(error?.message ?? error).slice(0, 200)}` }));
+      return units.map((u) => ({ ...u.row, right: false, ran: false, usd: 0, why: `could not run: ${String(error?.message ?? error).slice(0, 300)}` }));
     }
   });
   const [first, ...rest] = await Promise.all([alone(), ...batched]);

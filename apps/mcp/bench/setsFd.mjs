@@ -590,18 +590,23 @@ export async function runFd(units, { tree, fake = false, runTests = null, parall
       try {
         prepared[k] = { ...(await prepareConvo(mine, { tree, scratch: join(scratch, `c${k + 1}-${handleOf(c.id)}`), env: convoEnv })) };
       } catch (error) {
-        prepared[k] = { rows: mine.map((u) => ({ ...u.row, right: false, ran: false, usd: 0, why: `could not run: ${String(error?.message ?? error).slice(0, 200)}` })), tests: [] };
+        prepared[k] = { rows: mine.map((u) => ({ ...u.row, right: false, ran: false, usd: 0, why: `could not run: ${String(error?.message ?? error).slice(0, 300)}` })), tests: [] };
       }
     });
     // The one pool: every test of every conversation, longest conversations first and round-robin across them.
     for (const p of prepared) for (const t of p.tests) t.p = p;
     const jobs = scheduleOrder(prepared.map((p) => p.tests));
+    // Out of credit, every later test fails the same way: the first such failure is every unstarted test's reason, and
+    // none of them is sent (gw Lab runs, 2026-11-18: every Claude call failed, one test after another).
+    let noCredit = null;
     await runPool(jobs, parallel, async (t) => {
       const p = t.p;
+      if (noCredit) return void (t.error = noCredit);
       try {
         t.got = await run(tree, [t.name], { dir: p.dir, scratch: p.scratch, tag: "sets", fake, parallel: 1, env: p.env, envOf: p.envOf });
       } catch (error) {
         t.error = error;
+        if (CREDIT.test(String(error?.message ?? error))) noCredit ??= error;
       }
     });
     for (const p of prepared) rows.push(...collectConvo(p));
@@ -612,6 +617,9 @@ export async function runFd(units, { tree, fake = false, runTests = null, parall
     await rm(scratch, { recursive: true, force: true });
   }
 }
+
+/** A failure that names credit: the bench's keys are spent, so no later test can run either. */
+export const CREDIT = /credit/i;
 
 /** How many conversations are prepared at once (their folders are copies of the bench folder). */
 const PREPARE_LANES = 4;
@@ -687,7 +695,7 @@ function collectConvo(p) {
   for (const t of p.tests) {
     t.group.forEach((u, k) => {
       const share = Math.round(each * 10_000) / 10_000;
-      if (t.error) return void rows.push({ ...u.row, right: false, ran: false, usd: share, why: `could not run: ${String(t.error?.message ?? t.error).slice(0, 200)}` });
+      if (t.error) return void rows.push({ ...u.row, right: false, ran: false, usd: share, why: `could not run: ${String(t.error?.message ?? t.error).slice(0, 300)}` });
       const r = t.got?.rows.find((x) => x.id === `${t.name}/q${k + 1}`);
       const story = r ? { misses: r.misses ?? [], held: r.held ?? [], said: r.said ?? [], ...(r.handoff ? { handoff: r.handoff } : {}), ...(r.rounds ? { rounds: r.rounds } : {}), ...(r.routes ? { routes: r.routes } : {}), ...(r.fallbacks ? { fallbacks: r.fallbacks } : {}), ...(r.steps ? { steps: r.steps } : {}) } : {};
       const bench = benchFailed(r);
