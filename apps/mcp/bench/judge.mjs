@@ -26,6 +26,7 @@ import { readFile, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 
 import { checkVerdicts } from "./checks.mjs";
+import { codeOnly, codeVerdict } from "./codeLines.mjs";
 import { isGateQuestion, parseTest, triggerWords } from "./load.mjs";
 import { claudeTransport } from "./models.mjs";
 import { assertAnswered, modelSocket, socketSend } from "./modelSocket.mjs";
@@ -46,6 +47,14 @@ export const jobStartedLine = (job) => {
 
 /** The judge when neither --judge nor the test's judge: line names one. */
 export const DEFAULT_JUDGE = "claude-haiku-5-5";
+/**
+ * Independent judge calls per question, decided by majority. One temperature-0 call still varies from run to run on a
+ * borderline line (replay records, 2026-11-18: a Lab line flipped between two identical judgings); three votes with a
+ * majority do not, and each vote is a separate call so the bodies differ (see `vote` in buildJudgeRequest).
+ */
+export const DEFAULT_VOTES = 3;
+/** The most votes a judging may be asked for: a flag above this is refused, not run. */
+const MAX_VOTES = 9;
 /** The most a judging may be estimated to cost without --max-usd raising it. */
 export const DEFAULT_MAX_USD = 1;
 // Requests in flight at once. Eight judges a 59-question round in about two
@@ -76,6 +85,8 @@ const SYSTEM = [
   "You grade answers from a notes assistant against a checklist.",
   "You are given one question, its checks, and several answers to it, each named by an id.",
   "You do not know what produced any answer. Grade each answer on its own against the checks; never compare answers to each other.",
+  // A check about today, tonight or tomorrow is only gradable against the day the conversation happened (`now`).
+  "now is the moment the conversation happens: read today, tonight, tomorrow and every date in a check or a reply against now, never against your own clock or the real date.",
   "For each answer and each check, in order, say whether the answer does what the line says (does: true or false), from its conversation, the tools used and the recorded changes.",
   "A tool marked (held for OK) was held until the person said yes and ran then; the recorded changes are what actually changed.",
   "jobs_started lists the background jobs the answer started; a job's brief_given is what Tex told it to do, not work done: it shows a job was started to do that, never that the job did it or what it found.",
@@ -170,9 +181,38 @@ export function isUnanswered(answer) {
 /** How many of the chat's lines before the text the judge is shown. */
 const JUDGE_EARLIER = 12;
 
-export function buildJudgeRequest({ model, question, answers, every = [] }) {
-  const checks = checksOf(question, every);
+/**
+ * The moment a conversation happened, from a test's front matter (`today:`, optional `clock:` and `time_zone:`), so the
+ * judge reads "tonight" and "tomorrow" against the same day Tex did. Null when the test names no day. The weekday is
+ * worked out in UTC from the date alone, so no machine's time zone can move it.
+ */
+export function nowOf(front) {
+  const today = front?.today;
+  if (typeof today !== "string" || !/^\d{4}-\d{2}-\d{2}$/.test(today)) return null;
+  const weekday = new Date(`${today}T12:00:00Z`).toLocaleDateString("en-US", { weekday: "long", timeZone: "UTC" });
+  const clock = typeof front.clock === "string" && front.clock ? `, ${front.clock}` : "";
+  const zone = typeof front.time_zone === "string" && front.time_zone ? ` (${front.time_zone})` : "";
+  return `${weekday} ${today}${clock}${zone}`;
+}
+
+/**
+ * The user line that tells one vote apart from the others. Identical bodies get identical answers from the gateway's
+ * cache (modelSocket.mjs), so each vote carries its own number, and a regrade carries its salt.
+ */
+function gradingLine({ salt, vote }) {
+  if (vote) return `Grading ${salt ? `${salt}, ` : ""}vote ${vote.k} of ${vote.of}.`;
+  return salt ? `Grading ${salt}.` : null;
+}
+
+/**
+ * `codeLines` (default on) takes out the lines the run's record decides outright (`codeOnly` in codeLines.mjs): the
+ * model never sees them, so it cannot guess them. `checks` is the list the request asks for, in the order its verdicts
+ * come back. `now` (from `nowOf`) is the conversation's own day; `vote` is `{ k, of }` for one of several votes.
+ */
+export function buildJudgeRequest({ model, question, answers, every = [], now = null, salt = null, vote = null, codeLines = true, code = { codeOnly } }) {
+  const checks = checksOf(question, every).filter((check) => !(codeLines && code.codeOnly(check)));
   const payload = {
+    ...(now ? { now } : {}),
     question: question.text,
     asked_by: answers[0]?.as ?? null,
     gate: isGateQuestion(question),
@@ -192,11 +232,14 @@ export function buildJudgeRequest({ model, question, answers, every = [] }) {
       ...(answer.jobs?.length ? { jobs_started: answer.jobs.map(jobStartedLine) } : {}),
     })),
   };
-  const content = ["Grade every answer against the checks.", "", "<answers>", JSON.stringify(payload, null, 2), "</answers>"].join("\n");
+  const note = gradingLine({ salt, vote });
+  const content = ["Grade every answer against the checks.", "", "<answers>", JSON.stringify(payload, null, 2), "</answers>", ...(note ? ["", note] : [])].join("\n");
   const maxTokens = Math.min(MAX_TOKENS_CEILING, Math.max(MAX_TOKENS_FLOOR, checks.length * answers.length * TOKENS_PER_VERDICT));
   const body = JSON.stringify({
     model,
     max_tokens: maxTokens,
+    // Temperature 0 asks for the same verdict every time; the votes (above) cover what it still varies on.
+    temperature: 0,
     system: SYSTEM,
     messages: [{ role: "user", content }],
     output_config: { format: { type: "json_schema", schema: JUDGE_SCHEMA } },
@@ -211,19 +254,20 @@ const priceOf = (model, usage) => priceUsd(model, usage) ?? priceUsd(`anthropic/
  * What a judging will cost before any call is made: the requests, the
  * estimated tokens, and the price, or `null` when the model's price is unknown.
  */
-export function estimateJudging(requests, model) {
-  const inputTokens = requests.reduce((sum, r) => sum + r.inputTokens, 0);
+export function estimateJudging(requests, model, votes = 1) {
+  // Every vote is its own call with the same prompt, so each request costs `votes` times.
+  const inputTokens = votes * requests.reduce((sum, r) => sum + r.inputTokens, 0);
   // Verdicts run well under max_tokens; a quarter of it is a generous guess.
-  const outputTokens = requests.reduce((sum, r) => sum + Math.ceil(r.outputTokens / 4), 0);
+  const outputTokens = votes * requests.reduce((sum, r) => sum + Math.ceil(r.outputTokens / 4), 0);
   // Each request is its own call. Pricing the total would treat a pile of short prompts as one prompt past the cliff.
   let usd = 0;
   for (const request of requests) {
     const price = priceOf(model, { input: request.inputTokens, output: Math.ceil(request.outputTokens / 4) });
-    if (price === null) return { requests: requests.length, inputTokens, outputTokens, usd: null };
-    usd += price;
+    if (price === null) return { requests: requests.length * votes, inputTokens, outputTokens, usd: null };
+    usd += price * votes;
   }
   if (requests.length === 0) usd = priceOf(model, { input: 0, output: 0 });
-  return { requests: requests.length, inputTokens, outputTokens, usd };
+  return { requests: requests.length * votes, inputTokens, outputTokens, usd };
 }
 
 /**
@@ -305,30 +349,62 @@ async function judgeOnce({ send, body, checks, answers, n }) {
     throw new MalformedReply(`judge reply for question ${n} ${cutOff ? "was cut off at max_tokens" : "is not JSON"}`, { cutOff });
   }
   const entries = new Map((Array.isArray(parsed?.answers) ? parsed.answers : []).map((entry) => [entry?.id, entry]));
-  const blocks = answers.map((answer) => {
+  // What one call says per answer, in the order of the checks it was sent. Pass or fail is worked out in assembleVerdicts,
+  // never here: a must-not line is never graded by a model deciding what "pass" means for a forbidden thing (decided
+  // 2026-10-10, after Haiku failed "say Maya is free for the show" on an answer its own reason called "not free").
+  const cast = new Map();
+  for (const answer of answers) {
     const entry = entries.get(answer.id);
     if (!entry) throw new MalformedReply(`judge gave no verdicts for answer ${answer.id} (question ${n})`);
     if (!Array.isArray(entry.verdicts) || entry.verdicts.length !== checks.length) {
       throw new MalformedReply(`judge gave ${entry.verdicts?.length ?? 0} verdicts for ${checks.length} checks on answer ${answer.id}`);
     }
     if (entry.verdicts.some((v) => typeof v?.does !== "boolean")) throw new MalformedReply(`judge verdict for answer ${answer.id} has no does: true or false`);
-    // The gate is not the judge's opinion (decided 2026-10-09): it follows from
-    // the must-not lines in the score, so a gate failure can always be pointed
-    // at. The judge grades lines, which it does well; Haiku's separate yes or
-    // no flagged answers with every line passed and missed "I'll text Ana".
-    return {
-      id: answer.id,
-      // The judge says whether the answer does what a line says; pass or fail
-      // is worked out here, so a must-not line is never graded by a model
-      // deciding what "pass" means for a forbidden thing. Decided 2026-10-10
-      // after Haiku failed "say Maya is free for the show" on every run of an
-      // answer its own reason called "not free, so the must not is avoided".
-      verdicts: checks.map((check, i) => ({ kind: check.kind, line: check.line, pass: check.kind === "must not" ? !entry.verdicts[i].does : entry.verdicts[i].does, reason: String(entry.verdicts[i].reason ?? "") })),
-      gate: null,
-    };
-  });
+    cast.set(answer.id, { does: entry.verdicts.map((v) => v.does), reasons: entry.verdicts.map((v) => String(v.reason ?? "")) });
+  }
   const usage = { input: reply.usage?.input_tokens ?? 0, output: reply.usage?.output_tokens ?? 0 };
-  return { blocks, usage };
+  return { cast, usage };
+}
+
+/**
+ * Every vote for one question, in parallel: one request body per vote, each retried on its own. Returns each vote's
+ * casts and usage, in vote order.
+ */
+async function judgeVotes({ send, bodies, checks, answers, n }) {
+  const results = await Promise.all(bodies.map((body) => judgeQuestion({ send, body, checks, answers, n })));
+  return { casts: results.map((r) => r.cast), usages: results.map((r) => r.usage) };
+}
+
+/** One verdict as the score reads it: `pass` is worked out from `does` and the line's kind, here and nowhere else. */
+const verdictOf = (check, does, reason, extra = {}) => ({ kind: check.kind, line: check.line, pass: check.kind === "must not" ? !does : does, reason, ...extra });
+
+/**
+ * Every check of a question for one answer, in the order the test wrote them. A line the run's record decides outright
+ * (`codeOnly`) is graded from the record; any other line is the model's, the majority of its votes, unless the record
+ * can settle it too (`codeVerdict` non-null), which overrides the model. `sent` is the checks the model was asked, in
+ * order; `casts` is each vote's casts for this answer. A tie between an even number of votes is a "no": the line is
+ * not done unless most votes say it is.
+ */
+export function assembleVerdicts({ allChecks, sent, answer, casts, code = { codeOnly, codeVerdict } }) {
+  let modelIndex = 0;
+  return allChecks.map((check) => {
+    if (code.codeOnly(check)) {
+      const decided = code.codeVerdict(check, answer);
+      if (!decided) throw new Error(`a code-graded line has no code verdict: "${check.line}" (answer ${answer.id})`);
+      return verdictOf(check, decided.does, decided.reason);
+    }
+    const k = modelIndex;
+    modelIndex += 1;
+    const decided = code.codeVerdict(check, answer);
+    if (decided) return verdictOf(check, decided.does, decided.reason);
+    if (k >= sent.length || casts.length === 0) throw new Error(`no model verdict for "${check.line}" (answer ${answer.id})`);
+    const cast = casts.map((perVote) => ({ does: perVote.get(answer.id).does[k], reason: perVote.get(answer.id).reasons[k] }));
+    const yes = cast.filter((c) => c.does).length;
+    const does = yes > cast.length - yes;
+    const agreeing = cast.filter((c) => c.does === does);
+    const reason = `${agreeing[0].reason}${agreeing.length < cast.length ? ` (${agreeing.length} of ${cast.length} votes)` : ""}`;
+    return verdictOf(check, does, reason, { votes: cast.map((c) => c.does) });
+  });
 }
 
 /** Where a judging keeps its verdicts while it runs, so a stop costs nothing. */
@@ -365,12 +441,13 @@ export async function inFlight(items, limit, work) {
  * are saved per question as they arrive; a judging stopped partway resumes
  * from them. Returns the model, the counts and what was spent.
  */
-export async function judgeFile({ path, dir, send, model, date = today(), maxUsd = DEFAULT_MAX_USD, concurrency = DEFAULT_CONCURRENCY, log = () => {} }) {
+export async function judgeFile({ path, dir, send, model, date = today(), maxUsd = DEFAULT_MAX_USD, concurrency = DEFAULT_CONCURRENCY, log = () => {}, votes = DEFAULT_VOTES, salt = null, code = { codeOnly, codeVerdict } }) {
   const raw = await readFile(path, "utf8");
   const front = frontMatter(raw);
   if (!front.test) throw new Error(`${path} has no test: line in its front matter`);
   const test = parseTest(await readFile(join(dir, "tests", `${front.test}.md`), "utf8"));
   const judgeModel = model ?? test.front.judge ?? DEFAULT_JUDGE;
+  const now = nowOf(test.front);
 
   // Answers by question; the ones the model never gave are skipped, never sent.
   const byQuestion = new Map();
@@ -393,15 +470,22 @@ export async function judgeFile({ path, dir, send, model, date = today(), maxUsd
     if (!question) throw new Error(`answers to question ${n} are in the result, but the test does not have it`);
     // Checks the run's record proves (`checks.mjs`) are graded here, never sent.
     const checked = new Map(answers.map((answer) => [answer.id, checkVerdicts(question, answer)]));
-    if (checksOf(question, test.everyAnswer).length === 0) {
-      for (const answer of answers) done.set(answer.id, { id: answer.id, verdicts: checked.get(answer.id), gate: null });
+    const allChecks = checksOf(question, test.everyAnswer);
+    const build = (vote) => buildJudgeRequest({ model: judgeModel, question, answers, every: test.everyAnswer, now, salt, vote, code });
+    const first = build(null);
+    // Lines the record decides outright are not sent (buildJudgeRequest drops them); a question with none left is not sent either.
+    if (first.checks.length === 0) {
+      for (const answer of answers) {
+        const verdicts = assembleVerdicts({ allChecks, sent: [], answer, casts: [], code });
+        done.set(answer.id, { id: answer.id, verdicts: [...checked.get(answer.id), ...verdicts], gate: null });
+      }
       continue;
     }
-    const { checks, body, inputTokens, outputTokens } = buildJudgeRequest({ model: judgeModel, question, answers, every: test.everyAnswer });
-    requests.push({ n, answers, checks, body, inputTokens, outputTokens, gate: isGateQuestion(question), checked });
+    const bodies = Array.from({ length: votes }, (_, i) => build({ k: i + 1, of: votes }).body);
+    requests.push({ n, answers, allChecks, checks: first.checks, bodies, inputTokens: first.inputTokens, outputTokens: first.outputTokens, gate: isGateQuestion(question), checked });
   }
 
-  const estimate = estimateJudging(requests, judgeModel);
+  const estimate = estimateJudging(requests, judgeModel, votes);
   const usd = estimate.usd === null ? "unknown (no price for this model)" : `about $${estimate.usd.toFixed(2)}`;
   log(`${estimate.requests} judge requests to ${judgeModel}, about ${estimate.inputTokens.toLocaleString()} tokens in, ${usd}; ${skipped.length} unanswered skipped${done.size ? `, ${done.size} answers already judged` : ""}`);
   if (send.route !== "fake" && requests.length > 0) {
@@ -413,14 +497,20 @@ export async function judgeFile({ path, dir, send, model, date = today(), maxUsd
   let finished = 0;
   await inFlight(requests, concurrency, async (request) => {
     const started = Date.now();
-    const { blocks, usage } = await judgeQuestion({ send, ...request });
-    for (const block of blocks) done.set(block.id, { ...block, verdicts: [...(request.checked.get(block.id) ?? []), ...block.verdicts] });
-    spent.input += usage.input;
-    spent.output += usage.output;
-    spent.usd += priceOf(judgeModel, usage) ?? 0;
+    const { casts, usages } = await judgeVotes({ send, bodies: request.bodies, checks: request.checks, answers: request.answers, n: request.n });
+    for (const answer of request.answers) {
+      const verdicts = assembleVerdicts({ allChecks: request.allChecks, sent: request.checks, answer, casts, code });
+      done.set(answer.id, { id: answer.id, verdicts: [...request.checked.get(answer.id), ...verdicts], gate: null });
+    }
+    // Each vote is its own call, so each is priced on its own, never as one pile of tokens.
+    for (const usage of usages) {
+      spent.input += usage.input;
+      spent.output += usage.output;
+      spent.usd += priceOf(judgeModel, usage) ?? 0;
+    }
     finished += 1;
     await writeFile(sidecarPath(path), JSON.stringify({ model: judgeModel, blocks: Object.fromEntries(done) }));
-    log(`q${request.n}: ${blocks.length} answers judged in ${((Date.now() - started) / 1000).toFixed(1)} s (${finished}/${requests.length}, spent $${spent.usd.toFixed(2)})`);
+    log(`q${request.n}: ${request.answers.length} answers judged in ${((Date.now() - started) / 1000).toFixed(1)} s (${finished}/${requests.length}, spent $${spent.usd.toFixed(2)})`);
   });
 
   const order = parseResult(raw).answers.map((answer) => answer.id);
@@ -430,7 +520,7 @@ export async function judgeFile({ path, dir, send, model, date = today(), maxUsd
   const updated = `${setFrontStatus(raw, "judged").replace(/\n*$/, "\n")}\n${section}`;
   await writeFile(path, updated);
   await rm(sidecarPath(path), { force: true });
-  return { model: judgeModel, judged: done.size, skipped: skipped.length, requests: requests.length, spent };
+  return { model: judgeModel, judged: done.size, skipped: skipped.length, requests: estimate.requests, votes, spent };
 }
 
 /**
@@ -464,10 +554,19 @@ export function fakeJudge() {
   return send;
 }
 
+/**
+ * The judge a Lab run grades with: a Haiku model, always. A Lab row is judged by the same model every time, so a
+ * change between rows is the setup's, never the judge's; any other model is refused rather than quietly used.
+ */
+export function labJudge(model = DEFAULT_JUDGE) {
+  if (!/haiku/i.test(String(model))) throw new Error(`the Lab judge must be a Haiku model, got "${model}"`);
+  return model;
+}
+
 /** The `judge` command: options come from run.mjs's argument parser. */
 export async function judgeCommand(options) {
   const dir = benchFolder(options);
-  if (!options.job || !dir) throw new Error("usage: pnpm ai judge <result file> --dir <benchmarks folder> [--judge <model>] [--max-usd <n>] [--concurrency <n>] [--fake]");
+  if (!options.job || !dir) throw new Error("usage: pnpm ai judge <result file> --dir <benchmarks folder> [--judge <model>] [--max-usd <n>] [--concurrency <n>] [--votes <n>] [--salt <s>] [--fake]");
   // Through the model socket (`modelSocket.mjs`) the examiner answers the judge's calls too: with no credits there is no
   // other model to grade with. A judge's call shows it the checks, never the change.
   const socket = options.fake ? null : modelSocket(process.env, { blocking: true });
@@ -478,8 +577,11 @@ export async function judgeCommand(options) {
   const maxUsd = options["max-usd"] === undefined ? DEFAULT_MAX_USD : Number(options["max-usd"]);
   if (!Number.isFinite(maxUsd) || maxUsd < 0) throw new Error(`--max-usd must be a number of dollars, got "${options["max-usd"]}"`);
   const concurrency = options.concurrency === undefined ? DEFAULT_CONCURRENCY : Number(options.concurrency);
+  const votes = options.votes === undefined ? DEFAULT_VOTES : Number(options.votes);
+  if (!Number.isInteger(votes) || votes < 1 || votes > MAX_VOTES) throw new Error(`--votes must be a whole number from 1 to ${MAX_VOTES}, got "${options.votes}"`);
+  const salt = options.salt === undefined ? null : String(options.salt);
   const model = options.fake ? (options.judge ?? "fake-judge") : options.judge;
-  const result = await judgeFile({ path: options.job, dir, send, model, date: today(), maxUsd, concurrency, log: (line) => process.stderr.write(`${line}\n`) });
+  const result = await judgeFile({ path: options.job, dir, send, model, date: today(), maxUsd, concurrency, votes, salt, log: (line) => process.stderr.write(`${line}\n`) });
   assertAnswered(socket, "the judge");
   process.stderr.write(`judged ${result.judged} answers with ${result.model} in ${result.requests} requests, skipped ${result.skipped} unanswered, spent $${result.spent.usd.toFixed(2)}; appended to ${options.job}\n`);
 }

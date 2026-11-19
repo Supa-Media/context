@@ -10,7 +10,8 @@
 import { execFile } from "node:child_process";
 import { fallbacksIn } from "./fallbacks.mjs";
 import { handoffTotals } from "./handoffTotals.mjs";
-import { readFile } from "node:fs/promises";
+import { copyFile, mkdir, readFile, writeFile } from "node:fs/promises";
+import { DEFAULT_JUDGE, labJudge } from "./judge.mjs";
 import { dirname, join } from "node:path";
 import { promisify } from "node:util";
 
@@ -139,12 +140,32 @@ export function coreCases({ test, testRaw, resultRaw, keyRaw, setup = SETUP }) {
 }
 
 /**
+ * Keeps one judged case's three notes in `keep/name`: the judged result, its key and the test, as `result.md`,
+ * `key.md` and `test.md`, so `regrade.mjs` can grade them again. A copy that fails is reported on stderr and never
+ * fails the run that judged them.
+ */
+export async function keepJudged(keep, name, { result, key, test, units = null }) {
+  const folder = join(keep, name);
+  try {
+    await mkdir(folder, { recursive: true });
+    // Who each question was (`setsFd.mjs`: chat, message and node, in question order), so a regrade names its rows.
+    if (units) await writeFile(join(folder, "units.json"), JSON.stringify(units, null, 1) + "\n");
+    await copyFile(result, join(folder, "result.md"));
+    await copyFile(key, join(folder, "key.md"));
+    await copyFile(test, join(folder, "test.md"));
+  } catch (error) {
+    process.stderr.write(`could not keep ${name}: ${String(error?.message ?? error).slice(0, 200)}\n`);
+  }
+}
+
+/**
  * `tests` answered in `tree`: every case, or `only` those, `runs` times each. `dir` is the bench folder the tree's
  * run reads (its own `apps/mcp/bench/ai` unless named). Returns rows whose `results` hold one boolean a run, what it
  * cost, each test's bar, and the tests the tree does not have. `envOf(test)`, when given, is that test's own environment
- * (a Training conversation cut at its moment, `setsFd.mjs`).
+ * (a Training conversation cut at its moment, `setsFd.mjs`). `keep`, a folder, keeps each judged test's three notes
+ * under `keepPrefix` + the test's name (`keepJudged`), with `keepUnits` as its units.json when given.
  */
-export async function runTests(tree, tests, { only = null, runs = 1, fake = false, scratch, tag, dir = null, parallel = 1, env = process.env, envOf = null, exec = run }) {
+export async function runTests(tree, tests, { only = null, runs = 1, fake = false, scratch, tag, dir = null, parallel = 1, env = process.env, envOf = null, exec = run, keep = null, keepPrefix = "", keepUnits = null }) {
   const folder = dir ?? join(tree, "apps/mcp/bench/ai");
   const script = join(tree, "apps/mcp/bench/run.mjs");
   // Each test is its own run and judge process writing its own files, so `parallel` of them can go at once (a Lab
@@ -166,9 +187,12 @@ export async function runTests(tree, tests, { only = null, runs = 1, fake = fals
     if (fake) args.push("--fake");
     const own = envOf?.(test) ?? env;
     await step("answer", exec, [script, ...args], { cwd: tree, maxBuffer: 64 * 1024 * 1024, env: own });
-    await step("judge", exec, [script, "judge", out, "--dir", folder, "--max-usd", "1", ...(fake ? ["--fake"] : [])], { cwd: tree, maxBuffer: 64 * 1024 * 1024, env: own });
+    // A Lab judge is Haiku, always (`judge.mjs` labJudge): a test's own judge line is never read here.
+    await step("judge", exec, [script, "judge", out, "--dir", folder, "--max-usd", "1", ...(fake ? ["--fake"] : ["--judge", labJudge(DEFAULT_JUDGE)])], { cwd: tree, maxBuffer: 64 * 1024 * 1024, env: own });
     const resultRaw = await readFile(out, "utf8");
-    const keyRaw = await readFile(join(dirname(out), frontMatter(resultRaw).key), "utf8");
+    const keyPath = join(dirname(out), frontMatter(resultRaw).key);
+    const keyRaw = await readFile(keyPath, "utf8");
+    if (keep) await keepJudged(keep, `${keepPrefix}${test}`, { result: out, key: keyPath, test: testPath, units: keepUnits });
     return { cases: coreCases({ test, testRaw, resultRaw, keyRaw }) };
   };
   let next = 0;

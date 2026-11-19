@@ -154,7 +154,8 @@ export function goldRequests(convs, { model = DEFAULT_JUDGE, set = "training" } 
         changes: [GOLD_CHANGES],
         jobs: goldJobs(c, i, gold),
       };
-      const { checks, body } = buildJudgeRequest({ model, question, answers: [answer], every: [] });
+      // codeLines off: a gold reply keeps only its texts, so every line is the judge's, as before the record graded any.
+      const { checks, body } = buildJudgeRequest({ model, question, answers: [answer], every: [], codeLines: false });
       // The ability check's view of the same row: its chat kind, the person's ask, the must lines and the gold texts.
       const ability = { kind: c.kind, ask: askOf(c, i), must, gold: gold.map((turn) => turn.text ?? "") };
       requests.push({ convId: c.id, msgIndex: i, msgId: row.id, checks, body, ability });

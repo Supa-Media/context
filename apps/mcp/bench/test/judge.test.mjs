@@ -7,7 +7,7 @@ import { mkdir, mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import { DEFAULT_JUDGE, JUDGE_ATTEMPTS, JUDGE_SCHEMA, estimateJudging, fakeJudge, inFlight, judgeFile, OUT_OF_CREDIT, sidecarPath, withMoreRoom } from "../judge.mjs";
+import { assembleVerdicts, DEFAULT_JUDGE, DEFAULT_VOTES, JUDGE_ATTEMPTS, JUDGE_SCHEMA, estimateJudging, fakeJudge, inFlight, judgeFile, labJudge, nowOf, OUT_OF_CREDIT, sidecarPath, withMoreRoom } from "../judge.mjs";
 import { assignIds, keyMarkdown, resultMarkdown } from "../report.mjs";
 import { parseJudgedSections } from "../resultNote.mjs";
 
@@ -121,7 +121,7 @@ test("the judge is sent one request per question, carrying every answer to it, a
   const { dir, path, cleanup } = await folder();
   try {
     const rec = recording(fakeJudge());
-    await judgeFile({ path, dir, send: rec.send, date: "2026-10-09" });
+    await judgeFile({ votes: 1, path, dir, send: rec.send, date: "2026-10-09" });
     assert.equal(rec.bodies.length, 2, "two questions, two requests");
     const perQuestion = rec.bodies.map(payloadOf).map((p) => p.answers.length).sort();
     assert.deepEqual(perQuestion, [1, 3]);
@@ -306,7 +306,7 @@ test("out of credit, the judging stops at the first call and says so in fixed wo
         return json({ error: { message } }, status);
       };
       broke.route = "fake";
-      const error = await judgeFile({ path, dir, send: broke, concurrency: 1, date: "2026-10-09" }).catch((e) => e);
+      const error = await judgeFile({ votes: 1, path, dir, send: broke, concurrency: 1, date: "2026-10-09" }).catch((e) => e);
       assert.equal(error.message, OUT_OF_CREDIT);
       assert.equal(error.message, "bench gateway keys out of credit (AI_GATEWAY_KEY_ALIASES); judge cannot run on gw");
       assert.equal(calls, 1, `${status}: no call after the first is sent`);
@@ -367,13 +367,13 @@ test("the estimate is printed first, and a judging over --max-usd is refused bef
     const rec = recording(judging(allPass));
     rec.send.route = "gateway";
     await assert.rejects(
-      judgeFile({ path, dir, send: rec.send, model: "claude-fable-5-1", maxUsd: 0.001, log: (line) => lines.push(line) }),
+      judgeFile({ votes: 1, path, dir, send: rec.send, model: "claude-fable-5-1", maxUsd: 0.001, log: (line) => lines.push(line) }),
       /over the --max-usd 0\.00 cap/,
     );
     assert.equal(rec.bodies.length, 0, "no call was made");
     assert.match(lines[0], /^2 judge requests to claude-fable-5-1, about [\d,]+ tokens in, about \$\d+\.\d\d; 0 unanswered skipped$/);
     // A model with no known price needs an explicit cap.
-    await assert.rejects(judgeFile({ path, dir, send: rec.send, model: "mystery-judge" }), /no price is known for mystery-judge/);
+    await assert.rejects(judgeFile({ votes: 1, path, dir, send: rec.send, model: "mystery-judge" }), /no price is known for mystery-judge/);
     assert.equal(rec.bodies.length, 0);
   } finally {
     await cleanup();
@@ -394,7 +394,7 @@ test("estimateJudging prices a judging from its requests, and the fake judge is 
     assert.equal(estimateJudging([{ inputTokens: 200_000, outputTokens: 80_000 }], "claude-haiku-5-5").usd, 0.11);
     assert.equal(estimateJudging([], "claude-haiku-5-5").usd, 0);
     assert.equal(estimateJudging([{ inputTokens: 1, outputTokens: 1 }], "mystery-judge").usd, null);
-    const result = await judgeFile({ path, dir, send: fakeJudge(), maxUsd: 0 });
+    const result = await judgeFile({ votes: 1, path, dir, send: fakeJudge(), maxUsd: 0 });
     assert.equal(result.requests, 2);
   } finally {
     await cleanup();
@@ -412,10 +412,10 @@ test("a stopped judging resumes from its sidecar without re-sending judged quest
       return first.send(body);
     };
     stopAfterOne.route = "fake";
-    await assert.rejects(judgeFile({ path, dir, send: stopAfterOne, concurrency: 1, date: "2026-10-09" }), /stopped/);
+    await assert.rejects(judgeFile({ votes: 1, path, dir, send: stopAfterOne, concurrency: 1, date: "2026-10-09" }), /stopped/);
     await stat(sidecarPath(path));
     const second = recording(judging(allPass));
-    const result = await judgeFile({ path, dir, send: second.send, concurrency: 1, date: "2026-10-09" });
+    const result = await judgeFile({ votes: 1, path, dir, send: second.send, concurrency: 1, date: "2026-10-09" });
     assert.equal(second.bodies.length, 1, "only the unjudged question was sent");
     assert.equal(result.judged, 4);
     await assert.rejects(stat(sidecarPath(path)), /ENOENT/);
@@ -476,7 +476,7 @@ test("a reply that is not JSON is asked for again, and given up on after three t
       return good(body);
     };
     flaky.route = "fake";
-    const result = await judgeFile({ path, dir, send: flaky, concurrency: 1, date: "2026-10-09" });
+    const result = await judgeFile({ votes: 1, path, dir, send: flaky, concurrency: 1, date: "2026-10-09" });
     assert.equal(result.judged, 4, "every answer judged");
     assert.equal(calls, 3, "two questions, one of them asked twice");
 
@@ -488,7 +488,7 @@ test("a reply that is not JSON is asked for again, and given up on after three t
         return json({ content: [{ type: "text", text: "no verdicts today" }], usage: {} });
       };
       broken.route = "fake";
-      await assert.rejects(judgeFile({ path: path2, dir: dir2, send: broken, concurrency: 1 }), /is not JSON \(3 attempts\)/);
+      await assert.rejects(judgeFile({ votes: 1, path: path2, dir: dir2, send: broken, concurrency: 1 }), /is not JSON \(3 attempts\)/);
       assert.equal(tries, JUDGE_ATTEMPTS, "three tries, then the error");
     } finally {
       await cleanup2();
@@ -510,7 +510,7 @@ test("a reply cut off at max_tokens is asked again with twice the room, never pa
       return good(body);
     };
     cramped.route = "fake";
-    await judgeFile({ path, dir, send: cramped, concurrency: 1, date: "2026-10-09" });
+    await judgeFile({ votes: 1, path, dir, send: cramped, concurrency: 1, date: "2026-10-09" });
     assert.deepEqual(limits.slice(0, 3), [limits[0], limits[0] * 2, limits[0] * 4], "each cut-off doubles the room");
     assert.equal(JSON.parse(withMoreRoom(JSON.stringify({ max_tokens: 30000 }))).max_tokens, 32000, "never past the ceiling");
   } finally {
@@ -576,7 +576,7 @@ web: scripted
   const { dir, path, cleanup } = await folder(result, { test: tasks });
   try {
     const rec = recording(judging(allPass));
-    await judgeFile({ path, dir, send: rec.send, date: "2026-10-11" });
+    await judgeFile({ votes: 1, path, dir, send: rec.send, date: "2026-10-11" });
     assert.equal(rec.bodies.length, 1, "question 2 has only checks: nothing to send");
     assert.deepEqual(payloadOf(rec.bodies[0]).checks.map((c) => c.line), ["say it is connected"]);
     const blocks = parseJudgedSections(await readFile(path, "utf8")).at(-1).blocks;
@@ -638,3 +638,6 @@ test("the labels' shared words are defined once, in the judge's shared instructi
   assert.deepEqual(payload.checks.map((c) => c.line), [...must, ...mustNot], "the row's lines as written");
   assert.deepEqual(checks.map((c) => c.line), [...must, ...mustNot]);
 });
+
+// ---- the conversation's own day, code-graded lines, votes (2026-11-19) ----
+
