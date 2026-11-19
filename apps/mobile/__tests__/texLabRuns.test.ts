@@ -360,9 +360,10 @@ test("a run's cost says what its handed-off jobs added, for Finance (Dev2, 2026-
   expect(costWords(run)).toBe("$0.500 (AI gateway), of which 2 handed-off jobs: 5 advisor calls, $0.080 ($0.040 a job)");
 });
 
-test("worldWords says the world replayed from fixtures, or how many simulated calls had none; nothing when there is no world", () => {
+test("worldWords says the world replayed from fixtures, or how many simulated calls had none and of which kinds; nothing when there is no world", () => {
   expect(worldWords(undefined)).toBe("");
   expect(worldWords({ misses: 0, byKind: {}, calls: [] })).toBe("world replayed from fixtures");
-  expect(worldWords({ misses: 1, byKind: { "web search": 1 }, calls: [{ chat: "a", kind: "web search", call: "{}" }] })).toBe("world: 1 simulated call not in fixtures");
-  expect(worldWords({ misses: 3, byKind: { "web search": 2, "gmail search": 1 }, calls: [] })).toBe("world: 3 simulated calls not in fixtures");
+  expect(worldWords({ misses: 1, byKind: { "web search": 1 }, calls: [{ chat: "a", kind: "web search", call: "{}" }] })).toBe("world: 1 simulated call not in fixtures (web search 1)");
+  expect(worldWords({ misses: 3, byKind: { "web search": 2, "gmail search": 1 }, calls: [] })).toBe("world: 3 simulated calls not in fixtures (web search 2, gmail search 1)");
+  expect(worldWords({ misses: 2, byKind: {}, calls: [] })).toBe("world: 2 simulated calls not in fixtures");
 });
