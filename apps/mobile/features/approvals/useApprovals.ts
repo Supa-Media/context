@@ -15,6 +15,17 @@ import {
   type DecisionAction,
 } from "./gateway";
 
+/**
+ * An approval this console answered, kept so its card can show what happened.
+ * `gone` is one the gateway no longer held when the answer came.
+ */
+export interface DecidedApproval {
+  approval: Approval;
+  outcome: "approved" | "declined" | "gone";
+  /** What the person is told about it, or `null`. */
+  note: string | null;
+}
+
 /** What the approvals surface draws, and the two things a person can do. */
 export interface ApprovalsView {
   /** Whether this console can ask at all. False means the tab is not shown. */
@@ -25,6 +36,8 @@ export interface ApprovalsView {
   loading: boolean;
   /** What is waiting, as the gateway last listed it, minus anything decided here. */
   items: Approval[];
+  /** What this console answered since it opened, kept until the scope changes. A re-list never drops it. */
+  decided: DecidedApproval[];
   /** The sentence for a failed listing, `null` otherwise. */
   error: string | null;
   /** The approval a decision is in flight for. Its row is held until it settles. */
@@ -39,6 +52,7 @@ interface State {
   phase: ApprovalsView["phase"];
   loading: boolean;
   items: Approval[];
+  decided: DecidedApproval[];
   error: string | null;
   busyId: string | null;
   notice: ApprovalsView["notice"];
@@ -47,7 +61,28 @@ interface State {
 /** How often an open console asks again, so an approval raised after it opened shows up. */
 export const RELIST_MS = 60_000;
 
-const EMPTY: State = { phase: "idle", loading: false, items: [], error: null, busyId: null, notice: null };
+const EMPTY: State = { phase: "idle", loading: false, items: [], decided: [], error: null, busyId: null, notice: null };
+
+/**
+ * Takes an answered approval off the waiting list and onto the decided one.
+ * An id that is no longer listed moves nothing, and only the notice changes.
+ */
+function moveDecided(
+  s: State,
+  id: string,
+  outcome: DecidedApproval["outcome"],
+  note: string,
+  notice: ApprovalsView["notice"],
+): State {
+  const approval = s.items.find((item) => item.id === id);
+  return {
+    ...s,
+    busyId: null,
+    items: s.items.filter((item) => item.id !== id),
+    decided: approval === undefined ? s.decided : [...s.decided, { approval, outcome, note }],
+    notice,
+  };
+}
 
 /**
  * The approvals this person has waiting, and their yes or no.
@@ -72,6 +107,9 @@ const EMPTY: State = { phase: "idle", loading: false, items: [], error: null, bu
  * earlier one — the context changed, the console closed — is discarded, so a
  * list for one context never shows on another, and a decision made in one
  * never settles a row in the next.
+ *
+ * A decision moves its approval into `decided` rather than dropping it, so the
+ * chat can show what was answered; a re-list never empties `decided`.
  */
 export function useApprovals(options: {
   /** The workspace the console is showing, or `null` before one is chosen. */
@@ -263,20 +301,12 @@ export function useApprovals(options: {
           : readDecision(answer.status, answer.body);
       if (read.kind === "decided" || read.kind === "gone") settled.current.add(id);
       if (read.kind === "decided") {
-        setState((s) => ({
-          ...s,
-          busyId: null,
-          items: s.items.filter((item) => item.id !== id),
-          notice: decisionNotice(read.decision),
-        }));
+        const notice = decisionNotice(read.decision);
+        const outcome = read.decision.status === "approved" ? "approved" : "declined";
+        setState((s) => moveDecided(s, id, outcome, notice.text, notice));
       } else if (read.kind === "gone") {
         // Settled elsewhere or expired: it is no longer waiting, so it leaves.
-        setState((s) => ({
-          ...s,
-          busyId: null,
-          items: s.items.filter((item) => item.id !== id),
-          notice: { tone: "warn", text: GONE_SENTENCE },
-        }));
+        setState((s) => moveDecided(s, id, "gone", GONE_SENTENCE, { tone: "warn", text: GONE_SENTENCE }));
       } else {
         setState((s) => ({ ...s, busyId: null, notice: { tone: "warn", text: read.sentence } }));
       }
@@ -290,6 +320,7 @@ export function useApprovals(options: {
       phase: state.phase,
       loading: state.loading,
       items: state.items,
+      decided: state.decided,
       error: state.error,
       busyId: state.busyId,
       notice: state.notice,

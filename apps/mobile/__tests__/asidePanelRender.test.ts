@@ -97,6 +97,19 @@ jest.mock("../features/meetings/controller", () => {
   };
 });
 
+/*
+  The Tex chat, as a spy. It polls a gateway and draws a conversation, and
+  neither is what these tests are about. What they check is the props the
+  panel hands it: that it is the one that now carries the approvals view.
+*/
+const mockTexProps: { workspaceId: string; endpoint: string; approvals?: unknown }[] = [];
+jest.mock("../features/tex/chat/TexChatTab", () => ({
+  TexChatTab: (props: { workspaceId: string; endpoint: string; approvals?: unknown }) => {
+    mockTexProps.push(props);
+    return null;
+  },
+}));
+
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
 import { act, createElement } from "react";
@@ -105,6 +118,15 @@ import { AsidePanel } from "../features/console/aside/AsidePanel";
 import { NO_MEETING } from "../features/console/aside/tabs";
 import { APPROVALS, NOTHING_WAITING } from "./approvalsFixture";
 import type { ApprovalsView } from "../features/approvals/useApprovals";
+
+/** Two emails waiting for the person's yes. */
+const TWO_WAITING: ApprovalsView = {
+  ...APPROVALS,
+  items: [APPROVALS.items[0], { ...APPROVALS.items[0], id: "a2", summary: "send an email to pat@example.com" }],
+};
+
+/** The Tex chat's place in the panel: the owner's personal workspace, and its MCP endpoint. */
+const TEX = { workspaceId: "ws1", endpoint: "https://gateway.example.test/mcp" };
 
 /** A running meeting, in the shape `MeetingsSnapshot.live` carries. */
 function recording(state: "recording" | "paused" = "recording") {
@@ -204,6 +226,7 @@ afterEach(() => {
   mockCanContinue = false;
   mockRecords = [];
   mockCalls.length = 0;
+  mockTexProps.length = 0;
 });
 
 /** Let pending promises resolve and React commit what they changed. */
@@ -219,6 +242,7 @@ function mount(
     onOpenNote?: ((href: string) => void) | null;
     started?: number | null;
     approvals?: ApprovalsView;
+    tex?: typeof TEX | null;
   } = {},
 ) {
   const container = document.createElement("div");
@@ -233,6 +257,7 @@ function mount(
       createElement(AsidePanel, {
         started: options.started ?? null,
         approvals: options.approvals,
+        tex: options.tex ?? null,
         onOpenNote: options.onOpenNote === undefined ? () => {} : options.onOpenNote,
       }),
     );
@@ -262,26 +287,66 @@ function mount(
 describe("the tabs", () => {
   /** Chat was removed from the panel entirely (2026-10-10); Meetings is where it opens. */
   test("a panel opens on Meetings, and there is no Chat tab", () => {
-    const panel = mount({ approvals: APPROVALS });
+    const panel = mount({ approvals: APPROVALS, tex: TEX });
     expect(panel.find("aside-meetings")).not.toBeNull();
     expect(panel.find("aside-tab-chat")).toBeNull();
     expect(panel.find("aside-chat")).toBeNull();
     expect(panel.text()).not.toContain("Chat");
   });
 
-  test("pressing Approvals shows approvals, and Meetings brings meetings back", () => {
-    const panel = mount({ approvals: APPROVALS });
-    panel.press("aside-tab-approvals");
-    expect(panel.find("aside-approvals")).not.toBeNull();
-    expect(panel.find("aside-meetings")).toBeNull();
-    panel.press("aside-tab-meetings");
-    expect(panel.find("aside-meetings")).not.toBeNull();
+  /**
+   * Approvals is not a tab (owner, 2026-11-19: "no approvals tab, just make
+   * the approvals happen right inside the message box"). Even with something
+   * waiting, and a listing that failed, the panel draws no Approvals tab and
+   * no body of its own for it.
+   *
+   * ## Sabotage record
+   *
+   * Applied, suite run, named test observed failing, reverted.
+   *
+   *  1. The Approvals entry put back into `ASIDE_TABS`.
+   *     → **1 fails**: `there is no Approvals tab, even when something is waiting`.
+   */
+  test("there is no Approvals tab, even when something is waiting and the listing failed", () => {
+    const panel = mount({ approvals: { ...APPROVALS, phase: "failed", error: "The list could not be read." }, tex: TEX });
+    expect(panel.find("aside-tab-approvals")).toBeNull();
+    expect(panel.find("aside-approvals")).toBeNull();
+    expect(panel.text()).not.toContain("Approvals");
+    panel.press("aside-tab-tex");
+    expect(panel.find("aside-tex")).not.toBeNull();
+    expect(panel.find("aside-approvals")).toBeNull();
   });
 
   test("with nothing waiting there is no Approvals tab", () => {
     const panel = mount({ approvals: NOTHING_WAITING });
     expect(panel.find("aside-meetings")).not.toBeNull();
     expect(panel.find("aside-tab-approvals")).toBeNull();
+  });
+
+  test("the Tex chat is handed the approvals view, which is where they are answered", () => {
+    const panel = mount({ approvals: APPROVALS, tex: TEX });
+    panel.press("aside-tab-tex");
+    expect(panel.find("aside-tex")).not.toBeNull();
+    const last = mockTexProps[mockTexProps.length - 1];
+    expect(last).toMatchObject({ workspaceId: TEX.workspaceId, endpoint: TEX.endpoint });
+    expect(last.approvals).toBe(APPROVALS);
+  });
+
+  test("the Tex tab says how many are waiting, from the Meetings tab too", () => {
+    const panel = mount({ approvals: TWO_WAITING, tex: TEX });
+    const count = panel.find("aside-tab-tex-count");
+    expect(count?.textContent).toBe("2");
+    expect(panel.find("aside-tab-tex")?.contains(count!)).toBe(true);
+    expect(panel.find("aside-tab-tex")?.getAttribute("aria-label")).toBe("Tex, 2 waiting");
+    // It is still on the Meetings tab, which is where the panel opens.
+    expect(panel.find("aside-meetings")).not.toBeNull();
+  });
+
+  test("with nothing waiting the Tex tab has no count", () => {
+    const panel = mount({ approvals: NOTHING_WAITING, tex: TEX });
+    expect(panel.find("aside-tab-tex")).not.toBeNull();
+    expect(panel.find("aside-tab-tex-count")).toBeNull();
+    expect(panel.find("aside-tab-tex")?.getAttribute("aria-label")).toBe("Tex");
   });
 
   test("a console that cannot answer approvals shows Meetings alone, with no tab strip over it", () => {
@@ -302,22 +367,22 @@ describe("the tabs", () => {
 describe("a meeting, while you are looking elsewhere", () => {
   /**
    * The decision this panel rests on. A meeting can start while somebody is
-   * halfway through answering an approval, and a panel that swapped tabs
+   * halfway through a question to Tex, and a panel that swapped tabs
    * under them would be a panel they stop trusting.
    */
   test("a meeting does not move the tab out from under somebody", () => {
-    const panel = mount({ approvals: APPROVALS });
-    panel.press("aside-tab-approvals");
+    const panel = mount({ approvals: APPROVALS, tex: TEX });
+    panel.press("aside-tab-tex");
     mockLive = recording();
     panel.rerender();
-    expect(panel.find("aside-approvals")).not.toBeNull();
+    expect(panel.find("aside-tex")).not.toBeNull();
     expect(panel.find("aside-meetings")).toBeNull();
   });
 
   test("the dot is what says a meeting is running", () => {
     mockLive = recording();
-    const panel = mount({ approvals: APPROVALS });
-    panel.press("aside-tab-approvals");
+    const panel = mount({ approvals: APPROVALS, tex: TEX });
+    panel.press("aside-tab-tex");
     expect(panel.find("aside-tab-meetings-dot")).not.toBeNull();
 
     // ...and it goes once you are reading that tab, because a mark on the
@@ -327,21 +392,21 @@ describe("a meeting, while you are looking elsewhere", () => {
   });
 
   test("and there is no dot with no meeting behind it", () => {
-    const panel = mount({ approvals: APPROVALS });
-    panel.press("aside-tab-approvals");
+    const panel = mount({ approvals: APPROVALS, tex: TEX });
+    panel.press("aside-tab-tex");
     expect(panel.find("aside-tab-meetings-dot")).toBeNull();
   });
 
   test("the mark is in the name as well as beside it", () => {
     mockLive = recording();
-    const panel = mount({ approvals: APPROVALS });
-    panel.press("aside-tab-approvals");
+    const panel = mount({ approvals: APPROVALS, tex: TEX });
+    panel.press("aside-tab-tex");
     const tab = panel.find("aside-tab-meetings");
     expect(tab?.getAttribute("aria-label")).toBe("Meetings, recording");
 
     mockLive = null;
-    const quiet = mount({ approvals: APPROVALS });
-    quiet.press("aside-tab-approvals");
+    const quiet = mount({ approvals: APPROVALS, tex: TEX });
+    quiet.press("aside-tab-tex");
     expect(quiet.find("aside-tab-meetings")?.getAttribute("aria-label")).toBe("Meetings");
   });
 });
@@ -444,22 +509,22 @@ describe("asking for a meeting is what takes the tab", () => {
    */
   test("the + menu's New meeting opens the panel on Meetings", () => {
     // `mount` reads its options at each render, so changing one and rendering again is the press.
-    const options: Parameters<typeof mount>[0] = { approvals: APPROVALS, started: null };
+    const options: Parameters<typeof mount>[0] = { approvals: APPROVALS, tex: TEX, started: null };
     const panel = mount(options);
-    panel.press("aside-tab-approvals");
+    panel.press("aside-tab-tex");
     mockLive = recording();
     options.started = 1;
     panel.rerender();
     expect(panel.find("aside-meetings")).not.toBeNull();
-    expect(panel.find("aside-approvals")).toBeNull();
+    expect(panel.find("aside-tex")).toBeNull();
   });
 
   test("and a meeting that merely starts still only marks the tab", () => {
-    const panel = mount({ approvals: APPROVALS });
-    panel.press("aside-tab-approvals");
+    const panel = mount({ approvals: APPROVALS, tex: TEX });
+    panel.press("aside-tab-tex");
     mockLive = recording();
     panel.rerender();
-    expect(panel.find("aside-approvals")).not.toBeNull();
+    expect(panel.find("aside-tex")).not.toBeNull();
     expect(panel.find("aside-tab-meetings-dot")).not.toBeNull();
   });
 });

@@ -48,6 +48,8 @@
  *     → **fails**: `a console that is gone, or has nothing to ask about, asks nothing more`.
  * 12. An empty list beside an unreadable workspace treated as listed.
  *     → **fails**: `nothing listed while one workspace could not be read is a failure, not an empty list`.
+ * 13. Pinned context passed through to the listing (google-review, 2026-11-19).
+ *     → **fails**: `a context reached through the pin, not a membership, is never asked, so nothing waiting is the empty state`.
  */
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
@@ -60,8 +62,13 @@ import { createRoot, type Root } from "react-dom/client";
 let mockClient: object = {};
 let mockMintCount = 0;
 const mockMintCalls: unknown[] = [];
+/** Workspaces whose mint is refused, as `requireWorkspaceAccess` refuses the pinned context. */
+const mockRefusedWorkspaces = new Set<string>();
 const mockMint = async (args: unknown) => {
   mockMintCalls.push(args);
+  if (mockRefusedWorkspaces.has((args as { workspaceId: string }).workspaceId)) {
+    throw new Error("no membership in this workspace");
+  }
   mockMintCount += 1;
   return { accessToken: `grant-${mockMintCount}`, expiresAt: Date.now() + 3_600_000, scopes: [] };
 };
@@ -73,6 +80,7 @@ jest.mock("@convex-dev/auth/react", () => ({ useAuthToken: () => "session-alpha"
 
 import { RELIST_MS, useApprovals, type ApprovalsView } from "../features/approvals/useApprovals";
 import { GONE_SENTENCE, UNREACHABLE_SENTENCE } from "../features/approvals/gateway";
+import { approvalsScope } from "../features/approvals/scope";
 
 const MCP = "https://mcp.context.test/@seyi/mcp";
 const APPROVALS = "https://mcp.context.test/approvals";
@@ -102,6 +110,7 @@ beforeEach(() => {
   mockClient = {};
   mockMintCount = 0;
   mockMintCalls.length = 0;
+  mockRefusedWorkspaces.clear();
   mockFetchCalls = [];
   mockAnswers = [];
   (globalThis as { fetch?: unknown }).fetch = jest.fn(async (url: string, init?: RequestInit) => {
@@ -276,6 +285,30 @@ describe("deciding", () => {
     expect(h.view().notice?.text).toBe("Denied. Nothing ran.");
   });
 
+  test("a decided approval leaves the waiting list and is kept as decided, with its outcome", async () => {
+    mockAnswers = [
+      { status: 200, body: { approvals: [RECORD("a"), RECORD("b")] } },
+      { status: 200, body: { status: "approved", summary: "share a", result: "Shared.", ok: true } },
+      { status: 200, body: { status: "denied", summary: "share b" } },
+    ];
+    const h = harness({ workspaceId: "ws_1", endpoint: MCP, enabled: true });
+    await flush();
+
+    await act(async () => h.view().decide("a", "approve"));
+    await flush();
+    expect(h.view().items.map((item) => item.id)).toEqual(["b"]);
+    expect(h.view().decided.map((d) => [d.approval.id, d.outcome])).toEqual([["a", "approved"]]);
+
+    await act(async () => h.view().decide("b", "deny"));
+    await flush();
+    expect(h.view().items).toEqual([]);
+    expect(h.view().decided.map((d) => [d.approval.id, d.outcome])).toEqual([
+      ["a", "approved"],
+      ["b", "declined"],
+    ]);
+    expect(h.view().decided[1]?.note).toBe("Denied. Nothing ran.");
+  });
+
   test("an approval that was refused stays on the list, with the reason", async () => {
     mockAnswers = [
       { status: 200, body: { approvals: [RECORD("a")] } },
@@ -386,6 +419,19 @@ describe("every workspace", () => {
     await flush();
     expect(h.view().phase).toBe("failed");
     expect(h.view().error).not.toBeNull();
+  });
+
+  test("a context reached through the pin, not a membership, is never asked, so nothing waiting is the empty state", async () => {
+    mockRefusedWorkspaces.add("ws_pinned");
+    mockAnswers = [{ status: 200, body: { approvals: [] } }];
+    const contexts = [{ id: "ws_review" }, { id: "ws_pinned", pinned: true }];
+    const h = harness({ ...approvalsScope(contexts, "ws_review"), endpoint: MCP, enabled: true });
+    await flush();
+
+    expect(mockMintCalls.map((call) => (call as { workspaceId: string }).workspaceId)).toEqual(["ws_review"]);
+    expect(h.view().phase).toBe("listed");
+    expect(h.view().items).toEqual([]);
+    expect(h.view().error).toBeNull();
   });
 
   test("a decision goes back to the workspace that holds the approval", async () => {

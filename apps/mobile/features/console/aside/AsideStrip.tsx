@@ -11,7 +11,6 @@ const ICONS: Record<Exclude<AsideTab, "tex">, IconName> = {
   activity: "people",
   note: "file",
   meetings: "calendar",
-  approvals: "checkCircle",
 };
 
 /**

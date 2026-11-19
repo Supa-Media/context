@@ -399,6 +399,7 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 
 ## [The mobile app and the console](./app-and-console.md)
 
+- [Approvals are cards in the Tex chat, and there is no Approvals tab](./app-and-console/approvals-in-tex-chat.md#approvals-are-cards-in-the-tex-chat-and-there-is-no-approvals-tab-2026-11-19) (2026-11-19)
 - [Settings is one scrolling page, each row one line and one action](./app-and-console/settings-one-page.md#settings-is-one-scrolling-page-each-row-one-line-and-one-action-2026-11-12) (2026-11-12)
 - [Each unfinished feature has its own flag, and every flag expires](./app-and-console/feature-flags.md#each-unfinished-feature-has-its-own-flag-and-every-flag-expires-2026-11-08) (2026-11-08)
 - [Vault key use is launched, and the old switches are gone](./app-and-console/feature-flags.md#vault-key-use-is-launched-and-the-old-switches-are-gone-2026-11-08) (2026-11-08)
