@@ -84,6 +84,18 @@ const APP_IMPORT_ONLY = ["@context/convex"];
 const workflow = (name) => `.github/workflows/${name}.yml`;
 /** What turns a Worker's secrets into one `wrangler secret bulk` request. */
 const WORKER_SECRETS = "scripts/worker-secrets.mjs";
+/** What renders each preview's wrangler config from the one in the repository. */
+const PREVIEW_CONFIG = "scripts/preview-config.mjs";
+const PREVIEW_CONVEX_ENV = "scripts/preview-convex-env.mjs";
+/** Every script a preview runs; changing one re-proves the whole preview. */
+const PREVIEW_SCRIPTS = [
+  PREVIEW_CONFIG,
+  PREVIEW_CONVEX_ENV,
+  "scripts/preview-guards.mjs",
+  "scripts/preview-seed.mjs",
+  "scripts/preview-smoke.mjs",
+  WORKER_SECRETS,
+];
 
 /**
  * What each target deploys. A staging `worker` carries what that workflow's
@@ -113,6 +125,25 @@ export const TARGETS = {
     },
     fanOut: [...SHARED_FAN_OUT, workflow("deploy-staging")],
     // Staging runs no Sentry inbox.
+    ignored: [...SHARED_IGNORED, "infra/sentry-worker/**"],
+  },
+  // A preview is one pull request's own backend (.github/workflows/preview.yml),
+  // so its base is the newest run on the same branch, not on main. Its Workers
+  // are the preview's own copies; the staging Workers it binds stay shared.
+  preview: {
+    title: "Preview",
+    workflow: "preview.yml",
+    perBranch: true,
+    components: {
+      convex: { packages: ["@context/convex"], files: ["convex.json", "scripts/staging-env.mjs", PREVIEW_CONVEX_ENV] },
+      mcp: { packages: ["@context/mcp", "@context/site-shots", "@context/tex-eval"], worker: "apps/mcp", files: [WORKER_SECRETS, PREVIEW_CONFIG] },
+      agent: { packages: ["@context/agent"], worker: "apps/agent", files: [WORKER_SECRETS, PREVIEW_CONFIG] },
+      router: { packages: ["@context/router", "@context/mobile"], importOnly: APP_IMPORT_ONLY, worker: "infra/router", files: [PREVIEW_CONFIG] },
+      app: { packages: ["@context/mobile"], importOnly: APP_IMPORT_ONLY, files: ["scripts/build-drawing-editor.mjs"] },
+    },
+    // The preview's own scripts decide what a preview is allowed to deploy, so
+    // a change to any of them deploys every component.
+    fanOut: [...SHARED_FAN_OUT, workflow("preview"), ...PREVIEW_SCRIPTS],
     ignored: [...SHARED_IGNORED, "infra/sentry-worker/**"],
   },
   production: {
@@ -338,9 +369,27 @@ export function baseCommits(runs, currentRunId) {
   return null;
 }
 
+/**
+ * The runs a target's base is chosen from. A preview's runs are filtered to
+ * its own branch, and pull request runs are kept: they are the ones that
+ * deployed it. Staging keeps its old query, which excludes pull requests.
+ */
+export function recentRunsUrl(env, target) {
+  const config = TARGETS[target];
+  const url = new URL(`https://api.github.com/repos/${env.GITHUB_REPOSITORY}/actions/workflows/${config.workflow}/runs`);
+  const params = { per_page: "100" };
+  if (config.perBranch) {
+    if (!env.PLAN_BRANCH) throw new Error("A preview needs PLAN_BRANCH to find its earlier runs.");
+    params.branch = env.PLAN_BRANCH;
+  } else {
+    params.exclude_pull_requests = "true";
+  }
+  url.search = new URLSearchParams(params).toString();
+  return url;
+}
+
 async function recentRuns(env, target, request = fetch) {
-  const url = new URL(`https://api.github.com/repos/${env.GITHUB_REPOSITORY}/actions/workflows/${TARGETS[target].workflow}/runs`);
-  url.search = new URLSearchParams({ per_page: "100", exclude_pull_requests: "true" }).toString();
+  const url = recentRunsUrl(env, target);
   const response = await request(url, {
     headers: { Authorization: `Bearer ${env.GH_TOKEN}`, Accept: "application/vnd.github+json", "X-GitHub-Api-Version": "2022-11-28" },
   });
