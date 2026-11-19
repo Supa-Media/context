@@ -1,5 +1,6 @@
 import { pathToFileURL } from 'node:url';
 import { PRODUCTION_DEPLOY_BRANCH } from './production-release.mjs';
+import { responseWaitMs, retryOnRateLimit } from './github-rate-limit.mjs';
 
 // After CI succeeds on a push to main, start Deploy to Production for the
 // newest commit on main whose CI succeeded (decided by the owner, 2026-11-17;
@@ -29,13 +30,26 @@ import { PRODUCTION_DEPLOY_BRANCH } from './production-release.mjs';
 
 const API = 'https://api.github.com';
 const COMMIT_LIMIT = 30;
+// 2026-11-19: the repository's GITHUB_TOKEN limit ran out, and a rate-limited
+// call failed the start. A rate-limited call now waits for the reset, up to
+// this long in all for one promote, instead of failing.
+const RATE_LIMIT_WAIT_MS = 15 * 60_000;
 
-function client(env, request) {
+function client(env, request, { deadline, sleep, now, log }) {
   const headers = { Authorization: `Bearer ${env.GH_TOKEN}`, Accept: 'application/vnd.github+json', 'X-GitHub-Api-Version': '2022-11-28' };
-  return async (path, init = {}) => {
-    const response = await request(new URL(`${API}/repos/${env.GITHUB_REPOSITORY}${path}`), { ...init, headers: { ...headers, ...init.headers } });
-    if (!response.ok) throw new Error(`GitHub ${init.method ?? 'GET'} ${path} failed (HTTP ${response.status}).`);
-    return response.status === 204 ? null : response.json();
+  return (path, init = {}) => {
+    let attempt = 0;
+    return retryOnRateLimit(async () => {
+      const response = await request(new URL(`${API}/repos/${env.GITHUB_REPOSITORY}${path}`), { ...init, headers: { ...headers, ...init.headers } });
+      if (!response.ok) {
+        const body = await response.text?.().catch(() => '') ?? '';
+        const error = new Error(`GitHub ${init.method ?? 'GET'} ${path} failed (HTTP ${response.status}).`);
+        error.rateLimitWaitMs = responseWaitMs({ status: response.status, headers: response.headers, body, now: now(), attempt });
+        attempt += 1;
+        throw error;
+      }
+      return response.status === 204 ? null : response.json();
+    }, { deadline, waitFor: error => error.rateLimitWaitMs ?? null, sleep, now, log });
   };
 }
 
@@ -116,11 +130,11 @@ async function openDeployment(api, sha) {
   });
 }
 
-export async function promote(env, { request = fetch, log = console.log } = {}) {
+export async function promote(env, { request = fetch, log = console.log, sleep, now = Date.now } = {}) {
   const skipped = refuse(env);
   if (skipped) return { promoted: false, reason: skipped };
   if (!env.GH_TOKEN) throw new Error('Missing GitHub Actions token.');
-  const api = client(env, request);
+  const api = client(env, request, { deadline: now() + RATE_LIMIT_WAIT_MS, sleep, now, log });
   const sha = await select(api);
   if (!sha) return { promoted: false, reason: 'no commit on main has a green CI run' };
   const cancelled = await cancelQueuedOthers(api, sha);
