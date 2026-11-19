@@ -794,7 +794,7 @@ export async function runTurn(options) {
       const ask = result?.ask === true;
       effects.push({ time: toolMs });
       effects.push(() => {
-        trace.push({ kind: "tool", tool: call.name, ok: result?.isError !== true || ask, at: called - began, ms: toolMs, ...(result?.held === true ? { held: true } : {}), ...(ask ? { ask: true } : {}), ...traceNames(made, call) }); // the six's name and action, for the Lab's Tools page (`turnLog.js`)
+        trace.push({ kind: "tool", tool: call.name, ok: result?.isError !== true || ask, at: called - began, ms: toolMs, ...(result?.held === true ? { held: true } : {}), ...(ask ? { ask: true } : {}), ...(result?.stages ? { stages: result.stages } : {}), ...traceNames(made, call) }); // the six's name and action, for the Lab's Tools page (`turnLog.js`)
         steps.push({ tool: call.name, ok: result?.isError !== true, ...(Array.isArray(result?.sources) ? { sources: result.sources } : {}) });
         // A failed step sends the next round to the planner; one held for the person's yes, or a designed send-back, does not.
         if (failedCall(result) && !ask) { escalate = true; failed({ tool: call.name, ...causeOf(thrown, ToolTimeout), result, ms: toolMs, round }); }

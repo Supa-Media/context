@@ -62,6 +62,15 @@ const TEXTS_GROUP_CLIENT_ID = "context_texts_group";
  */
 const NEVER_SENDS = new Set(["context_routines", "context_dreams", "context_console"]);
 
+/** A forward's email, read from its mailbox. A bad id throws here, as it always did, and the caller maps that to "unavailable". */
+async function readForward(store, supplied) {
+  const named = parseEmailId(String(supplied.forward).trim());
+  return store.email.read(named.address, named.messageId);
+}
+
+/** The per-stage milliseconds a held or refused email carries to the turn's trace (`turnTiming.js`): numbers only. */
+const stagesPart = (stages) => ({ stages: { ...stages } });
+
 /** The `callers:` key a connection asks as, or null for one that never may. */
 export function emailCaller(clientId) {
   if (clientId === TEXTS_CLIENT_ID || clientId === TEXTS_GROUP_CLIENT_ID) return "texting-assistant";
@@ -145,14 +154,25 @@ export async function emailGate(supplied, { store, session, target }) {
   }
   // Not when this turn already asked about an email: the second is refused below, unread.
   const early = texting && typeof session.mailChecker === "function" && !session.egress?.ledger?.asked.some((asked) => asked.tool === EMAIL_TOOL);
-  const checking = early ? Promise.resolve(session.mailChecker(email)).catch(() => null) : null;
+  // Each stage's ms, for the turn's trace (`turnTiming.js`); a stage that did not run has no entry.
+  const stages = {};
+  const checkerAt = Date.now();
+  const checking = early ? Promise.resolve(session.mailChecker(email)).catch(() => null).then((verdict) => { stages.checker = Date.now() - checkerAt; return verdict; }) : null;
+  /*
+    A forward's email is read with the checker, not after the limits answer, so the read is not a third wait in a row
+    (2026-11-19: a held forward took 7.8 to 15.7 s, one stage after another). A read that throws is "unavailable" below, never unhandled here.
+  */
+  const readAt = Date.now();
+  const forwardRead = email.forward && typeof store.email.read === "function" ? readForward(store, supplied).catch(() => null).then((value) => { stages.read = Date.now() - readAt; return value; }) : null;
   let room;
+  const checkAt = Date.now();
   try {
     room = await store.email.check(plain);
   } catch {
     room = { ok: false, refused: "unavailable" };
   }
-  if (room?.ok !== true) return toolError(REFUSED[room?.refused] ?? REFUSED.unavailable);
+  stages.check = Date.now() - checkAt;
+  if (room?.ok !== true) return { ...toolError(REFUSED[room?.refused] ?? REFUSED.unavailable), ...stagesPart(stages) };
 
   /*
     The sender the person is shown is the one that sends: an email that named
@@ -169,18 +189,12 @@ export async function emailGate(supplied, { store, session, target }) {
   // A forward is shown with what goes below their words: the email's sender, subject and each attachment's name.
   let forwarded = null;
   if (email.forward) {
-    const named = parseEmailId(String(supplied.forward).trim());
-    let read;
-    try {
-      read = typeof store.email.read === "function" ? await store.email.read(named.address, named.messageId) : null;
-    } catch {
-      read = null;
+    const forwardedRead = forwardRead === null ? null : await forwardRead;
+    if (forwardedRead?.ok !== true) {
+      const why = forwardedRead?.refused === "not_found" ? "forward_not_found" : forwardedRead?.refused === "reconnect_required" ? "reconnect_required" : "unavailable";
+      return { ...toolError(REFUSED[why]), ...stagesPart(stages) };
     }
-    if (read?.ok !== true) {
-      const why = read?.refused === "not_found" ? "forward_not_found" : read?.refused === "reconnect_required" ? "reconnect_required" : "unavailable";
-      return toolError(REFUSED[why]);
-    }
-    forwarded = read.message;
+    forwarded = forwardedRead.message;
   }
 
   // Several emails go in one ask, every copy shown whole, and one yes sends them all (Dev2, 2026-10-22, asked);
@@ -188,7 +202,12 @@ export async function emailGate(supplied, { store, session, target }) {
   const ledger = session.egress?.ledger ?? null;
   let checked = null;
   if (texting) {
-    checked = checking !== null ? await checking : typeof session.mailChecker === "function" ? await session.mailChecker(email) : null;
+    if (checking !== null) checked = await checking;
+    else if (typeof session.mailChecker === "function") {
+      const at = Date.now();
+      checked = await session.mailChecker(email);
+      stages.checker = Date.now() - at;
+    }
     /*
       A "no" is an email that goes against what they said. Its old answer here
       ("Show them the draft and ask whether they want it sent") had Tex ask in
@@ -208,6 +227,7 @@ export async function emailGate(supplied, { store, session, target }) {
             "naming who it goes to and, for a forward, which email; for any other email, show its whole text. Their 👍 or yes to that text sends it. " +
             "Don't tell them a mail check held it.",
         ),
+        ...stagesPart(stages),
         checkerRefused: true,
       };
     }
@@ -239,6 +259,7 @@ export async function emailGate(supplied, { store, session, target }) {
     if (session.egress?.group) await disarmTexting(store, { userId: session.actorUserId }).catch(() => {});
     return null;
   }
+  const pendingAt = Date.now();
   const existing = await findPending(store, { name: EMAIL_TOOL, args, userId: session.actorUserId });
   if (session.egress?.texting === true && shownBefore(existing)) return toolError(ALREADY_ASKED);
   const record =
@@ -255,8 +276,9 @@ export async function emailGate(supplied, { store, session, target }) {
       texting,
       armed: false, // armed by `textedAsk` once the ask goes out whole
     }));
+  stages.pending = Date.now() - pendingAt;
   if (record === null) {
-    return toolError("Not sent: the person has too many things waiting for their OK. Ask them to clear some first.");
+    return { ...toolError("Not sent: the person has too many things waiting for their OK. Ask them to clear some first."), ...stagesPart(stages) };
   }
   if (ledger && !ledger.asked.some((asked) => asked.id === record.id)) ledger.asked.push(record);
   if (texting) recordMail(session, email, { ...mailVerdict(checked, { held: true }), ask: record.id }); // kept under the held ask's id, so its yes or no names it (`tools/approvals.js`)
@@ -270,6 +292,7 @@ export async function emailGate(supplied, { store, session, target }) {
             "Once they have, call send_email again with exactly the same arguments and you will be told it was sent.",
     ),
     held: true,
+    ...stagesPart(stages),
   };
 }
 
