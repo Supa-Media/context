@@ -1,1 +1,3 @@
-{"conversation": "the-flat", "answers": []}
+{"conversation": "the-flat", "answers": [
+{"key":"google calendar days {\"date\":\"2026-07-03\",\"days\":1}","kind":"google calendar days","request":{"date":"2026-07-03","days":1},"answer":{"days":[{"date":"2026-07-03","events":[{"start":"18:00","end":"20:00","title":"Climbing session (Kofi)","where":"Vertex Climbing Gym, 2214 W Fulton St"},{"start":"19:00","end":"21:00","title":"Flat dinner","where":"Home"}]}]}}
+]}
