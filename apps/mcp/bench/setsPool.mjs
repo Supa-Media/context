@@ -35,3 +35,20 @@ export function scheduleOrder(convos) {
   }
   return out;
 }
+
+/** A failure that names credit: the bench's keys are spent, so no later test can run either. */
+export const CREDIT = /credit/i;
+
+/**
+ * `work` for the pool, stopped by the first test that fails on credit: every unstarted test takes its error as its own
+ * and is never sent (gw Lab runs, 2026-11-18: every Claude call failed, one test after another). `work` keeps a test's
+ * failure on `t.error`.
+ */
+export function untilOutOfCredit(work) {
+  let spent = null;
+  return async (t) => {
+    if (spent) return void (t.error = spent);
+    await work(t);
+    if (t.error && CREDIT.test(String(t.error?.message ?? t.error))) spent ??= t.error;
+  };
+}

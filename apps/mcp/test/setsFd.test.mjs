@@ -655,7 +655,7 @@ test("the pool runs every item, never more than its lanes at once", async () => 
 });
 
 // gw Lab runs, 2026-11-18: every Claude call failed for lack of credit, one test after another, and the reason was cut
-// to the command line. Sabotage: drop the `noCredit` check in runFd, or slice the reason to 200, and this fails.
+// to the command line. Sabotage: drop the `spent` check in setsPool.mjs untilOutOfCredit, or slice the reason to 200, and this fails.
 test("out of credit, the first test's reason reaches its row, and no later test is sent", async () => {
   const reason = "judge failed: judge call for question 1 failed: status 400 (Your credit balance is too low to access the Anthropic API. Please go to Plans & Billing to upgrade or purchase credits.)";
   const sent = [];

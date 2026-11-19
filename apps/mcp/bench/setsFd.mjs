@@ -33,7 +33,7 @@ import { createRequire } from "node:module";
 import { tapbackSaidLine } from "../src/agent/tapbackEnding.js";
 import { parsePeople } from "./load.mjs";
 import { seedWorld, worldDirOf } from "./setsWorld.mjs";
-import { runPool, scheduleOrder } from "./setsPool.mjs";
+import { runPool, scheduleOrder, untilOutOfCredit } from "./setsPool.mjs";
 
 const { OTHER_ASSISTANTS } = createRequire(import.meta.url)("../../../packages/shared/src/texSets.cjs");
 
@@ -596,19 +596,14 @@ export async function runFd(units, { tree, fake = false, runTests = null, parall
     // The one pool: every test of every conversation, longest conversations first and round-robin across them.
     for (const p of prepared) for (const t of p.tests) t.p = p;
     const jobs = scheduleOrder(prepared.map((p) => p.tests));
-    // Out of credit, every later test fails the same way: the first such failure is every unstarted test's reason, and
-    // none of them is sent (gw Lab runs, 2026-11-18: every Claude call failed, one test after another).
-    let noCredit = null;
-    await runPool(jobs, parallel, async (t) => {
+    await runPool(jobs, parallel, untilOutOfCredit(async (t) => {
       const p = t.p;
-      if (noCredit) return void (t.error = noCredit);
       try {
         t.got = await run(tree, [t.name], { dir: p.dir, scratch: p.scratch, tag: "sets", fake, parallel: 1, env: p.env, envOf: p.envOf });
       } catch (error) {
         t.error = error;
-        if (CREDIT.test(String(error?.message ?? error))) noCredit ??= error;
       }
-    });
+    }));
     for (const p of prepared) rows.push(...collectConvo(p));
     // Rows in the order their units came, whichever conversation finished first.
     const place = new Map(units.map((u, k) => [`${u.row.chat}\n${u.row.msg}\n${u.row.node}`, k]));
@@ -617,9 +612,6 @@ export async function runFd(units, { tree, fake = false, runTests = null, parall
     await rm(scratch, { recursive: true, force: true });
   }
 }
-
-/** A failure that names credit: the bench's keys are spent, so no later test can run either. */
-export const CREDIT = /credit/i;
 
 /** How many conversations are prepared at once (their folders are copies of the bench folder). */
 const PREPARE_LANES = 4;
