@@ -251,7 +251,8 @@ export async function converse(world, question, person, mode = null, background 
     // Each progress line is a text the person got before the answer, as the
     // texting Worker sends them (`apps/agent/src/inbox.ts`), so it counts as one.
     for (const line of turn.progress ?? []) conversation.push({ from: "assistant", text: line });
-    conversation.push({ from: "assistant", text: saidLine(turn) });
+    // A quiet or stopped turn's line is the judge's marker, silent: the grader never counts it as words (`codeLines.mjs`).
+    conversation.push({ from: "assistant", text: saidLine(turn), ...(silentTurn(turn) ? { silent: true } : {}) });
     // A turn that ends in a tapback instead of words (a job's start, `sendTheReply.js`) showed the person that tapback:
     // the judge reads it as the line they saw, never as silence (Dev set, 2026-11-17: three such turns read "said nothing").
     const tapback = tapbackLine(turn.react);
@@ -271,7 +272,7 @@ export async function converse(world, question, person, mode = null, background 
     totals.personMs += realNow() - personStarted;
   }
   // The reply's texts: a job's later report is not one.
-  return { conversation, ...totals, texts: conversation.filter((turn) => turn.from === "assistant" && turn.tapback !== true && turn.later === undefined).length };
+  return { conversation, ...totals, texts: conversation.filter((turn) => turn.from === "assistant" && turn.tapback !== true && turn.later === undefined && turn.silent !== true).length };
 }
 
 /**
@@ -293,6 +294,15 @@ export function saidLine(turn) {
 }
 
 /**
+ * Whether `saidLine` names a turn that texted nothing: the quiet or the stopped marker, with no words, picture or
+ * tapback. WHY: a failed turn's apology line is not silent, it is what production would have texted.
+ */
+export function silentTurn(turn) {
+  const noPictures = sentPicturesLine(Array.from({ length: Number(turn.pictures) || 0 })) === "";
+  return turn.answer === "" && noPictures && typeof turn.react !== "string" && (turn.cancelled === true || turn.quiet === true);
+}
+
+/**
  * A test that starts at a check-in or a routine run, not a text (`setsFd.mjs`): the check-in finds the case's email,
  * or the routine runs with the case's words, through the real `/agent` on that client's grant. Nobody texts; what Tex
  * would text is the one answer.
@@ -305,7 +315,9 @@ async function startedBy(world, question) {
   if (question.checkinCalendar) world.calendarArrives(question.checkinCalendar);
   const checkin = Boolean(question.checkinMail || question.checkinCalendar);
   const turn = checkin ? await world.checkIn() : await world.routine(routinePathOf(question), question.routine);
-  return { conversation: turn.ok ? [{ from: "assistant", text: turn.answer }] : [], ms: turn.ms, personMs: 0, tools: [], jobs: [], traces: [], usage: turn.usage, usageByModel: {}, rounds: {}, model: turn.model, error: turn.error, texts: turn.ok ? 1 : 0, steps: turn.steps ?? null };
+  // A quiet start's line is the marker for the judge, silent: it is not a text the person got (`silentTurn`).
+  const quiet = turn.quiet === true;
+  return { conversation: turn.ok ? [{ from: "assistant", text: turn.answer, ...(quiet ? { silent: true } : {}) }] : [], ms: turn.ms, personMs: 0, tools: [], jobs: [], traces: [], usage: turn.usage, usageByModel: {}, rounds: {}, model: turn.model, error: turn.error, texts: turn.ok && !quiet ? 1 : 0, steps: turn.steps ?? null };
 }
 
 /**
