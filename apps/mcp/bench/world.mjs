@@ -212,8 +212,7 @@ export async function createWorld(bench, person, setupRaw, models, today = null,
   // with `gmail: sends` (`connectMailbox`); a send is recorded by the stub,
   // never delivered. Each search and read is kept for the result's `Mail:` line.
   const stand = worldStandIns({ models, person }), { gaps } = stand; // the stand-ins beyond these (`worldStandIns.mjs`), and what none could answer
-  // The mailbox the chat's setting names is the one Tex has (`mailbox.mjs` settingMailbox): the fixtures' mail moves there.
-  const named = settingMailbox(models.simulate?.setting);
+  const named = settingMailbox(models.simulate?.setting); // the mailbox the chat's setting names: the fixtures' mail moves there
   const mail = inMailbox((bench.workspaces[own.workspace]?.mail ?? []).filter(stand.arrived), named);
   const mailEvents = [];
   const connectMail = () => {
@@ -438,9 +437,7 @@ export async function createWorld(bench, person, setupRaw, models, today = null,
       if (job === null && typeof body?.answer === "string" && body.answer !== "") await postEvents([{ ...textedEvent(body.answer), from: { kind: "tex" }, turn: said.turn, covers, delivered: true }]); // Tex's answer, as the Worker posts it once sent
       const turn = controlPlane.turnReports.at(-1) ?? {};
       const spent = spentSince(reportsBefore);
-      // This turn's model calls: each failed tool's own error for the row (`toolErrors.mjs`), and a failed call or an
-      // empty Front door answer kept as the bench's failure, never Tex's (`benchGaps.mjs`).
-      const turnCalls = modelCalls.calls().slice(callsBefore);
+      const turnCalls = modelCalls.calls().slice(callsBefore); // a failed call or empty Front door answer is the bench's (`toolErrors.mjs`)
       for (const line of modelFailuresIn(turnCalls, isFrontDoorCall)) gaps.add(line);
       return {
         ok: response.status === 200 && typeof body?.answer === "string",
@@ -504,8 +501,7 @@ export async function createWorld(bench, person, setupRaw, models, today = null,
         trace: turn.trace ?? [],
         // What the turn did, short (`turnSteps.mjs`): tools, the reviewer's verdicts and the outcome, for a Lab row.
         steps: turnSteps(turn.trace, { answer: body?.answer ?? "", cancelled: body?.cancelled === true }),
-        // Each failed tool's error, short and safe (`toolErrors.mjs`), for the row's detail.
-        toolErrors: toolErrorsIn(turnCalls),
+        toolErrors: toolErrorsIn(turnCalls), // each failed tool's error, short and safe, for the row's detail
       };
     },
 

@@ -216,8 +216,7 @@ export async function converse(world, question, person, mode = null, background 
   // A test with `background: on` is offered background jobs, the chat running the case's `- running:` count and the jobs its `- running job:` lines name (`benchRunning`).
   const running = background ? benchRunning(question.running ?? 0, question.runningJobs ?? []) : null;
   const totals = { ms: 0, personMs: 0, jobMs: 0, tools: [], jobs: [], delivered: [], turnRounds: [], turnRoutes: [], traces: [], usage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 }, usageByModel: {}, rounds: {}, model: null, error: null, steps: null, toolErrors: [] };
-  // A Lab replay's chat before its text goes into the ledger first, as it was (`labReplay.mjs`).
-  // A job's report as the case's text: the page it says it wrote is written first (`earlierNotes.mjs`).
+  // A Lab replay's chat before its text goes into the ledger first, as it was (`labReplay.mjs`); a job's report as the case's text has the page it says it wrote written first (`earlierNotes.mjs`).
   const also = question.jobReport ? [String(question.jobReport.text ?? "")] : [];
   if ((question.earlier ?? []).length > 0 || also.length > 0) await world.earlier(question.earlier ?? [], { checkIn: Boolean(question.checkinMail || question.checkinCalendar), also });
   // A group's routine or check-in, or a job's report: one turn the Worker queues itself (`byCode.mjs`).
@@ -243,8 +242,8 @@ export async function converse(world, question, person, mode = null, background 
     if (turn.turnRoute) totals.turnRoutes.push(turn.turnRoute); // each texted turn's route (`world.mjs`, the reply's `route`)
     addSpend(totals, turn);
     totals.model = turn.model ?? totals.model;
-    for (const line of turn.toolErrors ?? []) if (!totals.toolErrors.includes(line)) totals.toolErrors.push(line); // each failed tool's error (`toolErrors.mjs`)
     totals.steps = turn.steps ?? totals.steps; // the row's steps: its last texted turn's (`turnSteps.mjs`)
+    totals.toolErrors = [...new Set([...totals.toolErrors, ...(turn.toolErrors ?? [])])]; // each failed tool's error (`toolErrors.mjs`)
     if (!turn.ok) {
       totals.error = turn.error;
       break;
