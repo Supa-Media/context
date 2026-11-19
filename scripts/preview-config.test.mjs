@@ -196,3 +196,22 @@ test("renderConfig rejects a malformed pull request number or subdomain, without
   }
   assert.doesNotThrow(() => renderConfig(text, { pr: PR, subdomain: "a".repeat(63) }));
 });
+
+test("the agent preview's Workflows are per-pull-request, never a production or staging name", () => {
+  const agent = JSON.parse(rendered("agent").section);
+  const names = agent.workflows.map((w) => w.name);
+  assert.deepEqual(names, ["group-turn-pr42", "job-run-pr42"]);
+  for (const forbidden of ["group-turn", "job-run", "group-turn-staging", "job-run-staging"]) {
+    assert.equal(names.includes(forbidden), false, `${forbidden} must never be a preview Workflow`);
+  }
+});
+
+test("a preview Workflow named as the staging or production Workflow is a problem", () => {
+  for (const name of ["group-turn", "job-run", "group-turn-staging", "job-run-staging"]) {
+    const section = inject("agent", { toml: "", json: (p) => { p.workflows[0].name = name; } });
+    assert.ok(
+      configProblems(section, { pr: PR }).some((problem) => problem.includes("workflow name")),
+      `${name} must be flagged`,
+    );
+  }
+});

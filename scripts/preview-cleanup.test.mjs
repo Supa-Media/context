@@ -113,7 +113,7 @@ function fakeCloudflare(routes) {
         deleted.push(path);
         return null;
       }
-      const page = Number(/page=(\d+)/.exec(path)?.[1] ?? 1);
+      const page = Number(/[?&]page=(\d+)/.exec(path)?.[1] ?? 1);
       for (const [prefix, pages] of Object.entries(routes)) {
         if (path.startsWith(prefix)) return pages[page - 1] ?? null;
       }
@@ -159,7 +159,7 @@ test("a PR on page 2 of the open pull requests keeps its preview", async () => {
   const seenUrls = [];
   const fetchImpl = async (url) => {
     seenUrls.push(url);
-    const page = Number(/page=(\d+)/.exec(url)[1]);
+    const page = Number(/[?&]page=(\d+)/.exec(url)[1]);
     return new Response(JSON.stringify(page === 1 ? page1 : page === 2 ? page2 : []), { status: 200 });
   };
   const numbers = await openPullRequestNumbers("t", "owner/repo", { fetchImpl });
@@ -194,7 +194,7 @@ test("a failing or truncated pull request list throws and deletes nothing", asyn
 
   const fullPage = Array.from({ length: 100 }, (_, i) => ({ number: 2000 + i }));
   const failingSecondPage = async (url) => {
-    const page = Number(/page=(\d+)/.exec(url)[1]);
+    const page = Number(/[?&]page=(\d+)/.exec(url)[1]);
     if (page === 1) return new Response(JSON.stringify(fullPage), { status: 200 });
     return new Response("{}", { status: 500 });
   };
