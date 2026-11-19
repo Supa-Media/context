@@ -44,7 +44,10 @@ export const BUDGETS = Object.freeze({
   // 250 -> 185 after #2844 (the object's move reads its rows by index, not by scanning them): 149 ms for 107 notes.
   // 185 -> 145 after #2899 (the gateway beside the objects): 114 ms median for 107 notes.
   "tools/call:manage:move_folder": 145,
-  "tools/call:search": 800,
+  // 800 -> 380 after #3622 (the object cuts a snippet only for the rows it keeps, leaves the any-word retry unrun when the
+  // strict half finds rows, and reads its meaning index while the query is embedded): 305 ms median over the next 24 h,
+  // 181 calls, from 974 ms. The median only: the same day's p95 was 3,383 ms, which this bar does not judge.
+  "tools/call:search": 380,
   // 900 -> 850 after #2834 and #2838 (faster key sort; each workspace draws its own map): 679 ms median.
   // 850 -> 600 after #2899 (the gateway beside the objects): about 480 ms median over the days since, 412 to 666 a day.
   "tools/call:orient": 600,
