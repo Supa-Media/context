@@ -1,0 +1,28 @@
+{
+  "id": "stall-rota",
+  "kind": "group",
+  "members": ["Maya","John","Priya"],
+  "set": "training",
+  "setting": "Maya, John and Priya sell the fashion brand's shirts and totes at a weekend street market, and use this group to plan the stall. Tex is in the group with the brand's notes, the shared calendar and the web. Tex speaks when someone asks it or when it truly helps; most of the chat is the three of them.",
+  "title": "The stall rota",
+  "msgs": [
+    {"at":"Thu 19:05","id":"m1","text":"stall rota for the weekend market: sat 9-1 priya, sat 1-5 john, sun 10-4 me","who":"Maya"},
+    {"id":"m2","text":"market opens at 10 sunday, we need to be there 9:15 to set up the rails","who":"Maya"},
+    {"id":"m3","text":"works for me","who":"John"},
+    {"id":"m4","labels":{"fd":{"must":["confirm the three shifts in one line"]},"router":{"route":"quick","star":true}},"text":"tex can you keep that rota","who":"John"},
+    {"id":"m5","tex":true,"text":"Got it: Sat 9-1 Priya, Sat 1-5 John, Sun 10-4 Maya.","who":"Tex"},
+    {"id":"m6","text":"do we still have the linen tote samples or did they all go","who":"Priya"},
+    {"id":"m7","text":"a few left, they're in the blue crate","who":"Maya"},
+    {"id":"m8","text":"[pic: a rail of shirts under a striped awning]","who":"John"},
+    {"id":"m9","text":"that awning is doing a lot of work","who":"Priya"},
+    {"id":"m10","text":"lol it is","who":"Maya"},
+    {"at":"Fri 08:40","id":"m11","kind":"reply","labels":{"decide":{"act":"respond","star":true,"why":"replies_to_tex"},"fd":{"must":["name the gap and ask who covers it"],"never":["hand saturday morning to the others","just say ok"],"star":true},"router":{"route":"quick","star":true}},"text":"ugh, i can't do saturday morning after all, my sister's moving. sorry","to":"m5","who":"Priya"},
+    {"id":"m12","tex":true,"text":"No worries. Saturday 9-1 at the stall is open now. Who can take it?","who":"Tex"},
+    {"id":"m13","text":"i can do 9-1 if someone else does the afternoon","who":"John"},
+    {"id":"m14","text":"i'll take sat afternoon then","who":"Maya"},
+    {"id":"m15","tex":true,"text":"Updated: Sat 9-1 John, Sat 1-5 Maya, Sun 10-4 Maya.","who":"Tex"},
+    {"id":"m16","labels":{"fd":{"must":["the set-up time from the chat, one line"]},"router":{"route":"quick","star":true}},"text":"tex what time do i need to be there sunday","who":"Maya"},
+    {"id":"m17","tex":true,"text":"9:15, so the rails are up for the 10 o'clock open.","who":"Tex"},
+    {"id":"m18","text":"thanks both, i owe you","who":"Priya"}
+  ]
+}
