@@ -7,7 +7,7 @@ import { mkdir, mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import { DEFAULT_JUDGE, JUDGE_ATTEMPTS, JUDGE_SCHEMA, estimateJudging, fakeJudge, judgeFile, sidecarPath, withMoreRoom } from "../judge.mjs";
+import { DEFAULT_JUDGE, JUDGE_ATTEMPTS, JUDGE_SCHEMA, estimateJudging, fakeJudge, inFlight, judgeFile, OUT_OF_CREDIT, sidecarPath, withMoreRoom } from "../judge.mjs";
 import { assignIds, keyMarkdown, resultMarkdown } from "../report.mjs";
 import { parseJudgedSections } from "../resultNote.mjs";
 
@@ -292,6 +292,44 @@ test("a call that fails is refused with its status, and the note is not touched"
   } finally {
     await cleanup();
   }
+});
+
+// gw Lab runs, 2026-11-18: the bench gateway keys were out of credit, every judge call failed, and the reason was lost.
+// Sabotage: drop the `outOfCredit` check in judgeOnce and this fails; drop the queue clearing in inFlight and the next fails.
+test("out of credit, the judging stops at the first call and says so in fixed words, never the gateway's", async () => {
+  const { dir, path, cleanup } = await folder();
+  try {
+    for (const [status, message] of [[400, "Your credit balance is too low to access the Anthropic API. sk-ant-api03-secret"], [402, "Payment required"]]) {
+      let calls = 0;
+      const broke = async () => {
+        calls += 1;
+        return json({ error: { message } }, status);
+      };
+      broke.route = "fake";
+      const error = await judgeFile({ path, dir, send: broke, concurrency: 1, date: "2026-10-09" }).catch((e) => e);
+      assert.equal(error.message, OUT_OF_CREDIT);
+      assert.equal(error.message, "bench gateway keys out of credit (AI_GATEWAY_KEY_ALIASES); judge cannot run on gw");
+      assert.equal(calls, 1, `${status}: no call after the first is sent`);
+    }
+    // Any other 400 is still its own status and message.
+    const other = async () => json({ error: { message: "messages: too long" } }, 400);
+    other.route = "fake";
+    await assert.rejects(judgeFile({ path, dir, send: other, date: "2026-10-09" }), /status 400 \(messages: too long\)/);
+  } finally {
+    await cleanup();
+  }
+});
+
+test("out of credit, no request still queued is started, though one already in flight finishes", async () => {
+  const started = [];
+  const work = async (n) => {
+    started.push(n);
+    if (n === 1) throw Object.assign(new Error("out"), { outOfCredit: true });
+    await new Promise((resolve) => setTimeout(resolve, 5));
+  };
+  await assert.rejects(inFlight([1, 2, 3, 4, 5], 2, work), /out/);
+  await new Promise((resolve) => setTimeout(resolve, 30));
+  assert.deepEqual(started, [1, 2]);
 });
 
 // ---- what the first judging got wrong ----

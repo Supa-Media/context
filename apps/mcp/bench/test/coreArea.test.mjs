@@ -16,7 +16,7 @@ import { dirname, join } from "node:path";
 import { test } from "node:test";
 import { fileURLToPath } from "node:url";
 
-import { caseId, coreCases, runTests, withMirrors } from "../coreArea.mjs";
+import { caseId, coreCases, failureReason, runTests, withMirrors } from "../coreArea.mjs";
 
 const TREE = join(dirname(fileURLToPath(import.meta.url)), "..", "..", "..", "..");
 const SETUP = "---\njob: texting-assistant\nmodels:\n  main: anthropic/claude-haiku-5-5\n---\n\nYou are a test assistant.\n";
@@ -118,4 +118,44 @@ test("a rerun asks a question's mirror too, so the question is still counted", a
   const again = await runTests(TREE, ["core"], { dir, fake: true, scratch, tag: "mirror", only: ["core/q3"], runs: 2 });
   assert.deepEqual(again.rows.map((row) => [row.id, row.results]), [["core/q3", [true, true]]], "the question is counted, and only it is reported");
   assert.deepEqual(withMirrors([3, 2], [{ n: 1, mirror: null }, { n: 2, mirror: null }, { n: 3, mirror: 1 }]), [3, 2, 1]);
+});
+
+// gw Lab runs, 2026-11-18: every Claude call failed for lack of credit, and the row's reason was execFile's own message,
+// the ~190-character command line, cut at 200. Sabotage: throw the exec error as it is, and this fails.
+test("a step that fails says which step and why from its stderr, never its command line or a secret", async () => {
+  const dir = await folder();
+  const scratch = await mkdtemp(join(tmpdir(), "core-scratch-"));
+  const command = `Command failed: ${process.execPath} ${join(TREE, "apps/mcp/bench/run.mjs")} judge ${join(scratch, "core-core-x.md")} --dir ${dir} --max-usd 1`;
+  const stderr = [
+    "Judge calls: through the AI gateway",
+    "1 judge requests to claude-haiku-5-5, about 1,000 tokens in, about $0.01; 0 unanswered skipped",
+    "retrying with Authorization: Bearer abc.def-123 after error",
+    "judge call for question 1 failed: status 400 (Your credit balance is too low to access the Anthropic API. key sk-ant-api03-XyZ_9)",
+    "",
+  ].join("\n");
+  const calls = [];
+  const exec = async (_node, args) => {
+    calls.push(args[1]);
+    if (args[1] !== "judge") return { stdout: "", stderr: "" };
+    throw Object.assign(new Error(command), { code: 1, stderr });
+  };
+  const error = await runTests(TREE, ["core"], { dir, fake: true, scratch, tag: "x", exec }).catch((e) => e);
+  assert.deepEqual(calls, ["run", "judge"]);
+  assert.match(error.message, /^judge failed: /);
+  assert.match(error.message, /status 400 \(Your credit balance is too low/);
+  assert.ok(error.message.length <= "judge failed: ".length + 300, "the reason is at most 300 characters");
+  assert.doesNotMatch(error.message, /Command failed|run\.mjs|--max-usd/, "never the command line");
+  assert.doesNotMatch(error.message, /abc\.def|sk-ant|XyZ/, "never a token or key");
+  assert.doesNotMatch(error.message, /Judge calls|judge requests/, "only the lines that name a failure");
+  const answer = await runTests(TREE, ["core"], { dir, fake: true, scratch, tag: "y", exec: async () => Promise.reject(Object.assign(new Error(command), { code: 1, stderr: "" })) }).catch((e) => e);
+  assert.equal(answer.message, "answer failed: exit 1, no output");
+});
+
+test("a failure reason keeps the last telling lines within 300 characters", () => {
+  const long = Array.from({ length: 20 }, (_, k) => `q${k} failed: status 500 ${"x".repeat(40)}`).join("\n");
+  const reason = failureReason({ stderr: long });
+  assert.ok(reason.length <= 300);
+  assert.match(reason, /q19 failed/, "the last line is kept");
+  assert.equal(failureReason({ stderr: `${"y".repeat(400)} error` }).length, 300);
+  assert.equal(failureReason({ stderr: "just one line\n" }), "just one line", "a stderr with no telling line keeps its last");
 });

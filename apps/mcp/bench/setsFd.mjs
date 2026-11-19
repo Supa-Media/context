@@ -33,7 +33,7 @@ import { createRequire } from "node:module";
 import { tapbackSaidLine } from "../src/agent/tapbackEnding.js";
 import { parsePeople } from "./load.mjs";
 import { seedWorld, worldDirOf } from "./setsWorld.mjs";
-import { runPool, scheduleOrder } from "./setsPool.mjs";
+import { runPool, scheduleOrder, untilOutOfCredit } from "./setsPool.mjs";
 
 const { OTHER_ASSISTANTS } = createRequire(import.meta.url)("../../../packages/shared/src/texSets.cjs");
 
@@ -590,20 +590,20 @@ export async function runFd(units, { tree, fake = false, runTests = null, parall
       try {
         prepared[k] = { ...(await prepareConvo(mine, { tree, scratch: join(scratch, `c${k + 1}-${handleOf(c.id)}`), env: convoEnv })) };
       } catch (error) {
-        prepared[k] = { rows: mine.map((u) => ({ ...u.row, right: false, ran: false, usd: 0, why: `could not run: ${String(error?.message ?? error).slice(0, 200)}` })), tests: [] };
+        prepared[k] = { rows: mine.map((u) => ({ ...u.row, right: false, ran: false, usd: 0, why: `could not run: ${String(error?.message ?? error).slice(0, 300)}` })), tests: [] };
       }
     });
     // The one pool: every test of every conversation, longest conversations first and round-robin across them.
     for (const p of prepared) for (const t of p.tests) t.p = p;
     const jobs = scheduleOrder(prepared.map((p) => p.tests));
-    await runPool(jobs, parallel, async (t) => {
+    await runPool(jobs, parallel, untilOutOfCredit(async (t) => {
       const p = t.p;
       try {
         t.got = await run(tree, [t.name], { dir: p.dir, scratch: p.scratch, tag: "sets", fake, parallel: 1, env: p.env, envOf: p.envOf });
       } catch (error) {
         t.error = error;
       }
-    });
+    }));
     for (const p of prepared) rows.push(...collectConvo(p));
     // Rows in the order their units came, whichever conversation finished first.
     const place = new Map(units.map((u, k) => [`${u.row.chat}\n${u.row.msg}\n${u.row.node}`, k]));
@@ -687,7 +687,7 @@ function collectConvo(p) {
   for (const t of p.tests) {
     t.group.forEach((u, k) => {
       const share = Math.round(each * 10_000) / 10_000;
-      if (t.error) return void rows.push({ ...u.row, right: false, ran: false, usd: share, why: `could not run: ${String(t.error?.message ?? t.error).slice(0, 200)}` });
+      if (t.error) return void rows.push({ ...u.row, right: false, ran: false, usd: share, why: `could not run: ${String(t.error?.message ?? t.error).slice(0, 300)}` });
       const r = t.got?.rows.find((x) => x.id === `${t.name}/q${k + 1}`);
       const story = r ? { misses: r.misses ?? [], held: r.held ?? [], said: r.said ?? [], ...(r.handoff ? { handoff: r.handoff } : {}), ...(r.rounds ? { rounds: r.rounds } : {}), ...(r.routes ? { routes: r.routes } : {}), ...(r.fallbacks ? { fallbacks: r.fallbacks } : {}), ...(r.steps ? { steps: r.steps } : {}) } : {};
       const bench = benchFailed(r);

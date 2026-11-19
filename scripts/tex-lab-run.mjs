@@ -78,6 +78,36 @@ export function unrun(rows) {
   return [...by.values()].filter((b) => b.ran === 0).map(({ node, total, why }) => ({ node, total, why }));
 }
 
+/**
+ * Why a run's score is not a score: some Claude call ran out of credit, or more than half of one step's tests could not
+ * run. `null` when neither (gw Lab runs, 2026-11-18: every Claude call failed for lack of credit, and 69 of 101 rows
+ * were stored as valid). A step that ran none of its tests is `unrun`'s to refuse first.
+ */
+export function brokenRun(rows) {
+  const credit = rows.find((r) => r.ran === false && /credit/i.test(String(r.why ?? "")));
+  if (credit) return `Claude calls could not run: ${String(credit.why).slice(0, 240)}`;
+  const by = new Map();
+  for (const r of rows) {
+    const b = by.get(r.node) ?? { node: r.node, total: 0, out: 0, why: "" };
+    b.total += 1;
+    if (r.ran === false) {
+      b.out += 1;
+      if (b.why === "") b.why = String(r.why ?? "no way to run alone yet").slice(0, 160);
+    }
+    by.set(r.node, b);
+  }
+  const most = [...by.values()].find((b) => b.out * 2 > b.total);
+  return most ? `${most.out} of ${most.node}'s ${most.total} tests could not run: ${most.why}` : null;
+}
+
+/** A run's verdict: the fallback count, and whether its score is Tex's (`fallbacks.mjs`, `brokenRun`). */
+export function runVerdict(rows) {
+  const fell = fallbackVerdict(rows);
+  const broken = brokenRun(rows);
+  if (broken === null) return fell;
+  return { fallbacks: fell.fallbacks, valid: false, invalid: (fell.valid ? broken : `${broken}; ${fell.invalid}`).slice(0, 200) };
+}
+
 /** The Dev conversations a run covers: the repo's with the Lab's drafts over them, one chat when the run names one. */
 export function devConversations(repo, drafts, convId = null) {
   const byId = new Map(repo.filter((c) => c.set === "dev").map((c) => [c.id, c]));
@@ -159,7 +189,8 @@ export function resultsOf(rows, ms, gold = null) {
     handoff: handoffOf(rows),
     // Claude calls answered by the fallback model, and whether the score is Tex's (`fallbacks.mjs`): one is enough to
     // mark the run invalid, so a fallback model's score cannot pass as Tex's (2026-11-18).
-    ...fallbackVerdict(rows),
+    // And a run whose Claude calls ran out of credit, or most of one step's tests could not run, is not valid either.
+    ...runVerdict(rows),
     ms: Number(ms) || 0,
     perConv: [...perConv.values()],
     perNode: [...perNode.values()],
@@ -296,6 +327,13 @@ async function main() {
         `none of these steps' tests could run: ${none.map((x) => `${x.node} 0/${x.total}`).join(", ")}`,
         none.map((x) => `none of ${x.node}'s ${x.total} tests could run: ${x.why}`).join(" | "),
       );
+    }
+    // Out of credit, nothing a row says is Tex's: a failed run with why. Most of a step not running only marks it invalid.
+    const rows = JSON.parse(readFileSync(a, "utf8"));
+    const broken = brokenRun(rows);
+    if (broken?.startsWith("Claude calls could not run")) {
+      const out = rows.filter((r) => r.ran === false && /credit/i.test(String(r.why ?? ""))).length;
+      throw new Refused(`Claude calls ran out of credit: ${out} of ${rows.length} tests could not run`, broken);
     }
     console.log("Every step with tests ran some");
     return;

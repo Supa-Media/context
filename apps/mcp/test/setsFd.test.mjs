@@ -653,3 +653,24 @@ test("the pool runs every item, never more than its lanes at once", async () => 
   assert.equal(peak, 3);
   assert.deepEqual(done.sort((a, b) => a - b), [1, 2, 3, 4, 5, 6, 7]);
 });
+
+// gw Lab runs, 2026-11-18: every Claude call failed for lack of credit, one test after another, and the reason was cut
+// to the command line. Sabotage: drop the `spent` check in setsPool.mjs untilOutOfCredit, or slice the reason to 200, and this fails.
+test("out of credit, the first test's reason reaches its row, and no later test is sent", async () => {
+  const reason = "judge failed: judge call for question 1 failed: status 400 (Your credit balance is too low to access the Anthropic API. Please go to Plans & Billing to upgrade or purchase credits.)";
+  const sent = [];
+  const runTests = async (_tree, tests) => {
+    sent.push(tests[0]);
+    throw new Error(reason);
+  };
+  const others = ["c2", "c3"].map((id) => conv(chat.msgs, { id }));
+  const rows = await runFd([unit(chat, 4), ...others.map((c) => unit(c, 4))], { tree: TREE, runTests, parallel: 1 });
+  assert.equal(sent.length, 1, "only the first test is sent");
+  assert.deepEqual(rows.map((r) => [r.chat, r.ran]), [["c1", false], ["c2", false], ["c3", false]]);
+  for (const r of rows) assert.equal(r.why, `could not run: ${reason}`.slice(0, "could not run: ".length + 300));
+  assert.match(rows[2].why, /credit balance is too low/);
+  // Not credit: each test is still sent and fails on its own.
+  sent.length = 0;
+  await runFd([unit(chat, 4), ...others.map((c) => unit(c, 4))], { tree: TREE, parallel: 1, runTests: async (_t, tests) => { sent.push(tests[0]); throw new Error("answer failed: status 500"); } });
+  assert.equal(sent.length, 3);
+});

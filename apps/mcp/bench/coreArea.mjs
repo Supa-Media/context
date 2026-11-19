@@ -21,6 +21,46 @@ import { OVERHEAD } from "./spend.mjs";
 
 const run = promisify(execFile);
 
+/** Bearer tokens and Anthropic-style keys, never kept in a reason. */
+const SECRET = /Bearer\s+\S+|sk-[\w-]+/g;
+/** A stderr line worth reporting: a failure, an error, an HTTP status, or credit. */
+const TELLING = /failed|error|status \d{3}|credit/i;
+/** At most this much of a reason is kept. */
+const REASON_CHARS = 300;
+
+/**
+ * Why a `pnpm ai run` or `judge` process failed, from its stderr: the last non-empty lines that name a failure, joined,
+ * at most 300 characters, with any token or key redacted. Never the command line: execFile's own message starts with
+ * it (~190 characters), and a Lab row kept 200, so every Claude call failing for lack of credit read as nothing at all
+ * (gw Lab runs, 2026-11-18).
+ */
+export function failureReason(error) {
+  const lines = String(error?.stderr ?? "").split("\n").map((line) => line.trim()).filter(Boolean);
+  const telling = lines.filter((line) => TELLING.test(line));
+  const picked = (telling.length > 0 ? telling : lines.slice(-1)).map((line) => line.replace(SECRET, "[redacted]"));
+  let reason = "";
+  for (let k = picked.length - 1; k >= 0; k -= 1) {
+    const next = reason === "" ? picked[k] : `${picked[k]}; ${reason}`;
+    if (next.length > REASON_CHARS) {
+      if (reason === "") reason = picked[k].slice(-REASON_CHARS);
+      break;
+    }
+    reason = next;
+  }
+  if (reason !== "") return reason;
+  const code = error?.code ?? error?.signal;
+  return code === undefined || code === null ? "no output" : `exit ${code}, no output`;
+}
+
+/** One bench step's process, or an error that says which step and why, never its command line. */
+async function step(name, exec, args, options) {
+  try {
+    return await exec(process.execPath, args, options);
+  } catch (error) {
+    throw new Error(`${name} failed: ${failureReason(error)}`);
+  }
+}
+
 /** The tests the core area runs, in order. */
 export const CORE_TESTS = ["core", "simple-asks"];
 const SETUP = "production";
@@ -104,7 +144,7 @@ export function coreCases({ test, testRaw, resultRaw, keyRaw, setup = SETUP }) {
  * cost, each test's bar, and the tests the tree does not have. `envOf(test)`, when given, is that test's own environment
  * (a Training conversation cut at its moment, `setsFd.mjs`).
  */
-export async function runTests(tree, tests, { only = null, runs = 1, fake = false, scratch, tag, dir = null, parallel = 1, env = process.env, envOf = null }) {
+export async function runTests(tree, tests, { only = null, runs = 1, fake = false, scratch, tag, dir = null, parallel = 1, env = process.env, envOf = null, exec = run }) {
   const folder = dir ?? join(tree, "apps/mcp/bench/ai");
   const script = join(tree, "apps/mcp/bench/run.mjs");
   // Each test is its own run and judge process writing its own files, so `parallel` of them can go at once (a Lab
@@ -125,8 +165,8 @@ export async function runTests(tree, tests, { only = null, runs = 1, fake = fals
     if (numbers) args.push("--questions", numbers.join(","));
     if (fake) args.push("--fake");
     const own = envOf?.(test) ?? env;
-    await run(process.execPath, [script, ...args], { cwd: tree, maxBuffer: 64 * 1024 * 1024, env: own });
-    await run(process.execPath, [script, "judge", out, "--dir", folder, "--max-usd", "1", ...(fake ? ["--fake"] : [])], { cwd: tree, maxBuffer: 64 * 1024 * 1024, env: own });
+    await step("answer", exec, [script, ...args], { cwd: tree, maxBuffer: 64 * 1024 * 1024, env: own });
+    await step("judge", exec, [script, "judge", out, "--dir", folder, "--max-usd", "1", ...(fake ? ["--fake"] : [])], { cwd: tree, maxBuffer: 64 * 1024 * 1024, env: own });
     const resultRaw = await readFile(out, "utf8");
     const keyRaw = await readFile(join(dirname(out), frontMatter(resultRaw).key), "utf8");
     return { cases: coreCases({ test, testRaw, resultRaw, keyRaw }) };
