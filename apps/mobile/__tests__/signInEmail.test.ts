@@ -97,9 +97,9 @@ describe("production CUJ provider routing", () => {
     expect(signInProviderForEmail(normalizeSignInEmail("connector-review@supa.media.evil.test"))).toBe("email");
   });
 
-  test("only Google's reviewer's address uses its own provider", () => {
-    expect(signInProviderForEmail(normalizeSignInEmail(" Google-Review@Supa.Media "))).toBe("test-email-google-review");
-    expect(signInProviderForEmail(normalizeSignInEmail("google-review@supa.media.evil.test"))).toBe("email");
+  test("Google's reviewer's address routes to the email provider, not a retired code provider", () => {
+    expect(signInProviderForEmail(normalizeSignInEmail(" Google-Review@Supa.Media "))).toBe("email");
+    expect(signInProviderForEmail("google-review@supa.media")).toBe("email");
   });
 });
 
@@ -109,5 +109,10 @@ describe("usesPassword", () => {
     expect(usesPassword(normalizeSignInEmail("yc-review@supa.media.evil.test"))).toBe(false);
     expect(usesPassword(normalizeSignInEmail("connector-review@supa.media"))).toBe(false);
     expect(signInProviderForEmail("yc-review@supa.media")).toBe("email");
+  });
+
+  test("Google's reviewer address gets a password box too, exactly, after normalizing", () => {
+    expect(usesPassword(normalizeSignInEmail(" Google-Review@Supa.Media "))).toBe(true);
+    expect(usesPassword(normalizeSignInEmail("google-review@supa.media.evil.test"))).toBe(false);
   });
 });
