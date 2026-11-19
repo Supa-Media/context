@@ -81,7 +81,9 @@ afterEach(async () => {
 describe("the map's tabs in the right panel", () => {
   test("with the map shut the panel is Meetings alone", async () => {
     await show(null);
-    expect(tabs()).toEqual(["Meetings"]);
+    // One tab draws no strip (2026-11-19): the panel is the Meetings body alone.
+    expect(tabs()).toEqual([]);
+    expect(byTest("aside-meetings")).toHaveLength(1);
     expect(byTest("activity-body")).toHaveLength(0);
   });
 
@@ -118,7 +120,8 @@ describe("the map's tabs in the right panel", () => {
     expect(tabs()).toEqual(["Activity", "Meetings"]);
     expect(byTest("activity-body")).toHaveLength(1);
     await show(null, false);
-    expect(tabs()).toEqual(["Meetings"]);
+    expect(tabs()).toEqual([]);
+    expect(byTest("aside-meetings")).toHaveLength(1);
     expect(byTest("aside-map-activity")).toHaveLength(0);
   });
 });

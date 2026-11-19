@@ -142,6 +142,19 @@ export function consoleAsidePanel({
     the demo, and not for someone without a personal workspace.
   */
   const tex = texChatTarget(data);
+  /*
+    Past meetings come from the person's own workspace, where meetings are
+    filed by default, and from the one open, when that is another: a
+    meeting filed into a shared workspace is listed while you are in it.
+  */
+  const own = ownPersonalContext(data.contexts);
+  const open = data.contexts.find((c) => c.id === data.selectedContextId) ?? null;
+  const pastFrom = data.demo
+    ? null
+    : [own, open]
+        .filter((c): c is NonNullable<typeof c> => c !== null)
+        .filter((c, i, all) => all.findIndex((x) => x.id === c.id) === i)
+        .map((c) => ({ id: c.id, slug: c.slug }));
   return (
     data.demo && data.visitor?.meetings === undefined ? undefined : (
       <AsidePanel
@@ -153,6 +166,7 @@ export function consoleAsidePanel({
         */
         approvals={data.demo ? undefined : approvals}
         onJoin={joinMeeting}
+        pastFrom={pastFrom}
         /*
           A finished meeting's note, opened in the editor behind the
           panel. `noteEditorHref` builds a console address out of the

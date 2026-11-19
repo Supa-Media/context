@@ -1,4 +1,4 @@
-import { memo, useRef } from "react";
+import { memo, useRef, useState } from "react";
 import { StyleSheet, TextInput } from "react-native";
 import { fonts, pointerType as t, tracking } from "../../design/tokens";
 import { useColors, useThemedStyles, type Colors } from "../../design/theme";
@@ -44,6 +44,12 @@ export interface MeetingTitleFieldProps {
   onChangeText: (text: string) => void;
   /** What an empty field will be saved as. `normalizeTitle`'s own fallback. */
   placeholder: string;
+  /**
+   * The side panel's size: the name at row-title weight, wrapping rather than
+   * scrolling sideways, so a long calendar title is read whole (owner,
+   * 2026-11-19: the in-meeting panel restyle). The live screen keeps `h2`.
+   */
+  compact?: boolean;
   testID?: string;
 }
 
@@ -51,11 +57,14 @@ function MeetingTitleFieldImpl({
   initialValue,
   onChangeText,
   placeholder,
+  compact = false,
   testID,
 }: MeetingTitleFieldProps) {
   const colors = useColors();
   const styles = useThemedStyles(makeStyles);
   const seed = useRef(initialValue).current;
+  // A wrapping field grows to its text: a textarea on the web keeps the rows it was born with.
+  const [height, setHeight] = useState<number | null>(null);
 
   return (
     <TextInput
@@ -67,7 +76,8 @@ function MeetingTitleFieldImpl({
       // A title is one line. Newlines are collapsed by the reducer anyway, and
       // a Return here should put the keyboard away rather than grow the field
       // over the notepad this screen exists to keep clear.
-      multiline={false}
+      multiline={compact}
+      submitBehavior={compact ? "blurAndSubmit" : undefined}
       returnKeyType="done"
       // Names of people, products and projects, in somebody's own shorthand.
       // The same argument `NotesPad` makes, for the same reason.
@@ -75,7 +85,8 @@ function MeetingTitleFieldImpl({
       autoCapitalize="sentences"
       spellCheck={false}
       accessibilityLabel="The name of this meeting"
-      style={styles.title}
+      onContentSizeChange={compact ? (event) => setHeight(event.nativeEvent.contentSize.height) : undefined}
+      style={compact ? [styles.title, styles.compact, height === null ? null : { height }] : styles.title}
     />
   );
 }
@@ -109,5 +120,11 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
     outlineWidth: 0,
     // Safari draws its focus ring whatever the width; only `none` stops it.
     outlineStyle: "none" as never,
+  },
+  compact: {
+    fontFamily: fonts.body,
+    fontSize: t.lede,
+    lineHeight: 21,
+    letterSpacing: tracking(t.lede, -0.01),
   },
 });

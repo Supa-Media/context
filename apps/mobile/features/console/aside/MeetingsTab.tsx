@@ -5,17 +5,17 @@ import { Button } from "../../design/components/Button";
 import { Dot } from "../../design/components/Dot";
 import { Icon } from "../../design/components/Icon";
 import { Text } from "../../design/components/Text";
-import { layout, radii, space } from "../../design/tokens";
+import { radii, space } from "../../design/tokens";
 import { useColors, useThemedStyles, type Colors } from "../../design/theme";
 import { CallAudioWarning } from "../../meetings/components/CallAudioWarning";
 import { LiveMeters } from "../../meetings/components/LiveMeters";
 import { MeetingTitleField } from "../../meetings/components/MeetingTitleField";
 import { TransportMark } from "../../meetings/components/TransportMark";
 import { OpenCallButton } from "../../meetings/components/OpenCallButton";
-import { TodayMeetings } from "../../meetings/components/TodayMeetings";
 import type { CalendarEvent } from "../../meetings/protocol";
 import { writeClipboard } from "../../design/clipboard";
 import { meetingElapsedMs, meetings } from "../../meetings/controller";
+import { safeJoinUrl } from "@context/meetings/scheduled";
 import { describeDestination } from "../../meetings/destination";
 import { clock, meetingSubtitle } from "../../meetings/format";
 import { meetingLanding } from "../../meetings/landing";
@@ -28,10 +28,10 @@ import {
   continuationFromRecord,
   mayResume,
   meetingIdOf,
-  oneRowPerMeeting,
 } from "../../meetings/resume";
 import { useMeetingsSnapshot, useTick } from "../../meetings/useMeetings";
-import { NO_MEETING } from "./tabs";
+import { MeetingLists } from "./MeetingLists";
+import type { PastWorkspace } from "../../meetings/usePastMeetings";
 import { useFieldFont } from "../../design/fieldFont";
 
 /**
@@ -77,6 +77,7 @@ import { useFieldFont } from "../../design/fieldFont";
 export function MeetingsTab({
   onOpenNote,
   onJoin = null,
+  pastFrom = null,
 }: {
   /**
    * Open a finished meeting's note in the console, by its href.
@@ -87,8 +88,13 @@ export function MeetingsTab({
   onOpenNote: ((href: string, path: string) => void) | null;
   /** Join and take notes, for today's meetings on the calendar. `null` where there is none. */
   onJoin?: ((meeting: CalendarEvent) => void) | null;
+  /**
+   * The workspaces whose meeting notes the Past list reads, from the server.
+   * `null` on the demo console and the fixtures, which have no control plane:
+   * Past then lists this device's recordings alone.
+   */
+  pastFrom?: readonly PastWorkspace[] | null;
 }) {
-  const styles = useThemedStyles(makeStyles);
   const snapshot = useMeetingsSnapshot();
   const live = snapshot.live;
   const [openId, setOpenId] = useState<string | null>(null);
@@ -130,50 +136,16 @@ export function MeetingsTab({
   }
 
   return (
-    <ScrollView contentContainerStyle={styles.body} testID="aside-meetings">
-      <Text variant="rowSub" style={styles.empty} testID="aside-no-meeting">
-        {NO_MEETING}
-      </Text>
-      {/* Today's meetings from the calendar, each one press from notes (board w1). */}
-      {onJoin === null ? null : <TodayMeetings onJoin={onJoin} testID="aside-today" />}
-      {snapshot.records.length === 0 ? null : (
-        <View style={styles.recent}>
-          <Text variant="railHead" style={styles.recentHead}>
-            Recent
-          </Text>
-          {oneRowPerMeeting(snapshot.records)
-            .slice(0, RECENT)
-            .map((record) => (
-              <Pressable
-                key={record.session.id}
-                onPress={() => setOpenId(record.session.id)}
-                role="button"
-                accessibilityLabel={`${record.session.title}, ${meetingSubtitle(record.session)}`}
-                style={styles.row}
-                testID={`aside-meeting-row-${record.session.id}`}
-              >
-                <Text variant="rowTitle" style={styles.rowTitle} numberOfLines={1}>
-                  {record.session.title}
-                </Text>
-                <Text variant="foot" style={styles.rowSub} numberOfLines={1}>
-                  {meetingSubtitle(record.session)}
-                </Text>
-              </Pressable>
-            ))}
-        </View>
-      )}
-    </ScrollView>
+    <MeetingLists
+      records={snapshot.records}
+      onOpenRecord={setOpenId}
+      onOpenNote={onOpenNote}
+      onJoin={onJoin}
+      pastFrom={pastFrom}
+    />
   );
 }
 
-/**
- * How many meetings the panel lists.
- *
- * Enough to reach the one you recorded this morning, not a list to scroll —
- * `/meetings` is the list, and it is still reachable from the switcher. A panel
- * that grows without bound beside a note is a panel that stops being a panel.
- */
-const RECENT = 6;
 
 function LiveMeeting({ record }: { record: MeetingRecord }) {
   const styles = useThemedStyles(makeStyles);
@@ -209,9 +181,78 @@ function LiveMeeting({ record }: { record: MeetingRecord }) {
     setTyped("");
   }, [id, record, typed]);
 
+  /*
+    No card, one quiet line of transport (owner, 2026-11-19: "restyle the
+    sidebar once you actually join a meeting"). The clock and the controls
+    that end it share the top line; the name reads whole under it; where the
+    call is and where the note goes are one line of text; the meters sit side
+    by side; and the note composer is a field with a rule over it rather than
+    a boxed input beside a round button. Every control and test id the card
+    had is still here, so what each press reaches is unchanged.
+  */
+  const where =
+    record.continues !== undefined
+      ? record.continues.path
+      : record.destination === null
+        ? "Inbox when you stop"
+        : describeDestination(record.destination);
   return (
-    <ScrollView contentContainerStyle={styles.body} testID="aside-meetings">
-      <View style={styles.liveCard} testID="aside-live-meeting">
+    <ScrollView contentContainerStyle={styles.liveBody} testID="aside-meetings">
+      <View style={styles.live} testID="aside-live-meeting">
+        <View style={styles.liveTop}>
+          <Dot tone={paused ? "warn" : "crit"} />
+          <Text variant="mono" style={styles.liveClock} testID="aside-live-clock">
+            {elapsed}
+          </Text>
+          <View style={styles.grow} />
+          {/*
+            Armed, then done: this is the only control in the product that
+            destroys somebody's recording, so the first press only changes
+            its own words, and the second press does it.
+          */}
+          <Pressable
+            onPress={
+              arming
+                ? () => {
+                    setArming(false);
+                    void meetings.discard(id);
+                  }
+                : () => setArming(true)
+            }
+            role="button"
+            accessibilityLabel={arming ? "Discard for good" : "Discard"}
+            style={styles.discard}
+            testID={arming ? "aside-meeting-discard-confirm" : "aside-meeting-discard"}
+          >
+            <Text variant="rowSub" style={arming ? styles.discardArmed : styles.discardLabel}>
+              {arming ? "Discard for good" : "Discard"}
+            </Text>
+          </Pressable>
+          <Pressable
+            onPress={paused ? () => void meetings.resume() : () => void meetings.pause()}
+            role="button"
+            accessibilityLabel={paused ? "Resume recording" : "Pause recording"}
+            accessibilityState={{ disabled: ending }}
+            disabled={ending}
+            style={({ pressed }) => [styles.round, pressed && styles.roundPressed]}
+            testID="aside-meeting-pause"
+          >
+            <TransportMark paused={paused} size={12} />
+          </Pressable>
+          <Pressable
+            onPress={() => void meetings.end()}
+            role="button"
+            accessibilityLabel="Stop & save"
+            style={({ pressed }) => [styles.stop, pressed && styles.roundPressed]}
+            testID="aside-meeting-stop"
+          >
+            <View style={styles.stopMark} />
+            <Text variant="mini" style={styles.stopLabel}>
+              Stop
+            </Text>
+          </Pressable>
+        </View>
+
         {/*
           Not renameable when this is a later part of a meeting: it is added to
           a note whose heading it keeps. `LiveMeetingScreen` has the argument.
@@ -222,99 +263,45 @@ function LiveMeeting({ record }: { record: MeetingRecord }) {
             initialValue={record.session.title}
             onChangeText={onChangeTitle}
             placeholder={UNTITLED_MEETING}
+            compact
             testID="aside-meeting-title"
           />
         ) : (
-          <Text variant="paneTitle" numberOfLines={2} testID="aside-meeting-title-static">
+          <Text variant="rowTitle" numberOfLines={3} testID="aside-meeting-title-static">
             {record.session.title}
           </Text>
         )}
 
-        <View style={styles.liveHead}>
-          <Dot tone={paused ? "warn" : "crit"} />
-          <Text variant="mono" style={styles.liveClock} testID="aside-live-clock">
-            {elapsed}
+        <View style={styles.metaLine}>
+          {/*
+            A meeting joined from the calendar in a browser: the share prompt
+            spent the press, so the call is offered here once notes are running
+            (board w2), as a link in the line rather than a slab.
+          */}
+          <OpenCallButton session={record.session} link testID="aside-open-call" />
+          {safeCall(record) ? (
+            <Text variant="rowSub" style={styles.dest}>
+              ·
+            </Text>
+          ) : null}
+          <Text variant="rowSub" style={styles.dest} numberOfLines={1} testID="aside-live-destination">
+            {where}
           </Text>
         </View>
 
-        <Text variant="foot" style={styles.dest} testID="aside-live-destination">
-          {record.continues !== undefined
-            ? `→ ${record.continues.path}`
-            : record.destination === null
-              ? "Filed into your inbox when you stop."
-              : `→ ${describeDestination(record.destination)}`}
-        </Text>
-
         {/*
-          Two lines, You and Call, where there was one mark beside the clock:
-          seeing the call move is how somebody knows the other side is being
-          heard (board m3, 2026-10-17). `LiveMeters` says why it is its own leaf.
+          You and Call: seeing the call move is how somebody knows the other
+          side is being heard (board m3, 2026-10-17).
         */}
-        <LiveMeters live={!paused && !ending} testID="aside-live-level" />
+        <LiveMeters live={!paused && !ending} inline testID="aside-live-level" />
 
         {ending ? (
           <Text variant="foot" style={styles.dest} testID="aside-live-ending">
-            Ending — saving the last of the recording, so the end of the meeting is in the
-            note.
+            Saving the end of the recording…
           </Text>
         ) : null}
 
         <CallAudioWarning testID="aside-call-audio-warning" />
-
-        {/*
-          A meeting joined from the calendar in a browser: the share prompt
-          spent the press, so the call is offered here once notes are running
-          (board w2).
-        */}
-        <OpenCallButton session={record.session} testID="aside-open-call" />
-
-        <View style={styles.transport}>
-          <Pressable
-            onPress={paused ? () => void meetings.resume() : () => void meetings.pause()}
-            role="button"
-            accessibilityLabel={paused ? "Resume recording" : "Pause recording"}
-            accessibilityState={{ disabled: ending }}
-            disabled={ending}
-            style={({ pressed }) => [styles.round, pressed && styles.roundPressed]}
-            testID="aside-meeting-pause"
-          >
-            <TransportMark paused={paused} size={15} />
-          </Pressable>
-
-          {/*
-            The pair `Button`'s own header prescribes for an action row:
-            `dialogPrimary` for the default action and `dialog` for the quiet
-            half, "one shape, differing only in fill". It was `white` beside
-            `ghost` — the hero CTA next to a bare label — and the board showed
-            exactly what that paragraph warns about: a black slab with twice
-            the padding, and a Discard with no shape at all beside it.
-          */}
-          <Button
-            label="Stop & save"
-            variant="dialogPrimary"
-            onPress={() => void meetings.end()}
-            testID="aside-meeting-stop"
-          />
-
-          {/*
-            Armed, then done. See the header: this is the only control in the
-            product that destroys somebody's recording, and the second press is
-            what makes the first one safe to put beside Stop.
-          */}
-          <Button
-            label={arming ? "Discard for good" : "Discard"}
-            variant="dialog"
-            onPress={
-              arming
-                ? () => {
-                    setArming(false);
-                    void meetings.discard(id);
-                  }
-                : () => setArming(true)
-            }
-            testID={arming ? "aside-meeting-discard-confirm" : "aside-meeting-discard"}
-          />
-        </View>
       </View>
 
       <View style={styles.composer}>
@@ -322,26 +309,28 @@ function LiveMeeting({ record }: { record: MeetingRecord }) {
           value={typed}
           onChangeText={setTyped}
           onSubmitEditing={addNote}
-          placeholder={`Add a note at ${elapsed}`}
+          placeholder={`Add a note at ${elapsed}…`}
           placeholderTextColor={colors.muted}
           style={[styles.field, fieldFont]}
           submitBehavior="submit"
           testID="aside-meeting-note-field"
         />
-        <Pressable
-          onPress={addNote}
-          role="button"
-          accessibilityLabel="Add this note to the meeting"
-          style={({ pressed }) => [styles.round, pressed && styles.roundPressed]}
-          testID="aside-meeting-note-add"
-        >
-          <Icon name="plus" size={16} color={colors.text} />
-        </Pressable>
+        {typed.trim() === "" ? null : (
+          <Pressable
+            onPress={addNote}
+            role="button"
+            accessibilityLabel="Add this note to the meeting"
+            style={({ pressed }) => [styles.addNote, pressed && styles.roundPressed]}
+            testID="aside-meeting-note-add"
+          >
+            <Icon name="enter" size={14} color={colors.text2} />
+          </Pressable>
+        )}
       </View>
 
       {record.session.notes.trim() === "" ? null : (
-        <View style={styles.stream} testID="aside-meeting-notes">
-          <Text variant="railHead" style={styles.recentHead}>
+        <View style={styles.liveStream} testID="aside-meeting-notes">
+          <Text variant="rowSub" style={styles.streamHead}>
             Your notes
           </Text>
           <Text variant="rowSub" style={styles.notes}>
@@ -351,8 +340,8 @@ function LiveMeeting({ record }: { record: MeetingRecord }) {
       )}
 
       {record.session.transcript.length === 0 ? null : (
-        <View style={styles.stream} testID="aside-meeting-transcript">
-          <Text variant="railHead" style={styles.recentHead}>
+        <View style={styles.liveStream} testID="aside-meeting-transcript">
+          <Text variant="rowSub" style={styles.streamHead}>
             Transcript
           </Text>
           {record.session.transcript.slice(-TRANSCRIPT_LINES).map((segment) => (
@@ -364,6 +353,11 @@ function LiveMeeting({ record }: { record: MeetingRecord }) {
       )}
     </ScrollView>
   );
+}
+
+/** Whether the meeting has a call link the line names, so the dot between it and the folder is drawn. */
+function safeCall(record: MeetingRecord): boolean {
+  return safeJoinUrl(record.session.source?.url ?? null) !== null;
 }
 
 /**
@@ -613,56 +607,59 @@ function Stranded({ record }: { record: MeetingRecord }) {
 const makeStyles = (colors: Colors) =>
   StyleSheet.create({
     body: { paddingBottom: space.x4 },
-    empty: { color: colors.muted, padding: space.x4 },
-    recent: { paddingHorizontal: space.x3, gap: space.x1 },
-    recentHead: { color: colors.muted, paddingHorizontal: space.x1 },
-    row: {
-      paddingVertical: space.x2,
+    liveBody: { paddingBottom: space.x4, paddingHorizontal: space.x4, paddingTop: space.x2 },
+    live: { gap: space.x2 },
+    liveTop: { flexDirection: "row", alignItems: "center", gap: space.x2 },
+    grow: { flex: 1 },
+    discard: { paddingHorizontal: space.x1, paddingVertical: space.x1 },
+    discardLabel: { color: colors.muted },
+    discardArmed: { color: colors.critText, fontWeight: "600" },
+    stop: {
+      flexDirection: "row",
+      alignItems: "center",
+      gap: 6,
+      height: 28,
       paddingHorizontal: space.x3,
-      borderRadius: radii.control,
-      gap: 2,
+      borderRadius: radii.pill,
+      backgroundColor: colors.white,
     },
-    rowTitle: { color: colors.text },
+    stopMark: { width: 8, height: 8, borderRadius: 1.5, backgroundColor: colors.ink },
+    stopLabel: { color: colors.ink },
+    metaLine: { flexDirection: "row", alignItems: "center", gap: 6, minWidth: 0 },
+    addNote: { width: 28, height: 28, borderRadius: radii.md, alignItems: "center", justifyContent: "center" },
+    streamHead: { color: colors.muted },
+    recentHead: { color: colors.muted, paddingHorizontal: space.x1 },
     rowSub: { color: colors.muted },
-    liveCard: {
-      margin: space.x3,
-      padding: space.x4,
-      gap: space.x2,
-      borderRadius: radii.card,
-      backgroundColor: colors.chrome,
-      borderWidth: StyleSheet.hairlineWidth,
-      borderColor: colors.line,
-    },
-    liveHead: { flexDirection: "row", alignItems: "center", gap: space.x2 },
     liveClock: { color: colors.text, fontVariant: ["tabular-nums"] },
     dest: { color: colors.muted },
-    transport: { flexDirection: "row", alignItems: "center", gap: space.x2, flexWrap: "wrap" },
     round: {
-      width: layout.minTouchTarget,
-      height: layout.minTouchTarget,
+      width: 28,
+      height: 28,
       borderRadius: radii.pill,
       alignItems: "center",
       justifyContent: "center",
-      backgroundColor: colors.surface2,
+      borderWidth: StyleSheet.hairlineWidth,
+      borderColor: colors.lineStrong,
     },
     roundPressed: { opacity: 0.7 },
     composer: {
       flexDirection: "row",
       alignItems: "center",
       gap: space.x2,
-      paddingHorizontal: space.x3,
-      paddingBottom: space.x2,
+      marginTop: space.x4,
+      paddingTop: space.x1,
+      borderTopWidth: StyleSheet.hairlineWidth,
+      borderTopColor: colors.line,
     },
     field: {
       flex: 1,
-      minHeight: layout.minTouchTarget,
-      paddingHorizontal: space.x3,
-      borderRadius: radii.control,
-      borderWidth: StyleSheet.hairlineWidth,
-      borderColor: colors.lineStrong,
-      backgroundColor: colors.surface2,
+      minHeight: 36,
+      paddingHorizontal: 0,
       color: colors.text,
+      outlineWidth: 0,
+      outlineStyle: "none" as never,
     },
+    liveStream: { paddingTop: space.x3, gap: 2 },
     stream: { paddingHorizontal: space.x4, paddingTop: space.x2, gap: space.x1 },
     notes: { color: colors.text2 },
     segment: { color: colors.muted },

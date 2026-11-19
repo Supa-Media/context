@@ -1,7 +1,9 @@
-import { Linking } from "react-native";
+import { Linking, Pressable } from "react-native";
 
 import { Button } from "../../design/components/Button";
-import { openCallLabel } from "../join";
+import { Text } from "../../design/components/Text";
+import { useColors } from "../../design/theme";
+import { callName, openCallLabel } from "../join";
 import type { MeetingSession } from "../protocol";
 import { safeJoinUrl } from "@context/meetings/scheduled";
 
@@ -13,9 +15,33 @@ import { safeJoinUrl } from "@context/meetings/scheduled";
  * the button was, the moment the notes are running. The link is checked again
  * rather than trusted from the record: it came from an invite.
  */
-export function OpenCallButton({ session, testID }: { session: MeetingSession; testID?: string }) {
+export function OpenCallButton({
+  session,
+  link = false,
+  testID,
+}: {
+  session: MeetingSession;
+  /** Drawn as an accent link ("Google Meet ↗") in a line of text, for the side panel. */
+  link?: boolean;
+  testID?: string;
+}) {
+  const colors = useColors();
   const url = safeJoinUrl(session.source?.url ?? null);
   if (url === null) return null;
+  if (link) {
+    return (
+      <Pressable
+        onPress={() => void Linking.openURL(url).catch(() => {})}
+        role="link"
+        accessibilityLabel={openCallLabel(url)}
+        testID={testID}
+      >
+        <Text variant="rowSub" style={{ color: colors.accentText }}>
+          {`${callName(url) ?? "Open the call"} ↗`}
+        </Text>
+      </Pressable>
+    );
+  }
   return (
     <Button
       label={`${openCallLabel(url)} ↗`}
