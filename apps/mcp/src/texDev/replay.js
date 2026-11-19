@@ -210,7 +210,7 @@ async function turnWorld(R, env, page, args, ledgerOf) {
   if (hasTurn) {
     around = Number.isSafeInteger(args.at) ? args.at : null;
     if (around === null) {
-      const replies = await ledger.read(place.name, { before: NEWEST, kinds: ["reply"], limit: 2_000 });
+      const replies = await ledger.read(place.name, { before: NEWEST, kinds: ["reply", "step"], steps: ["failed"], limit: 2_000 }); // a failed turn by its `failed` line
       around = (replies.entries ?? []).find((e) => e.turn === args.turn)?.at ?? null;
     }
   } else around = await momentAt(ledger, place.name, args.moment, args.at);
