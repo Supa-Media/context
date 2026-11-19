@@ -72,6 +72,35 @@ export async function agentTextsSessionHandler(
 }
 
 /**
+ * `POST /agent-texts/app-session` — `{ userId }` → the same answer as `session`, for an in-app chat (`apps/agent/src/appChat.ts`):
+ * a grant on the user's own personal workspace, named by its user id, with no phone. The user id is the control
+ * plane's own (lowercase letters and digits); anything else is a bad request, never a lookup.
+ */
+export async function agentTextsAppSessionHandler(
+  ctx: ActionCtx,
+  body: Record<string, unknown>,
+): Promise<Response> {
+  const userId = stringField(body, "userId");
+  if (userId === null || userId.length > 64 || !/^[a-z0-9]+$/.test(userId)) return badRequest();
+  const accessToken = `cat_${randomOpaqueToken(32)}`;
+  const status: "linked" | "unlinked" = await ctx.runMutation(
+    internal.functions.textLinks.applyAppTextsGrant,
+    {
+      userId,
+      hashedAccessToken: await hashToken(accessToken),
+      // The same as `session`: a refresh token nobody was given, so this grant cannot be refreshed.
+      hashedRefreshToken: await hashToken(`unissued_${randomOpaqueToken(32)}`),
+      expiresAt: Date.now() + TEXTS_GRANT_TTL_MS,
+    },
+  );
+  if (status !== "linked") return json({ status });
+  const timeZone: string = await ctx.runQuery(internal.functions.textLinks.textsTimeZoneOfUser, { userId });
+  const settings = await ctx.runQuery(internal.functions.texStyle.textsStyleOfUser, { userId });
+  // No personal-object hint: an app chat's turn runs in the gateway's chat object, not a person object (`appChat.ts`).
+  return json({ status, accessToken, timeZone, ...settings });
+}
+
+/**
  * `POST /agent-texts/invite` — `{ phone }` → `{ status: "issued", url }`, the
  * sign-in link to text back to a phone nobody has linked, or
  * `{ status: "refused" }`. The token is in the URL once and only its hash is

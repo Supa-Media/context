@@ -867,6 +867,8 @@ export const agentTextsLink = agentWorkerRoute(agentTexts.agentTextsLinkHandler)
 export const agentTextsSession = agentWorkerRoute(agentTexts.agentTextsSessionHandler);
 http.route({ path: "/agent-texts/link", method: "POST", handler: agentTextsLink });
 http.route({ path: "/agent-texts/session", method: "POST", handler: agentTextsSession });
+// An in-app chat's session, by user id (`agentTextsAppSessionHandler`): the same grant as a phone's, for the person's own personal workspace.
+http.route({ path: "/agent-texts/app-session", method: "POST", handler: agentWorkerRoute(agentTexts.agentTextsAppSessionHandler) });
 export const agentTextsInvite = agentWorkerRoute(agentTexts.agentTextsInviteHandler);
 export const agentTextsUnlink = agentWorkerRoute(agentTexts.agentTextsUnlinkHandler);
 http.route({ path: "/agent-texts/invite", method: "POST", handler: agentTextsInvite });

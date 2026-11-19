@@ -14,6 +14,7 @@ import { CARD_MEDIA_TYPE, CARD_NAME, texCard } from "./card";
 import { cardsOn, noteCard, type AppCard, type AppCardConfig } from "./appCards";
 import { hostedNoteCard, linkAfterCard, whapiNotePreview, type NoteCardDrawer } from "./noteCards";
 import { isRefusal } from "./carousel";
+import { appLine, namesAppChat } from "./appChat";
 import { linkPictureFinder, sendWithLinkPictures } from "./linkPreviews";
 import { counted, type CountDataset } from "./textCounts";
 import { guardedLine } from "./outboundGuard";
@@ -103,6 +104,8 @@ export type LineDeps = {
 export function lineFor(deps: LineDeps, chatId: string): Line {
   // Every 1:1 line, whichever app and wherever it is served from, behind the last guard: a skip is never a text (`outboundGuard.ts`).
   if (deps.remote) return guardedLine(deps.remote(chatId), "one");
+  // An app chat (`appChat.ts`) is never a phone's, so it never falls through to Linq: its line texts nobody.
+  if (namesAppChat(chatId)) return guardedLine(appLine(null), "one");
   const line = isPhotonChatId(chatId) ? photonLine(deps) : isWhapiChat(chatId) ? whapiLine(deps) : isSendblueChat(chatId) ? sendblueLine(deps) : linqLine(deps);
   return guardedLine(countedLine(line, deps.textCounts), "one");
 }

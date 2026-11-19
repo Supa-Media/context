@@ -204,6 +204,27 @@ export async function openSession(
   throw new ServiceError("control_plane", status);
 }
 
+/**
+ * The session for an in-app chat (`appChat.ts`): the same grant a phone's text gets, for the user's own personal
+ * workspace, with no phone involved (`/agent-texts/app-session`, worker secret).
+ */
+export async function openAppSession(
+  fetcher: Fetch,
+  origin: string,
+  secret: string,
+  userId: string,
+): Promise<SessionAnswer> {
+  const { status, json } = await post(fetcher, "control_plane", `${origin}/agent-texts/app-session`, secret, {
+    userId,
+  });
+  if (status !== 200) throw new ServiceError("control_plane", status);
+  const body = record(json);
+  const linked = linkedFrom(body);
+  if (linked !== null) return linked;
+  if (body.status === "unlinked") return { status: "unlinked" };
+  throw new ServiceError("control_plane", status);
+}
+
 /** On success, the handle whose Context now answers this phone. */
 export type LinkAnswer = { status: "linked"; handle: string } | { status: "refused" };
 

@@ -682,3 +682,4 @@ test/setsTrace.test.mjs
 test/setsGold.test.mjs
 test/texExamples.test.mjs
 test/examplesNode.test.mjs
+test/appChat.test.mjs

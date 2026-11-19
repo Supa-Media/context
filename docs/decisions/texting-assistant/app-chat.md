@@ -1,0 +1,64 @@
+# The Context app's own chat with Tex: its own chat, the same history (2026-11-19, draft)
+
+Dev2, 2026-11-19: "Build a clickable, testable preview of a 1:1 Tex chat inside the Context web app ... a Google OAuth
+reviewer, and our demo video, can talk to Tex, approve actions and see results in one place ... reuse the SAME Tex
+config and graph that handle incoming Photon texts ... In-app messages must enter that same pipeline and share the
+same history ledger as texts." Then, on the approved mockup: "it should be like whatsapp its own thing, but it can
+see the same history", and "make sure images, reactions and replies, edits deletes work as well". Draft: nothing
+here merges until Dev2 says so.
+
+**Where.** A Tex button on the console's right rail, under the calendar, opens the side panel on a "Tex" tab beside
+Meetings (`apps/mobile/features/console/aside/`, `features/tex/chat/`). Only on a personal workspace its owner has
+open. This is not the in-app agent removed on 2026-10-10 (which ran on a pasted model key): it is Tex.
+
+**The app is a line, not a second Tex.** A message from the app goes to the gateway's `POST /tex/app-chat`
+(`apps/mcp/src/agent/appChatRoute.js`), which builds what Photon's line hands a chat object (the shapes the Lab's test
+chats build, `labSandbox/chatRun.js` `inboundOf`): a text with its pictures to `/accept`, a tapback to `/react`, an
+edit or an unsend to `/edit`. It hands them to the gateway's `TexChat` object `chat:app:<userId>`, which runs the
+texting Worker's `SenderInbox` exactly as every Photon chat in the gateway does (`texChat.js`). From there nothing is
+new: node `text` (or `edit`), the queue, `/agent` with the texts client's session, the front door and everything the
+config graph and a promoted Lab draft wire, the tools, the egress gate, `sendTheReply.js`. What Tex sends goes out
+over the **app line** (`apps/agent/src/appChat.ts` `appLine`), which texts nobody: the chat object logs each Tex text,
+picture and tapback as an event, as it does for Photon, and the app reads them back. A "simplification" that calls
+`/agent` straight from the route would skip the queue, the arrival steps, the edit node and the chat's own state, and
+the app would answer differently from the texts; `test/appChat.test.mjs` fails if the route stops posting to the chat
+object.
+
+**Its own chat, the same history.** Every event the app chat writes goes into the person's one record (their `texts`
+ledger, `agent/ledger.js` `ONE_TO_ONE_CHAT`), marked `via: "app"` (`eventEntry`). Tex's history reads the whole
+record, so in the app Tex remembers the texts and on iMessage it remembers the app. The app shows only the entries
+marked `via: "app"`, plus the chat object's unflushed outbox, merged by event id (`appChatRows.js`). Reversing the
+mark would show the person's iMessage thread inside the app, which Dev2 rejected on the mockup.
+
+**Pictures** are kept in the app chat's own object, by a random id, in pieces under a Durable Object's 2 MB value cap
+(`apps/agent/src/appPictures.ts`), JPEG, PNG, GIF or WebP only, the kind read from the bytes. The app shrinks a
+picture before it goes. A turn reads one at `https://app-chat.invalid/pic/<id>`, a name no network resolves, which
+only that chat object's own fetch answers (`texChat.js` `chatEnv` `FETCH`); Tex's own pictures are kept the same way
+by the app line, and their address is the picture event's text. The app reads a picture through `op: "picture"`, as
+the chat's owner, and only an id that chat's rows show; it is served with `nosniff` and a sandboxing CSP. A picture
+the person takes back is deleted, every piece of it. A day holds at most 60 pictures a chat.
+
+**Tapbacks, replies, edits and unsends** are Messages' own: the six tapbacks on any row, a reply with the replied-to
+words quoted, and an edit or unsend of the person's own text within 15 minutes, named to the chat object by the
+handle it kept for that text (`replyQuote.ts` `HANDLES_KEY`). The person's last tapback on a row is kept beside it
+(`app:tap:<eventId>`), since a tapback's own event names its target only in words.
+
+**Who.** Only the console's own client (`context_console`), on a personal workspace, as its owner. The chat is named
+from the session's user id and nothing in the body names a chat, a user or a workspace; every row id in a body is
+checked against that chat's rows. The turn's session is minted by the control plane at `/agent-texts/app-session`
+(worker secret, the same trust as `/agent-texts/session`), for that user's personal workspace with the phone path's
+own checks (texting not paused, a live member who may operate): the same `context_texts` grant, its audit row marked
+`via: "app"`, and it starts no check-ins (they go out as texts). A turn runs as an app chat's user only in the object
+the gateway placed for that chat (`APP_CHAT`, `reply.ts` `sessionOf`): an `app:` chat id arriving any other way, say
+in a provider's webhook, names nobody. Every call but a read
+counts against the chat's daily cap of 200.
+
+**Approvals are the texted ones.** The page shows Approve and Don't under the Tex text that asks, which send a 👍 or
+👎 tapback on that text: what a person on iMessage does, settled in the gateway (`textedApprovals.js`) with every
+check it has. The page never runs a tool and never names an approval record.
+
+**Not yet** (later pull requests): the app chat's pictures in Download as folders and deleted with the account
+(they live in the chat's object, not the workspace's files bucket: a call for the owner, against non-negotiable #1);
+pruning the chat object's kept keys; files other than pictures, and voice; a background job's later report and
+check-ins on the app line (they go to the Worker's object by name today); a socket in place of the poll; one chat
+object for a person's phone and app, so a text and an app message never run as two turns at once.

@@ -25,6 +25,7 @@
 import { ARRIVAL_KINDS, INBOX_NAME } from "./texChat/arrival.js";
 import { objectByName } from "./objectPlace.js";
 import { JOB_NAME } from "./texJobName.js";
+import { NAME_KEY, PLACE_KEY, SENDER_ID_KEY, isAppChatName, placeAppChat, serveAppArrive, serveAppOutbox, serveAppPictureById } from "./texChat/appChat.js";
 
 /** Where the Worker's chat object answers each kind of arrival (`apps/agent/src/index.ts`). */
 const ARRIVAL_PATHS = Object.freeze({ one: "/accept", react: "/react", group: "/group-accept", members: "/group-members-changed", edit: "/edit" });
@@ -32,10 +33,6 @@ const ARRIVAL_PATHS = Object.freeze({ one: "/accept", react: "/react", group: "/
 export const INBOX_NAME_HEADER = "x-inbox-name";
 /** Set on every answer this object gives a passed-on call: the chat answered in the gateway. */
 export const CHAT_HOME_HEADER = "x-tex-chat-home";
-/** Where this chat's copy stands (`inboxMove.ts` `PLACE_KEY`): set once the copy arrived. */
-const PLACE_KEY = "__inbox_place";
-/** The Worker's object id this chat had there, for the addresses its pictures and pages are served at. */
-const SENDER_ID_KEY = "__sender_id";
 
 /**
  * The `TexChat` class, given the gateway's own handlers (`index.js`): its default `fetch` and `TexTexts`, read when a
@@ -53,6 +50,12 @@ export function texChatClass({ gateway, texts }) {
     async fetch(request) {
       const url = new URL(request.url);
       if (request.method === "POST" && url.pathname === "/arrive") return await this.arrive(request);
+      // The app chat's calls (`texChat/appChat.js`): the gateway's `/tex/app-chat` route, and only for an app chat.
+      if (request.method === "POST" && url.pathname === "/app/arrive") {
+        return await serveAppArrive(request, { state: this.state, open: (name) => this.chat(name) });
+      }
+      if (request.method === "GET" && url.pathname === "/app/outbox") return await serveAppOutbox(this.state.storage);
+      if (request.method === "GET" && url.pathname.startsWith("/app/picture/")) return await serveAppPictureById(this.state.storage, url.pathname.slice("/app/picture/".length));
       if (url.pathname.startsWith("/chat-call/")) return await this.chatCall(request, url);
       return Response.json({ error: "unknown_route" }, { status: 404 });
     }
@@ -99,6 +102,10 @@ export function texChatClass({ gateway, texts }) {
     async chat(name) {
       if (this.inner !== null) return this.inner;
       const { storage } = this.state;
+      // An app chat is born here: placed without a copy, since the Worker has no object of it (`texChat/appChat.js`).
+      if (typeof name === "string" && (await isAppChatName(name)) && (await storage.get(PLACE_KEY))?.arrivedAt === undefined) {
+        await placeAppChat(storage, name, Date.now);
+      }
       const place = await storage.get(PLACE_KEY);
       if (place?.arrivedAt === undefined) {
         if (typeof name !== "string" || this.env.TEXTING === undefined) return null;
@@ -119,7 +126,7 @@ export function texChatClass({ gateway, texts }) {
         console.log(JSON.stringify({ event: "tex_chat_move", ...moved }));
         if (moved.outcome !== "arrived") return null;
       }
-      this.name = name ?? (await storage.get("__inbox_name")) ?? null;
+      this.name = name ?? (await storage.get(NAME_KEY)) ?? null;
       if (this.name === null) return null;
       const { SenderInbox } = await import("../../agent/src/gatewayChat.js");
       const senderId = (await storage.get(SENDER_ID_KEY)) ?? "";
@@ -157,7 +164,7 @@ async function copyIn(rpc, storage, name) {
   });
   const moved = await arrive(stubs, storage, name, () => Date.now());
   if (moved.outcome === "arrived") {
-    await storage.put("__inbox_name", name);
+    await storage.put(NAME_KEY, name);
     const id = await rpc.inboxId({ name }).catch(() => "");
     await storage.put(SENDER_ID_KEY, typeof id === "string" ? id : "");
   }
@@ -182,14 +189,17 @@ export function chatState(state, senderId) {
  * (`job:<id>`) reach the gateway's `TEX_JOB` objects rather than the Worker's.
  */
 export async function chatEnv(env, state, name, senderId, { gateway, texts, jobsHere = false, own = null }) {
-  const { remoteLine, remoteGroupLine } = await import("../../agent/src/gatewayChat.js");
+  const { remoteLine, remoteGroupLine, appLine, APP_PICTURE_ORIGIN, serveAppPicture } = await import("../../agent/src/gatewayChat.js");
   const ctx = { waitUntil: (work) => state.waitUntil(work), passThroughOnException() {} };
   const self = typeof env.PUBLIC_ORIGIN === "string" ? env.PUBLIC_ORIGIN.replace(/\/+$/, "") : "";
   const rpc = env.TEXTING;
+  const app = await isAppChatName(name);
   return {
     // The gateway's own routes run in-process; everything else (the control plane, a picture's address) goes out.
     FETCH: (input, init) => {
       const request = new Request(input, init);
+      // An app chat's pictures are read from its own store, never the network (`apps/agent/src/appPictures.ts`).
+      if (request.url.startsWith(`${APP_PICTURE_ORIGIN}/`)) return app ? serveAppPicture(state.storage, request.url) : Promise.resolve(new Response(null, { status: 404 }));
       if (self !== "" && request.url.startsWith(`${self}/`)) return gateway().fetch(request, env, ctx);
       return fetch(request);
     },
@@ -201,7 +211,10 @@ export async function chatEnv(env, state, name, senderId, { gateway, texts, jobs
     // Where a new background job starts (`apps/agent/src/jobPlace.ts`): its calls then follow where it was born.
     JOBS: env.TEX_JOBS === "gateway" && env.TEX_JOB !== undefined ? "gateway" : "worker",
     SENDER_INBOX: senderObjects(env, rpc, name, senderId, jobsHere, own),
-    TEX_LINE: rpc === undefined ? undefined : { line: (chatId) => remoteLine(rpc, name, chatId), groupLine: (groupId) => remoteGroupLine(rpc, name, groupId) },
+    // An app chat's line texts nobody: its replies are the chat object's events, which the app reads (`appChat.ts`).
+    TEX_LINE: app
+      ? { line: () => appLine(state.storage), groupLine: () => { throw new Error("an app chat has no group line"); } }
+      : rpc === undefined ? undefined : { line: (chatId) => remoteLine(rpc, name, chatId), groupLine: (groupId) => remoteGroupLine(rpc, name, groupId) },
     // A group turn's retries stay the Worker's Workflow: it reaches this chat through the Worker's object by its old
     // id, which passes the call on here (`groupTurnWorkflow.ts`).
     ...(rpc === undefined ? {} : { GROUP_TURN: { create: (options) => rpc.groupTurn({ op: "create", ...options }), get: (id) => rpc.groupTurn({ op: "get", id }) } }),
@@ -211,6 +224,8 @@ export async function chatEnv(env, state, name, senderId, { gateway, texts, jobs
     TEX_COUNTS: env.TEX_COUNTS,
     // The texts simulator's chats answer here only where the gateway's own var says so (staging).
     ...(env.SIMULATOR === "on" ? { SIMULATOR: "on" } : {}),
+    // The Context app's chat: only this object runs as its user (`apps/agent/src/reply.ts` `sessionOf`).
+    ...(app ? { APP_CHAT: name } : {}),
     LINQ_API_KEY: "",
     INTAKE: "gateway",
   };

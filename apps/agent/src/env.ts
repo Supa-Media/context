@@ -51,6 +51,12 @@ export interface Env {
   TEX_LINE?: { line: (chatId: string) => Line; groupLine: (groupId: string) => GroupLine };
   /** "on" serves the texts simulator (simulator.ts). Only staging sets it. */
   SIMULATOR?: string;
+  /**
+   * The app chat id (`app:<userId>`) this object is, set only by the gateway for the object it placed for the Context
+   * app's chat (`apps/mcp/src/texChat.js`). A turn runs as an app chat's user only when its chat id is this one
+   * (`reply.ts` `sessionOf`): an `app:` chat id from anywhere else (a provider's webhook) names nobody.
+   */
+  APP_CHAT?: string;
   /** Turns a texted photo the model cannot read (HEIC) into a JPEG (`attachments.ts`). */
   IMAGES?: ImagesBinding;
   /** Each answered text's wait, arrival to first bubble (`textTiming.ts`); absent when self-hosting. */
