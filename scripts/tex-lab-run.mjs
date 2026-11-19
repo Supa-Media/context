@@ -344,7 +344,7 @@ export function handoffOf(rows) {
 /**
  * A row's detail: first "rounds: <used>/<of>, ..." with "ran out" or "handed off" on a turn that ran to its bound (Dev2,
  * 2026-11-18: "prove from traces which Training fd misses are round exhaustion"), then "route: pick ..., door ..." (`routeLine`),
- * then "steps: <what the turn did>" (the row's `steps`, `turnSteps.mjs`), then "never: <line> (<judge's reason>)" per failed line, "held: must: <line> (<reason>)" per
+ * then "steps: <what the turn did>" (the row's `steps`, `turnSteps.mjs`), then "errors: <tool>: <its error> | ..." (`toolErrors.mjs`), then "never: <line> (<judge's reason>)" per failed line, "held: must: <line> (<reason>)" per
  * line that held, then "Tex: <texts>"; empty when there is none.
  */
 export function roundsLine(rounds) {
@@ -364,7 +364,9 @@ export function detailOf(r) {
   const route = routeLine(routeOf(r));
   // Before the judge's lines, so the cut never takes it: what the turn did, to read a quiet or missed row against.
   const steps = typeof r.steps === "string" && r.steps !== "" ? `steps: ${r.steps}` : null;
-  const text = [...(rounds !== null ? [rounds] : []), ...(route !== null ? [route] : []), ...(steps !== null ? [steps] : []), ...misses, ...held, ...(said.length > 0 ? [`Tex: ${said.join(" / ")}`] : [])].join("\n").slice(0, DETAIL_CHARS);
+  // Each failed tool's own error (`apps/mcp/bench/toolErrors.mjs`), short and safe: so triage can prove why a tool failed.
+  const errors = Array.isArray(r.toolErrors) && r.toolErrors.length > 0 ? `errors: ${r.toolErrors.filter((e) => typeof e === "string").join(" | ")}`.slice(0, 500) : null;
+  const text = [...(rounds !== null ? [rounds] : []), ...(route !== null ? [route] : []), ...(steps !== null ? [steps] : []), ...(errors !== null ? [errors] : []), ...misses, ...held, ...(said.length > 0 ? [`Tex: ${said.join(" / ")}`] : [])].join("\n").slice(0, DETAIL_CHARS);
   return text === "" ? {} : { detail: text };
 }
 

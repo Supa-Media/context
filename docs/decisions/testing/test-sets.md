@@ -211,7 +211,19 @@ talks about did not exist, and Tex was graded on not finding them.
   and a missed test whose turn hit one is a row that could not run, with what
   the bench lacked, never a miss of Tex's. The settings tools, a drawn card
   and the connected-apps list now have stand-ins
-  (`texCommands.mjs`, `drawnPictures.mjs`, `world.mjs`).
+  (`texCommands.mjs`, `drawnPictures.mjs`, `world.mjs`). Since 2026-11-19 the
+  same holds for a stand-in that answers after the gateway stopped waiting (a
+  simulated service still asking its model), a failed model call and an empty
+  Front door answer (`toolErrors.mjs`, `worldStandIns.mjs` lateAnswer): the
+  answerer failed, not Tex. Every row keeps each failed tool's own error,
+  short and with token-shaped text hidden, in its detail (`errors: ...`), so a
+  cause can be proved from the run record.
+- **The chat's setting names the mailbox.** A conversation whose setting gives
+  Tex a Gmail address ("Tex has her Gmail (maya@fernway.example)") runs with
+  that one address everywhere: its world's mail, mail that arrives, and the
+  simulated world, which is told it (`mailbox.mjs` settingMailbox). Without
+  one, the world's own mail fixtures name it. Three addresses for one person
+  made Tex's sends refused as "no sender" (loose-ends 53, trial-hire 123).
 - **The hold-out is a switch** (the owner, 2026-11-17: "keep the hold-out as a
   switch, and report both Training numbers"). Off, a Training conversation's
   Front door tests read it among their examples, as production does: the
