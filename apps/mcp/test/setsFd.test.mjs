@@ -28,6 +28,7 @@ test("the chat before a Front door test goes in as it was, texts and replies onl
   assert.deepEqual(earlierLines(chat, 4), [
     { from: "person", text: "morning" },
     { from: "tex", text: "Morning!" },
+    { from: "person", text: '❤️ (yes) on Tex\'s message "Morning!"' },
     { from: "person", text: "quick one" },
   ]);
 });
@@ -72,7 +73,7 @@ test("a test runs one text with the chat before it and its must and never lines,
   assert.equal(q.kind, "task");
   assert.deepEqual(q.must, ["say Tuesday, October 13 at 3 pm"]);
   assert.deepEqual(q.mustNot, ["make up a date"]);
-  assert.deepEqual(q.earlier.map((l) => l.from), ["person", "tex"]);
+  assert.deepEqual(q.earlier.map((l) => l.from), ["person", "tex", "person"], "Maya's ❤️ on Tex's text is a line of the chat, as production logs it");
 });
 
 test("a person's tests run in their bench world, on its day, once, on the scripted web", async () => {

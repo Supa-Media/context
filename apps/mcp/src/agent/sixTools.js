@@ -259,11 +259,17 @@ function searchTool(base, held) {
   const groups = held.has("group_chats")
     ? "\n\nThe group chats they are in with you: search with args { groups: true, chat, since }, every chat or the one named; each hit names its chat, day, time and who said it."
     : "";
-  if (!held.has("search_texts")) return groups === "" ? base : { ...base, description: `${base.description}${groups}` };
+  // Google Chat has no search here, only reads (`fetch chat:`), so a search that found nothing in notes and mail was
+  // taken for the whole record: "you can see the feedback we sent right?" was answered from Gmail while the feedback
+  // sat in a Chat message (Training trial-hire, 2026-11-19).
+  const chat = held.has("read_google_chat") && !held.has("earlier_chat")
+    ? "\n\nTheir Google Chat is not in this search. When what they mean could be in a Chat message (feedback sent, a message to someone they work with, something said in a space), read it too with fetch id \"chat:\" (a direct message with args { to, account })."
+    : "";
+  if (!held.has("search_texts")) return groups === "" && chat === "" ? base : { ...base, description: `${base.description}${groups}${chat}` };
   return {
     ...base,
     description:
-      `${base.description}${groups}\n\nTheir texts (iMessage and SMS, backed up from their Mac): search with args { texts: true, with, since }, ` +
+      `${base.description}${groups}${chat}\n\nTheir texts (iMessage and SMS, backed up from their Mac): search with args { texts: true, with, since }, ` +
       "with a query of words, or only with (a name, number or group) or since (a date) to see what came in. " +
       "When they mention something a person sent, texted or told them, search their texts with that person, and their email, before you answer; " +
       `never say you can't see their texts. Fetch a result's ${TEXTS_ID_PREFIX}<id> to read the conversation around it.`,
