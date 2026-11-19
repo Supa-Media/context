@@ -537,9 +537,10 @@ name = "context-mcp-__PREVIEW__"
 workers_dev = true
 
 [env.preview.vars]
-# Staging's settings, except the texts simulator: a preview is never fed a made-up phone's texts. The
-# simulator is switched on by the texting Worker's preview instead.
-BROWSER_USE_FALLBACK = "on"
+# Staging's settings with a preview's own hosts. The texts simulator is on: the texting Worker's preview hands
+# simulated chats to this gateway's chat object (`src/texChat.js`), as staging does. Browser Use is left off: a
+# preview does not spend a paid outside browser.
+SIMULATOR = "on"
 SHARING_JUDGE = "on"
 HANDBACK_JUDGE = "on"
 TEX_REVIEW = "on"
