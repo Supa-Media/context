@@ -1,0 +1,427 @@
+name: Preview
+
+# One isolated, live copy of Context and Tex for each pull request, from a
+# branch in this repository: a Convex preview deployment, the gateway, the
+# texting assistant, and the router with the web app, all under the pull
+# request's own names (`context-*-pr<N>`). It never touches production or
+# staging data, and it sends no text or email. The guards in
+# scripts/preview-guards.mjs refuse to deploy a preview that holds a line or a
+# mail key, and they run before the first deploy.
+#
+# Triggers. `push` covers every branch but main. `pull_request` covers a pull
+# request opened on a branch that was pushed before the pull request existed,
+# which `push` never sees. A pull request from a fork never runs: its jobs are
+# skipped, and a fork's run gets no secrets in any case.
+#
+# No hostname is printed here, in a log or in the pull request comment. A
+# workers.dev subdomain names the account, and this repository is public. The
+# subdomain is read from the API at run time and masked, and the comment names
+# each Worker and path instead.
+#
+# Convex is deployed on every run, not only when its inputs changed: the
+# preview's URL comes from this deploy, and the seed has to run on every push.
+# An isolated preview's deploy costs about a minute and touches nothing else.
+#
+# Everything else is chosen by scripts/deploy-plan.mjs (target `preview`). A
+# preview's first deployment has no Worker to compare with, so it deploys every
+# component. After that the base is the newest run of this workflow on the same
+# branch. A run with no open pull request does nothing and still counts as a
+# success; that is safe, because the first deployment after a pull request
+# opens is always a full one.
+#
+# A newer push to the branch cancels a deploy still running. The planner counts
+# the cancelled run as a base, because its Workers may be partly updated.
+on:
+  push:
+    branches-ignore: [main]
+  pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
+
+concurrency:
+  group: preview-${{ github.head_ref || github.ref_name }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  resolve:
+    name: Find the pull request and choose what to deploy
+    if: ${{ github.event_name == 'push' || github.event.pull_request.head.repo.full_name == github.repository }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    environment: preview
+    permissions:
+      contents: read
+      # Lists the pull requests of the branch, and the earlier runs the plan compares with.
+      pull-requests: read
+      actions: read
+    outputs:
+      has_pr: ${{ steps.pr.outputs.has_pr }}
+      pr: ${{ steps.pr.outputs.pr }}
+      started_at: ${{ steps.times.outputs.started_at }}
+      pushed_at: ${{ steps.times.outputs.pushed_at }}
+      convex: ${{ steps.plan.outputs.convex }}
+      mcp: ${{ steps.plan.outputs.mcp }}
+      agent: ${{ steps.plan.outputs.agent }}
+      router: ${{ steps.plan.outputs.router }}
+      app: ${{ steps.plan.outputs.app }}
+    env:
+      GH_TOKEN: ${{ github.token }}
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+      BRANCH: ${{ github.head_ref || github.ref_name }}
+      OWNER: ${{ github.repository_owner }}
+      EVENT_NAME: ${{ github.event_name }}
+      EVENT_PR: ${{ github.event.pull_request.number }}
+    steps:
+      # The head of the pull request, not the merge commit GitHub checks out
+      # for a pull_request event: the plan diffs against this commit.
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          package-manager-cache: false
+
+      - name: Find the open pull request
+        id: pr
+        run: |
+          set -euo pipefail
+          if [ "$EVENT_NAME" = "pull_request" ]; then
+            pr="$EVENT_PR"
+          else
+            pr="$(gh api --method GET "repos/$GITHUB_REPOSITORY/pulls" -f "head=$OWNER:$BRANCH" -f state=open --jq '.[0].number // empty')"
+          fi
+          if [ -z "$pr" ]; then
+            echo "No open pull request for branch $BRANCH; no preview." | tee -a "$GITHUB_STEP_SUMMARY"
+            echo "has_pr=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          if ! [[ "$pr" =~ ^[1-9][0-9]{0,6}$ ]]; then
+            echo "::error::Pull request number '$pr' cannot name a preview." >&2
+            exit 1
+          fi
+          echo "has_pr=true" >> "$GITHUB_OUTPUT"
+          echo "pr=$pr" >> "$GITHUB_OUTPUT"
+          echo "PR=$pr" >> "$GITHUB_ENV"
+
+      - name: Record when the job started and when the commit was made
+        id: times
+        if: ${{ steps.pr.outputs.has_pr == 'true' }}
+        run: |
+          set -euo pipefail
+          echo "started_at=$(date +%s)" >> "$GITHUB_OUTPUT"
+          # The commit's own time: the closest this run can see to the push.
+          echo "pushed_at=$(git log -1 --format=%ct HEAD)" >> "$GITHUB_OUTPUT"
+
+      # A preview whose gateway does not exist yet has no Worker to compare
+      # with, so it deploys everything. An answer other than 200 or 404 also
+      # deploys everything: uncertainty deploys everything.
+      - name: Ask Cloudflare whether this pull request's preview exists
+        id: exists
+        if: ${{ steps.pr.outputs.has_pr == 'true' }}
+        run: |
+          set -euo pipefail
+          code="$(curl -s -o /dev/null -w '%{http_code}' --max-time 30 -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN" "https://api.cloudflare.com/client/v4/accounts/$CLOUDFLARE_ACCOUNT_ID/workers/scripts/context-mcp-pr$PR" || true)"
+          case "$code" in
+            200) full=false ;;
+            404) echo "No preview yet for pull request $PR: deploying every component."; full=true ;;
+            *) echo "Cloudflare answered $code for the preview's gateway: deploying every component."; full=true ;;
+          esac
+          echo "full=$full" >> "$GITHUB_OUTPUT"
+
+      - name: Choose what to deploy
+        id: plan
+        if: ${{ steps.pr.outputs.has_pr == 'true' }}
+        env:
+          FULL_DEPLOY: ${{ steps.exists.outputs.full }}
+          PLAN_BRANCH: ${{ github.head_ref || github.ref_name }}
+        run: node scripts/deploy-plan.mjs --target preview
+
+  deploy:
+    name: Deploy preview ${{ needs.resolve.outputs.pr }}
+    needs: resolve
+    if: ${{ needs.resolve.outputs.has_pr == 'true' }}
+    runs-on: ubuntu-latest
+    environment: preview
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      # The pull request comment at the end.
+      pull-requests: write
+    env:
+      PR: ${{ needs.resolve.outputs.pr }}
+      HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+      PREVIEW_STARTED_AT: ${{ needs.resolve.outputs.started_at }}
+      PREVIEW_PUSHED_AT: ${{ needs.resolve.outputs.pushed_at }}
+      # Read by the gateway's secret step. Names on the gateway's Provider Keys page, not secrets.
+      AI_GATEWAY_KEY_ALIASES: dev-claude-credits,dev2-claude-credits
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+
+      # The subdomain names the account, so it is masked before anything logs it.
+      - name: Read the workers.dev subdomain
+        run: |
+          set -euo pipefail
+          sub="$(curl --fail-with-body --silent --show-error \
+            -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN" \
+            "https://api.cloudflare.com/client/v4/accounts/$CLOUDFLARE_ACCOUNT_ID/workers/subdomain" \
+            | node -e 'let s="";process.stdin.on("data",c=>s+=c);process.stdin.on("end",()=>process.stdout.write(JSON.parse(s).result?.subdomain??""))')"
+          if [ -z "$sub" ]; then echo "No workers.dev subdomain on this account." >&2; exit 1; fi
+          echo "::add-mask::$sub"
+          echo "WORKERS_DEV_SUBDOMAIN=$sub" >> "$GITHUB_ENV"
+
+      # Fail closed, before anything deploys: no line or mail key may be set on
+      # the preview. The names are the ones scripts/preview-guards.mjs refuses.
+      # Names the allowlist does not sync (PHOTON_SECRET_KEY and the others) are
+      # read here as the guard requires, and are empty unless set by hand.
+      - name: Refuse any line, mail or payment key on the preview
+        env:
+          LINQ_API_KEY: ${{ secrets.LINQ_API_KEY }}
+          LINQ_WEBHOOK_SECRET: ${{ secrets.LINQ_WEBHOOK_SECRET }}
+          SENDBLUE_API_KEY_ID: ${{ secrets.SENDBLUE_API_KEY_ID }}
+          SENDBLUE_API_SECRET: ${{ secrets.SENDBLUE_API_SECRET }}
+          SENDBLUE_WEBHOOK_SECRET: ${{ secrets.SENDBLUE_WEBHOOK_SECRET }}
+          SENDBLUE_STATUS_URL: ${{ secrets.SENDBLUE_STATUS_URL }}
+          WHAPI_TOKEN: ${{ secrets.WHAPI_TOKEN }}
+          WHAPI_LINE: ${{ secrets.WHAPI_LINE }}
+          WHAPI_WEBHOOK_SECRET: ${{ secrets.WHAPI_WEBHOOK_SECRET }}
+          PHOTON_PROJECT_ID: ${{ secrets.PHOTON_PROJECT_ID }}
+          PHOTON_PROJECT_SECRET: ${{ secrets.PHOTON_PROJECT_SECRET }}
+          PHOTON_SECRET_KEY: ${{ secrets.PHOTON_SECRET_KEY }}
+          PHOTON_API_KEY: ${{ secrets.PHOTON_API_KEY }}
+          PHOTON_WEBHOOK_SECRET: ${{ secrets.PHOTON_WEBHOOK_SECRET }}
+          TEX_LINE_NUMBERS: ${{ secrets.TEX_LINE_NUMBERS }}
+          TWILIO_ACCOUNT_SID: ${{ secrets.TWILIO_ACCOUNT_SID }}
+          TWILIO_API_KEY_SID: ${{ secrets.TWILIO_API_KEY_SID }}
+          TWILIO_API_KEY_SECRET: ${{ secrets.TWILIO_API_KEY_SECRET }}
+          TWILIO_VERIFY_SERVICE_SID: ${{ secrets.TWILIO_VERIFY_SERVICE_SID }}
+          TWILIO_MESSAGING_SERVICE_SID: ${{ secrets.TWILIO_MESSAGING_SERVICE_SID }}
+          RESEND_API_KEY: ${{ secrets.RESEND_API_KEY }}
+          STRIPE_WEBHOOK_SECRET: ${{ secrets.STRIPE_WEBHOOK_SECRET }}
+        run: node scripts/preview-guards.mjs silence
+
+      # The Convex key is checked before Convex is deployed. The deny list is
+      # for the production and staging names, which only the deploy knows.
+      - name: Check the Convex key is a preview's
+        env:
+          CONVEX_DEPLOY_KEY: ${{ secrets.CONVEX_PREVIEW_DEPLOY_KEY }}
+          PREVIEW_DENY_IDENTIFIERS: ${{ secrets.PREVIEW_DENY_IDENTIFIERS }}
+        run: node scripts/preview-guards.mjs identity
+
+      # The Worker configs are rendered and checked before anything deploys.
+      - name: Render the preview's wrangler configs
+        run: node scripts/preview-config.mjs render --pr "$PR" --subdomain "$WORKERS_DEV_SUBDOMAIN"
+
+      - name: Deploy the preview Convex deployment
+        id: convex
+        env:
+          CONVEX_DEPLOY_KEY: ${{ secrets.CONVEX_PREVIEW_DEPLOY_KEY }}
+          # What scripts/preview-convex-env.mjs copies onto the deployment, minus
+          # the forbidden names (the guard above) and the staging and production
+          # identifiers, which that script removes itself.
+          GATEWAY_SECRET: ${{ secrets.GATEWAY_SECRET }}
+          STORAGE_SECRET_ENCRYPTION_KEY: ${{ secrets.STORAGE_SECRET_ENCRYPTION_KEY }}
+          STORAGE_SECRET_ENCRYPTION_KEY_ID: ${{ secrets.STORAGE_SECRET_ENCRYPTION_KEY_ID }}
+          JWT_PRIVATE_KEY: ${{ secrets.JWT_PRIVATE_KEY }}
+          JWKS: ${{ secrets.JWKS }}
+          ADMIN_EMAILS: ${{ secrets.ADMIN_EMAILS }}
+          AUTH_EMAIL_FROM: ${{ vars.AUTH_EMAIL_FROM || secrets.AUTH_EMAIL_FROM }}
+          PHONE_CHECK: ${{ vars.PHONE_CHECK || secrets.PHONE_CHECK }}
+          EMAIL_WORKER_SECRET: ${{ secrets.EMAIL_WORKER_SECRET }}
+          AGENT_WORKER_SECRET: ${{ secrets.AGENT_WORKER_SECRET }}
+          TRANSCRIBE_WORKER_SECRET: ${{ secrets.TRANSCRIBE_WORKER_SECRET }}
+          TRANSCRIBE_WORKER_URL: ${{ secrets.TRANSCRIBE_WORKER_URL }}
+          GOOGLE_OAUTH_CLIENT_ID: ${{ vars.GOOGLE_OAUTH_CLIENT_ID || secrets.GOOGLE_OAUTH_CLIENT_ID }}
+          GOOGLE_OAUTH_CLIENT_SECRET: ${{ secrets.GOOGLE_OAUTH_CLIENT_SECRET }}
+          SLACK_CLIENT_ID: ${{ vars.SLACK_CLIENT_ID || secrets.SLACK_CLIENT_ID }}
+          SLACK_CLIENT_SECRET: ${{ secrets.SLACK_CLIENT_SECRET }}
+          MAIL_CONNECT_ENABLED: ${{ vars.MAIL_CONNECT_ENABLED || secrets.MAIL_CONNECT_ENABLED }}
+          CALENDAR_CONNECT_ENABLED: ${{ vars.CALENDAR_CONNECT_ENABLED || secrets.CALENDAR_CONNECT_ENABLED }}
+          PLUGIN_EGRESS_URL: ${{ secrets.PLUGIN_EGRESS_URL }}
+          PLUGIN_EGRESS_SECRET: ${{ secrets.PLUGIN_EGRESS_SECRET }}
+          MANAGED_R2_ACCOUNT_ID: ${{ secrets.MANAGED_R2_ACCOUNT_ID }}
+        run: pnpm exec convex deploy --yes --preview-name "pr$PR" --cmd 'node scripts/preview-convex-env.mjs' --cmd-url-env-var-name PREVIEW_CONVEX_URL --preview-run functions/seed:preview
+
+      # The deployment's own identity, checked again now that it exists. Its
+      # URLs are masked and kept for the steps after, as GITHUB_ENV values.
+      - name: Check the deployment is the preview's and keep its origins
+        env:
+          CONVEX_DEPLOY_KEY: ${{ secrets.CONVEX_PREVIEW_DEPLOY_KEY }}
+          PREVIEW_DENY_IDENTIFIERS: ${{ secrets.PREVIEW_DENY_IDENTIFIERS }}
+          PREVIEW_CONVEX_URL: ${{ steps.convex.outputs.convex_url }}
+          CONVEX_SITE: ${{ steps.convex.outputs.convex_site }}
+          CONVEX_DEPLOYMENT: ${{ steps.convex.outputs.deployment }}
+        run: |
+          set -euo pipefail
+          for value in "$PREVIEW_CONVEX_URL" "$CONVEX_SITE" "$CONVEX_DEPLOYMENT"; do
+            if [ -n "$value" ]; then echo "::add-mask::$value"; fi
+          done
+          node scripts/preview-guards.mjs identity
+          {
+            echo "PREVIEW_CONVEX_URL=$PREVIEW_CONVEX_URL"
+            echo "PREVIEW_CONTROL_PLANE_URL=$CONVEX_SITE"
+            echo "PREVIEW_DEPLOYMENT=$CONVEX_DEPLOYMENT"
+            echo "PREVIEW_MCP_ORIGIN=https://context-mcp-pr$PR.$WORKERS_DEV_SUBDOMAIN.workers.dev"
+            echo "PREVIEW_AGENT_ORIGIN=https://context-agent-pr$PR.$WORKERS_DEV_SUBDOMAIN.workers.dev"
+            echo "PREVIEW_ROUTER_ORIGIN=https://context-router-pr$PR.$WORKERS_DEV_SUBDOMAIN.workers.dev"
+            echo "T_CONVEX=$(date +%s)"
+          } >> "$GITHUB_ENV"
+
+      # The gateway first: the texting assistant binds it, so it must exist.
+      # Staging's screenshot and eval Workers are bound by name, as they are.
+      - name: Deploy the gateway
+        if: ${{ needs.resolve.outputs.mcp == 'true' }}
+        run: pnpm --dir apps/mcp exec wrangler deploy --config wrangler.preview.toml --env preview --name "context-mcp-pr$PR" --var "TEX_CODE_VERSION:$HEAD_SHA" --message "Preview pr$PR $HEAD_SHA"
+
+      # One request and one new version, as staging does; see scripts/worker-secrets.mjs.
+      # No line key is named here, on purpose: the gateway's texting lines are off.
+      - name: Set the gateway's secrets
+        if: ${{ needs.resolve.outputs.mcp == 'true' }}
+        env:
+          GATEWAY_SECRET: ${{ secrets.GATEWAY_SECRET }}
+          TRANSCRIBE_WORKER_SECRET: ${{ secrets.TRANSCRIBE_WORKER_SECRET }}
+          TRANSCRIBE_WORKER_URL: ${{ secrets.TRANSCRIBE_WORKER_URL }}
+          BRAVE_SEARCH_API_KEY: ${{ secrets.BRAVE_SEARCH_API_KEY }}
+          GOOGLE_MAPS_KEY: ${{ secrets.GOOGLE_MAPS_KEY }}
+          AI_GATEWAY_ACCOUNT_ID: ${{ secrets.AI_GATEWAY_ACCOUNT_ID }}
+          AI_GATEWAY_ID: ${{ secrets.AI_GATEWAY_ID }}
+          AI_GATEWAY_TOKEN: ${{ secrets.AI_GATEWAY_TOKEN }}
+          ANTHROPIC_CREDIT_KEY: ${{ secrets.ANTHROPIC_CREDIT_KEY }}
+          AGENT_WORKER_SECRET: ${{ secrets.AGENT_WORKER_SECRET }}
+        run: |
+          set -euo pipefail
+          node scripts/worker-secrets.mjs CONTROL_PLANE_URL=PREVIEW_CONTROL_PLANE_URL GATEWAY_SECRET '?TRANSCRIBE_WORKER_SECRET' '?TRANSCRIBE_WORKER_URL' '!BRAVE_SEARCH_API_KEY' '?GOOGLE_MAPS_KEY' '?AI_GATEWAY_ACCOUNT_ID' '?AI_GATEWAY_ID' '?AI_GATEWAY_TOKEN' '?AI_GATEWAY_KEY_ALIASES' '?ANTHROPIC_CREDIT_KEY' '?AGENT_WORKER_SECRET' \
+            | pnpm --dir apps/mcp exec wrangler secret bulk --config wrangler.preview.toml --env preview --name "context-mcp-pr$PR"
+
+      - name: Deploy the texting assistant
+        if: ${{ needs.resolve.outputs.agent == 'true' }}
+        run: pnpm --dir apps/agent exec wrangler deploy --config wrangler.preview.jsonc --env preview --name "context-agent-pr$PR" --message "Preview pr$PR $HEAD_SHA"
+
+      # Only the worker secret: the assistant has no line key, so it answers no text.
+      - name: Set the texting assistant's secret
+        if: ${{ needs.resolve.outputs.agent == 'true' }}
+        env:
+          AGENT_WORKER_SECRET: ${{ secrets.AGENT_WORKER_SECRET }}
+        run: |
+          set -euo pipefail
+          node scripts/worker-secrets.mjs CONTROL_PLANE_ORIGIN=PREVIEW_CONTROL_PLANE_URL '!AGENT_WORKER_SECRET' \
+            | pnpm --dir apps/agent exec wrangler secret bulk --config wrangler.preview.jsonc --env preview --name "context-agent-pr$PR"
+
+      # The web export is built only when the app or the router changed. The
+      # router serves the export as its Static Assets, so both come from here.
+      - name: Export the web app for the preview
+        if: ${{ needs.resolve.outputs.app == 'true' || needs.resolve.outputs.router == 'true' }}
+        env:
+          EAS_PROJECT_ID: ${{ vars.EAS_PROJECT_ID || secrets.EAS_PROJECT_ID }}
+        run: |
+          set -euo pipefail
+          node scripts/build-drawing-editor.mjs
+          cd apps/mobile
+          EXPO_PUBLIC_CONVEX_URL="$PREVIEW_CONVEX_URL" \
+          EXPO_PUBLIC_MCP_URL="$PREVIEW_MCP_ORIGIN/mcp" \
+          EXPO_PUBLIC_SITE_ORIGIN="$PREVIEW_ROUTER_ORIGIN" \
+          EXPO_PUBLIC_APP_ORIGIN="$PREVIEW_ROUTER_ORIGIN" \
+          EXPO_PUBLIC_APP_BUILD="$HEAD_SHA" \
+          APP_ENV=preview \
+          pnpm exec expo export --platform web --clear
+
+      - name: Deploy the router with the web app
+        if: ${{ needs.resolve.outputs.app == 'true' || needs.resolve.outputs.router == 'true' }}
+        run: pnpm --dir infra/router exec wrangler deploy --config wrangler.preview.jsonc --env preview --name "context-router-pr$PR" --message "Preview pr$PR $HEAD_SHA"
+
+      # After the deploy, as every Worker here does: `wrangler secret put` acts
+      # on the live version, so the order cannot collide with a retired var.
+      - name: Set the router's Convex origin
+        if: ${{ needs.resolve.outputs.app == 'true' || needs.resolve.outputs.router == 'true' }}
+        run: printf '%s' "$PREVIEW_CONTROL_PLANE_URL" | pnpm --dir infra/router exec wrangler secret put CONVEX_ORIGIN --config wrangler.preview.jsonc --env preview --name "context-router-pr$PR"
+
+      - name: Record when the Workers were done
+        run: echo "T_WORKERS=$(date +%s)" >> "$GITHUB_ENV"
+
+      # Live means the gateway answers as the gateway does and the texting
+      # assistant reports no line. Ten attempts, for the deploy to reach the edge.
+      - name: Wait until the gateway and the texting assistant are live
+        run: |
+          set -euo pipefail
+          for attempt in $(seq 1 10); do
+            if node scripts/health-check-gateway.mjs --origin "$PREVIEW_MCP_ORIGIN" \
+              && node scripts/preview-guards.mjs agent-health "$PREVIEW_AGENT_ORIGIN"; then
+              echo "T_LIVE=$(date +%s)" >> "$GITHUB_ENV"
+              echo "The preview is live."
+              exit 0
+            fi
+            echo "Attempt $attempt: not live yet; waiting for the deploy to reach the edge."
+            sleep 6
+          done
+          echo "The preview is not live after 10 attempts." >&2
+          exit 1
+
+      - name: Seed the preview's personas and notes
+        env:
+          CONVEX_DEPLOY_KEY: ${{ secrets.CONVEX_PREVIEW_DEPLOY_KEY }}
+        run: node scripts/preview-seed.mjs
+
+      - name: Smoke the preview
+        env:
+          CONVEX_DEPLOY_KEY: ${{ secrets.CONVEX_PREVIEW_DEPLOY_KEY }}
+        run: |
+          set -euo pipefail
+          node scripts/preview-smoke.mjs
+          echo "T_SMOKE=$(date +%s)" >> "$GITHUB_ENV"
+
+      # Runs even when a step above failed: the comment says what was reached.
+      # Only seconds, and only the Worker names and paths, are printed.
+      - name: Write the preview report
+        if: ${{ always() }}
+        env:
+          JOB_STATUS: ${{ job.status }}
+          DEPLOYED_MCP: ${{ needs.resolve.outputs.mcp }}
+          DEPLOYED_AGENT: ${{ needs.resolve.outputs.agent }}
+          DEPLOYED_ROUTER: ${{ needs.resolve.outputs.router }}
+          DEPLOYED_APP: ${{ needs.resolve.outputs.app }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          body="$RUNNER_TEMP/preview-comment.md"
+          seconds() { if [ -n "${1:-}" ] && [ -n "${2:-}" ]; then echo "$(( $2 - $1 ))"; else echo "not reached"; fi; }
+          word() { if [ "$1" = "true" ]; then echo "yes"; else echo "no"; fi; }
+          sha7="${HEAD_SHA:0:7}"
+          {
+            printf '%s\n' '<!-- context-preview -->'
+            printf '## Preview for pull request #%s\n\n' "$PR"
+            printf 'Commit `%s`: %s.\n\n' "$sha7" "$JOB_STATUS"
+            printf '%s\n' '| Piece | Name | Redeployed for this commit |' '| --- | --- | --- |'
+            printf '| Convex | preview deployment `pr%s` | yes |\n' "$PR"
+            printf '| Gateway | `context-mcp-pr%s` | %s |\n' "$PR" "$(word "$DEPLOYED_MCP")"
+            printf '| Texting assistant | `context-agent-pr%s` | %s |\n' "$PR" "$(word "$DEPLOYED_AGENT")"
+            router_changed=no
+            if [ "$DEPLOYED_ROUTER" = "true" ] || [ "$DEPLOYED_APP" = "true" ]; then router_changed=yes; fi
+            printf '| Router and web app | `context-router-pr%s` | %s |\n\n' "$PR" "$router_changed"
+            printf '%s\n' 'Hosts are `https://<name>.<account>.workers.dev`. The account part is left out here, because it names the account and this repository is public. The texting assistant has a simulator at `/texts-simulator` on its host. A preview sends no text and no email.' ''
+            printf '%s\n' 'Seconds: commit to job start '"$(seconds "$PREVIEW_PUSHED_AT" "$PREVIEW_STARTED_AT")"'; job start to Convex '"$(seconds "$PREVIEW_STARTED_AT" "${T_CONVEX:-}")"'; Convex to Workers '"$(seconds "${T_CONVEX:-}" "${T_WORKERS:-}")"'; commit to live '"$(seconds "$PREVIEW_PUSHED_AT" "${T_LIVE:-}")"'; commit to smoke passed '"$(seconds "$PREVIEW_PUSHED_AT" "${T_SMOKE:-}")"'.'
+          } > "$body"
+          cat "$body" >> "$GITHUB_STEP_SUMMARY"
+          existing="$(gh api --paginate "repos/$GITHUB_REPOSITORY/issues/$PR/comments" --jq '.[] | select(.body | startswith("<!-- context-preview -->")) | .id' | sed -n '1p')"
+          if [ -n "$existing" ]; then
+            gh api --method PATCH "repos/$GITHUB_REPOSITORY/issues/comments/$existing" -F "body=@$body" > /dev/null
+          else
+            gh api --method POST "repos/$GITHUB_REPOSITORY/issues/$PR/comments" -F "body=@$body" > /dev/null
+          fi

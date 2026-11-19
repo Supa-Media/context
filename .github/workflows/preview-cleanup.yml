@@ -1,0 +1,89 @@
+name: Preview cleanup
+
+# Deletes a pull request's preview (its Workers, Workflows and storage) once the
+# pull request closes or its branch is deleted, and sweeps daily for any that
+# were left behind. The matching is exact, so one preview's cleanup can never
+# touch another's (scripts/preview-cleanup.mjs explains the names).
+#
+# Convex expires its own preview deployments, so nothing here deletes one.
+#
+# A deleted branch is found through the pull requests it had: GitHub closes a
+# pull request when its branch goes, so the state filter below keeps only the
+# closed ones. The `delete` event runs only from the default branch's copy of
+# this file.
+on:
+  pull_request:
+    types: [closed]
+  delete:
+  schedule:
+    - cron: "23 5 * * *"
+  workflow_dispatch:
+    inputs:
+      pr:
+        description: "Pull request number whose preview to delete. Leave empty to sweep every closed preview."
+        type: string
+        default: ""
+
+concurrency:
+  group: preview-cleanup
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  cleanup:
+    name: Delete preview resources
+    # A fork's pull request never had a preview here, and gets no secrets.
+    if: ${{ (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && (github.event_name != 'delete' || github.event.ref_type == 'branch') }}
+    runs-on: ubuntu-latest
+    environment: preview
+    timeout-minutes: 30
+    env:
+      GH_TOKEN: ${{ github.token }}
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+      MANAGED_R2_ACCOUNT_ID: ${{ secrets.MANAGED_R2_ACCOUNT_ID }}
+      EVENT_PR: ${{ github.event.pull_request.number }}
+      EVENT_BRANCH: ${{ github.event.ref }}
+      INPUT_PR: ${{ inputs.pr }}
+      OWNER: ${{ github.repository_owner }}
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: pnpm
+
+      # Wrangler, from each Worker's own checkout, does the Worker deletions.
+      - run: pnpm install --frozen-lockfile
+
+      - name: Delete a closed pull request's preview
+        if: ${{ github.event_name == 'pull_request' }}
+        run: node scripts/preview-cleanup.mjs delete "$EVENT_PR"
+
+      - name: Delete the previews of a deleted branch's closed pull requests
+        if: ${{ github.event_name == 'delete' }}
+        run: |
+          set -euo pipefail
+          numbers="$(gh api --method GET "repos/$GITHUB_REPOSITORY/pulls" -f state=all -f "head=$OWNER:$EVENT_BRANCH" --jq '.[] | select(.state == "closed") | .number')"
+          if [ -z "$numbers" ]; then
+            echo "Branch $EVENT_BRANCH had no closed pull request; no preview to delete."
+            exit 0
+          fi
+          for number in $numbers; do
+            node scripts/preview-cleanup.mjs delete "$number"
+          done
+
+      - name: Delete the requested preview
+        if: ${{ github.event_name == 'workflow_dispatch' && inputs.pr != '' }}
+        run: node scripts/preview-cleanup.mjs delete "$INPUT_PR"
+
+      # Every preview whose pull request is closed, and a count of the live ones
+      # against the ceiling. The scheduled run is the backstop for every case above.
+      - name: Sweep for previews whose pull request is closed
+        if: ${{ github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && inputs.pr == '') }}
+        run: node scripts/preview-cleanup.mjs sweep
