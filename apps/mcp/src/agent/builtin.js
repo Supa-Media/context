@@ -62,6 +62,14 @@ const MAX_OUTPUT_TOKENS = 2048;
 /** How long one round may take before it is abandoned. */
 const ROUND_TIMEOUT_MS = 60_000;
 
+class RoundTimeout extends Error {}
+
+/** An error's class name, as a short word for the log: never its message. */
+function errorName(error) {
+  const name = typeof error?.name === "string" ? error.name : typeof error;
+  return /^[\w.-]{1,40}$/.test(name) ? name : "error";
+}
+
 /**
  * The model this deployment's built-in turns use: `AGENT_BUILTIN_MODEL` when
  * it names one this deployment can call, else Haiku when there is a gateway,
@@ -164,11 +172,12 @@ export async function requestBuiltin(asked, ai, options = {}) {
         ...(runOptions ? [runOptions] : []),
       ),
       new Promise((_, reject) => {
-        timer = setTimeout(() => reject(new Error("timeout")), ROUND_TIMEOUT_MS);
+        timer = setTimeout(() => reject(new RoundTimeout()), ROUND_TIMEOUT_MS);
       }),
     ]);
-  } catch {
-    throw new ProviderError("built-in model failed");
+  } catch (error) {
+    // Which way it failed, never what it said: a provider's message can quote the request.
+    throw new ProviderError(error instanceof RoundTimeout ? `built-in model timed out after ${ROUND_TIMEOUT_MS / 1000} s` : `built-in model failed (${errorName(error)})`);
   } finally {
     clearTimeout(timer);
   }
