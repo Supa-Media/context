@@ -14,7 +14,7 @@
     {"id":"m6","kind":"react","tex":true,"text":"🔍","to":"m5","who":"Tex"},
     {"id":"m7","tex":true,"text":"Not anywhere in Gmail. His email says it's attached but it isn't, and the only thing he attached was the invite.","who":"Tex"},
     {"id":"m8","text":"ugh ok","who":"John"},
-    {"id":"m9","labels":{"fd":{"must":["research the role and Bram, put a prep page in Context, send the link"],"never":["paste a long block of questions in chat"],"star":true},"router":{"route":"job","star":true}},"text":"just do the questions then","who":"John"},
+    {"id":"m9","labels":{"fd":{"must":["put the questions in a Context page and send the link"],"never":["paste a long block of questions in chat"],"star":true},"router":{"route":"job","star":true}},"text":"just do the questions then","who":"John"},
     {"id":"m10","tex":true,"text":"On it. Pulling the job post, his GitHub and your notes on the role into a prep page.","who":"Tex"},
     {"id":"m11","tex":true,"text":"Prep page is up: what you said you want from this hire, what his GitHub shows (mostly React Native, one app he shipped solo), 5 questions tied to those, and what a strong answer sounds like for each.","who":"Tex"},
     {"id":"m11b","tex":true,"text":"context://@john/projects/hiring/bram-interview-prep.md","who":"Tex"},

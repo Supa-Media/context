@@ -23,7 +23,7 @@ export async function openTheWeb(t) {
   const texting = session.actorClientId === TEXTS_CLIENT_ID || runner;
   // A texted write answers with the note's link, so Tex can text it (`noteLinks.js`).
   // A group's too (2026-10-21): everyone in it is a member of the one workspace it reads, so the app link opens for each of them.
-  const noteLinking = { origin: session.actorClientId === TEXTS_CLIENT_ID || group !== null ? appOriginOf(env) : null, contexts: store.contexts };
+  const noteLinking = { origin: session.actorClientId === TEXTS_CLIENT_ID || group !== null ? appOriginOf(env) : null, contexts: store.contexts, saved: [] }; // `saved`: the deliverable notes this turn saved, for the reply's floor (`withSavedLink`)
   // A text has the MCP's own write tools (`textingWrites.js`, the owner,
   // 2026-10-08), and so does the app's own assistant since proposals were
   // removed (the owner, 2026-11-03, "Edit directly, like texting"); a
