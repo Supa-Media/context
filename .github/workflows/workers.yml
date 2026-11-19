@@ -230,7 +230,7 @@ jobs:
           packages: "@context/agent"
           # The Worker imports packages/shared/src modules by relative path, not as a
           # package, so any of them is a Worker change (#3443; #3733 skipped this
-          # suite and broke main). check-ci-path-gates.mjs checks every such import is watched.
+          # suite and broke main). check-agent-path-imports.mjs checks every such import is watched.
           paths: |
             .github/workflows/workers.yml
             packages/shared/src/**

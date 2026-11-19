@@ -121,6 +121,8 @@ jobs:
         run: |
           node scripts/check-ci-path-gates.mjs --self-test
           node scripts/check-ci-path-gates.mjs
+          node scripts/check-agent-path-imports.mjs --self-test
+          node scripts/check-agent-path-imports.mjs
 
       # ── AND THE GUARD OVER EVERY WORKER, NOT JUST THE GATEWAY ────────────
       #
