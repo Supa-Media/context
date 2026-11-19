@@ -499,9 +499,17 @@ jobs:
           fi
           started=$(date +%s%3N)
           # Eight Front door tests at once inside this one job (`setsRun.mjs`): no more GitHub jobs, so CI keeps its runners.
-          node apps/mcp/bench/run.mjs sets run --conversations "$RUNNER_TEMP/lab/convs.json" --out "$RUNNER_TEMP/lab/rows.json" --parallel 8 ${NODE_ID:+--node "$NODE_ID"}
+          # Each Front door test's judged replies are kept (`--keep`) so the same replies can be graded again.
+          node apps/mcp/bench/run.mjs sets run --conversations "$RUNNER_TEMP/lab/convs.json" --out "$RUNNER_TEMP/lab/rows.json" --parallel 8 --keep "$RUNNER_TEMP/lab/kept" ${NODE_ID:+--node "$NODE_ID"}
           code=$?
           echo "$(( $(date +%s%3N) - started ))" > "$RUNNER_TEMP/lab/ms"
+          # The grader's own noise (`apps/mcp/bench/regrade.mjs`; Dev2, 2026-11-19): on Claude Code ($0), a Training or Dev
+          # run grades its kept Front door replies once more; a row whose grade flips is the grader, not Tex. Counts and
+          # row ids only in the log; never on the sealed Test set; a regrade that fails never fails the run.
+          if [ -n "$answerer" ] && [ "$SET" = "training" -o "$SET" = "dev" ] && [ -d "$RUNNER_TEMP/lab/kept" ]; then
+            node apps/mcp/bench/run.mjs sets regrade --kept "$RUNNER_TEMP/lab/kept" --times 1 \
+              || echo "::warning::the regrade did not finish; the run's grades stand"
+          fi
           # The gold self-check (`apps/mcp/bench/setsGold.mjs`; Dev2, 2026-11-18): a Training run on Claude Code also judges
           # each Front door label against the conversation's own gold reply, at $0 through the same answerer. A label its
           # own gold fails makes its row ambiguous, out of the score. Counts only here; a failed check scores without it.

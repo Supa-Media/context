@@ -5,6 +5,8 @@
  *
  *   node apps/mcp/bench/run.mjs sets run --conversations <file.json> --tree <dir> --out <file.json> [--node <id>] [--fake]
  *   pnpm ai sets run [--set dev] [--node decide] [--fake] [--out <file.json>]      (the repo's Dev Set by default)
+ *   node apps/mcp/bench/run.mjs sets run ... --keep <dir>     (also keeps each Front door test's judged notes in <dir>)
+ *   node apps/mcp/bench/run.mjs sets regrade --kept <dir> [--times 3] [--votes 3] [--out <file.json>] [--fake]
  *
  * A unit test is a starred label: one person's message × one node (`texSets.cjs` `unitTests`). Each runs through
  * that node's own code from `--tree` (the checkout whose nodes are judged), put the way production puts it, with
@@ -22,6 +24,7 @@ import { createRequire } from "node:module";
 import { join, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 
+import { regradeCommand } from "./regrade.mjs";
 import { runFd } from "./setsFd.mjs";
 
 const require = createRequire(import.meta.url);
@@ -165,7 +168,7 @@ const TREE_TRAINING = "packages/shared/src/texTraining.cjs";
 const TREE_GENERATED = "packages/shared/src/texTraining.generated.json";
 
 /** Each node's way to run alone: how to ask it, given the tree's code, and how to score its answer. */
-export async function adaptersFor(tree, { fake = false, env = process.env, holdOut = false, routeEngine = null } = {}) {
+export async function adaptersFor(tree, { fake = false, env = process.env, holdOut = false, routeEngine = null, keep = null } = {}) {
   const mod = (rel) => import(pathToFileURL(join(tree, rel)).href);
   // Claude's calls through the model socket when one is set (`modelSocket.mjs`): the Lab's Claude Code runs
   // (`tex-lab-run.yml`, models "cc") answer them with `socketAnswerer.mjs`; nothing is priced then.
@@ -174,7 +177,7 @@ export async function adaptersFor(tree, { fake = false, env = process.env, holdO
   const socketed = Boolean(socket?.covers("claude"));
   const table = {
     // The front door runs as a whole turn in the bench's world, so its tests go as one batch (`setsFd.mjs`).
-    fd: { batch: (units, { parallel = 1 } = {}) => runFd(units, { tree, fake, parallel, holdOut, env }) },
+    fd: { batch: (units, { parallel = 1 } = {}) => runFd(units, { tree, fake, parallel, holdOut, env, keep }) },
     decide: async () => {
       const { judgeCase, fakeEngine } = await mod("apps/mcp/bench/respond.mjs");
       const engine = fake ? null : (await mod("apps/mcp/src/agent/decide.js")).decisionEngine((await mod("apps/mcp/bench/models.mjs")).workersAi(env.CLOUDFLARE_ACCOUNT_ID, env.CLOUDFLARE_AI_TOKEN));
@@ -265,8 +268,8 @@ export async function adaptersFor(tree, { fake = false, env = process.env, holdO
  * process (Decide, the job check, the reviewer) go one after another while the batched ones (the Front door, whose
  * tests are processes of their own) go beside them, `parallel` tests at a time; rows come back in the same order.
  */
-export async function runSets(convs, { tree, node = null, fake = false, env = process.env, adapters = null, parallel = 1, holdOut = false } = {}) {
-  const table = adapters ?? (await adaptersFor(tree, { fake, env, holdOut }));
+export async function runSets(convs, { tree, node = null, fake = false, env = process.env, adapters = null, parallel = 1, holdOut = false, keep = null } = {}) {
+  const table = adapters ?? (await adaptersFor(tree, { fake, env, holdOut, keep }));
   const ready = {};
   const singles = [];
   const batches = {};
@@ -331,9 +334,10 @@ export function countsLine(rows) {
 /** Whether the hold-out switch's value means on. */
 export const holdOutOn = (value) => /^(?:on|yes|true|1)$/i.test(String(value ?? "").trim());
 
-/** `sets run`: the CLI half. */
+/** `sets run` and `sets regrade`: the CLI half. */
 export async function setsCommand(sub, options, { write = (t) => process.stdout.write(t) } = {}) {
-  if (sub !== "run") throw new Error("usage: sets run [--conversations <file.json>] [--set dev] [--tree <dir>] [--node <id>] [--out <file.json>] [--parallel n] [--hold-out on] [--fake]");
+  if (sub === "regrade") return regradeCommand(options, { write });
+  if (sub !== "run") throw new Error("usage: sets run [--conversations <file.json>] [--set dev] [--tree <dir>] [--node <id>] [--out <file.json>] [--parallel n] [--hold-out on] [--keep <dir>] [--fake]\n       sets regrade --kept <dir> [--times n] [--votes n] [--out <file.json>] [--fake]");
   let convs;
   if (options.conversations) convs = JSON.parse(await readFile(resolve(options.conversations), "utf8"));
   else {
@@ -350,7 +354,9 @@ export async function setsCommand(sub, options, { write = (t) => process.stdout.
   // on (`--hold-out on`, or TEX_SETS_HOLD_OUT=on, the Lab run workflow's repository variable), each runs without its
   // own conversation (the held-out score). It changes nothing for a Dev conversation, which is never an example.
   const holdOut = holdOutOn(options["hold-out"] ?? process.env.TEX_SETS_HOLD_OUT);
-  const rows = await runSets(convs, { tree, node: options.node ?? null, fake: Boolean(options.fake), parallel, holdOut });
+  // `--keep <dir>`: each Front door test's judged notes and units are kept there (`setsFd.mjs`), for `sets regrade`.
+  const keep = options.keep ? resolve(options.keep) : null;
+  const rows = await runSets(convs, { tree, node: options.node ?? null, fake: Boolean(options.fake), parallel, holdOut, keep });
   if (convs.some((c) => c.set === "training")) write(`Training Front door: ${holdOut ? "held out (each conversation left out of its own examples)" : "in context (each conversation among its own examples)"}\n`);
   if (options.out) await writeFile(resolve(options.out), JSON.stringify(rows, null, 1) + "\n");
   write(`${countsLine(rows)}\n`);

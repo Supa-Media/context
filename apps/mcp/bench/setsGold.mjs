@@ -137,7 +137,8 @@ export function goldRequests(convs, { model = DEFAULT_JUDGE } = {}) {
         changes: [GOLD_CHANGES],
         jobs: goldJobs(c, i, gold),
       };
-      const { checks, body } = buildJudgeRequest({ model, question, answers: [answer], every: [] });
+      // codeLines off: a gold reply keeps only its texts, so every line is the judge's, as before the record graded any.
+      const { checks, body } = buildJudgeRequest({ model, question, answers: [answer], every: [], codeLines: false });
       requests.push({ convId: c.id, msgIndex: i, msgId: row.id, checks, body });
     }
   }
