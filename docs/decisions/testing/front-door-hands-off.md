@@ -3,7 +3,8 @@
 Decided by the owner: the front door stays fast for a quick reply, and a long
 or multi-step job goes to a background worker that may take more rounds,
 because speed matters less there. Same models. No Sonnet, no Opus, and no
-pricier model is added. This note is the plan. It is not built yet.
+pricier model is added. This note is the plan; the 2026-11-19 section at the
+end is what was built on it and why.
 
 ## What already exists
 
@@ -93,3 +94,61 @@ work, not the ack.
 No implementation until the owner says go, after Architect and Finance.
 No model change. No new store. The 17 November numbers above are the
 evidence for the size of the gain, not a promise that Dev reaches 43.
+
+## 2026-11-19: hand off by shape, from the router's job read
+
+**What the Training record shows.** Main's Training run of 19 November
+(cc, three repeats, 123/158, front door 38/63) records each front-door row's
+rounds. Of 64 rows, the most any turn used was 11 of its bound; nearly all
+used 1 to 3. So the front door is not running out of rounds: the
+`fd -> handoff` "out of rounds" wire (#3646) would almost never fire, and
+the `answerCheck -> handoff` wire was measured flat on 18 November. The
+long-job misses are of another shape: the front door answers in one round,
+with no tools, an ask that needs research and a written page (it pastes a
+list instead of doing the work), or it starts the work and says "On it" in
+words where a tapback should carry it.
+
+**What already decides shape.** The router (Clef, `specialistRoute.js`) reads
+every text beside the Door and picks quick, read, act or job; `job` is "long
+or many-step work that takes minutes". On that run it picked job for all six
+Training labels that want job and for one that does not. But its confidence
+is poorly calibrated (the six right picks were 0.13 to 0.83), and the
+`router -> handoff` wire only trusts a pick at `ROUTE_AT` 0.6, so it would
+have caught one of six.
+
+**The change.** The hand-off is decided from the router's job read, with its
+own bar:
+
+- The Hand-off node takes `limits.routeSure` (a percent, 0 to 100): the
+  router's confidence above which a job pick goes to the worker. Absent, it
+  is `ROUTE_AT` as today. Quick, read and act keep their own bar.
+- A Lab draft turns the router on, wires `router -> handoff`, and does not
+  wire the specialist doors (they lost on Training on 19 November). Every
+  pick that is not a trusted job runs today's front door unchanged.
+- The person gets the job's start tapback at once, and the worker (the
+  existing `job` node: Haiku 5.5, 12 rounds a part, up to ten parts) texts
+  the result.
+
+The bar is set on Training only. Dev is run twice to check it does not
+regress and is never used to tune it; the sealed Test set is not read.
+
+**Shared infra it touches.** Only gateway code: `doorTurn.js` (the bar for
+a job pick), `runTheModel.js` (reads it from the Hand-off node), the node
+shelf entry, tests. No Convex schema, scheduler or queue change: jobs run in
+the agent Worker's existing `job:<id>` Durable Object. No new Worker,
+binding, secret or deploy config. The config change ships through a Lab
+draft's Promote, with the regenerated architecture drawing.
+
+**Cost per handed-off job.** The router is one Clef call per text on
+Workers AI (fractions of a cent). A handed-off job is one or more Haiku 5.5
+parts: at the bench's prices ($0.10 in, $0.50 out per million tokens) a
+part near its 12 rounds is on the order of 1 to 3 cents, against well under
+a cent for a short front-door reply. The job advisor (Sonnet 5.5) reads each
+part as every job's does today; the 19 November Training run averaged 2.3
+advisor calls per job. No new model call is added.
+
+**Latency.** A quick reply waits for the router only as long as it is
+slower than the Door (it runs beside it; Clef answers in about half a
+second, capped at the router's 3 s limit). A handed-off job's tapback goes
+out right after the router's read, before any front-door round. The result
+is a later text, minutes not seconds.
