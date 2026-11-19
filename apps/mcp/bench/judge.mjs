@@ -182,7 +182,7 @@ export function isUnanswered(answer) {
  * How much of the chat before the text the judge is shown: the newest lines that fit `JUDGE_EARLIER_CHARS` characters
  * and `JUDGE_EARLIER` lines. Labels about the chat's own facts ("built on what's in the chat", "check the record",
  * "separate what the note says from what John remembers") need the chat further back than a fixed line count: a
- * 12-line window failed Training truck-crew row 47 ("roast kofi") for facts 23 and 30 lines back (2026-11-19).
+ * 12-line window failed the Training truck-crew "roast kofi" text for facts 23 and 30 lines back (2026-11-19).
  */
 export const JUDGE_EARLIER_CHARS = 24000;
 const JUDGE_EARLIER = 200;
