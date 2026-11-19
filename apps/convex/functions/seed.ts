@@ -12,8 +12,20 @@ import { internalMutation } from "./lib/rowWatch/mutations";
 import { isIsolatedPreview } from "./lib/previewDeployment";
 import { seedPersonaWorkspaces } from "./lib/personaSeed";
 import { insertFolder } from "./lib/nodes/rowMove";
+import { claimName, findName } from "./lib/nameClaims";
+import { seedIngestionSettings } from "./lib/ingestionStore";
+import { keyIfBornEmpty } from "./lib/noteIds/born";
 import type { Doc, Id } from "../_generated/dataModel";
 import type { MutationCtx } from "../_generated/server";
+
+/**
+ * The personal workspace each texting persona answers from. `beta` is a reserved name, so its slug is `beta-preview`;
+ * `alpha` and `delta` are the fixtures in `FIXTURES`. A texted link needs a personal workspace (`NO_PERSONAL_WORKSPACE`).
+ */
+const PREVIEW_PERSONAL = [
+  { persona: "beta", slug: "beta-preview", name: "Beta Chen" },
+  { persona: "gamma", slug: "gamma", name: "Gamma Ellis" },
+] as const;
 
 /** The simulator's numbers (`apps/agent/src/simulator.ts`): +1 212 555 01XX, never a real line. */
 export const PREVIEW_PHONES = {
@@ -52,15 +64,20 @@ export const preview = internalMutation({
       }
     }
 
-    // Phone links. Alpha's number is linked to alpha's account, as a text-proven link would be. Only alpha has a
-    // personal workspace in the fixtures, and the product will not link a number to an account without one, so
-    // beta's and gamma's numbers are reserved here and not linked (see the report).
-    const alpha = await ctx.db.query("users").withIndex("by_email", q => q.eq("email", "alpha@supa.media")).unique();
-    if (alpha === null) throw new Error("Preview seed: alpha's account is missing.");
-    await linkPhone(ctx, alpha._id, PREVIEW_PHONES.alpha, now);
+    // Phone links: each persona's number on its own account, as a number proven by text is linked. Each persona here
+    // has a personal workspace above, which the product requires before it links a number.
+    const alpha = await userByEmail(ctx, "alpha");
+    await linkPhone(ctx, alpha, PREVIEW_PHONES.alpha, now);
+    const allWorkspaces = workspaces.map(w => ({ slug: w.slug, workspaceId: w.workspaceId, owner: w.owner }));
+    for (const { persona, slug, name } of PREVIEW_PERSONAL) {
+      const userId = await userByEmail(ctx, persona);
+      const workspaceId = await personalWorkspace(ctx, { userId, slug, name, now });
+      allWorkspaces.push({ slug, workspaceId, owner: persona });
+      await linkPhone(ctx, userId, PREVIEW_PHONES[persona], now);
+    }
 
     return {
-      workspaces: workspaces.map(w => ({ slug: w.slug, workspaceId: w.workspaceId, owner: w.owner })),
+      workspaces: allWorkspaces,
       phones: { ...PREVIEW_PHONES },
       // A group chat is born from the first text its members send Tex, which carries the carrier's group id.
       // Nothing here can make that row without faking it, so the smoke script creates the chat by texting.
@@ -75,6 +92,35 @@ async function liveFolder(ctx: MutationCtx, workspaceId: Id<"workspaces">, path:
     .withIndex("by_workspace_path", (q) => q.eq("workspaceId", workspaceId).eq("path", path))
     .collect();
   return rows.find((row) => row.kind === "folder" && row.goneAt === undefined) ?? null;
+}
+
+async function userByEmail(ctx: MutationCtx, persona: string): Promise<Id<"users">> {
+  const user = await ctx.db.query("users").withIndex("by_email", q => q.eq("email", `${persona}@supa.media`)).unique();
+  if (user === null) throw new Error(`Preview seed: ${persona}'s account is missing.`);
+  return user._id;
+}
+
+/** A persona's personal workspace, made once: found by its name claim, created with its owner membership if absent. */
+async function personalWorkspace(
+  ctx: MutationCtx,
+  { userId, slug, name, now }: { userId: Id<"users">; slug: string; name: string; now: number },
+): Promise<Id<"workspaces">> {
+  const claim = await findName(ctx, slug);
+  if (claim?.workspaceId) {
+    const workspace = await ctx.db.get(claim.workspaceId);
+    if (!workspace || workspace.createdBy !== userId || workspace.kind !== "personal") {
+      throw new Error(`Preview seed: the name ${slug} is held by another workspace; nothing was changed.`);
+    }
+    return workspace._id;
+  }
+  const workspaceId = await ctx.db.insert("workspaces", {
+    slug, displayName: name, createdBy: userId, kind: "personal", structureTemplate: "para", createdAt: now, updatedAt: now,
+  });
+  await claimName(ctx, slug, userId, { kind: "workspace", workspaceId });
+  await ctx.db.insert("workspaceMembers", { workspaceId, userId, role: "owner", joinedAt: now });
+  await seedIngestionSettings(ctx, { workspaceId, ownerUserId: userId, now });
+  await keyIfBornEmpty(ctx, workspaceId);
+  return workspaceId;
 }
 
 async function linkPhone(ctx: MutationCtx, userId: Id<"users">, phone: string, now: number): Promise<void> {
