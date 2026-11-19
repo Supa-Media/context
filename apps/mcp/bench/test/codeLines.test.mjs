@@ -160,3 +160,13 @@ test("silence with its reason after a colon or comma is still code's; a text-onl
   assert.equal(codeRule(mustNot("send the email before John says yes")).name, "email-sent");
   assert.equal(codeRule(must("read the page and answer yes/no first")), null);
 });
+
+// Training 2026-11-19: a turn Tex chose to stay quiet on is recorded as its marker line, silent. The judge still reads
+// the marker, but it is not a text the person got, so the code's "no words" grade must not count it.
+test("a silent quiet-turn marker is not words, and a stay-quiet line passes on it", () => {
+  const quiet = { conversation: [{ from: "assistant", text: "(stayed quiet: x)", silent: true }] };
+  assert.equal(wordsSent(quiet), false);
+  assert.equal(codeVerdict(must("stay quiet, nothing here needs the group"), quiet)?.does, true);
+  const failed = { conversation: [{ from: "assistant", text: "(no answer came back; the texting Worker would retry)" }] };
+  assert.equal(wordsSent(failed), true, "a failed turn's apology line is not silent and still counts as words");
+});
