@@ -304,6 +304,10 @@ jobs:
           fi
           pnpm --dir apps/mcp exec wrangler deploy --config "$config" --env preview --name "context-mcp-pr$PR" --var "TEX_CODE_VERSION:$HEAD_SHA" --message "Preview pr$PR $HEAD_SHA"
 
+      # No --env on wrangler secret commands: wrangler appends -<env> to --name there,
+      # so the secrets would land on a separate context-<svc>-pr<N>-preview Worker.
+      # --name alone targets the deployed Worker; the post-deploy checks list that
+      # same Worker.
       # One request and one new version, as staging does; see scripts/worker-secrets.mjs.
       # No line key is named here, on purpose: the gateway's texting lines are off.
       - name: Set the gateway's secrets
@@ -322,7 +326,7 @@ jobs:
         run: |
           set -euo pipefail
           node scripts/worker-secrets.mjs CONTROL_PLANE_URL=PREVIEW_CONTROL_PLANE_URL GATEWAY_SECRET '?TRANSCRIBE_WORKER_SECRET' '?TRANSCRIBE_WORKER_URL' '!BRAVE_SEARCH_API_KEY' '?GOOGLE_MAPS_KEY' '?AI_GATEWAY_ACCOUNT_ID' '?AI_GATEWAY_ID' '?AI_GATEWAY_TOKEN' '?AI_GATEWAY_KEY_ALIASES' '?ANTHROPIC_CREDIT_KEY' '?AGENT_WORKER_SECRET' \
-            | pnpm --dir apps/mcp exec wrangler secret bulk --config wrangler.preview.toml --env preview --name "context-mcp-pr$PR"
+            | pnpm --dir apps/mcp exec wrangler secret bulk --config wrangler.preview.toml --name "context-mcp-pr$PR"
 
       - name: Deploy the texting assistant
         if: ${{ needs.resolve.outputs.agent == 'true' }}
@@ -336,7 +340,7 @@ jobs:
         run: |
           set -euo pipefail
           node scripts/worker-secrets.mjs CONTROL_PLANE_ORIGIN=PREVIEW_CONTROL_PLANE_URL '!AGENT_WORKER_SECRET' \
-            | pnpm --dir apps/agent exec wrangler secret bulk --config wrangler.preview.jsonc --env preview --name "context-agent-pr$PR"
+            | pnpm --dir apps/agent exec wrangler secret bulk --config wrangler.preview.jsonc --name "context-agent-pr$PR"
 
       # The full gateway, its TEXTING binding included, now that the texting
       # assistant exists. Its secrets carry over to the new version.
@@ -370,7 +374,7 @@ jobs:
       # on the live version, so the order cannot collide with a retired var.
       - name: Set the router's Convex origin
         if: ${{ needs.resolve.outputs.app == 'true' || needs.resolve.outputs.router == 'true' }}
-        run: printf '%s' "$PREVIEW_CONTROL_PLANE_URL" | pnpm --dir infra/router exec wrangler secret put CONVEX_ORIGIN --config wrangler.preview.jsonc --env preview --name "context-router-pr$PR"
+        run: printf '%s' "$PREVIEW_CONTROL_PLANE_URL" | pnpm --dir infra/router exec wrangler secret put CONVEX_ORIGIN --config wrangler.preview.jsonc --name "context-router-pr$PR"
 
       # Each Worker's own secret list must hold no texting, SMS, email or billing
       # name, and no name the workflow never puts. Only names are read.
@@ -378,19 +382,19 @@ jobs:
         if: ${{ needs.resolve.outputs.mcp == 'true' }}
         run: |
           set -euo pipefail
-          pnpm --dir apps/mcp exec wrangler secret list --format json --config wrangler.preview.toml --env preview --name "context-mcp-pr$PR" | node scripts/preview-guards.mjs worker-secrets "context-mcp-pr$PR"
+          pnpm --dir apps/mcp exec wrangler secret list --format json --config wrangler.preview.toml --name "context-mcp-pr$PR" | node scripts/preview-guards.mjs worker-secrets "context-mcp-pr$PR"
 
       - name: Check the texting assistant holds no line, mail or payment key
         if: ${{ needs.resolve.outputs.agent == 'true' }}
         run: |
           set -euo pipefail
-          pnpm --dir apps/agent exec wrangler secret list --format json --config wrangler.preview.jsonc --env preview --name "context-agent-pr$PR" | node scripts/preview-guards.mjs worker-secrets "context-agent-pr$PR"
+          pnpm --dir apps/agent exec wrangler secret list --format json --config wrangler.preview.jsonc --name "context-agent-pr$PR" | node scripts/preview-guards.mjs worker-secrets "context-agent-pr$PR"
 
       - name: Check the router holds no line, mail or payment key
         if: ${{ needs.resolve.outputs.app == 'true' || needs.resolve.outputs.router == 'true' }}
         run: |
           set -euo pipefail
-          pnpm --dir infra/router exec wrangler secret list --format json --config wrangler.preview.jsonc --env preview --name "context-router-pr$PR" | node scripts/preview-guards.mjs worker-secrets "context-router-pr$PR"
+          pnpm --dir infra/router exec wrangler secret list --format json --config wrangler.preview.jsonc --name "context-router-pr$PR" | node scripts/preview-guards.mjs worker-secrets "context-router-pr$PR"
 
       - name: Record when the Workers were done
         run: echo "T_WORKERS=$(date +%s)" >> "$GITHUB_ENV"

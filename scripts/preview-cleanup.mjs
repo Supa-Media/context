@@ -27,7 +27,8 @@ import { pathToFileURL } from "node:url";
 /** The most previews the account is sized for at once (about 45). */
 export const PREVIEW_CEILING = 45;
 
-const PREVIEW_WORKER = /^context-(mcp|agent|router)-pr([1-9][0-9]{0,6})$/;
+// The optional -preview suffix is the stray Worker name left by the secret bug (see deploy-preview.yml).
+const PREVIEW_WORKER = /^context-(mcp|agent|router)-pr([1-9][0-9]{0,6})(?:-preview)?$/;
 const RESOURCE_PREFIX = /^pr([1-9][0-9]{0,6})-/;
 const PREVIEW_WORKFLOWS = ["group-turn", "job-run"];
 const WORKFLOW_PREVIEW = /^(group-turn|job-run)-pr([1-9][0-9]{0,6})$/;
@@ -181,13 +182,15 @@ export function wrangler(env, worker, args) {
 export async function deletePreview(env, n, { log = console.log, runWrangler = wrangler, api = cloudflareApi(env.CLOUDFLARE_API_TOKEN) } = {}) {
   const gone = /not found|10007|does not exist/i;
   for (const worker of DELETE_ORDER) {
-    const name = `context-${worker}-pr${n}`;
-    try {
-      runWrangler(env, worker, ["delete", "--name", name, "--force"]);
-      log(`deleted Worker ${name}`);
-    } catch (error) {
-      if (!gone.test(String(error.stderr ?? error.message))) throw error;
-      log(`Worker ${name} was already gone`);
+    // The -preview name is where a secret command once put a Worker; delete it too.
+    for (const name of [`context-${worker}-pr${n}`, `context-${worker}-pr${n}-preview`]) {
+      try {
+        runWrangler(env, worker, ["delete", "--name", name, "--force"]);
+        log(`deleted Worker ${name}`);
+      } catch (error) {
+        if (!gone.test(String(error.stderr ?? error.message))) throw error;
+        log(`Worker ${name} was already gone`);
+      }
     }
   }
   const workflowNames = new Set(PREVIEW_WORKFLOWS.map((base) => `${base}-pr${n}`));

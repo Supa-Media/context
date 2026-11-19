@@ -141,6 +141,16 @@ export function workflowSilenceProblems(text) {
   if (workerSecretsLines === 0 && /wrangler\s+secret\s+bulk/.test(body)) {
     problems.add("deploy-preview.yml runs wrangler secret bulk without a scripts/worker-secrets.mjs line to feed it");
   }
+  // wrangler appends -<env> to --name on secret commands, so --env with --name sends the secret to another Worker.
+  // Continuations are joined first, so a command split over lines is read whole.
+  for (const logical of lines.join("\n").replace(/\\\n/g, " ").split("\n")) {
+    const at = logical.search(/wrangler\s+secret\b/);
+    if (at === -1) continue;
+    const command = logical.slice(at).split(/[|;]|&&/)[0];
+    if (/--env\b/.test(command) && /--name\b/.test(command)) {
+      problems.add('deploy-preview.yml runs "wrangler secret" with both --env and --name; wrangler appends -<env> to the name, so the secret lands on another Worker');
+    }
+  }
   return [...problems];
 }
 

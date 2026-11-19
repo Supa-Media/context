@@ -163,7 +163,10 @@ test('only staging can deploy automatically; production services share one manua
       const deploys = text.split('\n').filter(line => !/^\s*#/.test(line) && /wrangler (deploy|secret)/.test(line));
       assert.ok(deploys.length > 0);
       for (const line of deploys) {
-        assert.match(line, /--env preview\b/, `${name}: ${line.trim()}`);
+        // A secret command takes --name alone: wrangler appends -<env> to the name
+        // there, so --env would send the secret to a separate Worker. Deploys keep --env preview.
+        if (/wrangler secret/.test(line)) assert.doesNotMatch(line, /--env\b/, `${name}: ${line.trim()}`);
+        else assert.match(line, /--env preview\b/, `${name}: ${line.trim()}`);
         assert.match(line, /--name "context-[a-z]+-pr\$PR"/, `${name}: ${line.trim()}`);
       }
       assert.doesNotMatch(text, /uses: \.\/\.github\/workflows\/deploy-/);

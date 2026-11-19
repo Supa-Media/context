@@ -220,6 +220,37 @@ test("a wrangler secret bulk line without a worker-secrets line fails", () => {
   assert.ok(workflowSilenceProblems("run: wrangler secret bulk --env preview\n").length > 0);
 });
 
+const ENV_AND_NAME = "--env and --name";
+
+test("a wrangler secret bulk with both --env and --name fails; without --env it passes", () => {
+  const withEnv = workflowSilenceProblems(
+    "node scripts/worker-secrets.mjs GATEWAY_SECRET \\\n  | wrangler secret bulk --config w.toml --env preview --name \"context-mcp-pr$PR\"\n",
+  );
+  assert.equal(withEnv.length, 1);
+  assert.ok(withEnv[0].includes(ENV_AND_NAME));
+  assert.deepEqual(
+    workflowSilenceProblems("node scripts/worker-secrets.mjs GATEWAY_SECRET \\\n  | wrangler secret bulk --config w.toml --name \"context-mcp-pr$PR\"\n"),
+    [],
+  );
+});
+
+test("a wrangler secret list with both --env and --name fails", () => {
+  const problems = workflowSilenceProblems("run: wrangler secret list --format json --config w.toml --env preview --name x\n");
+  assert.ok(problems.some((p) => p.includes(ENV_AND_NAME)));
+});
+
+test("--env and --name split over continuation lines are still caught", () => {
+  const problems = workflowSilenceProblems("run: wrangler secret put CONVEX_ORIGIN --config w.toml \\\n  --env preview --name x\n");
+  assert.ok(problems.some((p) => p.includes(ENV_AND_NAME)));
+});
+
+test("--env on a wrangler deploy with --name is not a secret problem", () => {
+  assert.deepEqual(
+    workflowSilenceProblems("run: wrangler deploy --config w.toml --env preview --name context-mcp-pr1\n"),
+    [],
+  );
+});
+
 test("the allowlist and the forbidden list do not overlap", () => {
   for (const name of PREVIEW_WORKER_SECRET_NAMES) {
     assert.ok(!FORBIDDEN_PREVIEW_KEYS.includes(name), `${name} must not be both allowed and forbidden`);

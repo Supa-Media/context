@@ -76,9 +76,32 @@ test("deleting a preview removes its Workers in order, and tolerates one that is
   const api = { request: async (method, path) => { requests.push(`${method} ${path}`); return null; } };
   const env = { CLOUDFLARE_API_TOKEN: "t", CLOUDFLARE_ACCOUNT_ID: "gateway" };
   await deletePreview(env, 7, { log: (line) => logs.push(line), runWrangler, api });
-  assert.deepEqual(calls, [["router", "context-router-pr7"], ["agent", "context-agent-pr7"], ["mcp", "context-mcp-pr7"]]);
+  assert.deepEqual(calls, [
+    ["router", "context-router-pr7"],
+    ["router", "context-router-pr7-preview"],
+    ["agent", "context-agent-pr7"],
+    ["agent", "context-agent-pr7-preview"],
+    ["mcp", "context-mcp-pr7"],
+    ["mcp", "context-mcp-pr7-preview"],
+  ]);
   assert.ok(logs.some((line) => line.includes("context-agent-pr7 was already gone")));
   assert.deepEqual(requests, ["GET /accounts/gateway/workflows?per_page=100&page=1", "GET /accounts/gateway/r2/buckets?per_page=1000", "GET /accounts/gateway/d1/database?per_page=1000", "GET /accounts/gateway/vectorize/v2/indexes"]);
+});
+
+test("a stray -preview Worker from the secret bug is found by its number and deleted with its preview", async () => {
+  assert.equal(workerPullRequest("context-mcp-pr3747-preview"), "3747");
+  assert.equal(workerPullRequest("context-mcp-pr3747-previewx"), null);
+  assert.equal(workerPullRequest("context-mcp-pr0-preview"), null);
+  assert.deepEqual(orphanNames(["context-mcp-pr3747-preview", "context-mcp-pr3747"], ["3747"]), []);
+  const calls = [];
+  const api = { request: async () => null };
+  const env = { CLOUDFLARE_API_TOKEN: "t", CLOUDFLARE_ACCOUNT_ID: "gateway" };
+  await deletePreview(env, 3747, {
+    log: () => {},
+    runWrangler: (_env, worker, args) => calls.push([worker, args]),
+    api,
+  });
+  assert.deepEqual(calls.find(([, args]) => args[2] === "context-mcp-pr3747-preview"), ["mcp", ["delete", "--name", "context-mcp-pr3747-preview", "--force"]]);
 });
 
 test("a storage resource of another pull request is never deleted", async () => {
