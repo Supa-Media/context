@@ -182,8 +182,8 @@ test("snapshot answers the Lab's picture as an image", async () => {
 function fakeLedger(entries) {
   const all = entries.map((e, i) => ({ v: 1, ...e, seq: i + 1 }));
   return {
-    async read(_chat, { kinds = null, since = null, until = null, before = null } = {}) {
-      let out = all.filter((e) => (kinds ? kinds.includes(e.kind) : true) && (since === null || e.at >= since) && (until === null || e.at < until));
+    async read(_chat, { kinds = null, since = null, until = null, before = null, steps = null } = {}) {
+      let out = all.filter((e) => (kinds ? kinds.includes(e.kind) : true) && (steps === null || e.kind !== "step" || steps.includes(e.step)) && (since === null || e.at >= since) && (until === null || e.at < until));
       if (before !== null) out = out.filter((e) => e.seq < before).reverse();
       return { entries: out };
     },
@@ -206,6 +206,32 @@ test("turns lists each reply with what it answered, what Tex said and how long i
   const answer = await turnsOf({}, PAGE, {}, { ledgerOf: () => LEDGER });
   assert.equal(answer.turns.length, 1);
   assert.deepEqual([answer.turns[0].turn, answer.turns[0].ms, answer.turns[0].asked, answer.turns[0].said], ["t1", 9_300, "book the table", "I couldn't reach the site."]);
+});
+
+// Dev2, 2026-11-19: "failed turns not being recorded is a huge gap": a turn that answered nothing leaves a `failed`
+// line (`recoverFromFailure.js`), and turns and turn find it by that line with why it failed and each round it tried.
+const FAILED_LEDGER = fakeLedger([
+  { id: "a", at: T0, kind: "text", from: { kind: "person" }, text: "whats on my cal" },
+  { id: "b", at: T0 + 10, kind: "step", step: "node", name: "fd", turn: "tf", ok: false, ms: 62_000, reason: "ProviderError" },
+  { id: "c", at: T0 + 2_000, kind: "step", step: "fallback", turn: "tf", ok: true, input: { from: "anthropic/claude-haiku-5-5", status: 402, reason: "status 402" } },
+  { id: "d", at: T0 + 62_100, kind: "step", step: "failed", turn: "tf", ok: false, ms: 64_000, model: "@cf/zai-org/glm-4.7-flash", reason: "built-in model timed out after 60 s", input: { waitMs: 700, at: "front door" }, output: { rounds: [{ kind: "fallback", model: "@cf/zai-org/glm-4.7-flash", from: "anthropic/claude-haiku-5-5", ok: true, status: 402, reason: "status 402", payers: [{ payer: "unified", status: 402 }] }, { kind: "model", model: "@cf/zai-org/glm-4.7-flash", ok: false, ms: 60_000, reason: "built-in model timed out after 60 s" }] } },
+  { id: "e", at: T0 + 80_000, kind: "text", from: { kind: "person" }, text: "hello?" },
+  { id: "f", at: T0 + 85_000, kind: "reply", turn: "t2", ms: 5_000, model: "haiku-5-5" },
+]);
+
+test("a failed turn is listed and traced: why it failed, each round and payer, how long it waited", async () => {
+  const listed = await turnsOf({}, PAGE, {}, { ledgerOf: () => FAILED_LEDGER });
+  assert.deepEqual(listed.turns.map((t) => t.turn), ["t2", "tf"]);
+  const failed = listed.turns[1];
+  assert.equal(failed.failed, "built-in model timed out after 60 s");
+  assert.equal(failed.asked, "whats on my cal");
+  assert.equal(failed.waitedMs, 700);
+  assert.deepEqual(failed.rounds.map((r) => [r.kind, r.status ?? null, r.reason]), [["fallback", 402, "status 402"], ["model", null, "built-in model timed out after 60 s"]]);
+  const turn = await turnAnswer({}, PAGE, { turn: "tf" }, { ledgerOf: () => FAILED_LEDGER, origin: "https://context.example" });
+  assert.equal(turn.error, undefined, String(turn.error));
+  assert.equal(turn.summary.outcome, "failed");
+  assert.equal(turn.summary.why, "built-in model timed out after 60 s");
+  assert.ok(turn.summary.failed.some((f) => f.what === "step failed"));
 });
 
 test("a turn shows only its own entries, in order, with inputs, thinking, the failed tool and the slowest steps", async () => {
