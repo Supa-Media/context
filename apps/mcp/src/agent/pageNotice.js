@@ -34,6 +34,11 @@ const ASKS_PLAIN = /\b(?:(?:plain|regular|normal|simple|ordinary|markdown|md) (?
  */
 const NOT_A_PAGE = /(?:^|\/)(?:todo|about-me|index|about|chat-[0-9a-f]+)\.md$|^(?:@[^/]+\/)?(?:tex(?!\/chats\/[^/]+\/)|inbox|\.context|routines)\//i;
 
+/** Whether `path` is one of Tex's own notes or records (`NOT_A_PAGE`), which never become pages. */
+export function isTexOwnNote(path) {
+  return NOT_A_PAGE.test(path);
+}
+
 /**
  * The note writes a turn made, as `{ path, content, created }`, from a call to
  * `write_note` or the six-tool `write`. Whether it created the note is the
@@ -65,7 +70,7 @@ export function wantsAPage(writes, question = "") {
   if (ASKS_PLAIN.test(String(question ?? ""))) return null;
   // It wrote the page too (the plain copy is archived by the page's own steps).
   if (writes.some((write) => isPagePath(write.path))) return null;
-  return writes.find((write) => write.created && !write.follows && !isPagePath(write.path) && !NOT_A_PAGE.test(write.path) && /\.md$/i.test(write.path))?.path ?? null;
+  return writes.find((write) => write.created && !write.follows && !isPagePath(write.path) && !isTexOwnNote(write.path) && /\.md$/i.test(write.path))?.path ?? null;
 }
 
 /**
