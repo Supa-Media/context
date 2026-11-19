@@ -47,7 +47,7 @@ export function simMemo() {
 }
 
 /** The world's instructions: what it plays, and what it never does. */
-export function simSystem({ setting, chat, today, sent = [], known = "" }) {
+export function simSystem({ setting, chat, today, sent = [], known = "", own = null }) {
   const lines = (chat ?? []).slice(-CHAT_LINES).map((line) => `${line.who}: ${line.text}`);
   return [
     "You play the outside world for a texting assistant called Tex: the websites, search engine, Google Calendar and Gmail it calls.",
@@ -58,6 +58,10 @@ export function simSystem({ setting, chat, today, sent = [], known = "" }) {
       ? `The Sent folder holds this mail, really sent during the run, and nothing else from the run:\n${sent.map((mail) => `- to ${mail.to}: ${mail.subject}`).join("\n")}`
       : "The Sent folder holds no mail from the run.",
     "Where they say nothing, invent ordinary, specific details (real-looking names, times, prices, addresses), and keep them as a real service would. An email address you invent ends in .example (maria.lopez@gmail.example, bookings@airline.example) and a phone number you invent is a 555-01xx one, so no real person's is ever used. Never mention a test or a simulation, and never decide what Tex should do.",
+    // One address for the person's own Gmail (`mailbox.mjs` settingMailbox): trial-hire's world invented mail from
+    // john@lantern.example at john@gmail.example while the connected mailbox was a third address, so a send from the
+    // address Tex had read was refused as "no sender" (2026-11-19).
+    own ? `The person's own Gmail address is ${own}: mail they sent is from it, mail to them is to it, and they have no other address.` : "",
     today ? `Today is ${today}.` : "",
     known ? `What the world has already shown in this conversation. Keep every detail of it the same (names, prices, times, ids, what a page says), and never contradict it:\n${known}` : "",
     setting ? `Setting: ${setting}` : "",
@@ -100,7 +104,7 @@ export function createSimWorld({ send = null, setting = "", chat = [], today = n
       }
     } else if (memo.answers.has(key)) return memo.answers.get(key);
     const known = knownFacts(store ? store.known() : memo.entries);
-    const system = simSystem({ setting, chat, today, sent: sentNow(), known });
+    const system = simSystem({ setting, chat, today, sent: sentNow(), known, own: address });
     let answer = fallback;
     let answered = false;
     const record = () => events.push(`world ${kind} ${JSON.stringify(request).slice(0, 200)} -> ${JSON.stringify(answer).slice(0, 600)}`);

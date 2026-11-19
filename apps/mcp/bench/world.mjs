@@ -241,7 +241,7 @@ export async function createWorld(bench, person, setupRaw, models, today = null,
   // Worker's stand-in, and the answers to web searches.
   // A person whose world writes their Gmail: the record for their search (`simulateServices`, `writtenMail`).
   const writtenMail = (bench.workspaces[own.workspace]?.mail ?? []).length > 0;
-  const sim = simulatedWorld(models, controlPlane, { today, person, noMailbox: mail.length === 0, writtenMail, gaps, address: named }); // a Dev test's outside world (`simWorld.mjs`)
+  const sim = simulatedWorld(models, controlPlane, { today, person, noMailbox: mail.length === 0, writtenMail, gaps, address: named ?? mail[0]?.address ?? null }); // one mailbox address for the whole world // a Dev test's outside world (`simWorld.mjs`)
   // A chat whose setting names Google Chat is connected, its reads answered by the world (`chat.mjs`).
   if (models.chat === "connected") connectChat(controlPlane.googleChat, { person, sim });
   const kept = sitesIn(models.sites, sim, models.ownSites ?? []);
