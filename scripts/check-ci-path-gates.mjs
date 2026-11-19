@@ -737,7 +737,7 @@ export function selfTest() {
   }
   expectFailure(
     "a path import the scope does not watch",
-    () => assertPathImportsWatched(["packages/shared/src/groupRunQuestions.cjs"], new Set(["packages/shared/src/texConfig.json"]), "agent"),
+    () => assertPathImportsWatched(["packages/shared/src/groupRunQuestions.cjs"], new Set(["packages/shared/src/texNumber.cjs"]), "agent"),
     "groupRunQuestions.cjs",
   );
   if (!relativeImportsOutside("apps/agent/src").includes("packages/shared/src/groupRunQuestions.cjs")) {
