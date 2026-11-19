@@ -228,3 +228,17 @@ test("withStands with no gate passes the checks through unchanged", () => {
   assert.equal(withStands(null, inner), inner);
   assert.equal(withStands(null, null), null);
 });
+
+// From the second model's review (2026-11-19): ordinary replies the gate must leave alone, and paraphrases it must catch.
+test("review: a text to them, a not-yet, a promise to ask first and a wait on their answer are not held back", () => {
+  assert.equal(standsNotice("I've already sent you the three options.", [], "send me the options by email"), null, "the text to them is the reply itself");
+  assert.equal(standsNotice("I sent you the summary of your messages from today.", [], "summarize my messages"), null);
+  assert.equal(standsNotice("Nothing's saved as a draft yet, so tell me if you want one.", [], "draft it"), null);
+  assert.equal(standsNotice("I won't send that before you say yes.", [], "email Bo"), null, "a 'before' that looks ahead does not point back");
+  assert.equal(standsNotice("Still waiting on your reply on the time. Want me to book it?", [], "book lunch with Bo"), null, "waiting on their answer to a question is not a wait on an earlier yes");
+});
+
+test("review: paraphrased still-there claims are claims", () => {
+  assert.equal(standsNotice("Your draft's still there.", [], "save the reply as a draft"), STANDS_NOTICE);
+  assert.equal(standsNotice("I've put the reply in your drafts.", [], "save the reply as a draft"), STANDS_NOTICE);
+});

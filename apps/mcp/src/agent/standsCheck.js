@@ -31,6 +31,8 @@ const ALREADY = [
   /\b(?:this|that|it)(?:['’]s| is| was)\s+already\s+(?:done|saved|sent|drafted|booked|in)\b/i,
 ];
 const STILL_THERE = [
+  /\b(?:drafts?|repl(?:y|ies)|e-?mails?|messages?|events?)(?:['’]s| is| are)\s+still\s+(?:there|in)\b/i,
+  /\b(?:put|left|placed)\s+(?:it|them|the\s+\w+)\s+in\s+(?:your\s+)?(?:gmail\s+)?drafts\b/i,
   /\b(?:is|are|was|['’]s)\s+(?:already\s+|still\s+)?saved\s+(?:as|in|to)\s+(?:a\s+|your\s+|the\s+)?(?:gmail\s+)?drafts?\b/i,
   /\bsaved\s+(?:as|in|to)\s+(?:a\s+|your\s+)?(?:gmail\s+)?drafts?\b/i,
   /\b(?:still|already|is|are|['’]s)\s+(?:sitting|waiting)\s+in\s+(?:your\s+)?(?:gmail\s+)?(?:drafts|inbox|outbox|calendar)\b/i,
@@ -40,13 +42,15 @@ const STILL_IN_PLACE = /\b(?:is|are)\s+still\s+(?:there|in your|on your|saved|sc
 const NOTHING_SENT = /\bnothing\s+(?:was|has been|got)\s+sent\b(?!\s+yet)/i;
 const FIRST_PERSON_DONE = /\bI(?:['’]ve| have)?\s+(?:just\s+)?(?:saved|sent|drafted|booked|scheduled|emailed)\b/i;
 const WORLD_THING = /\b(?:drafts?|e-?mails?|gmail|inbox|messages?|repl(?:y|ies)|invites?|invitations?|events?|calendar|meetings?|bookings?)\b/i;
-const NOT_DONE = /\b(?:couldn['’]?t|could not|can['’]?t|cannot|wasn['’]?t able|unable|not (?:saved|sent|done)|didn['’]?t (?:save|send))\b/i;
+const NOT_DONE = /\b(?:couldn['’]?t|could not|can['’]?t|cannot|wasn['’]?t able|unable|not (?:saved|sent|done)|didn['’]?t (?:save|send)|not yet|nothing(?:['’]s| is| has been)\s+(?:saved|sent|drafted|booked)\b)/i;
 const THUMBS_ASK = /\b(?:reply|send|text)\s+👍|👍\s+(?:to|and)\b/;
 
 // WHAT KIND OF THING A CALL DID OR LOOKED AT (2026-11-19, the second live miss after #3769: a mail search of the inbox,
 // made to summarize an email, backed "I already saved the draft"). Keyed by tool name, with the v2 `send` action and the
 // `search` / `fetch` targets read from the call's args. `act` did it or held it for their yes; `look` read its current state.
 // A kind a claim is about is backed only by an act or a look of that same kind.
+// The writes and sends a turn may have made, for an answer that names no kind.
+const ACTION = new Set(["send_email", "save_email_draft", "calendar_event", "slack_api", "google_chat", "app_change", "mail_agent", "send", "write", "write_note", "write_notes", "manage"]);
 const SEEN_ARGS = 400;
 const argsOf = (step) => (typeof step?.args === "string" ? step.args : JSON.stringify(step?.args ?? {}));
 const said = (step) => `${step.action ?? ""} ${argsOf(step)}`.toLowerCase();
@@ -103,25 +107,28 @@ export function kindsIn(text) {
 // RELIES ON AN EARLIER TURN: a sentence that points back (already, earlier, before, previous, still waiting, again,
 // twice, a second one) and says this turn did not do it, or is waiting on an earlier yes. Wording only picks the
 // sentence; whether it stands is decided by the turn's calls (`backedThisTurn`).
-const POINTS_BACK = /\b(?:already|earlier|before|previous(?:ly)?|last time|still waiting|still pending|again|twice|a second (?:one|time|copy|draft|message)|another (?:one|copy|draft))\b/i;
+const POINTS_BACK = /\b(?:already|earlier|(?:from|did|done|sent|made|saved|asked) before|previous(?:ly)?|last time|still waiting|still pending|again|twice|a second (?:one|time|copy|draft|message)|another (?:one|copy|draft))\b/i;
 const ACT = "(?:make|made|send|sent|save|saved|draft|drafted|create|book|add|post|message|text|email|do|redo|resend|schedule|write|put)";
 const HOLDS_BACK = new RegExp(
-  `\\b(?:(?:didn['’]?t|did not|won['’]?t|will not|not going to|no need to|don['’]?t need to|shouldn['’]?t|skip(?:ped)?)\\s+(?:\\w+\\s+){0,2}?${ACT}|instead of|rather than|holding off|(?:waiting|wait) (?:on|for) (?:your|their|a|the)|still (?:waiting|pending)|(?:is|are|was|['’]s|you['’]re|you are|we['’]re) (?:already )?(?:in|there)\\b)`,
+  `\\b(?:(?:didn['’]?t|did not|won['’]?t|will not|not going to|no need to|don['’]?t need to|shouldn['’]?t|skip(?:ped)?)\\s+(?:\\w+\\s+){0,2}?${ACT}|instead of|rather than|holding off|(?:waiting|wait) (?:on|for) (?:your|their|a|the) (?:👍|yes|ok(?:ay)?|go(?:-ahead)?|approval|thumbs|confirmation)|(?:is|are|was|['’]s|you['’]re|you are|we['’]re) (?:already )?(?:in|there)\\b)`,
   "i",
 );
 // Their message asks Tex to do something in the world or in their notes, so a skip or a wait that rests on an earlier turn matters.
 const ASKS_TO_ACT = /\b(?:draft|send|text|message|dm|e-?mail|reply|respond|book|schedule|save|add|invite|post|write|put|create|make|remind|resend|redo|again|chat|ping|tell)\b/i;
 
+// "I sent you the options": the text to them is the reply itself, not an action in the world.
+const TO_THEM = /\b(?:sent|send|sending|texted|text)\s+you\b/i;
+
 /** Whether the answer rests on an earlier turn: a skip, a refusal or a wait that points back, in one sentence. */
 export function reliesOnEarlier(answer) {
-  const sentences = String(answer ?? "").split(/(?<=[.!?])\s+|\n+/).map((sentence) => sentence.trim()).filter((sentence) => sentence !== "");
+  const sentences = String(answer ?? "").split(/(?<=[.!?])\s+|\n+/).map((sentence) => sentence.trim()).filter((sentence) => sentence !== "" && !TO_THEM.test(sentence));
   return sentences.some((sentence) => !sentence.endsWith("?") && POINTS_BACK.test(sentence) && HOLDS_BACK.test(sentence));
 }
 
 /** Whether the answer says something is already done or still in place, in its own words. */
 export function claimsItStands(answer) {
   const said = String(answer ?? "");
-  const sentences = said.split(/(?<=[.!?])\s+|\n+/).map((sentence) => sentence.trim()).filter((sentence) => sentence !== "" && !sentence.endsWith("?"));
+  const sentences = said.split(/(?<=[.!?])\s+|\n+/).map((sentence) => sentence.trim()).filter((sentence) => sentence !== "" && !sentence.endsWith("?") && !TO_THEM.test(sentence));
   const already = sentences.some((sentence) => ALREADY.some((pattern) => pattern.test(sentence)));
   if (already) return true; // "I already did this" stands as a claim whatever else the answer says
   if (NOT_DONE.test(said)) return false; // an answer saying it is not done claims nothing
@@ -143,8 +150,6 @@ export function backedThisTurn(steps, kinds = []) {
   });
 }
 
-// The writes and sends a turn may have made, for an answer that names no kind.
-const ACTION = new Set(["send_email", "save_email_draft", "calendar_event", "slack_api", "google_chat", "app_change", "mail_agent", "send", "write", "write_note", "write_notes", "manage"]);
 
 /** Kept for callers of #3769's name: whether any of this turn's calls did, held or looked at anything (no kind). */
 export function checkedThisTurn(steps) {

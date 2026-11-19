@@ -308,8 +308,9 @@ export async function runTheModel(t, via) {
   }
   // Fail-closed (`standsCheck.js` `final`): an answer that still says it stands, skips or waits on an earlier turn with nothing this turn behind it,
   // on the last round or after its one send-back, goes as an honest line, never as it is. A settled ending (a tapback, silence, a job's start) is not a reply in words.
-  // After its send-back, an empty retry, a silence or spent rounds get the honest line too: the gate never drops a reply.
-  const silent = turn.settled === SAY_NOTHING_TOOL;
+  // After its send-back, an empty retry, a 1:1's silence or spent rounds get the honest line too: the gate never drops a reply.
+  // A group chat's silence stands: saying nothing there is a choice the chat's rules allow (`sendTheReply.js`).
+  const silent = turn.settled === SAY_NOTHING_TOOL && group === null;
   const honest = stands !== null && (turn.settled === undefined || silent) ? stands.final(turn.answer, { exhausted: turn.exhausted === true, silent }) : null;
   if (honest !== null) {
     turn.answer = honest;
