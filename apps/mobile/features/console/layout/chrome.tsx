@@ -11,6 +11,7 @@ import { describeIndexProgress } from "../search/fastSearch";
 import { storagePillLabel } from "../storage/pill";
 import { noteLimitLabel } from "../noteLimit";
 import { SaveMark } from "../SaveMark";
+import { AppearanceButton } from "./AppearanceButton";
 import type { ConsoleData } from "../types";
 
 /**
@@ -177,7 +178,8 @@ export function Status({
       : segment,
   );
   /*
-    The save cloud ends the row (Dev2, 2026-11-19: "put on the bottom"): it
+    The light/dark switch and the save cloud end the row (Dev2, 2026-11-19:
+    "find another place for this", "put on the bottom"): they
     was the top bar's, and the top-right corner held too much. A shared
     link's reader edits nothing, so there is no save to mark.
   */
@@ -188,6 +190,7 @@ export function Status({
   return (
     <View style={styles.statusRow}>
       <StatusBar segments={withMirror} style={styles.statusBar} testID="console-status" />
+      <AppearanceButton />
       {saveMark}
     </View>
   );

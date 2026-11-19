@@ -16,7 +16,7 @@ import { MapSettings } from "./MapSettings";
 import { MapActivity, MapColumn, MapNote } from "./MapPanel";
 import { useMapSideStore, useOfferMapSide } from "../../../aside/mapSide";
 import { useFrame } from "../../../../app/AppFrame";
-import { asideUnfolded } from "../../../../app/frame";
+import { asideUnfolded } from "../../../../app/appFrame/useFrameController";
 import { PhoneMap } from "./PhoneMap";
 import { mapNotice } from "./status";
 

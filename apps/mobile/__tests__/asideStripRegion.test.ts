@@ -5,7 +5,8 @@
  * a phone keeps none.
  */
 import { describe, expect, test } from "@jest/globals";
-import { asideUnfolded, initialFrame, regionsFor } from "../features/app/frame";
+import { initialFrame, regionsFor } from "../features/app/frame";
+import { asideUnfolded } from "../features/app/appFrame/useFrameController";
 
 describe("the right panel's strip", () => {
   test("where a panel is supplied, shut is its strip: a column at every pointer density", () => {

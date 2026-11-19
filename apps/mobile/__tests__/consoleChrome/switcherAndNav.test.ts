@@ -120,7 +120,7 @@ describe("every context this account can reach is on the screen", () => {
  * Settings heads the group it sits in, and Trash moved here off the tree's foot.
  *
  * SABOTAGE: drop the `phone` gate on the appearance row, and the pointer half
- * fails; drop `<AppearanceButton />` from `topTrailing`, and `frame-appearance`
+ * fails; drop `<AppearanceButton />` from `Status`, and `frame-appearance`
  * is missing.
  */
 describe("the account card and the top bar do not overlap", () => {
@@ -398,5 +398,15 @@ describe("the save cloud is at the bottom", () => {
     const read = (path: string) => readFileSync(join(__dirname, "..", "..", path), "utf8");
     expect(read("features/console/layout/topTrailing.tsx")).not.toMatch(/<SaveMark\b/);
     expect(read("features/console/layout/chrome.tsx")).toMatch(/<SaveMark\b/);
+  });
+
+  test("the light/dark switch is on the bottom bar, beside the status, and not in the top bar", () => {
+    // Dev2, 2026-11-19, on the top bar's sun: "find another place for this".
+    const app = mountConsole(1440);
+    const sun = app.find("frame-appearance");
+    expect(sun).not.toBeNull();
+    const status = app.find("console-status");
+    expect(status?.parentElement?.contains(sun as Node)).toBe(true);
+    app.unmount();
   });
 });

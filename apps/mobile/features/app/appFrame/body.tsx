@@ -2,7 +2,8 @@ import type { ReactNode } from "react";
 import { Pressable, View } from "react-native";
 import type { EdgeInsets } from "react-native-safe-area-context";
 import { layout } from "../../design/tokens";
-import { asideUnfolded, type FrameState, type Regions } from "../frame";
+import type { FrameState, Regions } from "../frame";
+import { asideUnfolded } from "./useFrameController";
 
 /** The folded right panel's width, in points: one column of tab buttons (`AsideStrip`). */
 const ASIDE_FOLDED_WIDTH = 48;

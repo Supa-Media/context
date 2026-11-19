@@ -1,6 +1,6 @@
 import { useEffect } from "react";
 import { useFrame } from "../../app/AppFrame";
-import { asideUnfolded } from "../../app/frame";
+import { asideUnfolded } from "../../app/appFrame/useFrameController";
 
 /**
  * Open the right panel when somebody above the frame asks.

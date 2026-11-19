@@ -147,7 +147,7 @@ export function AsidePanel({
         showing={showing}
         recording={meetingLive}
         onUnfold={(tab) => {
-          setChosen(tab);
+          if (tab !== null) setChosen(tab);
           if (frame.state.asideOpen) setFolded(false);
           else toggleAside();
         }}

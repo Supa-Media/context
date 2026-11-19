@@ -1,7 +1,7 @@
 import { Pressable, StyleSheet, View } from "react-native";
 
 import { useFrame } from "../app/AppFrame";
-import { asideUnfolded } from "../app/frame";
+import { asideUnfolded } from "../app/appFrame/useFrameController";
 import { Dot } from "../design/components/Dot";
 import { Text } from "../design/components/Text";
 import { radii, space } from "../design/tokens";
