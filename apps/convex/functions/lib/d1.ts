@@ -37,6 +37,8 @@
  * containing `'; DROP TABLE` is an ordinary Tuesday.
  */
 
+import { previewResourcePrefix } from "./previewDeployment";
+
 export const CLOUDFLARE_API_BASE = "https://api.cloudflare.com/client/v4";
 
 /**
@@ -390,7 +392,14 @@ export interface D1Database {
 /** Cloudflare's cap on a D1 database name. */
 const D1_DATABASE_NAME_MAX = 63;
 
-/** A name a person can recognize in the Cloudflare dashboard. */
+/**
+ * A name a person can recognize in the Cloudflare dashboard.
+ *
+ * On a per-branch preview the name carries the preview's `pr<N>-` prefix, so
+ * the preview's databases are its own in the shared account and production
+ * never adopts one. Production and staging names are unchanged (the prefix is
+ * empty there). The prefix counts toward the length cap below.
+ */
 export function databaseNameFor(workspaceId: string): string {
   // The workspace id, not the slug: a slug can be renamed and a database name
   // cannot, so a slug-derived name goes stale and stops matching the context
@@ -416,7 +425,7 @@ export function databaseNameFor(workspaceId: string): string {
   if (!workspaceId) {
     throw new Error("a search database needs a workspace id to be named after");
   }
-  const name = `context-search-${workspaceId}`;
+  const name = `${previewResourcePrefix()}context-search-${workspaceId}`;
   if (name.length > D1_DATABASE_NAME_MAX) {
     throw new Error(
       `a search database name may be at most ${D1_DATABASE_NAME_MAX} characters; ` +

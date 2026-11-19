@@ -1,5 +1,6 @@
 import type { MutationCtx } from "../../_generated/server";
 import { isIsolatedStaging } from "./otpBypass";
+import { isIsolatedPreview } from "./previewDeployment";
 import { DIRECTORY_REVIEW_EMAIL, DIRECTORY_REVIEW_PROVIDER_ID, REVIEWER_EMAIL, REVIEWER_PROVIDER_ID } from "./reviewerAccount";
 import { TEST_ACCOUNT_EMAIL } from "./testAccount";
 
@@ -39,7 +40,8 @@ export type IssueTarget = { email: string; provider: string; lifetimeMs: number 
 
 /**
  * The account `email` names and how long its code may live, or a refusal.
- * A persona is refused anywhere but the isolated staging deployment.
+ * A persona is refused anywhere but the isolated staging deployment and an
+ * isolated per-branch preview, which hold only fictional data.
  */
 export function issueTarget(
   email: string,
@@ -51,7 +53,7 @@ export function issueTarget(
     return { email: address, provider: account.provider, lifetimeMs: ISSUED_CODE_LIFETIME_MS };
   }
   if (STAGING_PERSONAS.includes(address)) {
-    if (!isIsolatedStaging(env)) return { refused: "staging personas are issued codes only on staging" };
+    if (!isIsolatedStaging(env) && !isIsolatedPreview(env)) return { refused: "staging personas are issued codes only on staging" };
     return { email: address, provider: "email", lifetimeMs: ISSUED_CODE_LIFETIME_MS };
   }
   return { refused: "codes are issued only for the CUJ, reviewer and staging persona accounts" };

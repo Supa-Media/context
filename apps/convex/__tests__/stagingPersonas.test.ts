@@ -22,6 +22,17 @@ describe("isolated staging fixtures", () => {
     await expect(t.mutation(internal.functions.stagingPersonas.prepare, {})).rejects.toThrow(/isolated staging/);
     expect(await t.run(ctx => ctx.db.query("users").collect())).toHaveLength(0);
   });
+  test("refuses on production, and with preview variables copied onto production, without writing", async () => {
+    for (const [key, value] of Object.entries({
+      APP_ENV: "production", APP_ORIGIN: "https://context.lc", CONVEX_CLOUD_URL: "https://prod-example-1.convex.cloud",
+    })) vi.stubEnv(key, value);
+    const t = setupTest();
+    await expect(t.mutation(internal.functions.stagingPersonas.prepare, {})).rejects.toThrow(/isolated staging/);
+    vi.stubEnv("APP_ENV", "preview");
+    vi.stubEnv("PREVIEW_NAME", "pr42");
+    await expect(t.mutation(internal.functions.stagingPersonas.prepare, {})).rejects.toThrow(/isolated staging/);
+    expect(await t.run(ctx => ctx.db.query("users").collect())).toHaveLength(0);
+  });
   test("seeds five personas and the pinned Context workspace, preserves IDs, resets invitation acceptance", async () => {
     const t = setupTest();
     const first = await t.mutation(internal.functions.stagingPersonas.prepare, {});

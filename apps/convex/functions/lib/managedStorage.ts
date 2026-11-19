@@ -74,6 +74,7 @@
 import { ConvexError } from "convex/values";
 import type { Id } from "../../_generated/dataModel";
 import { bucketNameProblem, isPlausibleAccountId } from "./cloudflare";
+import { isIsolatedPreview, previewResourcePrefix } from "./previewDeployment";
 
 /** Server-only: the platform URL must match the deployment selected by staging CI. */
 export function stagingStorageIsFree(): boolean {
@@ -94,8 +95,19 @@ export function stagingStorageIsFree(): boolean {
  */
 export const FREE_MANAGED_STORAGE_ENV_VAR = "FREE_MANAGED_STORAGE";
 
+/**
+ * Whether storage is free on a per-branch preview deployment. Its data is
+ * seeded and fictional, and it never reads or writes production's, so the
+ * staging convenience applies there too. Asked only through this function and
+ * `isIsolatedPreview`, never by comparing environment values inline.
+ */
+export function previewStorageIsFree(): boolean {
+  return isIsolatedPreview();
+}
+
 export function freeManagedStorageSwitchedOn(): boolean {
   if (stagingStorageIsFree()) return true;
+  if (previewStorageIsFree()) return true;
   return process.env[FREE_MANAGED_STORAGE_ENV_VAR] !== "disabled";
 }
 
@@ -149,7 +161,14 @@ export const MANAGED_R2_API_TOKEN_SECRET = "MANAGED_R2_API_TOKEN";
  * capable of merging two workspaces into one bucket.
  */
 export function managedBucketName(workspaceId: Id<"workspaces">): string {
-  const prefix = process.env.APP_ENV === "staging" ? `staging-${MANAGED_BUCKET_PREFIX}` : MANAGED_BUCKET_PREFIX;
+  // A preview's buckets carry its `pr<N>-` prefix, so cleanup can find them by
+  // name and nothing it creates can take a production or staging bucket's name.
+  // Production and staging names are unchanged.
+  const prefix = isIsolatedPreview()
+    ? `${previewResourcePrefix()}${MANAGED_BUCKET_PREFIX}`
+    : process.env.APP_ENV === "staging"
+      ? `staging-${MANAGED_BUCKET_PREFIX}`
+      : MANAGED_BUCKET_PREFIX;
   const name = `${prefix}${String(workspaceId)}`;
   const problem = bucketNameProblem(name);
   if (problem !== null) {

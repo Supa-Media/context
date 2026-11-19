@@ -5,6 +5,7 @@ import { setupTest, type TestConvex } from "./fixtures.helpers";
 import { TEST_ACCOUNT_EMAIL } from "../functions/lib/testAccount";
 import { DIRECTORY_REVIEW_EMAIL, GOOGLE_REVIEW_EMAIL, REVIEWER_EMAIL } from "../functions/lib/reviewerAccount";
 import { MAX_ISSUED_CODE_MISSES, issueTarget } from "../functions/lib/issuedSignInCodes";
+import { isIsolatedPreview } from "../functions/lib/previewDeployment";
 import { hashOneTimeCode } from "../functions/lib/oneTimeCodes";
 
 /**
@@ -33,6 +34,20 @@ const STAGING = {
   APP_ORIGIN: "https://staging.context.lc",
   STAGING_CONVEX_DEPLOYMENT: "example-deployment",
   CONVEX_CLOUD_URL: "https://example-deployment.convex.cloud",
+};
+
+/** A per-branch preview: its own router on workers.dev, its own Convex deployment. */
+const PREVIEW = {
+  APP_ENV: "preview",
+  PREVIEW_NAME: "pr42",
+  APP_ORIGIN: "https://context-router-pr42.example-sub.workers.dev",
+  CONVEX_CLOUD_URL: "https://happy-otter-123.convex.cloud",
+};
+
+const PRODUCTION = {
+  APP_ENV: "production",
+  APP_ORIGIN: "https://context.lc",
+  CONVEX_CLOUD_URL: "https://prod-example-1.convex.cloud",
 };
 
 let realFetch: typeof globalThis.fetch;
@@ -281,6 +296,41 @@ describe("staging's personas", () => {
     vi.stubEnv("APP_ENV", "staging");
     vi.stubEnv("APP_ORIGIN", "https://staging.context.lc");
     await expect(issue(t, "alpha@supa.media")).rejects.toThrow(/only on staging/);
+  });
+
+  test("are issued a code on an isolated preview, as on staging", () => {
+    expect(isIsolatedPreview(PREVIEW)).toBe(true);
+    expect(issueTarget("alpha@supa.media", PREVIEW)).toEqual({
+      email: "alpha@supa.media",
+      provider: "email",
+      lifetimeMs: 10 * 60 * 1000,
+    });
+  });
+
+  test("are issued a code on an isolated preview through the mutation", async () => {
+    for (const [key, value] of Object.entries(PREVIEW)) vi.stubEnv(key, value);
+    const t = setupTest();
+    const { code, expiresAt } = await issue(t, "alpha@supa.media");
+    expect(code).toMatch(/^\d{6}$/);
+    expect(expiresAt - Date.now()).toBeLessThanOrEqual(10 * 60 * 1000);
+    expect((await signIn(t, "email", "alpha@supa.media", code)).tokens).toBeTruthy();
+  });
+
+  test("are refused on production", () => {
+    expect(issueTarget("alpha@supa.media", PRODUCTION)).toEqual({ refused: expect.stringMatching(/only on staging/) });
+  });
+
+  test("are refused on production even with the preview variables copied onto it", () => {
+    const copied = { ...PRODUCTION, APP_ENV: "preview", PREVIEW_NAME: "pr42" };
+    expect(isIsolatedPreview(copied)).toBe(false);
+    expect(issueTarget("alpha@supa.media", copied)).toEqual({ refused: expect.stringMatching(/only on staging/) });
+  });
+
+  test("are refused on production through the mutation, and never minted", async () => {
+    for (const [key, value] of Object.entries(PRODUCTION)) vi.stubEnv(key, value);
+    const t = setupTest();
+    await expect(issue(t, "alpha@supa.media")).rejects.toThrow(/only on staging/);
+    expect(await t.run((ctx) => ctx.db.query("authVerificationCodes").collect())).toEqual([]);
   });
 });
 

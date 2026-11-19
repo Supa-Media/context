@@ -23,6 +23,7 @@
  */
 
 import { CLOUDFLARE_API_BASE } from "./d1";
+import { previewResourcePrefix } from "./previewDeployment";
 
 export type MeaningErrorCode =
   | "NOT_CONFIGURED"
@@ -120,18 +121,21 @@ export const MEANING_DIMENSIONS = 1024;
 const MEANING_INDEX_NAME_MAX = 64;
 
 /**
- * The index's name: a fixed prefix and the immutable workspace id.
+ * The index's name: a fixed prefix and the immutable workspace id, with the
+ * `pr<N>-` prefix on a per-branch preview (empty elsewhere) so a preview's
+ * indexes are its own in the shared account.
  *
  * Never truncated, for `databaseNameFor`'s reason: adoption below treats an
  * index of this name as this workspace's, which is only true while two
- * workspaces cannot produce one name.
+ * workspaces cannot produce one name. The length cap applies to the whole name,
+ * prefix included.
  */
 export function meaningIndexNameFor(workspaceId: string): string {
   if (!workspaceId) throw new Error("a meaning index needs a workspace id to be named after");
   // Not lowercased to fit: Vectorize names are lowercase, and folding an id's
   // case could give two workspaces one name. Convex ids are lowercase today;
   // an id format that is not fails here loudly rather than merging tenants.
-  const name = `context-meaning-${workspaceId}`;
+  const name = `${previewResourcePrefix()}context-meaning-${workspaceId}`;
   if (!/^[a-z][a-z0-9-]*$/.test(name) || name.length > MEANING_INDEX_NAME_MAX) {
     throw new Error(
       `a meaning index name must be lowercase letters, digits and dashes, at most ${MEANING_INDEX_NAME_MAX} long; ` +
