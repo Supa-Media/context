@@ -186,7 +186,7 @@ export async function runAgentRoutineTexChecks(check) {
     const ranNote = (await ledgerFor(env, { person: "ws_texroutine" }).read(ONE_TO_ONE_CHAT, { kinds: ["note"] })).entries.find((entry) => entry.routine === "tex/routines/daily/standup.md");
     check(
       "a routine's note keeps its run's time and the prompt each round was sent",
-      ranNote?.ms >= 0 && ranNote.timing?.v === 2 && ranNote.timing.rounds.length === 1 && ranNote.timing.rounds[0].prompt?.modules?.length > 0,
+      ranNote?.ms >= 0 && ranNote.timing?.v === 3 && ranNote.timing.rounds.length === 1 && ranNote.timing.rounds[0].prompt?.modules?.length > 0,
     );
 
     // A routine kept and not texted (`send: note`): its note says so, and the response carries the run's turn and source.

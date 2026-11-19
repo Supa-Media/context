@@ -513,6 +513,7 @@ export async function requestViaGateway(call, config, options = {}) {
   };
 
   let paidBy = "cloudflare";
+  let servedBy = null; // the name of the payer whose answer was used; null on the cloudflare path (`turn.js` keeps it on the round)
   let answer = null;
   const clock = now();
   // Who was asked to pay and what each answered, by name and status only: a failed round carries it (`turn.js`), so a
@@ -528,6 +529,7 @@ export async function requestViaGateway(call, config, options = {}) {
     payers.push({ payer: payer.name, status: answer.status ?? null });
     if (answer.status === 200) {
       paidBy = "credit";
+      servedBy = payer.name;
       await noteCreditPaid(payer.name, { store, ...(cache ? { cache } : {}) });
       break;
     } else if (saysCreditSpent(answer.text) || answer.status === 402) {
@@ -594,6 +596,7 @@ export async function requestViaGateway(call, config, options = {}) {
       ...(Number.isInteger(call.cachedThrough) ? { cacheWrite1h: count(usage.cache_creation?.ephemeral_1h_input_tokens), ttl: hasHourMarks(body) ? "1h" : "5m" } : {}),
     },
     paidBy,
+    payer: servedBy,
     retried: answer.retried ?? null,
     // A texted turn's prefix as fingerprints, so a cache miss names the piece that changed (`prefixPrint.js`).
     prefix: Number.isInteger(call.cachedThrough) ? prefixPrint(body, anthropicMessages(call.messages.slice(0, call.cachedThrough)).length) : null,

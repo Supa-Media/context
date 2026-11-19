@@ -232,5 +232,26 @@ export async function runAgentGatewayAliasChecks(check) {
     refusedAll.calls.length === 4 && resting?.payers?.some((p) => p.payer === "plan" && p.skipped === true) === true && resting.payers.at(-1).payer === "unified",
   );
 
+  // The round names the payer whose answer it used (`turn.js` keeps it on the model round): the cache is per Anthropic
+  // organization, so a round paid by the second key is not a read of the first key's prefix.
+  resetCreditState();
+  const refusedFirst = scripted([
+    { status: 401, body: { error: { type: "authentication_error", message: "invalid x-api-key" } } },
+    { status: 200, body: answer("second key") },
+  ]);
+  const servedSecond = await requestViaGateway(CALL, aliased, { fetchImpl: refusedFirst.fetchImpl, now: () => T0, wait: async () => {} });
+  check(
+    "a refused first stored key hands the answer to the second, and the answer names the second as its payer",
+    refusedFirst.calls.length === 2 && servedSecond.payer === "alias:second_credits" && servedSecond.paidBy === "credit",
+  );
+
+  resetCreditState();
+  const servedFirst = await requestViaGateway(CALL, aliased, { fetchImpl: scripted([{ status: 200, body: answer("first key") }]).fetchImpl, now: () => T0 });
+  check("an answer from the first stored key names it as its payer", servedFirst.payer === "alias:first-credits");
+
+  resetCreditState();
+  const servedCloudflare = await requestViaGateway(CALL, plain, { fetchImpl: scripted([{ status: 200, body: answer("unified") }]).fetchImpl, now: () => T0 });
+  check("an answer from Unified Billing (no key) names no payer: null", servedCloudflare.payer === null && servedCloudflare.paidBy === "cloudflare");
+
   resetCreditState();
 }
