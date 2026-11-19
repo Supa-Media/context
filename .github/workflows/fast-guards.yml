@@ -123,6 +123,8 @@ jobs:
           node scripts/check-ci-path-gates.mjs
           node scripts/check-agent-path-imports.mjs --self-test
           node scripts/check-agent-path-imports.mjs
+          node scripts/check-mobile-outside-reads.mjs --self-test
+          node scripts/check-mobile-outside-reads.mjs
 
       # ── AND THE GUARD OVER EVERY WORKER, NOT JUST THE GATEWAY ────────────
       #
