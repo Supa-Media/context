@@ -130,7 +130,14 @@ export function reviewerRight(label, verdict) {
 export function routeCase(c, i) {
   const m = c.msgs[i];
   const trigger = m.via === "checkin" || m.via === "routine" ? m.via : "text";
-  return { question: String(m.text ?? ""), group: c.kind === "group", trigger };
+  // The chat's last lines before it, as the live router reads them from the turn's history (`doorStep.js` `recentOf`):
+  // Tex's side (its own texts, a job's report, a check-in, a routine) as "Tex", everyone else as "Them".
+  const recent = c.msgs
+    .slice(0, i)
+    .filter((x) => typeof x.text === "string" && x.text.trim() !== "" && x.kind !== "react" && x.kind !== "delete")
+    .slice(-8)
+    .map((x) => ({ who: x.tex || x.via === "job" || x.via === "checkin" || x.via === "routine" ? "Tex" : "Them", text: x.text }));
+  return { question: String(m.text ?? ""), group: c.kind === "group", trigger, recent };
 }
 
 /** Whether the router's pick is the labelled route. No pick is wrong, and says so. */
