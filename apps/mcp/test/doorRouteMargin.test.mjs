@@ -134,7 +134,10 @@ test("texSetupFront writes the router's door rule as models lines, and a config 
   const models = texSetupFront(config).models;
   assert.equal(models.door_margin, "0.15");
   assert.equal(models.door_floor, "0.4");
-  assert.equal(texSetupFront(TEX_CONFIG).models.door_margin, undefined);
+  assert.equal(texSetupFront(TEX_CONFIG).models.door_margin, "0.3", "main's margin, tuned on held-out Training");
+  const none = structuredClone(TEX_CONFIG);
+  delete none.nodes.find((node) => node.id === "router").route;
+  assert.equal(texSetupFront(none).models.door_margin, undefined);
   const margin = structuredClone(TEX_CONFIG);
   margin.nodes.find((node) => node.id === "router").route = { margin: 0.2 };
   assert.equal(texSetupFront(margin).models.door_floor, undefined);
