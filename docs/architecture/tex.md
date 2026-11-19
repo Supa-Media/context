@@ -202,9 +202,9 @@ every wire, from the same config.
 | Bookkeeping | prepareBookkeeping | retired | off | code |  |  |  | texEntryPoint/prepareBookkeeping.js |
 | Prepare the answer | prepareTheAnswer | retired | off | code |  |  |  | texEntryPoint/prepareTheAnswer.js |
 | Router | router | tools-subagents | off | Clef |  | 3 s | train:router, recent, groupBrief, date | graph/nodes/router.js · specialistRoute.js · doorTools.js |
-| Quick door | fdQuick | tools-subagents | on | Haiku 5.5 | medium |  |  | graph/nodes/doors.js · doorTools.js · doorTurn.js |
-| Read door | fdRead | tools-subagents | on | Haiku 5.5 | medium |  |  | graph/nodes/doors.js · doorTools.js · doorTurn.js |
-| Act door | fdAct | tools-subagents | on | Haiku 5.5 | medium |  |  | graph/nodes/doors.js · doorTools.js · doorTurn.js |
+| Quick door | fdQuick | tools-subagents | on | Haiku 5.5 | medium |  | p-about-tex, p-how-you-talk, p-sound-like-a-person, p-door-quick, p-door-quick-examples, recent:8, date | graph/nodes/doors.js · doorTools.js · doorTurn.js |
+| Read door | fdRead | tools-subagents | on | Haiku 5.5 | medium |  | p-about-tex, p-tools, p-how-you-talk, p-sound-like-a-person, p-door-read, p-door-read-examples, about, calendar, mail, workspaces, groups, devShare, chat:7:130000, summaries:all:30000, date | graph/nodes/doors.js · doorTools.js · doorTurn.js |
+| Act door | fdAct | tools-subagents | on | Haiku 5.5 | medium |  | p-about-tex, p-rules, p-tools, p-working, p-sound-like-a-person, p-pictures, p-how-you-talk, p-door-act, p-door-act-examples, about, jobs, calendar, mail, workspaces, groups, devShare, threads, examples, chat:7:130000, summaries:all:30000, date | graph/nodes/doors.js · doorTools.js · doorTurn.js |
 | Front door | fd |  | on | Haiku 5.5 | medium |  | tools, skills, map, p-about-tex, p-rules, p-tools, p-working, p-sound-like-a-person, p-pictures, p-how-you-talk, train:fd:all:60000, caps, groups, devShare, summaries:all:30000, chat:7:130000, threads, about, date, ask | turn.js runTurn · texEntryPoint/runTheModel.js |
 | Fallback | fallback | retired | off | GLM-4.7 Flash |  |  |  | builtin.js |
 | Big-ask planner | planner | retired | off | Sonnet 5.5 | high |  | own, train:planner, ask, caps | planBigAsk.js |

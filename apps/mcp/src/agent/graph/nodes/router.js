@@ -91,5 +91,5 @@ export async function routerNode(input, io) {
   }
   const answers = await within(() => engine(asked.state, asked.questions), limit);
   const route = readRoute(answers);
-  return route === null ? { route: "none" } : { route: route.route, sure: route.sure, when: [route.route] };
+  return route === null ? { route: "none" } : { route: route.route, sure: route.sure, ...(route.probs ? { probs: route.probs } : {}), when: [route.route] };
 }

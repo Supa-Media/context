@@ -11,7 +11,8 @@
  * - act: every tool, exactly as the Front door holds them: the yes-code confirm and the egress hold are untouched.
  *
  * Enforced in code, not in the prompt: `outsideFor` says which call leaves a door's set, and `turn.js` ends the
- * specialist's run before any call of that round runs. Pure: no imports, so the config and the turn both read it.
+ * specialist's run before any call of that round runs. `routeTrusted` says whether a router's read routes at all: the
+ * flat cutoff, or a margin over the other classes (`probs`). Pure: no imports, so the config and the turn both read it.
  */
 
 /** The door names, in the order the router is offered them. */
@@ -91,10 +92,39 @@ export function outsideFor(door, six, allowed) {
   };
 }
 
-/** A router read's `{ route, sure }` as the turn sees it: `sure` is the pick's confidence, clamped, 0 when missing. */
+const isFiniteNumber = (value) => typeof value === "number" && Number.isFinite(value);
+const isPlainObject = (value) => value !== null && typeof value === "object" && !Array.isArray(value) && [Object.prototype, null].includes(Object.getPrototypeOf(value));
+const clamp01 = (value) => Math.max(0, Math.min(1, value));
+
+/**
+ * Whether a router's read `{ route, sure, probs }` routes the turn. With no `rule` (or one whose `margin` is not a
+ * number from 0 to 1) it is the flat cutoff: `sure` at least `ROUTE_AT`. With a margin rule the pick must be the top
+ * class of `probs`, not tied, and clear the next class by `margin`; `floor`, when given, also needs the pick at least that likely.
+ */
+export function routeTrusted(read, rule = null) {
+  if (!isPlainObject(read) || typeof read.route !== "string") return false;
+  const margin = rule?.margin;
+  if (!isFiniteNumber(margin) || margin < 0 || margin > 1) return typeof read.sure === "number" && read.sure >= ROUTE_AT;
+  const probs = read.probs;
+  if (!isPlainObject(probs)) return false;
+  const finite = Object.entries(probs).filter(([, value]) => isFiniteNumber(value));
+  if (finite.length < 2) return false;
+  const top = probs[read.route];
+  if (!isFiniteNumber(top)) return false;
+  const others = finite.filter(([key]) => key !== read.route).map(([, value]) => value);
+  const second = Math.max(...others);
+  if (top < second || top - second <= 0) return false;
+  if (top - second < margin - 1e-9) return false;
+  const floor = rule.floor;
+  return !(isFiniteNumber(floor) && floor >= 0 && floor <= 1 && top < floor - 1e-9);
+}
+
+/** A router read's `{ route, sure, probs }` as the turn sees it: `sure` is the pick's confidence, clamped, 0 when missing; `probs` copied only when given. */
 export function routeOf(out, startedAt, now = Date.now) {
   if (!out || typeof out.route !== "string") return null;
-  return { route: out.route, sure: typeof out.sure === "number" && Number.isFinite(out.sure) ? Math.max(0, Math.min(1, out.sure)) : null, ms: now() - startedAt };
+  const read = { route: out.route, sure: isFiniteNumber(out.sure) ? clamp01(out.sure) : null, ms: now() - startedAt };
+  if (isPlainObject(out.probs)) read.probs = Object.fromEntries(Object.entries(out.probs).filter(([, value]) => isFiniteNumber(value)).map(([key, value]) => [key, clamp01(value)]));
+  return read;
 }
 
 /**

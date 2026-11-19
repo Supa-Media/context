@@ -33,6 +33,7 @@ import { join, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 
 import { regradeCommand } from "./regrade.mjs";
+import { sweepLines } from "./routeMargins.mjs";
 import { runFd } from "./setsFd.mjs";
 import { worldMode } from "./simFixtures.mjs";
 
@@ -260,12 +261,12 @@ export async function adaptersFor(tree, { fake = false, env = process.env, holdO
     const engine = routeEngine ?? (fake ? null : (await mod("apps/mcp/src/agent/decide.js")).decisionEngine((await mod("apps/mcp/bench/models.mjs")).workersAi(env.CLOUDFLARE_ACCOUNT_ID, env.CLOUDFLARE_AI_TOKEN)));
     return async (c, i, label) => {
       // The fake run answers what the label says, as Decide's does: right by construction, and it proves the wiring.
-      if (fake) return { ...routeRight(label, label.route), got: label.route, want: label.route, route: { pick: label.route, sure: null }, ran: true, usd: 0 };
+      if (fake) return { ...routeRight(label, label.route), got: label.route, want: label.route, route: { pick: label.route, sure: null, probs: null }, ran: true, usd: 0 };
       const { state, questions } = routeRequest(routeCase(c, i, { ctx, training: training ? routeTraining(c, i, generated, { holdOut, withoutChat: training.withoutChat, cutAt: training.cutAt }) : null }));
       const read = readRoute(await engine(state, questions));
       const pick = read?.route ?? null;
       const sure = typeof read?.sure === "number" ? read.sure : null;
-      return { ...routeRight(label, pick), got: pick, want: label.route, route: { pick, sure }, ran: true, usd: 0 };
+      return { ...routeRight(label, pick), got: pick, want: label.route, route: { pick, sure, probs: read?.probs ?? null }, ran: true, usd: 0 };
     };
   };
   // The live Job advisor runs the same check (`graph/nodes/jobcheck.js`), labelled under its own id.
@@ -470,6 +471,9 @@ export async function setsCommand(sub, options, { write = (t) => process.stdout.
   if (socket?.covers("claude")) write(`Models: Claude Code (cc), ${CC_FIDELITY}: ${CC_FIDELITY_WHY}\n`);
   if (options.out) await writeFile(resolve(options.out), JSON.stringify(rows, null, 1) + "\n");
   write(`${countsLine(rows)}\n`);
+  // The router's margin and cutoff sweep, when the run asked the router (`routeMargins.mjs`): one line a row, then each point.
+  const routerRows = rows.filter((r) => r.node === "router");
+  if (routerRows.length > 0) for (const line of sweepLines(routerRows)) write(`${line}\n`);
   const worldText = worldLine(rows);
   if (worldText !== "") write(`${worldText}\n`);
   // The repo's sets name what missed (their words are public); a file handed in may be sealed, so it never does.

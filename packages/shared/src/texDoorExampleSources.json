@@ -1,0 +1,27 @@
+{
+  "about": "Which Training messages each door's examples (packages/shared/src/texPrompt/door-*-examples.md) were paraphrased from. Training only, never Dev or Test.",
+  "sources": [
+    {"door": "quick", "conv": "loose-ends", "msg": "m1"},
+    {"door": "quick", "conv": "loose-ends", "msg": "m12"},
+    {"door": "quick", "conv": "loose-ends", "msg": "m22"},
+    {"door": "quick", "conv": "running-the-shop", "msg": "m21"},
+    {"door": "quick", "conv": "build-crew", "msg": "m67"},
+    {"door": "quick", "conv": "truck-crew", "msg": "m99"},
+    {"door": "quick", "conv": "truck-crew", "msg": "m126"},
+    {"door": "quick", "conv": "build-crew", "msg": "m25"},
+    {"door": "quick", "conv": "loose-ends", "msg": "m47"},
+    {"door": "read", "conv": "build-crew", "msg": "m47"},
+    {"door": "read", "conv": "running-the-shop", "msg": "m3"},
+    {"door": "read", "conv": "trial-hire", "msg": "m5"},
+    {"door": "read", "conv": "build-crew", "msg": "m63"},
+    {"door": "read", "conv": "running-the-shop", "msg": "m83"},
+    {"door": "read", "conv": "truck-crew", "msg": "m31"},
+    {"door": "act", "conv": "build-crew", "msg": "m9"},
+    {"door": "act", "conv": "trial-hire", "msg": "m30"},
+    {"door": "act", "conv": "trial-hire", "msg": "m44"},
+    {"door": "act", "conv": "loose-ends", "msg": "m54"},
+    {"door": "act", "conv": "truck-crew", "msg": "m115"},
+    {"door": "act", "conv": "build-crew", "msg": "m39"},
+    {"door": "act", "conv": "trial-hire", "msg": "m109"}
+  ]
+}

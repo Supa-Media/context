@@ -51,6 +51,8 @@ const isNum = (v) => typeof v === "number" && Number.isFinite(v);
 const isCount = (v) => Number.isInteger(v) && v >= 0;
 const isBool = (v) => typeof v === "boolean";
 const isTextList = (v) => Array.isArray(v) && v.every(isText);
+/** A step's `route`: the router's door rule (`doorTools.js` `routeTrusted`), an object { margin?, floor? } of numbers from 0 to 1. */
+const isRouteRule = (v) => v !== null && typeof v === "object" && !Array.isArray(v) && Object.keys(v).every((k) => k === "margin" || k === "floor") && Object.values(v).every((x) => isNum(x) && x >= 0 && x <= 1);
 const isIo = (v) => Array.isArray(v) && v.every((f) => f && typeof f === "object" && isText(f.name) && IO_TYPES.includes(f.type) && (f.optional === undefined || isBool(f.optional)) && (f.options === undefined || isText(f.options)));
 
 /** Every field a step may have, and what its value must be. `id` is the step's name; the rest are its settings. */
@@ -80,6 +82,8 @@ const NODE_SHAPE = Object.freeze({
   y: [isNum, "a number"],
   group: [isText, "a group id"],
   fallback: [isText, "a model key"],
+  // The router's door rule (`doorTools.js` `routeTrusted`): a margin over the next class, and a floor for the pick.
+  route: [isRouteRule, "an object { margin?, floor? } of numbers from 0 to 1"],
   // A step's own limits (Part end: parts, minutes, machineParts, machineMinutes; `jobPartEnd.cjs`), each a whole number.
   limits: [(v) => v !== null && typeof v === "object" && !Array.isArray(v) && Object.values(v).every(isCount), "an object of whole numbers"],
 });
@@ -230,4 +234,4 @@ function migrateGraph(graph) {
   return Number.isInteger(graph.texConfig) ? { ...g, texConfig: Math.max(graph.texConfig, SCHEMA_VERSION) } : g;
 }
 
-module.exports = { SCHEMA_VERSION, MODES, EFFORTS, ALLOW, START_FACTS, REQUIRED_HOLDS, KINDS, IO_TYPES, GROUP_FIELDS, NODE_FIELDS, EDGE_FIELDS, configProblems, provisionalHoldProblems, texConfigOf, MIGRATIONS, migrateGraph };
+module.exports = { SCHEMA_VERSION, MODES, EFFORTS, ALLOW, START_FACTS, REQUIRED_HOLDS, KINDS, IO_TYPES, GROUP_FIELDS, NODE_FIELDS, EDGE_FIELDS, configProblems, provisionalHoldProblems, texConfigOf, MIGRATIONS, migrateGraph, isRouteRule };

@@ -33,6 +33,9 @@
  *   models.route_at optional, with the router: the confidence (0 to 1) a
  *                  `think` pick needs before the text goes to `models.think`;
  *                  `router.js`'s default when absent. Lower routes more.
+ *   models.door_margin optional, a string 0 to 1 (`texSetupFront` writes it from the router step's `route`): the specialist
+ *                  router's margin rule, `doorTools.js` routeTrusted; the pick must lead the next class by it. Absent: the 0.6 cutoff.
+ *   models.door_floor optional, with `door_margin` only: a string 0 to 1, the least the pick's own probability may be.
  *   models.think_rounds 1-9, how many model rounds of a `think` text run on
  *                  `think` before `main` drives the rest; a round after a
  *                  failed call goes back to `think` once (`modelPlan.js`, the
@@ -222,6 +225,9 @@ async function parse(kept, config) {
   }
   const planBigAsks = readPlanSetting(front.plan_big_asks);
   if (planBigAsks === null || (planBigAsks && advisor === null)) return null;
+  // The specialist router's margin rule (`doorTools.js` routeTrusted): undefined when a key is invalid, null when absent.
+  const doorRoute = readDoorRoute(models);
+  if (doorRoute === undefined) return null;
   let fallback = null;
   if (models.fallback !== undefined) {
     if (typeof models.fallback !== "string" || !isBuiltinModelName(models.fallback) || models.fallback === models.main) return null;
@@ -293,6 +299,7 @@ async function parse(kept, config) {
     planBigAsks,
     efforts,
     jobEffort,
+    doorRoute,
     fallback,
     search,
     skills,
@@ -386,6 +393,15 @@ function unquote(text) {
 }
 
 /** `think_rounds` as a number, null when absent, undefined when it is not 1-9. */
+/** `{ margin, floor? }` from `door_margin` and `door_floor` (strings 0 to 1), null when neither is set; undefined when refused. */
+function readDoorRoute(models) {
+  if (models.door_margin === undefined) return models.door_floor === undefined ? null : undefined;
+  if (typeof models.door_margin !== "string" || !ROUTE_AT.test(models.door_margin)) return undefined;
+  if (models.door_floor === undefined) return { margin: Number(models.door_margin) };
+  if (typeof models.door_floor !== "string" || !ROUTE_AT.test(models.door_floor)) return undefined;
+  return { margin: Number(models.door_margin), floor: Number(models.door_floor) };
+}
+
 function readThinkRounds(value) {
   if (value === undefined) return null;
   return typeof value === "string" && THINK_ROUNDS.test(value) ? Number(value) : undefined;

@@ -131,10 +131,10 @@ test("each step's prompt modules are the p- entries of its context, in order, an
     texStep(id)
       .ctx.map((c) => (c.startsWith("p-") ? c.slice(2) : trainName(c) && TEX_PROMPT_WORDS[trainName(c)] ? trainName(c) : null))
       .filter(Boolean);
-  // Each specialist door with no context of its own reads the front door's list with its door words last (doorTools.js).
-  const door = (route) => [...of("fd"), `door-${route}`];
+  // Each specialist door reads the p- entries of its own node's context (fdQuick, fdRead, fdAct), its door words among them.
+  const door = (route) => of({ quick: "fdQuick", read: "fdRead", act: "fdAct" }[route]);
   assert.deepEqual(texModules(), { texts: of("fd"), group: of("fd"), job: of("job"), "door-quick": door("quick"), "door-read": door("read"), "door-act": door("act") });
-  for (const name of new Set([...of("fd"), ...of("job"), "door-quick", "door-read", "door-act"])) assert.equal(typeof TEX_PROMPT_WORDS[name], "string", name);
+  for (const name of new Set([...of("fd"), ...of("job"), ...door("quick"), ...door("read"), ...door("act")])) assert.equal(typeof TEX_PROMPT_WORDS[name], "string", name);
 });
 
 test("a note naming neither models nor modules, as production's does, is given the config's modules and the repository's words", async () => {

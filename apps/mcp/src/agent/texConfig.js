@@ -23,7 +23,7 @@ import { DOORS, DOOR_NODES } from "./doorTools.js";
 export const TRAINING = trainingOf(GENERATED_TRAINING);
 import { configStamp } from "../../../../packages/shared/src/texConfigStamp.cjs";
 import { sandboxGateOf } from "../labSandbox/policy.js";
-import { EFFORTS as SCHEMA_EFFORTS } from "../../../../packages/shared/src/texConfigSchema.cjs";
+import { EFFORTS as SCHEMA_EFFORTS, isRouteRule } from "../../../../packages/shared/src/texConfigSchema.cjs";
 
 export const TEX_CONFIG = CONFIG;
 /** The stamp of the config this code runs: a draft made from main keeps it, so Promote merges only its own changes (`texConfigStamp.cjs`). */
@@ -137,6 +137,20 @@ export function texWords(config = CONFIG) {
  * advisor, advisor_effort, fallback, job_effort when the job's differs), `plan_big_asks` and `reply_judge`. The
  * advisor's four roles share one model and effort in code, so the advisor step names them.
  */
+/** The router's door rule as the setup's `models` lines (`door_margin`, `door_floor`), or none: `production.js` reads them. */
+function doorRouteFront(config) {
+  let route = null;
+  try {
+    route = texStep("router", config).route;
+  } catch {
+    // a config with no router step: no rule
+  }
+  if (!isRouteRule(route) || typeof route.margin !== "number") return {};
+  const lines = { door_margin: String(Number(route.margin.toFixed(3))) };
+  if (typeof route.floor === "number") lines.door_floor = String(Number(route.floor.toFixed(3)));
+  return lines;
+}
+
 export function texSetupFront(config = CONFIG) {
   const fd = texStep("fd", config);
   const job = texStep("job", config);
@@ -148,6 +162,7 @@ export function texSetupFront(config = CONFIG) {
   if (typeof fd.fallback === "string" && typeof config.models[fd.fallback] === "string") models.fallback = config.models[fd.fallback];
   else if (texStep("fallback", config).on) models.fallback = texModel("fallback", config);
   const front = { models };
+  Object.assign(models, doorRouteFront(config));
   if (texStep("planner", config).on) front.plan_big_asks = "on";
   front.reply_judge = texStep(texPick(["answerCheck", "reviewer"], config), config).on ? "haiku" : "off";
   return front;
@@ -210,6 +225,9 @@ function draftStep(node, edit, config, words) {
   // The front door's fallback model, a model main's table names, or none (Dev2, 2026-11-16: a setting of the step).
   if (node.id === "fd" && (edit.fallback === null || (typeof edit.fallback === "string" && typeof config.models[edit.fallback] === "string"))) out.fallback = edit.fallback;
   if (typeof edit.timeoutS === "number" && edit.timeoutS > 0 && edit.timeoutS <= MAX_TIMEOUT_S && node.timeoutS > 0) out.timeoutS = edit.timeoutS;
+  // The router's door rule (Dev2): null clears it, a rule the schema accepts replaces it.
+  if (node.id === "router" && edit.route === null) delete out.route;
+  else if (node.id === "router" && isRouteRule(edit.route)) out.route = { ...edit.route };
   // What the step reads, when every prompt module it names has words here or in the draft.
   if (Array.isArray(edit.ctx) && edit.ctx.every((entry) => typeof entry === "string" && (PROMPT_ENTRY.exec(entry) === null || typeof words[PROMPT_ENTRY.exec(entry)[1]] === "string"))) out.ctx = edit.ctx;
   return out;

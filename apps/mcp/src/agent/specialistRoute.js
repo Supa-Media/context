@@ -9,7 +9,7 @@
  */
 
 import { MAX_DECISION_STATE_CHARS } from "./decide.js";
-import { ROUTE_AT } from "./doorTools.js";
+import { routeTrusted } from "./doorTools.js";
 import { routerContextText } from "./routerContext.js";
 
 /** The most of their text the router reads. */
@@ -61,12 +61,23 @@ export function routeRequest({ question, group = false, trigger = "text", shape 
 
 const sure = (value) => (typeof value === "number" && Number.isFinite(value) ? Math.max(0, Math.min(1, value)) : 0);
 
-/** The router's answer as `{ route, sure }`, or null when it named no route of the four. */
+/**
+ * The router's probabilities over the routes it may pick: `{ quick, read, act, job }` with only the finite ones, each
+ * clamped to 0 to 1; null when `probabilities` is not an object or fewer than two routes have one.
+ */
+const probsOf = (probabilities) => {
+  if (probabilities === null || typeof probabilities !== "object" || Array.isArray(probabilities)) return null;
+  const probs = {};
+  for (const key of ROUTES) if (typeof probabilities[key] === "number" && Number.isFinite(probabilities[key])) probs[key] = sure(probabilities[key]);
+  return Object.keys(probs).length >= 2 ? probs : null;
+};
+
+/** The router's answer as `{ route, sure, probs }`, or null when it named no route of the four. */
 export function readRoute(answers) {
   const pick = answers?.route;
   if (typeof pick?.choice !== "string" || !ROUTES.includes(pick.choice)) return null;
-  return { route: pick.choice, sure: sure(pick.confidence) };
+  return { route: pick.choice, sure: sure(pick.confidence), probs: probsOf(pick.probabilities) };
 }
 
-/** Whether a router's read is sure enough to send the turn to its door. */
-export const sureEnough = (read) => typeof read?.sure === "number" && read.sure >= ROUTE_AT;
+/** Whether a router's read is sure enough to send the turn to its door (the flat cutoff: `routeTrusted`, no rule). */
+export const sureEnough = (read) => routeTrusted(read, null);

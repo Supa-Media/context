@@ -4,17 +4,20 @@
  * The router picked a route for the text (Clef, beside the Door). `runWithDoors` runs the turn through the door the
  * route names, or through the Front door as it always ran:
  *
- * - no route, a route not sure enough (`ROUTE_AT`), no door wired: the Front door, as before. Record `door: "fd"`.
+ * - no route, a route not trusted (`routeTrusted`: the flat `ROUTE_AT` cutoff, or the margin rule when the config sets
+ *   one), no door wired: the Front door, as before. Record `door: "fd"`.
  * - job, sure, and the config wires `router -> handoff`: the job goes to the Hand-off node before any round
  *   (`startWith`); the turn ends on its start line. Otherwise the Front door.
  * - quick, read, act, sure, and the door wired: the specialist runs with the door's tools only (`narrowForDoor`), and
  *   a call outside them ends its run before it runs (`outside`). Then the Front door runs the turn from scratch and
  *   the specialist's spend is added to the turn's, so a misroute costs a retry and never a wrong action. The act door
- *   holds every tool, so its run is the Front door's own chain, and it never hands over.
+ *   holds every tool, so its run is the Front door's own chain, and it never hands over. The specialist runs with its
+ *   own context, the parts its config node's `ctx` names (`doorContext.js`); the fallback reads the full turn.
  *
  * Never throws because of the router or a door: a quick or read door that fails goes to the Front door.
  */
-import { DOORS, ROUTE_AT, narrowForDoor, outsideFor } from "./doorTools.js";
+import { DOORS, narrowForDoor, outsideFor, routeTrusted } from "./doorTools.js";
+import { doorArgs } from "./doorContext.js";
 import { sixToolsOver } from "./sixTools.js";
 
 /** Two usage records summed, field by field (a missing field is 0). */
@@ -35,11 +38,14 @@ export function addSpend(turn, specialist) {
  * The turn, through its door. `args` is the turn's runTurn options as the Front door builds them; `eligible` says whether
  * this turn may use a door at all; `route` is the router's `{ route, sure, ms }` or null; `via.door(route, input)`
  * answers the door node's output, or null when the door is not wired; `handOffRoute` is `() => line|null` for a job, or
- * null; `doorNotes(door)` is the door's prompt, or null to keep the Front door's.
+ * null; `doorNotes(door)` is the door's prompt, or null to keep the Front door's; `doorContext(door)` is the door's `ctx`
+ * list (`doorCtxOf`), or null for the Front door's whole context.
+ *
+ * `routeRule` is the config's margin rule (`routeTrusted`), or null for the flat cutoff.
  *
  * Returns the turn, with `turn.route` set when the router read the text: `{ pick, sure, door, fellBack, routerMs, waitedMs }`.
  */
-export async function runWithDoors({ runTurn, args, eligible = false, route = null, waitedMs = null, via = null, handOffRoute = null, doorNotes = () => null }) {
+export async function runWithDoors({ runTurn, args, eligible = false, route = null, waitedMs = null, via = null, handOffRoute = null, doorNotes = () => null, doorContext = null, routeRule = null }) {
   const pick = typeof route?.route === "string" ? route.route : null;
   const sure = typeof route?.sure === "number" ? route.sure : null;
   // With no router read at all (the router off or unwired), the turn is the front door's as it always was: nothing is recorded.
@@ -48,7 +54,7 @@ export async function runWithDoors({ runTurn, args, eligible = false, route = nu
     return turn;
   };
   const frontDoor = async () => record(await runTurn(args), "fd");
-  if (!eligible || pick === null || sure === null || sure < ROUTE_AT) return frontDoor();
+  if (!eligible || pick === null || !routeTrusted(route, routeRule)) return frontDoor();
   if (pick === "job") {
     if (typeof handOffRoute !== "function") return frontDoor();
     const turn = await runTurn({ ...args, startWith: handOffRoute });
@@ -65,10 +71,14 @@ export async function runWithDoors({ runTurn, args, eligible = false, route = nu
   const local = args.local ?? [];
   const narrowed = narrowForDoor(pick, { tools, local, web: args.web ?? null });
   const everything = [...tools, ...(args.web?.tools ?? []), ...local.map((entry) => entry.tool)];
+  // The door's own context (`doorContext.js`); a throw while reading its ctx is the whole context, as before.
+  const ctx = await Promise.resolve()
+    .then(() => (typeof doorContext === "function" ? doorContext(pick) : null))
+    .catch(() => null);
   let specialist;
   try {
     specialist = await runTurn({
-      ...args,
+      ...doorArgs(args, ctx),
       tools: narrowed.tools,
       local: narrowed.local,
       web: narrowed.web,

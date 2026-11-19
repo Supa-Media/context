@@ -1,6 +1,7 @@
 bench/test/benchDays.test.mjs
 bench/test/byCode.test.mjs
 bench/test/benchTools.test.mjs
+bench/test/routeMargins.test.mjs
 bench/test/checks.test.mjs
 bench/test/fluff.test.mjs
 bench/test/judge.test.mjs
@@ -597,6 +598,9 @@ test/searchQuality.test.mjs
 test/setsWorld.test.mjs
 test/shapeGate.test.mjs
 test/specialistDoors.test.mjs
+test/doorRouteMargin.test.mjs
+test/doorContext.test.mjs
+test/doorPrompts.test.mjs
 test/routerContext.test.mjs
 test/textsArrive.test.mjs
 test/texChatMove.test.mjs

@@ -77,8 +77,8 @@ test("the router's question names the trigger and the first read, and a pick out
   assert.match(routeRequest({ question: "hi", group: true }).state, /a group chat Tex is in/);
   assert.doesNotMatch(routeRequest({ question: "hi" }).state, /first-read/, "no read, no first-read block");
 
-  assert.deepEqual(readRoute({ route: { choice: "read", confidence: 0.7 } }), { route: "read", sure: 0.7 });
-  assert.deepEqual(readRoute({ route: { choice: "quick" } }), { route: "quick", sure: 0 }, "a missing confidence is 0");
+  assert.deepEqual(readRoute({ route: { choice: "read", confidence: 0.7 } }), { route: "read", sure: 0.7, probs: null });
+  assert.deepEqual(readRoute({ route: { choice: "quick" } }), { route: "quick", sure: 0, probs: null }, "a missing confidence is 0");
   assert.equal(readRoute({ route: { choice: "none", confidence: 0.9 } }), null, "none is not one of the four");
   assert.equal(readRoute({ route: { choice: "a poem" } }), null);
   assert.equal(readRoute(null), null);
@@ -331,10 +331,14 @@ test("door nodes: each returns the door it is, and fd's wires name the nodes the
   assert.deepEqual(DOOR_NODES, { quick: "fdQuick", read: "fdRead", act: "fdAct" });
 });
 
-test("texModules: main's config draws the three doors' prompts, each the front door's list with its door words last; a config without them draws none", () => {
+test("texModules: main's config draws the three doors' own prompts, each ending in its door words and its examples; a config without them draws none", () => {
   const drawn = texModules(TEX_CONFIG);
   assert.deepEqual(Object.keys(drawn), ["texts", "group", "job", "door-quick", "door-read", "door-act"]);
-  for (const door of ["quick", "read", "act"]) assert.deepEqual(drawn[`door-${door}`], [...drawn.texts, `door-${door}`]);
+  for (const door of ["quick", "read", "act"]) assert.deepEqual(drawn[`door-${door}`].slice(-2), [`door-${door}`, `door-${door}-examples`]);
+  // A door with no prompt modules of its own reads the front door's, its door words last (the old behaviour).
+  const fdNode = TEX_CONFIG.nodes.find((node) => node.id === "fd");
+  const plainDoors = { ...TEX_CONFIG, nodes: TEX_CONFIG.nodes.map((node) => (Object.values(DOOR_NODES).includes(node.id) ? { ...node, ctx: [] } : node)) };
+  for (const door of ["quick", "read", "act"]) assert.deepEqual(texModules(plainDoors)[`door-${door}`], [...texModules(plainDoors).texts, `door-${door}`], fdNode.id);
 
   const bare = { ...TEX_CONFIG, nodes: TEX_CONFIG.nodes.filter((node) => !Object.values(DOOR_NODES).includes(node.id)) };
   const plain = texModules(bare);
