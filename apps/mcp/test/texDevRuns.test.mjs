@@ -13,7 +13,7 @@ import { createTexDev } from "../src/texDev/tool.js";
 import { guideText } from "../src/texDev/guide.js";
 import { texDevToolDefinitions } from "../src/tools/schemas/texDev.js";
 import { execFileSync, spawnSync } from "node:child_process";
-import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { mkdtempSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { parsePeople } from "../bench/load.mjs";
@@ -131,7 +131,9 @@ test("the workflow's halves fail, with why for the Lab, when the cast has no wor
   // The repo's own Training set is cast from the bench, so its run prepares.
   writeFileSync(join(dir, "job.json"), JSON.stringify({ kind: "set", set: "training", models: "gw", drafts: [] }));
   const out = execFileSync(process.execPath, [LAB_RUN, "prepare", join(dir, "job.json"), join(dir, "lab")], { encoding: "utf8" });
-  assert.match(out, /^Training conversations: 6 /);
+  // Counted from the set on disk, so adding a Training conversation is not a change to this test.
+  const training = readdirSync(new URL("../bench/sets/training/", import.meta.url)).filter((name) => name.endsWith(".json")).length;
+  assert.match(out, new RegExp(`^Training conversations: ${training} `));
   // A Dev draft from the Lab with someone the bench has no world for is refused before anything runs.
   const draft = { ...fdChat("stranger", ["Zed"]), set: "dev" };
   writeFileSync(join(dir, "job2.json"), JSON.stringify({ kind: "set", models: "gw", drafts: [{ id: "stranger", set: "dev", removed: false, conv: JSON.stringify(draft) }] }));

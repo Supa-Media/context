@@ -28,6 +28,19 @@ import { reportCountedSearch } from "../search/quality.js";
 /** Most hits a search across every workspace shows. */
 const EVERYWHERE_HITS = 12;
 
+/**
+ * The multiplier a named workspace's hits get (`fuseEverywhere`'s `boost`). A ranking nudge only: the
+ * ranks of two hits 1.5 places apart near the top come out in the named workspace's favour.
+ */
+export const BOOST_FACTOR = 1.2;
+
+/** A workspace name with the leading `@` and case dropped, so `@Kiln-Guild` and `kiln-guild` compare equal. */
+const bareName = (name) => String(name).replace(/^@/, "").toLowerCase();
+
+/** The `@name` of the workspace this connection is in, or the words that stand for it when the store names none. */
+const currentNameOf = (store) => (store.contexts ?? []).find((entry) => entry?.current)?.name ?? null;
+const HERE_LABEL = "their own workspace";
+
 /** Reciprocal-rank constant, the usual 60. */
 const RRF_K = 60;
 
@@ -77,14 +90,18 @@ function median(values) {
  * most `MEANING_SNIPPET_READS_LOOSE`. A kept meaning-only hit is marked
  * `meaningOnly: true`, as `withMeaning` marks them.
  *
+ * `boost` is the set of list indices a caller named (the workspace a question names as its topic): a hit in one
+ * of those lists has its score multiplied by `BOOST_FACTOR`, after the path prior. A boost ranks, it never
+ * filters: nothing is dropped or added because of it, and the same hits come back in another order.
+ *
  * @param {Array<Array<object>>} lists hits per workspace, this workspace's first, each hit
  *   carrying `wordRank`, `loose` and `meaningScore` (`search/meaning/serve.js`)
  * @param {number} [most] how many hits the answer shows
- * @param {{extraNotes?: number, query?: string}} [options] the store's `extraNotes` setting
+ * @param {{extraNotes?: number, query?: string, boost?: Set<number> | null}} [options] the store's `extraNotes` setting
  *   (`search/settings.js`), and the query whose title and phrase evidence counts (`search/evidence.js`);
  *   without a query the order is the one the ranks give
  */
-export function fuseEverywhere(lists, most = EVERYWHERE_HITS, { extraNotes = DEFAULT_SEARCH_SETTINGS.extraNotes, query } = {}) {
+export function fuseEverywhere(lists, most = EVERYWHERE_HITS, { extraNotes = DEFAULT_SEARCH_SETTINGS.extraNotes, query, boost = null } = {}) {
   const texts = (hit) => [hit.title, ...(Array.isArray(hit.snippets) ? hit.snippets : [])].filter((text) => typeof text === "string");
   // A word hit whose terms sit only inside a link's address counts as a loose
   // one (`search/linkMatch.js`): production, 2026-11-03, "workers comp renewal"
@@ -130,7 +147,8 @@ export function fuseEverywhere(lists, most = EVERYWHERE_HITS, { extraNotes = DEF
     const title = counted ? evidenceBonus(query, hit) : 0;
     // The path prior (`search/priors.js`): an archived note or a log scores half
     // what the same evidence does on a live note. Hit keys carry `@name/`, which it reads through.
-    return { ...entry, score: (word + meaning + title) * notePrior(hit.key) };
+    const nudge = boost?.has(entry.list) ? BOOST_FACTOR : 1;
+    return { ...entry, score: (word + meaning + title) * notePrior(hit.key) * nudge };
   });
   const byScore = (a, b) => b.score - a.score || a.list - b.list || a.order - b.order;
   const budget = anyWhole ? extraNotes : MEANING_SNIPPET_READS_LOOSE;
@@ -196,8 +214,12 @@ function sharedEmbedder(store) {
  * that cannot be opened or read right now is left out, never guessed at. The
  * lists are fused by evidence (`fuseEverywhere`), and a hit from another
  * workspace carries its name in front of the path.
+ *
+ * `boost` names one workspace (`@name`, or null): its list, or this one's when it is the current workspace, is
+ * boosted in the fusion, never searched instead of or in addition to the others. `searched` is who actually
+ * answered, this workspace first; `unreached` is the names in `names` that could not be opened, read or searched.
  */
-async function searchEverywhere(store, searchingHere, names, query, embed) {
+async function searchEverywhere(store, searchingHere, names, query, embed, boost = null) {
   // Every workspace at once, this one included: waiting for this one first
   // put a whole search in front of the others. `searchingHere` is null when
   // the app's search page left this workspace out of its scope.
@@ -216,12 +238,20 @@ async function searchEverywhere(store, searchingHere, names, query, embed) {
     }),
   ]);
   const elsewhere = answers.filter(Boolean);
+  const currentName = currentNameOf(store);
+  const boosted = new Set();
+  if (typeof boost === "string" && boost.trim() !== "") {
+    const wanted = bareName(boost);
+    if (here && currentName !== null && bareName(currentName) === wanted) boosted.add(0);
+    const at = elsewhere.findIndex(({ name }) => bareName(name) === wanted);
+    if (at >= 0) boosted.add((here ? 1 : 0) + at);
+  }
   const annotated = (found, name = null) =>
     found.hits.map((hit) => ({ ...hit, ...(found.evidence?.[hit.key] ?? {}), key: name ? `${name}/${hit.key}` : hit.key }));
   const hits = fuseEverywhere(
     [...(here ? [annotated(here)] : []), ...elsewhere.map(({ name, found }) => annotated(found, name))],
     EVERYWHERE_HITS,
-    { extraNotes: searchSettingsOf(store).extraNotes, query },
+    { extraNotes: searchSettingsOf(store).extraNotes, query, boost: boosted },
   );
   const base = here ?? { hits: [], matchCount: 0, matchCountIsFloor: false };
   return {
@@ -230,6 +260,8 @@ async function searchEverywhere(store, searchingHere, names, query, embed) {
     matchCount: elsewhere.reduce((total, { found }) => total + found.matchCount, base.matchCount),
     matchCountIsFloor: base.matchCountIsFloor || elsewhere.some(({ found }) => found.matchCountIsFloor),
     crossWorkspace: hits.some((hit) => hit.key.startsWith("@")),
+    searched: [...(here ? [currentName ?? HERE_LABEL] : []), ...elsewhere.map(({ name }) => name)],
+    unreached: names.filter((_, index) => answers[index] === null),
   };
 }
 
@@ -240,13 +272,20 @@ async function searchEverywhere(store, searchingHere, names, query, embed) {
  *
  * `only`, from the app's scope picker, narrows the workspaces asked to those it names (`@slug`); without it, the
  * person's setting (`everywhere`) decides, as for an AI client.
+ *
+ * `boost`, from an assistant's call (`search_notes` with `boost: "@name"`), ranks the named workspace's hits
+ * higher and never filters: every workspace the person reaches is still searched, and the answer names them all
+ * in `searched`. The named one is reached even when it is the pinned workspace (`PINNED_CONTEXT_NAME`), as `only` reaches it.
+ *
+ * The answer carries `searched` (who actually answered, this workspace first, by its `@name`, else "their own
+ * workspace") and `unreached` (the names that could not be opened, read or searched).
  */
-export async function findNotes(store, scope, rules, overrides, query, prefix = "", { only = null } = {}) {
+export async function findNotes(store, scope, rules, overrides, query, prefix = "", { only = null, boost = null } = {}) {
   store.lastSearch = null;
   // The one counted row for this search is written from here, after the answer is fused (`search/quality.js`).
   store.searchRowPending = true;
   try {
-    const answer = await findNotesUnrecorded(store, scope, rules, overrides, query, prefix, { only });
+    const answer = await findNotesUnrecorded(store, scope, rules, overrides, query, prefix, { only, boost });
     reportCountedSearch(store, answer.hits.map((hit) => hit.key));
     return answer;
   } finally {
@@ -254,18 +293,19 @@ export async function findNotes(store, scope, rules, overrides, query, prefix = 
   }
 }
 
-async function findNotesUnrecorded(store, scope, rules, overrides, query, prefix = "", { only = null } = {}) {
+async function findNotesUnrecorded(store, scope, rules, overrides, query, prefix = "", { only = null, boost = null } = {}) {
   // Context.LC's own pinned workspace is reached by every account for its guides and Tex's setup, never for the
-  // person's notes: a search everywhere leaves it out unless they run it (owner or editor), or it is asked by name.
-  // In the core benchmark (2026-11-05) Tex's own prompt, `@context-lc/ai/production/texting-assistant.md`, ranked
-  // among "What do I have on October 20?"'s hits.
+  // person's notes: a search everywhere leaves it out unless they run it (owner or editor), or it is asked by name
+  // (`only` from the app, `boost` from an assistant). In the core benchmark (2026-11-05) Tex's own prompt,
+  // `@context-lc/ai/production/texting-assistant.md`, ranked among "What do I have on October 20?"'s hits.
+  const boostName = typeof boost === "string" && boost.trim() !== "" ? bareName(boost) : null;
   const reachable = typeof store.openContext === "function"
     ? (store.contexts ?? [])
         .filter((entry) => !entry.current && typeof entry.name === "string")
-        .filter((entry) => entry.name !== PINNED_CONTEXT_NAME || entry.role === "owner" || entry.role === "editor" || (Array.isArray(only) && only.includes(entry.name)))
+        .filter((entry) => entry.name !== PINNED_CONTEXT_NAME || entry.role === "owner" || entry.role === "editor" || (Array.isArray(only) && only.includes(entry.name)) || (boostName !== null && bareName(entry.name) === boostName))
         .map((entry) => entry.name)
     : [];
-  const currentName = (store.contexts ?? []).find((entry) => entry.current)?.name ?? null;
+  const currentName = currentNameOf(store);
   const asked = Array.isArray(only) ? new Set(only) : null;
   const searchHere = asked === null || (currentName !== null && asked.has(currentName));
   // A prefix names a folder in this workspace, so a search with one stays here.
@@ -276,24 +316,26 @@ async function findNotesUnrecorded(store, scope, rules, overrides, query, prefix
     : searchSettingsOf(store).everywhere
     ? reachable
     : [];
-  if (!searchHere && names.length === 0) return { hits: [], matchCount: 0, matchCountIsFloor: false };
+  if (!searchHere && names.length === 0) return { hits: [], matchCount: 0, matchCountIsFloor: false, searched: [], unreached: [] };
   const embed = names.length > 0 ? sharedEmbedder(store) : undefined;
   // The index passes these searches start wait until every workspace has
   // answered, so none of them queues behind another's (`search/heldPasses.js`).
   const passes = names.length > 0 ? holdSearchPasses(store) : null;
   try {
     const here = searchHere ? searchOne(store, scope, rules, overrides, query, prefix, embed, names.length > 0 ? AS_ONE_OF_SEVERAL : undefined) : null;
-    return names.length > 0 ? await searchEverywhere(store, here, names, query, embed) : await here;
+    if (names.length > 0) return await searchEverywhere(store, here, names, query, embed, boost);
+    const alone = await here;
+    return { ...alone, searched: [currentName ?? HERE_LABEL], unreached: [] };
   } finally {
     passes?.release();
   }
 }
 
-export async function toolSearchNotes(store, scope, rules, overrides, query, prefixArg) {
+export async function toolSearchNotes(store, scope, rules, overrides, query, prefixArg, { boost } = {}) {
   if (!query || typeof query !== "string") return toolError("query required");
   const prefix = prefixArg ? normalizePath(prefixArg) : "";
   if (prefixArg && prefix === null) return toolError("invalid prefix");
-  const found = await findNotes(store, scope, rules, overrides, query, prefix);
+  const found = await findNotes(store, scope, rules, overrides, query, prefix, { boost });
   const hits = found.hits.map(({ key, snippets, title, meaningOnly }) =>
     meaningOnly
       ? // Found by what it is about, not by the words typed: said so, so an
@@ -366,7 +408,15 @@ export async function toolSearchNotes(store, scope, rules, overrides, query, pre
     out +=
       '\n\nA path that starts with @name/ is in that workspace: pass context: "@name" with its path to read_note, or to any other tool, to reach it.';
   }
-  return toolText(out);
+  // Last, so the list of workspaces a search read is what an agent sees at the end of its answer. Left off a
+  // one-workspace search, so that search's text stays byte-identical to what other clients have always read.
+  const askedBoost = typeof boost === "string" && boost.trim() !== "";
+  // A workspace that could not be opened is always named, so a miss is never told as covering it.
+  if (found.searched.length > 1 || askedBoost || found.unreached.length > 0) {
+    out += `\n\nSearched: ${found.searched.join(", ")}.`;
+    if (found.unreached.length > 0) out += ` Not reachable just now, so not searched: ${found.unreached.join(", ")}.`;
+  }
+  return found.unreached.length > 0 ? { ...toolText(out), searched: found.searched, unreached: found.unreached } : { ...toolText(out), searched: found.searched };
 }
 
 /** The first heading if the note has one, else its filename. */

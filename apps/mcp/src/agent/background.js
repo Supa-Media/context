@@ -546,11 +546,16 @@ export function backgroundSession({ running, job, now, report = false, read = ()
   };
   const status = async (args) => {
     const title = line(args?.title, MAX_TITLE);
-    const picked = title === "" ? running : running.filter((entry) => entry.title.toLowerCase() === title.toLowerCase() || sameJob(entry.title, title));
-    if (picked.length === 0) return text("No background job by that title in this chat. Your list has them all.", true);
+    const matched = title === "" ? running : running.filter((entry) => entry.title.toLowerCase() === title.toLowerCase() || sameJob(entry.title, title));
+    // A title that is not quite a job's (the person's own words, 2026-11-19) is answered with every job there is, never "no such job"
+    // while one runs: that refusal told the person a finished search "didn't report anything back".
+    const missed = matched.length === 0 && running.length > 0;
+    if (matched.length === 0 && !missed) return text("No background job by that title in this chat. Your list has them all.", true);
+    const picked = missed ? running : matched;
     // A job's report and its advisor's advice are what it read from outside, as its report to the coordinator is (`texEntryPoint.js`).
     if (picked.some((entry) => entry.result || entry.advice)) read();
-    return text(picked.map((entry) => jobStatusText(entry, now)).join("\n\n"));
+    const lines = picked.map((entry) => jobStatusText(entry, now)).join("\n\n");
+    return text(missed ? `No job has exactly that title. These are all of them:\n\n${lines}` : lines);
   };
   const shown = running.length === 0 ? "" : running.map((entry) => statusLine(entry, now)).join("\n");
   const runningNow = // said in the person's turn (`turnPrompt.js`), never the cached system prompt: its times change every text

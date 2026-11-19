@@ -254,8 +254,20 @@ function fetchTool(base, held) {
   return { ...base, description: `${base.description}\n\nAlso:\n${extra.map((line) => `- ${line}`).join("\n")}` };
 }
 
+/**
+ * Every notes search covers every workspace they reach, and a workspace passed as `context` only boosts (`searchWorkspace`,
+ * above). The model is told so, and that a named workspace is for "only in @x" alone (2026-11-19).
+ */
+const SEARCH_SCOPE =
+  "Every search covers every workspace they reach, ranked together. A workspace passed as context only ranks its notes " +
+  "first; it never narrows the search, so do not pass one just because their words name a group or a workspace. Pass " +
+  "args { only: true } beside context only when they ask for one workspace alone (\"only in @x\"). The result's last line, " +
+  "\"Searched: …\", names the workspaces it covered: when you tell them something isn't there, name those workspaces, and " +
+  "never say you searched one it does not list. With no Searched line, the search covered one workspace only.";
+
 /** `search`, saying how to reach their texts where the turn holds them. */
 function searchTool(base, held) {
+  const head = `${base.description}\n\n${SEARCH_SCOPE}`;
   const groups = held.has("group_chats")
     ? "\n\nThe group chats they are in with you: search with args { groups: true, chat, since }, every chat or the one named; each hit names its chat, day, time and who said it."
     : "";
@@ -265,14 +277,77 @@ function searchTool(base, held) {
   const chat = held.has("read_google_chat") && !held.has("earlier_chat")
     ? "\n\nTheir Google Chat is not in this search. When what they mean could be in a Chat message (feedback sent, a message to someone they work with, something said in a space), read it too with fetch id \"chat:\" (a direct message with args { to, account })."
     : "";
-  if (!held.has("search_texts")) return groups === "" && chat === "" ? base : { ...base, description: `${base.description}${groups}${chat}` };
+  if (!held.has("search_texts")) return { ...base, description: `${head}${groups}${chat}` };
   return {
     ...base,
     description:
-      `${base.description}${groups}${chat}\n\nTheir texts (iMessage and SMS, backed up from their Mac): search with args { texts: true, with, since }, ` +
+      `${head}${groups}${chat}\n\nTheir texts (iMessage and SMS, backed up from their Mac): search with args { texts: true, with, since }, ` +
       "with a query of words, or only with (a name, number or group) or since (a date) to see what came in. " +
       "When they mention something a person sent, texted or told them, search their texts with that person, and their email, before you answer; " +
       `never say you can't see their texts. Fetch a result's ${TEXTS_ID_PREFIX}<id> to read the conversation around it.`,
+  };
+}
+
+/**
+ * A workspace named inside a search's or fetch's args, `search { query, args: { context: "@guild" } }`, is moved to the
+ * top of the call: the gateway refuses it there, and three searches never ran (2026-11-19). Both present is left as it
+ * is, so the refusal still stands for a call that names two.
+ */
+function hoistNestedContext(name, call) {
+  if (name !== "search" && name !== "fetch") return call;
+  const nested = call.args;
+  if (!nested || typeof nested !== "object" || Array.isArray(nested)) return call;
+  if (typeof nested.context !== "string" || call.context !== undefined) return call;
+  const { context, ...rest } = nested;
+  const top = { ...call, context };
+  delete top.args;
+  return Object.keys(rest).length > 0 ? { ...top, args: rest } : top;
+}
+
+/** The search arguments that narrow a notes search to a folder or a range of days, in the words the call uses for them. */
+const NARROWING_SEARCH_KEYS = ["prefix", "from", "to"];
+
+/**
+ * A workspace a notes search names is a boost, never a fence (Tex's resolver only; 2026-11-19, the owner's decision).
+ * "the <org> reading list" was read as a workspace: every search was pinned to it, the person's own workspace, where
+ * the note was, was never searched, and a job said a search across all their workspaces found nothing. So a named
+ * workspace is moved to the gateway's `boost`, which searches every workspace they reach and ranks the named one's
+ * notes first. Two things still narrow: `only: true` ("only in @x", the person's own word for it), and a folder or
+ * date range the call asked for. MCP clients keep `context` as a filter; only Tex's resolver does this.
+ *
+ * @param {string | undefined} context the workspace the call named, as written
+ * @param {object} scope the call's other search arguments (`only`, `prefix`, `from`, `to`)
+ * @returns {{ context?: string, boost?: string }} `boost` for a workspace the search is widened to; `context` where it stays a filter
+ */
+function searchWorkspace(context, scope) {
+  if (context === undefined) return {};
+  if (typeof context !== "string") return { context };
+  if (context.trim() === "") return {};
+  const narrowed = scope.only === true || NARROWING_SEARCH_KEYS.some((key) => scope[key] !== undefined);
+  return narrowed ? { context } : { boost: context.trim() };
+}
+
+/** Whether a search's args are a notes search: not their texts, their email, or their group chats (each has its own reader). */
+function isNotesSearch(args) {
+  return args.texts !== true && args.email !== true && args.groups !== true;
+}
+
+/**
+ * The six's `search` shaped for `translateV2Params`: its workspace moved out of the call by `searchWorkspace`, and `only`
+ * dropped from its args, which translateSearch refuses. Returns the call unchanged for an args value it does not read.
+ */
+function sixSearchCall(call) {
+  const nested = call.args;
+  if (nested !== undefined && (nested === null || typeof nested !== "object" || Array.isArray(nested))) return { call };
+  const { only, ...rest } = nested ?? {};
+  if (!isNotesSearch(rest)) return { call };
+  const scope = searchWorkspace(call.context, { only, ...rest });
+  const top = { ...call };
+  delete top.context;
+  delete top.args;
+  return {
+    call: { ...top, ...(scope.context !== undefined ? { context: scope.context } : {}), ...(nested !== undefined ? { args: rest } : {}) },
+    boost: scope.boost,
   };
 }
 
@@ -306,15 +381,24 @@ export function sixToolsOver(granted, grants = null) {
     // took the answer for that one mailbox's (2026-11-14).
     if (!SIX.has(name)) {
       const unknown = unknownArgument(held.get(name)?.inputSchema, args);
-      return unknown === null ? { name, args } : { error: `${name}: ${unknown}`, cause: "unknown_argument" };
+      if (unknown !== null) return { error: `${name}: ${unknown}`, cause: "unknown_argument" };
+      // An older name's workspace is widened the same way (`searchWorkspace`), once its schema has taken the call.
+      if (name === "search_notes" && args && typeof args === "object" && !Array.isArray(args) && args.context !== undefined) {
+        const { context, ...rest } = args;
+        const scope = searchWorkspace(context, rest);
+        return { name, args: { ...rest, ...(scope.context !== undefined ? { context: scope.context } : {}), ...(scope.boost !== undefined ? { boost: scope.boost } : {}) } };
+      }
+      return { name, args };
     }
-    const call = args && typeof args === "object" && !Array.isArray(args) ? args : {};
+    const call = hoistNestedContext(name, args && typeof args === "object" && !Array.isArray(args) ? args : {});
     if (name === "orient") return { name, args: call };
     // Their group chats, searched all at once (`groupChats.js`): `search { query, args: { groups: true } }`.
     if (name === "search" && held.has("group_chats") && call.args && typeof call.args === "object" && call.args.groups === true) {
       const { chat, since } = call.args;
       return { name: "group_chats", args: { op: "search", words: call.query, ...(chat !== undefined ? { chat } : {}), ...(since !== undefined ? { since } : {}) } };
     }
+    // A notes search's workspace is a boost, not a fence (`searchWorkspace`); `only` leaves it a filter and is dropped.
+    const searched = name === "search" ? sixSearchCall(call) : { call };
     // A file kept from a text reads as itself, whatever else the call carries (`keptFiles.js`): `fetch { id: "download:…",
     // args: { mail: false } }` was refused as a mail read, and Tex told the person their PDF "won't load" (2026-10-26).
     if (name === "fetch" && typeof call.id === "string" && call.id.trim().startsWith("download:")) {
@@ -346,8 +430,11 @@ export function sixToolsOver(granted, grants = null) {
       if (assistant) return { name: assistant.tool, args: assistant.take(call) };
     }
     // The gateway's own translation, as for any connected app; never ChatGPT's search shape.
-    const translated = translateV2Params({ name, arguments: call }, undefined, { app: { client: null } });
+    const translated = translateV2Params({ name, arguments: searched.call }, undefined, { app: { client: null } });
     if (translated.error) return { error: translated.error };
+    if (searched.boost !== undefined && translated.params.name === "search_notes") {
+      return { name: "search_notes", args: { ...translated.params.arguments, boost: searched.boost } };
+    }
     return { name: translated.params.name, args: translated.params.arguments };
   }
 

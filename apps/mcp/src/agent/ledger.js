@@ -69,8 +69,10 @@ const PATH_FIELDS = ["path", "note", "prefix", "id", "source", "destination"];
  */
 function namedContext(args) {
   if (!args || typeof args !== "object") return null;
-  const named = args.context;
-  if (typeof named === "string" && named.trim() !== "") return named.trim().replace(/^@+/, "").toLowerCase();
+  // A search Tex widened from a named workspace (`sixTools.js`, boost) still read it: kept as a context would be.
+  for (const named of [args.context, args.boost]) {
+    if (typeof named === "string" && named.trim() !== "") return named.trim().replace(/^@+/, "").toLowerCase();
+  }
   for (const field of PATH_FIELDS) {
     const match = typeof args[field] === "string" ? BY_NAME.exec(args[field].trim()) : null;
     if (match) return match[1].toLowerCase();

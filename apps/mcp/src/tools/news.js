@@ -40,6 +40,12 @@ import { unlistedArgumentAdvice } from "./liveList.js";
  */
 export const TOOL_NEWS = Object.freeze([
   {
+    date: "2026-11-19",
+    text:
+      'search_notes takes boost: "@name": every workspace is still searched, and that one\'s notes rank first. A search over several ' +
+      "workspaces now ends with a Searched: line naming the ones it covered, and any it could not reach.",
+  },
+  {
     date: "2026-11-16",
     text:
       "tex_dev action sandbox: the Lab's test chats, a copy of a chat where a draft's Tex answers texts you send and nothing reaches " +
@@ -444,7 +450,7 @@ export const TOOL_NEWS = Object.freeze([
  * The fingerprint of every advertised tool's name and argument names at the
  * time of the newest entry above. See `toolNews.test.mjs`.
  */
-export const TOOL_SHAPE = "8df500c5";
+export const TOOL_SHAPE = "d7dc01ce";
 
 /** How many entries orient shows before summing up the rest. */
 const NEWS_LIMIT = 8;
