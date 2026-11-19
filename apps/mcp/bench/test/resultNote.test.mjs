@@ -172,3 +172,31 @@ test("a run's steps line is written and read back, so a Lab row can say what its
   const { answers } = parseResult(resultMarkdown(result));
   assert.deepEqual(answers.filter((a) => "steps" in a).map((a) => a.steps), [steps], "only the run with steps says so");
 });
+
+// Lab incident (Training, 2026-11-19): two check-in rows that called say_nothing were graded "Tex sent words". The
+// silent flag was on the run in memory, but report.mjs wrote only the "(stayed quiet: …)" text and resultNote.mjs read
+// back {from, text}, so the judge process saw the marker as words. The flag now rides in the note as a Silent: line.
+test("a silent turn survives the note: the judge reads it as silent, not as words (Lab, 2026-11-19)", async () => {
+  const { codeVerdict, wordsSent } = await import("../codeLines.mjs");
+  const silentRun = {
+    ...RESULT.runs[0],
+    conversation: [
+      { from: "person", text: "check in on the lease, please" },
+      { from: "assistant", text: '(stayed quiet: send({"action":"say_nothing"}))', silent: true },
+    ],
+  };
+  const md = resultMarkdown({ ...RESULT, runs: [silentRun] });
+  assert.match(md, /^Silent: \[1\]$/m);
+  const [parsed] = parseResult(md).answers;
+  assert.equal(parsed.conversation[1].silent, true);
+  assert.equal("silent" in parsed.conversation[0], false, "a spoken person turn carries no silent key");
+  assert.equal(wordsSent(parsed), false);
+  assert.equal(codeVerdict({ kind: "must", line: "stay quiet, nothing here needs them" }, parsed)?.does, true);
+
+  // A spoken answer round-trips with no silent key, and its note has no Silent line.
+  const spoken = resultMarkdown({ ...RESULT, runs: [RESULT.runs[0]] });
+  assert.doesNotMatch(spoken, /^Silent: /m);
+  const [back] = parseResult(spoken).answers;
+  assert.equal(back.conversation.some((turn) => "silent" in turn), false);
+  assert.equal(wordsSent(back), true);
+});

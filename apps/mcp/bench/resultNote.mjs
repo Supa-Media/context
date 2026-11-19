@@ -57,6 +57,16 @@ function readConversation(lines) {
   return turns.map((turn) => ({ from: turn.from, text: unescapeHeadings(trimBlank(turn.lines).join("\n")) }));
 }
 
+/** A `Silent:` line read back: the indexes of the silent turns. A malformed line is none. */
+function readSilentLine(text) {
+  try {
+    const value = JSON.parse(text);
+    return Array.isArray(value) ? value.filter((i) => Number.isInteger(i) && i >= 0) : [];
+  } catch {
+    return [];
+  }
+}
+
 /** A result's `Jobs:` line read back; a line that isn't one is no jobs. */
 function readJobsLine(text) {
   try {
@@ -75,6 +85,14 @@ function readBlock(id, lines) {
   const tail = toolsAt < 0 ? [] : lines.slice(toolsAt + 1);
   const toolsLine = toolsAt < 0 ? null : lines[toolsAt];
   const toolList = toolsLine === null ? "none" : toolsLine.slice("Tools: ".length).trim();
+  // Which turns were silent (`report.mjs` writes this only when one was): the judge reads silence here, not from the words.
+  const silentLine = tail.find((line) => line.startsWith("Silent: "));
+  const conversation = readConversation(body);
+  if (silentLine) {
+    for (const i of readSilentLine(silentLine.slice("Silent: ".length))) {
+      if (conversation[i]?.from === "assistant") conversation[i].silent = true;
+    }
+  }
   const timeLine = tail.find((line) => TIME.test(line));
   const errorLine = tail.find((line) => line.startsWith("Error: "));
   // What the scripted browser did (`sites.mjs`), for the checks (`checks.mjs`).
@@ -102,7 +120,7 @@ function readBlock(id, lines) {
   }
   return {
     id,
-    conversation: readConversation(body),
+    conversation,
     toolsLine,
     tools: toolList === "none" ? [] : toolList.split(", "),
     changes: tail.filter((line) => line.startsWith("- ")),

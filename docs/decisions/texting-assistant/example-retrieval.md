@@ -3,7 +3,7 @@
 **Decided by the owner, 2026-11-18**: the front door may read the Training moments closest to the text it is answering,
 picked per text by meaning, behind a switch that ships off.
 
-- **Why moments, not conversations.** The front door reads `train:fd:all:60000`: every Training conversation with a
+- **Why moments, not conversations.** The front door reads `train:fd:all:66000`: every Training conversation with a
   front-door label, whole. On 2026-11-18 that was 5 conversations, 57,600 characters, all inside the cap, so choosing
   among whole conversations changes nothing. The unit picked is the labelled moment (99 that day), shown as a short
   example (`texTraining.cjs` `exampleText`).

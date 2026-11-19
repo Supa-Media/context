@@ -332,7 +332,7 @@ export function noteWriteToolDefinitions() {
               type: "object",
               properties: {
                 who: { type: "string", description: "@handle of a member or a group of this workspace, or an email address." },
-                role: { type: "string", enum: ["view", "edit"], description: "Defaults to view." },
+                role: { type: "string", enum: ["view", "edit"], description: "view or edit, nothing else; defaults to view." },
               },
               required: ["who"],
               additionalProperties: false,

@@ -89,6 +89,18 @@ export async function runAgentEgressChecks(check) {
     });
     check("naming people on a note is never held", !wasHeld(named) && pending().length === 0);
 
+    // 2026-11-19: a visibility change that ran before its people were refused says it ran, so a refusal is never read
+    // as nothing done (or, after a retry, as everything done).
+    const half = await call(env, TOKEN_MCP, "set_visibility", {
+      path: "2-areas/secret.md",
+      visibility: "private",
+      people: [{ who: "not a handle" }],
+    });
+    check(
+      "a visibility change whose people were refused says what changed and what did not",
+      half.isError === true && /But nobody was named: "not a handle" is neither/.test(textOf(half)) && !teamVisible("2-areas/secret.md"),
+    );
+
     /* ---------------- a handle claim still asks ---------------- */
 
     const claimsBefore = claims();
