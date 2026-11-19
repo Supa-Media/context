@@ -60,12 +60,13 @@ const PROMPT_ENTRY = /^p-([a-z][a-z0-9-]{0,47})$/;
 
 /**
  * The steps whose code reads the Training modules their context names (`train:<nodeId>`): Decide in the judge's state
- * (`textDecide.cjs`), the front door and the background job among their prompt modules (`texModules`), and every
+ * (`textDecide.cjs`), the router in its state (`routerContext.js`), the front door and the background job among their
+ * prompt modules (`texModules`), and every
  * other step whose prompt goes through `withArchitecture` after its own words (`texArchitecture.js`). The suite
  * refuses a `train:` entry on any other step (`texTraining.test.mjs`), so the config never says a step reads examples
  * it is not given.
  */
-export const TRAINING_READERS = Object.freeze(["decide", "fd", "job", "advisor", "mailadv", "jobcheck", "jobadv", "planner", "classifier", "reviewer", "handback", "mail", "card", "selfreview", "checkin"]);
+export const TRAINING_READERS = Object.freeze(["decide", "router", "fd", "job", "advisor", "mailadv", "jobcheck", "jobadv", "planner", "classifier", "reviewer", "handback", "mail", "card", "selfreview", "checkin"]);
 
 /**
  * Every accessor below takes the config to read, main's by default. A Lab test chat's turn passes its draft's

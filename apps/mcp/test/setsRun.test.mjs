@@ -23,7 +23,7 @@ import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
-import { adaptersFor, countsLine, decideCase, decideRight, lineOf, reviewerCase, reviewerRight, routeCase, routeRight, runSets, setsCommand } from "../bench/setsRun.mjs";
+import { adaptersFor, countsLine, decideCase, decideRight, lineOf, reviewerCase, reviewerRight, routeCase, routeRight, routeTraining, runSets, setsCommand } from "../bench/setsRun.mjs";
 
 const require = createRequire(import.meta.url);
 const REPO = require("../../../packages/shared/src/texSetsRepo.generated.json");
@@ -320,26 +320,45 @@ test("routeCase takes the message's words, the chat's kind, and a check-in or ro
     ],
     { kind: "group" },
   );
-  assert.deepEqual(routeCase(c, 0), { question: "hi", group: true, trigger: "text", recent: [] });
-  assert.deepEqual(routeCase(c, 1), { question: "Gmail: a permit came in", group: true, trigger: "checkin", recent: [{ who: "Them", text: "hi" }] });
-  assert.deepEqual(routeCase(c, 2), { question: "weekly tidy", group: true, trigger: "routine", recent: [{ who: "Them", text: "hi" }, { who: "Tex", text: "Gmail: a permit came in" }] });
+  assert.deepEqual(routeCase(c, 0), { question: "hi", group: true, trigger: "text", context: { ctx: [], training: null, history: "", facts: [], today: "" } });
+  assert.equal(routeCase(c, 1).trigger, "checkin");
+  assert.equal(routeCase(c, 2).trigger, "routine");
   assert.deepEqual(routeCase(c, 3).trigger, "text", "a job's own report is a text, not a trigger");
   assert.equal(routeCase(conv("one", [{ id: "m1", who: "Ann", text: "hi" }]), 0).group, false);
 });
 
-test("routeCase gives the router the chat's last 8 texts before the message, as the live router reads them", () => {
+test("routeCase reads the router's config context from the conversation, as the bench reads Decide's chat", () => {
   const msgs = [
-    ...Array.from({ length: 9 }, (_, i) => ({ id: `m${i}`, who: "Ann", text: `t${i}` })),
-    { id: "r1", who: "Ann", kind: "react", to: "m8", text: "👍" },
-    { id: "d1", who: "Ann", kind: "delete", to: "m7" },
+    { id: "m1", who: "Ann", text: "draft an email to the landlord", at: "Mon 9:00" },
     { id: "x1", who: "Tex", tex: true, text: "Here's the draft." },
-    { id: "j1", who: "Background job", via: "job", text: "Still looking." },
-    { id: "q", who: "Ann", text: "send" },
+    { id: "r1", who: "Ann", kind: "react", to: "x1", text: "👍" },
+    { id: "q", who: "Ann", text: "send", at: "Mon 9:02" },
   ];
-  const { recent } = routeCase(conv("c", msgs), msgs.length - 1);
-  assert.deepEqual(recent.map((l) => l.text), ["t3", "t4", "t5", "t6", "t7", "t8", "Here's the draft.", "Still looking."], "no reactions or deletes, only the last 8");
-  assert.deepEqual(recent.slice(-2).map((l) => l.who), ["Tex", "Tex"], "Tex's own and its job's lines are Tex's");
-  assert.equal(recent[0].who, "Them");
+  const c = conv("c", msgs);
+  const ctx = ["train:router", "chat:7:130000", "date"];
+  const training = { nodes: {} };
+  const { context } = routeCase(c, 3, { ctx, training });
+  assert.deepEqual(context.ctx, ctx, "the config's entries, as they are");
+  assert.equal(context.training, training);
+  assert.equal(context.history, msgs.slice(0, 3).map((m) => lineOf(c, m)).join("\n"), "everything before the message, each line as Decide's bench reads it");
+  assert.doesNotMatch(context.history, /send/, "never the message itself or after it");
+  assert.equal(context.today, "Mon 9:02");
+  assert.deepEqual(context.facts, [], "no ledger in the bench, so no facts of the moment");
+});
+
+test("routeTraining: a Training conversation is held out whole, or cut at the message; others read every example", () => {
+  const { withoutChat, cutAt } = createRequire(import.meta.url)("../../../packages/shared/src/texTraining.cjs");
+  const generated = {
+    nodes: { router: [{ chat: "c", at: 0, kind: "one", before: [], newest: "@ann: hi", label: { route: "quick" } }, { chat: "c", at: 2, kind: "one", before: [], newest: "@ann: send", label: { route: "act" } }, { chat: "o", at: 0, kind: "one", before: [], newest: "@bo: yo", label: { route: "quick" } }] },
+    chats: {},
+  };
+  const own = conv("c", [{ id: "m1", who: "Ann", text: "hi" }, { id: "m2", who: "Ann", text: "x" }, { id: "m3", who: "Ann", text: "send" }], { set: "training" });
+  const held = routeTraining(own, 2, generated, { holdOut: true, withoutChat, cutAt });
+  assert.deepEqual(held.nodes.router.map((m) => m.chat), ["o"], "held out: none of its own");
+  const cut = routeTraining(own, 1, generated, { holdOut: false, withoutChat, cutAt });
+  assert.deepEqual(cut.nodes.router.map((m) => `${m.chat}${m.at}`), ["c0", "o0"], "in context: never its own label on the message or after it");
+  assert.equal(routeTraining(conv("d", [{ id: "m1", who: "Ann", text: "hi" }], { set: "dev" }), 0, generated, { holdOut: true, withoutChat, cutAt }), generated);
+  assert.equal(routeTraining(own, 1, generated, { holdOut: true }), null, "a tree without the cut reads no examples");
 });
 
 test("routeRight is right only when the pick is the labelled route; no pick is wrong and says so", () => {
@@ -394,6 +413,22 @@ test("the router's real module, with a fake engine: every row runs, none is righ
   const rows = await runSets([routerChat()], { adapters: await adaptersFor(REPO_ROOT, { routeEngine }), node: "router" });
   assert.equal(rows.length, 3);
   assert.ok(rows.every((r) => r.node === "router" && r.ran === true && r.right === false && r.got === null), "no answer is no route");
+});
+
+test("the router's bench reads its config context: Training examples and the chat before, within what Clef reads", { skip: !existsSync(join(REPO_ROOT, "apps/mcp/src/agent/routerContext.js")) && "routerContext.js is not in this tree yet" }, async () => {
+  const seen = [];
+  const routeEngine = async (state) => {
+    seen.push(state);
+    return null;
+  };
+  const c = conv("router-ctx", [{ id: "m1", who: "Ann", text: "draft a note to Jo about the leak" }, { id: "x1", who: "Tex", tex: true, text: "Here's a draft for Jo." }, { id: "m2", who: "Ann", text: "send it", labels: { router: { route: "act", star: true } } }], { set: "dev" });
+  await runSets([c], { adapters: await adaptersFor(REPO_ROOT, { routeEngine }), node: "router" });
+  assert.equal(seen.length, 1);
+  assert.match(seen[0], /<examples>[\s\S]*<route>(quick|read|act|job)<\/route>/, "train:router's labelled examples");
+  assert.match(seen[0], /<chat-history>\n@ann: draft a note to Jo about the leak\nYou: Here's a draft for Jo\.\n<\/chat-history>/, "the chat before it, newest last");
+  assert.ok(seen[0].indexOf("<chat-history>") < seen[0].indexOf("<text>\nsend it"), "the text last");
+  const { MAX_DECISION_STATE_CHARS } = await import("../src/agent/decide.js");
+  assert.ok(seen[0].length <= MAX_DECISION_STATE_CHARS, `within what Clef reads (${seen[0].length})`);
 });
 
 test("the router without Clef credentials says so on each row, rather than scoring every row wrong", { skip: !existsSync(join(REPO_ROOT, "apps/mcp/src/agent/specialistRoute.js")) && "specialistRoute.js is not in this tree yet" }, async () => {
