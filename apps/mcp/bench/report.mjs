@@ -293,6 +293,11 @@ function runBlock(run, setup) {
   }
   const tools = run.tools?.length ? run.tools.map(toolLabel).join(", ") : "none";
   lines.push(`Tools: ${tools}`, "");
+  // Which conversation entries were silent turns: one JSON line of their 0-based indexes, read back by resultNote.mjs.
+  // The judge runs in another process and reads silence from this record, not from the marker's words. Written only when
+  // some turn is silent, so an older note stays byte-identical.
+  const silent = (run.conversation ?? []).flatMap((m, i) => (m.silent === true ? [i] : []));
+  if (silent.length) lines.push(`Silent: ${JSON.stringify(silent)}`, "");
   // What a scripted browser did (`sites.mjs`): one line, read back by the checks.
   if (run.browser?.length) lines.push(`Browser: ${run.browser.map((event) => event.replace(/\s+/g, " ").replaceAll(" | ", " / ")).join(" | ")}`, "");
   if (run.bench?.length) lines.push(`Bench: ${run.bench.join(" | ")}`, "");
@@ -310,7 +315,9 @@ function runBlock(run, setup) {
   if (run.steps) lines.push(`Steps: ${run.steps}`, "");
   // Each failed tool's own error, short (`toolErrors.mjs`): read back for a Lab row's detail.
   if (run.toolErrors?.length) lines.push(`Tool errors: ${run.toolErrors.join(" | ")}`, "");
-  if (run.delivered?.length) lines.push(`Delivered: ${JSON.stringify(run.delivered.map(({ title, state, parts, advisorCalls, usd, capped }) => ({ title, state, parts, advisorCalls, usd, ...(capped ? { capped } : {}) })))}`, "");
+  // Each job's parts' tool calls are kept too (`jobDelivery.mjs`), so the judge and the checks see what a job did. Written only
+  // when a job's part called a tool, so an older note stays byte-identical.
+  if (run.delivered?.length) lines.push(`Delivered: ${JSON.stringify(run.delivered.map(({ title, state, parts, advisorCalls, usd, tools, capped }) => ({ title, state, parts, advisorCalls, usd, ...(tools?.length ? { tools } : {}), ...(capped ? { capped } : {}) })))}`, "");
   if (run.changes?.length) {
     lines.push("Changes recorded:", "");
     for (const c of run.changes) {

@@ -19,11 +19,19 @@
  * (`sourcedFigures.js` `seenFiguresNotice`), once a turn: the reply reviewer
  * no longer reads chat turns (Dev2), and "unsourced" was most of what it sent
  * back.
+ *
+ * On 2026-11-19 a console 1:1 said "I already did this at 1:31 PM … The reply
+ * is saved as a Gmail draft" with no call in the turn, and the draft was
+ * gone. That check (`standsCheck.js` `standsGate`) moved out of here the same
+ * day: it missed every turn this file does not check, so it is now composed
+ * into every chat turn's answer checks (`runTheModel.js`).
+ * `frontDoorChecks` picks which of these runs for a turn.
  */
 
 import { TRY_NOTICE, saysItCouldNot } from "./claimCheck.js";
 import { recordReadNotice } from "./recordRead.js";
 import { seenFiguresNotice } from "./sourcedFigures.js";
+import { stepOf } from "./standsCheck.js";
 
 /**
  * `{ wrap, wrapWeb, check }`, shaped like `claimCheck`'s, for the front door.
@@ -41,7 +49,7 @@ export function untriedWebCheck({ question = "" } = {}) {
     wrap(callTool) {
       return async (name, args) => {
         const result = await callTool(name, args);
-        steps.push({ name, ok: result?.isError !== true });
+        steps.push(stepOf(name, args, result));
         return result;
       };
     },
@@ -62,6 +70,7 @@ export function untriedWebCheck({ question = "" } = {}) {
         noticed = true;
         return TRY_NOTICE;
       }
+      // A claim that something is already done or still in place is the stands gate's, which every chat turn runs (`standsCheck.js` `standsGate`, `runTheModel.js`).
       // An ask to read a record, with no read this turn. An offer after a finished write is not caught here:
       // "Want me to book it?" after writing the options is the next step, and a phrase cannot tell that from an extra offer.
       if (!recordNoticed) {
@@ -76,4 +85,13 @@ export function untriedWebCheck({ question = "" } = {}) {
       return seenFiguresNotice(answer, context ?? {}); // the prompt it answered with and the messages so far
     },
   };
+}
+
+/**
+ * The one check a texted or group turn gets from its front-door side (`prepareTheAnswer.js`), or null. A console 1:1
+ * gets none from here: the stands gate every chat turn runs is its check (`standsCheck.js` `standsGate`).
+ */
+export function frontDoorChecks({ claims, runner, texted, group, question }) {
+  if (claims === null && !runner && (texted || group !== null)) return untriedWebCheck({ question });
+  return null;
 }

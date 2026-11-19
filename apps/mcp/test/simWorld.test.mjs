@@ -10,7 +10,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { createSimWorld, jsonIn, simBinding, simMemo, simSystem, simulateFor, simulateServices, sitesIn } from "../bench/simWorld.mjs";
+import { createSimWorld, worldSchema, jsonIn, simBinding, simMemo, simSystem, simulateFor, simulateServices, sitesIn } from "../bench/simWorld.mjs";
 import { benchCalendar } from "../bench/calendar.mjs";
 import { frontFor } from "../bench/setsFd.mjs";
 import { parseTest } from "../bench/load.mjs";
@@ -31,7 +31,7 @@ function scriptedSend(answers) {
 
 const json = (body) => ({ method: "POST", body: JSON.stringify(body) });
 
-test("the world sees the setting and the chat, at temperature 0, and the same ask is answered once a run", async () => {
+test("the world sees the setting and the chat, with thinking off and its answer shape as a schema, and the same ask is answered once a run", async () => {
   const { send, asked } = scriptedSend({ "web search": { results: [{ title: "Chicago weather", url: "https://weather.example/chicago", description: "Low 48" }] } });
   const memo = simMemo();
   const setting = "Three flatmates in Chicago; Tex has the web.";
@@ -42,7 +42,10 @@ test("the world sees the setting and the chat, at temperature 0, and the same as
   assert.equal(results[0].url, "https://weather.example/chicago");
   assert.deepEqual(await two.search("chicago low last night"), results, "a second world of the run gets the same answer");
   assert.equal(asked.length, 1, "asked once");
-  assert.equal(asked[0].temperature, 0);
+  // Haiku 5.5 has no seed and temperature is omitted as Anthropic advises: the world is pinned by structure instead.
+  assert.equal("temperature" in asked[0], false);
+  assert.deepEqual(asked[0].thinking, { type: "disabled" });
+  assert.deepEqual(asked[0].output_config, { format: { type: "json_schema", schema: worldSchema("web search") } });
   assert.match(asked[0].system, /Setting: Three flatmates in Chicago/);
   assert.match(asked[0].system, /John: Tex what was the low last night/);
   assert.match(asked[0].system, /Today is 2026-07-01/);

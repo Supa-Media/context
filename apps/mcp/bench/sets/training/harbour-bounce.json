@@ -1,0 +1,20 @@
+{
+  "id": "harbour-bounce",
+  "kind": "one",
+  "members": ["Nia"],
+  "set": "training",
+  "setting": "Nia runs a small harbourside studio that hosts an open day each spring. Harbour Hall's phone number is in her Context notes (555-0147). Tex has her Gmail (nia@studio.example), Calendar, Context notes, the web, and a browser with a vault for logins.",
+  "title": "Nia and Tex: the harbour booking",
+  "msgs": [
+    {"id":"m1","labels":{"fd":{"must":["the forecast in one line"]},"router":{"route":"quick","star":true}},"text":"what's the weather for the open day saturday","who":"Nia"},
+    {"id":"m2","tex":true,"text":"Saturday: 60s and dry, a little wind after noon.","who":"Tex"},
+    {"id":"m3","labels":{"fd":{"must":["the tracking date, one line"]},"router":{"route":"read","star":true}},"text":"good. did the flour order come","who":"Nia"},
+    {"id":"m4","tex":true,"text":"Not yet. The tracking says Tuesday.","who":"Tex"},
+    {"at":"Wed 09:12","id":"m5","labels":{"checkin":{"to":"look"},"fd":{"must":["say it didn't arrive and offer another way to reach them"],"never":["offer to resend it the same way"],"star":true},"router":{"route":"quick","star":true}},"text":"Gmail: Harbour Hall: Nia's booking request to bookings@harbourhall.example bounced back undelivered (address not found). Nothing from Harbour Hall since.","via":"checkin","who":"Check-in"},
+    {"id":"m6","tex":true,"text":"Your booking request to Harbour Hall didn't go through. It bounced back undelivered, so they haven't seen it. Want me to try the general address on their site, or would you rather call them? Their number in your notes is 555-0147.","who":"Tex"},
+    {"id":"m7","text":"call them. ill do it after lunch","who":"Nia"},
+    {"id":"m8","kind":"react","tex":true,"text":"👍","to":"m7","who":"Tex"},
+    {"at":"Wed 11:30","id":"m9","labels":{"fd":{"must":["one number, no caveats"]}},"text":"how many chairs for 40 people","who":"Nia"},
+    {"id":"m10","tex":true,"text":"42: one each and two spares.","who":"Tex"}
+  ]
+}

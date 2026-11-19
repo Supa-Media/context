@@ -26,6 +26,7 @@ import { withoutFlattery } from "../pushback.js";
 import { reactedLine, tapbackLine } from "../quoted.js";
 import { EMPTY_FALLBACK, isEmptyAnswer } from "../replyChecks.js";
 import { withSavedLink } from "../noteLinks.js";
+import { withSearchedLine } from "../searchClaims.js";
 import { steeredLine } from "../steer.js";
 import { deskEligible, learnDeskKeys } from "../texDesk.js";
 import { changedCalendar, refreshCalendarCache } from "../calendarCache.js";
@@ -68,8 +69,9 @@ export async function sendTheReply(t) {
   const { answer: replied, quiet } = hushed ? { answer: "", quiet: true } : reportReply(report, turn.answer), silent = job === null && (((group !== null || turn.settled === "say_nothing") && /^\W*SKIP\W*$/.test(String(replied ?? ""))) || typedCallOf(replied) !== null || (report === null && scheduledSkip(group, replied))), { answer: toldMarked, pictures, captions, choices = [], offers = [] } = outgoing.take(quiet ? "" : silent ? (group?.tagged === true ? EMPTY_FALLBACK : "") : !runner && isEmptyAnswer(replied) ? EMPTY_FALLBACK : withoutFlattery(replied)); // a report's quiet is a flag, and an ended job always gets a line (`jobReport.js`); a group's bare SKIP, or any say_nothing (`sayNothing.js`), is silence, never the fallback, and only SKIP: "Quiet." answers a question (Dev2, 2026-11-01: Tex texted "my answer got lost" to a message for Instinct); a scheduled group turn's skip is silence however it was worded, its reasoning never a text (2026-11-17, `scheduledQuiet.js`); a literal "@Tex" is never silent: its silence is the fallback (Dev2, 2026-11-12)
   // A saved deliverable's link goes on its own line when the reply does not already link it (`noteLinks.js`, `withSavedLink`).
   const linkedMarked = quiet || silent || crossAskRun || toldMarked === EMPTY_FALLBACK || isEmptyAnswer(toldMarked) ? toldMarked : withSavedLink(toldMarked, t.noteLinking?.saved, t.noteLinking?.origin ?? null); // the floor: 2026-11-19
+  const searchedMarked = front && group === null && job === null && report === null && !quiet && !silent && !crossAskRun && linkedMarked !== EMPTY_FALLBACK && !isEmptyAnswer(linkedMarked) ? withSearchedLine(linkedMarked, t.noteLinking?.searched) : linkedMarked; // the front door runs no reply checks, so a multi-workspace search's Searched line goes on in code (searchClaims.js, 2026-11-19)
   // A group turn answering several texts: the front door's "[2] " numbers come out, and say which text each paragraph goes under (`replyUnder.js`).
-  const { answer: told, parts: underParts } = group !== null && job === null ? splitUnder(linkedMarked, t.logged?.covered) : { answer: linkedMarked, parts: null };
+  const { answer: told, parts: underParts } = group !== null && job === null ? splitUnder(searchedMarked, t.logged?.covered) : { answer: searchedMarked, parts: null };
   // An email's ask is texted exactly as written (`apps/agent/src/reply.ts`), or withdrawn if it would not fit; asks their text corrected are dropped (`claimCheck.js` rule 6).
   const { ask, verbatim } = await tex.step("ask_line", () => textedAsk(store, session, ledger.asked, told, { who: group?.from || null, stale: claims?.stale() === true ? setAside.map((entry) => entry.id) : null, chat: askChat }));
   const offerText = ledger.offered ? offerLine(ledger.offered) : null; // shown to whoever it goes from (`offerFor.js`)

@@ -263,6 +263,8 @@ test("a job check's example shows the job's brief, finish line and what it did, 
 // reply. Sabotage: drop the cut in `trainingOf`, or keep lines past `ends[at]`, and "a scored chat's example ends
 // at its moment" fails; drop the fence or the intro's sentence and "every example is fenced" fails.
 const { UNTIL_ENV, HOLD_OUT_ENV, trainingOf, cutAt } = require("../../../packages/shared/src/texTraining.cjs");
+// The front door's own whole-chat entry, read from the config: the cap grows with Training (2026-11-19: 60000 to 66000).
+const FD_WHOLE = TEX_CONFIG.nodes.find((n) => n.id === "fd").ctx.find((c) => /^train:fd:all:\d+$/.test(c));
 
 const FUTURE = (id) => ({
   id,
@@ -315,14 +317,14 @@ test("the real truck-crew Sunday text is cut before Tex's reply's successor, its
   const c = require("../../../apps/mcp/bench/sets/training/truck-crew.json");
   const i = c.msgs.findIndex((m) => /out sunday/i.test(String(m.text ?? "")));
   assert.ok(i > 0, "the Sunday text is in the chat");
-  const cut = moduleText("train:fd:all:60000", trainingOf(TRAINING, { [UNTIL_ENV]: `truck-crew:${i}` }));
+  const cut = moduleText(FD_WHOLE, trainingOf(TRAINING, { [UNTIL_ENV]: `truck-crew:${i}` }));
   assert.ok(cut.includes(c.msgs[i + 1].text), "the next message, Tex's reply, is kept");
   for (const m of c.msgs.slice(i + 2)) if (!m.tex && m.text && m.text.length > 12) assert.ok(!cut.includes(m.text), `msg ${c.msgs.indexOf(m)} "${m.text}" is the chat's future`);
-  assert.ok(cut.length < moduleText("train:fd:all:60000", TRAINING).length);
+  assert.ok(cut.length < moduleText(FD_WHOLE, TRAINING).length);
 });
 
 test("every example is fenced from the live chat, numbered, and the intro says none of it happened here", () => {
-  const text = moduleText("train:fd:all:60000", TRAINING);
+  const text = moduleText(FD_WHOLE, TRAINING);
   const n = TRAINING.chats.fd.length;
   for (let i = 1; i <= n; i += 1) assert.ok(text.includes(`<conversation example="${i} of ${n}">`));
   assert.match(text, /These are other chats: nothing in them happened in this chat or to the people in it unless this chat's own texts say so\./);

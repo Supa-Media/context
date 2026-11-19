@@ -34,6 +34,7 @@ jobs:
       - uses: actions/checkout@v5
         with:
           ref: main
+          fetch-depth: 0
           token: ${{ secrets.GH_ADMIN_TOKEN }}
 
       - uses: actions/setup-node@v5
@@ -52,9 +53,33 @@ jobs:
           run-id: ${{ github.event.workflow_run.id }}
           github-token: ${{ github.token }}
 
+      # One heal pull request at a time: two opened from main at once both add lines at the same places and the
+      # second can never merge (#3755 and #3756, 2026-11-19). An open one's answers are merged in here too, and the
+      # new commit goes onto its branch, so it carries both; worldHeal's merge is a union, so nothing is lost.
+      - name: Find an open heal pull request
+        if: steps.heal.outcome == 'success'
+        id: open
+        env:
+          GH_TOKEN: ${{ secrets.GH_ADMIN_TOKEN }}
+        run: |
+          set -euo pipefail
+          open=$(gh pr list --base main --state open --json headRefName --jq '[.[] | select(.headRefName | startswith("tex-world/heal-"))] | sort_by(.headRefName) | .[0].headRefName // ""')
+          if [[ -n "$open" && ! "$open" =~ ^tex-world/heal-[0-9]{1,20}$ ]]; then echo "::error::unexpected heal branch name"; exit 1; fi
+          echo "branch=$open" >> "$GITHUB_OUTPUT"
+          if [ -n "$open" ]; then
+            git fetch -q origin "$open"
+            mkdir -p "$RUNNER_TEMP/open-in"
+            for f in $(git diff --name-only HEAD...FETCH_HEAD -- apps/mcp/bench/sets/sim/); do
+              git show "FETCH_HEAD:$f" > "$RUNNER_TEMP/open-in/$(basename "$f")"
+            done
+            echo "Adding to the open heal pull request's branch $open"
+          fi
+
       - name: Merge the run's answers into the fixtures
         if: steps.heal.outcome == 'success'
-        run: node apps/mcp/bench/worldHeal.mjs --from "$RUNNER_TEMP/world-in"
+        run: |
+          if [ -d "$RUNNER_TEMP/open-in" ]; then node apps/mcp/bench/worldHeal.mjs --from "$RUNNER_TEMP/open-in"; fi
+          node apps/mcp/bench/worldHeal.mjs --from "$RUNNER_TEMP/world-in"
 
       - name: Open a pull request that merges itself
         if: steps.heal.outcome == 'success'
@@ -62,6 +87,7 @@ jobs:
           GH_TOKEN: ${{ secrets.GH_ADMIN_TOKEN }}
           FROM: ${{ github.event.workflow_run.name }}
           FROM_ID: ${{ github.event.workflow_run.id }}
+          OPEN: ${{ steps.open.outputs.branch }}
         run: |
           set -euo pipefail
           git config user.name "github-actions[bot]"
@@ -69,10 +95,21 @@ jobs:
           git add apps/mcp/bench/sets/sim/
           if git diff --cached --quiet; then echo "No new answers to commit"; exit 0; fi
           git diff --cached --stat
-          heal="tex-world/heal-$FROM_ID"
           git commit -q -m "Tex bench: world fixtures healed by $FROM (run $FROM_ID)"
+          if [ -n "$OPEN" ]; then
+            # The tree is main's fixtures plus the open branch's and this run's answers; recorded as a merge of the open
+            # branch, so the push is a fast-forward and the open pull request (already merging itself) carries it.
+            git fetch -q origin "$OPEN"
+            git merge -q -s ours --no-edit FETCH_HEAD -m "Merge $OPEN: main's fixtures, its answers and run $FROM_ID's"
+            git push -q origin "HEAD:refs/heads/$OPEN"
+            echo "Added to the open heal pull request on $OPEN"
+            exit 0
+          fi
+          heal="tex-world/heal-$FROM_ID"
           git push -q origin "HEAD:refs/heads/$heal"
           url=$(gh pr create --base main --head "$heal" --title "Tex bench: world fixtures healed by $FROM" \
-            --body "Answers the simulated world's model gave for calls no committed fixture was near ($FROM, run $FROM_ID), added to \`apps/mcp/bench/sets/sim/\` so the next run replays them. Bench data from the repo's Training or Dev set only; merges itself on green CI.")
+            --body "Answers the simulated world's model gave for calls no committed fixture was near ($FROM, run $FROM_ID), added to \`apps/mcp/bench/sets/sim/\` so the next run replays them. Bench data from the repo's Training or Dev set only; merges itself on green CI.
+
+          Tex diagram: unchanged because this pull request changes only the bench's world fixtures (apps/mcp/bench/sets/sim/).")
           echo "$url"
           gh pr merge "$url" --auto --squash

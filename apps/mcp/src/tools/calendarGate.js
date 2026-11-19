@@ -65,12 +65,15 @@ export async function calendarGate(supplied, { store, session, target }) {
 
   if (typeof store?.calendar?.check !== "function") return toolError(REFUSED.not_configured);
   let room;
+  const checkAt = Date.now();
   try {
     // A new event's invitees are checked as the change their yes would release.
     room = await store.calendar.check(read.change.guests ? { ...read.change, notify_guests: true } : read.change);
   } catch {
     room = { ok: false, refused: "unavailable" };
   }
+  // Each stage's ms, for the turn's trace (`turnTiming.js`): numbers only.
+  const stages = { check: Date.now() - checkAt };
   if (room?.ok !== true) return toolError(refusalFor(room));
 
   const texting = session.egress?.texting === true;
@@ -100,6 +103,7 @@ export async function calendarGate(supplied, { store, session, target }) {
   if (texting && ledger?.asked.some((asked) => asked.tool === CALENDAR_TOOL && asked.key !== callKey(CALENDAR_TOOL, held))) {
     return toolError("Not changed: one calendar change at a time by text. Ask about this one after the person answers.");
   }
+  const pendingAt = Date.now();
   const existing = await findPending(store, { name: CALENDAR_TOOL, args: held, userId });
   if (session.egress?.texting === true && shownBefore(existing)) return toolError(ALREADY_ASKED);
   const record =
@@ -116,6 +120,7 @@ export async function calendarGate(supplied, { store, session, target }) {
       texting,
       armed: false, // armed by `textedAsk` once the ask goes out whole
     }));
+  stages.pending = Date.now() - pendingAt;
   if (record === null) {
     return toolError("Not changed: the person has too many things waiting for their OK. Ask them to clear some first.");
   }
@@ -131,5 +136,6 @@ export async function calendarGate(supplied, { store, session, target }) {
             "Once they have, call calendar_event again with exactly the same arguments and you will be told it was done.",
     ),
     held: true,
+    stages,
   };
 }
