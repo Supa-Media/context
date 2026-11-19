@@ -515,9 +515,17 @@ export async function requestViaGateway(call, config, options = {}) {
   let paidBy = "cloudflare";
   let answer = null;
   const clock = now();
+  // Who was asked to pay and what each answered, by name and status only: a failed round carries it (`turn.js`), so a
+  // failed turn says which payer refused it and how (Dev2, 2026-11-19: "we need to be able to trace errors like these").
+  const payers = [];
+  const failed = (error) => Object.assign(error, { payers });
   for (const payer of payersOf(config)) {
-    if (await payerSkipped(payer.name, clock, { store, ...(cache ? { cache } : {}) })) continue;
+    if (await payerSkipped(payer.name, clock, { store, ...(cache ? { cache } : {}) })) {
+      payers.push({ payer: payer.name, skipped: true });
+      continue;
+    }
     answer = await sendIt(payer);
+    payers.push({ payer: payer.name, status: answer.status ?? null });
     if (answer.status === 200) {
       paidBy = "credit";
       await noteCreditPaid(payer.name, { store, ...(cache ? { cache } : {}) });
@@ -534,14 +542,15 @@ export async function requestViaGateway(call, config, options = {}) {
       console.log(JSON.stringify({ event: "ai_gateway_payer_refused", payer: payer.name, status: answer.status }));
       answer = null;
     } else {
-      throw statusError(answer);
+      throw failed(statusError(answer));
     }
   }
   if (!answer) {
     answer = await sendIt(null);
+    payers.push({ payer: "unified", status: answer.status ?? null });
   }
   if (answer.status !== 200) {
-    throw statusError(answer);
+    throw failed(statusError(answer));
   }
 
   const text = answer.text;
