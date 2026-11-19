@@ -215,9 +215,10 @@ export const RULES = [
     match: (line) => /\baccess\b/.test(line) && ACCESS_CHECKS.some((p) => line.includes(p)) && ACCESS_OBJECTS.test(line),
     verdict: (line, f) => {
       const calls = f.tools.filter((t) => ACCESS_TOOLS.includes(toolName(t)));
-      // A line that asks for more than access ("check the doc's access and email Sam") is still the model's to pass.
-      if (calls.some((t) => toolState(t) === "ok")) return /\band\b/.test(line) ? null : { does: true, reason: "access was set" };
-      if (calls.some((t) => toolState(t) === "failed")) return { does: false, reason: "every access change failed" };
+      // A line that asks for more than access ("check the doc's access and email Sam") or names a role ("edit access",
+      // which the record's tool line does not show) is still the model's to pass.
+      if (calls.some((t) => toolState(t) === "ok")) return /\b(and|edit|view|read|write)\b/.test(line) ? null : { does: true, reason: "access was set" };
+      if (calls.some((t) => toolState(t) === "failed")) return { does: false, reason: "no access change went through" };
       return null;
     },
   },

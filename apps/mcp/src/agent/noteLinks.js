@@ -3,7 +3,7 @@
  * change made. The sixTools resolver appends it to its own refusals (`sixTools.js`); a set_visibility or
  * set_folder_visibility result that is an error gets it here.
  */
-export const NOTHING_CHANGED = "Nothing changed: who can open it is as it was, so don't tell anyone it changed.";
+export const NOTHING_CHANGED = "Refused: no access was given beyond what this says, so don't tell anyone they can open it.";
 const VISIBILITY_TOOLS = new Set(["set_visibility", "set_folder_visibility"]);
 
 /** A refusal's text with the NOTHING_CHANGED sentence after it, on its own sentence (a full stop added where it has none). */

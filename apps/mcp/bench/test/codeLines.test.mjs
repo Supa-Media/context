@@ -180,10 +180,12 @@ test("access: a line about checking someone's access to a doc is graded from the
   assert.equal(verdictOf(must(ACCESS), answer({ tools: ["read_note", "set_visibility (failed)", "set_visibility"] })), true);
   const failed = codeVerdict(must(ACCESS), answer({ tools: ["set_visibility (failed)"] }));
   assert.equal(failed.does, false);
-  assert.match(failed.reason, /every access change failed/);
+  assert.match(failed.reason, /no access change went through/);
   assert.equal(verdictOf(must(ACCESS), answer({ tools: ["read_note"] })), undefined, "no access change: the model decides");
   assert.equal(verdictOf(must(ACCESS), answer({ tools: ["set_visibility (held for OK)"] })), undefined);
   assert.equal(codeRule(must("make sure Bram can open the doc")), null, "no access word, the model decides");
   assert.equal(codeRule(must("check the access logs")), null, "no doc, note, page, file or folder named");
   assert.equal(verdictOf(must("check the doc's access and send Sam the link"), answer({ tools: ["set_visibility"] })), undefined, "a compound line is still the model's to pass");
+  assert.equal(verdictOf(must("make sure Sam has edit access to the doc"), answer({ tools: ["set_visibility"] })), undefined, "a role the record does not show is the model's");
+  assert.equal(verdictOf(must("make sure Sam has edit access to the doc"), answer({ tools: ["set_visibility (failed)"] })), false, "but no access at all is still a fail");
 });

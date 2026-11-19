@@ -269,7 +269,7 @@ test("a blank reply, no origin, or nothing saved leaves the reply as it was", ()
 });
 
 // Training 2026-11-19: a refused visibility change is never read as a change made. The sentence is the one the model is told.
-const NOTHING = "Nothing changed: who can open it is as it was, so don't tell anyone it changed.";
+const NOTHING = "Refused: no access was given beyond what this says, so don't tell anyone they can open it.";
 
 test("a refused set_visibility or set_folder_visibility ends with the sentence that nothing changed", async () => {
   const refused = (text) => ({ isError: true, content: [{ type: "text", text }] });

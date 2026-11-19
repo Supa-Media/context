@@ -48,7 +48,9 @@ export async function toolSetVisibility(store, scope, rules, overrides, args) {
     const changed = await toolSetVisibility(store, scope, rules, overrides, { ...args, people: undefined });
     if (changed.isError === true) return changed;
     const named = await addPeopleToNote(store, path, args.people);
-    return named.isError === true ? named : toolText(`${changed.content[0].text}
+    // The visibility already changed: a refusal of the people says so, so it is never read as nothing done (2026-11-19).
+    if (named.isError === true) return toolError(`${changed.content[0].text} But nobody was named: ${named.content[0].text}`);
+    return toolText(`${changed.content[0].text}
 ${named.content[0].text}`);
   }
   const obj = await getWithLegacyFallback(store, path);

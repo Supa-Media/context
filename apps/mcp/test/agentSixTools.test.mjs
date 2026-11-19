@@ -321,7 +321,7 @@ test("a manage word the carrying tool does not take is still refused, as before 
 });
 
 test("a refused manage visibility call says nothing changed, last; other manage refusals do not (2026-11-19)", () => {
-  const NOTHING = "Nothing changed: who can open it is as it was, so don't tell anyone it changed.";
+  const NOTHING = "Refused: no access was given beyond what this says, so don't tell anyone they can open it.";
   const { resolve } = sixToolsOver(held("set_visibility", "move_note"));
   // An argument no tool takes is refused by the gateway's own translation, and the sentence follows it.
   const visibility = resolve("manage", { action: "visibility", path: "x.md", colour: "red" });
