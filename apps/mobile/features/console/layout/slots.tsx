@@ -163,6 +163,8 @@ export function consoleAsidePanel({
         /*
           The homepage's visitor and the demo get the Meetings tab alone:
           their demo meeting runs here, and no AI client acts for them.
+          Approvals feeds the Tex chat's inline approval cards, and its count
+          rides on the Tex tab; there is no Approvals tab.
         */
         approvals={data.demo ? undefined : approvals}
         onJoin={joinMeeting}

@@ -242,6 +242,7 @@ test/managedDecryption.test.mjs
 test/meaningSnippetsFromDatabase.test.mjs
 test/moveWithoutConditionalDelete.test.mjs
 test/searchEverywhere.test.mjs
+test/searchEverywhereBoost.test.mjs
 test/searchEvidence.test.mjs
 test/searchPriors.test.mjs
 test/searchSettings.test.mjs
@@ -267,6 +268,7 @@ test/agentClaimCheck.test.mjs
 test/agentHandback.test.mjs
 test/calendarWords.test.mjs
 test/emailGateTiming.test.mjs
+test/heldGateStages.test.mjs
 test/emailShownCopy.test.mjs
 test/checkInSources.test.mjs
 test/sessionInstructionsTree.test.mjs

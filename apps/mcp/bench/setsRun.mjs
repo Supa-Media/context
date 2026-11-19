@@ -374,7 +374,7 @@ export function worldStrict(value) {
 export function strictWorld(rows, strict, { world = "replay", set = "dev" } = {}) {
   const misses = worldMisses(rows).length;
   if (world !== "replay" || misses === 0 || strict === "off") return { misses, line: "", fail: false };
-  const text = `world: ${misses} simulated call(s) not in fixtures; the model invented them (record them: sets run --set ${set} --node fd --world record)`;
+  const text = `world: ${misses} simulated call(s) not in fixtures; the model answered them once and the run saved them, so the next run replays them`;
   const level = strict === "fail" ? "error" : "warning";
   return { misses, line: `::${level}::${text}`, fail: strict === "fail" };
 }

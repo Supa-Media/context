@@ -645,10 +645,10 @@ test("strictWorld: off says nothing; warn writes a warning annotation and does n
   const warn = strictWorld(rows, "warn", { set: "dev" });
   assert.equal(warn.misses, 2);
   assert.equal(warn.fail, false);
-  assert.equal(warn.line, "::warning::world: 2 simulated call(s) not in fixtures; the model invented them (record them: sets run --set dev --node fd --world record)");
+  assert.equal(warn.line, "::warning::world: 2 simulated call(s) not in fixtures; the model answered them once and the run saved them, so the next run replays them");
   const fail = strictWorld(rows, "fail", { set: "training" });
   assert.equal(fail.fail, true);
-  assert.match(fail.line, /^::error::world: 2 simulated call\(s\) not in fixtures; the model invented them \(record them: sets run --set training --node fd --world record\)$/);
+  assert.match(fail.line, /^::error::world: 2 simulated call\(s\) not in fixtures; the model answered them once and the run saved them, so the next run replays them$/);
 });
 
 test("strictWorld: zero misses say nothing and never fail, and record or refresh never warn or fail even with misses", () => {

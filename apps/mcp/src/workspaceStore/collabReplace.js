@@ -63,7 +63,10 @@ function passes(meta, onlyIf) {
  */
 function heldObjects(objects) {
   const ops = [];
+  // The open put of each key: the one a later put to it (with no delete of it between) folds into.
+  const openPut = new Map();
   const overlay = new Map();
+  let landed = [];
   const liveHead = (key) => {
     if (overlay.has(key)) {
       const held = overlay.get(key);
@@ -96,22 +99,41 @@ function heldObjects(objects) {
       if (!passes(existing, options.onlyIf)) return null;
       const etag = etagHex(bytes);
       overlay.set(key, { etag, size: bytes.byteLength, body: bytes, deleted: false });
-      ops.push({ op: "put", key, bytes, etag, onlyIf: options.onlyIf });
+      // A later put folds into the open one: it lands once, where the first landed, with the first's `onlyIf`. Equivalent
+      // in one transaction, since the later `onlyIf` was checked against the first's etag above.
+      const open = openPut.get(key);
+      if (open) {
+        open.bytes = bytes;
+        open.etag = etag;
+      } else {
+        const op = { op: "put", key, bytes, etag, onlyIf: options.onlyIf };
+        ops.push(op);
+        openPut.set(key, op);
+      }
       return { etag, size: bytes.byteLength };
     },
     delete(keys) {
       const list = Array.isArray(keys) ? keys : [keys];
-      for (const key of list) overlay.set(key, { deleted: true });
+      for (const key of list) {
+        overlay.set(key, { deleted: true });
+        openPut.delete(key);
+      }
       ops.push({ op: "delete", keys: list });
     },
   };
   return {
     api,
     ops,
+    /** The puts that landed, once `flush` is `"ok"`: one per key, with the bytes it ended with. */
+    landedPuts() {
+      return landed;
+    },
     /** Land every held write, or `"conflict"` when a row moved. One transaction when `transact` is given. */
     flush(transact) {
       if (ops.length === 0) return "empty";
+      let applied = [];
       const apply = () => {
+        const puts = [];
         for (const op of ops) {
           if (op.op === "delete") {
             objects.delete(op.keys);
@@ -119,11 +141,14 @@ function heldObjects(objects) {
           }
           const written = objects.putPrepared(op.key, op.bytes, op.etag, op.onlyIf ? { onlyIf: op.onlyIf } : {});
           if (written === null) throw new FlushConflict();
+          puts.push(op);
         }
+        applied = puts;
       };
       try {
         if (typeof transact === "function") transact(apply);
         else apply();
+        landed = applied;
         return "ok";
       } catch (error) {
         if (error instanceof FlushConflict) return "conflict";
@@ -248,18 +273,19 @@ function recordVersion(store, fields, markdown) {
 }
 
 /**
- * What a save wrote, in bytes and counts, never what: the note's Markdown, its document state (which carries the
- * editing history's snapshot), every byte the engine wrote, and how many writes it made (three on a save that won
- * its first try; more means it retried against another writer).
+ * What a save landed, in bytes and counts, never what: the note's Markdown, its document state (which carries the
+ * editing history's snapshot), every byte landed, and how many writes landed (two on a save that won its first try:
+ * the state and the Markdown, plus one more when an idle version file is kept; more means it retried against another
+ * writer). `puts` are the flush's landed puts, one per key.
  */
-function sizesOf(writes, key) {
-  const bytes = (body) => (typeof body === "string" ? body.length : 0);
-  const state = writes.filter((write) => write.key.startsWith(`${COLLABORATION_ROOT}v1/documents/`) && !write.key.includes("/operations/")).at(-1);
+function sizesOf(puts, key) {
+  const bytes = (put) => put?.bytes.byteLength ?? 0;
+  const state = puts.filter((put) => put.key.startsWith(`${COLLABORATION_ROOT}v1/documents/`) && !put.key.includes("/operations/")).at(-1);
   return {
-    note: bytes(writes.filter((write) => write.key === key).at(-1)?.body),
-    state: bytes(state?.body),
-    written: writes.reduce((sum, write) => sum + bytes(write.body), 0),
-    writes: writes.length,
+    note: bytes(puts.filter((put) => put.key === key).at(-1)),
+    state: bytes(state),
+    written: puts.reduce((sum, put) => sum + bytes(put), 0),
+    writes: puts.length,
   };
 }
 
@@ -314,7 +340,7 @@ async function serveInObject(store, fields, run) {
   for (let attempt = 0; attempt < 3; attempt += 1) {
     const held = heldObjects(objects);
     const engine = engineStore(held.api, { path, key, noteId, legacyEtag: typeof fields.legacyEtag === "string" ? fields.legacyEtag : null, rowEtag: typeof fields.rowEtag === "string" ? fields.rowEtag : null });
-    // Only where each key ended goes back: a save writes its document state twice, and the bucket keeps the last.
+    // Only where each key ended goes back: the bucket keeps the last write of each key the engine made.
     // Nothing is handed back until the flush commits: a refused save wrote nothing.
     const handedBack = () => ({ writes: lastWriteEach(engine.writes), deletes: engine.deletes });
     try {
@@ -322,7 +348,7 @@ async function serveInObject(store, fields, run) {
       if (held.flush(store.transact) === "conflict") continue;
       const markdown = engine.writes.filter((write) => write.key === key).at(-1) ?? null;
       const recorded = markdown !== null && wantsRecord(fields) && recordVersion(store, fields, markdown);
-      return timed({ served: true, result, markdown: markdown === null ? null : { etag: markdown.etag, size: markdown.size }, recorded, sizes: sizesOf(engine.writes, key), ...handedBack() });
+      return timed({ served: true, result, markdown: markdown === null ? null : { etag: markdown.etag, size: markdown.size }, recorded, sizes: sizesOf(held.landedPuts(), key), ...handedBack() });
     } catch (error) {
       const missed = heldBack(error);
       if (missed !== null) return timed({ served: false, reason: `not_held_${missed.what}`, writes: [], deletes: [] });

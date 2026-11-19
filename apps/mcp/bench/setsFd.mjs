@@ -621,7 +621,7 @@ export async function runFd(units, { tree, fake = false, runTests = null, parall
       }
     }));
     for (const p of prepared) rows.push(...collectConvo(p));
-    saveRunFixtures(prepared, tree, world); // `--world record|refresh` writes this run's answers into the fixtures
+    saveRunFixtures(prepared, tree, world); // record/refresh write this run's answers; a replay adds what it had to ask
     // Rows in the order their units came, whichever conversation finished first.
     const place = new Map(units.map((u, k) => [`${u.row.chat}\n${u.row.msg}\n${u.row.node}`, k]));
     return rows.sort((a, b) => (place.get(`${a.chat}\n${a.msg}\n${a.node}`) ?? 0) - (place.get(`${b.chat}\n${b.msg}\n${b.node}`) ?? 0));
@@ -662,7 +662,7 @@ async function prepareConvo(units, { tree, scratch, env, mode = "replay" }) {
   const year = Number(from.slice(0, 4));
   const group = c.kind === "group" ? (world.group ?? groupFor(people, c)) : null;
   if (c.kind === "group" && group === null) {
-    return { dir, scratch, env, envOf: null, tests: [], runDir, id: c.id, rows: units.map((u) => ({ ...u.row, right: false, ran: false, usd: 0, why: `no shared workspace in apps/mcp/bench/ai/workspaces/people.md has all of ${castOf(c).join(", ")}` })) };
+    return { dir, scratch, env, envOf: null, tests: [], runDir, id: c.id, set: c.set, rows: units.map((u) => ({ ...u.row, right: false, ran: false, usd: 0, why: `no shared workspace in apps/mcp/bench/ai/workspaces/people.md has all of ${castOf(c).join(", ")}` })) };
   }
   const batches = new Map();
   for (const u of units) {
@@ -692,5 +692,5 @@ async function prepareConvo(units, { tree, scratch, env, mode = "replay" }) {
   // the later ones still have their own past in the live chat. A held-out chat is gone whole and needs no cut.
   const cuts = c.set === "training" && env[HOLD_OUT_ENV] !== c.id;
   const envOf = cuts ? (name) => ({ ...env, [UNTIL_ENV]: `${c.id}:${tests.find((t) => t.name === name)?.cut ?? 0}` }) : null;
-  return { dir, scratch, env, envOf, tests, rows, runDir, id: c.id };
+  return { dir, scratch, env, envOf, tests, rows, runDir, id: c.id, set: c.set };
 }

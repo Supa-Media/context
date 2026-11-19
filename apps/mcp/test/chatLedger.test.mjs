@@ -117,6 +117,9 @@ test("a call that read another workspace keeps what it asked for, never what cam
   assert.equal(toolEntry({ name: "fetch", args: { context: "@Ada" }, ok: true, result: "mine" }, { ownSlug: "ada" }).result, "mine");
   assert.equal(readsOtherWorkspace({ context: "@ada" }, null), true, "no known own workspace: a named one is treated as another");
   assert.equal(readsOtherWorkspace({}, null), false);
+  // A search widened from a named workspace still read it (`sixTools.js` boost, 2026-11-19); boosting their own is theirs.
+  assert.equal(readsOtherWorkspace({ query: "plans", boost: "@ada" }, "me"), true, "a boost names a workspace it read");
+  assert.equal(readsOtherWorkspace({ query: "plans", boost: "@me" }, "me"), false);
 });
 
 test("a very long result is kept cut, with its full length", () => {

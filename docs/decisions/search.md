@@ -137,3 +137,18 @@ Moved to [A workspace object keeps its own meaning index](./search/object-meanin
 ### Days, whole lines, and the pinned workspace (2026-11-05)
 
 Moved to [Days, whole lines, and the pinned workspace](./search/dates-and-lines.md).
+
+### Tex searches every workspace; a named one is a boost, never a fence (2026-11-19)
+
+Decided by the owner, 2026-11-19: for a find or lookup question, Tex searches every workspace the person reaches and ranks the results together. A workspace named in the question, or the one Tex is in, may rank its notes higher; it never narrows the search. Only the person's own instruction ("only in @x") restricts it.
+
+The incident: asked for "the <org> reading list", Tex read the org's name as a workspace and pinned every search to `context: "@org"`, so the note in the person's own workspace, which a plain search ranks first, was never seen, and a job's answer said "a search across all your workspaces didn't turn one up".
+
+- **Tex's resolver, not the gateway contract** (`agent/sixTools.js`). A Tex `search` (or older-name `search_notes`) that names a workspace in `context`, with no folder `prefix` and no day range, is sent as the person's ordinary unscoped search with `boost: "@x"`. With `args: { only: true }` beside `context` it stays scoped. An MCP client's `context` still means "this workspace only". `search_notes` gains one optional argument, `boost: "@name"`, which any client may pass (tool news, 2026-11-19); a client that never sends it sees no change.
+- **The boost ranks, it never filters** (`tools/search.js` `fuseEverywhere`, `BOOST_FACTOR`). The wide search is the one an unscoped call already makes: every workspace opened under the person's role there and its own rules, all at once, each with the small per-workspace list a search of several takes. Nothing is added or dropped because of a boost. A boost that names Context.LC's pinned workspace reaches it, as asking it by name does.
+- **The result says what it searched.** A search that covered more than one workspace, was boosted, or could not open one ends with `Searched: @a, @b.`, and names any workspace it could not open as not searched. The list is built from the workspaces that answered, never from the ones asked, and the result carries it as `searched`.
+- **Saying it in the reply is structural on the front door.** The front door's 1:1 turns run no reply checks ([front-door](../texting-assistant/front-door.md)), and this keeps that. Instead, the search tool's description tells Tex to name, when it reports a miss, the workspaces the result's `Searched:` line lists and no other. A turn with no `Searched:` line searched only their own workspace. Where reply checks do run (a job's parts, group chats), `agent/searchClaims.js` still sends back an answer that claims every workspace when no search of the turn covered them.
+
+This replaces the same day's fallback (`tools/searchNamed.js`), which appended title matches from elsewhere to a scoped search for every client. It changed the gateway's answer for all clients and still let Tex fence a search.
+
+**What a simplification would cost:** with `context` passed through as a filter, Tex answers "not written down" whenever a workspace shares a word with the question, and workspaces are named for their topics. Without the `Searched:` line, a reply can name a search it never ran. **Tests:** `agentSixTools.test.mjs` (a named workspace resolves to `boost`, `only` keeps it scoped), `searchEverywhereBoost.test.mjs` (the boost never drops a hit; `Searched:` lists only workspaces that answered), the replay case `search-names-google-chat`, and the Training cases `reading-list-app` and `reading-list-text`.

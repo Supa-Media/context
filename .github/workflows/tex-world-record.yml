@@ -6,12 +6,14 @@
 # and every Lab run replays them. This workflow records (or checks) them on the repo's own Training or Dev set only,
 # never the sealed Test set, on Claude Code (CLAUDE_CODE_OAUTH_TOKEN, $0) with Clef on Workers AI as a Lab run has it.
 #
-#   world: record   runs the set once and adds every miss to the fixtures; uploads `world-fixtures` for a person to commit
-#          refresh  re-asks every call and replaces the fixtures; uploads the same
-#          replay   checks the committed fixtures: prints the misses and a hash of the world answers the run was shown,
-#                   so two replays of one commit can be compared (same hash, zero misses = the same world)
-#   branch: when set (tex-world/... or claude/...), a second job with no secrets commits the recorded fixtures to it, so
-#           a pull request can carry them; the job that ran the models never holds a write token.
+#   world: record   runs the set once and adds every miss to the fixtures
+#          refresh  re-asks every call and replaces the fixtures
+#          replay   answers from the committed fixtures (a reworded call gets the nearest answer), asks the model only
+#                   for a call nothing is near and keeps that answer; prints the misses and a hash of the world answers
+#                   the run was shown, so two replays of one commit can be compared (same hash, zero misses = same world)
+#   Every mode heals: the run's new answers go onto `branch` (tex-world/... or claude/...) when one is named, by a job
+#   with a write token and none of the run's secrets; else, for a run of main, `tex-world-heal.yml` opens them as a pull
+#   request that merges itself, so the next run replays them. The job that ran the models never holds a write token.
 #
 # The log prints counts, kinds and hashes, never a conversation's words or an answer. The fixtures are public bench data.
 name: Tex world record
@@ -42,7 +44,7 @@ on:
         default: "1"
         type: string
       branch:
-        description: "Optional: a branch (tex-world/... or claude/...) to commit the recorded fixtures to, for a pull request"
+        description: "Optional: a branch (tex-world/... or claude/...) to commit the new answers to; empty opens a pull request that merges itself"
         required: false
         default: ""
         type: string
@@ -114,19 +116,21 @@ jobs:
           exit "$code"
 
       - name: Upload the recorded world
-        if: always() && inputs.world != 'replay'
+        if: always()
         uses: actions/upload-artifact@v4
         with:
           name: world-fixtures
           path: ${{ runner.temp }}/world-out/
           retention-days: 7
-          if-no-files-found: warn
+          if-no-files-found: ignore
 
-  # The recorded fixtures onto a branch, for a pull request: this job holds the write token and none of the run's secrets,
-  # and runs no code from the branch, only git.
+  # The run's answers: onto `branch` when one is named, by a job with the write token and none of the run's secrets
+  # that runs main's code only (`worldHeal.mjs`: a committed answer stands, a new one is added); else, for a run of
+  # main, uploaded as `world-heal` for `tex-world-heal.yml` to open as a pull request that merges itself (owner,
+  # 2026-11-19: "self-healing").
   push:
     needs: run
-    if: ${{ always() && needs.run.result != 'cancelled' && inputs.world != 'replay' && inputs.branch != '' }}
+    if: ${{ always() && needs.run.result != 'cancelled' && inputs.branch != '' }}
     runs-on: ubuntu-latest
     timeout-minutes: 10
     permissions:
@@ -139,13 +143,23 @@ jobs:
 
       - uses: actions/checkout@v5
         with:
-          ref: ${{ github.ref }}
+          ref: main
           fetch-depth: 0
 
+      # No pnpm here: setup-node v5 would cache for the repo's package manager and fail without it.
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          package-manager-cache: false
+
       - uses: actions/download-artifact@v4
+        continue-on-error: true
         with:
           name: world-fixtures
-          path: apps/mcp/bench/sets/sim/
+          path: ${{ runner.temp }}/world-in/
+
+      - name: Merge the run's answers into the fixtures
+        run: node apps/mcp/bench/worldHeal.mjs --from "$RUNNER_TEMP/world-in"
 
       - name: Commit the fixtures to the branch
         env:
@@ -159,10 +173,29 @@ jobs:
           git add apps/mcp/bench/sets/sim/
           if git diff --cached --quiet; then echo "No new answers to commit"; exit 0; fi
           git diff --cached --stat
-          git commit -m "Tex bench: world fixtures, $WORLD on the $SET set (run $GITHUB_RUN_ID)"
+          git commit -q -m "Tex bench: world fixtures, $WORLD on the $SET set (run $GITHUB_RUN_ID)"
           # A Training and a Dev recording may push to one branch at once: their files differ, so take the other's and retry.
           for try in 1 2 3; do
             git push origin "HEAD:refs/heads/$BRANCH" && exit 0
             git fetch origin "$BRANCH" && git rebase FETCH_HEAD
           done
           exit 1
+
+  heal-ready:
+    needs: run
+    if: ${{ always() && needs.run.result != 'cancelled' && inputs.branch == '' && github.ref == 'refs/heads/main' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/download-artifact@v4
+        continue-on-error: true
+        with:
+          name: world-fixtures
+          path: ${{ runner.temp }}/world-in/
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: world-heal
+          path: ${{ runner.temp }}/world-in/
+          retention-days: 7
+          if-no-files-found: ignore

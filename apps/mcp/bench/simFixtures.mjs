@@ -47,6 +47,54 @@ export function worldKey(kind, request) {
   return `${kind} ${JSON.stringify(normalizeRequest(request))}`;
 }
 
+const STOP = new Set(["a", "an", "and", "at", "by", "for", "from", "in", "is", "it", "of", "on", "or", "the", "to", "with", "www", "http", "https", "com"]);
+
+/** The words of a request's string values, lowercased, as a set: what two wordings of one ask share. */
+export function requestWords(request) {
+  const words = new Set();
+  const walk = (value) => {
+    if (typeof value === "string") {
+      for (const word of value.toLowerCase().split(/[^a-z0-9]+/)) if (word.length > 1 && !STOP.has(word)) words.add(word);
+    } else if (Array.isArray(value)) value.forEach(walk);
+    else if (value && typeof value === "object") Object.values(value).forEach(walk);
+  };
+  walk(request);
+  return words;
+}
+
+/** How alike two requests' words are: shared over all (Jaccard), 0 when either has none. */
+export function requestLikeness(a, b) {
+  const x = requestWords(a);
+  const y = requestWords(b);
+  if (x.size === 0 || y.size === 0) return 0;
+  let shared = 0;
+  for (const word of x) if (y.has(word)) shared += 1;
+  return shared / (x.size + y.size - shared);
+}
+
+/** At least this alike, a recorded call answers a reworded one (a replay never invents an answer). */
+export const NEAR_LIKENESS = 0.5;
+
+/**
+ * The recorded answer of the same kind whose request is most alike, when it is at least `min` alike: a replay's answer
+ * to a search or page Tex worded a little differently from the recording. Ties go to the first key in sorted order, so
+ * the same call always gets the same answer. Null when nothing is near enough.
+ */
+export function nearestFixture(fixtures, kind, request, min = NEAR_LIKENESS) {
+  let best = null;
+  let score = 0;
+  for (const key of [...(fixtures?.keys() ?? [])].sort()) {
+    const entry = fixtures.get(key);
+    if (entry.kind !== kind) continue;
+    const likeness = requestLikeness(request, entry.request);
+    if (likeness >= min && likeness > score) {
+      best = entry;
+      score = likeness;
+    }
+  }
+  return best ? { key: best.key, answer: best.answer, likeness: score } : null;
+}
+
 /** A conversation's fixtures as a Map of key to `{ key, kind, request, answer }`. A missing file is no fixtures. */
 export function readFixtures(path) {
   const fixtures = new Map();
@@ -80,6 +128,17 @@ export function openWorldStore({ fixtures = null, runDir = null, mode = "replay"
 
   return {
     mode,
+    /**
+     * The answer nearest a call no key matched (`nearestFixture`), from the fixtures and what this run already
+     * answered, or null. Only a replay looks: a recording asks for each wording, and a fake answer is never near.
+     */
+    near(kind, request) {
+      if (mode !== "replay") return null;
+      const shown = new Map(fixtures ?? []);
+      for (const entry of runMisses(runDir)) if (!entry.fake && !shown.has(entry.key)) shown.set(entry.key, entry);
+      for (const [key, entry] of own) if (!entry.fake && !shown.has(key)) shown.set(key, entry);
+      return nearestFixture(shown, kind, request);
+    },
 
     /** The answer for `key` and where it came from: this process, another process of the run, or the fixtures. */
     get(key) {
@@ -239,15 +298,25 @@ export function testWorld(missed, test) {
   return { misses: calls.length, calls };
 }
 
+/** Whether `id` is a conversation of the tree's own Training or Dev set (`apps/mcp/bench/sets/<set>/<id>.json`). */
+export function isRepoConversation(tree, id) {
+  return /^[a-z0-9][a-z0-9-]{0,80}$/.test(String(id)) && RECORD_SETS.some((set) => existsSync(join(tree, "apps/mcp/bench/sets", set, `${id}.json`)));
+}
+
 /**
- * A recording run's answers into the tree's fixtures, one file a conversation (`prepared`: `{ id, runDir }`), before
- * the run folders go. `record` keeps the fixtures' own answers, `refresh` replaces them; `replay` writes nothing.
+ * A run's answers into the tree's fixtures, one file a conversation (`prepared`: `{ id, set, runDir }`), before the
+ * run folders go. `record` keeps the fixtures' own answers, `refresh` replaces them. A `replay` heals: what it had to
+ * ask the model is added the way `record` adds it, so the next run replays it (owner, 2026-11-19), and only for a
+ * Training or Dev conversation, never one whose set is not the repo's.
  */
 export function saveRunFixtures(prepared, tree, mode, log = (line) => process.stderr.write(line)) {
-  if (mode === "replay") return;
   for (const p of prepared) {
     if (!p?.id) continue;
-    const n = saveFixtures(fixturePath(tree, p.id), p.id, runMisses(p.runDir), mode);
+    const answers = runMisses(p.runDir);
+    // A replay writes only a Training or Dev conversation of the tree's own sets, and only when the model gave it
+    // something new: never one the run was handed from elsewhere.
+    if (mode === "replay" && (!RECORD_SETS.includes(p.set) || !isRepoConversation(tree, p.id) || !answers.some((entry) => !entry.fake))) continue;
+    const n = saveFixtures(fixturePath(tree, p.id), p.id, answers, mode === "replay" ? "record" : mode);
     log(`world fixtures: ${n} answers written to ${FIXTURES_DIR}/${p.id}.json\n`);
   }
 }

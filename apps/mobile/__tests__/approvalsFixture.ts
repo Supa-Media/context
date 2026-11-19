@@ -9,6 +9,7 @@ export const NOTHING_WAITING: ApprovalsView = {
   phase: "listed",
   loading: false,
   items: [],
+  decided: [],
   error: null,
   busyId: null,
   notice: null,

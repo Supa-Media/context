@@ -273,13 +273,13 @@ describe("rows the person changed", () => {
 describe("approvals", () => {
   const ask = row({ id: "a1", text: "Send the invoice to Sam?", ask: { id: "ap_1", open: true } });
 
-  test("an open ask has Approve and Don't under its bubble", () => {
+  test("an open ask has Approve and Decline under its bubble", () => {
     const tab = mount(fakeView({ lines: [ask] }));
     expect(tab.text()).toContain("Approve");
-    expect(tab.text()).toContain("Don't");
+    expect(tab.text()).toContain("Decline");
   });
 
-  test("Approve sends approve and Don't sends deny for that row", () => {
+  test("Approve sends approve and Decline sends deny for that row", () => {
     const tab = mount(fakeView({ lines: [ask] }));
     tab.press("tex-approve-a1");
     tab.press("tex-deny-a1");
@@ -294,7 +294,7 @@ describe("approvals", () => {
     expect(tab.find("tex-approve-a1")).toBeNull();
     expect(tab.find("tex-answer-a1")?.textContent).toBe("Approved");
     tab.draw(fakeView({ lines: [ask], answers: { a1: "deny" } }));
-    expect(tab.find("tex-answer-a1")?.textContent).toBe("Not sent");
+    expect(tab.find("tex-answer-a1")?.textContent).toBe("Declined");
   });
 
   test("only the open ask has buttons, not an older text", () => {
@@ -412,7 +412,7 @@ describe("the rail and the panel", () => {
     act(() =>
       root.render(
         createElement(AsideStrip, {
-          tabs: ["meetings", "tex", "approvals"],
+          tabs: ["meetings", "tex"],
           showing: "meetings",
           recording: false,
           onUnfold: () => {},
@@ -422,7 +422,7 @@ describe("the rail and the panel", () => {
     const buttons = Array.from(container.querySelectorAll('[data-testid^="aside-strip-"]'))
       .map((el) => el.getAttribute("data-testid"))
       .filter((id) => !id?.includes("figure"));
-    expect(buttons).toEqual(["aside-strip-meetings", "aside-strip-tex", "aside-strip-approvals"]);
+    expect(buttons).toEqual(["aside-strip-meetings", "aside-strip-tex"]);
     expect(container.querySelector('[data-testid="aside-strip-tex"]')?.getAttribute("aria-label")).toBe("Tex");
     expect(container.querySelector('[data-testid="aside-strip-tex-figure"]')).not.toBeNull();
     act(() => root.unmount());

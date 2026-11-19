@@ -9,10 +9,14 @@
  * ## What the panel holds
  *
  * What happens *beside* a note rather than in it: a recording of what is being
- * said, and, only while there is one, what an AI client is waiting on a
- * person's yes for. Meetings used
- * to float over whatever you were reading because it had nowhere to live, and
- * giving it a home is the whole of this panel.
+ * said, and the chat with Tex. Meetings used to float over whatever you were
+ * reading because it had nowhere to live, and giving it a home is the whole of
+ * this panel.
+ *
+ * Approvals is not a tab (the owner, 2026-11-19: "no approvals tab, just make
+ * the approvals happen right inside the message box"). What an AI client is
+ * waiting on a person's yes for is answered inline in the Tex chat, so there
+ * is nothing here to list it.
  */
 
 /*
@@ -35,7 +39,6 @@ export const ASIDE_TABS = [
   { key: "meetings", label: "Meetings" },
   /* Right after Meetings, as the rail has it: under the calendar icon. */
   { key: "tex", label: "Tex" },
-  { key: "approvals", label: "Approvals" },
 ] as const;
 
 export type AsideTab = (typeof ASIDE_TABS)[number]["key"];
@@ -46,29 +49,17 @@ export const DEFAULT_ASIDE_TAB: AsideTab = "meetings";
  * The tabs a console shows, in order.
  *
  * Meetings is always there. Activity, and Note with a note clicked, lead
- * while the live map is open. Approvals needs this console to have an approvals
- * route to ask — `approvals` is false otherwise (the homepage, the demo) — and
- * something to ask about: an email, a calendar change, a new @handle or a
- * vault key's first use waiting for the person. With nothing waiting it is
- * absent (Dev2, 2026-10-17: the widening approvals are gone, and an empty tab
- * every day was the friction). `answered` keeps it while the person reads what
- * their last answer did, so the notice does not vanish under them. `failed`
- * keeps it when the list could not be read: that is not "nothing waiting",
- * and hiding it made a held change look like no change at all (2026-10-28).
+ * while the live map is open. Tex is there only where the owner's chat is
+ * open. Approvals is not a tab at all: the Tex chat answers them inline
+ * (owner, 2026-11-19: "no approvals tab, just make the approvals happen right
+ * inside the message box"), and the count of what is waiting rides on the Tex
+ * tab's label instead.
  */
 export function visibleAsideTabs({
-  approvals,
-  waiting,
-  answered = false,
-  failed = false,
   map = false,
   note = false,
   tex = false,
 }: {
-  approvals: boolean;
-  waiting: number;
-  answered?: boolean;
-  failed?: boolean;
   /** This console has a Tex chat to show: the owner of the personal workspace it has open. */
   tex?: boolean;
   /** The live map is open: its Activity tab leads. */
@@ -76,12 +67,10 @@ export function visibleAsideTabs({
   /** A note is clicked on the open map: its Note tab follows Activity. */
   note?: boolean;
 }): AsideTab[] {
-  const showApprovals = approvals && (waiting > 0 || answered || failed);
   return ASIDE_TABS.map((tab) => tab.key).filter((key) => {
     if (key === "activity") return map;
     if (key === "note") return map && note;
     if (key === "tex") return tex;
-    if (key === "approvals") return showApprovals;
     return true;
   });
 }

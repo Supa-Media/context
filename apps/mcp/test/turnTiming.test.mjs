@@ -134,3 +134,20 @@ test("a turn keeps prompt words within one budget for all its rounds, and a modu
   assert.deepEqual(kept.slice(1), [0, 0, 0], "a later round keeps nothing the first round skipped");
   assert.ok(timing.rounds.every((r) => r.prompt.modules.length === 9), "every module keeps its fingerprint");
 });
+
+// A held email's or calendar change's per-stage clock rides on its tool entry (`emailGate.js`): only the four named
+// stages, each a whole non-negative number; unknown keys, strings and negatives are dropped, and `stages` is omitted when none is left.
+test("a tool entry keeps its allowed numeric stages and drops the rest", () => {
+  const timing = turnTiming({
+    replyMs: 10,
+    trace: [
+      { kind: "tool", tool: "send_email", ok: true, at: 0, ms: 9000, held: true, stages: { checker: 1200.4, check: 310.6, read: 800, pending: 42, secret: 5, check2: "x" } },
+      { kind: "tool", tool: "calendar_event", ok: true, at: 1, ms: 20, held: true, stages: { check: -3, pending: "9" } },
+      { kind: "tool", tool: "calendar_event", ok: true, at: 2, ms: 20, held: true, stages: { check: Number.NaN, pending: Infinity } },
+    ],
+  });
+  const [email, badNumbers, nothingUsable] = timing.tools;
+  assert.deepEqual(email.stages, { checker: 1200, check: 311, read: 800, pending: 42 });
+  assert.equal("stages" in badNumbers, false, "strings and negatives are dropped, and the block is omitted when empty");
+  assert.equal("stages" in nothingUsable, false);
+});

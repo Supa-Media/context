@@ -13,7 +13,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
 
-import { fixtureText, normalizeRequest, knownFacts, openWorldStore, readFixtures, runMisses, saveFixtures, worldKey, worldMode } from "../bench/simFixtures.mjs";
+import { fixtureText, nearestFixture, requestLikeness, normalizeRequest, knownFacts, openWorldStore, readFixtures, runMisses, saveFixtures, saveRunFixtures, worldKey, worldMode } from "../bench/simFixtures.mjs";
 import { createSimWorld, simMemo } from "../bench/simWorld.mjs";
 
 /** A model that answers each call kind with `answers[kind]` (or with `answerFor(kind, request)`), counting what it was asked. */
@@ -233,4 +233,96 @@ test("benchSafe: a real-looking address moves onto an example domain, in the req
   assert.deepEqual(saved.request, { query: "from:paulo@gmail.example" });
   assert.equal(saved.key, worldKey("gmail search", { query: "from:paulo@gmail.example" }));
   assert.doesNotMatch(JSON.stringify(saved), /gmail\.com/);
+});
+
+test("a replay heals: a reworded call gets the nearest answer, a new one is asked once and saved, and the next run asks nothing", async () => {
+  // Training replays of one commit, 2026-11-19: 26 and 47 calls unrecorded, because Tex words a search differently each run.
+  const hotels = { results: [{ title: "Casa Alfama", url: "https://casaalfama.example", description: "Rooms from $140" }] };
+  const { send, asked } = scriptedSend({}, (kind, request) => (/hotel/i.test(request.query) ? hotels : { results: [] }));
+  const request = { query: "nonstop flights chicago lisbon june" };
+  const tree = mkdtempSync(join(tmpdir(), "sim-heal-"));
+  try {
+    const path = join(tree, "apps/mcp/bench/sets/sim/wedding.json");
+    mkdirSync(join(tree, "apps/mcp/bench/sets/sim"), { recursive: true });
+    mkdirSync(join(tree, "apps/mcp/bench/sets/dev"), { recursive: true });
+    writeFileSync(join(tree, "apps/mcp/bench/sets/dev/wedding.json"), "{}");
+    saveFixtures(path, "wedding", [{ kind: "web search", request, answer: FLIGHT }], "record");
+    const runOnce = async (runDir) => {
+      const store = openWorldStore({ fixtures: readFixtures(path), runDir, mode: "replay", test: "trip" });
+      const world = createSimWorld({ send, setting: "Lisbon", memo: simMemo(), store });
+      const flights = await world.search("Chicago to Lisbon nonstop flights in June");
+      const first = await world.search("hotels in alfama lisbon");
+      const reworded = await world.search("Alfama hotels, Lisbon");
+      return { world, store, flights, first, reworded };
+    };
+    const one = await runOnce(join(tree, "run1"));
+    assert.equal(one.flights[0].url, "https://harborair.example/fare", "the reworded search is answered from the recording");
+    assert.equal(one.first[0].url, "https://casaalfama.example");
+    assert.deepEqual(one.reworded, one.first, "a rewording of this run's new answer gets the same answer");
+    assert.equal(asked.length, 1, "only the call nothing was near asked the model");
+    assert.equal(one.store.misses().length, 1);
+
+    // The run saves what it asked, for a Training or Dev conversation only.
+    saveRunFixtures([{ id: "elsewhere", set: "test", runDir: join(tree, "run1") }, { id: "handed-in", set: "dev", runDir: join(tree, "run1") }], tree, "replay", () => {});
+    for (const id of ["elsewhere", "handed-in"]) assert.equal(existsSync(join(tree, `apps/mcp/bench/sets/sim/${id}.json`)), false, "never a conversation outside the repo's sets");
+    saveRunFixtures([{ id: "wedding", set: "dev", runDir: join(tree, "run1") }], tree, "replay", () => {});
+    assert.equal(readFixtures(path).size, 2);
+
+    const two = await runOnce(join(tree, "run2"));
+    assert.equal(asked.length, 1, "the healed world asked the model nothing");
+    assert.deepEqual(two.store.misses(), []);
+    assert.deepEqual(two.reworded, one.reworded);
+  } finally {
+    rmSync(tree, { recursive: true, force: true });
+  }
+});
+
+test("record and refresh ask the model for every wording: nothing is near outside a replay", async () => {
+  const { send, asked } = scriptedSend({ "web search": FLIGHT });
+  const request = { query: "chicago lisbon flights" };
+  const fixtures = new Map([[worldKey("web search", request), { key: worldKey("web search", request), kind: "web search", request, answer: FLIGHT }]]);
+  for (const mode of ["record", "refresh"]) {
+    const store = openWorldStore({ fixtures, mode });
+    assert.equal(store.near("web search", { query: "flights chicago lisbon" }), null);
+    await createSimWorld({ send, setting: "x", memo: simMemo(), store }).search("flights chicago lisbon");
+  }
+  assert.equal(asked.length, 2);
+});
+
+test("nearestFixture: same kind only, at least half alike, ties to the first key, never the request's own stop words", () => {
+  const entry = (kind, query, answer) => [worldKey(kind, { query }), { key: worldKey(kind, { query }), kind, request: { query }, answer }];
+  const fixtures = new Map([entry("web search", "alfama hotels", 1), entry("web search", "hotels alfama lisbon", 2), entry("gmail search", "alfama hotels booking", 3)]);
+  assert.equal(nearestFixture(fixtures, "web search", { query: "Hotels in Alfama" }).answer, 1);
+  assert.equal(nearestFixture(fixtures, "gmail search", { query: "alfama hotels" }).answer, 3, "the kind must match");
+  assert.equal(nearestFixture(fixtures, "web search", { query: "restaurants in alfama" }), null, "a third alike is not near");
+  assert.equal(requestLikeness({ query: "the of and" }, { query: "the of and" }), 0, "stop words alone match nothing");
+  assert.equal(nearestFixture(null, "web search", { query: "x" }), null);
+});
+
+test("worldHeal: a run's files merge into the fixtures, a committed answer stands, and only the repo's Training or Dev conversations are written", async () => {
+  const { healWorld } = await import("../bench/worldHeal.mjs");
+  const tree = mkdtempSync(join(tmpdir(), "sim-heal-tree-"));
+  const from = mkdtempSync(join(tmpdir(), "sim-heal-from-"));
+  try {
+    for (const [set, id] of [["training", "loose-ends"], ["dev", "wedding"]]) {
+      mkdirSync(join(tree, "apps/mcp/bench/sets", set), { recursive: true });
+      writeFileSync(join(tree, "apps/mcp/bench/sets", set, `${id}.json`), "{}");
+    }
+    mkdirSync(join(tree, "apps/mcp/bench/sets/sim"), { recursive: true });
+    const committed = join(tree, "apps/mcp/bench/sets/sim/loose-ends.json");
+    saveFixtures(committed, "loose-ends", [{ kind: "web search", request: { query: "a" }, answer: { results: [1] } }], "record");
+    const file = (id, answers) => writeFileSync(join(from, `${id}.json`), fixtureText(id, answers.map((a) => ({ key: worldKey(a.kind, a.request), ...a }))));
+    file("loose-ends", [{ kind: "web search", request: { query: "a" }, answer: { results: ["older run"] } }, { kind: "web search", request: { query: "b" }, answer: { results: [2] } }]);
+    file("wedding", [{ kind: "gmail search", request: { query: "rsvp" }, answer: { results: [] } }]);
+    file("sealed-one", [{ kind: "web search", request: { query: "x" }, answer: { results: [] } }]);
+    assert.deepEqual(healWorld(from, tree), { "loose-ends": 1, wedding: 1 });
+    const kept = readFixtures(committed);
+    assert.deepEqual(kept.get(worldKey("web search", { query: "a" })).answer, { results: [1] }, "the committed answer stands");
+    assert.equal(kept.size, 2);
+    assert.equal(existsSync(join(tree, "apps/mcp/bench/sets/sim/sealed-one.json")), false, "never a conversation outside the repo's sets");
+    assert.deepEqual(healWorld(from, tree), {}, "a second merge adds nothing");
+  } finally {
+    rmSync(tree, { recursive: true, force: true });
+    rmSync(from, { recursive: true, force: true });
+  }
 });

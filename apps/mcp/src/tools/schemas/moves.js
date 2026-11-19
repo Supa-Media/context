@@ -31,6 +31,10 @@ export function searchAndMoveToolDefinitions() {
             type: "string",
             description: "Optional folder prefix that narrows results to one subtree",
           },
+          boost: {
+            type: "string",
+            description: "Optional \"@name\": rank that workspace's notes first. Every workspace is still searched; it never narrows",
+          },
           from: { type: "string", description: "First day of a range, YYYY-MM-DD: every note line naming a day in it" },
           to: { type: "string", description: "Last day of the range, YYYY-MM-DD, at most 14 days after from" },
         },
