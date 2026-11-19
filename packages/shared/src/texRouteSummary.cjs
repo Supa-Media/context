@@ -33,8 +33,9 @@ function routeOf(row) {
  *   - `any`: whether the run has any fd row with a gold route or any route data (the Lab's "By route" block shows then).
  *   - `perRoute`: `[{ route, pass, total, usd, usdPerTurn }]` per gold route, then `untagged` (an fd row whose message has
  *     no gold route), over the fd rows that ran and are not ambiguous.
- *   - `router`: `{ right, total, confusion }`: over the router node's own rows (`route.pick`) and the fd rows that carry
- *     a `route.pick`, with a gold route. `confusion[gold][picked]`, picked in quick | read | act | job | none.
+ *   - `router`: `{ right, total, confusion }`: over the router node's own rows (`route.pick`) that ran, are not
+ *     ambiguous, and have a gold route. An fd row's pick is not the router's, so it is never counted here.
+ *     `confusion[gold][picked]`, picked in quick | read | act | job | none.
  *   - `fallback`: `{ fellBack, specialist, total }` over the fd rows with a route: `specialist` when the door was a
  *     specialist's (quick | read | act), `fellBack` when a specialist ran first and handed over (its reason is set).
  *   - `costPerTurn`: `{ usd, turns, perTurn }`: the spend of the fd rows that ran, over how many they are.
@@ -57,10 +58,11 @@ function routeSummary(rows, goldOf) {
   });
 
   const confusion = Object.fromEntries(ROUTES.map((g) => [g, Object.fromEntries(PICKS.map((p) => [p, 0]))]));
-  const routerRows = [
-    ...all.filter((row) => row?.node === "router" && row.ran !== false && row.ambiguous !== true),
-    ...counted.filter((row) => routeOf(row)),
-  ].filter((row) => typeof routeOf(row)?.pick === "string" && gold(row) !== null);
+  // The router's accuracy is its own node's rows only: an fd row's route pick is the front door's read of what the
+  // specialists did, not the router's pick, so it never counts here (it counts in `fallback`).
+  const routerRows = all
+    .filter((row) => row?.node === "router" && row.ran !== false && row.ambiguous !== true)
+    .filter((row) => typeof routeOf(row)?.pick === "string" && gold(row) !== null);
   for (const row of routerRows) {
     const picked = PICKS.includes(routeOf(row).pick) ? routeOf(row).pick : "none";
     confusion[gold(row)][picked] += 1;

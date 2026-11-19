@@ -140,6 +140,11 @@ export const texLabTables = {
     /** Which set's unit tests it runs: unset is Dev; "training" is the repo's Training set (Dev2, 2026-11-18). */
     set: v.optional(v.literal("training")),
     models: v.union(v.literal("gw"), v.literal("cc")),
+    /**
+     * How many times each Front door test ran (1 to 5, `texRunBand.cjs` repeatsOf; 3 by default). Unset on runs
+     * made before repeats: those ran once. The score is the mean over the repeats with its min..max band.
+     */
+    repeats: v.optional(v.number()),
     stage: v.union(v.literal("queued"), v.literal("running"), v.literal("done"), v.literal("failed")),
     ghRunUrl: v.optional(v.string()),
     /** A gate run's pull request. */

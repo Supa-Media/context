@@ -160,7 +160,7 @@ describe("running from the Lab", () => {
     expect(q("#labRun")?.textContent).toContain("1/2 right");
     click("#labRunDev");
     await tick();
-    expect(starts()).toEqual([{ versionId: "main", kind: "dev", models: "gw" }]);
+    expect(starts()).toEqual([{ versionId: "main", kind: "dev", models: "gw", repeats: 3 }]);
   });
 
   test("Testing's top bar is the Lab's: the version, the score and ▶ Run Dev set with the models in its menu", async () => {
@@ -172,7 +172,7 @@ describe("running from the Lab", () => {
     click('#runModels [data-models="cc"]');
     click("#labRunDev");
     await tick();
-    expect(starts()).toEqual([{ versionId: "main", kind: "dev", models: "cc" }]);
+    expect(starts()).toEqual([{ versionId: "main", kind: "dev", models: "cc", repeats: 3 }]);
     expect(q("#runsPanel")).not.toBeNull();
   });
 

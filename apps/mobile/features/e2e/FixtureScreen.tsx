@@ -24,6 +24,7 @@ import { TranscriptionConsentFixture } from "./TranscriptionConsentFixture";
 import { MoveNoticeFixture } from "./MoveNoticeFixture";
 import { SetupDoneFixture } from "./SetupDoneFixture";
 import { TexPageFixture } from "./TexPageFixture";
+import { TexChatFixture } from "./TexChatFixture";
 import { HistoryFileFixture } from "./HistoryFileFixture";
 
 /**
@@ -118,6 +119,8 @@ export function FixtureScreen({ params }: { params: FixtureParams }) {
   if (first(params.screen) === "setup-done") return <SetupDoneFixture />;
   if (first(params.screen) === "history-file") return <HistoryFileFixture phone={first(params.at) === "phone"} />;
   if (first(params.screen) === "tex-page") return <TexPageFixture params={params as Record<string, string | string[] | undefined>} />;
+  // The console frame with the right panel on the Tex tab, fed by a local fake chat. See its own header.
+  if (first(params.screen) === "tex-chat") return <TexChatFixture params={params as Record<string, string | string[] | undefined>} />;
   // The phone check; `at=code` opens on the code step. Nothing is sent until a button is pressed.
   if (first(params.screen) === "phone-check") {
     return (

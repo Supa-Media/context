@@ -32,6 +32,7 @@ import {
   askLine,
   linkPhone,
   openGatewaySession,
+  openAppSession,
   openSession,
   requestLinkInvite,
   ServiceError,
@@ -55,6 +56,7 @@ import type { JobSaid, JobSteerAsk, RunningJob, StartedJob } from "./jobs";
 import { crossFields, type CrossAsk, type CrossBack } from "./crossChat";
 import type { Inbound } from "./inbound";
 import type { WarmDeps } from "./warm";
+import { appUserOf, namesAppChat } from "./appChat";
 
 /**
  * One text to answer. `channel` is set only by the staging simulator, whose
@@ -66,6 +68,8 @@ import type { WarmDeps } from "./warm";
 export type Message = Extract<Inbound, { kind: "message" }> & { channel?: "simulator"; setting?: true; askYes?: true };
 
 export type ReplyDeps = {
+  /** The app chat id this chat object is, when the gateway placed it for the Context app (`env.ts` `APP_CHAT`). */
+  appChat?: string;
   /** Tex asks Tex across chats (`crossChat.ts`), once the config wires the gate: what this chat holds of its asks, and where its asks and an ask-run's answer go. */
   crossCounts?: { hour: number; day: number; open: string[] };
   onCrossAsks?: (asks: CrossAsk[]) => Promise<void>;
@@ -173,6 +177,19 @@ async function textSession(phone: string, deps: ReplyDeps): Promise<SessionAnswe
   return slow;
 }
 
+/**
+ * The session a turn runs as. An app chat (`appChat.ts`) asks the control plane by its user id, with no person object
+ * kept for it; a text asks by phone (`textSession`). An app chat id that names no user, or that reaches any object but
+ * the one the gateway placed for it (`deps.appChat`), has no session at all.
+ */
+async function sessionOf(message: Message, deps: ReplyDeps): Promise<SessionAnswer> {
+  if (!namesAppChat(message.chatId)) return textSession(message.from, deps);
+  // Only the object the gateway placed for this app chat runs as its user: an `app:` id any other way names nobody.
+  const userId = deps.appChat === message.chatId ? appUserOf(message.chatId) : null;
+  if (userId === null) return { status: "unlinked" };
+  return openAppSession(deps.fetch, deps.controlPlaneOrigin, deps.workerSecret, userId);
+}
+
 /** Thrown, with `retry`, when nothing ran and the text can be answered again later. */
 /**
  * Whether a 1:1 turn that did not answer is tried again (`inbox.ts`, up to `MAX_ANSWER_ATTEMPTS`). A refusal
@@ -244,7 +261,9 @@ export async function replyTo(message: Message, deps: ReplyDeps): Promise<string
 
 async function answer(message: Message, deps: ReplyDeps): Promise<string | string[]> {
   try {
-    const code = message.sms ? null : linkCode(message.text);
+    // An app chat is no phone: no link, unlink, setup, SMS or sharing-by-phone word applies to it (`appChat.ts`).
+    const app = namesAppChat(message.chatId);
+    const code = message.sms || app ? null : linkCode(message.text);
     if (code) {
       const linked = await linkPhone(
         deps.fetch,
@@ -256,13 +275,13 @@ async function answer(message: Message, deps: ReplyDeps): Promise<string | strin
       return linked.status === "linked" ? COPY.linked(linked.handle) : COPY.linkRefused;
     }
 
-    if (!message.sms && UNLINK_COMMAND.test(message.text)) {
+    if (!message.sms && !app && UNLINK_COMMAND.test(message.text)) {
       const result = await unlinkPhone(deps.fetch, deps.controlPlaneOrigin, deps.workerSecret, message.from);
       return result === "unlinked" ? COPY.unlinkDone : COPY.unlinkNothing;
     }
 
     const lookup = Date.now();
-    const session = await textSession(message.from, deps).catch((error) => {
+    const session = await sessionOf(message, deps).catch((error) => {
       throw deps.retry && error instanceof ServiceError ? new TryLater() : error;
     });
     deps.onStage?.("session");
@@ -270,6 +289,8 @@ async function answer(message: Message, deps: ReplyDeps): Promise<string | strin
     // Nobody texted a save's turn (`vaultWatch.ts`): a phone unlinked since is told nothing.
     if (message.event !== undefined && session.status === "unlinked") return [];
     if (session.status === "unlinked") {
+      // An app chat's unlinked answer is nothing to text: the app shows its own sign-in (`appChat.ts`).
+      if (app) return [];
       // Nothing but one word of the text goes, and no model runs before a link.
       const setup = await textSetup(
         deps.fetch,
@@ -293,7 +314,7 @@ async function answer(message: Message, deps: ReplyDeps): Promise<string | strin
     if (message.sms) return COPY.sms;
     // How Tex talks changes only by asking it in words (`tex_instructions_set`); the "Tex, settings" menu is retired (2026-11-11).
     // "Tex, share my chats with the devs", or stop: the person's own words, never the model's (`reviewSharing.ts`).
-    const sharing = message.event ? null : sharingWords(message.text);
+    const sharing = message.event || app ? null : sharingWords(message.text);
     if (sharing !== null) {
       const answer = await saveReviewSharing(deps.fetch, deps.controlPlaneOrigin, deps.workerSecret, message.from, sharing);
       const backfill = sharing === "on" && answer?.status === "ok" && answer.changed && deps.onShared !== undefined;

@@ -245,13 +245,22 @@ function workerStepEntry({ id, at, turn, step }) {
   return { ...entry, id: `ev${String(id).replace(/[^0-9A-Za-z]/g, "")}`, eid: id };
 }
 
-/** A chat event (`log.js` shape) as a `text` entry; its id is the event's, so the same event is kept once. */
+/**
+ * A chat event (`log.js` shape) as a `text` entry; its id is the event's, so the same event is kept once. An event
+ * from the Context app's own chat with Tex (chat `app:<userId>`, `apps/agent/src/appChat.ts`) is marked `via: "app"`:
+ * the app shows only its own chat (Dev2, 2026-11-19: "like whatsapp its own thing, but it can see the same history"),
+ * while every reader of the person's one record, Tex's history included, reads both.
+ */
 export function eventEntry(event) {
   if (event?.kind === "step") return workerStepEntry(event);
-  const { id, at, chat: _chat, kind: eventKind, text, ...rest } = event ?? {};
+  const { id, at, chat, kind: eventKind, text, ...rest } = event ?? {};
   const kept = cutText(text ?? "", MAX_WORDS_CHARS);
-  return { v: 1, id: `ev${String(id).replace(/[^0-9A-Za-z]/g, "")}`, eid: id, at, kind: "text", event: eventKind, ...rest, text: kept.text, ...(kept.cut !== undefined ? { cut: kept.cut } : {}) };
+  const via = typeof chat === "string" && chat.startsWith(APP_CHAT_PREFIX) ? { via: "app" } : {};
+  return { v: 1, id: `ev${String(id).replace(/[^0-9A-Za-z]/g, "")}`, eid: id, at, kind: "text", event: eventKind, ...rest, ...via, text: kept.text, ...(kept.cut !== undefined ? { cut: kept.cut } : {}) };
 }
+
+/** The chat id prefix of the Context app's chat with Tex (`apps/agent/src/appChat.ts` `APP_CHAT_PREFIX`). */
+export const APP_CHAT_PREFIX = "app:";
 
 /**
  * The ledgers in one owner's Tex object (`{person: workspaceId}` or `{chat:

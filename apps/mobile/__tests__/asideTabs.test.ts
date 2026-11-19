@@ -87,8 +87,8 @@ describe("the catalogue", () => {
     chat from the sidebar entirely"). Visibility is decided by
     `visibleAsideTabs`, not by this list.
   */
-  test("the map's two tabs lead (only while it is open), then Meetings, and no Chat", () => {
-    expect(ASIDE_TABS.map((tab) => tab.key)).toEqual(["activity", "note", "meetings", "approvals"]);
+  test("the map's two tabs lead (only while it is open), then Meetings, then Tex, and no in-app agent", () => {
+    expect(ASIDE_TABS.map((tab) => tab.key)).toEqual(["activity", "note", "meetings", "tex", "approvals"]);
     expect(ASIDE_TABS.map((tab) => tab.label)).not.toContain("Chat");
   });
 
@@ -134,6 +134,12 @@ describe("which tabs a console shows", () => {
 
   test("Approvals is absent while nothing is waiting", () => {
     expect(visibleAsideTabs({ approvals: true, waiting: 0 })).toEqual(["meetings"]);
+  });
+
+  test("Tex sits right after Meetings, and only where the owner's chat is open", () => {
+    expect(visibleAsideTabs({ approvals: false, waiting: 0, tex: true })).toEqual(["meetings", "tex"]);
+    expect(visibleAsideTabs({ approvals: true, waiting: 1, tex: true })).toEqual(["meetings", "tex", "approvals"]);
+    expect(visibleAsideTabs({ approvals: false, waiting: 0 })).toEqual(["meetings"]);
   });
 
   test("an answer just given keeps the tab until the person leaves it", () => {

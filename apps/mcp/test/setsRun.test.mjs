@@ -23,7 +23,7 @@ import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
-import { adaptersFor, countsLine, decideCase, decideRight, lineOf, reviewerCase, reviewerRight, routeCase, routeRight, routeTraining, runSets, setsCommand } from "../bench/setsRun.mjs";
+import { adaptersFor, countsLine, decideCase, decideRight, lineOf, reviewerCase, reviewerRight, routeCase, routeRight, routeTraining, runSets, scoreByRepeat, setsCommand } from "../bench/setsRun.mjs";
 import { runFd } from "../bench/setsFd.mjs";
 import { openWorldStore, worldKey } from "../bench/simFixtures.mjs";
 import { worldLine, worldMisses } from "../bench/setsRun.mjs";
@@ -230,6 +230,18 @@ test("countsLine has counts by node, the cost, and never a message's words", () 
   const line = countsLine(rows);
   assert.equal(line, "decide 1/2 · fd 0/1 (1 can't run alone) · $0.0010");
   assert.doesNotMatch(line, /secret|ally|front door|zebrafish/);
+});
+
+test("countsLine adds the live door count from the front door's route records; the router count is its own rows", () => {
+  const rows = [
+    { chat: "c", msg: "m1", node: "fd", right: true, ran: true, usd: 0, route: { door: "quick", pick: "quick" } },
+    { chat: "c", msg: "m2", node: "fd", right: false, ran: true, usd: 0, route: { door: "fd", pick: "none" } },
+    { chat: "c", msg: "m3", node: "fd", right: false, ran: true, usd: 0, route: { door: "read", pick: "read", fellBack: "x" } },
+    { chat: "c", msg: "m4", node: "router", right: true, ran: true, usd: 0, route: { pick: "read" } },
+  ];
+  assert.equal(countsLine(rows), "fd 1/3 · router 1/1 · doors 2/3 specialist (1 fell back) · $0.0000");
+  assert.equal(countsLine(rows.slice(0, 1).concat(rows.slice(3))), "fd 1/1 · router 1/1 · doors 1/1 specialist (0 fell back) · $0.0000");
+  assert.doesNotMatch(countsLine(rows.slice(3)), /doors/, "no fd rows with a route: no doors part");
 });
 
 test("setsCommand runs a file of conversations and writes the rows to --out; stdout is counts only", async () => {
@@ -447,6 +459,108 @@ test("a tree without the router module says so on each row instead of passing it
     assert.equal(rows.length, 3);
     assert.ok(rows.every((r) => r.ran === false && r.right === false && /can't run alone yet/.test(r.why)));
   } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
+test("runSets sends each Front door test `repeats` times, each copy its own object with its rep, and runs the other nodes once (Dev2, 2026-11-19)", async () => {
+  const c = conv("rep1", [
+    { id: "m1", who: "Ann", text: "what time is it?", labels: { fd: { must: ["answers the time"], star: true } } },
+    { id: "m2", who: "Ann", text: "and tomorrow?", labels: { fd: { never: ["asks again"], star: true }, decide: { act: "respond", star: true } } },
+  ]);
+  const units = [];
+  const decided = [];
+  const adapters = {
+    fd: {
+      batch: async (list) => {
+        units.push(...list);
+        return list.map((u) => ({ ...u.row, right: true, ran: true, usd: 0.01 }));
+      },
+    },
+    decide: async () => (cc, i) => {
+      decided.push(cc.msgs[i].id);
+      return { right: true, ran: true, usd: 0.001 };
+    },
+  };
+  const rows = await runSets([c], { adapters, tree: "/x", repeats: 3 });
+  assert.equal(units.length, 6, "two Front door tests, three repeats each");
+  assert.deepEqual(units.map((u) => [u.at, u.row.rep]), [[0, 0], [0, 1], [0, 2], [1, 0], [1, 1], [1, 2]]);
+  assert.equal(new Set(units.map((u) => u.row)).size, 6, "each copy's row is its own object");
+  assert.deepEqual(rows.filter((r) => r.node === "fd").map((r) => r.rep), [0, 1, 2, 0, 1, 2]);
+  assert.deepEqual(decided, ["m2"], "decide runs once, whatever the repeats");
+  assert.equal("rep" in rows.find((r) => r.node === "decide"), false, "a node that runs once carries no rep");
+});
+
+test("scoreByRepeat reads repeated rows as per-repeat pass counts: a repeat that did not run falls back to the test's rate, and a test that never ran is left out", () => {
+  const rows = [
+    // A: 2 of 3 repeats right; B: 0 of 3; D: a decide test right once, which counts at every repeat.
+    { chat: "a", at: 1, node: "fd", rep: 0, right: true, ran: true },
+    { chat: "a", at: 1, node: "fd", rep: 1, right: false, ran: true },
+    { chat: "a", at: 1, node: "fd", rep: 2, right: true, ran: true },
+    { chat: "b", at: 2, node: "fd", rep: 0, right: false, ran: true },
+    { chat: "b", at: 2, node: "fd", rep: 1, right: false, ran: true },
+    { chat: "b", at: 2, node: "fd", rep: 2, right: false, ran: true },
+    { chat: "a", at: 3, node: "decide", right: true, ran: true },
+  ];
+  const s = scoreByRepeat(rows);
+  assert.equal(s.repeats, 3);
+  assert.deepEqual(s.perRepeat, [2, 1, 2], "rep 0: A and D right; rep 1: D only; rep 2: A and D");
+  assert.deepEqual([s.score.mean, s.score.min, s.score.max, s.score.total, s.score.repeats], [1.67, 1, 2, 3, 3]);
+  assert.deepEqual(s.tests.map((t) => [t.node, t.runs, t.passes]), [["fd", 3, 2], ["fd", 3, 0], ["decide", 1, 1]]);
+  assert.deepEqual(scoreByRepeat(rows.filter((r) => r.node === "fd")).score.total, 2, "a node's band is read on its own rows");
+
+  // E ran at repeats 0 and 2 only (rate 0.5); F never ran, so it is no test at all.
+  const more = [
+    { chat: "e", at: 0, node: "fd", rep: 0, right: true, ran: true },
+    { chat: "e", at: 0, node: "fd", rep: 1, right: false, ran: false },
+    { chat: "e", at: 0, node: "fd", rep: 2, right: false, ran: true },
+    { chat: "f", at: 0, node: "fd", rep: 0, right: false, ran: false },
+    { chat: "f", at: 0, node: "fd", rep: 1, right: false, ran: false },
+    { chat: "f", at: 0, node: "fd", rep: 2, right: false, ran: false },
+  ];
+  const e = scoreByRepeat(more);
+  assert.deepEqual(e.perRepeat, [1, 0.5, 0], "repeat 1 did not run: E counts its rate, 1 of 2");
+  assert.deepEqual([e.score.mean, e.score.min, e.score.max, e.score.total], [0.5, 0, 1, 1]);
+  assert.deepEqual(e.tests.map((t) => t.chat), ["e"]);
+});
+
+test("countsLine shows a repeated node's band over its repeats beside its count, and the cost is still every row's", () => {
+  const rows = [0, 1, 2].flatMap((rep) => [0, 1, 2].map((u) => ({ chat: "c", at: u, node: "fd", rep, right: rep === 0 || (rep === 2 && u < 2), ran: true, usd: 0.01 })));
+  // Per repeat the passes are 3, 0 and 2 of 3 tests: a band of 0 to 3, the count 5 of 9.
+  assert.equal(countsLine(rows), "fd 5/9 (0–3 over 3 repeats) · $0.0900");
+  assert.equal(countsLine(rows.filter((r) => r.rep === 0)), "fd 3/3 · $0.0300", "one repeat has no band");
+});
+
+test("setsCommand refuses a repeat count that is not 1 to 5, a bare --repeat, and a bad TEX_SETS_REPEAT, before it reads a file", async () => {
+  const usage = /usage: sets run .*--repeat takes a whole number from 1 to 5 \(default 3\)/s;
+  await assert.rejects(setsCommand("run", { repeat: "6", conversations: "/nope.json" }, { write() {} }), usage);
+  await assert.rejects(setsCommand("run", { repeat: "0", conversations: "/nope.json" }, { write() {} }), /got "0"/);
+  await assert.rejects(setsCommand("run", { repeat: "2.5", conversations: "/nope.json" }, { write() {} }), usage);
+  await assert.rejects(setsCommand("run", { repeat: true, conversations: "/nope.json" }, { write() {} }), usage, "a bare --repeat is not 1");
+  await assert.rejects(setsCommand("run", { repeat: undefined, conversations: "/nope.json" }, { write() {} }), usage, "a flag with no value is not the default");
+  const was = process.env.TEX_SETS_REPEAT;
+  process.env.TEX_SETS_REPEAT = "9";
+  try {
+    await assert.rejects(setsCommand("run", { conversations: "/nope.json" }, { write() {} }), usage, "the environment's value is checked too");
+  } finally {
+    if (was === undefined) delete process.env.TEX_SETS_REPEAT;
+    else process.env.TEX_SETS_REPEAT = was;
+  }
+});
+
+test("a fake run never says it ran on Claude Code, even with a model socket set", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "sets-run-test-"));
+  const was = process.env.BENCH_MODEL_SOCKET;
+  try {
+    const input = join(dir, "convs.json");
+    await writeFile(input, JSON.stringify([conv("fk", [{ id: "m1", who: "Ann", text: "hi", labels: { decide: { act: "respond", star: true } } }])]));
+    process.env.BENCH_MODEL_SOCKET = dir;
+    const printed = [];
+    await setsCommand("run", { conversations: input, tree: REPO_ROOT, fake: true }, { write: (t) => printed.push(t) });
+    assert.doesNotMatch(printed.join(""), /Models: Claude Code/);
+  } finally {
+    if (was === undefined) delete process.env.BENCH_MODEL_SOCKET;
+    else process.env.BENCH_MODEL_SOCKET = was;
     await rm(dir, { recursive: true, force: true });
   }
 });

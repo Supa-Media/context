@@ -30,7 +30,7 @@ import { PRODUCTION_HOUSEKEEPING_PATH, frontOf, parseSetup } from "../src/agent/
 import { MODULE_FOLDER, assembleSetup } from "../src/agent/promptModules.js";
 import { sentPicturesLine } from "../src/agent/outgoingPictures.js";
 import { expandWorkspaces, readBenchFolder, runnableQuestions } from "./load.mjs";
-import { cachedEmbeddings, claudeTransport, fakeAi, playPerson } from "./models.mjs";
+import { claudeTransport, playPerson } from "./models.mjs";
 import { prepareRun } from "./warm.mjs";
 import { judgeCommand } from "./judge.mjs";
 import { scoreCommand } from "./score.mjs";
@@ -41,7 +41,7 @@ import { respondCommand } from "./respond.mjs";
 import { ROLES as ADVISOR_ROLES, advisorCommand } from "./advisor.mjs";
 import { gateCommand } from "./replayGate.mjs";
 import { labCommand } from "./lab.mjs";
-import { LAB_REAL_ENV, assertAnswered, labAi, modelSocket, socketAi, socketCommand, socketSend } from "./modelSocket.mjs";
+import { assertAnswered, modelSocket, socketCommand, socketSend } from "./modelSocket.mjs";
 import { nightlyCommand } from "./nightly.mjs";
 import { driftCommand } from "./drift.mjs";
 import { jobstartCommand } from "./jobstart.mjs";
@@ -60,6 +60,7 @@ import { keyMarkdown, keyPathFor, resultMarkdown } from "./report.mjs";
 import { createWorld } from "./world.mjs";
 import { addSpend, deliverInto } from "./jobDelivery.mjs";
 import { simMemo, simulateFor } from "./simWorld.mjs";
+import { worldAi } from "./worldAi.mjs";
 import { benchPicture } from "./earlierPictures.mjs";
 import { filedNotes } from "./checks.mjs";
 import { realNow } from "./clock.mjs";
@@ -410,9 +411,8 @@ async function answerJobs(options, { bench, test, testName = options.test ?? opt
   }
   const models = benchModels(options, { scripted, socketed, sites: bench.sites, send });
   if (socketed) {
-    // Workers AI (the embeddings for search by meaning, Clef) answers with the scripted stand-in: the examiner session
-    // holds no Cloudflare key, and a real model's numbers would differ live and replayed and change what the turn reads.
-    models.ai = socket.covers("workers-ai") && process.env[LAB_REAL_ENV] ? labAi(socketAi(socket), cachedEmbeddings(fakeAi())) : cachedEmbeddings(fakeAi());
+    // Workers AI (Clef, the embeddings): the stand-in where a request must replay the same, else real (`worldAi.mjs`).
+    models.ai = worldAi({ socket, socketed, currentAi: models.ai, env: process.env });
     delete models.searchKey;
     models.offlineWeb = !scripted;
   }

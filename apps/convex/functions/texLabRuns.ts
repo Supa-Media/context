@@ -24,6 +24,7 @@ import { internal } from "../_generated/api";
 import type { Doc, Id } from "../_generated/dataModel";
 import { internalAction, internalQuery, query, type MutationCtx, type QueryCtx } from "../_generated/server";
 import { requireAdmin } from "./lib/admin";
+import { bandVerdict, DEFAULT_REPEATS, fidelityOf, repeatsOf } from "@context/shared/src/texRunBand.cjs";
 import { handleForUser } from "./lib/identities";
 import { internalMutation, mutation } from "./lib/rowWatch/mutations";
 
@@ -91,6 +92,21 @@ const stageV = v.union(v.literal("queued"), v.literal("running"), v.literal("don
 const num = (x: unknown) => (typeof x === "number" && Number.isFinite(x) ? x : 0);
 const str = (x: unknown, n = 80) => (typeof x === "string" ? x.slice(0, n) : "");
 
+/** A run's score as the band reads it (`texRunBand.cjs` bandOf), cleaned to numbers; absent when it has none. */
+function scoreOf(x: unknown) {
+  if (!x || typeof x !== "object" || typeof (x as { mean?: unknown }).mean !== "number") return undefined;
+  const s = x as Record<string, unknown>;
+  return { mean: num(s.mean), min: num(s.min), max: num(s.max), lo: num(s.lo), hi: num(s.hi), repeats: num(s.repeats), total: num(s.total) };
+}
+
+/** A perNode or perConv entry's min and max repeat, when it has them. */
+function bandOfEntry(c: Record<string, unknown>) {
+  return {
+    ...(typeof c.min === "number" && Number.isFinite(c.min) ? { min: num(c.min) } : {}),
+    ...(typeof c.max === "number" && Number.isFinite(c.max) ? { max: num(c.max) } : {}),
+  };
+}
+
 /** A workflow's results as the Lab reads them: numbers, ids, each verdict's short got/want and a miss's detail, nothing else. */
 /** A run's hand-off spend, cleaned (`cleanResults`). */
 function handoffOf(x: unknown) {
@@ -127,8 +143,15 @@ export function cleanResults(r: unknown) {
   const o = (r && typeof r === "object" ? r : {}) as Record<string, unknown>;
   const list = (x: unknown) => (Array.isArray(x) ? x.slice(0, MAX_ROWS) : []) as Record<string, unknown>[];
   return {
+    // `pass` is the mean over the repeats when a run repeated its tests, so it may be fractional (num keeps it).
     pass: num(o.pass),
     total: num(o.total),
+    // Repeats of each Front door test, and the score as a mean with its min..max band (`texRunBand.cjs`).
+    ...(typeof o.repeats === "number" && Number.isFinite(o.repeats) ? { repeats: num(o.repeats) } : {}),
+    ...(scoreOf(o.score) !== undefined ? { score: scoreOf(o.score) } : {}),
+    // The run's fidelity label (`texRunBand.cjs` fidelityOf): a cc run is only the model family's.
+    ...(typeof o.fidelity === "string" ? { fidelity: str(o.fidelity, 40) } : {}),
+    ...(typeof o.fidelityWhy === "string" ? { fidelityWhy: str(o.fidelityWhy, 300) } : {}),
     costUsd: Math.round(num(o.costUsd) * 10_000) / 10_000,
     // The handed-off jobs' share of the run (`scripts/tex-lab-run.mjs` handoffOf): jobs, parts, advisor calls, spend.
     handoff: handoffOf(o.handoff),
@@ -139,8 +162,8 @@ export function cleanResults(r: unknown) {
     valid: o.valid !== false && num(o.fallbacks) === 0,
     ...(o.valid === false || num(o.fallbacks) > 0 ? { invalid: str(o.invalid, 200) || "a Claude call fell back to another model" } : {}),
     ms: num(o.ms),
-    perConv: list(o.perConv).map((c) => ({ id: str(c.id), pass: num(c.pass), total: num(c.total) })),
-    perNode: list(o.perNode).map((c) => ({ node: str(c.node, 40), pass: num(c.pass), total: num(c.total) })),
+    perConv: list(o.perConv).map((c) => ({ id: str(c.id), pass: num(c.pass), total: num(c.total), ...bandOfEntry(c) })),
+    perNode: list(o.perNode).map((c) => ({ node: str(c.node, 40), pass: num(c.pass), total: num(c.total), ...bandOfEntry(c) })),
     // Rows that could not run, and ambiguous rows (an fd label whose own gold reply fails), each beside the score and out of
     // it (`scripts/tex-lab-run.mjs` resultsOf). goldFails is the count of such labels, null when the run had no gold report.
     couldNotRun: list(o.couldNotRun).map((c) => ({ convId: str(c.convId), msgIndex: num(c.msgIndex), node: str(c.node, 40), why: str(c.why, 200) })),
@@ -161,6 +184,8 @@ export function cleanResults(r: unknown) {
       // The row's route (`scripts/tex-lab-run.mjs` routeOf) and its cost, so cost per turn and the route summary read it.
       ...(routeOf(x.route) !== undefined ? { route: routeOf(x.route) } : {}),
       ...(typeof x.usd === "number" && Number.isFinite(x.usd) ? { usd: num(x.usd) } : {}),
+      // A row's repeats: how many runs it had and how many passed (passes may be 0: a row that failed every repeat).
+      ...(num(x.runs) > 0 && typeof x.passes === "number" && Number.isFinite(x.passes) ? { runs: num(x.runs), passes: num(x.passes) } : {}),
     })),
   };
 }
@@ -181,6 +206,9 @@ const shown = async (ctx: QueryCtx, r: Run, names = new Map<string, string>()) =
     convId: r.convId ?? null,
     nodeId: r.nodeId ?? null,
     models: r.models,
+    // Old runs ran once (no repeats stored); a run's fidelity follows its models (`texRunBand.cjs` fidelityOf).
+    repeats: r.repeats ?? 1,
+    fidelity: fidelityOf(r.models),
     stage: r.stage,
     ghRunUrl: r.ghRunUrl ?? null,
     pr: r.pr ?? null,
@@ -194,6 +222,24 @@ const shown = async (ctx: QueryCtx, r: Run, names = new Map<string, string>()) =
     error: r.error ?? null,
   };
 };
+
+/** The fields `vsBase` reads: a run as `shown` gives it (`id`, `set` defaulting to "dev"). */
+type RunLike = { id: string; versionId: string; kind: string; set?: string | null; models: string; stage: string; startedAt: number; results?: unknown };
+
+/**
+ * A draft's finished Dev run against main's newest finished Dev run on the same models and set: `bandVerdict` on their
+ * results, so a draft "wins" only when its worst repeat beats main's best. Null for main's runs and for runs that are
+ * not finished Dev runs (a chat or node run is a part of the set, never compared with the whole).
+ */
+export function vsBase(run: RunLike, baseRuns: RunLike[]): { verdict: string; why: string; baseRunId: string | null } | null {
+  if (run.versionId === "main" || run.kind !== "dev" || run.stage !== "done") return null;
+  const set = run.set ?? "dev";
+  const base = baseRuns
+    .filter((b) => b.versionId === "main" && b.kind === "dev" && b.stage === "done" && b.models === run.models && (b.set ?? "dev") === set)
+    .sort((a, b) => b.startedAt - a.startedAt)[0];
+  if (!base) return { verdict: "no base", why: `main has no finished Dev run on ${run.models} for the ${set} set`, baseRunId: null };
+  return { ...bandVerdict(run.results ?? null, base.results ?? null), baseRunId: base.id };
+}
 
 export async function listRuns(ctx: QueryCtx, versionId: string | null) {
   const rows =
@@ -242,10 +288,12 @@ export async function startRun(ctx: MutationCtx, who: Who, a: Record<string, unk
   const versionId = typeof a.versionId === "string" ? a.versionId : "";
   const kind = a.kind as Kind;
   const models = a.models === undefined ? "gw" : a.models;
+  const repeats = repeatsOf(a.repeats);
   if (!VERSION.test(versionId)) return { status: "bad_request", error: "versionId is main or a draft's id (v…)" };
   if (a.kind === "gate") return { status: "bad_request", error: "a gate run starts with Promote, never on its own" };
   if (!KINDS.includes(kind)) return { status: "bad_request", error: "kind is dev, chat or node" };
   if (models !== "gw" && models !== "cc") return { status: "bad_request", error: "models is gw (the AI gateway) or cc (Claude Code)" };
+  if (repeats === null) return { status: "bad_request", error: "repeats is 1 to 5 (each Front door test runs that many times; 3 by default)" };
   const convId = kind === "chat" ? a.convId : undefined;
   const nodeId = kind === "node" ? a.nodeId : undefined;
   // Training is the repo's Training set (Dev2, 2026-11-18: "prove it on Training ... a scored Lab Training run").
@@ -278,6 +326,7 @@ export async function startRun(ctx: MutationCtx, who: Who, a: Record<string, unk
     ...(typeof nodeId === "string" ? { nodeId } : {}),
     ...(set ? { set } : {}),
     models,
+    repeats,
     ...(code ? { code } : {}),
     stage: "queued",
     by: who.userId,
@@ -333,7 +382,7 @@ export async function promoteAnswered(ctx: MutationCtx, versionId: string, pr: s
 // ── The Lab's door ────────────────────────────────────────────────────────
 
 export const start = mutation({
-  args: { versionId: v.string(), kind: v.string(), convId: v.optional(v.string()), nodeId: v.optional(v.string()), models: v.optional(v.string()), code: v.optional(v.string()), set: v.optional(v.string()) },
+  args: { versionId: v.string(), kind: v.string(), convId: v.optional(v.string()), nodeId: v.optional(v.string()), models: v.optional(v.string()), repeats: v.optional(v.number()), code: v.optional(v.string()), set: v.optional(v.string()) },
   returns: v.object({ runId: v.id("texLabRuns") }),
   handler: async (ctx, a) => {
     const actor = await requireAdmin(ctx);
@@ -405,7 +454,7 @@ export const get = query({
 /** `tex_dev` `run` and `runs`; null for any other action. */
 export async function runAction(ctx: MutationCtx, who: Who, action: string, a: Record<string, unknown>, now: number): Promise<Record<string, unknown> | null> {
   if (action === "run") {
-    const answer = await startRun(ctx, who, { versionId: a.draft, kind: a.kind, convId: a.conv, nodeId: a.node, models: a.models, code: a.code, set: a.set }, now);
+    const answer = await startRun(ctx, who, { versionId: a.draft, kind: a.kind, convId: a.conv, nodeId: a.node, models: a.models, repeats: a.repeats, code: a.code, set: a.set }, now);
     return answer.status === "ok" ? { status: "ok", id: answer.runId } : answer.status === "not_found" ? { status: "not_found" } : { status: "bad_request", error: answer.error };
   }
   if (action === "code") return await setDraftCode(ctx, a.draft, a.code, now);
@@ -417,7 +466,14 @@ export async function runAction(ctx: MutationCtx, who: Who, action: string, a: R
     }
     const draft = typeof a.draft === "string" ? a.draft : null;
     // The list leaves out each run's rows; `runs { id }` gives one whole.
-    const runs = (await listRuns(ctx, draft)).map(({ results, ...r }) => ({ ...r, results: results ? { ...results, rows: undefined, perConv: undefined } : null }));
+    const listed = await listRuns(ctx, draft);
+    // A draft's runs read against main's newest Dev runs (`vsBase`), taken before each row's results are cut short.
+    const baseRuns = draft !== null && draft !== "main" ? await listRuns(ctx, "main") : [];
+    const runs = listed.map(({ results, ...r }) => ({
+      ...r,
+      vsMain: draft !== null && draft !== "main" ? vsBase({ ...r, results }, baseRuns) : null,
+      results: results ? { ...results, rows: undefined, perConv: undefined } : null,
+    }));
     return { status: "ok", runs };
   }
   return null;
@@ -442,7 +498,7 @@ export const job = internalQuery({
     // Every draft conversation: a Dev draft is run in place of its repo copy; a repo Dev conversation moved to
     // Training or removed in the Lab is left out. Training drafts carry only their id and set.
     const drafts = (await ctx.db.query("texSetConvos").collect()).map((d) => ({ id: d.convoId, set: d.set, removed: d.removed, ...(d.set === "dev" && !d.removed ? { conv: d.data } : {}) }));
-    return { id: r._id, versionId: r.versionId, kind: r.kind, set: r.set ?? "dev", convId: r.convId ?? null, nodeId: r.nodeId ?? null, models: r.models, code: r.code ?? null, graph: draft?.graph ?? null, drafts };
+    return { id: r._id, versionId: r.versionId, kind: r.kind, set: r.set ?? "dev", convId: r.convId ?? null, nodeId: r.nodeId ?? null, models: r.models, repeats: r.repeats ?? DEFAULT_REPEATS, code: r.code ?? null, graph: draft?.graph ?? null, drafts };
   },
 });
 

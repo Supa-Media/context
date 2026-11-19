@@ -624,6 +624,7 @@ test/texDevLab.test.mjs
 test/texDevCases.test.mjs
 test/texDevSets.test.mjs
 test/texDevRuns.test.mjs
+test/texRunBand.test.mjs
 test/texDevResponseCap.test.mjs
 test/texSetOps.test.mjs
 test/setsFd.test.mjs
@@ -683,3 +684,4 @@ test/setsTrace.test.mjs
 test/setsGold.test.mjs
 test/texExamples.test.mjs
 test/examplesNode.test.mjs
+test/appChat.test.mjs

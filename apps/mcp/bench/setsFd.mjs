@@ -27,6 +27,7 @@ import { cp, mkdir, mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/pr
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
+import { REAL_CLEF_ENV } from "./worldAi.mjs";
 
 import { createRequire } from "node:module";
 
@@ -539,19 +540,18 @@ const { HOLD_OUT_ENV, UNTIL_ENV } = createRequire(import.meta.url)("../../../pac
 /**
  * The Front door's batch: every unit through the tree's own bench. Each conversation runs in a copy of the bench folder
  * of its own with its world laid in (`setsWorld.mjs`), its units grouped by person and day, each group one test.
- * `runTests` is `coreArea.mjs`'s from the tree, swapped by a test; `parallel` tests go at once.
- *
- * One shared pool: every conversation is prepared first (its folder, its world, its `sets-N.md` tests; a few at a time),
- * then every test of every conversation is one job in a single pool of `parallel` lanes (`setsPool.mjs`), so no lane
- * sits idle waiting for its own conversation. Each job is one test of one conversation, run alone in that conversation's
- * folder, cut at its own moment where the conversation is a Training one (`envOf`). A test that throws marks only its own
- * units. Rows come back in the units' order.
- *
- * With `holdOut`, a Training conversation's tests run in processes that leave it out of the Front door's examples
- * (`heldOutOf`): the held-out score. Without, they read it as production does, but each test cut at its moment: the
- * in-context score. Answers one row a unit.
+ * `runTests` is `coreArea.mjs`'s from the tree, swapped by a test; `parallel` tests go at once. Unless `fake`, each
+ * asks Clef for real (`REAL_CLEF_ENV`, `worldAi.mjs`): on the stand-in every specialist pick read "none". One shared
+ * pool: every conversation is prepared first (its folder, its world, its `sets-N.md` tests; a few at a time), then
+ * every test of every conversation is one job in a single pool of `parallel` lanes (`setsPool.mjs`), so no lane sits
+ * idle waiting for its own conversation. Each job is one test of one conversation, run alone in that conversation's
+ * folder, cut at its own moment where the conversation is a Training one (`envOf`). A test that throws marks only its
+ * own units. Rows come back in the units' order. With `holdOut`, a Training conversation's tests run in processes that
+ * leave it out of the Front door's examples (`heldOutOf`): the held-out score. Without, they read it as production
+ * does, but each test cut at its moment: the in-context score. Answers one row a unit.
  */
 export async function runFd(units, { tree, fake = false, runTests = null, parallel = 1, holdOut = false, env = process.env, world = "replay" }) {
+  if (!fake) env = { ...env, [REAL_CLEF_ENV]: "1" };
   const rows = [];
   const can = [];
   for (const u of units) {

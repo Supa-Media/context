@@ -3,11 +3,16 @@
  * /mnt/project-files/tex-sets/plan.md: "run that node alone on every gated change, given everything before the
  * message, its config context modules, and its wires' inputs").
  *
- *   node apps/mcp/bench/run.mjs sets run --conversations <file.json> --tree <dir> --out <file.json> [--node <id>] [--fake]
- *   pnpm ai sets run [--set dev] [--node decide] [--fake] [--out <file.json>]      (the repo's Dev Set by default)
+ *   node apps/mcp/bench/run.mjs sets run --conversations <file.json> --tree <dir> --out <file.json> [--node <id>] [--repeat n] [--fake]
+ *   pnpm ai sets run [--set dev] [--node decide] [--repeat n] [--fake] [--out <file.json>]   (the repo's Dev Set by default)
  *   pnpm ai sets run --set dev --node fd --world record|refresh   record the simulated world's answers as fixtures
  *     (`simFixtures.mjs`, apps/mcp/bench/sets/sim/<conversation>.json): record adds this run's misses, refresh re-asks
  *     every call; commit the files. Every other run replays them and reports its misses (`world:` line).
+ *
+ * Each Front door test runs `--repeat n` times (or TEX_SETS_REPEAT): a whole number 1..5, 3 by default (Dev2, 2026-11-19:
+ * one Front door run came back 11/30 and 15/30 minutes apart, so a run's score is a mean over repeats with its band).
+ * Each copy's row carries its repeat as `rep` (0-based); the other nodes run once and carry none. `scoreByRepeat` reads
+ * the rows back as per-repeat pass counts for the band.
  *
  * A unit test is a starred label: one person's message × one node (`texSets.cjs` `unitTests`). Each runs through
  * that node's own code from `--tree` (the checkout whose nodes are judged), put the way production puts it, with
@@ -30,6 +35,8 @@ import { worldMode } from "./simFixtures.mjs";
 
 const require = createRequire(import.meta.url);
 const { unitTests, TEX } = require("../../../packages/shared/src/texSets.cjs");
+const { routeSummary } = require("../../../packages/shared/src/texRouteSummary.cjs");
+const { DEFAULT_REPEATS, MAX_REPEATS, repeatsOf, bandOf, CC_FIDELITY, CC_FIDELITY_WHY } = require("../../../packages/shared/src/texRunBand.cjs");
 
 /** Rough prices to report spend by: Clef on Workers AI and Haiku through the AI gateway, per call. */
 const USD = { decide: 0.0004, reviewer: 0.002 };
@@ -268,7 +275,7 @@ export async function adaptersFor(tree, { fake = false, env = process.env, holdO
  * process (Decide, the job check, the reviewer) go one after another while the batched ones (the Front door, whose
  * tests are processes of their own) go beside them, `parallel` tests at a time; rows come back in the same order.
  */
-export async function runSets(convs, { tree, node = null, fake = false, env = process.env, adapters = null, parallel = 1, holdOut = false, world = "replay" } = {}) {
+export async function runSets(convs, { tree, node = null, fake = false, env = process.env, adapters = null, parallel = 1, holdOut = false, repeats = 1, world = "replay" } = {}) {
   const table = adapters ?? (await adaptersFor(tree, { fake, env, holdOut, world }));
   const ready = {};
   const singles = [];
@@ -278,8 +285,13 @@ export async function runSets(convs, { tree, node = null, fake = false, env = pr
       if (node && t.node !== node) continue;
       const label = c.msgs[t.at].labels[t.node];
       const row = { chat: c.id, msg: t.msg, at: t.at, node: t.node };
-      if (table[t.node]?.batch) (batches[t.node] ??= []).push({ convo: c, at: t.at, label, row });
-      else singles.push({ c, t, label, row });
+      if (table[t.node]?.batch) {
+        // The Front door's tests go `repeats` times, each copy its own object with its repeat's number (Dev2, 2026-11-19).
+        const copies = t.node === "fd" ? repeats : 1;
+        for (let rep = 0; rep < copies; rep++) {
+          (batches[t.node] ??= []).push({ convo: c, at: t.at, label, row: t.node === "fd" ? { ...row, rep } : { ...row } });
+        }
+      } else singles.push({ c, t, label, row });
     }
   }
   const alone = async () => {
@@ -341,7 +353,54 @@ export function worldLine(rows) {
   return `world: ${misses.length} simulated call(s) not in fixtures (${kinds})`;
 }
 
-/** Counts by node, never words: what standard output may say. */
+/** A unit test's key: its chat, message index and node. Its repeats share it. */
+export const testKeyOf = (r) => `${r.chat}\u0000${r.at ?? 0}\u0000${r.node}`;
+
+/** A row's repeat as a number: its `rep` when it has one, else 0 (a node that runs once, or a row from before repeats). */
+const repOf = (r) => (Number.isInteger(Number(r?.rep)) && Number(r.rep) >= 0 ? Number(r.rep) : 0);
+
+/**
+ * The rows of a run read as per-repeat pass counts (Dev2, 2026-11-19: "repeat each Front door row N times ... a draft
+ * wins only if it clears the band"). Rows group into unit tests by `testKeyOf`; a test whose rows all could not run is
+ * left out. A test's pass rate is its passed runs over its runs. The repeats are 0..k-1, k being 1 plus the highest
+ * `rep` in the rows. At repeat r a test counts 1 or 0 by its row at that repeat when it ran there, else its pass rate
+ * (a node that runs once, or a repeat that did not run). Pass the rows to read: a node's or a chat's, filtered first.
+ * Returns { tests: [{chat, at, node, runs, passes, rate}], perRepeat, score: bandOf(perRepeat, tests), repeats: k }.
+ */
+export function scoreByRepeat(rows) {
+  const list = Array.isArray(rows) ? rows : [];
+  const groups = new Map();
+  for (const r of list) {
+    const key = testKeyOf(r);
+    if (!groups.has(key)) groups.set(key, []);
+    groups.get(key).push(r);
+  }
+  const repeats = 1 + list.reduce((m, r) => Math.max(m, repOf(r)), 0);
+  const tests = [];
+  for (const g of groups.values()) {
+    const ran = g.filter((r) => r.ran !== false);
+    if (ran.length === 0) continue;
+    const passes = ran.filter((r) => r.right).length;
+    const first = ran[0];
+    // Each counted test with its first ran row at each repeat, for the per-repeat count below.
+    const ranAt = new Map();
+    for (const r of ran) if (!ranAt.has(repOf(r))) ranAt.set(repOf(r), r);
+    tests.push({ chat: first.chat, at: first.at, node: first.node, runs: ran.length, passes, rate: passes / ran.length, byRep: ranAt });
+  }
+  const perRepeat = [];
+  for (let r = 0; r < repeats; r++) {
+    perRepeat.push(tests.reduce((a, t) => a + (t.byRep.has(r) ? (t.byRep.get(r).right ? 1 : 0) : t.rate), 0));
+  }
+  const tidy = tests.map(({ byRep, ...t }) => t);
+  return { tests: tidy, perRepeat, score: bandOf(perRepeat, tests.length), repeats };
+}
+
+/**
+ * Counts by node, never words: what standard output may say. Each node counts its own rows only (the router's count is
+ * its router rows, never an fd row's pick). When the front door's rows carry route records, the line adds how many
+ * turns a specialist door ran and how many fell back: the same `fallback` figure the Lab's "By route" block shows.
+ * A node that repeated says its band over its repeats.
+ */
 export function countsLine(rows) {
   const by = {};
   for (const r of rows) {
@@ -351,9 +410,15 @@ export function countsLine(rows) {
     if (r.right) b.right += 1;
   }
   const usd = rows.reduce((a, r) => a + (r.usd || 0), 0);
+  const { fallback } = routeSummary(rows, () => null);
+  const doors = fallback.total > 0 ? [`doors ${fallback.specialist}/${fallback.total} specialist (${fallback.fellBack} fell back)`] : [];
   return Object.entries(by)
-    .map(([n, b]) => `${n} ${b.right}/${b.all}${b.ran < b.all ? ` (${b.all - b.ran} can't run alone)` : ""}`)
-    .concat(`$${usd.toFixed(4)}`)
+    .map(([n, b]) => {
+      const { score, repeats } = scoreByRepeat(rows.filter((r) => r.node === n));
+      const band = repeats > 1 ? ` (${score.min}–${score.max} over ${repeats} repeats)` : "";
+      return `${n} ${b.right}/${b.all}${band}${b.ran < b.all ? ` (${b.all - b.ran} can't run alone)` : ""}`;
+    })
+    .concat(doors, `$${usd.toFixed(4)}`)
     .join(" · ");
 }
 
@@ -362,7 +427,15 @@ export const holdOutOn = (value) => /^(?:on|yes|true|1)$/i.test(String(value ?? 
 
 /** `sets run`: the CLI half. */
 export async function setsCommand(sub, options, { write = (t) => process.stdout.write(t) } = {}) {
-  if (sub !== "run") throw new Error("usage: sets run [--conversations <file.json>] [--set dev] [--tree <dir>] [--node <id>] [--out <file.json>] [--parallel n] [--hold-out on] [--world replay|record|refresh] [--fake]");
+  const usage = "usage: sets run [--conversations <file.json>] [--set dev] [--tree <dir>] [--node <id>] [--out <file.json>] [--parallel n] [--hold-out on] [--repeat n] [--world replay|record|refresh] [--fake]";
+  if (sub !== "run") throw new Error(usage);
+  // Each Front door test's repeats (Dev2, 2026-11-19): --repeat, else TEX_SETS_REPEAT, else 3; a whole number 1..5. A bare
+  // `--repeat` (no value) is refused, not read as 1 or as the default.
+  // `run.mjs` reads a flag with no value as undefined, so a key that is there with no value is refused too.
+  const given = "repeat" in options;
+  const asked = given ? options.repeat : process.env.TEX_SETS_REPEAT;
+  const repeats = asked === true || (given && asked === undefined) ? null : repeatsOf(asked);
+  if (repeats === null) throw new Error(`${usage}\n--repeat takes a whole number from 1 to ${MAX_REPEATS} (default ${DEFAULT_REPEATS}), got ${JSON.stringify(asked)}`);
   // The world's mode: replay (the default) answers from the repo's fixtures; record and refresh write them, so they
   // only ever run on the repo's own sets, never on a file handed in (which may be sealed).
   const world = worldMode(options.world ?? process.env.TEX_SETS_WORLD);
@@ -383,8 +456,12 @@ export async function setsCommand(sub, options, { write = (t) => process.stdout.
   // on (`--hold-out on`, or TEX_SETS_HOLD_OUT=on, the Lab run workflow's repository variable), each runs without its
   // own conversation (the held-out score). It changes nothing for a Dev conversation, which is never an example.
   const holdOut = holdOutOn(options["hold-out"] ?? process.env.TEX_SETS_HOLD_OUT);
-  const rows = await runSets(convs, { tree, node: options.node ?? null, fake: Boolean(options.fake), parallel, holdOut, world });
+  const rows = await runSets(convs, { tree, node: options.node ?? null, fake: Boolean(options.fake), parallel, holdOut, repeats, world });
   if (convs.some((c) => c.set === "training")) write(`Training Front door: ${holdOut ? "held out (each conversation left out of its own examples)" : "in context (each conversation among its own examples)"}\n`);
+  // A run on Claude Code says what it is: the same model family, not the production version (`texRunBand.cjs`).
+  const { modelSocket } = await import("./modelSocket.mjs");
+  const socket = options.fake ? null : modelSocket(process.env);
+  if (socket?.covers("claude")) write(`Models: Claude Code (cc), ${CC_FIDELITY}: ${CC_FIDELITY_WHY}\n`);
   if (options.out) await writeFile(resolve(options.out), JSON.stringify(rows, null, 1) + "\n");
   write(`${countsLine(rows)}\n`);
   const worldText = worldLine(rows);
