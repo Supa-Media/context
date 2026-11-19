@@ -982,7 +982,7 @@
    }
   },
   {
-   "key": "gmail read {\"message\":{\"address\":\"john@gmail.example\",\"date\":\"2026-10-02t18:41:00z\",\"from\":\"paulo ferreira <paulo.ferreira@gmail.com>\",\"id\":\"18f3c7a2e9b41d05\",\"snippet\":\"hey john! so glad you're coming. ceremony is sat oct 24 at 4pm at quinta da regaleira, reception and dinner after at the same place. ines and tom are staying at the hotel avenida palace, and we have a room block under ferreira (rate ends oct 15). let me know your flight times so i can...\",\"subject\":\"ines & tom wedding - lisbon details + flights\",\"threadId\":\"18f3c7a2e9b41d05\",\"to\":\"john keller <john.keller@gmail.com>\"}}",
+   "key": "gmail read {\"message\":{\"address\":\"john@gmail.example\",\"date\":\"2026-10-02t18:41:00z\",\"from\":\"paulo ferreira <paulo.ferreira@gmail.example>\",\"id\":\"18f3c7a2e9b41d05\",\"snippet\":\"hey john! so glad you're coming. ceremony is sat oct 24 at 4pm at quinta da regaleira, reception and dinner after at the same place. ines and tom are staying at the hotel avenida palace, and we have a room block under ferreira (rate ends oct 15). let me know your flight times so i can...\",\"subject\":\"ines & tom wedding - lisbon details + flights\",\"threadId\":\"18f3c7a2e9b41d05\",\"to\":\"john keller <john.keller@gmail.example>\"}}",
    "kind": "gmail read",
    "request": {
     "message": {
@@ -990,18 +990,18 @@
      "id": "18f3c7a2e9b41d05",
      "threadId": "18f3c7a2e9b41d05",
      "date": "2026-10-02T18:41:00Z",
-     "from": "Paulo Ferreira <paulo.ferreira@gmail.com>",
-     "to": "John Keller <john.keller@gmail.com>",
+     "from": "Paulo Ferreira <paulo.ferreira@gmail.example>",
+     "to": "John Keller <john.keller@gmail.example>",
      "subject": "Ines & Tom wedding - Lisbon details + flights",
      "snippet": "Hey John! So glad you're coming. Ceremony is Sat Oct 24 at 4pm at Quinta da Regaleira, reception and dinner after at the same place. Ines and Tom are staying at the Hotel Avenida Palace, and we have a room block under Ferreira (rate ends Oct 15). Let me know your flight times so I can..."
     }
    },
    "answer": {
-    "body": "From: Paulo Ferreira <paulo.ferreira@gmail.com>\nTo: John Keller <john.keller@gmail.com>\nDate: Fri, 2 Oct 2026 18:41 UTC\nSubject: Ines & Tom wedding - Lisbon details + flights\n\nHey John!\n\nSo glad you're coming. Ceremony is Sat Oct 24 at 4pm at Quinta da Regaleira, reception and dinner after at the same place. Dress is cocktail, and the gardens get steep and gravelly, so flats are a good idea if you have them.\n\nInes and Tom are staying at the Hotel Avenida Palace, and we have a room block under Ferreira (rate ends Oct 15). It's about a 10 minute walk from the Restauradores metro stop. If you'd rather be closer to the venue, there are a few places in Sintra, but the shuttle is only running Saturday afternoon.\n\nLet me know your flight times so I can make sure someone picks you up from the airport if you want. Lisbon airport is about 20 minutes from the hotel by taxi or the metro (red line to Baixa-Chiado, then walk).\n\nAlso, Ines asked me to remind you to bring a copy of your passport for the civil paperwork on Friday. Original not needed.\n\nCan't wait to see you!\n\nPaulo\n\n--\nPaulo Ferreira\n+351 912 448 067"
+    "body": "From: Paulo Ferreira <paulo.ferreira@gmail.example>\nTo: John Keller <john.keller@gmail.example>\nDate: Fri, 2 Oct 2026 18:41 UTC\nSubject: Ines & Tom wedding - Lisbon details + flights\n\nHey John!\n\nSo glad you're coming. Ceremony is Sat Oct 24 at 4pm at Quinta da Regaleira, reception and dinner after at the same place. Dress is cocktail, and the gardens get steep and gravelly, so flats are a good idea if you have them.\n\nInes and Tom are staying at the Hotel Avenida Palace, and we have a room block under Ferreira (rate ends Oct 15). It's about a 10 minute walk from the Restauradores metro stop. If you'd rather be closer to the venue, there are a few places in Sintra, but the shuttle is only running Saturday afternoon.\n\nLet me know your flight times so I can make sure someone picks you up from the airport if you want. Lisbon airport is about 20 minutes from the hotel by taxi or the metro (red line to Baixa-Chiado, then walk).\n\nAlso, Ines asked me to remind you to bring a copy of your passport for the civil paperwork on Friday. Original not needed.\n\nCan't wait to see you!\n\nPaulo\n\n--\nPaulo Ferreira\n+351 912 448 067"
    }
   },
   {
-   "key": "gmail read {\"message\":{\"address\":\"john@gmail.example\",\"date\":\"2026-10-21t14:12:00z\",\"from\":\"tap air portugal <bookings@flytap.com>\",\"id\":\"18f4b6e0d3a27c92\",\"snippet\":\"thank you for booking with tap. confirmation code k7rw2q. tp 0242 chicago o'hare (ord) to lisbon (lis), thu 22 oct, departs 17:45, arrives fri 23 oct 07:50. return tp 0243 lis to ord, sun 25 oct, departs 15:40. passenger: john keller, 1 adult, carry-on only. online check-in opens 24 hours before departure.\",\"subject\":\"your tap booking confirmation k7rw2q\",\"threadId\":\"18f4b6e0d3a27c92\",\"to\":\"john keller <john.keller@gmail.com>\"}}",
+   "key": "gmail read {\"message\":{\"address\":\"john@gmail.example\",\"date\":\"2026-10-21t14:12:00z\",\"from\":\"tap air portugal <bookings@flytap.example>\",\"id\":\"18f4b6e0d3a27c92\",\"snippet\":\"thank you for booking with tap. confirmation code k7rw2q. tp 0242 chicago o'hare (ord) to lisbon (lis), thu 22 oct, departs 17:45, arrives fri 23 oct 07:50. return tp 0243 lis to ord, sun 25 oct, departs 15:40. passenger: john keller, 1 adult, carry-on only. online check-in opens 24 hours before departure.\",\"subject\":\"your tap booking confirmation k7rw2q\",\"threadId\":\"18f4b6e0d3a27c92\",\"to\":\"john keller <john.keller@gmail.example>\"}}",
    "kind": "gmail read",
    "request": {
     "message": {
@@ -1009,14 +1009,14 @@
      "id": "18f4b6e0d3a27c92",
      "threadId": "18f4b6e0d3a27c92",
      "date": "2026-10-21T14:12:00Z",
-     "from": "TAP Air Portugal <bookings@flytap.com>",
-     "to": "John Keller <john.keller@gmail.com>",
+     "from": "TAP Air Portugal <bookings@flytap.example>",
+     "to": "John Keller <john.keller@gmail.example>",
      "subject": "Your TAP booking confirmation K7RW2Q",
      "snippet": "Thank you for booking with TAP. Confirmation code K7RW2Q. TP 0242 Chicago O'Hare (ORD) to Lisbon (LIS), Thu 22 Oct, departs 17:45, arrives Fri 23 Oct 07:50. Return TP 0243 LIS to ORD, Sun 25 Oct, departs 15:40. Passenger: John Keller, 1 adult, carry-on only. Online check-in opens 24 hours before departure."
     }
    },
    "answer": {
-    "body": "From: TAP Air Portugal <bookings@flytap.com>\nTo: John Keller <john.keller@gmail.com>\nDate: Tue, 21 Oct 2026 14:12 UTC\nSubject: Your TAP booking confirmation K7RW2Q\n\nDear John Keller,\n\nThank you for booking with TAP. Your reservation is confirmed.\n\nConfirmation code: K7RW2Q\n\nOutbound\nTP 0242, Thu 22 Oct 2026\nChicago O'Hare (ORD), Terminal 5, departs 17:45\nLisbon (LIS), arrives Fri 23 Oct 2026 at 07:50\n\nReturn\nTP 0243, Sun 25 Oct 2026\nLisbon (LIS), departs 15:40\nChicago O'Hare (ORD), arrives 19:05\n\nPassenger: John Keller, 1 adult, Economy\nBaggage: carry-on only. Checked bags can be added in Manage my booking.\n\nOnline check-in opens 24 hours before each departure. Please have your passport details ready at check-in.\n\nYour e-ticket receipt is attached.\n\nManage my booking: https://www.flytap.com/en-us/manage-booking\n\nSafe travels,\nTAP Air Portugal\n\nThis message was sent to john.keller@gmail.com. Please do not reply to this email."
+    "body": "From: TAP Air Portugal <bookings@flytap.example>\nTo: John Keller <john.keller@gmail.example>\nDate: Tue, 21 Oct 2026 14:12 UTC\nSubject: Your TAP booking confirmation K7RW2Q\n\nDear John Keller,\n\nThank you for booking with TAP. Your reservation is confirmed.\n\nConfirmation code: K7RW2Q\n\nOutbound\nTP 0242, Thu 22 Oct 2026\nChicago O'Hare (ORD), Terminal 5, departs 17:45\nLisbon (LIS), arrives Fri 23 Oct 2026 at 07:50\n\nReturn\nTP 0243, Sun 25 Oct 2026\nLisbon (LIS), departs 15:40\nChicago O'Hare (ORD), arrives 19:05\n\nPassenger: John Keller, 1 adult, Economy\nBaggage: carry-on only. Checked bags can be added in Manage my booking.\n\nOnline check-in opens 24 hours before each departure. Please have your passport details ready at check-in.\n\nYour e-ticket receipt is attached.\n\nManage my booking: https://www.flytap.com/en-us/manage-booking\n\nSafe travels,\nTAP Air Portugal\n\nThis message was sent to john.keller@gmail.example. Please do not reply to this email."
    }
   },
   {
@@ -1030,8 +1030,8 @@
      {
       "id": "18f4b6e0d3a27c92",
       "date": "2026-10-21T14:12:00Z",
-      "from": "TAP Air Portugal <bookings@flytap.com>",
-      "to": "John Keller <john.keller@gmail.com>",
+      "from": "TAP Air Portugal <bookings@flytap.example>",
+      "to": "John Keller <john.keller@gmail.example>",
       "subject": "Your TAP booking confirmation K7RW2Q",
       "snippet": "Thank you for booking with TAP. Confirmation code K7RW2Q. TP 0242 Chicago O'Hare (ORD) to Lisbon (LIS), Thu 22 Oct, departs 17:45, arrives Fri 23 Oct 07:50. Return TP 0243 LIS to ORD, Sun 25 Oct, departs 15:40. Passenger: John Keller, 1 adult, carry-on only. Online check-in opens 24 hours before departure.",
       "hasAttachment": true
@@ -1050,16 +1050,16 @@
      {
       "id": "18f4b6e0d3a27c92",
       "date": "2026-10-21T14:12:00Z",
-      "from": "TAP Air Portugal <bookings@flytap.com>",
-      "to": "John Keller <john.keller@gmail.com>",
+      "from": "TAP Air Portugal <bookings@flytap.example>",
+      "to": "John Keller <john.keller@gmail.example>",
       "subject": "Your TAP booking confirmation K7RW2Q",
       "snippet": "Thank you for booking with TAP. Confirmation code K7RW2Q. TP 0242 Chicago O'Hare (ORD) to Lisbon (LIS), Thu 22 Oct, departs 17:45, arrives Fri 23 Oct 07:50. Return TP 0243 LIS to ORD, Sun 25 Oct, departs 15:40. Passenger: John Keller, 1 adult, carry-on only. Online check-in opens 24 hours before departure."
      },
      {
       "id": "18f3c7a2e9b41d05",
       "date": "2026-10-02T18:41:00Z",
-      "from": "Paulo Ferreira <paulo.ferreira@gmail.com>",
-      "to": "John Keller <john.keller@gmail.com>",
+      "from": "Paulo Ferreira <paulo.ferreira@gmail.example>",
+      "to": "John Keller <john.keller@gmail.example>",
       "subject": "Ines & Tom wedding - Lisbon details + flights",
       "snippet": "Hey John! So glad you're coming. Ceremony is Sat Oct 24 at 4pm at Quinta da Regaleira, reception and dinner after at the same place. Ines and Tom are staying at the Hotel Avenida Palace, and we have a room block under Ferreira (rate ends Oct 15). Let me know your flight times so I can..."
      }
@@ -1077,8 +1077,8 @@
      {
       "id": "18f3c7a2e9b41d05",
       "date": "2026-10-02T18:41:00Z",
-      "from": "Paulo Ferreira <paulo.ferreira@gmail.com>",
-      "to": "John Keller <john.keller@gmail.com>",
+      "from": "Paulo Ferreira <paulo.ferreira@gmail.example>",
+      "to": "John Keller <john.keller@gmail.example>",
       "subject": "Ines & Tom wedding - Lisbon details + flights",
       "snippet": "Hey John! So glad you're coming. Ceremony is Sat Oct 24 at 4pm at Quinta da Regaleira, reception and dinner after at the same place. Ines and Tom are staying at the Hotel Avenida Palace, and we have a room block under Ferreira (rate ends Oct 15). Let me know your flight times so I can...",
       "hasAttachment": false
@@ -1097,8 +1097,8 @@
      {
       "id": "18f4b6e0d3a27c92",
       "date": "2026-10-21T14:12:00Z",
-      "from": "TAP Air Portugal <bookings@flytap.com>",
-      "to": "John Keller <john.keller@gmail.com>",
+      "from": "TAP Air Portugal <bookings@flytap.example>",
+      "to": "John Keller <john.keller@gmail.example>",
       "subject": "Your TAP booking confirmation K7RW2Q",
       "snippet": "Thank you for booking with TAP. Confirmation code K7RW2Q. TP 0242 Chicago O'Hare (ORD) to Lisbon (LIS), Thu 22 Oct, departs 17:45, arrives Fri 23 Oct 07:50. Return TP 0243 LIS to ORD, Sun 25 Oct, departs 15:40. Passenger: John Keller, 1 adult, carry-on only. Online check-in opens 24 hours before departure."
      }

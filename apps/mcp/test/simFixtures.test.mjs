@@ -218,3 +218,17 @@ test("a store's world mode is one of the three, and anything else is replay", ()
   assert.equal(worldMode("bogus"), "replay");
   assert.equal(worldMode(undefined), "replay");
 });
+
+test("benchSafe: a real-looking address moves onto an example domain, in the request and the answer, and the key follows", async () => {
+  const { benchSafe } = await import("../bench/simFixtures.mjs");
+  assert.equal(benchSafe("from john.keller@gmail.com and bookings@flytap.com"), "from john.keller@gmail.example and bookings@flytap.example");
+  assert.equal(benchSafe("john@gmail.example, a@b.test, c@example.com, d@mail.example.org"), "john@gmail.example, a@b.test, c@example.com, d@mail.example.org");
+  assert.deepEqual(benchSafe({ q: ["x@y.co.uk"], n: 3 }), { q: ["x@y.co.example"], n: 3 });
+  const dir = mkdtempSync(join(tmpdir(), "bench-safe-"));
+  const path = join(dir, "c.json");
+  saveFixtures(path, "c", [{ kind: "gmail search", request: { query: "from:paulo@gmail.com" }, answer: { messages: [{ from: "paulo@gmail.com" }] } }], "record");
+  const saved = JSON.parse(readFileSync(path, "utf8")).answers[0];
+  assert.deepEqual(saved.request, { query: "from:paulo@gmail.example" });
+  assert.equal(saved.key, worldKey("gmail search", { query: "from:paulo@gmail.example" }));
+  assert.doesNotMatch(JSON.stringify(saved), /gmail\.com/);
+});
