@@ -27,6 +27,11 @@
  * leaving the call unanswered, so the gate's run fails rather than scoring a path the model never chose. A tool call
  * the model makes to a tool the call does not offer is not a CLI failure: the schema names only the offered tools,
  * and one that still gets through is dropped from that answer, so the row scores as Tex's miss.
+ *
+ * Pictures and PDFs go to the model as pictures and documents, not as words: a call that holds one is sent as stream-json
+ * content blocks, each media block where it sat in the conversation (`socketPrompt.mjs`). Before, every picture was
+ * written out as "[an image]" and the cc runs answered "I can't read it" for each picture row in the Dev set (Dev2,
+ * 2026-11-19).
  */
 import { spawn } from "node:child_process";
 import { writeFile } from "node:fs/promises";
@@ -34,55 +39,15 @@ import { existsSync, mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { answerCall, pendingCalls } from "./modelSocket.mjs";
+import { hasMedia, promptBlocks, promptFor, systemText } from "./socketPrompt.mjs";
+
+export { blockText, hasMedia, messageText, promptBlocks, promptFor, systemText, toolsText } from "./socketPrompt.mjs";
 
 /** The CLI's model alias for a request's model id: the family it names, else the call's own id. */
 export function modelAlias(model) {
   const id = String(model ?? "").toLowerCase();
   for (const family of ["haiku", "sonnet", "opus"]) if (id.includes(family)) return family;
   return String(model ?? "") || "sonnet";
-}
-
-/** A content block (or a string) as plain text for the written-out conversation. */
-function blockText(block) {
-  if (typeof block === "string") return block;
-  if (!block || typeof block !== "object") return "";
-  if (block.type === "text") return String(block.text ?? "");
-  if (block.type === "tool_use") return `[called tool ${block.name} with ${JSON.stringify(block.input ?? {})}]`;
-  if (block.type === "tool_result") {
-    const inner = Array.isArray(block.content) ? block.content.map(blockText).join("\n") : String(block.content ?? "");
-    return `[result of tool call${block.is_error ? " (error)" : ""}]\n${inner}`;
-  }
-  if (block.type === "image") return "[an image]";
-  if (block.type === "thinking" || block.type === "redacted_thinking") return "";
-  return JSON.stringify(block);
-}
-
-const contentText = (content) => (Array.isArray(content) ? content.map(blockText).filter(Boolean).join("\n") : blockText(content));
-
-/**
- * One message's words. A call comes in the Messages API's shape (`content` blocks) or in Tex's own (`aiGateway.js`):
- * `text`, an assistant's `toolCalls`, and a `tool` message's result with `name` and `isError`. Reading only
- * `content` sent the CLI an empty conversation for every call in Tex's shape (2026-11-18: the job check's brief,
- * finish line and tool results never reached it, and it answered "this check received nothing").
- */
-export function messageText(message) {
-  if (message?.content !== undefined) return contentText(message.content);
-  const calls = (message?.toolCalls ?? []).map((call) => `[called tool ${call.name} with ${JSON.stringify(call.args ?? call.input ?? {})}]`);
-  const words = String(message?.text ?? "");
-  if (message?.role === "tool") return `[result of tool call ${message.name ?? ""}${message.isError ? " (error)" : ""}]\n${words}`;
-  return [words, ...calls].filter(Boolean).join("\n");
-}
-
-/** The call's system prompt as one string (a Messages API system may be blocks). */
-export function systemText(system) {
-  return Array.isArray(system) ? system.map(blockText).join("\n\n") : String(system ?? "");
-}
-
-/** The tools a call offers, as the model is told about them: name, description and input schema where the call has them. */
-export function toolsText(tools = []) {
-  return tools
-    .map((tool) => (typeof tool === "string" ? `- ${tool}` : `- ${tool.name}: ${tool.description ?? ""}\n  input schema: ${JSON.stringify(tool.input_schema ?? tool.inputSchema ?? {})}`))
-    .join("\n");
 }
 
 const toolName = (tool) => String(typeof tool === "string" ? tool : tool?.name ?? "");
@@ -186,10 +151,30 @@ export function parseToolAnswer(raw) {
   throw new ToolAnswerFormatError();
 }
 
+/**
+ * The CLI's result object from its stdout. Plain `--output-format json` prints the result as one JSON value; stream-json
+ * prints many lines and the result is the last line with `"type":"result"`. Throws when there is none.
+ */
+export function resultOf(stdout) {
+  const text = String(stdout ?? "");
+  try {
+    const whole = JSON.parse(text);
+    if (whole && typeof whole === "object" && (whole.type === undefined || whole.type === "result")) return whole;
+  } catch {}
+  const lines = text.split("\n");
+  for (let i = lines.length - 1; i >= 0; i -= 1) {
+    try {
+      const line = JSON.parse(lines[i]);
+      if (line?.type === "result") return line;
+    } catch {}
+  }
+  throw new Error("the CLI printed no result");
+}
+
 /** The CLI's own timings for a result: model time (`duration_api_ms`) and turns (`num_turns`), null when absent. */
 export function resultTiming(stdout) {
   try {
-    const result = JSON.parse(stdout);
+    const result = resultOf(stdout);
     const number = (value) => (Number.isFinite(value) ? value : null);
     return { modelMs: number(result.duration_api_ms), turns: number(result.num_turns) };
   } catch {
@@ -197,36 +182,16 @@ export function resultTiming(stdout) {
   }
 }
 
-/** The one message the CLI is sent for a call: the conversation so far, the tools on offer, and what to write. */
-export function promptFor(request) {
-  const turns = (request?.messages ?? []).map((message) => `<${message.role}>\n${messageText(message)}\n</${message.role}>`).join("\n\n");
-  const tools = request?.tools?.length ? toolsText(request.tools) : "";
-  return [
-    "Below is a conversation so far. Write the next assistant turn, exactly as you would send it, following the system prompt.",
-    "",
-    "<conversation>",
-    turns,
-    "</conversation>",
-    ...(tools
-      ? [
-          "",
-          "The tools listed here are available to you in this conversation. You call one by putting it in toolCalls of your JSON answer { text, toolCalls }; that is the only way to call a tool here, and its result comes back to you as the next turn. Call tools whenever you would have used them: text is any words before the calls (or the whole reply, with toolCalls empty), and each call is { name, input } with input matching the tool's schema.",
-          "<tools>",
-          tools,
-          "</tools>",
-          'Answer with only that JSON object, { "text": string, "toolCalls": [ { "name": string, "input": object } ] }, and nothing before or after it.',
-        ]
-      : []),
-  ].join("\n");
-}
-
 /**
  * The CLI's arguments for one call. The system prompt goes in a file and the message on stdin, never in an argument:
  * one argument is capped at 128 KB, and a front door's prompt with its history can pass that. `--json-schema` (the
  * structured-output round, three turns) is passed only with `schema: true`, for a tool call whose text did not parse.
  */
-export function cliArgs(request, systemFile, { schema = false } = {}) {
+export function cliArgs(request, systemFile, { schema = false, media = false } = {}) {
   const args = ["-p", "--model", modelAlias(request?.model), "--system-prompt-file", systemFile, "--tools", "", "--output-format", "json", "--strict-mcp-config", "--no-session-persistence"];
+  // A call with pictures or PDFs is sent as stream-json input (one user message of content blocks); the CLI then
+  // needs stream-json output too, and stream-json output needs --verbose. The result is the last line (`resultOf`).
+  if (media) args.splice(args.indexOf("--output-format"), 2, "--input-format", "stream-json", "--output-format", "stream-json", "--verbose");
   if (schema && request?.tools?.length) args.push("--json-schema", JSON.stringify(toolAnswerSchema(request)));
   return args;
 }
@@ -245,7 +210,7 @@ export function cliEnv(env = process.env) {
  * Tool calls the call cannot take are left out and named to `onDropped` (`keepOffered`).
  */
 export function answerFrom(request, stdout, onDropped = () => {}) {
-  const result = JSON.parse(stdout);
+  const result = resultOf(stdout);
   if (result.is_error) throw new Error(`the CLI answered with an error: ${String(result.result ?? result.subtype ?? "").slice(0, 200)}`);
   if (!request?.tools?.length) return { text: String(result.result ?? "") };
   const given = result.structured_output ?? parseToolAnswer(result.result);
@@ -260,7 +225,7 @@ export function answerFrom(request, stdout, onDropped = () => {}) {
  */
 export function failureText(stdout, stderr) {
   try {
-    const result = JSON.parse(stdout);
+    const result = resultOf(stdout);
     // An error result's text is the CLI's own message; a non-error result could be the model's words, so it is not kept.
     const text = result.is_error ? String(result.result ?? result.subtype ?? "").trim() : String(result.subtype ?? "");
     if (text) return text.slice(0, 300);
@@ -276,15 +241,16 @@ async function runCli(request, { schema = false, env = process.env } = {}) {
   emptyDir ??= mkdtempSync(join(tmpdir(), "socket-answerer-"));
   const systemFile = join(emptyDir, `system-${process.hrtime.bigint()}-${Math.random().toString(36).slice(2)}.txt`);
   await writeFile(systemFile, systemText(request?.system));
+  const media = hasMedia(request);
   return new Promise((resolve, reject) => {
-    const child = spawn("claude", cliArgs(request, systemFile, { schema }), { env: cliEnv(env), cwd: emptyDir, stdio: ["pipe", "pipe", "pipe"], timeout: 10 * 60 * 1000 });
+    const child = spawn("claude", cliArgs(request, systemFile, { schema, media }), { env: cliEnv(env), cwd: emptyDir, stdio: ["pipe", "pipe", "pipe"], timeout: 10 * 60 * 1000 });
     let out = "";
     let err = "";
     child.stdout.on("data", (chunk) => (out += chunk));
     child.stderr.on("data", (chunk) => (err += chunk));
     child.on("error", reject);
     child.on("close", (code) => (code === 0 ? resolve(out) : reject(new Error(`claude exited ${code}: ${failureText(out, err)}`))));
-    child.stdin.end(promptFor(request));
+    child.stdin.end(media ? `${JSON.stringify({ type: "user", message: { role: "user", content: promptBlocks(request) } })}\n` : promptFor(request));
   });
 }
 

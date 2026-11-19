@@ -502,12 +502,14 @@ jobs:
           node apps/mcp/bench/run.mjs sets run --conversations "$RUNNER_TEMP/lab/convs.json" --out "$RUNNER_TEMP/lab/rows.json" --parallel 8 ${NODE_ID:+--node "$NODE_ID"}
           code=$?
           echo "$(( $(date +%s%3N) - started ))" > "$RUNNER_TEMP/lab/ms"
-          # The gold self-check (`apps/mcp/bench/setsGold.mjs`; Dev2, 2026-11-18): a Training run on Claude Code also judges
-          # each Front door label against the conversation's own gold reply, at $0 through the same answerer. A label its
-          # own gold fails makes its row ambiguous, out of the score. Counts only here; a failed check scores without it.
-          if [ -n "$answerer" ] && [ "$SET" = "training" ] && [ -z "$NODE_ID" -o "$NODE_ID" = "fd" ]; then
-            node apps/mcp/bench/setsGold.mjs --set training --conversations "$RUNNER_TEMP/lab/convs.json" --out "$RUNNER_TEMP/lab/gold.json" > /dev/null \
-              && echo "Gold self-check: $(jq -c '{rows, goldFails: (.goldFails | length)}' "$RUNNER_TEMP/lab/gold.json")" \
+          # The gold self-check (`apps/mcp/bench/setsGold.mjs`; Dev2, 2026-11-18, Dev 2026-11-19): a Training or Dev run on
+          # Claude Code also judges each Front door label against the conversation's own gold reply, at $0 through the same
+          # answerer. A Training label its own gold fails makes its row ambiguous; a Dev one's row could not run; a label
+          # that needs an ability Tex lacks is impossible and could not run in both sets. Counts only here (a Dev report
+          # prints no label or text); a failed check scores without it.
+          if [ -n "$answerer" ] && [ "$SET" = "training" -o "$SET" = "dev" ] && [ -z "$NODE_ID" -o "$NODE_ID" = "fd" ]; then
+            node apps/mcp/bench/setsGold.mjs --set "$SET" --conversations "$RUNNER_TEMP/lab/convs.json" --out "$RUNNER_TEMP/lab/gold.json" > /dev/null \
+              && echo "Gold self-check: $(jq -c '{set, rows, goldFails: (.goldFails | length), impossible: (.impossible | length)}' "$RUNNER_TEMP/lab/gold.json")" \
               || { rm -f "$RUNNER_TEMP/lab/gold.json"; echo "::warning::the gold self-check did not finish; scored without it"; }
           fi
           if [ -n "$answerer" ]; then
@@ -529,7 +531,7 @@ jobs:
           echo "::add-mask::$SEAL"
           export SEAL; unset LAB_SEAL_SOURCE
           node scripts/tex-lab-run.mjs results "$RUNNER_TEMP/lab/rows.json" "$(cat "$RUNNER_TEMP/lab/ms")" "$RUNNER_TEMP/lab/gold.json" > "$RUNNER_TEMP/results.json"
-          echo "Results: $(jq -c '{pass, total, couldNotRun: (.couldNotRun | length), ambiguous: (.ambiguous | length), goldFails, costUsd, ms, perNode, fallbacks, valid}' "$RUNNER_TEMP/results.json")"
+          echo "Results: $(jq -c '{pass, total, couldNotRun: (.couldNotRun | length), ambiguous: (.ambiguous | length), goldFails, impossible, costUsd, ms, perNode, fallbacks, valid}' "$RUNNER_TEMP/results.json")"
           usd="$(jq -r '.costUsd // 0' "$RUNNER_TEMP/results.json")"
           if awk -v u="$usd" 'BEGIN { exit !(u + 0 >= 0.005) }'; then
             pnpm --silent ai spend add dev-set --usd "$usd" --answers "$(jq -r '.total // 0' "$RUNNER_TEMP/results.json")" --run "lab-${{ github.run_number }}" --run-url "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
