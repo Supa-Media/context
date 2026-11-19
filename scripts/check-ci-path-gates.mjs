@@ -135,11 +135,11 @@ export function assertPaths(actual, required, label) {
  * reindented file — which reads as "this job watches nothing" and would be
  * believed.
  */
-export function scopePaths(yaml, job, key = "paths") {
+export function scopePaths(yaml, job, key = "paths", id = undefined) {
   const scope = stepBlocks(jobBlock(yaml, job)).find((step) =>
-    step.includes("uses: ./.github/actions/ci-scope"),
+    step.includes("uses: ./.github/actions/ci-scope") && (id === undefined || new RegExp(`\\bid:\\s*${id}\\b`).test(step)),
   );
-  if (scope === undefined) throw new Error(`${job} has no shared CI scope step`);
+  if (scope === undefined) throw new Error(`${job} has no shared CI scope step${id === undefined ? "" : ` ${id}`}`);
   const lines = scope.split("\n");
   const at = lines.findIndex((line) => new RegExp(`^\\s+${key}: \\|\\s*$`).test(line));
   if (at === -1) throw new Error(`${job}'s scope step has no ${key}: | block`);

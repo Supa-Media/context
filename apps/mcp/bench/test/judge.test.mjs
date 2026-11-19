@@ -606,12 +606,28 @@ test("the judge is told a rule worded never or at most is kept by a reply that d
   assert.match(system, /one that shows a note's path or link does: false/);
 });
 
+test("the judge is shown the newest chat lines that fit its character budget, oldest first (2026-11-19)", async () => {
+  const { judgeChatBefore, JUDGE_EARLIER_CHARS } = await import("../judge.mjs");
+  const long = Array.from({ length: 60 }, (_, i) => ({ from: "person", who: "kofi", text: `${String(i + 1).padStart(2, "0")} ${"x".repeat(1000)}` }));
+  const kept = judgeChatBefore(long);
+  const total = kept.reduce((sum, line) => sum + line.length + 1, 0);
+  assert.ok(total <= JUDGE_EARLIER_CHARS, `within budget: ${total}`);
+  assert.ok(kept.length < long.length, "the oldest lines are dropped");
+  assert.equal(kept.at(-1), `@kofi: 60 ${"x".repeat(1000)}`, "the newest line is kept");
+  const first = Number(kept[0].slice("@kofi: ".length, "@kofi: ".length + 2));
+  assert.equal(kept.length, long.length - first + 1, "a contiguous run of the newest lines");
+  kept.forEach((line, i) => assert.equal(Number(line.slice(7, 9)), first + i, "oldest first"));
+  const huge = [{ from: "person", who: "kofi", text: "y".repeat(JUDGE_EARLIER_CHARS * 2) }];
+  assert.equal(judgeChatBefore(huge).length, 1, "the newest line is always kept, even when it alone is over budget");
+});
+
 test("the judge is shown the chat before a replayed text and the jobs an answer started", async () => {
   const { buildJudgeRequest } = await import("../judge.mjs");
   const earlier = Array.from({ length: 15 }, (_, i) => ({ from: i % 2 ? "tex" : "person", ...(i % 2 ? {} : { who: "kofi" }), text: `line ${i + 1}` }));
   const { body } = buildJudgeRequest({ model: "m", question: { text: "traitor", must: ["one cheeky line"], mustNot: [], judge: [], may: [], earlier }, answers: [{ id: "a", conversation: [], toolsLine: "", changes: [], jobs: [{ title: "Compare flights" }, { title: "Venue", brief: "Read the venue site with the login from the invite email." }] }] });
   const payload = JSON.parse(/<answers>\n([\s\S]*)\n<\/answers>/.exec(JSON.parse(body).messages[0].content)[1]);
-  assert.equal(payload.chat_before.length, 12, "the newest twelve lines");
+  assert.equal(payload.chat_before.length, 15, "short lines: all fifteen kept");
+  assert.equal(payload.chat_before[0], "@kofi: line 1", "oldest first");
   assert.equal(payload.chat_before.at(-1), "@kofi: line 15");
   assert.equal(payload.chat_before.at(-2), "Tex: line 14");
   assert.deepEqual(payload.answers[0].jobs_started, ["Compare flights", { title: "Venue", brief_given: "Read the venue site with the login from the invite email." }], "each job with the brief Tex gave it");

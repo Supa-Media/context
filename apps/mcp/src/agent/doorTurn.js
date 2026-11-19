@@ -5,7 +5,7 @@
  * route names, or through the Front door as it always ran:
  *
  * - no route, a route not sure enough (`ROUTE_AT`), no door wired: the Front door, as before. Record `door: "fd"`.
- * - job, sure, and the config wires `router -> handoff`: the job goes to the Hand-off node before any round
+ * - job, sure (the Hand-off node's own bar when it sets one, `handoff.js` `routeSureOf`), and the config wires `router -> handoff`: the job goes to the Hand-off node before any round
  *   (`startWith`); the turn ends on its start line. Otherwise the Front door.
  * - quick, read, act, sure, and the door wired: the specialist runs with the door's tools only (`narrowForDoor`), and
  *   a call outside them ends its run before it runs (`outside`). Then the Front door runs the turn from scratch and
@@ -39,7 +39,7 @@ export function addSpend(turn, specialist) {
  *
  * Returns the turn, with `turn.route` set when the router read the text: `{ pick, sure, door, fellBack, routerMs, waitedMs }`.
  */
-export async function runWithDoors({ runTurn, args, eligible = false, route = null, waitedMs = null, via = null, handOffRoute = null, doorNotes = () => null }) {
+export async function runWithDoors({ runTurn, args, eligible = false, route = null, waitedMs = null, via = null, handOffRoute = null, doorNotes = () => null, jobAt = null }) {
   const pick = typeof route?.route === "string" ? route.route : null;
   const sure = typeof route?.sure === "number" ? route.sure : null;
   // With no router read at all (the router off or unwired), the turn is the front door's as it always was: nothing is recorded.
@@ -48,7 +48,8 @@ export async function runWithDoors({ runTurn, args, eligible = false, route = nu
     return turn;
   };
   const frontDoor = async () => record(await runTurn(args), "fd");
-  if (!eligible || pick === null || sure === null || sure < ROUTE_AT) return frontDoor();
+  const bar = pick === "job" && typeof jobAt === "number" ? jobAt : ROUTE_AT;
+  if (!eligible || pick === null || sure === null || sure < bar) return frontDoor();
   if (pick === "job") {
     if (typeof handOffRoute !== "function") return frontDoor();
     const turn = await runTurn({ ...args, startWith: handOffRoute });

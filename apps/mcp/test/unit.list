@@ -314,6 +314,7 @@ test/agentSupersededAsk.test.mjs
 test/agentGroupInvited.test.mjs
 test/agentGroupRoutines.test.mjs
 test/agentGroupMail.test.mjs
+test/agentGroupCalendar.test.mjs
 test/agentGroupPlaybook.test.mjs
 test/agentEventLog.test.mjs
 test/agentSentByItself.test.mjs
@@ -691,3 +692,4 @@ test/setsGold.test.mjs
 test/texExamples.test.mjs
 test/examplesNode.test.mjs
 test/appChat.test.mjs
+test/setsFdTapbacks.test.mjs

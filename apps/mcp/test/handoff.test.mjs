@@ -32,7 +32,7 @@ import graphLib from "../../../packages/shared/src/texGraph.cjs";
 import { draftBridge } from "../src/agent/graph/draftBridge.js";
 import { answerCheckNode } from "../src/agent/graph/nodes/answerCheck.js";
 import { MAX_FOUND, foundSoFar, handoffNode, handoffTitle } from "../src/agent/graph/nodes/handoff.js";
-import { handoffHook, toolResultsOf } from "../src/agent/handoff.js";
+import { handoffHook, routeSureOf, toolResultsOf } from "../src/agent/handoff.js";
 import { QUIET_ACK } from "../src/agent/background.js";
 import { BUILTIN_PROVIDER } from "../src/agent/builtin.js";
 import { runTurn } from "../src/agent/turn.js";
@@ -345,4 +345,14 @@ test("the brief fits the job's cap with what was found ahead of the unsent words
   assert.ok(out.brief.length <= 2_000, String(out.brief.length));
   assert.ok(out.brief.indexOf("Already found") < out.brief.indexOf("What it last said"), "found first");
   assert.match(out.brief, /- t9:/, "the newest result kept");
+});
+
+test("routeSureOf: the Hand-off node's limits.routeSure as a fraction, or null when absent or not an integer percent", () => {
+  assert.equal(routeSureOf({ nodes: [{ id: "handoff", limits: { routeSure: 30 } }] }), 0.3);
+  assert.equal(routeSureOf({ nodes: [{ id: "router" }, { id: "handoff" }] }), null, "no limit set");
+  assert.equal(routeSureOf({ nodes: [{ id: "router", limits: { routeSure: 30 } }] }), null, "a missing node");
+  for (const bad of [150, -1, 2.5, "30", null]) assert.equal(routeSureOf({ nodes: [{ id: "handoff", limits: { routeSure: bad } }] }), null, String(bad));
+  assert.equal(routeSureOf(null), null);
+  assert.equal(routeSureOf({}), null);
+  assert.equal(routeSureOf({ nodes: "handoff" }), null);
 });

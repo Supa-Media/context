@@ -30,12 +30,13 @@ import { resolveLiveGrant } from "./lib/controlPlane/liveGrants";
 import { MAX_INSTRUCTIONS, TEX_UPDATES, texUpdatesValidator, type InstructionsChange, type TexUpdates } from "./lib/texInstructions";
 import { muteChat, personRow, setChatSettings, setPersonSettings, setSpeaksUp, settingsOf, speaksUpOf, type Settings, type SettingsRefusal } from "./lib/texChatRules";
 import { cleanAddress, cleanShareQuery, mailSharesNamed, shareMail, unshareMail } from "./lib/textGroupMail";
+import { calendarSharesNamed, shareCalendar, unshareCalendar } from "./lib/textGroupCalendar";
 import { TEXTS_CLIENT_ID } from "./textLinks";
 import { TEXTS_GROUP_CLIENT_ID, ENGAGEMENT_STYLES, type Engagement } from "./textGroups";
 import { handleOf } from "./lib/textGroupAccounts";
 import { setSharing, sharesReviews } from "./texReviews";
 
-export const TEX_COMMANDS = ["mute", "status", "settings", "instructions", "updates", "engagement", "share_mail", "unshare_mail", "review_sharing"] as const;
+export const TEX_COMMANDS = ["mute", "status", "settings", "instructions", "updates", "engagement", "share_mail", "unshare_mail", "share_calendar", "unshare_calendar", "review_sharing"] as const;
 export type TexCommandKind = (typeof TEX_COMMANDS)[number];
 
 /** Commands a guest or an invited tagger may use: none acts as a person. */
@@ -62,6 +63,7 @@ const answerValidator = v.object({
     v.literal("not_allowed"),
     v.literal("bad_request"),
     v.literal("mail_refused"),
+    v.literal("calendar_refused"),
     v.literal("too_long"),
     v.literal("nothing_to_undo"),
   ),
@@ -81,6 +83,10 @@ const answerValidator = v.object({
   changed: v.optional(v.boolean()),
   /** A group chat's settings: whose mail is shared there. */
   mail: v.optional(v.array(v.object({ handle: v.string(), address: v.string() }))),
+  /** The calendars shared with a chat, by address, from a share command. */
+  addresses: v.optional(v.array(v.string())),
+  /** A group chat's settings: whose calendar is shared there. */
+  calendar: v.optional(v.array(v.object({ handle: v.string(), address: v.string() }))),
 });
 type Answer = typeof answerValidator.type;
 
@@ -163,7 +169,16 @@ export const applyTexCommand = internalMutation({
         const level = speaksUpOf(group);
         // Whose mail is shared here, as the chat's own prompt already says it (`mailSharesNamed`), for "how are you set up here".
         const { mail } = await mailSharesNamed(ctx, group._id);
-        return { status: "done", ...settingsOf(group), ...(level !== undefined ? { engagement: level } : {}), engagementChosen: level !== undefined, slug, ...(mail ? { mail } : {}) };
+        const { calendar } = await calendarSharesNamed(ctx, group._id);
+        return {
+          status: "done",
+          ...settingsOf(group),
+          ...(level !== undefined ? { engagement: level } : {}),
+          engagementChosen: level !== undefined,
+          slug,
+          ...(mail ? { mail } : {}),
+          ...(calendar ? { calendar } : {}),
+        };
       }
       case "instructions": {
         const change = changeOf(args.command);
@@ -188,6 +203,16 @@ export const applyTexCommand = internalMutation({
       case "unshare_mail": {
         const address = args.command.address === undefined ? undefined : (cleanAddress(args.command.address) ?? "");
         return { status: "done", count: person === null ? 0 : await unshareMail(ctx, group, person, address) };
+      }
+      case "share_calendar": {
+        // Only the calendar's own person, and an address they have connected when one is named (`lib/textGroupCalendar.ts`).
+        const address = args.command.address === undefined ? undefined : cleanAddress(args.command.address);
+        const shared = person === null || address === null ? null : await shareCalendar(ctx, group, person, address, now);
+        return shared === null ? { status: "calendar_refused" } : { status: "done", addresses: shared.addresses };
+      }
+      case "unshare_calendar": {
+        const address = args.command.address === undefined ? undefined : (cleanAddress(args.command.address) ?? "");
+        return { status: "done", count: person === null ? 0 : await unshareCalendar(ctx, group, person, address) };
       }
       case "review_sharing":
         // A person's review sharing is theirs to set in their own chat, never from a group.

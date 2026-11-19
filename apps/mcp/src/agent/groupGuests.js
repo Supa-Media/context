@@ -30,6 +30,7 @@ import { canSee, readsAsChat } from "../privacy/engine.js";
 import { toolError } from "../tools/results.js";
 import { voicePrompt } from "./chatVoice.js";
 import { chatMailPrompt } from "./groupMail.js";
+import { chatCalendarPrompt } from "./groupCalendar.js";
 import { chatRoutinePrompt } from "./groupRoutines.js";
 import { whoIsWhoLine } from "./groupNames.js";
 
@@ -91,6 +92,7 @@ export function guestPrompt(group, workspace) {
     "A note shared with the chat to view can be read, never changed. " +
     "You can't publish, share or change who sees anything from here. " +
     chatMailPrompt(group) +
+    chatCalendarPrompt(group) +
     `An email or a calendar change goes only from the account of someone here who is on Context (${members}): always pass as with their handle, ` +
     "even when they are the one asking. They are shown the exact copy and only their 👍 or yes makes it; anyone may ask for changes first, and anyone else's yes does nothing. " +
     "You can search the web and open or browse pages, and this chat has its own browser: whatever you sign in to here stays signed in for this chat. " +

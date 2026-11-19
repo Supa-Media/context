@@ -233,3 +233,36 @@ test('the workflow follows CI only, and stays off when the variable says so', ()
   assert.match(text, /run: node scripts\/promote-production\.mjs/);
   assert.doesNotMatch(text, /gh workflow run deploy-/);
 });
+
+test('a rate-limited call waits for the reset, and the deploy still happens', async () => {
+  const gh = github({ ci: { [TIP]: [green(TIP)] } });
+  let limited = false;
+  const request = async (url, init) => {
+    if (!limited && url.pathname.endsWith('/commits') && url.searchParams.get('sha') === 'main') {
+      limited = true;
+      const reset = String(Math.floor(Date.now() / 1000) + 60);
+      return { ok: false, status: 403, headers: new Headers({ 'x-ratelimit-remaining': '0', 'x-ratelimit-reset': reset }), text: async () => 'API rate limit exceeded' };
+    }
+    return gh.request(url, init);
+  };
+  const sleeps = [];
+  const result = await promote(env, { request, log: () => {}, sleep: async ms => sleeps.push(ms) });
+  assert.equal(result.promoted, true);
+  assert.equal(sleeps.length, 1);
+  assert.ok(sleeps[0] > 0 && sleeps[0] <= 15 * 60_000);
+  assert.equal(gh.calls.length, 2);
+});
+
+test('a plain 403 without rate-limit signs still fails at once, and never waits', async () => {
+  const gh = github({ ci: { [TIP]: [green(TIP)] } });
+  const request = async (url, init) => {
+    if (url.pathname.endsWith('/commits') && url.searchParams.get('sha') === 'main') {
+      return { ok: false, status: 403, text: async () => 'Resource not accessible by integration' };
+    }
+    return gh.request(url, init);
+  };
+  const sleeps = [];
+  await assert.rejects(promote(env, { request, log: () => {}, sleep: async ms => sleeps.push(ms) }), /failed \(HTTP 403\)/);
+  assert.deepEqual(sleeps, []);
+  assert.deepEqual(gh.calls, []);
+});

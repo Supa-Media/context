@@ -306,6 +306,7 @@ jobs:
         run: |
           node --test scripts/production-release.test.mjs
           node --test scripts/promote-production.test.mjs
+          node --test scripts/github-rate-limit.test.mjs
           node --test scripts/convex-tests.test.mjs
           node --test scripts/deploy-plan.test.mjs
           node --test scripts/worker-secrets.test.mjs

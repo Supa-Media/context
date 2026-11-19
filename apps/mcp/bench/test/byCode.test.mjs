@@ -77,7 +77,7 @@ test("a group check-in reads the writer's mail shared with the chat, through the
   const model = scripted("Priya, Mr. Haskins said yes.", { name: "search_email", input: { query: "Haskins" } });
   await inWorld("Priya", { gatewayFetch: model.fetch, group: "flat" }, async (world) => {
     const start = await byCodeStart(world, { checkinMail: { from: "Mr. Haskins", subject: "dishwasher", body: "countertop dishwasher is fine" } });
-    assert.match(start.message, /^\(Time for this chat's check-in: look on your own at what is new since [^,]+, [^,]+, in three places only: mail shared with this chat \(search it with after:\d+\)/);
+    assert.match(start.message, /^\(Time for this chat's check-in: look on your own at what is new since [^,]+, [^,]+, in four places only: mail shared with this chat \(search it with after:\d+\)/);
     assert.deepEqual(start.options.groupMail, [{ handle: "priya", address: world.chatSide().mailbox }]);
     const turn = await world.text(start.message, [], { ...start.options, running: start.running });
     assert.equal(turn.ok, true, turn.error);
