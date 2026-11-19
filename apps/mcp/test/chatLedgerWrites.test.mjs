@@ -58,7 +58,9 @@ test("a call that read another workspace keeps the call and never its contents",
     const tool = (await ledgerOf(world).read(ONE_TO_ONE_CHAT)).entries.find((entry) => entry.kind === "tool");
     assert.equal(tool.withheld, "other_workspace");
     assert.equal(tool.result, undefined);
-    assert.equal(tool.args.context, "@someone-else");
+    // Tex's resolver widens a named workspace to a boost (`sixTools.js`): the search still read it, so it is withheld the same.
+    assert.equal(tool.args.boost, "@someone-else");
+    assert.equal(tool.args.context, undefined);
   } finally {
     world.restore();
   }
