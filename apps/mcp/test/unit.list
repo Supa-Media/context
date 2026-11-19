@@ -1,6 +1,7 @@
 bench/test/benchDays.test.mjs
 bench/test/byCode.test.mjs
 bench/test/benchTools.test.mjs
+bench/test/benchSetupBugs.test.mjs
 bench/test/checks.test.mjs
 bench/test/fluff.test.mjs
 bench/test/judge.test.mjs
