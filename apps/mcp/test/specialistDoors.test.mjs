@@ -294,6 +294,26 @@ test("job: a long job the router reads goes to the hand-off at once, before any 
   assert.equal(fallback.route.door, "fd");
 });
 
+test("job's own bar: a job pick at 0.2 goes to the front door at the 0.6 bar, to the hand-off at the Hand-off node's 0.1; a read pick keeps 0.6", async () => {
+  resetCreditState();
+  const offered = (jobAt) => {
+    let asked = 0;
+    return { asked: () => asked, run: () => runWithDoors({ runTurn, args: turnArgs(scripted([text("Here is the answer.")]).fetchImpl, held("search_notes")).args, eligible: true, route: { route: "job", sure: 0.2, ms: 4 }, via: via(), handOffRoute: async () => (asked += 1, "On it."), jobAt }) };
+  };
+  const none = offered(null);
+  const noneTurn = await none.run();
+  assert.equal(none.asked(), 0, "no hand-off at 0.2 under the doors' 0.6 bar");
+  assert.equal(noneTurn.route.door, "fd");
+
+  const low = offered(0.1);
+  const lowTurn = await low.run();
+  assert.equal(low.asked(), 1, "the Hand-off node's 0.1 bar lets the job pick through");
+  assert.equal(lowTurn.route.door, "job");
+
+  const read = await runWithDoors({ runTurn, args: turnArgs(scripted([text("Read answer.")]).fetchImpl, held("search_notes")).args, eligible: true, route: { route: "read", sure: 0.2, ms: 4 }, via: via(), handOffRoute: async () => "unused", jobAt: 0.1 });
+  assert.equal(read.route.door, "fd", "the job bar is for job only: a read at 0.2 still goes to the front door");
+});
+
 test("a fallback adds the specialist's spend to the turn: its usage, and its usage by model", async () => {
   resetCreditState();
   const { fetchImpl } = scripted([
