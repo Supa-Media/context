@@ -18,13 +18,17 @@ import { worldMisses } from "./setsRun.mjs";
 /** A kept test folder's conversation: `c<k>-<id>-sets-<n>` (a repeat may add `-r<n>`). */
 export const conversationOf = (name) => name.replace(/^c\d+-/, "").replace(/-sets-\d+.*$/, "");
 
-/** The world lines of one result's text, `(replayed)` dropped, so where an answer came from does not change it. */
+/**
+ * The world lines of one result's text: the `Browser:` line holds every event joined by " | " (`report.mjs`), and a
+ * world answer is one that starts `world `. `(replayed)` is dropped, so where an answer came from does not change it.
+ */
 export function worldLines(text) {
   const out = [];
   for (const line of String(text).split("\n")) {
-    const at = line.indexOf("world ");
-    if (at < 0 || !/^(Browser: )?world /.test(line.slice(Math.max(0, at - 9)))) continue;
-    out.push(line.slice(at).replace(/^world ([a-z ]+?) \(replayed\) /, "world $1 "));
+    if (!line.startsWith("Browser: ")) continue;
+    for (const event of line.slice("Browser: ".length).split(" | ")) {
+      if (event.startsWith("world ")) out.push(event.replace(/^world ([a-z ]+?) \(replayed\) /, "world $1 "));
+    }
   }
   return out;
 }

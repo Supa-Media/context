@@ -104,3 +104,21 @@ test("worldHash: a replayed answer and the same answer first asked hash the same
   assert.equal(asked.hash, replayed.hash);
   assert.notEqual(asked.hash, other.hash);
 });
+
+test("worldHash: every world event on a Browser line counts, other events do not", async () => {
+  const { worldLines } = await import("../bench/worldHash.mjs");
+  const line = 'Browser: open https://a.example | world web search {"query":"x"} -> {} | world browser page (replayed) {"open":"y"} -> {}';
+  assert.deepEqual(worldLines(`Tex: hi\n${line}\n`), ['world web search {"query":"x"} -> {}', 'world browser page {"open":"y"} -> {}']);
+  assert.deepEqual(worldLines("world web search {} -> {}\n"), [], "only the Browser line is read");
+});
+
+test("record workflow: the push job holds the write token, none of the run's secrets, and only writes tex-world/ or claude/ branches", () => {
+  const push = RECORD.slice(RECORD.indexOf("\n  push:\n"));
+  assert.ok(push.length > 10, "a push job");
+  assert.doesNotMatch(push, /secrets\./, "the push job sees no secret");
+  assert.match(push, /contents: write/);
+  assert.match(push, /\^\(tex-world\|claude\)\//);
+  assert.match(push, /inputs\.world != 'replay' && inputs\.branch != ''/);
+  const run = RECORD.slice(RECORD.indexOf("\n  run:\n"), RECORD.indexOf("\n  push:\n"));
+  assert.doesNotMatch(run, /contents: write/, "the job with the model secrets never writes");
+});
