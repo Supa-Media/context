@@ -290,9 +290,11 @@ export async function runUsageReportingChecks(check) {
   {
     await call("search_notes", { query: "quokkas", context: "@other" });
     const timings = controlPlane.calls.filter((c) => c.path === "/gateway/search-timing").map((c) => c.body);
+    // Its first timing is the asked-in workspace's. A scoped search with no title match there also runs the person's own
+    // unscoped search (`tools/searchNamed.js`, 2026-11-19), which is timed as the search it is, after it.
     check(
       "a cross-context search is timed against the context it searched",
-      timings.length === 1 && timings[0].workspaceId === "ws_other",
+      timings.length >= 1 && timings[0].workspaceId === "ws_other",
     );
   }
 
