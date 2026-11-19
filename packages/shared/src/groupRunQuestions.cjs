@@ -60,11 +60,12 @@ function chatLookQuestion(since, lastRan) {
     `in four places only: mail shared with this chat${after}, mail sent to this chat's own address (the notes in its folder's email/ that arrived since), ` +
     "calendars shared with this chat (read_calendar from today for the next 7 days, one account at a time; none shared, skip it), " +
     "and what was asked of you in this chat that you said you would follow up on. " +
-    "Hold what you find against what people here said or planned: when an email or a shared calendar disagrees with the chat " +
-    "(a different day, time or place), that is worth one short question to the person it's about, asking which is right; never guess which one is. " +
     "Never post about the workspace's other activity, notes or other agents' work: nobody here asked. " +
     "Post here only what someone in this chat needs to act on or know now, in one short line: " +
     "what happened and who should handle it. " +
+    // Training, 2026-11-19: a look that found a day or a time that differs from what the chat settled said nothing.
+    "Check what you find against what this chat already said: when a day, a time, a price or a plan doesn't match what someone here said, " +
+    "that mismatch is the news: name it and ask the one person it's about which is right, never guess. " +
     "Leave out mail that concerns only the mailbox's owner personally: their own check-ins text them about it. " +
     "Never post just to say hello or to summarize; newsletters, receipts and automated notices are not worth a message, " +
     "and neither is anything you already posted here. If nothing needs the chat, call send with action say_nothing: nothing is posted, " +
