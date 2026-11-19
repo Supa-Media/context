@@ -6,13 +6,14 @@
  *   texFailures.cjs failingRows never keeping a repeated row (the flaky clause gone)   "failingRows keeps failed and flaky rows" and the view test fail
  *   texFailures.cjs parseDetail cutting the judge's reason at its first ")"           "parseDetail reads the real example" and the view test fail
  *   texFailures.cjs tagsOf missed_checkin off (checkin: false)                          the tagsOf, grouped view and scoring tag tests fail (3)
+ *   texFailures.cjs stabilityOf flaky clause returning "once" (passes < runs)           6 fail: the view, grouped, stabilityOf, only and sort tests
  */
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { createTexDev } from "../src/texDev/tool.js";
 import { guideText } from "../src/texDev/guide.js";
 import { texDevToolDefinitions } from "../src/tools/schemas/texDev.js";
-import { FAILURE_TAGS, failingRows, failureView, parseDetail, tagsOf } from "../../../packages/shared/src/texFailures.cjs";
+import { FAILURE_TAGS, failingRows, failureView, parseDetail, stabilityOf, tagsOf } from "../../../packages/shared/src/texFailures.cjs";
 import { repoConversation } from "../src/texDev/sets.js";
 
 const textOf = (result) => result.content.find((c) => c.type === "text")?.text ?? "";
@@ -97,6 +98,8 @@ test("the view: the failed fd row's ask, reply, tools, gold and judge reasons; a
   assert.deepEqual(fd.gold, { must: ["say what changed and ask the one question"] }, "an empty never list is left out");
   assert.equal(fd.got, undefined, "got is for the non-fd nodes");
   assert.deepEqual(fd.judge, [`must: say what changed and ask the one question — ${MUST.slice(0, 240)}`]);
+  assert.equal(fd.stability, "stable");
+  assert.equal(decide.stability, "flaky");
   assert.equal(decide.passes, "2/3");
   assert.equal(decide.gold.want, "quick");
   assert.equal(decide.got, "read");
@@ -143,7 +146,8 @@ test("a run with no scored rows yet says so, with its stage", async () => {
 });
 
 test("the guide and the schema name failures", () => {
-  assert.match(guideText(), /- failures \{ id, node\?, conv\?, limit\?, group\? \}/);
+  assert.match(guideText(), /- failures \{ id, node\?, conv\?, limit\?, group\?, only\? \}/);
+  assert.match(guideText(), /stability \(stable: failed every repeat; flaky: passed some; once: not repeated\)/);
   const def = texDevToolDefinitions()[0];
   assert.match(def.description, /\bfailures\b/);
   assert.match(def.inputSchema.properties.action.description, /\bfailures\b/);
@@ -192,10 +196,102 @@ test("failureView group: rows filed under their first tag, counts, FAILURE_TAGS 
   assert.equal(view.groups[0].rows[0], "k 0: Morning check-in → must: say where it is and confirm it saved — x");
   assert.equal(view.groups[2].rows[0], "k 2: Long one → must: confirm it saved — x", "the stored too_long tag files it, though its detail computes didnt_act");
   assert.equal(view.groups[3].rows.length, 2);
+  assert.equal(view.groups[3].flaky, 1, "the flaky row is counted in its group");
+  assert.equal(view.groups[3].stable, undefined, "a zero count is left out");
+  assert.match(view.groups[3].rows[0], /^~ k 3 2\/3: /, "a flaky line is prefixed ~");
+  assert.match(view.groups[3].rows[1], /^k 4: /, "a once line has no prefix");
+  assert.deepEqual(view.stability, { flaky: 1, once: 4 }, "top-level counts over the kept rows");
   const flat = failureView(run, convOf);
-  assert.deepEqual(flat.rows.map((r) => [r.group, r.tags]), [["missed_checkin", ["missed_checkin", "didnt_act"]], ["didnt_act", ["didnt_act"]], ["too_long", ["too_long"]], ["other", []], ["other", []]]);
+  assert.deepEqual(flat.rows.map((r) => [r.group, r.tags]), [["other", []], ["missed_checkin", ["missed_checkin", "didnt_act"]], ["didnt_act", ["didnt_act"]], ["too_long", ["too_long"]], ["other", []]], "flaky before once; the triage order within each");
+  assert.deepEqual(flat.stability, { flaky: 1, once: 4 });
   assert.equal(failureView(run, convOf, { group: true, node: "router" }).count, 1, "node still narrows the grouped view");
   assert.deepEqual(failureView(run, convOf, { group: true, conv: "nope" }).groups, []);
+});
+
+test("stabilityOf: failed every repeat is stable, passed some is flaky, not repeated is once", () => {
+  assert.equal(stabilityOf({ runs: 3, passes: 0 }), "stable");
+  assert.equal(stabilityOf({ runs: 3 }), "stable", "missing passes read as 0");
+  assert.equal(stabilityOf({ runs: 3, passes: 2 }), "flaky");
+  assert.equal(stabilityOf({ runs: 3, passes: 1 }), "flaky");
+  assert.equal(stabilityOf({ runs: 1, passes: 0 }), "once");
+  assert.equal(stabilityOf({ passes: 0 }), "once", "runs missing");
+  assert.equal(stabilityOf({ runs: 3, passes: 3, ok: false }), null, "all passed yet failing fits no value");
+  assert.equal(stabilityOf(null), "once");
+});
+
+test("only: flat view keeps flaky rows and drops stable ones before the limit; counts reflect the filter", () => {
+  const rows = [
+    { convId: "a", msgIndex: 0, node: "fd", ok: true, runs: 3, passes: 2 },
+    { convId: "b", msgIndex: 1, node: "fd", ok: false, runs: 3, passes: 0 },
+    { convId: "c", msgIndex: 2, node: "fd", ok: false },
+  ];
+  const run = { id: "o1", results: { rows } };
+  const flaky = failureView(run, () => null, { only: "flaky" });
+  assert.deepEqual(flaky.rows.map((r) => r.conv), ["a"]);
+  assert.equal(flaky.count, 1);
+  assert.deepEqual(flaky.stability, { flaky: 1 });
+  const stable = failureView(run, () => null, { only: "stable" });
+  assert.deepEqual(stable.rows.map((r) => r.conv), ["b"]);
+  assert.deepEqual(failureView(run, () => null, { only: "stable" }).stability, { stable: 1 });
+  const all = failureView(run, () => null);
+  assert.deepEqual(all.stability, { stable: 1, flaky: 1, once: 1 });
+  assert.equal(all.count, 3);
+  const limited = failureView({ id: "o2", results: { rows: [...rows, { convId: "d", msgIndex: 3, node: "fd", ok: true, runs: 3, passes: 1 }] } }, () => null, { only: "flaky", limit: 1 });
+  assert.equal(limited.count, 2, "count is the filtered total");
+  assert.equal(limited.shown, 1);
+  assert.deepEqual(limited.rows.map((r) => r.conv), ["a"]);
+  assert.equal(failureView(run, () => null, { only: "once" }).count, 3, "only takes stable or flaky; anything else keeps every row");
+});
+
+test("grouped view: stable and flaky counts per group (zero omitted), only applies, flaky lines prefixed ~", () => {
+  const confirm = "must: confirm it saved (x)";
+  const rows = [
+    { convId: "loose-ends", msgIndex: 63, node: "fd", ok: true, runs: 3, passes: 2, detail: "" },
+    { convId: "loose-ends", msgIndex: 64, node: "fd", ok: false, runs: 3, passes: 0, detail: confirm },
+    { convId: "loose-ends", msgIndex: 65, node: "fd", ok: false, runs: 3, passes: 0, detail: confirm },
+    { convId: "other", msgIndex: 1, node: "fd", ok: false, detail: "must: say hi (fine)" },
+  ];
+  const convOf = (id) => (id === "loose-ends" ? { id, msgs: Array.from({ length: 70 }, (_, i) => ({ who: "Jo", text: `ask ${i}` })) } : null);
+  const view = failureView({ id: "g", results: { rows } }, convOf, { group: true });
+  assert.deepEqual(view.groups.map((g) => [g.tag, g.count, g.stable ?? null, g.flaky ?? null]), [
+    ["didnt_act", 2, 2, null],
+    ["other", 2, null, 1],
+  ], "stable and flaky counts per group; a zero count is left out");
+  assert.match(view.groups[1].rows[0], /^~ loose-ends 63 2\/3: ask 63/, "a flaky line reads ~ before its conv");
+  assert.ok(view.groups[0].rows.every((line) => !line.startsWith("~ ")), "stable lines carry no prefix");
+  assert.deepEqual(view.stability, { stable: 2, flaky: 1, once: 1 });
+  assert.equal(view.count, 4);
+  const onlyFlaky = failureView({ id: "g", results: { rows } }, convOf, { group: true, only: "flaky" });
+  assert.equal(onlyFlaky.count, 1);
+  assert.deepEqual(onlyFlaky.stability, { flaky: 1 });
+  assert.deepEqual(onlyFlaky.groups.map((g) => [g.tag, g.count, g.flaky]), [["other", 1, 1]]);
+  const onlyStable = failureView({ id: "g", results: { rows } }, convOf, { group: true, only: "stable" });
+  assert.equal(onlyStable.count, 2);
+  assert.deepEqual(onlyStable.groups.map((g) => [g.tag, g.count, g.stable]), [["didnt_act", 2, 2]]);
+  assert.ok(onlyStable.groups[0].rows.every((line) => !line.startsWith("~ ")), "no flaky line among the stable ones");
+});
+
+test("sort: stable before flaky before once, then fd, conv and msg, in the flat view and within each group", () => {
+  const rows = [
+    { convId: "k", msgIndex: 0, node: "fd", ok: false, detail: "" },
+    { convId: "k", msgIndex: 5, node: "fd", ok: true, runs: 3, passes: 2, detail: "" },
+    { convId: "b", msgIndex: 1, node: "fd", ok: false, runs: 3, passes: 0, detail: "" },
+    { convId: "a", msgIndex: 2, node: "fd", ok: false, runs: 3, passes: 0, detail: "" },
+    { convId: "a", msgIndex: 9, node: "router", ok: false, runs: 3, passes: 0, detail: "" },
+  ];
+  const run = { id: "s1", results: { rows } };
+  assert.deepEqual(failureView(run, () => null).rows.map((r) => [r.conv, r.msg, r.stability]), [
+    ["a", 2, "stable"],
+    ["b", 1, "stable"],
+    ["a", 9, "stable"],
+    ["k", 5, "flaky"],
+    ["k", 0, "once"],
+  ], "stable rows first (fd before router inside them), then flaky, then once");
+  const grouped = failureView(run, () => null, { group: true });
+  assert.equal(grouped.groups.length, 1);
+  assert.deepEqual(grouped.groups[0].rows.map((line) => line.split(":")[0]), ["a 2 0/3", "b 1 0/3", "a 9 0/3", "~ k 5 2/3", "k 0"]);
+  assert.equal(grouped.groups[0].stable, 3);
+  assert.equal(grouped.groups[0].flaky, 1);
 });
 
 test("a row with a stored tags list reads those tags, even when the detail would say otherwise", () => {

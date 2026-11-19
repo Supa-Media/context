@@ -111,6 +111,33 @@ function failingRows(rows) {
   });
 }
 
+/**
+ * How a failing row held up across its repeats: "stable" when it failed every repeat (runs > 1, passes 0; missing passes
+ * read as 0), "flaky" when it passed some of them (0 < passes < runs), "once" when it did not repeat (runs missing or 1).
+ * A repeated row that passed every repeat and still failed fits none of these, so it reads null.
+ */
+function stabilityOf(row) {
+  if (!(Number.isInteger(row?.runs) && row.runs > 1)) return "once";
+  const passes = Number.isInteger(row.passes) ? row.passes : 0;
+  if (passes === 0) return "stable";
+  if (passes < row.runs) return "flaky";
+  return null;
+}
+
+/** The stability values a caller may keep with `only`. */
+const ONLY_STABILITY = ["stable", "flaky"];
+const STABILITY_RANK = { stable: 0, flaky: 1, once: 2 };
+
+/** Counts of each stability over rows, zero counts left out: { stable?, flaky?, once? }. */
+function stabilityCounts(rows) {
+  const out = {};
+  for (const key of Object.keys(STABILITY_RANK)) {
+    const n = rows.filter((r) => stabilityOf(r) === key).length;
+    if (n > 0) out[key] = n;
+  }
+  return out;
+}
+
 /** The failure tags, in priority order: a row gets every tag its rules match, and the grouped view files it under the first. */
 const FAILURE_TAGS = ["missed_checkin", "broken_deliverable", "facts", "didnt_act", "asked_instead", "too_long"];
 
@@ -150,6 +177,13 @@ function byTriage(a, b) {
   if (fd !== 0) return fd;
   if (a.convId !== b.convId) return String(a.convId) < String(b.convId) ? -1 : 1;
   return (a.msgIndex ?? 0) - (b.msgIndex ?? 0);
+}
+
+/** Stable rows before flaky before once, then the triage order. */
+function byStabilityThenTriage(a, b) {
+  const rank = (r) => STABILITY_RANK[stabilityOf(r)] ?? 3;
+  const by = rank(a) - rank(b);
+  return by !== 0 ? by : byTriage(a, b);
 }
 
 /**
@@ -195,24 +229,31 @@ function tagsFor(row, convOf) {
   return Array.isArray(row.tags) ? row.tags : tagsOf(row, msgOf(row, convOf));
 }
 
-/** One line per row for the grouped view: "<conv> <msg> <passes>: <ask cut> → <first judge line cut>". */
+/**
+ * One line per row for the grouped view: "<conv> <msg> <passes>: <ask cut> → <first judge line cut>", prefixed "~ "
+ * when the row is flaky so it stands out.
+ */
 function groupLine(view) {
   const head = [view.conv, view.msg, view.passes].filter((x) => x !== undefined && x !== "").join(" ");
   const ask = cut(view.ask?.text ?? "", GROUP_ASK_CHARS);
   const judge = Array.isArray(view.judge) && view.judge.length > 0 ? ` → ${cut(view.judge[0], GROUP_JUDGE_CHARS)}` : "";
-  return `${head}: ${ask}${judge}`;
+  return `${view.stability === "flaky" ? "~ " : ""}${head}: ${ask}${judge}`;
 }
 
 /**
  * The failure view of one run. `opts`: `node` (only that node's rows), `conv` (only that conversation), `limit` (default
  * 60, at most 200), and `group` (true: the rows filed under their tags, `groups` in FAILURE_TAGS order then "other", each
- * with its count and one line per row; `limit` does not apply). Every view row carries `tags` and `group` (its first tag,
- * or "other"). `count` is every failing row the filters keep; `shown` is how many a flat answer holds.
+ * with its count and one line per row; `limit` does not apply). `only` ("stable" or "flaky") keeps only those rows, before
+ * the limit and the counts. Every view row carries `tags`, `group` (its first tag, or "other") and `stability`. `count` is
+ * every failing row the filters keep; `shown` is how many a flat answer holds; `stability` counts the kept rows.
  */
 function failureView(run, convOf, opts = {}) {
   const results = run && run.results && typeof run.results === "object" ? run.results : {};
-  const rows = failingRows(results.rows).filter((r) => (!opts.node || r.node === opts.node) && (!opts.conv || r.convId === opts.conv));
-  const sorted = rows.slice().sort(byTriage);
+  const only = ONLY_STABILITY.includes(opts.only) ? opts.only : null;
+  const rows = failingRows(results.rows)
+    .filter((r) => (!opts.node || r.node === opts.node) && (!opts.conv || r.convId === opts.conv))
+    .filter((r) => !only || stabilityOf(r) === only);
+  const sorted = rows.slice().sort(byStabilityThenTriage);
   const ambiguous = Array.isArray(results.ambiguous) ? results.ambiguous : [];
   const runView = compact({
     id: run?.id,
@@ -225,27 +266,36 @@ function failureView(run, convOf, opts = {}) {
   });
   const withTags = (r) => {
     const tags = tagsFor(r, convOf);
-    return { ...rowView(r, convOf), tags, group: tags[0] ?? "other" };
+    return { ...rowView(r, convOf), tags, group: tags[0] ?? "other", stability: stabilityOf(r) };
   };
   if (opts.group === true) {
     const viewed = sorted.map(withTags);
     const groups = [...FAILURE_TAGS, "other"]
       .map((tag) => {
         const inGroup = viewed.filter((v) => v.group === tag);
-        return { tag, count: inGroup.length, rows: inGroup.map(groupLine) };
+        const stableCount = inGroup.filter((v) => v.stability === "stable").length;
+        const flakyCount = inGroup.filter((v) => v.stability === "flaky").length;
+        return compact({
+          tag,
+          count: inGroup.length,
+          stable: stableCount || undefined,
+          flaky: flakyCount || undefined,
+          rows: inGroup.map(groupLine),
+        });
       })
       .filter((g) => g.count > 0);
-    return { run: runView, count: rows.length, groups, ambiguous };
+    return { run: runView, count: rows.length, stability: stabilityCounts(rows), groups, ambiguous };
   }
   const limit = Number.isInteger(opts.limit) && opts.limit > 0 ? Math.min(opts.limit, MAX_LIMIT) : DEFAULT_LIMIT;
   const shownRows = sorted.slice(0, limit);
   return {
     run: runView,
     count: rows.length,
+    stability: stabilityCounts(rows),
     shown: shownRows.length,
     rows: shownRows.map(withTags),
     ambiguous,
   };
 }
 
-module.exports = { FAILURE_TAGS, parseDetail, failingRows, tagsOf, failureView, cut };
+module.exports = { FAILURE_TAGS, parseDetail, failingRows, stabilityOf, tagsOf, failureView, cut };
