@@ -51,6 +51,7 @@ import { MAX_CLOUD_JOBS, MAX_JOB_ATTEMPTS, MAX_MACHINE_SLOTS, jobSlots } from ".
 import { decideStart } from "../../../../packages/shared/src/jobStart.cjs";
 import { START_JOB_TOOL, TOOL } from "./backgroundTool.js";
 import { PLAN_TOOL } from "./planBigAsk.js";
+import { briefNotice, PRESENT_START_REFUSAL } from "./jobHandoff.js";
 import { endsOf, jobResumeOf, MAX_STREAMED_RESULT, partsLine, savedOf, savedPrompt } from "./jobSaved.js";
 import { JOB_START_EXAMPLES, SAY_FIELD, startLine } from "./jobStart.js";
 export { jobReportOf, jobReportPrompt, jobReportQuestion, QUIET_REPORT_LINE, reportReply } from "./jobReport.js";
@@ -408,9 +409,11 @@ const text = (words, isError = false) => ({ content: [{ type: "text", text: word
  *
  * @param {{ running: Array|null, job: object|null, now: number, report?: boolean, read?: () => void, chooseStart?: (facts: object) => Promise<object> }} options (`chooseStart`: the Job start node, `jobStartChoice.js`)
  */
-export function backgroundSession({ running, job, now, report = false, read = () => {}, machines = null, inGroup = false, opened = () => [], chooseStart = async (facts) => decideStart(facts, null) }) {
+export function backgroundSession({ running, job, now, report = false, read = () => {}, machines = null, inGroup = false, opened = () => [], presenting = false, question = "", chooseStart = async (facts) => decideStart(facts, null) }) {
   if (running === null) return null;
   const started = [];
+  let presentRefused = false; // a finished report's turn is refused one new job, once (`jobHandoff.js`)
+  let briefNoticed = false; // a thin brief is sent back once a turn
   let justStarted = []; // the titles of the jobs started since `endsTurn` last read them: a round may start several
   const resumed = []; // ended jobs this turn picks back up, by id: steered to the Worker with `resume`
   let justResumed = []; // their titles, read once by `endsTurn`
@@ -443,6 +446,17 @@ export function backgroundSession({ running, job, now, report = false, read = ()
     // like one that stopped (Dev2, 2026-11-11: a report turn's new brief was matched to a stuck job and dropped, and the
     // job resumed and stuck again three times). Picking a stopped job back up as it was is restart_job's alone.
     const asked = title !== "" && brief !== "";
+    if (asked && presenting && !presentRefused) {
+      presentRefused = true;
+      return text(PRESENT_START_REFUSAL, true);
+    }
+    if (asked && !briefNoticed) {
+      const notice = briefNotice({ question, brief, done_when: args?.done_when });
+      if (notice !== null) {
+        briefNoticed = true;
+        return text(notice, true);
+      }
+    }
     const already = asked ? [...running.filter((entry) => entry.state === "running"), ...started].find((entry) => sameJob(entry.title, title)) : undefined;
     const mail = jobMailOf(args?.mail);
     // On one of their own computers (`machines/forJobs.js`): found now, and admitted by its owner's rules at every part.

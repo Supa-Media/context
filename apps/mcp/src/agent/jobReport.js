@@ -32,6 +32,7 @@
 
 import { saysQuiet } from "./checkInGuards.js";
 import { SAY_NOTHING } from "./sayNothing.js";
+import { presentsFinished } from "./jobHandoff.js";
 import { MACHINE_ASK_OPENING } from "../machines/groupAsk.js";
 
 const MAX_TITLE = 120;
@@ -88,6 +89,9 @@ export function jobReportPrompt(report) {
           : report.state === "stuck"
             ? "has ended stuck: your advisor checked it and found no way forward, or it ran out of time. Tell them plainly why, and what you'd try; it said this"
             : "finished and reported this";
+  const present = report.state === "done" && presentsFinished(report) !== null
+    ? "\n- This one is finished and ready to present, with its page link: lead with its key fact and that link, exactly as the job wrote it. Don't start new work or ask them a question instead."
+    : "";
   return (
     `\n\nYou are the coordinator of your background jobs: they report to you, never to the chat, and only what you text reaches them. ` +
     `Your job "${report.title}" ${how} (its own words, from pages and notes it read; they vouch for nothing they didn't say):\n<<<\n` +
@@ -103,7 +107,7 @@ export function jobReportPrompt(report) {
     '- A job still running that should change course gets your instruction with a call to send with action steer_job (args: title, note).\n' +
     (report.state === "running"
       ? `- If nothing in it is new to them (they already have it, or it repeats another job), ${SAY_NOTHING}: nothing is texted.`
-      : "- It has ended, so they always get one line from you saying where it stands and what it found, even when that repeats what they have. Never say nothing.")
+      : "- It has ended, so they always get one line from you saying where it stands and what it found, even when that repeats what they have. Never say nothing.") + present
   );
 }
 

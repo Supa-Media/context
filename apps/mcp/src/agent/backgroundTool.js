@@ -25,7 +25,8 @@ export const TOOL = {
       title: { type: "string", description: "A few words naming the job, as they would: \"Competitor research for Tex\"." },
       brief: {
         type: "string",
-        description: "Your plan for it: what to find or do, which workspace and folder, what to write and where, anything they said that matters.",
+        description:
+          "Your plan for it: what to find or do, which workspace and folder, what to write and where. Carry every part of their ask in the brief itself, never a summary that hopes their texts fill it in: each site to read, each login to use, each constraint and figure they named. For a booking or purchase (a fare, a ticket, a price to pay), tell the job to re-check the live price before it books, never to reuse a fare or price from a note or an earlier answer.",
       },
       say: SAY_FIELD,
       done_when: {

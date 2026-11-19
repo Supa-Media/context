@@ -98,7 +98,7 @@ test("a start or restart with no say texts nothing: their text gets a tapback", 
 
   const started = backgroundSession({ running: [], job: null, now: NOW });
   assert.equal(started.tools.find((tool) => tool.name === START_JOB_TOOL).inputSchema.properties.quiet, undefined);
-  assert.match(words(await withBackground(started, async () => ({ content: [] }))(START_JOB_TOOL, { title: "Haircut", brief: "Book it." })), /Their text gets a tapback/);
+  assert.match(words(await withBackground(started, async () => ({ content: [] }))(START_JOB_TOOL, { title: "Haircut", brief: "Find a Saturday morning slot." })), /Their text gets a tapback/);
   assert.equal(started.endsTurn(START_JOB_TOOL), QUIET_ACK);
   assert.equal(started.endsTurn(START_JOB_TOOL), null, "settled once");
   assert.equal(started.endsTurn("search"), null, "no job, no settling");

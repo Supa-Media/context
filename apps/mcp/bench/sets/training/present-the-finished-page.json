@@ -1,0 +1,14 @@
+{
+  "id": "present-the-finished-page",
+  "title": "A finished quotes job comes back as a page",
+  "set": "training",
+  "kind": "one",
+  "members": ["Priya"],
+  "setting": "Priya is at Spokeline, a bike co-op. Tex has her Gmail, notes, the web and a vault for logins.",
+  "msgs": [
+    {"id":"m1","who":"Priya","text":"three shops for the frame patch: hullworks.example.com, Keel & Co and Aft Yard. find the cheapest and book the slot with the co-op login, under $900","labels":{"fd":{"must":["start a background job whose brief names the three sites, the co-op login, the $900 cap, and to book the cheapest","tell the job to re-check the live price before booking, never to reuse a note's price"],"never":["quote a price from memory or a note","book anything in this turn"],"star":true}}},
+    {"id":"m2","who":"Tex","tex":true,"text":"On it. I'll read all three shops and book the cheapest under $900 on the co-op login, checking the price again at checkout."},
+    {"id":"m3","via":"job","who":"Background job","state":"done","text":"Page written: projects/spokeline/frame-patch.page.md. Key fact: Keel & Co is $740 for the frame patch, slot Saturday 9am, booked. Present to Priya.","labels":{"fd":{"must":["lead with Keel & Co at $740 for the frame patch, booked Saturday 9am","give the link to projects/spokeline/frame-patch.page.md"],"never":["start a new job","ask Priya a question"],"star":true}}},
+    {"id":"m4","who":"Tex","tex":true,"text":"Keel & Co is the cheapest at $740 for the frame patch, booked for Saturday 9am. The quotes are on projects/spokeline/frame-patch.page.md."}
+  ]
+}
