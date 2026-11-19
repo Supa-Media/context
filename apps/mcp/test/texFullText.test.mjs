@@ -77,15 +77,14 @@ test("a group: a 6,000-character pasted brief reaches the model's question with 
 });
 
 test("a text the log kept cut reaches the model whole, as the Worker sent it", async () => {
-  // An event a Worker logged at its old 3,000, with no mark, and one a cap cut with its mark.
-  // One a Worker logged at its old 3,000, and one a Worker cut, with its mark and its `left`.
-  for (const cut of [{ logged: BRIEF.slice(0, 3_000) }, { logged: `${BRIEF.slice(0, 3_000)}\n[cut: ${BRIEF.length - 3_000} more characters]`, left: BRIEF.length - 3_000 }]) {
-    const { all, asked } = await texted(TOKEN_TEXTS, BRIEF, cut);
-    assert.ok(fromLedger(all), "a logged turn");
-    assert.ok(asked.trimEnd().endsWith(LAST), "the brief's last line is the end of the question");
-    assert.ok(!asked.includes("[cut:"), "no mark once whole");
-  }
-  const { asked } = await texted(TOKEN_GROUP, BRIEF, { logged: BRIEF.slice(0, 3_000), group: KEY });
+  // One a Worker cut, with its mark and its `left`. These texts are logged now, after `OLD_CAP_UNTIL`, so an
+  // unmarked 3,000 no longer counts as cut here; "the old 3,000 counts only before the cutoff" proves that rule.
+  const cut = { logged: `${BRIEF.slice(0, 3_000)}\n[cut: ${BRIEF.length - 3_000} more characters]`, left: BRIEF.length - 3_000 };
+  const { all, asked: one } = await texted(TOKEN_TEXTS, BRIEF, cut);
+  assert.ok(fromLedger(all), "a logged turn");
+  assert.ok(one.trimEnd().endsWith(LAST), "the brief's last line is the end of the question");
+  assert.ok(!one.includes("[cut:"), "no mark once whole");
+  const { asked } = await texted(TOKEN_GROUP, BRIEF, { ...cut, group: KEY });
   assert.ok(asked.trimEnd().endsWith(LAST), "a group's too");
 });
 
