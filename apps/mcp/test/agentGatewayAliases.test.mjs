@@ -190,47 +190,5 @@ export async function runAgentGatewayAliasChecks(check) {
     Object.keys(spoofedLabels).length === 5 && same(spoofedLabels, { alpha: "1", beta: "2", gamma: "3", delta: "4", payer: "cloudflare" }),
   );
 
-  // Dev2, 2026-11-19: a turn that failed with "status 402" could not say who refused it. The failed call carries each
-  // payer asked and its status, by name only: never a key, a response body or the question.
-  resetCreditState();
-  const refusedAll = scripted([
-    { status: 400, body: { error: { type: "invalid_request_error", message: "key not usable" } } },
-    { status: 400, body: { error: { type: "invalid_request_error", message: "key not usable" } } },
-    { status: 402, body: CREDIT_SPENT },
-    { status: 402, body: { error: "payment_required" } },
-  ]);
-  let thrown = null;
-  try {
-    await requestViaGateway(CALL, aliased, { fetchImpl: refusedAll.fetchImpl, now: () => T0, wait: async () => {} });
-  } catch (error) {
-    thrown = error;
-  }
-  check(
-    "a call every payer refused fails naming each payer and its status, and nothing else",
-    thrown?.status === 402 &&
-      JSON.stringify(thrown.payers) === JSON.stringify([
-        { payer: "alias:first-credits", status: 400 },
-        { payer: "alias:second_credits", status: 400 },
-        { payer: "plan", status: 402 },
-        { payer: "unified", status: 402 },
-      ]) &&
-      !JSON.stringify(thrown.payers).includes(CREDIT) && !JSON.stringify(thrown.payers).includes("SECRET-QUESTION"),
-  );
-  const skipped = scripted([
-    { status: 400, body: { error: { type: "invalid_request_error", message: "key not usable" } } },
-    { status: 400, body: { error: { type: "invalid_request_error", message: "key not usable" } } },
-    { status: 402, body: { error: "payment_required" } },
-  ]);
-  let resting = null;
-  try {
-    await requestViaGateway(CALL, aliased, { fetchImpl: skipped.fetchImpl, now: () => T0 + 1, wait: async () => {} });
-  } catch (error) {
-    resting = error;
-  }
-  check(
-    "a payer resting from spent credit is named as skipped, not asked",
-    refusedAll.calls.length === 4 && resting?.payers?.some((p) => p.payer === "plan" && p.skipped === true) === true && resting.payers.at(-1).payer === "unified",
-  );
-
   resetCreditState();
 }

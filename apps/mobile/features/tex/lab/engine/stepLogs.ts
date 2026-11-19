@@ -76,7 +76,7 @@ export const STEP_LOGS: Record<string, StepLog> = {
 };
 
 /** Step names the gateway and Worker log under another canvas step's name. */
-export const STEP_ALIAS: Record<string, string> = { door: "doorStep", lane: "lanes", model: "fd", steer: "fd", recheck: "decide", provisional: "fd", resumed: "fd", failed: "fd" };
+export const STEP_ALIAS: Record<string, string> = { door: "doorStep", lane: "lanes", model: "fd", steer: "fd", recheck: "decide", provisional: "fd", resumed: "fd", failed: "send" };
 
 /** The canvas step a `step` entry belongs to, or null (`timing` entries are Door steps' gathering, read from the reply). */
 export const nodeOfStep = (step: unknown): string | null => (typeof step !== "string" || step === "timing" ? null : (STEP_ALIAS[step] ?? (step in STEP_LOGS ? step : null)));

@@ -110,9 +110,11 @@ test("a steps card with no photo draws no empty tile, and the schema names the t
   assert.match(cut, /A tip that runs on well past sixty characters and would be…/);
 });
 
-test("a card that won't draw leaves the whole answer in words", () => {
-  // Hand-back bench case 10 (gh-104): "The card won't draw right now" and one line in place of the list.
-  assert.match(VISUALS_LINE, /If draw_visual fails, fix what it says and draw again; only after that, text it all in words, no word of the card/);
+test("a card that won't draw leaves the short answer in words, never every row of the card", () => {
+  // Hand-back bench case 10 (gh-104): "The card won't draw right now" and one line in place of the list. Training
+  // 2026-11-19 (build-crew m8): the fallback sent the whole comparison as paragraphs in a chat that asked for a picture.
+  assert.match(VISUALS_LINE, /If draw_visual fails, fix what it says and draw again; only after that, say in one line it didn't come out and text the short version/);
+  assert.match(VISUALS_LINE, /never every row of the card/);
   assert.match(VISUALS_LINE, /COMPARISONS ARE SEEN/);
 });
 

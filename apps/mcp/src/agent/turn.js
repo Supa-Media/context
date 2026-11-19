@@ -38,9 +38,6 @@ import { attachmentsLine } from "./attachments.js";
 import { awaitExamples } from "./turnExamples.js";
 import { BUILTIN_PROVIDER, builtinModel, hasBuiltinModel, liveTurn, requestBuiltin, systemText } from "./builtin.js";
 import { ProviderError, THINKING_REFUSED } from "./providers.js";
-
-/** Why a model call failed, as the trace keeps it: the provider's own phrase and, through the gateway, each payer asked and its status (`aiGateway.js`). */
-const failedWhy = (error) => ({ ...(typeof error?.reason === "string" ? { reason: error.reason } : {}), ...(Array.isArray(error?.payers) && error.payers.length > 0 ? { payers: error.payers } : {}) });
 import { BROWSE_TIMED_OUT, BROWSE_TOOL } from "./computer.js";
 import { turnPrompt } from "./turnPrompt.js";
 import { pickTier } from "./router.js";
@@ -543,9 +540,8 @@ export async function runTurn(options) {
         fellBack = true;
         const ms = clock() - asked;
         timing.modelMs += ms;
-        const why = failedWhy(error);
-        trace.push({ kind: "fallback", from: model, model: next, status: error.status ?? null, ...why, ok: true, at: asked - began, ms });
-        tell({ kind: "model", step: "fallback", model: next, ms, input: { from: model, status: error.status ?? null, ...why }, output: { model: next }, reason: `after ${model} failed: ${error.reason}` });
+        trace.push({ kind: "fallback", from: model, model: next, status: error.status ?? null, ok: true, at: asked - began, ms });
+        tell({ kind: "model", step: "fallback", model: next, ms, input: { from: model, status: error.status ?? null }, output: { model: next }, reason: `after ${model} failed` });
         // The rest of the turn stays on the fallback: a plan would send it back to what failed.
         plan = null;
         // Another model reads none of this one's thinking, and the prompt changed with it.
@@ -562,7 +558,7 @@ export async function runTurn(options) {
           rounds: timing.rounds + 1,
           modelMs: timing.modelMs + ms,
           toolMs: timing.toolMs, failures: timing.failures,
-          trace: [...trace, { kind: "model", model, ok: false, at: asked - began, ms, ...(error.status === null || error.status === undefined ? {} : { status: error.status }), ...failedWhy(error) }],
+          trace: [...trace, { kind: "model", model, ok: false, at: asked - began, ms, ...(error.status === null || error.status === undefined ? {} : { status: error.status }) }],
         };
       }
       throw error;
