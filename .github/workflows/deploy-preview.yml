@@ -285,9 +285,24 @@ jobs:
 
       # The gateway first: the texting assistant binds it, so it must exist.
       # Staging's screenshot and eval Workers are bound by name, as they are.
+      # The gateway and the texting assistant bind each other, and Cloudflare
+      # refuses a binding to a Worker that does not exist. So on a preview whose
+      # texting assistant does not exist yet, the gateway goes up first without
+      # its TEXTING binding only, and is deployed again in full once the
+      # texting assistant exists.
       - name: Deploy the gateway
         if: ${{ needs.resolve.outputs.mcp == 'true' }}
-        run: pnpm --dir apps/mcp exec wrangler deploy --config wrangler.preview.toml --env preview --name "context-mcp-pr$PR" --var "TEX_CODE_VERSION:$HEAD_SHA" --message "Preview pr$PR $HEAD_SHA"
+        run: |
+          set -euo pipefail
+          config=wrangler.preview.toml
+          code="$(curl -s -o /dev/null -w '%{http_code}' --max-time 30 -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN" "https://api.cloudflare.com/client/v4/accounts/$CLOUDFLARE_ACCOUNT_ID/workers/scripts/context-agent-pr$PR" || true)"
+          if [ "$code" = "404" ]; then
+            echo "The texting assistant does not exist yet: the gateway goes up first without its TEXTING binding."
+            node -e 'const fs=require("fs");const t=fs.readFileSync(process.argv[1],"utf8");const re=/\[\[env\.preview\.services\]\]\r?\nbinding = "TEXTING"\r?\n(?:[^\n\[][^\n]*\r?\n)*/g;const n=(t.match(re)||[]).length;if(n!==1){console.error("expected one TEXTING binding, found "+n);process.exit(1)}fs.writeFileSync(process.argv[2],t.replace(re,""))' apps/mcp/wrangler.preview.toml apps/mcp/wrangler.preview.bootstrap.toml
+            config=wrangler.preview.bootstrap.toml
+            echo "GATEWAY_REDEPLOY=true" >> "$GITHUB_ENV"
+          fi
+          pnpm --dir apps/mcp exec wrangler deploy --config "$config" --env preview --name "context-mcp-pr$PR" --var "TEX_CODE_VERSION:$HEAD_SHA" --message "Preview pr$PR $HEAD_SHA"
 
       # One request and one new version, as staging does; see scripts/worker-secrets.mjs.
       # No line key is named here, on purpose: the gateway's texting lines are off.
@@ -322,6 +337,12 @@ jobs:
           set -euo pipefail
           node scripts/worker-secrets.mjs CONTROL_PLANE_ORIGIN=PREVIEW_CONTROL_PLANE_URL '!AGENT_WORKER_SECRET' \
             | pnpm --dir apps/agent exec wrangler secret bulk --config wrangler.preview.jsonc --env preview --name "context-agent-pr$PR"
+
+      # The full gateway, its TEXTING binding included, now that the texting
+      # assistant exists. Its secrets carry over to the new version.
+      - name: Deploy the gateway again with its texting binding
+        if: ${{ needs.resolve.outputs.mcp == 'true' && needs.resolve.outputs.agent == 'true' && env.GATEWAY_REDEPLOY == 'true' }}
+        run: pnpm --dir apps/mcp exec wrangler deploy --config wrangler.preview.toml --env preview --name "context-mcp-pr$PR" --var "TEX_CODE_VERSION:$HEAD_SHA" --message "Preview pr$PR $HEAD_SHA"
 
       # The web export is built only when the app or the router changed. The
       # router serves the export as its Static Assets, so both come from here.
