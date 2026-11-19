@@ -14,7 +14,7 @@ import {
   pricingIsOn,
   type PlanStatus,
 } from "../premium";
-import { stagingStorageIsFree } from "../managedStorage";
+import { previewStorageIsFree, stagingStorageIsFree } from "../managedStorage";
 import { isProductionTestAccount } from "../testAccount";
 import { freeManagedRefusal } from "./freeManaged";
 import { hasLiveCheckout } from "./sessions";
@@ -179,8 +179,8 @@ export async function readBillingStatus(
     // is a configuration fact, and a public function may not reach the key
     // that would make the answer complete. A deployment with a price id and
     // no payment key fails at the checkout with our own sentence.
-    configured: stagingStorageIsFree() || deploymentSells(),
-    priceCents: stagingStorageIsFree() ? 0 : PREMIUM_PRICE_CENTS,
+    configured: stagingStorageIsFree() || previewStorageIsFree() || deploymentSells(),
+    priceCents: stagingStorageIsFree() || previewStorageIsFree() ? 0 : PREMIUM_PRICE_CENTS,
     currency: PREMIUM_CURRENCY,
     interval: PREMIUM_INTERVAL,
     ceilingBytes: MANAGED_STORAGE_CEILING_BYTES,

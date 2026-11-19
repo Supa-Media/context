@@ -12,16 +12,26 @@ import {
   personalWorkspaceOf,
   replyAfter,
   sendFailure,
-  simulatorKey,
+  simulatorKeyFor,
   simulatorSendUrl,
   simulatorThreadUrl,
 } from './preview-smoke.mjs';
 
-test('the simulator key is 32 to 128 hex digits and differs per run', () => {
-  const a = simulatorKey();
-  const b = simulatorKey();
-  assert.match(a, /^[0-9a-f]{32,128}$/);
-  assert.notEqual(a, b);
+test('the simulator key is 64 hex digits, deterministic, and differs per preview and per number', () => {
+  const base = { deployKey: 'preview:team:project|secret', previewName: 'pr42', phone: SMOKE_PHONE };
+  const a = simulatorKeyFor(base);
+  assert.match(a, /^[0-9a-f]{64}$/);
+  assert.equal(simulatorKeyFor(base), a, 'a rerun on the same preview reuses the key');
+  assert.notEqual(simulatorKeyFor({ ...base, previewName: 'pr43' }), a, 'differs per preview');
+  assert.notEqual(simulatorKeyFor({ ...base, phone: '+12125550102' }), a, 'differs per number');
+  assert.notEqual(simulatorKeyFor({ ...base, deployKey: 'preview:team:other|secret' }), a, 'differs per deploy key');
+  assert.doesNotMatch(a, /secret/);
+});
+
+test('the simulator key refuses missing inputs', () => {
+  assert.throws(() => simulatorKeyFor({ deployKey: '', previewName: 'pr42', phone: SMOKE_PHONE }), /deploy key/);
+  assert.throws(() => simulatorKeyFor({ deployKey: 'k', previewName: 'main', phone: SMOKE_PHONE }), /pr<N>/);
+  assert.throws(() => simulatorKeyFor({ deployKey: 'k', previewName: 'pr42', phone: '+14155550200' }), /555-0100/);
 });
 
 test('the simulated number is one the simulator accepts', () => {

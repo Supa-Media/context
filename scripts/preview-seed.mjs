@@ -9,10 +9,10 @@
  * - The `context-lc` workspace, a mirror of the production site, is skipped.
  *   A preview never reads or writes production content, and its fixture is
  *   that content.
- * - `billing:activateTestPremium` is not called. It refuses anywhere but
- *   staging and the production test accounts, so it would fail on a preview.
- *   Managed storage is switched on with `billing:setEntitlements`, which needs
- *   no payment and no Stripe key.
+ * - Managed storage is switched on with `billing:setEntitlements`, and the
+ *   test upgrade with `billing:activateTestPremium`, as staging does. Neither
+ *   needs a payment or a Stripe key. The second accepts an isolated preview
+ *   only once the server change that allows it has landed.
  *
  * Sign-in codes are issued by `functions/signInCodes:issue` through the convex
  * CLI, for the preview deployment named by PREVIEW_DEPLOYMENT. A code is never
@@ -134,6 +134,8 @@ export async function seedPreview(env = process.env, { log = console.log } = {})
     const { workspaceId } = entry;
     if (writer.role === 'owner') {
       await client.mutation(ref('functions/billing:setEntitlements'), { workspaceId, managedStorage: true, fastSearch: false });
+      // Staging's test upgrade, as staging calls it. The server accepts it on an isolated preview as well.
+      await client.mutation(ref('functions/billing:activateTestPremium'), { workspaceId });
     }
     let ready = false;
     for (let attempt = 0; attempt < 90; attempt++) {

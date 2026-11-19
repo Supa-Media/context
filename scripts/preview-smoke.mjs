@@ -17,7 +17,7 @@
  * Environment: PREVIEW_CONVEX_URL, PREVIEW_DEPLOYMENT, CONVEX_DEPLOY_KEY (a
  * preview key), PREVIEW_AGENT_ORIGIN and PREVIEW_MCP_ORIGIN (https origins).
  */
-import { randomBytes } from 'node:crypto';
+import { createHmac, randomBytes } from 'node:crypto';
 import { pathToFileURL } from 'node:url';
 import { ConvexHttpClient } from 'convex/browser';
 import { makeFunctionReference } from 'convex/server';
@@ -29,9 +29,18 @@ export const REPLY_TIMEOUT_MS = 90_000;
 const POLL_MS = 2_000;
 const ref = (name) => makeFunctionReference(name);
 
-/** A fresh simulator key: 32 bytes as hex, which the simulator accepts (32 to 128 hex digits). */
-export function simulatorKey() {
-  return randomBytes(32).toString('hex');
+/**
+ * The simulator key for one preview and one simulated number: HMAC-SHA256 of
+ * the preview name and the number, keyed with the preview deploy key. It is
+ * stable, so a rerun on the same preview presents the key that claimed the
+ * number, and it is 64 hex digits, which the simulator accepts. It needs no
+ * secret of its own, and it is never printed.
+ */
+export function simulatorKeyFor({ deployKey, previewName, phone }) {
+  if (typeof deployKey !== 'string' || deployKey === '') throw new Error('a deploy key is needed for the simulator key');
+  if (!/^pr[1-9][0-9]{0,6}$/.test(previewName ?? '')) throw new Error('PREVIEW_NAME must be pr<N>.');
+  if (!/^\+1[2-9]\d{2}55501\d{2}$/.test(phone ?? '')) throw new Error('the simulated number is not a 555-0100 to 555-0199 number');
+  return createHmac('sha256', deployKey).update(`simulator:${previewName}:${phone}`).digest('hex');
 }
 
 /** An origin the smoke may call: https, a host, and no path, query or credentials. */
@@ -146,8 +155,8 @@ async function pollUntil(step, read, timeoutMs) {
   throw new StepError(`${step}: no reply from Tex within ${Math.round(timeoutMs / 1000)} seconds.`);
 }
 
-async function simulatorStep(agent, log) {
-  const key = simulatorKey();
+async function simulatorStep(agent, env, log) {
+  const key = simulatorKeyFor({ deployKey: env.CONVEX_DEPLOY_KEY, previewName: env.PREVIEW_NAME, phone: SMOKE_PHONE });
   const headers = { 'content-type': 'application/json', 'x-simulator-key': key };
   let start = Date.now();
   const sent = await call('simulator send', () => fetch(simulatorSendUrl(agent), {
@@ -223,7 +232,7 @@ export async function smoke(env = process.env, { log = console.log } = {}) {
   const agent = originFrom(env.PREVIEW_AGENT_ORIGIN, 'PREVIEW_AGENT_ORIGIN');
   const mcp = originFrom(env.PREVIEW_MCP_ORIGIN, 'PREVIEW_MCP_ORIGIN');
   previewConfig(env);
-  await simulatorStep(agent, log);
+  await simulatorStep(agent, env, log);
   await appChatStep(env, mcp, log);
   log('PASS: simulated text and in-app message both answered by Tex.');
 }

@@ -58,7 +58,7 @@ import {
   foundingAtNoCharge,
   pricingIsOn,
 } from "./lib/premium";
-import { stagingStorageIsFree } from "./lib/managedStorage";
+import { previewStorageIsFree, stagingStorageIsFree } from "./lib/managedStorage";
 import { isHandledEventType, type StripeEventFacts } from "./lib/stripe";
 import { isProductionTestAccount } from "./lib/testAccount";
 import {
@@ -123,7 +123,7 @@ export const activateTestPremium = mutation({
     const userId = await requireUserId(ctx);
     await requireWorkspaceRole(ctx, args.workspaceId, userId, "owner");
     const user = await ctx.db.get(userId);
-    if (!stagingStorageIsFree() && !isProductionTestAccount(user)) {
+    if (!stagingStorageIsFree() && !previewStorageIsFree() && !isProductionTestAccount(user)) {
       throw new ConvexError({ code: "FORBIDDEN", message: "This test upgrade is not available." });
     }
 
@@ -134,7 +134,11 @@ export const activateTestPremium = mutation({
     await recordAudit(ctx, {
       workspaceId: args.workspaceId,
       actorUserId: userId,
-      action: stagingStorageIsFree() ? "billing.staging_plan_activated" : "billing.test_plan_activated",
+      action: stagingStorageIsFree()
+        ? "billing.staging_plan_activated"
+        : previewStorageIsFree()
+          ? "billing.preview_plan_activated"
+          : "billing.test_plan_activated",
       details: { managedStorage: selected.managedStorage, fastSearch: selected.fastSearch },
     });
     return { active: true };
@@ -317,7 +321,7 @@ export const startCheckout = mutation({
     if (!pricingIsOn()) {
       throw new ConvexError({ code: "CONTEXT_IS_FREE", message: "Context is free. There is nothing to pay for." });
     }
-    if (stagingStorageIsFree()) {
+    if (stagingStorageIsFree() || previewStorageIsFree()) {
       throw new ConvexError({ code: "STAGING_NO_PAYMENT", message: "Storage is free on staging. Reload the app to create your bucket without payment." });
     }
 
