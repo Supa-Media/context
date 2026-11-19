@@ -34,7 +34,8 @@ import { readHelperCallers } from "../agent/production.js";
 import { parseEmailId } from "./emailRead.js";
 import { standingForward } from "./forwardRule.js";
 import { attachedFiles } from "./emailAttach.js";
-import { agreedToForward, agreedWordsHold } from "./likedPreview.js";
+import { agreedToForward, agreedToShownEmail, agreedWordsHold } from "./likedPreview.js";
+import { shownCopyOf } from "./shownEmail.js";
 import { recordChange } from "../activity/record.js";
 import { offerFor, offerTarget } from "./offerFor.js";
 import { mailVerdict, recordMail } from "../agent/workEntries.js";
@@ -129,6 +130,19 @@ export async function emailGate(supplied, { store, session, target }) {
     was told it "timed out" three times for one email (2026-10-22).
   */
   const texting = session.egress?.texting === true;
+  /*
+    Their yes was to a copy Tex showed them, and this email says it in other words (trial-hire 123, 2026-11-19:
+    "send" to a shown email, then a rewrite the Mail checker refused). Their yes covers only what they read, so Tex
+    is handed that copy, once a turn, to send exactly (`shownEmail.js`).
+  */
+  const shown = texting && !email.forward && !email.attach && session.egress.reshown !== true ? shownCopyOf(session.egress.liked, email.body) : null;
+  if (shown !== null) {
+    session.egress.reshown = true;
+    return toolError(
+      "Not sent: they said yes to the copy you showed them, and this one is worded differently. Call send_email again " +
+        `now with exactly that copy as the body, changing nothing, and the same recipients:\n\n${shown}`,
+    );
+  }
   // Not when this turn already asked about an email: the second is refused below, unread.
   const early = texting && typeof session.mailChecker === "function" && !session.egress?.ledger?.asked.some((asked) => asked.tool === EMAIL_TOOL);
   const checking = early ? Promise.resolve(session.mailChecker(email)).catch(() => null) : null;
@@ -212,10 +226,11 @@ export async function emailGate(supplied, { store, session, target }) {
   }
   // Their yes or 👍 to Tex's own preview of this email: every address and the whole body in the words they agreed to (`likedPreview.js`).
   // A forward's offer names who it goes to, and the Mail checker, reading their 👍 or yes on it, says they asked for it (`agreedToForward`).
+  // An email whose body they said yes to, its recipients named in Tex's recent texts, with the checker's yes too (`agreedToShownEmail`).
   // Never for attached files, whose contents no offer can have shown.
   const recipients = [...email.to, ...email.cc];
   const agreed =
-    texting && attached.length === 0 && (email.forward ? checked?.verdict === "yes" && agreedToForward(session, recipients) : agreedWordsHold(session, [...recipients, email.body]));
+    texting && attached.length === 0 && (email.forward ? checked?.verdict === "yes" && agreedToForward(session, recipients) : agreedWordsHold(session, [...recipients, email.body]) || (checked?.verdict === "yes" && agreedToShownEmail(session, recipients, email.body)));
   if (agreed) {
     await recordChange(store, "approve_action", session.scope, [], { tool: EMAIL_TOOL, by: "yes_to_offer", client_id: session.actorClientId ?? null, team_visible: false }).catch(() => {});
     console.log(JSON.stringify({ event: "yes_to_offer", tool: EMAIL_TOOL, released: true }));

@@ -103,6 +103,32 @@ function holds(email, term) {
 }
 
 /**
+ * THE MAILBOX A CONVERSATION'S SETTING NAMES (Training, loose-ends 53, 2026-11-19). A set conversation's setting says
+ * whose Gmail Tex has ("Tex has her Gmail (maya@fernway.example), ..."), and Tex sends from that address. The world's
+ * fixture mail said `address: maya@example.invalid`, so the control plane's stand-in, connected at the fixture's
+ * address, refused the send as "no sender" and Tex was graded on asking Maya to connect Gmail. The setting is the one
+ * source of truth: every address the world gives the mailbox (fixture mail, mail that arrives, the simulated world's
+ * own) is this one when the setting names it. Null when it names none.
+ */
+export function settingMailbox(setting) {
+  const text = String(setting ?? "");
+  const near = /\b(?:g-?mail|e-?mail|inbox|mailbox)\b[^.;]{0,80}?([a-z0-9._%+-]+@[a-z0-9-]+(?:\.[a-z0-9-]+)+)/i.exec(text);
+  return near ? near[1].toLowerCase() : null;
+}
+
+/** Fixture mail moved to the mailbox `address`: its own address, and that old address among its recipients. */
+export function inMailbox(mail, address) {
+  if (!address) return mail;
+  const own = String(address).toLowerCase();
+  return mail.map((email) => {
+    const old = String(email.address ?? "").toLowerCase();
+    if (old === own) return email;
+    const to = String(email.to ?? "").split(/\s*,\s*/).map((addr) => (addr.toLowerCase() === old ? own : addr)).join(", ");
+    return { ...email, address: own, to };
+  });
+}
+
+/**
  * Connects the bench's Gmail to the control plane stub's flags (2026-11-18): listed as the mailbox and able to keep
  * drafts. It sends only when `sends` is true, which is the test's `gmail: sends` (`frontFor`, `run.mjs`): a Gmail
  * connect does ask for `gmail.send` (`googleOAuth.ts` WRITE_SCOPES), but the core tasks were written while send was

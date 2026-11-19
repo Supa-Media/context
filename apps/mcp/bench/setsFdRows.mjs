@@ -42,7 +42,7 @@ export function collectConvo(p) {
       const share = Math.round(each * 10_000) / 10_000;
       if (t.error) return void rows.push({ ...u.row, right: false, ran: false, usd: share, world, why: `could not run: ${String(t.error?.message ?? t.error).slice(0, 300)}` });
       const r = t.got?.rows.find((x) => x.id === `${t.name}/q${k + 1}`);
-      const story = r ? { misses: r.misses ?? [], held: r.held ?? [], said: r.said ?? [], ...(r.handoff ? { handoff: r.handoff } : {}), ...(r.rounds ? { rounds: r.rounds } : {}), ...(r.routes ? { routes: r.routes } : {}), ...(r.fallbacks ? { fallbacks: r.fallbacks } : {}), ...(r.steps ? { steps: r.steps } : {}) } : {};
+      const story = r ? { misses: r.misses ?? [], held: r.held ?? [], said: r.said ?? [], ...(r.handoff ? { handoff: r.handoff } : {}), ...(r.rounds ? { rounds: r.rounds } : {}), ...(r.routes ? { routes: r.routes } : {}), ...(r.fallbacks ? { fallbacks: r.fallbacks } : {}), ...(r.steps ? { steps: r.steps } : {}), ...(r.toolErrors?.length ? { toolErrors: r.toolErrors } : {}) } : {};
       const bench = benchFailed(r);
       if (!r) rows.push({ ...u.row, right: false, ran: false, usd: share, world, why: "the bench gave no judged answer" });
       else if (bench !== null) rows.push({ ...u.row, right: false, ran: false, usd: share, world, why: bench, ...story });

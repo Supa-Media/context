@@ -38,7 +38,9 @@ export function worldStandIns({ models, person }) {
       if (path === "/gateway/connect/apps") return json({ apps: [] });
       if (path === "/gateway/connect/call") return json({ ok: false, refused: "not_connected" });
       // Any other route the stand-in never learnt answers 404: the tool that asked fails on the bench, not on Tex.
-      const response = await below(input, init);
+      // A stand-in slower than the gateway waits (a simulated Gmail asking its model while the search's 25 s ran out,
+      // running-the-shop 77, 2026-11-19) fails the tool with "timed out": that is the bench's failure too (`lateAnswer`).
+      const response = await lateAnswer(() => below(input, init), signalOf(input, init), `the bench's control plane answered ${path}`, gaps);
       if (response.status === 404 && isRouteGap(path) && (await response.clone().json().catch(() => null))?.error === "not_found") gaps.add(`the bench's control plane has no ${path}`);
       return response;
     },
@@ -58,6 +60,27 @@ export function worldStandIns({ models, person }) {
       commandsBefore = commands.changes().length;
     },
   };
+}
+
+/** The abort signal a fetch was given, on its init or its Request. */
+export const signalOf = (input, init) => init?.signal ?? (typeof input === "object" && input !== null ? input.signal : undefined) ?? null;
+
+/**
+ * A stand-in's answer, with a gap kept when the caller had already given up on it: the gateway aborts a control plane
+ * or browser call at its own time limit (`controlPlane/client.js`), and a stand-in that answers after that (a simulated
+ * service waiting on its model) made the tool fail for a reason production would not give it. `what` says which.
+ */
+export async function lateAnswer(call, signal, what, gaps) {
+  const started = Date.now();
+  const late = () => signal?.aborted === true && gaps.add(`${what} after the gateway stopped waiting (${Math.round((Date.now() - started) / 1000)} s)`);
+  try {
+    const answer = await call();
+    late();
+    return answer;
+  } catch (error) {
+    late();
+    throw error;
+  }
 }
 
 /**
