@@ -267,6 +267,7 @@ test/agentClaimCheck.test.mjs
 test/agentHandback.test.mjs
 test/calendarWords.test.mjs
 test/emailGateTiming.test.mjs
+test/emailShownCopy.test.mjs
 test/checkInSources.test.mjs
 test/sessionInstructionsTree.test.mjs
 test/agentTravelTime.test.mjs
