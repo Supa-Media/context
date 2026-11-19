@@ -20,11 +20,14 @@ import { Waveform } from "./Waveform";
 export function LiveMeters({
   live,
   inline = false,
+  bare = false,
   testID,
 }: {
   live: boolean;
-  /** You and Call side by side on one line, for the side panel. */
+  /** You and Call side by side on one line. */
   inline?: boolean;
+  /** One small meter and no labels, beside the side panel's clock: whichever of you and the call is louder. */
+  bare?: boolean;
   testID?: string;
 }) {
   const styles = useThemedStyles(makeStyles);
@@ -36,6 +39,15 @@ export function LiveMeters({
   const callLevel = level?.call ?? null;
   const hearingCall = live && !callMissing && callLevel !== null;
 
+  if (bare) {
+    const you = level?.you ?? null;
+    const loudest = hearingCall && callLevel !== null && (you === null || callLevel > you) ? callLevel : you;
+    return (
+      <View testID={testID}>
+        <Waveform tone={live ? "ok" : "muted"} live={live} level={loudest} testID={testID === undefined ? undefined : `${testID}-you`} />
+      </View>
+    );
+  }
   return (
     <View style={inline ? styles.inline : styles.grid} testID={testID}>
       <View style={styles.row}>

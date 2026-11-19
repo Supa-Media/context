@@ -95,8 +95,8 @@ export function MeetingJoinFixture({ view }: { view?: string }) {
               transcript:
                 view === "panel-live"
                   ? [
-                      { id: "s1", speaker: "Zay", text: "we can move onboarding to Monday", startMs: 0, endMs: 1 },
-                      { id: "s2", speaker: "Seyi", text: "works for me, put it in the notes", startMs: 2, endMs: 3 },
+                      { id: "s1", speaker: "Zay", text: "we can move onboarding to Monday", startMs: 751_000, endMs: 755_000 },
+                      { id: "s2", speaker: "Seyi", text: "works for me, put it in the notes", startMs: 760_000, endMs: 764_000 },
                     ]
                   : [],
               notePath: null,
