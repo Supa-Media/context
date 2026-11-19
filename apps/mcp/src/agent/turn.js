@@ -588,6 +588,8 @@ export async function runTurn(options) {
       ...(strippedNote ? { code: "thinking_stripped" } : {}),
       // What the round cost in tokens, and how much of its output was words or calls (the rest is thinking): `turnStages.js` `callPoints`; and which prompt it was sent, as module ids and fingerprints, with the words a rebuild can't make (`promptManifest.js` `keptWordsOf`).
       ...(answer.usage ? { usage: answer.usage, said: (answer.text ?? "").length, calls: answer.toolCalls.length } : {}), ...(prompt.prompt ? { prompt: prompt.prompt } : {}), ...(answer.prefix ? { prefix: answer.prefix } : {}),
+      // Which payer's key answered, by name (`aiGateway.js` `servedBy`): the cache is per Anthropic organization, so a round paid by another payer cannot read this one's prefix.
+      ...(typeof answer.payer === "string" ? { payer: answer.payer } : {}),
     });
     strippedNote = false;
     if (answer.usage) {

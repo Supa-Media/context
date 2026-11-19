@@ -47,7 +47,7 @@ test("a rebuild names the module that differs: here, the day", () => {
 test("every round's timing names its prompt, capped to ids and numbers", () => {
   const prompt = turnPrompt(null, "m", base).prompt;
   const timing = turnTiming({ steps: [{ name: "model", at: 100, ms: 900 }], trace: [{ kind: "model", model: "m", at: 0, ms: 900, prompt: { ...prompt, extra: "dropped" } }], replyMs: 1000 });
-  assert.equal(timing.v, 2);
+  assert.equal(timing.v, 3);
   assert.deepEqual(timing.rounds[0].prompt, { modules: prompt.modules, inputs: prompt.inputs, words: prompt.words });
 });
 

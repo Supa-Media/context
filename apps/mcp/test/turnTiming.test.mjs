@@ -36,7 +36,7 @@ test("a texted turn's reply keeps where its time went: the wait, each step, each
     const { entries } = await ledgerOf(world).read(ONE_TO_ONE_CHAT);
     const reply = entries.find((entry) => entry.kind === "reply");
     const { timing } = reply;
-    assert.equal(timing.v, 2);
+    assert.equal(timing.v, 3);
     assert.ok(timing.rounds.every((r) => r.prompt?.modules?.[0]?.id?.startsWith("stable/") && r.prompt.inputs.at > 0), "each round names the prompt it was sent (`promptManifest.js`)");
     assert.ok(timing.waitMs >= 1_400 && timing.waitMs < 60_000, `the wait before the gateway: ${timing.waitMs}`);
     assert.ok(timing.replyMs >= 0);
@@ -133,4 +133,37 @@ test("a turn keeps prompt words within one budget for all its rounds, and a modu
   assert.ok(kept.reduce((a, b) => a + b, 0) <= MAX_TURN_WORDS, `kept ${kept}`);
   assert.deepEqual(kept.slice(1), [0, 0, 0], "a later round keeps nothing the first round skipped");
   assert.ok(timing.rounds.every((r) => r.prompt.modules.length === 9), "every module keeps its fingerprint");
+});
+
+test("a round carries its prefix's fingerprints and the payer that answered, never a word; a malformed fingerprint is dropped", () => {
+  // Sabotage check: removing the `pfx` spread from the round makes the first assertion fail.
+  const hs = Array.from({ length: 5 }, (_, i) => fingerprint(`message ${i}`));
+  const prefix = {
+    tools: fingerprint("tools"),
+    systemParts: Array.from({ length: 14 }, (_, i) => fingerprint(`sys ${i}`)),
+    history: hs,
+    toolPrints: [[fingerprint("search"), fingerprint("search def")], [fingerprint("read"), fingerprint("read def")]],
+  };
+  const timing = turnTiming({
+    steps: [{ name: "model", at: 0, ms: 900 }],
+    trace: [{ kind: "model", model: "m", at: 0, ms: 900, prefix, payer: "alias:dev-claude-credits" }],
+    replyMs: 1000,
+  });
+  const round = timing.rounds[0];
+  assert.deepEqual(round.pfx, { tools: prefix.tools, sys: prefix.systemParts.slice(0, 12), h: hs.slice(0, 3), n: 5, toolsN: 2 });
+  assert.equal(round.payer, "alias:dev-claude-credits");
+  assert.equal(timing.v, 3);
+
+  const bad = turnTiming({
+    steps: [],
+    trace: [{ kind: "model", model: "m", at: 0, ms: 1, prefix: { tools: "not-a-print", systemParts: [fingerprint("ok"), "Hello there", "ABCDEF12", 7], history: ["00000000", "words and more"], toolPrints: "no" } }],
+    replyMs: 1,
+  });
+  // Dropped: a non-hex tools print, uppercase hex, a non-string, a short or long string; a non-array toolPrints gives no toolsN.
+  assert.deepEqual(bad.rounds[0].pfx, { sys: [fingerprint("ok")], h: ["00000000"], n: 2 }, "a malformed print is dropped, not kept");
+  assert.equal("payer" in bad.rounds[0], false, "no payer when none was given");
+  assert.doesNotMatch(JSON.stringify(timing), /message|sys 1|search def/, "fingerprints and counts only");
+
+  const bare = turnTiming({ steps: [], trace: [{ kind: "model", model: "m", at: 0, ms: 1 }], replyMs: 1 });
+  assert.equal("pfx" in bare.rounds[0], false, "no pfx when the round had no prefix");
 });
