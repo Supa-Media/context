@@ -26,8 +26,11 @@ import {
   failureText,
   keepOffered,
   modelAlias,
+  hasMedia,
   parseToolAnswer,
+  promptBlocks,
   promptFor,
+  resultOf,
   systemText,
   timingSummary,
   toolAnswerSchema,
@@ -254,4 +257,154 @@ test("a call in Tex's own message shape reaches the CLI whole: text, tool calls 
   assert.match(prompt, /\[called tool search with \{"query":"dentist"\}\]/);
   assert.match(prompt, /\[result of tool call search\]\nDr\. Ada, 555-0100/);
   assert.match(prompt, /\[result of tool call browse \(error\)\]\ntimed out/);
+});
+
+const PICTURE = "AAAA-picture-bytes";
+const notice = { type: "image", source: { type: "base64", media_type: "image/jpeg", data: PICTURE } };
+
+test("a picture stays in place between the words around it, in the Messages API's content", () => {
+  const request = {
+    model: "claude-haiku-5-5",
+    messages: [{ role: "user", content: [{ type: "text", text: "What building is named here?" }, notice, { type: "text", text: "Answer with the name only." }] }],
+  };
+  const blocks = promptBlocks(request);
+  assert.deepEqual(blocks.map((block) => block.type), ["text", "image", "text"]);
+  assert.match(blocks[0].text, /What building is named here\?\n$/);
+  assert.match(blocks[2].text, /Answer with the name only\./);
+  assert.deepEqual(blocks[1], notice);
+  assert.equal(JSON.stringify(blocks).includes("[an image]"), false, "no picture is written out as words");
+});
+
+test("a picture inside a tool result is collected too, after the result's words", () => {
+  const request = {
+    messages: [
+      { role: "user", content: "read the notice" },
+      { role: "assistant", content: [{ type: "tool_use", id: "t1", name: "view", input: {} }] },
+      { role: "user", content: [{ type: "tool_result", tool_use_id: "t1", content: [{ type: "text", text: "Notice:" }, notice] }] },
+    ],
+  };
+  const blocks = promptBlocks(request);
+  const at = blocks.findIndex((block) => block.type === "image");
+  assert.ok(at > 0, "the picture is a block of its own");
+  assert.match(blocks[at - 1].text, /\[result of tool call\]\nNotice:\n$/);
+  assert.equal(blocks[at].source.data, PICTURE);
+  assert.ok(blocks.slice(at + 1).every((block) => block.type === "text"));
+});
+
+test("a base64 PDF is a document block, and a text document is its words", () => {
+  const pdf = { type: "document", source: { type: "base64", media_type: "application/pdf", data: "JVBER" }, title: "lease.pdf" };
+  const text = { type: "document", source: { type: "text", media_type: "text/plain", data: "Rent is due monthly." }, title: "memo" };
+  const request = { messages: [{ role: "user", content: [text, pdf] }] };
+  const blocks = promptBlocks(request);
+  assert.deepEqual(blocks.map((block) => block.type), ["text", "document", "text"]);
+  assert.match(blocks[0].text, /\[document: memo\]\nRent is due monthly\./);
+  assert.deepEqual(blocks[1], pdf);
+  assert.equal(promptFor(request).includes("JVBER"), false);
+  assert.match(promptFor(request), /\[a PDF\]/);
+});
+
+test("Tex's own shape: pictures inline at their marker, attachments and tool images after the words", () => {
+  const request = {
+    messages: [
+      {
+        role: "user",
+        text: "Look at [pic-1] please",
+        pictures: [{ marker: "[pic-1]", mediaType: "image/png", data: "PNG1" }],
+        attachments: [
+          { name: "photo.jpg", mediaType: "image/jpeg", data: "JPG1" },
+          { name: "lease.pdf", mediaType: "application/pdf", data: "PDF1" },
+          { name: "notes.txt", mediaType: "text/plain", text: "not media here" },
+        ],
+      },
+      { role: "tool", name: "view", text: "Shown.", images: [{ mediaType: "image/webp", data: "WEBP1" }] },
+    ],
+  };
+  const blocks = promptBlocks(request);
+  const images = blocks.filter((block) => block.type === "image").map((block) => block.source.data);
+  assert.deepEqual(images, ["PNG1", "JPG1", "WEBP1"]);
+  const pdf = blocks.find((block) => block.type === "document");
+  assert.deepEqual(pdf.source, { type: "base64", media_type: "application/pdf", data: "PDF1" });
+  assert.equal(pdf.title, "lease.pdf");
+  const first = blocks.findIndex((block) => block.type === "image");
+  assert.match(blocks[first - 1].text, /Look at \[pic-1\]$/, "the marker stays in the words, the picture follows it");
+  assert.match(blocks[first + 1].text, /^ please/);
+  assert.match(blocks.map((block) => block.text ?? "").join("|"), /\[result of tool call view\]\nShown\./);
+  assert.match(promptFor(request), /Look at \[pic-1\]\[an image\] please/);
+  assert.equal(hasMedia(request), true);
+});
+
+test("promptFor on a call with no media is the same words as before", () => {
+  const request = {
+    messages: [
+      { role: "user", content: "hi" },
+      { role: "assistant", content: [{ type: "text", text: "yo" }] },
+    ],
+  };
+  assert.equal(
+    promptFor(request),
+    [
+      "Below is a conversation so far. Write the next assistant turn, exactly as you would send it, following the system prompt.",
+      "",
+      "<conversation>",
+      "<user>",
+      "hi",
+      "</user>",
+      "",
+      "<assistant>",
+      "yo",
+      "</assistant>",
+      "</conversation>",
+    ].join("\n"),
+  );
+  assert.deepEqual(promptBlocks(request), [{ type: "text", text: promptFor(request) }]);
+});
+
+test("hasMedia is false for text-only calls and true when a picture or PDF is in the call", () => {
+  assert.equal(hasMedia({ messages: [{ role: "user", content: "just words" }], tools: [TOOL] }), false);
+  assert.equal(hasMedia({ messages: [{ role: "user", content: [notice] }] }), true);
+  assert.equal(hasMedia({ messages: [{ role: "user", text: "", attachments: [{ name: "a.pdf", mediaType: "application/pdf", data: "x" }] }] }), true);
+  assert.equal(hasMedia({ messages: [{ role: "user", content: [{ type: "image", source: { type: "url", url: "https://example.test/a.png" } }] }] }), false, "a URL picture is not sent, so it is not media");
+});
+
+test("cliArgs with media reads and writes stream-json, verbose, and no plain json output", () => {
+  const args = cliArgs({ model: "claude-haiku-5-5", messages: [] }, "/tmp/sys.txt", { media: true });
+  assert.equal(args[args.indexOf("--input-format") + 1], "stream-json");
+  assert.equal(args[args.indexOf("--output-format") + 1], "stream-json");
+  assert.ok(args.includes("--verbose"));
+  assert.equal(args.includes("json"), false);
+  assert.equal(args.filter((arg) => arg === "--output-format").length, 1);
+  assert.deepEqual(cliArgs({ model: "haiku", messages: [] }, "/tmp/s"), cliArgs({ model: "haiku", messages: [] }, "/tmp/s", { media: false }));
+  assert.equal(cliArgs({ model: "haiku", messages: [] }, "/tmp/s").includes("--input-format"), false, "text calls keep their args");
+});
+
+test("resultOf takes the one JSON value, or the last result line of a stream", () => {
+  assert.deepEqual(resultOf(cliResult({ result: "one" })), { type: "result", subtype: "success", is_error: false, result: "one" });
+  const stream = [
+    JSON.stringify({ type: "system", subtype: "init" }),
+    JSON.stringify({ type: "assistant", message: { content: [{ type: "text", text: "partial" }] } }),
+    cliResult({ result: "the answer", duration_api_ms: 900, num_turns: 1 }),
+    "",
+  ].join("\n");
+  assert.equal(resultOf(stream).result, "the answer");
+  assert.throws(() => resultOf('{"type":"system","subtype":"init"}\n{"type":"assistant"}\n'), /no result/);
+  assert.throws(() => resultOf(""), /no result/);
+});
+
+test("answerOne reads the answer from a stream-json run, not only a single JSON value", async () => {
+  const { dir, calls } = await socketWith([{ model: "claude-haiku-5-5", system: "Be terse.", messages: [{ role: "user", content: [{ type: "text", text: "Name it." }, notice] }] }]);
+  const stdout = [
+    JSON.stringify({ type: "system", subtype: "init", model: "claude-haiku-5-5" }),
+    JSON.stringify({ type: "assistant", message: { content: [{ type: "text", text: "Ocean View Flats" }] } }),
+    cliResult({ result: "Ocean View Flats", duration_api_ms: 800, num_turns: 1 }),
+  ].join("\n");
+  const answer = await answerOne(dir, calls[0], { cli: async () => stdout });
+  assert.deepEqual(answer, { text: "Ocean View Flats" });
+  assert.deepEqual(JSON.parse(await readFile(join(dir, "answers", `${calls[0].hash}.json`), "utf8")), { text: "Ocean View Flats" });
+});
+
+test("a failed stream-json run names its error from the result line, and a non-error one is never logged", () => {
+  const failed = [JSON.stringify({ type: "system" }), cliResult({ is_error: true, result: "Invalid bearer token" })].join("\n");
+  assert.equal(failureText(failed, ""), "Invalid bearer token");
+  const passed = [JSON.stringify({ type: "system" }), cliResult({ result: "a model's private words" })].join("\n");
+  assert.equal(failureText(passed, ""), "success");
 });
