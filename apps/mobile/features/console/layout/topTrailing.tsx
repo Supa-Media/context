@@ -1,11 +1,7 @@
 import { FrameIconButton } from "../../app/AppFrame";
-import { openFeedback } from "../../feedback/request";
-import { setAppearance } from "../../design/appearance";
-import { useScheme } from "../../design/theme";
 import { StagingPill } from "../../app/StagingNotice";
 import { ConsoleLiveMeeting } from "../ConsoleLiveMeeting";
 import { TierChip } from "../ConsoleShell";
-import { SaveMark } from "../SaveMark";
 import { settingsHref } from "../nav";
 import { DEFAULT_SETTINGS_SECTION } from "../settings/sections";
 import type { ConsoleContext, ConsoleData } from "../types";
@@ -27,7 +23,6 @@ export function consoleTopTrailing({
   insideContext,
   current,
   router,
-  canReport,
 }: {
   phone: boolean;
   /**
@@ -40,8 +35,6 @@ export function consoleTopTrailing({
   insideContext: boolean;
   current: ConsoleContext | null;
   router: ConsoleRouter;
-  /** Whether the server takes reports (`useCanSendFeedback`). */
-  canReport: boolean;
 }) {
   /*
     Absent on a phone, where both chips have moved to the foot of the
@@ -124,22 +117,11 @@ export function consoleTopTrailing({
     ) : (
       <>
         {/*
-          Report a problem, first in the group so it sits beside Search (owner,
-          2026-09-29). Signed-in people only: the homepage draws this same
-          shell for visitors, and a visitor's report has nobody to answer.
-          Absent on a phone, whose bar has room for two buttons — there it is
-          the account sheet's "Send feedback" row, which a pointer layout's
-          card no longer carries (Dev2, 2026-10-18).
+          Report a problem left the bar for the account menu (Dev2, 2026-11-19,
+          on the top-right corner: "remove"), where the phone already had it;
+          the light/dark switch went to the bottom bar ("find another place
+          for this"), beside the save cloud. See `Status`.
         */}
-        {data.visitor === undefined && canReport ? (
-          <FrameIconButton
-            label="Report a problem"
-            icon="bug"
-            onPress={() => openFeedback("top_bar")}
-            testID="frame-feedback"
-          />
-        ) : null}
-        <AppearanceButton />
         {/*
           A meeting that is running while the panel it lives in is folded
           away. It draws nothing when the panel is open — the card is
@@ -148,16 +130,9 @@ export function consoleTopTrailing({
         */}
         <ConsoleLiveMeeting onOpen={showMeetings} />
         {/*
-          Whether the last keystroke is in the bucket, leading the group —
-          see `SaveMark` for why this is a mark here rather than a Save
-          button over the note. Not gated on `insideContext` either: it is
-          a claim about the note that is open, and a note stays open
-          behind Map, Connections and the settings overlay.
+          Whether the last keystroke is in the bucket moved to the end of the
+          bottom bar (Dev2, 2026-11-19: "put on the bottom"); see `Status`.
         */}
-        {/* A shared link's reader edits nothing, so there is no save to mark. */}
-        {data.visitor !== undefined && !data.files.canEdit ? null : (
-          <SaveMark editor={data.files.editor} local={data.visitor !== undefined} />
-        )}
         {/*
           Gated on `insideContext`, and the two chips beside it are not.
           That is deliberate rather than an oversight to tidy: a bucket is
@@ -206,25 +181,5 @@ export function consoleTopTrailing({
         <StagingPill />
       </>
     )
-  );
-}
-
-/**
- * Light or dark in one press, beside Report a problem (Dev2, 2026-10-18): the
- * account card's "Light mode" row moved here on a pointer layout, so it is one
- * press rather than two. Visitors get it too, as they had the row. It names
- * the mode it switches to; Settings › Profile still has "follow the device".
- * A component, not inline, because the label needs `useScheme`.
- */
-function AppearanceButton() {
-  const scheme = useScheme();
-  const next = scheme === "dark" ? "light" : "dark";
-  return (
-    <FrameIconButton
-      label={next === "light" ? "Switch to light mode" : "Switch to dark mode"}
-      icon="sun"
-      onPress={() => void setAppearance(next)}
-      testID="frame-appearance"
-    />
   );
 }

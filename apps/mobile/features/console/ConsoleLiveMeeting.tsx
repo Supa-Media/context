@@ -1,6 +1,7 @@
 import { Pressable, StyleSheet, View } from "react-native";
 
 import { useFrame } from "../app/AppFrame";
+import { asideUnfolded } from "../app/appFrame/useFrameController";
 import { Dot } from "../design/components/Dot";
 import { Text } from "../design/components/Text";
 import { radii, space } from "../design/tokens";
@@ -48,7 +49,7 @@ export function ConsoleLiveMeeting({ onOpen }: { onOpen: () => void }) {
   // `0` and no timer at all when nothing is running — see `useTick`.
   const now = useTick(live !== null);
 
-  if (live === null || frame.state.asideOpen) return null;
+  if (live === null || asideUnfolded(frame.state)) return null;
 
   const paused = live.session.state === "paused";
   const elapsed = clock(meetingElapsedMs(live, now === 0 ? Date.now() : now));

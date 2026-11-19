@@ -142,7 +142,9 @@ export function useFrameController({
   const hasExplorer = explorer != null;
   // Held by a page that wants the right panel beside it at medium too (`FrameApi.setAsideBeside`).
   const [asideBeside, setAsideBeside] = useState(false);
-  const regions = regionsFor(density, state, { hasExplorer, asideBeside });
+  // `hasAside`: shut or folded, a supplied panel is its strip of tabs, never
+  // gone (Dev2, 2026-11-19, removing the top bar's panel button).
+  const regions = regionsFor(density, state, { hasExplorer, asideBeside, hasAside: aside != null });
 
   /*
     A panel is not a preference. `railCollapsed` and `explorerWidth` survive a
@@ -557,4 +559,9 @@ export function useFrameController({
     contentInsets,
     api,
   };
+}
+
+/** Whether the right panel is drawn whole, rather than as its strip of tabs. */
+export function asideUnfolded(state: Pick<FrameState, "asideOpen" | "asideFolded">): boolean {
+  return state.asideOpen && !state.asideFolded;
 }

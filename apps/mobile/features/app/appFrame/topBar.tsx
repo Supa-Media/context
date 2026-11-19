@@ -31,9 +31,7 @@ export function frameTopBar({
   topTrailing,
   onSearch,
   asideToggle,
-  asideFolded = false,
   regions,
-  toggleAside,
   hasExplorer,
   columnTools,
   explorerWidth,
@@ -53,10 +51,7 @@ export function frameTopBar({
   topTrailing?: ReactNode;
   onSearch?: () => void;
   asideToggle: boolean;
-  /** The open panel is folded to its strip: the button unfolds it (`asideAfterToggle`). */
-  asideFolded?: boolean;
   regions: Regions;
-  toggleAside: () => void;
   hasExplorer: boolean;
   columnTools: ColumnToolsSlot | null;
   explorerWidth: number;
@@ -268,31 +263,10 @@ export function frameTopBar({
           {onSearch && !compact ? <SearchTrigger onPress={onSearch} /> : null}
           {topTrailing}
           {/*
-            The right panel's toggle, last in the trailing group and so at
-            the trailing end of the bar — the mirror of the explorer's,
-            which the status bar carries at the leading end.
-
-            Drawn only where there is a panel to open: `asideToggleFor`
-            answers `null` at compact and `aside` is absent on every
-            surface that supplies none, and a control for a region that
-            does not exist is the pair `frame.ts` spends a section keeping
-            honest.
-
-            The glyph says which state a press produces rather than which
-            state is current, the way the note's read toggle does: a filled
-            trailing pane means "this will open", and an outline means
-            "this will close". One mark cannot carry both, and the label
-            below says it in words for anyone who cannot see the mark at
-            all.
+            No panel button (Dev2, 2026-11-19: "remove"): at a pointer density
+            the right panel is always there, shut as its strip of tabs, and a
+            tab opens it (`regionsFor`).
           */}
-          {asideToggle ? (
-            <FrameIconButton
-              label={regions.aside === "hidden" || asideFolded ? "Show the side panel" : "Hide the side panel"}
-              icon={regions.aside === "hidden" || asideFolded ? "panelRight" : "panelLeft"}
-              onPress={toggleAside}
-              testID="frame-aside-toggle"
-            />
-          ) : null}
         </View>
       )}
     </View>

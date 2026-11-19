@@ -1,5 +1,6 @@
 import { useEffect } from "react";
 import { useFrame } from "../../app/AppFrame";
+import { asideUnfolded } from "../../app/appFrame/useFrameController";
 
 /**
  * Open the right panel when somebody above the frame asks.
@@ -11,7 +12,7 @@ import { useFrame } from "../../app/AppFrame";
  */
 export function OpenAsideOn({ at }: { at: number | null }) {
   const frame = useFrame();
-  const open = frame.state.asideOpen;
+  const open = asideUnfolded(frame.state);
   const toggle = frame.toggleAside;
   useEffect(() => {
     if (at === null || open) return;

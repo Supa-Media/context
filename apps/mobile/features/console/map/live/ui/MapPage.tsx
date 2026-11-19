@@ -16,6 +16,7 @@ import { MapSettings } from "./MapSettings";
 import { MapActivity, MapColumn, MapNote } from "./MapPanel";
 import { useMapSideStore, useOfferMapSide } from "../../../aside/mapSide";
 import { useFrame } from "../../../../app/AppFrame";
+import { asideUnfolded } from "../../../../app/appFrame/useFrameController";
 import { PhoneMap } from "./PhoneMap";
 import { mapNotice } from "./status";
 
@@ -77,7 +78,7 @@ function DesktopMap({
     return () => setAsideBeside(false);
   }, [setAsideBeside]);
   // A note clicked with the panel shut opens it.
-  const asideShut = !frame.state.asideOpen;
+  const asideShut = !asideUnfolded(frame.state);
   const toggleAside = frame.toggleAside;
   useEffect(() => {
     if (noteKey !== null && asideShut) toggleAside();

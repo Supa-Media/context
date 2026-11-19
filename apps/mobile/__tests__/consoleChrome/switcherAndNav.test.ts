@@ -20,6 +20,9 @@ import { act, createElement } from "react";
 import { createRoot } from "react-dom/client";
 import { EditorRegion } from "../../features/console/EditorRegion";
 import { NavBandProvider } from "../../features/console/NavBand";
+import { setFeedbackAvailable } from "../../features/feedback/transport";
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 
 /**
  * THE SWITCHER EXISTS AT EVERY DENSITY, AND WHICH ONE IT IS CHANGES.
@@ -117,7 +120,7 @@ describe("every context this account can reach is on the screen", () => {
  * Settings heads the group it sits in, and Trash moved here off the tree's foot.
  *
  * SABOTAGE: drop the `phone` gate on the appearance row, and the pointer half
- * fails; drop `<AppearanceButton />` from `topTrailing`, and `frame-appearance`
+ * fails; drop `<AppearanceButton />` from `Status`, and `frame-appearance`
  * is missing.
  */
 describe("the account card and the top bar do not overlap", () => {
@@ -126,14 +129,18 @@ describe("the account card and the top bar do not overlap", () => {
       node.getAttribute("data-testid"),
     );
 
-  test("a pointer card has no feedback, appearance or community row; the bar has the sun", () => {
+  test("a pointer card has the feedback row but no appearance or community row; the bar has the sun and no bug", () => {
+    // Reports on, as a signed-in build with a server that takes them.
+    setFeedbackAvailable(true);
     const app = mountConsole(1440);
     expect(app.find("frame-appearance")).not.toBeNull();
+    // Report a problem left the top bar for the card (Dev2, 2026-11-19).
+    expect(app.find("frame-feedback")).toBeNull();
 
     app.press(app.find("account-switcher"));
     expect(app.find("switcher-settings")).not.toBeNull();
     expect(app.find("switcher-appearance")).toBeNull();
-    expect(app.find("switcher-feedback")).toBeNull();
+    expect(app.find("switcher-feedback")).not.toBeNull();
     expect(app.find("switcher-community")).toBeNull();
     // Trash left the tree's foot for the card.
     expect(app.find("explorer-trash")).toBeNull();
@@ -142,6 +149,7 @@ describe("the account card and the top bar do not overlap", () => {
     expect(ids.indexOf("switcher-settings")).toBeLessThan(ids.indexOf("switcher-meetings"));
 
     app.unmount();
+    setFeedbackAvailable(false);
   });
 
   test("a phone sheet keeps the appearance row, with Settings first", () => {
@@ -376,6 +384,29 @@ describe("the phone's account sheet", () => {
     const sun = within(app, "switcher-appearance")!;
     expect(sun.getAttribute("aria-label")).toMatch(/^(Light|Dark) mode$/);
     expect(sun.textContent).toBe("");
+    app.unmount();
+  });
+});
+
+describe("the save cloud is at the bottom", () => {
+  /*
+    Read from the source: whether the mark draws at all depends on the open
+    note's save state, which this fixture never reaches, but where it draws
+    does not. Dev2, 2026-11-19, on the top-right corner: "put on the bottom".
+  */
+  test("the status row draws it and the top bar does not", () => {
+    const read = (path: string) => readFileSync(join(__dirname, "..", "..", path), "utf8");
+    expect(read("features/console/layout/topTrailing.tsx")).not.toMatch(/<SaveMark\b/);
+    expect(read("features/console/layout/chrome.tsx")).toMatch(/<SaveMark\b/);
+  });
+
+  test("the light/dark switch is on the bottom bar, beside the status, and not in the top bar", () => {
+    // Dev2, 2026-11-19, on the top bar's sun: "find another place for this".
+    const app = mountConsole(1440);
+    const sun = app.find("frame-appearance");
+    expect(sun).not.toBeNull();
+    const status = app.find("console-status");
+    expect(status?.parentElement?.contains(sun as Node)).toBe(true);
     app.unmount();
   });
 });

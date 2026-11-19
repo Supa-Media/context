@@ -319,7 +319,7 @@ export function regionsFor(
    * constellation and a phone would offer a drawer button that pulls in
    * nothing, which is worse than either pane simply being full width.
    */
-  options: { hasExplorer?: boolean; asideBeside?: boolean } = {},
+  options: { hasExplorer?: boolean; asideBeside?: boolean; hasAside?: boolean } = {},
 ): Regions {
   const hasExplorer = options.hasExplorer ?? true;
 
@@ -402,8 +402,8 @@ export function regionsFor(
     page with no note behind it (`asideBeside`, the map) gets it beside.
   */
   const aside: Regions["aside"] = !state.asideOpen
-    ? "hidden"
-    : density === "wide" || options.asideBeside === true
+    ? (options.hasAside === true ? "column" : "hidden")
+    : state.asideFolded || density === "wide" || options.asideBeside === true
       ? "column"
       : "overlay";
 

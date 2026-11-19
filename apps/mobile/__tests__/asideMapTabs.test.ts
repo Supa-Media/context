@@ -150,13 +150,19 @@ describe("folding the panel (Dev2, 2026-11-05: 'collapsable')", () => {
     expect(byTest("activity-body")).toHaveLength(1);
   });
 
-  test("the strip is only its tabs: no chevron or rule of its own, the top bar's button unfolds it", async () => {
+  test("the strip is its chevron, then its tabs, with no rule; the chevron unfolds it as it was", async () => {
+    // Dev2, 2026-11-19: "add back" on the chevron; the rule stays gone.
     await framed(mapOpen("ws\na.md"));
+    await act(async () => (byTest("aside-tab-activity")[0] as HTMLElement).click());
     await act(async () => (byTest("aside-fold")[0] as HTMLElement).click());
     const strip = byTest("aside-strip")[0] as HTMLElement;
     const children = Array.from(strip.children).map((child) => child.getAttribute("data-testid"));
-    expect(children).toEqual(["aside-strip-activity", "aside-strip-note", "aside-strip-meetings"]);
-    // The top bar's panel button on a folded panel unfolds it; on an unfolded one it closes it.
+    expect(children).toEqual(["aside-unfold", "aside-strip-activity", "aside-strip-note", "aside-strip-meetings"]);
+    await act(async () => (byTest("aside-unfold")[0] as HTMLElement).click());
+    expect(byTest("aside-strip")).toHaveLength(0);
+    // As it was: on Activity, not back on the note the map brought forward.
+    expect(byTest("activity-body")).toHaveLength(1);
+    // A folded panel unfolds; an open one closes to the strip; a shut one opens.
     expect(asideAfterToggle(true, true)).toEqual({ asideOpen: true, asideFolded: false });
     expect(asideAfterToggle(true, false)).toEqual({ asideOpen: false, asideFolded: false });
     expect(asideAfterToggle(false, false)).toEqual({ asideOpen: true, asideFolded: false });

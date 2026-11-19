@@ -371,11 +371,10 @@ export function SwitcherMenu({
       : []),
     /*
       Signed in only — `onSignOut` is the card's own word for that — and only
-      where this build can send a report at all. Phone only, since its top bar
-      has no room for the bug button; a pointer layout has that button beside
-      Search (Dev2, 2026-10-18).
+      where this build can send a report at all. Every layout: the pointer top
+      bar's bug button went (Dev2, 2026-11-19), so this row is the way to it.
     */
-    ...(phone && onSignOut && canReport
+    ...(onSignOut && canReport
       ? [{ id: "feedback", label: "Send feedback", leading: glyph("bug"), testID: "switcher-feedback" }]
       : []),
     ...(onInviteFriends
