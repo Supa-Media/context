@@ -100,6 +100,9 @@ test("heal workflow: after a Lab run or a world recording on main, main's code m
   assert.match(HEAL, /gh pr merge "\$url" --auto --squash/);
   assert.deepEqual([...new Set(HEAL.match(/secrets\.[A-Z_]+/g))], ["secrets.GH_ADMIN_TOKEN"], "no model or runner secret");
   assert.doesNotMatch(HEAL, /pnpm install|workflow_run\.head_sha/, "it never installs or checks out the run's code");
+  // setup-node v5 caches for the repo's package manager by default and fails with no pnpm (heal run 44567301956).
+  assert.match(HEAL, /node-version: 22\n(\s+#.*\n)*\s+package-manager-cache: false\n/);
+  assert.match(jobOf(RECORD, "push"), /node-version: 22\n\s+package-manager-cache: false\n/);
 });
 
 // The standalone recorder (`.github/workflows/tex-world-record.yml`): the repo's Training or Dev set only, fd, never a
