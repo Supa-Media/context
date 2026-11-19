@@ -108,6 +108,8 @@ jobs:
           heal="tex-world/heal-$FROM_ID"
           git push -q origin "HEAD:refs/heads/$heal"
           url=$(gh pr create --base main --head "$heal" --title "Tex bench: world fixtures healed by $FROM" \
-            --body "Answers the simulated world's model gave for calls no committed fixture was near ($FROM, run $FROM_ID), added to \`apps/mcp/bench/sets/sim/\` so the next run replays them. Bench data from the repo's Training or Dev set only; merges itself on green CI.")
+            --body "Answers the simulated world's model gave for calls no committed fixture was near ($FROM, run $FROM_ID), added to \`apps/mcp/bench/sets/sim/\` so the next run replays them. Bench data from the repo's Training or Dev set only; merges itself on green CI.
+
+          Tex diagram: unchanged because this pull request changes only the bench's world fixtures (apps/mcp/bench/sets/sim/).")
           echo "$url"
           gh pr merge "$url" --auto --squash
