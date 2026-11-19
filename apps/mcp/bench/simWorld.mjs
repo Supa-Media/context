@@ -16,16 +16,19 @@
  * search and read (`mailSearch`, `mailRead`). Everything between the model
  * under test and these answers is production code, unchanged.
  *
- * The same ask gets the same answer for the whole run (`memo`, shared by
- * every world of the run), and the model runs at temperature 0, so a rerun
- * sees the same world as nearly as the model allows. What it was asked is
- * kept with its answer (`events`, in the run's record as the browser's lines). Nothing here is a Dev label: the
- * world never sees what the test wants, only the chat a person would see.
+ * The answers are fixtures per conversation (`simFixtures.mjs`): a call the conversation has
+ * already had is replayed from them, and the model is asked only on a miss. A miss is kept for the
+ * run's other test processes, so they agree with it, and the world sees what it has already shown,
+ * so it never contradicts itself. The same ask gets the same answer for the whole run (`memo`,
+ * shared by every world of the run), and the model runs at temperature 0. What it was asked is
+ * kept with its answer (`events`, in the run's record as the browser's lines). Nothing here is a Dev
+ * label: the world never sees what the test wants, only the chat a person would see.
  */
 
 import { triggerWords } from "./load.mjs";
 import { blankPng } from "./sites.mjs";
 import { connectMailbox, sentMail } from "./mailbox.mjs";
+import { knownFacts, openWorldStore, readFixtures, worldKey, worldMode } from "./simFixtures.mjs";
 
 export const SIM_MODEL = "claude-haiku-5-5";
 const MAX_TOKENS = 1500;
@@ -34,13 +37,17 @@ const CHAT_LINES = 40;
 
 const json = (status, body) => new Response(JSON.stringify(body), { status, headers: { "content-type": "application/json" } });
 
-/** The run's memory of every ask answered: one per run, shared by its worlds. */
+/**
+ * The run's memory of every ask answered: one per run, shared by its worlds. `answers` is keyed by `worldKey`;
+ * `entries` is the same answers as `{ kind, request, answer }`, in the order shown; `hits` counts the asks a
+ * fixture or an earlier world answered, and `misses` the calls the model was asked.
+ */
 export function simMemo() {
-  return { answers: new Map(), usage: { input: 0, output: 0 }, calls: 0 };
+  return { answers: new Map(), entries: [], usage: { input: 0, output: 0 }, calls: 0, hits: 0, misses: [] };
 }
 
 /** The world's instructions: what it plays, and what it never does. */
-export function simSystem({ setting, chat, today, sent = [] }) {
+export function simSystem({ setting, chat, today, sent = [], known = "" }) {
   const lines = (chat ?? []).slice(-CHAT_LINES).map((line) => `${line.who}: ${line.text}`);
   return [
     "You play the outside world for a texting assistant called Tex: the websites, search engine, Google Calendar and Gmail it calls.",
@@ -52,6 +59,7 @@ export function simSystem({ setting, chat, today, sent = [] }) {
       : "The Sent folder holds no mail from the run.",
     "Where they say nothing, invent ordinary, specific details (real-looking names, times, prices, addresses), and keep them as a real service would. Never mention a test or a simulation, and never decide what Tex should do.",
     today ? `Today is ${today}.` : "",
+    known ? `What the world has already shown in this conversation. Keep every detail of it the same (names, prices, times, ids, what a page says), and never contradict it:\n${known}` : "",
     setting ? `Setting: ${setting}` : "",
     lines.length > 0 ? `The chat so far, oldest first:\n${lines.join("\n")}` : "",
   ].filter(Boolean).join("\n\n");
@@ -74,16 +82,24 @@ export function jsonIn(text) {
  * The world for one conversation. `send(body)` posts a Messages request (a JSON string) and answers a Response;
  * null answers every ask with `fallback` (a run with no model, `--fake`).
  */
-export function createSimWorld({ send = null, setting = "", chat = [], today = null, person = "person", memo = simMemo(), model = SIM_MODEL, gaps = null, sent = () => [] }) {
+export function createSimWorld({ send = null, setting = "", chat = [], today = null, person = "person", memo = simMemo(), model = SIM_MODEL, gaps = null, sent = () => [], store = null }) {
   const events = [];
   const address = `${String(person).toLowerCase().replace(/[^a-z0-9]/g, "") || "person"}@gmail.example`;
   // `sent(address)`: the run's real sends, read at each ask, so a send made during the run is in the world's Sent.
   const sentNow = () => sent(address);
 
   async function ask(kind, request, shape, fallback) {
-    const system = simSystem({ setting, chat, today, sent: sentNow() });
-    const key = JSON.stringify([system, kind, request]);
-    if (memo.answers.has(key)) return memo.answers.get(key);
+    const key = worldKey(kind, request);
+    if (store) {
+      const hit = store.get(key);
+      if (hit) {
+        memo.hits += 1;
+        events.push(`world ${kind} (replayed) ${JSON.stringify(request).slice(0, 200)} -> ${JSON.stringify(hit.answer).slice(0, 600)}`);
+        return hit.answer;
+      }
+    } else if (memo.answers.has(key)) return memo.answers.get(key);
+    const known = knownFacts(store ? store.known() : memo.entries);
+    const system = simSystem({ setting, chat, today, sent: sentNow(), known });
     let answer = fallback;
     let answered = false;
     const record = () => events.push(`world ${kind} ${JSON.stringify(request).slice(0, 200)} -> ${JSON.stringify(answer).slice(0, 600)}`);
@@ -112,9 +128,18 @@ export function createSimWorld({ send = null, setting = "", chat = [], today = n
         gaps?.add(`the simulated world's model did not answer a ${kind}`);
       }
     }
+    // A fake run (no model) keeps its fallback as the answer, so the run's files show what it was shown.
+    if (answered) answer = store ? store.claim(key, kind, request, answer) : answer;
+    else if (send === null) answer = store ? store.claim(key, kind, request, fallback, { fake: true }) : fallback;
     // Only an answer the world gave is kept for the run: a call its model failed is asked again next time, never
     // remembered as "the page did not load" for every later ask of the same thing.
-    if (answered || send === null) memo.answers.set(key, answer);
+    if (answered || send === null) {
+      if (!memo.answers.has(key)) {
+        memo.answers.set(key, answer);
+        memo.entries.push({ kind, request, answer });
+      }
+      memo.misses.push({ kind, request });
+    }
     record();
     return answer;
   }
@@ -209,7 +234,7 @@ export function createSimWorld({ send = null, setting = "", chat = [], today = n
         to: String(r?.to ?? address),
         subject: String(r?.subject ?? ""),
         snippet: String(r?.snippet ?? ""),
-      }));
+      })).filter((row) => !today || row.date.slice(0, 10) <= today); // a mail from a later day has not arrived yet
       for (const row of rows) listed.set(row.id, row);
       return rows;
     },
@@ -375,13 +400,32 @@ const unquoted = (value) => {
  * chat's setting (`world_setting:`) and the chat before the text, the run's shared memo, and its model's `send`.
  * Null for any other test.
  */
+/** One store per run folder and test: each test's misses name that test, and the processes of a run share the folder. */
+const stores = new Map();
+function storeFor(front) {
+  const runDir = String(front.world_run);
+  const test = front.world_test ?? null;
+  const cacheKey = `${runDir}\n${test}`;
+  if (!stores.has(cacheKey)) {
+    stores.set(cacheKey, openWorldStore({
+      fixtures: front.world_fixtures ? readFixtures(String(front.world_fixtures)) : null,
+      runDir,
+      mode: worldMode(front.world_mode),
+      test,
+    }));
+  }
+  return stores.get(cacheKey);
+}
+
 export function simulateFor(front, question, person, { send = null, memo, fake = false }) {
   if (front?.world !== "simulated") return null;
   const chat = (question.earlier ?? []).map((line) => (line.from === "trigger" ? { who: "(not a text)", text: triggerWords(line) } : { who: line.from === "tex" ? "Tex" : line.who ?? person, text: line.text }));
   const checkin = Boolean(question.checkinMail || question.checkinCalendar);
   const said = question.routine ?? question.checkinMail?.subject ?? question.checkinCalendar ?? question.personStarts ?? question.texts ?? question.text;
   if (said) chat.push({ who: question.routine ? "Routine" : checkin ? "Check-in" : person, text: String(said) });
-  return { send: fake ? null : send, memo, setting: unquoted(front.world_setting), chat };
+  const sim = { send: fake ? null : send, memo, setting: unquoted(front.world_setting), chat };
+  if (front.world_run) sim.store = storeFor(front);
+  return sim;
 }
 
 /**

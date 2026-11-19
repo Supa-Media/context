@@ -17,7 +17,7 @@ import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { parsePeople } from "../bench/load.mjs";
-import { brokenRun, detailOf, devConversations, handoffOf, resultsOf, roundsLine, routeLine, routeOf, trainingConversations, uncast, unrun } from "../../../scripts/tex-lab-run.mjs";
+import { brokenRun, detailOf, devConversations, handoffOf, resultsOf, roundsLine, routeLine, routeOf, trainingConversations, uncast, unrun, worldOf } from "../../../scripts/tex-lab-run.mjs";
 import { decideSaid, scoreByRepeat } from "../bench/setsRun.mjs";
 import { createRequire } from "node:module";
 const { CC_FIDELITY, CC_FIDELITY_WHY } = createRequire(import.meta.url)("../../../packages/shared/src/texRunBand.cjs");
@@ -476,4 +476,27 @@ test("training is unchanged: a failed fd row is ambiguous, not could-not-run, an
     assert.equal(r.impossible, 0);
   }
   assert.equal(resultsOf(rows, "1").impossible, null, "no gold report, no impossible count");
+});
+
+// The world a run had (the bench world's record and replay): the misses of each row, deduped, by kind, the first 40;
+// null when no row has a world, so the Lab says nothing rather than "replayed from fixtures".
+test("resultsOf carries the run world: its misses by kind and their calls, none when no row has a world", () => {
+  const call = (kind, text) => ({ kind, call: text });
+  const rows = [
+    { chat: "a", at: 0, node: "fd", right: true, ran: true, world: { misses: 2, calls: [call("web search", '{"query":"x"}'), call("gmail search", "{}")] } },
+    { chat: "a", at: 1, node: "fd", right: false, ran: true, got: "y", want: "z", world: { misses: 2, calls: [call("web search", '{"query":"x"}'), call("gmail search", "{}")] } },
+    { chat: "b", at: 0, node: "fd", right: true, ran: true, world: { misses: 0, calls: [] } },
+    { chat: "a", at: 0, node: "decide", right: true, ran: true },
+  ];
+  const r = resultsOf(rows, "5");
+  assert.deepEqual(r.world, {
+    misses: 2,
+    byKind: { "web search": 1, "gmail search": 1 },
+    calls: [{ chat: "a", kind: "web search", call: '{"query":"x"}' }, { chat: "a", kind: "gmail search", call: "{}" }],
+  });
+  assert.deepEqual(worldOf(rows), r.world);
+  const many = Array.from({ length: 50 }, (_, k) => ({ chat: "m", at: k, node: "fd", right: true, ran: true, world: { misses: 1, calls: [call("web search", "q" + k)] } }));
+  assert.equal(worldOf(many).misses, 50);
+  assert.equal(worldOf(many).calls.length, 40, "the first 40 calls only");
+  assert.equal(resultsOf([{ chat: "a", node: "decide", right: true, ran: true }], "1").world, null, "no row has a world: nothing to say");
 });

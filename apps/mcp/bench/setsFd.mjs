@@ -32,6 +32,11 @@ import { REAL_CLEF_ENV } from "./worldAi.mjs";
 import { createRequire } from "node:module";
 
 import { tapbackSaidLine } from "../src/agent/tapbackEnding.js";
+import { saveRunFixtures, worldFront } from "./simFixtures.mjs";
+import { collectConvo } from "./setsFdRows.mjs";
+
+// Moved to `setsFdRows.mjs` (2026-11-19) to keep this file under the size bar; still imported from here.
+export { benchFailed, missedLine } from "./setsFdRows.mjs";
 import { parsePeople } from "./load.mjs";
 import { seedWorld, worldDirOf } from "./setsWorld.mjs";
 import { runPool, scheduleOrder, untilOutOfCredit } from "./setsPool.mjs";
@@ -316,17 +321,6 @@ export function cantRun(c, i) {
   return null;
 }
 
-/**
- * A failed Front door test as its run row says it, short (the Lab keeps 200 characters): the first line that failed
- * and what Tex said. The judge's whole reasons and Tex's whole texts stay in the row's `misses` and `said`.
- */
-export function missedLine(r) {
-  const miss = (r.misses ?? [])[0];
-  const said = (r.said ?? []).join(" / ").replace(/\s+/g, " ");
-  const line = miss ? `${miss.kind === "must not" ? "never" : "must"}: ${miss.line}` : "a must or never line failed";
-  return `${line.slice(0, 90)} | Tex: ${said.slice(0, 100) || "(said nothing)"}`;
-}
-
 /** A check-in row's labelled parts: "Gmail: ..." (or "Gmail to the group inbox: ...") and "Calendar: ..." (or "shared calendar: ..."), each to the next label. */
 const CHECKIN_LABEL = /(?:^\s*|[;.]\s+)((?:shared\s+)?calendar|gmail(?:\s+to\s+[^:;.]{1,40})?):\s*/gi;
 
@@ -544,16 +538,6 @@ export async function frontFor(dir, person, { today = null, group = null, calend
 const { HOLD_OUT_ENV, UNTIL_ENV } = createRequire(import.meta.url)("../../../packages/shared/src/texTraining.cjs");
 
 /**
- * A row the bench failed, not Tex: a stand-in of the bench's had no answer for a call the turn made (`benchGaps.mjs`),
- * so a miss there is a harness error, shown as a row that could not run with what the bench lacked. A test that held
- * anyway is a pass: the gap was not in its way.
- */
-export function benchFailed(r) {
-  const gaps = Array.isArray(r?.bench) ? r.bench : [];
-  return !r?.right && gaps.length > 0 ? `the bench failed, not Tex: ${gaps.join("; ")}`.slice(0, 280) : null;
-}
-
-/**
  * The Front door's batch: every unit through the tree's own bench. Each conversation runs in a copy of the bench folder
  * of its own with its world laid in (`setsWorld.mjs`), its units grouped by person and day, each group one test.
  * `runTests` is `coreArea.mjs`'s from the tree, swapped by a test; `parallel` tests go at once. Unless `fake`, each
@@ -566,7 +550,7 @@ export function benchFailed(r) {
  * leave it out of the Front door's examples (`heldOutOf`): the held-out score. Without, the in-context score, as
  * production reads it but each test cut at its moment. One row a unit. `keep`: each judged test kept for `regrade.mjs`.
  */
-export async function runFd(units, { tree, fake = false, runTests = null, parallel = 1, holdOut = false, env = process.env, keep = null }) {
+export async function runFd(units, { tree, fake = false, runTests = null, parallel = 1, holdOut = false, env = process.env, keep = null, world = "replay" }) {
   if (!fake) env = { ...env, [REAL_CLEF_ENV]: "1" };
   const rows = [];
   const can = [];
@@ -588,7 +572,7 @@ export async function runFd(units, { tree, fake = false, runTests = null, parall
       const c = mine[0].convo;
       const convoEnv = holdOut && c.set === "training" ? { ...env, [HOLD_OUT_ENV]: c.id } : env;
       try {
-        prepared[k] = { ...(await prepareConvo(mine, { tree, scratch: join(scratch, `c${k + 1}-${handleOf(c.id)}`), env: convoEnv })) };
+        prepared[k] = { ...(await prepareConvo(mine, { tree, scratch: join(scratch, `c${k + 1}-${handleOf(c.id)}`), env: convoEnv, mode: world })) };
       } catch (error) {
         prepared[k] = { rows: mine.map((u) => ({ ...u.row, right: false, ran: false, usd: 0, why: `could not run: ${String(error?.message ?? error).slice(0, 300)}` })), tests: [] };
       }
@@ -605,6 +589,7 @@ export async function runFd(units, { tree, fake = false, runTests = null, parall
       }
     }));
     for (const p of prepared) rows.push(...collectConvo(p));
+    saveRunFixtures(prepared, tree, world); // `--world record|refresh` writes this run's answers into the fixtures
     // Rows in the order their units came, whichever conversation finished first.
     const place = new Map(units.map((u, k) => [`${u.row.chat}\n${u.row.msg}\n${u.row.node}`, k]));
     return rows.sort((a, b) => (place.get(`${a.chat}\n${a.msg}\n${a.node}`) ?? 0) - (place.get(`${b.chat}\n${b.msg}\n${b.node}`) ?? 0));
@@ -620,10 +605,12 @@ const PREPARE_LANES = 4;
  * One conversation's units, prepared to run: its own copy of the bench folder with its world laid in, and one `sets-N`
  * test a person-day. Returns the rows that cannot run already (`rows`), and `tests` (name, group, cut) for the pool.
  */
-async function prepareConvo(units, { tree, scratch, env }) {
+async function prepareConvo(units, { tree, scratch, env, mode = "replay" }) {
   const rows = [];
   const c = units[0].convo;
   const dir = join(scratch, "ai");
+  // The world's answers for this conversation, shared by all its test processes (`simFixtures.mjs` openWorldStore).
+  const runDir = join(scratch, "world");
   await mkdir(scratch, { recursive: true });
   await cp(join(tree, "apps/mcp/bench/ai"), dir, { recursive: true });
   const setup = join(dir, "setups", "texting-assistant");
@@ -643,7 +630,7 @@ async function prepareConvo(units, { tree, scratch, env }) {
   const year = Number(from.slice(0, 4));
   const group = c.kind === "group" ? (world.group ?? groupFor(people, c)) : null;
   if (c.kind === "group" && group === null) {
-    return { dir, scratch, env, envOf: null, tests: [], rows: units.map((u) => ({ ...u.row, right: false, ran: false, usd: 0, why: `no shared workspace in apps/mcp/bench/ai/workspaces/people.md has all of ${castOf(c).join(", ")}` })) };
+    return { dir, scratch, env, envOf: null, tests: [], runDir, id: c.id, rows: units.map((u) => ({ ...u.row, right: false, ran: false, usd: 0, why: `no shared workspace in apps/mcp/bench/ai/workspaces/people.md has all of ${castOf(c).join(", ")}` })) };
   }
   const batches = new Map();
   for (const u of units) {
@@ -663,7 +650,8 @@ async function prepareConvo(units, { tree, scratch, env }) {
       continue;
     }
     const name = `sets-${tests.length + 1}`;
-    await writeFile(join(dir, "tests", `${name}.md`), fdTest(mine, front, from));
+    // The world this test runs in (`simFixtures.mjs`): the conversation's run folder, the mode, its fixtures, its name.
+    await writeFile(join(dir, "tests", `${name}.md`), fdTest(mine, `${front}\n${worldFront({ tree, id: c.id, runDir, mode, test: name })}`, from));
     tests.push({ name, group: mine, cut: Math.min(...mine.map((u) => u.at)) });
   }
   // A Training conversation scored in context reads itself as an example only up to the scored moment
@@ -672,29 +660,5 @@ async function prepareConvo(units, { tree, scratch, env }) {
   // the later ones still have their own past in the live chat. A held-out chat is gone whole and needs no cut.
   const cuts = c.set === "training" && env[HOLD_OUT_ENV] !== c.id;
   const envOf = cuts ? (name) => ({ ...env, [UNTIL_ENV]: `${c.id}:${tests.find((t) => t.name === name)?.cut ?? 0}` }) : null;
-  return { dir, scratch, env, envOf, tests, rows };
-}
-
-/**
- * One prepared conversation's rows, once its tests ran: each unit's judged case from its test's run, the conversation's
- * cost split evenly over its units. A test that threw marks only its own units. Units with no test are already in `rows`.
- */
-function collectConvo(p) {
-  const rows = [...p.rows];
-  const units = p.tests.reduce((n, t) => n + t.group.length, 0);
-  const usd = p.tests.reduce((sum, t) => sum + (t.got?.usd ?? 0), 0);
-  const each = units === 0 ? 0 : usd / units;
-  for (const t of p.tests) {
-    t.group.forEach((u, k) => {
-      const share = Math.round(each * 10_000) / 10_000;
-      if (t.error) return void rows.push({ ...u.row, right: false, ran: false, usd: share, why: `could not run: ${String(t.error?.message ?? t.error).slice(0, 300)}` });
-      const r = t.got?.rows.find((x) => x.id === `${t.name}/q${k + 1}`);
-      const story = r ? { misses: r.misses ?? [], held: r.held ?? [], said: r.said ?? [], ...(r.handoff ? { handoff: r.handoff } : {}), ...(r.rounds ? { rounds: r.rounds } : {}), ...(r.routes ? { routes: r.routes } : {}), ...(r.fallbacks ? { fallbacks: r.fallbacks } : {}), ...(r.steps ? { steps: r.steps } : {}) } : {};
-      const bench = benchFailed(r);
-      if (!r) rows.push({ ...u.row, right: false, ran: false, usd: share, why: "the bench gave no judged answer" });
-      else if (bench !== null) rows.push({ ...u.row, right: false, ran: false, usd: share, why: bench, ...story });
-      else rows.push({ ...u.row, right: Boolean(r.right), ran: true, usd: share, got: r.right ? "every line held" : missedLine(r), want: "every must and never line", ...story });
-    });
-  }
-  return rows;
+  return { dir, scratch, env, envOf, tests, rows, runDir, id: c.id };
 }

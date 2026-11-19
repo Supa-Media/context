@@ -612,7 +612,9 @@ test("rows come back in the units' order, each with the fields a row had before"
   const rows = await runFd(units, { tree: TREE, fake: true, runTests, parallel: 8, env: {} });
   assert.deepEqual(rows.map((r) => [r.chat, r.msg]), units.map((u) => [u.row.chat, u.row.msg]));
   for (const r of rows) {
-    assert.deepEqual(Object.keys(r).sort(), ["at", "chat", "got", "held", "misses", "msg", "node", "ran", "right", "said", "usd", "want"].sort());
+    assert.deepEqual(Object.keys(r).sort(), ["at", "chat", "got", "held", "misses", "msg", "node", "ran", "right", "said", "usd", "want", "world"].sort());
+    // `world`: the simulated calls no fixture answered (`simFixtures.mjs`); none here, since no test asked the world.
+    assert.deepEqual(r.world, { misses: 0, calls: [] });
     assert.equal(r.ran, true);
     assert.equal(r.got, "every line held");
     assert.equal(r.want, "every must and never line");

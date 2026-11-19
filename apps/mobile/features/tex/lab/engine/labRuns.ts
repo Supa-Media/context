@@ -18,6 +18,8 @@ export type RunStage = "queued" | "running" | "done" | "failed";
 export type RunRow = { convId: string; msgIndex: number; node: string; ok: boolean; got: string; want: string; ran?: boolean; ambiguous?: boolean; usd?: number; route?: { pick?: string; sure?: number; door?: string; fellBack?: string }; runs?: number; passes?: number };
 /** A row out of a run's score: one that could not run, or an ambiguous one (its label's own gold reply fails). */
 export type RunNote = { convId: string; msgIndex: number; node: string; why: string };
+/** A run's world (`scripts/tex-lab-run.mjs` worldOf): the simulated calls no fixture answered, by kind, and which. */
+export type World = { misses: number; byKind: Record<string, number>; calls: Array<{ chat: string; kind: string; call: string }> };
 export type LabRun = {
   id: string;
   versionId: string;
@@ -45,6 +47,7 @@ export type LabRun = {
     total: number;
     costUsd: number;
     handoff?: Handoff;
+    world?: World;
     ms: number;
     perConv?: Array<{ id: string; pass: number; total: number; min?: number; max?: number }>;
     perNode?: Array<{ node: string; pass: number; total: number; min?: number; max?: number }>;
@@ -125,6 +128,8 @@ export type Handoff = { jobs: number; parts: number; advisorCalls: number; usd: 
 
 export const handoffWords = (h: Handoff | undefined) =>
   h && h.jobs > 0 ? `, of which ${h.jobs} handed-off job${h.jobs === 1 ? "" : "s"}: ${h.advisorCalls} advisor call${h.advisorCalls === 1 ? "" : "s"}, $${h.usd.toFixed(3)} ($${h.perJobUsd.toFixed(3)} a job)` : "";
+/** The world a run had, in words: replayed from fixtures, or how many simulated calls had none ("" when the run has none). */
+export const worldWords = (w?: World) => (!w ? "" : w.misses === 0 ? "world replayed from fixtures" : `world: ${w.misses} simulated call${w.misses === 1 ? "" : "s"} not in fixtures`);
 export const ago = (at: number, now = Date.now()) => {
   const s = Math.max(0, Math.round((now - at) / 1000));
   return s < 60 ? "just now" : s < 3600 ? `${Math.round(s / 60)} min ago` : s < 86400 ? `${Math.round(s / 3600)} h ago` : `${Math.round(s / 86400)} d ago`;

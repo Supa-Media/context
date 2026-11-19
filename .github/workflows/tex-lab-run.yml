@@ -548,7 +548,7 @@ jobs:
           echo "::add-mask::$SEAL"
           export SEAL; unset LAB_SEAL_SOURCE
           node scripts/tex-lab-run.mjs results "$RUNNER_TEMP/lab/rows.json" "$(cat "$RUNNER_TEMP/lab/ms")" "$RUNNER_TEMP/lab/gold.json" > "$RUNNER_TEMP/results.json"
-          echo "Results: $(jq -c '{pass, total, score, repeats, fidelity, couldNotRun: (.couldNotRun | length), ambiguous: (.ambiguous | length), goldFails, impossible, costUsd, ms, perNode, fallbacks, valid}' "$RUNNER_TEMP/results.json")"
+          echo "Results: $(jq -c '{pass, total, score, repeats, fidelity, couldNotRun: (.couldNotRun | length), ambiguous: (.ambiguous | length), goldFails, impossible, costUsd, ms, perNode, fallbacks, valid, worldMisses: .world.misses}' "$RUNNER_TEMP/results.json")"
           usd="$(jq -r '.costUsd // 0' "$RUNNER_TEMP/results.json")"
           if awk -v u="$usd" 'BEGIN { exit !(u + 0 >= 0.005) }'; then
             # Every repeat is an answer billed, so count the raw rows (one per repeat), not the scored total (one per test).

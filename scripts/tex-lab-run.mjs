@@ -32,7 +32,7 @@ import { fallbackVerdict } from "../apps/mcp/bench/fallbacks.mjs";
 import { parsePeople } from "../apps/mcp/bench/load.mjs";
 import { loadSets } from "../apps/mcp/bench/sets.mjs";
 import { castProblems } from "../apps/mcp/bench/setsFd.mjs";
-import { scoreByRepeat, testKeyOf } from "../apps/mcp/bench/setsRun.mjs";
+import { scoreByRepeat, testKeyOf, worldMisses } from "../apps/mcp/bench/setsRun.mjs";
 
 const requireHere = createRequire(import.meta.url);
 const { unitTests } = requireHere("../packages/shared/src/texSets.cjs");
@@ -143,6 +143,19 @@ export function trainingConversations(repo, drafts, convId = null) {
   const gone = new Set((drafts ?? []).filter((d) => d.set !== "training" || d.removed).map((d) => d.id));
   const all = repo.filter((c) => c.set === "training" && !gone.has(c.id));
   return convId === null ? all : all.filter((c) => c.id === convId);
+}
+
+/**
+ * The run's world as the Lab reads it (`texLabRuns.cleanResults`): the simulated calls no fixture answered, by kind, and
+ * the first 40 of them. Null when no row has a world (a step with no Front door test, or a run from before fixtures), so
+ * the Lab says nothing rather than "replayed from fixtures".
+ */
+export function worldOf(rows) {
+  if (!rows.some((r) => r.world)) return null;
+  const misses = worldMisses(rows);
+  const byKind = {};
+  for (const m of misses) byKind[m.kind] = (byKind[m.kind] ?? 0) + 1;
+  return { misses: misses.length, byKind, calls: misses.slice(0, 40) };
 }
 
 /**
@@ -261,6 +274,8 @@ export function resultsOf(rows, ms, gold = null, { models } = {}) {
     // What the background jobs the Front door handed off added, already inside costUsd (Dev2, 2026-11-18: "report how
     // many advisor calls and how much cost a handed-off job adds per run ... so Finance can check spend").
     handoff: handoffOf(rows),
+    // The simulated world's misses (`worldOf`): which calls no fixture answered, so a run says what was invented.
+    world: worldOf(rows),
     // Claude calls answered by the fallback model, and whether the score is Tex's (`fallbacks.mjs`): one is enough to
     // mark the run invalid, so a fallback model's score cannot pass as Tex's (2026-11-18).
     // And a run whose Claude calls ran out of credit, or most of one step's tests could not run, is not valid either.

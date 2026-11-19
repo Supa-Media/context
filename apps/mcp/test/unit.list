@@ -630,6 +630,7 @@ test/texSetOps.test.mjs
 test/setsFd.test.mjs
 test/texRouteSummary.test.mjs
 test/simWorld.test.mjs
+test/simFixtures.test.mjs
 test/setsRun.test.mjs
 bench/test/nodeCases.test.mjs
 bench/test/nodeCases.test.mjs

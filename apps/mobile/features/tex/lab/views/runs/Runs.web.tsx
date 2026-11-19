@@ -7,7 +7,7 @@
 import { useMutation, useQuery } from "convex/react";
 import { api } from "@context/convex/_generated/api";
 import { lab, node, toast } from "../../engine/state";
-import { ago, CC_FIDELITY_WHY, codeLink, commitLink, costWords, fidelityWords, fixedWords, live, mcpLines, modelsWords, oneDp, rowRate, runLabel, runsUi, scoreWords, setRunsUi, stageWords, useRunsUi, type LabRun, type RunKind, type RunRow } from "../../engine/labRuns";
+import { ago, CC_FIDELITY_WHY, codeLink, commitLink, costWords, fidelityWords, fixedWords, live, mcpLines, modelsWords, oneDp, rowRate, runLabel, runsUi, scoreWords, setRunsUi, stageWords, useRunsUi, worldWords, type LabRun, type RunKind, type RunRow } from "../../engine/labRuns";
 import { setUi, sets } from "../../engine/setsStore";
 import { RouteSummaryBlock } from "./RouteSummary.web";
 
@@ -157,6 +157,7 @@ export function RunsPanel() {
               <>
                 <div>
                   <b>{scoreWords(full)}</b> · {costWords(full)}
+                  {worldWords(full.results?.world) !== "" ? <> · {worldWords(full.results?.world)}</> : null}
                 </div>
                 {fidelityWords(full) ? (
                   <div className="small" id="runFidelity">
