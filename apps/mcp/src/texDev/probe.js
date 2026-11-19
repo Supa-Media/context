@@ -88,19 +88,13 @@ export async function turnsOf(env, page, { chat: key, day, before, limit } = {},
   const { chat, place, ledger } = openChat(env, page, key, ledgerOf);
   if (ledger === null) return { chat: chat.key, turns: [] };
   const range = dayRange(day, page.timeZone);
-  // A turn is its reply, or the `failed` line a turn that answered nothing leaves (`texEntryPoint/recoverFromFailure.js`).
-  const read = await ledger.read(place.name, { before: Number.isSafeInteger(before) ? before : NEWEST, kinds: ["text", "reply", "step"], steps: ["failed"], limit: 300, jobs: false, ...(range ?? {}) });
+  const read = await ledger.read(place.name, { before: Number.isSafeInteger(before) ? before : NEWEST, kinds: ["text", "reply"], limit: 300, jobs: false, ...(range ?? {}) });
   const entries = read.entries ?? [];
   const texts = entries.filter((e) => e.kind === "text");
   const turns = [];
   const shown = countOf(limit, TURNS_SHOWN, MAX_TURNS);
-  const replies = entries.filter((e) => (e.kind === "reply" || (e.kind === "step" && e.step === "failed")) && typeof e.turn === "string");
+  const replies = entries.filter((e) => e.kind === "reply" && typeof e.turn === "string");
   for (const reply of replies.slice(0, shown)) {
-    if (reply.kind === "step") {
-      const asked = texts.filter((t) => t.from?.kind === "person" && t.at <= reply.at).sort((a, b) => b.at - a.at)[0];
-      turns.push({ turn: reply.turn, at: reply.at, when: when(reply.at, page.timeZone), ms: reply.ms ?? null, ...(reply.model ? { model: reply.model } : {}), failed: reply.reason ?? true, ...(reply.input?.waitMs != null ? { waitedMs: reply.input.waitMs } : {}), rounds: reply.output?.rounds ?? [], asked: asked ? cutDeep(asked.text ?? "", 300) : null, ...(asked?.from?.name ? { from: asked.from.name } : {}) });
-      continue;
-    }
     const said = texts.filter((t) => t.turn === reply.turn && t.from?.kind === "tex").map((t) => t.text).join("\n");
     const asked = texts.filter((t) => t.from?.kind === "person" && t.at <= reply.at).sort((a, b) => b.at - a.at)[0];
     turns.push({
@@ -167,7 +161,7 @@ const isStageTiming = (e) => e.kind === "step" && e.step === "timing";
 export function turnFrom(mine, { timeZone, full = false, detail } = {}) {
   const all = full === true || detail === "all";
   const max = full === true ? FULL_CUT : all ? CUT : BRIEF_CUT;
-  const reply = mine.find((e) => e.kind === "reply") ?? mine.find((e) => e.kind === "step" && e.step === "failed") ?? null;
+  const reply = mine.find((e) => e.kind === "reply") ?? null;
   const start = mine[0].at;
   const numbered = mine.map((e, i) => ({ e, n: i + 1 }));
   const order = numbered
@@ -187,7 +181,6 @@ export function turnFrom(mine, { timeZone, full = false, detail } = {}) {
       entries: mine.length,
       ...(hidden > 0 ? { detail: `brief: ${hidden} stage timing entries not listed and strings cut at ${BRIEF_CUT}; detail: "all" (or full: true) gives every entry` } : {}),
       ms: reply?.ms ?? null,
-      ...(reply?.kind === "step" ? { outcome: "failed", why: reply.reason ?? null, rounds: reply.output?.rounds ?? [], waitedMs: reply.input?.waitMs ?? null } : {}),
       ...(reply?.model ? { model: reply.model } : {}),
       ...(reply?.version ? { version: reply.version } : {}),
       ...(reply?.timing ? { timing: full === true ? withoutWords(reply.timing) : briefTiming(reply.timing, all) } : {}),
