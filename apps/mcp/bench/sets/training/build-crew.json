@@ -60,7 +60,7 @@
     {"id":"m54","who":"John","text":"Tex don't just lean on maya's list, go find your own people","labels":{"fd":{"must":["do its own search and say what it found that's new"],"never":["argue for the shortcut"],"star":true},"router":{"route":"job","star":true}}},
     {"id":"m55","who":"Tex","tex":true,"text":"Fair. Three new ones beyond Maya's list: Anika Nand (turned her show into a design studio), Leo Marsh (audiobook company), Tamsin Cole (paid community, 4k members). All have contact pages. context://@driftline/projects/guest-ideas-42.page.md"},
     {"id":"m56","who":"Tex","tex":true,"text":"Tamsin is the strongest fit. She did two podcast interviews this year and answered both within a week."},
-    {"id":"m57","who":"Check-in","via":"checkin","text":"shared calendar: \"Ep 41 record\" Thu 2pm with guest Kenji Ito; Gmail to the group inbox: Kenji asks to move to 3pm, his flight was delayed.","at":"Thu 08:10","labels":{"fd":{"must":["say what Kenji asked to move and why, and ask the group the one question"],"star":true},"router":{"route":"quick","star":true}}},
+    {"id":"m57","who":"Check-in","via":"checkin","text":"shared calendar: \"Ep 41 record\" Thu 2pm with guest Kenji Ito; Gmail to the group inbox: Kenji asks to move to 3pm, his flight was delayed.","at":"Thu 08:10","labels":{"fd":{"must":["say what changed and ask the one question"],"star":true},"router":{"route":"quick","star":true}}},
     {"id":"m58","who":"Tex","tex":true,"text":"Kenji's flight is late, he's asking for 3 instead of 2 today. Does 3 work for everyone?"},
     {"id":"m59","who":"John","text":"works"},
     {"id":"m60","who":"Maya","text":"yep"},
