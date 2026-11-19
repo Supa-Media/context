@@ -129,6 +129,15 @@ const TEX_SETTINGS = Object.freeze([
     via: "chat_share_mail",
   },
   {
+    key: "chat_calendar",
+    label: "Calendars shared with this chat",
+    description: "Whose Google Calendar this chat can read; only the calendar's own person shares or stops it.",
+    section: "Group chats",
+    where: ["group"],
+    byText: true,
+    via: "chat_share_calendar",
+  },
+  {
     key: "workspaces",
     label: "Workspaces Tex can see",
     description: "In a group, the shared workspaces everyone there is in; a workspace's owner can say \"share @name with everyone here\" to add the whole chat.",

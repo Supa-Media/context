@@ -36,7 +36,7 @@ export function chatMailPrompt(group) {
     return (
       "Nobody's mail is shared with this chat yet. A mailbox's own person can share theirs here by typing \"Tex, share my mail from <address> here\", " +
       "or by asking you (send action chat_share_mail with their address, when you have it); offer that when the chat wants mail it can't see. " +
-      "Nobody's personal notes, calendar or saved logins can be read from here; say the person can text you on their own for that. "
+      "Nobody's personal notes or saved logins can be read from here; say the person can text you on their own for that. "
     );
   const named = shared.map(({ handle, address }) => `@${handle}'s ${address}`).join(", ");
   return (
@@ -47,7 +47,7 @@ export function chatMailPrompt(group) {
     (group?.guestChat
       ? "In a chat with guests you read it when someone asks; nothing watches it here on its own. "
       : "You watch this mail for the chat on your own: new mail brings a look, and you post here only what the chat needs. Nobody has to set that up; if asked to watch it, say you already do. ") +
-    "Nobody else's personal notes, mail, calendar or saved logins can be read from here; say the person can text you on their own for that. "
+    "Nobody else's personal notes, mail or saved logins can be read from here; say the person can text you on their own for that. "
   );
 }
 

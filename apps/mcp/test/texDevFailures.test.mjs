@@ -95,7 +95,7 @@ test("the view: the failed fd row's ask, reply, tools, gold and judge reasons; a
   assert.match(fd.reply, /^Kenji's flight is delayed/);
   assert.equal(fd.tools, "search_email, send_email ✗, connect_google");
   assert.equal(fd.outcome, "quiet (send say_nothing)");
-  assert.deepEqual(fd.gold, { must: ["say what Kenji asked to move and why, and ask the group the one question"] }, "an empty never list is left out");
+  assert.deepEqual(fd.gold, { must: ["say what changed and ask the one question"] }, "an empty never list is left out");
   assert.equal(fd.got, undefined, "got is for the non-fd nodes");
   assert.deepEqual(fd.judge, [`must: say what changed and ask the one question — ${MUST.slice(0, 240)}`]);
   assert.equal(fd.stability, "stable");

@@ -59,6 +59,7 @@ export { INVITED_TAGGER_LINE, TURN_CAUSES, taggedLine } from "./groupTurnCause.j
 import { GUEST_NOTE_TOOLS, blockedLine, blockedOf, guestAwareCallTool, guestPrompt, isGuestChat } from "./groupGuests.js";
 import { chatRoutinePrompt, chatRoutineRefusal } from "./groupRoutines.js";
 import { chatMailOf, chatMailPrompt, chatMailTools } from "./groupMail.js";
+import { chatCalendarOf, chatCalendarPrompt } from "./groupCalendar.js";
 import { toolError } from "../tools/results.js";
 import { readChatMemoryRecord, writeChatMemoryRecord } from "./chatMemoryRecord.js";
 import { playbookPath, playbookPrompt, readPlaybook } from "./groupPlaybook.js";
@@ -131,6 +132,7 @@ export function groupOf(body, session = null) {
   if (!HEX64.test(group.key ?? "") || !HEX64.test(group.members ?? "")) return null;
   const from = typeof group.from === "string" && HANDLE.test(group.from) ? group.from : "";
   const mail = chatMailOf(group.mail);
+  const calendar = chatCalendarOf(group.calendar); // calendars shared with this chat (`groupCalendar.js`)
   const reach = reachOf(session);
   const people = peopleOf(group.people, from);
   const names = namesOf(group.names, [...people, from]); // each account's name beside its handle (`groupNames.js`)
@@ -141,7 +143,7 @@ export function groupOf(body, session = null) {
   const blocked = blockedOf(group.blocked); // who keeps the chat from a workspace, named only (`groupGuests.js` `blockedLine`)
   const cause = TURN_CAUSES.includes(group.cause) ? group.cause : null; // why this turn runs, from the Worker (`apps/agent/src/groupCause.ts`)
   const devShare = devShareOf(group.devShare); // whether the developers can read this chat in their Lab (`devShare.js`)
-  const kept = { key: group.key, members: group.members, from, people, chat: chatOf(group.chat), ...(names.length > 0 ? { names } : {}), ...(guests.length > 0 ? { guests } : {}), ...(numbers.length > 0 ? { numbers } : {}), ...(asker ? { asker } : {}), ...(size !== null ? { size } : {}), ...(mail.length > 0 ? { mail } : {}), ...(reach.length > 0 ? { reach } : {}), ...(group.tagged === true ? { tagged: true } : {}), ...(blocked.length > 0 ? { blocked } : {}), ...(devShare !== null ? { devShare } : {}), ...(cause !== null ? { cause } : {}) }; // tagged: a literal "@Tex", always answered (`sendTheReply.js`)
+  const kept = { key: group.key, members: group.members, from, people, chat: chatOf(group.chat), ...(names.length > 0 ? { names } : {}), ...(guests.length > 0 ? { guests } : {}), ...(numbers.length > 0 ? { numbers } : {}), ...(asker ? { asker } : {}), ...(size !== null ? { size } : {}), ...(mail.length > 0 ? { mail } : {}), ...(calendar.length > 0 ? { calendar } : {}), ...(reach.length > 0 ? { reach } : {}), ...(group.tagged === true ? { tagged: true } : {}), ...(blocked.length > 0 ? { blocked } : {}), ...(devShare !== null ? { devShare } : {}), ...(cause !== null ? { cause } : {}) }; // tagged: a literal "@Tex", always answered (`sendTheReply.js`)
   // A chat that reaches shared workspaces (every person here has an account and shares them) is an ordinary group turn
   // whose home is its memory; only a chat with people who aren't all here (no reach) is narrowed to its home.
   if (reach.length > 0 || !isGuestChat(session)) return from === "" ? { ...kept, guestTagger: true } : kept;
@@ -570,6 +572,7 @@ export function groupPrompt(group, workspace) {
         "; with none, a tool reaches only this chat's own home, which no workspace's notes are in. "
       : `You can read only ${where}, the shared workspace every person here is a member of, and only what its whole team can see. `) +
     chatMailPrompt(group) +
+    chatCalendarPrompt(group) +
     "You can do anything with notes there that you can in a text, by the role of whoever tagged you; never say you can't change a note from here. " +
     "Never write into a form's responses note (the gateway writes those) or a note that says it is generated. " +
     "You can add, edit, move or cancel one event on someone's own calendar, or answer an invite, or send one email from someone's own Gmail. " +
