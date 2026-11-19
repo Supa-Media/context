@@ -115,10 +115,14 @@ marks or Put back anywhere but the Lab's functions lets the panel and the MCP na
 each changed field", "put_back lands the edits that bring one step back to main").
 
 **A run's failing rows come in one call** (triage of a Lab run took minutes, reading `runs { id }`,
-about 100 KB, and then each conversation one by one). `failures { id, node?, conv?, limit? }` answers only the rows that
+about 100 KB, and then each conversation one by one). `failures { id, node?, conv?, limit?, group? }` answers only the rows that
 failed or, when repeated, passed fewer repeats than they ran (a flaky 2 of 3 counts), each with its ask, Tex's reply, its
 tool calls (a failed one marked), the gold label's must and never lines and the judge's reasons. The parsing and the
 row rules live in `packages/shared/src/texFailures.cjs`, which the Lab can read the same way.
+Each row also carries `tags`, a heuristic read of its failed gold lines and the judge's reasons (`tagsOf`: missed_checkin,
+broken_deliverable, facts, didnt_act, asked_instead, too_long; none is "other"). The scoring run stores them on each failing row;
+older runs get them computed at read time. `group: true` files the rows under their first tag with counts. Tags never change
+what passes, the score or the total.
 *What a "simplification" would cost:* a triage that reads each row again, and a flaky row that a failed-only filter hides
 (`apps/mcp/test/texDevFailures.test.mjs` "failingRows keeps failed and flaky rows", "the view: ... a flaky row's passes").
 

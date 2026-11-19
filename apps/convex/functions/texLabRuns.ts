@@ -26,6 +26,7 @@ import { internalAction, internalQuery, query, type MutationCtx, type QueryCtx }
 import { requireAdmin } from "./lib/admin";
 import { DEFAULT_REPEATS, fidelityOf, repeatsOf } from "@context/shared/src/texRunBand.cjs";
 import { compareRuns, runStats } from "@context/shared/src/texRunStats.cjs";
+import { FAILURE_TAGS } from "@context/shared/src/texFailures.cjs";
 import { handleForUser } from "./lib/identities";
 import { internalMutation, mutation } from "./lib/rowWatch/mutations";
 
@@ -187,6 +188,8 @@ export function cleanResults(r: unknown) {
       ...(typeof x.usd === "number" && Number.isFinite(x.usd) ? { usd: num(x.usd) } : {}),
       // A row's repeats: how many runs it had and how many passed (passes may be 0: a row that failed every repeat).
       ...(num(x.runs) > 0 && typeof x.passes === "number" && Number.isFinite(x.passes) ? { runs: num(x.runs), passes: num(x.passes) } : {}),
+      // A failing row's failure tags, in priority order (`texFailures.cjs` tagsOf): known names only, at most six.
+      ...(Array.isArray(x.tags) ? { tags: x.tags.filter((t): t is string => typeof t === "string" && (FAILURE_TAGS as readonly string[]).includes(t)).slice(0, 6) } : {}),
     })),
   };
 }

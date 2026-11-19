@@ -370,3 +370,12 @@ test("POST /gateway/tex/dev passes run and runs on", async () => {
   expect(await bodyOf(await gatewayPost(t, "/gateway/tex/dev", { accessToken: ACCESS_A, action: "runs", args: {} }))).toMatchObject({ status: "ok", runs: [] });
   expect(await bodyOf(await gatewayPost(t, "/gateway/tex/dev", { accessToken: ACCESS_A, action: "run", args: { draft: "main", kind: "dev" } }))).toMatchObject({ status: "ok" });
 });
+
+test("cleanResults keeps a failing row's known failure tags, at most six, and drops the rest", () => {
+  const tagsOfRow = (tags: unknown) => cleanResults({ rows: [{ convId: "w", ok: false, tags }] }).rows[0];
+  expect(tagsOfRow(["facts", "nonsense", "didnt_act", 3])).toMatchObject({ tags: ["facts", "didnt_act"] });
+  expect(tagsOfRow(Array(10).fill("too_long")).tags).toHaveLength(6);
+  expect(tagsOfRow([]).tags).toEqual([]);
+  expect(tagsOfRow("facts")).not.toHaveProperty("tags");
+  expect(tagsOfRow(undefined)).not.toHaveProperty("tags");
+});
