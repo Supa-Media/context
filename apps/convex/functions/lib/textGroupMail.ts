@@ -89,7 +89,7 @@ async function ownGmail(ctx: QueryCtx, userId: Id<"users">, address: string): Pr
  * Whether `userId` is one of the chat's people, for sharing their mail into it or for it to go on reading: named by
  * its home (`homeUsers`), or, for a chat from before homes, still a writer in the workspace it was bound to.
  */
-async function inChat(ctx: QueryCtx, group: Doc<"textGroups">, userId: Id<"users">): Promise<boolean> {
+export async function inChat(ctx: QueryCtx, group: Doc<"textGroups">, userId: Id<"users">): Promise<boolean> {
   if (speaksUpOf(group) === "off") return false;
   if (group.homeUsers !== undefined) return group.homeUsers.includes(userId);
   const workspace = await chatWorkspace(ctx, group);

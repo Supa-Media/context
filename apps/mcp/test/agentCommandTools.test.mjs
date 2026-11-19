@@ -42,7 +42,7 @@ test("each surface is offered its own command tools", () => {
   const run = async () => ({ status: "done" });
   assert.deepEqual(names(commandTools({ run, group: null })), ["review_sharing_set", "tex_instructions_set", "tex_settings_get"]);
   assert.deepEqual(names(commandTools({ run, group: { key: "k" } })), [
-    "chat_mute", "chat_share_mail", "chat_status", "chat_unshare_mail", "tex_instructions_set", "tex_settings_get",
+    "chat_mute", "chat_share_calendar", "chat_share_mail", "chat_status", "chat_unshare_calendar", "chat_unshare_mail", "tex_instructions_set", "tex_settings_get",
   ]);
   assert.deepEqual(commandTools({ run: null, group: null }), []);
 });
@@ -84,7 +84,7 @@ test("the arguments never name who acts", async () => {
 });
 
 test("a refusal is never worded as done", async () => {
-  for (const status of ["refused", "not_allowed", "bad_request", "mail_refused", "too_long", "nothing_to_undo", "something_new"]) {
+  for (const status of ["refused", "not_allowed", "bad_request", "mail_refused", "calendar_refused", "too_long", "nothing_to_undo", "something_new"]) {
     const { run } = recorder({ status });
     const tools = commandTools({ run, group: { key: "k" }, consent: async () => true });
     for (const entry of tools) {
@@ -132,7 +132,7 @@ test("the six tools show them as send actions only when the turn holds them, and
   assert.match(send.description, /- tex_settings:/);
   assert.doesNotMatch(send.description, /- chat_mute:/, "a 1:1 turn holds no group tools");
   assert.deepEqual(six.resolve("send", { action: "tex_instructions", args: { action: "add", text: "Be brief." } }), { name: "tex_instructions_set", args: { action: "add", text: "Be brief." } });
-  assert.equal(Object.keys(COMMAND_SEND_ACTIONS).length, 7);
+  assert.equal(Object.keys(COMMAND_SEND_ACTIONS).length, 9);
   assert.equal(sixToolsOver([]).tools.find((tool) => tool.name === "send"), undefined, "nothing held, nothing shown");
 });
 
@@ -186,4 +186,52 @@ test("words that name mail but don't ask are refused by the judge; no judge, the
   assert.equal(words(await byName(tools, "review_sharing_set").call({ share: true })), OWN_WORDS_REFUSAL, "no consent given, refused");
   const unshare = commandTools({ run: async () => ({ status: "done", count: 1 }), group: { key: "k" } });
   assert.equal(words(await byName(unshare, "chat_unshare_mail").call({})), OWN_WORDS_REFUSAL);
+});
+
+// Calendar sharing mirrors mail sharing: only the calendar's own person's words share or stop it, and the arguments never name who acts.
+test("sharing a calendar sends the command with or without an address; only the person's own words share it", async () => {
+  const judge = async ({ words }) => ({ allow: /\bshar(e|ing) my calendars?\b/i.test(words) });
+  const attempt = async (said, answer = { status: "done", addresses: ["ada@work.example"] }) => {
+    const { sent, run } = recorder(answer);
+    const tools = commandTools({ run, group: { key: "k" }, consent: consentFor(said, judge) });
+    return { sent, tools };
+  };
+  for (const said of ["Tex what's for lunch?", "Tex what's on the schedule for Sunday", "Tex read the calendar invite from Jo"]) {
+    const { sent, tools } = await attempt(said);
+    const result = await byName(tools, "chat_share_calendar").call({ address: "ada@work.example" });
+    assert.deepEqual(sent, [], said);
+    assert.equal(result.isError, true, said);
+    assert.equal(words(result), OWN_WORDS_REFUSAL);
+  }
+  const named = await attempt("Tex share my calendar from ada@work.example here");
+  const shared = await byName(named.tools, "chat_share_calendar").call({ address: "ada@work.example", userId: "users:x", as: "someone" });
+  assert.deepEqual(named.sent, [{ kind: "share_calendar", address: "ada@work.example" }]);
+  assert.equal(shared.isError, undefined);
+  assert.equal(words(shared), "Shared ada@work.example with this chat: anyone here can ask what's on it, and the chat's check-ins compare it with what's said here.");
+
+  const every = await attempt("Tex share my calendars here");
+  await byName(every.tools, "chat_share_calendar").call({});
+  assert.deepEqual(every.sent, [{ kind: "share_calendar" }], "left out, every calendar they connected is shared: no address key at all");
+
+  const stop = await attempt("Tex stop sharing my calendar", { status: "done", count: 2 });
+  assert.equal(words(await byName(stop.tools, "chat_unshare_calendar").call({})), "Stopped sharing 2 calendars with this chat.");
+  assert.deepEqual(stop.sent, [{ kind: "unshare_calendar" }]);
+  const none = await attempt("Tex stop sharing my calendar", { status: "done", count: 0 });
+  assert.equal(words(await byName(none.tools, "chat_unshare_calendar").call({})), "None of their calendars was shared here, so nothing changed.");
+});
+
+test("a calendar the chat may not take is refused in plain words, and changes nothing", async () => {
+  const { sent, run } = recorder({ status: "calendar_refused" });
+  const tools = commandTools({ run, group: { key: "k" }, consent: async () => true });
+  const result = await byName(tools, "chat_share_calendar").call({ address: "bo@work.example" });
+  assert.equal(result.isError, true);
+  assert.equal(words(result), "Not shared: only the calendar's own person can share it, from a connected Google Calendar, in a chat they are in. Nothing was changed.");
+  assert.deepEqual(sent, [{ kind: "share_calendar", address: "bo@work.example" }]);
+});
+
+test("the settings answer lists the calendars shared with the chat, or says none are", async () => {
+  const shared = commandTools({ run: async () => ({ status: "done", instructions: "", calendar: [{ handle: "ada", address: "ada@work.example" }] }), group: { key: "k" }, consent: async () => true });
+  assert.match(words(await byName(shared, "tex_settings_get").call()), /Calendars shared with this chat: @ada's ada@work\.example\./);
+  const none = commandTools({ run: async () => ({ status: "done", instructions: "" }), group: { key: "k" } });
+  assert.match(words(await byName(none, "tex_settings_get").call()), /No one's calendar is shared with this chat\./);
 });
