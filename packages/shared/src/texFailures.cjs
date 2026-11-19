@@ -15,6 +15,8 @@ const ASK_CHARS = 300;
 const REPLY_CHARS = 500;
 const GOLD_REPLY_CHARS = 300;
 const REASON_CHARS = 240;
+const GROUP_ASK_CHARS = 100;
+const GROUP_JUDGE_CHARS = 160;
 const DEFAULT_LIMIT = 60;
 const MAX_LIMIT = 200;
 
@@ -109,6 +111,39 @@ function failingRows(rows) {
   });
 }
 
+/** The failure tags, in priority order: a row gets every tag its rules match, and the grouped view files it under the first. */
+const FAILURE_TAGS = ["missed_checkin", "broken_deliverable", "facts", "didnt_act", "asked_instead", "too_long"];
+
+/**
+ * The tags a failing row matches, in FAILURE_TAGS order (empty when none; a caller reads that as "other"). A heuristic
+ * read of the failed gold lines (`must` and `never`) and the judge's reasons, tuned against a hand grouping of a real
+ * run. `msg` is the conversation message the row asks about (null when unknown): a check-in's is missed_checkin.
+ */
+function tagsOf(row, msg) {
+  const parsed = parseDetail(row?.detail);
+  const misses = parsed.misses;
+  const lineOf = (m) => `${m.kind}: ${m.line}`;
+  const lines = misses.map(lineOf).join(" | ").toLowerCase();
+  const must = misses.filter((m) => m.kind === "must").map(lineOf).join(" | ").toLowerCase();
+  const reasons = misses.map((m) => `${lineOf(m)} ${m.reason ?? ""}`).join(" | ").toLowerCase();
+  const failedTool = parsed.tools.some((t) => !t.ok);
+  const checkin = msg?.via === "checkin";
+  const hit = {
+    missed_checkin: checkin,
+    broken_deliverable: /\b(picture|image|visual|chart|page|pdf|file)\b/.test(lines) && /blank|came out|broken|no usable|empty|incomplete|unreadable|didn.t (render|attach)/.test(reasons),
+    facts:
+      /the record|count the|separate what|built on what|conflicting|evidence|claim|made[- ]up|invent|accurate|\bfacts?\b|what's in the chat|only what/.test(lines) ||
+      /not in the chat|neither of which appears|made up|invented|fabricat/.test(reasons),
+    didnt_act:
+      failedTool ||
+      /\b(make|send|save|draft|generate|research|put|react|go look|go through|confirm|hold|summari[sz]e|do the work|take the correction|change|move|edit|book|write|look up|check)\b/.test(must) ||
+      /no tools were used|never (sent|saved|made|generated|changed)|no change was made/.test(reasons),
+    asked_instead: /\bask|question|offer to close|close (it|them|both)/.test(lines),
+    too_long: /short|long|paragraph|block of|one line|brief|tone|corporate|wordy|concise|numbers for every/.test(lines),
+  };
+  return FAILURE_TAGS.filter((tag) => hit[tag]);
+}
+
 /** Front door rows first, then by conversation and message. */
 function byTriage(a, b) {
   const fd = (a.node === "fd" ? 0 : 1) - (b.node === "fd" ? 0 : 1);
@@ -149,30 +184,68 @@ function rowView(row, convOf) {
   });
 }
 
+/** The conversation message a row asks about, or null when its conversation or message is unknown. */
+function msgOf(row, convOf) {
+  const conv = convOf(row.convId);
+  return conv && Array.isArray(conv.msgs) ? conv.msgs[row.msgIndex] ?? null : null;
+}
+
+/** A row's tags: the stored `tags` a scoring run wrote, else computed now (older runs have none). */
+function tagsFor(row, convOf) {
+  return Array.isArray(row.tags) ? row.tags : tagsOf(row, msgOf(row, convOf));
+}
+
+/** One line per row for the grouped view: "<conv> <msg> <passes>: <ask cut> → <first judge line cut>". */
+function groupLine(view) {
+  const head = [view.conv, view.msg, view.passes].filter((x) => x !== undefined && x !== "").join(" ");
+  const ask = cut(view.ask?.text ?? "", GROUP_ASK_CHARS);
+  const judge = Array.isArray(view.judge) && view.judge.length > 0 ? ` → ${cut(view.judge[0], GROUP_JUDGE_CHARS)}` : "";
+  return `${head}: ${ask}${judge}`;
+}
+
 /**
  * The failure view of one run. `opts`: `node` (only that node's rows), `conv` (only that conversation), `limit` (default
- * 60, at most 200). `count` is every failing row the filters keep; `shown` is how many this answer holds.
+ * 60, at most 200), and `group` (true: the rows filed under their tags, `groups` in FAILURE_TAGS order then "other", each
+ * with its count and one line per row; `limit` does not apply). Every view row carries `tags` and `group` (its first tag,
+ * or "other"). `count` is every failing row the filters keep; `shown` is how many a flat answer holds.
  */
 function failureView(run, convOf, opts = {}) {
   const results = run && run.results && typeof run.results === "object" ? run.results : {};
   const rows = failingRows(results.rows).filter((r) => (!opts.node || r.node === opts.node) && (!opts.conv || r.convId === opts.conv));
+  const sorted = rows.slice().sort(byTriage);
+  const ambiguous = Array.isArray(results.ambiguous) ? results.ambiguous : [];
+  const runView = compact({
+    id: run?.id,
+    set: run?.set,
+    repeats: run?.repeats,
+    commit: run?.commit,
+    score: results.score ?? null,
+    pass: results.pass,
+    total: results.total,
+  });
+  const withTags = (r) => {
+    const tags = tagsFor(r, convOf);
+    return { ...rowView(r, convOf), tags, group: tags[0] ?? "other" };
+  };
+  if (opts.group === true) {
+    const viewed = sorted.map(withTags);
+    const groups = [...FAILURE_TAGS, "other"]
+      .map((tag) => {
+        const inGroup = viewed.filter((v) => v.group === tag);
+        return { tag, count: inGroup.length, rows: inGroup.map(groupLine) };
+      })
+      .filter((g) => g.count > 0);
+    return { run: runView, count: rows.length, groups, ambiguous };
+  }
   const limit = Number.isInteger(opts.limit) && opts.limit > 0 ? Math.min(opts.limit, MAX_LIMIT) : DEFAULT_LIMIT;
-  const shownRows = rows.slice().sort(byTriage).slice(0, limit);
+  const shownRows = sorted.slice(0, limit);
   return {
-    run: compact({
-      id: run?.id,
-      set: run?.set,
-      repeats: run?.repeats,
-      commit: run?.commit,
-      score: results.score ?? null,
-      pass: results.pass,
-      total: results.total,
-    }),
+    run: runView,
     count: rows.length,
     shown: shownRows.length,
-    rows: shownRows.map((r) => rowView(r, convOf)),
-    ambiguous: Array.isArray(results.ambiguous) ? results.ambiguous : [],
+    rows: shownRows.map(withTags),
+    ambiguous,
   };
 }
 
-module.exports = { parseDetail, failingRows, failureView, cut };
+module.exports = { FAILURE_TAGS, parseDetail, failingRows, tagsOf, failureView, cut };

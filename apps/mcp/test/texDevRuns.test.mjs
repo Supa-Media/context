@@ -158,8 +158,23 @@ test("results count by chat and by step, with each test's verdict and no words",
   assert.deepEqual(r.couldNotRun, [{ convId: "m", msgIndex: 1, node: "fd", why: "runs alone only on a one-ask chat" }]);
   assert.deepEqual(r.ambiguous, []);
   assert.equal(r.goldFails, null, "no gold report, no gold count");
-  assert.deepEqual(r.rows[1], { convId: "g", msgIndex: 8, node: "decide", ok: false, got: "quiet", want: "respond", usd: 0.0004 });
+  assert.deepEqual(r.rows[1], { convId: "g", msgIndex: 8, node: "decide", ok: false, got: "quiet", want: "respond", usd: 0.0004, tags: [] }, "a failing row carries its tags (none match here)");
   assert.deepEqual(r.rows[2], { convId: "m", msgIndex: 1, node: "fd", ok: false, got: "can't run: runs alone only on a one-ask chat", want: "", ran: false, usd: 0 }, "a test that did not run says why, and stays listed");
+});
+
+test("scoring tags a failing or flaky row from its conversation message; passing rows get no tags key; pass, total and score do not change with convs", () => {
+  const rows = [
+    { chat: "k", at: 0, node: "fd", right: false, ran: true, usd: 0, got: "quiet", want: "respond", misses: [{ kind: "must", line: "say where it is and confirm it saved", reason: "x" }] },
+    { chat: "k", at: 1, node: "fd", right: true, ran: true, usd: 0, got: "ok", want: "ok" },
+  ];
+  const convs = [{ id: "k", msgs: [{ via: "checkin", text: "hi" }, { text: "yo" }] }];
+  const withConvs = resultsOf(rows, "1", null, { convs });
+  assert.deepEqual(withConvs.rows[0].tags, ["missed_checkin", "didnt_act"]);
+  assert.equal("tags" in withConvs.rows[1], false, "a passing row has no tags key");
+  const without = resultsOf(rows, "1");
+  assert.deepEqual(without.rows[0].tags, ["didnt_act"], "without convs the message is unknown, so no check-in tag");
+  assert.deepEqual([without.pass, without.total, without.score], [withConvs.pass, withConvs.total, withConvs.score]);
+  assert.deepEqual(without.rows[0], { ...withConvs.rows[0], tags: ["didnt_act"] }, "nothing else in the row changes");
 });
 
 test("a row that could not run is out of total, pass, perConv and perNode, and listed in couldNotRun with its why", () => {
@@ -378,10 +393,10 @@ test("repeated rows collapse to one row a unit test: the mean, its band, the maj
   assert.equal(r.rows.length, 3, "one row a test");
   assert.deepEqual(r.rows[0], {
     convId: "r", msgIndex: 1, node: "fd", ok: true, got: "passed 2/3; late", want: "w", runs: 3, passes: 2,
-    detail: "must: say hi (no)", usd: 0.03,
+    detail: "must: say hi (no)", usd: 0.03, tags: [],
   });
   assert.deepEqual(r.rows[1], { convId: "r", msgIndex: 4, node: "fd", ok: false, got: "can't run: no draft", want: "", ran: false, usd: 0 });
-  assert.deepEqual(r.rows[2], { convId: "s", msgIndex: 0, node: "fd", ok: true, got: "passed 2/3; x", want: "y", runs: 3, passes: 2, usd: 0.06 });
+  assert.deepEqual(r.rows[2], { convId: "s", msgIndex: 0, node: "fd", ok: true, got: "passed 2/3; x", want: "y", runs: 3, passes: 2, usd: 0.06, tags: [] });
   assert.equal(r.costUsd, 0.09, "costUsd is every raw row's spend: each repeat is real");
   assert.deepEqual(r.perNode, [{ node: "fd", pass: 1.33, total: 2, min: 1, max: 2 }]);
   assert.deepEqual(r.perConv, [

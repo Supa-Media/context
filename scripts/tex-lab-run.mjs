@@ -26,7 +26,7 @@
  */
 import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { createRequire } from "node:module";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { fallbackVerdict } from "../apps/mcp/bench/fallbacks.mjs";
 import { parsePeople } from "../apps/mcp/bench/load.mjs";
@@ -37,6 +37,7 @@ import { scoreByRepeat, testKeyOf, worldMisses } from "../apps/mcp/bench/setsRun
 const requireHere = createRequire(import.meta.url);
 const { unitTests } = requireHere("../packages/shared/src/texSets.cjs");
 const { CC_FIDELITY_WHY, fidelityOf } = requireHere("../packages/shared/src/texRunBand.cjs");
+const { failingRows, tagsOf } = requireHere("../packages/shared/src/texFailures.cjs");
 const PEOPLE = fileURLToPath(new URL("../apps/mcp/bench/ai/workspaces/people.md", import.meta.url));
 
 /** An error whose `why` is for the Lab (the run's error, kept in Convex) and whose message is for the public log. */
@@ -171,7 +172,7 @@ export function worldOf(rows) {
  * repeat's words; `usd` sums every repeat. `costUsd` still sums every raw row, since each repeat is real spend. A test
  * is couldNotRun only when none of its repeats ran. `options.models` ("cc") adds `fidelity` and `fidelityWhy`.
  */
-export function resultsOf(rows, ms, gold = null, { models } = {}) {
+export function resultsOf(rows, ms, gold = null, { models, convs } = {}) {
   const goldKey = (convId, msgIndex) => `${convId}\u0000${msgIndex}`;
   const goldFail = new Map();
   for (const g of Array.isArray(gold?.goldFails) ? gold.goldFails : []) {
@@ -258,6 +259,11 @@ export function resultsOf(rows, ms, gold = null, { models } = {}) {
       ...(usds.length > 0 ? { usd: Math.round(usds.reduce((a, r) => a + r.usd, 0) * 1e6) / 1e6 } : {}),
     });
   }
+  // A failing row's failure tags (`texFailures.cjs` tagsOf), read against its conversation message (null when the
+  // conversations are not given). Passing rows get no `tags` key; nothing else in a row changes.
+  const msgOf = new Map(Array.isArray(convs) ? convs.map((c) => [c.id, c]) : []);
+  const failing = new Set(failingRows(tests));
+  const tagged = tests.map((t) => (failing.has(t) ? { ...t, tags: tagsOf(t, msgOf.get(t.convId)?.msgs?.[t.msgIndex] ?? null) } : t));
   const fidelity = fidelityOf(models);
   return {
     // The mean over repeats, two places (a single repeat's is its whole count); `score` is the band.
@@ -285,7 +291,7 @@ export function resultsOf(rows, ms, gold = null, { models } = {}) {
     ...(fidelity !== null ? { fidelity, fidelityWhy: CC_FIDELITY_WHY } : {}),
     perConv: subsetScore("chat"),
     perNode: subsetScore("node"),
-    rows: tests,
+    rows: tagged,
   };
 }
 
@@ -391,7 +397,15 @@ async function main() {
   if (sub === "results") {
     // The optional gold report (`apps/mcp/bench/setsGold.mjs`): a path that does not exist is no gold.
     const gold = process.argv[5] && existsSync(process.argv[5]) ? JSON.parse(readFileSync(process.argv[5], "utf8")) : null;
-    process.stdout.write(JSON.stringify(resultsOf(JSON.parse(readFileSync(a, "utf8")), b, gold, { models: process.env.TEX_LAB_MODELS })));
+    // The conversations `prepare` wrote beside the rows (for the failure tags); a missing or unreadable file gives none.
+    const convsPath = join(dirname(a), "convs.json");
+    let convs;
+    try {
+      convs = existsSync(convsPath) ? JSON.parse(readFileSync(convsPath, "utf8")) : undefined;
+    } catch {
+      convs = undefined;
+    }
+    process.stdout.write(JSON.stringify(resultsOf(JSON.parse(readFileSync(a, "utf8")), b, gold, { models: process.env.TEX_LAB_MODELS, convs })));
     return;
   }
   if (sub === "ran") {

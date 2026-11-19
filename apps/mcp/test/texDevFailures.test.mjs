@@ -5,13 +5,14 @@
  * Sabotage record (temporary local edits, reverted):
  *   texFailures.cjs failingRows never keeping a repeated row (the flaky clause gone)   "failingRows keeps failed and flaky rows" and the view test fail
  *   texFailures.cjs parseDetail cutting the judge's reason at its first ")"           "parseDetail reads the real example" and the view test fail
+ *   texFailures.cjs tagsOf missed_checkin off (checkin: false)                          the tagsOf, grouped view and scoring tag tests fail (3)
  */
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { createTexDev } from "../src/texDev/tool.js";
 import { guideText } from "../src/texDev/guide.js";
 import { texDevToolDefinitions } from "../src/tools/schemas/texDev.js";
-import { failingRows, failureView, parseDetail } from "../../../packages/shared/src/texFailures.cjs";
+import { FAILURE_TAGS, failingRows, failureView, parseDetail, tagsOf } from "../../../packages/shared/src/texFailures.cjs";
 import { repoConversation } from "../src/texDev/sets.js";
 
 const textOf = (result) => result.content.find((c) => c.type === "text")?.text ?? "";
@@ -142,8 +143,64 @@ test("a run with no scored rows yet says so, with its stage", async () => {
 });
 
 test("the guide and the schema name failures", () => {
-  assert.match(guideText(), /- failures \{ id, node\?, conv\?, limit\? \}/);
+  assert.match(guideText(), /- failures \{ id, node\?, conv\?, limit\?, group\? \}/);
   const def = texDevToolDefinitions()[0];
   assert.match(def.description, /\bfailures\b/);
   assert.match(def.inputSchema.properties.action.description, /\bfailures\b/);
+});
+
+const detailWith = (...lines) => lines.join("\n");
+const CHECKIN = { via: "checkin", text: "Morning check-in" };
+
+test("tagsOf: each rule's row gets its tag; a check-in msg is missed_checkin, first", () => {
+  assert.deepEqual(FAILURE_TAGS, ["missed_checkin", "broken_deliverable", "facts", "didnt_act", "asked_instead", "too_long"]);
+  const says = { detail: detailWith("must: say where it is and confirm it saved (no)") };
+  assert.deepEqual(tagsOf(says, null), ["didnt_act"]);
+  assert.deepEqual(tagsOf(says, CHECKIN), ["missed_checkin", "didnt_act"], "priority order: the check-in tag leads");
+  assert.deepEqual(tagsOf({ detail: "never: add more paragraphs (it wrote four)" }, null), ["too_long"], "a never line about length is too_long, not didnt_act");
+  assert.deepEqual(tagsOf({ detail: "must: ask only the two things it needs (x)" }, null), ["asked_instead"]);
+  assert.deepEqual(tagsOf({ detail: "steps: tools none | outcome: replied\nmust: check the record for the claim (x)" }, null), ["facts", "didnt_act"]);
+  assert.deepEqual(tagsOf({ detail: "steps: tools send_email failed | outcome: quiet\nmust: say hi (no)" }, null), ["didnt_act"], "a failed tool is didnt_act");
+  assert.deepEqual(tagsOf({ detail: "must: show the picture (the image came out blank)" }, null), ["broken_deliverable"]);
+  assert.deepEqual(tagsOf({ detail: "must: say hi (fine)" }, null), [], "no rule matches: empty, which reads as other");
+  assert.deepEqual(tagsOf({}, null), []);
+});
+
+test("failureView group: rows filed under their first tag, counts, FAILURE_TAGS order with other last; a stored tags wins over computing", () => {
+  const conv = { id: "k", msgs: [CHECKIN, { who: "Jo", text: "Where is the file?" }, { who: "Jo", text: "Long one" }, { who: "Jo", text: "Plain" }, { who: "Jo", text: "Router" }] };
+  const convOf = (id) => (id === "k" ? conv : null);
+  const run = {
+    id: "g1",
+    results: {
+      score: null, pass: 1, total: 6,
+      rows: [
+        { convId: "k", msgIndex: 0, node: "fd", ok: false, detail: detailWith("must: say where it is and confirm it saved (x)") },
+        { convId: "k", msgIndex: 1, node: "fd", ok: false, detail: detailWith("must: confirm it saved (x)") },
+        { convId: "k", msgIndex: 2, node: "fd", ok: false, tags: ["too_long"], detail: detailWith("must: confirm it saved (x)") },
+        { convId: "k", msgIndex: 3, node: "fd", ok: true, runs: 3, passes: 2, detail: "" },
+        { convId: "k", msgIndex: 4, node: "router", ok: false, detail: "" },
+        { convId: "k", msgIndex: 0, node: "decide", ok: true, runs: 3, passes: 3, detail: "" },
+      ],
+      ambiguous: [],
+    },
+  };
+  const view = failureView(run, convOf, { group: true, limit: 1 });
+  assert.equal(view.count, 5, "every failing row, the limit does not apply to the grouped view");
+  assert.equal(view.shown, undefined, "a grouped answer has no shown count");
+  assert.equal(view.rows, undefined);
+  assert.deepEqual(view.groups.map((g) => [g.tag, g.count]), [["missed_checkin", 1], ["didnt_act", 1], ["too_long", 1], ["other", 2]], "empty groups omitted, other last");
+  assert.equal(view.groups[0].rows[0], "k 0: Morning check-in → must: say where it is and confirm it saved — x");
+  assert.equal(view.groups[2].rows[0], "k 2: Long one → must: confirm it saved — x", "the stored too_long tag files it, though its detail computes didnt_act");
+  assert.equal(view.groups[3].rows.length, 2);
+  const flat = failureView(run, convOf);
+  assert.deepEqual(flat.rows.map((r) => [r.group, r.tags]), [["missed_checkin", ["missed_checkin", "didnt_act"]], ["didnt_act", ["didnt_act"]], ["too_long", ["too_long"]], ["other", []], ["other", []]]);
+  assert.equal(failureView(run, convOf, { group: true, node: "router" }).count, 1, "node still narrows the grouped view");
+  assert.deepEqual(failureView(run, convOf, { group: true, conv: "nope" }).groups, []);
+});
+
+test("a row with a stored tags list reads those tags, even when the detail would say otherwise", () => {
+  const row = { convId: "z", msgIndex: 0, node: "fd", ok: false, tags: [], detail: detailWith("must: confirm it saved (x)") };
+  const flat = failureView({ id: "t", results: { rows: [row] } }, () => null);
+  assert.deepEqual(flat.rows[0].tags, []);
+  assert.equal(flat.rows[0].group, "other");
 });
