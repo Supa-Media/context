@@ -13,7 +13,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
 
-import { normalizeRequest, knownFacts, openWorldStore, readFixtures, runMisses, saveFixtures, worldKey, worldMode } from "../bench/simFixtures.mjs";
+import { fixtureText, normalizeRequest, knownFacts, openWorldStore, readFixtures, runMisses, saveFixtures, worldKey, worldMode } from "../bench/simFixtures.mjs";
 import { createSimWorld, simMemo } from "../bench/simWorld.mjs";
 
 /** A model that answers each call kind with `answers[kind]` (or with `answerFor(kind, request)`), counting what it was asked. */
@@ -157,7 +157,9 @@ test("refresh asks the model even where a fixture exists; record and refresh wri
     assert.deepEqual(file.answers.map((a) => a.key), [k2, k1].sort(), "sorted by key");
     assert.equal(file.answers.find((a) => a.key === k1).answer, "OLD", "the recorded answer is kept");
     assert.equal(file.answers.some((a) => a.key === k3), false, "a fake answer is never written");
-    assert.equal(readFileSync(path, "utf8"), `${JSON.stringify(file, null, 1)}\n`, "the file's exact shape");
+    const text = readFileSync(path, "utf8");
+    assert.equal(text, fixtureText("conv-1", file.answers), "the file's exact shape");
+    assert.equal(text.split("\n").length, file.answers.length + 3, "one answer a line");
 
     // Refresh with only a fake: nothing real is written.
     assert.equal(saveFixtures(path, "conv-1", [{ key: k3, kind: "web search", request: { query: "fake one" }, answer: "FAKE", fake: true }], "refresh"), 0);
@@ -217,4 +219,18 @@ test("a store's world mode is one of the three, and anything else is replay", ()
   assert.equal(worldMode(" refresh "), "refresh");
   assert.equal(worldMode("bogus"), "replay");
   assert.equal(worldMode(undefined), "replay");
+});
+
+test("benchSafe: a real-looking address moves onto an example domain, in the request and the answer, and the key follows", async () => {
+  const { benchSafe } = await import("../bench/simFixtures.mjs");
+  assert.equal(benchSafe("from john.keller@gmail.com and bookings@flytap.com"), "from john.keller@gmail.example and bookings@flytap.example");
+  assert.equal(benchSafe("john@gmail.example, a@b.test, c@example.com, d@mail.example.org"), "john@gmail.example, a@b.test, c@example.com, d@mail.example.org");
+  assert.deepEqual(benchSafe({ q: ["x@y.co.uk"], n: 3 }), { q: ["x@y.co.example"], n: 3 });
+  const dir = mkdtempSync(join(tmpdir(), "bench-safe-"));
+  const path = join(dir, "c.json");
+  saveFixtures(path, "c", [{ kind: "gmail search", request: { query: "from:paulo@gmail.com" }, answer: { messages: [{ from: "paulo@gmail.com" }] } }], "record");
+  const saved = JSON.parse(readFileSync(path, "utf8")).answers[0];
+  assert.deepEqual(saved.request, { query: "from:paulo@gmail.example" });
+  assert.equal(saved.key, worldKey("gmail search", { query: "from:paulo@gmail.example" }));
+  assert.doesNotMatch(JSON.stringify(saved), /gmail\.com/);
 });

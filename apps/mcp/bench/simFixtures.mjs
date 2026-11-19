@@ -149,6 +149,33 @@ export function runMisses(runDir) {
     .sort((a, b) => (a.key < b.key ? -1 : a.key > b.key ? 1 : 0));
 }
 
+/** An email address a fixture may keep as it is: an example domain, never a real one. */
+const EXAMPLE_EMAIL = /@(?:[A-Za-z0-9-]+\.)*(?:example|test)$|@(?:[A-Za-z0-9-]+\.)*example\.(?:com|org|net)$/i;
+const EMAIL = /[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}/g;
+
+/**
+ * A value with every real-looking email address moved onto an example domain, its last label made `example`
+ * (`someone@gmail.com` -> `someone@gmail.example`), the way the bench's own worlds write them. The simulated world
+ * invents mail, and a name it invents on a real domain may be a real person's address: fixtures are committed to a
+ * public repository, so none is ever kept. Requests are rewritten the same way, so a later call that asks for an
+ * address the world showed asks for the example one, and its key matches.
+ */
+export function benchSafe(value) {
+  if (typeof value === "string") return value.replace(EMAIL, (address) => (EXAMPLE_EMAIL.test(address) ? address : address.replace(/\.[A-Za-z]{2,}$/, ".example")));
+  if (Array.isArray(value)) return value.map(benchSafe);
+  if (value && typeof value === "object") return Object.fromEntries(Object.entries(value).map(([k, v]) => [k, benchSafe(v)]));
+  return value;
+}
+
+/**
+ * A fixture file's text: one answer a line, sorted by key, so a re-recording's diff is the answers it added or changed
+ * and a long conversation's file stays a few hundred lines, not thousands (`pnpm architecture`).
+ */
+export function fixtureText(id, answers) {
+  const lines = answers.map((a) => JSON.stringify({ key: a.key, kind: a.kind, request: a.request, answer: a.answer }));
+  return `{"conversation": ${JSON.stringify(id)}, "answers": [${lines.length === 0 ? "" : `\n${lines.join(",\n")}\n`}]}\n`;
+}
+
 /**
  * Writes a conversation's fixtures from the run's entries. `record` adds the new answers and keeps the answers
  * already recorded; `refresh` replaces the file with the run's answers; `replay` writes nothing. Fake answers (a run
@@ -160,14 +187,23 @@ export function saveFixtures(path, id, entries, mode) {
   let written = 0;
   for (const entry of entries) {
     if (entry.fake) continue;
-    const key = entry.key ?? worldKey(entry.kind, entry.request);
+    // Every answer kept is bench-safe (`benchSafe`), its key taken from the safe request.
+    const request = benchSafe(entry.request);
+    const key = worldKey(entry.kind, request);
     if (byKey.has(key)) continue;
-    byKey.set(key, { key, kind: entry.kind, request: entry.request, answer: entry.answer });
+    byKey.set(key, { key, kind: entry.kind, request, answer: benchSafe(entry.answer) });
     written += 1;
   }
-  const answers = [...byKey.values()].sort((a, b) => (a.key < b.key ? -1 : a.key > b.key ? 1 : 0));
+  // The answers already recorded are made bench-safe too, so a file recorded before `benchSafe` is cleaned on its next record.
+  const safe = new Map();
+  for (const e of byKey.values()) {
+    const request = benchSafe(e.request);
+    const key = worldKey(e.kind, request);
+    if (!safe.has(key)) safe.set(key, { key, kind: e.kind, request, answer: benchSafe(e.answer) });
+  }
+  const answers = [...safe.values()].sort((a, b) => (a.key < b.key ? -1 : a.key > b.key ? 1 : 0));
   mkdirSync(dirname(path), { recursive: true });
-  writeFileSync(path, `${JSON.stringify({ conversation: id, answers }, null, 1)}\n`);
+  writeFileSync(path, fixtureText(id, answers));
   return mode === "refresh" ? answers.length : written;
 }
 

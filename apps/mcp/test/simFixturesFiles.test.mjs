@@ -14,7 +14,7 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { test } from "node:test";
 
-import { FIXTURES_DIR, worldKey } from "../bench/simFixtures.mjs";
+import { FIXTURES_DIR, fixtureText, worldKey } from "../bench/simFixtures.mjs";
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..", "..", "..");
 const SETS = join(ROOT, "apps", "mcp", "bench", "sets");
@@ -64,6 +64,8 @@ function fixtureProblems(name, text, ids) {
   if (!ids.has(id)) problems.push(`${name}: ${id} is not a Training or Dev conversation`);
   if (!Array.isArray(file.answers)) problems.push(`${name}: answers is not a list`);
   const answers = Array.isArray(file.answers) ? file.answers : [];
+  // Written as saveFixtures writes it (one answer a line), so a re-recording's diff is only what changed.
+  if (Array.isArray(file.answers) && text !== fixtureText(id, answers)) problems.push(`${name}: not in the recorder's own layout (fixtureText)`);
   answers.forEach((entry, i) => {
     const where = `${name} answers[${i}]`;
     if (entry === null || typeof entry !== "object") return problems.push(`${where}: not an object`);
@@ -95,8 +97,9 @@ test("the committed simulated-world fixtures are well-formed, keyed by worldKey,
 
 test("a file of the wrong shape is reported, each problem by name", () => {
   const ids = new Set(["dev-one"]);
-  const good = JSON.stringify({ conversation: "dev-one", answers: [{ key: worldKey("web search", { query: "a" }), kind: "web search", request: { query: "a" }, answer: { ok: true } }] });
+  const good = fixtureText("dev-one", [{ key: worldKey("web search", { query: "a" }), kind: "web search", request: { query: "a" }, answer: { ok: true } }]);
   assert.deepEqual(fixtureProblems("dev-one.json", good, ids), []);
+  assert.match(fixtureProblems("dev-one.json", JSON.stringify(JSON.parse(good), null, 1), ids).join("\n"), /recorder's own layout/);
   assert.match(fixtureProblems("dev-one.json", "{", ids)[0], /not valid JSON/);
   assert.match(fixtureProblems("other.json", good, ids).join("\n"), /other.json: conversation is "dev-one", not the file's id/);
   assert.match(fixtureProblems("test-one.json", JSON.stringify({ conversation: "test-one", answers: [] }), ids).join("\n"), /not a Training or Dev conversation/);
@@ -108,5 +111,5 @@ test("a file of the wrong shape is reported, each problem by name", () => {
   assert.match(fixtureProblems("dev-one.json", extra, ids).join("\n"), /extra top-level keys note/);
   assert.match(fixtureProblems("dev-one.json", good.replace("ok", "sk-ant-api03-abcdefghijklmnop"), ids).join("\n"), /secret shape/);
   assert.match(fixtureProblems("dev-one.json", good.replace("ok", "ops@acme-corp.io"), ids).join("\n"), /real-looking address on acme-corp.io/);
-  assert.deepEqual(fixtureProblems("dev-one.json", good.replace("ok", "ops@billing.example"), ids), [], "an example address is fine");
+  assert.deepEqual(fixtureProblems("dev-one.json", good.replace('"ok":true', '"ops@billing.example":true'), ids), [], "an example address is fine");
 });

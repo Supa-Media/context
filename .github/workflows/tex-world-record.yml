@@ -10,6 +10,8 @@
 #          refresh  re-asks every call and replaces the fixtures; uploads the same
 #          replay   checks the committed fixtures: prints the misses and a hash of the world answers the run was shown,
 #                   so two replays of one commit can be compared (same hash, zero misses = the same world)
+#   branch: when set (tex-world/... or claude/...), a second job with no secrets commits the recorded fixtures to it, so
+#           a pull request can carry them; the job that ran the models never holds a write token.
 #
 # The log prints counts, kinds and hashes, never a conversation's words or an answer. The fixtures are public bench data.
 name: Tex world record
@@ -38,6 +40,11 @@ on:
         description: "How many times each Front door test runs (1 to 5)"
         required: false
         default: "1"
+        type: string
+      branch:
+        description: "Optional: a branch (tex-world/... or claude/...) to commit the recorded fixtures to, for a pull request"
+        required: false
+        default: ""
         type: string
 
 permissions:
@@ -96,7 +103,14 @@ jobs:
           wait "$answerer" || code=1
           tail -n 5 "$RUNNER_TEMP/answerer.log"
           node apps/mcp/bench/worldHash.mjs --rows "$RUNNER_TEMP/out/rows.json" --kept "$RUNNER_TEMP/kept" || true
-          ls apps/mcp/bench/sets/sim/ 2>/dev/null | wc -l | xargs echo "fixture files:"
+          # Only this set's own conversations' files leave the run: a Training and a Dev recording may run at once, and
+          # one must never carry the other's older files back over its newer ones.
+          mkdir -p "$RUNNER_TEMP/world-out"
+          for conv in apps/mcp/bench/sets/"$SET"/*.json; do
+            f="apps/mcp/bench/sets/sim/$(basename "$conv")"
+            if [ -f "$f" ]; then cp "$f" "$RUNNER_TEMP/world-out/"; fi
+          done
+          ls "$RUNNER_TEMP/world-out" | wc -l | xargs echo "fixture files for the $SET set:"
           exit "$code"
 
       - name: Upload the recorded world
@@ -104,6 +118,51 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: world-fixtures
-          path: apps/mcp/bench/sets/sim/
+          path: ${{ runner.temp }}/world-out/
           retention-days: 7
           if-no-files-found: warn
+
+  # The recorded fixtures onto a branch, for a pull request: this job holds the write token and none of the run's secrets,
+  # and runs no code from the branch, only git.
+  push:
+    needs: run
+    if: ${{ always() && needs.run.result != 'cancelled' && inputs.world != 'replay' && inputs.branch != '' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    steps:
+      - name: The branch is one a recording may write
+        env:
+          BRANCH: ${{ inputs.branch }}
+        run: '[[ "$BRANCH" =~ ^(tex-world|claude)/[A-Za-z0-9._/-]{1,80}$ && "$BRANCH" != *..* ]] || { echo "::error::the branch must be tex-world/... or claude/..."; exit 1; }'
+
+      - uses: actions/checkout@v5
+        with:
+          ref: ${{ github.ref }}
+          fetch-depth: 0
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: world-fixtures
+          path: apps/mcp/bench/sets/sim/
+
+      - name: Commit the fixtures to the branch
+        env:
+          BRANCH: ${{ inputs.branch }}
+          SET: ${{ inputs.set }}
+          WORLD: ${{ inputs.world }}
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add apps/mcp/bench/sets/sim/
+          if git diff --cached --quiet; then echo "No new answers to commit"; exit 0; fi
+          git diff --cached --stat
+          git commit -m "Tex bench: world fixtures, $WORLD on the $SET set (run $GITHUB_RUN_ID)"
+          # A Training and a Dev recording may push to one branch at once: their files differ, so take the other's and retry.
+          for try in 1 2 3; do
+            git push origin "HEAD:refs/heads/$BRANCH" && exit 0
+            git fetch origin "$BRANCH" && git rebase FETCH_HEAD
+          done
+          exit 1
