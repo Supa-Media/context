@@ -13,7 +13,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
 
-import { normalizeRequest, knownFacts, openWorldStore, readFixtures, runMisses, saveFixtures, worldKey, worldMode } from "../bench/simFixtures.mjs";
+import { fixtureText, normalizeRequest, knownFacts, openWorldStore, readFixtures, runMisses, saveFixtures, worldKey, worldMode } from "../bench/simFixtures.mjs";
 import { createSimWorld, simMemo } from "../bench/simWorld.mjs";
 
 /** A model that answers each call kind with `answers[kind]` (or with `answerFor(kind, request)`), counting what it was asked. */
@@ -157,7 +157,9 @@ test("refresh asks the model even where a fixture exists; record and refresh wri
     assert.deepEqual(file.answers.map((a) => a.key), [k2, k1].sort(), "sorted by key");
     assert.equal(file.answers.find((a) => a.key === k1).answer, "OLD", "the recorded answer is kept");
     assert.equal(file.answers.some((a) => a.key === k3), false, "a fake answer is never written");
-    assert.equal(readFileSync(path, "utf8"), `${JSON.stringify(file, null, 1)}\n`, "the file's exact shape");
+    const text = readFileSync(path, "utf8");
+    assert.equal(text, fixtureText("conv-1", file.answers), "the file's exact shape");
+    assert.equal(text.split("\n").length, file.answers.length + 3, "one answer a line");
 
     // Refresh with only a fake: nothing real is written.
     assert.equal(saveFixtures(path, "conv-1", [{ key: k3, kind: "web search", request: { query: "fake one" }, answer: "FAKE", fake: true }], "refresh"), 0);

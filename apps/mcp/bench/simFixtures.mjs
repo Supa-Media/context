@@ -168,6 +168,15 @@ export function benchSafe(value) {
 }
 
 /**
+ * A fixture file's text: one answer a line, sorted by key, so a re-recording's diff is the answers it added or changed
+ * and a long conversation's file stays a few hundred lines, not thousands (`pnpm architecture`).
+ */
+export function fixtureText(id, answers) {
+  const lines = answers.map((a) => JSON.stringify({ key: a.key, kind: a.kind, request: a.request, answer: a.answer }));
+  return `{"conversation": ${JSON.stringify(id)}, "answers": [${lines.length === 0 ? "" : `\n${lines.join(",\n")}\n`}]}\n`;
+}
+
+/**
  * Writes a conversation's fixtures from the run's entries. `record` adds the new answers and keeps the answers
  * already recorded; `refresh` replaces the file with the run's answers; `replay` writes nothing. Fake answers (a run
  * with no model) are never written. Returns how many answers were written.
@@ -194,7 +203,7 @@ export function saveFixtures(path, id, entries, mode) {
   }
   const answers = [...safe.values()].sort((a, b) => (a.key < b.key ? -1 : a.key > b.key ? 1 : 0));
   mkdirSync(dirname(path), { recursive: true });
-  writeFileSync(path, `${JSON.stringify({ conversation: id, answers }, null, 1)}\n`);
+  writeFileSync(path, fixtureText(id, answers));
   return mode === "refresh" ? answers.length : written;
 }
 
