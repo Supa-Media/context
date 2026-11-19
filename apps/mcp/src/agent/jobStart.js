@@ -25,8 +25,7 @@ export const SAY_FIELD = {
   type: "string",
   description:
     "What to text them as this starts, in your own words, one or two short plain sentences: what they'll get, where it lands and about when, " +
-    "and any assumption you made. Leave it out when a tapback says enough: words that only say you've started or what you'll look at " +
-    "(\"On it\", \"checking their sites now\") are what the tapback says. Judge it from the job-start examples; no link, no title read back.",
+    "and any assumption you made. Leave it out when a tapback says enough. Judge it from the job-start examples; no link, no title read back.",
 };
 
 /** A `say` as it is texted: one line, trimmed, never a control marker, cut at a sentence past `MAX_START_LINE`. Empty means a tapback. */
