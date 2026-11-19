@@ -39,6 +39,9 @@ jobs:
       - uses: actions/setup-node@v5
         with:
           node-version: 22
+          # worldHeal.mjs and simFixtures.mjs use only Node built-ins; the default
+          # pnpm cache lookup fails when pnpm is absent.
+          package-manager-cache: false
 
       - uses: actions/download-artifact@v4
         id: heal
