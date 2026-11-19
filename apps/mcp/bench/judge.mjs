@@ -178,8 +178,31 @@ export function isUnanswered(answer) {
  * checks in the order the judge must return verdicts. The payload is the only
  * thing the judge is shown.
  */
-/** How many of the chat's lines before the text the judge is shown. */
-const JUDGE_EARLIER = 12;
+/**
+ * How much of the chat before the text the judge is shown: the newest lines that fit `JUDGE_EARLIER_CHARS` characters
+ * and `JUDGE_EARLIER` lines. Labels about the chat's own facts ("built on what's in the chat", "check the record",
+ * "separate what the note says from what John remembers") need the chat further back than a fixed line count: a
+ * 12-line window failed Training truck-crew row 47 ("roast kofi") for facts 23 and 30 lines back (2026-11-19).
+ */
+export const JUDGE_EARLIER_CHARS = 24000;
+const JUDGE_EARLIER = 200;
+
+/**
+ * The chat lines the judge is shown before a text, oldest first: walks back from the newest line keeping each while the
+ * running length (each line's characters plus one) stays within `JUDGE_EARLIER_CHARS` and the count within
+ * `JUDGE_EARLIER`. The newest line is always kept.
+ */
+export function judgeChatBefore(earlier) {
+  const lines = earlier.map((line) => (line.from === "trigger" ? triggerWords(line) : `${line.from === "tex" ? "Tex" : line.who ? `@${line.who}` : "Person"}: ${line.text}`));
+  const kept = [];
+  let total = 0;
+  for (let i = lines.length - 1; i >= 0 && kept.length < JUDGE_EARLIER; i--) {
+    total += lines[i].length + 1;
+    if (kept.length > 0 && total > JUDGE_EARLIER_CHARS) break;
+    kept.unshift(lines[i]);
+  }
+  return kept;
+}
 
 /**
  * The moment a conversation happened, from a test's front matter (`today:`, optional `clock:` and `time_zone:`), so the
@@ -218,7 +241,7 @@ export function buildJudgeRequest({ model, question, answers, every = [], now = 
     gate: isGateQuestion(question),
     // A Lab replay's or a Dev test's chat before the text (`- earlier ...` lines): the newest of it, so a check that
     // names "them" or "the plan" is graded against the chat it was written for.
-    ...((question.earlier ?? []).length > 0 ? { chat_before: question.earlier.slice(-JUDGE_EARLIER).map((line) => (line.from === "trigger" ? triggerWords(line) : `${line.from === "tex" ? "Tex" : line.who ? `@${line.who}` : "Person"}: ${line.text}`)) } : {}),
+    ...((question.earlier ?? []).length > 0 ? { chat_before: judgeChatBefore(question.earlier) } : {}),
     checks,
     may: question.may,
     answers: answers.map((answer) => ({
