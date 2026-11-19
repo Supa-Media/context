@@ -19,7 +19,8 @@ import { chatsOf, entriesOf, openChat, turnsOf } from "./probe.js";
 import { jobsAnswer, linkAnswer, mineAnswer, momentsAnswer, promptAnswer, turnAnswer } from "./replay.js";
 import { nodeStatsAnswer } from "./nodeStats.js";
 import { createSandboxActions } from "./sandbox.js";
-import { createSetActions, repoGoldRoute } from "./sets.js";
+import { createSetActions, repoConversation, repoGoldRoute } from "./sets.js";
+import { failureView } from "../../../../packages/shared/src/texFailures.cjs";
 import { routeSummary } from "../../../../packages/shared/src/texRouteSummary.cjs";
 import { snapshotGraph } from "./snapshot.js";
 import { createDraftWrites } from "./writes.js";
@@ -271,6 +272,15 @@ export function createTexDev({ env, session, controlPlane, defer = null, sleep =
         const run = answer?.run;
         const byRoute = run?.results && Array.isArray(run.results.rows) ? routeSummary(run.results.rows, repoGoldRoute()) : null;
         return error ?? json(args.id ? (byRoute ? { ...run, byRoute } : run) : { runs: answer.runs });
+      }
+      // One run's failing rows in one call (texFailures.cjs): the ask, Tex's reply, tool calls, gold and the judge's reasons.
+      case "failures": {
+        if (typeof args.id !== "string" || !/^[A-Za-z0-9_-]{1,80}$/.test(args.id)) return toolError("failures takes { id } (runs lists them), with node, conv or limit to narrow it.");
+        const { answer, error } = await plane("runs", { id: args.id });
+        if (error) return error;
+        const run = answer?.run;
+        if (!run?.results || !Array.isArray(run.results.rows) || run.results.rows.length === 0) return toolError(`Run ${args.id} has no scored rows yet (stage: ${run?.stage ?? "unknown"}); failures reads a finished run.`);
+        return json(failureView(run, repoConversation, args));
       }
       case "tool_stats": {
         const { answer, error } = await plane("tool_stats", { days: args.days });
