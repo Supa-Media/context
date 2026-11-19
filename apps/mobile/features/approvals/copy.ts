@@ -58,7 +58,11 @@ export function decisionNotice(decision: Decision): { tone: "ok" | "warn"; text:
   };
 }
 
-/** The count on the Approvals tab, or nothing when nothing is waiting. */
+/**
+ * The count on the Tex tab for approvals waiting on a person's yes, or nothing when nothing is waiting.
+ *
+ * Approvals are answered inline in the Tex chat (owner, 2026-11-19), so the tab's count is the only place the number shows outside it.
+ */
 export function pendingCount(waiting: number): string {
   return waiting > 0 ? String(waiting) : "";
 }

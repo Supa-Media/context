@@ -1,6 +1,5 @@
 import { useEffect, useState } from "react";
 import { Pressable, StyleSheet, View } from "react-native";
-import { ApprovalsPanel } from "../../approvals/ApprovalsPanel";
 import { pendingCount } from "../../approvals/copy";
 import type { ApprovalsView } from "../../approvals/useApprovals";
 import { Dot } from "../../design/components/Dot";
@@ -37,10 +36,11 @@ import {
  *
  * ## What happens beside a note
  *
- * A recording of what is being said, and the requests waiting on a person's
- * yes. `tabs.ts` carries the rules, including the one that matters most: **a
- * meeting starting does not take the tab.** It gets a dot instead, because a
- * panel that swaps out from under somebody is a panel they stop trusting.
+ * A recording of what is being said, and the chat with Tex, where the requests
+ * waiting on a person's yes are answered inline. `tabs.ts` carries the rules,
+ * including the one that matters most: **a meeting starting does not take the
+ * tab.** It gets a dot instead, because a panel that swaps out from under
+ * somebody is a panel they stop trusting.
  *
  * ## No close button, and that is the toggle's job
  *
@@ -78,10 +78,10 @@ export function AsidePanel({
   /**
    * What is waiting for this person's yes (an email, a calendar change, a handle, a key), from `useApprovals`.
    *
-   * Optional, and absent means no Approvals tab: a host that cannot answer
-   * approvals (the homepage, a test that does not mount the hook) draws the
-   * Meetings tab alone, and so does a console with nothing waiting. The tab's count is read here, so it is visible from
-   * the Meetings tab without opening it.
+   * It feeds the Tex chat, which answers each one inline as a card. Its count
+   * rides on the Tex tab's label, so a person on the Meetings tab still sees
+   * that something is waiting. Optional: absent means no count, and the Tex
+   * chat shows nothing to answer.
    */
   approvals?: ApprovalsView;
   /** Join and take notes, for today's meetings in the Meetings tab. `null` where there is no calendar. */
@@ -95,16 +95,11 @@ export function AsidePanel({
 }) {
   const styles = useThemedStyles(makeStyles);
   const [chosen, setChosen] = useState<AsideTab>(DEFAULT_ASIDE_TAB);
-  const approvalsAvailable = approvals?.available === true;
   const waiting = approvals?.items.length ?? 0;
   // The tab somebody chose, if this console still shows it; else Meetings, which every console shows.
   const wanted = asideTabFor(chosen);
   const map = useMapSide();
   const tabs = visibleAsideTabs({
-    approvals: approvalsAvailable,
-    waiting,
-    answered: wanted === "approvals" && approvals?.notice != null,
-    failed: approvals?.phase === "failed",
     map: map !== null,
     note: map?.noteKey != null,
     tex: tex !== null,
@@ -170,16 +165,12 @@ export function AsidePanel({
       <View style={single ? styles.bare : styles.tabs} accessibilityRole={single ? undefined : "tablist"}>
         {single ? null : ASIDE_TABS.filter((tab) => tabs.includes(tab.key)).map((tab) => {
           const current = tab.key === showing;
-          const count = tab.key === "approvals" ? pendingCount(waiting) : "";
+          // What is waiting for a yes rides on the Tex tab, where those are answered.
+          const count = tab.key === "tex" ? pendingCount(waiting) : "";
           return (
             <Pressable
               key={tab.key}
-              onPress={() => {
-                setChosen(tab.key);
-                // Looking at the list is asking for the newest one: a request
-                // raised since the console opened should be here when it is.
-                if (tab.key === "approvals") approvals?.refresh();
-              }}
+              onPress={() => setChosen(tab.key)}
               role="tab"
               accessibilityState={{ selected: current }}
               /*
@@ -203,7 +194,7 @@ export function AsidePanel({
                 {tab.label}
               </Text>
               {count !== "" ? (
-                <Text variant="meta" style={styles.count} testID="aside-tab-approvals-count">
+                <Text variant="meta" style={styles.count} testID="aside-tab-tex-count">
                   {count}
                 </Text>
               ) : null}
@@ -243,11 +234,7 @@ export function AsidePanel({
         </View>
       ) : showing === "tex" && tex !== null ? (
         <View style={styles.body} testID="aside-tex">
-          <TexChatTab workspaceId={tex.workspaceId} endpoint={tex.endpoint} />
-        </View>
-      ) : showing === "approvals" && approvals !== undefined ? (
-        <View style={styles.body} testID="aside-approvals">
-          <ApprovalsPanel view={approvals} />
+          <TexChatTab workspaceId={tex.workspaceId} endpoint={tex.endpoint} approvals={approvals} />
         </View>
       ) : (
         <MeetingsTab onOpenNote={onOpenNote} onJoin={onJoin} pastFrom={pastFrom} />

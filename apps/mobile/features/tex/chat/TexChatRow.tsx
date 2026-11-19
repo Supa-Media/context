@@ -153,29 +153,34 @@ export function TexChatRow(props: TexChatRowProps) {
           ) : null}
 
           {row.ask !== undefined && answered ? (
-            <View style={styles.answer} testID={`tex-answer-${row.id}`}>
+            <View style={styles.askCard} testID={`tex-answer-${row.id}`}>
               <Text variant="meta" style={styles.answerText}>
-                {props.answer === "approve" ? "Approved" : "Not sent"}
+                {props.answer === "approve" ? "Approved" : "Declined"}
               </Text>
             </View>
           ) : null}
 
           {row.ask !== undefined && !answered && props.askOpen ? (
-            <View style={styles.decisions}>
-              <Button
-                label="Approve"
-                variant="accent"
-                onPress={() => props.onAnswer(row.id, "approve")}
-                accessibilityLabel={`Approve: ${row.text}`}
-                testID={`tex-approve-${row.id}`}
-              />
-              <Button
-                label="Don't"
-                variant="decision"
-                onPress={() => props.onAnswer(row.id, "deny")}
-                accessibilityLabel={`Don't approve: ${row.text}`}
-                testID={`tex-deny-${row.id}`}
-              />
+            <View style={styles.askCard}>
+              <Text variant="meta" style={styles.askHeading}>
+                Waiting for your OK
+              </Text>
+              <View style={styles.decisions}>
+                <Button
+                  label="Approve"
+                  variant="accent"
+                  onPress={() => props.onAnswer(row.id, "approve")}
+                  accessibilityLabel={`Approve: ${row.text}`}
+                  testID={`tex-approve-${row.id}`}
+                />
+                <Button
+                  label="Decline"
+                  variant="decision"
+                  onPress={() => props.onAnswer(row.id, "deny")}
+                  accessibilityLabel={`Decline: ${row.text}`}
+                  testID={`tex-deny-${row.id}`}
+                />
+              </View>
             </View>
           ) : null}
         </View>
@@ -422,8 +427,17 @@ const makeStyles = (colors: Colors) =>
     badgeMine: { backgroundColor: colors.accentDim, borderColor: colors.lineStrong },
     badgeTheirs: { backgroundColor: colors.surface2, borderColor: colors.lineStrong },
     badgeText: { fontSize: pointerType.meta, lineHeight: 16, color: colors.text },
-    answer: { alignSelf: "flex-start" },
-    answerText: { color: colors.muted },
+    askCard: {
+      alignSelf: "flex-start",
+      gap: space.x2,
+      padding: space.x3,
+      borderWidth: 1,
+      borderColor: colors.line,
+      borderRadius: radii.card,
+      backgroundColor: colors.surface2,
+    },
+    askHeading: { color: colors.muted },
+    answerText: { color: colors.text2 },
     decisions: { flexDirection: "row", flexWrap: "wrap", gap: space.x2 },
     bar: {
       flexDirection: "row",

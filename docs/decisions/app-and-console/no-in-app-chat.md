@@ -17,7 +17,8 @@ and the `listProviders` query that fed it (see
 [texting-assistant](../texting-assistant.md#the-built-in-model-is-free-capped-at-100-a-day-and-metered-like-jev)).
 
 What is left in the right panel is what happens *beside* a note and is not a
-conversation: Meetings, which it now opens on, and Approvals.
+conversation: Meetings, which it now opens on, and Approvals (answered inside
+the Tex chat since 2026-11-19; see [approvals-in-tex-chat](./approvals-in-tex-chat.md)).
 
 **Why not keep it behind the key.** A second place to ask questions, inside
 the app, competed with the product's actual promise — your context in the AI

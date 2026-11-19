@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { WELCOME_ROUTE } from "../../onboarding/route";
+import { approvalsScope } from "../../approvals/scope";
 import { useApprovals } from "../../approvals/useApprovals";
 import { useCarriesMeeting } from "../../meetings/carried";
 import { RESUME_RECENT_WINDOW_MS, resumeRowFor } from "../../meetings/resume";
@@ -163,17 +164,19 @@ export function useConsoleAside({
     else if (action === "open") showMeetings();
   }, [meetingsAsked, hasAside, startMeeting, meetingsSnapshot.status, meetingsSnapshot.live, showMeetings, router]);
   /*
-    What the egress gate is holding for this person, in any of their contexts, for the right panel's
-    Approvals tab and its count. Read here because the count has to be known
-    before anybody opens the tab. Off where there is no panel (a phone's
+    What the egress gate is holding for this person, in any of their contexts, drawn as
+    cards inside the Tex chat, with the waiting count on the Tex tab (there is no Approvals tab since
+    2026-11-19). Read here because the count has to be known before anybody opens the Tex tab. Off where there is no panel (a phone's
     console has none), on the demo, and with no context to ask about.
   */
+  const approvalsIn = approvalsScope(data.contexts, data.selectedContextId);
   const approvals = useApprovals({
-    workspaceId: data.selectedContextId,
+    workspaceId: approvalsIn.workspaceId,
     // Held in the asking connection's own workspace, so listed from all of them.
-    workspaceIds: data.contexts.map((c) => c.id),
+    // The pinned context is left out: it is reach, not membership (see scope.ts).
+    workspaceIds: approvalsIn.workspaceIds,
     endpoint: data.endpoint,
-    enabled: !phone && !data.demo && data.selectedContextId !== null,
+    enabled: !phone && !data.demo && approvalsIn.workspaceId !== null,
   });
 
   const resumeMeeting = useResumeMeeting();

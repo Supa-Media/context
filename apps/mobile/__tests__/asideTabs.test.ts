@@ -12,8 +12,8 @@ import {
  *
  * A running meeting is the most urgent thing this panel knows about, and it
  * still does not take the tab. That is a decision rather than an oversight: a
- * meeting can start while somebody is halfway through answering an approval,
- * and a panel that swaps out from under them is a panel they stop trusting.
+ * meeting can start while somebody is halfway through a question to Tex, and a
+ * panel that swaps out from under them is a panel they stop trusting.
  *
  * What makes that trade safe is the dot — so the dot has to be exactly right,
  * in both directions. A dot with no meeting behind it teaches people to ignore
@@ -33,6 +33,11 @@ import {
  *     → **1 fails**: `no dot on the tab you are already reading`.
  *  3. `asideTabFor` returning its argument unchecked.
  *     → **1 fails**: `a tab this build has never heard of falls back`.
+ *  4. The Approvals entry put back into `ASIDE_TABS`, so the panel lists a
+ *     tab the owner removed (2026-11-19).
+ *     → **6 fail**: `there is no Approvals tab` and `visibleAsideTabs never
+ *     shows Approvals, whatever it is given`, and four older catalogue tests
+ *     that list the tabs exactly.
  */
 
 describe("which tab is showing", () => {
@@ -43,13 +48,13 @@ describe("which tab is showing", () => {
   });
 
   test("a person's own press is what moves it", () => {
-    expect(asideTabFor("approvals")).toBe("approvals");
+    expect(asideTabFor("tex")).toBe("tex");
     expect(asideTabFor("meetings")).toBe("meetings");
   });
 
   test("a tab this build has never heard of falls back", () => {
-    // "chat" included: the tab is gone (2026-10-10), and an old link naming it lands on Meetings.
-    for (const bad of ["", "chat", "proposals", "Approvals", "meetings ", "__proto__"]) {
+    // "chat" included: the tab is gone (2026-10-10). "approvals" too: it is gone (2026-11-19), and an old link naming it lands on Meetings.
+    for (const bad of ["", "chat", "approvals", "proposals", "Tex", "meetings ", "__proto__"]) {
       expect(asideTabFor(bad)).toBe("meetings");
     }
   });
@@ -62,13 +67,13 @@ describe("which tab is showing", () => {
   test("a meeting does not take the tab", () => {
     expect(asideTabFor.length).toBe(1);
     // ...and the tab somebody chose survives one, because nothing here reads it.
-    expect(asideTabFor("approvals")).toBe("approvals");
+    expect(asideTabFor("tex")).toBe("tex");
   });
 });
 
 describe("the dot that makes that safe", () => {
   test("a running meeting is marked while you are elsewhere", () => {
-    expect(meetingNeedsAttention("approvals", true)).toBe(true);
+    expect(meetingNeedsAttention("tex", true)).toBe(true);
   });
 
   test("no dot on the tab you are already reading", () => {
@@ -76,7 +81,7 @@ describe("the dot that makes that safe", () => {
   });
 
   test("and no dot with no meeting behind it", () => {
-    expect(meetingNeedsAttention("approvals", false)).toBe(false);
+    expect(meetingNeedsAttention("tex", false)).toBe(false);
     expect(meetingNeedsAttention("meetings", false)).toBe(false);
   });
 });
@@ -88,15 +93,14 @@ describe("the catalogue", () => {
     `visibleAsideTabs`, not by this list.
   */
   test("the map's two tabs lead (only while it is open), then Meetings, then Tex, and no in-app agent", () => {
-    expect(ASIDE_TABS.map((tab) => tab.key)).toEqual(["activity", "note", "meetings", "tex", "approvals"]);
+    expect(ASIDE_TABS.map((tab) => tab.key)).toEqual(["activity", "note", "meetings", "tex"]);
     expect(ASIDE_TABS.map((tab) => tab.label)).not.toContain("Chat");
   });
 
   test("with the map shut a console never shows its tabs", () => {
-    expect(visibleAsideTabs({ approvals: true, waiting: 1 })).toEqual(["meetings", "approvals"]);
-    expect(visibleAsideTabs({ approvals: false, waiting: 0, note: true })).toEqual(["meetings"]);
-    expect(visibleAsideTabs({ approvals: false, waiting: 0, map: true })).toEqual(["activity", "meetings"]);
-    expect(visibleAsideTabs({ approvals: false, waiting: 0, map: true, note: true })).toEqual(["activity", "note", "meetings"]);
+    expect(visibleAsideTabs({ note: true })).toEqual(["meetings"]);
+    expect(visibleAsideTabs({ map: true })).toEqual(["activity", "meetings"]);
+    expect(visibleAsideTabs({ map: true, note: true })).toEqual(["activity", "note", "meetings"]);
   });
 
   test("every tab has a word on it", () => {
@@ -105,47 +109,42 @@ describe("the catalogue", () => {
 });
 
 /**
- * THE APPROVALS TAB IS THERE ONLY WHILE SOMETHING IS WAITING.
+ * THERE IS NO APPROVALS TAB.
  *
- * It is the answer to a question the context's AI clients asked: an email, a
- * calendar change, a new @handle, a vault key's first use. It is absent when
- * the console has no approvals route to ask — the homepage and the demo pass
- * none — and, since the widening gate was removed (Dev2, 2026-10-17), when
- * nothing is waiting: an empty tab every day was the friction removed. It
- * stays while the person reads what their last answer did.
+ * The owner (2026-11-19): "no approvals tab, just make the approvals happen
+ * right inside the message box". What an AI client is waiting on is answered
+ * inline in the Tex chat, and its count rides on the Tex tab's label. So no
+ * console, whatever it is handed, lists Approvals as a tab.
  *
  * ## Sabotage record
  *
  * Applied, suite run, named test observed failing, reverted.
  *
- *  1. The approvals term dropped, so the tab shows where it cannot be answered.
- *     → **1 fails**: `Approvals is absent where it cannot be answered`.
- *  2. The waiting term dropped, so an empty tab shows every day.
- *     → **1 fails**: `Approvals is absent while nothing is waiting`.
+ *  1. The Approvals entry put back into `ASIDE_TABS`.
+ *     → **6 fail**: `there is no Approvals tab` and `visibleAsideTabs never
+ *     shows Approvals, whatever it is given`, and four older catalogue tests
+ *     that list the tabs exactly.
  */
 describe("which tabs a console shows", () => {
-  test("a console with something waiting shows both, in order", () => {
-    expect(visibleAsideTabs({ approvals: true, waiting: 1 })).toEqual(["meetings", "approvals"]);
+  test("there is no Approvals tab", () => {
+    expect(ASIDE_TABS.map((tab) => tab.key)).not.toContain("approvals");
+    expect(ASIDE_TABS.map((tab) => tab.label)).not.toContain("Approvals");
   });
 
-  test("Approvals is absent where it cannot be answered", () => {
-    expect(visibleAsideTabs({ approvals: false, waiting: 1 })).toEqual(["meetings"]);
-  });
-
-  test("Approvals is absent while nothing is waiting", () => {
-    expect(visibleAsideTabs({ approvals: true, waiting: 0 })).toEqual(["meetings"]);
+  test("visibleAsideTabs never shows Approvals, whatever it is given", () => {
+    const flags = [false, true];
+    for (const map of flags) {
+      for (const note of flags) {
+        for (const tex of flags) {
+          expect(visibleAsideTabs({ map, note, tex })).not.toContain("approvals");
+        }
+      }
+    }
   });
 
   test("Tex sits right after Meetings, and only where the owner's chat is open", () => {
-    expect(visibleAsideTabs({ approvals: false, waiting: 0, tex: true })).toEqual(["meetings", "tex"]);
-    expect(visibleAsideTabs({ approvals: true, waiting: 1, tex: true })).toEqual(["meetings", "tex", "approvals"]);
-    expect(visibleAsideTabs({ approvals: false, waiting: 0 })).toEqual(["meetings"]);
-  });
-
-  test("an answer just given keeps the tab until the person leaves it", () => {
-    expect(visibleAsideTabs({ approvals: true, waiting: 0, answered: true })).toEqual(["meetings", "approvals"]);
-    // A list that could not be read is not an empty one: the tab stays, with its reason.
-    expect(visibleAsideTabs({ approvals: true, waiting: 0, failed: true })).toEqual(["meetings", "approvals"]);
-    expect(visibleAsideTabs({ approvals: false, waiting: 0, failed: true })).toEqual(["meetings"]);
+    expect(visibleAsideTabs({ tex: true })).toEqual(["meetings", "tex"]);
+    expect(visibleAsideTabs({ map: true, tex: true })).toEqual(["activity", "meetings", "tex"]);
+    expect(visibleAsideTabs({})).toEqual(["meetings"]);
   });
 });

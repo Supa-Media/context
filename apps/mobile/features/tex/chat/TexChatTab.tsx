@@ -10,11 +10,15 @@ import {
   openAskRow,
   type AppChatRow,
   type AskChoice,
+  type ChatLine,
   type ReactionEmoji,
 } from "./appChatGateway";
+import type { ApprovalsView } from "../../approvals/useApprovals";
 import { useAppChat, type AppChatView } from "./useAppChat";
 import { TexChatComposer, type EditTarget, type ReplyTarget } from "./TexChatComposer";
 import { TexChatRow } from "./TexChatRow";
+import { chatTimeline } from "./approvalTimeline";
+import { TexApprovalCard } from "./TexApprovalCard";
 
 /** The words under Tex's name in the tab's header. */
 export const TEX_TAB_SUB = "Its own chat. Tex remembers your texts too.";
@@ -39,13 +43,32 @@ const STICK_PX = 48;
  * return value, which the other half of the tab (`TexChatView`) takes as a
  * prop so it can be drawn with a fake.
  */
-export function TexChatTab({ workspaceId, endpoint }: { workspaceId: string; endpoint: string }) {
+export function TexChatTab({
+  workspaceId,
+  endpoint,
+  approvals,
+}: {
+  workspaceId: string;
+  endpoint: string;
+  /** The held calls waiting on the person, drawn as cards in the log. */
+  approvals?: ApprovalsView;
+}) {
   const view = useAppChat({ workspaceId, endpoint, enabled: true });
-  return <TexChatView view={view} />;
+  /*
+    Opening the tab asks for the approvals again, as pressing the old Approvals
+    tab did: the count on the tab is up to a minute old, and the cards a person
+    opened the chat to answer should be the ones waiting now.
+  */
+  const refreshApprovals = useRef(approvals?.refresh);
+  refreshApprovals.current = approvals?.refresh;
+  useEffect(() => {
+    refreshApprovals.current?.();
+  }, []);
+  return <TexChatView view={view} approvals={approvals} />;
 }
 
 /** The tab's face: a header with Tex, the log, the typing mark, the approval, the box. */
-export function TexChatView({ view }: { view: AppChatView }) {
+export function TexChatView({ view, approvals }: { view: AppChatView; approvals?: ApprovalsView }) {
   const styles = useThemedStyles(makeStyles);
   const colors = useColors();
   const [reply, setReply] = useState<ReplyTarget | null>(null);
@@ -56,8 +79,18 @@ export function TexChatView({ view }: { view: AppChatView }) {
   const ys = useRef(new Map<string, number>());
 
   const lines = view.lines;
+  const timeline = chatTimeline(lines, approvals);
   // The approval Tex is waiting on, if any: its buttons show under that row only.
   const askId = openAskRow(lines)?.id ?? null;
+  // Rows from one person share a time under the last of them, read off the lines alone.
+  const timeLabels = new Map<ChatLine, string | null>();
+  lines.forEach((line, index) => {
+    const next = lines[index + 1];
+    timeLabels.set(
+      line,
+      next === undefined || next.who !== line.who || next.at - line.at > GROUP_MS ? timeText(line.at) : null,
+    );
+  });
 
   // Esc closes the picture overlay.
   useEffect(() => {
@@ -117,7 +150,7 @@ export function TexChatView({ view }: { view: AppChatView }) {
         }}
         testID="tex-log"
       >
-        {lines.length === 0 ? (
+        {timeline.length === 0 ? (
           <View style={styles.empty}>
             <Text variant="foot" style={styles.muted} testID="tex-empty">
               {view.available ? (view.phase === "idle" ? "" : TEX_EMPTY) : TEX_UNAVAILABLE}
@@ -125,11 +158,22 @@ export function TexChatView({ view }: { view: AppChatView }) {
           </View>
         ) : null}
 
-        {lines.map((line, index) => {
+        {timeline.map((entry) => {
+          if (entry.kind === "approval") {
+            return (
+              <TexApprovalCard
+                key={`approval:${entry.approval.id}`}
+                approval={entry.approval}
+                state={entry.state}
+                note={entry.note}
+                now={Date.now()}
+                onDecide={(id, action) => approvals?.decide(id, action)}
+              />
+            );
+          }
+          const line = entry.line;
           const key = isPending(line) ? line.localId : line.id;
-          const next = lines[index + 1];
-          const timeLabel =
-            next === undefined || next.who !== line.who || next.at - line.at > GROUP_MS ? timeText(line.at) : null;
+          const timeLabel = timeLabels.get(line) ?? null;
           return (
             <View
               key={key}
@@ -161,6 +205,23 @@ export function TexChatView({ view }: { view: AppChatView }) {
             </View>
           );
         })}
+
+        {/*
+          A refused or unanswered decision leaves its card waiting and says why here. A settled
+          card already carries its own note, so that note is not said twice.
+        */}
+        {approvals?.notice?.tone === "warn" &&
+        !approvals.decided.some((d) => d.note === approvals.notice?.text) ? (
+          <Text variant="foot" style={styles.error} testID="tex-approvals-notice">
+            {approvals.notice.text}
+          </Text>
+        ) : null}
+
+        {approvals?.phase === "failed" && approvals.error !== null ? (
+          <Text variant="foot" style={styles.muted} testID="tex-approvals-error">
+            {approvals.error}
+          </Text>
+        ) : null}
 
         {view.busy ? <Working styles={styles} colors={colors} /> : null}
       </ScrollView>
