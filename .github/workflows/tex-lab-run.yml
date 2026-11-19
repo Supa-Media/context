@@ -483,6 +483,10 @@ jobs:
           # The hold-out switch (`setsRun.mjs`): the repository variable set to "on" scores each Training conversation's
           # Front door tests without that conversation among the examples; anything else scores them in context.
           TEX_SETS_HOLD_OUT: ${{ vars.TEX_SETS_HOLD_OUT }}
+          # Bench-only Unified Billing (`apps/mcp/bench/models.mjs` `benchUnifiedBilling`; Finance, 2026-11-18): the
+          # repository variable set to "on" lets a gw run's Claude calls fall through to Cloudflare's Unified Billing
+          # after the key aliases fail. Ignored from 2026-12-01T00:00Z. Production's payer order never reads it.
+          TEX_BENCH_UNIFIED_BILLING: ${{ vars.TEX_BENCH_UNIFIED_BILLING }}
         run: |
           set +e -uo pipefail
           answerer=""

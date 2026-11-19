@@ -2,7 +2,7 @@
 // ids and tokens are invented fixtures.
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { anthropicGateway, cachedEmbeddings, claudeTransport, refusalLine, workersAi } from "../models.mjs";
+import { anthropicGateway, BENCH_UNIFIED_BILLING_UNTIL, benchUnifiedBilling, cachedEmbeddings, claudeTransport, refusalLine, workersAi } from "../models.mjs";
 import { MEANING_MODEL } from "../../src/search/meaning/embed.js";
 
 const GATEWAY = {
@@ -116,6 +116,49 @@ test("the gateway with no key at all does not call Unified Billing", async () =>
   const response = await claudeTransport(GATEWAY, fetchImpl)(BODY);
   assert.equal(response.status, 402);
   assert.equal(calls.length, 0);
+});
+
+test("TEX_BENCH_UNIFIED_BILLING=on: after every alias is spent, one keyless call goes to Unified Billing, labelled cloudflare", async () => {
+  const spent = [400, { error: { message: "Your credit balance is too low" } }];
+  const paid = [200, { model: "claude-haiku-5-5", usage: { input_tokens: 1000, output_tokens: 100 } }];
+  const { calls, fetchImpl } = recorder(spent, spent, paid);
+  const before = BENCH_UNIFIED_BILLING_UNTIL - 60_000;
+  const send = claudeTransport({ ...GATEWAY, AI_GATEWAY_KEY_ALIASES: "first-credits,second-credits", TEX_BENCH_UNIFIED_BILLING: "on" }, fetchImpl, () => before);
+  assert.equal((await send(BODY)).status, 200);
+  assert.equal(calls.length, 3);
+  assert.equal(calls[2].headers["cf-aig-byok-alias"], undefined);
+  assert.equal(calls[2].headers["x-api-key"], undefined);
+  assert.equal(calls[2].headers["cf-aig-authorization"], "Bearer fixture-gateway-token-0000000000");
+  assert.deepEqual(JSON.parse(calls[2].headers["cf-aig-metadata"]), { feature: "benchmark", payer: "cloudflare" });
+  assert.ok(send.costUsd > 0, "the Unified Billing call is priced into the run's spend");
+  assert.equal((await send(BODY)).status, 200, "resting aliases are skipped and Unified Billing answers");
+  assert.equal(calls.length, 4);
+  assert.equal(calls[3].headers["cf-aig-byok-alias"], undefined);
+});
+
+test("Unified Billing stays off unless the setting is exactly on, and from 2026-12-01T00:00Z it is ignored", async () => {
+  const spent = [400, { error: { message: "Your credit balance is too low" } }];
+  for (const value of [undefined, "", "off", "true", "ON"]) {
+    const { calls, fetchImpl } = recorder(spent);
+    const send = claudeTransport({ ...GATEWAY, AI_GATEWAY_KEY_ALIASES: "first-credits", ...(value === undefined ? {} : { TEX_BENCH_UNIFIED_BILLING: value }) }, fetchImpl, () => BENCH_UNIFIED_BILLING_UNTIL - 60_000);
+    assert.equal((await send(BODY)).status, 400, `setting ${JSON.stringify(value)}`);
+    assert.equal(calls.length, 1, `setting ${JSON.stringify(value)} sends nothing keyless`);
+  }
+  const { calls, fetchImpl } = recorder(spent);
+  const send = claudeTransport({ ...GATEWAY, AI_GATEWAY_KEY_ALIASES: "first-credits", TEX_BENCH_UNIFIED_BILLING: "on" }, fetchImpl, () => BENCH_UNIFIED_BILLING_UNTIL);
+  assert.equal((await send(BODY)).status, 400);
+  assert.equal(calls.length, 1, "expired: nothing keyless");
+  assert.equal(BENCH_UNIFIED_BILLING_UNTIL, Date.parse("2026-12-01T00:00:00Z"));
+  assert.equal(benchUnifiedBilling({ TEX_BENCH_UNIFIED_BILLING: "on" }, BENCH_UNIFIED_BILLING_UNTIL - 1), true);
+  assert.equal(benchUnifiedBilling({ TEX_BENCH_UNIFIED_BILLING: "on" }, BENCH_UNIFIED_BILLING_UNTIL), false);
+});
+
+test("Unified Billing on: a working alias still pays, and nothing is sent keyless", async () => {
+  const { calls, fetchImpl } = recorder([200, { content: [] }]);
+  const send = claudeTransport({ ...GATEWAY, AI_GATEWAY_KEY_ALIASES: "first-credits", TEX_BENCH_UNIFIED_BILLING: "on" }, fetchImpl, () => BENCH_UNIFIED_BILLING_UNTIL - 60_000);
+  assert.equal((await send(BODY)).status, 200);
+  assert.equal(calls.length, 1);
+  assert.equal(calls[0].headers["cf-aig-byok-alias"], "first-credits");
 });
 
 test("without the gateway, an Anthropic key goes straight to Anthropic", async () => {

@@ -10,7 +10,8 @@
  *                       Claude models through our Cloudflare AI Gateway, the
  *                       road texts take: keys the gateway holds
  *                       (AI_GATEWAY_KEY_ALIASES), then ANTHROPIC_CREDIT_KEY
- *                       (or ANTHROPIC_API_KEY), Unified Billing after
+ *                       (or ANTHROPIC_API_KEY); Unified Billing only with
+ *                       TEX_BENCH_UNIFIED_BILLING=on, until it expires
  *   ANTHROPIC_API_KEY   without the gateway: Claude models straight to Anthropic
  *   CLOUDFLARE_ACCOUNT_ID + CLOUDFLARE_AI_TOKEN   `@cf/` models, through the Workers AI REST API
  *
@@ -68,6 +69,22 @@ function remoteRest(env, fetchImpl) {
   };
 }
 
+/**
+ * The opt-in that lets a benchmark's Claude call fall through to Cloudflare's
+ * Unified Billing once every key has failed. Finance approved it for bench and
+ * Lab gateway runs only, within a small cap, while the bench keys were at their
+ * Anthropic usage limit (2026-11-18). Off unless `TEX_BENCH_UNIFIED_BILLING` is
+ * exactly "on", and ignored from 2026-12-01T00:00Z on, when those limits reset:
+ * a setting left on cannot keep billing Cloudflare. Production's payer order
+ * (`src/agent/aiGateway.js`) never reads it.
+ */
+export const BENCH_UNIFIED_BILLING_ENV = "TEX_BENCH_UNIFIED_BILLING";
+export const BENCH_UNIFIED_BILLING_UNTIL = Date.UTC(2026, 11, 1);
+
+export function benchUnifiedBilling(env, now = Date.now()) {
+  return env?.[BENCH_UNIFIED_BILLING_ENV] === "on" && now < BENCH_UNIFIED_BILLING_UNTIL;
+}
+
 /** Add a Messages response's priced usage onto `send.costUsd`. A refusal adds nothing. */
 async function noteCost(send, response) {
   if (response.status !== 200) return;
@@ -94,13 +111,13 @@ async function noteCost(send, response) {
  *
  * Through the gateway it mirrors the product (`src/agent/aiGateway.js`): the
  * plan's credit key first, and a spent credit is the shared rest
- * (`/credit-rest` on the gateway). A benchmark call never falls through to
- * Unified Billing: with no credit left it stops, and the round records nothing
- * on Cloudflare's balance. Calls are tagged `feature: benchmark` so the AI
+ * (`/credit-rest` on the gateway). A benchmark call falls through to Unified
+ * Billing only with `benchUnifiedBilling` on; otherwise, with no credit left
+ * it stops, and the round records nothing on Cloudflare's balance. Calls are tagged `feature: benchmark` so the AI
  * costs tab can tell them from people's texts, and the gateway keeps no log
  * of them. `send.costUsd` is the priced usage of the calls that came back.
  */
-export function claudeTransport(env, fetchImpl = realFetch) {
+export function claudeTransport(env, fetchImpl = realFetch, now = Date.now) {
   const accountId = env.AI_GATEWAY_ACCOUNT_ID;
   const gatewayId = env.AI_GATEWAY_ID;
   const token = env.AI_GATEWAY_TOKEN;
@@ -147,6 +164,13 @@ export function claudeTransport(env, fetchImpl = realFetch) {
         last = response;
         const text = response.status === 400 ? await response.clone().text().catch(() => "") : "";
         if (response.status === 402 || /credit balance/i.test(text)) await noteCreditSpent(name, Date.now() + CREDIT_REST_MS, { store: rest, cache });
+      }
+      // The keyless call Unified Billing pays for, only while the opt-in is on and unexpired; labelled so the
+      // AI costs tab's Who paid panel files it under Cloudflare.
+      if (benchUnifiedBilling(env, now())) {
+        const response = await fetchImpl(url, { method: "POST", headers: { ...headers, "cf-aig-metadata": JSON.stringify({ feature: "benchmark", payer: "cloudflare" }) }, body });
+        await noteCost(send, response);
+        return response;
       }
       // No keyless retry. Unified Billing is not a benchmark payer.
       return last ?? json({ error: { type: "billing", message: "benchmark calls do not use Unified Billing" } }, 402);
