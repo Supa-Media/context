@@ -196,7 +196,7 @@ export const BROWSE_DEFINITION = {
     "A popup or dialog over the page that isn't a step you need (a seat map, an offer, a cookie wall): a close_popup step closes it, where Escape often doesn't. " +
     "A long page lists its first elements and then every box, menu and button; a read step with from (a number) lists everything from that number on. " +
     UPLOAD_SENTENCE + DOWNLOAD_SENTENCE +
-    "Pass several steps in one call (fill a form and press its button); the call stops early if the page changes. Every step waits for the page to settle, and a page that reads blank is waited for; on a slow site (an old portal, a page still loading) a wait step with seconds (up to 60) waits longer. Never decide a blank page is empty, or go another way, before it has loaded. A key is a press step. " +
+    "Pass several steps in one call, never one call per step: every step you can already name from the last reading goes in the same call (goto and the read after it; type into each box, choose each option, then press its button), and only a step that needs a page you have not read yet waits for the next call. The call stops early if the page changes. Every step waits for the page to settle, and a page that reads blank is waited for; on a slow site (an old portal, a page still loading) a wait step with seconds (up to 60) waits longer. Never decide a blank page is empty, or go another way, before it has loaded. A key is a press step. " +
     ADDRESS_RULE +
     TYPING_RULE +
     HANDOFF_SENTENCE +
