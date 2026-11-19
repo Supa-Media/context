@@ -10,6 +10,8 @@
  * when the claim has no unscoped search under it.
  */
 
+import { resultText } from "./sourcedFigures.js";
+
 /** Search tools: the MCP name, and Tex's six-tool `search` that resolves to it (`sixTools.js`). */
 const SEARCH_TOOLS = new Set(["search_notes", "search"]);
 
@@ -52,3 +54,8 @@ export function searchedEverywhere(name, args, resultText = "") {
 /** The notice sent back once, when a reply claims an every-workspace search no call of the turn made. */
 export const EVERYWHERE_NOTICE =
   "You said you searched all their workspaces, but no search this turn did: each named one workspace or a folder. Run search_notes with no context and no prefix (it covers every workspace they reach), then say only what your tool results show.";
+
+/** `{ everywhere: true }` for a step whose search covered every workspace (`claimCheck.js`); a failed call covered nothing. */
+export function everywhereStep(name, args, result) {
+  return result?.isError !== true && searchedEverywhere(name, args, resultText(result)) ? { everywhere: true } : {};
+}
