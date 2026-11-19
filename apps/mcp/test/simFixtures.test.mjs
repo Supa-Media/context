@@ -13,7 +13,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
 
-import { fixtureText, normalizeRequest, knownFacts, openWorldStore, readFixtures, runMisses, saveFixtures, worldKey, worldMode } from "../bench/simFixtures.mjs";
+import { fixtureText, nearestFixture, requestLikeness, normalizeRequest, knownFacts, openWorldStore, readFixtures, runMisses, saveFixtures, worldKey, worldMode } from "../bench/simFixtures.mjs";
 import { createSimWorld, simMemo } from "../bench/simWorld.mjs";
 
 /** A model that answers each call kind with `answers[kind]` (or with `answerFor(kind, request)`), counting what it was asked. */
@@ -233,4 +233,52 @@ test("benchSafe: a real-looking address moves onto an example domain, in the req
   assert.deepEqual(saved.request, { query: "from:paulo@gmail.example" });
   assert.equal(saved.key, worldKey("gmail search", { query: "from:paulo@gmail.example" }));
   assert.doesNotMatch(JSON.stringify(saved), /gmail\.com/);
+});
+
+test("a closed replay never asks its model: a reworded call gets the nearest recorded answer, anything else the empty one", async () => {
+  // Training replays of one commit, 2026-11-19: 26 and 47 calls unrecorded, because Tex words a search differently each run.
+  const { send, asked } = scriptedSend({ "web search": { results: [{ title: "Invented", url: "https://invented.example", description: "" }] } });
+  const request = { query: "nonstop flights chicago lisbon june" };
+  const fixtures = new Map([[worldKey("web search", request), { key: worldKey("web search", request), kind: "web search", request, answer: FLIGHT }]]);
+  const dir = mkdtempSync(join(tmpdir(), "sim-closed-"));
+  try {
+    const store = openWorldStore({ fixtures, runDir: join(dir, "world"), mode: "replay", test: "flights", closed: true });
+    const memo = simMemo();
+    const world = createSimWorld({ send, setting: "Chicago", memo, store });
+    const near = await world.search("Chicago to Lisbon nonstop flights in June");
+    assert.equal(near[0].url, "https://harborair.example/fare", "the reworded search is answered from the recording");
+    const far = await world.search("hotels near alfama");
+    assert.deepEqual(far, [], "an unrelated search gets no results, never an invented one");
+    assert.equal(asked.length, 0, "the model was never asked");
+    assert.equal(memo.hits, 1);
+    assert.equal(store.misses().length, 1, "the unrecorded call is still counted as a miss");
+    // The same calls in another run give the same events: the world is fixed.
+    const again = createSimWorld({ send, setting: "Chicago", memo: simMemo(), store: openWorldStore({ fixtures, runDir: join(dir, "again"), mode: "replay", closed: true }) });
+    await again.search("Chicago to Lisbon nonstop flights in June");
+    await again.search("hotels near alfama");
+    assert.deepEqual(again.events(), world.events());
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("record and refresh stay open even when asked closed, and a store with no fixtures file is open", async () => {
+  const { send, asked } = scriptedSend({ "web search": FLIGHT });
+  for (const mode of ["record", "refresh"]) {
+    const store = openWorldStore({ fixtures: new Map(), mode, closed: true });
+    assert.equal(store.closed, false);
+    await createSimWorld({ send, setting: "x", memo: simMemo(), store }).search(`chicago ${mode}`);
+  }
+  assert.equal(asked.length, 2, "a recording asks the model for what it misses");
+  assert.equal(openWorldStore({ mode: "replay" }).closed, false);
+});
+
+test("nearestFixture: same kind only, at least half alike, ties to the first key, never the request's own stop words", () => {
+  const entry = (kind, query, answer) => [worldKey(kind, { query }), { key: worldKey(kind, { query }), kind, request: { query }, answer }];
+  const fixtures = new Map([entry("web search", "alfama hotels", 1), entry("web search", "hotels alfama lisbon", 2), entry("gmail search", "alfama hotels booking", 3)]);
+  assert.equal(nearestFixture(fixtures, "web search", { query: "Hotels in Alfama" }).answer, 1);
+  assert.equal(nearestFixture(fixtures, "gmail search", { query: "alfama hotels" }).answer, 3, "the kind must match");
+  assert.equal(nearestFixture(fixtures, "web search", { query: "restaurants in alfama" }), null, "a third alike is not near");
+  assert.equal(requestLikeness({ query: "the of and" }, { query: "the of and" }), 0, "stop words alone match nothing");
+  assert.equal(nearestFixture(null, "web search", { query: "x" }), null);
 });

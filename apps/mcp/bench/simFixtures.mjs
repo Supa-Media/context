@@ -47,6 +47,54 @@ export function worldKey(kind, request) {
   return `${kind} ${JSON.stringify(normalizeRequest(request))}`;
 }
 
+const STOP = new Set(["a", "an", "and", "at", "by", "for", "from", "in", "is", "it", "of", "on", "or", "the", "to", "with", "www", "http", "https", "com"]);
+
+/** The words of a request's string values, lowercased, as a set: what two wordings of one ask share. */
+export function requestWords(request) {
+  const words = new Set();
+  const walk = (value) => {
+    if (typeof value === "string") {
+      for (const word of value.toLowerCase().split(/[^a-z0-9]+/)) if (word.length > 1 && !STOP.has(word)) words.add(word);
+    } else if (Array.isArray(value)) value.forEach(walk);
+    else if (value && typeof value === "object") Object.values(value).forEach(walk);
+  };
+  walk(request);
+  return words;
+}
+
+/** How alike two requests' words are: shared over all (Jaccard), 0 when either has none. */
+export function requestLikeness(a, b) {
+  const x = requestWords(a);
+  const y = requestWords(b);
+  if (x.size === 0 || y.size === 0) return 0;
+  let shared = 0;
+  for (const word of x) if (y.has(word)) shared += 1;
+  return shared / (x.size + y.size - shared);
+}
+
+/** At least this alike, a recorded call answers a reworded one (a replay never invents an answer). */
+export const NEAR_LIKENESS = 0.5;
+
+/**
+ * The recorded answer of the same kind whose request is most alike, when it is at least `min` alike: a replay's answer
+ * to a search or page Tex worded a little differently from the recording. Ties go to the first key in sorted order, so
+ * the same call always gets the same answer. Null when nothing is near enough.
+ */
+export function nearestFixture(fixtures, kind, request, min = NEAR_LIKENESS) {
+  let best = null;
+  let score = 0;
+  for (const key of [...(fixtures?.keys() ?? [])].sort()) {
+    const entry = fixtures.get(key);
+    if (entry.kind !== kind) continue;
+    const likeness = requestLikeness(request, entry.request);
+    if (likeness >= min && likeness > score) {
+      best = entry;
+      score = likeness;
+    }
+  }
+  return best ? { key: best.key, answer: best.answer, likeness: score } : null;
+}
+
 /** A conversation's fixtures as a Map of key to `{ key, kind, request, answer }`. A missing file is no fixtures. */
 export function readFixtures(path) {
   const fixtures = new Map();
@@ -73,13 +121,20 @@ function readEntry(file) {
  * folder every test process of the run shares (null: this process only). `mode` decides whether the fixtures are
  * read at all. `test` names the test that is asking, so a miss says which test it came from.
  */
-export function openWorldStore({ fixtures = null, runDir = null, mode = "replay", test = null } = {}) {
+export function openWorldStore({ fixtures = null, runDir = null, mode = "replay", test = null, closed = false } = {}) {
   // This process's own claims, by key, and the calls it asked the model for, in order.
   const own = new Map();
   const claimed = [];
 
   return {
     mode,
+    /** A closed world (a replay with a fixtures file) never asks its model: a miss gets the nearest fixture or nothing. */
+    closed: closed && mode === "replay",
+
+    /** The recorded answer nearest a call no key matched (`nearestFixture`), or null. */
+    near(kind, request) {
+      return mode === "replay" ? nearestFixture(fixtures, kind, request) : null;
+    },
 
     /** The answer for `key` and where it came from: this process, another process of the run, or the fixtures. */
     get(key) {
