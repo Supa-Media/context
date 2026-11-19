@@ -83,7 +83,9 @@ test("record workflow: only Training or Dev, through --set, and its fixtures upl
   assert.match(run, /worldHash\.mjs/);
   const upload = stepOf(RECORD, "Upload the recorded world");
   assert.match(upload, /if: always\(\) && inputs\.world != 'replay'/);
-  assert.match(upload, /path: apps\/mcp\/bench\/sets\/sim\/\n/);
+  // Only the set's own files are uploaded, so a concurrent recording of the other set is never overwritten.
+  assert.match(upload, /path: \$\{\{ runner\.temp \}\}\/world-out\/\n/);
+  assert.match(run, /for conv in apps\/mcp\/bench\/sets\/"\$SET"\/\*\.json/);
 });
 
 test("worldHash: a replayed answer and the same answer first asked hash the same; a different answer does not", async () => {

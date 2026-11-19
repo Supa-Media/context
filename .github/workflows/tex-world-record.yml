@@ -103,7 +103,14 @@ jobs:
           wait "$answerer" || code=1
           tail -n 5 "$RUNNER_TEMP/answerer.log"
           node apps/mcp/bench/worldHash.mjs --rows "$RUNNER_TEMP/out/rows.json" --kept "$RUNNER_TEMP/kept" || true
-          ls apps/mcp/bench/sets/sim/ 2>/dev/null | wc -l | xargs echo "fixture files:"
+          # Only this set's own conversations' files leave the run: a Training and a Dev recording may run at once, and
+          # one must never carry the other's older files back over its newer ones.
+          mkdir -p "$RUNNER_TEMP/world-out"
+          for conv in apps/mcp/bench/sets/"$SET"/*.json; do
+            f="apps/mcp/bench/sets/sim/$(basename "$conv")"
+            if [ -f "$f" ]; then cp "$f" "$RUNNER_TEMP/world-out/"; fi
+          done
+          ls "$RUNNER_TEMP/world-out" | wc -l | xargs echo "fixture files for the $SET set:"
           exit "$code"
 
       - name: Upload the recorded world
@@ -111,7 +118,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: world-fixtures
-          path: apps/mcp/bench/sets/sim/
+          path: ${{ runner.temp }}/world-out/
           retention-days: 7
           if-no-files-found: warn
 
