@@ -11,6 +11,8 @@ import type { RunScore } from "@context/shared/src/texRunBand.d.cts";
 
 export { bandVerdict, CC_FIDELITY, CC_FIDELITY_WHY, DEFAULT_REPEATS, MAX_REPEATS } from "@context/shared/src/texRunBand.cjs";
 export type { BandVerdict, RunScore } from "@context/shared/src/texRunBand.d.cts";
+export { compareRuns, pairedCompare, pairedWords, runStats, statsWords, t975, wilson } from "@context/shared/src/texRunStats.cjs";
+export type { ComparedRuns, Paired, PairedResult, PairedRow, PairedVerdict, RunStatsResult } from "@context/shared/src/texRunStats.d.cts";
 
 export type RunKind = "dev" | "chat" | "node" | "gate";
 export type RunStage = "queued" | "running" | "done" | "failed";

@@ -7,13 +7,16 @@
  * the mean with its min–max band, a draft "wins" only when its worst repeat beats main's best, and a run on Claude Code
  * is "model family only". What it proves: the score and cost words say the band and the repeats; the cc label reaches
  * the Runs panel and the run list; the repeats menu sets the next run's repeats; the Compare view's verdict is wins,
- * within noise, no run or no base by the band, never by the mean; the tex_dev line carries repeats.
+ * within noise, no run or no base; a draft with rows on both runs is decided by the paired rule (the 95% interval of its
+ * per-row difference excludes 0), and the min..max band only when there are no rows; the tex_dev line carries repeats.
  *
  * Every name and number here is invented. This repository is public.
  *
  * Sabotage record (applied, run, observed failing, reverted, 2026-11-19):
  *   (a) Compare.web.tsx `verdictOf` returning bandVerdict of the means (a draft's mean against main's mean) for every
  *       pair -> "a draft whose worst repeat beats main's best wins" and "overlapping bands are within noise" fail;
+ *   (a2) Compare.web.tsx `verdictOf` returning bandVerdict even when both runs have rows -> "a draft better on the same
+ *       rows wins on the paired interval" fails (the band says within noise there);
  *   (b) Runs.web.tsx `useStartRun` dropping `repeats` -> "the repeats menu sets the next run's repeats" fails.
  */
 import { afterEach, beforeEach, describe, expect, jest, test } from "@jest/globals";
@@ -223,11 +226,69 @@ describe("Compare: a draft wins only when its band clears main's", () => {
     expect(rowOf("v-draft").querySelector("[data-verdict]")?.textContent).toBe("no run");
   });
 
-  test("the PageHead says a draft wins only when its worst repeat beats main's best, and cc is model family only", () => {
+  test("the PageHead says vs main is paired with a 95% interval and the detectable change, and cc is model family only", () => {
     render(createElement(Compare));
     const head = document.body.textContent ?? "";
-    expect(head).toContain("worst repeat beats main's best");
+    expect(head).toContain("vs main is paired on the rows both runs scored, clustered by conversation");
+    expect(head).toContain("the 95% interval of its difference from main excludes 0");
+    expect(head).toContain("smallest change this comparison could detect at 80% power");
+    expect(head).toContain("pass^k");
     expect(head).toContain("model family only");
+  });
+});
+
+describe("Compare: the paired rule on the rows both runs scored", () => {
+  const rowsOf = (passes: Record<string, number[]>) =>
+    Object.entries(passes).flatMap(([convId, turns]) => turns.map((p, msgIndex) => ({ convId, msgIndex, node: "decide", ok: p > 0, got: "", want: "", runs: 3, passes: p })));
+  const withRows = (score: RunScore, rows: ReturnType<typeof rowsOf>): LabRun["results"] => ({ pass: score.mean, total: score.total, costUsd: 0.01, ms: 1, score, repeats: 3, rows });
+  const draftView = () => ({ ...clone(MAIN), id: "v-draft", name: "Simpler graph" });
+  const rowOf = (id: string) => q(`[data-cv="${id}"]`)!.closest("tr")!;
+  // Four conversations, three turns each: main's passes per turn, and the draft's.
+  const mainRows = rowsOf({ a: [0, 1, 2], b: [1, 1, 1], c: [0, 0, 1], d: [1, 2, 2] });
+
+  test("a draft better on the same rows in every conversation wins on the paired interval, even where the bands overlap", () => {
+    const main = RUN("m", "main", "gw", band(12, 10, 14), { results: withRows(band(12, 10, 14), mainRows) });
+    const draft = RUN("d", "v-draft", "gw", band(13.3, 11, 15), { results: withRows(band(13.3, 11, 15), rowsOf({ a: [2, 2, 3], b: [2, 2, 2], c: [1, 2, 2], d: [3, 3, 2] })) });
+    mockAnswers.set("functions/texLabRuns:list", [draft, main]);
+    act(() => setLab({ versions: [MAIN, draftView()] }));
+    render(createElement(Compare));
+    expect(rowOf("v-draft").querySelector("[data-verdict]")?.textContent).toBe("wins");
+    const paired = rowOf("v-draft").querySelector<HTMLElement>("[data-paired]");
+    expect(paired?.textContent).toContain("12 rows / 4 chats");
+    expect(paired?.textContent).toContain("detectable");
+  });
+
+  test("a draft whose band wins but whose gains sit in one conversation is not a win on the paired rule", () => {
+    const main = RUN("m", "main", "gw", band(12, 10, 14), { results: withRows(band(12, 10, 14), mainRows) });
+    const draft = RUN("d", "v-draft", "gw", band(17, 16, 18), { results: withRows(band(17, 16, 18), rowsOf({ a: [3, 3, 3], b: [0, 0, 0], c: [0, 0, 0], d: [0, 0, 0] })) });
+    mockAnswers.set("functions/texLabRuns:list", [draft, main]);
+    act(() => setLab({ versions: [MAIN, draftView()] }));
+    render(createElement(Compare));
+    expect(rowOf("v-draft").querySelector("[data-verdict]")?.textContent).not.toBe("wins");
+    expect(rowOf("v-draft").querySelector("[data-paired]")).not.toBeNull();
+  });
+
+  test("the Dev set run cell says pass^k and the Wilson interval when the run repeated", () => {
+    const main = RUN("m", "main", "gw", band(12, 10, 14));
+    const draft = RUN("d", "v-draft", "gw", band(13.3, 11, 15), { results: withRows(band(13.3, 11, 15), rowsOf({ a: [2, 2, 3], b: [2, 2, 2], c: [1, 2, 2], d: [3, 3, 2] })) });
+    mockAnswers.set("functions/texLabRuns:list", [draft, main]);
+    act(() => setLab({ versions: [MAIN, draftView()] }));
+    render(createElement(Compare));
+    const stats = rowOf("v-draft").querySelector<HTMLElement>("[data-stats]");
+    expect(stats?.textContent).toContain("pass^3");
+    expect(stats?.textContent).toContain("Wilson");
+    expect(stats?.textContent).toContain("4 chats");
+  });
+
+  test("with no rows on either run there is no paired line, and the band still decides", () => {
+    const main = RUN("m", "main", "gw", band(5, 2, 5));
+    const draft = RUN("d", "v-draft", "gw", band(13.3, 11, 15));
+    mockAnswers.set("functions/texLabRuns:list", [draft, main]);
+    act(() => setLab({ versions: [MAIN, draftView()] }));
+    render(createElement(Compare));
+    expect(rowOf("v-draft").querySelector("[data-verdict]")?.textContent).toBe("wins");
+    expect(rowOf("v-draft").querySelector("[data-paired]")).toBeNull();
+    expect(rowOf("v-draft").querySelector("[data-stats]")).toBeNull();
   });
 });
 
