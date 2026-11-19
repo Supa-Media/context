@@ -72,6 +72,7 @@ import { startPresence, type Presence } from "./presence";
 import { MAX_CANDIDATES, staleAsks } from "./decide"; import { lookAgainTexts } from "./lookAgain";
 import { rememberText } from "./threads";
 import { noteHandle } from "./replyQuote";
+import { namesAppChat } from "./appChat";
 import { keepThreaded } from "./threadedResend";
 import { deliveryStep, logStep, tapback } from "./stepEvents";
 import type { ReplyPlace } from "./clients";
@@ -625,7 +626,8 @@ async function answering(message: Message, work: string, deps: InboxDeps, storag
     if (sent !== undefined) await addEvent(storage, { at: deps.now(), chat: message.chatId, from: { kind: "tex" }, kind: "reaction", text: sent, delivered: true, turn: steer.turn, covers: covers.slice(-MAX_CANDIDATES) }).catch(() => {});
   }
   // Twenty quiet minutes from now, this conversation is scored (`reviewWatch.ts`).
-  if (texts.length > 0 && message.channel !== "simulator") await watchConversation(storage, { kind: "one", phone: message.from }, deps.now());
+  // Not an app chat's: the review opens its session by phone, and an app chat has none (`appChat.ts`).
+  if (texts.length > 0 && message.channel !== "simulator" && !namesAppChat(message.chatId)) await watchConversation(storage, { kind: "one", phone: message.from }, deps.now());
   // A 👍 on any of these texts is a 👍 on the ask among them (`thumbs.ts`).
   await rememberAskReply(storage, texts, deps.now());
   // Our Messages cards go where the line sends them: Sendblue and Photon (`photonLine.ts` `sendAppCard`).

@@ -1,5 +1,6 @@
 import type { ComponentProps, Dispatch, SetStateAction } from "react";
 import { AsidePanel } from "../aside/AsidePanel";
+import { ownPersonalContext } from "../identity";
 import { ConsoleBottomBar } from "../ConsoleBottomBar";
 import { noteQuickActions, type NoteQuickId } from "../NoteQuickBar";
 import type { FileEntry } from "../files/types";
@@ -134,10 +135,20 @@ export function consoleAsidePanel({
     in the same workspace. `regionsFor` says the same thing by taking no
     `hasExplorer` term for it.
   */
+  /*
+    Tex's chat is the owner's own, so the tab is there only while their personal workspace is the
+    one open (the owner of a shared context has no Tex chat in it). Never on the demo.
+  */
+  const own = ownPersonalContext(data.contexts);
+  const tex =
+    !data.demo && own !== null && own.id === data.selectedContextId
+      ? { workspaceId: own.id, endpoint: data.endpoint }
+      : null;
   return (
     data.demo && data.visitor?.meetings === undefined ? undefined : (
       <AsidePanel
         started={meetingsAt}
+        tex={tex}
         /*
           The homepage's visitor and the demo get the Meetings tab alone:
           their demo meeting runs here, and no AI client acts for them.

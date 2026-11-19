@@ -7,7 +7,7 @@
 import { useMutation, useQuery } from "convex/react";
 import { api } from "@context/convex/_generated/api";
 import { lab, node, toast } from "../../engine/state";
-import { ago, codeLink, commitLink, costWords, fixedWords, live, mcpLines, modelsWords, runLabel, runsUi, scoreWords, setRunsUi, stageWords, useRunsUi, type LabRun, type RunKind } from "../../engine/labRuns";
+import { ago, CC_FIDELITY_WHY, codeLink, commitLink, costWords, fidelityWords, fixedWords, live, mcpLines, modelsWords, oneDp, rowRate, runLabel, runsUi, scoreWords, setRunsUi, stageWords, useRunsUi, type LabRun, type RunKind, type RunRow } from "../../engine/labRuns";
 import { setUi, sets } from "../../engine/setsStore";
 import { RouteSummaryBlock } from "./RouteSummary.web";
 
@@ -25,7 +25,7 @@ export function useStartRun(where: "testing" | "lab") {
   const start = useMutation(api.functions.texLabRuns.start);
   return async (kind: Exclude<RunKind, "gate">, extra: { convId?: string; nodeId?: string } = {}, versionId = runsUi.ver) => {
     try {
-      const { runId } = await start({ versionId, kind, models: runsUi.models, ...extra });
+      const { runId } = await start({ versionId, kind, models: runsUi.models, repeats: runsUi.repeats, ...extra });
       setRunsUi({ open: true, run: runId });
     } catch (e) {
       const why = (e as { data?: unknown })?.data;
@@ -64,7 +64,9 @@ export function RunsPanel() {
   const r = runs.find((x) => x.id === ui.run) ?? runs[0] ?? null;
   const detail = useQuery(api.functions.texLabRuns.get, r ? { id: r.id } : "skip") as LabRun | null | undefined;
   const full = detail ?? r;
-  const misses = (full?.results?.rows ?? []).filter((x) => !x.ok);
+  // A row misses when it failed, or when it ran more than once and passed fewer repeats than it ran (Dev2, 2026-11-19).
+  const isMiss = (x: RunRow) => !x.ok || ((x.runs ?? 1) > 1 && (x.passes ?? 0) < (x.runs ?? 1));
+  const misses = (full?.results?.rows ?? []).filter(isMiss);
   const removeRun = useMutation(api.functions.texLabRuns.remove);
   const remove = async (id: string) => {
     try {
@@ -96,6 +98,7 @@ export function RunsPanel() {
                   {x.code ? ` · ${x.code}` : ""}
                   {x.commit ? ` @ ${x.commit.slice(0, 7)}` : ""} · {modelsWords(x)} · {x.by ?? "you"} · {ago(x.startedAt)}
                   {x.stage === "done" && x.kind !== "gate" ? " · " + scoreWords(x) : ""}
+                  {fidelityWords(x) ? ` · ${fidelityWords(x)}` : ""}
                 </span>
               </button>
             ))
@@ -155,11 +158,20 @@ export function RunsPanel() {
                 <div>
                   <b>{scoreWords(full)}</b> · {costWords(full)}
                 </div>
+                {fidelityWords(full) ? (
+                  <div className="small" id="runFidelity">
+                    <span className="pill" data-fidelity="cc">
+                      {fidelityWords(full)}
+                    </span>
+                    <div className="small muted">{full.results.fidelityWhy ?? CC_FIDELITY_WHY}</div>
+                  </div>
+                ) : null}
                 {(full.results.perNode ?? []).length ? (
                   <div className="small">
                     {(full.results.perNode ?? []).map((p) => (
                       <span key={p.node} className="pernode">
-                        {nodeName(p.node)} {p.pass}/{p.total}
+                        {nodeName(p.node)} {oneDp(p.pass)}/{p.total}
+                        {p.min !== undefined && p.max !== undefined ? ` (${p.min}–${p.max})` : ""}
                       </span>
                     ))}
                   </div>
@@ -170,7 +182,10 @@ export function RunsPanel() {
                     <b>
                       {chatTitle(x.convId)} #{x.msgIndex + 1} · {nodeName(x.node)}
                     </b>
-                    <div className="muted">{x.ran === false ? "didn't run" : `got ${x.got || "nothing"}; wanted ${x.want}`}</div>
+                    <div className="muted">
+                      {x.ran === false ? "didn't run" : `got ${x.got || "nothing"}; wanted ${x.want}`}
+                      {rowRate(x) ? ` · ${rowRate(x)}` : ""}
+                    </div>
                     <button className="btn sm ghost" data-goto={`${x.convId}|${x.msgIndex}|${x.node}`} onClick={() => openCell(x.convId, x.msgIndex, x.node)}>
                       Open cell
                     </button>

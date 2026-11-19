@@ -16,10 +16,13 @@
  */
 
 /*
-  **No Chat tab** (Dev2, 2026-10-10: "remove chat from the sidebar entirely").
-  The panel used to open on a conversation with an in-app agent that ran on a
-  model key the person pasted into Settings; both are gone, and asking about a
-  context happens in the AI clients people connect to it.
+  **The Tex tab is not the removed in-app agent** (the owner, 2026-11-19: Tex on
+  the right rail under the calendar, as the Context app's own chat with Tex, the
+  same history as its texts). The agent that ran on a model key the person
+  pasted into Settings is gone (Dev2, 2026-10-10: "remove chat from the sidebar
+  entirely"); this tab is one chat with Tex, offered only to the owner of their
+  personal workspace, and asking about a context still happens in the AI
+  clients people connect to it.
 */
 export const ASIDE_TABS = [
   /*
@@ -30,6 +33,8 @@ export const ASIDE_TABS = [
   { key: "activity", label: "Activity" },
   { key: "note", label: "Note" },
   { key: "meetings", label: "Meetings" },
+  /* Right after Meetings, as the rail has it: under the calendar icon. */
+  { key: "tex", label: "Tex" },
   { key: "approvals", label: "Approvals" },
 ] as const;
 
@@ -58,11 +63,14 @@ export function visibleAsideTabs({
   failed = false,
   map = false,
   note = false,
+  tex = false,
 }: {
   approvals: boolean;
   waiting: number;
   answered?: boolean;
   failed?: boolean;
+  /** This console has a Tex chat to show: the owner of the personal workspace it has open. */
+  tex?: boolean;
   /** The live map is open: its Activity tab leads. */
   map?: boolean;
   /** A note is clicked on the open map: its Note tab follows Activity. */
@@ -72,6 +80,7 @@ export function visibleAsideTabs({
   return ASIDE_TABS.map((tab) => tab.key).filter((key) => {
     if (key === "activity") return map;
     if (key === "note") return map && note;
+    if (key === "tex") return tex;
     if (key === "approvals") return showApprovals;
     return true;
   });

@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import { useWindowDimensions } from "react-native";
 import { AppFrame, FrameIconButton, useFrame } from "../app/AppFrame";
 import { AccountBlock } from "../console/AccountBlock";
@@ -119,8 +119,15 @@ export function AppFrameVisualFixture({
   onOpenNote = null,
   shape,
   resume = null,
+  aside: asideOverride,
 }: {
   panel?: boolean;
+  /**
+   * The right panel's contents, instead of `AsidePanel`. For `TexChatFixture`, which
+   * needs the Tex tab fed by a fake chat (`AsidePanel` reaches the network itself).
+   * Pass it with `panel` so the frame still opens its aside.
+   */
+  aside?: ReactNode;
   /**
    * Start the running "Leads call" below. Follows `panel` unless a caller
    * seeds the controller itself — `ResumeFixture` does, with a meeting that
@@ -387,12 +394,13 @@ export function AppFrameVisualFixture({
           inside it.
         */
         aside={
-          panel ? (
+          asideOverride ??
+          (panel ? (
             <AsidePanel
               started={1}
               onOpenNote={onOpenNote}
             />
-          ) : undefined
+          ) : undefined)
         }
       >
         <BrowsePane data={data} />

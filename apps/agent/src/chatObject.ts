@@ -15,6 +15,7 @@ import { GROUP_QUEUE, TEXTS_QUEUE, withdrawItem, type ChatQueue } from "./chatQu
 import { runningTurn } from "./steer";
 import type { PhotonEdit } from "./photonInbound";
 import { oldLineStep } from "./oldLineStep";
+import { namesAppChat } from "./appChat";
 import { movePerson, noteMoved, type MoveBody } from "./moveChats";
 import { groupMovedTo, moveGroup, serveGroupMoves, type GroupMoveBody } from "./groupMoves";
 import { carryOnAfterHandback } from "./handbackWatch";
@@ -294,8 +295,8 @@ export class SenderInbox implements DurableObject {
     await this.keepOrigin(request);
     // An edit is only ever this object's own (`/edit`): a text posted here never carries one.
     const { provider: brought, edited: _edited, ...message } = (await request.json()) as Message & { provider?: unknown };
-    // Node "oldLine": a text on Tex's old number gets the new one and takes no turn (`oldLineStep.ts`).
-    if (message.channel !== "simulator" && !message.tapback) {
+    // Node "oldLine": a text on Tex's old number gets the new one and takes no turn (`oldLineStep.ts`). A phone number's step: an app chat has none (`appChat.ts`).
+    if (message.channel !== "simulator" && !message.tapback && !namesAppChat(message.chatId)) {
       const old = await oldLineStep(this.state.storage, message.chatId, { ...this.deps(), texts: this.env.GATEWAY_TEXTS });
       if (old !== "pass") {
         const outcome = old === "held" ? "held" : "redirected";
@@ -440,6 +441,7 @@ export class SenderInbox implements DurableObject {
       crossCall: (inbox: string, path: string, body: unknown) => this.crossCall(inbox, path, body),
       controlPlaneOrigin: this.env.CONTROL_PLANE_ORIGIN,
       workerSecret: this.env.AGENT_WORKER_SECRET,
+      ...(typeof this.env.APP_CHAT === "string" && this.env.APP_CHAT !== "" ? { appChat: this.env.APP_CHAT } : {}),
       gatewayOrigin: this.env.GATEWAY_ORIGIN,
       linqApiKey: this.env.LINQ_API_KEY,
       sendblue: sendblueKeys(this.env.SENDBLUE_API_KEY_ID, this.env.SENDBLUE_API_SECRET, this.env.SENDBLUE_STATUS_URL),

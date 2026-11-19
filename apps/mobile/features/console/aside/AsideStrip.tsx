@@ -3,9 +3,11 @@ import { Icon, type IconName } from "../../design/components/Icon";
 import { Dot } from "../../design/components/Dot";
 import { radii, space } from "../../design/tokens";
 import { useColors, useThemedStyles, type Colors } from "../../design/theme";
+import { Tex } from "../../chaos/Tex";
 import { ASIDE_TABS, type AsideTab } from "./tabs";
 
-const ICONS: Record<AsideTab, IconName> = {
+/** The rail's icon for each tab that draws one. Tex draws its own figure instead. */
+const ICONS: Record<Exclude<AsideTab, "tex">, IconName> = {
   activity: "people",
   note: "file",
   meetings: "calendar",
@@ -53,7 +55,12 @@ export function AsideStrip({
           style={({ hovered }: { hovered?: boolean; pressed: boolean }) => [styles.button, tab.key === showing && styles.current, hovered && styles.hover]}
           testID={`aside-strip-${tab.key}`}
         >
-          <Icon name={ICONS[tab.key]} size={16} color={tab.key === showing ? colors.text : colors.text2} />
+          {tab.key === "tex" ? (
+            // Tex's figure, in ink, under the calendar: the rail's one drawing rather than an icon.
+            <Tex chaos={0} size={22} testID="aside-strip-tex-figure" />
+          ) : (
+            <Icon name={ICONS[tab.key]} size={16} color={tab.key === showing ? colors.text : colors.text2} />
+          )}
           {tab.key === "meetings" && recording ? (
             <View style={styles.dot}>
               <Dot tone="crit" />

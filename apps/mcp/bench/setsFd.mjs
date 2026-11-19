@@ -599,7 +599,7 @@ export async function runFd(units, { tree, fake = false, runTests = null, parall
     await runPool(jobs, parallel, untilOutOfCredit(async (t) => {
       const p = t.p;
       try {
-        t.got = await run(tree, [t.name], { dir: p.dir, scratch: p.scratch, tag: "sets", fake, parallel: 1, env: p.env, envOf: p.envOf, keep, keepPrefix: `${basename(p.scratch)}-`, keepUnits: t.group.map((u) => ({ chat: u.row.chat, msg: u.row.msg, node: u.row.node })) });
+        t.got = await run(tree, [t.name], { dir: p.dir, scratch: p.scratch, tag: "sets", fake, parallel: 1, env: p.env, envOf: p.envOf, keep, keepPrefix: `${basename(p.scratch)}-`, keepUnits: t.group.map((u) => ({ chat: u.row.chat, msg: u.row.msg, node: u.row.node, rep: u.row.rep })) });
       } catch (error) {
         t.error = error;
       }

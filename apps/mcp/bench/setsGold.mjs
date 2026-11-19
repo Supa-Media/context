@@ -1,15 +1,21 @@
 /**
- * `node apps/mcp/bench/setsGold.mjs [--set training] [--conversations <file.json>] [--out <report.json>] [--fake] [--judge <model>]`
+ * `node apps/mcp/bench/setsGold.mjs [--set training|dev] [--conversations <file.json>] [--out <report.json>] [--fake] [--judge <model>] [--no-abilities]`
  *
  * The gold self-check (Dev2, 2026-11-18: the Front door judge read Training labels with no check that the
  * conversation's own gold Tex reply passes them; running-the-shop 2 and trial-hire 66 were labels their own gold
- * text broke). For every starred Front door label in a Training conversation, the conversation's OWN gold Tex texts
- * after that row are judged against the row's must and never lines, through the same request builder a run uses
- * (`buildJudgeRequest` in `judge.mjs`). A label its own gold reply fails is reported, with the judge's reason, as
- * ambiguous. Nothing here changes a label: a person decides what the label or the gold should say.
+ * text broke). For every starred Front door label in a conversation of the chosen set (Training, or Dev from the Lab's
+ * Dev run), the conversation's OWN gold Tex texts after that row are judged against the row's must and never lines,
+ * through the same request builder a run uses (`buildJudgeRequest` in `judge.mjs`). A label its own gold reply fails
+ * is reported as a gold failure. Nothing here changes a label: a person decides what the label or the gold should say.
  *
- * Training words are public, so the failures are printed with their label lines; no message text beyond those lines
- * and the judge's reason is printed. Only the Training set is read: the Dev and Test sets are never judged here.
+ * The ability check (`setsAbility.mjs`, 2026-11-19) runs beside it: a must line that needs an ability Tex does not have
+ * is impossible when two separate asks both say so, and the row is reported impossible, never failed.
+ *
+ * Training words are public, so Training failures are printed with their label lines and the judge's reason. Dev
+ * words are not: for Dev only counts and `GOLD FAIL <convId> <msgIndex>` / `IMPOSSIBLE <convId> <msgIndex>` lines are
+ * printed, and its report keeps no label line or judge reason. The Lab moves a Dev row that fails or is impossible to
+ * "could not run" (`scripts/tex-lab-run.mjs`), and a Training row to "ambiguous" (failed) or "could not run" (impossible).
+ * The Test set is sealed: any set but these two is refused.
  */
 
 import { readFile, writeFile } from "node:fs/promises";
@@ -21,12 +27,22 @@ import { loadSets } from "./sets.mjs";
 import { burstBefore, earlierLines, titleOf } from "./setsFd.mjs";
 import { sentPicturesLine } from "../src/agent/outgoingPictures.js";
 import { tapbackLine } from "./run.mjs";
+import { fakeAbilityReply, impossibleLines, isAbilityBody } from "./setsAbility.mjs";
 
 const { unitTests } = createRequire(import.meta.url)("../../../packages/shared/src/texSets.cjs");
 
 /** How many times a judge reply that is not parseable is asked again. */
 export const GOLD_ATTEMPTS = 3;
 const GOLD_ID = "gold";
+/** The sets the self-check reads. The Test set is sealed and never read here. */
+export const GOLD_SETS = Object.freeze(["training", "dev"]);
+export const SET_REFUSED = "the gold self-check reads Training or Dev labels only; the Test set is sealed";
+
+/** The set named, or a throw: only Training and Dev are read here. */
+export function goldSetOf(set) {
+  if (!GOLD_SETS.includes(set)) throw new Error(SET_REFUSED);
+  return set;
+}
 const NO_TOOLS = "Tools: not recorded (the conversation's own reply, as written)";
 const TAPBACK_QUOTE = 60;
 /** The one line the gold answer's changes carry (the run's own answers carry their recorded changes). */
@@ -97,10 +113,11 @@ export function askOf(c, i) {
  * (no gold Tex reply after them, or no must or never line). Each request carries the row's identity and its checks,
  * in the order the verdicts come back.
  */
-export function goldRequests(convs, { model = DEFAULT_JUDGE } = {}) {
+export function goldRequests(convs, { model = DEFAULT_JUDGE, set = "training" } = {}) {
+  goldSetOf(set);
   const requests = [];
   const skipped = [];
-  for (const c of convs.filter((conv) => conv.set === "training")) {
+  for (const c of convs.filter((conv) => conv.set === set)) {
     for (const test of unitTests(c).filter((t) => t.node === "fd")) {
       const i = test.at;
       const row = c.msgs[i];
@@ -139,7 +156,9 @@ export function goldRequests(convs, { model = DEFAULT_JUDGE } = {}) {
       };
       // codeLines off: a gold reply keeps only its texts, so every line is the judge's, as before the record graded any.
       const { checks, body } = buildJudgeRequest({ model, question, answers: [answer], every: [], codeLines: false });
-      requests.push({ convId: c.id, msgIndex: i, msgId: row.id, checks, body });
+      // The ability check's view of the same row: its chat kind, the person's ask, the must lines and the gold texts.
+      const ability = { kind: c.kind, ask: askOf(c, i), must, gold: gold.map((turn) => turn.text ?? "") };
+      requests.push({ convId: c.id, msgIndex: i, msgId: row.id, checks, body, ability });
     }
   }
   return { requests, skipped };
@@ -170,10 +189,13 @@ async function verdictsOf(send, body, checks) {
 
 /**
  * Judges every gold reply against its row's lines. A must line passes when the judge says the reply does it; a must
- * not line passes when it does not. Returns the rows judged, the failing rows with the judge's reasons, and the skips.
+ * not line passes when it does not. With the ability check (on unless `abilities: false`), a row whose must lines
+ * both asks call impossible is reported as impossible. Returns the rows judged, the failing rows and the impossible
+ * rows, and the skips. A Dev report keeps no label line and no judge reason: only the kind of each failed line.
  */
-export async function goldCheck(convs, { send, model = DEFAULT_JUDGE, concurrency = 4 } = {}) {
-  const { requests, skipped } = goldRequests(convs, { model });
+export async function goldCheck(convs, { send, model = DEFAULT_JUDGE, concurrency = 4, set = "training", abilities = true } = {}) {
+  goldSetOf(set);
+  const { requests, skipped } = goldRequests(convs, { model, set });
   const results = new Array(requests.length);
   let next = 0;
   const worker = async () => {
@@ -181,17 +203,30 @@ export async function goldCheck(convs, { send, model = DEFAULT_JUDGE, concurrenc
       const index = next;
       next += 1;
       const request = requests[index];
-      const verdicts = await verdictsOf(send, request.body, request.checks);
+      const [verdicts, impossible] = await Promise.all([
+        verdictsOf(send, request.body, request.checks),
+        abilities ? impossibleLines(send, { model, ...request.ability }) : [],
+      ]);
       const failed = [];
       request.checks.forEach((check, k) => {
         const passes = check.kind === "must" ? verdicts[k].does : !verdicts[k].does;
-        if (!passes) failed.push({ kind: check.kind, line: check.line, reason: String(verdicts[k].reason ?? "") });
+        if (!passes) failed.push(set === "dev" ? { kind: check.kind } : { kind: check.kind, line: check.line, reason: String(verdicts[k].reason ?? "") });
       });
-      results[index] = failed.length ? { convId: request.convId, msgIndex: request.msgIndex, msgId: request.msgId, failed } : null;
+      results[index] = {
+        fail: failed.length ? { convId: request.convId, msgIndex: request.msgIndex, msgId: request.msgId, failed } : null,
+        impossible: impossible.length ? { convId: request.convId, msgIndex: request.msgIndex, msgId: request.msgId, lines: impossible } : null,
+      };
     }
   };
   await Promise.all(Array.from({ length: Math.max(1, Math.min(concurrency, requests.length)) }, worker));
-  return { model, rows: requests.length, goldFails: results.filter(Boolean), skipped };
+  return {
+    model,
+    set,
+    rows: requests.length,
+    goldFails: results.map((r) => r?.fail).filter(Boolean),
+    impossible: results.map((r) => r?.impossible).filter(Boolean),
+    skipped,
+  };
 }
 
 const flag = (args, name) => {
@@ -200,18 +235,18 @@ const flag = (args, name) => {
 };
 
 async function main(args) {
-  const set = flag(args, "--set") ?? "training";
-  if (set !== "training") throw new Error("the gold self-check reads Training labels only");
+  const set = goldSetOf(flag(args, "--set") ?? "training");
   const file = flag(args, "--conversations");
   const all = file ? JSON.parse(await readFile(file, "utf8")) : await loadSets();
   if (!Array.isArray(all)) throw new Error(`${file} is not a list of conversations`);
-  const training = all.filter((c) => c.set === "training");
   const model = flag(args, "--judge") ?? DEFAULT_JUDGE;
+  const abilities = !args.includes("--no-abilities");
 
   let socket = null;
   let send;
   if (args.includes("--fake")) {
-    send = fakeJudge();
+    const judge = fakeJudge();
+    send = async (body) => (isAbilityBody(body) ? fakeAbilityReply(body) : judge(body));
   } else {
     socket = modelSocket(process.env, { blocking: true });
     if (!socket?.covers("claude")) {
@@ -220,17 +255,31 @@ async function main(args) {
     send = socketSend(socket);
   }
 
-  const report = await goldCheck(training, { send, model });
+  const report = await goldCheck(all, { send, model, set, abilities });
   assertAnswered(socket, "the gold self-check");
 
+  // A Dev report is never printed: its labels and texts stay out of the log, so only a file given with --out holds it.
+  const dev = set === "dev";
   const out = flag(args, "--out");
-  const json = `${JSON.stringify(report, null, 2)}\n`;
-  if (out) await writeFile(out, json);
-  else process.stdout.write(json);
+  if (out) await writeFile(out, `${JSON.stringify(report, null, 2)}\n`);
+  else if (!dev) process.stdout.write(`${JSON.stringify(report, null, 2)}\n`);
+  const name = dev ? "Dev" : "Training";
   const failures = report.goldFails.length;
+  const impossible = report.impossible.length;
+  if (dev) {
+    process.stdout.write(`gold self-check (${set}): ${failures} of ${report.rows} ${name} labels fail their own gold (${report.skipped.length} skipped)\n`);
+    process.stdout.write(`ability check (${set}): ${impossible} ${name} labels can't pass honestly\n`);
+    for (const fail of report.goldFails) process.stdout.write(`GOLD FAIL ${fail.convId} ${fail.msgIndex}\n`);
+    for (const row of report.impossible) process.stdout.write(`IMPOSSIBLE ${row.convId} ${row.msgIndex}\n`);
+    return;
+  }
   process.stdout.write(`gold self-check: ${failures} of ${report.rows} Training labels fail their own gold (${report.skipped.length} skipped)\n`);
   for (const fail of report.goldFails) {
     for (const f of fail.failed) process.stdout.write(`GOLD FAIL ${fail.convId} ${fail.msgIndex}: ${f.kind} ${f.line} (${f.reason})\n`);
+  }
+  process.stdout.write(`ability check: ${impossible} Training labels can't pass honestly\n`);
+  for (const row of report.impossible) {
+    for (const f of row.lines) process.stdout.write(`IMPOSSIBLE ${row.convId} ${row.msgIndex}: ${f.line} (${f.missing})\n`);
   }
 }
 
