@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { View } from "react-native";
 import { MeetingsTab } from "../console/aside/MeetingsTab";
+import { AsidePanel } from "../console/aside/AsidePanel";
 import { CreateButton } from "../console/CreateButton";
 import { NextUpPill } from "../meetings/components/NextUpPill";
 import { MeetingsListScreen } from "../meetings/MeetingsListScreen";
@@ -111,8 +112,12 @@ export function MeetingJoinFixture({ view }: { view?: string }) {
   if (view === "settings") return <SettingsCard />;
   return (
     <View style={{ flex: 1, flexDirection: "row", backgroundColor: colors.surface, gap: 40, padding: 24 }} testID="meeting-join-fixture">
-      <View style={{ width: 340 }}>
-        <MeetingsTab onOpenNote={() => {}} onJoin={() => {}} />
+      <View style={{ width: 340, height: view === "panel" ? 640 : undefined }}>
+        {view === "panel" ? (
+          <AsidePanel started={null} onOpenNote={() => {}} onJoin={() => {}} tex={{ workspaceId: "ws1", endpoint: "https://e2e-fixture.invalid" }} />
+        ) : (
+          <MeetingsTab onOpenNote={() => {}} onJoin={() => {}} />
+        )}
       </View>
       <View style={{ flex: 1, position: "relative" }}>
         <CreateButton

@@ -94,7 +94,6 @@ export function MeetingsTab({
    */
   pastFrom?: readonly PastWorkspace[] | null;
 }) {
-  const styles = useThemedStyles(makeStyles);
   const snapshot = useMeetingsSnapshot();
   const live = snapshot.live;
   const [openId, setOpenId] = useState<string | null>(null);

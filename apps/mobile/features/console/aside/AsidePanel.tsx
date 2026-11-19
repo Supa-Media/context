@@ -5,7 +5,7 @@ import { pendingCount } from "../../approvals/copy";
 import type { ApprovalsView } from "../../approvals/useApprovals";
 import { Dot } from "../../design/components/Dot";
 import { Text } from "../../design/components/Text";
-import { layout, radii, space } from "../../design/tokens";
+import { radii, space } from "../../design/tokens";
 import { useColors, useThemedStyles, type Colors } from "../../design/theme";
 import { useMeetingsSnapshot } from "../../meetings/useMeetings";
 import { MeetingsTab } from "./MeetingsTab";
@@ -226,10 +226,10 @@ export function AsidePanel({
           onPress={() => setFolded(true)}
           accessibilityRole="button"
           accessibilityLabel="Fold the panel"
-          style={({ hovered }: { hovered?: boolean; pressed: boolean }) => [single ? styles.foldBare : styles.fold, hovered && styles.tabCurrent]}
+          style={({ hovered }: { hovered?: boolean; pressed: boolean }) => [styles.fold, hovered && styles.tabCurrent]}
           testID="aside-fold"
         >
-          <Icon name="chevronRight" size={single ? 14 : 16} color={single ? colors.muted : colors.text2} />
+          <Icon name="chevronRight" size={14} color={colors.muted} />
         </Pressable>
       </View>
 
@@ -259,31 +259,33 @@ export function AsidePanel({
 const makeStyles = (colors: Colors) =>
   StyleSheet.create({
     panel: { flex: 1, minWidth: 0 },
+    /*
+      A slim switcher rather than a header bar (owner, 2026-11-19: "Dont love
+      the meeting header", then "no way to quickly switch between meetings and
+      tex"): small pills with no rule under them, the current one filled.
+    */
     tabs: {
       flexDirection: "row",
       alignItems: "center",
-      gap: space.x1,
-      paddingHorizontal: space.x2,
-      paddingTop: space.x2,
+      gap: 2,
+      paddingHorizontal: space.x3,
+      paddingTop: space.x3,
       paddingBottom: space.x1,
-      borderBottomWidth: StyleSheet.hairlineWidth,
-      borderBottomColor: colors.line,
     },
     tab: {
       flexDirection: "row",
       alignItems: "center",
       gap: space.x1,
-      minHeight: layout.minTouchTarget,
-      paddingHorizontal: space.x3,
-      borderRadius: radii.control,
+      minHeight: 28,
+      paddingHorizontal: 10,
+      borderRadius: radii.pill,
     },
-    tabCurrent: { backgroundColor: colors.chrome },
+    tabCurrent: { backgroundColor: colors.surface3 },
     tabsGap: { flex: 1 },
     bare: { flexDirection: "row", alignItems: "center", paddingHorizontal: space.x2, paddingTop: space.x2 },
-    foldBare: { width: 28, height: 28, borderRadius: radii.md, alignItems: "center", justifyContent: "center" },
-    fold: { width: 36, minHeight: layout.minTouchTarget, borderRadius: radii.control, alignItems: "center", justifyContent: "center" },
+    fold: { width: 28, height: 28, borderRadius: radii.md, alignItems: "center", justifyContent: "center" },
     tabLabel: { color: colors.muted },
     count: { color: colors.muted },
-    tabLabelCurrent: { color: colors.text },
+    tabLabelCurrent: { color: colors.text, fontWeight: "600" },
     body: { flex: 1, minHeight: 0 },
   });

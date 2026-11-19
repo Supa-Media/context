@@ -52,7 +52,7 @@ export function MeetingRow({
       >
         {when}
       </Text>
-      <Text variant="body" style={styles.title} numberOfLines={1}>
+      <Text variant="rowTitle" style={styles.title} numberOfLines={1}>
         {title}
       </Text>
       {pinned || hovered ? end : null}
@@ -140,7 +140,7 @@ export function SectionHead({ label, end }: { label: string; end?: ReactNode }) 
   const styles = useThemedStyles(makeStyles);
   return (
     <View style={styles.head}>
-      <Text variant="foot" style={styles.headLabel}>
+      <Text variant="rowSub" style={styles.headLabel}>
         {label}
       </Text>
       {end}
@@ -162,7 +162,7 @@ const makeStyles = (colors: Colors) =>
     rowHover: { backgroundColor: colors.surface3 },
     when: { width: 64, color: colors.muted, fontVariant: ["tabular-nums"] },
     whenNow: { color: colors.accentText, fontWeight: "600" },
-    title: { flex: 1, minWidth: 0, color: colors.text, fontSize: 13.5, lineHeight: 20 },
+    title: { flex: 1, minWidth: 0, color: colors.text, fontWeight: "400" },
     pill: {
       paddingVertical: 1,
       paddingHorizontal: 10,
@@ -188,5 +188,5 @@ const makeStyles = (colors: Colors) =>
       paddingHorizontal: space.x2,
       paddingBottom: 2,
     },
-    headLabel: { color: colors.muted, fontSize: 11.5 },
+    headLabel: { color: colors.muted },
   });

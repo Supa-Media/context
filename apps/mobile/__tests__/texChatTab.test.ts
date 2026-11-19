@@ -454,7 +454,9 @@ describe("the rail and the panel", () => {
     const root = createRoot(container, { onUncaughtError: () => {}, onCaughtError: () => {} });
     act(() => root.render(createElement(AsidePanel, { started: null, onOpenNote: null })));
     const labels = Array.from(container.querySelectorAll('[role="tab"]')).map((el) => el.textContent);
-    expect(labels).toEqual(["Meetings"]);
+    // Meetings alone draws no tab strip (2026-11-19), so there is no tab at all.
+    expect(labels).toEqual([]);
+    expect(container.querySelector('[data-testid="aside-meetings"]')).not.toBeNull();
     act(() => root.unmount());
     container.remove();
   });
