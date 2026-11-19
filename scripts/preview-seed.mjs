@@ -61,16 +61,35 @@ export function parseIssuedCode(stdout) {
   return parsed.code;
 }
 
+/**
+ * One redacted line naming why the CLI failed, from its stderr alone. Digit runs
+ * of four or more and any `preview:` deploy key are replaced, so no code or key
+ * fragment can appear. Pure: the caller decides what to do with the line.
+ */
+export function cliFailureReason(stderr, status, error) {
+  const lines = String(stderr ?? '').split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
+  const pattern = /error|uncaught|refused|not found|unauthorized|forbidden/i;
+  const picked = [...lines].reverse().find((line) => pattern.test(line)) ?? lines.at(-1) ?? error?.message ?? `exit ${status ?? 'unknown'}`;
+  return picked
+    .replace(/\d{4,}/g, '…')
+    .replace(/preview:[^\s'"]+/g, 'preview:…')
+    .trim()
+    .slice(0, 300);
+}
+
 /** Issues one fresh code for a persona on the named preview deployment. */
 export function issuePersonaCode(email, { deployment, deployKey, run = spawnSync } = {}) {
   const result = run(process.execPath, [CLI, 'run', '--deployment', deployment, 'functions/signInCodes:issue', JSON.stringify({ email })], {
     cwd: REPO_ROOT,
     encoding: 'utf8',
-    stdio: ['ignore', 'pipe', 'ignore'],
+    stdio: ['ignore', 'pipe', 'pipe'],
     env: { PATH: process.env.PATH, HOME: process.env.HOME, CONVEX_DEPLOY_KEY: deployKey, CONVEX_DEPLOYMENT: '', NO_COLOR: '1' },
   });
-  // stdout holds the code: it is parsed, never echoed, and stderr is dropped.
-  if (result.status !== 0) throw new Error('Issuing a preview code failed.');
+  // stdout holds the code: it is parsed, never echoed. stderr is shown only as one
+  // redacted line so a failure names its cause; stdout is never shown.
+  if (result.error || result.status !== 0) {
+    throw new Error(`Issuing a preview code failed: ${cliFailureReason(result.stderr, result.status, result.error)}`);
+  }
   return parseIssuedCode(result.stdout);
 }
 
