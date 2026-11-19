@@ -61,7 +61,17 @@ function eventIdOf() {
  * The route. `deps` is for the tests only: `ledgerOf` (`ledgerFor`) and `now` (`Date.now`); the route reads the chat
  * object through `env.TEX_CHAT`, as `textsArrive.js` does.
  */
-export async function handleAppChat(request, _store, session, _path, env, deps = {}) {
+export async function handleAppChat(request, store, session, path, env, deps = {}) {
+  // The console is another origin (context.lc) than the gateway, so every answer, a refusal included, carries the
+  // gateway's open CORS header, as `/approvals`' do; without it the browser hides a 200 and the app says it could
+  // not reach Tex (Dev2, 2026-11-19). The bearer token, never a cookie, is what admits a request.
+  const answer = await serveAppChat(request, store, session, path, env, deps);
+  const out = new Response(answer.body, answer);
+  out.headers.set("Access-Control-Allow-Origin", "*");
+  return out;
+}
+
+async function serveAppChat(request, _store, session, _path, env, deps = {}) {
   const { ledgerOf = (owner) => ledgerFor(env, owner), now = Date.now } = deps;
   if (session?.actorClientId !== CONSOLE_CLIENT_ID || session.workspaceKind !== "personal" || session.role !== "owner") {
     return refuse(403, "forbidden");

@@ -136,14 +136,12 @@ export function consoleAsidePanel({
     `hasExplorer` term for it.
   */
   /*
-    Tex's chat is the owner's own, so the tab is there only while their personal workspace is the
-    one open (the owner of a shared context has no Tex chat in it). Never on the demo.
+    Tex's chat is the person's own, not the open workspace's, so the tab is
+    there in every workspace they open, always on their personal workspace's
+    chat (Dev2, 2026-11-19: it was missing from a shared workspace). Not on
+    the demo, and not for someone without a personal workspace.
   */
-  const own = ownPersonalContext(data.contexts);
-  const tex =
-    !data.demo && own !== null && own.id === data.selectedContextId
-      ? { workspaceId: own.id, endpoint: data.endpoint }
-      : null;
+  const tex = texChatTarget(data);
   return (
     data.demo && data.visitor?.meetings === undefined ? undefined : (
       <AsidePanel
@@ -318,4 +316,12 @@ export function consoleBottomBar({
       />
     ) : undefined
   );
+}
+
+/** The person's own Tex chat, whichever workspace is open; null on the demo or with no personal workspace. */
+export function texChatTarget(
+  data: Pick<ConsoleData, "demo" | "contexts" | "endpoint">,
+): { workspaceId: string; endpoint: string } | null {
+  const own = ownPersonalContext(data.contexts);
+  return !data.demo && own !== null ? { workspaceId: own.id, endpoint: data.endpoint } : null;
 }

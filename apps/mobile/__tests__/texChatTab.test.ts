@@ -32,6 +32,7 @@ import type { AppChatView } from "../features/tex/chat/useAppChat";
 import { TEX_EMPTY, TEX_TAB_SUB, TEX_WORKING, TexChatView } from "../features/tex/chat/TexChatTab";
 import { AsideStrip } from "../features/console/aside/AsideStrip";
 import { AsidePanel } from "../features/console/aside/AsidePanel";
+import { texChatTarget } from "../features/console/layout/slots";
 
 const AT = Date.UTC(2026, 10, 19, 9, 0);
 
@@ -456,5 +457,25 @@ describe("the rail and the panel", () => {
     expect(labels).toEqual(["Meetings"]);
     act(() => root.unmount());
     container.remove();
+  });
+});
+
+describe("the Tex tab in every workspace (Dev2, 2026-11-19)", () => {
+  const contexts = [
+    { id: "ws_shared", kind: "shared", role: "owner" },
+    { id: "ws_mine", kind: "personal", role: "owner" },
+  ] as never;
+
+  test("a shared workspace open still gets the person's own chat, on their personal workspace", () => {
+    expect(texChatTarget({ demo: false, contexts, endpoint: "https://gateway.example" })).toEqual({
+      workspaceId: "ws_mine",
+      endpoint: "https://gateway.example",
+    });
+  });
+
+  test("no chat on the demo, or for someone with no personal workspace of their own", () => {
+    expect(texChatTarget({ demo: true, contexts, endpoint: "https://gateway.example" })).toBeNull();
+    const notMine = [{ id: "ws_x", kind: "personal", role: "member" }] as never;
+    expect(texChatTarget({ demo: false, contexts: notMine, endpoint: "https://gateway.example" })).toBeNull();
   });
 });
