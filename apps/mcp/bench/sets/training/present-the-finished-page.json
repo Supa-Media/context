@@ -1,0 +1,63 @@
+{
+  "id": "present-the-finished-page",
+  "title": "Priya's boat repair quotes come back as a page",
+  "set": "training",
+  "kind": "one",
+  "members": [
+    "Priya"
+  ],
+  "setting": "Priya is the volunteer captain at Tidewater Rowing Club, and books its boat repairs. Tex has her Gmail (priya@tidewater.example), Calendar, Context notes, the web, and a browser with a vault for logins. Priya texts Tex over iMessage.",
+  "msgs": [
+    {
+      "id": "m1",
+      "who": "Priya",
+      "text": "three boat repair shops for the hull patch: hullworks.example.com, Keel & Co and Aft Yard. find the cheapest and book the slot with the club login, under $900",
+      "labels": {
+        "fd": {
+          "must": [
+            "start one background job whose brief names each of the three sites to read, the club login from the vault, the $900 cap, and the step to book the cheapest",
+            "tell the job to re-check the live price at checkout before booking, and never to reuse a price quoted in a note"
+          ],
+          "never": [
+            "quote a price from memory or from a note",
+            "book anything in this turn"
+          ],
+          "star": true
+        }
+      }
+    },
+    {
+      "id": "m2",
+      "tex": true,
+      "who": "Tex",
+      "text": "On it. I'll read all three shops and book the cheapest one under $900 on the club login, checking the price again at checkout."
+    },
+    {
+      "id": "m3",
+      "via": "job",
+      "who": "Background job",
+      "state": "done",
+      "text": "Page written: projects/boat-repair/quotes.page.md. Key fact: Keel & Co is $740 for the hull patch, slot Saturday 9am, booked. Present to Priya.",
+      "labels": {
+        "fd": {
+          "must": [
+            "lead with Keel & Co at $740 for the hull patch, booked for Saturday 9am",
+            "give the link to projects/boat-repair/quotes.page.md"
+          ],
+          "never": [
+            "start a new job",
+            "ask Priya a question",
+            "bury the price under a list of all three shops"
+          ],
+          "star": true
+        }
+      }
+    },
+    {
+      "id": "m4",
+      "tex": true,
+      "who": "Tex",
+      "text": "Keel & Co is the cheapest at $740 for the hull patch, and it's booked for Saturday 9am. The three quotes are on projects/boat-repair/quotes.page.md."
+    }
+  ]
+}
