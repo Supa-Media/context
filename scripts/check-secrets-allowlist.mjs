@@ -9,6 +9,13 @@
  *   2. `scripts/secrets-allowlist.json`   — what the 1Password → GitHub sync copies
  *   3. `.github/workflows/*.yml`          — `secrets.NAME`, what a deploy reads
  *
+ * Since 2026-11-18 the allowlist also names `variables`: public identifiers
+ * the sync writes as GitHub Environment variables, read as `vars.NAME`, to
+ * keep them out of the 100-secret cap. While production still holds the old
+ * secrets, a variable's name may be read as a secret only as the fallback
+ * `vars.NAME || secrets.NAME`; any other `secrets.NAME` read of it would break
+ * the day that secret is deleted.
+ *
  * The failure is silent in both directions and neither is theoretical:
  *
  *  - A workflow reads `secrets.FOO` that the allowlist never syncs. The deploy
@@ -31,6 +38,7 @@
 import { readFileSync, readdirSync } from "node:fs";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
+import { allowlistProblems, loadAllowlist } from "./secrets-sync-plan.mjs";
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 
@@ -84,10 +92,17 @@ const NOT_SYNCED = new Map([
   ]),
 ]);
 
+/** The allowlist's secret names and variable names, as two sets. */
 function readAllowlist() {
-  const raw = readFileSync(join(ROOT, "scripts/secrets-allowlist.json"), "utf8");
-  const parsed = JSON.parse(raw);
-  return new Set([...(parsed.required ?? []), ...(parsed.optional ?? [])]);
+  const parsed = loadAllowlist();
+  return {
+    secrets: new Set([...(parsed.required ?? []), ...(parsed.optional ?? [])]),
+    variables: new Set([
+      ...(parsed.variables?.required ?? []),
+      ...(parsed.variables?.optional ?? []),
+    ]),
+    problems: allowlistProblems(parsed),
+  };
 }
 
 /**
@@ -115,19 +130,59 @@ export function withoutYamlComments(source) {
     .join("\n");
 }
 
-/** `secrets.NAME` across every workflow, with the files that read each. */
-export function secretsReadByWorkflows(dir) {
+function workflowSources(dir) {
+  return readdirSync(dir)
+    .filter((file) => file.endsWith(".yml") || file.endsWith(".yaml"))
+    .map((file) => [file, withoutYamlComments(readFileSync(join(dir, file), "utf8"))]);
+}
+
+/** `<context>.NAME` across every workflow, with the files that read each. */
+function namesReadByWorkflows(dir, context) {
   const readers = new Map();
-  for (const file of readdirSync(dir)) {
-    if (!file.endsWith(".yml") && !file.endsWith(".yaml")) continue;
-    const source = withoutYamlComments(readFileSync(join(dir, file), "utf8"));
-    for (const match of source.matchAll(/secrets\.([A-Z][A-Z0-9_]*)/g)) {
+  const pattern = new RegExp(`\\b${context}\\.([A-Z][A-Z0-9_]*)`, "g");
+  for (const [file, source] of workflowSources(dir)) {
+    for (const match of source.matchAll(pattern)) {
       const name = match[1];
       if (!readers.has(name)) readers.set(name, new Set());
       readers.get(name).add(file);
     }
   }
   return readers;
+}
+
+/** `secrets.NAME` across every workflow, with the files that read each. */
+export function secretsReadByWorkflows(dir) {
+  return namesReadByWorkflows(dir, "secrets");
+}
+
+/** `vars.NAME` across every workflow, with the files that read each. */
+export function varsReadByWorkflows(dir) {
+  return namesReadByWorkflows(dir, "vars");
+}
+
+/**
+ * The `secrets.NAME` reads in `source` that are not the transition fallback
+ * `vars.NAME || secrets.NAME`. For a name the sync writes as a variable,
+ * every such read is a deploy that breaks once the old secret is deleted.
+ */
+export function secretReadsWithoutVarFirst(source, name) {
+  const all = source.match(new RegExp(`\\bsecrets\\.${name}\\b`, "g"))?.length ?? 0;
+  const fallback =
+    source.match(new RegExp(`\\bvars\\.${name}\\s*\\|\\|\\s*secrets\\.${name}\\b`, "g"))
+      ?.length ?? 0;
+  return all - fallback;
+}
+
+/**
+ * Sync Secrets must write variables before secrets: during the transition a
+ * deploy reads `vars.NAME || secrets.NAME`, and the order is what keeps a
+ * name from being absent from both. True when the order is right.
+ */
+export function variablesWrittenFirst(source) {
+  const code = withoutYamlComments(source);
+  const variables = code.indexOf("secrets-sync-plan.mjs variables");
+  const secrets = code.indexOf("supa-sync-1password-to-github");
+  return variables !== -1 && secrets !== -1 && variables < secrets;
 }
 
 /** Every `op://<vault>/<NAME>/<field>` reference, as `{name, field}`. */
@@ -139,12 +194,15 @@ export function opReferences(source) {
 
 function main() {
   const problems = [];
-  const allowlist = readAllowlist();
-  const readers = secretsReadByWorkflows(join(ROOT, ".github/workflows"));
+  const { secrets: allowlist, variables, problems: shape } = readAllowlist();
+  const dir = join(ROOT, ".github/workflows");
+  const readers = secretsReadByWorkflows(dir);
+  const varReaders = varsReadByWorkflows(dir);
+  for (const problem of shape) problems.push(`scripts/secrets-allowlist.json: ${problem}`);
 
   // 1. Anything a workflow reads is synced, or is exempt with a stated reason.
   for (const [name, files] of readers) {
-    if (allowlist.has(name) || NOT_SYNCED.has(name)) continue;
+    if (allowlist.has(name) || NOT_SYNCED.has(name) || variables.has(name)) continue;
     problems.push(
       `${name} is read by ${[...files].join(", ")} but nothing syncs it.\n` +
         `    Add it to scripts/secrets-allowlist.json, or to NOT_SYNCED in this\n` +
@@ -163,13 +221,39 @@ function main() {
     );
   }
 
+  // 2b. The same for variables: each is read as `vars.NAME`, and where it is
+  //     still read as a secret, only as the fallback after the variable.
+  for (const name of variables) {
+    if (!varReaders.has(name)) {
+      problems.push(
+        `${name} is an allowlisted variable but no workflow reads vars.${name}.`,
+      );
+    }
+  }
+  for (const [file, source] of workflowSources(dir)) {
+    for (const name of variables) {
+      if (secretReadsWithoutVarFirst(source, name) > 0) {
+        problems.push(
+          `${file} reads secrets.${name}, but ${name} is synced as a variable.\n` +
+            `    Read \`vars.${name} || secrets.${name}\` until the old secret is deleted.`,
+        );
+      }
+    }
+  }
+  if (!variablesWrittenFirst(readFileSync(join(dir, "sync-secrets.yml"), "utf8"))) {
+    problems.push(
+      `sync-secrets.yml must sync variables (secrets-sync-plan.mjs variables)\n` +
+        `    before secrets (supa-sync-1password-to-github).`,
+    );
+  }
+
   // 3. A local `op://` reference is either synced to GitHub too, or somebody
   //    wrote down why it is laptop-only. This catches the quiet half-configured
   //    deploy: `.env.example` knew a value existed, but no workflow could ever
   //    receive it from the vault.
   const envExample = readFileSync(join(ROOT, ".env.example"), "utf8");
   for (const { name, field } of opReferences(envExample)) {
-    if (!allowlist.has(name) && !NOT_SYNCED.has(name)) {
+    if (!allowlist.has(name) && !variables.has(name) && !NOT_SYNCED.has(name)) {
       problems.push(
         `.env.example reads op://…/${name}/${field}, but the 1Password sync\n` +
           `    allowlist does not name ${name}. Add it to scripts/secrets-allowlist.json,\n` +
@@ -189,7 +273,8 @@ function main() {
     process.exit(1);
   }
   console.log(
-    `OK — ${allowlist.size} allowlisted secrets, ${readers.size} read by workflows, ` +
+    `OK — ${allowlist.size} allowlisted secrets and ${variables.size} variables, ` +
+      `${readers.size} secrets read by workflows, ` +
       `and .env.example reads only dev credentials.`,
   );
 }
@@ -227,19 +312,46 @@ function selfTest() {
   expect("reads the field", refs[0].field === "production");
   expect("reads the second field", refs[1].field === "dev");
   expect("finds nothing in empty text", opReferences("").length === 0);
-  const allowlist = readAllowlist();
+  const { secrets: allowlist, variables } = readAllowlist();
   const envExample = readFileSync(join(ROOT, ".env.example"), "utf8");
   const unsyncedRefs = opReferences(envExample).filter(
-    ({ name }) => !allowlist.has(name) && !NOT_SYNCED.has(name),
+    ({ name }) => !allowlist.has(name) && !variables.has(name) && !NOT_SYNCED.has(name),
   );
   expect("every local op reference is allowlisted or exempt", unsyncedRefs.length === 0);
+
+  // Variables: the fallback rule and the write order.
+  expect("finds a variable in real workflows", varsReadByWorkflows(join(ROOT, ".github/workflows")).has("EAS_PROJECT_ID"));
+  expect(
+    "the fallback form is allowed",
+    secretReadsWithoutVarFirst("A: ${{ vars.APP_ORIGIN || secrets.APP_ORIGIN }}", "APP_ORIGIN") === 0,
+  );
+  expect(
+    "a bare secret read of a variable is caught",
+    secretReadsWithoutVarFirst("A: ${{ secrets.APP_ORIGIN }}\nB: ${{ vars.APP_ORIGIN || secrets.APP_ORIGIN }}", "APP_ORIGIN") === 1,
+  );
+  expect(
+    "a longer name is not the same name",
+    secretReadsWithoutVarFirst("A: ${{ secrets.SENTRY_PROJECT_SLUG }}", "SENTRY_PROJECT") === 0,
+  );
+  expect(
+    "variables before secrets passes",
+    variablesWrittenFirst("run: node scripts/secrets-sync-plan.mjs variables x\nrun: npx supa-sync-1password-to-github"),
+  );
+  expect(
+    "secrets before variables fails",
+    !variablesWrittenFirst("run: npx supa-sync-1password-to-github\nrun: node scripts/secrets-sync-plan.mjs variables x"),
+  );
+  expect(
+    "a commented-out variables step does not count",
+    !variablesWrittenFirst("# node scripts/secrets-sync-plan.mjs variables\nrun: npx supa-sync-1password-to-github"),
+  );
 
   if (failures.length > 0) {
     console.error("Self-test failed:");
     for (const failure of failures) console.error(`  - ${failure}`);
     process.exit(1);
   }
-  console.log(`Self-test passed (${10} checks).`);
+  console.log(`Self-test passed (${17} checks).`);
 }
 
 if (process.argv.includes("--self-test")) selfTest();
