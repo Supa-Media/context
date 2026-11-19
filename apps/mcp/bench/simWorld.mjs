@@ -17,10 +17,10 @@
  * under test and these answers is production code, unchanged.
  *
  * The answers are fixtures per conversation (`simFixtures.mjs`): a call the conversation has
- * already had is replayed from them. A replay of a recorded conversation is closed: a reworded call gets
- * the nearest recorded answer and anything else the call's empty answer, so it never asks the model
- * (two replays of one commit had 26 and 47 invented answers, 2026-11-19). A recording asks the model on
- * a miss. A miss is kept for the
+ * already had is replayed from them, a replayed call worded a little differently gets the nearest
+ * answer (two replays of one commit had 26 and 47 misses, 2026-11-19), and the model is asked only
+ * when nothing is near. A replay saves what it asked into the fixtures, so the world heals: the next
+ * run replays it. A miss is kept for the
  * run's other test processes, so they agree with it, and the world sees what it has already shown,
  * so it never contradicts itself. The same ask gets the same answer for the whole run (`memo`,
  * shared by every world of the run), and the model runs at temperature 0. What it was asked is
@@ -105,19 +105,13 @@ export function createSimWorld({ send = null, setting = "", chat = [], today = n
         events.push(`world ${kind} (replayed) ${JSON.stringify(request).slice(0, 200)} -> ${JSON.stringify(hit.answer).slice(0, 600)}`);
         return hit.answer;
       }
-      // A closed world (a replay with recorded fixtures) never invents: a reworded call gets the nearest recorded
-      // answer, and anything else gets the call's empty answer, so two replays of one commit see the same world.
-      if (store.closed) {
-        const near = store.near(kind, request);
-        if (near) {
-          memo.hits += 1;
-          events.push(`world ${kind} (replayed) ${JSON.stringify(request).slice(0, 200)} -> ${JSON.stringify(near.answer).slice(0, 600)}`);
-          return near.answer;
-        }
-        const empty = store.claim(key, kind, request, fallback, { fake: true });
-        memo.misses.push({ kind, request });
-        events.push(`world ${kind} ${JSON.stringify(request).slice(0, 200)} -> ${JSON.stringify(empty).slice(0, 600)}`);
-        return empty;
+      // A call worded a little differently from one already answered gets that answer, so a replay does not
+      // invent a second world for it; only a call nothing is near asks the model, and the run then saves it.
+      const near = store.near(kind, request);
+      if (near) {
+        memo.hits += 1;
+        events.push(`world ${kind} (replayed) ${JSON.stringify(request).slice(0, 200)} -> ${JSON.stringify(near.answer).slice(0, 600)}`);
+        return near.answer;
       }
     } else if (memo.answers.has(key)) return memo.answers.get(key);
     const known = knownFacts(store ? store.known() : memo.entries);
@@ -434,7 +428,6 @@ function storeFor(front) {
       runDir,
       mode: worldMode(front.world_mode),
       test,
-      closed: Boolean(front.world_fixtures),
     }));
   }
   return stores.get(cacheKey);

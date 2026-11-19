@@ -1,0 +1,75 @@
+# THE SIMULATED WORLD HEALS ITSELF (owner, 2026-11-19: "self-healing").
+#
+# A Front door replay answers every call from the committed fixtures, the nearest one for a call worded a little
+# differently, and asks the world's model only for a call nothing is near (`apps/mcp/bench/simWorld.mjs`). The run keeps
+# those answers; a Lab run of main's code (`tex-lab-run.yml` heal-ready) or a world recording on main
+# (`tex-world-record.yml` heal-ready) uploads them as `world-heal`. This merges them into the fixtures (`worldHeal.mjs`:
+# a committed answer stands, only the repo's Training or Dev conversations are written) and opens a pull request that
+# merges itself on green CI, so the next run replays them.
+#
+# It runs main's code only and never the run's: the artifact is data, read by main's `worldHeal.mjs`. The pull request
+# is opened with GH_ADMIN_TOKEN, because one opened with this workflow's own token starts no CI (`tex-lab-promote.yml`).
+name: Tex world heal
+
+on:
+  workflow_run:
+    workflows: ["Tex Lab run", "Tex world record"]
+    types: [completed]
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: tex-world-heal
+  cancel-in-progress: false
+
+jobs:
+  heal:
+    if: ${{ github.event.workflow_run.head_branch == 'main' && github.event.workflow_run.conclusion != 'cancelled' }}
+    runs-on: ubuntu-latest
+    environment: production
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: main
+          token: ${{ secrets.GH_ADMIN_TOKEN }}
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+
+      - uses: actions/download-artifact@v4
+        id: heal
+        continue-on-error: true
+        with:
+          name: world-heal
+          path: ${{ runner.temp }}/world-in/
+          run-id: ${{ github.event.workflow_run.id }}
+          github-token: ${{ github.token }}
+
+      - name: Merge the run's answers into the fixtures
+        if: steps.heal.outcome == 'success'
+        run: node apps/mcp/bench/worldHeal.mjs --from "$RUNNER_TEMP/world-in"
+
+      - name: Open a pull request that merges itself
+        if: steps.heal.outcome == 'success'
+        env:
+          GH_TOKEN: ${{ secrets.GH_ADMIN_TOKEN }}
+          FROM: ${{ github.event.workflow_run.name }}
+          FROM_ID: ${{ github.event.workflow_run.id }}
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add apps/mcp/bench/sets/sim/
+          if git diff --cached --quiet; then echo "No new answers to commit"; exit 0; fi
+          git diff --cached --stat
+          heal="tex-world/heal-$FROM_ID"
+          git commit -q -m "Tex bench: world fixtures healed by $FROM (run $FROM_ID)"
+          git push -q origin "HEAD:refs/heads/$heal"
+          url=$(gh pr create --base main --head "$heal" --title "Tex bench: world fixtures healed by $FROM" \
+            --body "Answers the simulated world's model gave for calls no committed fixture was near ($FROM, run $FROM_ID), added to \`apps/mcp/bench/sets/sim/\` so the next run replays them. Bench data from the repo's Training or Dev set only; merges itself on green CI.")
+          echo "$url"
+          gh pr merge "$url" --auto --squash

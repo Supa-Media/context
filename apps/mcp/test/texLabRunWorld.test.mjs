@@ -29,7 +29,7 @@ export function stepOf(text, name) {
 /** The workflow_dispatch input `name`'s block. */
 const inputOf = (text, name) => (text.match(new RegExp(`\\n      ${name}:\\n((?:        .*\\n|          .*\\n)+)`)) ?? [])[1] ?? "";
 const runStep = stepOf(TEXT, "Run the Dev set's unit tests");
-const uploadStep = stepOf(TEXT, "Upload the recorded world");
+const uploadStep = stepOf(TEXT, "Upload the run's world");
 
 test("workflow: the world input exists, defaults to replay, and offers exactly replay, record and refresh", () => {
   const input = inputOf(TEXT, "world");
@@ -56,16 +56,50 @@ test("workflow: the run step validates the mode, replays the handed-in conversat
   assert.doesNotMatch(script.replace(/^\s*#.*$/gm, ""), /sets run --conversations[^\n]*--world (record|refresh)/, "no record on a file");
 });
 
-test("workflow: the upload step runs on record and refresh only, right after the run step, and keeps the fixtures", () => {
+test("workflow: the upload step runs in every mode, right after the run step, and keeps the fixtures", () => {
   assert.ok(uploadStep, "the upload step exists");
-  assert.match(uploadStep, /if: always\(\) && \(inputs\.world == 'record' \|\| inputs\.world == 'refresh'\)/);
+  assert.match(uploadStep, /if: always\(\)\n/);
   assert.match(uploadStep, /uses: actions\/upload-artifact@v4\n/);
   assert.match(uploadStep, /name: world-fixtures/);
   assert.match(uploadStep, /path: apps\/mcp\/bench\/sets\/sim\/\n/);
   const run = TEXT.indexOf("- name: Run the Dev set's unit tests");
-  const upload = TEXT.indexOf("- name: Upload the recorded world");
+  const upload = TEXT.indexOf("- name: Upload the run's world");
   const between = TEXT.slice(run + 1, upload);
   assert.ok(run > 0 && upload > run && !/- name: /.test(between), "right after the run step");
+});
+
+/** A job's block: its `  name:` line up to the next job or the end. */
+const jobOf = (text, name) => {
+  const at = text.indexOf(`\n  ${name}:\n`);
+  if (at < 0) return "";
+  const next = text.slice(at + 1).search(/\n  [a-z-]+:\n/);
+  return next < 0 ? text.slice(at) : text.slice(at, at + 1 + next);
+};
+
+test("workflow: heal-ready hands on the world answers of a run of main's code only, and holds no secret", () => {
+  const ready = jobOf(TEXT, "heal-ready");
+  assert.ok(ready, "a heal-ready job");
+  assert.match(ready, /needs: \[prep, run\]\n/);
+  assert.match(ready, /ref: main\n/);
+  assert.match(ready, /git merge-base --is-ancestor "\$SHA" HEAD/, "a branch's run never heals main");
+  assert.match(ready, /name: world-heal\n/);
+  assert.doesNotMatch(ready, /secrets\./);
+  assert.doesNotMatch(TEXT, /GH_ADMIN_TOKEN/, "the Lab run never names the admin token (check-bench-token-writer.mjs)");
+});
+
+// The heal workflow (`.github/workflows/tex-world-heal.yml`): the only place the admin token meets a run's world answers.
+const HEAL = readFileSync(join(dirname(WORKFLOW_PATH), "tex-world-heal.yml"), "utf8");
+
+test("heal workflow: after a Lab run or a world recording on main, main's code merges world-heal and opens a pull request that merges itself", () => {
+  assert.match(HEAL, /workflow_run:\n\s+workflows: \["Tex Lab run", "Tex world record"\]\n\s+types: \[completed\]/);
+  assert.match(HEAL, /github\.event\.workflow_run\.head_branch == 'main'/);
+  assert.match(HEAL, /ref: main\n/, "main's code only");
+  assert.match(HEAL, /name: world-heal\n\s+path: .*\n\s+run-id: \$\{\{ github\.event\.workflow_run\.id \}\}/);
+  assert.match(HEAL, /worldHeal\.mjs --from "\$RUNNER_TEMP\/world-in"/);
+  assert.match(HEAL, /gh pr create --base main --head "\$heal"/);
+  assert.match(HEAL, /gh pr merge "\$url" --auto --squash/);
+  assert.deepEqual([...new Set(HEAL.match(/secrets\.[A-Z_]+/g))], ["secrets.GH_ADMIN_TOKEN"], "no model or runner secret");
+  assert.doesNotMatch(HEAL, /pnpm install|workflow_run\.head_sha/, "it never installs or checks out the run's code");
 });
 
 // The standalone recorder (`.github/workflows/tex-world-record.yml`): the repo's Training or Dev set only, fd, never a
@@ -82,7 +116,7 @@ test("record workflow: only Training or Dev, through --set, and its fixtures upl
   assert.match(run, /--world-strict warn/);
   assert.match(run, /worldHash\.mjs/);
   const upload = stepOf(RECORD, "Upload the recorded world");
-  assert.match(upload, /if: always\(\) && inputs\.world != 'replay'/);
+  assert.match(upload, /if: always\(\)\n/);
   // Only the set's own files are uploaded, so a concurrent recording of the other set is never overwritten.
   assert.match(upload, /path: \$\{\{ runner\.temp \}\}\/world-out\/\n/);
   assert.match(run, /for conv in apps\/mcp\/bench\/sets\/"\$SET"\/\*\.json/);
@@ -114,13 +148,17 @@ test("worldHash: every world event on a Browser line counts, other events do not
   assert.deepEqual(worldLines("world web search {} -> {}\n"), [], "only the Browser line is read");
 });
 
-test("record workflow: the push job holds the write token, none of the run's secrets, and only writes tex-world/ or claude/ branches", () => {
-  const push = RECORD.slice(RECORD.indexOf("\n  push:\n"));
-  assert.ok(push.length > 10, "a push job");
+test("record workflow: the push job writes only tex-world/ or claude/ branches with no secret; heal-ready hands on a run of main", () => {
+  const push = jobOf(RECORD, "push");
+  assert.ok(push, "a push job");
   assert.doesNotMatch(push, /secrets\./, "the push job sees no secret");
   assert.match(push, /contents: write/);
+  assert.match(push, /ref: main\n/);
   assert.match(push, /\^\(tex-world\|claude\)\//);
-  assert.match(push, /inputs\.world != 'replay' && inputs\.branch != ''/);
-  const run = RECORD.slice(RECORD.indexOf("\n  run:\n"), RECORD.indexOf("\n  push:\n"));
-  assert.doesNotMatch(run, /contents: write/, "the job with the model secrets never writes");
+  assert.match(push, /inputs\.branch != ''/);
+  const ready = jobOf(RECORD, "heal-ready");
+  assert.match(ready, /inputs\.branch == '' && github\.ref == 'refs\/heads\/main'/);
+  assert.match(ready, /name: world-heal\n/);
+  assert.doesNotMatch(ready, /secrets\./);
+  assert.doesNotMatch(jobOf(RECORD, "run"), /contents: write|GH_ADMIN_TOKEN/, "the job with the model secrets never writes");
 });
