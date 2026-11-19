@@ -490,6 +490,8 @@ test/turnTiming.test.mjs
 test/promptBudget.test.mjs
 test/promptManifest.test.mjs
 test/agentUntriedWeb.test.mjs
+test/standsCheck.test.mjs
+test/turnStepsLogged.test.mjs
 test/agencyPrinciple.test.mjs
 test/recordRead.test.mjs
 test/readerNames.test.mjs

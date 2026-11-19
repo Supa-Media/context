@@ -1,8 +1,14 @@
 import assert from "node:assert/strict";
-import { ledgerFor, ONE_TO_ONE_CHAT } from "../../../src/agent/ledger.js";
-import { oneToOne } from "../chats.mjs";
+import test from "node:test";
+import { ledgerFor, ONE_TO_ONE_CHAT } from "../src/agent/ledger.js";
+import { oneToOne } from "./replay/chats.mjs";
 
-export default {
+/**
+ * Every step of a 1:1 turn is in the chat's record, the Door's settings with it. This was the replay case
+ * `turn-steps-logged` until 2026-11-19, when the replay set was at its cap of 50 and `redo-not-already-done` took its
+ * place; it runs here on every gateway test run instead, so the guard stays.
+ */
+const stepsLogged = {
   id: "turn-steps-logged",
   incident: "2026-11-13: of the turn's 23 steps, 10 left nothing in the chat's record (the router, the fallback, the front door's own steps, the card check, the classifier, the self-review and more), and the Door showed no setting the turn ran with (2026-11-14), so a bad answer could not be traced or replayed from the chat alone.",
   cause: "Only the model's thinking, its words, its tool calls, the judges and the reply were written to the chat's ledger; every other step logged to the console or nowhere; the Door logged only how long its parts took, never the settings it handed the front door.",
@@ -47,3 +53,5 @@ export default {
     }
   },
 };
+
+test("every step of a 1:1 turn, the Door's settings included, is in the chat's record", () => stepsLogged.run());

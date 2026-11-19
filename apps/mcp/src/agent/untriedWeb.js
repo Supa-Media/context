@@ -19,11 +19,20 @@
  * (`sourcedFigures.js` `seenFiguresNotice`), once a turn: the reply reviewer
  * no longer reads chat turns (Dev2), and "unsourced" was most of what it sent
  * back.
+ *
+ * On 2026-11-19 a console 1:1 said "I already did this at 1:31 PM … The reply
+ * is saved as a Gmail draft" with no call in the turn, and the draft was
+ * gone. This file's `check` now also runs the stands check once a turn
+ * (`standsCheck.js`): a claim that something is already done or still in
+ * place, with nothing in the turn that did it or looked at it, gets one more
+ * round. `frontDoorChecks` picks which of these runs for a turn.
  */
 
 import { TRY_NOTICE, saysItCouldNot } from "./claimCheck.js";
 import { recordReadNotice } from "./recordRead.js";
 import { seenFiguresNotice } from "./sourcedFigures.js";
+import { CONSOLE_CLIENT_ID } from "./texEntryPoint/clients.js";
+import { standsCheck, standsNotice, stepOf } from "./standsCheck.js";
 
 /**
  * `{ wrap, wrapWeb, check }`, shaped like `claimCheck`'s, for the front door.
@@ -35,13 +44,14 @@ export function untriedWebCheck({ question = "" } = {}) {
   let noticed = false;
   let figuresChecked = false;
   let recordNoticed = false;
+  let standsNoticed = false;
   const steps = [];
   return {
     /** The turn's own tools, so a read is visible to the record check. */
     wrap(callTool) {
       return async (name, args) => {
         const result = await callTool(name, args);
-        steps.push({ name, ok: result?.isError !== true });
+        steps.push(stepOf(name, args, result));
         return result;
       };
     },
@@ -62,6 +72,14 @@ export function untriedWebCheck({ question = "" } = {}) {
         noticed = true;
         return TRY_NOTICE;
       }
+      // A claim that something is already done or still in place, with nothing this turn did or looked at (`standsCheck.js`).
+      if (!standsNoticed) {
+        const stands = standsNotice(answer, steps);
+        if (stands !== null) {
+          standsNoticed = true;
+          return stands;
+        }
+      }
       // An ask to read a record, with no read this turn. An offer after a finished write is not caught here:
       // "Want me to book it?" after writing the options is the next step, and a phrase cannot tell that from an extra offer.
       if (!recordNoticed) {
@@ -76,4 +94,14 @@ export function untriedWebCheck({ question = "" } = {}) {
       return seenFiguresNotice(answer, context ?? {}); // the prompt it answered with and the messages so far
     },
   };
+}
+
+/**
+ * The one check a turn gets from its front-door side (`prepareTheAnswer.js`), or null. Only this one narrow check
+ * runs on a console 1:1: the reply reviewer, the handback judge and the rest of `claimCheck` stay off.
+ */
+export function frontDoorChecks({ claims, runner, texted, group, job, front, client, question }) {
+  if (claims === null && !runner && (texted || group !== null)) return untriedWebCheck({ question });
+  if (claims === null && !runner && job === null && group === null && (front || client === CONSOLE_CLIENT_ID)) return standsCheck();
+  return null;
 }

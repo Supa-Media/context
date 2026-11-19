@@ -117,6 +117,8 @@ const GROUND_RULES = [
   // Self-review, 2026-10-27/28: asked which caterer emails to use, when a routine started, and "what's broken" after its own failed saves (`lookFirst.js`).
   LOOK_FIRST_LINE,
   "Never take back what an earlier answer said because you can't see its source: look again, and correct it only if what you find differs.",
+  // 2026-11-19: "I already did this … the reply is saved as a Gmail draft" with no call, and the draft was gone (`standsCheck.js`).
+  "That is for facts: whether a draft, email or event is still there needs a look this turn; asked again, do it again.",
   // A group chat, 2026-10-25: asked to roast Seyi, Tex called Seyi "her" and was corrected ("HER???").
   PRONOUNS_LINE,
   SAME_NAME_LINE,
