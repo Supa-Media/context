@@ -25,7 +25,7 @@
  */
 import { cp, mkdir, mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { basename, join } from "node:path";
 import { pathToFileURL } from "node:url";
 import { REAL_CLEF_ENV } from "./worldAi.mjs";
 
@@ -547,10 +547,10 @@ const { HOLD_OUT_ENV, UNTIL_ENV } = createRequire(import.meta.url)("../../../pac
  * idle waiting for its own conversation. Each job is one test of one conversation, run alone in that conversation's
  * folder, cut at its own moment where the conversation is a Training one (`envOf`). A test that throws marks only its
  * own units. Rows come back in the units' order. With `holdOut`, a Training conversation's tests run in processes that
- * leave it out of the Front door's examples (`heldOutOf`): the held-out score. Without, they read it as production
- * does, but each test cut at its moment: the in-context score. Answers one row a unit.
+ * leave it out of the Front door's examples (`heldOutOf`): the held-out score. Without, the in-context score, as
+ * production reads it but each test cut at its moment. One row a unit. `keep`: each judged test kept for `regrade.mjs`.
  */
-export async function runFd(units, { tree, fake = false, runTests = null, parallel = 1, holdOut = false, env = process.env, world = "replay" }) {
+export async function runFd(units, { tree, fake = false, runTests = null, parallel = 1, holdOut = false, env = process.env, keep = null, world = "replay" }) {
   if (!fake) env = { ...env, [REAL_CLEF_ENV]: "1" };
   const rows = [];
   const can = [];
@@ -583,7 +583,7 @@ export async function runFd(units, { tree, fake = false, runTests = null, parall
     await runPool(jobs, parallel, untilOutOfCredit(async (t) => {
       const p = t.p;
       try {
-        t.got = await run(tree, [t.name], { dir: p.dir, scratch: p.scratch, tag: "sets", fake, parallel: 1, env: p.env, envOf: p.envOf });
+        t.got = await run(tree, [t.name], { dir: p.dir, scratch: p.scratch, tag: "sets", fake, parallel: 1, env: p.env, envOf: p.envOf, keep, keepPrefix: `${basename(p.scratch)}-`, keepUnits: t.group.map((u) => ({ chat: u.row.chat, msg: u.row.msg, node: u.row.node, rep: u.row.rep })) });
       } catch (error) {
         t.error = error;
       }
