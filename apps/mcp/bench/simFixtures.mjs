@@ -16,6 +16,8 @@ import { existsSync, linkSync, mkdirSync, readFileSync, readdirSync, rmSync, wri
 import { dirname, join } from "node:path";
 
 export const WORLD_MODES = ["replay", "record", "refresh"];
+/** The only sets a record or refresh may write fixtures from: the repo's own. The sealed Test set is never one. */
+export const RECORD_SETS = ["training", "dev"];
 /** `replay` (the default) answers from fixtures; `record` adds the misses to them; `refresh` answers all from the model. */
 export const worldMode = (v) => (WORLD_MODES.includes(String(v ?? "").trim()) ? String(v).trim() : "replay");
 export const FIXTURES_DIR = "apps/mcp/bench/sets/sim";

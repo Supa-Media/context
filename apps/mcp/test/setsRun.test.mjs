@@ -26,7 +26,7 @@ import { test } from "node:test";
 import { adaptersFor, countsLine, decideCase, decideRight, lineOf, reviewerCase, reviewerRight, routeCase, routeRight, routeTraining, runSets, scoreByRepeat, setsCommand } from "../bench/setsRun.mjs";
 import { runFd } from "../bench/setsFd.mjs";
 import { openWorldStore, worldKey } from "../bench/simFixtures.mjs";
-import { worldLine, worldMisses } from "../bench/setsRun.mjs";
+import { strictWorld, worldLine, worldMisses, worldModeRefusal, worldStrict, WORLD_STRICT } from "../bench/setsRun.mjs";
 
 const require = createRequire(import.meta.url);
 const REPO = require("../../../packages/shared/src/texSetsRepo.generated.json");
@@ -622,4 +622,53 @@ test("runFd records each test's world misses on its rows, from the fixture's run
   assert.equal(rows[0].right, true);
   assert.deepEqual(rows[0].world, { misses: 1, calls: [{ kind: "web search", call: JSON.stringify({ query: "flight" }) }] });
   assert.equal(worldLine(rows), "world: 1 simulated call(s) not in fixtures (web search 1)");
+});
+
+/* ---------------------- the simulated world's strict check and its mode's refusal ---------------------- */
+
+const rowsWithMisses = (n) => [{ chat: "c1", world: { misses: n, calls: Array.from({ length: n }, (_, i) => ({ kind: "web search", call: `{"query":"q${i}"}` })) } }];
+
+test("worldStrict reads off, warn and fail, and any other value is off", () => {
+  assert.deepEqual(WORLD_STRICT, ["off", "warn", "fail"]);
+  assert.equal(worldStrict("warn"), "warn");
+  assert.equal(worldStrict(" fail "), "fail");
+  assert.equal(worldStrict("FAIL"), "off", "case is not read");
+  assert.equal(worldStrict("loud"), "off");
+  assert.equal(worldStrict(undefined), "off");
+  assert.equal(worldStrict(true), "off", "a bare flag is off");
+});
+
+test("strictWorld: off says nothing; warn writes a warning annotation and does not fail; fail writes an error and fails", () => {
+  const rows = rowsWithMisses(2);
+  const off = strictWorld(rows, "off");
+  assert.deepEqual(off, { misses: 2, line: "", fail: false });
+  const warn = strictWorld(rows, "warn", { set: "dev" });
+  assert.equal(warn.misses, 2);
+  assert.equal(warn.fail, false);
+  assert.equal(warn.line, "::warning::world: 2 simulated call(s) not in fixtures; the model invented them (record them: sets run --set dev --node fd --world record)");
+  const fail = strictWorld(rows, "fail", { set: "training" });
+  assert.equal(fail.fail, true);
+  assert.match(fail.line, /^::error::world: 2 simulated call\(s\) not in fixtures; the model invented them \(record them: sets run --set training --node fd --world record\)$/);
+});
+
+test("strictWorld: zero misses say nothing and never fail, and record or refresh never warn or fail even with misses", () => {
+  assert.deepEqual(strictWorld(rowsWithMisses(0), "fail"), { misses: 0, line: "", fail: false });
+  assert.deepEqual(strictWorld([{ chat: "c1" }], "fail"), { misses: 0, line: "", fail: false }, "a row with no world says nothing");
+  for (const world of ["record", "refresh"]) {
+    assert.deepEqual(strictWorld(rowsWithMisses(3), "fail", { world }), { misses: 3, line: "", fail: false }, world);
+    assert.deepEqual(strictWorld(rowsWithMisses(3), "warn", { world }), { misses: 3, line: "", fail: false }, world);
+  }
+});
+
+test("worldModeRefusal: replay is never refused; record and refresh run only on the repo's Training or Dev set", () => {
+  assert.equal(worldModeRefusal({ world: "replay", set: "test", conversations: true }), null, "replay reads anything the set says");
+  for (const world of ["record", "refresh"]) {
+    assert.equal(worldModeRefusal({ world, set: "dev" }), null, `${world} on dev`);
+    assert.equal(worldModeRefusal({ world, set: "training", convs: [{ set: "training" }, { set: "dev" }] }), null, `${world} on training`);
+    assert.match(worldModeRefusal({ world, set: "test" }), /never the sealed Test set/, `${world} on the Test set`);
+    assert.match(worldModeRefusal({ world, set: "dev", convs: [{ set: "dev" }, { set: "test" }] }), /never the sealed Test set/, "a loaded conversation of the Test set");
+    assert.match(worldModeRefusal({ world, set: "dev", convs: [{ set: undefined }] }), /never the sealed Test set/, "a conversation with no set");
+    assert.match(worldModeRefusal({ world, set: true }), /never the sealed Test set/, "a bare --set");
+    assert.match(worldModeRefusal({ world, set: "dev", conversations: true }), /never a handed-in or sealed file/, "a handed-in file");
+  }
 });

@@ -131,7 +131,17 @@ export type Handoff = { jobs: number; parts: number; advisorCalls: number; usd: 
 export const handoffWords = (h: Handoff | undefined) =>
   h && h.jobs > 0 ? `, of which ${h.jobs} handed-off job${h.jobs === 1 ? "" : "s"}: ${h.advisorCalls} advisor call${h.advisorCalls === 1 ? "" : "s"}, $${h.usd.toFixed(3)} ($${h.perJobUsd.toFixed(3)} a job)` : "";
 /** The world a run had, in words: replayed from fixtures, or how many simulated calls had none ("" when the run has none). */
-export const worldWords = (w?: World) => (!w ? "" : w.misses === 0 ? "world replayed from fixtures" : `world: ${w.misses} simulated call${w.misses === 1 ? "" : "s"} not in fixtures`);
+export const worldWords = (w?: World) => {
+  if (!w) return "";
+  if (w.misses === 0) return "world replayed from fixtures";
+  // The kinds the misses were, most first (`web search 2, browser page 1`), when the run says which.
+  const kinds = Object.entries(w.byKind ?? {})
+    .filter(([, n]) => n > 0)
+    .sort(([a, x], [b, y]) => y - x || a.localeCompare(b))
+    .map(([k, n]) => `${k} ${n}`)
+    .join(", ");
+  return `world: ${w.misses} simulated call${w.misses === 1 ? "" : "s"} not in fixtures${kinds ? ` (${kinds})` : ""}`;
+};
 export const ago = (at: number, now = Date.now()) => {
   const s = Math.max(0, Math.round((now - at) / 1000));
   return s < 60 ? "just now" : s < 3600 ? `${Math.round(s / 60)} min ago` : s < 86400 ? `${Math.round(s / 3600)} h ago` : `${Math.round(s / 86400)} d ago`;

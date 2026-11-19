@@ -19,6 +19,10 @@
 #           (apps/mcp/bench/socketAnswerer.mjs), and the token never leaves this job. Clef stays on Workers AI.
 #           The spend check rotates the leased slot's refresh token. This job seals that token and does not write
 #           the production secret: a secret in this job would be the branch's to read, because its install can change PATH.
+#           The `world` input (replay by default) picks the simulated world's mode (`setsRun.mjs`, `simFixtures.mjs`): replay
+#           answers its calls from the committed fixtures and warns on each miss; record adds the misses on the repo's
+#           Training or Dev set and uploads them as the `world-fixtures` artifact for a person to commit; refresh re-asks
+#           every call, and uploads the same. Only the repo's own sets, never the Test set.
 #   token-key    no checkout. An RSA key for this run. The private half is wrapped with the writer token and leaves
 #                only as ciphertext. The run job does not need this job, so that output is not in the branch's hands.
 #   publish-pub  the public half only. needs is not transitive, which is why this job exists.
@@ -44,6 +48,15 @@ on:
         description: "The Lab run (its Convex id)"
         required: true
         type: string
+      world:
+        description: "The simulated world: replay answers its calls from the committed fixtures (a miss is warned); record adds the misses on the repo's Training or Dev set and uploads them as an artifact for a person to commit; refresh re-asks every call and uploads them the same way"
+        required: false
+        default: replay
+        type: choice
+        options:
+          - replay
+          - record
+          - refresh
 
 permissions:
   contents: read
@@ -495,8 +508,11 @@ jobs:
           # repository variable set to "on" lets a gw run's Claude calls fall through to Cloudflare's Unified Billing
           # after the key aliases fail. Ignored from 2026-12-01T00:00Z. Production's payer order never reads it.
           TEX_BENCH_UNIFIED_BILLING: ${{ vars.TEX_BENCH_UNIFIED_BILLING }}
+          # The simulated world's mode (`setsRun.mjs` --world): replay by default, record or refresh from the workflow's input.
+          WORLD: ${{ inputs.world || 'replay' }}
         run: |
           set +e -uo pipefail
+          [[ "$WORLD" =~ ^(replay|record|refresh)$ ]] || { echo "::error::unknown world mode"; exit 1; }
           answerer=""
           if [ "$MODELS" = "cc" ]; then
             export BENCH_MODEL_SOCKET="$RUNNER_TEMP/sock"
@@ -506,8 +522,18 @@ jobs:
             ( while kill -0 "$answerer" 2>/dev/null; do sleep 5; done; [ -f "$RUNNER_TEMP/run-done" ] || pkill -f "bench/run.mjs sets run" || true ) &
           fi
           started=$(date +%s%3N)
-          # Eight Front door tests at once inside this one job (`setsRun.mjs`): no more GitHub jobs, so CI keeps its runners.
-          node apps/mcp/bench/run.mjs sets run --conversations "$RUNNER_TEMP/lab/convs.json" --out "$RUNNER_TEMP/lab/rows.json" --parallel 8 --repeat "${REPEATS:-3}" --keep "$RUNNER_TEMP/lab/kept" ${NODE_ID:+--node "$NODE_ID"}
+          # Replay runs the handed-in conversations and warns on each simulated call with no fixture (`--world-strict warn`).
+          # Record and refresh run the set itself (`--set`, the Dev or Training set the prep step checked), since they write
+          # fixtures and never run on a file handed in. Eight Front door tests at once inside this one job (`setsRun.mjs`):
+          # no more GitHub jobs, so CI keeps its runners.
+          if [ "$WORLD" = "replay" ]; then
+            scope=(--conversations "$RUNNER_TEMP/lab/convs.json" --world replay --world-strict warn)
+          else
+            scope=(--set "$SET" --world "$WORLD")
+          fi
+          args=(--out "$RUNNER_TEMP/lab/rows.json" --parallel 8 --repeat "${REPEATS:-3}" --keep "$RUNNER_TEMP/lab/kept")
+          if [ -n "$NODE_ID" ]; then args+=(--node "$NODE_ID"); fi
+          node apps/mcp/bench/run.mjs sets run "${scope[@]}" "${args[@]}"
           code=$?
           echo "$(( $(date +%s%3N) - started ))" > "$RUNNER_TEMP/lab/ms"
           # The grader's own noise (`apps/mcp/bench/regrade.mjs`; Dev2, 2026-11-19): on Claude Code ($0), a Training or Dev
@@ -534,6 +560,17 @@ jobs:
             tail -n 20 "$RUNNER_TEMP/answerer.log"
           fi
           exit "$code"
+
+      # The recorded fixtures (`apps/mcp/bench/sets/sim/`) are bench data: the repo's own Training and Dev conversations, never
+      # the sealed Test set. A person downloads the artifact and commits the files; nothing here pushes them.
+      - name: Upload the recorded world
+        if: always() && (inputs.world == 'record' || inputs.world == 'refresh')
+        uses: actions/upload-artifact@v4
+        with:
+          name: world-fixtures
+          path: apps/mcp/bench/sets/sim/
+          retention-days: 7
+          if-no-files-found: warn
 
       - name: The results
         env:
