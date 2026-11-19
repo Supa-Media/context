@@ -307,24 +307,36 @@ function fillScreen(fills: boolean): () => void {
  *     was pressed on never reads.
  */
 describe("the right panel", () => {
-  test("a desktop opens it beside the note", () => {
-    const frame = mountFrame(1440);
-    expect(frame.find("aside")).toBeNull();
+  /*
+    No button for it in the top bar (Dev2, 2026-11-19, on that button:
+    "remove"). At a pointer density a supplied panel is always there: shut, it
+    is its strip of tabs in a slim column, and the panel's own tabs open it.
+    The probe stands in for those tabs, which belong to the console's panel.
+  */
+  const whole = (frame: ReturnType<typeof mountFrame>) => frame.find("probe-aside-whole")?.textContent;
+  const probe = () => createElement(TogglesProbe);
 
-    frame.press("frame-aside-toggle");
-
+  test("a desktop draws the shut panel as a strip, and opens it beside the note", () => {
+    const frame = mountFrame(1440, probe());
+    expect(frame.find("frame-aside-toggle")).toBeNull();
     expect(frame.find("aside")).not.toBeNull();
+    expect(whole(frame)).toBe("false");
+
+    frame.press("probe-toggle-aside");
+
+    expect(whole(frame)).toBe("true");
     // Beside, not over: no scrim, and the tree is still there.
     expect(frame.find("frame-scrim")).toBeNull();
     expect(frame.find("explorer")).not.toBeNull();
     frame.unmount();
   });
 
-  test("a tablet opens it over the note, behind a scrim", () => {
-    const frame = mountFrame(1000);
-    frame.press("frame-aside-toggle");
-
+  test("a tablet draws the strip beside the note, and opens the panel over it behind a scrim", () => {
+    const frame = mountFrame(1000, probe());
     expect(frame.find("aside")).not.toBeNull();
+    expect(frame.find("frame-scrim")).toBeNull();
+
+    frame.press("probe-toggle-aside");
     expect(frame.find("frame-scrim")).not.toBeNull();
     frame.unmount();
   });
@@ -337,8 +349,8 @@ describe("the right panel", () => {
    * react-native-web resolves for the scrim carries the offset or it does not.
    */
   test("the scrim spares the file tree beside it", () => {
-    const frame = mountFrame(1000);
-    frame.press("frame-aside-toggle");
+    const frame = mountFrame(1000, probe());
+    frame.press("probe-toggle-aside");
 
     const scrim = frame.find("frame-scrim");
     expect(scrim).not.toBeNull();
@@ -349,8 +361,8 @@ describe("the right panel", () => {
   });
 
   test("and covers everything when there is no tree to spare", () => {
-    const frame = mountFrame(1000, "the note", { explorer: false });
-    frame.press("frame-aside-toggle");
+    const frame = mountFrame(1000, probe(), { explorer: false });
+    frame.press("probe-toggle-aside");
 
     const scrim = frame.find("frame-scrim");
     expect(scrim).not.toBeNull();
@@ -366,40 +378,37 @@ describe("the right panel", () => {
   });
 
   /**
-   * The command is a genuine no-op at compact, not merely unreachable.
-   *
-   * There is no button in the chrome, so the only way to press it is the probe
-   * — and that is the point: a chord or a console could reach the frame API,
-   * and a `toggleAside` that wrote the preference anyway would leave the panel
-   * open the moment somebody widened the window, with nothing on the phone
-   * having said so.
+   * The command is a genuine no-op at compact, not merely unreachable: a chord
+   * or a console could reach the frame API, and a `toggleAside` that wrote the
+   * preference anyway would leave the panel open the moment somebody widened
+   * the window, with nothing on the phone having said so.
    */
   test("pressing at a phone width opens nothing, then or later", () => {
-    const frame = mountFrame(390, createElement(TogglesProbe));
+    const frame = mountFrame(390, probe());
     frame.press("probe-toggle-aside");
     expect(frame.find("aside")).toBeNull();
 
-    // The half the compact assertion cannot see: widen it, and the panel is
-    // still shut, because nothing was written.
+    // Widen it: the strip, not the panel, because nothing was written.
     frame.resize(1440);
-    expect(frame.find("aside")).toBeNull();
+    expect(whole(frame)).toBe("false");
     frame.unmount();
   });
 
-  test("a surface with no panel is offered no way to open one", () => {
+  test("a surface with no panel has no strip and no control", () => {
     const frame = mountFrame(1440, "the note", { aside: false });
     expect(frame.find("frame-aside-toggle")).toBeNull();
     expect(frame.find("aside")).toBeNull();
     frame.unmount();
   });
 
-  test("closing it puts it away again", () => {
-    const frame = mountFrame(1440);
-    frame.press("frame-aside-toggle");
-    expect(frame.find("aside")).not.toBeNull();
+  test("closing it puts it back to its strip", () => {
+    const frame = mountFrame(1440, probe());
+    frame.press("probe-toggle-aside");
+    expect(whole(frame)).toBe("true");
 
-    frame.press("frame-aside-toggle");
-    expect(frame.find("aside")).toBeNull();
+    frame.press("probe-toggle-aside");
+    expect(whole(frame)).toBe("false");
+    expect(frame.find("aside")).not.toBeNull();
     frame.unmount();
   });
 
@@ -409,27 +418,29 @@ describe("the right panel", () => {
    * *draws* as changes with the density; that it is open does not.
    */
   test("it is still open after the window changes shape", () => {
-    const frame = mountFrame(1440);
-    frame.press("frame-aside-toggle");
+    const frame = mountFrame(1440, probe());
+    frame.press("probe-toggle-aside");
     expect(frame.find("frame-scrim")).toBeNull();
 
     frame.resize(1000);
-    expect(frame.find("aside")).not.toBeNull();
+    expect(whole(frame)).toBe("true");
     expect(frame.find("frame-scrim")).not.toBeNull();
 
     frame.resize(1440);
-    expect(frame.find("aside")).not.toBeNull();
+    expect(whole(frame)).toBe("true");
     expect(frame.find("frame-scrim")).toBeNull();
     frame.unmount();
   });
 
-  test("pressing the scrim closes it", () => {
-    const frame = mountFrame(1000);
-    frame.press("frame-aside-toggle");
-    expect(frame.find("aside")).not.toBeNull();
+  test("pressing the scrim shuts it to its strip", () => {
+    const frame = mountFrame(1000, probe());
+    frame.press("probe-toggle-aside");
+    expect(frame.find("frame-scrim")).not.toBeNull();
 
     frame.press("frame-scrim");
-    expect(frame.find("aside")).toBeNull();
+    expect(frame.find("frame-scrim")).toBeNull();
+    expect(whole(frame)).toBe("false");
+    expect(frame.find("aside")).not.toBeNull();
     frame.unmount();
   });
 
@@ -437,17 +448,19 @@ describe("the right panel", () => {
    * A column is resizable and an overlay is not, and that is not an oversight.
    * The overlay is pinned to the trailing edge over the note, so dragging its
    * edge would resize a thing that is already covering the thing it would be
-   * making room in.
+   * making room in. The strip is not resizable either: it is its tabs' width.
    */
-  test("the column has a drag handle and the overlay does not", () => {
-    const wide = mountFrame(1440);
-    wide.press("frame-aside-toggle");
+  test("the open column has a drag handle; the strip and the overlay do not", () => {
+    const wide = mountFrame(1440, probe());
+    expect(wide.find("aside-resizer")).toBeNull();
+    wide.press("probe-toggle-aside");
     expect(wide.find("aside-resizer")).not.toBeNull();
     wide.unmount();
 
-    const tablet = mountFrame(1000);
-    tablet.press("frame-aside-toggle");
+    const tablet = mountFrame(1000, probe());
+    tablet.press("probe-toggle-aside");
     expect(tablet.find("aside-resizer")).toBeNull();
     tablet.unmount();
   });
 });
+

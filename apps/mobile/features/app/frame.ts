@@ -319,7 +319,7 @@ export function regionsFor(
    * constellation and a phone would offer a drawer button that pulls in
    * nothing, which is worse than either pane simply being full width.
    */
-  options: { hasExplorer?: boolean; asideBeside?: boolean } = {},
+  options: { hasExplorer?: boolean; asideBeside?: boolean; hasAside?: boolean } = {},
 ): Regions {
   const hasExplorer = options.hasExplorer ?? true;
 
@@ -401,9 +401,18 @@ export function regionsFor(
     No `hasExplorer` term: the panel is about the context, not the tree. A
     page with no note behind it (`asideBeside`, the map) gets it beside.
   */
+  /*
+    **Shut is the strip** (Dev2, 2026-11-19, on the top bar's panel button:
+    "remove"). At a pointer density the panel is never gone: shut or folded,
+    it is a slim column of its tabs down the right edge, and a tab opens it.
+    That is why the top bar no longer carries a button for it. A surface
+    with no panel to give (no `hasAside`, the landing page) has no strip.
+  */
   const aside: Regions["aside"] = !state.asideOpen
-    ? "hidden"
-    : density === "wide" || options.asideBeside === true
+    ? options.hasAside === true
+      ? "column"
+      : "hidden"
+    : state.asideFolded || density === "wide" || options.asideBeside === true
       ? "column"
       : "overlay";
 
@@ -588,6 +597,11 @@ export function clampAsideWidth(width: number): number {
  * Unlike `explorerToggleFor` there is no `hasExplorer` term, because the panel
  * is not about the tree; see `regionsFor`.
  */
+/** Whether the right panel is drawn whole, rather than as its strip of tabs. */
+export function asideUnfolded(state: Pick<FrameState, "asideOpen" | "asideFolded">): boolean {
+  return state.asideOpen && !state.asideFolded;
+}
+
 export function asideToggleFor(density: Density): "asideOpen" | null {
   return density === "compact" ? null : "asideOpen";
 }

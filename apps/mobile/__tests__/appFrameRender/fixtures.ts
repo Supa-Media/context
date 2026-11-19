@@ -259,6 +259,8 @@ export function TogglesProbe() {
       { key: "aside", "data-testid": "probe-toggle-aside", onClick: frame.toggleAside },
       "toggle the panel",
     ),
+    // Whether the panel is drawn whole rather than as its strip of tabs.
+    createElement("span", { key: "whole", "data-testid": "probe-aside-whole" }, String(frame.state.asideOpen && !frame.state.asideFolded)),
   ]);
 }
 

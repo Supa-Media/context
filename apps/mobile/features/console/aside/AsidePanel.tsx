@@ -135,8 +135,12 @@ export function AsidePanel({
   const colors = useColors();
   const frame = useFrame();
   const setFolded = frame.setAsideFolded;
+  const toggleAside = frame.toggleAside;
 
-  if (frame.state.asideFolded) {
+  // Folded, or shut where the frame keeps a column for it (`regionsFor`), the
+  // panel is its strip: a tab opens it whole. Drawn outside a frame it is whole.
+  const strip = frame.state.asideFolded || (!frame.state.asideOpen && frame.regions?.aside === "column");
+  if (strip) {
     return (
       <AsideStrip
         tabs={tabs}
@@ -144,7 +148,8 @@ export function AsidePanel({
         recording={meetingLive}
         onUnfold={(tab) => {
           setChosen(tab);
-          setFolded(false);
+          if (frame.state.asideOpen) setFolded(false);
+          else toggleAside();
         }}
       />
     );

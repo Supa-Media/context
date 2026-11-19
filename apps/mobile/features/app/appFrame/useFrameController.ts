@@ -142,7 +142,7 @@ export function useFrameController({
   const hasExplorer = explorer != null;
   // Held by a page that wants the right panel beside it at medium too (`FrameApi.setAsideBeside`).
   const [asideBeside, setAsideBeside] = useState(false);
-  const regions = regionsFor(density, state, { hasExplorer, asideBeside });
+  const regions = regionsFor(density, state, { hasExplorer, asideBeside, hasAside: aside != null });
 
   /*
     A panel is not a preference. `railCollapsed` and `explorerWidth` survive a

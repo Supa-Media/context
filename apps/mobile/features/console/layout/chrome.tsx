@@ -1,15 +1,16 @@
-import { StyleSheet } from "react-native";
+import { StyleSheet, View } from "react-native";
 import { PressRow } from "../../design/components/Button";
 import { Dot } from "../../design/components/Dot";
 import { Pill } from "../../design/components/Pill";
 import { StatusBar } from "../../design/components/StatusBar";
-import { layout, radii } from "../../design/tokens";
+import { layout, radii, space } from "../../design/tokens";
 import { useThemedStyles, type Colors } from "../../design/theme";
 import { withMirrorSegment } from "../../offline/mirrorCopy";
 import { statusSegments } from "../files/status";
 import { describeIndexProgress } from "../search/fastSearch";
 import { storagePillLabel } from "../storage/pill";
 import { noteLimitLabel } from "../noteLimit";
+import { SaveMark } from "../SaveMark";
 import type { ConsoleData } from "../types";
 
 /**
@@ -175,10 +176,25 @@ export function Status({
       ? { ...segment, onPress: onOpenSync }
       : segment,
   );
-  return <StatusBar segments={withMirror} style={styles.statusBar} testID="console-status" />;
+  /*
+    The save cloud ends the row (Dev2, 2026-11-19: "put on the bottom"): it
+    was the top bar's, and the top-right corner held too much. A shared
+    link's reader edits nothing, so there is no save to mark.
+  */
+  const saveMark =
+    data.visitor !== undefined && !data.files.canEdit ? null : (
+      <SaveMark editor={data.files.editor} local={data.visitor !== undefined} />
+    );
+  return (
+    <View style={styles.statusRow}>
+      <StatusBar segments={withMirror} style={styles.statusBar} testID="console-status" />
+      {saveMark}
+    </View>
+  );
 }
 
 const makeStyles = (colors: Colors) => StyleSheet.create({
+  statusRow: { flex: 1, minWidth: 0, flexDirection: "row", alignItems: "center", gap: space.x2 },
   statusBar: {
     flex: 1,
     minWidth: 0,
