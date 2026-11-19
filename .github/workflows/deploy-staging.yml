@@ -187,6 +187,12 @@ jobs:
         if: ${{ matrix.worker.name == 'photon' }}
         run: npm ci --prefix infra/photon-bridge/container
       - name: Test ${{ matrix.worker.package }}
+        # The gateway's unit suite runs unsharded here (PR CI splits it over three
+        # runners) and took 339s on 2026-11-19, so run.mjs's 7-minute stuck guard
+        # killed healthy runs on three main commits in a row. Give it 12 minutes
+        # under the job's 15; a test that never settles still fails by name at 120s.
+        env:
+          TEST_STUCK_MS: ${{ matrix.worker.name == 'mcp' && '720000' || '' }}
         run: pnpm --filter "${{ matrix.worker.package }}" test
 
   router-test:
