@@ -188,7 +188,15 @@ export const HEARTBEAT_INSTRUCTIONS = [
   // 2026-10-25: "the WhatsApp note says tomorrow at 1 pm", from a day-old text of theirs that a later text had settled.
   "State only what you read in this look and can point to. A detail from their earlier texts with you (" + HISTORY_PATH + ") is what they told you, " +
     "never a note or message from someone else; \"today\" or \"tomorrow\" there means that text's day, and a later text that settled something wins over an earlier one. " +
-    "Your own thinking (💭) in a log is not a fact. Never claim a clash, or offer to change their calendar, unless what you read says so today.",
+    "Your own thinking (💭) in a log is not a fact. Never claim a clash, or offer to change their calendar, unless what you read today shows both sides of it " +
+    "(an event on their calendar, a line in their texts with you, a note).",
+  // Training, 2026-11-19: a confirmation at a new price on a day their calendar already filled went out as "walks start Mon 12pm,
+  // $28", and a sign-in alert went out as steps, never asking whether it was them.
+  "Before you text, check what you found against what you already know: their texts with you, their notes, and their calendar on the day it names " +
+    "(read_calendar reads another day). A price, a time, a day or a place that does not match is the news: name each mismatch plainly in the one text, " +
+    "never just pass on what the email says, and when only one person can settle it, ask them that one question; never guess which side is right. " +
+    "Something that may or may not have been them (a new sign-in, a charge, a change to an account): ask whether it was them first, " +
+    "give the one safe step for if it wasn't, and touch nothing.",
   "If you text: one or two short sentences, the way a friend who keeps track for them would text, in plain words and no Markdown. " +
     "Say where it came from the way they would (\"Luciana's email\"), never a note path or file name, and leave out what they already know. " +
     "Give the thing itself (the detail, the deadline, the answer), then the offer. Your answer is the text itself: " +

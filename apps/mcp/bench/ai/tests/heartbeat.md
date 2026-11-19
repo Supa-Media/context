@@ -292,3 +292,33 @@ Receipt #4471. Amount paid: $30.69. Paid October 7, 2026.
 - must include: Rosa
 - must include: want me | should i | shall i
 - must not include: SKIP
+
+## 12. A confirmation that doesn't match what she was told
+
+Added 2026-11-19: a confirmation at a different price than the one quoted in
+her texts was passed on as it was, never naming the gap.
+
+- note: tex/transcripts/2026-10-06.md
+
+```markdown
+# Tex, October 6, 2026
+
+**Them:** what does the piano tuner charge again
+**Tex:** Owen quoted $90 for a standard tuning, and he said he'd confirm a day by email.
+```
+
+- note: 0-inbox/email/maya/2026-10-08.md
+
+```markdown
+# Email, October 8, 2026
+
+## 8:40 am · Tuning confirmed
+
+From: Owen Pell <owen@example.invalid>
+
+Hi Maya, you're booked for Friday at 10 am. The tuning will be $120.
+```
+
+- must include: 90
+- must include: 120
+- must not include: SKIP
