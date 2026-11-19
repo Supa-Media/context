@@ -4,6 +4,7 @@ import { join } from "node:path";
 import { test } from "node:test";
 
 import { LIVE_SETTINGS, PURE_ACK, burstBefore, cantRun, minutesBefore, checkinMail, dayOf, earlierLines, fdTest, frontFor, groupFor, jobReportRow, runFd, senderOf, sinceTexAnswered, timeOf, zoneOf } from "../bench/setsFd.mjs";
+import { REAL_CLEF_ENV } from "../bench/worldAi.mjs";
 import { clockMs, installClock } from "../bench/clock.mjs";
 import { runPool, scheduleOrder } from "../bench/setsPool.mjs";
 import { parsePeople, parseTest } from "../bench/load.mjs";
@@ -546,6 +547,19 @@ test("each test is cut at its own moment: units in one test at their earliest, h
   seen.length = 0;
   await runFd([unit({ ...c, set: "dev" }, 4)], { tree: TREE, fake: true, runTests, env: {} });
   assert.deepEqual(seen.map(([, cut]) => cut), [null], "a Dev chat is never an example");
+});
+
+test("runFd asks the tree's run for real Clef unless fake (worldAi.mjs: the stand-in made every live pick none)", async () => {
+  const fd = (text, at) => ({ id: `t${at}`, who: "Maya", text, at, labels: { fd: { must: ["answer"], star: true } } });
+  const c = conv([...chat.msgs.slice(0, 4), fd("first ask", "Mon 9:00")], { id: "c10", set: "dev" });
+  const seen = [];
+  const runTests = async (_tree, tests, opts) => {
+    for (const t of tests) seen.push((opts.envOf?.(t) ?? opts.env)?.[REAL_CLEF_ENV] ?? null);
+    return { rows: [], usd: 0, bars: {}, missing: [] };
+  };
+  await runFd([unit(c, 4)], { tree: TREE, runTests, env: {} });
+  await runFd([unit(c, 4)], { tree: TREE, fake: true, runTests, env: {} });
+  assert.deepEqual(seen, ["1", null]);
 });
 
 // The Front door's pool (`setsFd.mjs` runFd): one pool of `parallel` lanes over every test of every conversation, not a

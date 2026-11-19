@@ -229,6 +229,18 @@ test("countsLine has counts by node, the cost, and never a message's words", () 
   assert.doesNotMatch(line, /secret|ally|front door|zebrafish/);
 });
 
+test("countsLine adds the live door count from the front door's route records; the router count is its own rows", () => {
+  const rows = [
+    { chat: "c", msg: "m1", node: "fd", right: true, ran: true, usd: 0, route: { door: "quick", pick: "quick" } },
+    { chat: "c", msg: "m2", node: "fd", right: false, ran: true, usd: 0, route: { door: "fd", pick: "none" } },
+    { chat: "c", msg: "m3", node: "fd", right: false, ran: true, usd: 0, route: { door: "read", pick: "read", fellBack: "x" } },
+    { chat: "c", msg: "m4", node: "router", right: true, ran: true, usd: 0, route: { pick: "read" } },
+  ];
+  assert.equal(countsLine(rows), "fd 1/3 · router 1/1 · doors 2/3 specialist (1 fell back) · $0.0000");
+  assert.equal(countsLine(rows.slice(0, 1).concat(rows.slice(3))), "fd 1/1 · router 1/1 · doors 1/1 specialist (0 fell back) · $0.0000");
+  assert.doesNotMatch(countsLine(rows.slice(3)), /doors/, "no fd rows with a route: no doors part");
+});
+
 test("setsCommand runs a file of conversations and writes the rows to --out; stdout is counts only", async () => {
   const dir = await mkdtemp(join(tmpdir(), "sets-run-test-"));
   try {
