@@ -29,36 +29,44 @@ test("per route: pass and cost of each gold route's fd rows that ran and are not
   assert.deepEqual(by.untagged, { route: "untagged", pass: 1, total: 1, usd: 0.06, usdPerTurn: 0.06 });
 });
 
-test("router: confusion of gold against the pick, from the router's own rows and the fd rows that carry a pick", () => {
+test("router: confusion of gold against the pick, from the router's own rows only; an fd row's pick is not the router's", () => {
   const rows = [
     { convId: "c", msgIndex: 0, node: "router", ok: true, route: { pick: "quick", sure: 0.9 } },
     { convId: "c", msgIndex: 1, node: "router", ok: false, route: { pick: "act", sure: 0.7 } },
     { convId: "c", msgIndex: 4, node: "router", ok: true, route: { pick: "none", sure: 0.1 } },
     { convId: "c", msgIndex: 2, node: "router", ok: true, ran: false, route: { pick: "act" } },
+    { convId: "c", msgIndex: 3, node: "router", ok: true, ambiguous: true, route: { pick: "job" } },
     fd(1, { route: { pick: "read", door: "read" } }),
+    fd(4, { ok: true, route: { pick: "read", door: "read" } }),
     fd(3, { ok: false, route: { pick: "job", door: "fd", fellBack: "x" } }),
     fd(2, { route: { door: "fd" } }),
     fd(0, { ambiguous: true, route: { pick: "read" } }),
     fd(9, { route: { pick: "quick" } }),
   ];
   const s = routeSummary(rows, goldOf);
-  // Counted: the router's rows at c:0, c:1, c:4 (c:2 did not run); the fd rows at msg 1, 3 (msg 2 has no pick, msg 0
-  // is ambiguous, msg 9 is untagged). Right: quick at c:0, read at msg 1, job at msg 3.
+  // Counted: only the router's rows at c:0, c:1, c:4 (c:2 did not run, c:3 is ambiguous). The fd rows' picks (msgs 1,
+  // 3, 4, 9) are not router picks, so none of them count, even the right ones.
   assert.deepEqual(s.router, {
-    right: 3,
-    total: 5,
+    right: 1,
+    total: 3,
     confusion: {
       quick: { quick: 1, read: 0, act: 0, job: 0, none: 0 },
-      read: { quick: 0, read: 1, act: 1, job: 0, none: 1 },
+      read: { quick: 0, read: 0, act: 1, job: 0, none: 1 },
       act: { quick: 0, read: 0, act: 0, job: 0, none: 0 },
-      job: { quick: 0, read: 0, act: 0, job: 1, none: 0 },
+      job: { quick: 0, read: 0, act: 0, job: 0, none: 0 },
     },
   });
   assert.equal(s.router.confusion.read.none, 1, "a pick of none counts in its own column");
   assert.equal(s.router.confusion.read.act, 1, "the router's own row, picked act for a read");
 });
 
-test("fallback: how many turns a specialist ran behind, and how many handed over to the front door", () => {
+test("router: an fd row's pick does not count even when it would be right; no router rows means no router total", () => {
+  const s = routeSummary([fd(1, { route: { pick: "read", door: "read" } })], goldOf);
+  assert.deepEqual([s.router.right, s.router.total], [0, 0]);
+  assert.equal(s.router.confusion.read.read, 0);
+});
+
+test("fallback: how many turns a specialist ran behind, and how many handed over to the front door; fd picks count here", () => {
   const rows = [
     fd(0, { route: { pick: "quick", door: "quick" } }),
     fd(1, { route: { pick: "read", door: "fd", fellBack: "outside the read door's tools: send_email" } }),

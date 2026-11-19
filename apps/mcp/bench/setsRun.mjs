@@ -26,6 +26,7 @@ import { runFd } from "./setsFd.mjs";
 
 const require = createRequire(import.meta.url);
 const { unitTests, TEX } = require("../../../packages/shared/src/texSets.cjs");
+const { routeSummary } = require("../../../packages/shared/src/texRouteSummary.cjs");
 
 /** Rough prices to report spend by: Clef on Workers AI and Haiku through the AI gateway, per call. */
 const USD = { decide: 0.0004, reviewer: 0.002 };
@@ -305,7 +306,11 @@ export async function runSets(convs, { tree, node = null, fake = false, env = pr
   return [...first, ...rest.flat()];
 }
 
-/** Counts by node, never words: what standard output may say. */
+/**
+ * Counts by node, never words: what standard output may say. Each node counts its own rows only (the router's count is
+ * its router rows, never an fd row's pick). When the front door's rows carry route records, the line adds how many
+ * turns a specialist door ran and how many fell back: the same `fallback` figure the Lab's "By route" block shows.
+ */
 export function countsLine(rows) {
   const by = {};
   for (const r of rows) {
@@ -315,9 +320,11 @@ export function countsLine(rows) {
     if (r.right) b.right += 1;
   }
   const usd = rows.reduce((a, r) => a + (r.usd || 0), 0);
+  const { fallback } = routeSummary(rows, () => null);
+  const doors = fallback.total > 0 ? [`doors ${fallback.specialist}/${fallback.total} specialist (${fallback.fellBack} fell back)`] : [];
   return Object.entries(by)
     .map(([n, b]) => `${n} ${b.right}/${b.all}${b.ran < b.all ? ` (${b.all - b.ran} can't run alone)` : ""}`)
-    .concat(`$${usd.toFixed(4)}`)
+    .concat(doors, `$${usd.toFixed(4)}`)
     .join(" · ");
 }
 

@@ -42,8 +42,9 @@ describe("a run's summary", () => {
     expect(s.any).toBe(true);
     expect(s.perRoute.find((b) => b.route === "read")).toMatchObject({ pass: 1, total: 1, usd: 0.02 });
     expect(s.perRoute.find((b) => b.route === "untagged")).toMatchObject({ pass: 1, total: 1, usd: 0.01 });
-    expect(s.router).toMatchObject({ right: 1, total: 2 });
-    expect(s.router.confusion.read.read).toBe(1);
+    // The router's own row only: the fd row's live pick counts in `fallback`, never as the router's.
+    expect(s.router).toMatchObject({ right: 0, total: 1 });
+    expect(s.router.confusion.read.read).toBe(0);
     expect(s.router.confusion.read.act).toBe(1);
     expect(s.fallback).toEqual({ fellBack: 1, specialist: 1, total: 2 });
     expect(s.costPerTurn).toEqual({ usd: 0.03, turns: 2, perTurn: 0.015 });
