@@ -171,6 +171,8 @@ jobs:
       pull-requests: write
     env:
       PR: ${{ needs.resolve.outputs.pr }}
+      # The preview's name, pr<N>: the Convex env script and the smoke test read it.
+      PREVIEW_NAME: pr${{ needs.resolve.outputs.pr }}
       HEAD_SHA: ${{ github.sha }}
       CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
       CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
@@ -253,7 +255,8 @@ jobs:
           PLUGIN_EGRESS_URL: ${{ secrets.PLUGIN_EGRESS_URL }}
           PLUGIN_EGRESS_SECRET: ${{ secrets.PLUGIN_EGRESS_SECRET }}
           MANAGED_R2_ACCOUNT_ID: ${{ secrets.MANAGED_R2_ACCOUNT_ID }}
-        run: pnpm exec convex deploy --yes --preview-name "pr$PR" --cmd 'node scripts/preview-convex-env.mjs' --cmd-url-env-var-name PREVIEW_CONVEX_URL --preview-run functions/seed:preview
+        # preview-convex-env.mjs builds the preview's Worker hosts from this.
+        run: PREVIEW_WORKERS_DEV="$WORKERS_DEV_SUBDOMAIN.workers.dev" pnpm exec convex deploy --yes --preview-name "pr$PR" --cmd 'node scripts/preview-convex-env.mjs' --cmd-url-env-var-name PREVIEW_CONVEX_URL --preview-run functions/seed:preview
 
       # The deployment's own identity, checked again now that it exists. Its
       # URLs are masked and kept for the steps after, as GITHUB_ENV values.
@@ -392,6 +395,7 @@ jobs:
       - name: Seed the preview's personas and notes
         env:
           CONVEX_DEPLOY_KEY: ${{ secrets.CONVEX_PREVIEW_DEPLOY_KEY }}
+          APP_ENV: preview
         run: node scripts/preview-seed.mjs
 
       - name: Smoke the preview
