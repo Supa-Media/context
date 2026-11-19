@@ -13,6 +13,8 @@ import { benchFailed } from "../setsFd.mjs";
 import { FAILS_NO_TOOL, benchGaps, isRouteGap, watchedBinding } from "../benchGaps.mjs";
 import { applyChange, createTexCommands } from "../texCommands.mjs";
 import { drawnPictures, keepsRenders, looksPastDrawn } from "../drawnPictures.mjs";
+import { benchRenderer, findBrowser } from "../benchRender.mjs";
+import { blankPng } from "../sites.mjs";
 import { createSimWorld, simMemo } from "../simWorld.mjs";
 import { CONTROL_PLANE_ORIGIN, GATEWAY_SECRET } from "../../test/controlPlaneStub.mjs";
 
@@ -126,6 +128,29 @@ test("only a look at a picture the bench drew is answered by the bench; any othe
   await send("u", { body: `{"text":"a turn that carries the card back","data":"QkxBTks="}` });
   assert.equal(looks.n, 1);
   assert.equal(sent.length, 2, "a made picture's look and the turn's own calls reach the model");
+});
+
+test("a drawn card is photographed when the bench has a browser, and the stand-in's blank stays when it has none", async () => {
+  const stand = { fetch: async (url) => json(new URL(url).pathname === "/render" ? { png: "QkxBTks=", width: 600, height: 800, blocked: [] } : { ok: true }) };
+  const body = JSON.stringify({ html: "<p>card</p>", width: 640, height: 480 });
+  const asked = [];
+  const real = { available: true, render: async (request) => (asked.push(request), { png: "UkVBTA==", width: 640, height: 480 }) };
+  const drawn = drawnPictures();
+  const answer = await (await keepsRenders(stand, drawn, real).fetch("https://site-shots.bench/render", { method: "POST", body })).json();
+  assert.equal(answer.png, "UkVBTA==", "the photographed card replaces the white rectangle");
+  assert.equal(asked[0].html, "<p>card</p>");
+  assert.ok(drawn.isIn("UkVBTA=="), "the card check still passes the bench's own picture");
+  const none = drawnPictures();
+  const blank = await (await keepsRenders(stand, none, { available: false, render: async () => assert.fail("no browser, no render") }).fetch("https://site-shots.bench/render", { method: "POST", body })).json();
+  assert.equal(blank.png, "QkxBTks=");
+  const failed = await (await keepsRenders(stand, none, { available: true, render: async () => null }).fetch("https://site-shots.bench/render", { method: "POST", body })).json();
+  assert.equal(failed.png, "QkxBTks=", "a render that fails falls back to the stand-in");
+});
+
+test("the bench's browser draws a card that is not blank", { skip: findBrowser() === null && "no browser on this machine" }, async () => {
+  const out = await benchRenderer({ browser: findBrowser() }).render({ html: '<body style="margin:0;background:#123456"><h1 style="color:#fff">Zencastr $20</h1></body>', width: 300, height: 200 });
+  assert.ok(out && out.png.length > 0, "a picture came back");
+  assert.notEqual(out.png, blankPng(300, 200), "it is not the white rectangle");
 });
 
 test("a route the bench never learnt is a gap; a report nobody reads and a call no tool waits on are not", async () => {
