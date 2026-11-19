@@ -25,7 +25,7 @@
  */
 import { cp, mkdir, mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { basename, join, resolve } from "node:path";
+import { basename, join } from "node:path";
 import { pathToFileURL } from "node:url";
 import { REAL_CLEF_ENV } from "./worldAi.mjs";
 
@@ -33,7 +33,7 @@ import { createRequire } from "node:module";
 
 import { tapbackSaidLine } from "../src/agent/tapbackEnding.js";
 import { saveRunFixtures, worldFront } from "./simFixtures.mjs";
-import { ARM_ENV, COMPARE_ENV, armDone, armOf, memoDir, openCompare, snapshotPath } from "./worldCompare.mjs";
+import { armDone, compareOf, compareWorld } from "./worldCompare.mjs";
 import { collectConvo } from "./setsFdRows.mjs";
 
 // Moved to `setsFdRows.mjs` (2026-11-19) to keep this file under the size bar; still imported from here.
@@ -601,12 +601,7 @@ export async function runFd(units, { tree, fake = false, runTests = null, parall
     const convos = [...byConvo.values()];
     // Every conversation's folder and tests first, a few at a time.
     const prepared = new Array(convos.length);
-    // A compare (`worldCompare.mjs`): both arms read one snapshot of the fixtures and share one memo of misses, and
-    // nothing is written back until the compare's `finish`. The snapshot is taken once, before any test starts.
-    const compareDir = env[COMPARE_ENV] ? resolve(String(env[COMPARE_ENV])) : null;
-    if (compareDir && world !== "replay") throw new Error(`a compare (${COMPARE_ENV}) replays its snapshot; --world ${world} is a single run`);
-    const compare = compareDir ? { dir: compareDir, arm: armOf(env[ARM_ENV]) ?? "base", ...openCompare(compareDir, { tree, convs: convos.map((m) => m[0].convo) }) } : null;
-    if (compare) process.stderr.write(`world compare: snapshot ${compare.hash.slice(0, 12)}, arm ${compare.arm}; misses go to the shared memo, written back once at finish\n`);
+    const compare = compareOf(env, { tree, convs: convos.map((m) => m[0].convo), world }); // one world for both arms (`worldCompare.mjs`)
     await runPool(convos, PREPARE_LANES, async (mine, k) => {
       const c = mine[0].convo;
       const convoEnv = holdOut && c.set === "training" ? { ...env, [HOLD_OUT_ENV]: c.id } : env;
@@ -628,10 +623,9 @@ export async function runFd(units, { tree, fake = false, runTests = null, parall
       }
     }));
     for (const p of prepared) rows.push(...collectConvo(p));
-    // record/refresh write this run's answers; a replay adds what it had to ask. A compare's arm writes nothing: the
-    // compare's `finish` writes the shared memo back once (`worldCompare.mjs`).
-    if (!compare) saveRunFixtures(prepared, tree, world);
-    else armDone(compare.dir, compare.arm);
+    // record/refresh write this run's answers; a replay adds what it had to ask; a compare's arm waits for `finish`.
+    if (compare) armDone(compare.dir, compare.arm);
+    else saveRunFixtures(prepared, tree, world);
     // Rows in the order their units came, whichever conversation finished first.
     const place = new Map(units.map((u, k) => [`${u.row.chat}\n${u.row.msg}\n${u.row.node}`, k]));
     return rows.sort((a, b) => (place.get(`${a.chat}\n${a.msg}\n${a.node}`) ?? 0) - (place.get(`${b.chat}\n${b.msg}\n${b.node}`) ?? 0));
@@ -651,10 +645,8 @@ async function prepareConvo(units, { tree, scratch, env, mode = "replay", compar
   const rows = [];
   const c = units[0].convo;
   const dir = join(scratch, "ai");
-  // The world's answers for this conversation, shared by all its test processes (`simFixtures.mjs` openWorldStore); in
-  // a compare, shared by both arms too, and read over the compare's snapshot of the fixtures (`worldCompare.mjs`).
-  const runDir = compare ? memoDir(compare.dir, c.id) : join(scratch, "world");
-  const worldFixtures = compare ? { fixtures: snapshotPath(compare.dir, c.id), arm: compare.arm } : {};
+  // The world's answers, shared by the conversation's test processes and, in a compare, both arms (`compareWorld`).
+  const { runDir = join(scratch, "world"), ...worldFixtures } = compareWorld(compare, c.id);
   await mkdir(scratch, { recursive: true });
   await cp(join(tree, "apps/mcp/bench/ai"), dir, { recursive: true });
   const setup = join(dir, "setups", "texting-assistant");

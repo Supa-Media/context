@@ -95,6 +95,24 @@ export function openCompare(dir, { tree, convs }) {
   return JSON.parse(readFileSync(recordPath(dir), "utf8"));
 }
 
+/**
+ * The compare a `sets run` is an arm of (`setsFd.mjs`), opened before any test starts, or null when
+ * `TEX_WORLD_COMPARE` is unset. A compare replays its snapshot, so another world mode is refused.
+ */
+export function compareOf(env, { tree, convs, world = "replay", log = (line) => process.stderr.write(line) }) {
+  if (!env[COMPARE_ENV]) return null;
+  if (world !== "replay") throw new Error(`a compare (${COMPARE_ENV}) replays its snapshot; --world ${world} is a single run`);
+  const dir = resolve(String(env[COMPARE_ENV]));
+  const compare = { dir, arm: armOf(env[ARM_ENV]) ?? "base", ...openCompare(dir, { tree, convs }) };
+  log(`world compare: snapshot ${compare.hash.slice(0, 12)}, arm ${compare.arm}; misses go to the shared memo, written back once at finish\n`);
+  return compare;
+}
+
+/** A conversation's world in a compare: the shared memo as its run folder, the snapshot's copy, the arm. `{}` outside one. */
+export function compareWorld(compare, id) {
+  return compare ? { runDir: memoDir(compare.dir, id), fixtures: snapshotPath(compare.dir, id), arm: compare.arm } : {};
+}
+
 /** Marks an arm's run over, so `finish` knows every arm has asked all it will. */
 export function armDone(dir, arm) {
   writeFileSync(join(dir, `done-${arm}`), "");

@@ -6,7 +6,7 @@ import { mkdirSync, mkdtempSync, readFileSync, readdirSync, writeFileSync } from
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import { armDone, armMisses, finishCompare, memoDir, missGap, openCompare, snapshotPath, worldVerdict } from "../worldCompare.mjs";
+import { armDone, armMisses, compareOf, compareWorld, finishCompare, memoDir, missGap, openCompare, snapshotPath, worldVerdict } from "../worldCompare.mjs";
 import { fixturePath, fixtureText, nearestFixture, openWorldStore, readFixtures, worldKey } from "../simFixtures.mjs";
 import { createSimWorld, simSystem } from "../simWorld.mjs";
 import { installClock } from "../clock.mjs";
@@ -144,4 +144,17 @@ test("the world's prompt reads the test's scripted day, not the wall clock", asy
   }
   const real = new Date().toISOString().slice(0, 10);
   if (real !== "2026-03-04") assert.doesNotMatch(simSystem({ today: "2026-03-04" }), new RegExp(real));
+});
+
+test("a sets run is an arm only when the compare folder is set, and a compare is replay only", () => {
+  const root = tree();
+  const convs = [{ id: ID, set: "dev" }];
+  assert.equal(compareOf({}, { tree: root, convs }), null);
+  const env = { TEX_WORLD_COMPARE: join(root, "compare"), TEX_WORLD_ARM: "draft" };
+  const arm = compareOf(env, { tree: root, convs, log: () => {} });
+  assert.equal(arm.arm, "draft");
+  assert.match(arm.hash, /^[0-9a-f]{64}$/);
+  assert.throws(() => compareOf(env, { tree: root, convs, world: "record", log: () => {} }), /replays its snapshot/);
+  assert.deepEqual(compareWorld(null, ID), {});
+  assert.deepEqual(compareWorld(arm, ID), { runDir: memoDir(arm.dir, ID), fixtures: snapshotPath(arm.dir, ID), arm: "draft" });
 });
