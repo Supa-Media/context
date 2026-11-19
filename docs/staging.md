@@ -52,6 +52,12 @@ The component production workflows are reusable jobs called by this manual
 action. Desktop builds/releases and native store builds/submissions remain
 separate manual workflows. This release action does not build native binaries.
 
+Per-branch previews: see [preview environments](./decisions/testing/preview-environments.md).
+Every pushed branch with an open pull request gets its own isolated copy of the
+backend (`context-*-pr<N>` on `workers.dev`, with its own Convex preview
+deployment). It holds seeded fictional data and sends no text or email, and it
+never touches staging or production data.
+
 ## Deployment configuration
 
 The GitHub `staging` environment holds staging credentials, synced from the
