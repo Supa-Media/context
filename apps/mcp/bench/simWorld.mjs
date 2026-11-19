@@ -23,7 +23,8 @@
  * run replays it. A miss is kept for the
  * run's other test processes, so they agree with it, and the world sees what it has already shown,
  * so it never contradicts itself. The same ask gets the same answer for the whole run (`memo`,
- * shared by every world of the run), and the model runs at temperature 0. What it was asked is
+ * shared by every world of the run). The model runs with thinking off and a JSON schema per call shape (`WORLD_SCHEMAS`):
+ * Haiku 5.5 has no seed, and temperature is omitted as Anthropic advises. What it was asked is
  * kept with its answer (`events`, in the run's record as the browser's lines). Nothing here is a Dev
  * label: the world never sees what the test wants, only the chat a person would see.
  */
@@ -37,8 +38,44 @@ export const SIM_MODEL = "claude-haiku-5-5";
 const MAX_TOKENS = 1500;
 /** How much of the chat before the text the world is shown. */
 const CHAT_LINES = 40;
+/** The first words of the world's system prompt. `socketAnswerer.mjs` keys its CLI options on them, so the two stay in step. */
+export const WORLD_SYSTEM_OPENING = "You play the outside world for a texting assistant called Tex";
 
 const json = (status, body) => new Response(JSON.stringify(body), { status, headers: { "content-type": "application/json" } });
+
+/** A JSON object schema: the listed properties, the named ones required, and no other key. */
+const object = (properties, required = Object.keys(properties)) => ({ type: "object", properties, required, additionalProperties: false });
+const str = { type: "string" };
+const bool = { type: "boolean" };
+const array = (items) => ({ type: "array", items });
+
+/**
+ * The answer shape of each simulated call, as JSON Schema: the `shape` text `ask` names, made exact. Optional
+ * properties (`?` in the shape) are not required. Each is sent as the model's `output_config` (`ask`).
+ */
+export const WORLD_SCHEMAS = {
+  "web search": object({ results: array(object({ title: str, url: str, description: str })) }),
+  "browser page": object({
+    ran: array(object({ ok: bool, reason: str }, ["ok"])),
+    url: str,
+    title: str,
+    text: str,
+    elements: array(object({ kind: { type: "string", enum: ["link", "button", "textbox", "select", "checkbox"] }, label: str, href: str }, ["kind", "label"])),
+  }),
+  "google calendar days": object({
+    days: array(object({ date: str, events: array(object({ start: str, end: str, title: str, where: str }, ["start", "end", "title"])) })),
+  }),
+  "gmail search": object({
+    results: array(object({ id: str, date: str, from: str, to: str, subject: str, snippet: str })),
+  }),
+  "gmail read": object({ body: str }),
+  "google chat recent": object({ messages: array(object({ from: str, text: str, at: str })) }),
+};
+
+/** The JSON schema a simulated call's answer is held to, or null for a kind with none. */
+export function worldSchema(kind) {
+  return WORLD_SCHEMAS[kind] ?? null;
+}
 
 /**
  * The run's memory of every ask answered: one per run, shared by its worlds. `answers` is keyed by `worldKey`;
@@ -53,7 +90,7 @@ export function simMemo() {
 export function simSystem({ setting, chat, today, sent = [], known = "", own = null }) {
   const lines = (chat ?? []).slice(-CHAT_LINES).map((line) => `${line.who}: ${line.text}`);
   return [
-    "You play the outside world for a texting assistant called Tex: the websites, search engine, Google Calendar and Gmail it calls.",
+    `${WORLD_SYSTEM_OPENING}: the websites, search engine, Google Calendar and Gmail it calls.`,
     "Answer each call exactly as the real service would, as JSON only, in the shape asked for. Answer the literal request, not what the asker seems to hope for.",
     "What the setting and the chat say exists, exists, as they say it. Nothing else exists just because a request assumes it: a search finds what a real search engine would for those words (sometimes nothing useful), a page shows what that site would show (a sign-in page, an error, a sold-out notice, a changed price), and an action on a site succeeds only if a real site would let it.",
     "A draft the chat quotes is still a draft: it is not in Sent, nor in the inbox, unless the chat says it was sent or received. Mail is in Sent only as the chat or the list below says it was sent.",
@@ -120,12 +157,14 @@ export function createSimWorld({ send = null, setting = "", chat = [], today = n
     let answered = false;
     const record = () => events.push(`world ${kind} ${JSON.stringify(request).slice(0, 200)} -> ${JSON.stringify(answer).slice(0, 600)}`);
     if (send) {
+      const schema = worldSchema(kind);
       const body = JSON.stringify({
         model,
         max_tokens: MAX_TOKENS,
-        temperature: 0,
         system,
         messages: [{ role: "user", content: `Call: ${kind}\nRequest: ${JSON.stringify(request)}\n\nAnswer with JSON only, shaped: ${shape}` }],
+        thinking: { type: "disabled" },
+        ...(schema ? { output_config: { format: { type: "json_schema", schema } } } : {}),
       });
       try {
         const response = await send(body);
@@ -428,6 +467,8 @@ function storeFor(front) {
       runDir,
       mode: worldMode(front.world_mode),
       test,
+      // A compare's arm (`worldCompare.mjs`): its memo answers are marked for it, so each arm's misses are counted.
+      arm: front.world_arm ?? null,
     }));
   }
   return stores.get(cacheKey);

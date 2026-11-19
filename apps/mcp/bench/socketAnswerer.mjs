@@ -40,6 +40,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { answerCall, pendingCalls } from "./modelSocket.mjs";
 import { hasMedia, promptBlocks, promptFor, systemText } from "./socketPrompt.mjs";
+import { WORLD_SYSTEM_OPENING } from "./simWorld.mjs";
 
 export { blockText, hasMedia, messageText, promptBlocks, promptFor, systemText, toolsText } from "./socketPrompt.mjs";
 
@@ -193,8 +194,16 @@ export function cliArgs(request, systemFile, { schema = false, media = false } =
   // needs stream-json output too, and stream-json output needs --verbose. The result is the last line (`resultOf`).
   if (media) args.splice(args.indexOf("--output-format"), 2, "--input-format", "stream-json", "--output-format", "stream-json", "--verbose");
   if (schema && request?.tools?.length) args.push("--json-schema", JSON.stringify(toolAnswerSchema(request)));
+  // The bench world's calls (`simWorld.mjs`): the CLI has no per-call thinking switch or temperature, so `--effort low` is
+  // the nearest setting it reaches, and `--json-schema` enforces the world's answer shape. Only those calls get it, so
+  // Tex's own cc calls are unchanged.
+  if (isWorldCall(request)) args.push("--json-schema", JSON.stringify(request.output_config.format.schema), "--effort", "low");
   return args;
 }
+
+/** A no-tools call the bench's simulated world made, asking for a JSON schema (`simWorld.mjs` ask). */
+const isWorldCall = (request) =>
+  !request?.tools?.length && String(systemText(request?.system)).startsWith(WORLD_SYSTEM_OPENING) && request?.output_config?.format?.type === "json_schema";
 
 /**
  * The environment the CLI runs with: the caller's, with its non-essential network traffic, updater, telemetry and error
@@ -212,7 +221,11 @@ export function cliEnv(env = process.env) {
 export function answerFrom(request, stdout, onDropped = () => {}) {
   const result = resultOf(stdout);
   if (result.is_error) throw new Error(`the CLI answered with an error: ${String(result.result ?? result.subtype ?? "").slice(0, 200)}`);
-  if (!request?.tools?.length) return { text: String(result.result ?? "") };
+  if (!request?.tools?.length) {
+    // A world call's answer is the schema's `structured_output` when the CLI gave one (`cliArgs`), as its JSON text.
+    if (result.structured_output && typeof result.structured_output === "object") return { text: JSON.stringify(result.structured_output) };
+    return { text: String(result.result ?? "") };
+  }
   const given = result.structured_output ?? parseToolAnswer(result.result);
   const { kept, dropped } = keepOffered(request, given.toolCalls);
   if (dropped.length) onDropped(dropped);
