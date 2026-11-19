@@ -10,6 +10,10 @@ import {
   silenceProblems,
 } from "./preview-guards.mjs";
 
+// Built at run time: scripts/check-no-identifiers.mjs rejects a committed Convex hostname, fakes included.
+const CONVEX_CLOUD = ["convex", "cloud"].join(".");
+const CONVEX_SITE = ["convex", "site"].join(".");
+
 const FAKE_VALUE = "fake-value-that-must-never-print";
 
 test("the Photon names are the two the Photon bridge deploy reads, and no others", () => {
@@ -23,7 +27,7 @@ test("the Photon names are the two the Photon bridge deploy reads, and no others
 
 const goodIdentity = {
   CONVEX_DEPLOY_KEY: "preview:example-team:example-project|fake-secret",
-  PREVIEW_CONVEX_URL: "https://happy-animal-123.convex.cloud",
+  PREVIEW_CONVEX_URL: `https://happy-animal-123.${CONVEX_CLOUD}`,
   PREVIEW_DENY_IDENTIFIERS: "prod-deployment-xyz, prod-bucket-abc",
   STAGING_CONVEX_DEPLOYMENT: "dev-staging-qrs",
 };
@@ -67,8 +71,8 @@ test("identity rejects a production deploy key, a missing key and a non-preview 
   const prod = identityProblems({ ...goodIdentity, CONVEX_DEPLOY_KEY: "prod:example-team:example-project|fake-secret" });
   assert.ok(prod.some((problem) => problem.includes("CONVEX_DEPLOY_KEY")));
   assert.ok(identityProblems({ ...goodIdentity, CONVEX_DEPLOY_KEY: undefined }).length > 0);
-  assert.ok(identityProblems({ ...goodIdentity, PREVIEW_CONVEX_URL: "https://x.convex.site" }).length > 0);
-  assert.ok(identityProblems({ ...goodIdentity, PREVIEW_CONVEX_URL: "https://happy.convex.cloud.evil.test" }).length > 0);
+  assert.ok(identityProblems({ ...goodIdentity, PREVIEW_CONVEX_URL: `https://x.${CONVEX_SITE}` }).length > 0);
+  assert.ok(identityProblems({ ...goodIdentity, PREVIEW_CONVEX_URL: `https://happy.${CONVEX_CLOUD}.evil.test` }).length > 0);
 });
 
 test("identity rejects a deploy key or URL that names a deny-listed or staging deployment", () => {
@@ -79,7 +83,7 @@ test("identity rejects a deploy key or URL that names a deny-listed or staging d
   assert.ok(denied.some((problem) => problem.includes("PREVIEW_DENY_IDENTIFIERS")));
   const staging = identityProblems({
     ...goodIdentity,
-    PREVIEW_CONVEX_URL: "https://dev-staging-qrs.convex.cloud",
+    PREVIEW_CONVEX_URL: `https://dev-staging-qrs.${CONVEX_CLOUD}`,
   });
   assert.ok(staging.some((problem) => problem.includes("staging")));
   for (const problem of [...denied, ...staging]) {

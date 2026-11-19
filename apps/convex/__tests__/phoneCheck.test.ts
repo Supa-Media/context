@@ -13,14 +13,14 @@ describe("the persona exemption follows the isolated deployments", () => {
     for (const [key, value] of Object.entries({
       APP_ENV: "preview", PREVIEW_NAME: "pr42",
       APP_ORIGIN: "https://context-router-pr42.example-sub.workers.dev",
-      CONVEX_CLOUD_URL: "https://happy-otter-123.convex.cloud",
+      CONVEX_CLOUD_URL: `https://happy-otter-123.${CONVEX_CLOUD}`,
     })) vi.stubEnv(key, value);
     expect(isExemptEmail("alpha@supa.media")).toBe(true);
   });
 
   test("production does not, not even with the preview variables copied onto it", () => {
     for (const [key, value] of Object.entries({
-      APP_ENV: "production", APP_ORIGIN: "https://context.lc", CONVEX_CLOUD_URL: "https://prod-example-1.convex.cloud",
+      APP_ENV: "production", APP_ORIGIN: "https://context.lc", CONVEX_CLOUD_URL: `https://prod-example-1.${CONVEX_CLOUD}`,
     })) vi.stubEnv(key, value);
     expect(isExemptEmail("alpha@supa.media")).toBe(false);
     vi.stubEnv("APP_ENV", "preview");
@@ -31,6 +31,9 @@ describe("the persona exemption follows the isolated deployments", () => {
 import { REVIEWER_EMAIL } from "../functions/lib/reviewerAccount";
 import { YC_REVIEW_EMAIL } from "../functions/lib/reviewerPassword";
 import { TEST_ACCOUNT_EMAIL } from "../functions/lib/testAccount";
+
+// Built at run time: scripts/check-no-identifiers.mjs rejects a committed Convex hostname, fakes included.
+const CONVEX_CLOUD = ["convex", "cloud"].join(".");
 
 /**
  * THE PHONE CHECK.

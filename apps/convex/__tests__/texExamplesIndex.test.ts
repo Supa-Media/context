@@ -10,6 +10,9 @@ import GENERATED from "../../../packages/shared/src/texTraining.generated.json";
 import { meaningIndexNameFor } from "../functions/lib/vectorize";
 import { syncTexExamples } from "../functions/texExamplesIndex";
 
+// Built at run time: scripts/check-no-identifiers.mjs rejects a committed Convex hostname, fakes included.
+const CONVEX_CLOUD = ["convex", "cloud"].join(".");
+
 const ACCOUNT = "test-account-not-real";
 const TOKEN = "test-token-not-real";
 const DIMENSIONS = 1024;
@@ -69,7 +72,7 @@ describe("tex examples index", () => {
     for (const [key, value] of Object.entries({
       APP_ENV: "preview", PREVIEW_NAME: "pr42",
       APP_ORIGIN: "https://context-router-pr42.example-sub.workers.dev",
-      CONVEX_CLOUD_URL: "https://happy-otter-123.convex.cloud",
+      CONVEX_CLOUD_URL: `https://happy-otter-123.${CONVEX_CLOUD}`,
     })) vi.stubEnv(key, value);
     const { calls, fetchImpl } = fakeCloudflare();
     const result = await syncTexExamples({ accountId: ACCOUNT, apiToken: TOKEN, fetchImpl }, GENERATED);

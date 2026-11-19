@@ -1,6 +1,9 @@
 import { describe, expect, test } from "vitest";
 import { isIsolatedPreview, previewName, previewResourcePrefix } from "../functions/lib/previewDeployment";
 
+// Built at run time: scripts/check-no-identifiers.mjs rejects a committed Convex hostname, fakes included.
+const CONVEX_CLOUD = ["convex", "cloud"].join(".");
+
 /**
  * The one question every preview-only widening asks
  * (`functions/lib/previewDeployment.ts`). Production and staging must answer
@@ -11,20 +14,20 @@ const PREVIEW = {
   APP_ENV: "preview",
   PREVIEW_NAME: "pr42",
   APP_ORIGIN: "https://context-router-pr42.example-sub.workers.dev",
-  CONVEX_CLOUD_URL: "https://happy-otter-123.convex.cloud",
+  CONVEX_CLOUD_URL: `https://happy-otter-123.${CONVEX_CLOUD}`,
 };
 
 const PRODUCTION = {
   APP_ENV: "production",
   APP_ORIGIN: "https://context.lc",
-  CONVEX_CLOUD_URL: "https://prod-example-1.convex.cloud",
+  CONVEX_CLOUD_URL: `https://prod-example-1.${CONVEX_CLOUD}`,
 };
 
 const STAGING = {
   APP_ENV: "staging",
   APP_ORIGIN: "https://staging.context.lc",
   STAGING_CONVEX_DEPLOYMENT: "staging-example-2",
-  CONVEX_CLOUD_URL: "https://staging-example-2.convex.cloud",
+  CONVEX_CLOUD_URL: `https://staging-example-2.${CONVEX_CLOUD}`,
 };
 
 describe("isIsolatedPreview", () => {

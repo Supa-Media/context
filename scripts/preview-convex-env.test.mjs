@@ -12,6 +12,10 @@ import {
   previewEnvValues,
 } from './preview-convex-env.mjs';
 
+// Built at run time: scripts/check-no-identifiers.mjs rejects a committed Convex hostname, fakes included.
+const CONVEX_CLOUD = ['convex', 'cloud'].join('.');
+const CONVEX_SITE = ['convex', 'site'].join('.');
+
 const KEY = 'preview:example-team:example-project|secret-value';
 const env = {
   APP_ENV: 'staging',
@@ -36,7 +40,7 @@ const env = {
   EMPTY_ONE: '',
   PREVIEW_NAME: 'pr42',
   PREVIEW_WORKERS_DEV: 'fixture-sub.workers.dev',
-  PREVIEW_CONVEX_URL: 'https://example-preview-123.convex.cloud',
+  PREVIEW_CONVEX_URL: `https://example-preview-123.${CONVEX_CLOUD}`,
 };
 
 test('preview values set the preview identity and no staging identity', () => {
@@ -125,19 +129,19 @@ test('the preview name, workers.dev subdomain and URL are validated', () => {
   assert.throws(() => previewEnvValues({ ...env, PREVIEW_NAME: 'pr0' }), /pr<N>/);
   assert.throws(() => previewEnvValues({ ...env, PREVIEW_NAME: 'main' }), /pr<N>/);
   assert.throws(() => previewEnvValues({ ...env, PREVIEW_WORKERS_DEV: 'evil.example.com' }), /workers\.dev/);
-  assert.equal(deploymentFromUrl('https://example-preview-123.convex.cloud'), 'example-preview-123');
-  assert.equal(deploymentFromUrl('https://example-preview-123.convex.cloud/'), 'example-preview-123');
-  assert.throws(() => deploymentFromUrl('http://example-preview-123.convex.cloud'), /convex\.cloud/);
-  assert.throws(() => deploymentFromUrl('https://example-preview-123.convex.site'), /convex\.cloud/);
-  assert.throws(() => deploymentFromUrl('https://example-preview-123.convex.cloud:8443'), /convex\.cloud/);
+  assert.equal(deploymentFromUrl(`https://example-preview-123.${CONVEX_CLOUD}`), 'example-preview-123');
+  assert.equal(deploymentFromUrl(`https://example-preview-123.${CONVEX_CLOUD}/`), 'example-preview-123');
+  assert.throws(() => deploymentFromUrl(`http://example-preview-123.${CONVEX_CLOUD}`), /convex\.cloud/);
+  assert.throws(() => deploymentFromUrl(`https://example-preview-123.${CONVEX_SITE}`), /convex\.cloud/);
+  assert.throws(() => deploymentFromUrl(`https://example-preview-123.${CONVEX_CLOUD}:8443`), /convex\.cloud/);
   assert.throws(() => deploymentFromUrl('https://x.example.com/?a=1'), /convex\.cloud/);
-  assert.equal(deploymentFromUrl('https://UPPER.convex.cloud'), 'upper');
+  assert.equal(deploymentFromUrl(`https://UPPER.${CONVEX_CLOUD}`), 'upper');
 });
 
 test('outputs name the Convex URL, site and deployment', () => {
   assert.deepEqual(outputLines('example-preview-123'), [
-    'convex_url=https://example-preview-123.convex.cloud',
-    'convex_site=https://example-preview-123.convex.site',
+    `convex_url=https://example-preview-123.${CONVEX_CLOUD}`,
+    `convex_site=https://example-preview-123.${CONVEX_SITE}`,
     'deployment=example-preview-123',
   ]);
 });

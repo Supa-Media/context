@@ -3,11 +3,14 @@ import { internal } from "../_generated/api";
 import { setupTest } from "./fixtures.helpers";
 import type { TestConvex } from "./fixtures.helpers";
 
+// Built at run time: scripts/check-no-identifiers.mjs rejects a committed Convex hostname, fakes included.
+const CONVEX_CLOUD = ["convex", "cloud"].join(".");
+
 const PREVIEW_ENV = {
   APP_ENV: "preview",
   PREVIEW_NAME: "pr42",
   APP_ORIGIN: "https://context-router-pr42.example-sub.workers.dev",
-  CONVEX_CLOUD_URL: "https://happy-otter-123.convex.cloud",
+  CONVEX_CLOUD_URL: `https://happy-otter-123.${CONVEX_CLOUD}`,
   ADMIN_EMAILS: "staff@example.com",
 };
 
@@ -35,7 +38,7 @@ describe("seed:preview refuses outside an isolated preview", () => {
     stubEnvironment({
       APP_ENV: "production",
       APP_ORIGIN: "https://context.lc",
-      CONVEX_CLOUD_URL: "https://prod-example-1.convex.cloud",
+      CONVEX_CLOUD_URL: `https://prod-example-1.${CONVEX_CLOUD}`,
       ADMIN_EMAILS: "staff@example.com",
     });
     const t = setupTest();

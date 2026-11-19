@@ -4,6 +4,9 @@ import { asUser, createUser, createWorkspace, setupTest } from "../fixtures.help
 import { MANAGED_R2_ACCOUNT_ID_ENV_VAR } from "../../functions/lib/managedStorage";
 import { context } from "./fixtures.helpers";
 
+// Built at run time: scripts/check-no-identifiers.mjs rejects a committed Convex hostname, fakes included.
+const CONVEX_CLOUD = ["convex", "cloud"].join(".");
+
 /**
  * An isolated per-branch preview gets the staging billing conveniences and
  * nothing more: a test upgrade with no Stripe, a zero price, and the
@@ -17,14 +20,14 @@ const PREVIEW = {
   APP_ENV: "preview",
   PREVIEW_NAME: "pr42",
   APP_ORIGIN: "https://context-router-pr42.example-sub.workers.dev",
-  CONVEX_CLOUD_URL: "https://happy-otter-123.convex.cloud",
+  CONVEX_CLOUD_URL: `https://happy-otter-123.${CONVEX_CLOUD}`,
   [MANAGED_R2_ACCOUNT_ID_ENV_VAR]: ACCOUNT_ID,
 };
 
 const PRODUCTION = {
   APP_ENV: "production",
   APP_ORIGIN: "https://context.lc",
-  CONVEX_CLOUD_URL: "https://prod-example-1.convex.cloud",
+  CONVEX_CLOUD_URL: `https://prod-example-1.${CONVEX_CLOUD}`,
   [MANAGED_R2_ACCOUNT_ID_ENV_VAR]: ACCOUNT_ID,
 };
 

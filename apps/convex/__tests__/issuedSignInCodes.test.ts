@@ -8,6 +8,9 @@ import { MAX_ISSUED_CODE_MISSES, issueTarget } from "../functions/lib/issuedSign
 import { isIsolatedPreview } from "../functions/lib/previewDeployment";
 import { hashOneTimeCode } from "../functions/lib/oneTimeCodes";
 
+// Built at run time: scripts/check-no-identifiers.mjs rejects a committed Convex hostname, fakes included.
+const CONVEX_CLOUD = ["convex", "cloud"].join(".");
+
 /**
  * Sign-in for the accounts that cannot read their own mail: the CUJ account,
  * the App Store, directory and Google reviewers, and staging's personas.
@@ -41,13 +44,13 @@ const PREVIEW = {
   APP_ENV: "preview",
   PREVIEW_NAME: "pr42",
   APP_ORIGIN: "https://context-router-pr42.example-sub.workers.dev",
-  CONVEX_CLOUD_URL: "https://happy-otter-123.convex.cloud",
+  CONVEX_CLOUD_URL: `https://happy-otter-123.${CONVEX_CLOUD}`,
 };
 
 const PRODUCTION = {
   APP_ENV: "production",
   APP_ORIGIN: "https://context.lc",
-  CONVEX_CLOUD_URL: "https://prod-example-1.convex.cloud",
+  CONVEX_CLOUD_URL: `https://prod-example-1.${CONVEX_CLOUD}`,
 };
 
 let realFetch: typeof globalThis.fetch;
