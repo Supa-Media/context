@@ -87,17 +87,27 @@ export async function convexRun(fn, args, env = process.env) {
   }
 }
 
-/** The GitHub run ids of the Lab workflow that are still queued or running. */
-export async function activeLabRuns(repo, ghToken, env = process.env) {
+/** Runs `gh` with the given arguments and resolves to its stdout. Injectable so the tests need no network. */
+async function runGh(args, ghToken, env) {
+  const { stdout } = await execFileAsync("gh", args, { encoding: "utf8", env: { ...env, GH_TOKEN: ghToken } });
+  return stdout;
+}
+
+/*
+ * The GitHub run ids of the Lab workflow that are still live. A status-filtered listing alone once left out live
+ * holders, so one runner slot was leased twice (2026-11-19). The newest 100 runs are therefore also listed unfiltered,
+ * and every run whose status is not "completed" counts as active. The union can only keep more holders alive, never fewer.
+ * A failed listing throws, and the caller then falls back to the shared runner.
+ */
+export async function activeLabRuns(repo, ghToken, env = process.env, gh = runGh) {
   const ids = new Set();
+  const add = (stdout) => {
+    for (const line of String(stdout).split("\n")) if (/^\d+$/.test(line.trim())) ids.add(line.trim());
+  };
   for (const status of ACTIVE) {
-    const { stdout } = await execFileAsync(
-      "gh",
-      ["api", `repos/${repo}/actions/workflows/${LAB_WORKFLOW}/runs?status=${status}&per_page=100`, "--jq", ".workflow_runs[].id"],
-      { encoding: "utf8", env: { ...env, GH_TOKEN: ghToken } },
-    );
-    for (const line of stdout.split("\n")) if (/^\d+$/.test(line.trim())) ids.add(line.trim());
+    add(await gh(["api", `repos/${repo}/actions/workflows/${LAB_WORKFLOW}/runs?status=${status}&per_page=100`, "--jq", ".workflow_runs[].id"], ghToken, env));
   }
+  add(await gh(["api", `repos/${repo}/actions/workflows/${LAB_WORKFLOW}/runs?per_page=100`, "--jq", '.workflow_runs[] | select(.status != "completed") | .id'], ghToken, env));
   return [...ids];
 }
 
