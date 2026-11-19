@@ -33,11 +33,11 @@ const ALREADY = [
 const STILL_THERE = [
   /\b(?:is|are|was|['’]s)\s+(?:already\s+|still\s+)?saved\s+(?:as|in|to)\s+(?:a\s+|your\s+|the\s+)?(?:gmail\s+)?drafts?\b/i,
   /\bsaved\s+(?:as|in|to)\s+(?:a\s+|your\s+)?(?:gmail\s+)?drafts?\b/i,
-  /\b(?:still|already)\s+(?:sitting|waiting)\s+in\s+(?:your\s+)?(?:gmail\s+)?(?:drafts|inbox|outbox|calendar)\b/i,
+  /\b(?:still|already|is|are|['’]s)\s+(?:sitting|waiting)\s+in\s+(?:your\s+)?(?:gmail\s+)?(?:drafts|inbox|outbox|calendar)\b/i,
 ];
 // Said of an email, a draft or an event, these claim it still stands; said of a note, a write in the turn backs them.
 const STILL_IN_PLACE = /\b(?:is|are)\s+still\s+(?:there|in your|on your|saved|scheduled|booked|unsent)\b/i;
-const NOTHING_SENT = /\bnothing\s+(?:was|has been|got)\s+sent\b/i;
+const NOTHING_SENT = /\bnothing\s+(?:was|has been|got)\s+sent\b(?!\s+yet)/i;
 const FIRST_PERSON_DONE = /\bI(?:['’]ve| have)?\s+(?:just\s+)?(?:saved|sent|drafted|booked|scheduled|emailed)\b/i;
 const WORLD_THING = /\b(?:drafts?|e-?mails?|gmail|inbox|messages?|repl(?:y|ies)|invites?|invitations?|events?|calendar|meetings?|bookings?)\b/i;
 const NOT_DONE = /\b(?:couldn['’]?t|could not|can['’]?t|cannot|wasn['’]?t able|unable|not (?:saved|sent|done)|didn['’]?t (?:save|send))\b/i;
@@ -46,7 +46,8 @@ const THUMBS_ASK = /\b(?:reply|send|text)\s+👍|👍\s+(?:to|and)\b/;
 // The note writes too: "I saved it to your notes" after a write that went through is true.
 const ACTION = new Set(["send_email", "save_email_draft", "calendar_event", "slack_api", "app_change", "mail_agent", "send", "write", "write_note", "write_notes", "manage"]);
 const CHECK = new Set(["search_email", "read_email", "read_calendar", "mail_check"]);
-const LOOKS_AT_MAIL_OR_CALENDAR = /mail|draft|gmail|inbox|calendar|event|sent/i;
+// Whole words, so a notes search for "present" or a fetch of a "mailchimp" page is not a look at their mail.
+const LOOKS_AT_MAIL_OR_CALENDAR = /\b(?:e?mails?|drafts?|gmail|inbox|calendar|events?|sent)\b/i;
 
 /** One call's step, as `wrap` records it: its name, whether it ran, and the action or held flag when it has them. */
 export function stepOf(name, args, result) {
@@ -62,9 +63,10 @@ export function stepOf(name, args, result) {
 /** Whether the answer says something is already done or still in place, in its own words. */
 export function claimsItStands(answer) {
   const said = String(answer ?? "");
-  if (NOT_DONE.test(said)) return false;
   const sentences = said.split(/(?<=[.!?])\s+|\n+/).map((sentence) => sentence.trim()).filter((sentence) => sentence !== "" && !sentence.endsWith("?"));
   const already = sentences.some((sentence) => ALREADY.some((pattern) => pattern.test(sentence)));
+  if (already) return true; // "I already did this" stands as a claim whatever else the answer says
+  if (NOT_DONE.test(said)) return false; // an answer saying it is not done claims nothing
   // A preview still asking for their yes or 👍 is not a claim, and neither is an offer of a held change.
   if (!already && (offersAHeldChange(said) || THUMBS_ASK.test(said))) return false;
   return sentences.some((sentence) => [...ALREADY, ...STILL_THERE, NOTHING_SENT].some((pattern) => pattern.test(sentence)) || ((FIRST_PERSON_DONE.test(sentence) || STILL_IN_PLACE.test(sentence)) && WORLD_THING.test(sentence)));

@@ -103,3 +103,11 @@ test("prepareTheAnswer wires the front-door checks, so the wiring cannot be drop
   assert.match(source, /const tries = frontDoorChecks\(/);
   assert.match(source, /import \{ frontDoorChecks \} from "\.\.\/untriedWeb\.js"/);
 });
+
+test("paraphrases and mixed answers: a claim is a claim, a not-yet is not, and a mail look is a whole word", () => {
+  assert.equal(claimsItStands("The vendor reply is sitting in your drafts."), true, "sitting in your drafts, with no still or already");
+  assert.equal(claimsItStands("I already did this earlier. I couldn't see the attachment, though."), true, "a failure elsewhere does not hide an already-done claim");
+  assert.equal(claimsItStands("Nothing was sent yet. Want me to save it as a draft?"), false, "nothing sent yet is not a claim");
+  assert.equal(standsNotice("The reply is saved as a draft.", [{ name: "search", ok: true, args: { query: "present for Ana" } }]), STANDS_NOTICE, "a notes search for 'present' is not a look at sent mail");
+  assert.equal(standsNotice("The reply is saved as a draft.", [{ name: "fetch", ok: true, args: { id: "https://mailchimp.example/x" } }]), STANDS_NOTICE, "a mailchimp page is not their mail");
+});
