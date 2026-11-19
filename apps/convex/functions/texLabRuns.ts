@@ -24,7 +24,8 @@ import { internal } from "../_generated/api";
 import type { Doc, Id } from "../_generated/dataModel";
 import { internalAction, internalQuery, query, type MutationCtx, type QueryCtx } from "../_generated/server";
 import { requireAdmin } from "./lib/admin";
-import { bandVerdict, DEFAULT_REPEATS, fidelityOf, repeatsOf } from "@context/shared/src/texRunBand.cjs";
+import { DEFAULT_REPEATS, fidelityOf, repeatsOf } from "@context/shared/src/texRunBand.cjs";
+import { compareRuns, runStats } from "@context/shared/src/texRunStats.cjs";
 import { handleForUser } from "./lib/identities";
 import { internalMutation, mutation } from "./lib/rowWatch/mutations";
 
@@ -227,18 +228,29 @@ const shown = async (ctx: QueryCtx, r: Run, names = new Map<string, string>()) =
 type RunLike = { id: string; versionId: string; kind: string; set?: string | null; models: string; stage: string; startedAt: number; results?: unknown };
 
 /**
- * A draft's finished Dev run against main's newest finished Dev run on the same models and set: `bandVerdict` on their
- * results, so a draft "wins" only when its worst repeat beats main's best. Null for main's runs and for runs that are
- * not finished Dev runs (a chat or node run is a part of the set, never compared with the whole).
+ * A draft's finished Dev run against main's newest finished Dev run on the same models and set. The verdict is the
+ * paired rule (`compareRuns`, texRunStats.cjs): the two runs are scored on the rows both counted, clustered by
+ * conversation, and a draft "wins" only when the 95% interval of its per-row difference lies above 0. The min..max
+ * noise band (`band`) sits beside it and is the verdict only when a run has no rows. `paired` drops its per-row
+ * differences unless `full` (the one-run read asks for them). Null for main's runs and for runs that are not finished
+ * Dev runs (a chat or node run is a part of the set, never compared with the whole).
  */
-export function vsBase(run: RunLike, baseRuns: RunLike[]): { verdict: string; why: string; baseRunId: string | null } | null {
+export function vsBase(run: RunLike, baseRuns: RunLike[], full = false) {
   if (run.versionId === "main" || run.kind !== "dev" || run.stage !== "done") return null;
   const set = run.set ?? "dev";
   const base = baseRuns
     .filter((b) => b.versionId === "main" && b.kind === "dev" && b.stage === "done" && b.models === run.models && (b.set ?? "dev") === set)
     .sort((a, b) => b.startedAt - a.startedAt)[0];
   if (!base) return { verdict: "no base", why: `main has no finished Dev run on ${run.models} for the ${set} set`, baseRunId: null };
-  return { ...bandVerdict(run.results ?? null, base.results ?? null), baseRunId: base.id };
+  const cmp = compareRuns(run.results ?? null, base.results ?? null);
+  const paired = cmp.paired && !full && "perRow" in cmp.paired ? withoutPerRow(cmp.paired) : cmp.paired;
+  return { verdict: cmp.verdict, why: cmp.why, baseRunId: base.id, band: cmp.band.verdict, paired };
+}
+
+/** A paired comparison without its per-row differences (the list keeps the summary; `runs { id }` gives the rows). */
+function withoutPerRow<T extends { perRow: unknown }>(p: T): Omit<T, "perRow"> {
+  const { perRow: _perRow, ...rest } = p;
+  return rest;
 }
 
 export async function listRuns(ctx: QueryCtx, versionId: string | null) {
@@ -462,7 +474,11 @@ export async function runAction(ctx: MutationCtx, who: Who, action: string, a: R
   if (action === "runs") {
     if (typeof a.id === "string") {
       const r = await runOf(ctx, a.id);
-      return r ? { status: "ok", run: { ...(await shown(ctx, r)), fixedSince: fixedSince(r, await dispatchWorkedSince(ctx)) } } : { status: "bad_request", error: `there is no run ${a.id}` };
+      if (!r) return { status: "bad_request", error: `there is no run ${a.id}` };
+      const one = await shown(ctx, r);
+      // A draft's finished Dev run reads against main's newest Dev run, with the per-row differences kept.
+      const vsMain = vsBase(one, await listRuns(ctx, "main"), true);
+      return { status: "ok", run: { ...one, stats: one.results ? runStats(one.results) : null, vsMain, fixedSince: fixedSince(r, await dispatchWorkedSince(ctx)) } };
     }
     const draft = typeof a.draft === "string" ? a.draft : null;
     // The list leaves out each run's rows; `runs { id }` gives one whole.
@@ -471,6 +487,7 @@ export async function runAction(ctx: MutationCtx, who: Who, action: string, a: R
     const baseRuns = draft !== null && draft !== "main" ? await listRuns(ctx, "main") : [];
     const runs = listed.map(({ results, ...r }) => ({
       ...r,
+      stats: results ? runStats(results) : null,
       vsMain: draft !== null && draft !== "main" ? vsBase({ ...r, results }, baseRuns) : null,
       results: results ? { ...results, rows: undefined, perConv: undefined } : null,
     }));

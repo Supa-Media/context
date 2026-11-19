@@ -185,3 +185,80 @@ describe("a run's repeats", () => {
     expect((await w.door("runs", { draft: "main" })).runs.find((r: { id: string }) => r.id === mainRun)?.vsMain).toBeNull();
   });
 });
+
+/** Rows over four conversations, three turns each, every row three repeats; `passes[c]` is each turn's passes in chat c. */
+function pairedRows(passes: Record<string, number[]>) {
+  return Object.entries(passes).flatMap(([convId, turns]) =>
+    turns.map((p, msgIndex) => ({ convId, msgIndex, node: "decide", ok: p > 0, got: "", want: "", runs: 3, passes: p })),
+  );
+}
+const withRows = (passes: number[], rows: ReturnType<typeof pairedRows>) => ({ pass: bandOf(passes, TOTAL).mean, total: TOTAL, score: bandOf(passes, TOTAL), repeats: 3, rows });
+
+describe("vsBase: the paired rule (texRunStats.cjs) with the band beside it", () => {
+  const mainRows = pairedRows({ a: [0, 1, 2], b: [1, 1, 1], c: [0, 0, 1], d: [1, 2, 2] });
+  const mainResults = withRows([11, 15, 13], mainRows);
+
+  test("a draft better on the same rows in every conversation wins on the paired interval, with paired rows and a detectable change", () => {
+    const draftRows = pairedRows({ a: [2, 2, 3], b: [2, 2, 2], c: [1, 2, 2], d: [3, 3, 2] });
+    const base = [{ ...run("r100", { versionId: "main" }), results: mainResults }];
+    const draft = { ...run("r200", {}), results: withRows([16, 17, 18], draftRows) };
+    const out = vsBase(draft, base);
+    expect(out).toMatchObject({ verdict: "wins", baseRunId: "r100", band: "wins" });
+    expect(out?.paired).toMatchObject({ rows: 12, conversations: 4, sameWorld: false });
+    expect(out?.paired).not.toHaveProperty("perRow");
+    expect(typeof (out?.paired as { mdeRows: number }).mdeRows).toBe("number");
+    expect((out?.paired as { mdeRows: number }).mdeRows).toBeGreaterThan(0);
+    const full = vsBase(draft, base, true);
+    expect((full?.paired as unknown as { perRow: unknown[] }).perRow).toHaveLength(11);
+  });
+
+  test("a draft whose band wins but whose gains sit in one conversation while the others drop is not a win on the paired rule", () => {
+    const draftRows = pairedRows({ a: [3, 3, 3], b: [0, 0, 0], c: [0, 0, 0], d: [0, 0, 0] });
+    const draft = { ...run("r300", { passes: [16, 17, 18] }), results: withRows([16, 17, 18], draftRows) };
+    const base = [{ ...run("r100", { versionId: "main" }), results: mainResults }];
+    const out = vsBase(draft, base);
+    expect(out?.verdict).not.toBe("wins");
+    expect(out?.band).toBe("wins");
+    expect(out?.paired).toMatchObject({ conversations: 4 });
+  });
+
+  test("one conversation gives no paired interval, and a run with no rows falls back to the band", () => {
+    const oneChat = pairedRows({ a: [3, 3, 3] });
+    const draft = { ...run("r400", {}), results: withRows([16, 17, 18], oneChat) };
+    const base = [{ ...run("r100", { versionId: "main" }), results: { ...mainResults, rows: pairedRows({ a: [0, 1, 2] }) } }];
+    expect(vsBase(draft, base)).toMatchObject({ verdict: "too few conversations", band: "wins" });
+    const bandOnly = [{ ...run("r100", { versionId: "main", passes: [11, 15, 13] }) }];
+    expect(vsBase(run("r200", { passes: [16, 17, 18] }), bandOnly)).toMatchObject({ verdict: "wins", band: "wins", paired: null });
+  });
+});
+
+describe("runs lists each run's stats and the paired read", () => {
+  async function world() {
+    const tenants = await twoConnectedTenants();
+    const staff = await createUser(tenants.t, STAFF);
+    const pinned = await createWorkspace(tenants.t, staff, PINNED_CONTEXT_SLUG, { kind: "shared", displayName: "Context" });
+    await addMember(tenants.t, pinned, tenants.alice, "editor", staff);
+    const door = async (action: string, args: Record<string, unknown> = {}, token = ACCESS_A): Promise<Record<string, any>> =>
+      (await tenants.t.mutation(internal.functions.texLabDrafts.forGateway, { hashedAccessToken: await hashToken(token), action, args })) as Record<string, any>;
+    return { ...tenants, staff, door };
+  }
+
+  test("a listed run carries its stats, and a one-run read carries vsMain with the per-row differences", async () => {
+    const w = await world();
+    const insert = (row: Record<string, unknown>) => w.t.run(async (ctx) => await ctx.db.insert("texLabRuns", { by: w.staff, via: "lab", startedAt: Date.now(), ...row } as never));
+    const mainRows = pairedRows({ a: [0, 1, 2], b: [1, 1, 1], c: [0, 0, 1], d: [1, 2, 2] });
+    const draftRows = pairedRows({ a: [2, 2, 3], b: [2, 2, 2], c: [1, 2, 2], d: [3, 3, 2] });
+    const mainRun = await insert({ versionId: "main", kind: "dev", models: "gw", stage: "done", startedAt: 1, results: withRows([11, 15, 13], mainRows) });
+    const draft = await insert({ versionId: "vdraft1", kind: "dev", models: "gw", stage: "done", startedAt: 2, results: withRows([16, 17, 18], draftRows) });
+    const listed = (await w.door("runs", { draft: "vdraft1" })).runs as Array<{ id: string; stats: { rows: number; conversations: number; k: number; passK: { k: number } } | null; vsMain: { verdict: string; paired: { rows: number } | null } | null }>;
+    const row = listed.find((r) => r.id === draft);
+    expect(row?.stats).toMatchObject({ rows: 12, conversations: 4, k: 3, passK: { k: 3 } });
+    expect(row?.vsMain).toMatchObject({ verdict: "wins", paired: { rows: 12 } });
+    const one = await w.door("runs", { id: draft });
+    expect(one.run).toMatchObject({ id: draft, stats: { rows: 12 }, vsMain: { verdict: "wins", baseRunId: mainRun } });
+    // The one zero difference (conversation d's last turn) is left out of the per-row list.
+    expect(one.run.vsMain.paired.perRow).toHaveLength(11);
+    expect(one.run.vsMain.paired.perRow[0]).toMatchObject({ convId: expect.any(String), diff: expect.any(Number) });
+    expect((await w.door("runs", { id: mainRun })).run.vsMain).toBeNull();
+  });
+});
