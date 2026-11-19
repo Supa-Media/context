@@ -1,0 +1,571 @@
+{
+ "conversation": "running-the-shop",
+ "answers": [
+  {
+   "key": "browser page {\"steps\":[{\"do\":\"goto\",\"url\":\"https://www.discourse.org/signup\"},{\"do\":\"wait\"}]}",
+   "kind": "browser page",
+   "request": {
+    "was": null,
+    "steps": [
+     {
+      "do": "goto",
+      "url": "https://www.discourse.org/signup"
+     },
+     {
+      "do": "wait"
+     }
+    ]
+   },
+   "answer": {
+    "ran": [
+     {
+      "ok": true
+     },
+     {
+      "ok": true
+     }
+    ],
+    "url": "https://www.discourse.org/signup",
+    "title": "Start a free Discourse trial | Discourse",
+    "text": "Start a free Discourse trial\n\nCreate a hosted Discourse community in a few minutes. No credit card is needed to begin the trial.\n\nChoose a subdomain for your community, add your branding, and invite members. Hosted plans include upgrades, backups and support.\n\nCommunity name\nSubdomain (.discourse.example)\nAdmin email address\nPassword\n\nBy starting a trial you agree to the Terms of Service and Privacy Policy.\n\nStart free trial\n\nAlready have a community? Log in\nCompare plans\nContact sales",
+    "elements": [
+     {
+      "kind": "textbox",
+      "label": "Community name"
+     },
+     {
+      "kind": "textbox",
+      "label": "Subdomain"
+     },
+     {
+      "kind": "textbox",
+      "label": "Admin email address"
+     },
+     {
+      "kind": "textbox",
+      "label": "Password"
+     },
+     {
+      "kind": "checkbox",
+      "label": "I agree to the Terms of Service and Privacy Policy"
+     },
+     {
+      "kind": "button",
+      "label": "Start free trial"
+     },
+     {
+      "kind": "link",
+      "label": "Log in",
+      "href": "https://www.discourse.org/login"
+     },
+     {
+      "kind": "link",
+      "label": "Compare plans",
+      "href": "https://www.discourse.org/pricing"
+     },
+     {
+      "kind": "link",
+      "label": "Contact sales",
+      "href": "https://www.discourse.org/contact"
+     },
+     {
+      "kind": "link",
+      "label": "Terms of Service",
+      "href": "https://www.discourse.org/tos"
+     },
+     {
+      "kind": "link",
+      "label": "Privacy Policy",
+      "href": "https://www.discourse.org/privacy"
+     }
+    ]
+   }
+  },
+  {
+   "key": "gmail read {\"message\":{\"address\":\"john@gmail.example\",\"date\":\"2026-11-03t14:17:00-08:00\",\"from\":\"onboarding@shieldline.example\",\"id\":\"msg_2b58e0d4\",\"snippet\":\"hi john, thanks for booking your lantern security assessment. please complete the scan setup form so we can begin testing. the portal login link is included below for the results once the scan finishes.\",\"subject\":\"welcome to shieldline: next step is your scan setup form\",\"threadId\":\"msg_2b58e0d4\",\"to\":\"john@lantern.example\"}}",
+   "kind": "gmail read",
+   "request": {
+    "message": {
+     "address": "john@gmail.example",
+     "id": "msg_2b58e0d4",
+     "threadId": "msg_2b58e0d4",
+     "date": "2026-11-03T14:17:00-08:00",
+     "from": "onboarding@shieldline.example",
+     "to": "john@lantern.example",
+     "subject": "Welcome to Shieldline: next step is your scan setup form",
+     "snippet": "Hi John, thanks for booking your Lantern security assessment. Please complete the scan setup form so we can begin testing. The portal login link is included below for the results once the scan finishes."
+    }
+   },
+   "answer": {
+    "body": "Hi John,\n\nThanks for booking your Lantern security assessment with Shieldline. We've received your order and your account is now active.\n\nNext step: please complete the scan setup form so our team can begin testing. It asks for the environment details we need to run the scan safely, including the hostnames or app URLs in scope and a technical contact for scan-day questions. Most clients finish it in about 15 minutes.\n\nScan setup form:\nhttps://forms.shieldline.example/setup/lantern-2611\n\nOnce the scan finishes, the full findings, evidence fields and remediation notes will be available in the client portal. Sign in here:\nhttps://portal.shieldline.example/login\n\nIf you have questions about scope or timing, reply to this email or call our client desk at (415) 555-0142, Monday to Friday, 8am to 6pm Pacific.\n\nThanks,\nThe Shieldline Onboarding Team\nonboarding@shieldline.example"
+   }
+  },
+  {
+   "key": "gmail search {\"query\":\"discourse forum account\"}",
+   "kind": "gmail search",
+   "request": {
+    "query": "discourse forum account"
+   },
+   "answer": {
+    "results": []
+   }
+  },
+  {
+   "key": "gmail search {\"query\":\"discourse\"}",
+   "kind": "gmail search",
+   "request": {
+    "query": "discourse"
+   },
+   "answer": {
+    "results": []
+   }
+  },
+  {
+   "key": "gmail search {\"query\":\"forum discourse community signup hosting invoice\"}",
+   "kind": "gmail search",
+   "request": {
+    "query": "forum discourse community signup hosting invoice"
+   },
+   "answer": {
+    "results": []
+   }
+  },
+  {
+   "key": "gmail search {\"query\":\"forum\"}",
+   "kind": "gmail search",
+   "request": {
+    "query": "forum"
+   },
+   "answer": {
+    "results": []
+   }
+  },
+  {
+   "key": "gmail search {\"query\":\"shieldline portal results login link\"}",
+   "kind": "gmail search",
+   "request": {
+    "query": "Shieldline portal results login link"
+   },
+   "answer": {
+    "results": [
+     {
+      "id": "msg_7f3a91c2",
+      "date": "2026-11-19T08:42:00-08:00",
+      "from": "reports@shieldline.example",
+      "to": "john@lantern.example",
+      "subject": "Your Lantern security assessment results are ready",
+      "snippet": "Hi John, the scan for Lantern is complete. 5 items failed and 14 passed. Full findings, evidence fields and remediation notes are in the Shieldline client portal under Lantern > Assessment 2026-11. Failed items marked 'evidence pending' may close if documentation is provided."
+     },
+     {
+      "id": "msg_2b58e0d4",
+      "date": "2026-11-03T14:17:00-08:00",
+      "from": "onboarding@shieldline.example",
+      "to": "john@lantern.example",
+      "subject": "Welcome to Shieldline: next step is your scan setup form",
+      "snippet": "Hi John, thanks for booking your Lantern security assessment. Please complete the scan setup form so we can begin testing. The portal login link is included below for the results once the scan finishes."
+     }
+    ]
+   }
+  },
+  {
+   "key": "gmail search {\"query\":\"shieldline security assessment results portal\"}",
+   "kind": "gmail search",
+   "request": {
+    "query": "Shieldline security assessment results portal"
+   },
+   "answer": {
+    "results": [
+     {
+      "id": "msg_7f3a91c2",
+      "date": "2026-11-19T08:42:00-08:00",
+      "from": "reports@shieldline.example",
+      "to": "john@lantern.example",
+      "subject": "Your Lantern security assessment results are ready",
+      "snippet": "Hi John, the scan for Lantern is complete. 5 items failed and 14 passed. Full findings, evidence fields and remediation notes are in the Shieldline client portal under Lantern > Assessment 2026-11. Failed items marked 'evidence pending' may close if documentation is provided."
+     },
+     {
+      "id": "msg_2b58e0d4",
+      "date": "2026-11-03T14:17:00-08:00",
+      "from": "onboarding@shieldline.example",
+      "to": "john@lantern.example",
+      "subject": "Scan setup form for Lantern",
+      "snippet": "Thanks for booking your Lantern assessment. Please complete the scan setup form so we can connect to your staging and production environments. Reply with the requested access details or fill in the attached form by Nov 6."
+     }
+    ]
+   }
+  },
+  {
+   "key": "gmail search {\"query\":\"{discourse forum account}\"}",
+   "kind": "gmail search",
+   "request": {
+    "query": "{discourse forum account}"
+   },
+   "answer": {
+    "results": []
+   }
+  },
+  {
+   "key": "gmail search {\"query\":\"{forum discourse community signup hosting invoice}\"}",
+   "kind": "gmail search",
+   "request": {
+    "query": "{forum discourse community signup hosting invoice}"
+   },
+   "answer": {
+    "results": []
+   }
+  },
+  {
+   "key": "google calendar days {\"date\":\"2026-11-02\",\"days\":7}",
+   "kind": "google calendar days",
+   "request": {
+    "date": "2026-11-02",
+    "days": 7
+   },
+   "answer": {
+    "days": [
+     {
+      "date": "2026-11-02",
+      "events": [
+       {
+        "start": "09:30",
+        "end": "10:00",
+        "title": "Lantern team standup",
+        "where": "Google Meet"
+       },
+       {
+        "start": "13:00",
+        "end": "13:30",
+        "title": "Call with Rovertown about weekday walks",
+        "where": "Phone"
+       }
+      ]
+     },
+     {
+      "date": "2026-11-03",
+      "events": []
+     },
+     {
+      "date": "2026-11-04",
+      "events": [
+       {
+        "start": "16:00",
+        "end": "16:45",
+        "title": "Dentist - cleaning",
+        "where": "Brightside Dental, 418 Alder St"
+       }
+      ]
+     },
+     {
+      "date": "2026-11-05",
+      "events": [
+       {
+        "start": "19:00",
+        "end": "21:00",
+        "title": "Community choir rehearsal",
+        "where": "St. Brendan's Hall, Room 2"
+       }
+      ]
+     },
+     {
+      "date": "2026-11-06",
+      "events": []
+     },
+     {
+      "date": "2026-11-07",
+      "events": [
+       {
+        "start": "10:00",
+        "end": "12:00",
+        "title": "Choir sectional - tenors and basses",
+        "where": "Mara Lindqvist's home, 27 Pine Ct"
+       }
+      ]
+     },
+     {
+      "date": "2026-11-08",
+      "events": []
+     }
+    ]
+   }
+  },
+  {
+   "key": "google calendar days {\"date\":\"2026-11-09\",\"days\":7}",
+   "kind": "google calendar days",
+   "request": {
+    "date": "2026-11-09",
+    "days": 7
+   },
+   "answer": {
+    "days": [
+     {
+      "date": "2026-11-09",
+      "events": [
+       {
+        "start": "09:30",
+        "end": "10:00",
+        "title": "Lantern team standup",
+        "where": "Google Meet"
+       }
+      ]
+     },
+     {
+      "date": "2026-11-10",
+      "events": [
+       {
+        "start": "09:30",
+        "end": "10:00",
+        "title": "Lantern team standup",
+        "where": "Google Meet"
+       }
+      ]
+     },
+     {
+      "date": "2026-11-11",
+      "events": [
+       {
+        "start": "09:30",
+        "end": "10:00",
+        "title": "Lantern team standup",
+        "where": "Google Meet"
+       }
+      ]
+     },
+     {
+      "date": "2026-11-12",
+      "events": [
+       {
+        "start": "09:30",
+        "end": "10:00",
+        "title": "Lantern team standup",
+        "where": "Google Meet"
+       },
+       {
+        "start": "19:00",
+        "end": "21:00",
+        "title": "Community choir rehearsal",
+        "where": "St. Brendan's Hall, Room 2"
+       }
+      ]
+     },
+     {
+      "date": "2026-11-13",
+      "events": [
+       {
+        "start": "09:30",
+        "end": "10:00",
+        "title": "Lantern team standup",
+        "where": "Google Meet"
+       }
+      ]
+     },
+     {
+      "date": "2026-11-14",
+      "events": []
+     },
+     {
+      "date": "2026-11-15",
+      "events": []
+     }
+    ]
+   }
+  },
+  {
+   "key": "google calendar days {\"date\":\"2026-11-11\",\"days\":7}",
+   "kind": "google calendar days",
+   "request": {
+    "date": "2026-11-11",
+    "days": 7
+   },
+   "answer": {
+    "days": [
+     {
+      "date": "2026-11-11",
+      "events": [
+       {
+        "start": "09:30",
+        "end": "10:00",
+        "title": "Lantern team standup",
+        "where": "Google Meet"
+       }
+      ]
+     },
+     {
+      "date": "2026-11-12",
+      "events": [
+       {
+        "start": "09:30",
+        "end": "10:00",
+        "title": "Lantern team standup",
+        "where": "Google Meet"
+       },
+       {
+        "start": "19:00",
+        "end": "21:00",
+        "title": "Community choir rehearsal",
+        "where": "St. Brendan's Hall, Room 2"
+       }
+      ]
+     },
+     {
+      "date": "2026-11-13",
+      "events": [
+       {
+        "start": "09:30",
+        "end": "10:00",
+        "title": "Lantern team standup",
+        "where": "Google Meet"
+       }
+      ]
+     },
+     {
+      "date": "2026-11-14",
+      "events": []
+     },
+     {
+      "date": "2026-11-15",
+      "events": []
+     },
+     {
+      "date": "2026-11-16",
+      "events": [
+       {
+        "start": "09:30",
+        "end": "10:00",
+        "title": "Lantern team standup",
+        "where": "Google Meet"
+       }
+      ]
+     },
+     {
+      "date": "2026-11-17",
+      "events": [
+       {
+        "start": "09:30",
+        "end": "10:00",
+        "title": "Lantern team standup",
+        "where": "Google Meet"
+       }
+      ]
+     }
+    ]
+   }
+  },
+  {
+   "key": "google calendar days {\"date\":\"2026-11-12\",\"days\":7}",
+   "kind": "google calendar days",
+   "request": {
+    "date": "2026-11-12",
+    "days": 7
+   },
+   "answer": {
+    "days": [
+     {
+      "date": "2026-11-12",
+      "events": [
+       {
+        "start": "09:30",
+        "end": "10:00",
+        "title": "Lantern team standup",
+        "where": "Google Meet"
+       },
+       {
+        "start": "19:00",
+        "end": "21:00",
+        "title": "Community choir rehearsal",
+        "where": "St. Brendan's Hall, Room 2"
+       }
+      ]
+     },
+     {
+      "date": "2026-11-13",
+      "events": [
+       {
+        "start": "09:30",
+        "end": "10:00",
+        "title": "Lantern team standup",
+        "where": "Google Meet"
+       }
+      ]
+     },
+     {
+      "date": "2026-11-14",
+      "events": []
+     },
+     {
+      "date": "2026-11-15",
+      "events": []
+     },
+     {
+      "date": "2026-11-16",
+      "events": [
+       {
+        "start": "09:30",
+        "end": "10:00",
+        "title": "Lantern team standup",
+        "where": "Google Meet"
+       }
+      ]
+     },
+     {
+      "date": "2026-11-17",
+      "events": [
+       {
+        "start": "09:30",
+        "end": "10:00",
+        "title": "Lantern team standup",
+        "where": "Google Meet"
+       }
+      ]
+     },
+     {
+      "date": "2026-11-18",
+      "events": [
+       {
+        "start": "09:30",
+        "end": "10:00",
+        "title": "Lantern team standup",
+        "where": "Google Meet"
+       }
+      ]
+     }
+    ]
+   }
+  },
+  {
+   "key": "web search {\"query\":\"discourse hosting plans pricing free trial\"}",
+   "kind": "web search",
+   "request": {
+    "query": "Discourse hosting plans pricing free trial"
+   },
+   "answer": {
+    "results": [
+     {
+      "title": "Discourse Pricing: Hosted Community Plans",
+      "url": "https://www.discourse.org/pricing",
+      "description": "Compare Discourse hosting plans for communities of different sizes, including Standard, Business and Enterprise tiers. Hosted plans include upgrades, backups and support. A free trial is available before you choose a plan."
+     },
+     {
+      "title": "Start a free Discourse trial",
+      "url": "https://www.discourse.org/signup",
+      "description": "Create a hosted Discourse community with a free trial. Choose a subdomain, add your branding, and invite members. No credit card is needed to begin the trial."
+     },
+     {
+      "title": "Discourse hosting FAQ: billing, trials and cancellation",
+      "url": "https://meta.discourse.org/t/discourse-hosting-faq/89020",
+      "description": "Answers to common questions about hosted Discourse: how trial periods work, when billing starts, how plan changes are prorated, and how to cancel or export your data."
+     },
+     {
+      "title": "Self-hosting Discourse vs. hosted Discourse",
+      "url": "https://github.com/discourse/discourse/blob/main/docs/INSTALL.md",
+      "description": "Installation guide for running Discourse on your own server. Covers the hardware and software requirements, and notes that the official hosting service is an alternative to self-hosting."
+     },
+     {
+      "title": "Discourse community forum software review 2026",
+      "url": "https://www.communitybuildersreview.example/discourse-review-2026",
+      "description": "A review of Discourse for small product communities. It covers hosting costs, the free trial, moderation tools and how Discourse compares with other forum platforms on price."
+     }
+    ]
+   }
+  }
+ ]
+}
