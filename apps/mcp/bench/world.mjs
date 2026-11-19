@@ -19,7 +19,7 @@
  * matter, so "untouched for a month" means the same on every run.
  */
 
-import { connectMailbox, readMailbox, searchMailbox, sentMail } from "./mailbox.mjs";
+import { connectMailbox, inMailbox, readMailbox, searchMailbox, sentMail, settingMailbox } from "./mailbox.mjs";
 import { TRANSCRIPTS_FOLDER } from "../src/agent/transcript.js";
 import { HOUSEKEEPING_CLIENT_ID } from "../src/agent/housekeeping.js";
 import { arrivedEmail, checkInTurn, houseTurn, routineTurn, startCall, startGrants } from "./worldStarts.mjs";
@@ -52,7 +52,8 @@ import { failedStatus, roundsOf } from "./trace.mjs";
 import { benchCause } from "./benchCause.mjs";
 import { homeChanges, noteChanges, worldStandIns } from "./worldStandIns.mjs";
 import { lastWords } from "./worldStarts.mjs";
-import { quietCallsOf } from "./frontDoorCall.mjs";
+import { isFrontDoorCall, quietCallsOf } from "./frontDoorCall.mjs";
+import { modelFailuresIn, toolErrorsIn } from "./toolErrors.mjs";
 import { turnSteps } from "./turnSteps.mjs";
 
 /** Brave's search endpoint (`src/agent/search.js`). */
@@ -211,7 +212,9 @@ export async function createWorld(bench, person, setupRaw, models, today = null,
   // with `gmail: sends` (`connectMailbox`); a send is recorded by the stub,
   // never delivered. Each search and read is kept for the result's `Mail:` line.
   const stand = worldStandIns({ models, person }), { gaps } = stand; // the stand-ins beyond these (`worldStandIns.mjs`), and what none could answer
-  const mail = (bench.workspaces[own.workspace]?.mail ?? []).filter(stand.arrived);
+  // The mailbox the chat's setting names is the one Tex has (`mailbox.mjs` settingMailbox): the fixtures' mail moves there.
+  const named = settingMailbox(models.simulate?.setting);
+  const mail = inMailbox((bench.workspaces[own.workspace]?.mail ?? []).filter(stand.arrived), named);
   const mailEvents = [];
   const connectMail = () => {
     const address = mail[0].address;
@@ -238,7 +241,7 @@ export async function createWorld(bench, person, setupRaw, models, today = null,
   // Worker's stand-in, and the answers to web searches.
   // A person whose world writes their Gmail: the record for their search (`simulateServices`, `writtenMail`).
   const writtenMail = (bench.workspaces[own.workspace]?.mail ?? []).length > 0;
-  const sim = simulatedWorld(models, controlPlane, { today, person, noMailbox: mail.length === 0, writtenMail, gaps }); // a Dev test's outside world (`simWorld.mjs`)
+  const sim = simulatedWorld(models, controlPlane, { today, person, noMailbox: mail.length === 0, writtenMail, gaps, address: named }); // a Dev test's outside world (`simWorld.mjs`)
   // A chat whose setting names Google Chat is connected, its reads answered by the world (`chat.mjs`).
   if (models.chat === "connected") connectChat(controlPlane.googleChat, { person, sim });
   const kept = sitesIn(models.sites, sim, models.ownSites ?? []);
@@ -435,6 +438,10 @@ export async function createWorld(bench, person, setupRaw, models, today = null,
       if (job === null && typeof body?.answer === "string" && body.answer !== "") await postEvents([{ ...textedEvent(body.answer), from: { kind: "tex" }, turn: said.turn, covers, delivered: true }]); // Tex's answer, as the Worker posts it once sent
       const turn = controlPlane.turnReports.at(-1) ?? {};
       const spent = spentSince(reportsBefore);
+      // This turn's model calls: each failed tool's own error for the row (`toolErrors.mjs`), and a failed call or an
+      // empty Front door answer kept as the bench's failure, never Tex's (`benchGaps.mjs`).
+      const turnCalls = modelCalls.calls().slice(callsBefore);
+      for (const line of modelFailuresIn(turnCalls, isFrontDoorCall)) gaps.add(line);
       return {
         ok: response.status === 200 && typeof body?.answer === "string",
         answer: body?.answer ?? "",
@@ -497,6 +504,8 @@ export async function createWorld(bench, person, setupRaw, models, today = null,
         trace: turn.trace ?? [],
         // What the turn did, short (`turnSteps.mjs`): tools, the reviewer's verdicts and the outcome, for a Lab row.
         steps: turnSteps(turn.trace, { answer: body?.answer ?? "", cancelled: body?.cancelled === true }),
+        // Each failed tool's error, short and safe (`toolErrors.mjs`), for the row's detail.
+        toolErrors: toolErrorsIn(turnCalls),
       };
     },
 
@@ -505,7 +514,7 @@ export async function createWorld(bench, person, setupRaw, models, today = null,
      * no mailbox yet gets one at their bench address.
      */
     mailArrives(email) {
-      mail.unshift(arrivedEmail(email, mail[0]?.address ?? `${String(person).toLowerCase().replace(/[^a-z0-9]/g, "") || "person"}@bench.invalid`, mail.length + 1));
+      mail.unshift(arrivedEmail(email, mail[0]?.address ?? named ?? `${String(person).toLowerCase().replace(/[^a-z0-9]/g, "") || "person"}@bench.invalid`, mail.length + 1));
       if (mail.length === 1) connectMail();
     },
 

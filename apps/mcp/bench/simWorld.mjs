@@ -27,7 +27,7 @@
 
 import { triggerWords } from "./load.mjs";
 import { blankPng } from "./sites.mjs";
-import { connectMailbox, sentMail } from "./mailbox.mjs";
+import { connectMailbox, sentMail, settingMailbox } from "./mailbox.mjs";
 import { knownFacts, openWorldStore, readFixtures, worldKey, worldMode } from "./simFixtures.mjs";
 
 export const SIM_MODEL = "claude-haiku-5-5";
@@ -82,9 +82,10 @@ export function jsonIn(text) {
  * The world for one conversation. `send(body)` posts a Messages request (a JSON string) and answers a Response;
  * null answers every ask with `fallback` (a run with no model, `--fake`).
  */
-export function createSimWorld({ send = null, setting = "", chat = [], today = null, person = "person", memo = simMemo(), model = SIM_MODEL, gaps = null, sent = () => [], store = null }) {
+export function createSimWorld({ send = null, setting = "", chat = [], today = null, person = "person", memo = simMemo(), model = SIM_MODEL, gaps = null, sent = () => [], store = null, address: named = null }) {
   const events = [];
-  const address = `${String(person).toLowerCase().replace(/[^a-z0-9]/g, "") || "person"}@gmail.example`;
+  // The mailbox the setting names (`mailbox.mjs` settingMailbox), else one made up from the person's name.
+  const address = named ?? settingMailbox(setting) ?? `${String(person).toLowerCase().replace(/[^a-z0-9]/g, "") || "person"}@gmail.example`;
   // `sent(address)`: the run's real sends, read at each ask, so a send made during the run is in the world's Sent.
   const sentNow = () => sent(address);
 
@@ -443,9 +444,9 @@ export function sitesIn(sites, sim, own = []) {
   return sim ? (sites ?? []).filter((site) => !String(site.host).endsWith(".example") || own.includes(String(site.host))) : sites;
 }
 
-export function simulatedWorld(models, controlPlane, { today = null, person, noMailbox = false, writtenMail = false, gaps = null }) {
+export function simulatedWorld(models, controlPlane, { today = null, person, noMailbox = false, writtenMail = false, gaps = null, address = null }) {
   if (!models.simulate) return null;
-  const sim = createSimWorld({ ...models.simulate, today, person, gaps, sent: (address) => sentMail(controlPlane.emailCalls, address) });
+  const sim = createSimWorld({ ...models.simulate, today, person, gaps, address, sent: (address) => sentMail(controlPlane.emailCalls, address) });
   const setting = String(models.simulate.setting ?? "");
   simulateServices(sim, controlPlane, { connectedCalendar: models.calendar === "connected", connectMail: noMailbox && /\b(?:g?mail|e-?mail|inbox)\b/i.test(setting), sends: models.gmail === "sends", writtenMail });
   return sim;
