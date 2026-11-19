@@ -56,7 +56,7 @@
     {"id":"m48","text":"told you kofi","who":"Priya"},
     {"id":"m49","text":"ok ok","who":"Kofi"},
     {"id":"m50","labels":{"decide":{"act":"respond","star":true},"fd":{"must":["short draft, from Priya, ask only what's missing"],"star":true}},"text":"Tex draft that email","who":"Priya"},
-    {"id":"m51","tex":true,"text":"To Mr. Haskins:\n\nHi, we'd like to install a compact countertop dishwasher (no plumbing changes, plugs into the sink tap). Section 9 says we need your written okay. Would that be alright?\n\nThanks, Priya, Unit 3B","who":"Tex"},
+    {"id":"m51","tex":true,"text":"To Mr. Haskins:\n\nHi, we'd like to put a dishwasher in the flat. Section 9 of the lease says fixed appliances need your written permission, so could you let us know in writing whether that's okay?\n\nThanks, Priya, Unit 3B","who":"Tex"},
     {"id":"m52","tex":true,"text":"Good to send from your email, or any changes?","who":"Tex"},
     {"id":"m53","text":"send","who":"Priya"},
     {"id":"m54","kind":"react","tex":true,"text":"✅","to":"m50","who":"Tex"},
@@ -115,7 +115,7 @@
     {"id":"m107","text":"why are you thinking about july","who":"John"},
     {"id":"m108","text":"planning a trip","who":"Priya"},
     {"id":"m109","labels":{"decide":{"act":"respond","star":true,"why":"people_talking"},"fd":{"must":["correct it in one line"],"star":true}},"text":"it's a saturday i think","who":"Kofi"},
-    {"id":"m110","tex":true,"text":"Sunday, next year.","who":"Tex"},
+    {"id":"m110","tex":true,"text":"July 4 next year is a Sunday.","who":"Tex"},
     {"id":"m111","text":"close enough","who":"Kofi"},
     {"id":"m112","text":"perfect, long weekend then","who":"Priya"}
   ]
