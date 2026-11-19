@@ -1,17 +1,21 @@
 import type { MutationCtx } from "../../_generated/server";
 import { isIsolatedStaging } from "./otpBypass";
-import { DIRECTORY_REVIEW_EMAIL, DIRECTORY_REVIEW_PROVIDER_ID, GOOGLE_REVIEW_EMAIL, GOOGLE_REVIEW_PROVIDER_ID, REVIEWER_EMAIL, REVIEWER_PROVIDER_ID } from "./reviewerAccount";
+import { DIRECTORY_REVIEW_EMAIL, DIRECTORY_REVIEW_PROVIDER_ID, REVIEWER_EMAIL, REVIEWER_PROVIDER_ID } from "./reviewerAccount";
 import { TEST_ACCOUNT_EMAIL } from "./testAccount";
 
 /**
  * Who may be issued a sign-in code, and the rules every issued code follows.
  *
  * Some accounts cannot read the mailbox a code would go to: the CUJ account's
- * automated runs, the App Store, directory and Google reviewers, and staging's
+ * automated runs, the App Store and directory reviewers, and staging's
  * fictional personas. They used to sign in with fixed codes. Now staff issue
  * one code at a time (`functions/signInCodes.ts`), and that code is held to
  * the same controls as a customer's: random, single-use, expiring, and
  * attempt-limited (CASA 1.2.1, 1.3.1, 1.3.2, 1.3.4; 2026-11-11).
+ *
+ * Google's reviewer is not on this list. It now signs in with a staff-set
+ * password (`reviewerPassword.ts`), since its review runs on Google's schedule,
+ * and its issued-code provider was retired on 2026-11-18.
  */
 
 /** The accounts on every deployment, each with the provider that refuses every other address. */
@@ -19,7 +23,6 @@ export const ISSUED_CODE_ACCOUNTS: ReadonlyArray<{ email: string; provider: stri
   { email: TEST_ACCOUNT_EMAIL, provider: "test-email" },
   { email: REVIEWER_EMAIL, provider: REVIEWER_PROVIDER_ID },
   { email: DIRECTORY_REVIEW_EMAIL, provider: DIRECTORY_REVIEW_PROVIDER_ID },
-  { email: GOOGLE_REVIEW_EMAIL, provider: GOOGLE_REVIEW_PROVIDER_ID },
 ];
 
 /** Staging's fictional personas: the ordinary provider, and only on the isolated staging deployment. */

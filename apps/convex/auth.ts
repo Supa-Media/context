@@ -1,6 +1,6 @@
 import { createSupaAuth } from "@supa-media/convex/auth";
 import { productionOtpGuard, sealDevOtpBypass } from "./functions/lib/otpBypass";
-import { APP_REVIEW_PHONE, googleReviewTestEmail, reviewerTestEmail, directoryReviewTestEmail } from "./functions/lib/reviewerAccount";
+import { APP_REVIEW_PHONE, reviewerTestEmail, directoryReviewTestEmail } from "./functions/lib/reviewerAccount";
 import { testAccountEmail } from "./functions/lib/testAccount";
 import { mayCreateUser } from "./functions/lib/waitlist";
 import { limitEmailCodeSends } from "./functions/lib/emailCodeSends";
@@ -114,8 +114,9 @@ const supaAuth = createSupaAuth({
   // only codes they accept are ones staff issue (`functions/signInCodes.ts`),
   // single-use, expiring and attempt-limited like any customer's, and starting
   // a sign-in through one mints nothing (`patches/@convex-dev__auth.patch`).
-  // The YC review account signs in with a password staff set, because its
-  // reviewers come whenever they get to it (`functions/lib/reviewerPassword.ts`).
+  // The YC and Google review accounts sign in with a password staff set,
+  // because their reviewers come whenever they get to it
+  // (`functions/lib/reviewerPassword.ts`).
   // Every other address is refused before anything is read; `check` holds the
   // expiry and the guess limit, and names only the account it was set for.
   credentials: [
@@ -129,7 +130,7 @@ const supaAuth = createSupaAuth({
       },
     },
   ],
-  testEmail: [...testAccountEmail(), ...reviewerTestEmail(), ...googleReviewTestEmail(), ...directoryReviewTestEmail()],
+  testEmail: [...testAccountEmail(), ...reviewerTestEmail(), ...directoryReviewTestEmail()],
   // The framework honours `DEV_OTP_BYPASS` — which changes what the ORDINARY
   // customer provider mints, for every address — unless this is truthy and
   // `CONVEX_SITE_URL` contains it. Passing nothing is not "no opinion": it is

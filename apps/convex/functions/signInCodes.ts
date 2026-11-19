@@ -8,7 +8,7 @@ import { teamInbox } from "./signupAlerts";
 
 /**
  * Sign-in codes staff issue, for the accounts that cannot read their own mail:
- * the CUJ account, the App Store, directory and Google reviewers, and staging's
+ * the CUJ account, the App Store and directory reviewers, and staging's
  * personas (`lib/issuedSignInCodes.ts` names them).
  *
  * Every one is random, works once, expires after ten minutes for every

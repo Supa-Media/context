@@ -200,6 +200,28 @@ describe("signing in", () => {
     view.unmount();
   });
 
+  test("Google's reviewer address asks for a password, hidden, and signs in with it", async () => {
+    mockCalls.length = 0;
+    mockProviders.length = 0;
+    mockEntered.length = 0;
+    const view = mount();
+    await view.type("login-email", " Google-Review@Supa.Media ");
+    await view.press("login-submit");
+    expect(mockEntered).toEqual([]);
+    expect(mockCalls).toEqual([]);
+    expect(view.text()).toContain("Enter your password.");
+    const field = view.byId("login-password") as HTMLInputElement;
+    expect(field.type).toBe("password");
+    await view.type("login-password", "Abcdefghjk23456789Zz");
+    await view.press("login-submit");
+    expect(mockProviders).toEqual(["reviewer-password"]);
+    expect(mockCalls).toEqual([{ email: "google-review@supa.media", password: "Abcdefghjk23456789Zz" }]);
+    expect(view.text()).toContain("That password didn't work");
+    await view.press("login-change-email");
+    expect(view.byId("login-email")).not.toBeNull();
+    view.unmount();
+  });
+
   test("the illustration never shows a code somebody could type", () => {
     // Rendered directly: on the screen it is only drawn on a wide window, and a
     // test that skipped itself when it was not drawn would check nothing.

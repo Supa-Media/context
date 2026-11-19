@@ -1,17 +1,22 @@
 import type { Id } from "../../_generated/dataModel";
 import type { QueryCtx } from "../../_generated/server";
-import { YC_REVIEW_EMAIL } from "./reviewerPassword";
+import { GOOGLE_REVIEW_EMAIL, YC_REVIEW_EMAIL } from "./reviewerPassword";
+
 
 /**
  * The accounts outside reviewers sign in to: the Claude and ChatGPT directory
- * reviewers, Apple's App Store reviewer, and Google's verification reviewer.
+ * reviewers, Apple's App Store reviewer, YC's partners and Google's
+ * verification reviewer.
  *
- * None of them can read our email, so none is mailed a code. Each has a
- * provider of its own that refuses every other address, and the only codes it
- * accepts are ones staff issue for one review (`functions/signInCodes.ts`):
- * random, single-use, expiring after ten minutes, ten wrong tries in all
- * and the same ten an hour under the address as every customer. Starting a
- * sign-in through one mints nothing (`patches/@convex-dev__auth.patch`).
+ * None of them can read our email, so none is mailed a code. The directory
+ * and App Store reviewers each have a provider of their own that refuses
+ * every other address, and the only codes it accepts are ones staff issue for
+ * one review (`functions/signInCodes.ts`): random, single-use, expiring after
+ * ten minutes, ten wrong tries in all and the same ten an hour under the
+ * address as every customer. Starting a sign-in through one mints nothing
+ * (`patches/@convex-dev__auth.patch`). YC's and Google's reviewers sign in
+ * with a password staff set instead (`reviewerPassword.ts`), because they
+ * review on their own schedule.
  *
  * Until 2026-11-11 each took a fixed code from the deployment's environment
  * (`REVIEWER_SIGNIN_CODE` and the rest), and the App Store phone alias took a
@@ -52,16 +57,16 @@ export const APP_REVIEW_PHONE = "+12025550123";
 
 /**
  * Google's verification reviewer has to press Connect Google and see the
- * consent screen, so this account, unlike the one above, may hold a Google
- * connection: the reviewer's own test Google account. That is why it is a
- * separate principal, and why its codes are issued for it alone.
+ * consent screen, so this account, unlike the directory and App Store ones,
+ * may hold a Google connection: the reviewer's own test Google account. It
+ * signs in with a staff-set password (`reviewerPassword.ts`). Its issued-code
+ * provider `test-email-google-review` was retired on 2026-11-18, so no second
+ * path opens it.
+ *
+ * The address is defined in `reviewerPassword.ts`, beside the other password
+ * account, to avoid an import cycle; it is re-exported here.
  */
-export const GOOGLE_REVIEW_EMAIL = "google-review@supa.media";
-export const GOOGLE_REVIEW_PROVIDER_ID = "test-email-google-review";
-
-export function googleReviewTestEmail(): IssuedCodeAccount[] {
-  return [{ email: GOOGLE_REVIEW_EMAIL, id: GOOGLE_REVIEW_PROVIDER_ID }];
-}
+export { GOOGLE_REVIEW_EMAIL };
 
 async function emailOf(ctx: QueryCtx, userId: Id<"users">): Promise<string | undefined> {
   return (await ctx.db.get(userId))?.email?.trim().toLowerCase();

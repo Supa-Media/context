@@ -1,5 +1,6 @@
 import { readFileSync } from "node:fs";
 import { describe, expect, test } from "vitest";
+import * as reviewerAccountModule from "../functions/lib/reviewerAccount";
 
 import { isProductionTestAccount, TEST_ACCOUNT_EMAIL, testAccountEmail } from "../functions/lib/testAccount";
 import {
@@ -7,7 +8,6 @@ import {
   GOOGLE_REVIEW_EMAIL,
   REVIEWER_EMAIL,
   directoryReviewTestEmail,
-  googleReviewTestEmail,
   reviewerTestEmail,
 } from "../functions/lib/reviewerAccount";
 
@@ -29,12 +29,11 @@ const RETIRED = [
 
 describe("the exception accounts' providers", () => {
   test("each names one address and a provider of its own, and no code", () => {
-    const all = [...testAccountEmail(), ...reviewerTestEmail(), ...directoryReviewTestEmail(), ...googleReviewTestEmail()];
+    const all = [...testAccountEmail(), ...reviewerTestEmail(), ...directoryReviewTestEmail()];
     expect(all).toEqual([
       { email: TEST_ACCOUNT_EMAIL, id: "test-email" },
       { email: REVIEWER_EMAIL, id: "test-email-reviewer" },
       { email: DIRECTORY_REVIEW_EMAIL, id: "test-email-directory-review" },
-      { email: GOOGLE_REVIEW_EMAIL, id: "test-email-google-review" },
     ]);
     for (const entry of all) expect(entry).not.toHaveProperty("code");
     expect(new Set(all.map((entry) => entry.id)).size).toBe(all.length);
@@ -44,6 +43,17 @@ describe("the exception accounts' providers", () => {
     for (const email of [REVIEWER_EMAIL, DIRECTORY_REVIEW_EMAIL, GOOGLE_REVIEW_EMAIL]) {
       expect(isProductionTestAccount({ email, emailVerificationTime: 1 })).toBe(false);
     }
+  });
+});
+
+describe("Google's reviewer has no issued-code provider", () => {
+  test("no testEmail provider names google-review, and no export builds one", () => {
+    const auth = readFileSync(new URL("../auth.ts", import.meta.url), "utf8");
+    expect(auth).not.toContain("googleReviewTestEmail");
+    expect(auth).not.toContain("test-email-google-review");
+    expect(testAccountEmail().map((entry) => entry.email)).not.toContain(GOOGLE_REVIEW_EMAIL);
+    expect(Object.keys(reviewerAccountModule)).not.toContain("googleReviewTestEmail");
+    expect(Object.keys(reviewerAccountModule)).not.toContain("GOOGLE_REVIEW_PROVIDER_ID");
   });
 });
 
