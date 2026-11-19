@@ -77,8 +77,6 @@ export function startedTurn(got, said, calls = []) {
   const why = text === "" ? lastWords(quietCallsOf(calls)) : "";
   return {
     ok,
-    // A successful start that texted nothing: Tex chose silence (`run.mjs` keeps it out of the words graded).
-    quiet: ok && text === "",
     answer: text === "" ? `(stayed quiet: ${String(got.body?.outcome ?? got.body?.reason ?? "nothing texted")}${why ? `: ${why}` : ""})` : text,
     error: ok ? null : String(got.body?.error ?? `status ${got.status}`),
     ms: got.ms,

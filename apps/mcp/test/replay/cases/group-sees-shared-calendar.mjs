@@ -12,7 +12,7 @@ export default {
     try {
       const look = chatLookQuestion(undefined, null);
       assert.match(look, /calendars shared with this chat \(read_calendar/, "the check-in looks at shared calendars");
-      assert.match(look, /doesn't match what someone here said[\s\S]*ask the one person it's about/, "and asks about a clash rather than staying quiet");
+      assert.match(look, /disagrees with the chat[\s\S]*one short question to the person it's about/, "and asks about a clash rather than staying quiet");
       const shared = await chat.tag("ada", "Tex is Bo free Saturday?", "Bo's calendar has a wedding Saturday.", [], {
         group: { people: ["ada", "bo"], cause: "named", calendar: [{ handle: "bo", address: "bo@example.com" }] },
       });

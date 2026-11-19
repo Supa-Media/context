@@ -391,12 +391,3 @@ test("a result's Route line carries each texted turn's route to the Lab run's ro
   const [none] = parseResult(md.replace(/Route: .*\n\n/, "")).answers;
   assert.deepEqual(none?.routes, [], "a result from before the line reads no routes");
 });
-
-// A turn that texted nothing is a silent record line: quiet or stopped. A failed turn's apology is not silent.
-test("silentTurn: quiet and stopped turns are silent, words and a failed turn are not", async () => {
-  const { silentTurn } = await import("../run.mjs");
-  assert.equal(silentTurn({ answer: "", quiet: true }), true);
-  assert.equal(silentTurn({ answer: "", cancelled: true }), true);
-  assert.equal(silentTurn({ answer: "hi" }), false);
-  assert.equal(silentTurn({ answer: "" }), false);
-});

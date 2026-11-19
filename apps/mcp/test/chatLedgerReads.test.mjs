@@ -154,3 +154,30 @@ test("no turn record is read to show a turn its chat, whatever its replies say",
   assert.match(logged.history[0].text, /hello/);
   assert.match(logged.history[0].text, /and one with no reply behind it/);
 });
+
+// Dev2, 2026-11-19: a turn that failed must be findable. Its `failed` step is read on its own, without every other step.
+test("a read can keep only the steps named, so a failed turn's line is found among thousands of steps", async () => {
+  const { failedEntry } = await import("../src/agent/texEntryPoint/recoverFromFailure.js");
+  const { ProviderError } = await import("../src/agent/providers.js");
+  const { stepEntry } = await import("../src/agent/ledger.js");
+  const ledger = texLedger(durableSql());
+  const error = Object.assign(new ProviderError("status 402", 402), {
+    model: "anthropic/claude-haiku-5-5",
+    payers: [{ payer: "alias:first", status: 400 }, { payer: "unified", status: 402 }],
+    timing: { trace: [{ kind: "model", model: "anthropic/claude-haiku-5-5", ok: false, ms: 2_000, status: 402, reason: "status 402", payers: [{ payer: "unified", status: 402 }] }] },
+  });
+  const failed = failedEntry({ drafts: [] }, error, { turn: "turnF1234", body: { arrivedAt: NOW - 5_000, text: "SECRET question" }, received: NOW - 4_000 });
+  assert.equal(failed.step, "failed");
+  assert.equal(failed.ok, false);
+  assert.equal(failed.reason, "status 402");
+  assert.deepEqual(failed.output.payers, [{ payer: "alias:first", status: 400 }, { payer: "unified", status: 402 }]);
+  assert.deepEqual(failed.output.rounds.map((r) => [r.model, r.ok, r.status, r.reason]), [["anthropic/claude-haiku-5-5", false, 402, "status 402"]]);
+  assert.equal(failed.input.waitMs, 1_000);
+  assert.ok(!JSON.stringify(failed).includes("SECRET"), "never the question");
+  const noise = Array.from({ length: 50 }, (_, n) => stepEntry({ step: "timing", name: `stage${n}`, ms: 1 }, { turn: "turnF1234", at: NOW - 3_000 + n }));
+  await ledger.append("texts", [...noise, failed, wordsEntry("reply", "hi", { turn: "turnG1234", at: NOW })]);
+  const read = await ledger.read("texts", { before: Number.MAX_SAFE_INTEGER, kinds: ["reply", "step"], steps: ["failed"], limit: 10 });
+  assert.deepEqual(read.entries.map((e) => e.kind === "step" ? e.step : e.kind), ["reply", "failed"]);
+  const none = await ledger.read("texts", { before: Number.MAX_SAFE_INTEGER, kinds: ["step"], steps: [], limit: 10 });
+  assert.equal(none.entries.length, 0);
+});

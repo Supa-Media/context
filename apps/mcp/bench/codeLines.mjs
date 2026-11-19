@@ -47,14 +47,12 @@ function bareEmoji(text) {
 
 /**
  * Whether the assistant said any words: its text with tapback lines removed, non-empty.
- * WHY: a tapback is not a reply, so a "no words" line must not be failed by one; and a quiet or stopped turn's line
- * is the bench's marker for the judge, never a text the person got (Training 2026-11-19: two check-ins that called
- * say_nothing were graded "Tex sent words").
+ * WHY: a tapback is not a reply, so a "no words" line must not be failed by one.
  */
 export function wordsSent(answer) {
   const turns = answer?.conversation ?? [];
   return turns
-    .filter((turn) => turn.from === "assistant" && turn.silent !== true)
+    .filter((turn) => turn.from === "assistant")
     .some((turn) => {
       const kept = String(turn.text ?? "").split("\n").filter((line) => !TAPBACK.test(line.trim()));
       return kept.join("\n").trim() !== "";
