@@ -21,6 +21,8 @@
 
 import assert from "node:assert/strict";
 import { test } from "node:test";
+import { BUILTIN_PROVIDER } from "../src/agent/builtin.js";
+import { runTurn } from "../src/agent/turn.js";
 
 import { TRY_NOTICE } from "../src/agent/claimCheck.js";
 import { frontDoorChecks, untriedWebCheck } from "../src/agent/untriedWeb.js";
@@ -63,7 +65,7 @@ test("a claim with no call in the turn gets the notice, and a turn that checked 
   assert.equal(standsNotice(INCIDENT, [{ name: "save_email_draft", ok: true }]), null);
   assert.equal(standsNotice(INCIDENT, [{ name: "send", ok: true, action: "email_draft" }]), null);
   assert.equal(standsNotice(INCIDENT, [{ name: "send", ok: true, action: "email_draft", held: true }]), null, "a held email draft is checked");
-  assert.equal(standsNotice(INCIDENT, [{ name: "send_email", ok: false, held: true }]), STANDS_NOTICE, "a held send of an email does not back a draft claim");
+  assert.equal(standsNotice(INCIDENT, [{ name: "send_email", ok: false, held: true }]), null, "an email held for their yes this turn is a fresh act, and they call it a draft too");
   assert.equal(standsNotice(INCIDENT, [{ name: "search_email", ok: true }]), STANDS_NOTICE, "a mail search with no args is no look at drafts");
   assert.equal(standsNotice(INCIDENT, [{ name: "search", ok: true, args: { query: "in:drafts lumber" } }]), null);
   assert.equal(standsNotice("The meeting is at 3pm.", []), null, "no claim, no notice");
@@ -78,7 +80,8 @@ test("kind matching: an inbox read never backs a draft claim", () => {
   assert.equal(backedThisTurn([stepOf("save_email_draft", { to: "bo@example.com" }, {})], []), true, "with no kind named, a write counts");
   assert.equal(standsNotice(DRAFT_EARLIER, [inboxRead, read]), STANDS_NOTICE);
   // Other kinds' acts do not back a draft claim either.
-  assert.equal(standsNotice(DRAFT_EARLIER, [stepOf("send_email", { to: "bo@example.com" }, { held: true })]), STANDS_NOTICE);
+  assert.equal(standsNotice(DRAFT_EARLIER, [stepOf("send_email", { to: "bo@example.com" }, { held: true })]), null, "a held email this turn is a fresh act");
+  assert.equal(standsNotice(DRAFT_EARLIER, [stepOf("read_calendar", {}, {})]), STANDS_NOTICE, "a calendar read is not a look at drafts");
   assert.equal(standsNotice(DRAFT_EARLIER, [stepOf("write", { path: "x.md" }, {})]), STANDS_NOTICE);
 });
 
@@ -241,4 +244,85 @@ test("review: a text to them, a not-yet, a promise to ask first and a wait on th
 test("review: paraphrased still-there claims are claims", () => {
   assert.equal(standsNotice("Your draft's still there.", [], "save the reply as a draft"), STANDS_NOTICE);
   assert.equal(standsNotice("I've put the reply in your drafts.", [], "save the reply as a draft"), STANDS_NOTICE);
+});
+
+// THE STANDS GATE NEVER COSTS A TURN ITS REPLY (2026-11-19): a send-back lands on the penultimate round of a two-round
+// turn, and `turn.js` checks nothing on the last, so an empty retry went out empty. `final`, run on what the turn
+// returns, puts a non-empty honest line in its place, and replaces a second unbacked claim the same way.
+// Sabotage: `final` ignoring an empty retry after a send-back fails "a send-back then an empty last round".
+const TURN_MODEL = "@cf/acme/main-model";
+const DRAFT = { name: "save_email_draft", description: "Save a Gmail draft.", inputSchema: { type: "object", properties: { to: { type: "string" } } } };
+const ASK = "Write Bo a short reply about the rota and save it as a Gmail draft, don't send it.";
+const CLAIM = "I already saved that draft reply to Bo earlier, so I didn't make a second one.";
+
+/** A Workers AI binding that answers from a script, one reply per call. */
+function scripted(replies) {
+  const calls = [];
+  return {
+    calls,
+    async run(model, input) {
+      calls.push(input.messages);
+      const reply = replies.shift();
+      if (!reply) throw new Error("script ran out");
+      const tool_calls = (reply.calls ?? []).map((call, i) => ({ id: `call_${calls.length}_${i}`, type: "function", function: { name: call.name, arguments: JSON.stringify(call.args) } }));
+      return { choices: [{ message: { content: reply.text ?? "", tool_calls } }], usage: { prompt_tokens: 10, completion_tokens: 5 } };
+    },
+  };
+}
+
+/** The turn as `runTheModel.js` runs it: the gate's check as the answer check, its wrap on the calls, its `final` on what comes back. */
+async function turn(ai, { maxRounds = 2, callTool = async () => ({ content: [{ type: "text", text: "Saved." }] }) } = {}) {
+  const stands = standsGate({ question: ASK });
+  const result = await runTurn({
+    question: ASK,
+    credential: { provider: BUILTIN_PROVIDER, apiKey: null },
+    tools: [DRAFT],
+    env: { AI: ai, AGENT_BUILTIN_MODEL: TURN_MODEL },
+    providerOptions: { ai },
+    texting: true,
+    builtinModelOverride: TURN_MODEL,
+    maxRounds,
+    answerCheck: (answer, context) => stands.check(answer, context),
+    callTool: stands.wrap(callTool),
+  });
+  const honest = stands.final(result.answer, { exhausted: result.exhausted === true, silent: false });
+  return { ...result, answer: honest ?? result.answer };
+}
+
+test("a send-back then an empty last round: a non-empty honest line, never an empty reply", async () => {
+  const ai = scripted([{ text: CLAIM }, { text: "   " }]);
+  const result = await turn(ai);
+  assert.equal(ai.calls.length, 2, "one send-back, then the last round");
+  assert.ok(JSON.stringify(ai.calls[1]).includes(STANDS_NOTICE.slice(0, 40)), "the retry is told why");
+  assert.equal(result.answer, STANDS_HONEST);
+  assert.notEqual(result.answer.trim(), "");
+});
+
+test("a second unbacked claim on the last round is replaced, not sent", async () => {
+  const ai = scripted([{ text: CLAIM }, { text: "As I said, it's already saved in your drafts." }]);
+  const result = await turn(ai);
+  assert.equal(result.answer, STANDS_HONEST);
+});
+
+test("a claim on the last round with no send-back before it is replaced (the last round is checked too)", async () => {
+  const ai = scripted([{ text: CLAIM }]);
+  const result = await turn(ai, { maxRounds: 1 });
+  assert.equal(result.answer, STANDS_HONEST);
+});
+
+test("a send-back then a fresh draft save: the reply goes as written", async () => {
+  const ai = scripted([{ text: CLAIM }, { calls: [{ name: "save_email_draft", args: { to: "bo@example.com" } }] }, { text: "Saved a new draft to Bo in your Gmail drafts. Nothing was sent." }]);
+  const result = await turn(ai, { maxRounds: 3 });
+  assert.equal(result.answer, "Saved a new draft to Bo in your Gmail drafts. Nothing was sent.");
+});
+
+test("a turn the gate never sent back keeps an honest answer as it is", async () => {
+  const ai = scripted([{ text: "I couldn't save the draft: Gmail refused it. Want me to try again?" }]);
+  const result = await turn(ai, { maxRounds: 2 });
+  assert.equal(result.answer, "I couldn't save the draft: Gmail refused it. Want me to try again?");
+});
+
+test("an email held for their yes backs 'I drafted a reply' (a held send is what they call a draft)", () => {
+  assert.equal(standsNotice("I drafted a reply to Jo saying Thursday works.", [stepOf("send", { action: "email", args: {} }, { held: true })], "reply to Jo that Thursday at 3 works"), null);
+  assert.equal(standsNotice("I drafted a reply to Jo saying Thursday works.", [stepOf("send", { action: "email", args: {} }, { isError: true })], "reply to Jo that Thursday at 3 works"), STANDS_NOTICE, "a send that failed backs nothing");
 });

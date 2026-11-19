@@ -60,7 +60,8 @@ const DRAFT_LOOK = /\b(?:in:drafts?|label:drafts?|drafts?)\b/;
 const SENT_LOOK = /\b(?:in:sent|label:sent|sent)\b/;
 export const KINDS = [
   // A draft: saving one, or a mail search or read that is about their drafts.
-  { kind: "draft", act: (n, step) => n === "save_email_draft" || (n === "send" && step.action === "email_draft"), look: (n, step) => MAIL_LOOK(n, step) && DRAFT_LOOK.test(said(step)) },
+  // An email held for their yes is "drafted" in their words too ("I drafted a reply to Jo" over a held send).
+  { kind: "draft", act: (n, step) => n === "save_email_draft" || (n === "send" && step.action === "email_draft") || (step.held === true && (n === "send_email" || (n === "send" && step.action === "email"))), look: (n, step) => MAIL_LOOK(n, step) && DRAFT_LOOK.test(said(step)) },
   // An email sent: sending one, or a look at their sent mail.
   { kind: "email", act: (n, step) => n === "send_email" || n === "mail_agent" || (n === "send" && step.action === "email"), look: (n, step) => MAIL_LOOK(n, step) && SENT_LOOK.test(said(step)) },
   // A chat or DM message: Google Chat or Slack, sent or held, or the conversation read.

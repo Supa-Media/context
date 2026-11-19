@@ -698,4 +698,3 @@ test/examplesNode.test.mjs
 test/appChat.test.mjs
 test/setsFdTapbacks.test.mjs
 test/searchedLine.test.mjs
-test/standsTurn.test.mjs
