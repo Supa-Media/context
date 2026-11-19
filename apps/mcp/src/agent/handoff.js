@@ -13,6 +13,20 @@ import { QUIET_ACK, START_JOB_TOOL } from "./background.js";
 /** The turn's tool results so far, from its messages, oldest first. */
 export const toolResultsOf = (messages) => (Array.isArray(messages) ? messages : []).filter((m) => m?.role === "tool").map((m) => ({ name: String(m.name ?? ""), text: typeof m.text === "string" ? m.text : "", ...(m.isError ? { isError: true } : {}) }));
 
+/**
+ * The Hand-off node's `limits.routeSure` (a percent) is the router confidence above which a job pick goes to the worker;
+ * absent, the doors' ROUTE_AT holds. As a fraction 0..1, or null for a missing node or a value that is not an integer 0..100.
+ */
+export function routeSureOf(config) {
+  try {
+    const node = (Array.isArray(config?.nodes) ? config.nodes : []).find((n) => n?.id === "handoff");
+    const value = node?.limits?.routeSure;
+    return Number.isInteger(value) && value >= 0 && value <= 100 ? value / 100 : null;
+  } catch {
+    return null;
+  }
+}
+
 /** Which moment asked, by the wire's source: the front door out of rounds, the router's job (`doorTurn.js`), or the answer check out of send-backs. */
 export const causeOf = (from) => (from === "fd" ? "rounds" : from === "router" ? "route" : "check");
 

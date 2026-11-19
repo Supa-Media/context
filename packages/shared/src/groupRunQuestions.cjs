@@ -60,6 +60,9 @@ function chatLookQuestion(since, lastRan) {
     "Never post about the workspace's other activity, notes or other agents' work: nobody here asked. " +
     "Post here only what someone in this chat needs to act on or know now, in one short line: " +
     "what happened and who should handle it. " +
+    // Training, 2026-11-19: a look that found a day or a time that differs from what the chat settled said nothing.
+    "Check what you find against what this chat already said: when a day, a time, a price or a plan doesn't match what someone here said, " +
+    "that mismatch is the news: name it and ask the one person it's about which is right, never guess. " +
     "Leave out mail that concerns only the mailbox's owner personally: their own check-ins text them about it. " +
     "Never post just to say hello or to summarize; newsletters, receipts and automated notices are not worth a message, " +
     "and neither is anything you already posted here. If nothing needs the chat, call send with action say_nothing: nothing is posted, " +
