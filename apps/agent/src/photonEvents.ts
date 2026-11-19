@@ -20,7 +20,7 @@ import { toChat } from "./handOver";
 import { inboxByName } from "./objectPlace";
 import { photonAttachmentUrl, photonGroupGuid } from "./photon";
 import { photonGroupMembers } from "./photonClient";
-import { arrivalOf } from "./providerTiming";
+import { arrivalOf, providerTime } from "./providerTiming";
 import { photonSendStatusOf } from "./photonSendStatus";
 import { parsePhotonEvent, photonAttachmentGuids, photonGroupChange, photonGroupNameOf, type PhotonDropped, type PhotonEdit } from "./photonInbound";
 import { sendGroupName } from "./sendblueGroups";
@@ -32,6 +32,14 @@ export class PhotonEvents extends WorkerEntrypoint<Env> {
     return { status: await photonEvent(this.env, body) };
   }
 }
+
+/**
+ * An event Apple timed this long before now is the bridge's catch-up replaying history, never a new text: it is dropped
+ * before it reaches a chat (2026-11-19: a container restart replayed ~744 events from a stuck frontier, and every one older
+ * than the inbox's one-day `seen:` window took a turn). Kept below that window, so anything younger is still deduped and
+ * anything older can never take a turn.
+ */
+export const STALE_REPLAY_MS = 12 * 60 * 60 * 1000;
 
 function log(outcome: string, reason?: string): void {
   console.log(JSON.stringify({ event: "photon_webhook", outcome, ...(reason ? { reason } : {}) }));
@@ -79,6 +87,14 @@ export async function photonEvent(env: Env, body: unknown): Promise<number> {
     log("ignored", parsed.reason);
     // A message dropped in a chat it names is still a step of that chat: its history shows the drop and why (`dropped`).
     if ("chatId" in parsed || "groupId" in parsed) await noteDropped(env, parsed as PhotonDropped, provider);
+    return 200;
+  }
+  // A catch-up replay of something Apple timed long ago: noted on its chat as dropped, never handed over, 200 so the bridge moves on.
+  const at = providerTime((body as { at?: unknown }).at);
+  if (at !== null && Date.now() - at > STALE_REPLAY_MS) {
+    log("ignored", "stale_replay");
+    const named = parsed as { chatId?: string; groupId?: string; line?: string; from?: string };
+    await noteDropped(env, { kind: "ignored", reason: "stale_replay", chatId: named.chatId, groupId: named.groupId, line: named.line, from: named.from }, provider);
     return 200;
   }
   const known = origin ?? undefined;
