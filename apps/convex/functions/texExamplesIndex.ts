@@ -27,12 +27,14 @@ import GENERATED from "../../../packages/shared/src/texTraining.generated.json";
 import { createMeaningClient } from "../../mcp/src/search/meaning/client.js";
 import { createRestEmbedder } from "../../mcp/src/search/meaning/embed.js";
 import { D1_ACCOUNT_SECRET, D1_TOKEN_SECRET } from "./lib/d1";
+import { isIsolatedPreview } from "./lib/previewDeployment";
 import { ensureMeaningIndex, type MeaningConfig } from "./lib/vectorize";
 
 const EXAMPLES_INDEX_DESCRIPTION = "Context: Tex's example moments for the front door";
 
 export type ExamplesSyncResult =
   | { status: "not configured" }
+  | { status: "refused on a preview" }
   | { status: "synced"; count: number }
   | { status: "failed"; code: string };
 
@@ -67,6 +69,10 @@ export async function syncTexExamples(
   config: MeaningConfig,
   generated: unknown = GENERATED,
 ): Promise<ExamplesSyncResult> {
+  // A per-branch preview shares this account with production, and this index
+  // is one name in it, not prefixed. Refuse before any request is made, so a
+  // preview can never create or write the index production answers from.
+  if (isIsolatedPreview()) return { status: "refused on a preview" };
   const entries = indexEntries(generated);
   const embedder = createRestEmbedder({
     accountId: config.accountId,
@@ -100,7 +106,9 @@ export const sync = internalAction({
     console.log(
       result.status === "synced"
         ? `tex examples index: synced ${result.count}`
-        : `tex examples index: ${result.status}${result.status === "failed" ? ` (${result.code})` : ""}`,
+        : result.status === "failed"
+          ? `tex examples index: failed (${result.code})`
+          : `tex examples index: ${result.status}`,
     );
     return result;
   },

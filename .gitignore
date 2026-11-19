@@ -108,3 +108,7 @@ apps/mobile/features/tex/lab/labData.generated.ts
 apps/mcp/src/texDev/lab.generated.js
 apps/mcp/src/texDev/canvas.generated.js
 apps/mcp/src/texDev/replay.generated.js
+
+# Rendered per-pull-request preview configs (scripts/preview-config.mjs); never committed.
+wrangler.preview.toml
+wrangler.preview.jsonc

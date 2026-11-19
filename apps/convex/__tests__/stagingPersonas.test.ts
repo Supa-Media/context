@@ -33,6 +33,16 @@ describe("isolated staging fixtures", () => {
     await expect(t.mutation(internal.functions.stagingPersonas.prepare, {})).rejects.toThrow(/isolated staging/);
     expect(await t.run(ctx => ctx.db.query("users").collect())).toHaveLength(0);
   });
+  test("seeds the personas on an isolated preview, claiming the reserved alpha name as on staging", async () => {
+    for (const [key, value] of Object.entries({
+      APP_ENV: "preview", PREVIEW_NAME: "pr42",
+      APP_ORIGIN: "https://context-router-pr42.example-sub.workers.dev",
+      CONVEX_CLOUD_URL: "https://happy-otter-123.convex.cloud",
+    })) vi.stubEnv(key, value);
+    const t = setupTest();
+    const result = await t.mutation(internal.functions.stagingPersonas.prepare, {});
+    expect(result.workspaces.map(w => w.slug)).toContain("alpha");
+  });
   test("seeds five personas and the pinned Context workspace, preserves IDs, resets invitation acceptance", async () => {
     const t = setupTest();
     const first = await t.mutation(internal.functions.stagingPersonas.prepare, {});

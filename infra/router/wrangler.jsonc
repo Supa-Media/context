@@ -111,6 +111,25 @@
         "not_found_handling": "single-page-application",
         "run_worker_first": true
       }
+    },
+    // Preview: a throwaway copy of the router for one pull request, fronting that pull request's texting Worker
+    // preview. Its names and hosts are placeholders (__PREVIEW__ and __WORKERS_DEV__) that
+    // scripts/preview-config.mjs renders into a copy beside this file. Never deploy this section directly: the
+    // rendered copy is the only thing that goes out. Assets match staging and production.
+    "preview": {
+      "name": "context-router-__PREVIEW__",
+      "workers_dev": true,
+      "vars": {},
+      "services": [
+        { "binding": "TEXTS_SIMULATOR", "service": "context-agent-__PREVIEW__" },
+        { "binding": "TEXTS", "service": "context-agent-__PREVIEW__" }
+      ],
+      "assets": {
+        "directory": "../../apps/mobile/dist",
+        "binding": "ASSETS",
+        "not_found_handling": "single-page-application",
+        "run_worker_first": true
+      }
     }
   }
 }

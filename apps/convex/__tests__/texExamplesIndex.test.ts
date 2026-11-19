@@ -4,7 +4,7 @@
  * carry a code and nothing of the provider's words.
  */
 
-import { describe, expect, test } from "vitest";
+import { afterEach, describe, expect, test, vi } from "vitest";
 import { TEX_EXAMPLES_INDEX, indexEntries } from "@context/shared/src/texExamples.cjs";
 import GENERATED from "../../../packages/shared/src/texTraining.generated.json";
 import { meaningIndexNameFor } from "../functions/lib/vectorize";
@@ -63,6 +63,20 @@ function upsertedIds(calls: Call[]): string[] {
 }
 
 describe("tex examples index", () => {
+  afterEach(() => vi.unstubAllEnvs());
+
+  test("an isolated preview refuses to write the shared index, before any request", async () => {
+    for (const [key, value] of Object.entries({
+      APP_ENV: "preview", PREVIEW_NAME: "pr42",
+      APP_ORIGIN: "https://context-router-pr42.example-sub.workers.dev",
+      CONVEX_CLOUD_URL: "https://happy-otter-123.convex.cloud",
+    })) vi.stubEnv(key, value);
+    const { calls, fetchImpl } = fakeCloudflare();
+    const result = await syncTexExamples({ accountId: ACCOUNT, apiToken: TOKEN, fetchImpl }, GENERATED);
+    expect(result).toEqual({ status: "refused on a preview" });
+    expect(calls).toEqual([]);
+  });
+
   test("the index is Tex's own: no workspace prefix, and no workspace name can produce it", () => {
     expect(TEX_EXAMPLES_INDEX.startsWith("context-meaning-")).toBe(false);
     for (const workspaceId of ["jd7abc0000000000000000001", "k2x9q0000000000000000000"]) {

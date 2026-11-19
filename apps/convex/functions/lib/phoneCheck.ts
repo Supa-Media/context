@@ -4,7 +4,7 @@ import type { QueryCtx } from "../../_generated/server";
 import { REVIEWER_EMAIL } from "./reviewerAccount";
 import { YC_REVIEW_EMAIL } from "./reviewerPassword";
 import { TEST_ACCOUNT_EMAIL } from "./testAccount";
-import { stagingStorageIsFree } from "./managedStorage";
+import { previewStorageIsFree, stagingStorageIsFree } from "./managedStorage";
 
 /**
  * The phone check: every account confirms a phone number once, with a texted
@@ -89,8 +89,9 @@ export function isExemptEmail(email: string | undefined, env: Environment = proc
     .filter((entry) => entry.includes("@"));
   if (listed.includes(withoutTag(exact))) return true;
   // The staging personas are `<persona>@supa.media`, seeded by
-  // `stagingPersonas.prepare`, and only on the isolated staging deployment.
-  return stagingStorageIsFree() && /^(alpha|beta|gamma|delta|epsilon)@supa\.media$/.test(exact);
+  // `stagingPersonas.prepare`, and only on the isolated staging deployment or
+  // an isolated per-branch preview.
+  return (stagingStorageIsFree() || previewStorageIsFree()) && /^(alpha|beta|gamma|delta|epsilon)@supa\.media$/.test(exact);
 }
 
 /** Whether this person has a confirmed phone, by either route. */
