@@ -32,6 +32,7 @@ import { BUILTIN_PROVIDER } from "../src/agent/builtin.js";
 import { CLAIM_NOTICE, MUTE_NOTICE, TRY_NOTICE, asksToMute, claimCheck, claimsAChange, offerNotice, offeredKinds, offersAHeldChange, saysItCouldNot } from "../src/agent/claimCheck.js";
 import { runTurn } from "../src/agent/turn.js";
 import { otherSitesNotice } from "../src/agent/otherSites.js";
+import { EVERYWHERE_NOTICE, claimsSearchedEverywhere, searchedEverywhere } from "../src/agent/searchClaims.js";
 
 const MAIN = "@cf/acme/main-model";
 const WRITE = {
@@ -242,4 +243,85 @@ test("the model's one line about what it held is folded into the ask; anything e
   assert.equal(answerWithAsk("I drafted the reply to Jo.", ask, []), ask);
   assert.equal(answerWithAsk("Her quotes were for 6:30, so she may send a new one for 7.", ask, []), `Her quotes were for 6:30, so she may send a new one for 7.\n\n${ask}`);
   assert.equal(answerWithAsk("Drafted it. Do you also want me to cc Sam?", ask, []), `Drafted it. Do you also want me to cc Sam?\n\n${ask}`);
+});
+
+// 2026-11-19: "I searched all your workspaces and found nothing" after only workspace-scoped searches. A notice goes back once.
+const SEARCH = {
+  name: "search_notes",
+  description: "Search notes",
+  inputSchema: { type: "object", properties: { query: { type: "string" }, context: { type: "string" }, prefix: { type: "string" } } },
+  annotations: { readOnlyHint: true },
+};
+const found = (text) => async () => ({ content: [{ type: "text", text }] });
+
+test("a sentence that says it searched every one of their workspaces is a claim; an offer or a count of workspaces is not", () => {
+  assert.ok(claimsSearchedEverywhere("I searched all your workspaces and found nothing."));
+  assert.ok(claimsSearchedEverywhere("A search across all your workspaces didn't turn one up."));
+  assert.ok(claimsSearchedEverywhere("I checked every one of your workspaces."));
+  assert.ok(claimsSearchedEverywhere("I looked through all of their workspaces."));
+  assert.ok(!claimsSearchedEverywhere("You have three workspaces."));
+  assert.ok(!claimsSearchedEverywhere("Want me to search all your workspaces?"));
+  assert.ok(!claimsSearchedEverywhere("I can search all your workspaces if you like."));
+  assert.ok(!claimsSearchedEverywhere("I searched the guild's workspace and found nothing."));
+});
+
+test("a search with no workspace or folder named covered every one; a scoped one did not, unless its result says it looked elsewhere", () => {
+  assert.equal(searchedEverywhere("search_notes", { query: "reading list" }, ""), true);
+  assert.equal(searchedEverywhere("search_notes", { query: "reading list", context: "@guild" }, ""), false);
+  assert.equal(searchedEverywhere("search_notes", { query: "reading list", prefix: "2-reading/" }, ""), false);
+  assert.equal(searchedEverywhere("search", { query: "reading list", args: { context: "@guild" } }, ""), false);
+  assert.equal(searchedEverywhere("search", { query: "reading list", args: { prefix: "2-reading/" } }, ""), false);
+  assert.equal(searchedEverywhere("search", { query: "reading list", args: {} }, ""), true);
+  assert.equal(searchedEverywhere("search_notes", { query: "reading list", context: "@guild" }, "Results.\nThis search was asked of @guild; it also looked in the other workspaces they reach."), true);
+  assert.equal(searchedEverywhere("search_notes", { query: "reading list", context: "@guild" }, "This search was asked of @guild, and in the other workspaces they reach too."), true);
+  assert.equal(searchedEverywhere("read_note", { path: "a.md" }, ""), false);
+});
+
+test("an answer that says it searched every workspace after only scoped searches is sent back with the notice; once one unscoped search ran, it goes", async () => {
+  const scoped = claimCheck({ question: "what's on the guild reading list?" });
+  await scoped.wrap(found("No matches."))("search_notes", { query: "reading list", context: "@guild" });
+  assert.equal(scoped.check("I searched all your workspaces and found nothing."), EVERYWHERE_NOTICE);
+
+  const unscoped = claimCheck({ question: "what's on the guild reading list?" });
+  await unscoped.wrap(found("No matches."))("search_notes", { query: "reading list" });
+  assert.equal(unscoped.check("I searched all your workspaces and found nothing."), null);
+});
+
+test("a failed unscoped search is no search of every workspace, and an offer is never sent back", async () => {
+  const failed = claimCheck({ question: "find the reading list" });
+  await failed.wrap(async () => ({ isError: true, content: [{ type: "text", text: "Search failed." }] }))("search_notes", { query: "reading list" });
+  assert.equal(failed.check("I searched all your workspaces and found nothing."), EVERYWHERE_NOTICE);
+
+  const offer = claimCheck({ question: "is there a reading list?" });
+  await offer.wrap(found("No matches."))("search_notes", { query: "reading list", context: "@guild" });
+  assert.equal(offer.check("Want me to search all your workspaces?"), null);
+});
+
+test("a turn that only relays a background job's report is not checked for its searches (the job ran them, not this turn)", async () => {
+  const relay = claimCheck({ question: "the job finished", reported: true });
+  await relay.wrap(found("No matches."))("search_notes", { query: "reading list", context: "@guild" });
+  assert.equal(relay.check("A search across all your workspaces didn't turn one up."), null);
+});
+
+test("the notice goes back in the second round, and the answer is then the one that follows it", async () => {
+  const ai = scripted([
+    { calls: [{ name: "search_notes", args: { query: "reading list", context: "@guild" } }] },
+    { text: "I searched all your workspaces and found nothing." },
+    { text: "The guild list has no matches in the workspace you named." },
+  ]);
+  const claims = claimCheck({ question: "what's on the guild reading list?" });
+  const result = await runTurn({
+    question: "what's on the guild reading list?",
+    credential: { provider: BUILTIN_PROVIDER, apiKey: null },
+    tools: [SEARCH],
+    env: { AI: ai, AGENT_BUILTIN_MODEL: MAIN },
+    providerOptions: { ai },
+    texting: true,
+    builtinModelOverride: MAIN,
+    answerCheck: claims.check,
+    callTool: claims.wrap(found("No matches.")),
+  });
+  assert.equal(result.answer, "The guild list has no matches in the workspace you named.");
+  assert.equal(ai.calls.length, 3);
+  assert.ok(JSON.stringify(ai.calls[2]).includes("no search this turn did"), "the third round is told what the search covered");
 });

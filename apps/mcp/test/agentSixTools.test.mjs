@@ -210,3 +210,15 @@ test("an older tool name called with an argument its schema does not take is ref
   // A schema that takes any argument is left as it was, and so is a tool this turn was not given.
   assert.deepEqual(resolve("open_note", { anything: 1 }), { name: "open_note", args: { anything: 1 } });
 });
+
+test("a context the model nested inside a search's args is hoisted to the top of the call (2026-11-19)", () => {
+  // Guild reading list, 2026-11-19: a fallback model wrote search { query, args: { context: "@guild" } }; the gateway refused
+  // it ("context goes beside args"), so three searches never ran. The MCP tool still refuses; only Tex's resolver moves it.
+  const { resolve } = sixToolsOver(held("search_notes", "read_note"));
+  assert.deepEqual(resolve("search", { query: "reading list", args: { context: "@guild" } }), {
+    name: "search_notes",
+    args: { query: "reading list", context: "@guild" },
+  });
+  // Both present: nothing is changed, so the gateway's refusal still stands.
+  assert.match(resolve("search", { query: "reading list", context: "@guild", args: { context: "@other" } }).error, /goes beside args/);
+});

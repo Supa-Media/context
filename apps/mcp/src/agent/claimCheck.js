@@ -59,6 +59,7 @@ import { selfRepairNotice } from "./lookFirst.js";
 import { mayAsk } from "./handbackJudge.js";
 import { pageNotice, turnNoteWrite, wantsAPage } from "./pageNotice.js";
 import { replyFindings } from "./replyChecks.js";
+import { EVERYWHERE_NOTICE, claimsSearchedEverywhere, searchedEverywhere } from "./searchClaims.js";
 import { SHAPE, combineFindings, finding, oneShape } from "./checkFindings.js";
 import { barePageWritten } from "./pageCoverFloor.js";
 import { givesUpOnAFile, keptFileNotice, readsAKeptFile } from "./keptClaims.js";
@@ -67,7 +68,7 @@ import { noteStep, saveAccountCheck } from "./saveAccount.js";
 import { ASK_FIRST_NOTICE, announcesNextStep, fewerThanAsked, finishNotice, picksBeforeAsking, stopsShort, unfinishedJob } from "./stopsShort.js";
 import { KEEPS_A_PROMISE, givesUp, laterNotice, otherRoutesNotice, saysSourceIsDown, untriedRoutes } from "./otherRoutes.js";
 import { CARD_NOTICE, LOOK_ON_SITE_NOTICE, handsBackThePayment, saysNotFoundOnSite } from "./checkoutChecks.js";
-import { figureCheck } from "./sourcedFigures.js";
+import { figureCheck, resultText } from "./sourcedFigures.js";
 import { browserWalls } from "./browserWalls.js";
 import { noteLinkCheck, unknownLinkNotice } from "./linkCheck.js";
 export { CAPTCHA_NOTICE, handsOverACaptcha } from "./browserWalls.js";
@@ -411,7 +412,7 @@ const KEPT_WISHES = new Set([ATTENTION_SETTINGS_PATH, HEARTBEAT_SETTINGS_PATH, H
  * `check` to `runTurn` as `answerCheck`. `check` answers a notice, at most
  * once, or null to let the answer go.
  */
-export function claimCheck({ question, judge = null, waiting = false, corrects = false, pictures = false, job = null, visuals = () => false, kept = [], keptShown = false, history = [], detailed = false, origin = null }) {
+export function claimCheck({ question, judge = null, waiting = false, corrects = false, pictures = false, job = null, visuals = () => false, kept = [], keptShown = false, history = [], detailed = false, origin = null, reported = false }) {
   // An empty answer, a stray script, "your notes are down", a pointer back at the waiting ask (`replyChecks.js`).
   const shape = replyFindings({ question, waiting, pictures, history, detailed });
   // Whether advice on the answer's shape was given this turn, and whether a form-or-length one was (`checkFindings.js`).
@@ -474,6 +475,8 @@ export function claimCheck({ question, judge = null, waiting = false, corrects =
   // A note link in the answer that no tool gave (`linkCheck.js`).
   const links = noteLinkCheck({ origin, question, history });
   let linkNoticed = false;
+  // A reply claiming a search of every workspace (`searchClaims.js`), once a turn; a job's report relayed here was searched in the job.
+  let everywhereNoticed = false;
   const saw = (name, args, result) => void ((keptRead = keptRead || readsAKeptFile(name, args) === true), figures.read(result, { args }), result?.isError !== true && links.read(result)); // what a read showed
   return {
     /** The turn's web (`turnWeb.js`), watched for whether anything on it was tried. */
@@ -499,7 +502,7 @@ export function claimCheck({ question, judge = null, waiting = false, corrects =
         },
       };
     },
-    reread: (name, args, result) => void (saw(name, args, result), steps.push({ name, ok: result?.isError !== true, ...(typeof args?.action === "string" ? { action: args.action } : {}) })), // a read an earlier try of this text ran, put back (`turnResume.js`): it counts as read
+    reread: (name, args, result) => void (saw(name, args, result), steps.push({ name, ok: result?.isError !== true, ...(typeof args?.action === "string" ? { action: args.action } : {}), ...everywhereStep(name, args, result) })), // a read an earlier try of this text ran, put back (`turnResume.js`): it counts as read
     wrap(callTool) {
       return async (name, args) => {
         // "File this as a bug": a note write waits for the report (`bugCheck.js`).
@@ -508,7 +511,7 @@ export function claimCheck({ question, judge = null, waiting = false, corrects =
         saw(name, args, result);
         const images = args?.images ?? args?.args?.images;
         // A write that carried pictures, so "the note now has a picture" can be checked (`claimsNotePicture`); a held call is marked, as a held bug report is filed.
-        steps.push({ name, ok: result?.isError !== true, ...(typeof args?.action === "string" ? { action: args.action } : {}), ...(result?.held === true ? { held: true } : {}), ...(Array.isArray(images) && images.length > 0 ? { images: true } : {}), ...(result?.isError !== true && isWrite(name) && /\.page\.md$/i.test(String(args?.path ?? "")) ? { page: true } : {}), ...(result?.isError !== true && isWrite(name) && barePageWritten(args) ? { bare: barePageWritten(args) } : {}), ...noteStep(name, args, isWrite(name)) });
+        steps.push({ name, ok: result?.isError !== true, ...(typeof args?.action === "string" ? { action: args.action } : {}), ...(result?.held === true ? { held: true } : {}), ...(Array.isArray(images) && images.length > 0 ? { images: true } : {}), ...(result?.isError !== true && isWrite(name) && /\.page\.md$/i.test(String(args?.path ?? "")) ? { page: true } : {}), ...(result?.isError !== true && isWrite(name) && barePageWritten(args) ? { bare: barePageWritten(args) } : {}), ...noteStep(name, args, isWrite(name)), ...everywhereStep(name, args, result) });
         if (result?.held === true) held = true;
         if (result?.checkerRefused === true) checkerRefused = true;
         if (result?.isError !== true && KEEPS_A_PROMISE.has(name)) keptPromise = true;
@@ -551,6 +554,11 @@ export function claimCheck({ question, judge = null, waiting = false, corrects =
       return notice;
     },
   };
+
+  /** `everywhere` on a step whose search covered every workspace; a failed call covered nothing. */
+  function everywhereStep(name, args, result) {
+    return result?.isError !== true && searchedEverywhere(name, args, resultText(result)) ? { everywhere: true } : {};
+  }
 
   /** Hands back a once-a-turn advice check that found something which was never sent. */
   function release(kind) {
@@ -664,6 +672,11 @@ export function claimCheck({ question, judge = null, waiting = false, corrects =
     if (!notePictureNoticed && claimsNotePicture(answer, steps)) {
       notePictureNoticed = true;
       fact("note-picture", NOTE_PICTURE_NOTICE);
+    }
+    // "I searched all your workspaces" with no call that covered them all (`searchClaims.js`).
+    if (!everywhereNoticed && !reported && claimsSearchedEverywhere(answer) && !steps.some((step) => step.everywhere)) {
+      everywhereNoticed = true;
+      fact("everywhere", EVERYWHERE_NOTICE);
     }
     // A plan, research or itinerary saved as a plain note: advice to write it as a page.
     const plain = pageNoticed || held ? null : wantsAPage(noteWrites, question);

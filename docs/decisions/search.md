@@ -137,3 +137,9 @@ Moved to [A workspace object keeps its own meaning index](./search/object-meanin
 ### Days, whole lines, and the pinned workspace (2026-11-05)
 
 Moved to [Days, whole lines, and the pinned workspace](./search/dates-and-lines.md).
+
+### A search asked of one workspace names its title matches elsewhere (2026-11-19)
+
+A `search_notes` call with `context: "@x"` opens only `@x`, so a question that names a workspace for its topic ("the coach reading list", where `@kiln-guild` is named) could not see the list in the person's own workspace, and the assistant said it did not exist. When the scoped answer holds no title match (file name or title covering at least half the query's terms), the person's own unscoped search runs too, through every gate, and up to three of its title matches outside `@x` are appended, each named for its workspace (`tools/searchNamed.js`). Nothing resolves a context in that helper: the wide search is the caller's ordinary call.
+
+**What a simplification would cost:** the assistant keeps answering "not written down" for any list whose title carries the topic word that the named workspace happens to share. Such a workspace name is common, since workspaces are named for their topics. **Test:** `searchNamedElsewhere.test.mjs`, "a question that names a workspace still finds the list in the person's own workspace" (fails with the hook removed or the append dropped).

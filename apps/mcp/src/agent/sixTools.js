@@ -277,6 +277,22 @@ function searchTool(base, held) {
 }
 
 /**
+ * A workspace named inside a search's or fetch's args, `search { query, args: { context: "@guild" } }`, is moved to the
+ * top of the call: the gateway refuses it there, and three searches never ran (2026-11-19). Both present is left as it
+ * is, so the refusal still stands for a call that names two.
+ */
+function hoistNestedContext(name, call) {
+  if (name !== "search" && name !== "fetch") return call;
+  const nested = call.args;
+  if (!nested || typeof nested !== "object" || Array.isArray(nested)) return call;
+  if (typeof nested.context !== "string" || call.context !== undefined) return call;
+  const { context, ...rest } = nested;
+  const top = { ...call, context };
+  delete top.args;
+  return Object.keys(rest).length > 0 ? { ...top, args: rest } : top;
+}
+
+/**
  * The six over the tools a turn was granted.
  *
  * @param {object[]} granted the older tools this turn may call, each surface's guards already applied
@@ -308,7 +324,7 @@ export function sixToolsOver(granted, grants = null) {
       const unknown = unknownArgument(held.get(name)?.inputSchema, args);
       return unknown === null ? { name, args } : { error: `${name}: ${unknown}`, cause: "unknown_argument" };
     }
-    const call = args && typeof args === "object" && !Array.isArray(args) ? args : {};
+    const call = hoistNestedContext(name, args && typeof args === "object" && !Array.isArray(args) ? args : {});
     if (name === "orient") return { name, args: call };
     // Their group chats, searched all at once (`groupChats.js`): `search { query, args: { groups: true } }`.
     if (name === "search" && held.has("group_chats") && call.args && typeof call.args === "object" && call.args.groups === true) {

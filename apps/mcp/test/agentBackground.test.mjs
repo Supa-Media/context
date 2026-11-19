@@ -387,9 +387,20 @@ test("a running job is shown in one line, and job_status gives its steps, check 
   assert.match(why, /fill_login: theCut \(failed\) — why: That login is saved for thecut\.com; this page is thecut\.co\./);
   assert.doesNotMatch(why, /never shown/);
   assert.match(why, /say why in plain words from the failed steps' reasons/);
-  assert.equal((await dispatch(JOB_STATUS_TOOL, { title: "Quarterly taxes" })).isError, true);
+  // 2026-11-19: a title that is not quite a job's is answered with every job, never "no such job" while one runs (it was an error).
+  const misnamed = await dispatch(JOB_STATUS_TOOL, { title: "Quarterly taxes" });
+  assert.notEqual(misnamed.isError, true);
+  assert.match(words(misnamed), /^No job has exactly that title\. These are all of them:\n\n/);
+  assert.match(words(misnamed), /Logo in green[^]*Apply to a16z/);
 
   assert.match(words(await dispatch(STEER_JOB_TOOL, { title: "Logo in green" })), /Passed their text/);
   assert.match(words(await dispatch(STEER_JOB_TOOL, { title: "Logo in green", stop: true })), /Stopping "Logo in green"/);
   assert.deepEqual(startedJobs(background, false), { steers: [{ id: live.id, stop: true }] }, "a stop sticks to the job once named");
+});
+
+test("job_status with a title no job has, and no job running, is still refused (2026-11-19)", async () => {
+  const dispatch = withBackground(backgroundSession({ running: [], job: null, now: NOW }), async () => ({ content: [] }));
+  const none = await dispatch(JOB_STATUS_TOOL, { title: "Find org reading list" });
+  assert.equal(none.isError, true);
+  assert.match(words(none), /No background job by that title in this chat/);
 });
