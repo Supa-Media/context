@@ -451,7 +451,7 @@ export async function runSiteActionChecks(check) {
     answer = null;
     const uncleared = await call(env, EDITOR_TOKEN, { path: "website/index.md", site: { action: "publish" } });
     check("a refusal from the control plane is the one sentence, which names no cause",
-      uncleared.isError && uncleared.text === "only this workspace's owners and editors can see a website's status or publish it, from a connection that can write.");
+      uncleared.isError && uncleared.text === "only this workspace's owners and editors can see a website's status or publish it, from a connection that can write. Ask an owner or editor to do it.");
     const badDraft = await call(env, EDITOR_TOKEN, { path: "website/index.md", site: { action: "publish", draft: "latest" } });
     const badAction = await call(env, EDITOR_TOKEN, { path: "website/index.md", site: { action: "unpublish" } });
     const withContent = await call(env, EDITOR_TOKEN, { path: "website/index.md", content: "# Hi\n", site: { action: "status" } });
