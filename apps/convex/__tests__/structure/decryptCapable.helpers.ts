@@ -156,6 +156,13 @@ export const DECRYPT_CAPABLE_FUNCTIONS: readonly string[] = [
       "functions.workspaceObjects.setHome",
       "functions.workspaceObjects.setHomeBySlug",
       "functions.workspaceObjects.syncRows",
+      // Moves each managed workspace onto its object on its own (`workspaceObjectsMove.ts`; owner, 2026-11-20) through
+      // the same unforced switches, copies and checks as the workflows. internalActions, reached only from the scheduler
+      // (a new managed bucket, the hourly cron, a run handing on) and the move workflow's deploy key; logs carry the
+      // workspace id, step and closed words only, never a key, a path or a body. `workspaceObjectsMoveRows.ts` reads no
+      // credential.
+      "functions.workspaceObjectsMove.advance",
+      "functions.workspaceObjectsMove.sweep",
       // The staff console's one-workspace move (`adminStorage.ts`): an internalAction reached only by the scheduler edge
       // from the staff-only `moveWorkspaceHome` mutation, which audits the request first. It runs the same unforced switch
       // and copy as the workflows and records counts and fixed reasons only, never a key, a path or a body.
