@@ -1,5 +1,5 @@
 /**
- * Tex's test conversations on disk (`apps/mcp/bench/sets.mjs`; contract `packages/shared/src/texSets.cjs`).
+ * Tex's test conversations on disk (`apps/mcp/bench/sets.mjs`; contract `packages/tex/src/texSets.cjs`).
  *
  * Sabotage record (temporary local edit, reverted, 2026-11-15): problemsOf() drops its "set test" rule
  *   -> "a conversation in set test is reported, never loaded into a set" fails.
@@ -14,7 +14,7 @@ import { SETS_DIR, conversationFile, loadSets, loadContract, problemsOf, ratioCh
 import { cantRun, castProblems, frontFor, groupFor, senderOf } from "../bench/setsFd.mjs";
 import { parsePeople } from "../bench/load.mjs";
 import { findingLine, traceTraining } from "../bench/setsTrace.mjs";
-import texSets from "../../../packages/shared/src/texSets.cjs";
+import texSets from "../../../packages/tex/src/texSets.cjs";
 import { readFileSync } from "node:fs";
 
 const BENCH = new URL("../bench/ai", import.meta.url).pathname;

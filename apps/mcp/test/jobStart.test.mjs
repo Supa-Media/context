@@ -19,7 +19,7 @@ import { TEX_CONFIG } from "../src/agent/texConfig.js";
 
 const require = createRequire(import.meta.url);
 const { DEFAULT_LIMITS, configStartLimits, decideStart } = require("../../../packages/shared/src/jobStart.cjs");
-const SHELF = require("../../../packages/shared/src/texNodeShelf.json");
+const SHELF = require("../../../packages/tex/src/texNodeShelf.json");
 const ask = (fields = {}) => ({ hasTitle: true, hasBrief: true, already: null, computer: null, cloudBusy: 0, machineBusy: 0, ...fields });
 
 test("a job with a title and a brief starts where there is a free slot", () => {

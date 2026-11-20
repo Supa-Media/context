@@ -41,6 +41,7 @@ on:
       - "infra/tex-eval/**"
       - "apps/agent/**"
       - "packages/shared/src/**"
+      - "packages/tex/src/**"
       - "pnpm-lock.yaml"
       - ".github/workflows/workers.yml"
 
@@ -257,6 +258,7 @@ jobs:
           paths: |
             .github/workflows/workers.yml
             packages/shared/src/**
+            packages/tex/src/**
 
       - name: Install (Agent)
         if: ${{ !cancelled() && steps.agent.outputs.affected == 'true' }}

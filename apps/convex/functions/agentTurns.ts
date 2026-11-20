@@ -19,7 +19,7 @@ import { resolveGrantByAccessTokenHandler } from "./lib/controlPlane/session";
 import { TEXTS_CLIENT_ID } from "./textLinks";
 import { writingCostMicroUsd } from "./lib/jev/meter";
 import { insertTurn } from "./lib/agentTurnMark";
-import { TEX_STATE_FILES } from "@context/shared/src/toolRules.cjs";
+import { TEX_STATE_FILES } from "@context/tex/src/toolRules.cjs";
 
 /** How long a turn's row is kept. Long enough to compare weeks, no longer. */
 export const AGENT_TURN_RETENTION_MS = 30 * 24 * 60 * 60 * 1000;
@@ -66,7 +66,7 @@ export const toolsShownValidator = v.object({
 });
 const PRINT = /^[0-9a-f]{8}$/;
 const MAX_TOOLS_SHOWN = 16;
-/** Rule 3's state files (`packages/shared/src/toolRules.cjs` `TEX_STATE_FILES`): only these names are kept. */
+/** Rule 3's state files (`packages/tex/src/toolRules.cjs` `TEX_STATE_FILES`): only these names are kept. */
 const STATE_FILES = new Set(TEX_STATE_FILES.map((entry) => entry.file));
 
 /** Where a turn came from, as the gateway names it (`apps/mcp/src/agent/turnLog.js`). */

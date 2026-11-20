@@ -1,11 +1,11 @@
 /**
  * The Lab's route summary of a run (Dev2, 2026-11-18: "per-route pass rate, router accuracy with a confusion table, the
- * fallback rate and cost per turn"). The arithmetic is `packages/shared/src/texRouteSummary.cjs`, shared with tex_dev's
+ * fallback rate and cost per turn"). The arithmetic is `packages/tex/src/texRouteSummary.cjs`, shared with tex_dev's
  * `runs { id }`; this file is the Lab's side of it: each run row's gold route is the Training or Dev set's label on that
  * message (`labels.router.route`), and the words the Runs panel shows. Pure: no React, no Convex.
  */
-import { ROUTES, PICKS, goldRouteAt, routeSummary, type RouteSummary } from "@context/shared/src/texRouteSummary.cjs";
-import type { RouteRow } from "@context/shared/src/texRouteSummary.d.cts";
+import { ROUTES, PICKS, goldRouteAt, routeSummary, type RouteSummary } from "@context/tex/src/texRouteSummary.cjs";
+import type { RouteRow } from "@context/tex/src/texRouteSummary.d.cts";
 import type { Conversation } from "./sets";
 
 export type { RouteSummary };

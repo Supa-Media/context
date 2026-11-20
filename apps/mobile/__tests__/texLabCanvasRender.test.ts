@@ -10,7 +10,7 @@ import { afterEach, describe, expect, jest, test } from "@jest/globals";
 jest.mock("../features/tex/lab/data/models", () => jest.requireActual<typeof import("./fixtures/texLabArtifactGraph")>("./fixtures/texLabArtifactGraph").artifactModelsModule());
 jest.mock("../features/tex/lab/data/graph", () => jest.requireActual<typeof import("./fixtures/texLabArtifactGraph")>("./fixtures/texLabArtifactGraph").artifactGraphModule());
 // The artifact sized Tex's prompt modules by its own estimates: it had none of their words, which are the repository's
-// since 2026-11-14 (packages/shared/src/texPrompt). The golden is the artifact's drawing, so it is drawn without them.
+// since 2026-11-14 (packages/tex/src/texPrompt). The golden is the artifact's drawing, so it is drawn without them.
 jest.mock("../features/tex/lab/labData.generated", () => {
   const real = jest.requireActual<typeof import("../features/tex/lab/labData.generated")>("../features/tex/lab/labData.generated");
   // The map is generated from the config (scripts/tex-architecture.mjs), so it grows with every node's shape; the golden

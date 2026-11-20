@@ -4,7 +4,7 @@
  * that calls them, send-backs weighted by how often they happen, and the
  * reply time as when "Text them" ends.
  */
-import { provisionalHeld } from "@context/shared/src/texGraph.cjs";
+import { provisionalHeld } from "@context/tex/src/texGraph.cjs";
 import { EFFORT, FTYPES } from "../data/models";
 import type { LabEdge, LabGraph, LabNode } from "../types";
 import { unfoldGroups } from "./groups";

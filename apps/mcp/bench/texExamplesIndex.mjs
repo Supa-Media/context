@@ -19,8 +19,8 @@ import { fileURLToPath } from "node:url";
 import { MEANING_DIMENSIONS, MEANING_MODEL, createRestEmbedder } from "../src/search/meaning/embed.js";
 
 const require = createRequire(import.meta.url);
-const GENERATED = require("../../../packages/shared/src/texTraining.generated.json");
-const { EXAMPLES_K, indexEntries, nearestInMemory } = require("../../../packages/shared/src/texExamples.cjs");
+const GENERATED = require("../../../packages/tex/src/texTraining.generated.json");
+const { EXAMPLES_K, indexEntries, nearestInMemory } = require("../../../packages/tex/src/texExamples.cjs");
 
 /** The cache file's name inside `cacheDir`. */
 export const EXAMPLES_CACHE_FILE = "tex-examples-vectors.json";

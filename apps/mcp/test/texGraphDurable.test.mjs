@@ -13,7 +13,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 
-import graphLib from "../../../packages/shared/src/texGraph.cjs";
+import graphLib from "../../../packages/tex/src/texGraph.cjs";
 
 const { createGraph } = graphLib;
 const node = (id, extra = {}) => ({ id, on: true, rounds: 1, ...extra });

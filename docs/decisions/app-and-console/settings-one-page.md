@@ -24,7 +24,7 @@ searchable index beside a panel.
 - **A wide window opens on the same page.** No sidebar: a section is a page
   pushed over the home, and the bar's left control says "Settings" to go back.
 - **The Tex rows are the list Tex reads.** The Tex section's "More" draws
-  `TEX_SETTINGS` (`packages/shared/src/texSettings.cjs`), the list Tex uses when
+  `TEX_SETTINGS` (`packages/tex/src/texSettings.cjs`), the list Tex uses when
   someone texts it a change, so the page and the chat never name different
   settings. Rows with a page of their own (how Tex talks, the vault, the apps
   Tex uses) are not drawn twice.

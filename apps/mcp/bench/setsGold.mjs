@@ -29,7 +29,7 @@ import { sentPicturesLine } from "../src/agent/outgoingPictures.js";
 import { tapbackLine } from "./run.mjs";
 import { fakeAbilityReply, impossibleLines, isAbilityBody } from "./setsAbility.mjs";
 
-const { unitTests } = createRequire(import.meta.url)("../../../packages/shared/src/texSets.cjs");
+const { unitTests } = createRequire(import.meta.url)("../../../packages/tex/src/texSets.cjs");
 
 /** How many times a judge reply that is not parseable is asked again. */
 export const GOLD_ATTEMPTS = 3;

@@ -17,8 +17,8 @@ import { holdOutOn } from "../bench/setsRun.mjs";
 import { readWorld, seedWorld, withRows, worldDirOf, worldProblems } from "../bench/setsWorld.mjs";
 
 const require = createRequire(import.meta.url);
-const { HOLD_OUT_ENV, heldOutOf, trainingText } = require("../../../packages/shared/src/texTraining.cjs");
-const GENERATED = require("../../../packages/shared/src/texTraining.generated.json");
+const { HOLD_OUT_ENV, heldOutOf, trainingText } = require("../../../packages/tex/src/texTraining.cjs");
+const GENERATED = require("../../../packages/tex/src/texTraining.generated.json");
 
 const TREE = join(dirname(fileURLToPath(import.meta.url)), "../../..");
 const BENCH = join(TREE, "apps/mcp/bench/ai");

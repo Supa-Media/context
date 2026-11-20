@@ -3,7 +3,7 @@
  * gateway, its daily cap and usage rows kept). The texting Worker asks over the `TexTexts` service binding (no public
  * URL, no secret of its own), with the body it used to send the control plane's `/agent-texts/decide` and
  * `/agent-texts/recheck`. The questions and how answers read are the control plane's own copy
- * (`packages/shared/src/textDecide.cjs`), so the two never drift.
+ * (`packages/tex/src/textDecide.cjs`), so the two never drift.
  *
  * The cap and the usage rows stay in the control plane: the Worker asks its gate now and then and reports what was
  * decided after the answer is in (`apps/agent/src/decide.ts`). So this answers with `meter`, the counts that report
@@ -23,7 +23,7 @@ import { dayFromLedger } from "./ledgerHistory.js";
 import { foldThreads, THREADS_SUFFIX } from "./threadsFold.js";
 import { guestNameFacts, guestNamesFrom } from "./groupGuestNames.js";
 import { ABOUT_FACT, briefFacts } from "./judgeBrief.js";
-import { decideRequest, readDecideAnswers, readDecideBody, readRecheckAnswers, readRecheckBody, recheckRequest } from "../../../../packages/shared/src/textDecide.cjs";
+import { decideRequest, readDecideAnswers, readDecideBody, readRecheckAnswers, readRecheckBody, recheckRequest } from "../../../../packages/tex/src/textDecide.cjs";
 
 /** The paths the Worker posts to on the `TexTexts` binding. */
 export const TEXTS_DECIDE_PATH = "/texts/decide";

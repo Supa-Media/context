@@ -67,8 +67,8 @@ function selfTest() {
   const ok = { context: STATUS, state: "success" };
   const cases = [
     ["no model area: passes with no run", ["apps/mcp/src/agent/warmCopy.js"], [], true],
-    ["a judge change with no run fails", ["packages/shared/src/textDecide.cjs"], [], false],
-    ["a judge change with a passing run passes", ["packages/shared/src/textDecide.cjs"], [ok], true],
+    ["a judge change with no run fails", ["packages/tex/src/textDecide.cjs"], [], false],
+    ["a judge change with a passing run passes", ["packages/tex/src/textDecide.cjs"], [ok], true],
     ["the newest status wins", ["apps/mcp/src/agent/replyJudge.js"], [{ context: STATUS, state: "failure" }, ok], false],
     ["another context's success is not this one", ["apps/mcp/src/agent/replyJudge.js"], [{ context: "ci", state: "success" }], false],
     // The full replay is the Dev Set's, and never gates (Dev2, 2026-11-15): only the Test Set's status passes.

@@ -20,8 +20,8 @@ import { EXAMPLES_CACHE_FILE, benchExamplesIndex, benchExamplesIndexOnce } from 
 import { MEANING_DIMENSIONS, MEANING_MODEL } from "../../src/search/meaning/embed.js";
 
 const require = createRequire(import.meta.url);
-const GENERATED = require("../../../../packages/shared/src/texTraining.generated.json");
-const { indexEntries } = require("../../../../packages/shared/src/texExamples.cjs");
+const GENERATED = require("../../../../packages/tex/src/texTraining.generated.json");
+const { indexEntries } = require("../../../../packages/tex/src/texExamples.cjs");
 
 const ENTRIES = indexEntries(GENERATED);
 const UNIQUE_TEXTS = new Set(ENTRIES.map((entry) => entry.text)).size;

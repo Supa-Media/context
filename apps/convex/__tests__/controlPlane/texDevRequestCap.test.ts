@@ -7,7 +7,7 @@ import { describe, expect, it } from "vitest";
 import { readFileSync } from "node:fs";
 import { MAX_TEX_DEV_REQUEST_BYTES } from "../../functions/lib/gatewayAuth";
 import { MAX_JSON } from "../../functions/texLab";
-import { TEX_CONFIG } from "@context/shared/src/texConfig.cjs";
+import { TEX_CONFIG } from "@context/tex/src/texConfig.cjs";
 
 const bodyOf = (graph: string) => JSON.stringify({ accessToken: "t".repeat(64), action: "create", args: { name: "A draft", from: "main", graph, base: "0".repeat(15) } });
 

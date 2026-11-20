@@ -268,7 +268,7 @@ jobs:
       - name: The Tex Lab's data builds from the bench
         run: node scripts/tex-lab-data.mjs
 
-      # Tex's test conversations (packages/shared/src/texSets.cjs; plan: tex-sets/plan.md). The Test Set is never in the
+      # Tex's test conversations (packages/tex/src/texSets.cjs; plan: tex-sets/plan.md). The Test Set is never in the
       # repo: its star count comes from the eval service, and an unreachable service falls back to Training against Dev.
       - name: Tex's test conversations are sound and hold 60/20/20
         env:

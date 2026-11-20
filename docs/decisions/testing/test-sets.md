@@ -48,7 +48,7 @@ its own labels with `train:<its id>`, another step's by naming that one, and
 none when the entry is taken out; the Lab and `tex_dev` add, move and remove it
 as they do any module. `scripts/tex-training-module.mjs` writes every Training
 label as a moment (the chat before, the message, the label) into
-`packages/shared/src/texTraining.generated.json`, which `texTraining.cjs`
+`packages/tex/src/texTraining.generated.json`, which `texTraining.cjs`
 renders; CI fails when it is stale. Decide's judge examples are Training
 conversations (`apps/mcp/bench/sets/training/decide-*.json`) and its prompt
 was unchanged by a byte by the move; the front door and the background job get
@@ -68,7 +68,7 @@ note's own body keeps its 40,000. Simplifying back to snippets loses the rhythm
 of a long chat; `texTraining.test.mjs` fails if the front door stops reading
 whole conversations.
 
-`packages/shared/src/texSets.cjs` is the one contract every reader uses (the
+`packages/tex/src/texSets.cjs` is the one contract every reader uses (the
 Lab's Testing tab, the store, the eval service, the prompts' examples).
 
 ## What a "simplification" would cost

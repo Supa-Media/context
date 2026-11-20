@@ -15,7 +15,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 
 import partEndLib from "../../../packages/shared/src/jobPartEnd.cjs";
-import SHELF from "../../../packages/shared/src/texNodeShelf.json" with { type: "json" };
+import SHELF from "../../../packages/tex/src/texNodeShelf.json" with { type: "json" };
 import { partEndNode } from "../src/agent/graph/nodes/partEnd.js";
 import { GATEWAY_NODES } from "../src/agent/graph/gatewayNodes.js";
 

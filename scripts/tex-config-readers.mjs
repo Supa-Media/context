@@ -5,7 +5,7 @@
  *
  * Fails when:
  *   - a file names `texConfig.json` in code (a string, an import, a require) other than the loaders: runtime code reads
- *     `packages/shared/src/texConfig.cjs`, Node scripts `scripts/lib/texConfigFile.mjs`, so every reader gets a config
+ *     `packages/tex/src/texConfig.cjs`, Node scripts `scripts/lib/texConfigFile.mjs`, so every reader gets a config
  *     checked against `texConfigSchema.cjs`, and a schema change cannot miss a reader that parses the file its own way;
  *   - the committed config does not match its schema, or is behind its version (`tex-config-migrate.mjs`);
  *   - `SCHEMA_VERSION` was bumped without its migration;
@@ -23,15 +23,15 @@ import { fileURLToPath } from "node:url";
 import { readTexConfig } from "./lib/texConfigFile.mjs";
 
 const ROOT = fileURLToPath(new URL("..", import.meta.url));
-const SCHEMA = createRequire(import.meta.url)("../packages/shared/src/texConfigSchema.cjs");
+const SCHEMA = createRequire(import.meta.url)("../packages/tex/src/texConfigSchema.cjs");
 
 /** The files that may name the config file in code, and why. */
 export const LOADERS = {
-  "packages/shared/src/texConfig.cjs": "the runtime loader",
+  "packages/tex/src/texConfig.cjs": "the runtime loader",
   "scripts/lib/texConfigFile.mjs": "the Node scripts' loader",
   "scripts/ci-change-scope.mjs": "a path in CI's change scope, not a read",
   "scripts/tex-config-readers.mjs": "this check",
-  "packages/shared/src/texConfig.d.cts": "the runtime loader's types",
+  "packages/tex/src/texConfig.d.cts": "the runtime loader's types",
   "apps/mobile/features/tex/lab/engine/graphAt.ts": "the Lab reads the config at old commits from GitHub and migrates it",
 };
 const CODE = /\.(c|m)?(j|t)sx?$/;
@@ -46,7 +46,7 @@ export function strayReaders(files, read) {
 export function problems(root = ROOT) {
   const out = [];
   const files = execFileSync("git", ["ls-files"], { cwd: root, encoding: "utf8" }).split("\n").filter(Boolean);
-  for (const f of strayReaders(files, (p) => readFileSync(join(root, p), "utf8"))) out.push(`${f} reads texConfig.json itself: read it through packages/shared/src/texConfig.cjs (runtime) or scripts/lib/texConfigFile.mjs (Node scripts)`);
+  for (const f of strayReaders(files, (p) => readFileSync(join(root, p), "utf8"))) out.push(`${f} reads texConfig.json itself: read it through packages/tex/src/texConfig.cjs (runtime) or scripts/lib/texConfigFile.mjs (Node scripts)`);
   try {
     readTexConfig(root);
   } catch (error) {
@@ -65,12 +65,12 @@ function selfTest() {
     if (!cond) throw new Error(`tex-config-readers self-test: ${what}`);
   };
   const text = {
-    "a.ts": 'import C from "@context/shared/src/texConfig.json";',
-    "b.mjs": 'const c = JSON.parse(readFileSync("packages/shared/src/texConfig.json"));',
+    "a.ts": 'import C from "@context/tex/src/texConfig.json";',
+    "b.mjs": 'const c = JSON.parse(readFileSync("packages/tex/src/texConfig.json"));',
     "c.cjs": "const c = require('./texConfig.json');",
     "d.ts": "/** Reads `texConfig.json` through the loader. */",
     "e.md": '"texConfig.json"',
-    "packages/shared/src/texConfig.cjs": 'require("./texConfig.json")',
+    "packages/tex/src/texConfig.cjs": 'require("./texConfig.json")',
   };
   const stray = strayReaders(Object.keys(text), (f) => text[f]);
   expect(stray.join() === "a.ts,b.mjs,c.cjs", `the wrong files were caught: ${stray.join()}`);

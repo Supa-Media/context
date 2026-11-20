@@ -13,6 +13,7 @@
     "@context/obsidian-runtime": "workspace:*",
     "@context/lab": "workspace:*",
     "@context/shared": "workspace:*",
+    "@context/tex": "workspace:*",
     "@convex-dev/auth": "^0.0.96",
     "@resvg/resvg-wasm": "^2.6.2",
     "@supa-media/convex": "^1.13.0",

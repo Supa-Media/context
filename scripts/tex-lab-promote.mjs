@@ -4,7 +4,7 @@
  * production code, and to be the only source of truth").
  *
  * Reads a saved Lab version's graph (the JSON the Lab keeps in `texLabVersions.graph`) and writes it into
- * `packages/shared/src/texConfig.json`, one step and one wire per line, then regenerates tex.md's drawing and table and the map every Tex agent reads (`tex-architecture.mjs`). The
+ * `packages/tex/src/texConfig.json`, one step and one wire per line, then regenerates tex.md's drawing and table and the map every Tex agent reads (`tex-architecture.mjs`). The
  * Lab promote workflow runs this on a branch of its own and opens the pull request; the pull request's gates decide.
  *
  * Refused, with the reason, rather than written: a graph whose steps or wires are malformed, a wire to a step that is
@@ -15,7 +15,7 @@
  * (a code module, a chat view, a step's own instructions: those change in code).
  *
  * Prompt words are promoted too (Dev2, 2026-11-14: the words live "in the repo, beside the config"): a version's text
- * for a prompt module, `p-<name>`, is written to `packages/shared/src/texPrompt/<name>.md` and the generated words
+ * for a prompt module, `p-<name>`, is written to `packages/tex/src/texPrompt/<name>.md` and the generated words
  * file is rebuilt, so the pull request's fingerprints show the changed prompt and the replay gate runs. A new
  * `p-<name>` module with words is a new file; which steps read it, and where, is the steps' context in the config.
  *
@@ -39,13 +39,13 @@ import { FOLDER as PROMPT_FOLDER, MODULE as PROMPT_MODULE, moduleFor as promptMo
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 const ID = /^[a-z][A-Za-z0-9_-]{0,30}$/;
 // The wire modes, efforts and migrations are the schema's (`texConfigSchema.cjs`).
-const SCHEMA = createRequire(import.meta.url)("../packages/shared/src/texConfigSchema.cjs");
+const SCHEMA = createRequire(import.meta.url)("../packages/tex/src/texConfigSchema.cjs");
 const MODES = new Set(SCHEMA.MODES);
 const EFFORTS = new Set(SCHEMA.EFFORTS);
 const PROMPT_KEY = /^p-([a-z][a-z0-9-]{0,47})$/;
 const MAX_WORDS = 40_000;
 /** Nodes merged but not wired (Dev2, 2026-11-16). */
-export const SHELF = "packages/shared/src/texNodeShelf.json";
+export const SHELF = "packages/tex/src/texNodeShelf.json";
 
 /**
  * The prompt words a version's module edits make over the current words, `{ words }` (only the modules it changes),

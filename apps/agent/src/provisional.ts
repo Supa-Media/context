@@ -1,5 +1,5 @@
 /**
- * A Provisional run (Dev2, 2026-11-17; the config's `provisional` wire, `packages/shared/src/texGraph.cjs`;
+ * A Provisional run (Dev2, 2026-11-17; the config's `provisional` wire, `packages/tex/src/texGraph.cjs`;
  * docs/decisions/texting-assistant/provisional-run.md).
  *
  * Front door is the longest step of a turn, and it waited for Triage, Decide and the Queue. When the config wires them
@@ -13,8 +13,8 @@
  * Every run is logged as its own step (`provisional`): started, go, stop and why, how long it ran before the verdict.
  */
 
-import { TEX_CONFIG as bundled } from "../../../packages/shared/src/texConfig.cjs";
-import { provisionalHeld, provisionalWiring } from "../../../packages/shared/src/texGraph.cjs";
+import { TEX_CONFIG as bundled } from "../../../packages/tex/src/texConfig.cjs";
+import { provisionalHeld, provisionalWiring } from "../../../packages/tex/src/texGraph.cjs";
 import { post, record, type Fetch } from "./clients";
 
 export type Verdict = "go" | "stop";

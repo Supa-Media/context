@@ -3,12 +3,12 @@
  * Workers AI model is, and which Tex step each call belongs to. Tables and
  * pure classifiers only; the arithmetic is `consoleCosts.ts`.
  *
- * The Tex step table is `packages/shared/src/texSteps.cjs`, read from
+ * The Tex step table is `packages/tex/src/texSteps.cjs`, read from
  * `texConfig.json` (the nodes whose model is not "code"), so it cannot drift
  * from the Lab.
  */
 
-import { TEX_STEPS, texStepForModel, type TexStepDef } from "@context/shared/src/texSteps.cjs";
+import { TEX_STEPS, texStepForModel, type TexStepDef } from "@context/tex/src/texSteps.cjs";
 import { CLEF_MODEL, GLM_MODEL } from "../jev/models";
 
 export { CLEF_MODEL, GLM_MODEL };

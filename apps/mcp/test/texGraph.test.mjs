@@ -1,6 +1,6 @@
 /**
  * The config's wires run Tex, not code (Dev2, 2026-11-14: "it's not fine for the connections between node to be code.
- * They should be predefined"). `packages/shared/src/texGraph.cjs` is the one interpreter of `texConfig.json`'s wires.
+ * They should be predefined"). `packages/tex/src/texGraph.cjs` is the one interpreter of `texConfig.json`'s wires.
  *
  * Sabotage record (temporary local edits, reverted, 2026-11-14):
  *   fires() always true                       "a wire's when picks the branch from the node's output" fails
@@ -17,7 +17,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 
-import graphLib from "../../../packages/shared/src/texGraph.cjs";
+import graphLib from "../../../packages/tex/src/texGraph.cjs";
 import { TEX_CONFIG } from "../src/agent/texConfig.js";
 
 const { createGraph, problemsOf, coverageProblems, GraphError, provisionalWiring, provisionalHeld, orderFrom } = graphLib;

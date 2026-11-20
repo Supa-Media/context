@@ -31,7 +31,7 @@
  */
 
 // The wire modes, a provisional wire's allows and a step's fields are the schema's (`texConfigSchema.cjs`).
-const SCHEMA = require("../../shared/src/texConfigSchema.cjs");
+const SCHEMA = require("../../tex/src/texConfigSchema.cjs");
 const MODES = [...SCHEMA.MODES];
 const ALLOW = [...SCHEMA.ALLOW];
 const ID = /^[A-Za-z][A-Za-z0-9_-]{0,47}$/;

@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// Tex's test conversations, checked in CI (contract: packages/shared/src/texSets.cjs; plan: tex-sets/plan.md).
+// Tex's test conversations, checked in CI (contract: packages/tex/src/texSets.cjs; plan: tex-sets/plan.md).
 //
 //   node scripts/tex-sets-check.mjs              problems in the repo's conversations, then the 60/20/20 ratio
 //   node scripts/tex-sets-check.mjs --self-test  a tiny built-in check of the checker itself
@@ -19,7 +19,7 @@ const ROOT = fileURLToPath(new URL("..", import.meta.url));
 const { loadSets, loadContract, problemsOf, ratioCheck } = await import(
   pathToFileURL(path.join(ROOT, "apps/mcp/bench/sets.mjs")).href
 );
-const { missingTest } = createRequire(import.meta.url)(path.join(ROOT, "packages/shared/src/texSets.cjs"));
+const { missingTest } = createRequire(import.meta.url)(path.join(ROOT, "packages/tex/src/texSets.cjs"));
 
 
 const TIMEOUT_MS = 10_000;

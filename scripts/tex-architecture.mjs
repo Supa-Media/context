@@ -4,7 +4,7 @@
  * of truth for what runs, and the connections between nodes are config, never code; "we do sort of ... give Tex the
  * context of its own structure").
  *
- * `packages/shared/src/texConfig.json` holds every node and every wire Tex runs. This script makes, from it alone:
+ * `packages/tex/src/texConfig.json` holds every node and every wire Tex runs. This script makes, from it alone:
  *
  *   1. the drawing in `docs/architecture/tex.md`, between `<!-- tex-config: drawing begin -->` and `end -->`: one
  *      Mermaid flowchart, a box per node (its group as a subgraph) and an arrow per wire, drawn by its mode;
@@ -29,7 +29,7 @@ export const PAGE = "docs/architecture/tex.md";
 export const MODULE = "apps/mcp/src/agent/texArchitecture.generated.js";
 
 /**
- * Every wire mode the runner knows (`packages/shared/src/texGraph.cjs`), and how the page and the words say it.
+ * Every wire mode the runner knows (`packages/tex/src/texGraph.cjs`), and how the page and the words say it.
  * `behind` is the old spelling of `background`, read the same until the config's rename lands everywhere.
  */
 export const MODES = Object.freeze({

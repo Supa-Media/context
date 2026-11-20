@@ -1,5 +1,5 @@
 /**
- * TEX'S TOOLS MAY ONLY GET BETTER AGAINST THE FOUR TOOL RULES (Dev2, 2026-11-20; `packages/shared/src/toolRules.cjs`,
+ * TEX'S TOOLS MAY ONLY GET BETTER AGAINST THE FOUR TOOL RULES (Dev2, 2026-11-20; `packages/tex/src/toolRules.cjs`,
  * audit: Context @supa projects/tex/tool-rules-audit.md).
  *
  * `baseline.json` is today's measure, read off real turns (`toolRules/report.mjs`). Nothing may get worse than it,
@@ -11,7 +11,7 @@ import { readFileSync } from "node:fs";
 import { before, test } from "node:test";
 
 import { toolRulesReport } from "./toolRules/report.mjs";
-import rules from "../../../packages/shared/src/toolRules.cjs";
+import rules from "../../../packages/tex/src/toolRules.cjs";
 
 const BASELINE = JSON.parse(readFileSync(new URL("./toolRules/baseline.json", import.meta.url), "utf8"));
 const FIX = "fix it, or after a fix that makes it better run `node scripts/tool-rules.mjs --write`";
