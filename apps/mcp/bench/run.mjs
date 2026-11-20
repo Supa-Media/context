@@ -472,6 +472,8 @@ async function answerJobs(options, { bench, test, testName = options.test ?? opt
           ...result,
           model: result.model ?? setup.model,
           changes: world.changes(),
+          // The links between notes the turn left (`noteLinks.mjs`), for the "link" lines (`codeLines.mjs`).
+          links: world.links?.() ?? [],
           // What the scripted browser did, for the checks (`checks.mjs`).
           browser: world.browser(),
           // Each Gmail search and read, so a result shows a search that missed.

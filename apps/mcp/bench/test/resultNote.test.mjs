@@ -232,3 +232,20 @@ test("a Delivered entry with no tool calls is written as before and reads back a
   assert.deepEqual(read.tools, ["start_background_job"]);
   assert.equal(read.toolsLine, "Tools: start_background_job");
 });
+
+test("a turn's links are written, read back, graded by the link lines and shown to the judge (2026-11-20)", async () => {
+  const { codeVerdict } = await import("../codeLines.mjs");
+  const { buildJudgeRequest } = await import("../judge.mjs");
+  const links = [
+    { workspace: "maya", from: "Study/Ruth 4.md", to: "Judges 19", line: "- [[Judges 19]]: same pro-Judah reading", isNew: true },
+    { workspace: "maya", from: "Study/Judges 19.md", to: "Ruth 4", line: "- [[Ruth 4]]: the genealogy ends in Judah", isNew: true },
+  ];
+  const run = { ...answer({ setup: "zebra-setup", asked: "this matches judges", said: "Linked both." }), links };
+  const [read] = parseResult(resultMarkdown({ ...RESULT, runs: [run] })).answers;
+  assert.deepEqual(read.links, links);
+  assert.equal(codeVerdict({ kind: "must", line: "link Ruth 4 and Judges 19 (thread)" }, read)?.does, true);
+  const { body } = buildJudgeRequest({ model: "m", question: { text: "q", must: [], mustNot: [], judge: ["each link says why"], may: [] }, answers: [read] });
+  assert.match(JSON.parse(body).messages[0].content, /pro-Judah reading/, "the judge's request shows each link's line");
+  const [none] = parseResult(resultMarkdown({ ...RESULT, runs: [answer({ setup: "zebra-setup", asked: "q", said: "a" })] })).answers;
+  assert.deepEqual(none.links, [], "a run with no links writes no Links line and reads back none");
+});

@@ -11,6 +11,8 @@
  * it is sure, and returns null otherwise.
  */
 
+import { linksBetween, reasonOf } from "./noteLinks.mjs";
+
 const TAPBACK = /^\(Tex reacted(?: (\S+))? to /;
 const TOOL_STATE = /\s\((failed|held for OK)\)$/;
 const EMOJI = /\p{Extended_Pictographic}(?:\uFE0F|\u200d\p{Extended_Pictographic}|[\u{1F3FB}-\u{1F3FF}])*/gu;
@@ -26,6 +28,8 @@ const JOB_ASKS = ["start a job", "kick off a job", "start a background job", "ba
 const ACCESS_TOOLS = ["set_visibility", "set_folder_visibility"];
 const ACCESS_CHECKS = ["check", "make sure", "confirm", "verify"];
 const ACCESS_OBJECTS = /\b(doc|document|note|page|file|folder)\b/;
+// "link Ruth 4 and Judges 19 (thread)": both ways; "link Ruth 4 to Judges 19": one way (`noteLinks.mjs`).
+const LINK_LINE = /^link (.+?) (and|to) (.+?)(?: \((source|echo|thread|question|entity|structure)\))?$/;
 
 /** The line as the rules read it: trimmed, lower case, one trailing period dropped. */
 function norm(line) {
@@ -88,6 +92,7 @@ function facts(answer) {
     jobs: Array.isArray(answer?.jobs) ? answer.jobs : [],
     words: wordsSent(answer ?? {}),
     taps: tapbacks(answer ?? {}),
+    links: Array.isArray(answer?.links) ? answer.links : [],
   };
 }
 
@@ -103,6 +108,23 @@ function calledLike(f, prefixes) {
  * `does` means "the answer does what the line says".
  */
 export const RULES = [
+  {
+    name: "link",
+    kind: "must",
+    full: () => true,
+    // WHY code: whether two notes are linked, and whether the link's line says why, is in the notes the turn left
+    // (`noteLinks.mjs`); a model reading a reply would grade the claim, and Tex claimed links it never made (Sayo's
+    // study, 2026-11-20). Whether the reason is grounded is a separate judge line.
+    match: (line) => LINK_LINE.test(line),
+    verdict: (line, f) => linkVerdict(line, f, false),
+  },
+  {
+    name: "no-link",
+    kind: "must not",
+    full: () => true,
+    match: (line) => LINK_LINE.test(line),
+    verdict: (line, f) => linkVerdict(line, f, true),
+  },
   {
     name: "silence",
     kind: "must",
@@ -223,6 +245,31 @@ export const RULES = [
     },
   },
 ];
+
+/**
+ * A "link" line's verdict from the turn's links. `must`: every direction it names has a link whose line gives a reason.
+ * `must not` (`never`): does is true when the turn made a new link in a direction it names.
+ */
+function linkVerdict(line, f, never) {
+  const [, a, how, b] = line.match(LINK_LINE);
+  const ways = how === "and" ? [[a, b], [b, a]] : [[a, b]];
+  if (never) {
+    const made = ways.filter(([x, y]) => linksBetween(f.links, x, y).some((l) => l.isNew));
+    return made.length
+      ? { does: true, reason: `linked ${made.map(([x, y]) => `${x} to ${y}`).join(" and ")}` }
+      : { does: false, reason: `no new link between ${a} and ${b}` };
+  }
+  const missing = [];
+  const bare = [];
+  for (const [x, y] of ways) {
+    const found = linksBetween(f.links, x, y);
+    if (found.length === 0) missing.push(`${x} to ${y}`);
+    else if (!found.some((l) => reasonOf(l.line))) bare.push(`${x} to ${y}`);
+  }
+  if (missing.length) return { does: false, reason: `no link ${missing.join(" or ")}` };
+  if (bare.length) return { does: false, reason: `the link ${bare.join(" and ")} says no reason on its line` };
+  return { does: true, reason: `linked ${ways.map(([x, y]) => `${x} to ${y}`).join(" and ")}, each with a reason` };
+}
 
 /** The rules a check's line matches, with its kind. judge lines and other kinds match none. */
 function matching(check) {

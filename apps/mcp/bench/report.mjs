@@ -318,6 +318,9 @@ function runBlock(run, setup) {
   // Each job's parts' tool calls are kept too (`jobDelivery.mjs`), so the judge and the checks see what a job did. Written only
   // when a job's part called a tool, so an older note stays byte-identical.
   if (run.delivered?.length) lines.push(`Delivered: ${JSON.stringify(run.delivered.map(({ title, state, parts, advisorCalls, usd, tools, capped }) => ({ title, state, parts, advisorCalls, usd, ...(tools?.length ? { tools } : {}), ...(capped ? { capped } : {}) })))}`, "");
+  // The links between notes the turn left (`noteLinks.mjs`): one JSON line, read back by the "link" lines. Written only
+  // when there are some, so an older note stays byte-identical.
+  if (run.links?.length) lines.push(`Links: ${JSON.stringify(run.links.map(({ workspace, from, to, line, isNew }) => ({ workspace, from, to, line, isNew })))}`, "");
   if (run.changes?.length) {
     lines.push("Changes recorded:", "");
     for (const c of run.changes) {

@@ -7,6 +7,8 @@
 import { benchGaps, isRouteGap, watchedBinding } from "./benchGaps.mjs";
 import { createTexCommands } from "./texCommands.mjs";
 import { drawnPictures, keepsRenders, looksPastDrawn } from "./drawnPictures.mjs";
+// The links a turn left between notes, beside `noteChanges` below: what a turn changed, read the same way (`world.mjs`).
+export { turnLinks } from "./noteLinks.mjs";
 
 const json = (body) => new Response(JSON.stringify(body), { status: 200, headers: { "content-type": "application/json" } });
 

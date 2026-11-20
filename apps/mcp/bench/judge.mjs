@@ -249,6 +249,8 @@ export function buildJudgeRequest({ model, question, answers, every = [], now = 
       conversation: answer.conversation,
       tools: answer.toolsLine,
       changes: answer.changes,
+      // The links between notes it left, each with the line it sits on, so a line about a link's reason is graded on it.
+      ...(answer.links?.length ? { links: answer.links.map((l) => `${l.from} -> ${l.to}${l.isNew ? " (new)" : ""}: ${l.line}`) } : {}),
       // The background jobs it started, each its title and the brief Tex gave it, so "start a job that does X" is graded
       // on what the job was told to do, not a title alone (Dev set, 2026-11-17: a job briefed to read the site and
       // compare flights failed "kick off a job that ..." because the judge saw only its title).
