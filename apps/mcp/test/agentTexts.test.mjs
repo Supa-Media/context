@@ -36,6 +36,7 @@ import {
 } from "./searchProjection/fixtures.mjs";
 import { DECISION_MODEL } from "../../../packages/tex/gateway/agent/decide.js";
 import { grantedToolsFor, sixToolsOver } from "../../../packages/tex/gateway/agent/sixTools.js";
+import { TEX_CONFIG, texToolList } from "../../../packages/tex/gateway/agent/texConfig.js";
 import { ENABLEMENT_KEY } from "../src/plugins/enablement.js";
 import { texStoreNamespace } from "./texStoreFixture.mjs";
 
@@ -153,7 +154,9 @@ test("a Tex grant not cleared for texts is not offered them, and its search for 
     world.ai.install([chat("", [{ name: "search", args: { query: "venue", args: { texts: true } } }]), chat("I can't see those.")]);
     const answered = await request(world, T.texTeam, "/agent", { question: "what did Ada send me?" });
     assert.equal(answered.status, 200, JSON.stringify(answered.body));
-    assert.doesNotMatch(offeredTool(world.ai.calls[0], "search")?.description ?? "", /texts: true/);
+    // Per turn, search is not described with texts it can't read; on the fixed list (`sixToolsFixed.js`) every 1:1 turn is
+    // shown the same words, so the call itself is what is refused. Either way nothing from the texts comes back.
+    if (texToolList("fd", TEX_CONFIG) !== "fixed") assert.doesNotMatch(offeredTool(world.ai.calls[0], "search")?.description ?? "", /texts: true/);
     assert.doesNotMatch(toolReplies(world.ai.calls[1]), /venue deposit/);
   } finally {
     world.restore();

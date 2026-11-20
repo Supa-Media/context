@@ -4,6 +4,9 @@ import { BUILTIN_PROVIDER } from "../../../../../packages/tex/gateway/agent/buil
 import { runTurn } from "../../../../../packages/tex/gateway/agent/turn.js";
 import { drawingSvg, readScene } from "../../../../../packages/shared/src/ink/drawing.cjs";
 import { oneToOne } from "../chats.mjs";
+import { sixToolsOver } from "../../../../../packages/tex/gateway/agent/sixTools.js";
+import { fixedCarriers } from "../../../../../packages/tex/gateway/agent/sixToolsFixed.js";
+import { TEX_CONFIG, texToolList } from "../../../../../packages/tex/gateway/agent/texConfig.js";
 
 const PNG = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAAC0lEQVR4nGNgAAIAAAUAAXpeqz8AAAAASUVORK5CYII=";
 const ENV = {
@@ -100,7 +103,11 @@ export default {
       assert.match(card, /Boil the water/);
       assert.match(card, /Four minutes/);
       assert.doesNotMatch(card, /No photo found|data-no-photo/);
-      const offered = JSON.stringify(chat.world.model.requests[0]?.tools ?? []);
+      // On the fixed list (`sixToolsFixed.js`) an action's args and rules are its manual, read by fetch manual:<action>.
+      const fixed = texToolList("fd", TEX_CONFIG) === "fixed";
+      const offered = fixed
+        ? sixToolsOver([...fixedCarriers("one").values()], null, { shown: fixedCarriers("one") }).resolve("fetch", { id: "manual:draw_visual" }).text
+        : JSON.stringify(chat.world.model.requests[0]?.tools ?? []);
       assert.match(offered, /title \(≤34 characters\), tip \(≤60 characters\)/);
       assert.match(offered, /Leave photo out when you have none/);
     } finally {

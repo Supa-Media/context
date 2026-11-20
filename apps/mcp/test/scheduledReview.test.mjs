@@ -31,6 +31,7 @@ import { CONTROL_PLANE_ORIGIN, GATEWAY_SECRET, createControlPlaneStub, createS3B
 import { createWorkerCtx } from "./workerCtx.mjs";
 import { BUILTIN_ALLOWED } from "./agentModelFixture.mjs";
 import { texStoreNamespace } from "./texStoreFixture.mjs";
+import { TEX_CONFIG, texToolList } from "../../../packages/tex/gateway/agent/texConfig.js";
 
 const S3_ENDPOINT = "https://s3.example-scheduled-review.test";
 const TOKEN_RUNNER = `cat_sched_runner_${"0".repeat(22)}`;
@@ -250,7 +251,9 @@ test("the reviewer reads a check-in's text too, under the texting setup's switch
   assert.match(JSON.stringify(review.body.messages), /Nobody texted\. This is a scheduled check-in/);
   const send = (turnCalls()[0].body.tools ?? []).find((tool) => tool.name === "send");
   assert.match(JSON.stringify(send ?? {}), /say_nothing/, "a check-in is offered the call its prompt names");
-  assert.doesNotMatch(JSON.stringify(send ?? {}), /send_email|notify|background/, "and no other send");
+  // Per turn, a check-in is shown only that; on the fixed list it is shown every 1:1's send and the rest are refused
+  // (`sixToolsFixed.test.mjs` "its check-in is shown the same six and refused what it doesn't hold").
+  if (texToolList("fd", TEX_CONFIG) !== "fixed") assert.doesNotMatch(JSON.stringify(send ?? {}), /send_email|notify|background/, "and no other send");
   assert.equal(response.body.outcome, "quiet", "and nothing is texted");
 });
 
