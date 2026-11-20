@@ -3,6 +3,9 @@
  * trace, from `texEntryPoint.js`.
  */
 
+import { stateFileOf, TEX_STATE_FILES, toolChars } from "../../../../packages/shared/src/toolRules.cjs";
+import { fingerprint } from "./promptManifest.js";
+
 /** The router's confidence as the turn log takes it: 0 to 1, or nothing. A number Clef got wrong never costs the turn its log. */
 function confidenceOf(entry) {
   const value = entry.confidence;
