@@ -17,6 +17,7 @@ import { laidOut } from "./groupLayout";
 import type { ChatLine, MyText, ReplayNow } from "./mine";
 import type { TurnPrompt } from "./promptAt";
 import type { IoLine, RealTimes } from "./realTimes";
+import type { GraphPage } from "./pages";
 
 export const clone = <T,>(o: T): T => JSON.parse(JSON.stringify(o));
 
@@ -107,6 +108,8 @@ export type LabState = {
   /** The step panel's card ("run" = Run details, "set" = Settings; null picks Run details when a text has run) and its Run details tab. */
   card: "run" | "set" | null;
   runTab: "sum" | "out" | "in" | "think" | "calls";
+  /** The canvas's page (Dev2, 2026-11-20): the texting graph, or the nightly one (`engine/pages.ts`); in the address as `?graph=`. */
+  graphPage: GraphPage;
 };
 
 export const PLAY_SPEEDS = [0.25, 0.5, 1, 2, 4] as const;
@@ -180,6 +183,7 @@ export const lab: LabState = {
   pin: false,
   card: null,
   runTab: "sum",
+  graphPage: "texting",
 };
 
 let version = 0;

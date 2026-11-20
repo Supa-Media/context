@@ -45,6 +45,7 @@ import { useSandbox } from "../engine/sandbox";
 import { usePlay } from "../engine/sandboxPlay";
 import { panelRow } from "../engine/stepRunNow";
 import { lineDecorHtml, lineTimes } from "./canvas/lineDecor";
+import { onPage } from "../engine/pages";
 
 function Svg({
   d,
@@ -99,8 +100,10 @@ export function Canvas({ testLit = null, graph = null, lead = null }: { testLit?
     const b = el.getBoundingClientRect();
     // The step card floats over the canvas's right side: fit the graph beside it, as the mockup's fit does.
     const r = { width: b.width - (lab.sel && b.width > 900 ? 350 : 0), height: b.height };
-    // The test chat's line is fitted in too, as the mockup's fit does (`canvas/lineDecor.ts`).
-    const c = fitCam(lab.cfocus ? G().nodes : [...G().nodes, ...lineNodes(G())], r, lab.cfocus ? fBounds.current : null);
+    // The test chat's line is fitted in too, as the mockup's fit does (`canvas/lineDecor.ts`); it sits on the texting page.
+    // Only the page shown is fitted (`engine/pages.ts`).
+    const shown = onPage(G(), lab.graphPage).nodes;
+    const c = fitCam(lab.cfocus ? shown : lab.graphPage === "texting" ? [...shown, ...lineNodes(G())] : shown, r, lab.cfocus ? fBounds.current : null);
     if (!c) return;
     cam.current = c;
     applyCam();
@@ -139,14 +142,18 @@ export function Canvas({ testLit = null, graph = null, lead = null }: { testLit?
 
   // The artifact's renderCanvas: a focused step that no longer exists drops the focus.
   // A real text's run draws the graph Tex had then, read only (`ArchCanvas.web.tsx`); else the version open.
-  const g = graph ?? G();
+  // The canvas draws one page of the graph (Dev2, 2026-11-20): its steps and the wires among them (`engine/pages.ts`).
+  // Times and case counts are the whole graph's, as Speed and cost and Tests read it.
+  const whole = graph ?? G();
+  const g = onPage(whole, s.graphPage);
+  const texting = s.graphPage === "texting";
   setCanvasReadOnly(!!graph);
   // A focus on a group opens just that group: its steps and the cards of the groups inside it, nothing else (mockup
   // 5y8sZpxqRYNZEdqqXTjq6J v3, Dev2 2026-11-16: "when I click focus on a group, I want it to open just that group").
   const groups = groupsOf(g);
   const opened = isGroupFocus(g, lab.cfocus, groups);
   if (s.cfocus && !node(s.cfocus, g) && !opened) lab.cfocus = null;
-  const sim = labSim(g);
+  const sim = labSim(whole);
   // A draft's changes against main or its last revision (`engine/changeMarks.ts`), drawn on the whole graph only.
   const marks = graph || (lab.cfocus && !opened) ? null : currentMarks();
   const tags = runTags(s.scn);
@@ -156,14 +163,15 @@ export function Canvas({ testLit = null, graph = null, lead = null }: { testLit?
     fBounds.current = f.fBounds;
     html = f.html;
   } else if (lab.cfocus && opened) {
-    const f = renderGroupFocusHtml(g, sim, lab.cfocus, groups, { tags, sel: s.sel, lit: testLit, counts: stepCounts(g), marks });
+    const f = renderGroupFocusHtml(g, sim, lab.cfocus, groups, { tags, sel: s.sel, lit: testLit, counts: stepCounts(whole), marks });
     fBounds.current = f.fBounds;
     html = f.html;
   } else {
     fBounds.current = null;
-    // The test chat's line: two view-only pseudo-steps beside the graph, never in it (`canvas/lineDecor.ts`).
-    const line = lineDecorHtml(g, s.sel, testLit, lineTimes(panelRow(pick, play)?.steps));
-    html = line.under + renderGraphHtml(g, sim, tags, s.sel, testLit, "off", stepCounts(g), marks, { groups }) + line.over;
+    // The test chat's line: two view-only pseudo-steps beside the graph, never in it (`canvas/lineDecor.ts`); a test
+    // text arrives on the texting page, so the nightly page has none.
+    const line = texting ? lineDecorHtml(g, s.sel, testLit, lineTimes(panelRow(pick, play)?.steps)) : { under: "", over: "" };
+    html = line.under + renderGraphHtml(g, sim, tags, s.sel, testLit, "off", stepCounts(whole), marks, { groups }) + line.over;
   }
   // The focus bar is the path to the focus: Whole graph / each group around it / it (mockup 5y8sZpxqRYNZEdqqXTjq6J v3).
   const focused = lab.cfocus && (opened || node(lab.cfocus, g)) ? lab.cfocus : null;

@@ -25,7 +25,14 @@ folds it and opens it with Focus. An arrow is a wire, drawn by its mode:
 - `==>` **loop** (sends work back for another try) or **job** (starts it as a
   background job).
 
+Each step lives on one page of the Lab, its `graph` in the config: **Texting**
+(the default) or **Nightly** (the nightly cleanup, a different kind of job:
+Dev2, 2026-11-20). Each page is drawn on its own below, and no wire joins two
+pages.
+
 <!-- tex-config: drawing begin -->
+### Texting
+
 ```mermaid
 flowchart LR
   n_checkin(["Check-in<br/>code<br/>graph/nodes/checkin.js · heartbeat.js"]):::start
@@ -34,10 +41,6 @@ flowchart LR
   n_oldLine(["Old number intake<br/>code<br/>graph/nodes/oldLine.js · apps/agent oldLineStep.ts · oldLine.ts"]):::start
   n_fd["Front door<br/>Haiku 5.5 · effort medium<br/>turn.js runTurn · texEntryPoint/runTheModel.js · builtin.js"]:::model
   n_send["Text them<br/>code<br/>sendTheReply · sendOne.ts · recoverFromFailure.js"]:::code
-  n_nightly(["Nightly<br/>code<br/>dream.js · housekeeping.js"]):::start
-  n_dream["Dream<br/>Haiku 5.5 · effort low<br/>dream.js"]:::model
-  n_daysum["Day summaries<br/>Haiku 5.5 · effort low<br/>daySummaries.js"]:::model
-  n_housekeep["Housekeeping<br/>Haiku 5.5 · effort low<br/>housekeeping.js"]:::model
   n_learn["Learn<br/>Haiku 5.5 · effort low<br/>reflect.js · memoryNudge.js"]:::model
   n_afterReply["After the reply<br/>Haiku 5.5 · effort off<br/>conversationThreads.js · selfReview.js"]:::model
   n_answerCheck["Answer check<br/>Haiku 5.5 · effort low<br/>graph/nodes/checks.js · graph/nodes/reviewer.js · replyJudge.js · sendBack.js"]:::model
@@ -109,9 +112,6 @@ flowchart LR
   n_tools -.->|uses: share| n_egress
   n_tools -.->|uses: picture| n_picture
   n_picture -.->|uses| n_card
-  n_nightly -->|dream| n_dream
-  n_dream -->|summarize| n_daysum
-  n_nightly -->|housekeeping| n_housekeep
   n_tools -.->|uses: ask_advisor| n_advisor
   n_job -.->|uses: job| n_jobadv
   n_job -.->|uses: job| n_tools
@@ -152,6 +152,24 @@ flowchart LR
   n_askGate -.->|uses: climb| n_rungTools
   n_askGate -.->|uses: climbOn| n_handoff
   n_handoff -.->|uses: hand| n_jobStart
+  classDef start fill:#ffe3ee,stroke:#ff4f8b,color:#1d1838
+  classDef code fill:#dcf7f3,stroke:#11b5a4,color:#1d1838
+  classDef model fill:#ece5ff,stroke:#7b4dff,color:#1d1838
+  classDef tool fill:#fff0e2,stroke:#ff8a2a,color:#1d1838
+  classDef off fill:#eeeeee,stroke:#999999,color:#555555,stroke-dasharray:4 3
+```
+
+### Nightly
+
+```mermaid
+flowchart LR
+  n_nightly(["Nightly<br/>code<br/>dream.js · housekeeping.js"]):::start
+  n_dream["Dream<br/>Haiku 5.5 · effort low<br/>dream.js"]:::model
+  n_daysum["Day summaries<br/>Haiku 5.5 · effort low<br/>daySummaries.js"]:::model
+  n_housekeep["Housekeeping<br/>Haiku 5.5 · effort low<br/>housekeeping.js"]:::model
+  n_nightly -->|dream| n_dream
+  n_dream -->|summarize| n_daysum
+  n_nightly -->|housekeeping| n_housekeep
   classDef start fill:#ffe3ee,stroke:#ff4f8b,color:#1d1838
   classDef code fill:#dcf7f3,stroke:#11b5a4,color:#1d1838
   classDef model fill:#ece5ff,stroke:#7b4dff,color:#1d1838
@@ -370,6 +388,7 @@ planner, each off.
 ## Change log
 Newest first. One line per pull request that changed the drawing.
 
+- 2026-11-20: the nightly steps (Nightly, Dream, Day summaries, Housekeeping) live on a page of their own, `graph: "nightly"` in the config, drawn as their own Nightly diagram and on the Lab's Nightly page (Dev2: "the nightly cleanup is a different type of AI job. It's not really texting, so it should probably live in a different graph"). The config check refuses a wire between pages.
 - 2026-11-18: the Advisor and the Job advisor (`advisor`, `jobadv`) run on Sonnet 5.5 at effort high, down from Opus 5.5 (approved by Seyi; [model-plan](../decisions/texting-assistant/model-plan.md)). The retired advisor roles (`planner`, `jobcheck`, `mailadv`, all off) follow, since in code every advisor role runs on `models.advisor`. The generated drawing and map follow `texConfig.json`; the hand-written text here is updated to match.
 - 2026-11-17: the hand-written "How a turn runs" drawing, its prose and its node table follow the live text path in section 1: Intake, the Door, the Front door (Haiku 5.5, effort medium), Tools and the Advisor (Opus 5.5, effort high), Answer check (Haiku 5.5, effort low), then Text them. The eleven door steps, the Clef router and the GLM-4.7 Flash fallback stay off that path and unwired. Decide (Clef) stays on. The big-ask planner stays off; its `uses` wire tagged `big` remains in the config. No config change, so sections 1 and 2 are untouched.
 - 2026-11-17: every chat, 1:1 or group, reads its history through two Front door modules whose span and cap are config (Dev2: "chat summaries all, 40k cap / chat history 7d, 40k cap", "number of days or all"; [week-history](../decisions/texting-assistant/week-history.md)): `chat:<days|all>:<chars>`, the chat word for word over those days with its pictures inline by id, and `summaries:<days|all>:<chars>`, each earlier day's summary ending with the `read_day` call that opens it. Main reads `summaries:all:40000` and `chat:7:40000`. A new step, Chat day summaries (`chatDays`), runs on a background wire after Text them and sums up each finished day of any chat, groups included, three a run over the last three weeks. Replay case `sees-own-reply` (a text from three days ago, word for word).

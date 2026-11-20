@@ -11,6 +11,7 @@
 import { groupsOf } from "../../data/graph";
 import { foldAround, groupChain, isGroupFocus, unfoldGroups, type GroupDefs } from "../../engine/groups";
 import { laidOut } from "../../engine/groupLayout";
+import { GRAPH_PAGES, onPage, pageNamed, type GraphPage } from "../../engine/pages";
 import type { Sim } from "../../engine/sim";
 import { lab, node } from "../../engine/state";
 import { LAB_CSS } from "../../labCss";
@@ -21,6 +22,8 @@ import { esc, H, renderFocusCanvasHtml, renderGraphHtml, statsHtml, W, type Boun
 export type SnapshotOptions = {
   /** A step id or a group id to draw focused, as the Lab's Focus does; the whole graph, groups folded, when null. */
   focus?: string | null;
+  /** The Lab page to draw, as the canvas draws it (`engine/pages.ts`): its steps and the wires among them; "texting" when absent. */
+  graph?: GraphPage | null;
   /** Another graph (main): steps that differ from it, and steps it lacks, are marked. */
   base?: LabGraph | null;
   theme?: "dark" | "light";
@@ -127,8 +130,11 @@ function path(groups: GroupDefs, id: string, inside?: string): string {
 export function snapshotPage(graph: LabGraph, opts: SnapshotOptions = {}): Snapshot {
   const asked = opts.focus ? String(opts.focus) : null;
   const width = Math.round(Math.min(MAX_WIDTH, Math.max(MIN_SIDE, opts.width ?? 1600)));
-  const open = unfoldGroups(checked(graph));
-  const marks = opts.base ? marksAgainst(open, checked(opts.base)) : null;
+  // One page, as the canvas draws it: the page's steps and the wires among them (`engine/pages.ts`), main's too for the marks.
+  const sheet: GraphPage = pageNamed(opts.graph ?? undefined);
+  const open = onPage(unfoldGroups(checked(graph)), sheet);
+  if (open.nodes.length === 0) throw new Error(`That graph has no steps on its ${sheet} page.`);
+  const marks = opts.base ? marksAgainst(open, onPage(unfoldGroups(checked(opts.base)), sheet)) : null;
   // As the Lab's Focus: a group opens on its own (its steps and the cards of the groups inside it), a step shows its own view.
   const focus = asked;
   const groups = groupsOf(graph);
@@ -172,7 +178,9 @@ export function snapshotPage(graph: LabGraph, opts: SnapshotOptions = {}): Snaps
 
     const note: string[] = [];
     if (traced) note.push(`<span style="color:var(--text2)">${esc(traced.name.length > 70 ? traced.name.slice(0, 69) + "…" : traced.name)}</span>`);
-    if (label) note.push(`<b>${esc(label)}</b>`);
+    // Off the texting page, the caption names the page, as the Lab's switcher does.
+    const pageName = sheet === "texting" ? null : (GRAPH_PAGES.find(([p]) => p === sheet)?.[1] ?? sheet);
+    if (label || pageName) note.push(`<b>${esc([pageName, label].filter(Boolean).join(" / "))}</b>`);
     if (marks) {
       const bits = [
         marks.changed.size ? `<span style="color:var(--warn)">${count(marks.changed.size, "step")} changed</span>` : "",

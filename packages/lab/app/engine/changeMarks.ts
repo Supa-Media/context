@@ -46,6 +46,7 @@ export const FIELD_NAMES: Array<[keyof LabNode | "inSchema", string]> = [
   ["inSchema", "input"],
   ["outSchema", "output"],
   ["icon", "icon"],
+  ["graph", "page"],
 ];
 
 export const wireKey = (e: Pick<LabEdge, "from" | "to" | "mode" | "when" | "unless">) => `${e.from}>${e.to}:${e.mode}:${(e.when || []).join("/")}:${(e.unless || []).join("/")}`;
