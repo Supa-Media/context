@@ -19,6 +19,7 @@
  * cap still bounds it when it is the smaller.
  */
 import { MAX_DECISION_STATE_CHARS } from "./decide.js";
+import { runOrder } from "../../../../packages/shared/src/texModuleChange.cjs";
 import { TRAIN_ENTRY, TRAINING_INTRO, exampleText, wholeText } from "../../../../packages/shared/src/texTraining.cjs";
 
 /** The entries that read the chat's history, whose order puts the history among the other modules. */
@@ -116,9 +117,9 @@ export function routerContextText(ctx, { training = null, history = "", facts = 
     const shown = newestOf(chat, left - TAGS);
     if (shown !== "") blocks.history = `<chat-history>\n${shown}\n</chat-history>`;
   }
-  // Each block where its first entry stands in `ctx`.
+  // Each block where its first entry runs (`texModuleChange.cjs` `runOrder`): what changes less goes first, so the cache reads it.
   const order = [];
-  for (const entry of list) {
+  for (const entry of runOrder(list)) {
     const key = TRAIN_ENTRY.test(entry) ? "train" : HISTORY_ENTRY.test(entry) || entry === "recent" ? "history" : entry;
     if (blocks[key] !== undefined && !order.includes(key)) order.push(key);
   }

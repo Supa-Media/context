@@ -706,3 +706,4 @@ test/publicError.test.mjs
 test/groupMuteFlag.test.mjs
 test/lookupLadder.test.mjs
 test/toolRules.test.mjs
+test/texModuleChange.test.mjs

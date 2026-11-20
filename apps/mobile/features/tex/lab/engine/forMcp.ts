@@ -290,7 +290,7 @@ export function labModules(input: LabIn, q: { key?: string | null; full?: boolea
       return moduleList(g).map((s) => ({
         from: s.name,
         tip: s.tip,
-        modules: s.cards.map((c) => ({ key: c.key, name: c.mod.name, tokens: c.mod.tok, ...(c.mod.custom ? { pill: "new" } : c.edited ? { pill: "edited" } : {}), everyTurn: c.mod.stable ? "same" : "changes", usedBy: c.usedBy.map((n) => n.id), ...(c.mod.path ? { path: c.mod.path } : {}) })),
+        modules: s.cards.map((c) => ({ key: c.key, name: c.mod.name, tokens: c.mod.tok, ...(c.mod.custom ? { pill: "new" } : c.edited ? { pill: "edited" } : {}), everyTurn: c.mod.stable ? "same" : "changes", changes: c.mod.changes, usedBy: c.usedBy.map((n) => n.id), ...(c.mod.path ? { path: c.mod.path } : {}) })),
       }));
     const v = mods(g)[q.key];
     if (!v) throw new Error(`There is no module "${q.key}"; modules without a key lists them.`);
@@ -306,6 +306,7 @@ export function labModules(input: LabIn, q: { key?: string | null; full?: boolea
       about: v.about,
       tokens: v.tok,
       everyTurn: v.stable ? "same" : "changes",
+      changes: v.changes,
       ...(v.custom ? { pill: "new" } : edited ? { pill: "edited" } : {}),
       usedBy: g.nodes.filter((n) => n.ctx.includes(q.key!)).map((n) => n.id),
       fingerprint: fp(v.text || ""),
