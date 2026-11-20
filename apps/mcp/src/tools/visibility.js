@@ -29,11 +29,11 @@ function rowsRefusal(error, operation) {
 
 export async function toolSetVisibility(store, scope, rules, overrides, args) {
   if (scope !== "private") {
-    return toolError("permission denied: only a personal connection can change enforced visibility");
+    return toolError("permission denied: only a personal connection can change enforced visibility; ask the person to change it in the app");
   }
   const path = normalizePath(args.path);
   if (!path || !path.endsWith(".md") || isPlumbing(path)) {
-    return toolError("invalid path (must be a non-reserved .md note)");
+    return toolError("invalid path (must be a non-reserved .md note): pass the note's full path");
   }
   // `people` alone names who else may open the note and leaves its visibility as it is.
   if (args.visibility === undefined && args.people !== undefined) {
@@ -98,7 +98,7 @@ ${named.content[0].text}`);
 
 export async function toolSetFolderVisibility(store, scope, args) {
   if (scope !== "private") {
-    return toolError("permission denied: only a personal connection can change folder visibility");
+    return toolError("permission denied: only a personal connection can change folder visibility; ask the person to change it in the app");
   }
   const normalized = normalizePath(args.path);
   const path = normalized?.replace(/\/+$/, "");
@@ -108,11 +108,11 @@ export async function toolSetFolderVisibility(store, scope, args) {
     path.split("/").some((part) => part.startsWith(".")) ||
     isPlumbing(path)
   ) {
-    return toolError("invalid path (must be a non-reserved folder path)");
+    return toolError("invalid path (must be a non-reserved folder path): pass the folder's full path");
   }
   const requested = args.visibility;
   if (!["private", "team", "inherit"].includes(requested)) {
-    return toolError("visibility must be private, team, or inherit");
+    return toolError("visibility must be private, team, or inherit; pass one of those");
   }
 
   const state = await loadPrivacyState(store);

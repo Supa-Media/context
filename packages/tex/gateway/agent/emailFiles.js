@@ -46,16 +46,16 @@ export function attachSource(value) {
   if (sent) return { sent: Number(sent[1]) };
   const picture = PICTURE_IN_NOTE.exec(raw);
   if (picture) return { file: picture[1], note: picture[2].trim() };
-  if (raw.startsWith("email:")) return { error: "an email's attachments go on with forward, not attach" };
+  if (raw.startsWith("email:")) return { error: "an email's attachments go on with forward, not attach; use forward with the email's id" };
   return { file: raw };
 }
 
 /** A file sent with this text, as `{ file }` to keep, `{ id }` when already kept, or `{ error }`. */
 function sentFile(attachments, n) {
   const attachment = attachments[n - 1];
-  if (!attachment || attachment.carried) return { error: "not a file sent with this text" };
+  if (!attachment || attachment.carried) return { error: "not a file sent with this text; pass a file from their notes or one they sent in this chat" };
   if (attachment.kept?.id) return { id: attachment.kept.id };
-  if (typeof attachment.data !== "string") return { error: "it came as words, not a file" };
+  if (typeof attachment.data !== "string") return { error: "it came as words, not a file; put the words in the body instead" };
   return { file: { name: attachment.name, type: attachment.mediaType, data: attachment.data } };
 }
 
@@ -70,7 +70,7 @@ export function withEmailFiles({ store, attachments = [] }, callTool) {
     const key = String(value).trim();
     if (kept.has(key)) return kept.get(key);
     const source = attachSource(key);
-    if (source === null) return { error: "an attach entry is empty" };
+    if (source === null) return { error: "an attach entry is empty; drop it, or name the file it should attach" };
     if (source.error) return { error: `${key}: ${source.error}` };
     const found = source.sent !== undefined ? sentFile(attachments, source.sent) : await resolveUpload(source, { dispatch, store });
     if (found.id) return { id: found.id };

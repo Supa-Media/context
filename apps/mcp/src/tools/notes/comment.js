@@ -119,7 +119,7 @@ export async function toolCommentNote(store, scope, rules, overrides, args) {
     return toolError("comment.text is too long; keep a comment under 5000 characters");
   }
   if (typeof args.path === "string" && isDrawingPath(args.path)) {
-    return toolError("a drawing cannot carry comments; comment on a note that embeds it");
+    return toolError("a drawing cannot carry comments; comment on a note that embeds it instead");
   }
 
   const author = commentAuthor(store.actor);
@@ -130,7 +130,7 @@ export async function toolCommentNote(store, scope, rules, overrides, args) {
     if (read?.isError) return read;
     const parsed = parseRead(read);
     if (!parsed || !parsed.fields.etag || parsed.fields.kind === "drawing") {
-      return toolError("this note cannot carry comments");
+      return toolError("this note cannot carry comments; leave a line in the note with write instead");
     }
     const path = parsed.fields.path;
     const text = parsed.body;
@@ -141,7 +141,7 @@ export async function toolCommentNote(store, scope, rules, overrides, args) {
     if (request.action === "delete") {
       if (typeof request.thread !== "string") return toolError("comment.thread is required; read_note lists each thread's id");
       const thread = parseComments(text).threads.find((t) => t.id === request.thread);
-      if (!thread) return toolError(`there is no comment thread "${request.thread}" on this note`);
+      if (!thread) return toolError(`there is no comment thread "${request.thread}" on this note; read_note lists each thread's id, so read it and pass one`);
       const said = thread.events.filter((event) => event.kind === "comment");
       const index = said.map((event) => event.author).lastIndexOf(author);
       if (index === -1) return toolError(`thread ${request.thread} has no comment by ${author}; only your own comments can be deleted`);

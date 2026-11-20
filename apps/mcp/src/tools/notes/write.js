@@ -90,9 +90,9 @@ async function writeNote(writer, scope, rules, overrides, args, options, specula
   const path = normalizePath(args.path);
   let content = args.content;
   const expectedEtag = args.expected_etag;
-  if (!path || !path.endsWith(".md")) return toolError("invalid path (must end in .md)");
+  if (!path || !path.endsWith(".md")) return toolError("invalid path (must end in .md): pass the note's full path");
   if (typeof content !== "string") return toolError("content must be a string: call it again with the note's Markdown as text.");
-  if (isPlumbing(path)) return toolError("that path is reserved");
+  if (isPlumbing(path)) return toolError("that path is reserved: pick another path outside Context's own files");
   // Tex's memory of the person has a hard size (owner, 2026-10-14), from every writer.
   const tooLong = aboutMeTooLong(path, content);
   if (tooLong) return toolError(tooLong);

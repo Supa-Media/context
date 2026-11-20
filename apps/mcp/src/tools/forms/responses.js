@@ -70,7 +70,7 @@ export function mayCollectResponsesAt(scope, path, rules, overrides) {
  */
 async function resolveForm(store, scope, rules, overrides, args) {
   const path = normalizePath(args.path);
-  if (!path || !path.endsWith(".md")) return { refusal: toolError("invalid path (must end in .md)") };
+  if (!path || !path.endsWith(".md")) return { refusal: toolError("invalid path (must end in .md): pass the note's full path") };
   /*
     Both questions asked, then decided — `toolReadNote` argues it in full. This
     is the read half of every form mutation, so the gate the read tools were

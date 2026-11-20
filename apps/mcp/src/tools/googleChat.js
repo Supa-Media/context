@@ -29,7 +29,7 @@ const LINE_CONTROL = /[\u0000-\u001f\u007f\u202a-\u202e\u2066-\u2069]/;
 export function readChatAccount(args) {
   if (args?.account === undefined || args?.account === null) return { account: null };
   const account = typeof args.account === "string" ? args.account.trim().toLowerCase() : "";
-  if (account === "" || account.length > 254 || !ADDRESS.test(account)) return { error: "account is one of their Google accounts with Chat, its email address." };
+  if (account === "" || account.length > 254 || !ADDRESS.test(account)) return { error: "account is one of their Google accounts with Chat, its email address. Pass one of those addresses, or leave account out." };
   return { account };
 }
 
@@ -52,16 +52,16 @@ export function readChatMessage(args) {
   const to = typeof args?.to === "string" ? args.to.trim().toLowerCase() : null;
   const space = typeof args?.space === "string" ? args.space.trim() : null;
   if (to === null && space === null) return { error: "name who it goes to: to (a person's work email, for a direct message) or space (the space's name in Chat)." };
-  if (to !== null && space !== null) return { error: "a message goes to one person (to) or one space (space), not both." };
-  if (to !== null && (to.length > 254 || !ADDRESS.test(to))) return { error: "to is one plain email address, the one the person uses in Google Chat." };
+  if (to !== null && space !== null) return { error: "a message goes to one person (to) or one space (space), not both. Drop one of them." };
+  if (to !== null && (to.length > 254 || !ADDRESS.test(to))) return { error: "to is one plain email address, the one the person uses in Google Chat. Pass just that address, like sam@example.com." };
   if (space !== null && (space === "" || space.length > MAX_SPACE || LINE_CONTROL.test(space))) {
-    return { error: `space is the space's name as Chat shows it (or its spaces/… id from action spaces), at most ${MAX_SPACE} characters.` };
+    return { error: `space is the space's name as Chat shows it (or its spaces/… id from action spaces), at most ${MAX_SPACE} characters. Call action spaces to list them.` };
   }
   const named = readChatAccount(args);
   if (named.error) return { error: named.error };
   const text = typeof args?.text === "string" ? args.text : "";
   if (text.trim() === "" || text.length > MAX_TEXT || TEXT_CONTROL.test(text)) {
-    return { error: `text is the message's words, 1 to ${MAX_TEXT.toLocaleString("en-US")} characters.` };
+    return { error: `text is the message's words, 1 to ${MAX_TEXT.toLocaleString("en-US")} characters. Write the message, or shorten it.` };
   }
   return { message: { ...(to !== null ? { to } : { space }), text, ...(named.account !== null ? { account: named.account } : {}) } };
 }

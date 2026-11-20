@@ -49,14 +49,14 @@ import { toolError, toolText } from "../results.js";
 export async function toolSetEncryption(store, scope, rules, overrides, args) {
   if (scope !== "private") {
     return toolError(
-      "permission denied: only a personal connection can encrypt or decrypt a note",
+      "permission denied: only a personal connection can encrypt or decrypt a note; ask the person to do it in the app",
     );
   }
   const path = normalizePath(args?.path);
-  if (!path || !path.endsWith(".md")) return toolError("invalid path (must end in .md)");
-  if (isPlumbing(path)) return toolError("that path is reserved");
+  if (!path || !path.endsWith(".md")) return toolError("invalid path (must end in .md): pass the note's full path");
+  if (isPlumbing(path)) return toolError("that path is reserved: pick another path outside Context's own files");
   if (typeof args?.encrypted !== "boolean") {
-    return toolError("encrypted must be true or false");
+    return toolError("encrypted must be true or false: pass one of those");
   }
   // `canSee` first, as everywhere. A personal connection sees everything in its
   // own context, so this is the plumbing and manifest refusal rather than a
@@ -84,7 +84,7 @@ export async function toolSetEncryption(store, scope, rules, overrides, args) {
             recoveryExpected = operation.expectedEtag;
           }
         } catch {
-          return toolError("this note cannot finish its encryption transition safely right now");
+          return toolError("this note cannot finish its encryption transition safely right now; wait a minute and try again");
         }
       }
       try {
@@ -94,7 +94,7 @@ export async function toolSetEncryption(store, scope, rules, overrides, args) {
         });
         recoveredSeal = true;
       } catch {
-        return toolError("this note cannot finish its encryption transition safely right now");
+        return toolError("this note cannot finish its encryption transition safely right now; wait a minute and try again");
       }
     }
   }
@@ -128,7 +128,7 @@ export async function toolSetEncryption(store, scope, rules, overrides, args) {
       // No key reached this request. Encrypting with one we cannot read back
       // would be writing a note nothing can open, so this refuses instead.
       return toolError(
-        "this context has no encryption key available right now; nothing was changed",
+        "this context has no encryption key available right now; nothing was changed. Try again later, and tell the person if it keeps failing",
       );
     }
   } else {
