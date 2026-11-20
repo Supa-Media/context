@@ -1,0 +1,19 @@
+{
+  "name": "@context/tex-computer",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Tex's own computer: one sleeping Linux container per person or group chat, behind a Durable Object, reached only by the gateway's service binding.",
+  "scripts": {
+    "test": "vitest run && node --test test/*.test.mjs",
+    "typecheck": "tsc --noEmit",
+    "deploy": "wrangler deploy"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "^5.20260719.1",
+    "@types/node": "^22.0.0",
+    "typescript": "~5.9.2",
+    "vite": "^7.3.7",
+    "vitest": "^4",
+    "wrangler": "^4.124.0"
+  }
+}

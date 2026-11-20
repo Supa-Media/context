@@ -393,3 +393,36 @@ person wait on a page that is truly blank. Tests: `patience.test.ts`,
 `browserbase.test.ts` ("waits for a blank page as long as the request's
 waitMs..."), `agentPatientBrowser.test.mjs`, and the `job-sees-chat` replay
 case.
+
+## Tex's own computer: a sleeping Linux container per person and per chat (Dev2, 2026-11-20)
+
+Dev2: "I feel like the current computer setup that we have is pretty bad", asking for a full computer that turns on
+and off on demand. Until now the only computer a job could use was a person's own laptop (`machines.md`), which most
+people texting Tex do not have, and which has to be on, online and signed in; the cloud side had a browser and no
+shell. On 2026-11-19 a Tex Devs job went to Dev2's laptop although the cloud was idle. Dev2 compared Cloudflare
+Sandbox (Containers), E2B, Fly Machines and self-hosted Firecracker and picked **Cloudflare Sandbox**.
+
+- **One computer per person, one per group chat** (`infra/tex-computer`): a container behind its own Durable Object,
+  named by the same HMAC tag as the chat's browser (`browserProviders.js`), so one tag never reaches another's, and a
+  group's computer starts empty when its people change. It wakes on a call and sleeps, its disk wiped, after ten idle
+  minutes (`IDLE_MS`). Reached only through the gateway's `TEX_COMPUTER` service binding: no route, no secret.
+- **No internet** (`enableInternet: false`). The web guard (above) lets a turn open only addresses the person gave or a
+  page showed, so what Tex read cannot leave in an address it chose. A shell with the internet would undo that, so the
+  computer gets none, and its tools are baked into the image. Giving it the internet needs an egress path that applies
+  the same guard; reversing this without one is the leak the guard exists to stop.
+- **Everything stays in the work folder, as an unprivileged user** (`container/files.mjs`): a path is checked before and
+  after symlinks. A command is cut off at its limit (110 s at most), its whole process group with it, and a background
+  process it left never holds the answer open (`container/run.mjs`).
+- **A config node, offered to jobs only once wired.** The turn's `send` action `tex_computer` goes through the
+  `computer` node over `tools -> computer` (`graph/nodes/computer.js`), so every call is logged with what went in and
+  came out. It shipped on the node shelf; a Lab draft wires it.
+- **The last rung before asking** ("Try the cheapest option first", Dev2, 2026-11-20): its description puts their
+  notes, a connected app, web search and the browser first.
+- **Not yet:** the work folder is not kept between sleeps; a job saves what the person should keep to their notes. A
+  sealed backup of the folder to the workspace's own bucket is the next step of the design
+  (@supa `projects/tex/own-computer.md`).
+
+Tests: `infra/tex-computer/test/container.test.mjs` ("a path never leaves the work folder…", "a background process
+left behind never holds the answer open"), `infra/tex-computer/src/routes.test.ts` ("refuses anything that is not a
+computer's tag…") and `apps/mcp/test/texComputerSandbox.test.mjs` ("the owner is the turn's tag, never one the model
+names").

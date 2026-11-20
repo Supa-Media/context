@@ -79,6 +79,7 @@ jobs:
       agent: ${{ steps.plan.outputs.agent }}
       egress: ${{ steps.plan.outputs.egress }}
       photon: ${{ steps.plan.outputs.photon }}
+      computer: ${{ steps.plan.outputs.computer }}
       sentry: ${{ steps.plan.outputs.sentry }}
       web: ${{ steps.plan.outputs.web }}
       router: ${{ steps.plan.outputs.router }}
@@ -165,6 +166,14 @@ jobs:
     uses: ./.github/workflows/deploy-photon-bridge.yml
     with:
       phase: deploy
+    secrets: inherit
+
+  # Tex's own computer (infra/tex-computer): its own Worker and container image,
+  # deployed only when it changes, so the gateway's deploy never builds the image.
+  computer:
+    needs: validate
+    if: ${{ !cancelled() && !failure() && needs.validate.outputs.computer == 'true' }}
+    uses: ./.github/workflows/deploy-tex-computer.yml
     secrets: inherit
 
   sentry:

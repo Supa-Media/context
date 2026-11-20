@@ -36,6 +36,7 @@ on:
       - "infra/transcribe-worker/**"
       - "infra/egress-service/**"
       - "infra/photon-bridge/**"
+      - "infra/tex-computer/**"
       - "infra/site-shots/**"
       - "infra/tex-eval/**"
       - "apps/agent/**"
@@ -176,6 +177,28 @@ jobs:
         run: |
           npm ci --prefix container
           pnpm test
+
+      # ── Tex computer ──
+      - uses: ./.github/actions/ci-scope
+        if: ${{ !cancelled() }}
+        id: texcomputer
+        with:
+          packages: "@context/tex-computer"
+          paths: ".github/workflows/workers.yml"
+
+      - name: Install (Tex computer)
+        if: ${{ !cancelled() && steps.texcomputer.outputs.affected == 'true' }}
+        run: pnpm install --filter @context/tex-computer... --frozen-lockfile
+
+      - name: Typecheck (Tex computer)
+        if: ${{ !cancelled() && steps.texcomputer.outputs.affected == 'true' }}
+        working-directory: infra/tex-computer
+        run: pnpm typecheck
+
+      - name: Tex computer tests
+        if: ${{ !cancelled() && steps.texcomputer.outputs.affected == 'true' }}
+        working-directory: infra/tex-computer
+        run: pnpm test
 
       # ── Tex eval service ──
       - uses: ./.github/actions/ci-scope

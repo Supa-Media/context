@@ -54,6 +54,16 @@
         "apps/mcp/src/agent/lookupLadder.js"
       ],
       "why": "Rungs 3 and 4 of the lookup ladder, Apps and web search: which of the front door's lookups this turn tried (a connected app, web search, the browser, the advisor) and which connected app failed; askGate's send-back names the fast ones untried. Called by askGate (askGate -> rungTools, uses)."
+    },
+    "computer": {
+      "files": [
+        "apps/mcp/src/agent/graph/nodes/computer.js",
+        "apps/mcp/src/agent/texComputerSandbox.js",
+        "apps/mcp/src/agent/texEntryPoint/runTheModel.js",
+        "infra/tex-computer/src/index.ts",
+        "infra/tex-computer/container/server.mjs"
+      ],
+      "why": "Tex's own computer (Dev2 picked Cloudflare Sandbox, 2026-11-20): one sleeping Linux container per person and per group chat, behind its own Durable Object in infra/tex-computer, reached through the gateway's TEX_COMPUTER binding. A background job's turn calls send action computer to run a bash command or read, write and list files in its work folder; each call is this node, over tools -> computer (uses). No internet in the container, so what a turn read can never leave in a command. It sleeps, and its disk goes, after ten idle minutes. The last rung before asking the person. Unwired, or with no TEX_COMPUTER binding, nothing is offered."
     }
   }
 }

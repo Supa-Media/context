@@ -632,6 +632,27 @@ importers:
         specifier: ^4.124.0
         version: 4.126.0(@cloudflare/workers-types@5.20260826.1)(@types/node@24.19.2)
 
+  infra/tex-computer:
+    devDependencies:
+      '@cloudflare/workers-types':
+        specifier: ^5.20260719.1
+        version: 5.20260826.1
+      '@types/node':
+        specifier: ^22.0.0
+        version: 22.20.1
+      typescript:
+        specifier: ~5.9.2
+        version: 5.9.3
+      vite:
+        specifier: ^7.3.7
+        version: 7.3.7(@types/node@22.20.1)(jiti@2.7.0)(lightningcss@1.33.0)(terser@5.51.2)(yaml@2.9.0)
+      vitest:
+        specifier: ^4
+        version: 4.1.12(@edge-runtime/vm@5.0.0)(@types/node@22.20.1)(jsdom@26.1.0)(vite@7.3.7(@types/node@22.20.1)(jiti@2.7.0)(lightningcss@1.33.0)(terser@5.51.2)(yaml@2.9.0))
+      wrangler:
+        specifier: ^4.124.0
+        version: 4.126.0(@cloudflare/workers-types@5.20260826.1)(@types/node@22.20.1)
+
   infra/tex-eval:
     devDependencies:
       '@cloudflare/workers-types':

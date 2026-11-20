@@ -70,6 +70,7 @@ import { staffNode } from "./nodes/staff.js";
 import { examplesNode } from "./nodes/examples.js";
 import { askGateNode } from "./nodes/askGate.js";
 import { rungKnowsNode } from "./nodes/rungKnows.js";
+import { computerNode } from "./nodes/computer.js";
 import { rungNotesNode } from "./nodes/rungNotes.js";
 import { rungToolsNode } from "./nodes/rungTools.js";
 import { routerNode } from "./nodes/router.js";
@@ -178,4 +179,7 @@ export const GATEWAY_NODES = {
   get rungKnows() { return rungKnowsNode; },
   get rungNotes() { return rungNotesNode; },
   get rungTools() { return rungToolsNode; },
+  // Tex's own computer, on the shelf: one call to the chat's sleeping Linux container (`nodes/computer.js`,
+  // `../texComputerSandbox.js`, `infra/tex-computer`); a Lab draft wires tools -> computer.
+  get computer() { return computerNode; },
 };
