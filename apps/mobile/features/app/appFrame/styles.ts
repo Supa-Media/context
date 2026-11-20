@@ -289,7 +289,15 @@ export const makeStyles = (colors: Colors, shadows: Shadows) => StyleSheet.creat
     position: "relative",
   },
 
+  /*
+    The page is a card on the chrome (Dev2, 2026-11-20, from the in-app Tex
+    mock: "take inspiration from grokbot"): beside the right panel its top
+    trailing corner is rounded (`editorBesideAside`), and no hairline runs
+    between the two. Its leading corner stays square, where the active tab
+    joins it.
+  */
   editor: { flex: 1, minWidth: 0, backgroundColor: colors.pageSurface },
+  editorBesideAside: { borderTopRightRadius: radii.card },
 
   /**
    * The right panel as a column.
@@ -297,14 +305,12 @@ export const makeStyles = (colors: Colors, shadows: Shadows) => StyleSheet.creat
    * `chromeSurface` like the tree, and deliberately: the two are the same kind
    * of thing — chrome either side of the page — and giving this one its own
    * colour would make the console read as three materials rather than two.
-   * `borderLeftWidth` where the tree has none, because the tree's edge is
-   * drawn by its own resizer and this one's leading edge has to exist even
-   * while nothing is being dragged.
+   * No hairline on its leading edge (Dev2, 2026-11-20: "weird double lines"):
+   * the page's colour against the chrome is the edge, as it is for the tree,
+   * and the resizer still straddles it.
    */
   asideColumn: {
     backgroundColor: colors.chromeSurface,
-    borderLeftWidth: StyleSheet.hairlineWidth,
-    borderLeftColor: colors.line,
     position: "relative",
   },
 
