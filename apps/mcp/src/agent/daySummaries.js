@@ -126,7 +126,7 @@ export async function writeDaySummaries({ store, session, now, timeZone, config,
  * run, and with `lookbackDays` only the days since midnight that many days back, so a run after every reply reads a
  * few weeks of texts, never the whole chat (`nodes/chatDays.js`). Answers `{written, missing}`, or null.
  */
-export async function writeChatDaySummaries({ ledger, chat, group = false, now, timeZone, config, request = requestViaGateway, metadata, max = MAX_DAYS_PER_NIGHT, lookbackDays = null, atOnce = AT_ONCE, log = (line) => console.log(line) }) {
+export async function writeChatDaySummaries({ ledger, chat, group = false, now, timeZone, config, request = requestViaGateway, metadata, max = MAX_DAYS_PER_NIGHT, lookbackDays = null, log = (line) => console.log(line) }) {
   if (!config || ledger === null || typeof ledger?.read !== "function" || typeof ledger?.append !== "function" || typeof chat !== "string") return null;
   let kept;
   let days;
@@ -141,9 +141,9 @@ export async function writeChatDaySummaries({ ledger, chat, group = false, now, 
   const missing = days.filter((day) => !kept.has(day.day)).slice(0, max);
   let written = 0;
   // A few at a time, so a first night's catch-up is a minute, not ten.
-  for (let at = 0; at < missing.length; at += atOnce) {
+  for (let at = 0; at < missing.length; at += AT_ONCE) {
     await Promise.all(
-      missing.slice(at, at + atOnce).map(async (day) => {
+      missing.slice(at, at + AT_ONCE).map(async (day) => {
         try {
           const entries = await dayEntries(ledger, day, timeZone, chat);
           const text = await summarizeDay({ entries, timeZone, config, request, metadata, group });

@@ -244,17 +244,6 @@ class_name = "CreditRest"
 tag = "v9-credit-rest"
 new_sqlite_classes = ["CreditRest"]
 
-# The Lab's evals (src/labEvals/store.js): public benchmarks run through real Tex. One object, `labevals`: each
-# benchmark's dataset file (its commit and where each question is in it), the runs and their results. Public data
-# and Tex's answers to it only. Self-hosting: leave it out, and `POST /tex-lab/evals` answers 501.
-[[durable_objects.bindings]]
-name = "LAB_EVALS"
-class_name = "LabEvals"
-
-[[migrations]]
-tag = "v10-lab-evals"
-new_sqlite_classes = ["LabEvals"]
-
 # Where each Tex turn's time went (src/agent/turnStages.js): numbers, a kind
 # and an outcome per turn, never words, a person or a workspace. Read with the
 # account's Analytics Engine SQL API (`SELECT ... FROM tex_timing`). The code
@@ -483,10 +472,6 @@ class_name = "LabSandbox"
 [[env.staging.durable_objects.bindings]]
 name = "CREDIT_REST"
 class_name = "CreditRest"
-
-[[env.staging.durable_objects.bindings]]
-name = "LAB_EVALS"
-class_name = "LabEvals"
 
 [[env.staging.analytics_engine_datasets]]
 binding = "TEX_TIMING"
