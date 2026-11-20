@@ -238,8 +238,8 @@ export async function seedPreview(env = process.env, { log = console.log } = {})
   let noteCount = 0;
   for (const [slug, entry] of bySlug) {
     const fixture = stagingNotes[slug];
-    if (SKIPPED_SLUGS.includes(slug) || !fixture) {
-      log(`${slug}: no fixture notes for a preview, skipped.`);
+    if (SKIPPED_SLUGS.includes(slug)) {
+      log(`${slug}: not seeded into a preview, skipped.`);
       continue;
     }
     const writer = writerFor(entry.memberships);
@@ -286,6 +286,12 @@ export async function seedPreview(env = process.env, { log = console.log } = {})
     catch (error) { if (error?.data?.code !== 'FILE_NOT_FOUND') throw error; }
     if (!index && writer.role === 'owner') {
       await client.mutation(ref('functions/workspaces:applyStructure'), { workspaceId, template: 'para' });
+    }
+    // A workspace with no fixture notes (beta's and gamma's personal ones) still gets its storage above, so the
+    // simulator numbers linked to beta and gamma reach a workspace instead of "your notes aren't ready".
+    if (!fixture) {
+      log(`${slug}: storage ready; no fixture notes.`);
+      continue;
     }
 
     for (const [path, text] of Object.entries(fixture)) {

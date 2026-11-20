@@ -49,6 +49,7 @@ and the code. "Checked on every preview" means the deploy's smoke test
 | Tex's examples index | Off | It is production's shared index and refused on a preview (`texExamplesIndex.ts`) |
 | Its own screenshot, transcription and Tex eval Workers | Staging's, shared by every preview | One copy is enough for stateless helpers |
 | The desktop and phone apps | The web app only | Native builds are separate, manual releases |
+| Google sign-in, Gmail and Calendar | None: sign in with a persona code; test Google on staging | Google accepts only redirect addresses registered in advance, and every preview's host is new (Dev2 chose to keep Google out of previews, 2026-11-20) |
 
 ## Known gaps, planned
 
@@ -57,8 +58,8 @@ and the code. "Checked on every preview" means the deploy's smoke test
 | Group chats | A group mode in `/texts-simulator`: 555-01XX members, the real group path, replies to the group's log. Background jobs, cross-chat asks and routines in a simulated group refuse to send for now | Merged (#3796); on a preview after its next push |
 | Web app in a real browser | A smoke check: Chromium opens `/login` with no page errors | In review (#3790) |
 | Background jobs | Unproven on a preview: asked from the app chat for a job, Tex answered directly and no job ran (pr3790, 2026-11-20). Next: a task that needs a job, and job reports to the app chat and the simulator | Open |
+| Texting as beta or gamma | Their simulator numbers (555-0102, 555-0103) answered "your notes aren't ready": the seed skipped storage for workspaces with no fixture notes. Now provisioned | Fixed in this change |
 | Word search checked by the smoke test | One exact-word search beside the meaning search | Planned |
-| Google sign-in, Gmail and Calendar | Google allows only redirect addresses registered in advance, and each preview's host is new. Plan: one fixed preview callback registered once, which forwards to the right preview by its signed state, plus a test Google account | Needs a one-time Google Console change |
 | A Lab run aimed at a preview runs the pull request's code as a replay on GitHub; it does not call the preview's gateway or data | Run against the preview's gateway | Planned |
 | The Lab run's records are kept in production's Convex | Keep them in the preview | Planned |
 
@@ -66,5 +67,6 @@ and the code. "Checked on every preview" means the deploy's smoke test
 
 - Real texts, calls or mail to or from a preview.
 - Real payments.
+- Google sign-in, Gmail and Calendar (staging only).
 - Any production or staging data in a preview, including the `context-lc` site.
 - A preview of a fork's pull request: forks never get secrets.
