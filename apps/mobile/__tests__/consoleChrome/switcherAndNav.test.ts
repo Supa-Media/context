@@ -268,9 +268,11 @@ describe("the panes that are not Browse carry the navigation too", () => {
 });
 
 describe("search", () => {
-  test("a pointer gets the ⌘K field; a phone gets the toolbar button", () => {
+  test("a pointer gets the rail's magnifier; a phone gets the toolbar button", () => {
+    // Dev2, 2026-11-20: search moved from the top bar onto the right rail.
     const desktop = mountConsole(1440);
-    expect(desktop.find("frame-search")).not.toBeNull();
+    expect(desktop.find("aside-strip-search")).not.toBeNull();
+    expect(desktop.find("frame-search")).toBeNull();
     desktop.unmount();
 
     // Doubling the same control onto the screen with least room for it would

@@ -292,12 +292,11 @@ describe("the tabs", () => {
 
   // That Approvals is no longer a tab, and that the Tex chat carries it: `asidePanelTexApprovals.test.ts`.
 
-  test("a console that cannot answer approvals shows Meetings alone, with no tab strip over it", () => {
+  test("a console that cannot answer approvals shows Meetings alone, its one icon on the rail", () => {
     const panel = mount();
     expect(panel.find("aside-meetings")).not.toBeNull();
-    expect(panel.find("aside-tab-meetings")).toBeNull();
-    expect(panel.find("aside-tab-approvals")).toBeNull();
-    expect(panel.find("aside-fold")).not.toBeNull();
+    expect([panel.find("aside-tab-meetings") !== null, panel.find("aside-tab-tex"), panel.find("aside-tab-approvals")]).toEqual([true, null, null]);
+    expect(panel.find("aside-fold")).not.toBeNull(); // The rail is always there (Dev2, 2026-11-20).
   });
 
   test("an empty tab says what would put something in it", () => {

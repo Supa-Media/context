@@ -53,7 +53,8 @@ const mapOpen = (noteKey: string | null): MapSide => ({
 let root: Root;
 let host: HTMLDivElement;
 const byTest = (id: string) => host.querySelectorAll(`[data-testid="${id}"]`);
-const tabs = () => Array.from(host.querySelectorAll('[role="tab"]')).map((el) => el.textContent);
+// The rail's tabs are icons, so a tab is read by its name, less any ", recording" or count.
+const tabs = () => Array.from(host.querySelectorAll('[role="tab"]')).map((el) => el.getAttribute("aria-label")?.split(",")[0] ?? "");
 
 async function show(side: MapSide | null, offering = true, started: number | null = null, panel = true) {
   await act(async () =>
@@ -83,8 +84,8 @@ afterEach(async () => {
 describe("the map's tabs in the right panel", () => {
   test("with the map shut the panel is Meetings alone", async () => {
     await show(null);
-    // One tab draws no strip (2026-11-19): the panel is the Meetings body alone.
-    expect(tabs()).toEqual([]);
+    // The rail is always there (2026-11-20), so Meetings alone is its one tab.
+    expect(tabs()).toEqual(["Meetings"]);
     expect(byTest("aside-meetings")).toHaveLength(1);
     expect(byTest("activity-body")).toHaveLength(0);
   });
@@ -122,7 +123,7 @@ describe("the map's tabs in the right panel", () => {
     expect(tabs()).toEqual(["Activity", "Meetings"]);
     expect(byTest("activity-body")).toHaveLength(1);
     await show(null, false);
-    expect(tabs()).toEqual([]);
+    expect(tabs()).toEqual(["Meetings"]);
     expect(byTest("aside-meetings")).toHaveLength(1);
     expect(byTest("aside-map-activity")).toHaveLength(0);
   });
@@ -147,11 +148,11 @@ describe("folding the panel (Dev2, 2026-11-05: 'collapsable')", () => {
     await framed(mapOpen("ws\na.md"));
     expect(byTest("note-body")).toHaveLength(1);
     await act(async () => (byTest("aside-fold")[0] as HTMLElement).click());
-    expect(byTest("aside-strip")).toHaveLength(1);
+    expect(byTest("aside-panel")).toHaveLength(0);
     expect(byTest("note-body")).toHaveLength(0);
     expect(["activity", "note", "meetings"].map((k) => byTest(`aside-strip-${k}`).length)).toEqual([1, 1, 1]);
     await act(async () => (byTest("aside-strip-activity")[0] as HTMLElement).click());
-    expect(byTest("aside-strip")).toHaveLength(0);
+    expect(byTest("aside-panel")).toHaveLength(1);
     expect(byTest("activity-body")).toHaveLength(1);
   });
 
@@ -164,7 +165,7 @@ describe("folding the panel (Dev2, 2026-11-05: 'collapsable')", () => {
     const children = Array.from(strip.children).map((child) => child.getAttribute("data-testid"));
     expect(children).toEqual(["aside-unfold", "aside-strip-activity", "aside-strip-note", "aside-strip-meetings"]);
     await act(async () => (byTest("aside-unfold")[0] as HTMLElement).click());
-    expect(byTest("aside-strip")).toHaveLength(0);
+    expect(byTest("aside-panel")).toHaveLength(1);
     // As it was: on Activity, not back on the note the map brought forward.
     expect(byTest("activity-body")).toHaveLength(1);
     // A folded panel unfolds; an open one closes to the strip; a shut one opens.

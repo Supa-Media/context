@@ -440,6 +440,7 @@ export function ConsoleFrame({
     shared: sharedShown ? { unseen: sharedEntry.unseen, here: sharedHere, onOpen: () => router.push(SHARED_HREF) } : undefined,
   };
 
+  const aside = consoleAsidePanel({ data, meetingsAt, router, approvals, joinMeeting, onSearch: insideContext ? () => setPaletteOpen(true) : null });
   return (
     <ConsoleDataProvider value={data}>
       <ChaosProvider value={chaos}>
@@ -514,7 +515,8 @@ export function ConsoleFrame({
           phone, showMeetings, data, insideContext, current, router,
           onOpenActions: actionsEntry === null ? undefined : () => setActionsOpen(true),
         })}
-        onSearch={insideContext ? () => setPaletteOpen(true) : undefined}
+        // Search is on the right rail where there is one (Dev2, 2026-11-20).
+        onSearch={insideContext && aside === undefined ? () => setPaletteOpen(true) : undefined}
         syncSlot={consoleSyncSlot({ phone, browsing, data, setSyncOpen })}
         /*
           The phone's top-left account slot: one component for a member and a
@@ -536,9 +538,7 @@ export function ConsoleFrame({
           Tapping a note in that drawer selected it and closed the drawer with
           no visible change at all.
         */
-        aside={consoleAsidePanel({
-          data, meetingsAt, router, approvals, joinMeeting,
-        })}
+        aside={aside}
         {...(sharedHere ? sharedFrameSlots(sharedEntry, router, <SwitcherMenu {...switcherProps} />) : {
           explorer: consoleExplorer({ browsing, data, contextLabel, treePick, setTreePick, tabs, setTreeOverlay, switcherProps, router, setBarDialog }),
           status: <Status data={data} onOpenSync={browsing ? () => setSyncOpen(true) : undefined} />,
