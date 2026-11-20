@@ -300,3 +300,34 @@ test("a burst (`send`'s `also`) lands every text before the chat object looks, s
   const bravo = turns.find((t) => t.body.question === "tex, say bravo");
   assert.ok(bravo !== undefined && bravo.body.group?.from !== "ana", `"say bravo" is kai's, not ana's (a new number has no name yet) (${turns.map((t) => `${t.body.question}: ${t.body.group?.from}`).join(" | ")})`);
 });
+
+// 2026-11-20: a test chat faked `chat_mute` as "Done." and its control plane never answered "muted", so no test chat
+// could show what a muted chat does (PR #3785). Now a turn's mute mutes the test chat, kept by its own chat object.
+// Sabotage: drop the `muted()` answer in `controlPlaneSwitch` → the second text is answered as in any chat, and this fails.
+test("a turn that mutes a group test chat mutes it: said in fixed words, the next ask hears how to start, then nothing", async () => {
+  const about = { kind: "group", owner: `chat:${KEY}`, ledgerChat: KEY, chatKey: KEY, members: "d".repeat(64), people: [{ handle: "ana", name: "You" }, { handle: "ben", name: "ben" }], line: LINE };
+  const { stub, call, ready } = sandbox(about, []);
+  await ready;
+  const texts = ["@tex mute yourself here please", "Tex can you email the bakery?", "TEX"];
+  const replies = [];
+  let turns = 0;
+  for (const [index, text] of texts.entries()) {
+    const row = { id: `t${index + 1}`, who: "ben", text, at: Date.now() + index, prod: false, eid: `000000000000${index + 1}-00000${index + 1}` };
+    await call("row.add", { row });
+    const gw = fakeGateway("", call, row.id);
+    const agentRoute = async (request, path) => {
+      if (path !== "/agent") return gw.agentRoute(request, path);
+      turns += 1;
+      const body = await request.json().catch(() => ({}));
+      const reply = () => Response.json({ answer: "", quiet: true, muted: true, turn: body.turn ?? "t" });
+      return wantsProgress(request) ? streamTurn(async () => reply()) : reply();
+    };
+    await runChatTurn({ env: {}, stub, about, row, payload: { defaultWorkspaceId: "ws_a" }, token: "caller-token", config: null, origin: "https://gateway.example", chat: { slug: "family" }, agentRoute, textsRoute: gw.textsRoute });
+    const state = await call("state", {});
+    replies.push(state.rows.find((r) => r.id === `${row.id}r`)?.text ?? "");
+  }
+  assert.equal(turns, 1, "only the first text ran a turn");
+  assert.match(replies[0], /stay quiet here\. Say "Tex, start"/, "the mute is said in fixed words");
+  assert.match(replies[1], /I'm muted in this chat, so I didn't do that\. Say "Tex, start"/, "the next ask hears how to start Tex");
+  assert.equal(replies[2], "", "then nothing");
+});

@@ -24,6 +24,7 @@ import { deliveryStep, logStep, tapback } from "./stepEvents";
 import { chatBefore, dropChatLines, isBound, notePeople, peopleHash, peopleOf, setChatBound, sha256Hex } from "./groupChat";
 import type { GroupMessage } from "./sendblueGroups";
 import { watchConversation } from "./reviewWatch";
+import { dropKept } from "./groupKept";
 import { chatJobs, jobQuestion, resumeJobs, startJobs, steerJobs, viewLink, withThreadsLine } from "./jobs";
 import { addEvent, kindOf, logAsk, recentEvents } from "./events";
 import { staleAsks } from "./decide";
@@ -217,6 +218,7 @@ export async function groupTurn(storage: InboxStorage, deps: GroupDeps, { messag
   if (answer.muted && !routine && message.jobReport === undefined) {
     if (answer.askIds) await staleAsks(deps, accessToken, answer.askIds);
     await setChatBound(storage, null, true);
+    await dropKept(storage); // the kept "ready" answer would let the same person's next ask run a turn (`groupKept.ts`)
     await say(storage, deps, message, GROUP_LINES.stopped, { system: true });
     return log("muted_by_turn");
   }
