@@ -42,6 +42,7 @@ import { tapbackOf, tapbackSaidLine } from "../tapbackEnding.js"; // a tapback a
 import { typedCallOf } from "../sayNothing.js"; // a call typed out is never texted, the last stop before it goes
 import { scheduledSkip } from "../scheduledQuiet.js"; // a check-in's or routine's skip is a decision, never its words
 import { factsEntry } from "../toldFacts.js";
+import { connectInput } from "../connectInput.js"; // what the Connect step is handed
 import { texVersion } from "../texVersion.js"; // which Tex answered, for the Lab's replays
 
 /** Whether the history this turn was shown (and can read with earlier_texts) holds an answer from a turn that read from outside. */
@@ -109,8 +110,8 @@ export async function sendTheReply(t) {
     await tex.after("memory_nudge", async () => afterGraph.fire("send", "nudge", { question, answer: turn.answer ?? "", tainted: taintedTurn, canWrite }, afterCtx).catch(() => {}).then(() => chatLog?.flush())); // interim: fired by this code with its own input over the wire (tagged "fired", so the run never fires it with send's output) until send's output carries it
   }
   // A draft that draws Connect (`noteConnect.js`): the notes this turn wrote, linked both ways with why, behind the reply.
-  const wroteNotes = [...new Set(turn.steps.flatMap((step) => step.wrote ?? []))];
-  if (wroteNotes.length > 0 && afterGraph.wired("send", "connect")) await tex.after("connect", async () => afterGraph.fire("send", "connect", { notes: wroteNotes, question, tainted: taintedTurn, group: group !== null }, afterCtx).catch(() => {}).then(() => chatLog?.flush()));
+  const connecting = connectInput({ steps: turn.steps, question, ledger, group });
+  if (connecting !== null && afterGraph.wired("send", "connect")) await tex.after("connect", async () => afterGraph.fire("send", "connect", connecting, afterCtx).catch(() => {}).then(() => chatLog?.flush()));
 
   if (group !== null && job === null && !crossAskRun && !turn.exhausted && !replaced && !(silent && answer === "")) await tex.behind(front, "save_group_chat", () => keepGroupExchange(store, group, history, question, [answer || (tapped !== null ? tapbackSaidLine(tapped) : ""), sentPicturesLine(pictures, captions)].filter(Boolean).join("\n"), { tainted: ledger.untrusted, tools: turn.steps.filter((step) => step.ok).map((step) => step.tool), sources: turn.steps.flatMap((step) => step.sources ?? []), timing: groupTimingLine({ arrivedAt: body.arrivedAt, received, done: Date.now(), fixed: body.fixed }), dispatch }).catch(() => {})); // with its cards' words (`sentPicturesLine`)
   const saving = conversation !== null && job === null && !turn.exhausted && !replaced, said = [answer || (tapped !== null ? tapbackSaidLine(tapped) : hushed ? QUIET_ACK_LINE : quiet ? QUIET_REPORT_LINE : ""), sentPicturesLine(pictures, captions)].filter(Boolean).join("\n");
