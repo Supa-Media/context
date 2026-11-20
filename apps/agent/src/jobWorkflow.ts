@@ -96,10 +96,15 @@ export class JobRunWorkflow extends WorkflowEntrypoint<Env, JobRunParams> {
   }
 }
 
+/** The instance that runs a job, or its `resumes`th restart (`resumeJob`). */
+export function jobFlowId(job: string, resumes = 0): string {
+  return resumes > 0 ? `${jobInstanceId(job).slice(0, 90)}-r${resumes}` : jobInstanceId(job);
+}
+
 /** Start a job's workflow; one already started under this id counts as started. */
 /** `resumes`: a job picked back up gets an instance of its own, as the one that ran it first already ended (`resumeJob`). */
 export async function startJobFlow(workflow: Pick<Workflow<JobRunParams>, "create" | "get">, job: string, resumes = 0): Promise<void> {
-  const id = resumes > 0 ? `${jobInstanceId(job).slice(0, 90)}-r${resumes}` : jobInstanceId(job);
+  const id = jobFlowId(job, resumes);
   try {
     await workflow.create({ id, params: { job } });
     logJobFlow("workflow_started", job);

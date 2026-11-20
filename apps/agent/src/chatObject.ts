@@ -44,6 +44,7 @@ import { textsSessionDeps } from "./gatewaySession";
 import { checkReview } from "./reviewWatch";
 import { mintThreadsLink, readJobUpdate, serveThreads, type JobRun, type JobSteer, type JobUpdate } from "./jobs";
 import { jobAlarm } from "./jobRun";
+import { watchJob } from "./jobWatch";
 import { resumePausedJobs } from "./jobPause";
 import { jobUpdate } from "./jobTexts";
 import { pageJobsOf, pageSteerResponse } from "./texPage";
@@ -366,6 +367,8 @@ export class SenderInbox implements DurableObject {
     await logged("alarm_review", () => checkReview(this.state.storage, { ...this.deps(), mintGroup: (message, people) => this.mintGroup(message, people) }));
     // A job's object has only `jobrun`; every other object finds nothing to run.
     await logged("alarm_job", () => jobAlarm(this.state.storage, this.jobDeps(), this.env.JOB_RUN !== undefined));
+    // A stored job whose workflow was never started, or died without a word, is started or ended (`jobWatch.ts`).
+    await logged("alarm_job_watch", () => watchJob(this.state.storage, this.env.JOB_RUN, this.jobDeps()));
     // A chat's job paused at the daily limit starts again once it resets (`jobPause.ts`).
     // An ask to another chat still unanswered after its time comes back as one (`crossChat.ts`).
     await logged("alarm_cross_chat", () => crossTimeouts(this.state.storage, Date.now()));
