@@ -18,6 +18,7 @@ import {
   untilOf,
 } from "../../../packages/tex/gateway/agent/aboutUpkeep.js";
 import { expireAbout, recheckCallTool, recheckQuestion, RECHECK_READS } from "../../../packages/tex/gateway/agent/aboutRecheck.js";
+import aboutExpireNode from "../../../packages/tex/gateway/agent/graph/nodes/aboutExpire.js";
 import { dreamQuestion } from "../../../packages/tex/gateway/agent/dream.js";
 import { itemOf, stampAboutLines } from "../../../packages/tex/gateway/agent/aboutLines.js";
 
@@ -188,4 +189,14 @@ test("expireAbout with no note writes nothing", async () => {
   const out = await expireAbout({ dispatch: notes.dispatch, timeZone: "UTC", now: Date.UTC(2026, 10, 22) });
   assert.equal(out.outcome, "no_note");
   assert.deepEqual(notes.writes, []);
+});
+
+test("the expire step hands the night's time zone and clock on to the recheck, which the night's context lacks", async () => {
+  const notes = fakeNotes({ "tex/about.md": NOTE });
+  const now = Date.UTC(2026, 10, 22, 15);
+  const out = await aboutExpireNode({ outcome: "dreamed", timeZone: "America/New_York", now }, { ctx: { dispatch: notes.dispatch } });
+  assert.equal(out.outcome, "expired");
+  assert.equal(out.timeZone, "America/New_York");
+  assert.equal(out.now, now);
+  assert.deepEqual(out.when, ["check"]);
 });
