@@ -102,7 +102,7 @@ beforeEach(() => {
 });
 
 describe("/lab properties panel, viewer and modules page", () => {
-  test("a step's panel shows its name, its reads stack and the cached cut", () => {
+  test("a step's panel shows its name, its reads stack, and says when its reads run in another order than listed", () => {
     mount();
     act(() => set({ sel: { t: "node", id: "fd" } }));
     click("#nMore");
@@ -111,6 +111,14 @@ describe("/lab properties panel, viewer and modules page", () => {
     expect((q("#nLabel") as HTMLInputElement).value).toBe("Front door");
     const ctx = node("fd")!.ctx;
     expect(qa("#stack .blk2").length).toBe(ctx.length);
+    // Main's front door lists About me after the chat, but it changes less, so it runs above it (Dev2, 2026-11-20).
+    expect(q("#order-warn")?.textContent).toMatch(/About me: you put it \d+(st|nd|rd|th), it runs \d+(st|nd|rd|th)/);
+    expect(q('#stack .blk2[data-openmod="about"] .runs.up')).not.toBeNull();
+    expect(q("#stack .cutline")).toBeNull();
+
+    click("[data-sortreads]");
+    expect(q("#order-warn")).toBeNull();
+    expect(node("fd")!.ctx.indexOf("about")).toBeLessThan(node("fd")!.ctx.findIndex((c) => c.startsWith("chat:")));
     expect(q("#stack .cutline")).not.toBeNull();
   });
 

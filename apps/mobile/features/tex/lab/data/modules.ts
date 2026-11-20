@@ -53,7 +53,6 @@ const WHOLE_TRAIN_MODULES: Record<string, LabModule> = Object.fromEntries(WHOLE_
 const SPAN_KEYS = [...new Set((TEX_CONFIG.nodes as Array<{ ctx?: string[] }>).flatMap((n) => n.ctx ?? []).filter((k) => SPAN_KEY.test(k)))];
 const SPAN_MODULES: Record<string, LabModule> = Object.fromEntries(SPAN_KEYS.map((k) => [k, spanModule(k)!.mod]));
 
-export const STABLE: Set<string> = new Set(["p-about-tex","p-rules","p-tools","p-working","p-sound-like-a-person","p-pictures","p-how-you-talk","prompt","map","caps","tools","skills","skillsAll","own",...Object.keys(TRAIN_MODULES),...WHOLE_TRAIN_KEYS]);
 
 export const BASE_MODULES: Record<string, LabModule> = {
   "p-about-tex":{name:"Prompt · About Tex",tok:279}, "p-rules":{name:"Prompt · Rules",tok:977}, "p-tools":{name:"Prompt · Your tools",tok:1163}, "p-working":{name:"Prompt · How to answer",tok:2705}, "p-sound-like-a-person":{name:"Prompt · Sound like a person",tok:482}, "p-pictures":{name:"Prompt · Answer with a picture",tok:917}, "p-how-you-talk":{name:"Prompt · How you talk",tok:1065},

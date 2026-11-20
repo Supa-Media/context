@@ -53,4 +53,10 @@ export const LAB_CSS_6 = String.raw`
 .tl .sum .more{border:none;background:none;color:var(--accent);font-size:12px;padding:0}
 .tl .chgf{outline:2px solid var(--chg);outline-offset:1px;background:var(--chg-wash);border-radius:8px}
 .tl .chgf .was,.tl #props .was{display:block;font-size:11px;color:var(--chg);font-weight:600;margin-top:2px}
+.orderwarn{border:1.5px solid var(--bad);background:var(--bad-wash);border-radius:8px;padding:8px 10px;font-size:12px;margin:0 0 8px}
+.orderwarn b{color:var(--bad)}
+.orderwarn ul{margin:6px 0;padding-left:18px}
+.blk2 .runs{font-family:var(--mono);font-size:10px;font-weight:600;border-radius:4px;padding:1px 4px;white-space:nowrap}
+.blk2 .runs.up{color:var(--bad);background:var(--bad-wash)}
+.blk2 .runs.dn{color:var(--dim)}
 `;

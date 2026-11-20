@@ -69,7 +69,10 @@ export type SourceKind = "chat" | "store" | "ailc" | "prompt" | "code" | "derive
 export type LabModule = {
   name: string;
   tok: number;
+  /** True when it doesn't change between texts (its `changes` tier is not "text"); derived, kept for the views that ask. */
   stable?: boolean;
+  /** How often it changes (`packages/tex/src/texModuleChange.cjs`): sets where it runs among a step's reads. */
+  changes?: "fixed" | "summary" | "grows" | "text";
   about?: string;
   text?: string;
   kind?: SourceKind | string;

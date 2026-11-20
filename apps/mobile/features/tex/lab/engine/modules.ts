@@ -4,7 +4,8 @@
  * the wording fingerprint and word diff the artifact used. Ported verbatim.
  */
 import { CV_MAIN } from "../data/convo";
-import { BASE_MODULES, MOD_ABOUT, MOD_SRC, SRC_KINDS, spanModule, STABLE, wholeTrainModule } from "../data/modules";
+import { changeOf, runMoves, runOrder } from "@context/tex/src/texModuleChange.cjs";
+import { BASE_MODULES, MOD_ABOUT, MOD_SRC, SRC_KINDS, spanModule, wholeTrainModule } from "../data/modules";
 import { MODTEXT } from "../labData.generated";
 import type { ConvoSettings, LabGraph, LabModule, LabNode } from "../types";
 import { edit, G, MAIN } from "./state";
@@ -18,16 +19,36 @@ export function modsRaw(g: LabGraph = G()): Record<string, LabModule> {
   const src = MOD_SRC as Record<string, [string, string]>;
   const about = MOD_ABOUT as Record<string, string>;
   for (const k in base)
-    o[k] = { ...base[k], ...(MODTEXT[k] ? { tok: Math.ceil(MODTEXT[k].length / 4) } : {}), stable: STABLE.has(k), about: about[k] || "", text: MODTEXT[k] || "", kind: src[k]?.[0] || "code", path: src[k]?.[1] || "", ...(x[k] || {}) } as LabModule;
+    o[k] = { ...base[k], ...(MODTEXT[k] ? { tok: Math.ceil(MODTEXT[k].length / 4) } : {}), about: about[k] || "", text: MODTEXT[k] || "", kind: src[k]?.[0] || "code", path: src[k]?.[1] || "", ...(x[k] || {}) } as LabModule;
   // A history span the version's steps read that main's don't (`chat:<days|all>:<chars>`, `summaries:...`): named from its key.
   for (const n of g.nodes || []) for (const k of n.ctx || []) {
     // So is a step's Training as whole conversations at a cap main's steps don't read (`train:<nodeId>:all:<chars>`).
     const span = o[k] ? null : spanModule(k) ?? wholeTrainModule(k);
-    if (span) o[k] = { ...span.mod, stable: false, about: span.about, text: "", kind: span.src[0], path: span.src[1], ...(x[k] || {}) } as LabModule;
+    if (span) o[k] = { ...span.mod, about: span.about, text: "", kind: span.src[0], path: span.src[1], ...(x[k] || {}) } as LabModule;
   }
-  for (const k in x) if (!o[k]) o[k] = { tok: 500, stable: false, about: "", text: "", kind: "store", path: "", name: "", ...x[k], custom: true } as LabModule;
+  for (const k in x) if (!o[k]) o[k] = { tok: 500, about: "", text: "", kind: "store", path: "", name: "", ...x[k], custom: true } as LabModule;
+  for (const k in o) {
+    const changes = tierOf(k, x[k]);
+    o[k] = { ...o[k], changes, stable: changes !== "text" };
+  }
   return o;
 }
+
+/**
+ * A module's change tier: the version's own setting, else a draft's older "same every turn" switch (`stable`), else the
+ * default for its key (`texModuleChange.cjs`).
+ */
+function tierOf(k: string, x: Partial<LabModule> | undefined): NonNullable<LabModule["changes"]> {
+  if (x?.changes) return changeOf(k, { [k]: { changes: x.changes } });
+  if (typeof x?.stable === "boolean") return x.stable ? (changeOf(k) === "text" ? "summary" : changeOf(k)) : "text";
+  return changeOf(k);
+}
+
+/** A step's reads in the order they run: by change tier, the listed order kept within a tier (`texModuleChange.cjs`). */
+export const readsOrder = (n: Pick<LabNode, "ctx">, g: LabGraph = G()): string[] => runOrder(n.ctx, mods(g));
+
+/** Each of a step's reads that runs somewhere other than where it is listed, positions from 1. */
+export const readsMoves = (n: Pick<LabNode, "ctx">, g: LabGraph = G()) => runMoves(n.ctx, mods(g));
 
 /** The modules a turn sees: the chat views scale with the version's conversation settings. */
 export function mods(g: LabGraph = G()): Record<string, LabModule> {
@@ -60,7 +81,8 @@ export function moduleList(g: LabGraph = G()): Array<{ kind: string; name: strin
     .filter((s) => s.cards.length);
 }
 
-export const isStable =(c: string, g: LabGraph = G()) => !c.startsWith("out:") && !!mods(g)[c]?.stable;
+/** Whether a read stays the same between texts, so the cache reads it: any tier but "text" (`texModuleChange.cjs`). */
+export const isStable = (c: string, g: LabGraph = G()) => !c.startsWith("out:") && (mods(g)[c]?.changes ?? changeOf(c)) !== "text";
 
 /** FNV-1a over the exact text: one letter different is a different fingerprint. */
 export const fp = (t: string) => {
