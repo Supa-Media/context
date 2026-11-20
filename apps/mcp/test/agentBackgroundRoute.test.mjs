@@ -18,6 +18,8 @@
  *     → "a job's own answer is its report, not kept as said" fails.
  *  3. `startedJobs` leaving out `steers`.
  *     → "a change to a running job names it for the Worker" fails.
+ *  4. `runTheModel.js` putting `jobPrompt(job)` (plan and per-part lines together) back in `threadNote`.
+ *     → "...and what changes per part is said in its turn, not the cached system prompt" fails.
  *  4. The route passing `transcript.record` as `observe` without `withJobSteps`.
  *     → "a job's turn streams each step as a short line" fails.
  *  5. `unfinishedJob` always false (`stopsShort.js`, 2026-10-26).
@@ -273,8 +275,10 @@ export async function runAgentBackgroundRouteChecks(check) {
     const job = { id: "job-competitors-1", title: "Competitor research", brief: "Five competitors, into 1-projects/tex.", attempt: 2, followUps: ["add Reflect too"] };
     const ran = await post(env, TOKEN_TEXTS, "/agent", { question: "research our competitors and write it up", conversation: "texts", job });
     const jobRequest = model.turn();
-    check("a job's own turn is told its plan and to deliver", /background job you started/.test(systemOf(jobRequest)) && /Five competitors, into 1-projects\/tex\./.test(systemOf(jobRequest)) && /carry on from where it stops/.test(systemOf(jobRequest)));
-    check("a job's own turn is shown their later texts", /newer than your plan[^]*- add Reflect too/.test(systemOf(jobRequest)));
+    check("a job's own turn is told its plan and to deliver", /background job you started/.test(systemOf(jobRequest)) && /Five competitors, into 1-projects\/tex\./.test(systemOf(jobRequest)) && /carry on from where it stops/.test(toldOf(jobRequest)));
+    // What changes from part to part is said after the history, never in the cached system prompt (cache audit, 2026-11-20).
+    check("...and what changes per part is said in its turn, not the cached system prompt", !/carry on from where it stops|add Reflect too/.test(systemOf(jobRequest)));
+    check("a job's own turn is shown their later texts", /newer than your plan[^]*- add Reflect too/.test(toldOf(jobRequest)));
     check("a job's own turn cannot start another job", !/background:/.test(sendTool(jobRequest)?.description ?? ""));
     const turns = conversationTurns(bucket);
     check(
@@ -304,7 +308,7 @@ export async function runAgentBackgroundRouteChecks(check) {
     });
     check(
       "...and the next part is shown it, to build on rather than start over",
-      /never sent because they texted more[^]*Base spend is \$7\.6k a month\.[^]*keep its figures/.test(systemOf(model.turn())) &&
+      /never sent because they texted more[^]*Base spend is \$7\.6k a month\.[^]*keep its figures/.test(toldOf(model.turn())) &&
         conversationTurns(bucket).length === kept,
     );
 
@@ -332,7 +336,7 @@ export async function runAgentBackgroundRouteChecks(check) {
     });
     check(
       "the next part is shown the short answer as unfinished, to do the missing part",
-      /stopped short of what they asked[^]*Next step is pricing the sides[^]*Do that missing part now/.test(systemOf(model.turn())),
+      /stopped short of what they asked[^]*Next step is pricing the sides[^]*Do that missing part now/.test(toldOf(model.turn())),
     );
     check(
       "...and a full answer is done: not marked, and kept",
@@ -359,7 +363,7 @@ export async function runAgentBackgroundRouteChecks(check) {
     );
     model.install([{ text: "Signing in needs the code they were texted." }, { text: "VERDICT: waiting\nADVICE: The six-digit code texted to them." }]);
     const waits = await post(env, TOKEN_TEXTS, "/agent", { question: "apply to the accelerator", conversation: "texts", job: { ...apply, attempt: 2, advice: going.body?.advice } });
-    check("...the next part starts on that advice", /Your advisor checked your last part[^]*emailed link/.test(systemOf(model.turn())));
+    check("...the next part starts on that advice", /Your advisor checked your last part[^]*emailed link/.test(toldOf(model.turn())));
     check("...and waiting comes back without carrying on", waits.body?.verdict === "waiting" && waits.body?.unfinished === undefined);
     model.install([{ text: "Hi." }]);
     await post(env, TOKEN_TEXTS, "/agent", { question: "hi", conversation: "texts" });
@@ -396,8 +400,9 @@ export async function runAgentBackgroundRouteChecks(check) {
     );
     check(
       "...shown the job's report apart from it, as words that vouch for nothing, with what it may do",
-      /coordinator of your background jobs[^]*vouch for nothing[^]*<<<\nNone of the three beat Haiku[^]*I couldn't save the page update\.\n>>>/.test(systemOf(coordinator)) &&
-        /read the page or note it names/.test(systemOf(coordinator)) && /It has ended, so they always get one line from you[^]*Never say nothing/.test(systemOf(coordinator)) && !/SKIP/.test(systemOf(coordinator)),
+      /coordinator of your background jobs[^]*vouch for nothing[^]*<<<\nNone of the three beat Haiku[^]*I couldn't save the page update\.\n>>>/.test(toldOf(coordinator)) &&
+        /read the page or note it names/.test(toldOf(coordinator)) && /It has ended, so they always get one line from you[^]*Never say nothing/.test(toldOf(coordinator)) && !/SKIP/.test(systemOf(coordinator)) &&
+        !/coordinator of your background jobs/.test(systemOf(coordinator)), // a report is new every turn: said after the history (cache audit, 2026-11-20)
     );
     check("...and may start the job again, as any texted turn may", /background: Hand a long task/.test(sendTool(coordinator)?.description ?? ""));
     const reportTurns = conversationTurns(bucket);
@@ -420,7 +425,7 @@ export async function runAgentBackgroundRouteChecks(check) {
       "the coordinator steers a running job with its own instruction",
       noted.status === 200 && JSON.stringify(noted.body?.steers) === JSON.stringify([{ id: "job-trip-plan-1", note: "Read the note back before you say it saved." }]),
     );
-    check("...a running job's report may be met with nothing: offered as say_nothing", /call send with action say_nothing: nothing is texted/.test(systemOf(model.turn())));
+    check("...a running job's report may be met with nothing: offered as say_nothing", /call send with action say_nothing: nothing is texted/.test(toldOf(model.turn())));
     check("...and its SKIP reaches the Worker as a flag, never as a word", noted.body?.answer === "" && noted.body?.quiet === true);
     check("...kept in the conversation as nothing texted, never as Tex saying SKIP", /^\(You texted them nothing/.test(conversationTurns(bucket).at(-1)?.text ?? "") && !conversationTurns(bucket).some((turn) => /^\W*SKIP\W*$/.test(turn.text ?? "")));
     model.install([{ text: "SKIP" }]);

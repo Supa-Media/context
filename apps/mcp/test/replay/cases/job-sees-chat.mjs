@@ -8,10 +8,12 @@ export default {
   incident:
     "2026-11-12: a job planned an outing from its brief alone and dropped the person's own \"maybe karaoke, something fun\" from the texts before the ask (#3193); a job's part read nothing of the chat (one record per chat, step 3, 2026-11-13). " +
     "2026-11-16: a job on an old vendor portal read a page as \"(no text)\" with nothing to press, though its menus were all there a minute later, and wandered the menus. " +
-    "2026-11-17: a timecards job's every part died in its answer checks' send-back loop, and ten parts each redid the same email search, sign-in, picture and email draft.",
+    "2026-11-17: a timecards job's every part died in its answer checks' send-back loop, and ten parts each redid the same email search, sign-in, picture and email draft. " +
+    "2026-11-13 to 2026-11-20: a job's thread note changed between 12 of 13 consecutive parts, so each new part wrote its whole history back to the prompt cache.",
   cause:
     "A job's part was shown only its brief and the texts that started it, never the chat it was started from. Its browser waited at most 3 s for a page to settle, so a slow page was read blank and shown as empty. " +
-    "A part that broke handed on only step names (`cutOff`): nothing it found, nothing held for the person's yes, and not its draft.",
+    "A part that broke handed on only step names (`cutOff`): nothing it found, nothing held for the person's yes, and not its draft. " +
+    "A part's own lines (attempt, the advisor's advice, later texts, the last draft) were said in the cached system prompt, above the history, not in its turn after it.",
   path: "1:1 job part",
   async run() {
     const chat = await oneToOne();
@@ -23,6 +25,13 @@ export default {
       const part = await chat.jobPart("yes find a couple near me", job, "Two options for Saturday.");
       assert.match(part.shown, /bowling, or maybe a cooking class/, "the job's part is shown the chat it was started from, their own earlier words included");
       assert.match(part.shown, /Find a couple of Saturday activities near them/, "beside its brief");
+
+      // The next part of the same job sends the same system prompt, so the cache is read, not rewritten: what changed is said in its turn (cache audit, 2026-11-20).
+      const next = await chat.jobPart("yes find a couple near me", { ...job, attempt: 2, advice: "Price the cooking class before reporting.", followUps: ["under $50 each"], draft: "Two options for Saturday.", unfinished: true }, "Bowling $20, cooking class $45.");
+      const systemOf = (request) => JSON.stringify(request?.system ?? null);
+      assert.equal(systemOf(next.requests[0]), systemOf(part.requests[0]), "a job's next part sends the same system prompt as the part before it");
+      assert.match(next.shown, /Price the cooking class before reporting[^]*under \$50 each[^]*Two options for Saturday/, "its advice, their later text and its last draft still reach the model");
+      assert.doesNotMatch(systemOf(next.requests[0]), /Price the cooking class|under \$50|You already worked on this/, "in its turn, never the cached system prompt");
 
       // A job's browser asks the screenshot Worker to wait long for a page that reads blank, and a page still blank is loading, not empty.
       const asked = [];

@@ -204,7 +204,7 @@ export async function oneToOne() {
       world.model.install(script(reply));
       const ran = await request(world.env, TOKEN_TEXTS, "/agent", { question: words, conversation: "texts", job });
       if (ran.status !== 200) throw new Error(`replay: the job part ${job.title} answered ${ran.status}: ${JSON.stringify(ran.body)}`);
-      return { answer: String(ran.body.answer ?? ""), shown: world.model.requests.slice(before).map(shownIn).join("\n") };
+      return { answer: String(ran.body.answer ?? ""), shown: world.model.requests.slice(before).map(shownIn).join("\n"), requests: world.model.requests.slice(before) };
     },
     /** A deploy or an eviction: the Worker forgets its warm copy, and the next turn reads cold. */
     deploy() {
