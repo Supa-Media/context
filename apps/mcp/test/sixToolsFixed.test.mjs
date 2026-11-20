@@ -177,9 +177,9 @@ test("without the fixed list nothing changes: a turn is shown what it holds, wit
 
 test("a Lab draft switches a step to the fixed list, and nothing else does", () => {
   assert.equal(
-    texToolList("fd"),
+    texToolList("fd", withDraft(TEX_CONFIG, { nodes: [{ id: "fd", toolList: "turn" }] })),
     "turn",
-    "main runs what each turn holds until a draft is promoted",
+    "a draft can put a step back on what each turn holds",
   );
   const draft = withDraft(TEX_CONFIG, {
     nodes: [
@@ -190,12 +190,12 @@ test("a Lab draft switches a step to the fixed list, and nothing else does", () 
   assert.equal(texToolList("fd", draft), "fixed");
   assert.equal(
     texToolList("job", draft),
-    "turn",
-    "a value that isn't one of the two is ignored",
+    texToolList("job"),
+    "a value that isn't one of the two is ignored: the step keeps main's",
   );
 });
 
-// End to end through the replay harness (`test/replay/chats.mjs`): main runs "turn", so this is the switch's own proof.
+// End to end through the replay harness (`test/replay/chats.mjs`), with the steps set to the fixed list whatever main runs.
 // Sabotage (2026-11-20): heartbeat.js passing fixedTools: null fails "the check-in is shown what the text was".
 test("a 1:1 text reads a manual, and its check-in is shown the same six and refused what it doesn't hold", async () => {
   await withFixed(async () => {
@@ -251,4 +251,16 @@ test("a 1:1 text reads a manual, and its check-in is shown the same six and refu
       chat.restore();
     }
   });
+});
+
+// Sabotage (2026-11-20): dropping NEVER_A_ONES lets earlier_chat take fetch's chat: line in a 1:1 → this fails.
+test("each kind's fetch says what chat: reads there, and a group is not shown the tagger's own errands", () => {
+  const fetchOf = (kind) => {
+    const shown = fixedCarriers(kind);
+    return sixToolsOver([...shown.values()], null, { shown }).tools.find((tool) => tool.name === "fetch").description;
+  };
+  assert.match(fetchOf("one"), /chat: lists their Google Chat spaces/);
+  assert.doesNotMatch(fetchOf("one"), /chat: reads this group chat's earlier messages/);
+  assert.match(fetchOf("group"), /chat: reads this group chat's earlier messages/);
+  for (const name of ["delegate", "mail_agent", "earlier_texts"]) assert.ok(!fixedCarriers("group").has(name), `${name} is never a group's`);
 });

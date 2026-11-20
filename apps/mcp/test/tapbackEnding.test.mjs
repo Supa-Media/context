@@ -30,7 +30,7 @@ import { TAPBACK_TOOL, eitherEnds, lastCallFailed, tapbackAnswer, tapbackEmoji, 
 import { tapbackNode } from "../../../packages/tex/gateway/agent/graph/nodes/tapback.js";
 import { GATEWAY_NODES } from "../../../packages/tex/gateway/agent/graph/gatewayNodes.js";
 import { gatewayGraph } from "../../../packages/tex/gateway/agent/graph/gatewayGraph.js";
-import { TEX_CONFIG, withDraft } from "../../../packages/tex/gateway/agent/texConfig.js";
+import { TEX_CONFIG, texToolList, withDraft } from "../../../packages/tex/gateway/agent/texConfig.js";
 import { ASSISTANT_SEND_ACTIONS } from "../../../packages/tex/gateway/agent/sixTools.js";
 import SHELF from "../../../packages/tex/src/texNodeShelf.json" with { type: "json" };
 
@@ -220,7 +220,8 @@ test("through /agent: never offered where the Worker can't react, as on their ow
     assert.equal(offered(chat, from), true, "a text of theirs is offered the tapback");
     from = chat.world.model.requests.length;
     await chat.text("Loved \u201cAnytime.\u201d", "", { body: { quoted: "Anytime.", tapback: "Loved" } });
-    assert.equal(offered(chat, from), false, "their own tapback is never tapped back");
+    // On the fixed list every 1:1 turn is shown the tapback, and a turn that doesn't hold it is refused the call.
+    if (texToolList("fd", TEX_CONFIG) !== "fixed") assert.equal(offered(chat, from), false, "their own tapback is never tapped back");
   } finally {
     chat.restore?.();
   }

@@ -37,6 +37,19 @@ function gatewayCarriers(kind) {
 }
 
 /**
+ * Tex's own tools a group chat's turn never holds (`apps/mcp/test/agentGroupTurn.test.mjs`): the tagger's own errands
+ * and texts. Shown to a group they were only ever refused, so the group's list leaves them out; it is still the same
+ * for every group turn.
+ */
+export const NEVER_A_GROUPS = new Set(["delegate", "propose_note", "progress", "mail_agent", "earlier_texts"]);
+
+/**
+ * And the one a 1:1 never holds: a group chat's own earlier messages. Shown to a 1:1 it took fetch's `chat:` line, so the
+ * 1:1 was told `chat:` reads a group chat instead of their Google Chat (`sixTools.js` `fetchTool`).
+ */
+export const NEVER_A_ONES = new Set(["earlier_chat"]);
+
+/**
  * Every carrier a kind is shown, by name: the gateway's, then Tex's own, then the setup's skill reader when the turn
  * holds it (one setup for every person, so it is the same for every chat). Memoized by kind and skill reader.
  */
@@ -46,7 +59,7 @@ export function fixedCarriers(kind, { readSkill = null } = {}) {
   if (memo.has(key)) return memo.get(key);
   const shown = new Map();
   for (const tool of gatewayCarriers(kind === "group" ? "group" : "one")) shown.set(tool.name, tool);
-  for (const [name, tool] of catalogue(kind)) if (!shown.has(name)) shown.set(name, tool);
+  for (const [name, tool] of catalogue(kind)) if (!shown.has(name) && !(kind === "group" ? NEVER_A_GROUPS : NEVER_A_ONES).has(name)) shown.set(name, tool);
   if (readSkill) shown.set(readSkill.name, readSkill);
   if (memo.size > 32) memo.clear();
   memo.set(key, shown);
