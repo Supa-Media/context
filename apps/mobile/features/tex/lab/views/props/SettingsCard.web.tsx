@@ -67,6 +67,16 @@ export function SettingsCard({ n }: { n: LabNode }) {
             </select>,
           )
         : null}
+      {model && (n.id === "fd" || n.id === "job")
+        ? row(
+            "Tool list",
+            "tool list",
+            <select id="setToolList" value={n.toolList || "turn"} onChange={(e) => setNode(n.id, "toolList", e.target.value as "turn" | "fixed")}>
+              <option value="turn">What the turn holds</option>
+              <option value="fixed">Fixed, every turn the same</option>
+            </select>,
+          )
+        : null}
       {model
         ? row(
             "Time limit",

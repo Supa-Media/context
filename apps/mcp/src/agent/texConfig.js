@@ -119,6 +119,11 @@ export function texCacheTtl(id, config = CONFIG) {
   return texStep(id, config).cacheTtl === "5m" ? "5m" : "1h";
 }
 
+/** Which tools a step's model is shown: "fixed", every tool its kind of chat has (`sixToolsFixed.js`), or "turn", what the turn holds. */
+export function texToolList(id, config = CONFIG) {
+  return texStep(id, config).toolList === "fixed" ? "fixed" : "turn";
+}
+
 /** A step's time limit in milliseconds. Throws when the file gives it none. */
 export function texTimeoutMs(id, config = CONFIG) {
   const seconds = texStep(id, config).timeoutS;
@@ -209,6 +214,8 @@ function draftStep(node, edit, config, words) {
   if (typeof edit.effort === "string" && EFFORTS.has(edit.effort)) out.effort = edit.effort;
   // The front door's fallback model, a model main's table names, or none (Dev2, 2026-11-16: a setting of the step).
   if (node.id === "fd" && (edit.fallback === null || (typeof edit.fallback === "string" && typeof config.models[edit.fallback] === "string"))) out.fallback = edit.fallback;
+  // Which tools the step is shown (`sixToolsFixed.js`): what its turn holds, or the fixed list of its kind of chat.
+  if (edit.toolList === "fixed" || edit.toolList === "turn") out.toolList = edit.toolList;
   if (typeof edit.timeoutS === "number" && edit.timeoutS > 0 && edit.timeoutS <= MAX_TIMEOUT_S && node.timeoutS > 0) out.timeoutS = edit.timeoutS;
   // What the step reads, when every prompt module it names has words here or in the draft.
   if (Array.isArray(edit.ctx) && edit.ctx.every((entry) => typeof entry === "string" && (PROMPT_ENTRY.exec(entry) === null || typeof words[PROMPT_ENTRY.exec(entry)[1]] === "string"))) out.ctx = edit.ctx;
