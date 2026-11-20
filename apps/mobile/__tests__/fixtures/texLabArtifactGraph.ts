@@ -42,3 +42,26 @@ export function artifactModelsModule() {
   const { perIn: _fitted, ...haiku } = actual.BASE_MODELS["haiku-5-5"];
   return { ...actual, BASE_MODELS: { ...actual.BASE_MODELS, "haiku-5-5": { ...haiku, base: 1400, perTok: 4.1 } } };
 }
+
+/**
+ * The artifact's own idea of a module's change: two kinds, "same every turn" for its fixed list and "changes every
+ * turn" for the rest, with no tier between (the tiers came 2026-11-20, `packages/shared/src/texModuleChange.cjs`). Its
+ * goldens were drawn that way, so a test held to them mocks the tiers to these two.
+ */
+export function artifactModuleChangeModule() {
+  const real = jest.requireActual<typeof import("@context/shared/src/texModuleChange.cjs")>("@context/shared/src/texModuleChange.cjs");
+  const same = new Set(["p-about-tex", "p-rules", "p-tools", "p-working", "p-sound-like-a-person", "p-pictures", "p-how-you-talk", "prompt", "map", "caps", "tools", "skills", "skillsAll", "own"]);
+  const defaultChange = (key: string) => (same.has(key) || /^train:/.test(key) ? "fixed" : "text");
+  const changeOf = (key: string, modules?: Record<string, { changes?: string } | undefined> | null) => {
+    const set = modules?.[key]?.changes;
+    return (real.TIERS as string[]).includes(set ?? "") ? set : defaultChange(key);
+  };
+  const runOrder = (ctx: string[], modules?: Record<string, { changes?: string } | undefined> | null) =>
+    ctx
+      .map((key, at) => ({ key, at, tier: (real.TIERS as string[]).indexOf(changeOf(key, modules) as string) }))
+      .sort((a, b) => a.tier - b.tier || a.at - b.at)
+      .map((e) => e.key);
+  const runMoves = (ctx: string[], modules?: Record<string, { changes?: string } | undefined> | null) =>
+    runOrder(ctx, modules).flatMap((key, i) => (ctx.indexOf(key) === i ? [] : [{ key, listed: ctx.indexOf(key) + 1, runs: i + 1, changes: changeOf(key, modules) }]));
+  return { ...real, defaultChange, changeOf, runOrder, runMoves };
+}
