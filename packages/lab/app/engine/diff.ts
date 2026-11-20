@@ -52,7 +52,7 @@ export function diff(): Change[] {
       out.push({ node: n.id, label: n.label, what: "new step", to: `on ${MODELS[n.model]?.full}`, how: "code", areas: n.areas });
       continue;
     }
-    for (const f of ["model", "effort", "toolList", "rounds", "out", "on", "timeoutS", "ms", "sendBack", "label"] as const)
+    for (const f of ["model", "effort", "toolList", "freeze", "rounds", "out", "on", "timeoutS", "ms", "sendBack", "label"] as const)
       if (JSON.stringify(o[f]) !== JSON.stringify(n[f])) {
         const key = n.id + "." + f;
         const how = setupFields[key] ? "setup" : ["rounds", "out", "ms", "label"].includes(f) ? "guess" : "code";

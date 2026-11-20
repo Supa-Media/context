@@ -10,7 +10,7 @@ import { onlyWhatRan, realTimes, withReal } from "@context/lab/app/engine/realTi
 import { simulate } from "@context/lab/app/engine/sim";
 import { G, stepsOf } from "@context/lab/app/engine/state";
 import { chatLines, myTexts } from "@context/lab/app/engine/mine";
-import type { LedgerEntry } from "../features/tex/page/texPageTypes";
+import type { LedgerEntry } from "../../../apps/mobile/features/tex/page/texPageTypes";
 
 const e = (x: Partial<LedgerEntry> & { id: string; kind: string }): LedgerEntry => ({ at: 1_000, ...x }) as LedgerEntry;
 const T = "turn-0001";

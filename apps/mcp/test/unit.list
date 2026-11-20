@@ -709,4 +709,5 @@ test/lookupLadder.test.mjs
 test/toolRules.test.mjs
 test/texModuleChange.test.mjs
 test/sixToolsFixed.test.mjs
+test/frozenModules.test.mjs
 test/nextSteps.test.mjs

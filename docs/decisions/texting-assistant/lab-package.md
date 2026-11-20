@@ -18,6 +18,11 @@ folder, `packages/lab/app/fromApp/`, each file a re-export of the app's own modu
 and one place to cut when those pieces move. The app's source guards (window listeners, palette, type scale, field
 fonts, action controls, device namespaces, Apple platform) scan the package too.
 
+**The Lab's tests are in `packages/lab/__tests__`** and run in the app's jest (`roots` in
+`apps/mobile/jest.config.js`), with the app's transform, React and mocks, because the page runs inside the app; the
+app's typecheck includes them, and `check-mobile-outside-reads.mjs` counts what they read as the app's reads, so a
+change to a file they read still runs them.
+
 **A past turn is read where its commit kept it.** Replay reads the prompt catalogue at the commit a turn ran on, from
 GitHub; a commit from before the move has it at the old path, so `catalogAt` tries `packages/lab/app` and then
 `apps/mobile/features/tex/lab` (`CATALOG_PATHS`). Any file the Lab reads at an old commit keeps the same fallback

@@ -19,6 +19,9 @@
  */
 module.exports = {
   testEnvironment: "node",
+  // The Tex Lab's page lives in its own package and its tests beside it (`packages/lab/__tests__`); they run here,
+  // with this app's transform, React and mocks, because the page runs inside this app.
+  roots: ["<rootDir>", "<rootDir>/../../packages/lab"],
   testMatch: ["**/__tests__/**/*.test.js", "**/__tests__/**/*.test.ts"],
   // See jest.setup.js: `jest-environment-jsdom` has no `TextEncoder`/
   // `TextDecoder`, which every real engine this app ships to already does.

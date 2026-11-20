@@ -14,7 +14,7 @@ import { prodPlay, prodPlayAtVersion } from "@context/lab/app/engine/prodRun";
 import { linesOf } from "@context/lab/app/engine/replayRead";
 import { G } from "@context/lab/app/engine/state";
 import { chatKeyOf, forgetProd, playProdRow } from "@context/lab/app/views/mine/playProd";
-import type { LedgerEntry } from "../features/tex/page/texPageTypes";
+import type { LedgerEntry } from "../../../apps/mobile/features/tex/page/texPageTypes";
 
 const mockLedger = jest.fn<(chat: string, q: { kinds?: string[] }) => Promise<unknown>>();
 jest.mock("@context/lab/app/views/mine/useMine", () => ({ ledgerSource: () => ({ ledger: (chat: string, q: { kinds?: string[] }) => mockLedger(chat, q) }) }));

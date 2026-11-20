@@ -8,7 +8,7 @@ import { chatLines, myTexts, parseReplay, readsOf, replayConfig, routineName, sh
 import { judgeWords, LOGGED_FROM, loggedMoments, momentsOf, turnAt } from "@context/lab/app/engine/replay";
 import { stepRows } from "@context/lab/app/engine/replaySteps";
 import { G } from "@context/lab/app/engine/state";
-import type { LedgerEntry } from "../features/tex/page/texPageTypes";
+import type { LedgerEntry } from "../../../apps/mobile/features/tex/page/texPageTypes";
 
 const e = (x: Partial<LedgerEntry> & { id: string; kind: string }): LedgerEntry => ({ at: 1_000, ...x }) as LedgerEntry;
 

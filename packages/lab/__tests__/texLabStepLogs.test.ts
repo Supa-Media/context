@@ -10,7 +10,7 @@ import { join } from "node:path";
 import { G, stepsOf } from "@context/lab/app/engine/state";
 import { STEP_LOGS, nodeOfStep } from "@context/lab/app/engine/stepLogs";
 import { momentAsSteps, stepIO } from "@context/lab/app/engine/stepIO";
-import type { LedgerEntry } from "../features/tex/page/texPageTypes";
+import type { LedgerEntry } from "../../../apps/mobile/features/tex/page/texPageTypes";
 
 const T = "t1";
 let n = 0;
@@ -113,7 +113,7 @@ describe("every canvas step logs what went in and what came out", () => {
   // chat's ledger, and every one the Worker keeps, lands on a drawn step. Timing lines are Door steps' gathering, and a
   // "node" step is the graph runner's, which lands on the node it names (stepIO.ts).
   test("every step name the gateway or the Worker logs lands on a canvas step", () => {
-    const ledger = readFileSync(join(__dirname, "../../mcp/src/agent/ledger.js"), "utf8");
+    const ledger = readFileSync(join(__dirname, "../../../apps/mcp/src/agent/ledger.js"), "utf8");
     const names = JSON.parse(/export const STEP_NAMES = new Set\((\[[^\]]*\])\)/.exec(ledger)![1]) as string[];
     const worker = readFileSync(join(__dirname, "../../../packages/tex/worker/stepEvents.ts"), "utf8");
     for (const m of worker.matchAll(/name: "([a-z]+)"/g)) names.push(m[1]);

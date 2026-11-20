@@ -32,7 +32,7 @@ jest.mock("expo-router", () => {
   const { createElement } = jest.requireActual<typeof import("react")>("react");
   return { Redirect: ({ href }: { href: string }) => createElement("div", { "data-testid": "redirect", "data-href": href }) };
 });
-jest.mock("../features/site/host", () => ({ isTexHost: () => true }));
+jest.mock("../../../apps/mobile/features/site/host", () => ({ isTexHost: () => true }));
 // The test chat under the canvas reaches the gateway with the person's own grant; no gateway here.
 jest.mock("@context/lab/app/views/canvas/sandboxCall", () => ({ useSandboxCall: () => false }));
 // The person's own ledger, as the Tex page's history route answers it, stood in for: what the loader would read.
@@ -120,7 +120,7 @@ window.matchMedia = ((q: string) => ({ matches: false, media: q, addEventListene
 
 import { act, createElement } from "react";
 import { createRoot } from "react-dom/client";
-import TexLabRoute from "../app/(app)/lab";
+import TexLabRoute from "../../../apps/mobile/app/(app)/lab";
 import { config } from "@context/lab/app/engine/diff";
 import { clone, emit, lab, MAIN, node, set as setLab } from "@context/lab/app/engine/state";
 import { promptText } from "@context/lab/app/views/run/runText";

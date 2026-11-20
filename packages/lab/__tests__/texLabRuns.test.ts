@@ -41,10 +41,10 @@ jest.mock("expo-router", () => {
   const { createElement } = jest.requireActual<typeof import("react")>("react");
   return { Redirect: ({ href }: { href: string }) => createElement("div", { "data-testid": "redirect", "data-href": href }) };
 });
-jest.mock("../features/site/host", () => ({ isTexHost: () => true }));
+jest.mock("../../../apps/mobile/features/site/host", () => ({ isTexHost: () => true }));
 jest.mock("@context/lab/app/views/canvas/sandboxCall", () => ({ useSandboxCall: () => false }));
 jest.mock("@context/lab/app/views/canvas/usePicUpload", () => ({ MAX_TEST_PIC_BYTES: 5_000_000, usePicUpload: () => async () => ({ url: "https://example.invalid/tent.png" }) }));
-jest.mock("../features/agent/useConsoleGrant", () => ({ useConsoleGrant: () => async () => ({ accessToken: "fake-token" }) }));
+jest.mock("../../../apps/mobile/features/agent/useConsoleGrant", () => ({ useConsoleGrant: () => async () => ({ accessToken: "fake-token" }) }));
 
 (globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 window.matchMedia = ((q: string) => ({ matches: false, media: q, addEventListener() {}, removeEventListener() {} })) as never;

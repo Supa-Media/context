@@ -713,6 +713,10 @@ importers:
       '@context/tex':
         specifier: workspace:*
         version: link:../tex
+    devDependencies:
+      jest-environment-jsdom:
+        specifier: ^29.7.0
+        version: 29.7.0
 
   packages/meetings: {}
 
