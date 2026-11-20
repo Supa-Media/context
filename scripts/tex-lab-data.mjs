@@ -231,7 +231,7 @@ function buildWs() {
 const cases = buildCases();
 
 // What a change's replay runs by default: the gate's own sample of the jobs (`apps/mcp/bench/gateSample.mjs`), so the
-// Lab picks the same tasks; a task outside it says `gate: false`. Every other step keeps at most 50 cases (UNIT_LIMIT) and runs them all.
+// Lab picks the same tasks; a task outside it says `gate: false`. Every other step keeps at most 100 cases (UNIT_LIMIT) and runs them all.
 const sample = await import(pathToFileURL(abs("apps/mcp/bench/gateSample.mjs")).href);
 {
   const jobs = readJsonList("apps/mcp/bench/job-tasks/cases.json");
