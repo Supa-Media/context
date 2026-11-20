@@ -175,7 +175,7 @@ export function reflectQuestion({ question, answer, steps, index, used, reason, 
  * The texting session's dispatcher, under a ledger of its own: nothing the
  * reflect step does can add to, or be held by, the turn's asks.
  */
-function ownDispatch(store, session) {
+export function ownDispatch(store, session) {
   const own = { ...session, egress: { ...(session.egress ?? {}), ledger: newLedger() } };
   Object.defineProperty(own, "accessToken", { value: session.accessToken, enumerable: false });
   return (name, args) => callToolForSession({ name, arguments: args }, store, own);
