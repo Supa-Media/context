@@ -80,7 +80,7 @@ function contactLine(fact) {
  */
 export async function toolListChannelDays(store, scope, rules, overrides, args = {}) {
   const limit = Number.isInteger(args.limit) ? args.limit : 10;
-  if (limit < 1 || limit > 25) return toolError("limit must be between 1 and 25");
+  if (limit < 1 || limit > 25) return toolError("limit must be between 1 and 25; pass a number in that range");
   if (args.channel !== undefined && !CHANNELS.includes(args.channel)) {
     // The channel list is public — it is in the tool's own description — so
     // naming an unknown one is a caller error rather than a disclosure.
@@ -239,7 +239,7 @@ export async function toolReadChannelDay(store, scope, rules, overrides, args = 
  */
 export async function toolListContacts(store, scope, rules, overrides, args = {}) {
   const limit = Number.isInteger(args.limit) ? args.limit : 10;
-  if (limit < 1 || limit > 25) return toolError("limit must be between 1 and 25");
+  if (limit < 1 || limit > 25) return toolError("limit must be between 1 and 25; pass a number in that range");
 
   const inbox = await inboxFolders(store);
   const listed = (
@@ -293,7 +293,7 @@ export async function toolReadContact(store, scope, rules, overrides, args = {})
   const path = normalizePath(args.path);
   if (!path) return toolError("invalid path");
   if (!isContactNotePath(path) && !isContactNotePath(path, { inbox: (await inboxFolders(store)).home })) {
-    return toolError("not a contact page — read it with read_note");
+    return toolError("not a contact page; read it with read_note instead");
   }
   // Both questions asked, then decided, so the refusal for a note being held
   // back costs what the refusal for an absent one costs; on metadata, so no

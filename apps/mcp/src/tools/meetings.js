@@ -54,7 +54,7 @@ const MEETINGS_FOLDER_NAME = /(^|\/)[^/]*meeting[^/]*\//i;
  */
 export async function toolListMeetings(store, scope, rules, overrides, limitArg) {
   const limit = Number.isInteger(limitArg) ? limitArg : 10;
-  if (limit < 1 || limit > 25) return toolError("limit must be between 1 and 25");
+  if (limit < 1 || limit > 25) return toolError("limit must be between 1 and 25; pass a number in that range");
   const found = await everyWorkspace(store, scope, rules, overrides, async (...where) => ({ meetings: await meetingsIn(...where) }));
   const meetings = found
     .flatMap(({ name, meetings: list }) => (name === null ? list : list.map((meeting) => ({ ...meeting, key: `${name}/${meeting.key}` }))))

@@ -99,9 +99,9 @@ export function fillLoginTool(browser, store) {
     async call(args) {
       if (!isEntryId(args?.entry)) return text("entry must be a login id from fetch vault:.", true);
       // An email-first sign-in (Instacart, 2026-10-24) shows no password box until the email is in: then the username alone.
-      if (args?.password_ref !== undefined && !isRef(args.password_ref)) return text("password_ref must be the password box's number.", true);
+      if (args?.password_ref !== undefined && !isRef(args.password_ref)) return text("password_ref must be the password box's number. Read the page and pass its number.", true);
       if (args?.username_ref !== undefined && !isRef(args.username_ref)) {
-        return text("username_ref must be the username box's number.", true);
+        return text("username_ref must be the username box's number. Read the page and pass its number.", true);
       }
       if (args?.password_ref === undefined && args?.username_ref === undefined) {
         return text("Pass password_ref, username_ref, or both: the numbers of the sign-in boxes on this page.", true);

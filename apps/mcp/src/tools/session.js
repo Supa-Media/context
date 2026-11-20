@@ -345,7 +345,7 @@ async function routeToolCall(params, store, session, routed, options = {}) {
     Absent is the only thing that means "here".
   */
   if (requested !== undefined && requested !== null && !isUsableContextName(requested)) {
-    return toolError("this connection has no access to that context");
+    return toolError("this connection has no access to that context; call orient to see the ones it reaches");
   }
   if (isUsableContextName(requested)) {
     // A deployment that never installed the opener — a self-host shim, a test
@@ -353,7 +353,7 @@ async function routeToolCall(params, store, session, routed, options = {}) {
     // failure a person can act on is "that did not happen"; the one they cannot
     // is a note filed in the wrong workspace.
     if (typeof store.openContext !== "function") {
-      return toolError("this connection cannot address another context");
+      return toolError("this connection cannot address another context; leave context out");
     }
     try {
       ({ session: target, store: targetStore } = await store.openContext(requested));
@@ -364,7 +364,7 @@ async function routeToolCall(params, store, session, routed, options = {}) {
       // gives the URL form, for the reason it gives: a distinguishable answer
       // is an existence oracle over a global namespace.
       if (error instanceof SessionRefusal) {
-        return toolError("this connection has no access to that context");
+        return toolError("this connection has no access to that context; call orient to see the ones it reaches");
       }
       // Reachable, and its bucket is not. Said plainly, because it is the one
       // failure here the person can fix — and said WITHOUT the reason, because
@@ -384,7 +384,7 @@ async function routeToolCall(params, store, session, routed, options = {}) {
         // own context, where "reconnect it" is advice they can act on.
         return toolError(
           `${target?.name || "that context"} has no reachable storage right now; ` +
-            "its owner can reconnect it from their dashboard.",
+            "its owner can reconnect it from their dashboard. Tell the person, and try again later.",
         );
       }
       throw error;
@@ -399,7 +399,7 @@ async function routeToolCall(params, store, session, routed, options = {}) {
       (args.source_context !== undefined && !isUsableContextName(args.source_context)) ||
       (args.destination_context !== undefined && !isUsableContextName(args.destination_context))
     ) {
-      return toolError("this connection has no access to that context");
+      return toolError("this connection has no access to that context; call orient to see the ones it reaches");
     }
     const openNamedContext = async (name) => {
       if (!isUsableContextName(name)) return { session: target, store: targetStore };
@@ -416,11 +416,11 @@ async function routeToolCall(params, store, session, routed, options = {}) {
       routed.workspaceId = destinationTarget.session.workspaceId;
     } catch (error) {
       if (error instanceof SessionRefusal) {
-        return toolError("this connection has no access to that context");
+        return toolError("this connection has no access to that context; call orient to see the ones it reaches");
       }
       if (error instanceof StorageUnavailable) {
         return toolError(
-          "one of those contexts has no reachable storage right now; its owner can reconnect it from their dashboard.",
+          "one of those contexts has no reachable storage right now; its owner can reconnect it from their dashboard. Tell the person, and try again later.",
         );
       }
       throw error;
@@ -454,7 +454,7 @@ async function routeToolCall(params, store, session, routed, options = {}) {
       sourceTarget.session.scope !== "private"
     ) {
       return toolError(
-        "permission denied: moving a note into a private owner workspace from another workspace requires owner access to both contexts."
+        "permission denied: moving a note into a private owner workspace from another workspace requires owner access to both contexts. Ask an owner of both to move it, or copy it with write instead."
       );
     }
     if (sourceTarget.session.workspaceId === destinationTarget.session.workspaceId) {

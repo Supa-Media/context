@@ -499,12 +499,12 @@ export async function runCommunicationsChecks(check) {
       check(
         `${tool} routes through the one place, so a context nobody granted is refused`,
         (await callTool(env, OWNER_TOKEN, tool, { context: "@no-such-context-anywhere", path: workDay })) ===
-          "this connection has no access to that context"
+          "this connection has no access to that context; call orient to see the ones it reaches"
       );
       check(
         `...and a ${tool} call naming a reserved route is refused the same way`,
         (await callTool(env, OWNER_TOKEN, tool, { context: "@mcp", path: workDay })) ===
-          "this connection has no access to that context"
+          "this connection has no access to that context; call orient to see the ones it reaches"
       );
     }
 

@@ -334,7 +334,7 @@ async function findNotesUnrecorded(store, scope, rules, overrides, query, prefix
 export async function toolSearchNotes(store, scope, rules, overrides, query, prefixArg, { boost } = {}) {
   if (!query || typeof query !== "string") return toolError("query required");
   const prefix = prefixArg ? normalizePath(prefixArg) : "";
-  if (prefixArg && prefix === null) return toolError("invalid prefix");
+  if (prefixArg && prefix === null) return toolError("invalid prefix: pass a folder path, like projects/, or leave prefix out");
   const found = await findNotes(store, scope, rules, overrides, query, prefix, { boost });
   const hits = found.hits.map(({ key, snippets, title, meaningOnly }) =>
     meaningOnly
@@ -423,7 +423,7 @@ export async function toolSearchNotes(store, scope, rules, overrides, query, pre
 export async function toolOpenAiSearch(store, scope, rules, overrides, query, prefixArg) {
   if (!query || typeof query !== "string") return toolError("query required");
   const prefix = prefixArg ? normalizePath(prefixArg) : "";
-  if (prefixArg && prefix === null) return toolError("invalid prefix");
+  if (prefixArg && prefix === null) return toolError("invalid prefix: pass a folder path, like projects/, or leave prefix out");
   store.lastSearch = null;
   store.searchRowPending = true;
   let hits;

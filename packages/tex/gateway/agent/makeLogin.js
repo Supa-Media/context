@@ -89,11 +89,11 @@ function hostOf(origin) {
 function checkArgs(args) {
   const username = typeof args?.username === "string" ? args.username.trim() : "";
   if (username.length === 0 || username.length > MAX_USERNAME || CONTROL.test(username)) {
-    return { error: `username must be the email or username the account is made with, up to ${MAX_USERNAME} characters, on one line.` };
+    return { error: `username must be the email or username the account is made with, up to ${MAX_USERNAME} characters, on one line. Pass just that.` };
   }
-  if (!isRef(args.password_ref)) return { error: "password_ref must be the password box's number." };
-  if (!isAbsent(args.username_ref) && !isRef(args.username_ref)) return { error: "username_ref must be the username box's number." };
-  if (!isAbsent(args.confirm_ref) && !isRef(args.confirm_ref)) return { error: "confirm_ref must be the repeat-password box's number." };
+  if (!isRef(args.password_ref)) return { error: "password_ref must be the password box's number. Read the page and pass its number." };
+  if (!isAbsent(args.username_ref) && !isRef(args.username_ref)) return { error: "username_ref must be the username box's number. Read the page and pass its number." };
+  if (!isAbsent(args.confirm_ref) && !isRef(args.confirm_ref)) return { error: "confirm_ref must be the repeat-password box's number. Read the page and pass its number, or leave it out." };
   return {
     username,
     refs: {

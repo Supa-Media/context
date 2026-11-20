@@ -425,12 +425,12 @@ export async function runContactsChecks(check) {
     check(
       "an ordinary note is read through read_note, not through this",
       (await callTool(env, OWNER_TOKEN, "read_contact", { path: "index.md" })) ===
-        "not a contact page — read it with read_note"
+        "not a contact page; read it with read_note instead"
     );
     check(
       "a day of a channel is read through its own tool",
       (await callTool(env, OWNER_TOKEN, "read_contact", { path: "0-inbox/google-chat/2026-09-05.md" })) ===
-        "not a contact page — read it with read_note"
+        "not a contact page; read it with read_note instead"
     );
     check(
       "a traversal is refused before anything is read",
@@ -460,7 +460,7 @@ export async function runContactsChecks(check) {
     check("read_contact reads a lettered page",
       (await callTool(env, OWNER_TOKEN, "read_contact", { path: lettered })).includes("# Claire Dubois"));
     check("...and refuses one nested deeper",
-      (await callTool(env, OWNER_TOKEN, "read_contact", { path: deep })) === "not a contact page — read it with read_note");
+      (await callTool(env, OWNER_TOKEN, "read_contact", { path: deep })) === "not a contact page; read it with read_note instead");
     await bucket.delete(lettered);
     await bucket.delete(importedElsewhere);
     await bucket.delete(deep);

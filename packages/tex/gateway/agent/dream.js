@@ -83,7 +83,7 @@ function refused(text) {
 export function dreamCallTool(dispatch, { budget = null } = {}) {
   return async (name, args) => {
     const given = args && typeof args === "object" && !Array.isArray(args) ? args : {};
-    if (given.context !== undefined) return refused("A dream works in their own workspace only.");
+    if (given.context !== undefined) return refused("A dream works in their own workspace only. Leave context out.");
     if (DREAM_READS.has(name)) return await dispatch(name, given);
     if (name !== "write_note") return refused(`A dream can't use ${name}.`);
     if (given.path !== ABOUT_ME_PATH) return refused(`A dream writes only ${ABOUT_ME_PATH}.`);

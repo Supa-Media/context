@@ -55,7 +55,7 @@ export function nudgeCallTool(dispatch) {
   let wrote = false;
   const call = async (name, args) => {
     const given = args && typeof args === "object" && !Array.isArray(args) ? args : {};
-    if (given.context !== undefined) return refused("Only their own workspace.");
+    if (given.context !== undefined) return refused("Only their own workspace: leave context out.");
     if (name !== "read_note" && name !== "write_note") return refused(`This can't use ${String(name).slice(0, 40)}.`);
     if (given.path !== ABOUT_ME_PATH) return refused(`Only ${ABOUT_ME_PATH} can be read or written here.`);
     if (name === "read_note") return await dispatch("read_note", { path: ABOUT_ME_PATH });

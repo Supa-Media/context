@@ -109,9 +109,9 @@ export function reflectCallTool(dispatch) {
   let wrote = false;
   const call = async (name, args) => {
     const given = args && typeof args === "object" && !Array.isArray(args) ? args : {};
-    if (given.context !== undefined) return refused("Skills are written in their own workspace only.");
+    if (given.context !== undefined) return refused("Skills are written in their own workspace only. Leave context out.");
     if (!REFLECT_READS.has(name) && name !== "write_note") return refused(`Reflecting can't use ${String(name).slice(0, 40)}.`);
-    if (typeof given.path !== "string" || !LEARNED_SKILL_PATH.test(given.path)) return refused("Only tex/skills/<name>.md can be read or written here.");
+    if (typeof given.path !== "string" || !LEARNED_SKILL_PATH.test(given.path)) return refused("Only tex/skills/<name>.md can be read or written here. Pass a path like that.");
     if (REFLECT_READS.has(name)) return await dispatch("read_note", { path: given.path });
     if (wrote) return refused("One skill is written per job. Stop here.");
     const extra = Object.keys(given).filter((key) => given[key] !== undefined && !WRITE_ARGS.has(key));
