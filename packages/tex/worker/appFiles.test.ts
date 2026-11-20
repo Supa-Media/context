@@ -77,7 +77,7 @@ describe("an app chat's file names", () => {
 
   it("drops control and format characters, such as a right-to-left override that would hide an extension", () => {
     expect(safeAppFileName("a\u0000b\u0007.pdf")).toBe("ab.pdf");
-    expect(safeAppFileName("evil‮fdp.exe")).toBe("evilfdp.exe");
+    expect(safeAppFileName("evil\u202efdp.exe")).toBe("evilfdp.exe");
   });
 
   it("keeps at most 120 characters, and the extension when it cuts", () => {
