@@ -94,12 +94,13 @@ function fakeWorkerRpc() {
   return { rpc, calls };
 }
 
-/** The workflow binding: records each instance started, as `Workflow.create` does. */
+/** The workflow binding: records each instance started, and refuses one already there, as `Workflow.create` does. */
 function fakeWorkflow() {
   const created = [];
   return {
     created,
     async create(options) {
+      if (created.some((one) => one.id === options.id)) throw new Error("instance already exists");
       created.push(options);
       return { id: options.id };
     },
