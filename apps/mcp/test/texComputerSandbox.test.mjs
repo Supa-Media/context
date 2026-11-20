@@ -12,8 +12,8 @@
  *     → "the node asks the service for one operation of one tag, and refuses anything else" fails.
  *  3. `computerOut` passing every field the service answers through.
  *     → "through a draft that wires tools -> computer: one call is the node, logged and shaped" fails (the strict schema refuses it).
- *  4. The node registered on main's config instead of the shelf.
- *     → "on the shelf: not wired on main, so nothing is offered" fails.
+ *  4. The node dropped from main's config, or tools -> computer unwired.
+ *     → "wired on main: tools -> computer, and the shelf no longer lists it" fails.
  */
 import test from "node:test";
 import assert from "node:assert/strict";
@@ -84,11 +84,11 @@ test("the model reads a failed command as its exit code and stderr, and a refusa
   assert.equal(computerWords(null).isError, true);
 });
 
-test("on the shelf: not wired on main, so nothing is offered", () => {
-  assert.ok(SHELF.nodes.computer, "texNodeShelf.json lists it");
+test("wired on main: tools -> computer, and the shelf no longer lists it", () => {
+  assert.equal(SHELF.nodes.computer, undefined, "promoted off texNodeShelf.json");
   assert.equal(GATEWAY_NODES.computer, computerNode);
-  assert.equal(TEX_CONFIG.nodes.some((node) => node.id === "computer"), false);
-  assert.equal(gatewayGraph().wired("tools", "computer"), false);
+  assert.equal(TEX_CONFIG.nodes.some((node) => node.id === "computer"), true);
+  assert.equal(gatewayGraph().wired("tools", "computer"), true);
   assert.equal(ASSISTANT_SEND_ACTIONS.tex_computer.tool, TEX_COMPUTER_TOOL);
 });
 
@@ -135,7 +135,7 @@ test("through a draft that wires tools -> computer: one call is the node, logged
   assert.equal(run.ok, true);
 });
 
-test("Tex is not told about its own computer while the node is on the shelf", async () => {
+test("the fixed capability list leaves Tex's computer out; a texted turn is told by computersLine while it is wired", async () => {
   const { CAPABILITIES, CAPABILITY_LIST } = await import("../../../packages/tex/gateway/agent/capabilities.js");
   const entry = CAPABILITIES.find((one) => one.actions?.includes("send.tex_computer"));
   assert.equal(entry?.shelf, true);
