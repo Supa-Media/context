@@ -39,6 +39,7 @@ import { ProviderError } from "./providers.js";
 import { builtinMeter, dayOf } from "./jobLog.js";
 import { callToolForSession } from "../../../../apps/mcp/src/tools/session.js";
 import { newLedger } from "../../../../apps/mcp/src/privacy/egress.js";
+import { sandboxGateOf } from "../../../../apps/mcp/src/labSandbox/policy.js";
 import { failedAt, memoryNudge } from "./memoryNudge.js";
 import {
   LEARNED_SKILL_PATH,
@@ -173,10 +174,14 @@ export function reflectQuestion({ question, answer, steps, index, used, reason, 
 
 /**
  * The texting session's dispatcher, under a ledger of its own: nothing the
- * reflect step does can add to, or be held by, the turn's asks.
+ * reflect step does can add to, or be held by, the turn's asks. In a Lab test chat the turn's gate (`env`'s, from
+ * `labSandbox/policy.js`) goes on the session, so a background step reads what the test chat wrote and writes there,
+ * never to the real notes: the store's own env does not carry it, and without it the connect step read the real
+ * workspace and could not see the note the turn had just written (Lab, 2026-11-20).
  */
-export function ownDispatch(store, session) {
-  const own = { ...session, egress: { ...(session.egress ?? {}), ledger: newLedger() } };
+export function ownDispatch(store, session, env = null) {
+  const gate = sandboxGateOf(env);
+  const own = { ...session, egress: { ...(session.egress ?? {}), ledger: newLedger() }, ...(gate !== null ? { labSandbox: gate } : {}) };
   Object.defineProperty(own, "accessToken", { value: session.accessToken, enumerable: false });
   return (name, args) => callToolForSession({ name, arguments: args }, store, own);
 }
@@ -198,7 +203,7 @@ export async function reflectAfterTurn({ env, controlPlane, store, session, offe
     const texted = session?.actorClientId === TEXTS_CLIENT_ID;
     const personal = (store?.contexts ?? []).find((entry) => entry.current)?.kind === "personal";
     if (!texted || !canWrite || !personal) return { outcome: "skipped" };
-    const dispatch = ownDispatch(store, session);
+    const dispatch = ownDispatch(store, session, env);
     const today = dayOf(now, timeZone);
     const used = [...(learned?.used ?? [])];
     if (used.length > 0) await stampUsed(dispatch, used, today);
@@ -219,7 +224,7 @@ export async function nudgeAfterTurn({ env, controlPlane, store, session, offere
     const texted = session?.actorClientId === TEXTS_CLIENT_ID;
     const personal = (store?.contexts ?? []).find((entry) => entry.current)?.kind === "personal";
     if (!texted || !canWrite || !personal) return { outcome: "skipped" };
-    const dispatch = ownDispatch(store, session);
+    const dispatch = ownDispatch(store, session, env);
     return await memoryNudge({ env, controlPlane, store, session, offered, dispatch, now, current: { question, answer: turn?.answer, tainted } });
   } catch (error) {
     log(session ?? {}, { outcome: "failed", code: error?.name === "TypeError" ? "type" : "error" });
