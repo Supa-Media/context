@@ -16,7 +16,7 @@
  *   (`claimCheck.js`), told to do that part now.
  * - A background job whose last answer still stops short is not done: the
  *   gateway marks it `unfinished`, and the Worker gives it another turn
- *   (`apps/agent/src/jobRun.ts`) that builds on that answer, until its
+ *   (`packages/tex/worker/jobRun.ts`) that builds on that answer, until its
  *   last turn, which says plainly what is missing.
  *
  * Phrases only; the hand-back judge (`handbackJudge.js`) catches the rest.

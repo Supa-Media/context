@@ -293,8 +293,8 @@ gateway held a call for their OK".
 **The ask goes out in a text of its own (2026-10-17).** Appended to the
 model's answer and left there, the ask line is the model's to lose: the reply
 worker keeps three texts and folds every later paragraph into the third
-(`apps/agent/src/format.ts`), then sends at most 3,000 characters of each
-(`apps/agent/src/clients.ts`), so a long enough answer cuts the ask off its
+(`packages/tex/worker/format.ts`), then sends at most 3,000 characters of each
+(`packages/tex/worker/clients.ts`), so a long enough answer cuts the ask off its
 own end — while the record stays armed for hours and a later bare
 "yes" releases what was never read. So `textedAsk` hands every ask back as a
 `verbatim` part, which the reply worker pulls out of the answer and texts
@@ -397,7 +397,7 @@ own site").
 Texting Tex, somebody can reply to one message in the thread, and Sendblue
 names the message they picked. Tex reads a bare "this one" better when it
 knows which message that is, so the words are fetched
-(`apps/agent/src/sendblue.ts`, `repliedToText`) and shown to the model.
+(`packages/tex/worker/sendblue.ts`, `repliedToText`) and shown to the model.
 
 They are sent to `/agent` as their own field and never folded into
 `question`. Four guards read `question` as the person's own words: the
@@ -421,7 +421,7 @@ arrive on the person's line wearing the person's authority. Tests:
 `agentEgressJudge.test.mjs` ("a texted turn is judged on the person's own
 text, never the message they replied to", "the model still reads the quoted
 message, marked as quoted and vouching for nothing");
-`apps/agent/src/reply.test.ts` ("sends the message a reply answers apart from
+`packages/tex/worker/reply.test.ts` ("sends the message a reply answers apart from
 the person's own words").
 
 ### A yes answers the ask made in its own chat, and only the latest (Dev2, 2026-11-02)

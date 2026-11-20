@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 /**
  * The address Sendblue posts each send's status to (`SENDBLUE_STATUS_URL`,
- * `apps/agent/src/sendblueStatus.ts`), worked out at deploy time.
+ * `packages/tex/worker/sendblueStatus.ts`), worked out at deploy time.
  *
  *   SENDBLUE_WEBHOOK_SECRET=… node scripts/sendblue-status-url.mjs <worker> <workers.dev subdomain>
  *

@@ -4,7 +4,7 @@
  * `/messages/picture?p=<object id>.<token>.<ext>`.
  *
  * The owner, 2026-10-30: a tapped card showed only its title. The drawing is
- * kept by the texting Worker (`apps/agent/src/media.ts`, a week for a card)
+ * kept by the texting Worker (`packages/tex/worker/media.ts`, a week for a card)
  * under a 256-bit token, the same address Sendblue fetched it from; this reads
  * it through the `TEXTS` binding, so the Worker's own address never appears in
  * a page. Only an image type is passed on, and every miss is the same 404.

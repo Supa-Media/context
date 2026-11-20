@@ -2,7 +2,7 @@
  * THE WORDS AN INLINE REPLY ANSWERS ARE NOT THE PERSON'S OWN.
  *
  * Texting Tex, somebody can reply to one message in the thread, and Tex reads
- * better when it knows which one (`apps/agent/src/sendblue.ts`,
+ * better when it knows which one (`packages/tex/worker/sendblue.ts`,
  * `repliedToText`). But the message they picked may be one Tex itself sent,
  * and a Tex answer can carry whatever Tex read that turn: an email, a note
  * somebody else writes into, a page. So the quoted words are somebody else's
@@ -41,7 +41,7 @@ export function quotedOf(body) {
   // The words that started the thread the reply was typed in, when that is
   // not the message replied to: the thread's topic, somebody else's words too.
   const start = words === "" ? "" : scrubbed(body?.threadStart);
-  // A tapback the Worker answers (`apps/agent/src/reactions.ts`): which one, from a fixed list.
+  // A tapback the Worker answers (`packages/tex/worker/reactions.ts`): which one, from a fixed list.
   const tapback = words !== "" && TAPBACKS.has(body?.tapback) ? body.tapback : null;
   return { words, start: start === words ? "" : start, replied: words !== "" || body?.replied === true, ...(tapback ? { tapback } : {}) };
 }
@@ -53,7 +53,7 @@ const REACTED_EXCERPT = 60;
 
 /**
  * The reactions the person left since their last text, which the Worker
- * keeps and sends with the next one (`apps/agent/src/reactions.ts`). The
+ * keeps and sends with the next one (`packages/tex/worker/reactions.ts`). The
  * words reacted to are somebody else's, as a quote's are, and shorter: an
  * excerpt to tell which text, with anything that could be an address taken
  * out, because this line is kept in the conversation the Mail checker reads.
@@ -106,7 +106,7 @@ export function scrubbed(value) {
 /**
  * What a tapback that answers asks of the turn, without the words it was on.
  * A turn read from the chat's log has those words already, in the tapback's
- * own line ("👍 (yes) on Tex's message …", `apps/agent/src/reactions.ts`), so
+ * own line ("👍 (yes) on Tex's message …", `packages/tex/worker/reactions.ts`), so
  * it is told only this (`loggedTapback`); `askedWith` adds the words itself.
  */
 export function tapbackGuide(tapback) {

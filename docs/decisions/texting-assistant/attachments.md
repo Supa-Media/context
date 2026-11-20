@@ -70,7 +70,7 @@ put together could carry a private note's words to whoever runs that server
 (the classic image-link leak); an address copied from what was read was
 written before the turn and carries nothing it learned.
 
-The texting Worker (`apps/agent/src/outgoing.ts`) uploads a note's picture to
+The texting Worker (`packages/tex/worker/outgoing.ts`) uploads a note's picture to
 Linq's attachment store and sends it by attachment id, so it never needs an
 address anyone could open, and a retry keeps only that id. A picture that
 cannot be uploaded, or that Linq refuses, becomes "I couldn't send that
@@ -135,7 +135,7 @@ gateway had already saved it to the conversation, and the next part worked
 the figures out again, differently: two "finished" results. Now a job's answer
 is not saved while a steer waits unread (`steer.pending()` in
 `apps/mcp/src/agent/texEntryPoint.js`), and the Worker hands the unsent answer to the
-next part as `draft` (`apps/agent/src/jobRun.ts`), which is told to build on
+next part as `draft` (`packages/tex/worker/jobRun.ts`), which is told to build on
 it and keep its figures unless the new text changes them; its answer replaces
 the draft. Undo: drop the `replaced` check; `agentBackgroundRoute.test.mjs`
 fails.

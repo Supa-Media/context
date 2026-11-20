@@ -10,7 +10,7 @@
  * `as` names them: nothing is held, because a hold is the tagger's own and
  * their grant can't act for anyone else. Instead the copy is shown in the
  * chat addressed to that person (`offerLine`), the Worker arms the chat's
- * ask for their 👍 or yes alone (`askFor`, `apps/agent/src/groupInbox.ts`),
+ * ask for their 👍 or yes alone (`askFor`, `packages/tex/worker/groupInbox.ts`),
  * and their yes is a turn of their own: the model makes the same call as
  * them, and their yes to the exact copy they were shown sends it once
  * (`likedPreview.js`, `route.js` `addressedTo`). Somebody else's yes in the

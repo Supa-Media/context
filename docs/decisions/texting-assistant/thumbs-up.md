@@ -18,7 +18,7 @@ held for the person. A typed yes still works as before.
 
 How it works:
 
-- **The Worker only hands it on** (`apps/agent/src/thumbs.ts`). A like or
+- **The Worker only hands it on** (`packages/tex/worker/thumbs.ts`). A like or
   heart on a text that reads as an ask goes at once (Dev2, 2026-10-22: "can
   we remove the 10 second wait, there is just no need"; until then it was
   held for ten seconds). "Removed a like from …"
@@ -114,8 +114,8 @@ What a simplification would cost: releasing on any like makes a 👍 on "Dinner
 is booked" send an email; "always" means any text of the reply that asked,
 never a text from before it. Releasing without the hold makes a slip of the thumb
 irreversible. Releasing on a liked preview without the name check sends to
-whoever the model picked. Tests: `apps/agent/src/thumbs.test.ts`,
-`apps/agent/src/sendblueTapbacks.test.ts`, `a 👍 on Tex's own preview` in
+whoever the model picked. Tests: `packages/tex/worker/thumbs.test.ts`,
+`packages/tex/worker/sendblueTapbacks.test.ts`, `a 👍 on Tex's own preview` in
 `apps/mcp/test/connectors.test.mjs`, `a yes said in a sentence` in
 `apps/mcp/test/agentEgressTexting.test.mjs`, and `a 👍 on the ask for
 what is waiting sends it` in `apps/mcp/test/reportGate.test.mjs`.

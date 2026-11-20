@@ -256,7 +256,7 @@ export function stepTool(step: string): string {
 /** What a live job's minion is doing now. */
 export function activityOf(job: JobSummary): Activity {
   if (job.state === "waiting") return "waiting";
-  // A job on one of the person's computers runs a coding tool there (`apps/agent/src/machineTurn.ts`).
+  // A job on one of the person's computers runs a coding tool there (`packages/tex/worker/machineTurn.ts`).
   if (job.machine !== undefined || job.tool !== undefined) return "coding";
   if (job.now === undefined || job.now.trim() === "") return "thinking";
   const tool = stepTool(job.now);

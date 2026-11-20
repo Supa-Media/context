@@ -23,7 +23,7 @@ import assert from "node:assert/strict";
 import { afterEach, describe, it } from "node:test";
 import { texChatClass } from "../src/texChat.js";
 
-const { serveMoveOut } = await import("../../agent/src/inboxMove.ts");
+const { serveMoveOut } = await import("../../../packages/tex/worker/inboxMove.ts");
 
 const PHONE = "+15555550100";
 const LINE = "+15555550199";
@@ -199,7 +199,7 @@ describe("TexChat runs the Worker's chat object", () => {
     const { chat, storage } = chatObject(worker.rpc);
     const provider = { name: "sendblue", providerAt: Date.now() - 120_000, receivedAt: Date.now(), lagMs: 120_000 };
     await arrive(chat, { kind: "one", inbox: PHONE, message: { ...message("m1", "hi"), provider } });
-    const { unwritten } = await import("../../agent/src/events.ts");
+    const { unwritten } = await import("../../../packages/tex/worker/events.ts");
     const step = (await unwritten(storage)).find((event) => event.kind === "step" && event.step.name === "text");
     assert.equal(step?.step.ms, 120_000);
     assert.deepEqual(step?.step.input.provider, provider);

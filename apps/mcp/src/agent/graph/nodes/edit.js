@@ -2,7 +2,7 @@
  * A text is edited or unsent, node "edit" (`texConfig.json`; Dev2, 2026-11-16: "Build edit support in Tex", "not just
  * edits but deleted messages as well"). When someone edits or unsends a text they sent (iMessage's Edit and Undo Send,
  * as Photon's line hears them), the texting Worker's chat object hands its new words (none for an unsend) and, when the
- * chat still has them, its words before (`apps/agent/src/editStep.ts`). This says only what happened, never whether it
+ * chat still has them, its words before (`packages/tex/worker/editStep.ts`). This says only what happened, never whether it
  * deserves an answer: that is Decide's, taught by example conversations (the judge's Training labels on edits).
  *
  * - "same": an edit whose words did not change (folded for case and spacing). Nothing is kept or answered.

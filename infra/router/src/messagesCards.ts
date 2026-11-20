@@ -9,10 +9,10 @@
  * and how it looks is decided here, and ships with a deploy (the owner,
  * 2026-10-29: "the message extension can't get ota updates?").
  *
- * - `/messages/pick?p=&o=&o=&c=`: a pick card's options (apps/agent/src/pickCard.ts).
- * - `/messages/ask?k=&c=`: Yes or Not now under an ask (apps/agent/src/cardChats.ts).
+ * - `/messages/pick?p=&o=&o=&c=`: a pick card's options (packages/tex/worker/pickCard.ts).
+ * - `/messages/ask?k=&c=`: Yes or Not now under an ask (packages/tex/worker/cardChats.ts).
  * - `/messages/hello`: a hello card, already sent.
- * - `/messages/card?t=`: a card Tex drew, its picture already in the bubble (apps/agent/src/sendParts.ts).
+ * - `/messages/card?t=`: a card Tex drew, its picture already in the bubble (packages/tex/worker/sendParts.ts).
  * - `/messages/drawer`: the extension opened from the drawer, with no card.
  * - `/messages/inbox` and `/messages/times`: the person's own inbox to hand
  *   to Tex, and their week to pick free times from (`messagesData.ts`).

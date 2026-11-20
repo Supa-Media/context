@@ -77,7 +77,7 @@ test("the sharing line says shared only when it is, names exactly who said yes a
 });
 
 test("every cause the Worker can name is one the gateway words", () => {
-  const source = readFileSync(new URL("../../agent/src/groupCause.ts", import.meta.url), "utf8");
+  const source = readFileSync(new URL("../../../packages/tex/worker/groupCause.ts", import.meta.url), "utf8");
   const union = source.match(/export type TurnCause =([^;]+);/)?.[1] ?? "";
   const worker = [...union.matchAll(/"([a-z_]+)"/g)].map((m) => m[1]);
   assert.ok(worker.length > 5, "the Worker's TurnCause union was found");

@@ -7,7 +7,7 @@ import { v } from "convex/values";
  * back. `browser` is a SHA-256 of the gateway's HMAC tag for that browser
  * (`browserOwner`, `groupBrowserOwner`), so it names nobody and only the
  * gateway can make it. The texting Worker that texted the take-over link
- * watches that hash (`apps/agent/src/handbackWatch.ts`) and carries the task
+ * watches that hash (`packages/tex/worker/handbackWatch.ts`) and carries the task
  * on once it moves. Times only, nothing about the page.
  */
 export const browserHandbackTables = {

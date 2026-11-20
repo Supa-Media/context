@@ -1,7 +1,7 @@
 /**
  * Part end (Dev2, 2026-11-17, jobs as config, step 5): what follows each part of a background job, as one pure rule
  * (`packages/shared/src/jobPartEnd.cjs`) behind the shelf node `partEnd`, with its limits as the node's config.
- * Until a Lab draft wires it, `runJob` (`apps/agent/src/jobRun.ts`) decides the same things in code; these cases are
+ * Until a Lab draft wires it, `runJob` (`packages/tex/worker/jobRun.ts`) decides the same things in code; these cases are
  * that code's behaviour, so wiring the node changes nothing a person sees.
  *
  * Sabotage record (2026-11-17, applied, run, failing, reverted):
@@ -104,7 +104,7 @@ test("the node answers its choice as a when tag, under the limits on its own con
 });
 
 test("the texting Worker's limits are the node's config, not numbers of its own", () => {
-  const jobs = readFileSync(new URL("../../agent/src/jobs.ts", import.meta.url), "utf8");
+  const jobs = readFileSync(new URL("../../../packages/tex/worker/jobs.ts", import.meta.url), "utf8");
   assert.match(jobs, /const LIMITS = partEndLib\.configLimits\(TEX_CONFIG\);/);
   const value = (name) => jobs.match(new RegExp(`export const ${name} = ([^;]+);`))[1];
   assert.equal(value("MAX_JOB_ATTEMPTS"), "LIMITS.parts");

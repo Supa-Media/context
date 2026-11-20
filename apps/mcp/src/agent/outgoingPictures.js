@@ -11,7 +11,7 @@
  *
  * and those lines leave the text; the `/agent` answer carries them as
  * `pictures` (`{ name, mediaType, data }` or `{ url }`) for the texting Worker
- * to send (`apps/agent/src/outgoing.ts`).
+ * to send (`packages/tex/worker/outgoing.ts`).
  *
  * Two rules keep this from being a way out for something the person should
  * not see or a reader should not learn:
@@ -54,7 +54,7 @@ const MAX_URL_LENGTH = 2000;
 // sentence with "[picture 1]" still means the picture, and the person must
 // never see the marker (Dev, 2026-10-19).
 const PICTURE_LINE = /[ \t]*\[picture[ \t]+([^\]\s]+)[ \t]*\]/gi;
-/** A card the person's phone can open on their own data (`apps/agent/src/dataCards.ts`): `[card times]` or `[card inbox]`; `[card threads]`, the live view of the chat's jobs (`apps/agent/src/jobs.ts`). */
+/** A card the person's phone can open on their own data (`packages/tex/worker/dataCards.ts`): `[card times]` or `[card inbox]`; `[card threads]`, the live view of the chat's jobs (`packages/tex/worker/jobs.ts`). */
 const CARD_LINE = /[ \t]*\[card[ \t]+(times|inbox|threads)[ \t]*\]/gi;
 /** Any https address, wherever it sits in a block of text or in a tool's arguments. */
 const ADDRESS = /https:\/\/[^\s"'()<>\\]+/gi;
@@ -78,7 +78,7 @@ export const PICTURES_LINE =
 /**
  * The two cards that open on the person's own data in Messages, offered by a
  * line of their own. Only a phone with the Context app gets one, so the words
- * never lean on it (`apps/agent/src/dataCards.ts`).
+ * never lean on it (`packages/tex/worker/dataCards.ts`).
  */
 export const DATA_CARDS_LINE =
   "Asking when they're free, add [card times] on its own line; asked to go through their email, add [card inbox]. A phone with " +
@@ -231,7 +231,7 @@ export function outgoingPictures({ enabled, question = "" }) {
         captions.push(picture.caption);
       }
     }
-    // Two or more option cards are a choice the person can make with one tap (`apps/agent/src/pickCard.ts`).
+    // Two or more option cards are a choice the person can make with one tap (`packages/tex/worker/pickCard.ts`).
     return { answer: stripped.replace(/\n{3,}/g, "\n\n").trim(), pictures, captions, choices: choices.length >= 2 ? choices : [], offers };
   };
 
@@ -307,7 +307,7 @@ function captionOf(name, args) {
 
 /**
  * What a drawn card is called, for a chat where it goes as a Context card
- * (`apps/agent/src/sendParts.ts`): its title, or its kicker. None for an
+ * (`packages/tex/worker/sendParts.ts`): its title, or its kicker. None for an
  * option card, whose set goes as a carousel with a pick card instead, and
  * none for anything not drawn by `draw_visual`.
  */

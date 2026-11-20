@@ -377,7 +377,7 @@ whose headers record their sabotage.
   so code has one road while a computer is paired. With none, the turn is
   unchanged. Tests: `machineForTurn.test.mjs`, and "a texted turn with a
   paired computer is told it by name" (`agentBackgroundRoute.test.mjs`).
-- **The job's object runs each part there** (`apps/agent/src/machineTurn.ts`):
+- **The job's object runs each part there** (`packages/tex/worker/machineTurn.ts`):
   it assigns the part through the gateway with the job's own texting grant,
   reads the run every ten seconds, streams its steps to the chat as a cloud
   part's are, and keeps the run in progress on the job's run, so a pass that
@@ -450,7 +450,7 @@ whose headers record their sabotage.
   jobs there no longer leave one slot for everything else. The gateway
   checks it before it starts one (`apps/mcp/src/agent/jobSlots.js`, the
   running list now carrying each job's machine id as `on`), the texting
-  Worker holds to the same when two turns race (`apps/agent/src/jobs.ts`
+  Worker holds to the same when two turns race (`packages/tex/worker/jobs.ts`
   `fits`), every running job is sent to the gateway however many there are,
   and the workspace object still refuses a computer two chats overfill.
   The planner is told the cloud's free slots and each computer's apart.
@@ -467,7 +467,7 @@ whose headers record their sabotage.
   to the chat's Tex as its report's `ask`, and that turn texts it word for
   word whatever its model says (`jobReport.js` `reportReply`), so the
   tapback's words can be matched. Anyone's 👍, ❤️ or 👎 on it goes to the
-  gateway (`apps/agent/src/thumbs.ts` `onMachineAsk`; other asks hold only
+  gateway (`packages/tex/worker/thumbs.ts` `onMachineAsk`; other asks hold only
   the asker's), and the gateway answers the ask only when the turn's own
   grant is the computer's owner, the computer is lent to this chat, and the
   ask is this chat's with its title and the computer's name in the words
@@ -553,6 +553,6 @@ refuses ends the job once".
 
 ## A job waits on its run, not on a timer (2026-11-06)
 
-Dev2 asked that jobs wait on pushes, with a slow safety read. A job's object used to read its run on a computer every 10 seconds for as long as the part ran, and each read wrote the run's steps to the chat's record again. Now each read after the first names the run version it last saw. The workspace object holds the read until the run moves (a step, a word, a session, its end) or 50 seconds pass, checking its own row locally (`apps/mcp/src/workspaceStore/runWait.js`). Then the job reads again at once (`apps/agent/src/machineTurn.ts`). A step reaches the chat as the runner sends it. An idle part is read about once a minute. The record is written only when the run moved. Whose run it is gets checked before anything waits. A gateway that doesn't hold is read every 10 seconds as before.
+Dev2 asked that jobs wait on pushes, with a slow safety read. A job's object used to read its run on a computer every 10 seconds for as long as the part ran, and each read wrote the run's steps to the chat's record again. Now each read after the first names the run version it last saw. The workspace object holds the read until the run moves (a step, a word, a session, its end) or 50 seconds pass, checking its own row locally (`apps/mcp/src/workspaceStore/runWait.js`). Then the job reads again at once (`packages/tex/worker/machineTurn.ts`). A step reaches the chat as the runner sends it. An idle part is read about once a minute. The record is written only when the run moved. Whose run it is gets checked before anything waits. A gateway that doesn't hold is read every 10 seconds as before.
 
-**Simplifying it away costs:** six reads a minute per running part, each rewriting its steps. Tested by `apps/mcp/test/runWait.test.mjs` and `apps/agent/src/machineTurn.test.ts` ("a read is held by the gateway until the run moves").
+**Simplifying it away costs:** six reads a minute per running part, each rewriting its steps. Tested by `apps/mcp/test/runWait.test.mjs` and `packages/tex/worker/machineTurn.test.ts` ("a read is held by the gateway until the run moves").

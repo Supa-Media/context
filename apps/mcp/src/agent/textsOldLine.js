@@ -1,6 +1,6 @@
 /**
  * The old-number check for one arriving text (node `oldLine`, `texConfig.json`), asked by the texting Worker's chat
- * object over the `TexTexts` binding before the text is queued (`apps/agent/src/oldLineStep.ts`). The node runs on
+ * object over the `TexTexts` binding before the text is queued (`packages/tex/worker/oldLineStep.ts`). The node runs on
  * the gateway's graph, so its input, output and time are logged like every node's; the Worker sends any reply itself.
  * The body holds the chat id, the staff setting and two times, never a text's words.
  */

@@ -48,7 +48,7 @@ them empty (`emptyPersonalRead`) and does not send them. The developer's own tes
 still go through there. `tex_dev` `sandbox` uses the same gate.
 
 Dev2 chose this on 2026-11-16 ("Allow test texts", over a read-only Lab tab), with the yes's wording updated to say
-so for everyone who says yes from then on: Settings → Feedback and Tex's texted answer (`apps/agent/src/
+so for everyone who says yes from then on: Settings → Feedback and Tex's texted answer (`packages/tex/worker/
 reviewSharing.ts` `WHAT_IT_MEANS`) say the team can "text a test copy of the chat, where I answer as I would you,
 reading the notes I can read; nothing done there changes your notes or reaches anyone".
 

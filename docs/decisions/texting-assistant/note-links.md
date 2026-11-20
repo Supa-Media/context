@@ -50,9 +50,9 @@ answered the picture again on its own ("That's the Context banner").
   `..` or a context with no `@` is not a note.
 - On Sendblue, a file that comes with an address in the words, or a
   `.pluginPayloadAttachment`, is the link's preview and is dropped where it
-  is read (`isLinkPreview`, `apps/agent/src/sendblue.ts`); a lone picture
+  is read (`isLinkPreview`, `packages/tex/worker/sendblue.ts`); a lone picture
   within 15 seconds of a texted link is the same card sent on by itself, and
-  is dropped too (`LINK_PREVIEW_MS`, `apps/agent/src/inbox.ts`). Both log
+  is dropped too (`LINK_PREVIEW_MS`, `packages/tex/worker/inbox.ts`). Both log
   `sendblue_link_preview`, never the address.
 - Every texted turn is told (`MEETINGS_LINE`, said whatever the setup says)
   to answer a question about a call from `fetch` "meetings:", which lists
@@ -61,7 +61,7 @@ answered the picture again on its own ("That's the Context banner").
   transcript, and to offer to write something down at most once.
 
 Tests: `apps/mcp/test/agentSentNoteLinks.test.mjs`, the preview cases in
-`apps/agent/src/sendblue.test.ts` and `inbox.test.ts`, and the bench list
+`packages/tex/worker/sendblue.test.ts` and `inbox.test.ts`, and the bench list
 `apps/mcp/bench/ai/tests/meetings.md`.
 
 ### On Sendblue, every link goes with its picture, and never at either end of its text
@@ -76,7 +76,7 @@ adapter, because Tex may move to another provider.
 
 - On the Sendblue lines only (`line.ts`, `groupLine.ts`), a text with links
   sends each link's picture first, up to three, then the words
-  (`apps/agent/src/linkPreviews.ts`). A note's link gets the note's drawn card,
+  (`packages/tex/worker/linkPreviews.ts`). A note's link gets the note's drawn card,
   and any other link gets its page's `og:image` (or `twitter:image`), which Tex
   fetches and hosts itself (`pagePicture.ts`). Linq, WhatsApp and any later
   provider that attaches previews itself send links as before.
@@ -96,7 +96,7 @@ adapter, because Tex may move to another provider.
   One that cannot be found, hosted or sent is skipped, and the words go anyway.
 
 Undo by sending `text` instead of `tappable(text)` and passing no finder in
-`sendWithLinkPictures`. Tests: `apps/agent/src/linkPreviews.test.ts` and
+`sendWithLinkPictures`. Tests: `packages/tex/worker/linkPreviews.test.ts` and
 `pagePicture.test.ts`. They were sabotaged three ways: following a redirect
 without the check, sending Context's catch-all card, and dropping `tappable`.
 Each sabotage failed the matching tests.

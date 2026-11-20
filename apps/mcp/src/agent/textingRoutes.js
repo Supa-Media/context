@@ -44,7 +44,7 @@ const TEXTS_GROUP_CLIENT_ID = "context_texts_group";
 const TURN = /^[A-Za-z0-9_-]{8,64}$/;
 const ASK_ID = /^[A-Za-z0-9_.:-]{1,128}$/;
 const MAX_STALE = 8;
-/** As far back as the Worker keeps a chat (`apps/agent/src/events.ts` `KEEP_EVENTS_MS`). */
+/** As far back as the Worker keeps a chat (`packages/tex/worker/events.ts` `KEEP_EVENTS_MS`). */
 const CHAT_DAY_MS = 24 * 60 * 60 * 1000;
 /** Entries one read asks for: more than a day's texts the Worker would keep (`READ_LIMIT`), as delivery receipts are among them. */
 const CHAT_READ = 2_000;

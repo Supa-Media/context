@@ -397,10 +397,10 @@ export async function createWorld(bench, person, setupRaw, models, today = null,
       const started = realNow();
       const reportsBefore = controlPlane.builtinReports.length;
       const callsBefore = modelCalls.calls().length;
-      // Their text posted to the chat's ledger first, as the texting Worker does (`apps/agent/src/events.ts`): the ledger is
+      // Their text posted to the chat's ledger first, as the texting Worker does (`packages/tex/worker/events.ts`): the ledger is
       // the chat's one record, so the next text sees this one only through it.
       // In a group, what the other members said since Tex's last answer is posted first, each from its own sender.
-      // The turn covers them with the tagger's text, as the Worker names the queued texts a turn answers (`apps/agent/src/inbox.ts`).
+      // The turn covers them with the tagger's text, as the Worker names the queued texts a turn answers (`packages/tex/worker/inbox.ts`).
       const before = [];
       for (const line of group ? others : []) {
         const sender = group.people.get(line.from);
@@ -418,16 +418,16 @@ export async function createWorld(bench, person, setupRaw, models, today = null,
       const covers = byCode ? [] : [...before.map((event) => event.id), said.id];
       // A group whose setting gives Tex the calendar has it shared with the chat, as production names it (`groupCalendar.js`).
       const groupCalendar = group && models.calendar === "connected" && controlPlane.flags.calendarAddress ? [{ handle: tagger.handle, address: controlPlane.flags.calendarAddress }] : null;
-      // Asked for as a stream, as the texting Worker asks (`apps/agent/src/clients.ts`):
+      // Asked for as a stream, as the texting Worker asks (`packages/tex/worker/clients.ts`):
       // a streamed turn is the long one, with the setup's max_steps, and a
       // plain JSON ask would measure the quick turn's 8 rounds instead.
       const streamed = await worker.fetch(
         new Request("https://mcp.bench.invalid/agent", {
           method: "POST",
           headers: { Authorization: `Bearer ${chatToken}`, "Content-Type": "application/json", Accept: "application/x-ndjson" },
-          // What the chat has running, as the texting Worker sends it (`apps/agent/src/jobs.ts`): only a
+          // What the chat has running, as the texting Worker sends it (`packages/tex/worker/jobs.ts`): only a
           // turn that is sent it is offered background jobs (`background.js`), so a test with `background: on` sends it.
-          // `covers` and `chat` as the Worker sends them (`apps/agent/src/inbox.ts`) on a real run (`run.mjs` `ledgerTurns`), so the turn reads the ledger and sorts its thread as production does.
+          // `covers` and `chat` as the Worker sends them (`packages/tex/worker/inbox.ts`) on a real run (`run.mjs` `ledgerTurns`), so the turn reads the ledger and sorts its thread as production does.
           body: JSON.stringify({ question: message, ...(models.timeZone ? { timeZone: models.timeZone } : {}), ...(group ? { group: { key: group.key, members: group.members, from: sender.handle, cause: cause ?? benchCause([...others.map((line) => line.text), message]), ...(groupMail ? { mail: groupMail } : {}), ...(groupCalendar ? { calendar: groupCalendar } : {}) } } : { conversation: "texts" }), turn: said.turn, ...(models.ledgerTurns === true && covers.length > 0 ? { covers, chat: said.chat } : {}), ...(event ?? {}), ...(attachments.length > 0 ? { attachments } : {}), ...(Array.isArray(running) ? { running } : {}), ...(job ? { job } : {}) }),
         }),
         env,
@@ -454,7 +454,7 @@ export async function createWorld(bench, person, setupRaw, models, today = null,
         ...(job ? { verdict: typeof body?.verdict === "string" ? body.verdict : null, advice: typeof body?.advice === "string" ? body.advice : "", unfinished: body?.unfinished === true, exhausted: body?.exhausted === true } : {}),
         react: typeof body?.react === "string" ? body.react : null,
         // Lines the turn texted while it worked: each is a text the person got,
-        // sent before the answer, as the texting Worker sends them (`apps/agent/src/inbox.ts`).
+        // sent before the answer, as the texting Worker sends them (`packages/tex/worker/inbox.ts`).
         progress,
         // The background jobs the turn started, for the start checks (`checks.mjs`); `run.mjs` then runs them (`jobDelivery.mjs`).
         jobs: (Array.isArray(body?.jobs) ? body.jobs : []).map((job) => ({ title: String(job?.title ?? ""), brief: String(job?.brief ?? ""), mail: job?.mail?.path ?? null, name: job?.mail?.name ?? null, on: job?.machine?.name ?? null })),

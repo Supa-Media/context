@@ -6,12 +6,12 @@
  *
  * Running one (`run.mjs` `converse`):
  *  - a group's routine: the routine's words in a note in the chat's home, and one turn of the chat, its writer's tag in
- *    the Worker's own words (`apps/agent/src/groupRoutines.ts` `chatRoutineMessage`, words in
+ *    the Worker's own words (`packages/tex/worker/groupRoutines.ts` `chatRoutineMessage`, words in
  *    `packages/shared/src/groupRunQuestions.cjs`);
  *  - a group's check-in: the email lands in the writer's mailbox, shared with the chat (a group check-in reads only mail
  *    shared with the chat or sent to its address, so a "Gmail:" row means a shared mailbox: the bench's assumption),
  *    and one turn asked the Worker's check-in words (`chatLookQuestion`), with `group.mail` naming the mailbox;
- *  - a job's report: one turn with `event: "job_report"` and the report (`apps/agent/src/jobTexts.ts`), the job in the
+ *  - a job's report: one turn with `event: "job_report"` and the report (`packages/tex/worker/jobTexts.ts`), the job in the
  *    chat's `running` list as `chatJobs({ results: true })` lists it. The gateway asks its own question
  *    (`jobReport.js`).
  * None posts a text of theirs or covers one: the Worker keeps no inbound event for them (`queueByCode`).

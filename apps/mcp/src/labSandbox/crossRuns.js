@@ -1,6 +1,6 @@
 /**
  * TEX ASKS TEX ACROSS CHATS, IN THE LAB (Dev2, 2026-11-17: "before saying you are done with a feature, make sure you
- * use the lab to test that it works"; the feature: `apps/agent/src/crossChat.ts`, `agent/crossChat.js`, decision
+ * use the lab to test that it works"; the feature: `packages/tex/worker/crossChat.ts`, `agent/crossChat.js`, decision
  * `docs/decisions/texting-assistant/cross-chat-asks.md`).
  *
  * A test text's turn that asks Tex in one of the person's group chats (`ask_chat`, through the Cross-chat gate) hands

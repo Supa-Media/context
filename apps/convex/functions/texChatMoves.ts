@@ -6,7 +6,7 @@
  *     Staff console, Platform → Lines: a switch per person and group
  *       │  askTexChatMove: the row is `asked` (audited)
  *       ▼
- *     The texting Worker's cron, once a minute (`apps/agent/src/moveChats.ts`, node `moveChat`)
+ *     The texting Worker's cron, once a minute (`packages/tex/worker/moveChats.ts`, node `moveChat`)
  *       │  claimTexChatMoves: up to five `asked` rows turn `sending`
  *       │  sends the one text on the chat's old line
  *       ▼  reportTexChatMove: `told`, or `failed` with a code
@@ -35,7 +35,7 @@ export const MOVE_CLAIM_MS = 10 * 60 * 1000;
 /** Rows the console lists, of each kind. */
 const MAX_LISTED = 500;
 const GROUP_KEY = /^[0-9a-f]{64}$/;
-/** The codes a report may carry (`apps/agent/src/moveChats.ts`); anything else is kept as `unknown`. */
+/** The codes a report may carry (`packages/tex/worker/moveChats.ts`); anything else is kept as `unknown`. */
 const DETAILS = new Set(["already_told", "on_new_line", "no_chat", "not_old_line", "no_number", "no_gateway", "node_failed", "send_failed", "unreachable", "members_unread", "add_failed", "remove_failed", "unknown"]);
 
 const kindValidator = v.union(v.literal("person"), v.literal("group"));

@@ -2,7 +2,7 @@
 // "every step should log its input output time and stuff, we need to be able
 // to replay everything and track bugs and regressions"): a person's own
 // chat's judging and every tapback, posted as `step` events with the chat's
-// other events (`apps/agent/src/stepEvents.ts`). A step is never a line of the
+// other events (`packages/tex/worker/stepEvents.ts`). A step is never a line of the
 // chat: no reader of the chat's events takes one.
 import assert from "node:assert/strict";
 import { test } from "node:test";

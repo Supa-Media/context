@@ -5,7 +5,7 @@ import { createUser, setupTest, TEST_GATEWAY_SECRET } from "./fixtures.helpers";
  * THE PHONES THE NEW-NUMBER NOTICE MAY REACH.
  *
  * Tex's old line is going away, and the Worker tells each phone whose own chat
- * is on it (`apps/agent/src/newLine.ts`). This route only says which phones
+ * is on it (`packages/tex/worker/newLine.ts`). This route only says which phones
  * Tex may know: linked ones and ones let in off the waitlist. Behind the
  * Worker's own secret, phones and nothing else.
  */

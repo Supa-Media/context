@@ -10,7 +10,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import { sendblueStatusUrl } from "./sendblue-status-url.mjs";
 
-/** The Worker's own check, `statusPath` in apps/agent/src/sendblue.ts, copied. */
+/** The Worker's own check, `statusPath` in packages/tex/worker/sendblue.ts, copied. */
 const WORKER_ACCEPTS = (url) => {
   const u = new URL(url);
   return u.protocol === "https:" && /^\/sendblue\/status\/[A-Za-z0-9_-]{16,128}$/.test(u.pathname);

@@ -1,6 +1,6 @@
 // The Lab test chat's other iMessage events (src/labSandbox/inbound.js; docs/decisions/texting-assistant/lab-sandbox.md):
 // a text with pictures, a quoted reply, a tapback and an edit, each turned into its ledger event and its `/agent` body
-// by the texting Worker's own code (`apps/agent/src/gatewayInbound.js`), as a real one is. Fake ids, words and hosts.
+// by the texting Worker's own code (`packages/tex/worker/gatewayInbound.js`), as a real one is. Fake ids, words and hosts.
 //
 // Sabotage (temporary local edits, reverted, 2026-11-16):
 //   inbound.js `reactionOf` running every 1:1 tapback          "a ❤️ on a plain text is only noted ..." fails

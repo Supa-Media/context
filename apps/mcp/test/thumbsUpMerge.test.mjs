@@ -6,8 +6,8 @@
  * saw "(a tapback) 👍" and guessed which message it meant.
  *
  * The Worker now logs a tapback as its line, "👍 (yes) on Tex's message …"
- * (`apps/agent/src/inboxTurn.ts` `logInbound`, tested in
- * `apps/agent/src/reactions.test.ts`); these check the gateway end: that line
+ * (`packages/tex/worker/inboxTurn.ts` `logInbound`, tested in
+ * `packages/tex/worker/reactions.test.ts`); these check the gateway end: that line
  * is the turn's question, and the turn is told a 👍 on its question is the yes.
  *
  * Sabotage record (2026-11-05): `runTheModel` back to `logged?.question ??

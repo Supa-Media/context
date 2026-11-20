@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { earlierLines, personTapbackLine } from "../bench/setsFd.mjs";
-import { reactionLine } from "../../agent/src/gatewayInbound.js";
+import { reactionLine } from "../../../packages/tex/worker/gatewayInbound.js";
 
 // A person's tapback is a line of the chat, as production logs it (`reactionLine`), and names the message it was on:
 // a 👍 on somebody else's text and a ❤️ on Tex's, with their handles in a group. Sabotage: drop the person branch in
@@ -25,7 +25,7 @@ test("a person's tapback is an earlier line with production's text and who said 
   ]);
 });
 
-// The one-line texts of `personTapbackLine` are reactionLine's, word for word (`apps/agent/src/reactions.ts`): the bench
+// The one-line texts of `personTapbackLine` are reactionLine's, word for word (`packages/tex/worker/reactions.ts`): the bench
 // writes the chat the Worker logs. Sabotage: change the answer suffix or the 120-character cut in one of them.
 test("personTapbackLine reads exactly as production's reactionLine does", () => {
   const msg = (id, who, text, extra = {}) => ({ id, who, text, ...extra });

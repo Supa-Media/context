@@ -7,7 +7,7 @@
  * PR #3733 changed groupRunQuestions.cjs, the suite in workers.yml skipped, and
  * main broke (reverted in #3741).
  *
- * So this checks that every relative import from apps/agent/src that leaves
+ * So this checks that every relative import from packages/tex/worker that leaves
  * apps/agent is matched by the `paths:` of the agent ci-scope step in
  * .github/workflows/workers.yml, job `test`. Plain Node over files in this
  * repository, so it needs no install.
@@ -63,7 +63,7 @@ export function assertPathImportsWatched(imports, watched, label) {
 /** The agent's path imports must be watched by its ci-scope step in workers.yml. */
 export function check(root = ROOT) {
   const workers = readFileSync(join(root, ".github/workflows/workers.yml"), "utf8");
-  assertPathImportsWatched(relativeImportsOutside("apps/agent/src", root), scopePaths(workers, "test", "paths", "agent"), "workers.yml:test:agent");
+  assertPathImportsWatched(relativeImportsOutside("packages/tex/worker", root), scopePaths(workers, "test", "paths", "agent"), "workers.yml:test:agent");
 }
 
 function expectFailure(name, fn, includes) {
@@ -82,7 +82,7 @@ export function selfTest() {
     () => assertPathImportsWatched(["packages/shared/src/groupRunQuestions.cjs"], new Set(["packages/tex/src/texNumber.cjs"]), "agent"),
     "groupRunQuestions.cjs",
   );
-  if (!relativeImportsOutside("apps/agent/src").includes("packages/shared/src/groupRunQuestions.cjs")) {
+  if (!relativeImportsOutside("packages/tex/worker").includes("packages/shared/src/groupRunQuestions.cjs")) {
     throw new Error("the agent's path import of groupRunQuestions.cjs was not found");
   }
 }

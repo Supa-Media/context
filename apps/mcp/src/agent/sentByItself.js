@@ -4,7 +4,7 @@
  * A texted turn is shown the chat's event log (`loggedTurn.js`), which the
  * texting Worker fills as texts come in and as replies go out. A check-in, a
  * routine's text or a ping another agent asked for goes out on its own path
- * (`apps/agent/src/routines.ts` `textRoutine`), which logs no event: only the
+ * (`packages/tex/worker/routines.ts` `textRoutine`), which logs no event: only the
  * person's record (`history.js`) keeps it, as an exchange whose question
  * begins "(Not a text from them." So a person who answered a check-in with
  * "yes please" was asked "Yes to what?": the check-in was in the record, and

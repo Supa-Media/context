@@ -87,7 +87,7 @@ test("no steer for a turn the Worker didn't name, or a client that isn't texting
 });
 
 test("a group's background job can be steered when its object names the turn", () => {
-  // Only a group's job turns are named (`apps/agent/src/jobRun.ts`); its ordinary turns never are.
+  // Only a group's job turns are named (`packages/tex/worker/jobRun.ts`); its ordinary turns never are.
   const store = memoryStore();
   assert.notEqual(steerFor(store, { actorClientId: "context_texts_group" }, { turn: TURN }), null);
   assert.equal(steerFor(store, { actorClientId: "context_texts_group" }, {}), null);
@@ -272,7 +272,7 @@ test("a text sent while Tex works reaches the model after its tool round, is ans
   assert.equal(second.role, "user");
   assert.deepEqual(second.content.map((block) => block.type), ["tool_result", "text"]);
   assert.match(second.content[1].text, /make it Friday/);
-  // Kept in the chat by the texting Worker, which posts every text it took in to the chat's ledger (`apps/agent/src/inbox.ts`):
+  // Kept in the chat by the texting Worker, which posts every text it took in to the chat's ledger (`packages/tex/worker/inbox.ts`):
   // the old history record that kept it with the turn is retired.
   assert.deepEqual(steerKeys(), []);
 });
