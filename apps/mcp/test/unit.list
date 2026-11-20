@@ -700,3 +700,4 @@ test/setsFdTapbacks.test.mjs
 test/searchedLine.test.mjs
 test/emailChooseSender.test.mjs
 test/publicError.test.mjs
+test/groupMuteFlag.test.mjs
