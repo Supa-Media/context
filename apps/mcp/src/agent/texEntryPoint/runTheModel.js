@@ -10,6 +10,7 @@ import { groupChatsForTurn, groupsOn } from "../groupChats.js";
 import { ADVISOR_TOOL, advisorRequest, advisorTimeoutMs, advisorTools, jobAdvisorLine } from "../advisor.js";
 import { TRAINING, texCacheTtl, texConfigOf, texFreeze, texToolList } from "../texConfig.js";
 import { frozenModules } from "../frozenModules.js";
+import { prefixKeeper, warmWired } from "../warmPrefix.js";
 import { aiGatewayConfig } from "../aiGateway.js";
 import { carriesData, withAttachmentImages } from "../attachments.js";
 import { jobBriefPrompt, jobPartPrompt, jobReportPrompt, withBackground, withJobSteps } from "../background.js";
@@ -252,6 +253,8 @@ export async function runTheModel(t, via) {
     providerOptions: {
       ai: env.AI,
       gateway: aiGatewayConfig(env),
+      // With node `warm` wired, the first round's request is kept, cut at the history, to warm the cache before their next text (`warmPrefix.js`).
+      ...(chatTurn && job === null && warmWired(texConfigOf(env)) ? { onSent: prefixKeeper({ store, session, timeZone }) ?? undefined } : {}),
       // Ids only: what the AI costs tab files this call's spend under.
       metadata: {
         feature: "assistant",

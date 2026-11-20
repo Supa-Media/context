@@ -72,6 +72,7 @@ import { askGateNode } from "./nodes/askGate.js";
 import { rungKnowsNode } from "./nodes/rungKnows.js";
 import { rungNotesNode } from "./nodes/rungNotes.js";
 import { rungToolsNode } from "./nodes/rungTools.js";
+import { warmNode } from "./nodes/warm.js";
 import { routerNode } from "./nodes/router.js";
 import { fdQuickNode, fdReadNode, fdActNode } from "./nodes/doors.js";
 
@@ -178,4 +179,6 @@ export const GATEWAY_NODES = {
   get rungKnows() { return rungKnowsNode; },
   get rungNotes() { return rungNotesNode; },
   get rungTools() { return rungToolsNode; },
+  // The chat's kept prefix sent again before their next text (`nodes/warm.js`, `warmPrefix.js`); on the shelf until a Lab draft wires it.
+  get warm() { return warmNode; },
 };

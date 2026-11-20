@@ -477,11 +477,12 @@ export async function requestViaGateway(call, config, options = {}) {
   const store = options.creditStore === undefined ? config.creditStore ?? null : options.creditStore;
   const cache = options.creditCache;
   // Every model told the day, whichever agent asks (`localNow.js` `withToday`).
-  let body = gatewayBody(withToday(call, { now: now(), timeZone: options.timeZone ?? null }));
+  // A warming request (`warmPrefix.js`) sends a kept body as it was, so its bytes match the turn that kept it.
+  let body = options.rawBody ?? gatewayBody(withToday(call, { now: now(), timeZone: options.timeZone ?? null }));
   if (hourMarksRefused) body = withoutHourMarks(body);
   if (contextEditsRefused) body = withoutContextEdits(body);
   // Tool results ride outside the history caps (`promptBudget.js`). A Haiku call is trimmed before it is sent, so it never crosses the 100k price cliff.
-  if (/haiku/i.test(call.model)) {
+  if (!options.rawBody && /haiku/i.test(call.model)) {
     const fit = fitHaikuBody(body);
     if (fit.shed > 0) {
       body = fit.body;
@@ -553,6 +554,14 @@ export async function requestViaGateway(call, config, options = {}) {
   }
   if (answer.status !== 200) {
     throw failed(statusError(answer));
+  }
+  // The request as it went, for a turn that keeps its prefix to warm the cache later (`warmPrefix.js` `prefixKeeper`).
+  if (typeof options.onSent === "function") {
+    try {
+      options.onSent(body);
+    } catch {
+      /* keeping a prefix never fails the round */
+    }
   }
 
   const text = answer.text;

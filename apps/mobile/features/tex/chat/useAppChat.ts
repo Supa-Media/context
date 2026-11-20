@@ -13,6 +13,8 @@ import {
   appChatEndpoint,
   editRequest,
   getRequest,
+  warmRequest,
+  WARM_AGAIN_MS,
   isPending,
   mergeRows,
   pictureRequest,
@@ -470,6 +472,21 @@ export function useAppChat(options: {
     [ask, bump, live, pictures],
   );
 
+  // The chat opened, or the person started typing: the model's cache is warmed for their next text (node `warm`). Never shown.
+  const warmedAt = useRef(0);
+  const warm = useCallback(
+    (cause: "open" | "typing") => {
+      if (!live || Date.now() - warmedAt.current < WARM_AGAIN_MS) return;
+      warmedAt.current = Date.now();
+      void ask(warmRequest(cause)).catch(() => null);
+    },
+    [ask, live],
+  );
+  useEffect(() => {
+    if (live) warm("open");
+  }, [live, warm]);
+  const typing = useCallback(() => warm("typing"), [warm]);
+
   return useMemo<AppChatView>(
     () => ({
       available: live,
@@ -486,7 +503,8 @@ export function useAppChat(options: {
       edit,
       unsend,
       pictureUrl,
+      typing,
     }),
-    [answer, edit, live, pictureUrl, react, retry, send, state, unsend],
+    [answer, edit, live, pictureUrl, react, retry, send, state, typing, unsend],
   );
 }

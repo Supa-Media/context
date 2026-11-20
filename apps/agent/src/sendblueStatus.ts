@@ -52,6 +52,8 @@ export type SendStatus = {
   chat: string;
   /** The status as the chat's `send` step keeps it, with Sendblue's own times (`providerTiming.ts`). */
   report?: ProviderSend;
+  /** Photon's line the status came on: with a group's id, the key of its home (`warmStep.ts`). */
+  line?: string;
 };
 
 /** Sendblue's statuses as the `send` step names them. */

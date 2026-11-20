@@ -240,6 +240,7 @@ export function TexChatView({ view, approvals }: { view: AppChatView; approvals?
         onCancelReply={() => setReply(null)}
         onCancelEdit={() => setEdit(null)}
         onSend={send}
+        onTyping={view.typing}
       />
 
       {opened !== null ? (
