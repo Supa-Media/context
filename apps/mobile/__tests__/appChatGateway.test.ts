@@ -255,7 +255,7 @@ describe("readers", () => {
 
   test("a good read reports the typing mark", () => {
     const read = readChat(200, { rows: [row()], typing: true });
-    expect(read).toEqual({ kind: "listed", rows: [rowFrom(row())], typing: true });
+    expect(read).toEqual({ kind: "listed", rows: [rowFrom(row())], typing: true, run: null, digest: null });
   });
 
   test("a send answer without an id fails", () => {
