@@ -260,6 +260,26 @@ export const REFUSED = {
   unavailable: "Not sent: Gmail did not take the email just now. Nothing was sent; it can be asked for again.",
 };
 
+/**
+ * Several of their Gmails can send and the email named none (`choose_sender`): the control plane never picks the
+ * oldest by itself, because the person's yes is to a copy that names its sender (2026-11-19: an approved send went from
+ * a stale second Gmail and never reached the connected one's Sent). `prefix` is "Not sent:" or "Not saved:".
+ */
+export function chooseSenderText(prefix, senders, verb = "send") {
+  const list = Array.isArray(senders) && senders.length > 0 ? ` (${senders.join(", ")})` : "";
+  return (
+    `${prefix} more than one of their Gmails can ${verb}${list}, and this email names none. Call it again with from set to ` +
+    "the one it goes from: the mailbox the email it answers or the draft is in, or the one they named or have been using. " +
+    "If nothing says which, ask them in one short line."
+  );
+}
+
+/** A control plane refusal of a send, in the model's words. */
+export function sendRefusedText(answer) {
+  if (answer?.refused === "choose_sender") return chooseSenderText("Not sent:", answer.senders);
+  return REFUSED[answer?.refused] ?? REFUSED.unavailable;
+}
+
 export async function toolSendEmail(store, args) {
   const read = readEmail(args);
   if (read.error) return toolError(refusalText("Not sent:", read.error));
@@ -275,7 +295,7 @@ export async function toolSendEmail(store, args) {
   if (answer?.ok === true) {
     return toolText(`Sent from ${answer.from} to ${[...read.email.to, ...read.email.cc].join(", ")}.${attachedWords(ready.email.files, answer.attached, { draft: false })}`);
   }
-  return toolError(REFUSED[answer?.refused] ?? REFUSED.unavailable);
+  return toolError(sendRefusedText(answer));
 }
 
 /** What each refusal of a draft tells the model. */
@@ -316,5 +336,6 @@ export async function toolSaveEmailDraft(store, args) {
         attachedWords(ready.email.files, answer.attached, { draft: true }),
     );
   }
+  if (answer?.refused === "choose_sender") return toolError(chooseSenderText("Not saved:", answer.senders, "save drafts"));
   return toolError(DRAFT_REFUSED[answer?.refused] ?? DRAFT_REFUSED.unavailable);
 }

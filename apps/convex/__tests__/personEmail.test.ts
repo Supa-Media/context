@@ -21,6 +21,8 @@
  * when its message was not found (2026-10-20) failed "a reply to an email the
  * mailbox does not hold sends nothing". Choosing the sender without its
  * health failed "a Gmail whose sign-in stopped working never sends…".
+ * Choosing the first able sender when several can and none is named (as
+ * before 2026-11-20) failed "several Gmails that can send and none named…".
  * Dropping the `findReplyThread` call failed both "Re:" tests; dropping its
  * exact-subject check threaded "Re: Welcome" into "Welcome to the team",
  * failing 'a "Re:" email whose subject matches no message…'.
@@ -203,6 +205,23 @@ describe("sending an email as the person", () => {
     expect(await send(t, ACCESS_A, aliceWs, { email: { ...EMAIL, from: "Alice@Work.example" } })).toEqual({ ok: true, from: "alice@work.example" });
     expect(await send(t, ACCESS_A, aliceWs, { email: { ...EMAIL, from: "ceo@bank.example" } })).toEqual({ ok: false, refused: "no_sender" });
     expect(sent.map((mail) => mail.message.split("\r\n")[0])).toEqual(["From: alice@work.example"]);
+  });
+
+  test("several Gmails that can send and none named: nothing is sent, and each that can is named", async () => {
+    const sent = gmail();
+    const { t, alice, aliceWs } = await connected();
+    await connectGmail(t, aliceWs, alice, { address: "alice@work.example" });
+    const refused = { ok: false, refused: "choose_sender", senders: [FROM, "alice@work.example"] };
+    expect(await send(t, ACCESS_A, aliceWs, { check: true })).toEqual(refused);
+    expect(await send(t, ACCESS_A, aliceWs)).toEqual(refused);
+    expect(sent).toHaveLength(0);
+    // Named, it goes from that one, and a mailbox that cannot send is never counted.
+    expect(await send(t, ACCESS_A, aliceWs, { email: { ...EMAIL, from: "alice@work.example" } })).toEqual({ ok: true, from: "alice@work.example" });
+    expect(sent.map((mail) => mail.message.split("\r\n")[0])).toEqual(["From: alice@work.example"]);
+    const readOnly = await twoConnectedTenants();
+    await connectGmail(readOnly.t, readOnly.aliceWs, readOnly.alice);
+    await connectGmail(readOnly.t, readOnly.aliceWs, readOnly.alice, { send: false, address: "alice@work.example" });
+    expect(await send(readOnly.t, ACCESS_A, readOnly.aliceWs, { check: true })).toEqual({ ok: true, from: FROM });
   });
 
   test("the sender is the token's person: another tenant's token cannot send from their Gmail", async () => {

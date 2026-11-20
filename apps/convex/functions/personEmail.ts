@@ -50,7 +50,7 @@ export const claimPersonEmail = internalMutation({
     expectedWorkspaceId: v.string(),
     /** SHA-256 of each lowercased recipient address; the addresses never come here. */
     recipientHashes: v.array(v.string()),
-    /** The connected address to send from, lowercased; null for the first that can. */
+    /** The connected address to send from, lowercased; null when only one can (several answer `choose_sender`). */
     from: v.union(v.string(), v.null()),
     spend: v.boolean(),
     /** Save it as a draft in their Gmail rather than send it. */
@@ -59,6 +59,8 @@ export const claimPersonEmail = internalMutation({
   returns: v.union(
     v.object({ ok: v.literal(true), from: v.string(), connectionId: v.id("googleConnections") }),
     v.object({ ok: v.literal(false), refused: refusal }),
+    // More than one Gmail could send and the email named none: the AI names one (`from`), never the oldest by default.
+    v.object({ ok: v.literal(false), refused: v.literal("choose_sender"), senders: v.array(v.string()) }),
   ),
   handler: async (ctx, args) => {
     // The grant's own person sends, from their personal workspace's mail, or
@@ -87,7 +89,16 @@ export const claimPersonEmail = internalMutation({
     );
     // A mailbox whose Google sign-in stopped working cannot send: another one
     // that can is chosen, or the person is told to reconnect it (2026-10-20).
-    const sender = able.find((row) => row.health !== "reconnect_required");
+    const healthy = able.filter((row) => row.health !== "reconnect_required");
+    /*
+      Several Gmails that can send, and the email names none: never the oldest by default. The reviewer workspace's
+      stale second Gmail sent an approved email that never reached the connected test account's Sent (2026-11-19),
+      while the person was told "sent". The AI names the mailbox (`from`), as a reply and a forward always do.
+    */
+    if (args.from === null && healthy.length > 1) {
+      return { ok: false as const, refused: "choose_sender" as const, senders: healthy.map((row) => row.address.toLowerCase()) };
+    }
+    const sender = healthy[0];
     if (sender === undefined) {
       if (able.length > 0) return { ok: false as const, refused: "reconnect_required" as const };
       // A Gmail AI may not use until its owner allows AI access: a reconnect would not let it send (`aiAccessNeeded`).

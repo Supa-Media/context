@@ -76,7 +76,7 @@ async function personEmail(ctx: ActionCtx, body: Record<string, unknown>, draft:
   });
   if (!claimed.ok) {
     log({ outcome: "refused", reason: claimed.refused, check, draft });
-    return json({ ok: false, refused: claimed.refused });
+    return json({ ok: false, refused: claimed.refused, ...("senders" in claimed ? { senders: claimed.senders } : {}) });
   }
   if (check) return json({ ok: true, from: claimed.from });
 
