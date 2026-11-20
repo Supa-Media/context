@@ -52,7 +52,7 @@ async function quietly(run) {
 }
 
 /** Each kind of turn, by the chat it runs in: rule 1 asks that one chat's turns all see the same tools. */
-async function surfaces() {
+export async function surfaces() {
   const shown = {};
   const chat = await oneToOne();
   try {

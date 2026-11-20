@@ -35,6 +35,7 @@
  * The control plane hears an outcome code.
  */
 
+import { texConfigOf, texToolList } from "./texConfig.js";
 import { readTimeZone, DEFAULT_TIME_ZONE } from "./localNow.js";
 import { CHECK_IN_QUESTION, checkInAbout, continuesFrom, lastThinking, recentTexts } from "./checkInTexts.js";
 export { CHECK_IN_QUESTION, checkInAbout, continuesFrom, isCheckInLine, lastThinking, recentTextLines, recentTexts } from "./checkInTexts.js";
@@ -392,6 +393,9 @@ export async function handleHeartbeat(request, env, store, session, controlPlane
       // (`sayNothing.js`). With `{}` it was offered no send at all, so the call its prompt names came back
       // "no such action" (found 2026-11-07, beside a routine that texted why).
       grants: { send: ["say_nothing"] },
+      // A 1:1's turns are all shown one list when the front door's is fixed (`sixToolsFixed.js`; Dev2, 2026-11-20): the
+      // look is a 1:1 turn, so it is shown every tool and refused, saying so, all but say_nothing.
+      fixedTools: texToolList("fd", texConfigOf(env)) === "fixed" ? "one" : null,
       sayNothing: true,
       // Worth-mail (not a newsletter, a receipt or marketing) cannot stay quiet on the first try (`checkInSpeak.js`).
       sayNothingNotice: mailWorthAText(mail.map((entry) => entry.line)) ? CHECK_IN_SPEAK_NOTICE : null,

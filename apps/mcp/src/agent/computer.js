@@ -151,7 +151,7 @@ export function addressesIn(text) {
   return [...found];
 }
 
-const OPEN_PAGE_DEFINITION = {
+export const OPEN_PAGE_DEFINITION = {
   name: OPEN_PAGE_TOOL,
   description:
     "Open web pages and read their text and links. Pass every page you need at once in urls; " +
@@ -185,7 +185,7 @@ const OPEN_PAGE_OPEN_WEB_DEFINITION = {
     "they open together, which is much faster than one at a time. You can open any public https address.",
 };
 
-const SEARCH_WEB_DEFINITION = {
+export const SEARCH_WEB_DEFINITION = {
   name: SEARCH_WEB_TOOL,
   description:
     "Search the web. Use it whenever the answer depends on the world rather than the person's notes: " +

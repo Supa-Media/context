@@ -8,7 +8,7 @@ import { markUntrusted } from "../../privacy/egress.js";
 import { devShareOn, devSharePrompt } from "../devShare.js";
 import { groupChatsForTurn, groupsOn } from "../groupChats.js";
 import { ADVISOR_TOOL, advisorRequest, advisorTimeoutMs, advisorTools, jobAdvisorLine } from "../advisor.js";
-import { TRAINING, texCacheTtl, texConfigOf } from "../texConfig.js";
+import { TRAINING, texCacheTtl, texConfigOf, texToolList } from "../texConfig.js";
 import { aiGatewayConfig } from "../aiGateway.js";
 import { carriesData, withAttachmentImages } from "../attachments.js";
 import { jobBriefPrompt, jobPartPrompt, jobReportPrompt, withBackground, withJobSteps } from "../background.js";
@@ -278,6 +278,7 @@ export async function runTheModel(t, via) {
     builtinModelOverride: productionModel ?? undefined,
     router,
     cacheTtl: texCacheTtl(job === null ? "fd" : "job", texConfigOf(env)), // the prefix cache's life, the step's own in Tex's config
+    fixedTools: texToolList(job === null ? "fd" : "job", texConfigOf(env)) === "fixed" ? (group ? "group" : "one") : null, // every tool its kind of chat has, the same bytes each turn (`sixToolsFixed.js`)
     efforts: turnEfforts(production, job), // a job's turn thinks as `models.job_effort` says (`production.js`)
     fallback: via.fallback(fallback),
     maxRounds: production?.maxSteps ?? undefined,

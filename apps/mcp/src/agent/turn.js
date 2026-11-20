@@ -284,6 +284,8 @@ export async function runTurn(options) {
     efforts = null,
     // The life of the prefix's cache, "1h" or "5m" (`texConfig.js` `texCacheTtl`); absent: the gateway's own, an hour.
     cacheTtl = undefined,
+    // "one" or "group": show every tool that kind of chat has, the same bytes each turn, and refuse what this turn may not call (`sixToolsFixed.js`).
+    fixedTools = null,
     // What the person sent with the question, checked (`attachments.js`): shown to the model with it.
     attachments = [],
     // Told each step as it happens (`transcript.js`): thinking, words between tools, each call.
@@ -335,7 +337,10 @@ export async function runTurn(options) {
     manage and send, each listing only what `tools` grants, and a call to one
     is translated back into the granted tool before the allowlist below.
   */
-  const six = sixToolsOver(tools, grants);
+  // Loaded only when asked for: the catalogue reads every tool's module, and a static import here closed an import cycle
+  // (`texDesk.js` read `JOBS_PATH` before `background.js` had set it).
+  const fixed = fixedTools === "one" || fixedTools === "group" ? (await import("./sixToolsFixed.js")).fixedCarriers(fixedTools, { readSkill: tools.find((tool) => tool?.name === "read_skill") ?? null }) : null;
+  const six = sixToolsOver(tools, grants, fixed ? { shown: fixed } : {});
   // A slow tool (a browser step, a held email) names its own limit, cut to end 30 s past the budget so the answer still fits.
   // A move's own is in `slowMoves.js`, under whatever the caller set.
   const limits = { ...MOVE_TIMEOUTS, ...toolTimeouts };
@@ -704,6 +709,15 @@ export async function runTurn(options) {
           escalate = true;
           tell({ kind: "tool", name: made.name.slice(0, 64), args: made.args, ok: false, ms: 0, reason: (resolved.cause ?? "no_such_action").replaceAll("_", " ") });
           failed({ tool: made.name, cause: resolved.cause ?? "no_such_action", text: resolved.error, round }); // or `unknown_argument` (`sixTools.js`)
+        });
+        return { ran: false, effects };
+      }
+      // Answered by the six themselves (`fetch manual:<action>`, `sixTools.js`): the words are the result, nothing runs.
+      if (typeof resolved.text === "string") {
+        effects.push(() => {
+          messages.push({ role: "tool", id: made.id, name: made.name, text: resolved.text });
+          trace.push({ kind: "tool", tool: made.name, ok: true, ms: 0 });
+          tell({ kind: "tool", name: made.name, args: made.args, ok: true, ms: 0 });
         });
         return { ran: false, effects };
       }
