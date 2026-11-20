@@ -1,7 +1,7 @@
 /** Replay's compact timeline packs every bar into as few tracks as what ran at once needs (Dev2, 2026-11-14). */
 import { describe, expect, test } from "@jest/globals";
-import { packTracks } from "../features/tex/lab/engine/replaySteps";
-import type { Bar } from "../features/tex/lab/engine/replay";
+import { packTracks } from "@context/lab/app/engine/replaySteps";
+import type { Bar } from "@context/lab/app/engine/replay";
 
 const bar = (start: number, end: number, label = "x"): Bar => ({ kind: "turn", start, end, label });
 

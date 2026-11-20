@@ -1,7 +1,7 @@
 /**
  * `tex_dev` Replay (Dev2, 2026-11-15: anything that can be done or seen inside the Tex Lab can be done or seen through
  * the MCP): the Lab's Replay mode, read from the same chat history file and worked out by the Lab's own code
- * (`replay.generated.js`, bundled from `apps/mobile/features/tex/lab/engine/replayEntry.ts` by
+ * (`replay.generated.js`, bundled from `packages/lab/app/engine/replayEntry.ts` by
  * `scripts/tex-dev-replay.mjs`):
  * - `moments`: the chat cut into moments as Replay's left column and right panel show them;
  * - `turn`: one turn with the moment's judgings, each step's real time and calls, what each step got and gave;

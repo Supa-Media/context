@@ -4,7 +4,7 @@
  * option 2A).
  *
  * A Lab draft is a saved Lab version: its graph is the Lab's own JSON (`{nodes, edges, folded?, modules?, models?,
- * convo?}`, `apps/mobile/features/tex/lab/types.ts`), unfolded. Both sides change it with the same small edits, so two
+ * convo?}`, `packages/lab/app/types.ts`), unfolded. Both sides change it with the same small edits, so two
  * people (or a person and an AI over the MCP's `tex_dev` tool) can work on one draft at once:
  *
  *   { op: "set",    node, field, value }        one field of one step

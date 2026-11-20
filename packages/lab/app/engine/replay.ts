@@ -15,7 +15,7 @@
  * Replay stopped being a mode of its own (Lab live sandbox, Dev2 2026-11-16): `prodRun.ts` plays a moment as the Lab's
  * one run shape, and the gateway's `tex_dev` reads these same moments.
  */
-import type { LedgerEntry } from "../../page/texPageTypes";
+import type { LedgerEntry } from "../fromApp/texPageTypes";
 import { routineName, type ChatLine, type Start } from "./mine";
 
 export type BarKind = "text" | "judge" | "wait" | "turn" | "sent";

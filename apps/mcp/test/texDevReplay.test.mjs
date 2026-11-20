@@ -1,7 +1,7 @@
 /**
  * `tex_dev` Replay (`src/texDev/replay.js`; Dev2, 2026-11-15: anything that can be done or seen inside the Tex Lab can
  * be done or seen through the MCP). Each action is proven against the Lab's own Replay code (`replay.generated.js`,
- * bundled from `apps/mobile/features/tex/lab/engine/replayEntry.ts`) run on the same chat history: the answer is what
+ * bundled from `packages/lab/app/engine/replayEntry.ts`) run on the same chat history: the answer is what
  * the Lab shows, read the way the Lab reads it, and only what the log shows ran.
  *
  * Sabotage record (temporary local edits, reverted, 2026-11-15):
@@ -219,7 +219,7 @@ test("the prompt's words come only from the catalogue at the turn's commit, matc
   const catalogue = { v: 2, modules: { aaaaaaaa: { id: "stable/text/core", kinds: ["text"], n: 22, at: [0, 1] }, cccccccc: { id: "context/other", kinds: ["text"], n: 5, at: [1] }, dddddddd: { id: "context/aboutMe", kinds: ["text"], n: 9, at: [1] } }, lines: ["You are Tex.", "Be brief."] };
   const fetch = async (url) => (asked.push(url), new Response(JSON.stringify(catalogue)));
   const answer = await promptAnswer({}, PAGE, { turn: "t1" }, deps(fakeLedger(chatEntries(code)), { fetch }));
-  assert.deepEqual(asked, [`https://raw.githubusercontent.com/Supa-Media/context/${code}/apps/mobile/features/tex/lab/promptCatalog.generated.json`]);
+  assert.deepEqual(asked, [`https://raw.githubusercontent.com/Supa-Media/context/${code}/packages/lab/app/promptCatalog.generated.json`]);
   const [r1, r2] = answer.rounds;
   assert.equal(r1.modules[0].words, R.wordsOf(catalogue, modules[0]));
   assert.equal(r1.modules[0].words, "You are Tex.\nBe brief.");

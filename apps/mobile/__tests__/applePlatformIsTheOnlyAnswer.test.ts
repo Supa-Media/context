@@ -204,6 +204,7 @@ describe("the key the binder listens for is the key the menu prints", () => {
 /* -------------------------------------------------------------------------- */
 
 const FEATURES = join(__dirname, "..", "features");
+const LAB = join(__dirname, "..", "..", "..", "packages", "lab", "app");
 
 /**
  * Comments stripped first, and that is not tidiness — it is the same trap this
@@ -243,14 +244,15 @@ describe("only one module decides what an Apple keyboard is", () => {
       `navigator.userAgent` is deliberately NOT on this list. It has readers
       that are not platform detection, and one that is — see below.
     */
-    const offenders = sourceFiles(FEATURES).filter((path) => {
+    // The Lab's page lives in its own package (`packages/lab/app`) and is held to the same rule.
+    const offenders = [...sourceFiles(FEATURES), ...sourceFiles(LAB)].filter((path) => {
       if (path.endsWith(join("design", "applePlatform.web.ts"))) return false;
       // Third-party, committed, and held byte-for-byte by its own CI job.
       if (path.endsWith("bundle.generated.ts")) return false;
       return readsPlatform(readFileSync(path, "utf8"));
     });
 
-    expect(offenders.map((path) => path.slice(FEATURES.length + 1))).toEqual([]);
+    expect(offenders.map((path) => (path.startsWith(LAB) ? "lab/" + path.slice(LAB.length + 1) : path.slice(FEATURES.length + 1)))).toEqual([]);
   });
 
   test("and the link hint is the one deliberate exception, which does not diverge", () => {

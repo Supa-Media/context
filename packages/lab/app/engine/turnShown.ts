@@ -5,7 +5,7 @@
  * the turn's text was sent count as its Decide step. Read from the ledger alone, so the gateway's `tex_dev` answers
  * the same (`replayEntry.ts`).
  */
-import type { LedgerEntry } from "../../page/texPageTypes";
+import type { LedgerEntry } from "../fromApp/texPageTypes";
 import type { ChatLine, MyText, Start } from "./mine";
 import { momentTurnEntries, realIO, realTimes, type IoLine, type RealTimes } from "./measured";
 import { turnPromptOf, type TurnPrompt } from "./promptAt";

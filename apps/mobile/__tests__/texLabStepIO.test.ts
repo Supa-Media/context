@@ -3,7 +3,7 @@
  * I SHOULD ALSO SEE WHAT CONTEXT MODULES ITS GETTING"), put back from references in the chat's own ledger.
  */
 import { describe, expect, test } from "@jest/globals";
-import { momentAsSteps, stepIO, textById } from "../features/tex/lab/engine/stepIO";
+import { momentAsSteps, stepIO, textById } from "@context/lab/app/engine/stepIO";
 import type { LedgerEntry } from "../features/tex/page/texPageTypes";
 
 const e = (x: Partial<LedgerEntry> & { id: string; kind: string }) => ({ at: 1_000, ...x }) as LedgerEntry;

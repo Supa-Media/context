@@ -10,8 +10,8 @@
  *  2. `chatKeyOf` null for a shared chat -> "its history is read through the route" fails.
  */
 import { afterEach, describe, expect, test } from "@jest/globals";
-import { openSandbox, readSandboxShared, resetSandboxState, sandbox, setSandboxCall, sharedLedger, type SandboxOp } from "../features/tex/lab/engine/sandbox";
-import { chatKeyOf } from "../features/tex/lab/views/mine/playProd";
+import { openSandbox, readSandboxShared, resetSandboxState, sandbox, setSandboxCall, sharedLedger, type SandboxOp } from "@context/lab/app/engine/sandbox";
+import { chatKeyOf } from "@context/lab/app/views/mine/playProd";
 
 const calls: Array<{ op: SandboxOp; body: Record<string, unknown> }> = [];
 function gateway(answers: Partial<Record<SandboxOp, Record<string, unknown> | Error>>) {

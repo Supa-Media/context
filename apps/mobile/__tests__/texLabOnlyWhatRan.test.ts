@@ -4,12 +4,12 @@
  * estimate never stands in for it. Made-up texts throughout.
  */
 import { describe, expect, test } from "@jest/globals";
-import { momentsOf } from "../features/tex/lab/engine/replay";
-import { stepRows } from "../features/tex/lab/engine/replaySteps";
-import { onlyWhatRan, realTimes, withReal } from "../features/tex/lab/engine/realTimes";
-import { simulate } from "../features/tex/lab/engine/sim";
-import { G, stepsOf } from "../features/tex/lab/engine/state";
-import { chatLines, myTexts } from "../features/tex/lab/engine/mine";
+import { momentsOf } from "@context/lab/app/engine/replay";
+import { stepRows } from "@context/lab/app/engine/replaySteps";
+import { onlyWhatRan, realTimes, withReal } from "@context/lab/app/engine/realTimes";
+import { simulate } from "@context/lab/app/engine/sim";
+import { G, stepsOf } from "@context/lab/app/engine/state";
+import { chatLines, myTexts } from "@context/lab/app/engine/mine";
 import type { LedgerEntry } from "../features/tex/page/texPageTypes";
 
 const e = (x: Partial<LedgerEntry> & { id: string; kind: string }): LedgerEntry => ({ at: 1_000, ...x }) as LedgerEntry;

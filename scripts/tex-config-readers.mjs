@@ -32,7 +32,7 @@ export const LOADERS = {
   "scripts/ci-change-scope.mjs": "a path in CI's change scope, not a read",
   "scripts/tex-config-readers.mjs": "this check",
   "packages/tex/src/texConfig.d.cts": "the runtime loader's types",
-  "apps/mobile/features/tex/lab/engine/graphAt.ts": "the Lab reads the config at old commits from GitHub and migrates it",
+  "packages/lab/app/engine/graphAt.ts": "the Lab reads the config at old commits from GitHub and migrates it",
 };
 const CODE = /\.(c|m)?(j|t)sx?$/;
 /** `texConfig.json` inside a quoted string: an import, a require, a path. Comments name it in backticks, which pass. */

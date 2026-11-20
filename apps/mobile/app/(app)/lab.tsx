@@ -1,4 +1,4 @@
-import { TexLab } from "../../features/tex/lab/TexLab";
+import { TexLab } from "@context/lab/app/TexLab";
 
 /**
  * `/lab` on context.lc and tex.lc: the Tex Architecture Lab (Dev2, 2026-11-13:

@@ -4,9 +4,9 @@
  * for its own people), and hands the dock the run to play (`engine/prodRun.ts`), on the graph Tex had then. Reading
  * only: nothing here writes, sends or changes a setting.
  */
-import type { LedgerEntry } from "../../../page/texPageTypes";
-import type { TexPageSource } from "../../../page/texPageSource";
-import { LATEST } from "../../../page/texPageTypes";
+import type { LedgerEntry } from "../../fromApp/texPageTypes";
+import type { TexPageSource } from "../../fromApp/texPageSource";
+import { LATEST } from "../../fromApp/texPageTypes";
 import { jobWork, type JobWork } from "../../engine/jobRuns";
 import type { PlayRun } from "../../engine/playRun";
 import { prodPlayAtVersion, type ProdPlay, type ProdRow } from "../../engine/prodRun";

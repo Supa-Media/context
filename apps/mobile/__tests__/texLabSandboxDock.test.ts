@@ -37,7 +37,7 @@ jest.mock("expo-router", () => {
 jest.mock("../features/site/host", () => ({ isTexHost: () => true }));
 /** What production's log gives for a real text (`views/mine/playProd.ts`), set by the test that plays one. */
 const mockProd: { value: unknown } = { value: null };
-jest.mock("../features/tex/lab/views/mine/playProd", () => ({
+jest.mock("@context/lab/app/views/mine/playProd", () => ({
   chatKeyOf: (src: { kind: string }) => (src.kind === "chat" ? "me" : null),
   playProd: async () => mockProd.value,
 }));
@@ -61,8 +61,8 @@ function mockTurn(who: string, text: string, done = true): Row[] {
     ? [{ id, who, text, at }, { id: id + "r", reply: id, who: "Tex", text: "Done.", at: at + 3460, cause: [id + "b", id + "c", id + "e"], steps }]
     : [{ id, who, text, at: at - 2000, steps }];
 }
-jest.mock("../features/tex/lab/views/canvas/sandboxCall", () => {
-  const { setSandboxCall } = jest.requireActual<typeof import("../features/tex/lab/engine/sandbox")>("../features/tex/lab/engine/sandbox");
+jest.mock("@context/lab/app/views/canvas/sandboxCall", () => {
+  const { setSandboxCall } = jest.requireActual<typeof import("@context/lab/app/engine/sandbox")>("@context/lab/app/engine/sandbox");
   setSandboxCall(async (op: string, body: Record<string, unknown>) => {
     mockCalls.push({ op, body });
     if (op === "chats") return { chats: [{ chatId: "me", name: "me" }] };
@@ -102,10 +102,10 @@ Element.prototype.scrollIntoView = function () {};
 
 import { act, createElement } from "react";
 import { createRoot } from "react-dom/client";
-import { TexLab } from "../features/tex/lab/TexLab.web";
-import { clone, lab, MAIN, set } from "../features/tex/lab/engine/state";
-import { resetSandboxState, rowOf, sandbox } from "../features/tex/lab/engine/sandbox";
-import { followText, holdPlayClock, resetPlay, seek, stepPlayClock, togglePlay } from "../features/tex/lab/engine/sandboxPlay";
+import { TexLab } from "@context/lab/app/TexLab.web";
+import { clone, lab, MAIN, set } from "@context/lab/app/engine/state";
+import { resetSandboxState, rowOf, sandbox } from "@context/lab/app/engine/sandbox";
+import { followText, holdPlayClock, resetPlay, seek, stepPlayClock, togglePlay } from "@context/lab/app/engine/sandboxPlay";
 
 const roots: (() => void)[] = [];
 afterEach(() => {

@@ -30,8 +30,9 @@ export function ChatPick({ versionId }: { versionId: string }) {
   const sb = useSandbox();
   const [tab, setTab] = useState<Tab>(sb.source.kind === "maya" ? "test" : sb.source.kind === "set" ? "sets" : sb.source.kind === "shared" ? "shared" : "mine");
   const [q, setQ] = useState("");
-  const name = sb.source.kind === "maya" ? "Maya (test account)" : sb.source.kind === "chat" && sb.source.chatId === "me" ? "Your 1:1 with Tex" : sb.source.name;
-  const who = sb.source.kind === "shared" ? "shared" : sb.source.kind === "maya" || (sb.source.kind === "chat" && sb.source.chatId === "me") ? "1:1" : sb.people.length ? sb.people.length + " people" : "";
+  // A linked test chat not open yet is named as the link, never as the chat the dock showed before it.
+  const name = sb.linked ? "Linked test chat" : sb.source.kind === "maya" ? "Maya (test account)" : sb.source.kind === "chat" && sb.source.chatId === "me" ? "Your 1:1 with Tex" : sb.source.name;
+  const who = sb.linked ? "" : sb.source.kind === "shared" ? "shared" : sb.source.kind === "maya" || (sb.source.kind === "chat" && sb.source.chatId === "me") ? "1:1" : sb.people.length ? sb.people.length + " people" : "";
   const qq = q.trim().toLowerCase();
   const hit = (s: string) => !qq || s.toLowerCase().includes(qq);
   const cur = srcKey(sb.source);

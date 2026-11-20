@@ -22,7 +22,7 @@ revision since touched the same piece; then it is refused with what is there now
 because it drops the other side's edits without either seeing it; a shared typing room (the notes' Yjs) was rejected
 because the Lab's state is not a shared document and the graph is small. Every answer carries what the other side
 changed, and `changes` with `wait` (at most 50 seconds) lets an AI listen. The Lab saves a live draft on every edit
-(`features/tex/lab/engine/live.ts`), shows who is in it and a list of changes, and opens `/lab?v=<draft>`.
+(`packages/lab/app/engine/live.ts`), shows who is in it and a list of changes, and opens `/lab?v=<draft>`.
 
 **Whatever the Lab writes to a draft, `tex_dev` writes too** (Dev2, 2026-11-15: "anything that can be done inside of
 the lab should be able to be done inside of the MCP"). Beyond the graph's edits: `rename` (the version name),
@@ -66,7 +66,7 @@ judgings and a group's `judge by: "moment"` entries, each step's real millisecon
 gave, the jobs it started, the notes it read), `prompt` (the exact words of each context module, from the prompt
 catalogue at the turn's commit, matched by fingerprint), `jobs` (a job's runs as JobRuns shows them), `mine` (Your
 texts, and the run config's replays for those picked) and `link` (the Lab's own address for a page, or Replay at a
-chat and a moment) are worked out by `apps/mobile/features/tex/lab/engine/replayEntry.ts` and what it exports, bundled
+chat and a moment) are worked out by `packages/lab/app/engine/replayEntry.ts` and what it exports, bundled
 for the gateway as `apps/mcp/src/texDev/replay.generated.js` by `scripts/tex-dev-replay.mjs` (built on install,
 never committed). The pure parts were moved out of the Lab's browser-only files for it (`measured.ts` from `realTimes.ts`,
 `turnShown.ts` from the timeline's `showTurn`, `replayRead.ts`'s read kinds from `useMine.ts`, `labPlace.ts` from

@@ -86,7 +86,8 @@ function sources(dir: string): string[] {
 
 describe("the rule, held across the app", () => {
   const root = join(__dirname, "..");
-  const files = [...sources(join(root, "features")), ...sources(join(root, "app"))];
+  // The Lab's page lives in its own package (`packages/lab/app`) and is held to the same rule.
+  const files = [...sources(join(root, "features")), ...sources(join(root, "app")), ...sources(join(root, "..", "..", "packages", "lab", "app"))];
 
   test("no action is a bare ghost label", () => {
     // A `Button` with the ghost variant — not the `Text` style of that name.

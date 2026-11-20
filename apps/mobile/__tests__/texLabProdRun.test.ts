@@ -9,15 +9,15 @@
  */
 import { beforeEach, describe, expect, jest, test } from "@jest/globals";
 import { TEX_CONFIG } from "@context/tex/src/texConfig.cjs";
-import { forgetGraphs, graphAt, graphNoteFor, graphOfConfig, OLD_CONFIG_PATH } from "../features/tex/lab/engine/graphAt";
-import { prodPlay, prodPlayAtVersion } from "../features/tex/lab/engine/prodRun";
-import { linesOf } from "../features/tex/lab/engine/replayRead";
-import { G } from "../features/tex/lab/engine/state";
-import { chatKeyOf, forgetProd, playProdRow } from "../features/tex/lab/views/mine/playProd";
+import { forgetGraphs, graphAt, graphNoteFor, graphOfConfig, OLD_CONFIG_PATH } from "@context/lab/app/engine/graphAt";
+import { prodPlay, prodPlayAtVersion } from "@context/lab/app/engine/prodRun";
+import { linesOf } from "@context/lab/app/engine/replayRead";
+import { G } from "@context/lab/app/engine/state";
+import { chatKeyOf, forgetProd, playProdRow } from "@context/lab/app/views/mine/playProd";
 import type { LedgerEntry } from "../features/tex/page/texPageTypes";
 
 const mockLedger = jest.fn<(chat: string, q: { kinds?: string[] }) => Promise<unknown>>();
-jest.mock("../features/tex/lab/views/mine/useMine", () => ({ ledgerSource: () => ({ ledger: (chat: string, q: { kinds?: string[] }) => mockLedger(chat, q) }) }));
+jest.mock("@context/lab/app/views/mine/useMine", () => ({ ledgerSource: () => ({ ledger: (chat: string, q: { kinds?: string[] }) => mockLedger(chat, q) }) }));
 
 const e = (x: Partial<LedgerEntry> & { id: string; kind: string }): LedgerEntry => ({ at: 1_000, ...x }) as LedgerEntry;
 const T0 = Date.UTC(2026, 10, 14, 14);

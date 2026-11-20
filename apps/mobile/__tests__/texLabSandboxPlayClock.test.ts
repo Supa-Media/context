@@ -9,9 +9,9 @@
  * between its two reads -> this test receives 503, not 500.
  */
 import { afterEach, expect, test } from "@jest/globals";
-import { resetSandboxState, sandbox } from "../features/tex/lab/engine/sandbox";
-import { holdPlayClock, playHead, playRun, resetPlay, stepPlayClock } from "../features/tex/lab/engine/sandboxPlay";
-import { set } from "../features/tex/lab/engine/state";
+import { resetSandboxState, sandbox } from "@context/lab/app/engine/sandbox";
+import { holdPlayClock, playHead, playRun, resetPlay, stepPlayClock } from "@context/lab/app/engine/sandboxPlay";
+import { set } from "@context/lab/app/engine/state";
 
 /** How far `performance.now` jumps on every read, the gap a slow tick used to add to the step. */
 const DRIFT_MS = 3;
