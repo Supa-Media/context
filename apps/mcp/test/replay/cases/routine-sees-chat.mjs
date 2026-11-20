@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { TEX_CONFIG, texToolList } from "../../../../../packages/tex/gateway/agent/texConfig.js";
 import { oneToOne } from "../chats.mjs";
 
 export default {
@@ -56,16 +57,21 @@ export default {
         return below(input, init);
       };
       let offered = "";
+      let prompt = "";
       try {
         const asking = await chat.byCode("ask Tex Devs to start building Tex a body", [
           (request) => {
             offered = JSON.stringify(request.tools ?? []);
+            prompt = JSON.stringify([request.system, request.messages]);
             return { toolCalls: [{ name: "send", args: { action: "ask_chat", args: { chat: "Tex Devs", what: "Seyi would like you to start building Tex a body.", do: true } } }] };
           },
           { text: "Asked Tex Devs, I'll tell you what they say." },
         ], { covers: [], crossCounts: { hour: 0, day: 0, open: [] } });
         assert.match(offered, /ask_chat/, "a 1:1 is offered ask_chat on main's config");
-        assert.match(offered, /Their groups: Tex Devs\./, "and told which groups it can ask");
+        // Per turn, ask_chat's words name their groups; on the fixed list (`sixToolsFixed.js`) the tools are the same for
+        // every 1:1, so the names come from the turn's own groups module instead.
+        if (texToolList("fd", TEX_CONFIG) === "fixed") assert.match(prompt, /Tex Devs/, "and told which groups it can ask");
+        else assert.match(offered, /Their groups: Tex Devs\./, "and told which groups it can ask");
         assert.equal(asking.body.crossAsks?.length, 1, "the ask leaves for the Worker to carry");
         assert.deepEqual(asking.body.crossAsks[0].to, { kind: "group", key: TEX_DEVS.key, name: "Tex Devs" });
         assert.equal(asking.body.crossAsks[0].do, true);

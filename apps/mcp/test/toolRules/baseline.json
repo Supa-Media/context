@@ -4,7 +4,7 @@
     "1:1 text": {
       "orient": 2060,
       "search": 3166,
-      "fetch": 3616,
+      "fetch": 3468,
       "write": 6308,
       "manage": 5777,
       "send": 25211
@@ -12,7 +12,7 @@
     "job part": {
       "orient": 2060,
       "search": 3166,
-      "fetch": 3374,
+      "fetch": 3226,
       "write": 6308,
       "manage": 5777,
       "send": 21395

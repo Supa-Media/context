@@ -28,6 +28,7 @@ import { AI_GATEWAY_ENV, AI_GATEWAY_ORIGIN, BUILTIN_ALLOWED } from "./agentModel
 import { fakeModel, PRIVACY_MANIFEST } from "./agentEgressFixtures.mjs";
 import { texStoreNamespace } from "./texStoreFixture.mjs";
 import { EMPTY_FALLBACK } from "../../../packages/tex/gateway/agent/replyChecks.js";
+import { TEX_CONFIG, texToolList } from "../../../packages/tex/gateway/agent/texConfig.js";
 
 const S3_ENDPOINT = "https://s3.example-group.test";
 const TOKEN_GROUP = `cat_group_editor_${"0".repeat(22)}`;
@@ -176,7 +177,10 @@ test("a group turn is offered note writes but none of the tagger's own tools", a
   // Named either way the turn could be shown them: a tool of its own, or a six-tools action (`- name:`).
   // Email, calendar and the web are a group turn's (agentGroupActions.test.mjs); these never are.
   // Pictures are a group's too (2026-10-23); progress texts are, when the Worker streams (`agentGroupActions.test.mjs`).
-  for (const missing of ["delegate", "text_progress", "propose_note", "search_email", "read_email", "progress", "mail_agent"]) {
+  // On the fixed list (`sixToolsFixed.js`) every group turn is shown the same words, so a progress text, a group's when
+  // the Worker streams, is shown to all of them and refused where the turn doesn't hold it; the rest are never a group's.
+  const streamingOnly = texToolList("fd", TEX_CONFIG) === "fixed" ? ["text_progress", "progress"] : [];
+  for (const missing of ["delegate", "text_progress", "propose_note", "search_email", "read_email", "progress", "mail_agent"].filter((name) => !streamingOnly.includes(name))) {
     assert.ok(!shown.includes(`"${missing}"`) && !shown.includes(`- ${missing}:`), `${missing} is not a group turn's`);
   }
   assert.ok(!toolNames(sent).includes("earlier_texts"), "a group turn has no texts of its own");
