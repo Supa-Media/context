@@ -52,3 +52,10 @@ definition again; the Lab, control plane and gateway must run the same `texLabOp
 by-default gate every live turn, tool call and control-plane call consults (`sandboxGateOf`, `sandboxedTool`). Live
 Tex code reads them, and Tex never imports the Lab, so they are the gateway's, and the Lab's test chats reach them
 through `packages/lab/gateway/fromGateway/` like any other gateway module.
+
+**The Lab's Convex functions stay in `apps/convex` (decided by the owner, 2026-11-20).** `labEvals`, `labRunnerSlots`,
+`texLab*`, `texSets` and `lib/texLab*` are not moved into the package. The decrypt-path analyzer
+(`apps/convex/__tests__/structure/helperDispatch.test.ts`) reads only `apps/convex` and requires every module outside it
+that Convex imports never to dispatch a Convex function or import `_generated`; Convex function code in a package would
+either fail that test or, with the test loosened, go unread by the guard that proves no public function reaches
+decryption. Moving them would need that analyzer reworked to read the package as Convex code first.
