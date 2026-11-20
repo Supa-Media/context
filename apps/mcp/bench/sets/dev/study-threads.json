@@ -1,355 +1,48 @@
 {
- "id": "study-threads",
- "title": "chapter notes that connect",
- "set": "dev",
- "kind": "one",
- "members": [
-  "Kofi"
- ],
- "setting": "Kofi runs the finances side of Northside Studio with Ada and reads a chapter of the Bible most mornings, keeping one note per chapter from his own template. Tex has his Context notes, Gmail and Calendar. His earlier chapter notes only link previous and next.",
- "msgs": [
-  {
-   "id": "m1",
-   "who": "Kofi",
-   "text": "starting 1 samuel today. made the chapter notes from my template already",
-   "at": "Mon Nov 2 07:41"
-  },
-  {
-   "id": "m2",
-   "tex": true,
-   "who": "Tex",
-   "text": "Nice. I'll keep your read-through sections as you write them."
-  },
-  {
-   "id": "m3",
-   "who": "Kofi",
-   "text": "1 sam 8. the people want a king like the other nations and samuel takes it personally. god says they rejected me not you",
-   "at": "Mon Nov 2 07:52"
-  },
-  {
-   "id": "m4",
-   "tex": true,
-   "who": "Tex",
-   "text": "Saved under Initial Read Through in 1 Samuel 8."
-  },
-  {
-   "id": "m5",
-   "who": "Kofi",
-   "text": "wait didnt deuteronomy already have rules for when they get a king? feels like this was expected",
-   "at": "Mon Nov 2 07:55",
-   "labels": {
-    "fd": {
-     "must": [
-      "link 1 Samuel 8 and Deuteronomy 17 (source)",
-      "say in one line that Deuteronomy 17:14-20 is the law of the king"
-     ],
-     "never": [
-      "link 1 Samuel 8 to Chapter study",
-      "write its own commentary into Kofi's Initial Read Through"
-     ],
-     "star": true
-    }
-   }
-  },
-  {
-   "id": "m6",
-   "tex": true,
-   "who": "Tex",
-   "text": "Yes, Deuteronomy 17:14-20, the law of the king: one God chooses, no piling up horses, wives or silver, and he copies out the law. Linked the two notes both ways with that."
-  },
-  {
-   "id": "m7",
-   "who": "Kofi",
-   "text": "👍 ok thats cool",
-   "at": "Mon Nov 2 07:57"
-  },
-  {
-   "id": "m8",
-   "who": "Kofi",
-   "text": "samuel's warning list in 8:11-18 is basically the opposite of deut 17. he takes your sons, fields, a tenth of everything",
-   "at": "Mon Nov 2 08:03",
-   "labels": {
-    "fd": {
-     "must": [
-      "save Kofi's point in 1 Samuel 8 as his words"
-     ],
-     "never": [
-      "link 1 Samuel 8 to Chapter study"
-     ],
-     "star": true
-    }
-   }
-  },
-  {
-   "id": "m9",
-   "tex": true,
-   "who": "Tex",
-   "text": "Added to 1 Samuel 8. It sits right under the Deuteronomy 17 link, which fits."
-  },
-  {
-   "id": "m10",
-   "who": "Kofi",
-   "text": "ok done for today",
-   "at": "Mon Nov 2 08:20"
-  },
-  {
-   "id": "m11",
-   "tex": true,
-   "who": "Tex",
-   "text": "👍"
-  },
-  {
-   "id": "m12",
-   "who": "Kofi",
-   "text": "ama's chasing the october books again",
-   "at": "Mon Nov 2 13:05"
-  },
-  {
-   "id": "m13",
-   "tex": true,
-   "who": "Tex",
-   "text": "The October expenses still need documenting before the financials go out, from your October 14 call with Ada. Want me to remind you tonight?"
-  },
-  {
-   "id": "m14",
-   "who": "Kofi",
-   "text": "tmrw morning",
-   "at": "Mon Nov 2 13:06"
-  },
-  {
-   "id": "m15",
-   "tex": true,
-   "who": "Tex",
-   "text": "Tomorrow 9 am."
-  },
-  {
-   "id": "m16",
-   "who": "Kofi",
-   "text": "1 sam 10. saul gets anointed, then hides in the baggage lol. and he goes home to gibeah",
-   "at": "Tue Nov 3 07:38"
-  },
-  {
-   "id": "m17",
-   "tex": true,
-   "who": "Tex",
-   "text": "Saved in 1 Samuel 10. Gibeah is Saul's home town here."
-  },
-  {
-   "id": "m18",
-   "who": "Kofi",
-   "text": "hold on. gibeah. that's the judges 19 town. the whole judges ending trashing benjamin and gibeah and then the first king is a benjaminite from gibeah. that's the point i was waiting for",
-   "at": "Tue Nov 3 07:41",
-   "labels": {
-    "fd": {
-     "must": [
-      "link 1 Samuel 10 and Judges 19 (thread)",
-      "the reason on the links is Kofi's: Judges paints Benjamin and Gibeah badly, and the first king comes from there",
-      "answer the Come back to this line in Judges 19"
-     ],
-     "never": [
-      "link 1 Samuel 10 to Chapter study",
-      "say the two notes are already linked"
-     ],
-     "star": true
-    }
-   }
-  },
-  {
-   "id": "m19",
-   "tex": true,
-   "who": "Tex",
-   "text": "That's your Come back to this from Judges 19 answered. Linked Judges 19 and 1 Samuel 10 both ways with it: Judges runs Benjamin and Gibeah down, and the first king comes from Gibeah."
-  },
-  {
-   "id": "m20",
-   "who": "Kofi",
-   "text": "crazy",
-   "at": "Tue Nov 3 07:43"
-  },
-  {
-   "id": "m21",
-   "who": "Kofi",
-   "text": "1 sam 11 now",
-   "at": "Tue Nov 3 07:50"
-  },
-  {
-   "id": "m22",
-   "tex": true,
-   "who": "Tex",
-   "text": "Ready."
-  },
-  {
-   "id": "m23",
-   "who": "Kofi",
-   "text": "ammonites besiege jabesh gilead, saul hears, cuts a pair of oxen into pieces and sends them all over israel. people show up out of fear. note it",
-   "at": "Tue Nov 3 07:58",
-   "labels": {
-    "fd": {
-     "must": [
-      "save it in 1 Samuel 11 as Kofi's words",
-      "link 1 Samuel 11 and Judges 19 (echo)",
-      "link 1 Samuel 11 and Judges 21 (echo)",
-      "name both echoes in the reply in a line or two, as Tex's, not Kofi's"
-     ],
-     "never": [
-      "link 1 Samuel 11 to Chapter study",
-      "write the echoes into Kofi's Initial Read Through"
-     ],
-     "star": true
-    }
-   }
-  },
-  {
-   "id": "m24",
-   "tex": true,
-   "who": "Tex",
-   "text": "Saved. Two echoes I linked under Connections: the pieces sent through Israel is the Levite in Judges 19 turned around, and Jabesh-gilead is the town Judges 21 wiped out, now rescued by a man from Benjamin."
-  },
-  {
-   "id": "m25",
-   "who": "Kofi",
-   "text": "oh wow i didnt even see the jabesh one",
-   "at": "Tue Nov 3 08:01"
-  },
-  {
-   "id": "m26",
-   "who": "Kofi",
-   "text": "ok what in my notes connects to judges 19 now?",
-   "at": "Tue Nov 3 08:04",
-   "labels": {
-    "fd": {
-     "must": [
-      "name Genesis 19 as the same crowd at the door, from what the notes say",
-      "only call a note linked when it is linked"
-     ],
-     "never": [
-      "name Chapter study or an empty chapter note as connected"
-     ],
-     "star": true
-    }
-   }
-  },
-  {
-   "id": "m27",
-   "tex": true,
-   "who": "Tex",
-   "text": "Genesis 19 is the same crowd at the door, not linked yet. 1 Samuel 10 and 11 are linked. Want Genesis 19 linked too?"
-  },
-  {
-   "id": "m28",
-   "who": "Kofi",
-   "text": "yes",
-   "at": "Tue Nov 3 08:05",
-   "labels": {
-    "fd": {
-     "must": [
-      "link Genesis 19 and Judges 19 (echo)"
-     ],
-     "never": [
-      "link Genesis 19 to Chapter study"
-     ],
-     "star": true
-    }
-   }
-  },
-  {
-   "id": "m29",
-   "tex": true,
-   "who": "Tex",
-   "text": "Linked both ways: the same crowd at the door demanding the guest."
-  },
-  {
-   "id": "m30",
-   "who": "Kofi",
-   "text": "grant officer finally wrote back. cap on personal expenses is 25% from january, 20% til then",
-   "at": "Wed Nov 4 11:12",
-   "labels": {
-    "fd": {
-     "must": [
-      "link Open questions and ada (question)",
-      "mark the cap question answered in Open questions, with the date and both numbers"
-     ],
-     "never": [
-      "link Open questions to Chapter study",
-      "drop the travel card question"
-     ],
-     "star": true
-    }
-   }
-  },
-  {
-   "id": "m31",
-   "tex": true,
-   "who": "Tex",
-   "text": "Answered in Open questions: 20% through December, 25% from January. Linked it to your October 14 call with Ada, where the question came from."
-  },
-  {
-   "id": "m32",
-   "who": "Kofi",
-   "text": "👍",
-   "at": "Wed Nov 4 11:14"
-  },
-  {
-   "id": "m33",
-   "who": "Kofi",
-   "text": "skipping ahead. 1 sam 25. samuel dies in verse 1 and the book just keeps going for six more chapters lol",
-   "at": "Fri Nov 6 07:30",
-   "labels": {
-    "fd": {
-     "must": [
-      "save it in 1 Samuel 25 as Kofi's words",
-      "link 1 Samuel 25 and Who wrote Samuel (question)",
-      "add the clue to Who wrote Samuel's Clues so far"
-     ],
-     "never": [
-      "link 1 Samuel 25 to Chapter study",
-      "settle who wrote Samuel as fact"
-     ],
-     "star": true
-    }
-   }
-  },
-  {
-   "id": "m34",
-   "tex": true,
-   "who": "Tex",
-   "text": "Saved, and it's the first real clue for Who wrote Samuel: the book outlives Samuel, so someone else finished it. Added under Clues so far and linked both ways."
-  },
-  {
-   "id": "m35",
-   "who": "Kofi",
-   "text": "also abigail is the best character so far",
-   "at": "Fri Nov 6 07:36"
-  },
-  {
-   "id": "m36",
-   "tex": true,
-   "who": "Tex",
-   "text": "Saved under 1 Samuel 25."
-  },
-  {
-   "id": "m37",
-   "who": "Kofi",
-   "text": "have u been linking stuff between my notes or just the chapter order",
-   "at": "Fri Nov 6 07:40",
-   "labels": {
-    "fd": {
-     "must": [
-      "say which links it can see in the notes, each with what joins it"
-     ],
-     "never": [
-      "claim a link it cannot show in the notes",
-      "claim an automatic linking feature"
-     ],
-     "star": true
-    }
-   }
-  },
-  {
-   "id": "m38",
-   "tex": true,
-   "who": "Tex",
-   "text": "Both. Chapter order on every note, plus five idea links this week: 1 Samuel 8 to Deuteronomy 17, Judges 19 to 1 Samuel 10 and 11 and Genesis 19, Judges 21 to 1 Samuel 11, and 1 Samuel 25 to Who wrote Samuel. Before this week it was only chapter order."
-  }
- ]
+  "id": "study-threads",
+  "title": "chapter notes that connect",
+  "set": "dev",
+  "kind": "one",
+  "members": ["Kofi"],
+  "setting": "Kofi runs the finances side of Northside Studio with Ada and reads a chapter of the Bible most mornings, keeping one note per chapter from his own template. Tex has his Context notes, Gmail and Calendar. His earlier chapter notes only link previous and next.",
+  "msgs": [
+    {"id":"m1","who":"Kofi","text":"starting 1 samuel today. made the chapter notes from my template already","at":"Mon Nov 2 07:41"},
+    {"id":"m2","tex":true,"who":"Tex","text":"Nice. I'll keep your read-through sections as you write them."},
+    {"id":"m3","who":"Kofi","text":"1 sam 8. the people want a king like the other nations and samuel takes it personally. god says they rejected me not you","at":"Mon Nov 2 07:52"},
+    {"id":"m4","tex":true,"who":"Tex","text":"Saved under Initial Read Through in 1 Samuel 8."},
+    {"id":"m5","who":"Kofi","text":"wait didnt deuteronomy already have rules for when they get a king? feels like this was expected","at":"Mon Nov 2 07:55","labels":{"fd":{"must":["link 1 Samuel 8 and Deuteronomy 17 (source)","say in one line that Deuteronomy 17:14-20 is the law of the king"],"never":["link 1 Samuel 8 to Chapter study","write its own commentary into Kofi's Initial Read Through"],"star":true}}},
+    {"id":"m6","tex":true,"who":"Tex","text":"Yes, Deuteronomy 17:14-20, the law of the king: one God chooses, no piling up horses, wives or silver, and he copies out the law. Linked the two notes both ways with that."},
+    {"id":"m7","who":"Kofi","text":"👍 ok thats cool","at":"Mon Nov 2 07:57"},
+    {"id":"m8","who":"Kofi","text":"samuel's warning list in 8:11-18 is basically the opposite of deut 17. he takes your sons, fields, a tenth of everything","at":"Mon Nov 2 08:03","labels":{"fd":{"must":["save Kofi's point in 1 Samuel 8 as his words"],"never":["link 1 Samuel 8 to Chapter study"],"star":true}}},
+    {"id":"m9","tex":true,"who":"Tex","text":"Added to 1 Samuel 8. It sits right under the Deuteronomy 17 link, which fits."},
+    {"id":"m10","who":"Kofi","text":"ok done for today","at":"Mon Nov 2 08:20"},
+    {"id":"m11","tex":true,"who":"Tex","text":"👍"},
+    {"id":"m12","who":"Kofi","text":"ama's chasing the october books again","at":"Mon Nov 2 13:05"},
+    {"id":"m13","tex":true,"who":"Tex","text":"The October expenses still need documenting before the financials go out, from your October 14 call with Ada. Want me to remind you tonight?"},
+    {"id":"m14","who":"Kofi","text":"tmrw morning","at":"Mon Nov 2 13:06"},
+    {"id":"m15","tex":true,"who":"Tex","text":"Tomorrow 9 am."},
+    {"id":"m16","who":"Kofi","text":"1 sam 10. saul gets anointed, then hides in the baggage lol. and he goes home to gibeah","at":"Tue Nov 3 07:38"},
+    {"id":"m17","tex":true,"who":"Tex","text":"Saved in 1 Samuel 10. Gibeah is Saul's home town here."},
+    {"id":"m18","who":"Kofi","text":"hold on. gibeah. that's the judges 19 town. the whole judges ending trashing benjamin and gibeah and then the first king is a benjaminite from gibeah. that's the point i was waiting for","at":"Tue Nov 3 07:41","labels":{"fd":{"must":["link 1 Samuel 10 and Judges 19 (thread)","the reason on the links is Kofi's: Judges paints Benjamin and Gibeah badly, and the first king comes from there","answer the Come back to this line in Judges 19"],"never":["link 1 Samuel 10 to Chapter study","say the two notes are already linked"],"star":true}}},
+    {"id":"m19","tex":true,"who":"Tex","text":"That's your Come back to this from Judges 19 answered. Linked Judges 19 and 1 Samuel 10 both ways with it: Judges runs Benjamin and Gibeah down, and the first king comes from Gibeah."},
+    {"id":"m20","who":"Kofi","text":"crazy","at":"Tue Nov 3 07:43"},
+    {"id":"m21","who":"Kofi","text":"1 sam 11 now","at":"Tue Nov 3 07:50"},
+    {"id":"m22","tex":true,"who":"Tex","text":"Ready."},
+    {"id":"m23","who":"Kofi","text":"ammonites besiege jabesh gilead, saul hears, cuts a pair of oxen into pieces and sends them all over israel. people show up out of fear. note it","at":"Tue Nov 3 07:58","labels":{"fd":{"must":["save it in 1 Samuel 11 as Kofi's words","link 1 Samuel 11 and Judges 19 (echo)","link 1 Samuel 11 and Judges 21 (echo)","name both echoes in the reply in a line or two, as Tex's, not Kofi's"],"never":["link 1 Samuel 11 to Chapter study","write the echoes into Kofi's Initial Read Through"],"star":true}}},
+    {"id":"m24","tex":true,"who":"Tex","text":"Saved. Two echoes I linked under Connections: the pieces sent through Israel is the Levite in Judges 19 turned around, and Jabesh-gilead is the town Judges 21 wiped out, now rescued by a man from Benjamin."},
+    {"id":"m25","who":"Kofi","text":"oh wow i didnt even see the jabesh one","at":"Tue Nov 3 08:01"},
+    {"id":"m26","who":"Kofi","text":"ok what in my notes connects to judges 19 now?","at":"Tue Nov 3 08:04","labels":{"fd":{"must":["name Genesis 19 as the same crowd at the door, from what the notes say","only call a note linked when it is linked"],"never":["name Chapter study or an empty chapter note as connected"],"star":true}}},
+    {"id":"m27","tex":true,"who":"Tex","text":"Genesis 19 is the same crowd at the door, not linked yet. 1 Samuel 10 and 11 are linked. Want Genesis 19 linked too?"},
+    {"id":"m28","who":"Kofi","text":"yes","at":"Tue Nov 3 08:05","labels":{"fd":{"must":["link Genesis 19 and Judges 19 (echo)"],"never":["link Genesis 19 to Chapter study"],"star":true}}},
+    {"id":"m29","tex":true,"who":"Tex","text":"Linked both ways: the same crowd at the door demanding the guest."},
+    {"id":"m30","who":"Kofi","text":"grant officer finally wrote back. cap on personal expenses is 25% from january, 20% til then","at":"Wed Nov 4 11:12","labels":{"fd":{"must":["link Open questions and ada (question)","mark the cap question answered in Open questions, with the date and both numbers"],"never":["link Open questions to Chapter study","drop the travel card question"],"star":true}}},
+    {"id":"m31","tex":true,"who":"Tex","text":"Answered in Open questions: 20% through December, 25% from January. Linked it to your October 14 call with Ada, where the question came from."},
+    {"id":"m32","who":"Kofi","text":"👍","at":"Wed Nov 4 11:14"},
+    {"id":"m33","who":"Kofi","text":"skipping ahead. 1 sam 25. samuel dies in verse 1 and the book just keeps going for six more chapters lol","at":"Fri Nov 6 07:30","labels":{"fd":{"must":["save it in 1 Samuel 25 as Kofi's words","link 1 Samuel 25 and Who wrote Samuel (question)","add the clue to Who wrote Samuel's Clues so far"],"never":["link 1 Samuel 25 to Chapter study","settle who wrote Samuel as fact"],"star":true}}},
+    {"id":"m34","tex":true,"who":"Tex","text":"Saved, and it's the first real clue for Who wrote Samuel: the book outlives Samuel, so someone else finished it. Added under Clues so far and linked both ways."},
+    {"id":"m35","who":"Kofi","text":"also abigail is the best character so far","at":"Fri Nov 6 07:36"},
+    {"id":"m36","tex":true,"who":"Tex","text":"Saved under 1 Samuel 25."},
+    {"id":"m37","who":"Kofi","text":"have u been linking stuff between my notes or just the chapter order","at":"Fri Nov 6 07:40","labels":{"fd":{"must":["say which links it can see in the notes, each with what joins it"],"never":["claim a link it cannot show in the notes","claim an automatic linking feature"],"star":true}}},
+    {"id":"m38","tex":true,"who":"Tex","text":"Both. Chapter order on every note, plus five idea links this week: 1 Samuel 8 to Deuteronomy 17, Judges 19 to 1 Samuel 10 and 11 and Genesis 19, Judges 21 to 1 Samuel 11, and 1 Samuel 25 to Who wrote Samuel. Before this week it was only chapter order."}
+  ]
 }
