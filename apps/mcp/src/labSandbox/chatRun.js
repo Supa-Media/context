@@ -230,7 +230,10 @@ export function keepingLine(phones, prefix = "lab", { onText = null, onPicture =
  * The control plane as the chat object asks it, answered from what the Lab already read for this chat (`chat`, from
  * `texLabSandbox.ts` `session`). Reads answer; a change is refused and listed (`gate.record`).
  */
-export function controlPlaneSwitch({ about, chat, phones, gate, token }) {
+export function controlPlaneSwitch({ about, chat, phones, gate, token, storage = null }) {
+  // Muted in this test chat (a turn's `chat_mute`, or "Tex, stop"): the chat object's own mark (`groupChat.ts` `gmuted`),
+  // so the control plane answers as it would for a muted chat, and "Tex, start" starts it again.
+  const muted = async () => storage !== null && (await storage.get("gmuted")) === true;
   const names = (about.people ?? []).flatMap((p) => (typeof p.handle === "string" && /^[a-z0-9][a-z0-9-]{0,64}$/.test(p.handle) && phones.has(p.handle) ? [{ phone: phones.get(p.handle), handle: p.handle, ...(p.name && p.name !== "You" ? { name: p.name } : {}) }] : []));
   const guests = [...phones.entries()].filter(([who]) => !names.some((n) => n.handle === who)).map(([, phone], i) => ({ phone, label: `guest-${(4096 + i).toString(16).slice(-4)}` }));
   return async (path, body) => {
@@ -238,10 +241,15 @@ export function controlPlaneSwitch({ about, chat, phones, gate, token }) {
       case "/agent-texts/session":
         return { status: "linked", accessToken: token, ...(about.timeZone ? { timeZone: about.timeZone } : {}) };
       case "/agent-texts/group": {
+        if (body?.command?.kind === "stop" || body?.command?.kind === "start") {
+          gate.record({ kind: "Setting", summary: body.command.kind === "stop" ? "muted Tex in this test chat" : "started Tex again in this test chat" });
+          return { status: body.command.kind === "stop" ? "stopped" : "started" };
+        }
         if (body?.command !== undefined) {
           gate.record({ kind: "Settings", summary: `asked the control plane to ${String(body.command?.kind ?? "change the chat")}` });
           return { status: "refused" };
         }
+        if (about.kind === "group" && (await muted())) return { status: "muted" };
         const handle = names.find((n) => n.phone === body?.sender)?.handle;
         return {
           status: "ready",
@@ -281,7 +289,7 @@ export function controlPlaneSwitch({ about, chat, phones, gate, token }) {
  * `inboxes` is the objects it reaches (`jobs.js` `sandboxInboxes`: its own jobs); without it, every other object refuses.
  */
 export function chatEnvFor({ gate, storage, about, chat, phones, line, token, agent, texts, images, inboxes = null }) {
-  const control = controlPlaneSwitch({ about, chat, phones, gate, token });
+  const control = controlPlaneSwitch({ about, chat, phones, gate, token, storage });
   const pictures = new Set((chat?.pictures ?? []).map(String));
   const download = pictureFetch((...a) => globalThis.fetch(...a));
   const fetchOut = async (input, init) => {

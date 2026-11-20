@@ -183,6 +183,13 @@ export function controlPlaneAnswer(path, body, gate) {
     return { refuse: 403 };
   }
   if (CONTROL_PLANE_READS.has(route) || readByBody(route, body)) return { pass: true };
+  // A turn's `chat_mute` mutes the test chat itself: done here, kept by the test chat's own chat object (its `gmuted`,
+  // read by `chatRun.js` `controlPlaneSwitch`), never the real chat's row (2026-11-20: a faked mute let no test show
+  // what a muted chat does).
+  if (route === "/gateway/tex/command" && body?.command?.kind === "mute") {
+    gate.record({ kind: "Setting", summary: "muted Tex in this test chat" });
+    return { answer: { status: "done" } };
+  }
   const answered = ANSWERED[route];
   if (answered) {
     if (route === "/gateway/builtin-model/usage" && typeof gate.usage === "function") {
@@ -218,10 +225,11 @@ export const READ_TOOLS = Object.freeze(
  * restart runs in the test chat's own job objects (`jobs.js`), on the same fences; a progress line is texted on the
  * test chat's line; an ask of Tex in another chat goes through the Cross-chat gate and runs in a linked test chat of
  * that chat (`crossRuns.js`), and a do-ask's post lands in that test chat; a tapback as the whole answer ends the turn and
- * reacts in the test chat (`tapbackEnding.js`; answered as a write it never ended the turn, and Tex texted "Heart sent.").
+ * reacts in the test chat (`tapbackEnding.js`; answered as a write it never ended the turn, and Tex texted "Heart sent.");
+ * a mute mutes the test chat (`controlPlaneAnswer`), and the chat object then reads it as a muted chat does.
  * Their note writes and calls pass the fences like any other.
  */
-export const RUN_IN_SANDBOX = Object.freeze(new Set(["start_background_job", "steer_background_job", "restart_background_job", "plan_big_ask", "text_progress", "ask_chat", "post_in_chat", "tapback"]));
+export const RUN_IN_SANDBOX = Object.freeze(new Set(["start_background_job", "steer_background_job", "restart_background_job", "plan_big_ask", "text_progress", "ask_chat", "post_in_chat", "tapback", "chat_mute"]));
 
 /**
  * Tools that need a browser or one of the person's computers, which a test chat never has: refused, said in words the
