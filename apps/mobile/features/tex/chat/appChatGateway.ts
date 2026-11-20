@@ -176,6 +176,17 @@ export function pictureRequest(id: string): { op: "picture"; id: string } {
   return { op: "picture", id };
 }
 
+/**
+ * The person opened the chat or started typing: the gateway warms the model's cache for their next text when node
+ * `warm` is wired (`apps/mcp/src/agent/textsWarm.js`). Fire and forget: its answer is never shown.
+ */
+export function warmRequest(cause: "open" | "typing"): { op: "warm"; cause: "open" | "typing" } {
+  return { op: "warm", cause };
+}
+
+/** How long typing waits before it asks to warm again: the gateway itself skips a prefix warmed in the last 50 minutes. */
+export const WARM_AGAIN_MS = 5 * 60 * 1000;
+
 /** The whole chat, newest 150 rows, and whether Tex is working. */
 export function getRequest(): { op: "get" } {
   return { op: "get" };
