@@ -85,10 +85,10 @@ const MAX_CHAT_HOMES = 20_000;
 
 /**
  * The chat homes' keys by their words (`{ "kite-willow-rocket": "<64 hex>" }`), as the control plane sends them with the
- * pin's set (`lib/nodes/accessSet.ts`), or `{}` when it sent none. Anything malformed is refused, never half kept.
+ * pin's set (`lib/nodes/accessSet.ts`): every home it names a key for, so a home missing here has none there either.
+ * Anything malformed is refused, never half kept.
  */
 function checkChatHomes(homes) {
-  if (homes === undefined || homes === null) return {};
   if (typeof homes !== "object" || Array.isArray(homes)) throw new WorkspaceRowRefused("chat homes are words to keys");
   const entries = Object.entries(homes);
   if (entries.length > MAX_CHAT_HOMES) throw new WorkspaceRowRefused("too many chat homes");
@@ -123,7 +123,8 @@ export function checkAccessSet(set) {
     pending: pending.map(checkPending),
     accounts: set.accounts === true,
     sealsChats: set.sealsChats === true,
-    ...(set.sealsChats === true ? { chatHomes: checkChatHomes(set.chatHomes) } : {}),
+    // Kept only as sent: a set without the map (an older control plane's) leaves every home's key to it.
+    ...(set.sealsChats === true && set.chatHomes !== undefined && set.chatHomes !== null ? { chatHomes: checkChatHomes(set.chatHomes) } : {}),
     moving: Number.isFinite(set.moving) && set.moving > 0 ? set.moving : 0,
   };
 }

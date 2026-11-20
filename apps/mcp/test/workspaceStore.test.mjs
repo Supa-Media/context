@@ -35,7 +35,7 @@ function durableSql() {
 }
 
 /** A fake WORKSPACE_STORE namespace: one object per name, each with its own SQLite. */
-function namespace({ sealsChats } = {}) {
+function namespace({ sealsChats, chatHomes } = {}) {
   const objects = new Map();
   const hints = [];
   return {
@@ -48,7 +48,7 @@ function namespace({ sealsChats } = {}) {
         const sql = durableSql();
         const store = { objects: texObjects(sql), rows: workspaceRows(sql), members: workspaceMembers(sql) };
         // What the held access set says about chat homes (`accessRows.js` `sealsChats`), where a test names it.
-        if (sealsChats !== undefined) store.access = { sealsChats: () => sealsChats };
+        if (sealsChats !== undefined) store.access = { sealsChats: () => sealsChats, chatHomes: () => chatHomes ?? null };
         objects.set(id.name, { fetch: (request) => serveWorkspaceStore(store, request) });
       }
       return objects.get(id.name);
@@ -341,4 +341,23 @@ test("apply lands a move's rows and its rules together, and a bad rule leaves no
   assert.equal((await ws.read({ ids: [ID(2)], scope: "team" })).notes[0].found, false);
   await assert.rejects(() => ws.apply({ removed: ["n1"], at: 60, rules: { nobody: RULES(6) } }));
   assert.equal((await ws.rows.get(["n1"])).rows.length, 1);
+});
+
+// 2026-11-20 (Dev2: no note save needs Convex): in the pin, with the set's map of each home's chat, a new note in a home
+// is placed in that chat's Tex object and one in no keyed home is plain; a personal Tex folder's note is its person's.
+// Sabotage: drop the `plainUnderHomes` branch in serve.js lookUp and the second row loses `absent`.
+test("the pin places a home's note with its chat and a note in no keyed home as plain; a personal Tex note with its person", { skip }, async () => {
+  const KEY = "a".repeat(64);
+  const { ws } = await seeded({ sealsChats: true, chatHomes: { "kite-willow-rocket": KEY } });
+  await ws.rows.put([{ id: "f-tex", path: "tex", kind: "folder", at: 5 }, { id: "f-groups", path: "tex/groups", kind: "folder", at: 5 }]);
+  const paths = ["tex/groups/kite-willow-rocket/x.md", "tex/groups/amber-fox-lake/y.md"];
+  const looked = await ws.rows.lookup({ paths, scope: "team", workspaceKind: "shared" });
+  assert.deepEqual(looked.rows, [
+    { path: paths[0], found: false, absent: true, texHome: `chat:${KEY}` },
+    { path: paths[1], found: false, absent: true },
+  ]);
+  const personal = (await seeded({ sealsChats: false })).ws;
+  await personal.rows.put([{ id: "f-tex", path: "tex", kind: "folder", at: 5 }]);
+  const mine = await personal.rows.lookup({ paths: ["tex/notes/z.md"], scope: "private", workspaceKind: "personal" });
+  assert.deepEqual(mine.rows, [{ path: "tex/notes/z.md", found: false, absent: true, texHome: "person:ws_one" }]);
 });

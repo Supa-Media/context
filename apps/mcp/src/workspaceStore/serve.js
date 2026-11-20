@@ -29,7 +29,7 @@ import { serveCollabCommit, serveCollabReplace } from "./collabReplace.js";
 import { serveCreateNote } from "./createNote.js";
 import { withOpen } from "./sessionOpen.js";
 import { treeRows } from "./treeRows.js";
-import { absentHere, texHomeOwner } from "./lookupMiss.js";
+import { absentHere, plainUnderHomes, texHomeOwner } from "./lookupMiss.js";
 import { namesTaken } from "./namesTaken.js";
 import { SearchAskRefused } from "./searchIndex.js";
 import { MeaningAskRefused } from "./meaningIndex.js";
@@ -158,6 +158,10 @@ function lookUp(rows, fields, by, members = null, access = null) {
       // placed here as the control plane would place it (`lookupMiss.js` `texHomeOwner`).
       const texHome = by === "path" && row === null ? texHomeOwner(rows, value, placing) : null;
       if (texHome !== null) return { path: value, found: false, absent: true, texHome };
+      // Under the chat homes in the pin but in no home with a chat: a plain note, as the control plane places it.
+      if (by === "path" && row === null && texHome === null && plainUnderHomes(value, placing) && absentHere(rows, value, { chatHomes: false, texFolder: false })) {
+        return { path: value, found: false, absent: true };
+      }
       if (!judge.sees(row)) return { [by === "path" ? "path" : "noteId"]: value, found: false };
       return { found: true, path: row.path, noteId: row.noteId, key: row.storageKey ?? (row.noteId ? `notes/${row.noteId}.md` : null), etag: row.etag, kind: row.kind, collaborates: row.collaborates };
     }),
