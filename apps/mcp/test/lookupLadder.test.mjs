@@ -112,6 +112,20 @@ test("no question mark, no model", async () => {
   assert.equal(ai.calls, 0);
 });
 
+// In a turn the Answer check hands the gate lengths only, so the step's row in the chat's record holds none of the
+// chat's words (chatLedgerWrites); the gate reads them from the turn. Sabotage: reading the words from the input only
+// passes every turn's draft as "no question".
+test("in a turn the gate reads the words from the turn, and its input and output carry none", async () => {
+  const ai = fakeAi("approval");
+  const turn = { env: { AI: ai }, question: "email my sister", drafts: { waiting: { draft: "Send it to Ana now?" } } };
+  const input = { askChars: turn.question.length, draftChars: turn.drafts.waiting.draft.length };
+  const out = await askGateNode(input, { ctx: { turn }, use: {} });
+  assert.equal(out.to, "bypass");
+  assert.equal(ai.calls, 1, "the draft's question reached the model");
+  assert.ok(JSON.stringify(ai.last).includes("email my sister"), "with their text beside it");
+  assert.ok(!/sister|Ana/.test(JSON.stringify([input, out])), JSON.stringify(out));
+});
+
 test("an approval or what only they can answer goes on; so does no real ask", async () => {
   for (const [kind, to] of [["approval", "bypass"], ["person", "bypass"], ["none", "pass"]]) {
     const out = await askGateNode({ ask: "email Sam", draft: "Send it to Sam now?" }, { ctx: { turn: { env: { AI: fakeAi(kind) } } }, use: {} });
@@ -150,16 +164,15 @@ const CONFIG = {
     wire("askGate", "rungKnows", "uses"),
     wire("askGate", "rungNotes", "uses"),
     wire("askGate", "rungTools", "uses"),
-    wire("askGate", "fd", "loop", ["tryNext"]),
   ],
 };
 
-async function runLadder({ drafts, messages = [], kind = "fact", knows = [], notes = [], ladderOn = true, ladderBack = true, ladderHandOff = null }) {
+async function runLadder({ drafts, messages = [], kind = "fact", knows = [], notes = [], ladderOn = true, ladderHandOff = null }) {
   const drafted = [];
   const ended = [];
   const logs = [];
   const ai = fakeAi(kind);
-  const turn = { question: "when do I fly to Denver?", env: { AI: ai }, ladderOn, ladderBack, ladderHandOff, reviewedAs: null, answerChecks: { code: async () => ({ notice: null, review: false }), review: async () => null } };
+  const turn = { question: "when do I fly to Denver?", env: { AI: ai }, ladderOn, ladderHandOff, reviewedAs: null, answerChecks: { code: async () => ({ notice: null, review: false }), review: async () => null } };
   const notices = [];
   const fd = async (input, io) => {
     const t = io.ctx.turn;
@@ -192,13 +205,6 @@ async function runLadder({ drafts, messages = [], kind = "fact", knows = [], not
   const { outputs } = await graph.run("fd", {}, { turn });
   return { drafted, ended, logs, outputs, notices, ai };
 }
-
-test("with no askGate -> fd wire the ladder sends nothing back: a send-back runs only over its own wire", async () => {
-  const { drafted, ended, notices } = await runLadder({ drafts: ["What's your flight to Denver?", "unused"], knows: ["Fri: flight to Denver UA 412"], ladderBack: false });
-  assert.equal(drafted.length, 1);
-  assert.deepEqual(notices, []);
-  assert.deepEqual(ended, [["sent", "What's your flight to Denver?"]]);
-});
 
 test("a fact climbs, goes back with what memory found, and the answer goes out", async () => {
   const { drafted, ended, notices, logs } = await runLadder({ drafts: ["What's your flight to Denver?", "You fly to Denver Friday on UA 412."], knows: ["Fri: flight to Denver UA 412"] });

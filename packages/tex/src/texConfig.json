@@ -129,7 +129,6 @@
     {"from":"askGate","to":"rungNotes","mode":"uses","when":["climb"]},
     {"from":"askGate","to":"rungTools","mode":"uses","when":["climb"]},
     {"from":"askGate","to":"handoff","mode":"uses","when":["climbOn"]},
-    {"from":"handoff","to":"jobStart","mode":"uses","when":["hand"]},
-    {"from":"askGate","to":"fd","mode":"loop","when":["tryNext"]}
+    {"from":"handoff","to":"jobStart","mode":"uses","when":["hand"]}
   ]
 }

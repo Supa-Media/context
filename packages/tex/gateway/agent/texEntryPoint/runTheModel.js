@@ -207,7 +207,6 @@ export async function runTheModel(t, via) {
   // The lookup ladder (`../lookupLadder.js`), when the config wires `answerCheck -> askGate`: a draft that asks them a fact
   // Tex could find climbs the cheap rungs first, and the slow ones go to a job when the config wires `askGate -> handoff`.
   t.ladderOn = chatTurn && job === null && !routine && report === null && !t.crossChat && drawn.wired("answerCheck", "askGate");
-  t.ladderBack = t.ladderOn && drawn.wired("askGate", "fd");
   const ladderHook = t.ladderOn && Boolean(background) && handoffJobs && drawn.wired("askGate", "handoff") ? handoffHook({ background, gate: (input) => drawn.fire("askGate", "handoff", input, { env }), ask: question }) : null;
   t.ladderHandOff = ladderHook !== null ? (draft, info, notice) => ladderHook(draft, info, notice, "askGate") : null;
   // A job the router reads as long goes to the Hand-off node before any round, when the config wires `router -> handoff` (`doorTurn.js`).
