@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect } from "react";
 import { Pressable, StyleSheet, View } from "react-native";
 import { pendingCount } from "../../approvals/copy";
 import type { ApprovalsView } from "../../approvals/useApprovals";
@@ -12,12 +12,12 @@ import type { PastWorkspace } from "../../meetings/usePastMeetings";
 import { TexChatTab } from "../../tex/chat/TexChatTab";
 import { useMapSide } from "./mapSide";
 import { AsideStrip } from "./AsideStrip";
+import { changedSinceSeen, useAsideChoice } from "./asideChoice";
 import { useFrame } from "../../app/AppFrame";
 import { Icon } from "../../design/components/Icon";
 import type { CalendarEvent } from "../../meetings/protocol";
 import {
   ASIDE_TABS,
-  DEFAULT_ASIDE_TAB,
   asideTabFor,
   meetingNeedsAttention,
   visibleAsideTabs,
@@ -94,7 +94,7 @@ export function AsidePanel({
   tex?: { workspaceId: string; endpoint: string } | null;
 }) {
   const styles = useThemedStyles(makeStyles);
-  const [chosen, setChosen] = useState<AsideTab>(DEFAULT_ASIDE_TAB);
+  const [chosen, setChosen] = useAsideChoice();
   const waiting = approvals?.items.length ?? 0;
   // The tab somebody chose, if this console still shows it; else Meetings, which every console shows.
   const wanted = asideTabFor(chosen);
@@ -108,10 +108,10 @@ export function AsidePanel({
   const showing: AsideTab = tabs.includes(wanted) ? wanted : tabs.includes("activity") ? "activity" : "meetings";
 
   /* Somebody asked for Meetings, from the + menu or the title bar. See `started`. */
+  // Each takes the tab once, when it changes; a remount of the panel (folded strip to overlay) does not replay it.
   useEffect(() => {
-    if (started === null) return;
-    setChosen("meetings");
-  }, [started]);
+    if (changedSinceSeen("started", started) && started !== null) setChosen("meetings");
+  }, [started, setChosen]);
 
   /*
     The map opening brings its Activity forward, and a note clicked on it
@@ -123,11 +123,11 @@ export function AsidePanel({
   const mapOpen = map !== null;
   const noteKey = map?.noteKey ?? null;
   useEffect(() => {
-    if (mapOpen) setChosen("activity");
-  }, [mapOpen]);
+    if (changedSinceSeen("mapOpen", mapOpen) && mapOpen) setChosen("activity");
+  }, [mapOpen, setChosen]);
   useEffect(() => {
-    if (noteKey !== null) setChosen("note");
-  }, [noteKey]);
+    if (changedSinceSeen("noteKey", noteKey) && noteKey !== null) setChosen("note");
+  }, [noteKey, setChosen]);
 
   const single = tabs.length === 1;
   const live = useMeetingsSnapshot().live;

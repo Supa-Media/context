@@ -115,6 +115,7 @@ jest.mock("../features/tex/chat/TexChatTab", () => ({
 import { act, createElement } from "react";
 import { createRoot } from "react-dom/client";
 import { AsidePanel } from "../features/console/aside/AsidePanel";
+import { forgetAsideChoice } from "../features/console/aside/asideChoice";
 import { NO_MEETING } from "../features/console/aside/tabs";
 import { APPROVALS } from "./approvalsFixture";
 import type { ApprovalsView } from "../features/approvals/useApprovals";
@@ -214,6 +215,7 @@ function type(field: HTMLElement, text: string): void {
 const roots: (() => void)[] = [];
 
 afterEach(() => {
+  forgetAsideChoice();
   while (roots.length > 0) roots.pop()!();
   document.body.innerHTML = "";
   mockLive = null;
