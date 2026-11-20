@@ -62,7 +62,7 @@ the person's own Tex 1:1 email, no forward, no attachment, no group's ask; who i
 that one ask, and hands the chat object the same 👍 a person's tapback is, on the words of the ask as it now stands, so
 the turn settles it with every check a texted yes has (`textedApprovals.js` `thumbsUpIsYes`). **Not now**
 (`choice: "hold"`) only keeps the card as held: nothing is settled, run or started, and the ask stays as armed as it
-was. A yes replied onto a card ("send the draft") arms that card's ask before the text goes in, so the draft the
+was. A yes replied onto a card ("go ahead") arms that card's ask before the text goes in, so the draft the
 person pointed at is the one their yes settles. The page names an ask's id and never runs a tool.
 
 **Not yet** (later pull requests): the app chat's pictures in Download as folders and deleted with the account

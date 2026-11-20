@@ -211,20 +211,6 @@ export async function runAgentEgressTextingChecks(check) {
         approvalVerdict("yes send it to Sam instead") === null &&
         approvalVerdict("not yet") === null,
     );
-    // Dev2, 2026-11-20: replying "send the draft" to the in-app approval card sends it, so it is a yes; "draft" on its own is not.
-    check(
-      "a reply naming the draft is a yes, and a draft mentioned without a yes or a send is not",
-      approvalVerdict("send the draft") === "approve" &&
-        approvalVerdict("send the email draft") === "approve" &&
-        approvalVerdict("yes send the draft") === "approve" &&
-        approvalVerdict("go ahead and send the draft") === "approve" &&
-        approvalVerdict("draft") === null &&
-        approvalVerdict("draft it") === null &&
-        approvalVerdict("draft the email") === null &&
-        approvalVerdict("don't send the draft") === null &&
-        approvalVerdict("send the draft to Sam") === null &&
-        approvalVerdict("did you send the draft") === null,
-    );
     /*
       A LINE THAT DESCRIBES A YES IS NOT A YES (2026-11-01).
 

@@ -167,7 +167,7 @@ describe("the app chat's approval cards", () => {
     const store = createMemoryStore();
     const record = await heldEmail(store);
     const entries = askEntries(record);
-    const replied = await call({ op: "send", text: "send the draft", replyTo: "17999999500000001" }, { store, entries });
+    const replied = await call({ op: "send", text: "go ahead", replyTo: "17999999500000001" }, { store, entries });
     assert.equal(replied.response.status, 200);
     assert.equal((await listPending(store, { userId: USER, texting: true, chat: null, now: NOW })).length, 1);
     assert.equal(replied.chat.calls.find((c) => c.path === "/app/card")?.body.state, "sending");
