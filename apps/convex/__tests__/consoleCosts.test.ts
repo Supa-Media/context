@@ -199,7 +199,7 @@ describe("consoleCosts: configuration and the window", () => {
 });
 
 describe("consoleCosts: attribution", () => {
-  test("Tex steps map from the gateway labels and the model, and the Workers AI Clef is Decide and GLM the Front door's fallback", async () => {
+  test("Tex steps map from the gateway labels and the model, and the Workers AI Clef is Decide and GLM the Front door's built-in model", async () => {
     const fixture = {
       w0: [],
       w1: [
