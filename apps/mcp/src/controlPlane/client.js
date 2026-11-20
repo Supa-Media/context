@@ -74,12 +74,58 @@ export class ControlPlaneError extends Error {
    * most likely to be reworded by somebody who does not know it is load
    * bearing.
    */
-  constructor(reason, status = null) {
+  constructor(reason, status = null, route = null) {
     super(`control plane unavailable: ${reason}`);
     this.name = "ControlPlaneError";
     this.reason = reason;
     this.status = status;
+    /** The route that failed (`/gateway/note-ids/adopt`), set by `post` or the method that read its answer. */
+    this.route = typeof route === "string" ? route : null;
   }
+
+  /**
+   * A short code a person can quote back, built from the route and the status or reason, never from the request:
+   * `CP-NOTE-IDS-ADOPT-NOT-SERVED`, `CP-BINDING-503`. A client is shown this instead of the internal words
+   * (Dev2, 2026-11-20: a failed save told the group "control plane unavailable" and had no code to give).
+   */
+  get code() {
+    return controlPlaneErrorCode(this);
+  }
+}
+
+const slug = (text) => String(text).toUpperCase().replace(/[^A-Z0-9]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 40);
+
+/** `ControlPlaneError.code` for any error that is one, else `null`. */
+export function controlPlaneErrorCode(error) {
+  if (!(error instanceof ControlPlaneError)) return null;
+  const route = typeof error.route === "string" ? slug(error.route.replace(/^\/gateway\//, "")) : "";
+  const why = Number.isInteger(error.status) ? String(error.status) : slug(String(error.reason ?? "").replace(/^status\s+/, "")) || "FAILED";
+  return ["CP", route, why].filter((part) => part !== "").join("-");
+}
+
+/**
+ * One `control_plane_failed` line for a control-plane call that gave no usable answer: the route, the status (or
+ * `null` for a transport failure), the short reason and code, and how long it took. Never a body, a token or a path.
+ */
+export function logControlPlaneFailure(error, { ms = null } = {}) {
+  try {
+    if (!(error instanceof ControlPlaneError) || error.logged === true) return;
+    Object.defineProperty(error, "logged", { value: true, enumerable: false });
+    console.error(JSON.stringify({ event: "control_plane_failed", route: error.route, status: error.status, reason: slug(error.reason ?? "").toLowerCase(), code: error.code, ...(Number.isFinite(ms) ? { ms } : {}) }));
+  } catch {
+    // A log line never fails a call.
+  }
+}
+
+/**
+ * The answer a method read and could not use (`{served: false}`, `{ok: false}`, a missing field): a
+ * `ControlPlaneError` naming its route, logged once. `served: false` is said as such, since it is the control plane
+ * declining rather than a malformed answer.
+ */
+export function unusableAnswer(route, parsed, reason) {
+  const error = new ControlPlaneError(parsed?.served === false ? "not served" : reason, null, route);
+  logControlPlaneFailure(error);
+  return error;
 }
 
 /** SHA-256 of a string, lowercase hex — the only form a token reaches Convex in. */
@@ -156,7 +202,21 @@ function requireConfig(env) {
  * could carry into the next tenant's request.
  */
 export function createTransport(env, fetchImpl) {
-  async function post(path, body, { timeoutMs = CONTROL_PLANE_TIMEOUT_MS, maxBytes = CONTROL_PLANE_RESPONSE_BYTE_CAP } = {}) {
+  async function post(path, body, options = {}) {
+    const started = Date.now();
+    try {
+      return await routed(path, body, options);
+    } catch (error) {
+      // Every failed call says which route and why, once, in this Worker's logs (Dev2, 2026-11-20).
+      if (error instanceof ControlPlaneError) {
+        if (error.route === null) error.route = path;
+        logControlPlaneFailure(error, { ms: Date.now() - started });
+      }
+      throw error;
+    }
+  }
+
+  async function routed(path, body, { timeoutMs = CONTROL_PLANE_TIMEOUT_MS, maxBytes = CONTROL_PLANE_RESPONSE_BYTE_CAP } = {}) {
     // A Lab test chat's turn (`labSandbox/policy.js`): only reads reach the control plane.
     const sandbox = sandboxGateOf(env);
     if (sandbox !== null) {

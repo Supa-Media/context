@@ -75,7 +75,7 @@ function entryOf(row) {
  *
  * @param {{client: object|null, home?: string|null, behind?: boolean, scope: string, names: Iterable<string>, chatNames?: string[]|null, workspaceId?: string, userId?: string|null, log?: (event: string, fields: object) => void}} options
  */
-export function objectReader({ client, home, behind = false, scope, names, chatNames = null, workspaceId, userId = null, log = () => {} }) {
+export function objectReader({ client, home, behind = false, scope, names, chatNames = null, workspaceId, userId = null, workspaceKind = null, log = () => {} }) {
   const groups = [...(names ?? [])];
   const audience = audienceOf(groups);
   if (!client || home !== HOMES.OBJECT || (scope !== "private" && scope !== "team")) return null;
@@ -103,7 +103,10 @@ export function objectReader({ client, home, behind = false, scope, names, chatN
     log("workspace_object_behind", { workspaceId, by: "object" });
     return true;
   };
-  return { client, workspaceId, log, judged, settledBehind };
+  // The workspace's kind, from the control plane's session: a path lookup's answer for a path with no row depends on it
+  // (`workspaceStore/lookupMiss.js`: only a personal workspace keeps its Tex folder's notes in Tex's store).
+  const place = workspaceKind === "personal" || workspaceKind === "shared" ? { workspaceKind } : {};
+  return { client, workspaceId, log, judged, settledBehind, place };
 }
 
 /**
@@ -216,13 +219,13 @@ export function objectFirstNames(options) {
 export function objectFirstHooks(hooks, options) {
   const reader = objectReader(options);
   if (reader === null) return hooks;
-  const { client, workspaceId, log, judged, settledBehind } = reader;
+  const { client, workspaceId, log, judged, settledBehind, place } = reader;
 
   // `withBody`: an edit's one lookup (`idLayout.js` `oneWrite`) asks for the note's Markdown beside its row.
   const lookup = async (paths, { withBody = false } = {}) => {
     let answer;
     try {
-      answer = await client.rows.lookup({ paths, ...judged, ...(withBody === true && paths.length === 1 ? { withBody: true } : {}) });
+      answer = await client.rows.lookup({ paths, ...judged, ...place, ...(withBody === true && paths.length === 1 ? { withBody: true } : {}) });
     } catch (error) {
       log("workspace_object_lookup_failed", { workspaceId, error: String(error?.message ?? error) });
       throw new WorkspaceBusy("lookup failed");
@@ -301,7 +304,7 @@ export function objectFirstHooks(hooks, options) {
   const lookupRead = async (paths) => {
     let answer;
     try {
-      answer = await client.rows.lookup({ paths, ...judged });
+      answer = await client.rows.lookup({ paths, ...judged, ...place });
     } catch (error) {
       log("workspace_object_lookup_failed", { workspaceId, error: String(error?.message ?? error) });
       throw new WorkspaceBusy("lookup failed");

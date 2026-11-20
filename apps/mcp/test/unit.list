@@ -699,3 +699,4 @@ test/appChat.test.mjs
 test/setsFdTapbacks.test.mjs
 test/searchedLine.test.mjs
 test/emailChooseSender.test.mjs
+test/publicError.test.mjs

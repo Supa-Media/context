@@ -130,10 +130,16 @@ export function judgeFor(rows, { scope, groups, audience = "member", userId = nu
 }
 
 /** Rows by path or by note id, as the gateway's note-id lookup and resolve answer them; one it may not see is absent. */
-function lookUp(rows, fields, by, members = null) {
+function lookUp(rows, fields, by, members = null, access = null) {
   const asked = Array.isArray(fields[by === "path" ? "paths" : "noteIds"]) ? fields[by === "path" ? "paths" : "noteIds"] : null;
   if (asked === null || asked.length === 0 || asked.length > MAX_READ_IDS) throw new WorkspaceRowRefused(`a lookup names 1 to ${MAX_READ_IDS}`);
   const judge = judgeFor(rows, fields, members);
+  // What may reroute a path with no row (`lookupMiss.js`): chat homes only where this object's access set says it holds
+  // them, and a Tex folder only where the gateway has not said the workspace is shared.
+  const where = {
+    chatHomes: typeof access?.sealsChats === "function" ? access.sealsChats() !== false : true,
+    texFolder: fields.workspaceKind !== "shared",
+  };
   return {
     accessVersion: judge.accessVersion,
     rows: asked.map((value) => {
@@ -142,7 +148,7 @@ function lookUp(rows, fields, by, members = null) {
       if (by === "noteId" && typeof value === "string" && rows.liveNoteIdCount(value) > 1) return { noteId: value, found: false, ambiguous: true };
       const row = typeof value === "string" ? (by === "path" ? rows.byPath(value) : rows.byNoteId(value)) : null;
       // Nothing at all at the path, and nothing reroutes it (`lookupMiss.js`): the gateway may make the note without asking.
-      if (by === "path" && row === null && absentHere(rows, value)) return { path: value, found: false, absent: true };
+      if (by === "path" && row === null && absentHere(rows, value, where)) return { path: value, found: false, absent: true };
       if (!judge.sees(row)) return { [by === "path" ? "path" : "noteId"]: value, found: false };
       return { found: true, path: row.path, noteId: row.noteId, key: row.storageKey ?? (row.noteId ? `notes/${row.noteId}.md` : null), etag: row.etag, kind: row.kind, collaborates: row.collaborates };
     }),
@@ -310,7 +316,7 @@ export async function serveWorkspaceStore(store, request, timing = {}) {
       }
       case "ws.rows.lookup":
         // An edit's one lookup carries its note's Markdown too (`withBody`, `lookupBody.js`), for this reader's found row only.
-        return Response.json(await settledAnswer(store, () => withLookupBody(store, lookUp(rows, fields, "path", store.members ?? null), fields)));
+        return Response.json(await settledAnswer(store, () => withLookupBody(store, lookUp(rows, fields, "path", store.members ?? null, store.access ?? null), fields)));
       case "ws.rows.resolve":
         return Response.json(await settledAnswer(store, () => lookUp(rows, fields, "noteId", store.members ?? null)));
       case "ws.rows.names":

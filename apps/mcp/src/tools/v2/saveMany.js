@@ -16,6 +16,7 @@
  */
 
 import { toolError } from "../results.js";
+import { logCallFailure } from "../../mcp/publicError.js";
 import { outcomeOf } from "../../mcp/outcome.js";
 
 /** The most notes one call saves: `move_many`'s limit, so the two bulk actions agree. */
@@ -98,7 +99,7 @@ export async function saveMany(args, saveOne, { budgetMs = SAVE_MANY_BUDGET_MS, 
         results[index] = await saveOne({ ...addressing, path, content, ...(etag === undefined ? {} : { expected_etag: etag }) });
       } catch (error) {
         // One save that threw is that note's failure, said in the same place as any other; the rest still answer.
-        results[index] = toolError(`could not save that note right now (${String(error?.message ?? error).slice(0, 120)})`);
+        results[index] = toolError(`could not save that note right now (error ${logCallFailure(error, { method: "tools/call", tool: "write" })})`);
       }
     }
   };

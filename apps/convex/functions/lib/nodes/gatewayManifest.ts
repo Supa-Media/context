@@ -38,7 +38,7 @@ import { NO_NAMES, clearanceOf } from "../clearance";
 import { audienceOfNames } from "../pinnedReaders";
 import type { Audience } from "./rowAccess";
 import { loadGrantWorkspaces } from "../controlPlane/grantCache";
-import { resolveLiveGrant } from "../controlPlane/liveGrants";
+import { resolveLiveGrant, resolveRunGrant } from "../controlPlane/liveGrants";
 import { TOKEN_HASH_PATTERN, hashToken } from "../crypto";
 import { json } from "../gatewayAuth";
 import { syncManifest } from "../fileOps/syncManifest";
@@ -106,7 +106,10 @@ export const readClearanceReturns = v.union(
 
 export async function readClearanceHandler(ctx: QueryCtx, args: ObjectType<typeof readClearanceArgs>) {
   if (!TOKEN_HASH_PATTERN.test(args.hashedAccessToken)) return null;
-  const live = await resolveLiveGrant(ctx, args.hashedAccessToken);
+  // A computer job's run grant reads as its parent texting grant, as `/gateway/session` already resolves it
+  // (`liveGrants.ts` `resolveRunGrant`): without it every lookup a job's save needed answered "not served", and a
+  // job could not make a new note (2026-11-20). Reading is all this clears; no owner clearance takes a run grant.
+  const live = (await resolveLiveGrant(ctx, args.hashedAccessToken)) ?? (await resolveRunGrant(ctx, args.hashedAccessToken));
   if (live === null) return null;
   return gatewayReadClearance(
     { scopes: live.grant.scopes, workspaces: (await loadGrantWorkspaces(ctx, args.hashedAccessToken, live)).workspaces },

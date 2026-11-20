@@ -59,3 +59,25 @@ shape would leave one row per path and nothing would group. Tests:
 `apps/mcp/test/toolFailures.test.mjs` ("a tool that says no is kept as refused,
 with its reason shaped", "a tool that throws is kept as threw…") and
 `apps/convex/__tests__/texToolFailures.test.ts` ("a row names nobody…").
+
+## A failed MCP call is a short code to its caller and a logged route
+
+Decided 2026-11-20 (Dev2), after a job on a person's computer failed to save a
+note three times and the group chat was told "control plane unavailable", with
+no code to quote and no log of which call failed.
+
+- Every control-plane call that gives no usable answer logs one
+  `control_plane_failed` line: its route, its status (or `null` for a transport
+  failure), a short reason and its code, and how long it took
+  (`apps/mcp/src/controlPlane/client.js`). An answer a method reads and cannot
+  use (`{served: false}`) is the same error, with its route.
+- A call a client made through `/mcp` that fails inside the gateway logs one
+  `mcp_call_failed` line (method, tool, code, route, status) and answers a
+  plain sentence carrying a short code, such as `CP-NOTE-IDS-ADOPT-NOT-SERVED`
+  (`apps/mcp/src/mcp/publicError.js`). The error's own words never reach the
+  client: they can carry a path or a value, and the caller may be on the
+  internet.
+
+What a simplification would cost: relaying the message hands internal text to
+an AI client and a person, and logging nothing leaves a failure no one can
+trace. Tests: `apps/mcp/test/publicError.test.mjs`.

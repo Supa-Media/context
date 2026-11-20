@@ -532,3 +532,18 @@ test("a read's lookup is busy when the object is behind or fails, and asks the c
     }
   }
 });
+
+// 2026-11-20: where a new note with no row is placed depends on the workspace's kind (`workspaceStore/lookupMiss.js`),
+// which only the control plane's session knows, so both lookups carry it to the object; nothing else does.
+test("a path lookup tells the object the workspace's kind, from the session, and no other ask carries it", async () => {
+  const cp = control();
+  const ob = object({ "plans/a.md": seen });
+  const hooks = objectFirstHooks(cp.hooks, { client: ob.client, home: "object", scope: "team", names: [], workspaceId: "w1", workspaceKind: "shared" });
+  await hooks.lookup(["plans/a.md"]);
+  await hooks.lookupRead(["plans/a.md"]);
+  await hooks.resolve([NOTE]);
+  assert.deepEqual(ob.asked.map((call) => [call.op, call.workspaceKind]), [["lookup", "shared"], ["lookup", "shared"], ["resolve", undefined]]);
+  const unknown = object({ "plans/a.md": seen });
+  await objectFirstHooks(cp.hooks, { client: unknown.client, home: "object", scope: "team", names: [], workspaceId: "w1", workspaceKind: "elsewhere" }).lookup(["plans/a.md"]);
+  assert.equal("workspaceKind" in unknown.asked[0], false, "only personal or shared is said");
+});

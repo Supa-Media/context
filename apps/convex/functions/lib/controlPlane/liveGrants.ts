@@ -92,8 +92,8 @@ async function earlierTextsToken(ctx: QueryCtx, hashedAccessToken: string): Prom
  * A Tex machine job part's run grant (`texMachineRunGrants`): live only while its own time lasts, its machine is active,
  * and its parent texting grant passes every check `validateLiveGrantRecord` makes except the parent token's own expiry
  * (a part outlives the 15-minute texting token it was minted under). Resolved only for an MCP session
- * (`resolveGrantByAccessTokenHandler`), never by `resolveLiveGrant`, so no owner clearance, share mint or Tex page route
- * accepts it.
+ * (`resolveGrantByAccessTokenHandler`) and its read clearance (`nodes/gatewayManifest.ts` `readClearanceHandler`, which a
+ * job's note lookups need), never by `resolveLiveGrant`, so no owner clearance, share mint or Tex page route accepts it.
  */
 export interface RunGrantInfo {
   machineId: Id<"texMachines">;

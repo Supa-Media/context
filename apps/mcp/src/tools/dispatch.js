@@ -33,6 +33,8 @@ import { toolPairDevice } from "./pairDevice.js";
 import { toolNotifyMe } from "./attention.js";
 import { toolVaultAddLink, toolVaultList, toolVaultShareLink, toolVaultViewLink } from "./vault.js";
 import { toolError, toolText } from "./results.js";
+import { ControlPlaneError } from "../controlPlane/client.js";
+import { failureText, logCallFailure } from "../mcp/publicError.js";
 import { bareEtagArguments } from "./etagPlace.js";
 import { toolExistenceMasked } from "./registry.js";
 import { toolSetEncryption } from "./encryption/setEncryption.js";
@@ -121,6 +123,8 @@ export async function callTool(name, args, store, scope, options = {}) {
     if (error instanceof TreeUnavailable) return toolError(error.message);
     // The workspace's object could not answer now, and the control plane is never asked instead (`store/objectLookup.js`).
     if (error instanceof WorkspaceBusy) return toolError(error.message);
+    // A control-plane call that failed under the tool: a short code for the caller, the route and status in the log.
+    if (error instanceof ControlPlaneError) return toolError(failureText(logCallFailure(error, { method: "tools/call", tool: name })));
     throw error;
   }
 }

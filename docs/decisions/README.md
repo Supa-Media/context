@@ -36,6 +36,7 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 - [Every request and every workspace object call is counted by who made it](./observability/call-counts.md) (2026-11-06)
 - [Tex's basics for any window: people, texts, cost and notes](./observability/tex-stats.md) (2026-11-10)
 - [Every failed Tex tool call is kept with why it failed](./observability/tool-failures.md) (2026-11-10)
+- [A failed MCP call is a short code to its caller and a logged route](./observability/tool-failures.md#a-failed-mcp-call-is-a-short-code-to-its-caller-and-a-logged-route) (2026-11-20)
 - [AI costs are read from Cloudflare's count, by step and by who paid](./observability/console-ai-costs.md) (2026-11-14)
 - Version history is the customer's object versioning, not a copy we keep
 - Managed storage: a bucket we run, in an account that holds nothing else

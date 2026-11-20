@@ -202,7 +202,7 @@ export async function runStoreGuardChecks(check, gateway) {
     );
     check(
       "scope_info accepts a folder path with a trailing slash",
-      !/unsafe storage key|internal error/.test(JSON.stringify(folderScope))
+      !/unsafe storage key|internal error|could not finish this just now/.test(JSON.stringify(folderScope))
     );
 
     const folderSearch = await hostileCall(async () => ({ objects: [], truncated: false }), {
@@ -211,7 +211,7 @@ export async function runStoreGuardChecks(check, gateway) {
     });
     check(
       "search_notes accepts a folder prefix with a trailing slash",
-      !/unsafe storage key|internal error|invalid prefix/.test(JSON.stringify(folderSearch))
+      !/unsafe storage key|internal error|could not finish this just now|invalid prefix/.test(JSON.stringify(folderSearch))
     );
   }
 

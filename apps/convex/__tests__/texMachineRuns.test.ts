@@ -227,6 +227,18 @@ describe("minting and resolving a run grant", () => {
     expect(await sessionFor(t, token)).not.toBeNull();
   });
 
+  test("a run grant clears to read its parent's workspace, as the job's saves need, and never to act as owner", async () => {
+    const { t, alfa, parentId, machineId } = await aJob();
+    await t.run(async (ctx) => await ctx.db.patch(parentId, { scopes: ["context:read", "context:write", "context:private"] }));
+    const token = await mintedToken(t, machineId);
+    const hashed = await hashToken(token);
+    // 2026-11-20: a job's new note asked the note-id lookup, which answered "not served" for every run token.
+    const read = await t.query(internal.functions.nodesGateway.readClearance, { hashedAccessToken: hashed, expectedWorkspaceId: alfa });
+    expect(read).toMatchObject({ workspaceId: alfa, scope: "private", audience: "member" });
+    const owner = await t.query(internal.functions.controlPlane.ownerClearanceForGateway, { hashedAccessToken: hashed, expectedWorkspaceId: alfa });
+    expect(owner).toBeNull();
+  });
+
   test("minting from a parent that is not a texting client is refused, and so is a parent that is not live", async () => {
     const { t, machineId } = await aJob("claude-desktop", OTHER_PARENT);
     const refused = await mint(t, machineId, { parentToken: OTHER_PARENT });

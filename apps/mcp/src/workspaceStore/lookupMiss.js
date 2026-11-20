@@ -16,8 +16,15 @@ const { jobOfName } = folderRoles;
 const CHAT_HOMES = "tex/groups/";
 const fold = (path) => path.normalize("NFC").toLowerCase();
 
-/** `rows` is `workspaceRows(sql)`. True only when no live row is at `path` and nothing above reroutes it. */
-export function absentHere(rows, path) {
+/**
+ * `rows` is `workspaceRows(sql)`. True only when no live row is at `path` and nothing above reroutes it.
+ *
+ * `where` narrows what may reroute, from what is known of this workspace: `chatHomes: false` where its held access set
+ * says it does not hold the chat homes (only the pinned workspace does), and `texFolder: false` where the gateway says
+ * it is a shared workspace (only a personal one keeps a Tex folder's notes in Tex's store). Unknown is a reroute, as
+ * before, and the control plane is asked. Either way the note is placed where the control plane would place it.
+ */
+export function absentHere(rows, path, { chatHomes = true, texFolder = true } = {}) {
   if (typeof path !== "string" || path === "" || rows.byPath(path) !== null) return false;
   const slash = path.indexOf("/");
   if (slash > 0) {
@@ -27,7 +34,8 @@ export function absentHere(rows, path) {
       if (root === null || root.kind !== "folder") return false;
     }
   }
-  if (fold(path).startsWith(CHAT_HOMES)) return false;
+  if (chatHomes !== false && fold(path).startsWith(CHAT_HOMES)) return false;
+  if (texFolder === false) return true;
   const texFolders = rows.foldersByRole("tex").map((folder) => folder.path);
   const texRoot = rows.byPath("tex");
   if (texRoot !== null && texRoot.kind === "folder") texFolders.push("tex");

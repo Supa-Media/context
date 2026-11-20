@@ -1,4 +1,4 @@
-import { createTransport, ControlPlaneError, sha256Hex, isLoopbackHost } from "./client.js";
+import { createTransport, ControlPlaneError, controlPlaneErrorCode, sha256Hex, isLoopbackHost } from "./client.js";
 import { createSessionMethods } from "./session.js";
 import { createGrantMethods } from "./grants.js";
 import { createReportingMethods } from "./reporting.js";
@@ -32,7 +32,7 @@ import { createTexChatHomeMethods } from "./texChatHome.js";
 import { createTexMachineMethods } from "./texMachines.js";
 import { createTimeZoneMethods } from "./timeZone.js";
 
-export { ControlPlaneError, sha256Hex, isLoopbackHost };
+export { ControlPlaneError, controlPlaneErrorCode, sha256Hex, isLoopbackHost };
 
 /**
  * A typed client for the contract documented at the top of `../controlPlane.js`.

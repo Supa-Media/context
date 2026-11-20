@@ -117,3 +117,28 @@ test("an empty or non-string path is never absent", { skip }, () => {
   assert.equal(absentHere(rows, ""), false);
   assert.equal(absentHere(rows, null), false);
 });
+
+// 2026-11-20: a computer job's new note under `tex/groups/` in a shared workspace that is not the pin asked the control
+// plane, which answered "not served" for its grant, and the save failed. Only the pinned workspace holds chat homes and
+// only a personal one keeps its Tex folder in Tex's store (`apps/convex/functions/lib/noteIds/texHome.ts`), so where the
+// object knows neither applies, the path is absent and the note is made in the object.
+test("a chat-homes path is absent where the access set says this workspace holds no chat homes", { skip }, () => {
+  const rows = fresh();
+  rows.put([{ id: ID(6), path: "tex", kind: "folder", at: 1 }, { id: ID(7), path: "tex/groups", kind: "folder", at: 1 }]);
+  assert.equal(absentHere(rows, "tex/groups/kite-willow-rocket/x.md", { chatHomes: false, texFolder: false }), true);
+  // Unknown (no set held yet, or the pin) still reroutes, as before.
+  assert.equal(absentHere(rows, "tex/groups/kite-willow-rocket/x.md", { texFolder: false }), false);
+  assert.equal(absentHere(rows, "tex/groups/kite-willow-rocket/x.md"), false);
+});
+
+test("a Tex folder path is absent only where the gateway says the workspace is shared", { skip }, () => {
+  const rows = fresh();
+  rows.put([{ id: ID(8), path: "tex", kind: "folder", at: 1 }, { id: ID(9), path: "assistant", kind: "folder", role: "tex", at: 1 }]);
+  assert.equal(absentHere(rows, "tex/x.md", { chatHomes: false, texFolder: false }), true);
+  assert.equal(absentHere(rows, "assistant/x.md", { chatHomes: false, texFolder: false }), true);
+  // A personal workspace (or one not said) keeps them in Tex's store: the control plane names the key.
+  assert.equal(absentHere(rows, "tex/x.md", { chatHomes: false }), false);
+  assert.equal(absentHere(rows, "assistant/x.md", { chatHomes: false, texFolder: true }), false);
+  // A built-in folder's name is still the control plane's to place, whatever the workspace.
+  assert.equal(absentHere(rows, "inbox/x.md", { chatHomes: false, texFolder: false }), false);
+});
