@@ -20,7 +20,11 @@ name: Preview cleanup
 # any pull_request trigger to carry the default types, and this workflow only
 # needs the close, so a `closed`-only trigger is refused (rule A).
 #
-# Convex expires its own preview deployments, so nothing here deletes one.
+# What one deletion covers, and the check that ends it, are in
+# scripts/preview-cleanup.mjs and scripts/preview-teardown.mjs: the Workers (and
+# with them their Durable Objects and secrets), the Workflows, the Convex preview
+# deployment, the emptied buckets, the search databases and indexes, and the
+# scoped R2 tokens. Anything still there afterwards fails the run.
 #
 # This workflow runs `wrangler delete`, inside scripts/preview-cleanup.mjs. The
 # trigger checker does not count a delete as a deploy, so the file keeps its
@@ -58,6 +62,10 @@ jobs:
       CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
       CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
       MANAGED_R2_ACCOUNT_ID: ${{ secrets.MANAGED_R2_ACCOUNT_ID }}
+      # The token that minted each bucket's scoped R2 token, so it can list and revoke them.
+      PREVIEW_R2_API_TOKEN: ${{ secrets.PREVIEW_R2_API_TOKEN || secrets.CLOUDFLARE_API_TOKEN }}
+      # The preview deploy key finds the pr<N> Convex deployment and deletes it.
+      CONVEX_DEPLOY_KEY: ${{ secrets.CONVEX_PREVIEW_DEPLOY_KEY }}
       EVENT_BRANCH: ${{ github.event.ref }}
       INPUT_PR: ${{ inputs.pr }}
       OWNER: ${{ github.repository_owner }}

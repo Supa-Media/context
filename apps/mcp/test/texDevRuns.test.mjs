@@ -517,3 +517,14 @@ test("resultsOf carries the run world: its misses by kind and their calls, none 
   assert.equal(worldOf(many).calls.length, 40, "the first 40 calls only");
   assert.equal(resultsOf([{ chat: "a", node: "decide", right: true, ran: true }], "1").world, null, "no row has a world: nothing to say");
 });
+
+test("run passes target pr<N> on to the control plane, so a Lab run can aim at a pull request's preview", async () => {
+  const { calls, call } = tool({ run: { status: "ok", id: "k7" } });
+  const answer = jsonOf(await call("run", { target: "pr3786" }));
+  assert.equal(calls[0].args.target, "pr3786");
+  assert.equal(answer.target, "pr3786");
+  assert.match(answer.then, /#3786's code, replay only/);
+  await call("run", {});
+  assert.equal("target" in calls[1].args, false, "no target is no target, as before");
+  assert.match(guideText(), /target\?: "pr<N>"/);
+});

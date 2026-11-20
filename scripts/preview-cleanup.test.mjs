@@ -85,7 +85,10 @@ test("deleting a preview removes its Workers in order, and tolerates one that is
     ["mcp", "context-mcp-pr7-preview"],
   ]);
   assert.ok(logs.some((line) => line.includes("context-agent-pr7 was already gone")));
-  assert.deepEqual(requests, ["GET /accounts/gateway/workflows?per_page=100&page=1", "GET /accounts/gateway/r2/buckets?per_page=1000", "GET /accounts/gateway/d1/database?per_page=1000", "GET /accounts/gateway/vectorize/v2/indexes"]);
+  // Workflows, storage, the scoped tokens, then the check that nothing is left. No CONVEX_DEPLOY_KEY: Convex is skipped.
+  assert.deepEqual(requests.slice(0, 5), ["GET /accounts/gateway/workflows?per_page=100&page=1", "GET /accounts/gateway/r2/buckets?per_page=1000", "GET /accounts/gateway/d1/database?per_page=1000", "GET /accounts/gateway/vectorize/v2/indexes", "GET /accounts/gateway/tokens?per_page=50&page=1"]);
+  assert.ok(requests.includes("GET /accounts/gateway/workers/durable_objects/namespaces?per_page=1000"), "the check looks for Durable Object namespaces");
+  assert.ok(logs.some((line) => line.includes("verified, nothing of its preview is left")));
 });
 
 test("a stray -preview Worker from the secret bug is found by its number and deleted with its preview", async () => {

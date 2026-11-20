@@ -251,8 +251,8 @@ export function createTexDev({ env, session, controlPlane, defer = null, sleep =
         const draft = args.draft ?? "main";
         if (draft !== "main" && needDraft({ draft })) return needDraft({ draft });
         const kind = args.kind ?? "dev";
-        const { answer, error } = await plane("run", { draft, kind, conv: args.conv, node: args.node, models: args.models ?? "gw", ...(args.repeats !== undefined ? { repeats: args.repeats } : {}), ...(args.code !== undefined ? { code: args.code } : {}), ...(args.set !== undefined ? { set: args.set } : {}) });
-        return error ?? json({ run: answer.id, stage: "queued", then: `A GitHub run starts within a minute and runs the ${args.set === "training" ? "Training" : "Dev"} set's unit tests on the draft's code (main unless code names a pull request or branch); runs { id } shows its stage, the commit that ran and, when done, every test's verdict. The Lab's Runs panel shows the same run.` });
+        const { answer, error } = await plane("run", { draft, kind, conv: args.conv, node: args.node, models: args.models ?? "gw", ...(args.repeats !== undefined ? { repeats: args.repeats } : {}), ...(args.code !== undefined ? { code: args.code } : {}), ...(args.set !== undefined ? { set: args.set } : {}), ...(args.target !== undefined ? { target: args.target } : {}) });
+        return error ?? json({ run: answer.id, stage: "queued", ...(args.target !== undefined ? { target: args.target } : {}), then: `A GitHub run starts within a minute and runs the ${args.set === "training" ? "Training" : "Dev"} set's unit tests on ${args.target !== undefined ? `pull request ${String(args.target).replace(/^pr/, "#")}'s code, replay only, one repeat per Front door test` : "the draft's code (main unless code names a pull request or branch)"}; runs { id } shows its stage, the commit that ran and, when done, every test's verdict. The Lab's Runs panel shows the same run.` });
       }
       // The code a draft runs on (Dev2, 2026-11-16: "when we run things it should run on the PRs code instead of main").
       case "code": {
