@@ -1,0 +1,4 @@
+{"conversation": "study-threads", "answers": [
+{"key":"google calendar days {\"date\":\"2026-11-02\",\"days\":7}","kind":"google calendar days","request":{"date":"2026-11-02","days":7},"answer":{"days":[{"date":"2026-11-02","events":[]},{"date":"2026-11-03","events":[]},{"date":"2026-11-04","events":[]},{"date":"2026-11-05","events":[]},{"date":"2026-11-06","events":[]},{"date":"2026-11-07","events":[]},{"date":"2026-11-08","events":[]}]}},
+{"key":"google calendar days {\"date\":\"2026-11-06\",\"days\":7}","kind":"google calendar days","request":{"date":"2026-11-06","days":7},"answer":{"days":[{"date":"2026-11-06","events":[]},{"date":"2026-11-07","events":[{"start":"09:00","end":"09:15","title":"Reminder: document October expenses (from Oct 14 call with Ada)"}]},{"date":"2026-11-08","events":[]},{"date":"2026-11-09","events":[]},{"date":"2026-11-10","events":[]},{"date":"2026-11-11","events":[]},{"date":"2026-11-12","events":[]}]}}
+]}
