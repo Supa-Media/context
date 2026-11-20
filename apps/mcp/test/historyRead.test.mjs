@@ -15,7 +15,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { texLedger } from "../src/texStore/ledger.js";
+import { texLedger } from "../../../packages/tex/gateway/texStore/ledger.js";
 import { durableSql } from "./texStoreFixture.mjs";
 import { HISTORY_READ_CHARS, ownHistoryRead, readOwnHistory } from "../src/tools/notes/historyRead.js";
 import { toolReadNote } from "../src/tools/notes/read.js";

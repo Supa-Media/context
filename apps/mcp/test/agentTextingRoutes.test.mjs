@@ -66,7 +66,7 @@ import { createWorkerCtx } from "./workerCtx.mjs";
 import { AI_GATEWAY_ENV, AI_GATEWAY_ORIGIN, BUILTIN_ALLOWED } from "./agentModelFixture.mjs";
 import { conversationText, conversationTurns, seedChat } from "./agentConversationFixture.mjs";
 import { texStoreNamespace, withAgentHome } from "./texStoreFixture.mjs";
-import { texBucket, texStoreStub } from "../src/texStore/wire.js";
+import { texBucket, texStoreStub } from "../../../packages/tex/gateway/texStore/wire.js";
 
 const S3_ENDPOINT = "https://s3.example-textingroutes.test";
 const TOKEN_TEXTS = `cat_troutes_texts_${"0".repeat(24)}`;

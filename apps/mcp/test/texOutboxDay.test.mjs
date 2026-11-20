@@ -14,7 +14,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { texLedger } from "../src/texStore/ledger.js";
+import { texLedger } from "../../../packages/tex/gateway/texStore/ledger.js";
 import { eventEntry, wordsEntry } from "../src/agent/ledger.js";
 import { readLedger } from "../src/agent/ledgerHistory.js";
 import { loggedTurn } from "../src/agent/loggedTurn.js";

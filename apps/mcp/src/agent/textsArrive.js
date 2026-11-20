@@ -5,8 +5,8 @@
  */
 
 import { objectByName } from "../objectPlace.js";
-import { INBOX_NAME, isArrival } from "../texChat/arrival.js";
-import { JOB_NAME } from "../texJobName.js";
+import { INBOX_NAME, isArrival } from "../../../../packages/tex/gateway/texChat/arrival.js";
+import { JOB_NAME } from "../../../../packages/tex/gateway/texJobName.js";
 
 /** The path the texting Worker posts to on the `TexTexts` binding. */
 export const TEXTS_ARRIVE_PATH = "/texts/arrive";

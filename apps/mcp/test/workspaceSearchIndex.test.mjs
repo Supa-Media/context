@@ -5,7 +5,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 
-import { texObjects } from "../src/texStore/objects.js";
+import { texObjects } from "../../../packages/tex/gateway/texStore/objects.js";
 import { workspaceRows } from "../src/workspaceStore/rows.js";
 import { workspaceMarks } from "../src/workspaceStore/marks.js";
 import { workspaceSearch, QUERY_ROWS, QUERY_BYTES, BUILD_BYTES } from "../src/workspaceStore/searchIndex.js";
@@ -249,7 +249,7 @@ test("a body written again in the same millisecond is indexed again", { skip }, 
 // A person's own Tex notes live in this object's Tex tables (`store/texRouting.js`); a group chat's home does not.
 // Sabotage: drop the Tex branch of `textAt` and the first assertion fails.
 test("a person's Tex note is found from its Tex tables; a group chat's home note is not indexed here", { skip }, async () => {
-  const { TEX_TABLES } = await import("../src/texStore/objects.js");
+  const { TEX_TABLES } = await import("../../../packages/tex/gateway/texStore/objects.js");
   const object = await seeded([{ prefix: "tex", visibility: "team" }]);
   const tex = texObjects(object.store.sql, { tables: TEX_TABLES });
   await tex.put(`notes/${ID(7)}.md`, new TextEncoder().encode("# About\n\nhollyhock"), {});

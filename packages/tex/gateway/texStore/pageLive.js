@@ -19,7 +19,7 @@
  *   settings change, a page act, a tool's write in a watched folder.
  */
 
-import { fetchPageJobs, jobDetail, jobsOverview, slotsOf } from "../http/texPage/jobs.js";
+import { fetchPageJobs, jobDetail, jobsOverview, slotsOf } from "../../../../apps/mcp/src/http/texPage/jobs.js";
 
 export const PAGE_PROTOCOL = "context.tex-page";
 export const PAGE_VIEWER_HEADER = "x-tex-page-viewer";

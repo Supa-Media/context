@@ -18,7 +18,7 @@
  */
 
 import { checkEvent, EVENT_ID, EVENT_KINDS, READ_CHARS, READ_LIMIT } from "./log.js";
-import { DESK_LEDGER } from "../texStore/desk.js";
+import { DESK_LEDGER } from "../../../../packages/tex/gateway/texStore/desk.js";
 import { noteAbout, sentOnItsOwn } from "./sentOnItsOwn.js";
 import { isLinkedText, isUnsentNote, isUnsentText, keptNotTexted, linkedSends, notesByTurn } from "./sentOnItsOwn.js";
 import { shownFacts } from "./toldFacts.js";

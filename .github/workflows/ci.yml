@@ -282,7 +282,7 @@ jobs:
           - 'apps/mcp/src/sessionStore.js'
           - 'apps/mcp/src/storageLayout.js'
           - 'apps/mcp/src/store/**'
-          - 'apps/mcp/src/texStore/**'
+          - 'packages/tex/gateway/texStore/**'
           - 'apps/mcp/src/tools/approvalKeys.js'
           - 'apps/mcp/src/tools/emailRead.js'
           - 'apps/mcp/src/tools/etagPlace.js'
@@ -851,7 +851,7 @@ jobs:
             apps/mcp/src/sessionStore.js
             apps/mcp/src/storageLayout.js
             apps/mcp/src/store/**
-            apps/mcp/src/texStore/**
+            packages/tex/gateway/texStore/**
             apps/mcp/src/tools/approvalKeys.js
             apps/mcp/src/tools/emailRead.js
             apps/mcp/src/tools/etagPlace.js

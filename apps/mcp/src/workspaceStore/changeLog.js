@@ -8,7 +8,7 @@
  * texts (`tex` 1 for the person's Tex tables), which `keysToRows` turns into the rows that name them.
  */
 
-import { TEX_TABLES } from "../texStore/objects.js";
+import { TEX_TABLES } from "../../../../packages/tex/gateway/texStore/objects.js";
 
 /** Where a person's Tex keys start (a storage key, not a folder: `["tex", "person"]`, as `texRouting.js` spells them). */
 const PERSON_TEX = ["tex", "person"].join("/");

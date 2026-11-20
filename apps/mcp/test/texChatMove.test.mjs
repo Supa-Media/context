@@ -21,7 +21,7 @@
  */
 import assert from "node:assert/strict";
 import { afterEach, describe, it } from "node:test";
-import { texChatClass } from "../src/texChat.js";
+import { texChatClass } from "../../../packages/tex/gateway/texChat.js";
 
 const { serveMoveOut } = await import("../../../packages/tex/worker/inboxMove.ts");
 
@@ -154,7 +154,7 @@ async function arrive(chat, body) {
 
 describe("TexChat runs the Worker's chat object", () => {
   it("a call to this chat's own Worker object is served here, and another chat is still fetched", async () => {
-    const { chatEnv } = await import("../src/texChat.js");
+    const { chatEnv } = await import("../../../packages/tex/gateway/texChat.js");
     const calls = [];
     const rpc = { async inboxFetch(target) { calls.push(target.name); return Response.json({ rpc: true }); } };
     const own = { name: `enam:${PHONE}`, fetch: async (request) => Response.json({ local: new URL(request.url).pathname }) };

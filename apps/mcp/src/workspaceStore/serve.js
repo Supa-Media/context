@@ -8,7 +8,7 @@
 
 import { serveMachineCall } from "./serveMachines.js";
 import { canSee, PrivacyOverrides } from "../privacy/engine.js";
-import { serveTexStore } from "../texStore/wire.js";
+import { serveTexStore } from "../../../../packages/tex/gateway/texStore/wire.js";
 import { HOMES, isWorkspaceObjectKey, MAX_READ_IDS } from "./api.js";
 import { ACCESS_HOMES, ACCESS_OPS, AccessRowRefused } from "./access.js";
 import { judgedReader } from "./members.js";

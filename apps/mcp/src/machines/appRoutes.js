@@ -52,7 +52,7 @@
 import { json } from "../http/responses.js";
 import { hasScope, SCOPE_WRITE } from "../session.js";
 import { workspaceStub } from "../workspaceStore/api.js";
-import { callTexStore } from "../texStore/wire.js";
+import { callTexStore } from "../../../../packages/tex/gateway/texStore/wire.js";
 import { groupChatId } from "./reach.js";
 
 const CONSOLE_CLIENT_ID = "context_console";

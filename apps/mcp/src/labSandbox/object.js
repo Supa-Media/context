@@ -18,7 +18,7 @@
  * its last use.
  */
 
-import { texLedger } from "../texStore/ledger.js";
+import { texLedger } from "../../../../packages/tex/gateway/texStore/ledger.js";
 import { objectByName } from "../objectPlace.js";
 
 export const SANDBOX_TTL_MS = 24 * 3_600_000;

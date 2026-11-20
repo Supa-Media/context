@@ -31,7 +31,7 @@
  * the analytics that found the six can show each one moved.
  */
 
-import { objectByName, objectIdOf } from "../objectPlace.js";
+import { objectByName, objectIdOf } from "../../../../apps/mcp/src/objectPlace.js";
 import { clearAlarms, everyAlarm, schedule } from "./alarms.js";
 
 /** The prefix of every placed store's name. */

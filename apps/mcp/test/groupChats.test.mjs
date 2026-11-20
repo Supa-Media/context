@@ -18,7 +18,7 @@ import { readDayTool } from "../src/agent/weekHistory.js";
 import { readThreadTool } from "../src/agent/conversationThreads.js";
 import { asksOn, groupChatsTool, groupsOn, groupsPrompt, pickChat, readsGroups, readTexterGroups } from "../src/agent/groupChats.js";
 import { eventEntry } from "../src/agent/ledger.js";
-import { texLedger } from "../src/texStore/ledger.js";
+import { texLedger } from "../../../packages/tex/gateway/texStore/ledger.js";
 import { midnightOf } from "../src/agent/weekHistory.js";
 import { TEX_CONFIG, texStep, withDraft } from "../src/agent/texConfig.js";
 import { durableSql } from "./texStoreFixture.mjs";

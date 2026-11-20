@@ -43,7 +43,7 @@
  *     before it answers…" fails.
  */
 
-import { texLedger } from "../src/texStore/ledger.js";
+import { texLedger } from "../../../packages/tex/gateway/texStore/ledger.js";
 import { durableSql } from "./texStoreFixture.mjs";
 import assert from "node:assert/strict";
 import { test } from "node:test";

@@ -24,7 +24,7 @@ import { writeChatDaySummaries } from "../src/agent/daySummaries.js";
 import chatDays from "../src/agent/graph/nodes/chatDays.js";
 import { keepTextedPictures, picturesPath } from "../src/agent/textedPictures.js";
 import { eventEntry } from "../src/agent/ledger.js";
-import { texLedger } from "../src/texStore/ledger.js";
+import { texLedger } from "../../../packages/tex/gateway/texStore/ledger.js";
 import { TEX_CONFIG, texStep, withDraft } from "../src/agent/texConfig.js";
 import { durableSql } from "./texStoreFixture.mjs";
 import { threadedTurn } from "../src/agent/threadedTurn.js";

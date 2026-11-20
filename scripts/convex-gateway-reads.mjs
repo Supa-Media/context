@@ -25,11 +25,13 @@
  * It fails toward running the suite: a Convex import of a workspace package by
  * name claims the whole package, so a Convex file importing `@context/mcp`
  * would require `apps/mcp/**` back.
+ * `@context/tex` is the exception, as in the deploy plan: Convex counts only the
+ * Tex files it imports, since Tex's gateway objects live in the same package.
  */
 import { readFileSync, readdirSync, existsSync, statSync, realpathSync } from "node:fs";
 import { basename, dirname, join, relative, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
-import { componentInputs } from "./deploy-plan.mjs";
+import { TEX_IMPORT_ONLY, componentInputs } from "./deploy-plan.mjs";
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const CONVEX = "apps/convex";
@@ -76,7 +78,7 @@ export function convexGatewayReads(root = ROOT) {
   const convexFiles = sources(root, CONVEX);
   const files = new Set();
   const scanners = new Set();
-  const { files: reached, dirs } = componentInputs({ packages: [], files: convexFiles }, root);
+  const { files: reached, dirs } = componentInputs({ packages: [], importOnly: TEX_IMPORT_ONLY, files: convexFiles }, root);
   if (dirs.some((dir) => `${dir}/`.startsWith(GATEWAY))) scanners.add(`${CONVEX} imports the gateway package by name`);
   for (const file of reached) if (file.startsWith(GATEWAY)) files.add(file);
   for (const file of convexFiles) {

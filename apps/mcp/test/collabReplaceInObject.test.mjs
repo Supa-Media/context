@@ -5,8 +5,8 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 
 import { readDocument, replaceText } from "@context/collaboration";
-import { texObjects } from "../src/texStore/objects.js";
-import { texBucket } from "../src/texStore/wire.js";
+import { texObjects } from "../../../packages/tex/gateway/texStore/objects.js";
+import { texBucket } from "../../../packages/tex/gateway/texStore/wire.js";
 import { R2Store } from "../src/store/r2.js";
 import { withWorkspaceRouting } from "../src/store/workspaceRouting.js";
 import { withIdLayout } from "../src/store/idLayout.js";
@@ -15,7 +15,7 @@ import { workspaceRows } from "../src/workspaceStore/rows.js";
 import { serveWorkspaceStore } from "../src/workspaceStore/serve.js";
 import { mirrorOutbox } from "../src/workspaceStore/mirrorOutbox.js";
 import { durableSqlite } from "./durableSqlite.mjs";
-import { etagHex } from "../src/texStore/sha256.js";
+import { etagHex } from "../../../packages/tex/gateway/texStore/sha256.js";
 
 const PATH = "1-projects/plan.md";
 const NOTE_ID = "0199a000-0000-7000-8000-000000000001";

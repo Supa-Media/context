@@ -7,10 +7,10 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { texStoreNamespace } from "./texStoreFixture.mjs";
-import { texBucket, texStoreStub, texTimers } from "../src/texStore/wire.js";
-import { KEEP_OLD_MS, TexMoved, placeOf } from "../src/texStore/move.js";
-import { texObjects } from "../src/texStore/objects.js";
-import { everyAlarm } from "../src/texStore/alarms.js";
+import { texBucket, texStoreStub, texTimers } from "../../../packages/tex/gateway/texStore/wire.js";
+import { KEEP_OLD_MS, TexMoved, placeOf } from "../../../packages/tex/gateway/texStore/move.js";
+import { texObjects } from "../../../packages/tex/gateway/texStore/objects.js";
+import { everyAlarm } from "../../../packages/tex/gateway/texStore/alarms.js";
 import { durableSql } from "./texStoreFixture.mjs";
 
 const OWNER = "person:ws_mover";

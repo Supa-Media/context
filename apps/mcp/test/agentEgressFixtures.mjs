@@ -324,8 +324,8 @@ export async function createEgressWorld() {
  */
 export async function keepDeskKeys(world, direct, workspaceId = "ws_egress") {
   const { R2Store } = await import("../src/store/r2.js");
-  const { texBucket } = await import("../src/texStore/wire.js");
-  const { texStoreStub } = await import("../src/texStore/wire.js");
+  const { texBucket } = await import("../../../packages/tex/gateway/texStore/wire.js");
+  const { texStoreStub } = await import("../../../packages/tex/gateway/texStore/wire.js");
   const object = new R2Store(texBucket(texStoreStub(world.env, { person: workspaceId })));
   const held = await object.get("state/agent/history/texts.json");
   const record = held === null ? { v: 1, turns: [] } : JSON.parse(await held.text());

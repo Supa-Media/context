@@ -4,7 +4,7 @@
  */
 
 import { ledgerFor } from "../agent/ledger.js";
-import { LEDGER_KINDS } from "../texStore/ledger.js";
+import { LEDGER_KINDS } from "../../../../packages/tex/gateway/texStore/ledger.js";
 
 /** One read of a real chat's texts; a chat is read whole, page after page, up to `MAX_PAGES` (a million texts). */
 const PAGE_TEXTS = 5_000;

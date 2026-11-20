@@ -32,7 +32,7 @@ import { advisorThinking, advisorTools } from "../src/agent/advisor.js";
 import { checkJob, jobFields } from "../src/agent/jobCheck.js";
 import { jobChecked, mailEntry, mailVerdict } from "../src/agent/workEntries.js";
 import { mailCheckerFor } from "../src/agent/mailChecker.js";
-import { texLedger } from "../src/texStore/ledger.js";
+import { texLedger } from "../../../packages/tex/gateway/texStore/ledger.js";
 import { durableSql } from "./texStoreFixture.mjs";
 import { texEntryPointSource } from "./texEntryPointSource.mjs";
 

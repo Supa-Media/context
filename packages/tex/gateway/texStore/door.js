@@ -17,9 +17,9 @@
  * the gateway's own would (`texStore/wire.js`); the answer comes back as it is.
  */
 
-import { createControlPlane } from "../controlPlane.js";
-import { json } from "../http/responses.js";
-import { carriesGatewaySecret } from "../moves/mover.js";
+import { createControlPlane } from "../../../../apps/mcp/src/controlPlane.js";
+import { json } from "../../../../apps/mcp/src/http/responses.js";
+import { carriesGatewaySecret } from "../../../../apps/mcp/src/moves/mover.js";
 import { texStoreStub } from "./wire.js";
 
 export const TEX_STORE_PATH = "/internal/tex-store";

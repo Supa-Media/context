@@ -1,7 +1,7 @@
 /**
  * Tex store tickets: the control plane's way into Tex's notes, which live in
  * Durable Objects only the gateway reaches (`lib/texStore.ts`,
- * `apps/mcp/src/texStore/door.js`). See `texStoreTickets` in
+ * `packages/tex/gateway/texStore/door.js`). See `texStoreTickets` in
  * `lib/schema/jobs.ts`.
  */
 
@@ -35,7 +35,7 @@ export const mint = internalMutation({
 /**
  * What a ticket opens, or `null` when it is unknown or expired. `expiresAt` is
  * the row's own expiry, so the gateway can repeat this answer until then
- * without asking again (`apps/mcp/src/texStore/ticketCache.js`).
+ * without asking again (`packages/tex/gateway/texStore/ticketCache.js`).
  */
 export const open = internalQuery({
   args: { hashedTicket: v.string(), now: v.number() },

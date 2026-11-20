@@ -3,9 +3,9 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 
-import { TexStore } from "../src/texStore.js";
-import { logChatOf, pageViews, sectionsForKinds } from "../src/texStore/pageViews.js";
-import { PAGE_LIVE_PATH, PAGE_VIEWER_HEADER } from "../src/texStore/pageLive.js";
+import { TexStore } from "../../../packages/tex/gateway/texStore.js";
+import { logChatOf, pageViews, sectionsForKinds } from "../../../packages/tex/gateway/texStore/pageViews.js";
+import { PAGE_LIVE_PATH, PAGE_VIEWER_HEADER } from "../../../packages/tex/gateway/texStore/pageLive.js";
 import { arrivedSql, durableSql } from "./texStoreFixture.mjs";
 
 /** A chat's log with `texLedger`'s read: `before` newest first, `kinds`, `limit`, `slim`. */

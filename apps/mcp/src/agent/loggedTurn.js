@@ -31,7 +31,7 @@ import { notSaidOwn } from "./sentOnItsOwn.js";
 import { dayFromLedger, earlierFromLedger, earlierRoom, faded, readLedger, summaryLines } from "./ledgerHistory.js";
 import { ledgerPlace } from "./ledger.js";
 import { deskLedger } from "./history.js";
-import { DESK_LEDGER } from "../texStore/desk.js";
+import { DESK_LEDGER } from "../../../../packages/tex/gateway/texStore/desk.js";
 import { carryKey, MAX_CARRIED_CALLS, stretchSince, stretchTurns } from "./stretch.js";
 import { groupQuestion } from "./groupLedgerHistory.js";
 

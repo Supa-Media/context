@@ -5,10 +5,10 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { arrivedSql, oneAtATime } from "./texStoreFixture.mjs";
 
-import { schedule, cancel, settle, retry, due, nextAt, MAX_DUE, MAX_PAYLOAD_BYTES } from "../src/texStore/alarms.js";
-import { texObjects, TexObjectRefused } from "../src/texStore/objects.js";
-import { serveTexStore, texTimers } from "../src/texStore/wire.js";
-import { TexStore, RETRY_MS } from "../src/texStore.js";
+import { schedule, cancel, settle, retry, due, nextAt, MAX_DUE, MAX_PAYLOAD_BYTES } from "../../../packages/tex/gateway/texStore/alarms.js";
+import { texObjects, TexObjectRefused } from "../../../packages/tex/gateway/texStore/objects.js";
+import { serveTexStore, texTimers } from "../../../packages/tex/gateway/texStore/wire.js";
+import { TexStore, RETRY_MS } from "../../../packages/tex/gateway/texStore.js";
 
 let DatabaseSync = null;
 try {

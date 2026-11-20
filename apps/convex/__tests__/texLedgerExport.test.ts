@@ -1,7 +1,7 @@
 /**
  * The person's chat with Tex in their Download as folders
  * (`functions/texLedgerExport.ts`): the one-to-one chat's ledger read through
- * the gateway's door (`apps/mcp/src/texStore/door.js`), a page at a time, for
+ * the gateway's door (`packages/tex/gateway/texStore/door.js`), a page at a time, for
  * its owner only.
  *
  * Sabotage, each confirmed to fail a case here (2026-11-02): drop the owner
@@ -13,10 +13,10 @@
 import { createRequire } from "node:module";
 import { afterEach, expect, test, vi } from "vitest";
 import { api } from "../_generated/api";
-import { handleTexStoreDoor } from "../../mcp/src/texStore/door.js";
-import { texObjects } from "../../mcp/src/texStore/objects.js";
-import { texLedger } from "../../mcp/src/texStore/ledger.js";
-import { serveTexStore } from "../../mcp/src/texStore/wire.js";
+import { handleTexStoreDoor } from "../../../packages/tex/gateway/texStore/door.js";
+import { texObjects } from "../../../packages/tex/gateway/texStore/objects.js";
+import { texLedger } from "../../../packages/tex/gateway/texStore/ledger.js";
+import { serveTexStore } from "../../../packages/tex/gateway/texStore/wire.js";
 import { LEDGER_EXPORT_PAGE } from "../functions/texLedgerExport";
 import { TEST_GATEWAY_SECRET, addMember, asUser, createUser, createWorkspace, gatewayPost, setupTest } from "./fixtures.helpers";
 

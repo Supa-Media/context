@@ -15,7 +15,7 @@
  *    `writes`. Nothing but a read ever reaches the real object.
  */
 
-import { DESK_LEDGER } from "../texStore/desk.js";
+import { DESK_LEDGER } from "../../../../packages/tex/gateway/texStore/desk.js";
 import { objectByName, objectIdOf } from "../objectPlace.js";
 
 const CALL = "x-tex-call";

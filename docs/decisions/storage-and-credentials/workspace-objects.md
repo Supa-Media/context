@@ -121,7 +121,7 @@ gateway requests run in Virginia. Each Worker makes stubs only through its
 guards) fails on any other. The hint changes nothing for an object that
 already exists: those six are copied to new names to move.
 
-**How Tex's objects moved** (2026-11-02, `apps/mcp/src/texStore/move.js`).
+**How Tex's objects moved** (2026-11-02, `packages/tex/gateway/texStore/move.js`).
 Every Tex store, not only the six, now lives under `enam:<owner>`
 (`enam:person:<workspaceId>`, `enam:chat:<chatId>`), so the name says where
 it was placed and no list of moved owners has to be kept anywhere (a list

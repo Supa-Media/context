@@ -6,10 +6,10 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { arrivedSql, oneAtATime } from "./texStoreFixture.mjs";
 
-import { routineAlarmAt, syncRoutineAlarms } from "../src/texStore/routineAlarm.js";
-import { routineDispatchFor } from "../src/texStore/dispatch.js";
-import { TexStore, RETRY_MS } from "../src/texStore.js";
-import { nextAt, due } from "../src/texStore/alarms.js";
+import { routineAlarmAt, syncRoutineAlarms } from "../../../packages/tex/gateway/texStore/routineAlarm.js";
+import { routineDispatchFor } from "../../../packages/tex/gateway/texStore/dispatch.js";
+import { TexStore, RETRY_MS } from "../../../packages/tex/gateway/texStore.js";
+import { nextAt, due } from "../../../packages/tex/gateway/texStore/alarms.js";
 import { DEFAULT_TIME_ZONE } from "../src/agent/localNow.js";
 
 let DatabaseSync = null;

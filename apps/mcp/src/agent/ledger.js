@@ -31,7 +31,7 @@
  * - `day`: `{day, text, model?}`, one finished day summed up the night after (`daySummaries.js`), id `day-<YYYY-MM-DD>` so a day keeps one; `at` is that day's last entry
  */
 
-import { gatewayTexStore } from "../texStore/wire.js";
+import { gatewayTexStore } from "../../../../packages/tex/gateway/texStore/wire.js";
 
 /** A tool result longer than this is kept cut, with its full length in `cut`. */
 export const MAX_RESULT_CHARS = 64_000;
