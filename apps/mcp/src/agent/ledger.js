@@ -167,7 +167,7 @@ export function stepEntry({ step, ok = true, ms = null, input, output, model = n
 }
 
 /**
- * One node run of the config's graph (`packages/shared/src/texGraph.cjs`, which logs every run itself) as a `step`
+ * One node run of the config's graph (`packages/tex/src/texGraph.cjs`, which logs every run itself) as a `step`
  * entry `step: "node"`, `name` the node's id, `via` the wire that ran it ("wait", "background", "fd:uses",
  * "reviewer:loop"), `ms` its whole run and `own` that less its waits on the nodes it called, so Replay reads what each node got and gave from the runner and no node logs by hand.
  */

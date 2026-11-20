@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import graphLib from "../../../../../packages/shared/src/texGraph.cjs";
+import graphLib from "../../../../../packages/tex/src/texGraph.cjs";
 import { gatewayGraph } from "../../../src/agent/graph/gatewayGraph.js";
 import { TEX_CONFIG as MAIN, withDraft } from "../../../src/agent/texConfig.js";
 import { DOOR_PARTS, runDoor } from "../../../src/agent/graph/door.js";

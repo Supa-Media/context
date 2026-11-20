@@ -15,7 +15,7 @@
  * Never beside words (Dev2, 2026-11-10): the call ends the turn, so nothing else is texted with it.
  */
 
-import { REACT_EMOJI } from "../../../../packages/shared/src/textDecide.cjs";
+import { REACT_EMOJI } from "../../../../packages/tex/src/textDecide.cjs";
 
 export const TAPBACK_TOOL = "tapback";
 

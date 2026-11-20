@@ -13,7 +13,7 @@
  */
 
 import partEndLib from "../../../packages/shared/src/jobPartEnd.cjs";
-import { TEX_CONFIG } from "../../../packages/shared/src/texConfig.cjs";
+import { TEX_CONFIG } from "../../../packages/tex/src/texConfig.cjs";
 import { armBy } from "./events";
 import type { InboxStorage } from "./inbox";
 import { JOB_PREFIX, JOB_SHOWN_MS, log, resumeJobs, type JobEntry, type JobSteer } from "./jobs";

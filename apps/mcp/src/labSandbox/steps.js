@@ -5,7 +5,7 @@
  * Every step the text causes is one entry here, from the line it arrives on to the line that delivers each of Tex's
  * texts: the simulated line (`lineIn`, `lineOut`, kind `line`, transport, never a node of the config), the chat
  * object's own steps (`text`, `oldLine`, `triage`, `decide`, `lanes`, `send`, ...), every node the config graph runs
- * (the runner's `onStart` and `log`, `packages/shared/src/texGraph.cjs`), and each background job's passes.
+ * (the runner's `onStart` and `log`, `packages/tex/src/texGraph.cjs`), and each background job's passes.
  *
  * Each step has an `id` (unique in the sandbox: `<row id>.<n>`), `at` (ms from the text's arrival, the line's hold
  * included) and the `parent` that started it, recorded at run time and never inferred from times:

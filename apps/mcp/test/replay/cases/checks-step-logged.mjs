@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import graphLib from "../../../../../packages/shared/src/texGraph.cjs";
+import graphLib from "../../../../../packages/tex/src/texGraph.cjs";
 import { eventEntry, ledgerObserver, nodeLog } from "../../../src/agent/ledger.js";
 import { replyJudge, REVIEW_MODEL } from "../../../src/agent/replyJudge.js";
 import { TEX_CONFIG } from "../../../src/agent/texConfig.js";

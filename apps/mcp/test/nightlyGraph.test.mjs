@@ -1,7 +1,7 @@
 /**
  * Tex's nightly work runs as config nodes (Dev2, 2026-11-14: "the connections between nodes come from the config
  * graph, nodes are code"). The wires `nightly` -> `dream` -> `daysum` and `nightly` -> `housekeep` are read from
- * `texConfig.json` by the shared runner (`packages/shared/src/texGraph.cjs`); these tests run the real config with
+ * `texConfig.json` by the shared runner (`packages/tex/src/texGraph.cjs`); these tests run the real config with
  * stub nodes, and the real `nodes/nightly.js`.
  *
  * Sabotage record (temporary local edits, reverted):
@@ -11,7 +11,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 
-import graphLib from "../../../packages/shared/src/texGraph.cjs";
+import graphLib from "../../../packages/tex/src/texGraph.cjs";
 import { TEX_CONFIG } from "../src/agent/texConfig.js";
 import nightly from "../src/agent/graph/nodes/nightly.js";
 

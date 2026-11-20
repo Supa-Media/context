@@ -1,7 +1,7 @@
 /**
  * THE FIXED TOOL LIST (Dev2, 2026-11-20; `src/agent/sixToolsFixed.js`, `toolCatalogue.js`): with `toolList: "fixed"` on
  * the front door and job steps, every turn of a kind of chat is shown the same six, byte for byte, each under the tool
- * rules' 4,000 characters (`packages/shared/src/toolRules.cjs`), with each action's guide read on demand by
+ * rules' 4,000 characters (`packages/tex/src/toolRules.cjs`), with each action's guide read on demand by
  * `fetch manual:<action>`; what a turn may really call is still its own, and the rest is refused saying what to do.
  *
  * ## Sabotage record
@@ -19,7 +19,7 @@ import { sixToolsOver } from "../src/agent/sixTools.js";
 import { fixedCarriers } from "../src/agent/sixToolsFixed.js";
 import { surfaces } from "./toolRules/report.mjs";
 import { oneToOne } from "./replay/chats.mjs";
-import rules from "../../../packages/shared/src/toolRules.cjs";
+import rules from "../../../packages/tex/src/toolRules.cjs";
 
 const { TOOL_CHAR_LIMIT, toolChars, rateError } = rules;
 const strip = (value) =>

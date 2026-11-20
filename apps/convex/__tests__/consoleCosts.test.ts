@@ -1,4 +1,4 @@
-import { TEX_CONFIG } from "@context/shared/src/texConfig.cjs";
+import { TEX_CONFIG } from "@context/tex/src/texConfig.cjs";
 import { describe, expect, test } from "vitest";
 import {
   CREDIT_KEYS,

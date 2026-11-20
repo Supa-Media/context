@@ -2,12 +2,12 @@
  * The Testing tab's reading of a conversation (Dev2, 2026-11-15: "make sure to build this EXACTLY how it is here",
  * the prototype https://claude.ai/artifact/GAScQuRxZyASpH8xes4n9K). Pure: what a grid cell shows, what a special
  * message reads as, what a node is given at a message (its config context modules in order and its wires in), and
- * the ratio. The format and its rules are `packages/shared/src/texSets.cjs`, the one contract every reader shares.
+ * the ratio. The format and its rules are `packages/tex/src/texSets.cjs`, the one contract every reader shares.
  */
 import { unfoldGroups } from "./groups";
-import { labelFields as fieldsOf, missingTest, ratio as ratioOf, unitTests, KINDS, SETS, TARGET } from "@context/shared/src/texSets.cjs";
-import type { Conversation, Fields, Label, Message, Ratio, SetId } from "@context/shared/src/texSets.d.cts";
-import { JUDGE_EXAMPLES, WHY } from "@context/shared/src/textDecide.cjs";
+import { labelFields as fieldsOf, missingTest, ratio as ratioOf, unitTests, KINDS, SETS, TARGET } from "@context/tex/src/texSets.cjs";
+import type { Conversation, Fields, Label, Message, Ratio, SetId } from "@context/tex/src/texSets.d.cts";
+import { JUDGE_EXAMPLES, WHY } from "@context/tex/src/textDecide.cjs";
 import { MOD_SRC } from "../data/modules";
 import type { LabGraph, LabNode } from "../types";
 import { mods } from "./modules";

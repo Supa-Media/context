@@ -16,7 +16,7 @@ import { test } from "node:test";
 import { judgeMove, moveWords, MOVE_JUDGE_SYSTEM } from "../src/agent/graph/nodes/moveJudge.js";
 import { saidBefore, withTheirNotesKept } from "../src/agent/theirNotes.js";
 import { GATEWAY_NODES } from "../src/agent/graph/gatewayNodes.js";
-import SHELF from "../../../packages/shared/src/texNodeShelf.json" with { type: "json" };
+import SHELF from "../../../packages/tex/src/texNodeShelf.json" with { type: "json" };
 import { TEX_CONFIG } from "../src/agent/texConfig.js";
 
 const LISTING = "inbox/agenda.md (200 bytes)";

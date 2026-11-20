@@ -63,6 +63,7 @@ jobs:
             apps/mobile/package.json
             packages/drawings/**
             packages/shared/**
+            packages/tex/**
             scripts/build-editor-bundle.mjs
             scripts/build-map-bundle.mjs
             scripts/lib/guest-bundle.mjs

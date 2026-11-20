@@ -3,7 +3,7 @@
  * trace, from `texEntryPoint.js`.
  */
 
-import { stateFileOf, TEX_STATE_FILES, toolChars } from "../../../../packages/shared/src/toolRules.cjs";
+import { stateFileOf, TEX_STATE_FILES, toolChars } from "../../../../packages/tex/src/toolRules.cjs";
 import { fingerprint } from "./promptManifest.js";
 
 /** The router's confidence as the turn log takes it: 0 to 1, or nothing. A number Clef got wrong never costs the turn its log. */
@@ -37,7 +37,7 @@ export function actionOf(made, call) {
   return typeof named === "string" && ACTION_NAME.test(named) ? named : undefined;
 }
 
-/** The plain note writes that can carry Tex's own state (rule 3, `packages/shared/src/toolRules.cjs`). */
+/** The plain note writes that can carry Tex's own state (rule 3, `packages/tex/src/toolRules.cjs`). */
 const NOTE_WRITES = new Set(["write_note", "save_many"]);
 
 /**
@@ -61,7 +61,7 @@ export function traceNames(made, call) {
 const TOOL_NAME = /^[a-z][a-z0-9_]{0,63}$/;
 
 /**
- * Rule 1 and rule 2 (`packages/shared/src/toolRules.cjs`): the tool list a turn's model was shown, as a fingerprint of
+ * Rule 1 and rule 2 (`packages/tex/src/toolRules.cjs`): the tool list a turn's model was shown, as a fingerprint of
  * the whole list and each tool's name, fingerprint and characters (description plus schema). The fingerprints are the
  * ones `prefixPrint.js` logs, so a changed list names the tool that changed. Counts and fingerprints, never words.
  */

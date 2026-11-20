@@ -19,8 +19,8 @@ import { turnPrompt } from "../src/agent/turnPrompt.js";
 import { TRAINING, TEX_CONFIG } from "../src/agent/texConfig.js";
 
 const require = createRequire(import.meta.url);
-const GENERATED = require("../../../packages/shared/src/texTraining.generated.json");
-const { EXAMPLES_BUDGET_MS, exampleId } = require("../../../packages/shared/src/texExamples.cjs");
+const GENERATED = require("../../../packages/tex/src/texTraining.generated.json");
+const { EXAMPLES_BUDGET_MS, exampleId } = require("../../../packages/tex/src/texExamples.cjs");
 
 const DIMS = 1024;
 const vector = (fill = 0.01) => Array.from({ length: DIMS }, () => fill);

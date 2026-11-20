@@ -15,9 +15,9 @@
  * deliveries logged gets `PHOTON_DEFAULT`, a fixed default that is not a measurement (said on the `line` it answers).
  */
 
-import { TEX_NUMBER } from "../../../../packages/shared/src/texNumber.cjs";
+import { TEX_NUMBER } from "../../../../packages/tex/src/texNumber.cjs";
 
-/** Tex's number, where a test text arrives: the one the app tells people (`packages/shared/src/texNumber.cjs`). */
+/** Tex's number, where a test text arrives: the one the app tells people (`packages/tex/src/texNumber.cjs`). */
 export const PHOTON_NUMBER = TEX_NUMBER;
 /**
  * The delays a chat with too few logged Photon deliveries gets. NOT MEASURED: no aggregate of Photon's lag exists to

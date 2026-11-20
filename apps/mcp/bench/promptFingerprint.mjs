@@ -12,7 +12,7 @@
  * The core and jobs areas read the live setup from `@context-lc ai/production/`, which no tree holds: both trees run
  * on one stand-in setup in its shape (`fingerprint/setups/`, this tree's copy). It names no models and no modules, as
  * production's note names none, so each tree builds its prompts from its own config and prompt words
- * (`packages/shared/src/texPrompt/`, Dev2, 2026-11-14): one word changed there is a fingerprint changed.
+ * (`packages/tex/src/texPrompt/`, Dev2, 2026-11-14): one word changed there is a fingerprint changed.
  *
  *   pnpm ai gate fingerprint --base-tree <main checkout> [--areas a,b] [--json <file>]
  */

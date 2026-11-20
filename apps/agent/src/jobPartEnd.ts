@@ -10,7 +10,7 @@
 import { post, type Fetch } from "./clients";
 import { STEER_TIMEOUT_MS } from "./steer";
 import partEndLib from "../../../packages/shared/src/jobPartEnd.cjs";
-import { TEX_CONFIG } from "../../../packages/shared/src/texConfig.cjs";
+import { TEX_CONFIG } from "../../../packages/tex/src/texConfig.cjs";
 import type { PartEndChoice, PartEndInput } from "../../../packages/shared/src/jobPartEnd.d.cts";
 
 const { decidePartEnd } = partEndLib;

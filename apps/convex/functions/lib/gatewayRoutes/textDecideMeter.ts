@@ -14,7 +14,7 @@
 import type { ActionCtx } from "../../../_generated/server";
 import { badRequest, json, stringField } from "../gatewayAuth";
 import { recordDecidedElsewhere } from "../jev/elsewhere";
-import { STYLES, type Style } from "@context/shared/src/textDecide.cjs";
+import { STYLES, type Style } from "@context/tex/src/textDecide.cjs";
 import { internal } from "../../../_generated/api";
 import { workspaceFor, type DecideBody } from "./textDecide";
 

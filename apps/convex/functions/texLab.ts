@@ -14,7 +14,7 @@ import { query } from "../_generated/server";
 import { requireAdmin } from "./lib/admin";
 import { handleForUser } from "./lib/identities";
 import { mutation } from "./lib/rowWatch/mutations";
-import { isStamp } from "@context/shared/src/texConfigStamp.cjs";
+import { isStamp } from "@context/tex/src/texConfigStamp.cjs";
 import { recordSave } from "./texLabDrafts";
 import { deleteDraftRows } from "./lib/texLabDraftWrites";
 import { promoteClash, promotePick } from "./lib/schema/texLab";

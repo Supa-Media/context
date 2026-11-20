@@ -11,7 +11,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import schema from "../../../packages/shared/src/texConfigSchema.cjs";
+import schema from "../../../packages/tex/src/texConfigSchema.cjs";
 import { TEX_CONFIG } from "../src/agent/texConfig.js";
 import { draftProblems } from "../src/texDev/check.js";
 import { configFrom } from "../../../scripts/tex-lab-promote.mjs";

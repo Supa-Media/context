@@ -20,7 +20,7 @@ import { test } from "node:test";
 import { AREA_LIMITS, areasFor, blocking, feedback, gate, heldOutJson, markHeldOut, mergeRuns, regressions, rowsFor, RUNNERS } from "../replayGate.mjs";
 
 test("a change runs only the areas its files reach, and plumbing alone runs none", () => {
-  assert.deepEqual(areasFor(["packages/shared/src/textDecide.cjs"]), ["respond"]);
+  assert.deepEqual(areasFor(["packages/tex/src/textDecide.cjs"]), ["respond"]);
   assert.deepEqual(areasFor(["apps/mcp/src/agent/replyJudge.js"]), ["review"]);
   assert.deepEqual(areasFor(["apps/mcp/bench/review/chat.json", "apps/mcp/bench/respond/cases.json"]), ["respond", "review"]);
   assert.deepEqual(areasFor(["apps/mcp/bench/respond.mjs", "apps/mcp/bench/review.mjs"]), [], "the scorers are not Tex");

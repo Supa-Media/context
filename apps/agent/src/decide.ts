@@ -1,6 +1,6 @@
 /**
  * Whether, and how, Tex answers: Tex's one judge, Clef with labelled examples
- * (`packages/shared/src/textDecide.cjs`; Dev2, 2026-11-11), asked in the
+ * (`packages/tex/src/textDecide.cjs`; Dev2, 2026-11-11), asked in the
  * gateway (`POST /texts/decide`) or the control plane's own route
  * (`POST /agent-texts/decide`, CONTRACT.md section 3), never decided here by a
  * word rule. Every message in a group that is not code's is put to it, whatever

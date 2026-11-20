@@ -30,7 +30,7 @@ import { v, type Infer } from "convex/values";
 import type { QueryCtx } from "../../../_generated/server";
 import { normalizePhone } from "../phoneCheck";
 import { usernameOf } from "./people";
-import { TEX_NUMBER } from "@context/shared/src/texNumber.cjs";
+import { TEX_NUMBER } from "@context/tex/src/texNumber.cjs";
 
 export const LINQ_ZERO_SERVICE = "https://prod.zero-service.linqapp.com";
 
@@ -159,7 +159,7 @@ export function dedicatedTexLines(value: string | undefined): string[] {
 }
 
 /**
- * The number a person is told to text: Tex's number (`TEX_NUMBER`, packages/shared/src/texNumber.cjs), and only on a
+ * The number a person is told to text: Tex's number (`TEX_NUMBER`, packages/tex/src/texNumber.cjs), and only on a
  * deployment that runs Tex (`TEX_LINE_NUMBERS` set); null elsewhere, so a self-hosted control plane never hands out
  * ours. `TEX_LINE_NUMBERS` itself is never shown: it lists the lines Tex answers on, old ones included, and showing
  * it kept Settings on the Sendblue number after Tex moved to Photon (Dev2, 2026-11-16).

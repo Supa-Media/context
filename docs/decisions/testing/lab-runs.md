@@ -34,7 +34,7 @@ over a GitHub listener), with a Models pick of the AI gateway or Claude Code on
 - **Each run says how it routed.** A Front door row carries its first turn's
   route (`pick`, `sure`, `door`, `fellBack`, the reply's `route`), and the run's
   detail says it after the rounds. The run's "By route" block and tex_dev's
-  `runs { id }` `byRoute` are one summary (`packages/shared/src/texRouteSummary.cjs`):
+  `runs { id }` `byRoute` are one summary (`packages/tex/src/texRouteSummary.cjs`):
   per-route pass rate and cost per turn, the router's confusion against the set's
   gold `labels.router.route`, the specialist doors' fallback rate, cost per turn.
   Rows that did not run and ambiguous rows are out of it, as out of the score.

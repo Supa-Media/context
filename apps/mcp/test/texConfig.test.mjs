@@ -20,7 +20,7 @@ import { texPick, TEX_CONFIG, TEX_PROMPT_WORDS, texEffort, texModel, texModules,
 import { frontOf, parseSetup } from "../src/agent/production.js";
 import { assembleSetup, modulePath } from "../src/agent/promptModules.js";
 import { moduleIsCurrent as promptModuleIsCurrent } from "../../../scripts/tex-prompt-module.mjs";
-import { trainName } from "../../../packages/shared/src/texTraining.cjs";
+import { trainName } from "../../../packages/tex/src/texTraining.cjs";
 import { REVIEW_MODEL, REVIEW_TIMEOUT_MS } from "../src/agent/replyJudge.js";
 import { MAIL_CHECKER_MODEL } from "../src/agent/mailChecker.js";
 import { CARD_CHECK_MODEL } from "../src/agent/cardCheck.js";

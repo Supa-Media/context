@@ -11,7 +11,7 @@
  * The act never changes: the one question it asks is `why`, and the verdict it gives back is the one it was handed
  * with that field replaced. A second look that fails, or names no such reason, keeps the verdict as it was.
  */
-import { decideWhyRequest, readDecideWhy, whyContradictsAct } from "../../../../../../packages/shared/src/textDecide.cjs";
+import { decideWhyRequest, readDecideWhy, whyContradictsAct } from "../../../../../../packages/tex/src/textDecide.cjs";
 import { TEX_CONFIG } from "../../texConfig.js";
 
 /** Whether the config runs this node: it has the step, and the step is on. A draft from before it has no such step. */

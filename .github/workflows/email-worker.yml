@@ -33,6 +33,7 @@ on:
       - "apps/convex/functions/lib/names.ts"
       - "apps/convex/functions/lib/ingestion.ts"
       - "packages/shared/**"
+      - "packages/tex/**"
       - "packages/collaboration/**"
       - "pnpm-lock.yaml"
       - ".github/workflows/email-worker.yml"
