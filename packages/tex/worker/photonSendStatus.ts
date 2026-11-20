@@ -60,6 +60,7 @@ export function photonSendStatusOf(body: unknown): SendStatus | null {
   const error = status === "failed" ? (providerError(code) ?? { code: "failed" }) : status === "undelivered" ? { code: "not_delivered" } : undefined;
   return {
     handle,
+    line: body.line,
     status: status.toUpperCase(),
     downgraded: false,
     ...place,

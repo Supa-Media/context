@@ -111,7 +111,7 @@ function sources(dir: string): string[] {
   });
 }
 
-const FILES = ["features", "app"].flatMap((root) => sources(join(__dirname, "..", root)));
+const FILES = ["features", "app", "../../packages/lab/app"].flatMap((root) => sources(join(__dirname, "..", root)));
 const short = (file: string) => file.split("/apps/mobile/")[1] ?? file;
 
 describe("components read colours, they do not name them", () => {

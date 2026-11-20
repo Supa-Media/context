@@ -14,7 +14,7 @@ import { withArchitecture } from "../src/agent/texArchitecture.js";
   catalogue at the turn's commit (`scripts/tex-prompt-catalog.mjs`). Every module a real turn's builder makes from the
   repository alone must be in this commit's catalogue under the same id, or Replay shows a size where the words were.
 */
-const CATALOG = JSON.parse(readFileSync(new URL("../../mobile/features/tex/lab/promptCatalog.generated.json", import.meta.url), "utf8"));
+const CATALOG = JSON.parse(readFileSync(new URL("../../../packages/lab/app/promptCatalog.generated.json", import.meta.url), "utf8"));
 const REPO_BUILT = /^(stable\/|context\/(web|progress|transcripts|checkIns|attention)$|preamble\/plan$)/;
 
 test("every module a turn builds from the repository is in the prompt catalogue, by its fingerprint", () => {

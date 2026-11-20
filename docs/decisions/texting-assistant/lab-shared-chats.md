@@ -22,7 +22,7 @@ Who may read the list is the Lab's test chats' rule unchanged (staff who own or 
 
 **Browse, replay, and test as the person.** `POST /tex-lab/sandbox` gains `shared` (the list) and
 `ledger { chatId, ... }` (that chat's history file, raw only, as a person's own Tex page reads theirs;
-`apps/mcp/src/labSandbox/shared.js`). `open { source: "shared" }` copies the chat into a test chat: its real texts sit
+`packages/lab/gateway/labSandbox/shared.js`). `open { source: "shared" }` copies the chat into a test chat: its real texts sit
 in the dock, ▶ plays what ran in production on the graph Tex had then, and ⑂ "Sandbox from here" works as on the
 developer's own chats. A test text there runs on the sharer's own session (`texLabSandbox.ts` `sharedSessionFor`: a
 1:1 as its person, a group as one of its people with a live grant, the sponsor first), so Tex reads their notes live

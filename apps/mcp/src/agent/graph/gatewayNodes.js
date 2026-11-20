@@ -73,6 +73,7 @@ import { rungKnowsNode } from "./nodes/rungKnows.js";
 import { computerNode } from "./nodes/computer.js";
 import { rungNotesNode } from "./nodes/rungNotes.js";
 import { rungToolsNode } from "./nodes/rungTools.js";
+import { warmNode } from "./nodes/warm.js";
 import { routerNode } from "./nodes/router.js";
 import { fdQuickNode, fdReadNode, fdActNode } from "./nodes/doors.js";
 
@@ -182,4 +183,6 @@ export const GATEWAY_NODES = {
   // Tex's own computer, on the shelf: one call to the chat's sleeping Linux container (`nodes/computer.js`,
   // `../texComputerSandbox.js`, `infra/tex-computer`); a Lab draft wires tools -> computer.
   get computer() { return computerNode; },
+  // The chat's kept prefix sent again before their next text (`nodes/warm.js`, `warmPrefix.js`); on the shelf until a Lab draft wires it.
+  get warm() { return warmNode; },
 };

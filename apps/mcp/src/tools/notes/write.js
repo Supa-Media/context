@@ -91,13 +91,13 @@ async function writeNote(writer, scope, rules, overrides, args, options, specula
   let content = args.content;
   const expectedEtag = args.expected_etag;
   if (!path || !path.endsWith(".md")) return toolError("invalid path (must end in .md)");
-  if (typeof content !== "string") return toolError("content must be a string");
+  if (typeof content !== "string") return toolError("content must be a string: call it again with the note's Markdown as text.");
   if (isPlumbing(path)) return toolError("that path is reserved");
   // Tex's memory of the person has a hard size (owner, 2026-10-14), from every writer.
   const tooLong = aboutMeTooLong(path, content);
   if (tooLong) return toolError(tooLong);
   if (isPersonalCommunicationsPath(path) && store.actor?.workspaceKind === "shared") {
-    return toolError("personal communications can only be synced to a personal workspace");
+    return toolError("personal communications can only be synced to a personal workspace: write it there, without context, instead.");
   }
   /*
    * A DRAWING IS NEVER OVERWRITTEN WITH TEXT.
@@ -199,7 +199,7 @@ async function writeNote(writer, scope, rules, overrides, args, options, specula
     : null;
   const requestedVisibility = normalizeVisibility(args.visibility);
   if (requestedVisibility && !["private", "team"].includes(requestedVisibility)) {
-    return toolError("visibility must be private or team");
+    return toolError("visibility must be private or team: call it again with one of those, or leave it out.");
   }
   // Beneath a chat's home the seal is the access (`agent/chatHomeSeal.js`): no row there is set, so a narrower one is
   // refused before anything is written rather than after.
@@ -407,7 +407,7 @@ async function writeNote(writer, scope, rules, overrides, args, options, specula
   if (publishedForLink && args.share !== "members" && storedBody !== null && isEncryptedNote(storedBody)) {
     return toolError(
       "this note is encrypted, and a link anyone can open is never made over an encrypted note. " +
-        "Nothing was written; decrypt it with set_encryption first if they want it published."
+        "Nothing was written; to publish it, use set_encryption to decrypt it first."
     );
   }
   /*
@@ -470,7 +470,7 @@ async function writeNote(writer, scope, rules, overrides, args, options, specula
         }
       })();
       if (message.includes("update") || message.includes("invalid")) {
-        return toolError("invalid collaborative update");
+        return toolError("invalid collaborative update: re-read the note and write it again.");
       }
       return toolError("conflict: note changed while it was being merged; re-read and try again");
     }
@@ -651,7 +651,7 @@ async function writeNote(writer, scope, rules, overrides, args, options, specula
 
 async function prepareAttachedImages(store, path, content, images, storedBody) {
   if (images === undefined) return { content, images: [] };
-  if (isDrawingPath(path)) return { error: "images cannot be attached to a drawing; embed the drawing in a note instead" };
+  if (isDrawingPath(path)) return { error: "images cannot be attached to a drawing: attach the image to a note instead, and embed the drawing there." };
   if (storedBody !== null && isEncryptedNote(storedBody)) {
     return {
       error:

@@ -1,0 +1,273 @@
+/**
+ * The Lab's "You" (`packages/lab/app/engine/mine.ts`; Dev2, 2026-11-13: change the test user to their own and replay
+ * old texts, read only): their texts joined to what Tex said then and which Tex that was, the notes a turn read, the
+ * run config's replays, and a pasted "## Lab replay" read back.
+ */
+import { describe, expect, test } from "@jest/globals";
+import { chatLines, myTexts, parseReplay, readsOf, replayConfig, routineName, shortVersion, startOf } from "@context/lab/app/engine/mine";
+import { judgeWords, LOGGED_FROM, loggedMoments, momentsOf, turnAt } from "@context/lab/app/engine/replay";
+import { stepRows } from "@context/lab/app/engine/replaySteps";
+import { G } from "@context/lab/app/engine/state";
+import type { LedgerEntry } from "../../../apps/mobile/features/tex/page/texPageTypes";
+
+const e = (x: Partial<LedgerEntry> & { id: string; kind: string }): LedgerEntry => ({ at: 1_000, ...x }) as LedgerEntry;
+
+const ledger: LedgerEntry[] = [
+  e({ id: "ev1", eid: "0001-000001", seq: 1, at: 1_000, kind: "text", from: { kind: "person" }, text: "hey" }),
+  e({ id: "ev2", seq: 2, at: 2_000, kind: "text", from: { kind: "tex" }, text: "Hi.", turn: "t1", covers: ["0001-000001"] }),
+  e({ id: "r1", seq: 3, at: 2_000, kind: "reply", turn: "t1", text: "Hi.", version: { code: "abc1234def56", setup: "a1b2c3d4e5f6", deploy: "<x>" } }),
+  e({ id: "ev3", eid: "0003-000002", seq: 4, at: 3_000, kind: "text", from: { kind: "person" }, text: "remind me about the shelves" }),
+  e({ id: "ev4", seq: 5, at: 4_000, kind: "text", from: { kind: "tex" }, text: "Done.", turn: "t2", covers: ["0003-000002"] }),
+  e({ id: "r2", seq: 6, at: 4_000, kind: "reply", turn: "t2", text: "Done." }),
+  e({ id: "j1", seq: 7, at: 5_000, kind: "text", from: { kind: "person" }, text: "a job's own text", job: "job1" }),
+];
+
+describe("the Lab's You", () => {
+  test("each of their texts, newest first, with what Tex said then and which Tex that was", () => {
+    const list = myTexts(ledger);
+    expect(list.map((t) => t.id)).toEqual(["ev3", "ev1"]);
+    expect(list[1].then).toEqual({ text: "Hi.", version: { code: "abc1234def56", setup: "a1b2c3d4e5f6" } });
+    expect(list[0].then.version).toBeNull();
+    expect(list[0].earlier).toEqual([{ from: "person", text: "hey" }, { from: "tex", text: "Hi." }]);
+    expect(list[0].turn).toBe("t2");
+    expect(shortVersion(list[1].then.version)).toBe("abc1234 · setup a1b2c3");
+    expect(shortVersion(null)).toBe("no version");
+  });
+
+  test("a turn's reads are the notes it fetched by name in its own workspace, never another's or a path out", () => {
+    const tools = [
+      e({ id: "a", kind: "tool", turn: "t2", name: "fetch", args: { id: "projects/shelves.md" } }),
+      e({ id: "b", kind: "tool", turn: "t2", name: "fetch", args: { id: "notes.md", context: "@other" } }),
+      e({ id: "c", kind: "tool", turn: "t2", name: "fetch", args: { id: "../x.md" } }),
+      e({ id: "d", kind: "tool", turn: "t1", name: "fetch", args: { id: "elsewhere.md" } }),
+      e({ id: "f", kind: "tool", turn: "t2", name: "search", args: { query: "shelves" } }),
+      e({ id: "g", kind: "tool", turn: "t2", name: "fetch", args: { id: ".context/secret.md" } }),
+    ];
+    expect(readsOf(tools, "t2")).toEqual(["projects/shelves.md"]);
+    expect(readsOf(tools, null)).toEqual([]);
+  });
+
+  test("the run config carries the picked texts only when there is someone to run them as", () => {
+    const [t] = myTexts(ledger);
+    expect(replayConfig([t], { ev3: ["projects/shelves.md"] }, null)).toEqual({});
+    const c = replayConfig([t], { ev3: ["projects/shelves.md"] }, { handle: "sam", name: "Sam" }) as { replays: Array<{ reads: string[] }>; replayAs: unknown };
+    expect(c.replayAs).toEqual({ handle: "sam", name: "Sam" });
+    expect(c.replays[0].reads).toEqual(["projects/shelves.md"]);
+  });
+
+  test("a pasted replay block reads back each text's Now, a failed one too", () => {
+    const pasted = ['## Lab replay: My version', '', '### ev3', '', '**Text:** "remind me"', '', '**Then** (no version): "Done."', '', '**Now:** "Saturday, \\"9am\\"."', '', '### ev1', '', '**Now:** failed (socket closed)', ''].join("\n");
+    expect(parseReplay(pasted)).toEqual([{ id: "ev3", now: 'Saturday, "9am".' }, { id: "ev1", now: "", failed: "socket closed" }]);
+    expect(parseReplay("## Tex replay: ✅")).toEqual([]);
+  });
+});
+
+describe("Replay's moments (Dev2, 2026-11-14: \"replay sequences of text, like see how queuing works\")", () => {
+  const T = Date.UTC(2026, 10, 14, 1);
+  const e = (x: Partial<LedgerEntry> & { id: string; at: number; kind: string }) => x as LedgerEntry;
+  // Two texts close together, the second while the first's turn ran and queued; then a later one on its own.
+  const entries: LedgerEntry[] = [
+    e({ id: "a", at: T, seq: 1, kind: "text", eid: "ea", from: { kind: "person", name: "Ada" }, text: "book a table" }),
+    e({ id: "d1", at: T + 300, kind: "step", step: { name: "decide", of: "waiting", ok: true, ms: 280, output: { act: "answer" } } }),
+    e({ id: "b", at: T + 2_000, seq: 2, kind: "text", eid: "eb", from: { kind: "person", name: "Ada" }, text: "also the weather" }),
+    e({ id: "d2", at: T + 2_400, kind: "step", step: { name: "decide", of: "running", ok: true, ms: 400, output: { act: "answer", midTurn: "queue" } } }),
+    e({ id: "r1", at: T + 6_000, kind: "reply", turn: "t1", text: "Booked.", timing: { waitMs: 500, replyMs: 5_000 } }),
+    e({ id: "x", at: T + 6_100, seq: 3, kind: "text", turn: "t1", covers: ["ea"], from: { kind: "tex" }, text: "Booked." }),
+    e({ id: "r2", at: T + 9_000, kind: "reply", turn: "t2", text: "Sunny.", timing: { waitMs: 3_900, replyMs: 2_900 } }),
+    e({ id: "y", at: T + 9_100, seq: 4, kind: "text", turn: "t2", covers: ["eb"], from: { kind: "tex" }, text: "Sunny." }),
+    e({ id: "c", at: T + 600_000, seq: 5, kind: "text", eid: "ec", from: { kind: "person", name: "Ada" }, text: "thanks" }),
+  ];
+  const lines = chatLines(entries, myTexts(entries), { group: true });
+
+  test("a moment starts at any text someone sent, with what came in behind it, its judgings and turns on one clock", () => {
+    const ms = momentsOf(lines, entries);
+    expect(ms.map((m) => m.lines.map((l) => l.text))).toEqual([["book a table", "also the weather", "Booked.", "Sunny."], ["also the weather", "Booked.", "Sunny."], ["thanks"]]);
+    const [m] = ms;
+    expect(m.lanes.Texts.map((b) => b.start)).toEqual([0, 2_000]);
+    expect(m.lanes.Judge.map((b) => [b.start, b.end, b.label, b.detail])).toEqual([
+      [20, 300, "answer", "waiting texts"],
+      [2_000, 2_400, "queue it", "while a turn ran"],
+    ]);
+    // Each turn: its wait in the queue, then the turn; the second waited for the first.
+    expect(m.lanes.Turn.map((b) => [b.kind, b.start, b.end, b.turn])).toEqual([
+      ["wait", 500, 1_000, "t1"],
+      ["turn", 1_000, 6_000, "t1"],
+      ["wait", 2_200, 6_100, "t2"],
+      ["turn", 6_100, 9_000, "t2"],
+    ]);
+    expect(m.turns).toEqual(["t1", "t2"]);
+    expect(m.of).toBe(9_500);
+    expect(m.lines[0].who).toBe("Ada");
+    // The head picks the turn whose timeline it is in, from that turn's own start.
+    expect(turnAt(m, 100)).toBeNull();
+    expect(turnAt(m, 1_500)).toEqual({ turn: "t1", start: 500 });
+    expect(turnAt(m, 7_000)).toEqual({ turn: "t2", start: 2_200 });
+    // Replayed from the second text: the first turn was already running, so it starts before zero and plays from there.
+    const b = ms[1];
+    expect(b.lanes.Judge.map((x) => [x.start, x.end, x.label])).toEqual([[0, 400, "queue it"]]);
+    expect(b.lanes.Turn.map((x) => [x.kind, x.start, x.end, x.turn, x.zero])).toEqual([
+      ["turn", 0, 4_000, "t1", -1_500],
+      ["wait", 200, 4_100, "t2", 200],
+      ["turn", 4_100, 7_000, "t2", 200],
+    ]);
+    expect(b.turns).toEqual(["t1", "t2"]);
+    expect(turnAt(b, 0)).toEqual({ turn: "t1", start: -1_500 });
+  });
+
+  test("only moments that began once every step was logged in full replay", () => {
+    const at = (t: number) => ({ id: String(t), at: t, from: "text", lines: [] }) as never;
+    expect(loggedMoments([at(LOGGED_FROM - 1), at(LOGGED_FROM), at(LOGGED_FROM + 60_000)]).map((m: { at: number }) => m.at)).toEqual([LOGGED_FROM, LOGGED_FROM + 60_000]);
+    expect(new Date(LOGGED_FROM).toISOString()).toBe("2026-11-13T23:52:00.000Z");
+  });
+
+  test("the judge's calls in a few words", () => {
+    expect(judgeWords({ act: "answer" }, false)).toBe("answer");
+    expect(judgeWords({ act: "answer", midTurn: "fold" }, true)).toBe("fold it in");
+    expect(judgeWords({ act: "answer", midTurn: "restart" }, true)).toBe("restart");
+    expect(judgeWords({ act: "answer" }, true)).toBe("queue it");
+    expect(judgeWords({ act: "react" }, false)).toBe("tapback");
+    expect(judgeWords(null, false)).toBe("no answer");
+  });
+});
+
+describe("Tex texting on its own (Dev2, 2026-11-14: \"the heartbeat and routine node, those are another way Tex gets prompted\")", () => {
+  const T = Date.UTC(2026, 10, 14, 12);
+  const e = (x: Partial<LedgerEntry> & { id: string; at: number; kind: string }) => x as LedgerEntry;
+  const entries: LedgerEntry[] = [
+    e({ id: "p", at: T, seq: 1, kind: "text", eid: "ep", from: { kind: "person" }, text: "hi" }),
+    e({ id: "x", at: T + 2_000, seq: 2, kind: "text", turn: "t0", covers: ["ep"], from: { kind: "tex" }, text: "Hello." }),
+    // A routine's run: its thinking and a tool call under its turn, then the note it texted.
+    e({ id: "th", at: T + 60_000, seq: 3, kind: "thinking", turn: "gw1", ms: 4_000, text: "Looking at what changed." }),
+    e({ id: "tl", at: T + 62_000, seq: 4, kind: "tool", turn: "gw1", name: "list_changes", ms: 900, args: {}, ok: true }),
+    e({ id: "rn", at: T + 66_000, seq: 5, kind: "note", turn: "gw1", routine: "tex/routines/daily/morning-context-changes.md", outcome: "answered", text: "Nothing new overnight." }),
+    // A check-in and a ping, as the conversation keeps them.
+    e({ id: "ci", at: T + 120_000, seq: 6, kind: "note", about: "(Not a text from them. This was your own check-in: you looked through their workspace.)", text: "Payroll is due today." }),
+    e({ id: "pg", at: T + 180_000, seq: 7, kind: "note", about: "(Not a text from them. Another of their agents asked you to get their attention, and you texted them what follows.)", text: "The deploy finished." }),
+    // Not a text Tex sent on its own: left out.
+    e({ id: "bk", at: T - 1, seq: 0, kind: "note", backfill: "mark", text: "(The chat before this ledger began was copied in here.)" }),
+  ];
+  const lines = chatLines(entries, myTexts(entries));
+
+  test("each is a line of the chat, saying what started it", () => {
+    expect(lines.map((l) => [l.id, l.start ?? null])).toEqual([["p", null], ["x", null], ["rn", "routine"], ["ci", "checkin"], ["pg", "notify"]]);
+    expect(startOf(entries[7])).toBeNull();
+    expect(routineName("tex/routines/daily/morning-context-changes.md")).toBe("morning context changes");
+  });
+
+  test("each starts a moment of its own, from its turn's first entry, from its own start step", () => {
+    const ms = momentsOf(lines, entries);
+    const run = ms.find((m) => m.id === "rn")!;
+    expect(run.from).toBe("routine");
+    expect(run.at).toBe(T + 56_000);
+    expect(run.lanes.Texts.map((b) => b.label)).toEqual(["Routine · morning context changes"]);
+    expect(run.lanes.Turn.map((b) => [b.kind, b.start, b.end, b.turn])).toEqual([["turn", 0, 10_000, "gw1"]]);
+    expect(run.turns).toEqual(["gw1"]);
+    expect(run.lines.map((l) => l.id)).toEqual(["rn"]);
+    expect(ms.find((m) => m.id === "ci")?.from).toBe("checkin");
+    expect(ms.find((m) => m.id === "ci")?.turns).toEqual([]);
+    expect(ms.find((m) => m.id === "pg")?.from).toBe("notify");
+    // The person's own text before them keeps its moment, and ends where the routine's begins.
+    expect(ms.find((m) => m.id === "p")?.lines.map((l) => l.id)).toEqual(["p", "x"]);
+  });
+
+  test("one with no turn logged (a check-in from before its steps were kept) has nothing to walk through, so it doesn't replay", () => {
+    const ms = momentsOf(lines, entries);
+    expect(loggedMoments(ms).map((m) => m.id)).toEqual(["p", "rn"]);
+  });
+});
+
+describe("check-ins walk from what started them to what they sent (Dev2, 2026-11-14: \"is the check in/routines even wired in at all?\")", () => {
+  const T = Date.UTC(2026, 10, 14, 16);
+  const e = (x: Partial<LedgerEntry> & { id: string; at: number; kind: string }) => x as LedgerEntry;
+  const entries: LedgerEntry[] = [
+    e({ id: "p", at: T, seq: 1, kind: "text", eid: "ep", from: { kind: "person" }, text: "hi" }),
+    e({ id: "x", at: T + 2_000, seq: 2, kind: "text", turn: "t0", covers: ["ep"], from: { kind: "tex" }, text: "Hello." }),
+    // A check-in that looked and texted: its steps under its turn, then its note.
+    e({ id: "k1", at: T + 60_000, seq: 3, kind: "thinking", turn: "ck01", ms: 3_000, text: "Looking at the calendar." }),
+    e({ id: "k2", at: T + 61_000, seq: 4, kind: "tool", turn: "ck01", name: "calendar", ms: 800, args: {}, ok: true }),
+    e({ id: "ci", at: T + 64_000, seq: 5, kind: "note", turn: "ck01", ms: 7_000, about: "(Not a text from them. This was your own check-in: you looked through their workspace.)", text: "Payroll is due today." }),
+    // A check-in that looked and sent nothing: only its steps.
+    e({ id: "q1", at: T + 120_000, seq: 6, kind: "thinking", turn: "ck02", ms: 2_000, text: "Nothing new." }),
+    e({ id: "q2", at: T + 121_000, seq: 7, kind: "tool", turn: "ck02", name: "list_changes", ms: 500, args: {}, ok: true }),
+    e({ id: "p2", at: T + 180_000, seq: 8, kind: "text", eid: "ep2", from: { kind: "person" }, text: "thanks" }),
+  ];
+  const lines = chatLines(entries, myTexts(entries));
+
+  test("a quiet one is a line of the chat where it ran, with no text", () => {
+    expect(lines.map((l) => [l.id, l.start ?? null, l.quiet ?? false])).toEqual([
+      ["p", null, false],
+      ["x", null, false],
+      ["ci", "checkin", false],
+      ["ck:ck02", "checkin", true],
+      ["p2", null, false],
+    ]);
+    expect(lines[3].text).toBe("");
+    expect(lines[3].turn).toBe("ck02");
+  });
+
+  test("each replays from its first step, through its turn, to what it sent or to its last step", () => {
+    const ms = loggedMoments(momentsOf(lines, entries));
+    const sent = ms.find((m) => m.id === "ci")!;
+    expect(sent.from).toBe("checkin");
+    expect(sent.at).toBe(T + 57_000);
+    expect(sent.turns).toEqual(["ck01"]);
+    expect(sent.lanes.Sent.map((b) => b.label)).toEqual(["Payroll is due today."]);
+    const quiet = ms.find((m) => m.id === "ck:ck02")!;
+    expect(quiet.from).toBe("checkin");
+    expect(quiet.at).toBe(T + 118_000);
+    expect(quiet.lanes.Sent).toEqual([]);
+    expect(quiet.lanes.Turn.map((b) => [b.start, b.end, b.turn])).toEqual([[0, 3_000, "ck02"]]);
+    expect(quiet.lines.map((l) => l.id)).toEqual(["ck:ck02"]);
+  });
+
+  test("its timeline rows start from Check-in, not from a text arriving", () => {
+    const quiet = momentsOf(lines, entries).find((m) => m.id === "ck:ck02")!;
+    const ids = stepRows(quiet, entries, G()).map((r) => r.id);
+    expect(ids).toContain("fd");
+    expect(ids).toContain("tools");
+    for (const not of ["decide", "lanes", "queue", "text"]) expect(ids).not.toContain(not);
+  });
+});
+
+describe("a background job's report starts a run of its own (Dev2, 2026-11-16: \"background jobs by definition are not part of a run\")", () => {
+  const T = Date.UTC(2026, 10, 16, 12);
+  const e = (x: Partial<LedgerEntry> & { id: string; at: number; kind: string }) => x as LedgerEntry;
+  const ABOUT = '(Not a text from them. Your background job "Timecard reconciliation" reported back to you; nothing from it has reached them yet.)';
+  const entries: LedgerEntry[] = [
+    // A tapback the judge let pass, then, four minutes on, the job reports and its turn texts twice.
+    e({ id: "p", at: T, seq: 1, kind: "text", eid: "ep", from: { kind: "person" }, text: "👍" }),
+    e({ id: "d", at: T + 900, seq: 2, kind: "step", step: { name: "decide", ms: 800, ok: true, output: { act: "silent" } } }),
+    e({ id: "r", at: T + 260_000, seq: 3, kind: "reply", turn: "jt", about: ABOUT, timing: { replyMs: 17_000, waitMs: 6_000 }, text: "Done." }),
+    e({ id: "x1", at: T + 262_000, seq: 4, kind: "text", turn: "jt", from: { kind: "tex" }, text: "Timecards reconciled." }),
+    e({ id: "x2", at: T + 263_000, seq: 5, kind: "text", turn: "jt", from: { kind: "tex" }, text: "Two needed a fix." }),
+  ];
+  const lines = chatLines(entries, myTexts(entries));
+  const ms = momentsOf(lines, entries);
+
+  test("the chat itself shows no line for it", () => {
+    expect(lines.map((l) => l.id)).toEqual(["p", "x1", "x2"]);
+  });
+
+  test("the tapback's run ends where the report came in, and holds none of the job's turn", () => {
+    const tap = ms.find((m) => m.id === "p")!;
+    expect(tap.lines.map((l) => l.id)).toEqual(["p"]);
+    expect(tap.turns).toEqual([]);
+    expect(tap.of).toBeLessThan(5_000);
+  });
+
+  test("the job's run starts when its report reached the queue, from Background job, with what it sent", () => {
+    const job = ms.find((m) => m.id === "job:jt")!;
+    expect(job.from).toBe("job");
+    expect(job.at).toBe(T + 237_000);
+    expect(job.lanes.Texts.map((b) => b.label)).toEqual(["Background job · Timecard reconciliation"]);
+    expect(job.lanes.Turn.map((b) => [b.kind, b.start, b.end])).toEqual([["wait", 0, 6_000], ["turn", 6_000, 23_000]]);
+    expect(job.lanes.Sent.map((b) => b.label)).toEqual(["Timecards reconciled.", "Two needed a fix."]);
+    expect(loggedMoments(ms).map((m) => m.id)).toEqual(["p", "job:jt"]);
+  });
+
+  test("its timeline rows are its own turn's steps, with no text arriving or judging", () => {
+    const ids = stepRows(ms.find((m) => m.id === "job:jt")!, entries, G()).map((r) => r.id);
+    expect(ids).toContain("send");
+    for (const not of ["decide", "text"]) expect(ids).not.toContain(not);
+  });
+});

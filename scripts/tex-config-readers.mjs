@@ -9,7 +9,7 @@
  *     checked against `texConfigSchema.cjs`, and a schema change cannot miss a reader that parses the file its own way;
  *   - the committed config does not match its schema, or is behind its version (`tex-config-migrate.mjs`);
  *   - `SCHEMA_VERSION` was bumped without its migration;
- *   - the drawing's wire legend (`tex-architecture.mjs`) or `tex_dev`'s guide (`apps/mcp/src/texDev/guide.js`) leaves out
+ *   - the drawing's wire legend (`tex-architecture.mjs`) or `tex_dev`'s guide (`packages/lab/gateway/texDev/guide.js`) leaves out
  *     a wire mode the schema has.
  *
  *   node scripts/tex-config-readers.mjs [--self-test]
@@ -32,7 +32,7 @@ export const LOADERS = {
   "scripts/ci-change-scope.mjs": "a path in CI's change scope, not a read",
   "scripts/tex-config-readers.mjs": "this check",
   "packages/tex/src/texConfig.d.cts": "the runtime loader's types",
-  "apps/mobile/features/tex/lab/engine/graphAt.ts": "the Lab reads the config at old commits from GitHub and migrates it",
+  "packages/lab/app/engine/graphAt.ts": "the Lab reads the config at old commits from GitHub and migrates it",
 };
 const CODE = /\.(c|m)?(j|t)sx?$/;
 /** `texConfig.json` inside a quoted string: an import, a require, a path. Comments name it in backticks, which pass. */
@@ -55,8 +55,8 @@ export function problems(root = ROOT) {
   if (SCHEMA.MIGRATIONS.length !== SCHEMA.SCHEMA_VERSION) out.push(`texConfigSchema.cjs is at version ${SCHEMA.SCHEMA_VERSION} with ${SCHEMA.MIGRATIONS.length} migrations: a version bump needs its migration`);
   const legend = readFileSync(join(root, "scripts/tex-architecture.mjs"), "utf8");
   for (const mode of SCHEMA.MODES) if (!legend.includes(`"${mode}"`)) out.push(`scripts/tex-architecture.mjs draws no wire mode "${mode}", which the schema has`);
-  const guide = readFileSync(join(root, "apps/mcp/src/texDev/guide.js"), "utf8");
-  for (const mode of SCHEMA.MODES) if (!new RegExp(`^\\s+${mode}: "`, "m").test(guide)) out.push(`apps/mcp/src/texDev/guide.js says nothing of the wire mode "${mode}" (MODE_MEANING), which the schema has`);
+  const guide = readFileSync(join(root, "packages/lab/gateway/texDev/guide.js"), "utf8");
+  for (const mode of SCHEMA.MODES) if (!new RegExp(`^\\s+${mode}: "`, "m").test(guide)) out.push(`packages/lab/gateway/texDev/guide.js says nothing of the wire mode "${mode}" (MODE_MEANING), which the schema has`);
   return out;
 }
 

@@ -1,5 +1,5 @@
 /**
- * `tex_dev` `sandbox` shaped for an AI (`src/texDev/sandbox.js`; Dev2, 2026-11-16: an AI sends test texts through the
+ * `tex_dev` `sandbox` shaped for an AI (`packages/lab/gateway/texDev/sandbox.js`; Dev2, 2026-11-16: an AI sends test texts through the
  * MCP, sees after the run which nodes fired and which did not, what each did and how long it took, and tries changes
  * against each other). Proven over a fake of the Lab's own route: the run card is only what the rows' logged steps
  * show, the steps that did not run are read from the config and the log side by side, a step is read whole with
@@ -14,7 +14,7 @@
  */
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { cardDiff, compactRow, createSandboxActions, notFiredOf, runCard } from "../src/texDev/sandbox.js";
+import { cardDiff, compactRow, createSandboxActions, notFiredOf, runCard } from "../../../packages/lab/gateway/texDev/sandbox.js";
 import { TEX_CONFIG } from "../src/agent/texConfig.js";
 
 const GRAPH = { nodes: TEX_CONFIG.nodes, edges: TEX_CONFIG.edges };

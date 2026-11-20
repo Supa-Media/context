@@ -110,10 +110,11 @@ import { texChatClass } from "./texChat.js";
 import { arriveForTexts, chatCallForTexts, jobCallForTexts, TEXTS_ARRIVE_PATH, TEXTS_CHAT_CALL_PREFIX, TEXTS_JOB_CALL_PREFIX } from "./agent/textsArrive.js";
 import { oldLineForTexts, TEXTS_OLD_LINE_PATH } from "./agent/textsOldLine.js";
 import { editForTexts, TEXTS_EDIT_PATH } from "./agent/textsEdit.js";
+import { TEXTS_WARM_PATH, warmForTexts } from "./agent/textsWarm.js";
 import { moveForTexts, TEXTS_MOVE_PATH } from "./agent/textsMove.js";
 import { texJobClass } from "./texJob.js";
 import { WorkspaceStore as WorkspaceStoreDurableObject } from "./workspaceStore.js";
-import { LabSandboxObject } from "./labSandbox/object.js";
+import { LabSandboxObject } from "../../../packages/lab/gateway/labSandbox/object.js";
 import { snippetLinesFor } from "./search/visible.js";
 import { json } from "./http/responses.js";
 import { controlPlaneSettingProblems } from "./controlPlane/client.js";
@@ -219,6 +220,8 @@ export const TexTexts = {
       if (path === TEXTS_ARRIVE_PATH) return await arriveForTexts(request, env);
       if (path === TEXTS_OLD_LINE_PATH) return await oldLineForTexts(request);
       if (path === TEXTS_EDIT_PATH) return await editForTexts(request);
+      // A read receipt, an open chat or typing: the chat's kept prefix sent again, when node `warm` is wired (`agent/textsWarm.js`).
+      if (path === TEXTS_WARM_PATH) return await warmForTexts(request, env);
       if (path === TEXTS_MOVE_PATH) return await moveForTexts(request);
       if (path.startsWith(TEXTS_CHAT_CALL_PREFIX)) return await chatCallForTexts(request, env);
       if (path.startsWith(TEXTS_JOB_CALL_PREFIX)) return await jobCallForTexts(request, env);

@@ -1,4 +1,4 @@
-// A Lab test text goes in where a real text goes in (src/labSandbox/chatRun.js; Dev2, 2026-11-16: "expected it to go
+// A Lab test text goes in where a real text goes in (packages/lab/gateway/labSandbox/chatRun.js; Dev2, 2026-11-16: "expected it to go
 // through the "A text arrives" node end to end, but it looks like it skipped straight to front door"): the texting
 // Worker's own chat object takes it, runs Old number?, Triage, Decide and the queue, and only then asks `/agent`.
 // Fake ids, numbers and words only.
@@ -16,8 +16,8 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 
-import { LabSandboxObject } from "../src/labSandbox/object.js";
-import { chatEnvFor, chatStepsOf, gatewayRoutes, inboundOf, keepingLine, LAB_CONTROL_PLANE, LAB_GATEWAY, LAB_WORKER_SECRET, MemoryStorage, runChatTurn } from "../src/labSandbox/chatRun.js";
+import { LabSandboxObject } from "../../../packages/lab/gateway/labSandbox/object.js";
+import { chatEnvFor, chatStepsOf, gatewayRoutes, inboundOf, keepingLine, LAB_CONTROL_PLANE, LAB_GATEWAY, LAB_WORKER_SECRET, MemoryStorage, runChatTurn } from "../../../packages/lab/gateway/labSandbox/chatRun.js";
 import { streamTurn, wantsProgress } from "../src/agent/progress.js";
 import { eventEntry } from "../src/agent/ledger.js";
 import { durableSql } from "./texStoreFixture.mjs";
@@ -141,7 +141,7 @@ test("nothing leaves: an unknown host, a control-plane change and another object
 test("a turn's node lights its row even when the runner calls the watch on its own", async () => {
   const { stub, call, ready } = sandbox(ONE, []);
   await ready;
-  const { sandboxGate } = await import("../src/labSandbox/harness.js");
+  const { sandboxGate } = await import("../../../packages/lab/gateway/labSandbox/harness.js");
   // The route claims the test chat for its text before the turn runs (`object.js` `claim`); the turn refreshes its mark.
   await call("claim", { msgId: "t1", staleMs: 60_000 });
   const { onNode, worker, flush } = sandboxGate(stub, ONE, "t1");
@@ -199,7 +199,7 @@ async function runOne(rows, row, gwOptions) {
   await ready;
   for (const r of [...rows, row]) await call("row.add", { row: r });
   const gw = fakeGateway("Sure.", call, row.id, gwOptions);
-  const { runTestText } = await import("../src/labSandbox/chatRun.js");
+  const { runTestText } = await import("../../../packages/lab/gateway/labSandbox/chatRun.js");
   await runTestText({ env: {}, stub, about: ONE, row, payload: { defaultWorkspaceId: "ws_a" }, token: "caller-token", config: null, origin: "https://gateway.example", agentRoute: gw.agentRoute, textsRoute: gw.textsRoute });
   const state = await call("state", {});
   return { gw, state, reply: state.rows.find((r) => r.id === `${row.id}r`) };
@@ -219,7 +219,7 @@ test("a 1:1 ❤️ on Tex's plain text goes to the chat object's tapback route, 
 test("a tapback's own step stays on its row, never on the next text's", async () => {
   const { stub, call, ready } = sandbox(ONE, []);
   await ready;
-  const { runTestText } = await import("../src/labSandbox/chatRun.js");
+  const { runTestText } = await import("../../../packages/lab/gateway/labSandbox/chatRun.js");
   const run = async (row) => {
     await call("row.add", { row });
     const gw = fakeGateway("Sure.", call, row.id);

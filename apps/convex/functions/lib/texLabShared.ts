@@ -13,7 +13,7 @@
  *    keeps the whole chat out.
  *  - The caller's own chats are not here: they are under "Your account".
  *
- * What a developer gets is the chat's history file, read only (`apps/mcp/src/labSandbox/shared.js`). No test text runs
+ * What a developer gets is the chat's history file, read only (`packages/lab/gateway/labSandbox/shared.js`). No test text runs
  * on a shared chat, since a turn would read the person's notes afresh, which their yes never covered.
  */
 

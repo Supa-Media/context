@@ -183,6 +183,7 @@ function useFakeTexChat(): AppChatView {
       if (id === PICTURE_ID) return PICTURE_DATA_URL;
       return sentPictures.current.get(id) ?? null;
     },
+    typing() {},
   };
 }
 

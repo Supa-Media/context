@@ -28,11 +28,19 @@ import { componentInputs } from "./deploy-plan.mjs";
 
 const ROOT = fileURLToPath(new URL("..", import.meta.url));
 const MOBILE = "apps/mobile";
+/**
+ * The Tex Lab's package: its page runs inside the app, and its tests run in the app's jest (`roots` in
+ * apps/mobile/jest.config.js), so what they read counts as the app's reads. Its own files are watched whole
+ * (`packages/lab/**` in the mobile filter).
+ */
+const LAB = "packages/lab";
+const inside = (rel) => rel === MOBILE || rel.startsWith(`${MOBILE}/`) || rel === LAB || rel.startsWith(`${LAB}/`);
 const SOURCE = /\.(ts|tsx|js|jsx|mjs|cjs)$/;
 const RENDERER = /\.render\.tsx?$/;
 const SKIP_DIRS = new Set(["node_modules", "ios", "android", "web-build", "dist"]);
 // Not run by jest; e2e has its own browser workflow filter.
-const SKIP_TOP = new Set([`${MOBILE}/scripts`, `${MOBILE}/e2e`]);
+// The Lab's gateway folder is gateway code (the gateway's own suite and filters cover it): the app never loads it.
+const SKIP_TOP = new Set([`${MOBILE}/scripts`, `${MOBILE}/e2e`, `${LAB}/gateway`]);
 /**
  * Paths the app names that it does not read, each with where and why. Watching
  * them would only run the suite more; listing them keeps the filter honest.
@@ -94,7 +102,7 @@ export function namedOutsidePaths(file, source, root = ROOT) {
   const out = new Set();
   for (const abs of found) {
     const rel = relative(root, abs).replaceAll("\\", "/");
-    if (rel.startsWith("..") || rel === MOBILE || rel.startsWith(`${MOBILE}/`) || ["", ".", "apps"].includes(rel)) continue;
+    if (rel.startsWith("..") || inside(rel) || ["", ".", "apps"].includes(rel)) continue;
     for (const suffix of SUFFIXES) {
       const path = join(root, rel + suffix);
       if (!existsSync(path)) continue;
@@ -133,15 +141,15 @@ function mobileSources(root, dir = MOBILE) {
 export function mobileOutsideReads(root = ROOT) {
   const reads = new Set();
   const imported = new Set();
-  for (const file of mobileSources(root)) {
+  for (const file of [...mobileSources(root), ...mobileSources(root, LAB)]) {
     const source = readFileSync(join(root, file), "utf8");
     for (const read of namedOutsidePaths(file, source, root)) reads.add(read);
     for (const path of importedOutsidePaths(file, source, root)) imported.add(path);
   }
   const { files, dirs } = componentInputs({ packages: [], files: [...imported] }, root);
-  for (const file of files) if (!file.startsWith(`${MOBILE}/`)) reads.add(file);
+  for (const file of files) if (!inside(file)) reads.add(file);
   // A workspace package imported by name claims its whole directory.
-  for (const dir of dirs) if (dir !== MOBILE && !dir.startsWith(`${MOBILE}/`)) reads.add(`${dir}/**`);
+  for (const dir of dirs) if (!inside(dir)) reads.add(`${dir}/**`);
   return [...reads].sort();
 }
 

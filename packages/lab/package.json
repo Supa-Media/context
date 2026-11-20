@@ -2,7 +2,7 @@
   "name": "@context/lab",
   "version": "1.0.0",
   "private": true,
-  "description": "The Tex Lab: drafts, runs, test sets, sandbox and the tex_dev tool's logic. Depends on Tex, never the reverse.",
+  "description": "The Tex Lab: its page (app/), and the logic its page, the control plane and the gateway share (src/). Depends on Tex, never the reverse. React, Convex and the control plane's generated API come from the app that hosts the page.",
   "scripts": {
     "typecheck": "echo \"checked through its readers (apps/mobile, apps/convex)\" && exit 0",
     "lint": "echo \"no lint configured yet\" && exit 0"
@@ -10,5 +10,8 @@
   "dependencies": {
     "@context/shared": "workspace:*",
     "@context/tex": "workspace:*"
+  },
+  "devDependencies": {
+    "jest-environment-jsdom": "^29.7.0"
   }
 }

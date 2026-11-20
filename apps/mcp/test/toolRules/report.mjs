@@ -93,13 +93,26 @@ function files(dir) {
   return readdirSync(dir, { withFileTypes: true }).flatMap((entry) => (entry.isDirectory() ? files(join(dir, entry.name)) : entry.name.endsWith(".js") ? [join(dir, entry.name)] : []));
 }
 
+/** A string written as `"a " +\n "b"` is one error: the pieces after the first, joined, so the whole sentence is rated. */
+const NEXT_PIECE = /\s*\+\s*([`"'])((?:\\.|(?!\1).)*)\1/y;
+function continued(source, from) {
+  let rest = "";
+  NEXT_PIECE.lastIndex = from;
+  for (let piece = NEXT_PIECE.exec(source); piece !== null; piece = NEXT_PIECE.exec(source)) rest += piece[2];
+  return rest;
+}
+/** Where a match's string literal closes in the source (its second group, then the quote). */
+function literalEnd(match) {
+  return match.index + match[0].lastIndexOf(match[1]) + 1;
+}
+
 export function errorStrings() {
   const found = new Map();
   for (const file of ["src/agent", "src/tools", "src/machines"].flatMap((dir) => files(join(MCP_ROOT, dir)))) {
     const source = readFileSync(file, "utf8");
     for (const shape of ERROR_SHAPES) {
       for (const match of source.matchAll(shape)) {
-        const text = match[2];
+        const text = match[2] + continued(source, literalEnd(match));
         if (text.length < 8 || CODE.test(text) || found.has(text)) continue;
         found.set(text, { file: relative(MCP_ROOT, file), text, rating: rateError(text) });
       }

@@ -40,6 +40,7 @@ import { flushWithReader } from "./chatRead";
 import { crossTimeouts, takeCrossAnswer, takeCrossAsk } from "./crossChat";
 import { CHAT_WHERE_KEY, chatDirectoryName, chatRoutineRunOf, chatWhereOf, WHERE_KEPT_KEY } from "./groupRoutines";
 import { isBound, sha256Hex } from "./groupChat";
+import { warmOnRead } from "./warmStep";
 import { textsSessionDeps } from "./gatewaySession";
 import { checkReview } from "./reviewWatch";
 import { mintThreadsLink, readJobUpdate, serveThreads, type JobRun, type JobSteer, type JobUpdate } from "./jobs";
@@ -268,6 +269,8 @@ export class SenderInbox implements DurableObject {
       // stream never waits on that, so it is noted after the answer.
       if (status.report?.name === "photon") {
         this.handOff(note());
+        // They read Tex's text: the gateway may warm the model's cache for their next one (node `warm`, `warmStep.ts`).
+        if (status.report.status === "read") this.handOff(warmOnRead(this.state.storage, status, { texts: this.env.GATEWAY_TEXTS, now: () => Date.now() }));
         return Response.json({ outcome: "queued" });
       }
       return Response.json({ outcome: await note() });

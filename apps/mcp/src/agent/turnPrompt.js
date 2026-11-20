@@ -23,6 +23,7 @@ import { DRIVER_PROMPT, PLANNER_PROMPT } from "./modelPlan.js";
 import { PROGRESS_PROMPT } from "./progress.js";
 import { usedTools } from "./conversation.js";
 import { aboutMePrompt } from "./aboutMe.js";
+import { FROZEN_MODULES, FROZEN_NAMES } from "./frozenModuleNames.js";
 import { jobsPrompt } from "./jobs.js";
 import { personVoicePrompt } from "./personVoice.js";
 import { calendarAge, calendarPrompt } from "./calendarCache.js";
@@ -46,6 +47,40 @@ function turnFacts(parts) {
   return facts.length === 0 ? "" : [PREAMBLE_LABEL, ...facts].join("\n\n");
 }
 
+/**
+ * Puts the day's words of each frozen module (`frozenModules.js` `FROZEN_MODULES`) in `threadParts` and `context`, in
+ * place, and answers the ones whose words now differ: `[{id, now}]`. On the day's first turn it keeps these words instead.
+ */
+function freezeModules(freeze, threadParts, context) {
+  const slots = [
+    ...threadParts.map((part, at) => [part[0] === "" ? "context/thread" : `context/thread/${part[0]}`, (text) => (threadParts[at] = [part[0], text]), part[1] ?? ""]),
+    ...context.filter(([id]) => id !== "thread").map((entry) => [`context/${entry[0]}`, (text) => (entry[1] = text), entry[1] ?? ""]),
+  ].filter(([id]) => FROZEN_MODULES.includes(id));
+  if (freeze.modules === null) {
+    freeze.see?.(Object.fromEntries(slots.map(([id, , now]) => [id, now])));
+    return [];
+  }
+  const changed = [];
+  for (const [id, put, now] of slots) {
+    const kept = typeof freeze.modules[id] === "string" ? freeze.modules[id] : "";
+    if (kept === now) continue;
+    put(kept);
+    // A module with no words this turn was most often not read (a store that failed), not emptied: the day's words stand.
+    if (now.trim() !== "") changed.push({ id, now });
+  }
+  if (changed.length > 0 && typeof context[0][1] === "string") context[0][1] = threadParts.map(([, text]) => text ?? "").join("");
+  return changed;
+}
+
+/** What changed in the frozen modules since the day's first turn: each module's words now, which win over the ones above the history. */
+function frozenNote(changed) {
+  if (changed.length === 0) return "";
+  return [
+    "Since this chat's first text today, these parts of your instructions changed. The words above the history are from then; these are now, and win:",
+    ...changed.map(({ id, now }) => `${FROZEN_NAMES[id] ?? id} now reads:\n${now.trim()}`),
+  ].join("\n\n");
+}
+
 /** `{system: {stable, context}, preamble, prompt}` for the model `answering` this round; `prompt` is its manifest (`promptManifest.js`). */
 export function turnPrompt(place, answering, o) {
   const edits = o.tools.some((tool) => tool.name === "write_note");
@@ -61,7 +96,8 @@ export function turnPrompt(place, answering, o) {
   });
   // Each module in the order it is sent, named, so the call's manifest (`promptManifest.js`) says which ran.
   // The thread note may come in named parts (`runTheModel.js`): sent as one block, each named in the manifest.
-  const threadParts = Array.isArray(o.threadNote) ? o.threadNote : [["", o.threadNote ?? ""]];
+  // Copied: a frozen module is put in place below, and the caller builds every round from the same parts.
+  const threadParts = (Array.isArray(o.threadNote) ? o.threadNote : [["", o.threadNote ?? ""]]).map(([part, text]) => [part, text]);
   const context = [
     ["thread", threadParts.map(([, text]) => text ?? "").join("")],
     ["web", webPrompt(o.webNames)],
@@ -79,6 +115,9 @@ export function turnPrompt(place, answering, o) {
     ["devShare", typeof o.devShare === "string" ? o.devShare : ""], // a group chat's sharing with the developers (`devShare.js`)
     ["mail", mailAccountsPrompt(o.mail)], // the mailboxes a mail search reaches (`mailAccounts.js`); their states are per text, below
   ];
+  // The day's words of the rarely-changing modules, when the step freezes them (`frozenModules.js`): sent above the
+  // history unchanged until the next summary; what changed since is said after it, in `frozen`, and wins.
+  const changed = o.freeze ? freezeModules(o.freeze, threadParts, context) : [];
   // Always the day: a caller with no clock of its own (the memory nudge, a reflection) gets now, in the routines' default zone, named (Dev2, 2026-11-10).
   const now = o.localNow == null ? Date.now() : o.localNow.now;
   const facts = [
@@ -87,6 +126,7 @@ export function turnPrompt(place, answering, o) {
     // cached system prompt every refresh wrote the history after it to the cache again (2026-11-14 21:26Z: 79,000 tokens).
     ["calendar", o.calendar == null ? "" : calendarPrompt(o.calendar)],
     ["calendarAge", o.calendar == null ? "" : calendarAge(o.calendar, o.localNow?.now ?? Date.now())],
+    ["frozen", frozenNote(changed)], // the frozen modules' words now, where they changed since the day's first turn
     ["examples", o.examples ?? ""], // the Training moments nearest to this text (`nodes/examples.js`), "" unless the front door is wired to them
     ["turnNote", o.turnNote], // per-text words from the entry point: who tagged it, the thread, the jobs running now (`runTheModel.js`)
     ["mailStates", mailAccountsFacts(o.mail)], // only a mailbox that is not fine right now

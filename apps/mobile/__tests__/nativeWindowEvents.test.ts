@@ -248,7 +248,7 @@ function sourceFiles(dir: string): string[] {
 
 test("code a phone runs never calls window listener methods without checking they exist", () => {
   const appRoot = join(__dirname, "..");
-  const offenders = [join(appRoot, "features"), join(appRoot, "app")]
+  const offenders = [join(appRoot, "features"), join(appRoot, "app"), join(appRoot, "..", "..", "packages", "lab", "app")]
     .flatMap(sourceFiles)
     .map((path) => relative(appRoot, path))
     .filter((path) => /\bwindow\.(add|remove)EventListener\(/.test(readFileSync(join(appRoot, path), "utf8")))

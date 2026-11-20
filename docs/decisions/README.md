@@ -805,7 +805,7 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 - [Every model Tex calls knows today's date, and every text it reads has one (2026-11-10)](./texting-assistant/dates-everywhere.md)
 - [Each finished day is summed up the night after, and shown where the texts stop (2026-11-06)](./texting-assistant/day-summaries.md)
 - [A turn is shown its whole chat, the nearer days whole and older ones clipped (2026-11-06)](./texting-assistant/faded-history.md)
-- [Tex's rules are module notes, and the setup names which ones each kind of turn gets (2026-11-06)](./texting-assistant/prompt-modules.md)
+- [Tex's rules are module notes, and the setup names which ones each kind of turn gets (2026-11-06)](./texting-assistant/prompt-modules.md); [A step's reads run by how often they change, and its slow modules can freeze until the next summary (2026-11-20)](./texting-assistant/cache-rules.md)
 - [Tex keeps a short copy of the next seven days, and says it is a copy (2026-11-06)](./texting-assistant/calendar-cache.md)
 - [One drawing of Tex, changed with every architecture change (2026-11-05)](./texting-assistant/architecture-diagram.md)
 - [The Architecture Lab is a staff page, built exactly like its artifact (2026-11-13)](./texting-assistant/architecture-lab.md)

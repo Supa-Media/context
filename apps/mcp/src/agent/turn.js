@@ -292,6 +292,8 @@ export async function runTurn(options) {
     cacheTtl = undefined,
     // "one" or "group": show every tool that kind of chat has, the same bytes each turn, and refuse what this turn may not call (`sixToolsFixed.js`).
     fixedTools = null,
+    // The day's words of the rarely-changing modules, when the step freezes them (`frozenModules.js`): `{ modules, see }`.
+    freeze = null,
     // What the person sent with the question, checked (`attachments.js`): shown to the model with it.
     attachments = [],
     // Told each step as it happens (`transcript.js`): thinking, words between tools, each call.
@@ -394,7 +396,7 @@ export async function runTurn(options) {
     tell({ kind: "model", step: "router", model, ms: clock() - asked, input: options.planned || nudge !== "" ? undefined : question, output: { tier: routed.tier, pick: routed.pick, ...confidence }, reason: options.planned ? "a long job is planned on the thinking model" : routed.tier === "think" ? "the router judged it needs thinking" : "picked by the router" });
   }
   const examplesText = examples ? await awaitExamples(examples, { budgetMs: examplesBudgetMs, fallback: examplesFallback, trace, clock }) : "";
-  const promptFor = (answering) => turnPrompt(place, answering, { texting, inGroup, pictures, notes, models: router !== null ? { main: mainModel, think: router.think, jobsOnly: router.jobsOnly === true } : null, tools, history, threadNote, turnNote, examples: examplesText, webNames, progress, aboutMe, identity, jobs, voice, calendar, observe, workspaces, groups, devShare, mail, localNow, plan, nudge }); // `turnPrompt.js`
+  const promptFor = (answering) => turnPrompt(place, answering, { texting, inGroup, pictures, notes, models: router !== null ? { main: mainModel, think: router.think, jobsOnly: router.jobsOnly === true } : null, tools, history, threadNote, turnNote, examples: examplesText, webNames, progress, aboutMe, identity, jobs, voice, calendar, observe, workspaces, groups, devShare, mail, localNow, plan, nudge, freeze }); // `turnPrompt.js`
   let prompt = promptFor(model);
   // The person's own text, with the turn's facts carried ahead of it (`providers.js`): set before every round.
   const questionMessage = { role: "user", text: question, ...(attachments.length > 0 ? { attachments } : {}) };
