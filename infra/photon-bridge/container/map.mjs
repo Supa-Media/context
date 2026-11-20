@@ -27,11 +27,15 @@ function compact(object) {
   return object;
 }
 
-/** Apple's own stamp when it is a valid date; the observation time otherwise. */
-function isoOr(value) {
-  if (value instanceof Date && !Number.isNaN(value.getTime())) return value.toISOString();
-  if (typeof value === "string" && value.length > 0) return value;
-  return new Date().toISOString();
+/**
+ * Apple's own stamp when it is a valid date. When Apple gave none, the
+ * observation time, and `guessed` says so: a guessed time is never old enough
+ * to be a replay the agent should drop (`ledger.mjs`).
+ */
+function stampOf(value) {
+  if (value instanceof Date && !Number.isNaN(value.getTime())) return { at: value.toISOString() };
+  if (typeof value === "string" && value.length > 0) return { at: value };
+  return { at: new Date().toISOString(), guessed: true };
 }
 
 export function chatKind(guid) {
@@ -61,7 +65,9 @@ function actorOf(event) {
   return event.isFromMe ? undefined : event.actor?.address || undefined;
 }
 
-function envelope(event, line, type, eventId, chat, at) {
+/** The common fields. `when` is Apple's stamp (or undefined): `at` is that time, `atGuessed` true when it was missing. */
+function envelope(event, line, type, eventId, chat, when) {
+  const { at, guessed } = stampOf(when);
   return compact({
     seq: event.sequence,
     eventId,
@@ -70,6 +76,7 @@ function envelope(event, line, type, eventId, chat, at) {
     chat,
     fromMe: event.isFromMe === true,
     at,
+    atGuessed: guessed ? true : undefined,
   });
 }
 
@@ -84,7 +91,7 @@ function received(event, line, extras) {
     "message.received",
     `photon:message.received:${message.guid}`,
     chat,
-    isoOr(message.dateCreated),
+    message.dateCreated,
   );
   return {
     ...base,
@@ -109,7 +116,7 @@ function edited(event, line, extras) {
   const chat = chatOf(event.chatGuid);
   if (!chat || typeof event.messageGuid !== "string") return null;
   return compact({
-    ...envelope(event, line, "message.edited", `photon:message.edited:${event.messageGuid}:${event.sequence}`, chat, isoOr(event.editedAt)),
+    ...envelope(event, line, "message.edited", `photon:message.edited:${event.messageGuid}:${event.sequence}`, chat, event.editedAt),
     from: actorOf(event),
     message: { guid: event.messageGuid, text: event.content?.text ?? "" },
     edited: compact({ targetGuid: event.messageGuid, previousText: extras.previousText }),
@@ -120,7 +127,7 @@ function unsent(event, line) {
   const chat = chatOf(event.chatGuid);
   if (!chat || typeof event.messageGuid !== "string") return null;
   return compact({
-    ...envelope(event, line, "message.unsent", `photon:message.unsent:${event.messageGuid}:${event.sequence}`, chat, isoOr(event.retractedAt)),
+    ...envelope(event, line, "message.unsent", `photon:message.unsent:${event.messageGuid}:${event.sequence}`, chat, event.retractedAt),
     from: actorOf(event),
     unsent: { targetGuid: event.messageGuid },
   });
@@ -131,7 +138,7 @@ function read(event, line) {
   const chat = chatOf(event.chatGuid);
   if (!chat || typeof event.messageGuid !== "string") return null;
   return compact({
-    ...envelope(event, line, "message.read", `photon:message.read:${event.messageGuid}:${event.sequence}`, chat, isoOr(event.readAt)),
+    ...envelope(event, line, "message.read", `photon:message.read:${event.messageGuid}:${event.sequence}`, chat, event.readAt),
     from: actorOf(event),
     read: { targetGuid: event.messageGuid },
   });
@@ -142,7 +149,7 @@ function reaction(event, line, extras) {
   if (!chat || typeof event.messageGuid !== "string" || !isObject(event.reaction)) return null;
   const kind = REACTION_KINDS.has(event.reaction.kind) ? event.reaction.kind : "unknown";
   return compact({
-    ...envelope(event, line, event.type, `photon:${event.type}:${event.messageGuid}:${event.sequence}`, chat, isoOr(event.occurredAt)),
+    ...envelope(event, line, event.type, `photon:${event.type}:${event.messageGuid}:${event.sequence}`, chat, event.occurredAt),
     from: actorOf(event),
     reaction: compact({
       kind,
@@ -163,7 +170,7 @@ function stickerPlaced(event, line, extras) {
   const chat = chatOf(event.chatGuid);
   if (!chat || typeof event.messageGuid !== "string") return null;
   return compact({
-    ...envelope(event, line, "message.reactionAdded", `photon:message.stickerPlaced:${event.messageGuid}:${event.sequence}`, chat, isoOr(event.occurredAt)),
+    ...envelope(event, line, "message.reactionAdded", `photon:message.stickerPlaced:${event.messageGuid}:${event.sequence}`, chat, event.occurredAt),
     from: actorOf(event),
     reaction: compact({
       kind: "sticker",
@@ -208,7 +215,7 @@ function pollChanged(event, line, extras) {
   if (text === null) return null;
   const guid = `${event.pollMessageGuid}:poll:${event.sequence}`;
   return {
-    ...envelope(event, line, "message.received", `photon:poll.changed:${event.pollMessageGuid}:${event.sequence}`, chat, isoOr(event.occurredAt)),
+    ...envelope(event, line, "message.received", `photon:poll.changed:${event.pollMessageGuid}:${event.sequence}`, chat, event.occurredAt),
     from: actorOf(event),
     message: compact({ guid, text, service: service(event.actor?.service), attachments: [], poll: true }),
   };
@@ -220,7 +227,7 @@ function groupChanged(event, line) {
   if (!chat || !isObject(event.change)) return null;
   const change = event.change;
   return compact({
-    ...envelope(event, line, "group.changed", `photon:group.changed:${chat.guid}:${event.sequence}`, chat, isoOr(event.occurredAt)),
+    ...envelope(event, line, "group.changed", `photon:group.changed:${chat.guid}:${event.sequence}`, chat, event.occurredAt),
     from: actorOf(event),
     group: compact({
       change: change.type,
@@ -235,7 +242,7 @@ function chatOther(event, line) {
   const chat = chatOf(event.chatGuid);
   if (!chat) return null;
   return compact({
-    ...envelope(event, line, "chat.other", `photon:${event.type}:${chat.guid}:${event.sequence}`, chat, isoOr(event.occurredAt)),
+    ...envelope(event, line, "chat.other", `photon:${event.type}:${chat.guid}:${event.sequence}`, chat, event.occurredAt),
     from: actorOf(event),
     chatEvent: event.type,
   });

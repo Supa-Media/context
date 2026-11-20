@@ -47,6 +47,7 @@
  *   them to the person's own bucket (`events.ts`).
  */
 
+import { SEEN_FOR_MS } from "./replayWindow";
 import { queueItem, TEXTS_QUEUE } from "./chatQueue";
 import { isItForTexAlone } from "./isItForTex";
 import { partEvent, sendCardPart, threadFor } from "./sendParts"; import { sendPicturePart, sendWords, type PartLine, type PartLogged } from "./sendOne";
@@ -129,7 +130,7 @@ export type InboxDeps = ReplyDeps &
  * none of them on a line with no idempotency key (Sendblue).
  */
 
-export const SEEN_FOR_MS = 24 * 60 * 60 * 1000;
+export { SEEN_FOR_MS };
 const PROGRESS_PREFIX = "psent:"; // a progress line sent for the oldest text a turn answers, by the line's hash, until that work is answered (`answerTexts`)
 export const MAX_SEND_ATTEMPTS = 3;
 /** Tries at a text whose turn failed (`TryLater`), the last one saying so: three more after the first, from 10 s doubling, as a group's (`groupTurnWorkflow.ts`). */

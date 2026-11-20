@@ -243,3 +243,12 @@ test("logs reads the container's records after a number, allowlisted, with the p
     await server.close();
   }
 });
+
+test("the frontiers are served on the container's own port for the object to store", async () => {
+  const server = await serve(fakeRuntime({ frontiers: () => ({ [LINE]: 9 }) }));
+  try {
+    assert.deepEqual(await call(server.base, "/frontiers"), { status: 200, body: { checkpoints: { [LINE]: 9 } } });
+  } finally {
+    await server.close();
+  }
+});

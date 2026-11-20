@@ -780,6 +780,7 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 - Every package this org publishes is `@supa-media/*`, through the framework's pipeline
 - No handwritten file over 1,000 lines, and the allowance only shrinks
 - A list every branch adds to is one entry per line, merged by union
+- Queue and checkpoint code answers "can this get stuck forever?"
 
 ## [Routines](./routines.md)
 
@@ -887,6 +888,7 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 - [Group typing: a WhatsApp experiment before any build (2026-11-01)](./texting-assistant/whapi-presence-probe.md)
 - [Provider events: capture the shapes before designing for them (2026-11-06)](./texting-assistant/provider-events.md)
 - [Photon line: Stable, with an always-on listener (2026-11-14)](./texting-assistant/photon-line.md)
+- [A missing sequence never pins the frontier, and a replay never answers history (2026-11-19)](./texting-assistant/photon-line.md)
 - [A texted read answers with it too, and an asked-for link is always given (2026-10-20)](./texting-assistant/note-links.md)
 - [On Sendblue, every link goes with its picture, and never at either end of its text (2026-11-03)](./texting-assistant/note-links.md)
 - [Tex makes pictures: graphics as a page, photos with Nano Banana (2026-10-19)](./texting-assistant/pictures.md)

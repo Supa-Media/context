@@ -6,6 +6,17 @@
  * can quote addresses and message text.
  */
 
+/**
+ * The class name of a thrown value, for logs: the error's own name, or its
+ * constructor's name when the name is the generic "Error". Never the message.
+ */
+export function errorClass(error) {
+  if (error === null || typeof error !== "object") return "unknown";
+  const name = typeof error.name === "string" ? error.name : undefined;
+  if (name && name !== "Error") return name;
+  return error.constructor?.name || "Error";
+}
+
 /** A request the bridge refuses before any Photon call. */
 export class RequestError extends Error {
   constructor(status, code) {

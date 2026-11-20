@@ -182,3 +182,14 @@ test("a refusal of our own carries no provider detail", () => {
   assert.deepEqual(errorDetail(new RequestError(400, "invalid_chat")), {});
   assert.deepEqual(errorDetail(Object.assign(new Error("x"), { context: { field: "a b c" }, requestId: "has space" })), { detail: "x" });
 });
+
+test("errorClass names the class of a thrown value, never its message", async () => {
+  const { errorClass } = await import("../container/errors.mjs");
+  class Tripped extends Error {}
+  assert.equal(errorClass(new TypeError("token +15550100999")), "TypeError");
+  assert.equal(errorClass(new Error("secret body")), "Error");
+  assert.equal(errorClass(new Tripped("x")), "Tripped");
+  assert.equal(errorClass(Object.assign(new Error("m"), { name: "AbortError" })), "AbortError");
+  assert.equal(errorClass("a string reason"), "unknown");
+  assert.equal(errorClass(null), "unknown");
+});

@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import worker, { type Env } from "./index";
-import { PhotonEvents, STALE_REPLAY_MS } from "./photonEvents";
+import { PhotonEvents } from "./photonEvents";
+import { MAX_REPLAY_MS } from "./replayWindow";
 import { photonAttachmentUrl, photonChatId, photonGroupId, verifyPhotonAttachment } from "./photon";
 import { groupInboxName } from "./groupInbox";
 import { clearGroupMoveCache } from "./groupMoves";
@@ -438,8 +439,8 @@ describe("PhotonEvents.event: catch-up replays (2026-11-19)", () => {
   const ago = (ms: number) => new Date(NOW - ms).toISOString();
   const HOUR = 60 * 60 * 1000;
 
-  it("sits below the inbox's one-day seen window", () => {
-    expect(STALE_REPLAY_MS).toBe(12 * HOUR);
+  it("is twelve hours, the one window the bridge and the agent share", () => {
+    expect(MAX_REPLAY_MS).toBe(12 * HOUR);
   });
 
   it("never hands over a text Apple timed 13 hours ago, notes it dropped without its words, and resolves 200", async () => {
@@ -476,5 +477,78 @@ describe("PhotonEvents.event: catch-up replays (2026-11-19)", () => {
     const { env: e, routed } = env();
     expect(await entrypoint(e).event(event({ at: "not-a-time" }))).toEqual({ status: 200 });
     expect(routed.map((r) => r.path)).toEqual(["/accept"]);
+  });
+
+  it("drops a replayed text whose Apple time is a guess, with no words, as stale_replay", async () => {
+    const { env: e, routed } = env();
+    expect(await entrypoint(e).event(event({ replay: true, atGuessed: true, at: ago(0) }))).toEqual({ status: 200 });
+    expect(routed.map((r) => r.path)).toEqual(["/dropped"]);
+    expect(routed[0]).toMatchObject({ to: PHONE, body: { kind: "one", reason: "stale_replay" } });
+    expect(JSON.stringify(routed[0].body)).not.toContain("hello");
+  });
+
+  it("drops a replayed text whose time it cannot read, as stale_replay", async () => {
+    const { env: e, routed } = env();
+    expect(await entrypoint(e).event(event({ replay: true, at: "not-a-time" }))).toEqual({ status: 200 });
+    expect(routed.map((r) => r.path)).toEqual(["/dropped"]);
+    expect(routed[0]).toMatchObject({ body: { reason: "stale_replay" } });
+  });
+
+  it("hands over a live text whose time is a guess, as today", async () => {
+    const { env: e, routed } = env();
+    expect(await entrypoint(e).event(event({ atGuessed: true, at: ago(0) }))).toEqual({ status: 200 });
+    expect(routed.map((r) => r.path)).toEqual(["/accept"]);
+  });
+
+  it("hands over a replayed text Apple timed within the window, as today", async () => {
+    const { env: e, routed } = env();
+    expect(await entrypoint(e).event(event({ replay: true, at: ago(HOUR) }))).toEqual({ status: 200 });
+    expect(routed.map((r) => r.path)).toEqual(["/accept"]);
+  });
+
+  describe("a group's change, replayed", () => {
+    const GROUP_CHANGE_AT = (at: string, extra: Record<string, unknown>) =>
+      event({ type: "group.changed", eventId: "photon:group.changed:x:7", message: undefined, chat: { guid: GUID, kind: "group", name: "Band" }, from: OTHER, at, ...extra });
+    const renamed = { change: "displayNameChanged", displayName: "Tour 2027" };
+    const joined = { change: "participantAdded", address: OTHER };
+    function controlPlane(): { calls: string[] } {
+      const calls: string[] = [];
+      vi.stubGlobal("fetch", async (url: string) => {
+        calls.push(new URL(url).pathname);
+        return Response.json({});
+      });
+      return { calls };
+    }
+
+    it("a replayed rename Apple timed over twelve hours ago does not rename the group", async () => {
+      const cp = controlPlane();
+      const { env: e, routed } = env();
+      expect(await entrypoint(e).event(GROUP_CHANGE_AT(ago(13 * HOUR), { replay: true, group: renamed }))).toEqual({ status: 200 });
+      expect(cp.calls).toEqual([]);
+      expect(routed).toEqual([]);
+    });
+
+    it("a replayed member change Apple timed over twelve hours ago marks no members changed", async () => {
+      const { env: e, routed } = env();
+      expect(await entrypoint(e).event(GROUP_CHANGE_AT(ago(13 * HOUR), { replay: true, group: joined }))).toEqual({ status: 200 });
+      expect(routed).toEqual([]);
+    });
+
+    it("a replayed group change with a guessed time does not act", async () => {
+      const cp = controlPlane();
+      const { env: e, routed } = env();
+      expect(await entrypoint(e).event(GROUP_CHANGE_AT(ago(0), { replay: true, atGuessed: true, group: renamed }))).toEqual({ status: 200 });
+      expect(cp.calls).toEqual([]);
+      expect(routed).toEqual([]);
+    });
+
+    it("a fresh rename still renames the group, and a fresh member change still marks it changed", async () => {
+      const cp = controlPlane();
+      const { env: e, routed } = env();
+      expect(await entrypoint(e).event(GROUP_CHANGE_AT(ago(HOUR), { replay: true, group: renamed }))).toEqual({ status: 200 });
+      expect(cp.calls).toEqual(["/agent-texts/group/name"]);
+      expect(await entrypoint(e).event(GROUP_CHANGE_AT(ago(HOUR), { group: joined }))).toEqual({ status: 200 });
+      expect(routed.map((r) => r.path)).toEqual(["/group-members-changed"]);
+    });
   });
 });

@@ -3,6 +3,7 @@ import test from "node:test";
 
 import { createEnricher, createLru } from "../container/enrich.mjs";
 import { createLedger } from "../container/ledger.mjs";
+import { GAP_TIMEOUT_MS, MAX_REPLAY_MS } from "../container/replay.mjs";
 import { mapEvent } from "../container/map.mjs";
 import { formatLog, last4 } from "../container/log.mjs";
 import { basicAuth, linesOf, parseTokenData, renewalDelayMs, issueTokens, TokenError } from "../container/tokens.mjs";
@@ -105,7 +106,7 @@ test("the snapshot names lines and depth, not event content", () => {
   ledger.offer(LINE, text(8));
   const snapshot = JSON.stringify(ledger.snapshot());
   assert.equal(snapshot.includes("words"), false);
-  assert.deepEqual(ledger.snapshot().lines, [{ line: LINE, frontier: 7 }]);
+  assert.deepEqual(ledger.snapshot().lines, [{ line: LINE, frontier: 7, stuckMs: null }]);
 });
 
 test("the LRU keeps recent entries and evicts the least recently used", () => {
@@ -269,4 +270,117 @@ test("a poll change is enriched with the poll's title and options, and a sticker
   assert.deepEqual(await enricher.enrich({ type: "message.stickerPlaced", messageGuid: "m" }), { targetText: "stuck on these", targetFromMe: true });
   const blind = createEnricher({ lookup: async () => ({ text: "", fromMe: false }), poll: async () => { throw new Error("down"); } });
   assert.deepEqual(await blind.enrich({ type: "poll.changed", pollMessageGuid: "p" }), {});
+});
+
+// Events dated by the test, so replay age can be set against an injected clock.
+function textAt(seq, at) {
+  return {
+    type: "message.received",
+    sequence: seq,
+    chatGuid: DM,
+    isFromMe: false,
+    occurredAt: at,
+    message: {
+      guid: `msg-${seq}`,
+      chatGuids: [DM],
+      isFromMe: false,
+      dateCreated: at,
+      sender: { address: "+15550100999", service: "iMessage" },
+      content: { text: `words ${seq}`, attachments: [], formatting: [], mentions: [] },
+    },
+  };
+}
+
+test("skipMissing passes a sequence Photon never sent, but not one still queued", () => {
+  const ledger = createLedger({ checkpoints: { [LINE]: 100 }, runId: "skip1", now: () => 0 });
+  ledger.offer(LINE, text(102));
+  ledger.offer(LINE, text(103));
+  assert.deepEqual(ledger.skipMissing(LINE, 103), { skipped: 1, first: 101, frontier: 101 }, "101 is passed; 102 is queued and stops the frontier");
+  assert.equal(ledger.ack(ledger.next().id).frontier, 102);
+  assert.equal(ledger.ack(ledger.next().id).frontier, 103);
+  assert.equal(ledger.offer(LINE, text(101)), "seen", "the skipped sequence is not delivered later");
+});
+
+test("skipMissing is a no-op at or below the frontier, and refuses an absurd span", () => {
+  const ledger = createLedger({ checkpoints: { [LINE]: 100 }, runId: "skip2", now: () => 0 });
+  assert.deepEqual(ledger.skipMissing(LINE, 100), { skipped: 0, first: null, frontier: 100 });
+  assert.deepEqual(ledger.skipMissing(LINE, 2_000_000), { skipped: 0, first: null, frontier: 100 });
+  assert.deepEqual(ledger.skipMissing("+15550100000", 5), { skipped: 0, first: null, frontier: null });
+});
+
+test("sweep does nothing before GAP_TIMEOUT_MS, and skips the gap after it", () => {
+  let clock = 0;
+  const ledger = createLedger({ checkpoints: { [LINE]: 100 }, runId: "sweep1", now: () => clock });
+  ledger.offer(LINE, text(102));
+  clock = GAP_TIMEOUT_MS - 1;
+  assert.deepEqual(ledger.sweep(LINE), { skipped: 0, first: null, frontier: 100 });
+  clock = GAP_TIMEOUT_MS;
+  assert.deepEqual(ledger.sweep(LINE), { skipped: 1, first: 101, frontier: 101 });
+  assert.equal(ledger.next().seq, 102, "the queued event behind the gap is still delivered");
+  assert.deepEqual(ledger.sweep(LINE), { skipped: 0, first: null, frontier: 101 }, "nothing left to skip");
+});
+
+test("a gap clock restarts when the frontier moves, and clears when the gap closes", () => {
+  let clock = 0;
+  const ledger = createLedger({ checkpoints: { [LINE]: 100 }, runId: "sweep2", now: () => clock });
+  ledger.offer(LINE, text(102));
+  ledger.offer(LINE, text(101));
+  clock = GAP_TIMEOUT_MS + 5;
+  assert.equal(ledger.sweep(LINE).skipped, 0, "101 arrived, so there is no gap to skip");
+  ledger.ack(ledger.next().id);
+  clock += GAP_TIMEOUT_MS - 1;
+  assert.equal(ledger.sweep(LINE).skipped, 0);
+});
+
+test("a replay older than MAX_REPLAY_MS completes without being queued; a live event of that age is queued", () => {
+  const now = Date.parse("2026-11-20T12:00:00.000Z");
+  const old = new Date(now - MAX_REPLAY_MS - 60_000);
+  const ledger = createLedger({ checkpoints: { [LINE]: 0 }, runId: "replay1", now: () => now });
+  assert.equal(ledger.offer(LINE, textAt(1, old), {}, { replay: true }), "completed");
+  assert.equal(ledger.frontier(LINE), 1, "the dropped replay still passes the frontier");
+  assert.equal(ledger.next(), null);
+  assert.equal(ledger.offer(LINE, textAt(2, old)), "queued", "a live event is never dropped for its age");
+});
+
+test("a catch-up event is marked replay; a live one is not, and a recent replay is delivered", () => {
+  const now = Date.parse("2026-11-20T12:00:00.000Z");
+  const recent = new Date(now - 60_000);
+  const ledger = createLedger({ checkpoints: { [LINE]: 0 }, runId: "replay2", now: () => now });
+  assert.equal(ledger.offer(LINE, textAt(1, recent), {}, { replay: true }), "queued");
+  assert.equal(ledger.next().event.replay, true);
+  assert.equal(ledger.offer(LINE, textAt(2, recent)), "queued");
+  ledger.ack(ledger.next().id);
+  assert.equal(ledger.next().event.replay, undefined, "a live event carries no replay mark");
+});
+
+test("a replay whose time Apple did not give is not old, so it is delivered", () => {
+  const now = Date.parse("2026-11-20T12:00:00.000Z");
+  const noTime = { ...textAt(1, undefined), message: { ...textAt(1, undefined).message, dateCreated: undefined } };
+  delete noTime.occurredAt;
+  const ledger = createLedger({ checkpoints: { [LINE]: 0 }, runId: "replay3", now: () => now });
+  assert.equal(ledger.offer(LINE, noTime, {}, { replay: true }), "queued");
+  assert.equal(ledger.next().event.atGuessed, true);
+});
+
+test("the snapshot reports how long a frontier has been stuck behind newer events, and the drop and skip counts", () => {
+  let clock = 0;
+  const ledger = createLedger({ checkpoints: { [LINE]: 0 }, runId: "stuck1", now: () => clock });
+  ledger.offer(LINE, text(1));
+  assert.equal(ledger.snapshot().lines[0].stuckMs, null, "nothing newer than the frontier's move yet");
+  clock = 60_000;
+  ledger.offer(LINE, text(2));
+  clock = 120_000;
+  const snap = ledger.snapshot();
+  assert.equal(snap.lines[0].stuckMs, 120_000);
+  assert.equal(snap.replayDropped, 0);
+  assert.equal(snap.gapSkipped, 0);
+  ledger.ack(ledger.next().id);
+  assert.equal(ledger.snapshot().lines[0].stuckMs, null, "the frontier moved, so nothing is stuck");
+});
+
+test("checkpoints names each line that has a frontier, for the object to store", () => {
+  const ledger = createLedger({ checkpoints: { [LINE]: 5 }, runId: "cp1", now: () => 0 });
+  ledger.initialize("+15550100999", 9);
+  assert.deepEqual(ledger.checkpoints(), { [LINE]: 5, "+15550100999": 9 });
+  assert.deepEqual(createLedger({ runId: "cp2" }).checkpoints(), {});
 });

@@ -23,6 +23,10 @@ export type PhotonEvent = {
   from?: string;
   fromMe: boolean;
   at: string;
+  /** Set when Apple gave no time and `at` is the bridge's observation time. Such an event is never a dropped replay. */
+  atGuessed?: true;
+  /** Set on an event from a catch-up after a restart (not a live stream). The agent may use it to tell history from news. */
+  replay?: true;
   message?: {
     guid: string;
     text: string;
