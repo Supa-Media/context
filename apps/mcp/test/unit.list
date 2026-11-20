@@ -453,6 +453,7 @@ test/upstreamStatus.test.mjs
 test/texPageComputer.test.mjs
 test/texPageJobPlaces.test.mjs
 test/aboutLines.test.mjs
+test/aboutUpkeep.test.mjs
 test/texPageLive.test.mjs
 test/texPageNotes.test.mjs
 test/texPageRoutes.test.mjs

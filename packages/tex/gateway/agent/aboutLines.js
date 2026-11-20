@@ -36,6 +36,8 @@ export function markerOf(content) {
       source = "From your texts";
     } else if (/^tex noticed$/i.test(part)) {
       source = "Tex noticed";
+    } else if (/^tex rechecked$/i.test(part)) {
+      source = "Tex rechecked";
     } else if (/^.{1,60} said so$/i.test(part)) {
       source = `${part.slice(0, -" said so".length).trim()} said so`;
     }

@@ -46,6 +46,7 @@ import { appendLogEntry, builtinMeter, clock, dayOf, longDate } from "./jobLog.j
 import { RETIRED_SKILLS_FOLDER, UNUSED_SKILL_DAYS, retireUnusedSkills } from "./learnedSkills.js";
 import { mineHandbacks } from "./handbackMiner.js";
 import { findMemories, memoriesLine } from "./dreamMemories.js";
+import { budgetWords } from "./aboutUpkeep.js";
 
 /** The dream runner's first-party client (`apps/convex/functions/lib/dreams/model.ts`). Decided by the grant. */
 export const DREAMS_CLIENT_ID = "context_dreams";
@@ -136,7 +137,7 @@ export const FIRST_LOOK = [
  * What the dream is asked to do: the setup's words (`instructions`, the
  * production note's body) or the built-in ones, then tonight's facts.
  */
-export function dreamQuestion({ chat = "", memories = [], first, since, timeZone, instructions = null }) {
+export function dreamQuestion({ chat = "", memories = [], first, since, timeZone, instructions = null, budget = null }) {
   const when = first || typeof since !== "number" ? "lately" : `since ${dayOf(since, timeZone)}`;
   const tonight = [
     `Bring ${ABOUT_ME_PATH} up to date with what you learned about them ${when}.`,
@@ -147,7 +148,8 @@ export function dreamQuestion({ chat = "", memories = [], first, since, timeZone
     first ? FIRST_LOOK : "",
   ].filter(Boolean);
   const words = typeof instructions === "string" && instructions.trim() !== "" ? instructions.trim() : DREAM_INSTRUCTIONS;
-  return [words, "## Tonight", ...tonight].join("\n\n");
+  // A budget on the dream step (`limits.chars`, config) keeps the note short; none keeps the words as they were.
+  return [words, ...(Number.isInteger(budget) && budget > 0 ? [budgetWords(budget)] : []), "## Tonight", ...tonight].join("\n\n");
 }
 
 /** The lines added to and removed from the note, ignoring blank lines and order. */
@@ -227,10 +229,10 @@ function writeLog(dispatch, path, entry, { now, timeZone }) {
  * from `when`.
  *
  * Answers `{ outcome, status, body, when, timeZone, now }`: `body` and `status` are the response, `outcome` is for the
- * log, `when` is ["summarize"] on every branch that summed up the days before (and [] on the refusals that did not),
+ * log, `when` is ["summarize", "about"] (About me's upkeep may follow) on every branch that summed up the days before (and [] on the refusals that did not),
  * and `now` is the time that branch summed them up at.
  */
-export async function dreamNight({ env, store, session, controlPlane, dispatch, timeZone, since }) {
+export async function dreamNight({ env, store, session, controlPlane, dispatch, timeZone, since, budget = null }) {
   const answer = (body, status, { when = [], now = Date.now() } = {}) => ({ outcome: body.outcome ?? body.error, status, body, when, timeZone, now });
   const started = Date.now();
   // They switched it off (`texSwitches.js`): About me is left as it is; the summaries of their days still run.
@@ -245,7 +247,7 @@ export async function dreamNight({ env, store, session, controlPlane, dispatch, 
   const first = before === "";
   // Nothing new to read and a note already started: tonight is quiet, and costs no model turn.
   // A quiet night still catches up the summaries of older days (`daySummaries.js`).
-  if (chat === "" && memories.length === 0 && !first) return answer({ outcome: "nothing_new" }, 200, { when: ["summarize"] });
+  if (chat === "" && memories.length === 0 && !first) return answer({ outcome: "nothing_new" }, 200, { when: ["summarize", "about"] });
 
   try {
     await openProvider(controlPlane, session, undefined, env);
@@ -269,7 +271,7 @@ export async function dreamNight({ env, store, session, controlPlane, dispatch, 
   let turn = null;
   try {
     turn = await runTurn({
-      question: dreamQuestion({ chat, memories, first, since, timeZone, instructions: setup?.prompt ?? null }),
+      question: dreamQuestion({ chat, memories, first, since, timeZone, instructions: setup?.prompt ?? null, budget }),
       tools: dreamTools(offered),
       grants: { write: ["save"] }, // its one write is the note's own text (`dreamCallTool`)
       callTool: dreamCallTool(dispatch),
@@ -348,6 +350,7 @@ export async function dreamNight({ env, store, session, controlPlane, dispatch, 
       metadata: { feature: "handback-miner", workspace: String(session.workspaceId) },
     }).catch(() => null);
   }
-  if (outcome === "failed") return answer({ error: "model_unavailable", outcome }, 502, { when: ["summarize"], now });
-  return answer({ outcome, steps: turn?.steps ?? [] }, 200, { when: ["summarize"], now });
+  // "about": About me's upkeep may follow (`aboutRecheck.js`), on the wires a config draws from `dream`.
+  if (outcome === "failed") return answer({ error: "model_unavailable", outcome }, 502, { when: ["summarize", "about"], now });
+  return answer({ outcome, steps: turn?.steps ?? [] }, 200, { when: ["summarize", "about"], now });
 }

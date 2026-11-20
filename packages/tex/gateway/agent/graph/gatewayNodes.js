@@ -18,6 +18,8 @@ import { mailadv } from "./nodes/mailadv.js";
 import card from "./nodes/card.js";
 import daysum from "./nodes/daysum.js";
 import dream from "./nodes/dream.js";
+import aboutExpire from "./nodes/aboutExpire.js";
+import aboutCheck from "./nodes/aboutCheck.js";
 import egress from "./nodes/egress.js";
 import housekeep from "./nodes/housekeep.js";
 import nightly from "./nodes/nightly.js";
@@ -137,6 +139,9 @@ export const GATEWAY_NODES = {
   // into one: the Door (the eleven door steps), Confirmations & refusals, the Answer check (checks and the reviewer),
   // Learn (reflect and the nudge), After the reply (classifier and self-review), the Job advisor (jobcheck and
   // mailadv) and Staff messages.
+  // About me's nightly upkeep after the dream (Dev2, 2026-11-20): past-date lines out, and the weekly recheck.
+  get aboutExpire() { return aboutExpire; },
+  get aboutCheck() { return aboutCheck; },
   get doorStep() { return doorStepNode; },
   get bypass() { return bypassNode; },
   get answerCheck() { return answerCheckNode; },
