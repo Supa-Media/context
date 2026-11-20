@@ -13,7 +13,7 @@
  */
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { SHELF_NODES, draftFit, TEX_CONFIG, withDraft } from "../../../packages/tex/gateway/agent/texConfig.js";
+import { SHELF_NODES, draftFit, TEX_CONFIG, texStep, withDraft } from "../../../packages/tex/gateway/agent/texConfig.js";
 import { ranAsOf, runCard } from "../../../packages/lab/gateway/texDev/sandbox.js";
 import { turnFrom } from "../../../packages/lab/gateway/texDev/probe.js";
 import { nodeStatsAnswer, runOf, tally } from "../../../packages/lab/gateway/texDev/nodeStats.js";
@@ -23,12 +23,16 @@ import { failedAt } from "../../../packages/tex/gateway/agent/memoryNudge.js";
 const clone = (x) => JSON.parse(JSON.stringify(x));
 const main = () => ({ nodes: clone(TEX_CONFIG.nodes), edges: clone(TEX_CONFIG.edges) });
 
-/** A draft that merges Reflect and Memory nudge into one new step, `id`, with no code ("ponder"). */
+/**
+ * A draft that merges the Router and the Shape gate (two of main's steps, both off) into one new step, `id`, with no
+ * code ("ponder"). Reflect and Memory nudge stood here until they were retired off the config (2026-11-20).
+ */
+const MERGED = ["router", "shapeGate"];
 function mergedDraft(id = "ponder", label = "Ponder") {
   const g = main();
-  g.nodes = g.nodes.filter((n) => n.id !== "reflect" && n.id !== "nudge");
-  g.nodes.push({ ...clone(TEX_CONFIG.nodes.find((n) => n.id === "nudge")), id, label });
-  g.edges = g.edges.filter((e) => e.to !== "reflect" && e.to !== "nudge" && e.from !== "reflect" && e.from !== "nudge");
+  g.nodes = g.nodes.filter((n) => !MERGED.includes(n.id));
+  g.nodes.push({ ...clone(TEX_CONFIG.nodes.find((n) => n.id === "router")), id, label });
+  g.edges = g.edges.filter((e) => !MERGED.includes(e.to) && !MERGED.includes(e.from));
   g.edges.push({ from: "send", to: id, mode: "background", when: ["fired"] });
   return g;
 }
@@ -46,27 +50,27 @@ test("a draft that adds and removes steps says what of it cannot run", () => {
   const fit = draftFit(TEX_CONFIG, mergedDraft());
   assert.equal(fit.asDrawn, false);
   assert.deepEqual(fit.noCode, ["ponder (Ponder)"]);
-  assert.deepEqual(fit.removed, ["nudge (Memory nudge)", "reflect (Reflect)"]);
+  assert.deepEqual(fit.removed, ["router (Router)", "shapeGate (Shape gate)"]);
   assert.equal(fit.wires, "main", "a wire to a step with no code makes the whole wiring main's, as withDraft runs it");
   assert.deepEqual(fit.badWires, ["send → ponder"]);
   assert.match(fit.says, /1 step the draft adds has no code yet/);
   assert.match(fit.says, /2 steps the draft removes still run as main's/);
   // The fit is the rules withDraft applies, not a guess: what it calls main's is what runs.
   const ran = withDraft(TEX_CONFIG, mergedDraft());
-  assert.ok(ran.nodes.some((n) => n.id === "nudge") && !ran.nodes.some((n) => n.id === "ponder"));
+  assert.ok(ran.nodes.some((n) => n.id === "router") && !ran.nodes.some((n) => n.id === "ponder"));
   assert.equal(ran.edges, TEX_CONFIG.edges);
 });
 
 test("a draft that draws a step built ahead of the config runs it, with the draft's wires, and its removed steps no more", () => {
   // Dev2, 2026-11-16: a draft's new steps are built in main's code first (`SHELF_NODES`), so a draft can run them.
   // Promote took Learn, and every other step built ahead, off the shelf as it put them in the config: the steps it held
-  // run as main's own. A draft that draws Learn in place of Reflect and Memory nudge runs as drawn, with its own wires.
+  // run as main's own. A draft that draws Learn's wire anew and drops two of main's steps runs as drawn, with its own wires.
   for (const id of ["learn", "doorStep", "bypass", "answerCheck", "afterReply"]) assert.ok(!SHELF_NODES.includes(id), `${id} left the shelf`);
   for (const id of ["learn", "doorStep", "bypass", "answerCheck", "afterReply"]) assert.ok(TEX_CONFIG.nodes.some((n) => n.id === id), `${id} is main's`);
   const learnDraft = () => {
     const g = main();
-    g.nodes = g.nodes.filter((n) => n.id !== "reflect" && n.id !== "nudge");
-    g.edges = g.edges.filter((e) => e.to !== "reflect" && e.to !== "nudge" && e.from !== "reflect" && e.from !== "nudge");
+    g.nodes = g.nodes.filter((n) => !MERGED.includes(n.id));
+    g.edges = g.edges.filter((e) => !MERGED.includes(e.to) && !MERGED.includes(e.from));
     g.edges = [...g.edges.filter((e) => e.to !== "learn"), { from: "send", to: "learn", mode: "background", when: ["fired", "sent"] }];
     return g;
   };
@@ -75,8 +79,8 @@ test("a draft that draws a step built ahead of the config runs it, with the draf
   const ran = withDraft(TEX_CONFIG, learnDraft());
   assert.ok(ran.nodes.some((n) => n.id === "learn"), "the step is in the turn's config");
   assert.ok(ran.edges.some((e) => e.from === "send" && e.to === "learn" && e.when.includes("sent")), "the draft's wires run");
-  assert.ok(!ran.edges.some((e) => e.to === "nudge" || e.to === "reflect"), "no wire reaches a removed step");
-  assert.ok(ran.nodes.some((n) => n.id === "nudge"), "a removed step stays for the settings code reads off it");
+  assert.ok(!ran.edges.some((e) => MERGED.includes(e.to)), "no wire reaches a removed step");
+  assert.ok(ran.nodes.some((n) => n.id === "router"), "a removed step stays for the settings code reads off it");
   assert.ok(!TEX_CONFIG.edges.some((e) => e.to === "learn" && e.when.includes("sent")), "main's own wire is unchanged");
 });
 
@@ -94,14 +98,14 @@ test("a card on such a draft opens with how it really ran", () => {
   const steps = [
     { node: "fd", out: '{"when":["done"]}', ms: 900, ok: true },
     { node: "send", out: '{"when":["sent"]}', ms: 0, ok: true },
-    { node: "nudge", out: '{"outcome":"not_yet"}', ms: 3, ok: true },
+    { node: "router", out: '{"route":"read","sure":0.9,"when":["read"]}', ms: 3, ok: true },
   ];
   const rows = [{ id: "t1", who: "You", text: "hi", at: 1 }, { id: "t1r", reply: "t1", who: "Tex", text: "hey", at: 2, ms: 1, steps }];
   const card = runCard({ rows, msgId: "t1", graph: withDraft(TEX_CONFIG, mergedDraft()), draft: "vdraft", fit });
   assert.equal(card.ranAs.asDrawn, false);
   assert.match(card.ranAs.says, /^Not the draft as drawn/);
   assert.deepEqual(card.ranAs.notRunNoCode, ["ponder (Ponder)"]);
-  assert.deepEqual(card.ranAs.removedButRan, ["nudge (Memory nudge)"], "only the removed steps this run's log shows ran");
+  assert.deepEqual(card.ranAs.removedButRan, ["router (Router)"], "only the removed steps this run's log shows ran");
   assert.match(card.ranAs.wires, /main's/);
   assert.equal(Object.keys(card).indexOf("ranAs"), Object.keys(card).indexOf("draft") + 1, "said right after which draft, before anything else");
   // Main's own run carries none.
@@ -184,7 +188,8 @@ test("node_stats counts each step's runs, failures, time and what it said, and n
   assert.equal(by.send, undefined, "the Worker's delivery is not a run of its own");
   assert.equal(runOf({ kind: "step", step: "timing", name: "model" }), null);
   const never = t.neverRan.map((n) => n.node);
-  assert.ok(never.includes("reflect") && never.includes("router"));
+  assert.ok(never.includes("shapeGate") && never.includes("router"));
+  assert.ok(!never.includes("reflect"), "a step retired off the config is never named as one that did not run");
   assert.ok(t.neverRan.find((n) => n.node === "router").off);
   assert.ok(!never.includes("nudge"));
 
@@ -211,7 +216,7 @@ test("a failed nudge or reflect says where and why", () => {
   assert.deepEqual(failedAt("x", "thrown string"), { outcome: "failed", where: "x", error: "Error" });
   // The fields fit the steps' contracts (texConfig.json outSchema), or the runner would fail the step.
   for (const id of ["nudge", "reflect"]) {
-    const names = TEX_CONFIG.nodes.find((n) => n.id === id).outSchema.map((f) => f.name);
+    const names = texStep(id).outSchema.map((f) => f.name); // retired to the shelf, 2026-11-20: its last definition
     for (const k of ["outcome", "where", "error", "why", "model"]) assert.ok(names.includes(k), `${id} outSchema names ${k}`);
   }
 });

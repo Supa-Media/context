@@ -37,22 +37,14 @@ export const STEP_LOGS: Record<string, StepLog> = {
   fdRead: { got: "node run fdRead: the router's pick and how sure", gave: "node run fdRead: the read door; the turn's rounds and fd's log.route (answered, or fell back and why)", settings: "its model and effort; the read-only tools", time: "node run: its own time; the turn's rounds count its model calls" },
   fdAct: { got: "node run fdAct: the router's pick and how sure", gave: "node run fdAct: the act door; the turn's rounds and fd's log.route", settings: "its model and effort; every tool, the yes-code confirm untouched", time: "node run: its own time; the turn's rounds count its model calls" },
   fd: { got: "the text; each round's context modules, in prompt order, with sizes and fingerprints", gave: "thinking, said, tool calls, each round's tokens, the answer", settings: "reply timing rounds: model per round; door step: effort" , time: "node runs: each run's own time (less the tools and helpers it called); the rounds count its model calls" },
-  fallback: { got: "step fallback: the model that failed and why", gave: "step fallback: the model it moved to", settings: "the setup's fallback" , time: "step fallback: its call" },
-  planner: { got: "tool plan_big_ask: the ask and folder", gave: "tool plan_big_ask: the jobs it started", settings: "door step: planner on or off" , time: "tool plan_big_ask: its time" },
   tools: { got: "tool: its name and arguments", gave: "tool: its result, time and whether it failed", settings: "the tools the door allowed" , time: "node runs, or tool entries before the runner: each call's time" },
   advisor: { got: "tool ask_advisor / advisor: the question", gave: "the advisor's answer", settings: "door step: advisor model" , time: "node run: its own time" },
-  checks: { got: "step checks: the draft", gave: "step checks / judge (code): passed, or why it went back", settings: "code" , time: "node run: its own time, less the front door's rewrites it sent back for (plain code: under 1 ms)" },
   mail: { got: "mail_check: the email (to, subject)", gave: "mail_check: its verdict and why", settings: "its model" , time: "mail_check: its call" },
   card: { got: "step card: the tool, template and pins", gave: "step card: its verdict", settings: "its model" , time: "step card: its call" },
-  reviewer: { got: "judge (review): the draft", gave: "judge (review): let it go or sent back, with feedback", settings: "its model" , time: "judge (review): its call" },
   answerCheck: { got: "node run answerCheck: the draft, and whether it is a report or routine (reviewedAs)", gave: "node run answerCheck: passed, or sent back with why (code's catch, then the model's review: judge (review) for a report or routine)", settings: "its model, for reports and routines only" , time: "node run: its own time, less the front door's rewrites it sent back for"},
   send: { got: "the answer as it left the checks", gave: "text: each text sent, delivered or not", settings: "the chat's service" , time: "node run (building the reply in the gateway) plus step send (delivery): the texting Worker handing it to the service" },
-  classifier: { got: "step classifier: the text", gave: "step classifier: the threads it filed it into", settings: "its model" , time: "node run: its own time, in the background" },
-  selfreview: { got: "step selfreview: the chat it looked back on", gave: "step selfreview: what to do better", settings: "its model" , time: "node run: its own time, in the background" },
   afterReply: { got: "node run afterReply: the texts and the chat", gave: "node run afterReply: the threads filed into and the chat's score, with a review filed when something went wrong", settings: "its model" , time: "node run: its own time, in the background" },
   job: { got: "job: the job and its brief", gave: "job: its state and advice", settings: "the job's model" , time: "job: its run" },
-  jobcheck: { got: "advisor (check): the job's work so far", gave: "advisor (check): keep going or done, and why", settings: "the advisor's model" , time: "advisor (check): its call" },
-  mailadv: { got: "step mailadv: the mail and who sent it", gave: "step mailadv: what to tell them", settings: "its model" , time: "step mailadv: its call" },
   jobadv: { got: "node run jobadv: its role (check or mail) and the job's work or the mail it drafted", gave: "node run jobadv: keep going, done or what to tell them, and why", settings: "its model (the advisor's)" , time: "node run: its own time" },
   jobReport: { got: "node run jobReport: the job's report as the texting Worker handed it (title, state, texts, an owner's ask, the job's id)", gave: "node run jobReport: report or refuse, the report read strictly and the run's question, or why it was refused", settings: "code", time: "node run: its own time" },
   jobStart: { got: "node run jobStart: whether the ask has a title and a brief, the running job it matches, the computer it would run on and how many jobs run there", gave: "node run jobStart: start, already, full or refuse, where it runs and its slots, the running job it was steered to, or why it was refused", settings: "code; its limits (cloudSlots, machineSlots)", time: "node run: its own time" },
@@ -60,8 +52,6 @@ export const STEP_LOGS: Record<string, StepLog> = {
   handback: { got: "step handback: the job's answer", gave: "step handback: passed, or what's wrong", settings: "its model" , time: "step handback: its call" },
   egress: { got: "step egress: the words, the action, the workspace and the subject", gave: "step egress: allow or not, and why", settings: "its model and effort" , time: "step egress: its call" },
   picture: { got: "step picture: the tool (draw_visual, draw_picture or make_picture) and its args", gave: "step picture: the result", settings: "its model (Gemini)" , time: "step picture: its call" },
-  nudge: { got: "step nudge: the question, the answer and whether the chat is tainted", gave: "step nudge: what it wrote into About me", settings: "its model" , time: "node run: its own time, in the background (a skip is under 1 ms)" },
-  reflect: { got: "step reflect: the question, tainted, own text and can write", gave: "step reflect: what it wrote down, and why not", settings: "its model" , time: "node run: its own time, in the background (a skip is under 1 ms)" },
   learn: { got: "node run learn: the question, the answer, whether the chat is tainted, own text and can write", gave: "node run learn: nudge and reflect outcomes (what it wrote into About me or a learned skill, and why not)", settings: "its model and effort" , time: "node run: its own time, in the background (a skip is under 1 ms)" },
   nightly: { got: "step nightly: which run (dream or housekeeping), the time zone and since", gave: "step nightly: which step it started and with what", settings: "code; the control plane's schedule" , time: "node run: its own time" },
   dream: { got: "step dream: the time zone and since", gave: "step dream: the outcome, the status and when", settings: "its model" , time: "node run: its own time" },
@@ -76,7 +66,9 @@ export const STEP_LOGS: Record<string, StepLog> = {
 };
 
 /** Step names the gateway and Worker log under another canvas step's name. */
-export const STEP_ALIAS: Record<string, string> = { door: "doorStep", lane: "lanes", model: "fd", steer: "fd", recheck: "decide", provisional: "fd", resumed: "fd", failed: "send" };
+export const STEP_ALIAS: Record<string, string> = { door: "doorStep", lane: "lanes", model: "fd", steer: "fd", recheck: "decide", provisional: "fd", resumed: "fd", failed: "send",
+  // Steps retired from the config on 2026-11-20 (their code kept, on the shelf): what they log lands on the step they were folded into.
+  fallback: "fd", planner: "fd", checks: "answerCheck", reviewer: "answerCheck", classifier: "afterReply", selfreview: "afterReply", jobcheck: "jobadv", mailadv: "jobadv", nudge: "learn", reflect: "learn" };
 
 /** The canvas step a `step` entry belongs to, or null (`timing` entries are Door steps' gathering, read from the reply). */
 export const nodeOfStep = (step: unknown): string | null => (typeof step !== "string" || step === "timing" ? null : (STEP_ALIAS[step] ?? (step in STEP_LOGS ? step : null)));
