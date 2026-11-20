@@ -8,7 +8,7 @@
  *  1. `homeEveryChat` (`texGroupMigrationRows.ts`, which reads no credential): a chat with no home in the pin gets one, named for the people it was last seen with, in the
  *     name of the person who brought Tex in (`lib/textGroupHome.ts`). Each refusal is counted by its code.
  *  2. `sweep`: an old memory note in a workspace folder (`tex/groups/chat-<id>.md`) is trashed once its chat's record
- *     says its words were carried in (`carriedFrom`, `apps/mcp/src/agent/groupMemoryCarry.js`), and with it the voice
+ *     says its words were carried in (`carriedFrom`, `packages/tex/gateway/agent/groupMemoryCarry.js`), and with it the voice
  *     note of the same name when the chat keeps its voice in its home. A trash is a row move, restorable for 30 days
  *     (`lib/nodes/rowTrash.ts`). A note no record names is counted, never trashed: its words would have nowhere else.
  *
@@ -62,7 +62,7 @@ async function carriedFrom(ctx: ActionCtx, pin: Id<"workspaces">, groupKey: stri
   const owner = `chat:${groupKey}`;
   const buckets = consoleTexBuckets(ctx, pin, { ticketOwners: [owner] });
   if (buckets === null) return null;
-  // The record's one name in its chat's object: sha256 of "memory" (`apps/mcp/src/agent/chatMemoryRecord.js`).
+  // The record's one name in its chat's object: sha256 of "memory" (`packages/tex/gateway/agent/chatMemoryRecord.js`).
   const held = await buckets(owner).get(`state/${await hashToken("memory")}.json`);
   if (held === null) return null;
   const record = JSON.parse(await held.text()) as { carried?: number; carriedFrom?: unknown };

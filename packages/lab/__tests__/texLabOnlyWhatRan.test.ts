@@ -16,7 +16,7 @@ const e = (x: Partial<LedgerEntry> & { id: string; kind: string }): LedgerEntry 
 const T = "turn-0001";
 const base: LedgerEntry[] = [
   e({ id: "ev1000000000001000001", eid: "1000000000001-000001", seq: 1, at: 1_000_000_000_001, kind: "text", from: { kind: "person" }, text: "whats on the cal tomorrow" }),
-  // The graph runner logs each node it runs as a "node" step naming it (`apps/mcp/src/agent/ledger.js` `nodeEntry`).
+  // The graph runner logs each node it runs as a "node" step naming it (`packages/tex/gateway/agent/ledger.js` `nodeEntry`).
   e({ id: "d1", seq: 2, at: 1_000_000_002_000, kind: "step", turn: T, step: "node", name: "doorStep", ok: true, ms: 40, input: { chat: "one", kind: "text" }, output: { when: ["next"], log: { parts: [{ part: "readTheText", ok: true, ms: 1, chat: "one", covers: ["1000000000001-000001"] }] } } }),
   e({ id: "tl", seq: 3, at: 1_000_000_004_000, kind: "tool", turn: T, name: "read_calendar", ms: 700, args: {}, result: "3 events" }),
   e({ id: "rv", seq: 4, at: 1_000_000_007_000, kind: "step", turn: T, step: "node", name: "answerCheck", ok: true, ms: 2_000, input: { pending: true }, output: null }),

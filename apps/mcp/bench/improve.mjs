@@ -31,7 +31,7 @@
 import { readdir, readFile, writeFile } from "node:fs/promises";
 import { basename, dirname, join } from "node:path";
 
-import { parseSetup } from "../src/agent/production.js";
+import { parseSetup } from "../../../packages/tex/gateway/agent/production.js";
 import { parseTest } from "./load.mjs";
 import { claudeTransport } from "./models.mjs";
 import { priceUsd } from "./report.mjs";

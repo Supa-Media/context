@@ -27,7 +27,7 @@ import { createControlPlaneStub, createS3Backend, CONTROL_PLANE_ORIGIN, GATEWAY_
 import { AI_GATEWAY_ENV, AI_GATEWAY_ORIGIN, BUILTIN_ALLOWED } from "./agentModelFixture.mjs";
 import { conversationTurns } from "./agentConversationFixture.mjs";
 import { eventTurn } from "./agentEgressFixtures.mjs";
-import { VAULT_SAVED_QUESTION } from "../src/agent/vaultSaved.js";
+import { VAULT_SAVED_QUESTION } from "../../../packages/tex/gateway/agent/vaultSaved.js";
 import { texStoreNamespace, withAgentHome } from "./texStoreFixture.mjs";
 
 const S3_ENDPOINT = "https://s3.example-vault-saved.test";

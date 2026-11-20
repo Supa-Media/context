@@ -8,7 +8,7 @@
  * - **It reaches only addresses the gateway vouched for.** Every request the
  *   page makes is stopped unless it is inline (`data:`/`blob:`), one of the
  *   exact addresses in `allow`, or Google Fonts. The gateway's list is the
- *   addresses the turn read or the person wrote (`apps/mcp/src/agent/
+ *   addresses the turn read or the person wrote (`packages/tex/gateway/agent/
  *   pictureMaker.js`), so a page cannot carry the person's notes to a server
  *   by putting them in an address it assembled. A script's `fetch`, a CSS
  *   `url()` and a navigation are all requests, and all stopped the same way.

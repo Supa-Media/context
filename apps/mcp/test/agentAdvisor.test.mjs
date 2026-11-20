@@ -20,17 +20,17 @@
  *    no own limit for the ask in the turn: "an ask slower than the default limit still answers" fails.
  */
 
-import { withArchitecture } from "../src/agent/texArchitecture.js";
+import { withArchitecture } from "../../../packages/tex/gateway/agent/texArchitecture.js";
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { ADVISOR_DEFINITION, ADVISOR_PROMPT, ADVISOR_TIMEOUT_MS, ADVISOR_TOOL, MAX_ASKS, advisorTimeoutMs, advisorTools } from "../src/agent/advisor.js";
-import { TOOL_TIMEOUT_MS } from "../src/agent/turn.js";
+import { ADVISOR_DEFINITION, ADVISOR_PROMPT, ADVISOR_TIMEOUT_MS, ADVISOR_TOOL, MAX_ASKS, advisorTimeoutMs, advisorTools } from "../../../packages/tex/gateway/agent/advisor.js";
+import { TOOL_TIMEOUT_MS } from "../../../packages/tex/gateway/agent/turn.js";
 import { texEntryPointSource } from "./texEntryPointSource.mjs";
-import { aiGatewayConfig, resetCreditState } from "../src/agent/aiGateway.js";
-import { BUILTIN_PROVIDER } from "../src/agent/builtin.js";
-import { sixToolsOver } from "../src/agent/sixTools.js";
-import { runTurn } from "../src/agent/turn.js";
+import { aiGatewayConfig, resetCreditState } from "../../../packages/tex/gateway/agent/aiGateway.js";
+import { BUILTIN_PROVIDER } from "../../../packages/tex/gateway/agent/builtin.js";
+import { sixToolsOver } from "../../../packages/tex/gateway/agent/sixTools.js";
+import { runTurn } from "../../../packages/tex/gateway/agent/turn.js";
 
 const OPUS = "anthropic/claude-opus-5-5";
 const HAIKU = "anthropic/claude-haiku-5-5";
@@ -180,7 +180,7 @@ test("end to end: Haiku reads a note, asks through send with no input, the advis
     return new Response(JSON.stringify(script.shift()), { status: 200, headers: { "content-type": "application/json" } });
   };
   const providerOptions = { gateway: aiGatewayConfig(ENV), fetchImpl };
-  const { requestBuiltin } = await import("../src/agent/builtin.js");
+  const { requestBuiltin } = await import("../../../packages/tex/gateway/agent/builtin.js");
   const local = advisorTools({ model: OPUS, history: [], question: "should I book lisbon now", request: (params) => requestBuiltin(params, undefined, providerOptions) });
   resetCreditState();
   const result = await runTurn({

@@ -17,9 +17,9 @@
  */
 import test from "node:test";
 import assert from "node:assert/strict";
-import { MAX_KEPT_WORDS, fingerprint, keptWordsOf, manifestDiff, manifestOf } from "../src/agent/promptManifest.js";
-import { turnPrompt } from "../src/agent/turnPrompt.js";
-import { turnTiming } from "../src/agent/turnTiming.js";
+import { MAX_KEPT_WORDS, fingerprint, keptWordsOf, manifestDiff, manifestOf } from "../../../packages/tex/gateway/agent/promptManifest.js";
+import { turnPrompt } from "../../../packages/tex/gateway/agent/turnPrompt.js";
+import { turnTiming } from "../../../packages/tex/gateway/agent/turnTiming.js";
 
 const base = { texting: true, pictures: false, notes: null, models: null, tools: [], history: [], threadNote: "", turnNote: "Tagged by A.", webNames: new Set(), progress: null, aboutMe: null, identity: null, jobs: null, voice: null, calendar: null, observe: false, workspaces: [], localNow: { now: Date.UTC(2026, 10, 14, 15), timeZone: "America/New_York" }, plan: null, nudge: "" };
 
@@ -83,8 +83,8 @@ test("a thread note in parts is sent as one block and named part by part, so a c
 });
 
 test("a turn never keeps the repo's fixed paragraphs, which the commit's catalogue already holds", async () => {
-  const { turnPrompt } = await import("../src/agent/turnPrompt.js");
-  const { TRANSCRIPTS_PROMPT } = await import("../src/agent/transcript.js");
+  const { turnPrompt } = await import("../../../packages/tex/gateway/agent/turnPrompt.js");
+  const { TRANSCRIPTS_PROMPT } = await import("../../../packages/tex/gateway/agent/transcript.js");
   const o = { texting: true, pictures: false, notes: null, models: null, tools: [], history: [], threadNote: "", turnNote: "@ada asked at 3", webNames: new Set(), progress: null, aboutMe: null, identity: null, jobs: null, voice: null, calendar: null, observe: () => {}, workspaces: [], localNow: { now: Date.UTC(2026, 10, 17, 21), timeZone: "America/New_York" }, plan: null, nudge: "" };
   const { prompt } = turnPrompt(null, "anthropic/claude-haiku-5-5", o);
   const transcripts = prompt.modules.find((m) => m.id === "context/transcripts");

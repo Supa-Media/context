@@ -19,9 +19,9 @@ import { shown } from "./sixToolsShown.mjs";
 import worker from "../src/index.js";
 import { createWorkerCtx } from "./workerCtx.mjs";
 import { createControlPlaneStub, createS3Backend, CONTROL_PLANE_ORIGIN, GATEWAY_SECRET } from "./controlPlaneStub.mjs";
-import { OPEN_PAGE_TOOL, SEARCH_WEB_TOOL } from "../src/agent/computer.js";
-import { MAX_QUERY_CHARS, MAX_SEARCHES_PER_TURN, cleanQuery, searcherFor } from "../src/agent/search.js";
-import { DECISION_MODEL } from "../src/agent/decide.js";
+import { OPEN_PAGE_TOOL, SEARCH_WEB_TOOL } from "../../../packages/tex/gateway/agent/computer.js";
+import { MAX_QUERY_CHARS, MAX_SEARCHES_PER_TURN, cleanQuery, searcherFor } from "../../../packages/tex/gateway/agent/search.js";
+import { DECISION_MODEL } from "../../../packages/tex/gateway/agent/decide.js";
 import { texStoreNamespace } from "./texStoreFixture.mjs";
 
 const S3_ENDPOINT = "https://s3.example-search.test";

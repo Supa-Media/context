@@ -8,10 +8,10 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 
 import graphLib from "../../../packages/tex/src/texGraph.cjs";
-import { TEX_CONFIG } from "../src/agent/texConfig.js";
-import { nudgeAfterTurn, reflectAfterTurn } from "../src/agent/reflect.js";
-import reflectNode from "../src/agent/graph/nodes/reflect.js";
-import nudgeNode from "../src/agent/graph/nodes/nudge.js";
+import { TEX_CONFIG } from "../../../packages/tex/gateway/agent/texConfig.js";
+import { nudgeAfterTurn, reflectAfterTurn } from "../../../packages/tex/gateway/agent/reflect.js";
+import reflectNode from "../../../packages/tex/gateway/agent/graph/nodes/reflect.js";
+import nudgeNode from "../../../packages/tex/gateway/agent/graph/nodes/nudge.js";
 
 const { createGraph } = graphLib;
 

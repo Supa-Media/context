@@ -24,12 +24,12 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { advisorBrief, advisorTools } from "../src/agent/advisor.js";
-import { MAX_TOOL_LIST_CHARS, readsTools, toolList } from "../src/agent/advisorToolList.js";
-import { checkJob, jobCheckBrief } from "../src/agent/jobCheck.js";
-import { TEX_CONFIG, draftFit, texStep, withDraft } from "../src/agent/texConfig.js";
-import { READS_PREFACE } from "../src/agent/readsIndex.js";
-import { sixToolsOver } from "../src/agent/sixTools.js";
+import { advisorBrief, advisorTools } from "../../../packages/tex/gateway/agent/advisor.js";
+import { MAX_TOOL_LIST_CHARS, readsTools, toolList } from "../../../packages/tex/gateway/agent/advisorToolList.js";
+import { checkJob, jobCheckBrief } from "../../../packages/tex/gateway/agent/jobCheck.js";
+import { TEX_CONFIG, draftFit, texStep, withDraft } from "../../../packages/tex/gateway/agent/texConfig.js";
+import { READS_PREFACE } from "../../../packages/tex/gateway/agent/readsIndex.js";
+import { sixToolsOver } from "../../../packages/tex/gateway/agent/sixTools.js";
 import { toolDefinitions } from "../src/tools/registry.js";
 
 const mcp = new Map(toolDefinitions().map((tool) => [tool.name, tool]));

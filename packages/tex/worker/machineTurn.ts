@@ -51,7 +51,7 @@ export type MachineOutcome =
   | { kind: "broken" }
   | { kind: "stop"; text?: string };
 
-/** The advisor's check of an ended part (`/agent/machine/check`, `apps/mcp/src/agent/jobCheck.js`), as a cloud part's answer carries it. */
+/** The advisor's check of an ended part (`/agent/machine/check`, `packages/tex/gateway/agent/jobCheck.js`), as a cloud part's answer carries it. */
 export type MachineCheck = { verdict?: JobVerdict; advice?: string; unfinished?: true; untrusted?: true; idle?: true };
 
 const VERDICTS = new Set<string>(["done", "keep_going", "waiting", "stuck"]);

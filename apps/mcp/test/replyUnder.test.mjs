@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 
-import { splitUnder, underNote, underOf, withoutMarks } from "../src/agent/replyUnder.js";
+import { splitUnder, underNote, underOf, withoutMarks } from "../../../packages/tex/gateway/agent/replyUnder.js";
 
 // Battle of the Bots, 2026-11-17: "tex, say alpha" and "tex, say bravo" answered in one turn.
 const alpha = { id: "1794970601459-000882", from: { kind: "person", name: "guest-66ef" }, text: "tex, say alpha" };

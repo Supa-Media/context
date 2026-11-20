@@ -20,7 +20,7 @@ import { settingsSectionLabel } from "../sections";
  * Settings › Check-ins, quiet hours and more (Dev2, 2026-11-13: the settings
  * Tex changes by text get switches in the app too). Each row writes the same
  * note a text does, through the Tex page's `setting.set`
- * (`apps/mcp/src/agent/settingsTools.js` `settingSet`), so the app and the
+ * (`packages/tex/gateway/agent/settingsTools.js` `settingSet`), so the app and the
  * chat can't disagree. Personal only: these are the person's own Tex.
  */
 

@@ -27,8 +27,8 @@ import { after, before, test } from "node:test";
 import { createEgressWorld, request, toolReplies } from "./agentEgressFixtures.mjs";
 import { BUILTIN_ALLOWED } from "./agentModelFixture.mjs";
 import { PENDING_PREFIX } from "../src/tools/approvals.js";
-import { GROUP_MEMORY_PREFIX } from "../src/agent/groupTurn.js";
-import { EMPTY_FALLBACK } from "../src/agent/replyChecks.js";
+import { GROUP_MEMORY_PREFIX } from "../../../packages/tex/gateway/agent/groupTurn.js";
+import { EMPTY_FALLBACK } from "../../../packages/tex/gateway/agent/replyChecks.js";
 
 const TOKEN_GROUP_EGRESS = `cat_group_act_egress_${"0".repeat(19)}`;
 const TOKEN_GROUP_MEMBER = `cat_group_act_member_${"0".repeat(19)}`;

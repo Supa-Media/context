@@ -4,7 +4,7 @@
  *
  * The Lab reads the signed-in person's own one-to-one chat ledger through the Tex page's history route
  * (`POST /tex/page/ledger`, which answers only a person's own chat), finds each text they sent, what Tex answered and
- * which Tex that was (the reply's `version`, `apps/mcp/src/agent/texVersion.js`), and the notes that turn read. A
+ * which Tex that was (the reply's `version`, `packages/tex/gateway/agent/texVersion.js`), and the notes that turn read. A
  * picked text goes into the version's run config as a replay; `pnpm ai lab replay` (`apps/mcp/bench/labReplay.mjs`)
  * runs it again in a throwaway world, where nothing can text anyone or change a real note, and prints Then beside Now,
  * which `parseReplay` reads back.
@@ -152,7 +152,7 @@ export function chatLines(entries: LedgerEntry[], texts: MyText[], { group = fal
   return [...out, ...quiet];
 }
 
-/** A text Tex sent on its own (`apps/mcp/src/agent/sentOnItsOwn.js` OWN_SOURCES): it has a note of its own turn. */
+/** A text Tex sent on its own (`packages/tex/gateway/agent/sentOnItsOwn.js` OWN_SOURCES): it has a note of its own turn. */
 const OWN_SOURCE = new Set(["checkin", "routine", "ping", "update", "job", "new_line"]);
 const ownSend = (e: LedgerEntry) => fromKind(e) === "tex" && typeof e.turn === "string" && e.turn !== "" && OWN_SOURCE.has(str(e.source));
 

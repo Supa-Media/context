@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
-import { ledgerFor, ONE_TO_ONE_CHAT } from "../../../src/agent/ledger.js";
-import { fingerprint } from "../../../src/agent/promptManifest.js";
+import { ledgerFor, ONE_TO_ONE_CHAT } from "../../../../../packages/tex/gateway/agent/ledger.js";
+import { fingerprint } from "../../../../../packages/tex/gateway/agent/promptManifest.js";
 import { oneToOne } from "../chats.mjs";
 
 export default {

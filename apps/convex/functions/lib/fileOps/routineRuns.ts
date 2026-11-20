@@ -5,7 +5,7 @@
  * (`.context/agent/routines/<folder>/<name>.json` for a `routines/` note,
  * `.context/agent/tex/routines/<folder>/<name>.json` for a `tex/routines/` one,
  * both from `routineRunsKey`; written by the gateway's
- * `apps/mcp/src/agent/routine.js`), so no ordinary read reaches it: every
+ * `packages/tex/gateway/agent/routine.js`), so no ordinary read reaches it: every
  * path check refuses a dot segment. This is the one narrow way in, and it is
  * named by the *routine note's* path, never by the plumbing key: the caller
  * must be able to see that note through the live `privacy.md`, exactly as

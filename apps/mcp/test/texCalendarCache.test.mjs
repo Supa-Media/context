@@ -25,7 +25,7 @@ import {
   changedCalendar,
   checkedAt,
   refreshCalendarCache,
-} from "../src/agent/calendarCache.js";
+} from "../../../packages/tex/gateway/agent/calendarCache.js";
 
 const LIVE = [
   "## Friday 2026-11-06",

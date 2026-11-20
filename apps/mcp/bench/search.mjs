@@ -33,7 +33,7 @@ import { createHash } from "node:crypto";
 import { mkdir, readFile, readdir, writeFile } from "node:fs/promises";
 import { basename, join } from "node:path";
 
-import { parseSearchSetup } from "../src/agent/production.js";
+import { parseSearchSetup } from "../../../packages/tex/gateway/agent/production.js";
 import { realNow } from "./clock.mjs";
 import { benchFolder } from "./folder.mjs";
 import { expandWorkspaces, readBenchFolder, runnableQuestions } from "./load.mjs";

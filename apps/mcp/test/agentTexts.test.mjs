@@ -34,8 +34,8 @@ import {
   s3Binding,
   worker,
 } from "./searchProjection/fixtures.mjs";
-import { DECISION_MODEL } from "../src/agent/decide.js";
-import { grantedToolsFor, sixToolsOver } from "../src/agent/sixTools.js";
+import { DECISION_MODEL } from "../../../packages/tex/gateway/agent/decide.js";
+import { grantedToolsFor, sixToolsOver } from "../../../packages/tex/gateway/agent/sixTools.js";
 import { ENABLEMENT_KEY } from "../src/plugins/enablement.js";
 import { texStoreNamespace } from "./texStoreFixture.mjs";
 

@@ -37,7 +37,7 @@ import assert from "node:assert/strict";
 import worker from "../src/index.js";
 import { createWorkerCtx } from "./workerCtx.mjs";
 import { createControlPlaneStub, CONTROL_PLANE_ORIGIN, GATEWAY_SECRET } from "./controlPlaneStub.mjs";
-import { browserOwner } from "../src/agent/browserProviders.js";
+import { browserOwner } from "../../../packages/tex/gateway/agent/browserProviders.js";
 import { texStoreNamespace } from "./texStoreFixture.mjs";
 
 const tok = (name) => `cat_texview_${name}_`.padEnd(40, "0");

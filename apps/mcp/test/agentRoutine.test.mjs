@@ -48,14 +48,14 @@ import {
   GATEWAY_SECRET,
 } from "./controlPlaneStub.mjs";
 import { AI_GATEWAY_ENV, AI_GATEWAY_ORIGIN, BUILTIN_ALLOWED } from "./agentModelFixture.mjs";
-import { MAX_RUNS_KEPT, routineBody, runOutcome, stopRoutine, withPaused } from "../src/agent/routine.js";
+import { MAX_RUNS_KEPT, routineBody, runOutcome, stopRoutine, withPaused } from "../../../packages/tex/gateway/agent/routine.js";
 import {
   isRoutineFilePath,
   isWritablePath,
   textingWriteTools,
   WITHHELD_FIELDS,
   WITHHELD_TOOLS,
-} from "../src/agent/textingWrites.js";
+} from "../../../packages/tex/gateway/agent/textingWrites.js";
 import { toolDefinitions } from "../src/tools/advertised.js";
 import { texStoreNamespace } from "./texStoreFixture.mjs";
 

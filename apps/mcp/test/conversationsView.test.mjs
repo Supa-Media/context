@@ -20,7 +20,7 @@ import { test } from "node:test";
 import { texLedger } from "../../../packages/tex/gateway/texStore/ledger.js";
 import { TexObjectRefused, texObjects } from "../../../packages/tex/gateway/texStore/objects.js";
 import { CONVERSATIONS_VIEW_MARKER, HISTORY_VIEW_MARKER, withHistoryView } from "../../../packages/tex/gateway/texStore/historyView.js";
-import { CONVERSATIONS_PATH, ensureHistoryFile, historyWriteRefusal, homeConversationsPath } from "../src/agent/historyFile.js";
+import { CONVERSATIONS_PATH, ensureHistoryFile, historyWriteRefusal, homeConversationsPath } from "../../../packages/tex/gateway/agent/historyFile.js";
 import { conversationsView, conversationView, threadLines } from "../src/http/texPage/conversations.js";
 import { isChatHistoryPath } from "../src/notes/paths.js";
 import { durableSql } from "./texStoreFixture.mjs";

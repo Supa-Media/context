@@ -16,7 +16,7 @@ tex folder … updated in real time … save the thinking and tool calls as well
 to make Tex better. So every texted turn, every routine run and every texted
 yes or no that settles a held call is written into
 `tex/transcripts/YYYY-MM-DD.md` in the person's own workspace, dated in their
-time zone, by `apps/mcp/src/agent/transcript.js`:
+time zone, by `packages/tex/gateway/agent/transcript.js`:
 
 - **As it happens.** The text goes in before the model says a word, marked
   `…working`; thinking, words between tool calls and each call are added as

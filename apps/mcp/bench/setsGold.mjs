@@ -25,7 +25,7 @@ import { DEFAULT_JUDGE, buildJudgeRequest, fakeJudge } from "./judge.mjs";
 import { assertAnswered, modelSocket, socketSend } from "./modelSocket.mjs";
 import { loadSets } from "./sets.mjs";
 import { burstBefore, earlierLines, titleOf } from "./setsFd.mjs";
-import { sentPicturesLine } from "../src/agent/outgoingPictures.js";
+import { sentPicturesLine } from "../../../packages/tex/gateway/agent/outgoingPictures.js";
 import { tapbackLine } from "./run.mjs";
 import { fakeAbilityReply, impossibleLines, isAbilityBody } from "./setsAbility.mjs";
 

@@ -1,6 +1,6 @@
 /**
  * "Share @studio with everyone here", in any words (Dev2, 2026-11-12): the turn's tool asked for it
- * (`apps/mcp/src/agent/settingsTools.js` `chat_add_everyone`), and the answer carries `invite`. Only this Worker holds
+ * (`packages/tex/gateway/agent/settingsTools.js` `chat_add_everyone`), and the answer carries `invite`. Only this Worker holds
  * the chat's numbers, so it runs the same command as the fixed "Tex, add everyone here to @studio", as the person who
  * asked, once the answer has gone: the control plane invites only when they own the workspace (`textGroupInvited.ts`),
  * and the chat hears the same line either way.

@@ -15,15 +15,15 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { SHAPE, carries, combineFindings, finding, oneShape } from "../src/agent/checkFindings.js";
-import { claimCheck, CLAIM_NOTICE, HANDBACK_NOTICE } from "../src/agent/claimCheck.js";
-import { doItChecks, ADVISOR_NOTICE } from "../src/agent/doItChecks.js";
-import { ADVISOR_TOOL } from "../src/agent/advisor.js";
-import { replyChecks } from "../src/agent/replyChecks.js";
-import { WORK_PAGE_NOTICE } from "../src/agent/workPage.js";
-import { WORDY_NOTICE, RESULT_NOTICE } from "../src/agent/wordy.js";
-import { bareCoverNotice } from "../src/agent/pageCoverFloor.js";
-import { GIVE_UP, GIVE_UPS } from "../src/agent/checkFindings.js";
+import { SHAPE, carries, combineFindings, finding, oneShape } from "../../../packages/tex/gateway/agent/checkFindings.js";
+import { claimCheck, CLAIM_NOTICE, HANDBACK_NOTICE } from "../../../packages/tex/gateway/agent/claimCheck.js";
+import { doItChecks, ADVISOR_NOTICE } from "../../../packages/tex/gateway/agent/doItChecks.js";
+import { ADVISOR_TOOL } from "../../../packages/tex/gateway/agent/advisor.js";
+import { replyChecks } from "../../../packages/tex/gateway/agent/replyChecks.js";
+import { WORK_PAGE_NOTICE } from "../../../packages/tex/gateway/agent/workPage.js";
+import { WORDY_NOTICE, RESULT_NOTICE } from "../../../packages/tex/gateway/agent/wordy.js";
+import { bareCoverNotice } from "../../../packages/tex/gateway/agent/pageCoverFloor.js";
+import { GIVE_UP, GIVE_UPS } from "../../../packages/tex/gateway/agent/checkFindings.js";
 
 /** Findings looked up on the web and texted as a long wall of words: a page's worth, and an essay. No figures, so nothing unsourced. */
 const WALL = Array.from({ length: 14 }, (_, at) => `Finding ${at + 1} is that the venue market near the park is tight this month and books out early.`).join(" ");

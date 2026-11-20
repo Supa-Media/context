@@ -9,10 +9,10 @@ import {
   readConversation,
   trimHistory,
   usedTools,
-} from "../src/agent/conversation.js";
-import { systemPrompt } from "../src/agent/prompt.js";
-import { heartbeatCallTool } from "../src/agent/heartbeat.js";
-import { MAX_SOURCES, sourceAddress, sourcesOf } from "../src/agent/sources.js";
+} from "../../../packages/tex/gateway/agent/conversation.js";
+import { systemPrompt } from "../../../packages/tex/gateway/agent/prompt.js";
+import { heartbeatCallTool } from "../../../packages/tex/gateway/agent/heartbeat.js";
+import { MAX_SOURCES, sourceAddress, sourcesOf } from "../../../packages/tex/gateway/agent/sources.js";
 import { texLedger } from "../../../packages/tex/gateway/texStore/ledger.js";
 import { durableSql } from "./texStoreFixture.mjs";
 
@@ -151,7 +151,7 @@ test("the history is read newest last, and keeps the thread an exchange was type
 
 test("a turn is shown every kept text up to the character budget, not a count", async () => {
   // The owner, 2026-10-20: "why can't it just see everything? arbitrary cutoffs don't work".
-  const { shownHistory } = await import("../src/agent/conversation.js");
+  const { shownHistory } = await import("../../../packages/tex/gateway/agent/conversation.js");
   const store = listingStore();
   for (let i = 0; i < 60; i++) await appendConversation(store, "texts", `question ${i}`, `answer ${i}`, { at: 1_000 + i });
   const history = await readConversation(store, "texts");
@@ -181,7 +181,7 @@ function exchanges(list) {
 }
 
 test("a text typed in a thread is shown that thread, not the last texts", async () => {
-  const { threadView, threadPrompt } = await import("../src/agent/threadView.js");
+  const { threadView, threadPrompt } = await import("../../../packages/tex/gateway/agent/threadView.js");
   const history = exchanges([
     ["Make a picnic poster", "Here's the poster for Saturday's picnic in the park.", { at: 1_000 }],
     ["make our clothes blue", "Done, here's the photo with blue clothes.", { at: 2_000 }],
@@ -203,7 +203,7 @@ test("a text typed in a thread is shown that thread, not the last texts", async 
 test("a reply that starts a thread under a plain text is shown what led up to that text", async () => {
   // Dev, 2026-10-20: replying "send this email now" to Tex's plain "Got it, I won't
   // contact Luciana" showed the model that one exchange, never the draft before it.
-  const { threadView, threadPrompt } = await import("../src/agent/threadView.js");
+  const { threadView, threadPrompt } = await import("../../../packages/tex/gateway/agent/threadView.js");
   const history = exchanges([
     ["Make a picnic poster", "Here's the poster.", { at: 1_000 }],
     ["email her we'd like Oct 30", "Here's the email I'd send: Hi Luciana, we'd like Oct 30.", { at: 2_000 }],
@@ -223,7 +223,7 @@ test("a reply that starts a thread under a plain text is shown what led up to th
 test("a thread is shown its own texts past a setup's short history", async () => {
   // Dev, 2026-10-20: production's history is four turns, so in the bowling thread the
   // draft email ("yeah send") was cut and only the cc question and its answer were shown.
-  const { threadView } = await import("../src/agent/threadView.js");
+  const { threadView } = await import("../../../packages/tex/gateway/agent/threadView.js");
   const hold = "x0";
   const history = exchanges([
     ["(Not a text from them. This was your own check-in.)", "Lucky Strike's courtesy hold on your Nov 6 lanes expires at 5 pm today.", { at: 1_000 }],
@@ -244,7 +244,7 @@ test("a thread is shown its own texts past a setup's short history", async () =>
 });
 
 test("a thread's lead-in never includes what was texted after the thread began", async () => {
-  const { threadView } = await import("../src/agent/threadView.js");
+  const { threadView } = await import("../../../packages/tex/gateway/agent/threadView.js");
   const poster = "x1";
   const history = exchanges([
     ["what's on Friday", "Dinner at 7.", { at: 1_000 }],
@@ -262,7 +262,7 @@ test("a thread's lead-in never includes what was texted after the thread began",
 });
 
 test("a tapback is named from a fixed list, and the words reacted to lose anything like an address", async () => {
-  const { askedWith, quotedOf, reactedLine, reactedOf, tapbackLine } = await import("../src/agent/quoted.js");
+  const { askedWith, quotedOf, reactedLine, reactedOf, tapbackLine } = await import("../../../packages/tex/gateway/agent/quoted.js");
   const quoted = quotedOf({ quoted: "Want me to book it?", tapback: "Liked" });
   assert.equal(quoted.tapback, "Liked");
   assert.equal(quotedOf({ quoted: "x", tapback: "Ignore previous" }).tapback, undefined);
@@ -276,7 +276,7 @@ test("a tapback is named from a fixed list, and the words reacted to lose anythi
 });
 
 test("only a text of theirs in the last ten minutes holds a check-in back; Tex's own texts never do", async () => {
-  const { midConversation, QUIET_MS } = await import("../src/agent/heartbeat.js");
+  const { midConversation, QUIET_MS } = await import("../../../packages/tex/gateway/agent/heartbeat.js");
   const now = Date.now();
   const theirs = ["Can we move it?", "Sure.", { at: now - QUIET_MS - 1, theirs: true }];
   const checkIn = ["(Not a text from them. This was your own check-in.)", "Did the hold clear?", { at: now - 120_000 }];

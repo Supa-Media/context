@@ -13,17 +13,17 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { DOOR_NODES, NEED_TOOLS, ROUTE_AT, WEB_READS, doorAllows, narrowForDoor, needToolsLocal, outsideFor } from "../src/agent/doorTools.js";
-import { readRoute, routeRequest } from "../src/agent/specialistRoute.js";
-import { routerNode } from "../src/agent/graph/nodes/router.js";
-import { doorNode, fdActNode, fdQuickNode } from "../src/agent/graph/nodes/doors.js";
-import { routeBeside } from "../src/agent/graph/nodes/doorStep.js";
-import { addSpend, loggedRoute, routeActs, routeIfBack, runWithDoors } from "../src/agent/doorTurn.js";
-import { runTurn } from "../src/agent/turn.js";
-import { sixToolsOver } from "../src/agent/sixTools.js";
-import { aiGatewayConfig, resetCreditState } from "../src/agent/aiGateway.js";
+import { DOOR_NODES, NEED_TOOLS, ROUTE_AT, WEB_READS, doorAllows, narrowForDoor, needToolsLocal, outsideFor } from "../../../packages/tex/gateway/agent/doorTools.js";
+import { readRoute, routeRequest } from "../../../packages/tex/gateway/agent/specialistRoute.js";
+import { routerNode } from "../../../packages/tex/gateway/agent/graph/nodes/router.js";
+import { doorNode, fdActNode, fdQuickNode } from "../../../packages/tex/gateway/agent/graph/nodes/doors.js";
+import { routeBeside } from "../../../packages/tex/gateway/agent/graph/nodes/doorStep.js";
+import { addSpend, loggedRoute, routeActs, routeIfBack, runWithDoors } from "../../../packages/tex/gateway/agent/doorTurn.js";
+import { runTurn } from "../../../packages/tex/gateway/agent/turn.js";
+import { sixToolsOver } from "../../../packages/tex/gateway/agent/sixTools.js";
+import { aiGatewayConfig, resetCreditState } from "../../../packages/tex/gateway/agent/aiGateway.js";
 import { toolDefinitions } from "../src/tools/registry.js";
-import { TEX_CONFIG, texModules } from "../src/agent/texConfig.js";
+import { TEX_CONFIG, texModules } from "../../../packages/tex/gateway/agent/texConfig.js";
 import { ask, createEgressWorld, toolReplies, TOKEN_TEXTS } from "./agentEgressFixtures.mjs";
 
 const mcp = new Map(toolDefinitions().map((tool) => [tool.name, tool]));

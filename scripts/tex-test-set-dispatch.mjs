@@ -50,9 +50,9 @@ export function dispatchPlan({ files, printed = [], statuses = [], body, now = n
 }
 
 function selfTest() {
-  const files = ["apps/mcp/src/agent/turn.js"];
-  const quiet = ["apps/mcp/src/agent/warmCopy.js"];
-  const map = ["apps/mcp/src/agent/texArchitecture.generated.js"];
+  const files = ["packages/tex/gateway/agent/turn.js"];
+  const quiet = ["packages/tex/gateway/agent/warmCopy.js"];
+  const map = ["packages/tex/gateway/agent/texArchitecture.generated.js"];
   const pending = [{ context: STATUS, state: "pending", description: "running" }];
   const ok = [{ context: STATUS, state: "success" }];
   const now = new Date("2026-11-15T00:00:00Z");

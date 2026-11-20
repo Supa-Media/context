@@ -18,7 +18,7 @@
 
 import sets from "../../../../packages/tex/src/texSets.cjs";
 import decide from "../../../../packages/tex/src/textDecide.cjs";
-import { TEX_CONFIG } from "../agent/texConfig.js";
+import { TEX_CONFIG } from "../../../../packages/tex/gateway/agent/texConfig.js";
 import { editsPinnedContext } from "../context/identity.js";
 import { json } from "./responses.js";
 

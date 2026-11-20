@@ -3,7 +3,7 @@
  * "Why tools fail" (Dev2, 2026-11-10; `docs/decisions/observability/tool-failures.md`).
  *
  * The gateway sends each failure as a tool name, a cause code and the reason
- * with every value taken out (`apps/mcp/src/agent/toolFailures.js`). A grant
+ * with every value taken out (`packages/tex/gateway/agent/toolFailures.js`). A grant
  * proves a live connection asked; the row keeps nothing of it. The shape is
  * pinned here as well as there: a name must look like a tool's, a cause must
  * be one of ours, and the reason loses anything that still looks like a value

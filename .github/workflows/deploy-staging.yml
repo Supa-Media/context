@@ -294,7 +294,7 @@ jobs:
         if: ${{ matrix.worker.name == 'mcp' }}
         run: pnpm --dir infra/tex-eval exec wrangler deploy --env staging
       - name: Deploy staging Worker
-        # The gateway records the commit on each Tex turn (apps/mcp/src/agent/texVersion.js).
+        # The gateway records the commit on each Tex turn (packages/tex/gateway/agent/texVersion.js).
         # Photon secrets go on this deploy, not a later secret put: that second
         # version restarts the container. Staging is off the line, and the same
         # double start is still a second rollout.

@@ -14,7 +14,7 @@ without asking.
   and get `{ name, handle, phones, emails, google }`: the phone they text Tex
   from first, every confirmed email and every connected Google address. The
   gateway checks and bounds each field and says them in the system prompt
-  beside `tex/about-me.md` (`apps/mcp/src/agent/identity.js`), told to use
+  beside `tex/about-me.md` (`packages/tex/gateway/agent/identity.js`), told to use
   them rather than ask; only a code a site sends is theirs to give.
 - **Only Tex's one-person clients, only the grant's own person, only their
   personal workspace.** A third-party MCP client never learns a phone number
@@ -33,7 +33,7 @@ Tex, and
 
 - **their own ask needs no yes.** Tex texts the chat a line that it is asking
   their personal Tex, then `send ask_personal_tex` gets their name, phones and
-  emails (`apps/mcp/src/agent/askPersonalTex.js`). The control plane answers
+  emails (`packages/tex/gateway/agent/askPersonalTex.js`). The control plane answers
   `POST /gateway/agent/identity` with `asker: true` only on the token minted for that person's own
   tag (`askerIdentityHandler`, `controlPlane/session.ts` `ownTagOf`): never a
   job's run token, never an earlier token beside a newer tag, never an invited
@@ -63,7 +63,7 @@ two more gaps, fixed together:
   Tex read only `tex/about-me.md`, and its dream read only Tex's own
   transcripts. The nightly dream now also reads the memory notes saved since
   it last ran (all of them on a first dream) and keeps the lasting ones
-  (`apps/mcp/src/agent/dreamMemories.js`); a night with only those is no
+  (`packages/tex/gateway/agent/dreamMemories.js`); a night with only those is no
   longer a quiet night.
 - **Check-ins judged what matters without knowing the person.** A check-in
   decides whether a mail or a meeting is worth a text, but was never shown

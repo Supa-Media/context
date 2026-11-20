@@ -9,8 +9,8 @@
  * output checked is `tex/about.md` afterwards.
  */
 
-import { ABOUT_ME_PATH } from "../../src/agent/aboutMe.js";
-import { PRODUCTION_DREAM_PATH } from "../../src/agent/production.js";
+import { ABOUT_ME_PATH } from "../../../../packages/tex/gateway/agent/aboutMe.js";
+import { PRODUCTION_DREAM_PATH } from "../../../../packages/tex/gateway/agent/production.js";
 import { anthropicGateway, claudeTransport, fakeAi, workersAi } from "../models.mjs";
 import { createWorld } from "../world.mjs";
 

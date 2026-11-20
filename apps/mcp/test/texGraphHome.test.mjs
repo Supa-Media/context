@@ -17,9 +17,9 @@ import { existsSync, readdirSync, readFileSync } from "node:fs";
 import graphLib from "../../../packages/tex/src/texGraph.cjs";
 import NOT_YET from "../../../packages/tex/src/texGraphNotYet.json" with { type: "json" };
 import SHELF from "../../../packages/tex/src/texNodeShelf.json" with { type: "json" };
-import { TEX_CONFIG } from "../src/agent/texConfig.js";
-import { GATEWAY_NODES } from "../src/agent/graph/gatewayNodes.js";
-import { gatewayGraph } from "../src/agent/graph/gatewayGraph.js";
+import { TEX_CONFIG } from "../../../packages/tex/gateway/agent/texConfig.js";
+import { GATEWAY_NODES } from "../../../packages/tex/gateway/agent/graph/gatewayNodes.js";
+import { gatewayGraph } from "../../../packages/tex/gateway/agent/graph/gatewayGraph.js";
 
 const { coverageProblems } = graphLib;
 
@@ -66,7 +66,7 @@ test("notYet only shrinks", () => {
 });
 
 test("no gateway node imports another node's code: they meet only through the config's wires", () => {
-  const dir = new URL("../src/agent/graph/nodes/", import.meta.url);
+  const dir = new URL("../../../packages/tex/gateway/agent/graph/nodes/", import.meta.url);
   const files = existsSync(dir) ? readdirSync(dir).filter((f) => f.endsWith(".js")) : [];
   for (const file of files) {
     const src = readFileSync(new URL(file, dir), "utf8");

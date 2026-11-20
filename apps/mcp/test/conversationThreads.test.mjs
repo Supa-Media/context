@@ -17,9 +17,9 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { classifyText, foldThreads, listedThreads, MAX_LISTED, readVerdict, THREADS_MAX_TOKENS, threadsChat, threadsOn, threadsWrite, verdictEntries } from "../src/agent/conversationThreads.js";
-import { gatewayBody } from "../src/agent/aiGateway.js";
-import { threadedTurn } from "../src/agent/threadedTurn.js";
+import { classifyText, foldThreads, listedThreads, MAX_LISTED, readVerdict, THREADS_MAX_TOKENS, threadsChat, threadsOn, threadsWrite, verdictEntries } from "../../../packages/tex/gateway/agent/conversationThreads.js";
+import { gatewayBody } from "../../../packages/tex/gateway/agent/aiGateway.js";
+import { threadedTurn } from "../../../packages/tex/gateway/agent/threadedTurn.js";
 
 const H = 3600e3;
 const NOW = Date.parse("2026-11-07T15:00:00Z");

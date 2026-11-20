@@ -91,7 +91,7 @@ export function consoleNoteFrom(url: URL): { slug: string; path: string } | null
 
 /**
  * The note link Tex texts and the app opens: `/note/@seyi/1-projects/plan.md`
- * (`apps/mcp/src/agent/noteLinks.js`), which the app redirects to the console
+ * (`packages/tex/gateway/agent/noteLinks.js`), which the app redirects to the console
  * link above, or `/p/@seyi/1-projects/plan.page.md` for a page, which opens
  * in the page viewer. A crawler gets the same card for both.
  *

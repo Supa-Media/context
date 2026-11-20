@@ -14,9 +14,9 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { TEX_CONFIG, texToolList, withDraft } from "../src/agent/texConfig.js";
-import { sixToolsOver } from "../src/agent/sixTools.js";
-import { fixedCarriers } from "../src/agent/sixToolsFixed.js";
+import { TEX_CONFIG, texToolList, withDraft } from "../../../packages/tex/gateway/agent/texConfig.js";
+import { sixToolsOver } from "../../../packages/tex/gateway/agent/sixTools.js";
+import { fixedCarriers } from "../../../packages/tex/gateway/agent/sixToolsFixed.js";
 import { surfaces } from "./toolRules/report.mjs";
 import { oneToOne } from "./replay/chats.mjs";
 import rules from "../../../packages/tex/src/toolRules.cjs";

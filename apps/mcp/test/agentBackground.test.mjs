@@ -32,8 +32,8 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 
 import { shown } from "./sixToolsShown.mjs";
-import { BUILTIN_PROVIDER } from "../src/agent/builtin.js";
-import { runTurn } from "../src/agent/turn.js";
+import { BUILTIN_PROVIDER } from "../../../packages/tex/gateway/agent/builtin.js";
+import { runTurn } from "../../../packages/tex/gateway/agent/turn.js";
 import {
   JOB_STATUS_TOOL,
   MAX_FOLLOW_UPS,
@@ -55,8 +55,8 @@ import {
   withJobSteps,
   withBackground,
   MAX_RUNNING_SHOWN,
-} from "../src/agent/background.js";
-import { FINISH_NOTICE, LAST_NOTICE, OUT_OF_STEPS, exhaustedAnswer, roundNotice } from "../src/agent/lastRound.js";
+} from "../../../packages/tex/gateway/agent/background.js";
+import { FINISH_NOTICE, LAST_NOTICE, OUT_OF_STEPS, exhaustedAnswer, roundNotice } from "../../../packages/tex/gateway/agent/lastRound.js";
 
 const MODEL = "@cf/zai-org/glm-4.7-flash";
 const NOW = Date.UTC(2026, 9, 21, 14, 0, 0);

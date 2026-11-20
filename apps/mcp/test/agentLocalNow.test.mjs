@@ -17,9 +17,9 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { BUILTIN_PROVIDER } from "../src/agent/builtin.js";
-import { runTurn } from "../src/agent/turn.js";
-import { DEFAULT_TIME_ZONE, localNowPrompt, readTimeZone } from "../src/agent/localNow.js";
+import { BUILTIN_PROVIDER } from "../../../packages/tex/gateway/agent/builtin.js";
+import { runTurn } from "../../../packages/tex/gateway/agent/turn.js";
+import { DEFAULT_TIME_ZONE, localNowPrompt, readTimeZone } from "../../../packages/tex/gateway/agent/localNow.js";
 
 const MODEL = "@cf/zai-org/glm-4.7-flash";
 // Wednesday, October 14, 2026, 03:35 UTC = Tuesday, October 13, 11:35 pm in New York.
@@ -80,11 +80,11 @@ test("a turn is told the time where they are", async () => {
  *   tells that turn the day, which is the point of one door. Both together → "a turn with no clock of its own…" fails.
  *   `turn.js` sending history as it was kept → "a turn's earlier texts carry their day" fails.
  */
-import { localStamp, nowLine, stamped, withToday } from "../src/agent/localNow.js";
-import { aiGatewayConfig, requestViaGateway } from "../src/agent/aiGateway.js";
-import { requestBuiltin } from "../src/agent/builtin.js";
-import { DAY_TIME } from "../src/agent/threadedTurn.js";
-import { judgeState, reviewReply } from "../src/agent/replyJudge.js";
+import { localStamp, nowLine, stamped, withToday } from "../../../packages/tex/gateway/agent/localNow.js";
+import { aiGatewayConfig, requestViaGateway } from "../../../packages/tex/gateway/agent/aiGateway.js";
+import { requestBuiltin } from "../../../packages/tex/gateway/agent/builtin.js";
+import { DAY_TIME } from "../../../packages/tex/gateway/agent/threadedTurn.js";
+import { judgeState, reviewReply } from "../../../packages/tex/gateway/agent/replyJudge.js";
 
 const MONDAY = Date.UTC(2026, 10, 9, 14, 25); // Mon 9:25 am New York
 const SUNDAY = Date.UTC(2026, 10, 8, 17, 46); // Sun 12:46 pm New York

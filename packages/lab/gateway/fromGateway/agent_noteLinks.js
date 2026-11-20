@@ -1,1 +1,1 @@
-export * from "../../../../apps/mcp/src/agent/noteLinks.js";
+export * from "../../../tex/gateway/agent/noteLinks.js";

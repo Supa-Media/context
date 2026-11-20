@@ -1,9 +1,9 @@
 import assert from "node:assert/strict";
 import graphLib from "../../../../../packages/tex/src/texGraph.cjs";
-import { gatewayGraph } from "../../../src/agent/graph/gatewayGraph.js";
-import { TEX_CONFIG as MAIN, withDraft } from "../../../src/agent/texConfig.js";
-import { DOOR_PARTS, runDoor } from "../../../src/agent/graph/door.js";
-import { doorOutput } from "../../../src/agent/graph/nodes/doorStep.js";
+import { gatewayGraph } from "../../../../../packages/tex/gateway/agent/graph/gatewayGraph.js";
+import { TEX_CONFIG as MAIN, withDraft } from "../../../../../packages/tex/gateway/agent/texConfig.js";
+import { DOOR_PARTS, runDoor } from "../../../../../packages/tex/gateway/agent/graph/door.js";
+import { doorOutput } from "../../../../../packages/tex/gateway/agent/graph/nodes/doorStep.js";
 import DRAFT from "../../fixtures/simplerGraphDraft.json" with { type: "json" };
 
 /** A picture as a draw tool answers it, the bytes stand-ins. */

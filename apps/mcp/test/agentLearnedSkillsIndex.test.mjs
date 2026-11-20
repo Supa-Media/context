@@ -13,7 +13,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { readLearnedSkills } from "../src/agent/learnedSkills.js";
+import { readLearnedSkills } from "../../../packages/tex/gateway/agent/learnedSkills.js";
 
 const ok = (text) => ({ content: [{ type: "text", text }] });
 const note = (name, when) => `---\nname: ${name}\nwhen: ${when}\nupdated: 2026-10-19\n---\n\n1. steps\n`;

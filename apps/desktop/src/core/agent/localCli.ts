@@ -1,7 +1,7 @@
 /**
  * Asking the coding CLI already logged in on this machine, instead of a key.
  *
- * The console's agent (`/agent`, `apps/mcp/src/agent/turn.js`) spends an API
+ * The console's agent (`/agent`, `packages/tex/gateway/agent/turn.js`) spends an API
  * key the customer pasted into Settings → Model. That works and it bills them
  * per call. Most people asking for this already pay Anthropic every month and
  * would rather that subscription answered — and the only way a third party may

@@ -26,8 +26,8 @@ import {
   computerFor,
   webSession,
   PREFETCH_CONFIDENCE,
-} from "../src/agent/computer.js";
-import { DECISION_MODEL } from "../src/agent/decide.js";
+} from "../../../packages/tex/gateway/agent/computer.js";
+import { DECISION_MODEL } from "../../../packages/tex/gateway/agent/decide.js";
 import { texStoreNamespace, withAgentHome } from "./texStoreFixture.mjs";
 import { conversationText } from "./agentConversationFixture.mjs";
 import { textTex } from "./agentEgressFixtures.mjs";

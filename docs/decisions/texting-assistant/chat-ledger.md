@@ -58,7 +58,7 @@ every text Tex delivers goes through one recorder in the Worker (`packages/tex/w
 `text` event with its `source` (`reply`, `progress`, `checkin`, `routine`, `ping`, `update`, `job`, `new_line`). A text
 sent on its own carries its run's `turn`, the same turn as the gateway's note, which is the link: readers that show
 notes show the note and skip its linked text, a note whose send was recorded undelivered is never shown as said, and a
-routine's note kept with `send: note` is never a sent text (`apps/mcp/src/agent/sentOnItsOwn.js`). Old notes with no
+routine's note kept with `send: note` is never a sent text (`packages/tex/gateway/agent/sentOnItsOwn.js`). Old notes with no
 linked text keep working; nothing is backfilled. Reverting it brings the missing check-ins back:
 `packages/tex/worker/texSends.test.ts`, `apps/mcp/test/checkinOnceInChat.test.mjs` and the replay case
 `checkin-answered-later` fail.

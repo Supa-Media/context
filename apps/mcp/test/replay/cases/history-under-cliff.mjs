@@ -1,8 +1,8 @@
 import assert from "node:assert/strict";
 
-import { historyReads, weekView } from "../../../src/agent/weekHistory.js";
-import { texStep } from "../../../src/agent/texConfig.js";
-import { eventEntry } from "../../../src/agent/ledger.js";
+import { historyReads, weekView } from "../../../../../packages/tex/gateway/agent/weekHistory.js";
+import { texStep } from "../../../../../packages/tex/gateway/agent/texConfig.js";
+import { eventEntry } from "../../../../../packages/tex/gateway/agent/ledger.js";
 
 /**
  * Haiku 5.5 charges 5x past 100,000 input tokens. A saturated front door on

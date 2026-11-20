@@ -9,8 +9,8 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { MAX_LISTED_MAILBOXES, mailAccountsFacts, mailAccountsPrompt } from "../src/agent/mailAccounts.js";
-import { turnPrompt } from "../src/agent/turnPrompt.js";
+import { MAX_LISTED_MAILBOXES, mailAccountsFacts, mailAccountsPrompt } from "../../../packages/tex/gateway/agent/mailAccounts.js";
+import { turnPrompt } from "../../../packages/tex/gateway/agent/turnPrompt.js";
 
 const BOXES = [
   { address: "Me@Example.com", state: "ok" },

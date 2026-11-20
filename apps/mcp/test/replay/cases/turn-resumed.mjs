@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
-import { BUILTIN_PROVIDER } from "../../../src/agent/builtin.js";
-import { checkedSnapshot } from "../../../src/agent/savedRounds.js";
-import { runTurn } from "../../../src/agent/turn.js";
+import { BUILTIN_PROVIDER } from "../../../../../packages/tex/gateway/agent/builtin.js";
+import { checkedSnapshot } from "../../../../../packages/tex/gateway/agent/savedRounds.js";
+import { runTurn } from "../../../../../packages/tex/gateway/agent/turn.js";
 
 const SEARCH = { name: "search_notes", description: "Search notes", inputSchema: { type: "object", properties: { query: { type: "string" } } }, annotations: { readOnlyHint: true } };
 const USAGE = { prompt_tokens: 10, completion_tokens: 5 };

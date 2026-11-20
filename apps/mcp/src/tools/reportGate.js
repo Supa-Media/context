@@ -26,7 +26,7 @@
  *      the report that says they go with it.
  */
 
-import { readConversation, shownHistory } from "../agent/conversation.js";
+import { readConversation, shownHistory } from "../../../../packages/tex/gateway/agent/conversation.js";
 import { callKey, createPending, findPending, ALREADY_ASKED, shownBefore } from "./approvals.js";
 import { REPORT_TOOL, reportMessage, sendReport } from "./reportProblem.js";
 import { toolError } from "./results.js";

@@ -29,8 +29,8 @@
  */
 
 import worker from "../src/index.js";
-import { ledgerFor, ONE_TO_ONE_CHAT } from "../src/agent/ledger.js";
-import { PRODUCTION_DREAM_PATH } from "../src/agent/production.js";
+import { ledgerFor, ONE_TO_ONE_CHAT } from "../../../packages/tex/gateway/agent/ledger.js";
+import { PRODUCTION_DREAM_PATH } from "../../../packages/tex/gateway/agent/production.js";
 import {
   DREAM_INSTRUCTIONS,
   FIRST_DREAM_ROUNDS,
@@ -39,9 +39,9 @@ import {
   dreamCallTool,
   dreamQuestion,
   dreamPath,
-} from "../src/agent/dream.js";
-import { HISTORY_PATH } from "../src/agent/historyFile.js";
-import { chatTurns, renderChatDays } from "../src/agent/ledgerDays.js";
+} from "../../../packages/tex/gateway/agent/dream.js";
+import { HISTORY_PATH } from "../../../packages/tex/gateway/agent/historyFile.js";
+import { chatTurns, renderChatDays } from "../../../packages/tex/gateway/agent/ledgerDays.js";
 import { createWorkerCtx } from "./workerCtx.mjs";
 import { createControlPlaneStub, createS3Backend, CONTROL_PLANE_ORIGIN, GATEWAY_SECRET } from "./controlPlaneStub.mjs";
 import { AI_GATEWAY_ENV, AI_GATEWAY_ORIGIN, BUILTIN_ALLOWED } from "./agentModelFixture.mjs";

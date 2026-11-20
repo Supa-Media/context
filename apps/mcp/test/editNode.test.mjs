@@ -11,10 +11,10 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { editNode } from "../src/agent/graph/nodes/edit.js";
-import { editForTexts } from "../src/agent/textsEdit.js";
-import { checkEvent, EventRefusal } from "../src/agent/log.js";
-import { renderEvents } from "../src/agent/logRender.js";
+import { editNode } from "../../../packages/tex/gateway/agent/graph/nodes/edit.js";
+import { editForTexts } from "../../../packages/tex/gateway/agent/textsEdit.js";
+import { checkEvent, EventRefusal } from "../../../packages/tex/gateway/agent/log.js";
+import { renderEvents } from "../../../packages/tex/gateway/agent/logRender.js";
 
 const one = (over) => ({ kind: "one", change: "edit", ...over });
 

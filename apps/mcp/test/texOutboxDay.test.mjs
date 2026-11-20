@@ -15,9 +15,9 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 
 import { texLedger } from "../../../packages/tex/gateway/texStore/ledger.js";
-import { eventEntry, wordsEntry } from "../src/agent/ledger.js";
-import { readLedger } from "../src/agent/ledgerHistory.js";
-import { loggedTurn } from "../src/agent/loggedTurn.js";
+import { eventEntry, wordsEntry } from "../../../packages/tex/gateway/agent/ledger.js";
+import { readLedger } from "../../../packages/tex/gateway/agent/ledgerHistory.js";
+import { loggedTurn } from "../../../packages/tex/gateway/agent/loggedTurn.js";
 import { durableSql } from "./texStoreFixture.mjs";
 
 const NOW = Date.UTC(2026, 10, 15, 0, 40, 0);

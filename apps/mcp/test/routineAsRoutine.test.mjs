@@ -13,12 +13,12 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { gatewayGraph } from "../src/agent/graph/gatewayGraph.js";
-import { routine } from "../src/agent/graph/nodes/routine.js";
-import { DOOR_PARTS } from "../src/agent/graph/door.js";
-import { ROUTINE_START, TURN_START, DOOR_START } from "../src/agent/graph/turnGraph.js";
-import { ROUTINES_CLIENT_ID } from "../src/agent/routine.js";
-import { TEX_CONFIG } from "../src/agent/texConfig.js";
+import { gatewayGraph } from "../../../packages/tex/gateway/agent/graph/gatewayGraph.js";
+import { routine } from "../../../packages/tex/gateway/agent/graph/nodes/routine.js";
+import { DOOR_PARTS } from "../../../packages/tex/gateway/agent/graph/door.js";
+import { ROUTINE_START, TURN_START, DOOR_START } from "../../../packages/tex/gateway/agent/graph/turnGraph.js";
+import { ROUTINES_CLIENT_ID } from "../../../packages/tex/gateway/agent/routine.js";
+import { TEX_CONFIG } from "../../../packages/tex/gateway/agent/texConfig.js";
 
 // Main's wiring before the promotion: Routine runs to the door's first step, and no wire to the Front door.
 const OLD = { ...TEX_CONFIG, edges: [...TEX_CONFIG.edges.filter((e) => e.from !== "routine"), { from: "routine", to: TURN_START, mode: "wait", when: ["*"] }] };

@@ -38,9 +38,9 @@
  */
 
 import worker from "../src/index.js";
-import { SKIPPED_WORDS } from "../src/agent/jobLog.js";
-import { HOUSEKEEPING_INSTRUCTIONS, housekeepingPath, housekeepingQuestion, chaosFrom, healthOf, summaryLine } from "../src/agent/housekeeping.js";
-import { housekeepingCallTool, protectedReason, undoLine } from "../src/agent/housekeepingGuard.js";
+import { SKIPPED_WORDS } from "../../../packages/tex/gateway/agent/jobLog.js";
+import { HOUSEKEEPING_INSTRUCTIONS, housekeepingPath, housekeepingQuestion, chaosFrom, healthOf, summaryLine } from "../../../packages/tex/gateway/agent/housekeeping.js";
+import { housekeepingCallTool, protectedReason, undoLine } from "../../../packages/tex/gateway/agent/housekeepingGuard.js";
 import { createWorkerCtx } from "./workerCtx.mjs";
 import { createControlPlaneStub, createS3Backend, CONTROL_PLANE_ORIGIN, GATEWAY_SECRET } from "./controlPlaneStub.mjs";
 import { AI_GATEWAY_ENV, AI_GATEWAY_ORIGIN, BUILTIN_ALLOWED } from "./agentModelFixture.mjs";

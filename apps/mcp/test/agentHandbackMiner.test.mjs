@@ -27,8 +27,8 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { chatTurns } from "../src/agent/ledgerDays.js";
-import { HANDBACKS_FOLDER, MAX_MINED_TURNS, mineHandbacks } from "../src/agent/handbackMiner.js";
+import { chatTurns } from "../../../packages/tex/gateway/agent/ledgerDays.js";
+import { HANDBACKS_FOLDER, MAX_MINED_TURNS, mineHandbacks } from "../../../packages/tex/gateway/agent/handbackMiner.js";
 
 const NOW = Date.UTC(2026, 9, 22, 15, 0);
 

@@ -4,7 +4,7 @@ The owner asked for "a decently capable and cheap image generation
 capability": graphics made the way Claude makes them, as a page that is then
 photographed, and photo edits like "show me how I look in this dress" from a
 cheaper image model that stays consistent, under 5 cents a picture. Tex has two
-`send` actions for this (`apps/mcp/src/agent/pictureMaker.js`):
+`send` actions for this (`packages/tex/gateway/agent/pictureMaker.js`):
 
 - **`draw_picture`** takes one HTML page and a size (200-2000 by 200-2400,
   1080 square by default). The screenshot Worker sets the page in a fresh
@@ -106,7 +106,7 @@ Three changes:
 - The setup's fallback (a Workers AI model) can't see pictures. A turn
   carrying one whose model fails now goes on with the setup's other model
   that can (Opus after Haiku, Haiku after Opus), and only with none on the
-  blind one (`pictureFallback` in `apps/mcp/src/agent/attachments.js`; the
+  blind one (`pictureFallback` in `packages/tex/gateway/agent/attachments.js`; the
   turn's fallback may be a function of the failed model, `turn.js`).
 - The turn is told to look at the pictures before anything else, and to take
   what a screenshot shows (a time agreed, a place, a name, an amount) as

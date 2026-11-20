@@ -22,7 +22,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { test } from "node:test";
 
-import { CALL_COLUMNS, callPoints, callsLine, COLUMNS, keyShape, MAX_CALL_POINTS, STAGES, stagesOf, turnStages } from "../src/agent/turnStages.js";
+import { CALL_COLUMNS, callPoints, callsLine, COLUMNS, keyShape, MAX_CALL_POINTS, STAGES, stagesOf, turnStages } from "../../../packages/tex/gateway/agent/turnStages.js";
 import { createEgressWorld, request, TOKEN_TEXTS } from "./agentEgressFixtures.mjs";
 
 test("the steps before the model, the model, the tools and the time after it add up, in columns", () => {

@@ -35,8 +35,8 @@ import { test } from "node:test";
 import { runLabModel, LAB_MODELS, MAX_INPUT_CHARS, toolRunModel } from "../src/tools/runModel.js";
 import { editsPinnedContext } from "../src/context/identity.js";
 import { toolDefinitions, STAFF_ONLY_TOOLS } from "../src/tools/registry.js";
-import { textingWriteTools, WITHHELD_TOOLS } from "../src/agent/textingWrites.js";
-import { agentTools } from "../src/agent/turn.js";
+import { textingWriteTools, WITHHELD_TOOLS } from "../../../packages/tex/gateway/agent/textingWrites.js";
+import { agentTools } from "../../../packages/tex/gateway/agent/turn.js";
 import { toolsForSession } from "../src/tools/advertised.js";
 import { callToolForSession } from "../src/tools/session.js";
 

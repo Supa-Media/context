@@ -8,7 +8,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { pickMachine } from "../src/machines/forJobs.js";
 import { WORK_FOLDER } from "../src/workspaceStore/machines.js";
-import { backgroundSession, START_JOB_TOOL, startedJobs, withBackground } from "../src/agent/background.js";
+import { backgroundSession, START_JOB_TOOL, startedJobs, withBackground } from "../../../packages/tex/gateway/agent/background.js";
 
 const STUDIO = { workspaceId: "ws_seyi", id: "mch_1", name: "Studio Mac", online: true, tools: ["claude", "codex"], folders: ["/Users/seyi/code"], ownerId: "user_seyi" };
 const VM = { workspaceId: "ws_devs", id: "mch_2", name: "Tex Devs VM", online: false, tools: ["claude"], folders: ["/srv/code"], ownerId: "user_ade" };

@@ -12,7 +12,7 @@
  * dropped, and a card naming nothing is not a card (null).
  *
  * Tex offers either one with a line of its answer (`[card times]`,
- * `[card inbox]`, `apps/mcp/src/agent/outgoingPictures.js`), which arrives
+ * `[card inbox]`, `packages/tex/gateway/agent/outgoingPictures.js`), which arrives
  * as `offers`; the card goes after the words, only where cards go.
  */
 

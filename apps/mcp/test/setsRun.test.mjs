@@ -23,7 +23,7 @@ import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
-import { adaptersFor, countsLine, decideCase, decideRight, lineOf, reviewerCase, reviewerRight, routeCase, routeRight, routeTraining, runSets, scoreByRepeat, setsCommand } from "../bench/setsRun.mjs";
+import { adaptersFor, treeFile, countsLine, decideCase, decideRight, lineOf, reviewerCase, reviewerRight, routeCase, routeRight, routeTraining, runSets, scoreByRepeat, setsCommand } from "../bench/setsRun.mjs";
 import { runFd } from "../bench/setsFd.mjs";
 import { openWorldStore, worldKey } from "../bench/simFixtures.mjs";
 import { strictWorld, worldLine, worldMisses, worldModeRefusal, worldStrict, WORLD_STRICT } from "../bench/setsRun.mjs";
@@ -388,10 +388,10 @@ test("the router runs alone with a fake engine: right, wrong and none rows, each
   const dir = await mkdtemp(join(tmpdir(), "router-stub-"));
   try {
     // A tree whose router module answers the way the contract says: the question is the state, the reader takes route.
-    await mkdir(join(dir, "apps/mcp/src/agent"), { recursive: true });
+    await mkdir(join(dir, "packages/tex/gateway/agent"), { recursive: true });
     await writeFile(join(dir, "package.json"), '{"type":"module"}\n');
     await writeFile(
-      join(dir, "apps/mcp/src/agent/specialistRoute.js"),
+      join(dir, "packages/tex/gateway/agent/specialistRoute.js"),
       [
         "export function routeRequest({ question }) { return { state: question, questions: [{ name: \"route\" }] }; }",
         "export function readRoute(answers) { return answers && typeof answers.route === \"string\" ? { route: answers.route, sure: 0.9 } : null; }",
@@ -423,14 +423,14 @@ test("the router runs alone with a fake engine: right, wrong and none rows, each
   }
 });
 
-test("the router's real module, with a fake engine: every row runs, none is right by accident", { skip: !existsSync(join(REPO_ROOT, "apps/mcp/src/agent/specialistRoute.js")) && "specialistRoute.js is not in this tree yet" }, async () => {
+test("the router's real module, with a fake engine: every row runs, none is right by accident", { skip: !existsSync(join(REPO_ROOT, "packages/tex/gateway/agent/specialistRoute.js")) && "specialistRoute.js is not in this tree yet" }, async () => {
   const routeEngine = async () => null;
   const rows = await runSets([routerChat()], { adapters: await adaptersFor(REPO_ROOT, { routeEngine }), node: "router" });
   assert.equal(rows.length, 3);
   assert.ok(rows.every((r) => r.node === "router" && r.ran === true && r.right === false && r.got === null), "no answer is no route");
 });
 
-test("the router's bench reads its config context: Training examples and the chat before, within what Clef reads", { skip: !existsSync(join(REPO_ROOT, "apps/mcp/src/agent/routerContext.js")) && "routerContext.js is not in this tree yet" }, async () => {
+test("the router's bench reads its config context: Training examples and the chat before, within what Clef reads", { skip: !existsSync(join(REPO_ROOT, "packages/tex/gateway/agent/routerContext.js")) && "routerContext.js is not in this tree yet" }, async () => {
   const seen = [];
   const routeEngine = async (state) => {
     seen.push(state);
@@ -442,11 +442,11 @@ test("the router's bench reads its config context: Training examples and the cha
   assert.match(seen[0], /<examples>[\s\S]*<route>(quick|read|act|job)<\/route>/, "train:router's labelled examples");
   assert.match(seen[0], /<chat-history>\n@ann: draft a note to Jo about the leak\nYou: Here's a draft for Jo\.\n<\/chat-history>/, "the chat before it, newest last");
   assert.ok(seen[0].indexOf("<chat-history>") < seen[0].indexOf("<text>\nsend it"), "the text last");
-  const { MAX_DECISION_STATE_CHARS } = await import("../src/agent/decide.js");
+  const { MAX_DECISION_STATE_CHARS } = await import("../../../packages/tex/gateway/agent/decide.js");
   assert.ok(seen[0].length <= MAX_DECISION_STATE_CHARS, `within what Clef reads (${seen[0].length})`);
 });
 
-test("the router without Clef credentials says so on each row, rather than scoring every row wrong", { skip: !existsSync(join(REPO_ROOT, "apps/mcp/src/agent/specialistRoute.js")) && "specialistRoute.js is not in this tree yet" }, async () => {
+test("the router without Clef credentials says so on each row, rather than scoring every row wrong", { skip: !existsSync(join(REPO_ROOT, "packages/tex/gateway/agent/specialistRoute.js")) && "specialistRoute.js is not in this tree yet" }, async () => {
   const rows = await runSets([routerChat()], { adapters: await adaptersFor(REPO_ROOT, { env: {} }), node: "router" });
   assert.equal(rows.length, 3);
   assert.ok(rows.every((r) => r.ran === false && r.right === false && /CLOUDFLARE_ACCOUNT_ID/.test(r.why)));
@@ -670,5 +670,21 @@ test("worldModeRefusal: replay is never refused; record and refresh run only on 
     assert.match(worldModeRefusal({ world, set: "dev", convs: [{ set: undefined }] }), /never the sealed Test set/, "a conversation with no set");
     assert.match(worldModeRefusal({ world, set: true }), /never the sealed Test set/, "a bare --set");
     assert.match(worldModeRefusal({ world, set: "dev", conversations: true }), /never a handed-in or sealed file/, "a handed-in file");
+  }
+});
+
+test("treeFile reads Tex's turn where the tree keeps it: the new folder first, then where it was before the move", async () => {
+  const tree = await mkdtemp(join(tmpdir(), "sets-tree-"));
+  try {
+    await mkdir(join(tree, "apps/mcp/src/agent"), { recursive: true });
+    await writeFile(join(tree, "apps/mcp/src/agent/decide.js"), "");
+    assert.equal(treeFile(tree, "packages/tex/gateway/agent/decide.js"), join(tree, "apps/mcp/src/agent/decide.js"), "an old tree's turn is read where it was");
+    await mkdir(join(tree, "packages/tex/gateway/agent"), { recursive: true });
+    await writeFile(join(tree, "packages/tex/gateway/agent/decide.js"), "");
+    assert.equal(treeFile(tree, "packages/tex/gateway/agent/decide.js"), join(tree, "packages/tex/gateway/agent/decide.js"), "a moved tree's turn is read in its new place");
+    assert.equal(treeFile(tree, "packages/tex/gateway/agent/missing.js"), join(tree, "packages/tex/gateway/agent/missing.js"), "a file in neither place names the new place");
+    assert.equal(treeFile(tree, "apps/mcp/bench/models.mjs"), join(tree, "apps/mcp/bench/models.mjs"), "other files are read as named");
+  } finally {
+    await rm(tree, { recursive: true, force: true });
   }
 });

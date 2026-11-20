@@ -24,8 +24,8 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 
 import { ask, createEgressWorld, textTex, TOKEN_TEXTS } from "./agentEgressFixtures.mjs";
-import { mayAnswerAsk, readFrontDoor } from "../src/agent/frontDoor.js";
-import { textedAsk } from "../src/agent/textedApprovals.js";
+import { mayAnswerAsk, readFrontDoor } from "../../../packages/tex/gateway/agent/frontDoor.js";
+import { textedAsk } from "../../../packages/tex/gateway/agent/textedApprovals.js";
 import { EVERY_CHAT, createPending, listPending } from "../src/tools/approvals.js";
 import { createMemoryStore } from "./gmailSync/fixtures.mjs";
 

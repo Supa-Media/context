@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 
-import { webSession } from "../../../src/agent/computer.js";
-import { BROWSE_TOOL } from "../../../src/agent/browse.js";
+import { webSession } from "../../../../../packages/tex/gateway/agent/computer.js";
+import { BROWSE_TOOL } from "../../../../../packages/tex/gateway/agent/browse.js";
 import { listMeta } from "../../../src/vault/entries.js";
 import { openForFill } from "../../../src/vault/fill.js";
 

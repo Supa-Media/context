@@ -27,7 +27,7 @@ import {
 } from "@context/collaboration";
 import { recordChange } from "../activity/record.js";
 import { isEncryptedNote } from "../encryption.js";
-import { inChatHome } from "../agent/chatHomeSeal.js";
+import { inChatHome } from "../../../../packages/tex/gateway/agent/chatHomeSeal.js";
 import { normalizePath } from "../notes/paths.js";
 import { probeWithLegacyFallback } from "../notes/storage.js";
 import { getWithLegacyFallback } from "../storageLayout.js";

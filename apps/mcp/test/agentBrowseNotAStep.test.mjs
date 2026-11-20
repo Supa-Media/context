@@ -13,9 +13,9 @@
 
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { webSession } from "../src/agent/computer.js";
-import { BROWSE_TOOL } from "../src/agent/browse.js";
-import { notAStep } from "../src/agent/browseNotAStep.js";
+import { webSession } from "../../../packages/tex/gateway/agent/computer.js";
+import { BROWSE_TOOL } from "../../../packages/tex/gateway/agent/browse.js";
+import { notAStep } from "../../../packages/tex/gateway/agent/browseNotAStep.js";
 
 const SITE = "https://checkin.example.com/";
 

@@ -15,10 +15,10 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { sixToolsOver } from "../src/agent/sixTools.js";
+import { sixToolsOver } from "../../../packages/tex/gateway/agent/sixTools.js";
 import { translateV2Params } from "../src/tools/v2/translate.js";
-import { runTurn } from "../src/agent/turn.js";
-import { aiGatewayConfig, resetCreditState } from "../src/agent/aiGateway.js";
+import { runTurn } from "../../../packages/tex/gateway/agent/turn.js";
+import { aiGatewayConfig, resetCreditState } from "../../../packages/tex/gateway/agent/aiGateway.js";
 import { toolDefinitions } from "../src/tools/registry.js";
 import { shown } from "./sixToolsShown.mjs";
 

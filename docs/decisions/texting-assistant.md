@@ -144,7 +144,7 @@ simulated"); `infra/router/src/textsSimulator.test.ts`.
 The owner, 2026-10-07, after the first real answer arrived as `**Segun**` and a
 bracketed note path: "this is text, so please use a natural style", and "it was
 EXTREMELY slow". A grant from the texting client (`context_texts`) gets its own
-system prompt (`TEXTING_STYLE` in `apps/mcp/src/agent/turn.js`): plain words,
+system prompt (`TEXTING_STYLE` in `packages/tex/gateway/agent/turn.js`): plain words,
 the answer first, no Markdown, no note paths unless asked, a blank line between
 texts, and one search rather than `orient` for a simple question, because every
 tool call is another model round. The Worker then strips any Markdown that
@@ -300,7 +300,7 @@ pay for").
 
 Decided by the owner, 2026-10-08: GLM-4.7 Flash is too weak for texting, the
 built-in model becomes Claude Haiku 5.5, and every model call on our bill goes
-through one Cloudflare AI Gateway (`apps/mcp/src/agent/aiGateway.js`) rather
+through one Cloudflare AI Gateway (`packages/tex/gateway/agent/aiGateway.js`) rather
 than one account per provider. The owner's Claude plan includes a monthly API
 credit, and nothing that costs money is spent while it lasts:
 
@@ -345,7 +345,7 @@ its own road above, because only it has a plan credit to spend first.
 
 - Only those provider prefixes and lowercase route names are accepted, in the
   production file and in `AGENT_BUILTIN_MODEL`
-  (`isCatalogModel`, `apps/mcp/src/agent/builtin.js`).
+  (`isCatalogModel`, `packages/tex/gateway/agent/builtin.js`).
 - A catalog call always passes `collectLog: false` and id-only labels, for the
   same reason as above, and is refused before anything is sent when the
   deployment has no gateway.
@@ -365,7 +365,7 @@ every turn instead of falling back. The test that fails is
 
 Decided by the owner, 2026-10-06 ("build with a swappable interface in mind,
 start with cloudflare"). The texting assistant can open web pages through one
-interface, `computerFor(env)` in `apps/mcp/src/agent/computer.js`, whose
+interface, `computerFor(env)` in `packages/tex/gateway/agent/computer.js`, whose
 providers are picked by `AGENT_COMPUTER`. The first is Cloudflare Browser
 Rendering through the `SITE_SHOTS` binding (`infra/site-shots`, POST
 `/read`); a sandbox with a terminal later adds methods and a provider there,
@@ -451,7 +451,7 @@ fetched").
 
 Decided 2026-10-10, when the owner asked for Tex to use a browser by text.
 Beside `open_page`, the texting assistant has `browse`
-(`apps/mcp/src/agent/browse.js`): one browser per question that opens a page,
+(`packages/tex/gateway/agent/browse.js`): one browser per question that opens a page,
 clicks, types, picks options and goes back across several calls, driven by
 `infra/site-shots` POST `/browse` on Cloudflare Browser Rendering.
 
@@ -513,7 +513,7 @@ not name", "fills a secret only on the entry's exact origin").
 
 Decided by the owner, 2026-10-07 ("runs on its own like Instinct"), with Brave
 Search as the first provider. The texting assistant has a `search_web` tool
-(`apps/mcp/src/agent/search.js`, provider picked by `AGENT_SEARCH`) and uses it
+(`packages/tex/gateway/agent/search.js`, provider picked by `AGENT_SEARCH`) and uses it
 without asking whenever an answer depends on the world rather than the
 person's notes. Its queries are the model's own words, not limited to the
 person's.
@@ -583,7 +583,7 @@ Decided by the owner, 2026-10-08: the assistant's model and its prompt come
 from one plain Markdown note per job in the pinned `@context-lc` workspace,
 `ai/production/texting-assistant.md` for texted turns, so promoting a
 setup is editing that file and the gateway does not ship
-(`apps/mcp/src/agent/production.js`). The rest of `ai/` is the benchmark that
+(`packages/tex/gateway/agent/production.js`). The rest of `ai/` is the benchmark that
 decides what goes there (README, invented people and workspaces, tests,
 setups, results). Every member can read `@context-lc`, so `ai/` holds only
 invented data.
@@ -637,7 +637,7 @@ addresses, which a second version had still held back.
 
 So a texting turn on a grant that can write is offered every write tool its
 connection's `toolsForSession` returned, with the MCP's own descriptions and
-fields, generated in `apps/mcp/src/agent/textingWrites.js`, with nothing
+fields, generated in `packages/tex/gateway/agent/textingWrites.js`, with nothing
 withheld (`WITHHELD_TOOLS` is empty). The one tool it used to withhold,
 `export_encryption_keys`, was removed from the MCP itself the same day
 ([encryption](./encryption/teardown-and-revocation.md#there-is-no-key-export-over-mcp-decided-by-the-owner-2026-10-08)).

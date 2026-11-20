@@ -98,7 +98,7 @@ answers an earlier one is newer than everything that answer covers, so it
 stays tagged; "after Tex's last text" was weighed and refused for exactly
 that case. What this gives up, an old ask that truly fell through no longer
 flagged on every turn, is the self-review of each finished chat's job. Both
-transcripts follow it: the turn's (`apps/mcp/src/agent/logRender.js`) and
+transcripts follow it: the turn's (`packages/tex/gateway/agent/logRender.js`) and
 decide's (`packages/tex/worker/events.ts` `renderTranscript`). Tests:
 `agentEventLog.test.mjs` "an ask older than what Tex has since answered is
 history, not answered" and "a text that lands while Tex answers an earlier

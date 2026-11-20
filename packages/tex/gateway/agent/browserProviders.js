@@ -1,0 +1,312 @@
+/**
+ * The browsers behind `computerFor` (`computer.js`), both reached through the
+ * `SITE_SHOTS` service binding (`infra/site-shots`):
+ *
+ * - **Cloudflare Browser Rendering** reads pages (POST /read) and, until
+ *   Browserbase is configured, drives one browser per question (POST
+ *   /browse), closed when the question is answered.
+ * - **Browserbase** (decided 2026-10-10) drives the browser once
+ *   `BROWSERBASE_API_KEY` and `BROWSERBASE_PROJECT_ID` reach the screenshot
+ *   Worker. Nothing here needs configuring to switch: the gateway asks for
+ *   Browserbase first, and a Worker without its key answers 501, after which
+ *   this isolate uses Cloudflare's browser. Its browser outlives the question
+ *   (until five idle minutes pass, `infra/site-shots/src/idle.ts`), found again by
+ *   the person's tag, so a person can sign in on it and text Tex to carry on.
+ *   They take it over at `viewer`, their own `context.lc/tex/@<handle>` page
+ *   (`http/texComputer.js`), signed in; Browserbase's live-view link, which
+ *   drives the browser for whoever holds it, is never asked for.
+ *
+ * The tag is an HMAC of the person's user id under `GATEWAY_SECRET`: the
+ * screenshot Worker and Browserbase see a value that names nobody and cannot
+ * be produced for another person without the secret.
+ */
+
+import { fileWords, typeOfFile, wordsWithoutPages } from "../../../../apps/mcp/src/tools/readFile.js";
+import { pdfLinks } from "../../../../apps/mcp/src/tools/pdfLinks.js";
+import { untilFree } from "./browserLease.js";
+import { TEX_CONFIG } from "./texConfig.js";
+import { browserUseCaps, browserUseFlag } from "./browserUseFallback.js";
+
+/** Set once a Worker says it has no Browserbase key; a deploy starts a new isolate. */
+let browserbaseMissing = false;
+
+/**
+ * How long this isolate leaves Browserbase alone after it refuses to start a
+ * browser for billing (402, 2026-10-14: every texted browser job failed on
+ * it). Long enough not to ask on every call, short enough that paying the bill
+ * brings it back without a deploy.
+ */
+export const BROWSERBASE_REFUSED_PAUSE_MS = 10 * 60 * 1000;
+let browserbaseRefusedAt = null;
+
+/** For tests: forget what an earlier Worker said. */
+export function resetBrowserbaseProbe() {
+  browserbaseMissing = false;
+  browserbaseRefusedAt = null;
+}
+
+/** The person's browser tag, or null when this deployment cannot make one. */
+export async function browserOwner(env, userId) {
+  const secret = typeof env?.GATEWAY_SECRET === "string" ? env.GATEWAY_SECRET : "";
+  if (!secret || typeof userId !== "string" || !userId) return null;
+  const key = await crypto.subtle.importKey("raw", new TextEncoder().encode(secret), { name: "HMAC", hash: "SHA-256" }, false, ["sign"]);
+  const mac = await crypto.subtle.sign("HMAC", key, new TextEncoder().encode(`tex-browser:${userId}`));
+  return [...new Uint8Array(mac)].map((b) => b.toString(16).padStart(2, "0")).join("");
+}
+
+/**
+ * A group chat's browser tag (the owner, 2026-10-24): one browser per chat and
+ * set of people in it, so a sign-in code texted after Tex asks for it lands in
+ * the same browser, and somebody added to the chat gets a new one. Its own
+ * label, so it never equals any person's tag.
+ */
+export async function groupBrowserOwner(env, group) {
+  if (typeof group?.key !== "string" || !group.key || typeof group?.members !== "string" || !group.members) return null;
+  return await browserOwner(env, `group:${group.key}:${group.members}`);
+}
+
+async function post(binding, path, body) {
+  return await binding.fetch(`https://site-shots${path}`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(body),
+  });
+}
+
+/**
+ * What a /browse answer means to `browse.js`. A failed call still names its
+ * browser. The sign-ins read back out of the browser go to `keep` and never
+ * on (`browserJar.js`): nothing past this function sees them.
+ */
+async function browseResult(response, keep = null, profile = null, parsed = null) {
+  const body = parsed ?? await response.json().catch(() => null);
+  if (typeof body?.session === "string") {
+    const { jar, profileGone, ...answer } = body;
+    if (!response.ok) return { session: answer.session, ran: [], page: null };
+    if (keep !== null && jar && typeof jar === "object") await keep.save(jar);
+    // A profile Browserbase no longer had is released, and the next browser gets a new one.
+    if (profile !== null) await (profileGone === true ? profile.forget() : profile.used());
+    // A link to hand over is the gateway's to make (`viewer`), never the
+    // Worker's: an older one answered with Browserbase's live-view link here.
+    const { liveUrl: _liveUrl, handoffUrl: _handoffUrl, ...result } = answer;
+    return result;
+  }
+  throw new Error("browser unavailable");
+}
+
+/**
+ * `profile` is the Browserbase profile the browser opens and saves into
+ * (`browserProfile.js`), where its sign-ins live first; `jar` keeps them
+ * sealed in the person's vault as well (`browserJar.js`), the fallback and the
+ * copy a new profile starts from. Without either, each browser starts signed out.
+ */
+export function siteShotsComputer(env, { owner = null, viewer = null, jar = null, profile = null, now = Date.now, sleep = undefined, browserUse = browserUseFlag(TEX_CONFIG, env) } = {}) {
+  const binding = env?.SITE_SHOTS;
+  if (typeof binding?.fetch !== "function") return null;
+  // Which browser this question's `browse` ended up on.
+  let onBrowserbase = false;
+  let onBrowserUse = false;
+  // Holders that asked the Browserbase browser for steps, each let go when its question ends.
+  const leased = new Set();
+  const refused = () => browserbaseRefusedAt !== null && now() - browserbaseRefusedAt < BROWSERBASE_REFUSED_PAUSE_MS;
+  const browserbaseWanted = () => typeof owner === "string" && owner.length > 0 && !browserbaseMissing && !refused();
+
+  async function browseUse(steps, { handoff = false, fresh = false, holder = null, patient = false, waitMs } = {}) {
+    const waiting = Number.isFinite(waitMs) ? { waitMs } : {};
+    // The sealed jar moves onto the new browser. A Browserbase profile id is
+    // not a Browser Use profile, and a Google sign-in bound to the device
+    // that created it will not transfer, so it is not sent.
+    const held = !onBrowserUse && jar !== null ? await jar.load() : null;
+    const response = await untilFree(() => post(binding, "/browse", {
+      provider: "browser-use",
+      owner,
+      steps,
+      caps: browserUseCaps(),
+      ...(typeof holder === "string" ? { holder } : {}),
+      ...(handoff ? { handoff: true } : {}),
+      ...(fresh ? { fresh: true } : {}),
+      ...waiting,
+      keep: true,
+      ...(held !== null ? { jar: held } : {}),
+    }), { patient, now, ...(sleep ? { sleep } : {}) });
+    const body = await response.json().catch(() => null);
+    if (body?.fallbackRefused === true || response.status === 501 || !response.ok) {
+      return { refused: typeof body?.reason === "string" ? body.reason : "browser-use refused" };
+    }
+    const result = await browseResult(response, jar, null, body);
+    return { ...result, provider: "browser-use" };
+  }
+
+  async function browseOn(session, steps, { handoff = false, fresh = false, holder = null, patient = false, waitMs, provider = null, trial = false } = {}) {
+    // The gateway names the provider. The screenshot Worker does not switch by itself.
+    if ((provider === "browser-use" || onBrowserUse) && browserUse === "on") {
+      const result = await browseUse(steps, { handoff, fresh, holder, patient, waitMs });
+      // A trial does not move the question. It is kept only when the fallback clears.
+      if (trial !== true && !result?.refused && result?.session) onBrowserUse = true;
+      return result;
+    }
+    // How long a blank page is waited for (`infra/site-shots/src/patience.ts`): a job's long wait, else the Worker's own short one.
+    const waiting = Number.isFinite(waitMs) ? { waitMs } : {};
+    if (browserbaseWanted()) {
+      // `handoff` tells the screenshot Worker (and the bench's stand-in for it)
+      // the person is being handed this browser; it asks Browserbase for nothing.
+      const held = jar !== null ? await jar.load() : null;
+      const saved = profile !== null ? await profile.load() : null;
+      // One question drives the browser at a time; a busy one is waited for (`browserLease.js`).
+      const response = await untilFree(() => post(binding, "/browse", {
+        provider: "browserbase",
+        owner,
+        steps,
+        ...(typeof holder === "string" ? { holder } : {}),
+        ...(handoff ? { handoff: true } : {}),
+        // A new browser, a new address: the last try past a captcha (`captchaLadder.js`).
+        ...(fresh ? { fresh: true } : {}),
+        ...waiting,
+        ...(jar !== null ? { keep: true, ...(held !== null ? { jar: held } : {}) } : {}),
+        // The answer waits for a document-host 403 only when a fallback might use it.
+        ...(browserUse === "on" ? { waitForBlock: true } : {}),
+        // A new profile is given the jar's cookies; one in use holds newer ones.
+        ...(saved !== null ? { profile: saved.id, ...(saved.created ? { profileNew: true } : {}) } : {}),
+      }), { patient, now, ...(sleep ? { sleep } : {}) });
+      // 402: Browserbase won't start a browser until its bill is paid.
+      // Cloudflare's browser does this question; nothing can be handed over.
+      if (response.status === 402) browserbaseRefusedAt = now();
+      else if (response.status !== 501) {
+        onBrowserbase = true;
+        // Browserbase took the call, so the lease may be this question's until it ends.
+        if (typeof holder === "string") leased.add(holder);
+        const result = await browseResult(response, jar, profile);
+        // The person's own page, never a link to the browser itself. The log
+        // names this browser even when the answer leaves `provider` off.
+        const stamped = { ...result, provider: "browserbase" };
+        return handoff && typeof viewer === "string" ? { ...stamped, handoffUrl: viewer } : stamped;
+      } else browserbaseMissing = true;
+    }
+    const cloud = await browseResult(await post(binding, "/browse", session === null ? { steps, ...waiting } : { session, steps, ...waiting }));
+    // This is Cloudflare's browser. A missing provider must not be logged as Browserbase.
+    return cloud ? { ...cloud, provider: "cloudflare" } : cloud;
+  }
+
+  return {
+    provider: "cloudflare",
+    async readPage(url) {
+      const response = await post(binding, "/read", { url });
+      const body = await response.json().catch(() => null);
+      if (!response.ok || !body?.page || typeof body.page.text !== "string") {
+        throw new Error("page unreadable");
+      }
+      return body.page.file ? await pdfPage(env?.AI, body.page) : body.page;
+    },
+
+    async browse(session, steps, options = {}) {
+      return await withFileWords(env?.AI, await browseOn(session, steps, options));
+    },
+
+    /** Lets go of this question's lease on the browser, so another can drive it now (`browserLease.js`). */
+    async releaseBrowser(holder) {
+      if (!leased.delete(holder)) return;
+      await post(binding, "/browse/release", { provider: "browserbase", owner, holder });
+    },
+
+    /** Whether a question may carry on in a browser an earlier one opened. */
+    mayResume: () => browserbaseWanted(),
+    /** Whether a person can be handed this browser to sign in: Browserbase, and a page of theirs to do it on. */
+    canHandOff: () => browserbaseWanted() && typeof viewer === "string" && viewer.length > 0,
+    /** The browser's tag, which a hand-back is watched by (`handback.js`); never sent to a model. */
+    tag: () => (typeof owner === "string" && owner.length > 0 ? owner : null),
+    /**
+     * "Sign Tex out": the running browser is let go, its saved profile
+     * released at Browserbase, and the sealed jar dropped, so the next
+     * browser starts signed out of everything. Says what could not be done.
+     */
+    async signOut() {
+      if (typeof owner === "string" && owner.length > 0) {
+        await post(binding, "/browse/close", { provider: "browserbase", owner }).catch(() => undefined);
+        await post(binding, "/browse/close", { provider: "browser-use", owner }).catch(() => undefined);
+      }
+      const profileGone = profile === null ? true : await profile.forget();
+      const jarGone = jar === null ? true : await jar.forget();
+      return { signedOut: profileGone && jarGone };
+    },
+    /**
+     * Cloudflare's browser closes with the question. Browserbase's stays for
+     * the next one, ending itself, so a sign-in can be carried on from, and
+     * is held longer when the question ends waiting on the person.
+     */
+    /** The block log, one row per browse tool call. A failure to write it does not fail the browse. */
+    async noteBrowse(row) {
+      await post(binding, "/browse/log", row).catch(() => undefined);
+    },
+
+    browserUseFallback: () => browserUse,
+
+    /** The fallback cleared: the rest of this question runs on Browser Use. */
+    adoptBrowserUse() {
+      onBrowserUse = true;
+    },
+
+    /** The fallback did not clear. Drop that session so the question and the live view stay on Browserbase. */
+    async releaseBrowserUse() {
+      onBrowserUse = false;
+      if (typeof owner === "string" && owner.length > 0) {
+        await post(binding, "/browse/close", { provider: "browser-use", owner }).catch(() => undefined);
+      }
+    },
+
+    async closeBrowser(session, { waiting = false } = {}) {
+      // Waiting on the person: held fifteen minutes rather than five (`browserHold.js`).
+      if (onBrowserUse) {
+        if (waiting) return void (await post(binding, "/browse/hold", { provider: "browser-use", owner }));
+        await post(binding, "/browse/close", { provider: "browser-use", owner });
+        return;
+      }
+      if (onBrowserbase) return waiting ? void (await post(binding, "/browse/hold", { provider: "browserbase", owner })) : undefined;
+      await post(binding, "/browse/close", { session });
+    },
+  };
+}
+
+/**
+ * A downloaded file (`infra/site-shots/src/download.ts`) with its words, read
+ * the way `read_file` reads one, so Tex can tell it took the right invoice
+ * before emailing it. A file whose words can't be read goes on without them.
+ */
+export async function withFileWords(ai, result) {
+  const file = result?.file;
+  if (!file || typeof file.data !== "string") return result;
+  let words = null;
+  try {
+    const bytes = Uint8Array.from(atob(file.data), (ch) => ch.charCodeAt(0));
+    const type = typeOfFile(String(file.name ?? ""), bytes);
+    const read = type === null ? null : await fileWords(ai, String(file.name ?? "file"), type, bytes);
+    words = typeof read?.text === "string" ? wordsWithoutPages(read) : null;
+  } catch {
+    words = null;
+  }
+  return words === null ? result : { ...result, file: { ...file, words } };
+}
+
+/**
+ * A PDF the screenshot Worker handed on whole (`infra/site-shots/src/fetchText.ts`),
+ * read the way `read_file` reads one: its words, and its links as links the
+ * turn may follow, since a browser shows a PDF with no text at all
+ * (2026-10-20: a race's course map and a payment link were both PDFs).
+ */
+export async function pdfPage(ai, page) {
+  const { file, ...rest } = page;
+  let bytes;
+  try {
+    bytes = Uint8Array.from(atob(String(file.data ?? "")), (ch) => ch.charCodeAt(0));
+  } catch {
+    throw new Error("page unreadable");
+  }
+  const name = decodeURIComponent(new URL(page.url).pathname.split("/").pop() || "page.pdf");
+  const read = await fileWords(ai, name, "application/pdf", bytes);
+  const links = (await pdfLinks(bytes)).filter((href) => href.startsWith("https://")).map((href) => ({ text: "", href }));
+  return {
+    ...rest,
+    title: rest.title || name,
+    text: wordsWithoutPages(read) ?? `(This is a PDF, and ${read.error}.)`,
+    links,
+  };
+}

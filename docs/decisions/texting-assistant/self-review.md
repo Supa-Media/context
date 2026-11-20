@@ -67,7 +67,7 @@ out. A group's history is never backfilled on one person's yes.
 
 **The scores.** 1 to 10, higher is better: `goal`, `independence`, `turns`,
 `friendly`, `calm` (10 is no frustration). A small model
-(`apps/mcp/src/agent/selfReview.js`) reads the conversation's words and the
+(`packages/tex/gateway/agent/selfReview.js`) reads the conversation's words and the
 names of the tools each answer used, never a tool's result, as the hand-back
 judge does ([handing-back](./handing-back.md)), and its answer is read
 strictly: five whole numbers, or nothing is filed. The Worker's log line is

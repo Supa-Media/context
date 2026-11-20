@@ -4,7 +4,7 @@
  * the version ... when I click on something, I should be able to walk back. What was the prompt for this version,
  * what were the context modules that were loaded in").
  *
- * A turn logs each model round's prompt as module ids, lengths and fingerprints (`apps/mcp/src/agent/promptManifest.js`)
+ * A turn logs each model round's prompt as module ids, lengths and fingerprints (`packages/tex/gateway/agent/promptManifest.js`)
  * and the commit that ran (`texVersion.js` `code`), never the words. Most of a front-door prompt is built from this
  * repository alone: the stable rules (Tex's prompt words, `texConfig.js`, around `prompt.js`'s lines, for each kind of
  * turn and each switch), and the fixed context and preamble modules. This script runs THIS commit's builders over
@@ -19,20 +19,20 @@ import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { systemPromptParts } from "../apps/mcp/src/agent/prompt.js";
-import { fingerprint } from "../apps/mcp/src/agent/promptManifest.js";
-import { setupPromptFor, moduleTexts, MODULE_KINDS } from "../apps/mcp/src/agent/promptModules.js";
-import { TEX_PROMPT_WORDS, texModules } from "../apps/mcp/src/agent/texConfig.js";
-import { withArchitecture } from "../apps/mcp/src/agent/texArchitecture.js";
-import { TRANSCRIPTS_PROMPT } from "../apps/mcp/src/agent/transcript.js";
-import { ATTENTION_PROMPT, CHECK_IN_PROMPT } from "../apps/mcp/src/agent/checkIns.js";
-import { PROGRESS_PROMPT } from "../apps/mcp/src/agent/progress.js";
-import { DRIVER_PROMPT, PLANNER_PROMPT } from "../apps/mcp/src/agent/modelPlan.js";
-import { OPEN_PAGE_TOOL, SEARCH_WEB_TOOL, webPrompt } from "../apps/mcp/src/agent/computer.js";
-import { BROWSE_TOOL } from "../apps/mcp/src/agent/browse.js";
-import { FILL_LOGIN_TOOL } from "../apps/mcp/src/agent/fillLogin.js";
-import { FILL_CARD_TOOL } from "../apps/mcp/src/agent/fillCard.js";
-import { TRAVEL_TIME_TOOL } from "../apps/mcp/src/agent/travelTime.js";
+import { systemPromptParts } from "../packages/tex/gateway/agent/prompt.js";
+import { fingerprint } from "../packages/tex/gateway/agent/promptManifest.js";
+import { setupPromptFor, moduleTexts, MODULE_KINDS } from "../packages/tex/gateway/agent/promptModules.js";
+import { TEX_PROMPT_WORDS, texModules } from "../packages/tex/gateway/agent/texConfig.js";
+import { withArchitecture } from "../packages/tex/gateway/agent/texArchitecture.js";
+import { TRANSCRIPTS_PROMPT } from "../packages/tex/gateway/agent/transcript.js";
+import { ATTENTION_PROMPT, CHECK_IN_PROMPT } from "../packages/tex/gateway/agent/checkIns.js";
+import { PROGRESS_PROMPT } from "../packages/tex/gateway/agent/progress.js";
+import { DRIVER_PROMPT, PLANNER_PROMPT } from "../packages/tex/gateway/agent/modelPlan.js";
+import { OPEN_PAGE_TOOL, SEARCH_WEB_TOOL, webPrompt } from "../packages/tex/gateway/agent/computer.js";
+import { BROWSE_TOOL } from "../packages/tex/gateway/agent/browse.js";
+import { FILL_LOGIN_TOOL } from "../packages/tex/gateway/agent/fillLogin.js";
+import { FILL_CARD_TOOL } from "../packages/tex/gateway/agent/fillCard.js";
+import { TRAVEL_TIME_TOOL } from "../packages/tex/gateway/agent/travelTime.js";
 
 const ROOT = fileURLToPath(new URL("..", import.meta.url));
 const OUT = path.join(ROOT, "packages/lab/app/promptCatalog.generated.json");

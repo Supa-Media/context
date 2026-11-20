@@ -14,12 +14,12 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { OLD_ABOUT_ME_PATH, ABOUT_ME_PATH, readAboutMe } from "../src/agent/aboutMe.js";
-import { HOME_NOTES, homeNamesOf, homeNotePaths, oldHomeNotePaths, readEitherName } from "../src/agent/homeNames.js";
-import { learnDirect } from "../src/agent/groupDirectNotes.js";
-import { groupMemoryPath, keepGroupExchange, readGroupMemory } from "../src/agent/groupTurn.js";
-import { ON_PAGE } from "../src/agent/groupMemoryCarry.js";
-import { renderGroupNote } from "../src/agent/groupMemoryNote.js";
+import { OLD_ABOUT_ME_PATH, ABOUT_ME_PATH, readAboutMe } from "../../../packages/tex/gateway/agent/aboutMe.js";
+import { HOME_NOTES, homeNamesOf, homeNotePaths, oldHomeNotePaths, readEitherName } from "../../../packages/tex/gateway/agent/homeNames.js";
+import { learnDirect } from "../../../packages/tex/gateway/agent/groupDirectNotes.js";
+import { groupMemoryPath, keepGroupExchange, readGroupMemory } from "../../../packages/tex/gateway/agent/groupTurn.js";
+import { ON_PAGE } from "../../../packages/tex/gateway/agent/groupMemoryCarry.js";
+import { renderGroupNote } from "../../../packages/tex/gateway/agent/groupMemoryNote.js";
 import { createMemoryStore } from "./gmailSync/fixtures.mjs";
 
 const KEY = "a".repeat(64);

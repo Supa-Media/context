@@ -6,7 +6,7 @@
  */
 
 import { objectFirstChildren, objectFirstManifest } from "../store/objectManifest.js";
-import { attachHomeRoutineReports } from "../agent/chatHomeSeal.js";
+import { attachHomeRoutineReports } from "../../../../packages/tex/gateway/agent/chatHomeSeal.js";
 import { deliverMail } from "../mail/deliver.js";
 import { runLabModel } from "../tools/runModel.js";
 import { createTexDev } from "../../../../packages/lab/gateway/texDev/tool.js";

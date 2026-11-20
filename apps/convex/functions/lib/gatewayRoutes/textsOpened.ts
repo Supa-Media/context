@@ -2,7 +2,7 @@
  * `POST /gateway/texts/opened` — `{ personalWorkspaceId, phone, hashedAccessToken, expiresAt }` →
  * `{ status: "linked" | "unlinked" }`.
  *
- * A text's session the person object opened (`apps/mcp/src/agent/textsSession.js`). Behind the gateway's secret. Convex
+ * A text's session the person object opened (`packages/tex/gateway/agent/textsSession.js`). Behind the gateway's secret. Convex
  * re-checks the phone, keeps its copy of the grant under this hash, re-arms and audits (`functions/textingObjects.ts`
  * `keepOpened`). The token itself never reaches here; anything malformed is "unlinked", one answer for every reason.
  */

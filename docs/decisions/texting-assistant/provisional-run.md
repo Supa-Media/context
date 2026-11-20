@@ -14,7 +14,7 @@ cycle check; `provisionalWiring(config)` is what the texting Worker reads, from 
 Lab draws it (amber, dotted), edits it (Before its go, Stops it when, Restarts it when), simulates it (the target starts
 at its other inputs, `send` never before the sources end) and promotes it.
 
-**What the gateway holds (`apps/mcp/src/agent/steer.js`).** The Worker asks `/agent` with `provisional: true` and the
+**What the gateway holds (`packages/tex/gateway/agent/steer.js`).** The Worker asks `/agent` with `provisional: true` and the
 wire's `allow`, then says `POST /agent/go` or `POST /agent/cancel` with `provisional: true` (which may land before the
 run has marked itself running).
 

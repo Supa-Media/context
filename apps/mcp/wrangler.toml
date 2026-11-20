@@ -306,6 +306,15 @@ dataset = "tex_text_counts"
 binding = "SITE_SHOTS"
 service = "context-site-shots"
 
+# Tex's own computer (infra/tex-computer): one sleeping Linux container per
+# person and per group chat, with no internet. Reached only through this
+# binding, so it has no address and holds no secret. It must exist before this
+# Worker deploys. Self-hosting without Containers: delete this block; a turn
+# is then never offered the computer.
+[[services]]
+binding = "TEX_COMPUTER"
+service = "context-tex-computer"
+
 # The texting Worker's named entrypoint `TexRoutines` (apps/agent). A Tex
 # store's alarm calls `routineDue` on it to run a routine on time
 # (`src/texStore/dispatch.js`). A named entrypoint is reachable only through
@@ -367,7 +376,7 @@ service = "context-tex-eval"
 #                           (src/agent/search.js); without it there is no
 #                           search tool. AGENT_SEARCH picks another provider.
 #   AI_GATEWAY_ACCOUNT_ID   optional. Cloudflare account id for AI Gateway
-#                           (src/agent/aiGateway.js); kept secret, not [vars].
+#                           (packages/tex/gateway/agent/aiGateway.js); kept secret, not [vars].
 #   AI_GATEWAY_ID           optional. The AI Gateway's name; falls back to Workers AI (GLM) if unset.
 #   AI_GATEWAY_TOKEN        optional. Token for AI Gateway; falls back to Workers AI (GLM) if unset.
 #   ANTHROPIC_CREDIT_KEY    optional. The Claude plan's API credit key, spent first;
@@ -504,6 +513,10 @@ dataset = "tex_text_counts_staging"
 [[env.staging.services]]
 binding = "SITE_SHOTS"
 service = "context-site-shots-staging"
+
+[[env.staging.services]]
+binding = "TEX_COMPUTER"
+service = "context-tex-computer-staging"
 
 [[env.staging.services]]
 binding = "TEXTING"

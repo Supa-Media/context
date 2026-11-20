@@ -26,12 +26,12 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { aiGatewayConfig, resetCreditState } from "../src/agent/aiGateway.js";
-import { BUILTIN_PROVIDER } from "../src/agent/builtin.js";
-import { turnRouter } from "../src/agent/modelPlan.js";
-import { parseSetup } from "../src/agent/production.js";
-import { modelLine } from "../src/agent/prompt.js";
-import { runTurn } from "../src/agent/turn.js";
+import { aiGatewayConfig, resetCreditState } from "../../../packages/tex/gateway/agent/aiGateway.js";
+import { BUILTIN_PROVIDER } from "../../../packages/tex/gateway/agent/builtin.js";
+import { turnRouter } from "../../../packages/tex/gateway/agent/modelPlan.js";
+import { parseSetup } from "../../../packages/tex/gateway/agent/production.js";
+import { modelLine } from "../../../packages/tex/gateway/agent/prompt.js";
+import { runTurn } from "../../../packages/tex/gateway/agent/turn.js";
 
 const ENV = {
   AI_GATEWAY_ACCOUNT_ID: "0123456789abcdef0123456789abcdef",

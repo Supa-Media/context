@@ -18,7 +18,7 @@
  */
 
 import { toolError } from "./results.js";
-import { folded } from "../agent/folded.js";
+import { folded } from "../../../../packages/tex/gateway/agent/folded.js";
 
 /** A handle as `functions/lib/names.ts` allows one. */
 const HANDLE = /^[a-z0-9](?:[a-z0-9-]{0,63})$/;

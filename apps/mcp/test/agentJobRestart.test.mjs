@@ -23,8 +23,8 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { MAX_RUNNING_JOBS, QUIET_ACK, RESTART_JOB_TOOL, START_JOB_TOOL, backgroundSession, startedJobs, withBackground } from "../src/agent/background.js";
-import { MAX_START_LINE, SAY_FIELD, startLine } from "../src/agent/jobStart.js";
+import { MAX_RUNNING_JOBS, QUIET_ACK, RESTART_JOB_TOOL, START_JOB_TOOL, backgroundSession, startedJobs, withBackground } from "../../../packages/tex/gateway/agent/background.js";
+import { MAX_START_LINE, SAY_FIELD, startLine } from "../../../packages/tex/gateway/agent/jobStart.js";
 
 const NOW = Date.UTC(2026, 9, 31, 17, 0, 0);
 const job = (title, state, extra = {}) => ({ id: `job-${title.replace(/\W/g, "").toLowerCase()}-0001`, title, state, startedAt: NOW - 20 * 60_000, ...(state === "running" ? {} : { finishedAt: NOW - 60_000 }), steps: [], verdict: null, advice: "", result: "", status: "", ...extra });

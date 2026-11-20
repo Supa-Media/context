@@ -18,16 +18,16 @@ import { test } from "node:test";
 
 import {
   dayLine, dayBefore, historyReads, midnightOf, moduleSpan, picturesOf, readDayTool, summaryPart, weekOn, weekStart, weekTurn, weekView,
-} from "../src/agent/weekHistory.js";
-import { anthropicMessages, inlinePictureBlocks } from "../src/agent/providers.js";
-import { writeChatDaySummaries } from "../src/agent/daySummaries.js";
-import chatDays from "../src/agent/graph/nodes/chatDays.js";
-import { keepTextedPictures, picturesPath } from "../src/agent/textedPictures.js";
-import { eventEntry } from "../src/agent/ledger.js";
+} from "../../../packages/tex/gateway/agent/weekHistory.js";
+import { anthropicMessages, inlinePictureBlocks } from "../../../packages/tex/gateway/agent/providers.js";
+import { writeChatDaySummaries } from "../../../packages/tex/gateway/agent/daySummaries.js";
+import chatDays from "../../../packages/tex/gateway/agent/graph/nodes/chatDays.js";
+import { keepTextedPictures, picturesPath } from "../../../packages/tex/gateway/agent/textedPictures.js";
+import { eventEntry } from "../../../packages/tex/gateway/agent/ledger.js";
 import { texLedger } from "../../../packages/tex/gateway/texStore/ledger.js";
-import { TEX_CONFIG, texStep, withDraft } from "../src/agent/texConfig.js";
+import { TEX_CONFIG, texStep, withDraft } from "../../../packages/tex/gateway/agent/texConfig.js";
 import { durableSql } from "./texStoreFixture.mjs";
-import { threadedTurn } from "../src/agent/threadedTurn.js";
+import { threadedTurn } from "../../../packages/tex/gateway/agent/threadedTurn.js";
 import { fakeModel } from "./agentEgressFixtures.mjs";
 import { AI_GATEWAY_ENV, AI_GATEWAY_ORIGIN } from "./agentModelFixture.mjs";
 

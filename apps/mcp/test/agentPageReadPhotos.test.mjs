@@ -31,10 +31,10 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 
 import { parsePage } from "../../../packages/shared/src/pages/parse.cjs";
-import { outgoingPictures } from "../src/agent/outgoingPictures.js";
-import { pictureMaker, withPictureMaker } from "../src/agent/pictureMaker.js";
-import { heldPicture, withoutDeadPhotos, withPagePictures } from "../src/agent/visuals/pagePhotos.js";
-import { withReadImages } from "../src/agent/visuals/pageReadImages.js";
+import { outgoingPictures } from "../../../packages/tex/gateway/agent/outgoingPictures.js";
+import { pictureMaker, withPictureMaker } from "../../../packages/tex/gateway/agent/pictureMaker.js";
+import { heldPicture, withoutDeadPhotos, withPagePictures } from "../../../packages/tex/gateway/agent/visuals/pagePhotos.js";
+import { withReadImages } from "../../../packages/tex/gateway/agent/visuals/pageReadImages.js";
 import { wideningOf } from "../src/privacy/widening.js";
 
 const JPEG = "data:image/jpeg;base64,/9j/4AAQ";
@@ -154,7 +154,7 @@ test("through the picture tools, a page write gets read photos as bytes, dead na
 });
 
 test("a card item with no photo is a tile that says so, never a blank block; one with a photo shows no tile", async () => {
-  const { gallery, versus } = await import("../src/agent/visuals/choices.js");
+  const { gallery, versus } = await import("../../../packages/tex/gateway/agent/visuals/choices.js");
   const html = gallery({ title: "Karaoke for 20", items: [{ name: "Ms. Kim's", price: "$52" }, { name: "Muses 35", price: "$60", photo: "card-photo:1" }] });
   const text = typeof html === "string" ? html : JSON.stringify(html);
   assert.equal((text.match(/data-no-photo/g) ?? []).length, 1, "only the item with no photo");

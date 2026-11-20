@@ -1,1 +1,1 @@
-export * from "../../../../apps/mcp/src/agent/jobPartEndRoute.js";
+export * from "../../../tex/gateway/agent/jobPartEndRoute.js";

@@ -21,7 +21,7 @@ import { withPrivacyAuthority } from "../src/store/privacyAuthority.js";
 import { withServedTree } from "./servedTree.mjs";
 import { CONTROL_PLANE_MOVE_BATCH_TIMEOUT_MS, CONTROL_PLANE_MOVE_TIMEOUT_MS, CONTROL_PLANE_TIMEOUT_MS } from "../src/controlPlane/client.js";
 import { ControlPlaneError, createControlPlane } from "../src/controlPlane.js";
-import { MOVE_TIMEOUTS } from "../src/agent/slowMoves.js";
+import { MOVE_TIMEOUTS } from "../../../packages/tex/gateway/agent/slowMoves.js";
 
 /** A bucket fake with the methods a note move reads and writes. */
 function bucket(files) {

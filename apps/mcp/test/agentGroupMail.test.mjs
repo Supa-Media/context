@@ -81,14 +81,14 @@ test("a chat with nothing shared is offered no mail", async () => {
 });
 
 test("a chat with shared mail is told it watches that mail itself, with nothing to set up", async () => {
-  const { chatMailPrompt } = await import("../src/agent/groupMail.js");
+  const { chatMailPrompt } = await import("../../../packages/tex/gateway/agent/groupMail.js");
   const prompt = chatMailPrompt({ mail: [{ handle: "seyi", address: "seyi@work.example" }] });
   assert.match(prompt, /You watch this mail for the chat on your own/);
   assert.match(prompt, /Nobody has to set that up/);
 });
 
 test("a check-in marks its person's mail a group chat also watches, and is told to leave the group's to it", async () => {
-  const { newMailSection, newMailSince } = await import("../src/agent/newMail.js");
+  const { newMailSection, newMailSince } = await import("../../../packages/tex/gateway/agent/newMail.js");
   const store = {
     email: {
       search: async () => ({

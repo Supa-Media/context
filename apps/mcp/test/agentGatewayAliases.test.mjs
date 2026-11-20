@@ -9,7 +9,7 @@
  * agentGateway.test.mjs.
  */
 
-import { aiGatewayConfig, requestViaGateway, resetCreditState } from "../src/agent/aiGateway.js";
+import { aiGatewayConfig, requestViaGateway, resetCreditState } from "../../../packages/tex/gateway/agent/aiGateway.js";
 
 const TOKEN = `gw-token-${"a".repeat(20)}`;
 const CREDIT = `sk-ant-credit-fixture-${"0".repeat(12)}`;

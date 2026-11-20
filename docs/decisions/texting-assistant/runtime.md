@@ -14,7 +14,7 @@ this records what of it is built and why each part is shaped as it is.
 whole by every job that touched it (a text, a check-in, a routine, the
 Worker's fixed texts, a supervisor's report), with no version passed, so two
 finishing together kept one. Each exchange is now its own object under
-`.context/agent/events/` (`apps/mcp/src/agent/events.js`), written once under
+`.context/agent/events/` (`packages/tex/gateway/agent/events.js`), written once under
 a key no other writer uses. The key sorts newest first
 (`9999999999999 - at`), so one listing with a limit is the newest exchanges
 whatever the age of the log, and a read is one listing and the objects in
@@ -126,7 +126,7 @@ booking, belongs to the booking. The texting Worker names each turn it asks
 for (`turn`). A words-only text that arrives while that turn runs, with
 nothing else queued ahead, is sent to `POST /agent/steer` and still queued.
 The running turn reads it after its next tool round, as the person's own
-words beside that round's results (`apps/mcp/src/agent/steer.js`); its
+words beside that round's results (`packages/tex/gateway/agent/steer.js`); its
 answer lists the texts it took (`steered`) and the Worker drops them from
 its queue. A text the turn never saw is answered on its own, as before. A
 reply, a tapback or a photo is never steered: each carries words the guards
@@ -164,7 +164,7 @@ every 10 user turns: Tex was told on every turn to keep `tex/about-me.md`
 current and often didn't, so a fact from the morning waited for the night's
 dream. After a texted turn has answered, once 10 of the person's texts have
 come since the last nudge, one small built-in-model turn reads them and may
-write `tex/about-me.md` once (`apps/mcp/src/agent/memoryNudge.js`, run from
+write `tex/about-me.md` once (`packages/tex/gateway/agent/memoryNudge.js`, run from
 `reflect.js`). It sees only untainted exchanges, and can read and write that
 one note in their own workspace and nothing else. The count is the time of
 the newest text the last nudge saw, in `.context/agent/memory-nudge.json`;

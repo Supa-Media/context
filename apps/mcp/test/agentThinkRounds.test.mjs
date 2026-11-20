@@ -38,11 +38,11 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { aiGatewayConfig, resetCreditState } from "../src/agent/aiGateway.js";
-import { BUILTIN_PROVIDER } from "../src/agent/builtin.js";
-import { meterParts, modelForRound, thinkRoundsFor, whyFailed } from "../src/agent/modelPlan.js";
-import { parseSetup } from "../src/agent/production.js";
-import { runTurn } from "../src/agent/turn.js";
+import { aiGatewayConfig, resetCreditState } from "../../../packages/tex/gateway/agent/aiGateway.js";
+import { BUILTIN_PROVIDER } from "../../../packages/tex/gateway/agent/builtin.js";
+import { meterParts, modelForRound, thinkRoundsFor, whyFailed } from "../../../packages/tex/gateway/agent/modelPlan.js";
+import { parseSetup } from "../../../packages/tex/gateway/agent/production.js";
+import { runTurn } from "../../../packages/tex/gateway/agent/turn.js";
 import { priceUsd, runPriceUsd } from "../bench/report.mjs";
 
 const ENV = {
@@ -332,7 +332,7 @@ test("a failed call's reason is one short line: the tool's own why, else the ref
 });
 
 test("a failed browse's reason is its failed step, never the page it read", async () => {
-  const { whyBrowseFailed } = await import("../src/agent/pageWalls.js");
+  const { whyBrowseFailed } = await import("../../../packages/tex/gateway/agent/pageWalls.js");
   assert.equal(whyBrowseFailed([{ do: "goto", ok: true }, { do: "click", ok: false, reason: "no element [5]" }], false), "click step: no element [5]");
   assert.equal(whyBrowseFailed([{ do: "read", ok: true }], true), "Not one for the person to finish");
 });

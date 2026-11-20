@@ -19,7 +19,7 @@ import { serveMachineCall } from "../src/workspaceStore/serveMachines.js";
 import { opOf } from "../../../packages/tex/gateway/texStore/move.js";
 import { codeInWords, computerTools, COMPUTER_SEND_ACTIONS, signInCodeInWords } from "../src/machines/texActions.js";
 import { setupPrompt } from "../src/machines/setupPrompt.js";
-import { ASSISTANT_SEND_ACTIONS } from "../src/agent/sixTools.js";
+import { ASSISTANT_SEND_ACTIONS } from "../../../packages/tex/gateway/agent/sixTools.js";
 import { FACTS, machineWorld } from "./machineWorld.mjs";
 
 const CHAT = "c".repeat(64);

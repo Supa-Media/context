@@ -12,15 +12,15 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import { toolsForSession } from "../src/tools/advertised.js";
 import { STAFF_ONLY_TOOLS, toolDefinitions } from "../src/tools/registry.js";
-import { textingWriteTools, WITHHELD_TOOLS } from "../src/agent/textingWrites.js";
-import { agentTools } from "../src/agent/turn.js";
+import { textingWriteTools, WITHHELD_TOOLS } from "../../../packages/tex/gateway/agent/textingWrites.js";
+import { agentTools } from "../../../packages/tex/gateway/agent/turn.js";
 import { configStamp } from "../../../packages/tex/src/texConfigStamp.cjs";
 import { createTexDev, TEX_DEV_WHO, toolTexDev } from "../../../packages/lab/gateway/texDev/tool.js";
 import { guideText } from "../../../packages/lab/gateway/texDev/guide.js";
 import { draftProblems } from "../../../packages/lab/gateway/texDev/check.js";
 import { turnsOf } from "../../../packages/lab/gateway/texDev/probe.js";
 import { turnAnswer } from "../../../packages/lab/gateway/texDev/replay.js";
-import { CONFIG_STAMP, TEX_CONFIG } from "../src/agent/texConfig.js";
+import { CONFIG_STAMP, TEX_CONFIG } from "../../../packages/tex/gateway/agent/texConfig.js";
 
 function session(role) {
   return {

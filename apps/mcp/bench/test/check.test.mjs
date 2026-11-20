@@ -24,8 +24,8 @@ import { checkCommand, checkResultMarkdown, failedLines, readCase } from "../che
 import { parseTest } from "../load.mjs";
 import { liveScoreRow, scoresNote } from "../context.mjs";
 import { WHISPER_INPUT, WHISPER_MODEL } from "../jobs/transcription.mjs";
-import { DREAM_INSTRUCTIONS } from "../../src/agent/dream.js";
-import { HEARTBEAT_INSTRUCTIONS } from "../../src/agent/heartbeat.js";
+import { DREAM_INSTRUCTIONS } from "../../../../packages/tex/gateway/agent/dream.js";
+import { HEARTBEAT_INSTRUCTIONS } from "../../../../packages/tex/gateway/agent/heartbeat.js";
 import { CHECK_SYSTEM, SUMMARY_SYSTEM } from "../../../../packages/meetings/src/summary.js";
 
 const TEST = [

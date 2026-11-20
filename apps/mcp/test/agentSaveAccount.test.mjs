@@ -17,8 +17,8 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { claimCheck } from "../src/agent/claimCheck.js";
-import { inventedSignIn, uncheckedFailedSave } from "../src/agent/saveAccount.js";
+import { claimCheck } from "../../../packages/tex/gateway/agent/claimCheck.js";
+import { inventedSignIn, uncheckedFailedSave } from "../../../packages/tex/gateway/agent/saveAccount.js";
 
 const PAGE = "resources/engineering/cheap-reasoning-models.page.md";
 const FAILED = "I couldn't save the page update. The workspace stopped responding mid-save. I've written up a bug report.";

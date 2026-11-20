@@ -9,7 +9,7 @@ import { test } from "node:test";
 
 import { createWorld, manifest } from "../world.mjs";
 import { benchPicture } from "../earlierPictures.mjs";
-import { THREADS_SYSTEM } from "../../src/agent/conversationThreads.js";
+import { THREADS_SYSTEM } from "../../../../packages/tex/gateway/agent/conversationThreads.js";
 
 const SETUP = "---\njob: texting-assistant\nmodels:\n  main: anthropic/claude-haiku-5-5\n---\n\nYou are a test assistant.\n";
 
@@ -545,7 +545,7 @@ test("Tex's calendar copy is housekeeping, never recorded as a change the answer
   // Every answer that read the calendar failed "write nothing into any other note" on it (replay records, 2026-11-13).
   const { changes } = await ask("Maya", { path: "tex/calendar.md", content: "---\ncache: true\n---\n# Calendar\n", context: "@maya" }, "write_note");
   assert.ok(!changes.some((c) => c.path === "tex/calendar.md"), JSON.stringify(changes.map((c) => c.path)));
-  const { CALENDAR_PATH } = await import("../../src/agent/calendarCache.js");
+  const { CALENDAR_PATH } = await import("../../../../packages/tex/gateway/agent/calendarCache.js");
   assert.equal(CALENDAR_PATH, "tex/calendar.md", "world.mjs names the calendar copy by this path");
 });
 

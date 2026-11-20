@@ -109,7 +109,7 @@ describe("background jobs in a group chat", () => {
 
   it("a job's start texts nothing: the ask gets a tapback and the job still runs", async () => {
     // Dev2, 2026-11-11: "why does tex report back to us what its doing? No one actually cares". The gateway answers a
-    // start with nothing to text and a tapback (`apps/mcp/src/agent/texEntryPoint/sendTheReply.js`).
+    // start with nothing to text and a tapback (`packages/tex/gateway/agent/texEntryPoint/sendTheReply.js`).
     const storage = new MemoryStorage();
     const world: World = { sends: [], asks: [], members: [[ADA, BO]], reactions: [] };
     const d = deps(world, { answer: "", quiet: true, react: "", jobs: [{ title: "Competitor research", brief: "Five." }] });

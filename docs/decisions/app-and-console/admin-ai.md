@@ -81,7 +81,7 @@ a comparison can be pasted into a thread.
   not built yet says so), and who
   may call them in their note's `callers:`.
 - **Try it chats with any setup as yourself, read-only.** `/agent/try`
-  (`apps/mcp/src/agent/tryIt.js`) runs one turn of a live or drafted setup on
+  (`packages/tex/gateway/agent/tryIt.js`) runs one turn of a live or drafted setup on
   the console's own grant for the person's own workspace, offered only the
   read tools and refusing any other name before the dispatcher (a
   cross-context call opens its context from the connection's grant, so the

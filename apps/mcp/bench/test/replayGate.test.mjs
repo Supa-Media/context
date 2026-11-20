@@ -21,23 +21,23 @@ import { AREA_LIMITS, areasFor, blocking, feedback, gate, heldOutJson, markHeldO
 
 test("a change runs only the areas its files reach, and plumbing alone runs none", () => {
   assert.deepEqual(areasFor(["packages/tex/src/textDecide.cjs"]), ["respond"]);
-  assert.deepEqual(areasFor(["apps/mcp/src/agent/replyJudge.js"]), ["review"]);
+  assert.deepEqual(areasFor(["packages/tex/gateway/agent/replyJudge.js"]), ["review"]);
   assert.deepEqual(areasFor(["apps/mcp/bench/review/chat.json", "apps/mcp/bench/respond/cases.json"]), ["respond", "review"]);
   assert.deepEqual(areasFor(["apps/mcp/bench/respond.mjs", "apps/mcp/bench/review.mjs"]), [], "the scorers are not Tex");
-  assert.deepEqual(areasFor(["apps/mcp/src/agent/warmCopy.js", "apps/mobile/app/index.tsx"]), []);
+  assert.deepEqual(areasFor(["packages/tex/gateway/agent/warmCopy.js", "apps/mobile/app/index.tsx"]), []);
 });
 
 test("an advisor role's file runs that role alone, and the shared core runs every role", () => {
-  assert.deepEqual(areasFor(["apps/mcp/src/agent/advisorRoles/chat.js"]), ["advisor-chat"]);
-  assert.deepEqual(areasFor(["apps/mcp/src/agent/advisorRoles/jobCheck.js"]), ["advisor-job-check"]);
-  assert.deepEqual(areasFor(["apps/mcp/src/agent/advisorRoles/planner.js"]), ["advisor-planner"]);
-  assert.deepEqual(areasFor(["apps/mcp/src/agent/advisorRoles/jobMail.js"]), ["advisor-job-mail"]);
+  assert.deepEqual(areasFor(["packages/tex/gateway/agent/advisorRoles/chat.js"]), ["advisor-chat"]);
+  assert.deepEqual(areasFor(["packages/tex/gateway/agent/advisorRoles/jobCheck.js"]), ["advisor-job-check"]);
+  assert.deepEqual(areasFor(["packages/tex/gateway/agent/advisorRoles/planner.js"]), ["advisor-planner"]);
+  assert.deepEqual(areasFor(["packages/tex/gateway/agent/advisorRoles/jobMail.js"]), ["advisor-job-mail"]);
   assert.deepEqual(areasFor(["apps/mcp/bench/advisor/planner.json"]), ["advisor-planner"], "a role's cases run that role");
-  assert.deepEqual(areasFor(["apps/mcp/src/agent/jobCheck.js"]), ["advisor-job-check"], "the role's brief builder too");
-  assert.deepEqual(areasFor(["apps/mcp/src/agent/advisorRoles/knowsMail.js"]), ["advisor-job-check", "advisor-job-mail"], "the mail line reaches both roles that read a job");
-  assert.deepEqual(areasFor(["apps/mcp/src/agent/advisorRoles/core.js"]), ["advisor-chat", "advisor-job-check", "advisor-planner", "advisor-job-mail"]);
+  assert.deepEqual(areasFor(["packages/tex/gateway/agent/jobCheck.js"]), ["advisor-job-check"], "the role's brief builder too");
+  assert.deepEqual(areasFor(["packages/tex/gateway/agent/advisorRoles/knowsMail.js"]), ["advisor-job-check", "advisor-job-mail"], "the mail line reaches both roles that read a job");
+  assert.deepEqual(areasFor(["packages/tex/gateway/agent/advisorRoles/core.js"]), ["advisor-chat", "advisor-job-check", "advisor-planner", "advisor-job-mail"]);
   assert.deepEqual(areasFor(["apps/mcp/bench/advisor.mjs"]), [], "the scorer is not a role");
-  assert.ok(!areasFor(["apps/mcp/src/agent/jobNote.js"]).some((area) => area.startsWith("advisor-")), "the mail's plumbing is the jobs area's, not a role");
+  assert.ok(!areasFor(["packages/tex/gateway/agent/jobNote.js"]).some((area) => area.startsWith("advisor-")), "the mail's plumbing is the jobs area's, not a role");
 });
 
 test("a change to every advisor role at once still fits the cap with a case to rerun", async () => {
@@ -156,14 +156,14 @@ test("several runs read as one row a case, right when most were", () => {
 });
 
 test("the front door, the prompt and the turn reach the core area; their neighbours do not", () => {
-  assert.deepEqual(areasFor(["apps/mcp/src/agent/texEntryPoint/runTheModel.js"]), ["core"]);
-  assert.deepEqual(areasFor(["apps/mcp/src/agent/promptModules.js", "apps/mcp/bench/ai/tests/simple-asks.md"]), ["core"]);
-  assert.deepEqual(areasFor(["apps/mcp/src/agent/turnWeb.js", "apps/mcp/src/agent/jobNote.js"]), ["jobs"], "a job note is the jobs area's, never core's");
+  assert.deepEqual(areasFor(["packages/tex/gateway/agent/texEntryPoint/runTheModel.js"]), ["core"]);
+  assert.deepEqual(areasFor(["packages/tex/gateway/agent/promptModules.js", "apps/mcp/bench/ai/tests/simple-asks.md"]), ["core"]);
+  assert.deepEqual(areasFor(["packages/tex/gateway/agent/turnWeb.js", "packages/tex/gateway/agent/jobNote.js"]), ["jobs"], "a job note is the jobs area's, never core's");
 });
 
 test("a job or page change reaches the jobs area, on a pool of its own with fewer reruns", () => {
   assert.deepEqual(areasFor(["packages/tex/worker/jobRun.ts"]), ["jobs"]);
-  assert.deepEqual(areasFor(["apps/mcp/src/agent/jobNote.js", "apps/mcp/bench/job-tasks/cases.json"]), ["jobs"]);
+  assert.deepEqual(areasFor(["packages/tex/gateway/agent/jobNote.js", "apps/mcp/bench/job-tasks/cases.json"]), ["jobs"]);
   assert.deepEqual(areasFor(["apps/mcp/bench/jobTasks.mjs", "apps/mcp/bench/world.mjs"]), [], "the scorer and the world are not Tex");
   const jobs = AREA_LIMITS.jobs;
   assert.equal(jobs.pool, "jobs", "a job task's whole job never eats the cheap areas' $1");

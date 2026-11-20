@@ -12,7 +12,7 @@
  * under different sessions, each clamped for its own purpose.
  */
 import { sessionForChatHome, sessionForSetup } from "../session.js";
-import { markChatHome } from "../agent/chatHomeSeal.js";
+import { markChatHome } from "../../../../packages/tex/gateway/agent/chatHomeSeal.js";
 
 export function attachPinnedDoors(store, session, openStore, equipDoor = () => {}) {
   const setupSession = sessionForSetup(session);

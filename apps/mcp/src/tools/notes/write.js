@@ -42,7 +42,7 @@ import { isPersonalCommunicationsPath, normalizePath } from "../../notes/paths.j
 import { parseFormBlocks } from "../../forms.js";
 import { isPagePath, pageProblems, pageSkillMissing, repairPage, repairedLine } from "../../pages.js";
 import { persistExactVisibility, UNWRITABLE_PATH_REFUSAL, writesOneRule } from "../../privacy/state.js";
-import { HOME_PRIVATE_REFUSAL, inChatHome } from "../../agent/chatHomeSeal.js";
+import { HOME_PRIVATE_REFUSAL, inChatHome } from "../../../../../packages/tex/gateway/agent/chatHomeSeal.js";
 import { projectWrittenNoteAfterResponse } from "../../search/writeProjection.js";
 import { recordChange } from "../../activity/record.js";
 import { shareWrittenNote } from "../links.js";
@@ -51,8 +51,8 @@ import { toolError, toolText, writePermissionError } from "../results.js";
 import { prepareNoteImages, storeNoteImages } from "../../notes/uploadedImages.js";
 import { statusAdvice } from "./statusList.js";
 import { frontMatterChanged } from "../../activity/changes.js";
-import { aboutMeTooLong } from "../../agent/aboutMe.js";
-import { isAboutNotePath, stampAboutLines } from "../../agent/aboutLines.js";
+import { aboutMeTooLong } from "../../../../../packages/tex/gateway/agent/aboutMe.js";
+import { isAboutNotePath, stampAboutLines } from "../../../../../packages/tex/gateway/agent/aboutLines.js";
 import { phase, phaseTook } from "../../mcp/phase.js";
 import { CheckedCreateDeclined } from "../../store/idLayout.js";
 

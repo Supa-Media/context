@@ -19,8 +19,8 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { noteLinkCheck, unknownLinkNotice } from "../src/agent/linkCheck.js";
-import { claimCheck } from "../src/agent/claimCheck.js";
+import { noteLinkCheck, unknownLinkNotice } from "../../../packages/tex/gateway/agent/linkCheck.js";
+import { claimCheck } from "../../../packages/tex/gateway/agent/claimCheck.js";
 
 const ORIGIN = "https://context.lc";
 const PAGE = "tex/groups/kite-willow-rocket/last-7-days-oct-27-to-nov-3.page.md";

@@ -29,18 +29,18 @@
 
 import assert from "node:assert/strict";
 import { describe, test } from "node:test";
-import { webSession } from "../src/agent/computer.js";
-import { BROWSE_TOOL } from "../src/agent/browse.js";
-import { FILL_CARD_TOOL } from "../src/agent/fillCard.js";
+import { webSession } from "../../../packages/tex/gateway/agent/computer.js";
+import { BROWSE_TOOL } from "../../../packages/tex/gateway/agent/browse.js";
+import { FILL_CARD_TOOL } from "../../../packages/tex/gateway/agent/fillCard.js";
 import { newEntryId, readMeta, writeEntry } from "../src/vault/entries.js";
 import { normalizeCard } from "../src/vault/card.js";
 import { handleApprovals } from "../src/http/approvals.js";
 import { EVERY_CHAT, PENDING_PREFIX } from "../src/tools/approvals.js";
 import { createMemoryStore } from "./gmailSync/fixtures.mjs";
 import { listPending } from "../src/tools/approvals.js";
-import { approvalVerdict, textedAsk } from "../src/agent/textedApprovals.js";
-import { settleTextedText } from "../src/agent/textedSettle.js";
-import { paidLine, settlePayByText } from "../src/agent/textedPay.js";
+import { approvalVerdict, textedAsk } from "../../../packages/tex/gateway/agent/textedApprovals.js";
+import { settleTextedText } from "../../../packages/tex/gateway/agent/textedSettle.js";
+import { paidLine, settlePayByText } from "../../../packages/tex/gateway/agent/textedPay.js";
 
 // The card networks' published test number: never a real card.
 const NUMBER = "4242424242424242";

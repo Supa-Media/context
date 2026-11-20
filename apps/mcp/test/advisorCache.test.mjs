@@ -10,11 +10,11 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { ADVISOR_PROMPT, advisorBrief } from "../src/agent/advisor.js";
-import { adviseOnce } from "../src/agent/advisorRoles/core.js";
-import { JOB_CHECK_PROMPT } from "../src/agent/advisorRoles/jobCheck.js";
-import { requestBuiltin } from "../src/agent/builtin.js";
-import { aiGatewayConfig, gatewayBody, resetCreditState, resetHourMarks } from "../src/agent/aiGateway.js";
+import { ADVISOR_PROMPT, advisorBrief } from "../../../packages/tex/gateway/agent/advisor.js";
+import { adviseOnce } from "../../../packages/tex/gateway/agent/advisorRoles/core.js";
+import { JOB_CHECK_PROMPT } from "../../../packages/tex/gateway/agent/advisorRoles/jobCheck.js";
+import { requestBuiltin } from "../../../packages/tex/gateway/agent/builtin.js";
+import { aiGatewayConfig, gatewayBody, resetCreditState, resetHourMarks } from "../../../packages/tex/gateway/agent/aiGateway.js";
 
 const MODEL = "anthropic/claude-sonnet-5-5";
 const DAY_ONE = Date.parse("2026-11-17T10:00:00Z");

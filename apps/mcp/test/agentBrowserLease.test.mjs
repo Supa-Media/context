@@ -19,9 +19,9 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { browserSession } from "../src/agent/browse.js";
-import { resetBrowserbaseProbe, siteShotsComputer } from "../src/agent/browserProviders.js";
-import { BRIEF_WAIT_MS, BROWSER_BUSY, PATIENT_WAIT_MS } from "../src/agent/browserLease.js";
+import { browserSession } from "../../../packages/tex/gateway/agent/browse.js";
+import { resetBrowserbaseProbe, siteShotsComputer } from "../../../packages/tex/gateway/agent/browserProviders.js";
+import { BRIEF_WAIT_MS, BROWSER_BUSY, PATIENT_WAIT_MS } from "../../../packages/tex/gateway/agent/browserLease.js";
 
 const OWNER = "a".repeat(64);
 const PAGE = { url: "https://shop.example.com/", title: "Shop", text: "Welcome", elements: [] };

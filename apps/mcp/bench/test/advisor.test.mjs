@@ -16,12 +16,12 @@ import { modelSocket, requestHash, socketRequest } from "../modelSocket.mjs";
 import { mkdtemp, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { ADVISOR_PROMPT, advisorTools } from "../../src/agent/advisor.js";
-import { adviseOnce } from "../../src/agent/advisorRoles/core.js";
-import { JOB_CHECK_PROMPT } from "../../src/agent/jobCheck.js";
-import { ADVISOR_MAIL_PROMPT, jobMailBrief } from "../../src/agent/jobNote.js";
-import { PLANNER_PROMPT, planBrief } from "../../src/agent/planBigAsk.js";
-import { withArchitecture } from "../../src/agent/texArchitecture.js";
+import { ADVISOR_PROMPT, advisorTools } from "../../../../packages/tex/gateway/agent/advisor.js";
+import { adviseOnce } from "../../../../packages/tex/gateway/agent/advisorRoles/core.js";
+import { JOB_CHECK_PROMPT } from "../../../../packages/tex/gateway/agent/jobCheck.js";
+import { ADVISOR_MAIL_PROMPT, jobMailBrief } from "../../../../packages/tex/gateway/agent/jobNote.js";
+import { PLANNER_PROMPT, planBrief } from "../../../../packages/tex/gateway/agent/planBigAsk.js";
+import { withArchitecture } from "../../../../packages/tex/gateway/agent/texArchitecture.js";
 
 test("every role has a case set of its own, with invented ids and a label each", async () => {
   for (const role of Object.keys(ROLES)) {

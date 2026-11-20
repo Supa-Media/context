@@ -170,7 +170,7 @@ test("a round's row prices its answers plus a fifth, and the total follows", () 
 
 test("a texting setup that names its own models or modules never goes live: they are Tex's config's", async () => {
   const { configRefusal } = await import("../promote.mjs");
-  const { parseSetup } = await import("../../src/agent/production.js");
+  const { parseSetup } = await import("../../../../packages/tex/gateway/agent/production.js");
   const named = await parseSetup(["---", "job: texting-assistant", "models:", "  main: anthropic/claude-sonnet-5-5", "---", "", "You are Tex.", ""].join("\n"));
   const bare = await parseSetup(["---", "job: texting-assistant", "---", "", "You are Tex.", ""].join("\n"));
   assert.match(configRefusal("texting-assistant", named) ?? "", /texConfig\.json/);

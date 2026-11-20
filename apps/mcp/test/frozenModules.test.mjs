@@ -9,14 +9,14 @@
  */
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { turnPrompt } from "../src/agent/turnPrompt.js";
-import { frozenModules, summaryDay } from "../src/agent/frozenModules.js";
-import { FROZEN_MODULES } from "../src/agent/frozenModuleNames.js";
-import { TEX_CONFIG as CONFIG, texFreeze, withDraft } from "../src/agent/texConfig.js";
+import { turnPrompt } from "../../../packages/tex/gateway/agent/turnPrompt.js";
+import { frozenModules, summaryDay } from "../../../packages/tex/gateway/agent/frozenModules.js";
+import { FROZEN_MODULES } from "../../../packages/tex/gateway/agent/frozenModuleNames.js";
+import { TEX_CONFIG as CONFIG, texFreeze, withDraft } from "../../../packages/tex/gateway/agent/texConfig.js";
 import { texFrozen, FROZEN_FRESH_MS } from "../../../packages/tex/gateway/texStore/frozen.js";
 import { TexObjectRefused } from "../../../packages/tex/gateway/texStore/objects.js";
 import { durableSql, texStoreNamespace } from "./texStoreFixture.mjs";
-import { ledgerFor } from "../src/agent/ledger.js";
+import { ledgerFor } from "../../../packages/tex/gateway/agent/ledger.js";
 
 const NOW = Date.UTC(2026, 10, 20, 15, 0, 0);
 const base = { texting: true, pictures: false, notes: null, models: null, tools: [], history: [], threadNote: [["group", "\n\nThe group's playbook: morning."], ["learned", ""]], turnNote: "", webNames: new Set(), progress: null, aboutMe: null, identity: null, jobs: null, voice: null, calendar: null, observe: false, workspaces: [], groups: "\n\nTheir groups: Book club.", devShare: "", mail: null, localNow: { now: NOW, timeZone: "UTC" }, plan: null, nudge: "" };

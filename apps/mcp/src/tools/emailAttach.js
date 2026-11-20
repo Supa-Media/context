@@ -12,7 +12,7 @@
  * the copy they say yes to (`emailGate.js`).
  */
 
-import { isDownloadId, readDownload } from "../agent/downloads.js";
+import { isDownloadId, readDownload } from "../../../../packages/tex/gateway/agent/downloads.js";
 
 /** Kept equal to `apps/convex/functions/lib/personEmail.ts`, which checks again. */
 export const MAX_ATTACHED_FILES = 5;

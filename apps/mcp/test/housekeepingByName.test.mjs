@@ -35,9 +35,9 @@
  */
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { housekeepingCallTool, housekeepingTools, namePattern } from "../src/agent/housekeepingGuard.js";
-import { housekeepingEntry } from "../src/agent/housekeeping.js";
-import { argsLine } from "../src/agent/transcript.js";
+import { housekeepingCallTool, housekeepingTools, namePattern } from "../../../packages/tex/gateway/agent/housekeepingGuard.js";
+import { housekeepingEntry } from "../../../packages/tex/gateway/agent/housekeeping.js";
+import { argsLine } from "../../../packages/tex/gateway/agent/transcript.js";
 import { toolMoveNotes } from "../src/tools/moves/notes.js";
 import { withServedTree } from "./servedTree.mjs";
 

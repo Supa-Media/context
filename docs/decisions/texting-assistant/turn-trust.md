@@ -48,7 +48,7 @@ running and cancel marks are pruned after 48h (`loggedTurn.js` `pruneTurns`).
 
 ## Carried results (the owner, 2026-11-10)
 
-Within a chat's stretch (`apps/mcp/src/agent/stretch.js`) an earlier turn's
+Within a chat's stretch (`packages/tex/gateway/agent/stretch.js`) an earlier turn's
 tool results are replayed to the next text. A result read from outside is
 replayed too, and replaying it marks the new turn untrusted exactly as if it
 had read that content itself (`markUntrusted`): it is not an earlier answer

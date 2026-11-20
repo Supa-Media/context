@@ -4,9 +4,9 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 
 import { texLedger } from "../../../packages/tex/gateway/texStore/ledger.js";
-import { eventEntry, toolEntry, wordsEntry } from "../src/agent/ledger.js";
-import { dayFromLedger, earlierFromLedger, readLedger } from "../src/agent/ledgerHistory.js";
-import { loggedTurn } from "../src/agent/loggedTurn.js";
+import { eventEntry, toolEntry, wordsEntry } from "../../../packages/tex/gateway/agent/ledger.js";
+import { dayFromLedger, earlierFromLedger, readLedger } from "../../../packages/tex/gateway/agent/ledgerHistory.js";
+import { loggedTurn } from "../../../packages/tex/gateway/agent/loggedTurn.js";
 import { durableSql } from "./texStoreFixture.mjs";
 
 const DAY = 24 * 3_600_000;
@@ -157,9 +157,9 @@ test("no turn record is read to show a turn its chat, whatever its replies say",
 
 // Dev2, 2026-11-19: a turn that failed must be findable. Its `failed` step is read on its own, without every other step.
 test("a read can keep only the steps named, so a failed turn's line is found among thousands of steps", async () => {
-  const { failedEntry } = await import("../src/agent/texEntryPoint/recoverFromFailure.js");
-  const { ProviderError } = await import("../src/agent/providers.js");
-  const { stepEntry } = await import("../src/agent/ledger.js");
+  const { failedEntry } = await import("../../../packages/tex/gateway/agent/texEntryPoint/recoverFromFailure.js");
+  const { ProviderError } = await import("../../../packages/tex/gateway/agent/providers.js");
+  const { stepEntry } = await import("../../../packages/tex/gateway/agent/ledger.js");
   const ledger = texLedger(durableSql());
   const error = Object.assign(new ProviderError("status 402", 402), {
     model: "anthropic/claude-haiku-5-5",

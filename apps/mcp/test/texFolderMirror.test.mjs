@@ -8,10 +8,10 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { readTexNotes } from "../src/agent/jobs.js";
-import { personVoicePrompt, VOICE_PATH } from "../src/agent/personVoice.js";
-import { homePrompt } from "../src/agent/chatHome.js";
-import { chatJobsPath, readChatJobs } from "../src/agent/chatJobs.js";
+import { readTexNotes } from "../../../packages/tex/gateway/agent/jobs.js";
+import { personVoicePrompt, VOICE_PATH } from "../../../packages/tex/gateway/agent/personVoice.js";
+import { homePrompt } from "../../../packages/tex/gateway/agent/chatHome.js";
+import { chatJobsPath, readChatJobs } from "../../../packages/tex/gateway/agent/chatJobs.js";
 import { DESK_NOTES } from "../../../packages/tex/gateway/texStore/desk.js";
 
 const noteResult = (body) => ({ content: [{ type: "text", text: `path: x\netag: e1\n\n${body}` }] });

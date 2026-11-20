@@ -3,7 +3,7 @@
  * checked on every reply (decided by the owner, 2026-10-16: "some sort of way
  * that I'm able to test it … like a chatbot").
  *
- * Each message goes to the gateway's `/agent/try` (`apps/mcp/src/agent/tryIt.js`)
+ * Each message goes to the gateway's `/agent/try` (`packages/tex/gateway/agent/tryIt.js`)
  * on the console's own grant for the person's own workspace, so the setup
  * reads their notes and nothing else, and can change none of them. The
  * gateway runs the setup, then a judge turn on the case's `must` / `must not`

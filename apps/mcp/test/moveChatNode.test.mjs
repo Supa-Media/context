@@ -6,8 +6,8 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { moveChatNode } from "../src/agent/graph/nodes/moveChat.js";
-import { moveForTexts } from "../src/agent/textsMove.js";
+import { moveChatNode } from "../../../packages/tex/gateway/agent/graph/nodes/moveChat.js";
+import { moveForTexts } from "../../../packages/tex/gateway/agent/textsMove.js";
 
 const NUMBER = "+15555550142";
 const PERSON = "Tex here, swapping numbers: I'm on +1 (555) 555-0142 now. Same Tex, same notes, just text me there from now on.";

@@ -20,12 +20,12 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { jobPrompt, jobReportPrompt } from "../src/agent/background.js";
-import { BRIEF_LINE } from "../src/agent/chatVoice.js";
-import { claimCheck } from "../src/agent/claimCheck.js";
-import { systemPrompt } from "../src/agent/prompt.js";
-import { replyChecks } from "../src/agent/replyChecks.js";
-import { RESULT_NOTICE, WORDY_NOTICE, proseWords, restatesTheResult, tooWordy } from "../src/agent/wordy.js";
+import { jobPrompt, jobReportPrompt } from "../../../packages/tex/gateway/agent/background.js";
+import { BRIEF_LINE } from "../../../packages/tex/gateway/agent/chatVoice.js";
+import { claimCheck } from "../../../packages/tex/gateway/agent/claimCheck.js";
+import { systemPrompt } from "../../../packages/tex/gateway/agent/prompt.js";
+import { replyChecks } from "../../../packages/tex/gateway/agent/replyChecks.js";
+import { RESULT_NOTICE, WORDY_NOTICE, proseWords, restatesTheResult, tooWordy } from "../../../packages/tex/gateway/agent/wordy.js";
 
 // The shape of the reply that started this: the page described, then a take with its reasons.
 const DESCRIBES_THE_PAGE =

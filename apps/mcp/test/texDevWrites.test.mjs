@@ -14,7 +14,7 @@ import { test } from "node:test";
 import { createTexDev } from "../../../packages/lab/gateway/texDev/tool.js";
 import { guideText } from "../../../packages/lab/gateway/texDev/guide.js";
 import { texDevToolDefinitions } from "../src/tools/schemas/texDev.js";
-import { TEX_CONFIG } from "../src/agent/texConfig.js";
+import { TEX_CONFIG } from "../../../packages/tex/gateway/agent/texConfig.js";
 import { draftProblems } from "../../../packages/lab/gateway/texDev/check.js";
 
 const session = { accessToken: "tok" };

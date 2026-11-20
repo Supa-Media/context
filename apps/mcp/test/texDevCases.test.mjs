@@ -14,7 +14,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { createTexDev } from "../../../packages/lab/gateway/texDev/tool.js";
-import { TEX_CONFIG } from "../src/agent/texConfig.js";
+import { TEX_CONFIG } from "../../../packages/tex/gateway/agent/texConfig.js";
 import { guideText } from "../../../packages/lab/gateway/texDev/guide.js";
 import { UNIT_LIMIT } from "../bench/gateSample.mjs";
 

@@ -14,7 +14,7 @@ characters. At most 40. They are per person, readable, exportable and theirs
 to edit or delete, like everything else under `tex/`. Tex writes them without
 asking.
 
-**Using them** (`apps/mcp/src/agent/learnedSkills.js`). A text from the person
+**Using them** (`packages/tex/gateway/agent/learnedSkills.js`). A text from the person
 in their personal workspace lists the folder and reads each skill once through
 the turn's own dispatcher (best effort, bounded at 40, never failing the turn),
 and the `fetch` tool's description carries the index: each name and its `when`
@@ -31,7 +31,7 @@ would let something planted once be opened, unasked, on every text after. So
 it is a tool of its own with no `onRead`, rather than a second folder
 `read_skill` reads; the production path is unchanged.
 
-**Writing them: the reflect step** (`apps/mcp/src/agent/reflect.js`). After a
+**Writing them: the reflect step** (`packages/tex/gateway/agent/reflect.js`). After a
 texted turn has answered, deferred so the answer never waits, one small turn
 on the built-in model (at most 4 rounds, metered with `builtinMeter` like the
 dream, never counted as a question) may write one skill or answer NONE. It runs
@@ -106,6 +106,6 @@ workspace", "a 41st skill is refused"), and the check-in's own-output check in
 ## A group chat's skills (2026-11-02)
 
 A group chat keeps its own in its home, `<home>/skills/<name>.md` in `@context-lc`, by the same rules
-(`apps/mcp/src/agent/chatSkills.js`). The people in the chat are not outside it (the owner, 2026-11-02), so what stops
+(`packages/tex/gateway/agent/chatSkills.js`). The people in the chat are not outside it (the owner, 2026-11-02), so what stops
 one being written is a turn that read a page, an email or a file (`ledger.outside`), never the chat's own texts. Tests:
 `apps/mcp/test/chatSkills.test.mjs`.

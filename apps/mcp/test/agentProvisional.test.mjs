@@ -25,7 +25,7 @@ import { after, before, beforeEach, test } from "node:test";
 
 import worker from "../src/index.js";
 import { LOGICAL_DELETE_CONTENT_TYPE } from "../src/store/logicalDelete.js";
-import { CANCEL_PREFIX, GO_PREFIX, RUNNING_PREFIX, cancelTurn, goTurn, revertibleNote, steerFor } from "../src/agent/steer.js";
+import { CANCEL_PREFIX, GO_PREFIX, RUNNING_PREFIX, cancelTurn, goTurn, revertibleNote, steerFor } from "../../../packages/tex/gateway/agent/steer.js";
 import { CONTROL_PLANE_ORIGIN, GATEWAY_SECRET, createControlPlaneStub, createS3Backend } from "./controlPlaneStub.mjs";
 import { createWorkerCtx } from "./workerCtx.mjs";
 import { AI_GATEWAY_ENV, AI_GATEWAY_ORIGIN, BUILTIN_ALLOWED } from "./agentModelFixture.mjs";

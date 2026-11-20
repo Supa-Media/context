@@ -16,7 +16,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { SYNCED_PLACES_LINE, systemPrompt } from "../src/agent/prompt.js";
+import { SYNCED_PLACES_LINE, systemPrompt } from "../../../packages/tex/gateway/agent/prompt.js";
 
 test("a texted turn is told its calendar and email are read from Google, production setup or not", () => {
   for (const notes of [null, { prompt: "You are Tex." }]) {

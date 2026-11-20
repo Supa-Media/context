@@ -1,1 +1,1 @@
-export * from "../../../../apps/mcp/src/agent/sentOnItsOwn.js";
+export * from "../../../tex/gateway/agent/sentOnItsOwn.js";

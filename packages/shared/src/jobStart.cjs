@@ -3,8 +3,8 @@
  *
  * The front door starts a job with `start_background_job`. Whether it may (a title and a brief, not the same job as
  * one already running, a free slot where it would run) and the limits behind it (three cloud jobs a chat, at most
- * eight on one computer) were code inside the gateway's job tool (`apps/mcp/src/agent/background.js`). Here the choice
- * is one pure function, the Job start node's code (`apps/mcp/src/agent/graph/nodes/jobStart.js`), and the limits are
+ * eight on one computer) were code inside the gateway's job tool (`packages/tex/gateway/agent/background.js`). Here the choice
+ * is one pure function, the Job start node's code (`packages/tex/gateway/agent/graph/nodes/jobStart.js`), and the limits are
  * that node's config (`limits`), so the Lab shows, tests and changes both.
  *
  * "already" is the steering choice: the ask is a job already running, so its words go to that job, not a second one.

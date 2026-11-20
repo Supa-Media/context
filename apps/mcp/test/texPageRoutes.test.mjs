@@ -320,7 +320,7 @@ test("the live socket: no token is refused; alice's goes to her chat's own Tex o
 test("alice reads her chat's history file raw, by kind and by day, and what Tex sees", async () => {
   const world = await setUp();
   try {
-    const { ledgerFor, eventEntry, toolEntry, wordsEntry } = await import("../src/agent/ledger.js");
+    const { ledgerFor, eventEntry, toolEntry, wordsEntry } = await import("../../../packages/tex/gateway/agent/ledger.js");
     const ledger = ledgerFor(world.env, { person: "ws_alice" });
     const at = Date.UTC(2026, 9, 30, 16, 0, 0); // Oct 30, noon in New York
     const asked = { id: `${at}-000001`, at, chat: "c", from: { kind: "person", name: "alice" }, kind: "text", text: "find me a dentist" };

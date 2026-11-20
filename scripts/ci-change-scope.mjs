@@ -48,7 +48,7 @@ export const TEX_DATA = [
   "packages/tex/src/texTraining.generated.json",
   "packages/lab/src/texSetsRepo.generated.json",
   "apps/mcp/bench/sets/**",
-  "apps/mcp/src/agent/texArchitecture.generated.js",
+  "packages/tex/gateway/agent/texArchitecture.generated.js",
   "packages/lab/gateway/texDev/canvas.generated.js",
   "packages/lab/gateway/texDev/lab.generated.js",
   "packages/lab/gateway/texDev/replay.generated.js",

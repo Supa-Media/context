@@ -22,10 +22,10 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { browserSession } from "../src/agent/browse.js";
-import { PASSKEY_WAYS_NOTICE, stopsAtAPasskey } from "../src/agent/browserWalls.js";
-import { claimCheck } from "../src/agent/claimCheck.js";
-import { PASSKEY_LINE, WAYS_LINE, passkeyLine, passkeyMarks } from "../src/agent/pageWalls.js";
+import { browserSession } from "../../../packages/tex/gateway/agent/browse.js";
+import { PASSKEY_WAYS_NOTICE, stopsAtAPasskey } from "../../../packages/tex/gateway/agent/browserWalls.js";
+import { claimCheck } from "../../../packages/tex/gateway/agent/claimCheck.js";
+import { PASSKEY_LINE, WAYS_LINE, passkeyLine, passkeyMarks } from "../../../packages/tex/gateway/agent/pageWalls.js";
 
 const PASSKEY_URL = "https://accounts.google.com/v3/signin/challenge/pk?TL=x";
 const PASSKEY_TEXT = "Verify it's you\nUse your passkey to confirm it's really you\nTry again\nTry another way";

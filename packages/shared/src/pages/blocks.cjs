@@ -14,7 +14,7 @@
  * An item is `|`-separated parts, and its first part may start with a
  * `Label: `. What the label and each part mean is the kind's (`about` below,
  * which is also what Tex is told). These are Tex's card templates
- * (`apps/mcp/src/agent/visuals/`) as page blocks: the same set of things a
+ * (`packages/tex/gateway/agent/visuals/`) as page blocks: the same set of things a
  * person is shown, written as data the page draws, so every word in them stays
  * a word in the note.
  *

@@ -20,9 +20,9 @@ import assert from "node:assert/strict";
 import { after, before, beforeEach, test } from "node:test";
 
 import worker from "../src/index.js";
-import { JOB_ADVISOR_LINE } from "../src/agent/advisor.js";
-import { PRODUCTION_TEXTING_PATH, parseSetup } from "../src/agent/production.js";
-import { modulePath, readModuleLists, setupLogged } from "../src/agent/promptModules.js";
+import { JOB_ADVISOR_LINE } from "../../../packages/tex/gateway/agent/advisor.js";
+import { PRODUCTION_TEXTING_PATH, parseSetup } from "../../../packages/tex/gateway/agent/production.js";
+import { modulePath, readModuleLists, setupLogged } from "../../../packages/tex/gateway/agent/promptModules.js";
 import { CONTROL_PLANE_ORIGIN, GATEWAY_SECRET, createControlPlaneStub, createS3Backend } from "./controlPlaneStub.mjs";
 import { createWorkerCtx } from "./workerCtx.mjs";
 import { BUILTIN_ALLOWED, systemText } from "./agentModelFixture.mjs";

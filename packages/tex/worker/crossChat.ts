@@ -1,6 +1,6 @@
 /**
  * Tex asks Tex across chats, the texting Worker's half (Dev2, 2026-11-17; design
- * https://claude.ai/artifact/N3ZawPjhhgYcNfHm7xWa37; gateway `apps/mcp/src/agent/crossChat.js`;
+ * https://claude.ai/artifact/N3ZawPjhhgYcNfHm7xWa37; gateway `packages/tex/gateway/agent/crossChat.js`;
  * decision `docs/decisions/texting-assistant/cross-chat-asks.md`).
  *
  *     the asking chat's turn answers with `crossAsks` (the Cross-chat gate let each go)

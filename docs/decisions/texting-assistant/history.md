@@ -50,7 +50,7 @@ asked "where are u reading from?", had no address in front of it. The rule
 against stating a link it had not read then had it take back that it had read
 the text at all ("I also can't confirm it was the LSB"). So an answer also
 keeps the addresses `open_page` opened and the page `browse` read
-(`apps/mcp/src/agent/sources.js`), at most eight, never the page's text, and
+(`packages/tex/gateway/agent/sources.js`), at most eight, never the page's text, and
 with no user name, password, fragment or secret-looking query value (a pasted
 sign-in link stays out). A web address is the public locator the turn chose
 to open, not a note's words, so the grant reason above does not reach it. The
@@ -115,7 +115,7 @@ none. Routines and check-ins answer no one message and stay plain.
 The turn is always told a text was a reply: with the replied-to words when
 they can be read (`repliedToText`), and with `replied: true` when they can't,
 so the model looks back for the message rather than reading the reply against
-the last few texts (`apps/mcp/src/agent/quoted.js`). How each reply's words
+the last few texts (`packages/tex/gateway/agent/quoted.js`). How each reply's words
 came out is logged as `sendblue_reply_context` (an outcome word, never the
 words or a number), because a lost quote was otherwise invisible. The day's
 transcript shows the quote above the person's words. Spanish tapbacks
@@ -131,7 +131,7 @@ thread (`threadContext` in `packages/tex/worker/sendblue.ts`): a parent that sit
 in another thread is dropped (logged `other_thread`) and the thread's first
 message stands in for it, and when both are readable and differ the turn gets
 the thread's start as `threadStart`, marked like the quote as somebody else's
-words (`apps/mcp/src/agent/quoted.js`). It is background, never the topic:
+words (`packages/tex/gateway/agent/quoted.js`). It is background, never the topic:
 told the thread "is what this text is about", Tex raised a check-in's
 expiring hold on every text in its thread, after Dev had waved it off
 (2026-10-19), so the turn is now told not to raise it again unless asked.
@@ -146,7 +146,7 @@ Asked by Dev, 2026-10-19, of "On it. This one takes a few steps, so I'll text
 you when it's done.": "Most useless message from Tex ever. I don't want to see
 it ever again." The Worker's fixed text after 40 seconds of silence is gone
 (`packages/tex/worker/inbox.ts`), and the progress tool and prompt
-(`apps/mcp/src/agent/progress.js`) no longer ask the model to say it is on it:
+(`packages/tex/gateway/agent/progress.js`) no longer ask the model to say it is on it:
 a long turn shows the typing bubble until it has something, and progress lines
 are for real milestones (a sign-in link, a step done) only. Tests: "a long turn
 sends no fixed 'on it' text while it works" (`sendblueThreads.test.ts`) and

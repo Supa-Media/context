@@ -26,8 +26,8 @@ import { tmpdir } from "node:os";
 import { fileURLToPath } from "node:url";
 import { basename, join, resolve } from "node:path";
 
-import { PRODUCTION_HOUSEKEEPING_PATH, frontOf, parseSetup } from "../src/agent/production.js";
-import { MODULE_FOLDER, assembleSetup } from "../src/agent/promptModules.js";
+import { PRODUCTION_HOUSEKEEPING_PATH, frontOf, parseSetup } from "../../../packages/tex/gateway/agent/production.js";
+import { MODULE_FOLDER, assembleSetup } from "../../../packages/tex/gateway/agent/promptModules.js";
 import { saidLine, silentTurn } from "./saidLine.mjs";
 export { saidLine, silentTurn }; // moved to `saidLine.mjs`; importers keep reading them here
 import { expandWorkspaces, readBenchFolder, runnableQuestions } from "./load.mjs";

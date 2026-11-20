@@ -7,7 +7,7 @@
  * code and tests import gateway modules by relative path. It is the longest
  * check on a pull request (four minutes across three shards), and it ran on
  * every texting-assistant fix, although nothing in `apps/convex` reaches
- * `apps/mcp/src/agent/` or the gateway's own tests (2026-10-20). So the convex
+ * `packages/tex/gateway/agent/` or the gateway's own tests (2026-10-20). So the convex
  * filter in `ci.yml` names the gateway files Convex actually reaches, and
  * `check-ci-path-gates.mjs` fails when it stops covering what this derives:
  *
@@ -131,7 +131,7 @@ function selfTest() {
     ['const FILES = ["apps/mcp/src"];', [{ path: "apps/mcp/src", whole: true }]],
     ['readFileSync(join(ROOT, "apps/mcp/test/test.mjs"))', [{ path: "apps/mcp/test/test.mjs", whole: false }]],
     // Prose names repository paths in backticks; that is not a read.
-    [" * The gateway's `apps/mcp/src/agent/route.js` is what this mirrors.", []],
+    [" * The gateway's `packages/tex/gateway/agent/route.js` is what this mirrors.", []],
     [" * `apps/mcp/src`, `packages/*` is treated like a package", []],
     ['import { x } from "./local";', []],
   ];

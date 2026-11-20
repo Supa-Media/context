@@ -8,9 +8,9 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 
-import { decideForTexts, TEXTS_DECIDE_PATH } from "../src/agent/textsDecide.js";
-import { decideWhyNode, decideWhyOn } from "../src/agent/graph/nodes/decideWhy.js";
-import { TEX_CONFIG } from "../src/agent/texConfig.js";
+import { decideForTexts, TEXTS_DECIDE_PATH } from "../../../packages/tex/gateway/agent/textsDecide.js";
+import { decideWhyNode, decideWhyOn } from "../../../packages/tex/gateway/agent/graph/nodes/decideWhy.js";
+import { TEX_CONFIG } from "../../../packages/tex/gateway/agent/texConfig.js";
 import { judgeCase } from "../bench/respond.mjs";
 import { FOR_TEX_WHY, QUIET_WHY, WHY, decideWhyRequest, readDecideWhy, whyContradictsAct } from "../../../packages/tex/src/textDecide.cjs";
 

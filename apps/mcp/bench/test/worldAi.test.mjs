@@ -11,8 +11,8 @@ import { test } from "node:test";
 
 import { REAL_CLEF_ENV, worldAi } from "../worldAi.mjs";
 import { fakeAi } from "../models.mjs";
-import { decisionEngine } from "../../src/agent/decide.js";
-import { readRoute, routeRequest } from "../../src/agent/specialistRoute.js";
+import { decisionEngine } from "../../../../packages/tex/gateway/agent/decide.js";
+import { readRoute, routeRequest } from "../../../../packages/tex/gateway/agent/specialistRoute.js";
 import { MEANING_MODEL } from "../../src/search/meaning/embed.js";
 
 const CLEF = "@cf/cloudflare/clef";

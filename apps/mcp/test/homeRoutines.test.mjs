@@ -17,8 +17,8 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 
 import { announceRoutineChange } from "../src/activity/record.js";
-import { attachHomeRoutineReports, markChatHome } from "../src/agent/chatHomeSeal.js";
-import { chatRoutinePrompt, chatRoutineRefusal } from "../src/agent/groupRoutines.js";
+import { attachHomeRoutineReports, markChatHome } from "../../../packages/tex/gateway/agent/chatHomeSeal.js";
+import { chatRoutinePrompt, chatRoutineRefusal } from "../../../packages/tex/gateway/agent/groupRoutines.js";
 
 const HOME = "tex/groups/orbit-lamp-river";
 const KEY = "d".repeat(64);

@@ -32,7 +32,7 @@
  */
 
 import worker from "../src/index.js";
-import { transcriptPath } from "../src/agent/transcript.js";
+import { transcriptPath } from "../../../packages/tex/gateway/agent/transcript.js";
 import {
   CHECK_IN_QUESTION,
   BUSY_WORDS,
@@ -49,13 +49,13 @@ import {
   continuesFrom,
   textedLines,
   calendarLooked,
-} from "../src/agent/heartbeat.js";
-import { SKIPPED_WORDS } from "../src/agent/jobLog.js";
-import { ONE_TO_ONE_CHAT, ledgerFor } from "../src/agent/ledger.js";
+} from "../../../packages/tex/gateway/agent/heartbeat.js";
+import { SKIPPED_WORDS } from "../../../packages/tex/gateway/agent/jobLog.js";
+import { ONE_TO_ONE_CHAT, ledgerFor } from "../../../packages/tex/gateway/agent/ledger.js";
 import { fakeModel } from "./heartbeatModelFixture.mjs";
 import { PENDING_PREFIX } from "../src/tools/approvalKeys.js";
 import { UNTRUSTED_READS } from "../src/privacy/egress.js";
-import { newMailQuery } from "../src/agent/newMail.js";
+import { newMailQuery } from "../../../packages/tex/gateway/agent/newMail.js";
 import { createWorkerCtx } from "./workerCtx.mjs";
 import { createControlPlaneStub, createS3Backend, CONTROL_PLANE_ORIGIN, GATEWAY_SECRET } from "./controlPlaneStub.mjs";
 import { AI_GATEWAY_ENV, AI_GATEWAY_ORIGIN, BUILTIN_ALLOWED } from "./agentModelFixture.mjs";

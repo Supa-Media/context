@@ -22,18 +22,18 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { test } from "node:test";
 
-import { BUILTIN_PROVIDER } from "../src/agent/builtin.js";
-import { conversationFromLedger } from "../src/agent/ledgerConversation.js";
+import { BUILTIN_PROVIDER } from "../../../packages/tex/gateway/agent/builtin.js";
+import { conversationFromLedger } from "../../../packages/tex/gateway/agent/ledgerConversation.js";
 import {
   FINISH_NOTICE,
   FINISH_SCHEDULED_NOTICE,
   LAST_NOTICE,
   LAST_SCHEDULED_NOTICE,
   roundNotice,
-} from "../src/agent/lastRound.js";
-import { recentTextsSection, routineQuestion, runOutcome } from "../src/agent/routine.js";
-import { SAID_NOTHING, SAY_NOTHING_TOOL } from "../src/agent/sayNothing.js";
-import { runTurn } from "../src/agent/turn.js";
+} from "../../../packages/tex/gateway/agent/lastRound.js";
+import { recentTextsSection, routineQuestion, runOutcome } from "../../../packages/tex/gateway/agent/routine.js";
+import { SAID_NOTHING, SAY_NOTHING_TOOL } from "../../../packages/tex/gateway/agent/sayNothing.js";
+import { runTurn } from "../../../packages/tex/gateway/agent/turn.js";
 
 const MODEL = "@cf/zai-org/glm-4.7-flash";
 const SEARCH = {
@@ -144,10 +144,10 @@ test("a scheduled run's last answer sent back for a fault that is not whether to
 });
 
 test("routine runs and check-ins are run as scheduled, and their reviewer's verdict reaches the last step", () => {
-  const model = readFileSync(new URL("../src/agent/texEntryPoint/runTheModel.js", import.meta.url), "utf8");
+  const model = readFileSync(new URL("../../../packages/tex/gateway/agent/texEntryPoint/runTheModel.js", import.meta.url), "utf8");
   assert.match(model, /scheduled: runner === true/);
   assert.match(model, /silences: judge\?\.silences \?\? null/);
-  const heartbeat = readFileSync(new URL("../src/agent/heartbeat.js", import.meta.url), "utf8");
+  const heartbeat = readFileSync(new URL("../../../packages/tex/gateway/agent/heartbeat.js", import.meta.url), "utf8");
   assert.match(heartbeat, /scheduled: true,/);
   assert.match(heartbeat, /silences: judge\?\.silences \?\? null/);
 });

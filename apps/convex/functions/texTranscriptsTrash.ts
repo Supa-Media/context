@@ -21,7 +21,7 @@ import type { Id } from "../_generated/dataModel";
 import { internal } from "../_generated/api";
 import { internalAction } from "../_generated/server";
 import { storeForBinding } from "../../mcp/src/store/factory.js";
-import { copiedIn } from "../../mcp/src/agent/ledgerConversation.js";
+import { copiedIn } from "../../../packages/tex/gateway/agent/ledgerConversation.js";
 import type { FileStore } from "./lib/fileOps/store";
 import { privateClearance } from "./lib/clearance";
 import { managedEncryptionOption } from "./lib/managedEncryptionFns/storeOption";

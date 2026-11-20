@@ -17,7 +17,7 @@ import assert from "node:assert/strict";
 import { createRequire } from "node:module";
 import { test } from "node:test";
 import { moduleIsCurrent } from "../../../scripts/tex-training-module.mjs";
-import { TEX_CONFIG, TEX_PROMPT_WORDS, TRAINING_READERS, texModules, texStep } from "../src/agent/texConfig.js";
+import { TEX_CONFIG, TEX_PROMPT_WORDS, TRAINING_READERS, texModules, texStep } from "../../../packages/tex/gateway/agent/texConfig.js";
 
 const require = createRequire(import.meta.url);
 const TRAINING = require("../../../packages/tex/src/texTraining.generated.json");
@@ -137,7 +137,7 @@ test("the front door's and the job's Training words, when they exist, are prompt
 });
 
 test("every other model step that reads Training is given it after its own words, through withArchitecture", async () => {
-  const { ROLES, trainingFor, withArchitecture, architectureFor } = await import("../src/agent/texArchitecture.js");
+  const { ROLES, trainingFor, withArchitecture, architectureFor } = await import("../../../packages/tex/gateway/agent/texArchitecture.js");
   const roled = new Set(Object.values(ROLES).map((r) => r.node));
   // A step turned off runs nowhere (the retired Job check, whose role reads the live Job advisor since 2026-11-18).
   const off = (id) => TEX_CONFIG.nodes.find((n) => n.id === id)?.on !== true; // off, or retired off the config (2026-11-20)
@@ -231,10 +231,10 @@ test("the check-in reads the Front door's labels on the turns a check-in started
   const text = trainingText({ ctx: ["train:checkin"] }, { nodes });
   assert.match(text, /<newest>\(Check-in, nobody texted: Gmail: Dana confirmed Monday noon\.\)<\/newest>\n<never>just say confirmed<\/never>/);
   assert.doesNotMatch(text, /<to>look<\/to>/);
-  const { heartbeatQuestion } = await import("../src/agent/heartbeat.js");
+  const { heartbeatQuestion } = await import("../../../packages/tex/gateway/agent/heartbeat.js");
   const asked = heartbeatQuestion({ changed: [], now: Date.now(), texted: [], instructions: "OWN WORDS", examples: text });
   assert.ok(asked.startsWith(`OWN WORDS\n\n${text}\n\n## This look`));
-  const { trainingFor } = await import("../src/agent/texArchitecture.js");
+  const { trainingFor } = await import("../../../packages/tex/gateway/agent/texArchitecture.js");
   assert.match(trainingFor("checkIn"), /Check-in, nobody texted/, "main's config gives the check-in its Training check-ins");
 });
 

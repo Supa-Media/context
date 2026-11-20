@@ -215,7 +215,7 @@ test("remapIcons carries several note icons in one write", async () => {
 const LAB_BUNDLE = /[\\/]packages[\\/]lab[\\/]gateway[\\/]texDev[\\/]lab\.generated\.js$/;
 
 test("every folder Context files into under tex/ or inbox/ draws a Context part", () => {
-  const roots = ["apps/mcp/src", "packages/tex/worker", "apps/convex/functions", "packages/shared/src", "packages/communications/src", "packages/meetings/src"];
+  const roots = ["apps/mcp/src", "packages/tex/gateway", "packages/tex/worker", "apps/convex/functions", "packages/shared/src", "packages/communications/src", "packages/meetings/src"];
   const repo = fileURLToPath(new URL("../../../", import.meta.url));
   const files = [];
   const walk = (dir) => {

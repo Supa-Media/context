@@ -33,8 +33,8 @@
  * reports them in `person_said`, because this gateway never sees that chat.
  */
 
-import { aiGatewayConfig, requestViaGateway } from "../agent/aiGateway.js";
-import { DEFAULT_GATEWAY_MODEL } from "../agent/builtin.js";
+import { aiGatewayConfig, requestViaGateway } from "../../../../packages/tex/gateway/agent/aiGateway.js";
+import { DEFAULT_GATEWAY_MODEL } from "../../../../packages/tex/gateway/agent/builtin.js";
 import { oneLine } from "./egress.js";
 
 /** The most of the person's words the judge is shown, from the end: the latest words are the ask. */

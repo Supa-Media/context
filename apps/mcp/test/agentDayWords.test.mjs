@@ -30,10 +30,10 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { dayWordsPrompt, datedDayWords } from "../src/agent/dayWords.js";
-import { localNowPrompt } from "../src/agent/localNow.js";
-import { recentTextsSection, routineQuestion } from "../src/agent/routine.js";
-import { textingAwareCallTool } from "../src/agent/textingWrites.js";
+import { dayWordsPrompt, datedDayWords } from "../../../packages/tex/gateway/agent/dayWords.js";
+import { localNowPrompt } from "../../../packages/tex/gateway/agent/localNow.js";
+import { recentTextsSection, routineQuestion } from "../../../packages/tex/gateway/agent/routine.js";
+import { textingAwareCallTool } from "../../../packages/tex/gateway/agent/textingWrites.js";
 
 const NY = "America/New_York";
 // Saturday, October 31, 2026, 9:00 pm in New York (EDT).

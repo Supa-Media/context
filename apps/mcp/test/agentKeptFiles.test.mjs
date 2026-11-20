@@ -27,8 +27,8 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { anthropicAttachmentBlocks, attachmentsLine, carriesData, MAX_TEXT_CHARS } from "../src/agent/attachments.js";
-import { keepSentFiles, keptRef, readKeptFile, withKeptFiles } from "../src/agent/keptFiles.js";
+import { anthropicAttachmentBlocks, attachmentsLine, carriesData, MAX_TEXT_CHARS } from "../../../packages/tex/gateway/agent/attachments.js";
+import { keepSentFiles, keptRef, readKeptFile, withKeptFiles } from "../../../packages/tex/gateway/agent/keptFiles.js";
 import { createEgressWorld, request, toolReplies, textTex, TOKEN_TEXTS } from "./agentEgressFixtures.mjs";
 
 /** An in-memory store, enough for `downloads.js`. */

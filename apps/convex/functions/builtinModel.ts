@@ -148,7 +148,7 @@ export const startBuiltinTurn = internalMutation({
  * of the model that answered. Best effort from the gateway's side: the turn was
  * already counted against the cap.
  * `decisionTokens` is what the turn read through Clef, which picks the next
- * page to open (apps/mcp/src/agent/computer.js); it is priced at Clef's rate
+ * page to open (packages/tex/gateway/agent/computer.js); it is priced at Clef's rate
  * by `addUsage`, not the writing model's.
  */
 export const recordBuiltinUsage = internalMutation({

@@ -12,9 +12,9 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { backgroundSession, jobOf, startedJobs } from "../src/agent/background.js";
-import { MAX_JOB_PAGES, chatPages, pagesSection } from "../src/agent/jobPages.js";
-import { pagesOpenedBefore } from "../src/agent/turnWeb.js";
+import { backgroundSession, jobOf, startedJobs } from "../../../packages/tex/gateway/agent/background.js";
+import { MAX_JOB_PAGES, chatPages, pagesSection } from "../../../packages/tex/gateway/agent/jobPages.js";
+import { pagesOpenedBefore } from "../../../packages/tex/gateway/agent/turnWeb.js";
 
 const NOW = Date.UTC(2026, 10, 12, 2, 40);
 const HISTORY = [

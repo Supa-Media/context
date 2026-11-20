@@ -11,9 +11,9 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { BUILTIN_PROVIDER } from "../src/agent/builtin.js";
-import { ProviderError } from "../src/agent/providers.js";
-import { agentTools, runTurn } from "../src/agent/turn.js";
+import { BUILTIN_PROVIDER } from "../../../packages/tex/gateway/agent/builtin.js";
+import { ProviderError } from "../../../packages/tex/gateway/agent/providers.js";
+import { agentTools, runTurn } from "../../../packages/tex/gateway/agent/turn.js";
 
 const MAIN = "@cf/acme/main-model";
 const FALLBACK = "@cf/acme/spare-model";
@@ -160,7 +160,7 @@ test("a fallback can be named by the model that failed, as a turn carrying a pic
 });
 
 test("a turn carrying a picture never falls back to a model that cannot see it", async () => {
-  const { pictureFallback } = await import("../src/agent/attachments.js");
+  const { pictureFallback } = await import("../../../packages/tex/gateway/agent/attachments.js");
   const HAIKU = "anthropic/claude-haiku-5-5";
   const OPUS = "anthropic/claude-opus-5-5";
   const picture = [{ name: "IMG_2634.png", mediaType: "image/png", data: "iVBORw0KGgo=" }];

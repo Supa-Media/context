@@ -9,7 +9,7 @@ PERFECT + AMAZING PLEASE BUILD THIS").
 ## What it is
 
 `draw_visual` is a `send` action beside `draw_picture` and `make_picture`
-(`apps/mcp/src/agent/visuals/`, wired in `pictureMaker.js`). The model picks
+(`packages/tex/gateway/agent/visuals/`, wired in `pictureMaker.js`). The model picks
 one of fifteen templates and fills its fields as data:
 
 | Template | For |
@@ -375,7 +375,7 @@ Worker's browser could not load them, and the redraw left every photo off.
 - **A place with no slot.** A row is drawn with a photo only when it has one
   that loads (#2228); cuisine, price and hours are their own labels, and lines
   wrap instead of being cut.
-- **The gateway downloads every photo itself** (`apps/mcp/src/agent/visuals/
+- **The gateway downloads every photo itself** (`packages/tex/gateway/agent/visuals/
   photos.js`) and puts it in the page as data, so the browser loads nothing
   from the web. One that is refused, not a picture, over 1.5 MB or slower than
   6 seconds is taken off the card. Only addresses the turn read are fetched:
@@ -401,7 +401,7 @@ for hiding the options, and a later turn could not say what option 3 cost.
 The kept line now lists each thing on the card with the facts beside it
 (cuisine, price, hours, Tex's pick, an option's facts), at most 500 characters
 a card, from the data it was drawn with; never a photo's address
-(`apps/mcp/src/agent/visuals/said.js`). Test: "the saved conversation keeps
+(`packages/tex/gateway/agent/visuals/said.js`). Test: "the saved conversation keeps
 what a card showed" in `apps/mcp/test/agentVisuals.test.mjs`.
 
 ## A places card's distances are measured, never guessed (2026-10-27)
@@ -412,7 +412,7 @@ guessed "4 min" is worse than none. So a places card names `from` (where they
 start, usually the address in their about-me note), and the gateway geocodes
 the start and each place's address (Photon, OpenStreetMap data) and fills a
 straight-line distance with a walking time when it is under half an hour
-(`apps/mcp/src/agent/visuals/distance.js`). Miles in the US, km elsewhere. A
+(`packages/tex/gateway/agent/visuals/distance.js`). Miles in the US, km elsewhere. A
 distance the model wrote is kept; a place found more than 80 km away is a
 same-named shop elsewhere and gets none.
 
@@ -434,7 +434,7 @@ one specifically that would've been great here". A places card now has a map
 above its rows, each pin numbered and coloured like its row, and the `map`
 template is stops on a map (a day's errands, a trip's sights), with a dotted
 line between them when the order is the way to go
-(`apps/mcp/src/agent/visuals/map.js`).
+(`packages/tex/gateway/agent/visuals/map.js`).
 
 - **Google when there is a key, OpenStreetMap until then** (owner's pick,
   2026-10-27: "OSM now, Google later"). With `GOOGLE_MAPS_KEY` set, the map
@@ -523,12 +523,12 @@ and "it should critique itself and think".
   Maps draws that polyline (`enc:`); the tiles draw it as a line the map is
   fitted to. The router's length goes on the map ("3.1 mi") and to the model
   ("say that length"); without the router the line is straight and the model
-  is told not to claim a length (`apps/mcp/src/agent/visuals/route.js`).
+  is told not to claim a length (`packages/tex/gateway/agent/visuals/route.js`).
 - **A map card missing a stop is not drawn.** Dropping a stop the turn never
   looked up turned a three-stop loop into one pin. The tool now refuses and
   tells the model which stops to look up; the rule that only an address the
   turn saw goes to a map service is unchanged.
-- **Every picture is looked at before it may go** (`apps/mcp/src/agent/cardCheck.js`).
+- **Every picture is looked at before it may go** (`packages/tex/gateway/agent/cardCheck.js`).
   Each picture a texted turn makes, in a 1:1 chat or a group, is shown with
   the person's text to Haiku, which thinks (effort medium) and critiques it:
   what was asked, does this answer it at a glance, what is missing or wrong,

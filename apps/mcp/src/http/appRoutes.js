@@ -9,7 +9,7 @@
  */
 
 import { handleApprovals } from "./approvals.js";
-import { APP_CHAT_PATH, handleAppChat } from "../agent/appChatRoute.js";
+import { APP_CHAT_PATH, handleAppChat } from "../../../../packages/tex/gateway/agent/appChatRoute.js";
 import { CARD_PATHS, handleCards } from "./cards.js";
 import { TEX_TEST_SET_PATH, handleTexTestSet } from "./texTestSet.js";
 

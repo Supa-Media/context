@@ -26,7 +26,7 @@ workspace, and hands rules rendered for a member and then narrowed to
 everything else in the pin is `private`, which a `team` read never sees. The
 gateway opens it read-only, with no granted names, as a door no tool can
 address (`apps/mcp/src/session.js` `sessionForSetup`), and every setup, skill,
-job-setup and helper read in `apps/mcp/src/agent/production.js` goes through
+job-setup and helper read in `packages/tex/gateway/agent/production.js` goes through
 it first. The person's own reach in the pin is unchanged. If the door ever
 answers nothing, the turn logs `tex_setup_door_missed` and falls back to the
 person's reach.

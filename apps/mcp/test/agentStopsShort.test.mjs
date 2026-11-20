@@ -26,10 +26,10 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { MAX_JOB_ATTEMPTS, jobOf, jobPrompt } from "../src/agent/background.js";
-import { claimCheck } from "../src/agent/claimCheck.js";
-import { mayAsk } from "../src/agent/handbackJudge.js";
-import { ASK_FIRST_NOTICE, fewerThanAsked, finishNotice, picksBeforeAsking, stopsShort, unfinishedJob } from "../src/agent/stopsShort.js";
+import { MAX_JOB_ATTEMPTS, jobOf, jobPrompt } from "../../../packages/tex/gateway/agent/background.js";
+import { claimCheck } from "../../../packages/tex/gateway/agent/claimCheck.js";
+import { mayAsk } from "../../../packages/tex/gateway/agent/handbackJudge.js";
+import { ASK_FIRST_NOTICE, fewerThanAsked, finishNotice, picksBeforeAsking, stopsShort, unfinishedJob } from "../../../packages/tex/gateway/agent/stopsShort.js";
 
 const DINNER_JOB =
   "I wrote up three options in the chat's notes. The three mains come to about $1 to $2 per person, but the sides, dessert and drinks are not priced yet, so the full $10 isn't confirmed.\n\n" +
@@ -141,7 +141,7 @@ test("an offer to keep looking is judged, with or without a question mark", () =
 });
 
 test("asked for options with the brief open, the first reply is the one question, and options come with their links", async () => {
-  const { RESEARCH_LINE } = await import("../src/agent/prompt.js");
+  const { RESEARCH_LINE } = await import("../../../packages/tex/gateway/agent/prompt.js");
   // gh-94 and gh-95, 2026-10-26: "I'd cook it", from her notes, before asking.
   assert.match(RESEARCH_LINE, /whole first reply is that one question: no options, no pick/);
   // The owner's bar the same day: each caterer named with its menu link.
@@ -223,7 +223,7 @@ test("an answer left with fewer options than they asked for goes back once", () 
 });
 
 test("venue research checks each fits its use, keeps the number asked, and never borrows a directory's price", async () => {
-  const { RESEARCH_LINE } = await import("../src/agent/prompt.js");
+  const { RESEARCH_LINE } = await import("../../../packages/tex/gateway/agent/prompt.js");
   assert.match(RESEARCH_LINE, /Asked for a number, give that many: replace any you drop, never offer to find more/);
   assert.match(RESEARCH_LINE, /a Sunday-service venue isn't where a church already meets on Sundays/);
   assert.match(RESEARCH_LINE, /never a directory's general range: else say it isn't published/);

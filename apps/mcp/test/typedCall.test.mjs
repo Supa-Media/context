@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 
-import { SAY_NOTHING, sendCall, typedCallNotice, typedCallOf } from "../src/agent/sayNothing.js";
+import { SAY_NOTHING, sendCall, typedCallNotice, typedCallOf } from "../../../packages/tex/gateway/agent/sayNothing.js";
 
 // A group, 2026-11-06 20:01 UTC: Tex texted `{ action: "say_nothing" }`. Dev2 chose a code catch plus prompts that name calls in words.
 

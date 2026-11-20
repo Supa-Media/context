@@ -24,8 +24,8 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { amongPlainNotes, noteWrite, pageNotice, wantsAPage } from "../src/agent/pageNotice.js";
-import { claimCheck } from "../src/agent/claimCheck.js";
+import { amongPlainNotes, noteWrite, pageNotice, wantsAPage } from "../../../packages/tex/gateway/agent/pageNotice.js";
+import { claimCheck } from "../../../packages/tex/gateway/agent/claimCheck.js";
 import { PAGE_SKILL_STAMP } from "../src/pageSkill.js";
 import { withActivityHint } from "../src/live/activityHint.js";
 

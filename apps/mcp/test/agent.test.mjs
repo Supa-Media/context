@@ -74,7 +74,7 @@ import {
   CONTROL_PLANE_ORIGIN,
   GATEWAY_SECRET,
 } from "./controlPlaneStub.mjs";
-import { agentTools, describePlace, systemPrompt } from "../src/agent/turn.js";
+import { agentTools, describePlace, systemPrompt } from "../../../packages/tex/gateway/agent/turn.js";
 import {
   AI_GATEWAY_ENV,
   AI_GATEWAY_ORIGIN,

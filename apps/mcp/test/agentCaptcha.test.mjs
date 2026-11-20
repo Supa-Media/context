@@ -27,11 +27,11 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { webSession } from "../src/agent/computer.js";
-import { BROWSE_TOOL } from "../src/agent/browse.js";
-import { STUCK_LINE, MAX_LADDERS_PER_TURN } from "../src/agent/captchaLadder.js";
-import { resetBrowserbaseProbe, siteShotsComputer } from "../src/agent/browserProviders.js";
-import { CAPTCHA_NOTICE, claimCheck, handsOverACaptcha } from "../src/agent/claimCheck.js";
+import { webSession } from "../../../packages/tex/gateway/agent/computer.js";
+import { BROWSE_TOOL } from "../../../packages/tex/gateway/agent/browse.js";
+import { STUCK_LINE, MAX_LADDERS_PER_TURN } from "../../../packages/tex/gateway/agent/captchaLadder.js";
+import { resetBrowserbaseProbe, siteShotsComputer } from "../../../packages/tex/gateway/agent/browserProviders.js";
+import { CAPTCHA_NOTICE, claimCheck, handsOverACaptcha } from "../../../packages/tex/gateway/agent/claimCheck.js";
 
 const PAGE = "https://shop.example.com/checkout";
 

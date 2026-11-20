@@ -1,5 +1,5 @@
 /**
- * A TAPBACK AS THE WHOLE ANSWER (`../src/agent/tapbackEnding.js`, node `tapback`; Dev2, 2026-11-17).
+ * A TAPBACK AS THE WHOLE ANSWER (`../../../packages/tex/gateway/agent/tapbackEnding.js`, node `tapback`; Dev2, 2026-11-17).
  *
  * ## Sabotage record
  *
@@ -26,12 +26,12 @@
  */
 import test from "node:test";
 import assert from "node:assert/strict";
-import { TAPBACK_TOOL, eitherEnds, lastCallFailed, tapbackAnswer, tapbackEmoji, tapbackEnding, tapbackOf, tapbackSaidLine } from "../src/agent/tapbackEnding.js";
-import { tapbackNode } from "../src/agent/graph/nodes/tapback.js";
-import { GATEWAY_NODES } from "../src/agent/graph/gatewayNodes.js";
-import { gatewayGraph } from "../src/agent/graph/gatewayGraph.js";
-import { TEX_CONFIG, withDraft } from "../src/agent/texConfig.js";
-import { ASSISTANT_SEND_ACTIONS } from "../src/agent/sixTools.js";
+import { TAPBACK_TOOL, eitherEnds, lastCallFailed, tapbackAnswer, tapbackEmoji, tapbackEnding, tapbackOf, tapbackSaidLine } from "../../../packages/tex/gateway/agent/tapbackEnding.js";
+import { tapbackNode } from "../../../packages/tex/gateway/agent/graph/nodes/tapback.js";
+import { GATEWAY_NODES } from "../../../packages/tex/gateway/agent/graph/gatewayNodes.js";
+import { gatewayGraph } from "../../../packages/tex/gateway/agent/graph/gatewayGraph.js";
+import { TEX_CONFIG, withDraft } from "../../../packages/tex/gateway/agent/texConfig.js";
+import { ASSISTANT_SEND_ACTIONS } from "../../../packages/tex/gateway/agent/sixTools.js";
 import SHELF from "../../../packages/tex/src/texNodeShelf.json" with { type: "json" };
 
 const gateOf = (input) => tapbackNode(input);
@@ -155,8 +155,8 @@ function scripted(replies) {
 }
 
 async function tapTurn(replies, { writeFails = false } = {}) {
-  const { runTurn } = await import("../src/agent/turn.js");
-  const { BUILTIN_PROVIDER } = await import("../src/agent/builtin.js");
+  const { runTurn } = await import("../../../packages/tex/gateway/agent/turn.js");
+  const { BUILTIN_PROVIDER } = await import("../../../packages/tex/gateway/agent/builtin.js");
   const ai = scripted(replies);
   const ending = tapbackEnding({ gate: gateOf });
   const started = [];

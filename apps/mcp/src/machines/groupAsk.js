@@ -23,7 +23,7 @@
 
 import { workspaceStub } from "../workspaceStore/api.js";
 import { callTexStore } from "../../../../packages/tex/gateway/texStore/wire.js";
-import { folded } from "../agent/folded.js";
+import { folded } from "../../../../packages/tex/gateway/agent/folded.js";
 import { jobChatOf, lentToChat } from "./reach.js";
 
 /** What every machine ask says, and what the Worker's thumbs read as an ask (`packages/tex/worker/thumbs.ts` `ASK`). */

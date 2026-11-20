@@ -19,7 +19,7 @@
 
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { isControlWord, jobReportPrompt, reportReply, reportStatusLine } from "../src/agent/jobReport.js";
+import { isControlWord, jobReportPrompt, reportReply, reportStatusLine } from "../../../packages/tex/gateway/agent/jobReport.js";
 
 const running = { title: "Trip plan", state: "running", texts: ["Saving now."] };
 const done = { title: "Toll totals", state: "done", texts: ["You paid $84.50 in tolls since August."] };

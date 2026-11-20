@@ -10,7 +10,7 @@ it had read says exactly that. At 9:52 pm a later turn texted "I need to
 correct my last text. The Katz's private room for 50 wasn't on any page I
 read", and told the chat to ignore it.
 
-The later turn couldn't see the guide. The stretch (`apps/mcp/src/agent/stretch.js`)
+The later turn couldn't see the guide. The stretch (`packages/tex/gateway/agent/stretch.js`)
 carried each earlier result cut at 8,000 characters, and the Katz's line sat at
 character 14,944 of 23,062. It also stubbed every result of a turn somebody
 else in the group had asked, though every turn in that chat ran on the same

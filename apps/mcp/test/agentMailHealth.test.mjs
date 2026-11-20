@@ -38,8 +38,8 @@ import {
   orientMailSection,
   routineMailSection,
   withMailboxes,
-} from "../src/agent/mailHealth.js";
-import { heartbeatPath } from "../src/agent/heartbeat.js";
+} from "../../../packages/tex/gateway/agent/mailHealth.js";
+import { heartbeatPath } from "../../../packages/tex/gateway/agent/heartbeat.js";
 import { createWorkerCtx } from "./workerCtx.mjs";
 import { createControlPlaneStub, createS3Backend, CONTROL_PLANE_ORIGIN, GATEWAY_SECRET } from "./controlPlaneStub.mjs";
 import { AI_GATEWAY_ENV, AI_GATEWAY_ORIGIN, BUILTIN_ALLOWED } from "./agentModelFixture.mjs";

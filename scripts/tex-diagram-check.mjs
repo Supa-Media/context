@@ -39,16 +39,16 @@ import { readTexConfig } from "./lib/texConfigFile.mjs";
 
 const ROOT = resolve(fileURLToPath(new URL("..", import.meta.url)));
 export { DIAGRAM };
-const ENTRY = "apps/mcp/src/agent/texEntryPoint.js";
-const STEPS_DIR = "apps/mcp/src/agent/texEntryPoint/";
+const ENTRY = "packages/tex/gateway/agent/texEntryPoint.js";
+const STEPS_DIR = "packages/tex/gateway/agent/texEntryPoint/";
 /** Where a model may be named; each file that names one is a node's file, or on a list below. */
-const MODEL_FOLDERS = ["apps/mcp/src/agent", "packages/tex/worker", "apps/convex/functions/lib/jev"];
+const MODEL_FOLDERS = ["packages/tex/gateway/agent", "packages/tex/worker", "apps/convex/functions/lib/jev"];
 /** Where a node's file is looked for, by its path's end. */
 const NAMED_FOLDERS = ["apps/mcp/src", "packages/tex/worker", "apps/convex/functions/lib/jev"];
 const MODEL_ID = /["'`](?:anthropic\/claude-[a-z0-9.-]+|@cf\/[a-z0-9._-]+\/[a-z0-9._-]+|gemini-[a-z0-9.-]+)["'`]/;
 /** Files that name a model to carry or price calls for nodes, and are never a model call of their own. */
 export const PLUMBING = Object.freeze({
-  "apps/mcp/src/agent/production.js": "reads the texting setup, whose models are the config's",
+  "packages/tex/gateway/agent/production.js": "reads the texting setup, whose models are the config's",
   "apps/convex/functions/lib/jev/models.ts": "the control plane's table of models the meter knows",
   "apps/convex/functions/lib/jev/meter.ts": "prices each model's tokens for usage rows",
 });
@@ -57,10 +57,10 @@ export const PLUMBING = Object.freeze({
  * around a turn must be a config node"). Each is being given its node; the list only shrinks.
  */
 export const NOT_NODED_YET = Object.freeze({
-  "apps/mcp/src/agent/decide.js": "Clef's small choices on a person's computer",
+  "packages/tex/gateway/agent/decide.js": "Clef's small choices on a person's computer",
 });
 /** Where a Tex agent's prompt is written: each file here that gives a model a system prompt puts the map ahead of it (`texArchitecture.js`). */
-const AGENT_FOLDER = "apps/mcp/src/agent";
+const AGENT_FOLDER = "packages/tex/gateway/agent";
 /** Files that carry a system prompt without writing one: the transport, the day told at its door (`withToday`), the turn that sends runTheModel's prompt, and a card template's field named system. */
 const PROMPT_CARRIERS = new Set(["aiGateway.js", "builtin.js", "turn.js", "turnPrompt.js", "visuals/index.js", "texArchitecture.js", "localNow.js"]);
 const GIVES_A_PROMPT = /\bsystem:\s*(?!\[)/;
@@ -101,20 +101,20 @@ export function mapProblems(files) {
 }
 
 /**
- * The steps a turn runs, in order, now that it runs the config's graph (`apps/mcp/src/agent/graph/turnGraph.js`): for
+ * The steps a turn runs, in order, now that it runs the config's graph (`packages/tex/gateway/agent/graph/turnGraph.js`): for
  * each node of `texConfig.json`, in the config's order, the `texEntryPoint/` step files its gateway node's code runs,
  * then each `steps.<name>(t` the entry file still calls itself (its failure path).
  */
 export function graphSteps(root) {
   const config = readTexConfig(root);
-  const table = readFileSync(join(root, "apps/mcp/src/agent/graph/gatewayNodes.js"), "utf8");
+  const table = readFileSync(join(root, "packages/tex/gateway/agent/graph/gatewayNodes.js"), "utf8");
   const fileOf = new Map([...table.matchAll(/import \{ (\w+) \} from "\.\/nodes\/([\w-]+)\.js";/g)].map((m) => [m[1], m[2]]));
   const steps = [];
   for (const { id } of config.nodes) {
     const impl = table.match(new RegExp(`^\\s+${id}: (\\w+),`, "m"))?.[1];
     const file = impl ? fileOf.get(impl) : null;
     if (!file) continue;
-    const source = readFileSync(join(root, "apps/mcp/src/agent/graph/nodes", `${file}.js`), "utf8");
+    const source = readFileSync(join(root, "packages/tex/gateway/agent/graph/nodes", `${file}.js`), "utf8");
     for (const m of source.matchAll(/from "\.\.\/\.\.\/texEntryPoint\/(\w+)\.js"/g)) if (!steps.includes(m[1])) steps.push(m[1]);
   }
   for (const step of codeSteps(readFileSync(join(root, ENTRY), "utf8"))) if (!steps.includes(step)) steps.push(step);
@@ -228,12 +228,12 @@ function selfTest() {
   expect(!pageNames("see `reply.ts`", "packages/tex/worker/autoreply.ts"), "a file was found by part of its name");
   expect(modelFileProblems(["packages/tex/worker/reply.ts", ...Object.keys(NOT_NODED_YET)], config).length === 0, "a node's file or a listed one refused");
   expect(modelFileProblems(["packages/tex/worker/judge.ts", ...Object.keys(NOT_NODED_YET)], config).length === 1, "a model call with no node passed");
-  expect(modelFileProblems(["apps/mcp/src/agent/graph/nodes/fresh.js", ...Object.keys(NOT_NODED_YET)], config, ["apps/mcp/src/agent/graph/nodes/fresh.js"]).length === 0, "a shelf node's model call refused");
+  expect(modelFileProblems(["packages/tex/gateway/agent/graph/nodes/fresh.js", ...Object.keys(NOT_NODED_YET)], config, ["packages/tex/gateway/agent/graph/nodes/fresh.js"]).length === 0, "a shelf node's model call refused");
   expect(modelFileProblems(Object.keys(NOT_NODED_YET).slice(1), config).length === 1, "a listed file that names no model stayed listed");
   const noded = { ...config, nodes: [...config.nodes, node("x", Object.keys(NOT_NODED_YET)[0].split("/").pop())] };
   expect(modelFileProblems(Object.keys(NOT_NODED_YET), noded).length === 1, "a listed file that has its node stayed listed");
   expect(changeProblems(["packages/tex/worker/reply.ts"], config, "").length === 1, "a node's file changed without the config passed");
-  expect(changeProblems(["apps/mcp/src/agent/texEntryPoint/newStep.js"], config, "").length === 1, "a new step file changed without the config passed");
+  expect(changeProblems(["packages/tex/gateway/agent/texEntryPoint/newStep.js"], config, "").length === 1, "a new step file changed without the config passed");
   expect(changeProblems(["packages/tex/worker/reply.ts", CONFIG], config, "").length === 0, "a change with the config refused");
   expect(changeProblems(["packages/tex/worker/reply.ts"], config, "Fixes a typo.\nTex diagram: unchanged because a log line only").length === 0, "a stated reason refused");
   expect(changeProblems(["packages/tex/worker/reply.ts"], config, "Tex diagram: unchanged because").length === 1, "an empty reason passed");

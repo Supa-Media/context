@@ -26,8 +26,8 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { claimCheck } from "../src/agent/claimCheck.js";
-import { SAYS_SOMETHING_NOTICE, deniesWhatAPageSays, figureCheck, unsourcedFigures } from "../src/agent/sourcedFigures.js";
+import { claimCheck } from "../../../packages/tex/gateway/agent/claimCheck.js";
+import { SAYS_SOMETHING_NOTICE, deniesWhatAPageSays, figureCheck, unsourcedFigures } from "../../../packages/tex/gateway/agent/sourcedFigures.js";
 
 const PRICING_PAGE =
   "API pricing. GPT-6 Luna: Input $0.10 / 1M tokens, Output $0.50 / 1M tokens. " +

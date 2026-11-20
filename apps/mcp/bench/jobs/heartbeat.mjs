@@ -11,7 +11,7 @@
  * `must include: SKIP` and "text them" as `must not include: SKIP`.
  */
 
-import { PRODUCTION_HEARTBEAT_PATH } from "../../src/agent/production.js";
+import { PRODUCTION_HEARTBEAT_PATH } from "../../../../packages/tex/gateway/agent/production.js";
 import { anthropicGateway, claudeTransport, fakeAi, workersAi } from "../models.mjs";
 import { createWorld } from "../world.mjs";
 

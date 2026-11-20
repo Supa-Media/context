@@ -22,7 +22,7 @@ type TraceEntry = {
 };
 
 /**
- * The trace as the gateway's `wireTraceEntry` (`apps/mcp/src/agent/turnLog.js`)
+ * The trace as the gateway's `wireTraceEntry` (`packages/tex/gateway/agent/turnLog.js`)
  * sends it: kinds, names, numbers and flags. Anything else on an entry is
  * dropped here, before the mutation's validator ever sees it, so a field this
  * handler does not know can never carry a provider's words into the log.

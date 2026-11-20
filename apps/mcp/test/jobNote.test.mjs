@@ -12,10 +12,10 @@
 
 import assert from "node:assert/strict";
 import test from "node:test";
-import { fallbackPath, handleJobNote, jobName, rosterText } from "../src/agent/jobNote.js";
+import { fallbackPath, handleJobNote, jobName, rosterText } from "../../../packages/tex/gateway/agent/jobNote.js";
 import { deliverMail } from "../src/mail/deliver.js";
-import { jobOf, jobPrompt } from "../src/agent/background.js";
-import { jobCheckBrief } from "../src/agent/jobCheck.js";
+import { jobOf, jobPrompt } from "../../../packages/tex/gateway/agent/background.js";
+import { jobCheckBrief } from "../../../packages/tex/gateway/agent/jobCheck.js";
 
 const JOB = "job-0000-abcd-1234";
 const texting = (fields = {}) => {

@@ -18,9 +18,9 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { readGroupMemory } from "../src/agent/groupTurn.js";
-import { renderGroupNote } from "../src/agent/groupMemoryNote.js";
-import { learnDirect } from "../src/agent/groupDirectNotes.js";
+import { readGroupMemory } from "../../../packages/tex/gateway/agent/groupTurn.js";
+import { renderGroupNote } from "../../../packages/tex/gateway/agent/groupMemoryNote.js";
+import { learnDirect } from "../../../packages/tex/gateway/agent/groupDirectNotes.js";
 import { withIdLayout } from "../src/store/idLayout.js";
 
 const KEY = "a".repeat(64);

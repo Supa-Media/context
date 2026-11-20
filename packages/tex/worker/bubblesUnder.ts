@@ -4,7 +4,7 @@
  * in one turn and both bubbles went under "say bravo").
  *
  * The gateway says which text each part of the answer goes under, by event
- * id (`apps/mcp/src/agent/replyUnder.js`), when the front door numbered them.
+ * id (`packages/tex/gateway/agent/replyUnder.js`), when the front door numbered them.
  * Here each part becomes its own bubbles, under that text's message. A part
  * with no text named, or one naming a text this turn did not answer, goes
  * where the whole answer always went: under the newest message.

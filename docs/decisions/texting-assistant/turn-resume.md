@@ -8,7 +8,7 @@ code before it shipped; this is the reviewed shape.
 dropped stream) is tried again by the texting Worker, up to four times (`packages/tex/worker/inbox.ts`). Each try started
 from the person's text, so every search, page and note save ran again.
 
-**What is kept, and where.** After each tool call returns, the front door's model loop (`apps/mcp/src/agent/turn.js`,
+**What is kept, and where.** After each tool call returns, the front door's model loop (`packages/tex/gateway/agent/turn.js`,
 `turnResume.js` `roundsKeeper`) keeps a snapshot: the messages after the question, the model's calls and what each
 returned. It is kept in the chat's own home, beside its ledger (`packages/tex/gateway/texStore/rounds.js`): a person's in their
 personal workspace's object, a group chat's in its own Tex object. It never goes to the texting Worker, so a group's

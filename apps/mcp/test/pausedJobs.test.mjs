@@ -3,7 +3,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { STEER_JOB_TOOL, backgroundSession, runningJobsOf, startedJobs, withBackground } from "../src/agent/background.js";
+import { STEER_JOB_TOOL, backgroundSession, runningJobsOf, startedJobs, withBackground } from "../../../packages/tex/gateway/agent/background.js";
 
 const NOW = Date.UTC(2026, 10, 5, 3, 0);
 const RESET = Date.UTC(2026, 10, 6, 0, 2);

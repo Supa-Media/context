@@ -23,9 +23,9 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 
 import { parsePage } from "../../../packages/shared/src/pages/parse.cjs";
-import { outgoingPictures } from "../src/agent/outgoingPictures.js";
-import { pictureMaker, withPictureMaker } from "../src/agent/pictureMaker.js";
-import { STORABLE_ACCEPT, storableDownload, unpictured, withPagePictures } from "../src/agent/visuals/pagePhotos.js";
+import { outgoingPictures } from "../../../packages/tex/gateway/agent/outgoingPictures.js";
+import { pictureMaker, withPictureMaker } from "../../../packages/tex/gateway/agent/pictureMaker.js";
+import { STORABLE_ACCEPT, storableDownload, unpictured, withPagePictures } from "../../../packages/tex/gateway/agent/visuals/pagePhotos.js";
 
 const PAGE = [
   "---",

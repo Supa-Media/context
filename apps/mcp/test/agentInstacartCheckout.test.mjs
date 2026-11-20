@@ -14,9 +14,9 @@
 
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { BROWSER_RETRY_NOTICE, CAPTCHA_NOTICE, HANDBACK_NOTICE, claimCheck, handsOverACaptcha, handsWorkBack } from "../src/agent/claimCheck.js";
-import { webSession } from "../src/agent/computer.js";
-import { BROWSE_TOOL } from "../src/agent/browse.js";
+import { BROWSER_RETRY_NOTICE, CAPTCHA_NOTICE, HANDBACK_NOTICE, claimCheck, handsOverACaptcha, handsWorkBack } from "../../../packages/tex/gateway/agent/claimCheck.js";
+import { webSession } from "../../../packages/tex/gateway/agent/computer.js";
+import { BROWSE_TOOL } from "../../../packages/tex/gateway/agent/browse.js";
 
 test("the texts that handed the cart back are read as handing work back", () => {
   for (const said of [

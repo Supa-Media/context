@@ -14,7 +14,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { test } from "node:test";
 
-import { OPEN_PAGE_TIMEOUT_MS, OPEN_PAGE_TOOL, PAGE_OPEN_MS, webSession } from "../src/agent/computer.js";
+import { OPEN_PAGE_TIMEOUT_MS, OPEN_PAGE_TOOL, PAGE_OPEN_MS, webSession } from "../../../packages/tex/gateway/agent/computer.js";
 import { texEntryPointSource } from "./texEntryPointSource.mjs";
 
 const FAST = "https://fast.example.com/";

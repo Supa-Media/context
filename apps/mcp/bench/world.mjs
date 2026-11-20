@@ -20,12 +20,12 @@
  */
 
 import { connectMailbox, inMailbox, readMailbox, searchMailbox, sentMail, settingMailbox } from "./mailbox.mjs";
-import { TRANSCRIPTS_FOLDER } from "../src/agent/transcript.js";
-import { HOUSEKEEPING_CLIENT_ID } from "../src/agent/housekeeping.js";
+import { TRANSCRIPTS_FOLDER } from "../../../packages/tex/gateway/agent/transcript.js";
+import { HOUSEKEEPING_CLIENT_ID } from "../../../packages/tex/gateway/agent/housekeeping.js";
 import { arrivedEmail, checkInTurn, houseTurn, routineTurn, startCall, startGrants } from "./worldStarts.mjs";
 import worker from "../src/index.js";
-import { PRODUCTION_TEXTING_PATH } from "../src/agent/production.js";
-import { skillPath } from "../src/agent/skills.js";
+import { PRODUCTION_TEXTING_PATH } from "../../../packages/tex/gateway/agent/production.js";
+import { skillPath } from "../../../packages/tex/gateway/agent/skills.js";
 import { createWeb } from "./sites.mjs";
 import { simBinding, simulatedWorld, sitesIn, withClosedForNew } from "./simWorld.mjs";
 import { createBenchSite } from "./siteStub.mjs";
@@ -478,7 +478,7 @@ export async function createWorld(bench, person, setupRaw, models, today = null,
           .filter((entry) => entry.kind === "tool" || entry.kind === "router" || entry.kind === "fallback" || entry.kind === "judge" || (entry.kind === "model" && (entry.retried || entry.cut)))
           .map((entry) =>
             entry.kind === "judge"
-              ? // The reply judge's verdict (`src/agent/replyJudge.js`): `judge: only_acknowledged 0.82 sent back, 40 ms`.
+              ? // The reply judge's verdict (`packages/tex/gateway/agent/replyJudge.js`): `judge: only_acknowledged 0.82 sent back, 40 ms`.
                 { tool: `judge: ${entry.verdict ?? "no verdict"}${typeof entry.confidence === "number" ? ` ${entry.confidence.toFixed(2)}` : ""}${entry.acted ? " sent back" : ""}, ${Math.round(entry.ms ?? 0)} ms`, ok: true }
               : entry.kind === "router"
               ? // `router: think (0.8)`; a think pick under the setup's cutoff is

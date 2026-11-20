@@ -12,7 +12,7 @@ import assert from "node:assert/strict";
 import { after, before, test } from "node:test";
 
 import worker from "../src/index.js";
-import { isAboutNotePath, itemOf, stampAboutLines } from "../src/agent/aboutLines.js";
+import { isAboutNotePath, itemOf, stampAboutLines } from "../../../packages/tex/gateway/agent/aboutLines.js";
 import { CONTROL_PLANE_ORIGIN, GATEWAY_SECRET, createControlPlaneStub, createS3Backend } from "./controlPlaneStub.mjs";
 import { createWorkerCtx } from "./workerCtx.mjs";
 import { texStoreNamespace } from "./texStoreFixture.mjs";
