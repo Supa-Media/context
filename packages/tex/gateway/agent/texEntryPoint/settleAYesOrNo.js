@@ -27,28 +27,42 @@ export async function settleAYesOrNo(t) {
     if (ownConversation !== null && readTold(body.told).length > 0) await tex.step("keep_told", () => appendTold(store, ownConversation, readTold(body.told)));
   }
   else if ((session.actorClientId === TEXTS_CLIENT_ID || group !== null) && job === null && group?.guestTagger !== true) {
-    // A 👍 or 👎 from a computer's owner on the chat's ask to run a job there answers that ask, and nothing else (`groupAsk.js`).
-    const machine = group !== null && quoted?.tapback ? await tex.step("machine_thumb", () => machineThumb(env, session, quoted, controlPlane, { guest: group.guestTagger === true })) : null;
-    if (machine !== null) return (outcome.clean = true), json({ answer: machineThumbLine(machine), provider: "gateway", model: "none", steps: [] });
-    thumbsUp = await tex.step("thumbs_up", () => thumbsUpIsYes(store, session, quoted, { who: group?.from || null, chat: askChat })); // a 👍 on the ask is that yes
-    const thumbsDown = !thumbsUp && (await tex.step("thumbs_down", () => thumbsDownIsNo(store, session, quoted, { who: group?.from || null, chat: askChat }))); // and a 👎 the no
-    const settled = await tex.step("settle_yes", () => settleTextedText(store, session, {
-      dispatch,
-      // A tapback's own text is its emoji: a 👍 on other words is not a typed 👍, so it is no verdict.
-      question: thumbsUp ? "yes" : thumbsDown ? "no" : quoted.tapback ? "" : group !== null ? withoutTexName(question) : question,
-      keep: group !== null ? keepGroupSettled(store, group, dispatch) : null,
-      hasAttachments: sent.length > 0,
-      now: received,
-      timeZone: readTimeZone(body.timeZone),
-      defer: (work) => deferred(store, work),
-      // Kept on the same terms as a model turn's history, below, with the Worker's fixed texts (`told`).
-      conversation: ownConversation,
-      told: body.told,
-      thumbsUp, chat: askChat,
-    }));
-    if (settled?.answer !== undefined) return (outcome.clean = true), json({ ...settled, warm: (await tex.step("seal_warm", () => hot.seal({ wrote: true }))) ?? undefined }); // the gateway's words, nothing read; its yes goes in the copy too
-    ({ setAside = [], dropped = [] } = settled ?? {});
-    paid = settled?.allowed ?? [];
+    try {
+      // A 👍 or 👎 from a computer's owner on the chat's ask to run a job there answers that ask, and nothing else (`groupAsk.js`).
+      const machine = group !== null && quoted?.tapback ? await tex.step("machine_thumb", () => machineThumb(env, session, quoted, controlPlane, { guest: group.guestTagger === true })) : null;
+      if (machine !== null) return (outcome.clean = true), json({ answer: machineThumbLine(machine), provider: "gateway", model: "none", steps: [] });
+      thumbsUp = await tex.step("thumbs_up", () => thumbsUpIsYes(store, session, quoted, { who: group?.from || null, chat: askChat })); // a 👍 on the ask is that yes
+      const thumbsDown = !thumbsUp && (await tex.step("thumbs_down", () => thumbsDownIsNo(store, session, quoted, { who: group?.from || null, chat: askChat }))); // and a 👎 the no
+      const settled = await tex.step("settle_yes", () => settleTextedText(store, session, {
+        dispatch,
+        // A tapback's own text is its emoji: a 👍 on other words is not a typed 👍, so it is no verdict.
+        question: thumbsUp ? "yes" : thumbsDown ? "no" : quoted.tapback ? "" : group !== null ? withoutTexName(question) : question,
+        keep: group !== null ? keepGroupSettled(store, group, dispatch) : null,
+        hasAttachments: sent.length > 0,
+        now: received,
+        timeZone: readTimeZone(body.timeZone),
+        defer: (work) => deferred(store, work),
+        // Kept on the same terms as a model turn's history, below, with the Worker's fixed texts (`told`).
+        conversation: ownConversation,
+        told: body.told,
+        thumbsUp, chat: askChat,
+      }));
+      if (settled?.answer !== undefined) return (outcome.clean = true), json({ ...settled, warm: (await tex.step("seal_warm", () => hot.seal({ wrote: true }))) ?? undefined }); // the gateway's words, nothing read; its yes goes in the copy too
+      ({ setAside = [], dropped = [] } = settled ?? {});
+      paid = settled?.allowed ?? [];
+    } catch (error) {
+      /*
+        The asks waiting for a yes could not be read (2026-11-20: they live in the workspace's bucket, which a Lab test
+        chat never reaches, so every bare "yes" or 👍 failed the door three times and Tex said nothing). Nothing is
+        settled and nothing is released, which only this code can do, so the text goes on to the Front door like any
+        other and gets an answer. Only the error's name and code are logged, never its message.
+      */
+      thumbsUp = false;
+      setAside = [];
+      dropped = [];
+      paid = [];
+      console.log(JSON.stringify({ event: "settle_yes_unread", name: String(error?.name ?? "Error").slice(0, 40), code: typeof error?.code === "string" ? error.code.slice(0, 40) : null, group: group !== null }));
+    }
   }
   Object.assign(t, { askChat, dropped, front, ownConversation, paid, setAside, thumbsUp });
 }
