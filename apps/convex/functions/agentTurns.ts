@@ -19,6 +19,7 @@ import { resolveGrantByAccessTokenHandler } from "./lib/controlPlane/session";
 import { TEXTS_CLIENT_ID } from "./textLinks";
 import { writingCostMicroUsd } from "./lib/jev/meter";
 import { insertTurn } from "./lib/agentTurnMark";
+import { TEX_STATE_FILES } from "@context/shared/src/toolRules.cjs";
 
 /** How long a turn's row is kept. Long enough to compare weeks, no longer. */
 export const AGENT_TURN_RETENTION_MS = 30 * 24 * 60 * 60 * 1000;
@@ -53,9 +54,20 @@ export const traceEntryValidator = v.object({
   cut: v.optional(v.boolean()),
   held: v.optional(v.boolean()),
   ask: v.optional(v.boolean()),
+  state: v.optional(v.string()),
   ok: v.boolean(),
   ms: v.number(),
 });
+
+/** The tool list a turn's model was shown (`apps/mcp/src/agent/turnLog.js` `toolsShownOf`), at most 16 tools. */
+export const toolsShownValidator = v.object({
+  list: v.string(),
+  each: v.array(v.object({ name: v.string(), chars: v.number(), print: v.string() })),
+});
+const PRINT = /^[0-9a-f]{8}$/;
+const MAX_TOOLS_SHOWN = 16;
+/** Rule 3's state files (`packages/shared/src/toolRules.cjs` `TEX_STATE_FILES`): only these names are kept. */
+const STATE_FILES = new Set(TEX_STATE_FILES.map((entry) => entry.file));
 
 /** Where a turn came from, as the gateway names it (`apps/mcp/src/agent/turnLog.js`). */
 export const TURN_KINDS = ["one", "group", "job", "routine", "app"] as const;
@@ -92,6 +104,7 @@ export const recordAgentTurn = internalMutation({
     kind: v.optional(turnKindValidator),
     usage: v.optional(v.array(modelUsageValidator)),
     trace: v.array(traceEntryValidator),
+    tools: v.optional(toolsShownValidator),
   },
   returns: v.boolean(),
   handler: async (ctx, args) => {
@@ -110,7 +123,7 @@ export const recordAgentTurn = internalMutation({
         if (entry.tool === undefined || !TOOL_NAME.test(entry.tool)) return false;
         // The action is kept only when it is a name; anything else is dropped, and the turn is still kept.
         const action = entry.action !== undefined && ACTION_NAME.test(entry.action) ? entry.action : undefined;
-        trace.push({ kind: "tool" as const, tool: entry.tool, ok: entry.ok || entry.ask === true, ms, ...(action === undefined ? {} : { action }), ...(entry.six !== undefined && SIX_NAMES.has(entry.six) ? { six: entry.six } : {}), ...(entry.held ? { held: true } : {}), ...(entry.ask ? { ask: true } : {}) });
+        trace.push({ kind: "tool" as const, tool: entry.tool, ok: entry.ok || entry.ask === true, ms, ...(action === undefined ? {} : { action }), ...(entry.six !== undefined && SIX_NAMES.has(entry.six) ? { six: entry.six } : {}), ...(entry.held ? { held: true } : {}), ...(entry.ask ? { ask: true } : {}), ...(entry.state !== undefined && STATE_FILES.has(entry.state) ? { state: entry.state } : {}) });
       } else if (entry.kind === "router") {
         // The router's pick (`src/agent/router.js`): which tier, and so which model, answered.
         if (entry.tool !== undefined || entry.tier === undefined || entry.model === undefined || !MODEL.test(entry.model)) return false;
@@ -128,6 +141,13 @@ export const recordAgentTurn = internalMutation({
         trace.push({ kind: "model" as const, ok: entry.ok, ms, ...(entry.model === undefined ? {} : { model: entry.model }), ...(entry.retried ? { retried: true } : {}), ...(entry.cut ? { cut: true } : {}), ...STATUS(entry.status) });
       }
     }
+
+    // The tool list is kept only when every piece is a name, a count or a fingerprint; otherwise it is dropped, never the turn.
+    const shown = args.tools;
+    const tools =
+      shown !== undefined && PRINT.test(shown.list) && shown.each.length <= MAX_TOOLS_SHOWN && shown.each.every((tool) => TOOL_NAME.test(tool.name) && PRINT.test(tool.print))
+        ? { list: shown.list, each: shown.each.map((tool) => ({ name: tool.name, chars: count(tool.chars, 1_000_000), print: tool.print })) }
+        : undefined;
 
     await insertTurn(ctx, {
       workspaceId: session.workspaceId,
@@ -147,6 +167,7 @@ export const recordAgentTurn = internalMutation({
       ...(args.kind === undefined ? {} : { kind: args.kind }),
       ...spendOf(args),
       trace,
+      ...(tools === undefined ? {} : { tools }),
     });
     return true;
   },

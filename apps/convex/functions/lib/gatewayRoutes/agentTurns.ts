@@ -16,6 +16,7 @@ type TraceEntry = {
   cut?: boolean;
   held?: boolean;
   ask?: boolean;
+  state?: string;
   ok: boolean;
   ms: number;
 };
@@ -31,7 +32,7 @@ function traceOf(value: unknown): TraceEntry[] | null {
   const trace: TraceEntry[] = [];
   for (const entry of value) {
     if (typeof entry !== "object" || entry === null) return null;
-    const { kind, tool, action, six, tier, confidence, model, status, retried, cut, held, ask, ok, ms } = entry as Record<string, unknown>;
+    const { kind, tool, action, six, tier, confidence, model, status, retried, cut, held, ask, state, ok, ms } = entry as Record<string, unknown>;
     // A reply gate's verdict (`replyJudge.js` via `wireTraceEntry`): kept in the chat's history
     // (`judgeEvent`), not in this log. Skipped, so a judged turn keeps its row and its priced usage.
     if (kind === "judge") continue;
@@ -48,6 +49,7 @@ function traceOf(value: unknown): TraceEntry[] | null {
     if (cut !== undefined && typeof cut !== "boolean") return null;
     if (held !== undefined && typeof held !== "boolean") return null;
     if (ask !== undefined && typeof ask !== "boolean") return null;
+    if (state !== undefined && typeof state !== "string") return null;
     trace.push({
       kind,
       ok,
@@ -63,9 +65,27 @@ function traceOf(value: unknown): TraceEntry[] | null {
       ...(cut === undefined ? {} : { cut }),
       ...(held === undefined ? {} : { held }),
       ...(ask === undefined ? {} : { ask }),
+      ...(state === undefined ? {} : { state: state.slice(0, 64) }),
     });
   }
   return trace;
+}
+
+type ToolsShown = { list: string; each: Array<{ name: string; chars: number; print: string }> };
+
+/** The tool list the model was shown (`toolsShownOf`): names, counts and fingerprints, else nothing. Never the turn. */
+function toolsShownOf(value: unknown): ToolsShown | undefined {
+  if (typeof value !== "object" || value === null) return undefined;
+  const { list, each } = value as Record<string, unknown>;
+  if (typeof list !== "string" || !Array.isArray(each) || each.length > 16) return undefined;
+  const tools: ToolsShown["each"] = [];
+  for (const tool of each) {
+    if (typeof tool !== "object" || tool === null) return undefined;
+    const { name, chars, print } = tool as Record<string, unknown>;
+    if (typeof name !== "string" || typeof chars !== "number" || typeof print !== "string") return undefined;
+    tools.push({ name: name.slice(0, 64), chars, print: print.slice(0, 16) });
+  }
+  return { list: list.slice(0, 16), each: tools };
 }
 
 const KINDS = new Set(["one", "group", "job", "routine", "app"]);
@@ -95,6 +115,7 @@ export async function gatewayAgentTurnHandler(ctx: ActionCtx, body: Record<strin
   const trace = traceOf(body.trace);
   const num = (key: string) => (typeof body[key] === "number" ? (body[key] as number) : 0);
   const usage = usageOf(body.usage);
+  const tools = toolsShownOf(body.tools);
   if (
     accessToken === null ||
     !expected.ok ||
@@ -121,6 +142,7 @@ export async function gatewayAgentTurnHandler(ctx: ActionCtx, body: Record<strin
     ...(typeof body.kind === "string" && KINDS.has(body.kind) ? { kind: body.kind as TurnKind } : {}),
     ...(usage === undefined ? {} : { usage }),
     trace,
+    ...(tools === undefined ? {} : { tools }),
   });
   return json({ recorded });
 }
