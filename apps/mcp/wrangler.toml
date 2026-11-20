@@ -306,6 +306,15 @@ dataset = "tex_text_counts"
 binding = "SITE_SHOTS"
 service = "context-site-shots"
 
+# Tex's own computer (infra/tex-computer): one sleeping Linux container per
+# person and per group chat, with no internet. Reached only through this
+# binding, so it has no address and holds no secret. It must exist before this
+# Worker deploys. Self-hosting without Containers: delete this block; a turn
+# is then never offered the computer.
+[[services]]
+binding = "TEX_COMPUTER"
+service = "context-tex-computer"
+
 # The texting Worker's named entrypoint `TexRoutines` (apps/agent). A Tex
 # store's alarm calls `routineDue` on it to run a routine on time
 # (`src/texStore/dispatch.js`). A named entrypoint is reachable only through
@@ -504,6 +513,10 @@ dataset = "tex_text_counts_staging"
 [[env.staging.services]]
 binding = "SITE_SHOTS"
 service = "context-site-shots-staging"
+
+[[env.staging.services]]
+binding = "TEX_COMPUTER"
+service = "context-tex-computer-staging"
 
 [[env.staging.services]]
 binding = "TEXTING"
