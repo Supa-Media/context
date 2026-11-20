@@ -51,7 +51,8 @@ export async function answerCheckNode(input, io) {
     const ladder = await askBefore(io, t, waiting);
     if (ladder !== null && (ladder.to === "back" || ladder.to === "job")) {
       ladders += 1;
-      if (ladder.to === "back" && back.left() > 0) {
+      // The send-back runs only over its own wire, `askGate -> fd` (loop): unwired, the draft is not sent back.
+      if (ladder.to === "back" && t.ladderBack === true && back.left() > 0) {
         sentBack += 1;
         stop = await back({ notice: String(ladder.notice) });
         continue;

@@ -131,7 +131,8 @@ test("a model call that fails says why in the step's log, and the draft goes on"
   const out = await askGateNode({ ask: "x", draft: "Which one?" }, { ctx: { turn: { env: { AI: broken } } }, use: {} });
   assert.equal(out.to, "pass");
   assert.match(out.why, /No such model/);
-  assert.equal(out.model, "@cf/cloudflare/clef");
+  // The step's own model from Tex's config (texConfig.json askGate: clef-flash), not the code's Clef default.
+  assert.equal(out.model, "@cf/cloudflare/clef-flash");
   const engine = askEngine({ async run(model, input) { return { answers: { kind: { choice: "none" } }, asked: [model, input.model] }; } }, "@cf/typesafe/jev");
   assert.deepEqual((await engine("s", {})).answers, { kind: { choice: "none" } });
 });
@@ -149,15 +150,16 @@ const CONFIG = {
     wire("askGate", "rungKnows", "uses"),
     wire("askGate", "rungNotes", "uses"),
     wire("askGate", "rungTools", "uses"),
+    wire("askGate", "fd", "loop", ["tryNext"]),
   ],
 };
 
-async function runLadder({ drafts, messages = [], kind = "fact", knows = [], notes = [], ladderOn = true, ladderHandOff = null }) {
+async function runLadder({ drafts, messages = [], kind = "fact", knows = [], notes = [], ladderOn = true, ladderBack = true, ladderHandOff = null }) {
   const drafted = [];
   const ended = [];
   const logs = [];
   const ai = fakeAi(kind);
-  const turn = { question: "when do I fly to Denver?", env: { AI: ai }, ladderOn, ladderHandOff, reviewedAs: null, answerChecks: { code: async () => ({ notice: null, review: false }), review: async () => null } };
+  const turn = { question: "when do I fly to Denver?", env: { AI: ai }, ladderOn, ladderBack, ladderHandOff, reviewedAs: null, answerChecks: { code: async () => ({ notice: null, review: false }), review: async () => null } };
   const notices = [];
   const fd = async (input, io) => {
     const t = io.ctx.turn;
@@ -190,6 +192,13 @@ async function runLadder({ drafts, messages = [], kind = "fact", knows = [], not
   const { outputs } = await graph.run("fd", {}, { turn });
   return { drafted, ended, logs, outputs, notices, ai };
 }
+
+test("with no askGate -> fd wire the ladder sends nothing back: a send-back runs only over its own wire", async () => {
+  const { drafted, ended, notices } = await runLadder({ drafts: ["What's your flight to Denver?", "unused"], knows: ["Fri: flight to Denver UA 412"], ladderBack: false });
+  assert.equal(drafted.length, 1);
+  assert.deepEqual(notices, []);
+  assert.deepEqual(ended, [["sent", "What's your flight to Denver?"]]);
+});
 
 test("a fact climbs, goes back with what memory found, and the answer goes out", async () => {
   const { drafted, ended, notices, logs } = await runLadder({ drafts: ["What's your flight to Denver?", "You fly to Denver Friday on UA 412."], knows: ["Fri: flight to Denver UA 412"] });
