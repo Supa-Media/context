@@ -159,11 +159,24 @@ export const census = internalQuery({
       texting: { convex: 0, object: 0 },
       /** Own-storage workspaces by notes home: they stay where they are. */
       ownNotes: homeCounts(),
+      /**
+       * Workspaces by how many live folders do the `tex` job: two or more is a state the job rules never leave, in which
+       * the workspace object asks the control plane where a new Tex note goes (`apps/mcp/src/workspaceStore/
+       * lookupMiss.js` `texFolderOf`). Counts only.
+       */
+      texFolders: { none: 0, one: 0, many: 0 },
     };
     for (const workspace of await ctx.db.query("workspaces").take(MAX_WORKSPACES)) {
       const facts = await factsOf(ctx.db, workspace, workspace._id);
       counts.workspaces += 1;
       counts.storage[facts.storage] += 1;
+      const tex = (
+        await ctx.db
+          .query("nodes")
+          .withIndex("by_workspace_role", (q) => q.eq("workspaceId", workspace._id).eq("role", "tex"))
+          .take(8)
+      ).filter((row) => row.goneAt === undefined && row.kind === "folder").length;
+      counts.texFolders[tex === 0 ? "none" : tex === 1 ? "one" : "many"] += 1;
       if (facts.storage === "own") counts.ownNotes[facts.notes] += 1;
       if (facts.storage !== "managed") continue;
       counts.notes[facts.notes] += 1;
