@@ -30,6 +30,7 @@
  *     in tex/routines/" fails.
  */
 
+import { onFixedList, manualOf } from "./sixToolsShown.mjs";
 import { ONE_TO_ONE_CHAT, ledgerFor } from "../../../packages/tex/gateway/agent/ledger.js";
 import worker from "../src/index.js";
 import { createWorkerCtx } from "./workerCtx.mjs";
@@ -257,9 +258,9 @@ export async function runAgentRoutineTexChecks(check) {
     check(
       "a text is told new routines go in tex/routines/, and that old ones still run",
       writeTool !== undefined &&
-        writeTool.description.includes("tex/routines/<how-often>/<name>.md") &&
-        writeTool.description.includes("tex/routines/once/") &&
-        writeTool.description.includes("Older routines at routines/<how-often>/<name>.md still run"),
+        (onFixedList() ? manualOf("save") : writeTool.description).includes("tex/routines/<how-often>/<name>.md") &&
+        (onFixedList() ? manualOf("save") : writeTool.description).includes("tex/routines/once/") &&
+        (onFixedList() ? manualOf("save") : writeTool.description).includes("Older routines at routines/<how-often>/<name>.md still run"),
     );
     check(
       "a text writes a routine under tex/routines/",

@@ -37,7 +37,7 @@
  */
 
 import { ask, call, request, textOf, createEgressWorld, TOKEN_MCP, TOKEN_ROUTINE, TOKEN_TEXTS } from "./agentEgressFixtures.mjs";
-import { shown as shownTools } from "./sixToolsShown.mjs";
+import { shown as shownTools, onFixedList } from "./sixToolsShown.mjs";
 import { readCalendarChange } from "../src/tools/calendarWrite.js";
 
 const CREATE = { action: "create", title: "Dentist", start: "2026-10-20T15:00:00-04:00", end: "2026-10-20T16:00:00-04:00" };
@@ -94,8 +94,8 @@ export async function runCalendarGateChecks(check) {
     check(
       "a routine's run is offered their calendar, and no other write",
       shownTools(model.requests.at(-2)?.tools).has("send.calendar") &&
-        !shownTools(model.requests.at(-2)?.tools).has("write.save") &&
-        !shownTools(model.requests.at(-2)?.tools).has("send.email"),
+        (onFixedList() || (!shownTools(model.requests.at(-2)?.tools).has("write.save") &&
+        !shownTools(model.requests.at(-2)?.tools).has("send.email"))),
     );
     check(
       "a routine's run that was asked to add an event to their own calendar adds the event at once",

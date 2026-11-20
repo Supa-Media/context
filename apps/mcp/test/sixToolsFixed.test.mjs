@@ -264,3 +264,10 @@ test("each kind's fetch says what chat: reads there, and a group is not shown th
   assert.match(fetchOf("group"), /chat: reads this group chat's earlier messages/);
   for (const name of ["delegate", "mail_agent", "earlier_texts"]) assert.ok(!fixedCarriers("group").has(name), `${name} is never a group's`);
 });
+
+// Sabotage (2026-11-20): fixedCarriers without textingWriteTools for a 1:1 → this fails (the save guide lost routines).
+test("a 1:1's save guide says how routines are written, as a text's write does", () => {
+  const shown = fixedCarriers("one");
+  const manual = sixToolsOver([...shown.values()], null, { shown }).resolve("fetch", { id: "manual:save" }).text;
+  assert.match(manual, /tex\/routines\/<how-often>\/<name>\.md/);
+});

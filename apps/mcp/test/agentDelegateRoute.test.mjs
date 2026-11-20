@@ -21,6 +21,7 @@
  *     → "a done job is texted once, as finished, with no model call" fails.
  */
 
+import { onFixedList } from "./sixToolsShown.mjs";
 import worker from "../src/index.js";
 import { createWorkerCtx } from "./workerCtx.mjs";
 import { createControlPlaneStub, createS3Backend, CONTROL_PLANE_ORIGIN, GATEWAY_SECRET } from "./controlPlaneStub.mjs";
@@ -209,7 +210,7 @@ export async function runAgentDelegateRouteChecks(check) {
     check(
       "the supervisor is offered mail_agent and no note saves",
       /mail_agent:/.test(sendTool(asked)?.description ?? "") &&
-        !/- save:/.test((asked.tools ?? []).find((entry) => entry.name === "write")?.description ?? ""),
+        (onFixedList() || !/- save:/.test((asked.tools ?? []).find((entry) => entry.name === "write")?.description ?? "")),
     );
 
     /* ---------------- done ---------------- */
