@@ -235,6 +235,11 @@ export function workspaceAccess(sql) {
       const header = meta("access:set");
       return header === null ? null : JSON.parse(header).version;
     },
+    /** Whether this workspace holds the chat homes (the pinned workspace), or `null` before the first set. */
+    sealsChats() {
+      const header = meta("access:set");
+      return header === null ? null : JSON.parse(header).sealsChats === true;
+    },
     /** Replace the whole set unless the one held is at a later access version. Run inside the caller's transaction. */
     put(input) {
       const set = checkAccessSet(input);

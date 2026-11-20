@@ -330,7 +330,7 @@ export async function runPathInjectionChecks(check) {
       const refused = await callTool(env, OWNER_TOKEN, "read_note", { path: hostile });
       check(
         `a traversal segment is refused as a tool error: ${hostile}`,
-        /invalid path/i.test(refused) && !/internal error/i.test(refused)
+        /invalid path/i.test(refused) && !/internal error|could not finish this just now/i.test(refused)
       );
     }
 

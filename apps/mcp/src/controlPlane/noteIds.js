@@ -8,7 +8,7 @@
  * control plane derives the workspace from that token's grant; the
  * `workspaceId` and `expectedWorkspaceId` fields only let it refuse a mismatch.
  */
-import { CONTROL_PLANE_WRITE_TIMEOUT_MS, ControlPlaneError } from "./client.js";
+import { CONTROL_PLANE_WRITE_TIMEOUT_MS, ControlPlaneError, unusableAnswer } from "./client.js";
 import { isIdKey } from "../privacy/engine.js";
 import { isNoteId } from "../store/noteIdKeys.js";
 
@@ -81,7 +81,7 @@ export function createNoteIdMethods({ post, required }) {
       if (!parsed.notes || typeof parsed.notes !== "object" || Array.isArray(parsed.notes)) {
         // `{served: false}`: the control plane would not answer, which is not a malformed answer (2026-11-06: the old words
         // told an agent its note ids were broken while the workspace was only busy).
-        throw new ControlPlaneError(parsed?.served === false ? "note id lookup not served" : "malformed note id entries");
+        throw unusableAnswer("/gateway/note-ids/lookup", parsed, "malformed note id entries");
       }
       const notes = {};
       for (const path of Object.keys(parsed.notes)) {
@@ -120,7 +120,7 @@ export function createNoteIdMethods({ post, required }) {
       });
       const paths = required(parsed, "paths");
       if (!paths || typeof paths !== "object" || Array.isArray(paths)) {
-        throw new ControlPlaneError("malformed note id paths");
+        throw unusableAnswer("/gateway/note-ids/resolve", parsed, "malformed note id paths");
       }
       const narrowed = {};
       for (const noteId of [...new Set(noteIds)]) {
@@ -153,7 +153,7 @@ export function createNoteIdMethods({ post, required }) {
         accessToken,
         expectedWorkspaceId: workspaceId,
       }, { timeoutMs: CONTROL_PLANE_WRITE_TIMEOUT_MS });
-      if (parsed.ok !== true) throw new ControlPlaneError("malformed note id record");
+      if (parsed.ok !== true) throw unusableAnswer("/gateway/note-ids/wrote", parsed, "malformed note id record");
       return { recorded: parsed.recorded === true };
     },
 
@@ -179,7 +179,7 @@ export function createNoteIdMethods({ post, required }) {
         accessToken,
         expectedWorkspaceId: workspaceId,
       }, { timeoutMs: CONTROL_PLANE_WRITE_TIMEOUT_MS });
-      if (parsed.ok !== true) throw new ControlPlaneError("malformed note adoption");
+      if (parsed.ok !== true) throw unusableAnswer("/gateway/note-ids/adopt", parsed, "malformed note adoption");
       if (parsed.adopted === true) return { adopted: true, taken: null };
       return { adopted: false, taken: narrowNote(parsed.taken) };
     },
@@ -202,7 +202,7 @@ export function createNoteIdMethods({ post, required }) {
         accessToken,
         expectedWorkspaceId: workspaceId,
       }, { timeoutMs: CONTROL_PLANE_WRITE_TIMEOUT_MS });
-      if (parsed.ok !== true) throw new ControlPlaneError("malformed note removal");
+      if (parsed.ok !== true) throw unusableAnswer("/gateway/note-ids/removed", parsed, "malformed note removal");
       return { removed: parsed.removed === true };
     },
   };

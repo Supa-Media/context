@@ -35,7 +35,7 @@ function durableSql() {
 }
 
 /** A fake WORKSPACE_STORE namespace: one object per name, each with its own SQLite. */
-function namespace() {
+function namespace({ sealsChats } = {}) {
   const objects = new Map();
   const hints = [];
   return {
@@ -47,6 +47,8 @@ function namespace() {
       if (!objects.has(id.name)) {
         const sql = durableSql();
         const store = { objects: texObjects(sql), rows: workspaceRows(sql), members: workspaceMembers(sql) };
+        // What the held access set says about chat homes (`accessRows.js` `sealsChats`), where a test names it.
+        if (sealsChats !== undefined) store.access = { sealsChats: () => sealsChats };
         objects.set(id.name, { fetch: (request) => serveWorkspaceStore(store, request) });
       }
       return objects.get(id.name);
@@ -62,8 +64,8 @@ const RULES = (accessVersion = 1) => ({
   notes: [{ path: "1-projects/held.md", visibility: "private" }, { path: "1-projects/group.md", visibility: "@team-a" }],
 });
 
-async function seeded() {
-  const env = { WORKSPACE_STORE: namespace() };
+async function seeded(options = {}) {
+  const env = { WORKSPACE_STORE: namespace(options) };
   const ws = workspaceClient(env, "ws_one");
   const rows = [
     { id: "n1", noteId: ID(1), path: "1-projects/open.md", kind: "file", at: 10 },
@@ -283,6 +285,28 @@ test("a path lookup says absent only for a path with no row and no reroute; a ro
   assert.deepEqual(looked.rows[3], { path: "1-projects/nothing-here.md", found: false }, "a job-named folder reroutes the miss, so it is not absent");
   assert.deepEqual(looked.rows[1], { path: "1-projects/secret/plan.md", found: false }, "a private-folder row exists, so it is not absent");
   assert.deepEqual(looked.rows[2], { path: "tex/groups/abc/x.md", found: false }, "a group chat's home is the control plane's to name");
+});
+
+// 2026-11-20: a computer job's new note under `tex/groups/` in a shared workspace that is not the pin asked the control
+// plane for its place, which refused the job's grant, and the save failed. Where the object's access set says it holds
+// no chat homes and the gateway says the workspace is shared, the path is absent and the note is made in the object.
+// Sabotage: drop `where` from serve.js lookUp's `absentHere` call and the first assertion loses `absent`.
+test("a path under tex/ is absent in a shared workspace that holds no chat homes, and stays the control plane's elsewhere", { skip }, async () => {
+  const folders = [{ id: "f-tex", path: "tex", kind: "folder", at: 5 }, { id: "f-groups", path: "tex/groups", kind: "folder", at: 5 }];
+  const shared = (await seeded({ sealsChats: false })).ws;
+  await shared.rows.put(folders);
+  const paths = ["tex/groups/kite-willow-rocket/x.md", "tex/notes/y.md"];
+  const looked = await shared.rows.lookup({ paths, scope: "team", workspaceKind: "shared" });
+  assert.deepEqual(looked.rows, paths.map((path) => ({ path, found: false, absent: true })));
+  // Not said to be shared (a personal workspace keeps its Tex folder in Tex's store): neither, as before.
+  const unsaid = await shared.rows.lookup({ paths, scope: "team" });
+  assert.deepEqual(unsaid.rows, paths.map((path) => ({ path, found: false })));
+  // The pin (its set seals the chat homes), or a set not held yet: the chat home is the control plane's to name.
+  for (const options of [{ sealsChats: true }, {}]) {
+    const { ws } = await seeded(options);
+    await ws.rows.put(folders);
+    assert.deepEqual((await ws.rows.lookup({ paths, scope: "team", workspaceKind: "shared" })).rows[0], { path: paths[0], found: false });
+  }
 });
 
 // Two live rows for one note id: the object names neither, not even the newer one, and says nothing else about them.
