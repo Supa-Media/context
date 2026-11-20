@@ -19,6 +19,7 @@ import { WorkerEntrypoint } from "cloudflare:workers";
 import { runScopedRoutine, textPhone, type RoutineDeps, type RoutineScope } from "./routines";
 import { inboxForPageChat, readPageChat, readPageSteer, type PageJobs } from "./texPage";
 import { readMailDelivery } from "./jobMail";
+import { readPageAnswer, type PageAnswerOutcome } from "./pageAnswer";
 import { jobStub } from "./jobPlace";
 import type { TextsBinding } from "./gatewaySession";
 import { chatMove as moveChat } from "./gatewayMove";
@@ -97,6 +98,22 @@ export class TexRoutines extends WorkerEntrypoint<TexRoutineEnv> {
     const response = await inbox.fetch("https://inbox/page-steer", { method: "POST", body: JSON.stringify(steer) });
     if (!response.ok) throw new Error("the chat's inbox did not answer");
     return { taken: ((await response.json()) as { taken?: unknown }).taken === true };
+  }
+
+  /**
+   * Yes or Not now on a person's waiting ask, from the web page a card's tap opened (`pageAnswer.ts`). Their own 1:1
+   * only: a group's asks are answered in the group. Rejects a call that names no phone, ask key and answer (`TypeError`).
+   */
+  async pageAnswer(call: { chat?: unknown; ask?: unknown; yes?: unknown } | null): Promise<PageAnswerOutcome> {
+    const chat = readPageChat(call?.chat);
+    if (chat === null || !("phone" in chat)) throw new TypeError("an answer names the person's own chat by its phone");
+    const answer = readPageAnswer({ phone: chat.phone, ask: call?.ask, yes: call?.yes });
+    if (answer === null) throw new TypeError("an answer names an ask key and yes or no");
+    const inbox = await inboxForPageChat(this.env, chat);
+    if (inbox === null) return { taken: false, why: "no_ask" };
+    const response = await inbox.fetch("https://inbox/page-answer", { method: "POST", body: JSON.stringify(answer) });
+    if (!response.ok) throw new Error("the chat's inbox did not answer");
+    return (await response.json()) as PageAnswerOutcome;
   }
 
   /**

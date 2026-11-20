@@ -49,6 +49,7 @@ import { watchJob } from "./jobWatch";
 import { resumePausedJobs } from "./jobPause";
 import { jobUpdate } from "./jobTexts";
 import { pageJobsOf, pageSteerResponse } from "./texPage";
+import { answerFromPage, readPageAnswer } from "./pageAnswer";
 import { simulatorEnabled, simulatorInbox } from "./simulator";
 import { simulatedGroupInbox, type SimGroupBody } from "./simulatorGroup";
 import { appCardConfig } from "./appCards";
@@ -251,6 +252,12 @@ export class SenderInbox implements DurableObject {
     if (path === "/cross-ask") return Response.json({ outcome: await takeCrossAsk(this.state.storage, await request.json().catch(() => null), Date.now()) });
     if (path === "/cross-answer") return Response.json({ outcome: await takeCrossAnswer(this.state.storage, await request.json().catch(() => null), Date.now()) });
     if (path === "/page-jobs") return Response.json(await pageJobsOf(this.state.storage, Date.now()));
+    if (path === "/page-answer") {
+      // Yes or Not now on the waiting ask, from the web page a card's tap opened (`pageAnswer.ts`).
+      const answer = readPageAnswer(await request.json().catch(() => null));
+      if (answer === null) return Response.json({ error: "bad_request" }, { status: 400 });
+      return Response.json(await answerFromPage(this.state.storage, answer, Date.now()));
+    }
     if (path === "/page-steer") return await pageSteerResponse(this.state.storage, await request.json().catch(() => null), async (id, next) => (await this.deps().steerJob?.(id, next)) ?? false);
     // A Photon link bubble's guid, kept here so a report after this isolate is gone still matches the words (`photonLinkBubbles.ts`).
     if (path === "/link-bubble") {

@@ -130,19 +130,17 @@ describe("every page", () => {
 
 describe("a card's own address opened in a browser", () => {
   it("goes to the card's page with its query, never to a person's Tex page, and only for the kinds Tex sends", async () => {
-    const tapped = await worker.fetch(new Request("https://context.lc/tex/ask?k=abc12"), {}, CTX);
-    expect(tapped.status).toBe(302);
-    expect(tapped.headers.get("Location")).toBe("/messages/ask?k=abc12");
     for (const kind of ["pick", "card", "hello"]) {
       const response = await worker.fetch(new Request(`https://context.lc/tex/${kind}?x=1`), {}, CTX);
       expect(response.headers.get("Location")).toBe(`/messages/${kind}?x=1`);
     }
     // A person's page, a group's page and the threads view are not cards.
-    for (const path of ["/tex/@seyi", "/tex/group/blue-fox", "/tex/threads", "/tex/asking"]) {
+    // An ask's card is the app's own page, answered signed in (`apps/mobile/app/tex/ask.tsx`).
+    for (const path of ["/tex/ask", "/tex/@seyi", "/tex/group/blue-fox", "/tex/threads", "/tex/asking"]) {
       const url = new URL(`https://context.lc${path}`);
       expect(messagesCardResponse(new Request(url), url)).toBeNull();
     }
-    const posted = new URL("https://context.lc/tex/ask?k=abc12");
+    const posted = new URL("https://context.lc/tex/pick?o=a&o=b");
     expect(messagesCardResponse(new Request(posted, { method: "POST" }), posted)).toBeNull();
   });
 

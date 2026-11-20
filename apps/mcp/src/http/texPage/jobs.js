@@ -204,3 +204,21 @@ export async function steerPageJob(env, chat, { id, text, stop = false }) {
     return false;
   }
 }
+
+/**
+ * Answers the person's waiting ask in their own chat, yes or no, as the ask card's own Yes or Not now would
+ * (`TexRoutines.pageAnswer`). `{ ok: false, error }` names why not: `no_ask` (nothing waiting), `stale` (a newer ask
+ * replaced it), `full`, or `unavailable` when the texting Worker could not be reached.
+ */
+export async function answerPageAsk(env, chat, ask, yes) {
+  const texting = env?.TEXTING;
+  if (!texting || typeof texting.pageAnswer !== "function") return { ok: false, error: "unavailable" };
+  try {
+    const answer = await texting.pageAnswer({ chat, ask, yes });
+    if (answer?.taken === true) return { ok: true };
+    const why = answer?.why;
+    return { ok: false, error: why === "no_ask" || why === "stale" || why === "full" ? why : "unavailable" };
+  } catch {
+    return { ok: false, error: "unavailable" };
+  }
+}

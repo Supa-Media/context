@@ -92,7 +92,7 @@ async function setUp() {
     }
     return stubbed(input, init);
   };
-  const texting = { jobsAsked: [], steered: [] };
+  const texting = { jobsAsked: [], steered: [], answered: [] };
   const now = Date.now();
   const TEXTING = {
     async pageJobs({ chat }) {
@@ -106,6 +106,10 @@ async function setUp() {
           { id: "job0", title: "Compare florists", state: "done", startedAt: now - 3_600_000, finishedAt: now - 3_000_000, steps: [], result: "Saved a comparison page" },
         ],
       };
+    },
+    async pageAnswer(call) {
+      texting.answered.push(call);
+      return call.ask === "k1" ? { taken: true } : { taken: false, why: "stale" };
     },
     async pageSteer(call) {
       texting.steered.push(call);
@@ -370,4 +374,32 @@ test("the picker names a group's home, so the app can open its history file as t
   assert.deepEqual(picker[0], { key: "me", name: "Just you" });
   assert.deepEqual(picker[1], { key: GROUP, name: "Team Night", people: 3, home: { context: "@team-night", folder: "tex/groups/blue-lake-fox" } });
   assert.deepEqual(picker[2], { key: BOBS_GROUP, name: "No Home", people: 2 });
+});
+
+test("a Yes from the ask card's page goes to her own chat by her phone, and only hers", async () => {
+  const world = await setUp();
+  try {
+    const yes = await ask(world, "/tex/page/act", { token: T.alice, body: { handle: "alice", chat: "me", action: { type: "answer", ask: "k1", yes: true } } });
+    assert.equal(yes.status, 200, yes.text);
+    assert.deepEqual(yes.body, { ok: true });
+    assert.deepEqual(world.texting.answered.at(-1), { chat: { phone: ALICE_PHONE }, ask: "k1", yes: true });
+    // A newer ask replaced it: said so, never turned into a yes.
+    const stale = await ask(world, "/tex/page/act", { token: T.alice, body: { handle: "alice", chat: "me", action: { type: "answer", ask: "k2", yes: false } } });
+    assert.deepEqual(stale.body, { ok: false, error: "stale" });
+    // Not in a group, not a key of another shape, not without yes or no.
+    for (const [chat, action] of [[GROUP, { type: "answer", ask: "k1", yes: true }], ["me", { type: "answer", ask: "../x", yes: true }], ["me", { type: "answer", ask: "k1", yes: "yes" }]]) {
+      const refused = await ask(world, "/tex/page/act", { token: T.alice, body: { handle: "alice", chat, action } });
+      assert.deepEqual(refused.body, { ok: false, error: "invalid" });
+    }
+    // Bob has no phone, and cannot answer as alice; an AI client's grant cannot answer either.
+    const bob = await ask(world, "/tex/page/act", { token: T.bob, body: { handle: "bob", chat: "me", action: { type: "answer", ask: "k1", yes: true } } });
+    assert.deepEqual(bob.body, { ok: false, error: "invalid" });
+    const asAlice = await ask(world, "/tex/page/act", { token: T.bob, body: { handle: "alice", chat: "me", action: { type: "answer", ask: "k1", yes: true } } });
+    assert.equal(asAlice.status, 403);
+    const mcp = await ask(world, "/tex/page/act", { token: T.aliceMcp, body: { handle: "alice", chat: "me", action: { type: "answer", ask: "k1", yes: true } } });
+    assert.equal(mcp.status, 403);
+    assert.equal(world.texting.answered.length, 2);
+  } finally {
+    world.restore();
+  }
 });

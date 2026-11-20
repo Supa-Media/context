@@ -36,9 +36,10 @@ export const MESSAGES_PREFIX = "/messages/";
  * extension (it is not installed on that phone, or Messages hands the link on),
  * and there `/tex/<word>` is a person's Tex page, so the tap read "This page
  * isn't yours" (Dev2, 2026-11-20). The browser goes to the card's own page
- * instead, which says where to answer it.
+ * instead, which says where to answer it. An ask's card is not among them: the
+ * app answers it itself, signed in (`apps/mobile/app/tex/ask.tsx`).
  */
-const SENT_CARD = /^\/tex\/(ask|pick|card|hello)\/?$/;
+const SENT_CARD = /^\/tex\/(pick|card|hello)\/?$/;
 
 const ORIGIN = "https://context.lc";
 const MAX_OPTIONS = 8;
