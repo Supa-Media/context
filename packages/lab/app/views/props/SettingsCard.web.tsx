@@ -77,6 +77,16 @@ export function SettingsCard({ n }: { n: LabNode }) {
             </select>,
           )
         : null}
+      {model && (n.id === "fd" || n.id === "job")
+        ? row(
+            "Slow modules",
+            "frozen modules",
+            <select id="setFreeze" value={n.freeze || "turn"} onChange={(e) => setNode(n.id, "freeze", e.target.value as "turn" | "summary")}>
+              <option value="turn">Read every turn</option>
+              <option value="summary">Frozen until the next summary</option>
+            </select>,
+          )
+        : null}
       {model
         ? row(
             "Time limit",
