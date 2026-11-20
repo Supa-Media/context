@@ -183,6 +183,12 @@ export async function connectNotes({ env, controlPlane, session, dispatch, offer
   const chosen = typeof wanted === "string" && canRunBuiltin(wanted, env) ? wanted : null;
   const model = chosen ?? builtinModel(env);
   const meter = builtinMeter(controlPlane, session, model, now);
+  // What the model did, kept in the node's output so the Lab's Replay shows every call and its answer (Dev2: every step logs everything).
+  const calls = [];
+  const observe = (event) => {
+    if (event?.kind === "tool") calls.push({ tool: String(event.name ?? ""), args: JSON.stringify(event.args ?? {}).slice(0, 300), ok: event.ok !== false });
+  };
+  const seen = Object.fromEntries(nearby);
   let turn;
   try {
     turn = await runTurn({
@@ -195,18 +201,21 @@ export async function connectNotes({ env, controlPlane, session, dispatch, offer
       builtinModelOverride: chosen,
       providerOptions: { ai: env.AI, gateway: aiGatewayConfig(env), metadata: { feature: "assistant", workspace: String(session.workspaceId), client: "note_connect" } },
       localNow: { now, timeZone },
+      observe,
       maxRounds: node?.rounds ?? CONNECT_ROUNDS,
       roundCap: Math.max(node?.rounds ?? CONNECT_ROUNDS, CONNECT_ROUNDS),
     });
   } catch (error) {
     await meter(null, true, error instanceof ProviderError ? error.model : model);
     if (!(error instanceof ProviderError)) throw error;
-    return { outcome: "model_unavailable", model: error.model ?? model };
+    return { outcome: "model_unavailable", model: error.model ?? model, nearby: seen, calls };
   }
   await meter(turn.usage, false, turn.model);
+  const answer = String(turn.answer ?? "").slice(0, 4_000);
   const links = linksOf(turn.answer, seeds, limits.links ?? CONNECT_MAX_LINKS);
-  if (links.length === 0) return { outcome: "no_links", notes: seeds.length, model: turn.model };
-  return { outcome: "connected", notes: seeds.length, model: turn.model, links: await writeLinks(dispatch, links) };
+  const shown = { notes: seeds.length, model: turn.model, nearby: seen, calls, answer };
+  if (links.length === 0) return { outcome: "no_links", ...shown };
+  return { outcome: "connected", ...shown, links: await writeLinks(dispatch, links) };
 }
 
 /**
