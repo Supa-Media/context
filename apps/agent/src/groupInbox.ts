@@ -127,6 +127,8 @@ export type GroupDeps = {
   texGraph?: unknown;
   /** Set on a turn started before Decide chose (`groupTurnRun.ts` `startEarly`): nothing reaches the chat before its go. */
   provisional?: ProvisionalGate;
+  /** The object's storage, where a simulated group's replies are logged (`simulatedGroup.ts`); see `GroupLineDeps`. */
+  simulatorStorage?: InboxStorage;
 };
 
 /** A group's queue is named apart from every phone's, which always starts with "+". */
