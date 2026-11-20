@@ -7,7 +7,7 @@
 import { EXAMINABLE } from "../../data/areas";
 import type { Change, config } from "../../engine/diff";
 import type { LabVersion, RunResult } from "../../types";
-import { parseReport as readReport } from "@context/shared/src/texLabReport.cjs";
+import { parseReport as readReport } from "@context/lab/src/texLabReport.cjs";
 
 /** How a change from main lands, as the Run view's "Ships as" column names it. */
 export const shipsAs = (x: Pick<Change, "how" | "setup">): string =>
@@ -20,8 +20,8 @@ export function latest(v: Pick<LabVersion, "results">): Record<string, { practic
   return o;
 }
 
-export type { AreaScore } from "@context/shared/src/texLabReport.d.cts";
-import type { AreaScore } from "@context/shared/src/texLabReport.d.cts";
+export type { AreaScore } from "@context/lab/src/texLabReport.d.cts";
+import type { AreaScore } from "@context/lab/src/texLabReport.d.cts";
 
 export type ParsedResult = RunResult & {
   pass?: boolean;
@@ -71,7 +71,7 @@ ${JSON.stringify(c)}`;
 }
 
 /**
- * The artifact's reader, in one copy the control plane reads with too (`packages/shared/src/texLabReport.cjs`), so a
+ * The artifact's reader, in one copy the control plane reads with too (`packages/lab/src/texLabReport.cjs`), so a
  * result kept over the MCP's `tex_dev` `keep_results` scores the same as one kept here.
  */
 export const parseReport = (txt: string): ParsedResult => readReport(txt) as ParsedResult;

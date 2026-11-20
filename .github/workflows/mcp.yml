@@ -122,6 +122,7 @@ jobs:
             .github/workflows/mcp.yml
             packages/shared/**
             packages/tex/**
+            packages/lab/**
             packages/communications/**
             packages/drawings/**
             packages/meetings/**
@@ -193,6 +194,7 @@ jobs:
             .github/workflows/mcp.yml
             packages/shared/**
             packages/tex/**
+            packages/lab/**
             packages/communications/**
             packages/drawings/**
             packages/meetings/**

@@ -1,5 +1,5 @@
 /**
- * The edits to one Training or Dev test conversation (`packages/shared/src/texSetOps.cjs`; Dev2, 2026-11-15: "make sure
+ * The edits to one Training or Dev test conversation (`packages/lab/src/texSetOps.cjs`; Dev2, 2026-11-15: "make sure
  * that through the MCP it's easy for an agent to see and modify and change training, dev sets"). The Lab's Testing tab,
  * the control plane's `texSets.ts` and `tex_dev` all apply these, so the rules are pinned here once: every op, the
  * Lab's own spellings (addMsg, editMsg, removeMsg, moveMsg, label), the Test Set refused, the batch all-or-nothing, and
@@ -19,7 +19,7 @@ import { createRequire } from "node:module";
 import { test } from "node:test";
 
 const require = createRequire(import.meta.url);
-const ops = require("../../../packages/shared/src/texSetOps.cjs");
+const ops = require("../../../packages/lab/src/texSetOps.cjs");
 const { applyOps, apply, blank, conflicts, keysOf, describe, MAX_OPS, OpError, OPEN_SETS } = ops;
 
 /** A small dev conversation: a person, Tex's row, a person again. */

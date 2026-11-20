@@ -4,7 +4,7 @@
  * design https://claude.ai/artifact/1nwVCYrrvYzRzJTGLYKGvk, the recommended set).
  *
  * A draft is a saved Lab version (`texLabVersions`). Two doors change it, with the same small edits
- * (`packages/shared/src/texLabOps.cjs`):
+ * (`packages/lab/src/texLabOps.cjs`):
  *
  *  - the Lab page, as a staff member (`requireAdmin`, with its second factor): `applyEdits`, `changes`;
  *  - the MCP's `tex_dev` tool, through the gateway (`lib/gatewayRoutes/texDev.ts`): `forGateway`, which takes the
@@ -22,7 +22,7 @@ import { ConvexError, v } from "convex/values";
 import { query, type MutationCtx, type QueryCtx } from "../_generated/server";
 import type { Doc, Id } from "../_generated/dataModel";
 import { isStamp } from "@context/tex/src/texConfigStamp.cjs";
-import { applyOps, conflicts, diffGraphs, keysOf, OpError } from "@context/shared/src/texLabOps.cjs";
+import { applyOps, conflicts, diffGraphs, keysOf, OpError } from "@context/lab/src/texLabOps.cjs";
 import { requireAdmin, userIsStaff } from "./lib/admin";
 import { handleForUser } from "./lib/identities";
 import { resolveLiveGrant } from "./lib/controlPlane/liveGrants";

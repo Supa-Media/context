@@ -6,13 +6,13 @@
  * the tab's own choices: which version runs, which models, and whether the Runs panel is open.
  */
 import { useSyncExternalStore } from "react";
-import { CC_FIDELITY, DEFAULT_REPEATS } from "@context/shared/src/texRunBand.cjs";
-import type { RunScore } from "@context/shared/src/texRunBand.d.cts";
+import { CC_FIDELITY, DEFAULT_REPEATS } from "@context/lab/src/texRunBand.cjs";
+import type { RunScore } from "@context/lab/src/texRunBand.d.cts";
 
-export { bandVerdict, CC_FIDELITY, CC_FIDELITY_WHY, DEFAULT_REPEATS, MAX_REPEATS } from "@context/shared/src/texRunBand.cjs";
-export type { BandVerdict, RunScore } from "@context/shared/src/texRunBand.d.cts";
-export { compareRuns, pairedCompare, pairedWords, runStats, statsWords, t975, wilson } from "@context/shared/src/texRunStats.cjs";
-export type { ComparedRuns, Paired, PairedResult, PairedRow, PairedVerdict, RunStatsResult } from "@context/shared/src/texRunStats.d.cts";
+export { bandVerdict, CC_FIDELITY, CC_FIDELITY_WHY, DEFAULT_REPEATS, MAX_REPEATS } from "@context/lab/src/texRunBand.cjs";
+export type { BandVerdict, RunScore } from "@context/lab/src/texRunBand.d.cts";
+export { compareRuns, pairedCompare, pairedWords, runStats, statsWords, t975, wilson } from "@context/lab/src/texRunStats.cjs";
+export type { ComparedRuns, Paired, PairedResult, PairedRow, PairedVerdict, RunStatsResult } from "@context/lab/src/texRunStats.d.cts";
 
 export type RunKind = "dev" | "chat" | "node" | "gate";
 export type RunStage = "queued" | "running" | "done" | "failed";

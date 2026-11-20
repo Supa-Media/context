@@ -27,7 +27,7 @@ import { fileURLToPath } from "node:url";
 import { CONFIG_PATH } from "./lib/texConfigFile.mjs";
 
 const require = createRequire(import.meta.url);
-const { applyOps, conflicts, diffGraphs, keysOf } = require("../packages/shared/src/texLabOps.cjs");
+const { applyOps, conflicts, diffGraphs, keysOf } = require("../packages/lab/src/texLabOps.cjs");
 const { configStamp, isStamp } = require("../packages/tex/src/texConfigStamp.cjs");
 
 export { CONFIG_PATH };

@@ -40,6 +40,7 @@
     "@context/drawings": "workspace:*",
     "@context/meetings": "workspace:*",
     "@context/obsidian-runtime": "workspace:*",
+    "@context/lab": "workspace:*",
     "@context/shared": "workspace:*",
     "@context/tex": "workspace:*",
     "@convex-dev/auth": "^0.0.96",

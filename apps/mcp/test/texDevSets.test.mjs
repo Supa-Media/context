@@ -24,7 +24,7 @@ import { texDevToolDefinitions } from "../src/tools/schemas/texDev.js";
 import { WHY } from "../../../packages/tex/src/textDecide.cjs";
 
 const require = createRequire(import.meta.url);
-const REPO = require("../../../packages/shared/src/texSetsRepo.generated.json");
+const REPO = require("../../../packages/lab/src/texSetsRepo.generated.json");
 const { ratio, unitTests } = require("../../../packages/tex/src/texSets.cjs");
 
 const session = { accessToken: "tok" };

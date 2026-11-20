@@ -31,8 +31,6 @@ export const RUNGS = Object.freeze(["knows", "notes", "apps", "web", "browser", 
 /** Rungs the turn itself climbs; the rest go to a job. */
 export const TURN_RUNGS = Object.freeze(["knows", "notes", "apps", "web"]);
 
-/** How sure the model must be that it is a fact before the ladder holds the draft. */
-export const CLIMB_AT = 0.5;
 /** The most of a draft and of their text the gate reads. */
 const MAX_DRAFT = 3_000;
 const MAX_ASK = 2_000;

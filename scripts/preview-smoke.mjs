@@ -255,6 +255,7 @@ async function appChatStep(env, origin, log) {
   }
   if (hitAt === null) throw new StepError(`meaning search: no meaning-only match within ${MEANING_TIMEOUT_MS / 1000} seconds.`);
   log(`meaning search: found the note by meaning alone in ${hitAt} ms`);
+
   await call('app sign-out', () => client.action(ref('auth:signOut'), {})).catch(() => {});
   return reply;
 }

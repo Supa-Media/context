@@ -180,8 +180,9 @@ apps/mcp/        Cloudflare Worker: MCP gateway, privacy engine, tools,
 infra/           edge Workers: router (context.lc), email, transcription,
                  site screenshots, egress, Sentry inbox
 packages/        shared, tex (Tex's config graph, prompts, judge examples,
-                 Training, tool rules), collaboration, meetings, communications,
-                 drawings, desktop-bridge, obsidian-runtime, encryption-decryptor
+                 Training, tool rules), lab (the Tex Lab), collaboration, meetings,
+                 communications, drawings, desktop-bridge, obsidian-runtime,
+                 encryption-decryptor
 plugins/context/ the `context` agent plugin (skills, MCP entry, session hooks,
                  one manifest per plugin format) and, in the same folder, the
                  `npx @supa-media/context` CLI that installs it

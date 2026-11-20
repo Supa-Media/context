@@ -9,8 +9,8 @@
  * Everything is diffed and applied on UNFOLDED graphs; the shown graph is folded again at the current focus.
  * `texLabOps.cjs` is the one set of rules the Lab, the control plane and the gateway share.
  */
-import { applyOps, diffGraphs, keysOf } from "@context/shared/src/texLabOps.cjs";
-import type { LabGraphJson, LabOp } from "@context/shared/src/texLabOps.d.cts";
+import { applyOps, diffGraphs, keysOf } from "@context/lab/src/texLabOps.cjs";
+import type { LabGraphJson, LabOp } from "@context/lab/src/texLabOps.d.cts";
 import type { LabGraph } from "../types";
 import { unfoldGroups } from "./groups";
 import { clone, emit, isMain, lab, saveVersion, shownGraph, toast } from "./state";

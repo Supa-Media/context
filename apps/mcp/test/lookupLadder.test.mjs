@@ -18,6 +18,7 @@
  *   (ii)  askGate.js: `t.ladderSentBack` check removed. "still asking after the send-back goes to a job" fails (a second send-back).
  *   (iii) answerCheck.js: the `askBefore` call removed. "a fact climbs, goes back with what memory found" fails (d1 is sent).
  *   (iv)  lookupLadder.js: the failedApps branch removed. "a failed connector is said" fails.
+ *   (v)   askGate.js: `got.error` dropped from the pass output. "a model call that fails says why" fails.
  */
 import { test } from "node:test";
 import assert from "node:assert/strict";
@@ -25,7 +26,7 @@ import assert from "node:assert/strict";
 import graphLib from "../../../packages/tex/src/texGraph.cjs";
 import { draftBridge } from "../src/agent/graph/draftBridge.js";
 import { answerCheckNode } from "../src/agent/graph/nodes/answerCheck.js";
-import { askGateNode } from "../src/agent/graph/nodes/askGate.js";
+import { askEngine, askGateNode, climbBarOf } from "../src/agent/graph/nodes/askGate.js";
 import { rungToolsNode } from "../src/agent/graph/nodes/rungTools.js";
 import { handoffNode } from "../src/agent/graph/nodes/handoff.js";
 import { causeOf, handoffHook } from "../src/agent/handoff.js";
@@ -106,7 +107,22 @@ test("an approval or what only they can answer goes on; so does no real ask", as
     assert.equal(out.to, to, kind);
   }
   const unsure = await askGateNode({ ask: "x", draft: "Which one?" }, { ctx: { turn: { env: { AI: fakeAi("fact", 0.2) } } }, use: {} });
-  assert.equal(unsure.to, "bypass", "a fact the model is unsure of is not held");
+  assert.equal(unsure.to, "job", "with no bar set, the choice alone decides: an unsure fact still climbs");
+});
+
+test("the climb bar is the step's own whole percent, or none", () => {
+  assert.equal(climbBarOf({ limits: { climbAt: 40 } }), 0.4);
+  for (const bad of [{}, { limits: {} }, { limits: { climbAt: 0.4 } }, { limits: { climbAt: 140 } }, { limits: { climbAt: "40" } }, null]) assert.equal(climbBarOf(bad), 0);
+});
+
+test("a model call that fails says why in the step's log, and the draft goes on", async () => {
+  const broken = { async run() { throw new Error("No such model typesafe/jev"); } };
+  const out = await askGateNode({ ask: "x", draft: "Which one?" }, { ctx: { turn: { env: { AI: broken } } }, use: {} });
+  assert.equal(out.to, "pass");
+  assert.match(out.why, /No such model/);
+  assert.equal(out.model, "@cf/cloudflare/clef");
+  const engine = askEngine({ async run(model, input) { return { answers: { kind: { choice: "none" } }, asked: [model, input.model] }; } }, "@cf/typesafe/jev");
+  assert.deepEqual((await engine("s", {})).answers, { kind: { choice: "none" } });
 });
 
 // The graph: a fake front door that drafts in turn, on the real runner and bridge, with the real Answer check and gate.

@@ -1,5 +1,5 @@
 /**
- * The Lab's run statistics (`packages/shared/src/texRunStats.cjs`; Dev2, 2026-11-19). Pinned with hand-computed numbers:
+ * The Lab's run statistics (`packages/lab/src/texRunStats.cjs`; Dev2, 2026-11-19). Pinned with hand-computed numbers:
  * Wilson intervals, the Student's t table, the clustered standard error, pass^k, and the paired rule that decides a
  * draft against its base on the same rows. The band may say "wins" while the paired interval still says "within noise";
  * the paired rule decides.
@@ -9,8 +9,8 @@ import { test } from "node:test";
 import { createRequire } from "node:module";
 
 const require = createRequire(import.meta.url);
-const stats = require("../../../packages/shared/src/texRunStats.cjs");
-const band = require("../../../packages/shared/src/texRunBand.cjs");
+const stats = require("../../../packages/lab/src/texRunStats.cjs");
+const band = require("../../../packages/lab/src/texRunBand.cjs");
 
 const row = (convId, msgIndex, ok, extra = {}) => ({ convId, msgIndex, node: "front", ok, ...extra });
 const res = (rows, extra = {}) => ({ pass: 0, total: 0, rows, ...extra });
