@@ -376,7 +376,7 @@ service = "context-tex-eval"
 #                           (src/agent/search.js); without it there is no
 #                           search tool. AGENT_SEARCH picks another provider.
 #   AI_GATEWAY_ACCOUNT_ID   optional. Cloudflare account id for AI Gateway
-#                           (src/agent/aiGateway.js); kept secret, not [vars].
+#                           (packages/tex/gateway/agent/aiGateway.js); kept secret, not [vars].
 #   AI_GATEWAY_ID           optional. The AI Gateway's name; falls back to Workers AI (GLM) if unset.
 #   AI_GATEWAY_TOKEN        optional. Token for AI Gateway; falls back to Workers AI (GLM) if unset.
 #   ANTHROPIC_CREDIT_KEY    optional. The Claude plan's API credit key, spent first;
