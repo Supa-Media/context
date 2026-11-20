@@ -72,6 +72,7 @@ export function cleanRow(x: unknown) {
       return { tool: text(call.tool, 40), input: text(JSON.stringify(call.input ?? {}), 300), chars: num(call.chars), error: call.error === true };
     }),
     usd: { filing: num(usd.filing), reading: num(usd.reading), judging: num(usd.judging) },
+    usdEstimated: r.usdEstimated === true,
     ms: num(r.ms),
     error: r.error ? text(r.error, 300) : null,
   };
@@ -102,7 +103,7 @@ export function cleanSummary(x: unknown) {
       failed: num(scores.failed),
       byAbility: map(scores.byAbility),
       byType: map(scores.byType),
-      usd: { filing: num(usd.filing), reading: num(usd.reading), judging: num(usd.judging), total: num(usd.total) },
+      usd: { filing: num(usd.filing), reading: num(usd.reading), judging: num(usd.judging), total: num(usd.total), estimated: usd.estimated === true },
     },
   };
 }

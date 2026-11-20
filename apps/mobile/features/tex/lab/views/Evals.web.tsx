@@ -24,7 +24,7 @@ type Summary = {
   filings: number;
   ms: number;
   fullRunUsd: number;
-  scores: Share & { asked: number; failed: number; byAbility: Record<string, Share>; byType: Record<string, Share>; usd: { filing: number; reading: number; judging: number; total: number } };
+  scores: Share & { asked: number; failed: number; byAbility: Record<string, Share>; byType: Record<string, Share>; usd: { filing: number; reading: number; judging: number; total: number; estimated?: boolean } };
 };
 type Question = {
   id: string;
@@ -153,8 +153,8 @@ function RunDetail({ id, benches }: { id: string; benches: Bench[] }) {
               {pct(s.scores)} <span className="hint" style={{ fontSize: 14 }}>{`${s.scores.correct}/${s.scores.n} right${s.scores.failed ? `, ${s.scores.failed} could not run` : ""}`}</span>
             </p>
             <p className="hint" style={{ margin: "0 0 10px" }}>
-              Reader {s.reader}, judge {s.judge}, filing {s.filings}× per question. This run {usd(s.scores.usd.total)} (filing {usd(s.scores.usd.filing)}, reading {usd(s.scores.usd.reading)}, judging {usd(s.scores.usd.judging)}
-              ), all {s.total} questions about {usd(s.fullRunUsd)}, {Math.round(s.ms / 60000)} min.
+              Reader {s.reader}, judge {s.judge}, filing {s.filings}× per question. This run {s.scores.usd.estimated ? "≈ " : ""}{usd(s.scores.usd.total)} (filing {usd(s.scores.usd.filing)}, reading {usd(s.scores.usd.reading)}, judging {usd(s.scores.usd.judging)}
+              ), all {s.total} questions about {usd(s.fullRunUsd)}, {Math.round(s.ms / 60000)} min.{s.scores.usd.estimated ? " Claude Code reports no usage, so these are gateway prices for the characters sent and answered." : ""}
             </p>
             {ABILITIES.map(([k, label]) => (
               <Bar key={k} label={label} s={s.scores.byAbility[k]} />

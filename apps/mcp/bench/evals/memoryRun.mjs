@@ -66,6 +66,40 @@ async function ask(send, body) {
   }
 }
 
+/** About four characters to a token: the estimate a call with no usage (the Claude Code socket answers none) is priced at. */
+const CHARS_PER_TOKEN = 4;
+
+/**
+ * `send` with every call priced into the phase it ran in: the reader's and the judge's, and the world's own (filing
+ * runs reach Claude through the same `send`). A reply with no usage, as the model socket answers, is priced from its
+ * characters and the phase marked estimated, so a $0 Claude Code run still says what the gateway would have cost.
+ */
+export function meteredSend(send) {
+  const usd = { filing: 0, reading: 0, judging: 0 };
+  let phase = "filing";
+  let estimated = false;
+  const metered = async (body) => {
+    const response = await send(body);
+    try {
+      const request = JSON.parse(typeof body === "string" ? body : JSON.stringify(body));
+      const reply = await response.clone().json();
+      const u = reply?.usage ?? {};
+      let usage = { input: u.input_tokens ?? 0, output: u.output_tokens ?? 0, cacheRead: u.cache_read_input_tokens ?? 0, cacheWrite: u.cache_creation_input_tokens ?? 0 };
+      if (response.status === 200 && usage.input + usage.output + usage.cacheRead + usage.cacheWrite === 0) {
+        const sent = JSON.stringify({ system: request.system ?? "", messages: request.messages ?? [], tools: request.tools ?? [] }).length;
+        usage = { input: Math.ceil(sent / CHARS_PER_TOKEN), output: Math.ceil(JSON.stringify(reply?.content ?? []).length / CHARS_PER_TOKEN), cacheRead: 0, cacheWrite: 0 };
+        estimated = true;
+      }
+      usd[phase] += usdOf(request.model, usage);
+    } catch {
+      // An unreadable reply costs what the caller reads of it: nothing counted here.
+    }
+    return response;
+  };
+  metered.route = send.route;
+  return { send: metered, usd, phase: (name) => (phase = name), estimated: () => estimated };
+}
+
 const textOf = (content) => (Array.isArray(content) ? content.filter((b) => b?.type === "text").map((b) => b.text).join("\n").trim() : "");
 const toolText = (result) =>
   result?.result?.content ? result.result.content.map((b) => (b.type === "text" ? b.text : `[${b.type}]`)).join("\n") : JSON.stringify(result?.error ?? result ?? null);
@@ -161,8 +195,10 @@ export async function runQuestion(item, models, options = {}) {
     error: null,
     ms: 0,
   };
+  const meter = meteredSend(models.send);
+  const send = meter.send;
   const worldModels = {
-    gatewayFetch: anthropicGateway(models.send, () => {}),
+    gatewayFetch: anthropicGateway(send, () => {}),
     ...(models.ai ? { ai: models.ai } : {}),
     clock: hhmm(askedAt),
     timeZone: "UTC",
@@ -177,7 +213,6 @@ export async function runQuestion(item, models, options = {}) {
         const done = await atEarlierTime(Date.now() - at, () => world.keepHouse());
         row.filings += 1;
         if (!done.ok) row.filingErrors += 1;
-        row.usd.filing += usdOf(done.model, done.usage);
       }
     };
     for (const session of sessions) {
@@ -192,21 +227,23 @@ export async function runQuestion(item, models, options = {}) {
       else row.saveErrors += 1;
     }
     await fileUntil(askedAt);
-    const read = await readAndAnswer(world, models.send, { question: item.question, askedAt, model: opts.reader, rounds: opts.readerRounds, maxTokens: opts.readerTokens });
+    meter.phase("reading");
+    const read = await readAndAnswer(world, send, { question: item.question, askedAt, model: opts.reader, rounds: opts.readerRounds, maxTokens: opts.readerTokens });
     row.answer = read.answer;
     row.calls = read.calls;
-    row.usd.reading = usdOf(opts.reader, read.usage);
     if (read.error) row.error = `reader: ${read.error}`;
-    const verdict = await judge(models.send, item, read.answer, opts.judge);
+    meter.phase("judging");
+    const verdict = await judge(send, item, read.answer, opts.judge);
     row.correct = verdict.correct;
     row.judgeSaid = verdict.said;
-    row.usd.judging = usdOf(opts.judge, verdict.usage);
     if (verdict.error) row.error = [row.error, `judge: ${verdict.error}`].filter(Boolean).join("; ");
   } catch (error) {
     row.error = String(error?.stack ?? error).slice(0, 500);
   } finally {
     world.close();
   }
+  row.usd = { ...meter.usd };
+  row.usdEstimated = meter.estimated();
   row.ms = Date.now() - started;
   return row;
 }
@@ -219,5 +256,6 @@ export function scoresOf(rows) {
   const types = [...new Set(graded.map((row) => row.type))].sort();
   const byType = Object.fromEntries(types.map((type) => [type, share(graded.filter((row) => row.type === type && row.ability !== "abstention"))]));
   const usd = rows.reduce((sum, row) => ({ filing: sum.filing + row.usd.filing, reading: sum.reading + row.usd.reading, judging: sum.judging + row.usd.judging }), { filing: 0, reading: 0, judging: 0 });
-  return { ...share(graded), asked: rows.length, failed: rows.filter((row) => row.error && row.correct === null).length, byAbility, byType, usd: { ...usd, total: usd.filing + usd.reading + usd.judging } };
+  const estimated = rows.some((row) => row.usdEstimated === true);
+  return { ...share(graded), asked: rows.length, failed: rows.filter((row) => row.error && row.correct === null).length, byAbility, byType, usd: { ...usd, total: usd.filing + usd.reading + usd.judging, estimated } };
 }
