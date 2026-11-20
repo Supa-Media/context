@@ -716,3 +716,4 @@ test/texComputerSandbox.test.mjs
 test/frozenModules.test.mjs
 test/warmPrefix.test.mjs
 test/nextSteps.test.mjs
+test/checkInSearch.test.mjs

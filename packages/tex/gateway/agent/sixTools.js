@@ -286,11 +286,16 @@ function firstSentence(text) {
 const SHORT_LINES = {
   ask_chat: "Ask Tex in another chat they share with you, to know or do something there.",
   name_guest: "Keep a guest label's real name, once someone here says it.",
-  draw_visual: "Turn your answer into one of your designed picture cards, to text them.",
+  draw_visual: "Turn your answer into one of your designed picture cards, to text them; write a page before drawing it.",
   vault_access: "Who can use each saved login, key or card; give or take it back.",
   ask_personal_tex: "Get the tagger's name, phone and email from their own Tex, for a form.",
   say_nothing: "Text nothing and end your turn, only where your instructions say silence fits.",
-  calendar: "Add, edit, move, cancel or RSVP to one event on their Google Calendar.",
+  // The four lines below name what their calls were refused for most (tool_stats, 7 days to 2026-11-20; Dev2: "look at the
+  // most failed tools ... add more explanation"): calendar 32 of 64, browse 24 of 178, open_page 7 of 194, job_status 5 of 11.
+  calendar: "Add, edit, move, cancel or RSVP to one event on their Google Calendar, one change per text. start: 2026-11-21T15:00:00-05:00 (with offset) or 2026-11-21; as: group chats only.",
+  browse: "Drive a browser, at most 10 steps a call; fill_login is its own action.",
+  open_page: "Read web pages they wrote, found by search or saw linked.",
+  job_status: "How a background job is going; title exactly as your jobs list shows it.",
   email_draft: "Save one email as a draft in their Gmail, for them to send. A reply passes in_reply_to.",
   chat_add_everyone: "Invite everyone here to one of the asker's workspaces.",
   tapback: "Answer their text with only a tapback, and end your turn.",

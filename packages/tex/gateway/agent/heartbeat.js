@@ -18,8 +18,9 @@
  *      look. Nothing changed is `nothing_new` and costs no model turn. Tex's
  *      own job output (`tex/heartbeat/`, `tex/dreams/`, `tex/housekeeping/`, `tex/skills/`, `tex/about.md`)
  *      never counts as a change, or each look would wake the next.
- *   3. A model may read their notes, in their own workspace only, and nothing
- *      else: no write, no move, no visibility, no web, no other workspace. It
+ *   3. A model may read their notes, mail and calendar and search their email
+ *      and the web, in their own workspace only, and nothing else: no write,
+ *      no move, no visibility, no page opened, no other workspace. It
  *      answers one short text, or exactly SKIP. Most looks should be SKIP.
  *   4. The gateway writes the look to `tex/heartbeat/YYYY-MM-DD.md`: what it
  *      looked at, what it texted or that it stayed quiet, and every step it
@@ -73,7 +74,9 @@ import { appendLogEntryWhy, builtinMeter, clock, readWithEtag } from "./jobLog.j
 import { actorFor, contextsFor } from "../../../../apps/mcp/src/context/identity.js";
 import { callToolForSession } from "../../../../apps/mcp/src/tools/session.js";
 import { grantedToolsFor } from "./sixTools.js";
-import { newLedger } from "../../../../apps/mcp/src/privacy/egress.js";
+import { markUntrusted, newLedger } from "../../../../apps/mcp/src/privacy/egress.js";
+import { SEARCH_WEB_TOOL, webSession } from "./computer.js";
+import { searcherFor } from "./search.js";
 import { json } from "../../../../apps/mcp/src/http/responses.js";
 import { disarmTexting } from "../../../../apps/mcp/src/tools/approvals.js";
 import { heartbeatMailSection, withMailboxes } from "./mailHealth.js";
@@ -106,7 +109,9 @@ const HEARTBEAT_ROUNDS = 10;
  * exchange tainted (below), and the memory nudge never distils a stranger's
  * words into `tex/about.md` (`memoryNudge.js`). Asserted by a test.
  */
-const HEARTBEAT_READS = new Set(["read_note", "list_notes", "search_notes", "read_email", "read_calendar"]);
+// Email search joined on 2026-11-20 (Dev2 chose "give check-ins read-only search"): a look that wanted to search mail
+// was refused 161 times in a week. Web search is the check-in's own (`checkInWeb`), never the session's.
+const HEARTBEAT_READS = new Set(["read_note", "list_notes", "search_notes", "read_email", "read_calendar", "search_email"]);
 
 export { HEARTBEAT_READS };
 
@@ -141,6 +146,26 @@ export function heartbeatCallTool(dispatch) {
     // A note it read is kept with the text, so the reply to it can open the same note (`sources.js`).
     if (name !== "read_note" || result?.isError === true || typeof given.path !== "string") return result;
     return { ...result, sources: [...(Array.isArray(result?.sources) ? result.sources : []), `${READ_SOURCE_PREFIX}${given.path}`] };
+  };
+}
+
+/**
+ * A check-in's web: search only, with no computer, so no page is opened and nothing is typed anywhere (Dev2,
+ * 2026-11-20). A result is text from outside their workspace, so reading one marks the look untrusted
+ * (`privacy/egress.js`), as an email does. Null when this deployment has no search provider.
+ */
+export function checkInWeb(env, ledger) {
+  const search = searcherFor(env);
+  if (search === null) return null;
+  const opened = webSession(null, "", { search });
+  return {
+    tools: opened.tools.filter((tool) => tool.name === SEARCH_WEB_TOOL),
+    usage: opened.usage,
+    call: (name, args) => {
+      if (name !== SEARCH_WEB_TOOL) return refused(`A check-in only reads: it can't use ${name}.`);
+      markUntrusted(ledger);
+      return opened.call(name, args);
+    },
   };
 }
 
@@ -208,6 +233,17 @@ export const HEARTBEAT_INSTRUCTIONS = [
  * What the check-in is asked to do: the setup's words (`instructions`) or the
  * built-in ones, then this look's facts, then the one answer the gateway reads.
  */
+/**
+ * What a check-in may call, always said, whatever the setup's words (Dev2, 2026-11-20: the list stays the one a text is
+ * shown, for the cache, "but we just add a prompt that clearly says, like, you are a check-in ... You can only use
+ * read-only tools"). The dispatcher refuses the rest either way (`heartbeatCallTool`).
+ */
+export const CHECK_IN_TOOLS =
+  "Your tools in a check-in: your tool list shows everything you can do when they text you, but a check-in only reads. " +
+  "Use search and fetch to read their notes, their email and their calendar, send action search_web to search the web, " +
+  "and send action say_nothing to stay quiet. Every other action (sending, saving, changing, moving, opening a page) is refused in a check-in: " +
+  "offer it to them as the next step instead.";
+
 export function heartbeatQuestion({ changed, now, texted, recent = [], instructions = null, theirs = "", mail = "", sources = "", muted = [], examples = "" }) {
   const shown = changed.slice(0, MAX_CHANGED_SHOWN);
   const more = changed.length - shown.length;
@@ -236,6 +272,7 @@ export function heartbeatQuestion({ changed, now, texted, recent = [], instructi
       : "",
     theirs ? `Their own instructions for check-ins, from ${HEARTBEAT_SETTINGS_PATH}:\n${theirs}` : "",
     muted.length > 0 ? `They asked never to be texted about these unless they ask, so for anything about them, ${SAY_NOTHING}: ${muted.join(", ")}.` : "",
+    CHECK_IN_TOOLS,
     `Answer with the text to send them, or, if nothing is worth a text, ${SAY_NOTHING}: nothing is texted.`,
   ]
     .filter(Boolean)
@@ -392,7 +429,7 @@ export async function handleHeartbeat(request, env, store, session, controlPlane
       // Reads only: no write or manage action, and of send only say_nothing, which ends the look with no words
       // (`sayNothing.js`). With `{}` it was offered no send at all, so the call its prompt names came back
       // "no such action" (found 2026-11-07, beside a routine that texted why).
-      grants: { send: ["say_nothing"] },
+      grants: { send: ["say_nothing", "search_web"] }, // and the web, by search only (`checkInWeb`; Dev2, 2026-11-20)
       // A 1:1's turns are all shown one list when the front door's is fixed (`sixToolsFixed.js`; Dev2, 2026-11-20): the
       // look is a 1:1 turn, so it is shown every tool and refused, saying so, all but say_nothing.
       fixedTools: texToolList("fd", texConfigOf(env)) === "fixed" ? "one" : null,
@@ -401,6 +438,7 @@ export async function handleHeartbeat(request, env, store, session, controlPlane
       sayNothingNotice: mailWorthAText(mail.map((entry) => entry.line)) ? CHECK_IN_SPEAK_NOTICE : null,
       scheduled: true, // nobody waits on a look: its last steps end quiet (`lastRound.js`)
       callTool: heartbeatCallTool(dispatch),
+      web: checkInWeb(env, session.egress.ledger), // search only (`checkInWeb`)
       env,
       builtinModelOverride: chosen,
       providerOptions: {
