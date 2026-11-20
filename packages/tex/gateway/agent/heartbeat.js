@@ -135,7 +135,7 @@ function refused(text) {
 export function heartbeatCallTool(dispatch) {
   return async (name, args) => {
     const given = args && typeof args === "object" && !Array.isArray(args) ? args : {};
-    if (given.context !== undefined) return refused("A check-in looks in their own workspace only.");
+    if (given.context !== undefined) return refused("A check-in looks in their own workspace only. Leave context out.");
     if (!HEARTBEAT_READS.has(name)) return refused(`A check-in only reads: it can't use ${name}.`);
     const result = await dispatch(name, given);
     // A note it read is kept with the text, so the reply to it can open the same note (`sources.js`).

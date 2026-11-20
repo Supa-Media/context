@@ -36,17 +36,17 @@ const MAX_INBOX_ATTEMPTS = 20;
 export async function toolRemember(store, scope, rules, overrides, args) {
   const fact = typeof args?.fact === "string" ? args.fact.trim() : "";
   if (!fact || /[\r\n]/.test(fact) || fact.length > MAX_FACT_LENGTH) {
-    return toolError(`invalid: fact must be one line of 1 to ${MAX_FACT_LENGTH} characters`);
+    return toolError(`invalid: fact must be one line of 1 to ${MAX_FACT_LENGTH} characters; write it shorter, on one line`);
   }
-  if (!KINDS.has(args.kind)) return toolError('invalid: kind must be "stated" or "inferred"');
+  if (!KINDS.has(args.kind)) return toolError('invalid: kind must be "stated" or "inferred"; pass one of those');
   if (args.replaces !== undefined && (typeof args.replaces !== "string" || !bare(args.replaces))) {
-    return toolError("invalid: replaces must be the text of an existing line");
+    return toolError("invalid: replaces must be the text of an existing line; read the note and copy the line");
   }
 
   if (args.note === undefined) return rememberInInbox(store, scope, rules, overrides, fact, args.kind);
 
   const path = normalizePath(args.note);
-  if (!path || !path.endsWith(".md")) return toolError("invalid: note must be a path ending in .md");
+  if (!path || !path.endsWith(".md")) return toolError("invalid: note must be a path ending in .md; pass the note's full path");
   if (RESERVED.has(path) || isPlumbing(path)) {
     return toolError(`reserved: ${path} is Context's own file; write the fact into another note instead`);
   }

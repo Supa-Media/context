@@ -16,9 +16,9 @@ import { tapbackEmoji } from "../../tapbackEnding.js";
  */
 export async function tapbackNode(input) {
   const refuse = (why) => ({ to: "refuse", why });
-  if (input?.tagged === true) return refuse("they tagged you by name, so this turn answers them in words");
-  if (input?.lastFailed === true) return refuse("your last call failed, so tell them what happened");
+  if (input?.tagged === true) return refuse("they tagged you by name, so this turn answers them in words; reply with text instead");
+  if (input?.lastFailed === true) return refuse("your last call failed, so tell them what happened in words");
   const emoji = tapbackEmoji(input?.emoji);
-  if (emoji === null) return refuse("a tapback is one of the listed emoji, and that one isn't");
+  if (emoji === null) return refuse("a tapback is one of the listed emoji, and that one isn't; pick one of them");
   return { to: "react", emoji };
 }

@@ -433,7 +433,7 @@ export function browserSession(computer, { allowed, addresses, takePages, say = 
         if (!MODEL_STEPS.has(raw?.do)) return textResult(notAStep(raw?.do, MODEL_STEPS), true);
         const step = withRef(raw);
         if (REF_STEPS.has(step.do) && !Number.isInteger(step.ref)) {
-          return textResult(`A ${step.do} step needs ref: the element's number from the last reading, like 3 for [3].`, true);
+          return textResult(`A ${step.do} step needs ref: the element's number from the last reading, like 3 for [3]. Read the page and pass it.`, true);
         }
         if (step.do === "click") {
           const target = clickTarget(step);

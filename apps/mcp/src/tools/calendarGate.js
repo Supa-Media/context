@@ -40,7 +40,7 @@ const ROUTINES_CLIENT_ID = "context_routines";
 export async function calendarGate(supplied, { store, session, target }) {
   if (session.egress?.approved === true) return null;
   if (target.workspaceId !== session.workspaceId) {
-    return toolError("Not changed: calendar_event takes no context. It always changes the person's own calendar.");
+    return toolError("Not changed: calendar_event takes no context. It always changes the person's own calendar, so leave context out.");
   }
   const read = readCalendarChange(supplied);
   if (read.error) return toolError(`Not changed: ${read.error}`);

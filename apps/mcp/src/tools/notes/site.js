@@ -76,7 +76,7 @@ export async function toolSiteAction(store, args) {
     return toolError("pass site on its own: it reads or publishes the website and writes no note");
   }
   if (request.draft !== undefined && (typeof request.draft !== "string" || !/^[0-9a-f]{16}$/.test(request.draft))) {
-    return toolError('draft must be the 16-character draft a site status returned, e.g. "3fa9c2e01b7d4a65"');
+    return toolError('draft must be the 16-character draft a site status returned, e.g. "3fa9c2e01b7d4a65"; call status first');
   }
   if (
     request.inspect !== undefined &&
@@ -120,7 +120,7 @@ export async function toolSiteAction(store, args) {
     return toolError("websites are not available on this deployment; tell the person, and don't try again");
   }
   if (request.action === "screenshot" && typeof store.shootSite !== "function") {
-    return toolError("screenshots are not available on this deployment; a site check needs no browser.");
+    return toolError("screenshots are not available on this deployment; run a site check instead, which needs no browser.");
   }
   let answer;
   try {

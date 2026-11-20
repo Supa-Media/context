@@ -48,12 +48,12 @@ export async function runLabModel({ ai, session, workspace, args, now = Date.now
     return toolError(`run_model takes one model: ${LAB_MODELS.join(" or ")}.`);
   }
   const input = args?.input;
-  if (!isPlainObject(input)) return toolError("run_model takes input as one JSON object.");
+  if (!isPlainObject(input)) return toolError("run_model takes input as one JSON object. Pass it that way.");
   let inputText;
   try {
     inputText = JSON.stringify(input);
   } catch {
-    return toolError("run_model's input is not JSON.");
+    return toolError("run_model's input is not JSON. Pass valid JSON.");
   }
   if (inputText.length > MAX_INPUT_CHARS) {
     return toolError(`run_model's input is over ${MAX_INPUT_CHARS} characters of JSON; send less.`);

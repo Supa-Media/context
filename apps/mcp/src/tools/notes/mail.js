@@ -108,7 +108,7 @@ export async function toolMailNote(store, scope, rules, overrides, args) {
   if (device === null) return toolError("mail.device is not a device id: run `context-machine status --json` and pass the device id it names");
   if (device !== undefined && !joining) return toolError("mail.device goes with join: drop device, or add join");
   const mailKind = request.kind === undefined ? "note" : request.kind;
-  if (!joining && !["note", "ask", "interrupt"].includes(mailKind)) return toolError('mail.kind must be "note", "ask" or "interrupt"');
+  if (!joining && !["note", "ask", "interrupt"].includes(mailKind)) return toolError('mail.kind must be "note", "ask" or "interrupt"; pass one of those');
   const wait = mailKind === "ask" && request.wait !== undefined ? Number(request.wait) : 0;
   if (!Number.isFinite(wait) || wait < 0 || wait > MAX_ASK_WAIT_S) return toolError(`mail.wait is seconds to wait for the answer, at most ${MAX_ASK_WAIT_S}`);
 

@@ -45,10 +45,10 @@ export const REFUSED = {
  */
 export async function toolReadCalendar(store, _scope, _rules, _overrides, args = {}) {
   const from = typeof args.date === "string" ? args.date.trim() : "";
-  if (!isCalendarDayDate(from)) return toolError("date has to be a day spelled YYYY-MM-DD, e.g. 2026-10-23");
+  if (!isCalendarDayDate(from)) return toolError("date has to be a day spelled YYYY-MM-DD, e.g. 2026-10-23; pass it that way");
   const days = args.days === undefined ? 1 : args.days;
   if (!Number.isInteger(days) || days < 1 || days > MAX_CALENDAR_DAYS) {
-    return toolError(`days must be between 1 and ${MAX_CALENDAR_DAYS}`);
+    return toolError(`days must be between 1 and ${MAX_CALENDAR_DAYS}; pass a number in that range`);
   }
   const account = args.account === undefined ? undefined : typeof args.account === "string" ? args.account.trim().toLowerCase() : "";
   if (account !== undefined && !/^[^\s@]{1,64}@[^\s@]{1,255}$/.test(account)) {
