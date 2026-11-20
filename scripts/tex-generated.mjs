@@ -7,9 +7,9 @@
  * pull requests that touched the config, the Lab or the bench cases conflicted in them, every time:
  *
  *   packages/lab/app/labData.generated.ts   the bench's cases, prompt texts and fixtures (tex-lab-data.mjs)
- *   apps/mcp/src/texDev/lab.generated.js               the Lab's engine for tex_dev (tex-dev-lab.mjs)
- *   apps/mcp/src/texDev/canvas.generated.js            the Lab's drawing for tex_dev snapshot (tex-dev-canvas.mjs)
- *   apps/mcp/src/texDev/replay.generated.js            the Lab's Replay for tex_dev (tex-dev-replay.mjs)
+ *   packages/lab/gateway/texDev/lab.generated.js               the Lab's engine for tex_dev (tex-dev-lab.mjs)
+ *   packages/lab/gateway/texDev/canvas.generated.js            the Lab's drawing for tex_dev snapshot (tex-dev-canvas.mjs)
+ *   packages/lab/gateway/texDev/replay.generated.js            the Lab's Replay for tex_dev (tex-dev-replay.mjs)
  *
  * They are git-ignored now and built on every install: `postinstall` in apps/mobile builds the first, in apps/mcp all
  * four (the bundles read the first), so a deploy, a CI job, a self-hoster and a fresh clone all build them from the

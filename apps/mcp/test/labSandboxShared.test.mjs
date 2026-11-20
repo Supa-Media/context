@@ -1,4 +1,4 @@
-// The Lab's "Shared with developers" chats (src/labSandbox/shared.js; Dev2, 2026-11-16; decision
+// The Lab's "Shared with developers" chats (packages/lab/gateway/labSandbox/shared.js; Dev2, 2026-11-16; decision
 // docs/decisions/texting-assistant/lab-shared-chats.md). What these prove: only a chat the control plane lists now is
 // read, its history is read raw and never written, a chat whose person stopped sharing is gone on the next call, a
 // stranger reads nothing, and a test text runs on the sharer's own session, asked again on every text, so it stops the
@@ -12,8 +12,8 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 
-import { callSandbox, LabSandboxObject } from "../src/labSandbox/object.js";
-import { handleLabSandbox } from "../src/labSandbox/route.js";
+import { callSandbox, LabSandboxObject } from "../../../packages/lab/gateway/labSandbox/object.js";
+import { handleLabSandbox } from "../../../packages/lab/gateway/labSandbox/route.js";
 import { eventEntry, ledgerFor, ONE_TO_ONE_CHAT } from "../src/agent/ledger.js";
 import { durableSql, texStoreNamespace } from "./texStoreFixture.mjs";
 

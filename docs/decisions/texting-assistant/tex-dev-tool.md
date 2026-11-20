@@ -46,7 +46,7 @@ page's, and an AI's change is not on it. `changes` answers each line whole (up t
 keeps the short form.
 
 **A snapshot is the Lab's own drawing.** The canvas is drawn by DOM-free code (`views/canvas/render.ts`); it is
-bundled for the gateway as `apps/mcp/src/texDev/canvas.generated.js` by `scripts/tex-dev-canvas.mjs` (built on
+bundled for the gateway as `packages/lab/gateway/texDev/canvas.generated.js` by `scripts/tex-dev-canvas.mjs` (built on
 install, never committed: `scripts/tex-generated.mjs`) and photographed by the site-shots worker's `/render`. A screenshot of the whole Lab page was rejected
 because a headless browser would need a new way past staff sign-in.
 
@@ -67,7 +67,7 @@ gave, the jobs it started, the notes it read), `prompt` (the exact words of each
 catalogue at the turn's commit, matched by fingerprint), `jobs` (a job's runs as JobRuns shows them), `mine` (Your
 texts, and the run config's replays for those picked) and `link` (the Lab's own address for a page, or Replay at a
 chat and a moment) are worked out by `packages/lab/app/engine/replayEntry.ts` and what it exports, bundled
-for the gateway as `apps/mcp/src/texDev/replay.generated.js` by `scripts/tex-dev-replay.mjs` (built on install,
+for the gateway as `packages/lab/gateway/texDev/replay.generated.js` by `scripts/tex-dev-replay.mjs` (built on install,
 never committed). The pure parts were moved out of the Lab's browser-only files for it (`measured.ts` from `realTimes.ts`,
 `turnShown.ts` from the timeline's `showTurn`, `replayRead.ts`'s read kinds from `useMine.ts`, `labPlace.ts` from
 `useLabUrl.web.ts`), and the Lab now runs them from there too, so the two cannot drift. A second copy in plain
@@ -91,7 +91,7 @@ shared case edits, its test panel, who runs it and the bench's workspaces; `modu
 the conversation settings, and the Tools tab's count of a pasted record). `snapshot` with a `test` draws each step's
 time and the stats chip as the canvas does, and `get`'s `vsMain` names the modules' words and conversation settings
 a draft changes, as the Lab's nav tags do. All of it is the Lab's `engine/forMcp.ts`, bundled for the gateway as
-`apps/mcp/src/texDev/lab.generated.js` by `scripts/tex-dev-lab.mjs` (built on install, never committed), with the state each
+`packages/lab/gateway/texDev/lab.generated.js` by `scripts/tex-dev-lab.mjs` (built on install, never committed), with the state each
 Lab function reads put in place for the call and taken back after. A second implementation in the gateway was
 rejected because it would drift from the page the person is looking at; the views' arithmetic that lived inside
 React components (the run warnings, the Compare's latest scores, the test panel, the modules' sections, the

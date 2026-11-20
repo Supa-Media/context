@@ -1,8 +1,8 @@
 #!/usr/bin/env node
-// Writes apps/mcp/src/texDev/canvas.generated.js: the Tex Architecture Lab's own canvas drawing
+// Writes packages/lab/gateway/texDev/canvas.generated.js: the Tex Architecture Lab's own canvas drawing
 // (packages/lab/app/views/canvas/render.ts, with snapshot.ts and the Lab's stylesheet),
 // bundled to plain JavaScript so the gateway, which imports only relative JS, can draw the same picture
-// the Lab does for `tex_dev snapshot` (apps/mcp/src/texDev/snapshot.js). One drawing, never a copy.
+// the Lab does for `tex_dev snapshot` (packages/lab/gateway/texDev/snapshot.js). One drawing, never a copy.
 //
 //   node scripts/tex-dev-canvas.mjs           write the file
 //   node scripts/tex-dev-canvas.mjs --check   exit 1 if the file on disk is stale
@@ -18,7 +18,7 @@ import { fileURLToPath } from "node:url";
 
 const ROOT = fileURLToPath(new URL("..", import.meta.url));
 const ENTRY = path.join(ROOT, "packages/lab/app/views/canvas/snapshot.ts");
-const OUT = path.join(ROOT, "apps/mcp/src/texDev/canvas.generated.js");
+const OUT = path.join(ROOT, "packages/lab/gateway/texDev/canvas.generated.js");
 // esbuild is a root transitive dependency, reached from the repo root as the other bundle scripts reach it.
 const require = createRequire(path.join(ROOT, "package.json"));
 const esbuild = require("esbuild");
@@ -48,7 +48,7 @@ const wanted = await buildCanvas();
 if (process.argv.includes("--check")) {
   const have = fs.existsSync(OUT) ? fs.readFileSync(OUT, "utf8") : "";
   if (have !== wanted) {
-    console.error("apps/mcp/src/texDev/canvas.generated.js is not what the Lab's canvas drawing builds.");
+    console.error("packages/lab/gateway/texDev/canvas.generated.js is not what the Lab's canvas drawing builds.");
     console.error("Run `node scripts/tex-dev-canvas.mjs` (built on install, never committed).");
     process.exit(1);
   }

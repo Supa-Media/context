@@ -1,5 +1,5 @@
 /**
- * `tex_dev` `steps`, `marks`, `put_back` and the 20-case cap on `case` (`src/texDev/lab.js`, `tool.js`; the Lab's
+ * `tex_dev` `steps`, `marks`, `put_back` and the 20-case cap on `case` (`packages/lab/gateway/texDev/lab.js`, `tool.js`; the Lab's
  * `engine/forMcpCases.ts`, bundled in `lab.generated.js`). Dev2, 2026-11-15: anything the Lab does or shows, the MCP
  * does too; #3342 added a step's own cases (at most 20 a step, a full step trades one out) and change marks with Put
  * back, and these are the same through the MCP.
@@ -13,9 +13,9 @@
  */
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { createTexDev } from "../src/texDev/tool.js";
+import { createTexDev } from "../../../packages/lab/gateway/texDev/tool.js";
 import { TEX_CONFIG } from "../src/agent/texConfig.js";
-import { guideText } from "../src/texDev/guide.js";
+import { guideText } from "../../../packages/lab/gateway/texDev/guide.js";
 import { UNIT_LIMIT } from "../bench/gateSample.mjs";
 
 const mainGraph = () => JSON.parse(JSON.stringify({ nodes: TEX_CONFIG.nodes, edges: TEX_CONFIG.edges }));

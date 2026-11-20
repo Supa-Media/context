@@ -17,7 +17,7 @@
  * Everything else that changes something keeps today's answer in `policy.js`: recorded, and answered as done.
  */
 
-import { SANDBOX_TTL_MS } from "./object.js";
+import { SANDBOX_TTL_MS } from "../../../../packages/lab/gateway/labSandbox/object.js";
 // `MEMORY_FOLDER` in tools/notes/remember.js; importing it here would close an import cycle through the tools.
 const MEMORY_FOLDER = "inbox/memories";
 

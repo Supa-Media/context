@@ -68,7 +68,7 @@ jobs:
             scripts/build-map-bundle.mjs
             scripts/lib/guest-bundle.mjs
             packages/lab/app/**
-            apps/mcp/src/texDev/**
+            packages/lab/gateway/texDev/**
             scripts/tex-dev-canvas.mjs
             scripts/tex-dev-replay.mjs
             scripts/tex-dev-lab.mjs

@@ -212,7 +212,7 @@ test("remapIcons carries several note icons in one write", async () => {
  * The Tex Lab's bundle for `tex_dev` (`scripts/tex-dev-lab.mjs`) carries the bench's invented workspaces as data (an
  * `inbox/venue-email.md` of the test person's), which nothing files anything into, so it is not read here.
  */
-const LAB_BUNDLE = /[\\/]apps[\\/]mcp[\\/]src[\\/]texDev[\\/]lab\.generated\.js$/;
+const LAB_BUNDLE = /[\\/]packages[\\/]lab[\\/]gateway[\\/]texDev[\\/]lab\.generated\.js$/;
 
 test("every folder Context files into under tex/ or inbox/ draws a Context part", () => {
   const roots = ["apps/mcp/src", "packages/tex/worker", "apps/convex/functions", "packages/shared/src", "packages/communications/src", "packages/meetings/src"];

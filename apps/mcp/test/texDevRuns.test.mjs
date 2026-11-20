@@ -1,5 +1,5 @@
 /**
- * `tex_dev` `run` and `runs` (`src/texDev/tool.js`; Dev2, 2026-11-16: the Lab's Run Dev set, Run this chat, Run node
+ * `tex_dev` `run` and `runs` (`packages/lab/gateway/texDev/tool.js`; Dev2, 2026-11-16: the Lab's Run Dev set, Run this chat, Run node
  * and its Runs panel, as MCP actions: Lab = MCP parity), and the workflow's halves around the node-alone runner
  * (`scripts/tex-lab-run.mjs`): which Dev conversations a run covers, and the results it reports.
  *
@@ -9,8 +9,8 @@
  */
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { createTexDev } from "../src/texDev/tool.js";
-import { guideText } from "../src/texDev/guide.js";
+import { createTexDev } from "../../../packages/lab/gateway/texDev/tool.js";
+import { guideText } from "../../../packages/lab/gateway/texDev/guide.js";
 import { texDevToolDefinitions } from "../src/tools/schemas/texDev.js";
 import { execFileSync, spawnSync } from "node:child_process";
 import { mkdtempSync, readdirSync, readFileSync, writeFileSync } from "node:fs";

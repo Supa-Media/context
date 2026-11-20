@@ -1,11 +1,11 @@
 /**
- * `tex_dev` `evals`, `eval_run` and `eval_remove` (`src/texDev/tool.js`; Dev2, 2026-11-20: the Lab's Evals tab as MCP
+ * `tex_dev` `evals`, `eval_run` and `eval_remove` (`packages/lab/gateway/texDev/tool.js`; Dev2, 2026-11-20: the Lab's Evals tab as MCP
  * actions, Lab = MCP parity): what each sends the control plane and answers.
  */
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { createTexDev } from "../src/texDev/tool.js";
-import { guideText } from "../src/texDev/guide.js";
+import { createTexDev } from "../../../packages/lab/gateway/texDev/tool.js";
+import { guideText } from "../../../packages/lab/gateway/texDev/guide.js";
 import { texDevToolDefinitions } from "../src/tools/schemas/texDev.js";
 
 const textOf = (result) => result.content.find((c) => c.type === "text")?.text ?? "";

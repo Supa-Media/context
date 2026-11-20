@@ -1,12 +1,12 @@
 /**
- * `tex_dev`'s actions on Tex's Training and Dev conversations (`src/texDev/sets.js`, through `createTexDev` in
- * `src/texDev/tool.js`; Dev2, 2026-11-15: "make sure that through the MCP it's easy for an agent to see and modify and
+ * `tex_dev`'s actions on Tex's Training and Dev conversations (`packages/lab/gateway/texDev/sets.js`, through `createTexDev` in
+ * `packages/lab/gateway/texDev/tool.js`; Dev2, 2026-11-15: "make sure that through the MCP it's easy for an agent to see and modify and
  * change training, dev sets"). The repo's conversations are read with the Lab's drafts over them; every write goes to
  * the control plane, which is faked here. Pinned: what each call sends, what each answer says, the Test Set refused
  * before anything is sent, a repo conversation's first edit carrying its base, the copy check on an imported chat, and
  * that the tool's description and guide name every set action.
  *
- * Sabotage record (temporary local edits to src/texDev/sets.js, restored from a byte-identical backup, 2026-11-15):
+ * Sabotage record (temporary local edits to packages/lab/gateway/texDev/sets.js, restored from a byte-identical backup, 2026-11-15):
  *   overlay ignoring a draft over a repo copy       "sets lists ... and a draft overrides its repo copy" fails
  *   set_edit sending the repo copy as base anyway   "with a draft, set_edit sends no base" fails
  *   set_edit's test-set check dropped               "set_edit with op set test is refused ... without calling" fails
@@ -17,9 +17,9 @@
 import assert from "node:assert/strict";
 import { createRequire } from "node:module";
 import { test } from "node:test";
-import { createTexDev } from "../src/texDev/tool.js";
-import { guideText } from "../src/texDev/guide.js";
-import { copiesOf, sourceTexts } from "../src/texDev/sets.js";
+import { createTexDev } from "../../../packages/lab/gateway/texDev/tool.js";
+import { guideText } from "../../../packages/lab/gateway/texDev/guide.js";
+import { copiesOf, sourceTexts } from "../../../packages/lab/gateway/texDev/sets.js";
 import { texDevToolDefinitions } from "../src/tools/schemas/texDev.js";
 import { WHY } from "../../../packages/tex/src/textDecide.cjs";
 
