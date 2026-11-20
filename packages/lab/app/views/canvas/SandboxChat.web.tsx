@@ -294,7 +294,19 @@ export function SandboxChat() {
           if (!r.steps?.length) return;
           pickStep(r.id, col && col !== "who" && col !== "text" ? col : null);
         }}
-        empty={<div className="scne">{sb.busy ? "Opening the test chat…" : sb.problem || `Text Tex below to try ${s.cur.name} in this chat`}</div>}
+        empty={
+          <div className="scne">
+            {sb.busy ? "Opening the test chat…" : sb.problem || `Text Tex below to try ${s.cur.name} in this chat`}
+            {!sb.busy && sb.problem && sb.linked ? (
+              <>
+                {" "}
+                <button className="ghost" id="sbLinkRetry" onClick={() => void attachSandbox(sb.linked as string, versionId)}>
+                  Try again
+                </button>
+              </>
+            ) : null}
+          </div>
+        }
         head={
           <>
             <button className="ib" id="sbFold" aria-label={folded ? "Open the test chat" : "Fold the test chat"} title={folded ? "Open the test chat" : "Fold the test chat"} aria-expanded={!folded} onClick={() => setFolded(!folded)}>
