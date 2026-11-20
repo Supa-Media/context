@@ -56,7 +56,7 @@ import { goalsIn } from "./aboutMe.js";
 import { pushbackNudge } from "./pushback.js";
 import { causeOf, failureRecorder } from "./toolFailures.js";
 import { FINISH_NOTICE, FINISH_SCHEDULED_NOTICE, exhaustedAnswer, roundNotice } from "./lastRound.js";
-import { traceNames } from "./turnLog.js";
+import { toolsShownOf, traceNames } from "./turnLog.js";
 import { TAPBACK_TOOL } from "./tapbackEnding.js";
 import { START_JOB_TOOL } from "./backgroundTool.js";
 import { keptTools, resumedRounds, roundsKeeper } from "./turnResume.js";
@@ -434,6 +434,7 @@ export async function runTurn(options) {
   */
   const offeredNames = new Set((tools ?? []).map((tool) => tool.name));
   const offered = six.tools;
+  timing.shown = toolsShownOf(offered); // rules 1 and 2: the list the model was shown, for the Lab's Tools tab (`turnLog.js`)
 
   /*
     CHANGING MODEL MID-TURN: the fallback, and a planned turn moving between

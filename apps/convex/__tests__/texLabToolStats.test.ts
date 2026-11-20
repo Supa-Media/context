@@ -20,6 +20,8 @@ import { asUser, createUser, createWorkspace, gatewayPost, setupTest } from "./f
  *  3. Read the window with no lower bound. → "a turn older than the window is not counted" fails.
  *  4. Key by the tool that ran instead of `six`. → "a call made as one of the six is counted under that name…" fails.
  *  5. Count a designed send-back (`ask`) as an error. → "a designed send-back is a call that worked…" fails.
+ *  6. Keep the tool list without the fingerprint check. → "a tool list with a word where a fingerprint goes is dropped" fails.
+ *  7. Count lists across all kinds as one chat's. → "the four tool rules, as production ran them" fails on mostInOneChat.
  */
 
 const STAFF = "staff@example.invalid";
@@ -191,5 +193,43 @@ describe("the Tex Architecture Lab's tool stats", () => {
     expect(seven.rows.find((row) => row.key === "search")).toMatchObject({ calls: 1, medianMs: 30 });
     const thirty = await stats(t, staff, 30);
     expect(thirty.rows.find((row) => row.key === "search")).toMatchObject({ calls: 2, medianMs: 30 });
+  });
+
+  test("the four tool rules, as production ran them: sizes, lists, refusals, state writes and errors", async () => {
+    const t = setupTest();
+    const { staff, accessToken } = await world(t);
+    const list = (print: string, sendChars: number) => ({ list: print, each: [{ name: "orient", chars: 2060, print: "0000aaaa" }, { name: "send", chars: sendChars, print: print }] });
+    const post = (kind: string, tools: unknown, trace: Array<Record<string, unknown>> = []) =>
+      gatewayPost(t, "/gateway/agent-turn", { accessToken, expectedWorkspaceId: null, ...TURN, kind, trace, tools }, {});
+    await post("one", list("1111aaaa", 25_211), [{ kind: "tool", tool: "write_note", six: "write", action: "save", ok: true, ms: 5, state: "tex/heartbeat.md" }]);
+    await post("job", list("2222aaaa", 21_395));
+    await post("one", list("1111aaaa", 25_211));
+    await post("group", list("3333aaaa", 6_103));
+    await sendFailures(t, accessToken, [
+      { tool: "search", cause: "not_offered", why: "not one of the actions it was given" },
+      { tool: "fetch", cause: "refused", why: "not found" },
+      { tool: "send", cause: "refused", why: "this workspace is busy right now; try again in a few seconds" },
+    ]);
+
+    const rules = (await stats(t, staff)).rules!;
+    expect(rules.limit).toBe(4000);
+    expect(rules.turnsWithList).toBe(4);
+    expect(rules.sizes[0]).toEqual({ tool: "send", kind: "one", chars: 25_211 });
+    expect(rules.lists.distinct).toBe(3);
+    expect(rules.lists.mostInOneChat).toBe(2); // the 1:1 text and its job saw two lists; the group chat's one is its own
+    expect(rules.lists.toolForms).toEqual([{ tool: "send", forms: 3 }, { tool: "orient", forms: 1 }]);
+    expect(rules.notHeld).toBe(1);
+    expect(rules.stateWrites).toEqual([{ file: "tex/heartbeat.md", count: 1 }]);
+    expect(rules.errors).toMatchObject({ actionable: 1, partial: 0, not: 2 });
+    expect(rules.errors.worst.map((row) => row.why)).toEqual(["not found", "not one of the actions it was given"]);
+  });
+
+  test("a tool list with a word where a fingerprint goes is dropped, and an unknown state file too; the turn is kept", async () => {
+    const t = setupTest();
+    const { accessToken } = await world(t);
+    await gatewayPost(t, "/gateway/agent-turn", { accessToken, expectedWorkspaceId: null, ...TURN, trace: [{ kind: "tool", tool: "write_note", ok: true, ms: 5, state: "projects/secret.md" }], tools: { list: "their words", each: [] } }, {});
+    const [row] = await turns(t);
+    expect(row.tools).toBeUndefined();
+    expect(row.trace).toEqual([{ kind: "tool", tool: "write_note", ok: true, ms: 5 }]);
   });
 });

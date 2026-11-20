@@ -3,6 +3,9 @@
  * trace, from `texEntryPoint.js`.
  */
 
+import { stateFileOf, TEX_STATE_FILES, toolChars } from "../../../../packages/shared/src/toolRules.cjs";
+import { fingerprint } from "./promptManifest.js";
+
 /** The router's confidence as the turn log takes it: 0 to 1, or nothing. A number Clef got wrong never costs the turn its log. */
 function confidenceOf(entry) {
   const value = entry.confidence;
@@ -34,11 +37,45 @@ export function actionOf(made, call) {
   return typeof named === "string" && ACTION_NAME.test(named) ? named : undefined;
 }
 
-/** A tool trace entry's `action` and `six` (`actionOf`, `sixOf`), each only when there is one. */
-export function traceNames(made, call) {
-  const action = actionOf(made, call), six = sixOf(made, call);
-  return { ...(action === undefined ? {} : { action }), ...(six === undefined ? {} : { six }) };
+/** The plain note writes that can carry Tex's own state (rule 3, `packages/shared/src/toolRules.cjs`). */
+const NOTE_WRITES = new Set(["write_note", "save_many"]);
+
+/**
+ * Rule 3: the state file a plain note write changed, when it is one of Tex's own (tex/heartbeat.md, a routine) that
+ * has no dedicated action yet; the Lab's Tools tab counts them. Only a name from the closed list, never the path.
+ */
+export function stateOf(call) {
+  if (!NOTE_WRITES.has(call?.name)) return undefined;
+  const paths = call.name === "save_many" && Array.isArray(call.args?.notes) ? call.args.notes.map((note) => note?.path) : [call.args?.path];
+  const hit = paths.map((path) => stateFileOf(path)).find((entry) => entry !== null && entry.action === null);
+  return hit?.file;
 }
+
+/** A tool trace entry's `action`, `six` and `state` (`actionOf`, `sixOf`, `stateOf`), each only when there is one. */
+export function traceNames(made, call) {
+  const action = actionOf(made, call), six = sixOf(made, call), state = stateOf(call);
+  return { ...(action === undefined ? {} : { action }), ...(six === undefined ? {} : { six }), ...(state === undefined ? {} : { state }) };
+}
+
+/** A tool's name as the turn log takes it. */
+const TOOL_NAME = /^[a-z][a-z0-9_]{0,63}$/;
+
+/**
+ * Rule 1 and rule 2 (`packages/shared/src/toolRules.cjs`): the tool list a turn's model was shown, as a fingerprint of
+ * the whole list and each tool's name, fingerprint and characters (description plus schema). The fingerprints are the
+ * ones `prefixPrint.js` logs, so a changed list names the tool that changed. Counts and fingerprints, never words.
+ */
+export function toolsShownOf(tools) {
+  if (!Array.isArray(tools) || tools.length === 0) return null;
+  const unmarked = (value) => JSON.stringify(value, (key, inner) => (key === "cache_control" ? undefined : inner));
+  const shown = tools.filter((tool) => TOOL_NAME.test(String(tool?.name ?? ""))).slice(0, 16);
+  return {
+    list: fingerprint(unmarked(tools)),
+    each: shown.map((tool) => ({ name: tool.name, chars: toolChars(tool), print: fingerprint(unmarked(tool)) })),
+  };
+}
+
+const STATE_FILES = new Set(TEX_STATE_FILES.map((entry) => entry.file));
 
 /**
  * A trace entry as the turn log takes it (`apps/convex/functions/agentTurns.ts`):
@@ -49,7 +86,7 @@ export function traceNames(made, call) {
  */
 export function wireTraceEntry(entry) {
   const base = { kind: entry.kind, ok: entry.ok !== false, ms: entry.ms ?? 0 };
-  if (entry.kind === "tool") return { ...base, tool: entry.tool, ...(typeof entry.action === "string" && ACTION_NAME.test(entry.action) ? { action: entry.action } : {}), ...(SIX_NAMES.has(entry.six) ? { six: entry.six } : {}), ...(entry.held ? { held: true } : {}), ...(entry.ask ? { ask: true } : {}) };
+  if (entry.kind === "tool") return { ...base, tool: entry.tool, ...(typeof entry.action === "string" && ACTION_NAME.test(entry.action) ? { action: entry.action } : {}), ...(SIX_NAMES.has(entry.six) ? { six: entry.six } : {}), ...(entry.held ? { held: true } : {}), ...(entry.ask ? { ask: true } : {}), ...(STATE_FILES.has(entry.state) ? { state: entry.state } : {}) };
   if (entry.kind === "router") return { ...base, tier: entry.tier, model: entry.model, ...confidenceOf(entry) };
   // The reply judge's verdict (`replyJudge.js`): never the words it read.
   if (entry.kind === "judge") return { ...base, verdict: typeof entry.verdict === "string" ? entry.verdict : null, acted: entry.acted === true, ...confidenceOf(entry) };
@@ -116,6 +153,7 @@ export function turnReport({ provider, outcome, model, timing, usage, parts, kin
       ? { usage: parts.filter((part) => typeof part.model === "string").map(({ model: name, input, output, cacheRead, cacheWrite }) => ({ model: name, input: input ?? 0, output: output ?? 0, cacheRead: cacheRead ?? 0, cacheWrite: cacheWrite ?? 0 })) }
       : {}),
     trace: Array.isArray(timing?.trace) ? timing.trace.map(wireTraceEntry) : [],
+    ...(timing?.shown ? { tools: timing.shown } : {}), // the tool list the model was shown (`toolsShownOf`)
   };
 }
 

@@ -7,9 +7,10 @@
  * Applied, run, named test seen failing, reverted:
  *  1. `readToolLog` not counting errors (`err++` removed) → three tests fail, among them "JSONL: each tool and each tool.action counts its calls, times and errors".
  *  2. `fromFeed` dropping the median → "a feed row keeps its median as one sample, and its reasons by text" fails.
+ *  3. `ruleChecks` passing rule 2 whatever the sizes (`ok: true`) → "the Tool rules panel fails a rule the numbers break" fails.
  */
 import { expect, test } from "@jest/globals";
-import { fromFeed, med, readToolLog, type Feed } from "../features/tex/lab/views/toolStats";
+import { fromFeed, med, readToolLog, ruleChecks, type Feed, type ToolRules } from "../features/tex/lab/views/toolStats";
 
 const jsonl = [
   '{"kind":"tool","name":"write","args":{"action":"save"},"ok":true,"ms":412}',
@@ -97,4 +98,34 @@ test("a feed row keeps its median as one sample, and its reasons by text", () =>
   expect(out["write.save"]).toEqual({ calls: 3, ms: [450], err: 2, why: {} });
   expect(out.search).toEqual({ calls: 4, ms: [], err: 0, why: {} });
   expect(med(out.write.ms)).toBe(450);
+});
+
+const rules = (over: Partial<ToolRules> = {}): ToolRules => ({
+  limit: 4000,
+  turnsWithList: 10,
+  sizes: [{ tool: "send", kind: "one", chars: 3000 }],
+  lists: { distinct: 1, byKind: [{ kind: "one", distinct: 1, turns: 10 }], toolForms: [{ tool: "send", forms: 1 }], mostInOneChat: 1 },
+  notHeld: 0,
+  stateWrites: [],
+  errors: { actionable: 2, partial: 0, not: 0, worst: [] },
+  ...over,
+});
+
+test("the Tool rules panel passes all four when the numbers keep them", () => {
+  expect(ruleChecks(rules()).map((c) => c.ok)).toEqual([true, true, true, true]);
+});
+
+test("the Tool rules panel fails a rule the numbers break", () => {
+  const checks = ruleChecks(
+    rules({
+      sizes: [{ tool: "send", kind: "one", chars: 25211 }],
+      lists: { distinct: 9, byKind: [{ kind: "one", distinct: 5, turns: 10 }], toolForms: [{ tool: "send", forms: 4 }], mostInOneChat: 3 },
+      notHeld: 2,
+      stateWrites: [{ file: "tex/heartbeat.md", count: 1 }],
+      errors: { actionable: 1, partial: 1, not: 2, worst: [] },
+    }),
+  );
+  expect(checks.map((c) => c.ok)).toEqual([false, false, false, false]);
+  expect(checks[1].line).toContain("send 25,211 (one)");
+  expect(checks[3].line).toBe("25% say what next, 25% only list options, 50% don't");
 });

@@ -14,6 +14,7 @@ import { focusOn, G, set, toast } from "../engine/state";
 import { useLab } from "../store";
 import { Ic } from "./ic";
 import { PageHead } from "./parts";
+import { ToolRulesPanel } from "./ToolRules.web";
 import { fromFeed, med, readToolLog, toolUsers, type Feed, type ToolStat, type ToolStats } from "./toolStats";
 
 const ARTIFACT_NOTE = " Live numbers across every chat need a feed: failures alone are kept today, on tex.lc/admin under Why tools fail.";
@@ -139,6 +140,7 @@ export function Tools() {
           </table>
         </div>
       </div>
+      <ToolRulesPanel rules={feed?.rules} days={feed?.days ?? 7} />
       <div className="blk">
         <h2>Measure</h2>
         <p className="hint" style={{ margin: "0 0 8px" }}>

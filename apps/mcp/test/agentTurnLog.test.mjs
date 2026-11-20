@@ -9,7 +9,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 
 import { meterParts } from "../src/agent/modelPlan.js";
-import { actionOf, MAX_WAIT_MS, turnKind, turnReport, waitBefore, wireTraceEntry } from "../src/agent/turnLog.js";
+import { actionOf, MAX_WAIT_MS, stateOf, toolsShownOf, turnKind, turnReport, waitBefore, wireTraceEntry } from "../src/agent/turnLog.js";
 
 test("a turn's kind follows what started it, a routine before a job before a group", () => {
   assert.equal(turnKind({ runner: true, job: { id: "j" }, group: { id: "g" }, texting: true }), "routine");
@@ -123,4 +123,24 @@ test("a call made as one of the six keeps that name beside the tool that ran; no
   assert.equal(sixOf({ name: "orient" }, { name: "orient" }), undefined);
   assert.equal(wireTraceEntry({ kind: "tool", tool: "write_note", six: "write", action: "save", ok: true, ms: 1 }).six, "write");
   assert.equal("six" in wireTraceEntry({ kind: "tool", tool: "x", six: "nope", ok: true, ms: 1 }), false);
+});
+
+// Tool rules 1-3 (Dev2, 2026-11-20; packages/shared/src/toolRules.cjs): the list a model was shown, by fingerprint and size.
+test("the tool list a turn was shown is logged as fingerprints and sizes, never words, and cache marks don't change it", () => {
+  const tool = { name: "send", description: "Send a text.", input_schema: { type: "object" } };
+  const shown = toolsShownOf([tool]);
+  assert.match(shown.list, /^[0-9a-f]{8}$/);
+  assert.deepEqual(shown.each.map(({ name, chars }) => ({ name, chars })), [{ name: "send", chars: "Send a text.".length + JSON.stringify({ type: "object" }).length }]);
+  assert.equal(JSON.stringify(shown).includes("Send a text"), false, "no description words");
+  assert.deepEqual(toolsShownOf([{ ...tool, cache_control: { type: "ephemeral" } }]), shown);
+  assert.notEqual(toolsShownOf([{ ...tool, description: "Send a text now." }]).list, shown.list);
+});
+
+test("a plain write to one of Tex's state files names the file; a note or a file with its own action does not", () => {
+  assert.equal(stateOf({ name: "write_note", args: { path: "tex/heartbeat.md" } }), "tex/heartbeat.md");
+  assert.equal(stateOf({ name: "save_many", args: { notes: [{ path: "a.md" }, { path: "tex/routines/x.md" }] } }), "tex/routines/");
+  assert.equal(stateOf({ name: "write_note", args: { path: "projects/a.md" } }), undefined);
+  assert.equal(stateOf({ name: "write_note", args: { path: "tex/about.md" } }), undefined, "about.md has remember");
+  assert.equal(stateOf({ name: "read_note", args: { path: "tex/heartbeat.md" } }), undefined);
+  assert.equal(wireTraceEntry({ kind: "tool", tool: "write_note", state: "../secret" }).state, undefined, "only a listed file is kept");
 });

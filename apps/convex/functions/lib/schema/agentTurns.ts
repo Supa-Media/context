@@ -30,8 +30,21 @@ export const agentTurnTraceEntry = v.object({
   held: v.optional(v.boolean()),
   // tool: a designed send-back (a page with no picture asking for its scene). A call that worked.
   ask: v.optional(v.boolean()),
+  // tool: a plain note write that changed one of Tex's own state files with no dedicated action yet (rule 3 of the
+  // tool rules, `packages/shared/src/toolRules.cjs`): its name from that closed list, never a path.
+  state: v.optional(v.string()),
   ok: v.boolean(),
   ms: v.number(),
+});
+
+/**
+ * The tool list a turn's model was shown (rules 1 and 2 of the tool rules, `packages/shared/src/toolRules.cjs`;
+ * `apps/mcp/src/agent/turnLog.js` `toolsShownOf`): the whole list's fingerprint and each tool's name, size and
+ * fingerprint. Fingerprints and counts, never words.
+ */
+export const agentTurnToolsShown = v.object({
+  list: v.string(),
+  each: v.array(v.object({ name: v.string(), chars: v.number(), print: v.string() })),
 });
 
 /**
@@ -99,6 +112,8 @@ export const agentTurnTables = {
     ),
     /** In order: each model round, and each tool call between them. */
     trace: v.array(agentTurnTraceEntry),
+    /** The tool list its model was shown. Missing on turns from before 2026-11-20. */
+    tools: v.optional(agentTurnToolsShown),
   })
     .index("by_at", ["at"])
     .index("by_workspace_at", ["workspaceId", "at"])
