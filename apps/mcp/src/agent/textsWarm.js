@@ -1,6 +1,6 @@
 /**
  * Warm the model's cache for a chat (node `warm`, `graph/nodes/warm.js`; Dev2, 2026-11-20), asked by the texting
- * Worker's chat object over the `TexTexts` binding when the person reads Tex's text (`apps/agent/src/warmStep.ts`), and
+ * Worker's chat object over the `TexTexts` binding when the person reads Tex's text (`packages/tex/worker/warmStep.ts`), and
  * by the app when they open the chat or start typing. The body names the chat's home and why: `{ person, cause }` for a
  * person's 1:1, `{ chat, cause }` for a group chat by its key. Nothing in it is the person's words.
  *
