@@ -3,8 +3,9 @@
  * them a fact, search their notes for it with the same search the front door calls (`t.toolCalls.mcp`, so the same
  * grant and the same workspaces).
  *
- * Input: the query (the draft's questions) and the words to look for. Output: `{ found: lines, query, ms }`, the result
- * lines holding any of the words; `found: []` when the search found nothing, failed, or was not back in time.
+ * Input: the query (their text and the draft's question) and the words to look for. Output: `{ found: lines, query,
+ * ms }`, the result lines holding at least two of the words (one when there is only one), since a search returns
+ * whole notes and one shared word ("email", "address") matched unrelated lines; `found: []` when the search found nothing, failed, or was not back in time.
  * No model, never throws.
  */
 import { linesWith } from "../../lookupLadder.js";
@@ -29,5 +30,5 @@ export async function rungNotesNode(input, io) {
     }),
   ]).finally(() => clearTimeout(timer));
   const failed = result === null || result?.isError === true || result?.ok === false;
-  return { found: failed ? [] : linesWith(textOf(result), terms, { need: 1 }), query, ms: Date.now() - started, ...(failed ? { why: result === null ? "search not back in time" : "search failed" } : {}) };
+  return { found: failed ? [] : linesWith(textOf(result), terms, { need: Math.min(2, terms.length) }), query, ms: Date.now() - started, ...(failed ? { why: result === null ? "search not back in time" : "search failed" } : {}) };
 }
