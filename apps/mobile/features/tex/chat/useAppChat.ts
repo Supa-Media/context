@@ -6,12 +6,14 @@ import { onReturnToApp } from "../../app/returnToApp";
 import {
   EDIT_SENTENCE,
   REACT_SENTENCE,
-  MAX_PICTURES,
+  MAX_ATTACHMENTS,
+  MAX_FILE_BYTES,
   MAX_TEXT,
   UNREACHABLE_SENTENCE,
   UNSEND_SENTENCE,
   appChatEndpoint,
   editRequest,
+  fileRequest,
   getRequest,
   warmRequest,
   WARM_AGAIN_MS,
@@ -19,6 +21,7 @@ import {
   mergeRows,
   pictureRequest,
   readChat,
+  readFileHead,
   readPictureHead,
   readReact,
   readSend,
@@ -48,6 +51,7 @@ import {
 export type { AppChatView } from "./appChatView";
 export { FAST_MS, FAST_WINDOW_MS, SLOW_MS } from "./appChatView";
 import { PictureCache, encodePictures, previewUrlOf, revokeUrl } from "./appChatPictures";
+import { encodeFiles, saveBlob, type PickedFile } from "./appChatFiles";
 import {
   patchRow,
   previewUrlsInUse,
@@ -58,9 +62,11 @@ import {
 } from "./appChatLines";
 
 const TOO_LONG_SENTENCE = `A text can be up to ${MAX_TEXT} characters. Shorten it and try again.`;
-const TOO_MANY_SENTENCE = `You can send up to ${MAX_PICTURES} pictures at once.`;
+const TOO_MANY_SENTENCE = `You can send up to ${MAX_ATTACHMENTS} pictures and files at once.`;
 const PICTURES_UNSUPPORTED_SENTENCE = "Pictures cannot be sent from this device yet.";
 const PICTURE_TOO_LARGE_SENTENCE = "A picture could not be made small enough to send. Try a smaller one.";
+const FILE_TOO_LARGE_SENTENCE = `A file can be up to ${MAX_FILE_BYTES / 1_000_000} MB. Try a smaller one.`;
+const SAVE_UNSUPPORTED_SENTENCE = "A file can only be saved from the web app for now.";
 const EDIT_EMPTY_SENTENCE = "A text cannot be empty. Nothing changed.";
 
 
@@ -103,8 +109,8 @@ export function useAppChat(options: {
   const waitingNow = useRef<{ texCount: number } | null>(null);
   const giveUp = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   const kick = useRef<() => void>(() => {});
-  /** The blobs and reply of each send still pending, so a failed one can be sent again. */
-  const parked = useRef(new Map<string, { blobs: Blob[]; replyTo: string | null }>());
+  /** The pictures, files and reply of each send still pending, so a failed one can be sent again. */
+  const parked = useRef(new Map<string, { blobs: Blob[]; files: PickedFile[]; replyTo: string | null }>());
   /** Preview URLs made for pending pictures and not yet revoked. */
   const previews = useRef(new Set<string>());
 
@@ -235,7 +241,7 @@ export function useAppChat(options: {
 
   /** One send of a pending line already on the page: pictures shrunk and encoded first, then the route. */
   const dispatchSend = useCallback(
-    (localId: string, text: string, blobs: readonly Blob[], replyId: string | null) => {
+    (localId: string, text: string, blobs: readonly Blob[], files: readonly PickedFile[], replyId: string | null) => {
       const mark = epoch.current;
       setState((s) => ({
         ...s,
@@ -245,12 +251,16 @@ export function useAppChat(options: {
       }));
       void (async () => {
         const encoded = blobs.length > 0 ? await encodePictures(blobs) : [];
-        const request = encoded === null ? null : sendRequest(text, { pictures: encoded, replyTo: replyId });
+        const encodedFiles = files.length > 0 ? await encodeFiles(files) : [];
+        const request =
+          encoded === null || encodedFiles === null ? null : sendRequest(text, { pictures: encoded, files: encodedFiles, replyTo: replyId });
         const reply = request === null ? null : await ask(request);
         if (mark !== epoch.current) return;
         const read: SendRead =
           encoded === null
             ? { kind: "failed", sentence: PICTURE_TOO_LARGE_SENTENCE }
+            : encodedFiles === null
+              ? { kind: "failed", sentence: FILE_TOO_LARGE_SENTENCE }
             : request === null
               ? { kind: "failed", sentence: TOO_LONG_SENTENCE }
               : reply === null
@@ -281,14 +291,16 @@ export function useAppChat(options: {
   );
 
   const send = useCallback(
-    (text: string, options: { pictures?: readonly Blob[]; replyTo?: string | null } = {}) => {
+    (text: string, options: { pictures?: readonly Blob[]; files?: readonly PickedFile[]; replyTo?: string | null } = {}) => {
       if (!live) return;
       const trimmed = text.trim();
       const blobs = [...(options.pictures ?? [])];
+      const files = [...(options.files ?? [])];
       const refuse = (sentence: string) => setState((s) => ({ ...s, error: sentence }));
-      if (trimmed.length === 0 && blobs.length === 0) return;
+      if (trimmed.length === 0 && blobs.length === 0 && files.length === 0) return;
       if (trimmed.length > MAX_TEXT) return refuse(TOO_LONG_SENTENCE);
-      if (blobs.length > MAX_PICTURES) return refuse(TOO_MANY_SENTENCE);
+      if (blobs.length + files.length > MAX_ATTACHMENTS) return refuse(TOO_MANY_SENTENCE);
+      if (files.some((file) => file.size > MAX_FILE_BYTES)) return refuse(FILE_TOO_LARGE_SENTENCE);
       const urls: string[] = [];
       for (const blob of blobs) {
         const url = previewUrlOf(blob);
@@ -302,7 +314,7 @@ export function useAppChat(options: {
       const localId = `local-${localSeq.current}`;
       const replyId = options.replyTo ?? null;
       for (const url of urls) previews.current.add(url);
-      parked.current.set(localId, { blobs, replyTo: replyId });
+      parked.current.set(localId, { blobs, files, replyTo: replyId });
       const line: PendingLine = {
         pending: true,
         localId,
@@ -311,10 +323,11 @@ export function useAppChat(options: {
         at: Date.now(),
         state: "sending",
         ...(urls.length > 0 ? { previews: urls } : {}),
+        ...(files.length > 0 ? { fileNames: files.map((file) => file.name) } : {}),
         ...(replyId !== null ? { replyTo: replyRefFor(latest.current.lines, replyId) } : {}),
       };
       setState((s) => ({ ...s, lines: [...s.lines, line] }));
-      dispatchSend(localId, trimmed, blobs, replyId);
+      dispatchSend(localId, trimmed, blobs, files, replyId);
     },
     [dispatchSend, live],
   );
@@ -324,7 +337,7 @@ export function useAppChat(options: {
       const line = latest.current.lines.find((item) => isPending(item) && item.localId === localId);
       if (line === undefined || !isPending(line)) return;
       const kept = parked.current.get(localId);
-      dispatchSend(localId, line.text, kept?.blobs ?? [], kept?.replyTo ?? line.replyTo?.id ?? null);
+      dispatchSend(localId, line.text, kept?.blobs ?? [], kept?.files ?? [], kept?.replyTo ?? line.replyTo?.id ?? null);
     },
     [dispatchSend],
   );
@@ -454,6 +467,20 @@ export function useAppChat(options: {
     [changeRow, live],
   );
 
+  /** A file on a row, fetched by id with the grant and saved to the device under the name the row shows. */
+  const downloadFile = useCallback(
+    (id: string, name: string) => {
+      if (!live) return;
+      void ask(fileRequest(id), "blob").then((answer) => {
+        const head = answer === null ? { kind: "failed" as const, sentence: UNREACHABLE_SENTENCE } : readFileHead(answer.status);
+        if (head.kind === "failed") return setState((s) => ({ ...s, error: head.sentence }));
+        const blob = answer !== null && answer.body instanceof Blob ? answer.body : null;
+        if (blob === null || !saveBlob(blob, name)) setState((s) => ({ ...s, error: SAVE_UNSUPPORTED_SENTENCE }));
+      });
+    },
+    [ask, live],
+  );
+
   const pictureUrl = useCallback(
     (id: string): string | null => {
       if (!live) return null;
@@ -503,8 +530,9 @@ export function useAppChat(options: {
       edit,
       unsend,
       pictureUrl,
+      downloadFile,
       typing,
     }),
-    [answer, edit, live, pictureUrl, react, retry, send, state, typing, unsend],
+    [answer, downloadFile, edit, live, pictureUrl, react, retry, send, state, typing, unsend],
   );
 }

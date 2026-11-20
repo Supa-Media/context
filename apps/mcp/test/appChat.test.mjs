@@ -39,7 +39,7 @@ function memoryStorage() {
 }
 
 /** A fake TEX_CHAT namespace: one object, answering the outbox, pictures and arrivals; every call is kept. */
-function chatNamespace({ events = [], metas = {}, taps = {}, handles = {}, picture = null, arrive = { outcome: "queued" } } = {}) {
+function chatNamespace({ events = [], metas = {}, taps = {}, handles = {}, picture = null, file = null, arrive = { outcome: "queued" } } = {}) {
   const calls = [];
   const stub = {
     fetch: async (request) => {
@@ -48,6 +48,7 @@ function chatNamespace({ events = [], metas = {}, taps = {}, handles = {}, pictu
       calls.push({ path: url.pathname, body });
       if (url.pathname === "/app/outbox") return Response.json({ events, typingAt: null, metas, taps, handles });
       if (url.pathname.startsWith("/app/picture/")) return picture ?? new Response(null, { status: 404 });
+      if (url.pathname.startsWith("/app/file/")) return file ?? new Response(null, { status: 404 });
       if (url.pathname === "/app/arrive") return Response.json(arrive);
       return new Response(null, { status: 404 });
     },
@@ -355,5 +356,177 @@ describe("the app chat's object", () => {
     for (const body of [{ kind: "group", inbox: CHAT, message: {} }, { kind: "one", inbox: "+15555550101", message: {} }, { kind: "toString", inbox: CHAT, message: {} }]) {
       assert.equal((await serveAppArrive(arrive(body), { state: s, open: async () => null, now: () => NOW })).status, 400);
     }
+  });
+});
+
+// Files (PDF, plain text, Word): the same chat, kept the way a picture is (`texChat/appChat.js`, `worker/appFiles.ts`).
+const FID = "e".repeat(32);
+const PDF_TEXT = "%PDF-1.4\n1 0 obj\n<< /Type /Catalog >>\nendobj\n%%EOF\n";
+const PDF = btoa(PDF_TEXT);
+const CSV = btoa("name,amount\nAma,3\n");
+const ZIP = btoa("PK\u0003\u0004[Content_Types].xml word/document.xml");
+const EXE = btoa("MZ\u0090\u0000\u0003\u0000");
+const HTML = btoa("<html><script>alert(1)</script></html>\u0000");
+const DAY = new Date(NOW).toISOString().slice(0, 10);
+
+describe("an app chat's files: kept, handed to the turn, and taken back", () => {
+  function state() {
+    const storage = memoryStorage();
+    return { storage, blockConcurrencyWhile: (run) => run() };
+  }
+  const arrive = (body) => new Request("https://chat/app/arrive", { method: "POST", body: JSON.stringify(body) });
+  const message = (text = "") => ({ kind: "message", messageId: "app:02", chatId: CHAT, from: CHAT, text });
+  /** An object that takes the call and, for a send, keeps the handle it came with under event `ev`, as the chat object does. */
+  function openFor(s, ev = "17000000000000002") {
+    const seen = { body: null };
+    const open = async () => ({
+      fetch: async (request) => {
+        seen.body = await request.json();
+        // The chat object logs a send under its event id, and keeps the handle it came with (`replyQuote.ts`).
+        await s.storage.put("evhandles", [{ h: seen.body.messageId, ev }]);
+        return Response.json({ outcome: "queued" });
+      },
+    });
+    return { seen, open };
+  }
+
+  it("keeps a send's files, hands them over with their kinds, and keeps each one beside the event", async () => {
+    const s = state();
+    await s.storage.put("__inbox_name", CHAT);
+    const { seen, open } = openFor(s);
+    const answer = await serveAppArrive(arrive({ kind: "one", inbox: CHAT, message: message("see attached"), files: [{ name: "../../report.pdf", data: PDF }, { name: "sheet.csv", data: CSV }] }), { state: s, open, now: () => NOW });
+    assert.equal(answer.status, 200);
+    const [pdf, csv] = seen.body.attachments;
+    assert.equal(pdf.mimeType, "application/pdf");
+    assert.equal(pdf.filename, "report.pdf", "a path part is stripped from the name");
+    assert.match(pdf.url, /^https:\/\/app-chat\.invalid\/file\/[0-9a-f]{32}\/report\.pdf$/);
+    assert.equal(pdf.size, PDF_TEXT.length);
+    assert.equal(csv.mimeType, "text/csv");
+    const outbox = await (await serveAppOutbox(s.storage)).json();
+    const meta = outbox.metas["17000000000000002"];
+    assert.deepEqual(meta.files.map((file) => [file.name, file.type, file.size]), [["report.pdf", "application/pdf", PDF_TEXT.length], ["sheet.csv", "text/csv", "name,amount\nAma,3\n".length]]);
+    assert.equal(meta.files[0].id, pdf.url.split("/")[4], "the id the meta keeps is the one the address names");
+  });
+
+  it("refuses an .exe, an HTML page, and a zip not named .docx, and gives the send back with nothing kept", async () => {
+    for (const bad of [{ name: "setup.exe", data: EXE }, { name: "page.html", data: HTML }, { name: "a.txt", data: HTML }, { name: "a.txt", data: ZIP }]) {
+      const s = state();
+      await s.storage.put("__inbox_name", CHAT);
+      const { open } = openFor(s);
+      const answer = await serveAppArrive(arrive({ kind: "one", inbox: CHAT, message: message("x"), files: [{ name: "fine.pdf", data: PDF }, bad] }), { state: s, open, now: () => NOW });
+      assert.equal(answer.status, 400, `${bad.name} is refused`);
+      assert.equal((await s.storage.get("app:sends")).n, 0, "the send is given back");
+      assert.deepEqual([...(await s.storage.list({ prefix: "app:file" })).keys()], [], "the file kept before it is not left behind");
+    }
+  });
+
+  it("takes a zip as a Word file only when it is named .docx", async () => {
+    const s = state();
+    await s.storage.put("__inbox_name", CHAT);
+    const { seen, open } = openFor(s);
+    const ok = await serveAppArrive(arrive({ kind: "one", inbox: CHAT, message: message("x"), files: [{ name: "letter.docx", data: ZIP }] }), { state: s, open, now: () => NOW });
+    assert.equal(ok.status, 200);
+    assert.equal(seen.body.attachments[0].mimeType, "application/vnd.openxmlformats-officedocument.wordprocessingml.document");
+  });
+
+  it("holds pictures and files to four together, and counts them against the day's cap", async () => {
+    const s = state();
+    await s.storage.put("__inbox_name", CHAT);
+    const { open } = openFor(s);
+    const PNG = btoa(String.fromCharCode(0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 1));
+    const tooMany = await serveAppArrive(arrive({ kind: "one", inbox: CHAT, message: message("x"), pictures: [PNG, PNG, PNG], files: [{ name: "a.pdf", data: PDF }, { name: "b.csv", data: CSV }] }), { state: s, open, now: () => NOW });
+    assert.equal(tooMany.status, 400);
+    await s.storage.put("app:sends", { day: DAY, n: 0, pics: 59 });
+    const capped = await serveAppArrive(arrive({ kind: "one", inbox: CHAT, message: message("x"), files: [{ name: "a.pdf", data: PDF }, { name: "b.csv", data: CSV }] }), { state: s, open, now: () => NOW });
+    assert.equal(capped.status, 429, "two files past the day's 60 are refused");
+  });
+
+  it("deletes a file's pieces when its text is unsent", async () => {
+    const s = state();
+    await s.storage.put("__inbox_name", CHAT);
+    const { seen, open } = openFor(s);
+    await serveAppArrive(arrive({ kind: "one", inbox: CHAT, message: message("x"), files: [{ name: "a.pdf", data: PDF }] }), { state: s, open, now: () => NOW });
+    const id = seen.body.attachments[0].url.split("/")[4];
+    assert.ok((await s.storage.list({ prefix: "app:file" })).size > 0);
+    const gone = await serveAppArrive(arrive({ kind: "edit", inbox: CHAT, message: { kind: "unsent", messageId: "app:02", chatId: CHAT, from: CHAT }, on: "17000000000000002", forgetFiles: [id] }), { state: s, open, now: () => NOW });
+    assert.equal(gone.status, 200);
+    assert.deepEqual([...(await s.storage.list({ prefix: "app:file" })).keys()], [], "every piece and the head are gone");
+  });
+});
+
+describe("POST /tex/app-chat: files", () => {
+  const FILE_ROW = (over = {}) => person(evId(NOW - 5), NOW - 5, "see attached", { kind: "file", ...over });
+  const shownFile = { id: FID, name: "report.pdf", type: "application/pdf", size: 10 };
+
+  it("passes a send's files on to the chat object", async () => {
+    const { response, chat } = await call({ op: "send", text: "", files: [{ name: "a.pdf", data: PDF }] });
+    assert.equal(response.status, 200);
+    assert.deepEqual(chat.calls.find((c) => c.path === "/app/arrive").body.files, [{ name: "a.pdf", data: PDF }]);
+  });
+
+  it("refuses more than four pictures and files together, a file over 10 MB, a file with no name, and one that is not an object", async () => {
+    const PNG = btoa(String.fromCharCode(0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 1));
+    assert.equal((await call({ op: "send", text: "x", pictures: [PNG, PNG, PNG], files: [{ name: "a.pdf", data: PDF }, { name: "b.csv", data: CSV }] })).response.status, 400);
+    assert.equal((await call({ op: "send", files: [{ name: "a.pdf", data: "A".repeat(13_333_339) }] })).response.status, 400);
+    assert.equal((await call({ op: "send", files: [{ data: PDF }] })).response.status, 400);
+    assert.equal((await call({ op: "send", files: ["x"] })).response.status, 400);
+    assert.equal((await call({ op: "send", files: [] })).response.status, 400, "nothing to send is refused");
+  });
+
+  it("answers a file's bytes for a row of this chat, as an attachment that is never sniffed", async () => {
+    const chat = chatNamespace({ events: [FILE_ROW()], metas: { [evId(NOW - 5)]: { files: [shownFile] } }, file: new Response(new Uint8Array([0x25, 0x50, 0x44, 0x46]), { headers: { "content-type": "application/pdf" } }) });
+    const { response } = await call({ op: "file", id: FID }, { chat });
+    assert.equal(response.status, 200);
+    assert.equal(response.headers.get("content-type"), "application/pdf");
+    assert.equal(response.headers.get("content-disposition"), "attachment; filename*=UTF-8''report.pdf");
+    assert.equal(response.headers.get("x-content-type-options"), "nosniff");
+    assert.match(response.headers.get("content-security-policy"), /sandbox/);
+    assert.ok(chat.calls.some((c) => c.path === `/app/file/${FID}`));
+  });
+
+  it("encodes a download's name so no character of it can end the header early", async () => {
+    const name = "café's (final)*.csv";
+    const chat = chatNamespace({ events: [FILE_ROW()], metas: { [evId(NOW - 5)]: { files: [{ ...shownFile, name, type: "text/csv" }] } }, file: new Response("a,b", { headers: { "content-type": "text/csv" } }) });
+    const { response } = await call({ op: "file", id: FID }, { chat });
+    assert.equal(response.headers.get("content-disposition"), "attachment; filename*=UTF-8''caf%C3%A9%27s%20%28final%29%2A.csv");
+  });
+
+  it("never serves a file this chat's rows do not show, so another chat's id is a 404 and never asked for", async () => {
+    const chat = chatNamespace({ events: [], file: new Response("secret", { headers: { "content-type": "text/plain" } }) });
+    const { response } = await call({ op: "file", id: FID }, { chat });
+    assert.equal(response.status, 404);
+    assert.ok(!chat.calls.some((c) => c.path?.startsWith("/app/file/")));
+  });
+
+  it("refuses a file the chat object answers with a type that could run, even for a row it shows", async () => {
+    const chat = chatNamespace({ events: [FILE_ROW()], metas: { [evId(NOW - 5)]: { files: [shownFile] } }, file: new Response("<script>", { headers: { "content-type": "text/html" } }) });
+    const { response } = await call({ op: "file", id: FID }, { chat });
+    assert.equal(response.status, 404);
+  });
+
+  it("refuses an id that is not a file id, without asking the chat object for it", async () => {
+    const chat = chatNamespace({ events: [FILE_ROW()], metas: { [evId(NOW - 5)]: { files: [shownFile] } } });
+    const { response } = await call({ op: "file", id: "../../x" }, { chat });
+    assert.equal(response.status, 404);
+    assert.ok(!chat.calls.some((c) => c.path?.startsWith("/app/file/")));
+  });
+});
+
+describe("buildRows: a file row", () => {
+  it("shows a file beside the words and any pictures, and an unsend drops its files and pictures", () => {
+    const sent = person(evId(NOW - 10), NOW - 10, "see attached", { kind: "file" });
+    const files = [{ id: FID, name: "report.pdf", type: "application/pdf", size: 10 }];
+    const metas = { [sent.id]: { files, pics: [PIC] } };
+    const [row] = buildRows([], { events: [sent], metas, handles: { [sent.id]: "h" } }, NOW);
+    assert.deepEqual(row.files, files);
+    assert.deepEqual(row.pics, [PIC]);
+    assert.equal(row.kind, "file");
+    assert.equal(row.editable, undefined, "a text with a file is not edited");
+    assert.equal(row.unsendable, true, "but it can be taken back");
+    const unsent = person(evId(NOW - 5), NOW - 5, "", { unsent: true, replyTo: sent.id });
+    const [gone] = buildRows([], { events: [sent, unsent], metas, handles: { [sent.id]: "h" } }, NOW);
+    assert.equal(gone.unsent, true);
+    assert.equal(gone.files, undefined);
+    assert.equal(gone.pics, undefined);
   });
 });

@@ -25,7 +25,7 @@
 import { ARRIVAL_KINDS, INBOX_NAME } from "./texChat/arrival.js";
 import { objectByName } from "../../../apps/mcp/src/objectPlace.js";
 import { JOB_NAME } from "./texJobName.js";
-import { NAME_KEY, PLACE_KEY, SENDER_ID_KEY, isAppChatName, placeAppChat, serveAppArrive, serveAppOutbox, serveAppPictureById } from "./texChat/appChat.js";
+import { NAME_KEY, PLACE_KEY, SENDER_ID_KEY, isAppChatName, placeAppChat, serveAppArrive, serveAppFileById, serveAppOutbox, serveAppPictureById } from "./texChat/appChat.js";
 
 /** Where the Worker's chat object answers each kind of arrival (`packages/tex/worker/index.ts`). */
 const ARRIVAL_PATHS = Object.freeze({ one: "/accept", react: "/react", group: "/group-accept", members: "/group-members-changed", edit: "/edit" });
@@ -56,6 +56,7 @@ export function texChatClass({ gateway, texts }) {
       }
       if (request.method === "GET" && url.pathname === "/app/outbox") return await serveAppOutbox(this.state.storage);
       if (request.method === "GET" && url.pathname.startsWith("/app/picture/")) return await serveAppPictureById(this.state.storage, url.pathname.slice("/app/picture/".length));
+      if (request.method === "GET" && url.pathname.startsWith("/app/file/")) return await serveAppFileById(this.state.storage, url.pathname.slice("/app/file/".length));
       if (url.pathname.startsWith("/chat-call/")) return await this.chatCall(request, url);
       return Response.json({ error: "unknown_route" }, { status: 404 });
     }
@@ -189,7 +190,7 @@ export function chatState(state, senderId) {
  * (`job:<id>`) reach the gateway's `TEX_JOB` objects rather than the Worker's.
  */
 export async function chatEnv(env, state, name, senderId, { gateway, texts, jobsHere = false, own = null, hop = (request) => fetch(request) }) {
-  const { remoteLine, remoteGroupLine, appLine, APP_PICTURE_ORIGIN, serveAppPicture } = await import("../../../packages/tex/worker/gatewayChat.js");
+  const { remoteLine, remoteGroupLine, appLine, APP_PICTURE_ORIGIN, serveAppFile, serveAppPicture } = await import("../../../packages/tex/worker/gatewayChat.js");
   const ctx = { waitUntil: (work) => state.waitUntil(work), passThroughOnException() {} };
   const self = typeof env.PUBLIC_ORIGIN === "string" ? env.PUBLIC_ORIGIN.replace(/\/+$/, "") : "";
   const rpc = env.TEXTING;
@@ -199,7 +200,11 @@ export async function chatEnv(env, state, name, senderId, { gateway, texts, jobs
     FETCH: (input, init) => {
       const request = new Request(input, init);
       // An app chat's pictures are read from its own store, never the network (`packages/tex/worker/appPictures.ts`).
-      if (request.url.startsWith(`${APP_PICTURE_ORIGIN}/`)) return app ? serveAppPicture(state.storage, request.url) : Promise.resolve(new Response(null, { status: 404 }));
+      // A file's address (`/file/`) and a picture's (`/pic/`) are each read from the same store, by their own kind.
+      if (request.url.startsWith(`${APP_PICTURE_ORIGIN}/`)) {
+        if (!app) return Promise.resolve(new Response(null, { status: 404 }));
+        return request.url.startsWith(`${APP_PICTURE_ORIGIN}/file/`) ? serveAppFile(state.storage, request.url) : serveAppPicture(state.storage, request.url);
+      }
       // An app chat's turn goes over a real hop to the gateway, as a phone's does from the texting Worker: in-process,
       // the whole turn (its prompt, history and reads) lived in this object's isolate, which ran out of memory and was
       // reset before the reply went (Dev2's 8:25 AM text, 2026-11-20; Dev2 chose the phone's route). Only when the hop

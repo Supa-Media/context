@@ -190,6 +190,8 @@ function useFakeTexChat(): AppChatView {
       if (id === PICTURE_ID) return PICTURE_DATA_URL;
       return sentPictures.current.get(id) ?? null;
     },
+    // The fixture keeps no files: a download has nothing to save.
+    downloadFile() {},
     typing() {},
   };
 }

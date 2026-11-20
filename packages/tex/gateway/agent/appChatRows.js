@@ -28,6 +28,8 @@ export const EDIT_WINDOW_MS = 15 * 60 * 1000;
 const ROW_KINDS = new Set(["text", "picture", "file", "link"]);
 /** A picture id (`packages/tex/worker/appPictures.ts` `APP_PICTURE_ID`). */
 const PICTURE_ID = /^[0-9a-f]{32}$/;
+/** A file id (`packages/tex/worker/appFiles.ts` `APP_FILE_ID`). */
+const FILE_ID = /^[0-9a-f]{32}$/;
 /** Tex's picture's address: the id its app line kept it under (`appPictureUrl`). */
 const TEX_PICTURE = /^https:\/\/app-chat\.invalid\/pic\/([0-9a-f]{32})\.(?:jpg|png|gif|webp)$/;
 /** The tapbacks a row shows: Messages' six. */
@@ -105,15 +107,27 @@ function picturesOf(event, who, metas) {
   return Array.isArray(pics) ? pics.filter((id) => typeof id === "string" && PICTURE_ID.test(id)) : [];
 }
 
+/** The files a person's row shows: the ones the app kept beside the event, each `{ id, name, type, size }`, the well-formed ones. */
+function filesOf(event, metas) {
+  const files = plain(metas[event.id]).files;
+  if (!Array.isArray(files)) return [];
+  return files
+    .filter((file) => file !== null && typeof file === "object" && typeof file.id === "string" && FILE_ID.test(file.id) && typeof file.name === "string" && typeof file.type === "string" && Number.isInteger(file.size) && file.size >= 0)
+    .map(({ id, name, type, size }) => ({ id, name, type, size }));
+}
+
 /** The Row for an event a page shows, or null for one it does not (an edit, an unsend, a tapback, a system line, an ask). */
 function rowOf(event, metas) {
   const who = whoOf(event);
   if (!event.app || who === null || !ROW_KINDS.has(event.kind) || event.edited || event.unsent) return null;
-  const pics = event.kind === "picture" ? picturesOf(event, who, metas) : [];
+  // A person's pictures and files are kept beside the event whatever its kind: a text with a picture and a file is a "file" row (`kindOf`).
+  const pics = who === "tex" && event.kind !== "picture" ? [] : picturesOf(event, who, metas);
+  const files = who === "me" ? filesOf(event, metas) : [];
   // Tex's picture's words are only its address: the picture is the row.
   const text = who === "tex" && pics.length > 0 ? "" : event.text;
   const row = { id: event.id, who, text, at: event.at, kind: event.kind };
   if (pics.length > 0) row.pics = pics;
+  if (files.length > 0) row.files = files;
   // The row it replies to: the app's own note of it first (a picture has no words to find it by), else the event's.
   const repliedOn = typeof plain(metas[event.id]).replyTo === "string" ? plain(metas[event.id]).replyTo : event.replyTo;
   if (repliedOn !== null) row.replyTo = { id: repliedOn, ...(event.quoted !== null ? { text: event.quoted.slice(0, 300) } : {}) };
@@ -174,6 +188,7 @@ export function buildRows(ledgerEvents, outbox, now = Date.now(), out = {}) {
       target.unsent = true;
       target.text = "";
       delete target.pics;
+      delete target.files;
       delete target.edited;
     } else if (!target.unsent) {
       target.text = event.text;
@@ -211,7 +226,7 @@ export function buildRows(ledgerEvents, outbox, now = Date.now(), out = {}) {
     if (row.who !== "me" || row.unsent || !fresh || typeof editable[row.id] !== "string") continue;
     // Any of the person's own can be taken back; only words can be edited, as in Messages.
     row.unsendable = true;
-    if (row.kind !== "picture" && row.text.trim() !== "") row.editable = true;
+    if (row.kind !== "picture" && row.kind !== "file" && row.text.trim() !== "") row.editable = true;
   }
   // The handle each row is known by to the chat object, an edited one's included, for an edit or unsend to name.
   out.handles = editable;

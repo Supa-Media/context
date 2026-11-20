@@ -452,9 +452,9 @@ export const CAPABILITIES = Object.freeze([
     // turn and ledger as their texts, so everything on the 1:1 part of this list works there too, and you read both.
     name: "Chatting in the Context app",
     actions: [],
-    texts: "they can also talk to you in the Context app (the Tex button on the right, under the calendar): its own chat, like a second messaging app, but you see the same history as your texts. Pictures, tapbacks, replies, edits and unsends work there, and your 👍 asks show Approve and Don't buttons",
+    texts: "they can also talk to you in the Context app (the Tex button on the right, under the calendar): its own chat, like a second messaging app, but you see the same history as your texts. Pictures, PDFs, text files (.txt, .md, .csv, .tsv, .json) and Word documents (.docx), tapbacks, replies, edits and unsends work there, and your 👍 asks show Approve and Don't buttons",
     group: null,
-    cant: [{ where: "everywhere", what: "send or receive files other than pictures, or voice notes, in the app chat yet", workaround: { kind: "words", text: "they text the file or voice note to you over iMessage, and you see it in the same history" } }],
+    cant: [{ where: "everywhere", what: "send or receive files other than pictures, PDFs, text files and Word documents, or voice notes, in the app chat yet", workaround: { kind: "words", text: "they text the file or voice note to you over iMessage, and you see it in the same history" } }],
   },
 ]);
 

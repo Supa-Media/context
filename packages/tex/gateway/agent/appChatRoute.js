@@ -10,8 +10,10 @@
  * in the body names a chat, a user or a workspace, and every id the body names is checked against this chat's rows.
  *
  *  - `{ op: "get" }` → `{ rows, typing }`: the newest rows, oldest first, and whether Tex is working.
- *  - `{ op: "send", text?, pictures?, replyTo? }` → `{ msgId }`: words (trimmed, up to 4000 characters) and up to four
- *    pictures (base64 JPEG, PNG, GIF or WebP, each up to 5 MB; the bytes decide the kind), at least one of the two.
+ *  - `{ op: "send", text?, pictures?, files?, replyTo? }` → `{ msgId }`: words (trimmed, up to 4000 characters) and up to
+ *    four pictures and files together: a picture is base64 JPEG, PNG, GIF or WebP, up to 5 MB; a file is `{ name, data }`
+ *    with base64 data up to 10 MB, a PDF, a Word document (.docx) or plain text (.txt .md .csv .tsv .json). The bytes and
+ *    the name's extension decide each kind, never a label. At least one of the words, pictures and files.
  *    `replyTo` names a row of this chat (its words are quoted, as a Messages reply's are).
  *  - `{ op: "react", msgId, emoji }` → `{ msgId }`: one of Messages' six tapbacks on a row, as Photon's line hands one
  *    over. 👍 or 👎 on Tex's text with an open ask settles it (`thumbsUpIsYes`), exactly as a texted tapback does. The
@@ -19,6 +21,8 @@
  *  - `{ op: "edit", msgId, text }` / `{ op: "unsend", msgId }` → `{ msgId }`: the person's own text, while it is
  *    `editable` (words) or `unsendable` (any of theirs), for 15 minutes as in Messages, as Photon's line hands an edit or an unsend (node `edit`).
  *  - `{ op: "picture", id }` → the picture's bytes: one shown in this chat's rows, never another's.
+ *  - `{ op: "file", id }` → the file's bytes, as an attachment (`content-disposition`, `nosniff`): one shown in this chat's
+ *    rows, never another's.
  *  - `{ op: "warm", cause: "open" | "typing" }` → `{ when, why? }`: the person opened the chat or started typing, so
  *    the model's cache is warmed for their next text when node `warm` is wired (`textsWarm.js`); a skip otherwise.
  *
@@ -35,12 +39,19 @@ export const APP_CHAT_PATH = "/tex/app-chat";
 const CONSOLE_CLIENT_ID = "context_console";
 /** A send's text, after trimming. */
 export const MAX_APP_TEXT = 4_000;
-/** The request body's largest size, in bytes: four 5 MB pictures in base64, and the words. */
-const MAX_BODY_BYTES = 28 * 1024 * 1024;
-/** The most pictures one send carries (`texChat/appChat.js` `MAX_APP_PICTURES`). */
-export const MAX_APP_PICTURES = 4;
 /** A picture's largest size in base64: 5 MB of bytes. */
 const MAX_PICTURE_BASE64 = Math.ceil((5_000_000 * 4) / 3) + 4;
+/** A file's largest size in bytes (`worker/appFiles.ts` `MAX_APP_FILE_BYTES`), and in base64. */
+export const MAX_APP_FILE_BYTES = 10_000_000;
+const MAX_FILE_BASE64 = Math.ceil((MAX_APP_FILE_BYTES * 4) / 3) + 4;
+/** The most pictures and files one send carries together (`texChat/appChat.js` `MAX_APP_PICTURES`). */
+export const MAX_APP_PICTURES = 4;
+/** The request body's largest size, in bytes: four 10 MB files in base64, and the words and names beside them. */
+const MAX_BODY_BYTES = 4 * MAX_FILE_BASE64 + 1024 * 1024;
+/** The kinds of file served back (`worker/appFiles.ts` `APP_FILE_TYPES`): none is a page or a program a browser runs. */
+const FILE_TYPES = new Set(["application/pdf", "application/vnd.openxmlformats-officedocument.wordprocessingml.document", "text/plain", "text/markdown", "text/csv", "text/tab-separated-values", "application/json"]);
+/** A file's name as the send carries it, at most: the store keeps 120 characters of it. */
+const MAX_FILE_NAME = 512;
 /** The words of a tapback's text, as a Photon tapback's are kept (`inboundOf`). */
 const MAX_REACTION_WORDS = 1_000;
 /** Messages' six tapbacks, by the emoji the app sends, named as the Worker reads them (`reactions.ts`). */
@@ -103,8 +114,9 @@ async function serveAppChat(request, _store, session, _path, env, deps = {}) {
     if (body.op === "react") return await react(ctx, body);
     if (body.op === "edit" || body.op === "unsend") return await edit(ctx, body);
     if (body.op === "picture") return await picture(ctx, body);
+    if (body.op === "file") return await file(ctx, body);
     if (body.op === "warm") return await warm(ctx, body);
-    return refuse(400, "op is get, send, react, edit, unsend, picture or warm.");
+    return refuse(400, "op is get, send, react, edit, unsend, picture, file or warm.");
   } catch (error) {
     // The error's name only: a read's message can carry the words it read.
     console.log(JSON.stringify({ event: "app_chat", op: String(body.op), outcome: "unreachable", error: String(error?.name ?? "error").slice(0, 40) }));
@@ -139,10 +151,14 @@ async function send(ctx, body) {
   const text = typeof body.text === "string" ? body.text.trim() : "";
   if (text.length > MAX_APP_TEXT) return refuse(400, `Write up to ${MAX_APP_TEXT} characters.`);
   const pictures = body.pictures === undefined ? [] : body.pictures;
-  if (!Array.isArray(pictures) || pictures.length > MAX_APP_PICTURES || !pictures.every((data) => typeof data === "string" && data.length > 0 && data.length <= MAX_PICTURE_BASE64)) {
-    return refuse(400, `Send up to ${MAX_APP_PICTURES} pictures, each up to 5 MB.`);
+  const files = body.files === undefined ? [] : body.files;
+  const attachments = (Array.isArray(pictures) ? pictures.length : 0) + (Array.isArray(files) ? files.length : 0);
+  if (!Array.isArray(pictures) || !pictures.every((data) => typeof data === "string" && data.length > 0 && data.length <= MAX_PICTURE_BASE64) || !Array.isArray(files) || attachments > MAX_APP_PICTURES) {
+    return refuse(400, `Send up to ${MAX_APP_PICTURES} pictures and files at once: a picture up to 5 MB, a file up to 10 MB.`);
   }
-  if (text === "" && pictures.length === 0) return refuse(400, "Write something or add a picture.");
+  const filesOk = files.every((file) => file !== null && typeof file === "object" && !Array.isArray(file) && typeof file.name === "string" && file.name.length > 0 && file.name.length <= MAX_FILE_NAME && typeof file.data === "string" && file.data.length > 0 && file.data.length <= MAX_FILE_BASE64);
+  if (!filesOk) return refuse(400, "A file needs a name and its contents, and is up to 10 MB.");
+  if (text === "" && attachments === 0) return refuse(400, "Write something or add a picture or a file.");
   let replied = null;
   if (body.replyTo !== undefined) {
     if (typeof body.replyTo !== "string") return refuse(400, "replyTo is the id of a text in this chat.");
@@ -160,7 +176,8 @@ async function send(ctx, body) {
     text,
     ...(replied !== null ? { ...(replied.text ? { quoted: replied.text } : {}), threaded: true } : {}),
   };
-  return await arrive(ctx, { kind: "one", message, ...(pictures.length > 0 ? { pictures } : {}), ...(replied !== null ? { replyOn: replied.id } : {}) }, eventId);
+  const carried = files.map((file) => ({ name: file.name, data: file.data }));
+  return await arrive(ctx, { kind: "one", message, ...(pictures.length > 0 ? { pictures } : {}), ...(carried.length > 0 ? { files: carried } : {}), ...(replied !== null ? { replyOn: replied.id } : {}) }, eventId);
 }
 
 async function react(ctx, body) {
@@ -201,7 +218,8 @@ async function edit(ctx, body) {
     ...(unsend ? {} : { text, previous: target.text }),
     at: new Date(ctx.now()).toISOString(),
   };
-  return await arrive(ctx, { kind: "edit", message, on: target.id, ...(unsend && (target.pics?.length ?? 0) > 0 ? { forget: target.pics } : {}) }, target.id);
+  const fileIds = (target.files ?? []).map((file) => file.id);
+  return await arrive(ctx, { kind: "edit", message, on: target.id, ...(unsend && (target.pics?.length ?? 0) > 0 ? { forget: target.pics } : {}), ...(unsend && fileIds.length > 0 ? { forgetFiles: fileIds } : {}) }, target.id);
 }
 
 async function picture(ctx, body) {
@@ -222,6 +240,31 @@ async function picture(ctx, body) {
   });
 }
 
+/**
+ * A file the app chat keeps, as the person downloads it: one shown on a row of this chat, never another chat's. Its
+ * bytes come from the chat object, as an attachment: the kind it was kept as, never sniffed, and named as the row names it.
+ */
+async function file(ctx, body) {
+  if (typeof body.id !== "string") return refuse(400, "id is a file in this chat.");
+  // Only a file this chat's rows show: an id from anywhere else is never looked up.
+  const shown = (await readChat(ctx)).rows.flatMap((row) => row.files ?? []).find((entry) => entry.id === body.id);
+  if (shown === undefined) return refuse(404, "There is no such file in this chat.");
+  const answer = await objectByName(ctx.env.TEX_CHAT, `chat:${ctx.chatId}`).fetch(new Request(`https://chat/app/file/${body.id}`));
+  const type = answer.headers.get("content-type") ?? "";
+  if (!answer.ok || !FILE_TYPES.has(type)) return refuse(404, "There is no such file in this chat.");
+  // RFC 6266 and 5987: the name percent-encoded, with the characters a plain encoding leaves bare encoded too.
+  const encoded = encodeURIComponent(shown.name).replace(/['()*]/g, (c) => `%${c.charCodeAt(0).toString(16).toUpperCase()}`);
+  return new Response(answer.body, {
+    headers: {
+      "content-type": type,
+      "content-disposition": `attachment; filename*=UTF-8''${encoded}`,
+      "cache-control": "private, max-age=86400",
+      "x-content-type-options": "nosniff",
+      "content-security-policy": "default-src 'none'; sandbox",
+    },
+  });
+}
+
 /** Hands the chat object one call, through `POST /app/arrive` on the chat's object; the answer's status is the route's. */
 async function arrive({ env, chatId }, call, msgId) {
   const stub = objectByName(env.TEX_CHAT, `chat:${chatId}`);
@@ -229,7 +272,7 @@ async function arrive({ env, chatId }, call, msgId) {
   const op = { one: "send", react: "react", edit: call.message.kind === "unsent" ? "unsend" : "edit" }[call.kind];
   console.log(JSON.stringify({ event: "app_chat", op, outcome: answer.status }));
   if (answer.status === 429) return refuse(429, LIMIT_MESSAGE);
-  if (answer.status === 400) return refuse(400, call.kind === "one" ? "A picture is JPEG, PNG, GIF or WebP, up to 5 MB." : "That could not be sent.");
+  if (answer.status === 400) return refuse(400, call.kind === "one" ? "A picture is JPEG, PNG, GIF or WebP, up to 5 MB. A file is a PDF, a Word document (.docx) or plain text, up to 10 MB." : "That could not be sent.");
   if (!answer.ok) return refuse(503, UNREACHABLE_MESSAGE);
   const said = await answer.json().catch(() => ({}));
   // A send answers the event id the chat logged it under, which its row will carry; otherwise the id the call named.
