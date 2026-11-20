@@ -134,8 +134,8 @@ describe("/lab", () => {
     mockAnswers.set(ADMIN, true);
     mockAnswers.set(LIST, { me: "u1", names: { u1: "@staff" }, versions: [{ versionId: "vabc", name: "Faster judge", authorId: "u1", graph, picks: "{}", areas: null, results: "[]", createdAt: 1, updatedAt: 2 }], caseEdits: [] });
     mount();
-    // Decluttered (2026-11-16): five pages and Collapse; versions, the sync state and Save live in the top bar.
-    expect(text("#side > .rowi .nm")).toEqual(["Architecture", "Context modules", "Tools", "Speed and cost", "Compare versions"]);
+    // Decluttered (2026-11-16): five pages and Collapse; versions, the sync state and Save live in the top bar. Evals added 2026-11-20 (Dev2).
+    expect(text("#side > .rowi .nm")).toEqual(["Architecture", "Context modules", "Tools", "Speed and cost", "Compare versions", "Evals"]);
     expect(text("#side .sidefoot .rowi .nm")).toEqual(["Collapse"]);
     expect(q("#wsList")).toBeNull();
     // Save shows only when something isn't saved.

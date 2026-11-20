@@ -9,20 +9,25 @@
  * A preview is three Workers on workers.dev (`context-router-pr<N>`,
  * `context-agent-pr<N>`, `context-mcp-pr<N>`), two Workflows (`group-turn-pr<N>`,
  * `job-run-pr<N>`), and storage its Convex deployment created, named with the
- * prefix `pr<N>-`: R2 buckets, D1 databases and Vectorize indexes. Convex
- * expires its own preview deployments; this script does not call the Convex
- * management API, because no endpoint for it is verified here.
+ * prefix `pr<N>-`: R2 buckets, D1 databases and Vectorize indexes, plus one
+ * bucket-scoped R2 token per bucket (`Context — pr<N>-ctx-<id>`) and the Convex
+ * preview deployment `pr<N>` itself. Buckets are emptied before they are
+ * deleted, and every delete ends with a check that nothing of the preview is
+ * left (scripts/preview-teardown.mjs); a leftover fails the run.
  *
  * The matching is exact. `pr1` never matches `pr12`: a name counts only when
  * it starts with `pr<N>-` or ends with `-pr<N>` and the number is complete.
  *
  * Environment: CLOUDFLARE_API_TOKEN, CLOUDFLARE_ACCOUNT_ID (the gateway's
  * account: Workers and Workflows), MANAGED_R2_ACCOUNT_ID (the customer-data
- * account: buckets, D1 and Vectorize, when it differs), GITHUB_REPOSITORY and
- * GH_TOKEN (sweep only). Tests: `node --test scripts/preview-cleanup.test.mjs`.
+ * account: buckets, D1 and Vectorize, when it differs), PREVIEW_R2_API_TOKEN
+ * (the token that minted the scoped tokens, so it can list and revoke them;
+ * CLOUDFLARE_API_TOKEN when unset), CONVEX_DEPLOY_KEY (the preview deploy key,
+ * to delete the Convex preview), GITHUB_REPOSITORY and GH_TOKEN (sweep only). Tests: `node --test scripts/preview-cleanup.test.mjs`.
  */
 import { execFileSync } from "node:child_process";
 import { pathToFileURL } from "node:url";
+import { deleteConvexPreview, emptyAndDeleteBucket, listAccountTokens, previewTokenOf, revokePreviewTokens, verifyGone } from "./preview-teardown.mjs";
 
 /** The most previews the account is sized for at once (about 45). */
 export const PREVIEW_CEILING = 45;
@@ -158,10 +163,14 @@ async function removeStorage(api, item, log) {
     "D1 database": `/accounts/${item.account}/d1/database/${item.id}`,
     "Vectorize index": `/accounts/${item.account}/vectorize/v2/indexes/${item.id}` }[item.kind];
   try {
+    if (item.kind === "R2 bucket") {
+      // R2 refuses to delete a bucket that holds objects, and a preview's buckets hold its seeded notes.
+      await emptyAndDeleteBucket(api, item.account, item.id, { log });
+      return;
+    }
     await api.request("DELETE", path);
     log(`deleted ${item.kind} ${item.name}`);
   } catch (error) {
-    // A bucket that still holds objects is refused by R2; it is named here so it can be emptied.
     log(`::warning::could not delete ${item.kind} ${item.name}: ${error.message}`);
   }
 }
@@ -178,8 +187,17 @@ export function wrangler(env, worker, args) {
   });
 }
 
-/** Delete one pull request's preview: Workers, Workflows, then storage. */
-export async function deletePreview(env, n, { log = console.log, runWrangler = wrangler, api = cloudflareApi(env.CLOUDFLARE_API_TOKEN) } = {}) {
+/** The client that lists and revokes the scoped R2 tokens: the token that minted them, when it is a separate one. */
+function tokenClient(env, api) {
+  return env.PREVIEW_R2_API_TOKEN && env.PREVIEW_R2_API_TOKEN !== env.CLOUDFLARE_API_TOKEN ? cloudflareApi(env.PREVIEW_R2_API_TOKEN) : api;
+}
+
+/**
+ * Delete one pull request's preview: Workers (their Durable Objects go with
+ * them), Workflows, the Convex deployment, then storage and tokens, and check
+ * that nothing is left. Returns the leftovers, empty when the preview is gone.
+ */
+export async function deletePreview(env, n, { log = console.log, runWrangler = wrangler, api = cloudflareApi(env.CLOUDFLARE_API_TOKEN), tokenApi = tokenClient(env, api), fetchImpl = fetch } = {}) {
   const gone = /not found|10007|does not exist/i;
   for (const worker of DELETE_ORDER) {
     // The -preview name is where a secret command once put a Worker; delete it too.
@@ -203,17 +221,35 @@ export async function deletePreview(env, n, { log = console.log, runWrangler = w
       log(`::warning::could not delete Workflow ${workflow.name}: ${error.message}`);
     }
   }
+  // Before storage: a live deployment could provision a bucket while its buckets are being deleted.
+  if (env.CONVEX_DEPLOY_KEY) {
+    try {
+      await deleteConvexPreview(env.CONVEX_DEPLOY_KEY, n, { fetchImpl, log });
+    } catch (error) {
+      log(`::warning::${error.message}`);
+    }
+  } else {
+    log("::warning::no CONVEX_DEPLOY_KEY: the Convex preview deployment is left to Convex's own expiry.");
+  }
   for (const item of (await listStorage(api, env)).filter((s) => isPreviewResource(s.name, n))) {
     await removeStorage(api, item, log);
   }
-  log(`pull request #${n}: preview cleanup finished.`);
+  try {
+    await revokePreviewTokens(tokenApi, storageAccounts(env), n, { log });
+  } catch (error) {
+    log(`::warning::could not revoke the R2 tokens of pull request #${n}: ${error.message}`);
+  }
+  const left = await verifyGone(env, n, { api, tokenApi, storageAccounts, isPreviewResource, fetchImpl }).catch((error) => [`(the check itself failed: ${error.message})`]);
+  if (left.length === 0) log(`pull request #${n}: verified, nothing of its preview is left.`);
+  for (const line of left) log(`::error::pull request #${n} left ${line}`);
+  return left;
 }
 
 /**
  * Find every preview left behind, ask GitHub which pull requests are open, and
  * delete the previews of the rest. Live previews are counted against the ceiling.
  */
-export async function sweep(env, { log = console.log, runWrangler = wrangler, openPullRequests, api = cloudflareApi(env.CLOUDFLARE_API_TOKEN) } = {}) {
+export async function sweep(env, { log = console.log, runWrangler = wrangler, openPullRequests, api = cloudflareApi(env.CLOUDFLARE_API_TOKEN), tokenApi = tokenClient(env, api), fetchImpl = fetch } = {}) {
   const scripts = (await listAll(api, `/accounts/${env.CLOUDFLARE_ACCOUNT_ID}/workers/scripts`, "result"))
     .map((script) => script.id);
   // Throws when the list is truncated or fails: nothing below runs, so nothing is deleted.
@@ -224,21 +260,35 @@ export async function sweep(env, { log = console.log, runWrangler = wrangler, op
   const workflowNumbers = (await listAll(api, `/accounts/${env.CLOUDFLARE_ACCOUNT_ID}/workflows`, "workflows"))
     .map((workflow) => workflowPullRequest(workflow.name))
     .filter(Boolean);
-  const previews = new Set([...scripts.map(workerPullRequest).filter(Boolean), ...storageNumbers, ...workflowNumbers]);
+  // A scoped token whose bucket was deleted by an older cleanup is still its pull request's.
+  const tokenNumbers = [];
+  for (const account of storageAccounts(env)) {
+    try {
+      for (const token of await listAccountTokens(tokenApi, account)) {
+        const of = previewTokenOf(token?.name);
+        if (of) tokenNumbers.push(of.pr);
+      }
+    } catch (error) {
+      log(`::warning::could not list account tokens: ${error.message}`);
+    }
+  }
+  const previews = new Set([...scripts.map(workerPullRequest).filter(Boolean), ...storageNumbers, ...workflowNumbers, ...tokenNumbers]);
   // Worker scripts decide by `orphanNames`; storage and Workflow names by their pattern.
   const closed = new Set([
     ...orphanNames(scripts, [...open]).map(workerPullRequest),
     ...storageNumbers,
     ...workflowNumbers,
+    ...tokenNumbers,
   ].filter((n) => !open.has(n)));
+  const leftovers = [];
   for (const n of [...closed].sort((a, b) => Number(a) - Number(b))) {
     log(`pull request #${n} is not open; deleting its preview`);
-    await deletePreview(env, n, { log, runWrangler, api });
+    leftovers.push(...(await deletePreview(env, n, { log, runWrangler, api, tokenApi, fetchImpl })).map((line) => `#${n}: ${line}`));
   }
   const live = [...previews].filter((n) => open.has(n)).length;
   log(`${live} live preview(s) of about ${PREVIEW_CEILING}; ${closed.size} closed preview(s) cleaned up.`);
   if (live >= PREVIEW_CEILING) log(`::warning::Live previews are at the ceiling of ${PREVIEW_CEILING}.`);
-  return { live, closed: [...closed] };
+  return { live, closed: [...closed], leftovers };
 }
 
 /**
@@ -269,13 +319,15 @@ async function main(argv) {
   const [command, value] = argv;
   if (command === "delete") {
     if (!/^[1-9][0-9]{0,6}$/.test(value ?? "")) throw new Error("usage: preview-cleanup.mjs delete <pull request number>");
-    await deletePreview(env, value);
+    const left = await deletePreview(env, value);
+    if (left.length > 0) process.exitCode = 1;
     return;
   }
   if (command === "sweep") {
     const repo = env.GITHUB_REPOSITORY;
     if (!repo) throw new Error("sweep needs GITHUB_REPOSITORY");
-    await sweep(env, { openPullRequests: () => openPullRequestNumbers(env.GH_TOKEN, repo) });
+    const { leftovers } = await sweep(env, { openPullRequests: () => openPullRequestNumbers(env.GH_TOKEN, repo) });
+    if (leftovers.length > 0) process.exitCode = 1;
     return;
   }
   throw new Error(`unknown command "${command}" (delete <N> | sweep)`);

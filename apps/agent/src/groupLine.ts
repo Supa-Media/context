@@ -25,6 +25,8 @@ import { hostedNoteCard, linkAfterCard, whapiNotePreview, type NoteCardDrawer } 
 import type { SendblueKeys } from "./sendblue";
 import type { LinkNotes } from "./photonLinkBubbles";
 import { isPhotonGroupId, photonGroupLine } from "./photonLine";
+import { isSimulatedGroup, simulatedGroupLine } from "./simulatedGroup";
+import type { InboxStorage } from "./inbox";
 import { reactInGroup, readGroupMembers, readOwnGroupMessage, sendGroupMedia, sendGroupText } from "./sendblueGroups";
 import {
   groupJidOf,
@@ -83,9 +85,17 @@ export type GroupLineDeps = {
   remote?: (groupId: string) => GroupLine;
   /** Where a Sendblue group staff moved to Tex's new number lives now (`groupMoves.ts`); null for one that has not moved. */
   movedTo?: (groupId: string) => Promise<GroupPlace | null>;
+  /**
+   * The group object's storage, where a simulated group's replies are logged (`simulatedGroup.ts`). Absent, a simulated
+   * group's send refuses; it is never sent on a real line.
+   */
+  simulatorStorage?: InboxStorage;
 };
 
 export function groupLineFor(deps: GroupLineDeps, groupId: string): GroupLine {
+  // A simulated group (`simulatorGroup.ts`) is answered into its own log, before any app's line and before a remote one:
+  // nothing a simulated group says can reach Sendblue, WhatsApp or Photon (`simulatedGroup.ts`).
+  if (isSimulatedGroup(groupId)) return guardedLine(simulatedGroupLine(deps.simulatorStorage), "group");
   // Every group line, whichever app and wherever it is served from, behind the last guard: a skip is never a text (`outboundGuard.ts`).
   if (deps.remote) return guardedLine(deps.remote(groupId), "group");
   const line = isPhotonGroupId(groupId) ? photonGroupLine(deps) : isWhapiGroup(groupId) ? whapiGroupLine(deps, groupId) : movableGroupLine(deps, sendblueGroupLine(deps));

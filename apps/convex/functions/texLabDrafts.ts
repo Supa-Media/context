@@ -34,6 +34,7 @@ import { pageForUser } from "./texPage";
 import { sharedChats } from "./lib/texLabShared";
 import { setAction } from "./texSets";
 import { runAction, startGateRun } from "./texLabRuns";
+import { evalAction } from "./labEvals";
 import { cleanPicks } from "./texLabPromote";
 import { clampDays } from "./texLabToolStats";
 import { toolStatsReport } from "./lib/adminFns/texToolStats";
@@ -360,6 +361,9 @@ export const forGateway = internalMutation({
     // Runs on GitHub (`texLabRuns.ts`): the same door, the same caller.
     const run = await runAction(ctx, { userId: dev.userId, via: dev.client }, action, a, now);
     if (run !== null) return run;
+    // The Evals tab's public benchmarks (`labEvals.ts`): the same door, the same caller.
+    const evals = await evalAction(ctx, { userId: dev.userId, via: dev.client }, action, a, now);
+    if (evals !== null) return evals;
     if (action === "page") return await pageForUser(ctx, dev.userId);
     // The chats people shared with the developers, read only, as the Lab's "Shared with developers" tab lists them.
     if (action === "shared") return { status: "ok", chats: await sharedChats(ctx, dev.userId) };

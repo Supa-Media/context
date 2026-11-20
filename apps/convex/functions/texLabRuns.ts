@@ -493,7 +493,7 @@ export const get = query({
 /** `tex_dev` `run` and `runs`; null for any other action. */
 export async function runAction(ctx: MutationCtx, who: Who, action: string, a: Record<string, unknown>, now: number): Promise<Record<string, unknown> | null> {
   if (action === "run") {
-    const answer = await startRun(ctx, who, { versionId: a.draft, kind: a.kind, convId: a.conv, nodeId: a.node, models: a.models, repeats: a.repeats, code: a.code, set: a.set }, now);
+    const answer = await startRun(ctx, who, { versionId: a.draft, kind: a.kind, convId: a.conv, nodeId: a.node, models: a.models, repeats: a.repeats, code: a.code, set: a.set, target: a.target }, now);
     return answer.status === "ok" ? { status: "ok", id: answer.runId } : answer.status === "not_found" ? { status: "not_found" } : { status: "bad_request", error: answer.error };
   }
   if (action === "code") return await setDraftCode(ctx, a.draft, a.code, now);

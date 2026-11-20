@@ -11,6 +11,10 @@
  * part got a third notice crashed and lost its finished answer ten times running). When the config wires
  * `answerCheck -> handoff`, such a draft hands the job to a background worker instead (`handoff.js`), and the output
  * logs `handedOff`.
+ *
+ * When the config wires `answerCheck -> askGate`, a draft the code checks let through is read by the lookup ladder's
+ * Before-asking step first (`askGate.js`): a draft that asks them a fact Tex could find goes back with what the quick
+ * rungs found, or to a background job for the slow ones (`askGate -> handoff`). Unwired, nothing changes.
  */
 export async function answerCheckNode(input, io) {
   const t = io.ctx.turn;
@@ -20,6 +24,7 @@ export async function answerCheckNode(input, io) {
   let reviews = 0;
   let spent = false;
   let handedOff = false;
+  let ladders = 0;
   const letGo = () => back({ notice: null }, { release: true });
   // The budget is spent and the draft would be sent back: when the config wires the Hand-off node, the job goes to a
   // background worker instead of the draft going as it is (`../../handoff.js`); the Front door ends on its start line.
@@ -43,6 +48,23 @@ export async function answerCheckNode(input, io) {
       stop = await back({ notice: String(notice) });
       continue;
     }
+    const ladder = await askBefore(io, t, waiting);
+    if (ladder !== null && (ladder.to === "back" || ladder.to === "job")) {
+      ladders += 1;
+      if (ladder.to === "back" && back.left() > 0) {
+        sentBack += 1;
+        stop = await back({ notice: String(ladder.notice) });
+        continue;
+      }
+      // The quick rungs are spent, or found nothing: the slow ones go to a job when the config wires `askGate -> handoff`.
+      const ack = typeof t.ladderHandOff === "function" ? await t.ladderHandOff(waiting.draft, waiting.info, String(ladder.why ?? "nothing quick found it")) : null;
+      if (typeof ack === "string" && ack !== "") {
+        handedOff = true;
+        t.handedOff = ack;
+        stop = await letGo();
+        continue;
+      }
+    }
     if (review && t.reviewedAs) {
       reviews += 1;
       const said = await t.answerChecks.review(waiting.draft, waiting.info);
@@ -56,5 +78,21 @@ export async function answerCheckNode(input, io) {
     }
     stop = await letGo(); // let go: the front door may still write it again with a text that came in
   }
-  return { ...stop, when: [stop.ended ? "ended" : "done"], sentBack, reviews, ...(spent ? { spent: true } : {}), ...(handedOff ? { log: { handedOff: true } } : {}) };
+  return { ...stop, when: [stop.ended ? "ended" : "done"], sentBack, reviews, ...(spent ? { spent: true } : {}), ...(handedOff || ladders > 0 ? { log: { ...(handedOff ? { handedOff: true } : {}), ...(ladders > 0 ? { ladders } : {}) } } : {}) };
+}
+
+/**
+ * The lookup ladder (`../../lookupLadder.js`), when the config wires `answerCheck -> askGate` and the turn is a texted
+ * one (`runTheModel.js` sets `t.ladderOn`): the Before-asking step's read of a draft the code checks let through, once
+ * per draft. Null when it is not wired or it failed: the draft goes on as it would.
+ */
+async function askBefore(io, t, waiting) {
+  if (t.ladderOn !== true || waiting?.draft === undefined || waiting.draft === t.ladderLast) return null;
+  t.ladderLast = waiting.draft;
+  try {
+    if (!("askGate" in io.use)) return null;
+    return await io.use.askGate({ ask: String(t.question ?? ""), draft: String(waiting.draft ?? "") });
+  } catch {
+    return null;
+  }
 }

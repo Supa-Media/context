@@ -9,6 +9,7 @@
  *  1. `groupModelTurn` without its `answer.muted` branch → "a turn that mutes the chat" fails.
  *  2. `answerGroup` without its muted-told line → "a clear ask in a muted chat" fails.
  *  3. `acceptGroup` reading a muted chat's naming line every time (no `mutedTold`) → "only once a mute" fails.
+ *  4. the muting turn keeping its kept answer (no `dropKept`) → "a turn that mutes the chat" fails (the next ask ran a turn).
  */
 
 import { describe, expect, it } from "vitest";
@@ -32,6 +33,11 @@ describe("a muted group chat is never silent about it", () => {
     await drainGroup(storage, w.deps);
     expect(w.texts).toEqual([GROUP_LINES.stopped]);
     expect(await acceptGroup(storage, w.message("anyone up for tacos?"), 10)).toBe("ignored");
+    // The same person's next ask never rides the kept "ready" answer into a turn (`groupKept.ts`): it hears how to start.
+    await acceptGroup(storage, w.message("Tex what's 2+2"), 20);
+    await drainGroup(storage, w.deps);
+    expect(w.asks).toHaveLength(1);
+    expect(w.texts).toEqual([GROUP_LINES.stopped, GROUP_LINES.muted]);
   });
 
   it("a clear ask in a muted chat hears how to start Tex again, only once a mute, and Tex, start resets it", async () => {

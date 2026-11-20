@@ -27,8 +27,8 @@ export function routeSureOf(config) {
   }
 }
 
-/** Which moment asked, by the wire's source: the front door out of rounds, the router's job (`doorTurn.js`), or the answer check out of send-backs. */
-export const causeOf = (from) => (from === "fd" ? "rounds" : from === "router" ? "route" : "check");
+/** Which moment asked, by the wire's source: the front door out of rounds, the router's job (`doorTurn.js`), the lookup ladder's slow rungs (`lookupLadder.js`), or the answer check out of send-backs. */
+export const causeOf = (from) => (from === "fd" ? "rounds" : from === "router" ? "route" : from === "askGate" ? "ladder" : "check");
 
 /**
  * `background` is the turn's (`background.js`), `gate(input, from)` fires the Hand-off node over the wire from `from`

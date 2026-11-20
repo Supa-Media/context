@@ -1,0 +1,69 @@
+name: Preview sign-in code
+
+# Mails a sign-in code for one of a preview's fictional personas to the team
+# inbox, so a person can sign in to that pull request's preview web app and use
+# it: notes, search, and Tex's in-app chat (a preview has no texting line).
+# The code is issued on the preview through the convex CLI and mailed from this
+# runner, never printed (this repository's Actions logs are public). The preview
+# itself still holds no mail key. See scripts/preview-sign-in-code.mjs and
+# docs/preview-sandbox.md.
+on:
+  workflow_dispatch:
+    inputs:
+      pr:
+        description: "Pull request number whose preview to sign in to."
+        type: string
+        required: true
+      persona:
+        description: "Which fictional persona."
+        type: choice
+        options: [alpha, beta, gamma, delta, epsilon]
+        default: alpha
+
+permissions:
+  contents: read
+
+concurrency:
+  group: preview-sign-in-code-${{ inputs.pr }}
+  cancel-in-progress: false
+
+jobs:
+  issue:
+    runs-on: ubuntu-latest
+    environment: preview
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+
+      # The workers.dev subdomain names the account, so it is masked and goes only into the mail.
+      - name: Read the preview's web app host
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          PR: ${{ inputs.pr }}
+        run: |
+          set -euo pipefail
+          [[ "$PR" =~ ^[1-9][0-9]{0,6}$ ]] || { echo "::error::pr is a pull request number"; exit 1; }
+          sub="$(curl -fsS -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN" "https://api.cloudflare.com/client/v4/accounts/$CLOUDFLARE_ACCOUNT_ID/workers/subdomain" | jq -r '.result.subdomain // ""')"
+          if [ -n "$sub" ]; then
+            echo "::add-mask::$sub"
+            echo "PREVIEW_ROUTER_HOST=context-router-pr$PR.$sub.workers.dev" >> "$GITHUB_ENV"
+          fi
+
+      - name: Issue the code and mail it to the team inbox
+        env:
+          CONVEX_DEPLOY_KEY: ${{ secrets.CONVEX_PREVIEW_DEPLOY_KEY }}
+          RESEND_API_KEY: ${{ secrets.RESEND_API_KEY }}
+          AUTH_EMAIL_FROM: ${{ vars.AUTH_EMAIL_FROM || secrets.AUTH_EMAIL_FROM }}
+          PR: ${{ inputs.pr }}
+          PERSONA: ${{ inputs.persona }}
+        run: node scripts/preview-sign-in-code.mjs

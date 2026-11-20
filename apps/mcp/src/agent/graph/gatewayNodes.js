@@ -68,6 +68,10 @@ import { jobStartNode } from "./nodes/jobStart.js";
 import { jobadv } from "./nodes/jobadv.js";
 import { staffNode } from "./nodes/staff.js";
 import { examplesNode } from "./nodes/examples.js";
+import { askGateNode } from "./nodes/askGate.js";
+import { rungKnowsNode } from "./nodes/rungKnows.js";
+import { rungNotesNode } from "./nodes/rungNotes.js";
+import { rungToolsNode } from "./nodes/rungTools.js";
 import { routerNode } from "./nodes/router.js";
 import { fdQuickNode, fdReadNode, fdActNode } from "./nodes/doors.js";
 
@@ -168,4 +172,10 @@ export const GATEWAY_NODES = {
   get jobStart() { return jobStartNode; },
   // The Training moments nearest to a text, for the front door's preamble (`nodes/examples.js`, `texExamples.cjs`); on the shelf until a Lab draft wires fd -> examples.
   get examples() { return examplesNode; },
+  // The lookup ladder, on the shelf: before Tex asks them a fact it could find, its Before-asking step and its quick
+  // rungs, each its own step (`nodes/askGate.js`, `../lookupLadder.js`); a Lab draft wires answerCheck -> askGate.
+  get askGate() { return askGateNode; },
+  get rungKnows() { return rungKnowsNode; },
+  get rungNotes() { return rungNotesNode; },
+  get rungTools() { return rungToolsNode; },
 };

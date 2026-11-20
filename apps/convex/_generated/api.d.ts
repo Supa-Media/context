@@ -20,6 +20,7 @@ import type * as functions_accountDeletion from "../functions/accountDeletion.js
 import type * as functions_accountSetup from "../functions/accountSetup.js";
 import type * as functions_audit from "../functions/audit.js";
 import type * as functions_billing from "../functions/billing.js";
+import type * as functions_chatHomesPush from "../functions/chatHomesPush.js";
 import type * as functions_texChatHomeCensus from "../functions/texChatHomeCensus.js";
 import type * as functions_texChatHomeGrants from "../functions/texChatHomeGrants.js";
 import type * as functions_texChatHomeManifest from "../functions/texChatHomeManifest.js";
@@ -43,6 +44,7 @@ import type * as functions_texLabPromote from "../functions/texLabPromote.js";
 import type * as functions_texLabRuns from "../functions/texLabRuns.js";
 import type * as functions_texLabToolStats from "../functions/texLabToolStats.js";
 import type * as functions_labRunnerSlots from "../functions/labRunnerSlots.js";
+import type * as functions_labEvals from "../functions/labEvals.js";
 import type * as functions_texExamplesIndex from "../functions/texExamplesIndex.js";
 import type * as functions_texSets from "../functions/texSets.js";
 import type * as functions_accessObjects from "../functions/accessObjects.js";
@@ -319,6 +321,7 @@ declare const fullApi: ApiFromModules<{
   "functions/accountSetup": typeof functions_accountSetup;
   "functions/audit": typeof functions_audit;
   "functions/billing": typeof functions_billing;
+  "functions/chatHomesPush": typeof functions_chatHomesPush;
   "functions/texChatHomeCensus": typeof functions_texChatHomeCensus;
   "functions/texChatHomeGrants": typeof functions_texChatHomeGrants;
   "functions/texChatHomeManifest": typeof functions_texChatHomeManifest;
@@ -342,6 +345,7 @@ declare const fullApi: ApiFromModules<{
   "functions/texLabRuns": typeof functions_texLabRuns;
   "functions/texLabToolStats": typeof functions_texLabToolStats;
   "functions/labRunnerSlots": typeof functions_labRunnerSlots;
+  "functions/labEvals": typeof functions_labEvals;
   "functions/texExamplesIndex": typeof functions_texExamplesIndex;
   "functions/texSets": typeof functions_texSets;
   "functions/accessObjects": typeof functions_accessObjects;

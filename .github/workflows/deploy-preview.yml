@@ -463,6 +463,23 @@ jobs:
           pnpm --dir apps/mobile exec playwright install chromium || echo "Playwright's Chromium did not install; the runner's Chrome is used."
           node scripts/preview-browser.mjs
 
+      # A pull request that closed while this ran was already swept, and this run
+      # put its preview back up. Delete it again, so a closed preview never waits
+      # for the daily sweep.
+      - name: Delete the preview if its pull request closed while it deployed
+        if: ${{ !cancelled() }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+          MANAGED_R2_ACCOUNT_ID: ${{ secrets.MANAGED_R2_ACCOUNT_ID }}
+          PREVIEW_R2_API_TOKEN: ${{ secrets.PREVIEW_R2_API_TOKEN || secrets.CLOUDFLARE_API_TOKEN }}
+          CONVEX_DEPLOY_KEY: ${{ secrets.CONVEX_PREVIEW_DEPLOY_KEY }}
+        run: |
+          set -euo pipefail
+          state="$(gh api "repos/$GITHUB_REPOSITORY/pulls/$PR" --jq .state)"
+          if [ "$state" = "open" ]; then exit 0; fi
+          echo "Pull request $PR closed while its preview deployed: deleting it."
+          node scripts/preview-cleanup.mjs delete "$PR"
+
       # Runs even when a step above failed: the comment says what was reached.
       # Only seconds, and only the Worker names and paths, are printed.
       - name: Write the preview report

@@ -123,6 +123,14 @@ button:focus-visible, input:focus-visible { outline: 2px solid var(--accent); ou
 .send { width: 28px; height: 28px; border-radius: 50%; border: 0; background: var(--bubble-out); display: grid; place-items: center; cursor: pointer; flex: none; padding: 0; }
 .send:disabled { opacity: 0; pointer-events: none; }
 .send svg { stroke: #fff; }
+[hidden] { display: none !important; }
+.seg { display: grid; grid-template-columns: 1fr 1fr; gap: 3px; padding: 3px; background: var(--panel); border: 1px solid var(--line); border-radius: 9px; }
+.seg button { font: inherit; font-size: 13px; color: var(--muted); background: transparent; border: 0; border-radius: 7px; padding: 6px 8px; cursor: pointer; }
+.seg button[aria-pressed="true"] { background: var(--bubble-out); color: #fff; }
+.members { list-style: none; margin: 0; padding: 0; display: grid; gap: 4px; font-family: var(--font-mono); font-size: 14px; font-variant-numeric: tabular-nums; }
+.pick { font: inherit; font-size: 13px; color: var(--ink); background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 6px 8px; }
+.sender { font-size: 11px; color: var(--stamp); margin: 8px 12px 0; }
+.sender.right { text-align: right; }
 
 @media (max-width: 760px) {
   .stage { gap: 16px; padding-block: 12px; align-content: start; }
@@ -137,7 +145,11 @@ button:focus-visible, input:focus-visible { outline: 2px solid var(--accent); ou
   <section class="controls" aria-label="Simulator controls">
     <h1>Texts simulator<span class="tag">Staging</span></h1>
     <p class="lede">Text the staging assistant from a made-up phone number. It runs the same code as a real iMessage, but nothing goes through Linq and no real number is used.</p>
-    <div class="group">
+    <div class="seg" role="group" aria-label="Chat type">
+      <button id="mode-one" type="button" aria-pressed="true">1:1</button>
+      <button id="mode-group" type="button" aria-pressed="false">Group</button>
+    </div>
+    <div class="group one">
       <span class="label">This phone</span>
       <span class="number" id="number">+1 (415) 555-0142</span>
       <div class="row">
@@ -145,7 +157,7 @@ button:focus-visible, input:focus-visible { outline: 2px solid var(--accent); ou
         <button class="ctl" id="clear" type="button">Clear chat</button>
       </div>
     </div>
-    <div class="group">
+    <div class="group one">
       <span class="label">Try</span>
       <div class="row">
         <button class="chip" type="button" data-say="hi">hi</button>
@@ -153,7 +165,22 @@ button:focus-visible, input:focus-visible { outline: 2px solid var(--accent); ou
         <button class="chip" type="button" data-say="UNLINK">UNLINK</button>
       </div>
     </div>
-    <p class="note">The first text from a new number gets a sign-in link. Open it while signed in to staging, then text back the code it shows. After that, this number answers from that account.</p>
+    <p class="note one">The first text from a new number gets a sign-in link. Open it while signed in to staging, then text back the code it shows. After that, this number answers from that account.</p>
+    <div class="group" id="group-panel" hidden>
+      <span class="label">Group</span>
+      <ul class="members" id="members" aria-label="Members"></ul>
+      <div class="row">
+        <button class="ctl" id="add-member" type="button">Add a number</button>
+        <button class="ctl" id="remove-member" type="button">Remove speaker</button>
+      </div>
+      <label class="label" for="speaker">Speaking as</label>
+      <select class="pick" id="speaker"></select>
+      <div class="row">
+        <button class="ctl" id="new-group" type="button">New group</button>
+        <button class="ctl" id="clear-group" type="button">Clear group</button>
+      </div>
+      <p class="note">Name Tex to get an answer, as in a real group: "Tex, what's on today?" Every number here is made up.</p>
+    </div>
     <div class="status" id="status" role="status"></div>
   </section>
 
@@ -172,7 +199,7 @@ button:focus-visible, input:focus-visible { outline: 2px solid var(--accent); ou
         <span class="back" aria-hidden="true"><svg width="12" height="20" viewBox="0 0 12 20" fill="none" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M10 2 2 10l8 8"/></svg></span>
         <div class="who">
           <div class="avatar" aria-hidden="true">#</div>
-          <span class="name">Context <svg width="6" height="10" viewBox="0 0 6 10" fill="none" stroke-width="1.6" stroke-linecap="round"><path d="m1 1 4 4-4 4"/></svg></span>
+          <span class="name"><span id="who-text">Context</span> <svg width="6" height="10" viewBox="0 0 6 10" fill="none" stroke-width="1.6" stroke-linecap="round"><path d="m1 1 4 4-4 4"/></svg></span>
         </div>
         <span></span>
       </div>
@@ -232,6 +259,35 @@ button:focus-visible, input:focus-visible { outline: 2px solid var(--accent); ou
   var messages = [];
   var typing = false;
 
+  // ── group mode: a simulated group of 555 numbers, one browser speaking as each (simulatorGroup.ts) ──
+  var SIM_RE = /^\+1[2-9]\d{2}55501\d{2}$/;
+  var GROUP_ID = /^sim-group-[0-9a-f]{32}$/;
+  var groupMode = store.get("sim.mode") === "group";
+  function newNumber(taken) {
+    var p;
+    do { p = newPhone(); } while (taken.indexOf(p) >= 0);
+    return p;
+  }
+  function freshGroup() {
+    var members = [];
+    while (members.length < 3) members.push(newNumber(members));
+    return { id: null, key: randomHex(24), members: members, speaker: 0 };
+  }
+  function loadGroup() {
+    try {
+      var g = JSON.parse(store.get("sim.group") || "null");
+      var ok = g && /^[0-9a-f]{48}$/.test(g.key) && Array.isArray(g.members) && g.members.length >= 2 && g.members.length <= 8 &&
+        g.members.every(function (p) { return SIM_RE.test(p); }) && (g.id === null || GROUP_ID.test(g.id));
+      if (ok) {
+        if (!(g.speaker >= 0 && g.speaker < g.members.length)) g.speaker = 0;
+        return g;
+      }
+    } catch (e) { /* a saved group that does not read is replaced */ }
+    return freshGroup();
+  }
+  var group = loadGroup();
+  function saveGroup() { store.set("sim.group", JSON.stringify(group)); }
+
   function say(text, isError) {
     statusLine.textContent = text || "";
     statusLine.className = isError ? "status error" : "status";
@@ -264,9 +320,16 @@ button:focus-visible, input:focus-visible { outline: 2px solid var(--accent); ou
         g.className = "gap";
         thread.appendChild(g);
       }
+      // In a group, each bubble names its sender: the number that spoke it, or Tex.
+      if (groupMode && (i === 0 || messages[i - 1].dir !== m.dir || messages[i - 1].from !== m.from)) {
+        var who = document.createElement("div");
+        who.className = "sender" + (m.dir === "out" ? " right" : "");
+        who.textContent = m.dir === "out" ? pretty(m.from || phone) : "Tex";
+        thread.appendChild(who);
+      }
       lastAt = m.at;
       var next = messages[i + 1];
-      var tail = !next || next.dir !== m.dir;
+      var tail = !next || next.dir !== m.dir || (groupMode && next.from !== m.from);
       var text = m.text.trim();
       if (m.dir === "in" && LINK_ONLY.test(text)) {
         var card = document.createElement("a");
@@ -316,10 +379,10 @@ button:focus-visible, input:focus-visible { outline: 2px solid var(--accent); ou
     if (nearBottom || typing) thread.scrollTop = thread.scrollHeight;
   }
 
-  function call(path, method, body) {
+  function call(path, method, body, useKey) {
     return fetch(API + path, {
       method: method,
-      headers: { "content-type": "application/json", "x-simulator-key": key },
+      headers: { "content-type": "application/json", "x-simulator-key": useKey || key },
       body: body ? JSON.stringify(body) : undefined
     }).then(function (res) {
       if (res.status === 409) throw new Error("taken");
@@ -329,14 +392,19 @@ button:focus-visible, input:focus-visible { outline: 2px solid var(--accent); ou
   }
 
   var polling = null;
+  function groupThread() {
+    if (!group.id) return Promise.resolve({ messages: [], typing: false });
+    return call("/group/thread?group=" + encodeURIComponent(group.id), "GET", undefined, group.key);
+  }
   function refresh() {
-    return call("/thread?phone=" + encodeURIComponent(phone), "GET").then(function (data) {
+    var pending = groupMode ? groupThread() : call("/thread?phone=" + encodeURIComponent(phone), "GET");
+    return pending.then(function (data) {
       messages = data.messages;
       typing = data.typing;
       render();
-      say("");
+      say(groupMode && !group.id ? "Send a text to start the group." : "");
     }).catch(function (e) {
-      if (e.message === "taken") { switchNumber(); return; }
+      if (e.message === "taken") { if (groupMode) newGroup(); else switchNumber(); return; }
       say("Can't reach the assistant. Retrying.", true);
     });
   }
@@ -393,6 +461,7 @@ button:focus-visible, input:focus-visible { outline: 2px solid var(--accent); ou
     input.value = "";
     sendButton.disabled = true;
     if (!LIVE) { demoSend(text); return; }
+    if (groupMode) { sendGroup(text); return; }
     messages.push({ dir: "out", text: text, at: Date.now() });
     typing = true;
     render();
@@ -403,6 +472,103 @@ button:focus-visible, input:focus-visible { outline: 2px solid var(--accent); ou
       say("That text didn't send. Try again.", true);
     });
   }
+
+  function sendGroup(text) {
+    var speaker = group.members[group.speaker];
+    messages.push({ dir: "out", text: text, at: Date.now(), from: speaker });
+    typing = true;
+    render();
+    var body = { phone: speaker, members: group.members, text: text };
+    if (group.id) body.groupId = group.id;
+    call("/group/send", "POST", body, group.key).then(function (data) {
+      if (data.group && data.group !== group.id) { group.id = data.group; saveGroup(); }
+      return refresh();
+    }).then(schedule, function (e) {
+      if (e.message === "taken") { newGroup(); say("That group was in use in another browser, so you have a new one. Send again.", true); return; }
+      say("That text didn't send. Try again.", true);
+    });
+  }
+
+  function newGroup() {
+    group = freshGroup();
+    saveGroup();
+    messages = [];
+    typing = false;
+    applyMode();
+    render();
+    say("New group. Its first text starts it.");
+  }
+
+  function renderGroupControls() {
+    var speaker = document.getElementById("speaker");
+    var list = document.getElementById("members");
+    speaker.textContent = "";
+    list.textContent = "";
+    group.members.forEach(function (p, i) {
+      var option = document.createElement("option");
+      option.value = String(i);
+      option.textContent = pretty(p);
+      option.selected = i === group.speaker;
+      speaker.appendChild(option);
+      var item = document.createElement("li");
+      item.textContent = (i === group.speaker ? "> " : "  ") + pretty(p);
+      list.appendChild(item);
+    });
+    document.getElementById("remove-member").disabled = group.members.length <= 2;
+    document.getElementById("add-member").disabled = group.members.length >= 8;
+  }
+
+  // The header and the controls follow the mode: 1:1 shows this phone, a group shows its size and who speaks.
+  function applyMode() {
+    document.getElementById("mode-one").setAttribute("aria-pressed", String(!groupMode));
+    document.getElementById("mode-group").setAttribute("aria-pressed", String(groupMode));
+    document.getElementById("group-panel").hidden = !groupMode;
+    Array.prototype.forEach.call(document.querySelectorAll(".one"), function (el) { el.hidden = groupMode; });
+    if (groupMode) {
+      renderGroupControls();
+      numberLine.textContent = "Group of " + group.members.length;
+      document.getElementById("who-text").textContent = "Group";
+    } else {
+      numberLine.textContent = pretty(phone);
+      document.getElementById("who-text").textContent = "Context";
+    }
+  }
+
+  function setMode(on) {
+    groupMode = on;
+    store.set("sim.mode", on ? "group" : "one");
+    messages = [];
+    typing = false;
+    applyMode();
+    render();
+    if (LIVE) { clearTimeout(polling); refresh().then(schedule, schedule); }
+  }
+  document.getElementById("mode-one").addEventListener("click", function () { setMode(false); });
+  document.getElementById("mode-group").addEventListener("click", function () { setMode(true); });
+  document.getElementById("add-member").addEventListener("click", function () {
+    if (group.members.length >= 8) return;
+    group.members.push(newNumber(group.members));
+    saveGroup();
+    renderGroupControls();
+  });
+  document.getElementById("remove-member").addEventListener("click", function () {
+    if (group.members.length <= 2) return;
+    group.members.splice(group.speaker, 1);
+    group.speaker = 0;
+    saveGroup();
+    renderGroupControls();
+  });
+  document.getElementById("speaker").addEventListener("change", function (e) {
+    group.speaker = Number(e.target.value);
+    saveGroup();
+    renderGroupControls();
+  });
+  document.getElementById("new-group").addEventListener("click", newGroup);
+  document.getElementById("clear-group").addEventListener("click", function () {
+    if (!LIVE || !group.id) { messages = []; render(); return; }
+    call("/group/clear", "POST", { groupId: group.id }, group.key).then(function () { messages = []; render(); say("Group cleared. The numbers stay in it."); },
+      function () { say("Couldn't clear the group. Try again.", true); });
+  });
 
   document.getElementById("compose").addEventListener("submit", function (e) {
     e.preventDefault();
@@ -426,6 +592,7 @@ button:focus-visible, input:focus-visible { outline: 2px solid var(--accent); ou
   tick();
   setInterval(tick, 30000);
 
+  applyMode();
   if (LIVE) { refresh().then(schedule, schedule); }
   else {
     var t0 = Date.now() - 4 * 60 * 1000;

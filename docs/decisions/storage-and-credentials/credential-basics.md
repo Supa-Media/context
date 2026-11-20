@@ -72,8 +72,14 @@ to prevent:
   name none) or the chat's own grant. A guest's saves are recorded in the
   object when its grant may write with a role the control plane's record takes
   (`context:write` and owner, editor or member, as `memberWritableWorkspace`
-  checks). Two Tex folders, an unknown home key, or a home whose folder is not
-  standing are still asked of the control plane.
+  checks). The pin's set is sent again after every deploy
+  (`functions/chatHomesPush.ts`), so the map never waits for an access change.
+  A note under the chat homes in no home the map names is a plain note, as the
+  control plane places it; folders not standing yet are stood up by the
+  adoption. What is still asked of the control plane, and why: a set with no
+  map yet (an older push), and two live folders doing the `tex` job, which the
+  job rules never leave (`builtInFolders.ts` clears the old one) and where the
+  control plane's pick follows its own index order.
 - **A data key only where the object says there is one.** The control plane
   answers "no key" and "a key that would not open" alike, so a copy is kept
   and served only when it carries a key exactly where the object records the

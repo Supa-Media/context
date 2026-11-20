@@ -6,6 +6,7 @@ bench/test/checks.test.mjs
 bench/test/fluff.test.mjs
 bench/test/judge.test.mjs
 bench/test/load.test.mjs
+bench/test/longMemEval.test.mjs
 bench/test/mailbox.test.mjs
 bench/test/modelLog.test.mjs
 bench/test/models.test.mjs
@@ -631,6 +632,7 @@ test/texDevLab.test.mjs
 test/texDevCases.test.mjs
 test/texDevSets.test.mjs
 test/texDevRuns.test.mjs
+test/texDevEvals.test.mjs
 test/texDevFailures.test.mjs
 test/texRunBand.test.mjs
 test/texRunStats.test.mjs
@@ -679,6 +681,7 @@ test/jobPartEnd.test.mjs
 test/agentCheckFindings.test.mjs
 test/jobSaved.test.mjs
 test/savedRounds.test.mjs
+test/actionLog.test.mjs
 test/labSandboxObjectRun.test.mjs
 test/jobReportNode.test.mjs
 test/devShare.test.mjs
@@ -701,3 +704,5 @@ test/searchedLine.test.mjs
 test/emailChooseSender.test.mjs
 test/publicError.test.mjs
 test/groupMuteFlag.test.mjs
+test/lookupLadder.test.mjs
+test/toolRules.test.mjs

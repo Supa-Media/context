@@ -1,0 +1,280 @@
+# A Lab eval run on GitHub (Dev2, 2026-11-20: "create an evals tab one of them being the LongMemEval, and build out the
+# adapter for this eval"; "LongMemEval is primarily for context, its not supposed to test tex"; chose "Save each
+# session raw, then file"; docs/decisions/testing/lab-evals.md).
+#
+# The Lab's Evals tab and tex_dev's `eval_run` record a run in Convex (apps/convex/functions/labEvals.ts), which
+# dispatches this workflow at once. Jobs:
+#
+#   prep    main's code, with the deploy key: says the run is running, reads it, and resolves the code it runs on
+#           (main, or a same-repository pull request or branch; a fork's is refused), and reports the commit.
+#   run     that commit's code, WITHOUT the deploy key: downloads the public benchmark from Hugging Face (cached), and
+#           runs the slice with `node apps/mcp/bench/evals/cli.mjs`: per question a throwaway bench world with an empty
+#           workspace, every past session saved raw at its date, housekeeping filing it, a fresh reader answering
+#           with the Context endpoint only, and LongMemEval's judge. Models "gw" asks the AI gateway as the bench
+#           always does; "cc" answers every Claude call with Claude Code on CLAUDE_CODE_OAUTH_TOKEN
+#           (apps/mcp/bench/socketAnswerer.mjs), and the token never leaves this job.
+#   report  main's code, with the deploy key: the rows in batches and the summary (cleaned again by Convex), or why it
+#           failed.
+#
+# Public data only: the benchmark's own questions and answers and the reader's replies, never anyone's notes, never a
+# Training, Dev or Test set conversation; the result artifact is unsealed for that reason. Nothing here gates CI.
+name: Lab eval run
+
+on:
+  workflow_dispatch:
+    inputs:
+      run_id:
+        description: "The eval run (its Convex id)"
+        required: true
+        type: string
+
+permissions:
+  contents: read
+  pull-requests: read
+
+run-name: Lab eval run ${{ inputs.run_id }}
+
+jobs:
+  prep:
+    runs-on: ubuntu-latest
+    environment: production
+    timeout-minutes: 15
+    env:
+      RUN_ID: ${{ inputs.run_id }}
+      CONVEX_DEPLOY_KEY: ${{ secrets.CONVEX_DEPLOY_KEY }}
+    outputs:
+      bench: ${{ steps.job.outputs.bench }}
+      n: ${{ steps.job.outputs.n }}
+      models: ${{ steps.job.outputs.models }}
+      sha: ${{ steps.code.outputs.sha }}
+      why: ${{ steps.why.outputs.why }}
+    steps:
+      - name: The run id is a Convex id
+        run: '[[ "$RUN_ID" =~ ^[a-z0-9]{16,40}$ ]] || { echo "::error::not a run id"; exit 1; }'
+
+      - uses: actions/checkout@v5
+        with:
+          ref: main
+          persist-credentials: false
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+
+      - name: Say it is running
+        run: |
+          set -euo pipefail
+          npx convex run functions/labEvals:report "$(jq -cn --arg id "$RUN_ID" --arg url "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID" '{runId: $id, stage: "running", ghRunUrl: $url}')" > /dev/null 2>&1
+
+      - name: Read the run
+        id: job
+        run: |
+          set -euo pipefail
+          npx convex run functions/labEvals:job "$(jq -cn --arg id "$RUN_ID" '{runId: $id}')" 2>/dev/null > "$RUNNER_TEMP/job.json"
+          [ "$(jq -r 'type' "$RUNNER_TEMP/job.json")" = "object" ] || { echo "no such run" > "$RUNNER_TEMP/why"; echo "::error::no such run"; exit 1; }
+          bench=$(jq -r .bench "$RUNNER_TEMP/job.json")
+          n=$(jq -r .n "$RUNNER_TEMP/job.json")
+          models=$(jq -r .models "$RUNNER_TEMP/job.json")
+          [[ "$bench" =~ ^longmemeval-(s|oracle)$ ]] || { echo "::error::unknown bench"; exit 1; }
+          [[ "$n" =~ ^[1-9][0-9]{0,2}$ ]] || { echo "::error::n is 1 to 999"; exit 1; }
+          [[ "$models" =~ ^(gw|cc)$ ]] || { echo "::error::unknown models"; exit 1; }
+          echo "bench=$bench" >> "$GITHUB_OUTPUT"
+          echo "n=$n" >> "$GITHUB_OUTPUT"
+          echo "models=$models" >> "$GITHUB_OUTPUT"
+          echo "Run: $(jq -c . "$RUNNER_TEMP/job.json")"
+
+      # Main, a same-repository pull request's head, or a branch here. A fork's pull request is refused: only code
+      # someone with write access pushed to this repository runs with the run's model keys.
+      - name: Find the code it runs on
+        id: code
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          code=$(jq -r '.code // ""' "$RUNNER_TEMP/job.json")
+          say() { echo "$1" > "$RUNNER_TEMP/why"; echo "::error::$1"; exit 1; }
+          if [ -z "$code" ]; then
+            sha=$(git rev-parse HEAD)
+            echo "Code: main at $sha"
+          elif [[ "$code" =~ ^#([1-9][0-9]{0,6})$ ]]; then
+            n="${BASH_REMATCH[1]}"
+            curl -fsS -H "authorization: Bearer $GH_TOKEN" -H "accept: application/vnd.github+json" "$GITHUB_API_URL/repos/$GITHUB_REPOSITORY/pulls/$n" > "$RUNNER_TEMP/pr.json" || say "there is no pull request #$n in this repository"
+            [ "$(jq -r '.head.repo.full_name // ""' "$RUNNER_TEMP/pr.json")" = "$GITHUB_REPOSITORY" ] || say "pull request #$n is from a fork: only this repository's branches run"
+            sha=$(jq -r .head.sha "$RUNNER_TEMP/pr.json")
+            echo "Code: pull request #$n at $sha"
+          elif [[ "$code" =~ ^[A-Za-z0-9._/-]{1,120}$ && "$code" != -* && "$code" != *..* ]]; then
+            sha=$(git ls-remote origin "refs/heads/$code" | cut -f1)
+            [ -n "$sha" ] || say "there is no branch $code in this repository"
+            echo "Code: branch $code at $sha"
+          else
+            say "not a pull request or branch: $code"
+          fi
+          [[ "$sha" =~ ^[0-9a-f]{40}$ ]] || say "the code's commit could not be read"
+          echo "sha=$sha" >> "$GITHUB_OUTPUT"
+          npx convex run functions/labEvals:report "$(jq -cn --arg id "$RUN_ID" --arg sha "$sha" '{runId: $id, stage: "running", commit: $sha}')" > /dev/null 2>&1
+
+      - name: Why it stopped
+        id: why
+        if: failure()
+        run: |
+          why="the GitHub run failed before the eval: read its log"
+          [ -s "$RUNNER_TEMP/why" ] && why="$(head -c 280 "$RUNNER_TEMP/why" | tr '\n' ' ')"
+          echo "why=$why" >> "$GITHUB_OUTPUT"
+
+  run:
+    needs: prep
+    runs-on: ubuntu-latest
+    environment: production
+    # A full 500-question run at ten at once is about five hours; GitHub's own limit is six.
+    timeout-minutes: 355
+    env:
+      AI_GATEWAY_ACCOUNT_ID: ${{ secrets.AI_GATEWAY_ACCOUNT_ID }}
+      AI_GATEWAY_ID: ${{ secrets.AI_GATEWAY_ID }}
+      AI_GATEWAY_TOKEN: ${{ secrets.AI_GATEWAY_TOKEN }}
+      AI_GATEWAY_KEY_ALIASES: dev-claude-credits,dev2-claude-credits # aliases on the gateway's Provider Keys page, not secrets
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+      CLOUDFLARE_AI_TOKEN: ${{ secrets.CLOUDFLARE_AI_TOKEN }}
+      # Bench-only Unified Billing (`apps/mcp/bench/models.mjs` `benchUnifiedBilling`): ignored from 2026-12-01T00:00Z.
+      TEX_BENCH_UNIFIED_BILLING: ${{ vars.TEX_BENCH_UNIFIED_BILLING }}
+    outputs:
+      why: ${{ steps.why.outputs.why }}
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: ${{ needs.prep.outputs.sha }}
+          persist-credentials: false
+
+      - name: This code can run evals
+        run: |
+          [ -f apps/mcp/bench/evals/cli.mjs ] || { echo "this code is older than Lab evals: merge main into its branch" > "$RUNNER_TEMP/why"; exit 1; }
+          echo "Commit: $(git rev-parse HEAD)"
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+
+      - name: Keep the benchmark's files between runs
+        uses: actions/cache@v4
+        with:
+          path: ${{ runner.temp }}/evals-data
+          key: lab-evals-data-${{ needs.prep.outputs.bench }}-v1
+
+      - name: Claude Code has its token
+        if: needs.prep.outputs.models == 'cc'
+        env:
+          CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+        run: |
+          CLAUDE_CODE_OAUTH_TOKEN="${CLAUDE_CODE_OAUTH_TOKEN//[[:space:]]/}"
+          case "$CLAUDE_CODE_OAUTH_TOKEN" in
+            sk-ant-oat*) echo "Claude Code token: ${#CLAUDE_CODE_OAUTH_TOKEN} characters" ;;
+            *) echo "Claude Code needs CLAUDE_CODE_OAUTH_TOKEN (claude setup-token) as a production secret" > "$RUNNER_TEMP/why"; echo "::error::no Claude Code token"; exit 1 ;;
+          esac
+
+      - name: Install Claude Code
+        if: needs.prep.outputs.models == 'cc'
+        run: npm install -g @anthropic-ai/claude-code@2.1.325
+
+      - name: Run the eval
+        env:
+          MODELS: ${{ needs.prep.outputs.models }}
+          BENCH: ${{ needs.prep.outputs.bench }}
+          N: ${{ needs.prep.outputs.n }}
+          CLAUDE_CODE_OAUTH_TOKEN: ${{ needs.prep.outputs.models == 'cc' && secrets.CLAUDE_CODE_OAUTH_TOKEN || '' }}
+        run: |
+          set +e -uo pipefail
+          mkdir -p "$RUNNER_TEMP/out"
+          answerer=""
+          if [ "$MODELS" = "cc" ]; then
+            export BENCH_MODEL_SOCKET="$RUNNER_TEMP/sock"
+            mkdir -p "$BENCH_MODEL_SOCKET"
+            node apps/mcp/bench/socketAnswerer.mjs --dir "$BENCH_MODEL_SOCKET" --stop "$RUNNER_TEMP/run-done" --parallel 8 > "$RUNNER_TEMP/answerer.log" 2>&1 &
+            answerer=$!
+            ( while kill -0 "$answerer" 2>/dev/null; do sleep 5; done; [ -f "$RUNNER_TEMP/run-done" ] || pkill -f "bench/evals/cli.mjs" || true ) &
+          fi
+          node apps/mcp/bench/evals/cli.mjs longmemeval --bench "$BENCH" --n "$N" --fetch "$RUNNER_TEMP/evals-data" --parallel 10 --out "$RUNNER_TEMP/out/result.json" 2> >(tee "$RUNNER_TEMP/eval.log" >&2)
+          code=$?
+          if [ -n "$answerer" ]; then
+            touch "$RUNNER_TEMP/run-done"
+            wait "$answerer" || code=1
+            tail -n 5 "$RUNNER_TEMP/answerer.log" || true
+          fi
+          if [ "$code" != "0" ]; then
+            tail -n 1 "$RUNNER_TEMP/eval.log" | head -c 280 > "$RUNNER_TEMP/why" || true
+            exit "$code"
+          fi
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: result
+          path: ${{ runner.temp }}/out/result.json
+          retention-days: 7
+          if-no-files-found: error
+
+      - name: Why it stopped
+        id: why
+        if: failure()
+        run: |
+          why="the eval failed: read its log"
+          [ -s "$RUNNER_TEMP/why" ] && why="$(head -c 280 "$RUNNER_TEMP/why" | tr '\n' ' ')"
+          echo "why=$why" >> "$GITHUB_OUTPUT"
+
+  report:
+    needs: [prep, run]
+    if: always()
+    runs-on: ubuntu-latest
+    environment: production
+    timeout-minutes: 20
+    env:
+      RUN_ID: ${{ inputs.run_id }}
+      CONVEX_DEPLOY_KEY: ${{ secrets.CONVEX_DEPLOY_KEY }}
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: main
+          persist-credentials: false
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+
+      - uses: actions/download-artifact@v4
+        if: needs.run.result == 'success'
+        with:
+          name: result
+          path: ${{ runner.temp }}/out
+
+      - name: Report the rows and the summary
+        if: needs.run.result == 'success'
+        run: |
+          set -euo pipefail
+          f="$RUNNER_TEMP/out/result.json"
+          total=$(jq '.rows | length' "$f")
+          for ((from = 0; from < total; from += 5)); do
+            jq -c --arg id "$RUN_ID" --argjson from "$from" '{runId: $id, stage: "running", from: $from, rows: .rows[$from:($from + 5)]}' "$f" > "$RUNNER_TEMP/batch.json"
+            npx convex run functions/labEvals:report "$(cat "$RUNNER_TEMP/batch.json")" > /dev/null 2>&1
+          done
+          npx convex run functions/labEvals:report "$(jq -c --arg id "$RUN_ID" '{runId: $id, stage: "done", summary: (del(.rows))}' "$f")" > /dev/null 2>&1
+          echo "Reported $total rows: $(jq -c '{n: .scores.n, correct: .scores.correct, pct: .scores.pct, usd: .scores.usd.total, fullRunUsd}' "$f")"
+
+      - name: Report why it failed
+        if: needs.run.result != 'success' || failure()
+        env:
+          WHY: "${{ needs.run.outputs.why || needs.prep.outputs.why || 'the GitHub run failed, read its log' }}"
+        run: |
+          set -euo pipefail
+          npx convex run functions/labEvals:report "$(jq -cn --arg id "$RUN_ID" --arg why "$WHY" '{runId: $id, stage: "failed", error: $why}')" > /dev/null 2>&1

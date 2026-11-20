@@ -191,6 +191,11 @@ export async function runTheModel(t, via) {
   const handOff = handoffFrom.length > 0 ? handoffHook({ background, gate: (input, from) => drawn.fire(from, "handoff", input, { env }), ask: question }) : null;
   t.handoff = handOff !== null && handoffFrom.includes("answerCheck") ? (draft, info, notice) => handOff(draft, info, notice, "answerCheck") : null;
   const roundsOut = handOff !== null && handoffFrom.includes("fd") ? ({ messages, lastWords }) => handOff(lastWords, { messages }, "", "fd") : null;
+  // The lookup ladder (`../lookupLadder.js`), when the config wires `answerCheck -> askGate`: a draft that asks them a fact
+  // Tex could find climbs the cheap rungs first, and the slow ones go to a job when the config wires `askGate -> handoff`.
+  t.ladderOn = chatTurn && job === null && !routine && report === null && !t.crossChat && drawn.wired("answerCheck", "askGate");
+  const ladderHook = t.ladderOn && Boolean(background) && drawn.wired("askGate", "handoff") ? handoffHook({ background, gate: (input) => drawn.fire("askGate", "handoff", input, { env }), ask: question }) : null;
+  t.ladderHandOff = ladderHook !== null ? (draft, info, notice) => ladderHook(draft, info, notice, "askGate") : null;
   // A job the router reads as long goes to the Hand-off node before any round, when the config wires `router -> handoff` (`doorTurn.js`).
   const routeHandOff = handOff !== null && handoffFrom.includes("router") ? () => handOff("", { messages: [] }, "", "router") : null;
   // The bar a job pick must clear, when the Hand-off node sets its own (`handoff.js` `routeSureOf`); none, the doors' 0.6.

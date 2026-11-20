@@ -11,10 +11,13 @@ import { mailToAdvisor, mailToTex } from "./jobNote";
 import { acceptJob, failJob, jobToken, resumeJob, runJob, steerJob, type JobDeps } from "./jobRun";
 import { readJobSteer, RUN_KEY, type JobRun } from "./jobs";
 import { startJobFlow, type JobRunParams } from "./jobWorkflow";
+import { armJobWatch } from "./jobWatch";
 
 export async function jobRoute(path: string, request: Request, storage: InboxStorage, flow: Workflow<JobRunParams> | undefined, deps: () => JobDeps): Promise<Response | undefined> {
   if (path === "/job-start") {
     const run = (await request.json()) as JobRun;
+    // Watched before it is started, so a start that throws still has its alarm to try again (`jobWatch.ts`).
+    if (flow) await armJobWatch(storage, Date.now());
     await acceptJob(storage, run, Date.now(), flow ? () => startJobFlow(flow, run.id) : undefined);
     return Response.json({ ok: true });
   }
@@ -25,7 +28,11 @@ export async function jobRoute(path: string, request: Request, storage: InboxSto
     const steer = readJobSteer(await request.json());
     if (steer === null) return new Response(null, { status: 400 });
     // "Restart it": the job ended here picks up where it stopped, under a new workflow (`resumeJob`).
-    if (steer.resume) return Response.json({ taken: await resumeJob(storage, Date.now(), flow ? (id, resumes) => startJobFlow(flow, id, resumes) : undefined, steer) });
+    if (steer.resume) {
+      const taken = await resumeJob(storage, Date.now(), flow ? (id, resumes) => startJobFlow(flow, id, resumes) : undefined, steer);
+      if (taken && flow) await armJobWatch(storage, Date.now());
+      return Response.json({ taken });
+    }
     return Response.json({ taken: await steerJob(storage, steer) });
   }
   if (path === "/job-mail") {
