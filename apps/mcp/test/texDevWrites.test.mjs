@@ -1,5 +1,5 @@
 /**
- * `tex_dev`'s actions for the rest of what the Lab writes to a draft (`src/texDev/writes.js`; Dev2, 2026-11-15:
+ * `tex_dev`'s actions for the rest of what the Lab writes to a draft (`packages/lab/gateway/texDev/writes.js`; Dev2, 2026-11-15:
  * "anything that can be done inside of the lab should be able to be done inside of the MCP"): rename, delete,
  * run_setup, keep_results (and `get` of main), revert. The control plane does the writes; these pin what each call
  * sends it and what the answer says, against a fake control plane.
@@ -11,11 +11,11 @@
  */
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { createTexDev } from "../src/texDev/tool.js";
-import { guideText } from "../src/texDev/guide.js";
+import { createTexDev } from "../../../packages/lab/gateway/texDev/tool.js";
+import { guideText } from "../../../packages/lab/gateway/texDev/guide.js";
 import { texDevToolDefinitions } from "../src/tools/schemas/texDev.js";
 import { TEX_CONFIG } from "../src/agent/texConfig.js";
-import { draftProblems } from "../src/texDev/check.js";
+import { draftProblems } from "../../../packages/lab/gateway/texDev/check.js";
 
 const session = { accessToken: "tok" };
 const textOf = (result) => result.content.find((c) => c.type === "text")?.text ?? "";

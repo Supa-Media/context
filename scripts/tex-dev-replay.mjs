@@ -1,9 +1,9 @@
 #!/usr/bin/env node
-// Writes apps/mcp/src/texDev/replay.generated.js: the Tex Architecture Lab's own Replay code
+// Writes packages/lab/gateway/texDev/replay.generated.js: the Tex Architecture Lab's own Replay code
 // (packages/lab/app/engine/replayEntry.ts: the moments, each turn's measured times, what every step got
 // and gave, the prompt at a version, a job's runs, the notes a turn read, the Lab's address), bundled to plain
 // JavaScript so the gateway, which imports only relative JS, answers `tex_dev` with what the Lab shows
-// (apps/mcp/src/texDev/replay.js). One Replay, never a copy.
+// (packages/lab/gateway/texDev/replay.js). One Replay, never a copy.
 //
 //   node scripts/tex-dev-replay.mjs           write the file
 //   node scripts/tex-dev-replay.mjs --check   exit 1 if the file on disk is stale
@@ -18,7 +18,7 @@ import { fileURLToPath } from "node:url";
 
 const ROOT = fileURLToPath(new URL("..", import.meta.url));
 const ENTRY = path.join(ROOT, "packages/lab/app/engine/replayEntry.ts");
-const OUT = path.join(ROOT, "apps/mcp/src/texDev/replay.generated.js");
+const OUT = path.join(ROOT, "packages/lab/gateway/texDev/replay.generated.js");
 // esbuild is a root transitive dependency, reached from the repo root as the other bundle scripts reach it.
 const require = createRequire(path.join(ROOT, "package.json"));
 const esbuild = require("esbuild");
@@ -48,7 +48,7 @@ const wanted = await buildReplay();
 if (process.argv.includes("--check")) {
   const have = fs.existsSync(OUT) ? fs.readFileSync(OUT, "utf8") : "";
   if (have !== wanted) {
-    console.error("apps/mcp/src/texDev/replay.generated.js is not what the Lab's Replay builds.");
+    console.error("packages/lab/gateway/texDev/replay.generated.js is not what the Lab's Replay builds.");
     console.error("Run `node scripts/tex-dev-replay.mjs` (built on install, never committed).");
     process.exit(1);
   }

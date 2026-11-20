@@ -113,7 +113,7 @@ import { editForTexts, TEXTS_EDIT_PATH } from "./agent/textsEdit.js";
 import { moveForTexts, TEXTS_MOVE_PATH } from "./agent/textsMove.js";
 import { texJobClass } from "./texJob.js";
 import { WorkspaceStore as WorkspaceStoreDurableObject } from "./workspaceStore.js";
-import { LabSandboxObject } from "./labSandbox/object.js";
+import { LabSandboxObject } from "../../../packages/lab/gateway/labSandbox/object.js";
 import { snippetLinesFor } from "./search/visible.js";
 import { json } from "./http/responses.js";
 import { controlPlaneSettingProblems } from "./controlPlane/client.js";

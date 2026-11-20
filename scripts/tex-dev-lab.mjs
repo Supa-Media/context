@@ -1,9 +1,9 @@
 #!/usr/bin/env node
-// Writes apps/mcp/src/texDev/lab.generated.js: what the Tex Architecture Lab computes in the browser
+// Writes packages/lab/gateway/texDev/lab.generated.js: what the Tex Architecture Lab computes in the browser
 // (packages/lab/app/engine/forMcp.ts: its simulation, its diff and run config, the bench cases and
 // their fit, the modules and their word diff, its catalogues), bundled to plain JavaScript so the gateway, which
 // imports only relative JS, answers `tex_dev` sim, compare, config, bench, modules and reference with the Lab's
-// own functions (apps/mcp/src/texDev/lab.js). One computation, never a copy.
+// own functions (packages/lab/gateway/texDev/lab.js). One computation, never a copy.
 //
 //   node scripts/tex-dev-lab.mjs           write the file
 //   node scripts/tex-dev-lab.mjs --check   exit 1 if the file on disk is stale
@@ -19,7 +19,7 @@ import { fileURLToPath } from "node:url";
 
 const ROOT = fileURLToPath(new URL("..", import.meta.url));
 const ENTRY = path.join(ROOT, "packages/lab/app/engine/forMcp.ts");
-const OUT = path.join(ROOT, "apps/mcp/src/texDev/lab.generated.js");
+const OUT = path.join(ROOT, "packages/lab/gateway/texDev/lab.generated.js");
 // esbuild is a root transitive dependency, reached from the repo root as the other bundle scripts reach it.
 const require = createRequire(path.join(ROOT, "package.json"));
 const esbuild = require("esbuild");
@@ -49,7 +49,7 @@ const wanted = await buildLab();
 if (process.argv.includes("--check")) {
   const have = fs.existsSync(OUT) ? fs.readFileSync(OUT, "utf8") : "";
   if (have !== wanted) {
-    console.error("apps/mcp/src/texDev/lab.generated.js is not what the Lab's engine builds.");
+    console.error("packages/lab/gateway/texDev/lab.generated.js is not what the Lab's engine builds.");
     console.error("Run `node scripts/tex-dev-lab.mjs` (built on install, never committed).");
     process.exit(1);
   }

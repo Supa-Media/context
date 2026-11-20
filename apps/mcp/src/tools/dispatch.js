@@ -27,7 +27,7 @@ import { toolForwardRule } from "./forwardRule.js";
 import { toolApplyLayout, toolConnectGoogle, toolCreateWorkspace, toolInviteMember } from "./workspaces.js";
 import { toolDreamNow } from "./dreamNow.js";
 import { toolRunModel } from "./runModel.js";
-import { toolTexDev } from "../texDev/tool.js";
+import { toolTexDev } from "../../../../packages/lab/gateway/texDev/tool.js";
 import { toolFillDates } from "./fillDates.js";
 import { toolPairDevice } from "./pairDevice.js";
 import { toolNotifyMe } from "./attention.js";

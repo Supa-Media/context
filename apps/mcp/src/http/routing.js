@@ -9,7 +9,7 @@ import { objectFirstChildren, objectFirstManifest } from "../store/objectManifes
 import { attachHomeRoutineReports } from "../agent/chatHomeSeal.js";
 import { deliverMail } from "../mail/deliver.js";
 import { runLabModel } from "../tools/runModel.js";
-import { createTexDev } from "../texDev/tool.js";
+import { createTexDev } from "../../../../packages/lab/gateway/texDev/tool.js";
 import { editsPinnedContext } from "../context/identity.js";
 
 /**

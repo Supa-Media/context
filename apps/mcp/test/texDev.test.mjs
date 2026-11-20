@@ -15,11 +15,11 @@ import { STAFF_ONLY_TOOLS, toolDefinitions } from "../src/tools/registry.js";
 import { textingWriteTools, WITHHELD_TOOLS } from "../src/agent/textingWrites.js";
 import { agentTools } from "../src/agent/turn.js";
 import { configStamp } from "../../../packages/tex/src/texConfigStamp.cjs";
-import { createTexDev, TEX_DEV_WHO, toolTexDev } from "../src/texDev/tool.js";
-import { guideText } from "../src/texDev/guide.js";
-import { draftProblems } from "../src/texDev/check.js";
-import { turnsOf } from "../src/texDev/probe.js";
-import { turnAnswer } from "../src/texDev/replay.js";
+import { createTexDev, TEX_DEV_WHO, toolTexDev } from "../../../packages/lab/gateway/texDev/tool.js";
+import { guideText } from "../../../packages/lab/gateway/texDev/guide.js";
+import { draftProblems } from "../../../packages/lab/gateway/texDev/check.js";
+import { turnsOf } from "../../../packages/lab/gateway/texDev/probe.js";
+import { turnAnswer } from "../../../packages/lab/gateway/texDev/replay.js";
 import { CONFIG_STAMP, TEX_CONFIG } from "../src/agent/texConfig.js";
 
 function session(role) {
@@ -246,7 +246,7 @@ test("a turn shows only its own entries, in order, with inputs, thinking, the fa
 });
 
 test("a chat shared with the developers is probed read only by its key; one not listed does not exist", async () => {
-  const { chatsOf, openChat } = await import("../src/texDev/probe.js");
+  const { chatsOf, openChat } = await import("../../../packages/lab/gateway/texDev/probe.js");
   const owners = [];
   const ledgerOf = (_env, owner) => (owners.push(owner), LEDGER);
   const shared = [{ key: "u:usam", kind: "1:1", name: "@sam", sharedBy: ["sam"], owner: { person: "ws_sam" } }, { key: "d".repeat(64), kind: "group", name: "Trip", people: 3, sharedBy: ["sam"], owner: { chat: "d".repeat(64) } }];

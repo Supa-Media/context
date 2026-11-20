@@ -1,4 +1,4 @@
-// The Lab's live sandbox (src/labSandbox/; Dev2, 2026-11-16: "the sandbox should act like an actual chat ... pretend
+// The Lab's live sandbox (packages/lab/gateway/labSandbox/; Dev2, 2026-11-16: "the sandbox should act like an actual chat ... pretend
 // it's a Photon iMessage thing ... It actually does the research things and sends messages and subagent responses to
 // the sandbox chat ... all the write tools should work but in a sandbox that is discarded"; contract
 // lab-live-sandbox/contract.md; docs/decisions/texting-assistant/lab-sandbox.md).
@@ -16,15 +16,15 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 
-import { LabSandboxObject } from "../src/labSandbox/object.js";
-import { sandboxGate } from "../src/labSandbox/harness.js";
-import { measuredLine, MIN_SAMPLES, PHOTON_DEFAULT, PHOTON_NUMBER, MAX_HOLD_MS } from "../src/labSandbox/line.js";
-import { stepBook, TRANSPORT_STEPS, fitSteps } from "../src/labSandbox/steps.js";
+import { LabSandboxObject } from "../../../packages/lab/gateway/labSandbox/object.js";
+import { sandboxGate } from "../../../packages/lab/gateway/labSandbox/harness.js";
+import { measuredLine, MIN_SAMPLES, PHOTON_DEFAULT, PHOTON_NUMBER, MAX_HOLD_MS } from "../../../packages/lab/gateway/labSandbox/line.js";
+import { stepBook, TRANSPORT_STEPS, fitSteps } from "../../../packages/lab/gateway/labSandbox/steps.js";
 import { toolAnswer } from "../src/labSandbox/policy.js";
 import { afterRead } from "../src/labSandbox/sandboxTools.js";
-import { handleLabSandboxPage } from "../src/labSandbox/pages.js";
-import { handleLabSandbox } from "../src/labSandbox/route.js";
-import { runChatTurn } from "../src/labSandbox/chatRun.js";
+import { handleLabSandboxPage } from "../../../packages/lab/gateway/labSandbox/pages.js";
+import { handleLabSandbox } from "../../../packages/lab/gateway/labSandbox/route.js";
+import { runChatTurn } from "../../../packages/lab/gateway/labSandbox/chatRun.js";
 import { streamTurn, wantsProgress } from "../src/agent/progress.js";
 import { eventEntry } from "../src/agent/ledger.js";
 import { TEX_CONFIG } from "../src/agent/texConfig.js";
@@ -469,8 +469,8 @@ test("a test chat's running mark is claimed in the object: refused while fresh, 
 });
 
 test("a job that waits longer than the stale window keeps its text's running mark fresh", async () => {
-  const { beatingSleep } = await import("../src/labSandbox/jobs.js");
-  const { RUNNING_STALE_MS } = await import("../src/labSandbox/harness.js");
+  const { beatingSleep } = await import("../../../packages/lab/gateway/labSandbox/jobs.js");
+  const { RUNNING_STALE_MS } = await import("../../../packages/lab/gateway/labSandbox/harness.js");
   let clock = 0;
   const beats = [];
   const sleep = beatingSleep(async (ms) => void (clock += ms), () => beats.push(clock));
@@ -496,7 +496,7 @@ test("Reset stops a running turn: its later writes are refused, nothing is kept,
   const note = await chat.stub.fetch(new Request("https://lab-sandbox.internal/note.get", { method: "POST", body: JSON.stringify({ path: "secret/plan.page.md" }) }));
   assert.equal(note.status, 410, "a test chat that is gone answers nothing but init");
   assert.equal(ns.alarms.has(name), false, "and nothing armed it again");
-  const { runJobs } = await import("../src/labSandbox/jobs.js");
+  const { runJobs } = await import("../../../packages/lab/gateway/labSandbox/jobs.js");
   const book = stepBook({ rowId: "t1", arrivedAt: Date.now(), config: TEX_CONFIG });
   const registry = { jobs: new Map([["job:x", { name: "job:x", storage: { get: async () => ({}) }, inbox: { fetch: async () => assert.fail("a job of a reset test chat ran") } }]]) };
   const ran = await runJobs({ registry, gate, book, sleep: async () => {} });
@@ -521,7 +521,7 @@ test("asking for a test chat nobody opened makes nothing: no tables, no alarm", 
 });
 
 test("a test row is counted toward the cap by its own column, whatever its steps hold", async () => {
-  const { MAX_ROWS, sandboxTables } = await import("../src/labSandbox/object.js");
+  const { MAX_ROWS, sandboxTables } = await import("../../../packages/lab/gateway/labSandbox/object.js");
   const chat = await chatObject({ ...ONE });
   const tricky = (i) => ({ id: `t${i}r`, reply: `t${i}`, who: "Tex", text: "", prod: false, steps: [{ node: "tools", in: { args: { prod: true } } }] });
   for (let i = 0; i < MAX_ROWS; i += 1) await chat.call("row.add", { row: tricky(i) });

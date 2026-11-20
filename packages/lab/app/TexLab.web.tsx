@@ -71,7 +71,7 @@ function Svg({ d, className = "i ic", style }: { d: string; className?: string; 
 }
 
 /**
- * `/lab?v=<draft>`, the link the MCP's `tex_dev` hands out (`apps/mcp/src/texDev/tool.js` `link`): open that draft
+ * `/lab?v=<draft>`, the link the MCP's `tex_dev` hands out (`packages/lab/gateway/texDev/tool.js` `link`): open that draft
  * once the shared list has it, live.
  */
 function useOpenFromLink() {

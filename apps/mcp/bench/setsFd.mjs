@@ -109,7 +109,7 @@ export function earlierLines(c, i, year = null, from = null) {
   return kept;
 }
 
-/** Messages' six tapbacks by their emoji, as the Lab sends them (`apps/mcp/src/labSandbox/inbound.js` `TAPBACK_OF`, copied so this bench needs no gateway code). */
+/** Messages' six tapbacks by their emoji, as the Lab sends them (`packages/lab/gateway/labSandbox/inbound.js` `TAPBACK_OF`, copied so this bench needs no gateway code). */
 const TAPBACK_OF = Object.freeze({ "❤️": "Loved", "👍": "Liked", "👎": "Disliked", "😂": "Laughed at", "‼️": "Emphasized", "❓": "Questioned" });
 
 /**
