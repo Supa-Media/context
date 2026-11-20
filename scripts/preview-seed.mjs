@@ -291,7 +291,12 @@ export async function seedPreview(env = process.env, { log = console.log } = {})
       if (!existing || (path === 'index.md' && !existing.text.includes('staging-personas-v1'))) {
         await client.action(ref('functions/files:writeNote'), { workspaceId, path, text, ...(existing ? { expectedEtag: existing.etag } : {}) });
       }
-      await client.action(ref('functions/files:setNoteVisibility'), { workspaceId, path, visibility: visibilityFor(slug, path) });
+      try {
+        await client.action(ref('functions/files:setNoteVisibility'), { workspaceId, path, visibility: visibilityFor(slug, path) });
+      } catch (error) {
+        // Fixture slugs and paths are fake and safe to print; the error's own code says what refused it.
+        throw new Error(`${slug}/${path}: setting visibility failed (${error?.data?.code ?? 'unknown'}; written now: ${!existing}).`);
+      }
       noteCount++;
     }
     log(`${slug}: storage ready, ${Object.keys(fixture).length} fixture notes written.`);
