@@ -11,7 +11,7 @@
  * - The model calls `send { action: "background", args: { title, brief,
  *   done_when } }` (`start_background_job` underneath, `sixTools.js`). This
  *   module only records it; the answer names it (`jobs`), and the texting
- *   Worker runs it in a Durable Object of its own (`apps/agent/src/jobs.ts`),
+ *   Worker runs it in a Durable Object of its own (`packages/tex/worker/jobs.ts`),
  *   so several run at once and the person's next text is answered straight
  *   away.
  * - The Worker sends what is running with every texted turn (`running`), and
@@ -61,7 +61,7 @@ export const JOB_STATUS_TOOL = "job_status";
 export const RESTART_JOB_TOOL = "restart_background_job";
 /** Their later texts a job's turn is shown, newest last. */
 export const MAX_FOLLOW_UPS = 5;
-/** Note mail lines a job's part is shown from between parts (`apps/agent/src/jobMail.ts`). */
+/** Note mail lines a job's part is shown from between parts (`packages/tex/worker/jobMail.ts`). */
 export const MAX_MAIL_SHOWN = 20;
 const MAX_FOLLOW_UP = 4_000;
 /** Their texts a job is started with, the one it started from last (`openAsk.js` keeps at most 6 before it). */
@@ -92,7 +92,7 @@ const MAX_STEP = 140;
 const MAX_WHY = 160;
 const MAX_ADVICE = 600;
 /** The most of a finished job's report `job_status` shows. */
-export const MAX_RESULT = 8_000; // the Worker keeps as much (`apps/agent/src/jobs.ts`); 1,500 cut a ten-PR report after the fourth (Tex Devs, 2026-11-05)
+export const MAX_RESULT = 8_000; // the Worker keeps as much (`packages/tex/worker/jobs.ts`); 1,500 cut a ten-PR report after the fourth (Tex Devs, 2026-11-05)
 
 const STOP_WORDS = new Set(
   "a an and the of for to on in at by with about my our your me us it its this that these those up do make write".split(" "),
@@ -141,9 +141,9 @@ export function runningJobsOf(value) {
         startedAt: at(entry.startedAt),
         finishedAt: at(entry.finishedAt),
         status: line(entry.status, MAX_STATUS),
-        // The computer it runs on, by machine id (`apps/agent/src/jobs.ts`), which counts it against that computer's slots, not the cloud's.
+        // The computer it runs on, by machine id (`packages/tex/worker/jobs.ts`), which counts it against that computer's slots, not the cloud's.
         on: typeof entry.on === "string" && ID.test(entry.on) ? entry.on : null,
-        // Paused at the daily limit, to start again by itself (`apps/agent/src/jobPause.ts`): it can still be stopped.
+        // Paused at the daily limit, to start again by itself (`packages/tex/worker/jobPause.ts`): it can still be stopped.
         paused: entry.state === "waiting" && Number.isFinite(entry.resumeAt) && entry.resumeAt > 0,
         // The advisor's last call on it and its advice (`jobCheck.js`), and a finished job's report: for `job_status`.
         verdict: VERDICTS.has(entry.verdict) ? entry.verdict : null,
@@ -190,7 +190,7 @@ export function jobOf(value) {
     doneWhen: line(value.doneWhen, MAX_STATUS),
     attempt, ...jobResumeOf(value, attempt), // which restart, and the part whose saved rounds it goes on from (`jobSaved.js`)
     tainted: value.tainted === true,
-    // Their own texts that started it, oldest first, the last one the text it started from (`openAsk.js`; `apps/agent/src/jobRun.ts` `ask`).
+    // Their own texts that started it, oldest first, the last one the text it started from (`openAsk.js`; `packages/tex/worker/jobRun.ts` `ask`).
     asked: Array.isArray(value.asked)
       ? value.asked
           .filter((words) => typeof words === "string" && words.trim() !== "")
@@ -203,7 +203,7 @@ export function jobOf(value) {
           .slice(-MAX_FOLLOW_UPS)
           .map((words) => words.trim().slice(0, MAX_FOLLOW_UP))
       : [],
-    // Note mail that came for it since its last part (`apps/agent/src/jobMail.ts`): another agent's words, never theirs.
+    // Note mail that came for it since its last part (`packages/tex/worker/jobMail.ts`): another agent's words, never theirs.
     mail: Array.isArray(value.mail)
       ? value.mail
           .flatMap((entry) => {
@@ -222,7 +222,7 @@ export function jobOf(value) {
     unfinished: value.unfinished === true,
     // The advisor's advice on the last part (`jobCheck.js`): what this part starts on.
     advice: line(value.advice, MAX_ADVICE),
-    // The steps of a last part that was cut off before it answered (`apps/agent/src/jobRun.ts`): step labels only, as streamed.
+    // The steps of a last part that was cut off before it answered (`packages/tex/worker/jobRun.ts`): step labels only, as streamed.
     // What its earlier parts saved as each call returned, and their last draft (`jobSaved.js`).
     saved: savedOf(value.saved),
     cutOff: Array.isArray(value.cutOff)
@@ -320,7 +320,7 @@ export function withJobSteps(job, step, record, outside = () => false) {
   };
 }
 
-/** A job that ended without finishing: what "restart it" picks back up (`apps/agent/src/jobs.ts` `resumeJobs`). */
+/** A job that ended without finishing: what "restart it" picks back up (`packages/tex/worker/jobs.ts` `resumeJobs`). */
 const resumable = (entry) => entry.state !== "running" && entry.state !== "done";
 
 export const RESTART_TOOL = {
@@ -470,7 +470,7 @@ export function backgroundSession({ running, job, now, report = false, read = ()
         true,
       );
     }
-    started.push({ id: crypto.randomUUID(), title, brief: `${brief}${pagesSection(opened())}`, doneWhen: line(args?.done_when, MAX_STATUS), ...(mail ? { mail } : {}), ...(machine ? { machine } : {}), startedAt: now }); // the id the Worker runs it under, so Tex's page points at it (`apps/agent/src/jobs.ts` `startJobs`)
+    started.push({ id: crypto.randomUUID(), title, brief: `${brief}${pagesSection(opened())}`, doneWhen: line(args?.done_when, MAX_STATUS), ...(mail ? { mail } : {}), ...(machine ? { machine } : {}), startedAt: now }); // the id the Worker runs it under, so Tex's page points at it (`packages/tex/worker/jobs.ts` `startJobs`)
     justStarted.push(title);
     const said = startLine(args?.say);
     if (said !== "") saying.push(said);
@@ -714,7 +714,7 @@ export function jobSavedLine(job) {
  * hands this text to; and, with either, `heard` (what the person said aloud
  * this turn) and `sent` (the gateway's line naming the files they sent and
  * where each is kept), which the Worker adds to their typed words
- * (`apps/agent/src/jobs.ts` `jobQuestion`). `asked`: their earlier texts this
+ * (`packages/tex/worker/jobs.ts` `jobQuestion`). `asked`: their earlier texts this
  * one follows on from that Tex hasn't answered yet (`openAsk.js`), handed to
  * each job it starts word for word beside the brief.
  */

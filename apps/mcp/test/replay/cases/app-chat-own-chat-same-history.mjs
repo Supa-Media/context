@@ -14,7 +14,7 @@ export default {
     const chat = await oneToOne();
     try {
       await chat.text("my sister's name is Ama, she lands Friday", "Noted: Ama, landing Friday.");
-      // A message from the Context app's own chat (`apps/agent/src/appChat.ts`), flushed by its chat object to the same record.
+      // A message from the Context app's own chat (`packages/tex/worker/appChat.ts`), flushed by its chat object to the same record.
       await chat.keep({ chat: "app:k7m2q9x4b8n3c6v1", text: "can you remind me to pick her up?" });
       const next = await chat.text("what did I ask you in the app?", "To remind you to pick Ama up.");
       assert.match(next.shown, /can you remind me to pick her up\?/, "Tex's turn on iMessage sees what was said in the app");

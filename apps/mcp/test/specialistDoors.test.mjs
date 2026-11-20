@@ -18,7 +18,7 @@ import { readRoute, routeRequest } from "../src/agent/specialistRoute.js";
 import { routerNode } from "../src/agent/graph/nodes/router.js";
 import { doorNode, fdActNode, fdQuickNode } from "../src/agent/graph/nodes/doors.js";
 import { routeBeside } from "../src/agent/graph/nodes/doorStep.js";
-import { addSpend, runWithDoors } from "../src/agent/doorTurn.js";
+import { addSpend, loggedRoute, routeActs, routeIfBack, runWithDoors } from "../src/agent/doorTurn.js";
 import { runTurn } from "../src/agent/turn.js";
 import { sixToolsOver } from "../src/agent/sixTools.js";
 import { aiGatewayConfig, resetCreditState } from "../src/agent/aiGateway.js";
@@ -424,4 +424,28 @@ test("routeBeside caps the router's whole read: one not back in time is no route
   assert.equal(await routeBeside(slowGate, { use: { router: async () => ({ route: "act", sure: 0.9 }) }, on: () => true }, 30), null, "a Shape gate that hangs counts against the same cap");
   const got = await routeBeside(t, { use: { router: async (input) => { assert.equal(input.recent, undefined, "no chat words in the router's input"); return { route: "act", sure: 0.9 }; } }, on: () => true }, 500);
   assert.equal(got.route, "act");
+});
+
+// Dev2, 2026-11-20: the Router on as a logged signal only. With no door and no router -> handoff wired, nothing waits on
+// its read; the read is recorded on the turn after it ran, as the front door's, waited 0.
+test("the router's read is waited on only while a door or router -> handoff is wired; else it is logged after the turn", async () => {
+  const none = () => false;
+  assert.equal(routeActs(none), false);
+  assert.equal(routeActs(none, true), true);
+  assert.equal(routeActs((from, to) => from === "fd" && to === "fdRead"), true);
+  assert.equal(routeActs((from, to) => from === "fd" && to === "fdQuick"), true);
+  assert.equal(routeActs((from, to) => from === "doorStep" && to === "router"), false);
+  // Back already: its read. Still out, failed or missing: null, at once.
+  const back = Promise.resolve({ route: "read", sure: 0.9, ms: 1016 });
+  await back;
+  assert.deepEqual(await routeIfBack(back), { route: "read", sure: 0.9, ms: 1016 });
+  const started = Date.now();
+  assert.equal(await routeIfBack(new Promise(() => {})), null);
+  assert.ok(Date.now() - started < 50, "a read still out was waited on");
+  assert.equal(await routeIfBack(Promise.reject(new Error("down"))), null);
+  assert.equal(await routeIfBack(null), null);
+  assert.deepEqual(loggedRoute({}, { route: "read", sure: 0.9, ms: 1016 }).route, { pick: "read", sure: 0.9, door: "fd", fellBack: null, routerMs: 1016, waitedMs: 0, logOnly: true });
+  assert.equal(loggedRoute({}, null).route, undefined);
+  // A route a door already recorded is kept.
+  assert.equal(loggedRoute({ route: { pick: "quick" } }, { route: "read" }).route.pick, "quick");
 });

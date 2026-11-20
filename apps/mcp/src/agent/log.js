@@ -27,7 +27,7 @@ import { TEXT_SOURCES } from "./sentOnItsOwn.js";
 
 export const LOG_PREFIX = ".context/agent/log/";
 export const MAX_EVENTS_PER_CALL = 50;
-/** As long as the Worker keeps a text (`apps/agent/src/inbound.ts` `MAX_INBOUND_TEXT`): Sendblue sends at most 18,996 characters. */
+/** As long as the Worker keeps a text (`packages/tex/worker/inbound.ts` `MAX_INBOUND_TEXT`): Sendblue sends at most 18,996 characters. */
 export const MAX_EVENT_TEXT = 20_000;
 export const READ_LIMIT = 400;
 export const READ_CHARS = 120_000;
@@ -88,12 +88,12 @@ export function checkEvent(event, { chat, now }) {
   if (from.name !== undefined && (typeof from.name !== "string" || !NAME.test(from.name) || RESERVED.has(from.name.trim().toLowerCase()))) throw new EventRefusal("from");
   if (!EVENT_KINDS.has(event.kind)) throw new EventRefusal("kind");
   if (event.text !== undefined && (typeof event.text !== "string" || event.text.length > MAX_EVENT_TEXT)) throw new EventRefusal("text");
-  // `left`: the characters the Worker cut off a person's text (`apps/agent/src/inbound.ts` `cut`), set by it, never by the words.
+  // `left`: the characters the Worker cut off a person's text (`packages/tex/worker/inbound.ts` `cut`), set by it, never by the words.
   if (event.left !== undefined && (!Number.isSafeInteger(event.left) || event.left < 1 || event.kind !== "text" || from.kind !== "person")) throw new EventRefusal("left");
   if (event.replyTo !== undefined && (typeof event.replyTo !== "string" || !EVENT_ID.test(event.replyTo))) throw new EventRefusal("replyTo");
-  // `quoted`: on a person's reply only, the full words of the message it answers (`apps/agent/src/replyQuote.ts`).
+  // `quoted`: on a person's reply only, the full words of the message it answers (`packages/tex/worker/replyQuote.ts`).
   if (event.quoted !== undefined && (typeof event.quoted !== "string" || event.quoted.length > MAX_EVENT_TEXT || from.kind !== "person")) throw new EventRefusal("quoted");
-  // `edited`: a person's edit of an earlier text, set by the Worker's `edit` step (`apps/agent/src/editStep.ts`), never by
+  // `edited`: a person's edit of an earlier text, set by the Worker's `edit` step (`packages/tex/worker/editStep.ts`), never by
   // the words; `replyTo` and `quoted` then name the text it edits and hold its words.
   if (event.edited !== undefined && (event.edited !== true || from.kind !== "person" || !INBOUND_KINDS.has(event.kind))) throw new EventRefusal("edited");
   // `unsent`: a person's unsend of an earlier text, set by the same step, never with words of its own, never with `edited`.
@@ -108,7 +108,7 @@ export function checkEvent(event, { chat, now }) {
   // `heard`: a voice message's words, written by the gateway once it heard them (`heardWords.js`); only on a person's file.
   if (event.heard !== undefined && (event.heard !== "voice" || event.kind !== "file" || from.kind !== "person")) throw new EventRefusal("heard");
   if (event.ask !== undefined && (event.kind !== "ask" || typeof event.ask !== "string" || !ASK.test(event.ask))) throw new EventRefusal("ask");
-  // `source`: the Worker tags every Tex text with where it came from (`apps/agent/src/texSends.ts`), and a text sent on its own
+  // `source`: the Worker tags every Tex text with where it came from (`packages/tex/worker/texSends.ts`), and a text sent on its own
   // carries its run's `turn`, its link to the gateway's note (`sentOnItsOwn.js`). Only a Tex text may say so.
   if (event.source !== undefined && (typeof event.source !== "string" || !TEXT_SOURCES.has(event.source) || from.kind !== "tex" || !["text", "picture", "file", "link"].includes(event.kind))) throw new EventRefusal("source");
   const kept = { id, at, chat, from: { kind: from.kind, ...(from.who ? { who: from.who } : {}), ...(from.name ? { name: from.name } : {}) }, kind: event.kind };
@@ -118,7 +118,7 @@ export function checkEvent(event, { chat, now }) {
   return kept;
 }
 
-/** One of the texting Worker's own steps for the chat's ledger (`apps/agent/src/stepEvents.ts`): never a line of the chat, so never an `EVENT_KINDS` kind. */
+/** One of the texting Worker's own steps for the chat's ledger (`packages/tex/worker/stepEvents.ts`): never a line of the chat, so never an `EVENT_KINDS` kind. */
 export const STEP_KIND = "step";
 /**
  * The steps the Worker's chat object takes itself (`ledger.js` `STEP_NAMES` holds each): triage, a person's own chat's

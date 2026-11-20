@@ -5,7 +5,7 @@
  * model can choose; each value is the emoji and when it fits.
  *
  * The texting Worker keeps the same 64 emoji as an allowlist
- * (`apps/agent/src/reactEmoji.ts`): a test in each app pins the list, so the
+ * (`packages/tex/worker/reactEmoji.ts`): a test in each app pins the list, so the
  * two never drift. Never ✅ (it says done before anything is) and never a
  * gendered person (Tex doesn't know who is reading), as `ackEmoji.ts`.
  */

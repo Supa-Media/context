@@ -45,7 +45,7 @@ const MAX_PICTURE_BASE64 = Math.ceil((5_000_000 * 4) / 3) + 4;
 const MAX_REACTION_WORDS = 1_000;
 /** Messages' six tapbacks, by the emoji the app sends, named as the Worker reads them (`reactions.ts`). */
 const TAPBACKS = new Map([["❤️", "Loved"], ["👍", "Liked"], ["👎", "Disliked"], ["😂", "Laughed at"], ["‼️", "Emphasized"], ["❓", "Questioned"]]);
-/** The picture kinds served back (`apps/agent/src/appPictures.ts`): none can carry a script. */
+/** The picture kinds served back (`packages/tex/worker/appPictures.ts`): none can carry a script. */
 const PICTURE_TYPES = new Set(["image/jpeg", "image/png", "image/gif", "image/webp"]);
 const LIMIT_MESSAGE = "That's today's limit for the app chat. Try again tomorrow.";
 const UNREACHABLE_MESSAGE = "Tex can't take that just now. Try again in a moment.";
@@ -80,7 +80,7 @@ async function serveAppChat(request, _store, session, _path, env, deps = {}) {
   }
   // The chat is the session's own user's, and only when that id is one the app's chats take (`appChat.ts`).
   if (typeof session.actorUserId !== "string") return refuse(403, "forbidden");
-  const { isAppChat } = await import("../../../agent/src/gatewayChat.js");
+  const { isAppChat } = await import("../../../../packages/tex/worker/gatewayChat.js");
   const chatId = `app:${session.actorUserId}`;
   if (!isAppChat(chatId)) return refuse(403, "forbidden");
   if (request.method !== "POST") return new Response(null, { status: 405 });

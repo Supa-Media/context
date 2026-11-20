@@ -12,7 +12,7 @@ What changed:
 - **The ledger keeps both.** A person's text typed as a reply (an inline
   reply, or a text inside an iMessage or WhatsApp thread, 1:1 or group) is
   logged with `replyTo`, the event id of the message it answers, and
-  `quoted`, that message's full words (`apps/agent/src/replyQuote.ts`). The
+  `quoted`, that message's full words (`packages/tex/worker/replyQuote.ts`). The
   words are duplicated on purpose: threads interleave with other texts, and an
   id alone left the model to work out which message was meant.
 - **How the message is found.** A group's webhook names only the provider's
@@ -34,6 +34,6 @@ What changed:
 (`apps/mcp/src/agent/log.js`).
 
 What a simplification would cost: keeping only the id brings back answers to
-the wrong message in a busy thread. Tests: `apps/agent/src/replyQuote.test.ts`,
+the wrong message in a busy thread. Tests: `packages/tex/worker/replyQuote.test.ts`,
 `apps/mcp/test/agentReplyQuote.test.mjs`,
 `apps/mobile/__tests__/texHistoryLines.test.ts`.

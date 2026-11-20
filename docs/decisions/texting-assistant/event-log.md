@@ -58,7 +58,7 @@ words, never the model's ([honest answers](./honest-answers.md)).
 When decide says react, it also picks the emoji, from a curated 64 (one
 typed question offers at most 64 options): `apps/convex/functions/lib/reactEmoji.ts`,
 with the same list kept as the texting Worker's allowlist
-(`apps/agent/src/reactEmoji.ts`) and pinned by a test in each app. An emoji
+(`packages/tex/worker/reactEmoji.ts`) and pinned by a test in each app. An emoji
 outside the 64 is never sent; the one picked from the words (`ackEmoji.ts`)
 goes instead. A react goes out at once.
 
@@ -99,7 +99,7 @@ stays tagged; "after Tex's last text" was weighed and refused for exactly
 that case. What this gives up, an old ask that truly fell through no longer
 flagged on every turn, is the self-review of each finished chat's job. Both
 transcripts follow it: the turn's (`apps/mcp/src/agent/logRender.js`) and
-decide's (`apps/agent/src/events.ts` `renderTranscript`). Tests:
+decide's (`packages/tex/worker/events.ts` `renderTranscript`). Tests:
 `agentEventLog.test.mjs` "an ask older than what Tex has since answered is
 history, not answered" and "a text that lands while Tex answers an earlier
 one stays not answered", and `events.test.ts` "tags an ask older than what

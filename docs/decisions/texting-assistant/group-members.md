@@ -85,7 +85,7 @@ under the old hash are never handed on.
   changed: it would rest on a payload shape nobody has sampled yet
   ([provider-events](./provider-events.md)). Marking it changed costs one read.
 
-Tests: `apps/agent/src/groupMembers.test.ts` (the Crystal Care regression, a
+Tests: `packages/tex/worker/groupMembers.test.ts` (the Crystal Care regression, a
 reported change re-reads and holds for a newcomer, staleness, a change during a
 read), `groupProgress.test.ts` and `groupDecide.test.ts` (a newcomer on
 WhatsApp arrives by event), `whapiWorker.test.ts` (each `groups` event marks

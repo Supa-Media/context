@@ -199,6 +199,8 @@ jobs:
             mkdir -p "$BENCH_MODEL_SOCKET"
             node apps/mcp/bench/socketAnswerer.mjs --dir "$BENCH_MODEL_SOCKET" --stop "$RUNNER_TEMP/run-done" --parallel 8 > "$RUNNER_TEMP/answerer.log" 2>&1 &
             answerer=$!
+            # The weekly limit's share before the run (`evals/ccUsage.mjs`); a refused read only means no percentage.
+            node apps/mcp/bench/evals/ccUsage.mjs weekly --out "$RUNNER_TEMP/out/weekly-before.json" || true
             ( while kill -0 "$answerer" 2>/dev/null; do sleep 5; done; [ -f "$RUNNER_TEMP/run-done" ] || pkill -f "bench/evals/cli.mjs" || true ) &
           fi
           node apps/mcp/bench/evals/cli.mjs longmemeval --bench "$BENCH" --n "$N" --fetch "$RUNNER_TEMP/evals-data" --parallel 10 --out "$RUNNER_TEMP/out/result.json" 2> >(tee "$RUNNER_TEMP/eval.log" >&2)
@@ -207,6 +209,11 @@ jobs:
             touch "$RUNNER_TEMP/run-done"
             wait "$answerer" || code=1
             tail -n 5 "$RUNNER_TEMP/answerer.log" || true
+            # What the run spent of the subscription: measured tokens, and the weekly share used since the first read.
+            if [ -f "$RUNNER_TEMP/out/result.json" ]; then
+              node apps/mcp/bench/evals/ccUsage.mjs weekly --out "$RUNNER_TEMP/out/weekly-after.json" || true
+              node apps/mcp/bench/evals/ccUsage.mjs merge --usage "$BENCH_MODEL_SOCKET/usage.jsonl" --before "$RUNNER_TEMP/out/weekly-before.json" --after "$RUNNER_TEMP/out/weekly-after.json" --result "$RUNNER_TEMP/out/result.json" || true
+            fi
           fi
           if [ "$code" != "0" ]; then
             tail -n 1 "$RUNNER_TEMP/eval.log" | head -c 280 > "$RUNNER_TEMP/why" || true

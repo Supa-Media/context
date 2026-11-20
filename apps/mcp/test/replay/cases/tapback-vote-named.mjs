@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
-import { parsePhotonEvent } from "../../../../agent/src/photonInbound.ts";
-import { reactionLine } from "../../../../agent/src/reactions.ts";
+import { parsePhotonEvent } from "../../../../../packages/tex/worker/photonInbound.ts";
+import { reactionLine } from "../../../../../packages/tex/worker/reactions.ts";
 
 const LINE = "+15555550199";
 const VOTER = "+15555550100";

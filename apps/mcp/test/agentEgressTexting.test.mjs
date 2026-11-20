@@ -215,7 +215,7 @@ export async function runAgentEgressTextingChecks(check) {
       A LINE THAT DESCRIBES A YES IS NOT A YES (2026-11-01).
 
       Since #2563 the texting Worker turns every reaction into a line of the chat and sends it as the message's
-      words (`apps/agent/src/reactions.ts` `reactionLine`): "👍 (yes) on Tex's message", and with the words it
+      words (`packages/tex/worker/reactions.ts` `reactionLine`): "👍 (yes) on Tex's message", and with the words it
       was on quoted, "👍 (yes) on the message \"send it\"". Only the asker's held tapback releases what the
       gateway holds, and a group's bare yes is chat either way — but these lines run through `approvalVerdict`
       like any text, and each is one word away from `sentenceYes`: every word of them is in `ALSO_SAID`

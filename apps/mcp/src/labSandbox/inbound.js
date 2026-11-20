@@ -1,7 +1,7 @@
 /**
  * A LAB TEST CHAT'S OTHER iMESSAGE EVENTS, AS PRODUCTION TURNS THEM INTO A TURN (Dev2, 2026-11-16; decision
  * `docs/decisions/texting-assistant/lab-sandbox.md`): a text with pictures, a quoted reply and a tapback, each made
- * into its ledger event and its `/agent` fields by the texting Worker's own code (`apps/agent/src/gatewayInbound.js`),
+ * into its ledger event and its `/agent` fields by the texting Worker's own code (`packages/tex/worker/gatewayInbound.js`),
  * so a test one reaches the turn exactly as a real one would:
  *
  *  - pictures: the event's kind is `kindOf`'s ("picture"), and the files go to the turn as `prepareAttachments` makes
@@ -38,7 +38,7 @@ const PICTURE_HOPS = 3;
 
 let door = null;
 /** The texting Worker's inbound code, loaded once (TypeScript the bundler, and the tests' hook, follow). */
-const worker = () => (door ??= import("../../../agent/src/gatewayInbound.js"));
+const worker = () => (door ??= import("../../../../packages/tex/worker/gatewayInbound.js"));
 
 /** A send's pictures, checked as the Testing set's are, and each a plain https name; `{ pics }` or `{ error }`. */
 export function picsOf(value) {

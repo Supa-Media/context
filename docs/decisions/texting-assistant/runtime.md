@@ -76,7 +76,7 @@ shown to a model that sees, and named to one that does not".
 ## Tapbacks are answered or noted, never dropped
 
 A tapback arrives as words ("Liked “Want me to book it?”"), and every one was
-dropped. Now (`apps/agent/src/reactions.ts`): a ❓ on any text, or a like,
+dropped. Now (`packages/tex/worker/reactions.ts`): a ❓ on any text, or a like,
 love, dislike or emphasis on a text that asked a question, is queued like a
 text whose words are the emoji, with the text it was on sent apart as a quote,
 and the turn is told it was a tapback and, on a question, to take it as the
@@ -136,7 +136,7 @@ person's bucket under `.context/agent/steer/<turn>/` until the turn ends,
 and the turn clears its own folder. The access token the Worker steers with
 is held in memory for the turn only, never in Durable Object storage.
 
-Tests: `apps/agent/src/steer.test.ts` and `apps/mcp/test/agentSteer.test.mjs`.
+Tests: `packages/tex/worker/steer.test.ts` and `apps/mcp/test/agentSteer.test.mjs`.
 
 ## Texts sent back to back get one answer (2026-10-21)
 
@@ -154,7 +154,7 @@ person's, as before. A reply to different words, a tapback, an SMS, a text
 with files and a text whose answer is already computed are never folded:
 each carries words the guards keep apart, or an answer already owed.
 
-Tests: `apps/agent/src/sendblueThreads.test.ts` ("…sent back to back…" and
+Tests: `packages/tex/worker/sendblueThreads.test.ts` ("…sent back to back…" and
 "a reply to other words…").
 
 ## Every ten texts, Tex saves what it learned
@@ -183,9 +183,9 @@ when Dev2 removed it ("Tex spams and uses emojis way too much": every slow
 answer came with an emoji beside it); a tapback now goes only in place of a
 text (`conversation-threads.md`, "A tapback only in place of a text"). What
 follows describes the removed tapback: it went on the
-person's text (`/api/send-reaction`, `apps/agent/src/inbox.ts`), then asks for
+person's text (`/api/send-reaction`, `packages/tex/worker/inbox.ts`), then asks for
 the bubble again, since a message of ours can clear it. A quick answer gets
 no tapback, a tapback is never tapped back, and a refused tapback is logged
 by status (`sendblue_reaction`) and costs nothing else. Linq has no tapback
-here. `apps/agent/src/acknowledge.test.ts` fails if the tapback goes or fires
+here. `packages/tex/worker/acknowledge.test.ts` fails if the tapback goes or fires
 after the answer.

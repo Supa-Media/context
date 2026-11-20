@@ -78,7 +78,7 @@ export function words(event) {
     case "delivery":
       return text ? `(delivery) ${text}` : "(delivery)";
     default:
-      // A person's edit of an earlier text (`apps/agent/src/editStep.ts`): its new words, marked by the Worker's field, never by them.
+      // A person's edit of an earlier text (`packages/tex/worker/editStep.ts`): its new words, marked by the Worker's field, never by them.
       if (event.unsent === true) return "(unsent an earlier text)";
       return event.edited === true ? `(edited an earlier text to) ${text}` : text;
   }

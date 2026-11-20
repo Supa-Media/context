@@ -144,7 +144,7 @@ export async function openWarm(env, session, sealed, now = Date.now()) {
  * `logEligible`: a group chat's own turn from the texting Worker. It makes no
  * copy, but the Worker's outbox (`recent`, the events it has not posted yet)
  * goes on the chat's day from the ledger as a one-to-one chat's does (Dev,
- * 2026-11-02: the Worker keeps its outbox only, `apps/agent/src/chatRead.ts`).
+ * 2026-11-02: the Worker keeps its outbox only, `packages/tex/worker/chatRead.ts`).
  */
 export function warmTurn(env, session, body, { eligible, logEligible = false, now = Date.now() }) {
   const opened = eligible ? openWarm(env, session, body?.warm, now) : Promise.resolve(null);

@@ -1,14 +1,14 @@
-/** How the bench talks to the gateway as the texting Worker does (`apps/agent/src`): a streamed answer read, and the chat's events posted. */
+/** How the bench talks to the gateway as the texting Worker does (`packages/tex/worker`): a streamed answer read, and the chat's events posted. */
 
 import worker from "../src/index.js";
 import { createWorkerCtx } from "../test/workerCtx.mjs";
 
-/** The line the bench's person texts on, as the texting Worker names a chat (`apps/agent/src/events.ts`). */
+/** The line the bench's person texts on, as the texting Worker names a chat (`packages/tex/worker/events.ts`). */
 const BENCH_CHAT = "sendblue:line:+15555550100";
 
 /**
  * Read a streamed `/agent` answer the way the texting Worker does
- * (`apps/agent/src/clients.ts` `askAgentStreaming`): each `{"progress"}` line
+ * (`packages/tex/worker/clients.ts` `askAgentStreaming`): each `{"progress"}` line
  * is a text sent, ticks are skipped, and the last `{status, body}` line is the
  * turn's own answer. A reply that is not a stream (refused before the turn
  * ran) is read as plain JSON; a stream with no final line is a failed turn.

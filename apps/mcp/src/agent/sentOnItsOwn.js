@@ -46,7 +46,7 @@ export function sentOnItsOwn(about) {
  * LINKED SENDS. A text Tex sent by itself, recorded twice and shown once (Dev2, 2026-11-18: a check-in at 8:01 AM was missing from
  * the chat's history, because `/routine-text` texted it and recorded no Tex text event, only the gateway's note).
  *
- * Every text Tex delivers now lands in the chat's ledger as a Tex `text` event with its `source` (`apps/agent/src/
+ * Every text Tex delivers now lands in the chat's ledger as a Tex `text` event with its `source` (`packages/tex/worker/
  * texSends.ts`), written by the same recorder the reply path uses. A text Tex sent on its own (a check-in, a routine,
  * a ping, a job's update) also has the gateway's `note`, written before the Worker texted, which carries why it went.
  * The two share their run's `turn`: that is the link. Readers that show notes keep the note (it carries the reason)

@@ -198,7 +198,7 @@ browser lets a forwarded link's holder signal a chat they are not in; the
 membership check on `/tex/computer/done` is what stops it. Dropping the
 "texted since" check runs the task twice when someone texts "done" too.
 
-**Tests.** `apps/agent/src/handbackWatch.test.ts` (sabotaged: no
+**Tests.** `packages/tex/worker/handbackWatch.test.ts` (sabotaged: no
 `onHandedOver`, no "texted since" check, no give-up, each fails one),
 `apps/convex/__tests__/browserHandbacks.test.ts` (no grant check, no `since`
 filter), `apps/mcp/test/texPageComputer.test.mjs` (a stranger's Done refused;
@@ -344,7 +344,7 @@ step, or offers to keep looking gets one more round telling Tex to do it now
 (`apps/mcp/src/agent/stopsShort.js`, through `claimCheck.js`). A background
 job whose final answer still stops short is not done: the gateway marks it
 `unfinished`, keeps it out of the conversation, and the Worker
-(`apps/agent/src/jobRun.ts`) runs another part shown that answer to finish,
+(`packages/tex/worker/jobRun.ts`) runs another part shown that answer to finish,
 up to the job's last part, which texts what it has with the missing part
 named. The job prompt says finished means every figure counted, and the
 start-job tool asks the one question that changes the brief (cook, or have
@@ -373,7 +373,7 @@ beside a place that publishes none.
 
 **Tests.** `apps/mcp/test/agentStopsShort.test.mjs`,
 `apps/mcp/test/agentBackgroundRoute.test.mjs` (the dinner job),
-`apps/agent/src/jobs.test.ts`; hand-back bench cases 9 and 17
+`packages/tex/worker/jobs.test.ts`; hand-back bench cases 9 and 17
 (`apps/mcp/bench/ai/tests/handback.md`, `sites/caterers.example.md`,
 `sites/halls.example.md`).
 Sabotage records in the tests' headers.

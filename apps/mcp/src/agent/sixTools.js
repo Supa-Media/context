@@ -583,7 +583,7 @@ export function sixToolsOver(granted, grants = null, { shown = null } = {}) {
         if (home) return resolve(home, call);
         const list = [...allowedActions[name]].join(", ") || "none";
         if (shownActions?.[name]?.has(action)) return { error: unavailableAction(name, action, list), cause: "not_this_turn" };
-        return { error: `${name} has no action "${action.slice(0, 40)}" for you. Yours: ${list}.` };
+        return { error: `${name} has no action "${action.slice(0, 40)}" for you. Yours: ${list}. Use one of those, or tell them plainly you can't do this here.` };
       }
       const assistant = name === "send" ? ASSISTANT_SEND_ACTIONS[action] : undefined;
       if (assistant) return { name: assistant.tool, args: assistant.take(call) };

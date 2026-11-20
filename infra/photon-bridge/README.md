@@ -41,7 +41,7 @@ Photon sends.
   `GAP_TIMEOUT_MS` (10 min) is skipped after a successful poll. Queued events
   still stop the frontier. Both are logged as `line.gap_skipped`.
 - A catch-up event older than `MAX_REPLAY_MS` (12 h, the agent's window in
-  `apps/agent/src/replayWindow.ts`) is passed without being delivered, counted
+  `packages/tex/worker/replayWindow.ts`) is passed without being delivered, counted
   as `replayDropped`. An event Apple gave no time is stamped now and marked
   `atGuessed`, so it is never dropped as old.
 - The object stores the container's frontiers each minute (`GET /frontiers`,

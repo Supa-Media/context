@@ -1,5 +1,5 @@
 /**
- * One text chat's object in the gateway: the texting Worker's chat object (`apps/agent/src/chatObject.ts`, a phone's
+ * One text chat's object in the gateway: the texting Worker's chat object (`packages/tex/worker/chatObject.ts`, a phone's
  * inbox or a group's, with its queue, its alarm and every route the chat's state answers), run here as it is (step 3
  * of Tex's config graph: a text arriving, Triage, Decide, React and the per-chat queues move into the gateway; Dev2
  * approved https://claude.ai/artifact/6iF9DnjvN4aGVREhPc6yua, 2026-11-14). Only what it reaches outside itself
@@ -9,12 +9,12 @@
  *   - the line (sending, typing, read, tapback, members) is the texting Worker's, over its `TEXTING` RPC entrypoint
  *     (`lineCall`, `groupLineCall`), because the line's keys stay in the Worker;
  *   - the Worker's other objects this one reaches (a chat's directory entry, and a job's object while jobs run in the
- *     Worker) are reached the same way (`inboxFetch`); a job's calls go through `apps/agent/src/jobPlace.ts`, which starts
+ *     Worker) are reached the same way (`inboxFetch`); a job's calls go through `packages/tex/worker/jobPlace.ts`, which starts
  *     a new job in the gateway's `TEX_JOB` while `TEX_JOBS` is "gateway" and sends every later call where it was born;
  *   - a group turn's retries stay the Worker's Workflow, started over the same RPC (`groupTurn`);
  *   - the control plane is reached as the Worker reached it, with `AGENT_WORKER_SECRET`.
  *
- * A chat comes here once, on its first call, by copying the Worker's object in (`apps/agent/src/inboxMove.ts`, the
+ * A chat comes here once, on its first call, by copying the Worker's object in (`packages/tex/worker/inboxMove.ts`, the
  * same copy and digest the Worker's own moves use): the Worker's object marks itself moved and passes every later call
  * on to this one (`/texts/chat-call`). A copy that fails leaves the Worker's object answering, and the call is refused
  * here so the Worker answers it.
@@ -27,7 +27,7 @@ import { objectByName } from "./objectPlace.js";
 import { JOB_NAME } from "./texJobName.js";
 import { NAME_KEY, PLACE_KEY, SENDER_ID_KEY, isAppChatName, placeAppChat, serveAppArrive, serveAppOutbox, serveAppPictureById } from "./texChat/appChat.js";
 
-/** Where the Worker's chat object answers each kind of arrival (`apps/agent/src/index.ts`). */
+/** Where the Worker's chat object answers each kind of arrival (`packages/tex/worker/index.ts`). */
 const ARRIVAL_PATHS = Object.freeze({ one: "/accept", react: "/react", group: "/group-accept", members: "/group-members-changed", edit: "/edit" });
 /** The header the Worker's object names itself with (`inboxMove.ts` `INBOX_NAME_HEADER`). */
 export const INBOX_NAME_HEADER = "x-inbox-name";
@@ -128,7 +128,7 @@ export function texChatClass({ gateway, texts }) {
       }
       this.name = name ?? (await storage.get(NAME_KEY)) ?? null;
       if (this.name === null) return null;
-      const { SenderInbox } = await import("../../agent/src/gatewayChat.js");
+      const { SenderInbox } = await import("../../../packages/tex/worker/gatewayChat.js");
       const senderId = (await storage.get(SENDER_ID_KEY)) ?? "";
       // A call this chat makes to its own Worker object is served here. Asking the Worker would forward it back.
       let servingOwn = false;
@@ -154,7 +154,7 @@ export function texChatClass({ gateway, texts }) {
  * leaves this object empty and the Worker's answering.
  */
 async function copyIn(rpc, storage, name) {
-  const { arrive } = await import("../../agent/src/gatewayChat.js");
+  const { arrive } = await import("../../../packages/tex/worker/gatewayChat.js");
   const stubs = () => ({
     fetch: async (request) => {
       const op = new URL(request.url).pathname === "/__move_back" ? "back" : "out";
@@ -189,7 +189,7 @@ export function chatState(state, senderId) {
  * (`job:<id>`) reach the gateway's `TEX_JOB` objects rather than the Worker's.
  */
 export async function chatEnv(env, state, name, senderId, { gateway, texts, jobsHere = false, own = null }) {
-  const { remoteLine, remoteGroupLine, appLine, APP_PICTURE_ORIGIN, serveAppPicture } = await import("../../agent/src/gatewayChat.js");
+  const { remoteLine, remoteGroupLine, appLine, APP_PICTURE_ORIGIN, serveAppPicture } = await import("../../../packages/tex/worker/gatewayChat.js");
   const ctx = { waitUntil: (work) => state.waitUntil(work), passThroughOnException() {} };
   const self = typeof env.PUBLIC_ORIGIN === "string" ? env.PUBLIC_ORIGIN.replace(/\/+$/, "") : "";
   const rpc = env.TEXTING;
@@ -198,7 +198,7 @@ export async function chatEnv(env, state, name, senderId, { gateway, texts, jobs
     // The gateway's own routes run in-process; everything else (the control plane, a picture's address) goes out.
     FETCH: (input, init) => {
       const request = new Request(input, init);
-      // An app chat's pictures are read from its own store, never the network (`apps/agent/src/appPictures.ts`).
+      // An app chat's pictures are read from its own store, never the network (`packages/tex/worker/appPictures.ts`).
       if (request.url.startsWith(`${APP_PICTURE_ORIGIN}/`)) return app ? serveAppPicture(state.storage, request.url) : Promise.resolve(new Response(null, { status: 404 }));
       if (self !== "" && request.url.startsWith(`${self}/`)) return gateway().fetch(request, env, ctx);
       return fetch(request);
@@ -208,7 +208,7 @@ export async function chatEnv(env, state, name, senderId, { gateway, texts, jobs
     CONTROL_PLANE_ORIGIN: typeof env.CONTROL_PLANE_URL === "string" ? env.CONTROL_PLANE_URL : "",
     AGENT_WORKER_SECRET: typeof env.AGENT_WORKER_SECRET === "string" ? env.AGENT_WORKER_SECRET : "",
     // The Worker's other objects (a job's, a chat's directory entry), reached through the Worker.
-    // Where a new background job starts (`apps/agent/src/jobPlace.ts`): its calls then follow where it was born.
+    // Where a new background job starts (`packages/tex/worker/jobPlace.ts`): its calls then follow where it was born.
     JOBS: env.TEX_JOBS === "gateway" && env.TEX_JOB !== undefined ? "gateway" : "worker",
     SENDER_INBOX: senderObjects(env, rpc, name, senderId, jobsHere, own),
     // An app chat's line texts nobody: its replies are the chat object's events, which the app reads (`appChat.ts`).
@@ -224,7 +224,7 @@ export async function chatEnv(env, state, name, senderId, { gateway, texts, jobs
     TEX_COUNTS: env.TEX_COUNTS,
     // The texts simulator's chats answer here only where the gateway's own var says so (staging).
     ...(env.SIMULATOR === "on" ? { SIMULATOR: "on" } : {}),
-    // The Context app's chat: only this object runs as its user (`apps/agent/src/reply.ts` `sessionOf`).
+    // The Context app's chat: only this object runs as its user (`packages/tex/worker/reply.ts` `sessionOf`).
     ...(app ? { APP_CHAT: name } : {}),
     LINQ_API_KEY: "",
     INTAKE: "gateway",

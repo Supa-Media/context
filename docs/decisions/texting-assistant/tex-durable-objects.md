@@ -177,7 +177,7 @@ time instead of up to a minute late.
 **Dispatch.** An alarm calls the texting Worker's named RPC entrypoint
 `TexRoutines.routineDue({owner, id})` through the gateway's `TEXTING` service
 binding, which names the entrypoint (`texStore/dispatch.js`,
-`apps/agent/src/texRoutineDue.ts`). The owner is the person's workspace and the
+`packages/tex/worker/texRoutineDue.ts`). The owner is the person's workspace and the
 id the routine's path. A named entrypoint is reachable only through a service
 binding, never over HTTP, so there is no route and no secret: the Worker's
 public `fetch` does not answer for it. The method refuses a chat's owner and any

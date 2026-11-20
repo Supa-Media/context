@@ -18,7 +18,7 @@ The mailbox's own person shares it, in the chat, in their own words:
   wording was read as inviting it).
 - "Tex, stop sharing my mail" ends it.
 
-Both are fixed commands (`apps/agent/src/groupWords.ts`), answered by the
+Both are fixed commands (`packages/tex/worker/groupWords.ts`), answered by the
 control plane with no model (`textGroups.applyGroupTurn`,
 `functions/lib/textGroupMail.ts`).
 
@@ -54,7 +54,7 @@ control plane with no model (`textGroups.applyGroupTurn`,
   search, asked by that message's own Message-ID, still finds it. Nothing of
   a message is stored. "every search is narrowed", "a message outside the
   share is not found". "a guest chat reads it too";
-  `apps/agent/src/groupJobs.test.ts` "a job is told the mail shared".
+  `packages/tex/worker/groupJobs.test.ts` "a job is told the mail shared".
 - **Asked again at every read.** The share counts only while the chat is not
   muted, the sharer is still one of its people (for a chat from before
   homes: still writes in its workspace), and the Gmail is still connected.
@@ -66,7 +66,7 @@ control plane with no model (`textGroups.applyGroupTurn`,
   limit their own reads use.
 - **The turn is told whose mailbox it may read** (handle and address), and is
   offered `search_email`/`read_email` only then. A background job the chat
-  started is told the same (`apps/agent/src/jobRun.ts`); until 2026-10-29 it
+  started is told the same (`packages/tex/worker/jobRun.ts`); until 2026-10-29 it
   was not, and a job asked to "check the mail" answered that it couldn't (`apps/mcp/src/agent/groupMail.js`,
   `apps/mcp/test/agentGroupMail.test.mjs`). Live mail is untrusted for
   egress as it is anywhere else.
@@ -106,7 +106,7 @@ mailbox is the whole mail setup (`functions/lib/textGroupLooks.ts`):
   it `routine`), so looking never keeps a silent chat looking.
 - **Group or personal.** The look posts only what someone in the chat needs
   for the shared work, and leaves out mail that concerns only the mailbox's
-  owner (`chatLookQuestion`, `apps/agent/src/groupRoutines.ts`). The owner's
+  owner (`chatLookQuestion`, `packages/tex/worker/groupRoutines.ts`). The owner's
   own check-in is told, per email, which group chats also watch that mailbox
   (`watchedIn` on the person's own mail read, `newMail.js`), and texts about
   such mail only when it needs them personally rather than the group.

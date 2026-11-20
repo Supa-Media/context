@@ -6,7 +6,7 @@
  * a started job's (`background.js` `QUIET_ACK`). A person who texts "add dinner Friday" and sees it added, or texts
  * "thanks!", is often answered best by one tapback on their text, the way a friend would. This is that ending: the
  * front door calls `send` with action `tapback` and an emoji, the Tapback node (`graph/nodes/tapback.js`) checks it,
- * and the turn ends with no text; the Worker reacts to their text with it (`apps/agent/src/reactEmoji.ts` checks the
+ * and the turn ends with no text; the Worker reacts to their text with it (`packages/tex/worker/reactEmoji.ts` checks the
  * emoji again). When to use it is taught by examples, never a rule here (judgment by examples).
  *
  * Offered only while the config wires `tools -> tapback` (`texEntryPoint/runTheModel.js`; wired on main since the

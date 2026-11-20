@@ -1,6 +1,6 @@
 /**
  * Tex's old number: the one global setting that says whether Tex's old Sendblue line answers each chat once with the new
- * number instead of a turn (`apps/agent/src/oldLine.ts`). Staff set it in the console's Lines page; every change is
+ * number instead of a turn (`packages/tex/worker/oldLine.ts`). Staff set it in the console's Lines page; every change is
  * audited. One row; no row is `off`.
  *
  * The Worker reads it through `/agent-texts/old-line` (`lib/gatewayRoutes/agentTexts.ts`), behind its own secret.

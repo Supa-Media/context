@@ -113,7 +113,7 @@ export function earlierLines(c, i, year = null, from = null) {
 const TAPBACK_OF = Object.freeze({ "❤️": "Loved", "👍": "Liked", "👎": "Disliked", "😂": "Laughed at", "‼️": "Emphasized", "❓": "Questioned" });
 
 /**
- * A person's tapback as the chat's line, what production logs for it (`apps/agent/src/reactions.ts` `reactionLine`): the
+ * A person's tapback as the chat's line, what production logs for it (`packages/tex/worker/reactions.ts` `reactionLine`): the
  * emoji, its yes or no for like, love, emphasis and dislike, and the message it was on, Tex's or somebody else's, named
  * by its words (120 characters at most). Any other emoji is just itself.
  */
@@ -139,7 +139,7 @@ const decideStayedQuiet = (c, id) => c.msgs.find((m) => m.id === id)?.labels?.de
 
 /**
  * The tapbacks that start a job, bare (no variation selector). Production has no emoji-to-job table: a job's start with
- * no `say` gets the Worker's own pick from the ask's words (`sendTheReply.js` `react: ""`, `apps/agent/src/ackEmoji.ts`),
+ * no `say` gets the Worker's own pick from the ask's words (`sendTheReply.js` `react: ""`, `packages/tex/worker/ackEmoji.ts`),
  * and its find and search rule picks 🔎 or 🕵️. The Front door's own tapback can't be 🔎 (not one of the 64,
  * `textDecide.cjs` REACT_EMOJI), so a 🔎 that was Tex's whole answer came from that start.
  */
@@ -461,7 +461,7 @@ export function fdTest(units, front, from = null) {
   return out.join("\n");
 }
 
-/** A bare acknowledgement, as production's (`apps/agent/src/inboxTurn.ts` PURE_ACK; a test keeps the two the same). */
+/** A bare acknowledgement, as production's (`packages/tex/worker/inboxTurn.ts` PURE_ACK; a test keeps the two the same). */
 export const PURE_ACK = /^\s*(?:ok|okay|k|kk|thanks|thank you|thx|ty|cool|got it|great|nice|perfect|👍|🙏|❤️)[\s.!]*$/iu;
 
 /**

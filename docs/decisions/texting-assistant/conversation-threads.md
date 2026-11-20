@@ -176,8 +176,8 @@ group's addressed or decide-passed chatter is answered whenever the model
 doesn't think to be quiet. Tests: `apps/mcp/test/agentRespond.test.mjs` (the
 turn hushed before the model, the floor holding a question and an ok after an
 ask), `apps/mcp/bench/test/respond.test.mjs`,
-`apps/agent/src/sendblueThreads.test.ts` and
-`apps/agent/src/groupDecideBeside.test.ts` (the tapback sent, the reply
+`packages/tex/worker/sendblueThreads.test.ts` and
+`packages/tex/worker/groupDecideBeside.test.ts` (the tapback sent, the reply
 placed).
 
 ## A tapback only in place of a text (Dev2, 2026-11-10)
@@ -201,7 +201,7 @@ starts ("On it: … I'll text you when it's done." plus a live link). Dev2 chose
   `resumedLine`); the live view goes when they ask what Tex is working on.
 
 Reversing it brings back an emoji beside most answers. Tests:
-`apps/agent/src/acknowledge.test.ts` (no tapback on a long 1:1 turn, the
+`packages/tex/worker/acknowledge.test.ts` (no tapback on a long 1:1 turn, the
 bubble renewed), `groupInbox.test.ts` and `groupDecideEmojiWait.test.ts` (no
 tapback beside a group answer), `apps/mcp/test/agentJobRestart.test.mjs` and
 `agentBackground.test.mjs` (the one-line start).
@@ -234,10 +234,10 @@ Then two "Searching…" progress lines went to the chat. Dev2 said "Go" to:
   line (`background-jobs.md`, 2026-11-12).
 
 Reversing the tapback brings back silence on every slow group turn, worst in a
-new group. Tests: `apps/agent/src/groupInbox.test.ts` ("taps a message naming
+new group. Tests: `packages/tex/worker/groupInbox.test.ts` ("taps a message naming
 Tex when no text has gone out…", "never taps a chat Tex is not set up in…",
 "introduces itself at the end of its first answer…"),
-`apps/agent/src/decideGateway.test.ts` ("a group not set up yet is never kept
+`packages/tex/worker/decideGateway.test.ts` ("a group not set up yet is never kept
 refused…"), `apps/mcp/test/agentProgress.test.mjs` ("a line goes only for
 something to act on…").
 
@@ -268,7 +268,7 @@ reaction", https://docs.slack.dev/concepts/agent-design) give the replacement:
   nothing keeps its tapback. A 1:1 chat is unchanged (its typing bubble).
 
 Reversing it brings back either silence on a slow group ask or the late,
-noisy timer. Tests: `apps/agent/src/groupToolTap.test.ts` (one tapback before
+noisy timer. Tests: `packages/tex/worker/groupToolTap.test.ts` (one tapback before
 the reply, two tools still one, none without a tool, none on a silenced
 message), `apps/mcp/test/agentProgress.test.mjs` ("a tool start is told before
 the tool runs…"), `agentBackgroundRoute.test.mjs` ("an ordinary texted turn

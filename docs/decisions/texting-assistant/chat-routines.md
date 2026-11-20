@@ -47,7 +47,7 @@ of the owner's defaults on 2026-10-27.
      nothing a `say_nothing` call is, no words and `quiet: true`
      (`apps/mcp/src/agent/scheduledQuiet.js`).
   3. The Worker's last guard wraps every line's `sendText`, 1:1 and group,
-     on every app (`apps/agent/src/outboundGuard.ts`): a skip or quiet
+     on every app (`packages/tex/worker/outboundGuard.ts`): a skip or quiet
      decision, a bare control word, or words that end in `SKIP` as a token of
      their own are dropped, and the drop is logged without the words. A text
      that only uses the word in a sentence goes.
@@ -55,7 +55,7 @@ of the owner's defaults on 2026-10-27.
   **What a simplification would cost:** dropping layer 2 or 3 because layer 1
   "fixed the prompt" puts the chat one model slip away from reading Tex's
   reasoning again; `test/replay/cases/scheduled-skip-never-texted.mjs`,
-  `test/scheduledQuiet.test.mjs` and `apps/agent/src/outboundGuard.test.ts`
+  `test/scheduledQuiet.test.mjs` and `packages/tex/worker/outboundGuard.test.ts`
   fail when either goes. The guard's known price: an answer whose very last
   word is `SKIP` in capitals is dropped too.
 - `send:` and `to:` are ignored: a chat routine answers in its chat.
@@ -66,7 +66,7 @@ that names no chat, or texting a phone instead of the chat, puts back the
 2026-10-18 failure; handing the run a grant of its own skips the chat's live
 membership check, so somebody who joined the chat could be told what the
 workspace's members wrote. `apps/convex/__tests__/routinesChat.test.ts`,
-`apps/agent/src/groupRoutines.test.ts` and
+`packages/tex/worker/groupRoutines.test.ts` and
 `apps/mcp/test/agentGroupRoutines.test.mjs` fail if any is reversed.
 
 ## In the chat's home (decided by the owner, 2026-11-02)
@@ -98,5 +98,5 @@ or when its writer has left. A routine already in a bound workspace, tagged
 let nobody's routine run, because no chat person has one, or would let a pin
 owner's run. Trusting a note's `chat:` would let one home answer into another
 chat. `apps/convex/__tests__/homeRoutines.test.ts`,
-`apps/mcp/test/homeRoutines.test.mjs` and `apps/agent/src/groupRoutines.test.ts`
+`apps/mcp/test/homeRoutines.test.mjs` and `packages/tex/worker/groupRoutines.test.ts`
 fail if any of these is reversed.

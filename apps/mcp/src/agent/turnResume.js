@@ -150,7 +150,7 @@ export const JOB_ROUNDS_LEFT = 10;
  * lands last; `from` only when the Worker says this is a try after one that failed (`again`). None for a turn whose text names no chat events, whose chat keeps no ledger, or, for `keep`, a
  * provisional run (`steer.js`): what it writes before its go may be put back, so nothing it did is carried on.
  * A background job's part (`job`, `background.js` `jobOf`) keeps under its own part and reads only the part the Worker
- * names in `resumeFrom` (`apps/agent/src/jobPartResume.ts`).
+ * names in `resumeFrom` (`packages/tex/worker/jobPartResume.ts`).
  * An earlier try's outside-read mark goes on `egress` (`privacy/egress.js`): the resumed turn read what it read.
  */
 export async function carriedRounds({ store, session, body, question, job = null, egress = null, log = (line) => console.log(JSON.stringify(line)) }) {

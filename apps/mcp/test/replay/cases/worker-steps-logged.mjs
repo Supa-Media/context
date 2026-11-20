@@ -16,7 +16,7 @@ export default {
     const chat = await oneToOne();
     try {
       await chat.text("can you move my dentist to friday?", "Done, Friday at 10.");
-      // The Worker's judging of a "thanks" and the tapback it chose, posted as it posts them (`apps/agent/src/stepEvents.ts`).
+      // The Worker's judging of a "thanks" and the tapback it chose, posted as it posts them (`packages/tex/worker/stepEvents.ts`).
       // On the chat's own clock, after Tex's answer: the next turn reads only what came before its text.
       const ledger = ledgerFor(chat.world.env, { person: "ws_egress" });
       const at = Math.max(...(await ledger.read(ONE_TO_ONE_CHAT, { kinds: ["text"] })).entries.map((entry) => entry.at)) + 10_000;

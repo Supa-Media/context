@@ -1,7 +1,7 @@
 /**
  * How a Tex store's alarm hands a due routine on (`texStore.js`, `alarm()`):
  * one call to the texting Worker's named RPC entrypoint `TexRoutines.routineDue`
- * (`apps/agent/src/texRoutineDue.ts`), through the gateway's `TEXTING` service
+ * (`packages/tex/worker/texRoutineDue.ts`), through the gateway's `TEXTING` service
  * binding, which names that entrypoint in `wrangler.toml`.
  *
  * A named entrypoint is reachable only through a service binding, never over

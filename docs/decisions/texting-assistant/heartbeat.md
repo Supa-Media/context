@@ -100,7 +100,7 @@ thirty texts (the person's, and Tex's own, read from Sendblue's send response)
 with a salted hash of each one's opening words, never the words, and sends the
 check-in as an inline reply under the newest one `continues` begins like. No
 match, a Linq chat, or a thread Sendblue refuses (400) is a plain text, as
-before. Tests: `apps/agent/src/threads.test.ts`.
+before. Tests: `packages/tex/worker/threads.test.ts`.
 
 **Room for more jobs.** The control plane's grant, client and "still linked
 and owned" checks live in `functions/lib/texJobs.ts`, and the gateway's day log
@@ -117,7 +117,7 @@ turns a helpful nudge into spam; counting Tex's own logs as changes runs a
 model on every slot for nothing; keeping what it saw anywhere but the person's
 notes is the opaque memory the owner ruled out (2026-10-14). Tests:
 `apps/mcp/test/agentHeartbeat.test.mjs`, `apps/convex/__tests__/heartbeats.test.ts`,
-`apps/agent/src/heartbeats.test.ts`.
+`packages/tex/worker/heartbeats.test.ts`.
 
 ## Muted words, doable offers, and no words about itself (2026-10-21)
 
@@ -199,7 +199,7 @@ again only when the one before it had not failed too.
 again silences every slot after two failures. Tests:
 `apps/mcp/test/lookTree.test.mjs`, `apps/convex/__tests__/heartbeats.test.ts`,
 `apps/convex/__tests__/nodes/gatewayManifest.test.ts`,
-`apps/agent/src/heartbeats.test.ts`.
+`packages/tex/worker/heartbeats.test.ts`.
 
 ## Their quiet hours are kept (decided by the owner, 2026-11-08)
 
@@ -222,7 +222,7 @@ down" until morning. Tests: `apps/mcp/test/quietHours.test.mjs`,
 `apps/mcp/test/attention.test.mjs` ("in their quiet hours…"),
 `apps/mcp/test/agentHeartbeat.test.mjs`,
 `apps/convex/__tests__/heartbeats.test.ts`,
-`apps/convex/__tests__/attention.test.ts`, `apps/agent/src/heartbeats.test.ts`.
+`apps/convex/__tests__/attention.test.ts`, `packages/tex/worker/heartbeats.test.ts`.
 
 ## Worth-mail is not quiet on the first try (2026-11-18)
 

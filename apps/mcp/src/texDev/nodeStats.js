@@ -48,7 +48,7 @@ export function runOf(entry) {
     const failed = entry.ok === false || out?.failed === true || out?.outcome === "failed";
     return { node: entry.name, ok: !failed, ms: Number.isFinite(entry.own) ? entry.own : Number.isFinite(entry.ms) ? entry.ms : null, said: saidOf(entry.output), turn: entry.turn ?? null };
   }
-  // The texting Worker's own steps, kept as `step: { name, ok, ms, output }` (`apps/agent/src/stepEvents.ts`).
+  // The texting Worker's own steps, kept as `step: { name, ok, ms, output }` (`packages/tex/worker/stepEvents.ts`).
   const st = rec(entry.step);
   if (st && typeof st.name === "string") {
     if (st.name === "send" && st.of === "delivery") return null; // Text them's delivery: counted with the gateway's send

@@ -29,7 +29,7 @@ in it is anybody's but a copy of what the caller could already read.
 
 **A test text arrives as a real text arrives** (Dev2, 2026-11-16: "expected it to go through the "A text arrives"
 node end to end, but it looks like it skipped straight to front door"). `send` hands the text to the texting Worker's
-own chat object (`apps/agent/src/chatObject.ts` `SenderInbox`, the class the gateway's TexChat runs), at `/accept` for
+own chat object (`packages/tex/worker/chatObject.ts` `SenderInbox`, the class the gateway's TexChat runs), at `/accept` for
 a 1:1 and `/group-accept` for a group (`labSandbox/chatRun.js`). Its route logs node `text`, asks Old number?
 (`oldLine`), queues it, and its alarm runs Triage, Decide and the queue (`lanes`) before it asks `/agent` (the same
 `texEntryPoint` and config graph, with the draft's wiring: each step's on/off and its wires when every wire names a
@@ -81,7 +81,7 @@ entries with it, and the ledger is rebuilt from what is left. A real text is nev
   tapback again as itself. The daily cap counts every text, tapback, edit and unsend.
 
 **Each event reaches the turn as production hands it to `/agent`**, built by the texting Worker's own code
-(`apps/agent/src/gatewayInbound.js`, which the bundler follows into its TypeScript, as `gatewayChat.js` is;
+(`packages/tex/worker/gatewayInbound.js`, which the bundler follows into its TypeScript, as `gatewayChat.js` is;
 `labSandbox/inbound.js`):
 
 - *Pictures.* The event's kind is `kindOf`'s (`picture`); at answer time the files are made into `attachments` by

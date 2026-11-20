@@ -1,8 +1,8 @@
 /**
- * One background job's object in the gateway: the texting Worker's `SenderInbox` (`apps/agent/src/chatObject.ts`) run
+ * One background job's object in the gateway: the texting Worker's `SenderInbox` (`packages/tex/worker/chatObject.ts`) run
  * here as it is, for a job (`job:<id>`) rather than a chat. Its job state, alarm and passes (`jobRun.ts`) run on this
  * object's own storage, the way `texChat.js` runs a chat's. The pass loop's durable timer is the Worker's job workflow
- * (`apps/agent/src/jobWorkflow.ts`), started over the Worker's RPC (`TexRoutines.jobRun`), which calls each pass here
+ * (`packages/tex/worker/jobWorkflow.ts`), started over the Worker's RPC (`TexRoutines.jobRun`), which calls each pass here
  * through the Worker's job stub (`jobPlace.ts`): plumbing only, as a group turn's retries are (`texChat.js`).
  *
  * Differences from `TexChat`, which copies a chat in from the Worker:
@@ -15,7 +15,7 @@
  *     (`chatEnv`'s `jobsHere`). With no Worker RPC bound (self-hosting without the texting Worker), it has no
  *     workflow, and its alarm runs each pass (`jobRun.ts` `jobAlarm`).
  *
- * A chat starts a job here only while `TEX_JOBS` is "gateway" (`apps/agent/src/jobPlace.ts`, via `chatEnv`'s `JOBS`), and
+ * A chat starts a job here only while `TEX_JOBS` is "gateway" (`packages/tex/worker/jobPlace.ts`, via `chatEnv`'s `JOBS`), and
  * the Worker hands calls to it through `jobCallForTexts`. Production keeps `TEX_JOBS` at "worker", so it is idle there.
  */
 
@@ -36,9 +36,9 @@ export const JOB_START_PATH = "/job-start";
 export const JOB_HERE_PATH = "/job-here";
 /** The node log of the job's passes, as JSON: `{"nodes": [...]}` (`texJobLog.js`). */
 export const JOB_NODES_PATH = "/job-nodes";
-/** The Worker's run of a job, as the workflow's steps reach the object (`apps/agent/src/jobRoutes.ts`). */
+/** The Worker's run of a job, as the workflow's steps reach the object (`packages/tex/worker/jobRoutes.ts`). */
 const PASS_STEPS = { "/job-pass": "pass", "/job-failed": "failed" };
-/** The key the texting Worker keeps a job's run under (`apps/agent/src/jobs.ts` `RUN_KEY`). */
+/** The key the texting Worker keeps a job's run under (`packages/tex/worker/jobs.ts` `RUN_KEY`). */
 const RUN_KEY = "jobrun";
 
 /**
@@ -81,7 +81,7 @@ export function texJobClass({ gateway, texts }) {
     /**
      * One pass of the job, run through the job node on the gateway's graph (`graph/nodes/job.js`): the node calls the
      * Worker's pass on this object, and reads the run back. Answers the same JSON the pass answers
-     * (`apps/agent/src/jobRoutes.ts`); a failed node answers 500, which the workflow retries.
+     * (`packages/tex/worker/jobRoutes.ts`); a failed node answers 500, which the workflow retries.
      */
     async pass(step) {
       const jobId = String(await this.state.storage.get(JOB_NAME_KEY)).replace(/^job:/, "");
@@ -114,7 +114,7 @@ export function texJobClass({ gateway, texts }) {
       if (this.inner !== null) return this.inner;
       const id = this.state.id.toString();
       const name = await this.state.storage.get(JOB_NAME_KEY);
-      const { SenderInbox } = await import("../../agent/src/gatewayChat.js");
+      const { SenderInbox } = await import("../../../packages/tex/worker/gatewayChat.js");
       const env = await chatEnv(this.env, this.state, name, id, { gateway, texts, jobsHere: true });
       this.inner = new SenderInbox(chatState(this.state, id), { ...env, JOB_RUN: jobRunOver(this.env.TEXTING) });
       return this.inner;

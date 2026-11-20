@@ -1,6 +1,6 @@
 /**
  * A person's edit or unsend of a text they sent (node `edit`, `texConfig.json`), asked by the texting Worker's chat object over
- * the `TexTexts` binding before the edit is kept or queued (`apps/agent/src/editStep.ts`). The node runs on the
+ * the `TexTexts` binding before the edit is kept or queued (`packages/tex/worker/editStep.ts`). The node runs on the
  * gateway's graph, so its input, output and time are logged like every node's; the Worker keeps the edit and queues its
  * turn itself. The body holds the chat's kind and the words now and before, both capped at a text's length.
  */

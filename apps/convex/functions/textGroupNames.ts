@@ -7,7 +7,7 @@
  * drawn green whatsapp logo or a drawn blue imessage logo, that way its easy to see whats imessge and whats
  * whatsapp"), told by the same report: a WhatsApp chat's id is `whapi:<jid>`, any other is Sendblue's iMessage.
  *
- * The texting Worker sends the chat's name with each message (`apps/agent/src/sendblueGroups.ts` `groupNameOf`),
+ * The texting Worker sends the chat's name with each message (`packages/tex/worker/sendblueGroups.ts` `groupNameOf`),
  * beside it and never in it, so a rename shows on the chat's next message. Anyone in the chat can set it, so it is
  * text to show and nothing else: it never reaches a model, a path or a permission. The home's three words stay its
  * folder and its id.

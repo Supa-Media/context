@@ -9,7 +9,7 @@ run that fired it):
 
 1. In the asking chat the model calls `send ask_chat`. Node **Cross-chat gate** (`crossChatGate`, code) says whether it
    may go. The turn answers at once; the ask rides on the answer (`crossAsks`) to the texting Worker.
-2. The Worker (`apps/agent/src/crossChat.ts`) keeps the ask (`xask:<id>`), and queues it in the other chat's object as
+2. The Worker (`packages/tex/worker/crossChat.ts`) keeps the ask (`xask:<id>`), and queues it in the other chat's object as
    a turn of that chat's own: in a group as its asker's tag (re-checked by the control plane like any tag), in a person's
    1:1 by code. Node **Another chat asks** (`chatAsk`, an input) gives the run its fixed question, never the other
    chat's words as anyone's text. Node **Answer the other chat** (`chatAnswer`) sends its checked draft back instead of
@@ -38,6 +38,6 @@ draft wiring them, so no turn is told of a capability it can't use.
 **What a simplification would cost.** Answering inside the asking turn would hold it for the other chat's whole run
 and hide that run from its own chat's replay; letting an ask-run ask on would let two chats loop; texting an ask-run's
 draft would put one chat's words in front of people who never asked. Tests: `apps/mcp/test/crossChat.test.mjs`,
-`apps/agent/src/crossChat.test.ts`, `apps/mcp/test/texGraph.test.mjs` (generator wires) and the replay case
+`packages/tex/worker/crossChat.test.ts`, `apps/mcp/test/texGraph.test.mjs` (generator wires) and the replay case
 `apps/mcp/test/replay/cases/routine-sees-chat.mjs` (its cross-chat part). Wired into the config by the Lab draft "Cross-chat asks" (promoted
 2026-11-17); unwiring `tools -> crossChatGate` in a draft turns it all off again, and `ask_personal_tex` comes back.

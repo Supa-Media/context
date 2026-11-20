@@ -206,7 +206,7 @@ export function selfTest() {
     "ledger.js",
   );
   const reads = mobileOutsideReads();
-  for (const read of ["apps/mcp/src/agent/ledger.js", "apps/agent/src/stepEvents.ts"]) {
+  for (const read of ["apps/mcp/src/agent/ledger.js", "packages/tex/worker/stepEvents.ts"]) {
     if (!reads.includes(read)) throw new Error(`mobileOutsideReads() does not include ${read}`);
   }
 }

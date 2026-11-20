@@ -5,7 +5,7 @@
  * project or file that makes the most sense ... in the last case scenario, it can just keep it in its own text notes";
  * docs/decisions/texting-assistant/job-notes.md).
  *
- * Both routes are asked by the job's own object in the texting Worker (`apps/agent/src/jobNote.ts`), with the job's
+ * Both routes are asked by the job's own object in the texting Worker (`packages/tex/worker/jobNote.ts`), with the job's
  * own texting grant, as `/agent` is.
  *
  * - `POST /agent/job/note` `{ jobId, title, brief, doneWhen?, note? }` → `{ ok, path, context?, name, mailbox,

@@ -88,7 +88,7 @@ list.
 
 The first step needs no object. The chat's inbox in the texting Worker keeps
 the last "ready" answer, with its token, keyed to the tagger and a hash of the
-chat's people (`apps/agent/src/groupKept.ts`). A plain tag from the same
+chat's people (`packages/tex/worker/groupKept.ts`). A plain tag from the same
 person with the same people, within eight minutes of the mint (a group token
 lives fifteen), runs on that token at once, and the control plane is asked
 behind the turn without minting: its bookkeeping (the check-in, the reach) is
@@ -136,5 +136,5 @@ naming somebody else's object is the same miss; the phone is only ever a keyed
 hash, pinned to a vector Convex's copy must match; Convex is told the token's
 hash and never the token; who is texting is read off the session), and the
 Convex side in `apps/convex/__tests__/textingObjects.test.ts`; for a group,
-`apps/agent/src/groupKept.test.ts` (another sender, a newcomer, an old token,
+`packages/tex/worker/groupKept.test.ts` (another sender, a newcomer, an old token,
 a command or a chat that stopped answering never runs on a kept token).

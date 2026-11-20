@@ -24,6 +24,8 @@ type Summary = {
   filings: number;
   ms: number;
   fullRunUsd: number;
+  /** A Claude Code run's spend: measured tokens and the weekly limit's share (`ccUsage.mjs`); absent on a gateway run. */
+  cc?: { calls: number; tokens: number; weeklyPct: number | null; weeklyWhy: string | null; fullRunTokens: number | null; fullRunWeeklyPct: number | null };
   scores: Share & { asked: number; failed: number; byAbility: Record<string, Share>; byType: Record<string, Share>; usd: { filing: number; reading: number; judging: number; total: number; estimated?: boolean } };
 };
 type Question = {
@@ -43,6 +45,7 @@ type Question = {
   filingErrors: number;
   calls: Array<{ tool: string; input: string; chars: number; error: boolean }>;
   usd: { filing: number; reading: number; judging: number };
+  tokens?: { filing: number; reading: number; judging: number };
   ms: number;
   error: string | null;
 };
@@ -74,6 +77,12 @@ const ABILITIES: Array<[string, string]> = [
   ["abstention", "Abstention"],
 ];
 
+const toks = (x: number) => (x >= 1e9 ? `${(x / 1e9).toFixed(1)}B` : x >= 1e6 ? `${(x / 1e6).toFixed(1)}M` : x >= 1e3 ? `${Math.round(x / 1e3)}k` : `${x}`);
+/** A Claude Code run's spend, in tokens and the weekly limit's share, never as dollars it did not cost. */
+const ccSpend = (s: Summary) =>
+  s.cc
+    ? `${toks(s.cc.tokens)} tokens${s.cc.weeklyPct !== null ? `, ${s.cc.weeklyPct}% of the weekly limit` : ""}`
+    : "tokens not recorded";
 const usd = (x: number) => (x >= 10 ? `$${x.toFixed(0)}` : x >= 0.1 ? `$${x.toFixed(2)}` : `$${x.toFixed(3)}`);
 const pct = (s: Share | undefined) => (s && s.n ? `${s.pct ?? Math.round((100 * s.correct) / s.n)}%` : "–");
 const live = (r: EvalRun) => r.stage === "queued" || r.stage === "running";
@@ -136,7 +145,7 @@ function RunDetail({ id, benches }: { id: string; benches: Bench[] }) {
               </a>
             </>
           ) : null}
-          , {run.models === "cc" ? "Claude Code ($0)" : "the AI gateway"}, started {ago(run.startedAt)} from {run.via}.
+          , {run.models === "cc" ? "Claude Code" : "the AI gateway"}, started {ago(run.startedAt)} from {run.via}.
           {run.ghRunUrl ? (
             <>
               {" "}
@@ -153,8 +162,20 @@ function RunDetail({ id, benches }: { id: string; benches: Bench[] }) {
               {pct(s.scores)} <span className="hint" style={{ fontSize: 14 }}>{`${s.scores.correct}/${s.scores.n} right${s.scores.failed ? `, ${s.scores.failed} could not run` : ""}`}</span>
             </p>
             <p className="hint" style={{ margin: "0 0 10px" }}>
-              Reader {s.reader}, judge {s.judge}, filing {s.filings}× per question. This run {s.scores.usd.estimated ? "≈ " : ""}{usd(s.scores.usd.total)} (filing {usd(s.scores.usd.filing)}, reading {usd(s.scores.usd.reading)}, judging {usd(s.scores.usd.judging)}
-              ), all {s.total} questions about {usd(s.fullRunUsd)}, {Math.round(s.ms / 60000)} min.{s.scores.usd.estimated ? " Claude Code reports no usage, so these are gateway prices for the characters sent and answered." : ""}
+              Reader {s.reader}, judge {s.judge}, filing {s.filings}× per question.{" "}
+              {run.models === "cc" ? (
+                <>
+                  Claude Code: this run {ccSpend(s)}
+                  {s.cc?.fullRunTokens ? `; all ${s.total} questions about ${toks(s.cc.fullRunTokens)} tokens${s.cc.fullRunWeeklyPct !== null ? `, ${s.cc.fullRunWeeklyPct}% of a week` : ""}` : ""}, {Math.round(s.ms / 60000)} min.
+                  {s.cc && s.cc.weeklyPct === null ? ` The weekly share was not read (${s.cc.weeklyWhy ?? "no read"}).` : ""}
+                  {s.cc?.weeklyPct !== null && s.cc ? " The weekly share is the account's, read before and after, so other use meanwhile is in it." : ""}
+                </>
+              ) : (
+                <>
+                  This run {s.scores.usd.estimated ? "≈ " : ""}
+                  {usd(s.scores.usd.total)} (filing {usd(s.scores.usd.filing)}, reading {usd(s.scores.usd.reading)}, judging {usd(s.scores.usd.judging)}), all {s.total} questions about {usd(s.fullRunUsd)}, {Math.round(s.ms / 60000)} min.
+                </>
+              )}
             </p>
             {ABILITIES.map(([k, label]) => (
               <Bar key={k} label={label} s={s.scores.byAbility[k]} />
@@ -195,7 +216,7 @@ function RunDetail({ id, benches }: { id: string; benches: Bench[] }) {
                       <td>{q.correct === true ? <span className="lgok">✓</span> : q.correct === false ? <span className="lgno">✗</span> : <span className="hint">–</span>}</td>
                       <td>{q.question}</td>
                       <td className="hint">{ABILITIES.find(([k]) => k === q.ability)?.[1] ?? q.ability}</td>
-                      <td className="tn">{usd(q.usd.filing + q.usd.reading + q.usd.judging)}</td>
+                      <td className="tn">{run.models === "cc" ? (q.tokens ? `≈ ${toks(q.tokens.filing + q.tokens.reading + q.tokens.judging)} tok` : "–") : usd(q.usd.filing + q.usd.reading + q.usd.judging)}</td>
                     </tr>
                     {open === q.id ? (
                       <tr>
@@ -282,7 +303,7 @@ export function Evals({ visible = true }: { visible?: boolean }) {
           </label>
           <select id="evModels" className="search" style={{ maxWidth: 200 }} value={models} onChange={(e) => setModels(e.target.value as "gw" | "cc")}>
             <option value="gw">AI gateway</option>
-            <option value="cc">Claude Code ($0)</option>
+            <option value="cc">Claude Code (subscription)</option>
           </select>
           <input id="evCode" className="search" placeholder="main, #PR or branch" value={code} style={{ maxWidth: 200 }} onChange={(e) => setCode(e.target.value)} />
           <button className="primary" id="evRunBtn" onClick={() => void run()}>
@@ -317,7 +338,7 @@ export function Evals({ visible = true }: { visible?: boolean }) {
                       <code>{r.code ?? "main"}</code> {r.models === "cc" ? <span className="hint">cc</span> : null}
                     </td>
                     <td>{r.summary ? pct(r.summary.scores) : <Stage r={r} />}</td>
-                    <td className="tn">{r.summary ? usd(r.summary.scores.usd.total) : "–"}</td>
+                    <td className="tn">{r.summary ? (r.models === "cc" ? ccSpend(r.summary) : usd(r.summary.scores.usd.total)) : "–"}</td>
                     <td>
                       {!live(r) ? (
                         <button

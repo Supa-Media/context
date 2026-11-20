@@ -72,6 +72,10 @@ export function cleanRow(x: unknown) {
       return { tool: text(call.tool, 40), input: text(JSON.stringify(call.input ?? {}), 300), chars: num(call.chars), error: call.error === true };
     }),
     usd: { filing: num(usd.filing), reading: num(usd.reading), judging: num(usd.judging) },
+    tokens: (() => {
+      const t = (r.tokens && typeof r.tokens === "object" ? r.tokens : {}) as Record<string, unknown>;
+      return { filing: num(t.filing), reading: num(t.reading), judging: num(t.judging) };
+    })(),
     usdEstimated: r.usdEstimated === true,
     ms: num(r.ms),
     error: r.error ? text(r.error, 300) : null,
@@ -82,6 +86,41 @@ const share = (x: unknown) => {
   const s = (x && typeof x === "object" ? x : {}) as Record<string, unknown>;
   return { n: num(s.n), correct: num(s.correct), pct: typeof s.pct === "number" ? s.pct : null };
 };
+
+/** A number or null, kept as reported (a weekly share the usage read could not give is null, not 0). */
+const numOrNull = (x: unknown) => (typeof x === "number" && Number.isFinite(x) ? x : null);
+
+/**
+ * A Claude Code run's spend (`apps/mcp/bench/evals/ccUsage.mjs`): measured tokens and the weekly limit's share, in
+ * place of dollars it did not cost. Absent on a gateway run.
+ */
+export function cleanCc(x: unknown) {
+  if (!x || typeof x !== "object") return undefined;
+  const c = x as Record<string, unknown>;
+  const byModel = Object.fromEntries(
+    Object.entries(c.byModel && typeof c.byModel === "object" ? (c.byModel as Record<string, unknown>) : {})
+      .slice(0, 8)
+      .map(([k, v]) => {
+        const m = (v && typeof v === "object" ? v : {}) as Record<string, unknown>;
+        return [k.slice(0, 40), { calls: num(m.calls), input: num(m.input), output: num(m.output), cacheRead: num(m.cacheRead), cacheWrite: num(m.cacheWrite) }];
+      }),
+  );
+  return {
+    calls: num(c.calls),
+    tokens: num(c.tokens),
+    input: num(c.input),
+    output: num(c.output),
+    cacheRead: num(c.cacheRead),
+    cacheWrite: num(c.cacheWrite),
+    byModel,
+    weeklyPct: numOrNull(c.weeklyPct),
+    weeklyBefore: numOrNull(c.weeklyBefore),
+    weeklyAfter: numOrNull(c.weeklyAfter),
+    weeklyWhy: c.weeklyWhy ? text(c.weeklyWhy, 160) : null,
+    fullRunTokens: numOrNull(c.fullRunTokens),
+    fullRunWeeklyPct: numOrNull(c.fullRunWeeklyPct),
+  };
+}
 
 /** The run's summary, cleaned: scores per ability and type, costs and settings. */
 export function cleanSummary(x: unknown) {
@@ -97,6 +136,7 @@ export function cleanSummary(x: unknown) {
     filings: num(s.filings),
     ms: num(s.ms),
     fullRunUsd: num(s.fullRunUsd),
+    ...(cleanCc(s.cc) ? { cc: cleanCc(s.cc) } : {}),
     scores: {
       ...share(scores),
       asked: num(scores.asked),

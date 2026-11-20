@@ -108,7 +108,7 @@ ended up with `must file` checks (`bench/checks.mjs`), not with the judge.
 an MCP grant lets a conversation trigger unwatched bulk changes. Dropping the
 guard's protected paths lets a tidy move routines (which stop running) or the
 website (which unpublishes). Dropping the log loses the undo. Tests:
-`apps/mcp/test/agentHousekeeping.test.mjs` and `apps/convex/__tests__/housekeeping.test.ts`, each with its sabotage record; `apps/agent/src/housekeeping.test.ts` for the Worker.
+`apps/mcp/test/agentHousekeeping.test.mjs` and `apps/convex/__tests__/housekeeping.test.ts`, each with its sabotage record; `packages/tex/worker/housekeeping.test.ts` for the Worker.
 
 ## Runs that always failed, and runs that left no log (2026-11-09)
 
