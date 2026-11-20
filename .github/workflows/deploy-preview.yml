@@ -429,6 +429,7 @@ jobs:
       - name: Smoke the preview
         env:
           CONVEX_DEPLOY_KEY: ${{ secrets.CONVEX_PREVIEW_DEPLOY_KEY }}
+          APP_ENV: preview
         run: |
           set -euo pipefail
           node scripts/preview-smoke.mjs
