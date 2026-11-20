@@ -68,3 +68,22 @@ and the code. "Checked on every preview" means the deploy's smoke test
 - Real payments.
 - Any production or staging data in a preview, including the `context-lc` site.
 - A preview of a fork's pull request: forks never get secrets.
+
+## Adding something to a preview
+
+Everything a preview creates is listed in `scripts/preview-resources.mjs`. For each kind, it records how the kind is
+created, the step that tears it down, and the line the gone-check reports while the kind still exists. Things a preview
+only uses are listed there too, each with the reason it needs no teardown: shared `*_preview` Analytics Engine
+datasets, Workers AI, short-lived R2 credentials, and so on.
+
+The **Every preview resource has a teardown** guard (`scripts/preview-resources-check.mjs`, in Fast Guards) fails in
+these cases:
+
+- a Worker config gains an `env.preview` key that is not registered;
+- the agent's preview Workflows differ from the ones cleanup deletes;
+- the deploy makes a Worker that cleanup does not delete;
+- code a preview runs calls a Cloudflare `/accounts/<id>/…` API family that is not registered.
+
+Its test runs cleanup against a fake account holding one leftover of each owned kind. It requires the leftover to be
+gone afterwards, and it requires the gone-check to name the leftover when the teardown step is skipped. A new owned
+kind therefore lands with its teardown, or CI stays red.
