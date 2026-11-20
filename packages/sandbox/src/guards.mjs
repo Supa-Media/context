@@ -21,7 +21,7 @@ import { pathToFileURL } from "node:url";
 /**
  * Texting-line secrets: a preview must never be able to send a text on a real line. Only names the
  * deploy reads belong here: Photon's are the two that scripts/deploy-photon-bridge.yml reads. The list
- * is what `silence` and `worker-secrets` refuse, and what scripts/preview-convex-env.mjs removes from
+ * is what `silence` and `worker-secrets` refuse, and what packages/sandbox/src/convex-env.mjs removes from
  * the preview's Convex deployment.
  */
 export const TEXTING_LINE_KEYS = [
@@ -278,7 +278,7 @@ function report(name, problems) {
   return problems.length === 0 ? 0 : 1;
 }
 
-const DEPLOY_WORKFLOW = new URL("../.github/workflows/deploy-preview.yml", import.meta.url);
+const DEPLOY_WORKFLOW = new URL("../../../.github/workflows/deploy-preview.yml", import.meta.url);
 
 /** Reads all of stdin as text. */
 async function readStdin() {
@@ -315,7 +315,7 @@ async function main(argv) {
     }
     return report("agent-health", problems);
   }
-  process.stderr.write("usage: preview-guards.mjs silence [workflowPath] | worker-secrets <workerName> | identity [--before-deploy] | agent-health <agentOrigin>\n");
+  process.stderr.write("usage: guards.mjs silence [workflowPath] | worker-secrets <workerName> | identity [--before-deploy] | agent-health <agentOrigin>\n");
   return 2;
 }
 

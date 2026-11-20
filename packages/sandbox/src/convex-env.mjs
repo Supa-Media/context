@@ -3,7 +3,7 @@
 // code is pushed:
 //
 //   pnpm exec convex deploy --yes --preview-name pr<N> \
-//     --cmd 'node scripts/preview-convex-env.mjs' \
+//     --cmd 'node packages/sandbox/src/convex-env.mjs' \
 //     --cmd-url-env-var-name PREVIEW_CONVEX_URL --preview-run functions/seed:preview
 //
 // A preview is a copy of the staging backend with its identity changed. It
@@ -11,7 +11,7 @@
 // encryption key) and loses everything that would reach a real person or a
 // real line: the texting lines, real email, payments, and the staging
 // deployment's own name. Those names are in FORBIDDEN_PREVIEW_KEYS
-// (scripts/preview-guards.mjs), and they are also removed from the deployment,
+// (packages/sandbox/src/guards.mjs), and they are also removed from the deployment,
 // because a project default can carry them.
 //
 // Values are written to a 0600 file in $RUNNER_TEMP (or the OS temp directory),
@@ -22,11 +22,11 @@ import { appendFileSync, chmodSync, mkdtempSync, rmSync, writeFileSync } from 'n
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
-import { FORBIDDEN_PREVIEW_KEYS } from './preview-guards.mjs';
-import { backendKeys } from './staging-env.mjs';
+import { FORBIDDEN_PREVIEW_KEYS } from './guards.mjs';
+import { backendKeys } from '../../../scripts/staging-env.mjs';
 
-const CLI = fileURLToPath(new URL('../node_modules/convex/bin/main.js', import.meta.url));
-const REPO_ROOT = fileURLToPath(new URL('../', import.meta.url));
+const CLI = fileURLToPath(new URL('../../../node_modules/convex/bin/main.js', import.meta.url));
+const REPO_ROOT = fileURLToPath(new URL('../../../', import.meta.url));
 
 /** Names this script sets itself, so a staging value for them is never copied. */
 const OWN_NAMES = ['APP_ENV', 'APP_ORIGIN', 'SITE_URL', 'STORAGE_MOVER_ORIGIN', 'PREVIEW_NAME', 'MANAGED_R2_ACCOUNT_ID'];

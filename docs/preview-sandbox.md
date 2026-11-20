@@ -11,7 +11,7 @@ is the catalog of how it differs from production.
 
 Last checked 2026-11-20 against the live account, the deploy and cleanup logs,
 and the code. "Checked on every preview" means the deploy's smoke test
-(`scripts/preview-smoke.mjs`) proves it each push.
+(`packages/sandbox/src/smoke.mjs`) proves it each push.
 
 ## How to use one
 
@@ -29,13 +29,13 @@ and the code. "Checked on every preview" means the deploy's smoke test
 
 | What | How it is known |
 | --- | --- |
-| Its own Convex deployment, Workers and Durable Objects (notes, Tex's chats, jobs, the Lab sandbox) | Named `pr<N>`; the guards refuse any production or staging identifier (`scripts/preview-guards.mjs`) |
+| Its own Convex deployment, Workers and Durable Objects (notes, Tex's chats, jobs, the Lab sandbox) | Named `pr<N>`; the guards refuse any production or staging identifier (`packages/sandbox/src/guards.mjs`) |
 | Five personas, their workspaces, memberships and 41 fixture notes, in managed buckets of their own | The seed, every preview |
 | Tex answering a text through the simulator (1:1), and in the app's Tex chat | Checked on every preview |
 | Search by meaning (the workspace object's index, Workers AI embeddings) | Checked on every preview |
 | The models Tex calls: real, through the AI gateway, billed like staging | The gateway's secrets |
 | Web search, maps | Same keys as staging |
-| Teardown: Workers, Workflows, Durable Objects, Convex deployment, emptied buckets, search databases, indexes and scoped R2 tokens, each checked gone | `scripts/preview-teardown.mjs` `verifyGone`; a leftover fails the cleanup run |
+| Teardown: Workers, Workflows, Durable Objects, Convex deployment, emptied buckets, search databases, indexes and scoped R2 tokens, each checked gone | `packages/sandbox/src/teardown.mjs` `verifyGone`; a leftover fails the cleanup run |
 
 ## Mocked, because a preview cannot have the real thing
 
@@ -45,7 +45,7 @@ and the code. "Checked on every preview" means the deploy's smoke test
 | Outgoing email and SMS (sign-in codes, invitations, Tex's mail) | Nothing is sent. Sign-in codes are issued by CI and mailed only to the team inbox | Same reason: no mail key ever reaches a preview |
 | Mail in (a personal workspace's capture address) | None | Mail routing is per domain; a preview has no domain of its own |
 | Billing (Stripe) | A test Premium switch the seed turns on | No payment key on a preview |
-| The per-workspace search database (D1) and Vectorize | The workspace object's own word and meaning indexes | A preview's config may not bind D1, Vectorize or R2 (`preview-config.mjs`); the object indexes are production's first choice anyway |
+| The per-workspace search database (D1) and Vectorize | The workspace object's own word and meaning indexes | A preview's config may not bind D1, Vectorize or R2 (`config.mjs`); the object indexes are production's first choice anyway |
 | Tex's examples index | Off | It is production's shared index and refused on a preview (`texExamplesIndex.ts`) |
 | Its own screenshot, transcription and Tex eval Workers | Staging's, shared by every preview | One copy is enough for stateless helpers |
 | The desktop and phone apps | The web app only | Native builds are separate, manual releases |
@@ -73,12 +73,12 @@ and the code. "Checked on every preview" means the deploy's smoke test
 
 ## Adding something to a preview
 
-Everything a preview creates is listed in `scripts/preview-resources.mjs`. For each kind, it records how the kind is
+Everything a preview creates is listed in `packages/sandbox/src/resources.mjs`. For each kind, it records how the kind is
 created, the step that tears it down, and the line the gone-check reports while the kind still exists. Things a preview
 only uses are listed there too, each with the reason it needs no teardown: shared `*_preview` Analytics Engine
 datasets, Workers AI, short-lived R2 credentials, and so on.
 
-The **Every preview resource has a teardown** guard (`scripts/preview-resources-check.mjs`, in Fast Guards) fails in
+The **Every preview resource has a teardown** guard (`packages/sandbox/src/resources-check.mjs`, in Fast Guards) fails in
 these cases:
 
 - a Worker config gains an `env.preview` key that is not registered;

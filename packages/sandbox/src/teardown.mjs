@@ -1,6 +1,6 @@
 /**
  * The parts of a preview's teardown that `wrangler delete` does not do, used by
- * scripts/preview-cleanup.mjs:
+ * packages/sandbox/src/cleanup.mjs:
  *
  * - **Buckets are emptied before they are deleted.** R2 refuses to delete a
  *   bucket that holds objects, and a preview's managed buckets always hold its

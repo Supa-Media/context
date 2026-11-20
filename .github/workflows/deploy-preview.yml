@@ -5,7 +5,7 @@ name: Preview
 # texting assistant, and the router with the web app, all under the pull
 # request's own names (`context-*-pr<N>`). It never touches production or
 # staging data, and it sends no text or email. The guards in
-# scripts/preview-guards.mjs refuse to deploy a preview that holds a line or a
+# packages/sandbox/src/guards.mjs refuse to deploy a preview that holds a line or a
 # mail key, and they run before the first deploy.
 #
 # Triggers. `push` covers every branch but main, and `workflow_dispatch`
@@ -212,7 +212,7 @@ jobs:
       # inherits, so this job never reads them; after the deploy, each Worker's own
       # secret list is checked.
       - name: Refuse any line, mail or payment key on the preview
-        run: node scripts/preview-guards.mjs silence
+        run: node packages/sandbox/src/guards.mjs silence
 
       # The Convex key is checked before Convex is deployed, with --before-deploy:
       # the deployment's URL does not exist until the deploy below, so only the
@@ -221,17 +221,17 @@ jobs:
         env:
           CONVEX_DEPLOY_KEY: ${{ secrets.CONVEX_PREVIEW_DEPLOY_KEY }}
           PREVIEW_DENY_IDENTIFIERS: ${{ secrets.PREVIEW_DENY_IDENTIFIERS }}
-        run: node scripts/preview-guards.mjs identity --before-deploy
+        run: node packages/sandbox/src/guards.mjs identity --before-deploy
 
       # The Worker configs are rendered and checked before anything deploys.
       - name: Render the preview's wrangler configs
-        run: node scripts/preview-config.mjs render --pr "$PR" --subdomain "$WORKERS_DEV_SUBDOMAIN"
+        run: node packages/sandbox/src/config.mjs render --pr "$PR" --subdomain "$WORKERS_DEV_SUBDOMAIN"
 
       - name: Deploy the preview Convex deployment
         id: convex
         env:
           CONVEX_DEPLOY_KEY: ${{ secrets.CONVEX_PREVIEW_DEPLOY_KEY }}
-          # What scripts/preview-convex-env.mjs copies onto the deployment, minus
+          # What packages/sandbox/src/convex-env.mjs copies onto the deployment, minus
           # the forbidden names (the guard above) and the staging and production
           # identifiers, which that script removes itself.
           GATEWAY_SECRET: ${{ secrets.GATEWAY_SECRET }}
@@ -254,10 +254,10 @@ jobs:
           CALENDAR_CONNECT_ENABLED: ${{ vars.CALENDAR_CONNECT_ENABLED || secrets.CALENDAR_CONNECT_ENABLED }}
           PLUGIN_EGRESS_URL: ${{ secrets.PLUGIN_EGRESS_URL }}
           PLUGIN_EGRESS_SECRET: ${{ secrets.PLUGIN_EGRESS_SECRET }}
-          # The managed account is the preview's own CLOUDFLARE_ACCOUNT_ID (job env), set by preview-convex-env.mjs.
+          # The managed account is the preview's own CLOUDFLARE_ACCOUNT_ID (job env), set by convex-env.mjs.
           PREVIEW_DENY_IDENTIFIERS: ${{ secrets.PREVIEW_DENY_IDENTIFIERS }}
-        # preview-convex-env.mjs builds the preview's Worker hosts from this.
-        run: PREVIEW_WORKERS_DEV="$WORKERS_DEV_SUBDOMAIN.workers.dev" pnpm exec convex deploy --yes --preview-name "pr$PR" --cmd 'node scripts/preview-convex-env.mjs' --cmd-url-env-var-name PREVIEW_CONVEX_URL --preview-run functions/seed:preview
+        # convex-env.mjs builds the preview's Worker hosts from this.
+        run: PREVIEW_WORKERS_DEV="$WORKERS_DEV_SUBDOMAIN.workers.dev" pnpm exec convex deploy --yes --preview-name "pr$PR" --cmd 'node packages/sandbox/src/convex-env.mjs' --cmd-url-env-var-name PREVIEW_CONVEX_URL --preview-run functions/seed:preview
 
       # The deployment's own identity, checked again now that it exists. Its
       # URLs are masked and kept for the steps after, as GITHUB_ENV values.
@@ -273,7 +273,7 @@ jobs:
           for value in "$PREVIEW_CONVEX_URL" "$CONVEX_SITE" "$CONVEX_DEPLOYMENT"; do
             if [ -n "$value" ]; then echo "::add-mask::$value"; fi
           done
-          node scripts/preview-guards.mjs identity
+          node packages/sandbox/src/guards.mjs identity
           {
             echo "PREVIEW_CONVEX_URL=$PREVIEW_CONVEX_URL"
             echo "PREVIEW_CONTROL_PLANE_URL=$CONVEX_SITE"
@@ -398,19 +398,19 @@ jobs:
         if: ${{ needs.resolve.outputs.mcp == 'true' }}
         run: |
           set -euo pipefail
-          pnpm --dir apps/mcp exec wrangler secret list --format json --config wrangler.preview.toml --name "context-mcp-pr$PR" | node scripts/preview-guards.mjs worker-secrets "context-mcp-pr$PR"
+          pnpm --dir apps/mcp exec wrangler secret list --format json --config wrangler.preview.toml --name "context-mcp-pr$PR" | node packages/sandbox/src/guards.mjs worker-secrets "context-mcp-pr$PR"
 
       - name: Check the texting assistant holds no line, mail or payment key
         if: ${{ needs.resolve.outputs.agent == 'true' }}
         run: |
           set -euo pipefail
-          pnpm --dir apps/agent exec wrangler secret list --format json --config wrangler.preview.jsonc --name "context-agent-pr$PR" | node scripts/preview-guards.mjs worker-secrets "context-agent-pr$PR"
+          pnpm --dir apps/agent exec wrangler secret list --format json --config wrangler.preview.jsonc --name "context-agent-pr$PR" | node packages/sandbox/src/guards.mjs worker-secrets "context-agent-pr$PR"
 
       - name: Check the router holds no line, mail or payment key
         if: ${{ needs.resolve.outputs.app == 'true' || needs.resolve.outputs.router == 'true' || steps.webapp.outputs.missing == 'true' }}
         run: |
           set -euo pipefail
-          pnpm --dir infra/router exec wrangler secret list --format json --config wrangler.preview.jsonc --name "context-router-pr$PR" | node scripts/preview-guards.mjs worker-secrets "context-router-pr$PR"
+          pnpm --dir infra/router exec wrangler secret list --format json --config wrangler.preview.jsonc --name "context-router-pr$PR" | node packages/sandbox/src/guards.mjs worker-secrets "context-router-pr$PR"
 
       - name: Record when the Workers were done
         run: echo "T_WORKERS=$(date +%s)" >> "$GITHUB_ENV"
@@ -422,7 +422,7 @@ jobs:
           set -euo pipefail
           for attempt in $(seq 1 10); do
             if node scripts/health-check-gateway.mjs --origin "$PREVIEW_MCP_ORIGIN" \
-              && node scripts/preview-guards.mjs agent-health "$PREVIEW_AGENT_ORIGIN"; then
+              && node packages/sandbox/src/guards.mjs agent-health "$PREVIEW_AGENT_ORIGIN"; then
               echo "T_LIVE=$(date +%s)" >> "$GITHUB_ENV"
               echo "The preview is live."
               exit 0
@@ -439,7 +439,7 @@ jobs:
           APP_ENV: preview
           # Minting each bucket's scoped key needs Account API Tokens Edit; a separate token keeps that off the deploy token.
           PREVIEW_R2_API_TOKEN: ${{ secrets.PREVIEW_R2_API_TOKEN || secrets.CLOUDFLARE_API_TOKEN }}
-        run: node scripts/preview-seed.mjs
+        run: node packages/sandbox/src/seed.mjs
 
       - name: Smoke the preview
         env:
@@ -447,7 +447,7 @@ jobs:
           APP_ENV: preview
         run: |
           set -euo pipefail
-          node scripts/preview-smoke.mjs
+          node packages/sandbox/src/smoke.mjs
           echo "T_SMOKE=$(date +%s)" >> "$GITHUB_ENV"
 
       # The web app in a real browser: the sign-in page renders and nothing on
@@ -461,7 +461,7 @@ jobs:
         run: |
           set -euo pipefail
           pnpm --dir apps/mobile exec playwright install chromium || echo "Playwright's Chromium did not install; the runner's Chrome is used."
-          node scripts/preview-browser.mjs
+          node packages/sandbox/src/browser.mjs
 
       # A pull request that closed while this ran was already swept, and this run
       # put its preview back up. Delete it again, so a closed preview never waits
@@ -478,7 +478,7 @@ jobs:
           state="$(gh api "repos/$GITHUB_REPOSITORY/pulls/$PR" --jq .state)"
           if [ "$state" = "open" ]; then exit 0; fi
           echo "Pull request $PR closed while its preview deployed: deleting it."
-          node scripts/preview-cleanup.mjs delete "$PR"
+          node packages/sandbox/src/cleanup.mjs delete "$PR"
 
       # Runs even when a step above failed: the comment says what was reached.
       # Only seconds, and only the Worker names and paths, are printed.

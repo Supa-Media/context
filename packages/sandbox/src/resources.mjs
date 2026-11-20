@@ -6,9 +6,9 @@
  * under when it is still there. Everything a preview touches without creating
  * anything of its own is listed in USED, with the reason it needs no teardown.
  *
- * scripts/preview-resources-check.mjs fails CI when a preview's Worker config,
+ * packages/sandbox/src/resources-check.mjs fails CI when a preview's Worker config,
  * deploy step or Cloudflare API call names a kind that is in neither list, and
- * scripts/preview-resources.test.mjs fails when an owned kind's leftover is not
+ * packages/sandbox/src/resources.test.mjs fails when an owned kind's leftover is not
  * reported by `verifyGone`. So adding something to a preview means saying here
  * how it goes away, and proving the check notices when it does not.
  */
@@ -18,7 +18,7 @@ export const OWNED = [
   {
     kind: "Worker",
     createdBy: "deploy-preview.yml `wrangler deploy --name context-<mcp|agent|router>-pr<N>`",
-    teardown: "preview-cleanup.mjs deletePreview: `wrangler delete`",
+    teardown: "cleanup.mjs deletePreview: `wrangler delete`",
     label: "Worker",
     fake: (n) => ({ path: "/workers/scripts", account: "gateway", row: { id: `context-agent-pr${n}` } }),
   },
@@ -32,42 +32,42 @@ export const OWNED = [
   {
     kind: "Workflow",
     createdBy: "apps/agent env.preview `workflows` (group-turn, job-run)",
-    teardown: "preview-cleanup.mjs deletePreview: DELETE /workflows/<name>",
+    teardown: "cleanup.mjs deletePreview: DELETE /workflows/<name>",
     label: "Workflow",
     fake: (n) => ({ path: "/workflows", account: "gateway", row: { name: `job-run-pr${n}` } }),
   },
   {
     kind: "R2 bucket",
     createdBy: "Convex managed provisioning (lib/cloudflare/provisioning.ts), names pr<N>-ctx-<id>",
-    teardown: "preview-teardown.mjs emptyAndDeleteBucket",
+    teardown: "teardown.mjs emptyAndDeleteBucket",
     label: "R2 bucket",
     fake: (n) => ({ path: "/r2/buckets", account: "storage", row: { name: `pr${n}-ctx-abc` } }),
   },
   {
     kind: "R2 token",
     createdBy: "Convex managed provisioning, one per bucket, named `Context — <bucket>`",
-    teardown: "preview-teardown.mjs revokePreviewTokens",
+    teardown: "teardown.mjs revokePreviewTokens",
     label: "R2 token",
     fake: (n) => ({ path: "/tokens", account: "storage", row: { id: "t1", name: `Context — pr${n}-ctx-abc` } }),
   },
   {
     kind: "D1 database",
     createdBy: "Convex word search provisioning (lib/d1.ts), names pr<N>-context-search-<id>",
-    teardown: "preview-cleanup.mjs removeStorage",
+    teardown: "cleanup.mjs removeStorage",
     label: "D1 database",
     fake: (n) => ({ path: "/d1/database", account: "storage", row: { name: `pr${n}-context-search-abc`, uuid: "u1" } }),
   },
   {
     kind: "Vectorize index",
     createdBy: "Convex meaning search provisioning, names pr<N>-context-meaning-<id>",
-    teardown: "preview-cleanup.mjs removeStorage",
+    teardown: "cleanup.mjs removeStorage",
     label: "Vectorize index",
     fake: (n) => ({ path: "/vectorize/v2/indexes", account: "storage", row: { name: `pr${n}-context-meaning-abc` } }),
   },
   {
     kind: "Convex preview deployment",
     createdBy: "deploy-preview.yml `convex deploy --preview-create pr<N>`, with its data, env vars and seeded secrets",
-    teardown: "preview-teardown.mjs deleteConvexPreview",
+    teardown: "teardown.mjs deleteConvexPreview",
     label: "Convex preview deployment",
     fake: null,
   },
@@ -81,7 +81,7 @@ export const USED_BINDINGS = {
   migrations: "describe the Worker's own Durable Object classes",
   workflows: "OWNED: Workflow",
   analytics_engine_datasets: "shared `*_preview` datasets written to, never created per pull request",
-  services: "bindings to the preview's own Workers or to shared staging Workers (checked by preview-config.mjs)",
+  services: "bindings to the preview's own Workers or to shared staging Workers (checked by config.mjs)",
   ai: "Workers AI, a model call, nothing stored",
   images: "Cloudflare Images transforms, nothing stored",
   version_metadata: "read-only facts about the deployed version",

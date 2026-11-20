@@ -5,7 +5,7 @@ name: Preview sign-in code
 # it: notes, search, and Tex's in-app chat (a preview has no texting line).
 # The code is issued on the preview through the convex CLI and mailed from this
 # runner, never printed (this repository's Actions logs are public). The preview
-# itself still holds no mail key. See scripts/preview-sign-in-code.mjs and
+# itself still holds no mail key. See packages/sandbox/src/sign-in-code.mjs and
 # docs/preview-sandbox.md.
 on:
   workflow_dispatch:
@@ -66,4 +66,4 @@ jobs:
           AUTH_EMAIL_FROM: ${{ vars.AUTH_EMAIL_FROM || secrets.AUTH_EMAIL_FROM }}
           PR: ${{ inputs.pr }}
           PERSONA: ${{ inputs.persona }}
-        run: node scripts/preview-sign-in-code.mjs
+        run: node packages/sandbox/src/sign-in-code.mjs

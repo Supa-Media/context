@@ -64,6 +64,8 @@ const SHARED_IGNORED = [
   ".github/**",
   ".claude/**",
   "scripts/**",
+  // The preview sandbox's tooling; a preview's own fan-out lists the files that redeploy one.
+  "packages/sandbox/**",
   "plugins/**",
   "artifacts/**",
   "apps/desktop/**",
@@ -85,15 +87,15 @@ const workflow = (name) => `.github/workflows/${name}.yml`;
 /** What turns a Worker's secrets into one `wrangler secret bulk` request. */
 const WORKER_SECRETS = "scripts/worker-secrets.mjs";
 /** What renders each preview's wrangler config from the one in the repository. */
-const PREVIEW_CONFIG = "scripts/preview-config.mjs";
-const PREVIEW_CONVEX_ENV = "scripts/preview-convex-env.mjs";
+const PREVIEW_CONFIG = "packages/sandbox/src/config.mjs";
+const PREVIEW_CONVEX_ENV = "packages/sandbox/src/convex-env.mjs";
 /** Every script a preview runs; changing one re-proves the whole preview. */
 const PREVIEW_SCRIPTS = [
   PREVIEW_CONFIG,
   PREVIEW_CONVEX_ENV,
-  "scripts/preview-guards.mjs",
-  "scripts/preview-seed.mjs",
-  "scripts/preview-smoke.mjs",
+  "packages/sandbox/src/guards.mjs",
+  "packages/sandbox/src/seed.mjs",
+  "packages/sandbox/src/smoke.mjs",
   WORKER_SECRETS,
 ];
 

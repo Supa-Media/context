@@ -43,7 +43,7 @@ Cloudflare does not generate a version URL for a Worker that has Durable
 Objects, so a per-version alias cannot stand in for a preview. Each preview is
 instead a separately named Worker, deployed under `context-*-pr<N>` with
 `wrangler deploy --config <rendered file> --env preview --name <name>`. The
-rendered configs are copies made by `scripts/preview-config.mjs` from the
+rendered configs are copies made by `packages/sandbox/src/config.mjs` from the
 `env.preview` section at the end of each Worker's config, with the placeholders
 `__PREVIEW__` and `__WORKERS_DEV__` filled in. The originals are not edited.
 
@@ -72,7 +72,7 @@ A preview is a separate world, not a view onto staging or production.
   the same workspace.
   A preview's managed buckets are created in the preview's own Workers account
   (`CLOUDFLARE_ACCOUNT_ID`), never the customer-data account:
-  `scripts/preview-convex-env.mjs` derives `MANAGED_R2_ACCOUNT_ID` from it and
+  `packages/sandbox/src/convex-env.mjs` derives `MANAGED_R2_ACCOUNT_ID` from it and
   refuses an id on the deny list, and the seed stores the preview environment's
   `PREVIEW_R2_API_TOKEN` (falling back to `CLOUDFLARE_API_TOKEN`) as the
   deployment's `MANAGED_R2_API_TOKEN` integration secret. Provisioning mints a
@@ -90,19 +90,19 @@ A preview is a separate world, not a view onto staging or production.
 A preview must never be able to send a text, an SMS, an email or a payment.
 
 - **No texting, SMS, mail or billing key is set on a preview.** The list lives
-  in `scripts/preview-guards.mjs` as `FORBIDDEN_PREVIEW_KEYS`: the texting-line
+  in `packages/sandbox/src/guards.mjs` as `FORBIDDEN_PREVIEW_KEYS`: the texting-line
   keys (Linq, Sendblue, Whapi, Photon and `TEX_LINE_NUMBERS`), the SMS keys
   (Twilio), the mail key (`RESEND_API_KEY`) and the Stripe webhook secret.
-  `preview-guards.mjs silence` runs in CI before the first deploy and fails
+  `guards.mjs silence` runs in CI before the first deploy and fails
   the deploy if any of them is non-empty, naming the variable and never its
-  value. `scripts/preview-convex-env.mjs` also removes any of them that a
+  value. `packages/sandbox/src/convex-env.mjs` also removes any of them that a
   project default has put on the deployment.
-- **The texting assistant's health is checked.** `preview-guards.mjs
+- **The texting assistant's health is checked.** `guards.mjs
   agent-health` reads `<agent>/health` and fails if any live-line flag is true
   (the Linq, Sendblue, Whapi and Photon flags, and the `webhook` and `replies`
   flags). It then requires `/texts-simulator` to answer 200.
 - **Texting happens only through `/texts-simulator`**, from made-up numbers in
-  the range +1 212 555 01XX (`0100` to `0199`). `scripts/preview-smoke.mjs`
+  the range +1 212 555 01XX (`0100` to `0199`). `packages/sandbox/src/smoke.mjs`
   refuses any other number.
 
 ## Identity: when a preview is a preview
@@ -143,14 +143,14 @@ widening. Each caller asks `isIsolatedPreview()` or the function built on it.
 
 ## Production identifiers are refused before the deploy
 
-`preview-guards.mjs identity --before-deploy` runs before the Convex deploy and
+`guards.mjs identity --before-deploy` runs before the Convex deploy and
 checks only the deploy key and the deny list: the deployment's URL does not
-exist until the deploy creates it. `preview-guards.mjs identity` runs after the
+exist until the deploy creates it. `guards.mjs identity` runs after the
 deploy and also requires the preview URL to be `https://<name>.convex.cloud`.
 Both require the Convex deploy key to start with `preview:`. Neither may contain an entry from
 `PREVIEW_DENY_IDENTIFIERS` (a secret listing the production deployment names
 and resource names), and neither may name the staging deployment.
-`preview-config.mjs check` applies the same deny list to each rendered config's
+`config.mjs check` applies the same deny list to each rendered config's
 `env.preview` section, and fails on a leftover placeholder, a `context.lc` or
 `tex.lc` host, a service binding to any Worker other than the preview's own or
 the three staging Workers named above, a Photon, Vectorize, D1 or R2 binding, or
@@ -169,12 +169,12 @@ chat. A group chat is born from the first text its members send Tex, because
 that text carries the carrier's group identifier. The seed returns workspace,
 persona and phone identifiers and no secrets.
 
-`scripts/preview-seed.mjs` then signs each persona in with a code issued by
+`packages/sandbox/src/seed.mjs` then signs each persona in with a code issued by
 `functions/signInCodes:issue`, and writes the seeded notes into the seeded
 workspaces through public functions. Note bodies are not written by the seed
 function, because they live in each workspace's object.
 
-`scripts/preview-smoke.mjs` runs two checks and prints their timings. It sends
+`packages/sandbox/src/smoke.mjs` runs two checks and prints their timings. It sends
 one simulated text from +1 212 555 0101 through the texting assistant's
 simulator and waits up to 90 seconds for a reply. Then it signs alpha in and
 sends one in-app Tex message the way the app does, and waits for a reply. It
@@ -209,7 +209,7 @@ preview whose pull request is closed, as a backstop for every other case. A
 pull request closed without merging is therefore cleaned by the next sweep, not
 at once. There is no `pull_request` trigger: the trigger checker requires one to
 carry the default types, and this workflow needs only the close. The
-matching is exact: `scripts/preview-cleanup.mjs` deletes only names that are
+matching is exact: `packages/sandbox/src/cleanup.mjs` deletes only names that are
 `context-<kind>-pr<N>` or carry the `pr<N>-` prefix, so one preview's cleanup
 cannot touch another's. The sweep warns when live previews reach
 `PREVIEW_CEILING`, which is 45.
@@ -223,7 +223,7 @@ env vars and stored storage token go too, instead of waiting for Convex's 5 to
 14 day expiry), the `pr<N>-` buckets after emptying them through the R2 REST
 API, the search databases and indexes, and the bucket-scoped R2 tokens named
 exactly `Context — pr<N>-ctx-<id>`. `verifyGone`
-(`scripts/preview-teardown.mjs`) then lists every one of those kinds and fails
+(`packages/sandbox/src/teardown.mjs`) then lists every one of those kinds and fails
 the run on anything left. A preview deploy that finishes after its pull request
 closed deletes the preview again at its last step, so a sweep that ran mid
 deploy cannot be undone by it.
@@ -274,15 +274,15 @@ Each of these would reopen a risk this decision closed.
 - `apps/convex/__tests__/controlPlane/texLabRuns.test.ts`: "a preview run is
   dispatched with its preview ... and repeats once" and "a preview runs only its
   own pull request".
-- `scripts/preview-guards.test.mjs`: the silence and identity checks, the
+- `packages/sandbox/src/guards.test.mjs`: the silence and identity checks, the
   health-flag checks and the texts-simulator check.
-- `scripts/preview-config.test.mjs`: the rendering of placeholders and the
+- `packages/sandbox/src/config.test.mjs`: the rendering of placeholders and the
   production-identifier guard over the `env.preview` section.
-- `scripts/preview-convex-env.test.mjs`: the variables set on a preview and the
+- `packages/sandbox/src/convex-env.test.mjs`: the variables set on a preview and the
   removal of forbidden names from the deployment.
-- `scripts/preview-cleanup.test.mjs`: the exact matching of preview names, so
+- `packages/sandbox/src/cleanup.test.mjs`: the exact matching of preview names, so
   one preview's cleanup cannot touch another's.
-- `scripts/preview-smoke.test.mjs`: the 555-01XX number check and the reply
+- `packages/sandbox/src/smoke.test.mjs`: the 555-01XX number check and the reply
   checks.
 
 ## Open risks

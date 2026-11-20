@@ -1,0 +1,11 @@
+{
+  "name": "@context/sandbox",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Per-pull-request preview sandboxes: render, guard, seed, smoke-test, sign in to and tear down a preview, and the registry that makes every resource a preview creates name its teardown",
+  "type": "module",
+  "scripts": {
+    "test": "node --test src/*.test.mjs",
+    "check": "node src/resources-check.mjs"
+  }
+}

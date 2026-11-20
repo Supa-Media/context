@@ -1,24 +1,22 @@
 #!/usr/bin/env node
 /**
- * Fails when a preview gains something scripts/preview-resources.mjs does not
+ * Fails when a preview gains something packages/sandbox/src/resources.mjs does not
  * account for: a Worker config key, a Worker the deploy makes, a Workflow, or a
  * Cloudflare API family that code a preview runs calls. Every one must be an
  * OWNED kind (with its teardown and gone-check) or a USED one (with the reason
- * it needs none). Run in CI: `node scripts/preview-resources-check.mjs`.
+ * it needs none). Run in CI: `node packages/sandbox/src/resources-check.mjs`.
  */
 import { readFileSync, readdirSync, statSync } from "node:fs";
 import { join, relative } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
-import { parseJsonc, previewSection, SOURCES } from "./preview-config.mjs";
-import { PREVIEW_WORKFLOWS, WORKER_DIRS } from "./preview-cleanup.mjs";
-import { apiFamily, registryProblems, USED_BINDINGS } from "./preview-resources.mjs";
+import { parseJsonc, previewSection, SOURCES } from "./config.mjs";
+import { PREVIEW_WORKFLOWS, WORKER_DIRS } from "./cleanup.mjs";
+import { apiFamily, registryProblems, USED_BINDINGS } from "./resources.mjs";
 
-const REPO = fileURLToPath(new URL("..", import.meta.url));
+const REPO = fileURLToPath(new URL("../../..", import.meta.url));
 
 /** Code a preview runs, where a Cloudflare API call could create something. */
-export const SCANNED = ["apps/convex/functions", "apps/mcp/src", "apps/agent/src", "infra/router/src"];
-/** The preview's own scripts, also scanned (the rest of scripts/ never runs against a preview). */
-const PREVIEW_SCRIPT = /^preview-.*\.mjs$/;
+export const SCANNED = ["apps/convex/functions", "apps/mcp/src", "apps/agent/src", "infra/router/src", "packages/sandbox/src"];
 const CODE = /\.(?:m?js|ts)$/;
 const SKIP = /(?:^|\/)(?:node_modules|_generated|__tests__|dist)(?:\/|$)|\.test\.|\.spec\./;
 
@@ -78,26 +76,23 @@ export function problems({ read = (rel) => readFileSync(join(REPO, rel), "utf8")
   for (const source of SOURCES) {
     const text = read(source.source);
     for (const key of previewKeys(text, source.kind)) {
-      if (!(key in USED_BINDINGS)) found.push(`${source.source}: env.preview.${key} is not in scripts/preview-resources.mjs; say whether a preview owns it (and how it is torn down) or only uses it`);
+      if (!(key in USED_BINDINGS)) found.push(`${source.source}: env.preview.${key} is not in packages/sandbox/src/resources.mjs; say whether a preview owns it (and how it is torn down) or only uses it`);
     }
     if (source.id === "agent") {
       const bases = previewWorkflowBases(text).sort();
       if (JSON.stringify(bases) !== JSON.stringify([...PREVIEW_WORKFLOWS].sort())) {
-        found.push(`${source.source}: preview workflows ${bases.join(", ")} differ from PREVIEW_WORKFLOWS in scripts/preview-cleanup.mjs (${PREVIEW_WORKFLOWS.join(", ")}), so cleanup would miss one`);
+        found.push(`${source.source}: preview workflows ${bases.join(", ")} differ from PREVIEW_WORKFLOWS in packages/sandbox/src/cleanup.mjs (${PREVIEW_WORKFLOWS.join(", ")}), so cleanup would miss one`);
       }
     }
   }
   const deployed = deployedWorkers(read(".github/workflows/deploy-preview.yml")).sort();
   if (JSON.stringify(deployed) !== JSON.stringify(Object.keys(WORKER_DIRS).sort())) {
-    found.push(`.github/workflows/deploy-preview.yml deploys Workers ${deployed.join(", ")}, but cleanup deletes ${Object.keys(WORKER_DIRS).join(", ")} (WORKER_DIRS in scripts/preview-cleanup.mjs)`);
+    found.push(`.github/workflows/deploy-preview.yml deploys Workers ${deployed.join(", ")}, but cleanup deletes ${Object.keys(WORKER_DIRS).join(", ")} (WORKER_DIRS in packages/sandbox/src/cleanup.mjs)`);
   }
-  const sources = files ?? [
-    ...SCANNED.flatMap((dir) => walk(join(REPO, dir))),
-    ...readdirSync(join(REPO, "scripts")).filter((name) => PREVIEW_SCRIPT.test(name) && !SKIP.test(name)).map((name) => join(REPO, "scripts", name)),
-  ].map((path) => relative(REPO, path));
+  const sources = files ?? SCANNED.flatMap((dir) => walk(join(REPO, dir))).map((path) => relative(REPO, path));
   for (const rel of sources) {
     for (const path of accountPaths(read(rel))) {
-      if (apiFamily(path) === null) found.push(`${rel}: calls Cloudflare /accounts/…/${path}, a family scripts/preview-resources.mjs does not list; add it to API_FAMILIES as owned (with a teardown) or used`);
+      if (apiFamily(path) === null) found.push(`${rel}: calls Cloudflare /accounts/…/${path}, a family packages/sandbox/src/resources.mjs does not list; add it to API_FAMILIES as owned (with a teardown) or used`);
     }
   }
   return [...new Set(found)];

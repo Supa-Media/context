@@ -3,8 +3,8 @@
  * Delete what a closed pull request's preview left behind, and sweep for any
  * preview whose pull request is no longer open.
  *
- *   node scripts/preview-cleanup.mjs delete <N>   one pull request's preview
- *   node scripts/preview-cleanup.mjs sweep       every closed one, and a count
+ *   node packages/sandbox/src/cleanup.mjs delete <N>   one pull request's preview
+ *   node packages/sandbox/src/cleanup.mjs sweep       every closed one, and a count
  *
  * A preview is three Workers on workers.dev (`context-router-pr<N>`,
  * `context-agent-pr<N>`, `context-mcp-pr<N>`), two Workflows (`group-turn-pr<N>`,
@@ -13,7 +13,7 @@
  * bucket-scoped R2 token per bucket (`Context — pr<N>-ctx-<id>`) and the Convex
  * preview deployment `pr<N>` itself. Buckets are emptied before they are
  * deleted, and every delete ends with a check that nothing of the preview is
- * left (scripts/preview-teardown.mjs); a leftover fails the run.
+ * left (packages/sandbox/src/teardown.mjs); a leftover fails the run.
  *
  * The matching is exact. `pr1` never matches `pr12`: a name counts only when
  * it starts with `pr<N>-` or ends with `-pr<N>` and the number is complete.
@@ -23,11 +23,11 @@
  * account: buckets, D1 and Vectorize, when it differs), PREVIEW_R2_API_TOKEN
  * (the token that minted the scoped tokens, so it can list and revoke them;
  * CLOUDFLARE_API_TOKEN when unset), CONVEX_DEPLOY_KEY (the preview deploy key,
- * to delete the Convex preview), GITHUB_REPOSITORY and GH_TOKEN (sweep only). Tests: `node --test scripts/preview-cleanup.test.mjs`.
+ * to delete the Convex preview), GITHUB_REPOSITORY and GH_TOKEN (sweep only). Tests: `node --test packages/sandbox/src/cleanup.test.mjs`.
  */
 import { execFileSync } from "node:child_process";
 import { pathToFileURL } from "node:url";
-import { deleteConvexPreview, emptyAndDeleteBucket, listAccountTokens, previewTokenOf, revokePreviewTokens, verifyGone } from "./preview-teardown.mjs";
+import { deleteConvexPreview, emptyAndDeleteBucket, listAccountTokens, previewTokenOf, revokePreviewTokens, verifyGone } from "./teardown.mjs";
 
 /** The most previews the account is sized for at once (about 45). */
 export const PREVIEW_CEILING = 45;
@@ -318,7 +318,7 @@ async function main(argv) {
   const env = process.env;
   const [command, value] = argv;
   if (command === "delete") {
-    if (!/^[1-9][0-9]{0,6}$/.test(value ?? "")) throw new Error("usage: preview-cleanup.mjs delete <pull request number>");
+    if (!/^[1-9][0-9]{0,6}$/.test(value ?? "")) throw new Error("usage: cleanup.mjs delete <pull request number>");
     const left = await deletePreview(env, value);
     if (left.length > 0) process.exitCode = 1;
     return;
