@@ -286,29 +286,20 @@ export async function seedPreview(env = process.env, { log = console.log } = {})
 
     for (const [path, text] of Object.entries(fixture)) {
       let existing;
+      let written;
       try { existing = await client.action(ref('functions/files:readNote'), { workspaceId, path }); }
       catch (error) { if (error?.data?.code !== 'FILE_NOT_FOUND') throw error; }
       if (!existing || (path === 'index.md' && !existing.text.includes('staging-personas-v1'))) {
-        await client.action(ref('functions/files:writeNote'), { workspaceId, path, text, ...(existing ? { expectedEtag: existing.etag } : {}) });
+        written = await client.action(ref('functions/files:writeNote'), { workspaceId, path, text, ...(existing ? { expectedEtag: existing.etag } : {}) });
       }
+      // The fixtures name the old PARA folders (`1-projects/`); the tree files a note under the folder the
+      // template made (`projects/`) and answers with that path, so the visibility goes to the path it reports.
+      const notePath = written?.path ?? existing?.path ?? path;
       try {
-        await client.action(ref('functions/files:setNoteVisibility'), { workspaceId, path, visibility: visibilityFor(slug, path) });
+        await client.action(ref('functions/files:setNoteVisibility'), { workspaceId, path: notePath, visibility: visibilityFor(slug, path) });
       } catch (error) {
         // Fixture slugs and paths are fake and safe to print; the error's own code says what refused it.
-        // Diagnostics, fixture-only: what the read saw and what the tree lists, never note text.
-        let seen = 'none';
-        try {
-          const again = await client.action(ref('functions/files:readNote'), { workspaceId, path });
-          seen = JSON.stringify({ keys: Object.keys(again ?? {}), path: again?.path, versionKind: typeof again?.etag });
-        } catch (readError) { seen = `read ${readError?.data?.code ?? 'failed'}`; }
-        let listed = 'unknown';
-        try {
-          const paths = await client.action(ref('functions/files:notePaths'), { workspaceId });
-          const all = Array.isArray(paths) ? paths : (paths?.paths ?? []);
-          listed = `${all.length} paths, has it: ${all.some((p) => (p?.path ?? p) === path)}, first: ${JSON.stringify(all.slice(0, 5))}`;
-        } catch (listError) { listed = `list ${listError?.data?.code ?? listError?.message ?? 'failed'}`; }
-        log(`preview-seed: ${slug}/${path} read again: ${seen}; tree: ${listed}`);
-        throw new Error(`${slug}/${path}: setting visibility failed (${error?.data?.code ?? 'unknown'}; written now: ${!existing}).`);
+        throw new Error(`${slug}/${path}: setting visibility on ${notePath} failed (${error?.data?.code ?? 'unknown'}).`);
       }
       noteCount++;
     }
