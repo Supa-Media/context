@@ -178,8 +178,21 @@ const TREE_TRAINING = "packages/tex/src/texTraining.cjs";
 const TREE_GENERATED = "packages/tex/src/texTraining.generated.json";
 
 /** Each node's way to run alone: how to ask it, given the tree's code, and how to score its answer. */
+/**
+ * Where a tree keeps one of Tex's gateway files. The Test Set runs main's harness over the change's tree and main's, so
+ * the harness must read a tree from before the turn moved into `packages/tex/gateway/agent` (2026-11-20) and one after.
+ */
+const TEX_AGENT = "packages/tex/gateway/agent/";
+const OLD_TEX_AGENT = "apps/mcp/src/agent/";
+export function treeFile(tree, rel) {
+  const path = join(tree, rel);
+  if (!rel.startsWith(TEX_AGENT) || existsSync(path)) return path;
+  const old = join(tree, OLD_TEX_AGENT + rel.slice(TEX_AGENT.length));
+  return existsSync(old) ? old : path;
+}
+
 export async function adaptersFor(tree, { fake = false, env = process.env, holdOut = false, routeEngine = null, keep = null, world = "replay" } = {}) {
-  const mod = (rel) => import(pathToFileURL(join(tree, rel)).href);
+  const mod = (rel) => import(pathToFileURL(treeFile(tree, rel)).href);
   // Claude's calls through the model socket when one is set (`modelSocket.mjs`): the Lab's Claude Code runs
   // (`tex-lab-run.yml`, models "cc") answer them with `socketAnswerer.mjs`; nothing is priced then.
   const { modelSocket, socketRequest } = await import("./modelSocket.mjs");
@@ -245,7 +258,7 @@ export async function adaptersFor(tree, { fake = false, env = process.env, holdO
   // The router alone: its question and reader from the tree (`routeRequest`, `readRoute`), asked of the same Clef
   // engine Decide is asked on (`decisionEngine` over `workersAi`). A tree without the module says so on each row.
   table.router = async () => {
-    if (!existsSync(join(tree, ROUTER_MODULE))) {
+    if (!existsSync(treeFile(tree, ROUTER_MODULE))) {
       return () => ({ right: false, ran: false, usd: 0, why: `router can't run alone yet: ${ROUTER_MODULE} is not in this tree` });
     }
     const { routeRequest, readRoute } = await mod(ROUTER_MODULE);

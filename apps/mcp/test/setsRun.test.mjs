@@ -23,7 +23,7 @@ import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
-import { adaptersFor, countsLine, decideCase, decideRight, lineOf, reviewerCase, reviewerRight, routeCase, routeRight, routeTraining, runSets, scoreByRepeat, setsCommand } from "../bench/setsRun.mjs";
+import { adaptersFor, treeFile, countsLine, decideCase, decideRight, lineOf, reviewerCase, reviewerRight, routeCase, routeRight, routeTraining, runSets, scoreByRepeat, setsCommand } from "../bench/setsRun.mjs";
 import { runFd } from "../bench/setsFd.mjs";
 import { openWorldStore, worldKey } from "../bench/simFixtures.mjs";
 import { strictWorld, worldLine, worldMisses, worldModeRefusal, worldStrict, WORLD_STRICT } from "../bench/setsRun.mjs";
@@ -670,5 +670,21 @@ test("worldModeRefusal: replay is never refused; record and refresh run only on 
     assert.match(worldModeRefusal({ world, set: "dev", convs: [{ set: undefined }] }), /never the sealed Test set/, "a conversation with no set");
     assert.match(worldModeRefusal({ world, set: true }), /never the sealed Test set/, "a bare --set");
     assert.match(worldModeRefusal({ world, set: "dev", conversations: true }), /never a handed-in or sealed file/, "a handed-in file");
+  }
+});
+
+test("treeFile reads Tex's turn where the tree keeps it: the new folder first, then where it was before the move", async () => {
+  const tree = await mkdtemp(join(tmpdir(), "sets-tree-"));
+  try {
+    await mkdir(join(tree, "apps/mcp/src/agent"), { recursive: true });
+    await writeFile(join(tree, "apps/mcp/src/agent/decide.js"), "");
+    assert.equal(treeFile(tree, "packages/tex/gateway/agent/decide.js"), join(tree, "apps/mcp/src/agent/decide.js"), "an old tree's turn is read where it was");
+    await mkdir(join(tree, "packages/tex/gateway/agent"), { recursive: true });
+    await writeFile(join(tree, "packages/tex/gateway/agent/decide.js"), "");
+    assert.equal(treeFile(tree, "packages/tex/gateway/agent/decide.js"), join(tree, "packages/tex/gateway/agent/decide.js"), "a moved tree's turn is read in its new place");
+    assert.equal(treeFile(tree, "packages/tex/gateway/agent/missing.js"), join(tree, "packages/tex/gateway/agent/missing.js"), "a file in neither place names the new place");
+    assert.equal(treeFile(tree, "apps/mcp/bench/models.mjs"), join(tree, "apps/mcp/bench/models.mjs"), "other files are read as named");
+  } finally {
+    await rm(tree, { recursive: true, force: true });
   }
 });
