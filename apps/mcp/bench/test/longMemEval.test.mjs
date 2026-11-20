@@ -9,7 +9,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 
 import { abilityOf, entryOf, judgePrompt, sessionsOf, sliceOf, transcriptOf, utcMs, verdictOf } from "../evals/longMemEval.mjs";
-import { filingTimes, readerSystem, runQuestion, scoresOf } from "../evals/memoryRun.mjs";
+import { filingTimes, meteredSend, readerSystem, runQuestion, scoresOf } from "../evals/memoryRun.mjs";
 import { fakeSend, fetchData } from "../evals/cli.mjs";
 import { BENCHES } from "../evals/longMemEval.mjs";
 import { mkdtempSync, readFileSync } from "node:fs";
@@ -151,4 +151,21 @@ test("the dataset is found in Hugging Face's listing by the bench's pattern and 
   await fetchData(BENCHES[0], dir, fake);
   assert.equal(asked.length, 3, "a file already there is not downloaded again");
   await assert.rejects(fetchData({ ...BENCHES[0], file: /nothing/ }, dir, fake), /has 0 files/);
+});
+
+test("every call is priced into its phase; a reply with no usage (the socket's) is estimated from its characters", async () => {
+  const reply = (usage) => async () => new Response(JSON.stringify({ content: [{ type: "text", text: "x".repeat(400) }], usage }), { status: 200 });
+  const real = meteredSend(reply({ input_tokens: 1_000_000, output_tokens: 0 }));
+  await real.send(JSON.stringify({ model: "claude-haiku-5-5", messages: [] }));
+  real.phase("judging");
+  await real.send(JSON.stringify({ model: "claude-sonnet-5-5", messages: [] }));
+  assert.deepEqual(real.usd, { filing: 0.1, reading: 0, judging: 2 });
+  assert.equal(real.estimated(), false);
+  const socket = meteredSend(reply({ input_tokens: 0, output_tokens: 0 }));
+  socket.phase("reading");
+  await socket.send(JSON.stringify({ model: "claude-haiku-5-5", system: "s".repeat(4_000), messages: [] }));
+  assert.ok(socket.usd.reading > 0);
+  assert.equal(socket.estimated(), true);
+  const scores = scoresOf([{ ability: "multi", type: "multi-session", correct: true, usd: socket.usd, usdEstimated: true }]);
+  assert.equal(scores.usd.estimated, true);
 });

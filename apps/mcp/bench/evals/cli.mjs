@@ -179,6 +179,8 @@ export async function main(argv = process.argv.slice(2)) {
     rows,
   };
   writeFileSync(options.out, JSON.stringify(result));
+  // A run that graded nothing failed, whatever it wrote: the first question's reason is the run's.
+  if (rows.length > 0 && scores.n === 0) throw new Error(`no question was graded: ${rows.find((row) => row.error)?.error?.split("\n")[0] ?? "no reason given"}`.slice(0, 280));
   say(`score ${scores.correct}/${scores.n} (${scores.pct ?? "-"}%), $${scores.usd.total.toFixed(2)}; all ${index.length} questions about $${result.fullRunUsd}`);
   return result;
 }
