@@ -6,6 +6,11 @@ import type { FrameState, Regions } from "../frame";
 import { asideUnfolded } from "./useFrameController";
 
 /** The folded right panel's width, in points: one column of tab buttons (`AsideStrip`). */
+/**
+ * The right rail's width. The rail is always there (Dev2, 2026-11-20: "the meeting and tex icon
+ * just live forever in a thin right column"), so an open panel is its content *plus* the rail,
+ * and a folded one is the rail alone.
+ */
 const ASIDE_FOLDED_WIDTH = 48;
 import { AsideResizer, ExplorerResizer } from "./resizers";
 import { ClosedExplorerSeam, FocusEdge } from "./seams";
@@ -146,7 +151,7 @@ export function frameBody({
         `medium` gets the other.
       */}
       {regions.aside === "column" ? (
-        <View style={[styles.asideColumn, { width: asideUnfolded(state) ? state.asideWidth : ASIDE_FOLDED_WIDTH }]}>{aside}</View>
+        <View style={[styles.asideColumn, { width: asideUnfolded(state) ? state.asideWidth + ASIDE_FOLDED_WIDTH : ASIDE_FOLDED_WIDTH }]}>{aside}</View>
       ) : null}
 
       {/*
@@ -156,7 +161,7 @@ export function frameBody({
         as the column's own child the editor would take those presses.
       */}
       {regions.aside === "column" && asideUnfolded(state) ? (
-        <AsideResizer width={state.asideWidth} onResize={setAsideWidth} />
+        <AsideResizer width={state.asideWidth + ASIDE_FOLDED_WIDTH} onResize={(next) => setAsideWidth(next - ASIDE_FOLDED_WIDTH)} />
       ) : null}
 
       {/*
@@ -203,7 +208,7 @@ export function frameBody({
         ordering rule the peek below relies on.
       */}
       {regions.aside === "overlay" ? (
-        <View style={[styles.asideOverlay, { width: state.asideWidth }]}>{aside}</View>
+        <View style={[styles.asideOverlay, { width: state.asideWidth + ASIDE_FOLDED_WIDTH }]}>{aside}</View>
       ) : null}
 
       {/*

@@ -1,4 +1,4 @@
-import { useCallback, useRef, useState } from "react";
+import { useCallback, useContext, useRef, useState } from "react";
 import { View } from "react-native";
 import { Menu } from "../../../design/components/Menu";
 import { Text } from "../../../design/components/Text";
@@ -14,6 +14,7 @@ import { IconButton } from "./IconButton";
 import { makeStyles } from "./styles";
 import type { ExplorerState } from "./useExplorer";
 import { useMapRoute } from "../../map/live/MapRouteContext";
+import { FrameContext } from "../../../app/appFrame/context";
 
 type NewId = "new-note" | "new-folder" | "new-drawing";
 type ViewId = `sort-${ListingSort}` | "sort-default" | "collapse";
@@ -163,7 +164,10 @@ export function ExplorerToolbar({
     if (id === "collapse") files.collapseAll();
   };
 
-  const mapRoute = useMapRoute();
+  // Where the frame draws the right rail, the map's button is there instead (Dev2, 2026-11-20).
+  const railShown = (useContext(FrameContext)?.regions.aside ?? "hidden") !== "hidden";
+  const route = useMapRoute();
+  const mapRoute = railShown ? undefined : route;
   return (
     <View style={inBar ? styles.toolbarInBar : styles.toolbar} testID="explorer-header">
       {filtering ? (

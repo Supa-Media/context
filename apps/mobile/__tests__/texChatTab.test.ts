@@ -445,7 +445,7 @@ describe("the rail and the panel", () => {
         }),
       ),
     );
-    const labels = () => Array.from(container.querySelectorAll('[role="tab"]')).map((el) => el.textContent);
+    const labels = () => Array.from(container.querySelectorAll('[role="tab"]')).map((el) => el.getAttribute("aria-label")?.split(",")[0] ?? "");
     expect(labels()).toEqual(["Meetings", "Tex"]);
     act(() => root.unmount());
     container.remove();
@@ -456,9 +456,9 @@ describe("the rail and the panel", () => {
     document.body.appendChild(container);
     const root = createRoot(container, { onUncaughtError: () => {}, onCaughtError: () => {} });
     act(() => root.render(createElement(AsidePanel, { started: null, onOpenNote: null })));
-    const labels = Array.from(container.querySelectorAll('[role="tab"]')).map((el) => el.textContent);
-    // Meetings alone draws no tab strip (2026-11-19), so there is no tab at all.
-    expect(labels).toEqual([]);
+    const labels = Array.from(container.querySelectorAll('[role="tab"]')).map((el) => el.getAttribute("aria-label")?.split(",")[0] ?? "");
+    // The rail is always there (2026-11-20): Meetings is its one tab, and no Tex.
+    expect(labels).toEqual(["Meetings"]);
     expect(container.querySelector('[data-testid="aside-meetings"]')).not.toBeNull();
     act(() => root.unmount());
     container.remove();

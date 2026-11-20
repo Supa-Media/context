@@ -629,6 +629,7 @@ test/texGraphPages.test.mjs
 test/texDevSandbox.test.mjs
 test/texDevDraftFit.test.mjs
 test/texDev.test.mjs
+test/texDevAppChat.test.mjs
 test/texDevReplay.test.mjs
 test/texDevWrites.test.mjs
 test/texDevLab.test.mjs
@@ -726,3 +727,4 @@ bench/test/noteLinks.test.mjs
 test/noteConnect.test.mjs
 test/noteRun.test.mjs
 test/yesUnreadAsks.test.mjs
+test/texChatAppHop.test.mjs

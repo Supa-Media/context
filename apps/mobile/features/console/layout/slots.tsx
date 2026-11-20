@@ -116,6 +116,7 @@ export function consoleAsidePanel({
   router,
   approvals,
   joinMeeting = null,
+  onSearch = null,
 }: {
   data: ConsoleData;
   meetingsAt: number | null;
@@ -123,6 +124,8 @@ export function consoleAsidePanel({
   approvals: ConsoleAside["approvals"];
   /** Join and take notes, for a meeting on the calendar; `null` where there is no calendar. */
   joinMeeting?: ConsoleAside["joinMeeting"];
+  /** Open the search palette, from the rail's magnifier; `null` outside a context. */
+  onSearch?: (() => void) | null;
 }) {
   /*
     The right panel's contents. Supplied here rather than by the pane for
@@ -168,6 +171,7 @@ export function consoleAsidePanel({
         */
         approvals={data.demo ? undefined : approvals}
         onJoin={joinMeeting}
+        onSearch={onSearch}
         pastFrom={pastFrom}
         /*
           A finished meeting's note, opened in the editor behind the
