@@ -83,8 +83,8 @@
     },
     "readTheText": {
       "files": [
-        "apps/mcp/src/agent/graph/nodes/readTheText.js",
-        "apps/mcp/src/agent/texEntryPoint/readTheText.js"
+        "packages/tex/gateway/agent/graph/nodes/readTheText.js",
+        "packages/tex/gateway/agent/texEntryPoint/readTheText.js"
       ],
       "why": "Retired from the config on 2026-11-20 (Dev2: delete the steps that were folded away, keep their code unwired): its work runs inside Door (doorStep). Its code stays; `node` keeps its last definition, which code still reads for its settings.",
       "retired": true,
@@ -92,8 +92,8 @@
     },
     "runARoutine": {
       "files": [
-        "apps/mcp/src/agent/graph/nodes/runARoutine.js",
-        "apps/mcp/src/agent/texEntryPoint/runARoutine.js"
+        "packages/tex/gateway/agent/graph/nodes/runARoutine.js",
+        "packages/tex/gateway/agent/texEntryPoint/runARoutine.js"
       ],
       "why": "Retired from the config on 2026-11-20 (Dev2: delete the steps that were folded away, keep their code unwired): its work runs inside Door (doorStep). Its code stays; `node` keeps its last definition, which code still reads for its settings.",
       "retired": true,
@@ -101,8 +101,8 @@
     },
     "checkTheQuestion": {
       "files": [
-        "apps/mcp/src/agent/graph/nodes/checkTheQuestion.js",
-        "apps/mcp/src/agent/texEntryPoint/checkTheQuestion.js"
+        "packages/tex/gateway/agent/graph/nodes/checkTheQuestion.js",
+        "packages/tex/gateway/agent/texEntryPoint/checkTheQuestion.js"
       ],
       "why": "Retired from the config on 2026-11-20 (Dev2: delete the steps that were folded away, keep their code unwired): its work runs inside Door (doorStep). Its code stays; `node` keeps its last definition, which code still reads for its settings.",
       "retired": true,
@@ -110,8 +110,8 @@
     },
     "settleAYesOrNo": {
       "files": [
-        "apps/mcp/src/agent/graph/nodes/settleAYesOrNo.js",
-        "apps/mcp/src/agent/texEntryPoint/settleAYesOrNo.js"
+        "packages/tex/gateway/agent/graph/nodes/settleAYesOrNo.js",
+        "packages/tex/gateway/agent/texEntryPoint/settleAYesOrNo.js"
       ],
       "why": "Retired from the config on 2026-11-20 (Dev2: delete the steps that were folded away, keep their code unwired): its work runs inside Door (doorStep). Its code stays; `node` keeps its last definition, which code still reads for its settings.",
       "retired": true,
@@ -119,8 +119,8 @@
     },
     "watchWhatLeaves": {
       "files": [
-        "apps/mcp/src/agent/graph/nodes/watchWhatLeaves.js",
-        "apps/mcp/src/agent/texEntryPoint/watchWhatLeaves.js"
+        "packages/tex/gateway/agent/graph/nodes/watchWhatLeaves.js",
+        "packages/tex/gateway/agent/texEntryPoint/watchWhatLeaves.js"
       ],
       "why": "Retired from the config on 2026-11-20 (Dev2: delete the steps that were folded away, keep their code unwired): its work runs inside Door (doorStep). Its code stays; `node` keeps its last definition, which code still reads for its settings.",
       "retired": true,
@@ -128,8 +128,8 @@
     },
     "checkItMayRun": {
       "files": [
-        "apps/mcp/src/agent/graph/nodes/checkItMayRun.js",
-        "apps/mcp/src/agent/texEntryPoint/checkItMayRun.js"
+        "packages/tex/gateway/agent/graph/nodes/checkItMayRun.js",
+        "packages/tex/gateway/agent/texEntryPoint/checkItMayRun.js"
       ],
       "why": "Retired from the config on 2026-11-20 (Dev2: delete the steps that were folded away, keep their code unwired): its work runs inside Door (doorStep). Its code stays; `node` keeps its last definition, which code still reads for its settings.",
       "retired": true,
@@ -137,8 +137,8 @@
     },
     "readTheHistory": {
       "files": [
-        "apps/mcp/src/agent/graph/nodes/readTheHistory.js",
-        "apps/mcp/src/agent/texEntryPoint/readTheHistory.js"
+        "packages/tex/gateway/agent/graph/nodes/readTheHistory.js",
+        "packages/tex/gateway/agent/texEntryPoint/readTheHistory.js"
       ],
       "why": "Retired from the config on 2026-11-20 (Dev2: delete the steps that were folded away, keep their code unwired): its work runs inside Door (doorStep). Its code stays; `node` keeps its last definition, which code still reads for its settings.",
       "retired": true,
@@ -146,8 +146,8 @@
     },
     "openTheWeb": {
       "files": [
-        "apps/mcp/src/agent/graph/nodes/openTheWeb.js",
-        "apps/mcp/src/agent/texEntryPoint/openTheWeb.js"
+        "packages/tex/gateway/agent/graph/nodes/openTheWeb.js",
+        "packages/tex/gateway/agent/texEntryPoint/openTheWeb.js"
       ],
       "why": "Retired from the config on 2026-11-20 (Dev2: delete the steps that were folded away, keep their code unwired): its work runs inside Door (doorStep). Its code stays; `node` keeps its last definition, which code still reads for its settings.",
       "retired": true,
@@ -155,8 +155,8 @@
     },
     "readTheSetup": {
       "files": [
-        "apps/mcp/src/agent/graph/nodes/readTheSetup.js",
-        "apps/mcp/src/agent/texEntryPoint/readTheSetup.js"
+        "packages/tex/gateway/agent/graph/nodes/readTheSetup.js",
+        "packages/tex/gateway/agent/texEntryPoint/readTheSetup.js"
       ],
       "why": "Retired from the config on 2026-11-20 (Dev2: delete the steps that were folded away, keep their code unwired): its work runs inside Door (doorStep). Its code stays; `node` keeps its last definition, which code still reads for its settings.",
       "retired": true,
@@ -164,8 +164,8 @@
     },
     "prepareBookkeeping": {
       "files": [
-        "apps/mcp/src/agent/graph/nodes/prepareBookkeeping.js",
-        "apps/mcp/src/agent/texEntryPoint/prepareBookkeeping.js"
+        "packages/tex/gateway/agent/graph/nodes/prepareBookkeeping.js",
+        "packages/tex/gateway/agent/texEntryPoint/prepareBookkeeping.js"
       ],
       "why": "Retired from the config on 2026-11-20 (Dev2: delete the steps that were folded away, keep their code unwired): its work runs inside Door (doorStep). Its code stays; `node` keeps its last definition, which code still reads for its settings.",
       "retired": true,
@@ -173,8 +173,8 @@
     },
     "prepareTheAnswer": {
       "files": [
-        "apps/mcp/src/agent/graph/nodes/prepareTheAnswer.js",
-        "apps/mcp/src/agent/texEntryPoint/prepareTheAnswer.js"
+        "packages/tex/gateway/agent/graph/nodes/prepareTheAnswer.js",
+        "packages/tex/gateway/agent/texEntryPoint/prepareTheAnswer.js"
       ],
       "why": "Retired from the config on 2026-11-20 (Dev2: delete the steps that were folded away, keep their code unwired): its work runs inside Door (doorStep). Its code stays; `node` keeps its last definition, which code still reads for its settings.",
       "retired": true,
@@ -182,8 +182,8 @@
     },
     "fallback": {
       "files": [
-        "apps/mcp/src/agent/graph/nodes/fallback.js",
-        "apps/mcp/src/agent/builtin.js"
+        "packages/tex/gateway/agent/graph/nodes/fallback.js",
+        "packages/tex/gateway/agent/builtin.js"
       ],
       "why": "Retired from the config on 2026-11-20 (Dev2: delete the steps that were folded away, keep their code unwired): its work runs inside Front door (fd). Its code stays; `node` keeps its last definition, which code still reads for its settings.",
       "retired": true,
@@ -191,8 +191,8 @@
     },
     "planner": {
       "files": [
-        "apps/mcp/src/agent/graph/nodes/planner.js",
-        "apps/mcp/src/agent/planBigAsk.js"
+        "packages/tex/gateway/agent/graph/nodes/planner.js",
+        "packages/tex/gateway/agent/planBigAsk.js"
       ],
       "why": "Retired from the config on 2026-11-20 (Dev2: delete the steps that were folded away, keep their code unwired): it was off with nothing taking its place. Its code stays; `node` keeps its last definition, which code still reads for its settings.",
       "retired": true,
@@ -200,11 +200,11 @@
     },
     "checks": {
       "files": [
-        "apps/mcp/src/agent/graph/nodes/checks.js",
-        "apps/mcp/src/agent/doItChecks.js",
-        "apps/mcp/src/agent/untriedWeb.js",
-        "apps/mcp/src/agent/sourcedFigures.js",
-        "apps/mcp/src/agent/replyJudge.js"
+        "packages/tex/gateway/agent/graph/nodes/checks.js",
+        "packages/tex/gateway/agent/doItChecks.js",
+        "packages/tex/gateway/agent/untriedWeb.js",
+        "packages/tex/gateway/agent/sourcedFigures.js",
+        "packages/tex/gateway/agent/replyJudge.js"
       ],
       "why": "Retired from the config on 2026-11-20 (Dev2: delete the steps that were folded away, keep their code unwired): its work runs inside Answer check (answerCheck). Its code stays; `node` keeps its last definition, which code still reads for its settings.",
       "retired": true,
@@ -212,9 +212,9 @@
     },
     "reviewer": {
       "files": [
-        "apps/mcp/src/agent/graph/nodes/reviewer.js",
-        "apps/mcp/src/agent/replyJudge.js",
-        "apps/mcp/src/agent/sendBack.js"
+        "packages/tex/gateway/agent/graph/nodes/reviewer.js",
+        "packages/tex/gateway/agent/replyJudge.js",
+        "packages/tex/gateway/agent/sendBack.js"
       ],
       "why": "Retired from the config on 2026-11-20 (Dev2: delete the steps that were folded away, keep their code unwired): its work runs inside Answer check (answerCheck). Its code stays; `node` keeps its last definition, which code still reads for its settings.",
       "retired": true,
@@ -222,8 +222,8 @@
     },
     "classifier": {
       "files": [
-        "apps/mcp/src/agent/graph/nodes/classifier.js",
-        "apps/mcp/src/agent/conversationThreads.js"
+        "packages/tex/gateway/agent/graph/nodes/classifier.js",
+        "packages/tex/gateway/agent/conversationThreads.js"
       ],
       "why": "Retired from the config on 2026-11-20 (Dev2: delete the steps that were folded away, keep their code unwired): its work runs inside After the reply (afterReply). Its code stays; `node` keeps its last definition, which code still reads for its settings.",
       "retired": true,
@@ -231,8 +231,8 @@
     },
     "selfreview": {
       "files": [
-        "apps/mcp/src/agent/graph/nodes/selfreview.js",
-        "apps/mcp/src/agent/selfReview.js"
+        "packages/tex/gateway/agent/graph/nodes/selfreview.js",
+        "packages/tex/gateway/agent/selfReview.js"
       ],
       "why": "Retired from the config on 2026-11-20 (Dev2: delete the steps that were folded away, keep their code unwired): its work runs inside After the reply (afterReply). Its code stays; `node` keeps its last definition, which code still reads for its settings.",
       "retired": true,
@@ -240,8 +240,8 @@
     },
     "jobcheck": {
       "files": [
-        "apps/mcp/src/agent/graph/nodes/jobcheck.js",
-        "apps/mcp/src/agent/jobCheck.js"
+        "packages/tex/gateway/agent/graph/nodes/jobcheck.js",
+        "packages/tex/gateway/agent/jobCheck.js"
       ],
       "why": "Retired from the config on 2026-11-20 (Dev2: delete the steps that were folded away, keep their code unwired): its work runs inside Job advisor (jobadv). Its code stays; `node` keeps its last definition, which code still reads for its settings.",
       "retired": true,
@@ -249,9 +249,9 @@
     },
     "mailadv": {
       "files": [
-        "apps/mcp/src/agent/graph/nodes/mailadv.js",
-        "apps/mcp/src/agent/jobNote.js",
-        "apps/mcp/src/agent/advisorRoles/jobMail.js"
+        "packages/tex/gateway/agent/graph/nodes/mailadv.js",
+        "packages/tex/gateway/agent/jobNote.js",
+        "packages/tex/gateway/agent/advisorRoles/jobMail.js"
       ],
       "why": "Retired from the config on 2026-11-20 (Dev2: delete the steps that were folded away, keep their code unwired): its work runs inside Job advisor (jobadv). Its code stays; `node` keeps its last definition, which code still reads for its settings.",
       "retired": true,
@@ -259,8 +259,8 @@
     },
     "nudge": {
       "files": [
-        "apps/mcp/src/agent/graph/nodes/nudge.js",
-        "apps/mcp/src/agent/memoryNudge.js"
+        "packages/tex/gateway/agent/graph/nodes/nudge.js",
+        "packages/tex/gateway/agent/memoryNudge.js"
       ],
       "why": "Retired from the config on 2026-11-20 (Dev2: delete the steps that were folded away, keep their code unwired): its work runs inside Learn (learn). Its code stays; `node` keeps its last definition, which code still reads for its settings.",
       "retired": true,
@@ -268,8 +268,8 @@
     },
     "reflect": {
       "files": [
-        "apps/mcp/src/agent/graph/nodes/reflect.js",
-        "apps/mcp/src/agent/reflect.js"
+        "packages/tex/gateway/agent/graph/nodes/reflect.js",
+        "packages/tex/gateway/agent/reflect.js"
       ],
       "why": "Retired from the config on 2026-11-20 (Dev2: delete the steps that were folded away, keep their code unwired): its work runs inside Learn (learn). Its code stays; `node` keeps its last definition, which code still reads for its settings.",
       "retired": true,

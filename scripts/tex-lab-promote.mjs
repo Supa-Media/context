@@ -146,7 +146,7 @@ export function configFrom(graph, current, currentWords = {}, shelf = []) {
   return { config: { ...current, nodes, edges, ...(groups ? { groups } : {}) }, words: madeWords.words, unshelved: nodes.map((n) => n.id).filter((id) => shelved.has(id)), retired };
 }
 
-const CODE_HOMES = ["apps/mcp/src/agent", "apps/mcp/src/agent/graph/nodes", "apps/mcp/src/agent/texEntryPoint", "apps/mcp/src", "apps/agent/src", "packages/tex/src", "packages/shared/src"];
+const CODE_HOMES = ["packages/tex/gateway/agent", "packages/tex/gateway/agent/graph/nodes", "packages/tex/gateway/agent/texEntryPoint", "packages/tex/gateway", "packages/tex/worker", "apps/mcp/src", "apps/agent/src", "packages/tex/src", "packages/shared/src"];
 
 /**
  * The shelf entry for a step a promotion retired: the code files it names that are there (its node file first), why,
