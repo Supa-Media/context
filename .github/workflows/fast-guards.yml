@@ -255,10 +255,10 @@ jobs:
       - name: Tex's config is read through its loader and matches its schema
         run: node scripts/tex-config-readers.mjs && node scripts/tex-config-readers.mjs --self-test && node scripts/tex-config-migrate.mjs --check
 
-      # Everything a pull request's preview creates has a teardown and a gone-check (scripts/preview-resources.mjs):
+      # Everything a pull request's preview creates has a teardown and a gone-check (packages/sandbox/src/resources.mjs):
       # a new binding kind, Workflow, Worker or Cloudflare API family fails here until it is registered.
       - name: Every preview resource has a teardown
-        run: node scripts/preview-resources-check.mjs && node --test scripts/preview-resources.test.mjs
+        run: node packages/sandbox/src/resources-check.mjs && node --test packages/sandbox/src/resources.test.mjs
 
       - name: Lab Promote writes main as main
         run: node scripts/tex-lab-promote.mjs --self-test && node scripts/tex-lab-merge.mjs --self-test

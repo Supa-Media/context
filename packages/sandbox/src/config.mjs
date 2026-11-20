@@ -12,13 +12,13 @@
  * The subdomain is an account identifier, so it is never committed and never printed. Problems name
  * the check that failed, never the value that failed it.
  *
- *   node scripts/preview-config.mjs render --pr <N> --subdomain <SUB> [--only mcp,agent,router]
- *   node scripts/preview-config.mjs check --pr <N> [--only mcp,agent,router]
+ *   node packages/sandbox/src/config.mjs render --pr <N> --subdomain <SUB> [--only mcp,agent,router]
+ *   node packages/sandbox/src/config.mjs check --pr <N> [--only mcp,agent,router]
  */
 import { readFileSync, writeFileSync, existsSync } from "node:fs";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
-const REPO = fileURLToPath(new URL("..", import.meta.url));
+const REPO = fileURLToPath(new URL("../../..", import.meta.url));
 
 export const PLACEHOLDER_PREVIEW = "__PREVIEW__";
 export const PLACEHOLDER_WORKERS_DEV = "__WORKERS_DEV__";
@@ -317,8 +317,8 @@ function selectSources(only) {
 }
 
 function usage() {
-  return "usage: preview-config.mjs render --pr <N> --subdomain <SUB> [--only mcp,agent,router]\n"
-    + "       preview-config.mjs check --pr <N> [--only mcp,agent,router]\n";
+  return "usage: config.mjs render --pr <N> --subdomain <SUB> [--only mcp,agent,router]\n"
+    + "       config.mjs check --pr <N> [--only mcp,agent,router]\n";
 }
 
 function main(argv) {

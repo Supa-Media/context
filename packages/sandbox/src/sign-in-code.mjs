@@ -4,27 +4,27 @@
  * person can sign in to that preview's web app and use it, Tex's in-app chat
  * included. Run by `.github/workflows/preview-sign-in-code.yml`.
  *
- * A preview sends no mail itself (scripts/preview-guards.mjs), so the code is
+ * A preview sends no mail itself (packages/sandbox/src/guards.mjs), so the code is
  * issued on the preview through the convex CLI, read from its output here, and
  * mailed from this runner to the one fixed team inbox. It is never printed: this
  * repository's Actions logs are public.
  *
- *   PR=<N> PERSONA=alpha node scripts/preview-sign-in-code.mjs
+ *   PR=<N> PERSONA=alpha node packages/sandbox/src/sign-in-code.mjs
  *
  * Environment: CONVEX_DEPLOY_KEY (the preview deploy key), RESEND_API_KEY,
  * AUTH_EMAIL_FROM (optional), and PREVIEW_ROUTER_HOST (optional: the preview's
  * web app host, for the link in the mail).
  */
 import { pathToFileURL } from "node:url";
-import { findConvexPreview } from "./preview-teardown.mjs";
+import { findConvexPreview } from "./teardown.mjs";
 
-/** The seed's personas (scripts/preview-seed.mjs PERSONAS), here so this file does not load the convex client. */
+/** The seed's personas (packages/sandbox/src/seed.mjs PERSONAS), here so this file does not load the convex client. */
 export const PERSONAS = ["alpha", "beta", "gamma", "delta", "epsilon"];
 const personaEmail = (name) => `${name}@supa.media`;
 
 /** The seed's code issuer, loaded only when a code is really issued (it imports the convex client). */
 async function issueForReal(email, options) {
-  const { issuePersonaCode } = await import("./preview-seed.mjs");
+  const { issuePersonaCode } = await import("./seed.mjs");
   return issuePersonaCode(email, options);
 }
 

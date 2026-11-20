@@ -11,7 +11,7 @@ import {
   sweep,
   workerPullRequest,
   workflowPullRequest,
-} from "./preview-cleanup.mjs";
+} from "./cleanup.mjs";
 
 test("a resource belongs to pull request N only by its complete prefix or suffix", () => {
   assert.equal(isPreviewResource("pr1-ctx-abc", 1), true);

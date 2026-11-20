@@ -159,8 +159,8 @@ test("a preview selects its own components, and its scripts redeploy every one",
   assert.deepEqual(previewPlan("infra/router/src/route.ts"), ["router"]);
   assert.deepEqual(previewPlan("apps/mobile/features/console/NoteEditor.tsx"), ["app", "router"]);
   assert.ok(previewPlan("apps/agent/wrangler.jsonc").includes("agent"));
-  assert.deepEqual(previewPlan("scripts/preview-guards.mjs"), every);
-  assert.deepEqual(previewPlan("scripts/preview-config.mjs"), every);
+  assert.deepEqual(previewPlan("packages/sandbox/src/guards.mjs"), every);
+  assert.deepEqual(previewPlan("packages/sandbox/src/config.mjs"), every);
   assert.deepEqual(previewPlan(".github/workflows/deploy-preview.yml"), every);
   assert.deepEqual(previewPlan("docs/staging.md"), []);
 });

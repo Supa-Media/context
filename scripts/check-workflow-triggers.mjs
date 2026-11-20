@@ -98,7 +98,7 @@
  *
  * What bounds a preview's run is the `preview` GitHub environment, not this
  * file. It holds no production Convex key and no texting, SMS, mail or payment
- * key, and scripts/preview-guards.mjs refuses to deploy a preview that holds
+ * key, and packages/sandbox/src/guards.mjs refuses to deploy a preview that holds
  * one. Any same-repository pusher can already add a workflow that names that
  * environment, so this allowance does not widen what a pusher can reach; it
  * only makes the existing reach the documented behaviour.

@@ -139,7 +139,7 @@
     },
     // Preview: a throwaway copy of the texting Worker for one pull request, reached only through that pull
     // request's own preview gateway and router. Its names and hosts are placeholders (__PREVIEW__ and
-    // __WORKERS_DEV__) that scripts/preview-config.mjs renders into a copy beside this file. Never deploy this
+    // __WORKERS_DEV__) that packages/sandbox/src/config.mjs renders into a copy beside this file. Never deploy this
     // section directly: the rendered copy is the only thing that goes out. It has no Sendblue, Linq, Whapi or
     // Photon binding and no secret of its own, so it can send nothing: the preview's texts come from the texts
     // simulator alone. Context cards are off, since a card would go out on the real iMessage path.

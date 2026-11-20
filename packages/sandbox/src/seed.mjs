@@ -22,13 +22,13 @@ import { spawnSync } from 'node:child_process';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { ConvexHttpClient } from 'convex/browser';
 import { makeFunctionReference } from 'convex/server';
-import { stagingNotes } from './fixtures/staging-notes.mjs';
+import { stagingNotes } from '../../../scripts/fixtures/staging-notes.mjs';
 
 export const PERSONAS = ['alpha', 'beta', 'gamma', 'delta', 'epsilon'];
 /** The fixture workspace that mirrors production and is never seeded into a preview. */
 export const SKIPPED_SLUGS = ['context-lc'];
-const CLI = fileURLToPath(new URL('../node_modules/convex/bin/main.js', import.meta.url));
-const REPO_ROOT = fileURLToPath(new URL('../', import.meta.url));
+const CLI = fileURLToPath(new URL('../../../node_modules/convex/bin/main.js', import.meta.url));
+const REPO_ROOT = fileURLToPath(new URL('../../../', import.meta.url));
 const ref = (name) => makeFunctionReference(name);
 
 /** The preview's identity, checked before anything is signed in. Returns the Convex URL. */
