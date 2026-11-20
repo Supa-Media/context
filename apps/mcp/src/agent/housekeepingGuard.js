@@ -344,35 +344,35 @@ export function housekeepingCallTool(dispatch, runFolders = [], { now = Date.now
   async function callTool(name, args, { planning = false } = {}) {
     const given = args && typeof args === "object" && !Array.isArray(args) ? args : {};
     if (given.context !== undefined || given.source_context !== undefined || given.destination_context !== undefined) {
-      return refuse("Housekeeping works in this workspace only.");
+      return refuse("Housekeeping works in this workspace only: call it again without context.");
     }
     if (HOUSEKEEPING_READS.has(name)) return await dispatch(name, given);
-    if (!HOUSEKEEPING_CHANGES.has(name)) return refuse(`Housekeeping can't use ${name}: it only moves, archives and tidies notes.`);
+    if (!HOUSEKEEPING_CHANGES.has(name)) return refuse(`Housekeeping can't use ${name}: it only moves, archives and tidies notes. Leave that for the person to ask for.`);
     // The run's log is written: a change made after it would be in no log, with no undo line.
     if (ledger.stopped) return refuse("This housekeeping run has ended: change nothing more.");
 
     if (name === "move_notes" && given.match !== undefined) return await moveMatching(given);
     const extra = Object.keys(given).filter((key) => given[key] !== undefined && !ALLOWED_ARGS[name].has(key));
-    if (extra.length > 0) return refuse(`Housekeeping can't set ${extra.join(", ")}.`);
-    if (mightWiden(name, given)) return refuse("Housekeeping never lets more people see something.");
+    if (extra.length > 0) return refuse(`Housekeeping can't set ${extra.join(", ")}: call it again without those.`);
+    if (mightWiden(name, given)) return refuse("Housekeeping never lets more people see something: leave who sees it as it is, and drop that change.");
     const paths = pathsOf(name, given);
     if (paths.length === 0 || paths.some((path) => typeof path !== "string" || path.trim() === "")) {
       return refuse("Name every note or folder this changes.");
     }
-    if (paths.some((path) => plain(path).startsWith("@"))) return refuse("Housekeeping works in this workspace only: no path may name another.");
+    if (paths.some((path) => plain(path).startsWith("@"))) return refuse("Housekeeping works in this workspace only: no path may name another. Call it again with paths in this workspace.");
     for (const path of paths) {
       const why = protectedReason(path, runFolders);
-      if (why) return refuse(`Housekeeping leaves ${plain(path)} alone: ${why}.`);
+      if (why) return refuse(`Housekeeping leaves ${plain(path)} alone: ${why}. Leave it and go on with the rest.`);
     }
     // A whole top-level folder (all projects, all areas) is never one tidy.
     if (name === "move_folder" && !plain(given.source).replace(/\/+$/, "").includes("/")) {
-      return refuse(`Housekeeping moves what is inside ${plain(given.source)}, never the whole folder.`);
+      return refuse(`Housekeeping moves what is inside ${plain(given.source)}, never the whole folder. Move the notes inside it one by one, or by name.`);
     }
     // Where things land must already be a top-level folder with notes in it.
     const landing = destinationsOf(name, given).map(topFolder);
     for (const folder of new Set(landing)) {
       if (folder === null || (!BUILT_IN_FOLDER.test(folder) && listedNotes(await dispatch("list_notes", { prefix: `${folder}/` })) === 0)) {
-        return refuse(`Housekeeping files into the folders this workspace already has; ${folder ?? "the top level"} isn't one.`);
+        return refuse(`Housekeeping files into the folders this workspace already has; ${folder ?? "the top level"} isn't one. Pick one of the folders it has.`);
       }
     }
     const dryRun = given.dry_run === true;
@@ -383,12 +383,12 @@ export function housekeepingCallTool(dispatch, runFolders = [], { now = Date.now
         return refuse("Housekeeping rewrites notes that exist: read the note first and pass its etag as expected_etag.");
       }
       const before = await dispatch("read_note", { path: given.path });
-      if (before?.isError === true) return refuse("Housekeeping rewrites notes that exist, and that one could not be read.");
+      if (before?.isError === true) return refuse("Housekeeping rewrites notes that exist, and that one could not be read. Leave it and go on with the rest.");
       const text = textOf(before);
       const split = text.indexOf("\n\n");
       const old = split === -1 ? "" : text.slice(split + 2);
       if (given.content.trim().length < old.trim().length * MIN_KEPT_SHARE) {
-        return refuse("That would drop most of the note. Housekeeping changes front matter and merges duplicates; it never cuts a note down.");
+        return refuse("That would drop most of the note. Housekeeping changes front matter and merges duplicates; it never cuts a note down. Keep the note's whole text and change only its front matter.");
       }
     }
 
@@ -427,16 +427,16 @@ export function housekeepingCallTool(dispatch, runFolders = [], { now = Date.now
    */
   async function moveMatching(given) {
     const extra = Object.keys(given).filter((key) => given[key] !== undefined && !ALLOWED_ARGS.matching.has(key));
-    if (extra.length > 0) return refuse(`Moving by name takes folder, match, into and dry_run, not ${extra.join(", ")}.`);
+    if (extra.length > 0) return refuse(`Moving by name takes folder, match, into and dry_run, not ${extra.join(", ")}. Call it again with only those.`);
     const folder = plain(given.folder).replace(/\/+$/, "");
     // A bare name is a subfolder of `folder` (`into: "2026-03"`), unless it names a built-in top-level folder.
     const named = plain(given.into).replace(/\/+$/, "");
     const into = named === "" || named.includes("/") || BUILT_IN_FOLDER.test(named) ? named : `${folder}/${named}`;
     const pattern = namePattern(given.match);
     if (folder === "" || into === "" || pattern === null) {
-      return refuse("Moving by name needs folder (where the notes are), match (a name pattern like report-2026-09-*) and into (the folder they go to).");
+      return refuse("Moving by name needs folder (where the notes are), match (a name pattern like report-2026-09-*) and into (the folder they go to). Call it again with all three.");
     }
-    if (into === folder) return refuse("into must be a different folder from folder.");
+    if (into === folder) return refuse("into must be a different folder from folder: pick the folder the notes go to.");
     // The same move by name sent again after it failed: on 2026-11-04 a run sent one twice and it failed the same
     // way twice, and run after run spent its rounds on it.
     const asked = JSON.stringify([folder, String(given.match).trim(), into, given.dry_run === true]);
