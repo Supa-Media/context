@@ -728,9 +728,10 @@ export async function runTurn(options) {
       const resolved = six.resolve(made.name, made.args);
       if (resolved.error) {
         effects.push(() => {
-          messages.push({ role: "tool", id: made.id, name: made.name, text: resolved.error, isError: true });
+          const text = resolved.error + (six.manualOnFailure(made.name, made.args) ?? ""); // the action's manual, once per turn (`sixTools.js`)
+          messages.push({ role: "tool", id: made.id, name: made.name, text, isError: true });
           escalate = true;
-          tell({ kind: "tool", name: made.name.slice(0, 64), args: made.args, ok: false, ms: 0, reason: (resolved.cause ?? "no_such_action").replaceAll("_", " ") });
+          tell({ kind: "tool", name: made.name.slice(0, 64), args: made.args, ok: false, ms: 0, reason: (resolved.cause ?? "no_such_action").replaceAll("_", " "), ...(text === resolved.error ? {} : { result: text }) });
           failed({ tool: made.name, cause: resolved.cause ?? "no_such_action", text: resolved.error, round }); // or `unknown_argument` (`sixTools.js`)
         });
         return { ran: false, effects };
@@ -836,16 +837,17 @@ export async function runTurn(options) {
       const ask = result?.ask === true;
       effects.push({ time: toolMs });
       effects.push(() => {
+        const manual = failedCall(result) && !ask ? six.manualOnFailure(made.name, made.args) ?? "" : ""; // the action's manual, once per turn, logged as sent (`sixTools.js`)
         trace.push({ kind: "tool", tool: call.name, ok: result?.isError !== true || ask, at: called - began, ms: toolMs, ...(result?.held === true ? { held: true } : {}), ...(ask ? { ask: true } : {}), ...(result?.stages ? { stages: result.stages } : {}), ...traceNames(made, call) }); // the six's name and action, for the Lab's Tools page (`turnLog.js`)
         steps.push({ tool: call.name, ok: result?.isError !== true, ...(Array.isArray(result?.sources) ? { sources: result.sources } : {}) });
         // A failed step sends the next round to the planner; one held for the person's yes, or a designed send-back, does not.
         if (failedCall(result) && !ask) { escalate = true; failed({ tool: call.name, ...causeOf(thrown, ToolTimeout), result, ms: toolMs, round }); }
-        tell({ kind: "tool", name: call.name, args: call.args, ...(made.name !== call.name ? { as: { name: made.name, args: made.args } } : {}), ok: result?.isError !== true, ms: toolMs, held: result?.held === true, reason: whyFailed(result), result: toolResultText(result), ...(typeof result?.thinking === "string" && result.thinking ? { thinking: result.thinking } : {}) }); // the result, for the chat's ledger (`ledger.js`)
+        tell({ kind: "tool", name: call.name, args: call.args, ...(made.name !== call.name ? { as: { name: made.name, args: made.args } } : {}), ok: result?.isError !== true, ms: toolMs, held: result?.held === true, reason: whyFailed(result), result: toolResultText(result) + manual, ...(typeof result?.thinking === "string" && result.thinking ? { thinking: result.thinking } : {}) }); // the result, for the chat's ledger (`ledger.js`)
         messages.push({
           role: "tool",
           id: call.id,
           name: made.name,
-          text: toolResultText(result) || "(no result)",
+          text: (toolResultText(result) || "(no result)") + manual,
           images: toolResultImages(result),
           // A held call reaches the model as what it is, waiting for the person, never as an
           // error: read as one, "Not sent yet" became "the email didn't go through" and a

@@ -172,6 +172,9 @@ export async function toolStatsReport(ctx: QueryCtx, days: number, now: number):
   // Counted by the name Tex called (`write`), not the older tool it ran as (`write_note`), so the rows line up with the
   // Lab's tool list; `ranAs` lets a failure, which names the tool that ran, find its row.
   const ranAs = new Map<string, string>();
+  // The action each older tool ran as, for its row's own reasons: a failure names only the tool that ran. A tool that ran
+  // as more than one action keeps its reasons on the tool's row alone (null), never guessed onto one of them.
+  const actionOf = new Map<string, string | null>();
   for (const turn of readTurns) {
     for (const entry of turn.trace) {
       if (entry.kind !== "tool" || entry.tool === undefined || entry.held === true) continue;
@@ -179,7 +182,12 @@ export async function toolStatsReport(ctx: QueryCtx, days: number, now: number):
       if (entry.six !== undefined) ranAs.set(entry.tool, entry.six);
       const ok = entry.ok || entry.ask === true;
       tally(name, name, null, ok, entry.ms);
-      if (entry.action !== undefined) tally(`${name}.${entry.action}`, name, entry.action, ok, entry.ms);
+      if (entry.action !== undefined) {
+        const key = `${name}.${entry.action}`;
+        tally(key, name, entry.action, ok, entry.ms);
+        // Only a call made as one of the six names its older tool apart; a bare `write` could be any of write's actions.
+        if (entry.six !== undefined) actionOf.set(entry.tool, actionOf.has(entry.tool) && actionOf.get(entry.tool) !== key ? null : key);
+      }
     }
   }
 
@@ -198,6 +206,14 @@ export async function toolStatsReport(ctx: QueryCtx, days: number, now: number):
     reason.count += 1;
     byWhy.set(reasonKey, reason);
     reasons.set(tool, byWhy);
+    const action = actionOf.get(failure.tool);
+    if (typeof action === "string") {
+      const byAction = reasons.get(action) ?? new Map<string, { why: string; cause: string; count: number }>();
+      const own = byAction.get(reasonKey) ?? { why: failure.why, cause: failure.cause, count: 0 };
+      own.count += 1;
+      byAction.set(reasonKey, own);
+      reasons.set(action, byAction);
+    }
   }
 
   const rows = [...counts.entries()].map(([key, row]) => ({
@@ -207,9 +223,7 @@ export async function toolStatsReport(ctx: QueryCtx, days: number, now: number):
     calls: row.calls,
     errors: row.errors,
     medianMs: medianOf(row.samples),
-    why: row.action === null
-      ? [...(reasons.get(row.tool)?.values() ?? [])].sort((a, b) => b.count - a.count || a.why.localeCompare(b.why)).slice(0, MAX_WHY_PER_TOOL)
-      : [],
+    why: [...(reasons.get(row.action === null ? row.tool : key)?.values() ?? [])].sort((a, b) => b.count - a.count || a.why.localeCompare(b.why)).slice(0, MAX_WHY_PER_TOOL),
   }));
   rows.sort((a, b) => b.calls - a.calls || a.key.localeCompare(b.key));
 

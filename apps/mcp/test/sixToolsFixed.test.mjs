@@ -163,6 +163,21 @@ test("fetch manual:<action> gives the action's args and its full guide; an unkno
   assert.equal(rateError(unknown.error), "actionable");
 });
 
+test("a failed call to an action this turn holds gets its manual back, once per action per turn", () => {
+  const shown = fixedCarriers("one");
+  const six = sixToolsOver([...shown.values()], { send: ["search_web", "say_nothing"] }, { shown });
+  const first = six.manualOnFailure("send", { action: "search_web", args: {} });
+  assert.match(first, /The manual for search_web/);
+  assert.match(first, /Call: send \{ action: "search_web", args: /);
+  assert.equal(six.manualOnFailure("send", { action: "search_web", args: {} }), null, "once per turn");
+  assert.equal(six.manualOnFailure("send", { action: "email", args: {} }), null, "not one this turn holds");
+  assert.equal(six.manualOnFailure("fetch", { id: "x" }), null, "only the three families with actions");
+  const read = sixToolsOver([...shown.values()], null, { shown });
+  read.resolve("fetch", { id: "manual:save" });
+  assert.equal(read.manualOnFailure("write", { path: "a.md" }), null, "a manual it already read is not sent again");
+  assert.equal(sixToolsOver([...shown.values()], null).manualOnFailure("write", { path: "a.md" }), null, "without the fixed list the words are already inline");
+});
+
 test("without the fixed list nothing changes: a turn is shown what it holds, with each action's words inline", () => {
   const shown = fixedCarriers("one");
   const held = [...shown.values()].filter((tool) =>
@@ -196,6 +211,28 @@ test("a Lab draft switches a step to the fixed list, and nothing else does", () 
     texToolList("job"),
     "a value that isn't one of the two is ignored: the step keeps main's",
   );
+});
+
+// End to end: the model's next round reads the manual beside the refusal.
+// Sabotage (2026-11-20): turn.js leaving `manual` off the tool message → this fails.
+test("a refused call in a 1:1 text comes back with that action's manual", async () => {
+  await withFixed(async () => {
+    const chat = await oneToOne();
+    try {
+      const from = chat.world.model.requests.length;
+      await chat.text("save a note", [
+        { toolCalls: [{ name: "write", args: { action: "save", path: "" } }] },
+        { text: "Done." },
+      ]);
+      const texted = chat.world.model.requests.slice(from);
+      assert.equal(texted.length, 2);
+      const reply = JSON.stringify(texted[1].messages.at(-1));
+      assert.match(reply, /The manual for save, so the next call gets it right/);
+      assert.match(reply, /write action save: /);
+    } finally {
+      chat.restore();
+    }
+  });
 });
 
 // End to end through the replay harness (`test/replay/chats.mjs`), with the steps set to the fixed list whatever main runs.

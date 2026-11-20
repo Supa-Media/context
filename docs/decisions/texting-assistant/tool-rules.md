@@ -88,3 +88,28 @@ and it gets more budget. So:
 
 `sixToolsFixed.test.mjs` fails when a tool goes over its own limit, or when
 send's email line loses its args.
+
+## A failed call brings its action's manual back (2026-11-20)
+
+Asked whether a failed call sends the manual back, so a thing doesn't fail
+twice, the owner called it a cheap fix. Until then, a refusal only told the
+model to `fetch manual:<action>`. That cost a round, and the model often
+retried blind instead.
+
+Now, on the fixed list, a call that fails gets its action's manual added to
+the error. This covers a refusal, a thrown error, and a bad argument. The
+rules for it:
+
+- **It applies to actions this turn holds** (`manualOnFailure` in
+  `sixTools.js`).
+- **It is sent once per action per turn.** It is not sent again when the
+  model already read that manual.
+- **The chat's ledger logs it with the result.** So Replay shows what the
+  model read.
+- **Some failures get no manual.** An action the turn doesn't hold gets
+  none, because its manual would not help; the error names what is
+  available instead. A held call, waiting for the person's yes, also gets
+  none.
+
+`sixToolsFixed.test.mjs` fails when a refused call in a 1:1 text comes back
+without the manual, or when it comes back twice.
