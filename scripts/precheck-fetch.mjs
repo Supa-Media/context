@@ -14,6 +14,7 @@ function passingGuardWorkflow(extraRuns) {
     "    steps:",
     "      - run: node --version",
     "      - run: node scripts/tex-diagram-check.mjs",
+    "      - run: node scripts/tex-wire-check.mjs",
     "      - run: node scripts/check-tex-change-has-case.mjs",
     "      - run: node scripts/check-speed-budget.mjs",
     "      - run: node scripts/public-privacy.test.mjs",
