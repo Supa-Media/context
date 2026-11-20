@@ -189,6 +189,10 @@ replay only: the workflow refuses record and refresh, because those call the
 models live and write fixtures. Each Front door test runs once (`PREVIEW_REPEATS`
 is 1). A run with no target dispatches exactly as before.
 
+`tex_dev run` takes the same `target` (since 2026-11-20). Note what a preview
+run is: the PR's code replayed on GitHub against recorded model answers. It does
+not call the preview's gateway or read its seeded data.
+
 **Open point:** the Lab's run bookkeeping still goes to the production control
 plane, even when the run is aimed at a preview. The run's code is the preview's
 pull request, but its records are not kept in the preview. That is a gap in the
@@ -210,7 +214,19 @@ matching is exact: `scripts/preview-cleanup.mjs` deletes only names that are
 cannot touch another's. The sweep warns when live previews reach
 `PREVIEW_CEILING`, which is 45.
 
-Convex expires its own preview deployments, so nothing in cleanup deletes one.
+A deletion is not done until it is checked (decided 2026-11-20, after the
+first sweeps left every managed bucket behind as "not empty" and never
+revoked a token). `deletePreview` deletes, in order, the Workers (their Durable
+Object namespaces and secrets go with them), the Workflows, the Convex preview
+deployment (found by its `pr<N>` name with the preview deploy key, so its data,
+env vars and stored storage token go too, instead of waiting for Convex's 5 to
+14 day expiry), the `pr<N>-` buckets after emptying them through the R2 REST
+API, the search databases and indexes, and the bucket-scoped R2 tokens named
+exactly `Context — pr<N>-ctx-<id>`. `verifyGone`
+(`scripts/preview-teardown.mjs`) then lists every one of those kinds and fails
+the run on anything left. A preview deploy that finishes after its pull request
+closed deletes the preview again at its last step, so a sweep that ran mid
+deploy cannot be undone by it.
 
 **The ceiling is 45 because of Durable Object classes.** Each preview brings its
 own set of Durable Object classes, and the account allows about 500 of them. At
@@ -271,6 +287,9 @@ Each of these would reopen a risk this decision closed.
 
 ## Open risks
 
+What works, what is mocked and what is planned is kept in one table,
+[docs/preview-sandbox.md](../../preview-sandbox.md).
+
 - **One Cloudflare account and one token can deploy production.** The preview
   token and the production token are the same account's, so a mistake in the
   preview workflow reaches the same account. The guards refuse production
@@ -307,7 +326,8 @@ A bot working on a branch uses a preview like this.
    it from the workflow's masked values.
 5. Sign in as a persona: call `functions/signInCodes:issue` on the preview's
    Convex deployment with the preview deploy key, for an address such as
-   `alpha@supa.media`, and use the code it returns.
+   `alpha@supa.media`, and use the code it returns. A person runs **Actions →
+   Preview sign-in code** instead, which mails the code to the team inbox.
 6. Text Tex through `/texts-simulator` on the texting assistant's origin, from
    +1 212 555 0101, 0102 or 0103. Those are the only numbers a preview
    recognises, and nothing reaches a real line.
