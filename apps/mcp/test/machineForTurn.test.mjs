@@ -76,6 +76,22 @@ test("the turn reads their computers ahead and tells the model, wired in the ent
   const history = readFileSync(new URL("../../../packages/tex/gateway/agent/texEntryPoint/readTheHistory.js", import.meta.url), "utf8");
   const model = readFileSync(new URL("../../../packages/tex/gateway/agent/texEntryPoint/runTheModel.js", import.meta.url), "utf8");
   assert.match(history, /tex\.ahead\("computers", \(\) => machinesFor\(/);
-  assert.match(model, /computersLine\(computers, \{ planning \}\)/);
+  assert.match(model, /computersLine\(computers, \{ planning, own: ownComputerWired \}\)/);
+  assert.match(model, /const ownComputerWired = Boolean\(env\?\.TEX_COMPUTER\) && drawn\.wired\("tools", "computer"\);/);
   assert.match(model, /delegationBeside\(delegated, computers\)/);
+});
+
+test("a texted turn is told about Tex's own computer only while the config wires it", () => {
+  assert.equal(computersLine([], { own: false }), "", "unwired: no word of it");
+  const alone = computersLine([], { own: true });
+  assert.match(alone, /Tex has a Linux computer of its own/);
+  assert.match(alone, /send action background with no on_computer/);
+  assert.match(alone, /never say there is no computer/);
+  const beside = computersLine([STUDIO], { own: true });
+  assert.match(beside, /on_computer \{ name: "Studio Mac" \}/, "their repos still go to their computer");
+  assert.match(beside, /builds or scripts in their repos/);
+  assert.doesNotMatch(beside, /crunching many files/, "loose number-crunching no longer goes to their laptop");
+  assert.match(beside, /Tex has a Linux computer of its own/);
+  assert.equal(computersLine([STUDIO]), computersLine([STUDIO], { own: false }), "unwired: their line is unchanged");
+  assert.match(computersLine([STUDIO]), /running scripts, builds or crunching many files/);
 });

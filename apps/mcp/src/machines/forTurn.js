@@ -41,19 +41,37 @@ function described(machine) {
 /**
  * The turn's line about their computers, or "" with none that takes code.
  * `planning`: the turn also has `plan_big_ask`, which splits a big change there.
+ * `own`: the config wires Tex's own computer (`tools -> computer`, `texComputerSandbox.js`), so a cloud job has a
+ * Linux computer of its own, and running scripts or crunching data that isn't in their repos goes there instead.
  */
-export function computersLine(machines, { planning = false } = {}) {
+export function computersLine(machines, { planning = false, own = false } = {}) {
   const usable = codeComputers(machines);
-  if (usable.length === 0) return "";
+  const ownLine = own ? ownComputerLine() : "";
+  if (usable.length === 0) return ownLine;
   const first = String(usable[0].name).replace(/"/g, "'");
   return (
     `\n\n${usable.length === 1 ? "They have a computer" : "They have computers"} paired with Tex: ${usable.map(described).join(", ")}. ` +
     "Code and heavy computing always go to it as a background job, send action background with " +
     `on_computer { name: "${first}" } (and repo or folder as they named it): a question about how a codebase works, theirs or a public one on GitHub; ` +
-    "finding something in a repo; any change to code, a pull request included; and running scripts, builds or crunching many files. " +
+    "finding something in a repo; any change to code, a pull request included; and " +
+    (own ? "builds or scripts in their repos or on their files. " : "running scripts, builds or crunching many files. ") +
     "Never Tex's cloud, never delegate, and never open_page on the repo for those, and never ask which repo or which computer: the job finds it. " +
     (planning ? "A big code change with parts that can be built at once is split there with plan_big_ask. " : "") +
-    "Everything else stays off it."
+    "Everything else stays off it." +
+    ownLine
+  );
+}
+
+/**
+ * Tex's own computer, told to a texted turn while the config wires it (Lab test, 2026-11-20: with it wired but
+ * untold, the Front door answered "this chat has no computer" and started no job).
+ */
+function ownComputerLine() {
+  return (
+    "\n\nTex has a Linux computer of its own for this chat, reached only from a background job in Tex's cloud " +
+    "(send action background with no on_computer), whose job calls tex_computer: bash, Python with pandas, Node, sqlite3 and pdftotext, no internet. " +
+    "Running a script, computing or checking numbers, crunching data they sent or converting a file go there: start the job, never work it out by hand " +
+    "and never say there is no computer."
   );
 }
 
