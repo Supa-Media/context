@@ -16,6 +16,7 @@
  */
 
 import { setupHeldRules } from "./setupRules.js";
+import { chatRulesFrom, chatTokens } from "./chatRules.js";
 
 const SCHEMA = [`CREATE TABLE IF NOT EXISTS ws_binding (id INTEGER PRIMARY KEY CHECK (id = 1), sealed TEXT, at INTEGER, epoch INTEGER NOT NULL)`];
 
@@ -66,9 +67,10 @@ export function bindingRows(sql) {
 export const BINDING_OPS = Object.freeze({ OPEN: "ws.open", PUT: "ws.binding.put", CLEAR: "ws.binding.clear" });
 
 /**
- * `ws.open {userId}`: everything a request's store is built from, in one call. Where this object decides access
- * (`accessHome: "object"`) and `userId` is a live member, the member rules and the sealed binding; for anybody else,
- * neither, so the gateway asks the control plane as before. It answers once no mark is open, or after the object's wait
+ * `ws.open {userId, audience?, chatNames?}`: everything a request's store is built from, in one call. Where this
+ * object decides access (`accessHome: "object"`) and `userId` is a live member, the member rules and the sealed binding;
+ * for a guest's or a chat's reading (`audience`), its own rules and the binding; for anybody else, neither, so the
+ * gateway asks the control plane as before. It answers once no mark is open, or after the object's wait
  * with `behind: true` (`marks.js`). `ws.binding.put`, `ws.binding.clear` as above.
  * Answers `null` for any other op.
  */
@@ -100,12 +102,37 @@ export function serveBindingCall(store, op, fields, accessHomeObject, { behind =
           behind: behind === true,
         });
       }
+      /*
+        A guest's or a Tex guest chat's reading (a pin reader, a group chat's grant): the control plane resolved that
+        session for this workspace, and it reads by its own, narrower rules, never a member's. The guest rules as held, or
+        as the chat's names render them (`chatRules.js`), the same rendering the control plane gives its binding answer
+        (`nodesPrivacy.authority` with `audience: "guest"` or `chatNames`). Only the gateway asks this; the door refuses
+        `ws.open`.
+      */
+      if (fields.audience === "guest" || fields.audience === "chat") {
+        const guest = accessHome === accessHomeObject ? store.rows.rules("guest") : null;
+        const tokens = fields.audience === "chat" ? chatTokens(fields.chatNames) : null;
+        const rules = guest === null ? null : fields.audience === "guest" ? guest : tokens === null ? null : chatRulesFrom(guest, tokens);
+        return Response.json({
+          home: store.rows.home(),
+          backfilledAt: store.rows.backfilledAt(),
+          encryption: store.rows.encryption(),
+          accessHome,
+          member: false,
+          reader: rules === null ? null : fields.audience,
+          rules,
+          binding: rules !== null && kept.sealed !== null ? { sealed: kept.sealed, at: kept.at } : null,
+          epoch: kept.epoch,
+          behind: behind === true,
+        });
+      }
       return Response.json({
         home: store.rows.home(),
         backfilledAt: store.rows.backfilledAt(),
         encryption: store.rows.encryption(),
         accessHome,
         member,
+        ...(member ? { reader: "member" } : {}),
         rules: member ? store.rows.rules("member") : null,
         binding: member && kept.sealed !== null ? { sealed: kept.sealed, at: kept.at } : null,
         epoch: kept.epoch,

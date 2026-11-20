@@ -207,3 +207,42 @@ test("a workspace id that is missing or not a plain id is 400, and nothing is wr
     assert.deepEqual(originated, []);
   }
 });
+
+// A group chat's own new note in its own home (2026-11-20): the gateway put it in that chat's Tex object, so its key is
+// `tex/chat:<key>/notes/<id>.md`. The object adopts that key only in the pin, only for the chat the gateway named, and only
+// where `chatHomeOwner` places the path there; any other Tex key is left to the control plane (DEFER "key").
+// Sabotage: accept any `tex/` key in `adopt` and the "another chat's key" assertion is adopted instead of deferred.
+test("ws.write.adopt takes a chat's own Tex key in its own home in the pin, and defers any other Tex key", async () => {
+  const CHAT = "c".repeat(64);
+  const OTHER = "d".repeat(64);
+  const HOME = "tex/groups/kite-willow-rocket";
+  const setup = (sealsChats) => {
+    const { store } = objectStore();
+    store.access = { sealsChats: () => sealsChats };
+    store.rows.put([
+      { id: "f-tex", path: "tex", kind: "folder", at: 1 },
+      { id: "f-groups", path: "tex/groups", kind: "folder", at: 1 },
+      { id: "f-home", path: HOME, kind: "folder", at: 1 },
+    ]);
+    store.rows.putRules({ folders: [{ prefix: HOME, visibility: "team" }], notes: [], accessVersion: 4 });
+    return store;
+  };
+  let n = 0;
+  const adoptOne = async (store, key, chat, note) => {
+    const body = { workspaceId: "ws_pin", path: `${HOME}/save-check.md`, noteId: note, key, etag: "e-1", size: 3, at: 500, tier: "team", chatHome: { folder: HOME, chat } };
+    const response = await serveWrites(store, "ws.write.adopt", body, 5_000, () => `o_${String(++n).padStart(32, "0")}`);
+    return await response.json();
+  };
+  const NOTE = "01890a5d-ac96-7c4e-8f3a-1b2c3d4e5f70";
+
+  const pin = setup(true);
+  assert.deepEqual(await adoptOne(pin, `tex/chat:${CHAT}/notes/${NOTE}.md`, CHAT, NOTE), { ok: true, adopted: true, at: 5_000 });
+  assert.equal(pin.rows.byNoteId(NOTE).storageKey, `tex/chat:${CHAT}/notes/${NOTE}.md`);
+
+  const NOTE2 = "01890a5d-ac96-7c4e-8f3a-1b2c3d4e5f71";
+  const other = await adoptOne(setup(true), `tex/chat:${OTHER}/notes/${NOTE2}.md`, CHAT, NOTE2);
+  assert.deepEqual(other, { ok: false, code: "DEFER", reason: "key" }, "another chat's key");
+
+  const notPin = await adoptOne(setup(false), `tex/chat:${CHAT}/notes/${NOTE2}.md`, CHAT, NOTE2);
+  assert.deepEqual(notPin, { ok: false, code: "DEFER", reason: "key" }, "not the pin");
+});

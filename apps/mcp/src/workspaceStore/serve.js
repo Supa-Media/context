@@ -29,7 +29,7 @@ import { serveCollabCommit, serveCollabReplace } from "./collabReplace.js";
 import { serveCreateNote } from "./createNote.js";
 import { withOpen } from "./sessionOpen.js";
 import { treeRows } from "./treeRows.js";
-import { absentHere } from "./lookupMiss.js";
+import { absentHere, chatHomeOwner } from "./lookupMiss.js";
 import { namesTaken } from "./namesTaken.js";
 import { SearchAskRefused } from "./searchIndex.js";
 import { MeaningAskRefused } from "./meaningIndex.js";
@@ -136,10 +136,8 @@ function lookUp(rows, fields, by, members = null, access = null) {
   const judge = judgeFor(rows, fields, members);
   // What may reroute a path with no row (`lookupMiss.js`): chat homes only where this object's access set says it holds
   // them, and a Tex folder only where the gateway has not said the workspace is shared.
-  const where = {
-    chatHomes: typeof access?.sealsChats === "function" ? access.sealsChats() !== false : true,
-    texFolder: fields.workspaceKind !== "shared",
-  };
+  const sealsChats = typeof access?.sealsChats === "function" ? access.sealsChats() : null;
+  const where = { chatHomes: sealsChats !== false, texFolder: fields.workspaceKind !== "shared", sealsChats };
   return {
     accessVersion: judge.accessVersion,
     rows: asked.map((value) => {
@@ -149,6 +147,9 @@ function lookUp(rows, fields, by, members = null, access = null) {
       const row = typeof value === "string" ? (by === "path" ? rows.byPath(value) : rows.byNoteId(value)) : null;
       // Nothing at all at the path, and nothing reroutes it (`lookupMiss.js`): the gateway may make the note without asking.
       if (by === "path" && row === null && absentHere(rows, value, where)) return { path: value, found: false, absent: true };
+      // A group chat's own session making a note in its own home: kept in that chat's Tex object, placed here.
+      const texHome = by === "path" && row === null ? chatHomeOwner(rows, value, fields.chatHome, where.sealsChats) : null;
+      if (texHome !== null) return { path: value, found: false, absent: true, texHome };
       if (!judge.sees(row)) return { [by === "path" ? "path" : "noteId"]: value, found: false };
       return { found: true, path: row.path, noteId: row.noteId, key: row.storageKey ?? (row.noteId ? `notes/${row.noteId}.md` : null), etag: row.etag, kind: row.kind, collaborates: row.collaborates };
     }),

@@ -8,7 +8,9 @@
  * one call to it answers everything the store is built from.
  *
  * **Taken only when every one of these holds**, and the control plane is asked as before otherwise:
- * - the request reads as a member (not a guest, a Tex chat, or Tex's setup read), and names who is reading;
+ * - the request names who is reading, and reads as a member, as a guest or a Tex guest chat (by that audience's own
+ *   rules there, `workspaceStore/bindingRows.js`), or as Tex's setup read; a group chat's turn (`texChatId`) too, by the
+ *   rules its names read (2026-11-20, Dev2: no note read or save needs Convex);
  * - the object holds the notes and decides access (`home` and `accessHome` both `object`), and knows whether the
  *   workspace holds a data key (`encryption` `none` or `keyed`, never unknown);
  * - the reader is a live member there, and its member rules are held;
@@ -79,8 +81,11 @@ function ineligible(session, env, controlPlane) {
   }
   if (typeof session?.actorUserId !== "string" || session.actorUserId === "") return "no_reader";
   if (session.scope !== "private" && session.scope !== "team") return "no_scope";
-  if (audienceOf(session.grantedGroups) !== "member") return "not_member_audience";
-  if (typeof session?.texChatId === "string" && session.texChatId !== "") return "tex_chat";
+  // A guest or a Tex guest chat reads by its own rules there (2026-11-20, Dev2: no note read or save needs Convex); a
+  // chat whose names are not known is asked of the control plane. `GUEST_FROM_OBJECT=off` asks it for both again.
+  const audience = audienceOf(session.grantedGroups);
+  if (audience !== "member" && env?.GUEST_FROM_OBJECT === "off") return "not_member_audience";
+  if (audience === "chat" && !Array.isArray(session.chatNames)) return "chat_names_unknown";
   if (secretOf(env) === null) return "no_secret";
   if (askBehind(env) && typeof controlPlane?.objectBehind !== "function") return "no_behind_check";
   return null;
@@ -131,13 +136,16 @@ export async function openedFromObject(session, env, controlPlane, { now = Date.
   let held;
   let behind;
   const setupRead = session.setupRead === true;
-  // Answered beside the session already, for this workspace and this person (`openedHere.js`): no second trip. Never a setup read's.
-  const opened = setupRead ? null : takeOpened(session);
+  const audience = setupRead ? "member" : audienceOf(session.grantedGroups);
+  // Answered beside the session already, for this workspace and this person (`openedHere.js`): no second trip. Only a
+  // member's: that answer carries the member rules, which a setup read, a guest or a chat never reads by.
+  const opened = setupRead || audience !== "member" ? null : takeOpened(session);
+  const asked = setupRead ? { setupRead: true } : audience === "member" ? {} : { audience, ...(audience === "chat" ? { chatNames: session.chatNames } : {}) };
   try {
     // One object call, which waits for an open mark and says `behind` while one is still out; the control plane's
     // own behind question beside it only where switched back on.
     [held, behind] = await Promise.all([
-      opened ?? object.open(session.actorUserId, setupRead ? { setupRead: true } : {}),
+      opened ?? object.open(session.actorUserId, asked),
       askBehind(env) ? controlPlane.objectBehind(session.workspaceId).catch(() => true) : false,
     ]);
   } catch {
@@ -149,7 +157,14 @@ export async function openedFromObject(session, env, controlPlane, { now = Date.
   if (held.home !== "object") return fail("notes_not_in_object");
   if (held.accessHome !== "object") return fail("access_not_in_object");
   if (!ENCRYPTION_KNOWN.has(held.encryption)) return fail("encryption_unknown");
-  if (setupRead ? held.setupRead !== true : held.member !== true) return fail(setupRead ? "setup_read_refused" : "not_a_member");
+  if (setupRead) {
+    if (held.setupRead !== true) return fail("setup_read_refused");
+  } else if (audience === "member") {
+    if (held.member !== true) return fail("not_a_member");
+  } else if (held.reader !== audience) {
+    // The object answered for some other reader than the one asked (or holds no rules for it): never served.
+    return fail("reader_refused");
+  }
   if (!held.rules || typeof held.rules !== "object") return fail("no_rules");
   if (behind !== false || held.behind === true) return fail("behind");
   const secret = secretOf(env);

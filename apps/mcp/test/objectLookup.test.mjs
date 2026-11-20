@@ -547,3 +547,32 @@ test("a path lookup tells the object the workspace's kind, from the session, and
   await objectFirstHooks(cp.hooks, { client: unknown.client, home: "object", scope: "team", names: [], workspaceId: "w1", workspaceKind: "elsewhere" }).lookup(["plans/a.md"]);
   assert.equal("workspaceKind" in unknown.asked[0], false, "only personal or shared is said");
 });
+
+// 2026-11-20 (Dev2: no note read or save needs Convex): a group chat's own session in its own home records its saves
+// and makes its new notes in the object, the new note placed in its own Tex object by the object's lookup. A guest, and
+// a chat with no home named, still go to the control plane (above). Sabotage: drop `chatHome !== null` from `adopt`'s
+// condition in objectLookup.js and the adopt assertion fails.
+test("a group chat in its own home is recorded and adopted by the object, its new note placed in its own Tex object", async () => {
+  const CHAT = "c".repeat(64);
+  const chatHome = { folder: "tex/groups/kite-willow-rocket", chat: CHAT };
+  const cp = control();
+  const ob = object({ "tex/groups/kite-willow-rocket/new.md": { path: "tex/groups/kite-willow-rocket/new.md", found: false, absent: true, texHome: `chat:${CHAT}` }, "tex/groups/kite-willow-rocket/odd.md": { path: "tex/groups/kite-willow-rocket/odd.md", found: false, absent: true, texHome: `chat:${"d".repeat(64)}` } }, () => ({ ok: true }));
+  ob.client.write.adopt = async (fields) => {
+    ob.asked.push({ op: "adopt", ...fields });
+    return { ok: true, adopted: true };
+  };
+  const hooks = objectFirstHooks(cp.hooks, { client: ob.client, home: "object", scope: "team", names: ["@#reads-as-chat"], chatNames: ["#home"], userId: "u1", workspaceId: "w1", chatHome });
+  const found = await hooks.lookup(["tex/groups/kite-willow-rocket/new.md", "tex/groups/kite-willow-rocket/odd.md"]);
+  assert.deepEqual(found.texHomes, { "tex/groups/kite-willow-rocket/new.md": `chat:${CHAT}` }, "only its own chat's object is taken from the object");
+  assert.deepEqual(cp.asked.lookup, []);
+  assert.deepEqual(ob.asked[0].chatHome, chatHome);
+  assert.deepEqual(await hooks.wrote(KEYED), { recorded: true });
+  assert.deepEqual(await hooks.adopt({ path: "tex/groups/kite-willow-rocket/new.md", noteId: NOTE, key: "k", etag: "e", at: 1, tier: "team" }), { adopted: true, taken: null });
+  assert.deepEqual(ob.asked.find((call) => call.op === "adopt").chatHome, chatHome);
+  assert.deepEqual(cp.asked.wrote, []);
+  assert.deepEqual(cp.asked.adopt, []);
+  // Not a chat's reading: the home is ignored and the control plane keeps the adoption.
+  const guest = objectFirstHooks(cp.hooks, { client: ob.client, home: "object", scope: "team", names: ["@#reads-as-guest"], userId: "u1", workspaceId: "w1", chatHome });
+  assert.equal(guest.adopt, cp.hooks.adopt);
+  assert.equal(guest.wrote, cp.hooks.wrote);
+});

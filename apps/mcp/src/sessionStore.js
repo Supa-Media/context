@@ -273,6 +273,8 @@ async function openSessionStore(session, env, controlPlane) {
     userId: session.actorUserId ?? null,
     // Personal or shared, from the control plane's session: where a new note with no row is placed (`lookupMiss.js`).
     workspaceKind: session.workspaceKind ?? null,
+    // A group chat's own home and its chat, both from its grant (`session.js` `sessionForChatHome`), or null.
+    chatHome: typeof session.chatHome === "string" && typeof session.texChatId === "string" ? { folder: session.chatHome, chat: session.texChatId } : null,
     // Whether this request may write notes (the grant's `context:write`, clamped by role): the object's moves are asked
     // only for a caller the control plane would let move (`tools/moves/objectMove.js`).
     canWrite: hasScope(session, SCOPE_WRITE),

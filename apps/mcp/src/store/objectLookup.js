@@ -75,7 +75,7 @@ function entryOf(row) {
  *
  * @param {{client: object|null, home?: string|null, behind?: boolean, scope: string, names: Iterable<string>, chatNames?: string[]|null, workspaceId?: string, userId?: string|null, log?: (event: string, fields: object) => void}} options
  */
-export function objectReader({ client, home, behind = false, scope, names, chatNames = null, workspaceId, userId = null, workspaceKind = null, log = () => {} }) {
+export function objectReader({ client, home, behind = false, scope, names, chatNames = null, workspaceId, userId = null, workspaceKind = null, chatHome = null, log = () => {} }) {
   const groups = [...(names ?? [])];
   const audience = audienceOf(groups);
   if (!client || home !== HOMES.OBJECT || (scope !== "private" && scope !== "team")) return null;
@@ -106,7 +106,10 @@ export function objectReader({ client, home, behind = false, scope, names, chatN
   // The workspace's kind, from the control plane's session: a path lookup's answer for a path with no row depends on it
   // (`workspaceStore/lookupMiss.js`: only a personal workspace keeps its Tex folder's notes in Tex's store).
   const place = workspaceKind === "personal" || workspaceKind === "shared" ? { workspaceKind } : {};
-  return { client, workspaceId, log, judged, settledBehind, place };
+  // A group chat's own home and chat, from its grant (`session.js` `sessionForChatHome`): a new note there is placed
+  // in that chat's Tex object by the object itself (`workspaceStore/lookupMiss.js` `chatHomeOwner`).
+  const homed = audience === "chat" && chatHome && typeof chatHome.folder === "string" && /^[0-9a-f]{64}$/.test(chatHome.chat ?? "") ? { chatHome: { folder: chatHome.folder, chat: chatHome.chat } } : {};
+  return { client, workspaceId, log, judged, settledBehind, place: { ...place, ...homed }, chatHome: homed.chatHome ?? null };
 }
 
 /**
@@ -219,7 +222,7 @@ export function objectFirstNames(options) {
 export function objectFirstHooks(hooks, options) {
   const reader = objectReader(options);
   if (reader === null) return hooks;
-  const { client, workspaceId, log, judged, settledBehind, place } = reader;
+  const { client, workspaceId, log, judged, settledBehind, place, chatHome } = reader;
 
   // `withBody`: an edit's one lookup (`idLayout.js` `oneWrite`) asks for the note's Markdown beside its row.
   const lookup = async (paths, { withBody = false } = {}) => {
@@ -232,28 +235,34 @@ export function objectFirstHooks(hooks, options) {
     }
     if (settledBehind(answer)) throw new WorkspaceBusy("lookup behind");
     const notes = {};
+    const texHomes = {};
     const missing = [];
     paths.forEach((path, at) => {
       const row = answer?.rows?.[at];
       const entry = row?.found === true && row.path === path ? entryOf(row) : null;
-      // Absent in the object (`workspaceStore/lookupMiss.js`): no note there, and no Tex home, without asking Convex.
-      if (entry === null && row?.found === false && row.absent === true && row.path === path) return;
+      // Absent in the object (`workspaceStore/lookupMiss.js`): no note there, and its Tex home if it has one (a chat's
+      // own home, the only one the object places), without asking Convex.
+      if (entry === null && row?.found === false && row.absent === true && row.path === path) {
+        if (typeof row.texHome === "string" && chatHome !== null && row.texHome === `chat:${chatHome.chat}`) texHomes[path] = row.texHome;
+        return;
+      }
       if (entry === null) missing.push(path);
       else notes[path] = entry;
     });
-    if (missing.length === 0) return { keyed: true, notes, texHomes: {} };
+    if (missing.length === 0) return { keyed: true, notes, texHomes };
     const rest = await hooks.lookup(missing);
-    return { keyed: rest.keyed === true, notes: { ...rest.notes, ...notes }, texHomes: rest.texHomes ?? {} };
+    return { keyed: rest.keyed === true, notes: { ...rest.notes, ...notes }, texHomes: { ...(rest.texHomes ?? {}), ...texHomes } };
   };
 
   /**
    * A keyed note's new version, recorded in the object first (`workspaceStore/writeOps.js` `ws.write.wrote`): the
    * object stamps its row and queues the change for Convex's mirror, so the save waits on no control-plane round trip
-   * (`docs/decisions/storage-and-credentials/object-row-writes.md`). Only a member's keyed write with its size and
-   * time goes there; anything else, a row the object does not hold, or an object that fails, is recorded by the
-   * control plane as before.
+   * (`docs/decisions/storage-and-credentials/object-row-writes.md`). A member's keyed write with its size and time goes
+   * there, and since 2026-11-20 a group chat's in its own home (its grant edits that home and nothing else). A guest's
+   * never: the control plane's record checks the writer's role, which the object does not. Anything else, a row the
+   * object does not hold, or an object that fails, is recorded by the control plane as before.
    */
-  const wrote = typeof hooks.wrote !== "function" || typeof client.write?.wrote !== "function" || judged.audience !== "member"
+  const wrote = typeof hooks.wrote !== "function" || typeof client.write?.wrote !== "function" || !(judged.audience === "member" || chatHome !== null)
     ? hooks.wrote
     : async (record) => {
         if (record?.keyed !== true || !Number.isFinite(record?.size) || !Number.isFinite(record?.at)) return await hooks.wrote(record);
@@ -275,7 +284,9 @@ export function objectFirstHooks(hooks, options) {
    * behind. Only a member's create that names its tier goes there; the object answers DEFER for anything but the
    * plain case, and that, a failure, or a call without a tier is adopted by the control plane as before.
    */
-  const adopt = typeof hooks.adopt !== "function" || typeof client.write?.adopt !== "function" || judged.audience !== "member"
+  // A member's new note, or a group chat's in its own home (2026-11-20). A guest's never: the control plane's adoption
+  // checks the writer's role, which a pin reader's guest session does not have.
+  const adopt = typeof hooks.adopt !== "function" || typeof client.write?.adopt !== "function" || !(judged.audience === "member" || chatHome !== null)
     ? hooks.adopt
     : async (note) => {
         if (note?.tier !== "private" && note?.tier !== "team") return await hooks.adopt(note);
@@ -284,6 +295,7 @@ export function objectFirstHooks(hooks, options) {
           answer = await client.write.adopt({
             path: note.path, noteId: note.noteId, key: note.key, etag: note.etag,
             ...(Number.isFinite(note.size) ? { size: note.size } : {}), at: note.at, tier: note.tier,
+            ...(chatHome !== null ? { chatHome } : {}),
           });
         } catch (error) {
           log("workspace_object_adopt_failed", { workspaceId, error: String(error?.message ?? error) });

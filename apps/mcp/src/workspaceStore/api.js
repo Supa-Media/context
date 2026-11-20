@@ -142,7 +142,7 @@ export function workspaceClient(env, workspaceId) {
       put: async (rows) => await ask("ws.rows.put", { rows }),
       remove: async (ids, at) => await ask("ws.rows.remove", { ids, at }),
       get: async (ids) => await ask("ws.rows.get", { ids }),
-      lookup: async ({ paths, scope, groups = [], audience = "member", userId = null, chatNames = null, withBody = false, workspaceKind = null }) => await ask("ws.rows.lookup", { paths, scope, groups, audience, ...(userId ? { userId } : {}), ...(Array.isArray(chatNames) ? { chatNames } : {}), ...(withBody === true ? { withBody: true } : {}), ...(workspaceKind === "personal" || workspaceKind === "shared" ? { workspaceKind } : {}) }),
+      lookup: async ({ paths, scope, groups = [], audience = "member", userId = null, chatNames = null, withBody = false, workspaceKind = null, chatHome = null }) => await ask("ws.rows.lookup", { paths, scope, groups, audience, ...(userId ? { userId } : {}), ...(Array.isArray(chatNames) ? { chatNames } : {}), ...(withBody === true ? { withBody: true } : {}), ...(workspaceKind === "personal" || workspaceKind === "shared" ? { workspaceKind } : {}), ...(chatHome && typeof chatHome === "object" ? { chatHome: { folder: chatHome.folder, chat: chatHome.chat } } : {}) }),
       resolve: async ({ noteIds, scope, groups = [], audience = "member", userId = null, chatNames = null }) => await ask("ws.rows.resolve", { noteIds, scope, groups, audience, ...(userId ? { userId } : {}), ...(Array.isArray(chatNames) ? { chatNames } : {}) }),
       list: async ({ after = null, limit = 1000 } = {}) => await ask("ws.rows.list", { after, limit }),
       listing: async (/** @type {{path: string, scope: string, groups?: string[], audience?: string}} */ options) =>
@@ -198,7 +198,17 @@ export function workspaceClient(env, workspaceId) {
     setHome: async (home) => await ask("ws.home", { home }),
     setEncryption: async (state) => await ask("ws.encryption", { state }),
     markBackfilled: async (at) => await ask("ws.backfilled", { at }),
-    open: async (userId, { setupRead = false } = {}) => await ask("ws.open", setupRead === true ? { userId, setupRead: true } : { userId }),
+    open: async (userId, { setupRead = false, audience = null, chatNames = null } = {}) =>
+      await ask(
+        "ws.open",
+        setupRead === true
+          ? { userId, setupRead: true }
+          : audience === "guest"
+            ? { userId, audience }
+            : audience === "chat" && Array.isArray(chatNames)
+              ? { userId, audience, chatNames }
+              : { userId },
+      ),
     // The object's own word index (`searchIndex.js`): a search's queries, and a catch-up pass behind a response.
     search: async (asks) => await ask("ws.search", { asks }),
     searchBuild: async () => await ask("ws.search.build"),
