@@ -1,7 +1,7 @@
 import { Pressable, StyleSheet, View } from "react-native";
 import { Icon } from "../../design/components/Icon";
 import { Text } from "../../design/components/Text";
-import { fonts } from "../../design/tokens";
+import { fonts, texChatType } from "../../design/tokens";
 import { useColors, useThemedStyles, type Colors } from "../../design/theme";
 import { chatBlocks, type ChatBlock, type ChatInline } from "./appChatMarkdown";
 import { textPieces } from "./appChatText";
@@ -37,7 +37,6 @@ export interface TexChatWordsProps {
  */
 export function TexChatWords({ text, mine, onOpenNote }: TexChatWordsProps) {
   const styles = useThemedStyles(makeStyles);
-  const colors = useColors();
   const ink = mine ? styles.inkMine : styles.inkTheirs;
 
   if (mine) {
@@ -194,7 +193,7 @@ const makeStyles = (colors: Colors) =>
   StyleSheet.create({
     stack: { maxWidth: "100%", gap: 6 },
     // The approved mock's sizes: 14 on a 20 line, not the page's own body scale.
-    body: { fontSize: 14, lineHeight: 20, fontWeight: "400" },
+    body: { fontSize: texChatType.bubble, lineHeight: 20, fontWeight: "400" },
     heading: { fontWeight: "600" },
     inkMine: { color: colors.ink },
     inkTheirs: { color: colors.text },
@@ -211,7 +210,7 @@ const makeStyles = (colors: Colors) =>
     },
     code: {
       fontFamily: fonts.mono,
-      fontSize: 12,
+      fontSize: texChatType.small,
       lineHeight: 18,
       borderRadius: 4,
       backgroundColor: colors.surface3,
@@ -220,7 +219,7 @@ const makeStyles = (colors: Colors) =>
     list: { paddingLeft: 18, gap: 2 },
     item: { position: "relative" },
     dot: { position: "absolute", left: -12, top: 8, width: 5, height: 5, borderRadius: 2.5 },
-    marker: { position: "absolute", left: -18, top: 0, width: 14, textAlign: "right", fontSize: 14, lineHeight: 20 },
+    marker: { position: "absolute", left: -18, top: 0, width: 14, textAlign: "right", fontSize: texChatType.bubble, lineHeight: 20 },
     card: {
       flexDirection: "row",
       alignItems: "center",
@@ -233,7 +232,7 @@ const makeStyles = (colors: Colors) =>
       backgroundColor: colors.surface2,
     },
     cardText: { flex: 1, minWidth: 0 },
-    cardTitle: { fontSize: 13, lineHeight: 18, fontWeight: "600", color: colors.text },
-    cardFolder: { fontSize: 11.5, lineHeight: 15, color: colors.muted },
-    cardOpen: { fontSize: 12, fontWeight: "600", color: colors.accentText },
+    cardTitle: { fontSize: texChatType.cardTitle, lineHeight: 18, fontWeight: "600", color: colors.text },
+    cardFolder: { fontSize: texChatType.status, lineHeight: 15, color: colors.muted },
+    cardOpen: { fontSize: texChatType.small, fontWeight: "600", color: colors.accentText },
   });

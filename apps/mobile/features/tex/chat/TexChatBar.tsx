@@ -3,7 +3,7 @@ import { Animated, Pressable, StyleSheet, View } from "react-native";
 import { Icon } from "../../design/components/Icon";
 import { Text } from "../../design/components/Text";
 import { useColors, useThemedStyles, type Colors } from "../../design/theme";
-import { radii } from "../../design/tokens";
+import { radii, texChatType } from "../../design/tokens";
 import type { Shadows } from "../../design/tokens";
 import { TAPBACKS, type ReactionEmoji } from "./appChatGateway";
 
@@ -180,6 +180,6 @@ const makeStyles = (colors: Colors, shadows: Shadows) =>
     },
     hover: { backgroundColor: colors.surface3, transform: [{ scale: 1.18 }] },
     own: { backgroundColor: colors.accentDim },
-    emoji: { fontSize: 15, lineHeight: 18 },
+    emoji: { fontSize: texChatType.tapback, lineHeight: 18 },
     separator: { width: 1, height: 18, marginHorizontal: 3, backgroundColor: colors.line },
   });

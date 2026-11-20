@@ -32,6 +32,7 @@ export {
   pointerType,
   siteType,
   texPageType,
+  texChatType,
   settingsHomeType,
   castKeyboardType,
   type TypeScale,

@@ -2,7 +2,7 @@ import { useEffect, useRef, useState, type ReactNode } from "react";
 import { Animated, Image, Pressable, StyleSheet, View } from "react-native";
 import { Button } from "../../design/components/Button";
 import { Text } from "../../design/components/Text";
-import { radii, space } from "../../design/tokens";
+import { radii, space, texChatType } from "../../design/tokens";
 import { useThemedStyles, type Colors } from "../../design/theme";
 import { useReducedMotion } from "../../design/useReducedMotion";
 import { isPending, type AppChatRow, type AskChoice, type ChatLine, type ReactionEmoji } from "./appChatGateway";
@@ -466,7 +466,7 @@ const makeStyles = (colors: Colors) =>
     },
     badgeMe: { borderColor: colors.line },
     badgeTex: { borderColor: colors.accent },
-    badgeText: { fontSize: 12, lineHeight: 20, color: colors.text },
+    badgeText: { fontSize: texChatType.small, lineHeight: 20, color: colors.text },
     askCard: {
       alignSelf: "flex-start",
       gap: space.x2,

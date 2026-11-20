@@ -3,7 +3,7 @@ import { Image, Pressable, StyleSheet, TextInput, View } from "react-native";
 import { Icon, type IconName } from "../../design/components/Icon";
 import { Text } from "../../design/components/Text";
 import { useFieldFont } from "../../design/fieldFont";
-import { pointerType, radii, space } from "../../design/tokens";
+import { pointerType, radii, space, texChatType } from "../../design/tokens";
 import { useColors, useThemedStyles, type Colors } from "../../design/theme";
 import { useHoverTitle } from "../../design/useHoverTitle";
 import { MAX_PICTURES, MAX_TEXT } from "./appChatGateway";
@@ -367,7 +367,7 @@ const makeStyles = (colors: Colors) =>
       borderTopRightRadius: 9,
       backgroundColor: colors.surface3,
     },
-    chipText: { flex: 1, minWidth: 0, fontSize: 12, color: colors.muted },
+    chipText: { flex: 1, minWidth: 0, fontSize: texChatType.small, color: colors.muted },
     close: {
       width: 28,
       height: 28,
@@ -405,7 +405,7 @@ const makeStyles = (colors: Colors) =>
       borderWidth: 0,
       backgroundColor: "transparent",
       color: colors.text,
-      fontSize: 14.5,
+      fontSize: texChatType.composer,
       lineHeight: 20.3,
       textAlignVertical: "top",
     },

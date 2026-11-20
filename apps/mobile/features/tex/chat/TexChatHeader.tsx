@@ -1,3 +1,4 @@
+import { texChatType } from "../../design/tokens";
 import type { ReactNode } from "react";
 import { StyleSheet, View } from "react-native";
 import { Tex } from "../../chaos/Tex";
@@ -51,8 +52,8 @@ const makeStyles = (colors: Colors) =>
       backgroundColor: colors.surface2,
     },
     words: { flexDirection: "row", alignItems: "baseline", gap: 10 },
-    name: { fontSize: 14, fontWeight: "600", color: colors.text },
+    name: { fontSize: texChatType.bubble, fontWeight: "600", color: colors.text },
     status: { flexDirection: "row", alignItems: "center", gap: 6 },
     dot: { width: 7, height: 7, borderRadius: 3.5 },
-    statusText: { fontSize: 11.5, color: colors.muted },
+    statusText: { fontSize: texChatType.status, color: colors.muted },
   });
