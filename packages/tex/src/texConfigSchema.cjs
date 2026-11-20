@@ -44,6 +44,8 @@ const KINDS = Object.freeze(["input", "tool"]);
 const CACHE_TTLS = Object.freeze(["5m", "1h"]);
 /** Which tools a model step is shown (`sixToolsFixed.js`): what its turn holds, or every tool its kind of chat has, the same bytes each turn. */
 const TOOL_LISTS = Object.freeze(["turn", "fixed"]);
+/** When a model step's rarely-changing modules are read (`frozenModules.js`): each turn, or once a day, until the next summary, with what changed since said after the history. */
+const FREEZES = Object.freeze(["turn", "summary"]);
 /** The types a node's input and output fields may have (`inSchema`, `outSchema`; checked by the runner, `texGraph.cjs`). */
 const IO_TYPES = Object.freeze(["text", "number", "choice", "object", "yesno", "score", "ids", "list"]);
 const GROUP_FIELDS = Object.freeze(["label", "goal", "icon", "x", "y", "parent"]);
@@ -76,6 +78,8 @@ const NODE_SHAPE = Object.freeze({
   cacheTtl: [(v) => CACHE_TTLS.includes(v), `one of ${CACHE_TTLS.join(", ")}`],
   // What its tools list (Dev2, 2026-11-20: "tools are never added or removed for a single turn"): "fixed" keeps the prompt cache.
   toolList: [(v) => TOOL_LISTS.includes(v), `one of ${TOOL_LISTS.join(", ")}`],
+  // Dev2, 2026-11-20: "until the next summary, the system prompt stays byte-identical": "summary" keeps the prompt cache.
+  freeze: [(v) => FREEZES.includes(v), `one of ${FREEZES.join(", ")}`],
   kind: [(v) => KINDS.includes(v), `one of ${KINDS.join(", ")}`],
   inSchema: [isIo, "a list of { name, type, optional?, options? } (options in words, as texGraph.cjs reads them)"],
   outSchema: [isIo, "a list of { name, type, optional?, options? } (options in words, as texGraph.cjs reads them)"],

@@ -135,6 +135,11 @@ export function texToolList(id, config = CONFIG) {
   return texStep(id, config).toolList === "fixed" ? "fixed" : "turn";
 }
 
+/** When a step's rarely-changing modules are read (`frozenModules.js`): "summary", once a day until the next summary, or "turn", each turn. */
+export function texFreeze(id, config = CONFIG) {
+  return texStep(id, config).freeze === "summary" ? "summary" : "turn";
+}
+
 /** A step's time limit in milliseconds. Throws when the file gives it none. */
 export function texTimeoutMs(id, config = CONFIG) {
   const seconds = texStep(id, config).timeoutS;
@@ -228,6 +233,8 @@ function draftStep(node, edit, config, words) {
   if (node.id === "fd" && (edit.fallback === null || (typeof edit.fallback === "string" && typeof config.models[edit.fallback] === "string"))) out.fallback = edit.fallback;
   // Which tools the step is shown (`sixToolsFixed.js`): what its turn holds, or the fixed list of its kind of chat.
   if (edit.toolList === "fixed" || edit.toolList === "turn") out.toolList = edit.toolList;
+  // When its rarely-changing modules are read (`frozenModules.js`): each turn, or once a day until the next summary.
+  if (edit.freeze === "summary" || edit.freeze === "turn") out.freeze = edit.freeze;
   if (typeof edit.timeoutS === "number" && edit.timeoutS > 0 && edit.timeoutS <= MAX_TIMEOUT_S && node.timeoutS > 0) out.timeoutS = edit.timeoutS;
   // What the step reads, when every prompt module it names has words here or in the draft.
   if (Array.isArray(edit.ctx) && edit.ctx.every((entry) => typeof entry === "string" && (PROMPT_ENTRY.exec(entry) === null || typeof words[PROMPT_ENTRY.exec(entry)[1]] === "string"))) out.ctx = edit.ctx;

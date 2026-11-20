@@ -8,7 +8,8 @@ import { markUntrusted } from "../../privacy/egress.js";
 import { devShareOn, devSharePrompt } from "../devShare.js";
 import { groupChatsForTurn, groupsOn } from "../groupChats.js";
 import { ADVISOR_TOOL, advisorRequest, advisorTimeoutMs, advisorTools, jobAdvisorLine } from "../advisor.js";
-import { TRAINING, texCacheTtl, texConfigOf, texToolList } from "../texConfig.js";
+import { TRAINING, texCacheTtl, texConfigOf, texFreeze, texToolList } from "../texConfig.js";
+import { frozenModules } from "../frozenModules.js";
 import { aiGatewayConfig } from "../aiGateway.js";
 import { carriesData, withAttachmentImages } from "../attachments.js";
 import { jobBriefPrompt, jobPartPrompt, jobReportPrompt, withBackground, withJobSteps } from "../background.js";
@@ -207,6 +208,9 @@ export async function runTheModel(t, via) {
   const pictureRun = (name, args, callTool) => gatewayGraph({ env, writer: chatLog, turn: ledgerAt?.turn ?? null }).fire("tools", "picture", { tool: name, args }, { env, maker, callTool, cardCheck }).then((out) => out.result); // interim: io.use.picture once tools is a node
   steer?.revertWith(dispatch); // a provisional run's note saves are read first and put back through the client's own dispatcher (`steer.js`)
   // An earlier try of this same text, or a job's part cut off before it answered, carried on from what it had done (`savedRounds.js`); a routine's run has no text.
+  // The slow modules' words for the day, when the step freezes them until the next summary (`frozenModules.js`).
+  const freezeStep = job === null ? "fd" : "job";
+  const freeze = (job !== null || chatTurn) && texFreeze(freezeStep, texConfigOf(env)) === "summary" ? await tex.step("frozen_modules", () => frozenModules({ store, session, step: freezeStep, freeze: "summary", timeZone }).catch(() => null)) : null;
   const rounds = !runner && (job !== null || chatTurn) ? await tex.step("carried_rounds", () => carriedRounds({ store, session, body, question, job, egress: ledger }).catch(() => null)) : null;
   t.rounds = rounds; // its snapshot goes once the reply is made (`sendTheReply.js`)
   stages?.ready();
@@ -281,6 +285,7 @@ export async function runTheModel(t, via) {
     builtinModelOverride: productionModel ?? undefined,
     router,
     cacheTtl: texCacheTtl(job === null ? "fd" : "job", texConfigOf(env)), // the prefix cache's life, the step's own in Tex's config
+    freeze, // the slow modules frozen for the day (`frozenModules.js`), or null: read each turn
     fixedTools: texToolList(job === null ? "fd" : "job", texConfigOf(env)) === "fixed" ? (group ? "group" : "one") : null, // every tool its kind of chat has, the same bytes each turn (`sixToolsFixed.js`)
     efforts: turnEfforts(production, job), // a job's turn thinks as `models.job_effort` says (`production.js`)
     fallback: via.fallback(fallback),

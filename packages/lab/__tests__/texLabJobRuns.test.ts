@@ -11,7 +11,7 @@ import { createRoot } from "react-dom/client";
 
 import { jobsOf, jobWork } from "@context/lab/app/engine/jobRuns";
 import { JobRuns } from "@context/lab/app/views/replay/JobRuns";
-import type { LedgerEntry } from "../features/tex/page/texPageTypes";
+import type { LedgerEntry } from "../../../apps/mobile/features/tex/page/texPageTypes";
 
 const J = "job-0001";
 const e = (x: Partial<LedgerEntry> & { id: string; kind: string }) => ({ at: 1_000, ...x }) as LedgerEntry;
