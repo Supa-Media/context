@@ -80,3 +80,12 @@ test("every action on both fixed lists has a schema this check reads whole, and 
     }
   }
 });
+
+test("the fields inside a list of objects stay the tool's own to judge: browse reads ref \"[3]\" and names a step that is not one", () => {
+  const six = fixedSix();
+  const out = six.resolve("send", { action: "browse", args: { steps: [{ do: "type", ref: "[3]", text: "hi" }, { do: "open", url: "https://example.com" }] } });
+  assert.equal(out.name, "browse");
+  assert.deepEqual(out.args.steps[0], { do: "type", ref: "[3]", text: "hi" });
+  // The list itself is still held: a lone object where the steps go is refused.
+  assert.equal(six.resolve("send", { action: "browse", args: { steps: { do: "goto" } } }).cause, "bad_arguments");
+});

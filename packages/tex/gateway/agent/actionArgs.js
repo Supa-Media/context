@@ -29,9 +29,22 @@ const ADDRESSING = ["context", "mailbox", "person_said"];
 
 /** The schema as this check reads it: closed at the top, the addressing keys allowed beside the action's own. */
 function closed(schema) {
-  const properties = { ...(schema.properties ?? {}) };
+  const properties = Object.fromEntries(Object.entries(schema.properties ?? {}).map(([key, property]) => [key, shallow(property)]));
   for (const key of ADDRESSING) if (!Object.hasOwn(properties, key)) properties[key] = { type: "string" };
   return { ...schema, type: "object", properties, additionalProperties: false };
+}
+
+/**
+ * A property as this check reads it: its own type, bounds and enum, but never the fields of an object inside it, alone
+ * or in a list. Those are the tool's own to judge, in its own words: browse reads a step's `ref` written "3" or "[3]"
+ * as 3, and names the step to use for one that is not a step ("opening an address is a goto step"); held to the
+ * schema, those calls were refused in the schema's words instead (production, 2026-11-20 21:xxZ).
+ */
+function shallow(property) {
+  if (!property || typeof property !== "object") return property;
+  const { properties, required, additionalProperties, ...own } = property;
+  if (property.type === "array" && property.items?.type === "object") return { ...own, items: { type: "object" } };
+  return property.type === "object" ? own : property;
 }
 
 /** Whether a property's schema takes a list of strings. */
