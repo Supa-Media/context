@@ -53,21 +53,24 @@ export function foundSoFar(found) {
 }
 
 /**
- * @param {{ ask: string, draft?: string, notice?: string, found?: { name: string, text: string, isError?: boolean }[], cause?: "rounds" | "check" | "route" }} input
+ * @param {{ ask: string, draft?: string, notice?: string, found?: { name: string, text: string, isError?: boolean }[], cause?: "rounds" | "check" | "route" | "ladder" }} input
  */
 export async function handoffNode(input) {
   const ask = String(input?.ask ?? "").trim();
   const notice = String(input?.notice ?? "").trim();
   const rounds = input?.cause === "rounds";
-  const routed = input?.cause === "route"; // the router read it as a job before any draft (`doorTurn.js`): no draft to hold back
+  const routed = input?.cause === "route";
+  const ladder = input?.cause === "ladder"; // the lookup ladder's slow rungs (`../../lookupLadder.js`): a fact to find before asking them // the router read it as a job before any draft (`doorTurn.js`): no draft to hold back
   if (ask === "") return { to: "keep", why: "no ask of theirs to hand on" };
   if (!rounds && !routed && notice === "") return { to: "keep", why: "the draft was not held back" };
   const found = foundSoFar(input?.found);
   const brief = [
     `Finish what they asked, all of it, and text them the result: ${clip(ask, MAX_ASK)}`,
     ...(found.length > 0 ? ["Already found this turn (use it; anything that changed something is done, so don't do it again):", ...found] : []),
-    routed ? "The router read this ask as a long job before any answer was drafted: it has several steps." : rounds ? "The front door ran out of rounds in its turn while it was still looking." : `The front door ran out of tries in its turn. Its last draft was never sent, because: ${clip(notice, 200)}`,
-    ...(input?.draft && !routed ? [rounds ? `What it last said while working, not sent: ${clip(input.draft, MAX_DRAFT)}` : `That draft, not sent (do what it offered or promised instead of offering it): ${clip(input.draft, MAX_DRAFT)}`] : []),
+    ladder
+      ? `The front door was about to ask them this, and nothing quick found it (${clip(notice, 200)}). Find it yourself before asking, climbing in order: your own browser on the sites or accounts that would hold it, then a computer if one is connected and it needs one, then the advisor. Ask them only if all of these come up empty, and say what you tried.`
+      : routed ? "The router read this ask as a long job before any answer was drafted: it has several steps." : rounds ? "The front door ran out of rounds in its turn while it was still looking." : `The front door ran out of tries in its turn. Its last draft was never sent, because: ${clip(notice, 200)}`,
+    ...(input?.draft && !routed ? [ladder ? `The question it would have sent them, not sent: ${clip(input.draft, MAX_DRAFT)}` : rounds ? `What it last said while working, not sent: ${clip(input.draft, MAX_DRAFT)}` : `That draft, not sent (do what it offered or promised instead of offering it): ${clip(input.draft, MAX_DRAFT)}`] : []),
   ].join("\n").slice(0, MAX_BRIEF);
   return { to: "hand", title: handoffTitle(ask), brief, doneWhen: "every part of their ask is done and they have the result" };
 }

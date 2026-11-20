@@ -22,6 +22,38 @@
         "packages/shared/src/texExamples.cjs"
       ],
       "why": "The Training moments nearest to the text the front door is answering (Dev2, 2026-11-18: the front door's examples are picked for this text, not fixed). The front door starts it at its first step with the text and its recent lines; it embeds them with the meaning-search model and reads the nearest of the Training moments from the Tex-owned index, dropping the scored conversation, and the front door reads them in its preamble after a budget (ms, default 100). Without the index, a model, or an answer in time, the front door keeps its fixed examples. Unwired, nothing changes: a Lab draft turns it on with fd -> examples (uses)."
+    },
+    "askGate": {
+      "files": [
+        "apps/mcp/src/agent/graph/nodes/askGate.js",
+        "apps/mcp/src/agent/lookupLadder.js",
+        "apps/mcp/src/agent/graph/nodes/answerCheck.js",
+        "apps/mcp/src/agent/texEntryPoint/runTheModel.js",
+        "apps/mcp/src/agent/handoff.js",
+        "apps/mcp/src/agent/graph/nodes/handoff.js"
+      ],
+      "why": "Before asking (the lookup ladder; Dev2, 2026-11-20: Tex asks things it never looked for). The Answer check asks it about a draft it would let go (answerCheck -> askGate, uses). No question mark: on with no model. Otherwise the step's decision model (Clef, Clef Flash or Jev, its config's) reads what the draft asks of them from its Training examples: nothing, an approval or what only they can answer goes on; a fact Tex could find climbs: rungs 1 to 4 (rungKnows, rungNotes, rungTools, its uses wires) and one send-back with what they found or which fast rung is untried; with nothing found, or still asking after that, the slow rungs (its own browser, a computer, the advisor) go to a background job through the Hand-off node (askGate -> handoff, cause ladder). A failed connector is said and asked about, never worked around with the browser. Unwired, nothing changes."
+    },
+    "rungKnows": {
+      "files": [
+        "apps/mcp/src/agent/graph/nodes/rungKnows.js",
+        "apps/mcp/src/agent/lookupLadder.js"
+      ],
+      "why": "Rung 1 of the lookup ladder, What it already knows: the chat's own history searched for the asked fact, 90 days verbatim and every day summary, further back than the front door reads; logs the lines it found. Called by askGate (askGate -> rungKnows, uses)."
+    },
+    "rungNotes": {
+      "files": [
+        "apps/mcp/src/agent/graph/nodes/rungNotes.js",
+        "apps/mcp/src/agent/lookupLadder.js"
+      ],
+      "why": "Rung 2 of the lookup ladder, Their notes: the front door's own search over their notes for the asked fact; logs the query and the lines found. Called by askGate (askGate -> rungNotes, uses)."
+    },
+    "rungTools": {
+      "files": [
+        "apps/mcp/src/agent/graph/nodes/rungTools.js",
+        "apps/mcp/src/agent/lookupLadder.js"
+      ],
+      "why": "Rungs 3 and 4 of the lookup ladder, Apps and web search: which of the front door's lookups this turn tried (a connected app, web search, the browser, the advisor) and which connected app failed; askGate's send-back names the fast ones untried. Called by askGate (askGate -> rungTools, uses)."
     }
   }
 }
