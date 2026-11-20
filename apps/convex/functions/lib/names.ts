@@ -104,7 +104,7 @@ const MAIL_ROLE_NAMES = [
   // Company and support surfaces.
   "hello",
   "support",
-  "help",
+  "help", "ask",
   "contact",
   "team",
   "billing",
