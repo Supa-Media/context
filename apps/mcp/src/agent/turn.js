@@ -50,7 +50,6 @@ import { addModelUsage, failedCall, modelForRound, thinkRoundsFor, whyFailed } f
 import { PROGRESS_TOOL } from "./progress.js";
 import { turnLedger } from "./sendBack.js";
 import { SIX_TOOLS, sixToolsOver } from "./sixTools.js";
-import { fixedCarriers } from "./sixToolsFixed.js";
 import { isParallelRead } from "./parallelReads.js";
 import { resultInV2Names } from "../tools/v2/speak.js";
 import { goalsIn } from "./aboutMe.js";
@@ -338,7 +337,10 @@ export async function runTurn(options) {
     manage and send, each listing only what `tools` grants, and a call to one
     is translated back into the granted tool before the allowlist below.
   */
-  const six = sixToolsOver(tools, grants, fixedTools === "one" || fixedTools === "group" ? { shown: fixedCarriers(fixedTools, { readSkill: tools.find((tool) => tool?.name === "read_skill") ?? null }) } : {});
+  // Loaded only when asked for: the catalogue reads every tool's module, and a static import here closed an import cycle
+  // (`texDesk.js` read `JOBS_PATH` before `background.js` had set it).
+  const fixed = fixedTools === "one" || fixedTools === "group" ? (await import("./sixToolsFixed.js")).fixedCarriers(fixedTools, { readSkill: tools.find((tool) => tool?.name === "read_skill") ?? null }) : null;
+  const six = sixToolsOver(tools, grants, fixed ? { shown: fixed } : {});
   // A slow tool (a browser step, a held email) names its own limit, cut to end 30 s past the budget so the answer still fits.
   // A move's own is in `slowMoves.js`, under whatever the caller set.
   const limits = { ...MOVE_TIMEOUTS, ...toolTimeouts };
