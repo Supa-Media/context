@@ -98,7 +98,7 @@ const ADDRESS = /https:\/\/[^\s"'()<>\\]+/g;
 /** Google Fonts, which the screenshot Worker always loads: never counted as an address that did not. */
 const FONT_ADDRESS = /^https:\/\/fonts\.(?:googleapis|gstatic)\.com\//;
 
-const DRAW_DEFINITION = {
+export const DRAW_DEFINITION = {
   name: DRAW_TOOL,
   description:
     "Make a graphic: a poster, flyer, invite, card, menu, chart, quote, meme, infographic or anything mostly text, shapes and layout. " +
@@ -119,7 +119,7 @@ const DRAW_DEFINITION = {
   annotations: { readOnlyHint: true, openWorldHint: false },
 };
 
-const MAKE_DEFINITION = {
+export const MAKE_DEFINITION = {
   name: MAKE_TOOL,
   description:
     "Generate or edit a photo-like picture with an image model (about 4 cents each): \"show me in this dress\", a product shot, a scene, changing a photo. " +

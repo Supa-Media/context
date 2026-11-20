@@ -1,5 +1,5 @@
 /**
- * The examples the front door reads for the text it answers (`packages/shared/src/texExamples.cjs`).
+ * The examples the front door reads for the text it answers (`packages/tex/src/texExamples.cjs`).
  *
  * Sabotage that each test catches:
  *   1. the scored conversation returned, past or future moments      "the scored conversation is never a candidate" fails
@@ -18,9 +18,9 @@ import { test } from "node:test";
 
 const require = createRequire(import.meta.url);
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..", "..", "..");
-const GENERATED = require("../../../packages/shared/src/texTraining.generated.json");
-const { HOLD_OUT_ENV, UNTIL_ENV, trainingOf } = require("../../../packages/shared/src/texTraining.cjs");
-const X = require("../../../packages/shared/src/texExamples.cjs");
+const GENERATED = require("../../../packages/tex/src/texTraining.generated.json");
+const { HOLD_OUT_ENV, UNTIL_ENV, trainingOf } = require("../../../packages/tex/src/texTraining.cjs");
+const X = require("../../../packages/tex/src/texExamples.cjs");
 
 const fdMoments = GENERATED.nodes.fd;
 const chatsOfFd = new Set(fdMoments.map((m) => m.chat));

@@ -8,6 +8,7 @@
     "lint": "echo \"no lint configured yet\" && exit 0"
   },
   "dependencies": {
-    "@context/shared": "workspace:*"
+    "@context/shared": "workspace:*",
+    "@context/tex": "workspace:*"
   }
 }

@@ -32,12 +32,12 @@ export {
   STALE_AT,
   STYLES,
   WAIT_SECOND_LEVELS,
-} from "@context/shared/src/textDecide.cjs";
-export type { DecideBody, DecideResult, Style } from "@context/shared/src/textDecide.cjs";
+} from "@context/tex/src/textDecide.cjs";
+export type { DecideBody, DecideResult, Style } from "@context/tex/src/textDecide.cjs";
 /** Sendblue's group ids are uuids; anything much longer is not one (as `/agent-texts/group`). */
 const MAX_CHAT = 200;
-// The questions and how answers read are one copy, shared with the gateway (`packages/shared/src/textDecide.cjs`).
-import { decideRequest, readDecideAnswers, readDecideBody, type DecideBody, type DecideResult } from "@context/shared/src/textDecide.cjs";
+// The questions and how answers read are one copy, shared with the gateway (`packages/tex/src/textDecide.cjs`).
+import { decideRequest, readDecideAnswers, readDecideBody, type DecideBody, type DecideResult } from "@context/tex/src/textDecide.cjs";
 
 /** The workspace a decision is metered against: the sender's personal one in a 1:1 chat, the bound one in a group. */
 export async function workspaceFor(ctx: ActionCtx, body: DecideBody): Promise<Id<"workspaces"> | null> {

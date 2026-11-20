@@ -28,7 +28,7 @@ illustrated maps) are views of this page, never a second source.
 ## The diagram is generated from the config (decided by the owner, 2026-11-14)
 
 This supersedes "The rule" above. The drawing is no longer changed by hand. What
-Tex runs is set in `packages/shared/src/texConfig.json`, and
+Tex runs is set in `packages/tex/src/texConfig.json`, and
 `scripts/tex-architecture.mjs` regenerates the drawing and steps table in
 [`docs/architecture/tex.md`](../../architecture/tex.md), and the words Tex is
 given about itself. So the rule now reads: a change to what Tex runs changes the

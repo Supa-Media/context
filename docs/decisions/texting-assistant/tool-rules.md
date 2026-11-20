@@ -16,7 +16,7 @@ about 25,000 characters; four of Tex's state files written as plain notes;
 and 29% of tool failures were calls to a tool or action the turn didn't hold.
 The Context MCP's own tools passed rules 1 and 2.
 
-**The rules are one module:** `packages/shared/src/toolRules.cjs` (the limit,
+**The rules are one module:** `packages/tex/src/toolRules.cjs` (the limit,
 how a tool's size is counted, how an error is rated actionable, partial or
 not, and which files are Tex's state). The gateway, Convex and the CI check
 all read it, so the Lab and CI never disagree on a rating.
@@ -41,3 +41,18 @@ conditional tool or a long description again, and cache misses and calls to
 tools a turn didn't hold come back unseen. `toolRules.test.mjs` fails when any
 number grows; `apps/convex/__tests__/texLabToolStats.test.ts` fails when the
 report miscounts.
+
+## One fixed list, with each action's guide on demand (2026-11-20)
+
+The owner chose "short lines, manual on demand" to bring `send` under 4,000
+characters, keeping the six tools. With `toolList: "fixed"` on the front door
+or job step (a Lab setting, `texConfig.json`), every turn of a 1:1 (texts,
+check-ins, routines, jobs) and of a group chat is shown the same six, byte
+for byte (`sixToolsFixed.js`, `toolCatalogue.js`): every action its kind of
+chat can take, one line each. `fetch manual:<action>` returns the action's
+args and its carrier's whole description. What a turn may really call is
+still its own grants; an action shown but not held is refused with what is
+available now and what to do. `test/sixToolsFixed.test.mjs` and the replay
+the replay-harness test in it fail when a 1:1's check-in is shown a different list
+or a tool goes over the limit. Main keeps `"turn"` until a scored Lab draft
+is promoted.

@@ -8,8 +8,8 @@
  * when its own entry names none and "a Tex text with no turn of its own has no cause run" fails.
  */
 import { beforeEach, describe, expect, jest, test } from "@jest/globals";
-import { TEX_CONFIG } from "@context/shared/src/texConfig.cjs";
-import { forgetGraphs, graphAt, graphNoteFor, graphOfConfig } from "../features/tex/lab/engine/graphAt";
+import { TEX_CONFIG } from "@context/tex/src/texConfig.cjs";
+import { forgetGraphs, graphAt, graphNoteFor, graphOfConfig, OLD_CONFIG_PATH } from "../features/tex/lab/engine/graphAt";
 import { prodPlay, prodPlayAtVersion } from "../features/tex/lab/engine/prodRun";
 import { linesOf } from "../features/tex/lab/engine/replayRead";
 import { G } from "../features/tex/lab/engine/state";
@@ -148,13 +148,25 @@ describe("the graph of the time", () => {
     const a = (await graphAt(CODE, get as never))!;
     const b = (await graphAt(CODE, get as never))!;
     expect(get).toHaveBeenCalledTimes(1);
-    expect(get.mock.calls[0][0]).toBe(`https://raw.githubusercontent.com/Supa-Media/context/${CODE}/packages/shared/src/texConfig.json`);
+    expect(get.mock.calls[0][0]).toBe(`https://raw.githubusercontent.com/Supa-Media/context/${CODE}/packages/tex/src/texConfig.json`);
     expect(a.nodes.map((n) => n.id)).toEqual(G().nodes.map((n) => n.id));
     // Each caller's graph is its own: drawing or editing one never reaches the cache.
     a.nodes[0].label = "changed";
     expect(b.nodes[0].label).not.toBe("changed");
     await graphAt("deadbee1234", get as never);
     expect(get).toHaveBeenCalledTimes(2);
+  });
+
+  test("a commit from before Tex had its own package is read at the old path", async () => {
+    const get = jest.fn(async (url: string) =>
+      (url.endsWith(`/${OLD_CONFIG_PATH}`) ? { ok: true, json: async () => TEX_CONFIG } : { ok: false, json: async () => null }) as never,
+    );
+    const g = await graphAt(CODE, get as never);
+    expect(g?.nodes.map((n) => n.id)).toEqual(G().nodes.map((n) => n.id));
+    expect(get.mock.calls.map((c) => c[0])).toEqual([
+      `https://raw.githubusercontent.com/Supa-Media/context/${CODE}/packages/tex/src/texConfig.json`,
+      `https://raw.githubusercontent.com/Supa-Media/context/${CODE}/packages/shared/src/texConfig.json`,
+    ]);
   });
 
   test("a run is read against the graph that ran it and carries it for the canvas", async () => {
@@ -181,7 +193,8 @@ describe("the graph of the time", () => {
     expect(p.run.graphNote).toBe("graph of 2026-11-14 (abc1234) unavailable, showing today's");
     expect(p.run.steps.some((s) => s.node === "answerCheck")).toBe(true);
     await prodPlayAtVersion(entries(), linesFor(entries()), { id: "E1" }, G(), get as never);
-    expect(get).toHaveBeenCalledTimes(2);
+    // Each look asks the package path, then the path before the move.
+    expect(get).toHaveBeenCalledTimes(4);
     // A network error is the same; so is a reply that is not a Tex config.
     const down = jest.fn(async () => Promise.reject(new Error("offline")));
     expect(await graphAt("1234567", down as never)).toBeNull();

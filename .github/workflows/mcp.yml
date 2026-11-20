@@ -121,6 +121,7 @@ jobs:
             scripts/check-worker-fetch-options.mjs
             .github/workflows/mcp.yml
             packages/shared/**
+            packages/tex/**
             packages/lab/**
             packages/communications/**
             packages/drawings/**
@@ -192,6 +193,7 @@ jobs:
             scripts/check-worker-fetch-options.mjs
             .github/workflows/mcp.yml
             packages/shared/**
+            packages/tex/**
             packages/lab/**
             packages/communications/**
             packages/drawings/**

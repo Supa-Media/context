@@ -45,11 +45,11 @@ export function artifactModelsModule() {
 
 /**
  * The artifact's own idea of a module's change: two kinds, "same every turn" for its fixed list and "changes every
- * turn" for the rest, with no tier between (the tiers came 2026-11-20, `packages/shared/src/texModuleChange.cjs`). Its
+ * turn" for the rest, with no tier between (the tiers came 2026-11-20, `packages/tex/src/texModuleChange.cjs`). Its
  * goldens were drawn that way, so a test held to them mocks the tiers to these two.
  */
 export function artifactModuleChangeModule() {
-  const real = jest.requireActual<typeof import("@context/shared/src/texModuleChange.cjs")>("@context/shared/src/texModuleChange.cjs");
+  const real = jest.requireActual<typeof import("@context/tex/src/texModuleChange.cjs")>("@context/tex/src/texModuleChange.cjs");
   const same = new Set(["p-about-tex", "p-rules", "p-tools", "p-working", "p-sound-like-a-person", "p-pictures", "p-how-you-talk", "prompt", "map", "caps", "tools", "skills", "skillsAll", "own"]);
   const defaultChange = (key: string) => (same.has(key) || /^train:/.test(key) ? "fixed" : "text");
   const changeOf = (key: string, modules?: Record<string, { changes?: string } | undefined> | null) => {

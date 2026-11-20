@@ -6,7 +6,7 @@ for speed. Dev2 then asked for one new wire kind rather than two ("early" and "k
 set what the run may do before its go: "it can read, it can write, but it has to be undoable... any irreversible action
 is not allowed... drafting an email is fine", choosing "Revertible now" over a read-only first version.
 
-**One wire mode, `provisional` (`packages/shared/src/texGraph.cjs`).** A → B, provisional: B starts at once instead of
+**One wire mode, `provisional` (`packages/tex/src/texGraph.cjs`).** A → B, provisional: B starts at once instead of
 waiting for A, and A drives it. A's output tags, matched against the wire's `when`, say `stop:<tag>` or
 `restart:<tag>`; any other output is the go. The wire's `allow` says what B may do before the go: `read` (every write
 waits) or `revertible` (the default). Provisional wires are never fired by `run`, never counted as inputs or in the

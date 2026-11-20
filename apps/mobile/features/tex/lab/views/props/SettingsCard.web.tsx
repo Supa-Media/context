@@ -11,7 +11,7 @@ import { MODELS } from "../../engine/state";
 import type { LabNode } from "../../types";
 import { onCommit } from "./change";
 import { pickModel, setNode } from "./nodeEdit";
-import { EFFORTS } from "@context/shared/src/texConfigSchema.cjs";
+import { EFFORTS } from "@context/tex/src/texConfigSchema.cjs";
 
 
 
@@ -64,6 +64,16 @@ export function SettingsCard({ n }: { n: LabNode }) {
                   {k}
                 </option>
               ))}
+            </select>,
+          )
+        : null}
+      {model && (n.id === "fd" || n.id === "job")
+        ? row(
+            "Tool list",
+            "tool list",
+            <select id="setToolList" value={n.toolList || "turn"} onChange={(e) => setNode(n.id, "toolList", e.target.value as "turn" | "fixed")}>
+              <option value="turn">What the turn holds</option>
+              <option value="fixed">Fixed, every turn the same</option>
             </select>,
           )
         : null}

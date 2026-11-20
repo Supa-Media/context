@@ -7,7 +7,7 @@
 import { Fragment, useRef } from "react";
 import { BASE_MODULES, SRC_KINDS } from "../../data/modules";
 import { ctxTokens } from "../../engine/sim";
-import { TIER_NAMES, TIERS } from "@context/shared/src/texModuleChange.cjs";
+import { TIER_NAMES, TIERS } from "@context/tex/src/texModuleChange.cjs";
 import { isStable, mods, newModule, readsMoves, readsOrder } from "../../engine/modules";
 import { edit, G, go, lab, MAIN, MODELS, node, set } from "../../engine/state";
 import { useLab } from "../../store";

@@ -21,11 +21,11 @@ import { createTexDev } from "../src/texDev/tool.js";
 import { guideText } from "../src/texDev/guide.js";
 import { copiesOf, sourceTexts } from "../src/texDev/sets.js";
 import { texDevToolDefinitions } from "../src/tools/schemas/texDev.js";
-import { WHY } from "../../../packages/shared/src/textDecide.cjs";
+import { WHY } from "../../../packages/tex/src/textDecide.cjs";
 
 const require = createRequire(import.meta.url);
 const REPO = require("../../../packages/lab/src/texSetsRepo.generated.json");
-const { ratio, unitTests } = require("../../../packages/shared/src/texSets.cjs");
+const { ratio, unitTests } = require("../../../packages/tex/src/texSets.cjs");
 
 const session = { accessToken: "tok" };
 const textOf = (result) => result.content.find((c) => c.type === "text")?.text ?? "";

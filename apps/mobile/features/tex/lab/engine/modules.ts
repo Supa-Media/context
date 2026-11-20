@@ -4,7 +4,7 @@
  * the wording fingerprint and word diff the artifact used. Ported verbatim.
  */
 import { CV_MAIN } from "../data/convo";
-import { changeOf, runMoves, runOrder } from "@context/shared/src/texModuleChange.cjs";
+import { changeOf, runMoves, runOrder } from "@context/tex/src/texModuleChange.cjs";
 import { BASE_MODULES, MOD_ABOUT, MOD_SRC, SRC_KINDS, spanModule, wholeTrainModule } from "../data/modules";
 import { MODTEXT } from "../labData.generated";
 import type { ConvoSettings, LabGraph, LabModule, LabNode } from "../types";

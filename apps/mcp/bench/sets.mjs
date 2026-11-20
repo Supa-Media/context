@@ -1,5 +1,5 @@
 /**
- * Tex's test conversations on disk. The contract is `packages/shared/src/texSets.cjs` and the plan is
+ * Tex's test conversations on disk. The contract is `packages/tex/src/texSets.cjs` and the plan is
  * `tex-sets/plan.md`. Training and Dev conversations live at `apps/mcp/bench/sets/<training|dev>/<id>.json`.
  * The Test Set never lives in the repo: a `test/` folder or a conversation in set "test" is reported as a problem,
  * never loaded into a set or written anywhere.
@@ -11,8 +11,8 @@ import { fileURLToPath } from "node:url";
 import { readTexConfig } from "../../../scripts/lib/texConfigFile.mjs";
 
 const require = createRequire(import.meta.url);
-const texSets = require("../../../packages/shared/src/texSets.cjs");
-const textDecide = require("../../../packages/shared/src/textDecide.cjs");
+const texSets = require("../../../packages/tex/src/texSets.cjs");
+const textDecide = require("../../../packages/tex/src/textDecide.cjs");
 
 const { SETS, TARGET, DRIFT, check, ratio } = texSets;
 

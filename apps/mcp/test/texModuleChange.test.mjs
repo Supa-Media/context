@@ -1,5 +1,5 @@
 /**
- * A step's reads run in change-tier order (`packages/shared/src/texModuleChange.cjs`, Dev2 2026-11-20): a module that
+ * A step's reads run in change-tier order (`packages/tex/src/texModuleChange.cjs`, Dev2 2026-11-20): a module that
  * changes less never sits below one that changes more, whatever order the config lists them in, so the prompt cache
  * reads it. The Lab shows each move (`runMoves`).
  *
@@ -8,9 +8,9 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { changeOf, runMoves, runOrder } from "../../../packages/shared/src/texModuleChange.cjs";
+import { changeOf, runMoves, runOrder } from "../../../packages/tex/src/texModuleChange.cjs";
 import { routerContextText } from "../src/agent/routerContext.js";
-import { TEX_CONFIG } from "../../../packages/shared/src/texConfig.cjs";
+import { TEX_CONFIG } from "../../../packages/tex/src/texConfig.cjs";
 
 test("each kind of read has the tier it changes at", () => {
   assert.equal(changeOf("p-rules"), "fixed");

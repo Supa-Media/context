@@ -2,14 +2,14 @@
  * Ported verbatim from the Tex Architecture Lab artifact (tex.lc/lab): the
  * prompt modules and their base token counts (BASE_MODULES), which of them are stable,
  * their about text (MOD_ABOUT), where each one's source lives (SRC_KINDS, MOD_SRC). Tex's prompt modules' words
- * are the repository's (packages/shared/src/texPrompt, since 2026-11-14), shown from labData.generated.ts.
+ * are the repository's (packages/tex/src/texPrompt, since 2026-11-14), shown from labData.generated.ts.
  */
-import { TEX_CONFIG } from "@context/shared/src/texConfig.cjs";
+import { TEX_CONFIG } from "@context/tex/src/texConfig.cjs";
 import type { LabModule } from "../types";
 
 /**
  * One Training module per step that runs a model (Dev2, 2026-11-15: "the context module to put in the training
- * set"): `train:<nodeId>` is that step's Training labels as examples (`packages/shared/src/texTraining.cjs`). A step
+ * set"): `train:<nodeId>` is that step's Training labels as examples (`packages/tex/src/texTraining.cjs`). A step
  * reads its own by listing `train:<its id>` in its reads, another step's by listing that one's.
  */
 const TRAIN_NODES = (TEX_CONFIG.nodes as Array<{ id: string; label: string; model: string }>).filter((n) => n.model !== "code");
@@ -69,14 +69,14 @@ export const MOD_ABOUT: Record<string, string> = {"p-about-tex":"One of Tex's pr
 export const SRC_KINDS: Record<string, { name: string; tip: string; icon: string; edit: string }> = {
  chat:{name:"The chat's record",tip:"A view of the chat's one ledger. Change the view on Conversations.",icon:"text",edit:"How to cut the view"},
  store:{name:"Tex's store",tip:"A note or ledger in the person's or group's own store. A run uses the test person's copy, never a real one.",icon:"door",edit:"Sample for a run"},
- prompt:{name:"Tex's prompt words",tip:"A file beside Tex's config (packages/shared/src/texPrompt). Promote writes your words there in a pull request, and the replay gate runs.",icon:"thread",edit:"New words"},
+ prompt:{name:"Tex's prompt words",tip:"A file beside Tex's config (packages/tex/src/texPrompt). Promote writes your words there in a pull request, and the replay gate runs.",icon:"thread",edit:"New words"},
  ailc:{name:"@context-lc ai folder",tip:"A note in @context-lc ai/production. A run puts your text in the bench's copy, never the live note.",icon:"thread",edit:"New text for the note"},
  training:{name:"Training Set",tip:"A step's labels on the Training conversations (apps/mcp/bench/sets/training), shown to the steps that read it as examples. Change them on the Testing tab; Promote writes them in a pull request, and the replay gate runs.",icon:"star",edit:"Which labels to change"},
  code:{name:"Code",tip:"Written in the repo. A change here is a code change.",icon:"code",edit:"New text, or what to change"},
  derived:{name:"Built each turn",tip:"Made by code from the turn itself. Change how it's built, not its text.",icon:"router",edit:"How to build it instead"},
  special:{name:"Special",tip:"Read in its own way, not pasted whole into the prompt.",icon:"star",edit:"What to change"}};
 
-export const MOD_SRC: Record<string, [string, string]> = {"p-about-tex":["prompt","packages/shared/src/texPrompt/about-tex.md"], "p-rules":["prompt","packages/shared/src/texPrompt/rules.md"], "p-tools":["prompt","packages/shared/src/texPrompt/tools.md"], "p-working":["prompt","packages/shared/src/texPrompt/working.md"], "p-sound-like-a-person":["prompt","packages/shared/src/texPrompt/sound-like-a-person.md"], "p-pictures":["prompt","packages/shared/src/texPrompt/pictures.md"], "p-how-you-talk":["prompt","packages/shared/src/texPrompt/how-you-talk.md"],prompt:["prompt","packages/shared/src/texPrompt/<module>.md, in the order Tex's config lists them"],map:["code","texArchitecture.generated.js (from docs/architecture/tex.md)"],caps:["code","apps/mcp/src/agent/capabilities.js"],tools:["code","tool definitions (sixTools.js, commandTools.js …)"],
+export const MOD_SRC: Record<string, [string, string]> = {"p-about-tex":["prompt","packages/tex/src/texPrompt/about-tex.md"], "p-rules":["prompt","packages/tex/src/texPrompt/rules.md"], "p-tools":["prompt","packages/tex/src/texPrompt/tools.md"], "p-working":["prompt","packages/tex/src/texPrompt/working.md"], "p-sound-like-a-person":["prompt","packages/tex/src/texPrompt/sound-like-a-person.md"], "p-pictures":["prompt","packages/tex/src/texPrompt/pictures.md"], "p-how-you-talk":["prompt","packages/tex/src/texPrompt/how-you-talk.md"],prompt:["prompt","packages/tex/src/texPrompt/<module>.md, in the order Tex's config lists them"],map:["code","texArchitecture.generated.js (from docs/architecture/tex.md)"],caps:["code","apps/mcp/src/agent/capabilities.js"],tools:["code","tool definitions (sixTools.js, commandTools.js …)"],
  hist:["chat","chat ledger: thread list + last 24 h word for word + older up to 80k chars"],histAll:["chat","chat ledger, whole: only through earlier_texts / earlier_chat / read_thread"],threads:["chat","threads ledger (<chat>.threads), written by the classifier"],groups:["chat","control plane (textGroups.homeUsers on their own 1:1 grant) + each group's ledger, through group_chats"],devShare:["chat","control plane (texReviewSharing yeses of the chat's homeUsers, texLabShared.ts devShareOf), on every group turn"],about:["store","tex/about.md, or tex/groups/<id>/about.md"],
  date:["derived","withToday"],skills:["special","the setup's skills: lines in read_skill's description; a body is read only when asked"],skillsAll:["ailc","ai/production/skills/*.md"],ask:["derived","the text being answered"],
  brief:["derived","the job's record (background.js)"],ledger:["derived","this turn's ledger so far"],draft:["derived","the reply about to go"],

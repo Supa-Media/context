@@ -32,7 +32,7 @@ did not have to leave a case behind.
    fails the gateway's tests and blocks the merge like any other.
 2. **A Tex change brings its case.** `scripts/check-tex-change-has-case.mjs`
    (in Fast repository guards) fails a pull request that changes Tex's code
-   (`apps/mcp/src/agent/`, `apps/agent/src/`, `packages/shared/src/text*`)
+   (`apps/mcp/src/agent/`, `apps/agent/src/`, `packages/tex/src/text*`)
    without adding or changing a replay case, a respond or review case, or a
    benchmark question. A change no case can show says why on its own line:
    `No replay case: <why>`.
@@ -244,7 +244,7 @@ model's answer through the whole Worker).
 ## The jobs area is examinable too (decided by the owner, 2026-11-14)
 
 Since Tex's drawing and what every Tex agent is told about itself are generated
-from `packages/shared/src/texConfig.json`
+from `packages/tex/src/texConfig.json`
 ([config-graph](../texting-assistant/config-graph.md)), every config change
 reaches every area's prompts, the background jobs' included, and jobs was the
 one area only API credits could replay. Its Claude calls (the job's parts and

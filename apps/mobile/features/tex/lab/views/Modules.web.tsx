@@ -4,7 +4,7 @@
  * change, as the artifact's `onchange` did; the card a new module opens on is
  * scrolled to and its name selected once the page has drawn.
  */
-import { TIER_NAMES, TIERS } from "@context/shared/src/texModuleChange.cjs";
+import { TIER_NAMES, TIERS } from "@context/tex/src/texModuleChange.cjs";
 import { useEffect, useRef } from "react";
 import { SRC_KINDS } from "../data/modules";
 import { moduleList, newModule } from "../engine/modules";

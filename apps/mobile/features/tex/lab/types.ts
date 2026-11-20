@@ -27,6 +27,8 @@ export type LabNode = {
   icon: string;
   model: string;
   effort?: string;
+  /** Which tools the step's model is shown (`apps/mcp/src/agent/sixToolsFixed.js`): what its turn holds, or the fixed list of its kind of chat. */
+  toolList?: "turn" | "fixed";
   kind?: "input" | "tool";
   outSchema?: OutField[];
   sendBack?: number;
@@ -67,7 +69,7 @@ export type LabModule = {
   tok: number;
   /** True when it doesn't change between texts (its `changes` tier is not "text"); derived, kept for the views that ask. */
   stable?: boolean;
-  /** How often it changes (`packages/shared/src/texModuleChange.cjs`): sets where it runs among a step's reads. */
+  /** How often it changes (`packages/tex/src/texModuleChange.cjs`): sets where it runs among a step's reads. */
   changes?: "fixed" | "summary" | "grows" | "text";
   about?: string;
   text?: string;

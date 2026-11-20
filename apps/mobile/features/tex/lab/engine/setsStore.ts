@@ -9,7 +9,7 @@ import type { LabGraph } from "../types";
 import { fitCols, type Cols } from "./sets";
 import { applyOps, type SetOp } from "@context/lab/src/texSetOps.cjs";
 import type { Conversation, SetId } from "./sets";
-import type { Pic } from "@context/shared/src/texSets.d.cts";
+import type { Pic } from "@context/tex/src/texSets.d.cts";
 
 /** An edit, in the shapes `texSetOps.cjs` reads from the Lab and the MCP alike; a move to or from Test is the tab's own. */
 export type Op = SetOp | { op: "set"; value: SetId };

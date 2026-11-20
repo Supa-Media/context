@@ -28,7 +28,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 
-import graphLib from "../../../packages/shared/src/texGraph.cjs";
+import graphLib from "../../../packages/tex/src/texGraph.cjs";
 import { draftBridge } from "../src/agent/graph/draftBridge.js";
 import { answerCheckNode } from "../src/agent/graph/nodes/answerCheck.js";
 import { MAX_FOUND, foundSoFar, handoffNode, handoffTitle } from "../src/agent/graph/nodes/handoff.js";

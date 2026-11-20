@@ -8,7 +8,7 @@
  * Output `to`: "person" or "group", with the words in `text`; "skip" when there is no number to give.
  */
 
-import { archiveSentence, formatNumber } from "../../../../../../packages/shared/src/texNumber.cjs";
+import { archiveSentence, formatNumber } from "../../../../../../packages/tex/src/texNumber.cjs";
 
 const E164 = /^\+[1-9]\d{6,14}$/;
 

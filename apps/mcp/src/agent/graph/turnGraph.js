@@ -2,7 +2,7 @@
  * TEX'S TURN RUNS ITS CONFIG'S GRAPH (Dev2, 2026-11-14: "it's fine for node to be code, but it's not fine for the
  * connections between node to be code. They should be predefined").
  *
- * One turn is one run of `texConfig.json` from the first door step: the runner (`packages/shared/src/texGraph.cjs`)
+ * One turn is one run of `texConfig.json` from the first door step: the runner (`packages/tex/src/texGraph.cjs`)
  * follows the config's wires through the door, the front door and what it uses, the checks on its drafts and the way
  * out, and fires the background wires after it. The nodes are `GATEWAY_NODES`; the turn so far, `t`, is the run's
  * context (`ctx.turn`), shared by every node and never logged. The runner logs every node run itself, into the chat's

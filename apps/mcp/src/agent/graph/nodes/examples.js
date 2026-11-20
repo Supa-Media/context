@@ -1,5 +1,5 @@
 /**
- * The examples node: the Training moments nearest to a text, for the front door's preamble (`packages/shared/src/texExamples.cjs`).
+ * The examples node: the Training moments nearest to a text, for the front door's preamble (`packages/tex/src/texExamples.cjs`).
  * It embeds the text with the same model as meaning search (`search/meaning/embed.js`), reads the nearest moments from the
  * Tex-owned index bound as `TEX_EXAMPLES`, and drops every moment of the scored conversation (`candidates`). A wire from the
  * front door (`fd -> examples`, `uses`) is what turns it on; with no index bound, or any failure, it answers
@@ -10,7 +10,7 @@
  */
 import { bindingEmbedder } from "../../../search/meaning/embed.js";
 import { TRAINING } from "../../texConfig.js";
-import { EXAMPLES_K, candidates, exampleId, nearText, pickNearest, queryEmbedText } from "../../../../../../packages/shared/src/texExamples.cjs";
+import { EXAMPLES_K, candidates, exampleId, nearText, pickNearest, queryEmbedText } from "../../../../../../packages/tex/src/texExamples.cjs";
 
 /** The index's own cap on how many matches it returns; the candidates left after self-exclusion are what the front door reads. */
 const EXTRA_MATCHES = 20;

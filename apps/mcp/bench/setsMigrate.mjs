@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * Today's Tex bench cases as conversations (the test-set format in `packages/shared/src/texSets.cjs`; plan:
+ * Today's Tex bench cases as conversations (the test-set format in `packages/tex/src/texSets.cjs`; plan:
  * `tex-sets/plan.md`). Respond, review, job-check and core questions become conversations; the judge's examples are
  * written by another branch and are not migrated here.
  *
@@ -20,8 +20,8 @@ import { parseTest } from "./load.mjs";
 import { readTexConfig } from "../../../scripts/lib/texConfigFile.mjs";
 
 const require = createRequire(import.meta.url);
-const texSets = require("../../../packages/shared/src/texSets.cjs");
-const textDecide = require("../../../packages/shared/src/textDecide.cjs");
+const texSets = require("../../../packages/tex/src/texSets.cjs");
+const textDecide = require("../../../packages/tex/src/textDecide.cjs");
 
 const { check, unitTests } = texSets;
 const { WHY } = textDecide;

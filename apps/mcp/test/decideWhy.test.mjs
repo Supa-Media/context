@@ -12,7 +12,7 @@ import { decideForTexts, TEXTS_DECIDE_PATH } from "../src/agent/textsDecide.js";
 import { decideWhyNode, decideWhyOn } from "../src/agent/graph/nodes/decideWhy.js";
 import { TEX_CONFIG } from "../src/agent/texConfig.js";
 import { judgeCase } from "../bench/respond.mjs";
-import { FOR_TEX_WHY, QUIET_WHY, WHY, decideWhyRequest, readDecideWhy, whyContradictsAct } from "../../../packages/shared/src/textDecide.cjs";
+import { FOR_TEX_WHY, QUIET_WHY, WHY, decideWhyRequest, readDecideWhy, whyContradictsAct } from "../../../packages/tex/src/textDecide.cjs";
 
 const id = (n) => `${String(1_700_000_000_000 + n).padStart(13, "0")}-${String(n).padStart(6, "0")}`;
 const body = { chat: "group-fern-desk", sender: "+15555550111", line: "+15555550199", style: "attentive", transcript: `<${id(1)}> You: 6 tonight.\n<${id(2)}> @ines: ha, plenty of time then`, candidates: [id(2)], running: false, waitingAsks: [], newest: id(2) };

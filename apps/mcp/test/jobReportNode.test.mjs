@@ -18,7 +18,7 @@ import { jobReportOf, jobReportQuestion } from "../src/agent/jobReport.js";
 import { TEX_CONFIG } from "../src/agent/texConfig.js";
 import { jobReportEvent } from "../src/agent/texEntryPoint/readTheText.js";
 
-const SHELF = createRequire(import.meta.url)("../../../packages/shared/src/texNodeShelf.json");
+const SHELF = createRequire(import.meta.url)("../../../packages/tex/src/texNodeShelf.json");
 const REPORT = { id: "j25dcf950", title: "Book the coworking day", state: "done", texts: ["Booked for Friday."] };
 const body = (jobReport) => ({ event: "job_report", jobReport, turn: "t-1" });
 const code = (b) => jobReportOf(b, { chatTurn: true, job: null });

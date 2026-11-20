@@ -19,13 +19,13 @@ import { CHAT_KEY, NEW_LINE_TOLD_KEY, type InboxStorage, type RememberedChat } f
 import { lineFor, lineSeam, type LineDeps } from "./line";
 import { isSendblueChat } from "./sendblue";
 import { sendRecorded } from "./texSends";
-import { archiveSentence, formatNumber } from "../../../packages/shared/src/texNumber.cjs";
+import { archiveSentence, formatNumber } from "../../../packages/tex/src/texNumber.cjs";
 
 const E164 = /^\+[1-9]\d{6,14}$/;
 const MAX_PHONES = 5_000;
 const CONCURRENCY = 5;
 
-/** The number and archive-day wording, shared with the gateway's old-number node (`packages/shared/src/texNumber.cjs`). */
+/** The number and archive-day wording, shared with the gateway's old-number node (`packages/tex/src/texNumber.cjs`). */
 export { archiveSentence, formatNumber };
 
 export function newNumberText(number: string, archiveOn?: string | null): string {
