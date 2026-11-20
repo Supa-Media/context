@@ -115,6 +115,27 @@ export const pointerType = {
 } as const;
 
 /**
+ * The in-app Tex chat's scale (`features/tex/chat`): the sizes of the mock Dev2
+ * approved on 2026-11-20 (in-app Tex, section B), as `texPageType` is the Tex
+ * page's. The chat reads as a messaging app, so its body is 14, between the
+ * console's `ui` and `lede`.
+ */
+export const texChatType = {
+  /** A bubble's words, the header's name. */
+  bubble: 14,
+  /** The composer's words. */
+  composer: 14.5,
+  /** A note card's title. */
+  cardTitle: 13,
+  /** A reply quote, a reply chip, inline code, a tapback badge, "Open". */
+  small: 12,
+  /** The header's status, a note card's folder. */
+  status: 11.5,
+  /** A tapback in the hover bar. */
+  tapback: 15,
+} as const;
+
+/**
  * The Tex page's scale (`features/tex/page`): the sizes of the mock Dev2
  * approved on 2026-11-02 as "it must look exactly like this mock", in the
  * page's own voice, as `siteType` is the website's. Its prose sizes are the

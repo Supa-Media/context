@@ -1,10 +1,11 @@
 import { useEffect, useRef, useState } from "react";
 import { Image, Pressable, StyleSheet, TextInput, View } from "react-native";
-import { Icon } from "../../design/components/Icon";
+import { Icon, type IconName } from "../../design/components/Icon";
 import { Text } from "../../design/components/Text";
 import { useFieldFont } from "../../design/fieldFont";
-import { pointerType, radii, space } from "../../design/tokens";
+import { pointerType, radii, space, texChatType } from "../../design/tokens";
 import { useColors, useThemedStyles, type Colors } from "../../design/theme";
+import { useHoverTitle } from "../../design/useHoverTitle";
 import { MAX_PICTURES, MAX_TEXT } from "./appChatGateway";
 
 /** What the reply bar names: who the row is from, and its first line of words. */
@@ -27,6 +28,11 @@ interface Picture {
 }
 
 let pictureSeq = 0;
+
+/** One line of the box: 20.3 px of words and 5 px above and below. */
+const INPUT_MIN = 31;
+/** The tallest the box grows before it scrolls. */
+const INPUT_MAX = 120;
 
 /** An object URL for a picture the person picked, or `null` where this surface cannot make one. */
 function previewOf(file: Blob): string | null {
@@ -69,24 +75,33 @@ function chooseImages(limit: number, onChosen: (files: Blob[]) => void): void {
  *
  * Enter sends; Shift+Enter is a newline. It owns the draft and the pictures
  * and hands them to `onSend` whole. The hook decides whether it went.
+ *
+ * In `mode="stop"` with the box empty, the send key becomes a stop key that
+ * calls `onStop` (Tex is working on a turn).
  */
 export function TexChatComposer({
   sending,
   disabled,
   reply,
   edit,
+  mode = "send",
   onCancelReply,
   onCancelEdit,
   onSend,
+  onStop,
   onTyping,
 }: {
   sending: boolean;
   disabled: boolean;
   reply: ReplyTarget | null;
   edit: EditTarget | null;
+  /** `stop` shows the send key as a stop key while the box is empty. */
+  mode?: "send" | "stop";
   onCancelReply: () => void;
   onCancelEdit: () => void;
   onSend: (text: string, pictures: Blob[]) => void;
+  /** Pressed in stop mode with an empty box. */
+  onStop?: () => void;
   /** The person typed in the box: the chat warms the model's cache for their text (`useAppChat` `typing`). */
   onTyping?: () => void;
 }) {
@@ -95,6 +110,11 @@ export function TexChatComposer({
   const colors = useColors();
   const [text, setText] = useState("");
   const [pictures, setPictures] = useState<Picture[]>([]);
+  const [attachHover, setAttachHover] = useState(false);
+  // The box grows with its words, one line to start (a web textarea is two rows tall by default), up to 120 px.
+  const [inputHeight, setInputHeight] = useState(INPUT_MIN);
+  const attachRef = useRef<View>(null);
+  useHoverTitle(attachRef, "Attach a picture or file");
   const picturesNow = useRef<Picture[]>([]);
   picturesNow.current = pictures;
 
@@ -123,6 +143,8 @@ export function TexChatComposer({
   const hasWords = text.trim().length > 0;
   const hasPictures = pictures.length > 0;
   const canSend = !disabled && !sending && (editing ? hasWords : hasWords || hasPictures) && text.trim().length <= MAX_TEXT;
+  const stopping = mode === "stop" && !editing && !hasWords && !hasPictures;
+  const buttonEnabled = stopping || canSend;
 
   const submit = () => {
     if (!canSend) return;
@@ -134,6 +156,14 @@ export function TexChatComposer({
       setPictures([]);
     }
     setText("");
+  };
+
+  const press = () => {
+    if (stopping) {
+      onStop?.();
+      return;
+    }
+    submit();
   };
 
   const addPictures = (files: Blob[]) => {
@@ -152,35 +182,11 @@ export function TexChatComposer({
     });
   };
 
+  const replying = reply !== null;
+  const attached = replying || editing;
+
   return (
     <View style={styles.composer} testID="tex-composer">
-      {reply !== null ? (
-        <View style={styles.bar} testID="tex-reply-bar">
-          <View style={styles.barWords}>
-            <Text variant="meta" style={styles.barTitle}>
-              {reply.who === "me" ? "Replying to yourself" : "Replying to Tex"}
-            </Text>
-            <Text variant="meta" style={styles.barSub} numberOfLines={1}>
-              {firstLine(reply.text) || "a message"}
-            </Text>
-          </View>
-          <Pressable onPress={onCancelReply} accessibilityRole="button" accessibilityLabel="Cancel reply" style={styles.close} testID="tex-reply-cancel">
-            <Icon name="close" size={14} color={colors.muted} />
-          </Pressable>
-        </View>
-      ) : null}
-
-      {editing ? (
-        <View style={styles.bar} testID="tex-edit-bar">
-          <Text variant="meta" style={styles.barTitle}>
-            Editing message
-          </Text>
-          <Pressable onPress={onCancelEdit} accessibilityRole="button" accessibilityLabel="Cancel edit" style={styles.close} testID="tex-edit-cancel">
-            <Icon name="close" size={14} color={colors.muted} />
-          </Pressable>
-        </View>
-      ) : null}
-
       {hasPictures ? (
         <View style={styles.thumbs} testID="tex-thumbs">
           {pictures.map((picture, index) => (
@@ -204,17 +210,46 @@ export function TexChatComposer({
         </View>
       ) : null}
 
-      <View style={styles.row}>
+      {reply !== null ? (
+        <Chip
+          testID="tex-reply-bar"
+          icon="arrowLeft"
+          label={`${reply.who === "me" ? "Replying to yourself" : "Replying to Tex"}: ${firstLine(reply.text) || "a message"}`}
+          cancelLabel="Cancel reply"
+          cancelTestID="tex-reply-cancel"
+          onCancel={onCancelReply}
+          styles={styles}
+          colors={colors}
+        />
+      ) : null}
+
+      {editing ? (
+        <Chip
+          testID="tex-edit-bar"
+          icon="pencil"
+          label="Editing your text"
+          cancelLabel="Cancel edit"
+          cancelTestID="tex-edit-cancel"
+          onCancel={onCancelEdit}
+          styles={styles}
+          colors={colors}
+        />
+      ) : null}
+
+      <View style={[styles.box, attached && styles.boxAttached]}>
         {editing ? null : (
           <Pressable
+            ref={attachRef}
             onPress={() => chooseImages(room, addPictures)}
+            onHoverIn={() => setAttachHover(true)}
+            onHoverOut={() => setAttachHover(false)}
             disabled={room === 0 || disabled}
             accessibilityRole="button"
-            accessibilityLabel="Add pictures"
-            style={[styles.iconButton, (room === 0 || disabled) && styles.disabled]}
+            accessibilityLabel="Attach"
+            style={[styles.iconButton, attachHover && room > 0 && styles.iconButtonHover, (room === 0 || disabled) && styles.disabled]}
             testID="tex-picture"
           >
-            <Icon name="attach" size={16} color={colors.text2} />
+            <Icon name="attach" size={17} color={colors.muted} />
           </Pressable>
         )}
         <TextInput
@@ -226,6 +261,11 @@ export function TexChatComposer({
           placeholder="Ask Tex, or tell it what to do"
           placeholderTextColor={colors.muted}
           multiline
+          numberOfLines={1}
+          onContentSizeChange={(event) => {
+            const grown = Math.ceil(event.nativeEvent.contentSize.height);
+            setInputHeight(Math.min(INPUT_MAX, Math.max(INPUT_MIN, grown)));
+          }}
           editable={!disabled}
           onKeyPress={(event) => {
             const native = event.nativeEvent as { key?: string; shiftKey?: boolean; preventDefault?: () => void };
@@ -235,58 +275,72 @@ export function TexChatComposer({
             }
           }}
           accessibilityLabel="Message to Tex"
-          style={[styles.input, fieldFont]}
+          style={[styles.input, fieldFont, { height: text === "" ? INPUT_MIN : inputHeight }]}
           testID="tex-input"
         />
         <Pressable
-          onPress={submit}
-          disabled={!canSend}
+          onPress={press}
+          disabled={!buttonEnabled}
           accessibilityRole="button"
-          accessibilityLabel={editing ? "Save edit" : "Send"}
-          accessibilityState={{ disabled: !canSend }}
-          style={[styles.send, !canSend && styles.disabled]}
+          accessibilityLabel={stopping ? "Stop Tex" : editing ? "Save edit" : "Send"}
+          accessibilityState={{ disabled: !buttonEnabled }}
+          style={({ pressed }) => [
+            stopping ? styles.stop : styles.send,
+            !buttonEnabled && styles.sendDisabled,
+            pressed && buttonEnabled && styles.pressed,
+          ]}
           testID="tex-send"
         >
-          <Text variant="meta" style={styles.sendLabel}>
-            {editing ? "Save" : "Send"}
-          </Text>
+          {stopping ? (
+            <Icon name="stop" size={20} color={colors.ground} />
+          ) : (
+            <Icon name="arrowUp" size={16} color={colors.ink} />
+          )}
         </Pressable>
       </View>
     </View>
   );
 }
 
+/** The chip on the top of the box: what the box is about, and a close key. */
+function Chip({
+  testID,
+  icon,
+  label,
+  cancelLabel,
+  cancelTestID,
+  onCancel,
+  styles,
+  colors,
+}: {
+  testID: string;
+  icon: IconName;
+  label: string;
+  cancelLabel: string;
+  cancelTestID: string;
+  onCancel: () => void;
+  styles: Styles;
+  colors: Colors;
+}) {
+  return (
+    <View style={styles.chip} testID={testID}>
+      <Icon name={icon} size={13} color={colors.muted} />
+      <Text variant="meta" style={styles.chipText} numberOfLines={1}>
+        {label}
+      </Text>
+      <Pressable onPress={onCancel} accessibilityRole="button" accessibilityLabel={cancelLabel} style={styles.close} testID={cancelTestID}>
+        <Icon name="close" size={13} color={colors.muted} />
+      </Pressable>
+    </View>
+  );
+}
+
+type Styles = ReturnType<typeof makeStyles>;
+
 const makeStyles = (colors: Colors) =>
   StyleSheet.create({
-    composer: {
-      gap: space.x2,
-      padding: space.x3,
-      borderTopWidth: StyleSheet.hairlineWidth,
-      borderTopColor: colors.line,
-    },
-    bar: {
-      flexDirection: "row",
-      alignItems: "center",
-      gap: space.x2,
-      paddingLeft: space.x3,
-      paddingRight: space.x1,
-      paddingVertical: space.x1,
-      borderLeftWidth: 2,
-      borderLeftColor: colors.accent,
-      backgroundColor: colors.chrome,
-      borderRadius: radii.xs,
-    },
-    barWords: { flex: 1, minWidth: 0 },
-    barTitle: { color: colors.text },
-    barSub: { color: colors.muted },
-    close: {
-      width: 36,
-      height: 36,
-      alignItems: "center",
-      justifyContent: "center",
-      borderRadius: radii.control,
-    },
-    thumbs: { flexDirection: "row", flexWrap: "wrap", gap: space.x2 },
+    composer: { paddingTop: 8, paddingHorizontal: 12, paddingBottom: 12 },
+    thumbs: { flexDirection: "row", flexWrap: "wrap", gap: space.x2, marginBottom: 8 },
     thumb: { width: 56, height: 56 },
     thumbImage: { width: 56, height: 56, borderRadius: radii.xs, backgroundColor: colors.chrome },
     thumbPlaceholder: { backgroundColor: colors.chromePressed },
@@ -299,39 +353,79 @@ const makeStyles = (colors: Colors) =>
       alignItems: "center",
       justifyContent: "center",
     },
-    row: { flexDirection: "row", alignItems: "flex-end", gap: space.x2 },
-    iconButton: {
-      width: 36,
-      height: 36,
+    chip: {
+      flexDirection: "row",
+      alignItems: "center",
+      gap: 8,
+      paddingVertical: 6,
+      paddingLeft: 10,
+      paddingRight: 4,
+      borderWidth: 1,
+      borderBottomWidth: 0,
+      borderColor: colors.line,
+      borderTopLeftRadius: 9,
+      borderTopRightRadius: 9,
+      backgroundColor: colors.surface3,
+    },
+    chipText: { flex: 1, minWidth: 0, fontSize: texChatType.small, color: colors.muted },
+    close: {
+      width: 28,
+      height: 28,
       alignItems: "center",
       justifyContent: "center",
       borderRadius: radii.control,
     },
+    box: {
+      flexDirection: "row",
+      alignItems: "flex-end",
+      gap: 6,
+      paddingTop: 6,
+      paddingBottom: 6,
+      paddingLeft: 10,
+      paddingRight: 6,
+      borderWidth: 1,
+      borderColor: colors.line,
+      borderRadius: 14,
+      backgroundColor: colors.ground,
+    },
+    boxAttached: { borderTopLeftRadius: 0, borderTopRightRadius: 0 },
+    iconButton: {
+      width: 32,
+      height: 32,
+      alignItems: "center",
+      justifyContent: "center",
+      borderRadius: 16,
+    },
+    iconButtonHover: { backgroundColor: colors.surface3 },
     input: {
       flex: 1,
       minWidth: 0,
-      minHeight: 36,
-      maxHeight: 140,
-      paddingHorizontal: space.x3,
-      paddingVertical: space.x2,
-      borderRadius: radii.xs,
-      borderWidth: 1,
-      borderColor: colors.lineStrong,
-      backgroundColor: colors.surface2,
+      maxHeight: 120,
+      paddingVertical: 5,
+      borderWidth: 0,
+      backgroundColor: "transparent",
       color: colors.text,
-      fontSize: pointerType.lede,
-      lineHeight: 20,
+      fontSize: texChatType.composer,
+      lineHeight: 20.3,
       textAlignVertical: "top",
     },
     send: {
-      minHeight: 36,
-      minWidth: 36,
-      paddingHorizontal: space.x3,
+      width: 32,
+      height: 32,
       alignItems: "center",
       justifyContent: "center",
-      borderRadius: radii.control,
+      borderRadius: 16,
       backgroundColor: colors.accent,
     },
-    sendLabel: { color: colors.ink },
+    stop: {
+      width: 32,
+      height: 32,
+      alignItems: "center",
+      justifyContent: "center",
+      borderRadius: 16,
+      backgroundColor: colors.text,
+    },
+    sendDisabled: { opacity: 0.35 },
+    pressed: { transform: [{ scale: 0.9 }] },
     disabled: { opacity: 0.45 },
   });
