@@ -226,6 +226,17 @@ describe("a turn reads the open note with its own dispatcher, only for workspace
     assert.equal(homeScreen.noteText, "The body.");
   });
 
+  it("takes the person's own workspace named by its id, read with no context, and never another workspace's id", async () => {
+    const reads = [];
+    const dispatch = async (name, args) => (reads.push(args), body("Mine."));
+    const own = chatStub({ stored: { note: { ...NOTE, workspace: "ws_own123" }, at: NOW } });
+    const mine = await screenForTurn({ env: { TEX_CHAT: own.namespace }, actorUserId: USER, contexts: CONTEXTS, dispatch, ownId: "ws_own123", now: NOW });
+    assert.equal(mine.noteText, "Mine.");
+    assert.equal(reads.at(-1).context, undefined);
+    const other = chatStub({ stored: { note: { ...NOTE, workspace: "ws_other456" }, at: NOW } });
+    assert.equal(await screenForTurn({ env: { TEX_CHAT: other.namespace }, actorUserId: USER, contexts: CONTEXTS, dispatch, ownId: "ws_own123", now: NOW }), null);
+  });
+
   it("leaves out a note and its tabs in a workspace the person has no entry for, and reads nothing", async () => {
     const reads = [];
     const dispatch = async (name, args) => (reads.push(args), body("x"));

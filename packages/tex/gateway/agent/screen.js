@@ -127,7 +127,9 @@ export async function readScreen(env, actorUserId, now) {
 }
 
 /** The workspace a name is, among the contexts the person has: `{}` for the turn's own, `{ context: "@name" }` for another, or null. */
-function reachOf(contexts, workspace) {
+function reachOf(contexts, workspace, ownId = null) {
+  // The console may name the person's own workspace by its id; any other is named "@slug", as `contextsFor` lists it.
+  if (typeof ownId === "string" && workspace === ownId) return {};
   const want = workspace.replace(/^@/, "").toLowerCase();
   const entry = (Array.isArray(contexts) ? contexts : []).find((item) => typeof item?.name === "string" && item.name.replace(/^@/, "").toLowerCase() === want);
   if (entry === undefined) return null;
@@ -147,10 +149,10 @@ function bodyOf(result) {
  * selection, when the note is the one selected in). Reads the open note's text through `dispatch` (the turn's own
  * note read, so its access checks apply); a read that fails leaves the text out and keeps the path.
  */
-export async function screenForTurn({ env, actorUserId, contexts, dispatch, now = Date.now() }) {
+export async function screenForTurn({ env, actorUserId, contexts, dispatch, ownId = null, now = Date.now() }) {
   const seen = await readScreen(env, actorUserId, now);
   if (seen === null) return null;
-  const listed = (item) => reachOf(contexts, item.workspace);
+  const listed = (item) => reachOf(contexts, item.workspace, ownId);
   const note = seen.note !== undefined && listed(seen.note) !== null ? seen.note : undefined;
   const tabs = (seen.tabs ?? []).filter((tab) => listed(tab) !== null);
   if (note === undefined && tabs.length === 0) {

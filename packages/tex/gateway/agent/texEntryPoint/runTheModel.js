@@ -239,7 +239,7 @@ export async function runTheModel(t, via) {
   const waitedMs = waitStart === null ? null : Date.now() - waitStart;
   // What the Context app had open when they texted it from its chat (`screen.js`): a 1:1 app turn, when the front door's ctx lists `screen`.
   const screen = screenOn(env) && chatTurn && job === null && group === null && !runner && session.actorClientId === CONSOLE_CLIENT_ID && typeof session.actorUserId === "string"
-    ? await tex.step("screen", () => screenForTurn({ env, actorUserId: session.actorUserId, contexts: contextsFor(session), dispatch, now: Date.now() }).catch(() => null), null)
+    ? await tex.step("screen", () => screenForTurn({ env, actorUserId: session.actorUserId, contexts: contextsFor(session), dispatch, ownId: session.workspaceId, now: Date.now() }).catch(() => null), null)
     : null;
   const args = {
     ...examplesOptions(via.examples ?? null, texConfigOf(env), TRAINING, env?.TEX_EXAMPLES), // the nearest Training examples, when the front door is wired to them (`turnExamples.js`)

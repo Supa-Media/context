@@ -814,6 +814,7 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 - [The Lab's test chats run the real turn on a copy that changes nothing, over a simulated Photon line (2026-11-16)](./texting-assistant/lab-sandbox.md)
 - [The Lab's "Shared with devs" chats are the review-sharing yes, tested as their person in a sandbox (2026-11-16)](./texting-assistant/lab-shared-chats.md)
 - [The Context app's own chat with Tex: its own chat, the same history (2026-11-19, draft)](./texting-assistant/app-chat.md)
+- [Tex in a note, and the note on screen (2026-11-20)](./texting-assistant/notes-and-screen.md)
 - [What a turn is told about itself comes from state, never a stock sentence (2026-11-17)](./texting-assistant/turn-told-from-state.md)
 - [An edited or unsent text is kept beside the one it changes, and Decide judges an edit from examples (2026-11-16)](./texting-assistant/edits-and-unsends.md)
 - [A Provisional run starts a step before the steps that decide whether it should run (2026-11-17)](./texting-assistant/provisional-run.md)
