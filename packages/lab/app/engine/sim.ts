@@ -78,6 +78,9 @@ export function stepCost(n: LabNode, g: LabGraph, s: string, log: Log, hit?: num
   return { ms, usd, calls };
 }
 
+/** Whether anything acts on the Router's read: a specialist door wired from the Front door, or router -> handoff (`doorTurn.js`). */
+const routeActs = (g: LabGraph) => g.edges.some((e) => (e.from === "fd" && ["fdQuick", "fdRead", "fdAct"].includes(e.to)) || (e.from === "router" && e.to === "handoff"));
+
 /**
  * One step's time with its helpers folded in. With `real` (a text the person sent, `realTimes.ts`), a measured step
  * takes its measured time, a helper that was not measured did not run, and send-backs are already in the measured
@@ -112,10 +115,13 @@ export function fold(n: LabNode, g: LabGraph, s: string, tags: string[], log: Lo
       inner.parts.filter((p) => !p.own).forEach((p) => parts.push(p));
     } else {
       const inner = fold(c, g, s, tags, log, new Set(seen));
-      ms += inner.ms;
+      // The Router runs beside the Door, and the turn waits on it only while a door or the hand-off reads it
+      // (`doorTurn.js` routeActs, Dev2 2026-11-20: a logged signal only): its cost counts, its time does not.
+      const waited = c.id !== "router" || routeActs(g);
+      ms += waited ? inner.ms : 0;
       usd += inner.usd;
       calls += inner.calls;
-      parts.push({ id: c.id, ms: inner.ms });
+      parts.push(waited ? { id: c.id, ms: inner.ms } : { id: c.id, ms: 0, note: "beside, not waited on" });
     }
   }
   for (const e of g.edges.filter((e) => !real && e.from === n.id && e.mode === "loop" && fires(e, tags, g))) {
