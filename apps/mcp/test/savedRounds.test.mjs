@@ -103,21 +103,21 @@ test("a call held for their yes freezes the snapshot before it, so the next try 
   const first = turn(scripted([calls(["c1", "search_notes", { query: "a" }]), calls(["c2", "send_email", { to: "x@example.com" }]), calls(["c3", "search_notes", { query: "b" }]), words("Sent for your yes.")]), { keepRounds });
   await first.done;
   assert.deepEqual(first.ran, ["search_notes", "send_email", "search_notes"]);
-  assert.equal(kept.length, 1, "only the round before the held call");
-  assert.ok(!JSON.stringify(kept).includes("send_email"));
+  // The search, the email's "started" entry, then the same snapshot kept again without it once it came back held.
+  assert.equal(kept.length, 3);
+  assert.ok(JSON.stringify(kept[1]).includes("send_email"), "an action is logged as started before it runs");
+  assert.deepEqual(kept.at(-1).messages, kept[0].messages, "only the round before the held call");
+  assert.ok(!JSON.stringify(kept.at(-1)).includes("send_email"));
 });
 
-test("a picture made or a note written freezes the snapshot, though the picture tool is marked read-only", async () => {
+test("a picture made freezes the snapshot, though the picture tool is marked read-only", async () => {
   const PICTURE = { name: "draw_picture", description: "Draw", inputSchema: { type: "object", properties: {} }, annotations: { readOnlyHint: true } };
-  const WRITE = { name: "write_note", description: "Write", inputSchema: { type: "object", properties: { path: { type: "string" }, content: { type: "string" } } }, annotations: { readOnlyHint: false } };
-  for (const [tool, args] of [[PICTURE, { prompt: "a cat" }], [WRITE, { path: "notes/a.md", content: "hi" }]]) {
-    const { kept, keepRounds } = keeping();
-    const first = turn(scripted([calls(["c1", "search_notes", { query: "a" }]), calls(["c2", tool.name, args]), calls(["c3", "search_notes", { query: "b" }]), words("Done.")]), { keepRounds, tools: [SEARCH, EMAIL, tool] });
-    await first.done;
-    assert.deepEqual(first.ran, ["search_notes", tool.name, "search_notes"]);
-    assert.equal(kept.length, 1, `${tool.name}: only the round before it`);
-    assert.ok(!JSON.stringify(kept).includes(tool.name), `${tool.name} is never carried on`);
-  }
+  const { kept, keepRounds } = keeping();
+  const first = turn(scripted([calls(["c1", "search_notes", { query: "a" }]), calls(["c2", "draw_picture", { prompt: "a cat" }]), calls(["c3", "search_notes", { query: "b" }]), words("Done.")]), { keepRounds, tools: [SEARCH, EMAIL, PICTURE] });
+  await first.done;
+  assert.deepEqual(first.ran, ["search_notes", "draw_picture", "search_notes"]);
+  assert.equal(kept.length, 1, "only the round before it");
+  assert.ok(!JSON.stringify(kept).includes("draw_picture"), "a picture is never carried on");
 });
 
 test("a read that returned a picture freezes the snapshot: its number held for that try alone", async () => {
@@ -174,12 +174,12 @@ test("part of a round is kept as the calls that returned, without the round's th
   const reply = calls(["c1", "search_notes", { query: "a" }], ["c2", "send_email", { to: "x@example.com" }]);
   const first = turn(scripted([reply, words("Done.")]), { keepRounds });
   await first.done;
-  assert.equal(kept.length, 1);
-  const asked = kept[0].messages.find((m) => m.role === "assistant");
+  const last = kept.at(-1); // the search, the email started, then kept again without the email once it came back held
+  const asked = last.messages.find((m) => m.role === "assistant");
   assert.deepEqual(asked.toolCalls.map((c) => c.id), ["c1"]);
   assert.equal(asked.content, undefined);
-  assert.deepEqual(kept[0].messages.filter((m) => m.role === "tool").map((m) => m.id), ["c1"]);
-  assert.ok(checkedSnapshot(kept[0]), "every call it keeps has its result");
+  assert.deepEqual(last.messages.filter((m) => m.role === "tool").map((m) => m.id), ["c1"]);
+  assert.ok(checkedSnapshot(last), "every call it keeps has its result");
 });
 
 test("a try that comes back on its last round still gets one round to answer", async () => {

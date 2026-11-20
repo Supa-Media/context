@@ -10,7 +10,7 @@
  */
 import { ledgerPlace } from "./ledger.js";
 import { readOf } from "./toldFacts.js";
-import { callsIn, carriesOn, checkedSnapshot, jobKey, keptMessage, ROUNDS_MAX_CHARS, textKey } from "./savedRounds.js";
+import { callsIn, carriesOn, checkedSnapshot, jobKey, keptMessage, ROUNDS_MAX_CHARS, STARTED_UNSURE, textKey } from "./savedRounds.js";
 
 /**
  * Puts `resumeFrom` (`{ round, messages }`, or null) after the question in `messages`, and returns the round the turn
@@ -38,50 +38,100 @@ export function resumedRounds({ resumeFrom, rounds, messages, held, steps, tell 
   return round;
 }
 
+/** The longest a turn waits for an action's "started" entry to be kept before it runs the action anyway. */
+export const STARTED_WAIT_MS = 1_500;
+
 /**
  * Keeps a turn's snapshot as its calls return (`turn.js`): `roundStarted()` once a round's calls are in `messages`,
- * `called(call, result, round)` after each one's result is, `freeze()` when a call settles the turn. Each snapshot is
- * every round so far whose calls all carry on (`carriesOn`), and of the round running, the calls that returned; the
- * first call that doesn't carry on freezes it, so a try after a crash runs that call again. `keep(snapshot)` is never
- * awaited and never throws into the turn.
+ * `starting(call, round)` before an action runs, `called(call, result, round)` after each one's result is,
+ * `freeze()` when a call settles the turn. Each snapshot is every round so far whose calls all carry on (`carriesOn`),
+ * and of the round running, the calls that returned; the first call that doesn't carry on freezes it, so a try after a
+ * crash runs that call again.
+ *
+ * THE ACTION LOG (Dev2, 2026-11-20, durable jobs option A). An action (`acts`: an offered MCP tool that changes
+ * something) is logged as started before it runs, and the turn waits for that entry (up to `STARTED_WAIT_MS`): a
+ * snapshot with the call in it and `STARTED_UNSURE` as its result. Once it returns, the snapshot holds what it
+ * returned. So a try after a crash never makes an action again that already happened, and one it never heard back
+ * from is checked before it is made again. Each entry is generic (the tool, its arguments, what it returned), so a
+ * computer's commands and browser steps can join the same log. `keep(snapshot)` never throws into the turn.
  */
-export function roundsKeeper({ messages, roundsFrom, readOnly, keep, marks = () => ({}), carried = {} }) {
+export function roundsKeeper({ messages, roundsFrom, readOnly, acts = null, keep, marks = () => ({}), carried = {}, startWait = STARTED_WAIT_MS }) {
   let frozen = false;
   let assistantAt = -1;
   let done = [];
+  let started = []; // actions of the round running that were logged as started and have not returned
   const ran = { ...carried }; // each kept call as it ran, the six resolved (`sixTools.js`): what a try after tells its checks
   const snapshot = (round) => {
     const asked = messages[assistantAt];
-    const ids = new Set(done);
+    const ids = new Set([...done, ...started]);
+    // Nothing of the round running is kept: the rounds before it, as the snapshot before stood (empty, it is never read).
+    if (ids.size === 0) return { v: 1, round, ...marks(), ran: { ...ran }, messages: messages.slice(roundsFrom, assistantAt).map(keptMessage) };
     const answer = keptMessage(asked);
-    if (done.length < (asked.toolCalls?.length ?? 0)) {
-      // Part of a round: only the calls that returned, and none of its thinking, which named the rest.
+    if (ids.size < (asked.toolCalls?.length ?? 0)) {
+      // Part of a round: only the calls that returned or started, and none of its thinking, which named the rest.
       answer.toolCalls = answer.toolCalls.filter((call) => ids.has(call.id));
       delete answer.content;
     }
-    const results = messages.slice(assistantAt + 1).filter((message) => message.role === "tool" && ids.has(message.id)).map(keptMessage);
-    return { v: 1, round: round + 1, ...marks(), ran: { ...ran }, messages: [...messages.slice(roundsFrom, assistantAt).map(keptMessage), answer, ...results] };
+    const results = messages.slice(assistantAt + 1).filter((message) => message.role === "tool" && done.includes(message.id)).map(keptMessage);
+    const unsure = (answer.toolCalls ?? []).filter((call) => started.includes(call.id)).map((call) => ({ role: "tool", id: call.id, name: call.name, text: STARTED_UNSURE, isError: true }));
+    return { v: 1, round: round + 1, ...marks(), ran: { ...ran }, ...(unsure.length > 0 ? { unsure: unsure.map((call) => call.id) } : {}), messages: [...messages.slice(roundsFrom, assistantAt).map(keptMessage), answer, ...results, ...unsure] };
+  };
+  const store = (round) => {
+    try {
+      const kept = snapshot(round);
+      if (JSON.stringify(kept).length <= ROUNDS_MAX_CHARS) return keep(kept);
+    } catch {
+      /* a lost snapshot costs a later try its head start, never this turn */
+    }
+    return undefined;
   };
   return {
     roundStarted() {
       assistantAt = messages.length - 1;
       done = [];
+      started = [];
+    },
+    /** Before an action runs: its "started" entry, waited for, so a crash while it runs is known to a try after. */
+    async starting(call, round) {
+      if (frozen || assistantAt < roundsFrom || acts?.has(call.name) !== true) return;
+      started.push(call.id);
+      ran[call.id] = { name: call.name, args: call.args };
+      const kept = store(round);
+      if (kept === undefined || typeof kept?.then !== "function") return;
+      let timer;
+      await Promise.race([Promise.resolve(kept).catch(() => {}), new Promise((resolve) => (timer = setTimeout(resolve, startWait)))]);
+      clearTimeout(timer);
     },
     called(call, result, round) {
+      const wasStarted = started.includes(call.id);
+      started = started.filter((id) => id !== call.id);
       if (frozen || assistantAt < roundsFrom) return;
-      if (!carriesOn(call, result, readOnly)) return void (frozen = true);
+      if (!carriesOn(call, result, readOnly, acts)) {
+        frozen = true;
+        delete ran[call.id];
+        // Its "started" entry was kept: kept again without it, so a try after makes it as every try did before.
+        if (wasStarted) void store(round);
+        return;
+      }
       done.push(call.id);
       ran[call.id] = { name: call.name, args: call.args };
-      try {
-        const kept = snapshot(round);
-        if (JSON.stringify(kept).length <= ROUNDS_MAX_CHARS) keep(kept);
-      } catch {
-        /* a lost snapshot costs a later try its head start, never this turn */
-      }
+      void store(round);
     },
     freeze() {
       frozen = true;
     },
+  };
+}
+
+/**
+ * The offered MCP tools a turn's log keeps as actions (`roundsKeeper` `acts`) and as reads (`readOnly`): never its web
+ * or local tools, whose effects are beyond what the MCP answered (a browser's page, a picture, a job's start).
+ */
+export function keptTools(tools, { webNames, localCalls }) {
+  const mcp = (tools ?? []).filter((tool) => typeof tool?.name === "string" && !webNames.has(tool.name) && !localCalls.has(tool.name));
+  return {
+    readOnly: new Set(mcp.filter((tool) => tool.annotations?.readOnlyHint === true).map((tool) => tool.name)),
+    acts: new Set(mcp.filter((tool) => tool.annotations?.readOnlyHint !== true).map((tool) => tool.name)),
   };
 }
 
@@ -132,6 +182,7 @@ export async function carriedRounds({ store, session, body, question, job = null
       : (snapshot) => {
           stored = true;
           chain = chain.then(() => home.keepRounds(place.chat, key, snapshot)).catch(() => {});
+          return chain; // an action's "started" entry is waited for (`roundsKeeper` `starting`)
         };
   const marks = () => ({ ...(egress?.untrusted ? { untrusted: true } : {}), ...(egress?.outside ? { outside: true } : {}) });
   // The text is answered: its snapshot goes, after any keep still on its way, so none lands after. Never awaited by the

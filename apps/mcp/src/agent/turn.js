@@ -59,7 +59,7 @@ import { FINISH_NOTICE, FINISH_SCHEDULED_NOTICE, exhaustedAnswer, roundNotice } 
 import { traceNames } from "./turnLog.js";
 import { TAPBACK_TOOL } from "./tapbackEnding.js";
 import { START_JOB_TOOL } from "./backgroundTool.js";
-import { resumedRounds, roundsKeeper } from "./turnResume.js";
+import { keptTools, resumedRounds, roundsKeeper } from "./turnResume.js";
 import { SAID_NOTHING, SAY_NOTHING_TOOL, sayNothingLocal, sayNothingOnce, sayNothingRefused, typedCallNotice, typedCallOf, withSayNothing } from "./sayNothing.js";
 
 export { describePlace, systemPrompt } from "./prompt.js";
@@ -451,7 +451,7 @@ export async function runTurn(options) {
   // An earlier try's rounds (`savedRounds.js`): put back after the question, its calls counted as this turn's own, never run or logged again.
   const firstRound = resumedRounds({ resumeFrom, rounds, messages, held, steps, tell });
   const roundsFrom = historyMessages.length + 1; // where the rounds after the question start
-  const keeper = typeof keepRounds?.keep !== "function" ? null : roundsKeeper({ messages, roundsFrom, readOnly: new Set((options.tools ?? []).filter((tool) => tool?.annotations?.readOnlyHint === true && !webNames.has(tool.name) && !localCalls.has(tool.name)).map((tool) => tool.name)), keep: keepRounds.keep, marks: keepRounds.marks, carried: resumeFrom?.ran ?? {} });
+  const keeper = typeof keepRounds?.keep !== "function" ? null : roundsKeeper({ messages, roundsFrom, ...keptTools(options.tools, { webNames, localCalls }), keep: keepRounds.keep, marks: keepRounds.marks, carried: resumeFrom?.ran ?? {} }); // its action log too (`turnResume.js`)
   timing.from = firstRound; // rounds an earlier try already ran (`savedRounds.js`): `from + rounds` is the turn's own count
   /*
     OUT OF ROUNDS, HANDED ON (Dev2, 2026-11-18: "wire Hand-off to fire when the Front door runs out of rounds"; off
@@ -753,6 +753,7 @@ export async function runTurn(options) {
       options.onModel?.(model);
       // A tool starting, for a group's one early tapback (`apps/agent/src/groupModelTurn.ts`): a progress line, silence or a tapback of the model's own (`tapbackEnding.js`) is not one.
       if (call.name !== PROGRESS_TOOL && call.name !== SAY_NOTHING_TOOL && call.name !== TAPBACK_TOOL) try { options.onToolStart?.(call.name); } catch { /* a failed tapback never costs the turn */ }
+      await keeper?.starting(call, round); // an action is logged as started before it runs (`turnResume.js`)
       try {
         const viaMcp = !(progress && call.name === PROGRESS_TOOL) && !localCalls.has(call.name) && !webNames.has(call.name);
         result = (await sandboxedTool(env, call)) ?? (viaMcp && isPlainNoteWrite(call.name, call.args)
@@ -833,12 +834,12 @@ export async function runTurn(options) {
     } else {
       for (const made of answer.toolCalls) apply(await runOne(made), true);
     }
-    if (settling.length > 0) keeper?.freeze(); // a call that settles the turn has effects beyond its words (`savedRounds.js`)
     // A job just started: the job does the work, so the person hears "on it" now, not after another model round.
     // Read after the round, not at its first start: a call after it in the same round (a second part) still runs (2026-11-04).
     for (const call of settling) {
       const settled = settles(call.name, call.args, { roundFailed: messages.slice(roundFrom).some((message) => message.role === "tool" && message.isError === true) });
       if (typeof settled === "string" && settled !== "") {
+        keeper?.freeze(); // a call that settles the turn has effects beyond its words (`savedRounds.js`)
         return { answer: settled, provider, model, steps, usage, usageByModel, timing: { ...timing, trace }, settled: call.name, live: liveTurn(prompt, messages, offered) };
       }
     }

@@ -681,6 +681,7 @@ test/jobPartEnd.test.mjs
 test/agentCheckFindings.test.mjs
 test/jobSaved.test.mjs
 test/savedRounds.test.mjs
+test/actionLog.test.mjs
 test/labSandboxObjectRun.test.mjs
 test/jobReportNode.test.mjs
 test/devShare.test.mjs
