@@ -18,7 +18,7 @@ const LANDING_MS = 30_000;
 /**
  * Google came back from a Gmail-first page (board 08, 09b). Says which
  * address is connected and what it is now, with Back to Messages first: Tex
- * texts on its own when the first Gmail connects (`apps/agent/src/
+ * texts on its own when the first Gmail connects (`packages/tex/worker/
  * gmailWatch.ts`), so one tap returns them to the reply. The binding lands a
  * moment after Google returns, so the address is read live: `primary` waits
  * for the first Gmail, `another` for one not there when the page opened.

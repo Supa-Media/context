@@ -29,7 +29,7 @@ const TRAIN_ENTRY = /^train:([A-Za-z][A-Za-z0-9]{0,47})(?::all:([1-9]\d{0,6}))?$
 /** A tapback's words, as a phone shows them under the emoji: the first 32 characters. */
 const QUOTE_CHARS = 32;
 
-/** What a tapback says as an answer (`apps/agent/src/reactions.ts` `reactionLine`): a like, love or emphasis is a yes. */
+/** What a tapback says as an answer (`packages/tex/worker/reactions.ts` `reactionLine`): a like, love or emphasis is a yes. */
 const TAPBACK_ANSWER = Object.freeze({ "👍": " (yes)", "❤️": " (yes)", "‼️": " (yes)", "👎": " (no)" });
 
 const handle = (who) => `@${String(who).toLowerCase()}`;

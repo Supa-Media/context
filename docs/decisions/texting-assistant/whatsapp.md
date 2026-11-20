@@ -32,11 +32,11 @@ simplification that makes WhatsApp the home line would make a ban silent.
 ## One provider adapter, so the provider can be swapped
 
 The provider sits behind two interfaces, and nothing else in the Worker names
-Whapi: `Line` in `apps/agent/src/line.ts` for 1:1 chats and `GroupLine` in
-`apps/agent/src/groupLine.ts` for groups. Sending, reactions, typing, read
+Whapi: `Line` in `packages/tex/worker/line.ts` for 1:1 chats and `GroupLine` in
+`packages/tex/worker/groupLine.ts` for groups. Sending, reactions, typing, read
 receipts and group membership are called through them. Whapi's wire format
-is read in `apps/agent/src/whapi.ts` (sends and the member list) and
-`apps/agent/src/whapiInbound.ts` (parsing a delivery). Replacing Whapi with
+is read in `packages/tex/worker/whapi.ts` (sends and the member list) and
+`packages/tex/worker/whapiInbound.ts` (parsing a delivery). Replacing Whapi with
 another provider is a new adapter behind the same two interfaces, not a change
 to the assistant.
 
@@ -61,8 +61,8 @@ could then carry that person's notes into a room they are not in.
 
 **What a simplification would cost:** reading `@lid` digits as a phone links a
 stranger to an account they never registered, and that is a disclosure. The
-tests that fail if it is reversed are in `apps/agent/src/whapi.test.ts`
-(`phoneOfJid` and `personOfJid`) and `apps/agent/src/whapiInbound.test.ts`.
+tests that fail if it is reversed are in `packages/tex/worker/whapi.test.ts`
+(`phoneOfJid` and `personOfJid`) and `packages/tex/worker/whapiInbound.test.ts`.
 
 ## The webhook is authenticated by a header secret
 
@@ -78,8 +78,8 @@ in the repository, and a rotation is a new value on both sides.
 
 **What a simplification would cost:** accepting a delivery without the header
 lets anyone who finds the URL post a message that Tex reads as a person's, and
-answers it with that person's notes. Tests: `apps/agent/src/whapiInbound.test.ts`
-(a delivery with no or a wrong secret is refused) and `apps/agent/src/whapi.test.ts`
+answers it with that person's notes. Tests: `packages/tex/worker/whapiInbound.test.ts`
+(a delivery with no or a wrong secret is refused) and `packages/tex/worker/whapi.test.ts`
 (the secret comparison).
 
 ## Setup is a hand-run workflow, not a deploy step

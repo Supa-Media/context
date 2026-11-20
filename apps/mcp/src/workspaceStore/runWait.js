@@ -2,7 +2,7 @@
  * A job's read of its run on a computer, held by the workspace object until the run moves (Dev2, 2026-11-06: jobs
  * wait on pushes, with a slow safety read, instead of reading every ten seconds).
  *
- * The job's object read its run every 10 seconds for as long as a part ran (`apps/agent/src/machineTurn.ts`), and
+ * The job's object read its run every 10 seconds for as long as a part ran (`packages/tex/worker/machineTurn.ts`), and
  * every read wrote the run's steps to the chat's record again (`machines/jobRoutes.js` `ledgerSteps`). Now a read
  * names the version it last saw (`seen`) and how long it may wait (`waitMs`, at most `MAX_RUN_WAIT_MS`); the object
  * answers the moment the run's version differs, a step, a word, a session or its end, or when the wait is up. It looks

@@ -93,7 +93,7 @@ export default {
     await assert.rejects(first.done, /gateway died/);
     await first.rounds.flush();
     assert.deepEqual(first.ran, ["search_email"]);
-    // The Worker names part 1 for part 2 (`apps/agent/src/jobPartResume.ts`): part 2 reads its saved rounds and searches nothing again.
+    // The Worker names part 1 for part 2 (`packages/tex/worker/jobPartResume.ts`): part 2 reads its saved rounds and searches nothing again.
     const ai = model();
     const second = await part(ai, 2, { resumeFrom: 1 }, home);
     assert.ok(second.rounds.from, "part 2 found what part 1 had done");
@@ -107,7 +107,7 @@ export default {
     await assert.rejects(firstSave.done, /model failed/);
     await firstSave.rounds.flush();
     assert.deepEqual(firstSave.ran, ["search_email", "write_note"]);
-    // The workflow tries part 1 again (`apps/agent/src/jobWorkflow.ts`): the try reads that the note was saved.
+    // The workflow tries part 1 again (`packages/tex/worker/jobWorkflow.ts`): the try reads that the note was saved.
     const saver = savingModel();
     const again = await savingPart(saver, { resumeFrom: 1 }, saved);
     assert.ok(again.rounds.from, "the try found what part 1 had done");

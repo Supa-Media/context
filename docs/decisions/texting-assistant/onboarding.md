@@ -12,7 +12,7 @@ answered them with the sign-in link, because they had no account, no
 workspace and no link, so the promise in that text was not kept.
 
 Now an unlinked phone the control plane may set up gets a fixed exchange
-instead of the link (`functions/textSetup.ts`, `apps/agent/src/setup.ts`):
+instead of the link (`functions/textSetup.ts`, `packages/tex/worker/setup.ts`):
 
 1. Any text: Tex asks for the handle they want. A row remembers that it
    asked (`textSetups`, stage `asked`, a day at most).
@@ -121,7 +121,7 @@ plan.
 of minutes, I'll let you know when I'm ready", and "since it's coming from
 that number already, then it's pre-authenticated"). The setup text says Tex
 will text when it is done and carries no link. The sender's inbox owes that
-text (`apps/agent/src/ready.ts`): its alarm asks `POST /agent-texts/ready`
+text (`packages/tex/worker/ready.ts`): its alarm asks `POST /agent-texts/ready`
 every 30 seconds, and once the workspace's binding is `connected` and its
 folders are laid out, it texts a fixed line and a link to
 `/signin/<token>` (`functions/textSignIn.ts`). After twenty minutes it says
@@ -158,7 +158,7 @@ it never folds an account. Google's unverified-app warning is explained on
 the page, where it happens, not in the text.
 
 **Tex says so itself when that Gmail connects.** After the ready text the
-sender's inbox watches `POST /agent-texts/gmail` (`apps/agent/src/gmailWatch.ts`:
+sender's inbox watches `POST /agent-texts/gmail` (`packages/tex/worker/gmailWatch.ts`:
 every 30 seconds for half an hour, then every five minutes, for the day the
 link lives) and texts a fixed line naming the address, whether it is now the
 main email, and asking about other Gmails. Its answer is the next turn, which
@@ -193,11 +193,11 @@ Tests: `apps/convex/__tests__/textSetup.test.ts` ("an account that already
 owns a personal workspace is never set up or linked by a text", "sets up that
 account and no other", "is held to the app's handle rules", "never lays out a
 bucket that is not our own, or one not seen empty") and
-`apps/agent/src/setup.test.ts` ("the message's words never leave the
+`packages/tex/worker/setup.test.ts` ("the message's words never leave the
 Worker", "texts no link but the console's"), `apps/convex/__tests__/textSignIn.test.ts`
 (the link waits for ready storage, opens once, signs in no other phone, and
-expires) and `apps/agent/src/ready.test.ts` (the ready text goes once, never
-with a link that is not https), `apps/agent/src/gmailWatch.test.ts` (the
+expires) and `packages/tex/worker/ready.test.ts` (the ready text goes once, never
+with a link that is not https), `packages/tex/worker/gmailWatch.test.ts` (the
 Gmail text goes once, only after it connects, never with something that is
 not one address) and `apps/convex/__tests__/texHome.test.ts` (the first Gmail
 becomes the main email and no other, never folds an account). Each file's header records the sabotage runs.
@@ -231,7 +231,7 @@ all".
 
 Tests: `apps/mcp/test/agentInstructions.test.mjs` (a texted turn is never
 told to offer Google), `apps/mcp/test/workspaceSetup.test.mjs` (the link's steps
-and picture), `apps/agent/src/ready.test.ts` (the ready text's guide and
+and picture), `packages/tex/worker/ready.test.ts` (the ready text's guide and
 picture), `infra/router/src/texHost.test.ts` (the picture is served) and
 `apps/convex/__tests__/mailHealth.test.ts` (`readOnly`).
 

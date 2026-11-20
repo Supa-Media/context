@@ -14,11 +14,11 @@ group is still typing, but neither line tells it reliably who is typing where.
 So Tex runs an experiment in production: the channel's webhook takes
 `presences` (`.github/workflows/whapi-setup.yml`), a WhatsApp group's
 presences are watched once a UTC day from its first message
-(`watchGroupPresenceDaily` in `apps/agent/src/whapi.ts`, best effort, 409
+(`watchGroupPresenceDaily` in `packages/tex/worker/whapi.ts`, best effort, 409
 counts as watching, never blocks a message), and each delivery is only
 described in the logs as `whapi_presence_shape`: its keys, its status, and
 whether `contact_id` names a group, a person or something else
-(`logPresenceShape` in `apps/agent/src/whapiInbound.ts`). No id, number or
+(`logPresenceShape` in `packages/tex/worker/whapiInbound.ts`). No id, number or
 name is logged, and nothing acts on typing.
 
 Group typing is built only if the logs show the payload names the group.

@@ -433,7 +433,7 @@ turn already did, and nothing is queued; one save queues one turn. Polling
 rather than a push keeps the control plane from knowing the Worker's address,
 the same as the Gmail-connected text. Reversing it fails
 `apps/mcp/test/agentVaultSavedRoute.test.mjs`,
-`apps/agent/src/vaultWatch.test.ts` and
+`packages/tex/worker/vaultWatch.test.ts` and
 `apps/convex/__tests__/vaultWatch.test.ts`.
 
 **From a group chat too** (Dev2, 2026-11-12: "Tex should know when I've filled

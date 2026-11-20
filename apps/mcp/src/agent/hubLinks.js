@@ -12,7 +12,7 @@
  *   words in a forwarded link open nothing for anyone else.
  *
  * A chat with neither (no handle, no home) gets null, and the texting Worker
- * falls back to its own short-lived view (`apps/agent/src/jobs.ts`).
+ * falls back to its own short-lived view (`packages/tex/worker/jobs.ts`).
  */
 
 import { ownHandle } from "../http/texComputer.js";

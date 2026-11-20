@@ -103,7 +103,7 @@ a background job Tex started, mail is no longer only checked on a rhythm.
   before, and stays there. Then the gateway lists that note's job-bound
   mailboxes (`/gateway/mail/jobs`) and hands each recipient the line through
   the texting Worker's named entrypoint `TexRoutines.mailDeliver`
-  (`apps/mcp/src/mail/deliver.js`, `apps/agent/src/jobMail.ts`). The job's
+  (`apps/mcp/src/mail/deliver.js`, `packages/tex/worker/jobMail.ts`). The job's
   object steers it into the part running now, which takes it in after its
   next tool call; one it never took is shown to the next part. Delivery
   never fails the send: a job that cannot be reached reads the note.
@@ -143,7 +143,7 @@ not the mail tool); mail shown in History tagged with sender and receiver
 waits for its artboard.
 
 Tested by `apps/mcp/test/noteMailDelivery.test.mjs`,
-`apps/mcp/test/noteMailKinds.test.mjs`, `apps/agent/src/jobMail.test.ts`
+`apps/mcp/test/noteMailKinds.test.mjs`, `packages/tex/worker/jobMail.test.ts`
 and `apps/convex/__tests__/noteMail/mailboxes.test.ts`.
 
 ## A save of the note never loses its mail (2026-11-06)

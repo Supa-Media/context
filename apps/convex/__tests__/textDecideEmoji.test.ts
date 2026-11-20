@@ -14,7 +14,7 @@ const id = (n: number) => `${String(1_700_000_000_000 + n).padStart(13, "0")}-${
 const BODY: DecideBody = { chat: "g", line: "+15555550001", style: "helpful", transcript: "x", candidates: [id(1)], running: false, waitingAsks: [], newest: id(1) };
 const act = (choice: string) => ({ type: "choice", choice, confidence: 0.9, probabilities: {} });
 
-/** The texting Worker's allowlist pins the same string (`apps/agent/src/reactEmoji.test.ts`). */
+/** The texting Worker's allowlist pins the same string (`packages/tex/worker/reactEmoji.test.ts`). */
 export const PINNED = "❤️👍👎😂🤣😊😁😉😍🤗🤔👀😮🤯😢😔☹️😬😅🤦🤷🙏👏🙌💪👌👋🫡🤝🤞🎉🥳🔥⭐✨💯🚀🏆💡‼️❓⏳📅⏰📝📚💻📱📧💰📈🏠✈️🚗☕🍕🥂🎂🎁🎵☀️🌙🐶🌱";
 
 describe("the reaction emoji", () => {

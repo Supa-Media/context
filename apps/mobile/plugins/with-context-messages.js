@@ -4,7 +4,7 @@ const { withDangerousMod, withXcodeProject } = require("@expo/config-plugins");
 
 /**
  * The Context card in Messages: an iMessage extension whose cards Tex sends
- * for a link to a note (apps/agent/src/appCards.ts), and which opens the
+ * for a link to a note (packages/tex/worker/appCards.ts), and which opens the
  * note when a card is tapped. Its bundle id is the app's plus `.messages`,
  * the id the texting Worker names on each card (apps/agent/wrangler.jsonc).
  * Built the way with-context-widgets.js builds the widgets.

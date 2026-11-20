@@ -17,7 +17,7 @@ import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { parseTest } from "./load.mjs";
-import { readTexConfig } from "../../../scripts/lib/texConfigFile.mjs";
+import { readTexConfig, withRetiredSteps } from "../../../scripts/lib/texConfigFile.mjs";
 
 const require = createRequire(import.meta.url);
 const texSets = require("../../../packages/tex/src/texSets.cjs");
@@ -261,7 +261,7 @@ async function main(argv) {
     process.stderr.write("usage: setsMigrate.mjs --check\n");
     return 2;
   }
-  const config = readTexConfig(repoRoot);
+  const config = withRetiredSteps(readTexConfig(repoRoot), repoRoot);
   const convs = await migrateAll(repoRoot);
   const bad = [...problems(convs, config), ...placesOf(convs, await loadSets())];
   if (bad.length) {

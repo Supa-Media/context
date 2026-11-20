@@ -2,7 +2,7 @@
 /**
  * How long do people wait for Tex's first text? Read from production's own
  * timings, the `tex_text_timing` dataset the texting Worker writes for every
- * answered text (`apps/agent/src/textTiming.ts`: double5 is arrival to the
+ * answered text (`packages/tex/worker/textTiming.ts`: double5 is arrival to the
  * first bubble out), and red when a kind's median or p95 over the window is
  * over its bar or its target in `scripts/tex-speed-budgets.json`.
  *

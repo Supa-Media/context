@@ -3,7 +3,7 @@
  * `docs/decisions/texting-assistant/chat-routines.md`).
  *
  * The texting Worker queues a due chat routine or a chat's own check-in as a turn of the chat itself, its writer's tag
- * in these words (`apps/agent/src/groupRoutines.ts` `chatRoutineMessage`). They live here, plain JS, so the bench asks
+ * in these words (`packages/tex/worker/groupRoutines.ts` `chatRoutineMessage`). They live here, plain JS, so the bench asks
  * a Dev test's group routine or check-in in exactly the words production does (`apps/mcp/bench/setsFd.mjs`).
  *
  * Silence is the `say_nothing` call, never a word (2026-11-17: these words asked for "exactly SKIP", and a check-in

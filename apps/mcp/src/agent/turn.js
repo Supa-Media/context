@@ -786,7 +786,7 @@ export async function runTurn(options) {
       // Which model made this call, for the usage breakdown. Per call, because
       // routing and fallback can change the model mid-turn.
       options.onModel?.(model);
-      // A tool starting, for a group's one early tapback (`apps/agent/src/groupModelTurn.ts`): a progress line, silence or a tapback of the model's own (`tapbackEnding.js`) is not one.
+      // A tool starting, for a group's one early tapback (`packages/tex/worker/groupModelTurn.ts`): a progress line, silence or a tapback of the model's own (`tapbackEnding.js`) is not one.
       if (call.name !== PROGRESS_TOOL && call.name !== SAY_NOTHING_TOOL && call.name !== TAPBACK_TOOL) try { options.onToolStart?.(call.name); } catch { /* a failed tapback never costs the turn */ }
       await keeper?.starting(call, round); // an action is logged as started before it runs (`turnResume.js`)
       try {

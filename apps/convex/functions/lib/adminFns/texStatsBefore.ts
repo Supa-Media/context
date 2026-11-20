@@ -3,7 +3,7 @@
  *
  * `tex_text_counts` and the `note` points began at `COUNTS_BEGAN`. For the part of a window before then, the basics
  * are read from what was already kept, each a little coarser, and the page says so:
- * - texts: `tex_text_timing` (`apps/agent/src/textTiming.ts`, since 2026-10-31), one point per text Tex answered,
+ * - texts: `tex_text_timing` (`packages/tex/worker/textTiming.ts`, since 2026-10-31), one point per text Tex answered,
  *   1:1 or group, with how many parts went out. Several texts answered together count once.
  * - people: `tex_entry` (`apps/mcp/src/agent/texEntryPoint.js`, since 2026-11-01), indexed by workspace: each
  *   personal workspace with a 1:1 turn is one person. Still written, so it is read over the whole window and the

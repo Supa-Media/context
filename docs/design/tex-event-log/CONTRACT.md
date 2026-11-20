@@ -19,7 +19,7 @@ path; a newcomer never sees events from before they joined; history is words,
 never a tool's result; people's edits to the group memory note win.
 
 Works for every line the Worker serves: Sendblue (iMessage/SMS) and Whapi
-(WhatsApp), 1:1 and groups (`apps/agent/src/line.ts`, `groupLine.ts`).
+(WhatsApp), 1:1 and groups (`packages/tex/worker/line.ts`, `groupLine.ts`).
 
 ## 1. Event
 
@@ -41,14 +41,14 @@ type Event = {
   turn?: string;         // the turn id that produced it (outbound) or answered it
   covers?: string[];     // on Tex's answer: the inbound event ids it answered
   people?: string;       // groups: sha256 of the sorted participants when it happened (groupChat.ts peopleOf)
-  told?: string;         // a fixed Worker text by name (replaces apps/agent/src/told.ts names)
+  told?: string;         // a fixed Worker text by name (replaces packages/tex/worker/told.ts names)
 };
 ```
 
 A **step** event is not a line of the chat: it is one of the Worker's own
 steps, kept in the chat's ledger beside the gateway's (Dev2, 2026-11-13:
 "every step should log its input output time and stuff";
-`apps/agent/src/stepEvents.ts`):
+`packages/tex/worker/stepEvents.ts`):
 
 ```ts
 type StepEvent = {

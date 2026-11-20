@@ -4,7 +4,7 @@
  * too), at `/messages/threads?k=<object id>.<token>`.
  *
  * Tex sends the link when it starts a job or is asked what it is working on
- * (`apps/agent/src/jobs.ts` `mintThreadsLink`): as a Context card in a
+ * (`packages/tex/worker/jobs.ts` `mintThreadsLink`): as a Context card in a
  * one-to-one chat with the app, which the Messages extension opens here, and
  * as a link anywhere else, a group included. Unlike the other card pages,
  * this one is not a pure function of its address: it reads the chat's jobs

@@ -146,7 +146,7 @@ jobs:
           # is missing; Fast repository guards fails until it is here.
           - '.github/workflows/**'
           - '.github/workflows/deploy-mobile-native.yml'
-          - 'apps/agent/src/stepEvents.ts'
+          - 'packages/tex/worker/stepEvents.ts'
           - 'apps/agent/wrangler.jsonc'
           - 'apps/convex/functions/agentGrant.ts'
           - 'apps/convex/functions/files.ts'

@@ -1,5 +1,5 @@
 # Tell everyone whose last chat with Tex is on the old Linq line that Tex has
-# a new number (apps/agent/src/newLine.ts). Run by hand only.
+# a new number (packages/tex/worker/newLine.ts). Run by hand only.
 #
 # Without `send` it is a dry run: the Worker counts who would be told and
 # texts nobody. With `send` each such phone gets one text, once, in the chat

@@ -19,7 +19,7 @@
  *   card details, a decision only they can make).
  * - `stuck`: it tried, and there is no way forward; it says why.
  *
- * The Worker acts on it (`apps/agent/src/jobRun.ts`): another part for
+ * The Worker acts on it (`packages/tex/worker/jobRun.ts`): another part for
  * `keep_going`, until the job's limit (30 minutes or 10 parts), and the
  * chat's own turn is told the verdict and the advice, so "how's it going?"
  * gets "stuck on the sign-in, trying the email link instead".
@@ -105,7 +105,7 @@ export async function checkJob({ job, live, answer, exhausted = false, model, ef
  *
  * `untrusted` is how the turn's mark reaches the parts after this one. It dies
  * with the request, and the Worker keeps it on the job's run record instead
- * (`apps/agent/src/jobRun.ts`), so every later part is asked with `tainted`
+ * (`packages/tex/worker/jobRun.ts`), so every later part is asked with `tainted`
  * (`background.js` `jobOf`). They need it because they are built on this
  * part's words: its draft, which the next part is told to build on, and the
  * advice above, which it is told to start on — both written by a model that

@@ -98,7 +98,7 @@ export async function oneToOne() {
     world,
     async text(words, reply, { attachments, fields, body } = {}) {
       clock += 60_000;
-      // `fields`: what the Worker's own steps add to the text's event, as its edit step does (`apps/agent/src/editStep.ts`).
+      // `fields`: what the Worker's own steps add to the text's event, as its edit step does (`packages/tex/worker/editStep.ts`).
       const theirs = event({ text: words, ...(fields ?? {}) });
       const turn = `turn-replay-${String(++turns).padStart(4, "0")}`;
       const before = world.model.requests.length;
@@ -112,7 +112,7 @@ export async function oneToOne() {
           recent: [theirs],
           turn,
           ...(attachments ? { attachments } : {}),
-          ...(body ?? {}), // what the Worker adds beside their words: a tapback's `quoted` and `tapback` (`apps/agent/src/reply.ts`)
+          ...(body ?? {}), // what the Worker adds beside their words: a tapback's `quoted` and `tapback` (`packages/tex/worker/reply.ts`)
           ...(warm ? { warm } : {}),
         }),
       );
@@ -122,7 +122,7 @@ export async function oneToOne() {
       clock += 5_000;
       const answer = String(answered.body.answer ?? "");
       // An answer with no words texts nothing: the Worker flushes their text, and a tapback it sent as Tex's line covering
-      // it (`apps/agent/src/inbox.ts`), or nothing beside it when Tex stayed silent.
+      // it (`packages/tex/worker/inbox.ts`), or nothing beside it when Tex stayed silent.
       const react = typeof answered.body.react === "string" && answered.body.react !== "" ? answered.body.react : null;
       const sent = answer !== "" ? [event({ from: { kind: "tex" }, text: answer, turn, covers: [theirs.id], delivered: true })] : react !== null ? [event({ from: { kind: "tex" }, kind: "reaction", text: react, turn, covers: [theirs.id], delivered: true })] : [];
       const flushed = await request(world.env, TOKEN_TEXTS, "/agent/events", { conversation: "texts", events: [theirs, ...sent] });
@@ -131,7 +131,7 @@ export async function oneToOne() {
     },
     /**
      * A run the Worker starts by code with no text of theirs (`queueByCode`): a cross-chat ask or answer
-     * (`apps/agent/src/crossChat.ts`), its `body` as the Worker adds it. Nothing is covered, and nothing is flushed: the case reads what the run was shown and answered.
+     * (`packages/tex/worker/crossChat.ts`), its `body` as the Worker adds it. Nothing is covered, and nothing is flushed: the case reads what the run was shown and answered.
      */
     async byCode(question, reply, body) {
       clock += 60_000;
@@ -184,7 +184,7 @@ export async function oneToOne() {
     },
     /**
      * The text a check-in (or another text Tex sent on its own) reached them as, which the Worker records in the chat's
-     * ledger with the run's `turn` and its `source` (`apps/agent/src/texSends.ts`): posted as the Worker's own flush does.
+     * ledger with the run's `turn` and its `source` (`packages/tex/worker/texSends.ts`): posted as the Worker's own flush does.
      */
     /** The chat's clock at the real time now, so a note the gateway writes now and the Worker's text beside it agree on when. */
     atNow() {

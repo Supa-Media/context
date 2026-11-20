@@ -6,7 +6,7 @@
  * Until now a bench turn that started a background job recorded the start and ran nothing (`world.mjs`: "nothing runs
  * them here"), so a test whose ask was the work could pass only by a turn doing it all before it answered: a handoff
  * the person would have had the result of minutes later read as a promise. Production's texting Worker runs the job
- * part after part in its own Durable Object (`apps/agent/src/jobRun.ts`), with the job check after each part, and then
+ * part after part in its own Durable Object (`packages/tex/worker/jobRun.ts`), with the job check after each part, and then
  * queues the report as a turn of the chat (`jobTexts.ts` `jobUpdate`), which texts the result (`jobReport.js`).
  *
  * Here, after the test's texts: each job its turns started (the first `MAX_DELIVERED_JOBS`) runs as the Worker runs it,

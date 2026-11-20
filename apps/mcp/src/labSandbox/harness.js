@@ -159,7 +159,7 @@ export function sandboxGate(stub, about, rowId, { config = null, arrivedAt = Dat
 }
 
 /**
- * The `/agent` body a real text would send (`apps/agent/src/clients.ts` `askAgent` for a 1:1, `groupModelTurn.ts` for a
+ * The `/agent` body a real text would send (`packages/tex/worker/clients.ts` `askAgent` for a 1:1, `groupModelTurn.ts` for a
  * group): the question, or `ask` (`inbound.js` `askOf`: a reply's `quoted`/`replied`, a tapback's `tapback`), the
  * pictures as `attachments`, a 1:1's noted tapbacks as `reacted`, and a group's chat lines (`chat`, each `{ who, text }`;
  * the rows' people when not given).

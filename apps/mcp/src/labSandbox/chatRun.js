@@ -3,7 +3,7 @@
  * through the "A text arrives" node end to end, but it looks like it skipped straight to front door"; decision
  * `docs/decisions/texting-assistant/lab-sandbox.md`).
  *
- * A test text is handed to the texting Worker's own chat object (`apps/agent/src/chatObject.ts` `SenderInbox`, the
+ * A test text is handed to the texting Worker's own chat object (`packages/tex/worker/chatObject.ts` `SenderInbox`, the
  * same class the gateway's TexChat runs), exactly as a real text is: its route takes it in (node `text`), asks Old
  * number? (`oldLine`), queues it, and its alarm runs Triage, Decide and the queue (`lanes`) before it asks the
  * gateway's `/agent` for the turn and sends what comes back. Nothing in that path is copied or skipped here; what
@@ -326,7 +326,7 @@ export function chatEnvFor({ gate, storage, about, chat, phones, line, token, ag
   };
   return {
     FETCH: fetchOut,
-    // The draft's wiring, for what the chat object reads itself (a Provisional run, `apps/agent/src/provisional.ts`).
+    // The draft's wiring, for what the chat object reads itself (a Provisional run, `packages/tex/worker/provisional.ts`).
     ...(gate.config ? { TEX_GRAPH: withDraft(TEX_CONFIG, gate.config) } : {}),
     GATEWAY_ORIGIN: LAB_GATEWAY,
     GATEWAY_TEXTS: { fetch: (input, init) => texts(new Request(input, init)) },
@@ -507,7 +507,7 @@ export async function runChatTurn({ env, stub, about, row, payload, token, confi
     // The chat's session is this text's own token, whoever answers the other routes.
     const linked = { status: "linked", accessToken: labToken, ...(about.timeZone ? { timeZone: about.timeZone } : {}), ...(payload?.defaultWorkspaceId ? { personalWorkspaceId: payload.defaultWorkspaceId } : {}) };
     const texts = (request) => (new URL(request.url).pathname === "/texts/session" ? Response.json(linked) : routes(request));
-    const { SenderInbox, remoteLine, remoteGroupLine, setChatBound } = await import("../../../agent/src/gatewayChat.js");
+    const { SenderInbox, remoteLine, remoteGroupLine, setChatBound } = await import("../../../../packages/tex/worker/gatewayChat.js");
     const inboxName = about.kind === "group" ? `group:${address.groupId}` : address.phones.values().next().value ?? "lab";
     const chatLine = { line: (chatId) => remoteLine(kept.rpc, inboxName, chatId), groupLine: (groupId) => remoteGroupLine(kept.rpc, inboxName, groupId) };
     const work = [];

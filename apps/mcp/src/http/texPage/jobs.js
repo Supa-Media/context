@@ -1,7 +1,7 @@
 /**
  * A chat's background jobs, for its Tex page: read from the chat's inbox in
  * the texting Worker over the `TEXTING` binding (`TexRoutines.pageJobs`,
- * `apps/agent/src/texPage.ts`), and shaped as the page shows them. Used by the
+ * `packages/tex/worker/texPage.ts`), and shaped as the page shows them. Used by the
  * page's routes and by the chat's Tex object while a page is open
  * (`texStore/pageLive.js`), so both say the same thing.
  *
@@ -9,7 +9,7 @@
  * target, never a note's text).
  */
 
-/** How many jobs run at once (`MAX_RUNNING_JOBS`, `apps/agent/src/jobs.ts`): the page's minion slots. */
+/** How many jobs run at once (`MAX_RUNNING_JOBS`, `packages/tex/worker/jobs.ts`): the page's minion slots. */
 export const SLOTS = 3;
 /** The finished jobs the overview shows under "Earlier today". */
 export const EARLIER_SHOWN = 2;
@@ -106,7 +106,7 @@ const MACHINE_SLOTS = 8;
 /**
  * Which slot each live job holds, numbered from 1 in the place it runs: Tex's
  * cloud's three, or each computer's own (a job on a computer never takes a
- * cloud slot: `apps/agent/src/jobs.ts`), numbered oldest first, as they were
+ * cloud slot: `packages/tex/worker/jobs.ts`), numbered oldest first, as they were
  * started. When a place has more live jobs than slots, running ones get them
  * before ones waiting on the person: Tex counts only running jobs against its
  * limit (`fits`), so a waiting one must never hide a job that is running.

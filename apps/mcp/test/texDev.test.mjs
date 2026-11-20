@@ -142,6 +142,20 @@ test("check and promote use the runner's and Promote's own checks", async () => 
   assert.ok(!plane.calls.some((c) => c.action === "promote"), "a draft that would be refused is not asked for");
 });
 
+test("a step that is off may be deleted (Promote retires it to the shelf, its code kept); one that is on may not", () => {
+  const off = TEX_CONFIG.nodes.find((n) => n.on === false);
+  assert.ok(off, "main has a step that is off");
+  const g = mainGraph();
+  g.nodes = g.nodes.filter((n) => n.id !== off.id);
+  g.edges = g.edges.filter((e) => e.from !== off.id && e.to !== off.id);
+  assert.deepEqual(draftProblems(g), []);
+  const on = TEX_CONFIG.nodes.find((n) => n.on === true);
+  const h = mainGraph();
+  h.nodes = h.nodes.filter((n) => n.id !== on.id);
+  h.edges = h.edges.filter((e) => e.from !== on.id && e.to !== on.id);
+  assert.ok(draftProblems(h).some((p) => p.includes(`step "${on.id}" is gone while it is on`)));
+});
+
 test("a step main added after a draft was made is not one the draft deleted", async () => {
   const g = mainGraph();
   const gone = TEX_CONFIG.nodes[1].id;

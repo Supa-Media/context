@@ -5,7 +5,7 @@
  * on the team, and at least one said yes (`apps/convex/functions/lib/texLabShared.ts`). No turn was told, so Tex told
  * a chat that had been shared for a day that "Dev2 can't see this chat", and then made up who could say yes. The
  * control plane now names the state on every group turn (`devShareOf` there), the Worker passes it on as handles only
- * (`apps/agent/src/groupControl.ts`), and the front door is told it when its `ctx` reads the `devShare` module.
+ * (`packages/tex/worker/groupControl.ts`), and the front door is told it when its `ctx` reads the `devShare` module.
  *
  * It names who said yes and who hasn't, never a rule: what keeps a chat out is what the control plane counted.
  */

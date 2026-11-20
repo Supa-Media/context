@@ -14,9 +14,9 @@ import { architectureFor } from "../src/agent/texArchitecture.js";
 // Dev2, 2026-11-08: "One capability list everywhere", and "how are we making sure these capabilities lists are updated as we build?"
 // Every action, chat command and group command word is on a line, or this fails (`capabilities.js`).
 
-/** The group command words the texting Worker answers by code (`apps/agent/src/groupWords.ts`, its `Command` type). */
+/** The group command words the texting Worker answers by code (`packages/tex/worker/groupWords.ts`, its `Command` type). */
 function groupWordKinds() {
-  const source = readFileSync(new URL("../../agent/src/groupWords.ts", import.meta.url), "utf8");
+  const source = readFileSync(new URL("../../../packages/tex/worker/groupWords.ts", import.meta.url), "utf8");
   const block = source.slice(source.indexOf("export type Command ="), source.indexOf(";\n", source.indexOf("export type Command =")));
   return [...block.matchAll(/kind: "([a-z_]+)"/g)].map((match) => match[1]);
 }

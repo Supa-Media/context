@@ -14,7 +14,7 @@ took 50 to 95 seconds around a 3-second model.
 
 Now each answer to a person's own text carries `warm`: what that turn read,
 sealed by the gateway (`apps/mcp/src/agent/warmCopy.js`). The sender's
-Durable Object keeps it (`apps/agent/src/warm.ts`) and sends it back with the
+Durable Object keeps it (`packages/tex/worker/warm.ts`) and sends it back with the
 next text, beside the chat's newest events (`recent`, the same events it
 posts to `/agent/events`). A turn with a copy it can open reads none of that
 from storage; one without reads as before and starts one.
@@ -89,7 +89,7 @@ calls, about 400 of them reading the chat's log one event file at a time,
 and the reply took 46 s with 3 s in the model.
 
 - Every event of a one-to-one chat already passes through the sender's
-  object (`apps/agent/src/events.ts`), and only it writes the bucket's log
+  object (`packages/tex/worker/events.ts`), and only it writes the bucket's log
   (`POST /agent/events`). It now keeps as much as the gateway reads (400
   events, 120,000 characters, a day), and decide is still shown only its own
   24,000 characters (`TRANSCRIPT_CHARS`).
@@ -111,7 +111,7 @@ and the reply took 46 s with 3 s in the model.
   connections and the reply's own last reads queued behind it: 10 s.
 
 Tests: `apps/mcp/test/agentWarmCopy.test.mjs`, `apps/mcp/test/agentHeldLog.test.mjs`,
-`apps/agent/src/warm.test.ts`, `apps/agent/src/heldLog.test.ts`.
+`packages/tex/worker/warm.test.ts`, `packages/tex/worker/heldLog.test.ts`.
 
 ## Served stale while read again (2026-11-04)
 

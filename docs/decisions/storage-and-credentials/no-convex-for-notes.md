@@ -18,7 +18,7 @@ the control plane:
 This covers the row lookup (writes and reads), note-id resolve, facts, writer names, `orient`'s survey, the agent
 listing and the name guards' children. An AI client gets "this workspace is busy right now; try again in a few
 seconds". A route gets a 503 `workspace_busy` with `Retry-After: 5`, which Tex's jobs already read past
-(`apps/agent/src/machineTurn.ts` `passing`). The reason stays in the gateway's logs.
+(`packages/tex/worker/machineTurn.ts` `passing`). The reason stays in the gateway's logs.
 
 Behind still never serves the object's older rows. A share just taken back is not listed. The reader is asked to try
 again, and is not given another store's answer.

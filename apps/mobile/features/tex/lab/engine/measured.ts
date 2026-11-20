@@ -102,7 +102,7 @@ const isNodeRun = (e: LedgerEntry) => e.kind === "step" && e.step === "node" && 
 const ownMs = (e: LedgerEntry) => num(e.own) ?? num(e.ms) ?? 0;
 
 /**
- * The texting Worker's delivery of the turn's reply to the chat's service (`apps/agent/src/stepEvents.ts`
+ * The texting Worker's delivery of the turn's reply to the chat's service (`packages/tex/worker/stepEvents.ts`
  * `deliveryStep`): Text them's own work happens there, after the gateway's answer, so its time is the gateway's send
  * node plus this.
  */

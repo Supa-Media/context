@@ -18,7 +18,7 @@ edit or an unsend to `/edit`. It hands them to the gateway's `TexChat` object `c
 texting Worker's `SenderInbox` exactly as every Photon chat in the gateway does (`texChat.js`). From there nothing is
 new: node `text` (or `edit`), the queue, `/agent` with the texts client's session, the front door and everything the
 config graph and a promoted Lab draft wire, the tools, the egress gate, `sendTheReply.js`. What Tex sends goes out
-over the **app line** (`apps/agent/src/appChat.ts` `appLine`), which texts nobody: the chat object logs each Tex text,
+over the **app line** (`packages/tex/worker/appChat.ts` `appLine`), which texts nobody: the chat object logs each Tex text,
 picture and tapback as an event, as it does for Photon, and the app reads them back. A "simplification" that calls
 `/agent` straight from the route would skip the queue, the arrival steps, the edit node and the chat's own state, and
 the app would answer differently from the texts; `test/appChat.test.mjs` fails if the route stops posting to the chat
@@ -31,7 +31,7 @@ marked `via: "app"`, plus the chat object's unflushed outbox, merged by event id
 mark would show the person's iMessage thread inside the app, which Dev2 rejected on the mockup.
 
 **Pictures** are kept in the app chat's own object, by a random id, in pieces under a Durable Object's 2 MB value cap
-(`apps/agent/src/appPictures.ts`), JPEG, PNG, GIF or WebP only, the kind read from the bytes. The app shrinks a
+(`packages/tex/worker/appPictures.ts`), JPEG, PNG, GIF or WebP only, the kind read from the bytes. The app shrinks a
 picture before it goes. A turn reads one at `https://app-chat.invalid/pic/<id>`, a name no network resolves, which
 only that chat object's own fetch answers (`texChat.js` `chatEnv` `FETCH`); Tex's own pictures are kept the same way
 by the app line, and their address is the picture event's text. The app reads a picture through `op: "picture"`, as

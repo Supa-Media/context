@@ -106,7 +106,9 @@ describe("every canvas step logs what went in and what came out", () => {
     expect(nodeOfStep("timing")).toBeNull();
     // A turn logged before the Door was one step lands on it.
     expect(nodeOfStep("door")).toBe("doorStep");
-    expect(nodeOfStep("checks")).toBe("checks");
+    // A step retired from the config (2026-11-20) lands on the step it was folded into.
+    expect(nodeOfStep("checks")).toBe("answerCheck");
+    expect(nodeOfStep("reflect")).toBe("learn");
   });
 
   // The other way (Dev2, 2026-11-14: "Everything that's running should have a node"): every step the gateway writes to a
@@ -115,7 +117,7 @@ describe("every canvas step logs what went in and what came out", () => {
   test("every step name the gateway or the Worker logs lands on a canvas step", () => {
     const ledger = readFileSync(join(__dirname, "../../mcp/src/agent/ledger.js"), "utf8");
     const names = JSON.parse(/export const STEP_NAMES = new Set\((\[[^\]]*\])\)/.exec(ledger)![1]) as string[];
-    const worker = readFileSync(join(__dirname, "../../agent/src/stepEvents.ts"), "utf8");
+    const worker = readFileSync(join(__dirname, "../../../packages/tex/worker/stepEvents.ts"), "utf8");
     for (const m of worker.matchAll(/name: "([a-z]+)"/g)) names.push(m[1]);
     const nowhere = [...new Set(names)].filter((name) => name !== "timing" && name !== "node" && nodeOfStep(name) === null);
     expect(nowhere).toEqual([]);

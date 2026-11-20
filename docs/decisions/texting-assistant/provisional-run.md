@@ -30,7 +30,7 @@ run has marked itself running).
 - The turn's answer waits for the go (`provisional_wait`); none within a minute is a stop. Only the Worker sends, and it
   never sends a stopped run's answer.
 
-**What the texting Worker does (`apps/agent/src/provisional.ts`, `groupTurnRun.ts` `startEarly`).** In a group, once
+**What the texting Worker does (`packages/tex/worker/provisional.ts`, `groupTurnRun.ts` `startEarly`).** In a group, once
 the config wires the Door step as a Provisional run, a burst's asker's messages start their turn at once, beside
 Decide (answered first, or in memory where there is no workflow). Decide's choice is the verdict: exactly the messages
 it started on is the go; quiet, a wait, or any other set stops it, and the drain carries on with that choice as before,
@@ -44,12 +44,12 @@ and how long the run had gone. The wiring comes from the config the Worker was b
 
 **`firstLook` and `sms` cannot be dropped.** They are privacy, and they live in editable config, so a Lab Promote or a hand edit could take one off and no later check would notice. `configProblems` (CI, `scripts/tex-config-readers.mjs`), Promote (`scripts/tex-lab-promote.mjs` `configFrom`) and the Lab / `tex_dev` check (`draftProblems`, on the answer to a save and before Promote asks) refuse a provisional wire whose `unless` omits either. The error names the wire and the missing hold, and the refusal is logged (`provisional_hold_refused`). The promote workflow prints that log and sends the Lab only the sentence. `unpaired` may be absent. The runner is unchanged: a config that already keeps both holds runs as before, and `provisionalHeld` still reads a wire as written. A migration that put the holds back would hide the drop, so an old draft that never had them is refused until someone adds them, not rewritten. A simplification that removes the check lets a Promote or a hand edit start the door on a first look or an SMS. Tests: `apps/mcp/test/texProvisionalHolds.test.mjs`, the self-test in `scripts/tex-config-readers.mjs`, and the self-test in `scripts/tex-lab-promote.mjs`.
 
-**What a simplification would cost.** Putting that gate back in `groupInbox.ts` makes the Lab start the door early for a first look, an SMS, or a one-path worker, which is the drift this removes. `apps/agent/src/groupProvisional.test.ts` ("the early start is the wires' unless") and `apps/mobile/__tests__/texLabProvisional.test.ts` ("a first look, an SMS or an unpaired worker does not start the door early") fail if it is reversed.
+**What a simplification would cost.** Putting that gate back in `groupInbox.ts` makes the Lab start the door early for a first look, an SMS, or a one-path worker, which is the drift this removes. `packages/tex/worker/groupProvisional.test.ts` ("the early start is the wires' unless") and `apps/mobile/__tests__/texLabProvisional.test.ts` ("a first look, an SMS or an unpaired worker does not start the door early") fail if it is reversed.
 
 **What a simplification would cost.** Running writes before the go without the undo leaves a note changed by a turn
 that was never meant to answer; dropping the end-of-turn wait answers before Decide said so. Both are caught by
 `apps/mcp/test/agentProvisional.test.mjs` (its header lists the sabotage each test catches), the Worker's
-`apps/agent/src/groupProvisional.test.ts`, and the Lab's `texLabProvisional.test.ts`.
+`packages/tex/worker/groupProvisional.test.ts`, and the Lab's `texLabProvisional.test.ts`.
 
 **Door beside Front door (Dev2, 2026-11-17).** On a Provisional run the cap check (`allowed`, the control plane's
 daily-limit answer) runs beside the model instead of before it, as on a lean chat: nothing a provisional run says or

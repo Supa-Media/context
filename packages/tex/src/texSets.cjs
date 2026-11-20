@@ -31,7 +31,7 @@ const KINDS = Object.freeze(["react", "reply", "edit", "delete"]);
 /** The inputs that start a turn with no text, and the name their rows go by. */
 const TRIGGERS = Object.freeze({ checkin: "Check-in", routine: "Routine", notify: "Send through Tex", job: "Background job" });
 /**
- * A job row's `state`, as the texting Worker reports a job to the chat's turn (`apps/agent/src/jobTexts.ts`): its
+ * A job row's `state`, as the texting Worker reports a job to the chat's turn (`packages/tex/worker/jobTexts.ts`): its
  * result (done), an update on its way (running), or its end otherwise. Absent is done.
  */
 const JOB_STATES = Object.freeze(["done", "running", "failed", "waiting", "stuck"]);

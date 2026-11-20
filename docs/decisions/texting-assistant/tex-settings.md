@@ -34,7 +34,7 @@ Absent means default, and only changed settings are stored.
   writes and never what it may do. This follows how ChatGPT applies its
   presets: as instructions in the prompt, not a different model.
 - Bubbles: one makes the Worker send the answer as one text, links still on
-  their own (`apps/agent/src/format.ts`).
+  their own (`packages/tex/worker/format.ts`).
 - Emoji: less also leaves off the quick acknowledgement tapback.
 - Emoji: more is not yet passed to decide; reactions are chosen as before.
 

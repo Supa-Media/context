@@ -352,7 +352,7 @@ test("after a turn, only 'fix this' or frustration reviews at once", async () =>
 });
 
 test("a texted yes files the history Tex keeps once, past the mark, without moving it", async () => {
-  // Dev2, 2026-10-29: "share my chats with the devs" (`apps/agent/src/reviewSharing.ts`).
+  // Dev2, 2026-10-29: "share my chats with the devs" (`packages/tex/worker/reviewSharing.ts`).
   const store = memoryStore();
   let history = await texted(store, ["find my avocado note", "Here it is."]);
   const scored = road(JSON.stringify({ scores: SCORES }));
