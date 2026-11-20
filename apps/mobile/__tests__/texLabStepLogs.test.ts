@@ -115,7 +115,7 @@ describe("every canvas step logs what went in and what came out", () => {
   test("every step name the gateway or the Worker logs lands on a canvas step", () => {
     const ledger = readFileSync(join(__dirname, "../../mcp/src/agent/ledger.js"), "utf8");
     const names = JSON.parse(/export const STEP_NAMES = new Set\((\[[^\]]*\])\)/.exec(ledger)![1]) as string[];
-    const worker = readFileSync(join(__dirname, "../../agent/src/stepEvents.ts"), "utf8");
+    const worker = readFileSync(join(__dirname, "../../../packages/tex/worker/stepEvents.ts"), "utf8");
     for (const m of worker.matchAll(/name: "([a-z]+)"/g)) names.push(m[1]);
     const nowhere = [...new Set(names)].filter((name) => name !== "timing" && name !== "node" && nodeOfStep(name) === null);
     expect(nowhere).toEqual([]);

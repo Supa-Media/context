@@ -63,7 +63,7 @@ export const EMAIL_WORKER_SECRET_ENV_VAR = "EMAIL_WORKER_SECRET";
  * grant for whoever linked a phone number, with no human in the loop. That is
  * what lets a text be answered, and it is why the number the Worker passes is
  * only trusted after Linq's signature and an iMessage-only check
- * (`apps/agent/src/inbound.ts`). It opens `/agent-texts/*` and nothing else, and
+ * (`packages/tex/worker/inbound.ts`). It opens `/agent-texts/*` and nothing else, and
  * neither of the other two secrets opens those.
  */
 export const AGENT_WORKER_SECRET_ENV_VAR = "AGENT_WORKER_SECRET";

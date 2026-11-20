@@ -31,7 +31,7 @@ const PREVIEW_PERSONAL = [
   { persona: "gamma", slug: "gamma", name: "Gamma Ellis" },
 ] as const;
 
-/** The simulator's numbers (`apps/agent/src/simulator.ts`): +1 212 555 01XX, never a real line. */
+/** The simulator's numbers (`packages/tex/worker/simulator.ts`): +1 212 555 01XX, never a real line. */
 export const PREVIEW_PHONES = {
   alpha: "+12125550101",
   beta: "+12125550102",

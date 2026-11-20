@@ -6,7 +6,7 @@
  * - From a 1:1, only to a group of theirs (the tool resolved it from their own list); from a group, only to the
  *   personal Tex of whoever tagged it. Never group to group, never from a guest.
  * - One open ask per pair of chats; 10 an hour and 40 a day per chat. The counts are the asking chat's own, from the
- *   texting Worker that keeps its asks (`apps/agent/src/crossChat.ts`).
+ *   texting Worker that keeps its asks (`packages/tex/worker/crossChat.ts`).
  * - A run started by an ask never reaches here: it has no `ask_chat` (one hop).
  *
  * No model and no reads: pure code over what it is handed, logged like every node. Output `to`: "ask" with the ask the

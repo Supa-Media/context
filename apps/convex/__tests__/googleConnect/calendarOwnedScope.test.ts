@@ -207,7 +207,7 @@ function sources(dir: string): string[] {
 
 describe("the owned pair is enough because every call is on the primary calendar", () => {
   const repo = join(__dirname, "../../../..");
-  const shipped = [join(repo, "apps/convex/functions"), join(repo, "apps/mcp/src"), join(repo, "apps/agent/src")].flatMap(sources);
+  const shipped = [join(repo, "apps/convex/functions"), join(repo, "apps/mcp/src"), join(repo, "packages/tex/worker")].flatMap(sources);
 
   test("every Calendar request is to the primary calendar, or stops a push channel", () => {
     const urls = shipped.flatMap((path) =>

@@ -6,7 +6,7 @@ that failed was found only by tailing logs.
 **What moved.** The chat's Durable Object still accepts messages, asks
 decide, chooses the turn and runs it: a turn reads and writes that object's
 storage throughout, and a message that lands meanwhile is steered into it
-there. What moved to a Workflow (`apps/agent/src/groupTurnWorkflow.ts`, one
+there. What moved to a Workflow (`packages/tex/worker/groupTurnWorkflow.ts`, one
 instance per turn, named by the turn's id) is the retrying. The workflow asks
 the object to answer the turn; when that throws it retries three more times,
 from ten seconds with exponential backoff; after the last it asks the object
@@ -59,7 +59,7 @@ The turn used to be answered inside the chat's object when its workflow could no
 
 ## Background jobs on Workflows (Dev2, 2026-10-28)
 
-A background job (`apps/agent/src/jobRun.ts`) is seen through by its own
+A background job (`packages/tex/worker/jobRun.ts`) is seen through by its own
 Workflow instance, `JobRunWorkflow` (`jobWorkflow.ts`, binding `JOB_RUN`),
 named `job-<job id>`, so starting the same job twice runs it once. The job's
 object keeps the job's state and runs each pass; a pass no longer sets the

@@ -6,7 +6,7 @@
  * they texted "done" ("after adding the email and password Tex should know
  * that i'm done adding"). So a turn that minted a link to save something says
  * so in its answer (`vaultWatch`), the texting Worker watches the control
- * plane for that save (`apps/agent/src/vaultWatch.ts`), and once it lands it
+ * plane for that save (`packages/tex/worker/vaultWatch.ts`), and once it lands it
  * asks for a turn with `event: "vault_saved"` and no text of theirs.
  *
  * That turn's question is this module's fixed line, never anything the

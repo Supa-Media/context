@@ -72,7 +72,7 @@ still refused with the line to fix. Undoing it fails
 
 **One picture, then the link (owner, 2026-10-27: "Cover picture + link").**
 The cover replaces the link's name card rather than joining it: a job's
-answer carries its pictures to the chat (`apps/agent/src/jobTexts.ts`), they
+answer carries its pictures to the chat (`packages/tex/worker/jobTexts.ts`), they
 go first, and once one went a bare note link is texted inside a sentence, so
 no name card is drawn for it. A cover that would not send is skipped and the
 link gets its name card as before. A job update holds at most two pictures
@@ -118,7 +118,7 @@ Markdown. Tests: `apps/mobile/__tests__/pageNative.test.ts`.
 `infra/router/src/pageFrame.test.ts` (only the runtime's files, never the
 console, box framable); `apps/mcp/test/pages.test.mjs` (write refusal, guide,
 job line, cover) and `apps/mcp/test/pagesFormat.test.mjs` (escaping, link
-schemes, typed punctuation); `apps/agent/src/jobCovers.test.ts` (cover
+schemes, typed punctuation); `packages/tex/worker/jobCovers.test.ts` (cover
 first, no name card after it, a retry repeats nothing, a failed cover keeps
 the card).
 

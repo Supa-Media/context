@@ -1,7 +1,7 @@
 /**
  * THE JOB NODE: one pass of a background job (`texConfig.json` "job"), run on the gateway's runner. The job's object
  * (`apps/mcp/src/texJob.js`) runs it for each `/job-pass` or `/job-failed` the workflow sends; the pass itself is the
- * texting Worker's `runJob` / `failJob` (`apps/agent/src/jobRun.ts`), reached through `io.ctx.job.call`.
+ * texting Worker's `runJob` / `failJob` (`packages/tex/worker/jobRun.ts`), reached through `io.ctx.job.call`.
  *
  * While the pass runs, this node's io is lent under the job's id (`jobHandles.js`), so Job check, the Hand-back judge
  * and the Advisor on job mail are reached through this node's wires. The lend is always returned, even when the pass

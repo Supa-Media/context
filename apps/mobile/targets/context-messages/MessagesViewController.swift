@@ -2,7 +2,7 @@ import Messages
 import UIKit
 import WebKit
 
-/// The Context cards in Messages (apps/agent/src/appCards.ts, pickCard.ts).
+/// The Context cards in Messages (packages/tex/worker/appCards.ts, pickCard.ts).
 ///
 /// A note card carries the note's link: tapping it opens the note. A pick
 /// card follows a set of option cards Tex texted and carries the options in
@@ -10,7 +10,7 @@ import WebKit
 /// and choosing one sends the card back with `&c=<number>`, which reaches Tex
 /// as "I pick 2: …". An ask card (`/tex/ask?k=…`) sits under something Tex
 /// would send for them: Yes or Not now sends it back with `&c=1` or `&c=2`,
-/// read as "yes" or "no" (apps/agent/src/cardChats.ts). Opened from the app
+/// read as "yes" or "no" (packages/tex/worker/cardChats.ts). Opened from the app
 /// drawer with no card, it offers to tell Tex this phone has the app
 /// (`/tex/hello`), after which Tex sends cards to tap. Only links on
 /// context.lc are opened or read; anything else in a card's URL is ignored.

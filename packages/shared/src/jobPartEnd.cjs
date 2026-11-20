@@ -3,7 +3,7 @@
  *
  * A job runs in parts. Until now the choice after each part (start the next one, send the last draft, or end and
  * say how) and the limits behind it (10 parts, 30 minutes; 96 parts and 4 hours on the person's own computer) were
- * code inside the texting Worker's `runJob` (`apps/agent/src/jobRun.ts`). The timecards job showed what that costs:
+ * code inside the texting Worker's `runJob` (`packages/tex/worker/jobRun.ts`). The timecards job showed what that costs:
  * every part died the same way and the next one was started anyway, ten times, and the answer was never sent. Here the
  * choice is one pure function, the Part end node's code (`apps/mcp/src/agent/graph/nodes/partEnd.js`), and the limits
  * are that node's config (`limits`), so the Lab shows, tests and changes both.
@@ -14,7 +14,7 @@
 /** The limits a job's parts run under when the config names none: today's numbers, so wiring this changes nothing. */
 const DEFAULT_LIMITS = Object.freeze({ parts: 10, minutes: 30, machineParts: 96, machineMinutes: 240, resumeAfterMinutes: 2, staleParts: 0 });
 
-/** Why a part ended (`apps/agent/src/jobProgress.ts` `PartCause`). */
+/** Why a part ended (`packages/tex/worker/jobProgress.ts` `PartCause`). */
 const CAUSES = Object.freeze(["done", "waiting", "stuck", "check_limit", "timeout", "crash", "model_down", "steps_out", "unfinished", "changed", "stopped", "refused"]);
 
 /** Causes that would end the next part the same way: running it again only burns a part, so the last draft goes. */
@@ -79,7 +79,7 @@ function roomLeft({ part, startedAt, now, machine }, limits) {
  *
  * A part refused at today's limit pauses the job: it ends waiting with `resumeAt`, just after the limit resets
  * (counted per UTC day, `apps/convex/functions/lib/jev/meter.ts` `utcDay`), and starts again by itself then
- * (`apps/agent/src/jobPause.ts`); `resumeAfterMinutes` is how long after the reset.
+ * (`packages/tex/worker/jobPause.ts`); `resumeAfterMinutes` is how long after the reset.
  */
 function decidePartEnd(input, config) {
   const limits = limitsOf(config);

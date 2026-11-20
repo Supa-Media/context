@@ -9,7 +9,7 @@
  *
  * The control plane now sends each account's name beside its handle
  * (`apps/convex/functions/lib/textGroupAccounts.ts` `chatPerson`), the Worker
- * passes it on (`apps/agent/src/groupModelTurn.ts`), and the turn is told who
+ * passes it on (`packages/tex/worker/groupModelTurn.ts`), and the turn is told who
  * is who here. A name is a person's own text: it is kept to letters, spaces and
  * the marks names use, on one short line, so it can't carry an instruction.
  */
@@ -48,7 +48,7 @@ export function namesOf(raw, handles) {
 
 /** A guest's label as the control plane makes one (`apps/convex/functions/lib/textGroupGuests.ts` `guestLabel`). */
 const GUEST = /^guest-[0-9a-f]{4}$/;
-/** Most people in a chat Tex answers in (`apps/agent/src/sendblueGroups.ts` `MAX_GROUP_LIST`). */
+/** Most people in a chat Tex answers in (`packages/tex/worker/sendblueGroups.ts` `MAX_GROUP_LIST`). */
 const MAX_SIZE = 64;
 
 /** The labels of the people here with no linked account, from the Worker's body: labels only, each once. */
@@ -63,7 +63,7 @@ export function sizeOf(raw, named) {
   return Math.max(raw, named);
 }
 
-/** A phone number as Sendblue sends one (`apps/agent/src/sendblue.ts` `E164`). */
+/** A phone number as Sendblue sends one (`packages/tex/worker/sendblue.ts` `E164`). */
 const PHONE = /^\+[1-9]\d{6,14}$/;
 
 /**

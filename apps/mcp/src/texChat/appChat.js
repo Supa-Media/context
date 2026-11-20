@@ -2,7 +2,7 @@
  * The app chat's parts of `TexChat` (`apps/mcp/src/texChat.js`): a chat born in the gateway, never copied in from the
  * texting Worker, and the two calls the gateway's `/tex/app-chat` route makes on it (`agent/appChatRoute.js`).
  *
- * An app chat's name is `app:<userId>` (`apps/agent/src/appChat.ts`). Its object is placed here at its first call, with
+ * An app chat's name is `app:<userId>` (`packages/tex/worker/appChat.ts`). Its object is placed here at its first call, with
  * no Worker object to move from: the copy `texChat.js` makes for a phone's chat would find nothing to copy. Its line is
  * `appLine`, which texts nobody, so the reply is kept only as the chat object's events, and the page reads them from the
  * ledger and from `GET /app/outbox` (events not yet written to the ledger).
@@ -11,13 +11,13 @@
  * send are never kept here beyond the chat object's own outbox.
  */
 
-/** Where the Worker's copy of a chat says it is placed (`apps/agent/src/inboxMove.ts` `PLACE_KEY`). */
+/** Where the Worker's copy of a chat says it is placed (`packages/tex/worker/inboxMove.ts` `PLACE_KEY`). */
 export const PLACE_KEY = "__inbox_place";
 /** The name the chat object keeps for itself (`texChat.js`, set by a copy or by this placement). */
 export const NAME_KEY = "__inbox_name";
 /** The Worker's object id the chat had there, for addresses its pictures and pages are served at: none for an app chat. */
 export const SENDER_ID_KEY = "__sender_id";
-/** The chat object's outbox: its kept events are stored under this prefix (`apps/agent/src/events.ts`). */
+/** The chat object's outbox: its kept events are stored under this prefix (`packages/tex/worker/events.ts`). */
 const EVENT_PREFIX = "ev:";
 /** The day's sends: `{ day, n }`, the UTC day and how many sends the chat has taken that day. */
 const SENDS_KEY = "app:sends";
@@ -28,9 +28,9 @@ export const APP_DAILY_PICTURES = 60;
 /** The app line's typing mark counts as Tex working for this long after it was set. */
 export const TYPING_MS = 20_000;
 
-/** Whether a chat name is an app chat's, by the one check the Worker's code makes (`apps/agent/src/appChat.ts`). */
+/** Whether a chat name is an app chat's, by the one check the Worker's code makes (`packages/tex/worker/appChat.ts`). */
 export async function isAppChatName(name) {
-  const { isAppChat } = await import("../../../agent/src/gatewayChat.js");
+  const { isAppChat } = await import("../../../../packages/tex/worker/gatewayChat.js");
   return isAppChat(name);
 }
 
@@ -85,9 +85,9 @@ export const MAX_APP_PICTURES = 4;
 /** The kinds of call `/app/arrive` passes on, and the chat object's path for each. */
 const ARRIVE_PATHS = Object.freeze({ one: "/accept", react: "/react", edit: "/edit" });
 
-/** The provider handles the chat object keeps, each with its event id (`apps/agent/src/replyQuote.ts` `HANDLES_KEY`). */
+/** The provider handles the chat object keeps, each with its event id (`packages/tex/worker/replyQuote.ts` `HANDLES_KEY`). */
 async function handlesOf(storage) {
-  const { HANDLES_KEY } = await import("../../../agent/src/gatewayChat.js");
+  const { HANDLES_KEY } = await import("../../../../packages/tex/worker/gatewayChat.js");
   const kept = await storage.get(HANDLES_KEY);
   return Array.isArray(kept) ? kept.filter((entry) => typeof entry?.h === "string" && typeof entry?.ev === "string") : [];
 }
@@ -115,7 +115,7 @@ function bytesOf(data) {
  * at its `app-chat.invalid` address, or null when one is not a picture this chat keeps.
  */
 async function keptPictures(storage, pictures, now) {
-  const { keepAppPicture, readAppPicture } = await import("../../../agent/src/gatewayChat.js");
+  const { keepAppPicture, readAppPicture } = await import("../../../../packages/tex/worker/gatewayChat.js");
   const ids = [];
   const attachments = [];
   for (const [index, data] of pictures.entries()) {
@@ -196,7 +196,7 @@ export async function serveAppArrive(request, { state, open, now = Date.now }) {
   }
   // An unsent text's pictures are deleted, not only hidden (`forget`: the ids the route found on that text).
   if (ok && body.kind === "edit" && body.message.kind === "unsent" && Array.isArray(body.forget)) {
-    const { forgetAppPicture } = await import("../../../agent/src/gatewayChat.js");
+    const { forgetAppPicture } = await import("../../../../packages/tex/worker/gatewayChat.js");
     for (const id of body.forget) if (typeof id === "string") await forgetAppPicture(state.storage, id);
   }
   console.log(JSON.stringify({ event: "app_chat_arrive", kind: body.kind, outcome: result, pictures: ids.length }));
@@ -206,7 +206,7 @@ export async function serveAppArrive(request, { state, open, now = Date.now }) {
 /** `GET /app/picture/<id>`: one of this chat's kept pictures, or 404. */
 export async function serveAppPictureById(storage, id) {
   if (!(await isAppChatName(await storage.get(NAME_KEY)))) return new Response(null, { status: 404 });
-  const { readAppPicture } = await import("../../../agent/src/gatewayChat.js");
+  const { readAppPicture } = await import("../../../../packages/tex/worker/gatewayChat.js");
   const kept = await readAppPicture(storage, id);
   if (kept === null) return new Response(null, { status: 404 });
   return new Response(kept.bytes, { headers: { "content-type": kept.mediaType } });
@@ -227,7 +227,7 @@ export async function serveAppOutbox(storage) {
     .filter((item) => item && item.w !== true && item.e && item.e.chat === name && item.e.kind !== "step")
     .map((item) => item.e)
     .sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
-  const { APP_TYPING_KEY } = await import("../../../agent/src/gatewayChat.js");
+  const { APP_TYPING_KEY } = await import("../../../../packages/tex/worker/gatewayChat.js");
   const typingAt = await storage.get(APP_TYPING_KEY);
   const byEvent = async (prefix) => Object.fromEntries([...(await storage.list({ prefix })).entries()].map(([key, value]) => [key.slice(prefix.length), value]));
   const handles = Object.fromEntries((await handlesOf(storage)).map((entry) => [entry.ev, entry.h]));

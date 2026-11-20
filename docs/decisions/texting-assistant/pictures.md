@@ -81,20 +81,20 @@ still there" in `agentPictureMaker.test.mjs`.
 **A made photo is bigger than one stored value (2026-10-19).** Dev's blue
 edit was made and then answered "I couldn't send that picture just now".
 Sendblue fetches a picture by address, so the agent Worker keeps its bytes in
-the sender's Durable Object for half an hour (`apps/agent/src/media.ts`), and
+the sender's Durable Object for half an hour (`packages/tex/worker/media.ts`), and
 a stored value there is capped at 2 MB; the image model's photos run past it.
 The bytes are now kept in pieces under that cap, up to 8 MB in all, and are
 pruned together. Test: "keeps a photo bigger than one stored value" in
-`apps/agent/src/media.test.ts`.
+`packages/tex/worker/media.test.ts`.
 
 **A big photo goes as a JPEG (2026-10-19).** On top of the pieces, the agent
 Worker turns any picture over 1 MB (GIFs aside) into a JPEG at quality 85,
 2048 pixels on its longest edge at most, through the Cloudflare Images
 binding it already has for HEIC, before upload (`shrinkPicture`,
-`apps/agent/src/outgoing.ts`; Dev's call). Under 1 MB a poster stays PNG and
+`packages/tex/worker/outgoing.ts`; Dev's call). Under 1 MB a poster stays PNG and
 sharp. Without the binding, or when Images refuses, the picture goes as it
 was. Test: "sends the shrunk JPEG, not the PNG" in
-`apps/agent/src/outgoing.test.ts`.
+`packages/tex/worker/outgoing.test.ts`.
 
 ## A picture is read on its own turn, whatever model answers (a review of a chat, 2026-10-24)
 

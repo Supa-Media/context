@@ -3,7 +3,7 @@
  * subagent responses to the sandbox chat"; decision `docs/decisions/texting-assistant/lab-sandbox.md`).
  *
  * A turn that starts a job does what production does: the chat object spawns the job's own object (`/job-start`,
- * `apps/agent/src/jobs.ts` `startJobs`), and each pass of it runs through the config graph's job node (`job`,
+ * `packages/tex/worker/jobs.ts` `startJobs`), and each pass of it runs through the config graph's job node (`job`,
  * `graph/nodes/job.js`), exactly as the gateway's `TexJob` runs one (`texJob.js` `pass`): the node calls the texting
  * Worker's `runJob` on the job's object, which asks `/agent` for the job's turn (on the test chat's fences: reads real,
  * writes kept in the test chat) and reports to the chat object (`/job-update`), whose own turn and line text the
@@ -30,7 +30,7 @@ export const MAX_PASSES = 14;
 export const MAX_JOBS = 6;
 /** The longest wait between passes a test chat keeps (a retry's backoff, `jobRun.ts`). */
 const MAX_WAIT_MS = 60_000;
-/** The key the texting Worker keeps a job's run under (`apps/agent/src/jobs.ts` `RUN_KEY`). */
+/** The key the texting Worker keeps a job's run under (`packages/tex/worker/jobs.ts` `RUN_KEY`). */
 const RUN_KEY = "jobrun";
 /** A job's text keeps its running mark fresh at least this often, so a long job is never taken for a dead turn. */
 export const BEAT_MS = 60_000;

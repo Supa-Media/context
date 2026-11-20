@@ -5,7 +5,7 @@ messages as well". Until then Photon's bridge heard iMessage's Edit and Undo Sen
 and dropped them, so Tex kept answering words a person had replaced or taken back.
 
 **One node, "A text is edited or unsent" (`edit`, `texConfig.json`), a start of its own wired to Triage.** The chat
-object's `/edit` (`apps/agent/src/editStep.ts`) finds the text the event changes, by the provider's handle the text
+object's `/edit` (`packages/tex/worker/editStep.ts`) finds the text the event changes, by the provider's handle the text
 came with (`replyQuote.ts` `noteHandle`, kept for 1:1 texts as for a group's) or else the line's own copy of its words
 (Photon's `previousText`), and asks the node on the gateway's graph (`/texts/edit`). The node is pure code and says
 only what happened, never whether it deserves an answer:
@@ -41,5 +41,5 @@ The judge's transcript writes them as the Training conversations do (`events.ts`
 
 **What a simplification would cost.** Folding an edit into the earlier text in place rewrites the record a person
 owns and hides what Tex answered; sending an edit straight to Tex answers every fixed typo; a code rule for which
-edits matter is a fixed behavior rule the examples should teach. Tests: `apps/agent/src/editStep.test.ts`,
+edits matter is a fixed behavior rule the examples should teach. Tests: `packages/tex/worker/editStep.test.ts`,
 `apps/mcp/test/editNode.test.mjs`, `apps/mcp/test/labSandboxEvents.test.mjs`, replay case `edit-and-unsend-shown`.

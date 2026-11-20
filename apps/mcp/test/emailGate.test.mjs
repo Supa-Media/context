@@ -532,9 +532,9 @@ export async function runEmailGateChecks(check) {
     A handle claim is the one ask the deployment switch still makes
     (`src/tools/session.js`), and it holds no email, so it used to be handed
     back as part of the answer rather than as a text of its own. Glued to the
-    end of a long answer the formatter cuts it: `apps/agent/src/format.ts`
+    end of a long answer the formatter cuts it: `packages/tex/worker/format.ts`
     keeps three texts and folds every later paragraph into the third, and
-    `apps/agent/src/clients.ts` sends at most 3,000 characters of each. The
+    `packages/tex/worker/clients.ts` sends at most 3,000 characters of each. The
     record stays armed for twelve hours either way, so a bare "yes" afterwards
     releases a claim the person never read — and a claimed handle is never
     given back.

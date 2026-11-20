@@ -896,7 +896,7 @@ http.route({ path: "/agent-texts/old-line", method: "POST", handler: agentWorker
 // Staff moving chats to the new number one at a time (`functions/texChatMoves.ts`).
 http.route({ path: "/agent-texts/moves", method: "POST", handler: agentWorkerRoute(agentTextMoves.agentTextsMovesHandler) });
 http.route({ path: "/agent-texts/move-report", method: "POST", handler: agentWorkerRoute(agentTextMoves.agentTextsMoveReportHandler) });
-// The picture Tex texts beside a note's link (`apps/agent/src/noteCards.ts`).
+// The picture Tex texts beside a note's link (`packages/tex/worker/noteCards.ts`).
 http.route({ path: "/agent-texts/note-card", method: "POST", handler: agentWorkerRoute(noteCard.agentTextsNoteCardHandler) });
 
 /* Routines and Tex's nightly dreams: what is due now, and how each went (a code, never text). */

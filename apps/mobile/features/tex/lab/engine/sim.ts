@@ -138,7 +138,7 @@ const LOGS_WHEN_RUN = new Set(["doorStep", "bypass", "staff", "answerCheck", "le
  * The tags a scenario's run carries for the wires' `when`. Every moment the Lab runs is a text on Tex's current line, so
  * the old-number step (`oldLine`) passes it on to Triage, and every door step hands the turn on to the next (`next`, the
  * door chain since #3314). Triage sends a lone 1:1 text straight to the Queue (`tex`) and a group's texts to Decide
- * (`judge`), as the texting Worker does (`apps/agent/src/stepEvents.ts` `triageStep`; Dev2, 2026-11-16: the graph
+ * (`judge`), as the texting Worker does (`packages/tex/worker/stepEvents.ts` `triageStep`; Dev2, 2026-11-16: the graph
  * matches the code).
  */
 export function runTags(s: string): string[] {

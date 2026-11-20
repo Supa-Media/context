@@ -250,7 +250,7 @@ export async function converse(world, question, person, mode = null, background 
       break;
     }
     // Each progress line is a text the person got before the answer, as the
-    // texting Worker sends them (`apps/agent/src/inbox.ts`), so it counts as one.
+    // texting Worker sends them (`packages/tex/worker/inbox.ts`), so it counts as one.
     for (const line of turn.progress ?? []) conversation.push({ from: "assistant", text: line });
     // A quiet or stopped turn's line is the judge's marker, silent: the grader never counts it as words (`codeLines.mjs`).
     conversation.push({ from: "assistant", text: saidLine(turn), ...(silentTurn(turn) ? { silent: true } : {}) });

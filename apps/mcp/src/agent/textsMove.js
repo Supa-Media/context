@@ -1,6 +1,6 @@
 /**
  * The words of one chat's move to Tex's new number (node `moveChat`, `texConfig.json`), asked by the texting Worker's
- * chat object over the `TexTexts` binding when staff move that chat (`apps/agent/src/moveChats.ts`). The node runs on
+ * chat object over the `TexTexts` binding when staff move that chat (`packages/tex/worker/moveChats.ts`). The node runs on
  * the gateway's graph, so its input, output and time are logged like every node's; the Worker sends the text itself.
  * The body holds the kind of chat, the new number and an archive day, never a chat's words.
  */

@@ -51,7 +51,7 @@ describe("the list of flags", () => {
     // run. Every `flagOn`, `useFlag`, `flagOnFor`, `peopleWithFlag` and `flagMode` naming a literal id is checked.
     const real = await vi.importActual<typeof import("@context/shared/src/flags.cjs")>("@context/shared/src/flags.cjs");
     const repo = join(__dirname, "../../..");
-    const roots = ["apps/mcp/src", "apps/convex/functions", "apps/mobile/features", "apps/mobile/app", "apps/agent/src", "apps/desktop/src", "infra"];
+    const roots = ["apps/mcp/src", "apps/convex/functions", "apps/mobile/features", "apps/mobile/app", "packages/tex/worker", "apps/desktop/src", "infra"];
     const call = /\b(?:flagOn|useFlag|flagOnFor|peopleWithFlag|flagMode)\s*\(([^)]*)\)/g;
     const literal = /["'`]([a-z0-9-]+\.[a-z0-9-]+)["'`]/;
     const unknown: string[] = [];

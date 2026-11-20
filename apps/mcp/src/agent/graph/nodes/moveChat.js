@@ -4,7 +4,7 @@
  * new number from the console (Platform → Lines), and this words the one text the old line sends that chat.
  *
  * No model and no reads: the texting Worker hands in which kind of chat it is and the new number staff saved
- * (`apps/convex/functions/texOldLine.ts`), and sends the text itself on the chat's old line (`apps/agent/src/moveChats.ts`).
+ * (`apps/convex/functions/texOldLine.ts`), and sends the text itself on the chat's old line (`packages/tex/worker/moveChats.ts`).
  * Output `to`: "person" or "group", with the words in `text`; "skip" when there is no number to give.
  */
 

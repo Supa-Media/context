@@ -123,7 +123,7 @@ test("a question to Cy in Ada's turn means Cy's later yes answers it, not the he
 
 test("a check-in's question in the chat stops the held email listening", async () => {
   await held(TOKEN_CY, "cy");
-  // A chat's check-in runs as an ordinary turn under its writer's tag (`apps/agent/src/groupRoutines.ts`).
+  // A chat's check-in runs as an ordinary turn under its writer's tag (`packages/tex/worker/groupRoutines.ts`).
   world.model.install([{ text: "Jo replied about Thursday. @cy, still on for 7?" }]);
   await tagged(TOKEN_ADA, "(Time for this chat's check-in: look on your own at what is new, in two places only. If nothing needs the chat, answer exactly SKIP.)", "ada");
   assert.deepEqual(await yes(TOKEN_CY, "cy"), { sent: 0, model: true });

@@ -159,7 +159,7 @@ the texting Worker runs one person's due routines one after another so the
 second sees the first; and a new routine's write result names the person's
 other routines so a replaced one is archived. Undo any of these and the
 morning above comes back. Tests: `routineVoice.test.mjs`, and "runs one
-person's routines one after another" (`apps/agent/src/routines.test.ts`).
+person's routines one after another" (`packages/tex/worker/routines.test.ts`).
 
 Later the same day an every-5-minutes "retry Planning Center" check texted
 "Planning Center's connected." over and over while every read failed, said
@@ -188,7 +188,7 @@ gateway's `send:` wins over the control plane's, because the gateway read the
 note just now. **What a simplification would cost:** a control plane that
 pushed runs to the Worker would need a second secret pointed the other way,
 and one that carried the answer would hold note content. Tests:
-`apps/agent/src/routines.test.ts`.
+`packages/tex/worker/routines.test.ts`.
 
 ### The control plane keeps when and as whom, never what
 

@@ -2,7 +2,7 @@
  * What a person sent WITH their question: pictures, PDFs and documents, handed
  * to the model as the model's own content blocks rather than dropped.
  *
- * The caller (the texting Worker, `apps/agent/src/attachments.ts`) does the
+ * The caller (the texting Worker, `packages/tex/worker/attachments.ts`) does the
  * downloading and the format work — a photo in a format the model cannot read
  * is converted there, a Word file is unpacked to its words there — so what
  * arrives here is already one of four kinds:

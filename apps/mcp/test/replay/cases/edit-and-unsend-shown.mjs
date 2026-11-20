@@ -13,7 +13,7 @@ export default {
     const chat = await oneToOne();
     try {
       const first = await chat.text("can you book dinner for 4 at 6?", "Booked for 4 at 6pm.");
-      // The edit step's turn (`apps/agent/src/editStep.ts`): the new words, marked as the edit of the first text.
+      // The edit step's turn (`packages/tex/worker/editStep.ts`): the new words, marked as the edit of the first text.
       const edited = await chat.text("can you book dinner for 6 at 6?", "Changed it to 6 people.", { fields: { edited: true, replyTo: first.id, quoted: "can you book dinner for 4 at 6?" } });
       assert.match(edited.shown, /\(edited an earlier text to\) can you book dinner for 6 at 6\?/, "the turn is told the text is an edit");
       assert.match(edited.shown, /the edit of their [^"]+ message, which said: \\"can you book dinner for 4 at 6\?\\"/, "and what it replaced");

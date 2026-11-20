@@ -15,7 +15,7 @@ describe("Tex's contact card", () => {
     const photo = card.replace(/\r\n /g, "").match(/PHOTO;ENCODING=b;TYPE=PNG:([A-Za-z0-9+/=]+)/)![1];
     expect([...atob(photo).slice(1, 4)].join("")).toBe("PNG");
     // The same picture the Name & Photo points at, so the two never drift apart.
-    const served = btoa(String.fromCharCode(...readFileSync(new URL("../../mobile/public/texts-card.png", import.meta.url))));
+    const served = btoa(String.fromCharCode(...readFileSync(new URL("../../../apps/mobile/public/texts-card.png", import.meta.url))));
     expect(photo).toBe(served);
   });
 });

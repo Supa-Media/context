@@ -2,7 +2,7 @@
  * A reply's quote (Dev2, 2026-11-05: "whenever we respond to something ... it
  * should be recorded as, this was in response to, and then quote the full text
  * it was in response to"). The texting Worker logs a reply with `replyTo` and
- * the replied-to message's full words (`apps/agent/src/replyQuote.ts`); the
+ * the replied-to message's full words (`packages/tex/worker/replyQuote.ts`); the
  * log keeps them (`log.js`), the transcript shows the message under the reply
  * (`logRender.js` `replyingTo`), and the question says what it answers
  * (`loggedTurn.js` `replying`, `quoted.js` `loggedQuestion`).

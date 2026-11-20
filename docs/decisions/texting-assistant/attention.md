@@ -68,4 +68,4 @@ anywhere but a note the person reads is the opaque memory ruled out on
 for an unlinked or paused person; delivering at least once instead of at
 most once texts a person the same ping twice. Tests:
 `apps/mcp/test/attention.test.mjs`, `apps/convex/__tests__/attention.test.ts`,
-`apps/agent/src/heartbeats.test.ts`.
+`packages/tex/worker/heartbeats.test.ts`.

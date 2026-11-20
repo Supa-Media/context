@@ -9,7 +9,7 @@
  * to put it under that text. `splitUnder` takes the numbers out of the answer,
  * so no marker ever reaches the chat, and says which event each run of
  * paragraphs answers; the Worker threads those bubbles there
- * (`apps/agent/src/groupModelTurn.ts` `bubblesUnder`). Paragraphs before the
+ * (`packages/tex/worker/groupModelTurn.ts` `bubblesUnder`). Paragraphs before the
  * first number, and any answer with no number, go where they always went.
  */
 

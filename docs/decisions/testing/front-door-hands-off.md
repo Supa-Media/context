@@ -12,7 +12,7 @@ A texted turn can already hand work off. The front door calls `send` action
 `background` with a title, a brief and a finish line
 (`apps/mcp/src/agent/background.js`). The gateway only records the job and
 the reply goes out at once. The texting Worker runs it in a Durable Object
-of its own, `job:<id>` (`apps/agent/src/jobs.ts`, `jobRun.ts`), with its own
+of its own, `job:<id>` (`packages/tex/worker/jobs.ts`, `jobRun.ts`), with its own
 alarm, up to three jobs in the cloud at once
 (`jobStart` limits in `texConfig.json`: `cloudSlots` 3). The chat keeps
 answering other texts. The result comes back as a later text, threaded under

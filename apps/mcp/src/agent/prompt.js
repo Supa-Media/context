@@ -23,7 +23,7 @@ const MAX_PLACE_FIELD = 512;
  *
  * iMessage shows Markdown as the characters themselves, so a `**name**` or a
  * `[path](path)` arrives as punctuation. The texting Worker strips what slips
- * through (`apps/agent/src/format.ts`), but an answer written for a phone in
+ * through (`packages/tex/worker/format.ts`), but an answer written for a phone in
  * the first place reads better than one with the formatting scraped off.
  *
  * The last two lines are about speed as much as style: every tool call is

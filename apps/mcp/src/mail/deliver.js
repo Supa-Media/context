@@ -8,7 +8,7 @@
  * the gateway asks the control plane which mailboxes on that note were
  * joined from a job's turn (`noteMailboxes.jobId`), and hands each recipient
  * job the line through the texting Worker's named entrypoint
- * (`TexRoutines.mailDeliver`, `apps/agent/src/jobMail.ts`), which steers it
+ * (`TexRoutines.mailDeliver`, `packages/tex/worker/jobMail.ts`), which steers it
  * into the part running now or keeps it for the next one.
  *
  * A mailbox joined from a session on one of the person's machines (a cloud
@@ -27,7 +27,7 @@ import { workspaceStub } from "../workspaceStore/api.js";
 
 /**
  * The agents on every job note besides its jobs (`agent/jobNote.js`): a line addressed to one is handed to the job
- * that sent it, whose own object tells the chat (Tex) or asks the advisor (`apps/agent/src/jobNote.ts`). Only a
+ * that sent it, whose own object tells the chat (Tex) or asks the advisor (`packages/tex/worker/jobNote.ts`). Only a
  * sender's own job mailbox counts, so a line from anybody else reaches neither.
  */
 const ROSTER_AGENTS = new Set(["tex", "advisor"]);

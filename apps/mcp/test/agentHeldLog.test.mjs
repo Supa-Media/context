@@ -7,7 +7,7 @@
  * chat's whole log (`holdsLog`) and the gateway handed its reads back (`log`).
  * The ledger made that copy pointless: the day is one read of it
  * (`ledgerHistory.js` `dayFromLedger`), and the Worker now keeps only its
- * outbox (Dev, 2026-11-02, `apps/agent/src/chatRead.ts`).
+ * outbox (Dev, 2026-11-02, `packages/tex/worker/chatRead.ts`).
  *
  * - The Worker's outbox (`recent`) goes on the day the turn reads; a `holdsLog`
  *   from an older Worker is ignored, so the day is always read. Fails if

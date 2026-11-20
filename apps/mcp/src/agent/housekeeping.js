@@ -61,12 +61,12 @@ export const HOUSEKEEPING_CLIENT_ID = "context_housekeeping";
  * One run's bounds: no cap on what it changes, only on a turn that never ends.
  * Both are lifted past a texted turn's (eight rounds, 70 s of tools), and the
  * tools' budget sits inside the texting Worker's five-minute wait for the run
- * (`apps/agent/src/housekeeping.ts`), leaving room for the last rounds.
+ * (`packages/tex/worker/housekeeping.ts`), leaving room for the last rounds.
  */
 const HOUSEKEEPING_ROUNDS = 40;
 const HOUSEKEEPING_TOOL_BUDGET_MS = 180_000;
 /**
- * The whole run's own end, inside the texting Worker's five-minute wait (`apps/agent/src/housekeeping.ts`).
+ * The whole run's own end, inside the texting Worker's five-minute wait (`packages/tex/worker/housekeeping.ts`).
  * The tools' budget bounds only the tools: past it the model is still asked round after round, and a run
  * that outlived the Worker's wait was cut off with nothing logged, so no `tex/housekeeping/` note said it
  * ever ran (@seyi, 2026-11-05, 11-06 and 11-08). Past this the run stops waiting for the model and logs

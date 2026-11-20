@@ -36,7 +36,7 @@ function afterYes(tool) {
  * should always be seen as an approval, the text should end with something
  * simple like 'give it a 👍 and i'll send'"). A 👍 or ❤️ that stays ten
  * seconds on the ask, or on any text of the reply that carried it, is the yes
- * (`apps/agent/src/thumbs.ts`, `thumbsUpIsYes`); a typed yes still works. In
+ * (`packages/tex/worker/thumbs.ts`, `thumbsUpIsYes`); a typed yes still works. In
  * a group only the asker's counts.
  */
 export const SAY_YES = "Give it a 👍";
@@ -182,7 +182,7 @@ async function onArmedAsk(store, session, quotedWords, { who, chat, event }) {
   return matched;
 }
 
-/** The longest ask holding an email: one text, under the 3,000 a text keeps (`apps/agent/src/clients.ts`). */
+/** The longest ask holding an email: one text, under the 3,000 a text keeps (`packages/tex/worker/clients.ts`). */
 export const TEXTED_ASK_CAP = 2_900;
 
 /**
@@ -193,8 +193,8 @@ export const TEXTED_ASK_CAP = 2_900;
  * Every ask goes out verbatim, in a text of its own, whether or not it holds
  * an email. Handed back as part of the answer instead, it is the model's
  * prose that decides whether the person ever reads it:
- * `apps/agent/src/format.ts` keeps three texts and folds every later
- * paragraph into the third, and `apps/agent/src/clients.ts` sends at most
+ * `packages/tex/worker/format.ts` keeps three texts and folds every later
+ * paragraph into the third, and `packages/tex/worker/clients.ts` sends at most
  * 3,000 characters of each, so a long answer cuts the ask line off its own
  * end. The record stays armed for twelve hours either way, and a bare "yes"
  * afterwards releases what the person never saw. A handle claim is the ask

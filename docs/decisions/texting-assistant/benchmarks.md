@@ -299,7 +299,7 @@ at a time, then waiting; a draft shown before anything goes out; a reply that
 ends on one next step or one question, never both; the person's own register,
 contractions, an emoji only after theirs; a one-word reply where one word is
 enough. Two Instinct habits do not transfer: a tapback reaction instead of
-"got it" (Linq's client sends no reactions; `apps/agent/src/format.ts` has no
+"got it" (Linq's client sends no reactions; `packages/tex/worker/format.ts` has no
 such path) and an "On it" text before slow work (a turn here is synchronous
 and answers once).
 

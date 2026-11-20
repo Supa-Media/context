@@ -6,7 +6,7 @@
  * whether the agents are getting tasks done right, like creating pages and doing research ... and evaluating it?").
  *
  * There were none: the conversation bench records the jobs a turn starts and runs none of them. Here each case in
- * `bench/job-tasks/cases.json` is one job, asked as the texting Worker asks it (`apps/agent/src/jobRun.ts` `ask`),
+ * `bench/job-tasks/cases.json` is one job, asked as the texting Worker asks it (`packages/tex/worker/jobRun.ts` `ask`),
  * part after part, through the real gateway in a throwaway world (`world.mjs`) on the scripted web
  * (`bench/ai/sites/`), with production's done check after every part (`jobCheck.js`): a part the check says is not
  * finished is followed by another, on its advice, as the Worker does, up to `--max-parts` (production allows 10; the

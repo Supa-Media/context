@@ -16,7 +16,7 @@ anything could see it.
   that emoji says yes or no, and which message it was on, with whether that
   message is Tex's. For example `👍 (yes) on Tex's message "…"`,
   `❤️ (yes) on the message "…"` or `took back 👍 on …`
-  (`apps/agent/src/reactions.ts` `reactionLine`). 👍, ❤️ and ‼️ read as yes,
+  (`packages/tex/worker/reactions.ts` `reactionLine`). 👍, ❤️ and ‼️ read as yes,
   👎 as no, and any other emoji as itself.
 - **Which message is Tex's.** WhatsApp names the message, and the Worker
   reads it back (`readOwnMessage`). Sendblue only quotes the words, so they

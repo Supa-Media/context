@@ -20,7 +20,7 @@ import { join } from "node:path";
 
 const ROOTS = [
   "apps/mcp/src",
-  "apps/agent/src",
+  "packages/tex/worker",
   "infra/egress-service/src",
   "infra/photon-bridge/src",
   "infra/email-worker/src",
@@ -33,7 +33,7 @@ const ROOTS = [
 /** The only files that make stubs, one place per Worker. */
 const PLACERS = new Set([
   "apps/mcp/src/objectPlace.js",
-  "apps/agent/src/objectPlace.ts",
+  "packages/tex/worker/objectPlace.ts",
   "infra/egress-service/src/handler.ts",
   "infra/photon-bridge/src/index.ts",
   "infra/sentry-worker/src/worker.js",
@@ -124,7 +124,7 @@ if (process.argv.includes("--self-test")) {
   if (problems.length > 0) {
     console.error("A Durable Object stub is made without the eastern North America hint:\n");
     for (const problem of problems) console.error("  " + problem);
-    console.error("\nMake it through the Worker's objectPlace helper (apps/mcp/src/objectPlace.js, apps/agent/src/objectPlace.ts).");
+    console.error("\nMake it through the Worker's objectPlace helper (apps/mcp/src/objectPlace.js, packages/tex/worker/objectPlace.ts).");
     process.exit(1);
   }
   console.log("OK — every Durable Object stub is placed in eastern North America.");

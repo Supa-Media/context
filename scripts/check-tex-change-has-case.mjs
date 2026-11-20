@@ -33,7 +33,7 @@ import { execFileSync } from "node:child_process";
 import { readFileSync } from "node:fs";
 
 /** Files whose change changes what Tex does. */
-export const TEX_CODE = [/^apps\/mcp\/src\/agent\//, /^apps\/agent\/src\//, /^packages\/tex\/src\/text[^/]*$/, /^packages\/tex\/src\/texConfig\.json$/, /^packages\/tex\/src\/texPrompt/];
+export const TEX_CODE = [/^apps\/mcp\/src\/agent\//, /^packages\/tex\/worker\//, /^packages\/tex\/src\/text[^/]*$/, /^packages\/tex\/src\/texConfig\.json$/, /^packages\/tex\/src\/texPrompt/];
 /** Files that are cases Tex is replayed or benchmarked against. */
 export const CASES = [/^apps\/mcp\/test\/replay\/cases\//, /^apps\/mcp\/bench\/respond\//, /^apps\/mcp\/bench\/review\//, /^apps\/mcp\/bench\/advisor\//, /^apps\/mcp\/bench\/ai\/tests\//];
 const EXEMPT = /^\s*No replay case:\s*(.+?)\s*$/im;
@@ -63,11 +63,11 @@ function selfTest() {
   const cases = [
     ["a change outside Tex needs nothing", ["apps/mobile/app/index.tsx"], "", true],
     ["a Tex change with a replay case passes", ["apps/mcp/src/agent/turn.js", "apps/mcp/test/replay/cases/sees-own-reply.mjs"], "", true],
-    ["a Tex change with a bench question passes", ["apps/agent/src/inbox.ts", "apps/mcp/bench/ai/tests/core.md"], "", true],
+    ["a Tex change with a bench question passes", ["packages/tex/worker/inbox.ts", "apps/mcp/bench/ai/tests/core.md"], "", true],
     ["a judge change with a respond case passes", ["packages/tex/src/textDecide.cjs", "apps/mcp/bench/respond/cases.json"], "", true],
     ["an advisor role's change with its case passes", ["apps/mcp/src/agent/advisorRoles/planner.js", "apps/mcp/bench/advisor/planner.json"], "", true],
     ["a Tex change with no case fails", ["apps/mcp/src/agent/turn.js"], "", false],
-    ["a Worker change with no case fails", ["apps/agent/src/inbox.ts"], "Fixes the inbox.", false],
+    ["a Worker change with no case fails", ["packages/tex/worker/inbox.ts"], "Fixes the inbox.", false],
     ["a stated reason passes", ["apps/mcp/src/agent/turn.js"], "Body\n\nNo replay case: renames a log field, no behaviour changes\n", true],
     ["a token reason fails", ["apps/mcp/src/agent/turn.js"], "No replay case: n/a", false],
     ["the reason must be its own line", ["apps/mcp/src/agent/turn.js"], "we said No replay case: renames a log field only", false],

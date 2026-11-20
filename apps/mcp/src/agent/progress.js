@@ -178,7 +178,7 @@ export function progressChannel(send, { planOnly = false, level = planOnly ? "pl
       if (plan && lines.length > 0) return result(PLAN_ONLY_NOTICE, true);
       lines.push(text);
       await send(text.length > MAX_PROGRESS_CHARS ? `${text.slice(0, MAX_PROGRESS_CHARS - 1)}…` : text);
-      // A job's line is texted only when it holds a link (`apps/agent/src/jobRun.ts` `HAS_LINK`); the rest update its
+      // A job's line is texted only when it holds a link (`packages/tex/worker/jobRun.ts` `HAS_LINK`); the rest update its
       // status. Told "Sent", a job believed the chat had heard from it (Nov Babies, 2026-11-12).
       if (job && !HAS_LINK.test(text)) return result(JOB_NOTED);
       return result("Sent. Keep working.");
@@ -195,7 +195,7 @@ function result(text, isError = false) {
 }
 
 /**
- * Why a streamed turn died, typed for a job's part (`apps/agent/src/jobProgress.ts`): the config's send-back loop ran
+ * Why a streamed turn died, typed for a job's part (`packages/tex/worker/jobProgress.ts`): the config's send-back loop ran
  * out (`texGraph.cjs`, a draft its checks kept sending back), or anything else. Never the error's message.
  */
 export function diedOf(error) {
