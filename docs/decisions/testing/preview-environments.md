@@ -74,8 +74,12 @@ A preview is a separate world, not a view onto staging or production.
   (`CLOUDFLARE_ACCOUNT_ID`), never the customer-data account:
   `scripts/preview-convex-env.mjs` derives `MANAGED_R2_ACCOUNT_ID` from it and
   refuses an id on the deny list, and the seed stores the preview environment's
-  `CLOUDFLARE_API_TOKEN` as the deployment's `MANAGED_R2_API_TOKEN` integration
-  secret. Cleanup already deletes the `pr<N>-` buckets in that account.
+  `PREVIEW_R2_API_TOKEN` (falling back to `CLOUDFLARE_API_TOKEN`) as the
+  deployment's `MANAGED_R2_API_TOKEN` integration secret. Provisioning mints a
+  bucket-scoped key per workspace, so that token needs **Workers R2 Storage
+  Edit** and **Account API Tokens Edit** on the preview's account; an
+  account-owned token with just those two keeps token minting off the deploy
+  token. Cleanup already deletes the `pr<N>-` buckets in that account.
 - **Analytics Engine datasets end in `_preview`.** Each is the staging name
   with `_preview` in place of `_staging`, such as `tex_text_timing_preview`.
 - **Workflows end in `-pr<N>`**, such as `group-turn-pr<N>` and
