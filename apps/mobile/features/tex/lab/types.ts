@@ -27,6 +27,8 @@ export type LabNode = {
   icon: string;
   model: string;
   effort?: string;
+  /** Which tools the step's model is shown (`apps/mcp/src/agent/sixToolsFixed.js`): what its turn holds, or the fixed list of its kind of chat. */
+  toolList?: "turn" | "fixed";
   kind?: "input" | "tool";
   outSchema?: OutField[];
   sendBack?: number;

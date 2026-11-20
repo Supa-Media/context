@@ -710,6 +710,15 @@ export async function runTurn(options) {
         });
         return { ran: false, effects };
       }
+      // Answered by the six themselves (`fetch manual:<action>`, `sixTools.js`): the words are the result, nothing runs.
+      if (typeof resolved.text === "string") {
+        effects.push(() => {
+          messages.push({ role: "tool", id: made.id, name: made.name, text: resolved.text });
+          trace.push({ kind: "tool", tool: made.name, ok: true, ms: 0 });
+          tell({ kind: "tool", name: made.name, args: made.args, ok: true, ms: 0 });
+        });
+        return { ran: false, effects };
+      }
       const call = { ...made, name: resolved.name, args: resolved.args };
       const asSix = SIX_TOOLS.includes(made.name);
       if (!offeredNames.has(call.name)) {

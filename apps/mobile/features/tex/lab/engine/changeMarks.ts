@@ -34,6 +34,7 @@ export const FIELD_NAMES: Array<[keyof LabNode | "inSchema", string]> = [
   ["file", "code"],
   ["model", "model"],
   ["effort", "effort"],
+  ["toolList", "tool list"],
   ["on", "running"],
   ["rounds", "rounds"],
   ["out", "tokens out"],
