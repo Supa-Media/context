@@ -29,7 +29,6 @@ import { texConfigOf, texStep } from "./texConfig.js";
 import { personalNameFor } from "../../../../apps/mcp/src/context/identity.js";
 import { createControlPlane } from "../../../../apps/mcp/src/controlPlane.js";
 import { appendNoteRun, listNoteRuns } from "./noteRunLog.js";
-import { parsePlacedEtag } from "../../../../apps/mcp/src/tools/etagPlace.js";
 
 export const NOTE_RUN_PATH = "/tex/note-run";
 export const NOTE_RUNS_READ_PATH = "/tex/note-runs";
@@ -150,7 +149,9 @@ export async function readNoteAs(dispatch, path, context) {
   const visibility = /^visibility: (.+)$/m.exec(header)?.[1]?.trim() ?? null;
   const audience = visibility !== null && Object.hasOwn(AUDIENCE, visibility) ? AUDIENCE[visibility] : AUDIENCE_OTHER;
   const etag = /^etag: (.+)$/m.exec(header)?.[1]?.trim() ?? null;
-  return { note: split === -1 ? "" : whole.slice(split + 2), audience, noteId: parsePlacedEtag(etag)?.noteId ?? null };
+  // A placed etag is `@workspace/noteId:version` (`apps/mcp/src/tools/etagPlace.js`); a bare one names no note.
+  const placed = typeof etag === "string" ? /^@[a-z0-9][a-z0-9-]*\/([A-Za-z0-9_-]+):/.exec(etag) : null;
+  return { note: split === -1 ? "" : whole.slice(split + 2), audience, noteId: placed?.[1] ?? null };
 }
 
 /**
