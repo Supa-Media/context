@@ -282,7 +282,7 @@ const ROUTES: Record<string, Coverage> = {
   "signin/[token].tsx": { kind: "gate", mount: () => createElement(requireRoute("signin/[token].tsx")) },
   "texts/[token].tsx": { kind: "screen", mount: () => createElement(requireRoute("texts/[token].tsx")) },
   "vault/[token].tsx": { kind: "screen", mount: () => createElement(requireRoute("vault/[token].tsx")) },
-  ...Object.fromEntries(["tex/[handle]/index.tsx", "tex/[handle]/[...rest].tsx", "tex/group/[words]/index.tsx", "tex/group/[words]/[...rest].tsx"].map((file) => [file, { kind: "screen" as const, mount: () => createElement(requireRoute(file)) }])),
+  ...Object.fromEntries(["tex/[handle]/index.tsx", "tex/[handle]/[...rest].tsx", "tex/ask.tsx", "tex/group/[words]/index.tsx", "tex/group/[words]/[...rest].tsx"].map((file) => [file, { kind: "screen" as const, mount: () => createElement(requireRoute(file)) }])),
   // Bare `/tex?…` only sends the person on to their own `/tex/<handle>?…`.
   "tex/index.tsx": { kind: "gate", mount: () => createElement(requireRoute("tex/index.tsx")) },
   "[handle]/index.tsx": { kind: "screen", mount: () => websitePage() },

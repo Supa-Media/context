@@ -238,6 +238,8 @@ export type PageAction =
   | { type: "steer"; job: string; text: string }
   | { type: "stop"; job: string }
   | { type: "report"; job: string; step: number }
+  /** Yes or Not now on Tex's waiting ask, from the ask card's page (`TexAskScreen.tsx`). */
+  | { type: "answer"; ask: string; yes: boolean }
   | { type: "routine.toggle"; id: string; on: boolean }
   | { type: "routine.remove"; id: string }
   | { type: "checkin.edit"; id: string; when?: string; what?: string }

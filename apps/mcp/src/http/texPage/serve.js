@@ -28,7 +28,7 @@ import { groupTagOf } from "./browser.js";
 import { readPageRecords } from "../../../../../packages/tex/gateway/texStore/pageRecords.js";
 import { pokeTexPage } from "../../../../../packages/tex/gateway/texStore/pageLive.js";
 import { json } from "../responses.js";
-import { fetchPageJobs, jobDetail, jobSummary, jobsOverview, slotsOf, steerPageJob } from "./jobs.js";
+import { answerPageAsk, fetchPageJobs, jobDetail, jobSummary, jobsOverview, slotsOf, steerPageJob } from "./jobs.js";
 import * as notes from "./notes.js";
 import { readHabits, settingSet } from "../../../../../packages/tex/gateway/agent/settingsTools.js";
 import { ledgerView } from "./ledger.js";
@@ -181,6 +181,7 @@ const ACT_SECTIONS = {
   steer: ["jobs"],
   stop: ["jobs"],
   report: [],
+  answer: [],
   "routine.toggle": ["routines"],
   "routine.remove": ["routines"],
   "checkin.edit": ["checkins"],
@@ -207,6 +208,14 @@ async function act(env, controlPlane, session, page, chat, call, action) {
       if (id === null || (type === "steer" && said === null)) return { ok: false, error: "invalid" };
       const taken = await steerPageJob(env, chat.jobsChat, { id, ...(said ? { text: said } : {}), stop: type === "stop" });
       return taken ? { ok: true } : { ok: false, error: "not_found" };
+    }
+    case "answer": {
+      // Yes or Not now on Tex's waiting ask, from the page a card's tap opened (`packages/tex/worker/pageAnswer.ts`):
+      // their own chat only, handed to it as the card's own answer would be, so it is checked as a typed yes.
+      if (chat.kind !== "me" || chat.jobsChat === null) return { ok: false, error: "invalid" };
+      const ask = typeof action.ask === "string" && /^[a-z0-9]{1,8}$/.test(action.ask) ? action.ask : null;
+      if (ask === null || typeof action.yes !== "boolean") return { ok: false, error: "invalid" };
+      return await answerPageAsk(env, chat.jobsChat, ask, action.yes);
     }
     case "report": {
       const id = text(action.job, 80);
