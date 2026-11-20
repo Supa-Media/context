@@ -61,6 +61,7 @@ const entries: LedgerEntry[] = [
   run("jobStart", { hasTitle: true, hasBrief: true, cloudBusy: 0 }, { to: "start", where: "cloud", slots: 3 }),
   run("partEnd", { cause: "unfinished", part: 1 }, { to: "carry", cause: "unfinished", room: true }),
   run("learn", { question: "plan the trip" }, { nudge: { outcome: "skipped" }, reflect: { outcome: "skipped" } }),
+  run("connect", { notes: ["areas/trips/plan.md"], question: "plan the trip", tainted: false, group: false }, { outcome: "connected", notes: 1, links: [{ from: "areas/trips/plan.md", to: "areas/trips/budget.md", why: "the same trip", there: "written", back: "written" }] }),
   step("door", { input: { chat: "group", kind: "text", covers: ["1000-000001"] }, output: { model: "anthropic/claude-haiku-5-5", effort: "medium", reviewer: "on", advisor: "on", planner: "off" } }),
   e({ kind: "brief", turn: T, asker: "seyi", ask: "plan the trip", tools: [], waiting: [] }),
   step("fallback", { input: { from: "haiku", status: 529 }, output: { model: "glm" } }),
