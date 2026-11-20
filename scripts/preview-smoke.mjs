@@ -30,6 +30,9 @@ export const REPLY_TIMEOUT_MS = 90_000;
 export const MEANING_QUERY = 'stroll outdoors';
 export const MEANING_PATH_END = 'weekly-plan.md';
 export const MEANING_TIMEOUT_MS = 120_000;
+/** An ask a person would hand off: Tex starts a background job, which reports back in the same chat. */
+export const JOB_TEXT = 'As a background job, find my weekly plan note and text me back how many items are on it. Start it now, no need to ask.';
+export const JOB_TIMEOUT_MS = 300_000;
 const POLL_MS = 2_000;
 const ref = (name) => makeFunctionReference(name);
 
@@ -115,6 +118,11 @@ export function appSearchRoute(origin) {
 export function meaningHitIn(body) {
   if (body === null || typeof body !== 'object' || !Array.isArray(body.hits)) throw new Error('the search answer could not be read');
   return body.hits.find((h) => h?.meaningOnly === true && typeof h.path === 'string' && h.path.endsWith(MEANING_PATH_END)) ?? null;
+}
+
+/** The first row a background job texted, new since `baselineIds`. */
+export function jobRowAfter(rows, baselineIds) {
+  return rows.find((r) => r.who === 'tex' && r.source === 'job' && !baselineIds.has(r.id) && typeof r.text === 'string' && r.text.trim() !== '') ?? null;
 }
 
 export function appChatRoute(origin) {
@@ -255,6 +263,20 @@ async function appChatStep(env, origin, log) {
   }
   if (hitAt === null) throw new StepError(`meaning search: no meaning-only match within ${MEANING_TIMEOUT_MS / 1000} seconds.`);
   log(`meaning search: found the note by meaning alone in ${hitAt} ms`);
+
+  // A background job: Tex hands the ask to a job, and the job's report arrives later as its own text.
+  const beforeJob = await post({ op: 'get' });
+  if (beforeJob.status !== 200) throw new StepError(`app chat read: HTTP ${beforeJob.status}.`);
+  const jobBaseline = new Set(parseAppChatRows(await beforeJob.json()).rows.map((r) => r.id));
+  start = Date.now();
+  const asked = await post({ op: 'send', text: JOB_TEXT });
+  if (asked.status !== 200) throw new StepError(`job ask: HTTP ${asked.status}.`);
+  await pollUntil('background job report', async () => {
+    const response = await post({ op: 'get' });
+    if (response.status !== 200) throw new StepError(`app chat read: HTTP ${response.status}.`);
+    return jobRowAfter(parseAppChatRows(await response.json()).rows, jobBaseline);
+  }, JOB_TIMEOUT_MS);
+  log(`background job: its report arrived in ${elapsedMs(start)} ms`);
   await call('app sign-out', () => client.action(ref('auth:signOut'), {})).catch(() => {});
   return reply;
 }
@@ -265,7 +287,7 @@ export async function smoke(env = process.env, { log = console.log } = {}) {
   previewConfig(env);
   await simulatorStep(agent, env, log);
   await appChatStep(env, mcp, log);
-  log('PASS: simulated text and in-app message both answered by Tex; search by meaning found a note.');
+  log('PASS: simulated text and in-app message both answered by Tex; search by meaning found a note; a background job reported back.');
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
