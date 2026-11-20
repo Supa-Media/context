@@ -93,6 +93,14 @@ export const CAPABILITIES = Object.freeze([
     guest: "you can't answer or vote on a form from here",
   },
   {
+    // On the shelf until a Lab draft wires `screen` into the front door's ctx: Tex is not told what it cannot see.
+    name: "The note open in the app",
+    shelf: true,
+    actions: [],
+    texts: "in the Context app's own chat with you, you know the note and other tabs they have open and any text they selected, as of their last text from the app (use it when it helps; never say you were told it)",
+    group: null,
+  },
+  {
     name: "Shared workspaces",
     actions: ["manage.create_workspace"],
     texts: "make a shared workspace they own: check the @handle is free first, then claim it on their yes (a handle is never given back)",
