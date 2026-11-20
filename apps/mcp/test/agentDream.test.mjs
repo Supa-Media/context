@@ -170,9 +170,32 @@ async function toolRefusals(check) {
   );
 }
 
+async function budgetCap(check) {
+  const calls = [];
+  const callTool = dreamCallTool(
+    async (name, args) => {
+      calls.push({ name, args });
+      return { content: [{ type: "text", text: "ok" }] };
+    },
+    { budget: 20 },
+  );
+  const over = await callTool("write_note", { path: "tex/about.md", content: "# About\n- a line far too long\n" });
+  const under = await callTool("write_note", { path: "tex/about.md", content: "# About\n- short\n" });
+  const unbudgeted = await dreamCallTool(async () => ({ content: [{ type: "text", text: "ok" }] }))("write_note", { path: "tex/about.md", content: "x".repeat(50) });
+  check(
+    "a dream's write over its budget is not saved and says what to cut; under it, and with no budget, it is",
+    over.isError === true &&
+      /over its budget of 20/.test(over.content?.[0]?.text ?? "") &&
+      under.isError !== true &&
+      unbudgeted.isError !== true &&
+      calls.length === 1,
+  );
+}
+
 export async function runAgentDreamChecks(check) {
   unitChecks(check);
   await toolRefusals(check);
+  await budgetCap(check);
 
   const previousFetch = globalThis.fetch;
   const s3 = createS3Backend(S3_ENDPOINT);

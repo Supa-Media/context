@@ -160,6 +160,7 @@ export async function recheckAbout({ env, store, session, controlPlane, dispatch
       tools: offered.filter((tool) => RECHECK_READS.includes(tool.name)),
       grants: { write: [] },
       callTool: recheckCallTool(dispatch),
+      sandboxedBelow: true, // reads only, refused above before the session's dispatcher, which answers a test chat itself
       env,
       builtinModelOverride: chosen,
       providerOptions: {

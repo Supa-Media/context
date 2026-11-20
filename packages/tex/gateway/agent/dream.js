@@ -80,7 +80,7 @@ function refused(text) {
  * before the session's dispatcher is reached, so a dream steered by something
  * it read can still only change the one note it is for.
  */
-export function dreamCallTool(dispatch) {
+export function dreamCallTool(dispatch, { budget = null } = {}) {
   return async (name, args) => {
     const given = args && typeof args === "object" && !Array.isArray(args) ? args : {};
     if (given.context !== undefined) return refused("A dream works in their own workspace only.");
@@ -90,6 +90,13 @@ export function dreamCallTool(dispatch) {
     const extra = Object.keys(given).filter((key) => given[key] !== undefined && !DREAM_WRITE_ARGS.has(key));
     if (extra.length > 0) return refused(`A dream writes only the note's text: ${extra.join(", ")} can't be set.`);
     if (typeof given.content !== "string") return refused("Write the whole note as content.");
+    // The budget is a cap, not advice (Dev2, 2026-11-20): a note over it is not saved, and the dream is told what to cut.
+    if (Number.isFinite(budget) && budget > 0 && given.content.length > budget) {
+      return refused(
+        `Not saved: ${ABOUT_ME_PATH} would be ${given.content.length.toLocaleString("en-US")} characters, over its budget of ${budget.toLocaleString("en-US")}. ` +
+          "Drop the least important lines first (one-off events and plans that are over, then details nobody will ask about again), merge lines that say the same thing, and write it again under the budget.",
+      );
+    }
     return await dispatch("write_note", {
       path: ABOUT_ME_PATH,
       content: given.content,
@@ -274,7 +281,8 @@ export async function dreamNight({ env, store, session, controlPlane, dispatch, 
       question: dreamQuestion({ chat, memories, first, since, timeZone, instructions: setup?.prompt ?? null, budget }),
       tools: dreamTools(offered),
       grants: { write: ["save"] }, // its one write is the note's own text (`dreamCallTool`)
-      callTool: dreamCallTool(dispatch),
+      callTool: dreamCallTool(dispatch, { budget }),
+      sandboxedBelow: true, // its dispatcher is the session's, which answers a Lab test chat itself, after the guard above
       env,
       builtinModelOverride: chosen,
       providerOptions: {

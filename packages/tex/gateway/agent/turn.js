@@ -794,7 +794,8 @@ export async function runTurn(options) {
       await keeper?.starting(call, round); // an action is logged as started before it runs (`turnResume.js`)
       try {
         const viaMcp = !(progress && call.name === PROGRESS_TOOL) && !localCalls.has(call.name) && !webNames.has(call.name);
-        result = (await sandboxedTool(env, call)) ?? (viaMcp && isPlainNoteWrite(call.name, call.args)
+        // `sandboxedBelow`: the caller's own dispatcher answers a test chat itself, after its guards (the dream's budget).
+        result = (options.sandboxedBelow === true ? null : await sandboxedTool(env, call)) ?? (viaMcp && isPlainNoteWrite(call.name, call.args)
           // A slow save is waited on, read back and retried, never told as failed unseen (`noteWriteRetry.js`).
           ? await settleNoteWrite({ run: () => callTool(call.name, call.args), callTool, args: call.args, ms: timeoutFor(call.name), remaining: () => toolBudgetMs + 30_000 - (clock() - began) })
           : await withinTime(
