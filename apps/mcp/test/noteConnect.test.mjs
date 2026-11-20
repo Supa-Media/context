@@ -99,3 +99,44 @@ test("a turn that wrote nothing of theirs, read words from outside, or ran in a 
   assert.deepEqual(await connectNotes({ dispatch: never, paths: [J19], tainted: true }), { outcome: "tainted", notes: 1 });
   assert.deepEqual(await connectNotes({ dispatch: never, paths: [J19], group: true }), { outcome: "group", notes: 1 });
 });
+
+test("in a Lab test chat a background step reads the note the turn wrote there, and writes there, never to the real notes", async () => {
+  const { ownDispatch } = await import("../../../packages/tex/gateway/agent/reflect.js");
+  const { LAB_SANDBOX_KEY } = await import("../src/labSandbox/policy.js");
+  const notes = new Map([["areas/study/judges-19.md", { path: "areas/study/judges-19.md", body: "# Judges 19\n\nLike Lot in Sodom.\n", adds: [], gone: false }]]);
+  const gate = {
+    record() {},
+    write() {},
+    async call(op, fields) {
+      if (op === "note.get") return { found: notes.get(fields.path) ?? null };
+      if (op === "note.put") return void notes.set(fields.path, { path: fields.path, body: fields.body, adds: [], gone: false }) ?? { ok: true };
+      if (op === "note.list") return { notes: [...notes.values()] };
+      return {};
+    },
+  };
+  const touched = [];
+  const real = () => {
+    touched.push("real");
+    throw Object.assign(new Error("the real notes were reached"), { name: "StorageError" });
+  };
+  const store = { contexts: [{ current: true, kind: "personal" }], get: real, put: real, list: real, head: real, delete: real };
+  const session = { workspaceId: "ws_lab_connect", grantId: "g", scopes: ["context:read", "context:write"] };
+  const dispatch = ownDispatch(store, session, { [LAB_SANDBOX_KEY]: gate });
+  const read = await dispatch("read_note", { path: "areas/study/judges-19.md" });
+  assert.notEqual(read?.isError, true, JSON.stringify(read));
+  assert.match(read.content.map((c) => c.text).join("\n"), /Like Lot in Sodom/);
+  const wrote = await dispatch("write_note", { path: "areas/study/genesis-19.md", content: "# Genesis 19\n" });
+  assert.notEqual(wrote?.isError, true, JSON.stringify(wrote));
+  assert.equal(notes.get("areas/study/genesis-19.md")?.body, "# Genesis 19\n", "the write is kept in the test chat");
+  assert.deepEqual(touched, [], "nothing reached the real notes");
+});
+
+test("Connect is handed the notes the turn wrote, tainted only by what this turn read, never by the chat's week", async () => {
+  const { connectInput } = await import("../../../packages/tex/gateway/agent/connectInput.js");
+  const steps = [{ tool: "read_note", ok: true }, { tool: "write_note", ok: true, wrote: ["areas/study/judges-19.md"] }, { tool: "write_note", ok: true, wrote: ["areas/study/judges-19.md"] }];
+  assert.equal(connectInput({ steps: [{ tool: "read_note" }], question: "hi", ledger: {}, group: null }), null, "a turn that wrote nothing hands Connect nothing");
+  // An earlier turn read mail (the history is tainted); this one did not read outside words.
+  assert.deepEqual(connectInput({ steps, question: "judges 19", ledger: { untrusted: false }, group: null }), { notes: ["areas/study/judges-19.md"], question: "judges 19", tainted: false, group: false });
+  assert.equal(connectInput({ steps, question: "x", ledger: { untrusted: true }, group: null }).tainted, true, "this turn's own outside reads still hold it back");
+  assert.equal(connectInput({ steps, question: "x", ledger: {}, group: { id: "g" } }).group, true);
+});

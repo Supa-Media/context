@@ -113,3 +113,60 @@ rules for it:
 
 `sixToolsFixed.test.mjs` fails when a refused call in a 1:1 text comes back
 without the manual, or when it comes back twice.
+
+## A check-in searches, and is told it only reads (2026-11-20)
+
+In the week before this change, 319 calls asked for an action their turn
+didn't hold. They came from check-ins:
+
+- All 50 send refusals ("Yours: say_nothing") were check-ins.
+- So were the search refusals, where the check-in wanted the email search
+  it did not hold.
+
+A check-in reads only, by design (`heartbeat.js`). It runs with nobody
+asking, and it reads strangers' mail.
+
+The owner chose **"give check-ins read-only search"**. A 1:1 check-in now
+also holds:
+
+- **`search_email`**, an untrusted read, like `read_email`.
+- **`search_web`.** This is a search with no computer: no page is opened
+  and nothing is typed (`checkInWeb`). Reading a result marks the look
+  untrusted.
+
+Sending, saving, changing and moving stay refused.
+
+The tool list stays the cached one a text is shown. The owner's words:
+"we just add a prompt that clearly says, like, you are a check-in … You
+can only use read-only tools". So every check-in's question carries
+`CHECK_IN_TOOLS`, whatever its setup's words say.
+
+`agentHeartbeat.test.mjs` fails in any of these cases:
+
+- the dispatcher refuses email search;
+- the web session offers anything but search;
+- a search result leaves the look trusted;
+- a setup's own words drop the line.
+
+## Every action's args are held to its own schema before it runs (2026-11-20)
+
+The six tools stay fixed so the prompt cache reads them, so each one's JSON schema says only `action` and `args:
+object`. An action's own arguments were text on its line and in its manual, and nothing checked a call against them
+until it reached the gateway, and Tex's own actions (`ASSISTANT_SEND_ACTIONS`: browse, open_page, job_status and the
+rest) not at all: a key one of them did not take was dropped unseen (Dev2, 2026-11-20: "the way to treat actions better
+with the validated schema ... we just need to get this down pat").
+
+Every action already has exactly one schema, its carrier tool's `inputSchema`, and its list line and its manual are
+both written from it. `sixTools.js` `checkedAction` now holds every write, manage and send call to that same schema at
+one place, before anything runs (`actionArgs.js`, through the gateway's own `validateArguments`): an unknown key, a
+missing required one, a wrong type, or a value outside its enum or bounds is refused as `bad_arguments`, naming the
+argument and what the action takes, and the manual follows once per turn. The schema is read as closed even where the
+carrier leaves it open, beside the call's own `context`, `mailbox` and `person_said`.
+
+One reading is taken rather than refused: a lone string where a list of strings goes (send email's `to`, 7 of 19
+failed emails in the week to 2026-11-20), the list's name in the singular (`url` for `urls`), and a number or yes/no
+written as text. A string with a comma or semicolon is never split into a guess.
+
+What a simplification would cost: dropping the check sends unknown keys back to being silently ignored and wrong
+types back to each tool's own code. `apps/mcp/test/actionArgs.test.mjs` fails, and its census fails when an action on
+either fixed list has a schema keyword the check would ignore or requires an argument it does not describe.

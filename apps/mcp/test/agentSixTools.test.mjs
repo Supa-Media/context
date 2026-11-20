@@ -24,7 +24,7 @@ import { shown } from "./sixToolsShown.mjs";
 
 const mcp = new Map(toolDefinitions().map((tool) => [tool.name, tool]));
 const held = (...names) =>
-  names.map((name) => mcp.get(name) ?? { name, description: `${name} words.`, inputSchema: { type: "object", properties: { text: { type: "string" } } } });
+  names.map((name) => mcp.get(name) ?? { name, description: `${name} words.`, inputSchema: { type: "object", properties: {} } });
 const skillTool = {
   name: "read_skill",
   description: "Step-by-step instructions: connect-chatgpt (someone wants ChatGPT).",

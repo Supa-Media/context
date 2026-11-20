@@ -35,6 +35,7 @@ import { PERSONAL_TEX_SEND_ACTIONS } from "./askPersonalTex.js";
 import { CROSS_CHAT_SEND_ACTIONS } from "./crossChat.js";
 import { TEXTS_ID_PREFIX } from "../../../../apps/mcp/src/tools/texts.js";
 import { withNothingChanged } from "./noteLinks.js";
+import { actionArgumentsRefusal, checkActionArguments } from "./actionArgs.js";
 
 /**
  * The first top-level argument a closed schema does not take, as the refusal to send back, or null. Only unknown names:
@@ -286,11 +287,16 @@ function firstSentence(text) {
 const SHORT_LINES = {
   ask_chat: "Ask Tex in another chat they share with you, to know or do something there.",
   name_guest: "Keep a guest label's real name, once someone here says it.",
-  draw_visual: "Turn your answer into one of your designed picture cards, to text them.",
+  draw_visual: "Turn your answer into one of your designed picture cards, to text them; write a page before drawing it.",
   vault_access: "Who can use each saved login, key or card; give or take it back.",
   ask_personal_tex: "Get the tagger's name, phone and email from their own Tex, for a form.",
   say_nothing: "Text nothing and end your turn, only where your instructions say silence fits.",
-  calendar: "Add, edit, move, cancel or RSVP to one event on their Google Calendar.",
+  // The four lines below name what their calls were refused for most (tool_stats, 7 days to 2026-11-20; Dev2: "look at the
+  // most failed tools ... add more explanation"): calendar 32 of 64, browse 24 of 178, open_page 7 of 194, job_status 5 of 11.
+  calendar: "Add, edit, move, cancel or RSVP to one event on their Google Calendar, one change per text. start: 2026-11-21T15:00:00-05:00 (with offset) or 2026-11-21; as: group chats only.",
+  browse: "Drive a browser, at most 10 steps a call; fill_login is its own action.",
+  open_page: "Read web pages they wrote, found by search or saw linked.",
+  job_status: "How a background job is going; title exactly as your jobs list shows it.",
   email_draft: "Save one email as a draft in their Gmail, for them to send. A reply passes in_reply_to.",
   chat_add_everyone: "Invite everyone here to one of the asker's workspaces.",
   tapback: "Answer their text with only a tapback, and end your turn.",
@@ -537,10 +543,25 @@ export function sixToolsOver(granted, grants = null, { shown = null } = {}) {
   }
 
   function resolve(name, args) {
-    const out = resolveCall(name, args);
+    const out = checkedAction(name, args, resolveCall(name, args));
     const action = args && typeof args === "object" && !Array.isArray(args) ? args.action : undefined;
     if (out.error === undefined || name !== "manage" || !VISIBILITY_ACTIONS.includes(action)) return out;
     return { ...out, error: withNothingChanged(out.error) };
+  }
+
+  /**
+   * A family action's call, held to its carrier's own schema before it runs (`actionArgs.js`; Dev2, 2026-11-20): the
+   * same schema its line and its manual are written from. A call on the wrong family was checked where it lives.
+   */
+  function checkedAction(name, args, out) {
+    if (out.error !== undefined || typeof out.text === "string" || !(name === "write" || name === "manage" || name === "send")) return out;
+    const call = args && typeof args === "object" && !Array.isArray(args) ? args : {};
+    const action = name === "write" && (call.action === undefined || call.action === "") ? "save" : call.action;
+    const carrier = held.get(out.name) ?? (shown instanceof Map ? shown.get(out.name) : undefined);
+    const checked = checkActionArguments(carrier?.inputSchema ?? carrier?.input_schema, out.args);
+    if (checked.error === undefined) return { ...out, args: checked.args };
+    const family = ["write", "manage", "send"].find((each) => allowedActions[each].has(action)) ?? name;
+    return { error: actionArgumentsRefusal(family, action, checked.error), cause: "bad_arguments" };
   }
 
   function resolveCall(name, args) {

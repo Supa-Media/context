@@ -10,10 +10,10 @@ import { ownDispatch } from "../../reflect.js";
 
 export default async function connect(input, io) {
   try {
-    const { store, session } = io.ctx;
+    const { store, session, env } = io.ctx;
     return await connectNotes({
       ...io.ctx,
-      dispatch: ownDispatch(store, session),
+      dispatch: ownDispatch(store, session, env),
       paths: Array.isArray(input?.notes) ? input.notes : [],
       question: typeof input?.question === "string" ? input.question : "",
       tainted: input?.tainted === true,

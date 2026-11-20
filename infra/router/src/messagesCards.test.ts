@@ -7,6 +7,7 @@
  *   `escaped` returning its input → "never lets a name write markup" fails.
  *   `askPage` not checking the key → "an ask with a bad key offers nothing" fails.
  *   `BRIDGE_SCRIPT` edited without its hash → "the one script is the one its policy allows" fails.
+ *   `SENT_CARD` removed → "a card's own address opened in a browser" fails.
  *   `cardPage` not checking `p` → "shows the drawing itself … never any other address" fails.
  */
 
@@ -124,5 +125,29 @@ describe("every page", () => {
     expect(response.headers.get("Strict-Transport-Security")).toBeTruthy();
     expect((await worker.fetch(new Request("https://context.lc/messages/other"), {}, CTX)).status).toBe(404);
     expect((await worker.fetch(new Request("https://context.lc/messages/ask", { method: "POST" }), {}, CTX)).status).toBe(405);
+  });
+});
+
+describe("a card's own address opened in a browser", () => {
+  it("goes to the card's page with its query, never to a person's Tex page, and only for the kinds Tex sends", async () => {
+    const tapped = await worker.fetch(new Request("https://context.lc/tex/ask?k=abc12"), {}, CTX);
+    expect(tapped.status).toBe(302);
+    expect(tapped.headers.get("Location")).toBe("/messages/ask?k=abc12");
+    for (const kind of ["pick", "card", "hello"]) {
+      const response = await worker.fetch(new Request(`https://context.lc/tex/${kind}?x=1`), {}, CTX);
+      expect(response.headers.get("Location")).toBe(`/messages/${kind}?x=1`);
+    }
+    // A person's page, a group's page and the threads view are not cards.
+    for (const path of ["/tex/@seyi", "/tex/group/blue-fox", "/tex/threads", "/tex/asking"]) {
+      const url = new URL(`https://context.lc${path}`);
+      expect(messagesCardResponse(new Request(url), url)).toBeNull();
+    }
+    const posted = new URL("https://context.lc/tex/ask?k=abc12");
+    expect(messagesCardResponse(new Request(posted, { method: "POST" }), posted)).toBeNull();
+  });
+
+  it("without the extension's bridge the page hides its buttons and says where to answer", () => {
+    expect(BRIDGE_SCRIPT).toContain("if (!bridge)");
+    expect(BRIDGE_SCRIPT).toContain("Go back to your chat with Tex");
   });
 });
