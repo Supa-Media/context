@@ -132,8 +132,19 @@ describe("facts, lease, sweep and census", () => {
       lastNote: { never_tried: 1 },
       notes: { bucket: 1, dual: 0, object: 1 },
       ownNotes: { bucket: 1 },
+      texFolders: { none: 4, one: 0, many: 0 },
     });
     expect(JSON.stringify(census)).not.toContain(String(fresh));
+    // Two live folders doing the `tex` job is counted as many, and a gone one is not counted.
+    await t.run(async (ctx) => {
+      const base = { workspaceId: fresh, kind: "folder" as const, role: "tex", name: "tex", observedAt: 1 };
+      await ctx.db.insert("nodes", { ...base, path: "tex" } as never);
+      await ctx.db.insert("nodes", { ...base, path: "Tex 2", name: "Tex 2" } as never);
+      await ctx.db.insert("nodes", { ...base, workspaceId: moved, path: "tex" } as never);
+      await ctx.db.insert("nodes", { ...base, workspaceId: moved, path: "old", name: "old", goneAt: 5 } as never);
+    });
+    const after = await t.query(internal.functions.workspaceObjectsMoveRows.census, {});
+    expect(after.texFolders).toEqual({ none: 2, one: 1, many: 1 });
   });
 });
 
