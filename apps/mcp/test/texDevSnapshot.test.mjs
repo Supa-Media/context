@@ -203,12 +203,12 @@ test("a graph that is not a graph is one plain sentence", async () => {
 test("graph: nightly draws only the Nightly page: its steps and the wires among them, named in the caption (Dev2, 2026-11-20)", () => {
   const g = main();
   const nightly = g.nodes.filter((n) => pageOf(n) === "nightly").map((n) => n.id);
-  assert.deepEqual([...nightly].sort(), ["daysum", "dream", "housekeep", "nightly"]);
+  assert.deepEqual([...nightly].sort(), ["aboutCheck", "aboutExpire", "daysum", "dream", "housekeep", "nightly"]);
   const html = graphSvg(g, { page: "nightly" });
   assert.deepEqual([...stepsDrawn(html)].sort(), [...nightly].sort());
-  // Its three wires, and none to a texting step.
+  // Its five wires, and none to a texting step.
   const among = g.edges.filter((e) => nightly.includes(e.from) && nightly.includes(e.to));
-  assert.equal(among.length, 3);
+  assert.equal(among.length, 5);
   assert.equal([...html.matchAll(/data-edge="/g)].length, among.length);
   assert.ok(html.includes(">Nightly</b>"), "the caption names the page");
   // The texting page is the default, and names no page.
@@ -218,7 +218,7 @@ test("graph: nightly draws only the Nightly page: its steps and the wires among 
 
 test("a page with no steps is one plain sentence, and main's marks are counted on the page drawn", async () => {
   const g = main();
-  const textingOnly = { nodes: g.nodes.filter((n) => pageOf(n) === "texting"), edges: g.edges.filter((e) => !["nightly", "dream", "daysum", "housekeep"].includes(e.from)) };
+  const textingOnly = { nodes: g.nodes.filter((n) => pageOf(n) === "texting"), edges: g.edges.filter((e) => !["nightly", "dream", "daysum", "housekeep", "aboutExpire", "aboutCheck"].includes(e.from)) };
   assert.throws(() => graphSvg(textingOnly, { page: "nightly" }), /no steps on its nightly page/);
   const shots = { fetch: async () => assert.fail("nothing to photograph") };
   assert.deepEqual(await snapshotGraph({ SITE_SHOTS: shots }, textingOnly, { page: "nightly" }), { ok: false, error: "That graph has no steps on its nightly page." });

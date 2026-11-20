@@ -87,6 +87,8 @@ const entries: LedgerEntry[] = [
   step("nightly", { input: { run: "dream", timeZone: "Europe/London", since: 1 }, output: { to: "dream", timeZone: "Europe/London", since: 1 } }),
   step("dream", { input: { timeZone: "Europe/London", since: 1 }, output: { outcome: "kept", status: 200, when: [] } }),
   step("daysum", { input: { timeZone: "Europe/London", now: 2 }, output: { outcome: "summed one day" } }),
+  step("aboutExpire", { input: { outcome: "dreamed", timeZone: "Europe/London", now: 2 }, output: { outcome: "expired", dropped: 1, when: ["check"] } }),
+  step("aboutCheck", { input: { outcome: "expired", timeZone: "Europe/London", now: 2 }, output: { outcome: "unchanged", checked: 3 } }),
   step("housekeep", { input: { timeZone: "Europe/London" }, output: { outcome: "tidied", status: 200 } }),
   e({ kind: "reply", turn: T, text: "Started.", timing: { v: 2, waitMs: 1_200, replyMs: 9_000, steps: [{ name: "history", at: 10, ms: 300 }], rounds: [{ at: 900, ms: 4_000, model: "anthropic/claude-haiku-5-5", output: 200, prompt: { modules: [{ id: "stable/texting", n: 90_000, h: "aa" }] } }] } }),
 ];
