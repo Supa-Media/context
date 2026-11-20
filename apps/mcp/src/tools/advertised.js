@@ -18,6 +18,9 @@ import { editsPinnedContext } from "../context/identity.js";
 import { machineRunRefuses } from "./machineRun.js";
 import { validateArguments } from "../toolArguments.js";
 
+/** The same check, for Tex's actions held to their own schemas (`packages/tex/gateway/agent/actionArgs.js`), through this seam. */
+export { validateArguments };
+
 export const toolDefinitions = registryToolDefinitions;
 export const EXISTENCE_MASKED_TOOLS = registryExistenceMaskedTools;
 
