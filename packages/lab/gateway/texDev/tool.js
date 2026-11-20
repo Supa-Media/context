@@ -320,7 +320,7 @@ export function createTexDev({ env, session, controlPlane, defer = null, sleep =
         const data = args.data === null ? null : args.data !== undefined ? JSON.stringify(args.data) : undefined;
         const key = typeof args.key === "string" ? args.key : "";
         const cut = key.lastIndexOf("/");
-        // A step keeps at most 50 cases (Dev2, 2026-11-15; 20 until 2026-11-17): a new one into a full step trades one out, as the
+        // A step keeps at most 100 cases (Dev2, 2026-11-15; 20 until 2026-11-17, 50 until 2026-11-20): a new one into a full step trades one out, as the
         // Tests page's swap does (`engine/caseDraft.ts` keepSwap); an edit to a case already there always lands.
         if (data !== undefined && data !== null && cut > 0 && args.data?.removed !== true) {
           const area = key.slice(0, cut);

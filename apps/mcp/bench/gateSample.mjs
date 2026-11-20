@@ -17,9 +17,11 @@
  * answer stay in; `scripts/tex-lab-data.mjs` fails when any step's cases pass it, so the bench never grows back.
  * Raised to 50 on 2026-11-17 (Dev2: "Replay cases, 20 per step - raise it to what you think makes sense"): every step
  * that had cases was full, so a fix could not add the case that proves it. The replay is on demand and capped at $1 a
- * change (`replayGate.mjs`); a step's case is one cheap call, so 50 keeps a step's run to cents.
+ * change (`replayGate.mjs`); a step's case is one cheap call, so 50 keeps a step's run to cents. Raised to 100 on
+ * 2026-11-20 (Dev2 chose it on a card): the pipeline's plumbing replays, which make no model call, were full at 50, and
+ * a fix to the door's yes step could not add the case that proves it.
  */
-export const UNIT_LIMIT = 50;
+export const UNIT_LIMIT = 100;
 
 /** The job tasks a change's replay runs: one research page, one page edit, one errand. */
 export const GATE_JOB_TASKS = ["research-caterers-page", "page-edit-fix-caterer-numbers", "errand-register-retreat-and-note"];
