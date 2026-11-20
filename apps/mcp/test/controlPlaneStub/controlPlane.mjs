@@ -90,9 +90,8 @@ export function createControlPlaneStub(options = {}) {
   const siteCalls = [];
   const vaultCalls = [];
   const flags = {
-    /** Who may send email, or a refusal for every send (`email.mjs`). */
+    /** Who may send email (several: `emailSenders`), or a refusal for every send (`email.mjs`). */
     emailSender: null,
-    /** Several addresses that can send: a send naming none is refused `choose_sender`. */
     emailSenders: null,
     emailRefusal: null,
     /** Which calendar may be changed, or a refusal for every change (`calendar.mjs`). */
