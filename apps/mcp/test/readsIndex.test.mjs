@@ -17,8 +17,8 @@ import { test } from "node:test";
 
 import { INDEXED_READS, markRead, MAX_INDEXED_READS, READS_PREFACE, readBackTool, readRef, readsNote, readsOf } from "../src/agent/readsIndex.js";
 import { toolEntry } from "../src/agent/ledger.js";
-import { texLedger } from "../src/texStore/ledger.js";
-import { DESK_LEDGER, READ_ARGS_KEPT } from "../src/texStore/desk.js";
+import { texLedger } from "../../../packages/tex/gateway/texStore/ledger.js";
+import { DESK_LEDGER, READ_ARGS_KEPT } from "../../../packages/tex/gateway/texStore/desk.js";
 import { durableSql } from "./texStoreFixture.mjs";
 import { createEgressWorld, request, TOKEN_TEXTS } from "./agentEgressFixtures.mjs";
 

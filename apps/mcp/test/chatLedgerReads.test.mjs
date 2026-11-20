@@ -3,7 +3,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 
-import { texLedger } from "../src/texStore/ledger.js";
+import { texLedger } from "../../../packages/tex/gateway/texStore/ledger.js";
 import { eventEntry, toolEntry, wordsEntry } from "../src/agent/ledger.js";
 import { dayFromLedger, earlierFromLedger, readLedger } from "../src/agent/ledgerHistory.js";
 import { loggedTurn } from "../src/agent/loggedTurn.js";

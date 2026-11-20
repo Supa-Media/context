@@ -11,7 +11,7 @@ import { internal } from "../../../_generated/api";
 import type { Id } from "../../../_generated/dataModel";
 import type { ActionCtx } from "../../../_generated/server";
 import { R2Store } from "../../../../mcp/src/store/r2.js";
-import { texBucket } from "../../../../mcp/src/texStore/wire.js";
+import { texBucket } from "../../../../../packages/tex/gateway/texStore/wire.js";
 import { doorStub } from "./objectDoor";
 
 type Home = "bucket" | "dual" | "object";

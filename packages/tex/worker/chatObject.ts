@@ -67,7 +67,7 @@ export class SenderInbox implements DurableObject {
   /** Calls, alarms and handed-on work running now: an inbox moves only when there are none (`inboxMove.ts`). */
   private busy = 0;
 
-  /** The object's way out to the network; the gateway's copy routes its own origin in-process (`apps/mcp/src/texChat.js`). */
+  /** The object's way out to the network; the gateway's copy routes its own origin in-process (`packages/tex/gateway/texChat.js`). */
   private readonly out: (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>;
 
   constructor(private readonly state: DurableObjectState, private readonly env: Env) {
@@ -441,7 +441,7 @@ export class SenderInbox implements DurableObject {
     }
   }
 
-  /** The line served by the Worker when this object runs in the gateway (`apps/mcp/src/texChat.js`); absent here. */
+  /** The line served by the Worker when this object runs in the gateway (`packages/tex/gateway/texChat.js`); absent here. */
   private remoteLines(): { remoteLine?: (chatId: string) => Line; remoteGroupLine?: (groupId: string) => GroupLine } {
     const line = this.env.TEX_LINE;
     return line === undefined ? {} : { remoteLine: (chatId) => line.line(chatId), remoteGroupLine: (groupId) => line.groupLine(groupId) };

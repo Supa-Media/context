@@ -23,7 +23,7 @@ import { isIndexableNote } from "../search/indexable.js";
 import { deleteStatements, FTS_TABLE, projectNote, upsertStatements } from "../search/d1/project.js";
 import { rankedRows, rankedSearchParams, rankedSearchSql, searchParams, searchSql, withWholeLines } from "../search/d1/query.js";
 import { parsedRules } from "./serve.js";
-import { TEX_TABLES, texObjects } from "../texStore/objects.js";
+import { TEX_TABLES, texObjects } from "../../../../packages/tex/gateway/texStore/objects.js";
 import { changeLog, PERSON_TEX_KEY } from "./changeLog.js";
 
 /** A person's own Tex note key (`store/texRouting.js`): its text is in this object's Tex tables, at the key's rest. */

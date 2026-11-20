@@ -5,7 +5,7 @@
  * the control plane gave it, and a page that cannot be told is no failure.
  */
 
-import { pokeTexPage } from "../texStore/pageLive.js";
+import { pokeTexPage } from "../../../../packages/tex/gateway/texStore/pageLive.js";
 
 const CHANGES_SETTINGS = new Set(["instructions", "updates", "engagement", "mute"]);
 

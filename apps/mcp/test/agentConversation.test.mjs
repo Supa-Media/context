@@ -13,7 +13,7 @@ import {
 import { systemPrompt } from "../src/agent/prompt.js";
 import { heartbeatCallTool } from "../src/agent/heartbeat.js";
 import { MAX_SOURCES, sourceAddress, sourcesOf } from "../src/agent/sources.js";
-import { texLedger } from "../src/texStore/ledger.js";
+import { texLedger } from "../../../packages/tex/gateway/texStore/ledger.js";
 import { durableSql } from "./texStoreFixture.mjs";
 
 /** A store that keeps etags and answers `onlyIf` as R2 and Tex's object do: null when the condition fails. */

@@ -5,7 +5,7 @@
  * Your own history reads through your own Tex page routes (`HistoryFileView`),
  * which refuse a chat that is not yours. A shared one comes from the grant's
  * read instead (`shares.readGrantedNote`): the file's JSON as the chat's Tex
- * object renders it (`apps/mcp/src/texStore/historyView.js`,
+ * object renders it (`packages/tex/gateway/texStore/historyView.js`,
  * `{manifest, view, entries}`, oldest first). This answers `ledger` from that
  * text the way the gateway's raw view answers it (`http/texPage/ledger.js`):
  * filtered by kind, day and job, newest first, a page at a time. Everything

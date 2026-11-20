@@ -21,7 +21,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { texLedger } from "../src/texStore/ledger.js";
+import { texLedger } from "../../../packages/tex/gateway/texStore/ledger.js";
 import { durableSql } from "./texStoreFixture.mjs";
 import { eventEntry } from "../src/agent/ledger.js";
 import { heardEntry, heardEvents } from "../src/agent/heardWords.js";

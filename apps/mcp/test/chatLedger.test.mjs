@@ -3,8 +3,8 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 
-import { texLedger, LEDGER_SCHEMA, LEDGER_VERSION, MAX_ENTRY_BYTES } from "../src/texStore/ledger.js";
-import { TexObjectRefused } from "../src/texStore/objects.js";
+import { texLedger, LEDGER_SCHEMA, LEDGER_VERSION, MAX_ENTRY_BYTES } from "../../../packages/tex/gateway/texStore/ledger.js";
+import { TexObjectRefused } from "../../../packages/tex/gateway/texStore/objects.js";
 import { judgeEntry, ledgerObserver, keptArgs, ledgerFor, ledgerPlace, ledgerWriter, readsOtherWorkspace, toolEntry, wordsEntry, eventEntry, MAX_RESULT_CHARS, ONE_TO_ONE_CHAT } from "../src/agent/ledger.js";
 import { durableSql, texStoreNamespace } from "./texStoreFixture.mjs";
 

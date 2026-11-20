@@ -13,8 +13,8 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 
-import { texJobClass, BORN_KEY, JOB_NAME_KEY } from "../src/texJob.js";
-import { chatEnv } from "../src/texChat.js";
+import { texJobClass, BORN_KEY, JOB_NAME_KEY } from "../../../packages/tex/gateway/texJob.js";
+import { chatEnv } from "../../../packages/tex/gateway/texChat.js";
 import { jobCallForTexts, TEXTS_JOB_CALL_PREFIX } from "../src/agent/textsArrive.js";
 import { TexTexts, TexJob } from "../src/index.js";
 
@@ -305,7 +305,7 @@ describe("a chat's job calls", () => {
 
 describe("jobRunOver", () => {
   it("is the Worker's job workflow over its RPC, and nothing with no RPC (the alarm drives the job)", async () => {
-    const { jobRunOver } = await import("../src/texJob.js");
+    const { jobRunOver } = await import("../../../packages/tex/gateway/texJob.js");
     assert.equal(jobRunOver(undefined), undefined);
     const calls = [];
     const over = jobRunOver({ jobRun: async (call) => void calls.push(call) });

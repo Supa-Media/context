@@ -30,7 +30,7 @@ import { readChatMemoryRecord, writeChatMemoryRecord } from "../src/agent/chatMe
 import { GROUP_PAGE_COPIED, copyGroupPageIn, pageEntries } from "../src/agent/groupPageCopy.js";
 import { groupQuestion } from "../src/agent/groupLedgerHistory.js";
 import { GROUP_BACKFILLED } from "../src/agent/ledgerBackfill.js";
-import { texLedger } from "../src/texStore/ledger.js";
+import { texLedger } from "../../../packages/tex/gateway/texStore/ledger.js";
 import { durableSql } from "./texStoreFixture.mjs";
 import { createMemoryStore } from "./gmailSync/fixtures.mjs";
 

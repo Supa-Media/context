@@ -31,7 +31,7 @@ import { FILE_OP_PATHS } from "../src/live/fileOpsRoute.js";
 import { MEETING_SUMMARY_PATH } from "../src/meetings/summarize.js";
 import { TEXTING_ROUTES } from "../src/agent/textingRoutes.js";
 import { MOVER_PAGE_PATH } from "../src/moves/mover.js";
-import { TEX_STORE_PATH } from "../src/texStore/door.js";
+import { TEX_STORE_PATH } from "../../../packages/tex/gateway/texStore/door.js";
 import { THREADS_BACKFILL_PATH } from "../src/agent/threadsBackfillDoor.js";
 import { WORKSPACE_STORE_PATH } from "../src/workspaceStore/door.js";
 import { IMAGE_UPLOAD_PATH } from "../src/notes/imageUploads.js";

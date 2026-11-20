@@ -23,7 +23,7 @@
  */
 
 import { ARRIVAL_KINDS, INBOX_NAME } from "./texChat/arrival.js";
-import { objectByName } from "./objectPlace.js";
+import { objectByName } from "../../../apps/mcp/src/objectPlace.js";
 import { JOB_NAME } from "./texJobName.js";
 import { NAME_KEY, PLACE_KEY, SENDER_ID_KEY, isAppChatName, placeAppChat, serveAppArrive, serveAppOutbox, serveAppPictureById } from "./texChat/appChat.js";
 

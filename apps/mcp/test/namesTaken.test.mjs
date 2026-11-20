@@ -19,7 +19,7 @@ import { namesTaken } from "../src/workspaceStore/namesTaken.js";
 import { workspaceRows } from "../src/workspaceStore/rows.js";
 import { objectFirstNames, WorkspaceBusy } from "../src/store/objectLookup.js";
 import { READS_AS_CHAT, READS_AS_GUEST } from "../src/privacy/engine.js";
-import { texObjects } from "../src/texStore/objects.js";
+import { texObjects } from "../../../packages/tex/gateway/texStore/objects.js";
 import { workspaceMembers } from "../src/workspaceStore/members.js";
 import { serveWorkspaceStore } from "../src/workspaceStore/serve.js";
 import { workspaceClient, HOMES } from "../src/workspaceStore/api.js";

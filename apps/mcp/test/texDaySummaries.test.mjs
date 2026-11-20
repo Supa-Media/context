@@ -16,7 +16,7 @@ import { test } from "node:test";
 import { MAX_DAYS_PER_NIGHT, chatDays, readSummary, writeDaySummaries } from "../src/agent/daySummaries.js";
 import { earlierFromLedger, readLedger, summaryLines } from "../src/agent/ledgerHistory.js";
 import { eventEntry } from "../src/agent/ledger.js";
-import { texLedger } from "../src/texStore/ledger.js";
+import { texLedger } from "../../../packages/tex/gateway/texStore/ledger.js";
 import { durableSql } from "./texStoreFixture.mjs";
 
 const DAY = 86_400_000;

@@ -22,7 +22,7 @@
  * in the note as any other agent would.
  */
 
-import { callTexStore } from "../texStore/wire.js";
+import { callTexStore } from "../../../../packages/tex/gateway/texStore/wire.js";
 import { workspaceStub } from "../workspaceStore/api.js";
 
 /**

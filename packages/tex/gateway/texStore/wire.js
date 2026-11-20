@@ -11,11 +11,11 @@
 
 import { TexObjectRefused } from "./objects.js";
 import { withHistoryView } from "./historyView.js";
-import { objectByName } from "../objectPlace.js";
+import { objectByName } from "../../../../apps/mcp/src/objectPlace.js";
 import { OWNER_HEADER, placedName } from "./move.js";
 import { mergedName } from "./merge.js";
 import { DESK_LEDGER, readDesk } from "./desk.js";
-import { R2Store } from "../store/r2.js";
+import { R2Store } from "../../../../apps/mcp/src/store/r2.js";
 
 const CALL = "x-tex-call";
 const META = "x-tex-meta";

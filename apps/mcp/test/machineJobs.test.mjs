@@ -9,7 +9,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { handleMachineJob } from "../src/machines/jobRoutes.js";
 import { serveMachineCall } from "../src/workspaceStore/serveMachines.js";
-import { opOf } from "../src/texStore/move.js";
+import { opOf } from "../../../packages/tex/gateway/texStore/move.js";
 import { MACHINE_RUN_CLIENT_ID, MACHINE_RUN_REFUSED_TOOLS, machineRunRefuses } from "../src/tools/machineRun.js";
 import { callToolForSession } from "../src/tools/session.js";
 import { machineWorld } from "./machineWorld.mjs";

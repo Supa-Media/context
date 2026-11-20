@@ -29,7 +29,7 @@ import { isIndexableNote } from "../search/indexable.js";
 import { meaningPassages, meaningTierFor } from "../search/meaning/project.js";
 import { EMBED_BATCH, MEANING_DIMENSIONS } from "../search/meaning/embed.js";
 import { parsedRules } from "./serve.js";
-import { TEX_TABLES, texObjects } from "../texStore/objects.js";
+import { TEX_TABLES, texObjects } from "../../../../packages/tex/gateway/texStore/objects.js";
 import { changeLog, PERSON_TEX_KEY } from "./changeLog.js";
 import { snippetFromText } from "../search/meaning/snippet.js";
 

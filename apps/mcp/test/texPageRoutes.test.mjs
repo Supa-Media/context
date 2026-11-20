@@ -27,7 +27,7 @@ import { ticketNamespace, ticketProtocols } from "./liveTicketFixture.mjs";
 import { createControlPlaneStub, CONTROL_PLANE_ORIGIN, GATEWAY_SECRET } from "./controlPlaneStub.mjs";
 import { texStoreNamespace } from "./texStoreFixture.mjs";
 import { handleTexPageLive } from "../src/http/texPage/live.js";
-import { PAGE_VIEWER_HEADER } from "../src/texStore/pageLive.js";
+import { PAGE_VIEWER_HEADER } from "../../../packages/tex/gateway/texStore/pageLive.js";
 import { actOwned } from "../src/http/texPage/serve.js";
 
 const tok = (name) => `cat_texpage_${name}_`.padEnd(40, "0");

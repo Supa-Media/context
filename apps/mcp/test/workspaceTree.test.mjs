@@ -6,7 +6,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 
-import { texObjects } from "../src/texStore/objects.js";
+import { texObjects } from "../../../packages/tex/gateway/texStore/objects.js";
 import { workspaceRows } from "../src/workspaceStore/rows.js";
 import { serveWorkspaceStore } from "../src/workspaceStore/serve.js";
 import { listFolderFromRows, folderPathOf } from "../src/workspaceStore/listing.js";

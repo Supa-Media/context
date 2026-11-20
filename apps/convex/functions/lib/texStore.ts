@@ -6,7 +6,7 @@
  * which only the gateway can reach. The stores this deployment builds for
  * Download as folders, the trash's emptying and filing a shared edit pass
  * `texStore` from here, so a Tex key among the notes they handle goes to the
- * gateway's door (`apps/mcp/src/texStore/door.js`) with the gateway secret and
+ * gateway's door (`packages/tex/gateway/texStore/door.js`) with the gateway secret and
  * a ticket for this workspace, and from there to the object. Without the
  * gateway's origin or the secret it answers `null`, and the store refuses a
  * Tex key rather than look for it in the bucket (`store/texRouting.js`).
@@ -15,7 +15,7 @@
 import { internal } from "../../_generated/api";
 import type { Id } from "../../_generated/dataModel";
 import type { ActionCtx } from "../../_generated/server";
-import { texBucket, texBucketStore } from "../../../mcp/src/texStore/wire.js";
+import { texBucket, texBucketStore } from "../../../../packages/tex/gateway/texStore/wire.js";
 import { hashToken } from "./crypto";
 import { GATEWAY_SECRET_ENV_VAR, randomOpaqueToken } from "./gatewayAuth";
 import { storageMoverOrigin } from "./storageMover";

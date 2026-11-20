@@ -19,7 +19,7 @@ import { dayFromLedger, readLedger } from "../src/agent/ledgerHistory.js";
 import { guestNameEntry, withGuestNames } from "../src/agent/groupGuestNames.js";
 import { speaker } from "../src/agent/logRender.js";
 import { eventEntry } from "../src/agent/ledger.js";
-import { texLedger } from "../src/texStore/ledger.js";
+import { texLedger } from "../../../packages/tex/gateway/texStore/ledger.js";
 import { durableSql } from "./texStoreFixture.mjs";
 import { createHash } from "node:crypto";
 

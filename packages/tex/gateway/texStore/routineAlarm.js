@@ -13,8 +13,8 @@
  * cron, which runs every routine every minute, is what catches it.
  */
 
-import { nextRunAt, routineFromPath, routineSettings, TEX_ROUTINES_FOLDER } from "../../../../packages/shared/src/routines.cjs";
-import { DEFAULT_TIME_ZONE } from "../agent/localNow.js";
+import { nextRunAt, routineFromPath, routineSettings, TEX_ROUTINES_FOLDER } from "../../../shared/src/routines.cjs";
+import { DEFAULT_TIME_ZONE } from "../../../../apps/mcp/src/agent/localNow.js";
 import { ownerName, texStoreStub, texTimers } from "./wire.js";
 
 /**

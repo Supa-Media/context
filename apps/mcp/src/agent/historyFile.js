@@ -8,7 +8,7 @@
  * over the marker whatever sends it.
  */
 
-import { CONVERSATIONS_FILE, CONVERSATIONS_VIEW_MARKER, HISTORY_FILE, HISTORY_VIEW_MARKER } from "../texStore/historyView.js";
+import { CONVERSATIONS_FILE, CONVERSATIONS_VIEW_MARKER, HISTORY_FILE, HISTORY_VIEW_MARKER } from "../../../../packages/tex/gateway/texStore/historyView.js";
 import { isChatHistoryPath } from "../notes/paths.js";
 
 export { CONVERSATIONS_FILE, HISTORY_FILE };

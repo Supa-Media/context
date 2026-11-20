@@ -10,7 +10,7 @@ import { eventEntry, ledgerFor, ONE_TO_ONE_CHAT } from "../src/agent/ledger.js";
 import { HISTORY_KEY } from "../src/agent/history.js";
 import { LOG_PREFIX, logPrefix } from "../src/agent/log.js";
 import { withTexRouting } from "../src/store/texRouting.js";
-import { gatewayTexStore } from "../src/texStore/wire.js";
+import { gatewayTexStore } from "../../../packages/tex/gateway/texStore/wire.js";
 import { texStoreNamespace } from "./texStoreFixture.mjs";
 
 const DAY = 86_400_000;

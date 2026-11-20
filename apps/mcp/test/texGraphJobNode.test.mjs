@@ -18,8 +18,8 @@ import { job } from "../src/agent/graph/nodes/job.js";
 import { borrowJob, lendJob, returnJob } from "../src/agent/graph/jobHandles.js";
 import { jobCheckFor, handbackFor } from "../src/agent/graph/bridges.js";
 import { TEX_CONFIG } from "../src/agent/texConfig.js";
-import { texJobClass, BORN_KEY, JOB_NAME_KEY } from "../src/texJob.js";
-import { JOB_NODES_KEY, JOB_NODES_KEPT } from "../src/texJobLog.js";
+import { texJobClass, BORN_KEY, JOB_NAME_KEY } from "../../../packages/tex/gateway/texJob.js";
+import { JOB_NODES_KEY, JOB_NODES_KEPT } from "../../../packages/tex/gateway/texJobLog.js";
 
 const JOB = "a1b2c3d4-e5f6";
 const NAME = `job:${JOB}`;

@@ -1,1 +1,1 @@
-export * from "../../../../apps/mcp/src/texStore/desk.js";
+export * from "../../../tex/gateway/texStore/desk.js";

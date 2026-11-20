@@ -81,7 +81,7 @@ import { handleTryIt } from "../agent/tryIt.js";
 import { TEXTING_ROUTES } from "../agent/textingRoutes.js";
 import { withSearchPassesHeld } from "../search/heldPasses.js";
 import { MOVER_PAGE_PATH, handleMoverPage } from "../moves/mover.js";
-import { TEX_STORE_PATH, handleTexStoreDoor } from "../texStore/door.js";
+import { TEX_STORE_PATH, handleTexStoreDoor } from "../../../../packages/tex/gateway/texStore/door.js";
 import { THREADS_BACKFILL_PATH, handleThreadsBackfill } from "../agent/threadsBackfillDoor.js";
 import { WORKSPACE_STORE_PATH, handleWorkspaceStoreDoor } from "../workspaceStore/door.js";
 import { IMAGE_UPLOAD_PATH, handleImageUpload } from "../notes/imageUploads.js";

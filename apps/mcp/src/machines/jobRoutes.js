@@ -37,7 +37,7 @@
 import { json } from "../http/responses.js";
 import { hasScope, SCOPE_WRITE } from "../session.js";
 import { workspaceStub } from "../workspaceStore/api.js";
-import { callTexStore } from "../texStore/wire.js";
+import { callTexStore } from "../../../../packages/tex/gateway/texStore/wire.js";
 import { jobFields } from "../agent/jobCheck.js";
 import { gatewayGraph } from "../agent/graph/gatewayGraph.js";
 import { jobCheckOnGraph } from "../agent/graph/bridges.js";

@@ -3,7 +3,7 @@
  * control plane runs on the gateway's behalf.
  */
 import { ControlPlaneError, sha256Hex } from "./client.js";
-import { rememberTicketShared, rememberedTicketShared } from "../texStore/ticketCache.js";
+import { rememberTicketShared, rememberedTicketShared } from "../../../../packages/tex/gateway/texStore/ticketCache.js";
 
 export function createJobMethods({ post, required }) {
   return {

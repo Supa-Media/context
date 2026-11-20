@@ -33,7 +33,7 @@
  * page state in the tables a Tex store keeps them in.
  */
 
-import { objectByName, objectIdOf } from "../objectPlace.js";
+import { objectByName, objectIdOf } from "../../../../apps/mcp/src/objectPlace.js";
 import { clearAlarms, everyAlarm, schedule } from "./alarms.js";
 import { OWNER_HEADER, placedName, purgeOld } from "./move.js";
 

@@ -1,7 +1,7 @@
 /**
  * WARMING THE CACHE (Dev2, 2026-11-20, the cache rules: "the cache is warmed when the chat opens or the person starts
  * typing"; node `warm`, on the shelf; `src/agent/warmPrefix.js`, `graph/nodes/warm.js`, `textsWarm.js`,
- * `src/texStore/warm.js`). A turn keeps the request its first round sent, cut at the history's end; a read receipt,
+ * `packages/tex/gateway/texStore/warm.js`). A turn keeps the request its first round sent, cut at the history's end; a read receipt,
  * an open chat or typing sends that prefix again, byte for byte, with a one-token answer.
  * Sabotage: cut at the last mark instead of the first in `keptPrefix` and "the kept prefix is the history" fails; drop
  * `rawBody` in `aiGateway.js` and "sent byte for byte" fails; drop the day check in the node and "another day" fails.
@@ -14,8 +14,8 @@ import { keptPrefix, prefixKeeper, warmRequest, warmWired, WARM_ASK } from "../s
 import { warmNode, WARM_AGAIN_MS } from "../src/agent/graph/nodes/warm.js";
 import { warmChat, warmForTexts, warmPlace } from "../src/agent/textsWarm.js";
 import { TEX_CONFIG } from "../src/agent/texConfig.js";
-import { texWarm, WARM_FRESH_MS, MAX_WARM_BYTES } from "../src/texStore/warm.js";
-import { TexObjectRefused } from "../src/texStore/objects.js";
+import { texWarm, WARM_FRESH_MS, MAX_WARM_BYTES } from "../../../packages/tex/gateway/texStore/warm.js";
+import { TexObjectRefused } from "../../../packages/tex/gateway/texStore/objects.js";
 import { durableSql, texStoreNamespace } from "./texStoreFixture.mjs";
 import { ledgerFor } from "../src/agent/ledger.js";
 

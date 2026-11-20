@@ -3,8 +3,8 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 
-import { texObjects, CHUNK_BYTES, MAX_LIST, MAX_OBJECT_BYTES, TexObjectRefused } from "../src/texStore/objects.js";
-import { serveTexStore, texBucket, ownerName, texStoreStub } from "../src/texStore/wire.js";
+import { texObjects, CHUNK_BYTES, MAX_LIST, MAX_OBJECT_BYTES, TexObjectRefused } from "../../../packages/tex/gateway/texStore/objects.js";
+import { serveTexStore, texBucket, ownerName, texStoreStub } from "../../../packages/tex/gateway/texStore/wire.js";
 import { R2Store } from "../src/store/r2.js";
 
 let DatabaseSync = null;

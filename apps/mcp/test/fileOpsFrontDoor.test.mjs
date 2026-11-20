@@ -14,7 +14,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 
 import worker from "../src/index.js";
-import { texObjects } from "../src/texStore/objects.js";
+import { texObjects } from "../../../packages/tex/gateway/texStore/objects.js";
 import { workspaceRows } from "../src/workspaceStore/rows.js";
 import { personRows } from "../src/workspaceStore/personRows.js";
 import { workspaceMembers } from "../src/workspaceStore/members.js";

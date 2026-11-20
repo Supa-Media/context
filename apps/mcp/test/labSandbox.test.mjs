@@ -31,7 +31,7 @@ import { createEmailMethods } from "../src/controlPlane/email.js";
 import { createCalendarMethods } from "../src/controlPlane/calendar.js";
 import { createGoogleChatMethods } from "../src/controlPlane/googleChat.js";
 import { aiGatewayConfig } from "../src/agent/aiGateway.js";
-import { texBucket, texStoreStub, texTimers } from "../src/texStore/wire.js";
+import { texBucket, texStoreStub, texTimers } from "../../../packages/tex/gateway/texStore/wire.js";
 import { durableSql, texStoreNamespace } from "./texStoreFixture.mjs";
 
 const KEY = "a".repeat(64);
@@ -456,7 +456,7 @@ test("a test chat opens on the whole real chat, never a cutoff; get pages with a
     const id = opened.body.sandboxId;
     // Tex's history in the test chat is the real chat's, rebuilt as a turn rebuilds it: every exchange, never none.
     const { conversationFromLedger } = await import("../src/agent/ledgerConversation.js");
-    const { DESK_LEDGER } = await import("../src/texStore/desk.js");
+    const { DESK_LEDGER } = await import("../../../packages/tex/gateway/texStore/desk.js");
     const copied = w.ns.get(w.ns.idFromName(`labsandbox:u_alice:${id}`));
     const read = await (await copied.fetch(new Request("https://lab-sandbox.internal/ledger.read", { method: "POST", body: JSON.stringify({ chat: ONE_TO_ONE_CHAT, options: { ...DESK_LEDGER.options, slim: false } }) }))).json();
     assert.ok(read.entries.some((entry) => entry.kind === "reply"), "the replies are copied");

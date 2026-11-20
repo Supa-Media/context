@@ -33,7 +33,7 @@
  * and compare check finds and repairs it.
  */
 
-import { r2Shaped } from "../texStore/wire.js";
+import { r2Shaped } from "../../../../packages/tex/gateway/texStore/wire.js";
 import { lastWriteEach } from "../workspaceStore/lastWrite.js";
 import { HOMES, REVISIONS, documentStateId, isHome, isRevisionKey, isWorkspaceObjectKey } from "../workspaceStore/api.js";
 
