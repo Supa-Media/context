@@ -74,7 +74,7 @@ function chatNamespace() {
 
 /** The person's own read of the note: `read_note` answered with the header lines the tool writes. */
 function readOk(body = "The note.", visibility = "team") {
-  return { content: [{ type: "text", text: `etag: e1\npath: ${NOTE}\nvisibility: ${visibility}\n\n${body}` }] };
+  return { content: [{ type: "text", text: `etag: @team/n1:e1\npath: ${NOTE}\nvisibility: ${visibility}\n\n${body}` }] };
 }
 
 /** A dispatcher for the person's own tools: `read_note` gets the answer, every call is kept. */
@@ -217,7 +217,6 @@ describe("validation: refused before anything is read", () => {
     ["21 history items", { json: body({ history: Array.from({ length: 21 }, () => ({ who: "me", body: "x" })) }) }],
     ["a history body over 4000", { json: body({ history: [{ who: "me", body: "b".repeat(4001) }] }) }],
     ["pending over 20000", { json: body({ pending: "p".repeat(20_001) }) }],
-    ["an empty noteId", { json: body({ noteId: "" }) }],
     ["a thread over 128", { json: body({ thread: "t".repeat(129) }) }],
     ["no workspace", { json: body({ workspace: undefined }) }],
     ["a noteId with a space", { json: body({ noteId: "n 1" }) }],
@@ -304,6 +303,28 @@ describe("the note: read through the person's own access", () => {
     const shared = dispatcher();
     await postRun(body({ workspace: "wsT" }), { env: { TEX_CHAT: chatNamespace().namespace }, deps: depsFor({ dispatch: shared.dispatch }) });
     assert.deepEqual(shared.calls[0], { name: "read_note", args: { path: NOTE, context: "@team" } });
+  });
+});
+
+describe("the run log's key", () => {
+  it("is the note's id from its placed etag, never the id the client sent", async () => {
+    const chat = chatNamespace();
+    const d = dispatcher();
+    const response = await postRun(body({ noteId: "someOtherNote" }), { env: { TEX_CHAT: chat.namespace }, deps: depsFor({ dispatch: d.dispatch, runNoteRun: answering() }) });
+    await lines(response);
+    assert.deepEqual([...chat.storages.keys()], ["noteruns:wsT:n1"]);
+  });
+
+  it("is a hash of the path for a note whose etag names no id, and the console's empty noteId is taken", async () => {
+    const chat = chatNamespace();
+    const bare = { content: [{ type: "text", text: `etag: e1\npath: ${NOTE}\nvisibility: team\n\nThe note.` }] };
+    const d = dispatcher(bare);
+    const response = await postRun(body({ noteId: "" }), { env: { TEX_CHAT: chat.namespace }, deps: depsFor({ dispatch: d.dispatch, runNoteRun: answering() }) });
+    assert.equal(response.status, 200);
+    await lines(response);
+    const keys = [...chat.storages.keys()];
+    assert.equal(keys.length, 1);
+    assert.match(keys[0], /^noteruns:wsT:p[0-9a-f]{32}$/);
   });
 });
 

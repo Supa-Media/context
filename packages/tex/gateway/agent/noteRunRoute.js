@@ -8,7 +8,7 @@
  *    and `{type:"done", runId, sources}`. A run that does not answer ends in one `{type:"error", message}` line.
  *    Refusals before the stream are JSON `{error}`: 400 for a body, 403 for a workspace the person is not in, 404 for a
  *    note they cannot read, 503 while the `noteRun` step is not wired.
- *  - `GET /tex/note-runs?workspace=&noteId=&path=` → `{ runs: [{ runId, who, ask, out, sources, at, private }] }`, the
+ *  - `GET /tex/note-runs?workspace=&path=` (noteId may be sent, and is ignored) → `{ runs: [{ runId, who, ask, out, sources, at, private }] }`, the
  *    note's runs newest first, for a person who can read the note. A run someone else made shows only the note's own
  *    source; the asker's own runs show every source, and `private` says when one of them is not this note.
  *
@@ -29,6 +29,7 @@ import { texConfigOf, texStep } from "./texConfig.js";
 import { personalNameFor } from "../../../../apps/mcp/src/context/identity.js";
 import { createControlPlane } from "../../../../apps/mcp/src/controlPlane.js";
 import { appendNoteRun, listNoteRuns } from "./noteRunLog.js";
+import { parsePlacedEtag } from "../../../../apps/mcp/src/tools/etagPlace.js";
 
 export const NOTE_RUN_PATH = "/tex/note-run";
 export const NOTE_RUNS_READ_PATH = "/tex/note-runs";
@@ -83,7 +84,8 @@ export function parseRunBody(body) {
   if (!isObject(body)) return { error: "Send a JSON object." };
   const { workspace, noteId, path, thread, anchor, ask, history, pending } = body;
   if (!text(workspace, MAX_ID, 1)) return { error: "workspace is a workspace id or @name." };
-  if (!text(noteId, MAX_ID, 1) || !ID_TEXT.test(noteId)) return { error: "noteId is a note's id." };
+  // The client's note id is optional and never trusted: the log's key is derived from the note as read (`logKeyOf`).
+  if (noteId !== undefined && (!text(noteId, MAX_ID) || (noteId !== "" && !ID_TEXT.test(noteId)))) return { error: "noteId is a note's id, or empty." };
   if (!text(path, MAX_PATH, 1)) return { error: `path is up to ${MAX_PATH} characters.` };
   if (!text(thread, MAX_ID, 1)) return { error: "thread is the comment thread's id." };
   if (!isObject(anchor) || !text(anchor.text, MAX_ANCHOR_TEXT) || !text(anchor.before, MAX_ANCHOR_CONTEXT) || !text(anchor.after, MAX_ANCHOR_CONTEXT)) {
@@ -147,7 +149,18 @@ export async function readNoteAs(dispatch, path, context) {
   if (/^moved_from:/m.test(header)) return null;
   const visibility = /^visibility: (.+)$/m.exec(header)?.[1]?.trim() ?? null;
   const audience = visibility !== null && Object.hasOwn(AUDIENCE, visibility) ? AUDIENCE[visibility] : AUDIENCE_OTHER;
-  return { note: split === -1 ? "" : whole.slice(split + 2), audience };
+  const etag = /^etag: (.+)$/m.exec(header)?.[1]?.trim() ?? null;
+  return { note: split === -1 ? "" : whole.slice(split + 2), audience, noteId: parsePlacedEtag(etag)?.noteId ?? null };
+}
+
+/**
+ * The key a note's run log is kept under: the note's own id, as its placed etag names it, or a hash of its path for a
+ * note without one. Never the id the client sent: a key it chose could write runs into a note it cannot read.
+ */
+export async function logKeyOf(note, path) {
+  if (typeof note?.noteId === "string" && ID_TEXT.test(note.noteId)) return note.noteId;
+  const digest = new Uint8Array(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(path)));
+  return `p${[...digest.slice(0, 16)].map((b) => b.toString(16).padStart(2, "0")).join("")}`;
 }
 
 /** The node that runs a note's ask, or null while it is not wired (the config has no `noteRun`, or it is off). */
@@ -285,7 +298,7 @@ async function serveRun(request, store, session, env, ctx, deps) {
       if (typeof result.replace === "string") send({ type: "edit", replace: result.replace });
       send({ type: "done", runId, sources });
       await chain;
-      await appendNoteRun(env, target.workspaceId, parsed.noteId, {
+      await appendNoteRun(env, target.workspaceId, await logKeyOf(note, parsed.path), {
         runId,
         who: personalNameFor(session) ?? "someone",
         userId: typeof session.actorUserId === "string" ? session.actorUserId : null,
@@ -328,15 +341,15 @@ async function serveRuns(request, store, session, env, deps) {
   const workspace = params.get("workspace") ?? "";
   const noteId = params.get("noteId") ?? "";
   const path = params.get("path") ?? "";
-  if (!text(workspace, MAX_ID, 1) || !text(noteId, MAX_ID, 1) || !ID_TEXT.test(noteId) || !text(path, MAX_PATH, 1)) {
-    return refuse(400, "workspace, noteId and path name the note.");
+  if (!text(workspace, MAX_ID, 1) || !text(noteId, MAX_ID) || !text(path, MAX_PATH, 1)) {
+    return refuse(400, "workspace and path name the note.");
   }
   const target = targetOf(session, workspace);
   if (target === null) return refuse(403, "forbidden");
   const wired = dependencies(env, deps);
   const note = await readNoteAs(wired.dispatchFor(store, session), path, target.context);
   if (note === null) return refuse(404, NOT_READABLE_MESSAGE);
-  const listed = await (deps.listRuns ?? listNoteRuns)(env, target.workspaceId, noteId);
+  const listed = await (deps.listRuns ?? listNoteRuns)(env, target.workspaceId, await logKeyOf(note, path));
   if (listed === null) return refuse(503, UNREACHABLE_MESSAGE);
   const own = (run) => typeof run.userId === "string" && run.userId === session.actorUserId;
   const runs = listed.map((run) => {
@@ -362,15 +375,15 @@ async function serveRuns(request, store, session, env, deps) {
  */
 export async function noteRunsFull({ env, store, session, args }, deps = {}) {
   const { workspace, noteId, path } = args ?? {};
-  if (!text(workspace, MAX_ID, 1) || !text(noteId, MAX_ID, 1) || !ID_TEXT.test(noteId) || !text(path, MAX_PATH, 1)) {
-    return { error: "note_runs takes { workspace, noteId, path }: the note's workspace, id and path." };
+  if (!text(workspace, MAX_ID, 1) || !text(path, MAX_PATH, 1)) {
+    return { error: "note_runs takes { workspace, path }: the note's workspace and path." };
   }
   const target = targetOf(session, workspace);
   if (target === null) return { error: "This connection has no access to that workspace; call orient to see the ones it reaches." };
   const dispatch = deps.dispatchFor ? deps.dispatchFor(store, session) : ownDispatch(store, session, env);
   const note = await readNoteAs(dispatch, path, target.context);
   if (note === null) return { error: NOT_READABLE_MESSAGE };
-  const runs = await (deps.listRuns ?? listNoteRuns)(env, target.workspaceId, noteId);
+  const runs = await (deps.listRuns ?? listNoteRuns)(env, target.workspaceId, await logKeyOf(note, path));
   if (runs === null) return { error: UNREACHABLE_MESSAGE };
   return { workspace, noteId, path, runs };
 }
