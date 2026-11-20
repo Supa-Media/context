@@ -23,7 +23,7 @@ const SIZES = ["phone", "tablet", "desktop"];
 
 /** One sentence for every refusal, so it says nothing about why. */
 const REFUSED =
-  "only this workspace's owners and editors can see a website's status or publish it, from a connection that can write.";
+  "only this workspace's owners and editors can see a website's status or publish it, from a connection that can write. Ask an owner or editor to do it.";
 
 /** One width's measurements, as lines an agent can act on. */
 function describeShot(shot) {
@@ -50,7 +50,7 @@ function describeShot(shot) {
 async function photograph(store, target, sizes) {
   if (target.url === null) return toolError(target.message ?? REFUSED);
   const result = await store.shootSite({ url: target.url, sizes });
-  if (result.error) return toolError(`no screenshot: ${result.error}`);
+  if (result.error) return toolError(`no screenshot: ${result.error}. Try again, or run a site check, which needs no browser`);
   const header = `${target.url} (published revision ${target.revision ?? "?"}), as a signed-out visitor sees it:`;
   const text = [header, ...result.shots.map(describeShot), ...result.failures.map((f) => `${f.size}: failed: ${f.reason}`)];
   return {
@@ -86,20 +86,20 @@ export async function toolSiteAction(store, args) {
       (request.action === "history" && request.revision === undefined))
   ) {
     return toolError(
-      'inspect goes with action "check" and names a note under website/, e.g. "website/layout.html.md", or with "history" and a revision, naming one page of that version',
+      'inspect goes with action "check" and names a note under website/, e.g. "website/layout.html.md", or with "history" and a revision, naming one page of that version; drop inspect otherwise',
     );
   }
   if (
     request.revision !== undefined &&
     (request.action !== "history" || !Number.isSafeInteger(request.revision) || request.revision < 0)
   ) {
-    return toolError('revision goes with action "history" and is a revision number a history listed, e.g. 12');
+    return toolError('revision goes with action "history" and is a revision number a history listed, e.g. 12; call history first to list them');
   }
   if (
     request.page !== undefined &&
     (request.action !== "screenshot" || typeof request.page !== "string" || !/^\/[^\0]{0,300}$/.test(request.page))
   ) {
-    return toolError('page goes with action "screenshot" and is an address on the site, e.g. "/" or "/about"');
+    return toolError('page goes with action "screenshot" and is an address on the site, e.g. "/" or "/about"; pass one like those, or leave page out');
   }
   if (
     request.sizes !== undefined &&
@@ -108,7 +108,7 @@ export async function toolSiteAction(store, args) {
       request.sizes.length === 0 ||
       !request.sizes.every((size) => SIZES.includes(size)))
   ) {
-    return toolError('sizes goes with action "screenshot" and lists phone, tablet and/or desktop');
+    return toolError('sizes goes with action "screenshot" and lists phone, tablet and/or desktop; pass those names, or leave sizes out');
   }
   if (
     request.hostname !== undefined &&
@@ -117,7 +117,7 @@ export async function toolSiteAction(store, args) {
     return toolError('hostname goes with action "domain" and is the domain to connect, e.g. "example.com" or "blog.example.com"');
   }
   if (typeof store.site !== "function") {
-    return toolError("websites are not available on this deployment");
+    return toolError("websites are not available on this deployment; tell the person, and don't try again");
   }
   if (request.action === "screenshot" && typeof store.shootSite !== "function") {
     return toolError("screenshots are not available on this deployment; a site check needs no browser.");

@@ -36,12 +36,12 @@ const SUBJECT_CONTROL = /[\u0000-\u001f\u007f\u202a-\u202e\u2066-\u2069]/;
 function addresses(value, field) {
   if (value === undefined) return { list: [] };
   const list = typeof value === "string" ? [value] : value;
-  if (!Array.isArray(list)) return { error: `${field} is a list of email addresses.` };
+  if (!Array.isArray(list)) return { error: `${field} is a list of email addresses: pass it as an array, like ["jo@example.com"].` };
   const out = [];
   for (const item of list) {
     const address = typeof item === "string" ? item.trim() : "";
     if (address.length > 254 || !ADDRESS.test(address)) {
-      return { error: `${field} has something that is not one plain email address (like jo@example.com, no name, one per item).` };
+      return { error: `${field} has something that is not one plain email address. Pass each as its own item, the address alone, like jo@example.com, with no name.` };
     }
     out.push(address.toLowerCase());
   }
@@ -101,24 +101,24 @@ export function readEmail(args) {
   const from = addresses(args?.from, "from");
   const cc = addresses(args?.cc, "cc");
   for (const part of [from, to, cc]) if (part.error) return { error: part.error };
-  if (from.list.length > 1) return { error: "from is one of the person's own connected Gmail addresses, or left out." };
-  if (to.list.length === 0) return { error: "to needs at least one address." };
+  if (from.list.length > 1) return { error: "from takes one address. Pick one of the person's own connected Gmail addresses, or leave from out." };
+  if (to.list.length === 0) return { error: "to is empty. Add at least one address; if you don't know it, search their mail or notes for it, or ask the person." };
   const all = [...to.list, ...cc.list];
-  if (all.length > MAX_RECIPIENTS) return { error: `One email goes to at most ${MAX_RECIPIENTS} addresses, to and cc together.` };
-  if (new Set(all).size !== all.length) return { error: "An address is listed twice." };
+  if (all.length > MAX_RECIPIENTS) return { error: `One email goes to at most ${MAX_RECIPIENTS} addresses, to and cc together. Drop some, or split it into separate emails.` };
+  if (new Set(all).size !== all.length) return { error: "An address is listed twice. Remove the repeat, across to and cc, and send again." };
   const subject = typeof args?.subject === "string" ? args.subject : "";
   const body = typeof args?.body === "string" ? args.body : "";
   if (subject.trim() === "" || subject.length > MAX_SUBJECT || SUBJECT_CONTROL.test(subject)) {
-    return { error: `subject is one line of 1 to ${MAX_SUBJECT} characters.` };
+    return { error: `subject is one line of 1 to ${MAX_SUBJECT} characters. Write a shorter one-line subject.` };
   }
   if (body.trim() === "" || body.length > MAX_BODY || BODY_CONTROL.test(body)) {
-    return { error: `body is the email's plain text, 1 to ${MAX_BODY.toLocaleString("en-US")} characters.` };
+    return { error: `body is the email's plain text, 1 to ${MAX_BODY.toLocaleString("en-US")} characters. Write a body, or shorten it.` };
   }
   // A reply names the email it answers, as search_email gave it, and goes from that email's mailbox.
   let reply = null;
   if (args?.in_reply_to !== undefined) {
     reply = parseEmailId(typeof args.in_reply_to === "string" ? args.in_reply_to.trim() : "");
-    if (reply === null) return { error: "in_reply_to is the email:<address>/<id> id search_email gave for the email this answers." };
+    if (reply === null) return { error: "in_reply_to is not an email id. Pass the email:<address>/<id> id search_email gave for the email this answers." };
     if (from.list.length === 1 && from.list[0] !== reply.address) {
       return { error: `A reply goes from the mailbox the email is in: leave from out, or make it ${reply.address}.` };
     }
@@ -128,7 +128,7 @@ export function readEmail(args) {
   if (args?.forward !== undefined) {
     forward = parseEmailId(typeof args.forward === "string" ? args.forward.trim() : "");
     if (forward === null) return { error: "forward is the email:<address>/<id> id search_email gave for the email to pass on." };
-    if (reply !== null) return { error: "An email either answers one (in_reply_to) or forwards one (forward), not both." };
+    if (reply !== null) return { error: "An email either answers one (in_reply_to) or forwards one (forward), not both. Drop one of them." };
     if (from.list.length === 1 && from.list[0] !== forward.address) {
       return { error: `A forward goes from the mailbox the email is in: leave from out, or make it ${forward.address}.` };
     }

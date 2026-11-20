@@ -65,7 +65,7 @@ export async function toolReadFile(store, scope, rules, overrides, pathArg, from
   if (!path) return toolError("invalid path");
   const type = readableFileType(path);
   if (!type) {
-    return toolError(`read_file opens ${[...READABLE_FILE_TYPES.keys()].join(", ")} files; a note is read with read_note`);
+    return toolError(`read_file opens ${[...READABLE_FILE_TYPES.keys()].join(", ")} files; pass a note to read_note instead`);
   }
   const seen = canSee(path, scope, rules, overrides);
   const present = Boolean(await probeWithLegacyFallback(store, path));
@@ -80,7 +80,7 @@ export async function toolReadFile(store, scope, rules, overrides, pathArg, from
     summary,
     next: (at) => `read_file with path "${path}" and from: ${at}`,
   });
-  if (words.error) return toolError(`${words.error}: ${path}`);
+  if (words.error) return toolError(`${words.error}: ${path}. Tell the person you could not read it`);
   const answer = toolText(
     `path: ${path}\nvisibility: ${effectiveVisibility(path, rules, overrides)}\nkind: file\ntype: ${type}\n` +
       `bytes: ${bytes.byteLength}\ntrust: untrusted\n\n${QUOTATION}\n\n${words.text}`,
@@ -101,7 +101,7 @@ export const QUOTATION =
  * @returns {Promise<{text: string} | {error: string}>}
  */
 export async function fileWords(ai, name, type, bytes, { from = 0, next = null, summary = null } = {}) {
-  if (bytes.byteLength > MAX_FILE_BYTES) return { error: `this file is ${megabytes(bytes.byteLength)}, over the ${megabytes(MAX_FILE_BYTES)} a file is read at` };
+  if (bytes.byteLength > MAX_FILE_BYTES) return { error: `this file is ${megabytes(bytes.byteLength)}, over the ${megabytes(MAX_FILE_BYTES)} a file is read at; tell the person it is too big to read here` };
   // A table is already words: read as they are, with its facts counted over every row (`fileParts.js`).
   if (isTable(name, type)) {
     const text = new TextDecoder().decode(bytes);
@@ -110,17 +110,17 @@ export async function fileWords(ai, name, type, bytes, { from = 0, next = null, 
       return summed.error ? { error: summed.error } : { text: summed.lines.join("\n") };
     }
     const part = partOf(text, from);
-    if (part === null) return { error: `this file has ${text.length} characters; nothing starts at ${from}` };
+    if (part === null) return { error: `this file has ${text.length} characters; nothing starts at ${from}. Pass a from below ${text.length}, or leave it out` };
     const where = next ? partLines(part, next) : part.to < part.total ? [`[this is its first ${part.to} of ${part.total} characters]`] : [];
     return { text: [...factLines(tableFacts(text, name)), ...where, "", part.part].join("\n") };
   }
-  if (summary) return { error: "summary totals a CSV or TSV; this file is read as words" };
-  if (!ai || typeof ai.toMarkdown !== "function") return { error: "reading files is not available on this deployment" };
+  if (summary) return { error: "summary totals a CSV or TSV; this file is read as words, so leave summary out" };
+  if (!ai || typeof ai.toMarkdown !== "function") return { error: "reading files is not available on this deployment; tell the person, or read the note it is attached to instead" };
   let answer;
   try {
     answer = await withTimeout(ai.toMarkdown([{ name, blob: new Blob([bytes], { type }) }]), CONVERT_TIMEOUT_MS);
   } catch {
-    return { error: "this file could not be read just now" };
+    return { error: "this file could not be read just now; try again in a minute" };
   }
   const first = Array.isArray(answer) ? answer[0] : answer;
   const text = typeof first?.data === "string" && first.format !== "error" ? first.data.trim() : "";
@@ -129,10 +129,10 @@ export async function fileWords(ai, name, type, bytes, { from = 0, next = null, 
   // A PDF of pictures: its pages go to the model whole, to be read as pictures (`pdfPagesPart`).
   // An empty answer is the converter saying nothing, not a read of picture pages: it stays a refusal.
   if (type === "application/pdf" && text && pdfHasNoWords(text) && pageCount(text) <= MAX_PICTURE_PAGES) return { text: `${PICTURE_PAGES}${links}`, pages: true };
-  if (!text && !links) return { error: "no words could be taken out of this file" };
+  if (!text && !links) return { error: "no words could be taken out of this file; tell the person it may be a scan or a picture with no text" };
   if (next) {
     const part = partOf(text, from);
-    if (part === null) return { error: `this file has ${text.length} characters of words; nothing starts at ${from}` };
+    if (part === null) return { error: `this file has ${text.length} characters of words; nothing starts at ${from}. Pass a from below ${text.length}, or leave it out` };
     return { text: `${[...partLines(part, next), "", part.part].join("\n")}${part.to >= part.total ? links : ""}` };
   }
   const words = text.length > MAX_FILE_CHARS ? `${text.slice(0, MAX_FILE_CHARS)}\n\n[cut: the file's words run to ${text.length} characters]` : text;
@@ -203,7 +203,7 @@ export function typeOfFile(name, bytes) {
 const megabytes = (n) => `${Math.round((n / (1024 * 1024)) * 10) / 10} MB`;
 
 function tooLarge(path, size) {
-  return toolError(`this file is ${megabytes(size)}, over the ${megabytes(MAX_FILE_BYTES)} a file is read at: ${path}`);
+  return toolError(`this file is ${megabytes(size)}, over the ${megabytes(MAX_FILE_BYTES)} a file is read at: ${path}. Tell the person it is too big to read here`);
 }
 
 async function withTimeout(work, ms) {

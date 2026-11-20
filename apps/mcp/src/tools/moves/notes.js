@@ -40,7 +40,7 @@ import { toolError, toolText, writePermissionError } from "../results.js";
 import { planKeyedBatchMove, startKeyedBatchMove } from "./queuedFolder.js";
 
 export async function toolMoveNotes(store, scope, rules, overrides, movesArg, dryRun) {
-  if (!Array.isArray(movesArg) || movesArg.length < 1) return toolError("moves must be a non-empty array");
+  if (!Array.isArray(movesArg) || movesArg.length < 1) return toolError("moves must be a non-empty array: pass at least one { source, destination }");
   if (movesArg.length > BATCH_MOVE_CAP) {
     return toolError(`batch has more than ${BATCH_MOVE_CAP} moves; split it into smaller batches`);
   }
@@ -50,17 +50,17 @@ export async function toolMoveNotes(store, scope, rules, overrides, movesArg, dr
     const source = normalizePath(raw?.source);
     const destination = normalizePath(raw?.destination);
     if (!source || !destination || !source.endsWith(".md") || !destination.endsWith(".md")) {
-      return toolError("invalid path (every source and destination must end in .md)");
+      return toolError("invalid path (every source and destination must end in .md): give each its full note path, ending in .md");
     }
-    if (source === destination) return toolError(`source and destination are the same: ${source}`);
+    if (source === destination) return toolError(`source and destination are the same: ${source}; leave it out, or give it a new destination`);
     if (isPlumbing(source) || isPlumbing(destination)) return toolError("that path is reserved");
     moves.push({ source, destination, expectedSourceEtag: raw.expected_source_etag });
   }
 
   const sources = new Set(moves.map((move) => move.source));
   const destinations = new Set(moves.map((move) => move.destination));
-  if (sources.size !== moves.length) return toolError("batch contains a duplicate source");
-  if (destinations.size !== moves.length) return toolError("batch contains a duplicate destination");
+  if (sources.size !== moves.length) return toolError("batch contains a duplicate source: list each note once");
+  if (destinations.size !== moves.length) return toolError("batch contains a duplicate destination: give each note its own destination");
   if (moves.some((move) => sources.has(move.destination))) {
     return toolError("batch destinations cannot also be batch sources; split cycles or chains into separate moves");
   }
@@ -97,7 +97,7 @@ export async function toolMoveNotes(store, scope, rules, overrides, movesArg, dr
     */
     const sourceSeen = canSee(move.source, scope, rules, overrides);
     const sourcePresent = await probeWithLegacyFallback(store, move.source);
-    if (!sourceSeen || !sourcePresent) return toolError(`not found: ${move.source}`);
+    if (!sourceSeen || !sourcePresent) return toolError(`not found: ${move.source}; search or list the folder for its current path, then move it again`);
     if (scope !== "private" && visibilityOf(move.destination, rules) !== "team") {
       return writePermissionError(`move destination ${move.destination}`);
     }
@@ -105,7 +105,7 @@ export async function toolMoveNotes(store, scope, rules, overrides, movesArg, dr
       return writePermissionError("move destination");
     }
     const sourceObject = await getWithLegacyFallback(store, move.source);
-    if (!sourceObject) return toolError(`not found: ${move.source}`);
+    if (!sourceObject) return toolError(`not found: ${move.source}; search or list the folder for its current path, then move it again`);
     const sourceText = await sourceObject.text();
     let collaborationBase = null;
     if (collaborationSupported(store) && !isEncryptedNote(sourceText) &&
@@ -113,7 +113,7 @@ export async function toolMoveNotes(store, scope, rules, overrides, movesArg, dr
       if (store.capabilities?.conditionalDelete !== true) {
         const head = await collaborationHead(store, move.source);
         if (head?.status !== undefined && head.status !== "deleted") {
-          return toolError(`this storage cannot safely move a collaboratively edited note: ${move.source}`);
+          return toolError(`this storage cannot safely move a collaboratively edited note: ${move.source}; leave it where it is, or ask the person to move it in the app`);
         }
       } else {
         try {
@@ -126,7 +126,7 @@ export async function toolMoveNotes(store, scope, rules, overrides, movesArg, dr
     if (move.expectedSourceEtag &&
         !versionMatches(move.expectedSourceEtag, { document: collaborationBase, rawEtag: sourceObject.etag })) {
       return toolError(
-        `conflict: ${move.source} changed since it was read (current etag ${collaborationBase?.etag ?? sourceObject.etag})`
+        `conflict: ${move.source} changed since it was read (current etag ${collaborationBase?.etag ?? sourceObject.etag}); re-read it and move it again`
       );
     }
     const sourceVisibility = effectiveVisibility(move.source, rules, overrides);
@@ -154,11 +154,11 @@ export async function toolMoveNotes(store, scope, rules, overrides, movesArg, dr
     let preloadedBody = null;
     if (destinationObject) {
       if (collaborationBase) {
-        return toolError(`conflict: destination already exists: ${move.destination}`);
+        return toolError(`conflict: destination already exists: ${move.destination}; pick another name, or read both and merge them first`);
       }
       const destinationText = await destinationObject.text();
       if (destinationText !== sourceText) {
-        return toolError(`conflict: destination already exists with different content: ${move.destination}`);
+        return toolError(`conflict: destination already exists with different content: ${move.destination}; pick another name, or read both and merge them first`);
       }
       if (fastArchiveCandidate) preloadedBody = sourceText;
     } else if (fastArchiveCandidate) {
@@ -194,7 +194,7 @@ export async function toolMoveNotes(store, scope, rules, overrides, movesArg, dr
       if (move.collaborationBase) continue;
       const sourceObject = await getWithLegacyFallback(store, move.source);
       if (!sourceObject || sourceObject.etag !== move.rawEtag) {
-        return toolError(`conflict: source changed during batch preflight: ${move.source}`);
+        return toolError(`conflict: source changed during batch preflight: ${move.source}; re-read it and run the move again`);
       }
       move.body = await sourceObject.arrayBuffer();
     }
@@ -244,7 +244,7 @@ export async function toolMoveNotes(store, scope, rules, overrides, movesArg, dr
       await deleteCreatedDestination(store, move.destination, move.destinationEtag);
     }
     for (const key of preparedAcls) await clearExactVisibilityIfAbsent(store, key);
-    return toolError(`batch move aborted before deleting sources: ${error.message}`);
+    return toolError(`batch move aborted before deleting sources: ${error.message}. Nothing was deleted; check the destinations, then retry the move`);
   }
 
   const appliedMoves = [];
@@ -269,7 +269,7 @@ export async function toolMoveNotes(store, scope, rules, overrides, movesArg, dr
     }
     await recordPartialMove(store, "move_notes", scope, preflight, appliedMoves);
     return toolError(
-      `batch move partially applied; source cleanup stopped before all sources were deleted: ${error.message}`
+      `batch move partially applied; source cleanup stopped before all sources were deleted: ${error.message}. Read each source and its destination before you change either: a source still there already has its copy at the destination`
     );
   }
 

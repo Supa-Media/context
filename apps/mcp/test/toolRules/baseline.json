@@ -3,32 +3,35 @@
   "sizes": {
     "1:1 text": {
       "orient": 2060,
-      "search": 3166,
-      "fetch": 3468,
-      "write": 6308,
-      "manage": 5777,
-      "send": 25211
+      "search": 3334,
+      "fetch": 3950,
+      "write": 1815,
+      "manage": 2500,
+      "send": 3640
     },
     "job part": {
       "orient": 2060,
-      "search": 3166,
-      "fetch": 3226,
-      "write": 6308,
-      "manage": 5777,
-      "send": 21395
+      "search": 3334,
+      "fetch": 3950,
+      "write": 1815,
+      "manage": 2500,
+      "send": 3640
     },
     "check-in": {
-      "search": 2471,
-      "fetch": 1862,
-      "send": 1614
+      "orient": 2060,
+      "search": 3334,
+      "fetch": 3950,
+      "write": 1815,
+      "manage": 2500,
+      "send": 3640
     },
     "group text": {
       "orient": 2060,
-      "search": 2471,
-      "fetch": 2110,
-      "write": 6003,
-      "manage": 4553,
-      "send": 6103
+      "search": 2639,
+      "fetch": 3321,
+      "write": 1815,
+      "manage": 2266,
+      "send": 3804
     }
   },
   "mcp": {
@@ -42,15 +45,8 @@
   },
   "fixedList": {
     "1:1": {
-      "lists": 3,
-      "differ": [
-        "fetch",
-        "manage",
-        "orient",
-        "search",
-        "send",
-        "write"
-      ]
+      "lists": 1,
+      "differ": []
     },
     "group": {
       "lists": 1,
@@ -93,7 +89,7 @@
     "src/tools/connectors.js": 4,
     "src/tools/dispatch.js": 5,
     "src/tools/dreamNow.js": 6,
-    "src/tools/email.js": 14,
+    "src/tools/email.js": 4,
     "src/tools/emailAttach.js": 4,
     "src/tools/emailGate.js": 3,
     "src/tools/emailRead.js": 7,
@@ -116,19 +112,18 @@
     "src/tools/moves/archive.js": 2,
     "src/tools/moves/folder.js": 7,
     "src/tools/moves/note.js": 1,
-    "src/tools/moves/notes.js": 13,
-    "src/tools/moves/queuedFolder.js": 1,
+    "src/tools/moves/queuedFolder.js": 3,
     "src/tools/notePeople.js": 3,
     "src/tools/notes/comment.js": 6,
     "src/tools/notes/historyRead.js": 1,
-    "src/tools/notes/mail.js": 14,
+    "src/tools/notes/mail.js": 4,
     "src/tools/notes/openAiFetch.js": 1,
     "src/tools/notes/read.js": 5,
-    "src/tools/notes/remember.js": 9,
-    "src/tools/notes/site.js": 10,
+    "src/tools/notes/remember.js": 4,
+    "src/tools/notes/site.js": 3,
     "src/tools/offerFor.js": 1,
     "src/tools/pairDevice.js": 1,
-    "src/tools/readFile.js": 10,
+    "src/tools/readFile.js": 1,
     "src/tools/readImage.js": 1,
     "src/tools/runModel.js": 3,
     "src/tools/saveContext.js": 5,
@@ -138,7 +133,7 @@
     "src/tools/texts.js": 2,
     "src/tools/v2/saveMany.js": 2,
     "src/tools/v2/searchFetch.js": 1,
-    "src/tools/vault.js": 11,
+    "src/tools/vault.js": 3,
     "src/tools/visibility.js": 7,
     "src/tools/workspaces.js": 5
   }

@@ -48,7 +48,7 @@ export async function toolRemember(store, scope, rules, overrides, args) {
   const path = normalizePath(args.note);
   if (!path || !path.endsWith(".md")) return toolError("invalid: note must be a path ending in .md");
   if (RESERVED.has(path) || isPlumbing(path)) {
-    return toolError(`reserved: ${path} is Context's own file; remember the fact in a note instead`);
+    return toolError(`reserved: ${path} is Context's own file; write the fact into another note instead`);
   }
 
   // One retry: a note edited between the read and the write is read again and
@@ -91,7 +91,7 @@ export async function toolRemember(store, scope, rules, overrides, args) {
         (etag ? `\netag: ${etag}` : ""),
     );
   }
-  return toolError("conflict: the note kept changing; nothing was written");
+  return toolError("conflict: the note kept changing; nothing was written. Wait a moment and try again");
 }
 
 /**
@@ -106,7 +106,7 @@ async function openNote(store, scope, rules, overrides, path) {
     // A password-locked note cannot be opened by anything Context runs, so
     // `read_note` refuses it, and it is never edited by an agent.
     if (text.startsWith("that note is encrypted")) {
-      return { error: toolError("encrypted: this note is locked with a password and is never edited by an agent") };
+      return { error: toolError("encrypted: this note is locked with a password and is never edited by an agent; remember the fact in another note instead, or leave note out") };
     }
     return { error: toolError(`${text}: search for the note, or leave note out to use the inbox`) };
   }
@@ -119,7 +119,7 @@ async function openNote(store, scope, rules, overrides, path) {
       return colon === -1 ? [line, ""] : [line.slice(0, colon), line.slice(colon + 1).trim()];
     }),
   );
-  if (fields.kind === "drawing") return { error: toolError("invalid: a drawing has no lines to remember into") };
+  if (fields.kind === "drawing") return { error: toolError("invalid: a drawing has no lines to remember into; pick a Markdown note, or leave note out") };
   return { path: fields.path || path, etag: fields.etag, body };
 }
 
@@ -173,7 +173,7 @@ function editLines(body, fact, replaces) {
     };
   }
   if (matches.length > 1) {
-    return { error: "replaces_ambiguous: more than one line matches replaces; nothing was written" };
+    return { error: "replaces_ambiguous: more than one line matches replaces; nothing was written. Pass more of the line's text so only one matches" };
   }
   const index = matches[0];
   const original = lines[index];

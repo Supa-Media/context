@@ -102,10 +102,10 @@ export async function toolVaultAddLink(store, args) {
   const calls = store?.vaultLinks;
   if (!calls) return toolError(NO_LINKS);
   const type = args?.type === "secret" || args?.type === "card" ? args.type : args?.type === undefined || args?.type === "login" ? "login" : null;
-  if (type === null) return toolError('type is "login", "secret" or "card".');
+  if (type === null) return toolError('type is not one of the three: pass "login", "secret" or "card".');
   const fields = Array.isArray(args?.fields) ? args.fields.map((name) => (typeof name === "string" ? name.trim() : "")) : [];
   if (fields.length > 30 || fields.some((name) => !isFieldName(name)) || (type === "card" && fields.length > 0)) {
-    return toolError("fields are up to 30 names like OPENAI_API_KEY or Account number.");
+    return toolError("fields are up to 30 names like OPENAI_API_KEY or Account number, and none for a card. Pass up to 30 plain names, or none.");
   }
   // A login only ever fills on its site, so the page opens with it filled in (Dev2, 2026-10-24: Instacart's came blank).
   if (type === "login" && !clip(args?.site, 300)) return toolError("Pass site, the website the login is for, e.g. instacart.com, so the page has it filled in.");
@@ -117,7 +117,7 @@ export async function toolVaultAddLink(store, args) {
     ...(fields.length > 0 ? { fields } : {}),
     ...(args?.perEnv === false ? { perEnv: false } : args?.perEnv === true || type === "secret" ? { perEnv: true } : {}),
   });
-  if (minted === null || typeof minted.url !== "string") return toolError("That link could not be made right now.");
+  if (minted === null || typeof minted.url !== "string") return toolError("That link could not be made right now. Try again in a minute; if it fails again, tell the person.");
   return describe(minted, type === "secret" ? "Link to save the secret" : type === "card" ? "Link to save the card" : "Link to save the login");
 }
 
@@ -134,10 +134,10 @@ export async function toolVaultShareLink(store, args) {
   if (!/^[a-z0-9-]{2,32}$/.test(handle)) return toolError("with must be the person's @handle.");
   const keys = store.encryptionKey;
   const meta = keys ? await readMeta(store, keys, store.actor.workspaceId, args.entry) : null;
-  if (meta === null || !actorMayUse(meta, store.actor)) return toolError("There is no such login in vault_list.");
+  if (meta === null || !actorMayUse(meta, store.actor)) return toolError("There is no such login in vault_list. List the vault with vault_list and pass a login id from it.");
   const minted = await calls.request({ kind: "share", entryId: args.entry, handle });
   if (minted === null || typeof minted.url !== "string") {
-    return toolError(`That link could not be made. Is @${handle} a member of this workspace?`);
+    return toolError(`That link could not be made. Check that @${handle} is a member of this workspace; if not, invite them first.`);
   }
   return describe(minted, `Link to share ${meta.name || "the login"} with @${handle}`);
 }
@@ -147,15 +147,15 @@ export async function toolVaultViewLink(store, args) {
   if (!calls) return toolError(NO_LINKS);
   if (!isEntryId(args?.entry)) return toolError("entry must be an id from vault_list.");
   const env = args?.env === undefined ? undefined : ENVS.includes(args.env) ? args.env : null;
-  if (env === null) return toolError(`env is one of ${ENVS.join(", ")}.`);
+  if (env === null) return toolError(`env is not one of ${ENVS.join(", ")}: pass one of those, or leave env out.`);
   const keys = store.encryptionKey;
   const meta = keys ? await readMeta(store, keys, store.actor?.workspaceId, args.entry) : null;
-  if (meta === null || !actorMayUse(meta, store.actor)) return toolError("There is no such entry in vault_list.");
+  if (meta === null || !actorMayUse(meta, store.actor)) return toolError("There is no such entry in vault_list. List the vault with vault_list and pass an id from it.");
   if (!actorMaySee(meta, store.actor)) {
     return toolError("This key was given to the person for their AIs to use, not to see. Ask whoever saved it to let them see it in Settings › Vault.");
   }
   const minted = await calls.request({ kind: "view", entryId: args.entry, ...(env ? { env } : {}) });
-  if (minted === null || typeof minted.url !== "string") return toolError("That link could not be made right now.");
+  if (minted === null || typeof minted.url !== "string") return toolError("That link could not be made right now. Try again in a minute; if it fails again, tell the person.");
   return describe(minted, `Link to see ${meta.name || "the entry"}`);
 }
 
@@ -181,7 +181,7 @@ export async function toolVaultFetch(store, request) {
   const proxy = store?.vaultProxy;
   if (!proxy) return toolError(NO_PROXY);
   if (!request || typeof request !== "object" || Array.isArray(request)) {
-    return toolError("fetch is { entry, field, env?, url, method?, headers?, body? }.");
+    return toolError("fetch is not an object: pass { entry, field, env?, url, method?, headers?, body? }.");
   }
   if (!isEntryId(request.entry)) return toolError("fetch.entry must be an id from vault_list.");
   let host = null;

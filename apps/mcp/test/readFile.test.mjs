@@ -146,7 +146,7 @@ test("a file over the ceiling is refused before it is converted", async () => {
 
 test("only the listed file types are opened; a note is not", async () => {
   const { store, rules, overrides } = await world();
-  assert.match(text(await toolReadFile(store, "private", rules, overrides, "1-projects/a.md")), /a note is read with read_note/);
+  assert.match(text(await toolReadFile(store, "private", rules, overrides, "1-projects/a.md")), /pass a note to read_note instead/);
   assert.equal(readableFileType("a/B.PDF"), "application/pdf");
   assert.equal(readableFileType("a/b.xlsx"), "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
   assert.equal(readableFileType("a/b.svg"), null);

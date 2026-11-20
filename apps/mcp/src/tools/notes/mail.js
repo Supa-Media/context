@@ -55,10 +55,10 @@ function members(events) {
 async function mailboxFor(store, args, path) {
   if (args.mailbox === undefined) return { mailbox: null };
   if (typeof args.mailbox !== "string" || typeof store.mail?.get !== "function") {
-    return { error: "mailbox must be the id joining the note's mail gave you" };
+    return { error: "mailbox must be the id joining the note's mail gave you: pass that id, or join first with mail { join }" };
   }
   const mailbox = await store.mail.get(args.mailbox).catch(() => null);
-  if (!mailbox) return { error: `mailbox ${args.mailbox} is not one this connection joined` };
+  if (!mailbox) return { error: `mailbox ${args.mailbox} is not one this connection joined: pass the id your own join gave, or join again with mail { join }` };
   if (mailbox.workspaceId !== store.mail.workspaceId || mailbox.path !== path) {
     return { error: `mailbox ${args.mailbox} belongs to ${mailbox.path}; pass that path, or join this note's mail` };
   }
@@ -92,7 +92,7 @@ export function mailGuard({ events, from, to, mailKind, role, now }) {
 export async function toolMailNote(store, scope, rules, overrides, args) {
   const request = args.mail;
   if (!request || typeof request !== "object" || Array.isArray(request)) {
-    return toolError('mail must be an object: { join: "name" } or { text, to }');
+    return toolError('mail must be an object: pass { join: "name" } to join, or { text, to } to send');
   }
   if (args.content !== undefined) return toolError("pass content or mail, not both: mail is written into the note for you");
   const extra = ["comment", "site", "images", "share", "share_short", "visibility", "confirm_team_publish"].find(
@@ -105,8 +105,8 @@ export async function toolMailNote(store, scope, rules, overrides, args) {
   // `device`: this session runs on one of the person's own computers (a cloud VM's Claude Code, `pair_device`), so its
   // mail is pushed down that computer's socket the moment it is sent. The control plane checks it is theirs and live.
   const device = request.device === undefined ? undefined : typeof request.device === "string" && /^[A-Za-z0-9_-]{4,64}$/.test(request.device) ? request.device : null;
-  if (device === null) return toolError("mail.device is this computer's device id, as `context-machine status --json` names it");
-  if (device !== undefined && !joining) return toolError("mail.device goes with join");
+  if (device === null) return toolError("mail.device is not a device id: run `context-machine status --json` and pass the device id it names");
+  if (device !== undefined && !joining) return toolError("mail.device goes with join: drop device, or add join");
   const mailKind = request.kind === undefined ? "note" : request.kind;
   if (!joining && !["note", "ask", "interrupt"].includes(mailKind)) return toolError('mail.kind must be "note", "ask" or "interrupt"');
   const wait = mailKind === "ask" && request.wait !== undefined ? Number(request.wait) : 0;
@@ -116,7 +116,7 @@ export async function toolMailNote(store, scope, rules, overrides, args) {
     const read = await toolReadNote(store, scope, rules, overrides, args.path);
     if (read?.isError) return read;
     const parsed = parseRead(read);
-    if (!parsed || !parsed.fields.etag || parsed.fields.kind === "drawing") return toolError("this note cannot carry mail");
+    if (!parsed || !parsed.fields.etag || parsed.fields.kind === "drawing") return toolError("this note cannot carry mail: pick a plain Markdown note (not a drawing), or write one first");
     const path = parsed.fields.path;
     const text = parsed.body;
     const { events } = parseMail(text);
@@ -127,7 +127,7 @@ export async function toolMailNote(store, scope, rules, overrides, args) {
     if (joining) {
       const name = mailName(request.join);
       if (!name) return toolError(`mail.join must be a short name of letters, digits and dashes, and not "${EVERYONE}"`);
-      if (typeof store.mail?.join !== "function") return toolError("mail needs a Context account; this deployment has none");
+      if (typeof store.mail?.join !== "function") return toolError("mail needs a Context account; this deployment has none, so leave mail out and write to the note instead");
       // From a background job's turn the mailbox is the job's, so mail reaches it the moment it is sent (`mail/deliver.js`).
       const answer = await store.mail.join(path, name, store.mailTurn?.job ?? undefined, device).catch(() => null);
       if (device !== undefined && answer?.error === "refused") {
@@ -141,7 +141,7 @@ export async function toolMailNote(store, scope, rules, overrides, args) {
       // A refusal is not an outage: saying "try again" here sent agents round in retries (2026-11-06).
       if (answer?.error === "refused") {
         const job = store.actor?.clientId === MACHINE_RUN_CLIENT_ID ? `; a job on a computer never joins as "tex" or "advisor", or as another job` : "";
-        return toolError(`permission denied: Context refused joining this note's mail as "${name}" from this connection${job}`);
+        return toolError(`permission denied: Context refused joining this note's mail as "${name}" from this connection${job}. Check you can edit the note, or join under another name`);
       }
       if (!answer?.mailbox?.mailboxId) return toolError("could not join this note's mail right now; try again");
       joined = answer.mailbox;
@@ -294,12 +294,12 @@ function joinedText(path, mailbox, events, again, job, device) {
 export async function toolReadMail(store, scope, rules, overrides, args) {
   if (args.mail === "true") args = { ...args, mail: true };
   if (args.mail !== true && args.mail !== "all" && args.mail !== "new") {
-    return toolError('mail must be true (new mail, or all of it without a mailbox), "new" or "all"');
+    return toolError('mail must be true (new mail, or all of it without a mailbox), "new" or "all": pass one of those');
   }
   const read = await toolReadNote(store, scope, rules, overrides, args.path);
   if (read?.isError) return read;
   const parsed = parseRead(read);
-  if (!parsed || !parsed.fields.etag) return toolError("this note has no mail");
+  if (!parsed || !parsed.fields.etag) return toolError("this note has no mail: read it without mail, or join its mail first with mail { join }");
   const path = parsed.fields.path;
   const found = await mailboxFor(store, args, path);
   if (found.error) return toolError(found.error);
