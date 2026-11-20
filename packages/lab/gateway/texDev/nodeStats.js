@@ -124,7 +124,8 @@ export async function nodeStatsAnswer(env, page, args = {}, { ledgerOf, now = Da
   const until = now;
   const since = now - days * DAY_MS;
   const all = chatsOf(page).filter((c) => !c.shared);
-  const picked = typeof args.chat === "string" && args.chat !== "" ? all.filter((c) => c.chat === args.chat) : all.slice(0, MAX_CHATS);
+  // "app" is a view of the 1:1's own history ("me"), so reading every chat skips it rather than count those steps twice.
+  const picked = typeof args.chat === "string" && args.chat !== "" ? all.filter((c) => c.chat === args.chat) : all.filter((c) => c.via !== "app").slice(0, MAX_CHATS);
   if (picked.length === 0) return { error: "There is no such chat; chats lists yours." };
   const entries = [];
   const read = [];
