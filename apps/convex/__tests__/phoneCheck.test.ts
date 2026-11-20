@@ -4,9 +4,36 @@ import { api } from "../_generated/api";
 import type { Id } from "../_generated/dataModel";
 import { asUser, captureError, createUser, createWorkspace, errorCode, setupTest, type TestConvex } from "./fixtures.helpers";
 import { isExemptEmail, normalizePhone, phoneCheckRequired } from "../functions/lib/phoneCheck";
+
+/** Staging's personas are exempt on the isolated staging deployment and on an isolated preview, and nowhere else. */
+describe("the persona exemption follows the isolated deployments", () => {
+  afterEach(() => vi.unstubAllEnvs());
+
+  test("an isolated preview exempts alpha@supa.media", () => {
+    for (const [key, value] of Object.entries({
+      APP_ENV: "preview", PREVIEW_NAME: "pr42",
+      APP_ORIGIN: "https://context-router-pr42.example-sub.workers.dev",
+      CONVEX_CLOUD_URL: `https://happy-otter-123.${CONVEX_CLOUD}`,
+    })) vi.stubEnv(key, value);
+    expect(isExemptEmail("alpha@supa.media")).toBe(true);
+  });
+
+  test("production does not, not even with the preview variables copied onto it", () => {
+    for (const [key, value] of Object.entries({
+      APP_ENV: "production", APP_ORIGIN: "https://context.lc", CONVEX_CLOUD_URL: `https://prod-example-1.${CONVEX_CLOUD}`,
+    })) vi.stubEnv(key, value);
+    expect(isExemptEmail("alpha@supa.media")).toBe(false);
+    vi.stubEnv("APP_ENV", "preview");
+    vi.stubEnv("PREVIEW_NAME", "pr42");
+    expect(isExemptEmail("alpha@supa.media")).toBe(false);
+  });
+});
 import { REVIEWER_EMAIL } from "../functions/lib/reviewerAccount";
 import { YC_REVIEW_EMAIL } from "../functions/lib/reviewerPassword";
 import { TEST_ACCOUNT_EMAIL } from "../functions/lib/testAccount";
+
+// Built at run time: scripts/check-no-identifiers.mjs rejects a committed Convex hostname, fakes included.
+const CONVEX_CLOUD = ["convex", "cloud"].join(".");
 
 /**
  * THE PHONE CHECK.

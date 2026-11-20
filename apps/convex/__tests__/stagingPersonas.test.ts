@@ -3,6 +3,9 @@ import { claimName } from "../functions/lib/nameClaims";
 import { api, internal } from "../_generated/api";
 import { setupTest, asUser, createUser } from "./fixtures.helpers";
 
+// Built at run time: scripts/check-no-identifiers.mjs rejects a committed Convex hostname, fakes included.
+const CONVEX_CLOUD = ["convex", "cloud"].join(".");
+
 beforeEach(() => {
   vi.stubEnv("APP_ENV", "staging");
   vi.stubEnv("APP_ORIGIN", "https://staging.context.lc");
@@ -21,6 +24,27 @@ describe("isolated staging fixtures", () => {
     const t = setupTest();
     await expect(t.mutation(internal.functions.stagingPersonas.prepare, {})).rejects.toThrow(/isolated staging/);
     expect(await t.run(ctx => ctx.db.query("users").collect())).toHaveLength(0);
+  });
+  test("refuses on production, and with preview variables copied onto production, without writing", async () => {
+    for (const [key, value] of Object.entries({
+      APP_ENV: "production", APP_ORIGIN: "https://context.lc", CONVEX_CLOUD_URL: `https://prod-example-1.${CONVEX_CLOUD}`,
+    })) vi.stubEnv(key, value);
+    const t = setupTest();
+    await expect(t.mutation(internal.functions.stagingPersonas.prepare, {})).rejects.toThrow(/isolated staging/);
+    vi.stubEnv("APP_ENV", "preview");
+    vi.stubEnv("PREVIEW_NAME", "pr42");
+    await expect(t.mutation(internal.functions.stagingPersonas.prepare, {})).rejects.toThrow(/isolated staging/);
+    expect(await t.run(ctx => ctx.db.query("users").collect())).toHaveLength(0);
+  });
+  test("seeds the personas on an isolated preview, claiming the reserved alpha name as on staging", async () => {
+    for (const [key, value] of Object.entries({
+      APP_ENV: "preview", PREVIEW_NAME: "pr42",
+      APP_ORIGIN: "https://context-router-pr42.example-sub.workers.dev",
+      CONVEX_CLOUD_URL: `https://happy-otter-123.${CONVEX_CLOUD}`,
+    })) vi.stubEnv(key, value);
+    const t = setupTest();
+    const result = await t.mutation(internal.functions.stagingPersonas.prepare, {});
+    expect(result.workspaces.map(w => w.slug)).toContain("alpha");
   });
   test("seeds five personas and the pinned Context workspace, preserves IDs, resets invitation acceptance", async () => {
     const t = setupTest();

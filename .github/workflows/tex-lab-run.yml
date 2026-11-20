@@ -59,6 +59,11 @@ on:
           - replay
           - record
           - refresh
+      preview:
+        description: "A pull request's preview (pr<N>, its number). Runs that pull request's code, replay only (record and refresh are refused), with one repeat per Front door test. Empty runs as before"
+        required: false
+        default: ""
+        type: string
 
 permissions:
   contents: read
@@ -100,6 +105,18 @@ jobs:
 
       - run: pnpm install --frozen-lockfile
 
+      # A preview run is replay only: record and refresh call the models live and write fixtures. Empty preview is no check.
+      - name: A preview run is replay only
+        env:
+          PREVIEW: ${{ inputs.preview }}
+          WORLD: ${{ inputs.world }}
+        run: |
+          set -euo pipefail
+          [ -z "$PREVIEW" ] && exit 0
+          [[ "$PREVIEW" =~ ^pr[1-9][0-9]{0,6}$ ]] || { echo "::error::preview is pr<N>, the pull request's number"; exit 1; }
+          [ "${WORLD:-replay}" = "replay" ] || { echo "::error::a preview run is replay only: record and refresh call the models live"; exit 1; }
+          echo "Preview: $PREVIEW (replay only, one repeat)"
+
       - name: Say it is running
         run: |
           set -euo pipefail
@@ -109,6 +126,7 @@ jobs:
         id: job
         env:
           LAB_SEAL_SOURCE: ${{ secrets.AI_GATEWAY_TOKEN }}
+          PREVIEW: ${{ inputs.preview }}
         run: |
           set -euo pipefail
           [ -n "${LAB_SEAL_SOURCE:-}" ] || { echo "::error::no AI_GATEWAY_TOKEN to derive the run's seal key from"; exit 1; }
@@ -127,6 +145,8 @@ jobs:
           # Each Front door test runs this many times (1 to 5; a run from before repeats ran once, the default is 3).
           repeats=$(jq -r '.repeats // 3' "$RUNNER_TEMP/job.json")
           [[ "$repeats" =~ ^[1-5]$ ]] || { echo "::error::repeats is 1 to 5"; exit 1; }
+          # A preview run repeats each Front door test once (the cap in texLabRuns.ts PREVIEW_REPEATS).
+          if [ -n "$PREVIEW" ]; then repeats=1; fi
           mkdir -p "$RUNNER_TEMP/sealed"
           gzip -9c "$RUNNER_TEMP/job.json" | openssl enc -aes-256-cbc -pbkdf2 -salt -pass env:SEAL -out "$RUNNER_TEMP/sealed/job.bin"
           echo "models=$models" >> "$GITHUB_OUTPUT"

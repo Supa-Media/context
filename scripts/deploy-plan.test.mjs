@@ -2,7 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 
-import { baseCommits, buildGraph, isInert, selectComponents, TARGETS } from "./deploy-plan.mjs";
+import { baseCommits, buildGraph, isInert, recentRunsUrl, selectComponents, TARGETS } from "./deploy-plan.mjs";
 
 const graph = buildGraph();
 const plan = (...files) => selectComponents(files, graph).selected;
@@ -150,4 +150,28 @@ test("every component the production workflow calls is gated by its plan output"
   for (const name of Object.keys(TARGETS.production.components)) {
     assert.ok(workflow.includes(`needs.validate.outputs.${name} == 'true'`), `deploy-production.yml does not gate ${name}`);
   }
+});
+
+test("a preview selects its own components, and its scripts redeploy every one", () => {
+  const preview = buildGraph("preview");
+  const previewPlan = (...files) => on(selectComponents(files, preview, { target: "preview" }).selected);
+  const every = Object.keys(TARGETS.preview.components).sort();
+  assert.deepEqual(previewPlan("infra/router/src/route.ts"), ["router"]);
+  assert.deepEqual(previewPlan("apps/mobile/features/console/NoteEditor.tsx"), ["app", "router"]);
+  assert.ok(previewPlan("apps/agent/wrangler.jsonc").includes("agent"));
+  assert.deepEqual(previewPlan("scripts/preview-guards.mjs"), every);
+  assert.deepEqual(previewPlan("scripts/preview-config.mjs"), every);
+  assert.deepEqual(previewPlan(".github/workflows/deploy-preview.yml"), every);
+  assert.deepEqual(previewPlan("docs/staging.md"), []);
+});
+
+test("a preview's base is the newest run on its own branch, pull requests included", () => {
+  const url = recentRunsUrl({ GITHUB_REPOSITORY: "a/b", PLAN_BRANCH: "feature/x" }, "preview");
+  assert.equal(url.pathname, "/repos/a/b/actions/workflows/deploy-preview.yml/runs");
+  assert.equal(url.searchParams.get("branch"), "feature/x");
+  assert.equal(url.searchParams.has("exclude_pull_requests"), false);
+  assert.throws(() => recentRunsUrl({ GITHUB_REPOSITORY: "a/b" }, "preview"), /PLAN_BRANCH/);
+  // Staging keeps its query: main only, pull requests excluded.
+  assert.equal(recentRunsUrl({ GITHUB_REPOSITORY: "a/b" }, "staging").searchParams.get("exclude_pull_requests"), "true");
+  assert.equal(recentRunsUrl({ GITHUB_REPOSITORY: "a/b" }, "staging").searchParams.has("branch"), false);
 });

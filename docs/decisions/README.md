@@ -767,6 +767,7 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 - [Required checks run on the merge queue's trial commit](./testing/ci-pipelines.md)
 - [A pull request runs the Convex tests its change reaches](./testing/convex-test-impact.md)
 - [The report-only policy is enforced against the browser specs before production](./testing/csp-candidate.md)
+- [Per-branch preview environments (2026-11-19)](./testing/preview-environments.md)
 
 ## [Vocabulary and the workspace model](./vocabulary-and-workspaces.md)
 

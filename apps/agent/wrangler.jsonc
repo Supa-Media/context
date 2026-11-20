@@ -136,6 +136,41 @@
         "APP_CARDS": "app",
         "APP_CARD_EXTENSION_ID": "lc.context.staging.messages"
       }
+    },
+    // Preview: a throwaway copy of the texting Worker for one pull request, reached only through that pull
+    // request's own preview gateway and router. Its names and hosts are placeholders (__PREVIEW__ and
+    // __WORKERS_DEV__) that scripts/preview-config.mjs renders into a copy beside this file. Never deploy this
+    // section directly: the rendered copy is the only thing that goes out. It has no Sendblue, Linq, Whapi or
+    // Photon binding and no secret of its own, so it can send nothing: the preview's texts come from the texts
+    // simulator alone. Context cards are off, since a card would go out on the real iMessage path.
+    "preview": {
+      "name": "context-agent-__PREVIEW__",
+      "workers_dev": true,
+      "durable_objects": {
+        "bindings": [{ "name": "SENDER_INBOX", "class_name": "SenderInbox" }]
+      },
+      "migrations": [{ "tag": "v1-sender-inbox", "new_sqlite_classes": ["SenderInbox"] }],
+      "workflows": [
+        { "name": "group-turn-__PREVIEW__", "binding": "GROUP_TURN", "class_name": "GroupTurnWorkflow" },
+        { "name": "job-run-__PREVIEW__", "binding": "JOB_RUN", "class_name": "JobRunWorkflow" }
+      ],
+      "triggers": { "crons": ["* * * * *"] },
+      "images": { "binding": "IMAGES" },
+      "analytics_engine_datasets": [
+        { "binding": "TEX_TEXTS", "dataset": "tex_text_timing_preview" },
+        { "binding": "TEX_COUNTS", "dataset": "tex_text_counts_preview" }
+      ],
+      "services": [
+        { "binding": "GATEWAY_TEXTS", "service": "context-mcp-__PREVIEW__", "entrypoint": "TexTexts" }
+      ],
+      "vars": {
+        "GATEWAY_ORIGIN": "https://context-mcp-__PREVIEW__.__WORKERS_DEV__",
+        "INTAKE": "gateway",
+        "JOBS": "gateway",
+        "SIMULATOR": "on",
+        "APP_CARDS": "off",
+        "APP_CARD_EXTENSION_ID": "lc.context.staging.messages"
+      }
     }
   }
 }

@@ -145,6 +145,34 @@ test('only staging can deploy automatically; production services share one manua
       assert.deepEqual(triggers.get('push'), { branches: ['main'] });
       continue;
     }
+    if (name === 'deploy-preview.yml') {
+      // Previews deploy each branch to its own isolated pr<N> copy, on push
+      // (never on pull_request: scripts/check-workflow-triggers.mjs rule B), so
+      // push is allowed here only with proof the run cannot reach production
+      // or staging: every job is in the `preview` environment, Convex uses the
+      // preview deploy key, every Worker deploy is a pr<N> name under
+      // `--env preview`, and it starts or calls no other deploy workflow.
+      assert.deepEqual([...triggers.keys()], ['push', 'workflow_dispatch']);
+      assert.deepEqual(triggers.get('push'), { 'branches-ignore': ['main'] });
+      const environments = [...text.matchAll(/^\s+environment:\s*(\S+)\s*$/gm)].map(m => m[1]);
+      assert.ok(environments.length > 0, `${name} must run its jobs in the preview environment`);
+      assert.deepEqual([...new Set(environments)], ['preview'], `${name} may only use the preview environment`);
+      assert.doesNotMatch(text, /secrets\.CONVEX_DEPLOY_KEY\b/);
+      assert.match(text, /secrets\.CONVEX_PREVIEW_DEPLOY_KEY\b/);
+      // Comments may name a command; only the lines that run one are checked.
+      const deploys = text.split('\n').filter(line => !/^\s*#/.test(line) && /wrangler (deploy|secret)/.test(line));
+      assert.ok(deploys.length > 0);
+      for (const line of deploys) {
+        // A secret command takes --name alone: wrangler appends -<env> to the name
+        // there, so --env would send the secret to a separate Worker. Deploys keep --env preview.
+        if (/wrangler secret/.test(line)) assert.doesNotMatch(line, /--env\b/, `${name}: ${line.trim()}`);
+        else assert.match(line, /--env preview\b/, `${name}: ${line.trim()}`);
+        assert.match(line, /--name "context-[a-z]+-pr\$PR"/, `${name}: ${line.trim()}`);
+      }
+      assert.doesNotMatch(text, /uses: \.\/\.github\/workflows\/deploy-/);
+      assert.doesNotMatch(text, /gh workflow run deploy-/);
+      continue;
+    }
     for (const trigger of triggers.keys()) assert.ok(['workflow_call', 'workflow_dispatch'].includes(trigger), `${name} may not deploy on ${trigger}`);
     if (triggers.has('workflow_call')) {
       assert.deepEqual([...triggers.keys()], ['workflow_call']);

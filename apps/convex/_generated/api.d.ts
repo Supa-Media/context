@@ -10,6 +10,7 @@
 
 import type * as functions_builtInFolders from "../functions/builtInFolders.js";
 import type * as functions_stagingPersonas from "../functions/stagingPersonas.js";
+import type * as functions_seed from "../functions/seed.js";
 import type * as auth from "../auth.js";
 import type * as crons from "../crons.js";
 import type * as functions_admin from "../functions/admin.js";
@@ -308,6 +309,7 @@ import type {
 declare const fullApi: ApiFromModules<{
   "functions/builtInFolders": typeof functions_builtInFolders;
   "functions/stagingPersonas": typeof functions_stagingPersonas;
+  "functions/seed": typeof functions_seed;
   auth: typeof auth;
   crons: typeof crons;
   "functions/admin": typeof functions_admin;

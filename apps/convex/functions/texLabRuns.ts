@@ -83,6 +83,19 @@ export function codeOf(x: unknown): string | null | undefined {
 }
 const CODE_WORDS = "code is a pull request (#3401 or its address) or a branch of this repository, or main";
 
+/**
+ * Where a run aims: `pr<N>`, a pull request's preview deployment (its name, `pr` and the pull request's number, the
+ * same as `previewName` in `lib/previewDeployment.ts`), or `staging`. Unset is the Lab's own path, as before.
+ */
+export const TARGET = /^(staging|pr[1-9][0-9]{0,6})$/;
+/** Undefined: not a target this function takes; null: none asked for. */
+export function targetOf(x: unknown): string | null | undefined {
+  if (x === undefined || x === null || x === "") return null;
+  return typeof x === "string" && TARGET.test(x) ? x : undefined;
+}
+/** A preview run is replay only (the workflow refuses record and refresh) and repeats each Front door test once. */
+export const PREVIEW_REPEATS = 1;
+
 type Run = Doc<"texLabRuns">;
 type Who = { userId: Id<"users">; via: string };
 type Kind = (typeof KINDS)[number];
@@ -316,6 +329,9 @@ export async function startRun(ctx: MutationCtx, who: Who, a: Record<string, unk
   if (set === null) return { status: "bad_request", error: "set is dev (default) or training" };
   if (kind === "chat" && (typeof convId !== "string" || !CONVO_ID.test(convId))) return { status: "bad_request", error: "a chat run names the Dev conversation (convId)" };
   if (kind === "node" && (typeof nodeId !== "string" || !NODE_ID.test(nodeId))) return { status: "bad_request", error: "a node run names the step (nodeId)" };
+  const target = targetOf(a.target);
+  if (target === undefined) return { status: "bad_request", error: "target is pr<N> (a pull request's preview, its number) or unset" };
+  if (target === "staging") return { status: "bad_request", error: "a run aims at a pull request's preview (pr<N>) or nothing: staging runs are not wired" };
   let code = a.code === undefined ? null : codeOf(a.code);
   if (code === undefined) return { status: "bad_request", error: CODE_WORDS };
   if (versionId !== "main") {
@@ -326,6 +342,12 @@ export async function startRun(ctx: MutationCtx, who: Who, a: Record<string, unk
     if (!draft) return { status: "not_found", error: `there is no draft ${versionId}` };
     // The draft's own code unless the run names some (main included).
     if (a.code === undefined) code = draft.code ?? null;
+  }
+  if (target) {
+    // A preview runs its own pull request's code and nothing else: the preview is that pull request's copy.
+    const want = `#${target.slice(2)}`;
+    if (code !== null && code !== want) return { status: "bad_request", error: `${target} runs pull request ${want}'s code, not ${code}` };
+    code = want;
   }
   const mine = await ctx.db
     .query("texLabRuns")
@@ -341,14 +363,16 @@ export async function startRun(ctx: MutationCtx, who: Who, a: Record<string, unk
     ...(typeof nodeId === "string" ? { nodeId } : {}),
     ...(set ? { set } : {}),
     models,
-    repeats,
+    // The target is not stored yet: the run table (functions/lib/schema/texLab.ts) has no field for it. It travels with
+    // the scheduled dispatch instead, so a preview run is aimed at its preview and recorded with its code.
+    repeats: target ? PREVIEW_REPEATS : repeats,
     ...(code ? { code } : {}),
     stage: "queued",
     by: who.userId,
     via: who.via.slice(0, 60),
     startedAt: now,
   });
-  await ctx.scheduler.runAfter(0, internal.functions.texLabRuns.dispatch, { runId });
+  await ctx.scheduler.runAfter(0, internal.functions.texLabRuns.dispatch, { runId, ...(target ? { target } : {}) });
   return { status: "ok", runId };
 }
 
@@ -397,7 +421,7 @@ export async function promoteAnswered(ctx: MutationCtx, versionId: string, pr: s
 // ── The Lab's door ────────────────────────────────────────────────────────
 
 export const start = mutation({
-  args: { versionId: v.string(), kind: v.string(), convId: v.optional(v.string()), nodeId: v.optional(v.string()), models: v.optional(v.string()), repeats: v.optional(v.number()), code: v.optional(v.string()), set: v.optional(v.string()) },
+  args: { versionId: v.string(), kind: v.string(), convId: v.optional(v.string()), nodeId: v.optional(v.string()), models: v.optional(v.string()), repeats: v.optional(v.number()), code: v.optional(v.string()), set: v.optional(v.string()), target: v.optional(v.string()) },
   returns: v.object({ runId: v.id("texLabRuns") }),
   handler: async (ctx, a) => {
     const actor = await requireAdmin(ctx);
@@ -573,10 +597,11 @@ async function dispatchWorkflow(file: string, inputs: Record<string, string>): P
 }
 
 export const dispatch = internalAction({
-  args: { runId: v.id("texLabRuns") },
+  args: { runId: v.id("texLabRuns"), target: v.optional(v.string()) },
   returns: v.null(),
-  handler: async (ctx, { runId }) => {
-    const out = await dispatchWorkflow(RUN_WORKFLOW, { run_id: runId });
+  handler: async (ctx, { runId, target }) => {
+    // A preview run names its preview; the workflow runs it replay only. Unset dispatches exactly as before.
+    const out = await dispatchWorkflow(RUN_WORKFLOW, { run_id: runId, ...(target && target !== "staging" ? { preview: target } : {}) });
     if (!out.ok) await ctx.runMutation(internal.functions.texLabRuns.report, { runId, stage: "failed", error: out.error });
     else if (out.url) await ctx.runMutation(internal.functions.texLabRuns.report, { runId, stage: "queued", ghRunUrl: out.url });
     return null;

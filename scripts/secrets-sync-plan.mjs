@@ -46,7 +46,7 @@ import { fileURLToPath } from "node:url";
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 export const ALLOWLIST_PATH = join(ROOT, "scripts/secrets-allowlist.json");
-export const ENVIRONMENTS = ["staging", "production"];
+export const ENVIRONMENTS = ["staging", "production", "preview"];
 
 export function loadAllowlist(path = ALLOWLIST_PATH) {
   return JSON.parse(readFileSync(path, "utf8"));

@@ -527,3 +527,119 @@ binding = "IMAGES"
 
 [env.staging.version_metadata]
 binding = "CF_VERSION_METADATA"
+
+# Preview: a throwaway copy of this gateway for one pull request, so that branch's Context and Tex can be
+# exercised end to end on workers.dev without touching production or staging data. Its names and hosts are
+# placeholders (__PREVIEW__ and __WORKERS_DEV__) that scripts/preview-config.mjs renders into a copy beside this
+# file. Never deploy this section directly: the rendered copy is the only thing that goes out.
+[env.preview]
+name = "context-mcp-__PREVIEW__"
+workers_dev = true
+
+[env.preview.vars]
+# Staging's settings with a preview's own hosts. The texts simulator is on: the texting Worker's preview hands
+# simulated chats to this gateway's chat object (`src/texChat.js`), as staging does. Browser Use is left off: a
+# preview does not spend a paid outside browser.
+SIMULATOR = "on"
+SHARING_JUDGE = "on"
+HANDBACK_JUDGE = "on"
+TEX_REVIEW = "on"
+PUBLIC_ORIGIN = "https://context-mcp-__PREVIEW__.__WORKERS_DEV__"
+ALLOWED_ORIGINS = "https://context-router-__PREVIEW__.__WORKERS_DEV__"
+APP_ORIGIN = "https://context-router-__PREVIEW__.__WORKERS_DEV__"
+SEARCH_SUBREQUEST_BUDGET = "600"
+TEX_JOBS = "gateway"
+
+[[env.preview.durable_objects.bindings]]
+name = "PRESENCE_ROOM"
+class_name = "PresenceRoom"
+
+[[env.preview.durable_objects.bindings]]
+name = "TEX_STORE"
+class_name = "TexStore"
+
+[[env.preview.durable_objects.bindings]]
+name = "WORKSPACE_STORE"
+class_name = "WorkspaceStore"
+
+[[env.preview.durable_objects.bindings]]
+name = "LIVE_TICKET"
+class_name = "LiveTicket"
+
+[[env.preview.durable_objects.bindings]]
+name = "TEX_CHAT"
+class_name = "TexChat"
+
+[[env.preview.durable_objects.bindings]]
+name = "TEX_JOB"
+class_name = "TexJob"
+
+[[env.preview.durable_objects.bindings]]
+name = "SEARCH_QUALITY_KEY"
+class_name = "SearchQualityKey"
+
+[[env.preview.durable_objects.bindings]]
+name = "LAB_SANDBOX"
+class_name = "LabSandbox"
+
+[[env.preview.durable_objects.bindings]]
+name = "CREDIT_REST"
+class_name = "CreditRest"
+
+# Analytics Engine datasets, each the staging name with `_preview` in place of `_staging`.
+[[env.preview.analytics_engine_datasets]]
+binding = "TEX_TIMING"
+dataset = "tex_timing_preview"
+
+[[env.preview.analytics_engine_datasets]]
+binding = "TEX_CALLS"
+dataset = "tex_model_calls_preview"
+
+[[env.preview.analytics_engine_datasets]]
+binding = "TEX_ENTRY"
+dataset = "tex_entry_preview"
+
+[[env.preview.analytics_engine_datasets]]
+binding = "MCP_ENTRY"
+dataset = "mcp_entry_preview"
+
+[[env.preview.analytics_engine_datasets]]
+binding = "CALL_COUNTS"
+dataset = "context_calls_preview"
+
+[[env.preview.analytics_engine_datasets]]
+binding = "TEX_TEXTS"
+dataset = "tex_text_timing_preview"
+
+[[env.preview.analytics_engine_datasets]]
+binding = "TEX_COUNTS"
+dataset = "tex_text_counts_preview"
+
+# Site screenshots and the eval service stay on staging's Workers: they hold no customer data and have no
+# address of their own. The texting Worker is this pull request's own preview.
+[[env.preview.services]]
+binding = "SITE_SHOTS"
+service = "context-site-shots-staging"
+
+[[env.preview.services]]
+binding = "TEXTING"
+service = "context-agent-__PREVIEW__"
+entrypoint = "TexRoutines"
+
+[[env.preview.services]]
+binding = "TEX_EVAL"
+service = "context-tex-eval-staging"
+entrypoint = "PeopleDoor"
+
+[[env.preview.services]]
+binding = "TEX_EVAL_HTTP"
+service = "context-tex-eval-staging"
+
+[env.preview.ai]
+binding = "AI"
+
+[env.preview.images]
+binding = "IMAGES"
+
+[env.preview.version_metadata]
+binding = "CF_VERSION_METADATA"

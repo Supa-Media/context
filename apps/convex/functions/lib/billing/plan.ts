@@ -7,6 +7,7 @@ import {
   freeManagedStorageSwitchedOn,
   managedAccountId,
   managedBucketName,
+  previewStorageIsFree,
   stagingStorageIsFree,
 } from "../managedStorage";
 
@@ -118,7 +119,7 @@ export function deploymentSells(): boolean {
  * The throw is still the right behaviour where provisioning itself reads it.
  */
 export function deploymentProvidesManagedStorage(): boolean {
-  if (pricingIsOn() && !stagingStorageIsFree() && !deploymentSells()) return false;
+  if (pricingIsOn() && !stagingStorageIsFree() && !previewStorageIsFree() && !deploymentSells()) return false;
   try {
     return managedAccountId() !== null;
   } catch {

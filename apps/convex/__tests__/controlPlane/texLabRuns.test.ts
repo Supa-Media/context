@@ -70,6 +70,50 @@ async function world(role: "editor" | "member" = "editor") {
 
 const runsOf = async (t: Awaited<ReturnType<typeof world>>["t"]) => await t.run(async (ctx) => await ctx.db.query("texLabRuns").collect());
 
+describe("aiming a run at a pull request's preview", () => {
+  test("the target is pr<N> or unset: prod, pr0, pr01 and a bare number are refused, pr42 and an absent target are accepted", async () => {
+    const { lab, t } = await world();
+    for (const bad of ["prod", "pr0", "pr01", "pr", "42", "PR42", "pr12345678", "pr42/x"]) {
+      await expect(lab.mutation(api.functions.texLabRuns.start, { versionId: "main", kind: "dev", target: bad })).rejects.toThrow(/target/);
+    }
+    expect(await runsOf(t)).toHaveLength(0);
+    expect(calls).toHaveLength(0);
+    const { runId } = await lab.mutation(api.functions.texLabRuns.start, { versionId: "main", kind: "dev", target: "pr42" });
+    expect(runId).toBeDefined();
+    const absent = await lab.mutation(api.functions.texLabRuns.start, { versionId: "main", kind: "dev" });
+    expect(absent.runId).toBeDefined();
+    await drainScheduled(t);
+    expect(calls).toHaveLength(2);
+  });
+
+  test("a preview run is dispatched with its preview and no world input (replay is the workflow's default, live is refused there), runs its pull request's code, and repeats once", async () => {
+    const { lab, t } = await world();
+    const { runId } = await lab.mutation(api.functions.texLabRuns.start, { versionId: "main", kind: "dev", target: "pr42", models: "gw", repeats: 5 });
+    await drainScheduled(t);
+    expect(calls).toHaveLength(1);
+    expect(calls[0].body).toEqual({ ref: "main", inputs: { run_id: runId, preview: "pr42" } });
+    expect(calls[0].body?.inputs).not.toHaveProperty("world");
+    expect(await t.query(internal.functions.texLabRuns.job, { runId })).toMatchObject({ code: "#42", repeats: 1 });
+  });
+
+  test("a preview runs only its own pull request: another code is refused, and an unset code becomes that pull request", async () => {
+    const { lab, door, t } = await world();
+    await expect(lab.mutation(api.functions.texLabRuns.start, { versionId: "main", kind: "dev", target: "pr42", code: "#7" })).rejects.toThrow(/pull request #42/);
+    await expect(lab.mutation(api.functions.texLabRuns.start, { versionId: "main", kind: "dev", target: "pr42", code: "feature/x" })).rejects.toThrow(/pull request #42/);
+    const { runId } = await lab.mutation(api.functions.texLabRuns.start, { versionId: "main", kind: "dev", target: "pr42", code: "#42" });
+    await drainScheduled(t);
+    expect(await t.query(internal.functions.texLabRuns.job, { runId })).toMatchObject({ code: "#42" });
+  });
+
+  test("the Lab's start with no target dispatches exactly as before: no preview input, the run's own repeats", async () => {
+    const { lab, t } = await world();
+    const { runId } = await lab.mutation(api.functions.texLabRuns.start, { versionId: "main", kind: "dev", repeats: 3 });
+    await drainScheduled(t);
+    expect(calls[0].body).toEqual({ ref: "main", inputs: { run_id: runId } });
+    expect(await t.query(internal.functions.texLabRuns.job, { runId })).toMatchObject({ repeats: 3, code: null });
+  });
+});
+
 describe("who may start a run", () => {
   test("a stranger and a plain member are refused, and nothing is stored or dispatched", async () => {
     const w = await world();
