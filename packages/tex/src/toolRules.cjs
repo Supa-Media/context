@@ -3,7 +3,8 @@
  * all read, so the three never disagree about what passes:
  *
  *   1. Don't add or remove tools between turns: a tool that can't be used right now returns a clear error.
- *   2. Each tool's description plus schema stays under 4,000 characters.
+ *   2. Each tool's description plus schema stays under 4,000 characters. send, the tool of tools, gets 8,000 (Dev2,
+ *      2026-11-20: its actions' argument shapes have to be seen, or emails go out with `to` as one string).
  *   3. State is saved through a dedicated tool, not a shell command or a generic write, so reviewers see what changes.
  *   4. Errors say what to do next ("The computer is asleep. Use Shell or Read to wake it, then try again.").
  *
@@ -13,6 +14,14 @@
 
 /** Rule 2's limit: a tool's description plus its JSON schema, in characters. */
 const TOOL_CHAR_LIMIT = 4000;
+
+/** Tools with a budget of their own (Dev2, 2026-11-20): send carries every outside action, each with its args shown. */
+const TOOL_CHAR_LIMITS = { send: 8000 };
+
+/** Rule 2's limit for one tool by name. */
+function limitOf(name) {
+  return Object.hasOwn(TOOL_CHAR_LIMITS, name) ? TOOL_CHAR_LIMITS[name] : TOOL_CHAR_LIMIT;
+}
 
 /** Rule 2's measure: the characters a model reads for one tool definition (description plus schema as JSON). */
 function toolChars(tool) {
@@ -72,4 +81,4 @@ function stateFileOf(path) {
 /** Names that would hand a model a shell: none may be a Tex tool or a `send` action (rule 3). */
 const SHELL_NAMES = Object.freeze(["shell", "bash", "exec", "run_command", "terminal", "sh"]);
 
-module.exports = { TOOL_CHAR_LIMIT, toolChars, rateError, TEX_STATE_FILES, stateFileOf, SHELL_NAMES };
+module.exports = { TOOL_CHAR_LIMIT, TOOL_CHAR_LIMITS, limitOf, toolChars, rateError, TEX_STATE_FILES, stateFileOf, SHELL_NAMES };

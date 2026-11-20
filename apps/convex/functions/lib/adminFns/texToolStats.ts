@@ -12,7 +12,7 @@
 
 import { v, type Infer } from "convex/values";
 import type { QueryCtx } from "../../../_generated/server";
-import { TOOL_CHAR_LIMIT, rateError } from "@context/tex/src/toolRules.cjs";
+import { TOOL_CHAR_LIMIT, TOOL_CHAR_LIMITS, rateError } from "@context/tex/src/toolRules.cjs";
 
 /** Convex's read limits: a bigger window is cut and says so, never read past. */
 export const MAX_TURNS_READ = 2_500;
@@ -36,6 +36,8 @@ const MAX_WORST = 8;
  */
 export const toolRulesValidator = v.object({
   limit: v.number(),
+  /** Tools with a budget of their own (send: 8,000), by name. */
+  limits: v.optional(v.record(v.string(), v.number())),
   /** Turns that logged the tool list they were shown. */
   turnsWithList: v.number(),
   /** Rule 2: each tool's largest size seen, by the kind of turn it was shown in. */
@@ -125,6 +127,7 @@ export function toolRulesOf(turns: TurnRow[], failures: Array<{ cause: string; w
   }
   return {
     limit: TOOL_CHAR_LIMIT,
+    limits: TOOL_CHAR_LIMITS,
     turnsWithList: withList.length,
     sizes: [...sizes.values()].sort((a, b) => b.chars - a.chars || a.tool.localeCompare(b.tool)),
     lists: {

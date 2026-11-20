@@ -21,7 +21,7 @@ import { surfaces } from "./toolRules/report.mjs";
 import { oneToOne } from "./replay/chats.mjs";
 import rules from "../../../packages/tex/src/toolRules.cjs";
 
-const { TOOL_CHAR_LIMIT, toolChars, rateError } = rules;
+const { limitOf, toolChars, rateError } = rules;
 const strip = (value) =>
   JSON.stringify(value, (key, inner) =>
     key === "cache_control" ? undefined : inner,
@@ -99,7 +99,7 @@ test("each of the six is under 4,000 characters, in a 1:1 and in a group", () =>
     const { tools } = sixToolsOver([...shown.values()], null, { shown });
     for (const tool of tools)
       assert.ok(
-        toolChars(tool) <= TOOL_CHAR_LIMIT,
+        toolChars(tool) <= limitOf(tool.name),
         `${kind} ${tool.name} is ${toolChars(tool)} characters`,
       );
     const send = tools.find((tool) => tool.name === "send");
@@ -108,6 +108,9 @@ test("each of the six is under 4,000 characters, in a 1:1 and in a group", () =>
       /fetch manual:<action>/,
       "the list says where each action's guide is",
     );
+    assert.match(send.description, /- email: [^\n]* args: to\*: string\[\]/, "send keeps each action's args: to is a list");
+    assert.match(send.description, /- email: [^\n]*in_reply_to/, "and a reply's in_reply_to");
+    assert.match(send.description, /- calendar: [^\n]* args: action\*:/, "a calendar change's shape too");
   }
 });
 

@@ -229,8 +229,10 @@ function familyTool(family, base, actions, held, { manuals = false } = {}) {
     const carrier = held.get(entry.tool);
     // MANUALS (Dev2, 2026-11-20, "short lines, manual on demand"): one line an action, its first sentence; its args and
     // own words are read with `fetch manual:<action>`, so each tool stays under the 4,000 characters of the tool rules.
-    if (manuals) return `- ${name}: ${SHORT_LINES[name] ?? firstSentence(entry.summary)}`;
     const args = actionArguments(entry, carrier);
+    // ARGS ON SEND (Dev2, 2026-11-20, after emails went out with `to` as one string): send, the tool of tools, keeps
+    // each action's argument shape on its line, within its own 8,000-character budget (`toolRules.cjs`).
+    if (manuals) return `- ${name}: ${SHORT_LINES[name] ?? firstSentence(entry.summary)}${family === "send" ? ` args: ${args}` : ""}`;
     const line = `- ${name}: ${entry.summary} args: ${args}`;
     // The assistant's own abilities, and a plain save, keep their own words:
     // what a browser step takes, how a routine is written.
@@ -289,7 +291,7 @@ const SHORT_LINES = {
   ask_personal_tex: "Get the tagger's name, phone and email from their own Tex, for a form.",
   say_nothing: "Text nothing and end your turn, only where your instructions say silence fits.",
   calendar: "Add, edit, move, cancel or RSVP to one event on their Google Calendar.",
-  email_draft: "Save one email as a draft in their Gmail, for them to send.",
+  email_draft: "Save one email as a draft in their Gmail, for them to send. A reply passes in_reply_to.",
   chat_add_everyone: "Invite everyone here to one of the asker's workspaces.",
   tapback: "Answer their text with only a tapback, and end your turn.",
   forward_rule: "Keep forwarding one kind of their mail to one address, once they 👍 it.",
@@ -297,7 +299,7 @@ const SHORT_LINES = {
   advisor: "Ask your advisor, a stronger model, for judgment, before a task is done, or when stuck.",
   fill_card: "Fill the checkout's card boxes with a saved card you never see.",
   delegate: "Hand a whole sub-project to Claude Code, Codex, Claude, Claude Design or ChatGPT.",
-  email: "Send one email as the person through their Gmail, once they say yes to it.",
+  email: "Send one email as the person through their Gmail, once they say yes to it. A reply passes in_reply_to (its id from search_email); to is a list.",
   app: "Make one change through an app they connected, once they say yes to it.",
 };
 

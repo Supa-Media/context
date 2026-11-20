@@ -4,7 +4,7 @@
  * logged. tex_dev `tool_stats` returns the same numbers under `rules`. CI holds them with a ratchet
  * (`apps/mcp/test/toolRules.test.mjs`); this is the live view.
  */
-import { ruleChecks, type ToolRules } from "./toolStats";
+import { limitFor, ruleChecks, type ToolRules } from "./toolStats";
 
 export function ToolRulesPanel({ rules, days }: { rules: ToolRules | undefined; days: number }) {
   if (!rules) return null;
@@ -35,7 +35,7 @@ export function ToolRulesPanel({ rules, days }: { rules: ToolRules | undefined; 
           <h2 style={{ marginTop: 12 }}>Largest tools shown</h2>
           <div className="tacts">
             {sizes.map((s) => (
-              <span key={`${s.tool}.${s.kind}`} className={`tact ${s.chars > rules.limit ? "err" : ""}`} title={`${s.chars} chars shown in a ${s.kind} turn`}>
+              <span key={`${s.tool}.${s.kind}`} className={`tact ${s.chars > limitFor(rules, s.tool) ? "err" : ""}`} title={`${s.chars} chars shown in a ${s.kind} turn`}>
                 {s.tool} · {s.kind}
                 <b>{s.chars.toLocaleString()}</b>
               </span>

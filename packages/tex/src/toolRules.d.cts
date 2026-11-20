@@ -2,6 +2,8 @@
 export type ErrorRating = "actionable" | "partial" | "not";
 export interface StateFile { file: string; what: string; action: string | null }
 export declare const TOOL_CHAR_LIMIT: number;
+export declare const TOOL_CHAR_LIMITS: Readonly<Record<string, number>>;
+export declare function limitOf(name: string): number;
 export declare function toolChars(tool: { description?: string; input_schema?: unknown; inputSchema?: unknown } | null | undefined): number;
 export declare function rateError(text: string): ErrorRating;
 export declare const TEX_STATE_FILES: readonly StateFile[];

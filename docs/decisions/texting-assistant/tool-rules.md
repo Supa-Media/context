@@ -60,3 +60,31 @@ available now and what to do. `test/sixToolsFixed.test.mjs` and the replay
 the replay-harness test in it fail when a 1:1's check-in is shown a different list
 or a tool goes over the limit. Main keeps `"turn"` until a scored Lab draft
 is promoted.
+
+## `send` keeps each action's argument shape, in 8,000 characters (2026-11-20)
+
+The fixed list went live on 2026-11-20 at 14:12 UTC. Within hours, emails in
+the owner's 1:1 were refused 15 times:
+
+- `to` was passed as one string, not a list (9 times).
+- A "Re:" reply was sent without `in_reply_to` (6 times).
+
+The same task had worked the day before. The cause was the short lines. They
+dropped each action's argument shape, which the per-turn list had carried
+inline. That shape then lived only in `fetch manual:<action>`, and the model
+called without reading it.
+
+The owner's call: send is "a tool of tools". The basic shape of its critical
+actions (email, messages, calendar edits) "has to be part and parcel" of it,
+and it gets more budget. So:
+
+- **Every send action's line carries its args again.** `familyTool` in
+  `sixTools.js` does this, within send's own budget of 8,000 characters
+  (`TOOL_CHAR_LIMITS` in `toolRules.cjs`).
+- **The email lines name the reply rule.**
+- **Every other tool keeps 4,000.** write and manage keep their short lines
+  and manuals.
+- **The Lab's Tool rules panel reads each tool's own limit.**
+
+`sixToolsFixed.test.mjs` fails when a tool goes over its own limit, or when
+send's email line loses its args.
