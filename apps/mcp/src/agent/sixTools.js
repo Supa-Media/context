@@ -128,6 +128,7 @@ export const ASSISTANT_SEND_ACTIONS = {
   make_picture: { tool: "make_picture", summary: "Generate or edit a photo with an image model, to text them. Make it first; guess what they left out.", take: own },
   say_nothing: { tool: "say_nothing", summary: "Text nothing this time and end your turn, only where your instructions say silence fits; never type a word like SKIP instead.", take: own }, // `sayNothing.js`
   tapback: { tool: "tapback", summary: "Answer their text with only a tapback on it, no words, and end your turn.", take: own }, // `tapbackEnding.js`: offered only while the config wires tools -> tapback
+  tex_computer: { tool: "tex_computer", summary: "Your own Linux computer for this chat, with no internet: run a command, or read, write and list files.", take: own }, // `texComputerSandbox.js`: a job's turn only, while the config wires tools -> computer
   // Tex's chat commands (`commandTools.js`): offered only when the turn holds them.
   ...Object.fromEntries(Object.entries(COMMAND_SEND_ACTIONS).map(([name, entry]) => [name, { ...entry, take: own }])),
   // Their own computers, set up from a text (`machines/texActions.js`): offered only when the turn holds the tool.

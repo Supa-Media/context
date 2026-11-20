@@ -1,0 +1,43 @@
+{
+  // context-tex-computer: Tex's own computer, one Linux container per person or
+  // group chat (src/index.ts). Dev2 picked Cloudflare Sandbox on 2026-11-20.
+  //
+  // No public address: the gateway reaches it only through a service binding,
+  // so it holds no secret. Deploy it before any gateway that binds it.
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "context-tex-computer",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-09-01",
+  "workers_dev": false,
+  "containers": [
+    {
+      "class_name": "TexComputer",
+      "image": "./Dockerfile",
+      // 1/2 vCPU, 4 GiB, 8 GB disk: room for a spreadsheet, a PDF or a script.
+      "instance_type": "standard-1",
+      "max_instances": 50
+    }
+  ],
+  "durable_objects": {
+    "bindings": [{ "name": "TEX_COMPUTER", "class_name": "TexComputer" }]
+  },
+  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["TexComputer"] }],
+  "observability": { "enabled": true },
+  "env": {
+    "staging": {
+      "name": "context-tex-computer-staging",
+      "workers_dev": false,
+      "containers": [
+        {
+          "class_name": "TexComputer",
+          "image": "./Dockerfile",
+          "instance_type": "standard-1",
+          "max_instances": 5
+        }
+      ],
+      "durable_objects": {
+        "bindings": [{ "name": "TEX_COMPUTER", "class_name": "TexComputer" }]
+      }
+    }
+  }
+}

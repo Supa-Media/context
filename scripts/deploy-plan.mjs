@@ -124,6 +124,7 @@ export const TARGETS = {
       transcribe: { packages: ["@context/transcribe-worker"], worker: "infra/transcribe-worker" },
       egress: { packages: ["@context/egress-service"], worker: "infra/egress-service" },
       photon: { packages: ["@context/photon-bridge"], worker: "infra/photon-bridge" },
+      computer: { packages: ["@context/tex-computer"], worker: "infra/tex-computer" },
       email: { packages: ["@context/email-worker"], worker: "infra/email-worker" },
       agent: { packages: ["@context/agent"], dirs: [TEX_WORKER], worker: "apps/agent", files: [WORKER_SECRETS] },
       // The gateway's job deploys its screenshot Worker and its eval service
@@ -169,6 +170,7 @@ export const TARGETS = {
       agent: { packages: ["@context/agent"], dirs: [TEX_WORKER], files: [workflow("deploy-agent-worker"), WORKER_SECRETS] },
       egress: { packages: ["@context/egress-service"], files: [workflow("deploy-egress-service")] },
       photon: { packages: ["@context/photon-bridge"], files: [workflow("deploy-photon-bridge")] },
+      computer: { packages: ["@context/tex-computer"], files: [workflow("deploy-tex-computer")] },
       sentry: { packages: ["@context/sentry-worker"], files: [workflow("deploy-sentry-worker")] },
       // The router publishes the web export as one Worker version. Either
       // half changing must rebuild and deploy both halves of that version.

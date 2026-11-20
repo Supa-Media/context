@@ -330,6 +330,9 @@ jobs:
             photon)
               # Secrets went out with the deploy (--secrets-file). Nothing to sync.
               ;;
+            computer)
+              # Tex's computer holds no secret: only the gateway's service binding reaches it.
+              ;;
             email)
               printf '%s' "$EMAIL_WORKER_SECRET" | pnpm --dir infra/email-worker exec wrangler secret put EMAIL_WORKER_SECRET --env staging
               printf '%s' "$CONTROL_PLANE_URL" | pnpm --dir infra/email-worker exec wrangler secret put CONTROL_PLANE_URL --env staging
