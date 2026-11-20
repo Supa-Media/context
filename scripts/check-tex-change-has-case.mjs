@@ -89,6 +89,25 @@ function selfTest() {
   console.log("\nself-test: all cases behave as stated.");
 }
 
+/** HEAD's first parent when HEAD is a merge (fetched if the shallow checkout lacks it), else null. */
+function mergedOnto() {
+  try {
+    const parents = execFileSync("git", ["cat-file", "-p", "HEAD"], { encoding: "utf8" })
+      .split("\n")
+      .filter((line) => line.startsWith("parent "))
+      .map((line) => line.slice(7).trim());
+    if (parents.length !== 2) return null;
+    try {
+      execFileSync("git", ["cat-file", "-e", `${parents[0]}^{commit}`], { stdio: "ignore" });
+    } catch {
+      execFileSync("git", ["fetch", "--no-tags", "--depth=1", "origin", parents[0]], { stdio: "ignore" });
+    }
+    return parents[0];
+  } catch {
+    return null;
+  }
+}
+
 if (import.meta.url === `file://${process.argv[1]}`) {
   if (process.argv.includes("--self-test")) selfTest();
   else {
@@ -97,8 +116,11 @@ if (import.meta.url === `file://${process.argv[1]}`) {
       console.log("check-tex-change-has-case: not a pull request (no BASE_SHA); nothing to check.");
       process.exit(0);
     }
-    // The checkout is the pull request merged onto its base, so base..HEAD is exactly what it changes.
-    const files = execFileSync("git", ["diff", "--name-only", BASE_SHA, "HEAD"], { encoding: "utf8" }).split("\n").filter(Boolean);
+    // The checkout is the pull request merged onto main as it is now. Its first parent is that main, so first..HEAD is
+    // exactly what the pull request changes; the event's BASE_SHA can be an older main, and diffing from it counted
+    // every Tex file merged since as this pull request's (#3870, 2026-11-20).
+    const base = mergedOnto() ?? BASE_SHA;
+    const files = execFileSync("git", ["diff", "--name-only", base, "HEAD"], { encoding: "utf8" }).split("\n").filter(Boolean);
     const shelf = JSON.parse(readFileSync(SHELF, "utf8"));
     const problem = verdict(files, TEX_PR_BODY, Object.values(shelf.nodes ?? {}).flatMap((n) => n.files ?? []));
     if (problem) {
