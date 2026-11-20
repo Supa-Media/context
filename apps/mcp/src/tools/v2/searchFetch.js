@@ -47,7 +47,7 @@ function openArgs(call) {
   const raw = call.args;
   if (raw === undefined || raw === null) return { args: undefined };
   if (typeof raw !== "object" || Array.isArray(raw)) {
-    return { error: "args has to be an object of named options." };
+    return { error: "args has to be an object of named options: call it again with args like { limit: 5 }, or without args." };
   }
   // An email search's address written as mailbox, a note-mail id everywhere else, was meant as the account
   // (2026-11-14: Tex was refused here, moved it to the top, and the search ran over every mailbox; `emailRead.js`).
@@ -57,7 +57,7 @@ function openArgs(call) {
   }
   for (const key of ADDRESSING) {
     if (Object.hasOwn(raw, key)) {
-      return { error: `${key} goes beside args, at the top of the call, not inside it.` };
+      return { error: `${key} goes beside args, at the top of the call, not inside it: call it again with ${key} moved out of args.` };
     }
   }
   return { args: Object.fromEntries(Object.entries(raw).filter(([, value]) => value !== undefined)) };
@@ -73,7 +73,8 @@ function target(label, a, { name, action, fixed = {}, copy = [], consumed = [], 
   const extra = Object.keys(a).filter((key) => !copy.includes(key) && !consumed.includes(key));
   if (extra.length > 0) {
     const takes = copy.length > 0 ? `args: ${copy.join(", ")}` : "no args";
-    return { error: `${label} takes ${takes}${others}. orient lists what each id takes.` };
+    if (copy.length === 0) return { error: `${label} takes ${takes}${others}. Call it again without args; orient lists what each id takes.` };
+    return { error: `${label} takes ${takes}${others}. Call it again with only those; orient lists what each id takes.` };
   }
   const out = { ...fixed };
   for (const key of copy) if (a[key] !== undefined) out[key] = a[key];
