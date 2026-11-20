@@ -37,6 +37,13 @@ export const CONFIG_STAMP = configStamp(CONFIG);
 export const SHELF_NODES = Object.freeze(Object.keys(SHELF.nodes ?? {}));
 
 /**
+ * Steps retired off the config (Dev2, 2026-11-20: "we can leave the underlying code in the code base, just not wire it
+ * anywhere"): on the shelf with `retired: true` and their last definition as `node`, off, never drawn and never run by
+ * the runner. Code that still reads a setting off one (a model, a time limit, a schema) reads it here.
+ */
+export const RETIRED_STEPS = Object.freeze(Object.fromEntries(Object.entries(SHELF.nodes ?? {}).filter(([, entry]) => entry?.retired === true && entry.node?.id).map(([id, entry]) => [id, Object.freeze({ ...entry.node, on: false })])));
+
+/**
  * Tex's prompt words by module name: the repository's, from `packages/shared/src/texPrompt/<name>.md`
  * (`scripts/tex-prompt-module.mjs`), and, as `train-<nodeId>`, each node's Training examples
  * (`texTraining.cjs`, from `apps/mcp/bench/sets/training`). A node with no Training labels has no words, so a step
@@ -74,9 +81,12 @@ export const TRAINING_READERS = Object.freeze(["decide", "router", "fd", "job", 
  * other turn reads main's, exactly as before.
  */
 
-/** One step of the config by its id. Throws for an id the file has not: a typo here must fail the suite, not a turn. */
+/**
+ * One step of the config by its id, or a retired step's last definition (`RETIRED_STEPS`, always off) when the config
+ * has none. Throws for an id neither has: a typo here must fail the suite, not a turn.
+ */
 export function texStep(id, config = CONFIG) {
-  const step = config.nodes.find((node) => node.id === id);
+  const step = config.nodes.find((node) => node.id === id) ?? RETIRED_STEPS[id];
   if (!step) throw new Error(`texConfig: no step "${id}"`);
   return step;
 }

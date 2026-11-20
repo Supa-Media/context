@@ -49,7 +49,7 @@ test("Intake holds the Door, which hands the Front door a text and Confirmations
   // The Door starts as a Provisional run beside Triage, Decide and the Queue, which give its go or its stop (Dev2, 2026-11-17).
   assert.deepEqual(TEX_CONFIG.edges.filter((e) => e.to === "doorStep").map((e) => `${e.from}:${e.mode}`).sort(), ["decide:provisional", "lanes:provisional", "triage:provisional"], "Intake starts the Door provisionally");
   for (const id of ["doorStep", "bypass"]) assert.notEqual(TEX_CONFIG.nodes.find((n) => n.id === id)?.on, false, `live Tex runs ${id}`);
-  for (const part of PARTS) assert.equal(TEX_CONFIG.nodes.find((n) => n.id === part)?.on, false, `${part} is off as a step`);
+  for (const part of PARTS) assert.ok(!TEX_CONFIG.nodes.some((n) => n.id === part), `${part} is no step of the config any more: retired to the shelf, 2026-11-20`);
 });
 
 test("a part that answers stops the door, and the parts after it never run", async () => {

@@ -14,11 +14,11 @@ import { loadSets } from "../bench/sets.mjs";
 import { parseTest } from "../bench/load.mjs";
 import sets from "../../../packages/shared/src/texSets.cjs";
 import decide from "../../../packages/shared/src/textDecide.cjs";
-import { readTexConfig } from "../../../scripts/lib/texConfigFile.mjs";
+import { readTexConfig, withRetiredSteps } from "../../../scripts/lib/texConfigFile.mjs";
 
 const repo = new URL("../../../", import.meta.url);
 const repoRoot = new URL("../../..", import.meta.url).pathname;
-const config = readTexConfig();
+const config = withRetiredSteps(readTexConfig()); // migrated cases still label the Reply reviewer and the Job check, retired to the shelf 2026-11-20
 const bench = new URL("apps/mcp/bench/", repo);
 const run = promisify(execFile);
 

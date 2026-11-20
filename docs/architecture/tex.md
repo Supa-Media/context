@@ -32,7 +32,7 @@ flowchart LR
   n_routine(["Routine runs<br/>code<br/>graph/nodes/routine.js · routine.js · runARoutine.js · finishARoutine.js"]):::start
   n_notify(["Send through Tex<br/>code<br/>graph/nodes/notify.js · tools/attention.js · attention.js"]):::start
   n_oldLine(["Old number intake<br/>code<br/>graph/nodes/oldLine.js · apps/agent oldLineStep.ts · oldLine.ts"]):::start
-  n_fd["Front door<br/>Haiku 5.5 · effort medium<br/>turn.js runTurn · texEntryPoint/runTheModel.js"]:::model
+  n_fd["Front door<br/>Haiku 5.5 · effort medium<br/>turn.js runTurn · texEntryPoint/runTheModel.js · builtin.js"]:::model
   n_send["Text them<br/>code<br/>sendTheReply · sendOne.ts · recoverFromFailure.js"]:::code
   n_nightly(["Nightly<br/>code<br/>dream.js · housekeeping.js"]):::start
   n_dream["Dream<br/>Haiku 5.5 · effort low<br/>dream.js"]:::model
@@ -74,29 +74,6 @@ flowchart LR
     n_moveJudge["Move judge<br/>Haiku 5.5 · effort low<br/>graph/nodes/moveJudge.js · theirNotes.js"]:::model
     n_crossChatGate["Cross-chat gate<br/>code<br/>graph/nodes/crossChatGate.js · crossChat.js"]:::code
     n_tapback["Tapback<br/>code<br/>graph/nodes/tapback.js · tapbackEnding.js"]:::code
-  end
-  subgraph n_group_retired["Turned off (deleted after Promote)"]
-    n_readTheText["Read the text<br/>code · off<br/>texEntryPoint/readTheText.js"]:::off
-    n_runARoutine["Run a routine<br/>code · off<br/>texEntryPoint/runARoutine.js"]:::off
-    n_checkTheQuestion["Check the question<br/>code · off<br/>texEntryPoint/checkTheQuestion.js"]:::off
-    n_settleAYesOrNo["Settle a yes or no<br/>code · off<br/>texEntryPoint/settleAYesOrNo.js"]:::off
-    n_watchWhatLeaves["Watch what leaves<br/>code · off<br/>texEntryPoint/watchWhatLeaves.js"]:::off
-    n_checkItMayRun["Check it may run<br/>code · off<br/>texEntryPoint/checkItMayRun.js"]:::off
-    n_readTheHistory["Read the history<br/>code · off<br/>texEntryPoint/readTheHistory.js"]:::off
-    n_openTheWeb["Open the web<br/>code · off<br/>texEntryPoint/openTheWeb.js"]:::off
-    n_readTheSetup["Read the setup<br/>code · off<br/>texEntryPoint/readTheSetup.js"]:::off
-    n_prepareBookkeeping["Bookkeeping<br/>code · off<br/>texEntryPoint/prepareBookkeeping.js"]:::off
-    n_prepareTheAnswer["Prepare the answer<br/>code · off<br/>texEntryPoint/prepareTheAnswer.js"]:::off
-    n_fallback["Fallback<br/>GLM-4.7 Flash · off<br/>builtin.js"]:::off
-    n_planner["Big-ask planner<br/>Sonnet 5.5 · effort high · off<br/>planBigAsk.js"]:::off
-    n_checks["Answer checks<br/>code · off<br/>graph/nodes/checks.js · doItChecks.js · untriedWeb.js · sourcedFigures.js seenFiguresNotice · replyJudge.js codeCheck"]:::off
-    n_reviewer["Reply reviewer<br/>Haiku 5.5 · effort low · off<br/>graph/nodes/reviewer.js · replyJudge.js review · sendBack.js"]:::off
-    n_classifier["Classifier<br/>Haiku 5.5 · effort off · off<br/>conversationThreads.js"]:::off
-    n_selfreview["Self-review<br/>Haiku 5.5 · effort low · off<br/>selfReview.js"]:::off
-    n_jobcheck["Job check<br/>Sonnet 5.5 · effort high · off<br/>graph/nodes/jobcheck.js · jobCheck.js"]:::off
-    n_mailadv["Advisor on job mail<br/>Sonnet 5.5 · effort high · off<br/>graph/nodes/mailadv.js · jobNote.js · advisorRoles/jobMail.js"]:::off
-    n_nudge["Memory nudge<br/>Haiku 5.5 · effort off · off<br/>memoryNudge.js"]:::off
-    n_reflect["Reflect<br/>Haiku 5.5 · effort off · off<br/>reflect.js"]:::off
   end
   subgraph n_group_jobs["Jobs"]
     n_job["Background job<br/>Haiku 5.5 · effort medium<br/>graph/nodes/job.js · texJob.js · apps/agent jobRun.ts"]:::model
@@ -144,7 +121,6 @@ flowchart LR
   n_staff -->|move| n_moveChat
   n_routine -->|run| n_fd
   n_routine -->|stopped| n_bypass
-  n_fd -.->|uses: big| n_planner
   n_send -.->|background: sent, ended, answered| n_chatDays
   n_tools -.->|uses: move| n_moveJudge
   n_tools -.->|uses: ask_chat| n_crossChatGate
@@ -190,42 +166,21 @@ every wire, from the same config.
 | Decide | decide | intake | on | Clef |  |  | train:decide, recent, groupBrief, date | textsDecide.js · textDecide.cjs |
 | Decide's reason | decideWhy | tools-subagents | on | Clef |  |  |  | graph/nodes/decideWhy.js · textDecide.cjs |
 | Queue | lanes | intake | on | code |  |  |  | apps/agent inbox.ts · groupTurn.ts |
-| Read the text | readTheText | retired | off | code |  |  |  | texEntryPoint/readTheText.js |
-| Run a routine | runARoutine | retired | off | code |  |  |  | texEntryPoint/runARoutine.js |
-| Check the question | checkTheQuestion | retired | off | code |  |  |  | texEntryPoint/checkTheQuestion.js |
-| Settle a yes or no | settleAYesOrNo | retired | off | code |  |  |  | texEntryPoint/settleAYesOrNo.js |
-| Watch what leaves | watchWhatLeaves | retired | off | code |  |  |  | texEntryPoint/watchWhatLeaves.js |
-| Check it may run | checkItMayRun | retired | off | code |  |  |  | texEntryPoint/checkItMayRun.js |
-| Read the history | readTheHistory | retired | off | code |  |  |  | texEntryPoint/readTheHistory.js |
-| Open the web | openTheWeb | retired | off | code |  |  |  | texEntryPoint/openTheWeb.js |
-| Read the setup | readTheSetup | retired | off | code |  |  |  | texEntryPoint/readTheSetup.js |
-| Bookkeeping | prepareBookkeeping | retired | off | code |  |  |  | texEntryPoint/prepareBookkeeping.js |
-| Prepare the answer | prepareTheAnswer | retired | off | code |  |  |  | texEntryPoint/prepareTheAnswer.js |
 | Router | router | tools-subagents | off | Clef |  | 3 s | train:router, recent, groupBrief, date | graph/nodes/router.js · specialistRoute.js · doorTools.js |
 | Quick door | fdQuick | tools-subagents | on | Haiku 5.5 | medium |  |  | graph/nodes/doors.js · doorTools.js · doorTurn.js |
 | Read door | fdRead | tools-subagents | on | Haiku 5.5 | medium |  |  | graph/nodes/doors.js · doorTools.js · doorTurn.js |
 | Act door | fdAct | tools-subagents | on | Haiku 5.5 | medium |  |  | graph/nodes/doors.js · doorTools.js · doorTurn.js |
-| Front door | fd |  | on | Haiku 5.5 | medium |  | tools, skills, map, p-about-tex, p-rules, p-tools, p-working, p-sound-like-a-person, p-pictures, p-how-you-talk, train:fd:all:66000, caps, groups, devShare, summaries:all:30000, chat:7:130000, threads, about, date, ask | turn.js runTurn · texEntryPoint/runTheModel.js |
-| Fallback | fallback | retired | off | GLM-4.7 Flash |  |  |  | builtin.js |
-| Big-ask planner | planner | retired | off | Sonnet 5.5 | high |  | own, train:planner, ask, caps | planBigAsk.js |
+| Front door | fd |  | on | Haiku 5.5 | medium |  | tools, skills, map, p-about-tex, p-rules, p-tools, p-working, p-sound-like-a-person, p-pictures, p-how-you-talk, train:fd:all:66000, caps, groups, devShare, summaries:all:30000, chat:7:130000, threads, about, date, ask | turn.js runTurn · texEntryPoint/runTheModel.js · builtin.js |
 | Tools | tools | tools-subagents | on | code |  |  |  | callToolForSession |
 | Advisor | advisor | tools-subagents | on | Sonnet 5.5 | high | 40 s | own, train:advisor, caps, about, ask, ledger, hist, date, tools | advisor.js · advisorRoles/chat.js |
-| Answer checks | checks | retired | off | code |  |  |  | graph/nodes/checks.js · doItChecks.js · untriedWeb.js · sourcedFigures.js seenFiguresNotice · replyJudge.js codeCheck |
 | Mail checker | mail | tools-subagents | on | Haiku 5.5 | low |  | own, train:mail, draft, ask | mailChecker.js |
 | Card check | card | tools-subagents | on | Haiku 5.5 | medium |  | own, train:card, draft | cardCheck.js |
-| Reply reviewer | reviewer | retired | off | Haiku 5.5 | low | 8 s | own, train:reviewer, ledger, ask, draft, hist, date | graph/nodes/reviewer.js · replyJudge.js review · sendBack.js |
 | Text them | send |  | on | code |  |  |  | sendTheReply · sendOne.ts · recoverFromFailure.js |
 | React | react | intake | on | code |  |  |  | decide.ts reactionFor · reactions.ts |
-| Classifier | classifier | retired | off | Haiku 5.5 | off | 4 s | own, train:classifier, threads, recent | conversationThreads.js |
-| Self-review | selfreview | retired | off | Haiku 5.5 | low |  | own, train:selfreview, hist | selfReview.js |
 | Background job | job | jobs | on | Haiku 5.5 | medium |  | tools, map, p-about-tex, p-rules, p-tools, p-working, train:job, brief, ask, date | graph/nodes/job.js · texJob.js · apps/agent jobRun.ts |
-| Job check | jobcheck | retired | off | Sonnet 5.5 | high |  | own, train:jobcheck, brief, ask, ledger, out:job, tools | graph/nodes/jobcheck.js · jobCheck.js |
-| Advisor on job mail | mailadv | retired | off | Sonnet 5.5 | high |  | own, train:mailadv, brief, ask | graph/nodes/mailadv.js · jobNote.js · advisorRoles/jobMail.js |
 | Hand-back judge | handback | jobs | on | Haiku 5.5 | low |  | own, train:handback, brief, draft | graph/nodes/handback.js · handbackJudge.js · claimCheck.js |
 | Egress judge | egress | tools-subagents | on | Haiku 5.5 | low |  |  | privacy/judge.js |
 | Picture maker | picture | tools-subagents | on | google/gemini-2.5-flash-image | off |  |  | pictureMaker.js |
-| Memory nudge | nudge | retired | off | Haiku 5.5 | off |  |  | memoryNudge.js |
-| Reflect | reflect | retired | off | Haiku 5.5 | off |  |  | reflect.js |
 | Nightly | nightly |  | on | code |  |  |  | dream.js · housekeeping.js |
 | Dream | dream |  | on | Haiku 5.5 | low |  |  | dream.js |
 | Day summaries | daysum |  | on | Haiku 5.5 | low |  |  | daySummaries.js |
@@ -248,7 +203,7 @@ every wire, from the same config.
 | A job reports | jobReport | jobs | on | code |  |  |  | graph/nodes/jobReport.js · jobReport.js · texEntryPoint/readTheText.js |
 | Job start | jobStart | jobs | on | code |  |  |  | graph/nodes/jobStart.js · jobStart.cjs · jobStartChoice.js · background.js |
 
-Wires: checkin → fd (wait, look) · notify → send (wait, send) · oldLine → send (wait, redirect) · edit → triage (wait, turn) · moveChat → send (wait, person, group) · triage → decide (wait, judge, running) · triage → lanes (wait, tex) · decide → react (wait) · decide → lanes (wait) · fd → tools (uses, action) · tools → mail (uses, email) · tools → card (uses, card) · fd → job (job, job) · job → handback (job, job) · tools → egress (uses, share) · tools → picture (uses, picture) · picture → card (uses) · nightly → dream (wait, dream) · dream → daysum (wait, summarize) · nightly → housekeep (wait, housekeeping) · tools → advisor (uses, ask_advisor) · job → jobadv (uses, job) · job → tools (uses, job) · triage → doorStep (provisional, stop:running, unless firstLook, sms, unpaired) · decide → doorStep (provisional, stop:quiet, restart:wait, unless firstLook, sms, unpaired) · lanes → doorStep (provisional, unless firstLook, sms, unpaired) · text → triage (wait) · doorStep → fd (wait, next) · send → learn (background, fired) · send → afterReply (background, sent, threads) · fd → answerCheck (wait) · answerCheck → send (wait) · answerCheck → fd (loop) · doorStep → bypass (wait, answered) · bypass → send (wait) · staff → moveChat (wait, move) · routine → fd (wait, run) · routine → bypass (wait, stopped) · fd → planner (uses, big) · send → chatDays (background, sent, ended, answered) · tools → moveJudge (uses, move) · tools → crossChatGate (uses, ask_chat) · chatAsk → lanes (wait, ask, answer) · answerCheck → chatAnswer (wait, ask) · crossChatGate → chatAsk (generator, ask) · chatAnswer → chatAsk (generator, back) · tools → tapback (uses, tapback) · job → partEnd (uses, job) · job → jobReport (generator) · jobReport → lanes (wait, report) · fd → jobStart (uses, job) · decide → decideWhy (uses, contradiction) · doorStep → shapeGate (uses) · doorStep → router (uses) · fd → fdQuick (uses, quick) · fd → fdRead (uses, read) · fd → fdAct (uses, act)
+Wires: checkin → fd (wait, look) · notify → send (wait, send) · oldLine → send (wait, redirect) · edit → triage (wait, turn) · moveChat → send (wait, person, group) · triage → decide (wait, judge, running) · triage → lanes (wait, tex) · decide → react (wait) · decide → lanes (wait) · fd → tools (uses, action) · tools → mail (uses, email) · tools → card (uses, card) · fd → job (job, job) · job → handback (job, job) · tools → egress (uses, share) · tools → picture (uses, picture) · picture → card (uses) · nightly → dream (wait, dream) · dream → daysum (wait, summarize) · nightly → housekeep (wait, housekeeping) · tools → advisor (uses, ask_advisor) · job → jobadv (uses, job) · job → tools (uses, job) · triage → doorStep (provisional, stop:running, unless firstLook, sms, unpaired) · decide → doorStep (provisional, stop:quiet, restart:wait, unless firstLook, sms, unpaired) · lanes → doorStep (provisional, unless firstLook, sms, unpaired) · text → triage (wait) · doorStep → fd (wait, next) · send → learn (background, fired) · send → afterReply (background, sent, threads) · fd → answerCheck (wait) · answerCheck → send (wait) · answerCheck → fd (loop) · doorStep → bypass (wait, answered) · bypass → send (wait) · staff → moveChat (wait, move) · routine → fd (wait, run) · routine → bypass (wait, stopped) · send → chatDays (background, sent, ended, answered) · tools → moveJudge (uses, move) · tools → crossChatGate (uses, ask_chat) · chatAsk → lanes (wait, ask, answer) · answerCheck → chatAnswer (wait, ask) · crossChatGate → chatAsk (generator, ask) · chatAnswer → chatAsk (generator, back) · tools → tapback (uses, tapback) · job → partEnd (uses, job) · job → jobReport (generator) · jobReport → lanes (wait, report) · fd → jobStart (uses, job) · decide → decideWhy (uses, contradiction) · doorStep → shapeGate (uses) · doorStep → router (uses) · fd → fdQuick (uses, quick) · fd → fdRead (uses, read) · fd → fdAct (uses, act)
 <!-- tex-config: steps end -->
 
 ## The rule

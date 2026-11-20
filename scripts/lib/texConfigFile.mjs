@@ -22,3 +22,14 @@ export const texConfigText = (root = ROOT) => readFileSync(join(root, CONFIG_PAT
 
 /** The config, parsed and checked against its schema (throws naming every problem). */
 export const readTexConfig = (root = ROOT) => texConfigOf(JSON.parse(texConfigText(root)));
+
+/**
+ * The config with the steps retired off it to the shelf (`texNodeShelf.json`, `retired: true`; 2026-11-20) put back,
+ * off, for a reader of old records that still name them (a bench case migrated from before they were retired).
+ */
+export const withRetiredSteps = (config, root = ROOT) => {
+  const shelf = JSON.parse(readFileSync(join(root, "packages/shared/src/texNodeShelf.json"), "utf8"));
+  const have = new Set(config.nodes.map((n) => n.id));
+  const retired = Object.values(shelf.nodes ?? {}).filter((e) => e?.retired === true && e.node?.id && !have.has(e.node.id)).map((e) => ({ ...e.node, on: false }));
+  return { ...config, nodes: [...config.nodes, ...retired] };
+};
