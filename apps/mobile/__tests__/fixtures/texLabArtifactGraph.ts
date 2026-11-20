@@ -5,11 +5,11 @@
  * `examples` read is `train:decide` since 2026-11-15, the same words now built from the Training Set.
  */
 import { jest } from "@jest/globals";
-import type { LabGraph } from "../../features/tex/lab/types";
+import type { LabGraph } from "@context/lab/app/types";
 import artifact from "./texLabArtifactGraph.json";
 
 export function artifactGraphModule() {
-  const actual = jest.requireActual<typeof import("../../features/tex/lab/data/graph")>("../../features/tex/lab/data/graph");
+  const actual = jest.requireActual<typeof import("@context/lab/app/data/graph")>("@context/lab/app/data/graph");
   // Decide's examples at the size the artifact's were (main's 26 judge examples, 6,200 characters, 2026-11-15), so a
   // Training Set that grows does not move the artifact's own times and costs.
   const mainGraph0 = (): LabGraph => {
@@ -38,7 +38,7 @@ export function artifactGraphModule() {
  * golden tests put the artifact's 1400 ms + 4.1 ms per token back. Those tests mock `data/models` with this.
  */
 export function artifactModelsModule() {
-  const actual = jest.requireActual<typeof import("../../features/tex/lab/data/models")>("../../features/tex/lab/data/models");
+  const actual = jest.requireActual<typeof import("@context/lab/app/data/models")>("@context/lab/app/data/models");
   const { perIn: _fitted, ...haiku } = actual.BASE_MODELS["haiku-5-5"];
   return { ...actual, BASE_MODELS: { ...actual.BASE_MODELS, "haiku-5-5": { ...haiku, base: 1400, perTok: 4.1 } } };
 }

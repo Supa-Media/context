@@ -6,7 +6,7 @@
  * Four files are made from the repository's own sources and were committed as a few enormous lines each, so any two
  * pull requests that touched the config, the Lab or the bench cases conflicted in them, every time:
  *
- *   apps/mobile/features/tex/lab/labData.generated.ts   the bench's cases, prompt texts and fixtures (tex-lab-data.mjs)
+ *   packages/lab/app/labData.generated.ts   the bench's cases, prompt texts and fixtures (tex-lab-data.mjs)
  *   apps/mcp/src/texDev/lab.generated.js               the Lab's engine for tex_dev (tex-dev-lab.mjs)
  *   apps/mcp/src/texDev/canvas.generated.js            the Lab's drawing for tex_dev snapshot (tex-dev-canvas.mjs)
  *   apps/mcp/src/texDev/replay.generated.js            the Lab's Replay for tex_dev (tex-dev-replay.mjs)

@@ -38,7 +38,7 @@ jest.mock("expo-router", () => {
 });
 jest.mock("../features/site/host", () => ({ isTexHost: () => true }));
 // The test chat under the canvas reaches the gateway with the person's own grant; no gateway here.
-jest.mock("../features/tex/lab/views/canvas/sandboxCall", () => ({ useSandboxCall: () => false }));
+jest.mock("@context/lab/app/views/canvas/sandboxCall", () => ({ useSandboxCall: () => false }));
 jest.mock("../features/agent/useConsoleGrant", () => ({ useConsoleGrant: () => async () => ({ accessToken: "fake-token" }) }));
 
 (globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
@@ -59,11 +59,11 @@ const fetched: string[] = [];
 
 import { act, createElement } from "react";
 import { createRoot } from "react-dom/client";
-import { TexLab } from "../features/tex/lab/TexLab.web";
-import { clone, G, MAIN, node, set } from "../features/tex/lab/engine/state";
-import { bodyOf, cellOf, defaultCols, fitCols, missingTest, setsRatio, stepNodes, type Conversation } from "../features/tex/lab/engine/sets";
-import { hiddenOf, mergeDrafts } from "../features/tex/lab/engine/setsData";
-import { sets, undo } from "../features/tex/lab/engine/setsStore";
+import { TexLab } from "@context/lab/app/TexLab.web";
+import { clone, G, MAIN, node, set } from "@context/lab/app/engine/state";
+import { bodyOf, cellOf, defaultCols, fitCols, missingTest, setsRatio, stepNodes, type Conversation } from "@context/lab/app/engine/sets";
+import { hiddenOf, mergeDrafts } from "@context/lab/app/engine/setsData";
+import { sets, undo } from "@context/lab/app/engine/setsStore";
 
 const CHAT: Conversation = {
   id: "picnic",

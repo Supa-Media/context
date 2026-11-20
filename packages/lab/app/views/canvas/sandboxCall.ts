@@ -6,8 +6,8 @@ import { useQuery } from "convex/react";
 import { useMemo, useRef } from "react";
 import { api } from "@context/convex/_generated/api";
 import type { Id } from "@context/convex/_generated/dataModel";
-import { useConsoleGrant } from "../../../../agent/useConsoleGrant";
-import { MCP_ENDPOINT } from "../../../../console/placeholderData";
+import { useConsoleGrant } from "../../fromApp/useConsoleGrant";
+import { MCP_ENDPOINT } from "../../fromApp/placeholderData";
 import { gatewaySandbox, setSandboxCall } from "../../engine/sandbox";
 
 /** The person's own grant for the gateway's test chat route. */

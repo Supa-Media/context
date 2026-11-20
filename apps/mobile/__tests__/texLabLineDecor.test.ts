@@ -31,7 +31,7 @@ jest.mock("expo-router", () => {
   return { Redirect: ({ href }: { href: string }) => createElement("div", { "data-testid": "redirect", "data-href": href }) };
 });
 jest.mock("../features/site/host", () => ({ isTexHost: () => true }));
-jest.mock("../features/tex/lab/views/canvas/sandboxCall", () => ({ useSandboxCall: () => false }));
+jest.mock("@context/lab/app/views/canvas/sandboxCall", () => ({ useSandboxCall: () => false }));
 
 (globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 window.matchMedia = ((q: string) => ({ matches: false, media: q, addEventListener() {}, removeEventListener() {} })) as never;
@@ -39,15 +39,15 @@ window.matchMedia = ((q: string) => ({ matches: false, media: q, addEventListene
 
 import { act, createElement } from "react";
 import { createRoot } from "react-dom/client";
-import { TexLab } from "../features/tex/lab/TexLab.web";
-import { clone, delSel, G, isMain, lab, MAIN, set } from "../features/tex/lab/engine/state";
-import { drawnFor } from "../features/tex/lab/engine/groups";
-import { resetSandboxState, rowOf, sandbox } from "../features/tex/lab/engine/sandbox";
-import { pickStep, resetPlay } from "../features/tex/lab/engine/sandboxPlay";
-import { lineNodes } from "../features/tex/lab/engine/lineSteps";
-import { lineDecorHtml, lineTimes } from "../features/tex/lab/views/canvas/lineDecor";
-import { LAB_CSS_CARD } from "../features/tex/lab/labCssCard";
-import { LAB_CSS_6 } from "../features/tex/lab/labCss6";
+import { TexLab } from "@context/lab/app/TexLab.web";
+import { clone, delSel, G, isMain, lab, MAIN, set } from "@context/lab/app/engine/state";
+import { drawnFor } from "@context/lab/app/engine/groups";
+import { resetSandboxState, rowOf, sandbox } from "@context/lab/app/engine/sandbox";
+import { pickStep, resetPlay } from "@context/lab/app/engine/sandboxPlay";
+import { lineNodes } from "@context/lab/app/engine/lineSteps";
+import { lineDecorHtml, lineTimes } from "@context/lab/app/views/canvas/lineDecor";
+import { LAB_CSS_CARD } from "@context/lab/app/labCssCard";
+import { LAB_CSS_6 } from "@context/lab/app/labCss6";
 
 const roots: (() => void)[] = [];
 afterEach(() => {

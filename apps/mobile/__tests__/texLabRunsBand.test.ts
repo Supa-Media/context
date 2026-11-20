@@ -41,11 +41,11 @@ window.matchMedia = ((q: string) => ({ matches: false, media: q, addEventListene
 
 import { act, createElement, type ReactElement } from "react";
 import { createRoot } from "react-dom/client";
-import { Compare } from "../features/tex/lab/views/Compare.web";
-import { RunSplit } from "../features/tex/lab/views/bar/TopBar.web";
-import { RunsPanel } from "../features/tex/lab/views/runs/Runs.web";
-import { clone, MAIN, set as setLab } from "../features/tex/lab/engine/state";
-import { costWords, CC_FIDELITY, CC_FIDELITY_WHY, DEFAULT_REPEATS, fidelityWords, mcpLines, MAX_REPEATS, rowRate, runsUi, scoreWords, setRunsUi, type LabRun, type RunScore } from "../features/tex/lab/engine/labRuns";
+import { Compare } from "@context/lab/app/views/Compare.web";
+import { RunSplit } from "@context/lab/app/views/bar/TopBar.web";
+import { RunsPanel } from "@context/lab/app/views/runs/Runs.web";
+import { clone, MAIN, set as setLab } from "@context/lab/app/engine/state";
+import { costWords, CC_FIDELITY, CC_FIDELITY_WHY, DEFAULT_REPEATS, fidelityWords, mcpLines, MAX_REPEATS, rowRate, runsUi, scoreWords, setRunsUi, type LabRun, type RunScore } from "@context/lab/app/engine/labRuns";
 
 const band = (mean: number, min: number, max: number, repeats = 3, total = 30): RunScore => ({ mean, min, max, lo: mean, hi: mean, repeats, total });
 const RUN = (id: string, versionId: string, models: "gw" | "cc", score: RunScore, extra: Partial<LabRun> = {}): LabRun => ({

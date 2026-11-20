@@ -9,8 +9,8 @@ import { describe, expect, test } from "@jest/globals";
 import { act, createElement } from "react";
 import { createRoot } from "react-dom/client";
 
-import { jobsOf, jobWork } from "../features/tex/lab/engine/jobRuns";
-import { JobRuns } from "../features/tex/lab/views/replay/JobRuns";
+import { jobsOf, jobWork } from "@context/lab/app/engine/jobRuns";
+import { JobRuns } from "@context/lab/app/views/replay/JobRuns";
 import type { LedgerEntry } from "../features/tex/page/texPageTypes";
 
 const J = "job-0001";

@@ -21,13 +21,13 @@ import { afterEach, describe, expect, test } from "@jest/globals";
 
 import { act, createElement } from "react";
 import { createRoot } from "react-dom/client";
-import { pageIdOf, readSandboxPage, resetSandboxState, sandbox, setSandboxCall, writeOf } from "../features/tex/lab/engine/sandbox";
-import { stepsWord } from "../features/tex/lab/engine/playRun";
-import { G } from "../features/tex/lab/engine/state";
-import { simulate } from "../features/tex/lab/engine/sim";
-import { renderGraphHtml } from "../features/tex/lab/views/canvas/render";
-import { phoneWords } from "../features/tex/lab/views/canvas/SandboxChat.web";
-import { opens, SandboxWrites } from "../features/tex/lab/views/canvas/SandboxWrites.web";
+import { pageIdOf, readSandboxPage, resetSandboxState, sandbox, setSandboxCall, writeOf } from "@context/lab/app/engine/sandbox";
+import { stepsWord } from "@context/lab/app/engine/playRun";
+import { G } from "@context/lab/app/engine/state";
+import { simulate } from "@context/lab/app/engine/sim";
+import { renderGraphHtml } from "@context/lab/app/views/canvas/render";
+import { phoneWords } from "@context/lab/app/views/canvas/SandboxChat.web";
+import { opens, SandboxWrites } from "@context/lab/app/views/canvas/SandboxWrites.web";
 
 const calls: Array<{ op: string; body: Record<string, unknown> }> = [];
 const PAGE_ID = "0123456789abcdef0123456789abcdef";

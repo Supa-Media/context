@@ -104,7 +104,7 @@ apps/mcp/bench/ai/setups/
 apps/convex/.test-map/
 # The Tex Lab's built files: built on install from this commit's sources (scripts/tex-generated.mjs), never committed,
 # so parallel config and Lab changes stop conflicting in them (2026-11-17).
-apps/mobile/features/tex/lab/labData.generated.ts
+packages/lab/app/labData.generated.ts
 apps/mcp/src/texDev/lab.generated.js
 apps/mcp/src/texDev/canvas.generated.js
 apps/mcp/src/texDev/replay.generated.js

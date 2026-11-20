@@ -1,13 +1,13 @@
 /**
- * The Lab's "You" (`features/tex/lab/engine/mine.ts`; Dev2, 2026-11-13: change the test user to their own and replay
+ * The Lab's "You" (`packages/lab/app/engine/mine.ts`; Dev2, 2026-11-13: change the test user to their own and replay
  * old texts, read only): their texts joined to what Tex said then and which Tex that was, the notes a turn read, the
  * run config's replays, and a pasted "## Lab replay" read back.
  */
 import { describe, expect, test } from "@jest/globals";
-import { chatLines, myTexts, parseReplay, readsOf, replayConfig, routineName, shortVersion, startOf } from "../features/tex/lab/engine/mine";
-import { judgeWords, LOGGED_FROM, loggedMoments, momentsOf, turnAt } from "../features/tex/lab/engine/replay";
-import { stepRows } from "../features/tex/lab/engine/replaySteps";
-import { G } from "../features/tex/lab/engine/state";
+import { chatLines, myTexts, parseReplay, readsOf, replayConfig, routineName, shortVersion, startOf } from "@context/lab/app/engine/mine";
+import { judgeWords, LOGGED_FROM, loggedMoments, momentsOf, turnAt } from "@context/lab/app/engine/replay";
+import { stepRows } from "@context/lab/app/engine/replaySteps";
+import { G } from "@context/lab/app/engine/state";
 import type { LedgerEntry } from "../features/tex/page/texPageTypes";
 
 const e = (x: Partial<LedgerEntry> & { id: string; kind: string }): LedgerEntry => ({ at: 1_000, ...x }) as LedgerEntry;

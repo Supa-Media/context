@@ -5,9 +5,9 @@
  */
 import { expect, test } from "@jest/globals";
 import { TEX_CONFIG } from "@context/tex/src/texConfig.cjs";
-import { simulate } from "../features/tex/lab/engine/sim";
-import { WIRES, wireName } from "../features/tex/lab/data/graph";
-import type { LabGraph } from "../features/tex/lab/types";
+import { simulate } from "@context/lab/app/engine/sim";
+import { WIRES, wireName } from "@context/lab/app/data/graph";
+import type { LabGraph } from "@context/lab/app/types";
 
 const main = (): LabGraph => JSON.parse(JSON.stringify(TEX_CONFIG)) as LabGraph;
 

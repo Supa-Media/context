@@ -104,14 +104,15 @@ describe("typeFor", () => {
  * drawing element carries its own, for instance — would need an exemption
  * named here, with its reason. There is one:
  *
- * - `features/tex/lab/`: the staff-only Tex Architecture Lab
+ * - `packages/lab/app/`: the staff-only Tex Architecture Lab
  *   (context.lc/lab and tex.lc/lab) is a port of the Lab artifact, kept "EXACTLY like the
  *   artifact" (Dev2, 2026-11-13). Its type is the artifact's own stylesheet
  *   (`labCss.ts`) and the artifact's inline `font-size:12px` hints, in CSS
  *   pixels; moving them onto the app's scale is what that rule forbids.
  * ------------------------------------------------------------------ */
 describe("the tree draws its type from the scale", () => {
-  const ROOTS = ["features", "app"];
+  // The Lab's page is in its own package now; it is scanned, and exempt by name below.
+  const ROOTS = ["features", "app", "../../packages/lab/app"];
 
   function sources(dir: string): string[] {
     const entries = readdirSync(dir, { withFileTypes: true });
@@ -127,7 +128,7 @@ describe("the tree draws its type from the scale", () => {
   }
 
   /** The named exemptions above, and why each is one. */
-  const EXEMPT = [join(__dirname, "..", "features", "tex", "lab") + "/"];
+  const EXEMPT = [join(__dirname, "..", "..", "..", "packages", "lab", "app") + "/"];
   const files = ROOTS.flatMap((root) => sources(join(__dirname, "..", root))).filter((f) => !EXEMPT.some((e) => f.startsWith(e)));
 
   test("there is a tree to check", () => {

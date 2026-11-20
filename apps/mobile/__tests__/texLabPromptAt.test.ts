@@ -13,11 +13,11 @@ import { createElement } from "react";
 import { act } from "react";
 import { createRoot } from "react-dom/client";
 
-import { catalogAt, fingerprint, fromRepo, moduleSource, turnPromptOf, wordsOf } from "../features/tex/lab/engine/promptAt";
+import { catalogAt, fingerprint, fromRepo, moduleSource, turnPromptOf, wordsOf } from "@context/lab/app/engine/promptAt";
 import type { LedgerEntry } from "../features/tex/page/texPageTypes";
-import { PromptAt } from "../features/tex/lab/views/replay/PromptAt";
+import { PromptAt } from "@context/lab/app/views/replay/PromptAt";
 
-const FILE = readFileSync(join(__dirname, "../features/tex/lab/promptCatalog.generated.json"), "utf8");
+const FILE = readFileSync(join(__dirname, "../../../packages/lab/app/promptCatalog.generated.json"), "utf8");
 const CAT = JSON.parse(FILE) as { modules: Record<string, { id: string; n: number }>; lines: string[] };
 // A stable module this commit builds, and a fixed context one, as a turn would log them.
 const [stableH, stable] = Object.entries(CAT.modules).find(([, m]) => m.id === "stable/texting/pictures/edits/production")!;
@@ -60,13 +60,24 @@ describe("a turn's prompt, walked back from its version", () => {
   test("reads the catalogue at the turn's own commit, and shows words only for a fingerprint it holds", async () => {
     const get = served(FILE);
     const cat = await catalogAt("abcdef123456", get);
-    expect((get as unknown as jest.Mock).mock.calls[0][0]).toBe("https://raw.githubusercontent.com/Supa-Media/context/abcdef123456/apps/mobile/features/tex/lab/promptCatalog.generated.json");
+    expect((get as unknown as jest.Mock).mock.calls[0][0]).toBe("https://raw.githubusercontent.com/Supa-Media/context/abcdef123456/packages/lab/app/promptCatalog.generated.json");
     const words = wordsOf(cat, { id: stable.id, n: stable.n, h: stableH })!;
     expect(words.length).toBe(stable.n);
     expect(words).toContain("This turn is a text message they sent you from their phone.");
     // A fingerprint the catalogue doesn't hold, or one under another module's name, shows no words.
     expect(wordsOf(cat, { id: "context/aboutMe", n: 400, h: "0badc0de" })).toBeNull();
     expect(wordsOf(cat, { id: "context/web", n: stable.n, h: stableH })).toBeNull();
+  });
+
+  test("a commit from before the Lab's package reads its catalogue from the app's old folder (2026-11-20)", async () => {
+    const urls: string[] = [];
+    const get = jest.fn(async (url: string) => (urls.push(url), url.includes("/packages/lab/app/") ? { ok: false, json: async () => null } : { ok: true, json: async () => JSON.parse(FILE) })) as unknown as typeof fetch;
+    const cat = await catalogAt("abcdef654321", get);
+    expect(urls).toEqual([
+      "https://raw.githubusercontent.com/Supa-Media/context/abcdef654321/packages/lab/app/promptCatalog.generated.json",
+      "https://raw.githubusercontent.com/Supa-Media/context/abcdef654321/apps/mobile/features/tex/lab/promptCatalog.generated.json",
+    ]);
+    expect(wordsOf(cat, { id: stable.id, n: stable.n, h: stableH })).toContain("This turn is a text message they sent you from their phone.");
   });
 
   test("a turn's kept words are shown only when they hash to the fingerprint it logged (2026-11-17)", () => {

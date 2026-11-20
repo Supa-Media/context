@@ -1,5 +1,5 @@
 /**
- * The Lab's Tools view helpers (`features/tex/lab/views/toolStats.ts`): the artifact's `readToolLog` and `med`, and
+ * The Lab's Tools view helpers (`packages/lab/app/views/toolStats.ts`): the artifact's `readToolLog` and `med`, and
  * the live feed turned into the same numbers the table reads. Fake data only.
  *
  * ## Sabotage record
@@ -10,7 +10,7 @@
  *  3. `ruleChecks` passing rule 2 whatever the sizes (`ok: true`) → "the Tool rules panel fails a rule the numbers break" fails.
  */
 import { expect, test } from "@jest/globals";
-import { fromFeed, med, readToolLog, ruleChecks, type Feed, type ToolRules } from "../features/tex/lab/views/toolStats";
+import { fromFeed, med, readToolLog, ruleChecks, type Feed, type ToolRules } from "@context/lab/app/views/toolStats";
 
 const jsonl = [
   '{"kind":"tool","name":"write","args":{"action":"save"},"ok":true,"ms":412}',

@@ -10,9 +10,9 @@
  *   the Lab's Haiku id changed in models.ts                       "main's graph is the config itself" fails
  */
 import { describe, expect, test } from "@jest/globals";
-import { mainGraph } from "../features/tex/lab/data/graph";
-import { unfoldGroups } from "../features/tex/lab/engine/groups";
-import { BASE_MODELS } from "../features/tex/lab/data/models";
+import { mainGraph } from "@context/lab/app/data/graph";
+import { unfoldGroups } from "@context/lab/app/engine/groups";
+import { BASE_MODELS } from "@context/lab/app/data/models";
 import { TEX_CONFIG } from "@context/tex/src/texConfig.cjs";
 
 describe("the Lab's main graph is Tex's config", () => {

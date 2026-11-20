@@ -1,5 +1,5 @@
 /**
- * The Speed and cost view's "Measured from a run" reader (`features/tex/lab/views/simLog.ts`). It is the
+ * The Speed and cost view's "Measured from a run" reader (`packages/lab/app/views/simLog.ts`). It is the
  * artifact's `readLog` as a pure function: a subscription model is re-timed from its tokens, an API model
  * keeps its logged time, a line of another side is skipped, and a line that is not JSON or names no step
  * of the version is counted as bad.
@@ -11,10 +11,10 @@
  *  2. `readLog` timing a subscription model by its logged ms → "a subscription step is re-timed from its tokens" fails.
  */
 import { expect, jest, test } from "@jest/globals";
-import { BASE_MODELS } from "../features/tex/lab/data/models";
-import type { LabGraph } from "../features/tex/lab/types";
-import { readLog } from "../features/tex/lab/views/simLog";
-jest.mock("../features/tex/lab/data/models", () => jest.requireActual<typeof import("./fixtures/texLabArtifactGraph")>("./fixtures/texLabArtifactGraph").artifactModelsModule());
+import { BASE_MODELS } from "@context/lab/app/data/models";
+import type { LabGraph } from "@context/lab/app/types";
+import { readLog } from "@context/lab/app/views/simLog";
+jest.mock("@context/lab/app/data/models", () => jest.requireActual<typeof import("./fixtures/texLabArtifactGraph")>("./fixtures/texLabArtifactGraph").artifactModelsModule());
 
 const g: LabGraph = {
   nodes: [

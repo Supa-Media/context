@@ -41,7 +41,7 @@ jest.mock("expo-router", () => {
   return { Redirect: ({ href }: { href: string }) => createElement("div", { "data-testid": "redirect", "data-href": href }) };
 });
 jest.mock("../features/site/host", () => ({ isTexHost: () => true }));
-jest.mock("../features/tex/lab/views/canvas/usePicUpload", () => ({
+jest.mock("@context/lab/app/views/canvas/usePicUpload", () => ({
   usePicUpload: () => async (f: File) => ({ url: "https://files.example.test/" + f.name }),
 }));
 
@@ -59,8 +59,8 @@ const answer = (text: string): Row[] => {
     { id: id + "r", reply: id, who: "Tex", text: "Added it to the calendar.", steps: [{ node: "triage", out: "to: judge", ms: 2 }, { node: "decide", out: "act: respond", ms: 410 }, { node: "fd", out: "draft 22 chars", ms: 3400 }] },
   ];
 };
-jest.mock("../features/tex/lab/views/canvas/sandboxCall", () => {
-  const { setSandboxCall } = jest.requireActual<typeof import("../features/tex/lab/engine/sandbox")>("../features/tex/lab/engine/sandbox");
+jest.mock("@context/lab/app/views/canvas/sandboxCall", () => {
+  const { setSandboxCall } = jest.requireActual<typeof import("@context/lab/app/engine/sandbox")>("@context/lab/app/engine/sandbox");
   setSandboxCall(async (op: string, body: Record<string, unknown>) => {
     mockCalls.push({ op, body });
     const at = (id: unknown) => mockRows.findIndex((r) => r.id === id);
@@ -128,11 +128,11 @@ Element.prototype.scrollIntoView = function () {};
 
 import { act, createElement } from "react";
 import { createRoot } from "react-dom/client";
-import { TexLab } from "../features/tex/lab/TexLab.web";
-import { clone, lab, MAIN, set } from "../features/tex/lab/engine/state";
-import { numColW } from "../features/tex/lab/views/grid/TextGrid.web";
-import { drawnDraft, gatewaySandbox, resetSandboxState, failureWords, sandbox, tryFromHere } from "../features/tex/lab/engine/sandbox";
-import { holdPlayClock, resetPlay } from "../features/tex/lab/engine/sandboxPlay";
+import { TexLab } from "@context/lab/app/TexLab.web";
+import { clone, lab, MAIN, set } from "@context/lab/app/engine/state";
+import { numColW } from "@context/lab/app/views/grid/TextGrid.web";
+import { drawnDraft, gatewaySandbox, resetSandboxState, failureWords, sandbox, tryFromHere } from "@context/lab/app/engine/sandbox";
+import { holdPlayClock, resetPlay } from "@context/lab/app/engine/sandboxPlay";
 
 const roots: (() => void)[] = [];
 afterEach(() => {
