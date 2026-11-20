@@ -394,6 +394,8 @@ jobs:
           node --test scripts/photon-secrets-file.test.mjs
           node --test scripts/sendblue-status-url.test.mjs
           node --test scripts/ci-performance-report.test.mjs
+          # The per-pull-request previews: their guards, config, seed, smoke check and teardown.
+          node --test scripts/preview-cleanup.test.mjs scripts/preview-teardown.test.mjs scripts/preview-config.test.mjs scripts/preview-convex-env.test.mjs scripts/preview-guards.test.mjs scripts/preview-seed.test.mjs scripts/preview-smoke.test.mjs
           node --test scripts/mcp-speed-budgets.test.mjs
           node --test scripts/tex-speed-budgets.test.mjs
           node scripts/check-speed-budget.mjs --self-test

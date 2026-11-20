@@ -96,6 +96,16 @@ describe("aiming a run at a pull request's preview", () => {
     expect(await t.query(internal.functions.texLabRuns.job, { runId })).toMatchObject({ code: "#42", repeats: 1 });
   });
 
+  test("the MCP's door (tex_dev run) carries the target too, so an AI's run aims at the same preview the Lab's would", async () => {
+    const { door, t } = await world();
+    const answer = await door("run", { draft: "main", kind: "dev", target: "pr42" });
+    expect(answer).toMatchObject({ status: "ok" });
+    await drainScheduled(t);
+    expect(calls).toHaveLength(1);
+    expect(calls[0].body?.inputs).toMatchObject({ preview: "pr42" });
+    expect(await door("run", { draft: "main", kind: "dev", target: "prod" })).toMatchObject({ status: "bad_request" });
+  });
+
   test("a preview runs only its own pull request: another code is refused, and an unset code becomes that pull request", async () => {
     const { lab, door, t } = await world();
     await expect(lab.mutation(api.functions.texLabRuns.start, { versionId: "main", kind: "dev", target: "pr42", code: "#7" })).rejects.toThrow(/pull request #42/);
