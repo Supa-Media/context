@@ -22,11 +22,12 @@
  * appearing under the note when the caret reaches the end would be the raw
  * form of something the margin already draws.
  *
- * The margin itself is `rail.ts`.
+ * The thread itself is drawn by `popover.ts` (wide panes) or `sheet.ts`
+ * (phones); the Comment and Tex buttons above a selection are `seltool.ts`.
  */
 
-import { Facet, Prec, StateEffect, StateField, type EditorState, type Extension, type Range, type TransactionSpec } from "@codemirror/state";
-import { Decoration, EditorView, keymap, type DecorationSet } from "@codemirror/view";
+import { Facet, Prec, StateEffect, StateField, type ChangeSet, type EditorState, type Extension, type Range, type TransactionSpec } from "@codemirror/state";
+import { Decoration, EditorView, WidgetType, keymap, type DecorationSet } from "@codemirror/view";
 import { mayDelete } from "./model";
 import {
   addThread,
@@ -61,25 +62,46 @@ export const commentHost = Facet.define<CommentHost, CommentHost>({
   combine: (values) => values[0] ?? { author: () => null },
 });
 
+/**
+ * A comment being written, before it exists in the file. A point (`from ===
+ * to`) is only ever the caret of a Tex comment, whose `prefill` is "@Tex ".
+ */
+export interface Draft {
+  from: number;
+  to: number;
+  prefill?: string;
+}
+
 export interface CommentUi {
   active: string | null;
-  /** A comment being written on this range, before it exists in the file. */
-  draft: { from: number; to: number } | null;
+  draft: Draft | null;
   showResolved: boolean;
 }
 
+/** What a Tex comment starts with: the mention, and the space before the words. */
+export const TEX_PREFILL = "@Tex ";
+
 export const setActiveThread = StateEffect.define<string | null>();
-export const setDraft = StateEffect.define<{ from: number; to: number } | null>();
+export const setDraft = StateEffect.define<Draft | null>();
 export const setShowResolved = StateEffect.define<boolean>();
+
+/** Where a draft is after an edit: a point stays a point; words that were all deleted take the draft with them. */
+function mapDraft(draft: Draft, changes: ChangeSet): Draft | null {
+  if (draft.from === draft.to) {
+    const at = changes.mapPos(draft.from, 1);
+    return { ...draft, from: at, to: at };
+  }
+  const from = changes.mapPos(draft.from, 1);
+  const to = changes.mapPos(draft.to, -1);
+  return from < to ? { ...draft, from, to } : null;
+}
 
 export const commentUi = StateField.define<CommentUi>({
   create: () => ({ active: null, draft: null, showResolved: false }),
   update(value, tr) {
     let next = value;
     if (tr.docChanged && next.draft !== null) {
-      const from = tr.changes.mapPos(next.draft.from, 1);
-      const to = tr.changes.mapPos(next.draft.to, -1);
-      next = { ...next, draft: from < to ? { from, to } : null };
+      next = { ...next, draft: mapDraft(next.draft, tr.changes) };
     }
     for (const effect of tr.effects) {
       if (effect.is(setActiveThread)) next = { ...next, active: effect.value };
@@ -129,8 +151,71 @@ export function hiddenBlockRange(state: EditorState, block: CommentsBlock): { fr
   return { from: first.from, to: last.to };
 }
 
+/** The ✦ that marks a point comment in the text. `id` is its thread, or "" for a draft. */
+class PointWidget extends WidgetType {
+  constructor(
+    private readonly id: string,
+    private readonly active: boolean,
+  ) {
+    super();
+  }
+
+  eq(other: PointWidget): boolean {
+    return other.id === this.id && other.active === this.active;
+  }
+
+  toDOM(): HTMLElement {
+    const node = document.createElement("span");
+    node.className = this.active ? "cm-cmt-point cm-cmt-point-active" : "cm-cmt-point";
+    node.textContent = "✦";
+    node.setAttribute("aria-hidden", "true");
+    if (this.id) node.setAttribute("data-comment", this.id);
+    return node;
+  }
+
+  ignoreEvent(): boolean {
+    return false;
+  }
+}
+
 const hideMarker = Decoration.replace({});
 const hideBlock = Decoration.replace({ block: true });
+
+/**
+ * Where resolved threads come back: one quiet line where the hidden block
+ * is, "Show resolved (N)". The margin used to carry this toggle; with
+ * threads opening under their words there is no margin, and resolving must
+ * still never lose the history (Google Docs' "see resolved comments").
+ */
+class ResolvedToggle extends WidgetType {
+  constructor(
+    readonly count: number,
+    readonly showing: boolean,
+  ) {
+    super();
+  }
+
+  eq(other: ResolvedToggle): boolean {
+    return other.count === this.count && other.showing === this.showing;
+  }
+
+  toDOM(view: EditorView): HTMLElement {
+    const row = document.createElement("div");
+    row.className = "cm-cmt-resolved-row";
+    const toggle = document.createElement("button");
+    toggle.type = "button";
+    toggle.className = "cm-cmt-resolved-toggle";
+    toggle.textContent = this.showing ? "Hide resolved" : `Show resolved (${this.count})`;
+    toggle.addEventListener("mousedown", (event) => event.preventDefault());
+    toggle.addEventListener("click", () => view.dispatch({ effects: setShowResolved.of(!this.showing) }));
+    row.append(toggle);
+    return row;
+  }
+
+  ignoreEvent(): boolean {
+    return true;
+  }
+}
 
 function build(state: EditorState): { all: DecorationSet; atomic: DecorationSet } {
   const parsed = state.field(commentsParsed);
@@ -142,8 +227,13 @@ function build(state: EditorState): { all: DecorationSet; atomic: DecorationSet 
 
   for (const [id, anchor] of parsed.anchors) {
     const thread = byId.get(id);
-    if (!thread || anchor.from >= anchor.to) continue;
+    if (!thread || anchor.from > anchor.to) continue;
     if (thread.status === "resolved" && !ui.showResolved) continue;
+    if (anchor.from === anchor.to) {
+      // A point (⌘L at a bare caret): nothing to highlight, so a ✦ where it was started.
+      ranges.push(Decoration.widget({ widget: new PointWidget(id, ui.active === id), side: -1 }).range(anchor.from));
+      continue;
+    }
     const classes = ["cm-cmt-hl"];
     if (ui.active === id) classes.push("cm-cmt-hl-active");
     if (thread.status === "resolved") classes.push("cm-cmt-hl-resolved");
@@ -151,6 +241,8 @@ function build(state: EditorState): { all: DecorationSet; atomic: DecorationSet 
   }
   if (ui.draft !== null && ui.draft.from < ui.draft.to) {
     ranges.push(Decoration.mark({ class: "cm-cmt-hl cm-cmt-hl-active" }).range(ui.draft.from, ui.draft.to));
+  } else if (ui.draft !== null) {
+    ranges.push(Decoration.widget({ widget: new PointWidget("", true), side: -1 }).range(ui.draft.from));
   }
   for (const marker of parsed.markers) {
     if (hidden !== null && marker.from >= hidden.from && marker.to <= hidden.to) continue;
@@ -159,7 +251,9 @@ function build(state: EditorState): { all: DecorationSet; atomic: DecorationSet 
     atomic.push(range);
   }
   if (hidden !== null) {
-    const range = hideBlock.range(hidden.from, hidden.to);
+    const resolved = parsed.threads.filter((thread) => thread.status === "resolved" && parsed.anchors.has(thread.id)).length;
+    const cover = resolved > 0 ? Decoration.replace({ block: true, widget: new ResolvedToggle(resolved, ui.showResolved) }) : hideBlock;
+    const range = cover.range(hidden.from, hidden.to);
     ranges.push(range);
     atomic.push(range);
   }
@@ -201,6 +295,34 @@ export function startComment(view: EditorView): boolean {
 }
 
 /**
+ * Start a Tex comment (⌘L): on the selection's words, or at a bare caret as a
+ * point, with "@Tex " already written. False when nobody can comment here or
+ * the selection is only whitespace.
+ */
+export function startTexComment(view: EditorView): boolean {
+  if (!canComment(view.state)) return false;
+  const { from, to } = view.state.selection.main;
+  if (from === to) {
+    const block = view.state.field(commentsParsed).block;
+    if (block !== null && from >= block.start) return false;
+    view.dispatch({ effects: setDraft.of({ from, to: from, prefill: TEX_PREFILL }) });
+    return true;
+  }
+  const range = wordsRange(view.state.sliceDoc(from, to), from, to);
+  if (range === null) return false;
+  view.dispatch({ effects: setDraft.of({ ...range, prefill: TEX_PREFILL }) });
+  return true;
+}
+
+/** The `[from, to)` of a selection without its leading and trailing whitespace, or null when that is nothing. */
+function wordsRange(text: string, from: number, to: number): { from: number; to: number } | null {
+  const lead = text.length - text.trimStart().length;
+  const trail = text.length - text.trimEnd().length;
+  if (to - trail <= from + lead) return null;
+  return { from: from + lead, to: to - trail };
+}
+
+/**
  * Start writing a comment on `range`, which a touch chip remembers from the
  * moment it was pressed: on a phone the tap that reaches the chip can move or
  * collapse the selection before the click arrives.
@@ -209,11 +331,9 @@ export function startCommentOn(view: EditorView, { from, to }: { from: number; t
   if (!canComment(view.state)) return false;
   const length = view.state.doc.length;
   if (from < 0 || to > length || from >= to) return false;
-  const text = view.state.sliceDoc(from, to);
-  const lead = text.length - text.trimStart().length;
-  const trail = text.length - text.trimEnd().length;
-  if (to - trail <= from + lead) return false;
-  view.dispatch({ effects: setDraft.of({ from: from + lead, to: to - trail }) });
+  const range = wordsRange(view.state.sliceDoc(from, to), from, to);
+  if (range === null) return false;
+  view.dispatch({ effects: setDraft.of(range) });
   return true;
 }
 
@@ -237,7 +357,7 @@ export function draftTransaction(state: EditorState, body: string): TransactionS
   const ui = state.field(commentUi);
   const author = state.facet(commentHost).author();
   if (ui.draft === null || author === null || state.readOnly) return { error: "This note can't take comments here." };
-  const result = addThread(state.doc.toString(), { from: ui.draft.from, to: ui.draft.to, author, body });
+  const result = addThread(state.doc.toString(), { from: ui.draft.from, to: ui.draft.to, author, body, point: ui.draft.from === ui.draft.to });
   if (result.error !== undefined) return { error: result.error };
   // The caret goes to the end of the words just commented on, past the closing
   // marker, so the selection that asked for the comment does not linger and
@@ -313,9 +433,9 @@ const clickHighlight = EditorView.domEventHandlers({
 /**
  * The editor's comments, for a surface that knows who is commenting.
  *
- * ⌘⌥M (Ctrl-Alt-M elsewhere) starts a comment on the selection, which is the
- * chord Google Docs uses; the margin's Comment button and the right-click menu
- * do the same thing.
+ * ⌘M (Ctrl-M elsewhere) starts a comment on the selection; ⌘L starts a Tex
+ * comment on the selection or at the caret; ⌘⌥M is kept as the older chord.
+ * The selection toolbar's buttons and the right-click menu do the same things.
  */
 export function comments(host: CommentHost): Extension {
   return [
@@ -324,6 +444,12 @@ export function comments(host: CommentHost): Extension {
     commentsParsed,
     Prec.high(commentDecorations),
     clickHighlight,
-    keymap.of([{ key: "Mod-Alt-m", run: startComment }]),
+    // High precedence: CodeMirror's default keymap binds Ctrl-M (off a Mac)
+    // to "tab focus mode", which would swallow the comment shortcut.
+    Prec.high(keymap.of([
+      { key: "Mod-m", run: startComment },
+      { key: "Mod-Alt-m", run: startComment },
+      { key: "Mod-l", run: startTexComment, preventDefault: true },
+    ])),
   ];
 }

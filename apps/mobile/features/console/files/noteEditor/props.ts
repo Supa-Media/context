@@ -15,6 +15,7 @@ import type {
 } from "../formBlock";
 import type { FolderListSource } from "../listBlock/model";
 import type { TrashedView } from "./trashed";
+import type { TexInNoteState } from "../comments/tex/useTexInNote";
 
 /** What a surface mounts `NoteEditor` with. */
 export interface NoteEditorProps {
@@ -89,6 +90,11 @@ export interface NoteEditorProps {
    * "Sign in to reply" and opens this. Absent for a signed-in reader.
    */
   onSignInToComment?: () => void;
+  /**
+   * Tex in this note (`comments/tex/useTexInNote.ts`): the host the editor
+   * reads, and the log drawn under the note. Absent where there is no Tex here.
+   */
+  texInNote?: TexInNoteState | null;
   /**
    * The homepage's visitor, whose edits stay in this browser tab. The foot of
    * the note then says so rather than "Saved in your bucket" — see `noteFoot`.

@@ -16,7 +16,7 @@ import { EditorState } from "@codemirror/state";
 import { EditorView } from "@codemirror/view";
 import { parseComments } from "@context/shared/src/comments.cjs";
 import { comments, commentUi, setActiveThread } from "../features/console/files/comments/extension";
-import { commentRail } from "../features/console/files/comments/rail";
+import { popover } from "../features/console/files/comments/popover";
 import { commentSheet, type SheetPlacement } from "../features/console/files/comments/sheet";
 import { commentStyles } from "../features/console/files/comments/styles";
 import { hasMargin, quoteLabel } from "../features/console/files/comments/model";
@@ -58,7 +58,7 @@ function mount(
       extensions: [
         EditorState.readOnly.of(!editable),
         comments({ author: () => author, signIn: () => signIn }),
-        commentRail,
+        popover,
         commentSheet({ placement }),
       ],
     }),
@@ -83,8 +83,8 @@ describe("the thread sheet", () => {
     expect(who).toEqual(["@maya's Codex", "@jon"]);
     expect(layer().querySelectorAll(".cm-cmt-when")).toHaveLength(2);
     expect(layer().querySelector("textarea")!.placeholder).toBe("Reply…");
-    // No margin on a phone: the rail draws no cards, so a thread is never shown twice.
-    expect(view.scrollDOM.querySelectorAll(".cm-cmt-card")).toHaveLength(0);
+    // No margin on a phone: the popover draws nothing, so a thread is never shown twice.
+    expect(view.scrollDOM.querySelectorAll(".cm-cw")).toHaveLength(0);
   });
 
   test("it lives on the page, outside the note, so typing a reply is not typing in the note", () => {
@@ -154,13 +154,14 @@ describe("the thread sheet", () => {
     expect(layer().querySelector(".cm-cmt-scrim")).toBeNull();
   });
 
-  test("a pane wide enough for the margin shows cards there and no sheet", () => {
+  test("a pane wide enough for the margin shows the thread popover there and no sheet", () => {
     const width = jest.spyOn(HTMLElement.prototype, "clientWidth", "get").mockReturnValue(1200);
     try {
       const { view, open, layer } = mount(NOTE);
       open("k7f2");
       expect(layer().hidden).toBe(true);
-      expect(view.scrollDOM.querySelectorAll(".cm-cmt-card").length).toBeGreaterThan(0);
+      expect(view.scrollDOM.querySelectorAll(".cm-cw")).toHaveLength(1);
+      expect(view.scrollDOM.querySelector(".cm-cw .cm-cwlog")!.textContent).toContain("hey, this seems a little unprofessional.");
     } finally {
       width.mockRestore();
     }

@@ -9,7 +9,11 @@ export interface CommentChange {
 export interface CommentEvent {
   at: string;
   author: string;
-  kind: "comment" | "resolved" | "reopened";
+  /**
+   * `suggestion` is Tex's proposed replacement for the anchored words (its
+   * `text`); `kept` and `undid` answer the pending one.
+   */
+  kind: "comment" | "resolved" | "reopened" | "suggestion" | "kept" | "undid";
   text: string;
   /** The event's lines in the file, `[start, end)`. */
   start: number;
@@ -21,6 +25,8 @@ export interface CommentThread {
   quote: string;
   events: CommentEvent[];
   status: "open" | "resolved";
+  /** The suggestion still waiting for Keep or Undo, or null. `index` is its place in `events`. */
+  pending: { text: string; at: string; author: string; index: number } | null;
   anchored: boolean;
   headerStart: number;
   end: number;
@@ -76,17 +82,23 @@ export declare function addThread(
     at?: Date | string;
     id?: string;
     random?: () => number;
+    /** Allow `from === to`: a thread at the caret with no words highlighted. */
+    point?: boolean;
   },
 ): { id: string; changes: CommentChange[]; error?: undefined } | { error: string };
 export declare function appendEvent(
   text: string,
   options: {
     thread: string;
-    kind: "comment" | "resolved" | "reopened";
+    kind: "comment" | "resolved" | "reopened" | "suggestion" | "kept" | "undid";
     author: string;
     body?: string;
     at?: Date | string;
   },
+): { changes: CommentChange[]; error?: undefined } | { error: string };
+export declare function keepSuggestion(
+  text: string,
+  options: { thread: string; author: string; at?: Date | string },
 ): { changes: CommentChange[]; error?: undefined } | { error: string };
 export declare function deleteComment(
   text: string,

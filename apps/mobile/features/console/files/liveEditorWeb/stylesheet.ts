@@ -1,5 +1,7 @@
 import { livePreviewStyles } from "../livePreview";
 import { commentStyles } from "../comments/styles";
+import { popoverStyles } from "../comments/popoverStyles";
+import { texInNoteStyles } from "../comments/tex/pending";
 import { mailStyles } from "../mail/styles";
 import { fonts, layout } from "../../../design/tokens";
 import type { Colors } from "../../../design/theme";
@@ -298,6 +300,8 @@ export function liveEditorCss(colors: Colors): string {
 .cm-lp-root .cm-lp-property-slot { padding: 2px 0 12px; cursor: default; }
 ${livePreviewStyles}
 ${commentStyles(colors, fonts.body)}
+${popoverStyles(colors, fonts.body)}
+${texInNoteStyles({ text: colors.text, ground: colors.ground, ins: `color-mix(in srgb, ${colors.ok} 18%, transparent)`, del: `color-mix(in srgb, ${colors.crit} 15%, transparent)`, crit: colors.crit })}
 ${mailStyles(colors, fonts.body)}
 `;
 }

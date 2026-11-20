@@ -90,45 +90,40 @@ the text leaves, so a link holder never receives them. Websites strip them in
 `parseWebsitePage`, which every site surface reads its body from. The share
 viewer's `parseNote` strips them as well.
 
-## Opening a card never moves the text
+## A thread opens under its words, and Tex is in it
 
-Dev2 picked this on 2026-09-27 after the first margin jumped: the column
-snapped 300px left when a card needed room, and sometimes snapped back under
-the card. The cards now sit in the space to the right of the centred column. A
-pane with a little less room than a card needs moves the column left by only
-the shortfall, which is `shiftFor` in `files/comments/rail.ts`. That depends on
-the pane's width and on whether the note has comments at all, and never on
-which card is open. The shift eases in, and cards fade in and glide to their
-lines. The shift is a state field and not a class on the editor element,
-because CodeMirror rewrites that element's attributes on every update.
-Simplifying it back to a full margin toggled on activity brings back the jump.
-The comments e2e test checks that the text stays still while a card opens and
-closes.
+Dev2 approved the in-note Tex mock on 2026-11-20
+(https://claude.ai/artifact/G8Udcec7fUh8jD7dnHkUN7), and with it threads that
+open in a card under the highlighted words instead of a margin of cards beside
+the column. This replaces the margin Dev2 picked on 2026-09-27 and its folding
+rule of 2026-10-10: there is no margin to jump or to crowd, so the text never
+moves when a thread opens, and a busy paragraph shows one thread at a time.
+The card is `files/comments/popover.ts`; it sits 8px under the words (under a
+pending edit's new words, when there is one) and opens above them when the
+pane has no room below.
 
-## Crowded cards fold into one row beside their words
+Selecting words shows a toolbar with exactly two icons: Comment (⌘M, Ctrl+M)
+and Tex (⌘L, Ctrl+L) (`seltool.ts`). The Tex icon opens the same thread
+prefilled "@Tex ", so the mini chat and comments are one thing (Dev2,
+2026-11-20); ⌘L at a bare caret opens a thread on a point. Any message that
+names @Tex, or any message in a thread Tex is already in that names nobody
+else, starts a headless Tex run (`tex/runner.ts`, gateway `POST
+/tex/note-run`). The editor writes Tex's answer and its suggested words into
+the block as `Tex:` and `Tex suggests:` lines, so collaborators see them
+through the room; the gateway never writes the note or the 1:1 chat. A
+suggestion shows in the note as struck old words and new words until somebody
+presses Keep (the words are replaced, a `kept` line) or Undo (an `undid`
+line). Each run uses the asker's own access.
 
-Dev2 picked this on 2026-10-10 (option C of
-https://claude.ai/artifact/EUFVCFb6J84JdsncMfGyC5) after several comments on
-one paragraph overlapped. The margin used to push each card down until it
-touched none, so a busy paragraph's cards ended up beside the next one, and
-clicking a card pushed the cards above it up past the top of the note, where
-they were stopped at the edge on top of each other.
-
-Now a card sits level with its words, or at most `FOLD_SLACK` (48px) below
-them. A thread that would be pushed further joins a "N more here" row at that
-spot. Show opens the row in place and lists its threads under it, and clicking
-a folded thread's words opens it the same way. Nothing in the margin moves up
-for a card that opens, and lifting the last card to fit the window never puts
-another card above its own line. The rule is `layoutMargin` and `keepInView`
-in `files/comments/model.ts`. Going back to pushing cards apart without
-folding brings back cards that sit beside the wrong paragraph. The comments
-unit suite checks random notes for overlaps and for cards far from their
-lines, and the comments e2e test checks a crowded paragraph in a browser.
+Resolved threads come back with "Show resolved (N)" where the block is hidden
+at the end of the note. Going back to a margin means bringing back
+`shiftFor`/`layoutMargin` and their e2e checks; the comments e2e test now
+checks that the card sits under its words and that the text stays still.
 
 ## On a phone, a thread opens in a sheet
 
 Dev2 approved this on 2026-09-27 (phone artboards 3 and 4). Below the
-margin's width (`hasMargin` in `files/comments/model.ts`) the margin draws
+margin's width (`hasMargin` in `files/comments/model.ts`) the card draws
 nothing, and `files/comments/sheet.ts` takes over:
 
 - Tapping highlighted words opens the thread in a bottom sheet: the quoted
@@ -147,7 +142,7 @@ nothing, and `files/comments/sheet.ts` takes over:
   their thread (`Presence.commentFocus`). On a phone that opens the same sheet
   a visitor opens themselves, so the demo shows no UI of its own.
 
-The margin and the sheet read the same width rule, so a thread never shows in
+The card and the sheet read the same width rule, so a thread never shows in
 both. The sheet sits on `<body>` rather than inside the editor, so a person
 typing a reply is not typing in the note, and the note's keyboard bar is
 hidden while they do. The iOS editor opens the same panel inline, under its
