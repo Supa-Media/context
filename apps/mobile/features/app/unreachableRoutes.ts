@@ -199,6 +199,16 @@ export const DELIBERATELY_UNREACHABLE: readonly RouteReachability[] = [
     marker: "the private link Tex texts when it needs a login",
   },
   {
+    route: "/tex/ask",
+    file: "app/tex/ask.tsx",
+    reachable: false,
+    reason:
+      "Tex's \"Go ahead?\" card's own address, opened when a tap in Messages " +
+      "lands in a browser instead of the Messages extension; only the signed-in " +
+      "person can answer the ask waiting in their own chat.",
+    marker: "Tex's \"Go ahead?\" card, answered on the web",
+  },
+  {
     route: "/tex/[handle]",
     file: "app/tex/[handle]/index.tsx",
     reachable: false,

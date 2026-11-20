@@ -36,6 +36,7 @@ export const FEEDBACK_LIMITS = {
 export const ROUTE_SEGMENTS: ReadonlySet<string> = new Set([
   "add-gmail",
   "admin",
+  "ask",
   "authorize",
   "cli",
   "connect",
