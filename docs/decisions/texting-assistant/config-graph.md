@@ -247,6 +247,19 @@ The runner (`packages/tex/src/texGraph.cjs`) adds, with its own tests in
 `wait` or `background` wires, a node in the config with no code or code for a
 node not in the config, and a node file that imports another node's file.
 
+`scripts/tex-wire-check.mjs` (decided by Dev2, 2026-11-20, after the lookup
+ladder's Hand-off started jobs with no wire: "if we see that there's like a
+function call outside of the runner, then that should be breaking some type of
+CI/CD") fails when:
+
+- a node's function (what an entry of `graph/gatewayNodes.js` returns) is
+  imported by any other file, unless `OUTSIDE_CALLS` lists that file with the
+  wire it rides and its gate; the gate is run, and must say no once the wire is
+  taken out of the config;
+- a file starts a job (`background.call(`) and is not in `STARTERS`, or a
+  listed starter's node has no wire into `jobStart`, or the code that checks
+  that wire is gone.
+
 Each check's self-test breaks it on purpose.
 
 **What a simplification would cost:** each guard removed is a way for the

@@ -156,3 +156,15 @@ test("a computer job picked back up gets the computer as its settings are now, n
   await withBackground(gone, async () => ({ content: [] }))(RESTART_JOB_TOOL, {});
   assert.deepEqual(startedJobs(gone, false), { steers: [{ id: SIGN_IN.id, resume: true }] });
 });
+
+// The Front door starts a job only over its own wire, `fd -> jobStart` (Dev2, 2026-11-20: no node starts a job without
+// a wire). Sabotage: dropping the `startOn` check in `withBackground` starts the job and fails this.
+test("with no fd -> jobStart wire the Front door's start is refused, and nothing starts", async () => {
+  const unwired = backgroundSession({ running: [], job: null, now: NOW });
+  unwired.startOn = false;
+  const refused = await withBackground(unwired, async () => assert.fail("not passed through"))(START_JOB_TOOL, { title: "Haircut", brief: "Book it." });
+  assert.equal(refused.isError, true);
+  assert.match(words(refused), /no fd -> jobStart wire/);
+  assert.deepEqual(startedJobs(unwired, false), {}, "no job started");
+  assert.equal(unwired.endsTurn(START_JOB_TOOL), null, "and nothing settles the turn");
+});
