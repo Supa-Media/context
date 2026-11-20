@@ -146,7 +146,7 @@
     "src/tools/session.js": 6,
     "src/tools/texts.js": 2,
     "src/tools/v2/saveMany.js": 2,
-    "src/tools/v2/searchFetch.js": 3,
+    "src/tools/v2/searchFetch.js": 1,
     "src/tools/vault.js": 11,
     "src/tools/visibility.js": 7,
     "src/tools/workspaces.js": 5
