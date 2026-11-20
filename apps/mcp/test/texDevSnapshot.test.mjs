@@ -11,6 +11,8 @@
  *  1. `markOverlay` drawing nothing. → "a changed step is ringed and a new one tagged" fails.
  *  2. `sameStep` comparing x and y too. → "moving a step is not a change" fails.
  *  3. `snapshotGraph` ignoring `shots.fetch`'s status. → "a failing render gives one plain sentence" fails.
+ *  4. `onPage` (`packages/lab/app/engine/pages.ts`) keeping every step whatever the page (2026-11-20). → "the whole
+ *     graph draws every top-level step" and "graph: nightly draws only the Nightly page" fail.
  */
 
 import assert from "node:assert/strict";
@@ -28,12 +30,16 @@ const drawn = (label) => (label.length > 15 ? label.slice(0, 14) + "…" : label
 const carded = (label) => (label.length > 16 ? label.slice(0, 15) + "…" : label).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]);
 const stepsDrawn = (html) => [...html.matchAll(/<g class="nd [^"]*" data-id="([^"]*)"/g)].map((m) => m[1]);
 
-test("the whole graph draws every top-level step, each group folded into its box", () => {
+/** A step's Lab page (`graph`), as the canvas reads it: none is the texting graph. */
+const pageOf = (n) => n.graph ?? "texting";
+
+test("the whole graph draws every top-level step of the texting page, each group folded into its box", () => {
   const g = main();
   const html = graphSvg(g);
-  const top = g.nodes.filter((n) => !n.group);
+  const top = g.nodes.filter((n) => !n.group && pageOf(n) === "texting");
   assert.ok(top.length > 10);
   for (const n of top) assert.ok(html.includes(`>${drawn(n.label)}</text>`), `missing ${n.id}`);
+  for (const n of g.nodes.filter((n) => pageOf(n) !== "texting")) assert.ok(!stepsDrawn(html).includes(n.id), `${n.id} is on another page`);
   const used = new Set(g.nodes.map((n) => n.group).filter(Boolean));
   // The "retired" group went with its steps (2026-11-20); intake still folds into its box.
   assert.ok(used.has("intake") && !used.has("retired"));
@@ -192,4 +198,33 @@ test("a graph that is not a graph is one plain sentence", async () => {
     assert.match(done.error, /^[A-Z][^\n]*\.$/);
   }
   assert.equal(shots.calls.length, 0);
+});
+
+test("graph: nightly draws only the Nightly page: its steps and the wires among them, named in the caption (Dev2, 2026-11-20)", () => {
+  const g = main();
+  const nightly = g.nodes.filter((n) => pageOf(n) === "nightly").map((n) => n.id);
+  assert.deepEqual([...nightly].sort(), ["daysum", "dream", "housekeep", "nightly"]);
+  const html = graphSvg(g, { page: "nightly" });
+  assert.deepEqual([...stepsDrawn(html)].sort(), [...nightly].sort());
+  // Its three wires, and none to a texting step.
+  const among = g.edges.filter((e) => nightly.includes(e.from) && nightly.includes(e.to));
+  assert.equal(among.length, 3);
+  assert.equal([...html.matchAll(/data-edge="/g)].length, among.length);
+  assert.ok(html.includes(">Nightly</b>"), "the caption names the page");
+  // The texting page is the default, and names no page.
+  assert.deepEqual(stepsDrawn(graphSvg(g, { page: "texting" })), stepsDrawn(graphSvg(g)));
+  assert.ok(!graphSvg(g).includes(">Texting</b>"));
+});
+
+test("a page with no steps is one plain sentence, and main's marks are counted on the page drawn", async () => {
+  const g = main();
+  const textingOnly = { nodes: g.nodes.filter((n) => pageOf(n) === "texting"), edges: g.edges.filter((e) => !["nightly", "dream", "daysum", "housekeep"].includes(e.from)) };
+  assert.throws(() => graphSvg(textingOnly, { page: "nightly" }), /no steps on its nightly page/);
+  const shots = { fetch: async () => assert.fail("nothing to photograph") };
+  assert.deepEqual(await snapshotGraph({ SITE_SHOTS: shots }, textingOnly, { page: "nightly" }), { ok: false, error: "That graph has no steps on its nightly page." });
+  // Against main, the texting steps are not "removed" from the nightly page.
+  const draft = main();
+  draft.nodes.find((n) => n.id === "dream").effort = "high";
+  const html = graphSvg(draft, { base: main(), page: "nightly" });
+  assert.ok(html.includes("1 step changed") && !html.includes("removed:"));
 });

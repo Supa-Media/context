@@ -187,6 +187,26 @@ hides the early answers, which are the reason the door has eleven steps. Test:
 node, or the nodes are out of the code's order, and draws every wire inside the
 group.
 
+## The nightly cleanup is its own page, in the same config (2026-11-20)
+
+Dev2: "the nightly cleanup is a different type of AI job. It's not really
+texting, so it should probably live in a different graph." Tex keeps one config
+file. A step's optional `graph` names the Lab page it lives on: `"texting"`
+(the default, when absent) or `"nightly"` (`texConfigSchema.cjs` `GRAPHS`).
+Nightly, Dream, Day summaries and Housekeeping carry `"nightly"`. The Lab's top
+bar switches the canvas between the two (`?graph=nightly`), `tex_dev snapshot`
+and `link` take the same `graph`, and `docs/architecture/tex.md` draws each
+page as its own diagram. Speed and cost, Run and Tests still read the whole
+graph. A page changes no wire and no order, like a group; unlike a group, **no
+wire may join two pages**, and the config check refuses one.
+
+**What a simplification would cost:** two config files would bring back two
+sources of truth for what runs, which is what this decision exists to prevent;
+a wire across pages would draw a step on one page whose cause is on another, so
+neither page tells the whole story. Test: `apps/mcp/test/texGraphPages.test.mjs`
+("a wire between two pages is refused") and
+`packages/lab/__tests__/texLabGraphPages.test.ts`.
+
 ## The Lab's Promote may rewire live Tex, behind the replay gate
 
 The owner decided that a Lab version may rewire live Tex: `scripts/tex-lab-promote.mjs`

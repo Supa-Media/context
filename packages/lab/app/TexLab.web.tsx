@@ -28,7 +28,7 @@ import type { View } from "./types";
 import { Compare } from "./views/Compare.web";
 import { Evals } from "./views/Evals.web";
 import { LiveChips } from "./views/LiveChanges.web";
-import { MoreMenu, RunSplit, SpeedMenu, VersionMenu } from "./views/bar/TopBar.web";
+import { GraphPages, MoreMenu, RunSplit, SpeedMenu, VersionMenu } from "./views/bar/TopBar.web";
 import { Modules } from "./views/Modules.web";
 import { Run } from "./views/Run.web";
 import { Sim } from "./views/Sim.web";
@@ -198,6 +198,7 @@ function Lab() {
           ) : (
             <>
               <VersionMenu />
+              <GraphPages />
               <span className="dot" id="dirtyDot" title="Unsaved changes" hidden={!s.dirty} />
               {/* A saved version saves each edit as it happens, so Save shows only for what isn't saved yet (`engine/live.ts`). */}
               {s.dirty && !isMain() ? (

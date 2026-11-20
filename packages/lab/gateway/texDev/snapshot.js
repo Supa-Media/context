@@ -16,12 +16,14 @@ const NOT_DRAWN = "The snapshot could not be drawn right now. Try again in a min
  * The page's HTML for `graph` (pure, no picture taken): `{ html, width, height }`. Throws one plain sentence when the
  * graph has nothing to draw or `focus` names no step or group.
  * `focus`: a step id or a group id, drawn focused the way the Lab's Focus does; else the whole graph with groups folded.
+ * `page`: the Lab page drawn (tex_dev's `graph` argument), "texting" (the default) or "nightly": its steps and the wires among them, the canvas's own
+ * filter (`engine/pages.ts`).
  * `base`: another graph (main); steps that differ from it are ringed "changed", steps it lacks "new".
  * `sim`: a traced test (`lab.js` `snapshotSim`, the Lab's own simulation): each step's time, its split bar and the
  * stats chip, as the canvas draws them; none (the default) draws nothing timed.
  */
-export function snapshotHtml(graph, { focus = null, base = null, theme = "dark", width = 1600, sim = null } = {}) {
-  return snapshotPage(graph, { focus, base, theme: theme === "light" ? "light" : "dark", width, sim });
+export function snapshotHtml(graph, { focus = null, base = null, theme = "dark", width = 1600, sim = null, page = null } = {}) {
+  return snapshotPage(graph, { focus, base, theme: theme === "light" ? "light" : "dark", width, sim, graph: page });
 }
 
 /** The SVG/HTML string of the drawing, for tests and for anyone who wants the page itself. */
@@ -33,12 +35,12 @@ export function graphSvg(graph, opts = {}) {
  * One picture of `graph`: `{ ok: true, png: <base64>, width, height }`, or `{ ok: false, error }` with one plain
  * sentence. Never throws.
  */
-export async function snapshotGraph(env, graph, { focus = null, base = null, theme = "dark", width = 1600, sim = null } = {}) {
+export async function snapshotGraph(env, graph, { focus = null, base = null, theme = "dark", width = 1600, sim = null, page = null } = {}) {
   const shots = env?.SITE_SHOTS;
   if (typeof shots?.fetch !== "function") return { ok: false, error: NOT_SET_UP };
-  let page;
+  let drawn;
   try {
-    page = snapshotHtml(graph, { focus, base, theme, width, sim });
+    drawn = snapshotHtml(graph, { focus, base, theme, width, sim, page });
   } catch (error) {
     return { ok: false, error: error instanceof Error && error.message ? error.message : "That graph could not be drawn." };
   }
@@ -46,15 +48,15 @@ export async function snapshotGraph(env, graph, { focus = null, base = null, the
     const response = await shots.fetch("https://site-shots/render", {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ html: page.html, width: page.width, height: page.height, allow: [] }),
+      body: JSON.stringify({ html: drawn.html, width: drawn.width, height: drawn.height, allow: [] }),
     });
     const body = await response.json().catch(() => null);
     if (!response.ok || typeof body?.png !== "string" || body.png === "") return { ok: false, error: NOT_DRAWN };
     return {
       ok: true,
       png: body.png,
-      width: Number.isFinite(body.width) ? body.width : page.width,
-      height: Number.isFinite(body.height) ? body.height : page.height,
+      width: Number.isFinite(body.width) ? body.width : drawn.width,
+      height: Number.isFinite(body.height) ? body.height : drawn.height,
     };
   } catch {
     return { ok: false, error: NOT_DRAWN };

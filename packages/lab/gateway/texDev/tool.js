@@ -23,6 +23,7 @@ import { createSetActions, repoConversation, repoGoldRoute } from "./sets.js";
 import { failureView } from "../../src/texFailures.cjs";
 import { routeSummary } from "../../../tex/src/texRouteSummary.cjs";
 import { snapshotGraph } from "./snapshot.js";
+import { GRAPHS } from "../../../tex/src/texConfigSchema.cjs";
 import { createDraftWrites } from "./writes.js";
 import { testSetSummary } from "../fromGateway/http_texTestSet.js";
 
@@ -190,9 +191,14 @@ export function createTexDev({ env, session, controlPlane, defer = null, sleep =
         }
       }
       case "snapshot": {
+        // The Lab page to draw (`graph: "nightly"`), as its switcher does; a graph object of your own names it with `page`.
+        const named = typeof args.graph === "string" && GRAPHS.includes(args.graph);
+        const lab = named ? args.graph : (args.page ?? null);
+        const notAPage = typeof args.graph === "string" && !named && !args.graph.trim().startsWith("{");
+        if (notAPage || (lab !== null && !GRAPHS.includes(lab))) return toolError(`graph is the Lab page to draw: one of ${GRAPHS.join(", ")}.`);
         let graph = null;
         let drafted = null;
-        if (args.graph !== undefined) graph = parseGraph(args.graph);
+        if (args.graph !== undefined && !named) graph = parseGraph(args.graph);
         else if (typeof args.draft === "string" && args.draft !== "main") {
           const got = await draftGraph(args.draft);
           if (got.error) return got.error;
@@ -201,17 +207,18 @@ export function createTexDev({ env, session, controlPlane, defer = null, sleep =
         } else graph = mainGraph();
         if (graph === null) return toolError("snapshot takes a draft, or graph as { nodes: [...], edges: [...] }.");
         // With a test, each step carries its time and the stats chip shows, as on the Lab's canvas (`lab.js`).
-        const traced = await snapshotSim(plane, args, drafted);
+        const traced = await snapshotSim(plane, named ? { ...args, graph: undefined } : args, drafted);
         if (traced.error) return traced.error;
-        const shot = await snapshotGraph(env, graph, { focus: args.focus ?? null, base: mainGraph(), theme: args.theme === "light" ? "light" : "dark", sim: traced.sim });
+        const shot = await snapshotGraph(env, graph, { focus: args.focus ?? null, base: mainGraph(), theme: args.theme === "light" ? "light" : "dark", sim: traced.sim, page: lab });
         if (!shot.ok) return toolError(shot.error);
-        return { content: [{ type: "image", data: shot.png, mimeType: "image/png" }, { type: "text", text: drafted ? `Draft ${args.draft} · live at ${linkOf(args.draft)}` : args.graph !== undefined ? "The graph you passed." : "Main as it runs today." }] };
+        const on = lab && lab !== "texting" ? ` (its ${lab} page)` : "";
+        return { content: [{ type: "image", data: shot.png, mimeType: "image/png" }, { type: "text", text: drafted ? `Draft ${args.draft}${on} · live at ${linkOf(args.draft)}` : args.graph !== undefined && !named ? `The graph you passed${on}.` : `Main as it runs today${on}.` }] };
       }
       case "link": {
         // A place in the Lab (`replay.js` `linkAnswer`): a page, or a chat and a text, as the Lab's address holds it.
-        const place = args.mode !== undefined || args.page !== undefined || args.chat !== undefined || args.moment !== undefined;
+        const place = args.mode !== undefined || args.page !== undefined || args.chat !== undefined || args.moment !== undefined || args.graph !== undefined;
         if (!place || args.draft !== undefined) {
-          if (needDraft(args)) return place ? needDraft(args) : toolError("link takes a draft, or a place: { chat?, moment? } or { page }.");
+          if (needDraft(args)) return place ? needDraft(args) : toolError("link takes a draft, or a place: { chat?, moment? }, { page } or { graph }.");
           const { error } = await plane("get", { draft: args.draft });
           if (error) return error;
           if (!place) return json({ link: linkOf(args.draft), note: "Opens in the Lab with this draft live; staff sign-in. Edits you make here show there within a second, and theirs reach you in every answer." });

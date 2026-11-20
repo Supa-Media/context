@@ -7,7 +7,8 @@
  * `packages/tex/src/texConfig.json` holds every node and every wire Tex runs. This script makes, from it alone:
  *
  *   1. the drawing in `docs/architecture/tex.md`, between `<!-- tex-config: drawing begin -->` and `end -->`: one
- *      Mermaid flowchart, a box per node (its group as a subgraph) and an arrow per wire, drawn by its mode;
+ *      Mermaid flowchart per Lab page (a node's `graph`: Texting, then Nightly; Dev2, 2026-11-20), a box per node
+ *      (its group as a subgraph) and an arrow per wire, drawn by its mode;
  *   2. the steps table in the same page, between `<!-- tex-config: steps begin -->` and `end -->`;
  *   3. `packages/tex/gateway/agent/texArchitecture.generated.js`: `TEX_MAP`, the same graph in words, which
  *      `texArchitecture.js` puts ahead of every Tex agent's prompt with the one line naming the node that agent is.
@@ -21,7 +22,10 @@
 import { readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
+import { createRequire } from "node:module";
 import { CONFIG_PATH, readTexConfig } from "./lib/texConfigFile.mjs";
+
+const { GRAPHS, graphOf } = createRequire(import.meta.url)("../packages/tex/src/texConfigSchema.cjs");
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 export const CONFIG = CONFIG_PATH;
@@ -90,8 +94,27 @@ const cell = (text) => String(text).replaceAll("|", "\\|");
 /** Mermaid ids: the node's id, kept clear of Mermaid's own words. */
 const mid = (id) => `n_${id.replace(/[^A-Za-z0-9_]/g, "_")}`;
 
-/** The drawing: one Mermaid flowchart of every node and wire, each group a subgraph. */
+/** How each Lab page is titled on the page. */
+const GRAPH_TITLES = Object.freeze({ texting: "Texting", nightly: "Nightly" });
+
+/**
+ * The drawing: one Mermaid flowchart per Lab page that has steps, each under its title, the texting graph first. A
+ * page draws its own nodes and the wires among them (the schema refuses a wire across pages).
+ */
 export function drawingFor(config) {
+  const pages = GRAPHS.filter((graph) => config.nodes.some((n) => graphOf(n) === graph));
+  return pages
+    .map((graph) => {
+      const nodes = config.nodes.filter((n) => graphOf(n) === graph);
+      const ids = new Set(nodes.map((n) => n.id));
+      const edges = config.edges.filter((e) => ids.has(e.from) && ids.has(e.to));
+      return `### ${GRAPH_TITLES[graph] ?? graph}\n\n${flowchartFor(config, nodes, edges)}`;
+    })
+    .join("\n\n");
+}
+
+/** One Mermaid flowchart of `nodes` and `edges`, each group a subgraph. */
+function flowchartFor(config, nodes, edges) {
   const lines = ["```mermaid", "flowchart LR"];
   const box = (n) => {
     const model = nodeModel(config, n);
@@ -103,7 +126,7 @@ export function drawingFor(config) {
     return n.kind === "input" ? `${mid(n.id)}(["${text}"]):::${cls}` : `${mid(n.id)}["${text}"]:::${cls}`;
   };
   const groups = new Map();
-  for (const n of config.nodes) {
+  for (const n of nodes) {
     if (!n.group) lines.push(`  ${box(n)}`);
     else groups.set(n.group, [...(groups.get(n.group) ?? []), n]);
   }
@@ -122,7 +145,7 @@ export function drawingFor(config) {
     lines.push(`${pad}end`);
   };
   for (const group of groups.keys()) if (!parentOf(group) || !groups.has(parentOf(group))) subgraph(group, 1);
-  for (const e of config.edges) {
+  for (const e of edges) {
     const mode = modeOf(e.mode);
     const tags = when(e);
     const kind = mode === "provisional" ? `${provisionalAs(e)}${unless(e)}` : mode === "generator" ? "starts a new run" : mode;

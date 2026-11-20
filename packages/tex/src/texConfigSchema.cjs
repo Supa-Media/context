@@ -49,6 +49,14 @@ const FREEZES = Object.freeze(["turn", "summary"]);
 /** The types a node's input and output fields may have (`inSchema`, `outSchema`; checked by the runner, `texGraph.cjs`). */
 const IO_TYPES = Object.freeze(["text", "number", "choice", "object", "yesno", "score", "ids", "list"]);
 const GROUP_FIELDS = Object.freeze(["label", "goal", "icon", "x", "y", "parent"]);
+/**
+ * The Lab's pages a step may live on (Dev2, 2026-11-20: "the nightly cleanup is a different type of AI job. It's not
+ * really texting, so it should probably live in a different graph"). One config still holds every step; a step's
+ * `graph` names its page, and a step with none is on "texting". A wire never joins two pages.
+ */
+const GRAPHS = Object.freeze(["texting", "nightly"]);
+/** The page a step lives on: its `graph`, or "texting". */
+const graphOf = (n) => (n && GRAPHS.includes(n.graph) ? n.graph : "texting");
 
 const isText = (v) => typeof v === "string";
 const isNum = (v) => typeof v === "number" && Number.isFinite(v);
@@ -87,6 +95,8 @@ const NODE_SHAPE = Object.freeze({
   x: [isNum, "a number"],
   y: [isNum, "a number"],
   group: [isText, "a group id"],
+  // Which Lab page the step lives on; absent is "texting" (`GRAPHS`).
+  graph: [(v) => GRAPHS.includes(v), `one of ${GRAPHS.join(", ")}`],
   fallback: [isText, "a model key"],
   // A step's own limits (Part end: parts, minutes, machineParts, machineMinutes; `jobPartEnd.cjs`), each a whole number.
   limits: [(v) => v !== null && typeof v === "object" && !Array.isArray(v) && Object.values(v).every(isCount), "an object of whole numbers"],
@@ -131,6 +141,7 @@ function configProblems(config) {
     if (isText(n.fallback) && !isText(models[n.fallback])) out.push(`step "${n.id}" falls back to "${n.fallback}", which has no gateway model id`);
     if (isText(n.group) && !groups[n.group]) out.push(`step "${n.id}" is in a group that is not there (${n.group})`);
   }
+  const pageOf = new Map(config.nodes.filter((n) => n && isText(n.id)).map((n) => [n.id, graphOf(n)]));
   const wires = new Set();
   for (const e of config.edges) {
     const name = `${e?.from} → ${e?.to}`;
@@ -145,6 +156,7 @@ function configProblems(config) {
     if (e.allow !== undefined && !(e.mode === "provisional" && ALLOW.includes(e.allow))) out.push(`the wire ${name} has allow "${e.allow}": only a provisional wire has one, ${ALLOW.join(" or ")}`);
     if (e.unless !== undefined && !(e.mode === "provisional" && isTextList(e.unless) && e.unless.every((fact) => START_FACTS.includes(fact)))) out.push(`the wire ${name} has unless ${JSON.stringify(e.unless)}: only a provisional wire has one, a list of ${START_FACTS.join(", ")}`);
     if (e.mode === "provisional") out.push(...provisionalHoldProblems([e]));
+    if (pageOf.get(e.from) !== pageOf.get(e.to)) out.push(`the wire ${name} joins a step on the ${pageOf.get(e.from)} graph to one on the ${pageOf.get(e.to)} graph: wires never cross graphs`);
     const key = `${e.from}>${e.to}>${e.mode}`;
     if (wires.has(key)) out.push(`the wire ${name} (${e.mode}) is there twice`);
     wires.add(key);
@@ -238,4 +250,4 @@ function migrateGraph(graph) {
   return Number.isInteger(graph.texConfig) ? { ...g, texConfig: Math.max(graph.texConfig, SCHEMA_VERSION) } : g;
 }
 
-module.exports = { SCHEMA_VERSION, MODES, EFFORTS, ALLOW, START_FACTS, REQUIRED_HOLDS, KINDS, IO_TYPES, GROUP_FIELDS, NODE_FIELDS, EDGE_FIELDS, configProblems, provisionalHoldProblems, texConfigOf, MIGRATIONS, migrateGraph };
+module.exports = { SCHEMA_VERSION, GRAPHS, graphOf, MODES, EFFORTS, ALLOW, START_FACTS, REQUIRED_HOLDS, KINDS, IO_TYPES, GROUP_FIELDS, NODE_FIELDS, EDGE_FIELDS, configProblems, provisionalHoldProblems, texConfigOf, MIGRATIONS, migrateGraph };

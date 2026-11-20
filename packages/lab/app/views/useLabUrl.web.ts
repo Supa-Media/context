@@ -5,13 +5,13 @@
  * chats. Picking another text replaces the entry rather than adding one, so Back is not a walk through every text.
  */
 import { useEffect } from "react";
-import { lab, set, subscribe } from "../engine/state";
+import { fit, lab, set, subscribe } from "../engine/state";
 import { pickChat } from "./mine/useMine";
 import { placeOf, searchOf, type Place } from "./labPlace";
 
 export { placeOf, searchOf, type Place } from "./labPlace";
 
-const now = (): Place => ({ mode: lab.mode, view: lab.view, chat: lab.myChat, moment: lab.mode === "lab" ? lab.moment : null, set: lab.mode === "testing" ? lab.setChat : null });
+const now = (): Place => ({ mode: lab.mode, view: lab.view, chat: lab.myChat, moment: lab.mode === "lab" ? lab.moment : null, set: lab.mode === "testing" ? lab.setChat : null, graph: lab.mode === "lab" && lab.graphPage !== "texting" ? lab.graphPage : null });
 
 /** Put the Lab where an address says. */
 function go(p: Place) {
@@ -21,7 +21,11 @@ function go(p: Place) {
   }
   // A node named in the address (Testing's "Node settings" link) opens selected on the canvas; the address keeps no selection after.
   const sel = p.node && lab.cur.graph.nodes.some((n) => n.id === p.node) ? { t: "node" as const, id: p.node } : null;
-  set({ mode: p.mode, view: p.view, sel, cfocus: null, ...(p.mode === "lab" ? { real: null } : {}), ...(p.moment ? { moment: p.moment } : {}), ...(p.mode === "testing" ? { setChat: p.set ?? null } : {}) });
+  // The canvas's page: another page draws other steps, so it is fitted again once drawn.
+  // A node named without a page opens on the page it lives on.
+  const graphPage = p.graph ?? (sel && lab.cur.graph.nodes.find((n) => n.id === sel.id)?.graph === "nightly" ? "nightly" : "texting");
+  if (graphPage !== lab.graphPage) setTimeout(fit, 0);
+  set({ graphPage, mode: p.mode, view: p.view, sel, cfocus: null, ...(p.mode === "lab" ? { real: null } : {}), ...(p.moment ? { moment: p.moment } : {}), ...(p.mode === "testing" ? { setChat: p.set ?? null } : {}) });
 }
 
 export function useLabUrl() {

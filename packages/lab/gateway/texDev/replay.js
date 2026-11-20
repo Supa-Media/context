@@ -12,6 +12,7 @@
  * catalogue is named as such, never filled in.
  */
 
+import { GRAPHS } from "../../../tex/src/texConfigSchema.cjs";
 import { TEX_CONFIG } from "../fromGateway/agent_texConfig.js";
 import { chatsOf, countOf, CUT, cutDeep, FULL_CUT, openChat, turnFrom, when } from "./probe.js";
 
@@ -461,12 +462,16 @@ export async function linkAnswer(page, args, { origin, draft }) {
   const chat = args.chat ?? "me";
   if (replay && !chatsOf(page).some((c) => c.chat === chat)) return { error: "There is no such chat; chats lists yours." };
   if (args.moment !== undefined && (typeof args.moment !== "string" || !MOMENT_ID.test(args.moment))) return { error: "moment takes a moment id from moments" };
-  const place = { mode: "lab", view: replay ? "canvas" : (args.page ?? "canvas"), chat, moment: args.moment ?? null };
+  // The canvas's page (`?graph=nightly`, `labPlace.ts`): the texting graph is the default and stays out of the address.
+  if (args.graph !== undefined && !GRAPHS.includes(args.graph)) return { error: `graph is one of ${GRAPHS.join(", ")}` };
+  if (args.graph !== undefined && args.page !== undefined && args.page !== "canvas") return { error: "A graph opens on the canvas; leave page out" };
+  const graph = args.graph !== undefined && args.graph !== "texting" ? { graph: args.graph } : {};
+  const place = { mode: "lab", view: replay ? "canvas" : (args.page ?? "canvas"), chat, moment: args.moment ?? null, ...graph };
   // The address must read back as the place it was written from, or the Lab would open somewhere else.
   const back = R.placeOf(R.searchOf(place));
   if (JSON.stringify(back) !== JSON.stringify(place)) return { error: "That place is not one the Lab's address holds." };
   return {
     link: labLinkOf(R, origin, place, draft),
-    note: replay ? "Opens the Lab at that chat and text; staff sign-in." : "Opens the Lab at that page; staff sign-in.",
+    note: replay ? "Opens the Lab at that chat and text; staff sign-in." : graph.graph ? `Opens the Lab's canvas on its ${graph.graph} graph; staff sign-in.` : "Opens the Lab at that page; staff sign-in.",
   };
 }

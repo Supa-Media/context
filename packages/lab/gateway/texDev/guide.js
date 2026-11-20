@@ -4,6 +4,7 @@
  */
 
 import { MODES } from "../../../tex/src/texGraph.cjs";
+import { GRAPHS, graphOf } from "../../../tex/src/texConfigSchema.cjs";
 import { TEX_CONFIG } from "../fromGateway/agent_texConfig.js";
 
 const MODE_MEANING = {
@@ -29,8 +30,8 @@ export const ACTIONS = [
   ["run_setup", "{ draft, picks?: { <area>: [case ids] | null }, areas?: [areas] | null }", "the Run tab's setup: the cases ticked per area (merged by area; null ticks every case again) and the areas the run covers (null: the ones the changes touch)"],
   ["keep_results", "{ draft | \"main\", report, link? }", "Run's \"Keep these results\": a pasted run report read with the Lab's own reader and kept with the draft, or with main; its \"## Lab replay\" part (the person's own chat) is never kept"],
   ["revert", "{ draft, rev } | { draft, to }", "undo as a new revision: rev undoes the change made at that revision (refused when a later change touched the same thing); to undoes every change after that revision. Kept results stay"],
-  ["snapshot", "{ draft? | graph?, focus?, theme?, test? | text? }", "a PNG of the draft as the Lab draws it, or of a graph you pass; `focus` a group id draws that group open on its own (its steps, the cards of the groups inside it, the wires leaving it as pills), a step id draws its own view (comes in, reads, gives out, goes to); changes from main are marked; with `test` (a key from sim) or `text` each step shows its time and the stats chip its reply time, calls and cost, as the canvas does"],
-  ["link", "{ draft } | { chat?, moment? } | { page, draft? }", "the Lab address with this draft open, live; or the Lab at a chat and a text, or one of its pages (staff sign-in)"],
+  ["snapshot", '{ draft? | graph?, graph?: "texting" | "nightly", page?, focus?, theme?, test? | text? }', "a PNG of the draft as the Lab draws it, or of a graph you pass (graph as { nodes, edges }); `graph: \"nightly\"` draws the Lab's Nightly page instead of Texting (its steps and the wires among them, as the canvas's switcher shows it; with a graph object of your own, name the page with `page`); `focus` a group id draws that group open on its own (its steps, the cards of the groups inside it, the wires leaving it as pills), a step id draws its own view (comes in, reads, gives out, goes to); changes from main are marked; with `test` (a key from sim) or `text` each step shows its time and the stats chip its reply time, calls and cost, as the canvas does"],
+  ["link", '{ draft } | { chat?, moment? } | { page, draft? } | { graph: "texting" | "nightly", draft? }', "the Lab address with this draft open, live; or the Lab at a chat and a text, or one of its pages; `graph: \"nightly\"` opens the canvas on its Nightly page (?graph=nightly) (staff sign-in)"],
   ["check", "{ draft | graph }", "the runner's and Promote's checks, without promoting"],
   ["promote", '{ draft, picks?: { "<what>": "main" | "draft" } }', "the Lab's Promote: starts the promote workflow at once for a pull request that merges only the draft's own changes onto main as it is now, through CI and the replay gate, and a gate run (runs) that follows its Test set status. When main changed something the draft changed too, it is refused and get's promote.clashes names each (what, main's value, the draft's, pick: whether a side can be picked); promote again with picks, as the Lab's clash list does: main keeps main's, draft writes the draft's over it"],
   ["code", '{ draft, code: "#<pull request>" | <branch> | "main" }', "the Lab's Code field: the draft's runs check out a pull request's or branch's code of this repository instead of main, for a draft whose steps are new code; \"main\" puts it back. A pull request from a fork is refused when the run starts. get and list show each draft's code"],
@@ -101,7 +102,7 @@ export const ACTIONS = [
 ];
 
 export const EDIT_OPS = [
-  '{ op: "set", node, field, value }  one field of one step (null removes it)',
+  '{ op: "set", node, field, value }  one field of one step (null removes it); field "graph" moves it to a Lab page, "nightly" or "texting" (null is texting): a wire never joins two pages, so move a step with the steps it is wired to',
   '{ op: "move", node, x, y }  where it sits on the canvas',
   '{ op: "add", node: { id, ...fields } }  a new step (needs code before it can promote)',
   '{ op: "remove", node }  a step, its wires and every read of its output (main\'s steps are turned off, not removed, to promote; text and send always stay)',
@@ -118,19 +119,27 @@ export const EDIT_OPS = [
 /** The guide's text. */
 export function guideText(config = TEX_CONFIG) {
   const groups = config.groups ?? {};
-  const byGroup = new Map();
-  for (const n of config.nodes) {
-    const key = n.group ?? "";
-    if (!byGroup.has(key)) byGroup.set(key, []);
-    byGroup.get(key).push(n);
-  }
+  // Steps by Lab page (Texting, then Nightly; `graph` on a step), then by group, as the Lab's canvas shows them.
+  const byGroup = (nodes) => {
+    const out = new Map();
+    for (const n of nodes) {
+      const key = n.group ?? "";
+      if (!out.has(key)) out.set(key, []);
+      out.get(key).push(n);
+    }
+    return out;
+  };
   const stepLine = (n) => `  - ${n.id} (${n.label}): ${n.model}${n.effort ? ", effort " + n.effort : ""}${n.on === false ? ", OFF" : ""}${n.timeoutS ? `, ${n.timeoutS} s limit` : ""}${n.file ? ` · code: ${n.file}` : ""}`;
-  const steps = [...byGroup.entries()].flatMap(([group, nodes]) => [group ? `- group "${group}" (${groups[group]?.label ?? group}):` : "- steps:", ...nodes.map(stepLine)]);
+  const groupLines = (nodes) => [...byGroup(nodes).entries()].flatMap(([group, members]) => [group ? `- group "${group}" (${groups[group]?.label ?? group}):` : "- steps:", ...members.map(stepLine)]);
+  const steps = GRAPHS.flatMap((page) => {
+    const nodes = config.nodes.filter((n) => graphOf(n) === page);
+    return nodes.length ? [`### ${page[0].toUpperCase()}${page.slice(1)} graph (${nodes.length} steps${page === "texting" ? "" : `, graph: "${page}"`})`, ...groupLines(nodes)] : [];
+  });
   const wires = config.edges.map((e) => `  ${e.from} → ${e.to} (${e.mode}${(e.when ?? ["*"]).join(",") === "*" ? "" : ", when " + e.when.join(", ")}${Array.isArray(e.unless) && e.unless.length ? ", unless " + e.unless.join(", ") : ""})`);
   return [
     "# Developing on Tex",
     "",
-    "Tex is the texting assistant. Everything that runs in a Tex turn is a step (a node) in one graph, packages/tex/src/texConfig.json, and the wires between steps are config, not code (Dev2, 2026-11-14). A step's code lives in the gateway; its model, effort, on or off, time limit, rounds, the context it reads in order and its wires live in the config. The Tex Architecture Lab (context.lc/lab) opens that config as main.",
+    "Tex is the texting assistant. Everything that runs in a Tex turn is a step (a node) in one graph, packages/tex/src/texConfig.json, and the wires between steps are config, not code (Dev2, 2026-11-14). A step's code lives in the gateway; its model, effort, on or off, time limit, rounds, the context it reads in order and its wires live in the config. The Tex Architecture Lab (context.lc/lab) opens that config as main. The Lab draws it on two pages, Texting and Nightly (the nightly cleanup: Nightly, Dream, Day summaries, Housekeeping); a step names its page with `graph` (none is texting), and no wire joins two pages.",
     "",
     "## How to change Tex",
     "1. Make a draft (`create`), and edit it (`edit`) while a person watches or edits the same draft in the Lab (`link`). Every answer says what the other side changed; `changes` with `wait` listens for them.",
