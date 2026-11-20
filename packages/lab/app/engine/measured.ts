@@ -9,7 +9,7 @@
  * `scripts/tex-dev-replay.mjs`), and answers an AI with the same numbers the Lab draws.
  */
 import { BASE_MODELS } from "../data/models";
-import type { LedgerEntry } from "../../page/texPageTypes";
+import type { LedgerEntry } from "../fromApp/texPageTypes";
 import { momentAsSteps, STEP_NODES, stepIO, type IoLine } from "./stepIO";
 
 export type { IoLine } from "./stepIO";

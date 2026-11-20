@@ -32,7 +32,7 @@ jest.mock("expo-router", () => {
 });
 jest.mock("../features/site/host", () => ({ isTexHost: () => true }));
 // The test chat under the canvas reaches the gateway with the person's own grant; no gateway here.
-jest.mock("../features/tex/lab/views/canvas/sandboxCall", () => ({ useSandboxCall: () => false }));
+jest.mock("@context/lab/app/views/canvas/sandboxCall", () => ({ useSandboxCall: () => false }));
 
 (globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 window.matchMedia = ((q: string) => ({ matches: false, media: q, addEventListener() {}, removeEventListener() {} })) as never;
@@ -40,12 +40,12 @@ window.matchMedia = ((q: string) => ({ matches: false, media: q, addEventListene
 
 import { act, createElement } from "react";
 import { createRoot } from "react-dom/client";
-import { TexLab } from "../features/tex/lab/TexLab.web";
-import { clone, edit, G, lab, MAIN, set } from "../features/tex/lab/engine/state";
-import { CASE_CAP, emptySteps, fieldsOf, nodeArea } from "../features/tex/lab/engine/cases";
-import { computeMarks, currentMarks, markCounts, putBack, wireKey } from "../features/tex/lab/engine/changeMarks";
-import { drafts, keepNodeCase, startNodeCase } from "../features/tex/lab/engine/caseDraft";
-import type { LabCase } from "../features/tex/lab/types";
+import { TexLab } from "@context/lab/app/TexLab.web";
+import { clone, edit, G, lab, MAIN, set } from "@context/lab/app/engine/state";
+import { CASE_CAP, emptySteps, fieldsOf, nodeArea } from "@context/lab/app/engine/cases";
+import { computeMarks, currentMarks, markCounts, putBack, wireKey } from "@context/lab/app/engine/changeMarks";
+import { drafts, keepNodeCase, startNodeCase } from "@context/lab/app/engine/caseDraft";
+import type { LabCase } from "@context/lab/app/types";
 
 const roots: (() => void)[] = [];
 afterEach(() => {

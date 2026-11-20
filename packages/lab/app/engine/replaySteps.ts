@@ -4,7 +4,7 @@
  * per canvas step that ran, in the order they started, and each helper's row sits right under the step that waited
  * on it. A step's bar spans the helpers it waited on, as the canvas's time over it does.
  */
-import type { LedgerEntry } from "../../page/texPageTypes";
+import type { LedgerEntry } from "../fromApp/texPageTypes";
 import type { LabGraph } from "../types";
 import { unfoldGroups } from "./groups";
 import { momentTurnEntries, onlyWhatRan, realTimes, withReal } from "./realTimes";

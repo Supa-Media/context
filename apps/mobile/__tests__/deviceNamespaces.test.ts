@@ -148,6 +148,7 @@ function namespacesInSource(): Map<string, string[]> {
   };
   walk(join(__dirname, "..", "features"));
   walk(join(__dirname, "..", "app"));
+  walk(join(__dirname, "..", "..", "..", "packages", "lab", "app"));
   return found;
 }
 

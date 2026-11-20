@@ -13,9 +13,9 @@ import type { StepCell } from "../views/grid/TextGrid.web";
 import { stepExtra, type StepExtra } from "./stepRun";
 import { lab, set as setLab } from "./state";
 import { unfoldGroups } from "./groups";
-import type { LedgerPage, LedgerQuery } from "../../page/texPageTypes";
-import { readLedgerPage } from "../../page/texPageLedger";
-import type { Read } from "../../page/texPageSource";
+import type { LedgerPage, LedgerQuery } from "../fromApp/texPageTypes";
+import { readLedgerPage } from "../fromApp/texPageLedger";
+import type { Read } from "../fromApp/texPageSource";
 
 /** A step as the grid shows it (`out` in words) with the contract's optional fields (`stepRun.ts`), as the gateway sent them. */
 export type SandboxStep = StepCell & StepExtra;

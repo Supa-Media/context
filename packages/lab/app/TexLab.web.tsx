@@ -13,15 +13,15 @@
  */
 import { useEffect, useState } from "react";
 import { useQuery } from "convex/react";
-import { AdminChrome } from "../../admin/AdminPane";
-import { StaffOnly } from "../../admin/StaffOnly.web";
-import { StaffFactorGate } from "../../admin/StaffFactorGate";
+import { AdminChrome } from "./fromApp/AdminPane";
+import { StaffOnly } from "./fromApp/StaffOnly.web";
+import { StaffFactorGate } from "./fromApp/StaffFactorGate";
 import { api } from "@context/convex/_generated/api";
 import { allCases, cvDiff, diff } from "./engine/diff";
 import { G, go, isMain, lab, openVersion, set, fit, emit } from "./engine/state";
 import { buildTraces } from "./engine/traces";
 import { LAB_CSS } from "./labCss";
-import { ensureFontsLoaded } from "../../design/fonts.web";
+import { ensureFontsLoaded } from "./fromApp/fonts.web";
 import { useLab, useLabSync, useLiveFeed, useRevBase } from "./store";
 import { saveNow } from "./engine/live";
 import type { View } from "./types";

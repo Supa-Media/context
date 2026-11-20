@@ -1,5 +1,5 @@
 /**
- * The Tex Architecture Lab's engine (`features/tex/lab/engine/`) against the artifact it was ported from (Dev2,
+ * The Tex Architecture Lab's engine (`packages/lab/app/engine/`) against the artifact it was ported from (Dev2,
  * 2026-11-13: "EXACTLY like the artifact"). `fixtures/texLabGolden.json` is what the artifact's own page computed
  * (Version 16, `simulate` over four moments, then `diff` and `config` after one edit), taken by running that page
  * headless; the port must give the same answers. Times and costs may differ by a hair because the generated module
@@ -15,16 +15,16 @@
 import { beforeAll, expect, jest, test } from "@jest/globals";
 
 // The artifact's own graph: main's is corrected to the code (`texLabMainGraph.test.ts`), the port is held to the artifact.
-jest.mock("../features/tex/lab/data/models", () => jest.requireActual<typeof import("./fixtures/texLabArtifactGraph")>("./fixtures/texLabArtifactGraph").artifactModelsModule());
-jest.mock("../features/tex/lab/data/graph", () => jest.requireActual<typeof import("./fixtures/texLabArtifactGraph")>("./fixtures/texLabArtifactGraph").artifactGraphModule());
+jest.mock("@context/lab/app/data/models", () => jest.requireActual<typeof import("./fixtures/texLabArtifactGraph")>("./fixtures/texLabArtifactGraph").artifactModelsModule());
+jest.mock("@context/lab/app/data/graph", () => jest.requireActual<typeof import("./fixtures/texLabArtifactGraph")>("./fixtures/texLabArtifactGraph").artifactGraphModule());
 // The artifact had two kinds of module, "same every turn" and "changes every turn"; its goldens are drawn with those.
 jest.mock("@context/tex/src/texModuleChange.cjs", () => jest.requireActual<typeof import("./fixtures/texLabArtifactGraph")>("./fixtures/texLabArtifactGraph").artifactModuleChangeModule());
 import golden from "./fixtures/texLabGolden.json";
-import { config, diff } from "../features/tex/lab/engine/diff";
-import { simulate } from "../features/tex/lab/engine/sim";
-import { edit, G, isMain, lab, MAIN, node } from "../features/tex/lab/engine/state";
-import { buildTraces } from "../features/tex/lab/engine/traces";
-import { CASES } from "../features/tex/lab/labData.generated";
+import { config, diff } from "@context/lab/app/engine/diff";
+import { simulate } from "@context/lab/app/engine/sim";
+import { edit, G, isMain, lab, MAIN, node } from "@context/lab/app/engine/state";
+import { buildTraces } from "@context/lab/app/engine/traces";
+import { CASES } from "@context/lab/app/labData.generated";
 
 type Golden = { sims: Record<string, { reply: number; usd: number; calls: number; jobEnd: number; T: Record<string, number> }>; diff: string[][]; configKeys: string[]; setup: Record<string, unknown> };
 const G0 = golden as unknown as Golden;

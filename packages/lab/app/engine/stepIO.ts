@@ -7,7 +7,7 @@
  * ids of the texts it judged; a model round keeps its prompt's module ids, sizes and fingerprints), the words are put
  * back from the same chat's ledger, never stored twice (Dev2, 2026-11-14 14:39Z: log references, rebuild the rest).
  */
-import type { LedgerEntry } from "../../page/texPageTypes";
+import type { LedgerEntry } from "../fromApp/texPageTypes";
 import { startOf } from "./mine";
 import { nodeOfStep } from "./stepLogs";
 

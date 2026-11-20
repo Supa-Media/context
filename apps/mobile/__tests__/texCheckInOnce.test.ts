@@ -1,12 +1,12 @@
 /**
- * A check-in is shown once in the Lab's chat (`features/tex/lab/engine/mine.ts` `chatLines`) and in the chat's history
+ * A check-in is shown once in the Lab's chat (`packages/lab/app/engine/mine.ts` `chatLines`) and in the chat's history
  * (`features/tex/history/historyLines.ts` `historyDays`). The gateway records the check-in twice: the note the turn wrote
  * (Background) and the Worker's text event carrying the note's `turn` and `source` (Texts). The Lab draws the note, with
  * its reason, and drops the text; history draws each under its own view, and neither a text that was not delivered nor
  * the note of one is drawn (`apps/mcp/src/agent/sentOnItsOwn.js`).
  */
 import { describe, expect, test } from "@jest/globals";
-import { chatLines, myTexts } from "../features/tex/lab/engine/mine";
+import { chatLines, myTexts } from "@context/lab/app/engine/mine";
 import { historyDays, type HistoryLine } from "../features/tex/history/historyLines";
 import type { LedgerEntry } from "../features/tex/page/texPageTypes";
 

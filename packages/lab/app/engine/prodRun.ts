@@ -10,7 +10,7 @@
  * and nothing is estimated (`onlyWhatRan`). Its tool calls are `kind: "prod"`: they ran in production, not here.
  * Pure: it reads the ledger entries it is handed and the graph it is given, so the gateway's `tex_dev` can bundle it.
  */
-import type { LedgerEntry } from "../../page/texPageTypes";
+import type { LedgerEntry } from "../fromApp/texPageTypes";
 import type { LabGraph } from "../types";
 import type { TexVersion, ChatLine } from "./mine";
 import { graphAt, graphNoteFor } from "./graphAt";

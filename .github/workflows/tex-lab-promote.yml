@@ -99,7 +99,7 @@ jobs:
             fi
             name=$(echo "$ask" | jq -r .name | tr -d '\r' | cut -c1-80)
             by=$(echo "$ask" | jq -r .by)
-            git add packages/tex/src/texConfig.json docs/architecture/tex.md apps/mcp/src/agent/texArchitecture.generated.js packages/tex/src/texPrompt packages/tex/src/texPrompt.generated.json packages/tex/src/texNodeShelf.json apps/mobile/features/tex/lab/promptCatalog.generated.json
+            git add packages/tex/src/texConfig.json docs/architecture/tex.md apps/mcp/src/agent/texArchitecture.generated.js packages/tex/src/texPrompt packages/tex/src/texPrompt.generated.json packages/tex/src/texNodeShelf.json packages/lab/app/promptCatalog.generated.json
             git commit -q -m "Promote the Lab version \"$name\" to Tex's config" -m "Asked for in the Tex Architecture Lab by $by. The pull request merges only on green CI and the replay gate."
             git push -q -f origin "HEAD:refs/heads/tex-lab/promote-$id-$at"
             {

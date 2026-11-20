@@ -7,9 +7,9 @@
 import { describe, expect, test } from "@jest/globals";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
-import { G, stepsOf } from "../features/tex/lab/engine/state";
-import { STEP_LOGS, nodeOfStep } from "../features/tex/lab/engine/stepLogs";
-import { momentAsSteps, stepIO } from "../features/tex/lab/engine/stepIO";
+import { G, stepsOf } from "@context/lab/app/engine/state";
+import { STEP_LOGS, nodeOfStep } from "@context/lab/app/engine/stepLogs";
+import { momentAsSteps, stepIO } from "@context/lab/app/engine/stepIO";
 import type { LedgerEntry } from "../features/tex/page/texPageTypes";
 
 const T = "t1";
