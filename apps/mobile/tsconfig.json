@@ -27,5 +27,6 @@
       "@/*": ["./*"]
     }
   },
-  "include": ["**/*.ts", "**/*.tsx", ".expo/types/**/*.ts", "expo-env.d.ts"]
+  /* The Tex Lab's tests live in its package and run in this app's jest, so this app's typecheck covers them. */
+  "include": ["**/*.ts", "**/*.tsx", ".expo/types/**/*.ts", "expo-env.d.ts", "../../packages/lab/__tests__/**/*.ts"]
 }

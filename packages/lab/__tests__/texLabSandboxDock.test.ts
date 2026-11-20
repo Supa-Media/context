@@ -34,7 +34,7 @@ jest.mock("expo-router", () => {
   const { createElement } = jest.requireActual<typeof import("react")>("react");
   return { Redirect: ({ href }: { href: string }) => createElement("div", { "data-testid": "redirect", "data-href": href }) };
 });
-jest.mock("../features/site/host", () => ({ isTexHost: () => true }));
+jest.mock("../../../apps/mobile/features/site/host", () => ({ isTexHost: () => true }));
 /** What production's log gives for a real text (`views/mine/playProd.ts`), set by the test that plays one. */
 const mockProd: { value: unknown } = { value: null };
 jest.mock("@context/lab/app/views/mine/playProd", () => ({

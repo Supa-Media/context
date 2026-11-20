@@ -4,7 +4,7 @@
  */
 import { describe, expect, test } from "@jest/globals";
 import { momentAsSteps, stepIO, textById } from "@context/lab/app/engine/stepIO";
-import type { LedgerEntry } from "../features/tex/page/texPageTypes";
+import type { LedgerEntry } from "../../../apps/mobile/features/tex/page/texPageTypes";
 
 const e = (x: Partial<LedgerEntry> & { id: string; kind: string }) => ({ at: 1_000, ...x }) as LedgerEntry;
 const T = "t1";

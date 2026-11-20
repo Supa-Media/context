@@ -40,8 +40,8 @@ jest.mock("expo-router", () => {
 });
 const mockSignOut = jest.fn(async () => {});
 jest.mock("@convex-dev/auth/react", () => ({ useAuthActions: () => ({ signOut: mockSignOut }) }));
-jest.mock("../features/offline/forget", () => ({ unsentOnDevice: async () => ({ pending: 0, conflicted: 0, rejected: 0 }), forgetLocalCopies: async () => {} }));
-jest.mock("../features/site/host", () => ({ isTexHost: () => mockTexHost }));
+jest.mock("../../../apps/mobile/features/offline/forget", () => ({ unsentOnDevice: async () => ({ pending: 0, conflicted: 0, rejected: 0 }), forgetLocalCopies: async () => {} }));
+jest.mock("../../../apps/mobile/features/site/host", () => ({ isTexHost: () => mockTexHost }));
 // The test chat under the canvas reaches the gateway with the person's own grant; no gateway here.
 jest.mock("@context/lab/app/views/canvas/sandboxCall", () => ({ useSandboxCall: () => false }));
 
@@ -52,8 +52,8 @@ window.matchMedia = ((q: string) => ({ matches: false, media: q, addEventListene
 import { act, createElement } from "react";
 import { createRoot } from "react-dom/client";
 import { SafeAreaProvider } from "react-native-safe-area-context";
-import TexLabRoute from "../app/(app)/lab";
-import OldTexLabRoute from "../app/(app)/admin/lab";
+import TexLabRoute from "../../../apps/mobile/app/(app)/lab";
+import OldTexLabRoute from "../../../apps/mobile/app/(app)/admin/lab";
 
 const roots: (() => void)[] = [];
 afterEach(() => {

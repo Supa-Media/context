@@ -42,7 +42,7 @@ jest.mock("expo-router", () => {
   const { createElement } = jest.requireActual<typeof import("react")>("react");
   return { Redirect: ({ href }: { href: string }) => createElement("div", { "data-testid": "redirect", "data-href": href }) };
 });
-jest.mock("../features/site/host", () => ({ isTexHost: () => mockTexHost }));
+jest.mock("../../../apps/mobile/features/site/host", () => ({ isTexHost: () => mockTexHost }));
 // The test chat under the canvas reaches the gateway with the person's own grant; no gateway here.
 jest.mock("@context/lab/app/views/canvas/sandboxCall", () => ({ useSandboxCall: () => false }));
 
@@ -56,7 +56,7 @@ if (!("CSS" in globalThis)) {
 
 import { act, createElement, type ReactElement } from "react";
 import { createRoot } from "react-dom/client";
-import TexLabRoute from "../app/(app)/lab";
+import TexLabRoute from "../../../apps/mobile/app/(app)/lab";
 import { AREAS } from "@context/lab/app/data/areas";
 import { BASE_MODELS } from "@context/lab/app/data/models";
 import { CASES } from "@context/lab/app/labData.generated";

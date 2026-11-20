@@ -14,10 +14,10 @@ import { act } from "react";
 import { createRoot } from "react-dom/client";
 
 import { catalogAt, fingerprint, fromRepo, moduleSource, turnPromptOf, wordsOf } from "@context/lab/app/engine/promptAt";
-import type { LedgerEntry } from "../features/tex/page/texPageTypes";
+import type { LedgerEntry } from "../../../apps/mobile/features/tex/page/texPageTypes";
 import { PromptAt } from "@context/lab/app/views/replay/PromptAt";
 
-const FILE = readFileSync(join(__dirname, "../../../packages/lab/app/promptCatalog.generated.json"), "utf8");
+const FILE = readFileSync(join(__dirname, "../app/promptCatalog.generated.json"), "utf8");
 const CAT = JSON.parse(FILE) as { modules: Record<string, { id: string; n: number }>; lines: string[] };
 // A stable module this commit builds, and a fixed context one, as a turn would log them.
 const [stableH, stable] = Object.entries(CAT.modules).find(([, m]) => m.id === "stable/texting/pictures/edits/production")!;
