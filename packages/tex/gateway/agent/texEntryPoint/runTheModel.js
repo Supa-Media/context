@@ -144,8 +144,8 @@ export async function runTheModel(t, via) {
   if (!tex.lean) await tex.wait("steer_begin", begun);
   const knows = knowsRead === null ? null : await tex.wait("tex_notes", knowsRead);
   // A big ask the advisor plans and the gateway splits into jobs, when the setup says so (`planBigAsk.js`).
-  // The plan call is offered only while the config wires the Big-ask planner (retired off main, 2026-11-20): never a call nothing answers.
-  const planning = background !== null && job === null && !routine && production?.planBigAsks === true && productionModel !== null && canRunBuiltin(production.advisor, env) && texConfigOf(env).edges.some((e) => e.from === "fd" && e.to === "planner");
+  // The plan call is offered only while the config wires the Big-ask planner and its jobs (`planner -> jobStart`; retired off main, 2026-11-20): never a call nothing answers.
+  const planning = background !== null && job === null && !routine && production?.planBigAsks === true && productionModel !== null && canRunBuiltin(production.advisor, env) && texConfigOf(env).edges.some((e) => e.from === "fd" && e.to === "planner") && texConfigOf(env).edges.some((e) => e.from === "planner" && e.to === "jobStart");
   // Their computers, told to the turn, and code no longer delegated to the web while one is paired (`machines/forTurn.js`).
   const computers = computersRead === null || computersRead === undefined ? [] : await tex.wait("computers", computersRead);
   const delegation = delegationBeside(delegated, computers);
@@ -181,6 +181,9 @@ export async function runTheModel(t, via) {
   if (typeof session.sharingJudge === "function" && egressJudge) session.sharingJudge = egressJudge; // interim: io.use.egress once tools is a node
   // The move judge, where the config wires tools -> moveJudge (`graph/nodes/moveJudge.js`); without the wire, the word list.
   const drawn = gatewayGraph({ env, writer: chatLog, turn: ledgerAt?.turn ?? null, config: texConfigOf(env) });
+  // The Front door's start_background_job starts a job only over its own wire, `fd -> jobStart` (`../background.js`
+  // `withBackground`; `scripts/tex-wire-check.mjs`).
+  if (background) background.startOn = drawn.wired("fd", "jobStart");
   // Tex asks Tex across chats (`crossChat.js`), once a config wires the Cross-chat gate: it replaces ask_personal_tex in a group.
   const crossWired = chatTurn && job === null && !routine && drawn.wired("tools", "crossChatGate");
   const crossTools = crossWired ? [crossAskTool({ event: t.crossChat ?? null, group, groups: t.groups ?? null, counts: crossCountsOf(body.crossCounts), ledger, gate: (input) => drawn.fire("tools", "crossChatGate", input, { env }), say: channel ? (line) => channel.say(line) : null, identity: typeof controlPlane?.askerIdentity === "function" ? () => controlPlane.askerIdentity(session.accessToken) : null }), postInChatTool({ event: t.crossChat ?? null, group, ledger })].filter(Boolean) : [];

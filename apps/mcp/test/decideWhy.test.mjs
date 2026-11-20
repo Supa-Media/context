@@ -26,7 +26,9 @@ test("main's config has the step, wired from Decide, and on", () => {
   assert.notEqual(step.on, false, "on after Training and Dev scored it");
   assert.equal(decideWhyOn(), true);
   assert.deepEqual(TEX_CONFIG.edges.filter((edge) => edge.to === "decideWhy").map((edge) => [edge.from, edge.mode, edge.when]), [["decide", "uses", ["contradiction"]]]);
-  assert.equal(decideWhyOn({ nodes: [{ id: "decideWhy", on: true }] }), true);
+  assert.equal(decideWhyOn({ nodes: [{ id: "decideWhy", on: true }], edges: [{ from: "decide", to: "decideWhy" }] }), true);
+  // With no wire from Decide nothing calls it (Dev2, 2026-11-20; scripts/tex-wire-check.mjs runs this gate too).
+  assert.equal(decideWhyOn({ nodes: [{ id: "decideWhy", on: true }], edges: [] }), false, "an on step with no wire runs nowhere");
   assert.equal(decideWhyOn({ nodes: [] }), false, "a draft from before the step has none, and runs none");
 });
 

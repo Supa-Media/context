@@ -14,8 +14,12 @@
 import { decideWhyRequest, readDecideWhy, whyContradictsAct } from "../../../../src/textDecide.cjs";
 import { TEX_CONFIG } from "../../texConfig.js";
 
-/** Whether the config runs this node: it has the step, and the step is on. A draft from before it has no such step. */
-export const decideWhyOn = (config = TEX_CONFIG) => (config?.nodes ?? []).find((node) => node.id === "decideWhy")?.on === true;
+/**
+ * Whether the config runs this node: it has the step, the step is on, and Decide is wired to it (`decide -> decideWhy`).
+ * A draft from before it has no such step; with no wire nothing calls it (`scripts/tex-wire-check.mjs`).
+ */
+export const decideWhyOn = (config = TEX_CONFIG) =>
+  (config?.nodes ?? []).find((node) => node.id === "decideWhy")?.on === true && (config?.edges ?? []).some((edge) => edge.from === "decide" && edge.to === "decideWhy");
 
 /**
  * @param {{ verdict: object, state: string }} input Decide's verdict and the state it judged.

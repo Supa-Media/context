@@ -211,6 +211,7 @@ export function assertCi(yaml) {
 
 const REQUIRED = [
   "scripts/tex-diagram-check.mjs",
+  "scripts/tex-wire-check.mjs",
   "scripts/check-tex-change-has-case.mjs",
   "scripts/check-speed-budget.mjs",
   "scripts/public-privacy.test.mjs",

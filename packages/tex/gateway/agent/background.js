@@ -615,11 +615,15 @@ export function backgroundSession({ running, job, now, report = false, read = ()
   };
 }
 
-/** The dispatcher with `start_background_job` answered here; any other name passes through. */
+/**
+ * The dispatcher with `start_background_job` answered here; any other name passes through. The Front door starts a job
+ * only over its own wire (`fd -> jobStart`): the turn sets `background.startOn` from the config (`runTheModel.js`), and
+ * with it false the call is refused.
+ */
 export function withBackground(background, callTool) {
   if (background === null) return callTool;
   return (name, args) =>
-    name === START_JOB_TOOL ? background.call(args) : name === PLAN_TOOL && typeof background.plan === "function" ? background.plan(args, callTool) : name === STEER_JOB_TOOL ? background.steer(args) : name === JOB_STATUS_TOOL ? background.status(args) : name === RESTART_JOB_TOOL ? background.restart(args) : callTool(name, args);
+    name === START_JOB_TOOL ? (background.startOn !== false ? background.call(args) : text("Background jobs are not wired for this step (no fd -> jobStart wire in Tex's config): do it in this turn, or tell them it can't be started.", true)) : name === PLAN_TOOL && typeof background.plan === "function" ? background.plan(args, callTool) : name === STEER_JOB_TOOL ? background.steer(args) : name === JOB_STATUS_TOOL ? background.status(args) : name === RESTART_JOB_TOOL ? background.restart(args) : callTool(name, args);
 }
 
 /** What a job's own turn is told: the plan it started with, and to deliver. */
