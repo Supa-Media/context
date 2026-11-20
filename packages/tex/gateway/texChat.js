@@ -25,7 +25,7 @@
 import { ARRIVAL_KINDS, INBOX_NAME } from "./texChat/arrival.js";
 import { objectByName } from "../../../apps/mcp/src/objectPlace.js";
 import { JOB_NAME } from "./texJobName.js";
-import { NAME_KEY, PLACE_KEY, SENDER_ID_KEY, isAppChatName, placeAppChat, serveAppArrive, serveAppOutbox, serveAppPictureById } from "./texChat/appChat.js";
+import { NAME_KEY, PLACE_KEY, SENDER_ID_KEY, isAppChatName, placeAppChat, serveAppArrive, serveAppOutbox, serveAppPictureById, serveAppTurnCall } from "./texChat/appChat.js";
 import { NOTE_RUNS_PATH, serveNoteRuns } from "./texChat/noteRuns.js";
 import { serveAppSeenGet, serveAppSeenPost } from "./texChat/appSeen.js";
 
@@ -58,7 +58,8 @@ export function texChatClass({ gateway, texts }) {
       if (request.method === "POST" && url.pathname === "/app/arrive") {
         return await serveAppArrive(request, { state: this.state, open: (name) => this.chat(name) });
       }
-      if (request.method === "GET" && url.pathname === "/app/outbox") return await serveAppOutbox(this.state.storage);
+      if (request.method === "GET" && url.pathname === "/app/outbox") return await serveAppOutbox(this.state.storage, { alarms: this.state.storage });
+      if (request.method === "POST" && (url.pathname === "/app/stop" || url.pathname === "/app/retry")) return await serveAppTurnCall(request, url.pathname, { state: this.state, open: (name) => this.chat(name) });
       // The screen the app had open when the person texted (`texChat/appSeen.js`): an app chat's only, 404 for any other.
       if (request.method === "POST" && url.pathname === "/app/seen") return await serveAppSeenPost(request, { storage: this.state.storage });
       if (request.method === "GET" && url.pathname === "/app/seen") return await serveAppSeenGet(this.state.storage);

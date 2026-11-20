@@ -171,7 +171,7 @@ export function AsidePanel({
           </View>
         ) : showing === "tex" && tex !== null ? (
           <View style={styles.body} testID="aside-tex">
-            <TexChatTab workspaceId={tex.workspaceId} endpoint={tex.endpoint} approvals={approvals} />
+            <TexChatTab workspaceId={tex.workspaceId} endpoint={tex.endpoint} approvals={approvals} onOpenNote={onOpenNote} />
           </View>
         ) : (
           <MeetingsTab onOpenNote={onOpenNote} onJoin={onJoin} pastFrom={pastFrom} />

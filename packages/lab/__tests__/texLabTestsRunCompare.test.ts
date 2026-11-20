@@ -341,7 +341,10 @@ describe("/lab: the Tests, Run, Compare and Workspace views", () => {
     expect(lab.caseEdits[`core/${out}`]).toMatchObject({ removed: true });
     expect(lab.caseEdits["core/new-1"]).toMatchObject({ isNew: true, replaces: out, ask: "A sharper case" });
     expect(q("#swapCard")).toBeNull();
-  });
+    // A full step is CASE_CAP cards, drawn twice (the list and the swap card's picks). At the cap of 100 (2026-11-20)
+    // that takes about 2.5 s locally and passed Jest's 5 s default on a slow CI shard, so the test gets its own
+    // budget. A smaller fill would no longer be a full step, and mocking the cap would stop testing the real one.
+  }, 30_000);
 
   test("Run: on main it is a baseline; an area click forks main and toggles; a pasted report is kept as a results row", () => {
     mountLab();
