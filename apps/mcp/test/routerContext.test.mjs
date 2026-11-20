@@ -24,11 +24,12 @@ test("main's router reads its Training labels, the recent chat, what Tex is doin
   assert.deepEqual(routerWants(router.ctx), { training: true, history: false, recent: true, facts: true, date: true });
 });
 
-test("routerContextText: each module where the config names it, in its tags; what the config doesn't name is not given", () => {
+test("routerContextText: each module the config names, in run order, in its tags; what the config doesn't name is not given", () => {
   const parts = { training, history: "@ann: draft the email\nYou: Here's the draft.", facts: ["Tex is working on a job in this chat: \"plumbers\"."], today: "Wed, Nov 18, 2026, 9:02 am (UTC)" };
   const all = routerContextText(["date", "train:router", "chat:7:130000", "groupBrief"], parts);
   const at = (tag) => all.indexOf(tag);
-  assert.ok(at("<today>") < at("<examples>") && at("<examples>") < at("<chat-history>") && at("<chat-history>") < at("<now>"), "the config's order");
+  // In run order, not the listed order (`texModuleChange.cjs`, Dev2 2026-11-20): Training, the brief, the chat, then the time.
+  assert.ok(at("<examples>") < at("<now>") && at("<now>") < at("<chat-history>") && at("<chat-history>") < at("<today>"), "the run order");
   assert.match(all, /<newest>@ann: ask 1<\/newest>\n<route>act<\/route>/, "the router's own labels, its route as the want");
   assert.doesNotMatch(all, /ask 3/, "train:router reads the router's labels, not the front door's");
   assert.match(all, /<chat-history>\n@ann: draft the email\nYou: Here's the draft\.\n<\/chat-history>/);

@@ -7,7 +7,8 @@
 import { Fragment, useRef } from "react";
 import { BASE_MODULES, SRC_KINDS } from "../../data/modules";
 import { ctxTokens } from "../../engine/sim";
-import { isStable, mods, newModule } from "../../engine/modules";
+import { TIER_NAMES, TIERS } from "@context/tex/src/texModuleChange.cjs";
+import { isStable, mods, newModule, readsMoves, readsOrder } from "../../engine/modules";
 import { edit, G, go, lab, MAIN, MODELS, node, set } from "../../engine/state";
 import { useLab } from "../../store";
 import type { LabGraph, LabModule, LabNode } from "../../types";
@@ -40,6 +41,41 @@ export function moveCtx(from: number, to: number) {
   });
 }
 
+/** "Put them in run order": the step's reads listed the way they run, so what you see is what is sent. */
+function sortCtx() {
+  edit(() => {
+    const n = node(selId())!;
+    n.ctx = readsOrder(n);
+  });
+}
+
+const nth = (i: number) => i + (i % 100 >= 11 && i % 100 <= 13 ? "th" : ["th", "st", "nd", "rd"][i % 10] ?? "th");
+
+/**
+ * The banner a step's reads get when the order they are listed in isn't the order they run in (Dev2, 2026-11-20):
+ * a module that changes less always runs above one that changes more, so the cache reads it.
+ */
+function OrderBanner({ n, g }: { n: LabNode; g: LabGraph }) {
+  const moves = readsMoves(n, g).filter((m) => m.runs < m.listed);
+  if (!moves.length) return null;
+  const nm = (k: string) => mods(g)[k]?.name || k;
+  return (
+    <div className="orderwarn" role="alert" id="order-warn">
+      <b>Runs in a different order than listed.</b> {moves.length === 1 ? "This read changes" : "These reads change"} less often than what is above, so {moves.length === 1 ? "it runs" : "they run"} earlier and the cache reads {moves.length === 1 ? "it" : "them"}:
+      <ul>
+        {moves.map((m) => (
+          <li key={m.key}>
+            {nm(m.key)}: you put it {nth(m.listed)}, it runs {nth(m.runs)} ({TIER_NAMES[m.changes].toLowerCase()})
+          </li>
+        ))}
+      </ul>
+      <button className="btn sm" data-sortreads="1" onClick={sortCtx}>
+        Put them in run order
+      </button>
+    </div>
+  );
+}
+
 function addCtx(k: string) {
   edit(() => {
     node(selId())!.ctx.push(k);
@@ -64,9 +100,12 @@ export function ReadsStack({ n, g }: { n: LabNode; g: LabGraph }) {
   if (!n.ctx.length) return <p className="hint" style={{ margin: 0 }}>Reads nothing yet.</p>;
   const toks = n.ctx.map((c) => ctxTokens({ ctx: [c] }, g));
   const max = Math.max(...toks);
-  const cut = n.ctx.findIndex((c) => !isStable(c, g));
+  const moved = new Map(readsMoves(n, g).map((m) => [m.key, m]));
+  // The cache line sits where the run order leaves the reads that stay the same between texts; only drawn when listed = run order.
+  const cut = moved.size ? -1 : n.ctx.findIndex((c) => !isStable(c, g));
   return (
     <>
+      <OrderBanner n={n} g={g} />
       <div className="stack" id="stack">
         {n.ctx.map((c, i) => {
           const o = c.startsWith("out:");
@@ -74,7 +113,9 @@ export function ReadsStack({ n, g }: { n: LabNode; g: LabGraph }) {
           const tk = toks[i];
           const h = Math.round(26 + Math.sqrt(tk / max) * 34);
           const st = isStable(c, g);
-          const when = st ? "Same every turn" : "Changes every turn";
+          const tier = o ? "text" : mods(g)[c]?.changes ?? "text";
+          const when = TIER_NAMES[tier];
+          const mv = moved.get(c);
           return (
             <Fragment key={c}>
               {i === cut && i > 0 ? (
@@ -133,12 +174,12 @@ export function ReadsStack({ n, g }: { n: LabNode; g: LabGraph }) {
                   <button
                     className="cdot"
                     data-flip={c}
-                    aria-label={`${when}: click to switch`}
+                    aria-label={`${when}: click for the next kind`}
                     title={when}
                     onMouseDown={(e) => e.stopPropagation()}
                     onClick={(e) => {
                       e.stopPropagation();
-                      setMod(c, "stable", !isStable(c));
+                      setMod(c, "changes", TIERS[(TIERS.indexOf(tier) + 1) % TIERS.length]);
                     }}
                   />
                 )}
@@ -146,6 +187,11 @@ export function ReadsStack({ n, g }: { n: LabNode; g: LabGraph }) {
                   {o ? <Ic k={node(c.slice(4))?.icon || "code"} style={{ width: 14, height: 14 }} /> : null}
                   {nm}
                 </span>
+                {mv ? (
+                  <span className={"runs " + (mv.runs < mv.listed ? "up" : "dn")} title={`Listed ${nth(mv.listed)}, runs ${nth(mv.runs)}: ${when.toLowerCase()}`}>
+                    runs {nth(mv.runs)}
+                  </span>
+                ) : null}
                 <span className="k">{(tk / 1000).toFixed(1)}k</span>
                 <span className="mv">
                   <button data-up={i} aria-label={`Move ${nm} up`} disabled={i === 0} onClick={() => moveCtx(i, i - 1)}>

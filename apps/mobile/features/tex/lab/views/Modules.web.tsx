@@ -4,6 +4,7 @@
  * change, as the artifact's `onchange` did; the card a new module opens on is
  * scrolled to and its name selected once the page has drawn.
  */
+import { TIER_NAMES, TIERS } from "@context/tex/src/texModuleChange.cjs";
 import { useEffect, useRef } from "react";
 import { SRC_KINDS } from "../data/modules";
 import { moduleList, newModule } from "../engine/modules";
@@ -155,18 +156,16 @@ function ModCard({ k, v, ch, u, focus }: { k: string; v: LabModule; ch: boolean;
             ref={onCommit((x) => setMod(k, "tok", Math.max(0, +x || 0)))}
           />
         </label>
-        <div className="toggle" style={{ flex: 1 }}>
-          <span>Changes every turn</span>
-          <button
-            className="sw"
-            role="switch"
-            data-mk={k}
-            data-mf="stable"
-            aria-checked={!v.stable}
-            aria-label="Changes every turn"
-            onClick={() => setMod(k, "stable", !v.stable)}
-          />
-        </div>
+        <label style={{ flex: 1 }}>
+          How often it changes
+          <select data-mk={k} data-mf="changes" value={v.changes ?? "text"} onChange={(e) => setMod(k, "changes", e.target.value)}>
+            {TIERS.map((t) => (
+              <option key={t} value={t}>
+                {TIER_NAMES[t]}
+              </option>
+            ))}
+          </select>
+        </label>
       </div>
       <textarea
         className="note"

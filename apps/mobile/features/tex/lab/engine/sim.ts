@@ -8,7 +8,7 @@ import { provisionalHeld } from "@context/tex/src/texGraph.cjs";
 import { EFFORT, FTYPES } from "../data/models";
 import type { LabEdge, LabGraph, LabNode } from "../types";
 import { unfoldGroups } from "./groups";
-import { isStable, mods } from "./modules";
+import { isStable, mods, readsOrder } from "./modules";
 import { MODELS, node, type LabState } from "./state";
 import { SCENARIOS } from "./traces";
 import type { RealTimes } from "./realTimes";
@@ -48,7 +48,7 @@ export function cacheShare(n: Pick<LabNode, "ctx">, g: LabGraph) {
   let pre = 0;
   let tot = 0;
   let open = true;
-  for (const c of n.ctx) {
+  for (const c of readsOrder(n, g)) {
     const t = ctxTokens({ ctx: [c] }, g);
     tot += t;
     if (open && isStable(c, g)) pre += t;
