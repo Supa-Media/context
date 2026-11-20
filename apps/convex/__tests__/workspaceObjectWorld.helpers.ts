@@ -11,7 +11,7 @@ import { handleWorkspaceStoreDoor } from "../../mcp/src/workspaceStore/door.js";
 import { serveWorkspaceStore } from "../../mcp/src/workspaceStore/serve.js";
 import { workspaceRows } from "../../mcp/src/workspaceStore/rows.js";
 import { workspaceMarks } from "../../mcp/src/workspaceStore/marks.js";
-import { texObjects } from "../../mcp/src/texStore/objects.js";
+import { texObjects } from "../../../packages/tex/gateway/texStore/objects.js";
 import { TEST_GATEWAY_SECRET, createUser, createWorkspace, gatewayPost, setupTest, type TestConvex } from "./fixtures.helpers";
 
 const { DatabaseSync } = createRequire(import.meta.url)("node:sqlite") as typeof import("node:sqlite");

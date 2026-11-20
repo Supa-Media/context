@@ -1,7 +1,7 @@
 /**
  * Tex's notes, reached from this deployment's own stores
  * (`lib/texStore.ts`): through the gateway's door
- * (`apps/mcp/src/texStore/door.js`) with the gateway secret and a ticket this
+ * (`packages/tex/gateway/texStore/door.js`) with the gateway secret and a ticket this
  * deployment minted, spent at its real `/gateway/tex-store/open`.
  *
  * Sabotage, each confirmed to fail a case here: let `mint` accept another
@@ -13,9 +13,9 @@ import { createRequire } from "node:module";
 import { afterEach, describe, expect, test, vi } from "vitest";
 import { internal } from "../_generated/api";
 import type { ActionCtx } from "../_generated/server";
-import { handleTexStoreDoor } from "../../mcp/src/texStore/door.js";
-import { texObjects } from "../../mcp/src/texStore/objects.js";
-import { serveTexStore } from "../../mcp/src/texStore/wire.js";
+import { handleTexStoreDoor } from "../../../packages/tex/gateway/texStore/door.js";
+import { texObjects } from "../../../packages/tex/gateway/texStore/objects.js";
+import { serveTexStore } from "../../../packages/tex/gateway/texStore/wire.js";
 import { storeForBinding } from "../../mcp/src/store/factory.js";
 import { hashToken } from "../functions/lib/crypto";
 import { consoleTexRouting, consoleTexStore } from "../functions/lib/texStore";

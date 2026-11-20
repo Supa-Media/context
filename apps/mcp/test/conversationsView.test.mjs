@@ -17,9 +17,9 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { texLedger } from "../src/texStore/ledger.js";
-import { TexObjectRefused, texObjects } from "../src/texStore/objects.js";
-import { CONVERSATIONS_VIEW_MARKER, HISTORY_VIEW_MARKER, withHistoryView } from "../src/texStore/historyView.js";
+import { texLedger } from "../../../packages/tex/gateway/texStore/ledger.js";
+import { TexObjectRefused, texObjects } from "../../../packages/tex/gateway/texStore/objects.js";
+import { CONVERSATIONS_VIEW_MARKER, HISTORY_VIEW_MARKER, withHistoryView } from "../../../packages/tex/gateway/texStore/historyView.js";
 import { CONVERSATIONS_PATH, ensureHistoryFile, historyWriteRefusal, homeConversationsPath } from "../src/agent/historyFile.js";
 import { conversationsView, conversationView, threadLines } from "../src/http/texPage/conversations.js";
 import { isChatHistoryPath } from "../src/notes/paths.js";

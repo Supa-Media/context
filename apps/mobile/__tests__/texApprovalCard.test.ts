@@ -92,6 +92,7 @@ function fakeChat(lines: ChatLine[]): AppChatView {
     edit: noop,
     unsend: noop,
     pictureUrl: () => null,
+    typing: () => {},
   } as unknown as AppChatView;
 }
 

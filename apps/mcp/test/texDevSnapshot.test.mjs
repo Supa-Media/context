@@ -1,5 +1,5 @@
 /**
- * `tex_dev snapshot`: a Tex Lab graph drawn as the Lab draws it (`src/texDev/snapshot.js`). The drawing is the Lab's own
+ * `tex_dev snapshot`: a Tex Lab graph drawn as the Lab draws it (`packages/lab/gateway/texDev/snapshot.js`). The drawing is the Lab's own
  * `render.ts`, bundled to `canvas.generated.js` (`scripts/tex-dev-canvas.mjs`); these tests hold what the gateway adds:
  * the whole graph with its groups folded, a focus that opens a group, the marks against a base, and the hand-off to
  * the picture renderer.
@@ -16,7 +16,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { graphSvg, snapshotGraph } from "../src/texDev/snapshot.js";
+import { graphSvg, snapshotGraph } from "../../../packages/lab/gateway/texDev/snapshot.js";
 import { readTexConfig } from "../../../scripts/lib/texConfigFile.mjs";
 
 const config = readTexConfig();

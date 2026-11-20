@@ -19,12 +19,14 @@
  *  - `{ op: "edit", msgId, text }` / `{ op: "unsend", msgId }` → `{ msgId }`: the person's own text, while it is
  *    `editable` (words) or `unsendable` (any of theirs), for 15 minutes as in Messages, as Photon's line hands an edit or an unsend (node `edit`).
  *  - `{ op: "picture", id }` → the picture's bytes: one shown in this chat's rows, never another's.
+ *  - `{ op: "warm", cause: "open" | "typing" }` → `{ when, why? }`: the person opened the chat or started typing, so
+ *    the model's cache is warmed for their next text when node `warm` is wired (`textsWarm.js`); a skip otherwise.
  *
  * Every call but `get` and `picture` counts against the chat's daily cap (`texChat/appChat.js`). Nothing here is logged
  * but the operation and the outcome: never the words, an id or a row.
  */
 
-import { ledgerFor } from "./ledger.js";
+import { ledgerFor, ONE_TO_ONE_CHAT } from "./ledger.js";
 import { objectByName } from "../objectPlace.js";
 import { ROWS_SHOWN, buildRows, ledgerEntries, outboxOf, typingNow } from "./appChatRows.js";
 
@@ -101,7 +103,8 @@ async function serveAppChat(request, _store, session, _path, env, deps = {}) {
     if (body.op === "react") return await react(ctx, body);
     if (body.op === "edit" || body.op === "unsend") return await edit(ctx, body);
     if (body.op === "picture") return await picture(ctx, body);
-    return refuse(400, "op is get, send, react, edit, unsend or picture.");
+    if (body.op === "warm") return await warm(ctx, body);
+    return refuse(400, "op is get, send, react, edit, unsend, picture or warm.");
   } catch (error) {
     // The error's name only: a read's message can carry the words it read.
     console.log(JSON.stringify({ event: "app_chat", op: String(body.op), outcome: "unreachable", error: String(error?.name ?? "error").slice(0, 40) }));
@@ -115,6 +118,15 @@ async function readChat({ env, chatId, session, ledgerOf, now }) {
   const out = {};
   const rows = buildRows(ledger, outbox, now(), out);
   return { rows, typing: typingNow(outbox.typingAt, now()), handles: out.handles };
+}
+
+/** They opened the chat or started typing: node `warm` for their own 1:1's home (`textsWarm.js`); nothing of theirs is read here. */
+async function warm({ env, session }, body) {
+  if (body.cause !== "open" && body.cause !== "typing") return refuse(400, "cause is open or typing.");
+  const { warmChat } = await import("./textsWarm.js");
+  const out = await warmChat(env, { owner: { person: session.workspaceId }, chat: ONE_TO_ONE_CHAT }, body.cause);
+  console.log(JSON.stringify({ event: "app_chat", op: "warm", outcome: out.when?.[0] ?? "skip" }));
+  return json({ when: out.when, ...(out.why ? { why: out.why } : {}) });
 }
 
 async function get(ctx) {

@@ -1,5 +1,5 @@
 /**
- * What the gateway's copy of a chat object (`apps/mcp/src/texChat.js`) asks of this Worker, besides the line
+ * What the gateway's copy of a chat object (`packages/tex/gateway/texChat.js`) asks of this Worker, besides the line
  * (`lineCalls.ts`) and the move itself (`gatewayMove.ts`): the Worker's other objects it reaches by name (a job's
  * object, a chat's directory entry, a phone's inbox), the id its chat had here (the addresses of its pictures and
  * pages name it), a group turn's Workflow, which stays here and reaches the chat through that id, and a background

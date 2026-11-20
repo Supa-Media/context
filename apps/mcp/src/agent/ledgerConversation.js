@@ -32,7 +32,7 @@ import { HISTORY, MAX_HISTORY_CHARS, MAX_HISTORY_TURNS, TOLD, TOLD_QUESTION } fr
 import { BACKFILLED, eventEntry, ONE_TO_ONE_CHAT } from "./ledger.js";
 import { deskLedger } from "./history.js";
 import { words } from "./logRender.js";
-import { DESK_LEDGER } from "../texStore/desk.js";
+import { DESK_LEDGER } from "../../../../packages/tex/gateway/texStore/desk.js";
 import { noteAbout } from "./sentOnItsOwn.js";
 import { isUnsentNote, keptNotTexted, linkedSends } from "./sentOnItsOwn.js";
 

@@ -24,8 +24,8 @@ import { jobOf } from "../src/agent/background.js";
 import { carriedLine, carriedRounds, JOB_ROUNDS_LEFT, rereadCarried, resumedRounds, roundsKeeper } from "../src/agent/turnResume.js";
 import { claimCheck } from "../src/agent/claimCheck.js";
 import { ledgerFor, ledgerObserver, STEP_NAMES } from "../src/agent/ledger.js";
-import { texRounds, ROUNDS_FRESH_MS } from "../src/texStore/rounds.js";
-import { TexObjectRefused } from "../src/texStore/objects.js";
+import { texRounds, ROUNDS_FRESH_MS } from "../../../packages/tex/gateway/texStore/rounds.js";
+import { TexObjectRefused } from "../../../packages/tex/gateway/texStore/objects.js";
 import { durableSql, texStoreNamespace } from "./texStoreFixture.mjs";
 
 const SEARCH = { name: "search_notes", description: "Search notes", inputSchema: { type: "object", properties: { query: { type: "string" } } }, annotations: { readOnlyHint: true } };

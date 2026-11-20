@@ -4,7 +4,7 @@
  */
 
 import { createRequire } from "node:module";
-import { texObjects } from "../../mcp/src/texStore/objects.js";
+import { texObjects } from "../../../packages/tex/gateway/texStore/objects.js";
 import { workspaceRows } from "../../mcp/src/workspaceStore/rows.js";
 import { serveWorkspaceStore } from "../../mcp/src/workspaceStore/serve.js";
 import { workspaceClient } from "../../mcp/src/workspaceStore/api.js";

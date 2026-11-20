@@ -10,7 +10,7 @@ from the person's text, so every search, page and note save ran again.
 
 **What is kept, and where.** After each tool call returns, the front door's model loop (`apps/mcp/src/agent/turn.js`,
 `turnResume.js` `roundsKeeper`) keeps a snapshot: the messages after the question, the model's calls and what each
-returned. It is kept in the chat's own home, beside its ledger (`apps/mcp/src/texStore/rounds.js`): a person's in their
+returned. It is kept in the chat's own home, beside its ledger (`packages/tex/gateway/texStore/rounds.js`): a person's in their
 personal workspace's object, a group chat's in its own Tex object. It never goes to the texting Worker, so a group's
 sealed memory never leaves the home only its people open ([chat-homes](./chat-homes.md)). One row per text, the newest
 snapshot, read back for 30 minutes and deleted once the text is answered. An expired snapshot is also deleted when

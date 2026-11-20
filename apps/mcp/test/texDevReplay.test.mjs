@@ -1,5 +1,5 @@
 /**
- * `tex_dev` Replay (`src/texDev/replay.js`; Dev2, 2026-11-15: anything that can be done or seen inside the Tex Lab can
+ * `tex_dev` Replay (`packages/lab/gateway/texDev/replay.js`; Dev2, 2026-11-15: anything that can be done or seen inside the Tex Lab can
  * be done or seen through the MCP). Each action is proven against the Lab's own Replay code (`replay.generated.js`,
  * bundled from `packages/lab/app/engine/replayEntry.ts`) run on the same chat history: the answer is what
  * the Lab shows, read the way the Lab reads it, and only what the log shows ran.
@@ -16,11 +16,11 @@
  */
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import * as R from "../src/texDev/replay.generated.js";
-import { createTexDev } from "../src/texDev/tool.js";
-import { guideText } from "../src/texDev/guide.js";
-import { turnsOf } from "../src/texDev/probe.js";
-import { jobsAnswer, linkAnswer, mineAnswer, momentsAnswer, promptAnswer, turnAnswer } from "../src/texDev/replay.js";
+import * as R from "../../../packages/lab/gateway/texDev/replay.generated.js";
+import { createTexDev } from "../../../packages/lab/gateway/texDev/tool.js";
+import { guideText } from "../../../packages/lab/gateway/texDev/guide.js";
+import { turnsOf } from "../../../packages/lab/gateway/texDev/probe.js";
+import { jobsAnswer, linkAnswer, mineAnswer, momentsAnswer, promptAnswer, turnAnswer } from "../../../packages/lab/gateway/texDev/replay.js";
 
 const ORIGIN = "https://context.example";
 const PAGE = { status: "ok", workspaceId: "ws_mine", timeZone: "America/New_York", chats: [{ key: "g1", name: "Dinner club", people: 3 }] };

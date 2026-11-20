@@ -221,7 +221,7 @@ class_name = "TexJob"
 tag = "v7-tex-job"
 new_sqlite_classes = ["TexJob"]
 
-# One Lab test chat (src/labSandbox/object.js): its rows, what its turns would have changed or sent, and the
+# One Lab test chat (packages/lab/gateway/labSandbox/object.js): its rows, what its turns would have changed or sent, and the
 # copy-on-write overlay over the real objects, one per person's test chat (`labsandbox:<userId>:<sandboxId>`),
 # deleted on Reset or 24 hours after its last use. Self-hosting: leave it out, and `POST /tex-lab/sandbox` answers 501.
 [[durable_objects.bindings]]

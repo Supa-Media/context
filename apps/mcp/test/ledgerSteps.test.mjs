@@ -4,7 +4,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 
-import { texLedger } from "../src/texStore/ledger.js";
+import { texLedger } from "../../../packages/tex/gateway/texStore/ledger.js";
 import { ledgerObserver, stepEntry, stepLog, STEP_NAMES, MAX_RESULT_CHARS } from "../src/agent/ledger.js";
 import { durableSql } from "./texStoreFixture.mjs";
 import { loggedCardCheck } from "../src/agent/pictureMaker.js";

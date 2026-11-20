@@ -35,10 +35,10 @@ import { openWarm, sealWarm, warmTurn } from "../src/agent/warmCopy.js";
 import { TOLD } from "../src/agent/conversation.js";
 import { deskEligible, learnDeskKeys } from "../src/agent/texDesk.js";
 import { DESK_KEYS, HISTORY_KEY } from "../src/agent/history.js";
-import { readDesk } from "../src/texStore/desk.js";
+import { readDesk } from "../../../packages/tex/gateway/texStore/desk.js";
 import { isAgentHomeKey, TexStoreUnavailable, withTexRouting } from "../src/store/texRouting.js";
 import { R2Store } from "../src/store/r2.js";
-import { texStoreStub, texBucket } from "../src/texStore/wire.js";
+import { texStoreStub, texBucket } from "../../../packages/tex/gateway/texStore/wire.js";
 
 const CHAT = "sendblue:line:+15555550100";
 const PERSON = "person:ws_egress";

@@ -1,0 +1,6 @@
+{
+  "name": "tex-computer-container",
+  "private": true,
+  "type": "module",
+  "description": "The server inside Tex's computer. No dependencies: the image runs it with the stock Node."
+}

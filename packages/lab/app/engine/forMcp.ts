@@ -1,7 +1,7 @@
 /**
- * What the Lab computes and shows from its own data, for the MCP's `tex_dev` (`apps/mcp/src/texDev/lab.js`; Dev2,
+ * What the Lab computes and shows from its own data, for the MCP's `tex_dev` (`packages/lab/gateway/texDev/lab.js`; Dev2,
  * 2026-11-15: "anything that can be done inside of the lab should be able to be done inside of the MCP"). The gateway
- * cannot import TypeScript, so `scripts/tex-dev-lab.mjs` bundles this file into `apps/mcp/src/texDev/lab.generated.js`
+ * cannot import TypeScript, so `scripts/tex-dev-lab.mjs` bundles this file into `packages/lab/gateway/texDev/lab.generated.js`
  * and CI fails when the committed copy differs: every answer here is the Lab's own function on the same input, never
  * a second copy of it.
  *

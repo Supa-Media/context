@@ -1,5 +1,5 @@
 /**
- * `tex_dev` sim, compare, config, bench, modules and reference (`src/texDev/lab.js`; Dev2, 2026-11-15: "anything that
+ * `tex_dev` sim, compare, config, bench, modules and reference (`packages/lab/gateway/texDev/lab.js`; Dev2, 2026-11-15: "anything that
  * can be done inside of the lab should be able to be done inside of the MCP"): what the Tex Lab computes and shows in
  * the browser, answered by the Lab's own functions (`lab.generated.js`, the Lab's `engine/forMcp.ts` bundled by
  * `scripts/tex-dev-lab.mjs`; CI fails when it is stale). Each test holds an action's answer against the Lab's function
@@ -25,11 +25,11 @@
 
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { createTexDev } from "../src/texDev/tool.js";
-import { guideText } from "../src/texDev/guide.js";
-import { TESTS_SHOWN } from "../src/texDev/lab.js";
+import { createTexDev } from "../../../packages/lab/gateway/texDev/tool.js";
+import { guideText } from "../../../packages/lab/gateway/texDev/guide.js";
+import { TESTS_SHOWN } from "../../../packages/lab/gateway/texDev/lab.js";
 import { TEX_CONFIG } from "../src/agent/texConfig.js";
-import { config, fmtS, lab, labTests, promptText, simulate, withLab } from "../src/texDev/lab.generated.js";
+import { config, fmtS, lab, labTests, promptText, simulate, withLab } from "../../../packages/lab/gateway/texDev/lab.generated.js";
 
 const LAB_ACTIONS = ["sim", "compare", "config", "bench", "modules", "reference"];
 const mainGraph = () => JSON.parse(JSON.stringify({ nodes: TEX_CONFIG.nodes, edges: TEX_CONFIG.edges }));

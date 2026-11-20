@@ -25,7 +25,7 @@ import { createControlPlane } from "../controlPlane.js";
 import { resolvePresentedSession } from "../http/presentedToken.js";
 import { hasScope, SCOPE_WRITE, SessionRefusal } from "../session.js";
 import { workspaceStub } from "../workspaceStore/api.js";
-import { callTexStore } from "../texStore/wire.js";
+import { callTexStore } from "../../../../packages/tex/gateway/texStore/wire.js";
 import { MACHINE_HEADER, verifyEd25519 } from "../workspaceStore/machineSockets.js";
 import protocol from "../../../../packages/shared/src/machineProtocol.cjs";
 

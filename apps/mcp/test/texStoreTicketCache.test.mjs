@@ -10,7 +10,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { createJobMethods } from "../src/controlPlane/jobs.js";
-import { forgetTickets } from "../src/texStore/ticketCache.js";
+import { forgetTickets } from "../../../packages/tex/gateway/texStore/ticketCache.js";
 
 function required(parsed, key) {
   if (!parsed || typeof parsed !== "object" || !Object.hasOwn(parsed, key)) throw new Error(`missing ${key}`);

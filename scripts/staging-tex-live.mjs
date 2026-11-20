@@ -78,7 +78,7 @@ async function text(message, { timeoutMs = 3 * 60_000 } = {}) {
 
 // "intake": a text's chat runs in the gateway (step 3 of Tex's config graph, `INTAKE=gateway` on staging). An unlinked
 // fictional number texts once: the gateway's copy of the chat answers the send (`x-tex-chat-home`, set only there,
-// `apps/mcp/src/texChat.js`), and the chat's first reply, the link invite, comes back. No persona, no model.
+// `packages/tex/gateway/texChat.js`), and the chat's first reply, the link invite, comes back. No persona, no model.
 if (SUITE === "intake") {
   const sent = await fetch(`${origin}/texts-simulator/api/send`, {
     method: "POST",

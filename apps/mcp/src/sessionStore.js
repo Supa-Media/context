@@ -11,7 +11,7 @@
  * credential into another's request.
  */
 
-import { gatewayTexStore } from "./texStore/wire.js";
+import { gatewayTexStore } from "../../../packages/tex/gateway/texStore/wire.js";
 import { workspaceClient } from "./workspaceStore/api.js";
 import { objectFirstFacts, objectFirstHooks, objectFirstNames, objectFirstSurvey } from "./store/objectLookup.js";
 import { objectFirstMail } from "./store/objectMail.js";

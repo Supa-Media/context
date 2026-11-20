@@ -4,7 +4,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 
-import { texObjects } from "../src/texStore/objects.js";
+import { texObjects } from "../../../packages/tex/gateway/texStore/objects.js";
 import { workspaceRows } from "../src/workspaceStore/rows.js";
 import { personRows } from "../src/workspaceStore/personRows.js";
 import { serveWorkspaceStore } from "../src/workspaceStore/serve.js";
@@ -13,7 +13,7 @@ import { ACCESS_HOMES, objectToken } from "../src/workspaceStore/access.js";
 import { createControlPlane, sha256Hex } from "../src/controlPlane/index.js";
 import { tokenIndexClient } from "../src/workspaceStore/tokenIndex.js";
 import { workspaceMembers } from "../src/workspaceStore/members.js";
-import { callTexStore } from "../src/texStore/wire.js";
+import { callTexStore } from "../../../packages/tex/gateway/texStore/wire.js";
 import { resolveSession, SessionRefusal } from "../src/session.js";
 
 let DatabaseSync = null;

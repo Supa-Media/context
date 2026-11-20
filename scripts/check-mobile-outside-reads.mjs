@@ -39,7 +39,8 @@ const SOURCE = /\.(ts|tsx|js|jsx|mjs|cjs)$/;
 const RENDERER = /\.render\.tsx?$/;
 const SKIP_DIRS = new Set(["node_modules", "ios", "android", "web-build", "dist"]);
 // Not run by jest; e2e has its own browser workflow filter.
-const SKIP_TOP = new Set([`${MOBILE}/scripts`, `${MOBILE}/e2e`]);
+// The Lab's gateway folder is gateway code (the gateway's own suite and filters cover it): the app never loads it.
+const SKIP_TOP = new Set([`${MOBILE}/scripts`, `${MOBILE}/e2e`, `${LAB}/gateway`]);
 /**
  * Paths the app names that it does not read, each with where and why. Watching
  * them would only run the suite more; listing them keeps the filter honest.

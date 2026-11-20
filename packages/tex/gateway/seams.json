@@ -1,0 +1,14 @@
+{
+  "about": "Gateway files (apps/mcp/src) that Tex's gateway code still imports by path. Each is a seam to cut: this list may only shrink. Checked by scripts/check-tex-gateway-seams.mjs.",
+  "seams": [
+    "apps/mcp/src/agent/graph/gatewayGraph.js",
+    "apps/mcp/src/agent/localNow.js",
+    "apps/mcp/src/agent/threadsFold.js",
+    "apps/mcp/src/controlPlane.js",
+    "apps/mcp/src/http/responses.js",
+    "apps/mcp/src/http/texPage/jobs.js",
+    "apps/mcp/src/moves/mover.js",
+    "apps/mcp/src/objectPlace.js",
+    "apps/mcp/src/store/r2.js"
+  ]
+}

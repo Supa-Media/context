@@ -1,5 +1,5 @@
 /**
- * What the gateway's TexChat (`apps/mcp/src/texChat.js`) runs of this Worker's chat code: the chat object, the move's
+ * What the gateway's TexChat (`packages/tex/gateway/texChat.js`) runs of this Worker's chat code: the chat object, the move's
  * copy, and the line reached over this Worker's RPC. A JavaScript door with its own declarations
  * (`gatewayChat.d.ts`), so a program that type-checks the gateway's JavaScript (the desktop app's tests read the
  * gateway's tool list) reads those and not this Worker's TypeScript, which only this Worker's own config checks.

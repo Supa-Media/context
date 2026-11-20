@@ -13,7 +13,7 @@
  */
 
 import { toolDefinitions } from "../tools/registry.js";
-import { callTexStore, texStoreStub } from "../texStore/wire.js";
+import { callTexStore, texStoreStub } from "../../../../packages/tex/gateway/texStore/wire.js";
 
 /** How long a change waits for another turn's before it runs anyway. */
 export const LOCK_WAIT_MS = 20_000;

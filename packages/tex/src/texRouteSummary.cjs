@@ -1,7 +1,7 @@
 /**
  * The route summary of a Tex run (Dev2, 2026-11-18: "Lab shows per-route pass rate, router accuracy, the fallback rate
  * and cost per turn"). One pure function shared by the Lab (`packages/lab/app/views/runs/`) and tex_dev's
- * `runs { id }` (`apps/mcp/src/texDev/`), so the two read a run the same way.
+ * `runs { id }` (`packages/lab/gateway/texDev/`), so the two read a run the same way.
  *
  * Rows are a Lab run's rows: `{ convId, msgIndex, node, ok, ran?, ambiguous?, usd?, route? }`, where `route` is the
  * turn's route record as the gateway keeps it (`{ pick, sure, door, fellBack }`, `scripts/tex-lab-run.mjs` routeOf) and

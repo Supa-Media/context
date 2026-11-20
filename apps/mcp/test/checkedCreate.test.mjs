@@ -29,8 +29,8 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { texObjects } from "../src/texStore/objects.js";
-import { texBucket } from "../src/texStore/wire.js";
+import { texObjects } from "../../../packages/tex/gateway/texStore/objects.js";
+import { texBucket } from "../../../packages/tex/gateway/texStore/wire.js";
 import { R2Store } from "../src/store/r2.js";
 import { withWorkspaceRouting } from "../src/store/workspaceRouting.js";
 import { withIdLayout, CheckedCreateDeclined } from "../src/store/idLayout.js";

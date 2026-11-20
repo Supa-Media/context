@@ -22,7 +22,7 @@
  */
 
 import { workspaceStub } from "../workspaceStore/api.js";
-import { callTexStore } from "../texStore/wire.js";
+import { callTexStore } from "../../../../packages/tex/gateway/texStore/wire.js";
 import { folded } from "../agent/folded.js";
 import { jobChatOf, lentToChat } from "./reach.js";
 

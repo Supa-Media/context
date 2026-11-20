@@ -12,7 +12,7 @@ import type { Id } from "../_generated/dataModel";
 import { workspaceAccess } from "../../mcp/src/workspaceStore/accessRows.js";
 import { workspaceRows } from "../../mcp/src/workspaceStore/rows.js";
 import { workspaceMarks } from "../../mcp/src/workspaceStore/marks.js";
-import { texObjects } from "../../mcp/src/texStore/objects.js";
+import { texObjects } from "../../../packages/tex/gateway/texStore/objects.js";
 import { createWorkspace, createUser, seedTreeRows } from "./fixtures.helpers";
 import { durableSql, setFolder, setHome, world } from "./workspaceObjectWorld.helpers";
 

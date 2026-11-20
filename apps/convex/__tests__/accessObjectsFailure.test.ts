@@ -6,7 +6,7 @@
  */
 
 import { describe, expect, test } from "vitest";
-import { TexObjectRefused } from "../../mcp/src/texStore/objects.js";
+import { TexObjectRefused } from "../../../packages/tex/gateway/texStore/objects.js";
 import { accessFailureKind, tally } from "../functions/lib/accessObjects/failure";
 
 describe("accessFailureKind", () => {

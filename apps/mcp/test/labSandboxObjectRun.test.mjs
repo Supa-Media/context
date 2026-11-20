@@ -15,10 +15,10 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 
-import { LabSandboxObject } from "../src/labSandbox/object.js";
-import { handleLabSandbox, newIds, open, DAILY_SENDS } from "../src/labSandbox/route.js";
-import { objectRun, objectCarry, runInObject } from "../src/labSandbox/crossRuns.js";
-import { runChatTurn } from "../src/labSandbox/chatRun.js";
+import { LabSandboxObject } from "../../../packages/lab/gateway/labSandbox/object.js";
+import { handleLabSandbox, newIds, open, DAILY_SENDS } from "../../../packages/lab/gateway/labSandbox/route.js";
+import { objectRun, objectCarry, runInObject } from "../../../packages/lab/gateway/labSandbox/crossRuns.js";
+import { runChatTurn } from "../../../packages/lab/gateway/labSandbox/chatRun.js";
 import { streamTurn, wantsProgress } from "../src/agent/progress.js";
 import { eventEntry } from "../src/agent/ledger.js";
 import { durableSql } from "./texStoreFixture.mjs";

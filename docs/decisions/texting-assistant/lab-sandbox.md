@@ -6,7 +6,7 @@ test messages to see how the new architecture responds, I should be able to writ
 test messages and retry, and also have all the changes in the workspace / group chat object be sandboxed so it doesn't
 actually affect production"; then "go ahead and build everything" (piece 3 of the Lab runs plan).
 
-**One route, the caller's own grant: `POST /tex-lab/sandbox` `{ op, ... }`** (`apps/mcp/src/labSandbox/route.js`), and
+**One route, the caller's own grant: `POST /tex-lab/sandbox` `{ op, ... }`** (`packages/lab/gateway/labSandbox/route.js`), and
 `tex_dev`'s `sandbox` action, which calls the same route in-process with the connection's own grant, so the Lab and
 an AI do the same things (the Lab-parity rule). Ops: `chats`, `sets`, `open`, `send`, `react`, `edit`, `retry`, `back`,
 `drop`, `reset`, `get`.
@@ -292,7 +292,7 @@ each got, gave and thought and how long it took, and tries a change against main
 session/draft an AI is updating / editing, we can co work, and when its playing something I can see it playing". Spec
 approved by Dev2: https://claude.ai/artifact/Uisi6KJQhizxCAos82TTKN.
 
-`tex_dev` `sandbox` (`apps/mcp/src/texDev/sandbox.js`) is the same route on the connection's own grant, only shaped for
+`tex_dev` `sandbox` (`packages/lab/gateway/texDev/sandbox.js`) is the same route on the connection's own grant, only shaped for
 a model: `open` answers the last rows and a Lab link, never a whole chat; a send waits (at most 50 s) and answers a run
 card (Tex's texts, total and first-text time, every step that ran in order, the config's steps that did not run with
 the reason read from the wires and what their sources said, slowest, failures, writes); `step` reads one step whole

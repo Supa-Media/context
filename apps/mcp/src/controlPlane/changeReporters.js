@@ -5,7 +5,7 @@
  * through `reportTreeTouch`.
  */
 
-import { syncRoutineAlarms } from "../texStore/routineAlarm.js";
+import { syncRoutineAlarms } from "../../../../packages/tex/gateway/texStore/routineAlarm.js";
 import { actorSeedOf, searchActorHash, searchHitHash, searchQualityKeyOf, searchTimingFields } from "../search/quality.js";
 
 /**

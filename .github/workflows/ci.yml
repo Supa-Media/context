@@ -111,9 +111,9 @@ jobs:
         packages/lab/src/texSetsRepo.generated.json
         apps/mcp/bench/sets/**
         apps/mcp/src/agent/texArchitecture.generated.js
-        apps/mcp/src/texDev/canvas.generated.js
-        apps/mcp/src/texDev/lab.generated.js
-        apps/mcp/src/texDev/replay.generated.js
+        packages/lab/gateway/texDev/canvas.generated.js
+        packages/lab/gateway/texDev/lab.generated.js
+        packages/lab/gateway/texDev/replay.generated.js
         packages/lab/app/labData.generated.ts
         packages/lab/app/promptCatalog.generated.json
         docs/architecture/tex.md
@@ -282,7 +282,7 @@ jobs:
           - 'apps/mcp/src/sessionStore.js'
           - 'apps/mcp/src/storageLayout.js'
           - 'apps/mcp/src/store/**'
-          - 'apps/mcp/src/texStore/**'
+          - 'packages/tex/gateway/texStore/**'
           - 'apps/mcp/src/tools/approvalKeys.js'
           - 'apps/mcp/src/tools/emailRead.js'
           - 'apps/mcp/src/tools/etagPlace.js'
@@ -851,7 +851,7 @@ jobs:
             apps/mcp/src/sessionStore.js
             apps/mcp/src/storageLayout.js
             apps/mcp/src/store/**
-            apps/mcp/src/texStore/**
+            packages/tex/gateway/texStore/**
             apps/mcp/src/tools/approvalKeys.js
             apps/mcp/src/tools/emailRead.js
             apps/mcp/src/tools/etagPlace.js

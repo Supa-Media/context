@@ -1,6 +1,6 @@
 /**
  * THE FREEZE (Dev2, 2026-11-20, the cache rules: "until the next summary, the tools, system prompt and first message
- * stay byte-identical"; `src/agent/frozenModules.js`, `src/texStore/frozen.js`): a step set to `freeze: "summary"`
+ * stay byte-identical"; `src/agent/frozenModules.js`, `packages/tex/gateway/texStore/frozen.js`): a step set to `freeze: "summary"`
  * sends its rarely-changing modules with the words of the chat's first turn of the day, so a mid-day edit to the
  * group's playbook or About me no longer rewrites the cached history after it; what changed since is said after the
  * history and wins. Sabotage: drop `put(kept)` in `turnPrompt.js` `freezeModules` and "the system keeps the day's
@@ -13,8 +13,8 @@ import { turnPrompt } from "../src/agent/turnPrompt.js";
 import { frozenModules, summaryDay } from "../src/agent/frozenModules.js";
 import { FROZEN_MODULES } from "../src/agent/frozenModuleNames.js";
 import { TEX_CONFIG as CONFIG, texFreeze, withDraft } from "../src/agent/texConfig.js";
-import { texFrozen, FROZEN_FRESH_MS } from "../src/texStore/frozen.js";
-import { TexObjectRefused } from "../src/texStore/objects.js";
+import { texFrozen, FROZEN_FRESH_MS } from "../../../packages/tex/gateway/texStore/frozen.js";
+import { TexObjectRefused } from "../../../packages/tex/gateway/texStore/objects.js";
 import { durableSql, texStoreNamespace } from "./texStoreFixture.mjs";
 import { ledgerFor } from "../src/agent/ledger.js";
 

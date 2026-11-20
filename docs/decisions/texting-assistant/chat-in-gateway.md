@@ -11,7 +11,7 @@ and delivering answers.
 nearly the whole Worker: its queue, its alarm, its turns, its lanes, its
 pictures and pages. Rewriting it for the gateway would mean two copies of
 every rule while the move is under way, with nothing to show the two agree.
-So the gateway's `TexChat` (`apps/mcp/src/texChat.js`) runs the same class on
+So the gateway's `TexChat` (`packages/tex/gateway/texChat.js`) runs the same class on
 its own storage, and only what the object reaches outside itself changes, all
 of it through the `env` it is given:
 

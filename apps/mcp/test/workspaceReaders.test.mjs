@@ -4,7 +4,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 
-import { texObjects, TexObjectRefused } from "../src/texStore/objects.js";
+import { texObjects, TexObjectRefused } from "../../../packages/tex/gateway/texStore/objects.js";
 import { workspaceRows } from "../src/workspaceStore/rows.js";
 import { workspaceMembers } from "../src/workspaceStore/members.js";
 import { serveWorkspaceStore } from "../src/workspaceStore/serve.js";

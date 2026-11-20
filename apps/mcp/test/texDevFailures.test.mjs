@@ -1,5 +1,5 @@
 /**
- * `tex_dev` `failures` (`src/texDev/tool.js`, `packages/lab/src/texFailures.cjs`; Dev2: triage of a Lab run read its
+ * `tex_dev` `failures` (`packages/lab/gateway/texDev/tool.js`, `packages/lab/src/texFailures.cjs`; Dev2: triage of a Lab run read its
  * rows one by one; one call answers the failing rows with the ask, Tex's reply, tool calls, gold and the judge's reasons).
  *
  * Sabotage record (temporary local edits, reverted):
@@ -10,11 +10,11 @@
  */
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { createTexDev } from "../src/texDev/tool.js";
-import { guideText } from "../src/texDev/guide.js";
+import { createTexDev } from "../../../packages/lab/gateway/texDev/tool.js";
+import { guideText } from "../../../packages/lab/gateway/texDev/guide.js";
 import { texDevToolDefinitions } from "../src/tools/schemas/texDev.js";
 import { FAILURE_TAGS, failingRows, failureView, parseDetail, stabilityOf, tagsOf } from "../../../packages/lab/src/texFailures.cjs";
-import { repoConversation } from "../src/texDev/sets.js";
+import { repoConversation } from "../../../packages/lab/gateway/texDev/sets.js";
 
 const textOf = (result) => result.content.find((c) => c.type === "text")?.text ?? "";
 const jsonOf = (result) => JSON.parse(textOf(result));

@@ -32,6 +32,8 @@ export interface AppChatView {
   unsend: (rowId: string) => void;
   /** An object URL for a picture id, or `null` while it loads (asking for it starts the load) or when it failed. */
   pictureUrl: (id: string) => string | null;
+  /** The person is typing: asks the gateway to warm the model's cache, at most once every `WARM_AGAIN_MS`. */
+  typing: () => void;
 }
 
 export interface State {

@@ -26,7 +26,7 @@ import { dayOf } from "./jobLog.js";
 import { earlierFromLedger } from "./ledgerHistory.js";
 import { withGuestNames } from "./groupGuestNames.js";
 import { renderEvents } from "./logRender.js";
-import { DESK_LEDGER } from "../texStore/desk.js";
+import { DESK_LEDGER } from "../../../../packages/tex/gateway/texStore/desk.js";
 import { texConfigOf, texStep } from "./texConfig.js";
 
 /** The two context modules, as their keys start in the front door's `ctx` (`texConfig.json`). */

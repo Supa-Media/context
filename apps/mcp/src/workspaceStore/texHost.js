@@ -22,11 +22,11 @@
  *   an open page's poll, and the workspace's own retry of an owed member write.
  */
 
-import { TexEngine } from "../texStore/engine.js";
-import { TEX_TABLES } from "../texStore/objects.js";
-import { routineDispatchFor } from "../texStore/dispatch.js";
-import { MERGE_OPS, logMerge, mergeIn, mergedName, personWorkspaceOf, purgeMerged } from "../texStore/merge.js";
-import { MOVE_OPS, OWNER_HEADER } from "../texStore/move.js";
+import { TexEngine } from "../../../../packages/tex/gateway/texStore/engine.js";
+import { TEX_TABLES } from "../../../../packages/tex/gateway/texStore/objects.js";
+import { routineDispatchFor } from "../../../../packages/tex/gateway/texStore/dispatch.js";
+import { MERGE_OPS, logMerge, mergeIn, mergedName, personWorkspaceOf, purgeMerged } from "../../../../packages/tex/gateway/texStore/merge.js";
+import { MOVE_OPS, OWNER_HEADER } from "../../../../packages/tex/gateway/texStore/move.js";
 
 const CALL = "x-tex-call";
 const SCHEMA = "CREATE TABLE IF NOT EXISTS tex_place (k TEXT PRIMARY KEY, v TEXT NOT NULL)";

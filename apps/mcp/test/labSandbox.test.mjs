@@ -1,4 +1,4 @@
-// The Lab's test chats (src/labSandbox/; Dev2, 2026-11-16: "have all the changes in the workspace / group chat object
+// The Lab's test chats (packages/lab/gateway/labSandbox/; Dev2, 2026-11-16: "have all the changes in the workspace / group chat object
 // be sandboxed so it doesn't actually affect production"; docs/decisions/texting-assistant/lab-sandbox.md).
 //
 // What these prove: a test turn's write never reaches the real object (it lands in the test chat's own object and is
@@ -18,12 +18,12 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 
-import { LabSandboxObject, sandboxTables, serveSandbox } from "../src/labSandbox/object.js";
-import { sandboxNamespace } from "../src/labSandbox/wire.js";
+import { LabSandboxObject, sandboxTables, serveSandbox } from "../../../packages/lab/gateway/labSandbox/object.js";
+import { sandboxNamespace } from "../../../packages/lab/gateway/labSandbox/wire.js";
 import { CONTROL_PLANE_READS, controlPlaneAnswer, LAB_SANDBOX_KEY, NO_NOTES_PERSONAL_READS, sandboxedTool, sandboxEnvOf, sandboxGateOf, toolAnswer, withoutKeys } from "../src/labSandbox/policy.js";
-import { sandboxGate, stepsOf, turnBody } from "../src/labSandbox/harness.js";
+import { sandboxGate, stepsOf, turnBody } from "../../../packages/lab/gateway/labSandbox/harness.js";
 import { noteOwnWorkspace } from "../src/tools/etagPlace.js";
-import { handleLabSandbox, MAX_DRAWN_GRAPH, MAYA_CONVO } from "../src/labSandbox/route.js";
+import { handleLabSandbox, MAX_DRAWN_GRAPH, MAYA_CONVO } from "../../../packages/lab/gateway/labSandbox/route.js";
 import { withDraft } from "../src/agent/graph/turnGraph.js";
 import { TEX_CONFIG, texConfigOf, texEffort, texModel, texSetupFront, texTimeoutMs, texWords } from "../src/agent/texConfig.js";
 import { createTransport } from "../src/controlPlane/client.js";
@@ -31,7 +31,7 @@ import { createEmailMethods } from "../src/controlPlane/email.js";
 import { createCalendarMethods } from "../src/controlPlane/calendar.js";
 import { createGoogleChatMethods } from "../src/controlPlane/googleChat.js";
 import { aiGatewayConfig } from "../src/agent/aiGateway.js";
-import { texBucket, texStoreStub, texTimers } from "../src/texStore/wire.js";
+import { texBucket, texStoreStub, texTimers } from "../../../packages/tex/gateway/texStore/wire.js";
 import { durableSql, texStoreNamespace } from "./texStoreFixture.mjs";
 
 const KEY = "a".repeat(64);
@@ -456,7 +456,7 @@ test("a test chat opens on the whole real chat, never a cutoff; get pages with a
     const id = opened.body.sandboxId;
     // Tex's history in the test chat is the real chat's, rebuilt as a turn rebuilds it: every exchange, never none.
     const { conversationFromLedger } = await import("../src/agent/ledgerConversation.js");
-    const { DESK_LEDGER } = await import("../src/texStore/desk.js");
+    const { DESK_LEDGER } = await import("../../../packages/tex/gateway/texStore/desk.js");
     const copied = w.ns.get(w.ns.idFromName(`labsandbox:u_alice:${id}`));
     const read = await (await copied.fetch(new Request("https://lab-sandbox.internal/ledger.read", { method: "POST", body: JSON.stringify({ chat: ONE_TO_ONE_CHAT, options: { ...DESK_LEDGER.options, slim: false } }) }))).json();
     assert.ok(read.entries.some((entry) => entry.kind === "reply"), "the replies are copied");

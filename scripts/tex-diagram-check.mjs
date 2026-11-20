@@ -18,7 +18,7 @@
  *   5. With `--base <sha>` (a pull request): a change to `texEntryPoint.js`, a file under `texEntryPoint/`, or any
  *      node's file must change the config too, unless the pull request's description (env `TEX_PR_BODY`) has a line
  *      `Tex diagram: unchanged because <reason>`.
- *   6. Every step the Lab's test chat records by a name of its own (`apps/mcp/src/labSandbox/`: `book.line("x"` and
+ *   6. Every step the Lab's test chat records by a name of its own (`packages/lab/gateway/labSandbox/`: `book.line("x"` and
  *      `book.begin({ node: "x"`) is a node of the config, or one of `LAB_TRANSPORT`, the simulated phone line a test
  *      text goes over (Dev2, 2026-11-16: "pretend it's a Photon iMessage thing"). Those are the sandbox's transport, not
  *      Tex: none may be a node id, and the list in `labSandbox/steps.js` (`TRANSPORT_STEPS`) must be this one.
@@ -69,7 +69,7 @@ const UNCHANGED = /^\s*Tex diagram: unchanged because \S.{3,}/im;
 
 /** The Lab test chat's own steps that are no node of the config: its simulated phone line, in and out (`labSandbox/line.js`). */
 export const LAB_TRANSPORT = Object.freeze(["lineIn", "lineOut"]);
-const LAB_FOLDER = "apps/mcp/src/labSandbox";
+const LAB_FOLDER = "packages/lab/gateway/labSandbox";
 const LAB_STEP = /\bbook\.(?:line\(\s*"([A-Za-z]+)"|begin\(\s*\{\s*node:\s*"([A-Za-z]+)")/g;
 const LAB_LIST = /TRANSPORT_STEPS\s*=\s*Object\.freeze\(\[([^\]]*)\]\)/;
 

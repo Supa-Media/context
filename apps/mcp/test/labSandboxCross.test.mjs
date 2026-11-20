@@ -1,4 +1,4 @@
-// A cross-chat ask in the Lab (src/labSandbox/crossRuns.js; Dev2, 2026-11-17: "before saying you are done with a
+// A cross-chat ask in the Lab (packages/lab/gateway/labSandbox/crossRuns.js; Dev2, 2026-11-17: "before saying you are done with a
 // feature, make sure you use the lab to test that it works"). A 1:1 test chat's ask of Tex in a group goes through the
 // texting Worker's own chat objects as in production: the 1:1's object sends it, a linked test chat of the group takes
 // it as a run of its own, and its answer comes back as the 1:1's own run. Nothing reaches a real chat. Fake ids only.
@@ -11,11 +11,11 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 
-import { LabSandboxObject } from "../src/labSandbox/object.js";
-import { runChatTurn } from "../src/labSandbox/chatRun.js";
-import { followCross, objectCarry, objectRun } from "../src/labSandbox/crossRuns.js";
+import { LabSandboxObject } from "../../../packages/lab/gateway/labSandbox/object.js";
+import { runChatTurn } from "../../../packages/lab/gateway/labSandbox/chatRun.js";
+import { followCross, objectCarry, objectRun } from "../../../packages/lab/gateway/labSandbox/crossRuns.js";
 import { RUN_IN_SANDBOX } from "../src/labSandbox/policy.js";
-import { DAILY_SENDS, handleLabSandbox, newIds, open } from "../src/labSandbox/route.js";
+import { DAILY_SENDS, handleLabSandbox, newIds, open } from "../../../packages/lab/gateway/labSandbox/route.js";
 import { streamTurn, wantsProgress } from "../src/agent/progress.js";
 import { eventEntry } from "../src/agent/ledger.js";
 import { durableSql } from "./texStoreFixture.mjs";
