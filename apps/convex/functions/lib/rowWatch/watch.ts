@@ -30,8 +30,8 @@ type Watched = (typeof WATCHED_TABLES)[number];
  */
 export const BINDING_TABLES = ["storageBindings", "managedEncryptionWorkspaces", "workspaceObjectHomes", "workspaceDataKeys", "workspaceKeyRotations"] as const;
 type BindingTable = (typeof BINDING_TABLES)[number];
-/** Fields of a binding row that no request's store is built from. */
-const BINDING_QUIET = new Set(["scaffoldQueuedAt", "leftBehind"]);
+/** Fields of a binding row that no request's store is built from (the automatic move's lease and last word among them). */
+const BINDING_QUIET = new Set(["scaffoldQueuedAt", "leftBehind", "moveLeaseUntil", "moveTriedAt", "moveNote"]);
 
 /** Fields of a `nodes` row that only say which version of the bytes it is at: no rule changes with them. */
 const BYTES_ONLY = new Set(["etag", "size", "uploaded", "observedAt", "objectAt", "idCopy", "keyedFrom", "storageKey", "noteId"]);

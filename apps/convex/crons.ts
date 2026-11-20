@@ -596,4 +596,11 @@ crons.interval(
  */
 crons.interval("copy dual workspaces' rows into their objects", { minutes: 1 }, internal.functions.workspaceObjects.syncRows, {});
 
+/**
+ * Move every managed workspace onto its workspace object (`functions/workspaceObjectsMove.ts`; owner, 2026-11-20):
+ * each one not wholly there and not tried within the hour gets a run that arms, copies, compares and switches it.
+ * A bucket of the workspace's own is never moved.
+ */
+crons.interval("move workspaces onto their objects", { hours: 1 }, internal.functions.workspaceObjectsMove.sweep, {});
+
 export default crons;

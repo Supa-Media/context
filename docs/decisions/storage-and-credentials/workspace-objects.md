@@ -62,6 +62,37 @@ rules and the text in one place that answers both in one call.
 - **Self-hosting** runs the same objects on `workerd` (`wrangler dev` or a
   workerd deployment), so cloning and deploying without us still works.
 
+## Every workspace is moved on its own
+
+Decided by the owner, 2026-11-20: "please move everything to a durable
+object, unless they are bringing their own storage". Until then a workspace
+moved only when someone ran the workflows for it, so every workspace made
+after the first move stayed on the control plane and its bucket (a workspace
+with no `workspaceObjectHomes` record reads as `bucket`).
+
+- **A new workspace is born on its object**: binding its managed bucket
+  (`managedProvisioningFns/complete.ts`, and a move back onto managed storage)
+  schedules `workspaceObjectsMove.advance` at once, which arms it before its
+  first folders are written, then copies, compares and switches it.
+- **Every other managed workspace** is picked up by the hourly sweep
+  (`workspaceObjectsMove.sweep`) until notes, access (members and invites, and
+  a personal workspace's person) and texting are all on the object.
+- **Each step is the workflows' own** (`workspaceObjects.setHome`, `backfill`,
+  `parity`; `accessObjects.setAccess`, `backfill`, `parity`;
+  `textingObjects.push`), so `object` still needs a fresh, clean parity check.
+  A step that cannot prove the copy stops with a closed word on the record
+  (`moveNote`) and the workspace stays where it was, tried again an hour later.
+  A lease (`moveLeaseUntil`) keeps two runs off one workspace.
+- **A bucket of the workspace's own is never moved**, and a workspace with no
+  storage waits for its bucket.
+- The "Workspace objects move" workflow prints the census (counts only) and
+  can start the sweep at once.
+
+*Simplification cost:* going back to moving by hand leaves every new
+workspace on the slow path forever; forcing the switch without the parity
+check lets a cut-short copy answer as if whole. Tests:
+`apps/convex/__tests__/workspaceObjectsMove.test.ts`.
+
 ## Where the objects run: the gateway's account
 
 Decided by the owner, 2026-11-01, choosing "Gateway's account (as built)" over running them in the customer-data account.
