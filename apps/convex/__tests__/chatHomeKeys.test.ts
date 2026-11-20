@@ -1,5 +1,6 @@
 import { describe, expect, test } from "vitest";
 import { chatHomeKeys } from "../functions/lib/nodes/accessSet";
+import { internal } from "../_generated/api";
 import { setupTest } from "./fixtures.helpers";
 
 /**
@@ -26,5 +27,12 @@ describe("chat home keys", () => {
     });
     const keys = await t.run(async (ctx) => await chatHomeKeys(ctx));
     expect(keys).toEqual({ "kite-willow-rocket": one });
+  });
+});
+
+describe("the chat homes push", () => {
+  test("answers whether a push was queued, and none without a sealed pin", async () => {
+    const t = setupTest();
+    expect(await t.mutation(internal.functions.chatHomesPush.push, {})).toEqual({ queued: false });
   });
 });

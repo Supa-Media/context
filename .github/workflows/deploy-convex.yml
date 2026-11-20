@@ -70,6 +70,17 @@ jobs:
           CONVEX_DEPLOY_KEY: ${{ secrets.CONVEX_DEPLOY_KEY }}
         run: npx convex run functions/texExamplesIndex:sync 2>/dev/null
 
+      # The pinned workspace's object takes its access set again, so it holds
+      # every chat home's key by its words and places a new note in a home
+      # without asking the control plane (`functions/chatHomesPush.ts`). Best
+      # effort: without it, those notes are placed by the control plane as
+      # before. Prints only whether a push was queued.
+      - name: Send the chat homes to the pinned workspace's object
+        continue-on-error: true
+        env:
+          CONVEX_DEPLOY_KEY: ${{ secrets.CONVEX_DEPLOY_KEY }}
+        run: npx convex run functions/chatHomesPush:push '{}' 2>/dev/null
+
       # After the deploy, so a function that reads a new variable is already
       # deployed when the variable arrives rather than the other way round.
       #

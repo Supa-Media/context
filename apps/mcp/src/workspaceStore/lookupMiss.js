@@ -66,10 +66,11 @@ function texFolderOf(rows) {
  * is no Tex home here or the object cannot tell (then the control plane is asked, as before):
  *  - in a personal workspace (`workspaceKind` from the gateway's session), a note beneath its Tex folder is its
  *    person's;
- *  - in the workspace that seals the chat homes (the pin), a note beneath a live home `tex/groups/<words>/` is that
+ *  - in the workspace that seals the chat homes (the pin), a note beneath a home `tex/groups/<words>/` is that
  *    chat's, by the key its words name: the access set's `chatHomes` (words to key, sent by the control plane), or
  *    the chat's own session's `{folder, chat}` from its grant. Where both are known and differ, nothing is placed.
- * Only a path with no live row, never plumbing, and only where the note's own folder already stands.
+ * Only a path with no live row, and never plumbing. Folders beneath the Tex folder or the home that do not stand yet
+ * are stood up by the adoption (`writeOps.js` `adopt`), as for any new note.
  *
  * @param {{workspaceId?: string, workspaceKind?: string|null, sealsChats?: boolean|null, chatHomes?: Record<string,string>|null, chatHome?: {folder: string, chat: string}|null}} where
  */
@@ -78,10 +79,6 @@ export function texHomeOwner(rows, path, { workspaceId = null, workspaceKind = n
   // Neither a personal workspace nor a path under the pin's chat homes: no Tex home here, nothing read.
   if (workspaceKind !== "personal" && !(sealsChats === true && path.startsWith(CHAT_HOMES))) return null;
   if (rows.byPath(path) !== null) return null;
-  const parent = path.lastIndexOf("/") > 0 ? path.slice(0, path.lastIndexOf("/")) : "";
-  if (parent === "") return null;
-  const into = rows.byPath(parent);
-  if (into === null || into.kind !== "folder") return null;
   if (workspaceKind === "personal") {
     const folder = texFolderOf(rows);
     if (typeof folder !== "string" || !path.startsWith(`${folder}/`)) return null;
@@ -90,13 +87,25 @@ export function texHomeOwner(rows, path, { workspaceId = null, workspaceKind = n
   if (sealsChats !== true || !path.startsWith(CHAT_HOMES)) return null;
   const [words, ...inside] = path.slice(CHAT_HOMES.length).split("/");
   if (!HOME_WORDS.test(words ?? "") || inside.length === 0) return null;
-  const home = rows.byPath(`${CHAT_HOMES}${words}`);
-  if (home === null || home.kind !== "folder") return null;
   const held = chatHomes && typeof chatHomes === "object" && Object.hasOwn(chatHomes, words) && CHAT_KEY.test(chatHomes[words]) ? chatHomes[words] : null;
   const own = chatHome && chatHome.folder === `${CHAT_HOMES}${words}` && CHAT_KEY.test(chatHome.chat ?? "") ? chatHome.chat : null;
   if (held !== null && own !== null && held !== own) return null;
   const chat = held ?? own;
   return chat === null ? null : `chat:${chat}`;
+}
+
+/**
+ * Whether a new note at `path` in the pin is a plain note, by the control plane's own placing: under the chat homes,
+ * but in no home its access set names a key for (`chatKeyOfHome` answers none there too: no chat has those words, or
+ * two do), so it is kept as any other note. Only where the set carries the map (`chatHomes` not null); without it, the
+ * control plane is asked. `rows` must already hold no row at the path.
+ */
+export function plainUnderHomes(path, { sealsChats = null, chatHomes = null } = {}) {
+  if (sealsChats !== true || chatHomes === null || typeof chatHomes !== "object" || typeof path !== "string" || !path.startsWith(CHAT_HOMES)) return false;
+  if (isPlumbing(path)) return false;
+  const [words, ...inside] = path.slice(CHAT_HOMES.length).split("/");
+  if (inside.length === 0 || !HOME_WORDS.test(words ?? "")) return true;
+  return !Object.hasOwn(chatHomes, words);
 }
 
 /**

@@ -20,6 +20,7 @@ import type * as functions_accountDeletion from "../functions/accountDeletion.js
 import type * as functions_accountSetup from "../functions/accountSetup.js";
 import type * as functions_audit from "../functions/audit.js";
 import type * as functions_billing from "../functions/billing.js";
+import type * as functions_chatHomesPush from "../functions/chatHomesPush.js";
 import type * as functions_texChatHomeCensus from "../functions/texChatHomeCensus.js";
 import type * as functions_texChatHomeGrants from "../functions/texChatHomeGrants.js";
 import type * as functions_texChatHomeManifest from "../functions/texChatHomeManifest.js";
@@ -320,6 +321,7 @@ declare const fullApi: ApiFromModules<{
   "functions/accountSetup": typeof functions_accountSetup;
   "functions/audit": typeof functions_audit;
   "functions/billing": typeof functions_billing;
+  "functions/chatHomesPush": typeof functions_chatHomesPush;
   "functions/texChatHomeCensus": typeof functions_texChatHomeCensus;
   "functions/texChatHomeGrants": typeof functions_texChatHomeGrants;
   "functions/texChatHomeManifest": typeof functions_texChatHomeManifest;
