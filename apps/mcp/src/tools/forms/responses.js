@@ -142,7 +142,7 @@ export async function mutateFormResponses(store, scope, rules, overrides, args, 
   const actor = formActor(store);
   if (!actor.name) {
     return toolError(
-      "this connection has no username to record a response under; create your workspace first."
+      "this connection has no username to record a response under; ask the person to create their workspace first."
     );
   }
   const form = await resolveForm(store, scope, rules, overrides, args);

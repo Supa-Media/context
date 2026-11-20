@@ -43,7 +43,7 @@ const CONTROL = /[\u0000-\u001f\u007f\u202a-\u202e\u2066-\u2069]/;
 /** `{ rule }` for a start, `{ stop }` for a stop, or `{ error }` saying what to fix. */
 export function readForwardRule(args) {
   const action = args?.action ?? "start";
-  if (action !== "start" && action !== "stop") return { error: 'action is "start" or "stop".' };
+  if (action !== "start" && action !== "stop") return { error: 'action is "start" or "stop". Pass one of those.' };
   const routine = typeof args?.routine === "string" ? args.routine.trim().replace(/^\/+/, "") : "";
   if (action === "stop") return routine === "" ? { error: "Name the routine whose forwarding stops." } : { stop: routine };
   const found = routineFromPath(routine);
@@ -51,10 +51,10 @@ export function readForwardRule(args) {
     return { error: "routine is the path of a routine note under tex/routines/<schedule>/, like tex/routines/hourly/forward-receipts.md. Write the note first." };
   }
   const read = readEmail({ to: args?.to, subject: "x", body: "x" });
-  if (read.error || read.email.to.length !== 1) return { error: "to is the one email address mail is forwarded to." };
+  if (read.error || read.email.to.length !== 1) return { error: "to is the one email address mail is forwarded to. Pass just that address." };
   const about = typeof args?.about === "string" ? args.about.trim() : "";
   if (about === "" || about.length > MAX_ABOUT || CONTROL.test(about)) {
-    return { error: `about is a few words on what is forwarded, like "receipts and invoices", at most ${MAX_ABOUT} characters.` };
+    return { error: `about is a few words on what is forwarded, like "receipts and invoices", at most ${MAX_ABOUT} characters. Write a shorter one.` };
   }
   return { rule: { routine, to: read.email.to[0], about } };
 }

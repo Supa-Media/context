@@ -230,7 +230,7 @@ export function tableSummary(text, name, { by = [], where = {}, dates = {} } = {
   if (missing.length > 0 || unknown.length > 0) return { error: `no such column: ${[...missing, ...unknown].join(", ")}; the columns are ${header.join(", ")}` };
   const from = isoDate(dates?.from);
   const to = isoDate(dates?.to);
-  if ((from || to) && dateAt < 0) return { error: "this table has no date column to filter by" };
+  if ((from || to) && dateAt < 0) return { error: "this table has no date column to filter by; leave the dates out" };
   const seen = new Set();
   const totals = new Map();
   let matched = 0;

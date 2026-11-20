@@ -70,7 +70,7 @@ export async function toolNotifyMe(store, scope, rules, overrides, args) {
   if (message === "" || message.length > MAX_MESSAGE_CHARS) {
     return toolError(`invalid: message must be 1 to ${MAX_MESSAGE_CHARS} characters, the text they will read; write it, or shorten it`);
   }
-  if (!URGENCIES.includes(args?.urgency)) return toolError('invalid: urgency must be "emergency", "asked" or "fyi"');
+  if (!URGENCIES.includes(args?.urgency)) return toolError('invalid: urgency must be "emergency", "asked" or "fyi"; pass one of those');
   const why = args?.why === undefined ? "" : oneLine(args.why, MAX_WHY_CHARS);
   const urgency = args.urgency;
   const from = oneLine(store.actor?.client ?? "", 60) || "One of your agents";

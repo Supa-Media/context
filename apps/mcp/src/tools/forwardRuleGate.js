@@ -17,7 +17,7 @@ export { FORWARD_RULE_TOOL };
 export async function forwardRuleGate(supplied, { store, session, target }) {
   if (session.egress?.approved === true) return null;
   if (target.workspaceId !== session.workspaceId) {
-    return toolError("Not changed: forward_rule takes no context. It always forwards the person's own mail.");
+    return toolError("Not changed: forward_rule takes no context. It always forwards the person's own mail, so leave context out.");
   }
   const read = readForwardRule(supplied);
   if (read.error) return toolError(`Not changed: ${read.error}`);
@@ -27,7 +27,7 @@ export async function forwardRuleGate(supplied, { store, session, target }) {
   const released = await takeDone(store, { name: FORWARD_RULE_TOOL, args: supplied, userId, clientId: session.actorClientId });
   if (released) return released;
   if (emailCaller(session.actorClientId) === null) {
-    return toolError("Not changed: only the person, through Tex or the app, can let a routine forward their mail.");
+    return toolError("Not changed: only the person, through Tex or the app, can let a routine forward their mail. Ask them.");
   }
   const kept = await readRules(store);
   if (kept.some((rule) => rule.routine === read.rule.routine && rule.to === read.rule.to && rule.about === read.rule.about)) {

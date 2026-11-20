@@ -84,7 +84,7 @@ export async function toolListChannelDays(store, scope, rules, overrides, args =
   if (args.channel !== undefined && !CHANNELS.includes(args.channel)) {
     // The channel list is public — it is in the tool's own description — so
     // naming an unknown one is a caller error rather than a disclosure.
-    return toolError(`channel must be one of: ${CHANNELS.join(", ")}`);
+    return toolError(`channel must be one of: ${CHANNELS.join(", ")}; pass one of those`);
   }
 
   /*

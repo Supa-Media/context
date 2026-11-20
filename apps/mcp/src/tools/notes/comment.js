@@ -139,12 +139,12 @@ export async function toolCommentNote(store, scope, rules, overrides, args) {
     let quote;
     let removedThread = false;
     if (request.action === "delete") {
-      if (typeof request.thread !== "string") return toolError("comment.thread is required; read_note lists each thread's id");
+      if (typeof request.thread !== "string") return toolError("comment.thread is required; read the note with read_note, which lists each thread's id, and pass one");
       const thread = parseComments(text).threads.find((t) => t.id === request.thread);
       if (!thread) return toolError(`there is no comment thread "${request.thread}" on this note; read_note lists each thread's id, so read it and pass one`);
       const said = thread.events.filter((event) => event.kind === "comment");
       const index = said.map((event) => event.author).lastIndexOf(author);
-      if (index === -1) return toolError(`thread ${request.thread} has no comment by ${author}; only your own comments can be deleted`);
+      if (index === -1) return toolError(`thread ${request.thread} has no comment by ${author}; only your own comments can be deleted, so leave it`);
       removedThread = index === 0;
       outcome = deleteComment(text, { thread: request.thread, index, expect: { at: said[index].at, author } });
     } else if (request.action === "add") {
@@ -157,7 +157,7 @@ export async function toolCommentNote(store, scope, rules, overrides, args) {
       });
       quote = typeof request.quote === "string" ? request.quote : "";
     } else {
-      if (typeof request.thread !== "string") return toolError("comment.thread is required; read_note lists each thread's id");
+      if (typeof request.thread !== "string") return toolError("comment.thread is required; read the note with read_note, which lists each thread's id, and pass one");
       const thread = parseComments(text).threads.find((t) => t.id === request.thread);
       quote = thread?.quote ?? "";
       outcome = appendEvent(text, {

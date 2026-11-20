@@ -109,12 +109,12 @@ function resultText(body) {
 /** `{app, tool, arguments}` as the caller sent them, checked; or an error's words. */
 function callOf(args, { needTool }) {
   const app = typeof args?.app === "string" ? args.app.trim().toLowerCase() : "";
-  if (!APP.test(app)) return { error: "app is an app id from fetch apps:, e.g. linear." };
+  if (!APP.test(app)) return { error: "app is an app id from fetch apps:, e.g. linear. Call fetch apps: to list them." };
   const tool = typeof args.tool === "string" ? args.tool.trim() : "";
-  if (tool === "" && needTool) return { error: `tool is one of the tools fetch apps:${app} lists.` };
-  if (tool !== "" && !TOOL.test(tool)) return { error: `tool is one of the tools fetch apps:${app} lists.` };
+  if (tool === "" && needTool) return { error: `tool is one of the tools fetch apps:${app} lists. Call that to see them.` };
+  if (tool !== "" && !TOOL.test(tool)) return { error: `tool is one of the tools fetch apps:${app} lists. Call that to see them.` };
   const given = args.arguments === undefined ? {} : args.arguments;
-  if (!plainObject(given)) return { error: "arguments is an object of the tool's own arguments." };
+  if (!plainObject(given)) return { error: "arguments is an object of the tool's own arguments. Pass them as one." };
   return { app, tool, arguments: given };
 }
 

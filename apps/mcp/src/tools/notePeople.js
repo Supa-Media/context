@@ -52,7 +52,7 @@ export function describePeople(parsed) {
 export async function addPeopleToNote(store, path, people) {
   const parsed = parsePeople(people) ?? [];
   if (parsed.length === 0) return toolError("people is empty: name at least one @handle or email address");
-  if (parsed.length > MAX_PEOPLE) return toolError(`people may name at most ${MAX_PEOPLE} at once`);
+  if (parsed.length > MAX_PEOPLE) return toolError(`people may name at most ${MAX_PEOPLE} at once; split them into calls`);
   const domain = parsed.find((entry) => entry.kind === "domain");
   if (domain) {
     return toolError(
@@ -60,7 +60,7 @@ export async function addPeopleToNote(store, path, people) {
     );
   }
   const bad = parsed.find((entry) => entry.kind === "unknown");
-  if (bad) return toolError(`"${bad.who}" is neither an @handle nor an email address`);
+  if (bad) return toolError(`"${bad.who}" is neither an @handle nor an email address; pass one of those`);
   if (!store.rowAccess?.addPeople) {
     return toolError("naming people on a note is not available for this workspace yet; share a link from the app instead");
   }
@@ -75,7 +75,7 @@ export async function addPeopleToNote(store, path, people) {
         "nothing changed: one of those names is not a member or a group of this workspace. Name someone outside it by their email address.",
       );
     case "FORBIDDEN":
-      return toolError("permission denied: only the workspace's owner can name people on a note");
+      return toolError("permission denied: only the workspace's owner can name people on a note; ask the owner");
     case "NOT_FOUND":
       return toolError("not found");
     case "NOT_ROWS_MODE":

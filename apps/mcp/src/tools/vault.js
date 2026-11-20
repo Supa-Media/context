@@ -129,9 +129,9 @@ export async function toolVaultShareLink(store, args) {
       "Logins in a personal workspace stay personal. To share one, the person saves it in the shared workspace first (vault_add_link with context set to that workspace).",
     );
   }
-  if (!isEntryId(args?.entry)) return toolError("entry must be a login id from vault_list.");
+  if (!isEntryId(args?.entry)) return toolError("entry must be a login id from vault_list. List the vault and pass one.");
   const handle = typeof args?.with === "string" ? args.with.trim().replace(/^@/, "").toLowerCase() : "";
-  if (!/^[a-z0-9-]{2,32}$/.test(handle)) return toolError("with must be the person's @handle.");
+  if (!/^[a-z0-9-]{2,32}$/.test(handle)) return toolError("with must be the person's @handle. Pass it, like @sam.");
   const keys = store.encryptionKey;
   const meta = keys ? await readMeta(store, keys, store.actor.workspaceId, args.entry) : null;
   if (meta === null || !actorMayUse(meta, store.actor)) return toolError("There is no such login in vault_list. List the vault with vault_list and pass a login id from it.");
@@ -145,7 +145,7 @@ export async function toolVaultShareLink(store, args) {
 export async function toolVaultViewLink(store, args) {
   const calls = store?.vaultLinks;
   if (!calls) return toolError(NO_LINKS);
-  if (!isEntryId(args?.entry)) return toolError("entry must be an id from vault_list.");
+  if (!isEntryId(args?.entry)) return toolError("entry must be an id from vault_list. List the vault and pass one.");
   const env = args?.env === undefined ? undefined : ENVS.includes(args.env) ? args.env : null;
   if (env === null) return toolError(`env is not one of ${ENVS.join(", ")}: pass one of those, or leave env out.`);
   const keys = store.encryptionKey;
@@ -183,7 +183,7 @@ export async function toolVaultFetch(store, request) {
   if (!request || typeof request !== "object" || Array.isArray(request)) {
     return toolError("fetch is not an object: pass { entry, field, env?, url, method?, headers?, body? }.");
   }
-  if (!isEntryId(request.entry)) return toolError("fetch.entry must be an id from vault_list.");
+  if (!isEntryId(request.entry)) return toolError("fetch.entry must be an id from vault_list. List the vault and pass one.");
   let host = null;
   let path = null;
   try {

@@ -22,7 +22,7 @@ export const MAX_ATTACHED_BYTES = 10 * 1024 * 1024;
 export function readAttach(value) {
   if (value === undefined || value === null) return { list: [] };
   const list = typeof value === "string" ? [value] : value;
-  if (!Array.isArray(list)) return { error: "attach is a list of download: ids, as a browse download step gave them." };
+  if (!Array.isArray(list)) return { error: "attach is a list of download: ids, as a browse download step gave them. Pass them as a list." };
   const ids = list.map((item) => (typeof item === "string" ? item.trim() : ""));
   if (ids.some((id) => !isDownloadId(id))) {
     return {
@@ -30,8 +30,8 @@ export function readAttach(value) {
         "attach takes only download: ids, as a browse download step gave them. To send on an email's own attachments, forward that email instead.",
     };
   }
-  if (ids.length > MAX_ATTACHED_FILES) return { error: `One email carries at most ${MAX_ATTACHED_FILES} attached files.` };
-  if (new Set(ids).size !== ids.length) return { error: "A file is attached twice." };
+  if (ids.length > MAX_ATTACHED_FILES) return { error: `One email carries at most ${MAX_ATTACHED_FILES} attached files. Drop some, or send them in two emails.` };
+  if (new Set(ids).size !== ids.length) return { error: "A file is attached twice. Remove the repeat." };
   return { list: ids };
 }
 
@@ -46,7 +46,7 @@ export async function attachedFiles(store, ids, { now } = {}) {
     const kept = await readDownload(store, id, now === undefined ? {} : { now });
     if (!kept.file) return { error: kept.error };
     total += kept.file.size;
-    if (total > MAX_ATTACHED_BYTES) return { error: `the attached files come to over ${MAX_ATTACHED_BYTES / 1024 / 1024} MB together` };
+    if (total > MAX_ATTACHED_BYTES) return { error: `the attached files come to over ${MAX_ATTACHED_BYTES / 1024 / 1024} MB together; drop some, or send them in two emails` };
     files.push({ filename: kept.file.name, contentType: kept.file.type, data: kept.file.data });
   }
   return { files };

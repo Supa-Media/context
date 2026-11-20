@@ -304,7 +304,7 @@ export function learnedSkillSession(index, dispatch, { folder = LEARNED_SKILLS_F
     tools,
     async call(args) {
       const name = typeof args?.name === "string" ? args.name : "";
-      if (!names.has(name)) return toolError(`There is no learned skill called "${name.slice(0, 48)}".`);
+      if (!names.has(name)) return toolError(`There is no learned skill called "${name.slice(0, 48)}". Read the list of your skills and pick one.`);
       const note = await readWithEtag(dispatch, learnedSkillPath(name, folder));
       const body = note?.body === undefined ? null : learnedSkillBody(note.body);
       if (body === null) return toolError("That skill can't be read right now. Do the job as well as you can without it.");

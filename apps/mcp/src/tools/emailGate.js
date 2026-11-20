@@ -86,7 +86,7 @@ export async function emailGate(supplied, { store, session, target }) {
   if (session.egress?.approved === true) return null;
 
   if (target.workspaceId !== session.workspaceId) {
-    return toolError("Not sent: send_email takes no context. It always sends as the person, from their own Gmail.");
+    return toolError("Not sent: send_email takes no context. It always sends as the person, from their own Gmail, so leave context out.");
   }
   const read = readEmail(supplied);
   if (read.error) return toolError(refusalText("Not sent:", read.error));

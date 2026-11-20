@@ -191,7 +191,7 @@ export async function toolRevokeLink(store, scope, args) {
   if (!calls) return toolError("links are not available on this deployment. Tell the person, and don't try again.");
 
   const shareId = typeof args.share_id === "string" ? args.share_id.trim() : "";
-  if (!shareId) return toolError("share_id is required; list_links reports it");
+  if (!shareId) return toolError("share_id is required; call list_links and pass one");
 
   const revoked = await calls.revoke(shareId);
   // One refusal covers "not yours", "already revoked" and "no such id" — the
