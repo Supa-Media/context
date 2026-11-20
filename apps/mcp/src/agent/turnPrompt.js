@@ -63,7 +63,8 @@ function freezeModules(freeze, threadParts, context) {
   const changed = [];
   for (const [id, put, now] of slots) {
     const kept = typeof freeze.modules[id] === "string" ? freeze.modules[id] : "";
-    if (kept === now) continue;
+    // A module with no words this turn was most often not read (a store that failed), not emptied: the day's words stand.
+    if (kept === now || now.trim() === "") continue;
     put(kept);
     changed.push({ id, now });
   }
@@ -76,7 +77,7 @@ function frozenNote(changed) {
   if (changed.length === 0) return "";
   return [
     "Since this chat's first text today, these parts of your instructions changed. The words above the history are from then; these are now, and win:",
-    ...changed.map(({ id, now }) => `${FROZEN_NAMES[id] ?? id} now reads:\n${now.trim() === "" ? "(nothing: it was removed)" : now.trim()}`),
+    ...changed.map(({ id, now }) => `${FROZEN_NAMES[id] ?? id} now reads:\n${now.trim()}`),
   ].join("\n\n");
 }
 

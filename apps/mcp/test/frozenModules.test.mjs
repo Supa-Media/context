@@ -42,7 +42,7 @@ test("the system keeps the day's words, and what changed is said after the histo
   assert.notEqual(said(later).system.context, morning, "without the freeze it would have changed");
   assert.match(frozen.preamble, /these are now, and win/);
   assert.match(frozen.preamble, /This group chat \(its people, rules and playbook\) now reads:\nThe group's playbook: afternoon\./);
-  assert.match(frozen.preamble, /Their group chats now reads:\n\(nothing: it was removed\)/);
+  assert.equal(frozen.preamble.includes("Their group chats now reads"), false, "a module with no words this turn was not read: the day's words stand");
   assert.ok(frozen.prompt.modules.some((m) => m.id === "preamble/frozen"), "the note is in the manifest");
 });
 
