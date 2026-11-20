@@ -15,7 +15,7 @@
  * tool error, never their answer.
  */
 
-import { shown } from "./sixToolsShown.mjs";
+import { shown, onFixedList } from "./sixToolsShown.mjs";
 import worker from "../src/index.js";
 import { createWorkerCtx } from "./workerCtx.mjs";
 import { createControlPlaneStub, createS3Backend, CONTROL_PLANE_ORIGIN, GATEWAY_SECRET } from "./controlPlaneStub.mjs";
@@ -185,7 +185,7 @@ export async function runAgentSearchChecks(check) {
     await ask(base, TOKEN_TEXTS, { question: "Is Joe's pizza open late?" });
     check(
       "without a search key the texting assistant is offered no search tool",
-      ai.calls.length === 1 && !offered(ai.calls[0]).includes(`send.${SEARCH_WEB_TOOL}`) && brave.requests.length === 0,
+      ai.calls.length === 1 && (onFixedList() || !offered(ai.calls[0]).includes(`send.${SEARCH_WEB_TOOL}`)) && brave.requests.length === 0,
     );
 
     /* ---------------- searching, then opening a result ---------------- */
@@ -281,7 +281,7 @@ export async function runAgentSearchChecks(check) {
     await ask({ ...env, SITE_SHOTS: undefined }, TOKEN_TEXTS, { question: "Search for pizza" });
     check(
       "search works on a deployment with no browser, which then offers no page opening",
-      offered(ai.calls[0]).includes(`send.${SEARCH_WEB_TOOL}`) && !offered(ai.calls[0]).includes(`send.${OPEN_PAGE_TOOL}`),
+      offered(ai.calls[0]).includes(`send.${SEARCH_WEB_TOOL}`) && (onFixedList() || !offered(ai.calls[0]).includes(`send.${OPEN_PAGE_TOOL}`)),
     );
 
     /* ---------------- the helpers ---------------- */

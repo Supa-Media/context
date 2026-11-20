@@ -18,6 +18,7 @@ import { UNLISTED_TOOLS, V2_ONLY_TOOLS } from "../../../../apps/mcp/src/tools/ad
 import { PRIVATE_TIER_ONLY_TOOLS, STAFF_ONLY_TOOLS, toolDefinitions } from "../../../../apps/mcp/src/tools/registry.js";
 import { OWN_READ_TOOLS } from "./sixTools.js";
 import { catalogue } from "./toolCatalogue.js";
+import { textingWriteTools } from "./textingWrites.js";
 
 /** The kinds of chat with a list of their own: a 1:1 (its texts, check-ins, routines and jobs) and a group chat (and its jobs). */
 export const FIXED_KINDS = ["one", "group"];
@@ -58,7 +59,11 @@ export function fixedCarriers(kind, { readSkill = null } = {}) {
   const key = `${kind === "group" ? "group" : "one"}\u0000${readSkill ? JSON.stringify(readSkill) : ""}`;
   if (memo.has(key)) return memo.get(key);
   const shown = new Map();
-  for (const tool of gatewayCarriers(kind === "group" ? "group" : "one")) shown.set(tool.name, tool);
+  const gateway = gatewayCarriers(kind === "group" ? "group" : "one");
+  for (const tool of gateway) shown.set(tool.name, tool);
+  // A 1:1's writes as a text holds them (`textingWrites.js`): its save carries how routines are written. A group is told
+  // that in its prompt (`groupRoutines.js`), as on its per-turn list.
+  if (kind !== "group") for (const tool of textingWriteTools(gateway, { texting: true })) shown.set(tool.name, tool);
   for (const [name, tool] of catalogue(kind)) if (!shown.has(name) && !(kind === "group" ? NEVER_A_GROUPS : NEVER_A_ONES).has(name)) shown.set(name, tool);
   if (readSkill) shown.set(readSkill.name, readSkill);
   if (memo.size > 32) memo.clear();

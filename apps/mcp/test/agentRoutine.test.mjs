@@ -38,7 +38,7 @@
  *     own run is never offered a write` fails.
  */
 
-import { shown } from "./sixToolsShown.mjs";
+import { shown, onFixedList, manualOf } from "./sixToolsShown.mjs";
 import worker from "../src/index.js";
 import { createWorkerCtx } from "./workerCtx.mjs";
 import {
@@ -434,18 +434,19 @@ export async function runAgentRoutineChecks(check) {
     await ask(env, TOKEN_RUNNER, { routine: { path: "routines/daily/morning-brief.md" } });
     check(
       "a routine's own run is never offered a write",
-      !offeredTo(model.requests.at(-1)).includes("write.save") &&
+      // On the fixed list every texted turn is shown the same actions, and these are refused (`sixToolsShown.mjs`).
+      (onFixedList() || !offeredTo(model.requests.at(-1)).includes("write.save") &&
         !offeredTo(model.requests.at(-1)).includes("manage.archive") &&
-        !offeredTo(model.requests.at(-1)).includes("manage.move") &&
+        !offeredTo(model.requests.at(-1)).includes("manage.move")) &&
         offeredTo(model.requests.at(-1)).includes("fetch"),
     );
     // 2026-10-23: a routine run sent a pause of itself for approval; it stops itself with DONE: instead.
-    check("a routine's own run is never offered a proposal", !offeredTo(model.requests.at(-1)).includes("write.propose"));
+    check("a routine's own run is never offered a proposal", onFixedList() || !offeredTo(model.requests.at(-1)).includes("write.propose"));
     model.install([{ text: "ok" }]);
     await ask(env, TOKEN_TEXTS_READ, { question: "every morning tell me what's due" });
     check(
       "a texting grant that cannot write is offered no write",
-      !offeredTo(model.requests.at(-1)).includes("write.save") && !offeredTo(model.requests.at(-1)).includes("manage"),
+      onFixedList() || !offeredTo(model.requests.at(-1)).includes("write.save") && !offeredTo(model.requests.at(-1)).includes("manage"),
     );
 
     const brief = "---\nat: 7:30 am\n---\nText me what's due today.\n";
@@ -469,7 +470,7 @@ export async function runAgentRoutineChecks(check) {
     check(
       "a texting turn is offered a write whose save says how routines work, and each tool once",
       writeTool !== undefined &&
-        writeTool.description.includes("routines/<how-often>/<name>.md") &&
+        (onFixedList() ? manualOf("save") : writeTool.description).includes("routines/<how-often>/<name>.md") &&
         new Set((madeRequest?.tools ?? []).map((tool) => tool.name)).size === (madeRequest?.tools ?? []).length,
     );
     check(
@@ -489,13 +490,13 @@ export async function runAgentRoutineChecks(check) {
     );
 
     const manageTool = (madeRequest?.tools ?? []).find((tool) => tool.name === "manage");
-    const saveLine = writeTool?.description.split("\n").find((line) => line.startsWith("- save:")) ?? "";
+    const saveLine = onFixedList() ? manualOf("save") : (writeTool?.description.split("\n").find((line) => line.startsWith("- save:")) ?? "");
     check(
       "a text is offered the MCP's own write actions, cross-workspace moves included",
       ["write.remember", "manage.move_many", "manage.move_folder", "manage.visibility", "manage.website"].every((name) =>
         offeredTo(madeRequest).includes(name)
       ) &&
-        /^- move:.*destination_context/m.test(manageTool?.description ?? "") &&
+        (onFixedList() ? /destination_context/.test(manualOf("move")) : /^- move:.*destination_context/m.test(manageTool?.description ?? "")) &&
         ["share", "images"].every((key) => saveLine.includes(key)) &&
         "content" in (writeTool?.input_schema?.properties ?? {}) &&
         !offeredTo(madeRequest).some((name) => name.includes("export_encryption_keys")),

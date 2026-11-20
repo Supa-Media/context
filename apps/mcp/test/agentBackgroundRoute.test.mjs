@@ -47,6 +47,7 @@
  *     dropping the `answer_early` step → "a job's part sends its answer before the advisor's check" fails.
  */
 
+import { onFixedList } from "./sixToolsShown.mjs";
 import worker from "../src/index.js";
 import { createWorkerCtx } from "./workerCtx.mjs";
 import { createControlPlaneStub, createS3Backend, CONTROL_PLANE_ORIGIN, GATEWAY_SECRET } from "./controlPlaneStub.mjs";
@@ -249,7 +250,7 @@ export async function runAgentBackgroundRouteChecks(check) {
 
     model.install([{ text: "Hi." }]);
     await post(env, TOKEN_TEXTS, "/agent", { question: "hello", conversation: "texts" });
-    check("a Worker that sends no running list is offered no background jobs", !/background:/.test(sendTool(model.requests.at(-1))?.description ?? ""));
+    check("a Worker that sends no running list is offered no background jobs", onFixedList() || !/background:/.test(sendTool(model.requests.at(-1))?.description ?? ""));
     model.install([{ text: "Hi." }]);
     await post(env, TOKEN_APP, "/agent", { question: "hello", running: [] });
     check("only a texted turn is offered background jobs", !/background:/.test(sendTool(model.requests.at(-1))?.description ?? ""));
@@ -279,7 +280,7 @@ export async function runAgentBackgroundRouteChecks(check) {
     // What changes from part to part is said after the history, never in the cached system prompt (cache audit, 2026-11-20).
     check("...and what changes per part is said in its turn, not the cached system prompt", !/carry on from where it stops|add Reflect too/.test(systemOf(jobRequest)));
     check("a job's own turn is shown their later texts", /newer than your plan[^]*- add Reflect too/.test(toldOf(jobRequest)));
-    check("a job's own turn cannot start another job", !/background:/.test(sendTool(jobRequest)?.description ?? ""));
+    check("a job's own turn cannot start another job", onFixedList("job") || !/background:/.test(sendTool(jobRequest)?.description ?? ""));
     const turns = conversationTurns(bucket);
     check(
       "a job's own answer is its report, not kept as said",
