@@ -77,6 +77,8 @@ export type GroupMessage = {
   heard?: string;
   /** A chat routine's run, queued by this Worker itself and never by a webhook (`groupRoutines.ts`). */
   routine?: { runId: string; path: string };
+  /** Set on a message from the texts simulator's group mode (`simulatorGroup.ts`): its replies are logged, never sent. */
+  channel?: "simulator";
   /** A background job's report, queued by this Worker for the chat's own turn, which decides what is said (`jobTexts.ts`). */
   jobReport?: JobReport;
   /** Another chat's ask, or the answer to this chat's own, queued by this Worker (`crossChat.ts`); never a webhook's. */

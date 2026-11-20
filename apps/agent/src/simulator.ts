@@ -31,64 +31,16 @@ import { inboxByName } from "./objectPlace";
 import { intakeOf } from "./handOver";
 import { GATEWAY_CALL_PREFIX, INBOX_NAME_HEADER } from "./inboxMove";
 import type { TextsBinding } from "./gatewaySession";
+import { claim, clear, record, sha256Hex, SIMULATED_PHONE, thread } from "./simulatorLog";
+import { handleSimulatorGroup, SIM_GROUP_PATH } from "./simulatorGroup";
+
+// The simulator's log, claim and phone rules live in `simulatorLog.ts`; they are re-exported here for the 1:1 routes.
+export { claim, clear, record, SIMULATED_PHONE, SIM_LOG_FOR_MS, SIM_LOG_LIMIT, thread, type SimEntry } from "./simulatorLog";
 
 export const SIMULATOR_PATH = "/texts-simulator";
 
-/** +1, a real area code, then 555-01XX: the numbers set aside for fiction. */
-export const SIMULATED_PHONE = /^\+1[2-9]\d{2}55501\d{2}$/;
-
-/** The log keeps the newest entries for a day, and never more than this many. */
-export const SIM_LOG_LIMIT = 100;
-export const SIM_LOG_FOR_MS = 24 * 60 * 60 * 1000;
-
-const KEY_HASH = "sim:key";
-const LOG_SEQ = "sim:seq";
-const logKey = (seq: number) => `sim:log:${String(seq).padStart(12, "0")}`;
-
-export type SimEntry = { id: number; dir: "in" | "out"; text: string; at: number };
-
 export function simulatorEnabled(value: string | undefined): boolean {
   return value === "on";
-}
-
-/**
- * The first key presented for a number claims it; afterwards only that key
- * opens it. Clearing the chat keeps the claim, so a cleared number cannot be
- * picked up by another browser.
- */
-export async function claim(storage: InboxStorage, keyHash: string): Promise<boolean> {
-  const held = await storage.get<string>(KEY_HASH);
-  if (held === undefined) {
-    await storage.put(KEY_HASH, keyHash);
-    return true;
-  }
-  return held === keyHash;
-}
-
-/** Append one bubble to the log, then trim it by age and count. */
-export async function record(storage: InboxStorage, dir: SimEntry["dir"], text: string, now: number): Promise<void> {
-  const seq = ((await storage.get<number>(LOG_SEQ)) ?? 0) + 1;
-  await storage.put(LOG_SEQ, seq);
-  await storage.put<SimEntry>(logKey(seq), { id: seq, dir, text, at: now });
-  const entries = [...(await storage.list<SimEntry>({ prefix: "sim:log:" }))];
-  const excess = entries.length - SIM_LOG_LIMIT;
-  for (const [index, [key, entry]] of entries.entries()) {
-    if (index < excess || now - entry.at > SIM_LOG_FOR_MS) await storage.delete(key);
-  }
-}
-
-/** What the page draws: the log, and whether an answer is still being worked on. */
-export async function thread(storage: InboxStorage, now: number): Promise<{ messages: SimEntry[]; typing: boolean }> {
-  const entries = [...(await storage.list<SimEntry>({ prefix: "sim:log:" })).values()];
-  const pending = await storage.list<unknown>({ prefix: "pending:" });
-  return {
-    messages: entries.filter((entry) => now - entry.at <= SIM_LOG_FOR_MS),
-    typing: pending.size > 0,
-  };
-}
-
-export async function clear(storage: InboxStorage): Promise<void> {
-  for (const key of (await storage.list<SimEntry>({ prefix: "sim:log:" })).keys()) await storage.delete(key);
 }
 
 // ── The Worker's routes ───────────────────────────────────────────────────
@@ -98,11 +50,6 @@ export type SimulatorEnv = { SENDER_INBOX: DurableObjectNamespace; INTAKE?: stri
 
 const MAX_REQUEST_BYTES = 16 * 1024;
 const KEY_PATTERN = /^[0-9a-f]{32,128}$/;
-
-async function sha256Hex(value: string): Promise<string> {
-  const digest = new Uint8Array(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(value)));
-  return Array.from(digest, (b) => b.toString(16).padStart(2, "0")).join("");
-}
 
 const PAGE_HEADERS = {
   "Content-Type": "text/html; charset=utf-8",
@@ -126,12 +73,15 @@ export async function handleSimulator(request: Request, env: SimulatorEnv, page:
     return new Response(page, { headers: PAGE_HEADERS });
   }
 
-  const action = { "/api/send": "send", "/api/thread": "thread", "/api/clear": "clear" }[path];
-  if (action === undefined) return new Response(null, { status: 404 });
-  if (request.method !== (action === "thread" ? "GET" : "POST")) return new Response(null, { status: 405 });
+  // A simulated group (`simulatorGroup.ts`) has its own routes, bodies and object; it never takes a 1:1 number.
+  const isGroup = path.startsWith(`${SIM_GROUP_PATH}/`);
+  const action = isGroup ? undefined : { "/api/send": "send", "/api/thread": "thread", "/api/clear": "clear" }[path];
+  if (!isGroup && action === undefined) return new Response(null, { status: 404 });
+  if (!isGroup && request.method !== (action === "thread" ? "GET" : "POST")) return new Response(null, { status: 405 });
 
   const key = request.headers.get("x-simulator-key") ?? "";
   if (!KEY_PATTERN.test(key)) return new Response(null, { status: 401 });
+  if (isGroup) return handleSimulatorGroup(request, env, path, await sha256Hex(key), url);
 
   let phone: string | null = url.searchParams.get("phone");
   let text = "";

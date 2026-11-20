@@ -9,7 +9,7 @@ import { jobRoute } from "./jobRoutes";
 import { jobStub } from "./jobPlace";
 import { logged } from "./agentError";
 import { type Inbound } from "./inbound";
-import { accept, carryOnAfterSave, drain, keepEdit, react, type InboxDeps } from "./inbox";
+import { accept, carryOnAfterSave, drain, keepEdit, react, type InboxDeps, type InboxStorage } from "./inbox";
 import { editChat, editedGroupMessage, editedText, editStep, type EditOutcome } from "./editStep";
 import { GROUP_QUEUE, TEXTS_QUEUE, withdrawItem, type ChatQueue } from "./chatQueue";
 import { runningTurn } from "./steer";
@@ -49,6 +49,7 @@ import { resumePausedJobs } from "./jobPause";
 import { jobUpdate } from "./jobTexts";
 import { pageJobsOf, pageSteerResponse } from "./texPage";
 import { simulatorEnabled, simulatorInbox } from "./simulator";
+import { simulatedGroupInbox, type SimGroupBody } from "./simulatorGroup";
 import { appCardConfig } from "./appCards";
 import { watchGroupPresenceDaily, whapiKeys } from "./whapi";
 import { noteCardDrawer } from "./noteCards";
@@ -109,6 +110,14 @@ export class SenderInbox implements DurableObject {
       const body = (await request.json()) as { keyHash: string; phone: string; text: string };
       return simulatorInbox(this.state.storage, path.slice("/sim/".length), body, Date.now(), (message) =>
         accept(this.state.storage, message, Date.now()),
+      );
+    }
+    if (path.startsWith("/sim-group/")) {
+      // A simulated group's message, from the Worker's group route (`simulatorGroup.ts`); on only while the simulator is.
+      if (!simulatorEnabled(this.env.SIMULATOR)) return new Response(null, { status: 404 });
+      const body = (await request.json()) as SimGroupBody;
+      return simulatedGroupInbox(this.state.storage, path.slice("/sim-group/".length), body, Date.now(), (message) =>
+        acceptGroup(this.state.storage, message, Date.now(), this.groupApp(message.groupId)),
       );
     }
     if (path === "/routine-text") {
@@ -187,8 +196,8 @@ export class SenderInbox implements DurableObject {
     if (path === "/group-accept") {
       await this.keepOrigin(request);
       // Only this Worker's cron queues a routine's run (`/group-routine`); a webhook's message never names one.
-      // Nor its `heard`: only this object sets that, from the recording itself (`groupVoice.ts`); nor `edited` (`editStep.ts`).
-      const { routine: _routine, heard: _heard, edited: _edited, provider: brought, ...sent } = (await request.json()) as GroupMessage & { provider?: unknown };
+      // Nor its `heard`: only this object sets that, from the recording itself (`groupVoice.ts`); nor `edited` (`editStep.ts`); nor `channel`, which only the simulator's route sets (`simulatorGroup.ts`).
+      const { routine: _routine, heard: _heard, edited: _edited, channel: _channel, provider: brought, ...sent } = (await request.json()) as GroupMessage & { provider?: unknown };
       await this.keepWhere(sent);
       const message = await heardInGroup(sent, { fetch: this.out, gateway: this.env.GATEWAY_TEXTS });
       const outcome = await acceptGroup(this.state.storage, message, Date.now(), this.groupApp(message.groupId));
@@ -435,7 +444,7 @@ export class SenderInbox implements DurableObject {
     return line === undefined ? {} : { remoteLine: (chatId) => line.line(chatId), remoteGroupLine: (groupId) => line.groupLine(groupId) };
   }
 
-  private deps(): InboxDeps & { startTurn?: (turn: string) => Promise<void>; answerFirst?: (work: Promise<unknown>) => void } {
+  private deps(): InboxDeps & { startTurn?: (turn: string) => Promise<void>; answerFirst?: (work: Promise<unknown>) => void; simulatorStorage?: InboxStorage } {
     const workflow = this.env.GROUP_TURN;
     return {
       ...(workflow ? { startTurn: (turn: string) => startGroupTurn(workflow, this.state.id.toString(), turn), answerFirst: (work: Promise<unknown>) => this.handOff(work) } : {}),
@@ -452,6 +461,8 @@ export class SenderInbox implements DurableObject {
       photon: this.env.PHOTON ?? null,
       linkNotes: linkNotesOf(this.state.storage),
       movedTo: groupMovedTo(this.env.SENDER_INBOX),
+      // A simulated group's log is kept in this object (`simulatedGroup.ts`); a real group never reads it.
+      simulatorStorage: this.state.storage,
       appCard: appCardConfig(this.env),
       waitUntil: (promise) => this.handOff(promise),
       textTiming: this.env.TEX_TEXTS,
