@@ -30,6 +30,15 @@ import { escaped, type Page } from "./messagesPage";
 import { PICTURE_KEY, PICTURE_PATH } from "./messagesPicture";
 
 export const MESSAGES_PREFIX = "/messages/";
+/**
+ * The kinds of card Tex sends, whose own address is `https://context.lc/tex/<kind>?…`.
+ * iOS opens that address in the browser when a tap does not reach the
+ * extension (it is not installed on that phone, or Messages hands the link on),
+ * and there `/tex/<word>` is a person's Tex page, so the tap read "This page
+ * isn't yours" (Dev2, 2026-11-20). The browser goes to the card's own page
+ * instead, which says where to answer it.
+ */
+const SENT_CARD = /^\/tex\/(ask|pick|card|hello)\/?$/;
 
 const ORIGIN = "https://context.lc";
 const MAX_OPTIONS = 8;
@@ -46,6 +55,10 @@ export const BRIDGE_SCRIPT = `(function () {
   var status = document.getElementById("status");
   function say(text) { if (status) status.textContent = text; }
   var buttons = document.querySelectorAll("button[data-card]");
+  if (!bridge) {
+    for (var k = 0; k < buttons.length; k++) buttons[k].style.display = "none";
+    say(buttons.length ? "This card answers inside Messages. Go back to your chat with Tex and tap it there, or reply in words." : "");
+  }
   for (var i = 0; i < buttons.length; i++) {
     buttons[i].addEventListener("click", function (event) {
       var button = event.currentTarget;
@@ -65,7 +78,7 @@ export const BRIDGE_SCRIPT = `(function () {
 })();`;
 
 /** `BRIDGE_SCRIPT`'s sha256, which the page's policy allows (`messagesCards.test.ts` checks it). */
-export const BRIDGE_SCRIPT_HASH = "sha256-QuW0ZHNrFNWVWbHCP50Ugg8tugL73qVyqnZ6JvZA0cU=";
+export const BRIDGE_SCRIPT_HASH = "sha256-a+uDVPG5yXjH8b0DbLkqdRK2j7GEqbuNtGwmOSm6lvE=";
 
 const policy = (hash: string) =>
   "default-src 'none'; style-src 'unsafe-inline'; img-src 'self'; " +
@@ -175,6 +188,10 @@ function render(page: Page): string {
 
 /** The page for a `/messages/…` address, or null for any other path. */
 export function messagesCardResponse(request: Request, url: URL): Response | null {
+  const sent = SENT_CARD.exec(url.pathname);
+  if (sent !== null && (request.method === "GET" || request.method === "HEAD")) {
+    return new Response(null, { status: 302, headers: { Location: `${MESSAGES_PREFIX}${sent[1]}${url.search}`, "Cache-Control": "no-store", "Referrer-Policy": "no-referrer" } });
+  }
   if (!url.pathname.startsWith(MESSAGES_PREFIX)) return null;
   if (request.method !== "GET" && request.method !== "HEAD") return new Response("Method not allowed", { status: 405, headers: { Allow: "GET, HEAD" } });
   const kind = url.pathname.slice(MESSAGES_PREFIX.length);
