@@ -23,7 +23,7 @@ export const EDIT_FIELDS = ["new_title", "new_start", "new_end", "location", "no
 /** Reminders: up to 5 distinct minutes-before, 0 to four weeks; `[]` is none at all. */
 export function reminderList(value) {
   if (value === undefined || value === null) return { value: undefined };
-  const wrong = { error: `reminders is a list of up to ${MAX_REMINDERS} different minutes before it starts, like [10, 60]; [] for none.` };
+  const wrong = { error: `reminders is a list of up to ${MAX_REMINDERS} different minutes before it starts, like [10, 60]; [] for none. Pass them that way.` };
   if (!Array.isArray(value) || value.length > MAX_REMINDERS) return wrong;
   if (value.some((minutes) => !Number.isInteger(minutes) || minutes < 0 || minutes > MAX_REMINDER_MINUTES)) return wrong;
   if (new Set(value).size !== value.length) return wrong;
@@ -34,7 +34,7 @@ export function reminderList(value) {
 export function recurrenceList(value, { allowEmpty }) {
   if (value === undefined || value === null) return { value: undefined };
   const wrong = {
-    error: `recurrence is a list of up to ${MAX_RECURRENCE} lines like "RRULE:FREQ=WEEKLY;BYDAY=MO" or "RRULE:FREQ=DAILY;COUNT=5"${allowEmpty ? "; [] stops it repeating" : ""}.`,
+    error: `recurrence is a list of up to ${MAX_RECURRENCE} lines like "RRULE:FREQ=WEEKLY;BYDAY=MO" or "RRULE:FREQ=DAILY;COUNT=5"${allowEmpty ? "; [] stops it repeating" : ""}. Pass them that way.`,
   };
   if (!Array.isArray(value) || value.length > MAX_RECURRENCE || (value.length === 0 && !allowEmpty)) return wrong;
   if (value.some((line) => typeof line !== "string" || line.length > MAX_RULE || !RULE.test(line))) return wrong;
@@ -49,11 +49,11 @@ export function readEditFields(args, { span, optional, guestList, CONTROL, NOTES
   if (!EDIT_FIELDS.some((field) => args[field] !== undefined)) {
     return { error: `edit changes at least one of ${EDIT_FIELDS.join(", ")}; the event is found by title and start as they are now.` };
   }
-  if (args.end !== undefined || args.guests !== undefined) return { error: "edit takes new_start and new_end for a new time, and add_guests or remove_guests." };
+  if (args.end !== undefined || args.guests !== undefined) return { error: "edit takes new_start and new_end for a new time, and add_guests or remove_guests. Use those fields, or action move for a new time." };
   const fields = {};
   if (args.new_title !== undefined) {
     const title = args.new_title;
-    if (typeof title !== "string" || title.trim() === "" || title.length > MAX_TITLE || CONTROL.test(title)) return { error: `new_title is one line of 1 to ${MAX_TITLE} characters.` };
+    if (typeof title !== "string" || title.trim() === "" || title.length > MAX_TITLE || CONTROL.test(title)) return { error: `new_title is one line of 1 to ${MAX_TITLE} characters. Write a shorter one-line title. Write a shorter one-line title.` };
     fields.new_title = title;
   }
   if (args.new_start !== undefined || args.new_end !== undefined) {
@@ -81,10 +81,10 @@ export function readEditFields(args, { span, optional, guestList, CONTROL, NOTES
   }
   if (fields.add_guests && fields.remove_guests) {
     const adding = new Set(fields.add_guests.map((guest) => guest.toLowerCase()));
-    if (fields.remove_guests.some((guest) => adding.has(guest.toLowerCase()))) return { error: "add_guests and remove_guests name different people." };
+    if (fields.remove_guests.some((guest) => adding.has(guest.toLowerCase()))) return { error: "add_guests and remove_guests name different people. Remove the person from one of them." };
   }
   if (args.meet !== undefined) {
-    if (args.meet !== true) return { error: "meet is true, or left out." };
+    if (args.meet !== true) return { error: "meet is true, or left out. Pass true, or leave it out." };
     fields.meet = true;
   }
   const reminders = reminderList(args.reminders);
@@ -98,7 +98,7 @@ export function readEditFields(args, { span, optional, guestList, CONTROL, NOTES
 
 /** An RSVP's own fields, or `{ error }`. */
 export function readRsvpFields(args) {
-  if (!RSVP_RESPONSES.includes(args.response)) return { error: 'rsvp takes response: "accepted", "declined" or "tentative".' };
+  if (!RSVP_RESPONSES.includes(args.response)) return { error: 'rsvp takes response: "accepted", "declined" or "tentative". Pass one of those.' };
   const extra = [...EDIT_FIELDS, "end", "guests"].find((field) => args[field] !== undefined);
   if (extra) return { error: `rsvp takes only title, start, response and all_events, not ${extra}.` };
   return { fields: { response: args.response } };

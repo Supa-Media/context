@@ -62,13 +62,13 @@ function oneLine(text, most = 200) {
 
 export async function toolSearchEmail(store, scope, rules, overrides, args) {
   const query = typeof args?.query === "string" ? args.query.trim() : "";
-  if (query === "" || query.length > 500) return toolError("query is Gmail search syntax, 1 to 500 characters.");
+  if (query === "" || query.length > 500) return toolError("query is Gmail search syntax, 1 to 500 characters. Write a shorter query, like from:sam subject:invoice.");
   // `mailbox` is every tool's id of a note's mail someone joined, never an email account; an address written there was
   // meant as the account (2026-11-14: Tex searched one Gmail with mailbox:, it searched every one, and Tex said the one it
   // asked for was out of reach).
   const meant = args?.account === undefined && typeof args?.mailbox === "string" && ACCOUNT.test(args.mailbox.trim()) ? args.mailbox : args?.account;
   const account = meant === undefined ? null : String(meant).trim().toLowerCase();
-  if (account !== null && !ACCOUNT.test(account)) return toolError("account is one connected email address.");
+  if (account !== null && !ACCOUNT.test(account)) return toolError("account is one connected email address. Pass one address exactly as orient lists it, or leave account out to search them all.");
   const limit = Number.isInteger(args?.limit) ? Math.min(Math.max(args.limit, 1), 10) : 10;
   if (typeof store?.email?.search !== "function") return toolError(REFUSED.not_allowed);
 
@@ -280,14 +280,14 @@ export function parseEmailId(id) {
 
 export async function toolReadEmail(store, args) {
   const parsed = parseEmailId(typeof args?.id === "string" ? args.id.trim() : "");
-  if (parsed === null) return toolError(`id is ${EMAIL_ID_PREFIX}<address>/<id>, as search_email gave it.`);
+  if (parsed === null) return toolError(`id is ${EMAIL_ID_PREFIX}<address>/<id>, as search_email gave it; search first and pass the id it gives. Search first and pass the id it gives.`);
   const wanted = args?.attachment;
   if (wanted !== undefined && (!Number.isInteger(wanted) || wanted < 1 || wanted > 100)) {
-    return toolError("attachment is the attachment's number as the email lists it: 1 for the first.");
+    return toolError("attachment is the attachment's number as the email lists it: 1 for the first. Read the email first to see its numbers.");
   }
   if (typeof store?.email?.read !== "function") return toolError(REFUSED.not_allowed);
   if (wanted !== undefined && typeof store?.ai?.toMarkdown !== "function") {
-    return toolError("reading attachments is not available on this deployment");
+    return toolError("reading attachments is not available on this deployment; tell the person you can't open it here");
   }
   let answer;
   try {
@@ -348,7 +348,7 @@ async function attachmentWords(store, message, file, part = {}) {
   }
   const name = oneLine(file.filename, 200) || "attachment";
   const type = typeOfFile(name, bytes);
-  if (type === null) return toolError(`${name} is not a kind of file Context can read: PDF, Word, Excel, CSV and pictures are.`);
+  if (type === null) return toolError(`${name} is not a kind of file Context can read: PDF, Word, Excel, CSV and pictures are. Tell the person you can't open this one.`);
   const words = await fileWords(store.ai, name, type, bytes, part);
   if (words.error) return toolError(`${words.error}: ${name}`);
   const answer = toolText(

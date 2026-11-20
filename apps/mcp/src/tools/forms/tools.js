@@ -58,12 +58,12 @@ import { toolWriteNote } from "../notes/write.js";
 export async function toolCreateForm(store, scope, rules, overrides, args) {
   const path = normalizePath(args.path);
   if (!path || !path.endsWith(".md")) {
-    return toolError("path must be a note path ending in .md");
+    return toolError("path must be a note path ending in .md; pass the form's full path");
   }
   const stem = path.slice(0, -3);
   const responses = normalizePath(args.responses || `${stem}-responses.md`);
   if (!responses || !responses.endsWith(".md")) {
-    return toolError("responses must be a note path ending in .md");
+    return toolError("responses must be a note path ending in .md; pass a full path like forms/rsvp-responses.md");
   }
   if (responses === path) {
     return toolError(
@@ -220,7 +220,7 @@ export async function toolSubmitForm(store, scope, rules, overrides, args) {
 export async function toolUpdateSubmission(store, scope, rules, overrides, args) {
   return mutateFormResponses(store, scope, rules, overrides, args, "update_submission", (responses, { config, actor }) => {
     const index = responses.findIndex((response) => response.id === args.response_id);
-    if (index === -1) return { refusal: toolError("no such response on this form") };
+    if (index === -1) return { refusal: toolError("no such response on this form; read the responses note for the right id") };
     const existing = responses[index];
     const denied = mayChangeResponse(existing, config, actor, "edit");
     if (denied) return { refusal: denied };
@@ -245,7 +245,7 @@ export async function toolUpdateSubmission(store, scope, rules, overrides, args)
 export async function toolRetractSubmission(store, scope, rules, overrides, args) {
   return mutateFormResponses(store, scope, rules, overrides, args, "retract_submission", (responses, { config, actor }) => {
     const existing = responses.find((response) => response.id === args.response_id);
-    if (!existing) return { refusal: toolError("no such response on this form") };
+    if (!existing) return { refusal: toolError("no such response on this form; read the responses note for the right id") };
     const denied = mayChangeResponse(existing, config, actor, "delete");
     if (denied) return { refusal: denied };
     return {
@@ -259,7 +259,7 @@ export async function toolRetractSubmission(store, scope, rules, overrides, args
 export async function toolVoteForm(store, scope, rules, overrides, args) {
   return mutateFormResponses(store, scope, rules, overrides, args, "vote_form", (responses, { config, actor }) => {
     if (config.votes !== "named") {
-      return { refusal: toolError("this form does not collect votes") };
+      return { refusal: toolError("this form does not collect votes; send a response instead") };
     }
     if (!roleAtLeast(actor.role, config.submit)) {
       return {
@@ -269,7 +269,7 @@ export async function toolVoteForm(store, scope, rules, overrides, args) {
       };
     }
     const index = responses.findIndex((response) => response.id === args.response_id);
-    if (index === -1) return { refusal: toolError("no such response on this form") };
+    if (index === -1) return { refusal: toolError("no such response on this form; read the responses note for the right id") };
 
     const wants = args.vote === undefined ? "up" : args.vote;
     const existing = responses[index];

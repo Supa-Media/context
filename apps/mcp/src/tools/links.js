@@ -93,10 +93,10 @@ export async function shareWrittenNote(store, path, args) {
  */
 export async function toolCreateLink(store, scope, args) {
   const calls = store?.links;
-  if (!calls) return toolError("links are not available on this deployment.");
+  if (!calls) return toolError("links are not available on this deployment. Tell the person, and don't try again.");
 
   const path = normalizePath(args.path);
-  if (!path) return toolError("path must be a note or folder path in this context");
+  if (!path) return toolError("path must be a note or folder path in this context; pass one as orient or search shows it");
 
   const minted = await mintAndDescribe(calls, {
     path,
@@ -136,7 +136,7 @@ async function mintAndDescribe(calls, request) {
       ok: false,
       error:
         "that link cannot be minted. Minting is the context owner's, the path has to be a note " +
-        "or folder the workspace can already read, and an encrypted note is never linkable.",
+        "or folder the workspace can already read, and an encrypted note is never linkable. Check those, or ask the owner to make the link.",
     };
   }
 
@@ -178,17 +178,17 @@ async function mintAndDescribe(calls, request) {
 
 export async function toolListLinks(store, scope) {
   const calls = store?.links;
-  if (!calls) return toolError("links are not available on this deployment.");
+  if (!calls) return toolError("links are not available on this deployment. Tell the person, and don't try again.");
 
   const links = await calls.list();
-  if (links === null) return toolError("listing this context's links is the owner's.");
+  if (links === null) return toolError("listing this context's links is the owner's. Ask the owner to list them.");
   if (links.length === 0) return toolText("no live links in this context.");
   return toolText(links.map((link) => describeLink(link)).join("\n\n"));
 }
 
 export async function toolRevokeLink(store, scope, args) {
   const calls = store?.links;
-  if (!calls) return toolError("links are not available on this deployment.");
+  if (!calls) return toolError("links are not available on this deployment. Tell the person, and don't try again.");
 
   const shareId = typeof args.share_id === "string" ? args.share_id.trim() : "";
   if (!shareId) return toolError("share_id is required; list_links reports it");
@@ -196,7 +196,7 @@ export async function toolRevokeLink(store, scope, args) {
   const revoked = await calls.revoke(shareId);
   // One refusal covers "not yours", "already revoked" and "no such id" — the
   // same three the console's own revoke refuses as one, for the same reason.
-  if (!revoked) return toolError("no live link with that id in this context.");
+  if (!revoked) return toolError("no live link with that id in this context. Call list_links for the live ids.");
   return toolText(
     "revoked. That link no longer opens anything, and its short name is free again.\n" +
       "A preview card that already unfurled somewhere is cached by whatever unfurled it and " +

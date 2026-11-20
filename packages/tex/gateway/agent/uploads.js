@@ -63,7 +63,7 @@ export function readSawTheFile(read) {
 }
 
 function fromBytes(name, bytes, type) {
-  if (bytes.byteLength > MAX_FILE_BYTES) return { error: `that file is over the ${MAX_FILE_BYTES / 1024 / 1024} MB a page is given` };
+  if (bytes.byteLength > MAX_FILE_BYTES) return { error: `that file is over the ${MAX_FILE_BYTES / 1024 / 1024} MB a page is given; link the file instead of putting it in the page` };
   return { file: { name, type: type || typeOfFile(name, bytes) || GENERIC_TYPE, data: base64(bytes) } };
 }
 
@@ -84,7 +84,7 @@ export function printedEmail(message) {
 
 async function fromEmail(source, attachment, store) {
   const parsed = parseEmailId(source);
-  if (parsed === null) return { error: "an email is named by its email:<address>/<id> id, as search_email gave it" };
+  if (parsed === null) return { error: "an email is named by its email:<address>/<id> id, as search_email gave it; search first and pass the id it gives" };
   if (typeof store?.email?.read !== "function") return { error: REFUSED.not_allowed };
   let answer;
   try {
@@ -109,16 +109,16 @@ async function fromEmail(source, attachment, store) {
 async function fromPicture(note, image, dispatch) {
   const result = await dispatch("read_image", { note, image });
   const picture = failed(result) ? null : result.content.find((part) => part?.type === "image" && typeof part.data === "string");
-  if (!picture) return { error: "that picture was not found in that note" };
+  if (!picture) return { error: "that picture was not found in that note; read the note for the picture's name" };
   const bytes = Uint8Array.from(atob(picture.data), (ch) => ch.charCodeAt(0));
   return fromBytes(uploadName(image, "picture"), bytes, picture.mimeType);
 }
 
 async function fromNotes(path, dispatch, store) {
-  if (path.startsWith("@")) return { error: "only a file in their own workspace can be put into a page" };
+  if (path.startsWith("@")) return { error: "only a file in their own workspace can be put into a page; save it to their workspace first" };
   const key = normalizePath(path);
   if (!key || readableFileType(key) === null) {
-    return { error: "file is a PDF, Word, Excel, CSV or picture file in their notes, an email: id, or a picture with its note" };
+    return { error: "file is a PDF, Word, Excel, CSV or picture file in their notes, an email: id, or a picture with its note; pass one of those" };
   }
   // Read as the person first: the privacy engine decides, and a hidden file is "not found".
   // Only that refusal stops it: a file seen but not turned into words (no converter) is still theirs.
@@ -152,6 +152,6 @@ export async function resolveUpload(step, { dispatch, store }) {
     if (typeof step.note === "string" && step.note.trim()) return await fromPicture(step.note.trim(), source, dispatch);
     return await fromNotes(source, dispatch, store);
   } catch {
-    return { error: "that file could not be read just now" };
+    return { error: "that file could not be read just now; try again in a minute" };
   }
 }

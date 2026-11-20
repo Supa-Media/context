@@ -46,14 +46,14 @@ function span(start, end, [from, to] = ["start", "end"]) {
 
 function optional(value, field, max, control) {
   if (value === undefined || value === null) return { value: undefined };
-  if (typeof value !== "string" || value.length > max || control.test(value)) return { error: `${field} is text of at most ${max.toLocaleString("en-US")} characters.` };
+  if (typeof value !== "string" || value.length > max || control.test(value)) return { error: `${field} is text of at most ${max.toLocaleString("en-US")} characters. Shorten it and send again.` };
   return { value: value.trim() === "" ? undefined : value };
 }
 
 /** A create's guests: none, or 1 to 10 distinct email addresses; `{ error }` otherwise. */
 function guestList(value) {
   if (value === undefined || value === null) return { value: [] };
-  const wrong = { error: `guests is a list of 1 to ${MAX_GUESTS} different email addresses, like ["sam@example.com"].` };
+  const wrong = { error: `guests is a list of 1 to ${MAX_GUESTS} different email addresses, like ["sam@example.com"]. Pass them that way, each address once.` };
   if (!Array.isArray(value) || value.length === 0 || value.length > MAX_GUESTS) return wrong;
   const seen = new Set();
   for (const guest of value) {
@@ -70,18 +70,18 @@ function guestList(value) {
  */
 export function readCalendarChange(args) {
   const action = args?.action;
-  if (!ACTIONS.includes(action)) return { error: 'action is "create", "edit", "move", "cancel" or "rsvp".' };
+  if (!ACTIONS.includes(action)) return { error: 'action is "create", "edit", "move", "cancel" or "rsvp". Pick one of those.' };
   const title = typeof args?.title === "string" ? args.title : "";
-  if (title.trim() === "" || title.length > MAX_TITLE || CONTROL.test(title)) return { error: `title is one line of 1 to ${MAX_TITLE} characters.` };
+  if (title.trim() === "" || title.length > MAX_TITLE || CONTROL.test(title)) return { error: `title is one line of 1 to ${MAX_TITLE} characters. Write a shorter one-line title.` };
   if (time(args?.start) === null) {
     return { error: "start is a time with its offset or a whole day: call it again with start like 2026-10-20T15:00:00-04:00, or like 2026-10-20." };
   }
   if (args.all_events !== undefined && (args.all_events !== true || action === "create")) {
-    return { error: "all_events is true, or left out, and only for an event that already repeats." };
+    return { error: "all_events is true, or left out, and only for an event that already repeats. Leave it out for a one-off event." };
   }
-  if (args.response !== undefined && action !== "rsvp") return { error: "response is only for rsvp." };
+  if (args.response !== undefined && action !== "rsvp") return { error: "response is only for rsvp. Drop response, or use action rsvp." };
   if (args.calendar !== undefined && (typeof args.calendar !== "string" || args.calendar.length > 254 || !EMAIL.test(args.calendar))) {
-    return { error: "calendar is the address of one of their connected Google accounts, like seyi@example.com, or left out for their main one." };
+    return { error: "calendar is the address of one of their connected Google accounts, like seyi@example.com, or left out for their main one. Pass one of those, or leave it out." };
   }
   // Set by `calendarGate.js` on a change that tells guests, held for the person's yes; never by a model to skip it.
   if (args.notify_guests !== undefined && (args.notify_guests !== true || (action === "create" && (args.guests ?? []).length === 0))) {
@@ -109,7 +109,7 @@ export function readCalendarChange(args) {
   if (action === "create") {
     const guests = guestList(args.guests);
     if (guests.error) return { error: guests.error };
-    if (args.meet !== undefined && args.meet !== true) return { error: "meet is true, or left out." };
+    if (args.meet !== undefined && args.meet !== true) return { error: "meet is true, or left out. Pass true, or leave it out." };
     const wrong = span(args.start, args.end);
     if (wrong) return { error: wrong };
     const reminders = reminderList(args.reminders);
@@ -133,7 +133,7 @@ export function readCalendarChange(args) {
   );
   if (extra) return { error: `${action} names the event by its title and its start as they are now; it takes no ${extra}. Use edit to change anything else.` };
   if (action === "cancel") {
-    return args.new_start === undefined && args.new_end === undefined ? { change } : { error: "cancel takes no new_start or new_end." };
+    return args.new_start === undefined && args.new_end === undefined ? { change } : { error: "cancel takes no new_start or new_end. Drop them, or use action move to change the time." };
   }
   const wrong = span(args.new_start, args.new_end, ["new_start", "new_end"]);
   if (wrong) return { error: wrong };
