@@ -456,6 +456,14 @@ export const CAPABILITIES = Object.freeze([
     group: null,
     cant: [{ where: "everywhere", what: "send or receive files other than pictures, or voice notes, in the app chat yet", workaround: { kind: "words", text: "they text the file or voice note to you over iMessage, and you see it in the same history" } }],
   },
+  {
+    // Tex in a note's comments (`agent/noteRunRoute.js`): a run from the app's note, so nothing here is an action the model can call.
+    name: "Tex in a note's comments",
+    actions: [],
+    texts: "in the Context app, a note's comments: select text in it or press ⌘L and ask Tex; it reads the note and what you can already see, with your own access, and answers in the comments, suggesting an edit to the selected text that you keep or undo. It writes nothing to your chat with Tex, and nothing to the note until you keep the edit",
+    group: null,
+    cant: [],
+  },
 ]);
 
 /** Where each turn is, for the line under the list. */

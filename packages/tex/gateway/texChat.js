@@ -26,6 +26,7 @@ import { ARRIVAL_KINDS, INBOX_NAME } from "./texChat/arrival.js";
 import { objectByName } from "../../../apps/mcp/src/objectPlace.js";
 import { JOB_NAME } from "./texJobName.js";
 import { NAME_KEY, PLACE_KEY, SENDER_ID_KEY, isAppChatName, placeAppChat, serveAppArrive, serveAppOutbox, serveAppPictureById } from "./texChat/appChat.js";
+import { NOTE_RUNS_PATH, serveNoteRuns } from "./texChat/noteRuns.js";
 
 /** Where the Worker's chat object answers each kind of arrival (`packages/tex/worker/index.ts`). */
 const ARRIVAL_PATHS = Object.freeze({ one: "/accept", react: "/react", group: "/group-accept", members: "/group-members-changed", edit: "/edit" });
@@ -49,6 +50,8 @@ export function texChatClass({ gateway, texts }) {
 
     async fetch(request) {
       const url = new URL(request.url);
+      // A note's run log (`texChat/noteRuns.js`): its own object, named `noteruns:`, answered before any chat routing.
+      if (url.pathname === NOTE_RUNS_PATH) return await serveNoteRuns(request, this.state.storage);
       if (request.method === "POST" && url.pathname === "/arrive") return await this.arrive(request);
       // The app chat's calls (`texChat/appChat.js`): the gateway's `/tex/app-chat` route, and only for an app chat.
       if (request.method === "POST" && url.pathname === "/app/arrive") {
