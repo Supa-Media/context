@@ -6,7 +6,6 @@
  * Sabotage record (temporary local edits, reverted, 2026-11-13):
  *   replyJudge.js back to its own `effort: "low"`             "each judge asks the config how hard to think" fails
  *   texSetupFront() giving main effort high                   "a setup note with no models runs on the config's" fails
- *   the router on in texConfig.json                           "a step the code cannot run is never on" fails
  * (2026-11-14)
  *   texModules() giving a job the front door's modules         "each step's prompt modules are the p- entries" fails
  *   wordsDiffer always []                                      "a note that names its own modules keeps them" fails
@@ -107,8 +106,9 @@ test("the advisor runs on Sonnet 5.5 at effort high (Finance, approved 2026-11-1
   assert.deepEqual([texModel("advisor"), texStep("advisor").effort], ["anthropic/claude-sonnet-5-5", "high"]);
 });
 
-test("a step the code cannot run is never on: the router needs a thinking model the config does not name yet", () => {
-  assert.equal(texStep("router").on, false);
+test("the router is on as a logged signal only: no door and no hand-off reads it (Dev2, 2026-11-20)", () => {
+  assert.equal(texStep("router").on, true);
+  assert.ok(!TEX_CONFIG.edges.some((e) => (e.from === "fd" && ["fdQuick", "fdRead", "fdAct"].includes(e.to)) || (e.from === "router" && e.to === "handoff")));
 });
 
 test("both send-backs reach the front door through the Answer check's one loop, on any draft (sendBack.js); the old steps' loops are gone", () => {

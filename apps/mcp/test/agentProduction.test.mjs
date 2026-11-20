@@ -157,6 +157,8 @@ function fakeAi(replies = []) {
   return {
     calls,
     async run(model, input) {
+      // The Router's read beside the Door (on as a logged signal, 2026-11-20) is no part of the turn these tests watch.
+      if (input?.questions?.route) return { answers: {} };
       calls.push({ model, input });
       return script.shift() ?? { choices: [{ message: { content: "Hi.", tool_calls: [] }, finish_reason: "stop" }], usage: { prompt_tokens: 5, completion_tokens: 2 } };
     },
@@ -558,6 +560,7 @@ test("a built-in turn whose production model fails goes on with the setup's fall
   const ai = {
     calls,
     async run(model, input) {
+      if (input?.questions?.route) return { answers: {} }; // the Router's logged read, beside the Door
       calls.push({ model, input });
       if (model === "@cf/acme/texting-model") throw new Error("upstream said no");
       return { choices: [{ message: { content: "From the spare.", tool_calls: [] }, finish_reason: "stop" }], usage: { prompt_tokens: 5, completion_tokens: 2 } };

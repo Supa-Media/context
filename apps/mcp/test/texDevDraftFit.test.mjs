@@ -190,7 +190,7 @@ test("node_stats counts each step's runs, failures, time and what it said, and n
   const never = t.neverRan.map((n) => n.node);
   assert.ok(never.includes("shapeGate") && never.includes("router"));
   assert.ok(!never.includes("reflect"), "a step retired off the config is never named as one that did not run");
-  assert.ok(t.neverRan.find((n) => n.node === "router").off);
+  assert.ok(t.neverRan.find((n) => n.node === "shapeGate").off, "an off step that never ran says it is off");
   assert.ok(!never.includes("nudge"));
 
   // Through the chats this person can probe, over the window asked for, read a page at a time.
