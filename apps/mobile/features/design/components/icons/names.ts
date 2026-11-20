@@ -46,6 +46,10 @@ export const ICON_NAMES = [
   "chevronDown",
   "arrowLeft",
   "arrowRight",
+  /** Send, on the chat box: an arrow pointing up, the mark every messenger puts on its send key. */
+  "arrowUp",
+  /** Stop, while Tex is working and the box is empty: a filled square, the mark every chat uses for "stop generating". */
+  "stop",
   /**
    * Expand: two heads on one diagonal, out to the corners — a side panel
    * opened out into the whole page (`folderPage/panel/PanelHead.tsx`).
@@ -116,6 +120,12 @@ export const ICON_NAMES = [
    * told apart by the arrowhead alone — the arc between them is symmetric.
    */
   "undo",
+  /**
+   * Reply, on a Tex chat bubble's hover bar: a left-pointing head with its
+   * shaft turning down to the right, so it reads as "send back to where this
+   * came from" and not as undo, which is the arch above.
+   */
+  "reply",
   "redo",
   /** The accessory bar's task-checkbox key, drawn as the `[ ]` it inserts. */
   "brackets",

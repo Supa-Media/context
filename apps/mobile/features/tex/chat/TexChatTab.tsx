@@ -1,6 +1,5 @@
 import { useEffect, useRef, useState } from "react";
 import { Animated, Image, Pressable, ScrollView, StyleSheet, View } from "react-native";
-import { Tex } from "../../chaos/Tex";
 import { Text } from "../../design/components/Text";
 import { pointerType, radii, space } from "../../design/tokens";
 import { useColors, useThemedStyles, type Colors } from "../../design/theme";
@@ -17,11 +16,12 @@ import type { ApprovalsView } from "../../approvals/useApprovals";
 import { useAppChat, type AppChatView } from "./useAppChat";
 import { TexChatComposer, type EditTarget, type ReplyTarget } from "./TexChatComposer";
 import { TexChatRow } from "./TexChatRow";
+import { TexChatHeader } from "./TexChatHeader";
 import { chatTimeline } from "./approvalTimeline";
 import { TexApprovalCard } from "./TexApprovalCard";
 
-/** The words under Tex's name in the tab's header. */
-export const TEX_TAB_SUB = "Its own chat. Tex remembers your texts too.";
+/** How long a row stays lit after the log jumps to it. */
+const FLASH_MS = 1500;
 /** The line in the middle of an empty chat. */
 export const TEX_EMPTY = "Say hi to Tex, or send it something to do.";
 /** The line when this console cannot reach Tex at all. */
@@ -47,11 +47,14 @@ export function TexChatTab({
   workspaceId,
   endpoint,
   approvals,
+  onOpenNote,
 }: {
   workspaceId: string;
   endpoint: string;
   /** The held calls waiting on the person, drawn as cards in the log. */
   approvals?: ApprovalsView;
+  /** Opens a note a row links to, by its href and path; `null` where the console cannot open one. */
+  onOpenNote?: ((href: string, path: string) => void) | null;
 }) {
   const view = useAppChat({ workspaceId, endpoint, enabled: true });
   /*
@@ -64,16 +67,25 @@ export function TexChatTab({
   useEffect(() => {
     refreshApprovals.current?.();
   }, []);
-  return <TexChatView view={view} approvals={approvals} />;
+  return <TexChatView view={view} approvals={approvals} onOpenNote={onOpenNote} />;
 }
 
 /** The tab's face: a header with Tex, the log, the typing mark, the approval, the box. */
-export function TexChatView({ view, approvals }: { view: AppChatView; approvals?: ApprovalsView }) {
+export function TexChatView({
+  view,
+  approvals,
+  onOpenNote,
+}: {
+  view: AppChatView;
+  approvals?: ApprovalsView;
+  onOpenNote?: ((href: string, path: string) => void) | null;
+}) {
   const styles = useThemedStyles(makeStyles);
   const colors = useColors();
   const [reply, setReply] = useState<ReplyTarget | null>(null);
   const [edit, setEdit] = useState<EditTarget | null>(null);
   const [opened, setOpened] = useState<string | null>(null);
+  const [flashId, setFlashId] = useState<string | null>(null);
   const log = useRef<ScrollView>(null);
   const stuck = useRef(true);
   const ys = useRef(new Map<string, number>());
@@ -102,11 +114,19 @@ export function TexChatView({ view, approvals }: { view: AppChatView; approvals?
     return () => document.removeEventListener("keydown", onKey);
   }, [opened]);
 
+  // The row a jump landed on is lit for a moment, then goes back to plain.
+  useEffect(() => {
+    if (flashId === null) return;
+    const timer = setTimeout(() => setFlashId(null), FLASH_MS);
+    return () => clearTimeout(timer);
+  }, [flashId]);
+
   const jump = (rowId: string) => {
     const y = ys.current.get(rowId);
     if (y === undefined) return;
     stuck.current = false;
     log.current?.scrollTo({ y: Math.max(0, y - space.x2), animated: true });
+    setFlashId(rowId);
   };
 
   const send = (text: string, pictures: Blob[]) => {
@@ -124,17 +144,7 @@ export function TexChatView({ view, approvals }: { view: AppChatView; approvals?
 
   return (
     <View style={styles.root} testID="tex-chat">
-      <View style={styles.head}>
-        <Tex chaos={0} size={30} testID="tex-chat-figure" />
-        <View style={styles.headWords}>
-          <Text variant="body" style={styles.name}>
-            Tex
-          </Text>
-          <Text variant="foot" style={styles.sub}>
-            {TEX_TAB_SUB}
-          </Text>
-        </View>
-      </View>
+      <TexChatHeader busy={view.busy} />
 
       <ScrollView
         ref={log}
@@ -201,6 +211,8 @@ export function TexChatView({ view, approvals }: { view: AppChatView; approvals?
                 onUnsend={(rowId: string) => view.unsend(rowId)}
                 onRetry={(localId: string) => view.retry(localId)}
                 onJump={jump}
+                onOpenNote={onOpenNote ?? null}
+                flash={!isPending(line) && line.id === flashId}
               />
             </View>
           );
@@ -305,21 +317,16 @@ type Styles = ReturnType<typeof makeStyles>;
 const makeStyles = (colors: Colors) =>
   StyleSheet.create({
     root: { flex: 1, minHeight: 0, position: "relative" },
-    head: {
-      flexDirection: "row",
-      alignItems: "center",
-      gap: space.x3,
-      paddingHorizontal: space.x4,
-      paddingVertical: space.x3,
-      borderBottomWidth: StyleSheet.hairlineWidth,
-      borderBottomColor: colors.line,
-    },
-    headWords: { flex: 1, minWidth: 0, gap: 2 },
-    name: { fontWeight: "600", fontSize: pointerType.lede, color: colors.text },
-    sub: { color: colors.muted },
     muted: { color: colors.muted },
     log: { flex: 1, minHeight: 0 },
-    logBody: { flexGrow: 1, padding: space.x4, gap: space.x3, justifyContent: "flex-end" },
+    logBody: {
+      flexGrow: 1,
+      paddingTop: 40,
+      paddingHorizontal: 14,
+      paddingBottom: 8,
+      gap: 6,
+      justifyContent: "flex-end",
+    },
     empty: { flex: 1, alignItems: "center", justifyContent: "center", minHeight: 120 },
     working: { alignSelf: "flex-start", gap: space.x1 },
     typingBubble: {

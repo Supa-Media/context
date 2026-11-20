@@ -1,28 +1,20 @@
-import { useState, type ReactNode } from "react";
-import { Image, Pressable, StyleSheet, View } from "react-native";
+import { useEffect, useRef, useState, type ReactNode } from "react";
+import { Animated, Image, Pressable, StyleSheet, View } from "react-native";
 import { Button } from "../../design/components/Button";
 import { Text } from "../../design/components/Text";
-import { pointerType, radii, space } from "../../design/tokens";
+import { radii, space } from "../../design/tokens";
 import { useThemedStyles, type Colors } from "../../design/theme";
-import {
-  TAPBACKS,
-  isPending,
-  type AppChatRow,
-  type AskChoice,
-  type ChatLine,
-  type ReactionEmoji,
-} from "./appChatGateway";
-import { textPieces } from "./appChatText";
+import { useReducedMotion } from "../../design/useReducedMotion";
+import { isPending, type AppChatRow, type AskChoice, type ChatLine, type ReactionEmoji } from "./appChatGateway";
+import { TexChatBar } from "./TexChatBar";
+import { TexChatWords } from "./TexChatWords";
 
 /** The longest a picture is drawn, in points. The row keeps its aspect; the overlay shows it whole. */
 export const PICTURE_WIDTH = 220;
-
-/** Opens an `https:` link in a new tab. Pure words elsewhere: a link is the only thing made tappable. */
-function openLink(href: string): void {
-  if (typeof window !== "undefined" && typeof window.open === "function") {
-    window.open(href, "_blank", "noopener,noreferrer");
-  }
-}
+/** How long a jumped-to row keeps its highlight, in ms. */
+const FLASH_MS = 1400;
+/** The most of a reply's words the quote shows before it is cut. */
+const QUOTE_CHARS = 70;
 
 export interface TexChatRowProps {
   line: ChatLine;
@@ -34,15 +26,22 @@ export interface TexChatRowProps {
   pictureUrl: (id: string) => string | null;
   /** The time under the last row of a group, or `null`. */
   timeLabel: string | null;
+  /** Set by the parent after a jump to this row; the bubble lights for a moment. */
+  flash?: boolean;
   onOpenPicture: (url: string) => void;
   onAnswer: (rowId: string, choice: AskChoice) => void;
   onReact: (rowId: string, emoji: ReactionEmoji) => void;
   onReply: (row: AppChatRow) => void;
   onEdit: (row: AppChatRow) => void;
+  onCopy?: (row: AppChatRow) => void;
   onUnsend: (rowId: string) => void;
   onRetry: (localId: string) => void;
   /** Scrolls the log to the row with this id. */
   onJump: (rowId: string) => void;
+  /** Opens a note a link in the words points at, or `null` for none. */
+  onOpenNote?: ((href: string, path: string) => void) | null;
+  /** Drawn under the bubble, above its time: the chat engine's delivery, failed and queued lines (section A). */
+  below?: ReactNode;
 }
 
 /**
@@ -50,14 +49,18 @@ export interface TexChatRowProps {
  * tapbacks, and the actions a person can take on it.
  *
  * Draws what it is given and decides nothing: every change goes back up through
- * a callback, and the hook owns whether it took. Row text is drawn as words,
- * never as HTML; only an `https:` link is tappable.
+ * a callback, and the hook owns whether it took. The hover bar is absolutely
+ * placed, so showing it never moves a row. It shows while the row is hovered,
+ * focused, or pinned by a long press or a touch tap.
  */
 export function TexChatRow(props: TexChatRowProps) {
   const { line } = props;
   const styles = useThemedStyles(makeStyles);
+  const reduced = useReducedMotion();
   const [hovered, setHovered] = useState(false);
   const [pinned, setPinned] = useState(false);
+  const [focused, setFocused] = useState(false);
+  const lit = useFlash(props.flash === true);
 
   if (isPending(line)) {
     return (
@@ -71,8 +74,8 @@ export function TexChatRow(props: TexChatRowProps) {
           </View>
         ) : null}
         {line.text.length > 0 ? (
-          <Bubble mine styles={styles}>
-            <Words text={line.text} mine styles={styles} />
+          <Bubble mine styles={styles} reduced={reduced}>
+            <TexChatWords text={line.text} mine onOpenNote={props.onOpenNote} />
           </Bubble>
         ) : null}
         {line.state === "sending" ? (
@@ -104,12 +107,15 @@ export function TexChatRow(props: TexChatRowProps) {
   const row = line;
   const mine = row.who === "me";
   const answered = props.answer !== undefined;
-  const showBar = !row.unsent && (hovered || pinned);
   const canAct = !row.unsent;
+  const showBar = canAct && (hovered || pinned || focused);
+  const ownReaction = row.reactions?.find((reaction) => reaction.who === "me")?.emoji;
 
+  // Every action settles the bar first: pressing one unpins it.
   const act = (fn: () => void) => () => {
     setPinned(false);
     setHovered(false);
+    setFocused(false);
     fn();
   };
 
@@ -118,6 +124,9 @@ export function TexChatRow(props: TexChatRowProps) {
       onHoverIn={canAct ? () => setHovered(true) : undefined}
       onHoverOut={canAct ? () => setHovered(false) : undefined}
       onLongPress={canAct ? () => setPinned(true) : undefined}
+      onPress={canAct && tapPins() ? () => setPinned((on) => !on) : undefined}
+      onFocus={canAct ? () => setFocused(true) : undefined}
+      onBlur={canAct ? () => setFocused(false) : undefined}
       delayLongPress={350}
       style={styles.column}
       testID={`tex-row-${row.id}`}
@@ -128,6 +137,23 @@ export function TexChatRow(props: TexChatRowProps) {
         </Text>
       ) : (
         <View style={[styles.column, mine ? styles.mine : styles.theirs]}>
+          {showBar ? (
+            <TexChatBar
+              rowId={row.id}
+              text={row.text}
+              mine={mine}
+              ownReaction={ownReaction}
+              canEdit={mine && row.editable === true}
+              canUnsend={mine && (row.unsendable === true || row.editable === true)}
+              reduced={reduced}
+              onReact={(emoji) => act(() => props.onReact(row.id, emoji))()}
+              onReply={act(() => props.onReply(row))}
+              onEdit={act(() => props.onEdit(row))}
+              onUnsend={act(() => props.onUnsend(row.id))}
+              onCopied={act(() => props.onCopy?.(row))}
+            />
+          ) : null}
+
           {row.replyTo !== undefined ? <ReplyQuote replyTo={row.replyTo} onJump={props.onJump} styles={styles} /> : null}
 
           {row.pics !== undefined && row.pics.length > 0 ? (
@@ -139,11 +165,11 @@ export function TexChatRow(props: TexChatRowProps) {
           ) : null}
 
           {row.text.length > 0 ? (
-            <Bubble mine={mine} styles={styles} reactions={row.reactions}>
-              <Words text={row.text} mine={mine} styles={styles} />
+            <Bubble mine={mine} styles={styles} reactions={row.reactions} reduced={reduced} lit={lit}>
+              <TexChatWords text={row.text} mine={mine} onOpenNote={props.onOpenNote} />
             </Bubble>
           ) : row.reactions !== undefined && row.reactions.length > 0 ? (
-            <Reactions reactions={row.reactions} mine={mine} styles={styles} />
+            <Reactions reactions={row.reactions} mine={mine} styles={styles} reduced={reduced} />
           ) : null}
 
           {row.edited === true ? (
@@ -186,43 +212,7 @@ export function TexChatRow(props: TexChatRowProps) {
         </View>
       )}
 
-      {showBar ? (
-        <View style={[styles.bar, mine ? styles.alignEnd : styles.alignStart]} testID={`tex-bar-${row.id}`}>
-          {TAPBACKS.map((emoji) => (
-            <Pressable
-              key={emoji}
-              onPress={act(() => props.onReact(row.id, emoji))}
-              accessibilityRole="button"
-              accessibilityLabel={`React ${emoji}`}
-              style={styles.tapback}
-              testID={`tex-tapback-${row.id}-${emoji}`}
-            >
-              <Text variant="body" style={styles.tapbackText}>
-                {emoji}
-              </Text>
-            </Pressable>
-          ))}
-          <Pressable onPress={act(() => props.onReply(row))} accessibilityRole="button" style={styles.barAction} testID={`tex-reply-${row.id}`}>
-            <Text variant="meta" style={styles.barText}>
-              Reply
-            </Text>
-          </Pressable>
-          {mine && row.editable === true ? (
-            <Pressable onPress={act(() => props.onEdit(row))} accessibilityRole="button" style={styles.barAction} testID={`tex-edit-${row.id}`}>
-              <Text variant="meta" style={styles.barText}>
-                Edit
-              </Text>
-            </Pressable>
-          ) : null}
-          {mine && (row.unsendable === true || row.editable === true) ? (
-            <Pressable onPress={act(() => props.onUnsend(row.id))} accessibilityRole="button" style={styles.barAction} testID={`tex-unsend-${row.id}`}>
-              <Text variant="meta" style={styles.barText}>
-                Unsend
-              </Text>
-            </Pressable>
-          ) : null}
-        </View>
-      ) : null}
+      {props.below ?? null}
 
       {props.timeLabel !== null ? (
         <Text variant="meta" style={[styles.meta, mine ? styles.alignEnd : styles.alignStart]}>
@@ -231,6 +221,39 @@ export function TexChatRow(props: TexChatRowProps) {
       ) : null}
     </Pressable>
   );
+}
+
+/**
+ * Whether a tap on the row should pin its bar: only where there is no hover to
+ * show it. A mouse click on a pointer device does not pin; a tap on a touch
+ * screen, or on native, does.
+ */
+function tapPins(): boolean {
+  try {
+    if (typeof window !== "undefined" && typeof window.matchMedia === "function") {
+      return !window.matchMedia("(hover: hover)").matches;
+    }
+  } catch {
+    // No media query support: treat as a touch surface.
+  }
+  return true;
+}
+
+/** Lights a bubble for `FLASH_MS` each time `flash` turns on. */
+function useFlash(flash: boolean): boolean {
+  const [lit, setLit] = useState(false);
+  const timer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+
+  useEffect(() => {
+    if (!flash) return;
+    setLit(true);
+    clearTimeout(timer.current);
+    timer.current = setTimeout(() => setLit(false), FLASH_MS);
+  }, [flash]);
+
+  useEffect(() => () => clearTimeout(timer.current), []);
+
+  return lit;
 }
 
 /** A tappable picture: grey while it loads, full size in the overlay when pressed. */
@@ -265,16 +288,20 @@ function ReplyQuote({
   onJump: (rowId: string) => void;
   styles: Styles;
 }) {
+  const words =
+    replyTo.text !== undefined && replyTo.text.length > 0 ? replyTo.text.slice(0, QUOTE_CHARS) : "a message";
   return (
     <Pressable
       onPress={() => onJump(replyTo.id)}
       accessibilityRole="button"
       accessibilityLabel="Go to the message this replies to"
       style={styles.quote}
-      testID={`tex-quote-${replyTo.id}`}
     >
-      <Text variant="meta" style={styles.meta} numberOfLines={1}>
-        {replyTo.text !== undefined && replyTo.text.length > 0 ? replyTo.text : "a message"}
+      <Text variant="meta" style={styles.meta}>
+        ↪
+      </Text>
+      <Text variant="meta" style={[styles.meta, styles.quoteWords]} numberOfLines={1} testID={`tex-quote-${replyTo.id}`}>
+        {words}
       </Text>
     </Pressable>
   );
@@ -284,18 +311,24 @@ function Bubble({
   mine,
   styles,
   reactions,
+  reduced,
+  lit = false,
   children,
 }: {
   mine: boolean;
   styles: Styles;
   reactions?: AppChatRow["reactions"];
+  reduced: boolean;
+  /** The bubble is the target of a jump and is lit. */
+  lit?: boolean;
   children: ReactNode;
 }) {
   const hasReactions = reactions !== undefined && reactions.length > 0;
   return (
-    <View style={[styles.bubbleWrap, hasReactions && styles.bubbleWrapReacted]}>
+    <View style={styles.bubbleWrap}>
+      {lit ? <View style={styles.flashRing} pointerEvents="none" testID="tex-flash" /> : null}
       <View style={[styles.bubble, mine ? styles.bubbleMine : styles.bubbleTheirs]}>{children}</View>
-      {hasReactions ? <Reactions reactions={reactions} mine={mine} styles={styles} /> : null}
+      {hasReactions ? <Reactions reactions={reactions} mine={mine} styles={styles} reduced={reduced} /> : null}
     </View>
   );
 }
@@ -304,50 +337,46 @@ function Reactions({
   reactions,
   mine,
   styles,
+  reduced,
 }: {
   reactions: NonNullable<AppChatRow["reactions"]>;
   mine: boolean;
   styles: Styles;
+  reduced: boolean;
 }) {
   return (
     <View style={[styles.reactions, mine ? styles.reactionsMine : styles.reactionsTheirs]} testID="tex-reactions">
       {reactions.map((reaction, index) => (
-        <View
-          key={`${reaction.who}-${index}`}
-          style={[styles.badge, reaction.who === "me" ? styles.badgeMine : styles.badgeTheirs]}
-          accessibilityLabel={reaction.who === "me" ? "Your reaction" : "Tex's reaction"}
-        >
-          <Text variant="meta" style={styles.badgeText}>
-            {reaction.emoji}
-          </Text>
-        </View>
+        <ReactionBadge key={`${reaction.who}-${index}`} reaction={reaction} styles={styles} reduced={reduced} />
       ))}
     </View>
   );
 }
 
-/** The words, split so an `https:` link is its own tappable piece and everything else plain text. */
-function Words({ text, mine, styles }: { text: string; mine: boolean; styles: Styles }) {
+/** One tapback badge. It springs in from a fifth of its size, and not at all under reduced motion. */
+function ReactionBadge({
+  reaction,
+  styles,
+  reduced,
+}: {
+  reaction: NonNullable<AppChatRow["reactions"]>[number];
+  styles: Styles;
+  reduced: boolean;
+}) {
+  const pop = useRef(new Animated.Value(reduced ? 1 : 0.2)).current;
+
+  useEffect(() => {
+    if (reduced) return;
+    Animated.spring(pop, { toValue: 1, friction: 5, tension: 180, useNativeDriver: true }).start();
+  }, [pop, reduced]);
+
   return (
-    <Text style={[styles.words, mine ? styles.wordsMine : styles.wordsTheirs]} selectable>
-      {textPieces(text).map((piece, index) =>
-        piece.kind === "link" ? (
-          <Text
-            key={index}
-            onPress={() => openLink(piece.href)}
-            accessibilityRole="link"
-            style={[styles.link, mine ? styles.wordsMine : styles.wordsTheirs]}
-          >
-            {piece.value}
-          </Text>
-        ) : (
-          // Each piece carries the bubble's colour: the design `Text` paints its own default otherwise (white on the accent was lost).
-          <Text key={index} style={mine ? styles.wordsMine : styles.wordsTheirs}>
-            {piece.value}
-          </Text>
-        ),
-      )}
-    </Text>
+    <Animated.View
+      style={[styles.badge, reaction.who === "tex" ? styles.badgeTex : styles.badgeMe, { transform: [{ scale: pop }] }]}
+      accessibilityLabel={reaction.who === "me" ? "Your reaction" : "Tex's reaction"}
+    >
+      <Text style={styles.badgeText}>{reaction.emoji}</Text>
+    </Animated.View>
   );
 }
 
@@ -355,10 +384,10 @@ export type Styles = ReturnType<typeof makeStyles>;
 
 const makeStyles = (colors: Colors) =>
   StyleSheet.create({
-    column: { gap: space.x1, maxWidth: "100%" },
+    column: { gap: space.x1, maxWidth: "100%", position: "relative" },
     row: { flexDirection: "row", alignItems: "center", gap: space.x2, alignSelf: "flex-end" },
-    mine: { alignSelf: "flex-end", alignItems: "flex-end", maxWidth: "85%" },
-    theirs: { alignSelf: "flex-start", alignItems: "flex-start", maxWidth: "85%" },
+    mine: { alignSelf: "flex-end", alignItems: "flex-end", maxWidth: "86%" },
+    theirs: { alignSelf: "flex-start", alignItems: "flex-start", maxWidth: "86%" },
     alignEnd: { alignSelf: "flex-end" },
     alignStart: { alignSelf: "flex-start" },
     meta: { color: colors.muted },
@@ -368,11 +397,15 @@ const makeStyles = (colors: Colors) =>
     inlineAction: { minHeight: 36, justifyContent: "center" },
     quote: {
       maxWidth: "100%",
+      flexDirection: "row",
+      alignItems: "center",
+      gap: space.x1,
       borderLeftWidth: 2,
-      borderLeftColor: colors.lineStrong,
-      paddingLeft: space.x2,
+      borderLeftColor: colors.line,
       paddingVertical: 2,
+      paddingHorizontal: space.x2,
     },
+    quoteWords: { flexShrink: 1 },
     pictures: { gap: space.x1, maxWidth: "100%" },
     picturesMine: { alignItems: "flex-end" },
     picturesTheirs: { alignItems: "flex-start" },
@@ -384,9 +417,18 @@ const makeStyles = (colors: Colors) =>
       backgroundColor: colors.chrome,
     },
     placeholder: { backgroundColor: colors.chromePressed },
-    bubbleWrap: { maxWidth: "100%" },
-    bubbleWrapReacted: { paddingTop: space.x2 },
+    bubbleWrap: { maxWidth: "100%", position: "relative" },
+    flashRing: {
+      position: "absolute",
+      top: -4,
+      right: -4,
+      bottom: -4,
+      left: -4,
+      borderRadius: 20,
+      backgroundColor: colors.accentDim,
+    },
     bubble: {
+      zIndex: 1,
       paddingHorizontal: space.x3,
       paddingVertical: space.x2,
       borderWidth: 1,
@@ -395,38 +437,36 @@ const makeStyles = (colors: Colors) =>
     bubbleMine: {
       backgroundColor: colors.accent,
       borderColor: colors.accent,
-      borderTopLeftRadius: 14,
-      borderTopRightRadius: 14,
-      borderBottomRightRadius: 4,
-      borderBottomLeftRadius: 14,
+      borderTopLeftRadius: 16,
+      borderTopRightRadius: 16,
+      borderBottomRightRadius: 5,
+      borderBottomLeftRadius: 16,
     },
     bubbleTheirs: {
-      backgroundColor: colors.surface2,
+      backgroundColor: colors.ground,
       borderColor: colors.line,
-      borderTopLeftRadius: 14,
-      borderTopRightRadius: 14,
-      borderBottomRightRadius: 14,
-      borderBottomLeftRadius: 4,
+      borderTopLeftRadius: 16,
+      borderTopRightRadius: 16,
+      borderBottomRightRadius: 16,
+      borderBottomLeftRadius: 5,
     },
-    words: { fontSize: pointerType.lede, lineHeight: 20, fontWeight: "400" },
-    wordsMine: { color: colors.ink },
-    wordsTheirs: { color: colors.text },
-    link: { textDecorationLine: "underline" },
-    reactions: { flexDirection: "row", gap: 2, position: "absolute", top: 0 },
-    reactionsMine: { left: -6 },
-    reactionsTheirs: { right: -6 },
+    reactions: { flexDirection: "row", gap: 2, position: "absolute", top: -10, zIndex: 2 },
+    reactionsMine: { left: -12 },
+    reactionsTheirs: { right: -12 },
     badge: {
       minWidth: 22,
       height: 20,
-      paddingHorizontal: 4,
+      paddingHorizontal: 5,
       borderRadius: radii.pill,
       borderWidth: 1,
       alignItems: "center",
       justifyContent: "center",
+      backgroundColor: colors.ground,
+      boxShadow: "0 1px 2px rgba(0,0,0,0.2)",
     },
-    badgeMine: { backgroundColor: colors.accentDim, borderColor: colors.lineStrong },
-    badgeTheirs: { backgroundColor: colors.surface2, borderColor: colors.lineStrong },
-    badgeText: { fontSize: pointerType.meta, lineHeight: 16, color: colors.text },
+    badgeMe: { borderColor: colors.line },
+    badgeTex: { borderColor: colors.accent },
+    badgeText: { fontSize: 12, lineHeight: 20, color: colors.text },
     askCard: {
       alignSelf: "flex-start",
       gap: space.x2,
@@ -439,20 +479,4 @@ const makeStyles = (colors: Colors) =>
     askHeading: { color: colors.muted },
     answerText: { color: colors.text2 },
     decisions: { flexDirection: "row", flexWrap: "wrap", gap: space.x2 },
-    bar: {
-      flexDirection: "row",
-      flexWrap: "wrap",
-      alignItems: "center",
-      gap: 2,
-      padding: 4,
-      borderRadius: radii.card,
-      borderWidth: 1,
-      borderColor: colors.line,
-      backgroundColor: colors.surface2,
-      maxWidth: "100%",
-    },
-    tapback: { width: 36, height: 36, alignItems: "center", justifyContent: "center", borderRadius: radii.control },
-    tapbackText: { fontSize: pointerType.body, lineHeight: 20 },
-    barAction: { minHeight: 36, paddingHorizontal: space.x2, justifyContent: "center", borderRadius: radii.control },
-    barText: { color: colors.text2 },
   });

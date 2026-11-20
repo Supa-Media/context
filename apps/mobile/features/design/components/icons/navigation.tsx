@@ -10,6 +10,8 @@ type NavigationIconName =
   | "chevronDown"
   | "arrowLeft"
   | "arrowRight"
+  | "arrowUp"
+  | "stop"
   | "expand"
   | "openTab"
   | "more"
@@ -66,6 +68,12 @@ export const navigationIcons: Record<NavigationIconName, DrawFn> = {
     bar("shaft", u, w, c, { cx: 0.48, cy: 0.5, length: 0.62 }),
     chevron("head", u, w, c, { cx: 0.66, cy: 0.5, side: 0.34, angle: 45 }),
   ],
+  // `chevronUp`'s head at the top of a vertical shaft.
+  arrowUp: (u, w, c) => [
+    bar("shaft", u, w, c, { cx: 0.5, cy: 0.52, length: 0.62, angle: 90 }),
+    chevron("head", u, w, c, { cx: 0.5, cy: 0.34, side: 0.34, angle: -45 }),
+  ],
+  stop: (u, w, c) => [rect("square", u, w, c, { x0: 0.3, y0: 0.3, x1: 0.7, y1: 0.7, radius: 0.08, fill: c })],
 
   /*
     A chevron's point is its box's top right corner at 0°, so a head at a
