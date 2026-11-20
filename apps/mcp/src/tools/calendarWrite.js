@@ -74,7 +74,7 @@ export function readCalendarChange(args) {
   const title = typeof args?.title === "string" ? args.title : "";
   if (title.trim() === "" || title.length > MAX_TITLE || CONTROL.test(title)) return { error: `title is one line of 1 to ${MAX_TITLE} characters.` };
   if (time(args?.start) === null) {
-    return { error: "start is a time with its offset, like 2026-10-20T15:00:00-04:00, or a whole day, like 2026-10-20." };
+    return { error: "start is a time with its offset or a whole day: call it again with start like 2026-10-20T15:00:00-04:00, or like 2026-10-20." };
   }
   if (args.all_events !== undefined && (args.all_events !== true || action === "create")) {
     return { error: "all_events is true, or left out, and only for an event that already repeats." };

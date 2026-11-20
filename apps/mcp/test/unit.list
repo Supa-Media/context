@@ -707,3 +707,4 @@ test/groupMuteFlag.test.mjs
 test/lookupLadder.test.mjs
 test/toolRules.test.mjs
 test/sixToolsFixed.test.mjs
+test/nextSteps.test.mjs

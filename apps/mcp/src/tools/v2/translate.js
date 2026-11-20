@@ -67,12 +67,12 @@ export function translateV2Params(
 function translateAction(tool, args) {
   const action = actionOf(tool, args);
   if (typeof action !== "string" || action === "") {
-    return { error: `${tool} needs an action: one of ${listOf(tool)}. orient lists what each takes.` };
+    return { error: `${tool} needs an action: one of ${listOf(tool)}. Call it again with one of those; orient lists what each takes.` };
   }
   if (!Object.hasOwn(ACTIONS[tool], action)) {
     const shown = action.length > ECHO_CAP ? `${action.slice(0, ECHO_CAP)}…` : action;
     return {
-      error: `${tool} has no action "${shown}". Its actions: ${listOf(tool)}. orient lists what each takes.`,
+      error: `${tool} has no action "${shown}". Its actions: ${listOf(tool)}. Call it again with one of those; orient lists what each takes.`,
     };
   }
   const entry = ACTIONS[tool][action];

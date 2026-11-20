@@ -52,6 +52,7 @@ import { turnLedger } from "./sendBack.js";
 import { SIX_TOOLS, sixToolsOver } from "./sixTools.js";
 import { isParallelRead } from "./parallelReads.js";
 import { resultInV2Names } from "../tools/v2/speak.js";
+import { withNextStep } from "./nextSteps.js";
 import { goalsIn } from "./aboutMe.js";
 import { pushbackNudge } from "./pushback.js";
 import { causeOf, failureRecorder } from "./toolFailures.js";
@@ -731,12 +732,12 @@ export async function runTurn(options) {
           and because `call.name` is unbounded text the model produced, and
           `steps` is rendered to the person.
         */
-        const text = asSix ? "That is not something you were given. Use only the actions your tools list." : "There is no such tool. Use only the tools you were given.";
+        const text = asSix ? "That is not something you were given. Use one of the actions your tools list instead." : "There is no such tool. Use one of the tools you were given instead.";
         effects.push(() => {
           messages.push({ role: "tool", id: call.id, name: made.name, text, isError: true });
           escalate = true;
           tell({ kind: "tool", name: call.name.slice(0, 64), args: call.args, ok: false, ms: 0, reason: "no such tool" });
-          failed({ tool: call.name, cause: "not_offered", text: asSix ? "not one of the actions it was given" : "no such tool", round });
+          failed({ tool: call.name, cause: "not_offered", text, round });
         });
         return { ran: false, effects };
       }
@@ -800,7 +801,7 @@ export async function runTurn(options) {
         result = { content: [{ type: "text", text }], isError: true };
       }
       // A refusal written in the older names, read by a model that holds the six (`speak.js`).
-      if (asSix) result = resultInV2Names(result);
+      if (asSix) result = withNextStep(resultInV2Names(result)); // and the next step, where the gateway's words have none (`nextSteps.js`)
       const toolMs = clock() - called;
       // A call the egress gate held for the person's yes is not a failure: it
       // runs when they give it (`texEntryPoint.js`), and a log that called it failed

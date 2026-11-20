@@ -73,7 +73,7 @@ function target(label, a, { name, action, fixed = {}, copy = [], consumed = [], 
   const extra = Object.keys(a).filter((key) => !copy.includes(key) && !consumed.includes(key));
   if (extra.length > 0) {
     const takes = copy.length > 0 ? `args: ${copy.join(", ")}` : "no args";
-    return { error: `${label} takes ${takes}${others}. orient lists what each id takes.` };
+    return { error: `${label} takes ${takes}${others}. ${copy.length > 0 ? "Call it again with only those" : "Call it again without args"}; orient lists what each id takes.` };
   }
   const out = { ...fixed };
   for (const key of copy) if (a[key] !== undefined) out[key] = a[key];
