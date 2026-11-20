@@ -502,7 +502,7 @@ function unavailableId(prefix) {
  * @param {{write?: string[], manage?: string[], send?: string[]} | null} [grants] where a surface
  *   narrows further than its tools do, the actions it allows by name, every family it leaves out
  *   allowing none (the dream: `{ write: ["save"] }`); null allows every action the held tools carry
- * @returns {{tools: object[], resolve: (name: string, args: object) => {name?: string, args?: object, error?: string}}}
+ * @returns {{tools: object[], resolve: (name: string, args: object) => {name?: string, args?: object, error?: string}, manualOnFailure: (name: string, args: object) => string | null}}
  */
 export function sixToolsOver(granted, grants = null, { shown = null } = {}) {
   const held = new Map(granted.map((tool) => [tool.name, tool]));
@@ -518,6 +518,24 @@ export function sixToolsOver(granted, grants = null, { shown = null } = {}) {
    * change for a made one (Training 2026-11-19: "set_visibility failed twice" was the judge's reading of a refusal
    * followed by a success; the reply then said view-only access that had been set on the second call).
    */
+  /*
+    MANUAL ON FAILURE (Dev2, 2026-11-20: "whenever something fails, do we send the manual back? ... so things don't fail
+    more than once"). On the fixed list an action's args live in its manual; a failed call to an action this turn holds
+    gets that manual with its error, once per action per turn, so the next try needs no extra round to read it.
+  */
+  const manualsRead = new Set();
+  function manualOnFailure(name, args) {
+    if (!(shown instanceof Map) || !(name === "write" || name === "manage" || name === "send")) return null;
+    const call = args && typeof args === "object" && !Array.isArray(args) ? args : {};
+    const action = name === "write" && (call.action === undefined || call.action === "") ? "save" : call.action;
+    if (typeof action !== "string" || manualsRead.has(action)) return null;
+    if (!["write", "manage", "send"].some((family) => allowedActions[family].has(action))) return null;
+    const manual = manualFor(action, new Map([...shown, ...held]));
+    if (manual === null) return null;
+    manualsRead.add(action);
+    return `\n\nThe manual for ${action}, so the next call gets it right:\n${manual}`;
+  }
+
   function resolve(name, args) {
     const out = resolveCall(name, args);
     const action = args && typeof args === "object" && !Array.isArray(args) ? args.action : undefined;
@@ -561,7 +579,10 @@ export function sixToolsOver(granted, grants = null, { shown = null } = {}) {
       const action = call.id.trim().slice(MANUAL_PREFIX.length).trim();
       const carriers = shown instanceof Map ? new Map([...shown, ...held]) : held;
       const manual = manualFor(action, carriers);
-      if (manual !== null) return { text: manual };
+      if (manual !== null) {
+        manualsRead.add(action);
+        return { text: manual };
+      }
       const listed = ["write", "manage", "send"].flatMap((family) => grantedActions(family, carriers, null).map(([entry]) => entry));
       return { error: `There is no action "${action.slice(0, 40)}" to read a manual for. Read one of these instead: ${listed.map((entry) => `manual:${entry}`).join(", ")}.`, cause: "no_such_action" };
     }
@@ -600,7 +621,7 @@ export function sixToolsOver(granted, grants = null, { shown = null } = {}) {
     return { name: translated.params.name, args: translated.params.arguments };
   }
 
-  return { tools, resolve };
+  return { tools, resolve, manualOnFailure };
 }
 
 /**

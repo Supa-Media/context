@@ -157,9 +157,27 @@ describe("the Tex Architecture Lab's tool stats", () => {
     const byKey = Object.fromEntries((await stats(t, staff)).rows.map((r) => [r.key, r]));
     expect(byKey["write.save"]).toMatchObject({ tool: "write", action: "save", calls: 1 });
     expect(byKey.manage).toMatchObject({ calls: 1, errors: 1, why: [{ why: "No note at <path>.", cause: "refused", count: 1 }] });
-    expect(byKey["manage.move"]).toMatchObject({ calls: 1, errors: 1 });
+    expect(byKey["manage.move"]).toMatchObject({ calls: 1, errors: 1, why: [{ why: "No note at <path>.", cause: "refused", count: 1 }] });
     expect(byKey.search_web).toMatchObject({ calls: 1 });
     expect(byKey.write_note).toBeUndefined();
+  });
+
+  test("an action's row has its own reasons, unless its tool ran as more than one action", async () => {
+    const t = setupTest();
+    const { staff, accessToken } = await world(t);
+    expect((await report(t, accessToken, [
+      { kind: "tool", tool: "calendar_edit", six: "send", action: "calendar", ok: false, ms: 30 },
+      { kind: "tool", tool: "write_note", six: "write", action: "save", ok: false, ms: 30 },
+      { kind: "tool", tool: "write_note", six: "write", action: "remember", ok: true, ms: 30 },
+    ])).recorded).toBe(true);
+    expect((await sendFailures(t, accessToken, [
+      { tool: "calendar_edit", cause: "refused", why: "Not changed: start is a time with its offset." },
+      { tool: "write_note", cause: "refused", why: "No note at <path>." },
+    ])).kept).toBe(2);
+    const byKey = Object.fromEntries((await stats(t, staff)).rows.map((r) => [r.key, r]));
+    expect(byKey["send.calendar"].why).toEqual([{ why: "Not changed: start is a time with its offset.", cause: "refused", count: 1 }]);
+    expect(byKey["write.save"].why).toEqual([]);
+    expect(byKey.write.why).toEqual([{ why: "No note at <path>.", cause: "refused", count: 1 }]);
   });
 
   test("a designed send-back is a call that worked, not an error, even when the trace also says it failed", async () => {
