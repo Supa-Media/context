@@ -97,6 +97,9 @@ export async function completeManagedProvisioningHandler(
     // Joins the encryption rollout when staff set it to cover every managed
     // workspace, or re-walks a re-adopted bucket that holds sealed files.
     await managedBucketBound(ctx, args.workspaceId);
+    // Born on its workspace object (owner, 2026-11-20): armed now, before its first folders are written, then
+    // copied, compared and switched (`functions/workspaceObjectsMove.ts`).
+    await ctx.scheduler.runAfter(0, internal.functions.workspaceObjectsMove.advance, { workspaceId: args.workspaceId });
   }
   return null;
 }

@@ -1,0 +1,60 @@
+# Where every workspace stands on its move onto its workspace object, and a way
+# to start the move now instead of at the next hourly sweep (owner, 2026-11-20;
+# `apps/convex/functions/workspaceObjectsMove.ts`).
+#
+# `census` reads only: counts by storage kind, by each switch's home, how many
+# are wholly on their object, and the last run's word for the rest. `sweep`
+# starts a run for each managed workspace not yet moved, exactly as the hourly
+# cron does. Counts and closed words only: this log is public.
+name: Workspace objects move
+
+on:
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: "Which deployment."
+        type: choice
+        options:
+          - staging
+          - production
+        default: staging
+      run:
+        description: "census: count only. sweep: start moving every managed workspace not yet on its object."
+        type: choice
+        options:
+          - census
+          - sweep
+        default: census
+
+permissions:
+  contents: read
+
+jobs:
+  move:
+    runs-on: ubuntu-latest
+    environment: ${{ inputs.environment }}
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: "pnpm"
+
+      - run: pnpm install --frozen-lockfile
+
+      - name: Move
+        env:
+          CONVEX_DEPLOY_KEY: ${{ secrets.CONVEX_DEPLOY_KEY }}
+          RUN: ${{ inputs.run }}
+        run: |
+          set -euo pipefail
+          if [ "$RUN" = "sweep" ]; then
+            echo "sweep: $(npx convex run functions/workspaceObjectsMove:sweep '{}' 2>/dev/null | jq -c .)"
+          fi
+          census=$(npx convex run functions/workspaceObjectsMoveRows:census '{}' 2>/dev/null | jq -c .)
+          echo "census: $census"
+          echo "\`$census\`" >> "$GITHUB_STEP_SUMMARY"
