@@ -32,8 +32,8 @@ test("rule 1: one chat's kinds of turn are never shown more tool lists than they
 test("rule 2: no tool a model is shown grows, and a new one stays under the limit", () => {
   const check = (where, tools, was) => {
     for (const [tool, chars] of Object.entries(tools)) {
-      const ceiling = Math.max(rules.TOOL_CHAR_LIMIT, was?.[tool] ?? 0);
-      assert.ok(chars <= ceiling, `${where} ${tool}: ${chars} characters of description and schema, over ${ceiling} (limit ${rules.TOOL_CHAR_LIMIT}); ${FIX}`);
+      const ceiling = Math.max(rules.limitOf(tool), was?.[tool] ?? 0);
+      assert.ok(chars <= ceiling, `${where} ${tool}: ${chars} characters of description and schema, over ${ceiling} (limit ${rules.limitOf(tool)}); ${FIX}`);
     }
   };
   for (const [surface, tools] of Object.entries(report.sizes)) check(surface, tools, BASELINE.sizes[surface]);

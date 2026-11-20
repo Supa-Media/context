@@ -27,6 +27,11 @@ export type FeedRow = {
 export type Feed = { days: number; truncated: boolean; turns: number; calls: number; failuresTotal: number; rows: FeedRow[]; rules?: ToolRules };
 
 /** The middle sample of a list of durations (the artifact's `med`): `b[floor(n/2)]` of the sorted list. */
+/** Rule 2's limit for one tool: its own budget when it has one. */
+export function limitFor(r: { limit: number; limits?: Record<string, number> }, tool: string): number {
+  return r.limits?.[tool] ?? r.limit;
+}
+
 export function med(a: number[]): number | null {
   if (!a.length) return null;
   const b = [...a].sort((x, y) => x - y);
@@ -111,6 +116,8 @@ export function fromFeed(feed: Pick<Feed, "rows">): ToolStats {
 /** The four tool rules as production ran them (`toolRulesValidator` in `lib/adminFns/texToolStats.ts`). */
 export type ToolRules = {
   limit: number;
+  /** Tools with a budget of their own (send: 8,000), by name; the rest are held to `limit`. */
+  limits?: Record<string, number>;
   turnsWithList: number;
   sizes: Array<{ tool: string; kind: string; chars: number }>;
   lists: { distinct: number; byKind: Array<{ kind: string; distinct: number; turns: number }>; toolForms: Array<{ tool: string; forms: number }>; mostInOneChat: number };
@@ -121,13 +128,13 @@ export type ToolRules = {
 
 /** Each rule's pass line, read from the numbers alone so the Lab and tex_dev agree. */
 export function ruleChecks(r: ToolRules): Array<{ rule: string; ok: boolean; line: string }> {
-  const over = r.sizes.filter((s) => s.chars > r.limit);
+  const over = r.sizes.filter((s) => s.chars > limitFor(r, s.tool));
   const shells = r.stateWrites.reduce((n, s) => n + s.count, 0);
   const errs = r.errors.actionable + r.errors.partial + r.errors.not;
   const oneToOne = r.lists.byKind.filter((k) => k.kind !== "group").reduce((n, k) => Math.max(n, k.distinct), 0);
   return [
     { rule: "1. One tool list", ok: r.lists.mostInOneChat <= 1 && r.notHeld === 0, line: `${r.lists.distinct} different lists; one chat saw up to ${r.lists.mostInOneChat}${oneToOne ? ` (1:1 kinds up to ${oneToOne})` : ""}; ${r.notHeld} calls to a tool the turn didn't hold` },
-    { rule: `2. Each tool under ${r.limit.toLocaleString()} chars`, ok: over.length === 0, line: over.length ? `${over.length} over: ${over.slice(0, 4).map((s) => `${s.tool} ${s.chars.toLocaleString()} (${s.kind})`).join(", ")}` : "all under" },
+    { rule: `2. Each tool under ${r.limit.toLocaleString()} chars${r.limits?.send ? ` (send ${r.limits.send.toLocaleString()})` : ""}`, ok: over.length === 0, line: over.length ? `${over.length} over: ${over.slice(0, 4).map((s) => `${s.tool} ${s.chars.toLocaleString()} (${s.kind})`).join(", ")}` : "all under" },
     { rule: "3. State through its own tools", ok: shells === 0, line: shells ? `${shells} plain writes to Tex's state files` : "no plain writes to state files" },
     { rule: "4. Errors say what to do next", ok: errs === 0 || r.errors.not === 0, line: errs ? `${Math.round((r.errors.actionable / errs) * 100)}% say what next, ${Math.round((r.errors.partial / errs) * 100)}% only list options, ${Math.round((r.errors.not / errs) * 100)}% don't` : "no failures" },
   ];

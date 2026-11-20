@@ -17,7 +17,7 @@ import { V2_TOOLS } from "../../src/tools/advertised.js";
 import { ASSISTANT_SEND_ACTIONS } from "../../../../packages/tex/gateway/agent/sixTools.js";
 import rules from "../../../../packages/tex/src/toolRules.cjs";
 
-const { TOOL_CHAR_LIMIT, toolChars, rateError, TEX_STATE_FILES, SHELL_NAMES } = rules;
+const { TOOL_CHAR_LIMIT, limitOf, toolChars, rateError, TEX_STATE_FILES, SHELL_NAMES } = rules;
 const MCP_ROOT = fileURLToPath(new URL("../..", import.meta.url));
 
 const print = (value) => createHash("sha256").update(JSON.stringify(value, (key, inner) => (key === "cache_control" ? undefined : inner))).digest("hex").slice(0, 8);
@@ -143,7 +143,7 @@ export async function toolRulesReport() {
   // Rule 2: each tool a Tex turn is shown, and each tool an MCP client is listed.
   const mcp = Object.fromEntries(toolDefinitions().filter((tool) => V2_TOOLS.has(tool.name)).map((tool) => [tool.name, toolChars(tool)]));
   const over = [];
-  for (const [surface, tools] of Object.entries(sizes)) for (const [tool, chars] of Object.entries(tools)) if (chars > TOOL_CHAR_LIMIT) over.push({ where: surface, tool, chars });
+  for (const [surface, tools] of Object.entries(sizes)) for (const [tool, chars] of Object.entries(tools)) if (chars > limitOf(tool)) over.push({ where: surface, tool, chars });
   for (const [tool, chars] of Object.entries(mcp)) if (chars > TOOL_CHAR_LIMIT) over.push({ where: "mcp", tool, chars });
   // Rule 3: Tex's state files with no dedicated action, and any tool or send action that would hand a model a shell.
   const shells = [

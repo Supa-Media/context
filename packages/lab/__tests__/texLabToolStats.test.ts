@@ -115,6 +115,12 @@ test("the Tool rules panel passes all four when the numbers keep them", () => {
   expect(ruleChecks(rules()).map((c) => c.ok)).toEqual([true, true, true, true]);
 });
 
+test("send is held to its own budget, every other tool to the limit", () => {
+  const sizes = [{ tool: "send", kind: "one", chars: 7600 }];
+  expect(ruleChecks(rules({ sizes, limits: { send: 8000 } }))[1].ok).toBe(true);
+  expect(ruleChecks(rules({ sizes: [{ tool: "manage", kind: "one", chars: 4800 }], limits: { send: 8000 } }))[1].ok).toBe(false);
+});
+
 test("the Tool rules panel fails a rule the numbers break", () => {
   const checks = ruleChecks(
     rules({
