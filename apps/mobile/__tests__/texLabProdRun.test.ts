@@ -9,7 +9,7 @@
  */
 import { beforeEach, describe, expect, jest, test } from "@jest/globals";
 import { TEX_CONFIG } from "@context/tex/src/texConfig.cjs";
-import { forgetGraphs, graphAt, graphNoteFor, graphOfConfig } from "../features/tex/lab/engine/graphAt";
+import { forgetGraphs, graphAt, graphNoteFor, graphOfConfig, OLD_CONFIG_PATH } from "../features/tex/lab/engine/graphAt";
 import { prodPlay, prodPlayAtVersion } from "../features/tex/lab/engine/prodRun";
 import { linesOf } from "../features/tex/lab/engine/replayRead";
 import { G } from "../features/tex/lab/engine/state";
@@ -159,7 +159,7 @@ describe("the graph of the time", () => {
 
   test("a commit from before Tex had its own package is read at the old path", async () => {
     const get = jest.fn(async (url: string) =>
-      (url.endsWith("/packages/shared/src/texConfig.json") ? { ok: true, json: async () => TEX_CONFIG } : { ok: false, json: async () => null }) as never,
+      (url.endsWith(`/${OLD_CONFIG_PATH}`) ? { ok: true, json: async () => TEX_CONFIG } : { ok: false, json: async () => null }) as never,
     );
     const g = await graphAt(CODE, get as never);
     expect(g?.nodes.map((n) => n.id)).toEqual(G().nodes.map((n) => n.id));
