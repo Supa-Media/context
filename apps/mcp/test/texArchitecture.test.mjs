@@ -6,7 +6,7 @@ import { ROLES, TEX_MAP, architectureFor, trainingFor, withArchitecture } from "
 import { replyJudge } from "../../../packages/tex/gateway/agent/replyJudge.js";
 import { backgroundedBrief } from "../src/machines/jobBackground.js";
 import { mapFor } from "../../../scripts/tex-architecture.mjs";
-import { TEX_CONFIG } from "../../../packages/tex/gateway/agent/texConfig.js";
+import { RETIRED_STEPS, TEX_CONFIG } from "../../../packages/tex/gateway/agent/texConfig.js";
 
 // Dev2, 2026-11-06: "make sure the architecture in code is loaded into every agents context, and tell them what part of the graph they are".
 
@@ -22,8 +22,9 @@ test("the map is Tex's config in words: every node, and every wire by its mode",
 test("every role names a node of the config, and says where it is", () => {
   const labels = new Map(TEX_CONFIG.nodes.map((n) => [n.id, n.label]));
   for (const [role, at] of Object.entries(ROLES)) {
-    assert.ok(labels.has(at.node), `${role}: node "${at.node}" is not in Tex's config`);
-    assert.ok(TEX_MAP.includes(labels.get(at.node)), `${role}: node "${at.node}" is not in the map`);
+    // A role whose step was retired to the shelf (2026-11-20) still names it: its code reads that step's settings there.
+    assert.ok(labels.has(at.node) || RETIRED_STEPS[at.node], `${role}: node "${at.node}" is neither in Tex's config nor retired to the shelf`);
+    if (labels.has(at.node)) assert.ok(TEX_MAP.includes(labels.get(at.node)), `${role}: node "${at.node}" is not in the map`);
     const text = architectureFor(role);
     assert.ok(text.includes(TEX_MAP), `${role}: the map is whole`);
     assert.match(text, /WHERE YOU ARE: you are /);

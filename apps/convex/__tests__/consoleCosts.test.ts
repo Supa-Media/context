@@ -199,7 +199,7 @@ describe("consoleCosts: configuration and the window", () => {
 });
 
 describe("consoleCosts: attribution", () => {
-  test("Tex steps map from the gateway labels and the model, and the Workers AI Clef is Decide and GLM the Fallback step even while it is off", async () => {
+  test("Tex steps map from the gateway labels and the model, and the Workers AI Clef is Decide and GLM the Front door's (its Fallback step folded into it)", async () => {
     const fixture = {
       w0: [],
       w1: [
@@ -219,16 +219,15 @@ describe("consoleCosts: attribution", () => {
       aw: [ai(CLEF_MODEL, 1000), ai(GLM_MODEL, 2000)],
     };
     const { result } = await run(7, fixture);
-    expect(step(result, "fd").usd).toBeCloseTo(1);
-    expect(step(result, "fallback").usd).toBeCloseTo(2000 / 1000 * USD_PER_THOUSAND_NEURONS);
+    // The Fallback step was folded into the Front door (2026-11-20), so GLM, its model, is billed there.
+    expect(step(result, "fd").usd).toBeCloseTo(1 + 2000 / 1000 * USD_PER_THOUSAND_NEURONS);
     expect(step(result, "advisor").usd).toBeCloseTo(2 + 4);
-    expect(step(result, "jobcheck").usd).toBeCloseTo(8);
-    expect(step(result, "mailadv").usd).toBeCloseTo(16);
-    expect(step(result, "reviewer").usd).toBeCloseTo(32);
-    expect(step(result, "classifier").usd).toBeCloseTo(64.5);
+    // Retired steps' calls land on the step each was folded into (2026-11-20).
+    expect(step(result, "jobadv").usd).toBeCloseTo(8 + 16);
+    expect(step(result, "answerCheck").usd).toBeCloseTo(32);
+    expect(step(result, "afterReply").usd).toBeCloseTo(64.5 + 0.0625);
     expect(step(result, "mail").usd).toBeCloseTo(0.25);
     expect(step(result, "card").usd).toBeCloseTo(0.125);
-    expect(step(result, "selfreview").usd).toBeCloseTo(0.0625);
     expect(step(result, "handback").usd).toBeCloseTo(0.03125);
     expect(step(result, "decide").usd).toBeCloseTo(1000 / 1000 * USD_PER_THOUSAND_NEURONS);
     const tex = configured(result).texUsd;

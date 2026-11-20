@@ -107,7 +107,9 @@ describe("every canvas step logs what went in and what came out", () => {
     expect(nodeOfStep("timing")).toBeNull();
     // A turn logged before the Door was one step lands on it.
     expect(nodeOfStep("door")).toBe("doorStep");
-    expect(nodeOfStep("checks")).toBe("checks");
+    // A step retired from the config (2026-11-20) lands on the step it was folded into.
+    expect(nodeOfStep("checks")).toBe("answerCheck");
+    expect(nodeOfStep("reflect")).toBe("learn");
   });
 
   // The other way (Dev2, 2026-11-14: "Everything that's running should have a node"): every step the gateway writes to a

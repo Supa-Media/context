@@ -27,7 +27,7 @@
  *   node scripts/tex-lab-promote.mjs <graph.json> --check  only say whether it would be refused
  *   node scripts/tex-lab-promote.mjs --self-test
  */
-import { readFileSync, writeFileSync } from "node:fs";
+import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { createRequire } from "node:module";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -92,7 +92,15 @@ export function configFrom(graph, current, currentWords = {}, shelf = []) {
     if (n.effort !== undefined && !EFFORTS.has(n.effort)) return refuse(`step "${n.id}" has effort "${n.effort}"`);
     if (typeof n.on !== "boolean") return refuse(`step "${n.id}" is neither on nor off`);
   }
-  for (const id of known) if (!ids.has(id)) return refuse(`step "${id}" is gone: the gateway still runs it, so turn it off instead of deleting it`);
+  // A step deleted while it is off on main is retired (Dev2, 2026-11-20: "removing a node is a Lab edit; leave the
+  // code, just don't wire it"): it goes to the shelf with its last definition, which code still reads for its settings
+  // (`texStep`). Deleting a step that is on would stop work Tex does, so that is still turned off first.
+  const retired = [];
+  for (const n of current.nodes) {
+    if (ids.has(n.id)) continue;
+    if (n.on !== false) return refuse(`step "${n.id}" is gone while it is on: the gateway still runs it, so turn it off first, then delete it`);
+    retired.push(n.id);
+  }
   for (const e of graph.edges) {
     if (!e || !ids.has(e.from) || !ids.has(e.to)) return refuse(`a wire joins a step that is not there (${e?.from} → ${e?.to})`);
     if (!MODES.has(e.mode) || !Array.isArray(e.when) || !e.when.every((w) => typeof w === "string")) return refuse(`the wire ${e.from} → ${e.to} is malformed`);
@@ -135,7 +143,24 @@ export function configFrom(graph, current, currentWords = {}, shelf = []) {
     for (const id of [...named]) for (let up = groups[id]?.parent; up && !named.has(up); up = groups[up]?.parent) named.add(up);
     for (const id of Object.keys(groups)) if (!named.has(id) && !(current.groups ?? {})[id]) delete groups[id];
   }
-  return { config: { ...current, nodes, edges, ...(groups ? { groups } : {}) }, words: madeWords.words, unshelved: nodes.map((n) => n.id).filter((id) => shelved.has(id)) };
+  return { config: { ...current, nodes, edges, ...(groups ? { groups } : {}) }, words: madeWords.words, unshelved: nodes.map((n) => n.id).filter((id) => shelved.has(id)), retired };
+}
+
+const CODE_HOMES = ["packages/tex/gateway/agent", "packages/tex/gateway/agent/graph/nodes", "packages/tex/gateway/agent/texEntryPoint", "packages/tex/gateway", "packages/tex/worker", "apps/mcp/src", "apps/agent/src", "packages/tex/src", "packages/shared/src"];
+
+/**
+ * The shelf entry for a step a promotion retired: the code files it names that are there (its node file first), why,
+ * and its last definition (`node`, off, without its canvas place), which `texStep` falls back to.
+ */
+export function retiredEntry(node, root = ROOT, today = new Date().toISOString().slice(0, 10)) {
+  const names = [`${node.id}.js`, ...String(node.file ?? "").match(/[\w./-]+\.(?:m?js|cjs|ts)\b/g) ?? []];
+  const files = [];
+  for (const name of names) {
+    const found = CODE_HOMES.map((dir) => `${dir}/${name}`).find((path) => existsSync(join(root, path)));
+    if (found && !files.includes(found)) files.push(found);
+  }
+  const { group: _group, x: _x, y: _y, ...rest } = node;
+  return { files, why: `Retired from the config by a Lab promotion on ${today}: deleted from a draft while off. Its code stays, unwired; \`node\` keeps its last definition, which code still reads for its settings.`, retired: true, node: { ...rest, on: false } };
 }
 
 /** The config file's text: the head as JSON, then one step and one wire per line. */
@@ -215,8 +240,8 @@ function selfTest() {
   gg.edges.push({ from: "send", to: "text", mode: "generator", when: ["answer"] });
   expect(configFrom(gg, current, words).config?.edges.some((e) => e.mode === "generator" && e.to === "text"), "a generator wire was lost");
   const g1 = graph();
-  g1.nodes.find((n) => n.id === "reviewer").effort = "medium";
-  expect(configFrom(g1, current, words).config.nodes.find((n) => n.id === "reviewer").effort === "medium", "an effort change was lost");
+  g1.nodes.find((n) => n.id === "answerCheck").effort = "medium";
+  expect(configFrom(g1, current, words).config.nodes.find((n) => n.id === "answerCheck").effort === "medium", "an effort change was lost");
   const g2 = graph();
   g2.nodes.push({ ...g2.nodes[0], id: "brandnew" });
   expect(/new/.test(configFrom(g2, current, words).refused ?? ""), "a step with no code passed");
@@ -224,8 +249,20 @@ function selfTest() {
   g3.nodes.find((n) => n.id === "fd").model = "custom-1";
   expect(/no gateway model id/.test(configFrom(g3, current, words).refused ?? ""), "a Lab-only model passed");
   const g4 = graph();
-  g4.nodes = g4.nodes.filter((n) => n.id !== "selfreview");
-  expect(/gone/.test(configFrom(g4, current, words).refused ?? ""), "a deleted step passed");
+  // A step that is on can't be deleted; one that is off is retired to the shelf, its wires and code left as they are.
+  g4.nodes = g4.nodes.filter((n) => n.id !== "fd");
+  g4.edges = g4.edges.filter((e) => e.from !== "fd" && e.to !== "fd");
+  expect(/gone while it is on/.test(configFrom(g4, current, words).refused ?? ""), "a deleted step that is on passed");
+  const offId = current.nodes.find((n) => n.on === false)?.id;
+  if (offId) {
+    const g4b = graph();
+    g4b.nodes = g4b.nodes.filter((n) => n.id !== offId);
+    g4b.edges = g4b.edges.filter((e) => e.from !== offId && e.to !== offId);
+    const out = configFrom(g4b, current, words);
+    expect(out.config && !out.config.nodes.some((n) => n.id === offId) && out.retired?.join() === offId, "a deleted off step was not retired");
+    const entry = retiredEntry(current.nodes.find((n) => n.id === offId));
+    expect(entry.retired === true && entry.node.id === offId && entry.node.on === false && entry.node.x === undefined && entry.files.length > 0, "a retired step's shelf entry lost its definition or files");
+  }
   const g5 = graph();
   g5.edges.push({ from: "fd", to: "nowhere", mode: "wait", when: ["*"] });
   expect(/not there/.test(configFrom(g5, current, words).refused ?? ""), "a wire to nowhere passed");
@@ -338,8 +375,11 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
       for (const [name, text] of Object.entries(made.words)) writeFileSync(join(ROOT, PROMPT_FOLDER, `${name}.md`), `${text}\n`);
       writeFileSync(join(ROOT, PROMPT_MODULE), promptModuleFor(wordsOf(ROOT)));
       // A shelf node now wired comes off the shelf in the same pull request.
-      if (made.unshelved.length > 0) {
+      // A step deleted while off goes onto it, its code kept (`retiredEntry`).
+      const retired = made.retired ?? [];
+      if (made.unshelved.length > 0 || retired.length > 0) {
         for (const id of made.unshelved) delete shelf.nodes[id];
+        for (const id of retired) shelf.nodes[id] = retiredEntry(current.nodes.find((n) => n.id === id));
         writeFileSync(join(ROOT, SHELF), `${JSON.stringify(shelf, null, 2)}\n`);
       }
     }

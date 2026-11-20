@@ -52,6 +52,8 @@ function fakeAi() {
       script = [...replies];
     },
     async run(model, input) {
+      // The Router's read beside the Door (on as a logged signal, 2026-11-20) is no part of what these tests watch.
+      if (input?.questions?.route) return { answers: {} };
       if (model === DECISION_MODEL) {
         decisions.push(input);
         return ai.decide(input);

@@ -375,12 +375,13 @@ test("the act door, chosen by the router, holds a handle claim for the person's 
   const world = await createEgressWorld();
   const { model, controlPlane, env, pending, restore } = world;
   const router = TEX_CONFIG.nodes.find((node) => node.id === "router");
-  // Main draws the doors and the wires (doorStep -> router, fd -> fdAct); the router's `on` is the switch.
-  assert.equal(router.on, false, "main ships the router off");
+  // Main draws the doors and doorStep -> router; the router on and fd -> fdAct wired are what a draft that branches sets
+  // (main has the router on as a logged signal only since 2026-11-20, with no door wired).
   assert.ok(TEX_CONFIG.edges.some((e) => e.from === "doorStep" && e.to === "router" && e.mode === "uses"));
-  assert.ok(TEX_CONFIG.edges.some((e) => e.from === "fd" && e.to === "fdAct" && e.mode === "uses"));
-  const drawn = { on: router.on };
+  assert.ok(TEX_CONFIG.nodes.some((n) => n.id === "fdAct"), "main draws the act door");
+  const drawn = { on: router.on, edges: [...TEX_CONFIG.edges] };
   router.on = true;
+  if (!TEX_CONFIG.edges.some((e) => e.from === "fd" && e.to === "fdAct")) TEX_CONFIG.edges.push({ from: "fd", to: "fdAct", mode: "uses", when: ["act"] });
   env.AI = { run: async (_model, input) => ({ answers: input?.questions?.route ? { route: { choice: "act", confidence: 0.9 } } : {} }) };
   const claimed = (slug) => controlPlane.workspaceSetupCalls.some((entry) => entry.dryRun === false && entry.slug === slug);
   try {
@@ -396,6 +397,7 @@ test("the act door, chosen by the router, holds a handle claim for the person's 
     assert.equal(pending().length, 1, "the held call is waiting");
   } finally {
     router.on = drawn.on;
+    TEX_CONFIG.edges.splice(0, TEX_CONFIG.edges.length, ...drawn.edges);
     restore();
   }
 });

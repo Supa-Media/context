@@ -141,3 +141,36 @@ test("Tex is not told about its own computer while the node is on the shelf", as
   assert.equal(entry?.shelf, true);
   assert.equal(CAPABILITY_LIST.includes(entry.name), false);
 });
+
+test("a Lab test chat gets a computer of its own, never the person's or the chat's", async () => {
+  const { sandboxComputer, sandboxEnvOf } = await import("../src/labSandbox/policy.js");
+  const seen = [];
+  const real = { fetch: async (url, init) => (seen.push(JSON.parse(init.body)), new Response(JSON.stringify({ ok: true }), { status: 200 })) };
+  const one = sandboxComputer(real, "box-one");
+  const two = sandboxComputer(real, "box-two");
+  await one.fetch("https://tex-computer/computer/run", { method: "POST", body: JSON.stringify({ owner: TAG, command: "ls" }) });
+  await one.fetch("https://tex-computer/computer/run", { method: "POST", body: JSON.stringify({ owner: TAG, command: "ls" }) });
+  await two.fetch("https://tex-computer/computer/run", { method: "POST", body: JSON.stringify({ owner: TAG, command: "ls" }) });
+  assert.match(seen[0].owner, /^[0-9a-f]{64}$/);
+  assert.notEqual(seen[0].owner, TAG, "never the real tag");
+  assert.equal(seen[0].owner, seen[1].owner, "the same test chat keeps its computer");
+  assert.notEqual(seen[0].owner, seen[2].owner, "another test chat gets another");
+  assert.equal(seen[0].command, "ls");
+  const refused = await sandboxComputer(real, "").fetch("https://tex-computer/computer/run", { method: "POST", body: JSON.stringify({ owner: TAG }) });
+  assert.equal(refused.status, 400);
+  assert.equal(seen.length, 3, "no test chat id, no call");
+  const env = sandboxEnvOf({ TEX_COMPUTER: real }, { gate: { about: { sandboxId: "box-one" } } });
+  assert.notEqual(env.TEX_COMPUTER, real, "the test env never holds the real binding");
+  assert.equal(sandboxEnvOf({ TEX_COMPUTER: real }, { gate: { about: {} } }).TEX_COMPUTER, undefined);
+});
+
+test("a Lab test chat's turn runs tex_computer for real, on the test chat's own computer", async () => {
+  const { toolAnswer } = await import("../src/labSandbox/policy.js");
+  const kept = [];
+  const gate = { record: (write) => kept.push(write) };
+  assert.equal(await toolAnswer("tex_computer", { op: "run", command: "ls" }, gate), null, "null runs it for real");
+  assert.deepEqual(kept, [], "never listed as refused");
+  const refused = await toolAnswer("browse", { url: "https://example.com" }, gate);
+  assert.equal(refused.isError, true, "a browser is still refused");
+});
+

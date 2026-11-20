@@ -67,18 +67,22 @@ const TEXT_CLIENTS: ReadonlySet<string> = new Set(["texts", "texts-group", "app"
 const DREAM_CLIENTS: ReadonlySet<string> = new Set(["dreams", "reflect", "memory_nudge"]);
 const DREAM_FEATURES: ReadonlySet<string> = new Set(["day-summary", "handback-miner"]);
 
-/** The Tex step a gateway call belongs to, by its feature and client labels; null when it is none. */
+/**
+ * The Tex step a gateway call belongs to, by its feature and client labels; null when it is none. A call from a step
+ * retired off the config (2026-11-20: job check, job mail, reviewer, classifier, self-review; their code kept) is
+ * billed to the live step it was folded into, so the steps still add up to Tex's whole spend.
+ */
 export function texStepOf(feature: string, client: string, model: string): string | null {
   const is = (name: string) => feature === name || client === name;
   if (client === "advisor") return "advisor";
-  if (is("job-check")) return "jobcheck";
-  if (is("job-advisor")) return "mailadv";
+  if (is("job-check")) return "jobadv";
+  if (is("job-advisor")) return "jobadv";
   if (feature === "assistant" && TEXT_CLIENTS.has(client)) return /opus/.test(model) ? "advisor" : "fd";
-  if (is("reviewer")) return "reviewer";
-  if (is("threads") || is("threads_backfill")) return "classifier";
+  if (is("reviewer")) return "answerCheck";
+  if (is("threads") || is("threads_backfill")) return "afterReply";
   if (is("mail-checker")) return "mail";
   if (is("card-check")) return "card";
-  if (is("self-review")) return "selfreview";
+  if (is("self-review")) return "afterReply";
   if (is("handback-judge")) return "handback";
   return null;
 }
@@ -98,7 +102,12 @@ export function gatewayBucket(feature: string, client: string, model: string): B
 /** Where a Workers AI model's cost goes. */
 export function workersAiBucket(model: string): Bucket {
   if (model === CLEF_MODEL) return workersAiStep("clef");
-  if (model === GLM_MODEL) return workersAiStep("glm-4-7");
+  // GLM was the Front door's fallback; the Fallback step was folded into the Front door and retired (2026-11-20), so
+  // a GLM call no step runs any more is billed to the Front door, still Tex's spend.
+  if (model === GLM_MODEL) {
+    const bucket = workersAiStep("glm-4-7");
+    return bucket.kind === "tex" ? bucket : { kind: "tex", step: "fd" };
+  }
   if (model.includes("bge")) return { kind: "feature", key: "search" };
   if (model.includes("whisper")) return { kind: "feature", key: "meetings" };
   return { kind: "feature", key: "other" };
