@@ -59,6 +59,7 @@ export async function outboxOf(namespace, chatId) {
     metas: plain(body?.metas),
     taps: plain(body?.taps),
     handles: plain(body?.handles),
+    cards: plain(body?.cards),
   };
 }
 

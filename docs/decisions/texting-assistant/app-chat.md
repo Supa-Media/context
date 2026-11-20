@@ -53,9 +53,17 @@ the gateway placed for that chat (`APP_CHAT`, `reply.ts` `sessionOf`): an `app:`
 in a provider's webhook, names nobody. Every call but a read
 counts against the chat's daily cap of 200.
 
-**Approvals are the texted ones.** The page shows Approve and Don't under the Tex text that asks, which send a 👍 or
-👎 tapback on that text: what a person on iMessage does, settled in the gateway (`textedApprovals.js`) with every
-check it has. The page never runs a tool and never names an approval record.
+**Approvals are the texted ones, drawn as one card** (Dev2, 2026-11-20, mock "in-app Tex"). An ask's row carries
+`ask.card` (`agent/appChatCards.js`): an email's From, To, Subject and body, or any other held step's summary and copy,
+built from the held record while it waits and from what the chat object kept (`app:card:<ask>`) after. The page draws
+the card in place of the ask's words, never a tool name or its arguments. **Send** (`op: "answer"`, `choice: "send"`)
+may carry the email's body as the person edited it in place: the gateway rewrites the body only (`tools/heldEdit.js`:
+the person's own Tex 1:1 email, no forward, no attachment, no group's ask; who it goes to never changes here), arms
+that one ask, and hands the chat object the same 👍 a person's tapback is, on the words of the ask as it now stands, so
+the turn settles it with every check a texted yes has (`textedApprovals.js` `thumbsUpIsYes`). **Not now**
+(`choice: "hold"`) only keeps the card as held: nothing is settled, run or started, and the ask stays as armed as it
+was. A yes replied onto a card ("send the draft") arms that card's ask before the text goes in, so the draft the
+person pointed at is the one their yes settles. The page names an ask's id and never runs a tool.
 
 **Not yet** (later pull requests): the app chat's pictures in Download as folders and deleted with the account
 (they live in the chat's object, not the workspace's files bucket: a call for the owner, against non-negotiable #1);

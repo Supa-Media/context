@@ -8,7 +8,8 @@
  * ledger and from `GET /app/outbox` (events not yet written to the ledger).
  *
  * The chat's own counts live in its storage: the day's sends and pictures (`SENDS_KEY`), for the daily caps. The words of a
- * send are never kept here beyond the chat object's own outbox.
+ * send are never kept here beyond the chat object's own outbox. An ask's card (`CARD_PREFIX`) is kept here as well: a card
+ * is not a send, so it counts against no cap and calls no other object.
  */
 
 /** Where the Worker's copy of a chat says it is placed (`packages/tex/worker/inboxMove.ts` `PLACE_KEY`). */
@@ -19,6 +20,8 @@ export const NAME_KEY = "__inbox_name";
 export const SENDER_ID_KEY = "__sender_id";
 /** The chat object's outbox: its kept events are stored under this prefix (`packages/tex/worker/events.ts`). */
 const EVENT_PREFIX = "ev:";
+/** An ask's card, by the ask's id: `{ state, at, body? }`, what the app shows for it (`agent/appChatCards.js`). */
+const CARD_PREFIX = "app:card:";
 /** The day's sends: `{ day, n }`, the UTC day and how many sends the chat has taken that day. */
 const SENDS_KEY = "app:sends";
 /** A person's sends a UTC day, across the app chat (the page's cap, `agent/appChatRoute.js` carries the same number). */
@@ -203,6 +206,37 @@ export async function serveAppArrive(request, { state, open, now = Date.now }) {
   return Response.json({ outcome: result, ...(ev !== null ? { ev } : {}) }, { status: ok ? 200 : 503 });
 }
 
+/** The card states the app may keep for an ask: `held` (shown, waiting), `sending` (the yes went out), `sent`. */
+const CARD_STATES = new Set(["held", "sending", "sent"]);
+/** An ask's id as the chat's asks carry it: letters, digits, `_` and `-`. */
+const ASK_ID = /^[A-Za-z0-9_-]{8,64}$/;
+/** The most text a card keeps: an email's body as the person read it (`CARD_TEXT_CAP` in `agent/appChatCards.js`). */
+const CARD_BODY_CAP = 24_000;
+
+/**
+ * `POST /app/card`: `{ inbox, ask, state, body? }`, the card the app shows for one ask. Sent as the app's page changes an
+ * ask's state (`held` when it is shown, `sending` when the person says yes, `sent` once it went out), with `body` when the
+ * person edited the copy. Kept under the ask's id, and answered `{ ok: true }`. A card is not a send: it does not count
+ * against the day's cap, and it calls no other object.
+ *
+ * Only this object's own chat: `inbox` must be an app chat's name and the name the object was placed under. Answers 400
+ * `bad_body` otherwise.
+ */
+export async function serveAppCard(request, { state, now = Date.now }) {
+  const body = await request.json().catch(() => null);
+  if (body === null || typeof body !== "object" || Array.isArray(body)) return Response.json({ error: "bad_body" }, { status: 400 });
+  const valid =
+    (await isAppChatName(body.inbox)) &&
+    (await state.storage.get(NAME_KEY)) === body.inbox &&
+    typeof body.ask === "string" &&
+    ASK_ID.test(body.ask) &&
+    CARD_STATES.has(body.state) &&
+    (body.body === undefined || (typeof body.body === "string" && body.body.length <= CARD_BODY_CAP));
+  if (!valid) return Response.json({ error: "bad_body" }, { status: 400 });
+  await state.storage.put(`${CARD_PREFIX}${body.ask}`, { state: body.state, at: now(), ...(body.body !== undefined ? { body: body.body } : {}) });
+  return Response.json({ ok: true });
+}
+
 /** `GET /app/picture/<id>`: one of this chat's kept pictures, or 404. */
 export async function serveAppPictureById(storage, id) {
   if (!(await isAppChatName(await storage.get(NAME_KEY)))) return new Response(null, { status: 404 });
@@ -215,12 +249,12 @@ export async function serveAppPictureById(storage, id) {
 /**
  * `GET /app/outbox`: the chat object's kept events that the ledger has not taken yet (never a step, which only the
  * ledger keeps), oldest first; when the app line last showed typing; the pictures and tapbacks the app kept beside
- * events (`metas`, `taps`, by event id); and which events can still be edited (`handles`: event id → the handle an
- * edit names it by). A chat never placed has none of them.
+ * events (`metas`, `taps`, by event id); which events can still be edited (`handles`: event id → the handle an edit
+ * names it by); and the cards kept for asks (`cards`, by ask id). A chat never placed has none of them.
  */
 export async function serveAppOutbox(storage) {
   const name = await storage.get(NAME_KEY);
-  if (typeof name !== "string") return Response.json({ events: [], typingAt: null, metas: {}, taps: {}, handles: {} });
+  if (typeof name !== "string") return Response.json({ events: [], typingAt: null, metas: {}, taps: {}, handles: {}, cards: {} });
   if (!(await isAppChatName(name))) return Response.json({ error: "not_an_app_chat" }, { status: 404 });
   const kept = [...(await storage.list({ prefix: EVENT_PREFIX })).values()];
   const events = kept
@@ -231,5 +265,5 @@ export async function serveAppOutbox(storage) {
   const typingAt = await storage.get(APP_TYPING_KEY);
   const byEvent = async (prefix) => Object.fromEntries([...(await storage.list({ prefix })).entries()].map(([key, value]) => [key.slice(prefix.length), value]));
   const handles = Object.fromEntries((await handlesOf(storage)).map((entry) => [entry.ev, entry.h]));
-  return Response.json({ events, typingAt: typeof typingAt === "number" ? typingAt : null, metas: await byEvent(META_PREFIX), taps: await byEvent(TAP_PREFIX), handles });
+  return Response.json({ events, typingAt: typeof typingAt === "number" ? typingAt : null, metas: await byEvent(META_PREFIX), taps: await byEvent(TAP_PREFIX), handles, cards: await byEvent(CARD_PREFIX) });
 }
