@@ -67,6 +67,20 @@ export async function deskLedger(store) {
 }
 
 /**
+ * The one-to-one chat's frozen modules for `step` that the desk read with the record (`texStore/desk.js`
+ * `DESK_FROZEN_STEPS`): the kept `{day, modules}` or null when none is kept; undefined when the desk did not answer
+ * for that step (no desk, an older object, a step it does not carry), which reads them by their own call.
+ */
+export async function deskFrozen(store, step) {
+  try {
+    const frozen = (await openDesk(store))?.frozen;
+    return frozen !== null && typeof frozen === "object" && Object.hasOwn(frozen, step) ? frozen[step] : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+/**
  * The notes the desk read with the record, by name (`about`, `jobs`):
  * `{etag, text}`, false for a note the record says is missing, absent when it
  * holds no key for it. `{}` without a desk or when it can't be read.

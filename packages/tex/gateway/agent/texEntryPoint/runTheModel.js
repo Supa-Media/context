@@ -314,6 +314,7 @@ export async function runTheModel(t, via) {
   };
   // The front door's turn, or the specialist door the router picked first (`doorTurn.js`): its runTurn is this one, with the door's tools.
   const turn = await tex.step("model", () => runWithDoors({ runTurn, args, eligible, route: routed, waitedMs, via, handOffRoute: routeHandOff, doorNotes, jobAt }));
+  if (typeof freeze?.keep === "function") await tex.after("frozen_keep", () => freeze.keep()); // the day's words, once the model answered (`frozenModules.js`)
   if (eligible && !acts && t.routeRead) loggedRoute(turn, await tex.step("route_logged", () => routeIfBack(t.routeRead)));
   const notAllowed = allowedBeside ? await tex.wait("allowed", allowedRead).then(() => null, (thrown) => thrown) : null; // beside the model, its no ends the turn here: no tool ran (`allowedFirst`), nothing is kept or sent
   if (notAllowed !== null) return (opened !== null && tex.after("browser_close", () => opened.close()), steer !== null && tex.after("steer_clear", () => begun.catch(() => {}).then(() => steer.clear())), await tex.step("refused", () => refused(notAllowed)));
