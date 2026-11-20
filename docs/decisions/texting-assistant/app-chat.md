@@ -62,3 +62,14 @@ check it has. The page never runs a tool and never names an approval record.
 pruning the chat object's kept keys; files other than pictures, and voice; a background job's later report and
 check-ins on the app line (they go to the Worker's object by name today); a socket in place of the poll; one chat
 object for a person's phone and app, so a text and an app message never run as two turns at once.
+
+## The turn leaves the chat object (Dev2, 2026-11-20)
+
+An app chat is born in the gateway, and its chat object used to call `/agent` in-process (`texChat.js` `chatEnv`), so
+the whole turn ran in the object's isolate. On 2026-11-20 at 13:26:06Z Dev2's "Daniel 6 notes" text ran the isolate out
+of memory after the note was written and before the reply went, and nothing answered it. In-process app turns were
+also slower: over the three days before, the app chat's turns took 34.8 s at the median against 16.8 s for texted ones,
+with about the same model time. Dev2 chose the phone's route: the app chat's `POST /agent` goes over the network to
+the gateway, a fresh isolate, as the texting Worker's does (`hopToGateway`); the smaller routes (`/agent/steer`,
+`/agent/events`, ...) stay in-process. Only a hop that throws before any answer runs the turn in-process, so a text
+is never dropped for want of the hop. Reverting it brings the memory reset back: `test/texChatAppHop.test.mjs` fails.

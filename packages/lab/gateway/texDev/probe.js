@@ -30,6 +30,8 @@ function placeOf(chat) {
  * Read only: everything that opens a chat here only reads its history file.
  */
 export function probedChat(page, key) {
+  // The app view of the person's own 1:1: the same chat and ledger as "me", asked as the app's text history.
+  if (key === "app") return { ...chatOf(page, "me"), key: "app" };
   try {
     return chatOf(page, key);
   } catch (error) {
@@ -60,7 +62,9 @@ export const when = (at, timeZone) => {
 
 /** The chats this person can probe: their own, then the ones shared with the developers (read only). */
 export function chatsOf(page) {
-  const own = pickerOf(page).map((c) => ({ chat: c.key, name: c.key === "me" ? "Just you and Tex" : c.name, ...(c.people ? { people: c.people } : {}) }));
+  const own = pickerOf(page)
+    .map((c) => ({ chat: c.key, name: c.key === "me" ? "Just you and Tex" : c.name, ...(c.people ? { people: c.people } : {}) }))
+    .flatMap((c) => (c.chat === "me" ? [c, { chat: "app", name: "Tex in the app", via: "app" }] : [c]));
   const shared = (Array.isArray(page?.shared) ? page.shared : []).filter((c) => c && typeof c.key === "string").map((c) => ({ chat: c.key, name: String(c.name ?? "Shared chat"), shared: true, ...(c.kind === "group" ? { people: c.people } : {}), ...(Array.isArray(c.sharedBy) ? { sharedBy: c.sharedBy } : {}) }));
   return [...own, ...shared];
 }
@@ -69,7 +73,7 @@ export function openChat(env, page, key, ledgerOf = ledgerFor) {
   const chat = probedChat(page, key ?? "me");
   const place = placeOf(chat);
   const ledger = place === null ? null : ledgerOf(env, place.owner);
-  return { chat, place, ledger };
+  return { chat, place, ledger, ...(key === "app" ? { via: "app" } : {}) };
 }
 
 /** Turns one `turns` answer lists unless `limit` says otherwise, and the most it lists. */
@@ -82,11 +86,13 @@ export const countOf = (value, fallback, max) => (Number.isSafeInteger(value) &&
 /**
  * A chat's recent turns, newest first: each reply with its turn id, when, how long, the model and Tex version, the
  * text it answered and what Tex said; 20 unless `limit` (at most 100). `before` pages back (the `before` the last
- * answer gave).
+ * answer gave). The app view (`chat: "app"`) keeps only the turns asked from the app; a turn asked from the app is marked
+ * `via: "app"` in every view.
  */
 export async function turnsOf(env, page, { chat: key, day, before, limit } = {}, { ledgerOf = ledgerFor } = {}) {
   const { chat, place, ledger } = openChat(env, page, key, ledgerOf);
   if (ledger === null) return { chat: chat.key, turns: [] };
+  const appView = key === "app";
   const range = dayRange(day, page.timeZone);
   // A turn is its reply, or the `failed` line a turn that answered nothing leaves (`texEntryPoint/recoverFromFailure.js`).
   const read = await ledger.read(place.name, { before: Number.isSafeInteger(before) ? before : NEWEST, kinds: ["text", "reply", "step"], steps: ["failed"], limit: 300, jobs: false, ...(range ?? {}) });
@@ -95,14 +101,18 @@ export async function turnsOf(env, page, { chat: key, day, before, limit } = {},
   const turns = [];
   const shown = countOf(limit, TURNS_SHOWN, MAX_TURNS);
   const replies = entries.filter((e) => (e.kind === "reply" || (e.kind === "step" && e.step === "failed")) && typeof e.turn === "string");
-  for (const reply of replies.slice(0, shown)) {
+  // Replies in order until `shown` turns are kept; the app view keeps only those asked from the app.
+  let lastIndex = -1;
+  for (let i = 0; i < replies.length && turns.length < shown; i++) {
+    const reply = replies[i];
+    const asked = texts.filter((t) => t.from?.kind === "person" && t.at <= reply.at).sort((a, b) => b.at - a.at)[0];
+    if (appView && asked?.via !== "app") continue;
+    lastIndex = i;
     if (reply.kind === "step") {
-      const asked = texts.filter((t) => t.from?.kind === "person" && t.at <= reply.at).sort((a, b) => b.at - a.at)[0];
-      turns.push({ turn: reply.turn, at: reply.at, when: when(reply.at, page.timeZone), ms: reply.ms ?? null, ...(reply.model ? { model: reply.model } : {}), failed: reply.reason ?? true, ...(reply.input?.waitMs != null ? { waitedMs: reply.input.waitMs } : {}), rounds: reply.output?.rounds ?? [], asked: asked ? cutDeep(asked.text ?? "", 300) : null, ...(asked?.from?.name ? { from: asked.from.name } : {}) });
+      turns.push({ turn: reply.turn, at: reply.at, when: when(reply.at, page.timeZone), ms: reply.ms ?? null, ...(reply.model ? { model: reply.model } : {}), failed: reply.reason ?? true, ...(reply.input?.waitMs != null ? { waitedMs: reply.input.waitMs } : {}), rounds: reply.output?.rounds ?? [], asked: asked ? cutDeep(asked.text ?? "", 300) : null, ...(asked?.from?.name ? { from: asked.from.name } : {}), ...(asked?.via === "app" ? { via: "app" } : {}) });
       continue;
     }
     const said = texts.filter((t) => t.turn === reply.turn && t.from?.kind === "tex").map((t) => t.text).join("\n");
-    const asked = texts.filter((t) => t.from?.kind === "person" && t.at <= reply.at).sort((a, b) => b.at - a.at)[0];
     turns.push({
       turn: reply.turn,
       at: reply.at,
@@ -114,10 +124,12 @@ export async function turnsOf(env, page, { chat: key, day, before, limit } = {},
       asked: asked ? cutDeep(asked.text ?? "", 300) : null,
       ...(asked?.from?.name ? { from: asked.from.name } : {}),
       said: cutDeep(said || reply.text || "", 300),
+      ...(asked?.via === "app" ? { via: "app" } : {}),
     });
   }
-  // More replies than shown: the next page starts before the oldest one shown.
-  const next = replies.length > shown ? replies[shown - 1].seq : read.before;
+  // More replies than shown: the next page starts before the oldest one kept. Otherwise the ledger's own cursor.
+  const more = turns.length === shown && lastIndex < replies.length - 1;
+  const next = more ? replies[lastIndex].seq : read.before;
   return { chat: chat.key, turns, ...(Number.isSafeInteger(next) ? { before: next } : {}) };
 }
 
