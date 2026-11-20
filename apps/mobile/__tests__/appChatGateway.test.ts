@@ -1,13 +1,19 @@
 import { describe, expect, test } from "@jest/globals";
 import {
+  ANSWER_SENTENCE,
+  CARD_FIELD_MAX,
+  CARD_TEXT_MAX,
   EDIT_SENTENCE,
   MAX_PICTURES,
   MAX_TEXT,
   REACT_SENTENCE,
   UNSEND_SENTENCE,
+  answerRequest,
+  cardReplyWords,
   editRequest,
   mergeRows,
   pictureRequest,
+  readAnswer,
   readChat,
   readPictureHead,
   readReact,
@@ -355,5 +361,118 @@ describe("tapback toggling and line helpers", () => {
 
   test("serverRowOf never matches a pending line", () => {
     expect(serverRowOf([pending({ localId: "m_1" })], "m_1")).toBeUndefined();
+  });
+});
+
+function emailCard(over: Record<string, unknown> = {}): Record<string, unknown> {
+  return { kind: "email", state: "wait", from: "me@example.test", to: "sam@example.test", cc: "", subject: "Plan", thread: false, body: "Hi Sam,\n\nSee you.", editable: true, ...over };
+}
+
+describe("rowFrom: an ask's card", () => {
+  test("an email card is read field by field, with its line breaks kept", () => {
+    const parsed = rowFrom(row({ ask: { id: "ap_1", open: true, card: emailCard({ at: 1_700_000_000_000 }) } }));
+    expect(parsed?.ask).toEqual({
+      id: "ap_1",
+      open: true,
+      card: {
+        kind: "email",
+        state: "wait",
+        from: "me@example.test",
+        to: "sam@example.test",
+        cc: "",
+        subject: "Plan",
+        thread: false,
+        body: "Hi Sam,\n\nSee you.",
+        editable: true,
+        at: 1_700_000_000_000,
+      },
+    });
+  });
+
+  test("a null sender is kept as null", () => {
+    const parsed = rowFrom(row({ ask: { id: "ap_1", open: true, card: emailCard({ from: null }) } }));
+    expect(parsed?.ask?.card).toMatchObject({ kind: "email", from: null });
+  });
+
+  test("an other card keeps its summary, detail and the always mark", () => {
+    const card = { kind: "other", state: "held", summary: "Use your bank key", detail: null, always: true };
+    expect(rowFrom(row({ ask: { id: "ap_2", open: true, card } }))?.ask?.card).toEqual({ kind: "other", state: "held", summary: "Use your bank key", detail: null, always: true });
+  });
+
+  test("every state is read, and an unknown one drops the card, not the row", () => {
+    for (const state of ["wait", "held", "sending", "sent", "gone"]) {
+      expect(rowFrom(row({ ask: { id: "ap_1", open: false, card: emailCard({ state }) } }))?.ask?.card?.state).toBe(state);
+    }
+    const parsed = rowFrom(row({ ask: { id: "ap_1", open: true, card: emailCard({ state: "unsent" }) } }));
+    expect(parsed).not.toBeNull();
+    expect(parsed?.ask).toEqual({ id: "ap_1", open: true });
+  });
+
+  test("a malformed card drops only the card: a missing field, a wrong type, a bad at or an unknown kind", () => {
+    const bad: Record<string, unknown>[] = [
+      emailCard({ subject: undefined }),
+      emailCard({ thread: "yes" }),
+      emailCard({ editable: 1 }),
+      emailCard({ at: "soon" }),
+      emailCard({ kind: "sms" }),
+      { kind: "other", state: "wait", summary: 3, detail: null },
+      { kind: "other", state: "wait", summary: "ok", detail: null, always: false },
+    ];
+    for (const card of bad) {
+      const parsed = rowFrom(row({ ask: { id: "ap_1", open: true, card } }));
+      expect(parsed).not.toBeNull();
+      expect(parsed?.ask).toEqual({ id: "ap_1", open: true });
+    }
+  });
+
+  test("a string over its cap drops the card, never cuts it", () => {
+    const over = "x".repeat(CARD_FIELD_MAX + 1);
+    const parsed = rowFrom(row({ ask: { id: "ap_1", open: true, card: emailCard({ subject: over }) } }));
+    expect(parsed?.ask?.card).toBeUndefined();
+    const body = "y".repeat(CARD_TEXT_MAX + 1);
+    expect(rowFrom(row({ ask: { id: "ap_1", open: true, card: emailCard({ body }) } }))?.ask?.card).toBeUndefined();
+    const atCap = "z".repeat(CARD_FIELD_MAX);
+    expect(rowFrom(row({ ask: { id: "ap_1", open: true, card: emailCard({ subject: atCap }) } }))?.ask?.card).toMatchObject({ subject: atCap });
+  });
+
+  test("a row with no card is as it was", () => {
+    expect(rowFrom(row({ ask: { id: "ap_1", open: true } }))?.ask).toEqual({ id: "ap_1", open: true });
+  });
+});
+
+describe("answerRequest and readAnswer", () => {
+  test("send with no edit sends no body", () => {
+    expect(answerRequest("m_1", "send")).toEqual({ op: "answer", msgId: "m_1", choice: "send" });
+  });
+
+  test("send with an edited body carries it", () => {
+    expect(answerRequest("m_1", "send", "New words")).toEqual({ op: "answer", msgId: "m_1", choice: "send", body: "New words" });
+  });
+
+  test("hold carries no body", () => {
+    expect(answerRequest("m_1", "hold")).toEqual({ op: "answer", msgId: "m_1", choice: "hold" });
+  });
+
+  test("a 200 is answered; a 409 shows the route's sentence", () => {
+    expect(readAnswer(200, { msgId: "m_1", state: "sending" })).toEqual({ kind: "answered" });
+    expect(readAnswer(409, { error: "That one is no longer waiting." })).toEqual({ kind: "failed", sentence: "That one is no longer waiting." });
+  });
+
+  test("a refusal with no sentence, or an internal one, is the fallback", () => {
+    expect(readAnswer(500, { error: "boom" })).toEqual({ kind: "failed", sentence: ANSWER_SENTENCE });
+    expect(readAnswer(409, null)).toEqual({ kind: "failed", sentence: ANSWER_SENTENCE });
+    expect(readAnswer(409, { error: "x".repeat(201) })).toEqual({ kind: "failed", sentence: ANSWER_SENTENCE });
+  });
+});
+
+describe("cardReplyWords", () => {
+  test("an email quotes its first recipient and its subject", () => {
+    const card = { kind: "email" as const, state: "wait" as const, from: null, to: "sam@example.test, kim@example.test", cc: "", subject: "Plan", thread: false, body: "", editable: true };
+    expect(cardReplyWords(card, "ignored")).toBe("Email to sam@example.test: Plan");
+  });
+
+  test("an other card quotes the row's own text, and no card quotes the text", () => {
+    expect(cardReplyWords({ kind: "other", state: "wait", summary: "Go", detail: null }, "Share it?")).toBe("Share it?");
+    expect(cardReplyWords(undefined, "Hi")).toBe("Hi");
   });
 });

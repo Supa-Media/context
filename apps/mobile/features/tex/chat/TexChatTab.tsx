@@ -5,6 +5,7 @@ import { radii, space, texChatType } from "../../design/tokens";
 import { useColors, useThemedStyles, type Colors } from "../../design/theme";
 import { useReducedMotion } from "../../design/useReducedMotion";
 import {
+  cardReplyWords,
   isPending,
   openAskRow,
   type AppChatRow,
@@ -248,10 +249,11 @@ export function TexChatView({
                 timeLabel={timeLabel}
                 onOpenPicture={setOpened}
                 onAnswer={(rowId: string, choice: AskChoice) => view.answer(rowId, choice)}
+                onDecide={(rowId, choice, body) => view.decide(rowId, choice, body)}
                 onReact={react}
                 onReply={(row: AppChatRow) => {
                   setEdit(null);
-                  setReply({ id: row.id, who: row.who, text: row.text });
+                  setReply({ id: row.id, who: row.who, text: cardReplyWords(row.ask?.card, row.text) });
                 }}
                 onEdit={(row: AppChatRow) => {
                   setReply(null);
