@@ -18,7 +18,7 @@ import { hashToken } from "../../functions/lib/crypto";
 import { addMember, createUser, createWorkspace, drainScheduled, gatewayPost } from "../fixtures.helpers";
 import { ACCESS_A, ACCESS_B, bodyOf, twoConnectedTenants } from "./fixtures.helpers";
 import { withSession } from "../session.helpers";
-import { DEFAULT_N, MAX_OPEN } from "../../functions/labEvals";
+import { DEFAULT_N, MAX_OPEN, cleanSummary } from "../../functions/labEvals";
 
 vi.setConfig({ testTimeout: 30_000 });
 
@@ -169,4 +169,12 @@ test("POST /gateway/tex/dev passes the eval actions through to the store", async
   expect(ran).toMatchObject({ status: "ok" });
   expect(await bodyOf(await gatewayPost(t, "/gateway/tex/dev", { accessToken: ACCESS_A, action: "evals", args: {} }))).toMatchObject({ status: "ok", runs: [{ id: ran.id, n: 3 }] });
   expect(await bodyOf(await gatewayPost(t, "/gateway/tex/dev", { accessToken: ACCESS_A, action: "eval_remove", args: { id: ran.id } }))).toMatchObject({ status: "bad_request" });
+});
+
+test("a Claude Code run's summary keeps its measured tokens and weekly share; an unread share stays null, never 0", () => {
+  const cc = { calls: 9, tokens: 1234, input: 1, output: 2, cacheRead: 3, cacheWrite: 4, byModel: { haiku: { calls: 9, input: 1 } }, weeklyPct: null, weeklyWhy: "the usage read answered 403", fullRunTokens: 12340, fullRunWeeklyPct: null, extra: "dropped" };
+  const kept = cleanSummary({ n: 50, total: 500, cc }) as { cc?: Record<string, unknown> };
+  expect(kept.cc).toMatchObject({ calls: 9, tokens: 1234, weeklyPct: null, weeklyWhy: "the usage read answered 403", fullRunTokens: 12340, fullRunWeeklyPct: null });
+  expect(kept.cc).not.toHaveProperty("extra");
+  expect(cleanSummary({ n: 1, total: 2 })).not.toHaveProperty("cc");
 });

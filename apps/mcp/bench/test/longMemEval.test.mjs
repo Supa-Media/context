@@ -9,7 +9,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 
 import { abilityOf, entryOf, judgePrompt, sessionsOf, sliceOf, transcriptOf, utcMs, verdictOf } from "../evals/longMemEval.mjs";
-import { filingTimes, meteredSend, readerSystem, runQuestion, scoresOf } from "../evals/memoryRun.mjs";
+import { filingTimes, meteredSend, readAndAnswer, readerSystem, runQuestion, scoresOf } from "../evals/memoryRun.mjs";
 import { fakeSend, fetchData } from "../evals/cli.mjs";
 import { BENCHES } from "../evals/longMemEval.mjs";
 import { mkdtempSync, readFileSync } from "node:fs";
@@ -168,4 +168,42 @@ test("every call is priced into its phase; a reply with no usage (the socket's) 
   assert.equal(socket.estimated(), true);
   const scores = scoresOf([{ ability: "multi", type: "multi-session", correct: true, usd: socket.usd, usdEstimated: true }]);
   assert.equal(scores.usd.estimated, true);
+});
+
+test("the reader's answer is everything it said, not only its closing line after a save", async () => {
+  const replies = [
+    { content: [{ type: "text", text: "You bought it at IKEA." }, { type: "tool_use", id: "t1", name: "write", input: { action: "remember" } }], usage: { input_tokens: 1, output_tokens: 1 } },
+    { content: [{ type: "text", text: "I saved that to your notes." }], usage: { input_tokens: 1, output_tokens: 1 } },
+  ];
+  const send = async () => new Response(JSON.stringify(replies.shift()), { status: 200 });
+  const world = { mcp: async (method) => (method === "initialize" ? { result: { instructions: "" } } : method === "tools/list" ? { result: { tools: [{ name: "write" }] } } : { result: { content: [{ type: "text", text: "ok" }] } }) };
+  const read = await readAndAnswer(world, send, { question: "Where?", askedAt: Date.UTC(2023, 4, 20) });
+  assert.equal(read.answer, "You bought it at IKEA.\n\nI saved that to your notes.");
+});
+
+test("the eval's world searches as production does: a fact deep in one of many long sessions is found", async () => {
+  const filler = (k) => Array.from({ length: 250 }, (_, j) => `Line ${j} about cooking and gardening, topic ${k}.`).join(" ");
+  const many = Array.from({ length: 50 }, (_, k) => [
+    { role: "user", content: `${filler(k)}` },
+    { role: "assistant", content: "Noted." },
+  ]);
+  const deep = [{ role: "user", content: `${filler("x")} By the way, today I bought a red bicycle at the market.` }, { role: "assistant", content: "Nice." }];
+  const dates = many.map((_, k) => `2023/03/${String((k % 27) + 1).padStart(2, "0")} (Wed) ${String(10 + (k % 10)).padStart(2, "0")}:00`);
+  const q = item(0, { haystack_session_ids: [...many.map((_, k) => `s${k}`), "s-deep"], haystack_dates: [...dates, "2023/01/01 (Sun) 10:00"], haystack_sessions: [...many, deep] });
+  const sent = [];
+  const fake = fakeSend();
+  const send = async (body) => (sent.push(JSON.parse(body)), fake(body));
+  const log = console.log;
+  console.log = () => {};
+  let row;
+  try {
+    row = await runQuestion(q, { send, ai: cachedEmbeddings(fakeAi()) }, { filings: 0 });
+  } finally {
+    console.log = log;
+  }
+  assert.equal(row.saved, 51);
+  const results = sent.flatMap((body) => body.messages ?? []).flatMap((m) => (Array.isArray(m.content) ? m.content : [])).filter((b) => b.type === "tool_result").map((b) => String(b.content));
+  assert.ok(results.some((text) => /2023-01-01T10-00/.test(text)), "the search names the session whose fact sits past the first 2,048 characters");
+  // A cold world answers by scanning a budget of notes ("scanned 30 of 51 notes"); production answers from its database.
+  assert.ok(results.length > 0 && results.every((text) => !/scanned \d+ of \d+ notes/.test(text)), "every search was answered from the search database, not a budgeted scan");
 });

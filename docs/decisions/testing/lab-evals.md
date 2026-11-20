@@ -26,10 +26,19 @@ each session raw, then file** over a client that writes back as it chats
   times across the history (4 by default, the last just before the question),
   not on a calendar: one question's history spans weeks to years, and each
   filing run is a model turn.
+- **The world searches as production does.** Each question's workspace starts
+  warm (`warm.mjs` `prepareRun`): an empty search database and meaning index,
+  so every save is indexed whole and by meaning. A cold bench world searches
+  by a budgeted scan and a note's first 2,048 characters, which no person's
+  Context uses; the first 50-question slice (2026-11-20, 60%) ran cold, and
+  replaying its misses' own searches offline found 32 of their 44 answer
+  sessions warm against 25 cold.
 - **A fresh reader answers with the endpoint only.** A new client (Haiku 5.5
   by default) gets the endpoint's own `initialize` instructions, its tools
   and the question's date, and nothing else; it searches and reads as any
-  connected client does.
+  connected client does. Its answer is everything it said in the turn, as
+  the person reads it: an answer followed by a write-back and "I saved that"
+  is graded on the answer, not on the save notice.
 - **LongMemEval grades with its own prompts.** The judge (Sonnet 5.5 by
   default) gets LongMemEval's `evaluate_qa.py` template for the question's
   type, word for word, and a verdict is right when it says yes. Scores are
@@ -46,7 +55,15 @@ each session raw, then file** over a client that writes back as it chats
   request's or branch's, on the AI gateway or Claude Code, and reports rows in
   batches and the summary with the deploy key. Each run's cost is priced per
   phase (filing, reading, judging), with the whole benchmark's cost estimated
-  from it.
+  from it. A Claude Code run costs no dollars and is never shown as $0: it
+  reports its measured tokens (the CLI's own usage per call, summed by
+  `evals/ccUsage.mjs`) and the share of the subscription's weekly limit it
+  used, read from Claude Code's usage before and after the run (the account's
+  figure, so other use meanwhile is in it; no percentage, with the reason,
+  when the read is refused) (Dev2, 2026-11-20).
+- **Runs start only when asked.** An agent builds and fixes the eval, but
+  starts a run only when the owner asks for that run (Dev2, 2026-11-20): a
+  Claude Code run spends the shared weekly limit.
 - **Lab = MCP.** `tex_dev` `evals`, `eval_run` and `eval_remove` do all the
   tab does.
 - **Public data only, and never a gate.** A row holds the benchmark's own
@@ -70,5 +87,5 @@ caps, the dispatch, the reports).
 ## Not built yet
 
 The bench world keeps notes in buckets, not in a workspace object; a later
-run should move it onto objects as production has. Search by meaning is off
-in an eval world (no warmed index), so the reader has fast search only.
+run should move it onto objects as production has. Filing sorts sessions
+into folders but pulls no facts out of them, as Mem0 and Zep do at ingest.
