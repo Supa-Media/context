@@ -64,22 +64,6 @@
         "infra/tex-computer/container/server.mjs"
       ],
       "why": "Tex's own computer (Dev2 picked Cloudflare Sandbox, 2026-11-20): one sleeping Linux container per person and per group chat, behind its own Durable Object in infra/tex-computer, reached through the gateway's TEX_COMPUTER binding. A background job's turn calls send action computer to run a bash command or read, write and list files in its work folder; each call is this node, over tools -> computer (uses). No internet in the container, so what a turn read can never leave in a command. It sleeps, and its disk goes, after ten idle minutes. The last rung before asking the person. Unwired, or with no TEX_COMPUTER binding, nothing is offered."
-    },
-    "warm": {
-      "files": [
-        "apps/mcp/src/agent/graph/nodes/warm.js",
-        "apps/mcp/src/agent/warmPrefix.js",
-        "apps/mcp/src/agent/textsWarm.js",
-        "apps/mcp/src/texStore/warm.js",
-        "apps/mcp/src/agent/aiGateway.js",
-        "apps/mcp/src/agent/texEntryPoint/runTheModel.js",
-        "packages/tex/worker/warmStep.ts",
-        "apps/mcp/src/index.js",
-        "apps/mcp/src/texStore/engine.js",
-        "apps/mcp/src/texStore/wire.js",
-        "apps/mcp/src/agent/graph/gatewayNodes.js"
-      ],
-      "why": "Warms the model's cache before the person's next text (Dev2, 2026-11-20, the cache rules: \"the cache is warmed when the chat opens or the person starts typing\"). With the node in the config, each texted front-door turn keeps the request its first round sent, cut at the history's end, in the chat's own home (texStore/warm.js); when the person reads Tex's text (Photon's read receipt, packages/tex/worker warmStep.ts), opens the chat or starts typing in the app, /texts/warm runs this node, which sends that prefix again with a one-token answer. Skips a prefix from another day or sent under 50 minutes ago (the cache still holds it). Input { owner, chat, cause: read|open|typing }; output { when: [warmed], usage, ms } or { when: [skip], why, ms }."
     }
   }
 }
