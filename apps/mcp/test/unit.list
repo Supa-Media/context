@@ -652,6 +652,7 @@ bench/test/nodeCases.test.mjs
 test/texTraining.test.mjs
 test/texTestSet.test.mjs
 test/labSandbox.test.mjs
+test/labSandboxNightly.test.mjs
 test/labSandboxChat.test.mjs
 test/labSandboxCross.test.mjs
 test/editNode.test.mjs
