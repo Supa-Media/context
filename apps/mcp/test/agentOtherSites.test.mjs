@@ -16,12 +16,12 @@
  * removing the `thinPageHint` line failed "an empty page read says to browse".
  */
 
-import { carries } from "../src/agent/checkFindings.js";
+import { carries } from "../../../packages/tex/gateway/agent/checkFindings.js";
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { claimCheck } from "../src/agent/claimCheck.js";
-import { webPrompt, webSession } from "../src/agent/computer.js";
-import { READ_FAILED_NEXT, asksForPublishedText, hostsAsked, otherSitesNotice, publishedTextNotice, thinPageHint } from "../src/agent/otherSites.js";
+import { claimCheck } from "../../../packages/tex/gateway/agent/claimCheck.js";
+import { webPrompt, webSession } from "../../../packages/tex/gateway/agent/computer.js";
+import { READ_FAILED_NEXT, asksForPublishedText, hostsAsked, otherSitesNotice, publishedTextNotice, thinPageHint } from "../../../packages/tex/gateway/agent/otherSites.js";
 
 const OWNER =
   "The Verse Analysis is still blank. I couldn’t open the LSB text for chapter 32 from here, so I haven't quoted any verses. Paste them in and I'll quote them from your text.";

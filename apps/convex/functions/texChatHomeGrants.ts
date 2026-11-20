@@ -1,7 +1,7 @@
 /**
  * Whether each homed group chat's grant can open its home (2026-11-02). No home holds its chat's history page yet,
  * though two homed chats were answered since turns began moving history there (`texFolderNames.ts` `pages`), and a
- * turn whose home does not open keeps history in the record with nothing logged (`apps/mcp/src/agent/chatHome.js`).
+ * turn whose home does not open keeps history in the record with nothing logged (`packages/tex/gateway/agent/chatHome.js`).
  * The gateway opens a home only when the grant's setup row names it (`liveGrants.ts` `groupSetupRow`) and the grant's
  * own scopes include write (`apps/mcp/src/session.js` `sessionForChatHome`); this says which of those each chat's
  * newest grant has.

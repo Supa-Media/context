@@ -1,7 +1,7 @@
 /**
  * `POST /gateway/chat/recent`: the Google Chat messages written to the person
  * since a moment, read live from their own account for Tex's check-ins
- * (`apps/mcp/src/agent/checkInSources.js`; owner, 2026-10-23: "add slack and
+ * (`packages/tex/gateway/agent/checkInSources.js`; owner, 2026-10-23: "add slack and
  * google chat - but only say something if you can muster together helpful
  * actions/responses").
  *

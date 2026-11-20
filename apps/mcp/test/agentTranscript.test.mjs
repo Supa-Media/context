@@ -22,11 +22,11 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { argsLine, transcriptPath } from "../src/agent/transcript.js";
-import { aiGatewayConfig, gatewayBody } from "../src/agent/aiGateway.js";
+import { argsLine, transcriptPath } from "../../../packages/tex/gateway/agent/transcript.js";
+import { aiGatewayConfig, gatewayBody } from "../../../packages/tex/gateway/agent/aiGateway.js";
 import { AI_GATEWAY_ENV } from "./agentModelFixture.mjs";
-import { runTurn } from "../src/agent/turn.js";
-import { BUILTIN_PROVIDER } from "../src/agent/builtin.js";
+import { runTurn } from "../../../packages/tex/gateway/agent/turn.js";
+import { BUILTIN_PROVIDER } from "../../../packages/tex/gateway/agent/builtin.js";
 
 // 2026-10-15 03:30 UTC: still the 14th in New York.
 const NOW = Date.UTC(2026, 9, 15, 3, 30);

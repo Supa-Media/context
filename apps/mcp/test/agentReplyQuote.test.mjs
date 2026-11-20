@@ -21,10 +21,10 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { appendEvents, checkEvent, EventRefusal, MAX_EVENT_TEXT } from "../src/agent/log.js";
-import { renderEvents } from "../src/agent/logRender.js";
-import { loggedTurn } from "../src/agent/loggedTurn.js";
-import { loggedQuestion } from "../src/agent/quoted.js";
+import { appendEvents, checkEvent, EventRefusal, MAX_EVENT_TEXT } from "../../../packages/tex/gateway/agent/log.js";
+import { renderEvents } from "../../../packages/tex/gateway/agent/logRender.js";
+import { loggedTurn } from "../../../packages/tex/gateway/agent/loggedTurn.js";
+import { loggedQuestion } from "../../../packages/tex/gateway/agent/quoted.js";
 
 const NOW = Date.UTC(2026, 10, 5, 14, 48, 0); // Thursday, Nov 5, 9:48 AM in New York
 const NY = "America/New_York";

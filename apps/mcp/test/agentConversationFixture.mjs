@@ -5,10 +5,10 @@
  * (`src/agent/events.js`), oldest first, after the old file's turns when it
  * was copied in, else the old file. `bucket` is a Map of key to `{ body }`.
  */
-import { EVENTS_PREFIX, idOfKey } from "../src/agent/events.js";
-import { HISTORY } from "../src/agent/conversation.js";
-import { conversationFromLedger, exchangeEntries } from "../src/agent/ledgerConversation.js";
-import { BACKFILLED } from "../src/agent/ledgerBackfill.js";
+import { EVENTS_PREFIX, idOfKey } from "../../../packages/tex/gateway/agent/events.js";
+import { HISTORY } from "../../../packages/tex/gateway/agent/conversation.js";
+import { conversationFromLedger, exchangeEntries } from "../../../packages/tex/gateway/agent/ledgerConversation.js";
+import { BACKFILLED } from "../../../packages/tex/gateway/agent/ledgerBackfill.js";
 
 /** The person's chat rebuilt from their ledger as every reader now reads it (`ledgerConversation.js`), or null with none. */
 function ledgerTurns(bucket) {

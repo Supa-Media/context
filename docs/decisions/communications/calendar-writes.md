@@ -216,7 +216,7 @@ so nothing caught it. Now:
   trying. Only the status and reason are logged.
 - An answer that says it tried a calendar change with no `calendar_event`
   call in the turn gets one more round (`claimsCalendarTry` in
-  `apps/mcp/src/agent/replyChecks.js`), and "I'll keep trying every hour" is
+  `packages/tex/gateway/agent/replyChecks.js`), and "I'll keep trying every hour" is
   a promise to keep like any other (`RETRY_PROMISE` in `otherRoutes.js`).
 
 Undo: put a prefix outside base32hex back, or drop the second send;

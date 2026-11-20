@@ -1,6 +1,6 @@
 /**
  * A text's session from the person object, without Convex (`docs/decisions/texting-assistant/texting-in-objects.md`):
- * the gateway's `TexTexts` entrypoint over a service binding (`apps/mcp/src/agent/textsSession.js`), and the inbox's
+ * the gateway's `TexTexts` entrypoint over a service binding (`packages/tex/gateway/agent/textsSession.js`), and the inbox's
  * memory of whose phone it answers. Also how any session answer is read, the gateway's or Convex's (`clients.ts`).
  */
 

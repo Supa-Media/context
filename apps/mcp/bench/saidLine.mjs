@@ -1,7 +1,7 @@
 /**
  * The line a texted turn leaves in a bench answer's record, and whether it is silent (out of `run.mjs`).
  */
-import { sentPicturesLine } from "../src/agent/outgoingPictures.js";
+import { sentPicturesLine } from "../../../packages/tex/gateway/agent/outgoingPictures.js";
 
 /**
  * What the person got from one texted turn, as the record's line. Words are the words, with the pictures sent beside

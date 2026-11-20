@@ -8,8 +8,8 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { readFileSync } from "node:fs";
-import { providerFailure } from "../src/agent/heartbeat.js";
-import { ProviderError } from "../src/agent/providers.js";
+import { providerFailure } from "../../../packages/tex/gateway/agent/heartbeat.js";
+import { ProviderError } from "../../../packages/tex/gateway/agent/providers.js";
 
 test("a provider failure is a fixed code, never the provider's words", () => {
   assert.equal(providerFailure(new ProviderError("rate limited", 429)), "status_429");
@@ -21,6 +21,6 @@ test("a provider failure is a fixed code, never the provider's words", () => {
 });
 
 test("the 502 carries rounds_exhausted when the turn ran out of rounds", () => {
-  const source = readFileSync(new URL("../src/agent/heartbeat.js", import.meta.url), "utf8");
+  const source = readFileSync(new URL("../../../packages/tex/gateway/agent/heartbeat.js", import.meta.url), "utf8");
   assert.match(source, /reason: turn\?\.exhausted \? "rounds_exhausted" : failure/);
 });

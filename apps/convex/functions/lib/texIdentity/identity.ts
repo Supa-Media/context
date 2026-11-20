@@ -1,6 +1,6 @@
 /**
  * Who is texting Tex: the account facts Tex is told on every turn it answers
- * for one person (`apps/mcp/src/agent/identity.js`).
+ * for one person (`packages/tex/gateway/agent/identity.js`).
  *
  * Decided by the owner (Dev2), 2026-10-23, after Tex, texting him from his own
  * number, asked "What's the number on your Partiful account?": Tex always
@@ -55,7 +55,7 @@ export async function texterIdentityHandler(
 }
 
 /**
- * Who tagged Tex in a group chat, asked by that chat's turn of their personal Tex (`apps/mcp/src/agent/askPersonalTex.js`;
+ * Who tagged Tex in a group chat, asked by that chat's turn of their personal Tex (`packages/tex/gateway/agent/askPersonalTex.js`;
  * decided by the owner, Dev2, 2026-11-12: "it doesn't know basic things about me" when he asked it to fill a form in a
  * group). Only a group chat's grant, only on the token minted for that person's own tag (`controlPlane/session.ts`
  * `ownTagOf`: never a job's run token, never an earlier token kept alive beside a newer tag), and only that person:

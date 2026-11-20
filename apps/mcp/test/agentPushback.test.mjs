@@ -17,9 +17,9 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { OPINION_LINE, withoutFlattery } from "../src/agent/pushback.js";
-import { REMEMBER_LINE, systemPrompt } from "../src/agent/prompt.js";
-import { DREAM_INSTRUCTIONS } from "../src/agent/dream.js";
+import { OPINION_LINE, withoutFlattery } from "../../../packages/tex/gateway/agent/pushback.js";
+import { REMEMBER_LINE, systemPrompt } from "../../../packages/tex/gateway/agent/prompt.js";
+import { DREAM_INSTRUCTIONS } from "../../../packages/tex/gateway/agent/dream.js";
 import { createEgressWorld, request, TOKEN_TEXTS } from "./agentEgressFixtures.mjs";
 
 test("every texted turn is told to have a point of view, a production setup's own words included", () => {
@@ -79,7 +79,7 @@ test("a texted answer's flattering opener never reaches them", async () => {
 });
 
 test("the goals in their about-me are named back after it, so a request is weighed against them", async () => {
-  const { aboutMePrompt, goalsIn } = await import("../src/agent/aboutMe.js");
+  const { aboutMePrompt, goalsIn } = await import("../../../packages/tex/gateway/agent/aboutMe.js");
   const note = "# About Maya\n\n## Goals\n- Run 10 km by the end of November.\n- Keep to her budget.\n\n## Life\n- Lives with a cat.\n";
   assert.deepEqual(goalsIn(note), ["Run 10 km by the end of November.", "Keep to her budget."]);
   const said = aboutMePrompt(note, { edits: false });
@@ -89,7 +89,7 @@ test("the goals in their about-me are named back after it, so a request is weigh
 });
 
 test("an opinion or a goal-touching ask gets the turn's own reminder, an ordinary ask none", async () => {
-  const { pushbackNudge } = await import("../src/agent/pushback.js");
+  const { pushbackNudge } = await import("../../../packages/tex/gateway/agent/pushback.js");
   const goals = ["Run 10 km by the end of November."];
   assert.match(pushbackNudge("i think we should hold the demo", []), /open your reply with your take/);
   assert.match(pushbackNudge("Should we skip the rollback?", []), /open your reply with your take/);

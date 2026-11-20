@@ -27,9 +27,9 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { claimCheck } from "../src/agent/claimCheck.js";
-import { recentTextsSection } from "../src/agent/routine.js";
-import { steeredLine } from "../src/agent/steer.js";
+import { claimCheck } from "../../../packages/tex/gateway/agent/claimCheck.js";
+import { recentTextsSection } from "../../../packages/tex/gateway/agent/routine.js";
+import { steeredLine } from "../../../packages/tex/gateway/agent/steer.js";
 import {
   CHECK_IN_ANSWER_NOTICE,
   IMPOSSIBLE_NIGHT_NOTICE,
@@ -40,7 +40,7 @@ import {
   impossibleNight,
   readSleepLine,
   sleepLineNote,
-} from "../src/agent/timeLog.js";
+} from "../../../packages/tex/gateway/agent/timeLog.js";
 import { createEgressWorld, request, TOKEN_TEXTS } from "./agentEgressFixtures.mjs";
 
 const CLEAN = "I slept from Mar 3, 2026 at 11:50 PM to Mar 4, 2026 at 7:20 AM, for a total of: 7 hours, 5 minutes.";

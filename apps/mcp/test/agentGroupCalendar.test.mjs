@@ -13,8 +13,8 @@
 
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { chatCalendarOf, chatCalendarPrompt } from "../src/agent/groupCalendar.js";
-import { groupOf, groupPrompt } from "../src/agent/groupTurn.js";
+import { chatCalendarOf, chatCalendarPrompt } from "../../../packages/tex/gateway/agent/groupCalendar.js";
+import { groupOf, groupPrompt } from "../../../packages/tex/gateway/agent/groupTurn.js";
 
 const KEY = "a".repeat(64);
 const MEMBERS = "b".repeat(64);

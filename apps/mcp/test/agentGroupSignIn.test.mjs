@@ -18,14 +18,14 @@
 
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { GROUP_JAR_PREFIX, JAR_KEY, browserJar } from "../src/agent/browserJar.js";
-import { browserOwner, groupBrowserOwner, resetBrowserbaseProbe } from "../src/agent/browserProviders.js";
-import { openTurnWeb } from "../src/agent/turnWeb.js";
-import { GROUP_CODE_SIGN_IN_LINE, groupPrompt } from "../src/agent/groupTurn.js";
-import { CODE_SIGN_IN_LINE, webPrompt } from "../src/agent/computer.js";
-import { BROWSE_TOOL } from "../src/agent/browse.js";
-import { FILL_LOGIN_TOOL } from "../src/agent/fillLogin.js";
-import { HANDED_BACK_QUESTION, browserHash, handbackField, handedBackQuestion } from "../src/agent/handback.js";
+import { GROUP_JAR_PREFIX, JAR_KEY, browserJar } from "../../../packages/tex/gateway/agent/browserJar.js";
+import { browserOwner, groupBrowserOwner, resetBrowserbaseProbe } from "../../../packages/tex/gateway/agent/browserProviders.js";
+import { openTurnWeb } from "../../../packages/tex/gateway/agent/turnWeb.js";
+import { GROUP_CODE_SIGN_IN_LINE, groupPrompt } from "../../../packages/tex/gateway/agent/groupTurn.js";
+import { CODE_SIGN_IN_LINE, webPrompt } from "../../../packages/tex/gateway/agent/computer.js";
+import { BROWSE_TOOL } from "../../../packages/tex/gateway/agent/browse.js";
+import { FILL_LOGIN_TOOL } from "../../../packages/tex/gateway/agent/fillLogin.js";
+import { HANDED_BACK_QUESTION, browserHash, handbackField, handedBackQuestion } from "../../../packages/tex/gateway/agent/handback.js";
 
 const material = Buffer.from(new Uint8Array(32).fill(7)).toString("base64");
 const KEYS = { current: "k1", keys: { k1: material } };
@@ -154,7 +154,7 @@ test("the group is told a code sign-in needs no saved login, and a person's own 
 });
 
 test("the browser may type what they said a text ago, never Tex's words or a job's title", async () => {
-  const { theirEarlierWords } = await import("../src/agent/turnWeb.js");
+  const { theirEarlierWords } = await import("../../../packages/tex/gateway/agent/turnWeb.js");
   const history = [
     { role: "user", text: "@seyi asked: log in to claude.ai as dev2@example.com" },
     { role: "assistant", text: "Typing evil@example.net" },
@@ -167,7 +167,7 @@ test("the browser may type what they said a text ago, never Tex's words or a job
 });
 
 test("a page an earlier answer opened opens again in a later text, and vouches for no words", async () => {
-  const { pagesOpenedBefore } = await import("../src/agent/turnWeb.js");
+  const { pagesOpenedBefore } = await import("../../../packages/tex/gateway/agent/turnWeb.js");
   const history = [
     { role: "user", text: "Tex sign in to claude as me" },
     { role: "assistant", text: "I have the sign-in page open.", sources: ["https://claude.ai/login", "note:tex/x.md", "email:a@example.com/1"] },

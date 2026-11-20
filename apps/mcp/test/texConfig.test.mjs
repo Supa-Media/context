@@ -16,21 +16,21 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 
-import { texPick, TEX_CONFIG, TEX_PROMPT_WORDS, texEffort, texModel, texModules, texSetupFront, texStep, texTimeoutMs } from "../src/agent/texConfig.js";
-import { frontOf, parseSetup } from "../src/agent/production.js";
-import { assembleSetup, modulePath } from "../src/agent/promptModules.js";
+import { texPick, TEX_CONFIG, TEX_PROMPT_WORDS, texEffort, texModel, texModules, texSetupFront, texStep, texTimeoutMs } from "../../../packages/tex/gateway/agent/texConfig.js";
+import { frontOf, parseSetup } from "../../../packages/tex/gateway/agent/production.js";
+import { assembleSetup, modulePath } from "../../../packages/tex/gateway/agent/promptModules.js";
 import { moduleIsCurrent as promptModuleIsCurrent } from "../../../scripts/tex-prompt-module.mjs";
 import { trainName } from "../../../packages/tex/src/texTraining.cjs";
-import { REVIEW_MODEL, REVIEW_TIMEOUT_MS } from "../src/agent/replyJudge.js";
-import { MAIL_CHECKER_MODEL } from "../src/agent/mailChecker.js";
-import { CARD_CHECK_MODEL } from "../src/agent/cardCheck.js";
-import { HANDBACK_JUDGE_MODEL } from "../src/agent/handbackJudge.js";
-import { SELF_REVIEW_MODEL } from "../src/agent/selfReview.js";
-import { THREADS_MODEL, THREADS_TIMEOUT_MS } from "../src/agent/conversationThreads.js";
-import { ADVISOR_TIMEOUT_MS } from "../src/agent/advisor.js";
+import { REVIEW_MODEL, REVIEW_TIMEOUT_MS } from "../../../packages/tex/gateway/agent/replyJudge.js";
+import { MAIL_CHECKER_MODEL } from "../../../packages/tex/gateway/agent/mailChecker.js";
+import { CARD_CHECK_MODEL } from "../../../packages/tex/gateway/agent/cardCheck.js";
+import { HANDBACK_JUDGE_MODEL } from "../../../packages/tex/gateway/agent/handbackJudge.js";
+import { SELF_REVIEW_MODEL } from "../../../packages/tex/gateway/agent/selfReview.js";
+import { THREADS_MODEL, THREADS_TIMEOUT_MS } from "../../../packages/tex/gateway/agent/conversationThreads.js";
+import { ADVISOR_TIMEOUT_MS } from "../../../packages/tex/gateway/agent/advisor.js";
 
 const FINGERPRINT_SETUP = new URL("../bench/fingerprint/setups/texting-assistant/production.md", import.meta.url);
-const src = (file) => readFileSync(new URL(`../src/agent/${file}`, import.meta.url), "utf8");
+const src = (file) => readFileSync(new URL(`../../../packages/tex/gateway/agent/${file}`, import.meta.url), "utf8");
 
 test("every step's model is in the config's table, and every wire joins two steps", () => {
   const ids = new Set(TEX_CONFIG.nodes.map((n) => n.id));

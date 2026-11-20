@@ -17,13 +17,13 @@
  *     another reason carries the card too" fails.
  */
 
-import { carries } from "../src/agent/checkFindings.js";
+import { carries } from "../../../packages/tex/gateway/agent/checkFindings.js";
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { OWED_PICTURE_NOTICE, VISUAL_NOTICE, owesAPicture, wantsACard } from "../src/agent/visuals/notice.js";
-import { noticeFor } from "../src/agent/handbackJudge.js";
-import { claimCheck } from "../src/agent/claimCheck.js";
+import { OWED_PICTURE_NOTICE, VISUAL_NOTICE, owesAPicture, wantsACard } from "../../../packages/tex/gateway/agent/visuals/notice.js";
+import { noticeFor } from "../../../packages/tex/gateway/agent/handbackJudge.js";
+import { claimCheck } from "../../../packages/tex/gateway/agent/claimCheck.js";
 
 const WEEK = [
   "Light week, mostly short evening calls. Sunday in Bethesda is the big one.",

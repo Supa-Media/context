@@ -9,7 +9,7 @@ Cloudflare Sandbox (Containers) on 2026-11-20; the reasoning is in
   workers.dev address, no secret.
 - `POST /computer/{run,read,write,list,stop}` with `{ owner, ... }`. `owner` is
   the 64-hex tag the gateway makes from a person's or chat's id
-  (`apps/mcp/src/agent/browserProviders.js`); it names nobody.
+  (`packages/tex/gateway/agent/browserProviders.js`); it names nobody.
 - The container starts with no internet and runs everything as an unprivileged
   user inside `/work`. It sleeps, and its disk is wiped, after ten idle minutes.
 - `pnpm test` runs the route checks (vitest) and the container server against a

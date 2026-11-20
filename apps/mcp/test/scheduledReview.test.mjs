@@ -26,7 +26,7 @@ import assert from "node:assert/strict";
 import { after, before, beforeEach, test } from "node:test";
 
 import worker from "../src/index.js";
-import { PRODUCTION_TEXTING_PATH } from "../src/agent/production.js";
+import { PRODUCTION_TEXTING_PATH } from "../../../packages/tex/gateway/agent/production.js";
 import { CONTROL_PLANE_ORIGIN, GATEWAY_SECRET, createControlPlaneStub, createS3Backend } from "./controlPlaneStub.mjs";
 import { createWorkerCtx } from "./workerCtx.mjs";
 import { BUILTIN_ALLOWED } from "./agentModelFixture.mjs";

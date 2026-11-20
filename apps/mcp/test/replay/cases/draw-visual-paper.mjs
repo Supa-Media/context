@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
-import { aiGatewayConfig, resetCreditState } from "../../../src/agent/aiGateway.js";
-import { BUILTIN_PROVIDER } from "../../../src/agent/builtin.js";
-import { runTurn } from "../../../src/agent/turn.js";
+import { aiGatewayConfig, resetCreditState } from "../../../../../packages/tex/gateway/agent/aiGateway.js";
+import { BUILTIN_PROVIDER } from "../../../../../packages/tex/gateway/agent/builtin.js";
+import { runTurn } from "../../../../../packages/tex/gateway/agent/turn.js";
 import { drawingSvg, readScene } from "../../../../../packages/shared/src/ink/drawing.cjs";
 import { oneToOne } from "../chats.mjs";
 

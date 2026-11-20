@@ -4,7 +4,7 @@
  * password Tex should know that i'm done adding").
  *
  * A turn that texted a link to save a login says so (`vaultWatch`,
- * `apps/mcp/src/agent/vaultSaved.js`), and the sender's inbox keeps
+ * `packages/tex/gateway/agent/vaultSaved.js`), and the sender's inbox keeps
  * `VAULT_KEY`: its alarm asks the control plane until a save link was used
  * (`POST /agent-texts/vault-saved`) and hands back when, and the inbox queues
  * a turn of its own with `event: "vault_saved"` and no words

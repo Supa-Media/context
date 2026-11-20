@@ -36,7 +36,7 @@
  * `captcha` says `solved` or `unsolved` (./captcha.ts). `fresh: true` drops
  * the person's running browser and starts another, a new address and
  * fingerprint, which is the gateway's last try before a captcha is handed
- * over (apps/mcp/src/agent/captchaLadder.js).
+ * over (packages/tex/gateway/agent/captchaLadder.js).
  *
  * A run that fails is logged with a digest of the session's own Browserbase
  * log (./sessionLogs.ts), after the answer has gone (`later`): hosts, status

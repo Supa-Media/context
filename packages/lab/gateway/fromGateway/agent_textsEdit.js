@@ -1,1 +1,1 @@
-export * from "../../../../apps/mcp/src/agent/textsEdit.js";
+export * from "../../../tex/gateway/agent/textsEdit.js";

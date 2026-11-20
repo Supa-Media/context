@@ -22,7 +22,7 @@ Gone, with their tests, screens and scripts:
 - **The app assistant**: `ai/production/app-assistant.md` is no longer read.
   In-app chat had already gone ([no-in-app-chat](./no-in-app-chat.md)), so a
   turn that is not texted has no production setup and uses the built-in words
-  in `apps/mcp/src/agent/prompt.js`. The AI tab's catalog loses its row, and
+  in `packages/tex/gateway/agent/prompt.js`. The AI tab's catalog loses its row, and
   the auto-organize and What changed rows with it.
 
 What stays, and why:

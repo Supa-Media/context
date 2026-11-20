@@ -10,18 +10,18 @@
  *   a node's found() gains a field outSchema lacks      "every found field is named in its outSchema" fails
  *   an inSchema copied from the wrong step              "each input is the previous output" fails
  */
-import { TEX_CONFIG } from "../src/agent/texConfig.js";
+import { TEX_CONFIG } from "../../../packages/tex/gateway/agent/texConfig.js";
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
 
-import { doorNode } from "../src/agent/graph/doorNode.js";
-import { DOOR_PARTS } from "../src/agent/graph/door.js";
+import { doorNode } from "../../../packages/tex/gateway/agent/graph/doorNode.js";
+import { DOOR_PARTS } from "../../../packages/tex/gateway/agent/graph/door.js";
 
 const here = dirname(fileURLToPath(import.meta.url));
-const nodesDir = join(here, "..", "src", "agent", "graph", "nodes");
+const nodesDir = join(here, "..", "..", "..", "packages", "tex", "gateway", "agent", "graph", "nodes");
 // The eleven door steps, in the order the turn runs them.
 const STEPS = [
   "readTheText",

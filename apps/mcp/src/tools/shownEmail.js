@@ -16,7 +16,7 @@
  * the body is in the words they agreed to word for word (`likedPreview.js` `agreedToShownEmail`).
  */
 
-import { folded } from "../agent/folded.js";
+import { folded } from "../../../../packages/tex/gateway/agent/folded.js";
 
 /** A text that ends by asking whether to send: "Send?", "Send it? 👍 or 👎?", "Send to bram@x.com on his thread?". */
 const SEND_ASK = /(?:^|\n)\s*(?:(?:ok(?:ay)?\s+to|should\s+I|shall\s+I)\s+)?send(?:\s+(?:it|this|that|the email|the reply))?(?:\s+(?:to|on|as)\b[^?\n]{0,160})?\s*\?[\s\u{1F44D}\u{1F44E}or?]*$/iu;

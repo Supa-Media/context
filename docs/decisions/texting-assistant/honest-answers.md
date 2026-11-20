@@ -13,7 +13,7 @@ can't even finish the task?"
 Each was fixed where the gateway can tell for itself, rather than in the
 prompt alone:
 
-- **Claims are checked against the calls that ran** (`apps/mcp/src/agent/claimCheck.js`).
+- **Claims are checked against the calls that ran** (`packages/tex/gateway/agent/claimCheck.js`).
   A texted answer that says something was added, saved or put somewhere, on a
   turn where no write succeeded, goes back to the model once with a notice: do
   it now, or say plainly it is not done. A text asking never to be texted about
@@ -86,7 +86,7 @@ and answered "is Kansi on the email thread?" by pointing back at the forward
 waiting for a 👍. It also promised a breakdown "within the next 10–15 minutes"
 with nothing started.
 
-`apps/mcp/src/agent/replyChecks.js` catches each, once a turn, before
+`packages/tex/gateway/agent/replyChecks.js` catches each, once a turn, before
 `claimCheck.js`'s other checks: an empty answer, a word in a script the
 person's text doesn't use, an answer blaming their notes when no note read or
 write failed in the turn, and, while an ask waits, an answer that only points

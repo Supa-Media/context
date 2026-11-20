@@ -45,7 +45,7 @@ export type ReviewReason = (typeof REVIEW_REASONS)[number];
  * What a conversation was mainly for, and what went wrong (frustration, what
  * was wrong with the answers, a feature they asked for): codes from closed
  * sets on every tier, the same lists as the gateway's
- * (`apps/mcp/src/agent/selfReview.js`). Never a word anybody said.
+ * (`packages/tex/gateway/agent/selfReview.js`). Never a word anybody said.
  */
 export const TASK_CODES = ["email", "calendar", "web_errand", "notes", "research", "reminders", "messaging", "purchase", "setup", "chat", "other"] as const;
 export type TaskCode = (typeof TASK_CODES)[number];

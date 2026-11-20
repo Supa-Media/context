@@ -13,8 +13,8 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { FLOOR_CHARS, VIEW_CHARS, fairShare, partView } from "../src/agent/jobCheckView.js";
-import { JOB_CHECK_PROMPT, jobCheckBrief } from "../src/agent/jobCheck.js";
+import { FLOOR_CHARS, VIEW_CHARS, fairShare, partView } from "../../../packages/tex/gateway/agent/jobCheckView.js";
+import { JOB_CHECK_PROMPT, jobCheckBrief } from "../../../packages/tex/gateway/agent/jobCheck.js";
 
 const JOB = { title: "Dentist summary", brief: "Summarize the dentist.", doneWhen: "A note exists.", attempt: 1 };
 const calendar = (days, perDay = 4_000) =>

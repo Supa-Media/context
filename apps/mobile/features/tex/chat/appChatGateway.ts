@@ -178,7 +178,7 @@ export function pictureRequest(id: string): { op: "picture"; id: string } {
 
 /**
  * The person opened the chat or started typing: the gateway warms the model's cache for their next text when node
- * `warm` is wired (`apps/mcp/src/agent/textsWarm.js`). Fire and forget: its answer is never shown.
+ * `warm` is wired (`packages/tex/gateway/agent/textsWarm.js`). Fire and forget: its answer is never shown.
  */
 export function warmRequest(cause: "open" | "typing"): { op: "warm"; cause: "open" | "typing" } {
   return { op: "warm", cause };

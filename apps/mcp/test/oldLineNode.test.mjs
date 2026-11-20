@@ -5,8 +5,8 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { OLD_LINE_EVERY_MS, oldLineNode } from "../src/agent/graph/nodes/oldLine.js";
-import { oldLineForTexts } from "../src/agent/textsOldLine.js";
+import { OLD_LINE_EVERY_MS, oldLineNode } from "../../../packages/tex/gateway/agent/graph/nodes/oldLine.js";
+import { oldLineForTexts } from "../../../packages/tex/gateway/agent/textsOldLine.js";
 
 const OLD_CHAT = "sendblue:+15555550199:+15555550100";
 const NUMBER = "+15555550142";

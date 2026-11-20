@@ -21,8 +21,8 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { attachSource, withEmailFiles } from "../src/agent/emailFiles.js";
-import { readDownload } from "../src/agent/downloads.js";
+import { attachSource, withEmailFiles } from "../../../packages/tex/gateway/agent/emailFiles.js";
+import { readDownload } from "../../../packages/tex/gateway/agent/downloads.js";
 import { attachedWords, toolSaveEmailDraft } from "../src/tools/email.js";
 
 const b64 = (text) => Buffer.from(text, "latin1").toString("base64");

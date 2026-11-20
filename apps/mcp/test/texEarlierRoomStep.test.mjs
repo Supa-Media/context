@@ -12,9 +12,9 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { loggedTurn } from "../src/agent/loggedTurn.js";
-import { earlierRoom, ROOM_STEP } from "../src/agent/ledgerHistory.js";
-import { READ_CHARS } from "../src/agent/log.js";
+import { loggedTurn } from "../../../packages/tex/gateway/agent/loggedTurn.js";
+import { earlierRoom, ROOM_STEP } from "../../../packages/tex/gateway/agent/ledgerHistory.js";
+import { READ_CHARS } from "../../../packages/tex/gateway/agent/log.js";
 
 const KEY = "a".repeat(64);
 const ME = "b".repeat(64);

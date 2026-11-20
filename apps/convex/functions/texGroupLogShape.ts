@@ -1,7 +1,7 @@
 /**
  * The shape of each group chat's event log in a window of time (2026-11-02): how many events, how many bytes, and
  * the runs of events filed under one set of people, and which senders (by letter) each run holds. A group turn is shown only the latest unbroken run filed under
- * the chat's current people (`apps/mcp/src/agent/logRender.js` `seenBy`), and at most 400 events or 120,000
+ * the chat's current people (`packages/tex/gateway/agent/logRender.js` `seenBy`), and at most 400 events or 120,000
  * characters of the log (`log.js` `readEvents`); a person asked for the day's summary and Tex saw one joke.
  *
  * Read only. It answers fixed codes, minutes from the window's start and counts, never an id, a name or a word: it

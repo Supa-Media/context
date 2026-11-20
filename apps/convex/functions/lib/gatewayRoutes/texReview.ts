@@ -1,6 +1,6 @@
 /**
  * `POST /gateway/tex-review`: Tex's review of a finished conversation
- * (`functions/texReviews.ts`, `apps/mcp/src/agent/selfReview.js`).
+ * (`functions/texReviews.ts`, `packages/tex/gateway/agent/selfReview.js`).
  *
  * The two proofs every gateway route spends: the gateway secret (checked by
  * `gatewayRoute`) and the texting grant's own access token, forwarded

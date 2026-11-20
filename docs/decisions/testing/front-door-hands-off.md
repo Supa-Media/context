@@ -10,7 +10,7 @@ end is what was built on it and why.
 
 A texted turn can already hand work off. The front door calls `send` action
 `background` with a title, a brief and a finish line
-(`apps/mcp/src/agent/background.js`). The gateway only records the job and
+(`packages/tex/gateway/agent/background.js`). The gateway only records the job and
 the reply goes out at once. The texting Worker runs it in a Durable Object
 of its own, `job:<id>` (`packages/tex/worker/jobs.ts`, `jobRun.ts`), with its own
 alarm, up to three jobs in the cloud at once
@@ -20,7 +20,7 @@ the ask.
 
 The worker is already Haiku 5.5 at effort medium. The job node is
 `rounds: 12`. A long turn's cap is `LONG_MAX_ROUNDS` (30) in
-`apps/mcp/src/agent/progress.js`. A job may run up to ten parts or thirty
+`packages/tex/gateway/agent/progress.js`. A job may run up to ten parts or thirty
 minutes (`partEnd`). The wires are already there: `fd` to `job` (`job`) and
 `fd` to `jobStart` (`uses`, when `job`). `jobStart` is code. It starts the
 job, joins one already running, waits for a free slot, or refuses an empty

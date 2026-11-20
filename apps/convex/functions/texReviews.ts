@@ -2,7 +2,7 @@
  * Tex's self-review: what a finished conversation's scores may carry, and
  * where they go (`docs/decisions/texting-assistant/self-review.md`).
  *
- * The gateway scores a conversation once it ends (`apps/mcp/src/agent/
+ * The gateway scores a conversation once it ends (`packages/tex/gateway/agent/
  * selfReview.js`) and sends the scores here with the texting grant's own
  * token. Who the conversation was with decides the rest, here and never in
  * the gateway:

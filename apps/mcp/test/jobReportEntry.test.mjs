@@ -11,8 +11,8 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { jobReportOf } from "../src/agent/jobReport.js";
-import { reportEntry } from "../src/agent/workEntries.js";
+import { jobReportOf } from "../../../packages/tex/gateway/agent/jobReport.js";
+import { reportEntry } from "../../../packages/tex/gateway/agent/workEntries.js";
 
 const body = (jobReport) => ({ event: "job_report", jobReport });
 

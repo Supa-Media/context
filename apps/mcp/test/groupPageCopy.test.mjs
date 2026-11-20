@@ -25,11 +25,11 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { keepGroupExchange, readGroupMemory, checkerHistory, groupMemoryPath } from "../src/agent/groupTurn.js";
-import { readChatMemoryRecord, writeChatMemoryRecord } from "../src/agent/chatMemoryRecord.js";
-import { GROUP_PAGE_COPIED, copyGroupPageIn, pageEntries } from "../src/agent/groupPageCopy.js";
-import { groupQuestion } from "../src/agent/groupLedgerHistory.js";
-import { GROUP_BACKFILLED } from "../src/agent/ledgerBackfill.js";
+import { keepGroupExchange, readGroupMemory, checkerHistory, groupMemoryPath } from "../../../packages/tex/gateway/agent/groupTurn.js";
+import { readChatMemoryRecord, writeChatMemoryRecord } from "../../../packages/tex/gateway/agent/chatMemoryRecord.js";
+import { GROUP_PAGE_COPIED, copyGroupPageIn, pageEntries } from "../../../packages/tex/gateway/agent/groupPageCopy.js";
+import { groupQuestion } from "../../../packages/tex/gateway/agent/groupLedgerHistory.js";
+import { GROUP_BACKFILLED } from "../../../packages/tex/gateway/agent/ledgerBackfill.js";
 import { texLedger } from "../../../packages/tex/gateway/texStore/ledger.js";
 import { durableSql } from "./texStoreFixture.mjs";
 import { createMemoryStore } from "./gmailSync/fixtures.mjs";

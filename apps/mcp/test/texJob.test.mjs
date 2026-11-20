@@ -15,7 +15,7 @@ import { describe, it } from "node:test";
 
 import { texJobClass, BORN_KEY, JOB_NAME_KEY } from "../../../packages/tex/gateway/texJob.js";
 import { chatEnv } from "../../../packages/tex/gateway/texChat.js";
-import { jobCallForTexts, TEXTS_JOB_CALL_PREFIX } from "../src/agent/textsArrive.js";
+import { jobCallForTexts, TEXTS_JOB_CALL_PREFIX } from "../../../packages/tex/gateway/agent/textsArrive.js";
 import { TexTexts, TexJob } from "../src/index.js";
 
 const { SenderInbox } = await import("../../../packages/tex/worker/gatewayChat.js");

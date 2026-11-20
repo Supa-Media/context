@@ -6,9 +6,9 @@
  * and its tests read of the chat: its group's home, its ledger, a note put in the home.
  */
 
-import { QUIET_MS } from "../src/agent/checkInGather.js";
+import { QUIET_MS } from "../../../packages/tex/gateway/agent/checkInGather.js";
 import { atEarlierTime } from "./clock.mjs";
-import { ledgerFor, ONE_TO_ONE_CHAT } from "../src/agent/ledger.js";
+import { ledgerFor, ONE_TO_ONE_CHAT } from "../../../packages/tex/gateway/agent/ledger.js";
 import { keepOneToOne } from "./byCode.mjs";
 import { clientDispatch, keepEarlierPictures } from "./earlierPictures.mjs";
 import { linksIn, seedLinkedNotes } from "./earlierNotes.mjs";

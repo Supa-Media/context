@@ -1,0 +1,414 @@
+/**
+ * THE CHAT'S LEDGER, GATEWAY SIDE: what an entry says, what is left out of it,
+ * and the writer every part of a turn calls (decided by the owner, 2026-11-02;
+ * `docs/decisions/texting-assistant/chat-ledger.md`). The object keeps the
+ * rows (`texStore/ledger.js`); this decides their words.
+ *
+ * Everything is kept: what they sent, what Tex sent, its thinking, the words
+ * between its tools, each tool call with its arguments, outcome, time and
+ * result, the advisor's asks, the Mail checker's verdicts, jobs. One thing is
+ * left out, by the owner's rule: a call that read from another workspace keeps
+ * what it asked for and how it went, never what came back
+ * (`withheld: "other_workspace"`), apart from its receipt (where it went and what it left: path, link,
+ * visibility, etag; `receiptOf`, owner 2026-11-17), because the ledger lives with this chat and
+ * the other workspace's notes are not this chat's to keep. Arguments named
+ * like a secret are kept as `[hidden]`; saved logins never reach a turn at all
+ * (`vault.md`).
+ *
+ * Entry fields, schema `tex-ledger` v1 (every entry `{v, id, at, kind, seq}`,
+ * `turn` when a turn wrote it):
+ * - `text`: `{from: {kind: "person"|"tex"|"system", name?, who?}, text, covers?, delivered?, reason?, told?, replyTo?, event?}`
+ * - `thinking`: `{text, ms?, output?}`, the model's thinking in words, as it came back, with its model round's milliseconds and output tokens
+ * - `said`: `{text}`, what the model said between its tools
+ * - `tool`: `{name, args, as?, ok, ms, held?, reason?, result?, cut?, withheld?, receipt?}`; `receipt` is a withheld call's header lines only (`receiptOf`); `as` is `{name, args}` as the model wrote the call, when that differs; `grant` is the carry key the call ran under (`stretch.js` `carryKey`: a person, workspace and scopes run to about 130 characters), which a later text replays its result only under
+ * - `reply`: `{text, ms, model?, timing?, facts?, grant?, version?}`, the turn's answer as it left the gateway; `version` which Tex answered (`texVersion.js`: the deployed commit, the Worker version, the live setup's version); `timing` is where its time went (`turnTiming.js`); `facts` what it read for what it said, quoted from its source, with the carry key a note's quote was read under (`toldFacts.js`)
+ * - `advisor`: `{question, answer, ms, steps?}` / `mail_check`: `{to, subject, verdict, why, ref?}` / `job`: `{job, title?, state}`
+ * - `note`: `{text}`, anything else worth keeping (a routine's text, a check-in)
+ * - `judge`: `{text, by, model?, round, went, ms?, notice?, reason?, judges: [{id, yes, at, passed}], failed}`, one judging of a draft reply (`replyJudge.js`; `by` is `review` for the Haiku reviewer since 2026-11-06, with `turnKind` and the problems it named in `failed`, or `gates` before): `text` is the draft, `went` whether it went out
+ * - `name`: `{guest, name, by?, text}`, a name someone in a group chat gave a guest label (`groupGuestNames.js`); the newest per guest is its name
+ * - `brief`: `{asker?, ask?, tools?, places?, waiting?, about?, rules?}`, what a group turn knew when it ended, for the judge (`judgeBrief.js`)
+ * - `step`: `{step, ok, ms, input?, output?, model?, reason?}`, one step of a turn that leaves nothing else of its own (`timing`: each named step of the turn with its time and outcome, `name` the step; the router, the fallback, the chat write lock, a front-door step, the card check, the classifier, the self-review, the hand-back judge, the job-mail advisor; and from the texting Worker, a 1:1 judging `decide` and every tapback `react`, posted as step events, `log.js` `checkStep`): what it was given and what it gave, kept like a tool's arguments and result, so a turn can be replayed and a regression traced from the chat alone (decided by the owner, 2026-11-13: "every step should log its input output time")
+ * - `day`: `{day, text, model?}`, one finished day summed up the night after (`daySummaries.js`), id `day-<YYYY-MM-DD>` so a day keeps one; `at` is that day's last entry
+ */
+
+import { gatewayTexStore } from "../texStore/wire.js";
+
+/** A tool result longer than this is kept cut, with its full length in `cut`. */
+export const MAX_RESULT_CHARS = 64_000;
+/** Words longer than this (a pasted essay) are kept cut the same way. */
+export const MAX_WORDS_CHARS = 32_000;
+
+const SECRET_KEY = /pass|secret|token|otp|pin\b|cvv|card|api[-_]?key|credential|^code$/i;
+const MAX_ARG_DEPTH = 6;
+
+const newId = () => crypto.randomUUID().replace(/-/g, "");
+
+function cutText(value, max) {
+  const text = typeof value === "string" ? value : value === undefined || value === null ? "" : String(value);
+  return text.length > max ? { text: text.slice(0, max), cut: text.length } : { text };
+}
+
+/** A tool's arguments as kept: whole, apart from a value named like a secret. */
+export function keptArgs(value, key = null, depth = 0) {
+  if (typeof key === "string" && SECRET_KEY.test(key) && value !== null && value !== undefined && value !== "") return "[hidden]";
+  if (depth > MAX_ARG_DEPTH) return "[deeper]";
+  if (Array.isArray(value)) return value.map((item) => keptArgs(item, null, depth + 1));
+  if (value && typeof value === "object") return Object.fromEntries(Object.entries(value).map(([k, v]) => [k, keptArgs(v, k, depth + 1)]));
+  if (typeof value === "string") return value.length > MAX_WORDS_CHARS ? `${value.slice(0, MAX_WORDS_CHARS)}… [cut, ${value.length} characters]` : value;
+  return value;
+}
+
+/** A path that opens with a workspace's name (`tools/pathAddress.js`, the `@name/path` sugar). */
+const BY_NAME = /^@([a-z0-9][a-z0-9-]*)\//i;
+const PATH_FIELDS = ["path", "note", "prefix", "id", "source", "destination"];
+
+/**
+ * The workspace a call named, as a handle without its `@`, or null when it named none (the turn's own): its
+ * `context` argument, or else a path that opens with `@name/`, which routes the call there just the same
+ * (`tools/pathAddress.js`). Reading only `context` kept a `read_note {path: "@v2l/..."}` whole (2026-11-16).
+ */
+function namedContext(args) {
+  if (!args || typeof args !== "object") return null;
+  // A search Tex widened from a named workspace (`sixTools.js`, boost) still read it: kept as a context would be.
+  for (const named of [args.context, args.boost]) {
+    if (typeof named === "string" && named.trim() !== "") return named.trim().replace(/^@+/, "").toLowerCase();
+  }
+  for (const field of PATH_FIELDS) {
+    const match = typeof args[field] === "string" ? BY_NAME.exec(args[field].trim()) : null;
+    if (match) return match[1].toLowerCase();
+  }
+  return null;
+}
+
+/** The header lines a receipt is made of: where a call went and what it left there, never a note's words. */
+const RECEIPT_LINE = /^(?:written|saved|moved|archived|unchanged|visibility changed|visibility|path|link|etag|document_id|from|to|workspace|kind|status): /;
+const MAX_RECEIPT_CHARS = 800;
+
+/**
+ * A withheld call's receipt (owner, 2026-11-17): the header lines of its result before the first blank line, each
+ * one a known `key: value` naming where the call went and what it left there (path, workspace link, visibility,
+ * etag, document id). A note's text never comes before that blank line, so none of it is kept; a result whose
+ * first line is not a receipt line keeps nothing. Tex lost where its own writes in another workspace had landed,
+ * and whether its visibility change worked, because the whole result was withheld (Sayo's chat, 2026-11-16).
+ */
+export function receiptOf(result) {
+  if (typeof result !== "string") return null;
+  const lines = [];
+  for (const line of result.split("\n")) {
+    if (line.trim() === "" || !RECEIPT_LINE.test(line)) break;
+    lines.push(line.length > 300 ? line.slice(0, 300) : line);
+  }
+  const receipt = lines.join("\n").slice(0, MAX_RECEIPT_CHARS);
+  return receipt === "" ? null : receipt;
+}
+
+/**
+ * Whether a call read from a workspace other than the one this chat's turns
+ * run in (`session.workspaceSlug`): its result is then never kept.
+ */
+export function readsOtherWorkspace(args, ownSlug) {
+  const named = namedContext(args);
+  if (named === null) return false;
+  return typeof ownSlug !== "string" || named !== ownSlug.toLowerCase();
+}
+
+/** A tool call's entry. `result` is the text the model was shown. */
+export function toolEntry({ name, args, as = null, ok, ms, held = false, reason = null, result = null, thinking = null }, { ownSlug, turn = null, grant = null, at = Date.now() } = {}) {
+  const entry = { v: 1, id: newId(), at, kind: "tool", ...(turn ? { turn } : {}), ...(typeof grant === "string" && grant !== "" ? { grant: grant.slice(0, 200) } : {}), name: String(name ?? "").slice(0, 64), args: keptArgs(args ?? {}), ok: ok === true, ms: Number.isFinite(ms) ? Math.round(ms) : 0 };
+  if (held) entry.held = true;
+  // The name and arguments the model wrote, when it called one of the six (`sixTools.js`): what a later text replays (`stretch.js`).
+  if (as && typeof as.name === "string" && as.name !== entry.name) entry.as = { name: as.name.slice(0, 64), args: keptArgs(as.args ?? {}) };
+  if (typeof reason === "string" && reason !== "") entry.reason = reason.slice(0, 400);
+  if (readsOtherWorkspace(args, ownSlug) || (as && readsOtherWorkspace(as.args, ownSlug))) {
+    entry.withheld = "other_workspace";
+    const receipt = receiptOf(result);
+    if (receipt !== null) entry.receipt = receipt;
+  } else if (typeof result === "string") {
+    const kept = cutText(result, MAX_RESULT_CHARS);
+    entry.result = kept.text;
+    if (kept.cut !== undefined) entry.cut = kept.cut;
+  }
+  // The advisor's thinking, beside its answer (`advisor.js`): what the tool thought, never Tex's own.
+  if (typeof thinking === "string" && thinking.trim() !== "" && entry.withheld === undefined) entry.thinking = cutText(thinking, MAX_WORDS_CHARS).text;
+  return entry;
+}
+
+/** An entry of words (`thinking`, `said`, `reply`, `note`), cut when very long. */
+export function wordsEntry(kind, text, { turn = null, at = Date.now(), ...extra } = {}) {
+  const kept = cutText(text, MAX_WORDS_CHARS);
+  return { v: 1, id: newId(), at, kind, ...(turn ? { turn } : {}), ...extra, text: kept.text, ...(kept.cut !== undefined ? { cut: kept.cut } : {}) };
+}
+
+/** What a step was given or gave, as kept: a string cut like words, anything else kept like a tool's arguments. */
+function keptValue(value) {
+  if (value === undefined) return undefined;
+  if (typeof value === "string") return cutText(value, MAX_WORDS_CHARS).text;
+  const kept = keptArgs(value);
+  const text = JSON.stringify(kept ?? null);
+  return text.length > MAX_RESULT_CHARS ? `${text.slice(0, MAX_RESULT_CHARS)}… [cut, ${text.length} characters]` : kept;
+}
+
+/** The steps a `step` entry may name: a new one is added here, so a typo is never a new step. */
+export const STEP_NAMES = new Set(["timing", "triage", "decide", "router", "fallback", "model", "steer", "lane", "door", "card", "checks", "classifier", "selfreview", "handback", "mailadv", "react", "reviewer", "node", "text", "send", "oldLine", "moveChat", "edit", "provisional", "resumed", "failed"]);
+
+/** One step of a turn (`step` kind): its name, whether it went, its milliseconds, and what it was given and gave. */
+export function stepEntry({ step, ok = true, ms = null, input, output, model = null, reason = null, name = null }, { turn = null, at = Date.now() } = {}) {
+  if (!STEP_NAMES.has(step)) return null;
+  const entry = { v: 1, id: newId(), at, kind: "step", ...(turn ? { turn } : {}), step, ok: ok === true };
+  if (typeof name === "string" && name !== "") entry.name = name.slice(0, 64);
+  if (Number.isFinite(ms) && ms >= 0) entry.ms = Math.round(ms);
+  const keptIn = keptValue(input);
+  if (keptIn !== undefined) entry.input = keptIn;
+  const keptOut = keptValue(output);
+  if (keptOut !== undefined) entry.output = keptOut;
+  if (typeof model === "string" && model !== "") entry.model = model.slice(0, 120);
+  if (typeof reason === "string" && reason !== "") entry.reason = reason.slice(0, 400);
+  return entry;
+}
+
+/**
+ * One node run of the config's graph (`packages/tex/src/texGraph.cjs`, which logs every run itself) as a `step`
+ * entry `step: "node"`, `name` the node's id, `via` the wire that ran it ("wait", "background", "fd:uses",
+ * "reviewer:loop"), `ms` its whole run and `own` that less its waits on the nodes it called, so Replay reads what each node got and gave from the runner and no node logs by hand.
+ */
+export function nodeEntry({ node, input, output, ms, own = null, ok, error = null, via = null }, { turn = null, at = Date.now() } = {}) {
+  const entry = stepEntry({ step: "node", name: node, ok, ms, input, output, reason: error }, { turn, at });
+  if (!entry || typeof node !== "string" || node === "") return null;
+  // Its own time, less what it waited on the nodes it called: Answer checks' send-backs are the front door's time.
+  if (Number.isFinite(own) && own >= 0 && entry.ms !== undefined) entry.own = Math.min(entry.ms, Math.round(own));
+  if (typeof via === "string" && via !== "") entry.via = via.slice(0, 64);
+  return entry;
+}
+
+/** The graph runner's `log` for one turn: each node run written as a `nodeEntry`. Never throws; with no writer it does nothing. */
+export function nodeLog(writer, { turn = null } = {}) {
+  return (run) => {
+    if (!writer) return;
+    try {
+      const entry = nodeEntry(run, { turn: typeof turn === "string" && turn !== "" ? turn : null, at: Date.now() });
+      if (entry) writer.write(entry);
+    } catch {
+      /* a node's record never stops the node */
+    }
+  };
+}
+
+/**
+ * A step's writer for code outside a turn's `tell` (`ledgerWriter` plus the
+ * turn's id): `log(fields)` writes one `step` entry; `timed(step, input, run,
+ * outputOf?)` runs `run()`, times it and writes what it gave, or that it threw
+ * (and throws on). Never throws itself; with no writer it only runs.
+ */
+export function stepLog(writer, { turn = null } = {}) {
+  const at = { turn: typeof turn === "string" && turn !== "" ? turn : null };
+  const log = (fields) => {
+    if (!writer) return;
+    try {
+      const entry = stepEntry(fields, { ...at, at: Date.now() });
+      if (entry) writer.write(entry);
+    } catch {
+      /* a step's record never stops the step */
+    }
+  };
+  const timed = async (step, input, run, outputOf = (value) => value, extra = {}) => {
+    const began = Date.now();
+    try {
+      const value = await run();
+      log({ step, ok: true, ms: Date.now() - began, input, output: outputOf(value), ...extra });
+      return value;
+    } catch (error) {
+      log({ step, ok: false, ms: Date.now() - began, input, reason: String(error?.message ?? error?.name ?? "error"), ...extra });
+      throw error;
+    }
+  };
+  return { log, timed };
+}
+
+/**
+ * A draft's check with no reviewer behind it (`doItChecks.js`, `claimCheck.js`
+ * with the hand-back judge, `untriedWeb.js`) as a step: the draft in, the
+ * notice that sent it back out (null: it went). The reviewer logs its own
+ * `judge` entries, so it is never wrapped.
+ */
+export function loggedCheck(writer, { turn = null } = {}, step, checker) {
+  if (!checker || typeof checker.check !== "function") return null;
+  if (!writer) return (answer, context) => checker.check(answer, context);
+  const steps = stepLog(writer, { turn });
+  return (answer, context) => steps.timed(step, answer, () => checker.check(answer, context), (notice) => notice ?? null);
+}
+
+/**
+ * One of the texting Worker's own steps (`log.js` `checkStep`, checked
+ * already) as a `step` entry: a person's own chat's judging or a tapback. Its
+ * id is the event's, so a step posted twice is kept once; `of` is its `name`.
+ */
+function workerStepEntry({ id, at, turn, step }) {
+  const entry = stepEntry({ step: step.name, ok: step.ok, ms: step.ms, input: step.input, output: step.output, reason: step.cause ?? null, name: step.of ?? null }, { turn: turn ?? null, at });
+  return { ...entry, id: `ev${String(id).replace(/[^0-9A-Za-z]/g, "")}`, eid: id };
+}
+
+/**
+ * A chat event (`log.js` shape) as a `text` entry; its id is the event's, so the same event is kept once. An event
+ * from the Context app's own chat with Tex (chat `app:<userId>`, `packages/tex/worker/appChat.ts`) is marked `via: "app"`:
+ * the app shows only its own chat (Dev2, 2026-11-19: "like whatsapp its own thing, but it can see the same history"),
+ * while every reader of the person's one record, Tex's history included, reads both.
+ */
+export function eventEntry(event) {
+  if (event?.kind === "step") return workerStepEntry(event);
+  const { id, at, chat, kind: eventKind, text, ...rest } = event ?? {};
+  const kept = cutText(text ?? "", MAX_WORDS_CHARS);
+  const via = typeof chat === "string" && chat.startsWith(APP_CHAT_PREFIX) ? { via: "app" } : {};
+  return { v: 1, id: `ev${String(id).replace(/[^0-9A-Za-z]/g, "")}`, eid: id, at, kind: "text", event: eventKind, ...rest, ...via, text: kept.text, ...(kept.cut !== undefined ? { cut: kept.cut } : {}) };
+}
+
+/** The chat id prefix of the Context app's chat with Tex (`packages/tex/worker/appChat.ts` `APP_CHAT_PREFIX`). */
+export const APP_CHAT_PREFIX = "app:";
+
+/**
+ * The ledgers in one owner's Tex object (`{person: workspaceId}` or `{chat:
+ * groupKey}`, as `ledgerPlace` names it), or null without the
+ * binding: `{append(chat, entries), read(chat, options), chats()}`.
+ */
+export function ledgerFor(env, owner) {
+  const name = owner?.person ? `person:${owner.person}` : owner?.chat ? `chat:${owner.chat}` : null;
+  if (name === null) return null;
+  const store = gatewayTexStore(env)(name);
+  return store?.ledger ?? null;
+}
+
+/**
+ * A writer for one chat that never throws and keeps the order it was given:
+ * `write(entries)` queues them, `flush()` waits for every write so far. A
+ * write that failed is logged by count and kind, never its words.
+ */
+export function ledgerWriter(ledger, chat) {
+  if (ledger === null || typeof chat !== "string" || chat === "") return null;
+  let chain = Promise.resolve();
+  const write = (entries) => {
+    const list = (Array.isArray(entries) ? entries : [entries]).filter(Boolean);
+    if (list.length === 0) return chain;
+    chain = chain.then(async () => {
+      for (let at = 0; at < list.length; at += 100) {
+        try {
+          await ledger.append(chat, list.slice(at, at + 100));
+        } catch (error) {
+          console.log(JSON.stringify({ event: "ledger_write_failed", count: list.length, kinds: [...new Set(list.map((entry) => entry.kind))], reason: String(error?.name ?? "error").slice(0, 40) }));
+        }
+      }
+    });
+    return chain;
+  };
+  return { write, flush: () => chain };
+}
+
+const GROUP_KEY = /^[0-9a-f]{64}$/;
+const TEXTS_GROUP_CLIENT_ID = "context_texts_group";
+/** The entry that says a person's whole old chat is copied in, kept first: once it is, nothing is copied again (`ledgerBackfill.js`). */
+export const BACKFILLED = "backfilledv1";
+/** A person's one-to-one chat with Tex is one ledger, whichever line they text on, as their history record is. */
+export const ONE_TO_ONE_CHAT = "texts";
+
+/**
+ * Whose ledger a session's turn writes and under which chat: a group's when
+ * the grant names one (`chat:<groupKey>`, chat = the group key), the person's
+ * own one-to-one chat on their personal workspace (`person:<workspaceId>`,
+ * chat `texts`), otherwise none.
+ */
+export function ledgerPlace(session) {
+  if (typeof session?.texChatId === "string" && GROUP_KEY.test(session.texChatId)) return { owner: { chat: session.texChatId }, chat: session.texChatId };
+  // A group grant that names no chat keeps none: never the person's own one-to-one ledger, which a group's words must not reach.
+  if (session?.actorClientId === TEXTS_GROUP_CLIENT_ID) return null;
+  if (session?.workspaceKind === "personal" && typeof session.workspaceId === "string" && session.workspaceId !== "") return { owner: { person: session.workspaceId }, chat: ONE_TO_ONE_CHAT };
+  return null;
+}
+
+/** The never-throwing writer for a session's chat (`ledgerWriter`), or null when it keeps none. */
+export function sessionLedger(env, session) {
+  const place = ledgerPlace(session);
+  if (place === null) return null;
+  return ledgerWriter(ledgerFor(env, place.owner), place.chat);
+}
+
+/**
+ * The writer for the ledger of the chat a session's turn is in, through the
+ * turn's own store (`store/texRouting.js` `texLedger`), or null when the
+ * session keeps none (the app, a shared workspace's own connection).
+ */
+export function storeLedger(store, session) {
+  const place = ledgerPlace(session);
+  if (place === null || typeof store?.texLedger !== "function") return null;
+  return ledgerWriter(store.texLedger(place.owner.chat ?? null), place.chat);
+}
+
+/**
+ * A writer that marks every entry with the background job whose turn wrote it
+ * (`jobId`, `jobTitle`), so the chat's one record says which work was a job's
+ * (the owner, 2026-11-02: sub-agent work "in the chat's history, tagged").
+ * `job` entries keep their own `job` field; this never replaces it.
+ */
+export function jobTagged(writer, job) {
+  if (writer === null || !job || typeof job.id !== "string") return writer;
+  const tag = { jobId: job.id, ...(typeof job.title === "string" && job.title ? { jobTitle: job.title } : {}) };
+  return {
+    ...writer,
+    write: (entries) => writer.write((Array.isArray(entries) ? entries : [entries]).filter(Boolean).map((entry) => ({ ...entry, ...tag }))),
+    flush: () => writer.flush(),
+  };
+}
+
+/** The model round a thinking entry came from: its milliseconds and output tokens, numbers only (`turn.js`). */
+function roundCost(event) {
+  const cost = {};
+  if (Number.isFinite(event.ms) && event.ms >= 0) cost.ms = Math.round(event.ms);
+  if (Number.isFinite(event.output) && event.output >= 0) cost.output = Math.round(event.output);
+  return cost;
+}
+
+/**
+ * A turn's steps (`turn.js` `tell`) written to its chat's ledger, beside
+ * whatever else watches them (`then`): thinking, the words between tools, and
+ * every tool call with its result.
+ */
+export function ledgerObserver(writer, then = null, { turn = null, ownSlug = null, grant = null } = {}) {
+  if (writer === null) return then;
+  const at = { turn: typeof turn === "string" && turn !== "" ? turn : null };
+  return (event) => {
+    if (typeof then === "function") then(event);
+    if (event?.kind === "thinking" && typeof event.text === "string" && event.text.trim() !== "") writer.write(wordsEntry("thinking", event.text, { ...at, ...roundCost(event) }));
+    else if (event?.kind === "say" && typeof event.text === "string" && event.text.trim() !== "") writer.write(wordsEntry("said", event.text, at));
+    else if (event?.kind === "tool") writer.write(toolEntry(event, { ownSlug, turn: at.turn, grant }));
+    else if (event?.kind === "judge") writer.write(judgeEntry(event, at));
+    // The steps `turn.js` tells that leave nothing else: the router's pick, a fallback, a model switch, a steer.
+    else if (event?.kind === "model" || event?.kind === "steered") {
+      const entry = stepEntry(
+        event.kind === "steered"
+          ? { step: "steer", ok: true, input: event.text ?? "" }
+          : { step: STEP_NAMES.has(event.step) ? event.step : "model", ok: event.ok !== false, ms: event.ms, input: event.input, output: event.output, model: event.model, reason: event.reason },
+        at,
+      );
+      if (entry) writer.write(entry);
+    }
+  };
+}
+
+/** A judging of a draft reply (`replyJudge.js` `judgeEvent`) as a `judge` entry: names, numbers and the draft, cut like any words. */
+export function judgeEntry(event, at = {}) {
+  const judges = (Array.isArray(event.judges) ? event.judges : []).map((judge) => ({ id: String(judge.id), yes: typeof judge.yes === "number" && Number.isFinite(judge.yes) ? judge.yes : null, at: typeof judge.at === "number" ? judge.at : null, passed: judge.passed === true }));
+  return wordsEntry("judge", event.draft ?? "", {
+    ...at,
+    by: JUDGE_BY.has(event.by) ? event.by : "gates",
+    ...(typeof event.model === "string" ? { model: event.model } : {}),
+    round: Number.isSafeInteger(event.round) ? event.round : 0,
+    went: event.went === true,
+    ...(Number.isFinite(event.ms) ? { ms: Math.round(event.ms) } : {}),
+    ...(typeof event.notice === "string" && event.notice ? { notice: cutText(event.notice, MAX_WORDS_CHARS).text } : {}),
+    ...(typeof event.reason === "string" && event.reason ? { reason: event.reason } : {}),
+    ...(typeof event.turnKind === "string" && event.turnKind ? { turnKind: event.turnKind.slice(0, 20) } : {}),
+    judges,
+    // The gates' failed ids, or the reviewer's problem names (`replyJudge.js` `PROBLEMS`).
+    failed: judges.length > 0 ? judges.filter((judge) => !judge.passed).map((judge) => judge.id) : (Array.isArray(event.failed) ? event.failed : []).filter((id) => typeof id === "string").map((id) => id.slice(0, 40)).slice(0, 12),
+  });
+}
+
+/** Who judged a draft: the reviewer, the code checks, a late text, or the gates (before 2026-11-06). */
+const JUDGE_BY = new Set(["review", "code", "late", "gates"]);

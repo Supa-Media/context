@@ -29,8 +29,8 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { contradictedConfession } from "../src/agent/confession.js";
-import { claimCheck } from "../src/agent/claimCheck.js";
+import { contradictedConfession } from "../../../packages/tex/gateway/agent/confession.js";
+import { claimCheck } from "../../../packages/tex/gateway/agent/claimCheck.js";
 import { recordChange } from "../src/activity/record.js";
 import { toolListChanges } from "../src/activity/changes.js";
 import { createMemoryStore } from "./gmailSync/fixtures.mjs";

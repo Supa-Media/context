@@ -5,7 +5,7 @@ effort with the advisor on ([front-door](./front-door.md)); this changes what
 it says while a turn runs.
 
 **Direct answers first.** Every texted turn is told `DIRECT_LINE`
-(`apps/mcp/src/agent/prompt.js`): if what is in front of Tex answers the ask,
+(`packages/tex/gateway/agent/prompt.js`): if what is in front of Tex answers the ask,
 reply now in one round, no tools, no deliberating. It sits beside
 `OPINION_LINE` and `SETTINGS_LINE`, so a production setup's own prompt keeps
 it, and it fits the texted prompt's size budget (`agentInstructions.test.mjs`).

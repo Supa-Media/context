@@ -13,9 +13,9 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { readThreads, threadsChat } from "../src/agent/conversationThreads.js";
-import { answeredTurns, backfillThreads, DONE_ID } from "../src/agent/threadsBackfill.js";
-import { handleThreadsBackfill } from "../src/agent/threadsBackfillDoor.js";
+import { readThreads, threadsChat } from "../../../packages/tex/gateway/agent/conversationThreads.js";
+import { answeredTurns, backfillThreads, DONE_ID } from "../../../packages/tex/gateway/agent/threadsBackfill.js";
+import { handleThreadsBackfill } from "../../../packages/tex/gateway/agent/threadsBackfillDoor.js";
 
 const SECRET = "s".repeat(32);
 

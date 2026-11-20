@@ -13,7 +13,7 @@ it, and the waiting asks. Each storage call took about a second, so the turn
 took 50 to 95 seconds around a 3-second model.
 
 Now each answer to a person's own text carries `warm`: what that turn read,
-sealed by the gateway (`apps/mcp/src/agent/warmCopy.js`). The sender's
+sealed by the gateway (`packages/tex/gateway/agent/warmCopy.js`). The sender's
 Durable Object keeps it (`packages/tex/worker/warm.ts`) and sends it back with the
 next text, beside the chat's newest events (`recent`, the same events it
 posts to `/agent/events`). A turn with a copy it can open reads none of that

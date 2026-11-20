@@ -1,6 +1,6 @@
 /**
  * Tex works on several things at once: a long ask becomes a background job
- * (owner, 2026-10-21; the gateway's half is `apps/mcp/src/agent/background.js`).
+ * (owner, 2026-10-21; the gateway's half is `packages/tex/gateway/agent/background.js`).
  *
  * A texted turn, in a 1:1 chat or a group, may start jobs. Each one runs in a
  * Durable Object of its own (named `job:<id>`, the same class as the inboxes),
@@ -44,10 +44,10 @@ export type JobStep = { at: number; text: string; failed?: true; why?: string };
 /** Whether a streamed step failed, and why (`clients.ts`). */
 /** `result`, `held`, `outside`: what the call returned, whether it waits on their yes, whether the turn had read from outside by then; `draft`: a draft line, no step (`jobProgress.ts`). */
 export type StepHow = { failed?: true; why?: string; result?: string; held?: true; outside?: true; draft?: string };
-/** One line of the chat's job list, sent with every texted turn, with its steps; `verdict`/`advice`: the advisor's last check (`apps/mcp/src/agent/jobCheck.js`); `result`: a finished job's report, for the chat's turns only. */
+/** One line of the chat's job list, sent with every texted turn, with its steps; `verdict`/`advice`: the advisor's last check (`packages/tex/gateway/agent/jobCheck.js`); `result`: a finished job's report, for the chat's turns only. */
 /** `part`: the part it is on (or ended on); `ends`: how its parts ended (`jobProgress.ts`), for `job_status`. */
 export type RunningJob = { id: string; title: string; state: JobState; startedAt: number; finishedAt?: number; status?: string; steps?: JobStep[]; verdict?: JobVerdict; advice?: string; result?: string; on?: string; resumeAt?: number; part?: number; ends?: PartEnd[] };
-/** The advisor's call on a job's part that just ended (`apps/mcp/src/agent/jobCheck.js`). */
+/** The advisor's call on a job's part that just ended (`packages/tex/gateway/agent/jobCheck.js`). */
 export type JobVerdict = "done" | "keep_going" | "waiting" | "stuck";
 /** What a job's own turn is asked with; `followUps`: the person's later texts about it, their own words. */
 /** `draft`: the last part's answer, never texted because a later text changed the job, or (`unfinished`) because it stopped short of the ask; the next part builds on it. */
@@ -111,7 +111,7 @@ export function jobPictures(pictures: OutgoingPicture[]): OutgoingPicture[] {
 
 /** The Job start node's limits (`packages/shared/src/jobStart.cjs`), today's numbers while it names none. */
 const START_LIMITS = jobStartLib.configStartLimits(TEX_CONFIG);
-/** Cloud jobs at once in a chat. A job on their computer counts against that computer's own slots instead (`apps/mcp/src/agent/jobSlots.js`). */
+/** Cloud jobs at once in a chat. A job on their computer counts against that computer's own slots instead (`packages/tex/gateway/agent/jobSlots.js`). */
 export const MAX_RUNNING_JOBS = START_LIMITS.cloudSlots;
 /** The most jobs one computer runs for a chat (`slotCounts`'s most); its owner's own count is checked by the gateway and the workspace object. */
 export const MAX_MACHINE_JOBS = START_LIMITS.machineSlots;
@@ -185,7 +185,7 @@ export type JobSaid = { heard?: string; sent?: string };
  * line naming the files they sent (`clients.ts` `heard`, `sent`). The model only names a job; what it is handed is
  * always what they sent. A job's turn sees none of the chat, so before these a job started from a voice message was
  * asked nothing and every part was refused (2026-11-05, the Morocco trip job), and a change sent by voice or a
- * picture never reached a running job. At most as long as the gateway takes a question (`apps/mcp/src/agent/turn.js`).
+ * picture never reached a running job. At most as long as the gateway takes a question (`packages/tex/gateway/agent/turn.js`).
  */
 /** Their own texts that started a job, oldest first: the open ask before it, then the text it started from. */
 export function jobAsked(run: Pick<JobRun, "asked" | "origin">): string[] {
@@ -236,7 +236,7 @@ export function readStartedJobs(value: unknown): StartedJob[] {
   return value.slice(0, MAX_TURN_JOBS).flatMap((entry) => {
     if (!entry || typeof entry !== "object") return [];
     const { id, title, brief, doneWhen, asked, tainted, mail, machine } = entry as Record<string, unknown>;
-    const job = { title: line(title, 120), brief: typeof brief === "string" ? brief.trim().slice(0, 4_000) : "" /* the model's 2,000 and the pages the chat opened (`apps/mcp/src/agent/jobPages.js`) */, doneWhen: line(doneWhen, MAX_STATUS) };
+    const job = { title: line(title, 120), brief: typeof brief === "string" ? brief.trim().slice(0, 4_000) : "" /* the model's 2,000 and the pages the chat opened (`packages/tex/gateway/agent/jobPages.js`) */, doneWhen: line(doneWhen, MAX_STATUS) };
     if (job.title === "" || job.brief === "") return [];
     const project = readJobProject(mail);
     const computer = readJobMachine(machine);
@@ -635,7 +635,7 @@ export function threadsKey(value: string | null): { objectId: string; token: str
 
 /**
  * The signed-in Tex hub the gateway names beside an answer that offered the
- * view (`apps/mcp/src/agent/hubLinks.js`; the owner, 2026-11-03: "it should
+ * view (`packages/tex/gateway/agent/hubLinks.js`; the owner, 2026-11-03: "it should
  * show the hubs context.lc/tex/@user or context.lc/tex/group/<words> ...
  * instead of random thread pages"): `/tex/@<handle>` for a person's own chat,
  * `/tex/group/<words>` for a group's. Read strictly, so the gateway's answer

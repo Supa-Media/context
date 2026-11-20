@@ -52,11 +52,11 @@
 
 import { ask, call, request, textOf, createEgressWorld, TOKEN_CONSOLE, TOKEN_MCP, TOKEN_ROUTINE, TOKEN_TEXTS } from "./agentEgressFixtures.mjs";
 import { emailCaller, DEFAULT_EMAIL_CALLERS } from "../src/tools/emailGate.js";
-import { helperCallersOf } from "../src/agent/production.js";
-import { conversationFor, readVerdict } from "../src/agent/mailChecker.js";
-import { checkerHistory, groupMemoryPath, keepGroupExchange } from "../src/agent/groupTurn.js";
+import { helperCallersOf } from "../../../packages/tex/gateway/agent/production.js";
+import { conversationFor, readVerdict } from "../../../packages/tex/gateway/agent/mailChecker.js";
+import { checkerHistory, groupMemoryPath, keepGroupExchange } from "../../../packages/tex/gateway/agent/groupTurn.js";
 import { emailCopy, readEmail } from "../src/tools/email.js";
-import { TEXTED_ASK_CAP, textedAsk } from "../src/agent/textedApprovals.js";
+import { TEXTED_ASK_CAP, textedAsk } from "../../../packages/tex/gateway/agent/textedApprovals.js";
 import { EVERY_CHAT, createPending, disarmRecords, listPending } from "../src/tools/approvals.js";
 import { createMemoryStore } from "./gmailSync/fixtures.mjs";
 

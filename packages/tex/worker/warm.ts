@@ -1,7 +1,7 @@
 /**
  * The gateway's warm copy, kept in this sender's object (Seyi, 2026-10-31:
  * "how can we completely eliminate storage calls", then yes to keeping it
- * here; `apps/mcp/src/agent/warmCopy.js`).
+ * here; `packages/tex/gateway/agent/warmCopy.js`).
  *
  * Each answer hands back what its turn read, sealed under a key only the
  * gateway holds, and the next text hands it back, with this chat's newest
@@ -26,7 +26,7 @@ import type { InboxStorage } from "./inbox";
 const WARM_KEY = "tex-warm";
 /** Counts drops, so an answer whose turn began before a routine's text never keeps a copy made without it. */
 const DROPS_KEY = "tex-warm-drops";
-/** What the gateway wrote to the history beside the copy, sealed for the next text (`apps/mcp/src/agent/warmCopy.js` `sealBeside`). */
+/** What the gateway wrote to the history beside the copy, sealed for the next text (`packages/tex/gateway/agent/warmCopy.js` `sealBeside`). */
 const BESIDE_KEY = "tex-warm-beside";
 /** As many as the gateway opens with one text (`MAX_BESIDE`): one more and the copy has fallen behind, so it is dropped. */
 export const MAX_BESIDE = 20;

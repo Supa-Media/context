@@ -9,7 +9,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 
 import { changeOf, runMoves, runOrder } from "../../../packages/tex/src/texModuleChange.cjs";
-import { routerContextText } from "../src/agent/routerContext.js";
+import { routerContextText } from "../../../packages/tex/gateway/agent/routerContext.js";
 import { TEX_CONFIG } from "../../../packages/tex/src/texConfig.cjs";
 
 test("each kind of read has the tier it changes at", () => {

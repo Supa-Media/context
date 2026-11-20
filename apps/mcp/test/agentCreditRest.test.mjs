@@ -19,8 +19,8 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { aiGatewayConfig, requestViaGateway, resetCreditState } from "../src/agent/aiGateway.js";
-import { CREDIT_REST_MS, CreditRestObject, createCreditCache, handleCreditRest } from "../src/agent/creditRest.js";
+import { aiGatewayConfig, requestViaGateway, resetCreditState } from "../../../packages/tex/gateway/agent/aiGateway.js";
+import { CREDIT_REST_MS, CreditRestObject, createCreditCache, handleCreditRest } from "../../../packages/tex/gateway/agent/creditRest.js";
 
 const ACCOUNT_ID = "0123456789abcdef0123456789abcdef";
 const TOKEN = `gw-token-${"a".repeat(20)}`;

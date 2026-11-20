@@ -14,9 +14,9 @@ import { shown } from "./sixToolsShown.mjs";
 import worker from "../src/index.js";
 import { createWorkerCtx } from "./workerCtx.mjs";
 import { createControlPlaneStub, createS3Backend, CONTROL_PLANE_ORIGIN, GATEWAY_SECRET } from "./controlPlaneStub.mjs";
-import { webSession } from "../src/agent/computer.js";
-import { BROWSE_TOOL, MAX_STEPS_PER_TURN, onlyTheirWords } from "../src/agent/browse.js";
-import { browserOwner, resetBrowserbaseProbe } from "../src/agent/browserProviders.js";
+import { webSession } from "../../../packages/tex/gateway/agent/computer.js";
+import { BROWSE_TOOL, MAX_STEPS_PER_TURN, onlyTheirWords } from "../../../packages/tex/gateway/agent/browse.js";
+import { browserOwner, resetBrowserbaseProbe } from "../../../packages/tex/gateway/agent/browserProviders.js";
 import { texStoreNamespace } from "./texStoreFixture.mjs";
 
 const S3_ENDPOINT = "https://s3.example-browse.test";

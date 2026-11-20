@@ -17,7 +17,7 @@ import type { Id } from "../../../_generated/dataModel";
 import type { MutationCtx } from "../../../_generated/server";
 import { nextRunFor } from "../routines/model";
 
-/** Housekeeping's first-party client. The gateway decides by it (`apps/mcp/src/agent/housekeeping.js`). */
+/** Housekeeping's first-party client. The gateway decides by it (`packages/tex/gateway/agent/housekeeping.js`). */
 export const HOUSEKEEPING_CLIENT_ID = "context_housekeeping";
 /** What the note's history and Connected apps call it. */
 export const HOUSEKEEPING_CLIENT_NAME = "Tex, keeping house";

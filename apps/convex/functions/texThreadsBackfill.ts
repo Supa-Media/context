@@ -4,7 +4,7 @@
  * `docs/decisions/texting-assistant/conversation-threads.md`). Live turns sort
  * each new text as it comes; this sorts the texts from before.
  *
- * The replay itself is the gateway's (`apps/mcp/src/agent/threadsBackfill.js`):
+ * The replay itself is the gateway's (`packages/tex/gateway/agent/threadsBackfill.js`):
  * a chat's words are read from its Tex object, sorted by the classifier and
  * written back there, and never come here. This only pages through the chats
  * and calls the gateway's door (`POST /internal/threads/backfill`) for each,

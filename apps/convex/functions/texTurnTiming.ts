@@ -8,7 +8,7 @@
  * It decides what the app draws, never what anyone may read: the `timing`
  * block lives on the person's own reply entries, which the gateway hands them
  * whoever they are. It holds step names and numbers only
- * (`apps/mcp/src/agent/turnTiming.js`).
+ * (`packages/tex/gateway/agent/turnTiming.js`).
  */
 
 import { v } from "convex/values";

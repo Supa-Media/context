@@ -93,7 +93,7 @@ export async function homeOnlyTurn(
     }
     if (!people.includes(userId)) people.push(userId);
     named.push({ userId, label: await guestLabel(args.groupKey, phone) });
-    // Each account's name beside its handle, so the turn can say who is here (`apps/mcp/src/agent/groupNames.js`). An
+    // Each account's name beside its handle, so the turn can say who is here (`packages/tex/gateway/agent/groupNames.js`). An
     // account with no handle yet (a light account) is told by its label, as a guest is, though it counts as a person.
     const person = await chatPerson(ctx, phone, userId);
     if (person.handle === "") unnamed.push({ phone, label: await guestLabel(args.groupKey, phone) });

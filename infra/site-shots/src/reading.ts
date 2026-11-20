@@ -16,7 +16,7 @@ export const MAX_BROWSE_TEXT = 12_000;
  * bus checkout's card boxes, terms box and Purchase button sat past the 80th
  * (the owner's review, 2026-10-26), so they had no number to fill or press.
  * The gateway shows the model the first ones and every box past them, and
- * pages through the rest (`apps/mcp/src/agent/browse.js`).
+ * pages through the rest (`packages/tex/gateway/agent/browse.js`).
  */
 export const MAX_ELEMENTS = 300;
 /** How many of the page's elements a reading looks at for something to number; past it a page is read as far as here. */

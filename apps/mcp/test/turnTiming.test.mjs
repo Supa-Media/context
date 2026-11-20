@@ -11,9 +11,9 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 
 import { createEgressWorld, request, TOKEN_TEXTS } from "./agentEgressFixtures.mjs";
-import { ledgerFor, ONE_TO_ONE_CHAT } from "../src/agent/ledger.js";
-import { MAX_TURN_WORDS, turnTiming } from "../src/agent/turnTiming.js";
-import { fingerprint } from "../src/agent/promptManifest.js";
+import { ledgerFor, ONE_TO_ONE_CHAT } from "../../../packages/tex/gateway/agent/ledger.js";
+import { MAX_TURN_WORDS, turnTiming } from "../../../packages/tex/gateway/agent/turnTiming.js";
+import { fingerprint } from "../../../packages/tex/gateway/agent/promptManifest.js";
 
 const CHAT = "sendblue:line:+15555550100";
 const ledgerOf = (world) => ledgerFor(world.env, { person: "ws_egress" });

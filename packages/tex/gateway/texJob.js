@@ -21,7 +21,7 @@
 
 import { chatEnv, chatState } from "./texChat.js";
 import { JOB_NAME } from "./texJobName.js";
-import { gatewayGraph } from "../../../apps/mcp/src/agent/graph/gatewayGraph.js";
+import { gatewayGraph } from "./agent/graph/gatewayGraph.js";
 import { jobNodeWriter, readJobNodes } from "./texJobLog.js";
 
 /** The header a job's name travels in between objects (`inboxMove.ts` `INBOX_NAME_HEADER`). */

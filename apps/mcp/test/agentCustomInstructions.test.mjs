@@ -18,8 +18,8 @@ import { after, before, test } from "node:test";
 
 import { createEgressWorld, request } from "./agentEgressFixtures.mjs";
 import { BUILTIN_ALLOWED } from "./agentModelFixture.mjs";
-import { DETAILED_LINE, asksDetailed, instructionsPrompt, readInstructions, readUpdates } from "../src/agent/customInstructions.js";
-import { PLAN_ONLY_NOTICE, progressChannel } from "../src/agent/progress.js";
+import { DETAILED_LINE, asksDetailed, instructionsPrompt, readInstructions, readUpdates } from "../../../packages/tex/gateway/agent/customInstructions.js";
+import { PLAN_ONLY_NOTICE, progressChannel } from "../../../packages/tex/gateway/agent/progress.js";
 
 test("only text within the limit is read, and a line that reads as the fence is dropped", () => {
   assert.equal(readInstructions("Use no emoji."), "Use no emoji.");

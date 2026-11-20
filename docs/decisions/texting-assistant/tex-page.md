@@ -95,7 +95,7 @@ of random thread pages, and maybe link to sub pages".
 
 - **The link is the hub, not a bearer view.** When an answer offers the live
   view (`[card threads]`), the gateway names the chat's Tex page beside it
-  (`hub`, `apps/mcp/src/agent/hubLinks.js`): `/tex/@<handle>` for a person's
+  (`hub`, `packages/tex/gateway/agent/hubLinks.js`): `/tex/@<handle>` for a person's
   own chat, the handle read off the grant, and `/tex/group/<words>` for a
   group, the words of the chat's home (`tex/groups/<words>`) as its own grant
   opened it. The texting Worker reads it strictly (`packages/tex/worker/jobs.ts`
@@ -172,7 +172,7 @@ working on? or do you have our conversation history, or what do you know
 about me, or connecting a new computer, or what settings are available etc,
 tex can offer the hub link." A chat's turn is told its page's address and
 every place on it, each with its own path (`hubPrompt`,
-`apps/mcp/src/agent/hubLinks.js`), built from `chatHubUrl` like the card's
+`packages/tex/gateway/agent/hubLinks.js`), built from `chatHubUrl` like the card's
 link, never from the request. A group is told its group page; connecting a
 computer is each person's own page, so a group's words name no one's. "What
 are you working on" keeps its card, which already carries the page. A chat

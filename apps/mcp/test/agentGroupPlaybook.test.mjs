@@ -19,7 +19,7 @@ import { after, before, test } from "node:test";
 
 import { createEgressWorld, request, toolReplies } from "./agentEgressFixtures.mjs";
 import { BUILTIN_ALLOWED } from "./agentModelFixture.mjs";
-import { PLAYBOOK_PATH, playbookPath, playbookPrompt, readPlaybook } from "../src/agent/groupPlaybook.js";
+import { PLAYBOOK_PATH, playbookPath, playbookPrompt, readPlaybook } from "../../../packages/tex/gateway/agent/groupPlaybook.js";
 
 const TOKEN_CHAT = `cat_group_playbook_chat_${"0".repeat(15)}`;
 const KEY = "a1".repeat(32);

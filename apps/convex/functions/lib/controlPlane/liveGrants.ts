@@ -301,7 +301,7 @@ export async function contextsForGrant(
   // tagger's other memberships, not their personal workspace. The pin comes
   // back marked `setupOnly`: the gateway never lists or addresses it, and
   // reads only Tex's own setup there (`ai/production/`), the file a 1:1 text
-  // already runs on (`apps/mcp/src/agent/production.js`).
+  // already runs on (`packages/tex/gateway/agent/production.js`).
   if (live.grant.clientId === TEXTS_GROUP_CLIENT_ID) {
     // A home-only grant reaches its chat's home in the pin, then each shared workspace every person in the chat is a live
     // member of, at the lowest role among them (`lib/textGroupReach.ts`); nothing of its sponsor's own, no setup, and no

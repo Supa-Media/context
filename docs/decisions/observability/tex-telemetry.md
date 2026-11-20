@@ -13,7 +13,7 @@ model, outcome, times, rounds and trace (`functions/agentTurns.ts`). It now
 also keeps:
 
 - `kind`: `one` (a person's own texts), `group`, `job`, `routine` or `app`,
-  decided by the gateway from the route (`turnKind`, `apps/mcp/src/agent/turnLog.js`).
+  decided by the gateway from the route (`turnKind`, `packages/tex/gateway/agent/turnLog.js`).
   `client` stays as it was for older readers; it called a group or a routine
   turn `app`.
 - each model's own token counts, cache reads and writes included (`models`),
@@ -192,7 +192,7 @@ and tell exactly why things might be slow." Every step was already timed
 in aggregate: no point named its turn, and the chat's ledger kept only each
 tool's milliseconds and the reply's total.
 
-- **The reply entry carries `timing`** (`apps/mcp/src/agent/turnTiming.js`):
+- **The reply entry carries `timing`** (`packages/tex/gateway/agent/turnTiming.js`):
   the wait before the gateway, each named entry-point step, the router, each
   model round with its tokens, and each tool, each with `at` (from the moment
   the gateway read the text) and `ms`. Names and numbers only, capped. A slim

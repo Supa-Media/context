@@ -8,9 +8,9 @@ import { texObjects } from "../../../packages/tex/gateway/texStore/objects.js";
 import { serveTexStore, texBucket } from "../../../packages/tex/gateway/texStore/wire.js";
 import { R2Store } from "../src/store/r2.js";
 import { storeForBinding } from "../src/store/factory.js";
-import { eventKey } from "../src/agent/events.js";
-import { moveAgentHome } from "../src/agent/agentHomeMove.js";
-import { HISTORY_KEY } from "../src/agent/history.js";
+import { eventKey } from "../../../packages/tex/gateway/agent/events.js";
+import { moveAgentHome } from "../../../packages/tex/gateway/agent/agentHomeMove.js";
+import { HISTORY_KEY } from "../../../packages/tex/gateway/agent/history.js";
 import { durableSql } from "./texStoreFixture.mjs";
 
 function world() {

@@ -319,7 +319,7 @@ function cutAt(generated, chat, at) {
 }
 
 /**
- * The Training examples a process's steps read (`apps/mcp/src/agent/texConfig.js`): every conversation in production,
+ * The Training examples a process's steps read (`packages/tex/gateway/agent/texConfig.js`): every conversation in production,
  * which sets neither variable, so the same object comes back. A bench process that scores a Training conversation sets
  * one: held out (`HOLD_OUT_ENV`), it is gone whole; scored in context (`UNTIL_ENV`, `apps/mcp/bench/setsFd.mjs` per test),
  * it ends at the scored moment. Its later texts are its future (Lab run, 2026-11-18: on truck-crew message 96 the front

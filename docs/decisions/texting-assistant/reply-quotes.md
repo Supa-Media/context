@@ -31,7 +31,7 @@ What changed:
   words and who said them.
 
 `quoted` is accepted only on a person's event, at most 3,000 characters
-(`apps/mcp/src/agent/log.js`).
+(`packages/tex/gateway/agent/log.js`).
 
 What a simplification would cost: keeping only the id brings back answers to
 the wrong message in a busy thread. Tests: `packages/tex/worker/replyQuote.test.ts`,

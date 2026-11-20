@@ -9,10 +9,10 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 
-import { MAX_OPEN_TEXTS, OPEN_FOR_MS, openAsk, openAskBefore } from "../src/agent/openAsk.js";
-import { judgeState, PROBLEMS, REVIEW_SYSTEM } from "../src/agent/replyJudge.js";
-import { jobCheckBrief, JOB_CHECK_PROMPT } from "../src/agent/jobCheck.js";
-import { jobOf, jobPrompt, startedJobs } from "../src/agent/background.js";
+import { MAX_OPEN_TEXTS, OPEN_FOR_MS, openAsk, openAskBefore } from "../../../packages/tex/gateway/agent/openAsk.js";
+import { judgeState, PROBLEMS, REVIEW_SYSTEM } from "../../../packages/tex/gateway/agent/replyJudge.js";
+import { jobCheckBrief, JOB_CHECK_PROMPT } from "../../../packages/tex/gateway/agent/jobCheck.js";
+import { jobOf, jobPrompt, startedJobs } from "../../../packages/tex/gateway/agent/background.js";
 
 const NOW = Date.UTC(2026, 10, 12, 2, 40);
 const at = (minutesAgo) => NOW - minutesAgo * 60_000;

@@ -14,7 +14,7 @@ import assert from "node:assert/strict";
 
 import { callSandbox, LabSandboxObject } from "../../../packages/lab/gateway/labSandbox/object.js";
 import { handleLabSandbox } from "../../../packages/lab/gateway/labSandbox/route.js";
-import { eventEntry, ledgerFor, ONE_TO_ONE_CHAT } from "../src/agent/ledger.js";
+import { eventEntry, ledgerFor, ONE_TO_ONE_CHAT } from "../../../packages/tex/gateway/agent/ledger.js";
 import { durableSql, texStoreNamespace } from "./texStoreFixture.mjs";
 
 const DEV = "tok_dev_example_00000000000000";

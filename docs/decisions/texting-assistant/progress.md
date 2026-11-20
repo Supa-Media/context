@@ -4,7 +4,7 @@ The owner wants to text Tex and have it do real work: browse, fill in forms,
 work through many notes. A question is answered in seconds; a task is many
 steps, and five silent minutes read as broken. So the texting Worker asks the
 gateway for every texted turn as a stream (`Accept: application/x-ndjson`,
-`apps/mcp/src/agent/progress.js`), and a streamed texting turn:
+`packages/tex/gateway/agent/progress.js`), and a streamed texting turn:
 
 - is offered `text_progress`, which texts the person one short line now
   ("Opening ChatGPT now.") and is dispatched in the turn, never to the MCP. It

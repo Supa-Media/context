@@ -193,7 +193,7 @@ function judgeExamplesText(sources) {
 }
 const EXAMPLES_TEXT = judgeExamplesText(DECIDE_SOURCES);
 
-/** What Clef reads (`apps/mcp/src/agent/decide.js` `MAX_DECISION_STATE_CHARS`): the examples, then the newest of the chat that fits. */
+/** What Clef reads (`packages/tex/gateway/agent/decide.js` `MAX_DECISION_STATE_CHARS`): the examples, then the newest of the chat that fits. */
 const MAX_STATE = 24_000;
 
 /** At most this much of the judge's state is facts about what Tex is doing now (`textsDecide.js` `nowFacts`). */
@@ -391,7 +391,7 @@ function readRecheckBody(body) {
 
 /** One question. The draft rides in the state, beside the transcript, so its words are read as words, never as instructions. */
 function recheckRequest(body) {
-  // The model reads the first MAX_TRANSCRIPT characters of the state (`apps/mcp/src/agent/decide.js`), so the
+  // The model reads the first MAX_TRANSCRIPT characters of the state (`packages/tex/gateway/agent/decide.js`), so the
   // transcript gives way from its oldest end: the draft and the newest lines are what the question is about.
   const tail = `\n\nTex's reply to <${body.draftFor}>, written but not sent yet:\n${body.draft}`;
   return {

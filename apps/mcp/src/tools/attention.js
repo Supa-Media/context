@@ -24,7 +24,7 @@
 import { toolError, toolText } from "./results.js";
 import { toolReadNote } from "./notes/read.js";
 import { toolWriteNote } from "./notes/write.js";
-import { readWithEtag, appendLogEntry, clock } from "../agent/jobLog.js";
+import { readWithEtag, appendLogEntry, clock } from "../../../../packages/tex/gateway/agent/jobLog.js";
 import {
   ATTENTION_SETTINGS_PATH,
   MAX_MESSAGE_CHARS,
@@ -38,7 +38,7 @@ import {
   oneLine,
   pingId,
   readAttentionSettings,
-} from "../agent/attention.js";
+} from "../../../../packages/tex/gateway/agent/attention.js";
 
 const NOT_YOURS =
   "Not sent: only the person themselves can be notified, from a connection to their own personal workspace with full access " +

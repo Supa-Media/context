@@ -57,7 +57,7 @@
  *   conversation, and the run answers `captcha: "unsolved"` as the screenshot
  *   Worker does once Browserbase's solver gave up (`infra/site-shots/src/captcha.ts`).
  *   The gateway's reload is the second load and its fresh browser
- *   (`fresh: true`) the third (`apps/mcp/src/agent/captchaLadder.js`), so
+ *   (`fresh: true`) the third (`packages/tex/gateway/agent/captchaLadder.js`), so
  *   `captcha: 1` clears on the reload, `2` on the fresh browser, and
  *   `always` only when the person solves it through a handoff.
  * - `invisible captcha`: a captcha that shows nothing (invisible reCAPTCHA,

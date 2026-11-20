@@ -15,7 +15,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { cardDiff, compactRow, createSandboxActions, notFiredOf, runCard } from "../../../packages/lab/gateway/texDev/sandbox.js";
-import { TEX_CONFIG } from "../src/agent/texConfig.js";
+import { TEX_CONFIG } from "../../../packages/tex/gateway/agent/texConfig.js";
 
 const GRAPH = { nodes: TEX_CONFIG.nodes, edges: TEX_CONFIG.edges };
 const SB = "0123456789abcdef";

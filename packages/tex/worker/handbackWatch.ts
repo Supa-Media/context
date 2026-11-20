@@ -3,7 +3,7 @@
  * (Dev2, 2026-11-12: "it should notify tex so it continues on").
  *
  * A turn that texted a link to take over its browser names that browser
- * (`handbackWatch`: a hash of its tag, `apps/mcp/src/agent/handback.js`), and
+ * (`handbackWatch`: a hash of its tag, `packages/tex/gateway/agent/handback.js`), and
  * the sender's inbox keeps `HANDBACK_KEY`: its alarm asks the control plane
  * (`POST /agent-texts/handed-back`) until that browser was handed back, then
  * queues the chat's own turn with `event: "browser_handed_back"` and no
@@ -12,7 +12,7 @@
  *
  * Done should feel immediate, so the first minutes are looked at every few
  * seconds; the browser is held 15 minutes while it waits on someone
- * (`apps/mcp/src/agent/browserHold.js`), so the watch ends soon after.
+ * (`packages/tex/gateway/agent/browserHold.js`), so the watch ends soon after.
  * Kept: the phone, times and the browser's hash, never the link.
  */
 

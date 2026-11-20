@@ -11,10 +11,10 @@ error was dropped everywhere. The chat's own history kept the result, but only
 for whoever can read that one chat.
 
 **One place sees every failure.** Every Tex model that holds tools runs
-`runTurn` (`apps/mcp/src/agent/turn.js`): the front door, a job's turns, a
+`runTurn` (`packages/tex/gateway/agent/turn.js`): the front door, a job's turns, a
 routine, a check-in, housekeeping, a dream, the app's assistant. The advisor
 and the judges hold none. So `runTurn` records each failure there
-(`apps/mcp/src/agent/toolFailures.js`) as:
+(`packages/tex/gateway/agent/toolFailures.js`) as:
 
 - `tool`: the tool's name, or the name the model wrote when it named none it had;
 - `cause`: a code: `refused` (the tool answered with an error), `threw`,

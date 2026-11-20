@@ -22,11 +22,11 @@
  *     → "a chat's own turn is never checked; an unreachable advisor falls back to the phrase check" fails.
  */
 
-import { withArchitecture } from "../src/agent/texArchitecture.js";
+import { withArchitecture } from "../../../packages/tex/gateway/agent/texArchitecture.js";
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { JOB_CHECK_PROMPT, checkJob, jobCheckBrief, jobFields, jobTurnFields, readVerdict } from "../src/agent/jobCheck.js";
+import { JOB_CHECK_PROMPT, checkJob, jobCheckBrief, jobFields, jobTurnFields, readVerdict } from "../../../packages/tex/gateway/agent/jobCheck.js";
 
 const JOB = { id: "job-a16z-000001", title: "Apply to a16z speedrun", brief: "Fill in the application from my notes.", doneWhen: "the application is submitted", attempt: 1, followUps: ["use my newer pitch"], advice: "" };
 const LIVE = {

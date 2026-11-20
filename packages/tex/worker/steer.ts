@@ -9,7 +9,7 @@
  * photo or somebody else's in a group, is put to decide with `running: true`
  * (`inbox.ts`, `groupInbox.ts`), which says one of:
  * - fold: its words go into the running turn (`POST /agent/steer`,
- *   `apps/mcp/src/agent/steer.js`); the answer names the texts the turn took
+ *   `packages/tex/gateway/agent/steer.js`); the answer names the texts the turn took
  *   in, and those are dropped from the queue;
  * - queue: it waits, and is answered after;
  * - restart: the running turn is cancelled (`POST /agent/cancel`) and a new

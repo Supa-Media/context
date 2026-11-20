@@ -11,9 +11,9 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { appendEvents } from "../src/agent/log.js";
-import { loggedTurn } from "../src/agent/loggedTurn.js";
-import { sentByItself, WINDOW_MS } from "../src/agent/sentByItself.js";
+import { appendEvents } from "../../../packages/tex/gateway/agent/log.js";
+import { loggedTurn } from "../../../packages/tex/gateway/agent/loggedTurn.js";
+import { sentByItself, WINDOW_MS } from "../../../packages/tex/gateway/agent/sentByItself.js";
 
 const NY = "America/New_York";
 const NOW = Date.UTC(2026, 10, 1, 23, 4, 0); // Sunday, Nov 1, 6:04 PM in New York

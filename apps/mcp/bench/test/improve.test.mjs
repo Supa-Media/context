@@ -9,7 +9,7 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
 
-import { parseSetup } from "../../src/agent/production.js";
+import { parseSetup } from "../../../../packages/tex/gateway/agent/production.js";
 import { parseTest } from "../load.mjs";
 import { applyEdits, draftName, draftWith, experimentNote, failuresOf, improveFile, testNames } from "../improve.mjs";
 

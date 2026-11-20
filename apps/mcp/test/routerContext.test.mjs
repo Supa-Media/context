@@ -5,11 +5,11 @@
  */
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { MAX_DECISION_STATE_CHARS } from "../src/agent/decide.js";
-import { routeRequest } from "../src/agent/specialistRoute.js";
-import { routerContextText, routerWants } from "../src/agent/routerContext.js";
-import { CONTEXT_MS, routerNode, routerReads } from "../src/agent/graph/nodes/router.js";
-import { TEX_CONFIG, TRAINING, TRAINING_READERS } from "../src/agent/texConfig.js";
+import { MAX_DECISION_STATE_CHARS } from "../../../packages/tex/gateway/agent/decide.js";
+import { routeRequest } from "../../../packages/tex/gateway/agent/specialistRoute.js";
+import { routerContextText, routerWants } from "../../../packages/tex/gateway/agent/routerContext.js";
+import { CONTEXT_MS, routerNode, routerReads } from "../../../packages/tex/gateway/agent/graph/nodes/router.js";
+import { TEX_CONFIG, TRAINING, TRAINING_READERS } from "../../../packages/tex/gateway/agent/texConfig.js";
 
 const moment = (n, route = "act") => ({ chat: `c${n}`, at: 0, kind: "one", before: ["@ann: earlier"], newest: `@ann: ask ${n}`, label: { route } });
 const training = { nodes: { router: [moment(1, "act"), moment(2, "read")], fd: [moment(3)] }, chats: {} };

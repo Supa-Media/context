@@ -64,7 +64,7 @@ export async function chatEvents(storage: InboxStorage, chat: string, timeoutMs 
   return [...byId.values()].sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
 }
 
-/** A group chat's ledger key and the gateway binding to read it by (`apps/mcp/src/agent/textsDecide.js` `chatForTexts`). */
+/** A group chat's ledger key and the gateway binding to read it by (`packages/tex/gateway/agent/textsDecide.js` `chatForTexts`). */
 export type LedgerRead = { binding: { fetch: (input: string, init?: RequestInit) => Promise<Response> }; ledger: string };
 export const GATEWAY_CHAT_URL = "https://gateway/texts/chat";
 

@@ -27,8 +27,8 @@ import {
   routineSettings,
   wallClock,
 } from "../../../../../packages/shared/src/routines.cjs";
-import { bodyStart, isAboutNotePath, itemOf } from "../../agent/aboutLines.js";
-import { DREAMS_SETTINGS_PATH, HOUSEKEEPING_SETTINGS_PATH, switchedOff } from "../../agent/texSwitches.js";
+import { bodyStart, isAboutNotePath, itemOf } from "../../../../../packages/tex/gateway/agent/aboutLines.js";
+import { DREAMS_SETTINGS_PATH, HOUSEKEEPING_SETTINGS_PATH, switchedOff } from "../../../../../packages/tex/gateway/agent/texSwitches.js";
 
 /** Where routines live: Tex's own folder first, the older root still read and run. */
 const ROUTINE_ROOTS = Object.freeze(["tex/routines/", "routines/"]);

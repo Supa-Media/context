@@ -8,7 +8,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { quietHoursLine, quietUntil, readQuietHours, readSettings } from "../src/agent/quietHours.js";
+import { quietHoursLine, quietUntil, readQuietHours, readSettings } from "../../../packages/tex/gateway/agent/quietHours.js";
 
 const at = (iso) => Date.parse(iso);
 
@@ -46,7 +46,7 @@ test("a window within a day holds only its hours", () => {
   assert.equal(quietUntil(lunch, at("2026-11-09T13:30:00Z"), "UTC"), null);
 });
 
-import { switchedOff } from "../src/agent/texSwitches.js";
+import { switchedOff } from "../../../packages/tex/gateway/agent/texSwitches.js";
 
 test("an off switch is paused: yes in the front matter, and nothing else", () => {
   assert.equal(switchedOff("---\npaused: true\n---\n"), true);

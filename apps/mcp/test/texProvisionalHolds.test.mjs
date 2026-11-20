@@ -12,7 +12,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 
 import schema from "../../../packages/tex/src/texConfigSchema.cjs";
-import { TEX_CONFIG } from "../src/agent/texConfig.js";
+import { TEX_CONFIG } from "../../../packages/tex/gateway/agent/texConfig.js";
 import { draftProblems } from "../../../packages/lab/gateway/texDev/check.js";
 import { configFrom } from "../../../scripts/tex-lab-promote.mjs";
 import { wordsOf } from "../../../scripts/tex-prompt-module.mjs";

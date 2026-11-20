@@ -31,8 +31,8 @@ import { test } from "node:test";
 import { parsePage } from "../../../packages/shared/src/pages/parse.cjs";
 import { renderPage } from "../../../packages/shared/src/pages/render.cjs";
 import { BASE_CSS } from "../../../packages/shared/src/pages/css.cjs";
-import { PICTURED_KINDS, unpictured, withPagePictures } from "../src/agent/visuals/pagePhotos.js";
-import { COVER_RULE, cardCheckFor } from "../src/agent/cardCheck.js";
+import { PICTURED_KINDS, unpictured, withPagePictures } from "../../../packages/tex/gateway/agent/visuals/pagePhotos.js";
+import { COVER_RULE, cardCheckFor } from "../../../packages/tex/gateway/agent/cardCheck.js";
 
 const PLAN = [
   "---",

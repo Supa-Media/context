@@ -71,7 +71,7 @@ concurrent person's typing is merged around a rewrite changes.
 past its limit now waits its own limit again, reads the note back, and retries
 once (a full-content write is safe to repeat: the merge answers a repeat as
 unchanged), all inside the turn's tool time
-(`apps/mcp/src/agent/noteWriteRetry.js`). The model reads the save's own
+(`packages/tex/gateway/agent/noteWriteRetry.js`). The model reads the save's own
 answer, "saved" from the read-back, a real refusal, or "still saving, not
 confirmed": never a failure nobody saw.
 

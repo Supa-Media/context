@@ -26,8 +26,8 @@ import assert from "node:assert/strict";
 import { after, before, beforeEach, test } from "node:test";
 
 import worker from "../src/index.js";
-import { cancelTurn, CANCEL_PREFIX, MAX_STEERED, RUNNING_PREFIX, STEER_PREFIX, steerFor, steeredLine } from "../src/agent/steer.js";
-import { anthropicMessages } from "../src/agent/providers.js";
+import { cancelTurn, CANCEL_PREFIX, MAX_STEERED, RUNNING_PREFIX, STEER_PREFIX, steerFor, steeredLine } from "../../../packages/tex/gateway/agent/steer.js";
+import { anthropicMessages } from "../../../packages/tex/gateway/agent/providers.js";
 import { LOGICAL_DELETE_CONTENT_TYPE } from "../src/store/logicalDelete.js";
 import { CONTROL_PLANE_ORIGIN, GATEWAY_SECRET, createControlPlaneStub, createS3Backend } from "./controlPlaneStub.mjs";
 import { createWorkerCtx } from "./workerCtx.mjs";

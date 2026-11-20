@@ -16,7 +16,7 @@
  * frame every second.
  */
 
-import { browserOwner, groupBrowserOwner } from "../../agent/browserProviders.js";
+import { browserOwner, groupBrowserOwner } from "../../../../../packages/tex/gateway/agent/browserProviders.js";
 import { createControlPlane } from "../../controlPlane.js";
 import { fetchPageJobs } from "./jobs.js";
 import { chatOf, loadPage } from "./page.js";

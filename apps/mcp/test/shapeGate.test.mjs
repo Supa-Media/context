@@ -9,9 +9,9 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 
-import { shapeGateNode } from "../src/agent/graph/nodes/shapeGate.js";
-import { ENDINGS, HOLD_AT, NOTE_AT, callsIn, readShape, shapeFindings } from "../src/agent/shapeGate.js";
-import { TEX_CONFIG } from "../src/agent/texConfig.js";
+import { shapeGateNode } from "../../../packages/tex/gateway/agent/graph/nodes/shapeGate.js";
+import { ENDINGS, HOLD_AT, NOTE_AT, callsIn, readShape, shapeFindings } from "../../../packages/tex/gateway/agent/shapeGate.js";
+import { TEX_CONFIG } from "../../../packages/tex/gateway/agent/texConfig.js";
 
 const answers = (ending = "one_line", confidence = 0.9, order = 0.1, records = 0.8) => ({ ending: { choice: ending, confidence }, order: { noul: order }, records: { noul: records } });
 
@@ -93,7 +93,7 @@ test("with the gate on, the text is typed beside the Door and the Front door's f
 });
 
 test("only a text a person sent is typed: a routine's run, a job's part, a report and an empty text never ask the gate; a config with no wire is a turn without one", async () => {
-  const { shapeBeside } = await import("../src/agent/graph/nodes/doorStep.js");
+  const { shapeBeside } = await import("../../../packages/tex/gateway/agent/graph/nodes/doorStep.js");
   const asked = [];
   const io = { use: { shapeGate: async (input) => (asked.push(input), { to: "read", ending: "answer", endingSure: 0.7, order: 0, records: 0 }) } };
   const text = { chatTurn: true, job: null, report: null, routine: null, runner: false, crossChat: null, question: "hi there", group: null };
@@ -109,7 +109,7 @@ test("only a text a person sent is typed: a routine's run, a job's part, a repor
   assert.equal(await shapeBeside(text, { use: { shapeGate: async () => { throw new Error("x"); } } }), null);
   assert.equal(await shapeBeside({ ...text, group: { key: "g" } }, { use: { shapeGate: async (input) => ({ to: input.group ? "none" : "read" }) } }), null);
   // The Door calls it once the text is read, before the rest of the door.
-  const { runDoor } = await import("../src/agent/graph/door.js");
+  const { runDoor } = await import("../../../packages/tex/gateway/agent/graph/door.js");
   const started = [];
   const part = (fields) => async (t) => void Object.assign(t, fields);
   const steps = (fields) => [["readTheText", part(fields), () => ({})], ["prepareTheAnswer", async () => undefined, () => ({})]];

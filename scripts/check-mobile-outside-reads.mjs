@@ -2,7 +2,7 @@
 
 /**
  * apps/mobile tests read files outside the app by path: `readFileSync(join(
- * __dirname, "../../mcp/src/agent/ledger.js"))` reads the gateway. The mobile
+ * __dirname, "../../mcp/src/controlPlane.js"))` reads the gateway. The mobile
  * job runs only when ci.yml's `mobile:` change filter matches a changed file,
  * so PR #3740 (which changed ledger.js) skipped the mobile tests and broke
  * main until it was reverted in #3745.
@@ -190,7 +190,7 @@ function expectFailure(name, fn, includes) {
 export function selfTest() {
   const file = `${MOBILE}/__tests__/x.test.ts`;
   const cases = [
-    ['readFileSync(join(__dirname, "../../mcp/src/agent/ledger.js"), "utf8")', ["apps/mcp/src/agent/ledger.js"]],
+    ['readFileSync(join(__dirname, "../../mcp/src/controlPlane.js"), "utf8")', ["apps/mcp/src/controlPlane.js"]],
     ['join(__dirname, "..", "..", "mcp", "src", "session.js")', ["apps/mcp/src/session.js"]],
     ['const repoRoot = resolve(__dirname, "..", "..", ".."); readFileSync(join(repoRoot, "infra", "router", "src", "homeSite.ts"))', ["infra/router/src/homeSite.ts"]],
     ['const mobileRoot = resolve(__dirname, ".."); const repoRoot = resolve(mobileRoot, "..", "..");\nreadFileSync(join(repoRoot, "scripts", "check-agent-path-imports.mjs"))', ["scripts/check-agent-path-imports.mjs"]],
@@ -210,11 +210,11 @@ export function selfTest() {
   }
   expectFailure(
     "a read the mobile filter does not watch",
-    () => assertReadsWatched(["apps/mcp/src/agent/ledger.js"], new Set(["apps/mobile/**"])),
+    () => assertReadsWatched(["packages/tex/gateway/agent/ledger.js"], new Set(["apps/mobile/**"])),
     "ledger.js",
   );
   const reads = mobileOutsideReads();
-  for (const read of ["apps/mcp/src/agent/ledger.js", "packages/tex/worker/stepEvents.ts"]) {
+  for (const read of ["packages/tex/gateway/agent/ledger.js", "packages/tex/worker/stepEvents.ts"]) {
     if (!reads.includes(read)) throw new Error(`mobileOutsideReads() does not include ${read}`);
   }
 }

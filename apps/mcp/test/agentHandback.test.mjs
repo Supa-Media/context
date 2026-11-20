@@ -30,13 +30,13 @@
  *     as handing work back" (the calendar changes handed back).
  */
 
-import { carries } from "../src/agent/checkFindings.js";
+import { carries } from "../../../packages/tex/gateway/agent/checkFindings.js";
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { BUILTIN_PROVIDER } from "../src/agent/builtin.js";
-import { HANDBACK_NOTICE, claimCheck, handsWorkBack, offerNotice, offeredKinds } from "../src/agent/claimCheck.js";
-import { runTurn } from "../src/agent/turn.js";
+import { BUILTIN_PROVIDER } from "../../../packages/tex/gateway/agent/builtin.js";
+import { HANDBACK_NOTICE, claimCheck, handsWorkBack, offerNotice, offeredKinds } from "../../../packages/tex/gateway/agent/claimCheck.js";
+import { runTurn } from "../../../packages/tex/gateway/agent/turn.js";
 import { PASSES_ON_ERROR, passesSomethingOn, readEmail } from "../src/tools/email.js";
 
 test("the texts that handed the receipt back are read as handing work back", () => {
@@ -173,7 +173,7 @@ test("handed back, Tex searches again itself and answers with what it found", as
 });
 
 test("every texted turn is told never to hand them work, whatever its production setup says", async () => {
-  const { DO_IT_YOURSELF_LINE, systemPrompt } = await import("../src/agent/prompt.js");
+  const { DO_IT_YOURSELF_LINE, systemPrompt } = await import("../../../packages/tex/gateway/agent/prompt.js");
   for (const notes of [null, { prompt: "You are Tex, from the production note." }]) {
     const prompt = systemPrompt(null, { texting: true, notes });
     assert.ok(prompt.includes(DO_IT_YOURSELF_LINE), "the rule is in the prompt");
@@ -182,7 +182,7 @@ test("every texted turn is told never to hand them work, whatever its production
 });
 
 test("every texted turn is told what it can do outside the notes, and to keep a fact they give at once", async () => {
-  const { ACTIONS_LINE, REMEMBER_LINE, systemPrompt } = await import("../src/agent/prompt.js");
+  const { ACTIONS_LINE, REMEMBER_LINE, systemPrompt } = await import("../../../packages/tex/gateway/agent/prompt.js");
   for (const notes of [null, { prompt: "You are Tex. If it says Context can't change their calendar, tell them what to change themselves." }]) {
     const prompt = systemPrompt(null, { texting: true, notes, edits: true });
     assert.ok(prompt.indexOf(ACTIONS_LINE) > prompt.indexOf("You are Tex"), "said after the setup's own words, which it overrides");

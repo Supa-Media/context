@@ -17,7 +17,7 @@ import assert from "node:assert/strict";
 import { after, before, test } from "node:test";
 
 import { createEgressWorld, request, TEXTED_CHAT, TOKEN_TEXTS } from "./agentEgressFixtures.mjs";
-import { STUB_GRANT, STUB_OTHER, carryKey } from "../src/agent/stretch.js";
+import { STUB_GRANT, STUB_OTHER, carryKey } from "../../../packages/tex/gateway/agent/stretch.js";
 import { withAgentHome } from "./texStoreFixture.mjs";
 import { BUILTIN_ALLOWED } from "./agentModelFixture.mjs";
 

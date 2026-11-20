@@ -24,9 +24,9 @@ import {
   isGatewayModel,
   requestViaGateway,
   resetCreditState,
-} from "../src/agent/aiGateway.js";
-import { ProviderError } from "../src/agent/providers.js";
-import { builtinModel, DEFAULT_BUILTIN_MODEL, DEFAULT_GATEWAY_MODEL, hasBuiltinModel } from "../src/agent/builtin.js";
+} from "../../../packages/tex/gateway/agent/aiGateway.js";
+import { ProviderError } from "../../../packages/tex/gateway/agent/providers.js";
+import { builtinModel, DEFAULT_BUILTIN_MODEL, DEFAULT_GATEWAY_MODEL, hasBuiltinModel } from "../../../packages/tex/gateway/agent/builtin.js";
 
 const ACCOUNT_ID = "0123456789abcdef0123456789abcdef";
 const GATEWAY_ID = "context-gw";

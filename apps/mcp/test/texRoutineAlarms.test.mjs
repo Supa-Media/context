@@ -10,7 +10,7 @@ import { routineAlarmAt, syncRoutineAlarms } from "../../../packages/tex/gateway
 import { routineDispatchFor } from "../../../packages/tex/gateway/texStore/dispatch.js";
 import { TexStore, RETRY_MS } from "../../../packages/tex/gateway/texStore.js";
 import { nextAt, due } from "../../../packages/tex/gateway/texStore/alarms.js";
-import { DEFAULT_TIME_ZONE } from "../src/agent/localNow.js";
+import { DEFAULT_TIME_ZONE } from "../../../packages/tex/gateway/agent/localNow.js";
 
 let DatabaseSync = null;
 try {

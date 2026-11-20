@@ -32,10 +32,10 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { claimCheck } from "../src/agent/claimCheck.js";
-import { pageBody } from "../src/agent/computer.js";
-import { claimedContents, describesALink, plannedSaidAsLive, readClaimCheck, unnamedRetraction, unreadContents } from "../src/agent/readClaims.js";
-import { pageKey, pagesRead } from "../src/agent/pageReads.js";
+import { claimCheck } from "../../../packages/tex/gateway/agent/claimCheck.js";
+import { pageBody } from "../../../packages/tex/gateway/agent/computer.js";
+import { claimedContents, describesALink, plannedSaidAsLive, readClaimCheck, unnamedRetraction, unreadContents } from "../../../packages/tex/gateway/agent/readClaims.js";
+import { pageKey, pagesRead } from "../../../packages/tex/gateway/agent/pageReads.js";
 
 const page = (text) => ({ content: [{ type: "text", text }] });
 const SPEC_OVERVIEW =

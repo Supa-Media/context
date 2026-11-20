@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
-import { sixToolsOver } from "../../../src/agent/sixTools.js";
-import { ledgerFor, ONE_TO_ONE_CHAT } from "../../../src/agent/ledger.js";
-import { EVERYWHERE_NOTICE } from "../../../src/agent/searchClaims.js";
+import { sixToolsOver } from "../../../../../packages/tex/gateway/agent/sixTools.js";
+import { ledgerFor, ONE_TO_ONE_CHAT } from "../../../../../packages/tex/gateway/agent/ledger.js";
+import { EVERYWHERE_NOTICE } from "../../../../../packages/tex/gateway/agent/searchClaims.js";
 import { oneToOne } from "../chats.mjs";
 import { wordsOf } from "../../../../../scripts/tex-prompt-module.mjs";
 

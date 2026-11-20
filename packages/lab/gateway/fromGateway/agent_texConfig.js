@@ -1,1 +1,1 @@
-export * from "../../../../apps/mcp/src/agent/texConfig.js";
+export * from "../../../tex/gateway/agent/texConfig.js";

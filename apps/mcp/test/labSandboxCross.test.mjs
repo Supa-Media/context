@@ -16,8 +16,8 @@ import { runChatTurn } from "../../../packages/lab/gateway/labSandbox/chatRun.js
 import { followCross, objectCarry, objectRun } from "../../../packages/lab/gateway/labSandbox/crossRuns.js";
 import { RUN_IN_SANDBOX } from "../src/labSandbox/policy.js";
 import { DAILY_SENDS, handleLabSandbox, newIds, open } from "../../../packages/lab/gateway/labSandbox/route.js";
-import { streamTurn, wantsProgress } from "../src/agent/progress.js";
-import { eventEntry } from "../src/agent/ledger.js";
+import { streamTurn, wantsProgress } from "../../../packages/tex/gateway/agent/progress.js";
+import { eventEntry } from "../../../packages/tex/gateway/agent/ledger.js";
 import { durableSql } from "./texStoreFixture.mjs";
 
 const KEY = "c".repeat(64);

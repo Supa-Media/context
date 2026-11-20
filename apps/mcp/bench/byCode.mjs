@@ -27,10 +27,10 @@
  */
 
 import { chatLookQuestion, chatRoutineQuestion, lastRanWords } from "../../../packages/shared/src/groupRunQuestions.cjs";
-import { appendConversation } from "../src/agent/conversation.js";
-import { checkInAbout } from "../src/agent/checkInTexts.js";
-import { ledgerFor, ONE_TO_ONE_CHAT, wordsEntry } from "../src/agent/ledger.js";
-import { reportEntry } from "../src/agent/workEntries.js";
+import { appendConversation } from "../../../packages/tex/gateway/agent/conversation.js";
+import { checkInAbout } from "../../../packages/tex/gateway/agent/checkInTexts.js";
+import { ledgerFor, ONE_TO_ONE_CHAT, wordsEntry } from "../../../packages/tex/gateway/agent/ledger.js";
+import { reportEntry } from "../../../packages/tex/gateway/agent/workEntries.js";
 
 /** Where a bench routine's words are kept: the person's own routines, or a group's home's. */
 export const BENCH_ROUTINE = "routines/daily/bench-routine.md";

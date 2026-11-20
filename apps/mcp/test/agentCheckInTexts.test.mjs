@@ -14,8 +14,8 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { CHECK_IN_QUESTION, checkInAbout, isCheckInLine, lastThinking, recentTextLines } from "../src/agent/checkInTexts.js";
-import { heartbeatQuestion } from "../src/agent/heartbeat.js";
+import { CHECK_IN_QUESTION, checkInAbout, isCheckInLine, lastThinking, recentTextLines } from "../../../packages/tex/gateway/agent/checkInTexts.js";
+import { heartbeatQuestion } from "../../../packages/tex/gateway/agent/heartbeat.js";
 
 const SUNDAY = Date.UTC(2026, 10, 8, 17, 46); // Sun 12:46 pm New York
 const MONDAY = Date.UTC(2026, 10, 9, 14, 25); // Mon 9:25 am

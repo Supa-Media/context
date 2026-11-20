@@ -10,12 +10,12 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { createRequire } from "node:module";
 
-import { jobStartNode } from "../src/agent/graph/nodes/jobStart.js";
-import { GATEWAY_NODES } from "../src/agent/graph/gatewayNodes.js";
-import { jobStartChooser } from "../src/agent/jobStartChoice.js";
-import { MAX_CLOUD_JOBS, MAX_MACHINE_SLOTS } from "../src/agent/jobSlots.js";
-import { backgroundSession } from "../src/agent/background.js";
-import { TEX_CONFIG } from "../src/agent/texConfig.js";
+import { jobStartNode } from "../../../packages/tex/gateway/agent/graph/nodes/jobStart.js";
+import { GATEWAY_NODES } from "../../../packages/tex/gateway/agent/graph/gatewayNodes.js";
+import { jobStartChooser } from "../../../packages/tex/gateway/agent/jobStartChoice.js";
+import { MAX_CLOUD_JOBS, MAX_MACHINE_SLOTS } from "../../../packages/tex/gateway/agent/jobSlots.js";
+import { backgroundSession } from "../../../packages/tex/gateway/agent/background.js";
+import { TEX_CONFIG } from "../../../packages/tex/gateway/agent/texConfig.js";
 
 const require = createRequire(import.meta.url);
 const { DEFAULT_LIMITS, configStartLimits, decideStart } = require("../../../packages/shared/src/jobStart.cjs");

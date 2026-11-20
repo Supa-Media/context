@@ -37,10 +37,10 @@ facts below, the rule that only the control plane holds account facts.
    block (name, handle, phones, emails, Google accounts). The phones and
    emails here are a second copy of sign-in facts, kept because Tex is told
    them on every turn (decided by the owner, 2026-10-23,
-   [identity](../../../apps/mcp/src/agent/identity.js)); sign-in itself stays
+   [identity](../../../packages/tex/gateway/agent/identity.js)); sign-in itself stays
    in Convex.
 3. **The session ask goes to the gateway, not Convex.** The Worker asks the
-   gateway's `TexTexts` entrypoint (`apps/mcp/src/agent/textsSession.js`)
+   gateway's `TexTexts` entrypoint (`packages/tex/gateway/agent/textsSession.js`)
    over a service binding, with the phone and the workspace id its inbox
    keeps. A named entrypoint has no public URL: only a Worker in this account
    bound to it can call it, so the ask carries no secret. The gateway hashes

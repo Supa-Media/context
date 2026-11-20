@@ -8,7 +8,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { handleMachineJob } from "../src/machines/jobRoutes.js";
 import { MACHINE_ASK_OPENING, machineAskLine, machineThumb, machineThumbLine } from "../src/machines/groupAsk.js";
-import { jobReportOf, jobReportPrompt, reportReply } from "../src/agent/jobReport.js";
+import { jobReportOf, jobReportPrompt, reportReply } from "../../../packages/tex/gateway/agent/jobReport.js";
 import { serveMachineCall } from "../src/workspaceStore/serveMachines.js";
 import { opOf } from "../../../packages/tex/gateway/texStore/move.js";
 import { machineWorld } from "./machineWorld.mjs";

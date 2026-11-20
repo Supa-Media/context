@@ -12,8 +12,8 @@ import { storeForBinding } from "../src/store/factory.js";
 import { TexStoreUnavailable, splitTexKey, texStateKeyFor } from "../src/store/texRouting.js";
 import { isIdKey, isPlumbing, isTexKey, isTexStateKey } from "../src/privacy/engine.js";
 import { handleTexStoreDoor } from "../../../packages/tex/gateway/texStore/door.js";
-import { CHAT_MEMORY_NAME } from "../src/agent/chatMemoryRecord.js";
-import { GROUP_MEMORY_PREFIX, groupMemoryPath, keepGroupExchange, readGroupMemory } from "../src/agent/groupTurn.js";
+import { CHAT_MEMORY_NAME } from "../../../packages/tex/gateway/agent/chatMemoryRecord.js";
+import { GROUP_MEMORY_PREFIX, groupMemoryPath, keepGroupExchange, readGroupMemory } from "../../../packages/tex/gateway/agent/groupTurn.js";
 
 let DatabaseSync = null;
 try {

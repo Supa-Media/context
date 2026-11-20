@@ -4,7 +4,7 @@
  *
  * Whether a group message is for Tex is decided from its words (`groupInbox.ts` `acceptGroup`), and a voice message
  * arrives with none: its words were only made inside the gateway's turn, after that decision. So a message that is only
- * a voice recording is downloaded here and heard by the gateway's `TexTexts` entrypoint (`apps/mcp/src/agent/textsHear.js`,
+ * a voice recording is downloaded here and heard by the gateway's `TexTexts` entrypoint (`packages/tex/gateway/agent/textsHear.js`,
  * the transcription a turn uses), and the chat gates on what was said (`heard`). The turn itself still gets the
  * recording and hears it as before; `heard` only decides whether a turn runs.
  *

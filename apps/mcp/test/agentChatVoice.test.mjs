@@ -19,11 +19,11 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { LANGUAGE_LINE, MAX_VOICE_CHARS, MIRROR_LINE, groupVoicePath, readGroupVoice, voicePrompt } from "../src/agent/chatVoice.js";
-import { groupPrompt, readGroupMemory } from "../src/agent/groupTurn.js";
-import { guestPrompt } from "../src/agent/groupGuests.js";
-import { systemPrompt } from "../src/agent/prompt.js";
-import { instructionsPrompt } from "../src/agent/customInstructions.js";
+import { LANGUAGE_LINE, MAX_VOICE_CHARS, MIRROR_LINE, groupVoicePath, readGroupVoice, voicePrompt } from "../../../packages/tex/gateway/agent/chatVoice.js";
+import { groupPrompt, readGroupMemory } from "../../../packages/tex/gateway/agent/groupTurn.js";
+import { guestPrompt } from "../../../packages/tex/gateway/agent/groupGuests.js";
+import { systemPrompt } from "../../../packages/tex/gateway/agent/prompt.js";
+import { instructionsPrompt } from "../../../packages/tex/gateway/agent/customInstructions.js";
 
 const GROUP = { key: "a".repeat(64), members: "b".repeat(64), from: "seyi", chat: [], people: [] };
 

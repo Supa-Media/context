@@ -11,7 +11,7 @@
  * So a Tex client's token may ask for the pin's binding with `setupRead`, and gets it with rules rendered for a
  * member and then narrowed (`setupRules`) to these folders alone: everything else in the pin is `private`, which a
  * read at `team` never sees. The person's own reach in the pin is unchanged, and nothing here is listed or
- * addressable by a tool; the gateway uses it only to read the setup (`apps/mcp/src/agent/production.js`).
+ * addressable by a tool; the gateway uses it only to read the setup (`packages/tex/gateway/agent/production.js`).
  */
 
 import { visibilityOf, type PrivacyRule, type Visibility } from "./privacy";

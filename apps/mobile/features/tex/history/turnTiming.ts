@@ -5,7 +5,7 @@
  * breakdowns for developers": owners and editors of @context-lc alone are given it, `useSeesTurnTiming`).
  *
  * The gateway keeps a `timing` block on each turn's `reply` entry
- * (`apps/mcp/src/agent/turnTiming.js`): the wait before it, each named step,
+ * (`packages/tex/gateway/agent/turnTiming.js`): the wait before it, each named step,
  * the router, each model round with its tokens, each tool, all measured from
  * the moment it read the text. The texts Tex sent are the chat's own entries,
  * with their times. This turns the two into a pill (the wait from the text

@@ -17,7 +17,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { doneLine } from "../src/agent/doneLine.js";
+import { doneLine } from "../../../packages/tex/gateway/agent/doneLine.js";
 import { calendarSummary } from "../src/tools/calendarWrite.js";
 import { emailSummary } from "../src/tools/email.js";
 

@@ -21,7 +21,7 @@
  */
 
 import { ask, request, createEgressWorld, TOKEN_TEXTS } from "./agentEgressFixtures.mjs";
-import { approvalVerdict } from "../src/agent/textedApprovals.js";
+import { approvalVerdict } from "../../../packages/tex/gateway/agent/textedApprovals.js";
 
 const verdict = (value, reason = "") => ({ text: JSON.stringify({ verdict: value, reason }) });
 const EMAIL = { to: ["jo@example.com"], subject: "Thursday", body: "Thursday works for me." };

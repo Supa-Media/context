@@ -66,18 +66,18 @@ export function verdict(files, statuses, printed = []) {
 function selfTest() {
   const ok = { context: STATUS, state: "success" };
   const cases = [
-    ["no model area: passes with no run", ["apps/mcp/src/agent/warmCopy.js"], [], true],
+    ["no model area: passes with no run", ["packages/tex/gateway/agent/warmCopy.js"], [], true],
     ["a judge change with no run fails", ["packages/tex/src/textDecide.cjs"], [], false],
     ["a judge change with a passing run passes", ["packages/tex/src/textDecide.cjs"], [ok], true],
-    ["the newest status wins", ["apps/mcp/src/agent/replyJudge.js"], [{ context: STATUS, state: "failure" }, ok], false],
-    ["another context's success is not this one", ["apps/mcp/src/agent/replyJudge.js"], [{ context: "ci", state: "success" }], false],
+    ["the newest status wins", ["packages/tex/gateway/agent/replyJudge.js"], [{ context: STATUS, state: "failure" }, ok], false],
+    ["another context's success is not this one", ["packages/tex/gateway/agent/replyJudge.js"], [{ context: "ci", state: "success" }], false],
     // The full replay is the Dev Set's, and never gates (Dev2, 2026-11-15): only the Test Set's status passes.
-    ["a passing full replay is not the Test Set", ["apps/mcp/src/agent/replyJudge.js"], [{ context: "Tex replay", state: "success" }], false],
+    ["a passing full replay is not the Test Set", ["packages/tex/gateway/agent/replyJudge.js"], [{ context: "Tex replay", state: "success" }], false],
     ["a pending run is not a pass", ["apps/mcp/bench/review/chat.json"], [{ context: STATUS, state: "pending" }], false],
     // A one-letter edit to the drawing's map names no area by file, but changes every prompt that reads it.
-    ["changed prompts with no run fail", ["apps/mcp/src/agent/texArchitecture.generated.js"], [], false, ["core", "review"]],
-    ["changed prompts with a passing run pass", ["apps/mcp/src/agent/texArchitecture.generated.js"], [ok], true, ["core"]],
-    ["unchanged prompts and no area file pass with no run", ["apps/mcp/src/agent/texArchitecture.generated.js"], [], true, []],
+    ["changed prompts with no run fail", ["packages/tex/gateway/agent/texArchitecture.generated.js"], [], false, ["core", "review"]],
+    ["changed prompts with a passing run pass", ["packages/tex/gateway/agent/texArchitecture.generated.js"], [ok], true, ["core"]],
+    ["unchanged prompts and no area file pass with no run", ["packages/tex/gateway/agent/texArchitecture.generated.js"], [], true, []],
   ];
   let failed = 0;
   const before = new Date("2026-11-15T00:00:00Z");

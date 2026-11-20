@@ -32,9 +32,9 @@ import { test } from "node:test";
 import { parsePage } from "../../../packages/shared/src/pages/parse.cjs";
 import { renderPage } from "../../../packages/shared/src/pages/render.cjs";
 import { inlineRuns } from "../../../packages/shared/src/pages/inline.cjs";
-import { bareCoverMissing, bareCoverNotice, barePageWritten } from "../src/agent/pageCoverFloor.js";
-import { replyChecks } from "../src/agent/replyChecks.js";
-import { unpictured } from "../src/agent/visuals/pagePhotos.js";
+import { bareCoverMissing, bareCoverNotice, barePageWritten } from "../../../packages/tex/gateway/agent/pageCoverFloor.js";
+import { replyChecks } from "../../../packages/tex/gateway/agent/replyChecks.js";
+import { unpictured } from "../../../packages/tex/gateway/agent/visuals/pagePhotos.js";
 
 const CHURCHES = [
   "---",
@@ -133,7 +133,7 @@ test("a bare web address is a link, named by its site, and its full stop stays a
 });
 
 test("through the turn's checks, a bare page saved and texted is sent back for its cover", async () => {
-  const { claimCheck } = await import("../src/agent/claimCheck.js");
+  const { claimCheck } = await import("../../../packages/tex/gateway/agent/claimCheck.js");
   const watch = claimCheck({ question: "research new church plants in NYC" });
   const call = watch.wrap(async (name) => ({ content: [{ type: "text", text: name === "write_note" ? "saved" : "drawn" }] }));
   await call("write_note", { path: "projects/churches.page.md", content: BARE });

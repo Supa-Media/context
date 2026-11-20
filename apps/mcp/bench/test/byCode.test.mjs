@@ -10,7 +10,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { QUIET_MS, midConversation } from "../../src/agent/checkInGather.js";
+import { QUIET_MS, midConversation } from "../../../../packages/tex/gateway/agent/checkInGather.js";
 import { byCodeStart } from "../byCode.mjs";
 import { createWorld } from "../world.mjs";
 

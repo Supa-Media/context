@@ -14,7 +14,7 @@
  * one is there it waits, up to `SOLVE_WAIT_MS`, for it to clear, and the
  * answer says which: `solved` (the reading is taken again after) or
  * `unsolved`. The gateway then tries a reload and a fresh browser before it
- * lets a captcha be handed over (`apps/mcp/src/agent/captchaLadder.js`).
+ * lets a captcha be handed over (`packages/tex/gateway/agent/captchaLadder.js`).
  *
  * The probe reads frame addresses, the answer boxes' lengths and the page's
  * first words, in the page, and returns only booleans: nothing of the page

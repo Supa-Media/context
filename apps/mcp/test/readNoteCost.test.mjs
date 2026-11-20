@@ -33,7 +33,7 @@ import assert from "node:assert/strict";
 import { after, before, test } from "node:test";
 
 import worker from "../src/index.js";
-import { heartbeatPath } from "../src/agent/heartbeat.js";
+import { heartbeatPath } from "../../../packages/tex/gateway/agent/heartbeat.js";
 import { CONTROL_PLANE_ORIGIN, GATEWAY_SECRET, createControlPlaneStub, createS3Backend } from "./controlPlaneStub.mjs";
 import { AI_GATEWAY_ENV, AI_GATEWAY_ORIGIN, BUILTIN_ALLOWED } from "./agentModelFixture.mjs";
 import { createWorkerCtx } from "./workerCtx.mjs";

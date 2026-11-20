@@ -10,9 +10,9 @@
 
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { OPEN_PAGE_TOOL, webSession } from "../src/agent/computer.js";
-import { parseSetup } from "../src/agent/production.js";
-import { OpenableAddresses, onOpenWeb, onTrustedSite, readTrustedSites } from "../src/agent/trustedSites.js";
+import { OPEN_PAGE_TOOL, webSession } from "../../../packages/tex/gateway/agent/computer.js";
+import { parseSetup } from "../../../packages/tex/gateway/agent/production.js";
+import { OpenableAddresses, onOpenWeb, onTrustedSite, readTrustedSites } from "../../../packages/tex/gateway/agent/trustedSites.js";
 
 const SITES = ["chatgpt.com", "openai.com", "claude.ai", "context.lc"];
 
@@ -225,8 +225,8 @@ test("open_page opens an address the model chose only when the setup opens the w
 
 // Sabotage record (2026-10-26): with the open-web search cap set back to 3, this test fails.
 test("open web lifts the question's searches to MAX_SEARCHES_PER_TURN_OPEN_WEB, and the cap points at pages, not giving up", async () => {
-  const { SEARCH_WEB_TOOL } = await import("../src/agent/computer.js");
-  const { MAX_SEARCHES_PER_TURN, MAX_SEARCHES_PER_TURN_OPEN_WEB } = await import("../src/agent/search.js");
+  const { SEARCH_WEB_TOOL } = await import("../../../packages/tex/gateway/agent/computer.js");
+  const { MAX_SEARCHES_PER_TURN, MAX_SEARCHES_PER_TURN_OPEN_WEB } = await import("../../../packages/tex/gateway/agent/search.js");
   const search = { search: async () => [{ title: "Lunch", url: "https://example.com/lunch", description: "" }] };
   const run = async (openWeb) => {
     const session = webSession(fakeComputer(), "lunch near me with prices", { search });

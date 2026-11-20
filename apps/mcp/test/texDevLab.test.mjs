@@ -28,7 +28,7 @@ import { test } from "node:test";
 import { createTexDev } from "../../../packages/lab/gateway/texDev/tool.js";
 import { guideText } from "../../../packages/lab/gateway/texDev/guide.js";
 import { TESTS_SHOWN } from "../../../packages/lab/gateway/texDev/lab.js";
-import { TEX_CONFIG } from "../src/agent/texConfig.js";
+import { TEX_CONFIG } from "../../../packages/tex/gateway/agent/texConfig.js";
 import { config, fmtS, lab, labTests, promptText, simulate, withLab } from "../../../packages/lab/gateway/texDev/lab.generated.js";
 
 const LAB_ACTIONS = ["sim", "compare", "config", "bench", "modules", "reference"];

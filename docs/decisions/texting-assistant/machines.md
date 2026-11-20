@@ -448,7 +448,7 @@ whose headers record their sabotage.
   of the chat's three; a job on a computer takes one of that computer's
   (its owner's count, one when it names none, never over eight), so two
   jobs there no longer leave one slot for everything else. The gateway
-  checks it before it starts one (`apps/mcp/src/agent/jobSlots.js`, the
+  checks it before it starts one (`packages/tex/gateway/agent/jobSlots.js`, the
   running list now carrying each job's machine id as `on`), the texting
   Worker holds to the same when two turns race (`packages/tex/worker/jobs.ts`
   `fits`), every running job is sent to the gateway however many there are,

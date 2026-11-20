@@ -67,7 +67,7 @@ control plane with no model (`textGroups.applyGroupTurn`,
 - **The turn is told whose mailbox it may read** (handle and address), and is
   offered `search_email`/`read_email` only then. A background job the chat
   started is told the same (`packages/tex/worker/jobRun.ts`); until 2026-10-29 it
-  was not, and a job asked to "check the mail" answered that it couldn't (`apps/mcp/src/agent/groupMail.js`,
+  was not, and a job asked to "check the mail" answered that it couldn't (`packages/tex/gateway/agent/groupMail.js`,
   `apps/mcp/test/agentGroupMail.test.mjs`). Live mail is untrusted for
   egress as it is anywhere else.
 - **Sending is unchanged**: an email from someone's own Gmail still goes only

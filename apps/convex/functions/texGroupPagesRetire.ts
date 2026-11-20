@@ -6,7 +6,7 @@
  * `docs/decisions/texting-assistant/chat-ledger.md`, "Retiring the old copies").
  *
  * A group that texts copies its own page in on its next turn
- * (`apps/mcp/src/agent/groupTurn.js` `readGroupMemory`); this does the same for
+ * (`packages/tex/gateway/agent/groupTurn.js` `readGroupMemory`); this does the same for
  * the quiet ones, with the gateway's own code (`groupPageCopy.js`), and makes
  * each home's `history.ledger.json` (`historyFile.js`), which used to wait for
  * the chat's next text. A page is trashed only once its chat's ledger carries
@@ -24,9 +24,9 @@ import type { Id } from "../_generated/dataModel";
 import { internal } from "../_generated/api";
 import { internalAction, internalQuery } from "../_generated/server";
 import { storeForBinding } from "../../mcp/src/store/factory.js";
-import { copyGroupPageIn, groupPageCopied } from "../../mcp/src/agent/groupPageCopy.js";
-import { parseGroupNote } from "../../mcp/src/agent/groupPageFormat.js";
-import { ensureHistoryFile } from "../../mcp/src/agent/historyFile.js";
+import { copyGroupPageIn, groupPageCopied } from "../../../packages/tex/gateway/agent/groupPageCopy.js";
+import { parseGroupNote } from "../../../packages/tex/gateway/agent/groupPageFormat.js";
+import { ensureHistoryFile } from "../../../packages/tex/gateway/agent/historyFile.js";
 import type { FileStore } from "./lib/fileOps/store";
 import { privateClearance } from "./lib/clearance";
 import { managedEncryptionOption } from "./lib/managedEncryptionFns/storeOption";
@@ -82,7 +82,7 @@ async function openStore(ctx: ActionCtx, workspaceId: Id<"workspaces">, chats: s
   }) as unknown as TexStore;
 }
 
-/** The person-chat mark (`apps/mcp/src/agent/ledger.js` `BACKFILLED`), named here so this file reaches no more of the agent. */
+/** The person-chat mark (`packages/tex/gateway/agent/ledger.js` `BACKFILLED`), named here so this file reaches no more of the agent. */
 const BACKFILLED = "backfilledv1";
 
 type Counts = {

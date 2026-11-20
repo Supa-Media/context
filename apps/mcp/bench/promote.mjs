@@ -42,7 +42,7 @@ import { createHash } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import { basename, join, relative } from "node:path";
 
-import { parseSetup } from "../src/agent/production.js";
+import { parseSetup } from "../../../packages/tex/gateway/agent/production.js";
 import { callTool, LIVE_SETUP, notePaths, PRODUCTION_FOLDER, SETUPS_FOLDER, signIn, splitNote } from "./context.mjs";
 import { benchFolder, REPO_BENCH_FOLDER } from "./folder.mjs";
 import { parseTest, runnableQuestions } from "./load.mjs";

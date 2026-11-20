@@ -20,9 +20,9 @@ import { readFileSync } from "node:fs";
 
 import { texLedger } from "../../../packages/tex/gateway/texStore/ledger.js";
 import { durableSql } from "./texStoreFixture.mjs";
-import { eventEntry } from "../src/agent/ledger.js";
-import { loggedTurn } from "../src/agent/loggedTurn.js";
-import { loggedTapback, quotedOf } from "../src/agent/quoted.js";
+import { eventEntry } from "../../../packages/tex/gateway/agent/ledger.js";
+import { loggedTurn } from "../../../packages/tex/gateway/agent/loggedTurn.js";
+import { loggedTapback, quotedOf } from "../../../packages/tex/gateway/agent/quoted.js";
 
 const CHAT = "texts";
 const AT = 1_793_848_486_190;
@@ -49,6 +49,6 @@ test("a logged 👍 is told it is the yes, and only a tapback is", () => {
   assert.equal(loggedTapback("merge it", quotedOf({ quoted: ASK })), "merge it", "an inline reply is not a tapback");
   assert.equal(loggedTapback("hi", quotedOf({})), "hi");
   // The turn uses it (through `loggedQuestion`) whenever its question comes from the log.
-  const source = readFileSync(new URL("../src/agent/texEntryPoint/runTheModel.js", import.meta.url), "utf8");
+  const source = readFileSync(new URL("../../../packages/tex/gateway/agent/texEntryPoint/runTheModel.js", import.meta.url), "utf8");
   assert.equal((source.match(/logged \? loggedQuestion\(logged\.question, quoted, logged\.replying\) : askedWith\(question, quoted\)/g) ?? []).length, 2);
 });

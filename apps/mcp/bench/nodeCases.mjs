@@ -15,7 +15,7 @@ import { readdir, readFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { aiGatewayConfig, requestViaGateway } from "../src/agent/aiGateway.js";
+import { aiGatewayConfig, requestViaGateway } from "../../../packages/tex/gateway/agent/aiGateway.js";
 import { UNIT_LIMIT } from "./gateSample.mjs";
 import { DEFAULT_JUDGE } from "./judge.mjs";
 import { readTexConfig } from "../../../scripts/lib/texConfigFile.mjs";
@@ -129,7 +129,7 @@ export async function runCase(fn, c, { inSchema = [], env = {}, judge = null } =
 export async function nodesCommand(options, { write = (text) => process.stdout.write(text), nodes = null, config = null } = {}) {
   const only = options.only ? new Set(String(options.only).split(",")) : null;
   const sets = (await loadNodeCases(options.dir ?? NODES_DIR)).filter((s) => !only || only.has(s.node));
-  const table = nodes ?? (await import("../src/agent/graph/gatewayNodes.js")).GATEWAY_NODES;
+  const table = nodes ?? (await import("../../../packages/tex/gateway/agent/graph/gatewayNodes.js")).GATEWAY_NODES;
   const shapes = config ?? readTexConfig();
   const gateway = options.fake ? null : aiGatewayConfig(process.env);
   const judge = gateway ? (field, value, words) => judgeField(gateway, field, value, words) : null;

@@ -13,7 +13,7 @@
 
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { BROWSER_RETRY_NOTICE, BROWSER_UNTRIED_NOTICE, claimCheck, givesUpOnTheBrowser } from "../src/agent/claimCheck.js";
+import { BROWSER_RETRY_NOTICE, BROWSER_UNTRIED_NOTICE, claimCheck, givesUpOnTheBrowser } from "../../../packages/tex/gateway/agent/claimCheck.js";
 
 const BROWSE = { name: "browse" };
 const web = (tools, results = {}) => ({

@@ -19,7 +19,7 @@ import type { Id } from "../../../_generated/dataModel";
 import type { MutationCtx } from "../../../_generated/server";
 import { nextRunFor } from "../routines/model";
 
-/** The check-in's first-party client. The gateway decides by it (`apps/mcp/src/agent/heartbeat.js`). */
+/** The check-in's first-party client. The gateway decides by it (`packages/tex/gateway/agent/heartbeat.js`). */
 export const HEARTBEAT_CLIENT_ID = "context_heartbeat";
 /** What the note's history and Connected apps call it. */
 export const HEARTBEAT_CLIENT_NAME = "Tex, checking in";
@@ -69,7 +69,7 @@ export const HEARTBEAT_OUTCOMES = [
 
 /**
  * How far ahead a gateway's `until` may put the next look or delivery: their
- * quiet hours end within a day (`apps/mcp/src/agent/quietHours.js`). Anything
+ * quiet hours end within a day (`packages/tex/gateway/agent/quietHours.js`). Anything
  * else is ignored and the usual schedule stands.
  */
 export const MAX_QUIET_HOURS_MS = 24 * 60 * 60 * 1000;

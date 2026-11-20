@@ -13,8 +13,8 @@
 
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { MAX_PAGES_PER_TURN, MAX_PAGES_PER_TURN_OPEN_WEB, OPEN_PAGE_TOOL, webSession } from "../src/agent/computer.js";
-import { BROWSE_TOOL, MAX_STEPS_PER_TURN, MAX_STEPS_PER_TURN_OPEN_WEB } from "../src/agent/browse.js";
+import { MAX_PAGES_PER_TURN, MAX_PAGES_PER_TURN_OPEN_WEB, OPEN_PAGE_TOOL, webSession } from "../../../packages/tex/gateway/agent/computer.js";
+import { BROWSE_TOOL, MAX_STEPS_PER_TURN, MAX_STEPS_PER_TURN_OPEN_WEB } from "../../../packages/tex/gateway/agent/browse.js";
 
 /** A browser on a site the person never named, recording every call. */
 function fakeComputer(start = "https://forum.example.org/") {

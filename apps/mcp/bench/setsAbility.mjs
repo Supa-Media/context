@@ -9,7 +9,7 @@
  * applies to the chat's kind, so the check reads the same words Tex is told.
  */
 
-import { CAPABILITIES } from "../src/agent/capabilities.js";
+import { CAPABILITIES } from "../../../packages/tex/gateway/agent/capabilities.js";
 
 /** How many times a reply that is not parseable is asked again, as the gold judge does. */
 export const ABILITY_ATTEMPTS = 3;

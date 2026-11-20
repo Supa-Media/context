@@ -7,15 +7,15 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { readdirSync, readFileSync } from "node:fs";
 
-import { jobcheck, checkOf } from "../src/agent/graph/nodes/jobcheck.js";
-import { handback } from "../src/agent/graph/nodes/handback.js";
-import { mailadv } from "../src/agent/graph/nodes/mailadv.js";
-import { notify } from "../src/agent/graph/nodes/notify.js";
-import { ADVISOR_MAIL_PROMPT } from "../src/agent/advisorRoles/jobMail.js";
-import { attentionEntry, attentionHeading, attentionPath, ATTENTION_SETTINGS_PATH, WAITING, deliverAttention } from "../src/agent/attention.js";
-import { DEFAULT_BUILTIN_MODEL } from "../src/agent/builtin.js";
+import { jobcheck, checkOf } from "../../../packages/tex/gateway/agent/graph/nodes/jobcheck.js";
+import { handback } from "../../../packages/tex/gateway/agent/graph/nodes/handback.js";
+import { mailadv } from "../../../packages/tex/gateway/agent/graph/nodes/mailadv.js";
+import { notify } from "../../../packages/tex/gateway/agent/graph/nodes/notify.js";
+import { ADVISOR_MAIL_PROMPT } from "../../../packages/tex/gateway/agent/advisorRoles/jobMail.js";
+import { attentionEntry, attentionHeading, attentionPath, ATTENTION_SETTINGS_PATH, WAITING, deliverAttention } from "../../../packages/tex/gateway/agent/attention.js";
+import { DEFAULT_BUILTIN_MODEL } from "../../../packages/tex/gateway/agent/builtin.js";
 
-const NODES = new URL("../src/agent/graph/nodes/", import.meta.url);
+const NODES = new URL("../../../packages/tex/gateway/agent/graph/nodes/", import.meta.url);
 const job = { title: "Renew passport", brief: "Fill in the renewal form", doneWhen: "the form is submitted", attempt: 1 };
 
 // --- jobcheck ---------------------------------------------------------------
@@ -241,8 +241,8 @@ test("no node imports a sibling node, so each runs on its own", () => {
 // "Job check runs over the job -> jobcheck wire"; the bridge calling checkJob directly fails it too (no node entry).
 // Since the simpler graph (Dev2, 2026-11-16) the check is the Job advisor's `check` role, over the job -> jobadv wire.
 
-import { gatewayGraph } from "../src/agent/graph/gatewayGraph.js";
-import { handbackOnGraph, jobCheckOnGraph } from "../src/agent/graph/bridges.js";
+import { gatewayGraph } from "../../../packages/tex/gateway/agent/graph/gatewayGraph.js";
+import { handbackOnGraph, jobCheckOnGraph } from "../../../packages/tex/gateway/agent/graph/bridges.js";
 
 const ledger = () => {
   const written = [];

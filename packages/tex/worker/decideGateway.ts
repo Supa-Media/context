@@ -11,7 +11,7 @@
 import { post, record, type Fetch } from "./clients";
 import type { TextsBinding } from "./gatewaySession";
 
-/** The gateway's routes on the `TexTexts` binding (`apps/mcp/src/agent/textsDecide.js`). */
+/** The gateway's routes on the `TexTexts` binding (`packages/tex/gateway/agent/textsDecide.js`). */
 export const GATEWAY_DECIDE_URL = "https://gateway/texts/decide";
 export const GATEWAY_RECHECK_URL = "https://gateway/texts/recheck";
 /** A gate is kept this long, then still used while a fresh one is asked: the cap may run over by what one chat decides in that time. */

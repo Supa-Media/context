@@ -8,8 +8,8 @@
  * checked is the rendered `## Summary` section.
  */
 
-import { parseSetup } from "../../src/agent/production.js";
-import { aiGatewayConfig, gatewayMetadata } from "../../src/agent/aiGateway.js";
+import { parseSetup } from "../../../../packages/tex/gateway/agent/production.js";
+import { aiGatewayConfig, gatewayMetadata } from "../../../../packages/tex/gateway/agent/aiGateway.js";
 import { draftSummary, summaryPrompts } from "../../src/meetings/summarize.js";
 import { renderSummary } from "../../../../packages/meetings/src/summary.js";
 

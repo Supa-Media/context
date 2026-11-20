@@ -153,7 +153,7 @@ const TEX_PART_ICONS = Object.freeze({
   chats: contextPartMarker("tex_chats"),
   "attention.md": contextPartMarker("tex_attention"),
   dreams: contextPartMarker("tex_dreams"),
-  // The off switch beside its folder (`apps/mcp/src/agent/texSwitches.js`), as heartbeat.md is beside heartbeat/.
+  // The off switch beside its folder (`packages/tex/gateway/agent/texSwitches.js`), as heartbeat.md is beside heartbeat/.
   "dreams.md": contextPartMarker("tex_dreams"),
   groups: contextPartMarker("tex_groups"),
   handbacks: contextPartMarker("tex_handbacks"),
@@ -161,12 +161,12 @@ const TEX_PART_ICONS = Object.freeze({
   "heartbeat.md": contextPartMarker("tex_heartbeat"),
   housekeeping: contextPartMarker("tex_housekeeping"),
   "housekeeping.md": contextPartMarker("tex_housekeeping"),
-  // Their next seven days, a copy Tex keeps (`apps/mcp/src/agent/calendarCache.js`): the inbox's calendar.
+  // Their next seven days, a copy Tex keeps (`packages/tex/gateway/agent/calendarCache.js`): the inbox's calendar.
   "calendar.md": contextPartMarker("inbox_calendar"),
   "jobs.md": contextPartMarker("tex_jobs"),
-  // A job's own note, when it belongs to no project (`apps/mcp/src/agent/jobNote.js`): the jobs list's clipboard.
+  // A job's own note, when it belongs to no project (`packages/tex/gateway/agent/jobNote.js`): the jobs list's clipboard.
   jobs: contextPartMarker("tex_jobs"),
-  // The pictures they texted Tex, a note a month (`apps/mcp/src/agent/textedPictures.js`): a camera.
+  // The pictures they texted Tex, a note a month (`packages/tex/gateway/agent/textedPictures.js`): a camera.
   pictures: contextPartMarker("tex_pictures"),
   routines: contextPartMarker("tex_routines"),
   skills: contextPartMarker("tex_skills"),

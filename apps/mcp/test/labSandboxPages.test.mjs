@@ -7,7 +7,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { sandboxEnvOf } from "../src/labSandbox/policy.js";
-import { computerFor, webSession } from "../src/agent/computer.js";
+import { computerFor, webSession } from "../../../packages/tex/gateway/agent/computer.js";
 
 test("a test turn reads pages through the screenshot Worker, and never reaches its browser", async () => {
   const reached = [];

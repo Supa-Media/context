@@ -44,7 +44,7 @@ function isSegment(value: unknown): value is string {
   return typeof value === "string";
 }
 
-/** The `/p/@slug/<path>` page link Tex texts (`apps/mcp/src/agent/noteLinks.js`), served at the edge as the page viewer. */
+/** The `/p/@slug/<path>` page link Tex texts (`packages/tex/gateway/agent/noteLinks.js`), served at the edge as the page viewer. */
 export const PAGE_LINK_SEGMENT = "p";
 
 /**

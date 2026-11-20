@@ -16,8 +16,8 @@
  */
 import assert from "node:assert/strict";
 import test from "node:test";
-import { heardWords, MAX_HEARD_CHARS, sentLine } from "../src/agent/heardWords.js";
-import { backgroundSession, RESTART_JOB_TOOL, START_JOB_TOOL, startedJobs, withBackground } from "../src/agent/background.js";
+import { heardWords, MAX_HEARD_CHARS, sentLine } from "../../../packages/tex/gateway/agent/heardWords.js";
+import { backgroundSession, RESTART_JOB_TOOL, START_JOB_TOOL, startedJobs, withBackground } from "../../../packages/tex/gateway/agent/background.js";
 
 const SAID = "Research the wedding in Morocco: the times, what to wear, and a packing list.";
 const voice = { name: "Audio_Message.caf", mediaType: "audio/x-caf", text: SAID, heard: true };

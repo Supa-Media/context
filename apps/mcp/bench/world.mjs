@@ -20,12 +20,12 @@
  */
 
 import { connectMailbox, inMailbox, readMailbox, searchMailbox, sentMail, settingMailbox } from "./mailbox.mjs";
-import { TRANSCRIPTS_FOLDER } from "../src/agent/transcript.js";
-import { HOUSEKEEPING_CLIENT_ID } from "../src/agent/housekeeping.js";
+import { TRANSCRIPTS_FOLDER } from "../../../packages/tex/gateway/agent/transcript.js";
+import { HOUSEKEEPING_CLIENT_ID } from "../../../packages/tex/gateway/agent/housekeeping.js";
 import { arrivedEmail, checkInTurn, houseTurn, routineTurn, startCall, startGrants } from "./worldStarts.mjs";
 import worker from "../src/index.js";
-import { PRODUCTION_TEXTING_PATH } from "../src/agent/production.js";
-import { skillPath } from "../src/agent/skills.js";
+import { PRODUCTION_TEXTING_PATH } from "../../../packages/tex/gateway/agent/production.js";
+import { skillPath } from "../../../packages/tex/gateway/agent/skills.js";
 import { createWeb } from "./sites.mjs";
 import { simBinding, simulatedWorld, sitesIn, withClosedForNew } from "./simWorld.mjs";
 import { createBenchSite } from "./siteStub.mjs";

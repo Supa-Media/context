@@ -36,11 +36,11 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { anthropicMessages, openAiMessages } from "../src/agent/providers.js";
-import { hearVoiceMessages, readAttachments, withAttachmentImages } from "../src/agent/attachments.js";
-import { KEPT_PHOTOS_PATH } from "../src/agent/pictureMaker.js";
+import { anthropicMessages, openAiMessages } from "../../../packages/tex/gateway/agent/providers.js";
+import { hearVoiceMessages, readAttachments, withAttachmentImages } from "../../../packages/tex/gateway/agent/attachments.js";
+import { KEPT_PHOTOS_PATH } from "../../../packages/tex/gateway/agent/pictureMaker.js";
 import { createEgressWorld, request, textTex, TOKEN_TEXTS } from "./agentEgressFixtures.mjs";
-import { conversationFromLedger } from "../src/agent/ledgerConversation.js";
+import { conversationFromLedger } from "../../../packages/tex/gateway/agent/ledgerConversation.js";
 
 // A 1x1 PNG.
 const PNG = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==";

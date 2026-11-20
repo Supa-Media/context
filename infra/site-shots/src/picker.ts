@@ -14,7 +14,7 @@ export const refSelector = (ref: number) => `[data-tex-ref="${ref}"]`;
 const selector = refSelector;
 
 /**
- * A file the gateway read from the person's own notes or mail (`apps/mcp/src/agent/uploads.js`),
+ * A file the gateway read from the person's own notes or mail (`packages/tex/gateway/agent/uploads.js`),
  * put into the page's upload box the way a person picking it would.
  */
 export interface UploadFile {

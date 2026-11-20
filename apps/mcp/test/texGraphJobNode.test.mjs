@@ -13,11 +13,11 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 
-import { gatewayGraph } from "../src/agent/graph/gatewayGraph.js";
-import { job } from "../src/agent/graph/nodes/job.js";
-import { borrowJob, lendJob, returnJob } from "../src/agent/graph/jobHandles.js";
-import { jobCheckFor, handbackFor } from "../src/agent/graph/bridges.js";
-import { TEX_CONFIG } from "../src/agent/texConfig.js";
+import { gatewayGraph } from "../../../packages/tex/gateway/agent/graph/gatewayGraph.js";
+import { job } from "../../../packages/tex/gateway/agent/graph/nodes/job.js";
+import { borrowJob, lendJob, returnJob } from "../../../packages/tex/gateway/agent/graph/jobHandles.js";
+import { jobCheckFor, handbackFor } from "../../../packages/tex/gateway/agent/graph/bridges.js";
+import { TEX_CONFIG } from "../../../packages/tex/gateway/agent/texConfig.js";
 import { texJobClass, BORN_KEY, JOB_NAME_KEY } from "../../../packages/tex/gateway/texJob.js";
 import { JOB_NODES_KEY, JOB_NODES_KEPT } from "../../../packages/tex/gateway/texJobLog.js";
 

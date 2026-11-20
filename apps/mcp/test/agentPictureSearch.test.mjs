@@ -23,11 +23,11 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { SEARCH_WEB_TOOL, webSession } from "../src/agent/computer.js";
-import { outgoingPictures } from "../src/agent/outgoingPictures.js";
-import { pictureMaker, withPictureMaker } from "../src/agent/pictureMaker.js";
-import { searcherFor } from "../src/agent/search.js";
-import { VISUAL_TOOL, buildVisual } from "../src/agent/visuals/index.js";
+import { SEARCH_WEB_TOOL, webSession } from "../../../packages/tex/gateway/agent/computer.js";
+import { outgoingPictures } from "../../../packages/tex/gateway/agent/outgoingPictures.js";
+import { pictureMaker, withPictureMaker } from "../../../packages/tex/gateway/agent/pictureMaker.js";
+import { searcherFor } from "../../../packages/tex/gateway/agent/search.js";
+import { VISUAL_TOOL, buildVisual } from "../../../packages/tex/gateway/agent/visuals/index.js";
 
 const CARD_PNG = "iVBORw0KGgo=";
 const BOXED = "https://cdn.caterer.example/boxed-lunch.jpg";

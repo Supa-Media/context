@@ -14,9 +14,9 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { webSession } from "../src/agent/computer.js";
-import { BROWSE_TOOL } from "../src/agent/browse.js";
-import { NOT_THEIRS, handoffIsTheirs } from "../src/agent/handoffGate.js";
+import { webSession } from "../../../packages/tex/gateway/agent/computer.js";
+import { BROWSE_TOOL } from "../../../packages/tex/gateway/agent/browse.js";
+import { NOT_THEIRS, handoffIsTheirs } from "../../../packages/tex/gateway/agent/handoffGate.js";
 
 const FORM = "https://register.example.org/conference";
 

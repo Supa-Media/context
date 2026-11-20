@@ -4,7 +4,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 
-import { hearForTexts, MAX_HEARD_CHARS, TEXTS_HEAR_PATH } from "../src/agent/textsHear.js";
+import { hearForTexts, MAX_HEARD_CHARS, TEXTS_HEAR_PATH } from "../../../packages/tex/gateway/agent/textsHear.js";
 import { TexTexts } from "../src/index.js";
 
 const CALLER = "a".repeat(64);

@@ -10,7 +10,7 @@
 
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { pickTier } from "../src/agent/router.js";
+import { pickTier } from "../../../packages/tex/gateway/agent/router.js";
 
 test("the router's question names website jobs and replies in the middle of one as think", async () => {
   let asked = null;

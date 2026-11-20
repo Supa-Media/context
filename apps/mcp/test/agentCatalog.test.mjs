@@ -26,9 +26,9 @@ import {
   isBuiltinModelName,
   isCatalogModel,
   requestBuiltin,
-} from "../src/agent/builtin.js";
-import { aiGatewayConfig } from "../src/agent/aiGateway.js";
-import { parseSetup } from "../src/agent/production.js";
+} from "../../../packages/tex/gateway/agent/builtin.js";
+import { aiGatewayConfig } from "../../../packages/tex/gateway/agent/aiGateway.js";
+import { parseSetup } from "../../../packages/tex/gateway/agent/production.js";
 
 const GATEWAY_ENV = {
   AI_GATEWAY_ACCOUNT_ID: "0123456789abcdef0123456789abcdef",

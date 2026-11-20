@@ -24,8 +24,8 @@ import { test } from "node:test";
 
 import { resolveSession, sessionForChatHome, sessionForContext, sessionForSetup, SCOPE_WRITE } from "../src/session.js";
 
-import { readGroupMemory } from "../src/agent/groupTurn.js";
-import { chatMailAddress, homePrompt, mailDomainOf, openChatHome, readAboutUs } from "../src/agent/chatHome.js";
+import { readGroupMemory } from "../../../packages/tex/gateway/agent/groupTurn.js";
+import { chatMailAddress, homePrompt, mailDomainOf, openChatHome, readAboutUs } from "../../../packages/tex/gateway/agent/chatHome.js";
 import { createMemoryStore } from "./gmailSync/fixtures.mjs";
 
 const TOKEN = `cat_group_home_${"0".repeat(24)}`;
@@ -125,7 +125,7 @@ function recorder() {
 const GROUP = { key: KEY, members: MEMBERS, from: "ada", people: ["ada"], chat: [] };
 
 test("@context-lc on a tool call opens the home, and every other name is routed as before", async () => {
-  const { addressHome } = await import("../src/agent/chatHome.js");
+  const { addressHome } = await import("../../../packages/tex/gateway/agent/chatHome.js");
   const home = { folder: HOME, session: { workspaceId: "ws_pin", chatHome: HOME }, store: { home: true } };
   const asked = [];
   const store = { openContext: async (name) => (asked.push(name), { session: { name }, store: { home: false } }) };
@@ -152,7 +152,7 @@ test("a chat with a home keeps its voice and about-us there, and is told how to 
   await readGroupMemory(store, group, bound.dispatch);
   assert.match(group.voicePath, new RegExp(`^${HOME}/voice\\.md$`));
   assert.match(group.aboutUs, /Okafor cousins/);
-  const { groupPrompt } = await import("../src/agent/groupTurn.js");
+  const { groupPrompt } = await import("../../../packages/tex/gateway/agent/groupTurn.js");
   const prompt = groupPrompt(group, { slug: "studio" });
   assert.match(prompt, new RegExp(`${HOME}/ in @context-lc`));
   assert.match(prompt, /context: "@context-lc"/);

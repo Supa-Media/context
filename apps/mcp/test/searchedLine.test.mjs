@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { searchedLineOf, withSearchedLine, withSearchRecord } from "../src/agent/searchClaims.js";
+import { searchedLineOf, withSearchedLine, withSearchRecord } from "../../../packages/tex/gateway/agent/searchClaims.js";
 
 /** A tool result shaped as the gateway returns it: its text in one text part. */
 const resultOf = (text, extra = {}) => ({ content: [{ type: "text", text }], ...extra });

@@ -15,8 +15,8 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { INDEXED_READS, markRead, MAX_INDEXED_READS, READS_PREFACE, readBackTool, readRef, readsNote, readsOf } from "../src/agent/readsIndex.js";
-import { toolEntry } from "../src/agent/ledger.js";
+import { INDEXED_READS, markRead, MAX_INDEXED_READS, READS_PREFACE, readBackTool, readRef, readsNote, readsOf } from "../../../packages/tex/gateway/agent/readsIndex.js";
+import { toolEntry } from "../../../packages/tex/gateway/agent/ledger.js";
 import { texLedger } from "../../../packages/tex/gateway/texStore/ledger.js";
 import { DESK_LEDGER, READ_ARGS_KEPT } from "../../../packages/tex/gateway/texStore/desk.js";
 import { durableSql } from "./texStoreFixture.mjs";

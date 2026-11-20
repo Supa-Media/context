@@ -10,9 +10,9 @@ import { shown } from "./sixToolsShown.mjs";
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { BUILTIN_PROVIDER } from "../src/agent/builtin.js";
-import { runTurn } from "../src/agent/turn.js";
-import { DIRECT_LINE } from "../src/agent/prompt.js";
+import { BUILTIN_PROVIDER } from "../../../packages/tex/gateway/agent/builtin.js";
+import { runTurn } from "../../../packages/tex/gateway/agent/turn.js";
+import { DIRECT_LINE } from "../../../packages/tex/gateway/agent/prompt.js";
 import {
   LONG_MAX_ROUNDS,
   MAX_GATEWAY_TEXTS,
@@ -25,7 +25,7 @@ import {
   progressChannel,
   streamTurn,
   wantsProgress,
-} from "../src/agent/progress.js";
+} from "../../../packages/tex/gateway/agent/progress.js";
 
 const MODEL = "@cf/zai-org/glm-4.7-flash";
 const SEARCH = {

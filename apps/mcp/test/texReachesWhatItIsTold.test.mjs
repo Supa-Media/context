@@ -20,12 +20,12 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 
-import { grantedToolsFor, sixToolsOver } from "../src/agent/sixTools.js";
-import { CAPABILITIES } from "../src/agent/capabilities.js";
+import { grantedToolsFor, sixToolsOver } from "../../../packages/tex/gateway/agent/sixTools.js";
+import { CAPABILITIES } from "../../../packages/tex/gateway/agent/capabilities.js";
 import { ACTIONS } from "../src/tools/v2/actions.js";
 import { STAFF_ONLY_TOOLS } from "../src/tools/registry.js";
-import { EARLIER_TEXTS_DEFINITION } from "../src/agent/conversation.js";
-import { earlierChatTool } from "../src/agent/groupTurn.js";
+import { EARLIER_TEXTS_DEFINITION } from "../../../packages/tex/gateway/agent/conversation.js";
+import { earlierChatTool } from "../../../packages/tex/gateway/agent/groupTurn.js";
 
 const OWNER = { workspaceKind: "personal", role: "owner", scope: "private", scopes: ["context:read", "context:write", "context:private", "context:capture"] };
 const cleared = () => ({ texts: { cleared: true }, readObject: async () => null, get: async () => null });

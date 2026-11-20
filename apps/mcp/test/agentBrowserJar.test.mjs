@@ -12,8 +12,8 @@
 
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { JAR_KEY, MAX_JAR_CHARS, browserJar, mergeJar } from "../src/agent/browserJar.js";
-import { resetBrowserbaseProbe, siteShotsComputer } from "../src/agent/browserProviders.js";
+import { JAR_KEY, MAX_JAR_CHARS, browserJar, mergeJar } from "../../../packages/tex/gateway/agent/browserJar.js";
+import { resetBrowserbaseProbe, siteShotsComputer } from "../../../packages/tex/gateway/agent/browserProviders.js";
 
 const material = Buffer.from(new Uint8Array(32).fill(9)).toString("base64");
 const KEYS = { current: "k1", keys: { k1: material } };

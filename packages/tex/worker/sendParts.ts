@@ -38,7 +38,7 @@ export function threadFor(message: Message, overtaken = false, place?: ReplyPlac
   // A tapback's answer goes plain: under the tapback it would read as a reply to an emoji.
   if (message.channel === "simulator" || !message.messageId || message.tapback) return undefined;
   if (message.threaded || overtaken) return message.messageId;
-  // The conversation classifier read the chat and says where the answer goes (Dev2, 2026-11-10; `apps/mcp/src/agent/respond.js`):
+  // The conversation classifier read the chat and says where the answer goes (Dev2, 2026-11-10; `packages/tex/gateway/agent/respond.js`):
   // it replaces the quiet-spell guess. A turn it didn't place keeps that guess.
   if (place !== undefined) return place === "under" ? message.messageId : undefined;
   return message.newTopic ? message.messageId : undefined;

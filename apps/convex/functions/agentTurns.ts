@@ -28,14 +28,14 @@ export const AGENT_TURN_RETENTION_MS = 30 * 24 * 60 * 60 * 1000;
 export const MAX_TRACE_ENTRIES = 64;
 
 const TOOL_NAME = /^[a-z][a-z0-9_]{0,63}$/;
-/** A tool's action, as the gateway names it (`apps/mcp/src/agent/turnLog.js` `ACTION_NAME`). */
+/** A tool's action, as the gateway names it (`packages/tex/gateway/agent/turnLog.js` `ACTION_NAME`). */
 export const ACTION_NAME = /^[a-z][a-z0-9_]{0,39}$/;
-/** The six tool names a call can be made as (`apps/mcp/src/agent/turnLog.js` `SIX_NAMES`). */
+/** The six tool names a call can be made as (`packages/tex/gateway/agent/turnLog.js` `SIX_NAMES`). */
 export const SIX_NAMES = new Set(["orient", "search", "fetch", "write", "manage", "send"]);
 const PROVIDER = /^[a-z][a-z0-9_-]{0,31}$/;
 const MODEL = /^[\w@./:-]{1,128}$/;
 const MAX_MS = 15 * 60 * 1000;
-/** A text's wait before its turn, clamped at a day like the gateway's own cut (`apps/mcp/src/agent/turnLog.js`). */
+/** A text's wait before its turn, clamped at a day like the gateway's own cut (`packages/tex/gateway/agent/turnLog.js`). */
 const MAX_WAIT_MS = 24 * 60 * 60 * 1000;
 const MAX_TOKENS = 2_000_000;
 
@@ -59,7 +59,7 @@ export const traceEntryValidator = v.object({
   ms: v.number(),
 });
 
-/** The tool list a turn's model was shown (`apps/mcp/src/agent/turnLog.js` `toolsShownOf`), at most 16 tools. */
+/** The tool list a turn's model was shown (`packages/tex/gateway/agent/turnLog.js` `toolsShownOf`), at most 16 tools. */
 export const toolsShownValidator = v.object({
   list: v.string(),
   each: v.array(v.object({ name: v.string(), chars: v.number(), print: v.string() })),
@@ -69,7 +69,7 @@ const MAX_TOOLS_SHOWN = 16;
 /** Rule 3's state files (`packages/tex/src/toolRules.cjs` `TEX_STATE_FILES`): only these names are kept. */
 const STATE_FILES = new Set(TEX_STATE_FILES.map((entry) => entry.file));
 
-/** Where a turn came from, as the gateway names it (`apps/mcp/src/agent/turnLog.js`). */
+/** Where a turn came from, as the gateway names it (`packages/tex/gateway/agent/turnLog.js`). */
 export const TURN_KINDS = ["one", "group", "job", "routine", "app"] as const;
 export const turnKindValidator = v.union(v.literal("one"), v.literal("group"), v.literal("job"), v.literal("routine"), v.literal("app"));
 

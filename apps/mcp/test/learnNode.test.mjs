@@ -12,9 +12,9 @@ import assert from "node:assert/strict";
 
 import graphLib from "../../../packages/tex/src/texGraph.cjs";
 // The simpler graph, drawn in the Lab and promoted to live Tex's config (Dev2, 2026-11-16).
-import { TEX_CONFIG } from "../src/agent/texConfig.js";
-import { nudgeAfterTurn, reflectAfterTurn } from "../src/agent/reflect.js";
-import learn from "../src/agent/graph/nodes/learn.js";
+import { TEX_CONFIG } from "../../../packages/tex/gateway/agent/texConfig.js";
+import { nudgeAfterTurn, reflectAfterTurn } from "../../../packages/tex/gateway/agent/reflect.js";
+import learn from "../../../packages/tex/gateway/agent/graph/nodes/learn.js";
 
 const { createGraph } = graphLib;
 

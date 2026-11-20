@@ -149,7 +149,7 @@ A round that called several tools ran them one after another. Over seven days,
 about 43.5 seconds.
 
 The round runs its calls together only when every resolved call is a parallel
-read (`isParallelRead` in `apps/mcp/src/agent/parallelReads.js`): its name is
+read (`isParallelRead` in `packages/tex/gateway/agent/parallelReads.js`): its name is
 in `PARALLEL_READS`, and a `vault_list` has no `fetch`. Those names are what
 `search` and `fetch` translate to (`search_notes`, `search_email`, `read_note`,
 `read_email`, and the other readers `translateFetch` names), plus `search_web`.

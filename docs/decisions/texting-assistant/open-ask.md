@@ -21,7 +21,7 @@ Diamond with no reason given.
 
 ## The rule
 
-1. **The open ask is found by code** (`apps/mcp/src/agent/openAsk.js`). It is
+1. **The open ask is found by code** (`packages/tex/gateway/agent/openAsk.js`). It is
    their texts before the one being answered that Tex hasn't answered yet.
    Walking back from the newest, it keeps every text of theirs and passes
    any Tex text that only asked something back (one that ends in a question

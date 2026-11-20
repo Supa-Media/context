@@ -34,7 +34,7 @@ Tex.
   maker's page (OAuth), approving something whose code only they can see, and
   running a command on a computer Tex isn't on yet. Tex names exactly that
   and does the rest.
-- **Kept honest by CI.** The capability list (`apps/mcp/src/agent/capabilities.js`)
+- **Kept honest by CI.** The capability list (`packages/tex/gateway/agent/capabilities.js`)
   names each app route it covers (`appRoutes`), and its test fails when a
   console route under `/machines/app/*` is on no line. Lines that are still
   person-only carry a `cant` entry with the workaround, and a pull request that

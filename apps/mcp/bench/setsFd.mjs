@@ -31,7 +31,7 @@ import { REAL_CLEF_ENV } from "./worldAi.mjs";
 
 import { createRequire } from "node:module";
 
-import { tapbackSaidLine } from "../src/agent/tapbackEnding.js";
+import { tapbackSaidLine } from "../../../packages/tex/gateway/agent/tapbackEnding.js";
 import { saveRunFixtures, worldFront } from "./simFixtures.mjs";
 import { armDone, compareOf, compareWorld } from "./worldCompare.mjs";
 import { collectConvo } from "./setsFdRows.mjs";

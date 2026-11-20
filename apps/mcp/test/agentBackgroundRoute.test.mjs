@@ -53,7 +53,7 @@ import { createControlPlaneStub, createS3Backend, CONTROL_PLANE_ORIGIN, GATEWAY_
 import { AI_GATEWAY_ENV, AI_GATEWAY_ORIGIN, BUILTIN_ALLOWED } from "./agentModelFixture.mjs";
 import { conversationTurns } from "./agentConversationFixture.mjs";
 import { eventTurn } from "./agentEgressFixtures.mjs";
-import { MAX_JOB_ATTEMPTS } from "../src/agent/background.js";
+import { MAX_JOB_ATTEMPTS } from "../../../packages/tex/gateway/agent/background.js";
 import { texStoreNamespace, withAgentHome } from "./texStoreFixture.mjs";
 
 const S3_ENDPOINT = "https://s3.example-background.test";

@@ -10,7 +10,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { JOB_START_EXAMPLES } from "../../src/agent/jobStart.js";
+import { JOB_START_EXAMPLES } from "../../../../packages/tex/gateway/agent/jobStart.js";
 import { caseBody, jobstartCommand, loadCases, passes, readStart } from "../jobstart.mjs";
 
 test("the cases have unique ids, both labels in both kinds of chat", async () => {

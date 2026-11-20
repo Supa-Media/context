@@ -12,12 +12,12 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 
 import graphLib from "../../../packages/tex/src/texGraph.cjs";
-import { TEX_CONFIG, texModel } from "../src/agent/texConfig.js";
-import { gatewayGraph } from "../src/agent/graph/gatewayGraph.js";
-import card from "../src/agent/graph/nodes/card.js";
-import egress from "../src/agent/graph/nodes/egress.js";
-import picture from "../src/agent/graph/nodes/picture.js";
-import { DEFAULT_GATEWAY_MODEL } from "../src/agent/builtin.js";
+import { TEX_CONFIG, texModel } from "../../../packages/tex/gateway/agent/texConfig.js";
+import { gatewayGraph } from "../../../packages/tex/gateway/agent/graph/gatewayGraph.js";
+import card from "../../../packages/tex/gateway/agent/graph/nodes/card.js";
+import egress from "../../../packages/tex/gateway/agent/graph/nodes/egress.js";
+import picture from "../../../packages/tex/gateway/agent/graph/nodes/picture.js";
+import { DEFAULT_GATEWAY_MODEL } from "../../../packages/tex/gateway/agent/builtin.js";
 import { AI_GATEWAY_ENV } from "./agentModelFixture.mjs";
 
 const { createGraph } = graphLib;
