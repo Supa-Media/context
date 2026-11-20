@@ -105,6 +105,8 @@ const MAIL_ROLE_NAMES = [
   "hello",
   "support",
   "help",
+  // `/tex/ask`, the page Tex's "Go ahead?" card opens outside Messages (ROUTE_SEGMENTS).
+  "ask",
   "contact",
   "team",
   "billing",
