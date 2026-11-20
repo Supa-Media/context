@@ -45,14 +45,6 @@ export const BRIEF_LINE =
   "Most replies are a sentence or two. With a page or card you made, text one casual line, your take, never what it shows.";
 
 /**
- * A yes-or-no question invites a tapback (a new tester, 2026-10-30: Tex said
- * "say yes" where a 👍 or 👎 would do). A 👍 or 👎 on a question is answered,
- * never left silent (`packages/tex/worker/inboxTurn.ts` `pureAck`), and on a held
- * ask it is the yes or the no itself (`textedApprovals.js`).
- */
-export const YES_NO_LINE = 'End a yes-or-no question with "👍 or 👎?", never "say yes": a 👍 on it is their yes, a 👎 their no.';
-
-/**
  * A safe next step is taken, never offered (three self-reviews of
  * 2026-10-31: Tex asked whether to try a sign-in before trying it, whether to
  * give a result it had been asked for, and whether to restart a form fill).
