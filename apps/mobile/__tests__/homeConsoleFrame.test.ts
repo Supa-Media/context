@@ -315,7 +315,7 @@ describe("the homepage is the console's frame", () => {
   */
   test("search names each page by its title and quotes the line that matched", async () => {
     const home = mountHome();
-    home.press(home.find("frame-search"));
+    home.press(home.find("aside-strip-search"));
     const input = home.find("palette-input") as HTMLInputElement;
     const setter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, "value")!.set!;
     act(() => {
@@ -350,7 +350,7 @@ describe("the homepage is the console's frame", () => {
     });
     try {
       const home = mountHome();
-      home.press(home.find("frame-search"));
+      home.press(home.find("aside-strip-search"));
       const input = home.find("palette-input") as HTMLInputElement;
       const setter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, "value")!.set!;
       act(() => {

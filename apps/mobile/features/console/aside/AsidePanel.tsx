@@ -1,11 +1,9 @@
 import { useEffect } from "react";
-import { Pressable, StyleSheet, View } from "react-native";
+import { StyleSheet, View } from "react-native";
 import { pendingCount } from "../../approvals/copy";
 import type { ApprovalsView } from "../../approvals/useApprovals";
-import { Dot } from "../../design/components/Dot";
-import { Text } from "../../design/components/Text";
-import { radii, space } from "../../design/tokens";
-import { useColors, useThemedStyles, type Colors } from "../../design/theme";
+import { space } from "../../design/tokens";
+import { useThemedStyles, type Colors } from "../../design/theme";
 import { useMeetingsSnapshot } from "../../meetings/useMeetings";
 import { MeetingsTab } from "./MeetingsTab";
 import type { PastWorkspace } from "../../meetings/usePastMeetings";
@@ -14,15 +12,8 @@ import { useMapSide } from "./mapSide";
 import { AsideStrip } from "./AsideStrip";
 import { changedSinceSeen, useAsideChoice } from "./asideChoice";
 import { useFrame } from "../../app/AppFrame";
-import { Icon } from "../../design/components/Icon";
 import type { CalendarEvent } from "../../meetings/protocol";
-import {
-  ASIDE_TABS,
-  asideTabFor,
-  meetingNeedsAttention,
-  visibleAsideTabs,
-  type AsideTab,
-} from "./tabs";
+import { asideTabFor, visibleAsideTabs, type AsideTab } from "./tabs";
 
 /**
  * What is inside the console's right panel.
@@ -42,13 +33,14 @@ import {
  * tab.** It gets a dot instead, because a panel that swaps out from under
  * somebody is a panel they stop trusting.
  *
- * ## No close button, and that is the toggle's job
+ * ## The rail is the panel's only chrome
  *
- * The control that opens this is a labelled button in the top bar, in the same
- * place whether the panel is open or shut, and the scrim closes the overlay at
- * `medium`. A third way out inside the panel would be a control whose only
- * distinction is being nearer — and the header would have to find room for it
- * beside the tab strip, which is the row a reader scans to choose.
+ * A thin column of one icon per tab sits on the right edge whether the panel
+ * is open or folded (Dev2, 2026-11-20: "the meeting and tex icon just live
+ * forever in a thin right column"). It switches tabs, folds the panel (its
+ * chevron, or the open tab's own icon) and carries the marks a tab row used
+ * to: a meeting recording, and what waits for a yes on Tex. So there is no tab
+ * row inside the panel, and nothing to scan twice.
  */
 export function AsidePanel({
   started,
@@ -57,6 +49,7 @@ export function AsidePanel({
   onJoin = null,
   tex = null,
   pastFrom = null,
+  onSearch = null,
 }: {
   /** The workspaces whose meeting notes the Meetings tab lists under Past; `null` where there is no control plane. */
   pastFrom?: readonly PastWorkspace[] | null;
@@ -92,6 +85,8 @@ export function AsidePanel({
    * Tex tab. The tab mounts only while it is showing, so the chat polls only then.
    */
   tex?: { workspaceId: string; endpoint: string } | null;
+  /** Open the search palette, from the rail's magnifier. `null` hides it. */
+  onSearch?: (() => void) | null;
 }) {
   const styles = useThemedStyles(makeStyles);
   const [chosen, setChosen] = useAsideChoice();
@@ -129,150 +124,68 @@ export function AsidePanel({
     if (changedSinceSeen("noteKey", noteKey) && noteKey !== null) setChosen("note");
   }, [noteKey, setChosen]);
 
-  const single = tabs.length === 1;
   const live = useMeetingsSnapshot().live;
   const meetingLive = live !== null;
-  const colors = useColors();
   const frame = useFrame();
   const setFolded = frame.setAsideFolded;
   const toggleAside = frame.toggleAside;
 
+  /*
+    The rail is always drawn, open or folded (Dev2, 2026-11-20: "the meeting
+    and tex icon just live forever in a thin right column"), so the panel has
+    no tab row: the rail is the one place to switch tabs and to fold.
+  */
+  const unfold = (tab: AsideTab | null) => {
+    if (tab !== null) setChosen(tab);
+    if (frame.state.asideOpen) setFolded(false);
+    else toggleAside();
+  };
+  const rail = (open: boolean) => (
+    <AsideStrip
+      tabs={tabs}
+      showing={showing}
+      recording={meetingLive}
+      open={open}
+      waiting={tex !== null ? pendingCount(waiting) : ""}
+      onUnfold={unfold}
+      onFold={() => setFolded(true)}
+      onSearch={onSearch}
+    />
+  );
+
   // Folded, or shut where the frame keeps a column for it (`regionsFor`), the
-  // panel is its strip: a tab opens it whole. Drawn outside a frame it is whole.
+  // panel is its rail alone. Drawn outside a frame it is whole.
   const strip = frame.state.asideFolded || (!frame.state.asideOpen && frame.regions?.aside === "column");
-  if (strip) {
-    return (
-      <AsideStrip
-        tabs={tabs}
-        showing={showing}
-        recording={meetingLive}
-        onUnfold={(tab) => {
-          if (tab !== null) setChosen(tab);
-          if (frame.state.asideOpen) setFolded(false);
-          else toggleAside();
-        }}
-      />
-    );
-  }
+  if (strip) return <View style={styles.folded}>{rail(false)}</View>;
 
   return (
-    <View style={styles.panel} testID="aside-panel">
-      {/*
-        One tab is a title, not a choice (owner, 2026-11-19: "Dont love the
-        meeting header"): with Meetings alone the strip and its rule go, and
-        the fold arrow is all that is left of it.
-      */}
-      <View style={single ? styles.bare : styles.tabs} accessibilityRole={single ? undefined : "tablist"}>
-        {single ? null : ASIDE_TABS.filter((tab) => tabs.includes(tab.key)).map((tab) => {
-          const current = tab.key === showing;
-          // What is waiting for a yes rides on the Tex tab, where those are answered.
-          const count = tab.key === "tex" ? pendingCount(waiting) : "";
-          return (
-            <Pressable
-              key={tab.key}
-              onPress={() => setChosen(tab.key)}
-              role="tab"
-              accessibilityState={{ selected: current }}
-              /*
-                The dot is in the *name* as well as beside it. A mark a screen
-                reader cannot see is a mark that only exists for people who can
-                look at the screen, and this one is what makes "a meeting does
-                not take the tab" a safe trade rather than a way to miss a
-                recording.
-              */
-              accessibilityLabel={
-                meetingNeedsAttention(showing, meetingLive) && tab.key === "meetings"
-                  ? `${tab.label}, recording`
-                  : count !== ""
-                    ? `${tab.label}, ${count} waiting`
-                    : tab.label
-              }
-              style={[styles.tab, current && styles.tabCurrent]}
-              testID={`aside-tab-${tab.key}`}
-            >
-              <Text variant="rowSub" style={[styles.tabLabel, current && styles.tabLabelCurrent]}>
-                {tab.label}
-              </Text>
-              {count !== "" ? (
-                <Text variant="meta" style={styles.count} testID="aside-tab-tex-count">
-                  {count}
-                </Text>
-              ) : null}
-              {meetingNeedsAttention(showing, meetingLive) && tab.key === "meetings" ? (
-                /*
-                  Wrapped, because `Dot` takes no `testID` — it is a 6pt mark
-                  and giving it one would be a prop on the design system for
-                  one caller's test. The wrapper is what a test asks about, and
-                  the mark inside it is unchanged.
-                */
-                <View testID="aside-tab-meetings-dot">
-                  <Dot tone="crit" />
-                </View>
-              ) : null}
-            </Pressable>
-          );
-        })}
-        <View style={styles.tabsGap} />
-        <Pressable
-          onPress={() => setFolded(true)}
-          accessibilityRole="button"
-          accessibilityLabel="Fold the panel"
-          style={({ hovered }: { hovered?: boolean; pressed: boolean }) => [styles.fold, hovered && styles.tabCurrent]}
-          testID="aside-fold"
-        >
-          <Icon name="chevronRight" size={14} color={colors.muted} />
-        </Pressable>
+    <View style={styles.row}>
+      <View style={styles.panel} testID="aside-panel">
+        {showing === "activity" && map !== null ? (
+          <View style={styles.body} testID="aside-map-activity">
+            {map.activity}
+          </View>
+        ) : showing === "note" && map !== null ? (
+          <View style={styles.body} testID="aside-map-note">
+            {map.note}
+          </View>
+        ) : showing === "tex" && tex !== null ? (
+          <View style={styles.body} testID="aside-tex">
+            <TexChatTab workspaceId={tex.workspaceId} endpoint={tex.endpoint} approvals={approvals} />
+          </View>
+        ) : (
+          <MeetingsTab onOpenNote={onOpenNote} onJoin={onJoin} pastFrom={pastFrom} />
+        )}
       </View>
-
-      {showing === "activity" && map !== null ? (
-        <View style={styles.body} testID="aside-map-activity">
-          {map.activity}
-        </View>
-      ) : showing === "note" && map !== null ? (
-        <View style={styles.body} testID="aside-map-note">
-          {map.note}
-        </View>
-      ) : showing === "tex" && tex !== null ? (
-        <View style={styles.body} testID="aside-tex">
-          <TexChatTab workspaceId={tex.workspaceId} endpoint={tex.endpoint} approvals={approvals} />
-        </View>
-      ) : (
-        <MeetingsTab onOpenNote={onOpenNote} onJoin={onJoin} pastFrom={pastFrom} />
-      )}
+      {rail(true)}
     </View>
   );
 }
 
-const makeStyles = (colors: Colors) =>
+const makeStyles = (_colors: Colors) =>
   StyleSheet.create({
-    panel: { flex: 1, minWidth: 0 },
-    /*
-      A slim switcher rather than a header bar (owner, 2026-11-19: "Dont love
-      the meeting header", then "no way to quickly switch between meetings and
-      tex"): small pills with no rule under them, the current one filled.
-    */
-    tabs: {
-      flexDirection: "row",
-      alignItems: "center",
-      gap: 2,
-      paddingHorizontal: space.x3,
-      paddingTop: space.x3,
-      paddingBottom: space.x1,
-    },
-    tab: {
-      flexDirection: "row",
-      alignItems: "center",
-      gap: space.x1,
-      minHeight: 28,
-      paddingHorizontal: 10,
-      borderRadius: radii.pill,
-    },
-    tabCurrent: { backgroundColor: colors.surface3 },
-    tabsGap: { flex: 1 },
-    bare: { flexDirection: "row", alignItems: "center", paddingHorizontal: space.x2, paddingTop: space.x2 },
-    fold: { width: 28, height: 28, borderRadius: radii.md, alignItems: "center", justifyContent: "center" },
-    tabLabel: { color: colors.muted },
-    count: { color: colors.muted },
-    tabLabelCurrent: { color: colors.text, fontWeight: "600" },
+    row: { flex: 1, minWidth: 0, flexDirection: "row" },
+    folded: { flex: 1, alignItems: "flex-end" },
+    panel: { flex: 1, minWidth: 0, paddingTop: space.x2 },
     body: { flex: 1, minHeight: 0 },
   });
