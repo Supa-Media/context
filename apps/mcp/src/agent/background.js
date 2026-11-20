@@ -323,7 +323,7 @@ export function withJobSteps(job, step, record, outside = () => false) {
 /** A job that ended without finishing: what "restart it" picks back up (`apps/agent/src/jobs.ts` `resumeJobs`). */
 const resumable = (entry) => entry.state !== "running" && entry.state !== "done";
 
-const RESTART_TOOL = {
+export const RESTART_TOOL = {
   name: RESTART_JOB_TOOL,
   description:
     "Pick background jobs that stopped before finishing back up where they stopped: the same task, finish line and what each had got to, " +
@@ -338,7 +338,7 @@ const RESTART_TOOL = {
   },
 };
 
-const STATUS_TOOL = {
+export const STATUS_TOOL = {
   name: JOB_STATUS_TOOL,
   description:
     "How a background job is going, instantly: its state, the step it is on, its steps so far, your advisor's last check and advice, and a " +
@@ -346,7 +346,7 @@ const STATUS_TOOL = {
   inputSchema: { type: "object", properties: { title: { type: "string", description: "The job's title, as your background list shows it." } } },
 };
 
-const STEER_TOOL = {
+export const STEER_TOOL = {
   name: STEER_JOB_TOOL,
   description:
     "Steer a background job that is still running: you coordinate it. Pass their text when it changes or adds to that job (\"never mind, make it " +

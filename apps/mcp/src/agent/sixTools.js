@@ -373,6 +373,32 @@ function sixSearchCall(call) {
   };
 }
 
+/** The six as the model is shown them over `held`'s carriers, each family listing what `grants` allows (null: all). */
+function shownSix(held, grants) {
+  const base = advertised();
+  const tools = [];
+  if (held.has("orient")) tools.push(held.get("orient"));
+  if (held.has("search_notes")) tools.push(searchTool(base.get("search"), held));
+  const fetchable = FETCH_CARRIERS.some((name) => held.has(name)) || ASSISTANT_FETCH_IDS.some((id) => held.has(id.tool));
+  if (fetchable) tools.push(fetchTool(base.get("fetch"), held));
+  for (const family of ["write", "manage", "send"]) {
+    const actions = grantedActions(family, held, grants);
+    if (actions.length > 0) tools.push(familyTool(family, base.get(family), actions, held));
+  }
+  return tools;
+}
+
+/** A listed action this turn may not take: what to do instead (the tool rules' "errors say what next", 2026-11-20). */
+function unavailableAction(family, action, list) {
+  return `${family} action "${action.slice(0, 40)}" isn't available on this turn (this chat or this kind of turn doesn't allow it), and nothing was done. ` +
+    `Available now: ${list}. Do what you can with those, or tell them plainly that you can't do this here.`;
+}
+
+/** The same for a fetch id whose reader this turn does not hold. */
+function unavailableId(prefix) {
+  return `fetch ${prefix}… isn't available on this turn (this chat or this kind of turn has nothing to read there), and nothing was read. Answer from what you have, or say you can't see it here.`;
+}
+
 /**
  * The six over the tools a turn was granted.
  *
@@ -382,20 +408,14 @@ function sixSearchCall(call) {
  *   allowing none (the dream: `{ write: ["save"] }`); null allows every action the held tools carry
  * @returns {{tools: object[], resolve: (name: string, args: object) => {name?: string, args?: object, error?: string}}}
  */
-export function sixToolsOver(granted, grants = null) {
+export function sixToolsOver(granted, grants = null, { shown = null } = {}) {
   const held = new Map(granted.map((tool) => [tool.name, tool]));
-  const base = advertised();
-  const tools = [];
-  if (held.has("orient")) tools.push(held.get("orient"));
-  if (held.has("search_notes")) tools.push(searchTool(base.get("search"), held));
-  const fetchable = FETCH_CARRIERS.some((name) => held.has(name)) || ASSISTANT_FETCH_IDS.some((id) => held.has(id.tool));
-  if (fetchable) tools.push(fetchTool(base.get("fetch"), held));
+  // FIXED (`sixToolsFixed.js`): the model is shown every action its kind of chat has, the same bytes on every turn, so the
+  // prompt cache reads them (Dev2, 2026-11-20); what this turn may call is still `held` and `grants`, refused below.
+  const tools = shown instanceof Map ? shownSix(shown, null) : shownSix(held, grants);
   const allowedActions = {};
-  for (const family of ["write", "manage", "send"]) {
-    const actions = grantedActions(family, held, grants);
-    allowedActions[family] = new Set(actions.map(([name]) => name));
-    if (actions.length > 0) tools.push(familyTool(family, base.get(family), actions, held));
-  }
+  for (const family of ["write", "manage", "send"]) allowedActions[family] = new Set(grantedActions(family, held, grants).map(([name]) => name));
+  const shownActions = shown instanceof Map ? Object.fromEntries(["write", "manage", "send"].map((family) => [family, new Set(grantedActions(family, shown, null).map(([name]) => name))])) : null;
 
   /**
    * A refused visibility change ends with the sentence that says nothing changed, so the model cannot take a refused
@@ -449,6 +469,8 @@ export function sixToolsOver(granted, grants = null) {
       // chat:` became `earlier_chat`, which no 1:1 turn holds, so Tex never reached their Google Chat).
       const extra = call.args && typeof call.args === "object" && !Array.isArray(call.args) ? call.args : {};
       if (id && !backedUp && held.has(id.tool)) return { name: id.tool, args: id.args(call.id.slice(id.prefix.length), extra) };
+      // Shown on the fixed list but not held this turn: said so, rather than read as a note path nobody wrote.
+      if (id && !backedUp && shown instanceof Map && shown.has(id.tool) && !(id.tool === "earlier_chat" && held.has("read_google_chat"))) return { error: unavailableId(id.prefix), cause: "not_this_turn" };
     }
     if (name === "write" || name === "manage" || name === "send") {
       const action = name === "write" && (call.action === undefined || call.action === "") ? "save" : call.action;
@@ -458,6 +480,7 @@ export function sixToolsOver(granted, grants = null) {
         const home = ["write", "manage", "send"].find((family) => family !== name && allowedActions[family].has(action));
         if (home) return resolve(home, call);
         const list = [...allowedActions[name]].join(", ") || "none";
+        if (shownActions?.[name]?.has(action)) return { error: unavailableAction(name, action, list), cause: "not_this_turn" };
         return { error: `${name} has no action "${action.slice(0, 40)}" for you. Yours: ${list}.` };
       }
       const assistant = name === "send" ? ASSISTANT_SEND_ACTIONS[action] : undefined;

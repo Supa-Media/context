@@ -50,6 +50,7 @@ import { addModelUsage, failedCall, modelForRound, thinkRoundsFor, whyFailed } f
 import { PROGRESS_TOOL } from "./progress.js";
 import { turnLedger } from "./sendBack.js";
 import { SIX_TOOLS, sixToolsOver } from "./sixTools.js";
+import { fixedCarriers } from "./sixToolsFixed.js";
 import { isParallelRead } from "./parallelReads.js";
 import { resultInV2Names } from "../tools/v2/speak.js";
 import { goalsIn } from "./aboutMe.js";
@@ -284,6 +285,8 @@ export async function runTurn(options) {
     efforts = null,
     // The life of the prefix's cache, "1h" or "5m" (`texConfig.js` `texCacheTtl`); absent: the gateway's own, an hour.
     cacheTtl = undefined,
+    // "one" or "group": show every tool that kind of chat has, the same bytes each turn, and refuse what this turn may not call (`sixToolsFixed.js`).
+    fixedTools = null,
     // What the person sent with the question, checked (`attachments.js`): shown to the model with it.
     attachments = [],
     // Told each step as it happens (`transcript.js`): thinking, words between tools, each call.
@@ -335,7 +338,7 @@ export async function runTurn(options) {
     manage and send, each listing only what `tools` grants, and a call to one
     is translated back into the granted tool before the allowlist below.
   */
-  const six = sixToolsOver(tools, grants);
+  const six = sixToolsOver(tools, grants, fixedTools === "one" || fixedTools === "group" ? { shown: fixedCarriers(fixedTools, { readSkill: tools.find((tool) => tool?.name === "read_skill") ?? null }) } : {});
   // A slow tool (a browser step, a held email) names its own limit, cut to end 30 s past the budget so the answer still fits.
   // A move's own is in `slowMoves.js`, under whatever the caller set.
   const limits = { ...MOVE_TIMEOUTS, ...toolTimeouts };
