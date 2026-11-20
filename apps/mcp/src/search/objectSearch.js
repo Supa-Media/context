@@ -45,7 +45,7 @@ class NotServed extends Error {
  * @param {{set: (key: string, value: unknown) => void}} trace
  * @returns {Promise<{hits: object[], matchCount: number, matchCountIsFloor: boolean}|null>}
  */
-export async function objectSearchAnswer(store, scope, rules, overrides, query, prefix, trace) {
+export async function objectSearchAnswer(store, scope, rules, overrides, query, prefix, trace, { apart = null } = {}) {
   const object = store?.objectSearch ?? null;
   if (object === null || typeof object.search !== "function") return null;
   const client = {
@@ -64,7 +64,8 @@ export async function objectSearchAnswer(store, scope, rules, overrides, query, 
       query,
       prefix: folderPrefix(prefix),
       tier: scope,
-      isVisible: (path) => canSee(path, scope, rules, overrides),
+      // `apart` only narrows: a path the asker already holds, answered as if absent (`searchVisibleNotes`).
+      isVisible: (path) => path !== apart && canSee(path, scope, rules, overrides),
       onCounts: (candidates, visible) => {
         trace.set("fastCandidates", candidates);
         trace.set("fastVisible", visible);

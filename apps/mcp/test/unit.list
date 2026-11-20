@@ -717,3 +717,6 @@ test/frozenModules.test.mjs
 test/warmPrefix.test.mjs
 test/nextSteps.test.mjs
 test/checkInSearch.test.mjs
+bench/test/codeLines.test.mjs
+bench/test/noteLinks.test.mjs
+test/noteConnect.test.mjs

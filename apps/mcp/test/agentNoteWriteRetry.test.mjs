@@ -107,5 +107,5 @@ test("in a turn, a slow save the model sees is the save's own answer, not 'took 
   const sent = calls[1].messages.filter((message) => message.role === "tool").at(-1)?.content;
   assert.match(sent, /saved projects\/personal-finances/);
   assert.doesNotMatch(sent, /took too long/);
-  assert.deepEqual(result.steps, [{ tool: "write_note", ok: true }]);
+  assert.deepEqual(result.steps, [{ tool: "write_note", ok: true, wrote: ["projects/personal-finances/overview.md"] }]); // the note it saved, for Connect (`turnLog.js` `wroteOf`)
 });

@@ -52,6 +52,14 @@ export function stateOf(call) {
   return hit?.file;
 }
 
+/** The notes a plain note write that worked saved, as `{ wrote: [path] }` for a turn's step (the Connect node's input). */
+export function wroteOf(call, result) {
+  // A write into another workspace (`context`) is that workspace's: the path alone would name a note of the person's own.
+  if (!NOTE_WRITES.has(call?.name) || result?.isError === true || (call.args?.context !== undefined && call.args?.context !== null && call.args?.context !== "")) return {};
+  const paths = (call.name === "save_many" && Array.isArray(call.args?.notes) ? call.args.notes.map((note) => note?.path) : [call.args?.path]).filter((path) => typeof path === "string" && path !== "");
+  return paths.length > 0 ? { wrote: paths } : {};
+}
+
 /** A tool trace entry's `action`, `six` and `state` (`actionOf`, `sixOf`, `stateOf`), each only when there is one. */
 export function traceNames(made, call) {
   const action = actionOf(made, call), six = sixOf(made, call), state = stateOf(call);

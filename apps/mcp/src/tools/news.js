@@ -164,7 +164,7 @@ export const TOOL_NEWS = Object.freeze([
     newTool: true,
     text:
       "fetch a note with `{ related: true }` (and `limit`, 1 to 25) for the notes around it, each with why: the notes it links to " +
-      "(linked_from_here), the notes linking to it (links_here), and notes whose text is like its title and headings (related_text). " +
+      "(linked_from_here), the notes linking to it (links_here), and notes about the same names and things as its prose (related_text). " +
       "related_notes `{ path, limit }` is the same by name.",
   },
   {

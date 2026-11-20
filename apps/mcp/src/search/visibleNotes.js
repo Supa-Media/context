@@ -25,15 +25,15 @@ import { SEARCH_SUBREQUEST_BUDGET, searchIndexedNotes } from "./visible.js";
  * answers when there is no usable index — a fallback a Worker can afford
  * because the alternative is telling somebody their note does not exist.
  */
-export async function searchVisibleNotes(store, scope, rules, overrides, query, prefix) {
+export async function searchVisibleNotes(store, scope, rules, overrides, query, prefix, { apart = null } = {}) {
   const seen = { started: false };
   let found;
   try {
-    found = await searchWithinBudget(store, scope, rules, overrides, query, prefix, seen);
+    found = await searchWithinBudget(store, scope, rules, overrides, query, prefix, seen, apart);
   } catch (error) {
     if (!error?.[BUDGET_EXHAUSTED] || !seen.started) throw error;
     if (typeof store.setExtraOperationCharge === "function") store.setExtraOperationCharge(null);
-    found = await rescueFromProjection(store, scope, rules, overrides, query, prefix);
+    found = await rescueFromProjection(store, scope, rules, overrides, query, prefix, { apart });
   }
   /*
    * Nothing found over an index that says it is behind, while the projection
@@ -43,7 +43,7 @@ export async function searchVisibleNotes(store, scope, rules, overrides, query, 
    * search answered nothing (2026-10-08).
    */
   if (found.hits.length === 0 && !found.projectionOnly && (found.indexIncomplete || found.degraded) && seen.started && store.searchIndex?.state !== "ready") {
-    const partial = await rescueFromProjection(store, scope, rules, overrides, query, prefix, { filling: true });
+    const partial = await rescueFromProjection(store, scope, rules, overrides, query, prefix, { filling: true, apart });
     if (partial.hits.length > 0) return { ...partial, indexIncomplete: true, matchCountIsFloor: true };
   }
   return found;
@@ -55,7 +55,7 @@ export async function searchVisibleNotes(store, scope, rules, overrides, query, 
  * error. An error here took the whole answer with it, meaning matches
  * included, and a texted question with it (@seyi, 2026-10-08).
  */
-async function rescueFromProjection(store, scope, rules, overrides, query, prefix, { filling = false } = {}) {
+async function rescueFromProjection(store, scope, rules, overrides, query, prefix, { filling = false, apart = null } = {}) {
   const fast = await fastSearchAnswer(
     store,
     scope,
@@ -65,7 +65,7 @@ async function rescueFromProjection(store, scope, rules, overrides, query, prefi
     prefix,
     createSearchBudget(FAST_SEARCH_FLOOR),
     createSearchTrace(),
-    { filling }
+    { filling, apart }
   );
   return {
     hits: fast?.hits ?? [],
@@ -78,7 +78,11 @@ async function rescueFromProjection(store, scope, rules, overrides, query, prefi
   };
 }
 
-async function searchWithinBudget(store, scope, rules, overrides, query, prefix, seen) {
+/**
+ * `apart`: one path the asker already holds (`related_notes`' seed), answered as if absent by the indexed answers, so
+ * the any-word retry runs when the only note holding every word is that one. It only ever narrows an answer.
+ */
+async function searchWithinBudget(store, scope, rules, overrides, query, prefix, seen, apart = null) {
   // Request-scoped metadata on the per-request store, same as `store.actor`:
   // the tool layer never sees `env`, and a fresh store is built per request, so
   // nothing here survives into another tenant's call.
@@ -130,7 +134,7 @@ async function searchWithinBudget(store, scope, rules, overrides, query, prefix,
   let fromObject = null;
   if (store.objectSearch) {
     const objectSpan = trace.span("object");
-    fromObject = await objectSearchAnswer(store, scope, rules, overrides, query, prefix, trace);
+    fromObject = await objectSearchAnswer(store, scope, rules, overrides, query, prefix, trace, { apart });
     objectSpan();
   }
   if (fromObject !== null) {
@@ -159,7 +163,7 @@ async function searchWithinBudget(store, scope, rules, overrides, query, prefix,
     // A budget too small for the fast path's floor gets the floor, as the
     // rescue above does: there is no other search left for it to starve.
     const asking = budget.remaining < FAST_SEARCH_FLOOR ? createSearchBudget(FAST_SEARCH_FLOOR) : budget;
-    const fast = await fastSearchAnswer(store, scope, rules, overrides, query, prefix, asking, trace, { filling: !ready });
+    const fast = await fastSearchAnswer(store, scope, rules, overrides, query, prefix, asking, trace, { filling: !ready, apart });
     fastSpan();
     const answered = ready && fast !== null;
     trace.set("indexed", fast !== null);
