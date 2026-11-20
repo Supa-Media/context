@@ -240,3 +240,13 @@ test("Chat day summaries, promoted from the shelf, runs after Text them in main'
   assert.ok(TEX_CONFIG.edges.some((e) => e.from === "send" && e.to === "chatDays" && e.mode === "background"));
   assert.deepEqual(draftFit(TEX_CONFIG, main()), { asDrawn: true });
 });
+
+test("a draft's step limits run as drawn: the dream's About me budget reaches the step (Lab, 2026-11-20)", () => {
+  const draft = { nodes: TEX_CONFIG.nodes.map((node) => (node.id === "dream" ? { ...node, limits: { chars: 12000 } } : node)), edges: TEX_CONFIG.edges };
+  assert.deepEqual(texStep("dream", withDraft(TEX_CONFIG, draft)).limits, { chars: 12000 });
+  assert.equal(draftFit(TEX_CONFIG, draft).asDrawn, true);
+  // Anything but whole numbers is not taken, and the draft says so rather than running main's silently.
+  const bad = { nodes: TEX_CONFIG.nodes.map((node) => (node.id === "dream" ? { ...node, limits: { chars: "lots" } } : node)), edges: TEX_CONFIG.edges };
+  assert.equal(texStep("dream", withDraft(TEX_CONFIG, bad)).limits, TEX_CONFIG.nodes.find((n) => n.id === "dream").limits);
+  assert.match((draftFit(TEX_CONFIG, bad).unapplied ?? []).join(" "), /dream\.limits/);
+});
