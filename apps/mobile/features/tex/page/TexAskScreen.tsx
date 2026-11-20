@@ -65,7 +65,7 @@ export function TexAskScreen() {
         {valid && own !== null && (state.kind === "asking" || state.kind === "sending") ? (
           <View style={{ flexDirection: "row", gap: 10 }}>
             <Button label="Yes, go ahead" variant="accent" disabled={busy} onPress={() => void answer(true)} testID="tex-ask-yes" />
-            <Button label="Not now" variant="white" disabled={busy} onPress={() => void answer(false)} testID="tex-ask-no" />
+            <Button label="Not now" variant="ghost" disabled={busy} onPress={() => void answer(false)} testID="tex-ask-no" />
           </View>
         ) : null}
       </View>
