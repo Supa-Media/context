@@ -106,7 +106,7 @@ export function frameBody({
         is Android's and ignored on web. Each platform reads its own.
       */}
       <View
-        style={styles.editor}
+        style={[styles.editor, regions.aside === "column" && styles.editorBesideAside]}
         {...(regions.scrim ? INERT : null)}
         importantForAccessibility={regions.scrim ? "no-hide-descendants" : "auto"}
       >
