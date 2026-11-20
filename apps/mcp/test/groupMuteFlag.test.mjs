@@ -1,7 +1,8 @@
 import assert from "node:assert/strict";
-import { groupChat } from "../chats.mjs";
+import { test } from "node:test";
+import { groupChat } from "./replay/chats.mjs";
 
-export default {
+const story = {
   id: "group-mute-said-by-code",
   incident: "2026-11-19: a group chat had been muted for a week without anyone knowing; a turn had called chat_mute on \"Tex stop talking, forever\", the reviewer sent its \"text Tex, start\" line back, and later asks there were dropped in silence.",
   cause: "Whether the chat heard it was muted rode on the turn's own words, which a reviewer or the model could drop; nothing told the Worker the chat had been muted.",
@@ -33,3 +34,5 @@ export default {
     }
   },
 };
+
+test(story.incident, () => story.run());
