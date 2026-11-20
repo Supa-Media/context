@@ -109,7 +109,7 @@ test("the Convex preview is found by its pr<N> name with the preview key and del
   const fetchImpl = async (url, init) => {
     seen.push([url, JSON.parse(init.body)]);
     assert.equal(init.headers.Authorization, `Bearer ${KEY}`);
-    if (url.endsWith("/api/deployment/authorize_preview")) return Response.json({ deploymentName: "happy-otter-123", adminKey: "ADMIN-SECRET", url: "https://happy-otter-123.convex.cloud" });
+    if (url.endsWith("/api/deployment/authorize_preview")) return Response.json({ deploymentName: "happy-otter-123", adminKey: "ADMIN-SECRET"});
     return new Response("{}", { status: 200 });
   };
   const logs = [];
