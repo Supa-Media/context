@@ -624,6 +624,16 @@ export function withBackground(background, callTool) {
 
 /** What a job's own turn is told: the plan it started with, and to deliver. */
 export function jobPrompt(job) {
+  const part = jobPartPrompt(job);
+  return jobBriefPrompt(job) + (part ? `\n${part}` : "");
+}
+
+/**
+ * What a job's parts all share (its title, plan, finish line and the ask that started it), sent above the history and cached:
+ * the same bytes for every part. What changes from part to part is `jobPartPrompt`, said after the history in the
+ * turn's preamble (`turnPrompt.js`), so a new part never rewrites the cache (2026-11-20 audit: this block changed in 12 of 13 parts).
+ */
+export function jobBriefPrompt(job) {
   if (job === null) return "";
   return (
     `\n\nThis turn is a background job you started from their text: "${job.title}". You are that job, running now: never answer that it ` +
@@ -636,6 +646,29 @@ export function jobPrompt(job) {
         "what your plan says was already found is a start, not the whole answer:\n" +
         job.asked.map((words) => `- ${words}`).join("\n")
       : "") +
+    (job.project && !job.roster
+      ? `\nYou are one part of a bigger ask that runs in parallel. Before anything else, join the mail of ${job.project.path}` +
+        `${job.project.context ? ` in ${job.project.context}` : ""} as "${job.project.name}" (write action mail, args { join: "${job.project.name}" }), ` +
+        "and read what is there. The other parts' jobs and Tex are on it: tell them when you finish or when something you found changes their part, " +
+        "ask them (kind \"ask\") rather than guess what they are doing, and keep your own task note's status current."
+      : "") +
+    "\nFinished means what they asked for is there in full: every figure counted (a cost per person covers everything it is meant to, " +
+    "sides and drinks included), not part of it with a next step named. Looking up published menus and prices is yours to do; only " +
+    "contacting someone waits for their yes." +
+    "\nWrite the deliverable where it belongs (a note in the right workspace and folder, unless they asked for something else) " +
+    "before you finish, even if some of it is unfinished, and say what's missing in it. " +
+    `${PAGE_JOB_LINE} ` +
+    "Your answer is your report to the chat's own turn, which coordinates you, not a text to them: only what it texts reaches them. " +
+    "Report plainly what you did and where (the page's or note's link), your bottom line, and anything that failed or is missing; " +
+    "say a save worked only after reading the note back. No progress reports unless something needs one, like a sign-in link."
+  );
+}
+
+/** What changes from one part of a job to the next, for the turn's preamble after the history (`jobBriefPrompt`). */
+export function jobPartPrompt(job) {
+  if (job === null) return "";
+  return (
+    (job.roster ? `\n${job.roster}` : "") +
     (job.attempt > 1
       ? `\nYou already worked on this ${job.attempt - 1 === 1 ? "once" : `${job.attempt - 1} times`}: read the note ` +
         "you were writing or the job's task note first, carry on from where it stops, and don't start over."
@@ -645,14 +678,6 @@ export function jobPrompt(job) {
       ? "\nSince you started, they texted this about it (their own words, newer than your plan: where they differ, do it their " +
         "new way, and fix anything you already made the old way; a text telling you to stop or not to do something is a rule for the rest of the job, retries included):\n" +
         job.followUps.map((words) => `- ${words}`).join("\n")
-      : "") +
-    (job.roster
-      ? `\n${job.roster}`
-      : job.project
-      ? `\nYou are one part of a bigger ask that runs in parallel. Before anything else, join the mail of ${job.project.path}` +
-        `${job.project.context ? ` in ${job.project.context}` : ""} as "${job.project.name}" (write action mail, args { join: "${job.project.name}" }), ` +
-        "and read what is there. The other parts' jobs and Tex are on it: tell them when you finish or when something you found changes their part, " +
-        "ask them (kind \"ask\") rather than guess what they are doing, and keep your own task note's status current."
       : "") +
     (job.mail?.length > 0
       ? "\nMail came for you on the notes you joined while you were between parts, oldest first. Answer each ask with a note to its sender " +
@@ -674,17 +699,8 @@ export function jobPrompt(job) {
         `${job.draft}\n>>>\n` +
         "Build on it rather than starting over: keep its figures unless their newer text changes them or you find a mistake, and when one changes, " +
         "say which and why in one line. Your answer replaces it, so it is the one result they get."
-      : "") +
-    "\nFinished means what they asked for is there in full: every figure counted (a cost per person covers everything it is meant to, " +
-    "sides and drinks included), not part of it with a next step named. Looking up published menus and prices is yours to do; only " +
-    "contacting someone waits for their yes." +
-    "\nWrite the deliverable where it belongs (a note in the right workspace and folder, unless they asked for something else) " +
-    "before you finish, even if some of it is unfinished, and say what's missing in it. " +
-    `${PAGE_JOB_LINE} ` +
-    "Your answer is your report to the chat's own turn, which coordinates you, not a text to them: only what it texts reaches them. " +
-    "Report plainly what you did and where (the page's or note's link), your bottom line, and anything that failed or is missing; " +
-    "say a save worked only after reading the note back. No progress reports unless something needs one, like a sign-in link."
-  );
+      : "")
+  ).trim();
 }
 
 /** How a job's turn is kept in the conversation: by name, so the history doesn't hold their ask twice. */
