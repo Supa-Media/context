@@ -129,7 +129,7 @@ export function AsideStrip({
             </View>
           ) : null}
           {tab.key === "tex" && waiting !== "" ? (
-            <Text variant="meta" style={styles.count} testID="aside-tab-tex-count">
+            <Text variant="treeMeta" style={styles.count} testID="aside-tab-tex-count">
               {waiting}
             </Text>
           ) : null}
@@ -156,7 +156,6 @@ const makeStyles = (colors: Colors) =>
       borderRadius: radii.pill,
       overflow: "hidden",
       textAlign: "center",
-      fontSize: 10,
       lineHeight: 16,
       backgroundColor: colors.accent,
       color: colors.ground,
