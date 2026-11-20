@@ -35,6 +35,7 @@ import { PERSONAL_TEX_SEND_ACTIONS } from "./askPersonalTex.js";
 import { CROSS_CHAT_SEND_ACTIONS } from "./crossChat.js";
 import { TEXTS_ID_PREFIX } from "../../../../apps/mcp/src/tools/texts.js";
 import { withNothingChanged } from "./noteLinks.js";
+import { actionArgumentsRefusal, checkActionArguments } from "./actionArgs.js";
 
 /**
  * The first top-level argument a closed schema does not take, as the refusal to send back, or null. Only unknown names:
@@ -542,10 +543,25 @@ export function sixToolsOver(granted, grants = null, { shown = null } = {}) {
   }
 
   function resolve(name, args) {
-    const out = resolveCall(name, args);
+    const out = checkedAction(name, args, resolveCall(name, args));
     const action = args && typeof args === "object" && !Array.isArray(args) ? args.action : undefined;
     if (out.error === undefined || name !== "manage" || !VISIBILITY_ACTIONS.includes(action)) return out;
     return { ...out, error: withNothingChanged(out.error) };
+  }
+
+  /**
+   * A family action's call, held to its carrier's own schema before it runs (`actionArgs.js`; Dev2, 2026-11-20): the
+   * same schema its line and its manual are written from. A call on the wrong family was checked where it lives.
+   */
+  function checkedAction(name, args, out) {
+    if (out.error !== undefined || typeof out.text === "string" || !(name === "write" || name === "manage" || name === "send")) return out;
+    const call = args && typeof args === "object" && !Array.isArray(args) ? args : {};
+    const action = name === "write" && (call.action === undefined || call.action === "") ? "save" : call.action;
+    const carrier = held.get(out.name) ?? (shown instanceof Map ? shown.get(out.name) : undefined);
+    const checked = checkActionArguments(carrier?.inputSchema ?? carrier?.input_schema, out.args);
+    if (checked.error === undefined) return { ...out, args: checked.args };
+    const family = ["write", "manage", "send"].find((each) => allowedActions[each].has(action)) ?? name;
+    return { error: actionArgumentsRefusal(family, action, checked.error), cause: "bad_arguments" };
   }
 
   function resolveCall(name, args) {
