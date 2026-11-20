@@ -119,6 +119,11 @@ export function texCacheTtl(id, config = CONFIG) {
   return texStep(id, config).cacheTtl === "5m" ? "5m" : "1h";
 }
 
+/** Which tools a step's model is shown: "fixed", every tool its kind of chat has (`sixToolsFixed.js`), or "turn", what the turn holds. */
+export function texToolList(id, config = CONFIG) {
+  return texStep(id, config).toolList === "fixed" ? "fixed" : "turn";
+}
+
 /** A step's time limit in milliseconds. Throws when the file gives it none. */
 export function texTimeoutMs(id, config = CONFIG) {
   const seconds = texStep(id, config).timeoutS;

@@ -63,7 +63,7 @@ const TOOL_NAME_ALIASES = new Map([["archive_chat", "save_context"]]);
 // texts:` (`v2/searchFetch.js`): new arguments on the tools every client
 // already holds, not three new tools a cached list would not have. A Google
 // Chat conversation is `fetch chat:<space>` the same way.
-const UNLISTED_TOOLS = new Set(["create_form", "search_texts", "list_texts", "read_texts", "read_google_chat"]);
+export const UNLISTED_TOOLS = new Set(["create_form", "search_texts", "list_texts", "read_texts", "read_google_chat"]);
 
 /**
  * The six tools an MCP client is offered since v2 (decided 2026-10-16,
@@ -76,7 +76,7 @@ const UNLISTED_TOOLS = new Set(["create_form", "search_texts", "list_texts", "re
 export const V2_TOOLS = new Set(["orient", "search", "fetch", "write", "manage", "send", "tex_dev"]);
 
 /** The v2-only names, which the full (v1) list does not show. */
-const V2_ONLY_TOOLS = new Set(["write", "manage", "send"]);
+export const V2_ONLY_TOOLS = new Set(["write", "manage", "send"]);
 // `tex_dev` (Dev2, 2026-11-15: a seventh tool) is in both lists, and only for people who edit `@context-lc`'s AI
 // setup (`STAFF_ONLY_TOOLS`): everyone else is still offered six.
 
