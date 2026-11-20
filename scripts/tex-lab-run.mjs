@@ -36,8 +36,8 @@ import { scoreByRepeat, testKeyOf, worldMisses } from "../apps/mcp/bench/setsRun
 
 const requireHere = createRequire(import.meta.url);
 const { unitTests } = requireHere("../packages/shared/src/texSets.cjs");
-const { CC_FIDELITY_WHY, fidelityOf } = requireHere("../packages/shared/src/texRunBand.cjs");
-const { failingRows, tagsOf } = requireHere("../packages/shared/src/texFailures.cjs");
+const { CC_FIDELITY_WHY, fidelityOf } = requireHere("../packages/lab/src/texRunBand.cjs");
+const { failingRows, tagsOf } = requireHere("../packages/lab/src/texFailures.cjs");
 const PEOPLE = fileURLToPath(new URL("../apps/mcp/bench/ai/workspaces/people.md", import.meta.url));
 
 /** An error whose `why` is for the Lab (the run's error, kept in Convex) and whose message is for the public log. */

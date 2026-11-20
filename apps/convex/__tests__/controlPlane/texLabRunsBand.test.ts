@@ -1,5 +1,5 @@
 /**
- * Lab runs with repeats and a noise band (`functions/texLabRuns.ts`; `packages/shared/src/texRunBand.cjs`; Dev2,
+ * Lab runs with repeats and a noise band (`functions/texLabRuns.ts`; `packages/lab/src/texRunBand.cjs`; Dev2,
  * 2026-11-19: "repeat each Front door test N times ... a draft wins only if it clears the band vs its base"). Pinned:
  * what a report keeps of a score, its repeats, its fidelity and each row's runs and passes (and drops the junk); how
  * many repeats a run may ask for (1 to 5, 3 by default, a run from before repeats ran once); and that a draft's Dev
@@ -7,7 +7,7 @@
  */
 
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
-import { bandOf } from "@context/shared/src/texRunBand.cjs";
+import { bandOf } from "@context/lab/src/texRunBand.cjs";
 import { PINNED_CONTEXT_SLUG } from "@context/shared";
 import { api, internal } from "../../_generated/api";
 import { hashToken } from "../../functions/lib/crypto";

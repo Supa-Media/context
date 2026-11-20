@@ -1,5 +1,5 @@
 /**
- * The small edits a Tex Lab draft is changed with (`packages/shared/src/texLabOps.cjs`; Dev2, 2026-11-15: the AI over
+ * The small edits a Tex Lab draft is changed with (`packages/lab/src/texLabOps.cjs`; Dev2, 2026-11-15: the AI over
  * the MCP and a person in the Lab edit one draft together). The control plane refuses an edit made against an older
  * revision only when a revision since touched the same piece; these tests pin which pieces overlap.
  *
@@ -15,7 +15,7 @@
  */
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { applyOps, conflicts, diffGraphs, keysOf, OpError, overlaps } from "../../../packages/shared/src/texLabOps.cjs";
+import { applyOps, conflicts, diffGraphs, keysOf, OpError, overlaps } from "../../../packages/lab/src/texLabOps.cjs";
 import { readTexConfig } from "../../../scripts/lib/texConfigFile.mjs";
 
 const config = readTexConfig();

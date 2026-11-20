@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// Writes packages/shared/src/texSetsRepo.generated.json: Tex's Training and Dev conversations, read from
+// Writes packages/lab/src/texSetsRepo.generated.json: Tex's Training and Dev conversations, read from
 // apps/mcp/bench/sets (contract: packages/shared/src/texSets.cjs).
 //
 //   node scripts/tex-sets-data.mjs           write the file
@@ -12,7 +12,7 @@ import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
 const ROOT = fileURLToPath(new URL("..", import.meta.url));
-const OUT = path.join(ROOT, "packages/shared/src/texSetsRepo.generated.json");
+const OUT = path.join(ROOT, "packages/lab/src/texSetsRepo.generated.json");
 const { loadSets, loadContract, problemsOf, jsonFile } = await import(
   pathToFileURL(path.join(ROOT, "apps/mcp/bench/sets.mjs")).href
 );

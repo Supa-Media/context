@@ -1,0 +1,13 @@
+{
+  "name": "@context/lab",
+  "version": "1.0.0",
+  "private": true,
+  "description": "The Tex Lab: drafts, runs, test sets, sandbox and the tex_dev tool's logic. Depends on Tex, never the reverse.",
+  "scripts": {
+    "typecheck": "echo \"checked through its readers (apps/mobile, apps/convex)\" && exit 0",
+    "lint": "echo \"no lint configured yet\" && exit 0"
+  },
+  "dependencies": {
+    "@context/shared": "workspace:*"
+  }
+}
