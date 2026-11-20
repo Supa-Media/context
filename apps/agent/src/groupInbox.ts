@@ -70,7 +70,7 @@ import type { WhapiKeys } from "./whapi";
 import { groupLineFor, groupLineSeam, type GroupLine, type GroupPlace } from "./groupLine";
 import { inRoom, namesOnlySender, readMembersNow, withMembers } from "./groupMembers";
 import type { NoteCardDrawer } from "./noteCards";
-import { isBound, isMuted, keepChatLine, peopleOf, setChatBound, sha256Hex, unmute } from "./groupChat";
+import { isBound, isMuted, keepChatLine, markMutedTold, mutedTold, peopleOf, setChatBound, sha256Hex, unmute } from "./groupChat";
 import type { GroupMessage } from "./sendblueGroups";
 import { watchFailed } from "./reviewWatch";
 import { callsTex, groupCommand, type Command } from "./groupWords";
@@ -189,9 +189,10 @@ export async function acceptGroup(storage: InboxStorage, message: GroupMessage, 
   // A chat Tex is not set up in keeps nothing it is told, nor does an SMS (its sender vouches for nothing). Fail closed
   // (security review, 2026-11-11): only a message that tags or names Tex, or replies under its text, is read at all,
   // and then by the judge alone, on its own words, logged only if answered (`firstLook`). A muted chat, and a reaction
-  // there, is never read: only a command said to Tex by name ("Tex, start") reaches it.
+  // there, is never read: only a command said to Tex by name ("Tex, start") reaches it, and, until the chat has been told
+  // how to start Tex again, a message naming Tex, so a clear ask is never dropped in silence (Dev2, 2026-11-20).
   if (!tagged && (message.sms === true || !(await isBound(storage, message)))) {
-    const calls = message.reaction === undefined && !(await isMuted(storage)) && callsTex(message.heard ?? message.text, repliesToTex);
+    const calls = message.reaction === undefined && (!(await isMuted(storage)) || !(await mutedTold(storage))) && callsTex(message.heard ?? message.text, repliesToTex);
     if (!calls) return log("untagged_ignored", "unbound"), "ignored";
     log("untagged_first_look");
     return await enqueue(storage, message, { soft: true, look: true }, repliesToTex, seen, now);
@@ -610,6 +611,11 @@ export async function answerGroup(storage: InboxStorage, entries: GroupEntry[], 
   if (routine && status !== "ready") return void (await cannotRun(storage, deps, message, status));
   // A chat that isn't answering keeps nothing it was told.
   if (status === "muted" || status === "stopped" || status === "no_shared") await setChatBound(storage, null, status !== "no_shared");
+  // A clear ask in a muted chat hears, once a mute, how to start Tex again; nothing of it is done (Dev2, 2026-11-20).
+  if (status === "muted" && question && message.jobReport === undefined && message.crossChat === undefined && message.event === undefined && !(await mutedTold(storage))) {
+    await markMutedTold(storage);
+    return void (await fixed(GROUP_LINES.muted));
+  }
   if (status === "refused" || status === "muted") return log(status);
   if (status === "unknown_sender") return asked.tell === true ? void (await fixed(GROUP_LINES.unknown)) : log(status);
   if (status === "no_shared") return void (await fixed(GROUP_LINES.noShared));

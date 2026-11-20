@@ -21,7 +21,7 @@ import type { InboxStorage } from "./inbox";
 import { groupLineFor, groupLineSeam } from "./groupLine";
 import { membersBeforeSend } from "./groupMembers";
 import { deliveryStep, logStep, tapback } from "./stepEvents";
-import { chatBefore, dropChatLines, isBound, notePeople, peopleHash, peopleOf, sha256Hex } from "./groupChat";
+import { chatBefore, dropChatLines, isBound, notePeople, peopleHash, peopleOf, setChatBound, sha256Hex } from "./groupChat";
 import type { GroupMessage } from "./sendblueGroups";
 import { watchConversation } from "./reviewWatch";
 import { chatJobs, jobQuestion, resumeJobs, startJobs, steerJobs, viewLink, withThreadsLine } from "./jobs";
@@ -211,6 +211,15 @@ export async function groupTurn(storage: InboxStorage, deps: GroupDeps, { messag
   if (answer.kind === "no_model") return void (await say(storage, deps, message, "I can't answer from here yet.", { system: true }));
   if (answer.kind !== "answer") throw new ServiceError("gateway", answer.kind === "no_storage" ? 503 : answer.kind === "unavailable" && answer.timedOut ? 504 : null); // 503: the chat's workspace can't be opened (`failedLine`)
   if (answer.steered) await dropSteered(storage, answer.steered, covers);
+  // The turn muted this chat (`chat_mute`): it is told so in the fixed words "Tex, stop" gets, by code, whatever the turn
+  // texted or held back, and nothing else of the turn is sent (Dev2, 2026-11-20: a reviewer sent the turn's own line
+  // back and the chat was muted for a week without anyone hearing).
+  if (answer.muted && !routine && message.jobReport === undefined) {
+    if (answer.askIds) await staleAsks(deps, accessToken, answer.askIds);
+    await setChatBound(storage, null, true);
+    await say(storage, deps, message, GROUP_LINES.stopped, { system: true });
+    return log("muted_by_turn");
+  }
   // A link to save a login went: this chat watches that link, and its save carries the task on here (`vaultWatch.ts`).
   if (answer.vaultWatch) await watchForSave(storage, message.from, deps.now(), { ...(answer.vaultLinks ? { links: answer.vaultLinks } : {}), group: { groupId: message.groupId, line: message.line, messageId: message.messageId, text: message.text } });
   // A take-over link went: Done on it carries the task on here (`handbackWatch.ts`).

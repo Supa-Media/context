@@ -235,3 +235,16 @@ test("the settings answer lists the calendars shared with the chat, or says none
   const none = commandTools({ run: async () => ({ status: "done", instructions: "" }), group: { key: "k" } });
   assert.match(words(await byName(none, "tex_settings_get").call()), /No one's calendar is shared with this chat\./);
 });
+
+// Nov Babies, 2026-11-20: a turn muted the chat and a reviewer sent its "Tex, start" line back, so nobody heard.
+// A mute that went through is flagged for the Worker to say in fixed words; one refused is not.
+// Sabotage: drop the `onMute()` call → this fails.
+test("a mute that went through is flagged for the Worker to announce; a refused one is not", async () => {
+  let flagged = 0;
+  const done = byName(commandTools({ run: async () => ({ status: "done" }), group: { key: "k" }, onMute: () => (flagged += 1) }), "chat_mute");
+  assert.match(words(await done.call({})), /say nothing more/);
+  assert.equal(flagged, 1);
+  const refused = byName(commandTools({ run: async () => ({ status: "refused" }), group: { key: "k" }, onMute: () => (flagged += 1) }), "chat_mute");
+  await refused.call({});
+  assert.equal(flagged, 1);
+});

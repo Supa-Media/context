@@ -377,13 +377,14 @@ describe("a group's queue", () => {
     expect(await acceptGroup(storage, message("@supa", { messageId: "h_pick" }), 0)).toBe("ignored");
   });
 
-  it("is silent when muted, and tells an unknown tagger only once", async () => {
+  it("says only how to start Tex when muted, and tells an unknown tagger only once", async () => {
     for (const control of [{ status: "muted" }, { status: "unknown_sender", tell: false }]) {
       const storage = new MemoryStorage();
       const w = world();
       await acceptGroup(storage, message("Tex, hi"), 0);
       await drainGroup(storage, deps(w, { control }));
-      expect(w.sends).toEqual([]);
+      // A muted chat's first ask hears the way back, nothing more (Dev2, 2026-11-20; `groupMuteTold.test.ts`).
+      expect(w.sends.map((sent) => sent.content)).toEqual(control.status === "muted" ? [GROUP_LINES.muted] : []);
       // No working-on-it tapback for anyone (Dev2, 2026-11-10).
       expect(w.reactions).toBe(0);
     }
