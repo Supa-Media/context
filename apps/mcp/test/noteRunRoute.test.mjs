@@ -269,7 +269,7 @@ describe("the note: read through the person's own access", () => {
     const d = dispatcher();
     const response = await postRun(body(), { env: { TEX_CHAT: chatNamespace().namespace }, deps: depsFor({ dispatch: d.dispatch, node: null }) });
     assert.equal(response.status, 503);
-    assert.equal((await response.json()).error, "Tex in notes isn't on yet.");
+    assert.equal((await response.json()).error, "Tex in notes isn't on yet. Ask Tex from its chat for now, then try here again later.");
     assert.equal(response.headers.get(CORS), "*");
     assert.equal(d.calls.length, 0);
   });
@@ -285,7 +285,7 @@ describe("the note: read through the person's own access", () => {
     const deps = depsFor({ dispatch: d.dispatch, runNoteRun: async () => ((ran += 1), { outcome: "answered", answer: "x" }) });
     const response = await postRun(body(), { env: { TEX_CHAT: chatNamespace().namespace }, deps });
     assert.equal(response.status, 404);
-    assert.equal((await response.json()).error, "That note can't be read.");
+    assert.equal((await response.json()).error, "That note can't be read with your access. Open a note you can see, then ask again.");
     assert.equal(response.headers.get(CORS), "*");
     assert.equal(ran, 0);
   });
@@ -462,7 +462,7 @@ describe("tex_dev's note_runs: a note's runs in full, for a note the caller can 
     assert.equal(full.runs[0].model, "haiku-5-5");
     assert.equal(typeof full.runs[0].ms, "number");
     const hidden = await noteRunsFull({ env, store: {}, session: ANA, args: { workspace: "@team", noteId: "n1", path: NOTE } }, { dispatchFor: () => dispatcher({ isError: true, content: [] }).dispatch });
-    assert.equal(hidden.error, "That note can't be read.");
+    assert.equal(hidden.error, "That note can't be read with your access. Open a note you can see, then ask again.");
     assert.equal(hidden.runs, undefined);
   });
 

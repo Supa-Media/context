@@ -51,8 +51,8 @@ const LOG_SOURCES = 50;
 const ID_TEXT = /^[A-Za-z0-9_.:-]{1,128}$/;
 const LIMIT_MESSAGE = "That's today's limit for Tex. Try again tomorrow.";
 const UNREACHABLE_MESSAGE = "Tex can't take that just now. Try again in a moment.";
-const NOT_READABLE_MESSAGE = "That note can't be read.";
-const NOT_WIRED_MESSAGE = "Tex in notes isn't on yet.";
+const NOT_READABLE_MESSAGE = "That note can't be read with your access. Open a note you can see, then ask again.";
+const NOT_WIRED_MESSAGE = "Tex in notes isn't on yet. Ask Tex from its chat for now, then try here again later.";
 /** The phrase for who a note is shared with, by the visibility its read gave (`read_note`'s `visibility:` line). */
 const AUDIENCE = Object.freeze({ private: "only you", team: "the team it is shared with" });
 const AUDIENCE_OTHER = "the people this note is shared with";
@@ -80,25 +80,25 @@ const text = (value, max, min = 0) => typeof value === "string" && value.length 
  * and size the route's contract names (D1 section 3).
  */
 export function parseRunBody(body) {
-  if (!isObject(body)) return { error: "Send a JSON object." };
+  if (!isObject(body)) return { error: "The body is not an object. Send a JSON object with workspace, path, thread, anchor, ask, history and pending." };
   const { workspace, noteId, path, thread, anchor, ask, history, pending } = body;
-  if (!text(workspace, MAX_ID, 1)) return { error: "workspace is a workspace id or @name." };
+  if (!text(workspace, MAX_ID, 1)) return { error: "workspace is missing. Send the note's workspace id or @name, then try again." };
   // The client's note id is optional and never trusted: the log's key is derived from the note as read (`logKeyOf`).
-  if (noteId !== undefined && (!text(noteId, MAX_ID) || (noteId !== "" && !ID_TEXT.test(noteId)))) return { error: "noteId is a note's id, or empty." };
-  if (!text(path, MAX_PATH, 1)) return { error: `path is up to ${MAX_PATH} characters.` };
-  if (!text(thread, MAX_ID, 1)) return { error: "thread is the comment thread's id." };
+  if (noteId !== undefined && (!text(noteId, MAX_ID) || (noteId !== "" && !ID_TEXT.test(noteId)))) return { error: "noteId is not a note's id. Send it empty, then try again." };
+  if (!text(path, MAX_PATH, 1)) return { error: `path is missing or too long. Send the note's path, up to ${MAX_PATH} characters, then try again.` };
+  if (!text(thread, MAX_ID, 1)) return { error: "thread is missing. Send the comment thread's id, then try again." };
   if (!isObject(anchor) || !text(anchor.text, MAX_ANCHOR_TEXT) || !text(anchor.before, MAX_ANCHOR_CONTEXT) || !text(anchor.after, MAX_ANCHOR_CONTEXT)) {
-    return { error: `anchor is { text (up to ${MAX_ANCHOR_TEXT}), before and after (up to ${MAX_ANCHOR_CONTEXT}) }.` };
+    return { error: `anchor is not right. Send { text (up to ${MAX_ANCHOR_TEXT}), before and after (up to ${MAX_ANCHOR_CONTEXT}) }, then try again.` };
   }
   const words = typeof ask === "string" ? ask.trim() : "";
-  if (words === "" || words.length > MAX_ASK) return { error: `Ask Tex in 1 to ${MAX_ASK} characters.` };
-  if (!Array.isArray(history) || history.length > MAX_HISTORY) return { error: `history is up to ${MAX_HISTORY} texts.` };
+  if (words === "" || words.length > MAX_ASK) return { error: `The ask is empty or too long. Ask Tex in 1 to ${MAX_ASK} characters, then try again.` };
+  if (!Array.isArray(history) || history.length > MAX_HISTORY) return { error: `history is too long. Send up to ${MAX_HISTORY} texts, then try again.` };
   for (const item of history) {
     if (!isObject(item) || !text(item.who, MAX_WHO) || !text(item.body, MAX_HISTORY_BODY)) {
-      return { error: `Each history text is { who, body (up to ${MAX_HISTORY_BODY}) }.` };
+      return { error: `A history text is not right. Send each as { who, body (up to ${MAX_HISTORY_BODY}) }, then try again.` };
     }
   }
-  if (pending !== null && !text(pending, MAX_PENDING)) return { error: `pending is null or up to ${MAX_PENDING} characters.` };
+  if (pending !== null && !text(pending, MAX_PENDING)) return { error: `pending is too long. Send null or up to ${MAX_PENDING} characters, then try again.` };
   return {
     workspace,
     noteId,
@@ -226,14 +226,14 @@ export async function handleNoteRun(request, store, session, _path, env, ctx = n
 async function serveRun(request, store, session, env, ctx, deps) {
   if (!ownerOf(session)) return refuse(403, "forbidden");
   if (request.method !== "POST") return new Response(null, { status: 405 });
-  if (Number(request.headers.get("content-length") ?? 0) > MAX_BODY_BYTES) return refuse(413, "The request is too large.");
+  if (Number(request.headers.get("content-length") ?? 0) > MAX_BODY_BYTES) return refuse(413, "The request is too large. Send a shorter note thread, then try again.");
   const bytes = await request.arrayBuffer();
-  if (bytes.byteLength > MAX_BODY_BYTES) return refuse(413, "The request is too large.");
+  if (bytes.byteLength > MAX_BODY_BYTES) return refuse(413, "The request is too large. Send a shorter note thread, then try again.");
   let raw;
   try {
     raw = JSON.parse(new TextDecoder().decode(bytes));
   } catch {
-    return refuse(400, "The request is not JSON.");
+    return refuse(400, "The request is not JSON. Send a JSON object, then try again.");
   }
   const parsed = parseRunBody(raw);
   if (parsed.error) return refuse(400, parsed.error);
@@ -344,7 +344,7 @@ async function serveRuns(request, store, session, env, deps) {
   const noteId = params.get("noteId") ?? "";
   const path = params.get("path") ?? "";
   if (!text(workspace, MAX_ID, 1) || !text(noteId, MAX_ID) || !text(path, MAX_PATH, 1)) {
-    return refuse(400, "workspace and path name the note.");
+    return refuse(400, "workspace or path is missing. Send both to name the note, then try again.");
   }
   const target = targetOf(session, workspace);
   if (target === null) return refuse(403, "forbidden");
@@ -378,7 +378,7 @@ async function serveRuns(request, store, session, env, deps) {
 export async function noteRunsFull({ env, store, session, args }, deps = {}) {
   const { workspace, noteId, path } = args ?? {};
   if (!text(workspace, MAX_ID, 1) || !text(path, MAX_PATH, 1)) {
-    return { error: "note_runs takes { workspace, path }: the note's workspace and path." };
+    return { error: "workspace or path is missing. Pass note_runs { workspace, path }, then try again." };
   }
   const target = targetOf(session, workspace);
   if (target === null) return { error: "This connection has no access to that workspace; call orient to see the ones it reaches." };
