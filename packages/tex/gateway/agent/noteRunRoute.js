@@ -271,6 +271,7 @@ async function serveRun(request, store, session, env, ctx, deps) {
         dispatch,
         offered,
         ledger,
+        workspace: target.context ?? null, // the note's workspace: every read goes there unless the model names another
         path: parsed.path,
         noteText: note.note,
         anchor: parsed.anchor,
