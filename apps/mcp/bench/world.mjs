@@ -22,7 +22,7 @@
 import { connectMailbox, inMailbox, readMailbox, searchMailbox, sentMail, settingMailbox } from "./mailbox.mjs";
 import { TRANSCRIPTS_FOLDER } from "../../../packages/tex/gateway/agent/transcript.js";
 import { HOUSEKEEPING_CLIENT_ID } from "../../../packages/tex/gateway/agent/housekeeping.js";
-import { arrivedEmail, checkInTurn, houseTurn, routineTurn, startCall, startGrants } from "./worldStarts.mjs";
+import { arrivedEmail, checkInTurn, houseTurn, lastWords, routineTurn, startCall, startGrants } from "./worldStarts.mjs";
 import worker from "../src/index.js";
 import { PRODUCTION_TEXTING_PATH } from "../../../packages/tex/gateway/agent/production.js";
 import { skillPath } from "../../../packages/tex/gateway/agent/skills.js";
@@ -50,8 +50,7 @@ import { worldChat } from "./worldChat.mjs";
 import { chatEntries, modelLog } from "./modelLog.mjs";
 import { failedStatus, roundsOf } from "./trace.mjs";
 import { benchCause } from "./benchCause.mjs";
-import { homeChanges, noteChanges, worldStandIns } from "./worldStandIns.mjs";
-import { lastWords } from "./worldStarts.mjs";
+import { homeChanges, noteChanges, turnLinks, worldStandIns } from "./worldStandIns.mjs";
 import { isFrontDoorCall, quietCallsOf } from "./frontDoorCall.mjs";
 import { modelFailuresIn, toolErrorsIn } from "./toolErrors.mjs";
 import { turnSteps } from "./turnSteps.mjs";
@@ -602,6 +601,7 @@ export async function createWorld(bench, person, setupRaw, models, today = null,
     /** Each Gmail search and read this conversation made, in order (`mailbox.mjs`). */
     mail: () => [...mailEvents],
 
+    links: () => [...before].flatMap(([name, was]) => turnLinks(name, was, snapshot(s3.bucketFor(`bench-${name}`)), isPlumbingPath)), // links touching a note it wrote (`noteLinks.mjs`)
     /** What the conversation changed in the invented workspaces, as a list. */
     changes() {
       const workspaces = [...before].flatMap(([name, was]) => noteChanges(name, was, snapshot(s3.bucketFor(`bench-${name}`)), isPlumbingPath));

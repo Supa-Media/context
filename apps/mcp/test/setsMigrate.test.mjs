@@ -92,7 +92,8 @@ test("caseToConversation ignores a cause field", () => {
 test("a migrated case a conversation names sits whole inside it; one none names is retired, not a problem", async () => {
   const repoConvs = await loadSets();
   // 13: redo-the-draft (2026-11-19, a Training conversation for a draft asked again) joined the twelve.
-  assert.ok(repoConvs.length <= 13, `about ten long conversations, not ${repoConvs.length}`);
+  // 14: study-threads (2026-11-20, a Dev conversation for the links Tex leaves between study notes).
+  assert.ok(repoConvs.length <= 14, `about ten long conversations, not ${repoConvs.length}`);
   assert.deepEqual(placesOf(convs, repoConvs), []);
   // A conversation that names a case holds it whole: built from the case itself, then broken.
   const kase = convs.find((c) => c.msgs.some((m) => m.labels && Object.keys(m.labels).length));

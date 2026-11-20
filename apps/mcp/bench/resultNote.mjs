@@ -113,6 +113,8 @@ function readBlock(id, lines) {
   const stepsLine = tail.find((line) => line.startsWith("Steps: "));
   // Each failed tool's own error (`toolErrors.mjs`).
   const errorsLine = tail.find((line) => line.startsWith("Tool errors: "));
+  // The links between notes the turn left (`noteLinks.mjs`), for the "link" lines.
+  const linksLine = tail.find((line) => line.startsWith("Links: "));
   let time = null;
   if (timeLine) {
     const m = timeLine.match(TIME);
@@ -130,6 +132,7 @@ function readBlock(id, lines) {
     toolsLine: jobTools.length ? `${toolsLine ?? "Tools: none"}; in its background jobs: ${jobTools.join(", ")}` : toolsLine,
     tools: [...frontDoorTools, ...jobTools],
     changes: tail.filter((line) => line.startsWith("- ")),
+    links: linksLine ? readJobsLine(linksLine.slice("Links: ".length)) : [],
     browser: browserLine ? browserLine.slice("Browser: ".length).split(" | ").filter(Boolean) : [],
     // What the bench's own stand-ins could not answer (`benchGaps.mjs`).
     bench: (tail.find((line) => line.startsWith("Bench: ")) ?? "").slice("Bench: ".length).split(" | ").filter(Boolean),
