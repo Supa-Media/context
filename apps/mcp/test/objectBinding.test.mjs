@@ -210,16 +210,14 @@ test("where the control plane still decides access, the object answers no bindin
   assert.equal((await open(w)).reason, "access_not_in_object");
 });
 
-test("ATTACK: a guest, a Tex chat, Tex's setup read and a session naming nobody are never served from the object", { skip }, async () => {
+test("ATTACK: a chat with no known names, Tex's setup read off its pin and a session naming nobody are never served from the object", { skip }, async () => {
   const w = await world();
   await open(w);
   const cases = [
-    [{ ...w.session, grantedGroups: [READS_AS_GUEST] }, "not_member_audience"],
-    [{ ...w.session, grantedGroups: [READS_AS_CHAT, "@crew"] }, "not_member_audience"],
+    [{ ...w.session, grantedGroups: [READS_AS_CHAT, "@crew"] }, "chat_names_unknown"],
     // Tex's setup read is its own question of the pin's object (`objectBindingSetupRead.test.mjs`): never a session that is not Tex's, or not the pin.
     [{ ...w.session, setupRead: true }, "setup_read_client"],
     [{ ...w.session, setupRead: true, actorClientId: "context_texts", role: "member", workspaceSlug: "someone" }, "setup_read_not_pin"],
-    [{ ...w.session, texChatId: "a".repeat(64) }, "tex_chat"],
     [{ ...w.session, actorUserId: undefined }, "no_reader"],
     [{ ...w.session, scope: "public" }, "no_scope"],
   ];
@@ -440,4 +438,43 @@ test("an open served from the object says how it answered: how long it waited fo
   assert.equal(served.source, "object");
   assert.equal(served.wake.cold, false, "the test object is not a woken instance");
   assert.equal(typeof served.wake.waitedMs, "number");
+});
+
+// 2026-11-20 (Dev2: no note read or save needs Convex): a guest, a Tex guest chat and a group chat's turn open their
+// binding from the object too, each by its own rules there, never a member's. Sabotage: answer `rules:
+// store.rows.rules("member")` for a guest in bindingRows.js and the first assertion on `privacy` fails.
+const GUEST_RULES = { etag: "g.1", accessVersion: 1, folders: [{ prefix: "", visibility: "private" }, { prefix: "open", visibility: "team" }, { prefix: "crew", visibility: "@#crew-home" }], notes: [] };
+
+test("a guest's and a chat's binding comes from the object with their own rules, and a group chat's turn with a member's", { skip }, async () => {
+  const w = await world();
+  await w.client.rules.put(GUEST_RULES, "guest");
+  await open(w);
+  const guest = await openedFromObject({ ...w.session, grantedGroups: [READS_AS_GUEST] }, w.env, w.controlPlane);
+  assert.equal(guest.source, "object");
+  assert.deepEqual(guest.opened.privacy.folders, GUEST_RULES.folders);
+  const chat = await openedFromObject({ ...w.session, grantedGroups: [READS_AS_CHAT, "#crew-home"], chatNames: ["#crew-home"] }, w.env, w.controlPlane);
+  assert.equal(chat.source, "object");
+  assert.deepEqual(chat.opened.privacy.folders, [{ prefix: "", visibility: "private" }, { prefix: "open", visibility: "private" }, { prefix: "crew", visibility: "team" }]);
+  const turn = await openedFromObject({ ...w.session, texChatId: "a".repeat(64) }, w.env, w.controlPlane);
+  assert.equal(turn.source, "object");
+  assert.deepEqual(turn.opened.privacy, RULES);
+  assert.equal(w.calls.binding, 1, "only the first request asked the control plane");
+});
+
+test("ATTACK: a guest is never served where the object holds no guest rules, and the switch sends guests back", { skip }, async () => {
+  const w = await world();
+  await open(w);
+  const guest = { ...w.session, grantedGroups: [READS_AS_GUEST] };
+  const refused = await openedFromObject(guest, w.env, w.controlPlane);
+  assert.equal(refused.opened, null);
+  assert.equal(refused.reason, "reader_refused");
+  const raw = await w.client.open("user_a", { audience: "guest" });
+  assert.equal(raw.rules, null);
+  assert.equal(raw.binding, null, "no rules, no binding");
+  await w.client.rules.put(GUEST_RULES, "guest");
+  assert.equal((await openedFromObject(guest, w.env, w.controlPlane)).source, "object");
+  assert.equal((await openedFromObject(guest, { ...w.env, GUEST_FROM_OBJECT: "off" }, w.controlPlane)).reason, "not_member_audience");
+  // Where the control plane still decides access, nobody is served, guests included.
+  w.object.store.members.setHome("convex");
+  assert.equal((await w.client.open("user_a", { audience: "guest" })).binding, null);
 });

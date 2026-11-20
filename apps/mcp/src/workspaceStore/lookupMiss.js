@@ -11,6 +11,7 @@
  */
 
 import folderRoles from "../../../../packages/shared/src/folderRoles.cjs";
+import { isPlumbing } from "../privacy/engine.js";
 
 const { jobOfName } = folderRoles;
 const CHAT_HOMES = "tex/groups/";
@@ -40,4 +41,32 @@ export function absentHere(rows, path, { chatHomes = true, texFolder = true } = 
   const texRoot = rows.byPath("tex");
   if (texRoot !== null && texRoot.kind === "folder") texFolders.push("tex");
   return !texFolders.some((folder) => path.startsWith(`${folder}/`) || fold(path).startsWith(`${fold(folder)}/`));
+}
+
+/** A group chat's home folder, as the control plane names it (`textGroupHome.ts`): three words under the chat homes. */
+const HOME_FOLDER = /^tex\/groups\/[a-z]+(?:-[a-z]+){2}$/;
+const CHAT_KEY = /^[0-9a-f]{64}$/;
+
+/**
+ * The Tex owner (`chat:<key>`) a new note at `path` is kept in, for a group chat's own session writing in its own home,
+ * or `null`. The control plane names a home's chat from its words (`texHome.ts` `chatKeyOfHome`); a chat's session
+ * carries both, read from its grant (`session.js` `sessionForChatHome`, `texChatId`), so the object can place the note
+ * without asking. Only in the workspace whose access set seals the chat homes (the pin), only strictly beneath that
+ * home, only where the home is a live folder here and the note's own folder exists, and never a plumbing path.
+ *
+ * `chatHome` is `{folder, chat}` from the gateway. A wrong pair could only place a chat's note in that chat's own
+ * object, which is the only Tex object its session may reach (`store/texRouting.js`); who sees the row is still the
+ * row's access.
+ */
+export function chatHomeOwner(rows, path, chatHome, sealsChats) {
+  if (sealsChats !== true || !chatHome || typeof chatHome !== "object") return null;
+  const { folder, chat } = chatHome;
+  if (typeof folder !== "string" || !HOME_FOLDER.test(folder) || typeof chat !== "string" || !CHAT_KEY.test(chat)) return null;
+  if (typeof path !== "string" || !path.startsWith(`${folder}/`) || isPlumbing(path)) return null;
+  const home = rows.byPath(folder);
+  if (home === null || home.kind !== "folder") return null;
+  const parent = path.slice(0, path.lastIndexOf("/"));
+  const into = parent === folder ? home : rows.byPath(parent);
+  if (into === null || into.kind !== "folder") return null;
+  return `chat:${chat}`;
 }

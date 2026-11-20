@@ -16,6 +16,8 @@ import { treeOps } from "./treeOps.js";
 import folderRoles from "../../../../packages/shared/src/folderRoles.cjs";
 import { effectiveVisibility, isPlumbing, PrivacyOverrides } from "../privacy/engine.js";
 import { idKeyFor, isNoteId } from "../store/noteIdKeys.js";
+import { texKeyFor } from "../store/texRouting.js";
+import { chatHomeOwner } from "./lookupMiss.js";
 
 export { WriteOpRefused };
 
@@ -85,7 +87,10 @@ function adopt(ctx, body) {
 
   const { path, noteId, key } = body;
   if (isPlumbing(path)) return deferred("plumbing");
-  if (key !== idKeyFor(noteId, path)) return deferred("key");
+  // A group chat's own note in its own home is kept in its Tex object (`lookupMiss.js` `chatHomeOwner`): its key is that
+  // object's, and its folder must already be here. Any other key that is not the note's id key is the control plane's.
+  const texOwner = key === idKeyFor(noteId, path) ? null : chatHomeOwner(ctx.rows, path, body.chatHome, ctx.access?.sealsChats?.() ?? null);
+  if (key !== idKeyFor(noteId, path) && (texOwner === null || key !== texKeyFor(texOwner, idKeyFor(noteId, path)))) return deferred("key");
   const parent = parentOf(path);
   const folder = parent === "" ? null : ctx.lookupLive(parent);
   if (folder !== null && folder.kind !== "folder") return deferred("parent_file");

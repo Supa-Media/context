@@ -6,7 +6,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 
-import { absentHere } from "../src/workspaceStore/lookupMiss.js";
+import { absentHere, chatHomeOwner } from "../src/workspaceStore/lookupMiss.js";
 import { workspaceRows } from "../src/workspaceStore/rows.js";
 
 let DatabaseSync = null;
@@ -141,4 +141,41 @@ test("a Tex folder path is absent only where the gateway says the workspace is s
   assert.equal(absentHere(rows, "assistant/x.md", { chatHomes: false, texFolder: true }), false);
   // A built-in folder's name is still the control plane's to place, whatever the workspace.
   assert.equal(absentHere(rows, "inbox/x.md", { chatHomes: false, texFolder: false }), false);
+});
+
+// A group chat's own session making a note in its own home (`chatHomeOwner`): the object names that chat's Tex owner
+// only in the pin (the access set seals chat homes), only strictly beneath a live home folder whose note folder exists,
+// and never for a plumbing path, a malformed home or a chat key that is not 64 hex.
+// Sabotage: drop the `sealsChats !== true` check and the "not the pin" assertion fails.
+test("chatHomeOwner names the chat's owner only for its own live home in the pin", { skip }, () => {
+  const rows = fresh();
+  const folder = "tex/groups/kite-willow-rocket";
+  const chat = "a".repeat(64);
+  rows.put([
+    { id: ID(10), path: "tex", kind: "folder", at: 1 },
+    { id: ID(11), path: "tex/groups", kind: "folder", at: 1 },
+    { id: ID(12), path: folder, kind: "folder", at: 1 },
+    { id: ID(13), path: `${folder}/notes`, kind: "folder", at: 1 },
+  ]);
+  const home = { folder, chat };
+  assert.equal(chatHomeOwner(rows, `${folder}/a.md`, home, true), `chat:${chat}`);
+  assert.equal(chatHomeOwner(rows, `${folder}/notes/b.md`, home, true), `chat:${chat}`);
+  assert.equal(chatHomeOwner(rows, `${folder}/a.md`, home, false), null, "not the pin");
+  assert.equal(chatHomeOwner(rows, `${folder}/a.md`, home, null), null, "access set not held yet");
+  assert.equal(chatHomeOwner(rows, `${folder}/missing/c.md`, home, true), null, "note folder does not exist");
+  assert.equal(chatHomeOwner(rows, "tex/groups/other-home-here/a.md", home, true), null, "another home");
+  assert.equal(chatHomeOwner(rows, folder, home, true), null, "the home itself");
+  assert.equal(chatHomeOwner(rows, `${folder}/a.md`, { folder, chat: "A".repeat(64) }, true), null, "chat key not lowercase hex");
+  assert.equal(chatHomeOwner(rows, `${folder}/a.md`, { folder: "tex/groups/x", chat }, true), null, "not a three-word home");
+  assert.equal(chatHomeOwner(rows, `${folder}/a.md`, null, true), null, "no chat home");
+  assert.equal(chatHomeOwner(rows, `${folder}/.context/x.md`, home, true), null, "plumbing");
+});
+
+test("chatHomeOwner refuses a home folder that is not a live folder row", { skip }, () => {
+  const rows = fresh();
+  const folder = "tex/groups/kite-willow-rocket";
+  assert.equal(chatHomeOwner(rows, `${folder}/a.md`, { folder, chat: "b".repeat(64) }, true), null);
+  rows.put([{ id: ID(20), path: folder, kind: "folder", at: 1 }]);
+  rows.remove([ID(20)], 2);
+  assert.equal(chatHomeOwner(rows, `${folder}/a.md`, { folder, chat: "b".repeat(64) }, true), null);
 });

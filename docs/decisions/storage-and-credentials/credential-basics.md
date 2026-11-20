@@ -53,11 +53,22 @@ to prevent:
 - **Bound to one workspace.** `workspace:<id>` is the seal's additional data,
   and the opened binding must name the request's workspace: a copy moved into
   another workspace's object does not open.
-- **Only for a live member, where the object decides access.** The object
-  answers the sealed copy only to a member it holds (`accessHome: "object"`),
-  only where it holds the notes, and only where it knows whether the workspace
-  holds a data key. Guests, Tex chats, Tex's setup read, rotations, and managed
-  encryption moving in or out always ask the control plane.
+- **Only where the object decides access, by the reader's own rules.** The
+  object answers the sealed copy only where it decides access
+  (`accessHome: "object"`), holds the notes, and knows whether the workspace
+  holds a data key: to a member it holds, with the member rules; to Tex's setup
+  read; and since 2026-11-20 (Dev2: "everything should be going directly to
+  cloudflare") to a guest or a Tex group chat, with the guest rules as held or
+  as the chat's names render them (`chatRules.js`), never a member's. The
+  answer names the reader it was made for, and the gateway refuses one made for
+  another. A chat whose names the session does not carry, rotations, and
+  managed encryption moving in or out ask the control plane;
+  `GUEST_FROM_OBJECT=off` sends guests and chats back to it. A group chat's own
+  new note in its own home is placed in that chat's Tex object by the
+  workspace's object (`lookupMiss.js` `chatHomeOwner`: only in the workspace
+  that seals the chat homes, only beneath a live home), and its row adopted
+  there; a guest's save is still recorded by the control plane, which checks
+  the writer's role.
 - **A data key only where the object says there is one.** The control plane
   answers "no key" and "a key that would not open" alike, so a copy is kept
   and served only when it carries a key exactly where the object records the
