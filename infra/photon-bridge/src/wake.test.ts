@@ -3,6 +3,7 @@ import {
   ALARM_MS,
   WAKE_AGAIN_MS,
   containerErrorDetail,
+  errorClass,
   containerGapDelayMs,
   isMissingContainer,
   nextAlarmDelay,
@@ -75,5 +76,46 @@ describe("next alarm after a wake", () => {
     expect(isMissingContainer(new Error("container not ready"))).toBe(true);
     expect(isMissingContainer(new Error("start 500"))).toBe(false);
     expect(containerErrorDetail(new Error("chat text +15550100123"))).toBeUndefined();
+  });
+});
+
+describe("errorClass", () => {
+  it("names the class: the error's name, or its constructor when the name is the generic one", () => {
+    class Tripped extends Error {}
+    expect(errorClass(new TypeError("x"))).toBe("TypeError");
+    expect(errorClass(new Error("x"))).toBe("Error");
+    expect(errorClass(new Tripped("x"))).toBe("Tripped");
+    expect(errorClass("a string")).toBe("unknown");
+    expect(errorClass(undefined)).toBe("unknown");
+  });
+});
+
+describe("containerErrorDetail", () => {
+  const detail = (message: string) => containerErrorDetail(new Error(message));
+
+  it("keeps the known operational messages", () => {
+    expect(detail("Network connection lost.")).toBe("Network connection lost.");
+    expect(detail("The operation was aborted")).toBe("The operation was aborted");
+    expect(detail("ECONNRESET")).toBe("ECONNRESET");
+    expect(detail("unavailable")).toBe("unavailable");
+    expect(detail("Container exited with code 1")).toBe("Container exited with code 1");
+    expect(detail("The container stopped")).toBe("The container stopped");
+  });
+
+  it("still redacts a message that could carry a phone number, a body or free text", () => {
+    expect(detail("Container failed for +15550100999")).toBeUndefined();
+    expect(detail("Network connection lost. +15550100999")).toBeUndefined();
+    expect(detail("ECONNRESET15550100999")).toBeUndefined();
+    expect(detail('Container body {"text":"secret words","to":"+15550100999"}')).toBeUndefined();
+    expect(detail('The container said "hello there"')).toBeUndefined();
+    expect(detail("The container said hello <b>there</b>")).toBeUndefined();
+    expect(detail("chat text +15550100123")).toBeUndefined();
+    expect(detail("some lowercase free text")).toBeUndefined();
+    expect(detail(`Container ${"x".repeat(200)}`)).toBeUndefined();
+    expect(detail("")).toBeUndefined();
+  });
+
+  it("logs the detail of a missing container only as the known sentence", () => {
+    expect(containerErrorDetail(missing())).toMatch(/no container instance/);
   });
 });

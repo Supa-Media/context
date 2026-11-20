@@ -57,6 +57,16 @@ function readConversation(lines) {
   return turns.map((turn) => ({ from: turn.from, text: unescapeHeadings(trimBlank(turn.lines).join("\n")) }));
 }
 
+/** A `Silent:` line read back: the indexes of the silent turns. A malformed line is none. */
+function readSilentLine(text) {
+  try {
+    const value = JSON.parse(text);
+    return Array.isArray(value) ? value.filter((i) => Number.isInteger(i) && i >= 0) : [];
+  } catch {
+    return [];
+  }
+}
+
 /** A result's `Jobs:` line read back; a line that isn't one is no jobs. */
 function readJobsLine(text) {
   try {
@@ -75,6 +85,14 @@ function readBlock(id, lines) {
   const tail = toolsAt < 0 ? [] : lines.slice(toolsAt + 1);
   const toolsLine = toolsAt < 0 ? null : lines[toolsAt];
   const toolList = toolsLine === null ? "none" : toolsLine.slice("Tools: ".length).trim();
+  // Which turns were silent (`report.mjs` writes this only when one was): the judge reads silence here, not from the words.
+  const silentLine = tail.find((line) => line.startsWith("Silent: "));
+  const conversation = readConversation(body);
+  if (silentLine) {
+    for (const i of readSilentLine(silentLine.slice("Silent: ".length))) {
+      if (conversation[i]?.from === "assistant") conversation[i].silent = true;
+    }
+  }
   const timeLine = tail.find((line) => TIME.test(line));
   const errorLine = tail.find((line) => line.startsWith("Error: "));
   // What the scripted browser did (`sites.mjs`), for the checks (`checks.mjs`).
@@ -100,11 +118,17 @@ function readBlock(id, lines) {
     const m = timeLine.match(TIME);
     time = { seconds: m[1] === undefined ? null : Number(m[1]), price: m[2] === "unknown" ? null : Number(m[2].slice(1)), texts: Number(m[3]) };
   }
+  const frontDoorTools = toolList === "none" ? [] : toolList.split(", ");
+  // The tool calls each background job's parts made (`jobDelivery.mjs` writes them on `Delivered`): they are the turn's calls
+  // too, so the checks and the judge see them. A note with none reads as before.
+  const delivered = deliveredLine ? readJobsLine(deliveredLine.slice("Delivered: ".length)) : [];
+  const jobTools = delivered.flatMap((d) => (Array.isArray(d?.tools) ? d.tools.map(String) : []));
   return {
     id,
-    conversation: readConversation(body),
-    toolsLine,
-    tools: toolList === "none" ? [] : toolList.split(", "),
+    conversation,
+    // The judge reads this line, so the job calls are named in it, labelled as the jobs'.
+    toolsLine: jobTools.length ? `${toolsLine ?? "Tools: none"}; in its background jobs: ${jobTools.join(", ")}` : toolsLine,
+    tools: [...frontDoorTools, ...jobTools],
     changes: tail.filter((line) => line.startsWith("- ")),
     browser: browserLine ? browserLine.slice("Browser: ".length).split(" | ").filter(Boolean) : [],
     // What the bench's own stand-ins could not answer (`benchGaps.mjs`).
@@ -112,7 +136,7 @@ function readBlock(id, lines) {
     mail: mailLine ? mailLine.slice("Mail: ".length).split(" | ").filter(Boolean) : [],
     where: filedLine ? filedWhere(filedLine.slice("Filed: ".length)) : {},
     jobs: jobsLine ? readJobsLine(jobsLine.slice("Jobs: ".length)) : [],
-    delivered: deliveredLine ? readJobsLine(deliveredLine.slice("Delivered: ".length)) : [],
+    delivered,
     rounds: roundsLine ? readJobsLine(roundsLine.slice("Rounds: ".length)) : [],
     routes: routeLine ? readJobsLine(routeLine.slice("Route: ".length)) : [],
     time,

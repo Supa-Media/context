@@ -1,8 +1,12 @@
 /**
  * The container's memory of the last Photon read that finished.
  * The first catch-up after a start is logged with how far behind it was,
- * so a later burst can be split between Photon and the bridge.
+ * so a later burst can be split between Photon and the bridge. A first
+ * catch-up that is large or reaches far back is also an alert: it is history
+ * the bridge is about to decide on (`replay.mjs`, `ledger.mjs`).
  */
+
+import { BIG_REPLAY_EVENTS, BIG_REPLAY_LAG_MS } from "./replay.mjs";
 
 export function createReads(log, now = Date.now) {
   let startedAt = null;
@@ -26,6 +30,9 @@ export function createReads(log, now = Date.now) {
         replayed: stats.replayed,
         lag_ms: stats.lagMs,
       });
+      if (stats.replayed > BIG_REPLAY_EVENTS || stats.lagMs > BIG_REPLAY_LAG_MS) {
+        log({ event: "bridge.alert", outcome: "big_replay", line, replayed: stats.replayed, lag_ms: stats.lagMs });
+      }
     },
 
     /** A later poll finished. Counts as a read; there was nothing to replay. */

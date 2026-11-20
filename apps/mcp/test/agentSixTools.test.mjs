@@ -286,3 +286,52 @@ test("the search's description says every workspace is covered, a named one only
   // Without search_notes the six have no search to describe.
   assert.equal(sixToolsOver(held("read_note")).tools.find((tool) => tool.name === "search"), undefined);
 });
+
+// Training 2026-11-19 (trial-hire): `manage { action: "visibility", path }` was refused for `path` beside the action, and
+// the model retried. Words beside a manage action that its carrying tool takes now reach that tool's args.
+test("a manage call's words written beside the action reach its carrying tool's args (2026-11-19)", () => {
+  const { resolve } = sixToolsOver(held("set_visibility", "move_note", "read_note"));
+  const people = [{ who: "bram@example.com", role: "view" }];
+  assert.deepEqual(resolve("manage", { action: "visibility", path: "x.md", args: { people } }), {
+    name: "set_visibility",
+    args: { path: "x.md", people },
+  });
+  assert.deepEqual(resolve("manage", { action: "visibility", path: "x.md", visibility: "team", expected_etag: "e1" }), {
+    name: "set_visibility",
+    args: { path: "x.md", visibility: "team", expected_etag: "e1" },
+  });
+  // Inside args wins where both name a key.
+  assert.deepEqual(resolve("manage", { action: "visibility", path: "outer.md", args: { path: "inner.md" } }), {
+    name: "set_visibility",
+    args: { path: "inner.md" },
+  });
+  // The call's own addressing (context) is not an action's argument: it is carried to the top of the translated call.
+  assert.deepEqual(resolve("manage", { action: "visibility", path: "x.md", context: "@x", args: {} }), {
+    name: "set_visibility",
+    args: { path: "x.md", context: "@x" },
+  });
+});
+
+test("a manage word the carrying tool does not take is still refused, as before (2026-11-19)", () => {
+  const { resolve } = sixToolsOver(held("set_visibility", "move_note"));
+  // move_note takes no people: beside a move, they are refused, and not dropped or sent on.
+  const refused = resolve("manage", { action: "move", source: "a.md", destination: "b.md", people: [{ who: "bram@example.com" }] });
+  assert.match(refused.error, /unknown argument "people"/);
+  assert.equal(refused.name, undefined);
+});
+
+test("a refused manage visibility call says nothing changed, last; other manage refusals do not (2026-11-19)", () => {
+  const NOTHING = "Refused: no access was given beyond what this says, so don't tell anyone they can open it.";
+  const { resolve } = sixToolsOver(held("set_visibility", "move_note"));
+  // An argument no tool takes is refused by the gateway's own translation, and the sentence follows it.
+  const visibility = resolve("manage", { action: "visibility", path: "x.md", colour: "red" });
+  assert.match(visibility.error, /unknown argument "colour"/);
+  assert.ok(visibility.error.endsWith(NOTHING), visibility.error);
+  const folder = resolve("manage", { action: "visibility", colour: "red", args: { path: "x.md" } });
+  assert.ok(folder.error.endsWith(NOTHING), folder.error);
+  // Any other manage action keeps the tool's own refusal.
+  const moved = resolve("manage", { action: "move", source: "a.md", colour: "red" });
+  assert.doesNotMatch(moved.error, /Nothing changed/);
+  // A granted call still resolves without the sentence.
+  assert.equal(resolve("manage", { action: "visibility", path: "x.md" }).error, undefined);
+});

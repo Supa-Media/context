@@ -62,7 +62,7 @@ export async function proveRead(client, timeoutMs, signal) {
  * One connection's life: the live streams and catch-up run together until a
  * stream fails, the line is cut off, or the signal aborts. Throws on failure.
  */
-export async function streamOnce({ client, line, ledger, onQueued, signal, enrich = async () => ({}), onCatchup, now = Date.now }) {
+export async function streamOnce({ client, line, ledger, onQueued, signal, enrich = async () => ({}), onCatchup, now = Date.now, log = () => {} }) {
   const live = [
     client.messages.subscribeEvents(),
     client.chats.subscribeEvents(),
@@ -79,9 +79,9 @@ export async function streamOnce({ client, line, ledger, onQueued, signal, enric
 
   // Enrichment is best effort and bounded by its own timeout, so it can slow
   // an event but never stall the stream behind it.
-  const offer = async (event) => {
+  const offer = async (event, replay = false) => {
     const extras = await enrich(event);
-    if (ledger.offer(line, event, extras) === "queued") onQueued();
+    if (ledger.offer(line, event, extras, { replay }) === "queued") onQueued();
   };
 
   const pumps = live.map(async (stream) => {
@@ -100,12 +100,19 @@ export async function streamOnce({ client, line, ledger, onQueued, signal, enric
     for await (const event of catchup) {
       if (event.type === "catchup.complete") {
         onCatchup?.({ replayed, lagMs: oldest == null ? 0 : Math.max(0, now() - oldest) });
+        // Every event up to the head was offered above, so a sequence still missing is not in Photon's log.
+        if (Number.isSafeInteger(event.headSequence)) {
+          const skip = ledger.skipMissing(line, event.headSequence);
+          if (skip.skipped > 0) {
+            log({ event: "line.gap_skipped", line, seq: skip.first, frontier: skip.frontier, count: skip.skipped, outcome: "catchup" });
+          }
+        }
         break;
       }
       replayed += 1;
       const at = eventInstant(event);
       if (at != null && (oldest == null || at < oldest)) oldest = at;
-      await offer(event);
+      await offer(event, true);
     }
     await Promise.race([...pumps, abort]);
   } finally {
@@ -142,6 +149,11 @@ export async function runLine({
         try {
           await proveRead(client, pollTimeoutMs, signal);
           onPoll?.();
+          // A gap that has held GAP_TIMEOUT_MS is skipped now, while the line is answering.
+          const swept = ledger.sweep(line);
+          if (swept.skipped > 0) {
+            log({ event: "line.gap_skipped", line, seq: swept.first, frontier: swept.frontier, count: swept.skipped, outcome: "timeout" });
+          }
         } catch (error) {
           if (signal.aborted) return;
           onPollFailed?.(errorCode(error));
@@ -156,7 +168,7 @@ export async function runLine({
         if (ledger.frontier(line) === undefined) {
           ledger.initialize(line, await probeHead(client));
         }
-        await streamOnce({ client, line, ledger, onQueued, signal, enrich, onCatchup, now });
+        await streamOnce({ client, line, ledger, onQueued, signal, enrich, onCatchup, now, log });
         log({ event: "line.stream_ended", line, attempt });
       } catch (error) {
         if (signal.aborted) return;

@@ -267,3 +267,25 @@ test("a blank reply, no origin, or nothing saved leaves the reply as it was", ()
   assert.equal(withSavedLink("Here", [], ORIGIN), "Here");
   assert.equal(withSavedLink("Here", undefined, ORIGIN), "Here");
 });
+
+// Training 2026-11-19: a refused visibility change is never read as a change made. The sentence is the one the model is told.
+const NOTHING = "Refused: no access was given beyond what this says, so don't tell anyone they can open it.";
+
+test("a refused set_visibility or set_folder_visibility ends with the sentence that nothing changed", async () => {
+  const refused = (text) => ({ isError: true, content: [{ type: "text", text }] });
+  const call = withNoteLinks(async () => refused("role must be view or edit."), { origin: ORIGIN, contexts: CONTEXTS });
+  assert.equal((await call("set_visibility", { path: "a.md" })).content[0].text, `In @maya: role must be view or edit. ${NOTHING}`);
+  assert.equal((await call("set_folder_visibility", { path: "x" })).content[0].text, `role must be view or edit. ${NOTHING}`);
+  // Only the visibility tools get it: another refused call's text is the tool's own.
+  assert.equal((await call("write_note", { path: "a.md" })).content[0].text, "In @maya: role must be view or edit.");
+  // With no APP_ORIGIN the links are off, but the sentence still lands on a refused visibility change.
+  const noOrigin = withNoteLinks(async () => refused("role must be view or edit."), { origin: null, contexts: CONTEXTS });
+  assert.equal((await noOrigin("set_visibility", { path: "a.md" })).content[0].text, `role must be view or edit. ${NOTHING}`);
+});
+
+test("a visibility change that succeeded, or failed without isError, gets no sentence", async () => {
+  const done = { content: [{ type: "text", text: "visibility: team" }] };
+  assert.equal(await withNoteLinks(async () => done, { origin: ORIGIN, contexts: CONTEXTS })("set_visibility", { path: "a.md" }), done);
+  const text = { content: [{ type: "text", text: "not an error" }], isError: false };
+  assert.equal(await withNoteLinks(async () => text, { origin: null, contexts: CONTEXTS })("set_visibility", { path: "a.md" }), text);
+});

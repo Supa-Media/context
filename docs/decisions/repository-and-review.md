@@ -330,3 +330,19 @@ one a branch makes when it brings `main` in.
 
 Reversing it (putting the list back on one line) brings the conflicts back,
 and `test/run.mjs` throws if `test/unit.list` is missing or empty.
+
+## Queue and checkpoint code answers "can this get stuck forever?"
+
+The Photon bridge's frontier only advanced through contiguous sequences, and
+one sequence never came. It sat still for two days with texts flowing, every
+health line said ok, and three pull requests on that code passed review.
+When it finally restarted it replayed 55 hours of texts to people
+(2026-11-19; `texting-assistant/photon-line.md`).
+
+Self-review of anything that waits on something else — a queue, a cursor, a
+checkpoint or frontier, a lease or lock, a retry, an alarm — answers one
+question in the pull request: **can this get stuck forever?** For each thing
+it waits on, name what happens if that thing never comes: what gives up or
+skips, after how long, what it logs, and which alert fires. "It always
+arrives" is not an answer. A wait with no bound needs a bound or an alert,
+and the test that proves it moves on.

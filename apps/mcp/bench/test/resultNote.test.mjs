@@ -172,3 +172,63 @@ test("a run's steps line is written and read back, so a Lab row can say what its
   const { answers } = parseResult(resultMarkdown(result));
   assert.deepEqual(answers.filter((a) => "steps" in a).map((a) => a.steps), [steps], "only the run with steps says so");
 });
+
+// Lab incident (Training, 2026-11-19): two check-in rows that called say_nothing were graded "Tex sent words". The
+// silent flag was on the run in memory, but report.mjs wrote only the "(stayed quiet: …)" text and resultNote.mjs read
+// back {from, text}, so the judge process saw the marker as words. The flag now rides in the note as a Silent: line.
+test("a silent turn survives the note: the judge reads it as silent, not as words (Lab, 2026-11-19)", async () => {
+  const { codeVerdict, wordsSent } = await import("../codeLines.mjs");
+  const silentRun = {
+    ...RESULT.runs[0],
+    conversation: [
+      { from: "person", text: "check in on the lease, please" },
+      { from: "assistant", text: '(stayed quiet: send({"action":"say_nothing"}))', silent: true },
+    ],
+  };
+  const md = resultMarkdown({ ...RESULT, runs: [silentRun] });
+  assert.match(md, /^Silent: \[1\]$/m);
+  const [parsed] = parseResult(md).answers;
+  assert.equal(parsed.conversation[1].silent, true);
+  assert.equal("silent" in parsed.conversation[0], false, "a spoken person turn carries no silent key");
+  assert.equal(wordsSent(parsed), false);
+  assert.equal(codeVerdict({ kind: "must", line: "stay quiet, nothing here needs them" }, parsed)?.does, true);
+
+  // A spoken answer round-trips with no silent key, and its note has no Silent line.
+  const spoken = resultMarkdown({ ...RESULT, runs: [RESULT.runs[0]] });
+  assert.doesNotMatch(spoken, /^Silent: /m);
+  const [back] = parseResult(spoken).answers;
+  assert.equal(back.conversation.some((turn) => "silent" in turn), false);
+  assert.equal(wordsSent(back), true);
+});
+
+// A background job's parts' tool calls (`jobDelivery.mjs` `Delivered`) are the turn's calls too: written by report.mjs,
+// read back by resultNote.mjs, and seen by the checks, the code-decided lines and the judge's request.
+const JOB_DELIVERED = [{ title: "Plan the trip", state: "done", parts: 2, advisorCalls: 1, usd: 0.01, tools: ["search_notes", "ask_advisor", "send_email (failed)"] }];
+
+test("a background job's part tool calls are written, read back and seen by the checks and the judge (2026-11-19)", async () => {
+  const { checkVerdicts, readCheck } = await import("../checks.mjs");
+  const { codeVerdict } = await import("../codeLines.mjs");
+  const { buildJudgeRequest } = await import("../judge.mjs");
+  const run = { ...answer({ setup: "zebra-setup", asked: "plan my trip", said: "On it, I will text the plan." }), tools: [{ tool: "start_background_job", ok: true }], delivered: JOB_DELIVERED };
+  const [read] = parseResult(resultMarkdown({ ...RESULT, runs: [run] })).answers;
+  assert.deepEqual(read.delivered, JOB_DELIVERED);
+  for (const tool of ["start_background_job", "search_notes", "ask_advisor"]) assert.ok(read.tools.includes(tool), `tools has ${tool}`);
+  assert.equal(read.toolsLine, "Tools: start_background_job; in its background jobs: search_notes, ask_advisor, send_email (failed)");
+  assert.equal(checkVerdicts({ checks: [readCheck("- must call: ask_advisor")] }, read)[0].pass, true, "must call accepts a job's call");
+  assert.equal(checkVerdicts({ checks: [readCheck("- must not call: ask_advisor")] }, read)[0].pass, false, "must not call sees a job's call");
+  // Front door only, the rule says no note was read; with the job's search_notes, it decides nothing and the model grades it.
+  const line = { kind: "must", line: "read the note first" };
+  assert.equal(codeVerdict(line, { ...read, tools: ["start_background_job"] })?.does, false);
+  assert.equal(codeVerdict(line, read), null);
+  const { body } = buildJudgeRequest({ model: "m", question: { text: "q", must: [], mustNot: [], judge: [], may: [] }, answers: [read] });
+  assert.match(JSON.parse(body).messages[0].content, /ask_advisor/, "the judge's request names the job's call");
+});
+
+test("a Delivered entry with no tool calls is written as before and reads back as the Tools line alone", () => {
+  const delivered = [{ title: "Plan the trip", state: "done", parts: 2, advisorCalls: 1, usd: 0.01 }];
+  const md = resultMarkdown({ ...RESULT, runs: [{ ...answer({ setup: "zebra-setup", asked: "plan my trip", said: "On it." }), tools: [{ tool: "start_background_job", ok: true }], delivered }] });
+  assert.ok(md.includes(`Delivered: ${JSON.stringify(delivered)}\n`), "no tools key is written when no part called a tool");
+  const [read] = parseResult(md).answers;
+  assert.deepEqual(read.tools, ["start_background_job"]);
+  assert.equal(read.toolsLine, "Tools: start_background_job");
+});

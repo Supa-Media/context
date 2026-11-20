@@ -13,7 +13,7 @@ import { turnPictures } from "../pictureMaker.js";
 import { routineCalendarTools } from "../routine.js";
 import { deskTexts } from "../texDesk.js";
 import { TEXTS_CLIENT_ID } from "./clients.js";
-import { untriedWebCheck } from "../untriedWeb.js";
+import { frontDoorChecks } from "../untriedWeb.js";
 import { stepLog } from "../ledger.js";
 
 // TEX ENTRY POINT: begin (every await below is a timed `tex` call: `texTiming.js`, checked by `scripts/tex-entry-check.mjs`)
@@ -25,7 +25,7 @@ export async function prepareTheAnswer(t) {
   const forwarding = runner ? [...(await tex.step("forward_tools", () => standingForwardTools(store, routine.path, offered))), ...routineCalendarTools(offered)] : []; // and their own calendar (`routine.js`)
   // A small model also reads it for work handed back to them (`handbackJudge.js`).
   const claims = !runner && (!front || job !== null) && (texted || group !== null) ? claimCheck({ question, job, waiting: setAside.length > 0, corrects: correctsTheAsk(question, setAside), pictures: carriesPictures(attachments), kept: keptIdsOf(attachments, keptInHistory(history, { texts: Infinity })), keptShown: attachments.some((file) => file.kept), history, detailed: asksDetailed(readInstructions(body.instructions)), origin: noteLinking.origin, reported: report !== null, visuals: () => maker?.has("draw_visual") === true, judge: env.HANDBACK_JUDGE !== "on" ? null : handbackFor(job?.id, gatewayGraph({ env, writer: chatLog, turn: ledgerTurn }), { question, config: aiGatewayConfig(env), metadata: { feature: "handback-judge", workspace: String(session.workspaceId) } }) }) : null;
-  const tries = claims === null && !runner && (texted || group !== null) ? untriedWebCheck({ question }) : null; // on the front door, "I can't open it" with nothing tried still goes back once (`untriedWeb.js`)
+  const tries = frontDoorChecks({ claims, runner, texted, group, job, front, client: session.actorClientId, question }); // on the front door: "I can't open it" with nothing tried goes back once (`untriedWeb.js`); "already saved" with nothing checked is the stands gate's on every chat turn (`standsCheck.js`, `runTheModel.js`)
   // A page's cover it draws is kept for the page's link card (`/gateway/page-cover`).
   const keepCover = async (path, png) => controlPlane.recordPageCover(session.accessToken, session.workspaceId, path, png);
   const { outgoing, maker, cardCheck } = await tex.step("pictures_setup", () => turnPictures(env, { texted: texted || group !== null, question, attachments, store, keep: conversation === "texts", meter, workspaceId: session.workspaceId, keepCover, steps: chatLog ? stepLog(chatLog, { turn: ledgerTurn }) : null })); stages?.mark("pictures");

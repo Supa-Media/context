@@ -22,7 +22,7 @@ export function emailToolDefinitions() {
           body: { type: "string", description: "The email's plain text, as it will be sent." },
           from: {
             type: "string",
-            description: "Optional: which of the person's connected Gmail addresses sends it. Left out, their first one that can.",
+            description: "Which of the person's connected Gmail addresses sends it. Needed when more than one can send; left out, their only one.",
           },
           in_reply_to: {
             type: "string",
@@ -69,7 +69,7 @@ export function emailToolDefinitions() {
           body: { type: "string", description: "The email's plain text." },
           from: {
             type: "string",
-            description: "Optional: which of the person's connected Gmail addresses keeps the draft. Left out, their first one that can.",
+            description: "Which of the person's connected Gmail addresses keeps the draft. Needed when more than one can; left out, their only one.",
           },
           in_reply_to: {
             type: "string",

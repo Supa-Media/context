@@ -5,6 +5,8 @@
  * as the stub's flags say: `emailSender` is the address that may send (null
  * for none, which is every real connection until Google adds `gmail.send`),
  * and `emailRefusal` answers every send and check with that word instead.
+ * `emailSenders`, two or more addresses, makes a send that names none answer
+ * `choose_sender` with them, as the real route does.
  * `/gateway/email/draft` answers the same way off `emailDrafter`, the address
  * whose Gmail may keep drafts, and its calls carry `draft: true`.
  */
@@ -19,7 +21,12 @@ export function createEmailRoute(clearedOwnAccount, flags, clearedEditor = clear
     let answer;
     if (!cleared) answer = { ok: false, refused: "not_allowed" };
     else if (flags.emailRefusal) answer = { ok: false, refused: flags.emailRefusal };
-    else if (!sender) answer = { ok: false, refused: "no_sender" };
+    // Several Gmails that can send (`emailSenders`) and the email names none: the real route never picks one itself.
+    else if (!draft && Array.isArray(flags.emailSenders) && flags.emailSenders.length > 1 && !body.email?.from) {
+      answer = { ok: false, refused: "choose_sender", senders: [...flags.emailSenders] };
+    } else if (!draft && Array.isArray(flags.emailSenders) && flags.emailSenders.length > 1) {
+      answer = flags.emailSenders.includes(body.email.from) ? { ok: true, from: body.email.from } : { ok: false, refused: "no_sender" };
+    } else if (!sender) answer = { ok: false, refused: "no_sender" };
     // Only a mailbox the person connected sends, as the real route checks.
     else if (body.email?.from && body.email.from !== sender) answer = { ok: false, refused: "no_sender" };
     else answer = { ok: true, from: sender };

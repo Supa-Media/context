@@ -4,7 +4,8 @@
  * connections that granted sending) and sends it.
  * `check` asks only whether it would go, and sends nothing.
  *
- * Answers `{ ok: true, from }` or `{ ok: false, refused }`; the email's words
+ * Answers `{ ok: true, from }` or `{ ok: false, refused }` (with `senders` when it
+ * is `choose_sender`: several Gmails can send and the email named none); the email's words
  * cross once, to be sent, and are kept by neither side.
  */
 
@@ -25,6 +26,12 @@ const READ_TIMEOUT_MS = 25_000;
  */
 export const ATTACHMENT_RESPONSE_BYTE_CAP = 15_000_000;
 
+/** `{ senders }` on a `choose_sender` refusal: the person's Gmails that can send, one of which the email must name. */
+function sendersOf(answer) {
+  if (answer?.refused !== "choose_sender" || !Array.isArray(answer.senders)) return {};
+  return { senders: answer.senders.filter((address) => typeof address === "string" && address.length <= 320).slice(0, 20) };
+}
+
 /** `{ attached }`: the files Gmail says it holds (`personEmailCheck.ts`), each `{ filename, size }`; nothing when it was not read back. */
 function attachedOf(answer) {
   if (!Array.isArray(answer?.attached)) return {};
@@ -35,20 +42,20 @@ function attachedOf(answer) {
   return { attached };
 }
 
-const REFUSALS = new Set(["invalid", "not_allowed", "no_sender", "hourly_limit", "daily_limit", "recipient_limit", "not_configured", "unavailable", "reply_not_found", "forward_not_found", "too_large", "reconnect_required", "ai_access_needed"]);
+const REFUSALS = new Set(["invalid", "not_allowed", "no_sender", "hourly_limit", "daily_limit", "recipient_limit", "not_configured", "unavailable", "reply_not_found", "forward_not_found", "too_large", "reconnect_required", "ai_access_needed", "choose_sender"]);
 
 export function createEmailMethods({ post }) {
   return {
     async sendPersonEmail(accessToken, expectedWorkspaceId, email, { check = false } = {}) {
       const answer = await post("/gateway/email/send", { accessToken, expectedWorkspaceId, email, check }, { timeoutMs: SEND_TIMEOUT_MS });
       if (answer?.ok === true && typeof answer.from === "string") return { ok: true, from: answer.from, ...attachedOf(answer) };
-      return { ok: false, refused: REFUSALS.has(answer?.refused) ? answer.refused : "unavailable" };
+      return { ok: false, refused: REFUSALS.has(answer?.refused) ? answer.refused : "unavailable", ...sendersOf(answer) };
     },
     /** The same email saved as a draft in their Gmail, sent to nobody (`tools/email.js`). */
     async savePersonEmailDraft(accessToken, expectedWorkspaceId, email) {
       const answer = await post("/gateway/email/draft", { accessToken, expectedWorkspaceId, email }, { timeoutMs: SEND_TIMEOUT_MS });
       if (answer?.ok === true && typeof answer.from === "string") return { ok: true, from: answer.from, ...attachedOf(answer) };
-      return { ok: false, refused: REFUSALS.has(answer?.refused) ? answer.refused : "unavailable" };
+      return { ok: false, refused: REFUSALS.has(answer?.refused) ? answer.refused : "unavailable", ...sendersOf(answer) };
     },
     /** The person's own mail, read live for what their notes do not hold (`tools/emailRead.js`). */
     async personMailSearch(accessToken, expectedWorkspaceId, search) {

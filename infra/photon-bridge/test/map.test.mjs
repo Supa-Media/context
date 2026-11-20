@@ -268,3 +268,15 @@ test("a poll started, an option added and a vote are messages in words", () => {
   assert.equal(unvoted.message.text, "Took back a vote in the poll “Dinner”");
   assert.equal(mapEvent({ ...base, sequence: 154, delta: { type: "mystery" } }, LINE), null);
 });
+
+test("an event Apple gave no time is stamped with the observation time and marked atGuessed; a dated one is not", () => {
+  const base = { type: "message.received", sequence: 77, chatGuid: DM, isFromMe: false };
+  const undated = mapEvent({ ...base, message: { guid: "msg-undated", chatGuids: [DM], isFromMe: false, sender: { address: "+15550100999" }, content: { text: "hi", attachments: [] } } }, LINE, {});
+  assert.equal(undated.atGuessed, true);
+  assert.equal(Number.isNaN(Date.parse(undated.at)), false);
+  assert.equal("replay" in undated, false, "mapping alone does not mark a replay");
+
+  const dated = mapEvent({ ...base, message: { guid: "msg-dated", chatGuids: [DM], isFromMe: false, dateCreated: WHEN, sender: { address: "+15550100999" }, content: { text: "hi", attachments: [] } } }, LINE, {});
+  assert.equal(dated.at, WHEN.toISOString());
+  assert.equal("atGuessed" in dated, false);
+});

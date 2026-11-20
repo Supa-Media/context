@@ -34,6 +34,23 @@ Photon sends.
   Any event the bridge does not map is counted by type in the minute
   `bridge.health` line (`skipped`), never dropped unseen.
 
+## Gaps and replays
+
+- A sequence Photon never sends must not pin a line. A full catch-up skips
+  every sequence up to its head that it did not see, and a gap that holds
+  `GAP_TIMEOUT_MS` (10 min) is skipped after a successful poll. Queued events
+  still stop the frontier. Both are logged as `line.gap_skipped`.
+- A catch-up event older than `MAX_REPLAY_MS` (12 h, the agent's window in
+  `apps/agent/src/replayWindow.ts`) is passed without being delivered, counted
+  as `replayDropped`. An event Apple gave no time is stamped now and marked
+  `atGuessed`, so it is never dropped as old.
+- The object stores the container's frontiers each minute (`GET /frontiers`,
+  reachable only through the container port), so a skipped or dropped sequence
+  is not replayed after a restart.
+- Alerts: `bridge.alert` with `big_replay` (a first catch-up of over 50 events
+  or reaching back over an hour) and `frontier_stuck` (a frontier unmoved for
+  15 min while newer events arrive). Constants: `container/replay.mjs`.
+
 ## Surface
 
 - No public route. `workers_dev` is off and there are no routes. The agent

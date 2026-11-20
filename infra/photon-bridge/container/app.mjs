@@ -4,6 +4,7 @@
  *
  *   GET  /ready                 process is up
  *   GET  /health                frontiers and queue depth, last four digits only
+ *   GET  /frontiers             {checkpoints}: each line's frontier, for the object to store
  *   GET  /logs?after=id         the container's log records since `id` (see log.mjs)
  *   POST /start                 {checkpoints} mint tokens and start listeners
  *   GET  /next?wait=ms          the oldest unacked event, or 204
@@ -67,6 +68,9 @@ export function createApp({ runtime, log = () => {}, ring, now = Date.now }) {
     if (req.method === "GET" && path === "/logs") {
       return send(res, 200, ring ? ring.after(Number(url.searchParams.get("after") ?? 0)) : { boot: "", next: 0, records: [] });
     }
+
+    // Only the Durable Object reads this, through its container port; the Worker's door does not forward it.
+    if (req.method === "GET" && path === "/frontiers") return send(res, 200, { checkpoints: runtime.frontiers() });
 
     if (req.method === "POST" && path === "/start") {
       const body = await readJson(req);

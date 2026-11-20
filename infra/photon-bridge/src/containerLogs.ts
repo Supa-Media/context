@@ -8,8 +8,10 @@
  * message text and full numbers out; this adds nothing to it.
  */
 
+import { FRONTIER_STUCK_ALERT_MS } from "../container/replay.mjs";
 import { readHealth, type ReadState } from "../container/readHealth.mjs";
 import type { Fetchish, Log } from "./pump";
+import { errorClass } from "./wake";
 
 /** Where the last read ended: the container process (`boot`) and its last record's number. */
 export type LogCursor = { boot: string; next: number };
@@ -58,7 +60,7 @@ export async function forwardContainerLogs(
       log({ event: "bridge.logs_failed", status: response.status });
     }
   } catch (error) {
-    log({ event: "bridge.logs_failed", error: error instanceof Error ? error.name : "unknown" });
+    log({ event: "bridge.logs_failed", error: errorClass(error) });
   }
   let health: ReportedHealth | null = null;
   try {
@@ -71,9 +73,11 @@ export async function forwardContainerLogs(
         startedAt?: number | null;
         lastReadAt?: number | null;
         queued?: number;
-        lines?: { line: string; frontier: number | null }[];
+        lines?: { line: string; frontier: number | null; stuckMs?: number | null }[];
         skipped?: Record<string, number>;
         checks?: number;
+        replayDropped?: number;
+        gapSkipped?: number;
       };
       const verdict = readHealth({
         now: now(),
@@ -82,6 +86,12 @@ export async function forwardContainerLogs(
         lastReadAt: asTime(body.lastReadAt),
       });
       health = { ok: verdict.ok, read: verdict.read, readAgeMs: verdict.readAgeMs, started: body.started === true };
+      // A frontier that has not moved while newer events arrived: the line is holding history back.
+      for (const line of body.lines ?? []) {
+        if (typeof line.stuckMs === "number" && line.stuckMs >= FRONTIER_STUCK_ALERT_MS) {
+          log({ event: "bridge.alert", outcome: "frontier_stuck", line: line.line, frontier: line.frontier, stuck_ms: line.stuckMs });
+        }
+      }
       log({
         event: "bridge.health",
         ok: verdict.ok,
@@ -93,10 +103,12 @@ export async function forwardContainerLogs(
         lines: body.lines ?? [],
         skipped: body.skipped ?? {},
         checks: body.checks ?? 0,
+        replay_dropped: body.replayDropped ?? 0,
+        gap_skipped: body.gapSkipped ?? 0,
       });
     }
   } catch (error) {
-    log({ event: "bridge.health", ok: false, error: error instanceof Error ? error.name : "unknown" });
+    log({ event: "bridge.health", ok: false, error: errorClass(error) });
   }
   return { cursor: next, health };
 }

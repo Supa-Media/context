@@ -74,6 +74,13 @@ export const workspaceObjectTables = {
      */
     flagsPushed: v.optional(v.string()),
     flagsPushedAt: v.optional(v.number()),
+    /**
+     * The automatic move onto the object (`functions/workspaceObjectsMove.ts`): the run holding this workspace until
+     * then, when a run last ended, and its closed word (`done`, `parity_differs`, …). Never an id or a path.
+     */
+    moveLeaseUntil: v.optional(v.number()),
+    moveTriedAt: v.optional(v.number()),
+    moveNote: v.optional(v.string()),
   })
     .index("by_workspace", ["workspaceId"])
     .index("by_home", ["home"])

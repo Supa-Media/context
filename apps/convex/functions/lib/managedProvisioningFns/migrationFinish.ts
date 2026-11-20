@@ -116,7 +116,11 @@ export async function finishManagedStorageMigrationHandler(
   // Moving out keeps the encryption row: the managed bucket is kept for a
   // week with its sealed files, and a switch back re-adopts it. Moving in
   // (back) re-walks whatever the bucket now holds in a mode that reads both.
-  if (directionOf(migration) === "to_managed") await managedBucketBound(ctx, args.workspaceId);
+  if (directionOf(migration) === "to_managed") {
+    await managedBucketBound(ctx, args.workspaceId);
+    // Now on managed storage, so moved onto its workspace object like any other (`functions/workspaceObjectsMove.ts`).
+    await ctx.scheduler.runAfter(0, internal.functions.workspaceObjectsMove.advance, { workspaceId: args.workspaceId });
+  }
   const retainedUntil = Date.now() + MANAGED_RETENTION_AFTER_HANDOFF_MS;
   if (plan !== null && toCustomer) {
     await ctx.db.patch(plan._id, {

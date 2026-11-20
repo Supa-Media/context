@@ -412,7 +412,7 @@ export async function runAgentHeartbeatChecks(check) {
       /^ck[0-9a-f]{20}$/.test(lookNote?.turn ?? "") &&
         lookSteps.some((entry) => entry.kind === "thinking" && entry.text.includes("only got the board")) &&
         lookSteps.some((entry) => entry.kind === "tool" && entry.name === "read_note") &&
-        lookNote.ms >= 0 && lookNote.timing?.v === 2 && lookNote.timing.rounds.length === 3 &&
+        lookNote.ms >= 0 && lookNote.timing?.v === 3 && lookNote.timing.rounds.length === 3 &&
         lookNote.timing.rounds.every((round) => round.prompt?.modules?.length > 0),
     );
     const conversation = { turns: conversationTurns(bucket) };

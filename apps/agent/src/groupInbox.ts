@@ -46,6 +46,7 @@
  * - `gnames` handles by the hash of a phone, never a number (`groupTurn.ts`).
  */
 
+import { SEEN_FOR_MS } from "./replayWindow";
 import { GROUP_QUEUE, queueFull, queueItem } from "./chatQueue";
 import { ASK_KEY, isAsker, isItForTexInGroup, type OpenAsk } from "./isItForTex";
 import { ServiceError, type Fetch } from "./clients";
@@ -85,6 +86,7 @@ import { earlyGate, logProvisional, sameMessages, type ProvisionalGate } from ".
 import { answerBesideTurn } from "./groupBeside";
 import { groupTurn } from "./groupModelTurn";
 import type { TimingDataset } from "./textTiming";
+export { SEEN_FOR_MS };
 
 export type GroupDeps = {
   fetch: Fetch;
@@ -134,7 +136,6 @@ export function groupInboxName(groupId: string): string {
 
 type Pending = GroupPending;
 
-const SEEN_FOR_MS = 24 * 60 * 60 * 1000;
 const MAX_PENDING = GROUP_QUEUE.max;
 const MAX_ATTEMPTS = 3;
 const RETRY_MS = 20_000;

@@ -121,10 +121,18 @@ function readEntry(file) {
  * folder every test process of the run shares (null: this process only). `mode` decides whether the fixtures are
  * read at all. `test` names the test that is asking, so a miss says which test it came from.
  */
-export function openWorldStore({ fixtures = null, runDir = null, mode = "replay", test = null } = {}) {
+export function openWorldStore({ fixtures = null, runDir = null, mode = "replay", test = null, arm = null } = {}) {
   // This process's own claims, by key, and the calls it asked the model for, in order.
   const own = new Map();
   const claimed = [];
+  // In a compare (`worldCompare.mjs`), each answer an arm takes from the run's memo rather than the snapshot is marked
+  // for that arm, once per key, so the compare can count each arm's world misses whichever arm asked the model first.
+  const touch = (key) => {
+    if (!arm || !runDir) return;
+    const marks = join(runDir, `touched-${arm}`);
+    mkdirSync(marks, { recursive: true });
+    writeFileSync(join(marks, entryFile(runDir, key).slice(runDir.length + 1)), "");
+  };
 
   return {
     mode,
@@ -137,15 +145,23 @@ export function openWorldStore({ fixtures = null, runDir = null, mode = "replay"
       const shown = new Map(fixtures ?? []);
       for (const entry of runMisses(runDir)) if (!entry.fake && !shown.has(entry.key)) shown.set(entry.key, entry);
       for (const [key, entry] of own) if (!entry.fake && !shown.has(key)) shown.set(key, entry);
-      return nearestFixture(shown, kind, request);
+      const near = nearestFixture(shown, kind, request);
+      if (near && !fixtures?.has(near.key)) touch(near.key);
+      return near;
     },
 
     /** The answer for `key` and where it came from: this process, another process of the run, or the fixtures. */
     get(key) {
-      if (own.has(key)) return { answer: own.get(key).answer, from: "run" };
+      if (own.has(key)) {
+        touch(key);
+        return { answer: own.get(key).answer, from: "run" };
+      }
       if (runDir) {
         const entry = readEntry(entryFile(runDir, key));
-        if (entry) return { answer: entry.answer, from: "run" };
+        if (entry) {
+          touch(key);
+          return { answer: entry.answer, from: "run" };
+        }
       }
       if (mode !== "refresh" && fixtures?.has(key)) return { answer: fixtures.get(key).answer, from: "fixture" };
       return null;
@@ -157,6 +173,7 @@ export function openWorldStore({ fixtures = null, runDir = null, mode = "replay"
      */
     claim(key, kind, request, answer, { fake = false } = {}) {
       claimed.push({ kind, request, test });
+      touch(key);
       if (own.has(key)) return own.get(key).answer;
       if (!runDir) {
         const entry = { key, kind, request, answer, test, ...(fake ? { fake: true } : {}) };
@@ -287,9 +304,9 @@ export function knownFacts(entries, cap = 12_000) {
  * The front matter lines a set test's world reads (`simWorld.mjs` simulateFor): its conversation's run folder, the
  * mode, the recorded fixtures when the tree has any, and the test's name, so each miss says which test it came from.
  */
-export function worldFront({ tree, id, runDir, mode, test }) {
-  const fixtures = fixturePath(tree, id);
-  return [`world_run: ${runDir}`, `world_mode: ${mode}`, ...(existsSync(fixtures) ? [`world_fixtures: ${fixtures}`] : []), `world_test: ${test}`].join("\n");
+export function worldFront({ tree, id, runDir, mode, test, fixtures = fixturePath(tree, id), arm = null }) {
+  // `fixtures`: a compare's snapshot copy (`worldCompare.mjs`) in place of the tree's file; `arm`: the compare's arm.
+  return [`world_run: ${runDir}`, `world_mode: ${mode}`, ...(existsSync(fixtures) ? [`world_fixtures: ${fixtures}`] : []), `world_test: ${test}`, ...(arm ? [`world_arm: ${arm}`] : [])].join("\n");
 }
 
 /** A test's world on its rows: how many simulated calls no fixture answered, and which (`setsRun.mjs` worldLine). */

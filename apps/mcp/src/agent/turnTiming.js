@@ -16,7 +16,7 @@
  * stay in its own entry. Capped, so a long job's turn cannot grow its reply.
  */
 
-export const TIMING_VERSION = 2; // 2: each round carries its prompt's manifest
+export const TIMING_VERSION = 3; // 3: each round carries its prefix's fingerprints and payer
 const MAX_STEPS = 60;
 const MAX_ROUNDS = 40;
 const MAX_TOOLS = 80;
@@ -88,6 +88,29 @@ function stagesPart(stages) {
   return Object.keys(kept).length > 0 ? { stages: kept } : {};
 }
 
+/**
+ * The round's cached prefix as fingerprints (`prefixPrint.js`): the tool list, the first system blocks and the first
+ * history messages, so a miss is visible in the reply itself, not only in the Worker log. Counts and fingerprints only;
+ * anything that is not an 8-hex fingerprint is dropped.
+ */
+const MAX_SYS = 12;
+const MAX_HISTORY_HEADS = 3;
+function prefixPart(prefix) {
+  if (prefix === null || typeof prefix !== "object") return {};
+  const fp = (value) => (typeof value === "string" && FP.test(value) ? value : null);
+  const list = (value, cap) => (Array.isArray(value) ? value.slice(0, cap).map(fp).filter((f) => f !== null) : []);
+  const tools = fp(prefix.tools);
+  return {
+    pfx: {
+      ...(tools === null ? {} : { tools }),
+      sys: list(prefix.systemParts, MAX_SYS),
+      h: list(prefix.history, MAX_HISTORY_HEADS),
+      ...(Array.isArray(prefix.history) ? { n: whole(prefix.history.length) } : {}),
+      ...(Array.isArray(prefix.toolPrints) ? { toolsN: whole(prefix.toolPrints.length) } : {}),
+    },
+  };
+}
+
 const whole = (value) => (Number.isFinite(value) && value > 0 ? Math.round(value) : 0);
 const name = (value) => String(value ?? "").slice(0, 64);
 
@@ -133,6 +156,9 @@ export function turnTiming({ steps = [], trace = [], waitMs = null, worker = nul
         ...(entry.stopped ? { stopped: true } : {}), // a provisional run stopped mid-call (`steer.js`)
         ...(entry.usage ? { input: whole(usage.input), output: whole(usage.output), cacheRead: whole(usage.cacheRead), cacheWrite: whole(usage.cacheWrite), said: whole(entry.said), calls: whole(entry.calls), ...(usage.ttl === "1h" || usage.ttl === "5m" ? { cacheWrite1h: whole(usage.cacheWrite1h), ttl: usage.ttl } : {}) } : {}),
         ...promptPart(entry.prompt, wordsSeen),
+        ...prefixPart(entry.prefix),
+        // Which payer's key answered (`aiGateway.js`): the cache is per organization, so a miss can be another payer's round.
+        ...(typeof entry.payer === "string" ? { payer: name(entry.payer) } : {}),
       });
     }
   }
