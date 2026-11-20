@@ -476,6 +476,13 @@ export function claimCheck({ question, judge = null, waiting = false, corrects =
   const links = noteLinkCheck({ origin, question, history });
   let linkNoticed = false;
   let everywhereNoticed = false; // "I searched all your workspaces" with none run (`searchClaims.js`); a relayed job report is not checked
+  // One call as the checks keep it: a write that carried pictures, so "the note now has a picture" can be checked
+  // (`claimsNotePicture`); a held call is marked, as a held bug report is filed. The same for a call run now and one an
+  // earlier try ran and a try after carried on (`reread`).
+  const stepOf = (name, args, result) => {
+    const images = args?.images ?? args?.args?.images;
+    return { name, ok: result?.isError !== true, ...(typeof args?.action === "string" ? { action: args.action } : {}), ...(result?.held === true ? { held: true } : {}), ...(Array.isArray(images) && images.length > 0 ? { images: true } : {}), ...(result?.isError !== true && isWrite(name) && /\.page\.md$/i.test(String(args?.path ?? "")) ? { page: true } : {}), ...(result?.isError !== true && isWrite(name) && barePageWritten(args) ? { bare: barePageWritten(args) } : {}), ...noteStep(name, args, isWrite(name)), ...everywhereStep(name, args, result) };
+  };
   const saw = (name, args, result) => void ((keptRead = keptRead || readsAKeptFile(name, args) === true), figures.read(result, { args }), result?.isError !== true && links.read(result)); // what a read showed
   return {
     /** The turn's web (`turnWeb.js`), watched for whether anything on it was tried. */
@@ -501,16 +508,14 @@ export function claimCheck({ question, judge = null, waiting = false, corrects =
         },
       };
     },
-    reread: (name, args, result) => void (saw(name, args, result), steps.push({ name, ok: result?.isError !== true, ...(typeof args?.action === "string" ? { action: args.action } : {}), ...everywhereStep(name, args, result) })), // a read an earlier try of this text ran, put back (`turnResume.js`): it counts as read
+    reread: (name, args, result) => void (saw(name, args, result), steps.push(stepOf(name, args, result))), // a call an earlier try of this text ran, put back (`turnResume.js`): a read counts as read, a write as written
     wrap(callTool) {
       return async (name, args) => {
         // "File this as a bug": a note write waits for the report (`bugCheck.js`).
         const refused = writeBeforeReport(question, name, args, steps) ?? lessonInAboutMe(question, name, args);
         const result = refused ?? (await callTool(name, args));
         saw(name, args, result);
-        const images = args?.images ?? args?.args?.images;
-        // A write that carried pictures, so "the note now has a picture" can be checked (`claimsNotePicture`); a held call is marked, as a held bug report is filed.
-        steps.push({ name, ok: result?.isError !== true, ...(typeof args?.action === "string" ? { action: args.action } : {}), ...(result?.held === true ? { held: true } : {}), ...(Array.isArray(images) && images.length > 0 ? { images: true } : {}), ...(result?.isError !== true && isWrite(name) && /\.page\.md$/i.test(String(args?.path ?? "")) ? { page: true } : {}), ...(result?.isError !== true && isWrite(name) && barePageWritten(args) ? { bare: barePageWritten(args) } : {}), ...noteStep(name, args, isWrite(name)), ...everywhereStep(name, args, result) });
+        steps.push(stepOf(name, args, result));
         if (result?.held === true) held = true;
         if (result?.checkerRefused === true) checkerRefused = true;
         if (result?.isError !== true && KEEPS_A_PROMISE.has(name)) keptPromise = true;

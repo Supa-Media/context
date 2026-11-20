@@ -79,18 +79,29 @@ export function keptMessage(message) {
 export const NEVER_CARRIED = new Set(["draw_picture", "make_picture", "draw_visual", "open_page", "search_web", "browse"]);
 
 /**
- * Whether a call's whole effect is the words it returned, so a try after a crash may read its result instead of
- * running it: a read the turn was offered as one and the MCP answered, or a progress line; never one held for the
- * person's yes, and never a write, whose effects the turn's checks track beyond its words (`claimCheck.js`).
+ * Whether a try after a crash may read a call's result instead of running it: a read the turn was offered as one and
+ * the MCP answered, a progress line, or (with `acts`, the offered MCP actions) an action the MCP answered; never one
+ * held for the person's yes, never a picture, and never a web, browser or local step.
  * `readOnly` is the set of offered MCP tool names marked read-only.
  */
-export function carriesOn(call, result, readOnly) {
+export function carriesOn(call, result, readOnly, acts = null) {
   if (result?.held === true) return false;
   // A picture it returned was numbered for this try alone (`outgoingPictures.js`): a try after could not text it.
   if (Array.isArray(result?.content) && result.content.some((part) => part?.type === "image")) return false;
   if (call.name === PROGRESS_TOOL) return true;
-  return readOnly.has(call.name) && !NEVER_CARRIED.has(call.name);
+  if (NEVER_CARRIED.has(call.name)) return false;
+  // An action the MCP answered (a note saved, a share made): it happened, so a try after reads that it did rather than
+  // doing it again; its log entry was kept before it ran (`turnResume.js` `starting`). Its checks are told it as a write.
+  return readOnly.has(call.name) || acts?.has(call.name) === true;
 }
+
+/**
+ * What a try after a crash reads for an action an earlier try started and never heard back from: it may have taken
+ * effect, so it is checked, never made again blind (Dev2, 2026-11-20, durable jobs option A). An error to the
+ * turn's checks, so a reply never claims it was done on its word.
+ */
+export const STARTED_UNSURE =
+  "[An earlier try started this call and stopped before it returned, so it may or may not have taken effect. Check first (read the note back, or look at what it would have changed), and make it again only if it did not happen.]";
 
 const ROLES = new Set(["user", "assistant", "tool"]);
 
