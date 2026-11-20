@@ -34,7 +34,7 @@
  * 2026-11-19).
  */
 import { spawn } from "node:child_process";
-import { writeFile } from "node:fs/promises";
+import { appendFile, writeFile } from "node:fs/promises";
 import { existsSync, mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -184,6 +184,30 @@ export function resultTiming(stdout) {
 }
 
 /**
+ * The tokens one CLI result spent, from its own `usage`: what the call cost the Claude Code subscription. Null when the
+ * result carries none (an older CLI, or a test's scripted stdout).
+ */
+export function resultUsage(stdout, model = null) {
+  try {
+    const usage = resultOf(stdout)?.usage;
+    if (!usage || typeof usage !== "object") return null;
+    const count = (value) => (Number.isFinite(value) && value > 0 ? Math.round(value) : 0);
+    return {
+      model: model ?? null,
+      input: count(usage.input_tokens),
+      output: count(usage.output_tokens),
+      cacheRead: count(usage.cache_read_input_tokens),
+      cacheWrite: count(usage.cache_creation_input_tokens),
+    };
+  } catch {
+    return null;
+  }
+}
+
+/** One line per answered call in `<socket dir>/usage.jsonl`: the run's real Claude Code tokens (`evals/ccUsage.mjs`). */
+export const USAGE_FILE = "usage.jsonl";
+
+/**
  * The CLI's arguments for one call. The system prompt goes in a file and the message on stdin, never in an argument:
  * one argument is capped at 128 KB, and a front door's prompt with its history can pass that. `--json-schema` (the
  * structured-output round, three turns) is passed only with `schema: true`, for a tool call whose text did not parse.
@@ -287,6 +311,8 @@ export async function answerOne(dir, call, { cli = (request, options) => runCli(
       const wallMs = Date.now() - started;
       const { modelMs, turns } = resultTiming(stdout);
       await answerCall(dir, call.hash, answer);
+      const spent = resultUsage(stdout, modelAlias(call.request?.model));
+      if (spent) await appendFile(join(dir, USAGE_FILE), `${JSON.stringify(spent)}\n`);
       log(`answered ${hash12} (${modelAlias(call.request?.model)}) in ${wallMs} ms, model ${modelMs ?? "n/a"} ms, turns ${turns ?? "n/a"}`);
       timing({ wallMs, modelMs });
       return answer;

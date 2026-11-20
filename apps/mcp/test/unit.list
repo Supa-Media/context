@@ -7,6 +7,7 @@ bench/test/fluff.test.mjs
 bench/test/judge.test.mjs
 bench/test/load.test.mjs
 bench/test/longMemEval.test.mjs
+bench/test/ccUsage.test.mjs
 bench/test/mailbox.test.mjs
 bench/test/modelLog.test.mjs
 bench/test/models.test.mjs

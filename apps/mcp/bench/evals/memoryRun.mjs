@@ -20,6 +20,7 @@
 import { PRODUCTION_HOUSEKEEPING_PATH } from "../../src/agent/production.js";
 import { atEarlierTime } from "../clock.mjs";
 import { anthropicGateway } from "../models.mjs";
+import { prepareRun } from "../warm.mjs";
 import { createWorld } from "../world.mjs";
 import { ABILITIES, abilityOf, judgePrompt, sessionsOf, transcriptOf, usdOf, utcMs, verdictOf } from "./longMemEval.mjs";
 
@@ -76,6 +77,8 @@ const CHARS_PER_TOKEN = 4;
  */
 export function meteredSend(send) {
   const usd = { filing: 0, reading: 0, judging: 0 };
+  // Tokens per phase, reported or estimated as `usd` is: what a Claude Code run shows per question in place of dollars.
+  const tokens = { filing: 0, reading: 0, judging: 0 };
   let phase = "filing";
   let estimated = false;
   const metered = async (body) => {
@@ -91,13 +94,14 @@ export function meteredSend(send) {
         estimated = true;
       }
       usd[phase] += usdOf(request.model, usage);
+      tokens[phase] += usage.input + usage.output + usage.cacheRead + usage.cacheWrite;
     } catch {
       // An unreadable reply costs what the caller reads of it: nothing counted here.
     }
     return response;
   };
   metered.route = send.route;
-  return { send: metered, usd, phase: (name) => (phase = name), estimated: () => estimated };
+  return { send: metered, usd, tokens, phase: (name) => (phase = name), estimated: () => estimated };
 }
 
 const textOf = (content) => (Array.isArray(content) ? content.filter((b) => b?.type === "text").map((b) => b.text).join("\n").trim() : "");
@@ -122,6 +126,9 @@ export async function readAndAnswer(world, send, { question, askedAt, model = DE
   const messages = [{ role: "user", content: question }];
   const usage = { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 };
   const calls = [];
+  // Everything the reader said this turn, as the person would read it: an answer followed by "I saved that" is
+  // still the answer, and grading only the last line graded the save notice (the first slice, 2026-11-20).
+  const spoken = [];
   for (let round = 0; round < rounds; round += 1) {
     const last = round === rounds - 1;
     const got = await ask(send, { model, max_tokens: maxTokens, system, messages, ...(last ? {} : { tools }) });
@@ -129,7 +136,9 @@ export async function readAndAnswer(world, send, { question, askedAt, model = DE
     if (!got.reply) return { answer: "", error: got.error, calls, usage, rounds: round + 1 };
     const content = Array.isArray(got.reply.content) ? got.reply.content : [];
     const uses = content.filter((b) => b?.type === "tool_use");
-    if (uses.length === 0) return { answer: textOf(content), error: null, calls, usage, rounds: round + 1 };
+    const said = textOf(content);
+    if (said) spoken.push(said);
+    if (uses.length === 0) return { answer: spoken.join("\n\n"), error: null, calls, usage, rounds: round + 1 };
     messages.push({ role: "assistant", content });
     const results = [];
     for (const use of uses) {
@@ -204,7 +213,14 @@ export async function runQuestion(item, models, options = {}) {
     timeZone: "UTC",
     ...(models.housekeeping ? { pinnedNotes: [{ path: PRODUCTION_HOUSEKEEPING_PATH, raw: models.housekeeping }] } : {}),
   };
-  const world = await createWorld(evalBench(), EVAL_PERSON, PLAIN_TEXTING_SETUP, worldModels, isoDay(askedAt));
+  // Warm, as production is: the workspace starts with its search database and meaning index (empty here), so every
+  // save is indexed whole and by meaning. A cold world has neither and searches by a budgeted scan of each note's
+  // first 2,048 characters, which is not what a person's Context searches with (the first slice's misses, 2026-11-20).
+  const prepared = await prepareRun(evalBench(), { today: isoDay(askedAt), ai: models.ai ?? null });
+  const world = await createWorld(evalBench(), EVAL_PERSON, PLAIN_TEXTING_SETUP, worldModels, isoDay(askedAt), prepared).catch((error) => {
+    prepared.close();
+    throw error;
+  });
   try {
     const filings = filingTimes(sessions, askedAt, opts.filings);
     const fileUntil = async (until) => {
@@ -241,8 +257,10 @@ export async function runQuestion(item, models, options = {}) {
     row.error = String(error?.stack ?? error).slice(0, 500);
   } finally {
     world.close();
+    prepared.close();
   }
   row.usd = { ...meter.usd };
+  row.tokens = { ...meter.tokens };
   row.usdEstimated = meter.estimated();
   row.ms = Date.now() - started;
   return row;
