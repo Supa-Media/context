@@ -1,5 +1,5 @@
 /**
- * Live mode's sync engine (`features/tex/lab/engine/live.ts`): what batch a Lab edit sends, what a conflict does,
+ * Live mode's sync engine (`packages/lab/app/engine/live.ts`): what batch a Lab edit sends, what a conflict does,
  * when a newer draft from the server is taken, and which steps light up. The server is a fake `applyEdits`.
  *
  * Sabotage record (temporary local edits, reverted):
@@ -9,12 +9,12 @@
  *   flush without flushSetup (2026-11-15, the dropped-picks bug) "the Run tab's picks and areas ... are sent" fails
  */
 import { beforeEach, describe, expect, jest, test } from "@jest/globals";
-import { mainGraph } from "../features/tex/lab/data/graph";
-import { ago, aiClient, bind, flush, hlClass, isLive, live, onRemote, pendingOps, resetLive, setFeed, setSender, setSetupSender, setupPending, stepsOf, tick, whoLabel, type Answer } from "../features/tex/lab/engine/live";
-import { clone, lab, MAIN } from "../features/tex/lab/engine/state";
-import { versionPrint } from "../features/tex/lab/engine/sandboxPlay";
-import { unfoldGroups } from "../features/tex/lab/engine/groups";
-import type { LabGraph } from "../features/tex/lab/types";
+import { mainGraph } from "@context/lab/app/data/graph";
+import { ago, aiClient, bind, flush, hlClass, isLive, live, onRemote, pendingOps, resetLive, setFeed, setSender, setSetupSender, setupPending, stepsOf, tick, whoLabel, type Answer } from "@context/lab/app/engine/live";
+import { clone, lab, MAIN } from "@context/lab/app/engine/state";
+import { versionPrint } from "@context/lab/app/engine/sandboxPlay";
+import { unfoldGroups } from "@context/lab/app/engine/groups";
+import type { LabGraph } from "@context/lab/app/types";
 
 const base = (): LabGraph => unfoldGroups(clone(mainGraph()));
 const firstId = (g: LabGraph) => g.nodes.find((n) => n.model === "sonnet" || n.effort)?.id ?? g.nodes[1].id;

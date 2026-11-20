@@ -3,7 +3,7 @@
  * when we refresh the page or try to go back it doesnt just take us to the lab homepage").
  */
 import { describe, expect, test } from "@jest/globals";
-import { placeOf, searchOf } from "../features/tex/lab/views/useLabUrl.web";
+import { placeOf, searchOf } from "@context/lab/app/views/useLabUrl.web";
 
 describe("the Lab's address", () => {
   test("the Lab keeps its page, chat and text; the defaults stay out of the address", () => {

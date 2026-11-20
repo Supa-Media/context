@@ -12,7 +12,7 @@
  * ran and shows the exact words, proven by the fingerprint the turn logged. A module built from the person's own notes
  * or the moment (about-me, jobs, calendar, the time) is not here: it holds their words, never kept in the repository.
  *
- *   node scripts/tex-prompt-catalog.mjs           write apps/mobile/features/tex/lab/promptCatalog.generated.json
+ *   node scripts/tex-prompt-catalog.mjs           write packages/lab/app/promptCatalog.generated.json
  *   node scripts/tex-prompt-catalog.mjs --check   exit 1 when the file on disk is stale
  */
 import fs from "node:fs";
@@ -35,7 +35,7 @@ import { FILL_CARD_TOOL } from "../apps/mcp/src/agent/fillCard.js";
 import { TRAVEL_TIME_TOOL } from "../apps/mcp/src/agent/travelTime.js";
 
 const ROOT = fileURLToPath(new URL("..", import.meta.url));
-const OUT = path.join(ROOT, "apps/mobile/features/tex/lab/promptCatalog.generated.json");
+const OUT = path.join(ROOT, "packages/lab/app/promptCatalog.generated.json");
 
 /** Every module this commit can build from the repository alone: `{ [fingerprint]: { id, kinds, text } }`. */
 export function catalog() {

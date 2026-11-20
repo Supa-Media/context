@@ -1,11 +1,11 @@
 /**
- * The Lab's route summary (`features/tex/lab/engine/routeSummary.ts`): a run row's gold route is the set's label on that
+ * The Lab's route summary (`packages/lab/app/engine/routeSummary.ts`): a run row's gold route is the set's label on that
  * message, and the words the "By route" block shows. Sabotage: read `labels.router` as `labels.route`, and the gold
  * reads null and these fail.
  */
 import { describe, expect, test } from "@jest/globals";
-import { goldRouteAt, perTurnWords, percentOf, routerWords, runRouteSummary, specialistWords } from "../features/tex/lab/engine/routeSummary";
-import type { Conversation } from "../features/tex/lab/engine/sets";
+import { goldRouteAt, perTurnWords, percentOf, routerWords, runRouteSummary, specialistWords } from "@context/lab/app/engine/routeSummary";
+import type { Conversation } from "@context/lab/app/engine/sets";
 
 const conv = {
   id: "trial-hire",

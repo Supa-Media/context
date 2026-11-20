@@ -42,8 +42,8 @@ jest.mock("expo-router", () => {
   return { Redirect: ({ href }: { href: string }) => createElement("div", { "data-testid": "redirect", "data-href": href }) };
 });
 jest.mock("../features/site/host", () => ({ isTexHost: () => true }));
-jest.mock("../features/tex/lab/views/canvas/sandboxCall", () => ({ useSandboxCall: () => false }));
-jest.mock("../features/tex/lab/views/canvas/usePicUpload", () => ({ MAX_TEST_PIC_BYTES: 5_000_000, usePicUpload: () => async () => ({ url: "https://example.invalid/tent.png" }) }));
+jest.mock("@context/lab/app/views/canvas/sandboxCall", () => ({ useSandboxCall: () => false }));
+jest.mock("@context/lab/app/views/canvas/usePicUpload", () => ({ MAX_TEST_PIC_BYTES: 5_000_000, usePicUpload: () => async () => ({ url: "https://example.invalid/tent.png" }) }));
 jest.mock("../features/agent/useConsoleGrant", () => ({ useConsoleGrant: () => async () => ({ accessToken: "fake-token" }) }));
 
 (globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
@@ -54,12 +54,12 @@ Element.prototype.scrollIntoView = function () {};
 
 import { act, createElement } from "react";
 import { createRoot } from "react-dom/client";
-import { TexLab } from "../features/tex/lab/TexLab.web";
-import { clone, MAIN, set } from "../features/tex/lab/engine/state";
-import { type Conversation } from "../features/tex/lab/engine/sets";
-import { sets } from "../features/tex/lab/engine/setsStore";
-import { costWords, handoffWords, setRunsUi, worldWords, type LabRun } from "../features/tex/lab/engine/labRuns";
-import { resetSandboxState, setSandboxCall } from "../features/tex/lab/engine/sandbox";
+import { TexLab } from "@context/lab/app/TexLab.web";
+import { clone, MAIN, set } from "@context/lab/app/engine/state";
+import { type Conversation } from "@context/lab/app/engine/sets";
+import { sets } from "@context/lab/app/engine/setsStore";
+import { costWords, handoffWords, setRunsUi, worldWords, type LabRun } from "@context/lab/app/engine/labRuns";
+import { resetSandboxState, setSandboxCall } from "@context/lab/app/engine/sandbox";
 
 const CHAT: Conversation = {
   id: "picnic",

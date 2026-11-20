@@ -12,7 +12,7 @@
  * be seen in Replay), shown only when they hash to the fingerprint logged; an older turn's is named, sized and said
  * where it came from.
  */
-import type { LedgerEntry } from "../../page/texPageTypes";
+import type { LedgerEntry } from "../fromApp/texPageTypes";
 
 export type PromptModule = { id: string; n: number; h: string };
 export type PromptRound = { model: string | null; modules: PromptModule[] };
@@ -81,7 +81,11 @@ type Catalog = { v: 2; modules: Record<string, { id: string; kinds: string[]; n:
 
 /** The repository the deployed commits are in. A self-hosted fork names its own here. */
 export const REPO = "Supa-Media/context";
-const PATH = "apps/mobile/features/tex/lab/promptCatalog.generated.json";
+/**
+ * Where the catalogue is at a commit: `packages/lab/app` since the Lab became its own package (2026-11-20), and
+ * `apps/mobile/features/tex/lab` before. A turn that ran on an older commit is read from the older place.
+ */
+export const CATALOG_PATHS = ["packages/lab/app/promptCatalog.generated.json", "apps/mobile/features/tex/lab/promptCatalog.generated.json"];
 export const commitUrl = (code: string) => `https://github.com/${REPO}/commit/${code}`;
 
 const fetched = new Map<string, Promise<Catalog | null>>();
@@ -91,7 +95,9 @@ export function catalogAt(code: string, get: typeof fetch = fetch): Promise<Cata
   if (!COMMIT.test(code)) return Promise.resolve(null);
   let p = fetched.get(code);
   if (!p) {
-    p = get(`https://raw.githubusercontent.com/${REPO}/${code}/${PATH}`)
+    const at = (path: string) => get(`https://raw.githubusercontent.com/${REPO}/${code}/${path}`);
+    p = at(CATALOG_PATHS[0])
+      .then((r) => (r.ok ? r : at(CATALOG_PATHS[1])))
       .then((r) => (r.ok ? r.json() : null))
       .then((j) => (j && j.v === 2 && Array.isArray(j.lines) && rec(j.modules) ? (j as Catalog) : null))
       .catch(() => null);

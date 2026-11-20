@@ -3,7 +3,7 @@
  * (`replayEntry.ts`): the conversation's lines with no job's work, and, for the moments shown, every step, judging,
  * tool call and thought; a background job's whole work by its id.
  */
-import type { LedgerEntry, LedgerKind } from "../../page/texPageTypes";
+import type { LedgerEntry, LedgerKind } from "../fromApp/texPageTypes";
 import { chatLines, myTexts, type ChatLine, type MyText } from "./mine";
 
 /** The conversation: texts, replies and the notes of what Tex texted on its own; read with `jobs: false`. */

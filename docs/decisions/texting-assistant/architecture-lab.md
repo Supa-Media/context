@@ -16,10 +16,10 @@ shares (`texLabVersions`, `texLabCaseEdits`); they hold the Lab's own JSON
 or anyone's chat.
 
 **The artifact is the spec.** The stylesheet is its `<style>` scoped under
-`.tl` (`features/tex/lab/labCss.ts`), the shell is its markup with the same
-ids and classes, the constants are copied verbatim (`features/tex/lab/data/`),
+`.tl` (`packages/lab/app/labCss.ts`), the shell is its markup with the same
+ids and classes, the constants are copied verbatim (`packages/lab/app/data/`),
 and the engine keeps its function names and its one state
-(`features/tex/lab/engine/`). `__tests__/texLabEngine.test.ts` holds the port
+(`packages/lab/app/engine/`). `__tests__/texLabEngine.test.ts` holds the port
 to the numbers the artifact's own page computed. A view that looks or acts
 differently from the artifact is a bug, unless it is one of the stated
 differences below. `node scripts/tex-lab-preview.mjs` builds the page with

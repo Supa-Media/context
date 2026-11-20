@@ -6,7 +6,7 @@
  * and the job check's verdict on it (`job` entries: keep going, done or stuck, and the advice). A text Tex sends from a
  * job is its report turn, whose `job` entry names the job.
  */
-import type { LedgerEntry } from "../../page/texPageTypes";
+import type { LedgerEntry } from "../fromApp/texPageTypes";
 
 export type JobTool = { at: number; name: string; ok: boolean; ms: number | null; args: unknown; result: unknown };
 export type JobRun = {

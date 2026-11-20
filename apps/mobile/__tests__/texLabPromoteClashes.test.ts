@@ -16,9 +16,9 @@ import { act, createElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
 
 const mockPromote = jest.fn<(picks?: unknown) => Promise<void>>(async () => undefined);
-jest.mock("../features/tex/lab/store", () => ({ promoteVersion: (picks?: unknown) => mockPromote(picks) }));
+jest.mock("@context/lab/app/store", () => ({ promoteVersion: (picks?: unknown) => mockPromote(picks) }));
 
-import { PromoteClashes, picksToSend } from "../features/tex/lab/views/bar/PromoteClashes.web";
+import { PromoteClashes, picksToSend } from "@context/lab/app/views/bar/PromoteClashes.web";
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 

@@ -199,7 +199,7 @@ describe("consoleCosts: configuration and the window", () => {
 });
 
 describe("consoleCosts: attribution", () => {
-  test("Tex steps map from the gateway labels and the model, and the Workers AI Clef is Decide and GLM the Front door's fallback", async () => {
+  test("Tex steps map from the gateway labels and the model, and the Workers AI Clef is Decide and GLM the Fallback step even while it is off", async () => {
     const fixture = {
       w0: [],
       w1: [
@@ -219,7 +219,8 @@ describe("consoleCosts: attribution", () => {
       aw: [ai(CLEF_MODEL, 1000), ai(GLM_MODEL, 2000)],
     };
     const { result } = await run(7, fixture);
-    expect(step(result, "fd").usd).toBeCloseTo(1 + 2000 / 1000 * USD_PER_THOUSAND_NEURONS);
+    expect(step(result, "fd").usd).toBeCloseTo(1);
+    expect(step(result, "fallback").usd).toBeCloseTo(2000 / 1000 * USD_PER_THOUSAND_NEURONS);
     expect(step(result, "advisor").usd).toBeCloseTo(2 + 4);
     expect(step(result, "jobcheck").usd).toBeCloseTo(8);
     expect(step(result, "mailadv").usd).toBeCloseTo(16);
