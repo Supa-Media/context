@@ -68,6 +68,7 @@ import { sharedChatOf, sharedLedger, sharedList } from "./shared.js";
 import { inboundEvent, picsOf, reactionOf, TAPBACK_OF, targetOf } from "./inbound.js";
 import { lineOf, measuredLine, rowLine } from "./line.js";
 import { sandboxAsset } from "./pages.js";
+import { nightlyForReal, nightlyInTestChat } from "./nightlyRoute.js";
 
 export { oneRowPerText };
 
@@ -377,6 +378,9 @@ async function addRow({ env, ctx, controlPlane, token, who, stub, state, row, or
   return json({ msgId: row.id });
 }
 
+/** What the nightly's ops (`nightlyRoute.js`) use of this route's own. */
+const routeHelpers = () => ({ draftConfig, refused, view, newIds, DAILY_SENDS });
+
 /** A new test row's ids: its event id and the row id built from it. */
 export const newIds = (at = Date.now(), eid = eventId(at)) => ({ at, eid, id: `t${eid.replace("-", "")}` });
 carryWith((env, state, body, op) => (op === "text.run" ? objectRun : objectCarry)(env, state, body, async () => ({ open, newIds, runTurn: runTestText, max: DAILY_SENDS })));
@@ -595,6 +599,8 @@ async function serveLabSandbox(request, env, ctx, { origin = "https://context.lc
   if (input.op === "list") return json(await listOf(env, who.userId));
   if (input.op === "shared") return await sharedList(controlPlane, token);
   if (input.op === "ledger") return await sharedLedger(env, controlPlane, token, who, input);
+  // The nightly on the caller's own workspace, for real (`nightly.js`): no test chat, main or a saved draft only.
+  if (input.op === "nightly" && input.real === true) return await nightlyForReal({ env, controlPlane, token, who, origin, helpers: routeHelpers() }, input);
 
   if (typeof input.sandboxId !== "string" || !SANDBOX_ID.test(input.sandboxId)) return refused(400, "name the test chat: sandboxId");
   const stub = sandboxStub(env, who.userId, input.sandboxId);
@@ -659,11 +665,13 @@ async function serveLabSandbox(request, env, ctx, { origin = "https://context.lc
     }
     case "read":
       return json(await callSandbox(stub, "ledger.read", { chat: state.meta.chat.ledgerChat, options: readOptions(input.options) }));
+    case "nightly":
+      return await nightlyInTestChat({ ...deps, helpers: routeHelpers() }, state, input);
     case "page": {
       const asset = await sandboxAsset(env, who.userId, input.sandboxId, input.id);
       return asset === null ? refused(404, "There is no such page in this test chat.") : json(asset);
     }
     default:
-      return refused(400, "op is chats, sets, shared, ledger, list, open, send, react, edit, unsend, retry, back, drop, reset, get, page, about, use or read");
+      return refused(400, "op is chats, sets, shared, ledger, list, open, send, react, edit, unsend, retry, back, drop, reset, get, page, about, use, read or nightly");
   }
 }

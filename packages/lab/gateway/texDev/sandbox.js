@@ -500,6 +500,15 @@ export function createSandboxActions({ route, graphOf, page, env, origin, realCh
         return await tryDrafts(args);
       case "replay":
         return await replay(args);
+      // The nightly run now (`labSandbox/nightly.js`): in a test chat of your 1:1, its card as a text's; or `real: true`
+      // (no test chat) on your own workspace, on main or a saved draft.
+      case "nightly": {
+        if (args.real === true) return await call({ op: "nightly", real: true, run: args.run ?? "dream", ...(typeof args.draft === "string" ? { versionId: args.draft } : {}) });
+        if (needId(args)) return needId(args);
+        const ran = await call({ op: "nightly", sandboxId: args.sandboxId, run: args.run ?? "dream" });
+        if (ran.error) return ran;
+        return { ...ran, card: await cardNow(args.sandboxId, ran.msgId) };
+      }
       default:
         // The route's own: chats, sets, get, back, drop, reset.
         return await call(args);
