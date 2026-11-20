@@ -155,7 +155,7 @@ export async function scanVisibleNotes(store, scope, rules, overrides, query, pr
  * @returns {Promise<object|null>} an answer in `searchIndexedNotes`' shape, or
  *   `null` to mean "not answered — ask the index".
  */
-export async function fastSearchAnswer(store, scope, rules, overrides, query, prefix, budget, trace, { filling = false } = {}) {
+export async function fastSearchAnswer(store, scope, rules, overrides, query, prefix, budget, trace, { filling = false, apart = null } = {}) {
   const descriptor = store.searchIndex;
   // `filling`: the caller already has an empty, "still catching up" answer
   // and asks what the part copied so far holds (`searchVisibleNotes`).
@@ -173,7 +173,7 @@ export async function fastSearchAnswer(store, scope, rules, overrides, query, pr
       // the reason `searchIndexedNotes` takes `isVisible`: the console has its
       // own, proven identical, and a copy inside the shared answer would be a
       // third.
-      isVisible: (path) => canSee(path, scope, rules, overrides),
+      isVisible: (path) => path !== apart && canSee(path, scope, rules, overrides),
       budget,
       // Everything the fall-through would need is kept back, so a projection
       // that answers nothing has not spent the ops the R2 index is about to

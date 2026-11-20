@@ -62,7 +62,7 @@ import { goalsIn } from "./aboutMe.js";
 import { pushbackNudge } from "./pushback.js";
 import { causeOf, failureRecorder } from "./toolFailures.js";
 import { FINISH_NOTICE, FINISH_SCHEDULED_NOTICE, exhaustedAnswer, roundNotice } from "./lastRound.js";
-import { toolsShownOf, traceNames } from "./turnLog.js";
+import { toolsShownOf, traceNames, wroteOf } from "./turnLog.js";
 import { TAPBACK_TOOL } from "./tapbackEnding.js";
 import { START_JOB_TOOL } from "./backgroundTool.js";
 import { keptTools, resumedRounds, roundsKeeper } from "./turnResume.js";
@@ -839,7 +839,7 @@ export async function runTurn(options) {
       effects.push(() => {
         const manual = failedCall(result) && !ask ? six.manualOnFailure(made.name, made.args) ?? "" : ""; // the action's manual, once per turn, logged as sent (`sixTools.js`)
         trace.push({ kind: "tool", tool: call.name, ok: result?.isError !== true || ask, at: called - began, ms: toolMs, ...(result?.held === true ? { held: true } : {}), ...(ask ? { ask: true } : {}), ...(result?.stages ? { stages: result.stages } : {}), ...traceNames(made, call) }); // the six's name and action, for the Lab's Tools page (`turnLog.js`)
-        steps.push({ tool: call.name, ok: result?.isError !== true, ...(Array.isArray(result?.sources) ? { sources: result.sources } : {}) });
+        steps.push({ tool: call.name, ok: result?.isError !== true, ...(Array.isArray(result?.sources) ? { sources: result.sources } : {}), ...wroteOf(call, result) }); // `wrote`: the notes it saved (`turnLog.js`)
         // A failed step sends the next round to the planner; one held for the person's yes, or a designed send-back, does not.
         if (failedCall(result) && !ask) { escalate = true; failed({ tool: call.name, ...causeOf(thrown, ToolTimeout), result, ms: toolMs, round }); }
         tell({ kind: "tool", name: call.name, args: call.args, ...(made.name !== call.name ? { as: { name: made.name, args: made.args } } : {}), ok: result?.isError !== true, ms: toolMs, held: result?.held === true, reason: whyFailed(result), result: toolResultText(result) + manual, ...(typeof result?.thinking === "string" && result.thinking ? { thinking: result.thinking } : {}) }); // the result, for the chat's ledger (`ledger.js`)

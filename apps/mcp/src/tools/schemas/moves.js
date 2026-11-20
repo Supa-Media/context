@@ -48,7 +48,7 @@ export function searchAndMoveToolDefinitions() {
       title: "Related notes",
       description:
         "The notes around one note, each with why: the notes it links to (linked_from_here), the " +
-        "notes that link to it (links_here), and notes whose text is like its title and headings " +
+        "notes that link to it (links_here), and notes about the same names and things as its prose " +
         "(related_text). Linked notes come first. Use it after reading a note, to find what the " +
         "user wrote nearby before asking them, and before writing, to find notes worth linking. " +
         "A line saying the answer may be incomplete means some links or text could not be read yet.",

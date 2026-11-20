@@ -20,6 +20,7 @@ import daysum from "./nodes/daysum.js";
 import dream from "./nodes/dream.js";
 import aboutExpire from "./nodes/aboutExpire.js";
 import aboutCheck from "./nodes/aboutCheck.js";
+import connect from "./nodes/connect.js";
 import egress from "./nodes/egress.js";
 import housekeep from "./nodes/housekeep.js";
 import nightly from "./nodes/nightly.js";
@@ -142,6 +143,8 @@ export const GATEWAY_NODES = {
   // About me's nightly upkeep after the dream (Dev2, 2026-11-20): past-date lines out, and the weekly recheck.
   get aboutExpire() { return aboutExpire; },
   get aboutCheck() { return aboutCheck; },
+  // Connect the notes a turn wrote, both ways with why (Dev2, 2026-11-20: "score, then finder + connect step").
+  get connect() { return connect; },
   get doorStep() { return doorStepNode; },
   get bypass() { return bypassNode; },
   get answerCheck() { return answerCheckNode; },

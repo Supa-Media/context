@@ -197,9 +197,17 @@ obsolete):
 - **The seed is opened by `read_note` itself**, so a hidden seed is refused
   exactly as an absent one, at the same cost, before the tree is asked about
   it ("a hidden seed answers what an absent one does", `test/relatedNotes.test.mjs`).
-- **Similar text is one ordinary search** over the seed's title and headings,
-  through `searchVisibleNotes`, so it reads the search database where there is
-  one. An encrypted seed's headings are never sent to it.
+- **Similar text is one ordinary search** over what the seed's prose is about
+  (`seedQuery`: names first, then its most said words; the title only when the
+  prose is near empty), through `searchVisibleNotes`, so it reads the search
+  database where there is one. Never its headings: notes made from one template
+  share every heading, so a heading query found the template and its copies
+  (Judges 19 found the chapter template and Galatians 2, never Genesis 19;
+  2026-11-20). The seed is asked `apart`, as if absent, so the any-word retry
+  answers when it alone holds every word, and a note under a `Templates/`
+  folder is never related by text unless the seed is one too ("a templated note
+  is related by what it is about", `test/relatedNotes.test.mjs`). An encrypted
+  seed's words are never sent to it.
 
 Not yet: notes sharing a link target or a URL, same-folder nearness, and
 meaning search. Each is one more ranked list beside these.
