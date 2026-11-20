@@ -114,7 +114,7 @@ export type SandboxState = {
 /** One of the recent test chats, whoever opened it: the Lab or an AI through `tex_dev`. */
 export type SandboxRecent = { sandboxId: string; name: string; source: SandboxSource; versionId: string; openedBy: string; lastBy: string; at: number; ai: boolean; texts: number; running: boolean };
 
-export type SandboxOp = "chats" | "sets" | "shared" | "ledger" | "open" | "send" | "react" | "edit" | "unsend" | "retry" | "back" | "drop" | "reset" | "get" | "list" | "use" | "page";
+export type SandboxOp = "chats" | "sets" | "shared" | "ledger" | "open" | "send" | "react" | "edit" | "unsend" | "retry" | "back" | "drop" | "reset" | "get" | "list" | "use" | "page" | "nightly";
 export type SandboxCall = (op: SandboxOp, body: Record<string, unknown>) => Promise<Record<string, unknown>>;
 
 export const sandbox: SandboxState = { id: null, source: { kind: "maya" }, versionId: "main", people: [], handles: {}, as: "", rows: [], writes: [], running: null, hot: null, busy: false, problem: null, linked: null, chats: [], sharedChats: [], sets: [], draft: null, shared: false, recent: null, fit: null, line: null };
@@ -271,7 +271,7 @@ function poll() {
 }
 
 /** The ops that run the draft: each carries it as drawn while it has edits not saved yet. */
-const DRAFT_OPS = new Set<SandboxOp>(["open", "send", "react", "edit", "unsend", "retry", "use"]);
+const DRAFT_OPS = new Set<SandboxOp>(["open", "send", "react", "edit", "unsend", "retry", "use", "nightly"]);
 
 /**
  * The draft open in the Lab as drawn, when the test chat runs it and the saved copy isn't it: never saved, or edited
@@ -549,6 +549,20 @@ export async function tryText(convId: string, name: string, versionId: string, w
   if (!sandbox.id) return;
   sandbox.as = sandbox.people.includes(who) ? who : (sandbox.people[0] ?? who);
   await sendText(text, { pics });
+}
+
+/**
+ * The Nightly page's Run now (Dev2, 2026-11-20: "okay, let's run it now"): the nightly graph on the version open in the
+ * Lab, in a test chat of your own 1:1 with Tex, over a copy of your workspace. Opens that chat first when the dock shows
+ * another; the run is a row in it, its steps on the card, and Tex's row says what About me became.
+ */
+export async function runNightlyNow(versionId: string, which: "dream" | "housekeeping" = "dream") {
+  const own = sandbox.id !== null && !sandbox.shared && sandbox.source.kind === "chat" && sandbox.source.chatId === "me" && sandbox.versionId === versionId;
+  if (!own) {
+    await openSandbox({ kind: "chat", chatId: "me", name: "You and Tex" }, versionId);
+    if (!sandbox.id) return;
+  }
+  await run("nightly", { run: which, versionId });
 }
 
 const asHandle = () => sandbox.handles[sandbox.as] ?? sandbox.as;

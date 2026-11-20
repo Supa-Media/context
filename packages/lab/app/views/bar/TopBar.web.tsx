@@ -10,6 +10,7 @@ import { api } from "@context/convex/_generated/api";
 import { emit, fit, G, isMain, lab, newVersion, openVersion, PLAY_SPEEDS, set, setSpeed, toast, type PlaySpeed } from "../../engine/state";
 import { GRAPH_PAGES, stepCountsByPage, type GraphPage } from "../../engine/pages";
 import { isLive, live } from "../../engine/live";
+import { runNightlyNow, useSandbox } from "../../engine/sandbox";
 import { promoteVersion, useLab } from "../../store";
 import { CC_FIDELITY, codeWords, MAX_REPEATS, scoreWords, setRunsUi, useRunsUi } from "../../engine/labRuns";
 import { setLabTheme, THEMES, useLabTheme } from "../../theme.web";
@@ -152,7 +153,30 @@ export function GraphPages() {
           {name}
         </button>
       ))}
+      {s.graphPage === "nightly" ? <RunNightly /> : null}
     </div>
+  );
+}
+
+/** Run now on the Nightly page: the nightly on the version open, in a test chat of your own 1:1 (`runNightlyNow`). */
+function RunNightly() {
+  const s = useLab();
+  const sb = useSandbox();
+  const busy = sb.busy || sb.running !== null;
+  return (
+    <>
+      {(["dream", "housekeeping"] as const).map((which) => (
+        <button
+          key={which}
+          data-run-nightly={which}
+          disabled={busy}
+          title={which === "dream" ? "Run the dream now, and the steps wired after it, on a test copy of your workspace" : "Run housekeeping now on a test copy of your workspace"}
+          onClick={() => void runNightlyNow(s.cur.id, which)}
+        >
+          {busy ? "Running…" : which === "dream" ? "Run now" : "Run housekeeping"}
+        </button>
+      ))}
+    </>
   );
 }
 
