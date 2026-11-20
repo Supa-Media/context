@@ -452,10 +452,13 @@ jobs:
 
       # The web app in a real browser: the sign-in page renders and nothing on
       # it throws. The router is there now, deployed by this run or an earlier one.
+      # No --with-deps: Playwright cannot install packages for the runner's newer
+      # Ubuntu, and the runner image already carries Chrome's libraries (and Chrome,
+      # which the script falls back to).
       - name: Open the preview's web app in a browser
         run: |
           set -euo pipefail
-          pnpm --dir apps/mobile exec playwright install --with-deps chromium > /dev/null
+          pnpm --dir apps/mobile exec playwright install chromium > /dev/null
           node scripts/preview-browser.mjs
 
       # Runs even when a step above failed: the comment says what was reached.

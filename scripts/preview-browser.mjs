@@ -42,7 +42,8 @@ export async function openWebApp(env = process.env, { log = console.log } = {}) 
   // Playwright is the app's dev dependency; resolve it from there.
   const require = createRequire(new URL('../apps/mobile/package.json', import.meta.url));
   const { chromium } = require('@playwright/test');
-  const browser = await chromium.launch();
+  // The runner's Ubuntu can be newer than Playwright supports; its own Chrome is the fallback.
+  const browser = await chromium.launch().catch(() => chromium.launch({ channel: 'chrome' }));
   const pageErrors = [];
   const failedRequests = [];
   try {
