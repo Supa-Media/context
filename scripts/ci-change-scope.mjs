@@ -52,8 +52,8 @@ export const TEX_DATA = [
   "apps/mcp/src/texDev/canvas.generated.js",
   "apps/mcp/src/texDev/lab.generated.js",
   "apps/mcp/src/texDev/replay.generated.js",
-  "apps/mobile/features/tex/lab/labData.generated.ts",
-  "apps/mobile/features/tex/lab/promptCatalog.generated.json",
+  "packages/lab/app/labData.generated.ts",
+  "packages/lab/app/promptCatalog.generated.json",
   "docs/architecture/tex.md",
 ];
 
@@ -270,7 +270,7 @@ export function selfTest() {
   if (editor("apps/mobile/public/index.html")) throw new Error("an asset nothing imports matched the editor scope");
   if (editor("apps/mobile/eslint.config.js")) throw new Error("a lint config matched the editor scope");
   // A diff of only Tex config and data runs only the jobs that opt in.
-  const config = ["packages/tex/src/texConfig.json", "apps/mobile/features/tex/lab/labData.generated.ts", "docs/architecture/tex.md"];
+  const config = ["packages/tex/src/texConfig.json", "packages/lab/app/labData.generated.ts", "docs/architecture/tex.md"];
   const mobile = (changed, texData) => decide({ packages: [], paths: ["apps/mobile/**", "packages/shared/**", "packages/lab/**", "packages/tex/**"], changed, texData, root }).affected;
   if (mobile(config, false)) throw new Error("a config-only diff ran a job that did not opt in to Tex data");
   if (!mobile(config, true)) throw new Error("a config-only diff skipped a job that opted in to Tex data");

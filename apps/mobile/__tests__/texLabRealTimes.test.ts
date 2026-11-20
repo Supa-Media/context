@@ -7,9 +7,9 @@
  * Haiku back to the artifact's 1400 ms + 4.1 ms per token and "Haiku's estimate..." fails on the median miss.
  */
 import { describe, expect, jest, test } from "@jest/globals";
-import { BASE_MODELS } from "../features/tex/lab/data/models";
-import { realTimes, roundUsd, withReal, withWorkerSteps } from "../features/tex/lab/engine/realTimes";
-import { simulate, type Sim } from "../features/tex/lab/engine/sim";
+import { BASE_MODELS } from "@context/lab/app/data/models";
+import { realTimes, roundUsd, withReal, withWorkerSteps } from "@context/lab/app/engine/realTimes";
+import { simulate, type Sim } from "@context/lab/app/engine/sim";
 
 const turn = "t1";
 const reply = {
@@ -62,7 +62,7 @@ describe("realTimes", () => {
   });
 
   test("a real run takes measured times, skips steps that log when they run but logged nothing, and adds no send-backs", () => {
-    const { G } = jest.requireActual<typeof import("../features/tex/lab/engine/state")>("../features/tex/lab/engine/state");
+    const { G } = jest.requireActual<typeof import("@context/lab/app/engine/state")>("@context/lab/app/engine/state");
     // The graph's Door step is `doorStep`, and its Answer check (`answerCheck`) logs when it runs, as the reviewer did.
     const real = { reply: 6700, ms: { lanes: 450, doorStep: 700, fd: 2700, tools: 650, send: 150 }, calls: { fd: 2 } };
     const sim = simulate(G(), "own", null, real);
@@ -92,8 +92,8 @@ test("Haiku's estimate misses Tex's real calls by a median of under 300 ms", () 
 
 test("the wire key offers Next, Helper, Background, Send back, Provisional run and Starts a new run: after-sending wires are drawn as Background", () => {
   // Dev2, 2026-11-14: "next, and background is really all we need".
-  const { keywHtml } = jest.requireActual<typeof import("../features/tex/lab/views/canvas/render")>("../features/tex/lab/views/canvas/render");
-  const { WIRES } = jest.requireActual<typeof import("../features/tex/lab/data/graph")>("../features/tex/lab/data/graph");
+  const { keywHtml } = jest.requireActual<typeof import("@context/lab/app/views/canvas/render")>("@context/lab/app/views/canvas/render");
+  const { WIRES } = jest.requireActual<typeof import("@context/lab/app/data/graph")>("@context/lab/app/data/graph");
   expect([...keywHtml().matchAll(/<\/svg>([^<]+)<\/span>/g)].map((m) => m[1])).toEqual(["Next", "Helper", "Background", "Send back", "Provisional run", "Starts a new run"]);
   expect({ ...WIRES.background, folded: undefined, tip: "" }).toEqual({ ...WIRES.job, folded: undefined, tip: "" });
 });
@@ -178,7 +178,7 @@ describe("every step's real time is its own, once (Dev2, 2026-11-15)", () => {
   });
 
   test("a run with no wait says so, never 0.0 s", () => {
-    const { fmtReal } = jest.requireActual<typeof import("../features/tex/lab/engine/sim")>("../features/tex/lab/engine/sim");
+    const { fmtReal } = jest.requireActual<typeof import("@context/lab/app/engine/sim")>("@context/lab/app/engine/sim");
     expect([fmtReal(0), fmtReal(0.4), fmtReal(83), fmtReal(470), fmtReal(4_595)]).toEqual(["<1 ms", "<1 ms", "83 ms", "0.5 s", "4.6 s"]);
   });
 });

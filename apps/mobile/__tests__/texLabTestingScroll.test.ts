@@ -6,7 +6,7 @@
  * `.tl .body.testing` and this fails.
  */
 import { expect, test } from "@jest/globals";
-import { LAB_CSS_3 } from "../features/tex/lab/labCss3";
+import { LAB_CSS_3 } from "@context/lab/app/labCss3";
 
 test("the Testing body gives its one row the window's height, so the sets list scrolls", () => {
   const rule = /\.tl \.body\.testing\{([^}]*)\}/.exec(LAB_CSS_3)?.[1] ?? "";

@@ -11,9 +11,9 @@
  *  3. `packSteps` ignoring `minMs` -> "density ... packed rows" fails.
  */
 import { describe, expect, test } from "@jest/globals";
-import { densityFor, litAt, packSteps, runById, runStart, sandboxRun, scaleOf, stepsAt, texCauseRun, trackOrder, type RunRowIn } from "../features/tex/lab/engine/sandboxRun";
-import { rowOf } from "../features/tex/lab/engine/sandbox";
-import { GAP_DRAWN_MS, timeMap } from "../features/tex/lab/engine/timeMap";
+import { densityFor, litAt, packSteps, runById, runStart, sandboxRun, scaleOf, stepsAt, texCauseRun, trackOrder, type RunRowIn } from "@context/lab/app/engine/sandboxRun";
+import { rowOf } from "@context/lab/app/engine/sandbox";
+import { GAP_DRAWN_MS, timeMap } from "@context/lab/app/engine/timeMap";
 
 const old: RunRowIn[] = [
   { id: "t1", text: "add the gig", at: 1_000, steps: [{ node: "triage", ms: 2 }, { node: "decide", ms: 400 }, { node: "fd", ms: null }, { node: "send", ms: 30 }] },

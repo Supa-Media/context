@@ -11,6 +11,18 @@ with (`texLabOps`), the run report reader, run statistics and noise band, the te
 the repo's test conversations (`texSetsRepo.generated.json`), and, moved in later steps, the page, the gateway's
 sandbox and `tex_dev` logic, and the control plane's Lab logic.
 
+**The page is `packages/lab/app`** (moved from `apps/mobile/features/tex/lab`); `apps/mobile/app/(app)/lab.tsx` is
+its route and imports `@context/lab/app/TexLab`. What the page takes from the Context app (the staff chrome and
+gate, the fonts, the console grant, the MCP address, the Tex page's ledger reader and types) it takes through one
+folder, `packages/lab/app/fromApp/`, each file a re-export of the app's own module, so the seam is one place to read
+and one place to cut when those pieces move. The app's source guards (window listeners, palette, type scale, field
+fonts, action controls, device namespaces, Apple platform) scan the package too.
+
+**A past turn is read where its commit kept it.** Replay reads the prompt catalogue at the commit a turn ran on, from
+GitHub; a commit from before the move has it at the old path, so `catalogAt` tries `packages/lab/app` and then
+`apps/mobile/features/tex/lab` (`CATALOG_PATHS`). Any file the Lab reads at an old commit keeps the same fallback
+when it moves.
+
 **What stays where a tool looks.** Convex deploys only `apps/convex/functions`, Expo Router serves only
 `apps/mobile/app`, and a Worker's entry is its app's: those keep thin files that call into the package. Moving code
 in is a pure refactor: no behaviour changes in the same pull request.

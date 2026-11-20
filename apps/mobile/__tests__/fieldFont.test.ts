@@ -96,7 +96,7 @@ function sources(dir: string): string[] {
 
 describe("every TextInput in the app", () => {
   const root = join(__dirname, "..");
-  const withFields = [...sources(join(root, "features")), ...sources(join(root, "app"))]
+  const withFields = [...sources(join(root, "features")), ...sources(join(root, "app")), ...sources(join(root, "..", "..", "packages", "lab", "app"))]
     .filter((path) => readFileSync(path, "utf8").includes("<TextInput"))
     .map((path) => relative(root, path));
 

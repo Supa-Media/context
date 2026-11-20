@@ -43,7 +43,7 @@ jest.mock("@convex-dev/auth/react", () => ({ useAuthActions: () => ({ signOut: m
 jest.mock("../features/offline/forget", () => ({ unsentOnDevice: async () => ({ pending: 0, conflicted: 0, rejected: 0 }), forgetLocalCopies: async () => {} }));
 jest.mock("../features/site/host", () => ({ isTexHost: () => mockTexHost }));
 // The test chat under the canvas reaches the gateway with the person's own grant; no gateway here.
-jest.mock("../features/tex/lab/views/canvas/sandboxCall", () => ({ useSandboxCall: () => false }));
+jest.mock("@context/lab/app/views/canvas/sandboxCall", () => ({ useSandboxCall: () => false }));
 
 (globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 window.matchMedia = ((q: string) => ({ matches: false, media: q, addEventListener() {}, removeEventListener() {} })) as never;

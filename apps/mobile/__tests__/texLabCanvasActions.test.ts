@@ -17,8 +17,8 @@ import {
   node,
   stepsOf,
   undo,
-} from "../features/tex/lab/engine/state";
-import { addStep } from "../features/tex/lab/views/canvas/actions";
+} from "@context/lab/app/engine/state";
+import { addStep } from "@context/lab/app/views/canvas/actions";
 
 beforeEach(() => {
   lab.cur = clone(MAIN);

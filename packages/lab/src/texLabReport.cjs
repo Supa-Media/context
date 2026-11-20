@@ -1,6 +1,6 @@
 /**
  * THE TEX LAB'S READER FOR A PASTED RUN REPORT (the Lab's Run tab, "Keep these results"; ported from the artifact's
- * `parseReport`). One copy: the Lab (`apps/mobile/features/tex/lab/views/run/runText.ts`) and the control plane, for
+ * `parseReport`). One copy: the Lab (`packages/lab/app/views/run/runText.ts`) and the control plane, for
  * the MCP's `tex_dev` `keep_results` (`apps/convex/functions/lib/texLabDraftWrites.ts`), both read reports with it, so
  * a result kept from either door scores the same.
  *
