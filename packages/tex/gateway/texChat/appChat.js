@@ -220,7 +220,7 @@ export async function serveAppPictureById(storage, id) {
  */
 export async function serveAppOutbox(storage, { alarms = null, now = Date.now } = {}) {
   const name = await storage.get(NAME_KEY);
-  if (typeof name !== "string") return Response.json({ events: [], typingAt: null, metas: {}, taps: {}, handles: {}, queue: [], failed: {}, stopped: {} });
+  if (typeof name !== "string") return Response.json({ events: [], typingAt: null, metas: {}, taps: {}, handles: {}, queue: [], failed: {}, stopped: {}, run: null });
   if (!(await isAppChatName(name))) return Response.json({ error: "not_an_app_chat" }, { status: 404 });
   const kept = [...(await storage.list({ prefix: EVENT_PREFIX })).values()];
   const events = kept
@@ -231,14 +231,16 @@ export async function serveAppOutbox(storage, { alarms = null, now = Date.now } 
   const typingAt = await storage.get(APP_TYPING_KEY);
   const byEvent = async (prefix) => Object.fromEntries([...(await storage.list({ prefix })).entries()].map(([key, value]) => [key.slice(prefix.length), value]));
   const handles = Object.fromEntries((await handlesOf(storage)).map((entry) => [entry.ev, entry.h]));
-  const { queueView } = await import("../../worker/gatewayChat.js");
+  const { queueView, APP_RUN_KEY } = await import("../../worker/gatewayChat.js");
   const { queue, failed, stopped } = await queueView(storage);
+  // The run card of the turn running now (`packages/tex/worker/appRun.ts`): its steps, which texts it answers, when it began.
+  const run = (await storage.get(APP_RUN_KEY)) ?? null;
   // A text waiting with no alarm to answer it (one lost with a reset object) is woken by the app's read (`turnWatch.ts`).
   if (alarms !== null && queue.length > 0 && (await alarms.getAlarm()) === null) {
     await alarms.setAlarm(now());
     console.log(JSON.stringify({ event: "app_chat_rearm", waiting: queue.length }));
   }
-  return Response.json({ events, typingAt: typeof typingAt === "number" ? typingAt : null, metas: await byEvent(META_PREFIX), taps: await byEvent(TAP_PREFIX), handles, queue, failed, stopped });
+  return Response.json({ events, typingAt: typeof typingAt === "number" ? typingAt : null, metas: await byEvent(META_PREFIX), taps: await byEvent(TAP_PREFIX), handles, queue, failed, stopped, run });
 }
 
 /**

@@ -50,6 +50,7 @@
 import { SEEN_FOR_MS } from "./replayWindow";
 import { queueItem, TEXTS_QUEUE } from "./chatQueue";
 import { clearRunning, dropStopped, markRunning, recoverLostTurn } from "./turnWatch";
+import { appRunKeeper } from "./appRun";
 import { isItForTexAlone } from "./isItForTex";
 import { partEvent, sendCardPart, threadFor } from "./sendParts"; import { sendPicturePart, sendWords, type PartLine, type PartLogged } from "./sendOne";
 import type { Choice } from "./pickCard";
@@ -589,10 +590,13 @@ async function answering(message: Message, work: string, deps: InboxDeps, storag
       void flushChat(storage, deps, token, "texts", undefined, () => sha256Hex(message.from)).catch(() => {}); // beside the turn, not before: it is handed the same events (`warm.ts`)
     },
   );
+  // The app's run card: the turn's steps as it takes them, kept for the app's read (`appRun.ts`).
+  const run = namesAppChat(message.chatId) ? appRunKeeper(storage, steer.turn, covers, deps.now()) : null;
   const texts = await answerTexts(
     reacted.length > 0 ? { ...message, reacted } : message, work,
     {
       ...deps,
+      ...(run !== null ? { onLive: run.onLive } : {}),
       steer,
       covers,
       onSetUp,
@@ -616,7 +620,7 @@ async function answering(message: Message, work: string, deps: InboxDeps, storag
     storage,
     presence,
     timing,
-  ).finally(end);
+  ).finally(async () => (end(), await run?.end()));
   const done = (parts: SendPart[]): Answered => ({ parts, turn: steer.turn, cancelled: live.cancelled === true, asks, askText, fixed: !modelWrote, token: live.accessToken, ...(place ? { place } : {}) });
   if (live.cancelled) {
     // Cancelled here though its answer came: what it armed is never left armed and unseen.

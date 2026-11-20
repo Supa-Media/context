@@ -628,7 +628,7 @@ export function gatewayRoutes({ storeOf, sandboxEnv, controlPlane, ctx, gate, ha
     if (path === "/agent") {
       const turn = request;
       if (!wantsProgress(turn)) return await handle(turn, sandboxEnv, store, session, controlPlane);
-      return streamTurn((progress, step, answered) => handle(turn, sandboxEnv, store, session, controlPlane, { progress, step, answered }), { waitUntil: (work) => ctx.waitUntil(work) });
+      return streamTurn((progress, step, answered, live) => handle(turn, sandboxEnv, store, session, controlPlane, { progress, step, answered, live }), { waitUntil: (work) => ctx.waitUntil(work) });
     }
     if (TEXTING_ROUTES.has(path)) return await TEXTING_ROUTES.get(path)(request, store, session);
     // What follows a job's part: the Part end node on the test chat's draft, logged to the test chat (`jobPartEndRoute.js`).

@@ -95,6 +95,7 @@ test/inlineTags.test.mjs
 test/linkScanCost.test.mjs
 test/listingProps.test.mjs
 test/liveGrantAccess.test.js
+test/liveSteps.test.mjs
 test/liveToolList.test.mjs
 test/logicalDelete.test.mjs
 test/logicalDeleteListing.test.mjs

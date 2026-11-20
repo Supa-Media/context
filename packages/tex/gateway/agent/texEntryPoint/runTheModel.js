@@ -51,6 +51,7 @@ import { sentNoteLinksLine, withNoteLinks } from "../noteLinks.js";
 import { withSearchRecord } from "../searchClaims.js";
 import { withDrawnImages, withPictureMaker } from "../pictureMaker.js";
 import { turnEfforts } from "../production.js";
+import { withLive } from "../liveSteps.js";
 import { LONG_MAX_ROUNDS, LONG_TOOL_BUDGET_MS } from "../progress.js";
 import { askedWith, loggedQuestion, reactedLine } from "../quoted.js";
 import { HANDED_BACK_QUESTION } from "../handback.js";
@@ -290,7 +291,7 @@ export async function runTheModel(t, via) {
     // What Tex keeps about them and its open jobs, in their own workspace (`aboutMe.js`, `jobs.js`), on a texted turn,
     ...(knows === null ? {} : outgoing.knows(knows)), // and who they are by their account (`identity.js`); where they live starts a places card's distances (`visuals/distance.js`)
     localNow: { now: Date.now(), timeZone },
-    observe: chatLog === null ? withJobSteps(job, step, null, () => ledger.untrusted === true) : collectReads((t.reads = rereadCarried(rounds?.from ?? null, claims)), ledgerObserver(chatLog, withJobSteps(job, step, null, () => ledger.untrusted === true), ledgerAt)), // a job's steps also go to its chat (`background.js`), and every step to the chat's ledger; what it read, for the facts its reply keeps (`toldFacts.js`)
+    observe: withLive(t.live, body?.live === true && job === null, chatLog === null ? withJobSteps(job, step, null, () => ledger.untrusted === true) : collectReads((t.reads = rereadCarried(rounds?.from ?? null, claims)), ledgerObserver(chatLog, withJobSteps(job, step, null, () => ledger.untrusted === true), ledgerAt))), // and, for an ask that asked (the app chat), each step to its run card (`liveSteps.js`) // a job's steps also go to its chat (`background.js`), and every step to the chat's ledger; what it read, for the facts its reply keeps (`toldFacts.js`)
     workspaces: contextsFor(session), // Where a new note goes (`workspaces.js`).
     groups: groupChats?.prompt ?? "", // the group chats they are in (`groupChats.js`)
     devShare: group !== null && devShareOn(env) ? devSharePrompt(group.devShare) : "", // whether the developers can read this chat (`devShare.js`)
