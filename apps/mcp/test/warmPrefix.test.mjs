@@ -142,11 +142,11 @@ test("the kept prefix goes through the chat's own home, never another's", async 
 });
 
 test("/texts/warm is off while no config wires node warm, runs it on the chat's home when one does, and refuses a body that names no home", async () => {
-  assert.equal(warmWired(TEX_CONFIG), false, "on the shelf");
+  assert.equal(warmWired({ ...TEX_CONFIG, nodes: TEX_CONFIG.nodes.filter((node) => node.id !== "warm") }), false, "on the shelf");
   assert.equal(warmWired({ nodes: [{ id: "warm" }] }), true);
   assert.equal(warmWired({ nodes: [{ id: "warm", on: false }] }), false);
   const post = (body) => new Request("https://gateway/texts/warm", { method: "POST", body: JSON.stringify(body) });
-  assert.deepEqual(await (await warmForTexts(post({ person: "ws1", cause: "read" }), {})).json(), { when: ["skip"], why: "off" });
+  assert.deepEqual(await warmChat({}, warmPlace({ person: "ws1" }), "read", { config: { nodes: [] } }), { when: ["skip"], why: "off" });
   assert.equal((await warmForTexts(post({ person: "../x", cause: "read" }), {})).status, 400);
   assert.equal((await warmForTexts(post({ person: "ws1", cause: "sneeze" }), {})).status, 400);
   assert.deepEqual(warmPlace({ chat: "a".repeat(64) }), { owner: { chat: "a".repeat(64) }, chat: "a".repeat(64) });

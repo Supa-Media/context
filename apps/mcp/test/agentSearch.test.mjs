@@ -124,7 +124,12 @@ async function ask(env, token, body) {
 
 const offered = (call) => [...shown((call?.input?.tools ?? []).map((tool) => ({ name: tool.function?.name ?? tool.name, description: tool.function?.description ?? tool.description })))];
 const toolReplies = (call) => (call?.input?.messages ?? []).filter((m) => m.role === "tool").map((m) => m.content);
-const systemText = (call) => (call?.input?.messages ?? []).find((m) => m.role === "system")?.content ?? "";
+/**
+ * Every word the model was told: the system and the turns. With the front door's slow modules frozen for the day
+ * (`frozenModules.js`), a module that changed since the chat's first text (here: the web, once a search key is set)
+ * keeps its morning words in the system and says its new ones after the history, which win.
+ */
+const toldText = (call) => (call?.input?.messages ?? []).map((m) => (typeof m.content === "string" ? m.content : JSON.stringify(m.content ?? ""))).join("\n");
 
 export async function runAgentSearchChecks(check) {
   const previousFetch = globalThis.fetch;
@@ -215,9 +220,9 @@ export async function runAgentSearchChecks(check) {
         !resultsReply.includes("javascript:"),
     );
     check(
-      "the system prompt tells the model it may search without asking, and to keep private details out of queries",
-      systemText(ai.calls[0]).includes("Do it without asking") &&
-        systemText(ai.calls[0]).includes("Never put private details from the person's notes in a query"),
+      "the model is told it may search without asking, and to keep private details out of queries",
+      toldText(ai.calls[0]).includes("Do it without asking") &&
+        toldText(ai.calls[0]).includes("Never put private details from the person's notes in a query"),
     );
 
     /* ---------------- a result does not vouch for what it mentions ---------------- */

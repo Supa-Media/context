@@ -27,6 +27,11 @@ export const DESK_NOTES = ["about", "jobs", "voice", "calendar"]; // calendar: t
  */
 /** The reads whose arguments a slim read keeps: where a page, search or note came from, for the reads index (`agent/readsIndex.js` `INDEXED_READS`). */
 export const READ_ARGS_KEPT = Object.freeze(["open_page", "search_web", "browse", "read_note", "read_notes"]);
+/**
+ * The steps whose frozen modules (`frozen.js`, `agent/frozenModules.js`) the desk answers for the one-to-one chat, so a
+ * frozen turn reads the day's words in the same call as its history, not one more before its model.
+ */
+export const DESK_FROZEN_STEPS = Object.freeze(["fd", "job"]);
 export const DESK_LEDGER = Object.freeze({ chat: "texts", options: Object.freeze({ before: Number.MAX_SAFE_INTEGER, kinds: Object.freeze(["text", "note", "tool", "reply", "day"]), limit: 2_000, slim: true, keepArgs: READ_ARGS_KEPT }) });
 
 const decoder = new TextDecoder();

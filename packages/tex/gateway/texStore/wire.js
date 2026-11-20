@@ -14,7 +14,7 @@ import { withHistoryView } from "./historyView.js";
 import { objectByName } from "../../../../apps/mcp/src/objectPlace.js";
 import { OWNER_HEADER, placedName } from "./move.js";
 import { mergedName } from "./merge.js";
-import { DESK_LEDGER, readDesk } from "./desk.js";
+import { DESK_FROZEN_STEPS, DESK_LEDGER, readDesk } from "./desk.js";
 import { R2Store } from "../../../../apps/mcp/src/store/r2.js";
 
 const CALL = "x-tex-call";
@@ -137,7 +137,12 @@ export async function serveTexStore(stored, request, timers = null, live = null,
       case "list":
         return Response.json(objects.list(call.options ?? {}));
       case "desk":
-        return Response.json({ ...readDesk(objects), ...(objects.ledger ? { ledger: objects.ledger.read(DESK_LEDGER.chat, DESK_LEDGER.options) } : {}) });
+        return Response.json({
+          ...readDesk(objects),
+          ...(objects.ledger ? { ledger: objects.ledger.read(DESK_LEDGER.chat, DESK_LEDGER.options) } : {}),
+          // The one-to-one chat's frozen modules, by step (null when none kept), so a frozen turn makes no call of its own.
+          ...(objects.frozen ? { frozen: Object.fromEntries(DESK_FROZEN_STEPS.map((step) => [step, objects.frozen.get(DESK_LEDGER.chat, step) ?? null])) } : {}),
+        });
       case "wipe":
         objects.wipe();
         objects.ledger?.wipe();

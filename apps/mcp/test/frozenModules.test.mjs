@@ -101,6 +101,10 @@ test("the next day freezes anew, and a step that reads each turn or a chat with 
   await first.see({ "context/aboutMe": "Likes tea." });
   assert.equal(first.modules["context/aboutMe"], "Likes tea.", "later rounds of the same turn send the same words");
   await first.see({ "context/aboutMe": "Likes coffee." });
+  assert.equal(rows.size, 0, "nothing written before the model answered");
+  await first.keep();
+  await first.keep();
+  assert.equal(rows.size, 1);
   assert.equal([...rows.values()][0].modules["context/aboutMe"], "Likes tea.", "kept once");
   const later = await frozenModules({ store, session, step: "fd", freeze: "summary", now: NOW + 3_600_000, timeZone: "UTC", log });
   assert.equal(later.modules["context/aboutMe"], "Likes tea.");
@@ -109,13 +113,14 @@ test("the next day freezes anew, and a step that reads each turn or a chat with 
   assert.equal(summaryDay(Date.UTC(2026, 10, 21, 3, 0), "America/New_York"), "2026-11-20", "the person's own day");
 });
 
-test("main reads every turn, and a draft can freeze the front door and the job step", () => {
-  assert.equal(texFreeze("fd"), "turn");
-  assert.equal(texFreeze("job"), "turn");
-  const draft = { nodes: CONFIG.nodes.map((node) => (node.id === "fd" ? { ...node, freeze: "summary" } : node.id === "job" ? { ...node, freeze: "sideways" } : node)), edges: CONFIG.edges };
+test("a step with no freeze reads every turn, and a draft can freeze the front door and the job step", () => {
+  const unset = { nodes: CONFIG.nodes.map(({ freeze: _freeze, ...node }) => node), edges: CONFIG.edges };
+  assert.equal(texFreeze("fd", unset), "turn");
+  assert.equal(texFreeze("job", unset), "turn");
+  const draft = { nodes: unset.nodes.map((node) => (node.id === "fd" ? { ...node, freeze: "summary" } : node.id === "job" ? { ...node, freeze: "sideways" } : node)), edges: CONFIG.edges };
   const drafted = withDraft(CONFIG, draft);
   assert.equal(texFreeze("fd", drafted), "summary");
-  assert.equal(texFreeze("job", drafted), "turn", "a value the gateway can't run is main's");
+  assert.equal(texFreeze("job", drafted), texFreeze("job"), "a value the gateway can't run is main's");
 });
 
 test("the frozen words go through the chat's own home, never another's, and go with a wipe", async () => {

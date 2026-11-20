@@ -62,6 +62,7 @@ export const STEP_LOGS: Record<string, StepLog> = {
   tapback: { got: "node run tapback: the emoji the Front door picked, its why, whether this turn's last call failed and whether they tagged Tex", gave: "node run tapback: react (with the emoji the Worker sends) or refuse, and why", settings: "code (no model): one of the 64 emoji, never right after a failed call or on a literal @Tex tag", time: "node run: its own time (plain code: under 1 ms)" },
   chatDays: { got: "node run chatDays: the send result (texts, card, reaction, status)", gave: "node run chatDays: the outcome, days written and days still missing", settings: "its model and effort" , time: "node run: its own time, in the background" },
   daysum: { got: "step daysum: the time zone and now", gave: "step daysum: the outcome", settings: "its model" , time: "node run: its own time" },
+  warm: { got: "node run warm: the chat's home, the chat and the cause (read, open or typing)", gave: "node run warm: warmed with the call's usage, or skip and why (off, nothing kept, another day, warmed under 50 minutes ago)", settings: "code; its model is the kept request's own (the front door's), with a one-token answer", time: "node run: its own time" },
   housekeep: { got: "step housekeep: the time zone", gave: "step housekeep: the outcome and the status", settings: "its model" , time: "node run: its own time" },
 };
 

@@ -170,6 +170,9 @@ test("a texted turn is told the number it is texting, asked with the person's ow
 });
 
 test("a control plane without the route still answers the text", async () => {
+  // A fresh Tex store: the earlier test's turn froze the day's About me in this chat's home (`frozenModules.js`), and a
+  // module that comes back empty keeps the day's words, so a chat that never had them is the one to look at.
+  env.TEX_STORE = texStoreNamespace().namespace;
   answer = "missing";
   const { status, body } = await text("hi");
   assert.equal(status, 200);

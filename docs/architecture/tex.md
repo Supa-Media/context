@@ -45,6 +45,7 @@ flowchart LR
   n_chatDays["Chat day summaries<br/>Haiku 5.5 · effort low<br/>graph/nodes/chatDays.js · daySummaries.js"]:::model
   n_chatAsk(["Another chat asks<br/>code<br/>graph/nodes/chatAsk.js"]):::start
   n_chatAnswer["Answer the other chat<br/>code<br/>graph/nodes/chatAnswer.js"]:::code
+  n_warm["Warm the cache<br/>code<br/>graph/nodes/warm.js · warmPrefix.js · textsWarm.js"]:::code
   subgraph n_group_intake["Intake"]
     n_text(["A text arrives<br/>code<br/>apps/agent"]):::start
     n_edit(["A text is edited or unsent<br/>code<br/>graph/nodes/edit.js · textsEdit.js · apps/agent editStep.ts"]):::start
@@ -199,6 +200,7 @@ every wire, from the same config.
 | Part end | partEnd | jobs | on | code |  |  |  | graph/nodes/partEnd.js · jobPartEnd.cjs · jobPartEndRoute.js · apps/agent jobPartEnd.ts |
 | A job reports | jobReport | jobs | on | code |  |  |  | graph/nodes/jobReport.js · jobReport.js · texEntryPoint/readTheText.js |
 | Job start | jobStart | jobs | on | code |  |  |  | graph/nodes/jobStart.js · jobStart.cjs · jobStartChoice.js · background.js |
+| Warm the cache | warm |  | on | code |  |  |  | graph/nodes/warm.js · warmPrefix.js · textsWarm.js |
 
 Wires: checkin → fd (wait, look) · notify → send (wait, send) · oldLine → send (wait, redirect) · edit → triage (wait, turn) · moveChat → send (wait, person, group) · triage → decide (wait, judge, running) · triage → lanes (wait, tex) · decide → react (wait) · decide → lanes (wait) · fd → tools (uses, action) · tools → mail (uses, email) · tools → card (uses, card) · fd → job (job, job) · job → handback (job, job) · tools → egress (uses, share) · tools → picture (uses, picture) · picture → card (uses) · nightly → dream (wait, dream) · dream → daysum (wait, summarize) · nightly → housekeep (wait, housekeeping) · tools → advisor (uses, ask_advisor) · job → jobadv (uses, job) · job → tools (uses, job) · triage → doorStep (provisional, stop:running, unless firstLook, sms, unpaired) · decide → doorStep (provisional, stop:quiet, restart:wait, unless firstLook, sms, unpaired) · lanes → doorStep (provisional, unless firstLook, sms, unpaired) · text → triage (wait) · doorStep → fd (wait, next) · send → learn (background, fired) · send → afterReply (background, sent, threads) · fd → answerCheck (wait) · answerCheck → send (wait) · answerCheck → fd (loop) · doorStep → bypass (wait, answered) · bypass → send (wait) · staff → moveChat (wait, move) · routine → fd (wait, run) · routine → bypass (wait, stopped) · send → chatDays (background, sent, ended, answered) · tools → moveJudge (uses, move) · tools → crossChatGate (uses, ask_chat) · chatAsk → lanes (wait, ask, answer) · answerCheck → chatAnswer (wait, ask) · crossChatGate → chatAsk (generator, ask) · chatAnswer → chatAsk (generator, back) · tools → tapback (uses, tapback) · job → partEnd (uses, job) · job → jobReport (generator) · jobReport → lanes (wait, report) · fd → jobStart (uses, job) · decide → decideWhy (uses, contradiction) · doorStep → shapeGate (uses) · doorStep → router (uses)
 <!-- tex-config: steps end -->
