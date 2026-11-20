@@ -149,6 +149,17 @@ export function configFrom(graph, current, currentWords = {}, shelf = []) {
 const CODE_HOMES = ["packages/tex/gateway/agent", "packages/tex/gateway/agent/graph/nodes", "packages/tex/gateway/agent/texEntryPoint", "packages/tex/gateway", "packages/tex/worker", "apps/mcp/src", "apps/agent/src", "packages/tex/src", "packages/shared/src"];
 
 /**
+ * The shelf file's words: two-space JSON with each retired step's `node` kept on one line, as the file is written by
+ * hand, so a promotion that wires or retires one step changes a few lines, not every retired definition (2026-11-20:
+ * a whole-file rewrite took it from 263 lines to 1,966 and failed the architecture check).
+ */
+export function shelfText(shelf) {
+  const kept = [];
+  const text = JSON.stringify(shelf, (key, value) => (key === "node" && value !== null && typeof value === "object" ? `@@shelf-node-${kept.push(value) - 1}@@` : value), 2);
+  return `${text.replace(/"@@shelf-node-(\d+)@@"/g, (_, i) => JSON.stringify(kept[Number(i)]))}\n`;
+}
+
+/**
  * The shelf entry for a step a promotion retired: the code files it names that are there (its node file first), why,
  * and its last definition (`node`, off, without its canvas place), which `texStep` falls back to.
  */
@@ -275,6 +286,12 @@ function selfTest() {
   g7.nodes.find((n) => n.id === "fd").ctx.push("p-brand-new");
   expect(/no words/.test(configFrom(g7, current, words).refused ?? ""), "a step reading a module with no words passed");
   expect(configFrom({ ...g7, modules: { "p-brand-new": { text: "New words." } } }, current, words).words?.["brand-new"] === "New words.", "a new module's words were lost");
+  // The shelf is written back as it is kept: a retired step's definition on one line, the rest two-space JSON.
+  {
+    const shelfNow = JSON.parse(readFileSync(join(ROOT, SHELF), "utf8"));
+    expect(shelfText(shelfNow) === readFileSync(join(ROOT, SHELF), "utf8"), "writing the shelf back changed its words");
+    expect(JSON.stringify(JSON.parse(shelfText({ nodes: { a: { why: "x", node: { id: "a", label: "A" } } } }))) === JSON.stringify({ nodes: { a: { why: "x", node: { id: "a", label: "A" } } } }), "the shelf's words lost or changed an entry");
+  }
   // A shelf node (merged, not wired) may join; a new id with no code still may not.
   const g9 = graph();
   g9.nodes.push({ id: "shelved", label: "Shelved", model: "code", on: true });
@@ -380,7 +397,7 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
       if (made.unshelved.length > 0 || retired.length > 0) {
         for (const id of made.unshelved) delete shelf.nodes[id];
         for (const id of retired) shelf.nodes[id] = retiredEntry(current.nodes.find((n) => n.id === id));
-        writeFileSync(join(ROOT, SHELF), `${JSON.stringify(shelf, null, 2)}\n`);
+        writeFileSync(join(ROOT, SHELF), shelfText(shelf));
       }
     }
     const changed = Object.keys(made.words);
