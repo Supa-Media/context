@@ -1,6 +1,6 @@
 /**
  * "Share @studio with everyone here", in any words (Dev2, 2026-11-12): the turn's tool asks for it
- * (`apps/mcp/src/agent/settingsTools.js` `chat_add_everyone`), and this Worker runs the invitation as its asker once the
+ * (`packages/tex/gateway/agent/settingsTools.js` `chat_add_everyone`), and this Worker runs the invitation as its asker once the
  * answer has gone (`groupInvite.ts`).
  *
  * Sabotage (temporary local edits, reverted): `groupModelTurn.ts` never calling `inviteEveryone` fails the first test;

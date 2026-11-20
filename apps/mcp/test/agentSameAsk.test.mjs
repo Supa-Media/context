@@ -30,8 +30,8 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { SAME_ASK, shownAndNotTaken } from "../src/agent/sameAsk.js";
-import { withoutFlattery } from "../src/agent/pushback.js";
+import { SAME_ASK, shownAndNotTaken } from "../../../packages/tex/gateway/agent/sameAsk.js";
+import { withoutFlattery } from "../../../packages/tex/gateway/agent/pushback.js";
 import { createEgressWorld, textTex, TOKEN_TEXTS } from "./agentEgressFixtures.mjs";
 
 const SHORTER = { action: "move", title: "Sarah / Seyi", start: "2026-10-27T18:30:00-04:00", new_start: "2026-10-27T18:30:00-04:00", new_end: "2026-10-27T18:45:00-04:00" };

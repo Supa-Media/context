@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 
-import { TEX_PROMPT_WORDS, texModules } from "../../../src/agent/texConfig.js";
+import { TEX_PROMPT_WORDS, texModules } from "../../../../../packages/tex/gateway/agent/texConfig.js";
 
 /**
  * The front door's rules named "do the ask" and "hand over a code, a captcha

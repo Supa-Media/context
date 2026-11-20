@@ -14,7 +14,7 @@
  */
 
 import { nextRunAt, routineFromPath, routineSettings, TEX_ROUTINES_FOLDER } from "../../../shared/src/routines.cjs";
-import { DEFAULT_TIME_ZONE } from "../../../../apps/mcp/src/agent/localNow.js";
+import { DEFAULT_TIME_ZONE } from "../agent/localNow.js";
 import { ownerName, texStoreStub, texTimers } from "./wire.js";
 
 /**

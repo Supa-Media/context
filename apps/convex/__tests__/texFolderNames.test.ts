@@ -3,7 +3,7 @@ import { PERSONAL_RENAMES, homeRenames, planRenames } from "../functions/texFold
 
 /**
  * A PERSON'S TEX FOLDER AND A CHAT'S HOME TAKE THE SAME NAMES (the owner, 2026-11-01; `functions/texFolderNames.ts`).
- * The names must be the gateway's (`apps/mcp/src/agent/homeNames.js`, `aboutMe.js`), and a name already taken is
+ * The names must be the gateway's (`packages/tex/gateway/agent/homeNames.js`, `aboutMe.js`), and a name already taken is
  * never moved onto.
  */
 describe("the Tex folder rename", () => {

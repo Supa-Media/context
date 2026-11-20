@@ -22,7 +22,7 @@
 
 import { MEANING_DIMENSIONS, MEANING_MODEL } from "../src/search/meaning/embed.js";
 import { priceUsd } from "./report.mjs";
-import { CREDIT_REST_MS, createCreditCache, noteCreditPaid, noteCreditSpent, payerSkipped } from "../src/agent/creditRest.js";
+import { CREDIT_REST_MS, createCreditCache, noteCreditPaid, noteCreditSpent, payerSkipped } from "../../../packages/tex/gateway/agent/creditRest.js";
 
 const realFetch = globalThis.fetch;
 

@@ -39,7 +39,7 @@ workspaces, and because a kind may be added back on purpose.
   either comes back.
 - `search_email` and `read_email` were already live (2026-10-20).
 - A check-in asks Gmail for inbox mail that arrived since it last looked
-  (`apps/mcp/src/agent/newMail.js`). That mail is a stranger's words, so a
+  (`packages/tex/gateway/agent/newMail.js`). That mail is a stranger's words, so a
   check-in that was shown any saves its exchange tainted, and the memory nudge
   never distils it into `tex/about-me.md`.
 - A first dream writes the about-me note from the person's own notes only.

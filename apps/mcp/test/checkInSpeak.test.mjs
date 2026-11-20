@@ -11,8 +11,8 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
 
-import { CHECK_IN_SPEAK_NOTICE, mailWorthAText } from "../src/agent/checkInSpeak.js";
-import { SAID_NOTHING } from "../src/agent/sayNothing.js";
+import { CHECK_IN_SPEAK_NOTICE, mailWorthAText } from "../../../packages/tex/gateway/agent/checkInSpeak.js";
+import { SAID_NOTHING } from "../../../packages/tex/gateway/agent/sayNothing.js";
 
 const training = (id) => JSON.parse(readFileSync(new URL(`../bench/sets/training/${id}.json`, import.meta.url), "utf8"));
 const textOf = (convo, id) => convo.msgs.find((m) => m.id === id).text;
@@ -48,8 +48,8 @@ function scripted(replies) {
 }
 
 async function look(replies, { notice = null } = {}) {
-  const { runTurn } = await import("../src/agent/turn.js");
-  const { BUILTIN_PROVIDER } = await import("../src/agent/builtin.js");
+  const { runTurn } = await import("../../../packages/tex/gateway/agent/turn.js");
+  const { BUILTIN_PROVIDER } = await import("../../../packages/tex/gateway/agent/builtin.js");
   const ai = scripted(replies);
   const result = await runTurn({
     question: "New email since you last looked.",

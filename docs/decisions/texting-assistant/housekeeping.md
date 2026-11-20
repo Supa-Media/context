@@ -13,7 +13,7 @@ at the owner's word: "I'd rather you start from scratch."
 the app and every write still only report the score; nothing else tidies on
 its own.
 
-**What one run is** (`apps/mcp/src/agent/housekeeping.js`). One model turn
+**What one run is** (`packages/tex/gateway/agent/housekeeping.js`). One model turn
 over the person's personal workspace. The gateway reads `orient about:
 health` (the score and its biggest wins) and hands it to the model with the
 Supa way of organizing, from @context-lc `guides/how-to-use-context.md` (PARA:
@@ -158,7 +158,7 @@ workspace is recorded once…" in `apps/mcp/test/keyedNoteMove.test.mjs`.
 Housekeeping stays on by default. `paused: true` in the front matter of
 `tex/housekeeping.md` switches it off: a run then reads, changes and logs
 nothing, and answers `unchanged`, so tomorrow's run asks again
-(`apps/mcp/src/agent/texSwitches.js`). Tex writes the note when the person
+(`packages/tex/gateway/agent/texSwitches.js`). Tex writes the note when the person
 asks ("Tex, stop tidying my notes"), and `paused: false` turns it back on.
 It is an ordinary note, so they can edit it in the app too, and the
 Check-ins page of their Tex page has the same switch, "Tidy my notes", which

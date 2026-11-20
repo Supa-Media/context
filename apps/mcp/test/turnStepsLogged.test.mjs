@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { ledgerFor, ONE_TO_ONE_CHAT } from "../src/agent/ledger.js";
+import { ledgerFor, ONE_TO_ONE_CHAT } from "../../../packages/tex/gateway/agent/ledger.js";
 import { oneToOne } from "./replay/chats.mjs";
 
 /**

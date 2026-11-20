@@ -8,7 +8,7 @@
  * - a tapback that answers something is answered: a ❓ on any text, or a
  *   like, love, dislike or emphasis on a text that asked a question. It is
  *   queued like a text, with the words it was on sent apart as somebody
- *   else's (`apps/mcp/src/agent/quoted.js`), and its own text is the emoji;
+ *   else's (`packages/tex/gateway/agent/quoted.js`), and its own text is the emoji;
  * - any other tapback is noted, not answered, and the next text the person
  *   sends carries the note to the turn, so "that one" can mean the text they
  *   just loved.

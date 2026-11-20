@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { oneToOne } from "../chats.mjs";
-import { WEEK_PREFACE } from "../../../src/agent/weekHistory.js";
-import { TEX_PROMPT_WORDS, texModules } from "../../../src/agent/texConfig.js";
+import { WEEK_PREFACE } from "../../../../../packages/tex/gateway/agent/weekHistory.js";
+import { TEX_PROMPT_WORDS, texModules } from "../../../../../packages/tex/gateway/agent/texConfig.js";
 
 const DAY = 24 * 60 * 60_000;
 

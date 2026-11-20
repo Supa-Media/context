@@ -3,7 +3,7 @@
  * an option, go back, scroll, and read what is there now, across several
  * calls in one question.
  *
- * The gateway (`apps/mcp/src/agent/browse.js`) decides what may be opened and
+ * The gateway (`packages/tex/gateway/agent/browse.js`) decides what may be opened and
  * what may be typed where; this file carries out a list of steps on one page
  * and is the second lock on two of those decisions, because only the browser
  * knows where the page is at the moment it types:
@@ -133,8 +133,8 @@ export interface StepResult {
 
 /** The parts of a puppeteer page this file uses. */
 /**
- * The kinds of box the vault fills: a login's two (`apps/mcp/src/agent/fillLogin.js`)
- * and a card's parts (`apps/mcp/src/agent/fillCard.js`).
+ * The kinds of box the vault fills: a login's two (`packages/tex/gateway/agent/fillLogin.js`)
+ * and a card's parts (`packages/tex/gateway/agent/fillCard.js`).
  */
 export const CARD_FIELDS = ["cc-number", "cc-exp", "cc-exp-month", "cc-exp-year", "cc-cvc", "cc-name", "cc-postal-code"] as const;
 export type FillField = "username" | "password" | (typeof CARD_FIELDS)[number];

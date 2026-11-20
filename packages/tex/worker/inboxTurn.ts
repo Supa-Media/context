@@ -78,7 +78,7 @@ const PURE_ACK = /^\s*(?:ok|okay|k|kk|thanks|thank you|thx|ty|cool|got it|great|
  *
  * A tapback is logged as its whole line, "👍 (yes) on Tex's message …", never
  * its bare emoji: the log is the one copy of the chat, and a turn's question
- * is read from it (`apps/mcp/src/agent/loggedTurn.js`). Logged as "👍" alone,
+ * is read from it (`packages/tex/gateway/agent/loggedTurn.js`). Logged as "👍" alone,
  * a like on "Want me to merge it? 👍 or 👎?" reached the model with nothing
  * saying what it was on, and Tex asked again three times (Dev2, 2026-11-05).
  * The message itself keeps its emoji, which code reads (`pureAck`, the gateway's yes).

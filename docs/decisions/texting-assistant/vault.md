@@ -27,7 +27,7 @@ Decided by the owner, 2026-10-06. Built 2026-10-10.
   never plain http). The value goes straight into the page.
 - **What a model sees.** `vault_list` gives ids, names and sites. No tool
   result, log or message carries a username or password.
-- **How a model uses one.** `fill_login` (`apps/mcp/src/agent/fillLogin.js`)
+- **How a model uses one.** `fill_login` (`packages/tex/gateway/agent/fillLogin.js`)
   names an entry and the boxes on the page; the gateway reads the origin from
   the browser's last reading, opens the entry with `openForFill`, and sends
   each part to the browser's fill step, which checks the exact origin and the
@@ -165,7 +165,7 @@ gives me a link where I can share it."
 - `functions.vault.runVaultOperation` is a credential barrier, pinned in
   `__tests__/structure/analyzer/pins.helpers.ts`. It returns at most an entry's
   name, sites and people.
-- One exception, decided by the owner on 2026-11-18 ("if they already have an account send a vault link, but if not generate a password and save to the vault"): `make_login` (`apps/mcp/src/agent/makeLogin.js`), for an account Tex is creating on the sign-up page in its own browser. The gateway makes the password with a crypto RNG (`vault/newPassword.js`), writes a new login entry owned by the person (and, in a group chat, given to that chat to use) before anything is typed, and fills it with the same origin-checked `fillSecret` as `fill_login`. The model supplies only the username and box numbers; the site comes from the browser, and the result carries the entry's id and name, never the password. It needs the editor clearance a `vault_add` link needs (owner or editor in the workspace written to), never overwrites or shares an entry, and refuses a site that already has a saved login in any vault the turn reaches, so an injected page can at most leave the person an unused login for that one site. It runs only in Tex's own browser, never on a person's computer.
+- One exception, decided by the owner on 2026-11-18 ("if they already have an account send a vault link, but if not generate a password and save to the vault"): `make_login` (`packages/tex/gateway/agent/makeLogin.js`), for an account Tex is creating on the sign-up page in its own browser. The gateway makes the password with a crypto RNG (`vault/newPassword.js`), writes a new login entry owned by the person (and, in a group chat, given to that chat to use) before anything is typed, and fills it with the same origin-checked `fillSecret` as `fill_login`. The model supplies only the username and box numbers; the site comes from the browser, and the result carries the entry's id and name, never the password. It needs the editor clearance a `vault_add` link needs (owner or editor in the workspace written to), never overwrites or shares an entry, and refuses a site that already has a saved login in any vault the turn reaches, so an injected page can at most leave the person an unused login for that one site. It runs only in Tex's own browser, never on a person's computer.
 
 **What a simplification would cost:** letting the gateway write the vault
 gives every prompt injection a way to plant or share a login; a bearer link
@@ -428,7 +428,7 @@ then asks the control plane (`POST /agent-texts/vault-saved`, times only,
 never which entry) every 10 to 30 seconds for half an hour, and once a save
 link of theirs was used it queues a turn with no words and
 `event: "vault_saved"`. The gateway asks that turn its own fixed line
-(`apps/mcp/src/agent/vaultSaved.js`) and Tex carries the task on. A text from them after the save means that text's
+(`packages/tex/gateway/agent/vaultSaved.js`) and Tex carries the task on. A text from them after the save means that text's
 turn already did, and nothing is queued; one save queues one turn. Polling
 rather than a push keeps the control plane from knowing the Worker's address,
 the same as the Gmail-connected text. Reversing it fails
@@ -460,7 +460,7 @@ Decided by the owner, 2026-10-20 ("Sealed in vault", over a Browserbase
 Context and over staying signed out): Tex's browser keeps nothing at
 Browserbase, so each new one started signed out and the person was asked to
 sign in again. Its sign-ins are now one item in their personal vault,
-`.context/vault/browser-jar.json` (`apps/mcp/src/agent/browserJar.js`), sealed
+`.context/vault/browser-jar.json` (`packages/tex/gateway/agent/browserJar.js`), sealed
 with the same key and seal as a login, its associated data naming the jar, so
 the bucket alone never yields one and no entry's part opens as it.
 Since 2026-10-29 the browser keeps them first in a saved Browserbase profile,
@@ -608,7 +608,7 @@ secret part like any other field (`apps/mcp/src/vault/card.js`).
   a login does. One saved with no site fills on any https checkout, because a
   card is used at shops nobody can list in advance; the yes below is what
   keeps that safe, and it names the site.
-- **The yes.** `fill_card` (`apps/mcp/src/agent/fillCard.js`) asks first,
+- **The yes.** `fill_card` (`packages/tex/gateway/agent/fillCard.js`) asks first,
   once a purchase (`apps/mcp/src/vault/pay.js`, kind `vault_pay`). Tex asks by
   text (the owner chose "Ask by text, every payment" on 2026-10-21, over an
   ask in the app and over a per-site yes): the gateway adds "Before I pay, I
@@ -616,7 +616,7 @@ secret part like any other field (`apps/mcp/src/vault/card.js`).
   the answer, in its own words, naming the total, the card and the site the
   browser is on, never the model's. Only a plain yes answers ("yes", "yes please", "yes,
   pay it"); "ok" or "sure" sets the ask aside, a no drops it
-  (`apps/mcp/src/agent/textedPay.js`). The yes does not end the turn: the
+  (`packages/tex/gateway/agent/textedPay.js`). The yes does not end the turn: the
   model is told what was allowed and fills the card in the browser it left
   on the checkout. The ask lives ten minutes, never the twelve hours other
   texted asks do. Any other AI, and a card in a workspace other than the

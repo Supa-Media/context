@@ -271,7 +271,7 @@ answer comes at minute eight, the page asking for it is gone and Tex signs in
 again from the start. The owner chose (2026-10-28) to hold the browser fifteen
 minutes, only while Tex waits on the person: a turn whose answer asks for a
 code, a captcha, a password or a sign-in, or that sent a save-a-login link,
-calls `/browse/hold` (`apps/mcp/src/agent/browserHold.js`), and a browser
+calls `/browse/hold` (`packages/tex/gateway/agent/browserHold.js`), and a browser
 handed to the person is held the same way. A step or a look during the hold
 never brings its end closer; past it, five minutes again. Browserbase's
 hosted "pause and resume agent runs" (`pauseWhen`) was looked at on
@@ -319,7 +319,7 @@ in the first 5 seconds; a click's download wait is cut to what is left.
 
 The same job asked for `wait`, `key` and `fill_login` steps and was told only
 that there were none. A step that isn't one is now answered with the step
-that does it and the list of real steps (`apps/mcp/src/agent/browseNotAStep.js`),
+that does it and the list of real steps (`packages/tex/gateway/agent/browseNotAStep.js`),
 and the tool's description says there is no wait step.
 
 **What a simplification would cost:** counting the open against the steps

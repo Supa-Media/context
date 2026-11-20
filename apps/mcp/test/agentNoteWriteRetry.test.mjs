@@ -7,9 +7,9 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { BUILTIN_PROVIDER } from "../src/agent/builtin.js";
-import { runTurn } from "../src/agent/turn.js";
-import { SAVE_NOT_CONFIRMED, isPlainNoteWrite, settleNoteWrite } from "../src/agent/noteWriteRetry.js";
+import { BUILTIN_PROVIDER } from "../../../packages/tex/gateway/agent/builtin.js";
+import { runTurn } from "../../../packages/tex/gateway/agent/turn.js";
+import { SAVE_NOT_CONFIRMED, isPlainNoteWrite, settleNoteWrite } from "../../../packages/tex/gateway/agent/noteWriteRetry.js";
 
 const ARGS = { path: "projects/personal-finances/overview.md", content: "# Finances\n\nMarcus: $50 every two weeks.\n", expected_etag: "c2.doc.r1" };
 const SAVED = { content: [{ type: "text", text: "saved projects/personal-finances/overview.md" }] };

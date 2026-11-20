@@ -3,7 +3,7 @@
  * text and its links, nothing kept.
  *
  * The gateway's agent asks for this through the same service binding as
- * `/shoot` (`apps/mcp/src/agent/computer.js`), and decides which addresses it
+ * `/shoot` (`packages/tex/gateway/agent/computer.js`), and decides which addresses it
  * may ask for. This file is the second lock: a public https address only, and
  * the page is read as any visitor would see it, with no cookie or session.
  *

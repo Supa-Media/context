@@ -29,10 +29,10 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 
 import graphLib from "../../../packages/tex/src/texGraph.cjs";
-import { draftBridge } from "../src/agent/graph/draftBridge.js";
-import { checksNode } from "../src/agent/graph/nodes/checks.js";
-import { reviewerNode } from "../src/agent/graph/nodes/reviewer.js";
-import { sendNode } from "../src/agent/graph/nodes/send.js";
+import { draftBridge } from "../../../packages/tex/gateway/agent/graph/draftBridge.js";
+import { checksNode } from "../../../packages/tex/gateway/agent/graph/nodes/checks.js";
+import { reviewerNode } from "../../../packages/tex/gateway/agent/graph/nodes/reviewer.js";
+import { sendNode } from "../../../packages/tex/gateway/agent/graph/nodes/send.js";
 
 const { createGraph } = graphLib;
 

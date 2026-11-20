@@ -22,7 +22,7 @@ for the `context_dreams` client (never the texting grant), and is audited as
 100 accounts have it free, [billing](../billing.md), "Founding Premium"),
 counted against the same daily cap.
 
-**What it does** (`apps/mcp/src/agent/dream.js`). It reads the person's
+**What it does** (`packages/tex/gateway/agent/dream.js`). It reads the person's
 chat since the last dream from its ledger (`ledgerDays.js`, at most 60,000
 characters, newest kept; the daily transcripts until 2026-11-02; a first
 dream looks back three days and takes a first look around the workspace, see
@@ -146,7 +146,7 @@ The nightly rewrite of About me stays on by default. `paused: true` in the
 front matter of `tex/dreams.md` switches it off. A dream then leaves
 `tex/about.md` as it is and runs no model, but the summaries of their
 finished days still run, because the conversation history needs them
-(`apps/mcp/src/agent/texSwitches.js`). Tex writes the note when they ask. A
+(`packages/tex/gateway/agent/texSwitches.js`). Tex writes the note when they ask. A
 dream started now while the switch is off does nothing either. The
 Check-ins page of their Tex page has the same switch, "Update About me
 overnight", which writes that note (`switch.set`). Test:

@@ -12,7 +12,7 @@
 
 import { strict as assert } from "node:assert";
 import { test } from "node:test";
-import { siteShotsComputer } from "../src/agent/browserProviders.js";
+import { siteShotsComputer } from "../../../packages/tex/gateway/agent/browserProviders.js";
 
 const PDF = "%PDF-1.4\n1 0 obj << /Type /Annot /A << /S /URI /URI (https://pay.example/invoice/7) >> >> endobj\n%%EOF";
 const b64 = Buffer.from(PDF, "latin1").toString("base64");

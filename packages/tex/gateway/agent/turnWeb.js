@@ -1,0 +1,122 @@
+/**
+ * A turn's computer and web search (`computer.js`, `search.js`), opened once
+ * per question and wrapped so that reading anything from them marks the turn
+ * untrusted (`privacy/egress.js`). Moved out of `texEntryPoint.js`, which calls it.
+ *
+ * The person's own texted turn (and a routine's run) gets their computer:
+ * their browser tag, so a later text carries on in the same browser, their
+ * sign-ins between browsers, and their saved logins for `fill_login`.
+ *
+ * A group chat's turn gets the web and nothing of the tagger's (the owner,
+ * 2026-10-21: "computer use as well"): the chat's own browser, tagged by the
+ * chat and the people in it (`groupBrowserOwner`), with the chat's own
+ * sign-ins kept in its shared workspace (2026-10-24), never the tagger's. So a
+ * site that signs in with an email and a code can be signed in from the chat,
+ * the code texted after Tex asks for it, and stays signed in for the chat's
+ * later asks. Its `fill_login` opens the chat's shared workspace's vault, and
+ * there only what is given to the whole workspace (`vault/access.js`;
+ * docs/decisions/texting-assistant/groups.md).
+ */
+
+import { computerFor, webSession } from "./computer.js";
+import { searcherFor } from "./search.js";
+import { browserOwner, groupBrowserOwner } from "./browserProviders.js";
+import { texViewerUrl } from "../../../../apps/mcp/src/http/texComputer.js";
+import { groupViewerUrl } from "./hubLinks.js";
+import { decisionEngine } from "./decide.js";
+import { resolveUpload } from "./uploads.js";
+import { keepDownload } from "./downloads.js";
+import { markUntrusted } from "../../../../apps/mcp/src/privacy/egress.js";
+import { handoffRefusedIn } from "./browse.js";
+
+/** How many of their earlier texts vouch for what the browser may type and open. */
+export const EARLIER_TEXTS_VOUCHED = 20;
+
+/**
+ * The person's own earlier texts in this conversation (a group's: the chat's
+ * people), newest last, so the browser may type what they said a text ago
+ * (the owner, 2026-10-24: group Tex had claude.ai's sign-in page open and
+ * "won't type dev2@… into its email box" after "Tex try again", because only
+ * the current text vouched). Only their words: never Tex's answers, and never
+ * a finished job's line, whose title a model wrote.
+ */
+export function theirEarlierWords(history) {
+  return (Array.isArray(history) ? history : [])
+    .filter((turn) => turn?.role === "user" && typeof turn.text === "string" && !turn.text.startsWith("(Background job finished:"))
+    .slice(-EARLIER_TEXTS_VOUCHED)
+    .map((turn) => turn.text)
+    .join("\n\n");
+}
+
+/**
+ * The web pages this conversation's earlier answers opened, as their sources
+ * keep them (`sources.js`): opened again in a later text the way they were
+ * then, never as words the browser may type. Only https pages, never a note
+ * or an email id.
+ */
+export function pagesOpenedBefore(history) {
+  return (Array.isArray(history) ? history : [])
+    .filter((turn) => turn?.role === "assistant" && Array.isArray(turn.sources))
+    .slice(-EARLIER_TEXTS_VOUCHED)
+    .flatMap((turn) => turn.sources)
+    .filter((source) => typeof source === "string" && source.startsWith("https://"));
+}
+
+/**
+ * `{ opened, web }`: the question's web session (null when it has none) and
+ * what `runTurn` is handed of it.
+ *
+ * `vouched` is the text whose addresses count as the person's own
+ * (`texEntryPoint.js` says why a routine's is its body and never its prompt).
+ */
+export async function openTurnWeb(env, { session, texting, group, question, vouched, history = [], channel, store, dispatch, ledger, patient = false }) {
+  // The person's browser tag lets a later text carry on in the same browser
+  // (`browserProviders.js`); it is made from their id, never from the request.
+  // A handoff texts their own `/tex/@<handle>` page, never the browser's link;
+  // a group chat's, its own page's computer view (`groupViewerUrl`).
+  const computer = texting
+    ? computerFor(env, { owner: await browserOwner(env, session.actorUserId), viewer: texViewerUrl(env, session), store })
+    : group
+      ? computerFor(env, { owner: await groupBrowserOwner(env, group), viewer: groupViewerUrl(env, group), store, group })
+      : null;
+  // Web search is the texting assistant's too, and runs on its own (the
+  // owner's decision, 2026-10-07); `search.js` says why that is accepted.
+  const search = texting || group ? searcherFor(env) : null;
+  const opened =
+    computer === null && search === null
+      ? null
+      : webSession(computer, question, {
+          decide: decisionEngine(env.AI),
+          search,
+          addresses: vouched,
+          opened: pagesOpenedBefore(history),
+          // A browser handed to the person is texted the moment it exists, unless their texts said no to it.
+          say: channel !== null ? (text) => channel.say(text) : null,
+          handoffRefused: handoffRefusedIn(`${theirEarlierWords(history)}\n\n${question ?? ""}`),
+          // A background job or a routine waits patiently: for a browser another question holds (`browserLease.js`), and for a slow page (`browse.js`).
+          patient,
+          // The vault this turn's grant opens, for `fill_login`: a group chat's is its
+          // shared workspace's, narrowed to what the whole workspace was given.
+          store,
+          // A card's payment is asked by text, with the turn's other asks (`vault/pay.js`).
+          asks: texting || group ? ledger : null,
+          // The person's own files, read as them, for a page's upload box (`uploads.js`).
+          files: (step) => resolveUpload(step, { dispatch, store }),
+          // A file the browser downloaded, kept in their bucket for an email or another page (`downloads.js`).
+          keep: (file) => keepDownload(store, file),
+        });
+  // A page or a search result is text from outside the workspace: once one
+  // is read, every widening in this turn asks (`privacy/egress.js`).
+  const web =
+    opened === null
+      ? null
+      : {
+          tools: opened.tools,
+          usage: opened.usage,
+          call: (name, args) => {
+            markUntrusted(ledger);
+            return opened.call(name, args);
+          },
+        };
+  return { opened, web };
+}

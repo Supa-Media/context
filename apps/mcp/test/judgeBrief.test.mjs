@@ -11,8 +11,8 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { BRIEF_FRESH_MS, briefEntry, briefFacts } from "../src/agent/judgeBrief.js";
-import { nowFacts } from "../src/agent/textsDecide.js";
+import { BRIEF_FRESH_MS, briefEntry, briefFacts } from "../../../packages/tex/gateway/agent/judgeBrief.js";
+import { nowFacts } from "../../../packages/tex/gateway/agent/textsDecide.js";
 
 const T0 = Date.UTC(2026, 10, 12, 18, 0, 0);
 const GROUP = { key: "c3".repeat(32), from: "ada", people: ["ada"], aboutUs: "Ada's birthday crew.\nBooking golf for 20 on the 21st (Ada said so)." };

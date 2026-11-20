@@ -31,8 +31,8 @@
  * it further than "this is what they were looking at when they tapped".
  */
 
-import { folded } from "../agent/folded.js";
-import { offersAHeldChange } from "../agent/claimCheck.js";
+import { folded } from "../../../../packages/tex/gateway/agent/folded.js";
+import { offersAHeldChange } from "../../../../packages/tex/gateway/agent/claimCheck.js";
 import { recipientsShown } from "./shownEmail.js";
 
 const MIN_TEXT = 20;

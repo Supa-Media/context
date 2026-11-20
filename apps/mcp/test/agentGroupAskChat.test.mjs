@@ -25,7 +25,7 @@ import { after, before, beforeEach, test } from "node:test";
 import { createEgressWorld, request } from "./agentEgressFixtures.mjs";
 import { BUILTIN_ALLOWED } from "./agentModelFixture.mjs";
 import { EVERY_CHAT, PENDING_PREFIX, armForText, createPending, listPending } from "../src/tools/approvals.js";
-import { textedAsk } from "../src/agent/textedApprovals.js";
+import { textedAsk } from "../../../packages/tex/gateway/agent/textedApprovals.js";
 import { createMemoryStore } from "./gmailSync/fixtures.mjs";
 
 const TOKEN_ADA = `cat_group_chat_ada_${"0".repeat(21)}`;

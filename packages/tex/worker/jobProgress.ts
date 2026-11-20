@@ -6,7 +6,7 @@
  * the steps the last one took (`cutOff`). Ten parts each redid the same email search, sign-in, picture and email draft,
  * then the job failed with nothing. Now every tool result, every action held for the person's yes, and the last draft
  * the part wrote are saved in the job's object the moment they stream back (`PROGRESS_KEY`), so a part that dies
- * mid-way loses nothing it had, and the next part starts from them (`apps/mcp/src/agent/jobSaved.js` tells it how).
+ * mid-way loses nothing it had, and the next part starts from them (`packages/tex/gateway/agent/jobSaved.js` tells it how).
  *
  * Each part also ends with a typed cause (`PartCause`): what the next step depends on, and what `job_status` shows.
  * A cause that would happen again the same way (`DETERMINISTIC`) delivers the saved draft instead of spending parts.

@@ -7,7 +7,7 @@ Split out of [texting-assistant.md](../texting-assistant.md) on 2026-10-18 when 
 Decided by the owner, 2026-10-18, while settling the landing page's sample
 conversation. When a text makes Tex write a note, `write_note`'s result on
 that turn carries `link: <APP_ORIGIN>/note/@<slug>/<path>`
-(`apps/mcp/src/agent/noteLinks.js`), so Tex can text the person where it went,
+(`packages/tex/gateway/agent/noteLinks.js`), so Tex can text the person where it went,
 under the rule that it only states a link it read in a tool result. The link
 grants nothing: opening it is a sign-in and the console's own check, and it
 unfurls as Context's card, never with the note's name. No https `APP_ORIGIN`,
@@ -45,7 +45,7 @@ answered the picture again on its own ("That's the Context banner").
 - A link of this deployment's own to a note, in either shape the app opens
   (`/note/@slug/<path>`, `/console/@slug?note=<path>`), is named to the turn
   as that note, to be read with `fetch` in that context (`sentNoteLinks`,
-  `apps/mcp/src/agent/noteLinks.js`). It grants nothing: the read goes
+  `packages/tex/gateway/agent/noteLinks.js`). It grants nothing: the read goes
   through the dispatcher and `canSee`, and another host's link, a path with
   `..` or a context with no `@` is not a note.
 - On Sendblue, a file that comes with an address in the words, or a

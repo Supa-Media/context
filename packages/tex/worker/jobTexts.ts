@@ -10,7 +10,7 @@
  * `event: "job_report"` and the words as `jobReport`: in a 1:1 chat as a turn
  * this Worker asks for (`queueByCode`), in a group as its asker's tag, run the
  * way a chat routine's is (`queueGroupByCode`, `JOB_REPORT_PATH`). That turn,
- * the coordinator (`apps/mcp/src/agent/jobReport.js`), checks it against the
+ * the coordinator (`packages/tex/gateway/agent/jobReport.js`), checks it against the
  * chat, and texts it, fixes it, starts the job again, steers what is still
  * running, or says nothing (SKIP). A job's pictures are not sent: the
  * coordinator draws a page's cover itself when it texts the link.

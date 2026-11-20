@@ -6,7 +6,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { OFF_IN_CHATS, allowedFirst, texEntry } from "../src/agent/texTiming.js";
+import { OFF_IN_CHATS, allowedFirst, texEntry } from "../../../packages/tex/gateway/agent/texTiming.js";
 
 function dataset() {
   const points = [];

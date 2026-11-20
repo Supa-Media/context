@@ -16,8 +16,8 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { parseGroupNote, renderGroupNote, timedTurn } from "../src/agent/groupMemoryNote.js";
-import { groupTimingLine } from "../src/agent/turnLog.js";
+import { parseGroupNote, renderGroupNote, timedTurn } from "../../../packages/tex/gateway/agent/groupMemoryNote.js";
+import { groupTimingLine } from "../../../packages/tex/gateway/agent/turnLog.js";
 
 const started = Date.UTC(2026, 9, 30, 22, 22, 40);
 

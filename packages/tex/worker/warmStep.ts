@@ -4,7 +4,7 @@
  * Photon's line hears the read (`photonSendStatus.ts`), and a person who just read Tex's text is the one most likely to
  * text next. The chat object asks the gateway's `/texts/warm` on the `TexTexts` binding, naming the chat's home: the
  * person's personal workspace for a 1:1, the group's ledger key for a group. The gateway decides whether to warm (a
- * kept prefix, from today, not sent in the last 50 minutes: `apps/mcp/src/agent/graph/nodes/warm.js`) and logs the
+ * kept prefix, from today, not sent in the last 50 minutes: `packages/tex/gateway/agent/graph/nodes/warm.js`) and logs the
  * node's run in the chat's ledger; this step asks at most once every `ASK_AGAIN_MS` per chat, and never waits the chat.
  */
 

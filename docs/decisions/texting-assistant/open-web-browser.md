@@ -9,11 +9,11 @@ Decided by the owner, 2026-10-14: "let's remove the safety guards for
 browsers. That's just not needed, not yet at least. Let's get all the
 capabilities and then we'll rein it back because we don't have the users right
 now to worry about it." With `open_web: yes` in the production setup
-(`apps/mcp/src/agent/trustedSites.js`):
+(`packages/tex/gateway/agent/trustedSites.js`):
 
 - **Any words may be typed on any page** — the person's, a note's, anything —
   and the gateway sends no `onlyOn`, so the browser does not re-check the
-  page's host at the keys (`apps/mcp/src/agent/browse.js`).
+  page's host at the keys (`packages/tex/gateway/agent/browse.js`).
 - **A question may take 400 browser steps** (`MAX_STEPS_PER_TURN_OPEN_WEB`;
   the turn's own rounds bind first) **and open 40 pages**
   (`MAX_PAGES_PER_TURN_OPEN_WEB` in `computer.js`), shared by `open_page` and

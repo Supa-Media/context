@@ -18,7 +18,7 @@
  *   empty page must not cost a Browserbase session, so a missing browser is
  *   `running: false` and nothing else.
  * - **The owner tag is the only key.** It is the gateway's HMAC of the
- *   person's id (`apps/mcp/src/agent/browserProviders.js`), and the gateway
+ *   person's id (`packages/tex/gateway/agent/browserProviders.js`), and the gateway
  *   computes it from the signed-in caller, never from the request. This Worker
  *   has no address but the gateway's service binding.
  * - **What the person types goes to the page and nowhere else.** It is never

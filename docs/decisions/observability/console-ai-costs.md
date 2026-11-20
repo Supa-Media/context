@@ -19,7 +19,7 @@ and what came out of pocket through Cloudflare's Unified Billing.
   moved off the front door. A test fails when the step list drifts from `texConfig.json`.
 - **Who paid from a `payer` label.** Every gateway attempt now carries a fifth label, `payer`: the stored key's
   alias, `plan` for the plan's key, or `cloudflare` for the keyless attempt (`attemptMetadataHeader`,
-  `apps/mcp/src/agent/aiGateway.js`). A caller's own labels are capped at four so it is never dropped. Calls from
+  `packages/tex/gateway/agent/aiGateway.js`). A caller's own labels are capped at four so it is never dropped. Calls from
   before the label are attributed by time: the plan's key before the aliases were stored (2026-11-13 16:57 UTC),
   the first unspent alias after. The credits' sizes ($100 dev, $200 dev2, spent) are written in code, as the
   aliases are: they are not secrets (Dev2, 2026-11-13: no new secrets for non-secret config).

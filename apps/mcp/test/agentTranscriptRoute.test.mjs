@@ -23,8 +23,8 @@
  */
 
 import worker from "../src/index.js";
-import { transcriptPath } from "../src/agent/transcript.js";
-import { picturesPath } from "../src/agent/textedPictures.js";
+import { transcriptPath } from "../../../packages/tex/gateway/agent/transcript.js";
+import { picturesPath } from "../../../packages/tex/gateway/agent/textedPictures.js";
 import { IMAGE_PREFIX } from "../../../packages/shared/src/storageLayout.cjs";
 import { createWorkerCtx } from "./workerCtx.mjs";
 import {

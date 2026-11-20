@@ -219,7 +219,7 @@ config change in the same pull request
 `scripts/tex-diagram-check.mjs` fails CI when either is stale or code runs a
 step or model call the config has no node for.
 
-**Tex has one capability list**, `apps/mcp/src/agent/capabilities.js`: what it
+**Tex has one capability list**, `packages/tex/gateway/agent/capabilities.js`: what it
 can do in a 1:1 text, a group chat and a guest chat, who asks, drafts and
 approves, and what it can't do yet with the way around it. A change to what a person can get Tex to do, or how they set it up
 (an app-only setting included), changes its line in the same pull request,
@@ -377,7 +377,7 @@ checked is not a guard.**
 - **Small, tested increments.** Atomic commits; describe *why*.
 - **Agent-first: no feature is buttons-only.** What a person can do in the app,
   Tex can do from a text, or the capability list
-  (`apps/mcp/src/agent/capabilities.js`) names the one step only a person can
+  (`packages/tex/gateway/agent/capabilities.js`) names the one step only a person can
   take and what Tex hands for it: an agent prompt, a link, an app path, a vault
   entry. A PR that adds an app route adds its line; one that gives Tex a
   capability deletes its `cant` entry (decided by the owner, 2026-11-08;

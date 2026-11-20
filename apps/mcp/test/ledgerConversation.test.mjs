@@ -8,9 +8,9 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 
-import { conversationFromLedger, exchangeEntries } from "../src/agent/ledgerConversation.js";
-import { eventEntry, toolEntry, wordsEntry } from "../src/agent/ledger.js";
-import { TOLD, TOLD_QUESTION } from "../src/agent/conversation.js";
+import { conversationFromLedger, exchangeEntries } from "../../../packages/tex/gateway/agent/ledgerConversation.js";
+import { eventEntry, toolEntry, wordsEntry } from "../../../packages/tex/gateway/agent/ledger.js";
+import { TOLD, TOLD_QUESTION } from "../../../packages/tex/gateway/agent/conversation.js";
 
 const T = Date.UTC(2026, 10, 2, 15, 0, 0);
 let seq = 0;
@@ -96,8 +96,8 @@ test("an exchange the Worker logged none of is kept in the gateway's words, vouc
 });
 
 test("the ledger is read marked or not: every chat's past is copied in, and the old record is retired (2026-11-09)", async () => {
-  const { readLedgerConversation } = await import("../src/agent/ledgerConversation.js");
-  const { BACKFILLED } = await import("../src/agent/ledgerBackfill.js");
+  const { readLedgerConversation } = await import("../../../packages/tex/gateway/agent/ledgerConversation.js");
+  const { BACKFILLED } = await import("../../../packages/tex/gateway/agent/ledgerBackfill.js");
   const chat = at([person(0, 1, "hi"), reply("turnD1234", true), tex(1_000, 2, "Hey.", "turnD1234")]).reverse();
   const storeWith = (entries) => ({ texLedger: () => ({ read: async () => ({ entries }) }) });
   assert.deepEqual((await readLedgerConversation(storeWith(chat))).map((turn) => turn.text), ["hi", "Hey."], "a new chat's first texts, before its mark");

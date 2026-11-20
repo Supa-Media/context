@@ -11,9 +11,9 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { texCacheTtl, texStep } from "../src/agent/texConfig.js";
-import { callPoints, CALL_COLUMNS } from "../src/agent/turnStages.js";
-import { aiGatewayConfig, gatewayBody, HOUR_MARK, requestViaGateway, resetCreditState, resetHourMarks, withoutHourMarks } from "../src/agent/aiGateway.js";
+import { texCacheTtl, texStep } from "../../../packages/tex/gateway/agent/texConfig.js";
+import { callPoints, CALL_COLUMNS } from "../../../packages/tex/gateway/agent/turnStages.js";
+import { aiGatewayConfig, gatewayBody, HOUR_MARK, requestViaGateway, resetCreditState, resetHourMarks, withoutHourMarks } from "../../../packages/tex/gateway/agent/aiGateway.js";
 
 const MODEL = "anthropic/claude-haiku-5-5";
 const HISTORY = [

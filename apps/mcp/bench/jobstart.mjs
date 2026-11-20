@@ -17,8 +17,8 @@ import { readFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { RESTART_JOB_TOOL, START_JOB_TOOL, backgroundSession } from "../src/agent/background.js";
-import { startLine } from "../src/agent/jobStart.js";
+import { RESTART_JOB_TOOL, START_JOB_TOOL, backgroundSession } from "../../../packages/tex/gateway/agent/background.js";
+import { startLine } from "../../../packages/tex/gateway/agent/jobStart.js";
 import { claudeTransport } from "./models.mjs";
 
 const HERE = dirname(fileURLToPath(import.meta.url));

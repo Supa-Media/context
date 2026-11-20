@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { request, TOKEN_TEXTS } from "../../agentEgressFixtures.mjs";
-import { ledgerFor, ONE_TO_ONE_CHAT } from "../../../src/agent/ledger.js";
+import { ledgerFor, ONE_TO_ONE_CHAT } from "../../../../../packages/tex/gateway/agent/ledger.js";
 import { oneToOne } from "../chats.mjs";
 
 const LINE = "sendblue:line:+15555550100";

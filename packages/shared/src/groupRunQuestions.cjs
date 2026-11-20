@@ -7,7 +7,7 @@
  * a Dev test's group routine or check-in in exactly the words production does (`apps/mcp/bench/setsFd.mjs`).
  *
  * Silence is the `say_nothing` call, never a word (2026-11-17: these words asked for "exactly SKIP", and a check-in
- * with nothing new posted its reasoning and the word into a WhatsApp group; `apps/mcp/src/agent/scheduledQuiet.js`).
+ * with nothing new posted its reasoning and the word into a WhatsApp group; `packages/tex/gateway/agent/scheduledQuiet.js`).
  */
 "use strict";
 

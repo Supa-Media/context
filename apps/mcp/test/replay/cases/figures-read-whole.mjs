@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { untriedWebCheck } from "../../../src/agent/untriedWeb.js";
+import { untriedWebCheck } from "../../../../../packages/tex/gateway/agent/untriedWeb.js";
 
 export default {
   id: "figures-read-whole",

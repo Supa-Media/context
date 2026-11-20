@@ -18,7 +18,7 @@
  */
 import test from "node:test";
 import assert from "node:assert/strict";
-import { LOOK_TREE_TIMEOUT_MS, LOOK_TREE_TRIES, lookChangedEntries, lookTreeEntries } from "../src/agent/lookTree.js";
+import { LOOK_TREE_TIMEOUT_MS, LOOK_TREE_TRIES, lookChangedEntries, lookTreeEntries } from "../../../packages/tex/gateway/agent/lookTree.js";
 import { servedListingStore, TreeUnavailable } from "../src/tree/served.js";
 import { ControlPlaneError } from "../src/controlPlane/client.js";
 

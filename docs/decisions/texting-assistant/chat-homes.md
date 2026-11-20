@@ -187,7 +187,7 @@ one"), `apps/mcp/test/agentChatVoice.test.mjs` (one voice note per chat), and
 
 A write in a home sets no row (2026-11-02). The seal is the home's access, and the control plane refuses any access
 change a chat's grant asks for beneath it, so `write_note` there skips the row tier it sets elsewhere and refuses
-`visibility: private` before writing (`apps/mcp/src/agent/chatHomeSeal.js`; the home's door marks its store). Before
+`visibility: private` before writing (`packages/tex/gateway/agent/chatHomeSeal.js`; the home's door marks its store). Before
 this, every new note in a home was refused after its text went in, and no chat's history page was reported written.
 Test: `apps/mcp/test/chatHomeWrite.test.mjs`.
 
@@ -276,7 +276,7 @@ Dev2, after the Nov Babies chat's two finished research pages were dropped: "all
 
 - **One grant for every turn.** A tag, a routine's run, a check-in and a job's report all get the chat's home plus its reach (`applyGroupTurn` in `functions/textGroups.ts`). An empty reach means the home alone, never a refusal. A turn started for someone with no account (a job they asked for, reporting) runs as them on the home, as their tag does. A command is still never theirs to give.
 - **What was removed.** Routines needed a shared workspace (from when a chat was bound to one), and a routine was never answered from the home for someone with no account. Both refused a job's report, which runs as a routine's turn, and the Worker then dropped it silently.
-- **Every chat with a home checks in and may keep routines there** (`lib/textGroupLooks.ts`, `apps/mcp/src/agent/groupRoutines.js`). A routine is still set only by someone on Context, since it runs as its writer.
+- **Every chat with a home checks in and may keep routines there** (`lib/textGroupLooks.ts`, `packages/tex/gateway/agent/groupRoutines.js`). A routine is still set only by someone on Context, since it runs as its writer.
 - **A report is never silent.** One whose turn the chat still can't run texts the "news is waiting" line, unless Tex was told to stop in the chat (`packages/tex/worker/groupInbox.ts` `cannotRun`).
 - **Unchanged: the least-privileged rule.** When anyone in the chat has no account, the reach is empty, because nothing can say what that person may read. *Superseded in part (Dev2, 2026-11-16): a number invited to a workspace by phone says what that person may read there, so they count in it ([groups](./groups.md#one-list-of-numbers-and-reach-by-membership-dev2-2026-11-16)).* Letting a chat reach a workspace when its people allow it is a possible later step (Dev2: "in the future we may allow workspace information if the user allows for it"); it is not built.
 

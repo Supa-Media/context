@@ -536,7 +536,7 @@ export { TYPING_AGAIN_MS, TYPING_REFRESH_MS } from "./presence";
 /**
  * Work out the reply with the typing bubble showing (`presence.ts`, started
  * before decide when the drain has one), as a person would, texting any
- * progress the turn reports on the way (`apps/mcp/src/agent/progress.js`).
+ * progress the turn reports on the way (`packages/tex/gateway/agent/progress.js`).
  * A renewal still in flight is awaited before the reply goes out, so it
  * cannot hang in the chat. The simulator draws its own bubble from the
  * queue, so it gets none; its progress goes to its log.
@@ -600,7 +600,7 @@ async function answering(message: Message, work: string, deps: InboxDeps, storag
       onOffers: (offered, named) => void ((offers = offered), (hub = named)),
       onAsks: (armed, text) => void ((asks = armed), (askText = text)),
       onPlace: (placed) => void (place = placed),
-      onReact: (emoji) => void (react = emoji), // a hushed turn's tapback, sent once its answer is in (`apps/mcp/src/agent/respond.js`)
+      onReact: (emoji) => void (react = emoji), // a hushed turn's tapback, sent once its answer is in (`packages/tex/gateway/agent/respond.js`)
       warm: warmDeps(storage, deps.now), // the gateway's sealed copy (`warm.ts`)
       onShared: () => watchShared(storage, message.from, deps.now()),
       ...(await jobsFor(storage, message, deps)),
@@ -619,7 +619,7 @@ async function answering(message: Message, work: string, deps: InboxDeps, storag
   await clearReactions(storage, reacted);
   // Answered with a tapback and no words: the classifier's, the emoji checked against the list (`reactEmoji.ts`).
   if (react !== undefined && texts.length === 0) {
-    // `react` names the Front door's own pick (`apps/mcp/src/agent/tapbackEnding.js`); empty, the Worker picks from their words.
+    // `react` names the Front door's own pick (`packages/tex/gateway/agent/tapbackEnding.js`); empty, the Worker picks from their words.
     const sent = await acknowledgeText(storage, deps, message, react || undefined, react ? "tex" : "classifier", steer.turn).catch(() => undefined);
     // The tapback that went was the whole answer: kept as Tex's line covering their texts, so the next turn reads them as
     // answered ("You: (a tapback) ❤️") instead of "(not answered)", which would have it answer them again in words. One that

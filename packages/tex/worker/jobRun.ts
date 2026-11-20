@@ -14,7 +14,7 @@
  *
  * A later text the chat's turn handed to the job (`steerJob`, "never mind,
  * make it yellow not green") is kept here as the person's own words. A turn
- * running when it arrives is sent it (`apps/mcp/src/agent/steer.js`) and
+ * running when it arrives is sent it (`packages/tex/gateway/agent/steer.js`) and
  * takes it in after its next tool call; one its turn never took is shown to
  * the next turn as a follow-up, and a job that answered without it gets that
  * turn rather than texting the old way. A text that stops it (`stop`) is
@@ -280,7 +280,7 @@ export async function runJob(storage: InboxStorage, deps: JobDeps): Promise<JobN
   const leftOver = await storage.get<JobSaved>(PROGRESS_KEY), savedBefore = mergeSaved(run.saved, leftOver);
   if (savedBefore !== undefined) run.saved = savedBefore;
   // Its note, asked for once before its first part: the job, Tex and the advisor on its mail, and the job told who is there (`jobNote.ts`).
-  // A group's job has a note only where Tex put it in a project (`apps/mcp/src/agent/jobNote.js`), so one without asks nothing.
+  // A group's job has a note only where Tex put it in a project (`packages/tex/gateway/agent/jobNote.js`), so one without asks nothing.
   if (run.note === undefined && run.noteAsked !== true && (run.origin.kind === "phone" || run.mail !== undefined)) {
     const token = await jobToken(run, deps).catch(() => null);
     const note = token === null ? null : await openJobNote(deps, token, run);
@@ -369,7 +369,7 @@ export async function runJob(storage: InboxStorage, deps: JobDeps): Promise<JobN
   // interrupt mailed to it; a plain note mailed to it is shown to a next part if there is one, and is in the note anyway.
   const changed = outcome.kind === "answer" && left.some((steer) => steer.mail === undefined || steer.mail.kind !== "note");
   const mailed = changed && left.every((steer) => steer.mail !== undefined);
-  // An answer the advisor says isn't finished (`apps/mcp/src/agent/jobCheck.js`; without it, `stopsShort.js`) is not done: the next part finishes it, on its advice.
+  // An answer the advisor says isn't finished (`packages/tex/gateway/agent/jobCheck.js`; without it, `stopsShort.js`) is not done: the next part finishes it, on its advice.
   const unfinished = outcome.kind === "answer" && outcome.unfinished && !changed;
   const advice = outcome.kind === "answer" ? outcome.advice : undefined;
   const checked = outcome.kind === "answer" && outcome.verdict ? { verdict: outcome.verdict, ...(advice ? { advice } : {}) } : {};

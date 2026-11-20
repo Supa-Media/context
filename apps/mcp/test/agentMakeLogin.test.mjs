@@ -10,7 +10,7 @@
 
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { MAKE_LOGIN_DEFINITION, MAKE_LOGIN_TOOL, makeLoginTool, MAX_NEW_LOGINS_PER_TURN } from "../src/agent/makeLogin.js";
+import { MAKE_LOGIN_DEFINITION, MAKE_LOGIN_TOOL, makeLoginTool, MAX_NEW_LOGINS_PER_TURN } from "../../../packages/tex/gateway/agent/makeLogin.js";
 import { newEntryId, listMeta, writeEntry } from "../src/vault/entries.js";
 import { openForFill } from "../src/vault/fill.js";
 import { actorMayUse } from "../src/vault/access.js";

@@ -9,9 +9,9 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { webSession } from "../src/agent/computer.js";
-import { BROWSE_TOOL, NO_LINK_LINE } from "../src/agent/browse.js";
-import { resetBrowserbaseProbe, siteShotsComputer } from "../src/agent/browserProviders.js";
+import { webSession } from "../../../packages/tex/gateway/agent/computer.js";
+import { BROWSE_TOOL, NO_LINK_LINE } from "../../../packages/tex/gateway/agent/browse.js";
+import { resetBrowserbaseProbe, siteShotsComputer } from "../../../packages/tex/gateway/agent/browserProviders.js";
 import { ownHandle, texViewerUrl } from "../src/http/texComputer.js";
 
 function fakeComputer({ canHandOff, handoffUrl = null }) {

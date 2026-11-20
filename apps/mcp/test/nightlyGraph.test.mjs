@@ -12,8 +12,8 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 
 import graphLib from "../../../packages/tex/src/texGraph.cjs";
-import { TEX_CONFIG } from "../src/agent/texConfig.js";
-import nightly from "../src/agent/graph/nodes/nightly.js";
+import { TEX_CONFIG } from "../../../packages/tex/gateway/agent/texConfig.js";
+import nightly from "../../../packages/tex/gateway/agent/graph/nodes/nightly.js";
 
 const { createGraph } = graphLib;
 

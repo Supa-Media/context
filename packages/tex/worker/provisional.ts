@@ -7,7 +7,7 @@
  * is the go or the stop: the same messages chosen to answer is the go (`/agent/go`), anything else (quiet, wait, a
  * different set) stops it (`/agent/cancel` with `provisional: true`), mid-model-call if need be, and the drain carries
  * on as it would have. Until the go nothing it says reaches the chat (no tapback, no progress line, no answer), and on
- * the gateway nothing it would change runs that cannot be undone (`apps/mcp/src/agent/steer.js`).
+ * the gateway nothing it would change runs that cannot be undone (`packages/tex/gateway/agent/steer.js`).
  *
  * The wiring is read from the config the Worker was built with, or the Lab draft a test chat runs on (`env.TEX_GRAPH`).
  * Every run is logged as its own step (`provisional`): started, go, stop and why, how long it ran before the verdict.

@@ -5,7 +5,7 @@
  *
  * Run from the `Tex history into its object` workflow: first with `dryRun`
  * (counts only, nothing written), then for real, paging with the cursor until
- * `done`. The move itself is the gateway's (`apps/mcp/src/agent/agentHomeMove.js`),
+ * `done`. The move itself is the gateway's (`packages/tex/gateway/agent/agentHomeMove.js`),
  * over the workspace's own store with its Tex keys routed to its object
  * (`lib/texStore.ts`). It answers counts only, never a key or a word: this
  * repository is public, and so is the job's log. Running it again moves
@@ -19,7 +19,7 @@ import type { Id } from "../_generated/dataModel";
 import { internal } from "../_generated/api";
 import { internalAction } from "../_generated/server";
 import { storeForBinding } from "../../mcp/src/store/factory.js";
-import { moveAgentHome } from "../../mcp/src/agent/agentHomeMove.js";
+import { moveAgentHome } from "../../../packages/tex/gateway/agent/agentHomeMove.js";
 import { managedEncryptionOption } from "./lib/managedEncryptionFns/storeOption";
 import type { GatewayCredential } from "./lib/storage/shapes";
 import { consoleTexRouting } from "./lib/texStore";

@@ -12,11 +12,11 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { createRequire } from "node:module";
 
-import { jobReportNode } from "../src/agent/graph/nodes/jobReport.js";
-import { GATEWAY_NODES } from "../src/agent/graph/gatewayNodes.js";
-import { jobReportOf, jobReportQuestion } from "../src/agent/jobReport.js";
-import { TEX_CONFIG } from "../src/agent/texConfig.js";
-import { jobReportEvent } from "../src/agent/texEntryPoint/readTheText.js";
+import { jobReportNode } from "../../../packages/tex/gateway/agent/graph/nodes/jobReport.js";
+import { GATEWAY_NODES } from "../../../packages/tex/gateway/agent/graph/gatewayNodes.js";
+import { jobReportOf, jobReportQuestion } from "../../../packages/tex/gateway/agent/jobReport.js";
+import { TEX_CONFIG } from "../../../packages/tex/gateway/agent/texConfig.js";
+import { jobReportEvent } from "../../../packages/tex/gateway/agent/texEntryPoint/readTheText.js";
 
 const SHELF = createRequire(import.meta.url)("../../../packages/tex/src/texNodeShelf.json");
 const REPORT = { id: "j25dcf950", title: "Book the coworking day", state: "done", texts: ["Booked for Friday."] };
@@ -84,7 +84,7 @@ test("in a Lab test chat, a node run outside the turn's graph shows on the run c
 });
 
 test("every graph a turn's steps make passes the request's env, so a Lab card misses none of its nodes", () => {
-  const dir = new URL("../src/agent/texEntryPoint/", import.meta.url);
+  const dir = new URL("../../../packages/tex/gateway/agent/texEntryPoint/", import.meta.url);
   for (const file of readdirSync(dir).filter((name) => name.endsWith(".js"))) {
     for (const call of readFileSync(new URL(file, dir), "utf8").match(/gatewayGraph\(\{[^}]*\}/g) ?? []) assert.match(call, /\benv\b/, `${file}: ${call}`);
   }

@@ -1,10 +1,10 @@
 import assert from "node:assert/strict";
 import graphLib from "../../../../../packages/tex/src/texGraph.cjs";
-import { eventEntry, ledgerObserver, nodeLog } from "../../../src/agent/ledger.js";
-import { replyJudge, REVIEW_MODEL } from "../../../src/agent/replyJudge.js";
-import { TEX_CONFIG } from "../../../src/agent/texConfig.js";
-import { draftBridge } from "../../../src/agent/graph/draftBridge.js";
-import { answerCheckNode } from "../../../src/agent/graph/nodes/answerCheck.js";
+import { eventEntry, ledgerObserver, nodeLog } from "../../../../../packages/tex/gateway/agent/ledger.js";
+import { replyJudge, REVIEW_MODEL } from "../../../../../packages/tex/gateway/agent/replyJudge.js";
+import { TEX_CONFIG } from "../../../../../packages/tex/gateway/agent/texConfig.js";
+import { draftBridge } from "../../../../../packages/tex/gateway/agent/graph/draftBridge.js";
+import { answerCheckNode } from "../../../../../packages/tex/gateway/agent/graph/nodes/answerCheck.js";
 
 /** One part's turn on the real runner and the real Answer check, with live Tex's loop wire, and a front door whose model writes `drafts` in turn. */
 async function part(drafts, notices) {
@@ -29,7 +29,7 @@ async function part(drafts, notices) {
   const { outputs } = await graph.run("fd", {}, { turn });
   return { sent, check: outputs.answerCheck };
 }
-import { claimCheck } from "../../../src/agent/claimCheck.js";
+import { claimCheck } from "../../../../../packages/tex/gateway/agent/claimCheck.js";
 
 /** A job's part that looked things up on the web and wrote its findings out as a long wall of words, with no figures. */
 const WALL = Array.from({ length: 14 }, (_, at) => `Finding ${at + 1} is that the staffing report for the week shows no rows and the sign-in still works.`).join(" ");

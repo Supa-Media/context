@@ -14,11 +14,11 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { agoWords, dayAgo, spanWords, timeNote } from "../src/agent/chatTime.js";
-import { callbacksPrompt, landings, pickCallbacks, wordsOf } from "../src/agent/callbacks.js";
-import { renderEvents } from "../src/agent/logRender.js";
-import { threadsChat } from "../src/agent/conversationThreads.js";
-import { threadedTurn } from "../src/agent/threadedTurn.js";
+import { agoWords, dayAgo, spanWords, timeNote } from "../../../packages/tex/gateway/agent/chatTime.js";
+import { callbacksPrompt, landings, pickCallbacks, wordsOf } from "../../../packages/tex/gateway/agent/callbacks.js";
+import { renderEvents } from "../../../packages/tex/gateway/agent/logRender.js";
+import { threadsChat } from "../../../packages/tex/gateway/agent/conversationThreads.js";
+import { threadedTurn } from "../../../packages/tex/gateway/agent/threadedTurn.js";
 
 const M = 60e3;
 const H = 60 * M;

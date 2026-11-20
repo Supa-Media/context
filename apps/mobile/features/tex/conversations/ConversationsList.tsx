@@ -11,7 +11,7 @@ import type { Conversation, ConversationDetail } from "../page/texPageTypes";
  * A chat's conversations (Dev2, 2026-11-07: "mock a special UI for the threads
  * ... in the Tex Hub and also when you open the Tex folder", built from the
  * approved canvas): open ones first, then finished, each newest first, as the
- * classifier left them (`apps/mcp/src/agent/conversationThreads.js`). A row
+ * classifier left them (`packages/tex/gateway/agent/conversationThreads.js`). A row
  * opens in place to its texts and Tex's answers, drawn as the history file
  * draws a line: time, who, words. Read from the gateway each time it is shown;
  * nothing here keeps a copy.

@@ -1,7 +1,7 @@
 # With bench "respond", scores the conversation classifier's reply-or-quiet
-# call instead (apps/mcp/src/agent/respond.js, apps/mcp/bench/respond/).
+# call instead (packages/tex/gateway/agent/respond.js, apps/mcp/bench/respond/).
 #
-# Scores the reply reviewer (apps/mcp/src/agent/replyJudge.js, one Haiku
+# Scores the reply reviewer (packages/tex/gateway/agent/replyJudge.js, one Haiku
 # call) on every labelled case in apps/mcp/bench/review/, against the real
 # model through the AI gateway, so it clears one bar for the whole reviewer
 # before it decides anything in production (Dev2, 2026-11-06: "replace the

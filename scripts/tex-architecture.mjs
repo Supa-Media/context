@@ -9,7 +9,7 @@
  *   1. the drawing in `docs/architecture/tex.md`, between `<!-- tex-config: drawing begin -->` and `end -->`: one
  *      Mermaid flowchart, a box per node (its group as a subgraph) and an arrow per wire, drawn by its mode;
  *   2. the steps table in the same page, between `<!-- tex-config: steps begin -->` and `end -->`;
- *   3. `apps/mcp/src/agent/texArchitecture.generated.js`: `TEX_MAP`, the same graph in words, which
+ *   3. `packages/tex/gateway/agent/texArchitecture.generated.js`: `TEX_MAP`, the same graph in words, which
  *      `texArchitecture.js` puts ahead of every Tex agent's prompt with the one line naming the node that agent is.
  *
  * Nothing here is hand-drawn, so nothing can drift: change the config (by hand or with the Lab's Promote), run this,
@@ -26,7 +26,7 @@ import { CONFIG_PATH, readTexConfig } from "./lib/texConfigFile.mjs";
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 export const CONFIG = CONFIG_PATH;
 export const PAGE = "docs/architecture/tex.md";
-export const MODULE = "apps/mcp/src/agent/texArchitecture.generated.js";
+export const MODULE = "packages/tex/gateway/agent/texArchitecture.generated.js";
 
 /**
  * Every wire mode the runner knows (`packages/tex/src/texGraph.cjs`), and how the page and the words say it.

@@ -11,7 +11,7 @@
  * note keeps its key, its text and its history, and the gateway's reads by key are the same note after it. A name
  * already taken is never moved onto: both are counted (`both`) and left as they are, for a person to look at. Nothing
  * is deleted. Until this has run everywhere, the gateway reads a note under its old name when the new one has nothing
- * (`apps/mcp/src/agent/homeNames.js`, `aboutMe.js`).
+ * (`packages/tex/gateway/agent/homeNames.js`, `aboutMe.js`).
  *
  * Run from the `Tex folder names` workflow, `dryRun` first. Internal only, so only the workflow's deploy key starts
  * them. The answers are counts and fixed codes, never a workspace, a path or a key: the workflow's log is public.
@@ -32,7 +32,7 @@ export type Rename = { from: string; to: string };
 /** Person's note about them, before and after. */
 export const PERSONAL_RENAMES: readonly Rename[] = [{ from: "tex/about-me.md", to: "tex/about.md" }];
 
-/** A home's notes, before and after, for the chat whose key hashes to `keyHash` (`apps/mcp/src/agent/homeNames.js`). */
+/** A home's notes, before and after, for the chat whose key hashes to `keyHash` (`packages/tex/gateway/agent/homeNames.js`). */
 export function homeRenames(folder: string, keyHash: string): Rename[] {
   const id = keyHash.slice(0, 12);
   return [
@@ -157,7 +157,7 @@ export const homes = internalAction({
   },
 });
 
-/** The record's one name in its chat's object: sha256 of "memory" (`apps/mcp/src/agent/chatMemoryRecord.js`). */
+/** The record's one name in its chat's object: sha256 of "memory" (`packages/tex/gateway/agent/chatMemoryRecord.js`). */
 async function chatRecord(ctx: ActionCtx, pin: Id<"workspaces">, groupKey: string): Promise<Record<string, unknown> | null> {
   const owner = `chat:${groupKey}`;
   const buckets = consoleTexBuckets(ctx, pin, { ticketOwners: [owner] });

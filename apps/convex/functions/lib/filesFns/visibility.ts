@@ -62,7 +62,7 @@ async function resolveNamedAudience(
 type VisibilityOperationResult = Extract<OperationResult, { kind: "visibility" }>;
 
 /**
- * The person's own chat with Tex as one read-only file (`apps/mcp/src/agent/historyFile.js` `HISTORY_PATH`). The one
+ * The person's own chat with Tex as one read-only file (`packages/tex/gateway/agent/historyFile.js` `HISTORY_PATH`). The one
  * file that is not Markdown and still carries its own visibility (owner, 2026-11-04: "i don't want to give you private
  * access to everything, just this file, team access to this file should be enough"): the owner may share their chat
  * with a team-tier connection without opening the rest of `tex/`. A group chat's history file is not this path: its

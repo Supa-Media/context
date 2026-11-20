@@ -18,10 +18,10 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { BUILTIN_PROVIDER } from "../src/agent/builtin.js";
-import { runTurn } from "../src/agent/turn.js";
-import { checkedSnapshot, STARTED_UNSURE } from "../src/agent/savedRounds.js";
-import { keptTools, roundsKeeper, STARTED_WAIT_MS } from "../src/agent/turnResume.js";
+import { BUILTIN_PROVIDER } from "../../../packages/tex/gateway/agent/builtin.js";
+import { runTurn } from "../../../packages/tex/gateway/agent/turn.js";
+import { checkedSnapshot, STARTED_UNSURE } from "../../../packages/tex/gateway/agent/savedRounds.js";
+import { keptTools, roundsKeeper, STARTED_WAIT_MS } from "../../../packages/tex/gateway/agent/turnResume.js";
 
 const SEARCH = { name: "search_notes", description: "Search notes", inputSchema: { type: "object", properties: { query: { type: "string" } } }, annotations: { readOnlyHint: true } };
 const WRITE = { name: "write_note", description: "Write a note", inputSchema: { type: "object", properties: { path: { type: "string" }, content: { type: "string" } } }, annotations: { readOnlyHint: false } };

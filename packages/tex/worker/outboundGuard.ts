@@ -3,7 +3,7 @@
  * in the shared mailbox ... Nothing needs the group now. SKIP").
  *
  * A turn that decides to send nothing says so with a flag (`quiet`, the gateway's `say_nothing`;
- * `apps/mcp/src/agent/scheduledQuiet.js` for a scheduled turn). This is what stands behind that, for the day a
+ * `packages/tex/gateway/agent/scheduledQuiet.js` for a scheduled turn). This is what stands behind that, for the day a
  * path forgets the flag: every text Tex sends, on every line (Sendblue, WhatsApp, Photon, Linq), 1:1 and group,
  * goes through `lineFor` (`line.ts`) or `groupLineFor` (`groupLine.ts`), and both wrap their line here. A text is
  * dropped, and the drop is logged, when:

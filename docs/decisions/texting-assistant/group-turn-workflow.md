@@ -160,7 +160,7 @@ wait on the one-record design, since each gives a checker a new duty.
   judge's wait asked while a turn drafts is still refused, so another
   person's burst is answered at once rather than gathered.
 - **A changing tool call takes the chat's write lock** for that one call
-  (`apps/mcp/src/agent/chatWriteLock.js`): held in the chat's own Tex store,
+  (`packages/tex/gateway/agent/chatWriteLock.js`): held in the chat's own Tex store,
   in memory, leased 60 s. A read never takes it. It only orders changes: a
   store that cannot be reached, or a lock still held after 20 s, lets the
   call run, logged (`chat_write_lock`). A call that waited for another

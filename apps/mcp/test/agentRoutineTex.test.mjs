@@ -30,7 +30,7 @@
  *     in tex/routines/" fails.
  */
 
-import { ONE_TO_ONE_CHAT, ledgerFor } from "../src/agent/ledger.js";
+import { ONE_TO_ONE_CHAT, ledgerFor } from "../../../packages/tex/gateway/agent/ledger.js";
 import worker from "../src/index.js";
 import { createWorkerCtx } from "./workerCtx.mjs";
 import {

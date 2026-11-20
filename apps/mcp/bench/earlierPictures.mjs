@@ -12,9 +12,9 @@ import { readFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 
 import worker from "../src/index.js";
-import { attachmentsLine } from "../src/agent/attachments.js";
-import { ledgerFor, ONE_TO_ONE_CHAT, wordsEntry } from "../src/agent/ledger.js";
-import { keepTextedPictures } from "../src/agent/textedPictures.js";
+import { attachmentsLine } from "../../../packages/tex/gateway/agent/attachments.js";
+import { ledgerFor, ONE_TO_ONE_CHAT, wordsEntry } from "../../../packages/tex/gateway/agent/ledger.js";
+import { keepTextedPictures } from "../../../packages/tex/gateway/agent/textedPictures.js";
 import { createWorkerCtx } from "../test/workerCtx.mjs";
 
 /** A picture from the repository's `ai/pictures/`, as the texting Worker sends one: `{ name, mediaType, data }`. */

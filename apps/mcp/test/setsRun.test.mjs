@@ -388,10 +388,10 @@ test("the router runs alone with a fake engine: right, wrong and none rows, each
   const dir = await mkdtemp(join(tmpdir(), "router-stub-"));
   try {
     // A tree whose router module answers the way the contract says: the question is the state, the reader takes route.
-    await mkdir(join(dir, "apps/mcp/src/agent"), { recursive: true });
+    await mkdir(join(dir, "packages/tex/gateway/agent"), { recursive: true });
     await writeFile(join(dir, "package.json"), '{"type":"module"}\n');
     await writeFile(
-      join(dir, "apps/mcp/src/agent/specialistRoute.js"),
+      join(dir, "packages/tex/gateway/agent/specialistRoute.js"),
       [
         "export function routeRequest({ question }) { return { state: question, questions: [{ name: \"route\" }] }; }",
         "export function readRoute(answers) { return answers && typeof answers.route === \"string\" ? { route: answers.route, sure: 0.9 } : null; }",
@@ -423,14 +423,14 @@ test("the router runs alone with a fake engine: right, wrong and none rows, each
   }
 });
 
-test("the router's real module, with a fake engine: every row runs, none is right by accident", { skip: !existsSync(join(REPO_ROOT, "apps/mcp/src/agent/specialistRoute.js")) && "specialistRoute.js is not in this tree yet" }, async () => {
+test("the router's real module, with a fake engine: every row runs, none is right by accident", { skip: !existsSync(join(REPO_ROOT, "packages/tex/gateway/agent/specialistRoute.js")) && "specialistRoute.js is not in this tree yet" }, async () => {
   const routeEngine = async () => null;
   const rows = await runSets([routerChat()], { adapters: await adaptersFor(REPO_ROOT, { routeEngine }), node: "router" });
   assert.equal(rows.length, 3);
   assert.ok(rows.every((r) => r.node === "router" && r.ran === true && r.right === false && r.got === null), "no answer is no route");
 });
 
-test("the router's bench reads its config context: Training examples and the chat before, within what Clef reads", { skip: !existsSync(join(REPO_ROOT, "apps/mcp/src/agent/routerContext.js")) && "routerContext.js is not in this tree yet" }, async () => {
+test("the router's bench reads its config context: Training examples and the chat before, within what Clef reads", { skip: !existsSync(join(REPO_ROOT, "packages/tex/gateway/agent/routerContext.js")) && "routerContext.js is not in this tree yet" }, async () => {
   const seen = [];
   const routeEngine = async (state) => {
     seen.push(state);
@@ -442,11 +442,11 @@ test("the router's bench reads its config context: Training examples and the cha
   assert.match(seen[0], /<examples>[\s\S]*<route>(quick|read|act|job)<\/route>/, "train:router's labelled examples");
   assert.match(seen[0], /<chat-history>\n@ann: draft a note to Jo about the leak\nYou: Here's a draft for Jo\.\n<\/chat-history>/, "the chat before it, newest last");
   assert.ok(seen[0].indexOf("<chat-history>") < seen[0].indexOf("<text>\nsend it"), "the text last");
-  const { MAX_DECISION_STATE_CHARS } = await import("../src/agent/decide.js");
+  const { MAX_DECISION_STATE_CHARS } = await import("../../../packages/tex/gateway/agent/decide.js");
   assert.ok(seen[0].length <= MAX_DECISION_STATE_CHARS, `within what Clef reads (${seen[0].length})`);
 });
 
-test("the router without Clef credentials says so on each row, rather than scoring every row wrong", { skip: !existsSync(join(REPO_ROOT, "apps/mcp/src/agent/specialistRoute.js")) && "specialistRoute.js is not in this tree yet" }, async () => {
+test("the router without Clef credentials says so on each row, rather than scoring every row wrong", { skip: !existsSync(join(REPO_ROOT, "packages/tex/gateway/agent/specialistRoute.js")) && "specialistRoute.js is not in this tree yet" }, async () => {
   const rows = await runSets([routerChat()], { adapters: await adaptersFor(REPO_ROOT, { env: {} }), node: "router" });
   assert.equal(rows.length, 3);
   assert.ok(rows.every((r) => r.ran === false && r.right === false && /CLOUDFLARE_ACCOUNT_ID/.test(r.why)));

@@ -53,12 +53,12 @@ import assert from "node:assert/strict";
 import { after, before, beforeEach, test } from "node:test";
 
 import worker from "../src/index.js";
-import { cancelledTurn } from "../src/agent/textingRoutes.js";
-import { logPrefix } from "../src/agent/log.js";
-import { ledgerFor, ONE_TO_ONE_CHAT } from "../src/agent/ledger.js";
-import { LOG_PREFACE, TURNS_PREFIX } from "../src/agent/loggedTurn.js";
-import { WEEK_PREFACE } from "../src/agent/weekHistory.js";
-import { CANCEL_PREFIX, RUNNING_PREFIX, steerFor } from "../src/agent/steer.js";
+import { cancelledTurn } from "../../../packages/tex/gateway/agent/textingRoutes.js";
+import { logPrefix } from "../../../packages/tex/gateway/agent/log.js";
+import { ledgerFor, ONE_TO_ONE_CHAT } from "../../../packages/tex/gateway/agent/ledger.js";
+import { LOG_PREFACE, TURNS_PREFIX } from "../../../packages/tex/gateway/agent/loggedTurn.js";
+import { WEEK_PREFACE } from "../../../packages/tex/gateway/agent/weekHistory.js";
+import { CANCEL_PREFIX, RUNNING_PREFIX, steerFor } from "../../../packages/tex/gateway/agent/steer.js";
 import { createPending, PENDING_PREFIX } from "../src/tools/approvals.js";
 import { LOGICAL_DELETE_CONTENT_TYPE } from "../src/store/logicalDelete.js";
 import { CONTROL_PLANE_ORIGIN, GATEWAY_SECRET, createControlPlaneStub, createS3Backend } from "./controlPlaneStub.mjs";

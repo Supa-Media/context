@@ -42,7 +42,7 @@ the person still owns the personal workspace, mints a 15-minute grant for the
 `heartbeat.run`. It spends the built-in model like a text: Premium, counted
 against the same daily cap.
 
-**What it does** (`apps/mcp/src/agent/heartbeat.js`). The gateway, not the
+**What it does** (`packages/tex/gateway/agent/heartbeat.js`). The gateway, not the
 model, lists the notes changed since the last look from the tree. Tex's own
 output (`tex/heartbeat/`, `tex/dreams/`, `tex/about-me.md`, `tex/heartbeat.md`)
 never counts, or every look would wake the next. Nothing changed, and no
@@ -104,7 +104,7 @@ before. Tests: `packages/tex/worker/threads.test.ts`.
 
 **Room for more jobs.** The control plane's grant, client and "still linked
 and owned" checks live in `functions/lib/texJobs.ts`, and the gateway's day log
-and meter in `apps/mcp/src/agent/jobLog.js`, shared by dreams and check-ins. A
+and meter in `packages/tex/gateway/agent/jobLog.js`, shared by dreams and check-ins. A
 further scheduled Tex job (housekeeping that tidies the workspace, asked for on
 2026-10-17) reuses those and gets its own client, outcomes and tool guard: a
 job that writes must not inherit the check-in's slot, and the check-in must
@@ -125,7 +125,7 @@ A check-in texted the owner about a GitHub deploy notification, then, after
 "never message me about github stuff unless i ask", texted again opening "? No.
 This is a new thread, not a follow-up. Here's the text:", offering to send a
 receipt on to their bookkeeper "and handle these automatically from now on",
-which Tex could not do. So, in `apps/mcp/src/agent/checkInGuards.js`:
+which Tex could not do. So, in `packages/tex/gateway/agent/checkInGuards.js`:
 
 - `mute:` in the front matter of `tex/heartbeat.md` or of `tex/attention.md`
   (where a texted "stop texting me about X" is kept) silences a check-in that
@@ -146,7 +146,7 @@ Tests: `apps/mcp/test/agentHeartbeat.test.mjs` (sabotages 7 and 8).
 When the calendar's copied day notes were removed (2026-10-21), check-ins
 stopped seeing the calendar at all: a look saw only changed notes. The owner
 called that a bug ("a huge gap"), and asked for Slack too, but only "if you can
-muster together helpful actions/responses". So (`apps/mcp/src/agent/checkInSources.js`):
+muster together helpful actions/responses". So (`packages/tex/gateway/agent/checkInSources.js`):
 
 - Every look that runs is shown today's calendar in their zone, read live from
   Google, fenced as the invite-writer's words, and may `read_calendar` other
@@ -187,7 +187,7 @@ again only when the one before it had not failed too.
   (owner, 2026-10-28: "listing should be O(1)"). More than 1,000 rows changed,
   or moves being drawn, answers not served, and the look walks the whole tree.
 - That walk gives each page of the tree 25 seconds and asks twice
-  (`apps/mcp/src/agent/lookTree.js`); nobody is waiting on it. Tools keep 6.
+  (`packages/tex/gateway/agent/lookTree.js`); nobody is waiting on it. Tools keep 6.
 - A failed look is tried again 10 minutes later, up to three times in each
   slot, and the next slot counts afresh (`failedLooks`, `failedFor` on the
   row, `lib/heartbeats/runs.ts`).
@@ -206,7 +206,7 @@ again silences every slot after two failures. Tests:
 The Tex page showed a `quiet-hours:` line from `tex/heartbeat.md` as a
 setting, and nothing kept it. Asked for a default, the owner said go on
 "enforce them in code". Now the gateway reads the line (`11 pm to 7 am`,
-`22:00-07:00`; `apps/mcp/src/agent/quietHours.js`). Inside the window a look
+`22:00-07:00`; `packages/tex/gateway/agent/quietHours.js`). Inside the window a look
 reads nothing and runs no model, and a delivery of their agents' pings texts
 only emergencies. Each answers `until`, the window's end. The texting Worker
 passes `until` to the control plane. There, a look comes back at the first

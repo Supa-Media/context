@@ -42,7 +42,7 @@ import { createControlPlane } from "../controlPlane.js";
 import { forbiddenResponse, unauthorizedResponse } from "../oauth.js";
 import { bearerToken, resolveSession, SessionRefusal } from "../session.js";
 import { json } from "./responses.js";
-import { browserHash } from "../agent/handback.js";
+import { browserHash } from "../../../../packages/tex/gateway/agent/handback.js";
 
 /** The console's client (`CONSOLE_CLIENT_ID` in `apps/convex/functions/agentGrant.ts`). */
 const CONSOLE_CLIENT_ID = "context_console";

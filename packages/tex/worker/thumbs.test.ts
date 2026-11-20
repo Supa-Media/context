@@ -292,7 +292,7 @@ describe("a thumbs up on an ask, in a group", () => {
 
   `onTheAsk` rewrites a like's quoted words to the ask's, and the gateway
   then compares those words to the ask for what is armed
-  (`apps/mcp/src/agent/textedApprovals.js` `thumbsUpIsYes`). That comparison
+  (`packages/tex/gateway/agent/textedApprovals.js` `thumbsUpIsYes`). That comparison
   has a floor — `MIN_QUOTED = 24` — which the rewrite walks straight past:
   by the time the gateway sees it, the words ARE the ask, so they are always
   long enough and always match exactly.

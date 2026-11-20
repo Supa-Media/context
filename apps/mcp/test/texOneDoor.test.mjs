@@ -16,8 +16,8 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 
 import { createEgressWorld, request, TOKEN_ROUTINE, TOKEN_TEXTS } from "./agentEgressFixtures.mjs";
-import { MOMENT_PREFACE, momentView } from "../src/agent/loggedTurn.js";
-import { WEEK_PREFACE } from "../src/agent/weekHistory.js";
+import { MOMENT_PREFACE, momentView } from "../../../packages/tex/gateway/agent/loggedTurn.js";
+import { WEEK_PREFACE } from "../../../packages/tex/gateway/agent/weekHistory.js";
 
 const CHAT = "sendblue:line:+15555550100";
 let seq = 0;

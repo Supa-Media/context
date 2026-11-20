@@ -5,7 +5,7 @@
  */
 
 import { loadPrivacyState } from "../privacy/state.js";
-import { historyWriteRefusal } from "../agent/historyFile.js";
+import { historyWriteRefusal } from "../../../../packages/tex/gateway/agent/historyFile.js";
 import { toolDefinitions } from "./registry.js";
 import { toolArchiveNote } from "./moves/archive.js";
 import {

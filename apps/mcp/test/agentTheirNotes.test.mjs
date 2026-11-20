@@ -18,9 +18,9 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { ASKS_TO_MOVE, notesTaken, withTheirNotesKept } from "../src/agent/theirNotes.js";
+import { ASKS_TO_MOVE, notesTaken, withTheirNotesKept } from "../../../packages/tex/gateway/agent/theirNotes.js";
 import { activityHintOf, withActivityHint } from "../src/live/activityHint.js";
-import { textingAwareCallTool } from "../src/agent/textingWrites.js";
+import { textingAwareCallTool } from "../../../packages/tex/gateway/agent/textingWrites.js";
 
 const LISTING = ["areas/bible/joshua/Joshua 1.md (2400 bytes)", "areas/bible/joshua/Joshua 2.md (2100 bytes)"].join("\n");
 

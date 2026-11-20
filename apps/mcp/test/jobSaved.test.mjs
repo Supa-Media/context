@@ -11,9 +11,9 @@
 
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { jobOf, jobPrompt, jobStatusText, runningJobsOf, withJobSteps } from "../src/agent/background.js";
-import { diedOf, streamTurn } from "../src/agent/progress.js";
-import { endsOf, savedOf, withJobDrafts } from "../src/agent/jobSaved.js";
+import { jobOf, jobPrompt, jobStatusText, runningJobsOf, withJobSteps } from "../../../packages/tex/gateway/agent/background.js";
+import { diedOf, streamTurn } from "../../../packages/tex/gateway/agent/progress.js";
+import { endsOf, savedOf, withJobDrafts } from "../../../packages/tex/gateway/agent/jobSaved.js";
 
 const JOB = { id: "job-1234-abcd", title: "Timecards", brief: "Check the timecards.", attempt: 2 };
 

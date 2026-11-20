@@ -38,14 +38,14 @@ import {
   oneLine,
   readAttentionSettings,
   waitingPings,
-} from "../src/agent/attention.js";
-import { changedSince } from "../src/agent/heartbeat.js";
-import { ATTENTION_PROMPT } from "../src/agent/checkIns.js";
+} from "../../../packages/tex/gateway/agent/attention.js";
+import { changedSince } from "../../../packages/tex/gateway/agent/heartbeat.js";
+import { ATTENTION_PROMPT } from "../../../packages/tex/gateway/agent/checkIns.js";
 import { CONTROL_PLANE_ORIGIN, GATEWAY_SECRET, createControlPlaneStub, createS3Backend } from "./controlPlaneStub.mjs";
 import { createWorkerCtx } from "./workerCtx.mjs";
 import { fullToolList } from "./fullToolList.mjs";
 import { conversationTurns } from "./agentConversationFixture.mjs";
-import { ledgerFor, ONE_TO_ONE_CHAT } from "../src/agent/ledger.js";
+import { ledgerFor, ONE_TO_ONE_CHAT } from "../../../packages/tex/gateway/agent/ledger.js";
 import { texStoreNamespace, withAgentHome } from "./texStoreFixture.mjs";
 
 const S3_ENDPOINT = "https://s3.example-attention.test";

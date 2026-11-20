@@ -27,8 +27,8 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 
 import graphLib from "../../../packages/tex/src/texGraph.cjs";
-import { draftBridge } from "../src/agent/graph/draftBridge.js";
-import { answerCheckNode } from "../src/agent/graph/nodes/answerCheck.js";
+import { draftBridge } from "../../../packages/tex/gateway/agent/graph/draftBridge.js";
+import { answerCheckNode } from "../../../packages/tex/gateway/agent/graph/nodes/answerCheck.js";
 
 const { createGraph } = graphLib;
 

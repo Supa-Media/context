@@ -10,9 +10,9 @@
  * lines kept.
  */
 
-import { MAX_SUMMARY_CHARS } from "../src/agent/daySummaries.js";
-import { dayOf } from "../src/agent/jobLog.js";
-import { DEFAULT_READS, historyReadsOf, weekStart } from "../src/agent/weekHistory.js";
+import { MAX_SUMMARY_CHARS } from "../../../packages/tex/gateway/agent/daySummaries.js";
+import { dayOf } from "../../../packages/tex/gateway/agent/jobLog.js";
+import { DEFAULT_READS, historyReadsOf, weekStart } from "../../../packages/tex/gateway/agent/weekHistory.js";
 
 /** The model name a bench day summary is kept under, so a run's entries read as the bench's own. */
 export const BENCH_MODEL = "bench";

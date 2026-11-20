@@ -17,7 +17,7 @@ told apart from a change to the front door's advisor, and neither ran a case.
 ## The rule
 
 1. **Each role's instructions are a file of their own** in
-   `apps/mcp/src/agent/advisorRoles/`: `chat.js` (ask_advisor), `jobCheck.js`
+   `packages/tex/gateway/agent/advisorRoles/`: `chat.js` (ask_advisor), `jobCheck.js`
    (the job check), `planner.js` (plan_big_ask) and `jobMail.js` (the advisor
    on the mail). `knowsMail.js` is the line about a job note's mail that the
    two roles reading a job share.

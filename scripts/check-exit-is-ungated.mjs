@@ -98,7 +98,7 @@ export const GATE_TERMS = [
  * terms are looked for, so the same word anywhere else still reddens.
  *
  * - `"x-subscription-token"`: the header Brave Search reads its API key from
- *   (`apps/mcp/src/agent/search.js`). It is our key to their service, and it
+ *   (`packages/tex/gateway/agent/search.js`). It is our key to their service, and it
  *   says nothing about what a customer has paid for.
  */
 export const FOREIGN_LITERALS = ['"x-subscription-token"'];

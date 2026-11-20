@@ -45,7 +45,7 @@ export function draftProblems(graph, current = TEX_CONFIG, shelf = Object.keys(S
   const shelved = new Set(shelf);
   const ids = new Set(graph.nodes.map((n) => n?.id));
   for (const n of graph.nodes) {
-    if (!known.has(n.id) && !shelved.has(n.id)) problems.push(`promote: step "${n.id}" is new; the gateway has no code for it yet, so merge its code to main first, on the shelf (apps/mcp/src/agent/graph/nodes/ and packages/tex/src/texNodeShelf.json)`);
+    if (!known.has(n.id) && !shelved.has(n.id)) problems.push(`promote: step "${n.id}" is new; the gateway has no code for it yet, so merge its code to main first, on the shelf (packages/tex/gateway/agent/graph/nodes/ and packages/tex/src/texNodeShelf.json)`);
     if (typeof n.model !== "string" || (n.model !== "code" && typeof current.models[n.model] !== "string")) problems.push(modelProblem(n, graph.models, current.models));
     if (n.effort !== undefined && !EFFORTS.has(n.effort)) problems.push(`promote: step "${n.id}" has effort "${n.effort}" (${[...EFFORTS].join(", ")})`);
     if (typeof n.on !== "boolean") problems.push(`promote: step "${n.id}" is neither on nor off`);

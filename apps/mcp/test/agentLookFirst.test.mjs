@@ -18,10 +18,10 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { claimCheck } from "../src/agent/claimCheck.js";
-import { judgeAsks, WHAT_TEX_CAN_DO } from "../src/agent/handbackJudge.js";
-import { LOOK_FIRST_LINE, SELF_REPAIR_NOTICE, asksToFixItself, asksWhatsWrong, selfRepairNotice } from "../src/agent/lookFirst.js";
-import { systemPrompt } from "../src/agent/prompt.js";
+import { claimCheck } from "../../../packages/tex/gateway/agent/claimCheck.js";
+import { judgeAsks, WHAT_TEX_CAN_DO } from "../../../packages/tex/gateway/agent/handbackJudge.js";
+import { LOOK_FIRST_LINE, SELF_REPAIR_NOTICE, asksToFixItself, asksWhatsWrong, selfRepairNotice } from "../../../packages/tex/gateway/agent/lookFirst.js";
+import { systemPrompt } from "../../../packages/tex/gateway/agent/prompt.js";
 
 const ok = async () => ({ content: [{ type: "text", text: "ok" }] });
 

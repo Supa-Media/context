@@ -12,9 +12,9 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { loggedTurn } from "../src/agent/loggedTurn.js";
-import { threadedTurn } from "../src/agent/threadedTurn.js";
-import { RECENT_MS, WINDOW_STEP_MS, windowStart } from "../src/agent/conversationThreads.js";
+import { loggedTurn } from "../../../packages/tex/gateway/agent/loggedTurn.js";
+import { threadedTurn } from "../../../packages/tex/gateway/agent/threadedTurn.js";
+import { RECENT_MS, WINDOW_STEP_MS, windowStart } from "../../../packages/tex/gateway/agent/conversationThreads.js";
 
 const KEY = "a".repeat(64);
 const PEOPLE = ["b", "c", "d", "e"].map((letter) => letter.repeat(64));

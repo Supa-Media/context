@@ -9,7 +9,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { EARLIER, estimateBodyTokens, fitHaikuBody, HAIKU_INPUT_BUDGET, LEFT_OUT } from "../src/agent/promptBudget.js";
+import { EARLIER, estimateBodyTokens, fitHaikuBody, HAIKU_INPUT_BUDGET, LEFT_OUT } from "../../../packages/tex/gateway/agent/promptBudget.js";
 
 const system = [{ type: "text", text: "You are Tex." }];
 const tools = [{ name: "fetch", description: "Read a note.", input_schema: { type: "object" } }];

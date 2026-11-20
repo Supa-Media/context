@@ -28,11 +28,11 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { BUILTIN_PROVIDER } from "../src/agent/builtin.js";
-import { CLAIM_NOTICE, MUTE_NOTICE, TRY_NOTICE, asksToMute, claimCheck, claimsAChange, offerNotice, offeredKinds, offersAHeldChange, saysItCouldNot } from "../src/agent/claimCheck.js";
-import { runTurn } from "../src/agent/turn.js";
-import { otherSitesNotice } from "../src/agent/otherSites.js";
-import { EVERYWHERE_NOTICE, claimsSearchedEverywhere, searchedEverywhere } from "../src/agent/searchClaims.js";
+import { BUILTIN_PROVIDER } from "../../../packages/tex/gateway/agent/builtin.js";
+import { CLAIM_NOTICE, MUTE_NOTICE, TRY_NOTICE, asksToMute, claimCheck, claimsAChange, offerNotice, offeredKinds, offersAHeldChange, saysItCouldNot } from "../../../packages/tex/gateway/agent/claimCheck.js";
+import { runTurn } from "../../../packages/tex/gateway/agent/turn.js";
+import { otherSitesNotice } from "../../../packages/tex/gateway/agent/otherSites.js";
+import { EVERYWHERE_NOTICE, claimsSearchedEverywhere, searchedEverywhere } from "../../../packages/tex/gateway/agent/searchClaims.js";
 
 const MAIN = "@cf/acme/main-model";
 const WRITE = {
@@ -237,7 +237,7 @@ test("an answer backed by a write that went through goes as it is, in one round"
 
 // Dev2, 2026-10-22: "the 2 messages from Tex should be merged into 1". The model's line about what it held goes; news stays.
 test("the model's one line about what it held is folded into the ask; anything else stays above it", async () => {
-  const { answerWithAsk } = await import("../src/agent/textedApprovals.js");
+  const { answerWithAsk } = await import("../../../packages/tex/gateway/agent/textedApprovals.js");
   const ask = "Here's the email I'd send:\n\nTo: sayo@example.test\nSubject: Hi\n\nHello.\n\nGive it a 👍 and I'll send it.";
   assert.equal(answerWithAsk("Drafted it again, the same joke note to Sayo from seyi@example.test", ask, []), ask);
   assert.equal(answerWithAsk("I drafted the reply to Jo.", ask, []), ask);

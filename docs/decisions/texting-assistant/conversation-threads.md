@@ -88,7 +88,7 @@ target, not measured.
 
 Live turns sort only new texts, so a chat's older texts are replayed once
 through the same classifier, oldest first, one answered turn at a time
-(`apps/mcp/src/agent/threadsBackfill.js`): the texts a Tex answer covers, or,
+(`packages/tex/gateway/agent/threadsBackfill.js`): the texts a Tex answer covers, or,
 for an older answer naming none, the texts since the answer before it. Each
 verdict is written as a live one is, marked `backfill: true` and dated by its
 newest text. Only texts older than the chat's first live entry are replayed,

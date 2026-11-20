@@ -22,7 +22,7 @@ import { test } from "node:test";
 import { readFileSync } from "node:fs";
 
 import { COMPUTER_AGENTS, codeComputers, computersLine, delegationBeside } from "../src/machines/forTurn.js";
-import { delegateSession } from "../src/agent/delegate.js";
+import { delegateSession } from "../../../packages/tex/gateway/agent/delegate.js";
 
 const STUDIO = { workspaceId: "ws1", id: "mch_1", name: "Studio Mac", online: true, tools: ["claude", "codex"], folders: ["~/code"], ownerId: "u1", slots: 3 };
 
@@ -73,8 +73,8 @@ test("the real delegate tool keeps its shape when its code agents are taken out"
 });
 
 test("the turn reads their computers ahead and tells the model, wired in the entry point", () => {
-  const history = readFileSync(new URL("../src/agent/texEntryPoint/readTheHistory.js", import.meta.url), "utf8");
-  const model = readFileSync(new URL("../src/agent/texEntryPoint/runTheModel.js", import.meta.url), "utf8");
+  const history = readFileSync(new URL("../../../packages/tex/gateway/agent/texEntryPoint/readTheHistory.js", import.meta.url), "utf8");
+  const model = readFileSync(new URL("../../../packages/tex/gateway/agent/texEntryPoint/runTheModel.js", import.meta.url), "utf8");
   assert.match(history, /tex\.ahead\("computers", \(\) => machinesFor\(/);
   assert.match(model, /computersLine\(computers, \{ planning \}\)/);
   assert.match(model, /delegationBeside\(delegated, computers\)/);

@@ -30,7 +30,7 @@ Absent means default, and only changed settings are stored.
 ## How they take effect
 
 - The gateway says them as a short block after the production prompt and the
-  texting style (`apps/mcp/src/agent/texStyle.js`). It adjusts how Tex
+  texting style (`packages/tex/gateway/agent/texStyle.js`). It adjusts how Tex
   writes and never what it may do. This follows how ChatGPT applies its
   presets: as instructions in the prompt, not a different model.
 - Bubbles: one makes the Worker send the answer as one text, links still on

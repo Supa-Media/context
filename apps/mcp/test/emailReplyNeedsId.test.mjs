@@ -53,7 +53,7 @@ test("a new email, a forward, and a subject that only mentions re are not refuse
 });
 
 test("a 👍 on a whole email draft reaches the send gate whole, not cut at 500 characters (2026-11-05)", async () => {
-  const { quotedOf } = await import("../src/agent/quoted.js");
+  const { quotedOf } = await import("../../../packages/tex/gateway/agent/quoted.js");
   const draft = `To: jo@example.com Subject: Plan ${"More of the email body. ".repeat(80)}Thanks, Seyi`;
   assert.ok(draft.length > 1_500);
   assert.equal(quotedOf({ quoted: draft, tapback: "Liked" }).words, draft);

@@ -9,7 +9,7 @@
  */
 import test from "node:test";
 import assert from "node:assert/strict";
-import { MAX_SLACK_SHOWN, calendarSection, chatSection, newChatSince, newSlackSince, slackQueries, slackSection, todaysCalendar } from "../src/agent/checkInSources.js";
+import { MAX_SLACK_SHOWN, calendarSection, chatSection, newChatSince, newSlackSince, slackQueries, slackSection, todaysCalendar } from "../../../packages/tex/gateway/agent/checkInSources.js";
 
 function storeWith(name, value) {
   const store = {};

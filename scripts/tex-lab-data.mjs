@@ -185,8 +185,8 @@ function buildCases() {
 }
 
 async function buildModText() {
-  const { TEX_MAP } = await import(pathToFileURL(abs("apps/mcp/src/agent/texArchitecture.generated.js")).href);
-  const { CAPABILITY_LIST } = await import(pathToFileURL(abs("apps/mcp/src/agent/capabilities.js")).href);
+  const { TEX_MAP } = await import(pathToFileURL(abs("packages/tex/gateway/agent/texArchitecture.generated.js")).href);
+  const { CAPABILITY_LIST } = await import(pathToFileURL(abs("packages/tex/gateway/agent/capabilities.js")).href);
   const { judgeExamplesText } = require(abs("packages/tex/src/textDecide.cjs"));
   // Each step's Training module (`train:<nodeId>`, `texTraining.cjs`), as the steps that name it are given it: Decide's
   // in the judge's own form, the others' in the Training form. A step with no labels has no text.

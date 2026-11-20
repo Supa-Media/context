@@ -1,7 +1,7 @@
 /**
  * The Browser Use fallback: caps, the balance call failing closed, and the
  * session stop. A Verified-tier 403 is not a site block; that classification
- * lives in the gateway (`apps/mcp/src/agent/browserUseFallback.js`).
+ * lives in the gateway (`packages/tex/gateway/agent/browserUseFallback.js`).
  */
 
 import { describe, expect, it } from "vitest";

@@ -24,13 +24,13 @@ import { CONTROL_PLANE_READS, controlPlaneAnswer, LAB_SANDBOX_KEY, NO_NOTES_PERS
 import { sandboxGate, stepsOf, turnBody } from "../../../packages/lab/gateway/labSandbox/harness.js";
 import { noteOwnWorkspace } from "../src/tools/etagPlace.js";
 import { handleLabSandbox, MAX_DRAWN_GRAPH, MAYA_CONVO } from "../../../packages/lab/gateway/labSandbox/route.js";
-import { withDraft } from "../src/agent/graph/turnGraph.js";
-import { TEX_CONFIG, texConfigOf, texEffort, texModel, texSetupFront, texTimeoutMs, texWords } from "../src/agent/texConfig.js";
+import { withDraft } from "../../../packages/tex/gateway/agent/graph/turnGraph.js";
+import { TEX_CONFIG, texConfigOf, texEffort, texModel, texSetupFront, texTimeoutMs, texWords } from "../../../packages/tex/gateway/agent/texConfig.js";
 import { createTransport } from "../src/controlPlane/client.js";
 import { createEmailMethods } from "../src/controlPlane/email.js";
 import { createCalendarMethods } from "../src/controlPlane/calendar.js";
 import { createGoogleChatMethods } from "../src/controlPlane/googleChat.js";
-import { aiGatewayConfig } from "../src/agent/aiGateway.js";
+import { aiGatewayConfig } from "../../../packages/tex/gateway/agent/aiGateway.js";
 import { texBucket, texStoreStub, texTimers } from "../../../packages/tex/gateway/texStore/wire.js";
 import { durableSql, texStoreNamespace } from "./texStoreFixture.mjs";
 
@@ -431,7 +431,7 @@ test("a computer list is read through; the binding cache and a turn's own run ma
 });
 
 test("a test chat opens on the whole real chat, never a cutoff; get pages with after and shows a running text's steps", async () => {
-  const { eventEntry, ledgerFor, ONE_TO_ONE_CHAT } = await import("../src/agent/ledger.js");
+  const { eventEntry, ledgerFor, ONE_TO_ONE_CHAT } = await import("../../../packages/tex/gateway/agent/ledger.js");
   const w = routeWorld({ [ALICE]: { userId: "u_alice", workspaceId: "ws_alice" } });
   const real = texStoreNamespace();
   w.env.TEX_STORE = real.namespace;
@@ -455,7 +455,7 @@ test("a test chat opens on the whole real chat, never a cutoff; get pages with a
     assert.equal(opened.body.rows.at(-1).text, `text ${TEXTS - 1}`);
     const id = opened.body.sandboxId;
     // Tex's history in the test chat is the real chat's, rebuilt as a turn rebuilds it: every exchange, never none.
-    const { conversationFromLedger } = await import("../src/agent/ledgerConversation.js");
+    const { conversationFromLedger } = await import("../../../packages/tex/gateway/agent/ledgerConversation.js");
     const { DESK_LEDGER } = await import("../../../packages/tex/gateway/texStore/desk.js");
     const copied = w.ns.get(w.ns.idFromName(`labsandbox:u_alice:${id}`));
     const read = await (await copied.fetch(new Request("https://lab-sandbox.internal/ledger.read", { method: "POST", body: JSON.stringify({ chat: ONE_TO_ONE_CHAT, options: { ...DESK_LEDGER.options, slim: false } }) }))).json();

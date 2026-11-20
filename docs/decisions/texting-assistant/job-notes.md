@@ -12,7 +12,7 @@ a job on a person's computer that stopped at a GitHub sign-in with no way to
 reach Tex or the advisor while its part ran.
 
 - **Before its first part**, the job's object asks the gateway for its note
-  (`/agent/job/note`, `apps/mcp/src/agent/jobNote.js`). The note lives where it
+  (`/agent/job/note`, `packages/tex/gateway/agent/jobNote.js`). The note lives where it
   makes most sense: the project note Tex named in `background_job`'s `mail`,
   in the workspace that fits best, written new there if none fits. Tex's own
   notes (`tex/jobs/<name>-<id>.md`) are the last resort; a group chat's job,

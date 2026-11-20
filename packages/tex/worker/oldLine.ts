@@ -2,7 +2,7 @@
  * Tex's old number (Dev2's Photon plan, "Old-number switch"): when staff switch the old Sendblue line to `redirect`, a text
  * that arrives on it gets one short reply, "I've moved to <number>", once per chat per day, and no turn. The setting is
  * staff's, in the control plane (`functions/texOldLine.ts`); this reads it. The reply is the gateway's config-graph node
- * `oldLine` (`apps/mcp/src/agent/graph/nodes/oldLine.js`), asked and sent by `oldLineStep.ts`.
+ * `oldLine` (`packages/tex/gateway/agent/graph/nodes/oldLine.js`), asked and sent by `oldLineStep.ts`.
  */
 
 import { post, record, ServiceError, type Fetch } from "./clients";

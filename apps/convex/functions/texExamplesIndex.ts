@@ -9,7 +9,7 @@
  * here; the moments come from the generated Training file in the repository.
  *
  * What is searched, and whether a text may see a moment from its own chat, is
- * decided in the gateway (`apps/mcp/src/agent/graph/nodes/examples.js`), so a
+ * decided in the gateway (`packages/tex/gateway/agent/graph/nodes/examples.js`), so a
  * stale or extra id left here is dropped at query time and needs no delete.
  *
  * The same credential as meaning search (`SEARCH_D1_API_TOKEN`,

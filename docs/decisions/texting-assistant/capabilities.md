@@ -11,7 +11,7 @@ up community compute" went the same way. Each feature had added a sentence to
 the one surface it was built on, so no surface knew the whole of Tex. The
 owner chose "One capability list everywhere".
 
-**The list:** `apps/mcp/src/agent/capabilities.js`. One line per thing Tex can
+**The list:** `packages/tex/gateway/agent/capabilities.js`. One line per thing Tex can
 do, each saying what it is in a 1:1 text, in a group chat and in a guest chat
 (or that only a person's own texts have it), and who asks, drafts and
 approves. `texArchitecture.js` puts it, with one line on where the turn is,

@@ -1,1 +1,1 @@
-export * from "../../../../apps/mcp/src/agent/progress.js";
+export * from "../../../tex/gateway/agent/progress.js";

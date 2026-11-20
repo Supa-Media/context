@@ -13,11 +13,11 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { judgeMove, moveWords, MOVE_JUDGE_SYSTEM } from "../src/agent/graph/nodes/moveJudge.js";
-import { saidBefore, withTheirNotesKept } from "../src/agent/theirNotes.js";
-import { GATEWAY_NODES } from "../src/agent/graph/gatewayNodes.js";
+import { judgeMove, moveWords, MOVE_JUDGE_SYSTEM } from "../../../packages/tex/gateway/agent/graph/nodes/moveJudge.js";
+import { saidBefore, withTheirNotesKept } from "../../../packages/tex/gateway/agent/theirNotes.js";
+import { GATEWAY_NODES } from "../../../packages/tex/gateway/agent/graph/gatewayNodes.js";
 import SHELF from "../../../packages/tex/src/texNodeShelf.json" with { type: "json" };
-import { TEX_CONFIG } from "../src/agent/texConfig.js";
+import { TEX_CONFIG } from "../../../packages/tex/gateway/agent/texConfig.js";
 
 const LISTING = "inbox/agenda.md (200 bytes)";
 function dispatcher() {

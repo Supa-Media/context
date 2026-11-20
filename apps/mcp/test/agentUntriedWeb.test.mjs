@@ -17,9 +17,9 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 
 import { ask, createEgressWorld, TOKEN_TEXTS } from "./agentEgressFixtures.mjs";
-import { TRY_NOTICE } from "../src/agent/claimCheck.js";
-import { LINK_LINE, systemPromptParts } from "../src/agent/prompt.js";
-import { untriedWebCheck } from "../src/agent/untriedWeb.js";
+import { TRY_NOTICE } from "../../../packages/tex/gateway/agent/claimCheck.js";
+import { LINK_LINE, systemPromptParts } from "../../../packages/tex/gateway/agent/prompt.js";
+import { untriedWebCheck } from "../../../packages/tex/gateway/agent/untriedWeb.js";
 
 const GAVE_UP = "I still can't open that artifact, so I can't weigh in on it yet. Paste the main points here and I'll give you a straight take.";
 const web = () => ({ tools: [{ name: "open_page" }], usage: {}, call: async () => ({ content: [{ type: "text", text: "Address: https://example.com/\n\nwords" }] }) });

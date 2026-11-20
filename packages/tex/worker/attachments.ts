@@ -1,6 +1,6 @@
 /**
  * The files a person texted, made into what the gateway's `/agent` takes
- * (`apps/mcp/src/agent/attachments.js`): a picture or PDF as base64, a
+ * (`packages/tex/gateway/agent/attachments.js`): a picture or PDF as base64, a
  * document's words as text, or, for anything that cannot be opened, a sentence
  * saying why, so Tex says so instead of "I don't see an image".
  *
@@ -38,7 +38,7 @@ export type AttachmentDeps = { fetch: Fetch; images?: ImagesLike };
 
 /** Most bytes one file may be downloaded at. */
 export const MAX_DOWNLOAD_BYTES = 25 * 1024 * 1024;
-/** The gateway's ceilings (`apps/mcp/src/agent/attachments.js`), kept in step. */
+/** The gateway's ceilings (`packages/tex/gateway/agent/attachments.js`), kept in step. */
 export const MAX_IMAGE_BYTES = 5_000_000;
 export const MAX_PDF_BYTES = 10 * 1024 * 1024;
 /** A file's words, at most: the gateway keeps them for later texts and shows a turn the first 100,000 (`MAX_KEPT_TEXT_CHARS`). */

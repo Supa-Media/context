@@ -18,7 +18,7 @@ const ROUTES = Object.freeze(["quick", "read", "act", "job"]);
 /** What the router can pick: a gold route, or "none" when it picked no door. */
 const PICKS = Object.freeze([...ROUTES, "none"]);
 
-/** The doors a specialist runs behind (`apps/mcp/src/agent/doorTools.js` DOORS). */
+/** The doors a specialist runs behind (`packages/tex/gateway/agent/doorTools.js` DOORS). */
 const SPECIALIST_DOORS = Object.freeze(["quick", "read", "act"]);
 
 const usdOf = (sum) => Math.round(sum * 10_000) / 10_000;

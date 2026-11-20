@@ -11,9 +11,9 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { test } from "node:test";
 
-import { devSharePrompt } from "../src/agent/devShare.js";
-import { groupOf } from "../src/agent/groupTurn.js";
-import { taggedLine, TURN_CAUSES } from "../src/agent/groupTurnCause.js";
+import { devSharePrompt } from "../../../packages/tex/gateway/agent/devShare.js";
+import { groupOf } from "../../../packages/tex/gateway/agent/groupTurn.js";
+import { taggedLine, TURN_CAUSES } from "../../../packages/tex/gateway/agent/groupTurnCause.js";
 
 const KEY = "c3".repeat(32);
 const MEMBERS = "d4".repeat(32);

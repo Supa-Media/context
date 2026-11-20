@@ -18,7 +18,7 @@ import type { Reaction, Tapback } from "./reactions";
 import type { JobReport } from "./jobs";
 
 /**
- * Longest text forwarded to the agent and kept as an event, the gateway's `MAX_EVENT_TEXT` too (`apps/mcp/src/agent/log.js`);
+ * Longest text forwarded to the agent and kept as an event, the gateway's `MAX_EVENT_TEXT` too (`packages/tex/gateway/agent/log.js`);
  * the gateway caps a question at 24,000. Sendblue sends at most 18,996 characters, so a pasted brief fits whole.
  * lean: a WhatsApp text longer than this (Whapi documents no limit) is cut, with its marker; raise all three together.
  */
@@ -31,7 +31,7 @@ export function cut(text: string, max = MAX_INBOUND_TEXT): string {
 
 /**
  * The same, with `left`, the characters cut off, when it cut. `left` goes on the text's event (`events.ts`), the one sign the
- * gateway trusts that a text was cut (`apps/mcp/src/agent/loggedTurn.js`): the mark is words, and anyone can type it.
+ * gateway trusts that a text was cut (`packages/tex/gateway/agent/loggedTurn.js`): the mark is words, and anyone can type it.
  */
 export function cutText(text: string, max = MAX_INBOUND_TEXT): { text: string; left?: number } {
   if (text.length <= max) return { text };
@@ -76,7 +76,7 @@ export type Inbound =
        * The words of the message this one replies to. Sent to `/agent` apart
        * from the question and never folded into it: the message picked may be
        * one Tex sent, so the words are somebody else's, and the gateway's
-       * guards vouch from the person's own (`apps/mcp/src/agent/quoted.js`).
+       * guards vouch from the person's own (`packages/tex/gateway/agent/quoted.js`).
        */
       quoted?: string;
       /**

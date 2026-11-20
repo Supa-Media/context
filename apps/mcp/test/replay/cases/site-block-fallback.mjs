@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
-import { browserUseFlag, fallbackWanted, siteBlockAfterLadder } from "../../../src/agent/browserUseFallback.js";
-import { TEX_CONFIG } from "../../../src/agent/texConfig.js";
+import { browserUseFlag, fallbackWanted, siteBlockAfterLadder } from "../../../../../packages/tex/gateway/agent/browserUseFallback.js";
+import { TEX_CONFIG } from "../../../../../packages/tex/gateway/agent/texConfig.js";
 
 /**
  * A browse result the screenshot Worker would return. Invented. No page, no person.

@@ -24,11 +24,11 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { BROWSE_DEFINITION, JOB_PAGE_WAIT_MS, browserSession } from "../src/agent/browse.js";
-import { DRAWN_PAGE, NO_TEXT_YET, readingText } from "../src/agent/browseReading.js";
-import { resetBrowserbaseProbe, siteShotsComputer } from "../src/agent/browserProviders.js";
-import { openTurnWeb } from "../src/agent/turnWeb.js";
-import { pagesRead } from "../src/agent/pageReads.js";
+import { BROWSE_DEFINITION, JOB_PAGE_WAIT_MS, browserSession } from "../../../packages/tex/gateway/agent/browse.js";
+import { DRAWN_PAGE, NO_TEXT_YET, readingText } from "../../../packages/tex/gateway/agent/browseReading.js";
+import { resetBrowserbaseProbe, siteShotsComputer } from "../../../packages/tex/gateway/agent/browserProviders.js";
+import { openTurnWeb } from "../../../packages/tex/gateway/agent/turnWeb.js";
+import { pagesRead } from "../../../packages/tex/gateway/agent/pageReads.js";
 
 const PORTAL = "https://portal.example.com/Default.aspx";
 

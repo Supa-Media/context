@@ -11,7 +11,7 @@ of 2026-10-14 (a setup's `core_tools` plus `find_tools`), which existed to cut
 some fifty tools' schemas down; six tools are smaller than the shelf was.
 
 Every Tex turn (a text, a routine's run, the app panel, a dream, Try it) is
-shown orient, search, fetch, write, manage and send (`apps/mcp/src/agent/sixTools.js`).
+shown orient, search, fetch, write, manage and send (`packages/tex/gateway/agent/sixTools.js`).
 What Tex may reach is still decided by the older tools' names, by the guards
 each surface already had (`agentTools`, `textingWriteTools`, the dream's three,
 Try it's read-only list, the computer's tools only on a text). The six only
@@ -80,7 +80,7 @@ dispatcher (so `privacy.md` and the grant decide, as for any read), puts up
 all of it in the system prompt, and, when it can write, is
 told to add lasting facts there with `write_note`, reading first. A missing or
 unreadable note is an empty one, never a failed turn
-(`apps/mcp/src/agent/aboutMe.js`). It is an ordinary note: the person reads,
+(`packages/tex/gateway/agent/aboutMe.js`). It is an ordinary note: the person reads,
 corrects or deletes it like any other, every change is in its history, and it
 leaves with an export.
 
@@ -104,7 +104,7 @@ Tex once answered "remind me to sleep in 2 minutes" by asking for the time on
 the person's phone: no turn had ever been told the date or time. Now every
 turn's system prompt carries the day, date and time in the person's zone, plus
 the same instant written the way a one-off routine's `at:` line takes it
-(`apps/mcp/src/agent/localNow.js`).
+(`packages/tex/gateway/agent/localNow.js`).
 
 The zone is the one their routines run in, so a reminder Tex works out lands
 when it says: the account's zone (the app keeps it in step with the device),
@@ -128,7 +128,7 @@ reach (`contextsFor`, the same list `orient` and `scope_info` give: names,
 kind, read-only, default), and says to write a note beside its project's notes
 with `context: "@name"`. The default is only for notes about the person alone
 or when nothing points elsewhere, and Tex says which workspace it wrote in
-(`apps/mcp/src/agent/workspaces.js`). A person in one workspace is told
+(`packages/tex/gateway/agent/workspaces.js`). A person in one workspace is told
 nothing, and a list longer than 20 points at `scope_info`.
 
 What reversing it costs: project notes pile up in personal workspaces where the
@@ -170,7 +170,7 @@ becomes a task note:
 
 A line for each open job goes in `tex/jobs.md` in the person's own workspace,
 and that list is read into every texted turn beside `tex/about-me.md`
-(`apps/mcp/src/agent/jobs.js`). The next text can then pick a job up from its
+(`packages/tex/gateway/agent/jobs.js`). The next text can then pick a job up from its
 first unticked step. A finished job is marked done and leaves the list. The
 gateway writes nothing itself: every change is a tool call the model makes,
 attributed in history.

@@ -17,7 +17,7 @@ what happens to the draft (`apps/mcp/src/tools/emailGate.js`):
    on the line and never sends, whatever the note says, except a routine's
    standing forward the person kept with a 👍 (below).
 3. **On a texted turn, the Mail checker reads the draft first.** It is a second
-   model (`apps/mcp/src/agent/mailChecker.js`, Haiku) shown exactly two
+   model (`packages/tex/gateway/agent/mailChecker.js`, Haiku) shown exactly two
    things: the person's recent texts with what Tex texted back, and the draft.
    It never sees the email being answered, a note, a page or a tool result, so
    nothing a stranger wrote reaches it. "No" (a recipient, words or timing

@@ -19,12 +19,12 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { BUILTIN_PROVIDER } from "../src/agent/builtin.js";
-import { BROWSE_TOOL } from "../src/agent/browse.js";
-import { RECHECK_FROM, RECHECK_REPLACES } from "../src/agent/recheck.js";
-import { replyJudge } from "../src/agent/replyJudge.js";
-import { ALREADY_DONE, LATE_FROM, repeatedWrite, turnLedger } from "../src/agent/sendBack.js";
-import { runTurn } from "../src/agent/turn.js";
+import { BUILTIN_PROVIDER } from "../../../packages/tex/gateway/agent/builtin.js";
+import { BROWSE_TOOL } from "../../../packages/tex/gateway/agent/browse.js";
+import { RECHECK_FROM, RECHECK_REPLACES } from "../../../packages/tex/gateway/agent/recheck.js";
+import { replyJudge } from "../../../packages/tex/gateway/agent/replyJudge.js";
+import { ALREADY_DONE, LATE_FROM, repeatedWrite, turnLedger } from "../../../packages/tex/gateway/agent/sendBack.js";
+import { runTurn } from "../../../packages/tex/gateway/agent/turn.js";
 
 const MAIN = "@cf/acme/main-model";
 const read = (name) => ({ name, description: name, inputSchema: { type: "object", properties: {} }, annotations: { readOnlyHint: true } });

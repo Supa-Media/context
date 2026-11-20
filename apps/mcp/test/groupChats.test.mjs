@@ -13,14 +13,14 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { sixToolsOver } from "../src/agent/sixTools.js";
-import { readDayTool } from "../src/agent/weekHistory.js";
-import { readThreadTool } from "../src/agent/conversationThreads.js";
-import { asksOn, groupChatsTool, groupsOn, groupsPrompt, pickChat, readsGroups, readTexterGroups } from "../src/agent/groupChats.js";
-import { eventEntry } from "../src/agent/ledger.js";
+import { sixToolsOver } from "../../../packages/tex/gateway/agent/sixTools.js";
+import { readDayTool } from "../../../packages/tex/gateway/agent/weekHistory.js";
+import { readThreadTool } from "../../../packages/tex/gateway/agent/conversationThreads.js";
+import { asksOn, groupChatsTool, groupsOn, groupsPrompt, pickChat, readsGroups, readTexterGroups } from "../../../packages/tex/gateway/agent/groupChats.js";
+import { eventEntry } from "../../../packages/tex/gateway/agent/ledger.js";
 import { texLedger } from "../../../packages/tex/gateway/texStore/ledger.js";
-import { midnightOf } from "../src/agent/weekHistory.js";
-import { TEX_CONFIG, texStep, withDraft } from "../src/agent/texConfig.js";
+import { midnightOf } from "../../../packages/tex/gateway/agent/weekHistory.js";
+import { TEX_CONFIG, texStep, withDraft } from "../../../packages/tex/gateway/agent/texConfig.js";
 import { durableSql } from "./texStoreFixture.mjs";
 
 const ZONE = "America/New_York";

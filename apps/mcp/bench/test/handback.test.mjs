@@ -1,7 +1,7 @@
 /**
  * The hand-back bench's captcha cases end to end (`tests/handback.md` 1 and
  * 2): a scripted model browses the scripted sites through the production
- * gateway, whose captcha tries (`apps/mcp/src/agent/captchaLadder.js`) run
+ * gateway, whose captcha tries (`packages/tex/gateway/agent/captchaLadder.js`) run
  * against the bench's stand-in for the screenshot Worker (`sites.mjs`
  * `captcha:`). A captcha a fresh browser gets past is never handed over; one
  * nothing gets past is, once, and the page is read after the person solved

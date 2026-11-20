@@ -17,7 +17,7 @@ How it works:
 
 - **It rides on the cover call Tex already makes for every page.**
   `draw_visual { template: "page", data: { path, scene } }`
-  (`apps/mcp/src/agent/visuals/pageDrawing.js`). A page with no picture of its
+  (`packages/tex/gateway/agent/visuals/pageDrawing.js`). A page with no picture of its
   own and no `scene` is sent back with how to draw one, so a page is never
   texted bare. After `MAX_DRAWING_TRIES` (2) the cover is drawn without one, so
   a turn that cannot draw or save one (a read-only turn, a scene it keeps
@@ -62,7 +62,7 @@ How it works:
 - **The texted picture and the link card are one wide card.** For a drawn
   page, the cover is 1200 x 630: the kicker and title on the page's paper,
   the drawing beside them, and "Context, made by Tex" at the foot
-  (`drawingCard` in `apps/mcp/src/agent/visuals/page.js`). The shrunken first
+  (`drawingCard` in `packages/tex/gateway/agent/visuals/page.js`). The shrunken first
   screen it replaces was unreadable at link size. The control plane names a
   wide cover `card-…` from its PNG header, and its version ends in `-w`
   (`apps/convex/functions/lib/shares/pageCover.ts`). The edge then advertises

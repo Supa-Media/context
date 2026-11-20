@@ -12,9 +12,9 @@ import assert from "node:assert/strict";
 import { createRequire } from "node:module";
 import { test } from "node:test";
 
-import { TURN_CAUSES, taggedLine } from "../src/agent/groupTurnCause.js";
-import { SAY_NOTHING } from "../src/agent/sayNothing.js";
-import { SCHEDULED_CAUSES, isScheduledGroupTurn, scheduledSkip } from "../src/agent/scheduledQuiet.js";
+import { TURN_CAUSES, taggedLine } from "../../../packages/tex/gateway/agent/groupTurnCause.js";
+import { SAY_NOTHING } from "../../../packages/tex/gateway/agent/sayNothing.js";
+import { SCHEDULED_CAUSES, isScheduledGroupTurn, scheduledSkip } from "../../../packages/tex/gateway/agent/scheduledQuiet.js";
 
 const require = createRequire(import.meta.url);
 const { chatLookQuestion, chatRoutineQuestion } = require("../../../packages/shared/src/groupRunQuestions.cjs");

@@ -8,8 +8,8 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { meterParts } from "../src/agent/modelPlan.js";
-import { actionOf, MAX_WAIT_MS, stateOf, toolsShownOf, turnKind, turnReport, waitBefore, wireTraceEntry } from "../src/agent/turnLog.js";
+import { meterParts } from "../../../packages/tex/gateway/agent/modelPlan.js";
+import { actionOf, MAX_WAIT_MS, stateOf, toolsShownOf, turnKind, turnReport, waitBefore, wireTraceEntry } from "../../../packages/tex/gateway/agent/turnLog.js";
 
 test("a turn's kind follows what started it, a routine before a job before a group", () => {
   assert.equal(turnKind({ runner: true, job: { id: "j" }, group: { id: "g" }, texting: true }), "routine");
@@ -117,7 +117,7 @@ test("a designed send-back keeps ask, and a call that is not one does not", () =
 });
 
 test("a call made as one of the six keeps that name beside the tool that ran; nothing else does", async () => {
-  const { sixOf, wireTraceEntry } = await import("../src/agent/turnLog.js");
+  const { sixOf, wireTraceEntry } = await import("../../../packages/tex/gateway/agent/turnLog.js");
   assert.equal(sixOf({ name: "write" }, { name: "write_note" }), "write");
   assert.equal(sixOf({ name: "search_web" }, { name: "search_web" }), undefined);
   assert.equal(sixOf({ name: "orient" }, { name: "orient" }), undefined);

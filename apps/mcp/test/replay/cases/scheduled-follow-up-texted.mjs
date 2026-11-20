@@ -1,8 +1,8 @@
 import assert from "node:assert/strict";
-import { BUILTIN_PROVIDER } from "../../../src/agent/builtin.js";
-import { REVIEW_MODEL, REVIEW_SYSTEM, replyJudge } from "../../../src/agent/replyJudge.js";
-import { SAID_NOTHING } from "../../../src/agent/sayNothing.js";
-import { runTurn } from "../../../src/agent/turn.js";
+import { BUILTIN_PROVIDER } from "../../../../../packages/tex/gateway/agent/builtin.js";
+import { REVIEW_MODEL, REVIEW_SYSTEM, replyJudge } from "../../../../../packages/tex/gateway/agent/replyJudge.js";
+import { SAID_NOTHING } from "../../../../../packages/tex/gateway/agent/sayNothing.js";
+import { runTurn } from "../../../../../packages/tex/gateway/agent/turn.js";
 
 // Invented names and figures throughout. The reviewer is a scripted model that answers each review in turn.
 const MODEL = "@cf/acme/main-model";

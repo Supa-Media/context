@@ -4,7 +4,7 @@ import type { Id } from "../_generated/dataModel";
 import { asUser, createUser, createWorkspace, setupTest, type TestConvex } from "./fixtures.helpers";
 import { objectRecord, REFRESH_MS } from "../functions/textingObjects";
 import { TEXTS_CLIENT_ID } from "../functions/textLinks";
-import { textingPhoneHash } from "../../mcp/src/agent/textingPhone.js";
+import { textingPhoneHash } from "../../../packages/tex/gateway/agent/textingPhone.js";
 
 /**
  * A TEXT'S SESSION OPENED BY THE PERSON OBJECT (`functions/textingObjects.ts`,

@@ -10,7 +10,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 
-import { TEXTS_ARRIVE_PATH, MAX_ARRIVE_BYTES, arriveForTexts } from "../src/agent/textsArrive.js";
+import { TEXTS_ARRIVE_PATH, MAX_ARRIVE_BYTES, arriveForTexts } from "../../../packages/tex/gateway/agent/textsArrive.js";
 import { TexTexts, TexChat } from "../src/index.js";
 
 /**

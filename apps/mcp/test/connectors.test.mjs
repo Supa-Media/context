@@ -18,7 +18,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import { slackPlace, toolConnectApp, toolSlackApi, MAX_ANSWER_CHARS } from "../src/tools/connectors.js";
 import { irreversibleOf } from "../src/tools/irreversible.js";
-import { groupWriteTools } from "../src/agent/groupTurn.js";
+import { groupWriteTools } from "../../../packages/tex/gateway/agent/groupTurn.js";
 import { toolDefinitions } from "../src/tools/registry.js";
 
 const text = (result) => result.content.map((part) => part.text).join("\n");

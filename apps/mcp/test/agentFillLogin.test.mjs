@@ -9,9 +9,9 @@
 
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { webPrompt, webSession } from "../src/agent/computer.js";
-import { BROWSE_TOOL } from "../src/agent/browse.js";
-import { FILL_LOGIN_DEFINITION, FILL_LOGIN_TOOL, MAX_FILLS_PER_TURN } from "../src/agent/fillLogin.js";
+import { webPrompt, webSession } from "../../../packages/tex/gateway/agent/computer.js";
+import { BROWSE_TOOL } from "../../../packages/tex/gateway/agent/browse.js";
+import { FILL_LOGIN_DEFINITION, FILL_LOGIN_TOOL, MAX_FILLS_PER_TURN } from "../../../packages/tex/gateway/agent/fillLogin.js";
 import { newEntryId, siteMatches, writeEntry } from "../src/vault/entries.js";
 
 const PASSWORD = "hunter2-correct-horse";

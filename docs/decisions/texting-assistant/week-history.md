@@ -17,7 +17,7 @@ forgets in Tex Devs", 2026-11-16).
 
 ## What it is
 
-The front door's context module `week` (`apps/mcp/src/agent/weekHistory.js`), chosen in a Lab draft in place of
+The front door's context module `week` (`packages/tex/gateway/agent/weekHistory.js`), chosen in a Lab draft in place of
 `hist`. Main's config reads `hist` until that draft is promoted, so the code ships ahead of it and changes nothing
 live (the node-shelf rule, [config-graph](./config-graph.md)).
 

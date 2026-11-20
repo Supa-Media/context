@@ -16,9 +16,9 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { BUILTIN_PROVIDER } from "../src/agent/builtin.js";
-import { runTurn } from "../src/agent/turn.js";
-import { ABOUT_ME_PATH, MAX_ABOUT_ME_CHARS, aboutMePrompt, readAboutMe } from "../src/agent/aboutMe.js";
+import { BUILTIN_PROVIDER } from "../../../packages/tex/gateway/agent/builtin.js";
+import { runTurn } from "../../../packages/tex/gateway/agent/turn.js";
+import { ABOUT_ME_PATH, MAX_ABOUT_ME_CHARS, aboutMePrompt, readAboutMe } from "../../../packages/tex/gateway/agent/aboutMe.js";
 
 const MODEL = "@cf/zai-org/glm-4.7-flash";
 const WRITE = { name: "write_note", description: "Write a note.", inputSchema: { type: "object", properties: {} } };

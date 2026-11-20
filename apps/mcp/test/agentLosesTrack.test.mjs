@@ -35,15 +35,15 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { BUILTIN_PROVIDER } from "../src/agent/builtin.js";
-import { browserSession } from "../src/agent/browse.js";
-import { claimCheck } from "../src/agent/claimCheck.js";
-import { LATER_NOTICE } from "../src/agent/otherRoutes.js";
-import { BUILT_FORM_LINK_ERROR, PASSKEY_LINE, builtFormLink, passkeyLine } from "../src/agent/pageWalls.js";
-import { RECHECK_FROM, recheckNote } from "../src/agent/recheck.js";
-import { TRY_CLAIM_NOTICE, claimsCalendarTry, replyChecks } from "../src/agent/replyChecks.js";
-import { GOAL_NOTICE, NO_PROMPT_NOTICE, dropsTheGoal, repeatsUnarrivedPrompt } from "../src/agent/stuckAsks.js";
-import { runTurn } from "../src/agent/turn.js";
+import { BUILTIN_PROVIDER } from "../../../packages/tex/gateway/agent/builtin.js";
+import { browserSession } from "../../../packages/tex/gateway/agent/browse.js";
+import { claimCheck } from "../../../packages/tex/gateway/agent/claimCheck.js";
+import { LATER_NOTICE } from "../../../packages/tex/gateway/agent/otherRoutes.js";
+import { BUILT_FORM_LINK_ERROR, PASSKEY_LINE, builtFormLink, passkeyLine } from "../../../packages/tex/gateway/agent/pageWalls.js";
+import { RECHECK_FROM, recheckNote } from "../../../packages/tex/gateway/agent/recheck.js";
+import { TRY_CLAIM_NOTICE, claimsCalendarTry, replyChecks } from "../../../packages/tex/gateway/agent/replyChecks.js";
+import { GOAL_NOTICE, NO_PROMPT_NOTICE, dropsTheGoal, repeatsUnarrivedPrompt } from "../../../packages/tex/gateway/agent/stuckAsks.js";
+import { runTurn } from "../../../packages/tex/gateway/agent/turn.js";
 
 const NO_PROMPT = "no prompt showed up on my phone";
 const DID_YOU_REQUEST = "still no prompt here, did you actually send one?";
@@ -196,7 +196,7 @@ const CHECK_IN_HISTORY = (checkInThread) => [
 ];
 
 test("a reply typed under a check-in is shown the check-in it answers", async () => {
-  const { threadOf, threadView } = await import("../src/agent/threadView.js");
+  const { threadOf, threadView } = await import("../../../packages/tex/gateway/agent/threadView.js");
   // The check-in continued "Wind down is on your calendar…": it is kept in that text's thread.
   assert.equal(threadOf(CHECK_IN_HISTORY(null), "Wind down is on your calendar at 10:30 tonight."), "a1");
   const kept = threadView(CHECK_IN_HISTORY("a1"), { start: "Wind down is on your calendar at 10:30 tonight.", replied: true }, 12);

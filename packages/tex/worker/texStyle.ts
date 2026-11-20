@@ -5,7 +5,7 @@
  * The people's own instructions are the one source of truth: a person's own
  * hold in their 1:1 chat, a group's in the group, and nobody's personal ones
  * ever reach a group. They change only by asking Tex in words, which the
- * gateway's `tex_instructions_set` tool saves (`apps/mcp/src/agent/commandTools.js`).
+ * gateway's `tex_instructions_set` tool saves (`packages/tex/gateway/agent/commandTools.js`).
  * The "Tex, settings" menu, its quick picks and its progress-updates switch
  * are retired (Dev2, 2026-11-11; `docs/decisions/texting-assistant/retire-settings.md`);
  * a progress-updates level saved before then is still read and honoured.

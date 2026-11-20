@@ -12,7 +12,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { foldersOnTheWay, ownWorkspaceName, withWorkspaceConventions } from "../src/agent/workspaceConventions.js";
+import { foldersOnTheWay, ownWorkspaceName, withWorkspaceConventions } from "../../../packages/tex/gateway/agent/workspaceConventions.js";
 
 const NOTES = {
   "index.md": "# Team\n\nProjects live in projects/, one overview.md and one task-*.md note per task.",

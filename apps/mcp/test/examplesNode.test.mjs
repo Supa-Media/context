@@ -13,10 +13,10 @@ import assert from "node:assert/strict";
 import { createRequire } from "node:module";
 import { test } from "node:test";
 
-import { examplesNode } from "../src/agent/graph/nodes/examples.js";
-import { awaitExamples, examplesOptions } from "../src/agent/turnExamples.js";
-import { turnPrompt } from "../src/agent/turnPrompt.js";
-import { TRAINING, TEX_CONFIG } from "../src/agent/texConfig.js";
+import { examplesNode } from "../../../packages/tex/gateway/agent/graph/nodes/examples.js";
+import { awaitExamples, examplesOptions } from "../../../packages/tex/gateway/agent/turnExamples.js";
+import { turnPrompt } from "../../../packages/tex/gateway/agent/turnPrompt.js";
+import { TRAINING, TEX_CONFIG } from "../../../packages/tex/gateway/agent/texConfig.js";
 
 const require = createRequire(import.meta.url);
 const GENERATED = require("../../../packages/tex/src/texTraining.generated.json");

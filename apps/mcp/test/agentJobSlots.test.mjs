@@ -18,8 +18,8 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { MAX_CLOUD_JOBS, MAX_MACHINE_SLOTS, jobSlots, machineOf, slotsOf } from "../src/agent/jobSlots.js";
-import { backgroundSession, runningJobsOf, withBackground } from "../src/agent/background.js";
+import { MAX_CLOUD_JOBS, MAX_MACHINE_SLOTS, jobSlots, machineOf, slotsOf } from "../../../packages/tex/gateway/agent/jobSlots.js";
+import { backgroundSession, runningJobsOf, withBackground } from "../../../packages/tex/gateway/agent/background.js";
 
 const NOW = Date.UTC(2026, 10, 4, 15, 0, 0);
 const STUDIO = { workspaceId: "ws_maya", id: "mch_studio1", name: "Studio Mac", online: true, tools: ["claude", "codex"], folders: ["~/code"], ownerId: "u1", slots: 2 };

@@ -21,7 +21,7 @@ link, and the 1:1 asked which website, because it could not see the group.
   chats whose `textGroups.homeUsers` hold them, the rule the Tex page and the history export use. A routine, a
   check-in, a group chat's grant and every other client are told nothing. A chat is opened by that list's key alone,
   never by a key the model wrote.
-- **The list:** the front door's context module `groups` (`apps/mcp/src/agent/groupChats.js` `groupsPrompt`): each
+- **The list:** the front door's context module `groups` (`packages/tex/gateway/agent/groupChats.js` `groupsPrompt`): each
   chat's name, its other people and a short id, sorted by name so the cached prefix holds while they talk.
 - **The tool:** `group_chats`, read only: `list`; `search` {words, chat?, since?} over one chat or all of them, each
   hit with its chat, day, time and who said it, best and newest first; `summaries` {chat, from?, to?}, each day's

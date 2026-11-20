@@ -38,7 +38,7 @@ Decided by the owner (Dev2), 2026-10-14, on a decision card. Routines move
 into a `tex/` folder at the top of each workspace: new routines and reminders
 go in `tex/routines/<how-often>/<name>.md` (one-offs in `tex/routines/once/`),
 beside `tex/about-me.md`, the note Tex reads about the person
-(`apps/mcp/src/agent/aboutMe.js`). Every existing `routines/<how-often>/` note
+(`packages/tex/gateway/agent/aboutMe.js`). Every existing `routines/<how-often>/` note
 keeps running exactly as before, and **nothing is moved for anyone**: no
 migration, no rewritten key, no copy. Both roots are first-class everywhere a
 routine path is recognised, from the one reading of the format
@@ -366,7 +366,7 @@ writes by text is now read the way the scheduler reads it, and the write's
 result says the first moment it texts in the person's zone ("Sunday,
 October 25 at 5:00 pm, tomorrow"), or why it won't (a line it can't read, a
 time already gone, paused), so a wrong day is fixed before Tex answers
-(`apps/mcp/src/agent/routineWhen.js`). The reply stays "Will do." unless the
+(`packages/tex/gateway/agent/routineWhen.js`). The reply stays "Will do." unless the
 owner decides otherwise. Undo: drop `withRunTime` from `textingWrites.js`;
 `agentRoutineWhen.test.mjs` fails.
 
@@ -377,7 +377,7 @@ texted "closes tomorrow night"; the run three hours later said "tonight".
 The clock line already named Sunday, and the earlier text gave the date, so
 the arithmetic is now done for the model: the clock line says what today,
 tonight, tomorrow and yesterday are, and between midnight and 5 am that the
-previous day is over (`apps/mcp/src/agent/dayWords.js`). A routine's "last
+previous day is over (`packages/tex/gateway/agent/dayWords.js`). A routine's "last
 time" and its recent texts are stamped with their local weekday and time,
 not UTC. A day word Tex writes into its own record notes under `tex/` is
 saved with the date it meant ("tomorrow night (Sunday, November 1)"), so a

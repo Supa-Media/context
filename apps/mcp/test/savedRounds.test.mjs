@@ -17,13 +17,13 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { BUILTIN_PROVIDER } from "../src/agent/builtin.js";
-import { runTurn } from "../src/agent/turn.js";
-import { checkedSnapshot, jobKey, PICTURE_LEFT_OUT, ROUNDS_RESULT_CHARS, textKey, keptMessage } from "../src/agent/savedRounds.js";
-import { jobOf } from "../src/agent/background.js";
-import { carriedLine, carriedRounds, JOB_ROUNDS_LEFT, rereadCarried, resumedRounds, roundsKeeper } from "../src/agent/turnResume.js";
-import { claimCheck } from "../src/agent/claimCheck.js";
-import { ledgerFor, ledgerObserver, STEP_NAMES } from "../src/agent/ledger.js";
+import { BUILTIN_PROVIDER } from "../../../packages/tex/gateway/agent/builtin.js";
+import { runTurn } from "../../../packages/tex/gateway/agent/turn.js";
+import { checkedSnapshot, jobKey, PICTURE_LEFT_OUT, ROUNDS_RESULT_CHARS, textKey, keptMessage } from "../../../packages/tex/gateway/agent/savedRounds.js";
+import { jobOf } from "../../../packages/tex/gateway/agent/background.js";
+import { carriedLine, carriedRounds, JOB_ROUNDS_LEFT, rereadCarried, resumedRounds, roundsKeeper } from "../../../packages/tex/gateway/agent/turnResume.js";
+import { claimCheck } from "../../../packages/tex/gateway/agent/claimCheck.js";
+import { ledgerFor, ledgerObserver, STEP_NAMES } from "../../../packages/tex/gateway/agent/ledger.js";
 import { texRounds, ROUNDS_FRESH_MS } from "../../../packages/tex/gateway/texStore/rounds.js";
 import { TexObjectRefused } from "../../../packages/tex/gateway/texStore/objects.js";
 import { durableSql, texStoreNamespace } from "./texStoreFixture.mjs";

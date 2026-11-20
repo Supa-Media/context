@@ -12,7 +12,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { chatHubUrl, groupHubUrl, hubPrompt, personHubUrl } from "../src/agent/hubLinks.js";
+import { chatHubUrl, groupHubUrl, hubPrompt, personHubUrl } from "../../../packages/tex/gateway/agent/hubLinks.js";
 
 const ENV = { APP_ORIGIN: "https://context.lc/" };
 const SEYI = { workspaces: [{ kind: "shared", role: "owner", slug: "supa" }, { kind: "personal", role: "owner", slug: "seyi" }] };

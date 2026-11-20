@@ -30,7 +30,7 @@ import { chaosSection } from "../chaos/orient.js";
 import { HOW_TO_WORK, inToolNames } from "./howToWork.js";
 import { actionManual, actionNames, findAction, toolsManual } from "./manual.js";
 import { connectedBlock, openOnce, surveyOf, surveyOtherContexts } from "./workspaces.js";
-import { orientMailSection, readMailHealth } from "../agent/mailHealth.js";
+import { orientMailSection, readMailHealth } from "../../../../packages/tex/gateway/agent/mailHealth.js";
 import { phase } from "../mcp/phase.js";
 
 export { ORIENT_OTHER_WORKSPACE_WAIT_MS, surveyOtherContexts } from "./workspaces.js";

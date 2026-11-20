@@ -2,7 +2,7 @@
  * An answer, made into texts.
  *
  * The gateway asks the model to write for iMessage (`systemPrompt` in
- * `apps/mcp/src/agent/turn.js`), but a model's habits leak, and iMessage shows
+ * `packages/tex/gateway/agent/turn.js`), but a model's habits leak, and iMessage shows
  * Markdown as the characters themselves: a `**name**` arrives with its
  * asterisks and a `[note](path)` as brackets. So the last step before sending
  * strips that formatting, the way a person retyping it would:

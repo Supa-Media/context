@@ -171,7 +171,7 @@ export function routeRight(label, pick) {
 }
 
 /** The router's code, as a tree has it: the module that builds its question and reads its answer (`specialistRoute.js`). */
-const ROUTER_MODULE = "apps/mcp/src/agent/specialistRoute.js";
+const ROUTER_MODULE = "packages/tex/gateway/agent/specialistRoute.js";
 /** The tree's config, Training code and Training module, for the router's context modules. */
 const TREE_CONFIG = "packages/tex/src/texConfig.cjs";
 const TREE_TRAINING = "packages/tex/src/texTraining.cjs";
@@ -190,7 +190,7 @@ export async function adaptersFor(tree, { fake = false, env = process.env, holdO
     fd: { batch: (units, { parallel = 1 } = {}) => runFd(units, { tree, fake, parallel, holdOut, env, keep, world }) },
     decide: async () => {
       const { judgeCase, fakeEngine } = await mod("apps/mcp/bench/respond.mjs");
-      const engine = fake ? null : (await mod("apps/mcp/src/agent/decide.js")).decisionEngine((await mod("apps/mcp/bench/models.mjs")).workersAi(env.CLOUDFLARE_ACCOUNT_ID, env.CLOUDFLARE_AI_TOKEN));
+      const engine = fake ? null : (await mod("packages/tex/gateway/agent/decide.js")).decisionEngine((await mod("apps/mcp/bench/models.mjs")).workersAi(env.CLOUDFLARE_ACCOUNT_ID, env.CLOUDFLARE_AI_TOKEN));
       return async (c, i, label) => {
         const item = decideCase(c, i);
         if (fake && label.act === "wait") return { right: true, ran: true, usd: 0 };
@@ -208,7 +208,7 @@ export async function adaptersFor(tree, { fake = false, env = process.env, holdO
     // person's asks as the chat's texts before it, through the advisor bench's own asking (`advisor.mjs`).
     jobcheck: async () => {
       const { ROLES, fakeRequest, ADVISOR_MODEL } = await mod("apps/mcp/bench/advisor.mjs");
-      const { aiGatewayConfig, requestViaGateway } = await mod("apps/mcp/src/agent/aiGateway.js");
+      const { aiGatewayConfig, requestViaGateway } = await mod("packages/tex/gateway/agent/aiGateway.js");
       const { priceUsd } = await mod("apps/mcp/bench/report.mjs");
       const config = fake ? null : aiGatewayConfig(env);
       const role = ROLES["advisor-job-check"];
@@ -228,8 +228,8 @@ export async function adaptersFor(tree, { fake = false, env = process.env, holdO
     },
     reviewer: async () => {
       const { caseTurn } = await mod("apps/mcp/bench/review.mjs");
-      const { reviewReply } = await mod("apps/mcp/src/agent/replyJudge.js");
-      const { aiGatewayConfig } = await mod("apps/mcp/src/agent/aiGateway.js");
+      const { reviewReply } = await mod("packages/tex/gateway/agent/replyJudge.js");
+      const { aiGatewayConfig } = await mod("packages/tex/gateway/agent/aiGateway.js");
       const config = fake ? null : aiGatewayConfig(env);
       return async (c, i, label) => {
         const item = reviewerCase(c, i);
@@ -257,7 +257,7 @@ export async function adaptersFor(tree, { fake = false, env = process.env, holdO
     if (!fake && !routeEngine && !(env.CLOUDFLARE_ACCOUNT_ID && env.CLOUDFLARE_AI_TOKEN)) {
       return () => ({ right: false, ran: false, usd: 0, why: "no Clef engine: CLOUDFLARE_ACCOUNT_ID and CLOUDFLARE_AI_TOKEN are not set" });
     }
-    const engine = routeEngine ?? (fake ? null : (await mod("apps/mcp/src/agent/decide.js")).decisionEngine((await mod("apps/mcp/bench/models.mjs")).workersAi(env.CLOUDFLARE_ACCOUNT_ID, env.CLOUDFLARE_AI_TOKEN)));
+    const engine = routeEngine ?? (fake ? null : (await mod("packages/tex/gateway/agent/decide.js")).decisionEngine((await mod("apps/mcp/bench/models.mjs")).workersAi(env.CLOUDFLARE_ACCOUNT_ID, env.CLOUDFLARE_AI_TOKEN)));
     return async (c, i, label) => {
       // The fake run answers what the label says, as Decide's does: right by construction, and it proves the wiring.
       if (fake) return { ...routeRight(label, label.route), got: label.route, want: label.route, route: { pick: label.route, sure: null }, ran: true, usd: 0 };

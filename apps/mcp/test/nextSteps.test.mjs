@@ -9,11 +9,11 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { withNextStep } from "../src/agent/nextSteps.js";
+import { withNextStep } from "../../../packages/tex/gateway/agent/nextSteps.js";
 import { offerTarget } from "../src/tools/offerFor.js";
 import { readCalendarChange } from "../src/tools/calendarWrite.js";
-import { sixToolsOver } from "../src/agent/sixTools.js";
-import { fixedCarriers } from "../src/agent/sixToolsFixed.js";
+import { sixToolsOver } from "../../../packages/tex/gateway/agent/sixTools.js";
+import { fixedCarriers } from "../../../packages/tex/gateway/agent/sixToolsFixed.js";
 import rules from "../../../packages/tex/src/toolRules.cjs";
 
 const { rateError } = rules;

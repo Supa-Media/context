@@ -5,13 +5,13 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 
-import { openTextsSession, textingPhoneHash, TEXTS_SESSION_PATH } from "../src/agent/textsSession.js";
+import { openTextsSession, textingPhoneHash, TEXTS_SESSION_PATH } from "../../../packages/tex/gateway/agent/textsSession.js";
 import { TexTexts } from "../src/index.js";
 import { personRows, sessionFor } from "../src/workspaceStore/personRows.js";
 import { ACCESS_HOMES, parseToken } from "../src/workspaceStore/access.js";
 import { TEXTING_TOKEN_MS } from "../src/workspaceStore/personTexting.js";
 import { normalizeSession } from "../src/sessionPayload.js";
-import { texterIdentity } from "../src/agent/identity.js";
+import { texterIdentity } from "../../../packages/tex/gateway/agent/identity.js";
 import { sha256Hex } from "../src/controlPlane/client.js";
 
 let DatabaseSync = null;

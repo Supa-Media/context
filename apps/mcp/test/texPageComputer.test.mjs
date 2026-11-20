@@ -28,9 +28,9 @@ import worker from "../src/index.js";
 import { createWorkerCtx } from "./workerCtx.mjs";
 import { createControlPlaneStub, CONTROL_PLANE_ORIGIN, GATEWAY_SECRET } from "./controlPlaneStub.mjs";
 import { texStoreNamespace } from "./texStoreFixture.mjs";
-import { browserOwner, groupBrowserOwner } from "../src/agent/browserProviders.js";
+import { browserOwner, groupBrowserOwner } from "../../../packages/tex/gateway/agent/browserProviders.js";
 import { forgetChatPeople } from "../src/http/texPage/browser.js";
-import { browserHash } from "../src/agent/handback.js";
+import { browserHash } from "../../../packages/tex/gateway/agent/handback.js";
 
 const tok = (name) => `cat_texpc_${name}_`.padEnd(40, "0");
 const T = { alice: tok("alice"), bob: tok("bob") };

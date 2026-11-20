@@ -4,10 +4,10 @@ import { readFileSync } from "node:fs";
 import { spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 
-import { turnPrompt } from "../src/agent/turnPrompt.js";
-import { moduleTexts, setupPromptFor, MODULE_KINDS } from "../src/agent/promptModules.js";
-import { TEX_PROMPT_WORDS, texModules } from "../src/agent/texConfig.js";
-import { withArchitecture } from "../src/agent/texArchitecture.js";
+import { turnPrompt } from "../../../packages/tex/gateway/agent/turnPrompt.js";
+import { moduleTexts, setupPromptFor, MODULE_KINDS } from "../../../packages/tex/gateway/agent/promptModules.js";
+import { TEX_PROMPT_WORDS, texModules } from "../../../packages/tex/gateway/agent/texConfig.js";
+import { withArchitecture } from "../../../packages/tex/gateway/agent/texArchitecture.js";
 
 /*
   Replay walks a turn back to its prompt by the fingerprints it logged (`promptManifest.js`), looking them up in the

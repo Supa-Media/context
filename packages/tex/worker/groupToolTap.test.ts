@@ -1,6 +1,6 @@
 /**
  * A GROUP'S SLOW ASK GETS ONE TAPBACK, AS ITS FIRST TOOL STARTS (`groupModelTurn.ts` `toolStarted`,
- * `apps/mcp/src/agent/turn.js` `onToolStart`; Dev2, 2026-11-12). It replaced the 25 s timer tapback, which landed
+ * `packages/tex/gateway/agent/turn.js` `onToolStart`; Dev2, 2026-11-12). It replaced the 25 s timer tapback, which landed
  * after most answers (12 to 26 s) and fired on messages the judge silenced. A turn with no tool (about 12 s) gets
  * none, and Tex never pairs it with a text acknowledgement.
  *
@@ -97,7 +97,7 @@ for (const { name, groupId } of LINES) {
       expect(w.texts).toEqual([]);
     });
 
-    // Dev2, 2026-11-17, "Front door picks the tapback": Tex's own tapback (`apps/mcp/src/agent/tapbackEnding.js`) after a
+    // Dev2, 2026-11-17, "Front door picks the tapback": Tex's own tapback (`packages/tex/gateway/agent/tapbackEnding.js`) after a
     // tool replaces the early one when it differs, and is never a second one when it is the same.
     it("Tex's own tapback after a tool replaces the early one, and the same emoji is not sent twice", async () => {
       const storage = new MemoryStorage();

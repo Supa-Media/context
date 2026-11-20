@@ -33,7 +33,7 @@ export const ROUTINE_SCAN_ROOTS: readonly string[] = [ROUTINES_FOLDER, TEX_ROUTI
 /** The zone a routine runs in when neither its file nor its writer names one. */
 export const DEFAULT_ROUTINE_TIME_ZONE = "America/New_York";
 
-/** The routine runner's first-party client. The gateway decides by it (`apps/mcp/src/agent/routine.js`). */
+/** The routine runner's first-party client. The gateway decides by it (`packages/tex/gateway/agent/routine.js`). */
 export const ROUTINES_CLIENT_ID = "context_routines";
 export const ROUTINES_CLIENT_NAME = "Routines";
 

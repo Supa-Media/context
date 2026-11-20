@@ -10,8 +10,8 @@
  */
 import test from "node:test";
 import assert from "node:assert/strict";
-import { checkin } from "../src/agent/graph/nodes/checkin.js";
-import { heartbeatPath, NOTHING_NEW_WORDS } from "../src/agent/heartbeat.js";
+import { checkin } from "../../../packages/tex/gateway/agent/graph/nodes/checkin.js";
+import { heartbeatPath, NOTHING_NEW_WORDS } from "../../../packages/tex/gateway/agent/heartbeat.js";
 import { AI_GATEWAY_ENV, BUILTIN_ALLOWED } from "./agentModelFixture.mjs";
 
 const NOW = Date.parse("2026-11-14T15:00:00Z");

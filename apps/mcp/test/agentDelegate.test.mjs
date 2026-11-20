@@ -31,9 +31,9 @@ import { test } from "node:test";
 
 import mail from "../../../packages/shared/src/mail.cjs";
 import comments from "../../../packages/shared/src/comments.cjs";
-import { AGENTS, agentMessage, cleanFolder, delegateSession, slugFor } from "../src/agent/delegate.js";
-import { browserSession } from "../src/agent/browse.js";
-import { OpenableAddresses } from "../src/agent/trustedSites.js";
+import { AGENTS, agentMessage, cleanFolder, delegateSession, slugFor } from "../../../packages/tex/gateway/agent/delegate.js";
+import { browserSession } from "../../../packages/tex/gateway/agent/browse.js";
+import { OpenableAddresses } from "../../../packages/tex/gateway/agent/trustedSites.js";
 import {
   MAX_CHASES,
   MODEL_SPACING_MS,
@@ -44,7 +44,7 @@ import {
   superviseRun,
   supervisedTask,
   withStatus,
-} from "../src/agent/supervise.js";
+} from "../../../packages/tex/gateway/agent/supervise.js";
 
 const NOW = Date.parse("2026-10-17T12:00:00.000Z");
 const MIN = 60_000;

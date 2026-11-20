@@ -109,7 +109,7 @@ nothing. Old fields are left as they are.
 ## Where the instructions go in the prompt
 
 After every built-in rule and the group's words, as the last part of the
-thread note (`apps/mcp/src/agent/customInstructions.js` `instructionsPrompt`,
+thread note (`packages/tex/gateway/agent/customInstructions.js` `instructionsPrompt`,
 `route.js`), fenced as the people's own words:
 
 ```

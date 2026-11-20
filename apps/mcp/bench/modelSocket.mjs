@@ -94,7 +94,7 @@ export function maskedHash(kind, request, map) {
 
 /** This tree's own map, read once, for a fingerprint run. */
 let treeMap = null;
-const loadTreeMap = async () => (treeMap ??= (await import("../src/agent/texArchitecture.generated.js").catch(() => ({ TEX_MAP: "" }))).TEX_MAP ?? "");
+const loadTreeMap = async () => (treeMap ??= (await import("../../../packages/tex/gateway/agent/texArchitecture.generated.js").catch(() => ({ TEX_MAP: "" }))).TEX_MAP ?? "");
 
 /** What the examiner must answer with, by kind: the shape the harness reads back. */
 export const EXPECTS = {

@@ -8,10 +8,10 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 
 import { createEgressWorld, request, TOKEN_TEXTS } from "./agentEgressFixtures.mjs";
-import { eventEntry, ledgerFor, ONE_TO_ONE_CHAT } from "../src/agent/ledger.js";
-import { appendEvents, checkEvent, checkEvents, EventRefusal, STEP_KIND } from "../src/agent/log.js";
-import { mergeEvents } from "../src/agent/warmCopy.js";
-import { dayFromLedger } from "../src/agent/ledgerHistory.js";
+import { eventEntry, ledgerFor, ONE_TO_ONE_CHAT } from "../../../packages/tex/gateway/agent/ledger.js";
+import { appendEvents, checkEvent, checkEvents, EventRefusal, STEP_KIND } from "../../../packages/tex/gateway/agent/log.js";
+import { mergeEvents } from "../../../packages/tex/gateway/agent/warmCopy.js";
+import { dayFromLedger } from "../../../packages/tex/gateway/agent/ledgerHistory.js";
 
 const CHAT = "sendblue:line:+15555550100";
 let seq = 0;

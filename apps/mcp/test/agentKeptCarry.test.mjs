@@ -29,13 +29,13 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { anthropicAttachmentBlocks, attachmentsLine, carriesData, pictureFallback } from "../src/agent/attachments.js";
-import { lessonInAboutMe } from "../src/agent/bugCheck.js";
-import { claimCheck } from "../src/agent/claimCheck.js";
-import { givesUpOnAFile } from "../src/agent/keptClaims.js";
-import { CARRY_PDF_BYTES, CARRY_TEXTS, CARRY_TEXT_CHARS, carryKeptFiles, keepSentFiles, keptIdsOf, keptInHistory, withKeptFiles } from "../src/agent/keptFiles.js";
-import { LESSONS_LINE, SAME_NAME_LINE, systemPrompt } from "../src/agent/prompt.js";
-import { sixToolsOver } from "../src/agent/sixTools.js";
+import { anthropicAttachmentBlocks, attachmentsLine, carriesData, pictureFallback } from "../../../packages/tex/gateway/agent/attachments.js";
+import { lessonInAboutMe } from "../../../packages/tex/gateway/agent/bugCheck.js";
+import { claimCheck } from "../../../packages/tex/gateway/agent/claimCheck.js";
+import { givesUpOnAFile } from "../../../packages/tex/gateway/agent/keptClaims.js";
+import { CARRY_PDF_BYTES, CARRY_TEXTS, CARRY_TEXT_CHARS, carryKeptFiles, keepSentFiles, keptIdsOf, keptInHistory, withKeptFiles } from "../../../packages/tex/gateway/agent/keptFiles.js";
+import { LESSONS_LINE, SAME_NAME_LINE, systemPrompt } from "../../../packages/tex/gateway/agent/prompt.js";
+import { sixToolsOver } from "../../../packages/tex/gateway/agent/sixTools.js";
 import { toolDefinitions } from "../src/tools/registry.js";
 import { createEgressWorld, request, textTex, TOKEN_TEXTS } from "./agentEgressFixtures.mjs";
 

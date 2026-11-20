@@ -29,14 +29,14 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 
 import graphLib from "../../../packages/tex/src/texGraph.cjs";
-import { draftBridge } from "../src/agent/graph/draftBridge.js";
-import { answerCheckNode } from "../src/agent/graph/nodes/answerCheck.js";
-import { MAX_FOUND, foundSoFar, handoffNode, handoffTitle } from "../src/agent/graph/nodes/handoff.js";
-import { handoffHook, routeSureOf, toolResultsOf } from "../src/agent/handoff.js";
-import { QUIET_ACK } from "../src/agent/background.js";
-import { BUILTIN_PROVIDER } from "../src/agent/builtin.js";
-import { runTurn } from "../src/agent/turn.js";
-import { roundsField } from "../src/agent/lastRound.js";
+import { draftBridge } from "../../../packages/tex/gateway/agent/graph/draftBridge.js";
+import { answerCheckNode } from "../../../packages/tex/gateway/agent/graph/nodes/answerCheck.js";
+import { MAX_FOUND, foundSoFar, handoffNode, handoffTitle } from "../../../packages/tex/gateway/agent/graph/nodes/handoff.js";
+import { handoffHook, routeSureOf, toolResultsOf } from "../../../packages/tex/gateway/agent/handoff.js";
+import { QUIET_ACK } from "../../../packages/tex/gateway/agent/background.js";
+import { BUILTIN_PROVIDER } from "../../../packages/tex/gateway/agent/builtin.js";
+import { runTurn } from "../../../packages/tex/gateway/agent/turn.js";
+import { roundsField } from "../../../packages/tex/gateway/agent/lastRound.js";
 
 const { createGraph } = graphLib;
 

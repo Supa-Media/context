@@ -23,8 +23,8 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { outgoingPictures } from "../src/agent/outgoingPictures.js";
-import { DRAW_TOOL, KEPT_PHOTOS_PATH, KEPT_PICTURE_PATH, MAKE_TOOL, callImageModel, pictureMaker, turnPictures, withPictureMaker } from "../src/agent/pictureMaker.js";
+import { outgoingPictures } from "../../../packages/tex/gateway/agent/outgoingPictures.js";
+import { DRAW_TOOL, KEPT_PHOTOS_PATH, KEPT_PICTURE_PATH, MAKE_TOOL, callImageModel, pictureMaker, turnPictures, withPictureMaker } from "../../../packages/tex/gateway/agent/pictureMaker.js";
 
 const PNG = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==";
 const GATEWAY = { base: "https://gateway.ai.cloudflare.com/v1/acct/gw", token: "t".repeat(32) };

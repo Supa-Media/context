@@ -21,9 +21,9 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { BUILTIN_PROVIDER } from "../src/agent/builtin.js";
-import { runTurn } from "../src/agent/turn.js";
-import { MAX_LISTED_WORKSPACES, workspacesPrompt } from "../src/agent/workspaces.js";
+import { BUILTIN_PROVIDER } from "../../../packages/tex/gateway/agent/builtin.js";
+import { runTurn } from "../../../packages/tex/gateway/agent/turn.js";
+import { MAX_LISTED_WORKSPACES, workspacesPrompt } from "../../../packages/tex/gateway/agent/workspaces.js";
 import { contextsFor } from "../src/context/identity.js";
 
 const MODEL = "@cf/zai-org/glm-4.7-flash";

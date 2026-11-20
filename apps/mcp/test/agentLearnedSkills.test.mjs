@@ -36,13 +36,13 @@ import {
   unusedSkills,
   withLearnedSkills,
   withUsed,
-} from "../src/agent/learnedSkills.js";
+} from "../../../packages/tex/gateway/agent/learnedSkills.js";
 import { normalizePath } from "../src/notes/paths.js";
-import { MIN_STEPS, looksLikeCorrection, recoveredFromFailure, reflectCallTool, reflectQuestion, reflectReason } from "../src/agent/reflect.js";
-import { protectedReason } from "../src/agent/housekeepingGuard.js";
-import { dreamEntry } from "../src/agent/dream.js";
-import { BROWSE_TOOL } from "../src/agent/browse.js";
-import { resetBrowserbaseProbe } from "../src/agent/browserProviders.js";
+import { MIN_STEPS, looksLikeCorrection, recoveredFromFailure, reflectCallTool, reflectQuestion, reflectReason } from "../../../packages/tex/gateway/agent/reflect.js";
+import { protectedReason } from "../../../packages/tex/gateway/agent/housekeepingGuard.js";
+import { dreamEntry } from "../../../packages/tex/gateway/agent/dream.js";
+import { BROWSE_TOOL } from "../../../packages/tex/gateway/agent/browse.js";
+import { resetBrowserbaseProbe } from "../../../packages/tex/gateway/agent/browserProviders.js";
 import { CONTROL_PLANE_ORIGIN, GATEWAY_SECRET, createControlPlaneStub, createS3Backend } from "./controlPlaneStub.mjs";
 import { createWorkerCtx } from "./workerCtx.mjs";
 import { AI_GATEWAY_ENV, AI_GATEWAY_ORIGIN, BUILTIN_ALLOWED } from "./agentModelFixture.mjs";

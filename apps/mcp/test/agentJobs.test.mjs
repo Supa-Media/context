@@ -17,10 +17,10 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { BUILTIN_PROVIDER } from "../src/agent/builtin.js";
-import { ABOUT_ME_PATH } from "../src/agent/aboutMe.js";
-import { JOBS_PATH, MAX_JOBS_LINES, jobsPrompt, readTexNotes } from "../src/agent/jobs.js";
-import { runTurn } from "../src/agent/turn.js";
+import { BUILTIN_PROVIDER } from "../../../packages/tex/gateway/agent/builtin.js";
+import { ABOUT_ME_PATH } from "../../../packages/tex/gateway/agent/aboutMe.js";
+import { JOBS_PATH, MAX_JOBS_LINES, jobsPrompt, readTexNotes } from "../../../packages/tex/gateway/agent/jobs.js";
+import { runTurn } from "../../../packages/tex/gateway/agent/turn.js";
 
 const MODEL = "@cf/zai-org/glm-4.7-flash";
 const WRITE = { name: "write_note", description: "Write a note.", inputSchema: { type: "object", properties: {} } };

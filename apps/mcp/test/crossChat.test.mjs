@@ -1,12 +1,12 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 
-import { ASK_CHAT, CHAT_ANSWER_EVENT, CHAT_ASK_EVENT, CROSS_CHAT_LIMITS, chatNamed, crossAskTool, crossChatOf, crossChatQuestion, crossCountsOf, postInChatTool } from "../src/agent/crossChat.js";
-import { crossChatGateNode, pairOf } from "../src/agent/graph/nodes/crossChatGate.js";
-import { chatAskNode } from "../src/agent/graph/nodes/chatAsk.js";
-import { chatAnswerNode } from "../src/agent/graph/nodes/chatAnswer.js";
-import { ASSISTANT_SEND_ACTIONS } from "../src/agent/sixTools.js";
-import { GATEWAY_NODES } from "../src/agent/graph/gatewayNodes.js";
+import { ASK_CHAT, CHAT_ANSWER_EVENT, CHAT_ASK_EVENT, CROSS_CHAT_LIMITS, chatNamed, crossAskTool, crossChatOf, crossChatQuestion, crossCountsOf, postInChatTool } from "../../../packages/tex/gateway/agent/crossChat.js";
+import { crossChatGateNode, pairOf } from "../../../packages/tex/gateway/agent/graph/nodes/crossChatGate.js";
+import { chatAskNode } from "../../../packages/tex/gateway/agent/graph/nodes/chatAsk.js";
+import { chatAnswerNode } from "../../../packages/tex/gateway/agent/graph/nodes/chatAnswer.js";
+import { ASSISTANT_SEND_ACTIONS } from "../../../packages/tex/gateway/agent/sixTools.js";
+import { GATEWAY_NODES } from "../../../packages/tex/gateway/agent/graph/gatewayNodes.js";
 
 /**
  * TEX ASKS TEX ACROSS CHATS (`src/agent/crossChat.js`; Dev2, 2026-11-17, design N3ZawPjhhgYcNfHm7xWa37). A 1:1 asks a

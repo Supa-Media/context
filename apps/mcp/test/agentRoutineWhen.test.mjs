@@ -17,8 +17,8 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { routineWhen } from "../src/agent/routineWhen.js";
-import { textingAwareCallTool } from "../src/agent/textingWrites.js";
+import { routineWhen } from "../../../packages/tex/gateway/agent/routineWhen.js";
+import { textingAwareCallTool } from "../../../packages/tex/gateway/agent/textingWrites.js";
 
 // Saturday, October 24, 2026, 10:43 pm in New York (02:43 UTC on the 25th), when the text came.
 const NOW = Date.parse("2026-10-25T02:43:00Z");

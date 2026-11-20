@@ -12,8 +12,8 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 
-import { engagementSection, routineEngagement, UNANSWERED_ASK } from "../src/agent/routineEngagement.js";
-import { DONE_WORD, routineQuestion, routineRunQuestion } from "../src/agent/routine.js";
+import { engagementSection, routineEngagement, UNANSWERED_ASK } from "../../../packages/tex/gateway/agent/routineEngagement.js";
+import { DONE_WORD, routineQuestion, routineRunQuestion } from "../../../packages/tex/gateway/agent/routine.js";
 
 const H = 60 * 60 * 1000;
 const T0 = Date.UTC(2026, 10, 10, 13, 0);

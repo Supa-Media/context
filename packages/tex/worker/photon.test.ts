@@ -20,7 +20,7 @@ const SECRET = "an-agent-worker-secret-long-enough";
 const ORIGIN = "https://agent.example";
 const GUID = "any;+;ABCDEF0123456789";
 
-/** The gateway's own id patterns, copied from `apps/mcp/src/agent/log.js` (CHAT) and `apps/mcp/src/agent/textsDecide.js` (GROUP_ID). */
+/** The gateway's own id patterns, copied from `packages/tex/gateway/agent/log.js` (CHAT) and `packages/tex/gateway/agent/textsDecide.js` (GROUP_ID). */
 const GATEWAY_CHAT = /^[A-Za-z0-9_.:@+=-]{1,128}$/;
 const GATEWAY_GROUP_ID = /^[A-Za-z0-9._:@+=-]{1,256}$/;
 

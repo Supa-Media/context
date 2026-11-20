@@ -3,7 +3,7 @@
  * not texted since the ledger began (Dev, 2026-11-02: "Tex needs message
  * history please lets migrate it over"; `docs/decisions/texting-assistant/chat-ledger.md`).
  * A group that texts copies itself in after the Worker's post
- * (`apps/mcp/src/agent/ledgerBackfill.js` `startBackfill`, `backfilledv2`); a
+ * (`packages/tex/gateway/agent/ledgerBackfill.js` `startBackfill`, `backfilledv2`); a
  * quiet one never would.
  *
  * A group's old log sits in the shared workspace its chat was bound to, under

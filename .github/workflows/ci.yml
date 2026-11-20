@@ -110,7 +110,7 @@ jobs:
         packages/tex/src/texTraining.generated.json
         packages/lab/src/texSetsRepo.generated.json
         apps/mcp/bench/sets/**
-        apps/mcp/src/agent/texArchitecture.generated.js
+        packages/tex/gateway/agent/texArchitecture.generated.js
         packages/lab/gateway/texDev/canvas.generated.js
         packages/lab/gateway/texDev/lab.generated.js
         packages/lab/gateway/texDev/replay.generated.js
@@ -176,8 +176,8 @@ jobs:
           - 'apps/machine-runner/install.sh'
           - 'apps/machine-runner/src/pair.rs'
           - 'apps/machine-runner/src/service.rs'
-          - 'apps/mcp/src/agent/capabilities.js'
-          - 'apps/mcp/src/agent/ledger.js'
+          - 'packages/tex/gateway/agent/capabilities.js'
+          - 'packages/tex/gateway/agent/ledger.js'
           - 'apps/mcp/src/agentActivity.js'
           - 'apps/mcp/src/chaos/contacts.js'
           - 'apps/mcp/src/chaos/rubric.js'
@@ -224,30 +224,30 @@ jobs:
           # Not all of apps/mcp: only the gateway files Convex code and tests
           # reach (`node scripts/convex-gateway-reads.mjs --filter` prints this
           # list; check-ci-path-gates.mjs fails when it stops covering them).
-          # A texting-assistant change under apps/mcp/src/agent reaches none but
+          # A texting-assistant change under packages/tex/gateway/agent reaches none but
           # the history move's files and the texting phone hash named here, so it no longer waits four
           # minutes on this suite; the tests that read the whole gateway run in
           # Gateway Contracts instead.
           - 'apps/mcp/src/activity/**'
-          - 'apps/mcp/src/agent/agentHomeMove.js'
-          - 'apps/mcp/src/agent/chatTime.js'
-          - 'apps/mcp/src/agent/conversation.js'
-          - 'apps/mcp/src/agent/dayWords.js'
-          - 'apps/mcp/src/agent/events.js'
-          - 'apps/mcp/src/agent/groupPageCopy.js'
-          - 'apps/mcp/src/agent/groupPageFormat.js'
-          - 'apps/mcp/src/agent/history.js'
-          - 'apps/mcp/src/agent/historyFile.js'
-          - 'apps/mcp/src/agent/ledger.js'
-          - 'apps/mcp/src/agent/ledgerBackfill.js'
-          - 'apps/mcp/src/agent/ledgerConversation.js'
-          - 'apps/mcp/src/agent/localNow.js'
-          - 'apps/mcp/src/agent/log.js'
-          - 'apps/mcp/src/agent/logRender.js'
-          - 'apps/mcp/src/agent/sentOnItsOwn.js'
-          - 'apps/mcp/src/agent/sources.js'
-          - 'apps/mcp/src/agent/textingPhone.js'
-          - 'apps/mcp/src/agent/threadsFold.js'
+          - 'packages/tex/gateway/agent/agentHomeMove.js'
+          - 'packages/tex/gateway/agent/chatTime.js'
+          - 'packages/tex/gateway/agent/conversation.js'
+          - 'packages/tex/gateway/agent/dayWords.js'
+          - 'packages/tex/gateway/agent/events.js'
+          - 'packages/tex/gateway/agent/groupPageCopy.js'
+          - 'packages/tex/gateway/agent/groupPageFormat.js'
+          - 'packages/tex/gateway/agent/history.js'
+          - 'packages/tex/gateway/agent/historyFile.js'
+          - 'packages/tex/gateway/agent/ledger.js'
+          - 'packages/tex/gateway/agent/ledgerBackfill.js'
+          - 'packages/tex/gateway/agent/ledgerConversation.js'
+          - 'packages/tex/gateway/agent/localNow.js'
+          - 'packages/tex/gateway/agent/log.js'
+          - 'packages/tex/gateway/agent/logRender.js'
+          - 'packages/tex/gateway/agent/sentOnItsOwn.js'
+          - 'packages/tex/gateway/agent/sources.js'
+          - 'packages/tex/gateway/agent/textingPhone.js'
+          - 'packages/tex/gateway/agent/threadsFold.js'
           - 'apps/mcp/src/chaos/**'
           - 'apps/mcp/src/communications/**'
           - 'apps/mcp/src/context/**'
@@ -378,7 +378,7 @@ jobs:
           # js-tiktoken: the usage tokenizer, in its one file (docs/decisions/observability/token-usage.md).
           node scripts/check-gateway-imports.mjs --allow-import=js-tiktoken/lite:src/mcp/tokens.js --allow-import=js-tiktoken/ranks/o200k_base:src/mcp/tokens.js apps/mcp/src
 
-      # Every step on Tex's reply path is a named, timed call (`apps/mcp/src/agent/texTiming.js`).
+      # Every step on Tex's reply path is a named, timed call (`packages/tex/gateway/agent/texTiming.js`).
       - name: Nothing joins Tex's reply path untimed
         run: |
           node scripts/tex-entry-check.mjs --self-test
@@ -798,25 +798,25 @@ jobs:
           # check-ci-path-gates.mjs holds both lists to the same derivation.
           paths: |
             apps/mcp/src/activity/**
-            apps/mcp/src/agent/agentHomeMove.js
-            apps/mcp/src/agent/chatTime.js
-            apps/mcp/src/agent/conversation.js
-            apps/mcp/src/agent/dayWords.js
-            apps/mcp/src/agent/events.js
-            apps/mcp/src/agent/groupPageCopy.js
-            apps/mcp/src/agent/groupPageFormat.js
-            apps/mcp/src/agent/history.js
-            apps/mcp/src/agent/historyFile.js
-            apps/mcp/src/agent/ledger.js
-            apps/mcp/src/agent/ledgerBackfill.js
-            apps/mcp/src/agent/ledgerConversation.js
-            apps/mcp/src/agent/localNow.js
-            apps/mcp/src/agent/log.js
-            apps/mcp/src/agent/logRender.js
-            apps/mcp/src/agent/sentOnItsOwn.js
-            apps/mcp/src/agent/sources.js
-            apps/mcp/src/agent/textingPhone.js
-            apps/mcp/src/agent/threadsFold.js
+            packages/tex/gateway/agent/agentHomeMove.js
+            packages/tex/gateway/agent/chatTime.js
+            packages/tex/gateway/agent/conversation.js
+            packages/tex/gateway/agent/dayWords.js
+            packages/tex/gateway/agent/events.js
+            packages/tex/gateway/agent/groupPageCopy.js
+            packages/tex/gateway/agent/groupPageFormat.js
+            packages/tex/gateway/agent/history.js
+            packages/tex/gateway/agent/historyFile.js
+            packages/tex/gateway/agent/ledger.js
+            packages/tex/gateway/agent/ledgerBackfill.js
+            packages/tex/gateway/agent/ledgerConversation.js
+            packages/tex/gateway/agent/localNow.js
+            packages/tex/gateway/agent/log.js
+            packages/tex/gateway/agent/logRender.js
+            packages/tex/gateway/agent/sentOnItsOwn.js
+            packages/tex/gateway/agent/sources.js
+            packages/tex/gateway/agent/textingPhone.js
+            packages/tex/gateway/agent/threadsFold.js
             apps/mcp/src/chaos/**
             apps/mcp/src/communications/**
             apps/mcp/src/context/**

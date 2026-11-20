@@ -18,10 +18,10 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { readSawTheFile, resolveUpload, uploadName, printedEmail } from "../src/agent/uploads.js";
+import { readSawTheFile, resolveUpload, uploadName, printedEmail } from "../../../packages/tex/gateway/agent/uploads.js";
 import { toolReadFile } from "../src/tools/readFile.js";
-import { browserSession } from "../src/agent/browse.js";
-import { wrap } from "../src/agent/textPdf.js";
+import { browserSession } from "../../../packages/tex/gateway/agent/browse.js";
+import { wrap } from "../../../packages/tex/gateway/agent/textPdf.js";
 
 const PDF = "%PDF-1.4 receipt";
 const b64 = (text) => Buffer.from(text, "latin1").toString("base64");

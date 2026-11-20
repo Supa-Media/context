@@ -9,7 +9,7 @@ import { v } from "convex/values";
  * NAMES NOBODY. No workspace, grant, chat or person, and `at` is kept to the
  * hour, so a row cannot be laid beside a turn row to find whose it was. `why`
  * is the reason with every value taken out by the gateway
- * (`apps/mcp/src/agent/toolFailures.js` `failureShape`): the sentence our code
+ * (`packages/tex/gateway/agent/toolFailures.js` `failureShape`): the sentence our code
  * wrote, never the path, quote or search it was about. Kept
  * `TOOL_FAILURE_RETENTION_MS` (`functions/texToolFailures.ts`).
  */

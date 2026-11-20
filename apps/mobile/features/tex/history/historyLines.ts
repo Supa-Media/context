@@ -165,13 +165,13 @@ function toolWords(e: LedgerEntry): string {
 }
 
 /**
- * One judging of a draft reply (`apps/mcp/src/agent/replyJudge.js`): which
+ * One judging of a draft reply (`packages/tex/gateway/agent/replyJudge.js`): which
  * draft, whether it went out or went back, the judges that failed with their
  * score against their threshold, and the draft (Dev2, 2026-11-05: "so we can
  * see how responses were shaped along the way").
  */
 export function judgeWords(e: LedgerEntry): string {
-  // The one judge's call on a moment (`by: "moment"`, `apps/mcp/src/agent/textsDecide.js`): whether Tex speaks at
+  // The one judge's call on a moment (`by: "moment"`, `packages/tex/gateway/agent/textsDecide.js`): whether Tex speaks at
   // all, never a draft. It was shown as "judges · draft 1 · sent back · \"\"" (Tex Devs, 2026-11-13).
   if (e.by === "moment") return momentWords(e);
   const judges = Array.isArray(e.judges) ? (e.judges as unknown[]).map(record).filter((j): j is Record<string, unknown> => j !== null) : [];
@@ -323,7 +323,7 @@ export function dayTitle(key: string, now: Date): string {
   return new Date(y!, m! - 1, d!).toLocaleDateString("en-US", { weekday: "long", month: "short", day: "numeric" });
 }
 
-/** The chat's own sends (`apps/mcp/src/agent/sentOnItsOwn.js` OWN_SOURCES) that never went out: their text and note are not drawn. */
+/** The chat's own sends (`packages/tex/gateway/agent/sentOnItsOwn.js` OWN_SOURCES) that never went out: their text and note are not drawn. */
 const OWN_SENDS = new Set(["checkin", "routine", "ping", "update", "job", "new_line"]);
 function withoutUnsaid(entries: readonly LedgerEntry[]): readonly LedgerEntry[] {
   const own = (e: LedgerEntry) => e.kind === "text" && str(record(e.from)?.kind) === "tex" && typeof e.turn === "string" && e.turn !== "" && OWN_SENDS.has(str(e.source));

@@ -1,5 +1,5 @@
 /**
- * TEX'S OWN COMPUTER (`../src/agent/texComputerSandbox.js`, node `computer`, `infra/tex-computer`; Dev2 picked
+ * TEX'S OWN COMPUTER (`../../../packages/tex/gateway/agent/texComputerSandbox.js`, node `computer`, `infra/tex-computer`; Dev2 picked
  * Cloudflare Sandbox, 2026-11-20).
  *
  * ## Sabotage record
@@ -17,12 +17,12 @@
  */
 import test from "node:test";
 import assert from "node:assert/strict";
-import { COMPUTER_OPS, TEX_COMPUTER_TOOL, computerInput, computerWords, texComputerTool } from "../src/agent/texComputerSandbox.js";
-import { computerNode, computerOut } from "../src/agent/graph/nodes/computer.js";
-import { GATEWAY_NODES } from "../src/agent/graph/gatewayNodes.js";
-import { gatewayGraph } from "../src/agent/graph/gatewayGraph.js";
-import { TEX_CONFIG, withDraft } from "../src/agent/texConfig.js";
-import { ASSISTANT_SEND_ACTIONS } from "../src/agent/sixTools.js";
+import { COMPUTER_OPS, TEX_COMPUTER_TOOL, computerInput, computerWords, texComputerTool } from "../../../packages/tex/gateway/agent/texComputerSandbox.js";
+import { computerNode, computerOut } from "../../../packages/tex/gateway/agent/graph/nodes/computer.js";
+import { GATEWAY_NODES } from "../../../packages/tex/gateway/agent/graph/gatewayNodes.js";
+import { gatewayGraph } from "../../../packages/tex/gateway/agent/graph/gatewayGraph.js";
+import { TEX_CONFIG, withDraft } from "../../../packages/tex/gateway/agent/texConfig.js";
+import { ASSISTANT_SEND_ACTIONS } from "../../../packages/tex/gateway/agent/sixTools.js";
 import SHELF from "../../../packages/tex/src/texNodeShelf.json" with { type: "json" };
 
 const TAG = "a".repeat(64);
@@ -136,7 +136,7 @@ test("through a draft that wires tools -> computer: one call is the node, logged
 });
 
 test("Tex is not told about its own computer while the node is on the shelf", async () => {
-  const { CAPABILITIES, CAPABILITY_LIST } = await import("../src/agent/capabilities.js");
+  const { CAPABILITIES, CAPABILITY_LIST } = await import("../../../packages/tex/gateway/agent/capabilities.js");
   const entry = CAPABILITIES.find((one) => one.actions?.includes("send.tex_computer"));
   assert.equal(entry?.shelf, true);
   assert.equal(CAPABILITY_LIST.includes(entry.name), false);

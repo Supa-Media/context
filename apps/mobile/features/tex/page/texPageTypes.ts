@@ -213,7 +213,7 @@ export interface ListPage<K extends ListKind> {
 export type PingLevel = "strict" | "relaxed" | "emergencies" | "off";
 
 /**
- * The settings Tex changes by text (`apps/mcp/src/agent/settingsTools.js` `SETTING_HANDLERS`), read for Settings in
+ * The settings Tex changes by text (`packages/tex/gateway/agent/settingsTools.js` `SETTING_HANDLERS`), read for Settings in
  * the app. Null is a note the gateway couldn't read, never a guessed value.
  */
 export interface TexHabits {

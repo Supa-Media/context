@@ -24,14 +24,14 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 
 import graphLib from "../../../packages/tex/src/texGraph.cjs";
-import { draftBridge } from "../src/agent/graph/draftBridge.js";
-import { answerCheckNode } from "../src/agent/graph/nodes/answerCheck.js";
-import { askEngine, askGateNode, climbBarOf } from "../src/agent/graph/nodes/askGate.js";
-import { rungToolsNode } from "../src/agent/graph/nodes/rungTools.js";
-import { handoffNode } from "../src/agent/graph/nodes/handoff.js";
-import { causeOf, handoffHook } from "../src/agent/handoff.js";
-import { QUIET_ACK } from "../src/agent/background.js";
-import { ladderNotice, linesWith, questionsIn, readAsk, rungOf, selectorOf, termsOf, triedRungs, untriedFast } from "../src/agent/lookupLadder.js";
+import { draftBridge } from "../../../packages/tex/gateway/agent/graph/draftBridge.js";
+import { answerCheckNode } from "../../../packages/tex/gateway/agent/graph/nodes/answerCheck.js";
+import { askEngine, askGateNode, climbBarOf } from "../../../packages/tex/gateway/agent/graph/nodes/askGate.js";
+import { rungToolsNode } from "../../../packages/tex/gateway/agent/graph/nodes/rungTools.js";
+import { handoffNode } from "../../../packages/tex/gateway/agent/graph/nodes/handoff.js";
+import { causeOf, handoffHook } from "../../../packages/tex/gateway/agent/handoff.js";
+import { QUIET_ACK } from "../../../packages/tex/gateway/agent/background.js";
+import { ladderNotice, linesWith, questionsIn, readAsk, rungOf, selectorOf, termsOf, triedRungs, untriedFast } from "../../../packages/tex/gateway/agent/lookupLadder.js";
 
 const { createGraph } = graphLib;
 
@@ -78,7 +78,7 @@ test("search words are the questions' content words; lines need half of them", (
 });
 
 test("a notes line needs two of the words: one shared word like 'email' is not a find", async () => {
-  const { rungNotesNode } = await import("../src/agent/graph/nodes/rungNotes.js");
+  const { rungNotesNode } = await import("../../../packages/tex/gateway/agent/graph/nodes/rungNotes.js");
   const terms = termsOf(["what's my sister's address again? want to send her a card", "Do you have her address in an old email?"], 8);
   assert.ok(terms.includes("sister") && terms.includes("address"));
   const text = "I don't have an email address for Ama in your notes\n- an emailed article you have not read yet\nSister Bisi: 12 Oak Lane, address for cards";

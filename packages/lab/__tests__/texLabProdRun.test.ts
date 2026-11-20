@@ -26,7 +26,7 @@ const version = { code: CODE, setup: "a1b2c3d4e5f6" };
 
 /**
  * One text, answered by one turn with a tool call and an answer check, and the Worker's judging before it. The graph
- * runner logs each node it runs as a "node" step naming it (`apps/mcp/src/agent/ledger.js` `nodeEntry`): the Door
+ * runner logs each node it runs as a "node" step naming it (`packages/tex/gateway/agent/ledger.js` `nodeEntry`): the Door
  * (`doorStep`) and the Answer check (`answerCheck`) among them.
  */
 const entries = (): LedgerEntry[] => [

@@ -8,7 +8,7 @@
  *
  * Each is one `step` event in the outbox (`events.ts`), posted with the chat's
  * other events to `/agent/events`, where the gateway keeps it as a `step`
- * entry (`apps/mcp/src/agent/ledger.js` `eventEntry`). It is never a line of
+ * entry (`packages/tex/gateway/agent/ledger.js` `eventEntry`). It is never a line of
  * the chat: every reader of the outbox leaves it out (`keptEvents`,
  * `recentEvents`), and the gateway never reads it back as a text.
  *
@@ -25,7 +25,7 @@ import type { InboxStorage } from "./inbox";
 import { readArrival, type ProviderArrival, type ProviderSend } from "./providerTiming";
 
 export type StepName = "triage" | "decide" | "react" | "text" | "send" | "oldLine" | "moveChat" | "edit" | "provisional";
-/** One step as the gateway takes it (`apps/mcp/src/agent/log.js` `checkStep`). */
+/** One step as the gateway takes it (`packages/tex/gateway/agent/log.js` `checkStep`). */
 export type StepRecord = {
   name: StepName;
   /** Which kind of the step: the judging of waiting texts or of one that came mid-turn; who chose a tapback. */
@@ -39,7 +39,7 @@ export type StepRecord = {
 };
 
 const CODE = /[^\w-]/g;
-/** What the gateway takes (`apps/mcp/src/agent/log.js` `checkStep`): an input or output over this as JSON is kept as its size alone. */
+/** What the gateway takes (`packages/tex/gateway/agent/log.js` `checkStep`): an input or output over this as JSON is kept as its size alone. */
 const MAX_PART_JSON = 3_500;
 const TURN = /^[A-Za-z0-9_-]{8,64}$/;
 const bounded = (part: Record<string, unknown> | undefined) => {

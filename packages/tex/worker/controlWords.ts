@@ -2,7 +2,7 @@
  * Words a turn says to us, never to the person (self-reviews fa3f7a and
  * a0365e, 2026-10-31: "SKIP" stood as Tex's reply to three job reports).
  * The gateway says "nothing to text" with a flag (`quiet`,
- * `apps/mcp/src/agent/jobReport.js`); this is the last guard in front of the
+ * `packages/tex/gateway/agent/jobReport.js`); this is the last guard in front of the
  * line: a bubble that is only one of these words is never sent, whatever path
  * it came down. NONE counts in capitals only, as "None." answers a question.
  */
