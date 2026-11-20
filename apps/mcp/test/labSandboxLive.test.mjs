@@ -21,6 +21,8 @@ import { sandboxGate } from "../../../packages/lab/gateway/labSandbox/harness.js
 import { measuredLine, MIN_SAMPLES, PHOTON_DEFAULT, PHOTON_NUMBER, MAX_HOLD_MS } from "../../../packages/lab/gateway/labSandbox/line.js";
 import { stepBook, TRANSPORT_STEPS, fitSteps } from "../../../packages/lab/gateway/labSandbox/steps.js";
 import { toolAnswer } from "../src/labSandbox/policy.js";
+import { readWithEtag } from "../../../packages/tex/gateway/agent/jobLog.js";
+import { readTexNote } from "../../../packages/tex/gateway/agent/aboutMe.js";
 import { afterRead } from "../src/labSandbox/sandboxTools.js";
 import { handleLabSandboxPage } from "../../../packages/lab/gateway/labSandbox/pages.js";
 import { handleLabSandbox } from "../../../packages/lab/gateway/labSandbox/route.js";
@@ -170,7 +172,11 @@ test("a note written in a test turn is read back by the next, listed and found, 
     await first.flush();
     const next = await gateFor("t2", chat);
     const read = await toolAnswer("read_note", { path: "projects/trip.md" }, next);
-    assert.equal(read.content[0].text, "# Trip\nLisbon in May.", "read back from the test chat");
+    assert.match(read.content[0].text, /^etag: lab-[0-9a-f]{8}\npath: projects\/trip\.md\n\n# Trip\nLisbon in May\.$/, "read back from the test chat, headed as a real read is");
+    // Code that reads a note's header finds the test chat's copy (the nightly's About me and dream log, 2026-11-20).
+    const dispatch = (name, args) => toolAnswer(name, args, next);
+    assert.deepEqual(await readWithEtag(dispatch, "projects/trip.md"), { etag: read.content[0].text.split("\n")[0].slice(6), body: "# Trip\nLisbon in May." });
+    assert.equal(await readTexNote(dispatch, "projects/trip.md"), "# Trip\nLisbon in May.");
     assert.equal(await toolAnswer("read_note", { path: "projects/other.md" }, next), null, "any other note is read for real");
     const listed = await afterRead("list_notes", { folder: "projects" }, { content: [{ type: "text", text: "projects/real.md" }] }, next);
     assert.match(listed.content.at(-1).text, /projects\/trip\.md/);
