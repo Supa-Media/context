@@ -29,7 +29,7 @@
 
 import { DETAIL_CAP, createPending, disarmTexting, findPending, ALREADY_ASKED, shownBefore, takeDone } from "./approvals.js";
 import { toolError } from "./results.js";
-import { EMAIL_TOOL, REFUSED, emailCopy, emailSummary, readEmail, refusalText } from "./email.js";
+import { EMAIL_TOOL, REFUSED, emailCopy, emailSummary, readEmail, refusalText, sendRefusedText } from "./email.js";
 import { readHelperCallers } from "../agent/production.js";
 import { parseEmailId } from "./emailRead.js";
 import { standingForward } from "./forwardRule.js";
@@ -172,7 +172,7 @@ export async function emailGate(supplied, { store, session, target }) {
     room = { ok: false, refused: "unavailable" };
   }
   stages.check = Date.now() - checkAt;
-  if (room?.ok !== true) return { ...toolError(REFUSED[room?.refused] ?? REFUSED.unavailable), ...stagesPart(stages) };
+  if (room?.ok !== true) return { ...toolError(sendRefusedText(room)), ...stagesPart(stages) };
 
   /*
     The sender the person is shown is the one that sends: an email that named
