@@ -63,10 +63,10 @@ function freezeModules(freeze, threadParts, context) {
   const changed = [];
   for (const [id, put, now] of slots) {
     const kept = typeof freeze.modules[id] === "string" ? freeze.modules[id] : "";
-    // A module with no words this turn was most often not read (a store that failed), not emptied: the day's words stand.
-    if (kept === now || now.trim() === "") continue;
+    if (kept === now) continue;
     put(kept);
-    changed.push({ id, now });
+    // A module with no words this turn was most often not read (a store that failed), not emptied: the day's words stand.
+    if (now.trim() !== "") changed.push({ id, now });
   }
   if (changed.length > 0 && typeof context[0][1] === "string") context[0][1] = threadParts.map(([, text]) => text ?? "").join("");
   return changed;
