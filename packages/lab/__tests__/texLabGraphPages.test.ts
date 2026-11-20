@@ -14,7 +14,7 @@ import { placeOf, searchOf } from "@context/lab/app/views/labPlace";
 import { addStep } from "@context/lab/app/views/canvas/actions";
 import type { LabGraph, LabNode } from "@context/lab/app/types";
 
-const NIGHTLY = ["daysum", "dream", "housekeep", "nightly"];
+const NIGHTLY = ["aboutCheck", "aboutExpire", "daysum", "dream", "housekeep", "nightly"];
 const ids = (g: LabGraph) => g.nodes.map((n) => n.id).sort();
 const step = (id: string, extra: Partial<LabNode> = {}): LabNode =>
   ({ id, label: id, goal: "", log: false, on: true, rounds: 1, out: 300, ctx: [], ms: 0, timeoutS: 0, areas: [], file: "", note: "", icon: "", model: "code", x: 0, y: 0, ...extra }) as LabNode;
@@ -32,7 +32,7 @@ describe("the canvas draws one page", () => {
   test("main's Nightly page is the nightly cleanup and the wires among its steps, and Texting is everything else", () => {
     const night = onPage(G(), "nightly");
     expect(ids(night)).toEqual(NIGHTLY);
-    expect(night.edges.map((e) => `${e.from}>${e.to}`).sort()).toEqual(["dream>daysum", "nightly>dream", "nightly>housekeep"]);
+    expect(night.edges.map((e) => `${e.from}>${e.to}`).sort()).toEqual(["aboutExpire>aboutCheck", "dream>aboutExpire", "dream>daysum", "nightly>dream", "nightly>housekeep"]);
     const day = onPage(G(), "texting");
     expect(day.nodes.some((n) => NIGHTLY.includes(n.id))).toBe(false);
     expect(day.nodes.length + night.nodes.length).toBe(G().nodes.length);
@@ -67,7 +67,7 @@ describe("the canvas draws one page", () => {
 
   test("each page's steps are counted with the groups opened", () => {
     const counts = stepCountsByPage(G());
-    expect(counts.nightly).toBe(4);
+    expect(counts.nightly).toBe(6);
     expect(counts.texting).toBeGreaterThan(20);
   });
 

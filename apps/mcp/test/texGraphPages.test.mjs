@@ -27,7 +27,7 @@ import { drawingFor } from "../../../scripts/tex-architecture.mjs";
 
 const { GRAPHS, graphOf, configProblems, NODE_FIELDS } = schema;
 const ORIGIN = "https://context.example";
-const NIGHTLY = ["nightly", "dream", "daysum", "housekeep"];
+const NIGHTLY = ["nightly", "dream", "daysum", "housekeep", "aboutExpire", "aboutCheck"];
 const copy = () => structuredClone(TEX_CONFIG);
 
 test("the pages are texting and nightly, and a step with no graph is on texting", () => {
