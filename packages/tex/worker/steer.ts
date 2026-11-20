@@ -80,6 +80,11 @@ export function startTurn(
   };
 }
 
+/** Whether any turn is live in this object's memory: none after a reset, though storage says one was running (`turnWatch.ts`). */
+export function hasLiveTurn(storage: InboxStorage): boolean {
+  return (live.get(storage)?.size ?? 0) > 0;
+}
+
 /**
  * The turn running in `chat`, once it has a session to steer into: in a group,
  * the one `asker` asked (nobody else's message is steered into a turn on

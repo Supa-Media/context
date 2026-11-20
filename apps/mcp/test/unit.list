@@ -704,6 +704,7 @@ test/setsGold.test.mjs
 test/texExamples.test.mjs
 test/examplesNode.test.mjs
 test/appChat.test.mjs
+test/appChatDelivery.test.mjs
 test/setsFdTapbacks.test.mjs
 test/searchedLine.test.mjs
 test/emailChooseSender.test.mjs

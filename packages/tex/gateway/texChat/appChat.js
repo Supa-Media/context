@@ -218,9 +218,9 @@ export async function serveAppPictureById(storage, id) {
  * events (`metas`, `taps`, by event id); and which events can still be edited (`handles`: event id → the handle an
  * edit names it by). A chat never placed has none of them.
  */
-export async function serveAppOutbox(storage) {
+export async function serveAppOutbox(storage, { alarms = null, now = Date.now } = {}) {
   const name = await storage.get(NAME_KEY);
-  if (typeof name !== "string") return Response.json({ events: [], typingAt: null, metas: {}, taps: {}, handles: {} });
+  if (typeof name !== "string") return Response.json({ events: [], typingAt: null, metas: {}, taps: {}, handles: {}, queue: [], failed: {}, stopped: {} });
   if (!(await isAppChatName(name))) return Response.json({ error: "not_an_app_chat" }, { status: 404 });
   const kept = [...(await storage.list({ prefix: EVENT_PREFIX })).values()];
   const events = kept
@@ -231,5 +231,31 @@ export async function serveAppOutbox(storage) {
   const typingAt = await storage.get(APP_TYPING_KEY);
   const byEvent = async (prefix) => Object.fromEntries([...(await storage.list({ prefix })).entries()].map(([key, value]) => [key.slice(prefix.length), value]));
   const handles = Object.fromEntries((await handlesOf(storage)).map((entry) => [entry.ev, entry.h]));
-  return Response.json({ events, typingAt: typeof typingAt === "number" ? typingAt : null, metas: await byEvent(META_PREFIX), taps: await byEvent(TAP_PREFIX), handles });
+  const { queueView } = await import("../../worker/gatewayChat.js");
+  const { queue, failed, stopped } = await queueView(storage);
+  // A text waiting with no alarm to answer it (one lost with a reset object) is woken by the app's read (`turnWatch.ts`).
+  if (alarms !== null && queue.length > 0 && (await alarms.getAlarm()) === null) {
+    await alarms.setAlarm(now());
+    console.log(JSON.stringify({ event: "app_chat_rearm", waiting: queue.length }));
+  }
+  return Response.json({ events, typingAt: typeof typingAt === "number" ? typingAt : null, metas: await byEvent(META_PREFIX), taps: await byEvent(TAP_PREFIX), handles, queue, failed, stopped });
+}
+
+/**
+ * `POST /app/stop` (`{}`) and `POST /app/retry` (`{ ev }`): the app's stop and Try again, passed to the chat object
+ * (`packages/tex/worker/turnWatch.ts`). Stop answers `{ outcome: "stopped" | "idle", covers }`; retry `{ outcome:
+ * "queued" | "none" }`. Only an app chat's object takes them.
+ */
+export async function serveAppTurnCall(request, path, { state, open }) {
+  const name = await state.storage.get(NAME_KEY);
+  if (!(await isAppChatName(name))) return Response.json({ error: "not_an_app_chat" }, { status: 404 });
+  const body = await request.json().catch(() => ({}));
+  const stop = path === "/app/stop";
+  if (!stop && (typeof body?.ev !== "string" || body.ev === "" || body.ev.length > 64)) return Response.json({ error: "bad_body" }, { status: 400 });
+  const chat = await open(name);
+  if (chat === null) return Response.json({ outcome: "not_here" }, { status: 503 });
+  const answer = await chat.fetch(new Request(`https://inbox${stop ? "/turn-stop" : "/turn-retry"}`, { method: "POST", body: JSON.stringify(stop ? { chat: name } : { ev: body.ev }) }));
+  const outcome = await answer.json().catch(() => ({ outcome: "failed" }));
+  console.log(JSON.stringify({ event: "app_chat_turn_call", call: stop ? "stop" : "retry", outcome: outcome.outcome ?? "failed" }));
+  return Response.json(outcome, { status: answer.ok ? 200 : 503 });
 }

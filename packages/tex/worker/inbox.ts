@@ -49,6 +49,7 @@
 
 import { SEEN_FOR_MS } from "./replayWindow";
 import { queueItem, TEXTS_QUEUE } from "./chatQueue";
+import { clearRunning, dropStopped, markRunning, recoverLostTurn } from "./turnWatch";
 import { isItForTexAlone } from "./isItForTex";
 import { partEvent, sendCardPart, threadFor } from "./sendParts"; import { sendPicturePart, sendWords, type PartLine, type PartLogged } from "./sendOne";
 import type { Choice } from "./pickCard";
@@ -323,6 +324,8 @@ export async function drain(storage: InboxStorage, deps: InboxDeps): Promise<voi
   const thumb = await dueThumb<Message>(storage, deps.now());
   if (thumb !== undefined) await accept(storage, thumb, deps.now());
   // Each pass sends a reply kept for a retry, or decides and answers one turn; each takes at least one text.
+  // A turn lost with its object (an isolate reset mid-turn) is tried again once, then its texts are marked failed (`turnWatch.ts`).
+  await recoverLostTurn(storage, undefined, deps.now());
   for (let pass = 0; pass < 3 * MAX_PENDING; pass += 1) {
     const pending = [...(await storage.list<Pending>({ prefix: TEXTS_QUEUE.prefix }))];
     if (pending.length === 0) break;
@@ -382,10 +385,12 @@ async function answerTurn(storage: InboxStorage, deps: InboxDeps, entries: Entry
   const tries = Math.max(...entries.map(([, entry]) => entry.tries ?? 0)) + 1;
   const timing: TurnTiming = { started: deps.now(), arrived: arrivedAt(entries) };
   let turn: Answered;
+  await markRunning(storage, entries, timing.started); // found by the next drain if this object is reset mid-turn
   try {
     turn = await answering(message, work, { ...deps, retry: tries < MAX_ANSWER_ATTEMPTS, again: tries > 1, arrivedAt: timing.arrived }, storage, covers, presence, timing);
     if (typeof turn.turn === "string") timing.turn = turn.turn; // its timing row lines up with the gateway's (`textTiming.ts`)
   } catch (error) {
+    await clearRunning(storage);
     if (!(error instanceof TryLater)) throw error;
     // Tried again later: these texts and the ones behind them wait; later ones keep their order.
     await storage.put<Pending>(key, { ...item, tries });
@@ -393,7 +398,9 @@ async function answerTurn(storage: InboxStorage, deps: InboxDeps, entries: Entry
     return false;
   }
   // Restarted (`steer.ts`), or held by the last look at their newer texts (`lookAgain.ts`): nothing it said goes; its texts wait, marked, for the turn that answers them with the newer one.
-  if (turn.cancelled) return true;
+  await clearRunning(storage);
+  // A stop (`turnWatch.ts`) drops the texts it stopped; a restart's wait for the turn after it.
+  if (turn.cancelled) return (await dropStopped(storage, entries), true);
   if (!turn.fixed && (await lookAgainTexts(storage, deps, entries, turn.parts)) === "held") return (turn.asks.length > 0 && turn.token !== undefined && (await staleAsks(deps, turn.token, turn.asks)), true);
   for (const sentKey of (await storage.list({ prefix: `${PROGRESS_PREFIX}${work}:` })).keys()) await storage.delete(sentKey); // answered: its lines (`answerTexts`) go
   let reply = turn.parts;
