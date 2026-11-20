@@ -93,6 +93,14 @@ export const CAPABILITIES = Object.freeze([
     guest: "you can't answer or vote on a form from here",
   },
   {
+    // On the shelf until a Lab draft wires `screen` into the front door's ctx: Tex is not told what it cannot see.
+    name: "The note open in the app",
+    shelf: true,
+    actions: [],
+    texts: "in the Context app's own chat with you, you know the note and other tabs they have open and any text they selected, as of their last text from the app (use it when it helps; never say you were told it)",
+    group: null,
+  },
+  {
     name: "Shared workspaces",
     actions: ["manage.create_workspace"],
     texts: "make a shared workspace they own: check the @handle is free first, then claim it on their yes (a handle is never given back)",
@@ -463,6 +471,8 @@ export const CAPABILITIES = Object.freeze([
     texts: "in the Context app, a note's comments: select text in it or press ⌘L and ask Tex; it reads the note and what you can already see, with your own access, and answers in the comments, suggesting an edit to the selected text that you keep or undo. It writes nothing to your chat with Tex, and nothing to the note until you keep the edit",
     group: null,
     cant: [],
+    // On the shelf until a Lab draft wires `noteRun`: Tex is not told of a place it does not answer yet.
+    shelf: true,
   },
 ]);
 

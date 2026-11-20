@@ -27,6 +27,7 @@
  */
 
 import { ledgerFor, ONE_TO_ONE_CHAT } from "./ledger.js";
+import { saveSeen, validSeen } from "./screen.js";
 import { objectByName } from "../../../../apps/mcp/src/objectPlace.js";
 import { ROWS_SHOWN, buildRows, ledgerEntries, outboxOf, typingNow } from "./appChatRows.js";
 
@@ -160,6 +161,10 @@ async function send(ctx, body) {
     text,
     ...(replied !== null ? { ...(replied.text ? { quoted: replied.text } : {}), threaded: true } : {}),
   };
+  // What the app had open (`screen.js`): saved beside the chat before the text is handed over, so the turn can read it. Kept
+  // nowhere else, and a failed save never fails the send.
+  const seen = validSeen(body.seen);
+  if (seen !== null) await saveSeen(ctx.env, ctx.chatId, seen, ctx.now);
   return await arrive(ctx, { kind: "one", message, ...(pictures.length > 0 ? { pictures } : {}), ...(replied !== null ? { replyOn: replied.id } : {}) }, eventId);
 }
 

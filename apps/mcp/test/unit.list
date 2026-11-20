@@ -705,6 +705,7 @@ test/examplesNode.test.mjs
 test/appChat.test.mjs
 test/noteRunRoute.test.mjs
 test/noteRunStorage.test.mjs
+test/screen.test.mjs
 test/setsFdTapbacks.test.mjs
 test/searchedLine.test.mjs
 test/emailChooseSender.test.mjs
