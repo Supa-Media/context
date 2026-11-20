@@ -12,6 +12,8 @@ import { foldGroups } from "./groups";
 import { REPO } from "./promptAt";
 
 export const CONFIG_PATH = "packages/tex/src/texConfig.json";
+/** Where the config lived before Tex had a package of its own; commits older than that move are read here. */
+export const OLD_CONFIG_PATH = "packages/shared/src/texConfig.json";
 const COMMIT = /^[0-9a-f]{7,40}$/;
 const rec = (v: unknown): Record<string, unknown> | null => (v !== null && typeof v === "object" && !Array.isArray(v) ? (v as Record<string, unknown>) : null);
 
@@ -32,8 +34,9 @@ export function graphAt(code: string | null | undefined, get: typeof fetch = (..
   if (!code || !COMMIT.test(code)) return Promise.resolve(null);
   let p = fetched.get(code);
   if (!p) {
-    p = get(`https://raw.githubusercontent.com/${REPO}/${code}/${CONFIG_PATH}`)
-      .then((r) => (r.ok ? r.json() : null))
+    const at = (path: string) => get(`https://raw.githubusercontent.com/${REPO}/${code}/${path}`).then((r) => (r.ok ? r.json() : null));
+    p = at(CONFIG_PATH)
+      .then((config) => config ?? at(OLD_CONFIG_PATH))
       .then(graphOfConfig)
       .catch(() => null);
     fetched.set(code, p);

@@ -157,6 +157,18 @@ describe("the graph of the time", () => {
     expect(get).toHaveBeenCalledTimes(2);
   });
 
+  test("a commit from before Tex had its own package is read at the old path", async () => {
+    const get = jest.fn(async (url: string) =>
+      (url.endsWith("/packages/shared/src/texConfig.json") ? { ok: true, json: async () => TEX_CONFIG } : { ok: false, json: async () => null }) as never,
+    );
+    const g = await graphAt(CODE, get as never);
+    expect(g?.nodes.map((n) => n.id)).toEqual(G().nodes.map((n) => n.id));
+    expect(get.mock.calls.map((c) => c[0])).toEqual([
+      `https://raw.githubusercontent.com/Supa-Media/context/${CODE}/packages/tex/src/texConfig.json`,
+      `https://raw.githubusercontent.com/Supa-Media/context/${CODE}/packages/shared/src/texConfig.json`,
+    ]);
+  });
+
   test("a run is read against the graph that ran it and carries it for the canvas", async () => {
     const old = config();
     // The graph of that day had no answer-check step.
@@ -181,7 +193,8 @@ describe("the graph of the time", () => {
     expect(p.run.graphNote).toBe("graph of 2026-11-14 (abc1234) unavailable, showing today's");
     expect(p.run.steps.some((s) => s.node === "answerCheck")).toBe(true);
     await prodPlayAtVersion(entries(), linesFor(entries()), { id: "E1" }, G(), get as never);
-    expect(get).toHaveBeenCalledTimes(2);
+    // Each look asks the package path, then the path before the move.
+    expect(get).toHaveBeenCalledTimes(4);
     // A network error is the same; so is a reply that is not a Tex config.
     const down = jest.fn(async () => Promise.reject(new Error("offline")));
     expect(await graphAt("1234567", down as never)).toBeNull();
