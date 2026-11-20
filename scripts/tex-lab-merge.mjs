@@ -193,7 +193,7 @@ export function mergeOntoMain({ graph, base, main, shelf = [], configFrom, picks
   const modules = Object.fromEntries(Object.entries({ ...main.words, ...words }).map(([k, t]) => [`p-${k}`, { text: t }]));
   const made = configFrom({ ...merged, modules }, main.config, main.words, shelf);
   if (made.refused) return made;
-  return { config: made.config, words: made.words, unshelved: made.unshelved, retired: made.retired, kept, theirs: theirs.length, clashes: [] };
+  return { config: made.config, words: made.words, unshelved: made.unshelved, kept, theirs: theirs.length, clashes: [] };
 }
 
 /** Picks as the Lab and tex_dev send them, checked: `{ "<what>": "main" | "draft" }`, at most 200, else {}. */
@@ -274,12 +274,12 @@ async function selfTest() {
   // The bug this file exists for: main changed one step after the draft was made; the draft changed another.
   const base = copy(config);
   const main = copy(config);
-  node(main, "answerCheck").effort = "high";
+  node(main, "reviewer").effort = "high";
   const draft = graph(base);
   node(draft, "fd").effort = "low";
   const m1 = run(draft, side(base), side(main));
   expect(m1.clashes.length === 0, `two edits to different steps clashed: ${JSON.stringify(m1.clashes)}`);
-  expect(node(m1.config, "answerCheck").effort === "high", "a stale draft wrote over main's newer change (the overwrite bug)");
+  expect(node(m1.config, "reviewer").effort === "high", "a stale draft wrote over main's newer change (the overwrite bug)");
   expect(node(m1.config, "fd").effort === "low", "the draft's own change was lost");
 
   // Different settings of the same step both land.

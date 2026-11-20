@@ -1,9 +1,8 @@
 /**
  * The door steps as nodes of `texConfig.json`: `doorNode` wraps one step and reports what it found. Since the simpler
  * graph (Dev2, 2026-11-16) the eleven steps are turned off (group "retired") and run as the parts of one Door step
- * (`graph/door.js`, `nodes/doorStep.js`). Since 2026-11-20 they are retired off the config to the shelf
- * (`texNodeShelf.json`, `retired: true`), which keeps each one's last definition and shape, so the door's parts are
- * checked against those here.
+ * (`graph/door.js`, `nodes/doorStep.js`); their nodes and shapes stay in the config until the cleanup after Promote,
+ * so the door's parts are checked against them here.
  *
  * Sabotage record (temporary local edits, reverted):
  *   doorNode returns when ["next"] on an answer         "a step that answers the turn is answered" fails
@@ -11,7 +10,7 @@
  *   a node's found() gains a field outSchema lacks      "every found field is named in its outSchema" fails
  *   an inSchema copied from the wrong step              "each input is the previous output" fails
  */
-import { RETIRED_STEPS, TEX_CONFIG } from "../src/agent/texConfig.js";
+import { TEX_CONFIG } from "../src/agent/texConfig.js";
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
@@ -38,8 +37,7 @@ const STEPS = [
   "prepareTheAnswer",
 ];
 const byId = new Map(TEX_CONFIG.nodes.map((node) => [node.id, node]));
-const shelved = new Map(Object.entries(RETIRED_STEPS));
-const schemas = Object.fromEntries(STEPS.map((id) => [id, { inSchema: shelved.get(id)?.inSchema ?? [], outSchema: shelved.get(id)?.outSchema ?? [] }])); // the shelf is where a retired node's shape lives
+const schemas = Object.fromEntries(STEPS.map((id) => [id, { inSchema: byId.get(id)?.inSchema ?? [], outSchema: byId.get(id)?.outSchema ?? [] }])); // the config is where a node's shape lives
 
 /** The keys of the `(t) => ({ ... })` object literal a node's found() returns, read from its source. */
 function foundKeysOf(step) {
@@ -49,12 +47,13 @@ function foundKeysOf(step) {
   return [...match[1].matchAll(/(\w+):/g)].map((m) => m[1]);
 }
 
-test("the eleven door steps are retired to the shelf and unwired, the Door runs them as its parts in order, and every node file exists", async () => {
+test("the eleven door steps are kept turned off and unwired, the Door runs them as its parts in order, and every node file exists", async () => {
   assert.deepEqual(DOOR_PARTS.map(([name]) => name), STEPS);
   for (const step of STEPS) {
-    assert.ok(!byId.has(step), `${step} is no node of the config`);
-    assert.ok(shelved.get(step), `${step} is retired to the shelf`);
-    assert.equal(shelved.get(step).on, false, `${step} is off`);
+    const node = byId.get(step);
+    assert.ok(node, `${step} is still a node of the config`);
+    assert.equal(node.on, false, `${step} is turned off`);
+    assert.equal(node.group, "retired", `${step} is in the retired group`);
     assert.ok(!TEX_CONFIG.edges.some((edge) => edge.from === step || edge.to === step), `${step} has no wire`);
   }
   assert.equal(byId.get("doorStep")?.on, true, "the Door step is on");

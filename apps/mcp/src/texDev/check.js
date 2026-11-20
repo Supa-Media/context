@@ -51,8 +51,7 @@ export function draftProblems(graph, current = TEX_CONFIG, shelf = Object.keys(S
     if (typeof n.on !== "boolean") problems.push(`promote: step "${n.id}" is neither on nor off`);
   }
   const fromNow = base === undefined || (current === TEX_CONFIG && base === CONFIG_STAMP);
-  // A step deleted while off is retired to the shelf by Promote, its code kept (Dev2, 2026-11-20); one that is on is not.
-  if (fromNow) for (const n of current.nodes) if (!ids.has(n.id) && n.on !== false) problems.push(`promote: step "${n.id}" is gone while it is on; the gateway still runs it, so turn it off first, then delete it`);
+  if (fromNow) for (const id of known) if (!ids.has(id)) problems.push(`promote: step "${id}" is gone; the gateway still runs it, so turn it off instead of deleting it`);
   return problems;
 }
 

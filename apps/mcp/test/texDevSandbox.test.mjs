@@ -49,8 +49,7 @@ test("the card says which steps did not run and why, from the config and the log
   assert.deepEqual(card.failed, [{ n: 4, node: "tools", why: "failed: true" }], "a tool that failed inside is a failure though its step ended ok");
   const why = Object.fromEntries(card.notFired.map((n) => [n.node, n.why]));
   assert.equal(why.router, "off in this config");
-  assert.equal(why.shapeGate, "off in this config", "a step Promote turned off");
-  assert.equal(why.reviewer, undefined, "a step retired off the config (2026-11-20) is no step of it");
+  assert.equal(why.reviewer, "off in this config", "a step Promote turned off");
   assert.match(why.bypass, /doorStep said \[next\], the wait wire wants \[answered\]/);
   assert.match(why.advisor, /tools may call it \(when ask_advisor\) and did not/);
   assert.equal(why.checkin, undefined, "a trigger of its own is never 'did not run' for a text");

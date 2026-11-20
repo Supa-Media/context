@@ -140,8 +140,7 @@ export async function runTheModel(t, via) {
   if (!tex.lean) await tex.wait("steer_begin", begun);
   const knows = knowsRead === null ? null : await tex.wait("tex_notes", knowsRead);
   // A big ask the advisor plans and the gateway splits into jobs, when the setup says so (`planBigAsk.js`).
-  // The plan call is offered only while the config wires the Big-ask planner (retired off main, 2026-11-20): never a call nothing answers.
-  const planning = background !== null && job === null && !routine && production?.planBigAsks === true && productionModel !== null && canRunBuiltin(production.advisor, env) && texConfigOf(env).edges.some((e) => e.from === "fd" && e.to === "planner");
+  const planning = background !== null && job === null && !routine && production?.planBigAsks === true && productionModel !== null && canRunBuiltin(production.advisor, env);
   // Their computers, told to the turn, and code no longer delegated to the web while one is paired (`machines/forTurn.js`).
   const computers = computersRead === null || computersRead === undefined ? [] : await tex.wait("computers", computersRead);
   const delegation = delegationBeside(delegated, computers);
