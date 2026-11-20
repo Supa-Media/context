@@ -256,7 +256,7 @@ export async function setSharing(ctx: MutationCtx, userId: Id<"users">, share: b
 
 /**
  * The same switch, texted ("Tex, share my chats with the devs", "stop sharing
- * with the devs", "am I sharing with the devs?"; `apps/agent/src/
+ * with the devs", "am I sharing with the devs?"; `packages/tex/worker/
  * reviewSharing.ts`), keyed by the phone that texted it, as `setTextsStyle`.
  * The words decide it and never a model, so it is the person's own yes.
  *

@@ -1,7 +1,10 @@
 import { fileURLToPath } from "node:url";
 import { defineConfig } from "vitest/config";
 
-// Tests run in Node: the Workers runtime's own module is a stand-in (`src/cloudflareWorkers.testing.ts`).
+// The Worker's code and tests live in packages/tex/worker; this app is its deploy unit.
+const WORKER = fileURLToPath(new URL("../../packages/tex/worker", import.meta.url));
+
 export default defineConfig({
-  resolve: { alias: { "cloudflare:workers": fileURLToPath(new URL("./src/cloudflareWorkers.testing.ts", import.meta.url)) } },
+  resolve: { alias: { "cloudflare:workers": `${WORKER}/cloudflareWorkers.testing.ts` } },
+  test: { dir: WORKER },
 });

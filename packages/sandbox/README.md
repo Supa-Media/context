@@ -33,7 +33,7 @@ teardown.
 
 These pieces run inside a deployed app, so they stay with that app:
 
-- **Texts simulator:** `apps/agent/src/simulator*.ts`, `apps/agent/src/simulatedGroup.ts` and
+- **Texts simulator:** `packages/tex/worker/simulator*.ts`, `packages/tex/worker/simulatedGroup.ts` and
   `infra/router/src/textsSimulator.ts`. They are on only where `SIMULATOR` is `on`.
 - **The Convex seed and preview naming:** `apps/convex/functions/seed.ts` and
   `apps/convex/functions/lib/previewDeployment.ts`. Convex deploys only what is under `apps/convex/functions`.

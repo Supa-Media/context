@@ -49,6 +49,7 @@ function turn(ai, overrides = {}) {
     providerOptions: { ai },
     texting: true,
     builtinModelOverride: MAIN,
+    retryWaitMs: 0,
     ...overrides,
   });
 }
@@ -64,7 +65,8 @@ test("a main model that fails hands the turn to the fallback, which answers, and
   );
   assert.deepEqual(
     ai.calls.map((call) => call.model),
-    [MAIN, FALLBACK],
+    [MAIN, MAIN, FALLBACK],
+    "asked again once on the same model before the fallback",
   );
   const fell = result.timing.trace.find((entry) => entry.kind === "fallback");
   assert.ok(fell, JSON.stringify(result.timing.trace));
@@ -72,7 +74,7 @@ test("a main model that fails hands the turn to the fallback, which answers, and
   assert.equal(fell.model, FALLBACK);
   assert.equal(fell.status, null, "a binding that threw has no status");
   assert.ok(
-    JSON.stringify(ai.calls[1].messages).includes(FALLBACK),
+    JSON.stringify(ai.calls[2].messages).includes(FALLBACK),
     "the fallback is told it is the one answering",
   );
 });
@@ -85,12 +87,32 @@ test("without a fallback the failure is the caller's, with the trace so far", as
   );
   assert.ok(failure instanceof ProviderError);
   assert.equal(failure.model, MAIN);
-  assert.equal(ai.calls.length, 1);
+  assert.equal(ai.calls.length, 2, "asked once more, then the failure is the caller's");
   assert.deepEqual(
     failure.timing.trace.map((entry) => [entry.kind, entry.ok]),
-    [["model", false]],
+    [["retry", false], ["model", false]],
   );
 });
+
+// Dev2, 2026-11-20: "retry Haiku fast, drop GLM". A blip costs one quick second try on the same model.
+test("a model call that fails once is asked again on the same model, and the turn answers", async () => {
+  let failures = 1;
+  const calls = [];
+  const ai = {
+    calls,
+    async run(model, input) {
+      calls.push(model);
+      if (failures-- > 0) throw new Error("upstream blip");
+      return { choices: [{ message: { content: "From the main model.", tool_calls: [] } }], usage: { prompt_tokens: 10, completion_tokens: 5 } };
+    },
+  };
+  const result = await turn(ai);
+  assert.equal(result.answer, "From the main model.");
+  assert.equal(result.model, MAIN);
+  assert.deepEqual(calls, [MAIN, MAIN]);
+  assert.deepEqual(result.timing.trace.filter((e) => e.kind === "retry").map((e) => [e.model, e.reason]), [[MAIN, "built-in model failed (Error)"]]);
+});
+
 
 test("a fallback that fails too is the end: no second fallback, and the error names it", async () => {
   const ai = binding({ failing: [MAIN, FALLBACK] });
@@ -102,7 +124,7 @@ test("a fallback that fails too is the end: no second fallback, and the error na
   assert.equal(failure.model, FALLBACK);
   assert.deepEqual(
     ai.calls.map((call) => call.model),
-    [MAIN, FALLBACK],
+    [MAIN, MAIN, FALLBACK],
   );
 });
 

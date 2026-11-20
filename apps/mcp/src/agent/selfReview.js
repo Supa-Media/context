@@ -14,7 +14,7 @@
  *
  * A conversation has ended once nobody has texted for a while: the texting
  * Worker keeps a watch per chat and asks `/agent/review` once it has been
- * quiet (`apps/agent/src/reviewWatch.ts`). Saying "fix this", or plain
+ * quiet (`packages/tex/worker/reviewWatch.ts`). Saying "fix this", or plain
  * frustration, reviews it at once, after that turn's answer has gone
  * (`reviewAfterTurn`). Each review reads only what came after the last one,
  * found by a fingerprint of the last exchange it read, kept beside the
@@ -416,7 +416,7 @@ export async function handleReview(request, env, store, session, controlPlane) {
   try {
     const history = group !== null ? await readGroupMemory(store, group) : await readConversation(store, "texts");
     const failed = failedOf(body?.failed);
-    // A 1:1 chat's texted yes to sharing (`apps/agent/src/reviewSharing.ts`): what Tex still keeps of it, filed at once.
+    // A 1:1 chat's texted yes to sharing (`packages/tex/worker/reviewSharing.ts`): what Tex still keeps of it, filed at once.
     const whole = group === null && body?.whole === true;
     const { filed, why } = await reviewOutcome({ env, store, session, controlPlane, history, key: await keyFor(group), reason: whole ? "shared" : "ended", after: group?.chat ?? [], failed, whole });
     return json({ filed, ...(why ? { why } : {}) });

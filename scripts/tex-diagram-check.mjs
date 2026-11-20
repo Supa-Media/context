@@ -42,9 +42,9 @@ export { DIAGRAM };
 const ENTRY = "apps/mcp/src/agent/texEntryPoint.js";
 const STEPS_DIR = "apps/mcp/src/agent/texEntryPoint/";
 /** Where a model may be named; each file that names one is a node's file, or on a list below. */
-const MODEL_FOLDERS = ["apps/mcp/src/agent", "apps/agent/src", "apps/convex/functions/lib/jev"];
+const MODEL_FOLDERS = ["apps/mcp/src/agent", "packages/tex/worker", "apps/convex/functions/lib/jev"];
 /** Where a node's file is looked for, by its path's end. */
-const NAMED_FOLDERS = ["apps/mcp/src", "apps/agent/src", "apps/convex/functions/lib/jev"];
+const NAMED_FOLDERS = ["apps/mcp/src", "packages/tex/worker", "apps/convex/functions/lib/jev"];
 const MODEL_ID = /["'`](?:anthropic\/claude-[a-z0-9.-]+|@cf\/[a-z0-9._-]+\/[a-z0-9._-]+|gemini-[a-z0-9.-]+)["'`]/;
 /** Files that name a model to carry or price calls for nodes, and are never a model call of their own. */
 export const PLUMBING = Object.freeze({
@@ -224,20 +224,20 @@ function selfTest() {
   expect(stepProblems(["a", "b", "c"], config).length === 1, "a step with no node passed");
   expect(stepProblems(["b", "a"], config).length === 1, "steps out of the config's order passed");
   expect(stepProblems(["sendThe"], config).length === 1, "a step found by part of a file's name");
-  expect(pageNames("see `reply.ts`", "apps/agent/src/reply.ts"), "a named file was not found");
-  expect(!pageNames("see `reply.ts`", "apps/agent/src/autoreply.ts"), "a file was found by part of its name");
-  expect(modelFileProblems(["apps/agent/src/reply.ts", ...Object.keys(NOT_NODED_YET)], config).length === 0, "a node's file or a listed one refused");
-  expect(modelFileProblems(["apps/agent/src/judge.ts", ...Object.keys(NOT_NODED_YET)], config).length === 1, "a model call with no node passed");
+  expect(pageNames("see `reply.ts`", "packages/tex/worker/reply.ts"), "a named file was not found");
+  expect(!pageNames("see `reply.ts`", "packages/tex/worker/autoreply.ts"), "a file was found by part of its name");
+  expect(modelFileProblems(["packages/tex/worker/reply.ts", ...Object.keys(NOT_NODED_YET)], config).length === 0, "a node's file or a listed one refused");
+  expect(modelFileProblems(["packages/tex/worker/judge.ts", ...Object.keys(NOT_NODED_YET)], config).length === 1, "a model call with no node passed");
   expect(modelFileProblems(["apps/mcp/src/agent/graph/nodes/fresh.js", ...Object.keys(NOT_NODED_YET)], config, ["apps/mcp/src/agent/graph/nodes/fresh.js"]).length === 0, "a shelf node's model call refused");
   expect(modelFileProblems(Object.keys(NOT_NODED_YET).slice(1), config).length === 1, "a listed file that names no model stayed listed");
   const noded = { ...config, nodes: [...config.nodes, node("x", Object.keys(NOT_NODED_YET)[0].split("/").pop())] };
   expect(modelFileProblems(Object.keys(NOT_NODED_YET), noded).length === 1, "a listed file that has its node stayed listed");
-  expect(changeProblems(["apps/agent/src/reply.ts"], config, "").length === 1, "a node's file changed without the config passed");
+  expect(changeProblems(["packages/tex/worker/reply.ts"], config, "").length === 1, "a node's file changed without the config passed");
   expect(changeProblems(["apps/mcp/src/agent/texEntryPoint/newStep.js"], config, "").length === 1, "a new step file changed without the config passed");
-  expect(changeProblems(["apps/agent/src/reply.ts", CONFIG], config, "").length === 0, "a change with the config refused");
-  expect(changeProblems(["apps/agent/src/reply.ts"], config, "Fixes a typo.\nTex diagram: unchanged because a log line only").length === 0, "a stated reason refused");
-  expect(changeProblems(["apps/agent/src/reply.ts"], config, "Tex diagram: unchanged because").length === 1, "an empty reason passed");
-  expect(changeProblems(["apps/agent/src/other.ts", "apps/agent/src/reply.test.ts"], config, "").length === 0, "an unnamed file or a test refused");
+  expect(changeProblems(["packages/tex/worker/reply.ts", CONFIG], config, "").length === 0, "a change with the config refused");
+  expect(changeProblems(["packages/tex/worker/reply.ts"], config, "Fixes a typo.\nTex diagram: unchanged because a log line only").length === 0, "a stated reason refused");
+  expect(changeProblems(["packages/tex/worker/reply.ts"], config, "Tex diagram: unchanged because").length === 1, "an empty reason passed");
+  expect(changeProblems(["packages/tex/worker/other.ts", "packages/tex/worker/reply.test.ts"], config, "").length === 0, "an unnamed file or a test refused");
   expect(MODEL_ID.test('const M = "@cf/cloudflare/clef";') && MODEL_ID.test("'anthropic/claude-haiku-5-5'") && !MODEL_ID.test("claude is nice"), "model ids misread");
   expect(mapProblems([{ path: "judge.js", source: "request({ system: SYSTEM })" }]).length === 1, "a prompt without the map passed");
   expect(mapProblems([{ path: "judge.js", source: "request({ system: withArchitecture(SYSTEM, \"x\") })" }]).length === 0, "a prompt with the map refused");

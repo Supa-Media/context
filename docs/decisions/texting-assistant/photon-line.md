@@ -24,7 +24,7 @@ a restart replays what was missed instead of losing it.
 ## The shape
 
 - Bridge → agent: RPC on the agent's named entrypoint `PhotonEvents`
-  (`apps/agent/src/photonEvents.ts`), over a service binding. No URL reaches it,
+  (`packages/tex/worker/photonEvents.ts`), over a service binding. No URL reaches it,
   so no secret guards it.
 - Agent → bridge: the `PHOTON` service binding; the bridge has no public route
   (`workers_dev: false`).
@@ -43,7 +43,7 @@ a restart replays what was missed instead of losing it.
 Replacing the listener with webhooks loses edits, unsends and read receipts and
 makes intake lossy across an outage. Replacing `Line` with the Chat SDK loses
 app cards, carousels, contact cards and threaded replies. Tests:
-`apps/agent/src/photon*.test.ts`, `infra/photon-bridge/test/*.test.mjs`.
+`packages/tex/worker/photon*.test.ts`, `infra/photon-bridge/test/*.test.mjs`.
 
 Not decided yet: what Tex does when a text it has not answered is edited or
 unsent (they are counted and logged for now), and the cutover date for the old
@@ -110,7 +110,7 @@ the agent; this is the rest.
   retrying it) is never skipped.
 - **One window.** `MAX_REPLAY_MS` (12 hours) is the oldest event a catch-up
   may deliver (`infra/photon-bridge/container/replay.mjs`) and the oldest the
-  agent hands to a chat (`apps/agent/src/replayWindow.ts`); the agent's dedupe
+  agent hands to a chat (`packages/tex/worker/replayWindow.ts`); the agent's dedupe
   window is derived from it, `SEEN_FOR_MS = 2 × MAX_REPLAY_MS`, so a replay can
   never reach past what is deduped. A bridge test fails when the two copies of
   the constant differ.
@@ -138,4 +138,4 @@ the agent; this is the rest.
 Reversing any of these fails `infra/photon-bridge/test/state.test.mjs`,
 the restart test in `infra/photon-bridge/test/listener.test.mjs`,
 `infra/photon-bridge/test/replay.test.mjs`, and the catch-up replay tests
-in `apps/agent/src/photonEvents.test.ts`.
+in `packages/tex/worker/photonEvents.test.ts`.

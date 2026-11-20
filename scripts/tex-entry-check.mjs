@@ -7,7 +7,7 @@
  * Code between `// TEX ENTRY POINT: begin` and `// TEX ENTRY POINT: end`
  * (the gateway's `texEntryPoint`, `apps/mcp/src/agent/texEntryPoint.js`, and each of its
  * steps under `apps/mcp/src/agent/texEntryPoint/`; any region in
- * the texting Worker, `apps/agent/src`, is checked the same way) is the path
+ * the texting Worker, `packages/tex/worker`, is checked the same way) is the path
  * a text takes to its answer. Every `await` in there must await a timed call of the entry point
  * (`await tex.step("name", ...)`, `tex.wait`, `tex.ahead`, `tex.after`,
  * `tex.behind`), and every step is named with a string literal, so each one
@@ -35,8 +35,8 @@ export const ENTRY_POINTS = [
     label: "Tex",
     begin: "// TEX ENTRY POINT: begin",
     end: "// TEX ENTRY POINT: end",
-    scanned: ["apps/mcp/src/agent", "apps/agent/src"],
-    // The texting Worker's side (`apps/agent/src`) is timed per text by `textTiming.ts` (`tex_text_timing`);
+    scanned: ["apps/mcp/src/agent", "packages/tex/worker"],
+    // The texting Worker's side (`packages/tex/worker`) is timed per text by `textTiming.ts` (`tex_text_timing`);
     // a region there is checked the same way once one is added, and joins this list then.
     required: ["apps/mcp/src/agent/texEntryPoint.js"],
     // Every step file of the turn holds a region too (`texEntryPoint/steps.js` lists them; it and `clients.js` hold no code that waits).

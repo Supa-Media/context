@@ -76,7 +76,7 @@ export const GROUP_MEMORY_PREFIX = ".context/agent/groups/";
 /** How much of a chat is kept: as much as a person's own texts. */
 export const MAX_GROUP_TURNS = MAX_HISTORY_TURNS;
 export const MAX_GROUP_CHARS = MAX_HISTORY_CHARS;
-/** What the chat said since the last answer, as one tag may bring it (`apps/agent/src/groupChat.ts` keeps at most 400). */
+/** What the chat said since the last answer, as one tag may bring it (`packages/tex/worker/groupChat.ts` keeps at most 400). */
 export const MAX_CHAT_LINES = 400;
 const MAX_CHAT_LINE = 4_000;
 export const MAX_CHAT_CHARS = 60_000;
@@ -141,7 +141,7 @@ export function groupOf(body, session = null) {
   const numbers = numbersOf(group.numbers, [...people, ...guests]); // each person's number, by handle or label (`groupNames.js`)
   const asker = from === "" && guests.includes(group.asker) ? group.asker : ""; // a guest who tagged Tex, by label
   const blocked = blockedOf(group.blocked); // who keeps the chat from a workspace, named only (`groupGuests.js` `blockedLine`)
-  const cause = TURN_CAUSES.includes(group.cause) ? group.cause : null; // why this turn runs, from the Worker (`apps/agent/src/groupCause.ts`)
+  const cause = TURN_CAUSES.includes(group.cause) ? group.cause : null; // why this turn runs, from the Worker (`packages/tex/worker/groupCause.ts`)
   const devShare = devShareOf(group.devShare); // whether the developers can read this chat in their Lab (`devShare.js`)
   const kept = { key: group.key, members: group.members, from, people, chat: chatOf(group.chat), ...(names.length > 0 ? { names } : {}), ...(guests.length > 0 ? { guests } : {}), ...(numbers.length > 0 ? { numbers } : {}), ...(asker ? { asker } : {}), ...(size !== null ? { size } : {}), ...(mail.length > 0 ? { mail } : {}), ...(calendar.length > 0 ? { calendar } : {}), ...(reach.length > 0 ? { reach } : {}), ...(group.tagged === true ? { tagged: true } : {}), ...(blocked.length > 0 ? { blocked } : {}), ...(devShare !== null ? { devShare } : {}), ...(cause !== null ? { cause } : {}) }; // tagged: a literal "@Tex", always answered (`sendTheReply.js`)
   // A chat that reaches shared workspaces (every person here has an account and shares them) is an ordinary group turn

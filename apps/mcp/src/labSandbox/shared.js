@@ -14,7 +14,7 @@
  *  - `open { source: "shared", chatId, base? }` (in `route.js`): a test chat over it, its real rows playing what ran,
  *    and test texts answered as its person would be (Dev2 chose "Allow test texts", 2026-11-16): the sharer's own
  *    session, asked again on every text, reads their notes live, and every write stays in the sandbox as in any test
- *    chat. The yes's wording says so (`apps/agent/src/reviewSharing.ts`, Settings → Feedback).
+ *    chat. The yes's wording says so (`packages/tex/worker/reviewSharing.ts`, Settings → Feedback).
  */
 
 import { json } from "../http/responses.js";

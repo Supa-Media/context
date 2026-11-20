@@ -1,7 +1,7 @@
 /**
  * A group turn's changing tool calls, one at a time across the chat's turns
  * (Dev2, 2026-11-13, one turn per text): the chat's turns run side by side
- * (`apps/agent/src/groupTurnRun.ts`), and a tool that changes something takes
+ * (`packages/tex/worker/groupTurnRun.ts`), and a tool that changes something takes
  * the chat's write lock (`texStore/writeLock.js`) for the length of that one
  * call. A read never takes it.
  *

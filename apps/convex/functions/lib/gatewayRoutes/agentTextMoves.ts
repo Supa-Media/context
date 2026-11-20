@@ -1,6 +1,6 @@
 /**
  * `POST /agent-texts/moves` and `/agent-texts/move-report`: the texting Worker's half of moving chats to Tex's new
- * number one at a time (`functions/texChatMoves.ts`, `apps/agent/src/moveChats.ts`), behind the Worker's own secret
+ * number one at a time (`functions/texChatMoves.ts`, `packages/tex/worker/moveChats.ts`), behind the Worker's own secret
  * (`agentWorkerRoute`, `http.ts`).
  */
 

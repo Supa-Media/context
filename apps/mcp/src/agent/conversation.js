@@ -267,7 +267,7 @@ export function wordsOfTurn(history, question) {
 }
 
 /*
-  The fixed texts the texting Worker sends with no model (`apps/agent/src/
+  The fixed texts the texting Worker sends with no model (`packages/tex/worker/
   told.ts`): setting somebody up, and saying their notes are ready. Named by
   the Worker with the next text, and written here in the gateway's own words,
   never the Worker's and never the link, so the next turn knows what "Done"

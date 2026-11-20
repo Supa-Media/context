@@ -72,7 +72,7 @@ export async function agentTextsSessionHandler(
 }
 
 /**
- * `POST /agent-texts/app-session` — `{ userId }` → the same answer as `session`, for an in-app chat (`apps/agent/src/appChat.ts`):
+ * `POST /agent-texts/app-session` — `{ userId }` → the same answer as `session`, for an in-app chat (`packages/tex/worker/appChat.ts`):
  * a grant on the user's own personal workspace, named by its user id, with no phone. The user id is the control
  * plane's own (lowercase letters and digits); anything else is a bad request, never a lookup.
  */

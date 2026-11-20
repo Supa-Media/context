@@ -7,7 +7,7 @@
 /**
  * The oldest event (by Apple's stamp) a catch-up may still deliver. An older
  * replay is completed without being queued: Tex would answer old texts.
- * MUST equal MAX_REPLAY_MS in apps/agent/src/replayWindow.ts (a test checks it).
+ * MUST equal MAX_REPLAY_MS in packages/tex/worker/replayWindow.ts (a test checks it).
  */
 export const MAX_REPLAY_MS = 12 * 60 * 60 * 1000;
 

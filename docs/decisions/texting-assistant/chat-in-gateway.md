@@ -7,7 +7,7 @@ into the gateway, and the Worker keeps checking webhooks, handing texts over
 and delivering answers.
 
 **The chat object moves as it is.** The Worker's chat object
-(`apps/agent/src/chatObject.ts`, a person's inbox or a group's) imports
+(`packages/tex/worker/chatObject.ts`, a person's inbox or a group's) imports
 nearly the whole Worker: its queue, its alarm, its turns, its lanes, its
 pictures and pages. Rewriting it for the gateway would mean two copies of
 every rule while the move is under way, with nothing to show the two agree.
@@ -19,7 +19,7 @@ of it through the `env` it is given:
   in-process, with no HTTP hop (`FETCH`, `GATEWAY_TEXTS`);
 - the line (send, typing, read, tapback, group members) stays the Worker's,
   over its `TexRoutines` RPC (`lineCall`, `groupLineCall`,
-  `apps/agent/src/lineCalls.ts`, `remoteLine.ts`), because the line's keys
+  `packages/tex/worker/lineCalls.ts`, `remoteLine.ts`), because the line's keys
   stay in the Worker;
 - the Worker's other objects (a job's, a chat's directory entry) are reached
   by name over the same RPC (`inboxFetch`), and a group turn's retries stay
@@ -49,5 +49,5 @@ gateway forks every queue, turn and lane rule in two; calling the line from
 the gateway with keys of its own puts line credentials in a second Worker.
 Tests: `apps/mcp/test/texChatMove.test.mjs` (a handed-over text is copied in,
 queued and answered on the Worker's line; a refused copy leaves the Worker
-answering), `apps/agent/src/gatewayMove.test.ts`, `handOver.test.ts`,
+answering), `packages/tex/worker/gatewayMove.test.ts`, `handOver.test.ts`,
 `scripts/deploy-plan.test.mjs` (the chat code deploys both Workers).

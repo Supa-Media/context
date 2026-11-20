@@ -5,8 +5,8 @@ import test from "node:test";
 import * as replay from "../container/replay.mjs";
 
 test("the replay window is the agent's: the bridge drops what the agent would not take", () => {
-  // apps/agent/src/replayWindow.ts states MAX_REPLAY_MS as a product of integers; read it without evaluating code.
-  const agent = readFileSync(new URL("../../../apps/agent/src/replayWindow.ts", import.meta.url), "utf8");
+  // packages/tex/worker/replayWindow.ts states MAX_REPLAY_MS as a product of integers; read it without evaluating code.
+  const agent = readFileSync(new URL("../../../packages/tex/worker/replayWindow.ts", import.meta.url), "utf8");
   const match = agent.match(/export const MAX_REPLAY_MS = ([0-9 *]+);/);
   assert.ok(match, "MAX_REPLAY_MS is declared in the agent as integer factors");
   const agentValue = match[1].split("*").map((factor) => Number(factor.trim())).reduce((a, b) => a * b, 1);

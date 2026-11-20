@@ -18,7 +18,7 @@ Tex answers in a group only when it is addressed: its name ("Tex" or
 "Context") opening or closing the message, its name in a question, or an
 inline reply to one of Tex's own texts in that group that says more than
 thanks. The test reads only the words, with no model
-(`apps/agent/src/groupInbox.ts`). It never chimes in on its own.
+(`packages/tex/worker/groupInbox.ts`). It never chimes in on its own.
 
 Each tagged message is resolved again by the control plane
 (`POST /agent-texts/group`, `apps/convex/functions/textGroups.ts`):
@@ -71,7 +71,7 @@ way a person's own texts are. This replaces the first version's rule that an
 untagged message is never stored.
 
 - While a chat is bound to a shared workspace and not muted, an untagged
-  message is kept in the group's queue object (`apps/agent/src/groupChat.ts`),
+  message is kept in the group's queue object (`packages/tex/worker/groupChat.ts`),
   with who sent it and a hash of who was in the chat. Nothing is kept in a
   chat that isn't bound, an SMS group, a muted one, or once anyone has joined
   or left since Tex last answered, until a tag resolves the chat again.
@@ -113,7 +113,7 @@ which only the chat's people open. Dev2 picked this over keeping labels only.
 
 - The Worker sends `numbers` (each person's number, by the handle or guest
   label the turn knows them by) and, when a guest tagged Tex, `asker` (their
-  label) (`apps/agent/src/groupModelTurn.ts`). Lines the chat said still name
+  label) (`packages/tex/worker/groupModelTurn.ts`). Lines the chat said still name
   people by handle or label; the number goes only in that list.
 - The gateway keeps a number only for someone named in this chat, only a real
   one (E.164), once each (`apps/mcp/src/agent/groupNames.js` `numbersOf`), and
@@ -126,7 +126,7 @@ which only the chat's people open. Dev2 picked this over keeping labels only.
 - Reversing it brings back labels said to people. Tests:
   `apps/mcp/test/groupNames.test.mjs` ("each person here is shown with their
   number", "a number is kept only for someone here"),
-  `apps/agent/src/groupInbox.test.ts` (numbers only in `numbers`).
+  `packages/tex/worker/groupInbox.test.ts` (numbers only in `numbers`).
 
 ## Who is here is the message's own list (Dev2, 2026-11-12)
 
@@ -139,12 +139,12 @@ message's list for naming and counting.
 - A turn names and counts the people (`people`, `guests`, `numbers`, `size`)
   from the message's own list when it names anyone besides the sender, and
   from everyone it was given otherwise (a routine, a sender-only webhook)
-  (`apps/agent/src/groupModelTurn.ts` `whoIsHere`).
+  (`packages/tex/worker/groupModelTurn.ts` `whoIsHere`).
 - Unchanged: the control plane is asked with, and the chat's `members` hash
   is made from, both lists together, so the lookup's extra people still only
   narrow what Tex may share; an email is offered only to someone named here,
   which the shorter list makes stricter, never wider.
-- Test: `apps/agent/src/groupInbox.test.ts` ("names and counts who is here
+- Test: `packages/tex/worker/groupInbox.test.ts` ("names and counts who is here
   from the message's own list"); sabotaged by returning the union.
 
 ## A guest's name is kept on the chat (Dev2, 2026-11-12)
@@ -215,13 +215,13 @@ other people's words are in its history.
   (`apps/mcp/src/tools/offerFor.js`). Nothing is held, because a hold is the
   tagger's and their grant acts for nobody else: the copy is shown addressed
   to that person, the answer carries `askFor`, and the Worker arms the chat's
-  ask for that person's phone alone (`apps/agent/src/groupInbox.ts`). Their
+  ask for that person's phone alone (`packages/tex/worker/groupInbox.ts`). Their
   👍 or yes is a turn of their own; the gateway lets it count as agreement
   only to words that asked them by name (`addressedTo` in `route.js`), the
   model makes the same call as them, and the exact copy they agreed to goes
   once from their own account (`likedPreview.js`), replacing anything held for
   them before. Anybody else's 👍 on it is no yes. `apps/mcp/test/agentGroupOffer.test.mjs`
-  and `apps/agent/src/groupInbox.test.ts` fail if either rule is dropped.
+  and `packages/tex/worker/groupInbox.test.ts` fail if either rule is dropped.
 - **Never read mail, unless its own person shares it here.** `claimPersonMailRead`
   needs an owner of the personal workspace with `context:private`; a group
   grant is neither. Since 2026-10-27 a mailbox's own person may share it with
@@ -318,12 +318,12 @@ texting grant reads their personal workspace, mail and vault into a room of
 other people. A workspace set computed once at join time, rather than per
 message and per tool call, keeps answering after someone is removed. Tests:
 `apps/convex/__tests__/textGroups.test.ts`,
-`apps/mcp/test/agentGroupTurn.test.mjs`, `apps/agent/src/groupInbox.test.ts`.
+`apps/mcp/test/agentGroupTurn.test.mjs`, `packages/tex/worker/groupInbox.test.ts`.
 
 ## Delivery in a busy chat (from the group chat of 2026-10-21)
 
 Dev2 and a teammate tested Tex in a group and found answers that broke apart. What
-changed, in `apps/agent/src/groupInbox.ts`:
+changed, in `packages/tex/worker/groupInbox.ts`:
 
 - **Every bubble of an answer threads under the message it answers**, the
   intro included. Only the first did, so a second bubble landed loose in the
@@ -388,7 +388,7 @@ issue to be fixed. What changed:
   and sends pictures it draws, makes or finds in a note. What stays off is
   somebody's alone: mail, the tagger's own `tex/` notes and learned skills,
   delegation as them, their Slack and their own saved logins.
-- **Pictures and files in the chat are read** (`apps/agent/src/groupInbox.ts`),
+- **Pictures and files in the chat are read** (`packages/tex/worker/groupInbox.ts`),
   as a 1:1 text's are: one sent with a tag, those sent in the chat since Tex
   last answered (the newest four), and one the tagger sends within two
   minutes of a tag still waiting. A tag of words alone waits four seconds for
@@ -411,7 +411,7 @@ group Tex back on one model with a closed web; narrowing its writes again
 brings back "I can't edit that from this chat"; re-showing a shown ask buries
 every answer under it. Tests: `apps/mcp/test/agentProduction.test.mjs`,
 `apps/mcp/test/agentGroupActions.test.mjs`,
-`apps/mcp/test/agentGroupTurn.test.mjs`, `apps/agent/src/groupInbox.test.ts`.
+`apps/mcp/test/agentGroupTurn.test.mjs`, `packages/tex/worker/groupInbox.test.ts`.
 
 ### The setup never loaded until 2026-10-26
 
@@ -470,7 +470,7 @@ saved it. A note's path is kept, never what is in it.
 **What a simplification would cost:** going back to the list of asking verbs
 leaves an ordinary ask unanswered with no sign it was heard; dropping tools
 and notes from the chat's memory brings back the disowned note.
-`apps/agent/src/groupInbox.test.ts` ("answers \"Tex turn this guy into a
+`packages/tex/worker/groupInbox.test.ts` ("answers \"Tex turn this guy into a
 cat\"") and `apps/mcp/test/agentGroupTurn.test.mjs` ("the next tag knows which
 note the last one wrote") fail if either is reversed.
 
@@ -560,14 +560,14 @@ What a simplification would cost: caching the reach on the grant and trusting it
 
 Dev2 chose this on the 2026-11-05 bug hunt: "Tex, find us a dinner spot for Friday" said as a voice message in a group got no answer, and the same words typed did. Whether a group message is for Tex is decided from its words (`groupInbox.ts` `acceptGroup`), and a voice message has none: its words were only made inside the gateway's turn, after that decision.
 
-- **A message that is only a voice recording is heard first** (`apps/agent/src/groupVoice.ts`): the group's object downloads it and asks the gateway's `TexTexts` entrypoint (`/texts/hear`, `apps/mcp/src/agent/textsHear.js`) for its words. That is the transcription a turn uses (`hearVoiceMessages`), reached over the service binding, so no new secret or service hears the audio; the caller is the chat's hash.
+- **A message that is only a voice recording is heard first** (`packages/tex/worker/groupVoice.ts`): the group's object downloads it and asks the gateway's `TexTexts` entrypoint (`/texts/hear`, `apps/mcp/src/agent/textsHear.js`) for its words. That is the transcription a turn uses (`hearVoiceMessages`), reached over the service binding, so no new secret or service hears the audio; the caller is the chat's hash.
 _Superseded 2026-11-11 by [one-judge-one-record](./one-judge-one-record.md) (PR 1): a voice message's heard words are logged as its line ("(voice message) ...") and judged like typed words; no name rule decides it._
 
 - **Said aloud, Tex's name anywhere is the tag** (`addressesTex` or `namesTex` on `heard`): decide cannot hear a recording, so leaving a named voice message to it would leave it unanswered as before.
 - **`heard` only decides whether a turn runs.** The turn still gets the recording and hears it as before; the chat's log and decide are unchanged. `heard` is set only by the object, from the recording: `/group-accept` drops any `heard` a request names.
 - **Best effort, bounded at 12 s.** No binding, a failed download or transcription, or silence leaves the message as it came, never worse than before. A message with words, a picture, an SMS group or a reaction is never sent to be heard.
 
-What a simplification would cost: gating on typed words alone drops every voice message to Tex in a group; handing every recording to decide spends a decide on audio it cannot hear. Tests: `apps/agent/src/groupVoice.test.ts`, `apps/mcp/test/textsHear.test.mjs`.
+What a simplification would cost: gating on typed words alone drops every voice message to Tex in a group; handing every recording to decide spends a decide on audio it cannot hear. Tests: `packages/tex/worker/groupVoice.test.ts`, `apps/mcp/test/textsHear.test.mjs`.
 
 ## A chat that misses a workspace is told who keeps it out (Dev2, 2026-11-16)
 

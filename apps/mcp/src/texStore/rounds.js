@@ -11,7 +11,7 @@
  */
 import { TexObjectRefused } from "./objects.js";
 
-/** How long a text's rounds are read back: its tries are minutes apart (`apps/agent/src/inbox.ts`). */
+/** How long a text's rounds are read back: its tries are minutes apart (`packages/tex/worker/inbox.ts`). */
 export const ROUNDS_FRESH_MS = 30 * 60 * 1000;
 /** One snapshot, as JSON: pictures are never in it, and long results are cut before it gets here (`agent/savedRounds.js`). */
 export const MAX_ROUNDS_BYTES = 1_500_000;

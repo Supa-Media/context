@@ -98,7 +98,7 @@ of random thread pages, and maybe link to sub pages".
   (`hub`, `apps/mcp/src/agent/hubLinks.js`): `/tex/@<handle>` for a person's
   own chat, the handle read off the grant, and `/tex/group/<words>` for a
   group, the words of the chat's home (`tex/groups/<words>`) as its own grant
-  opened it. The texting Worker reads it strictly (`apps/agent/src/jobs.ts`
+  opened it. The texting Worker reads it strictly (`packages/tex/worker/jobs.ts`
   `readHub`: https, one of those two paths, nothing else) and sends it as the
   card's address where cards go, and as words everywhere else, which on
   Sendblue go tappable with any picture sent beside them (`linkPreviews.ts`).
@@ -129,7 +129,7 @@ of random thread pages, and maybe link to sub pages".
   person's own chat list would make the words a key.
 
 Tests: `apps/mcp/test/agentHubLinks.test.mjs`, the hub check in
-`agentGroupTurn.test.mjs`, `apps/agent/src/threadsView.test.ts`,
+`agentGroupTurn.test.mjs`, `packages/tex/worker/threadsView.test.ts`,
 `apps/mobile/__tests__/texPageAddress.test.ts` and the address checks in
 `texPage.test.ts` and `texComputer.test.ts`.
 

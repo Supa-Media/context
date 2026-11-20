@@ -33,7 +33,7 @@ export const CROSS_CHAT_SEND_ACTIONS = {
   post_in_chat: { tool: POST_IN_CHAT, summary: "Answering another chat's ask to do something here: post one line in this group, signed with who asked." },
 };
 
-/** The events the texting Worker starts a run with (`apps/agent/src/crossChat.ts`). */
+/** The events the texting Worker starts a run with (`packages/tex/worker/crossChat.ts`). */
 export const CHAT_ASK_EVENT = "chat_ask";
 export const CHAT_ANSWER_EVENT = "chat_answer";
 

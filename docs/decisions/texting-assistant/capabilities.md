@@ -42,7 +42,7 @@ exactly what the person does.
 
 **The guard:** `apps/mcp/test/capabilities.test.mjs`, in the gateway suite. It
 fails when a `write`, `manage` or `send` action, a chat command
-(`commandTools.js`) or a group command word (`apps/agent/src/groupWords.ts`)
+(`commandTools.js`) or a group command word (`packages/tex/worker/groupWords.ts`)
 is on no line; when a line names one that no longer exists; and when a line
 offers in a group what a group turn never gets (`SOMEBODYS_ALONE` in
 `groupTurn.js`), or says a group lacks what it has. A feature with no tool is

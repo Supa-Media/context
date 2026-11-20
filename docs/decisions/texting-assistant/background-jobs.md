@@ -18,7 +18,7 @@ working on this?" got no status, and every other ask waited behind it.
   once ("on it, I'll text you"). Offered only when the texting Worker sent the
   chat's job list (`running`), so a caller that can't run jobs is offered
   none, and never on a job's own turn: jobs don't start jobs.
-- **Each job runs in a Durable Object of its own** (`apps/agent/src/jobs.ts`,
+- **Each job runs in a Durable Object of its own** (`packages/tex/worker/jobs.ts`,
   `jobRun.ts`), named `job:<id>`, the same class as the inboxes, with its own
   alarm and fifteen minutes. So up to three run side by side while the chat's
   own inbox keeps answering texts. The result goes back to the chat's inbox,
@@ -37,7 +37,7 @@ working on this?" got no status, and every other ask waited behind it.
   status, which the model relays instead. The Worker holds to the same by
   exact title and by count when two turns race. Repeated *texts* (the same
   words sent twice) are the inbox's to fold, not this ([groups](./groups.md),
-  `apps/agent/src/inbox.ts`).
+  `packages/tex/worker/inbox.ts`).
 - **A job always delivers.** Its turn is told to write the deliverable where
   it belongs before it finishes, even unfinished, saying what's missing. Every
   turn with three or more rounds is told before its last two: the one before
@@ -77,8 +77,8 @@ steps; letting the job's brief be its `question` lets a model-written line
 vouch for an address the person never gave; carrying the starting turn's
 grant into a group job would answer someone who joined meanwhile from a
 workspace they aren't in. Tests: `apps/mcp/test/agentBackground.test.mjs`,
-`apps/mcp/test/agentBackgroundRoute.test.mjs`, `apps/agent/src/jobs.test.ts`
-and `apps/agent/src/groupJobs.test.ts`, each with a sabotage record.
+`apps/mcp/test/agentBackgroundRoute.test.mjs`, `packages/tex/worker/jobs.test.ts`
+and `packages/tex/worker/groupJobs.test.ts`, each with a sabotage record.
 
 **Open:** a job's pictures are not texted.
 
@@ -99,7 +99,7 @@ history, while the chat kept telling the owner they were still going.
   what's needed: a code, a captcha, card details, a decision) or `stuck`. A
   chat's own turn is never checked. When the advisor can't be reached, the
   phrase check (`stopsShort.js`) decides as before.
-- **The Worker acts on it** (`apps/agent/src/jobRun.ts`): `keep_going` runs
+- **The Worker acts on it** (`packages/tex/worker/jobRun.ts`): `keep_going` runs
   another part that starts on the advice; the job ends `waiting` or `stuck`
   as a state of its own, and the chat's coordinator turn (`jobReport.js`)
   asks for exactly what's needed, or says why it stopped. **Limit: thirty
@@ -124,7 +124,7 @@ history, while the chat kept telling the owner they were still going.
 prompt makes every text slower to answer; showing the advice in the live view
 puts a job's findings behind a link. Tests: `apps/mcp/test/agentJobCheck.test.mjs`,
 the job-check and `job_status` checks in `agentBackground.test.mjs` and
-`agentBackgroundRoute.test.mjs`, and `apps/agent/src/jobs.test.ts`, each with
+`agentBackgroundRoute.test.mjs`, and `packages/tex/worker/jobs.test.ts`, each with
 a sabotage record.
 
 ### "Restart it" picks a stopped job back up; a job works from its own record (2026-10-31)
@@ -134,7 +134,7 @@ texts, each starting a brand-new job whose question was the restart text, and
 all three answered "it's running again" eight times before they stopped.
 
 - **A job that ends without finishing keeps its run** in its own object for
-  two hours, as its chat keeps its entry (`apps/agent/src/jobRun.ts`
+  two hours, as its chat keeps its entry (`packages/tex/worker/jobRun.ts`
   `ENDED_KEY`): the same ask, brief, finish line, its last answer and the
   advisor's advice. An alarm drops it after that. A finished job keeps none.
 - **Restart resumes, never copies.** `send { action: "restart_job" }`
@@ -157,7 +157,7 @@ all three answered "it's running again" eight times before they stopped.
   can be picked up only while its object keeps the run, so once those two
   hours pass the chat's inbox marks it `stuck` ("Stopped waiting: no answer
   within two hours"), timed at the moment the wait ran out (`sweptJobs`,
-  `apps/agent/src/jobs.ts`). The chat's turns and the Tex page read their
+  `packages/tex/worker/jobs.ts`). The chat's turns and the Tex page read their
   jobs through that one sweep. Before, the page kept a job waiting on a
   Gmail yes on a cloud minion for two days after nothing could answer it,
   while Tex's own turns had stopped being shown it. On the page, running
@@ -169,7 +169,7 @@ all three answered "it's running again" eight times before they stopped.
 on the restart text with nothing it had done; showing a job the chat lets it
 answer as the chat; dropping the repeat guard spends ten parts on nothing.
 Tests: `apps/mcp/test/agentJobRestart.test.mjs`, `agentJobCheck.test.mjs`,
-`apps/agent/src/jobResume.test.ts`, each with a sabotage record; keeping a
+`packages/tex/worker/jobResume.test.ts`, each with a sabotage record; keeping a
 lapsed wait `waiting` fails "ends a wait nobody can answer any more"
 (`jobs.test.ts`) and its page twin (`texPage.test.ts`), and numbering slots
 by start alone fails "a running job gets a cloud slot before jobs waiting"
@@ -209,7 +209,7 @@ auditing it etc".
 of their text lets a model line steer a job (and, through a turn, vouch for
 nothing it should); dropping the after-the-last-look turn texts a result the
 person already changed; texting what a stopped job says on its way out
-ignores the stop. Tests: `apps/agent/src/jobSteer.test.ts`, and the steer and
+ignores the stop. Tests: `packages/tex/worker/jobSteer.test.ts`, and the steer and
 step checks in `apps/mcp/test/agentBackground.test.mjs`,
 `agentBackgroundRoute.test.mjs` and `agentSteer.test.mjs`.
 
@@ -224,7 +224,7 @@ what it is doing, so iMessage works more like an agent chat, and for it to
 work in groups too. When Tex starts a job, or is asked what it is working on,
 it adds `[card threads]` (`background.js` tells it to, and `DATA_CARDS_LINE`
 says when). The texting Worker then mints a link to the chat's live view
-(`apps/agent/src/jobs.ts` `mintThreadsLink`): a one-to-one chat with Context
+(`packages/tex/worker/jobs.ts` `mintThreadsLink`): a one-to-one chat with Context
 cards gets a card that the Messages extension opens (`/tex/threads` →
 `/messages/threads`), and anyone else, every group included, gets the link
 in words, because Sendblue App Cards are one-to-one only. The page
@@ -242,7 +242,7 @@ forwarded link reveals what anyone in the chat could ask Tex for, and stops
 working within hours. The page has no script and sets its own policy. A
 self-hosted router without the binding shows the ended page. Simplifying
 the token check away exposes every chat's jobs to anyone who guesses an
-object id. Tests: `apps/agent/src/threadsView.test.ts`,
+object id. Tests: `packages/tex/worker/threadsView.test.ts`,
 `infra/router/src/messagesThreads.test.ts` (sabotage records in each header).
 
 The 3-job limit is told when it bites. The gateway refuses a fourth job with
@@ -260,7 +260,7 @@ taken or gone when its turn returns says and stores nothing (`stale_pass` in
 the log), and the chat's inbox texts one finishing word per job, from the
 pass that sent it first (`jobs.ts` `finalPass`; the same pass offering it
 again is still taken). Dropping the lease brings back two answers that
-disagree. Tests: `apps/agent/src/jobPass.test.ts`.
+disagree. Tests: `packages/tex/worker/jobPass.test.ts`.
 
 **Every job reports to the chat's own turn, never to the chat** (Dev2,
 2026-10-30: "if something is going in a background task it should always
@@ -268,7 +268,7 @@ report to the coordinator, no exceptions, the coordinator should have
 complete authority over the background processes, provide steering etc").
 Whatever a job would have said (its result, the line saying it couldn't
 finish, a sign-in link on its way) is queued by the chat's inbox as a turn
-of the chat itself (`apps/agent/src/jobTexts.ts`: `event: "job_report"`,
+of the chat itself (`packages/tex/worker/jobTexts.ts`: `event: "job_report"`,
 the words as `jobReport`; in a 1:1 chat a turn the Worker asks for, in a
 group its asker's tag run the way a chat routine's is). That turn, the
 coordinator, is asked the gateway's own line and shown the report as the
@@ -280,7 +280,7 @@ steers a running job with its own note (`steer_job` `note`, passed to the
 job marked as the coordinator's, never as theirs), or answers SKIP. A job's
 own answer is no longer kept in the conversation as said; only the
 coordinator's turn is. Texting a job's words straight in again, for any
-kind of update, breaks the rule. Tests: `apps/agent/src/jobReports.test.ts`,
+kind of update, breaks the rule. Tests: `packages/tex/worker/jobReports.test.ts`,
 `groupJobs.test.ts`, `apps/mcp/test/agentBackgroundRoute.test.mjs`.
 
 **Staying quiet on a report is a flag, and an ended job is never met with
@@ -295,10 +295,10 @@ the model's own words with any SKIP taken off, or, when it said only a
 control word or nothing, one plain status line with the job's own result
 (`reportStatusLine`). In front of the line, a bubble that is only a control
 word (SKIP, NOOP, NO_REPLY, QUIET, NONE in capitals) is never sent, on any
-path (`apps/agent/src/controlWords.ts`, checked in `reply.ts`, `inbox.ts`,
+path (`packages/tex/worker/controlWords.ts`, checked in `reply.ts`, `inbox.ts`,
 `groupSay.ts`). Letting the model's word decide again brings back results
 nobody hears. Tests: `apps/mcp/test/jobReportReply.test.mjs`,
-`agentBackgroundRoute.test.mjs`, `apps/agent/src/jobReports.test.ts`.
+`agentBackgroundRoute.test.mjs`, `packages/tex/worker/jobReports.test.ts`.
 
 ## A job's turns are off the daily cap (decided by the owner, 2026-10-31)
 
@@ -319,7 +319,7 @@ is refused for is answered with a fixed line rather than silence. Counting
 job turns against the cap again, or ending a refused job silently, reverses
 this. Tests: `apps/convex/__tests__/builtinModel.test.ts` ("a background
 job's turns"), `apps/mcp/test/agentBackgroundRoute.test.mjs`,
-`apps/agent/src/jobs.test.ts`, `apps/agent/src/jobReports.test.ts`.
+`packages/tex/worker/jobs.test.ts`, `packages/tex/worker/jobReports.test.ts`.
 
 ## A restart carries their words, says why a job stopped, and stays quiet when asked (2026-11-03)
 
@@ -347,7 +347,7 @@ real site on the page's word, because an attacker's page would ask for a
 login of its own. Instead it asks for a web search before a new `vault_add`
 link. Handing a restart the placeholder again, dropping step reasons from
 `job_status`, or texting a quiet start reverses this. Tests:
-`apps/agent/src/jobResume.test.ts` ("a restart's own words reach the job it
+`packages/tex/worker/jobResume.test.ts` ("a restart's own words reach the job it
 picks up", "the chat's restart hands the job their words"),
 `apps/mcp/test/agentJobRestart.test.mjs` ("asked to hear nothing until it's
 done"), `apps/mcp/test/agentBackground.test.mjs`,
@@ -432,12 +432,12 @@ goes to a computer").
 
 Dev2 chose this on the 2026-11-05 bug hunt. A part refused at the daily limit said "Text me tomorrow and I'll pick it back up", but the paused job's run was kept two hours, so the next day "pick it back up" found nothing.
 
-- **It waits for the reset, then restarts by itself** (`apps/agent/src/jobPause.ts`). The limit is counted per UTC day (`apps/convex/functions/lib/jev/meter.ts` `utcDay`), so the pause carries `resumeAt`, two minutes past the next midnight UTC. The job's object keeps its run until two hours past `resumeAt` (`jobRun.ts` `keepUntil`), the chat's inbox keeps the entry waiting until then (`sweptJobs`) and shows it to every turn meanwhile (`chatJobs`), and its alarm is armed for `resumeAt` (`jobTexts.ts`).
+- **It waits for the reset, then restarts by itself** (`packages/tex/worker/jobPause.ts`). The limit is counted per UTC day (`apps/convex/functions/lib/jev/meter.ts` `utcDay`), so the pause carries `resumeAt`, two minutes past the next midnight UTC. The job's object keeps its run until two hours past `resumeAt` (`jobRun.ts` `keepUntil`), the chat's inbox keeps the entry waiting until then (`sweptJobs`) and shows it to every turn meanwhile (`chatJobs`), and its alarm is armed for `resumeAt` (`jobTexts.ts`).
 - **The restart is "restart it"** (`resumeJobs`): the same ask, brief and finish line, its last answer to build on, under a new workflow, shown "(Picked back up.)". Three jobs already running, or a restart that fails, tries again every ten minutes until the two hours are up; then it lapses to stuck as any ended wait does.
 - **It can still be stopped.** The chat's turns are shown it with `resumeAt` and offered `steer_job` for it: a stop marks it stopped so it never starts again (`steerJobs`); a change is refused until it is running, and the turn is told why (`background.js`).
 - **The words promise only that:** "I'll pick it back up by myself as soon as the limit resets, and tell you when it's done." A pause for no model keeps its two hours and waits to be asked.
 
-What a simplification would cost: keeping the two-hour window breaks the promise every time; resuming from the job's own object skips the chat's slot count. Tests: `apps/agent/src/jobPause.test.ts`.
+What a simplification would cost: keeping the two-hour window breaks the promise every time; resuming from the job's own object skips the chat's slot count. Tests: `packages/tex/worker/jobPause.test.ts`.
 
 ## A new brief is always a new job (decided by Dev2, 2026-11-11; its silent start reversed 2026-11-12, below)
 
@@ -470,7 +470,7 @@ drops the brief that would unstick it and loops; an "On it" text comes back
 beside every start. Tests: `apps/mcp/test/agentJobRestart.test.mjs` ("a new job
 named like one that stopped is a new job, with its own brief", "a start or
 restart with no say texts nothing: their text gets a tapback"), `apps/mcp/bench/test/world.test.mjs` (the
-tapback), `apps/agent/src/groupJobs.test.ts` ("a job's start texts nothing: the
+tapback), `packages/tex/worker/groupJobs.test.ts` ("a job's start texts nothing: the
 ask gets a tapback and the job still runs").
 
 ## A job's start is Tex's call: a line or a tapback, judged from example chats (decided by Dev2, 2026-11-12)
@@ -553,7 +553,7 @@ when issues".
   browser is in use by another job and to try again shortly
   (`browserLease.js` `BROWSER_BUSY`), never anything about a sign-in or a
   password, since nothing was typed.
-- **One pass per job object.** `runJob` (`apps/agent/src/jobRun.ts`) starts no
+- **One pass per job object.** `runJob` (`packages/tex/worker/jobRun.ts`) starts no
   turn while one is live in the same object: it logs `pass_overlap` and
   answers `{ kind: "after", ms: 30 s, overlap: true }`, and the workflow
   waits without spending one of the job's passes (`MAX_OVERLAP_WAITS`). A
@@ -579,14 +579,14 @@ holder never comes back", "runs a call with no holder as before"),
 `apps/mcp/test/agentBrowserLease.test.mjs` ("a job waits for a busy browser,
 then runs", "a chat turn still busy after its brief wait is told the browser
 is in use, and nothing about a sign-in", "a question lets go of its lease when
-it ends"), `apps/agent/src/jobPass.test.ts` ("a second pass asked for while
-one runs in the same object starts no turn"), `apps/agent/src/jobWorkflow.test.ts`
+it ends"), `packages/tex/worker/jobPass.test.ts` ("a second pass asked for while
+one runs in the same object starts no turn"), `packages/tex/worker/jobWorkflow.test.ts`
 ("waits out a pass still running in the object without spending the job's passes").
 
 ## A part goes on from its last step (2026-11-17)
 
 A part that dies goes on from the rounds it saved in the chat's home, not from its prompt: the same part tried again,
-or the next part after one cut off before it answered. The Worker names the part (`apps/agent/src/jobPartResume.ts`); the
+or the next part after one cut off before it answered. The Worker names the part (`packages/tex/worker/jobPartResume.ts`); the
 rounds never leave the chat's home. The rules and what never carries are in [turn-resume](./turn-resume.md).
-Tests: `apps/agent/src/jobPartResume.test.ts`, `apps/mcp/test/savedRounds.test.mjs` ("a job's part keeps under its own
+Tests: `packages/tex/worker/jobPartResume.test.ts`, `apps/mcp/test/savedRounds.test.mjs` ("a job's part keeps under its own
 part"), replay case `job-part-resumed`.

@@ -43,7 +43,7 @@ import { mailVerdict, recordMail } from "../agent/workEntries.js";
 export { EMAIL_TOOL };
 
 export const MAIL_CHECKER = "mail-checker";
-/** The longest copy a texted ask shows: one text, under the 3,000 a text keeps (`apps/agent/src/clients.ts`). */
+/** The longest copy a texted ask shows: one text, under the 3,000 a text keeps (`packages/tex/worker/clients.ts`). */
 export const TEXTED_COPY_CAP = 2_500;
 /** Who may send when the Mail checker's note names nobody. */
 export const DEFAULT_EMAIL_CALLERS = ["texting-assistant"];

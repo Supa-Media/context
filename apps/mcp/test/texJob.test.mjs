@@ -18,7 +18,7 @@ import { chatEnv } from "../src/texChat.js";
 import { jobCallForTexts, TEXTS_JOB_CALL_PREFIX } from "../src/agent/textsArrive.js";
 import { TexTexts, TexJob } from "../src/index.js";
 
-const { SenderInbox } = await import("../../agent/src/gatewayChat.js");
+const { SenderInbox } = await import("../../../packages/tex/worker/gatewayChat.js");
 
 const JOB = "a1b2c3d4-e5f6";
 const NAME = `job:${JOB}`;

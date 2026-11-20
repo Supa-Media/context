@@ -51,7 +51,7 @@ blocker. They proposed guest mode, and chose every default below on
   "automatically added/removed when they join or leave a chat"): any message
   in a guest chat whose list of people changed since the control plane last
   heard it sends the new list (`/agent-texts/group/people`,
-  `apps/agent/src/groupGuestPeople.ts`), with no turn, no grant and nothing
+  `packages/tex/worker/groupGuestPeople.ts`), with no turn, no grant and nothing
   said in the chat. Someone who leaves is removed at the next message
   anyone sends.
 - **Tex reads and writes only what is shared with the chat's group.** The
@@ -184,7 +184,7 @@ routine"; `textGroupInvited.test.ts` revocation and stranger cases.
 
 On WhatsApp the webhook names only the sender, so a turn whose member list
 can't be read is retried rather than decided as if the sender were alone
-(`senderOnlyWebhook` in `apps/agent/src/groupLine.ts`; test:
+(`senderOnlyWebhook` in `packages/tex/worker/groupLine.ts`; test:
 `groupWhapiMembers.test.ts`). That is how the Crystal Care chat came to be
 bound on Dev2 alone: Tex had been added moments before, and the list wasn't
 readable yet.

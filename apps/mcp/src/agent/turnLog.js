@@ -41,13 +41,14 @@ export function actionOf(made, call) {
 const NOTE_WRITES = new Set(["write_note", "save_many"]);
 
 /**
- * Rule 3: the state file a plain note write changed, when it is one of Tex's own (tex/heartbeat.md, a routine) that
- * has no dedicated action yet; the Lab's Tools tab counts them. Only a name from the closed list, never the path.
+ * Rule 3: the state file a plain note write changed, when it is one of Tex's own whose dedicated action is not a plain
+ * write (tex/heartbeat.md has `setting`, tex/about.md `remember`), or has none yet; the Lab's Tools tab counts them.
+ * Only a name from the closed list, never the path.
  */
 export function stateOf(call) {
   if (!NOTE_WRITES.has(call?.name)) return undefined;
   const paths = call.name === "save_many" && Array.isArray(call.args?.notes) ? call.args.notes.map((note) => note?.path) : [call.args?.path];
-  const hit = paths.map((path) => stateFileOf(path)).find((entry) => entry !== null && entry.action === null);
+  const hit = paths.map((path) => stateFileOf(path)).find((entry) => entry !== null && entry.action !== "write");
   return hit?.file;
 }
 

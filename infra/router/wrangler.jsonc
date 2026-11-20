@@ -94,7 +94,7 @@
       "workers_dev": true,
       "vars": {},
       // Staging only: /texts-simulator goes to the texting assistant's
-      // simulator (apps/agent/src/simulator.ts). Production has no binding,
+      // simulator (packages/tex/worker/simulator.ts). Production has no binding,
       // so the path is an ordinary app 404 there.
       "services": [
         { "binding": "TEXTS_SIMULATOR", "service": "context-agent-staging" },

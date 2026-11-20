@@ -218,7 +218,7 @@ message, name or not, and the control plane tells the app by the chat's id (`wha
 icons as a person's own Tex folders (`texPartIcon`, the owner: "please update the folder icons to be the proper
 logos").
 
-Tests: `apps/agent/src/groupName.test.ts` (the name never in the message; cleaned; sent alone, and the chat reported
+Tests: `packages/tex/worker/groupName.test.ts` (the name never in the message; cleaned; sent alone, and the chat reported
 with no name), `apps/convex/__tests__/textGroupHome.test.ts` ("a chat's name on its home"; WhatsApp told from
 iMessage), `apps/mobile/__tests__/chatHomeTitles.test.ts` (the mark on the folder page),
 `apps/mobile/__tests__/contextIconPicker.test.ts` (a home's folders draw their parts).
@@ -277,7 +277,7 @@ Dev2, after the Nov Babies chat's two finished research pages were dropped: "all
 - **One grant for every turn.** A tag, a routine's run, a check-in and a job's report all get the chat's home plus its reach (`applyGroupTurn` in `functions/textGroups.ts`). An empty reach means the home alone, never a refusal. A turn started for someone with no account (a job they asked for, reporting) runs as them on the home, as their tag does. A command is still never theirs to give.
 - **What was removed.** Routines needed a shared workspace (from when a chat was bound to one), and a routine was never answered from the home for someone with no account. Both refused a job's report, which runs as a routine's turn, and the Worker then dropped it silently.
 - **Every chat with a home checks in and may keep routines there** (`lib/textGroupLooks.ts`, `apps/mcp/src/agent/groupRoutines.js`). A routine is still set only by someone on Context, since it runs as its writer.
-- **A report is never silent.** One whose turn the chat still can't run texts the "news is waiting" line, unless Tex was told to stop in the chat (`apps/agent/src/groupInbox.ts` `cannotRun`).
+- **A report is never silent.** One whose turn the chat still can't run texts the "news is waiting" line, unless Tex was told to stop in the chat (`packages/tex/worker/groupInbox.ts` `cannotRun`).
 - **Unchanged: the least-privileged rule.** When anyone in the chat has no account, the reach is empty, because nothing can say what that person may read. *Superseded in part (Dev2, 2026-11-16): a number invited to a workspace by phone says what that person may read there, so they count in it ([groups](./groups.md#one-list-of-numbers-and-reach-by-membership-dev2-2026-11-16)).* Letting a chat reach a workspace when its people allow it is a possible later step (Dev2: "in the future we may allow workspace information if the user allows for it"); it is not built.
 
-Reversing this fails `apps/convex/__tests__/textGroupHomeOnly.test.ts` ("every turn of a chat runs on its home and its reach") and `apps/agent/src/groupJobs.test.ts` ("a report whose turn the chat can't run says there is news").
+Reversing this fails `apps/convex/__tests__/textGroupHomeOnly.test.ts` ("every turn of a chat runs on its home and its reach") and `packages/tex/worker/groupJobs.test.ts` ("a report whose turn the chat can't run says there is news").

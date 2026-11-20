@@ -249,7 +249,7 @@ function workerStepEntry({ id, at, turn, step }) {
 
 /**
  * A chat event (`log.js` shape) as a `text` entry; its id is the event's, so the same event is kept once. An event
- * from the Context app's own chat with Tex (chat `app:<userId>`, `apps/agent/src/appChat.ts`) is marked `via: "app"`:
+ * from the Context app's own chat with Tex (chat `app:<userId>`, `packages/tex/worker/appChat.ts`) is marked `via: "app"`:
  * the app shows only its own chat (Dev2, 2026-11-19: "like whatsapp its own thing, but it can see the same history"),
  * while every reader of the person's one record, Tex's history included, reads both.
  */
@@ -261,7 +261,7 @@ export function eventEntry(event) {
   return { v: 1, id: `ev${String(id).replace(/[^0-9A-Za-z]/g, "")}`, eid: id, at, kind: "text", event: eventKind, ...rest, ...via, text: kept.text, ...(kept.cut !== undefined ? { cut: kept.cut } : {}) };
 }
 
-/** The chat id prefix of the Context app's chat with Tex (`apps/agent/src/appChat.ts` `APP_CHAT_PREFIX`). */
+/** The chat id prefix of the Context app's chat with Tex (`packages/tex/worker/appChat.ts` `APP_CHAT_PREFIX`). */
 export const APP_CHAT_PREFIX = "app:";
 
 /**

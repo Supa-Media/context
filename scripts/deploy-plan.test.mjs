@@ -40,17 +40,17 @@ test("a gateway file nobody else imports deploys only the gateway", () => {
 });
 
 test("the texting assistant deploys only itself, to staging and to production", () => {
-  assert.deepEqual(on(plan("apps/agent/src/index.ts")), ["agent"]);
+  assert.deepEqual(on(plan("packages/tex/worker/index.ts")), ["agent"]);
   assert.deepEqual(on(plan("apps/agent/wrangler.jsonc")), ["agent"]);
-  assert.deepEqual(on(plan("apps/agent/src/worker.test.ts")), []);
-  assert.deepEqual(promote("apps/agent/src/index.ts"), ["agent"]);
+  assert.deepEqual(on(plan("packages/tex/worker/worker.test.ts")), []);
+  assert.deepEqual(promote("packages/tex/worker/index.ts"), ["agent"]);
   assert.deepEqual(promote(".github/workflows/deploy-agent-worker.yml"), ["agent"]);
 });
 
 // The gateway's TexChat runs the Worker's chat object (`apps/mcp/src/texChat.js`), so its code deploys both; the
 // webhooks (`index.ts`) stay the Worker's alone.
 test("the chat object's code deploys the texting assistant and the gateway", () => {
-  for (const file of ["apps/agent/src/chatObject.ts", "apps/agent/src/inbox.ts", "apps/agent/src/remoteLine.ts"]) {
+  for (const file of ["packages/tex/worker/chatObject.ts", "packages/tex/worker/inbox.ts", "packages/tex/worker/remoteLine.ts"]) {
     assert.deepEqual(on(plan(file)).sort(), ["agent", "mcp"], file);
     assert.deepEqual(promote(file).sort(), ["agent", "gateway"], file);
   }

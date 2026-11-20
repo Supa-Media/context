@@ -566,7 +566,7 @@ test("a built-in turn whose production model fails goes on with the setup's fall
   const response = await ask({ ...base, AI: ai }, TOKEN_FREE);
   assert.equal(response.status, 200);
   assert.equal(response.body?.answer, "From the spare.");
-  assert.deepEqual(calls.map((call) => call.model), ["@cf/acme/texting-model", "@cf/acme/spare-model"]);
+  assert.deepEqual(calls.map((call) => call.model), ["@cf/acme/texting-model", "@cf/acme/texting-model", "@cf/acme/spare-model"], "asked again once, then the spare");
   assert.equal(controlPlane.builtinReports.at(-1)?.model, "@cf/acme/spare-model", "the meter is told the model that answered");
   const trace = controlPlane.turnReports.at(-1)?.trace ?? [];
   const fell = trace.find((entry) => entry.kind === "fallback");

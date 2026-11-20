@@ -9,7 +9,7 @@
  *  - `POST /agent-texts/handed-back` `{ browsers, since }` → `{ status:
  *    "waiting" }` or `{ status: "done", doneAt }`: the texting Worker, behind
  *    its secret, watching the browsers a turn texted a take-over link for
- *    (`apps/agent/src/handbackWatch.ts`).
+ *    (`packages/tex/worker/handbackWatch.ts`).
  */
 
 import { internal } from "../../../_generated/api";

@@ -4,7 +4,7 @@
  * arrives on it gets one short reply naming the new number, at most once a day per chat, and no turn. Every other text
  * passes on to Triage.
  *
- * No model and no reads: the texting Worker hands in the setting it read (`apps/agent/src/oldLine.ts`, cached a
+ * No model and no reads: the texting Worker hands in the setting it read (`packages/tex/worker/oldLine.ts`, cached a
  * minute) and when this chat was last told, and sends the reply itself, as it sends a check-in's (`notify`). Output
  * `to`: "redirect" with the reply in `answer`; "hold" for a text on the old line when this chat was told within the
  * day (no reply and no turn: the person has been told where Tex is); else "pass".

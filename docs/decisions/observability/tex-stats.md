@@ -9,7 +9,7 @@ notes. These figures now sit at the top of tex.lc/admin as **The basics**, with 
 ## Where each figure comes from
 
 - **Texts in and out, and who texted.** The texting Worker writes one Analytics Engine point per text to
-  `tex_text_counts` (binding `TEX_COUNTS`; staging `tex_text_counts_staging`; `apps/agent/src/textCounts.ts`).
+  `tex_text_counts` (binding `TEX_COUNTS`; staging `tex_text_counts_staging`; `packages/tex/worker/textCounts.ts`).
   An incoming point is written when the inbox keeps the text: a 1:1 text that was queued (`text`), or a group
   message that was queued for Tex (`for_tex`) or only heard (`heard`). Duplicates, tapbacks, reactions, simulator
   texts and routine runs are not counted. An outgoing point is written once the line has taken the message, by the
@@ -45,7 +45,7 @@ began when this shipped, so earlier hours read zero.
 - Counting note writes at the gateway would miss the object's own saves (`ws.create`, collaboration flushes). The
   object's `put` is the one place every note's text lands.
 
-Tests: `apps/agent/src/textCounts.test.ts`, `apps/mcp/test/callCounts.test.mjs` (the note test),
+Tests: `packages/tex/worker/textCounts.test.ts`, `apps/mcp/test/callCounts.test.mjs` (the note test),
 `apps/convex/__tests__/texStats.test.ts`, and `apps/mobile/__tests__/texDashboardRender.test.ts` (the basics).
 
 ## Past days, and where the card lives (2026-11-11)

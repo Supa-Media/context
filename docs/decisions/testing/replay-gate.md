@@ -32,7 +32,7 @@ did not have to leave a case behind.
    fails the gateway's tests and blocks the merge like any other.
 2. **A Tex change brings its case.** `scripts/check-tex-change-has-case.mjs`
    (in Fast repository guards) fails a pull request that changes Tex's code
-   (`apps/mcp/src/agent/`, `apps/agent/src/`, `packages/tex/src/text*`)
+   (`apps/mcp/src/agent/`, `packages/tex/worker/`, `packages/tex/src/text*`)
    without adding or changing a replay case, a respond or review case, or a
    benchmark question. A change no case can show says why on its own line:
    `No replay case: <why>`.

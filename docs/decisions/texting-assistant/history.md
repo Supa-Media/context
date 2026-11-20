@@ -69,7 +69,7 @@ a sign-in…" (`agentConversation.test.mjs`), and golden task 11
 
 The history used to be written only after a model turn, so the next turn never
 saw the texts Tex sent any other way: setting somebody up and saying their
-notes are ready (`apps/agent/src/setup.ts`, `ready.ts`), a texted YES or NO
+notes are ready (`packages/tex/worker/setup.ts`, `ready.ts`), a texted YES or NO
 and what it released (`textedSettle.js`), and a routine's text. Live, a person
 who connected Google and texted "Done" was asked "Done with what?", and a bug
 report filed on a YES was offered again and filed twice (@context-lc
@@ -96,7 +96,7 @@ Asked by Dev, 2026-10-19: Tex answered an inline "try again" with "Try what
 again?", and should answer inside threads "so we can follow the thoughts", as
 Instinct does. On Sendblue, an answer is sent with `reply_to` naming the
 person's message it answers when that message was itself typed in a thread
-(below), so the answer and its progress lines land in that thread (`threadFor` in `apps/agent/src/inbox.ts`).
+(below), so the answer and its progress lines land in that thread (`threadFor` in `packages/tex/worker/inbox.ts`).
 The first version threaded only inline replies and answers that newer texts
 had passed; Dev expected a plain "make me a poster" to be answered in its
 thread too, so on 2026-10-19 the rule became always. That put a whole email
@@ -127,7 +127,7 @@ texted last. Seen 2026-10-19: "location central park", typed in the picnic
 poster's thread, arrived with Sendblue naming the person's previous text, "try
 again" from the photo thread, as its parent, and Tex answered about the photo.
 So the Worker also reads `thread_originator`, the message that started the
-thread (`threadContext` in `apps/agent/src/sendblue.ts`): a parent that sits
+thread (`threadContext` in `packages/tex/worker/sendblue.ts`): a parent that sits
 in another thread is dropped (logged `other_thread`) and the thread's first
 message stands in for it, and when both are readable and differ the turn gets
 the thread's start as `threadStart`, marked like the quote as somebody else's
@@ -136,7 +136,7 @@ told the thread "is what this text is about", Tex raised a check-in's
 expiring hold on every text in its thread, after Dev had waved it off
 (2026-10-19), so the turn is now told not to raise it again unless asked.
 
-Tests: `apps/agent/src/sendblueThreads.test.ts`, `worker.test.ts` ("an inline
+Tests: `packages/tex/worker/sendblueThreads.test.ts`, `worker.test.ts` ("an inline
 reply is queued as one even when its words can't be read"),
 `agentEgressJudge.test.mjs` and `agentTranscript.test.mjs`.
 
@@ -145,7 +145,7 @@ reply is queued as one even when its words can't be read"),
 Asked by Dev, 2026-10-19, of "On it. This one takes a few steps, so I'll text
 you when it's done.": "Most useless message from Tex ever. I don't want to see
 it ever again." The Worker's fixed text after 40 seconds of silence is gone
-(`apps/agent/src/inbox.ts`), and the progress tool and prompt
+(`packages/tex/worker/inbox.ts`), and the progress tool and prompt
 (`apps/mcp/src/agent/progress.js`) no longer ask the model to say it is on it:
 a long turn shows the typing bubble until it has something, and progress lines
 are for real milestones (a sign-in link, a step done) only. Tests: "a long turn

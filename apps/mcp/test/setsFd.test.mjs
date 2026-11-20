@@ -418,7 +418,7 @@ test("a one-to-one text takes the person's waiting texts before it as one, unles
 });
 
 test("the bench's bare acknowledgement is production's", async () => {
-  const source = await readFile(new URL("../../agent/src/inboxTurn.ts", import.meta.url), "utf8");
+  const source = await readFile(new URL("../../../packages/tex/worker/inboxTurn.ts", import.meta.url), "utf8");
   assert.equal(/const PURE_ACK = (\/.*\/[a-z]*);/.exec(source)?.[1], String(PURE_ACK));
 });
 // Tex's tapback that was its whole answer is kept as said, as production keeps it (`tapbackSaidLine`); one beside its
@@ -462,7 +462,7 @@ test("a one-to-one tapback answer is an earlier tapback, written and read back a
 });
 
 // A Tex 🔎 that was its whole answer to a find or search ask started a background job: the Worker picks 🔎 from the
-// ask's words (`apps/agent/src/ackEmoji.ts`), and the Front door's own tapback can't be 🔎 (not in `REACT_EMOJI`). With
+// ask's words (`packages/tex/worker/ackEmoji.ts`), and the Front door's own tapback can't be 🔎 (not in `REACT_EMOJI`). With
 // no words of Tex's and no job report after it, the job is still running when the labelled row comes, so the row's
 // turn is offered it as production's running list does (`background.js` `runningNow`). Sabotage: drop `runningJobOf`
 // from fdTest, and the row reads as if nothing ran.

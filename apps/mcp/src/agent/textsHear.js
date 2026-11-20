@@ -2,7 +2,7 @@
  * A group's voice message, heard before the chat decides whether it is for Tex (2026-11-05 bug hunt: "Tex, find us a
  * dinner spot" said as a voice message in a group got no answer, the same words typed did).
  *
- * The texting Worker decides from a group message's words whether it is addressed to Tex (`apps/agent/src/groupInbox.ts`
+ * The texting Worker decides from a group message's words whether it is addressed to Tex (`packages/tex/worker/groupInbox.ts`
  * `acceptGroup`), and a voice message has none: its words were only made here, inside the turn, after that decision.
  * So the Worker asks this route first, over the `TexTexts` service binding (no public URL, no secret of its own), and
  * gates on what was said. The transcription is the one a turn uses (`hearVoiceMessages`, the meetings service with its

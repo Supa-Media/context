@@ -1,6 +1,6 @@
 /**
  * How Tex writes a phone number and a line's archive day in a text: the old-number reply (gateway node `oldLine`)
- * and the bulk "Tex has a new number" notice (`apps/agent/src/newLine.ts`) word them the same way.
+ * and the bulk "Tex has a new number" notice (`packages/tex/worker/newLine.ts`) word them the same way.
  */
 "use strict";
 

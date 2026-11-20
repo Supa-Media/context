@@ -16,7 +16,7 @@ const ADVISOR_CORE = /^apps\/mcp\/src\/agent\/advisorRoles\/core\.js$/;
 const ADVISOR_KNOWS_MAIL = /^apps\/mcp\/src\/agent\/advisorRoles\/knowsMail\.js$/;
 
 export const AREAS = {
-  respond: [/^packages\/tex\/src\/textDecide/, /^apps\/agent\/src\/.*decide/i, /^apps\/mcp\/bench\/respond\//],
+  respond: [/^packages\/tex\/src\/textDecide/, /^packages\/tex\/worker\/.*decide/i, /^apps\/mcp\/bench\/respond\//],
   review: [/^apps\/mcp\/src\/agent\/(replyJudge|sendBack|recheck|replyChecks)/, /^apps\/mcp\/bench\/review\//],
   // The front door, the prompt and the turn (Dev2, 2026-11-13): the steps every text takes to an answer, the prompt
   // they assemble, and the core set and simple asks that measure them (`coreArea.mjs`).
@@ -34,7 +34,7 @@ export const AREAS = {
   jobs: [
     /^apps\/mcp\/src\/agent\/(background|jobs|jobStart|jobNote|jobReport|jobPages|jobSlots|chatJobs|lastRound|openAsk|stopsShort|workPage|progress)\.js$/,
     /^apps\/mcp\/src\/(pages|pageSkill)\.js$/,
-    /^apps\/agent\/src\/job[A-Za-z]*\.ts$/,
+    /^packages\/tex\/worker\/job[A-Za-z]*\.ts$/,
     /^apps\/mcp\/bench\/job-tasks\//,
     /^apps\/mcp\/bench\/ai\/sites\/(caterers|halls|lunch|orders|retreat|eats)\.example\.md$/,
   ],

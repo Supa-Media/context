@@ -9,7 +9,7 @@ tool call on it, and nothing started it.
 **How it runs.** The texting Worker's minute cron asks the control plane
 (`/agent-texts/dreams/due`) whose dream is due, and calls the gateway's
 `/agent` with `{ dream: { timeZone, since } }` under that dream's own grant
-(`apps/agent/src/dreams.ts`). One `texDreams` row per person
+(`packages/tex/worker/dreams.ts`). One `texDreams` row per person
 (`apps/convex/functions/lib/dreams/`) holds when: a text Tex answers arms the
 next 3:00 am in the person's zone, a claim clears it, a dream that did not
 finish is tried again the next night, and one refused for want of a model
@@ -58,7 +58,7 @@ write anywhere, unattended, every night; keeping the profile or the log
 anywhere but the person's notes is the opaque memory the owner ruled out
 (2026-10-14); dreaming every night regardless of texts spends a model turn on
 nothing. Tests: `apps/mcp/test/agentDream.test.mjs`,
-`apps/convex/__tests__/dreams.test.ts`, `apps/agent/src/dreams.test.ts`.
+`apps/convex/__tests__/dreams.test.ts`, `packages/tex/worker/dreams.test.ts`.
 
 ## A first dream right away, asked for by the person's own agent (2026-10-17)
 

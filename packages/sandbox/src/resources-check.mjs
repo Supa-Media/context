@@ -16,7 +16,7 @@ import { apiFamily, registryProblems, USED_BINDINGS } from "./resources.mjs";
 const REPO = fileURLToPath(new URL("../../..", import.meta.url));
 
 /** Code a preview runs, where a Cloudflare API call could create something. */
-export const SCANNED = ["apps/convex/functions", "apps/mcp/src", "apps/agent/src", "infra/router/src", "packages/sandbox/src"];
+export const SCANNED = ["apps/convex/functions", "apps/mcp/src", "packages/tex/worker", "infra/router/src", "packages/sandbox/src"];
 const CODE = /\.(?:m?js|ts)$/;
 const SKIP = /(?:^|\/)(?:node_modules|_generated|__tests__|dist)(?:\/|$)|\.test\.|\.spec\./;
 
