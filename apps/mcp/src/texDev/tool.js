@@ -20,7 +20,7 @@ import { jobsAnswer, linkAnswer, mineAnswer, momentsAnswer, promptAnswer, turnAn
 import { nodeStatsAnswer } from "./nodeStats.js";
 import { createSandboxActions } from "./sandbox.js";
 import { createSetActions, repoConversation, repoGoldRoute } from "./sets.js";
-import { failureView } from "../../../../packages/shared/src/texFailures.cjs";
+import { failureView } from "../../../../packages/lab/src/texFailures.cjs";
 import { routeSummary } from "../../../../packages/shared/src/texRouteSummary.cjs";
 import { snapshotGraph } from "./snapshot.js";
 import { createDraftWrites } from "./writes.js";

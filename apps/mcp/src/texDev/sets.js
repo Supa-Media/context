@@ -3,7 +3,7 @@
  * agent to see and modify and change training, dev sets ... and the different properties"; "a lot of conversations
  * that I have personally with Tex are just going to turn into golden or training sets"). The Lab's Testing tab
  * (prototype https://claude.ai/artifact/GAScQuRxZyASpH8xes4n9K) does the same with the same edits
- * (`packages/shared/src/texSetOps.cjs`), so whatever a person does there an agent does here.
+ * (`packages/lab/src/texSetOps.cjs`), so whatever a person does there an agent does here.
  *
  * A conversation is read as the repo has it (`apps/mcp/bench/sets`, bundled as `texSetsRepo.generated.json`) with
  * the Lab's draft over it (`functions/texSets.ts`); Promote opens the pull request that writes the drafts back. The
@@ -14,11 +14,11 @@
  * line or a name from them (Dev2, 2026-11-12: examples from real chats are never verbatim).
  */
 
-import REPO from "../../../../packages/shared/src/texSetsRepo.generated.json" with { type: "json" };
+import REPO from "../../../../packages/lab/src/texSetsRepo.generated.json" with { type: "json" };
 import { BENCH_PEOPLE, check, KINDS, labelFields, missingTest, ratio, unitTests } from "../../../../packages/shared/src/texSets.cjs";
 import { goldRouteAt } from "../../../../packages/shared/src/texRouteSummary.cjs";
 import { WHY } from "../../../../packages/shared/src/textDecide.cjs";
-import { MAX_OPS, OPEN_SETS } from "../../../../packages/shared/src/texSetOps.cjs";
+import { MAX_OPS, OPEN_SETS } from "../../../../packages/lab/src/texSetOps.cjs";
 import { TEX_CONFIG } from "../agent/texConfig.js";
 import { toolError } from "../tools/results.js";
 import { openChat } from "./probe.js";

@@ -9,7 +9,7 @@
  * versions) from the control plane, hands it over, and keeps the answer compact.
  */
 import { toolError } from "../tools/results.js";
-import { diffGraphs } from "../../../../packages/shared/src/texLabOps.cjs";
+import { diffGraphs } from "../../../../packages/lab/src/texLabOps.cjs";
 import { labBench, labCaseRoom, labChanges, labCompare, labConfig, labMarks, labModules, labPutBack, labReference, labSim, labSimFor, labSteps, labTests, labWorkspace } from "./lab.generated.js";
 
 const DRAFT = /^v[0-9a-z]{1,16}$/;

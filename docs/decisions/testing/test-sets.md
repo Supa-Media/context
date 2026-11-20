@@ -89,7 +89,7 @@ ratio counts labels instead of stars, or if the drift limit is ignored.
   gateway and the Lab read them as generated data
   (`texSetsRepo.generated.json`, the Lab's `SETS`).
 - **A change is a draft first.** The Lab's Testing tab and `tex_dev` edit a
-  conversation with the same small edits (`packages/shared/src/texSetOps.cjs`),
+  conversation with the same small edits (`packages/lab/src/texSetOps.cjs`),
   kept in the control plane over the repo file (`functions/texSets.ts`, with a
   per-piece conflict check like the Lab's drafts). Promote opens one pull
   request writing the drafts into the folder (`tex-lab-promote.yml`,

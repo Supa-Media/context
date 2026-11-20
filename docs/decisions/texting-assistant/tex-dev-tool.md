@@ -14,7 +14,7 @@ own, never one of Context's `context_*` clients, so Tex's grants can never reach
 as the Lab's own `requireAdmin` asks, so this door is never wider than the Lab's. One tool with an `action`, like
 the v2 tools, so a new action is not a schema change a client's cached copy would strip; `guide` lists them.
 
-**A draft is a saved Lab version, edited with small edits by both sides.** `packages/shared/src/texLabOps.cjs` is the
+**A draft is a saved Lab version, edited with small edits by both sides.** `packages/lab/src/texLabOps.cjs` is the
 one definition of an edit (set a step's field, move, add, remove, wire, unwire, a module's edit, a conversation
 setting, put the whole graph); the Lab, the control plane and the gateway run it. Every batch raises the version's
 revision and records the pieces it touched (`texLabChanges`). A batch made against an older revision lands unless a
@@ -29,7 +29,7 @@ the lab should be able to be done inside of the MCP"). Beyond the graph's edits:
 `delete` (the Lab's two-tap Delete, so `confirm: true`; main is never deleted, from either door), `run_setup` (the
 Tests tab's picks per area and the Run tab's areas, as the Lab stores them: an area with no list runs every case, and
 null areas mean the ones its changes touch), `keep_results` (Run's "Keep these results", on a draft or on main, read
-by the Lab's own reader, `packages/shared/src/texLabReport.cjs`, never with the report's "## Lab replay" part, which
+by the Lab's own reader, `packages/lab/src/texLabReport.cjs`, never with the report's "## Lab replay" part, which
 is the person's own chat) and `get` of main for main's kept results. Each is one revision with its line, through the
 control plane (`functions/lib/texLabDraftWrites.ts`), with the same refusals as every other action. The edits also
 match the Lab's own: removing a step drops every read of its output and never removes `text` or `send`; a draft's own
@@ -118,7 +118,7 @@ each changed field", "put_back lands the edits that bring one step back to main"
 about 100 KB, and then each conversation one by one). `failures { id, node?, conv?, limit?, group? }` answers only the rows that
 failed or, when repeated, passed fewer repeats than they ran (a flaky 2 of 3 counts), each with its ask, Tex's reply, its
 tool calls (a failed one marked), the gold label's must and never lines and the judge's reasons. The parsing and the
-row rules live in `packages/shared/src/texFailures.cjs`, which the Lab can read the same way.
+row rules live in `packages/lab/src/texFailures.cjs`, which the Lab can read the same way.
 Each row also carries `tags`, a heuristic read of its failed gold lines and the judge's reasons (`tagsOf`: missed_checkin,
 broken_deliverable, facts, didnt_act, asked_instead, too_long; none is "other"). The scoring run stores them on each failing row;
 older runs get them computed at read time. `group: true` files the rows under their first tag with counts. Tags never change

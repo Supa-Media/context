@@ -39,7 +39,7 @@ import { RECORD_SETS, worldMode } from "./simFixtures.mjs";
 const require = createRequire(import.meta.url);
 const { unitTests, TEX } = require("../../../packages/shared/src/texSets.cjs");
 const { routeSummary } = require("../../../packages/shared/src/texRouteSummary.cjs");
-const { DEFAULT_REPEATS, MAX_REPEATS, repeatsOf, bandOf, CC_FIDELITY, CC_FIDELITY_WHY } = require("../../../packages/shared/src/texRunBand.cjs");
+const { DEFAULT_REPEATS, MAX_REPEATS, repeatsOf, bandOf, CC_FIDELITY, CC_FIDELITY_WHY } = require("../../../packages/lab/src/texRunBand.cjs");
 
 /** Rough prices to report spend by: Clef on Workers AI and Haiku through the AI gateway, per call. */
 const USD = { decide: 0.0004, reviewer: 0.002 };

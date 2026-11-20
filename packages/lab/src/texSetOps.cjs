@@ -37,7 +37,7 @@
  */
 "use strict";
 
-const { JOB_STATES, KINDS, TEX, TRIGGERS } = require("./texSets.cjs");
+const { JOB_STATES, KINDS, TEX, TRIGGERS } = require("../../shared/src/texSets.cjs");
 
 /** The sets a conversation may be in here: the Test Set lives only in the eval service. */
 const OPEN_SETS = Object.freeze(["training", "dev"]);

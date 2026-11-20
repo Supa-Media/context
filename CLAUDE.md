@@ -179,7 +179,7 @@ apps/mcp/        Cloudflare Worker: MCP gateway, privacy engine, tools,
                  storage adapter, email ingestion
 infra/           edge Workers: router (context.lc), email, transcription,
                  site screenshots, egress, Sentry inbox
-packages/        shared, collaboration, meetings, communications, drawings,
+packages/        shared, lab (the Tex Lab), collaboration, meetings, communications, drawings,
                  desktop-bridge, obsidian-runtime, encryption-decryptor
 plugins/context/ the `context` agent plugin (skills, MCP entry, session hooks,
                  one manifest per plugin format) and, in the same folder, the

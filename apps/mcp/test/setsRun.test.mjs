@@ -29,7 +29,7 @@ import { openWorldStore, worldKey } from "../bench/simFixtures.mjs";
 import { strictWorld, worldLine, worldMisses, worldModeRefusal, worldStrict, WORLD_STRICT } from "../bench/setsRun.mjs";
 
 const require = createRequire(import.meta.url);
-const REPO = require("../../../packages/shared/src/texSetsRepo.generated.json");
+const REPO = require("../../../packages/lab/src/texSetsRepo.generated.json");
 const { unitTests } = require("../../../packages/shared/src/texSets.cjs");
 const REPO_ROOT = new URL("../../../", import.meta.url).pathname.replace(/\/$/, "");
 

@@ -9,7 +9,7 @@
  * request that writes the drafts into the repo (`.github/workflows/tex-lab-promote.yml`, `scripts/tex-sets-promote.mjs`);
  * once it merges, the drafts it carried are cleared. Nothing here changes Tex or a test run by itself.
  *
- * Two doors, the same edits (`packages/shared/src/texSetOps.cjs`): the Lab page as a staff member (`requireAdmin`),
+ * Two doors, the same edits (`packages/lab/src/texSetOps.cjs`): the Lab page as a staff member (`requireAdmin`),
  * and `tex_dev` through the gateway (`setAction`, reached from `texLabDrafts.forGateway`, which has already checked the
  * caller is a staff editor of the pinned context on an AI client of their own). The Test Set is never stored here: it
  * is people only and lives in the eval service, so every write refuses it.
@@ -18,7 +18,7 @@
 import { ConvexError, v } from "convex/values";
 import { internalQuery, query, type MutationCtx, type QueryCtx } from "../_generated/server";
 import type { Doc, Id } from "../_generated/dataModel";
-import { applyOps, blank, conflicts, OpError, OPEN_SETS } from "@context/shared/src/texSetOps.cjs";
+import { applyOps, blank, conflicts, OpError, OPEN_SETS } from "@context/lab/src/texSetOps.cjs";
 import { requireAdmin } from "./lib/admin";
 import { handleForUser } from "./lib/identities";
 import { internalMutation, mutation } from "./lib/rowWatch/mutations";

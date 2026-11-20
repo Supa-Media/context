@@ -20,7 +20,7 @@ import { parsePeople } from "../bench/load.mjs";
 import { brokenRun, detailOf, devConversations, handoffOf, resultsOf, roundsLine, routeLine, routeOf, trainingConversations, uncast, unrun, worldOf } from "../../../scripts/tex-lab-run.mjs";
 import { decideSaid, scoreByRepeat } from "../bench/setsRun.mjs";
 import { createRequire } from "node:module";
-const { CC_FIDELITY, CC_FIDELITY_WHY } = createRequire(import.meta.url)("../../../packages/shared/src/texRunBand.cjs");
+const { CC_FIDELITY, CC_FIDELITY_WHY } = createRequire(import.meta.url)("../../../packages/lab/src/texRunBand.cjs");
 
 const textOf = (result) => result.content.find((c) => c.type === "text")?.text ?? "";
 const jsonOf = (result) => JSON.parse(textOf(result));
