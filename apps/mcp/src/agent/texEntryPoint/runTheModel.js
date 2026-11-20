@@ -74,7 +74,7 @@ import { threadsSortAndWrite } from "../conversationThreads.js";
 import { withArchitecture } from "../texArchitecture.js";
 import { withChatWriteLock } from "../chatWriteLock.js";
 import { carriedLine, carriedRounds, rereadCarried } from "../turnResume.js";
-import { runWithDoors } from "../doorTurn.js";
+import { loggedRoute, routeActs, routeIfBack, runWithDoors } from "../doorTurn.js";
 
 /** The settings this turn runs the front door with, as the Front door node logs them (`../graph/nodes/fd.js`). */
 function doorOut({ production, productionModel, fallback, router, gated, advising, planning, computers, skills, delegation, threaded }) {
@@ -212,8 +212,10 @@ export async function runTheModel(t, via) {
   stages?.ready();
   // The router's read, awaited only by a turn that may use a door (`doorTurn.js`); its wait is logged. A text's read was started beside the Door.
   const eligible = chatTurn === true && job === null && report === null && !t.crossChat && (rounds?.from ?? null) === null;
-  const waitStart = eligible && t.routeRead ? Date.now() : null;
-  const routed = eligible && t.routeRead ? await tex.wait("route", t.routeRead) : null;
+  // Only while something acts on the read (a door wired, or router -> handoff); else it is logged after the turn, never waited on.
+  const acts = routeActs((from, to) => drawn.wired(from, to), handoffFrom.includes("router"));
+  const waitStart = eligible && acts && t.routeRead ? Date.now() : null;
+  const routed = eligible && acts && t.routeRead ? await tex.wait("route", t.routeRead) : null;
   const waitedMs = waitStart === null ? null : Date.now() - waitStart;
   const args = {
     ...examplesOptions(via.examples ?? null, texConfigOf(env), TRAINING, env?.TEX_EXAMPLES), // the nearest Training examples, when the front door is wired to them (`turnExamples.js`)
@@ -299,6 +301,7 @@ export async function runTheModel(t, via) {
   };
   // The front door's turn, or the specialist door the router picked first (`doorTurn.js`): its runTurn is this one, with the door's tools.
   const turn = await tex.step("model", () => runWithDoors({ runTurn, args, eligible, route: routed, waitedMs, via, handOffRoute: routeHandOff, doorNotes, jobAt }));
+  if (eligible && !acts && t.routeRead) loggedRoute(turn, await tex.step("route_logged", () => routeIfBack(t.routeRead)));
   const notAllowed = allowedBeside ? await tex.wait("allowed", allowedRead).then(() => null, (thrown) => thrown) : null; // beside the model, its no ends the turn here: no tool ran (`allowedFirst`), nothing is kept or sent
   if (notAllowed !== null) return (opened !== null && tex.after("browser_close", () => opened.close()), steer !== null && tex.after("steer_clear", () => begun.catch(() => {}).then(() => steer.clear())), await tex.step("refused", () => refused(notAllowed)));
   // The question's browser is not left running, unless held while the answer waits on them (`browserHold.js`).

@@ -14,7 +14,7 @@
  *
  * Never throws because of the router or a door: a quick or read door that fails goes to the Front door.
  */
-import { DOORS, ROUTE_AT, narrowForDoor, outsideFor } from "./doorTools.js";
+import { DOORS, DOOR_NODES, ROUTE_AT, narrowForDoor, outsideFor } from "./doorTools.js";
 import { sixToolsOver } from "./sixTools.js";
 
 /** Two usage records summed, field by field (a missing field is 0). */
@@ -29,6 +29,33 @@ export function addSpend(turn, specialist) {
   const usageByModel = { ...(turn.usageByModel ?? {}) };
   for (const [model, usage] of Object.entries(specialist?.usageByModel ?? {})) usageByModel[model] = sumNumbers(usageByModel[model], usage);
   return { ...turn, usage: sumNumbers(turn.usage, specialist?.usage), usageByModel };
+}
+
+/**
+ * Whether the router's read can change this turn: a specialist door wired (`fd -> fdQuick | fdRead | fdAct`), or
+ * `router -> handoff`. When nothing acts on it, it is a logged signal only (Dev2, 2026-11-20): the turn never waits on it.
+ * `wired(from, to)` is the config's.
+ */
+export function routeActs(wired, handOffFromRouter = false) {
+  return handOffFromRouter === true || Object.values(DOOR_NODES).some((door) => wired("fd", door) === true);
+}
+
+/** The router's read if it is already back, else null; never waits, never throws (a log-only read after the turn). */
+export async function routeIfBack(read) {
+  if (!read || typeof read.then !== "function") return null;
+  const NOT_YET = Symbol("not yet");
+  // The read itself first: one already back settles the race before the "not yet" does.
+  const got = await Promise.race([read, NOT_YET]).catch(() => null);
+  return got === NOT_YET ? null : got;
+}
+
+/**
+ * The record of a router read nothing acted on, set on the turn after it ran: the turn was the front door's and waited 0.
+ */
+export function loggedRoute(turn, route) {
+  const pick = typeof route?.route === "string" ? route.route : null;
+  if (turn && pick !== null && turn.route === undefined) turn.route = { pick, sure: typeof route?.sure === "number" ? route.sure : null, door: "fd", fellBack: null, routerMs: typeof route?.ms === "number" ? route.ms : null, waitedMs: 0, logOnly: true };
+  return turn;
 }
 
 /**
