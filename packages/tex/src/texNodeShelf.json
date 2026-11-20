@@ -1,6 +1,22 @@
 {
   "about": "Nodes whose code is merged into packages/tex/gateway/agent/graph/gatewayNodes.js but not wired into texConfig.json yet (Dev2, 2026-11-16: \"for code changes, create the node inside the code first and merge it to main\"). A shelf node never runs: the runner runs only the config's nodes. A Lab draft wires it, and Promote takes it off the shelf in the same pull request that puts it in the config. Each entry: the node's id, its files (repository paths), and what it is for.",
   "nodes": {
+    "aboutExpire": {
+      "files": [
+        "packages/tex/gateway/agent/graph/nodes/aboutExpire.js",
+        "packages/tex/gateway/agent/aboutRecheck.js",
+        "packages/tex/gateway/agent/aboutUpkeep.js"
+      ],
+      "why": "Drop past-date lines (Dev2, 2026-11-20: About me needs a budget and pruning, not only growth). After the dream, code takes out every About me line whose marker says `until YYYY-MM-DD` once that day has passed in their time zone, and logs each in the night's dream log. Unwired, nothing changes: a Lab draft wires dream -> aboutExpire (wait, when about)."
+    },
+    "aboutCheck": {
+      "files": [
+        "packages/tex/gateway/agent/graph/nodes/aboutCheck.js",
+        "packages/tex/gateway/agent/aboutRecheck.js",
+        "packages/tex/gateway/agent/aboutUpkeep.js"
+      ],
+      "why": "Recheck About me (Dev2, 2026-11-20: \"checking the facts ... the November 11th thing is no longer a thing because there's new email\"). Once a week (limits.everyDays, default 7) a model reads About me's dated lines older than limits.olderThanDays (7), checks the doubtful ones against their mail, calendar and notes with read-only tools, and answers drop or update per line; code applies it and can never add a line. `force` runs it now. Unwired, nothing changes: a Lab draft wires aboutExpire -> aboutCheck (wait, when check)."
+    },
     "examples": {
       "files": [
         "packages/tex/gateway/agent/graph/nodes/examples.js",
