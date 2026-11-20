@@ -113,3 +113,37 @@ rules for it:
 
 `sixToolsFixed.test.mjs` fails when a refused call in a 1:1 text comes back
 without the manual, or when it comes back twice.
+
+## A check-in searches, and is told it only reads (2026-11-20)
+
+In the week before this change, 319 calls asked for an action their turn
+didn't hold. They came from check-ins:
+
+- All 50 send refusals ("Yours: say_nothing") were check-ins.
+- So were the search refusals, where the check-in wanted the email search
+  it did not hold.
+
+A check-in reads only, by design (`heartbeat.js`). It runs with nobody
+asking, and it reads strangers' mail.
+
+The owner chose **"give check-ins read-only search"**. A 1:1 check-in now
+also holds:
+
+- **`search_email`**, an untrusted read, like `read_email`.
+- **`search_web`.** This is a search with no computer: no page is opened
+  and nothing is typed (`checkInWeb`). Reading a result marks the look
+  untrusted.
+
+Sending, saving, changing and moving stay refused.
+
+The tool list stays the cached one a text is shown. The owner's words:
+"we just add a prompt that clearly says, like, you are a check-in … You
+can only use read-only tools". So every check-in's question carries
+`CHECK_IN_TOOLS`, whatever its setup's words say.
+
+`agentHeartbeat.test.mjs` fails in any of these cases:
+
+- the dispatcher refuses email search;
+- the web session offers anything but search;
+- a search result leaves the look trusted;
+- a setup's own words drop the line.
