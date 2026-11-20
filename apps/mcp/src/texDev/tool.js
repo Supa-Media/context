@@ -273,6 +273,20 @@ export function createTexDev({ env, session, controlPlane, defer = null, sleep =
         const byRoute = run?.results && Array.isArray(run.results.rows) ? routeSummary(run.results.rows, repoGoldRoute()) : null;
         return error ?? json(args.id ? (byRoute ? { ...run, byRoute } : run) : { runs: answer.runs });
       }
+      // The Evals tab (Dev2, 2026-11-20): public benchmarks of Context as a memory, run on GitHub (`labEvals.ts`).
+      case "evals": {
+        const { answer, error } = await plane("evals", args.id !== undefined ? { id: args.id } : {});
+        return error ?? json(args.id !== undefined ? answer.run : { benches: answer.benches, runs: answer.runs });
+      }
+      case "eval_run": {
+        const { answer, error } = await plane("eval_run", { bench: args.bench, n: args.n, models: args.models ?? "gw", ...(args.code !== undefined ? { code: args.code } : {}) });
+        return error ?? json({ run: answer.id, stage: "queued", then: "A GitHub run starts within a minute: each question gets an empty workspace, its sessions saved raw and filed, and a fresh reader answers; evals { id } shows its stage, the commit that ran and, when done, the scores per skill and every question's answer and verdict. The Lab's Evals tab shows the same run." });
+      }
+      case "eval_remove": {
+        if (typeof args.id !== "string") return toolError("eval_remove takes { id } (evals lists them).");
+        const { error } = await plane("eval_remove", { id: args.id });
+        return error ?? json({ removed: args.id, for: "everyone: the Lab's Evals tab no longer lists it" });
+      }
       // One run's failing rows in one call (texFailures.cjs): the ask, Tex's reply, tool calls, gold and the judge's reasons.
       case "failures": {
         if (typeof args.id !== "string" || !/^[A-Za-z0-9_-]{1,80}$/.test(args.id)) return toolError("failures takes { id } (runs lists them), with node, conv or limit to narrow it.");

@@ -58,6 +58,7 @@ import { archivedAccountTables } from "./functions/lib/schema/archivedAccounts";
 import { agentTurnTables } from "./functions/lib/schema/agentTurns";
 import { texToolFailureTables } from "./functions/lib/schema/texToolFailures";
 import { texLabTables } from "./functions/lib/schema/texLab";
+import { labEvalTables } from "./functions/lib/schema/labEvals";
 import { searchTimingTables } from "./functions/lib/schema/searchTimings";
 import { trashTables } from "./functions/lib/schema/trash";
 import { oldCopiesTables } from "./functions/lib/schema/oldCopies";
@@ -167,6 +168,7 @@ const schema = defineSchema({
   ...agentTurnTables,
   ...texToolFailureTables,
   ...texLabTables,
+  ...labEvalTables,
   ...searchTimingTables,
   ...trashTables,
   ...collaborationFilingTables,
