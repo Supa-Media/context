@@ -38,6 +38,7 @@ jest.mock("../features/tex/chat/TexChatTab", () => ({
 import { act, createElement } from "react";
 import { createRoot } from "react-dom/client";
 import { AsidePanel } from "../features/console/aside/AsidePanel";
+import { forgetAsideChoice } from "../features/console/aside/asideChoice";
 import { APPROVALS, NOTHING_WAITING } from "./approvalsFixture";
 import type { ApprovalsView } from "../features/approvals/useApprovals";
 
@@ -53,6 +54,7 @@ const TEX = { workspaceId: "ws1", endpoint: "https://gateway.example.test/mcp" }
 const roots: (() => void)[] = [];
 
 afterEach(() => {
+  forgetAsideChoice();
   while (roots.length > 0) roots.pop()!();
   document.body.innerHTML = "";
   mockTexProps.length = 0;

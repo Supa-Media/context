@@ -32,6 +32,7 @@ import type { AppChatView } from "../features/tex/chat/useAppChat";
 import { TEX_EMPTY, TEX_TAB_SUB, TEX_WORKING, TexChatView } from "../features/tex/chat/TexChatTab";
 import { AsideStrip } from "../features/console/aside/AsideStrip";
 import { AsidePanel } from "../features/console/aside/AsidePanel";
+import { forgetAsideChoice } from "../features/console/aside/asideChoice";
 import { texChatTarget } from "../features/console/layout/slots";
 
 const AT = Date.UTC(2026, 10, 19, 9, 0);
@@ -70,6 +71,7 @@ function fakeView(over: Partial<AppChatView> = {}): AppChatView & { calls: Calls
 
 const roots: Array<() => void> = [];
 afterEach(() => {
+  forgetAsideChoice();
   while (roots.length > 0) roots.pop()?.();
   document.body.innerHTML = "";
 });

@@ -32,6 +32,7 @@ import { act, createElement, useState, type ReactNode } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { Text } from "react-native";
 import { AsidePanel } from "../features/console/aside/AsidePanel";
+import { forgetAsideChoice } from "../features/console/aside/asideChoice";
 import { MapSideProvider, useOfferMapSide, type MapSide } from "../features/console/aside/mapSide";
 import { FrameContext, type FrameApi } from "../features/app/appFrame/context";
 import { initialFrame } from "../features/app/frame";
@@ -74,6 +75,7 @@ beforeEach(() => {
 });
 
 afterEach(async () => {
+  forgetAsideChoice();
   await act(async () => root.unmount());
   host.remove();
 });

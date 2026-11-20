@@ -38,6 +38,7 @@ jest.mock("../features/meetings/usePastMeetings", () => ({
 import { act, createElement } from "react";
 import { createRoot } from "react-dom/client";
 import { AsidePanel } from "../features/console/aside/AsidePanel";
+import { forgetAsideChoice } from "../features/console/aside/asideChoice";
 import { NO_MEETING } from "../features/console/aside/tabs";
 import { clearScheduledMeetings, setScheduledMeetings } from "../features/meetings/scheduled";
 import { meetingsFromNotes, newestMeetings, pastWhenLabel } from "../features/meetings/pastMeetings";
@@ -46,6 +47,7 @@ const SEYI = { id: "ws_seyi", slug: "seyi" };
 
 const roots: (() => void)[] = [];
 afterEach(() => {
+  forgetAsideChoice();
   while (roots.length > 0) roots.pop()!();
   document.body.innerHTML = "";
   mockRecords = [];
