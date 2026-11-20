@@ -10,5 +10,8 @@
   "dependencies": {
     "@context/shared": "workspace:*",
     "@context/tex": "workspace:*"
+  },
+  "devDependencies": {
+    "jest-environment-jsdom": "^29.7.0"
   }
 }
