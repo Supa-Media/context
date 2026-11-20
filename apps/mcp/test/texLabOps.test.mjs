@@ -123,15 +123,15 @@ test("remove takes the reads of the step's output with it, and never removes tex
   const g = main();
   const reader = g.nodes.find((n) => n.ctx?.some((c) => c.startsWith("out:")));
   const target = reader.ctx.find((c) => c.startsWith("out:")).slice(4);
-  // Every step that reads it: the Job's output is read by the Job advisor and by the Job check Promote turned off.
+  // Every step that reads it: the Job's output is read by the Job advisor (and by the Job check until it was retired off the config, 2026-11-20).
   const readers = g.nodes.filter((n) => n.ctx?.includes("out:" + target));
-  assert.deepEqual([target, readers.map((n) => n.id)], ["job", ["jobcheck", "jobadv"]]);
+  assert.deepEqual([target, readers.map((n) => n.id)], ["job", ["jobadv"]]);
   const r = applyOps(g, [{ op: "remove", node: target }]);
   for (const n of readers) {
     assert.ok(!r.graph.nodes.find((m) => m.id === n.id).ctx.includes("out:" + target));
     assert.ok(r.keys.includes(`n:${n.id}:ctx`), "each reader's reading order is a piece the removal touched");
   }
-  assert.match(r.said[0], new RegExp(`${readers.map((n) => n.id).join(", ")}'s reads of its output$`));
+  assert.match(r.said[0], new RegExp(`${readers.map((n) => n.id).join(", ")}'s reads? of its output$`));
   for (const kept of ["text", "send"]) assert.throws(() => applyOps(g, [{ op: "remove", node: kept }]), /start and a send/);
   // The Lab's delete diffs as one remove: the reads it dropped are not edits of their own.
   const b = JSON.parse(JSON.stringify(g));
