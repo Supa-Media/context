@@ -16,6 +16,7 @@ import type { ApprovalsView } from "../../approvals/useApprovals";
 import { useAppChat, type AppChatView } from "./useAppChat";
 import { TexChatComposer, type EditTarget, type ReplyTarget } from "./TexChatComposer";
 import { TexChatRow } from "./TexChatRow";
+import type { PickedFile } from "./appChatFiles";
 import { TexChatHeader } from "./TexChatHeader";
 import { chatTimeline } from "./approvalTimeline";
 import { TexApprovalCard } from "./TexApprovalCard";
@@ -129,14 +130,15 @@ export function TexChatView({
     setFlashId(rowId);
   };
 
-  const send = (text: string, pictures: Blob[]) => {
+  const send = (text: string, pictures: Blob[], files: PickedFile[]) => {
     stuck.current = true;
     if (edit !== null) {
       view.edit(edit.id, text);
       setEdit(null);
       return;
     }
-    view.send(text, { pictures, replyTo: reply?.id ?? null });
+    // Files ride along only when there are some, so a words-and-pictures send looks as it always did.
+    view.send(text, { pictures, ...(files.length > 0 ? { files } : {}), replyTo: reply?.id ?? null });
     setReply(null);
   };
 
@@ -198,6 +200,7 @@ export function TexChatView({
                 pictureUrl={view.pictureUrl}
                 timeLabel={timeLabel}
                 onOpenPicture={setOpened}
+                onDownloadFile={view.downloadFile}
                 onAnswer={(rowId: string, choice: AskChoice) => view.answer(rowId, choice)}
                 onReact={react}
                 onReply={(row: AppChatRow) => {

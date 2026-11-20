@@ -81,6 +81,15 @@ function seedRows(now: number): AppChatRow[] {
       edited: true,
       editable: true,
     },
+    {
+      id: "r5b",
+      who: "me",
+      kind: "file",
+      text: "can you check this?",
+      at: minutesAgo(8),
+      files: [{ id: "f".repeat(32), name: "Q3 budget.pdf", type: "application/pdf", size: 245760 }],
+      editable: true,
+    },
     { id: "r6", who: "me", kind: "text", text: "", at: minutesAgo(9), unsent: true },
     {
       id: "r7",
@@ -148,17 +157,24 @@ function useFakeTexChat(): AppChatView {
         sentPictures.current.set(id, URL.createObjectURL(blob));
         return id;
       });
+      const fileRows = (options?.files ?? []).map((file) => ({
+        id: freshId(),
+        name: file.name,
+        type: file.type,
+        size: file.size,
+      }));
       const replyId = options?.replyTo ?? null;
       setLines((prev) => {
         const quoted = replyId === null ? undefined : prev.find((line): line is AppChatRow => !("pending" in line) && line.id === replyId);
         const row: AppChatRow = {
           id: freshId(),
           who: "me",
-          kind: pictureIds.length > 0 ? "picture" : "text",
+          kind: pictureIds.length > 0 ? "picture" : fileRows.length > 0 ? "file" : "text",
           text: text.trim(),
           at: Date.now(),
           editable: true,
           ...(pictureIds.length > 0 ? { pics: pictureIds } : {}),
+          ...(fileRows.length > 0 ? { files: fileRows } : {}),
           ...(quoted !== undefined ? { replyTo: { id: quoted.id, text: quoted.text } } : {}),
         };
         return [...prev, row];
@@ -190,7 +206,7 @@ function useFakeTexChat(): AppChatView {
       if (id === PICTURE_ID) return PICTURE_DATA_URL;
       return sentPictures.current.get(id) ?? null;
     },
-    // The fixture keeps no files: a download has nothing to save.
+    // The fixture keeps no file bytes: a download has nothing to save.
     downloadFile() {},
     typing() {},
   };
