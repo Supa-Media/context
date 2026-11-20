@@ -112,6 +112,20 @@ test("no question mark, no model", async () => {
   assert.equal(ai.calls, 0);
 });
 
+// In a turn the Answer check hands the gate lengths only, so the step's row in the chat's record holds none of the
+// chat's words (chatLedgerWrites); the gate reads them from the turn. Sabotage: reading the words from the input only
+// passes every turn's draft as "no question".
+test("in a turn the gate reads the words from the turn, and its input and output carry none", async () => {
+  const ai = fakeAi("approval");
+  const turn = { env: { AI: ai }, question: "email my sister", drafts: { waiting: { draft: "Send it to Ana now?" } } };
+  const input = { askChars: turn.question.length, draftChars: turn.drafts.waiting.draft.length };
+  const out = await askGateNode(input, { ctx: { turn }, use: {} });
+  assert.equal(out.to, "bypass");
+  assert.equal(ai.calls, 1, "the draft's question reached the model");
+  assert.ok(JSON.stringify(ai.last).includes("email my sister"), "with their text beside it");
+  assert.ok(!/sister|Ana/.test(JSON.stringify([input, out])), JSON.stringify(out));
+});
+
 test("an approval or what only they can answer goes on; so does no real ask", async () => {
   for (const [kind, to] of [["approval", "bypass"], ["person", "bypass"], ["none", "pass"]]) {
     const out = await askGateNode({ ask: "email Sam", draft: "Send it to Sam now?" }, { ctx: { turn: { env: { AI: fakeAi(kind) } } }, use: {} });
@@ -131,7 +145,8 @@ test("a model call that fails says why in the step's log, and the draft goes on"
   const out = await askGateNode({ ask: "x", draft: "Which one?" }, { ctx: { turn: { env: { AI: broken } } }, use: {} });
   assert.equal(out.to, "pass");
   assert.match(out.why, /No such model/);
-  assert.equal(out.model, "@cf/cloudflare/clef");
+  // The step's own model from Tex's config (texConfig.json askGate: clef-flash), not the code's Clef default.
+  assert.equal(out.model, "@cf/cloudflare/clef-flash");
   const engine = askEngine({ async run(model, input) { return { answers: { kind: { choice: "none" } }, asked: [model, input.model] }; } }, "@cf/typesafe/jev");
   assert.deepEqual((await engine("s", {})).answers, { kind: { choice: "none" } });
 });

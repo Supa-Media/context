@@ -51,6 +51,7 @@ export async function answerCheckNode(input, io) {
     const ladder = await askBefore(io, t, waiting);
     if (ladder !== null && (ladder.to === "back" || ladder.to === "job")) {
       ladders += 1;
+      // The send-back is this check's own one loop to the Front door (`answerCheck -> fd`), as every send-back is.
       if (ladder.to === "back" && back.left() > 0) {
         sentBack += 1;
         stop = await back({ notice: String(ladder.notice) });
@@ -91,7 +92,8 @@ async function askBefore(io, t, waiting) {
   t.ladderLast = waiting.draft;
   try {
     if (!("askGate" in io.use)) return null;
-    return await io.use.askGate({ ask: String(t.question ?? ""), draft: String(waiting.draft ?? "") });
+    // Lengths only: the gate reads the words from the turn, so its row in the chat's record carries none of them.
+    return await io.use.askGate({ askChars: String(t.question ?? "").length, draftChars: String(waiting.draft ?? "").length });
   } catch {
     return null;
   }

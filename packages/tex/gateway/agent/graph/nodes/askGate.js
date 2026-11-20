@@ -82,24 +82,28 @@ const has = (io, id) => {
 };
 
 /**
- * @param {{ ask: string, draft: string }} input their text and the draft the Answer check would let go.
+ * @param {{ ask?: string, draft?: string, askChars?: number, draftChars?: number }} input their text and the draft the
+ * Answer check would let go. In a turn the wire carries only their lengths and the words are read from the turn, so the
+ * step's row in the chat's record keeps the chat's words in its text entries; a node run alone passes the words.
  */
 export async function askGateNode(input, io) {
   const t = io?.ctx?.turn ?? {};
-  const questions = questionsIn(input?.draft);
+  const ask = typeof input?.ask === "string" ? input.ask : String(t.question ?? "");
+  const draft = typeof input?.draft === "string" ? input.draft : String(t.drafts?.waiting?.draft ?? "");
+  const questions = questionsIn(draft);
   if (questions.length === 0) return { to: "pass", why: "no question in the draft", when: ["clear"] };
   const { model, ctx, ms, climbAt } = gateSetup(t.env);
   const engine = io?.engine ? async (state, questions) => ({ answers: await io.engine(state, questions), fault: null }) : askEngine(t.env?.AI, model);
   if (typeof engine !== "function") return { to: "pass", why: "no decision model here", model, when: ["clear"] };
   const at = Number.isFinite(t.received) ? t.received : Date.now();
   const context = ctx.length > 0 ? routerContextText(ctx, { training: TRAINING, today: nowLine(at, readTimeZone(t?.body?.timeZone) ?? DEFAULT_TIME_ZONE) }) : "";
-  const asked = askRequest({ ask: input?.ask, draft: input?.draft, context });
+  const asked = askRequest({ ask, draft, context });
   const started = Date.now();
   const got = await within(() => engine(asked.state, asked.questions), ms);
   const modelMs = Date.now() - started;
   const read = readAsk(got?.answers);
   if (read === null) return { to: "pass", why: got === null ? "the model was not back in time" : got.fault ?? "the model named no kind", model, modelMs, when: ["clear"] };
-  const base = { kind: read.kind, sure: read.sure, model, modelMs, questions };
+  const base = { kind: read.kind, sure: read.sure, model, modelMs, asks: questions.length };
   if (read.kind === "none") return { to: "pass", ...base, when: ["clear"] };
   if (read.kind !== "fact" || read.sure < climbAt) return { to: "bypass", ...base, when: ["bypass"] };
   // A second asking draft after the ladder sent one back: the quick rungs had their go, so the slow ones are a job's.
@@ -107,10 +111,10 @@ export async function askGateNode(input, io) {
   // The words come from their text as well as the draft's questions: the draft asks in Tex's words ("an old email or
   // a shipping receipt?"), while what they want is in theirs ("my sister's address"), and the draft's words alone
   // matched every note that says "email".
-  const terms = termsOf([input?.ask, ...questions], 8);
+  const terms = termsOf([ask, ...questions], 8);
   const [knows, notes, tools] = await Promise.all([
     has(io, "rungKnows") ? Promise.resolve(io.use.rungKnows({ terms })).catch(() => null) : null,
-    has(io, "rungNotes") ? Promise.resolve(io.use.rungNotes({ query: [input?.ask, questions[0]].filter(Boolean).join(" ").slice(0, 300), terms })).catch(() => null) : null,
+    has(io, "rungNotes") ? Promise.resolve(io.use.rungNotes({ query: [ask, questions[0]].filter(Boolean).join(" ").slice(0, 300), terms })).catch(() => null) : null,
     has(io, "rungTools") ? Promise.resolve(io.use.rungTools({})).catch(() => null) : null,
   ]);
   const tried = new Set(Array.isArray(tools?.tried) ? tools.tried : []);

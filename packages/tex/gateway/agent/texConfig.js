@@ -74,7 +74,7 @@ const PROMPT_ENTRY = /^p-([a-z][a-z0-9-]{0,47})$/;
  * refuses a `train:` entry on any other step (`texTraining.test.mjs`), so the config never says a step reads examples
  * it is not given.
  */
-export const TRAINING_READERS = Object.freeze(["decide", "router", "fd", "job", "advisor", "mailadv", "jobcheck", "jobadv", "planner", "classifier", "reviewer", "handback", "mail", "card", "selfreview", "checkin"]);
+export const TRAINING_READERS = Object.freeze(["decide", "router", "fd", "job", "advisor", "mailadv", "jobcheck", "jobadv", "planner", "classifier", "reviewer", "handback", "mail", "card", "selfreview", "checkin", "askGate"]);
 
 /**
  * Every accessor below takes the config to read, main's by default. A Lab test chat's turn passes its draft's

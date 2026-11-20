@@ -85,6 +85,13 @@ flowchart LR
     n_jobReport(["A job reports<br/>code<br/>graph/nodes/jobReport.js · jobReport.js · texEntryPoint/readTheText.js"]):::start
     n_jobStart["Job start<br/>code<br/>graph/nodes/jobStart.js · jobStart.cjs · jobStartChoice.js · background.js"]:::code
   end
+  subgraph n_group_ladder["Lookup ladder"]
+    n_askGate["Before asking<br/>@cf/cloudflare/clef-flash<br/>graph/nodes/askGate.js · lookupLadder.js"]:::model
+    n_rungKnows["1 What it already knows<br/>code<br/>graph/nodes/rungKnows.js · lookupLadder.js"]:::code
+    n_rungNotes["2 Their notes<br/>code<br/>graph/nodes/rungNotes.js · lookupLadder.js"]:::code
+    n_rungTools["3-4 Apps and web search<br/>code<br/>graph/nodes/rungTools.js · lookupLadder.js"]:::code
+    n_handoff["5-7 Hand to a job<br/>code<br/>graph/nodes/handoff.js · handoff.js"]:::code
+  end
   n_checkin -->|look| n_fd
   n_notify -->|send| n_send
   n_oldLine -->|redirect| n_send
@@ -139,6 +146,12 @@ flowchart LR
   n_doorStep -.->|uses| n_shapeGate
   n_doorStep -.->|uses| n_router
   n_tools -.->|uses: computer| n_computer
+  n_answerCheck -.->|uses| n_askGate
+  n_askGate -.->|uses: climb| n_rungKnows
+  n_askGate -.->|uses: climb| n_rungNotes
+  n_askGate -.->|uses: climb| n_rungTools
+  n_askGate -.->|uses: climbOn| n_handoff
+  n_handoff -.->|uses: hand| n_jobStart
   classDef start fill:#ffe3ee,stroke:#ff4f8b,color:#1d1838
   classDef code fill:#dcf7f3,stroke:#11b5a4,color:#1d1838
   classDef model fill:#ece5ff,stroke:#7b4dff,color:#1d1838
@@ -204,8 +217,13 @@ every wire, from the same config.
 | Job start | jobStart | jobs | on | code |  |  |  | graph/nodes/jobStart.js · jobStart.cjs · jobStartChoice.js · background.js |
 | Warm the cache | warm |  | on | code |  |  |  | graph/nodes/warm.js · warmPrefix.js · textsWarm.js |
 | Tex's computer | computer | tools-subagents | on | code |  | 150 s |  | graph/nodes/computer.js · texComputerSandbox.js · infra/tex-computer |
+| Before asking | askGate | ladder | on | @cf/cloudflare/clef-flash |  | 3 s | train:askGate, ask, draft, date | graph/nodes/askGate.js · lookupLadder.js |
+| 1 What it already knows | rungKnows | ladder | on | code |  |  |  | graph/nodes/rungKnows.js · lookupLadder.js |
+| 2 Their notes | rungNotes | ladder | on | code |  |  |  | graph/nodes/rungNotes.js · lookupLadder.js |
+| 3-4 Apps and web search | rungTools | ladder | on | code |  |  |  | graph/nodes/rungTools.js · lookupLadder.js |
+| 5-7 Hand to a job | handoff | ladder | on | code |  |  |  | graph/nodes/handoff.js · handoff.js |
 
-Wires: checkin → fd (wait, look) · notify → send (wait, send) · oldLine → send (wait, redirect) · edit → triage (wait, turn) · moveChat → send (wait, person, group) · triage → decide (wait, judge, running) · triage → lanes (wait, tex) · decide → react (wait) · decide → lanes (wait) · fd → tools (uses, action) · tools → mail (uses, email) · tools → card (uses, card) · fd → job (job, job) · job → handback (job, job) · tools → egress (uses, share) · tools → picture (uses, picture) · picture → card (uses) · nightly → dream (wait, dream) · dream → daysum (wait, summarize) · nightly → housekeep (wait, housekeeping) · tools → advisor (uses, ask_advisor) · job → jobadv (uses, job) · job → tools (uses, job) · triage → doorStep (provisional, stop:running, unless firstLook, sms, unpaired) · decide → doorStep (provisional, stop:quiet, restart:wait, unless firstLook, sms, unpaired) · lanes → doorStep (provisional, unless firstLook, sms, unpaired) · text → triage (wait) · doorStep → fd (wait, next) · send → learn (background, fired) · send → afterReply (background, sent, threads) · fd → answerCheck (wait) · answerCheck → send (wait) · answerCheck → fd (loop) · doorStep → bypass (wait, answered) · bypass → send (wait) · staff → moveChat (wait, move) · routine → fd (wait, run) · routine → bypass (wait, stopped) · send → chatDays (background, sent, ended, answered) · tools → moveJudge (uses, move) · tools → crossChatGate (uses, ask_chat) · chatAsk → lanes (wait, ask, answer) · answerCheck → chatAnswer (wait, ask) · crossChatGate → chatAsk (generator, ask) · chatAnswer → chatAsk (generator, back) · tools → tapback (uses, tapback) · job → partEnd (uses, job) · job → jobReport (generator) · jobReport → lanes (wait, report) · fd → jobStart (uses, job) · decide → decideWhy (uses, contradiction) · doorStep → shapeGate (uses) · doorStep → router (uses) · tools → computer (uses, computer)
+Wires: checkin → fd (wait, look) · notify → send (wait, send) · oldLine → send (wait, redirect) · edit → triage (wait, turn) · moveChat → send (wait, person, group) · triage → decide (wait, judge, running) · triage → lanes (wait, tex) · decide → react (wait) · decide → lanes (wait) · fd → tools (uses, action) · tools → mail (uses, email) · tools → card (uses, card) · fd → job (job, job) · job → handback (job, job) · tools → egress (uses, share) · tools → picture (uses, picture) · picture → card (uses) · nightly → dream (wait, dream) · dream → daysum (wait, summarize) · nightly → housekeep (wait, housekeeping) · tools → advisor (uses, ask_advisor) · job → jobadv (uses, job) · job → tools (uses, job) · triage → doorStep (provisional, stop:running, unless firstLook, sms, unpaired) · decide → doorStep (provisional, stop:quiet, restart:wait, unless firstLook, sms, unpaired) · lanes → doorStep (provisional, unless firstLook, sms, unpaired) · text → triage (wait) · doorStep → fd (wait, next) · send → learn (background, fired) · send → afterReply (background, sent, threads) · fd → answerCheck (wait) · answerCheck → send (wait) · answerCheck → fd (loop) · doorStep → bypass (wait, answered) · bypass → send (wait) · staff → moveChat (wait, move) · routine → fd (wait, run) · routine → bypass (wait, stopped) · send → chatDays (background, sent, ended, answered) · tools → moveJudge (uses, move) · tools → crossChatGate (uses, ask_chat) · chatAsk → lanes (wait, ask, answer) · answerCheck → chatAnswer (wait, ask) · crossChatGate → chatAsk (generator, ask) · chatAnswer → chatAsk (generator, back) · tools → tapback (uses, tapback) · job → partEnd (uses, job) · job → jobReport (generator) · jobReport → lanes (wait, report) · fd → jobStart (uses, job) · decide → decideWhy (uses, contradiction) · doorStep → shapeGate (uses) · doorStep → router (uses) · tools → computer (uses, computer) · answerCheck → askGate (uses) · askGate → rungKnows (uses, climb) · askGate → rungNotes (uses, climb) · askGate → rungTools (uses, climb) · askGate → handoff (uses, climbOn) · handoff → jobStart (uses, hand)
 <!-- tex-config: steps end -->
 
 ## The rule

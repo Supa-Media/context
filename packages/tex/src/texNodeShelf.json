@@ -1,16 +1,6 @@
 {
   "about": "Nodes whose code is merged into packages/tex/gateway/agent/graph/gatewayNodes.js but not wired into texConfig.json yet (Dev2, 2026-11-16: \"for code changes, create the node inside the code first and merge it to main\"). A shelf node never runs: the runner runs only the config's nodes. A Lab draft wires it, and Promote takes it off the shelf in the same pull request that puts it in the config. Each entry: the node's id, its files (repository paths), and what it is for.",
   "nodes": {
-    "handoff": {
-      "files": [
-        "packages/tex/gateway/agent/graph/nodes/handoff.js",
-        "packages/tex/gateway/agent/handoff.js",
-        "packages/tex/gateway/agent/graph/nodes/answerCheck.js",
-        "packages/tex/gateway/agent/turn.js",
-        "packages/tex/gateway/agent/doorTurn.js"
-      ],
-      "why": "Hands a job the front door could not finish inside its turn to a background worker (Dev2, 2026-11-18: the front door stays fast; a long or multi-step job is acknowledged at once and a worker with more rounds delivers it). Asked at two moments, each by its own wire, its input's cause saying which: fd -> handoff (uses) when the front door is two rounds from its bound and still calling tools (cause rounds), answerCheck -> handoff (uses) when the Answer check would send a draft back and its send-back budget is spent (cause check), and router -> handoff (uses) when the router reads the text as a long job before any answer is drafted (cause route, `doorTurn.js`). The job's brief is their ask, why it was handed on, the unsent words and what the turn already found; the person gets the job's start tapback and the worker's report. Its limits.routeSure (a percent) is how sure the router must be of a job pick to hand it on; absent, the doors' 0.6 holds (Dev2, 2026-11-19). Unwired, nothing changes."
-    },
     "examples": {
       "files": [
         "packages/tex/gateway/agent/graph/nodes/examples.js",
@@ -22,38 +12,6 @@
         "packages/tex/src/texExamples.cjs"
       ],
       "why": "The Training moments nearest to the text the front door is answering (Dev2, 2026-11-18: the front door's examples are picked for this text, not fixed). The front door starts it at its first step with the text and its recent lines; it embeds them with the meaning-search model and reads the nearest of the Training moments from the Tex-owned index, dropping the scored conversation, and the front door reads them in its preamble after a budget (ms, default 100). Without the index, a model, or an answer in time, the front door keeps its fixed examples. Unwired, nothing changes: a Lab draft turns it on with fd -> examples (uses)."
-    },
-    "askGate": {
-      "files": [
-        "packages/tex/gateway/agent/graph/nodes/askGate.js",
-        "packages/tex/gateway/agent/lookupLadder.js",
-        "packages/tex/gateway/agent/graph/nodes/answerCheck.js",
-        "packages/tex/gateway/agent/texEntryPoint/runTheModel.js",
-        "packages/tex/gateway/agent/handoff.js",
-        "packages/tex/gateway/agent/graph/nodes/handoff.js"
-      ],
-      "why": "Before asking (the lookup ladder; Dev2, 2026-11-20: Tex asks things it never looked for). The Answer check asks it about a draft it would let go (answerCheck -> askGate, uses). No question mark: on with no model. Otherwise the step's decision model (Clef, Clef Flash or Jev, its config's) reads what the draft asks of them from its Training examples: nothing, an approval or what only they can answer goes on; a fact Tex could find climbs: rungs 1 to 4 (rungKnows, rungNotes, rungTools, its uses wires) and one send-back with what they found or which fast rung is untried; with nothing found, or still asking after that, the slow rungs (its own browser, a computer, the advisor) go to a background job through the Hand-off node (askGate -> handoff, cause ladder). A failed connector is said and asked about, never worked around with the browser. Unwired, nothing changes."
-    },
-    "rungKnows": {
-      "files": [
-        "packages/tex/gateway/agent/graph/nodes/rungKnows.js",
-        "packages/tex/gateway/agent/lookupLadder.js"
-      ],
-      "why": "Rung 1 of the lookup ladder, What it already knows: the chat's own history searched for the asked fact, 90 days verbatim and every day summary, further back than the front door reads; logs the lines it found. Called by askGate (askGate -> rungKnows, uses)."
-    },
-    "rungNotes": {
-      "files": [
-        "packages/tex/gateway/agent/graph/nodes/rungNotes.js",
-        "packages/tex/gateway/agent/lookupLadder.js"
-      ],
-      "why": "Rung 2 of the lookup ladder, Their notes: the front door's own search over their notes for the asked fact; logs the query and the lines found. Called by askGate (askGate -> rungNotes, uses)."
-    },
-    "rungTools": {
-      "files": [
-        "packages/tex/gateway/agent/graph/nodes/rungTools.js",
-        "packages/tex/gateway/agent/lookupLadder.js"
-      ],
-      "why": "Rungs 3 and 4 of the lookup ladder, Apps and web search: which of the front door's lookups this turn tried (a connected app, web search, the browser, the advisor) and which connected app failed; askGate's send-back names the fast ones untried. Called by askGate (askGate -> rungTools, uses)."
     },
     "readTheText": {
       "files": [
