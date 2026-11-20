@@ -338,8 +338,35 @@ export function readOnlySiteShots(binding) {
 }
 
 /**
+ * Tex's own computer for a test chat (`infra/tex-computer`): the same Worker, but never the person's or the chat's own
+ * computer. Every call's owner tag is swapped for one bound to this test chat, so a test text gets a fresh, empty
+ * computer of its own (it sleeps and is wiped like any other), and a developer's test text in a chat shared with them
+ * can never read what that person's real jobs left on theirs.
+ */
+export function sandboxComputer(binding, sandboxId) {
+  const scope = `lab-sandbox:${String(sandboxId ?? "")}:`;
+  return {
+    async fetch(input, init) {
+      let body;
+      try {
+        body = JSON.parse(String(init?.body ?? ""));
+      } catch {
+        body = null;
+      }
+      if (!sandboxId || !body || typeof body.owner !== "string") {
+        return new Response(JSON.stringify({ ok: false, error: "not a call this computer takes. Use run, read, write, list or stop, then try again." }), { status: 400, headers: { "content-type": "application/json" } });
+      }
+      const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(scope + body.owner));
+      const owner = [...new Uint8Array(digest)].map((byte) => byte.toString(16).padStart(2, "0")).join("");
+      return await binding.fetch(input, { ...init, body: JSON.stringify({ ...body, owner }) });
+    },
+  };
+}
+
+/**
  * A test turn's env: the real one's plain settings, the model's bindings, the objects through `wire.js`, analytics that
- * keep nothing, the screenshot Worker for reads only (`readOnlySiteShots`), and `gate` under `LAB_SANDBOX_KEY`. Every
+ * keep nothing, the screenshot Worker for reads only (`readOnlySiteShots`), Tex's computer under the test chat's own
+ * tag (`sandboxComputer`), and `gate` under `LAB_SANDBOX_KEY`. Every
  * other binding (the texting Worker, Tex's jobs and chat queues, live rooms, tickets, the eval service) is left out, so
  * no code path can reach one.
  */
@@ -372,6 +399,7 @@ export function sandboxEnvOf(env, { gate, workspaces, tex }) {
     else if (ANALYTICS.has(key)) out[key] = { writeDataPoint() {} };
   }
   if (typeof env?.SITE_SHOTS?.fetch === "function") out.SITE_SHOTS = readOnlySiteShots(env.SITE_SHOTS);
+  if (typeof env?.TEX_COMPUTER?.fetch === "function" && gate?.about?.sandboxId) out.TEX_COMPUTER = sandboxComputer(env.TEX_COMPUTER, gate.about.sandboxId);
   // Tex's example index (`graph/nodes/examples.js`): Training moments only, so a test turn may search it; never write it.
   if (typeof env?.TEX_EXAMPLES?.query === "function") out.TEX_EXAMPLES = Object.freeze({ query: (vector, options) => env.TEX_EXAMPLES.query(vector, options) });
   if (workspaces) out.WORKSPACE_STORE = workspaces;
