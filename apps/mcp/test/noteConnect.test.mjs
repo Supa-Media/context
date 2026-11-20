@@ -130,3 +130,13 @@ test("in a Lab test chat a background step reads the note the turn wrote there, 
   assert.equal(notes.get("areas/study/genesis-19.md")?.body, "# Genesis 19\n", "the write is kept in the test chat");
   assert.deepEqual(touched, [], "nothing reached the real notes");
 });
+
+test("Connect is handed the notes the turn wrote, tainted only by what this turn read, never by the chat's week", async () => {
+  const { connectInput } = await import("../../../packages/tex/gateway/agent/connectInput.js");
+  const steps = [{ tool: "read_note", ok: true }, { tool: "write_note", ok: true, wrote: ["areas/study/judges-19.md"] }, { tool: "write_note", ok: true, wrote: ["areas/study/judges-19.md"] }];
+  assert.equal(connectInput({ steps: [{ tool: "read_note" }], question: "hi", ledger: {}, group: null }), null, "a turn that wrote nothing hands Connect nothing");
+  // An earlier turn read mail (the history is tainted); this one did not read outside words.
+  assert.deepEqual(connectInput({ steps, question: "judges 19", ledger: { untrusted: false }, group: null }), { notes: ["areas/study/judges-19.md"], question: "judges 19", tainted: false, group: false });
+  assert.equal(connectInput({ steps, question: "x", ledger: { untrusted: true }, group: null }).tainted, true, "this turn's own outside reads still hold it back");
+  assert.equal(connectInput({ steps, question: "x", ledger: {}, group: { id: "g" } }).group, true);
+});
