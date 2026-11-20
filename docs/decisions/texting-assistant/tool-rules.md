@@ -53,6 +53,6 @@ chat can take, one line each. `fetch manual:<action>` returns the action's
 args and its carrier's whole description. What a turn may really call is
 still its own grants; an action shown but not held is refused with what is
 available now and what to do. `test/sixToolsFixed.test.mjs` and the replay
-case `fixed-tool-list` fail when a 1:1's check-in is shown a different list
+the replay-harness test in it fail when a 1:1's check-in is shown a different list
 or a tool goes over the limit. Main keeps `"turn"` until a scored Lab draft
 is promoted.
