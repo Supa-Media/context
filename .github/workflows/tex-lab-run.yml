@@ -558,6 +558,14 @@ jobs:
           node apps/mcp/bench/run.mjs sets run "${scope[@]}" "${args[@]}"
           code=$?
           echo "$(( $(date +%s%3N) - started ))" > "$RUNNER_TEMP/lab/ms"
+          # The answerer stops itself when a call fails three times, and the watchdog then ends the run. The regrade and
+          # the gold self-check below ask the same answerer, so with it gone they would wait on the socket until the job's
+          # timeout (2026-11-20: Lab run 44676114994 waited 1 h 43 m). Its last lines say which call failed and why.
+          if [ -n "$answerer" ] && ! kill -0 "$answerer" 2>/dev/null; then
+            echo "::error::the Claude Code answerer stopped before the run finished; its last lines:"
+            tail -n 20 "$RUNNER_TEMP/answerer.log" || true
+            exit 1
+          fi
           # The grader's own noise (`apps/mcp/bench/regrade.mjs`; Dev2, 2026-11-19): on Claude Code ($0), a Training or Dev
           # run grades its kept Front door replies once more; a row whose grade flips is the grader, not Tex. Counts and
           # row ids only in the log; never on the sealed Test set; a regrade that fails never fails the run.
