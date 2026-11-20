@@ -32,7 +32,7 @@ import { OutputGrp } from "./OutputFields.web";
 import { StepCases } from "./StepCases.web";
 import { StepChanges } from "./StepChanges.web";
 import { AddPicker, ReadsStack } from "./ReadsStack.web";
-import { EFFORTS } from "@context/shared/src/texConfigSchema.cjs";
+import { EFFORTS } from "@context/tex/src/texConfigSchema.cjs";
 
 export function NodePanel({ n, extra }: { n: LabNode; extra?: ReactNode }) {
   useLab();

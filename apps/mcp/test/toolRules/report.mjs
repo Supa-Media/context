@@ -1,5 +1,5 @@
 /**
- * TEX'S TOOLS MEASURED AGAINST THE FOUR TOOL RULES (Dev2, 2026-11-20; `packages/shared/src/toolRules.cjs`).
+ * TEX'S TOOLS MEASURED AGAINST THE FOUR TOOL RULES (Dev2, 2026-11-20; `packages/tex/src/toolRules.cjs`).
  *
  * Runs real turns through the replay harness (`test/replay/chats.mjs`) and reads the tool definitions each one sent to
  * the model, so rule 1 and rule 2 are measured on what a model is actually shown, not on a list kept by hand. Rule 3
@@ -15,7 +15,7 @@ import { oneToOne, groupChat } from "../replay/chats.mjs";
 import { toolDefinitions } from "../../src/tools/registry.js";
 import { V2_TOOLS } from "../../src/tools/advertised.js";
 import { ASSISTANT_SEND_ACTIONS } from "../../src/agent/sixTools.js";
-import rules from "../../../../packages/shared/src/toolRules.cjs";
+import rules from "../../../../packages/tex/src/toolRules.cjs";
 
 const { TOOL_CHAR_LIMIT, toolChars, rateError, TEX_STATE_FILES, SHELL_NAMES } = rules;
 const MCP_ROOT = fileURLToPath(new URL("../..", import.meta.url));

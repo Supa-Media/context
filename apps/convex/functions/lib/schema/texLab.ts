@@ -34,7 +34,7 @@ export const texLabTables = {
     /**
      * Promote (Dev2, 2026-11-13: the Lab's config is "the only source of truth"): a staff member asked for this
      * version to become Tex's config; the Lab promote workflow opens the pull request that changes
-     * `packages/shared/src/texConfig.json` and records its address here. A refusal over clashes with main keeps them
+     * `packages/tex/src/texConfig.json` and records its address here. A refusal over clashes with main keeps them
      * (`clashes`), and the next ask carries the person's pick for each (`picks`; Dev2, 2026-11-17).
      */
     promote: v.optional(v.object({ state: v.union(v.literal("asked"), v.literal("opened"), v.literal("refused")), by: v.id("users"), at: v.number(), pr: v.optional(v.string()), why: v.optional(v.string()), clashes: v.optional(v.array(promoteClash)), picks: v.optional(v.array(promotePick)) })),
@@ -46,7 +46,7 @@ export const texLabTables = {
     rev: v.optional(v.number()),
     /**
      * The main it was made from (Dev2, 2026-11-17: parallel config changes must not write over each other): the stamp of
-     * that `texConfig.json` (`packages/shared/src/texConfigStamp.cjs`). Promote merges only what the draft changed since
+     * that `texConfig.json` (`packages/tex/src/texConfigStamp.cjs`). Promote merges only what the draft changed since
      * then onto main (`scripts/tex-lab-merge.mjs`). A version saved before has none and is based on when it was made.
      */
     base: v.optional(v.string()),
@@ -111,7 +111,7 @@ export const texLabTables = {
   texSetConvos: defineTable({
     convoId: v.string(),
     set: v.union(v.literal("training"), v.literal("dev")),
-    /** The conversation as `packages/shared/src/texSets.cjs` reads it, as JSON. */
+    /** The conversation as `packages/tex/src/texSets.cjs` reads it, as JSON. */
     data: v.string(),
     /** A conversation the repo does not have yet. */
     isNew: v.boolean(),

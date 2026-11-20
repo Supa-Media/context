@@ -3,7 +3,7 @@
  * BRING THE COMMITTED CONFIG TO THE CURRENT SCHEMA (Dev2, 2026-11-17: "make sure that when we make updates or changes
  * to the schema everything is updated").
  *
- * A schema change is one pull request: bump `SCHEMA_VERSION` in `packages/shared/src/texConfigSchema.cjs`, add the
+ * A schema change is one pull request: bump `SCHEMA_VERSION` in `packages/tex/src/texConfigSchema.cjs`, add the
  * migration that takes the old shape to the new one, run this, and commit the config it writes. The same migrations
  * upgrade Lab drafts when they are opened and promoted; CI (`tex-config-readers.mjs`) fails while the committed config
  * is behind its schema.
@@ -19,7 +19,7 @@ import { fileURLToPath } from "node:url";
 import { CONFIG_PATH, texConfigText } from "./lib/texConfigFile.mjs";
 import { configText } from "./tex-lab-promote.mjs";
 
-const { SCHEMA_VERSION, configProblems, migrateGraph } = createRequire(import.meta.url)("../packages/shared/src/texConfigSchema.cjs");
+const { SCHEMA_VERSION, configProblems, migrateGraph } = createRequire(import.meta.url)("../packages/tex/src/texConfigSchema.cjs");
 const ROOT = fileURLToPath(new URL("..", import.meta.url));
 
 const before = texConfigText(ROOT);

@@ -1,6 +1,6 @@
 # Tex's config is its graph: the wires are predefined, the nodes are code (2026-11-14)
 
-Until 2026-11-14 the config (`packages/shared/src/texConfig.json`, the Tex
+Until 2026-11-14 the config (`packages/tex/src/texConfig.json`, the Tex
 Architecture Lab's graph of main) set only each drawn step's model, effort,
 time limit and on or off. Which step ran after which, what waited, and what ran
 in the background were code. So code could run a step the drawing never showed.
@@ -20,7 +20,7 @@ runs next.
 
 ## The config holds every wire, and every wire runs
 
-The file is `packages/shared/src/texConfig.json`. Its top level is `texConfig`
+The file is `packages/tex/src/texConfig.json`. Its top level is `texConfig`
 (the version), `about`, `models` (a model key to its gateway id), `groups`
 (folded boxes such as `door`), `nodes` and `edges`.
 
@@ -28,7 +28,7 @@ A node has an `id`, `label`, `goal`, `kind` (`input` for a start, `code`, `model
 or `tool`), `model` (a key of `models`, or `code`), `effort`, `on`, `rounds`,
 `out`, `timeoutS`, `ms` (the estimate the Lab uses), `ctx` (the context modules it
 reads, in prompt order; `p-<name>` is the prompt words in
-`packages/shared/src/texPrompt/<name>.md`), `areas` (the replay areas it
+`packages/tex/src/texPrompt/<name>.md`), `areas` (the replay areas it
 belongs to), `file` (where its code lives), `group`, `inSchema` and `outSchema`
 (the named, typed fields it takes and gives), `log`, `icon` and `x`/`y`.
 
@@ -56,7 +56,7 @@ guards (`scripts/tex-diagram-check.mjs`), with the runner's coverage tests.
 
 ## One runner interprets the wires
 
-`packages/shared/src/texGraph.cjs` is the only interpreter of `edges`. Its modes:
+`packages/tex/src/texGraph.cjs` is the only interpreter of `edges`. Its modes:
 
 - `wait`: runs next on the source's output. A node fed by several wait wires
   runs once, after all of them, on their outputs merged.
@@ -141,7 +141,7 @@ nodes.
 
 The one graph is `apps/mcp/src/agent/graph/gatewayGraph.js`, over
 `GATEWAY_NODES` (`gatewayNodes.js`). The move is staged:
-`packages/shared/src/texGraphNotYet.json` names every node whose code is not on
+`packages/tex/src/texGraphNotYet.json` names every node whose code is not on
 the runner yet. A node leaves it in the pull request that puts it in
 `GATEWAY_NODES`, and nothing goes back. Meanwhile code not yet a node calls one
 with `runNode(id, input, ctx, via)`, or over a config wire with
@@ -242,7 +242,7 @@ In Fast repository guards, `scripts/tex-diagram-check.mjs` fails when:
 - a pull request changes a node's file and neither changes the config nor says
   `Tex diagram: unchanged because <reason>` in its description.
 
-The runner (`packages/shared/src/texGraph.cjs`) adds, with its own tests in
+The runner (`packages/tex/src/texGraph.cjs`) adds, with its own tests in
 `apps/mcp/test/texGraph.test.mjs` and `texGraphHome.test.mjs`: a cycle of
 `wait` or `background` wires, a node in the config with no code or code for a
 node not in the config, and a node file that imports another node's file.
@@ -267,7 +267,7 @@ edits its line in the capability list ([capabilities](./capabilities.md)).
 it to main, this should be simple and easy because the node is not used in any
 config yet"). Step one is a pull request that only adds the node's code: its
 file under `apps/mcp/src/agent/graph/nodes/`, its entry in `GATEWAY_NODES`, its
-unit test, and an entry on the shelf, `packages/shared/src/texNodeShelf.json`
+unit test, and an entry on the shelf, `packages/tex/src/texNodeShelf.json`
 (its id, its files and what it is for). The config does not change, so the
 drawing, the map and every prompt stay byte for byte the same, no model area is
 reached, and no replay case or Test set run is asked for

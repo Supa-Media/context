@@ -5,7 +5,7 @@
  * told its own structure from the config).
  *
  * `TEX_MAP` is Tex's graph in words: every node of
- * `packages/shared/src/texConfig.json`, what it does and where its wires go,
+ * `packages/tex/src/texConfig.json`, what it does and where its wires go,
  * generated into `texArchitecture.generated.js` by
  * `scripts/tex-architecture.mjs` and checked against the config in CI.
  * `withArchitecture(prompt, role)` puts it ahead of an agent's own prompt,
@@ -22,8 +22,8 @@
 import { TEX_MAP } from "./texArchitecture.generated.js";
 import { capabilitiesFor } from "./capabilities.js";
 import { texStep } from "./texConfig.js";
-import GENERATED_TRAINING from "../../../../packages/shared/src/texTraining.generated.json" with { type: "json" };
-import { trainingOf, trainingText } from "../../../../packages/shared/src/texTraining.cjs";
+import GENERATED_TRAINING from "../../../../packages/tex/src/texTraining.generated.json" with { type: "json" };
+import { trainingOf, trainingText } from "../../../../packages/tex/src/texTraining.cjs";
 
 /** Every Training conversation, less what a bench process scores of it (`texTraining.cjs` `trainingOf`; production reads all). */
 const TRAINING = trainingOf(GENERATED_TRAINING);

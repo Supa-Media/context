@@ -28,7 +28,7 @@ import { runChatTurn } from "../src/labSandbox/chatRun.js";
 import { streamTurn, wantsProgress } from "../src/agent/progress.js";
 import { eventEntry } from "../src/agent/ledger.js";
 import { TEX_CONFIG } from "../src/agent/texConfig.js";
-import { createGraph } from "../../../packages/shared/src/texGraph.cjs";
+import { createGraph } from "../../../packages/tex/src/texGraph.cjs";
 import { durableSql } from "./texStoreFixture.mjs";
 
 const LINE = { name: "photon", number: PHOTON_NUMBER, inMs: 7_000, outMs: 11, measured: { in: 0, out: 0 } };

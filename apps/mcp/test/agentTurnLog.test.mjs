@@ -125,7 +125,7 @@ test("a call made as one of the six keeps that name beside the tool that ran; no
   assert.equal("six" in wireTraceEntry({ kind: "tool", tool: "x", six: "nope", ok: true, ms: 1 }), false);
 });
 
-// Tool rules 1-3 (Dev2, 2026-11-20; packages/shared/src/toolRules.cjs): the list a model was shown, by fingerprint and size.
+// Tool rules 1-3 (Dev2, 2026-11-20; packages/tex/src/toolRules.cjs): the list a model was shown, by fingerprint and size.
 test("the tool list a turn was shown is logged as fingerprints and sizes, never words, and cache marks don't change it", () => {
   const tool = { name: "send", description: "Send a text.", input_schema: { type: "object" } };
   const shown = toolsShownOf([tool]);

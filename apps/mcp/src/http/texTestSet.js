@@ -16,8 +16,8 @@
  *    workflow, whose GitHub OIDC token it checks itself (`infra/tex-eval/src/oidc.ts`).
  */
 
-import sets from "../../../../packages/shared/src/texSets.cjs";
-import decide from "../../../../packages/shared/src/textDecide.cjs";
+import sets from "../../../../packages/tex/src/texSets.cjs";
+import decide from "../../../../packages/tex/src/textDecide.cjs";
 import { TEX_CONFIG } from "../agent/texConfig.js";
 import { editsPinnedContext } from "../context/identity.js";
 import { json } from "./responses.js";

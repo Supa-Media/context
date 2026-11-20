@@ -2,10 +2,10 @@
  * TEX'S PROMPT WORDS, IN THE REPOSITORY (Dev2, 2026-11-14: the words live "in the repo, beside the config", so the
  * Lab's config is the one source of what Tex is told).
  *
- * Each prompt module is one Markdown file, `packages/shared/src/texPrompt/<name>.md`, the words exactly as Tex is
+ * Each prompt module is one Markdown file, `packages/tex/src/texPrompt/<name>.md`, the words exactly as Tex is
  * given them. Which modules a turn gets, and in what order, is the config's (`texConfig.json`: the `p-<name>` entries
  * of the front door's and the background job's context). A Worker cannot read a Markdown file, so this writes the
- * files' words into `packages/shared/src/texPrompt.generated.json`, which the gateway and the Lab import.
+ * files' words into `packages/tex/src/texPrompt.generated.json`, which the gateway and the Lab import.
  *
  *   node scripts/tex-prompt-module.mjs           write the module
  *   node scripts/tex-prompt-module.mjs --check   fail when it is stale
@@ -18,8 +18,8 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
-export const FOLDER = "packages/shared/src/texPrompt";
-export const MODULE = "packages/shared/src/texPrompt.generated.json";
+export const FOLDER = "packages/tex/src/texPrompt";
+export const MODULE = "packages/tex/src/texPrompt.generated.json";
 
 const NAME = /^[a-z][a-z0-9-]{0,47}$/;
 

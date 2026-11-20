@@ -342,7 +342,7 @@ test("describe keeps a short line, and the full one when asked", () => {
 // Dev2, 2026-11-16: "No way to add images into these messages".
 test("a message carries pictures: https only, at most MAX_PICS, null drops them, and a picture needs no words", () => {
   const { MAX_PICS } = ops;
-  const { check } = require("../../../packages/shared/src/texSets.cjs");
+  const { check } = require("../../../packages/tex/src/texSets.cjs");
   const pic = { url: "https://example.invalid/a.png", type: "image/png", name: "a.png" };
   const c = run(base(), [{ op: "edit", msg: "m1", field: "pics", value: [pic] }]);
   assert.deepEqual(c.msgs[0].pics, [pic]);

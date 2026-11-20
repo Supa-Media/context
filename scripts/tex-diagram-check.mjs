@@ -3,7 +3,7 @@
  * THE TEX DIAGRAM IS TEX'S CONFIG (Dev2, 2026-11-05: "any change to the architecture must change the diagram";
  * 2026-11-14: the connections between nodes are config, never code, and Tex is told its own structure from it).
  *
- * `packages/shared/src/texConfig.json` is what Tex runs, and `docs/architecture/tex.md`'s drawing and table and the
+ * `packages/tex/src/texConfig.json` is what Tex runs, and `docs/architecture/tex.md`'s drawing and table and the
  * map every Tex agent reads (`texArchitecture.generated.js`) are generated from it (`tex-architecture.mjs`). This
  * checks the code against the config, so code that runs outside it fails CI:
  *
@@ -196,7 +196,7 @@ function check(base) {
   problems.push(...stepProblems(graphSteps(ROOT), config));
   const naming = [];
   for (const folder of MODEL_FOLDERS) for (const file of filesUnder(join(ROOT, folder))) if (MODEL_ID.test(readFileSync(file, "utf8"))) naming.push(relative(ROOT, file));
-  const shelf = JSON.parse(readFileSync(join(ROOT, "packages/shared/src/texNodeShelf.json"), "utf8"));
+  const shelf = JSON.parse(readFileSync(join(ROOT, "packages/tex/src/texNodeShelf.json"), "utf8"));
   problems.push(...modelFileProblems(naming, config, Object.values(shelf.nodes ?? {}).flatMap((n) => n.files ?? [])));
   const agentFiles = filesUnder(join(ROOT, AGENT_FOLDER)).map((file) => ({ path: relative(join(ROOT, AGENT_FOLDER), file), source: readFileSync(file, "utf8") }));
   problems.push(...mapProblems(agentFiles));

@@ -1,5 +1,5 @@
 /**
- * Tex's turn on the real graph runner (`packages/shared/src/texGraph.cjs`), with the real Answer checks
+ * Tex's turn on the real graph runner (`packages/tex/src/texGraph.cjs`), with the real Answer checks
  * (`nodes/checks.js`), the real Reply reviewer (`nodes/reviewer.js`), the real draft bridge (`draftBridge.js`) and the
  * real send node (`nodes/send.js`). The front door (`nodes/fd.js`) is a fake that keeps its shape, a real draft bridge
  * at `ctx.turn.drafts` and a scripted model loop, because the real one calls the model.
@@ -17,7 +17,7 @@
  *     once a door step ended the turn and the thread list was read.
  *
  * Sabotage record (temporary local edits, reverted, 2026-11-14):
- *   (i)  packages/shared/src/texGraph.cjs: the `for (const mid of between(to, id))` line in a loop wire's io.back
+ *   (i)  packages/tex/src/texGraph.cjs: the `for (const mid of between(to, id))` line in a loop wire's io.back
  *        commented out. Case b fails (4 of 7 green overall, 6 pass): the reviewer's rewrite goes straight to
  *        review(d2), so the calls lack code(d2) before it. Case d still passes, since the rerun is still logged.
  *   (ii) nodes/checks.js: `if (review)` replaced by `if (false && review)`. Cases a, b and d fail (3 fail, 4 pass):
@@ -28,7 +28,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 
-import graphLib from "../../../packages/shared/src/texGraph.cjs";
+import graphLib from "../../../packages/tex/src/texGraph.cjs";
 import { draftBridge } from "../src/agent/graph/draftBridge.js";
 import { checksNode } from "../src/agent/graph/nodes/checks.js";
 import { reviewerNode } from "../src/agent/graph/nodes/reviewer.js";

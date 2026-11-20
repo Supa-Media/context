@@ -42,10 +42,10 @@ const ROOT_INPUTS = [
  * A diff with any other file in it is scoped exactly as before.
  */
 export const TEX_DATA = [
-  "packages/shared/src/texConfig.json",
-  "packages/shared/src/texNodeShelf.json",
-  "packages/shared/src/texPrompt/**",
-  "packages/shared/src/texTraining.generated.json",
+  "packages/tex/src/texConfig.json",
+  "packages/tex/src/texNodeShelf.json",
+  "packages/tex/src/texPrompt/**",
+  "packages/tex/src/texTraining.generated.json",
   "packages/lab/src/texSetsRepo.generated.json",
   "apps/mcp/bench/sets/**",
   "apps/mcp/src/agent/texArchitecture.generated.js",
@@ -270,12 +270,12 @@ export function selfTest() {
   if (editor("apps/mobile/public/index.html")) throw new Error("an asset nothing imports matched the editor scope");
   if (editor("apps/mobile/eslint.config.js")) throw new Error("a lint config matched the editor scope");
   // A diff of only Tex config and data runs only the jobs that opt in.
-  const config = ["packages/shared/src/texConfig.json", "apps/mobile/features/tex/lab/labData.generated.ts", "docs/architecture/tex.md"];
-  const mobile = (changed, texData) => decide({ packages: [], paths: ["apps/mobile/**", "packages/shared/**", "packages/lab/**"], changed, texData, root }).affected;
+  const config = ["packages/tex/src/texConfig.json", "apps/mobile/features/tex/lab/labData.generated.ts", "docs/architecture/tex.md"];
+  const mobile = (changed, texData) => decide({ packages: [], paths: ["apps/mobile/**", "packages/shared/**", "packages/lab/**", "packages/tex/**"], changed, texData, root }).affected;
   if (mobile(config, false)) throw new Error("a config-only diff ran a job that did not opt in to Tex data");
   if (!mobile(config, true)) throw new Error("a config-only diff skipped a job that opted in to Tex data");
   if (!mobile([...config, "apps/mobile/App.tsx"], false)) throw new Error("a diff with code beside the config skipped a watching job");
-  if (!mobile(["packages/shared/src/texPrompt/frontDoor.md"], true)) throw new Error("a prompt edit skipped an opted-in job");
+  if (!mobile(["packages/tex/src/texPrompt/frontDoor.md"], true)) throw new Error("a prompt edit skipped an opted-in job");
   if (texDataOnly([])) throw new Error("an empty diff counted as Tex data only");
   // The framework CI's copy of the list must be this one.
   const ci = readFileSync(join(root, ".github/workflows/ci.yml"), "utf8");
@@ -287,7 +287,7 @@ export function selfTest() {
   if (!wiring.includes("mode: tex-data-only")) throw new Error("Tex Lab wiring does not ask whether the diff is only Tex data");
   if (!wiring.includes("steps.tex.outputs.only == 'true'")) throw new Error("Tex Lab wiring is not limited to a Tex-data diff");
   if (!wiring.includes("pnpm exec jest --testPathPattern '__tests__/texLab'")) throw new Error("Tex Lab wiring does not run the texLab tests");
-  if (texDataOnly(["packages/shared/src/texConfig.ts"])) throw new Error("a code file beside the config counted as Tex data");
+  if (texDataOnly(["packages/tex/src/texConfig.ts"])) throw new Error("a code file beside the config counted as Tex data");
   if (!decide({ paths: ["apps/mobile/**"], changed: config, backstop: "push", root }).affected) {
     throw new Error("the main-branch backstop skipped a config-only push");
   }

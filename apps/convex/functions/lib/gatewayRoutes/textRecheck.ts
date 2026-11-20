@@ -19,10 +19,10 @@ import { badRequest, json } from "../gatewayAuth";
 import { withJev } from "../jev/client";
 import { workspaceFor } from "./textDecide";
 
-export { FITS_AT, MAX_DRAFT, readRecheckAnswers, readRecheckBody, recheckRequest } from "@context/shared/src/textDecide.cjs";
-export type { RecheckBody, RecheckResult } from "@context/shared/src/textDecide.cjs";
-// The question and how its answer reads are one copy, shared with the gateway (`packages/shared/src/textDecide.cjs`).
-import { readRecheckAnswers, readRecheckBody, recheckRequest, type RecheckResult } from "@context/shared/src/textDecide.cjs";
+export { FITS_AT, MAX_DRAFT, readRecheckAnswers, readRecheckBody, recheckRequest } from "@context/tex/src/textDecide.cjs";
+export type { RecheckBody, RecheckResult } from "@context/tex/src/textDecide.cjs";
+// The question and how its answer reads are one copy, shared with the gateway (`packages/tex/src/textDecide.cjs`).
+import { readRecheckAnswers, readRecheckBody, recheckRequest, type RecheckResult } from "@context/tex/src/textDecide.cjs";
 
 export async function agentTextsRecheckHandler(ctx: ActionCtx, raw: Record<string, unknown>): Promise<Response> {
   const body = readRecheckBody(raw);

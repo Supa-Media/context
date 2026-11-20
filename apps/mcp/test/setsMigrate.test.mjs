@@ -12,8 +12,8 @@ import { promisify } from "node:util";
 import { caseToConversation, migrateAll, placesOf, problems } from "../bench/setsMigrate.mjs";
 import { loadSets } from "../bench/sets.mjs";
 import { parseTest } from "../bench/load.mjs";
-import sets from "../../../packages/shared/src/texSets.cjs";
-import decide from "../../../packages/shared/src/textDecide.cjs";
+import sets from "../../../packages/tex/src/texSets.cjs";
+import decide from "../../../packages/tex/src/textDecide.cjs";
 import { readTexConfig, withRetiredSteps } from "../../../scripts/lib/texConfigFile.mjs";
 
 const repo = new URL("../../../", import.meta.url);

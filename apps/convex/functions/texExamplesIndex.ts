@@ -22,8 +22,8 @@
 
 import { internal } from "../_generated/api";
 import { internalAction, type ActionCtx } from "../_generated/server";
-import { TEX_EXAMPLES_INDEX, indexEntries } from "@context/shared/src/texExamples.cjs";
-import GENERATED from "../../../packages/shared/src/texTraining.generated.json";
+import { TEX_EXAMPLES_INDEX, indexEntries } from "@context/tex/src/texExamples.cjs";
+import GENERATED from "../../../packages/tex/src/texTraining.generated.json";
 import { createMeaningClient } from "../../mcp/src/search/meaning/client.js";
 import { createRestEmbedder } from "../../mcp/src/search/meaning/embed.js";
 import { D1_ACCOUNT_SECRET, D1_TOKEN_SECRET } from "./lib/d1";

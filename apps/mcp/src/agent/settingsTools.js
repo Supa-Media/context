@@ -3,7 +3,7 @@
  * configuration and the user can make changes in the chat without having to open the UI";
  * `docs/decisions/texting-assistant/settings-by-text.md`).
  *
- * Every setting is one row of `packages/shared/src/texSettings.cjs`. This module is how a texted turn reads them all
+ * Every setting is one row of `packages/tex/src/texSettings.cjs`. This module is how a texted turn reads them all
  * (`settingsSnapshot`, appended to `send tex_settings`) and changes the ones that aren't already another tool's:
  *
  *  - `send setting` (`tex_setting_set`): check-ins, quiet hours, texts from their other AIs, the overnight About me
@@ -23,7 +23,7 @@ import { DREAMS_SETTINGS_PATH, HOUSEKEEPING_SETTINGS_PATH } from "./texSwitches.
 import { frontSet, readCheckinSettings, readSwitches } from "../http/texPage/notes.js";
 import { contextsFor } from "../context/identity.js";
 import { FLAGS } from "../../../../packages/shared/src/flags.cjs";
-import { TEX_SETTINGS } from "../../../../packages/shared/src/texSettings.cjs";
+import { TEX_SETTINGS } from "../../../../packages/tex/src/texSettings.cjs";
 
 const HEARTBEAT_PATH = "tex/heartbeat.md";
 const ATTENTION_PATH = "tex/attention.md";

@@ -179,8 +179,10 @@ apps/mcp/        Cloudflare Worker: MCP gateway, privacy engine, tools,
                  storage adapter, email ingestion
 infra/           edge Workers: router (context.lc), email, transcription,
                  site screenshots, egress, Sentry inbox
-packages/        shared, lab (the Tex Lab), collaboration, meetings, communications, drawings,
-                 desktop-bridge, obsidian-runtime, encryption-decryptor
+packages/        shared, tex (Tex's config graph, prompts, judge examples,
+                 Training, tool rules), lab (the Tex Lab), collaboration, meetings,
+                 communications, drawings, desktop-bridge, obsidian-runtime,
+                 encryption-decryptor
 plugins/context/ the `context` agent plugin (skills, MCP entry, session hooks,
                  one manifest per plugin format) and, in the same folder, the
                  `npx @supa-media/context` CLI that installs it
@@ -206,7 +208,7 @@ note setting wins, moving onto tree rows per
 its *plumbing* freely; changing its *semantics* is a decision for
 `docs/decisions/`.
 
-**Tex has one graph**, `packages/shared/src/texConfig.json`: every node and
+**Tex has one graph**, `packages/tex/src/texConfig.json`: every node and
 every wire Tex runs; nodes are code, wires are config (decided by the owner,
 2026-11-14; [config-graph](./docs/decisions/texting-assistant/config-graph.md)).
 Its drawing, [`docs/architecture/tex.md`](./docs/architecture/tex.md), and the

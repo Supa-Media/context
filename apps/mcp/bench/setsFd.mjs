@@ -42,7 +42,7 @@ import { parsePeople } from "./load.mjs";
 import { seedWorld, worldDirOf } from "./setsWorld.mjs";
 import { runPool, scheduleOrder, untilOutOfCredit } from "./setsPool.mjs";
 
-const { OTHER_ASSISTANTS } = createRequire(import.meta.url)("../../../packages/shared/src/texSets.cjs");
+const { OTHER_ASSISTANTS } = createRequire(import.meta.url)("../../../packages/tex/src/texSets.cjs");
 
 /** The live setup note's settings, without its task skills (Context `@context-lc ai/production/texting-assistant.md`). */
 export const LIVE_SETTINGS = ["job: texting-assistant", "max_steps: 24", "open_web: yes", "search:", "  everywhere: true"].join("\n");
@@ -568,7 +568,7 @@ export async function frontFor(dir, person, { today = null, group = null, calend
  * The variables that hold one Training conversation out of the Front door's examples (`texTraining.cjs` `heldOutOf`),
  * or end it at a test's moment (`trainingOf`).
  */
-const { HOLD_OUT_ENV, UNTIL_ENV } = createRequire(import.meta.url)("../../../packages/shared/src/texTraining.cjs");
+const { HOLD_OUT_ENV, UNTIL_ENV } = createRequire(import.meta.url)("../../../packages/tex/src/texTraining.cjs");
 
 /**
  * The Front door's batch: every unit through the tree's own bench. Each conversation runs in a copy of the bench folder

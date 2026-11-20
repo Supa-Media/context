@@ -86,6 +86,7 @@ on:
       - "apps/convex/**"
       - "apps/mobile/**"
       - "packages/shared/**"
+      - "packages/tex/**"
       - "packages/collaboration/**"
       - ".github/workflows/gateway-contracts.yml"
 

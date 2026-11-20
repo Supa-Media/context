@@ -19,8 +19,8 @@ import { readTexConfig } from "./lib/texConfigFile.mjs";
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 const require = createRequire(import.meta.url);
-const { check } = require("../packages/shared/src/texSets.cjs");
-const { WHY } = require("../packages/shared/src/textDecide.cjs");
+const { check } = require("../packages/tex/src/texSets.cjs");
+const { WHY } = require("../packages/tex/src/textDecide.cjs");
 const CONFIG = readTexConfig(ROOT);
 export const SETS_DIR = join(ROOT, "apps/mcp/bench/sets");
 const { conversationFile } = await import(new URL("../apps/mcp/bench/sets.mjs", import.meta.url).href);

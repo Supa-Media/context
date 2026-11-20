@@ -1,5 +1,5 @@
 /**
- * The Training Set as each step's examples (`packages/shared/src/texTraining.cjs`, Dev2, 2026-11-15: Training is
+ * The Training Set as each step's examples (`packages/tex/src/texTraining.cjs`, Dev2, 2026-11-15: Training is
  * "shown to steps as examples", and "the context module to put in the training set").
  *
  * Sabotage that each test catches:
@@ -20,9 +20,9 @@ import { moduleIsCurrent } from "../../../scripts/tex-training-module.mjs";
 import { TEX_CONFIG, TEX_PROMPT_WORDS, TRAINING_READERS, texModules, texStep } from "../src/agent/texConfig.js";
 
 const require = createRequire(import.meta.url);
-const TRAINING = require("../../../packages/shared/src/texTraining.generated.json");
-const { historyLines, linesBefore, lineOf, momentsOf, trainingText, moduleText, TRAIN_ENTRY, trainName, chatsOf, wholeText } = require("../../../packages/shared/src/texTraining.cjs");
-const { EXAMPLES_TEXT, JUDGE_EXAMPLES, WHY } = require("../../../packages/shared/src/textDecide.cjs");
+const TRAINING = require("../../../packages/tex/src/texTraining.generated.json");
+const { historyLines, linesBefore, lineOf, momentsOf, trainingText, moduleText, TRAIN_ENTRY, trainName, chatsOf, wholeText } = require("../../../packages/tex/src/texTraining.cjs");
+const { EXAMPLES_TEXT, JUDGE_EXAMPLES, WHY } = require("../../../packages/tex/src/textDecide.cjs");
 
 test("the generated module is the conversations' (scripts/tex-training-module.mjs)", () => {
   assert.ok(moduleIsCurrent(), "run node scripts/tex-training-module.mjs");
@@ -262,7 +262,7 @@ test("a job check's example shows the job's brief, finish line and what it did, 
 // conversation in context names it and its moment (`UNTIL_ENV`), and that chat's examples end at the moment's own
 // reply. Sabotage: drop the cut in `trainingOf`, or keep lines past `ends[at]`, and "a scored chat's example ends
 // at its moment" fails; drop the fence or the intro's sentence and "every example is fenced" fails.
-const { UNTIL_ENV, HOLD_OUT_ENV, trainingOf, cutAt } = require("../../../packages/shared/src/texTraining.cjs");
+const { UNTIL_ENV, HOLD_OUT_ENV, trainingOf, cutAt } = require("../../../packages/tex/src/texTraining.cjs");
 // The front door's own whole-chat entry, read from the config: the cap grows with Training (2026-11-19: 60000 to 66000).
 const FD_WHOLE = TEX_CONFIG.nodes.find((n) => n.id === "fd").ctx.find((c) => /^train:fd:all:\d+$/.test(c));
 

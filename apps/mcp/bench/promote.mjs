@@ -271,8 +271,8 @@ async function archive(connection, { job, raw, stamp }, fetchImpl) {
 }
 
 const TEXTING_JOB = "texting-assistant";
-const NAMES_MODELS = "it names its own models, and Tex's models are Tex's config's (packages/shared/src/texConfig.json): change them with the Lab's Promote";
-const NAMES_MODULES = "it names its own prompt modules, and Tex's prompt words are Tex's config's (packages/shared/src/texPrompt/): change them with the Lab's Promote";
+const NAMES_MODELS = "it names its own models, and Tex's models are Tex's config's (packages/tex/src/texConfig.json): change them with the Lab's Promote";
+const NAMES_MODULES = "it names its own prompt modules, and Tex's prompt words are Tex's config's (packages/tex/src/texPrompt/): change them with the Lab's Promote";
 /** Why a parsed setup cannot go live as `job`'s file, or null: a texting setup naming its own models or modules would be a second copy that wins. */
 export const configRefusal = (job, parsed) => (job !== TEXTING_JOB ? null : parsed?.ownModels ? NAMES_MODELS : parsed?.ownModules ? NAMES_MODULES : null);
 
@@ -284,7 +284,7 @@ export async function promote({ job, setup, rounds, connection, runUrl = null, n
   if (!live || !cand) return { promoted: false, reasons: [`${live ? `${SETUPS_FOLDER}/${job}/${setup}.md` : livePath} is not in Context`], proof: [] };
   const [liveSetup, candSetup] = [await parseSetup(live.content), await parseSetup(cand.content)];
   if (!liveSetup || !candSetup) return { promoted: false, reasons: ["a file the gateway would refuse"], proof: [] };
-  // Tex's models, efforts, planner and reviewer are Tex's config's (packages/shared/src/texConfig.json; Dev2,
+  // Tex's models, efforts, planner and reviewer are Tex's config's (packages/tex/src/texConfig.json; Dev2,
   // 2026-11-13), and so are its prompt words (2026-11-14): a texting setup that names its own cannot go live, or the note
   // would be a second copy that wins.
   if (configRefusal(job, candSetup)) return { promoted: false, reasons: [configRefusal(job, candSetup)], proof: [] };

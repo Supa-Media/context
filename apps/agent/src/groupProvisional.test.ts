@@ -12,7 +12,7 @@
  */
 
 import { describe, expect, it } from "vitest";
-import { TEX_CONFIG as config } from "../../../packages/shared/src/texConfig.cjs";
+import { TEX_CONFIG as config } from "../../../packages/tex/src/texConfig.cjs";
 import { acceptGroup, drainGroup } from "./groupInbox";
 import { MemoryStorage } from "./memoryStorage.testing";
 import { ADA, BO, LINE, LINES, setup, silent, answerAll } from "./groupWorld.testing";

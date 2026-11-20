@@ -11,7 +11,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 
-import graphLib from "../../../packages/shared/src/texGraph.cjs";
+import graphLib from "../../../packages/tex/src/texGraph.cjs";
 import { TEX_CONFIG, texModel } from "../src/agent/texConfig.js";
 import { gatewayGraph } from "../src/agent/graph/gatewayGraph.js";
 import card from "../src/agent/graph/nodes/card.js";

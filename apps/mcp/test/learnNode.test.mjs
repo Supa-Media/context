@@ -10,7 +10,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 
-import graphLib from "../../../packages/shared/src/texGraph.cjs";
+import graphLib from "../../../packages/tex/src/texGraph.cjs";
 // The simpler graph, drawn in the Lab and promoted to live Tex's config (Dev2, 2026-11-16).
 import { TEX_CONFIG } from "../src/agent/texConfig.js";
 import { nudgeAfterTurn, reflectAfterTurn } from "../src/agent/reflect.js";

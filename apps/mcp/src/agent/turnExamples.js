@@ -6,7 +6,7 @@
  * Every outcome is traced (`kind: "examples"`): whether the nearest examples were found, how many, how long the wait
  * took, why not, and whether the fixed ones were used instead. Never throws: a broken node costs the examples, not the turn.
  */
-import { EXAMPLES_BUDGET_MS, EXAMPLES_NODE, fallbackText } from "../../../../packages/shared/src/texExamples.cjs";
+import { EXAMPLES_BUDGET_MS, EXAMPLES_NODE, fallbackText } from "../../../../packages/tex/src/texExamples.cjs";
 
 const TIMED_OUT = Object.freeze({ when: ["fallback"], why: "timeout" });
 

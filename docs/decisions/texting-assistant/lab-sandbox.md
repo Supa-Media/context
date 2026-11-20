@@ -189,7 +189,7 @@ lived and disappear with the sandbox"; contract `lab-live-sandbox/contract.md`).
   the model step running then, else the last one), `bg` (a background wire's run, a job handle's, a job's pass), and
   `think` where a tool call carried thinking. A running step is in `get` at once, with no `ms`; the running row is
   posted on every change, one post at a time. Parents are recorded as things run, never inferred from times: the
-  graph runner (`packages/shared/src/texGraph.cjs`) now gives every run an `id` and the `parent` run that started it
+  graph runner (`packages/tex/src/texGraph.cjs`) now gives every run an `id` and the `parent` run that started it
   (the caller of a `uses`, `loop` or `job` handle, or the node whose fired wire fed it) on its log entry, and tells
   `onStart` as each run starts; the ledger's node entries are unchanged. A graph's first run hangs under the chat
   object's last step before it asked `/agent` (or, in a job, under the job's pass); the chat object's steps chain in the

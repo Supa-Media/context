@@ -30,7 +30,7 @@ import { cut, MAX_INBOUND_TEXT } from "./inbound";
 import { readPictures, type OutgoingPicture } from "./outgoing";
 import partEndLib from "../../../packages/shared/src/jobPartEnd.cjs";
 import jobStartLib from "../../../packages/shared/src/jobStart.cjs";
-import { TEX_CONFIG } from "../../../packages/shared/src/texConfig.cjs";
+import { TEX_CONFIG } from "../../../packages/tex/src/texConfig.cjs";
 import { MAX_ENDS_KEPT, PART_CAUSES, type JobSaved, type PartCause, type PartEnd } from "./jobProgress";
 
 /** What a turn asked to start, as the gateway wrote it. */

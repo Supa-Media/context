@@ -18,7 +18,7 @@ every_answer:
 
 # Closing, tone and asking only what blocks
 
-From a Training run (v57vn7ws, 2026-11-19): Tex asked open questions where it could have proposed an answer, asked about things the chat had already settled, padded a rewrite with commentary, and re-asked about asks it was closing. The rules (`packages/shared/src/texPrompt/how-you-talk.md`): ask only what blocks the thing; suggest a sensible answer and ask if that's it; a rewrite is just the new version; words for someone else need the person's own specifics first, never made up. Invented people and words.
+From a Training run (v57vn7ws, 2026-11-19): Tex asked open questions where it could have proposed an answer, asked about things the chat had already settled, padded a rewrite with commentary, and re-asked about asks it was closing. The rules (`packages/tex/src/texPrompt/how-you-talk.md`): ask only what blocks the thing; suggest a sensible answer and ask if that's it; a rewrite is just the new version; words for someone else need the person's own specifics first, never made up. Invented people and words.
 
 ## 1. Make it less stiff
 
