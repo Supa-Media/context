@@ -412,6 +412,8 @@ export async function runChatTurn({ env, stub, about, row, payload, token, confi
   // A chat shared with the developers runs with none of its person's notes (Dev2, 2026-11-17): their workspace's key is
   // handed only to its members, and the developer testing is not one (`policy.js` `NO_NOTES_BINDING`).
   gate.noNotes = about?.shared === true;
+  // An eval's question (`labEvals/run.js`) runs as if the person had no notes, mail or calendar: only its chat history.
+  gate.blank = about?.blank === true;
   const { book } = gate;
   const onEvent = (event) => {
     const step = workerStep(event.step);

@@ -176,7 +176,7 @@ export function controlPlaneAnswer(path, body, gate) {
   if (route === "/gateway/agent/identity" && body?.groups === true) return { answer: { groups: Array.isArray(gate.groups) ? gate.groups : null } };
   // Shared with the developers: the sharer's mail, calendar, chat and the other personal-account reads stay empty.
   // A route classed as personal with no empty shape is refused, never sent.
-  if (gate.noNotes === true && personalReadWhenNoNotes(route, body)) {
+  if ((gate.noNotes === true || gate.blank === true) && personalReadWhenNoNotes(route, body)) {
     const answer = emptyPersonalRead(route, body);
     if (answer !== null) return { answer };
     gate.record({ kind: kindOfRoute(route), summary: `${route.replace("/gateway/", "")} (not sent: test chat)` });
@@ -212,6 +212,28 @@ export const READ_TOOLS = Object.freeze(
     "search_web", "travel_time", "draw_visual", "draw_picture", "make_picture", "read_skill", "read_learned_skill", "say_nothing", "search", "fetch",
   ]),
 );
+
+/**
+ * The reads an eval's question answers as an empty account would (`labEvals/run.js`; gate `blank`): the person's notes,
+ * files, mail, calendar, contacts, meetings, Messages and Google Chat, their skills and links. A public benchmark asks
+ * about the chat history it brings, so the developer's own account must not answer for it. The chat's own history
+ * (`read_day`, `read_back`, `read_thread`, `earlier_texts`, `earlier_chat`), the web and the models stay real.
+ */
+export const BLANK_READS = Object.freeze(
+  new Set([
+    "orient", "scope_info", "list_notes", "read_note", "read_notes", "evaluate_lists", "search_notes", "related_notes", "read_file", "read_image",
+    "list_meetings", "read_meeting", "read_calendar", "list_channel_days", "read_channel_day", "list_contacts", "read_contact", "read_activity",
+    "list_changes", "search_email", "read_email", "search_texts", "list_texts", "read_texts", "read_google_chat", "app_read", "list_links", "list_plugins",
+    "group_chats", "read_skill", "read_learned_skill", "search", "fetch",
+  ]),
+);
+const BLANK_ONE = new Set(["read_note", "read_notes", "read_file", "read_image", "read_meeting", "read_contact", "read_email", "read_skill", "read_learned_skill", "fetch", "read_channel_day", "app_read"]);
+
+/** What an empty account answers: a read of one thing finds nothing there, a list or search finds nothing. */
+export function blankRead(name) {
+  if (BLANK_ONE.has(name)) return { content: [{ type: "text", text: "Not found: there is nothing there." }], isError: true };
+  return { content: [{ type: "text", text: "Nothing found." }] };
+}
 
 /**
  * Tools that run for real in a test chat because what they do lands in it: a background job they start, steer or
@@ -269,6 +291,7 @@ export { toolSummary };
  */
 export async function toolAnswer(name, args, gate) {
   if (typeof name !== "string") return null;
+  if (gate.blank === true && BLANK_READS.has(name)) return blankRead(name, args);
   if (READ_TOOLS.has(name)) return typeof gate.call === "function" ? await overlayRead(name, args, gate) : null;
   if (RUN_IN_SANDBOX.has(name)) return null;
   // An etag from another workspace, and a call that names two, are refused here as the gateway refuses them

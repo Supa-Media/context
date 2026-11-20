@@ -74,6 +74,8 @@ export { oneRowPerText };
 export const LAB_SANDBOX_PATH = "/tex-lab/sandbox";
 /** A person's test texts a day, across all their test chats: each runs the real models. */
 export const DAILY_SENDS = 200;
+/** A person's eval questions a day (`labEvals/run.js`), counted apart from test texts: two full LongMemEval runs. */
+export const EVAL_DAILY_SENDS = 1_000;
 export const MAX_TEXT = 4_000;
 const SANDBOX_ID = /^[0-9a-f]{16}$/;
 const CHAT_KEY = /^[0-9a-f]{64}$/;
@@ -214,6 +216,11 @@ export async function open(env, controlPlane, token, who, input, origin) {
     chat = typeof input.chatId === "string" && input.chatId !== "" ? input.chatId : "me";
   } else if (source === "shared") {
     chat = input.chatId;
+  } else if (source === "eval") {
+    // A public benchmark's question (`labEvals/run.js`): the person's own 1:1 session with none of their notes, its
+    // history the question's past chats as given. Only the Lab's evals open one; the route refuses it from outside.
+    chat = "me";
+    if (!Array.isArray(input.seed?.rows) || !Array.isArray(input.seed?.history)) return refused(400, "an eval test chat starts from its seed");
   } else return refused(400, 'source is "chat", "set", "maya" or "shared"');
 
   // A shared chat is someone else's: its session is the sharer's own, given only while it is listed (`shared.js`).
@@ -241,7 +248,10 @@ export async function open(env, controlPlane, token, who, input, origin) {
   let rows;
   let history;
   let people;
-  if (conv !== null) {
+  if (source === "eval") {
+    ({ rows, history } = input.seed);
+    people = (answer.people ?? []).filter((person) => person && typeof person.handle === "string");
+  } else if (conv !== null) {
     ({ rows, history } = conversationStart(conv, kind, input.base));
     people = group ? (conv.members ?? []).map((name) => ({ handle: handleOf(name), name: String(name) })) : [{ handle: "", name: "You" }];
   } else {
@@ -253,7 +263,7 @@ export async function open(env, controlPlane, token, who, input, origin) {
   const sandboxId = randomId();
   const stub = sandboxStub(env, who.userId, sandboxId);
   // The line every text here goes over: Photon, its delays measured from the real chat's own logged deliveries.
-  const line = measuredLine(conv === null ? await loggedSteps(env, owner, ledgerChat) : []);
+  const line = measuredLine(conv === null && source !== "eval" ? await loggedSteps(env, owner, ledgerChat) : []);
   const about = {
     sandboxId,
     origin,
@@ -264,6 +274,8 @@ export async function open(env, controlPlane, token, who, input, origin) {
     owner: group ? `chat:${owner.chat}` : `person:${owner.person}`,
     ledgerChat,
     ...(source === "shared" ? { shared: true } : {}),
+    // An eval's question runs with none of the person's notes, mail or calendar (`policy.js` `BLANK_READS`).
+    ...(source === "eval" ? { eval: true, blank: true } : {}),
     ...(group ? { chatKey: owner.chat, members: await sha256Hex(`lab:${chat}:${people.map((p) => p.handle).sort().join(",")}`) } : {}),
     people,
     versionId: typeof input.versionId === "string" ? input.versionId : "main",
@@ -342,8 +354,10 @@ async function addRow({ env, ctx, controlPlane, token, who, stub, state, row, or
   const drafted = await draftConfig(controlPlane, token, about.versionId, graph, about.drawn === true ? about.config : undefined);
   if (drafted.error) return refused(...drafted.error);
   const day = new Date().toISOString().slice(0, 10);
-  const counted = await callSandbox(sandboxStub(env, who.userId, "index0000000000"), "count", { key: `sends:${day}`, max: DAILY_SENDS });
-  if (!counted.ok) return refused(429, `${DAILY_SENDS} test texts a day: try again tomorrow`);
+  // An eval's questions are counted apart (`labEvals/run.js`): a full LongMemEval run is 500 of them.
+  const [countKey, most] = about.eval === true ? [`evalsends:${day}`, EVAL_DAILY_SENDS] : [`sends:${day}`, DAILY_SENDS];
+  const counted = await callSandbox(sandboxStub(env, who.userId, "index0000000000"), "count", { key: countKey, max: most });
+  if (!counted.ok) return refused(429, `${most} test texts a day: try again tomorrow`);
   // A shared chat's session is asked again on every text, so one no longer shared stops at once.
   const answer = await controlPlane.labSandbox(token, "session", { chat: about.chat, ...(about.shared === true ? { shared: true } : {}) });
   if (answer?.status !== "ok") return refused(404, answer?.error ?? "This chat is no longer yours to test in.");
@@ -591,6 +605,7 @@ async function serveLabSandbox(request, env, ctx, { origin = "https://context.lc
     return json({ chats: [{ chatId: "me", name: "You and Tex", kind: "1:1", people: 1 }, ...groups] });
   }
   if (input.op === "sets") return await setsList(controlPlane, token);
+  if (input.op === "open" && input.source === "eval") return refused(400, "an eval's test chats are opened by the Lab's evals");
   if (input.op === "open") return await open(env, controlPlane, token, who, input, origin);
   if (input.op === "list") return json(await listOf(env, who.userId));
   if (input.op === "shared") return await sharedList(controlPlane, token);
