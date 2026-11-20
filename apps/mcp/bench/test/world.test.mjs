@@ -446,7 +446,7 @@ test("a progress line texted on the way comes back with the turn, as a text the 
 
 // Background jobs in the bench (2026-11-04, `tests/splitting.md`): only a text sent with the chat's running jobs is offered them,
 // and the jobs a turn started come back for the start checks, the planner's notes with them.
-test("a text sent with running jobs can start jobs; with the Big-ask planner retired (2026-11-20), a setup asking for plans splits nothing", async () => {
+test("a text sent with running jobs can start jobs, and a planned split writes its notes and starts its parts", async () => {
   const PLANNED = "---\njob: texting-assistant\nmodels:\n  main: anthropic/claude-haiku-5-5\n  advisor: anthropic/claude-opus-5-5\nplan_big_asks: on\n---\n\nYou are a test assistant.\n";
   const plan = { split: true, title: "Lisbon week", goal: "The whole week.", parts: [{ name: "dinners", title: "Pick dinners", brief: "One a night." }, { name: "trip", title: "Pick a day trip", brief: "One trip." }] };
   const offered = [];
@@ -465,11 +465,13 @@ test("a text sent with running jobs can start jobs; with the Big-ask planner ret
     assert.deepEqual(none.jobs, [], "no running list sent: no jobs");
     assert.ok(!offered.at(-1).includes("your advisor plans it"), "nor the planner");
     const turn = await world.text("plan the lisbon week", [], { running: [] });
-    assert.ok(!offered.at(-1).includes("your advisor plans it"), "never offered while no wire reaches the planner");
-    // The planner was retired off the config (Dev2, 2026-11-20): no wire reaches it, so no planned parts start and no notes are written.
-    assert.deepEqual(turn.jobs, [], "no planner, no planned parts");
+    assert.ok(offered.at(-1).includes("your advisor plans it"), "offered under send");
+    assert.deepEqual(turn.jobs.map((job) => [job.name, job.mail]), [["dinners", "projects/lisbon-week/overview.md"], ["trip", "projects/lisbon-week/overview.md"]]);
+    assert.equal(turn.answer, "", "a start texts nothing (Dev2, 2026-11-11)");
+    assert.equal(turn.quiet, true);
+    assert.equal(turn.react, "", "their text gets a tapback, the Worker's pick from their words");
     const written = world.changes().filter((change) => change.kind === "written").map((change) => change.path);
-    assert.deepEqual(written.filter((path) => path.startsWith("projects/lisbon-week/")), []);
+    assert.deepEqual(written.filter((path) => path.startsWith("projects/lisbon-week/")).sort(), ["projects/lisbon-week/dinners.md", "projects/lisbon-week/overview.md", "projects/lisbon-week/trip.md"]);
   } finally {
     world.close();
   }

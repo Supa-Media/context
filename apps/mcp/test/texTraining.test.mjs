@@ -17,7 +17,7 @@ import assert from "node:assert/strict";
 import { createRequire } from "node:module";
 import { test } from "node:test";
 import { moduleIsCurrent } from "../../../scripts/tex-training-module.mjs";
-import { TEX_CONFIG, TEX_PROMPT_WORDS, TRAINING_READERS, texModules, texStep } from "../src/agent/texConfig.js";
+import { TEX_CONFIG, TEX_PROMPT_WORDS, TRAINING_READERS, texModules } from "../src/agent/texConfig.js";
 
 const require = createRequire(import.meta.url);
 const TRAINING = require("../../../packages/tex/src/texTraining.generated.json");
@@ -75,7 +75,7 @@ test("only steps that read Training name it in their context", () => {
     }
     if (entries.length > 0) assert.ok(TRAINING_READERS.includes(node.id), `${node.id} names ${entries.join(", ")} but its code reads no Training module`);
   }
-  for (const id of TRAINING_READERS) assert.ok(texStep(id).ctx.some((c) => TRAIN_ENTRY.exec(c)?.[1] === id), `${id} reads its own labels`);
+  for (const id of TRAINING_READERS) assert.ok(TEX_CONFIG.nodes.find((n) => n.id === id).ctx.some((c) => TRAIN_ENTRY.exec(c)?.[1] === id), `${id} reads its own labels`);
 });
 
 test("a step reads only the Training its context names", () => {
@@ -140,7 +140,7 @@ test("every other model step that reads Training is given it after its own words
   const { ROLES, trainingFor, withArchitecture, architectureFor } = await import("../src/agent/texArchitecture.js");
   const roled = new Set(Object.values(ROLES).map((r) => r.node));
   // A step turned off runs nowhere (the retired Job check, whose role reads the live Job advisor since 2026-11-18).
-  const off = (id) => TEX_CONFIG.nodes.find((n) => n.id === id)?.on !== true; // off, or retired off the config (2026-11-20)
+  const off = (id) => TEX_CONFIG.nodes.find((n) => n.id === id)?.on === false;
   for (const id of TRAINING_READERS) if (!["decide", "fd", "job"].includes(id) && !off(id)) assert.ok(roled.has(id), `${id} reads Training but has no role in texArchitecture.js`);
   for (const role of Object.keys(ROLES)) {
     const training = trainingFor(role);

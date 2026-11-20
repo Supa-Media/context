@@ -23,7 +23,7 @@ test("send's background wires run Learn, After the reply and Chat day summaries,
   const send = TEX_CONFIG.edges.filter((edge) => edge.from === "send");
   assert.deepEqual(send.map((edge) => [edge.to, edge.mode]).sort(), [["afterReply", "background"], ["chatDays", "background"], ["learn", "background"]]);
   assert.ok(!wired("send", "reflect") && !wired("send", "nudge"), "the halves run inside Learn, never as steps of their own");
-  for (const half of ["reflect", "nudge"]) assert.ok(!TEX_CONFIG.nodes.some((node) => node.id === half), `${half} is retired off the config`);
+  for (const half of ["reflect", "nudge"]) assert.equal(TEX_CONFIG.nodes.find((node) => node.id === half)?.on, false, `${half} is off`);
   assert.ok(!wired("tools", "learn") && !wired("tools", "reflect"), "tools has no wire to Learn, so a fire from it is refused");
 });
 

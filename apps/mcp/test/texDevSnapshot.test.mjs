@@ -35,8 +35,7 @@ test("the whole graph draws every top-level step, each group folded into its box
   assert.ok(top.length > 10);
   for (const n of top) assert.ok(html.includes(`>${drawn(n.label)}</text>`), `missing ${n.id}`);
   const used = new Set(g.nodes.map((n) => n.group).filter(Boolean));
-  // The "retired" group went with its steps (2026-11-20); intake still folds into its box.
-  assert.ok(used.has("intake") && !used.has("retired"));
+  assert.ok(used.has("intake") && used.has("retired"));
   for (const [id, group] of Object.entries(config.groups).filter(([id]) => used.has(id))) {
     assert.ok(html.includes(`>${carded(group.label)}</text>`), `missing the card of ${id}`);
     assert.ok(stepsDrawn(html).includes(id));

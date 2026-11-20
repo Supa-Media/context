@@ -60,7 +60,7 @@ test("live Tex wires Routine runs straight to the Front door, a stopped run to C
   assert.equal(DOOR_START, "doorStep");
   const byId = new Map(TEX_CONFIG.nodes.map((n) => [n.id, n]));
   assert.equal(byId.get(DOOR_START)?.on, true, "the Door is on");
-  assert.equal(byId.has(TURN_START), false, "the door's old first step is retired off the config");
+  assert.equal(byId.get(TURN_START)?.on, false, "the door's old first step is turned off");
   const ran = [];
   const nodes = {
     routine: (input, io) => routine(input, io, standIns()),

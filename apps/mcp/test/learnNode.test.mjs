@@ -25,7 +25,7 @@ test("Text them's background wire runs Learn behind the reply, and nothing else 
   const into = TEX_CONFIG.edges.filter((e) => e.to === "learn");
   assert.deepEqual(into.map((e) => [e.from, e.mode, e.when.join()]), [["send", "background", "fired"]]);
   assert.ok(!TEX_CONFIG.edges.some((e) => ["reflect", "nudge"].includes(e.to)), "the two halves run as no steps of their own");
-  for (const half of ["reflect", "nudge"]) assert.ok(!TEX_CONFIG.nodes.some((n) => n.id === half), `${half} is no step of its own: retired to the shelf, 2026-11-20`);
+  for (const half of ["reflect", "nudge"]) assert.equal(TEX_CONFIG.nodes.find((n) => n.id === half)?.on, false, `${half} is off as a step of its own`);
   const step = TEX_CONFIG.nodes.find((n) => n.id === "learn");
   assert.equal(step.effort, "low", "Learn thinks (Dev2, 2026-11-16)");
 });
