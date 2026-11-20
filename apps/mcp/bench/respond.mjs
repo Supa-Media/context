@@ -1,7 +1,7 @@
 /**
  * `pnpm ai respond [--concurrency <n>] [--fake]`
  *
- * Scores Tex's one judge (`packages/shared/src/textDecide.cjs`; Dev2, 2026-11-11: one Clef judge, taught by
+ * Scores Tex's one judge (`packages/tex/src/textDecide.cjs`; Dev2, 2026-11-11: one Clef judge, taught by
  * examples, decides respond, react or quiet) on the held-out labelled cases in `bench/respond/cases.json`, taken from
  * real chats with the names changed. Each case is put to the judge exactly as the Worker puts a moment: the same
  * body (`decideRequest`), the same examples, the same answer reading (`readDecideAnswers`).
@@ -23,7 +23,7 @@ import { readHeldOut, writeRows } from "./replayGate.mjs";
 
 import { decisionEngine } from "../src/agent/decide.js";
 import { modelSocket, socketAi } from "./modelSocket.mjs";
-import { decideRequest, readDecideAnswers } from "../../../packages/shared/src/textDecide.cjs";
+import { decideRequest, readDecideAnswers } from "../../../packages/tex/src/textDecide.cjs";
 import { workersAi } from "./models.mjs";
 
 const HERE = dirname(fileURLToPath(import.meta.url));

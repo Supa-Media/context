@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * Tex's tools against the four tool rules (`packages/shared/src/toolRules.cjs`), measured on real turns.
+ * Tex's tools against the four tool rules (`packages/tex/src/toolRules.cjs`), measured on real turns.
  *
  *   node scripts/tool-rules.mjs            print the report
  *   node scripts/tool-rules.mjs --write    also rewrite apps/mcp/test/toolRules/baseline.json after a fix

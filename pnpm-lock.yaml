@@ -86,6 +86,9 @@ importers:
       '@context/shared':
         specifier: workspace:*
         version: link:../../packages/shared
+      '@context/tex':
+        specifier: workspace:*
+        version: link:../../packages/tex
       '@convex-dev/auth':
         specifier: ^0.0.96
         version: 0.0.96(patch_hash=rd3sknrf6fomc6yqew77kogqmq)(@auth/core@0.41.3)(convex@1.45.0(react@19.1.0))(react@19.1.0)
@@ -230,6 +233,9 @@ importers:
       '@context/shared':
         specifier: workspace:*
         version: link:../../packages/shared
+      '@context/tex':
+        specifier: workspace:*
+        version: link:../../packages/tex
       '@convex-dev/auth':
         specifier: ^0.0.96
         version: 0.0.96(patch_hash=rd3sknrf6fomc6yqew77kogqmq)(@auth/core@0.41.3)(convex@1.45.0(react@19.1.0))(react@19.1.0)
@@ -706,6 +712,12 @@ importers:
       convex:
         specifier: ^1.31.3
         version: 1.45.0(react@19.1.0)
+    devDependencies:
+      typescript:
+        specifier: ~5.9.2
+        version: 5.9.3
+
+  packages/tex:
     devDependencies:
       typescript:
         specifier: ~5.9.2

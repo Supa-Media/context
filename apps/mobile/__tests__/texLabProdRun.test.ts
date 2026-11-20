@@ -8,7 +8,7 @@
  * when its own entry names none and "a Tex text with no turn of its own has no cause run" fails.
  */
 import { beforeEach, describe, expect, jest, test } from "@jest/globals";
-import { TEX_CONFIG } from "@context/shared/src/texConfig.cjs";
+import { TEX_CONFIG } from "@context/tex/src/texConfig.cjs";
 import { forgetGraphs, graphAt, graphNoteFor, graphOfConfig } from "../features/tex/lab/engine/graphAt";
 import { prodPlay, prodPlayAtVersion } from "../features/tex/lab/engine/prodRun";
 import { linesOf } from "../features/tex/lab/engine/replayRead";
@@ -148,7 +148,7 @@ describe("the graph of the time", () => {
     const a = (await graphAt(CODE, get as never))!;
     const b = (await graphAt(CODE, get as never))!;
     expect(get).toHaveBeenCalledTimes(1);
-    expect(get.mock.calls[0][0]).toBe(`https://raw.githubusercontent.com/Supa-Media/context/${CODE}/packages/shared/src/texConfig.json`);
+    expect(get.mock.calls[0][0]).toBe(`https://raw.githubusercontent.com/Supa-Media/context/${CODE}/packages/tex/src/texConfig.json`);
     expect(a.nodes.map((n) => n.id)).toEqual(G().nodes.map((n) => n.id));
     // Each caller's graph is its own: drawing or editing one never reaches the cache.
     a.nodes[0].label = "changed";

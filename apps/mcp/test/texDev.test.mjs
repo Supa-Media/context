@@ -14,7 +14,7 @@ import { toolsForSession } from "../src/tools/advertised.js";
 import { STAFF_ONLY_TOOLS, toolDefinitions } from "../src/tools/registry.js";
 import { textingWriteTools, WITHHELD_TOOLS } from "../src/agent/textingWrites.js";
 import { agentTools } from "../src/agent/turn.js";
-import { configStamp } from "../../../packages/shared/src/texConfigStamp.cjs";
+import { configStamp } from "../../../packages/tex/src/texConfigStamp.cjs";
 import { createTexDev, TEX_DEV_WHO, toolTexDev } from "../src/texDev/tool.js";
 import { guideText } from "../src/texDev/guide.js";
 import { draftProblems } from "../src/texDev/check.js";

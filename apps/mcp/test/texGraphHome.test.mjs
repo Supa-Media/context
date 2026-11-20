@@ -2,7 +2,7 @@
  * Every node of Tex's config has code on the graph runner or is named in `notYet`, never both and never neither, and no
  * code runs as a node the config does not have (Dev2, 2026-11-14: "There should not be any code or any node that's
  * running that isn't shown in the config"). Every node runs in the gateway (Dev2, 2026-11-14), so `GATEWAY_NODES` is
- * the one table; `packages/shared/src/texGraphNotYet.json` is the migration's ratchet and only ever shrinks.
+ * the one table; `packages/tex/src/texGraphNotYet.json` is the migration's ratchet and only ever shrinks.
  *
  * Sabotage record (temporary local edits, reverted, 2026-11-14):
  *   a node removed from notYet with no code in GATEWAY_NODES   "every node is on the runner or in notYet" fails
@@ -14,9 +14,9 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { existsSync, readdirSync, readFileSync } from "node:fs";
 
-import graphLib from "../../../packages/shared/src/texGraph.cjs";
-import NOT_YET from "../../../packages/shared/src/texGraphNotYet.json" with { type: "json" };
-import SHELF from "../../../packages/shared/src/texNodeShelf.json" with { type: "json" };
+import graphLib from "../../../packages/tex/src/texGraph.cjs";
+import NOT_YET from "../../../packages/tex/src/texGraphNotYet.json" with { type: "json" };
+import SHELF from "../../../packages/tex/src/texNodeShelf.json" with { type: "json" };
 import { TEX_CONFIG } from "../src/agent/texConfig.js";
 import { GATEWAY_NODES } from "../src/agent/graph/gatewayNodes.js";
 import { gatewayGraph } from "../src/agent/graph/gatewayGraph.js";

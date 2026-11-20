@@ -8,7 +8,7 @@ import { REAL_CLEF_ENV } from "../bench/worldAi.mjs";
 import { clockMs, installClock } from "../bench/clock.mjs";
 import { runPool, scheduleOrder } from "../bench/setsPool.mjs";
 import { parsePeople, parseTest } from "../bench/load.mjs";
-import sets from "../../../packages/shared/src/texSets.cjs";
+import sets from "../../../packages/tex/src/texSets.cjs";
 import { parseSetup } from "../src/agent/production.js";
 
 const BENCH = new URL("../bench/ai", import.meta.url).pathname;

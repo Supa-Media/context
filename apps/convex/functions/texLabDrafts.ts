@@ -21,7 +21,7 @@
 import { ConvexError, v } from "convex/values";
 import { query, type MutationCtx, type QueryCtx } from "../_generated/server";
 import type { Doc, Id } from "../_generated/dataModel";
-import { isStamp } from "@context/shared/src/texConfigStamp.cjs";
+import { isStamp } from "@context/tex/src/texConfigStamp.cjs";
 import { applyOps, conflicts, diffGraphs, keysOf, OpError } from "@context/shared/src/texLabOps.cjs";
 import { requireAdmin, userIsStaff } from "./lib/admin";
 import { handleForUser } from "./lib/identities";

@@ -1,9 +1,9 @@
 /**
  * THE TRAINING SET, AS THE STEPS READ IT (Dev2, 2026-11-15: Training is "shown to steps as examples").
  *
- * Training conversations live in `apps/mcp/bench/sets/training/<id>.json` (the contract: `packages/shared/src/texSets.cjs`).
+ * Training conversations live in `apps/mcp/bench/sets/training/<id>.json` (the contract: `packages/tex/src/texSets.cjs`).
  * A Worker cannot read a folder, so this writes every Training label as a moment (the chat before, the message, the
- * label) into `packages/shared/src/texTraining.generated.json`, by node; `texTraining.cjs` turns a step's moments into
+ * label) into `packages/tex/src/texTraining.generated.json`, by node; `texTraining.cjs` turns a step's moments into
  * the module its context names (`train:<nodeId>`).
  *
  *   node scripts/tex-training-module.mjs           write the module
@@ -21,12 +21,12 @@ import { readTexConfig } from "./lib/texConfigFile.mjs";
 const require = createRequire(import.meta.url);
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 export const FOLDER = "apps/mcp/bench/sets/training";
-export const MODULE = "packages/shared/src/texTraining.generated.json";
+export const MODULE = "packages/tex/src/texTraining.generated.json";
 
 /** Every Training conversation, in file-name order; throws on one that breaks the contract or sits in the wrong set. */
 export function trainingConversations(root = ROOT) {
-  const { check } = require(join(root, "packages/shared/src/texSets.cjs"));
-  const { WHY } = require(join(root, "packages/shared/src/textDecide.cjs"));
+  const { check } = require(join(root, "packages/tex/src/texSets.cjs"));
+  const { WHY } = require(join(root, "packages/tex/src/textDecide.cjs"));
   const config = readTexConfig(root);
   const dir = join(root, FOLDER);
   if (!existsSync(dir)) return [];
@@ -45,7 +45,7 @@ export function trainingConversations(root = ROOT) {
 
 /** The module's text: every node's moments, nodes sorted by id. */
 export function moduleFor(conversations, root = ROOT) {
-  const { momentsOf, chatsOf } = require(join(root, "packages/shared/src/texTraining.cjs"));
+  const { momentsOf, chatsOf } = require(join(root, "packages/tex/src/texTraining.cjs"));
   const moments = momentsOf(conversations);
   const nodes = Object.fromEntries(Object.keys(moments).sort().map((id) => [id, moments[id]]));
   // Each node's whole conversations, for `train:<nodeId>:all:<chars>`.

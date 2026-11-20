@@ -37,8 +37,8 @@ import { runFd } from "./setsFd.mjs";
 import { RECORD_SETS, worldMode } from "./simFixtures.mjs";
 
 const require = createRequire(import.meta.url);
-const { unitTests, TEX } = require("../../../packages/shared/src/texSets.cjs");
-const { routeSummary } = require("../../../packages/shared/src/texRouteSummary.cjs");
+const { unitTests, TEX } = require("../../../packages/tex/src/texSets.cjs");
+const { routeSummary } = require("../../../packages/tex/src/texRouteSummary.cjs");
 const { DEFAULT_REPEATS, MAX_REPEATS, repeatsOf, bandOf, CC_FIDELITY, CC_FIDELITY_WHY } = require("../../../packages/shared/src/texRunBand.cjs");
 
 /** Rough prices to report spend by: Clef on Workers AI and Haiku through the AI gateway, per call. */
@@ -173,9 +173,9 @@ export function routeRight(label, pick) {
 /** The router's code, as a tree has it: the module that builds its question and reads its answer (`specialistRoute.js`). */
 const ROUTER_MODULE = "apps/mcp/src/agent/specialistRoute.js";
 /** The tree's config, Training code and Training module, for the router's context modules. */
-const TREE_CONFIG = "packages/shared/src/texConfig.cjs";
-const TREE_TRAINING = "packages/shared/src/texTraining.cjs";
-const TREE_GENERATED = "packages/shared/src/texTraining.generated.json";
+const TREE_CONFIG = "packages/tex/src/texConfig.cjs";
+const TREE_TRAINING = "packages/tex/src/texTraining.cjs";
+const TREE_GENERATED = "packages/tex/src/texTraining.generated.json";
 
 /** Each node's way to run alone: how to ask it, given the tree's code, and how to score its answer. */
 export async function adaptersFor(tree, { fake = false, env = process.env, holdOut = false, routeEngine = null, keep = null, world = "replay" } = {}) {

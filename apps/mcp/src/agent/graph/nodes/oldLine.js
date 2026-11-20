@@ -10,7 +10,7 @@
  * day (no reply and no turn: the person has been told where Tex is); else "pass".
  */
 
-import { archiveSentence, formatNumber } from "../../../../../../packages/shared/src/texNumber.cjs";
+import { archiveSentence, formatNumber } from "../../../../../../packages/tex/src/texNumber.cjs";
 
 /** The one reply a chat gets, at most, in this many milliseconds. */
 export const OLD_LINE_EVERY_MS = 24 * 60 * 60 * 1000;

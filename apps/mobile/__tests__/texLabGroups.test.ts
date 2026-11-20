@@ -10,7 +10,7 @@
  *   unfoldGroups sending a wire from the box to the chain's first step, and dropping an unmatched wire into it   "unfold(fold(config)) has exactly the config's wires" and the user-wire tests fail
  */
 import { describe, expect, test } from "@jest/globals";
-import { TEX_CONFIG } from "@context/shared/src/texConfig.cjs";
+import { TEX_CONFIG } from "@context/tex/src/texConfig.cjs";
 import { GROUPS, mainGraph } from "../features/tex/lab/data/graph";
 import { foldAround, foldGroups, groupChain, groupItems, groupToOpen, stepsShownFor, unfoldGroups } from "../features/tex/lab/engine/groups";
 import { groupParts, laidOut, needsLayout } from "../features/tex/lab/engine/groupLayout";

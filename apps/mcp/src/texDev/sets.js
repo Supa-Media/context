@@ -15,9 +15,9 @@
  */
 
 import REPO from "../../../../packages/shared/src/texSetsRepo.generated.json" with { type: "json" };
-import { BENCH_PEOPLE, check, KINDS, labelFields, missingTest, ratio, unitTests } from "../../../../packages/shared/src/texSets.cjs";
-import { goldRouteAt } from "../../../../packages/shared/src/texRouteSummary.cjs";
-import { WHY } from "../../../../packages/shared/src/textDecide.cjs";
+import { BENCH_PEOPLE, check, KINDS, labelFields, missingTest, ratio, unitTests } from "../../../../packages/tex/src/texSets.cjs";
+import { goldRouteAt } from "../../../../packages/tex/src/texRouteSummary.cjs";
+import { WHY } from "../../../../packages/tex/src/textDecide.cjs";
 import { MAX_OPS, OPEN_SETS } from "../../../../packages/shared/src/texSetOps.cjs";
 import { TEX_CONFIG } from "../agent/texConfig.js";
 import { toolError } from "../tools/results.js";

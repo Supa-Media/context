@@ -19,7 +19,7 @@
  * cap still bounds it when it is the smaller.
  */
 import { MAX_DECISION_STATE_CHARS } from "./decide.js";
-import { TRAIN_ENTRY, TRAINING_INTRO, exampleText, wholeText } from "../../../../packages/shared/src/texTraining.cjs";
+import { TRAIN_ENTRY, TRAINING_INTRO, exampleText, wholeText } from "../../../../packages/tex/src/texTraining.cjs";
 
 /** The entries that read the chat's history, whose order puts the history among the other modules. */
 const HISTORY_ENTRY = /^(?:chat|summaries):(?:\d{1,4}|all):\d{1,7}$/;

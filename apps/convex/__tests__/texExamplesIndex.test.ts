@@ -5,8 +5,8 @@
  */
 
 import { afterEach, describe, expect, test, vi } from "vitest";
-import { TEX_EXAMPLES_INDEX, indexEntries } from "@context/shared/src/texExamples.cjs";
-import GENERATED from "../../../packages/shared/src/texTraining.generated.json";
+import { TEX_EXAMPLES_INDEX, indexEntries } from "@context/tex/src/texExamples.cjs";
+import GENERATED from "../../../packages/tex/src/texTraining.generated.json";
 import { meaningIndexNameFor } from "../functions/lib/vectorize";
 import { syncTexExamples } from "../functions/texExamplesIndex";
 

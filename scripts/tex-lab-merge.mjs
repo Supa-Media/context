@@ -28,10 +28,10 @@ import { CONFIG_PATH } from "./lib/texConfigFile.mjs";
 
 const require = createRequire(import.meta.url);
 const { applyOps, conflicts, diffGraphs, keysOf } = require("../packages/shared/src/texLabOps.cjs");
-const { configStamp, isStamp } = require("../packages/shared/src/texConfigStamp.cjs");
+const { configStamp, isStamp } = require("../packages/tex/src/texConfigStamp.cjs");
 
 export { CONFIG_PATH };
-export const WORDS_PATH = "packages/shared/src/texPrompt";
+export const WORDS_PATH = "packages/tex/src/texPrompt";
 /** How far back on main a draft's base is looked for. */
 const LOOK_BACK = 400;
 /** List fields both sides may change at once: merged as lists, not clashed. */

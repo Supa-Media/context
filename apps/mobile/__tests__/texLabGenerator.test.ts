@@ -4,7 +4,7 @@
  * Sabotage: dropping "generator" from both the reach loop and the preds filter in `simulate` puts "checkin" in a text's run.
  */
 import { expect, test } from "@jest/globals";
-import { TEX_CONFIG } from "@context/shared/src/texConfig.cjs";
+import { TEX_CONFIG } from "@context/tex/src/texConfig.cjs";
 import { simulate } from "../features/tex/lab/engine/sim";
 import { WIRES, wireName } from "../features/tex/lab/data/graph";
 import type { LabGraph } from "../features/tex/lab/types";

@@ -32,7 +32,7 @@ import { GATEWAY_NODES } from "../src/agent/graph/gatewayNodes.js";
 import { gatewayGraph } from "../src/agent/graph/gatewayGraph.js";
 import { TEX_CONFIG, withDraft } from "../src/agent/texConfig.js";
 import { ASSISTANT_SEND_ACTIONS } from "../src/agent/sixTools.js";
-import SHELF from "../../../packages/shared/src/texNodeShelf.json" with { type: "json" };
+import SHELF from "../../../packages/tex/src/texNodeShelf.json" with { type: "json" };
 
 const gateOf = (input) => tapbackNode(input);
 

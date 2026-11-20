@@ -5,13 +5,13 @@
  * main with (`mainGraph0`: the config's steps and wires, each group folded into its box), and kept per commit.
  * Where it can't be loaded the version open is drawn and the run says so (`graphNote`), never a guess.
  */
-import { migrateGraph, SCHEMA_VERSION } from "@context/shared/src/texConfigSchema.cjs";
+import { migrateGraph, SCHEMA_VERSION } from "@context/tex/src/texConfigSchema.cjs";
 import { GROUPS } from "../data/graph";
 import type { LabGraph, LabNode } from "../types";
 import { foldGroups } from "./groups";
 import { REPO } from "./promptAt";
 
-export const CONFIG_PATH = "packages/shared/src/texConfig.json";
+export const CONFIG_PATH = "packages/tex/src/texConfig.json";
 const COMMIT = /^[0-9a-f]{7,40}$/;
 const rec = (v: unknown): Record<string, unknown> | null => (v !== null && typeof v === "object" && !Array.isArray(v) ? (v as Record<string, unknown>) : null);
 

@@ -1,5 +1,5 @@
 /** Types for `texSetOps.cjs`; see that file. */
-import type { Conversation, Message } from "./texSets.cjs";
+import type { Conversation, Message } from "../../tex/src/texSets.cjs";
 export type SetOp =
   | { op: "title"; value: string }
   | { op: "kind"; value: "one" | "group" }

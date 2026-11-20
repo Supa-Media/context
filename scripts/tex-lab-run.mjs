@@ -35,7 +35,7 @@ import { castProblems } from "../apps/mcp/bench/setsFd.mjs";
 import { scoreByRepeat, testKeyOf, worldMisses } from "../apps/mcp/bench/setsRun.mjs";
 
 const requireHere = createRequire(import.meta.url);
-const { unitTests } = requireHere("../packages/shared/src/texSets.cjs");
+const { unitTests } = requireHere("../packages/tex/src/texSets.cjs");
 const { CC_FIDELITY_WHY, fidelityOf } = requireHere("../packages/shared/src/texRunBand.cjs");
 const { failingRows, tagsOf } = requireHere("../packages/shared/src/texFailures.cjs");
 const PEOPLE = fileURLToPath(new URL("../apps/mcp/bench/ai/workspaces/people.md", import.meta.url));

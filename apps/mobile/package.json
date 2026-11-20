@@ -41,6 +41,7 @@
     "@context/meetings": "workspace:*",
     "@context/obsidian-runtime": "workspace:*",
     "@context/shared": "workspace:*",
+    "@context/tex": "workspace:*",
     "@convex-dev/auth": "^0.0.96",
     "@excalidraw/excalidraw": "0.18.1",
     "@expo/metro-runtime": "~6.1.2",

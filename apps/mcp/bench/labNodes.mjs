@@ -36,10 +36,10 @@ export const NODE_SIGNS = Object.freeze([
   { node: "selfreview", kind: "claude", file: "apps/mcp/src/agent/selfReview.js", phrase: "You review one finished conversation between a person and Tex" },
   // `claimCheck.js` makes no model call (it is patterns), so the hand-back judge is the only handback role.
   { node: "handback", kind: "claude", file: "apps/mcp/src/agent/handbackJudge.js", phrase: "You check one text an assistant named Tex is about to send a person." },
-  // The texting decision (`textsDecide.js` over `packages/shared/src/textDecide.cjs`): the judge's questions, then its
+  // The texting decision (`textsDecide.js` over `packages/tex/src/textDecide.cjs`): the judge's questions, then its
   // recheck of a drafted reply.
-  { node: "decide", kind: "workers-ai", file: "packages/shared/src/textDecide.cjs", phrase: "moved_on" },
-  { node: "decide", kind: "workers-ai", file: "packages/shared/src/textDecide.cjs", phrase: "draft_fits" },
+  { node: "decide", kind: "workers-ai", file: "packages/tex/src/textDecide.cjs", phrase: "moved_on" },
+  { node: "decide", kind: "workers-ai", file: "packages/tex/src/textDecide.cjs", phrase: "draft_fits" },
   // The router's one question, which tier a text runs on (`router.js`).
   { node: "router", kind: "workers-ai", file: "apps/mcp/src/agent/router.js", phrase: "tier" },
   // Bench-only callers: the person the bench plays (`models.mjs`), and the grader of a replay's answers (`judge.mjs`).

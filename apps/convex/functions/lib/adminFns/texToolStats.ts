@@ -12,7 +12,7 @@
 
 import { v, type Infer } from "convex/values";
 import type { QueryCtx } from "../../../_generated/server";
-import { TOOL_CHAR_LIMIT, rateError } from "@context/shared/src/toolRules.cjs";
+import { TOOL_CHAR_LIMIT, rateError } from "@context/tex/src/toolRules.cjs";
 
 /** Convex's read limits: a bigger window is cut and says so, never read past. */
 export const MAX_TURNS_READ = 2_500;
@@ -30,7 +30,7 @@ const ONE_TO_ONE = new Set(["one", "job", "routine"]);
 const MAX_WORST = 8;
 
 /**
- * THE FOUR TOOL RULES, AS PRODUCTION RAN THEM (Dev2, 2026-11-20; `packages/shared/src/toolRules.cjs`), for the Lab's
+ * THE FOUR TOOL RULES, AS PRODUCTION RAN THEM (Dev2, 2026-11-20; `packages/tex/src/toolRules.cjs`), for the Lab's
  * Tools tab and tex_dev's `tool_stats` (its `rules`). Counted from what each turn logged (the tool list its model was shown, each
  * call, each failure's reason), never estimated: a turn from before the list was logged counts for nothing here.
  */

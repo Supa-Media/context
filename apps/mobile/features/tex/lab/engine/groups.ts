@@ -15,7 +15,7 @@
  * not open, so on the whole graph a nested group's steps fold into its top group's box, and with that group open its
  * child group is a box of its own inside it (`foldAround`).
  */
-import { migrateGraph } from "@context/shared/src/texConfigSchema.cjs";
+import { migrateGraph } from "@context/tex/src/texConfigSchema.cjs";
 import type { LabEdge, LabGraph, LabNode } from "../types";
 
 /** `parent`: the group this one sits inside (Dev2, 2026-11-16: "make sure that groups can be nested"). */

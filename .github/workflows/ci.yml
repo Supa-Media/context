@@ -104,10 +104,10 @@ jobs:
       # lint jobs: the Tex suites and test set prove it. Must equal TEX_DATA in
       # scripts/ci-change-scope.mjs (its self-test checks).
       skip-when-only: |
-        packages/shared/src/texConfig.json
-        packages/shared/src/texNodeShelf.json
-        packages/shared/src/texPrompt/**
-        packages/shared/src/texTraining.generated.json
+        packages/tex/src/texConfig.json
+        packages/tex/src/texNodeShelf.json
+        packages/tex/src/texPrompt/**
+        packages/tex/src/texTraining.generated.json
         packages/shared/src/texSetsRepo.generated.json
         apps/mcp/bench/sets/**
         apps/mcp/src/agent/texArchitecture.generated.js
@@ -120,6 +120,7 @@ jobs:
       change-filters: |
         shared:
           - 'packages/shared/**'
+          - 'packages/tex/**'
           - 'package.json'
           - 'pnpm-lock.yaml'
           - 'tsconfig.json'
@@ -127,6 +128,7 @@ jobs:
         mobile:
           - 'apps/mobile/**'
           - 'packages/shared/**'
+          - 'packages/tex/**'
           - 'package.json'
           - 'pnpm-lock.yaml'
           - 'tsconfig.json'
@@ -323,6 +325,7 @@ jobs:
         e2e:
           - 'apps/mobile/**'
           - 'packages/shared/**'
+          - 'packages/tex/**'
           - 'tests/e2e/**'
           - 'playwright.config.ts'
           - 'package.json'
@@ -657,7 +660,7 @@ jobs:
         id: changes
         with:
           filters: |
-            mobile: ["apps/mobile/**", "apps/convex/**", "packages/collaboration/**", "packages/communications/**", "packages/desktop-bridge/**", "packages/drawings/**", "packages/meetings/**", "packages/obsidian-runtime/**", "packages/shared/**", ".npmrc", "package.json", "pnpm-lock.yaml", "pnpm-workspace.yaml", "patches/**", ".github/workflows/ci.yml"]
+            mobile: ["apps/mobile/**", "apps/convex/**", "packages/collaboration/**", "packages/communications/**", "packages/desktop-bridge/**", "packages/drawings/**", "packages/meetings/**", "packages/obsidian-runtime/**", "packages/shared/**", "packages/tex/**", ".npmrc", "package.json", "pnpm-lock.yaml", "pnpm-workspace.yaml", "patches/**", ".github/workflows/ci.yml"]
 
       # A diff of only Tex config and data is proven by the Tex suites and
       # test set, not by the app (scripts/ci-change-scope.mjs TEX_DATA).
@@ -724,7 +727,7 @@ jobs:
         id: changes
         with:
           filters: |
-            mobile: ["apps/mobile/**", "apps/convex/**", "packages/collaboration/**", "packages/communications/**", "packages/desktop-bridge/**", "packages/drawings/**", "packages/meetings/**", "packages/obsidian-runtime/**", "packages/shared/**", ".npmrc", "package.json", "pnpm-lock.yaml", "pnpm-workspace.yaml", "patches/**", ".github/workflows/ci.yml"]
+            mobile: ["apps/mobile/**", "apps/convex/**", "packages/collaboration/**", "packages/communications/**", "packages/desktop-bridge/**", "packages/drawings/**", "packages/meetings/**", "packages/obsidian-runtime/**", "packages/shared/**", "packages/tex/**", ".npmrc", "package.json", "pnpm-lock.yaml", "pnpm-workspace.yaml", "patches/**", ".github/workflows/ci.yml"]
 
       # A diff of only Tex config and data is proven by the Tex suites and
       # test set, not by the app (scripts/ci-change-scope.mjs TEX_DATA).

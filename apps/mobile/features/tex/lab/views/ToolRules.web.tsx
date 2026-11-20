@@ -1,6 +1,6 @@
 /**
  * The Tools tab's "Tool rules" panel (Dev2, 2026-11-20: "surfaced and monitored in the Tools tab"): the four tool
- * rules (`packages/shared/src/toolRules.cjs`) as production ran them over the feed's window, from what each turn
+ * rules (`packages/tex/src/toolRules.cjs`) as production ran them over the feed's window, from what each turn
  * logged. tex_dev `tool_stats` returns the same numbers under `rules`. CI holds them with a ratchet
  * (`apps/mcp/test/toolRules.test.mjs`); this is the live view.
  */

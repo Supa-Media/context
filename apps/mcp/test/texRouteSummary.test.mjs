@@ -1,10 +1,10 @@
 /**
- * The route summary (`packages/shared/src/texRouteSummary.cjs`): the Lab's "By route" block and tex_dev's `byRoute`
+ * The route summary (`packages/tex/src/texRouteSummary.cjs`): the Lab's "By route" block and tex_dev's `byRoute`
  * read it the same way. Sabotage: count ambiguous rows in perRoute, or read router rows as fd rows, and these fail.
  */
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { goldRouteAt, routeSummary } from "../../../packages/shared/src/texRouteSummary.cjs";
+import { goldRouteAt, routeSummary } from "../../../packages/tex/src/texRouteSummary.cjs";
 
 const GOLD = { "c:0": "quick", "c:1": "read", "c:2": "act", "c:3": "job", "c:4": "read" };
 const goldOf = (convId, msgIndex) => GOLD[`${convId}:${msgIndex}`] ?? null;

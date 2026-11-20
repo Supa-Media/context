@@ -30,7 +30,7 @@ import { strictWorld, worldLine, worldMisses, worldModeRefusal, worldStrict, WOR
 
 const require = createRequire(import.meta.url);
 const REPO = require("../../../packages/shared/src/texSetsRepo.generated.json");
-const { unitTests } = require("../../../packages/shared/src/texSets.cjs");
+const { unitTests } = require("../../../packages/tex/src/texSets.cjs");
 const REPO_ROOT = new URL("../../../", import.meta.url).pathname.replace(/\/$/, "");
 
 const conv = (id, msgs, extra = {}) => ({ id, title: id, set: "dev", kind: "one", members: ["Ann"], msgs, ...extra });
@@ -362,7 +362,7 @@ test("routeCase reads the router's config context from the conversation, as the 
 });
 
 test("routeTraining: a Training conversation is held out whole, or cut at the message; others read every example", () => {
-  const { withoutChat, cutAt } = createRequire(import.meta.url)("../../../packages/shared/src/texTraining.cjs");
+  const { withoutChat, cutAt } = createRequire(import.meta.url)("../../../packages/tex/src/texTraining.cjs");
   const generated = {
     nodes: { router: [{ chat: "c", at: 0, kind: "one", before: [], newest: "@ann: hi", label: { route: "quick" } }, { chat: "c", at: 2, kind: "one", before: [], newest: "@ann: send", label: { route: "act" } }, { chat: "o", at: 0, kind: "one", before: [], newest: "@bo: yo", label: { route: "quick" } }] },
     chats: {},

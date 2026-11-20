@@ -37,7 +37,7 @@ export const TEX_CODE = [/^apps\/mcp\/src\/agent\//, /^apps\/agent\/src\//, /^pa
 /** Files that are cases Tex is replayed or benchmarked against. */
 export const CASES = [/^apps\/mcp\/test\/replay\/cases\//, /^apps\/mcp\/bench\/respond\//, /^apps\/mcp\/bench\/review\//, /^apps\/mcp\/bench\/advisor\//, /^apps\/mcp\/bench\/ai\/tests\//];
 const EXEMPT = /^\s*No replay case:\s*(.+?)\s*$/im;
-export const SHELF = "packages/shared/src/texNodeShelf.json";
+export const SHELF = "packages/tex/src/texNodeShelf.json";
 const RUNNER_TABLE = "apps/mcp/src/agent/graph/gatewayNodes.js";
 const MIN_REASON = 12;
 
@@ -64,7 +64,7 @@ function selfTest() {
     ["a change outside Tex needs nothing", ["apps/mobile/app/index.tsx"], "", true],
     ["a Tex change with a replay case passes", ["apps/mcp/src/agent/turn.js", "apps/mcp/test/replay/cases/sees-own-reply.mjs"], "", true],
     ["a Tex change with a bench question passes", ["apps/agent/src/inbox.ts", "apps/mcp/bench/ai/tests/core.md"], "", true],
-    ["a judge change with a respond case passes", ["packages/shared/src/textDecide.cjs", "apps/mcp/bench/respond/cases.json"], "", true],
+    ["a judge change with a respond case passes", ["packages/tex/src/textDecide.cjs", "apps/mcp/bench/respond/cases.json"], "", true],
     ["an advisor role's change with its case passes", ["apps/mcp/src/agent/advisorRoles/planner.js", "apps/mcp/bench/advisor/planner.json"], "", true],
     ["a Tex change with no case fails", ["apps/mcp/src/agent/turn.js"], "", false],
     ["a Worker change with no case fails", ["apps/agent/src/inbox.ts"], "Fixes the inbox.", false],

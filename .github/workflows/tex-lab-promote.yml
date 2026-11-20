@@ -4,7 +4,7 @@
 # Promote in the Lab (context.lc/lab) records the ask in Convex (apps/convex/functions/texLabPromote.ts), which
 # dispatches this workflow at once (apps/convex/functions/texLabRuns.ts; the quarter-hour schedule stays as the
 # fallback). Each run reads the asks with the deploy key, writes each version's graph into
-# packages/shared/src/texConfig.json on a branch of its own (scripts/tex-lab-promote.mjs), and opens the pull request
+# packages/tex/src/texConfig.json on a branch of its own (scripts/tex-lab-promote.mjs), and opens the pull request
 # that changes it. That pull request merges like any Tex change, on green CI and the replay gate; nothing here merges.
 # The pull request is opened with GH_ADMIN_TOKEN, because one opened with this workflow's own token starts no CI.
 #
@@ -99,7 +99,7 @@ jobs:
             fi
             name=$(echo "$ask" | jq -r .name | tr -d '\r' | cut -c1-80)
             by=$(echo "$ask" | jq -r .by)
-            git add packages/shared/src/texConfig.json docs/architecture/tex.md apps/mcp/src/agent/texArchitecture.generated.js packages/shared/src/texPrompt packages/shared/src/texPrompt.generated.json packages/shared/src/texNodeShelf.json apps/mobile/features/tex/lab/promptCatalog.generated.json
+            git add packages/tex/src/texConfig.json docs/architecture/tex.md apps/mcp/src/agent/texArchitecture.generated.js packages/tex/src/texPrompt packages/tex/src/texPrompt.generated.json packages/tex/src/texNodeShelf.json apps/mobile/features/tex/lab/promptCatalog.generated.json
             git commit -q -m "Promote the Lab version \"$name\" to Tex's config" -m "Asked for in the Tex Architecture Lab by $by. The pull request merges only on green CI and the replay gate."
             git push -q -f origin "HEAD:refs/heads/tex-lab/promote-$id-$at"
             {
@@ -117,7 +117,7 @@ jobs:
                 jq -r 'to_entries[] | "- " + .key + ": " + (if .value == "draft" then "this draft'"'"'s" else "main'"'"'s" end)' "$RUNNER_TEMP/picks.json" | head -60
                 echo
               fi
-              echo "What changed is \`packages/shared/src/texConfig.json\`, the drawing and table it makes in \`docs/architecture/tex.md\`, the map every Tex agent reads (\`texArchitecture.generated.js\`), and any prompt words under \`packages/shared/src/texPrompt/\`; the diff is the whole change. A changed model, effort, time limit or word changes the prompts and requests the replay gate fingerprints, so **Tex replay required** names the areas it reaches and starts the sealed Test Set on main for this pull request; it merges when that passes."
+              echo "What changed is \`packages/tex/src/texConfig.json\`, the drawing and table it makes in \`docs/architecture/tex.md\`, the map every Tex agent reads (\`texArchitecture.generated.js\`), and any prompt words under \`packages/tex/src/texPrompt/\`; the diff is the whole change. A changed model, effort, time limit or word changes the prompts and requests the replay gate fingerprints, so **Tex replay required** names the areas it reaches and starts the sealed Test Set on main for this pull request; it merges when that passes."
               echo
               echo "No replay case: a Lab promotion changes settings the existing replay areas already measure."
             } > "$RUNNER_TEMP/body.md"

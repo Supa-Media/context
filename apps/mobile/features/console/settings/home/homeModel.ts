@@ -24,7 +24,7 @@
  *
  * ## The Tex rows come from one list
  *
- * `TEX_SETTINGS` (`packages/shared/src/texSettings.cjs`) is the list Tex reads
+ * `TEX_SETTINGS` (`packages/tex/src/texSettings.cjs`) is the list Tex reads
  * when somebody texts it a change. Its `via: "setting"` rows are the switches
  * on "Check-ins, quiet hours and more" (`panels/TexHabits.tsx`), which write
  * the same notes a text does; a test holds the two lists equal.

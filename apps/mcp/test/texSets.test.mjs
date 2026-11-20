@@ -1,5 +1,5 @@
 /**
- * The test sets' one contract (`packages/shared/src/texSets.cjs`; Dev2, 2026-11-15): conversations, labels per
+ * The test sets' one contract (`packages/tex/src/texSets.cjs`; Dev2, 2026-11-15): conversations, labels per
  * message × node, stars as unit tests, and the 60/20/20 ratio over stars.
  *
  * Sabotage record (temporary local edits, reverted, 2026-11-15):
@@ -14,8 +14,8 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 
-import sets from "../../../packages/shared/src/texSets.cjs";
-import decide from "../../../packages/shared/src/textDecide.cjs";
+import sets from "../../../packages/tex/src/texSets.cjs";
+import decide from "../../../packages/tex/src/textDecide.cjs";
 import { readTexConfig } from "../../../scripts/lib/texConfigFile.mjs";
 
 const config = readTexConfig();

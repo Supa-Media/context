@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { decideWhyNode } from "../../../src/agent/graph/nodes/decideWhy.js";
-import { FOR_TEX_WHY, QUIET_WHY, WHY, decideRequest, readDecideAnswers, readDecideBody } from "../../../../../packages/shared/src/textDecide.cjs";
+import { FOR_TEX_WHY, QUIET_WHY, WHY, decideRequest, readDecideAnswers, readDecideBody } from "../../../../../packages/tex/src/textDecide.cjs";
 
 const id = (n) => `${String(1_700_000_000_000 + n).padStart(13, "0")}-${String(n).padStart(6, "0")}`;
 /** An invented group chat: Tex answered, and a member replies under Tex's text with a laugh that asks nothing. */

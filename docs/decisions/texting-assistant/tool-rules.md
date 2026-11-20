@@ -16,7 +16,7 @@ about 25,000 characters; four of Tex's state files written as plain notes;
 and 29% of tool failures were calls to a tool or action the turn didn't hold.
 The Context MCP's own tools passed rules 1 and 2.
 
-**The rules are one module:** `packages/shared/src/toolRules.cjs` (the limit,
+**The rules are one module:** `packages/tex/src/toolRules.cjs` (the limit,
 how a tool's size is counted, how an error is rated actionable, partial or
 not, and which files are Tex's state). The gateway, Convex and the CI check
 all read it, so the Lab and CI never disagree on a rating.

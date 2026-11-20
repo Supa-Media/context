@@ -19,7 +19,7 @@ Tex could not say which a login had, nor change it.
 
 ## The rule
 
-- **One list of settings.** `packages/shared/src/texSettings.cjs`: every
+- **One list of settings.** `packages/tex/src/texSettings.cjs`: every
   setting that changes what Tex does, one row each, with a line a person reads,
   where it applies (1:1, group), and either the `send` action that changes it or
   the app path where it changes. The app's settings page renders the same rows,

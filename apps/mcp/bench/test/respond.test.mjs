@@ -12,7 +12,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { decideRequest, JUDGE_EXAMPLES, readDecideBody } from "../../../../packages/shared/src/textDecide.cjs";
+import { decideRequest, JUDGE_EXAMPLES, readDecideBody } from "../../../../packages/tex/src/textDecide.cjs";
 import { caseBody, hushed, loadCases, MAX_DROPPED, MIN_HUSHED, passes, rates, respondCommand } from "../respond.mjs";
 
 test("the cases have unique ids, both labels in both kinds of chat, and lines and words on each", async () => {

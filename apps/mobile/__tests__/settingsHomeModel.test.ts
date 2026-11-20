@@ -15,7 +15,7 @@ jest.mock("convex/react", () => ({
 
 import { act, createElement } from "react";
 import { createRoot } from "react-dom/client";
-import { TEX_SETTINGS } from "@context/shared/src/texSettings.cjs";
+import { TEX_SETTINGS } from "@context/tex/src/texSettings.cjs";
 import { useDemoConsoleData } from "../features/console/useDemoConsoleData";
 import type { ConsoleData } from "../features/console/types";
 import { settingsHome, readableLine } from "../features/console/settings/home/homeModel";

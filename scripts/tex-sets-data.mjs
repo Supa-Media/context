@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 // Writes packages/shared/src/texSetsRepo.generated.json: Tex's Training and Dev conversations, read from
-// apps/mcp/bench/sets (contract: packages/shared/src/texSets.cjs).
+// apps/mcp/bench/sets (contract: packages/tex/src/texSets.cjs).
 //
 //   node scripts/tex-sets-data.mjs           write the file
 //   node scripts/tex-sets-data.mjs --check   exit 1 if the file on disk is stale

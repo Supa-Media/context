@@ -9,7 +9,7 @@
  */
 
 import { afterEach, describe, expect, test, vi } from "vitest";
-import { TEX_NUMBER } from "@context/shared/src/texNumber.cjs";
+import { TEX_NUMBER } from "@context/tex/src/texNumber.cjs";
 import { convexTest } from "convex-test";
 import { api } from "../_generated/api";
 import schema from "../schema";

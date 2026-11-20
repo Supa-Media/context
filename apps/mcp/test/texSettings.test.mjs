@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 
-import { TEX_SETTINGS, WHERE } from "../../../packages/shared/src/texSettings.cjs";
+import { TEX_SETTINGS, WHERE } from "../../../packages/tex/src/texSettings.cjs";
 import { ASSISTANT_SEND_ACTIONS } from "../src/agent/sixTools.js";
 import { SETTING_HANDLERS, readHabits, settingSet, settingsSnapshot, settingsTools } from "../src/agent/settingsTools.js";
 import { commandTools } from "../src/agent/commandTools.js";
