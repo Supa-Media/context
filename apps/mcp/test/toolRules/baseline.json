@@ -58,12 +58,7 @@
     }
   },
   "state": {
-    "generic": [
-      "tex/heartbeat.md",
-      "tex/attention.md",
-      "tex/voice.md",
-      "tex/routines/"
-    ],
+    "generic": [],
     "shells": []
   },
   "notActionableByFile": {

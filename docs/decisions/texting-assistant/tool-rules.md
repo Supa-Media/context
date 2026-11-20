@@ -31,7 +31,11 @@ non-actionable error. A fix lowers the baseline with
 
 **Production is measured, never estimated.** Every turn logs the tool list its
 model was shown (a fingerprint of the list and each tool's name, size and
-fingerprint) and which state file a plain write touched. The Lab's Tools tab
+fingerprint) and which state file a plain write touched when that file has a
+dedicated action of its own (check-ins and pings: `send` `setting`; about
+them: `remember`). Voice and routines are notes by design, written plainly,
+and are not counted (corrected 2026-11-20: the audit had all four as
+generic). The Lab's Tools tab
 draws the "Tool rules" panel from that, and tex_dev `tool_stats` returns the
 same numbers under `rules`. A turn from before this was logged counts for
 nothing.

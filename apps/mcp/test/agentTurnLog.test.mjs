@@ -138,9 +138,11 @@ test("the tool list a turn was shown is logged as fingerprints and sizes, never 
 
 test("a plain write to one of Tex's state files names the file; a note or a file with its own action does not", () => {
   assert.equal(stateOf({ name: "write_note", args: { path: "tex/heartbeat.md" } }), "tex/heartbeat.md");
-  assert.equal(stateOf({ name: "save_many", args: { notes: [{ path: "a.md" }, { path: "tex/routines/x.md" }] } }), "tex/routines/");
+  assert.equal(stateOf({ name: "save_many", args: { notes: [{ path: "a.md" }, { path: "tex/attention.md" }] } }), "tex/attention.md");
+  assert.equal(stateOf({ name: "write_note", args: { path: "tex/routines/x.md" } }), undefined, "routines are notes, written plainly");
+  assert.equal(stateOf({ name: "write_note", args: { path: "tex/voice.md" } }), undefined, "voice is written plainly by design");
   assert.equal(stateOf({ name: "write_note", args: { path: "projects/a.md" } }), undefined);
-  assert.equal(stateOf({ name: "write_note", args: { path: "tex/about.md" } }), undefined, "about.md has remember");
+  assert.equal(stateOf({ name: "write_note", args: { path: "tex/about.md" } }), "tex/about.md", "about.md has remember");
   assert.equal(stateOf({ name: "read_note", args: { path: "tex/heartbeat.md" } }), undefined);
   assert.equal(wireTraceEntry({ kind: "tool", tool: "write_note", state: "../secret" }).state, undefined, "only a listed file is kept");
 });
