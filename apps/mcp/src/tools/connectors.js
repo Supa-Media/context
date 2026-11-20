@@ -39,7 +39,7 @@ export async function toolConnectApp(store, args) {
   const calls = store?.connectors;
   if (!calls) return toolError(UNAVAILABLE);
   const app = typeof args?.app === "string" ? args.app.trim().toLowerCase() : "";
-  if (!APP.test(app)) return toolError("app is an app id from fetch apps:, e.g. slack or linear.");
+  if (!APP.test(app)) return toolError("app is an app id from fetch apps:, e.g. slack or linear. Call fetch apps: to list them.");
   const answer = await calls.request(app);
   const name = typeof answer?.name === "string" && answer.name !== "" ? answer.name : app;
   if (answer?.url == null) {
@@ -70,9 +70,9 @@ export async function toolSlackApi(store, args) {
   const calls = store?.connectors;
   if (!calls) return toolError(UNAVAILABLE);
   const method = typeof args?.method === "string" ? args.method.trim() : "";
-  if (!METHOD.test(method)) return toolError("method is a Slack Web API method, like conversations.history.");
+  if (!METHOD.test(method)) return toolError("method is a Slack Web API method, like conversations.history. Pass one like that.");
   const given = argsOf(args.args);
-  if (given === null) return toolError("args is an object of the method's arguments.");
+  if (given === null) return toolError("args is an object of the method's arguments. Pass them as an object, like { channel: 'C123' }.");
   if (Number.isInteger(args.limit)) given.limit = args.limit;
   const team = typeof args.team === "string" && args.team.trim() !== "" ? args.team.trim() : undefined;
   let answer;

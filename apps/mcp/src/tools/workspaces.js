@@ -66,10 +66,10 @@ export async function toolCreateWorkspace(store, args) {
   const calls = store?.workspaceSetup;
   if (!calls) return toolError(UNAVAILABLE);
   const slug = typeof args.slug === "string" ? args.slug.trim().replace(/^@/, "") : "";
-  if (!slug) return toolError("slug is required: the workspace's @handle.");
+  if (!slug) return toolError("slug is required: the workspace's @handle. Pass one, like @guild.");
   const dryRun = args.dry_run === true;
   const name = typeof args.name === "string" ? args.name.trim() : "";
-  if (!dryRun && !name) return toolError("name is required: what the workspace is called.");
+  if (!dryRun && !name) return toolError("name is required: what the workspace is called. Pass one.");
   const invitations = args.invite === undefined || dryRun ? [] : invitationsOf(args.invite);
   if (typeof invitations === "string") return toolError(invitations);
 
@@ -144,14 +144,14 @@ export async function toolApplyLayout(store, args) {
 async function folderJob(calls, args) {
   if (args.template !== undefined || args.folder !== undefined) return toolError("pass job on its own, with path or remove.");
   const job = typeof args.job === "string" ? args.job.trim().toLowerCase() : "";
-  if (!job) return toolError(`job is required: one of ${jobNames()}.`);
+  if (!job) return toolError(`job is required: one of ${jobNames()}. Pick one.`);
   const path = typeof args.path === "string" ? args.path.trim().replace(/^\/+|\/+$/g, "") : undefined;
   if (args.remove === true && path !== undefined) return toolError("pass path or remove, not both.");
   if (path === undefined && args.remove !== true) {
     if (job === "tex" || job === "website") {
       return toolError(`${JOB_LABEL[job]}'s folder is made the first time it is used. To use one that exists, pass its path.`);
     }
-    if (!SHOWN_JOBS.includes(job)) return toolError(`There is no "${job}" job. The jobs are ${jobNames()}. A folder of your own kind explains itself in its about.md.`);
+    if (!SHOWN_JOBS.includes(job)) return toolError(`There is no "${job}" job. The jobs are ${jobNames()}. A folder of your own kind explains itself in its about.md. Pick one of those.`);
     return await toolApplyLayoutFolder(calls, job);
   }
   const answer = await calls.layout({ job, path: args.remove === true ? null : path });
@@ -174,7 +174,7 @@ async function toolApplyLayoutFolder(calls, role) {
 export async function toolConnectGoogle(store, args) {
   const calls = store?.workspaceSetup;
   if (!calls) return toolError(UNAVAILABLE);
-  if (args.kind !== "gmail" && args.kind !== "calendar" && args.kind !== "ai") return toolError("kind is gmail, calendar or ai.");
+  if (args.kind !== "gmail" && args.kind !== "calendar" && args.kind !== "ai") return toolError("kind is gmail, calendar or ai. Pass one of those.");
   const answer = await calls.connectGoogle(args.kind);
   if (answer === null || answer.ok !== true || typeof answer.url !== "string") return refused(answer);
   if (args.kind === "ai") {

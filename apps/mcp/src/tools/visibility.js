@@ -42,7 +42,7 @@ export async function toolSetVisibility(store, scope, rules, overrides, args) {
   }
   const visibility = normalizeVisibility(args.visibility);
   if (!["private", "team"].includes(visibility)) {
-    return toolError("visibility must be private or team");
+    return toolError("visibility must be private or team; pass one of those");
   }
   if (args.people !== undefined) {
     const changed = await toolSetVisibility(store, scope, rules, overrides, { ...args, people: undefined });

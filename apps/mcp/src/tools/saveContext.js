@@ -19,7 +19,7 @@ export async function toolSaveContext(store, scope, rules, overrides, args) {
   const platform = typeof args.platform === "string" ? args.platform.trim().toLowerCase() : "";
   if (!PLATFORM_SLUG.test(platform)) {
     return toolError(
-      "platform must be a short lower-case name for the client, e.g. chatgpt, claude, codex, cursor"
+      "platform must be a short lower-case name for the client, e.g. chatgpt, claude, codex, cursor; pass one like those"
     );
   }
   // `history` is what the tool was called when it only took transcripts;
@@ -29,20 +29,20 @@ export async function toolSaveContext(store, scope, rules, overrides, args) {
   const body = typeof args.content === "string" ? args.content : args.history;
   args = { ...args, history: body };
   if (typeof body !== "string" || !body.trim()) {
-    return toolError("content must be a non-empty string");
+    return toolError("content must be a non-empty string: pass the session's text");
   }
   const byteLength = new TextEncoder().encode(body).byteLength;
   if (byteLength > CHAT_HISTORY_CONTENT_BYTE_CAP) {
-    return toolError(`content exceeds ${CHAT_HISTORY_CONTENT_BYTE_CAP} bytes`);
+    return toolError(`content exceeds ${CHAT_HISTORY_CONTENT_BYTE_CAP} bytes; save a summary instead, with completeness summary`);
   }
   const completeness = args.completeness || "available-context";
   if (!["full-visible-transcript", "available-context", "summary"].includes(completeness)) {
-    return toolError("completeness must be full-visible-transcript, available-context, or summary");
+    return toolError("completeness must be full-visible-transcript, available-context, or summary; pass one of those");
   }
   // Archive-only compatibility for clients that cached the former enum.
   const visibility = args.visibility === "public" ? "team" : normalizeVisibility(args.visibility || scope);
   if (!["private", "team"].includes(visibility)) {
-    return toolError("visibility must be private or team");
+    return toolError("visibility must be private or team; pass one of those");
   }
   if (scope === "private" && visibility === "team" && args.confirm_team_publish !== true) {
     return toolError(

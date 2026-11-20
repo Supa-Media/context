@@ -85,7 +85,7 @@ export async function runToolArgumentRoutingChecks(check, harness) {
   check(
     "...and a context named on search that this connection cannot reach is refused by the routing, as before",
     textOf(await callTool(env, TOKEN_OWNER, "search", { query: "probe", context: "@other" })) ===
-      "this connection has no access to that context"
+      "this connection has no access to that context; call orient to see the ones it reaches"
   );
 
   /* --------------- the isolation this was always protecting -------------- */
@@ -118,7 +118,7 @@ export async function runToolArgumentRoutingChecks(check, harness) {
     "a `context` that is not a usable name is still refused on its own terms, not as a type",
     textOf(
       await callTool(env, TOKEN_OWNER, "read_note", { path: "1-projects/probe.md", context: 123 })
-    ) === "this connection has no access to that context"
+    ) === "this connection has no access to that context; call orient to see the ones it reaches"
   );
 
   /* ------------ the scope gate still answers before the schema ----------- */

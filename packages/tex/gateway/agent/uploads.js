@@ -138,10 +138,10 @@ async function fromNotes(path, dispatch, store) {
  */
 export async function resolveUpload(step, { dispatch, store }) {
   const source = typeof step?.file === "string" ? step.file.trim() : "";
-  if (!source) return { error: "an upload step needs file: a file's path in their notes, an email: id, or a picture's name with its note" };
+  if (!source) return { error: "an upload step needs file: pass a file's path in their notes, an email: id, or a picture's name with its note" };
   const attachment = step.attachment;
   if (attachment !== undefined && (!Number.isInteger(attachment) || attachment < 1 || attachment > 100)) {
-    return { error: "attachment is the attachment's number as the email lists it: 1 for the first" };
+    return { error: "attachment is the attachment's number as the email lists it: 1 for the first. Read the email to see them" };
   }
   try {
     if (source.startsWith("email:")) return await fromEmail(source, attachment, store);

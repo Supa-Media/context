@@ -24,7 +24,7 @@ import mail from "../../../../../packages/shared/src/mail.cjs";
 
 export async function toolListNotes(store, scope, rules, overrides, prefixArg) {
   const prefix = prefixArg ? normalizePath(prefixArg) : "";
-  if (prefixArg && prefix === null) return toolError("invalid prefix");
+  if (prefixArg && prefix === null) return toolError("invalid prefix: pass a folder path, like projects/, or leave prefix out");
   const visible = await listVisibleNoteKeys(store, scope, rules, overrides, prefix);
   if (!visible.length) return toolText("(no visible notes under that prefix)");
   const lines = visible
@@ -175,7 +175,7 @@ export async function toolReadNote(store, scope, rules, overrides, pathArg, hist
       // after a state read fails could hand an agent stale bytes which its next
       // write would overwrite or reject. Fail closed without exposing bucket
       // state details.
-      return toolError("this note cannot be opened safely for collaborative editing right now");
+      return toolError("this note cannot be opened safely for collaborative editing right now; try again in a minute");
     }
   }
   // The full Yjs snapshot is for the JSON file/browser surface. MCP agents
@@ -232,9 +232,9 @@ export const READ_NOTES_MAX = 100;
  * `read_note` does.
  */
 export async function toolReadNotes(store, scope, rules, overrides, pathsArg) {
-  if (!Array.isArray(pathsArg) || pathsArg.length === 0) return toolError("paths needs at least one note path");
-  if (pathsArg.length > READ_NOTES_MAX) return toolError(`read_notes opens at most ${READ_NOTES_MAX} notes at a time`);
-  if (!pathsArg.every((path) => typeof path === "string")) return toolError("every path has to be a string");
+  if (!Array.isArray(pathsArg) || pathsArg.length === 0) return toolError("paths needs at least one note path: pass a list of note paths");
+  if (pathsArg.length > READ_NOTES_MAX) return toolError(`read_notes opens at most ${READ_NOTES_MAX} notes at a time; split them into smaller calls`);
+  if (!pathsArg.every((path) => typeof path === "string")) return toolError("every path has to be a string: pass each note path as text");
   const paths = [...new Set(pathsArg)];
   const view = typeof store.oneRead === "function" ? store.oneRead(store) : store;
   if (typeof view.prime === "function") {

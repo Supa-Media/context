@@ -65,10 +65,10 @@ export async function toolNotifyMe(store, scope, rules, overrides, args) {
   // The owner's: anything below the private tier is refused before the
   // control plane is asked, which refuses it again.
   if (scope !== "private") return toolError(NOT_YOURS);
-  if (typeof store?.requestAttention !== "function") return toolError("Not sent: notifications are not available on this deployment.");
+  if (typeof store?.requestAttention !== "function") return toolError("Not sent: notifications are not available on this deployment. Tell the person, and don't try again.");
   const message = oneLine(args?.message, MAX_MESSAGE_CHARS + 1);
   if (message === "" || message.length > MAX_MESSAGE_CHARS) {
-    return toolError(`invalid: message must be 1 to ${MAX_MESSAGE_CHARS} characters, the text they will read`);
+    return toolError(`invalid: message must be 1 to ${MAX_MESSAGE_CHARS} characters, the text they will read; write it, or shorten it`);
   }
   if (!URGENCIES.includes(args?.urgency)) return toolError('invalid: urgency must be "emergency", "asked" or "fyi"');
   const why = args?.why === undefined ? "" : oneLine(args.why, MAX_WHY_CHARS);

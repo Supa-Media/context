@@ -75,8 +75,8 @@ export function withEmailFiles({ store, attachments = [] }, callTool) {
     const found = source.sent !== undefined ? sentFile(attachments, source.sent) : await resolveUpload(source, { dispatch, store });
     if (found.id) return { id: found.id };
     if (!found.file) return { error: `${key}: ${found.error ?? "not found"}` };
-    const saved = await keepDownload(store, found.file).catch(() => ({ error: "it could not be kept just now" }));
-    if (!saved?.id) return { error: `${key}: ${saved?.error ?? "it could not be kept just now"}` };
+    const saved = await keepDownload(store, found.file).catch(() => ({ error: "it could not be kept just now; try again in a minute" }));
+    if (!saved?.id) return { error: `${key}: ${saved?.error ?? "it could not be kept just now; try again in a minute"}` };
     kept.set(key, { id: saved.id });
     return { id: saved.id };
   };

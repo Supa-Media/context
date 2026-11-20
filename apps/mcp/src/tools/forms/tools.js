@@ -68,7 +68,7 @@ export async function toolCreateForm(store, scope, rules, overrides, args) {
   if (responses === path) {
     return toolError(
       "the answers go in a note of their own, never on the form's own page: who may read them " +
-        "is that note's own privacy rule, and there is no second access-control path here."
+        "is that note's own privacy rule, and there is no second access-control path here. Pass responses as a note path of its own."
     );
   }
 
@@ -83,7 +83,7 @@ export async function toolCreateForm(store, scope, rules, overrides, args) {
     ...(typeof args.notify === "string" && args.notify ? { notify: args.notify } : {}),
     fields: args.fields,
   });
-  if (rendered.error) return toolError(`that form cannot be written: ${rendered.error}`);
+  if (rendered.error) return toolError(`that form cannot be written: ${rendered.error}. Fix that and write it again`);
 
   const parsed = parseFormBlocks(rendered.text);
   if (!parsed.length || parsed[0].error) {
@@ -189,7 +189,7 @@ export async function toolSubmitForm(store, scope, rules, overrides, args) {
     if (!roleAtLeast(actor.role, config.submit)) {
       return {
         refusal: toolError(
-          `permission denied: this form takes responses from ${config.submit}s of this context and above.`
+          `permission denied: this form takes responses from ${config.submit}s of this context and above. Ask an owner to let you, or leave it.`
         ),
       };
     }
@@ -264,7 +264,7 @@ export async function toolVoteForm(store, scope, rules, overrides, args) {
     if (!roleAtLeast(actor.role, config.submit)) {
       return {
         refusal: toolError(
-          `permission denied: this form takes votes from ${config.submit}s of this context and above.`
+          `permission denied: this form takes votes from ${config.submit}s of this context and above. Ask an owner to let you, or leave it.`
         ),
       };
     }

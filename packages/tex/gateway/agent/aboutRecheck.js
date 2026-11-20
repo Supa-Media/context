@@ -104,7 +104,7 @@ export function recheckCallTool(dispatch) {
   return async (name, args) => {
     const given = args && typeof args === "object" && !Array.isArray(args) ? args : {};
     if (!RECHECK_READS.includes(name)) return { isError: true, content: [{ type: "text", text: `The recheck only reads: ${name} can't be used.` }] };
-    if (given.context !== undefined) return { isError: true, content: [{ type: "text", text: "Only their own workspace." }] };
+    if (given.context !== undefined) return { isError: true, content: [{ type: "text", text: "Only their own workspace: leave context out." }] };
     return await dispatch(name, given);
   };
 }
