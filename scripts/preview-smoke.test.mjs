@@ -15,6 +15,9 @@ import {
   simulatorKeyFor,
   simulatorSendUrl,
   simulatorThreadUrl,
+  MEANING_QUERY,
+  meaningHitIn,
+  appSearchRoute,
 } from './preview-smoke.mjs';
 
 test('the simulator key is 64 hex digits, deterministic, and differs per preview and per number', () => {
@@ -151,4 +154,18 @@ test('the personal workspace is the owned, unpinned personal one', () => {
 test('elapsed time is never negative', () => {
   assert.equal(elapsedMs(1000, 1500), 500);
   assert.equal(elapsedMs(2000, 1500), 0);
+});
+
+test('the meaning check counts only a meaning-only hit on the weekly plan', () => {
+  assert.equal(appSearchRoute('https://x.example'), 'https://x.example/app/search');
+  assert.equal(meaningHitIn({ hits: [{ path: 'projects/weekly-plan.md', meaningOnly: false }] }), null);
+  assert.equal(meaningHitIn({ hits: [{ path: 'inbox/quick-capture.md', meaningOnly: true }] }), null);
+  assert.deepEqual(meaningHitIn({ hits: [{ path: 'projects/weekly-plan.md', meaningOnly: true }] }), { path: 'projects/weekly-plan.md', meaningOnly: true });
+  assert.throws(() => meaningHitIn({}), /could not be read/);
+});
+
+test('the meaning query shares no word with the note it must find', async () => {
+  const { stagingNotes } = await import('./fixtures/staging-notes.mjs');
+  const note = stagingNotes.alpha['1-projects/weekly-plan.md'].toLowerCase();
+  for (const word of MEANING_QUERY.toLowerCase().split(/\s+/)) assert.equal(note.includes(word), false, word);
 });

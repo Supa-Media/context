@@ -26,6 +26,10 @@ import { issuePersonaCode, personaEmail, previewConfig } from './preview-seed.mj
 export const SMOKE_PHONE = '+12125550101';
 export const SMOKE_TEXT = 'Hi Tex, this is a preview smoke test. Reply with one word.';
 export const REPLY_TIMEOUT_MS = 90_000;
+/** Words that share none with alpha's weekly plan ("Make time for a long walk"), so only meaning can find it. */
+export const MEANING_QUERY = 'stroll outdoors';
+export const MEANING_PATH_END = 'weekly-plan.md';
+export const MEANING_TIMEOUT_MS = 120_000;
 const POLL_MS = 2_000;
 const ref = (name) => makeFunctionReference(name);
 
@@ -101,6 +105,16 @@ export function replyAfter(messages, sentText) {
   }
   if (sent === null) return null;
   return messages.find((m) => m.dir === 'in' && m.id > sent.id && m.text.trim() !== '') ?? null;
+}
+
+export function appSearchRoute(origin) {
+  return `${origin}/app/search`;
+}
+
+/** The meaning-only hit on alpha's weekly plan, or null. `{ hits }` as `/app/search` answers. */
+export function meaningHitIn(body) {
+  if (body === null || typeof body !== 'object' || !Array.isArray(body.hits)) throw new Error('the search answer could not be read');
+  return body.hits.find((h) => h?.meaningOnly === true && typeof h.path === 'string' && h.path.endsWith(MEANING_PATH_END)) ?? null;
 }
 
 export function appChatRoute(origin) {
@@ -224,6 +238,23 @@ async function appChatStep(env, origin, log) {
     return appChatReplyAfter(parseAppChatRows(await response.json()).rows, baselineIds);
   }, REPLY_TIMEOUT_MS);
   log(`app chat reply: Tex answered in ${elapsedMs(start)} ms`);
+
+  // Search by meaning: the first search asks the object to build its index behind the answer, so the meaning-only
+  // match can take a few searches to appear.
+  start = Date.now();
+  let hitAt = null;
+  while (Date.now() - start < MEANING_TIMEOUT_MS) {
+    const response = await call('meaning search', () => fetch(appSearchRoute(origin), {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${bearer}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ query: MEANING_QUERY }),
+    }));
+    if (response.status !== 200) throw new StepError(`meaning search: HTTP ${response.status}.`);
+    if (meaningHitIn(await response.json()) !== null) { hitAt = elapsedMs(start); break; }
+    await pause(5_000);
+  }
+  if (hitAt === null) throw new StepError(`meaning search: no meaning-only match within ${MEANING_TIMEOUT_MS / 1000} seconds.`);
+  log(`meaning search: found the note by meaning alone in ${hitAt} ms`);
   await call('app sign-out', () => client.action(ref('auth:signOut'), {})).catch(() => {});
   return reply;
 }
@@ -234,7 +265,7 @@ export async function smoke(env = process.env, { log = console.log } = {}) {
   previewConfig(env);
   await simulatorStep(agent, env, log);
   await appChatStep(env, mcp, log);
-  log('PASS: simulated text and in-app message both answered by Tex.');
+  log('PASS: simulated text and in-app message both answered by Tex; search by meaning found a note.');
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {

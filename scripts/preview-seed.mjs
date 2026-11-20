@@ -276,6 +276,10 @@ export async function seedPreview(env = process.env, { log = console.log } = {})
       await pause(2000);
     }
     if (!ready) throw new Error(`${slug}: storage did not become ready.`);
+    // Search by meaning is the owner's switch, off until someone turns it on; production's rollout needs the
+    // search database credential a preview does not have. The meaning index lives in the workspace object and
+    // needs only the gateway's AI binding, so a preview turns it on for every workspace it seeds.
+    if (owner) await client.mutation(ref('functions/meaningSearch:set'), { workspaceId, on: true });
 
     let index;
     try { index = await client.action(ref('functions/files:readNote'), { workspaceId, path: 'index.md' }); }
