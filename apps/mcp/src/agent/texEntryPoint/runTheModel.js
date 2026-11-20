@@ -188,7 +188,7 @@ export async function runTheModel(t, via) {
   const tapping = chatTurn && reactable && job === null && !routine && report === null && !t.crossChat && drawn.wired("tools", "tapback") ? tapbackEnding({ gate: (input) => drawn.fire("tools", "tapback", input, { env }), tagged: group?.tagged === true }) : null;
   // Tex's own computer (`../texComputerSandbox.js`), once a config wires the Tex's computer node: a background job's turn
   // only, on a deployment with the TEX_COMPUTER binding. One per person, one per group chat, by the same tag as the browser.
-  const computerOwner = job !== null && !routine && Boolean(env?.TEX_COMPUTER) && drawn.wired("tools", "computer") ? await (group ? groupBrowserOwner(env, group) : browserOwner(env, session.actorUserId)).catch(() => null) : null;
+  const computerOwner = job !== null && !routine && Boolean(env?.TEX_COMPUTER) && drawn.wired("tools", "computer") ? await tex.step("computer_owner", () => (group ? groupBrowserOwner(env, group) : browserOwner(env, session.actorUserId)).catch(() => null)) : null;
   const ownComputer = computerOwner ? texComputerTool({ gate: (input) => drawn.fire("tools", "computer", input, { env }), owner: computerOwner }) : null;
   // A job the front door can't finish in its turn goes to a background worker, when the config wires the Hand-off node (`../handoff.js`):
   // from a draft the Answer check would send back with no send-back left (`answerCheck -> handoff`), and from a turn two
