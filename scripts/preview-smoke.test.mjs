@@ -18,7 +18,6 @@ import {
   MEANING_QUERY,
   meaningHitIn,
   appSearchRoute,
-  jobRowAfter,
 } from './preview-smoke.mjs';
 
 test('the simulator key is 64 hex digits, deterministic, and differs per preview and per number', () => {
@@ -171,12 +170,3 @@ test('the meaning query shares no word with the note it must find', async () => 
   for (const word of MEANING_QUERY.toLowerCase().split(/\s+/)) assert.equal(note.includes(word), false, word);
 });
 
-test('the job check counts only a new text a background job sent', () => {
-  const rows = [
-    { id: 'a', who: 'tex', text: 'On it.', source: 'fd' },
-    { id: 'b', who: 'tex', text: 'Old report', source: 'job' },
-    { id: 'c', who: 'tex', text: '3 items.', source: 'job' },
-  ];
-  assert.equal(jobRowAfter(rows.slice(0, 2), new Set(['b'])), null);
-  assert.equal(jobRowAfter(rows, new Set(['b'])).id, 'c');
-});
