@@ -65,7 +65,11 @@ export async function groupTurn(storage: InboxStorage, deps: GroupDeps, { messag
   const kept = await chatBefore(storage, message, acceptedAt, deps.now());
   // A chat line this turn answers is its question, not what the chat said around it.
   const asked_ = new Set(covered.map((entry) => `${entry.from}\n${entry.text}`));
-  const said = { keys: kept.keys, lines: kept.lines.filter((line) => !asked_.has(`${line.from}\n${line.text}`)) };
+  // A check-in is only its prompt (Dev2, 2026-11-20): the chat's history already shows every line and picture at its
+  // own time and sender, so the lines since Tex last spoke, and their pictures, are never handed in as this turn's input.
+  // Handed in, a screenshot posted the night before read as sent with the check-in, by whoever spoke last.
+  const lookOnly = message.routine?.path === CHAT_LOOK_PATH;
+  const said = { keys: kept.keys, lines: lookOnly ? [] : kept.lines.filter((line) => !asked_.has(`${line.from}\n${line.text}`)) };
   const handles = new Map((asked.names ?? []).map(({ phone, handle }) => [phone, handle]));
   // A guest is named in the chat's lines by a label from the control plane, never by number; never offered an email.
   const labels = new Map((asked.guests ?? []).map(({ phone, label }) => [phone, label]));

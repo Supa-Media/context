@@ -5,7 +5,7 @@ import { runDueRoutines } from "./routines";
 import type { Fetch } from "./clients";
 import { fetchDueRoutines, type DueRoutine } from "./routineClients";
 import { MemoryStorage } from "./memoryStorage.testing";
-import { isBound, setChatBound } from "./groupChat";
+import { isBound, keepChatLine, setChatBound } from "./groupChat";
 import type { GroupMessage } from "./sendblueGroups";
 
 /*
@@ -79,6 +79,25 @@ describe("a chat routine's run", () => {
     expect(await acceptGroupRoutine(storage, { ...RUN, path: CHAT_LOOK_PATH, timeZone: "UTC" }, 1_000)).toBe("queued");
     await drainGroup(storage, deps(w, { answer: "First part about the mail.\n\nSecond part.\n\nThird part." }));
     expect(w.sends).toHaveLength(1);
+  });
+
+  it("a check-in is only its prompt: the lines since Tex last spoke and their pictures are never handed in as its input", async () => {
+    // Tex Devs, 2026-11-20: a screenshot posted the night before rode on the 10 AM check-in as if sent with it, and the
+    // check-in credited the ask in it to whoever spoke last. The history already shows each line at its own time and sender.
+    const lines = async (path: string) => {
+      const w = world();
+      const storage = new MemoryStorage();
+      const said: GroupMessage = { kind: "group-message", eventId: "e1", groupId: GROUP, line: LINE, from: BO, participants: [LINE, ADA, BO], messageId: "m1", text: "look at what happened in the other chat" };
+      await setChatBound(storage, said);
+      await keepChatLine(storage, said, 900);
+      expect(await acceptGroupRoutine(storage, { ...RUN, path, timeZone: "UTC" }, 1_000)).toBe("queued");
+      await drainGroup(storage, deps(w));
+      const group = w.asks[0]!.group as { chat: unknown[] };
+      return { chat: group.chat, attachments: w.asks[0]!.attachments };
+    };
+    expect(await lines(CHAT_LOOK_PATH)).toEqual({ chat: [], attachments: undefined });
+    // A routine the chat wrote still reads what was said before it.
+    expect((await lines(RUN.path)).chat).toEqual([{ from: "", text: "look at what happened in the other chat" }]);
   });
 
   it("leaves the chat bound to its people, so untagged texts after it are still read", async () => {
