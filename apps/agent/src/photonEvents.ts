@@ -25,6 +25,7 @@ import { photonSendStatusOf } from "./photonSendStatus";
 import { parsePhotonEvent, photonAttachmentGuids, photonGroupChange, photonGroupNameOf, type PhotonDropped, type PhotonEdit } from "./photonInbound";
 import { sendGroupName } from "./sendblueGroups";
 import { workerOrigin } from "./media";
+import { MAX_REPLAY_MS } from "./replayWindow";
 
 export class PhotonEvents extends WorkerEntrypoint<Env> {
   /** One `PhotonEvent` from the bridge; resolves its status, as the bridge reads it (see the module comment). */
@@ -34,12 +35,19 @@ export class PhotonEvents extends WorkerEntrypoint<Env> {
 }
 
 /**
- * An event Apple timed this long before now is the bridge's catch-up replaying history, never a new text: it is dropped
- * before it reaches a chat (2026-11-19: a container restart replayed ~744 events from a stuck frontier, and every one older
- * than the inbox's one-day `seen:` window took a turn). Kept below that window, so anything younger is still deduped and
- * anything older can never take a turn.
+ * Whether an event is a catch-up replay that may not take a turn, or change a group (`replayWindow.ts`, 2026-11-19: a
+ * container restart replayed ~744 events from a stuck frontier, and every one older than the inbox's dedupe window was
+ * answered again). A replay is stale when Apple timed it more than MAX_REPLAY_MS ago, and a replay whose time is guessed
+ * or unreadable cannot prove it is recent, so it is stale too. A live event keeps its time as it is: a guessed time is
+ * the bridge's clock, so it is not aged.
  */
-export const STALE_REPLAY_MS = 12 * 60 * 60 * 1000;
+export function staleReplay(body: unknown): boolean {
+  const event = (typeof body === "object" && body !== null ? body : {}) as { at?: unknown; replay?: unknown; atGuessed?: unknown };
+  const at = providerTime(event.at);
+  if (event.replay === true && (event.atGuessed === true || at === null)) return true;
+  if (event.atGuessed === true || at === null) return false;
+  return Date.now() - at > MAX_REPLAY_MS;
+}
 
 function log(outcome: string, reason?: string): void {
   console.log(JSON.stringify({ event: "photon_webhook", outcome, ...(reason ? { reason } : {}) }));
@@ -64,8 +72,15 @@ export async function photonEvent(env: Env, body: unknown): Promise<number> {
     return 200;
   }
   // A group renamed, or somebody added, removed or left: noted for the group's home, never a message (`groupChange`).
+  // A replayed group change is old news: it is not acted on (`staleReplay`), like a replayed text.
   const change = photonGroupChange(body);
-  if (change !== null) return await groupChange(env, change);
+  if (change !== null) {
+    if (staleReplay(body)) {
+      log("ignored", "stale_replay");
+      return 200;
+    }
+    return await groupChange(env, change);
+  }
   const guids = photonAttachmentGuids(body);
   const origin = guids.length > 0 && env.AGENT_ORIGIN ? workerOrigin(env.AGENT_ORIGIN) : null;
   if (guids.length > 0 && origin === null) log("ignored", "no_origin");
@@ -89,9 +104,8 @@ export async function photonEvent(env: Env, body: unknown): Promise<number> {
     if ("chatId" in parsed || "groupId" in parsed) await noteDropped(env, parsed as PhotonDropped, provider);
     return 200;
   }
-  // A catch-up replay of something Apple timed long ago: noted on its chat as dropped, never handed over, 200 so the bridge moves on.
-  const at = providerTime((body as { at?: unknown }).at);
-  if (at !== null && Date.now() - at > STALE_REPLAY_MS) {
+  // A catch-up replay that may not take a turn: noted on its chat as dropped, never handed over, 200 so the bridge moves on.
+  if (staleReplay(body)) {
     log("ignored", "stale_replay");
     const named = parsed as { chatId?: string; groupId?: string; line?: string; from?: string };
     await noteDropped(env, { kind: "ignored", reason: "stale_replay", chatId: named.chatId, groupId: named.groupId, line: named.line, from: named.from }, provider);

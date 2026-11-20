@@ -71,4 +71,25 @@ describe("forwardContainerLogs", () => {
     const stale = await forwardContainerLogs(portStale, { boot: "b1", next: 0 }, (record) => logged.push(record), () => NOW);
     expect(stale.health).toMatchObject({ ok: false, read: "stale", readAgeMs: 180_000 });
   });
+
+  it("alerts once per line whose frontier has been stuck past the alert threshold, and reports skips and drops", async () => {
+    const logged: Record<string, unknown>[] = [];
+    const port = container("b1", [], {
+      started: true,
+      queued: 2,
+      lines: [
+        { line: "0123", frontier: 1196, stuckMs: 16 * 60_000 },
+        { line: "0999", frontier: 40, stuckMs: 14 * 60_000 },
+        { line: "0555", frontier: 3, stuckMs: null },
+      ],
+      startedAt: NOW,
+      lastReadAt: NOW,
+      replayDropped: 744,
+      gapSkipped: 2,
+    });
+    await forwardContainerLogs(port, { boot: "b1", next: 0 }, (record) => logged.push(record), () => NOW);
+    const alerts = logged.filter((record) => record.event === "bridge.alert");
+    expect(alerts).toEqual([{ event: "bridge.alert", outcome: "frontier_stuck", line: "0123", frontier: 1196, stuck_ms: 960_000 }]);
+    expect(logged.find((record) => record.event === "bridge.health")).toMatchObject({ replay_dropped: 744, gap_skipped: 2 });
+  });
 });

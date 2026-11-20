@@ -11,6 +11,8 @@ const FIELDS = new Set([
   "first", "replayed", "lag_ms",
   // A provider failure's own reason, scrubbed (`errors.mjs` `errorDetail`).
   "field", "request", "grpc", "detail",
+  // A skipped gap's size, a frontier's age, a shutdown's signal, a crash's class.
+  "count", "stuck_ms", "signal", "reason",
 ]);
 
 export function last4(value) {

@@ -89,3 +89,53 @@ that puts the secrets in a later secret put, fails
 `infra/photon-bridge/src/readHealth.test.ts`,
 `infra/photon-bridge/src/wake.test.ts`, and
 `scripts/photon-secrets-file.test.mjs`.
+
+## A missing sequence never pins the frontier, and a replay never answers history (2026-11-19)
+
+The bridge's frontier moves to N only when every sequence up to N completed.
+Photon never sent sequence 1197, so from 2026-11-17 10:33 AM ET the frontier
+sat at 1196 while texts kept being answered live. Nothing noticed. On
+2026-11-19 at 6:14 PM ET the container restarted (not a deploy), catch-up ran
+from 1196, and 744 events going back about 55 hours reached Tex. The agent's
+`seen:` dedupe kept a day, so every older text, and about 50 other chats'
+turns, were answered again. Hotfix #3779 dropped events older than 12 hours at
+the agent; this is the rest.
+
+- **A gap is skipped, and says so.** When a catch-up reaches
+  `catchup.complete`, every sequence up to its head was offered by that
+  catch-up, so one that never came is not in Photon's log: it completes as
+  skipped. A gap that holds the frontier for `GAP_TIMEOUT_MS` (10 minutes)
+  while live events pass it is skipped too. Both log `line.gap_skipped` with
+  the first sequence, the count and why. A sequence still queued (the agent is
+  retrying it) is never skipped.
+- **One window.** `MAX_REPLAY_MS` (12 hours) is the oldest event a catch-up
+  may deliver (`infra/photon-bridge/container/replay.mjs`) and the oldest the
+  agent hands to a chat (`apps/agent/src/replayWindow.ts`); the agent's dedupe
+  window is derived from it, `SEEN_FOR_MS = 2 × MAX_REPLAY_MS`, so a replay can
+  never reach past what is deduped. A bridge test fails when the two copies of
+  the constant differ.
+- **A replay has to prove it is recent.** Catch-up events carry `replay: true`.
+  An event with no Apple time carries `atGuessed: true`. A replay that is older
+  than the window, or whose time was guessed, is noted dropped on its chat and
+  never takes a turn, renames a group or changes its people. A missed text
+  from a short outage is still answered.
+- **The object keeps up.** Every minute the object reads the container's
+  frontiers and stores any that moved forward, never backward, so a frontier
+  that moved by skipping (with nothing acked after it) survives a restart.
+  Deploying this reset the stored 1196 to the head on its first catch-up.
+- **It alerts.** `bridge.alert` with `frontier_stuck` when a line's frontier
+  has not moved for 15 minutes while newer events arrived, and `big_replay`
+  when a first catch-up replays more than 50 events or more than an hour.
+- **A stop leaves a reason.** The container logs `container.stopping` on
+  SIGTERM and `container.crashed` on an uncaught error; the object logs
+  `container.exited` from the container's monitor. Error class names are
+  logged as the class, not the generic `Error`, and known operational
+  messages pass the detail filter (`SAFE_DETAIL`, `src/wake.ts`).
+  The read-only Cloudflare token gets 403 on container instance records, so
+  the platform's own stop reason is still out of reach until that token has
+  Containers read access.
+
+Reversing any of these fails `infra/photon-bridge/test/state.test.mjs`,
+the restart test in `infra/photon-bridge/test/listener.test.mjs`,
+`infra/photon-bridge/test/replay.test.mjs`, and the catch-up replay tests
+in `apps/agent/src/photonEvents.test.ts`.

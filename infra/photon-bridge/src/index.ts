@@ -9,6 +9,7 @@ import {
   type Fetchish,
   type Log,
 } from "./pump";
+import { checkpointWrites } from "./frontiers";
 import { lineOn } from "./lineSwitch";
 import { isBridgeRoute } from "./routes";
 import { shouldRestartContainer } from "../container/readHealth.mjs";
@@ -16,6 +17,7 @@ import {
   ALARM_MS,
   containerErrorDetail,
   containerGapDelayMs,
+  errorClass,
   isMissingContainer,
   nextAlarmDelay,
   retryWake,
@@ -116,6 +118,7 @@ export class PhotonBridge extends DurableObject<Env> {
           PHOTON_PROJECT_SECRET: this.env.PHOTON_PROJECT_SECRET!,
         },
       });
+      this.watchExit(container);
     }
     await this.waitReady();
     const response = await this.port().fetch("http://container/start", {
@@ -125,6 +128,21 @@ export class PhotonBridge extends DurableObject<Env> {
     });
     if (!response.ok) throw new Error(`start ${response.status}`);
     this.live = true;
+  }
+
+  /**
+   * One watch per start: when the container exits, its reason goes to the
+   * Worker's logs (the container's own stdout is not there). Success or failure only; no message.
+   */
+  private watchExit(container: NonNullable<DurableObjectState["container"]>): void {
+    if (typeof container.monitor !== "function") return;
+    container.monitor().then(
+      () => log({ event: "container.exited", ok: true }),
+      (error: unknown) => {
+        const detail = containerErrorDetail(error);
+        log({ event: "container.exited", ok: false, error: errorClass(error), ...(detail ? { detail } : {}) });
+      },
+    );
   }
 
   private async waitReady(): Promise<void> {
@@ -168,7 +186,7 @@ export class PhotonBridge extends DurableObject<Env> {
         const delay = missing ? containerGapDelayMs(failures) : retryDelayMs(failures);
         failures += 1;
         const detail = containerErrorDetail(error);
-        log({ event: "pump.error", error: error instanceof Error ? error.name : "unknown", ...(detail ? { detail } : {}), delay_ms: delay });
+        log({ event: "pump.error", error: errorClass(error), ...(detail ? { detail } : {}), delay_ms: delay });
         if (missing) await this.pullAlarmForward();
         await sleep(delay);
       }
@@ -220,7 +238,7 @@ export class PhotonBridge extends DurableObject<Env> {
       if (this.ctx.container?.running) await this.ctx.container.destroy();
     } catch (error) {
       const detail = containerErrorDetail(error);
-      log({ event: "bridge.watchdog", ok: false, error: error instanceof Error ? error.name : "unknown", ...(detail ? { detail } : {}) });
+      log({ event: "bridge.watchdog", ok: false, error: errorClass(error), ...(detail ? { detail } : {}) });
     }
     const outcome = await this.wake(false);
     if (outcome === "missing") await this.pullAlarmForward();
@@ -238,10 +256,30 @@ export class PhotonBridge extends DurableObject<Env> {
       this.logCursor = forwarded.cursor;
       this.lastHealth = forwarded.health;
       await this.ctx.storage.put(LOG_CURSOR_KEY, this.logCursor);
+      await this.storeFrontiers();
     })().finally(() => {
       this.forwarding = undefined;
     });
     return this.forwarding;
+  }
+
+  /**
+   * Stores the container's frontiers where they are ahead of the stored
+   * checkpoints, so a skipped gap or a dropped replay is not replayed after a
+   * restart. A checkpoint never moves backwards (`frontiers.ts`).
+   */
+  private async storeFrontiers(): Promise<void> {
+    try {
+      const response = await this.port().fetch("http://container/frontiers");
+      if (!response.ok) throw new Error(`frontiers ${response.status}`);
+      const body = (await response.json()) as { checkpoints?: unknown };
+      const writes = checkpointWrites(await this.checkpoints(), body.checkpoints);
+      for (const [line, seq] of Object.entries(writes)) {
+        await this.ctx.storage.put(`${CHECKPOINT_PREFIX}${line}`, seq);
+      }
+    } catch (error) {
+      log({ event: "bridge.frontiers_failed", error: errorClass(error) });
+    }
   }
 
   async alarm(): Promise<void> {

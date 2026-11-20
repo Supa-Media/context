@@ -168,6 +168,11 @@ export function createRuntime({
       return startPromise;
     },
 
+    /** Each line's frontier, for the Durable Object to store (`/frontiers`). */
+    frontiers() {
+      return ledger.checkpoints();
+    },
+
     health() {
       const snapshot = ledger.snapshot();
       const { startedAt, lastReadAt } = reads.snapshot();
@@ -181,9 +186,11 @@ export function createRuntime({
         startedAt,
         configured,
         started,
-        lines: snapshot.lines.map(({ line, frontier }) => ({ line: last4(line), frontier })),
+        lines: snapshot.lines.map(({ line, frontier, stuckMs }) => ({ line: last4(line), frontier, stuckMs })),
         queued: snapshot.queued,
         skipped: snapshot.skipped,
+        replayDropped: snapshot.replayDropped,
+        gapSkipped: snapshot.gapSkipped,
         checks: delivery.size(),
       };
     },

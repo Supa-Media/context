@@ -34,4 +34,9 @@ describe("the public Worker door", () => {
     expect(isBridgeRoute("PUT", "/send/text")).toBe(false);
     expect(isBridgeRoute("GET", "/attachment/a/b")).toBe(false);
   });
+
+  it("does not forward the container's frontiers: only the object reads them, through its container port", () => {
+    expect(isBridgeRoute("GET", "/frontiers")).toBe(false);
+    expect(isBridgeRoute("POST", "/frontiers")).toBe(false);
+  });
 });

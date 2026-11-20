@@ -107,7 +107,9 @@ test("the head probe takes the log head from catch-up, replaying nothing", async
 
 test("catch-up from the frontier and the live streams feed one ledger", async () => {
   const live = { messages: feed(), chats: feed(), groups: feed() };
-  const client = fakeClient({ catchup: () => replay([text(101), text(102)], 102), live });
+  // Current events: a catch-up event older than MAX_REPLAY_MS is dropped, which is tested below.
+  const fresh = new Date();
+  const client = fakeClient({ catchup: () => replay([text(101, fresh), text(102, fresh)], 102), live });
   const ledger = createLedger({ checkpoints: { [LINE]: 100 }, runId: "ls1" });
   let queued = 0;
   const pending = streamOnce({ client, line: LINE, ledger, onQueued: () => (queued += 1), signal: new AbortController().signal });
@@ -253,4 +255,70 @@ test("the first catch-up is logged with its lag, and a later poll is a read with
   assert.equal(logs[2].error, "readTimeout");
   assert.equal(JSON.stringify(logs).includes(LINE), false);
   assert.deepEqual(reads.snapshot(), { startedAt: 1000, lastReadAt: 2000 });
+});
+
+test("a first catch-up that replays many events, or reaches far back, is an alert; a small one is not", () => {
+  const logs = [];
+  const reads = createReads((record) => logs.push(record), () => 0);
+  reads.catchup(LINE, { replayed: 3, lagMs: 60_000 });
+  assert.equal(logs.some((record) => record.event === "bridge.alert"), false);
+  reads.catchup("+15550100999", { replayed: 744, lagMs: 55 * 3600_000 });
+  assert.deepEqual(logs.find((record) => record.event === "bridge.alert"), {
+    event: "bridge.alert",
+    outcome: "big_replay",
+    line: "+15550100999",
+    replayed: 744,
+    lag_ms: 55 * 3600_000,
+  });
+  const alerts = logs.filter((record) => record.event === "bridge.alert").length;
+  reads.catchup("+15550100999", { replayed: 744, lagMs: 55 * 3600_000 });
+  assert.equal(logs.filter((record) => record.event === "bridge.alert").length, alerts, "only the first catch-up per line");
+});
+
+test("a restart skips the sequence Photon never sent, delivers only the recent replay, and does not replay again", async () => {
+  const recent = new Date();
+  const old = new Date(Date.now() - 55 * 3600_000);
+  const replayed = [
+    ...Array.from({ length: 8 }, (_, i) => text(1198 + i, old)),
+    ...Array.from({ length: 5 }, (_, i) => text(1206 + i, recent)),
+  ];
+  const first = new AbortController();
+  const logs = [];
+  const client = fakeClient({ catchup: () => replay(replayed, 1210), live: { messages: feed(), chats: feed(), groups: feed() } });
+  const ledger = createLedger({ checkpoints: { [LINE]: 1196 }, runId: "restart1" });
+  const pending = streamOnce({ client, line: LINE, ledger, onQueued: () => {}, signal: first.signal, log: (record) => logs.push(record) });
+  await new Promise((resolve) => setTimeout(resolve, 20));
+
+  // 1197 never came, 1198..1205 are older than the replay window: only 1206..1210 are queued.
+  assert.equal(ledger.frontier(LINE), 1205, "the missing 1197 and the dropped 1198..1205 pass the frontier");
+  const delivered = [];
+  for (let i = 0; i < 5; i += 1) {
+    const item = ledger.next();
+    assert.equal(item.event.replay, true, "a catch-up event is marked as a replay");
+    delivered.push(item.seq);
+    ledger.ack(item.id);
+  }
+  assert.deepEqual(delivered, [1206, 1207, 1208, 1209, 1210]);
+  assert.equal(ledger.next(), null);
+  assert.equal(ledger.frontier(LINE), 1210);
+  assert.deepEqual(
+    logs.find((record) => record.event === "line.gap_skipped"),
+    { event: "line.gap_skipped", line: LINE, seq: 1197, frontier: 1205, count: 1, outcome: "catchup" },
+  );
+  for (const seq of [1197, 1198, 1210]) assert.equal(ledger.offer(LINE, text(seq)), "seen", `${seq} is not delivered again`);
+  first.abort();
+  await pending.catch(() => {});
+
+  // A second restart from the stored 1210: an empty catch-up queues nothing.
+  const second = new AbortController();
+  const logs2 = [];
+  const client2 = fakeClient({ catchup: () => replay([], 1210), live: { messages: feed(), chats: feed(), groups: feed() } });
+  const ledger2 = createLedger({ checkpoints: { [LINE]: 1210 }, runId: "restart2" });
+  const pending2 = streamOnce({ client: client2, line: LINE, ledger: ledger2, onQueued: () => {}, signal: second.signal, log: (record) => logs2.push(record) });
+  await new Promise((resolve) => setTimeout(resolve, 20));
+  assert.equal(client2.catchUps[0], 1210);
+  assert.equal(ledger2.next(), null);
+  assert.equal(logs2.some((record) => record.event === "line.gap_skipped"), false);
+  second.abort();
+  await pending2.catch(() => {});
 });
