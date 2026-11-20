@@ -80,6 +80,24 @@ function checkPending(entry) {
   return { path: entry.path, kind: entry.kind, base: entry.base, at: entry.at };
 }
 
+/** The most chat homes one access set names. */
+const MAX_CHAT_HOMES = 20_000;
+
+/**
+ * The chat homes' keys by their words (`{ "kite-willow-rocket": "<64 hex>" }`), as the control plane sends them with the
+ * pin's set (`lib/nodes/accessSet.ts`), or `{}` when it sent none. Anything malformed is refused, never half kept.
+ */
+function checkChatHomes(homes) {
+  if (homes === undefined || homes === null) return {};
+  if (typeof homes !== "object" || Array.isArray(homes)) throw new WorkspaceRowRefused("chat homes are words to keys");
+  const entries = Object.entries(homes);
+  if (entries.length > MAX_CHAT_HOMES) throw new WorkspaceRowRefused("too many chat homes");
+  for (const [words, key] of entries) {
+    if (!/^[a-z]+(?:-[a-z]+){2}$/.test(words) || typeof key !== "string" || !/^[0-9a-f]{64}$/.test(key)) throw new WorkspaceRowRefused("a chat home is three words and a key");
+  }
+  return Object.fromEntries(entries);
+}
+
 /**
  * A whole access set as the control plane sends it: `{version, rows, pending, accounts, sealsChats, moving}`.
  * `accounts`: whether `accounts` grants are honoured here (the pinned workspace). `sealsChats`: whether the chat homes
@@ -105,6 +123,7 @@ export function checkAccessSet(set) {
     pending: pending.map(checkPending),
     accounts: set.accounts === true,
     sealsChats: set.sealsChats === true,
+    ...(set.sealsChats === true ? { chatHomes: checkChatHomes(set.chatHomes) } : {}),
     moving: Number.isFinite(set.moving) && set.moving > 0 ? set.moving : 0,
   };
 }
@@ -234,6 +253,13 @@ export function workspaceAccess(sql) {
     version() {
       const header = meta("access:set");
       return header === null ? null : JSON.parse(header).version;
+    },
+    /** The chat homes' keys by their words, where this workspace holds them, or `null` (none held, or before the first set). */
+    chatHomes() {
+      const header = meta("access:set");
+      if (header === null) return null;
+      const held = JSON.parse(header);
+      return held.sealsChats === true && held.chatHomes && typeof held.chatHomes === "object" ? held.chatHomes : null;
     },
     /** Whether this workspace holds the chat homes (the pinned workspace), or `null` before the first set. */
     sealsChats() {

@@ -63,12 +63,17 @@ to prevent:
   answer names the reader it was made for, and the gateway refuses one made for
   another. A chat whose names the session does not carry, rotations, and
   managed encryption moving in or out ask the control plane;
-  `GUEST_FROM_OBJECT=off` sends guests and chats back to it. A group chat's own
-  new note in its own home is placed in that chat's Tex object by the
-  workspace's object (`lookupMiss.js` `chatHomeOwner`: only in the workspace
-  that seals the chat homes, only beneath a live home), and its row adopted
-  there; a guest's save is still recorded by the control plane, which checks
-  the writer's role.
+  `GUEST_FROM_OBJECT=off` sends guests and chats back to it. A new note in a
+  Tex home is placed by the workspace's object as `texHome.ts` `texHomesFor`
+  places it (`lookupMiss.js` `texHomeOwner`), and its row adopted there: a
+  personal workspace's Tex folder in its person's object, and a group chat's
+  home in the pin in the chat's object, by the key the pin's access set names
+  for the home's words (`accessSet.ts` `chatHomeKeys`; words two chats share
+  name none) or the chat's own grant. A guest's saves are recorded in the
+  object when its grant may write with a role the control plane's record takes
+  (`context:write` and owner, editor or member, as `memberWritableWorkspace`
+  checks). Two Tex folders, an unknown home key, or a home whose folder is not
+  standing are still asked of the control plane.
 - **A data key only where the object says there is one.** The control plane
   answers "no key" and "a key that would not open" alike, so a copy is kept
   and served only when it carries a key exactly where the object records the
