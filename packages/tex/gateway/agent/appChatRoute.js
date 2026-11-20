@@ -19,6 +19,11 @@
  *  - `{ op: "edit", msgId, text }` / `{ op: "unsend", msgId }` → `{ msgId }`: the person's own text, while it is
  *    `editable` (words) or `unsendable` (any of theirs), for 15 minutes as in Messages, as Photon's line hands an edit or an unsend (node `edit`).
  *  - `{ op: "picture", id }` → the picture's bytes: one shown in this chat's rows, never another's.
+ *  - `{ op: "stop" }` → `{ stopped }`: the person stopped the turn running (mock: "Stopped. Tex keeps what it already
+ *    did."); its texts show `stopped`, and Try again on one queues it again. `stopped` is false when nothing was running.
+ *  - `{ op: "retry", msgId }` → `{ msgId }`: Try again on a text that shows `failed` or `stopped`.
+ *  - `{ op: "wait", since? }` → `{ rows, typing, digest }`: `get`, held up to `WAIT_MS` until the chat's outbox
+ *    changes from the `digest` the app last had (one request open, no polling loop in the app); at once without `since`.
  *  - `{ op: "warm", cause: "open" | "typing" }` → `{ when, why? }`: the person opened the chat or started typing, so
  *    the model's cache is warmed for their next text when node `warm` is wired (`textsWarm.js`); a skip otherwise.
  *
@@ -28,7 +33,7 @@
 
 import { ledgerFor, ONE_TO_ONE_CHAT } from "./ledger.js";
 import { objectByName } from "../../../../apps/mcp/src/objectPlace.js";
-import { ROWS_SHOWN, buildRows, ledgerEntries, outboxOf, typingNow } from "./appChatRows.js";
+import { ROWS_SHOWN, buildRows, ledgerEntries, outboxDigest, outboxOf, typingNow } from "./appChatRows.js";
 
 export const APP_CHAT_PATH = "/tex/app-chat";
 /** The console's client (`CONSOLE_CLIENT_ID` in `apps/convex/functions/agentGrant.ts`). */
@@ -47,6 +52,9 @@ const MAX_REACTION_WORDS = 1_000;
 const TAPBACKS = new Map([["❤️", "Loved"], ["👍", "Liked"], ["👎", "Disliked"], ["😂", "Laughed at"], ["‼️", "Emphasized"], ["❓", "Questioned"]]);
 /** The picture kinds served back (`packages/tex/worker/appPictures.ts`): none can carry a script. */
 const PICTURE_TYPES = new Set(["image/jpeg", "image/png", "image/gif", "image/webp"]);
+/** The longest a `wait` is held, and how often it looks at the outbox meanwhile. */
+export const WAIT_MS = 20_000;
+export const WAIT_EVERY_MS = 400;
 const LIMIT_MESSAGE = "That's today's limit for the app chat. Try again tomorrow.";
 const UNREACHABLE_MESSAGE = "Tex can't take that just now. Try again in a moment.";
 const READ_MESSAGE = "The chat could not be read just now. Try again in a moment.";
@@ -74,7 +82,7 @@ export async function handleAppChat(request, store, session, path, env, deps = {
 }
 
 async function serveAppChat(request, _store, session, _path, env, deps = {}) {
-  const { ledgerOf = (owner) => ledgerFor(env, owner), now = Date.now } = deps;
+  const { ledgerOf = (owner) => ledgerFor(env, owner), now = Date.now, sleep } = deps;
   if (session?.actorClientId !== CONSOLE_CLIENT_ID || session.workspaceKind !== "personal" || session.role !== "owner") {
     return refuse(403, "forbidden");
   }
@@ -96,7 +104,7 @@ async function serveAppChat(request, _store, session, _path, env, deps = {}) {
   }
   if (body === null || typeof body !== "object" || Array.isArray(body)) return refuse(400, "Send a JSON object with an op.");
   if (env?.TEX_CHAT === undefined) return refuse(503, UNREACHABLE_MESSAGE);
-  const ctx = { env, chatId, session, ledgerOf, now };
+  const ctx = { env, chatId, session, ledgerOf, now, ...(sleep ? { sleep } : {}) };
   try {
     if (body.op === "get") return await get(ctx);
     if (body.op === "send") return await send(ctx, body);
@@ -104,7 +112,9 @@ async function serveAppChat(request, _store, session, _path, env, deps = {}) {
     if (body.op === "edit" || body.op === "unsend") return await edit(ctx, body);
     if (body.op === "picture") return await picture(ctx, body);
     if (body.op === "warm") return await warm(ctx, body);
-    return refuse(400, "op is get, send, react, edit, unsend, picture or warm.");
+    if (body.op === "wait") return await wait(ctx, body);
+    if (body.op === "stop" || body.op === "retry") return await turnCall(ctx, body);
+    return refuse(400, "op is get, wait, send, react, edit, unsend, picture, warm, stop or retry.");
   } catch (error) {
     // The error's name only: a read's message can carry the words it read.
     console.log(JSON.stringify({ event: "app_chat", op: String(body.op), outcome: "unreachable", error: String(error?.name ?? "error").slice(0, 40) }));
@@ -117,7 +127,38 @@ async function readChat({ env, chatId, session, ledgerOf, now }) {
   const [ledger, outbox] = await Promise.all([ledgerEntries(ledgerOf, session.workspaceId), outboxOf(env.TEX_CHAT, chatId)]);
   const out = {};
   const rows = buildRows(ledger, outbox, now(), out);
-  return { rows, typing: typingNow(outbox.typingAt, now()), handles: out.handles };
+  // Tex is working while a turn of this chat runs, the typing mark or not.
+  const typing = typingNow(outbox.typingAt, now()) || outbox.queue.some((item) => item.state === "running");
+  return { rows, typing, handles: out.handles, digest: outboxDigest(outbox, now()) };
+}
+
+/** `wait`: the chat's rows once its outbox differs from `since`, or after `WAIT_MS` either way. */
+async function wait(ctx, body) {
+  const since = typeof body.since === "string" && body.since.length <= 16 ? body.since : null;
+  const { sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms)) } = ctx;
+  if (since !== null) {
+    const until = ctx.now() + WAIT_MS;
+    while (ctx.now() < until && outboxDigest(await outboxOf(ctx.env.TEX_CHAT, ctx.chatId), ctx.now()) === since) await sleep(WAIT_EVERY_MS);
+  }
+  const { rows, typing, digest } = await readChat(ctx);
+  console.log(JSON.stringify({ event: "app_chat", op: "wait", outcome: digest === since ? "same" : "changed" }));
+  return json({ rows: rows.slice(-ROWS_SHOWN), typing, digest });
+}
+
+/** `stop` and `retry`: passed to the chat's object (`texChat/appChat.js` `serveAppTurnCall`); retry only on a row that shows failed or stopped. */
+async function turnCall(ctx, body) {
+  const stop = body.op === "stop";
+  if (!stop) {
+    if (typeof body.msgId !== "string") return refuse(400, "msgId is the id of one of your texts in this chat.");
+    const row = (await readChat(ctx)).rows.find((one) => one.id === body.msgId && one.who === "me");
+    if (row === undefined || (row.state !== "failed" && row.state !== "stopped")) return refuse(400, "Only a text Tex didn't answer can be tried again.");
+  }
+  const stub = objectByName(ctx.env.TEX_CHAT, `chat:${ctx.chatId}`);
+  const answer = await stub.fetch(new Request(`https://chat/app/${stop ? "stop" : "retry"}`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(stop ? {} : { ev: body.msgId }) }));
+  const said = await answer.json().catch(() => ({}));
+  console.log(JSON.stringify({ event: "app_chat", op: body.op, outcome: String(said?.outcome ?? answer.status).slice(0, 20) }));
+  if (!answer.ok) return refuse(503, UNREACHABLE_MESSAGE);
+  return stop ? json({ stopped: said.outcome === "stopped" }) : json({ msgId: body.msgId });
 }
 
 /** They opened the chat or started typing: node `warm` for their own 1:1's home (`textsWarm.js`); nothing of theirs is read here. */
@@ -130,9 +171,9 @@ async function warm({ env, session }, body) {
 }
 
 async function get(ctx) {
-  const { rows, typing } = await readChat(ctx);
+  const { rows, typing, digest } = await readChat(ctx);
   console.log(JSON.stringify({ event: "app_chat", op: "get", outcome: "ok" }));
-  return json({ rows: rows.slice(-ROWS_SHOWN), typing });
+  return json({ rows: rows.slice(-ROWS_SHOWN), typing, digest });
 }
 
 async function send(ctx, body) {

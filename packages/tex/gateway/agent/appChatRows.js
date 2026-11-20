@@ -59,7 +59,55 @@ export async function outboxOf(namespace, chatId) {
     metas: plain(body?.metas),
     taps: plain(body?.taps),
     handles: plain(body?.handles),
+    queue: Array.isArray(body?.queue) ? body.queue.filter((item) => typeof item?.ev === "string") : [],
+    failed: plain(body?.failed),
+    stopped: plain(body?.stopped),
   };
+}
+
+/**
+ * A short fingerprint of what the outbox shows: its events, the queue's states, the marked texts and the typing mark.
+ * The `wait` op holds a read until it changes (`appChatRoute.js`).
+ */
+export function outboxDigest(outbox, now = Date.now()) {
+  const parts = [
+    (outbox.events ?? []).map((event) => `${event.id}:${event.kind}:${event.delivered ?? ""}`).join(","),
+    (outbox.queue ?? []).map((item) => `${item.ev}:${item.state}`).join(","),
+    Object.keys(outbox.failed ?? {}).sort().join(","),
+    Object.keys(outbox.stopped ?? {}).sort().join(","),
+    Object.entries(outbox.taps ?? {}).map(([on, tap]) => `${on}:${tap?.emoji}`).sort().join(","),
+    typingNow(outbox.typingAt ?? null, now) ? "typing" : "",
+  ];
+  let hash = 2166136261;
+  for (const char of parts.join("|")) hash = Math.imul(hash ^ char.charCodeAt(0), 16777619) >>> 0;
+  return hash.toString(36);
+}
+
+/**
+ * Where each of the person's texts is, as the page shows under it (mock: Delivered · Read · Answered):
+ *  - `failed` (with `failedAt`): Tex could not answer it (`packages/tex/worker/turnWatch.ts`); Try again queues it.
+ *  - `stopped`: the person stopped the turn answering it.
+ *  - `answered`: a Tex text or tapback covers it.
+ *  - `reading`: the turn answering it is running.
+ *  - `queued`: waiting while another turn runs (Tex reads it once that step ends); `sent`: waiting, nothing running.
+ *  - `read`: out of the queue with no answer of its own (folded into a turn, or one Tex chose to let be).
+ */
+function deliveryStates(kept, events, { queue = [], failed = {}, stopped = {} }) {
+  const covered = new Set(events.filter((event) => whoOf(event) === "tex").flatMap((event) => event.covers));
+  const waiting = new Map(queue.map((item) => [item.ev, item.state]));
+  const busy = queue.some((item) => item.state === "running");
+  for (const { row } of kept) {
+    if (row.who !== "me") continue;
+    const mark = plain(failed[row.id]);
+    if (Number.isFinite(mark.at)) {
+      row.state = "failed";
+      row.failedAt = mark.at;
+    } else if (Number.isFinite(stopped[row.id])) row.state = "stopped";
+    else if (covered.has(row.id)) row.state = "answered";
+    else if (waiting.get(row.id) === "running") row.state = "reading";
+    else if (waiting.has(row.id)) row.state = busy ? "queued" : "sent";
+    else row.state = "read";
+  }
 }
 
 /** A ledger entry as an event: the ledger keeps the chat event's kind as `event` and its id as `eid`. */
@@ -139,7 +187,7 @@ const byTime = (a, b) => a.at - b.at || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0)
  *    knows the handle of) is `unsendable`, and also `editable` when it is words with no pictures.
  */
 export function buildRows(ledgerEvents, outbox, now = Date.now(), out = {}) {
-  const { events: outboxEvents = [], metas = {}, taps = {}, handles = {} } = outbox ?? {};
+  const { events: outboxEvents = [], metas = {}, taps = {}, handles = {}, queue = [], failed = {}, stopped = {} } = outbox ?? {};
   const byId = new Map();
   for (const entry of ledgerEvents) {
     const event = fromLedger(entry);
@@ -213,6 +261,7 @@ export function buildRows(ledgerEvents, outbox, now = Date.now(), out = {}) {
     row.unsendable = true;
     if (row.kind !== "picture" && row.text.trim() !== "") row.editable = true;
   }
+  deliveryStates(kept, events, { queue, failed, stopped });
   // The handle each row is known by to the chat object, an edited one's included, for an edit or unsend to name.
   out.handles = editable;
   return kept.map(({ row }) => row);

@@ -15,3 +15,6 @@ export function readAppPicture(storage: unknown, id: string): Promise<{ mediaTyp
 export function forgetAppPicture(storage: unknown, id: string): Promise<void>;
 export function serveAppPicture(storage: unknown, url: string): Promise<Response>;
 export const HANDLES_KEY: "evhandles";
+export function queueView(storage: unknown): Promise<{ queue: { ev: string; state: "waiting" | "running"; at?: number; tries?: number }[]; failed: Record<string, { at: number; why?: string }>; stopped: Record<string, number> }>;
+export const TURN_RUN_KEY: "turn:run";
+export const TEXTS_QUEUE: { counter: string; prefix: string; max: number };

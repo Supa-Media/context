@@ -25,7 +25,7 @@
 import { ARRIVAL_KINDS, INBOX_NAME } from "./texChat/arrival.js";
 import { objectByName } from "../../../apps/mcp/src/objectPlace.js";
 import { JOB_NAME } from "./texJobName.js";
-import { NAME_KEY, PLACE_KEY, SENDER_ID_KEY, isAppChatName, placeAppChat, serveAppArrive, serveAppOutbox, serveAppPictureById } from "./texChat/appChat.js";
+import { NAME_KEY, PLACE_KEY, SENDER_ID_KEY, isAppChatName, placeAppChat, serveAppArrive, serveAppOutbox, serveAppPictureById, serveAppTurnCall } from "./texChat/appChat.js";
 
 /** Where the Worker's chat object answers each kind of arrival (`packages/tex/worker/index.ts`). */
 const ARRIVAL_PATHS = Object.freeze({ one: "/accept", react: "/react", group: "/group-accept", members: "/group-members-changed", edit: "/edit" });
@@ -54,7 +54,8 @@ export function texChatClass({ gateway, texts }) {
       if (request.method === "POST" && url.pathname === "/app/arrive") {
         return await serveAppArrive(request, { state: this.state, open: (name) => this.chat(name) });
       }
-      if (request.method === "GET" && url.pathname === "/app/outbox") return await serveAppOutbox(this.state.storage);
+      if (request.method === "GET" && url.pathname === "/app/outbox") return await serveAppOutbox(this.state.storage, { alarms: this.state.storage });
+      if (request.method === "POST" && (url.pathname === "/app/stop" || url.pathname === "/app/retry")) return await serveAppTurnCall(request, url.pathname, { state: this.state, open: (name) => this.chat(name) });
       if (request.method === "GET" && url.pathname.startsWith("/app/picture/")) return await serveAppPictureById(this.state.storage, url.pathname.slice("/app/picture/".length));
       if (url.pathname.startsWith("/chat-call/")) return await this.chatCall(request, url);
       return Response.json({ error: "unknown_route" }, { status: 404 });
