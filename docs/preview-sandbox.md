@@ -54,7 +54,7 @@ and the code. "Checked on every preview" means the deploy's smoke test
 
 | Gap | Plan | Status |
 | --- | --- | --- |
-| Group chats | A group mode in `/texts-simulator`: 555-01XX members, the real group path, replies to the group's log. Background jobs, cross-chat asks and routines in a simulated group refuse to send for now | In review (#3796) |
+| Group chats | A group mode in `/texts-simulator`: 555-01XX members, the real group path, replies to the group's log. Background jobs, cross-chat asks and routines in a simulated group refuse to send for now | Merged (#3796); on a preview after its next push |
 | Web app in a real browser | A smoke check: Chromium opens `/login` with no page errors | In review (#3790) |
 | Background jobs | Unproven on a preview: asked from the app chat for a job, Tex answered directly and no job ran (pr3790, 2026-11-20). Next: a task that needs a job, and job reports to the app chat and the simulator | Open |
 | Word search checked by the smoke test | One exact-word search beside the meaning search | Planned |
