@@ -461,7 +461,7 @@ jobs:
         run: |
           set -euo pipefail
           pnpm --dir apps/mobile exec playwright install chromium || echo "Playwright's Chromium did not install; the runner's Chrome is used."
-          node scripts/preview-browser.mjs
+          node packages/sandbox/src/browser.mjs
 
       # A pull request that closed while this ran was already swept, and this run
       # put its preview back up. Delete it again, so a closed preview never waits

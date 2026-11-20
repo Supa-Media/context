@@ -14,6 +14,7 @@ Nothing here is deployed. The GitHub workflows run these files directly with `no
 | `src/convex-env.mjs` | Copies the allowed backend variables onto the Convex preview | `deploy-preview.yml` |
 | `src/seed.mjs` | Seeds the personas, their workspaces, storage and notes | `deploy-preview.yml` |
 | `src/smoke.mjs` | Proves the deployed preview answers end to end | `deploy-preview.yml` |
+| `src/browser.mjs` | Opens the preview's `/login` in Chromium and fails on page errors or failed requests to its own hosts | `deploy-preview.yml` |
 | `src/sign-in-code.mjs` | Mails a persona's sign-in code to the team inbox | `preview-sign-in-code.yml` |
 | `src/cleanup.mjs` | Deletes a closed pull request's preview, and sweeps for any left behind | `preview-cleanup.yml`, `deploy-preview.yml` |
 | `src/teardown.mjs` | Empties buckets, revokes tokens, deletes the Convex preview, and verifies nothing is left | `cleanup.mjs` |

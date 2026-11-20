@@ -12,7 +12,7 @@
  */
 import { createRequire } from 'node:module';
 import { pathToFileURL } from 'node:url';
-import { originFrom } from './preview-smoke.mjs';
+import { originFrom } from './smoke.mjs';
 
 export const LOGIN_PATH = '/login';
 export const EMAIL_BOX = '[data-testid="login-email"]';
@@ -40,7 +40,7 @@ export function ownHostsFrom(env) {
 export async function openWebApp(env = process.env, { log = console.log } = {}) {
   const origin = originFrom(env.PREVIEW_ROUTER_ORIGIN, 'PREVIEW_ROUTER_ORIGIN');
   // Playwright is the app's dev dependency; resolve it from there.
-  const require = createRequire(new URL('../apps/mobile/package.json', import.meta.url));
+  const require = createRequire(new URL('../../../apps/mobile/package.json', import.meta.url));
   const { chromium } = require('@playwright/test');
   // The runner's Ubuntu can be newer than Playwright supports; its own Chrome is the fallback.
   const browser = await chromium.launch().catch(() => chromium.launch({ channel: 'chrome' }));
