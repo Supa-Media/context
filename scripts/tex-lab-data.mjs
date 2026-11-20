@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// Writes apps/mobile/features/tex/lab/labData.generated.ts: the Tex Architecture
+// Writes packages/lab/app/labData.generated.ts: the Tex Architecture
 // Lab's bench cases (CASES), its Tex prompt texts (MODTEXT) and its workspace
 // fixtures (WS), all read from files in this repo.
 //
@@ -15,7 +15,7 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 import { readTexConfig } from "./lib/texConfigFile.mjs";
 
 const ROOT = fileURLToPath(new URL("..", import.meta.url));
-const OUT = path.join(ROOT, "apps/mobile/features/tex/lab/labData.generated.ts");
+const OUT = path.join(ROOT, "packages/lab/app/labData.generated.ts");
 const require = createRequire(import.meta.url);
 
 const abs = (rel) => path.join(ROOT, rel);

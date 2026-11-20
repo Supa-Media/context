@@ -38,7 +38,7 @@ jest.mock("expo-router", () => {
 });
 jest.mock("../features/site/host", () => ({ isTexHost: () => mockTexHost }));
 // The test chat under the canvas reaches the gateway with the person's own grant; no gateway here.
-jest.mock("../features/tex/lab/views/canvas/sandboxCall", () => ({ useSandboxCall: () => false }));
+jest.mock("@context/lab/app/views/canvas/sandboxCall", () => ({ useSandboxCall: () => false }));
 // The Tests view has no focus export yet, and the workspace browser is not in the repo yet.
 
 (globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
@@ -47,9 +47,9 @@ window.matchMedia = ((q: string) => ({ matches: false, media: q, addEventListene
 
 import { act, createElement } from "react";
 import { createRoot } from "react-dom/client";
-import { TexLab } from "../features/tex/lab/TexLab.web";
-import { G, go, set, lab, node, MAIN, clone } from "../features/tex/lab/engine/state";
-import { mods } from "../features/tex/lab/engine/modules";
+import { TexLab } from "@context/lab/app/TexLab.web";
+import { G, go, set, lab, node, MAIN, clone } from "@context/lab/app/engine/state";
+import { mods } from "@context/lab/app/engine/modules";
 
 const roots: (() => void)[] = [];
 afterEach(() => {

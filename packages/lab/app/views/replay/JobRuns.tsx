@@ -7,7 +7,7 @@ import { useEffect } from "react";
 
 import { jobWork, stateWords, type JobRun } from "../../engine/jobRuns";
 import { fmtS } from "../../engine/sim";
-import type { LedgerEntry } from "../../../page/texPageTypes";
+import type { LedgerEntry } from "../../fromApp/texPageTypes";
 import { readJobWork } from "../mine/useMine";
 
 const time = (at: number) => new Date(at).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit", second: "2-digit" });

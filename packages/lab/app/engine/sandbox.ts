@@ -13,9 +13,9 @@ import type { StepCell } from "../views/grid/TextGrid.web";
 import { stepExtra, type StepExtra } from "./stepRun";
 import { lab, set as setLab } from "./state";
 import { unfoldGroups } from "./groups";
-import type { LedgerPage, LedgerQuery } from "../../page/texPageTypes";
-import { readLedgerPage } from "../../page/texPageLedger";
-import type { Read } from "../../page/texPageSource";
+import type { LedgerPage, LedgerQuery } from "../fromApp/texPageTypes";
+import { readLedgerPage } from "../fromApp/texPageLedger";
+import type { Read } from "../fromApp/texPageSource";
 
 /** A step as the grid shows it (`out` in words) with the contract's optional fields (`stepRun.ts`), as the gateway sent them. */
 export type SandboxStep = StepCell & StepExtra;
@@ -80,6 +80,11 @@ export type SandboxState = {
   hot: string | null;
   busy: boolean;
   problem: string | null;
+  /**
+   * A test chat a link asked for (`/lab?sandbox=<id>`) that is not open yet: the dock names it and offers to try again
+   * instead of showing whatever chat was open before, so a failed open never looks like the wrong chat.
+   */
+  linked: string | null;
   /** The chats you may open a test chat over (your 1:1 and your group chats). */
   chats: Array<{ chatId: string; name: string; kind?: "dm" | "group"; people?: number }>;
   /** The chats people shared with the developers (Settings → Feedback, or "Tex, share my chats with the devs"). */
@@ -112,7 +117,7 @@ export type SandboxRecent = { sandboxId: string; name: string; source: SandboxSo
 export type SandboxOp = "chats" | "sets" | "shared" | "ledger" | "open" | "send" | "react" | "edit" | "unsend" | "retry" | "back" | "drop" | "reset" | "get" | "list" | "use" | "page";
 export type SandboxCall = (op: SandboxOp, body: Record<string, unknown>) => Promise<Record<string, unknown>>;
 
-export const sandbox: SandboxState = { id: null, source: { kind: "maya" }, versionId: "main", people: [], handles: {}, as: "", rows: [], writes: [], running: null, hot: null, busy: false, problem: null, chats: [], sharedChats: [], sets: [], draft: null, shared: false, recent: null, fit: null, line: null };
+export const sandbox: SandboxState = { id: null, source: { kind: "maya" }, versionId: "main", people: [], handles: {}, as: "", rows: [], writes: [], running: null, hot: null, busy: false, problem: null, linked: null, chats: [], sharedChats: [], sets: [], draft: null, shared: false, recent: null, fit: null, line: null };
 
 const subs = new Set<() => void>();
 let ver = 0;
@@ -389,6 +394,7 @@ export async function readSandboxSets() {
 /** Open a test chat over Maya or one of your chats, running the version open in the Lab. */
 export function openSandbox(source: SandboxSource, versionId: string, base?: string) {
   sandbox.shared = false;
+  sandbox.linked = null;
   seenFor = null;
   sandbox.source = source;
   sandbox.versionId = versionId;
@@ -453,7 +459,7 @@ export async function attachSandbox(sandboxId: string, versionId: string, recent
   if (polling) clearTimeout(polling);
   polling = null;
   rawRows = [];
-  Object.assign(sandbox, { id: sandboxId, shared: true, versionId: recent?.versionId ?? versionId, rows: [], writes: [], running: null, hot: null, fit: null, people: [], handles: {}, as: "" });
+  Object.assign(sandbox, { id: sandboxId, linked: sandboxId, problem: null, shared: true, versionId: recent?.versionId ?? versionId, rows: [], writes: [], running: null, hot: null, fit: null, people: [], handles: {}, as: "" });
   if (recent) sandbox.source = recent.source;
   seenFor = null;
   if (!call) return run("get", {});
@@ -471,7 +477,16 @@ export async function attachSandbox(sandboxId: string, versionId: string, recent
     /* a gateway without `use`: get reads it */
   }
   sandbox.busy = false;
-  return used ? (emit(), poll()) : run("get", {});
+  if (used) {
+    sandbox.linked = null;
+    emit();
+    return poll();
+  }
+  await run("get", {});
+  // Opened (rows came back) or not: a link that could not be opened says so, and keeps its id to try again.
+  if (sandbox.problem === null) sandbox.linked = null;
+  else if (sandbox.linked === sandboxId) sandbox.problem = `Couldn't open the linked test chat ${sandboxId}: ${sandbox.problem}`;
+  emit();
 }
 
 /** The test chat a link opens (`/lab?sandbox=<id>`), read once as the Lab loads, before it rewrites its address. */
@@ -608,7 +623,7 @@ export function gatewaySandbox(endpoint: string, token: (refresh: boolean | { re
 
 /** For tests: back to an empty test chat. */
 export function resetSandboxState() {
-  Object.assign(sandbox, { id: null, source: { kind: "maya" }, versionId: "main", people: [], handles: {}, as: "", rows: [], writes: [], running: null, hot: null, busy: false, problem: null, chats: [], sharedChats: [], sets: [], draft: null, shared: false, recent: null, fit: null, line: null });
+  Object.assign(sandbox, { id: null, source: { kind: "maya" }, versionId: "main", people: [], handles: {}, as: "", rows: [], writes: [], running: null, hot: null, busy: false, problem: null, linked: null, chats: [], sharedChats: [], sets: [], draft: null, shared: false, recent: null, fit: null, line: null });
   seenFor = null;
   seen = new Set();
   if (polling) clearTimeout(polling);

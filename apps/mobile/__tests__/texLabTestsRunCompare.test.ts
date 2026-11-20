@@ -44,7 +44,7 @@ jest.mock("expo-router", () => {
 });
 jest.mock("../features/site/host", () => ({ isTexHost: () => mockTexHost }));
 // The test chat under the canvas reaches the gateway with the person's own grant; no gateway here.
-jest.mock("../features/tex/lab/views/canvas/sandboxCall", () => ({ useSandboxCall: () => false }));
+jest.mock("@context/lab/app/views/canvas/sandboxCall", () => ({ useSandboxCall: () => false }));
 
 (globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 window.matchMedia = ((q: string) => ({ matches: false, media: q, addEventListener() {}, removeEventListener() {} })) as never;
@@ -57,17 +57,17 @@ if (!("CSS" in globalThis)) {
 import { act, createElement, type ReactElement } from "react";
 import { createRoot } from "react-dom/client";
 import TexLabRoute from "../app/(app)/lab";
-import { AREAS } from "../features/tex/lab/data/areas";
-import { BASE_MODELS } from "../features/tex/lab/data/models";
-import { CASES } from "../features/tex/lab/labData.generated";
-import { config } from "../features/tex/lab/engine/diff";
-import { mods } from "../features/tex/lab/engine/modules";
-import { clone, emit, lab, MAIN, node, set as setLab, stepsOf } from "../features/tex/lab/engine/state";
-import { caseFit } from "../features/tex/lab/views/tests/caseParts";
-import { CASE_CAP } from "../features/tex/lab/engine/cases";
-import { parseReport, promptText } from "../features/tex/lab/views/run/runText";
-import { Workspace } from "../features/tex/lab/views/Workspace.web";
-import type { LabCase, LabNode } from "../features/tex/lab/types";
+import { AREAS } from "@context/lab/app/data/areas";
+import { BASE_MODELS } from "@context/lab/app/data/models";
+import { CASES } from "@context/lab/app/labData.generated";
+import { config } from "@context/lab/app/engine/diff";
+import { mods } from "@context/lab/app/engine/modules";
+import { clone, emit, lab, MAIN, node, set as setLab, stepsOf } from "@context/lab/app/engine/state";
+import { caseFit } from "@context/lab/app/views/tests/caseParts";
+import { CASE_CAP } from "@context/lab/app/engine/cases";
+import { parseReport, promptText } from "@context/lab/app/views/run/runText";
+import { Workspace } from "@context/lab/app/views/Workspace.web";
+import type { LabCase, LabNode } from "@context/lab/app/types";
 
 /** Put the Lab's shared state back where a fresh page load leaves it, so each test stands alone. */
 function resetLab() {

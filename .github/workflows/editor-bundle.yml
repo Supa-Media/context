@@ -67,7 +67,7 @@ jobs:
             scripts/build-editor-bundle.mjs
             scripts/build-map-bundle.mjs
             scripts/lib/guest-bundle.mjs
-            apps/mobile/features/tex/lab/**
+            packages/lab/app/**
             apps/mcp/src/texDev/**
             scripts/tex-dev-canvas.mjs
             scripts/tex-dev-replay.mjs

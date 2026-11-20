@@ -32,7 +32,7 @@ jest.mock("expo-router", () => {
   return { Redirect: ({ href }: { href: string }) => createElement("div", { "data-testid": "redirect", "data-href": href }) };
 });
 jest.mock("../features/site/host", () => ({ isTexHost: () => true }));
-jest.mock("../features/tex/lab/views/canvas/sandboxCall", () => ({ useSandboxCall: () => false }));
+jest.mock("@context/lab/app/views/canvas/sandboxCall", () => ({ useSandboxCall: () => false }));
 
 (globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 window.matchMedia = ((q: string) => ({ matches: false, media: q, addEventListener() {}, removeEventListener() {} })) as never;
@@ -40,12 +40,12 @@ window.matchMedia = ((q: string) => ({ matches: false, media: q, addEventListene
 
 import { act, createElement } from "react";
 import { createRoot } from "react-dom/client";
-import { TexLab } from "../features/tex/lab/TexLab.web";
-import { clone, edit, G, lab, MAIN, set } from "../features/tex/lab/engine/state";
-import { computeMarks, currentMarks, markCounts } from "../features/tex/lab/engine/changeMarks";
-import { sandbox, rowOf } from "../features/tex/lab/engine/sandbox";
-import { pickStep, resetPlay } from "../features/tex/lab/engine/sandboxPlay";
-import { callsHeading, flat, humanKey, summaryOf, type RunStep } from "../features/tex/lab/engine/stepRun";
+import { TexLab } from "@context/lab/app/TexLab.web";
+import { clone, edit, G, lab, MAIN, set } from "@context/lab/app/engine/state";
+import { computeMarks, currentMarks, markCounts } from "@context/lab/app/engine/changeMarks";
+import { sandbox, rowOf } from "@context/lab/app/engine/sandbox";
+import { pickStep, resetPlay } from "@context/lab/app/engine/sandboxPlay";
+import { callsHeading, flat, humanKey, summaryOf, type RunStep } from "@context/lab/app/engine/stepRun";
 
 const roots: (() => void)[] = [];
 afterEach(() => {

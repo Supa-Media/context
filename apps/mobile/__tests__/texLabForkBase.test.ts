@@ -6,9 +6,9 @@
  * Sabotage record (temporary local edit, reverted, 2026-11-17): dropping the `madeAt` line fails the older-draft case.
  */
 import { describe, expect, test } from "@jest/globals";
-import { forkFromMain, lab } from "../features/tex/lab/engine/state";
-import { MAIN_STAMP } from "../features/tex/lab/data/graph";
-import type { LabVersion } from "../features/tex/lab/types";
+import { forkFromMain, lab } from "@context/lab/app/engine/state";
+import { MAIN_STAMP } from "@context/lab/app/data/graph";
+import type { LabVersion } from "@context/lab/app/types";
 
 const draft = (over: Partial<LabVersion>): LabVersion => ({ ...lab.versions[0], id: "vsource", name: "Source", createdAt: 1000, ...over }) as LabVersion;
 

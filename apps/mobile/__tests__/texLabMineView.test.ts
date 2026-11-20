@@ -34,10 +34,10 @@ jest.mock("expo-router", () => {
 });
 jest.mock("../features/site/host", () => ({ isTexHost: () => true }));
 // The test chat under the canvas reaches the gateway with the person's own grant; no gateway here.
-jest.mock("../features/tex/lab/views/canvas/sandboxCall", () => ({ useSandboxCall: () => false }));
+jest.mock("@context/lab/app/views/canvas/sandboxCall", () => ({ useSandboxCall: () => false }));
 // The person's own ledger, as the Tex page's history route answers it, stood in for: what the loader would read.
-jest.mock("../features/tex/lab/views/mine/useMine", () => {
-  const { lab, emit } = jest.requireActual<typeof import("../features/tex/lab/engine/state")>("../features/tex/lab/engine/state");
+jest.mock("@context/lab/app/views/mine/useMine", () => {
+  const { lab, emit } = jest.requireActual<typeof import("@context/lab/app/engine/state")>("@context/lab/app/engine/state");
   return {
     MineLoader: () => {
       if (lab.me === null) {
@@ -121,11 +121,11 @@ window.matchMedia = ((q: string) => ({ matches: false, media: q, addEventListene
 import { act, createElement } from "react";
 import { createRoot } from "react-dom/client";
 import TexLabRoute from "../app/(app)/lab";
-import { config } from "../features/tex/lab/engine/diff";
-import { clone, emit, lab, MAIN, node, set as setLab } from "../features/tex/lab/engine/state";
-import { promptText } from "../features/tex/lab/views/run/runText";
-import { SCENARIOS, traceMine } from "../features/tex/lab/engine/traces";
-import { readTurnTimes } from "../features/tex/lab/views/mine/useMine";
+import { config } from "@context/lab/app/engine/diff";
+import { clone, emit, lab, MAIN, node, set as setLab } from "@context/lab/app/engine/state";
+import { promptText } from "@context/lab/app/views/run/runText";
+import { SCENARIOS, traceMine } from "@context/lab/app/engine/traces";
+import { readTurnTimes } from "@context/lab/app/views/mine/useMine";
 
 const roots: Array<() => void> = [];
 const afterThis: Array<() => void> = [];

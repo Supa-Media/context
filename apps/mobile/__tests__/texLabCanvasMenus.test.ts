@@ -38,10 +38,10 @@ import {
 import { act, createElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import golden from "./fixtures/texLabCanvasGolden.json";
-import { AddMenu } from "../features/tex/lab/views/canvas/AddMenu";
-import { allCases } from "../features/tex/lab/engine/diff";
-import { lab } from "../features/tex/lab/engine/state";
-import { buildTraces } from "../features/tex/lab/engine/traces";
+import { AddMenu } from "@context/lab/app/views/canvas/AddMenu";
+import { allCases } from "@context/lab/app/engine/diff";
+import { lab } from "@context/lab/app/engine/state";
+import { buildTraces } from "@context/lab/app/engine/traces";
 
 const desktop = golden.desktop;
 

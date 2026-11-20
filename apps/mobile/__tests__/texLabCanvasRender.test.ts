@@ -1,5 +1,5 @@
 /**
- * The Tex Architecture Lab's canvas drawing (`features/tex/lab/views/canvas/render.ts`) against the artifact it was
+ * The Tex Architecture Lab's canvas drawing (`packages/lab/app/views/canvas/render.ts`) against the artifact it was
  * ported from. `fixtures/texLabCanvasGolden.json` is what the artifact's own page drew for each viewport (desktop and
  * phone) on the core/q1 moment: the world's markup, the stats, the key, every wire's path, the camera after fit, and
  * the focus view of the front door. The port must give the same strings and numbers.
@@ -7,14 +7,14 @@
 import { afterEach, describe, expect, jest, test } from "@jest/globals";
 
 // The artifact's own graph: main's is corrected to the code (`texLabMainGraph.test.ts`), the port is held to the artifact.
-jest.mock("../features/tex/lab/data/models", () => jest.requireActual<typeof import("./fixtures/texLabArtifactGraph")>("./fixtures/texLabArtifactGraph").artifactModelsModule());
-jest.mock("../features/tex/lab/data/graph", () => jest.requireActual<typeof import("./fixtures/texLabArtifactGraph")>("./fixtures/texLabArtifactGraph").artifactGraphModule());
+jest.mock("@context/lab/app/data/models", () => jest.requireActual<typeof import("./fixtures/texLabArtifactGraph")>("./fixtures/texLabArtifactGraph").artifactModelsModule());
+jest.mock("@context/lab/app/data/graph", () => jest.requireActual<typeof import("./fixtures/texLabArtifactGraph")>("./fixtures/texLabArtifactGraph").artifactGraphModule());
 // The artifact had two kinds of module, "same every turn" and "changes every turn"; its goldens are drawn with those.
 jest.mock("@context/tex/src/texModuleChange.cjs", () => jest.requireActual<typeof import("./fixtures/texLabArtifactGraph")>("./fixtures/texLabArtifactGraph").artifactModuleChangeModule());
 // The artifact sized Tex's prompt modules by its own estimates: it had none of their words, which are the repository's
 // since 2026-11-14 (packages/tex/src/texPrompt). The golden is the artifact's drawing, so it is drawn without them.
-jest.mock("../features/tex/lab/labData.generated", () => {
-  const real = jest.requireActual<typeof import("../features/tex/lab/labData.generated")>("../features/tex/lab/labData.generated");
+jest.mock("@context/lab/app/labData.generated", () => {
+  const real = jest.requireActual<typeof import("@context/lab/app/labData.generated")>("@context/lab/app/labData.generated");
   // The map is generated from the config (scripts/tex-architecture.mjs), so it grows with every node's shape; the golden
   // holds it at the size it had when the golden was drawn (6,995 characters), so a config change never moves this test.
   // The capability list (apps/mcp/src/agent/capabilities.js) grows with every capability line the same way, so it is
@@ -23,10 +23,10 @@ jest.mock("../features/tex/lab/labData.generated", () => {
   return { ...real, MODTEXT: { ...kept, map: "m".repeat(6995), caps: "c".repeat(33350) } };
 });
 import golden from "./fixtures/texLabCanvasGolden.json";
-import { allCases } from "../features/tex/lab/engine/diff";
-import { simulate } from "../features/tex/lab/engine/sim";
-import { G, lab, node } from "../features/tex/lab/engine/state";
-import { buildTraces, SCENARIOS } from "../features/tex/lab/engine/traces";
+import { allCases } from "@context/lab/app/engine/diff";
+import { simulate } from "@context/lab/app/engine/sim";
+import { G, lab, node } from "@context/lab/app/engine/state";
+import { buildTraces, SCENARIOS } from "@context/lab/app/engine/traces";
 import {
   fbarHtml,
   fitCam,
@@ -41,7 +41,7 @@ import {
   addStepNode,
   W,
   H,
-} from "../features/tex/lab/views/canvas/render";
+} from "@context/lab/app/views/canvas/render";
 
 type Viewport = {
   rect: { w: number; h: number };
@@ -247,7 +247,7 @@ describe("camera and step helpers", () => {
 
 describe("a step that waits on helpers (Dev2, 2026-11-14: \"is the 3 second tool call essentially added to the front door?\")", () => {
   test("its foot is split into its own work and each helper it waited on, summing to its time", () => {
-    const { simulate: sim, fmtS } = jest.requireActual<typeof import("../features/tex/lab/engine/sim")>("../features/tex/lab/engine/sim");
+    const { simulate: sim, fmtS } = jest.requireActual<typeof import("@context/lab/app/engine/sim")>("@context/lab/app/engine/sim");
     const real = { reply: 13000, ms: { lanes: 400, doorStep: 700, fd: 9800, tools: 3200, send: 100 }, calls: { fd: 3 } };
     const s = sim(G(), "own", null, real);
     const html = renderGraphHtml(G(), s, [], null, null);

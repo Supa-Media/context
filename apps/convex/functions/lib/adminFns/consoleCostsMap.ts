@@ -102,7 +102,12 @@ export function gatewayBucket(feature: string, client: string, model: string): B
 /** Where a Workers AI model's cost goes. */
 export function workersAiBucket(model: string): Bucket {
   if (model === CLEF_MODEL) return workersAiStep("clef");
-  if (model === GLM_MODEL) return workersAiStep("glm-4-7");
+  // GLM was the Front door's fallback; the Fallback step was folded into the Front door and retired (2026-11-20), so
+  // a GLM call no step runs any more is billed to the Front door, still Tex's spend.
+  if (model === GLM_MODEL) {
+    const bucket = workersAiStep("glm-4-7");
+    return bucket.kind === "tex" ? bucket : { kind: "tex", step: "fd" };
+  }
   if (model.includes("bge")) return { kind: "feature", key: "search" };
   if (model.includes("whisper")) return { kind: "feature", key: "meetings" };
   return { kind: "feature", key: "other" };

@@ -11,10 +11,10 @@
  */
 import { describe, expect, test } from "@jest/globals";
 import { TEX_CONFIG } from "@context/tex/src/texConfig.cjs";
-import { GROUPS, mainGraph } from "../features/tex/lab/data/graph";
-import { foldAround, foldGroups, groupChain, groupItems, groupToOpen, stepsShownFor, unfoldGroups } from "../features/tex/lab/engine/groups";
-import { groupParts, laidOut, needsLayout } from "../features/tex/lab/engine/groupLayout";
-import type { LabEdge, LabGraph, LabNode } from "../features/tex/lab/types";
+import { GROUPS, mainGraph } from "@context/lab/app/data/graph";
+import { foldAround, foldGroups, groupChain, groupItems, groupToOpen, stepsShownFor, unfoldGroups } from "@context/lab/app/engine/groups";
+import { groupParts, laidOut, needsLayout } from "@context/lab/app/engine/groupLayout";
+import type { LabEdge, LabGraph, LabNode } from "@context/lab/app/types";
 
 const MEMBERS = TEX_CONFIG.nodes.filter((n) => n.group === "intake").map((n) => n.id);
 const wireKey = (e: { from: string; to: string; mode: string; when: string[] }) => [e.from, e.to, e.mode, e.when.join(",")].join("|");

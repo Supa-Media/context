@@ -10,7 +10,7 @@
  * which `parseReplay` reads back.
  */
 import { isolateForDisplay } from "@context/shared/src/displayText.cjs";
-import type { LedgerEntry } from "../../page/texPageTypes";
+import type { LedgerEntry } from "../fromApp/texPageTypes";
 
 export type TexVersion = { code?: string; deploy?: string; setup?: string };
 

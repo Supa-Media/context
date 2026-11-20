@@ -199,7 +199,7 @@ describe("consoleCosts: configuration and the window", () => {
 });
 
 describe("consoleCosts: attribution", () => {
-  test("Tex steps map from the gateway labels and the model, and the Workers AI Clef is Decide", async () => {
+  test("Tex steps map from the gateway labels and the model, and the Workers AI Clef is Decide and GLM the Front door's (its Fallback step folded into it)", async () => {
     const fixture = {
       w0: [],
       w1: [
@@ -219,9 +219,8 @@ describe("consoleCosts: attribution", () => {
       aw: [ai(CLEF_MODEL, 1000), ai(GLM_MODEL, 2000)],
     };
     const { result } = await run(7, fixture);
-    // GLM is no step's model or fallback since the Front door dropped it (#3817): its spend is "other", not Tex's.
-    expect(step(result, "fd").usd).toBeCloseTo(1);
-    expect(feature(result, "other").usd).toBeCloseTo(2000 / 1000 * USD_PER_THOUSAND_NEURONS);
+    // The Fallback step was folded into the Front door (2026-11-20), so GLM, its model, is billed there.
+    expect(step(result, "fd").usd).toBeCloseTo(1 + 2000 / 1000 * USD_PER_THOUSAND_NEURONS);
     expect(step(result, "advisor").usd).toBeCloseTo(2 + 4);
     // Retired steps' calls land on the step each was folded into (2026-11-20).
     expect(step(result, "jobadv").usd).toBeCloseTo(8 + 16);

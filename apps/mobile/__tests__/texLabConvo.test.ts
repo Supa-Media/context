@@ -3,8 +3,8 @@
  * The "In the prompt" column: yes and no as written, and the names-only rule for tool entries follows the setting.
  */
 import { expect, test } from "@jest/globals";
-import { CV_KINDS } from "../features/tex/lab/data/convo";
-import { inPrompt } from "../features/tex/lab/views/convoRows";
+import { CV_KINDS } from "@context/lab/app/data/convo";
+import { inPrompt } from "@context/lab/app/views/convoRows";
 
 test("a tool entry is named only when tool calls are slim, and whole when they are not", () => {
   expect(inPrompt("tool", "names only", true)).toBe("names only");
