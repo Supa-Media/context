@@ -64,7 +64,7 @@ test("the node asks the service for one operation of one tag, and refuses anythi
     assert.equal(refused.ok, false);
   }
   assert.equal(fake.asked.length, 1, "a refused call never reaches the service");
-  assert.deepEqual(await computerNode({ op: "run", owner: TAG, command: "ls" }, { ctx: { env: {} } }), { ok: false, error: "this deployment has no computer for Tex", ms: 0 });
+  assert.deepEqual(await computerNode({ op: "run", owner: TAG, command: "ls" }, { ctx: { env: {} } }), { ok: false, error: "this deployment has no computer for Tex. Use the browser or ask them instead.", ms: 0 });
 });
 
 test("the node's output carries only its schema's fields", () => {
@@ -133,4 +133,11 @@ test("through a draft that wires tools -> computer: one call is the node, logged
   const run = runs.find((r) => r.node === "computer");
   assert.ok(run, "the call is logged as the computer node's run");
   assert.equal(run.ok, true);
+});
+
+test("Tex is not told about its own computer while the node is on the shelf", async () => {
+  const { CAPABILITIES, CAPABILITY_LIST } = await import("../src/agent/capabilities.js");
+  const entry = CAPABILITIES.find((one) => one.actions?.includes("send.tex_computer"));
+  assert.equal(entry?.shelf, true);
+  assert.equal(CAPABILITY_LIST.includes(entry.name), false);
 });

@@ -279,6 +279,9 @@ export const CAPABILITIES = Object.freeze([
     // Dev2 picked Cloudflare Sandbox, 2026-11-20: Tex's own computer, so a job needs nobody's laptop (`texComputerSandbox.js`).
     name: "Tex's own computer",
     actions: ["send.tex_computer"],
+    // On the shelf: no turn is offered it until a Lab draft wires tools -> computer, so it stays out of what Tex is told
+    // (`CAPABILITY_LIST`); the wiring change drops this flag in the same pull request.
+    shelf: true,
     texts: "in a background job, once the config wires Tex's computer: run a bash command and read, write and list files on your own Linux computer for this person (Python with pandas, Node, sqlite3, pdftotext); it has no internet, so bring what it needs from their notes, a connected app or the web, and save what they should keep to their notes, since its files go after ten idle minutes",
     group: "the same, on the chat's own computer, never a member's; it starts empty again when people join or leave",
     guest: "the same as a group",
@@ -487,7 +490,7 @@ export const CAPABILITY_LIST = [
   "WHAT YOU CAN DO, AND WHERE: the one list of everything you can do for people. When someone asks what you can do, how to set something up, " +
     "or who can draft, approve or send something, answer from it: say exactly what to type and where, and who has to say yes. " +
     "Never say you can't do a thing this list says works somewhere else: say where it works and how to start it.",
-  ...CAPABILITIES.map(line),
+  ...CAPABILITIES.filter((entry) => entry.shelf !== true).map(line),
   "",
   "WHAT YOU CAN'T DO YET, AND THE WAY AROUND IT: when someone asks for one of these, never stop at \"I can't\" or send them hunting: " +
     "do every part you can, then hand them exactly the way around it below, as a link, words to type, a prompt for an agent on their computer, or the app's path.",

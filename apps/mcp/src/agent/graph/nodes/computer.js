@@ -26,9 +26,9 @@ export async function computerNode(input, io) {
   const started = Date.now();
   const env = io?.ctx?.env ?? io?.ctx?.turn?.env ?? null;
   const service = env?.TEX_COMPUTER;
-  if (!service || typeof service.fetch !== "function") return { ok: false, error: "this deployment has no computer for Tex", ms: 0 };
+  if (!service || typeof service.fetch !== "function") return { ok: false, error: "this deployment has no computer for Tex. Use the browser or ask them instead.", ms: 0 };
   const { op, owner, ...rest } = input ?? {};
-  if (!OPS.has(op) || typeof owner !== "string" || !OWNER.test(owner)) return { ok: false, error: "not a call this computer takes", ms: 0 };
+  if (!OPS.has(op) || typeof owner !== "string" || !OWNER.test(owner)) return { ok: false, error: "not a call this computer takes. Use run, read, write, list or stop, then try again.", ms: 0 };
   const timer = new AbortController();
   const stop = setTimeout(() => timer.abort(), COMPUTER_CALL_MS);
   try {
@@ -39,9 +39,9 @@ export async function computerNode(input, io) {
       signal: timer.signal,
     });
     const value = await response.json().catch(() => null);
-    return computerOut(value ?? { ok: false, error: `the computer answered ${response.status}` }, Date.now() - started);
+    return computerOut(value ?? { ok: false, error: `the computer answered ${response.status}. Wait a moment, then try again.` }, Date.now() - started);
   } catch (error) {
-    return { ok: false, error: error?.name === "AbortError" ? "the computer took too long" : "the computer could not be reached", ms: Date.now() - started };
+    return { ok: false, error: error?.name === "AbortError" ? "the computer took too long. Use a shorter command, then try again." : "the computer could not be reached. Wait a moment, then try again.", ms: Date.now() - started };
   } finally {
     clearTimeout(stop);
   }

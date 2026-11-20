@@ -70,7 +70,8 @@ test("every line says what it is in a 1:1 text and in a group", () => {
     assert.equal(typeof entry.name, "string");
     assert.ok(typeof entry.texts === "string" && entry.texts.length > 0, `${entry.name}: no 1:1 words`);
     assert.ok(entry.group === null || (typeof entry.group === "string" && entry.group.length > 0), `${entry.name}: group is words or null`);
-    assert.ok(CAPABILITY_LIST.includes(`- ${entry.name}. 1:1: ${entry.texts}.`), `${entry.name}: drawn into the list`);
+    // A shelf line (a node no turn is offered yet) stays out of what Tex is told until its wiring drops the flag.
+    assert.equal(CAPABILITY_LIST.includes(`- ${entry.name}. 1:1: ${entry.texts}.`), entry.shelf !== true, `${entry.name}: drawn into the list unless on the shelf`);
   }
   assert.ok(CAPABILITY_LIST.includes(`Group chat: ${ONE_TO_ONE_ONLY}.`), "a 1:1-only line says so in a group");
 });
