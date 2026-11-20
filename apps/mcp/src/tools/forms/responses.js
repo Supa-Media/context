@@ -91,7 +91,7 @@ async function resolveForm(store, scope, rules, overrides, args) {
   if (!opened.ok) return { refusal: encryptedNoteRefusal(path) };
 
   const blocks = parseFormBlocks(opened.text);
-  if (!blocks.length) return { refusal: toolError("that note carries no form") };
+  if (!blocks.length) return { refusal: toolError("that note carries no form; open the note to check, or pass the note the form is on") };
 
   const wanted = typeof args.form_id === "string" && args.form_id ? args.form_id : null;
   let chosen;
@@ -101,7 +101,7 @@ async function resolveForm(store, scope, rules, overrides, args) {
     // broken answers with the parse error rather than "no such form" — the
     // author needs the first message, not the second.
     if (!chosen && blocks.length === 1 && blocks[0].error) chosen = blocks[0];
-    if (!chosen) return { refusal: toolError(`that note carries no form called "${wanted}"`) };
+    if (!chosen) return { refusal: toolError(`that note carries no form; open the note to check, or pass the note the form is on called "${wanted}"`) };
   } else {
     if (blocks.length > 1) {
       return { refusal: toolError(`that note carries ${blocks.length} forms; name one with form_id`) };
@@ -120,10 +120,10 @@ async function resolveForm(store, scope, rules, overrides, args) {
   const config = chosen.config;
   const responses = normalizePath(config.responses);
   if (!responses || !responses.endsWith(".md") || isPlumbing(responses) || !writesOneRule(responses)) {
-    return { refusal: toolError("this form names a response file that cannot be written") };
+    return { refusal: toolError("this form names a response file that cannot be written; tell an editor of the form to fix its responses path") };
   }
   if (responses === path) {
-    return { refusal: toolError("this form points its responses at the form itself") };
+    return { refusal: toolError("this form points its responses at the form itself; tell an editor of the form to point responses at a note of their own") };
   }
   return { path, config, responsesPath: responses };
 }
