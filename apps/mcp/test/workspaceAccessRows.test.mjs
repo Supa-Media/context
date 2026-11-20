@@ -313,3 +313,21 @@ test("a taken-back grant stays taken back, even when its older set is replayed",
   assert.equal(replay.body.access.version, 2);
   assert.equal(JSON.stringify(await renderedVia(object, "member")).includes(`@#${REVOKED_NOTE}`), false);
 });
+
+// The pin's set carries each chat home's key by its words (`lib/nodes/accessSet.ts` `chatHomeKeys`), kept beside the
+// set and read back by `chatHomes()` only where the homes are sealed; a malformed map is refused whole, and a later
+// set's map replaces the earlier one. Sabotage: drop `chatHomes` from `checkAccessSet` and the first assertion fails.
+test("a sealed set's chat homes are kept by their words, refused when malformed, and none outside the pin", { skip }, async () => {
+  const KEY = "a".repeat(64);
+  const pin = objectWith();
+  pin.store.access.put({ version: 3, rows: [], pending: [], accounts: true, sealsChats: true, chatHomes: { "kite-willow-rocket": KEY }, moving: 0 });
+  assert.deepEqual(pin.store.access.chatHomes(), { "kite-willow-rocket": KEY });
+  pin.store.access.put({ version: 4, rows: [], pending: [], accounts: true, sealsChats: true, chatHomes: {}, moving: 0 });
+  assert.deepEqual(pin.store.access.chatHomes(), {}, "a later set's map replaces the earlier one");
+  assert.throws(() => pin.store.access.put({ version: 5, rows: [], pending: [], accounts: true, sealsChats: true, chatHomes: { "not words": KEY }, moving: 0 }));
+  assert.throws(() => pin.store.access.put({ version: 5, rows: [], pending: [], accounts: true, sealsChats: true, chatHomes: { "kite-willow-rocket": "short" }, moving: 0 }));
+  const other = objectWith();
+  other.store.access.put({ version: 3, rows: [], pending: [], accounts: false, sealsChats: false, chatHomes: { "kite-willow-rocket": KEY }, moving: 0 });
+  assert.equal(other.store.access.chatHomes(), null, "outside the pin no chat homes are held");
+  assert.equal(objectWith().store.access.chatHomes(), null, "before the first set");
+});

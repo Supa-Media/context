@@ -246,3 +246,37 @@ test("ws.write.adopt takes a chat's own Tex key in its own home in the pin, and 
   const notPin = await adoptOne(setup(false), `tex/chat:${CHAT}/notes/${NOTE2}.md`, CHAT, NOTE2);
   assert.deepEqual(notPin, { ok: false, code: "DEFER", reason: "key" }, "not the pin");
 });
+
+// A member's new note in a Tex home (2026-11-20): in a personal workspace's Tex folder under the person's key, and in a
+// pin home under the key the access set's `chatHomes` names. Anything else stays the control plane's.
+// Sabotage: drop `workspaceKind` from the adopt and the personal one defers ("key").
+test("ws.write.adopt takes a member's Tex key in a personal Tex folder and in a pin home the set names", async () => {
+  let n = 0;
+  const mint = () => `o_${String(++n).padStart(32, "0")}`;
+  const NOTE = "01890a5d-ac96-7c4e-8f3a-1b2c3d4e5f80";
+
+  const { store: personal } = objectStore();
+  personal.access = { sealsChats: () => false, chatHomes: () => null };
+  personal.rows.put([{ id: "f-tex", path: "tex", kind: "folder", at: 1 }]);
+  personal.rows.putRules({ folders: [], notes: [], accessVersion: 4 });
+  const body = { workspaceId: "ws_me", workspaceKind: "personal", path: "tex/a.md", noteId: NOTE, key: `tex/person:ws_me/notes/${NOTE}.md`, etag: "e-1", size: 3, at: 500, tier: "private" };
+  const mine = await (await serveWrites(personal, "ws.write.adopt", body, 5_000, mint)).json();
+  assert.deepEqual(mine, { ok: true, adopted: true, at: 5_000 });
+  assert.equal(personal.rows.byNoteId(NOTE).storageKey, `tex/person:ws_me/notes/${NOTE}.md`);
+  const someoneElse = await (await serveWrites(personal, "ws.write.adopt", { ...body, noteId: NOTE.replace(/0$/, "1"), key: `tex/person:ws_other/notes/${NOTE.replace(/0$/, "1")}.md`, tier: "team" }, 5_000, mint)).json();
+  assert.deepEqual(someoneElse, { ok: false, code: "DEFER", reason: "key" });
+
+  const KEY = "e".repeat(64);
+  const HOME = "tex/groups/kite-willow-rocket";
+  const { store: pin } = objectStore();
+  pin.access = { sealsChats: () => true, chatHomes: () => ({ "kite-willow-rocket": KEY }) };
+  pin.rows.put([
+    { id: "f-tex", path: "tex", kind: "folder", at: 1 },
+    { id: "f-groups", path: "tex/groups", kind: "folder", at: 1 },
+    { id: "f-home", path: HOME, kind: "folder", at: 1 },
+  ]);
+  pin.rows.putRules({ folders: [{ prefix: HOME, visibility: "private" }], notes: [], accessVersion: 4 });
+  const NOTE3 = "01890a5d-ac96-7c4e-8f3a-1b2c3d4e5f82";
+  const member = await (await serveWrites(pin, "ws.write.adopt", { workspaceId: "ws_pin", path: `${HOME}/b.md`, noteId: NOTE3, key: `tex/chat:${KEY}/notes/${NOTE3}.md`, etag: "e-1", at: 500, tier: "private" }, 5_000, mint)).json();
+  assert.deepEqual(member, { ok: true, adopted: true, at: 5_000 });
+});

@@ -4,8 +4,8 @@
  * object's rows do not settle on their own, and a path that touches either is left to it:
  *  - a built-in folder's default name (`inbox/...`) reaches whichever folder does that job now
  *    (`apps/convex/functions/lib/nodes/folderJobs.ts` `canonicalJobPath`), unless a root folder has that very name;
- *  - a new note in the Tex folder or a group chat's home is kept in Tex's store, under a key only the control plane
- *    names (`apps/convex/functions/lib/noteIds/texHome.ts` `texHomesFor`).
+ *  - a new note in the Tex folder or a group chat's home is kept in Tex's store (`apps/convex/functions/lib/noteIds/
+ *    texHome.ts` `texHomesFor`); the object places it itself where it can tell (`texHomeOwner` below).
  * Everything else with no live row is absent, whoever asks: a row the reader may not see is not absent, and stays the
  * control plane's to judge.
  */
@@ -44,29 +44,66 @@ export function absentHere(rows, path, { chatHomes = true, texFolder = true } = 
 }
 
 /** A group chat's home folder, as the control plane names it (`textGroupHome.ts`): three words under the chat homes. */
-const HOME_FOLDER = /^tex\/groups\/[a-z]+(?:-[a-z]+){2}$/;
+const HOME_WORDS = /^[a-z]+(?:-[a-z]+){2}$/;
 const CHAT_KEY = /^[0-9a-f]{64}$/;
 
 /**
- * The Tex owner (`chat:<key>`) a new note at `path` is kept in, for a group chat's own session writing in its own home,
- * or `null`. The control plane names a home's chat from its words (`texHome.ts` `chatKeyOfHome`); a chat's session
- * carries both, read from its grant (`session.js` `sessionForChatHome`, `texChatId`), so the object can place the note
- * without asking. Only in the workspace whose access set seals the chat homes (the pin), only strictly beneath that
- * home, only where the home is a live folder here and the note's own folder exists, and never a plumbing path.
+ * The Tex folder of a personal workspace, as `texHome.ts` `texFolderPath` names it: the one live folder doing the
+ * `tex` job, else a root `tex` folder doing none. `null` where there is none, or where two folders do the job (the
+ * control plane picks one by its own index order, so the object leaves that to it).
+ */
+function texFolderOf(rows) {
+  const doing = rows.foldersByRole("tex");
+  if (doing.length > 1) return undefined;
+  if (doing.length === 1) return doing[0].path;
+  const root = rows.byPath("tex");
+  return root !== null && root.kind === "folder" && !root.role ? "tex" : null;
+}
+
+/**
+ * The Tex owner a new note at `path` is kept in (`person:<workspaceId>` or `chat:<key>`), placed by the object the way
+ * the control plane places it (`apps/convex/functions/lib/noteIds/texHome.ts` `texHomesFor`), or `null` when the path
+ * is no Tex home here or the object cannot tell (then the control plane is asked, as before):
+ *  - in a personal workspace (`workspaceKind` from the gateway's session), a note beneath its Tex folder is its
+ *    person's;
+ *  - in the workspace that seals the chat homes (the pin), a note beneath a live home `tex/groups/<words>/` is that
+ *    chat's, by the key its words name: the access set's `chatHomes` (words to key, sent by the control plane), or
+ *    the chat's own session's `{folder, chat}` from its grant. Where both are known and differ, nothing is placed.
+ * Only a path with no live row, never plumbing, and only where the note's own folder already stands.
  *
- * `chatHome` is `{folder, chat}` from the gateway. A wrong pair could only place a chat's note in that chat's own
- * object, which is the only Tex object its session may reach (`store/texRouting.js`); who sees the row is still the
- * row's access.
+ * @param {{workspaceId?: string, workspaceKind?: string|null, sealsChats?: boolean|null, chatHomes?: Record<string,string>|null, chatHome?: {folder: string, chat: string}|null}} where
+ */
+export function texHomeOwner(rows, path, { workspaceId = null, workspaceKind = null, sealsChats = null, chatHomes = null, chatHome = null } = {}) {
+  if (typeof path !== "string" || path === "" || isPlumbing(path)) return null;
+  // Neither a personal workspace nor a path under the pin's chat homes: no Tex home here, nothing read.
+  if (workspaceKind !== "personal" && !(sealsChats === true && path.startsWith(CHAT_HOMES))) return null;
+  if (rows.byPath(path) !== null) return null;
+  const parent = path.lastIndexOf("/") > 0 ? path.slice(0, path.lastIndexOf("/")) : "";
+  if (parent === "") return null;
+  const into = rows.byPath(parent);
+  if (into === null || into.kind !== "folder") return null;
+  if (workspaceKind === "personal") {
+    const folder = texFolderOf(rows);
+    if (typeof folder !== "string" || !path.startsWith(`${folder}/`)) return null;
+    return typeof workspaceId === "string" && workspaceId !== "" ? `person:${workspaceId}` : null;
+  }
+  if (sealsChats !== true || !path.startsWith(CHAT_HOMES)) return null;
+  const [words, ...inside] = path.slice(CHAT_HOMES.length).split("/");
+  if (!HOME_WORDS.test(words ?? "") || inside.length === 0) return null;
+  const home = rows.byPath(`${CHAT_HOMES}${words}`);
+  if (home === null || home.kind !== "folder") return null;
+  const held = chatHomes && typeof chatHomes === "object" && Object.hasOwn(chatHomes, words) && CHAT_KEY.test(chatHomes[words]) ? chatHomes[words] : null;
+  const own = chatHome && chatHome.folder === `${CHAT_HOMES}${words}` && CHAT_KEY.test(chatHome.chat ?? "") ? chatHome.chat : null;
+  if (held !== null && own !== null && held !== own) return null;
+  const chat = held ?? own;
+  return chat === null ? null : `chat:${chat}`;
+}
+
+/**
+ * A group chat's own session making a note in its own home: `texHomeOwner` with only what the chat's grant carries.
+ * Kept for the callers that know nothing else.
  */
 export function chatHomeOwner(rows, path, chatHome, sealsChats) {
-  if (sealsChats !== true || !chatHome || typeof chatHome !== "object") return null;
-  const { folder, chat } = chatHome;
-  if (typeof folder !== "string" || !HOME_FOLDER.test(folder) || typeof chat !== "string" || !CHAT_KEY.test(chat)) return null;
-  if (typeof path !== "string" || !path.startsWith(`${folder}/`) || isPlumbing(path)) return null;
-  const home = rows.byPath(folder);
-  if (home === null || home.kind !== "folder") return null;
-  const parent = path.slice(0, path.lastIndexOf("/"));
-  const into = parent === folder ? home : rows.byPath(parent);
-  if (into === null || into.kind !== "folder") return null;
-  return `chat:${chat}`;
+  if (!chatHome || typeof chatHome !== "object" || typeof chatHome.folder !== "string" || !path?.startsWith?.(`${chatHome.folder}/`)) return null;
+  return texHomeOwner(rows, path, { sealsChats, chatHome });
 }

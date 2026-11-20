@@ -278,6 +278,9 @@ async function openSessionStore(session, env, controlPlane) {
     // Whether this request may write notes (the grant's `context:write`, clamped by role): the object's moves are asked
     // only for a caller the control plane would let move (`tools/moves/objectMove.js`).
     canWrite: hasScope(session, SCOPE_WRITE),
+    // Whether the object may record this session's saves as the control plane would (`store/objectLookup.js`): a grant
+    // that may write, with a role its record takes (`memberWritableWorkspace`). A guest's saves hang on it.
+    recordsWrites: hasScope(session, SCOPE_WRITE) && ["owner", "editor", "member"].includes(session.role),
     log: (event, fields) => console.log(JSON.stringify({ event, ...fields })),
   };
   const hooks = controlHooks === null ? null : objectFirstHooks(controlHooks, objectReading);

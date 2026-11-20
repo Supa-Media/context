@@ -576,3 +576,38 @@ test("a group chat in its own home is recorded and adopted by the object, its ne
   assert.equal(guest.adopt, cp.hooks.adopt);
   assert.equal(guest.wrote, cp.hooks.wrote);
 });
+
+// 2026-11-20 (Dev2: no note read or save needs Convex): a member takes the Tex home the object placed a new note in (its
+// own person's, or a chat home's), never another workspace's person; a guest whose grant may write with a role the
+// control plane's record takes has its saves recorded by the object, and one without stays the control plane's.
+// Sabotage: make `texHomeTaken` answer false for members and the first assertion fails; drop `recordsWrites` from
+// `records` and the guest's adopt goes to the control plane.
+test("a member takes the object's Tex homes, and a writing guest's saves are the object's", async () => {
+  const CHAT = "c".repeat(64);
+  const rows = {
+    "tex/a.md": { path: "tex/a.md", found: false, absent: true, texHome: "person:w1" },
+    "tex/b.md": { path: "tex/b.md", found: false, absent: true, texHome: "person:w2" },
+    "tex/groups/kite-willow-rocket/c.md": { path: "tex/groups/kite-willow-rocket/c.md", found: false, absent: true, texHome: `chat:${CHAT}` },
+  };
+  const cp = control();
+  const ob = object(rows, () => ({ ok: true }));
+  ob.client.write.adopt = async (fields) => {
+    ob.asked.push({ op: "adopt", ...fields });
+    return { ok: true, adopted: true };
+  };
+  const member = objectFirstHooks(cp.hooks, { client: ob.client, home: "object", scope: "team", names: [], userId: "u1", workspaceId: "w1", workspaceKind: "personal" });
+  const found = await member.lookup(Object.keys(rows));
+  assert.deepEqual(found.texHomes, { "tex/a.md": "person:w1", "tex/groups/kite-willow-rocket/c.md": `chat:${CHAT}` });
+  assert.deepEqual(await member.adopt({ path: "tex/a.md", noteId: NOTE, key: "k", etag: "e", at: 1, tier: "private" }), { adopted: true, taken: null });
+  assert.equal(ob.asked.find((call) => call.op === "adopt").workspaceKind, "personal", "the adopt carries the workspace's kind");
+
+  const guestNames = ["@#reads-as-guest"];
+  const writing = objectFirstHooks(cp.hooks, { client: ob.client, home: "object", scope: "team", names: guestNames, userId: "u1", workspaceId: "w1", recordsWrites: true });
+  assert.deepEqual(await writing.adopt({ path: "guides/x.md", noteId: NOTE, key: "k", etag: "e", at: 1, tier: "team" }), { adopted: true, taken: null });
+  assert.deepEqual(await writing.wrote(KEYED), { recorded: true });
+  const guestFound = await writing.lookup(["tex/groups/kite-willow-rocket/c.md"]);
+  assert.deepEqual(guestFound.texHomes, {}, "a guest is placed in no Tex home by the object");
+  const reading = objectFirstHooks(cp.hooks, { client: ob.client, home: "object", scope: "team", names: guestNames, userId: "u1", workspaceId: "w1" });
+  assert.equal(reading.adopt, cp.hooks.adopt);
+  assert.equal(reading.wrote, cp.hooks.wrote);
+});

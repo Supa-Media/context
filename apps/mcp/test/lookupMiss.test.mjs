@@ -6,7 +6,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 
-import { absentHere, chatHomeOwner } from "../src/workspaceStore/lookupMiss.js";
+import { absentHere, chatHomeOwner, texHomeOwner } from "../src/workspaceStore/lookupMiss.js";
 import { workspaceRows } from "../src/workspaceStore/rows.js";
 
 let DatabaseSync = null;
@@ -178,4 +178,43 @@ test("chatHomeOwner refuses a home folder that is not a live folder row", { skip
   rows.put([{ id: ID(20), path: folder, kind: "folder", at: 1 }]);
   rows.remove([ID(20)], 2);
   assert.equal(chatHomeOwner(rows, `${folder}/a.md`, { folder, chat: "b".repeat(64) }, true), null);
+});
+
+// Where the object places a new note in a Tex home as `texHome.ts` `texHomesFor` does (`texHomeOwner`): a personal
+// workspace's Tex folder is its person's; in the pin, a home's chat is the one the access set's `chatHomes` names.
+// Sabotage: drop the `workspaceKind === "personal"` branch and the person assertion fails; drop the `held !== own`
+// check and the disagreeing pair is placed.
+test("texHomeOwner places a personal Tex folder's note with its person, and a home's note with the chat its words name", { skip }, () => {
+  const personal = fresh();
+  personal.put([{ id: ID(30), path: "tex", kind: "folder", at: 1 }, { id: ID(31), path: "tex/notes", kind: "folder", at: 1 }]);
+  assert.equal(texHomeOwner(personal, "tex/notes/a.md", { workspaceId: "ws_me", workspaceKind: "personal" }), "person:ws_me");
+  assert.equal(texHomeOwner(personal, "tex/a.md", { workspaceId: "ws_me", workspaceKind: "personal" }), "person:ws_me");
+  assert.equal(texHomeOwner(personal, "tex/a.md", { workspaceId: "ws_me", workspaceKind: "shared" }), null, "a shared workspace keeps none");
+  assert.equal(texHomeOwner(personal, "tex/a.md", { workspaceId: "ws_me" }), null, "kind unknown: asked");
+  assert.equal(texHomeOwner(personal, "tex/new/a.md", { workspaceId: "ws_me", workspaceKind: "personal" }), null, "folder not standing");
+  assert.equal(texHomeOwner(personal, "plans/a.md", { workspaceId: "ws_me", workspaceKind: "personal" }), null);
+
+  const pin = fresh();
+  const home = "tex/groups/kite-willow-rocket";
+  pin.put([
+    { id: ID(40), path: "tex", kind: "folder", at: 1 },
+    { id: ID(41), path: "tex/groups", kind: "folder", at: 1 },
+    { id: ID(42), path: home, kind: "folder", at: 1 },
+  ]);
+  const key = "e".repeat(64);
+  const chatHomes = { "kite-willow-rocket": key };
+  assert.equal(texHomeOwner(pin, `${home}/a.md`, { sealsChats: true, chatHomes }), `chat:${key}`);
+  assert.equal(texHomeOwner(pin, `${home}/a.md`, { sealsChats: false, chatHomes }), null, "not the pin");
+  assert.equal(texHomeOwner(pin, `${home}/a.md`, { sealsChats: true, chatHomes: {} }), null, "no key known");
+  assert.equal(texHomeOwner(pin, `${home}/a.md`, { sealsChats: true, chatHomes, chatHome: { folder: home, chat: key } }), `chat:${key}`);
+  assert.equal(texHomeOwner(pin, `${home}/a.md`, { sealsChats: true, chatHomes, chatHome: { folder: home, chat: "f".repeat(64) } }), null, "two keys disagree");
+});
+
+test("texHomeOwner leaves a personal workspace with two Tex folders to the control plane", { skip }, () => {
+  const rows = fresh();
+  rows.put([
+    { id: ID(50), path: "tex", kind: "folder", role: "tex", at: 1 },
+    { id: ID(51), path: "Tex 2", kind: "folder", role: "tex", at: 1 },
+  ]);
+  assert.equal(texHomeOwner(rows, "tex/a.md", { workspaceId: "ws_me", workspaceKind: "personal" }), null);
 });
