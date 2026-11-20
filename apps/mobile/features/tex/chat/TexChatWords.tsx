@@ -101,9 +101,12 @@ function BlockView({ block, ink, styles, open }: { block: ChatBlock; ink: InkSty
         <View style={styles.list}>
           {block.items.map((item, index) => (
             <View key={index} style={styles.item}>
-              <Text style={[styles.marker, ink]}>
-                {block.kind === "bullet" ? "•" : `${index + 1}.`}
-              </Text>
+              {block.kind === "bullet" ? (
+                // A drawn dot: the font's "•" renders a speck at this size.
+                <View style={[styles.dot, { backgroundColor: ink.color }]} />
+              ) : (
+                <Text style={[styles.marker, ink]}>{`${index + 1}.`}</Text>
+              )}
               <Text style={[styles.body, ink]} selectable>
                 <Runs content={item} ink={ink} styles={styles} open={open} />
               </Text>
@@ -216,6 +219,7 @@ const makeStyles = (colors: Colors) =>
     },
     list: { paddingLeft: 18, gap: 2 },
     item: { position: "relative" },
+    dot: { position: "absolute", left: -12, top: 8, width: 5, height: 5, borderRadius: 2.5 },
     marker: { position: "absolute", left: -18, top: 0, width: 14, textAlign: "right", fontSize: 14, lineHeight: 20 },
     card: {
       flexDirection: "row",
