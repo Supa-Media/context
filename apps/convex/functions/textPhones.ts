@@ -8,7 +8,7 @@ const MAX_PHONES = 5_000;
 /**
  * Every phone Tex may have a chat with: those linked to an account, and
  * those let in off the waitlist by number. Read only by the Worker's
- * new-number notice (`apps/agent/src/newLine.ts`), which texts a phone only
+ * new-number notice (`packages/tex/worker/newLine.ts`), which texts a phone only
  * where that phone itself started a chat. Phones, never anything else.
  */
 export const knownPhones = internalQuery({

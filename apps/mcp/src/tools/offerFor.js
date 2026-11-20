@@ -10,7 +10,7 @@
  * `as` names them: nothing is held, because a hold is the tagger's own and
  * their grant can't act for anyone else. Instead the copy is shown in the
  * chat addressed to that person (`offerLine`), the Worker arms the chat's
- * ask for their 👍 or yes alone (`askFor`, `apps/agent/src/groupInbox.ts`),
+ * ask for their 👍 or yes alone (`askFor`, `packages/tex/worker/groupInbox.ts`),
  * and their yes is a turn of their own: the model makes the same call as
  * them, and their yes to the exact copy they were shown sends it once
  * (`likedPreview.js`, `route.js` `addressedTo`). Somebody else's yes in the
@@ -34,10 +34,10 @@ export function offerTarget(session, supplied, noun) {
   if (supplied?.as === undefined) return null;
   const group = session?.egress?.group ?? null;
   const who = handleOf(supplied.as);
-  if (group === null) return { error: `as is only for a group chat: a ${noun} here always goes from the person you're texting.` };
-  if (!HANDLE.test(who)) return { error: "as is the handle of somebody in this chat, like seyi." };
+  if (group === null) return { error: `as is only for a group chat: a ${noun} here always goes from the person you're texting. Call it again without as.` };
+  if (!HANDLE.test(who)) return { error: "as is the handle of somebody in this chat: call it again with as like seyi, or leave it out." };
   if (who === group.from) return null;
-  if (!group.people.includes(who)) return { error: `@${who} isn't in this chat, so it can't go from them.` };
+  if (!group.people.includes(who)) return { error: `@${who} isn't in this chat, so it can't go from them: leave as out, or name somebody here.` };
   return { who };
 }
 

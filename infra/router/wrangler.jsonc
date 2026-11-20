@@ -94,7 +94,7 @@
       "workers_dev": true,
       "vars": {},
       // Staging only: /texts-simulator goes to the texting assistant's
-      // simulator (apps/agent/src/simulator.ts). Production has no binding,
+      // simulator (packages/tex/worker/simulator.ts). Production has no binding,
       // so the path is an ordinary app 404 there.
       "services": [
         { "binding": "TEXTS_SIMULATOR", "service": "context-agent-staging" },
@@ -114,7 +114,7 @@
     },
     // Preview: a throwaway copy of the router for one pull request, fronting that pull request's texting Worker
     // preview. Its names and hosts are placeholders (__PREVIEW__ and __WORKERS_DEV__) that
-    // scripts/preview-config.mjs renders into a copy beside this file. Never deploy this section directly: the
+    // packages/sandbox/src/config.mjs renders into a copy beside this file. Never deploy this section directly: the
     // rendered copy is the only thing that goes out. Assets match staging and production.
     "preview": {
       "name": "context-router-__PREVIEW__",

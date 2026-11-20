@@ -206,7 +206,7 @@ test("the chat read refuses a malformed ask and says so when the ledger fails", 
   }
 });
 
-/** A group's event as the Worker's outbox holds it (`apps/agent/src/events.ts`). */
+/** A group's event as the Worker's outbox holds it (`packages/tex/worker/events.ts`). */
 const groupEvent = (n, text, at = Date.now() - 60_000 + n) => ({ id: `${at}-${String(n).padStart(6, "0")}`, at, chat: "group-1", from: { kind: "person", who: "a".repeat(64), name: "rosa" }, kind: "text", text });
 const quietly = async (work) => {
   const log = console.log;

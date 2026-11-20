@@ -40,7 +40,7 @@ const codeDecide = e({
   kind: "step",
   step: { name: "decide", of: "waiting", ok: true, ms: 0, input: { candidates: ["1000000000001-000001"] }, output: { act: "answer", by: "code", why: "one text and nothing of Tex's waiting on it: it goes straight to Tex" } },
 } as unknown as Partial<LedgerEntry> & { id: string; kind: string });
-// What it keeps now (`apps/agent/src/stepEvents.ts` `triageStep`).
+// What it keeps now (`packages/tex/worker/stepEvents.ts` `triageStep`).
 const triaged = e({
   id: "ev1000000000001500003",
   seq: 8,

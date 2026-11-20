@@ -121,7 +121,7 @@ const writing = (name) => !READS.has(name) && toolIsWriting(name);
 const UNRECORDED = { isError: true, content: [{ type: "text", text: "Could not record that this turn is about to change something, so it did not run. Try again." }] };
 /** The most texts one turn takes in. */
 export const MAX_STEERED = 5;
-/** The most note mail lines one turn takes in (`apps/agent/src/jobMail.ts`). */
+/** The most note mail lines one turn takes in (`packages/tex/worker/jobMail.ts`). */
 export const MAX_MAIL_STEERED = 20;
 
 /** A key segment from a Worker's event id: the characters a key may hold. */
@@ -144,7 +144,7 @@ export async function handleSteer(request, store, session) {
   }
   const words = text.trim().slice(0, MAX_STEER_TEXT);
   if (words === "") return json({ error: "invalid_request" }, 400);
-  // Note mail handed to a job (`apps/agent/src/jobMail.ts`): kept apart from the person's texts, and never shown as theirs.
+  // Note mail handed to a job (`packages/tex/worker/jobMail.ts`): kept apart from the person's texts, and never shown as theirs.
   const mail = body.mail === undefined ? null : mailOf(body.mail);
   if (body.mail !== undefined && mail === null) return json({ error: "invalid_request" }, 400);
   await store.put(`${STEER_PREFIX}${turn}/${Date.now()}-${keyOf(id)}.json`, JSON.stringify({ id, text: words, ...(mail ? { mail } : {}) }));
@@ -231,7 +231,7 @@ export function steerFor(store, session, body) {
     words,
     /** Note mail this turn took in (`mailOf`), never counted as the person's words. */
     mail,
-    /** Whether an interrupt came: the turn's next round starts from it, and the job's next part too (`apps/agent/src/jobRun.ts`). */
+    /** Whether an interrupt came: the turn's next round starts from it, and the job's next part too (`packages/tex/worker/jobRun.ts`). */
     get interrupted() {
       return mail.some((entry) => entry.kind === "interrupt");
     },
@@ -292,7 +292,7 @@ export function steerFor(store, session, body) {
       })();
       return { stopped, done: () => void (finished = true) };
     },
-    /** Whether a text that came in while the reply was written joins it (`turn.js`). Not a job's: its next part takes it (`apps/agent/src/jobRun.ts`). */
+    /** Whether a text that came in while the reply was written joins it (`turn.js`). Not a job's: its next part takes it (`packages/tex/worker/jobRun.ts`). */
     late: !body.job,
     /** Whether a writing call may have started: from then on no cancel stops the turn. */
     get wrote() {
@@ -341,7 +341,7 @@ export function steerFor(store, session, body) {
     /**
      * Whether a text sent to this turn is still waiting, untaken. For a job,
      * that means its answer will not be texted: the Worker runs another part
-     * with that text instead (`apps/agent/src/jobRun.ts`).
+     * with that text instead (`packages/tex/worker/jobRun.ts`).
      */
     async pending() {
       try {

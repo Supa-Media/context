@@ -79,7 +79,7 @@ words, as the section says.
 When each of 2 to 8 options needs its own photo and facts, Tex draws one
 `option` card each, numbered "2 of 4", with "Reply 2 for more on this one"
 along the bottom. An answer with two or more pictures goes out over Sendblue
-as one carousel (`apps/agent/src/carousel.ts`, `send-carousel`, V2 lines
+as one carousel (`packages/tex/worker/carousel.ts`, `send-carousel`, V2 lines
 only). If the line refuses that, the pictures go one by one, and the carousel
 is not retried for the rest of the answer. The saved conversation names each
 card ("1. Blend LIC; 2. Lugo's"), so "the 2nd one" has an answer. An answer
@@ -126,7 +126,7 @@ The owner asked for Sendblue App Cards next to the carousel and chose "static
 now, extension next". A text that is nothing but a link to a note
 (`https://context.lc/note/@slug/path.md`, the link the gateway adds to reads
 and writes) can go as a static card: the note's name, its workspace and
-folder, and the link as the card's URL (`apps/agent/src/appCards.ts`). A line
+folder, and the link as the card's URL (`packages/tex/worker/appCards.ts`). A line
 that refuses the card (not V2, no plan, a group) gets the plain link, so a
 card is never the only way to the note.
 
@@ -151,7 +151,7 @@ The owner, on App Cards: "if you come up with UX that utilizes both, great".
 The carousel is for looking and a card is for deciding: after a set of option
 cards (two or more `option` draws sent together), one Context card follows
 that names Tex's pick, with that option's own card as its picture, and says
-"Tap to choose, or reply 1–3" (`apps/agent/src/pickCard.ts`). The gateway
+"Tap to choose, or reply 1–3" (`packages/tex/worker/pickCard.ts`). The gateway
 hands the options over as `choices` (`outgoingPictures.js`): names and prices
 from the option cards' own data, never anything else the turn read.
 
@@ -179,14 +179,14 @@ Tex drew with `draw_visual` carries its title (or kicker) out of the gateway
 (`outgoingPictures.js` `titleOf`), and where cards go (`cardsOn`, a Sendblue
 one-to-one chat) the worker sends it as a Context card: the drawing is the
 card's picture, the title its caption, and a tap opens `/messages/card`, which
-names it and says to reply in the chat to change it (`apps/agent/src/sendParts.ts`
+names it and says to reply in the chat to change it (`packages/tex/worker/sendParts.ts`
 `withDrawnCards`, `infra/router/src/messagesCards.ts`). Option cards carry no
 title, so a set still goes as a carousel with its pick card. The photo rides
 along with the card and goes instead when the line refuses it, so the drawing
 always arrives. The texting prompt says a drawn card arrives as a Context card
 on a phone with the app and as a photo elsewhere, and never to say a card can
 only be a picture (`PICTURES_LINE`). Simplifying the fallback away loses the
-drawing on any line without cards. Tests: `apps/agent/src/drawnCards.test.ts`
+drawing on any line without cards. Tests: `packages/tex/worker/drawnCards.test.ts`
 (sabotage record in its header), `agentOutgoingPictures.test.mjs` "a drawn
 card carries its title", `messagesCards.test.ts` "a drawn card's page".
 
@@ -209,7 +209,7 @@ The owner, opening the Context app in the Messages drawer and finding only
 "Tap a Context card to open it.": "can we send more interactive cards when
 people have the app?" Nothing on our side records who installed the app, so
 the chat says so: any card from our own extension that reaches Tex marks that
-inbox (`apps/agent/src/cardChats.ts`). Opened from the drawer with no card
+inbox (`packages/tex/worker/cardChats.ts`). Opened from the drawer with no card
 selected, the extension offers "Turn on cards with Tex", which puts a hello
 card in the text field for them to send; a pick chosen or an ask answered
 marks it too. `APP_CARDS` "app" sends cards only to a marked chat, "on" to
@@ -225,7 +225,7 @@ of the ask's words; a Yes tapped after a newer reply (a different ask, or
 none) reaches Tex as "I tapped Yes on an older card, not on your last ask.",
 which no approval reads as a yes. Not now is always a no. Reverting the key
 check lets a Yes tapped on yesterday's card approve today's ask. Test:
-`apps/agent/src/cardChats.test.ts`.
+`packages/tex/worker/cardChats.test.ts`.
 
 ### The extension shows context.lc's page for each card (2026-10-29)
 
@@ -324,16 +324,16 @@ drawer. They run one constant script allowed by its hash, have no
 the person tapped. A card that came back shows what was chosen, read from its
 own address, and fetches nothing, so a friend tapping a times card in their
 chat sees the times, never their own week. The agent reads them in
-`apps/agent/src/dataCards.ts`. Tests: `infra/router/src/messagesData.test.ts`,
-`apps/agent/src/cardChats.test.ts`.
+`packages/tex/worker/dataCards.ts`. Tests: `infra/router/src/messagesData.test.ts`,
+`packages/tex/worker/cardChats.test.ts`.
 
 Tex offers either card itself with a line of its answer, `[card times]` when
 it asks when they're free and `[card inbox]` when asked to go through their
 email (`DATA_CARDS_LINE`). The gateway strips the line into the answer's
 `offers` (`outgoingPictures.js`), and the Worker sends the card after the
-words only where cards go (`apps/agent/src/dataCards.ts` `withDataCards`), so
+words only where cards go (`packages/tex/worker/dataCards.ts` `withDataCards`), so
 Tex's words must stand without it. Tests: `agentOutgoingPictures.test.mjs`,
-`apps/agent/src/dataCards.test.ts`.
+`packages/tex/worker/dataCards.test.ts`.
 
 ## A card rides along with any other notice (2026-10-26, afternoon)
 
@@ -362,7 +362,7 @@ it: a card the turn drew goes with the answer even when the answer forgot to
 name it (the last one drawn, or every option card of a set), and an answer
 that says "here's the graphic", or a turn asked outright for a graphic, with
 nothing drawn goes back once to draw it. The H8 hand-back notice no longer asks
-for any line about undoing. Tests: `apps/agent/src/groupInbox.test.ts`,
+for any line about undoing. Tests: `packages/tex/worker/groupInbox.test.ts`,
 `apps/mcp/test/agentOutgoingPictures.test.mjs`, `agentVisualNotice.test.mjs`.
 
 ## A card's photos are real, or there is no slot (2026-10-26, evening)

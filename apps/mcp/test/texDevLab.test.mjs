@@ -177,6 +177,8 @@ test("config gives the Lab's changes, warnings and its config JSON, and the prom
   const fd = summary.changes.find((c) => c.node === "fd" && c.what === "model");
   assert.deepEqual([fd.from, fd.to, fd.shipsAs], ["Haiku 5.5", "Opus 5.5", "setup: models.main"]);
   assert.ok(summary.warnings.some((w) => /A model swap only proves the wiring/.test(w)));
+  // A step whose reads are listed out of run order is named, as the Lab's banner does (`texModuleChange.cjs`, Dev2 2026-11-20).
+  assert.ok(summary.warnings.some((w) => /^Front door runs its reads in a different order than listed: About me is listed \d+, runs \d+/.test(w)), "the front door's about-me, listed after the chat, runs above it");
   assert.ok(summary.areas.find((a) => a.area === "core").run);
   assert.ok(summary.areas.find((a) => a.area === "core").byDefault);
   assert.match(summary.next, /save it, unchanged, as lab\.json/);

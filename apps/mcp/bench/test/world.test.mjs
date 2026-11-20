@@ -420,7 +420,7 @@ const withSteps = (n) => SETUP.replace("---\n\nYou", `max_steps: ${n}\n---\n\nYo
 
 test("a bench turn is asked for the way the texting Worker asks, so it gets the setup's max_steps", async () => {
   // A plain JSON ask is a quick turn, capped at 8 rounds (`src/agent/turn.js`);
-  // the texting Worker streams (`apps/agent/src/clients.ts`) and gets the
+  // the texting Worker streams (`packages/tex/worker/clients.ts`) and gets the
   // setup's own max_steps, up to the long cap. The bench must measure that.
   const rounds = { n: 0 };
   const world = await createWorld(bench, "Maya", withSteps(24), { gatewayFetch: neverDone(rounds) });

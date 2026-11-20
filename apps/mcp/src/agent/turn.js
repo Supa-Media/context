@@ -39,6 +39,11 @@ import { awaitExamples } from "./turnExamples.js";
 import { BUILTIN_PROVIDER, builtinModel, hasBuiltinModel, liveTurn, requestBuiltin, systemText } from "./builtin.js";
 import { ProviderError, THINKING_REFUSED } from "./providers.js";
 
+/** How long a failed model call waits before it is asked again, once (`runTurn`). */
+const RETRY_CALL_MS = 2_000;
+/** Refusals another try cannot change: a bad request or a key the provider will not take. */
+const NOT_RETRIED = new Set([400, 401, 403]);
+
 /** Why a model call failed, as the trace keeps it: the provider's own phrase and, through the gateway, each payer asked and its status (`aiGateway.js`). */
 const failedWhy = (error) => ({ ...(typeof error?.reason === "string" ? { reason: error.reason } : {}), ...(Array.isArray(error?.payers) && error.payers.length > 0 ? { payers: error.payers } : {}) });
 import { BROWSE_TIMED_OUT, BROWSE_TOOL } from "./computer.js";
@@ -52,6 +57,7 @@ import { turnLedger } from "./sendBack.js";
 import { SIX_TOOLS, sixToolsOver } from "./sixTools.js";
 import { isParallelRead } from "./parallelReads.js";
 import { resultInV2Names } from "../tools/v2/speak.js";
+import { withNextStep } from "./nextSteps.js";
 import { goalsIn } from "./aboutMe.js";
 import { pushbackNudge } from "./pushback.js";
 import { causeOf, failureRecorder } from "./toolFailures.js";
@@ -453,6 +459,10 @@ export async function runTurn(options) {
   let escalate = false;
   // The fallback is taken once a turn: a turn that moved models must never loop back to it.
   let fellBack = false;
+  // A failed model call is asked again once, on the same model, after a short wait (Dev2, 2026-11-20: "retry Haiku fast,
+  // drop GLM"): the GLM fallback took 60 s and more on a front-door prompt, so a blip now costs seconds, not a minute.
+  let retriedCall = false;
+  const retryWaitMs = Number.isFinite(options.retryWaitMs) && options.retryWaitMs >= 0 ? options.retryWaitMs : RETRY_CALL_MS;
 
   // An earlier try's rounds (`savedRounds.js`): put back after the question, its calls counted as this turn's own, never run or logged again.
   const firstRound = resumedRounds({ resumeFrom, rounds, messages, held, steps, tell });
@@ -535,6 +545,17 @@ export async function runTurn(options) {
     } catch (error) {
       // A provider that refused the earlier blocks (`aiGateway.js` names it): once more without them.
       if (error instanceof ProviderError && error.reason === THINKING_REFUSED && !stripped && messages.some((m) => m.content)) { stripped = strippedNote = true; timing.modelMs += clock() - asked; for (const m of messages) delete m.content; round -= 1; continue; }
+      if (error instanceof ProviderError && !retriedCall && !NOT_RETRIED.has(error.status)) {
+        retriedCall = true;
+        const ms = clock() - asked;
+        timing.modelMs += ms;
+        const why = failedWhy(error);
+        trace.push({ kind: "retry", model, status: error.status ?? null, ...why, ok: false, at: asked - began, ms });
+        tell({ kind: "model", step: "model", model, ms, ok: false, input: { round, status: error.status ?? null, ...why }, output: { retryInMs: retryWaitMs }, reason: `${model} failed: ${error.reason}; asked again once` });
+        if (retryWaitMs > 0) await new Promise((resolve) => setTimeout(resolve, retryWaitMs));
+        round -= 1;
+        continue;
+      }
       /*
         THE FALLBACK MODEL (decided by the owner, 2026-10-09). A provider that
         failed after its retry costs the person a slower answer, never no
@@ -731,12 +752,12 @@ export async function runTurn(options) {
           and because `call.name` is unbounded text the model produced, and
           `steps` is rendered to the person.
         */
-        const text = asSix ? "That is not something you were given. Use only the actions your tools list." : "There is no such tool. Use only the tools you were given.";
+        const text = asSix ? "That is not something you were given. Use one of the actions your tools list instead." : "There is no such tool. Use one of the tools you were given instead.";
         effects.push(() => {
           messages.push({ role: "tool", id: call.id, name: made.name, text, isError: true });
           escalate = true;
           tell({ kind: "tool", name: call.name.slice(0, 64), args: call.args, ok: false, ms: 0, reason: "no such tool" });
-          failed({ tool: call.name, cause: "not_offered", text: asSix ? "not one of the actions it was given" : "no such tool", round });
+          failed({ tool: call.name, cause: "not_offered", text, round });
         });
         return { ran: false, effects };
       }
@@ -766,7 +787,7 @@ export async function runTurn(options) {
       // Which model made this call, for the usage breakdown. Per call, because
       // routing and fallback can change the model mid-turn.
       options.onModel?.(model);
-      // A tool starting, for a group's one early tapback (`apps/agent/src/groupModelTurn.ts`): a progress line, silence or a tapback of the model's own (`tapbackEnding.js`) is not one.
+      // A tool starting, for a group's one early tapback (`packages/tex/worker/groupModelTurn.ts`): a progress line, silence or a tapback of the model's own (`tapbackEnding.js`) is not one.
       if (call.name !== PROGRESS_TOOL && call.name !== SAY_NOTHING_TOOL && call.name !== TAPBACK_TOOL) try { options.onToolStart?.(call.name); } catch { /* a failed tapback never costs the turn */ }
       await keeper?.starting(call, round); // an action is logged as started before it runs (`turnResume.js`)
       try {
@@ -800,7 +821,7 @@ export async function runTurn(options) {
         result = { content: [{ type: "text", text }], isError: true };
       }
       // A refusal written in the older names, read by a model that holds the six (`speak.js`).
-      if (asSix) result = resultInV2Names(result);
+      if (asSix) result = withNextStep(resultInV2Names(result)); // and the next step, where the gateway's words have none (`nextSteps.js`)
       const toolMs = clock() - called;
       // A call the egress gate held for the person's yes is not a failure: it
       // runs when they give it (`texEntryPoint.js`), and a log that called it failed

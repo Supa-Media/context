@@ -10,7 +10,7 @@ import { sentPicturesLine } from "../src/agent/outgoingPictures.js";
  * one of three things, and the line says which (Training, 2026-11-18: such rows read "Tex: " with nothing, and nobody
  * could tell a chosen silence from a lost answer): Tex chose to say nothing (`quiet`, with its model's last words and
  * call), the Worker stopped the turn, or the gateway answered with nothing at all, which production's Worker retries
- * and then texts an apology for (`apps/agent/src/reply.ts`), so it is a failed turn, never a reply.
+ * and then texts an apology for (`packages/tex/worker/reply.ts`), so it is a failed turn, never a reply.
  */
 export function saidLine(turn) {
   const pictures = sentPicturesLine(Array.from({ length: Number(turn.pictures) || 0 }));

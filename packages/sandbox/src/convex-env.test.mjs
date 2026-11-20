@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { FORBIDDEN_PREVIEW_KEYS } from './preview-guards.mjs';
+import { FORBIDDEN_PREVIEW_KEYS } from './guards.mjs';
 import {
   COPIED_KEYS,
   applyPreviewEnv,
@@ -10,7 +10,7 @@ import {
   envLine,
   outputLines,
   previewEnvValues,
-} from './preview-convex-env.mjs';
+} from './convex-env.mjs';
 
 // Built at run time: scripts/check-no-identifiers.mjs rejects a committed Convex hostname, fakes included.
 const CONVEX_CLOUD = ['convex', 'cloud'].join('.');

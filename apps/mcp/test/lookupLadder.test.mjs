@@ -77,6 +77,17 @@ test("search words are the questions' content words; lines need half of them", (
   assert.deepEqual(linesWith("Seyi: flight to Denver is UA 412\nlunch tomorrow", ["flight", "denver"]), ["Seyi: flight to Denver is UA 412"]);
 });
 
+test("a notes line needs two of the words: one shared word like 'email' is not a find", async () => {
+  const { rungNotesNode } = await import("../src/agent/graph/nodes/rungNotes.js");
+  const terms = termsOf(["what's my sister's address again? want to send her a card", "Do you have her address in an old email?"], 8);
+  assert.ok(terms.includes("sister") && terms.includes("address"));
+  const text = "I don't have an email address for Ama in your notes\n- an emailed article you have not read yet\nSister Bisi: 12 Oak Lane, address for cards";
+  const io = { ctx: { turn: { toolCalls: { mcp: async () => text } } } };
+  const out = await rungNotesNode({ query: "sister address", terms }, io);
+  assert.deepEqual(out.found, ["Sister Bisi: 12 Oak Lane, address for cards", "I don't have an email address for Ama in your notes"]);
+  assert.ok(!out.found.some((l) => l.includes("emailed article")));
+});
+
 test("the send-back carries what was found, names the untried fast rungs, and never routes round a broken connector", () => {
   const found = ladderNotice({ questions: ["Which flight?"], knows: ["flight UA 412"], notes: [], untried: ["web"] });
   assert.match(found, /^Before this goes:/);

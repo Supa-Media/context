@@ -22,7 +22,7 @@ asked of the small decision model through Jev:
   turn adds no tapback of its own.
 - **Mid-turn**, when Tex is already writing: fold, queue or restart (redraft).
 
-## The state machine (`apps/agent/src/chatState.ts`)
+## The state machine (`packages/tex/worker/chatState.ts`)
 
 Each chat's Durable Object holds `gstate`: `idle`, `gathering`, `drafting`,
 `sending`, a version bumped by every message that waits on Tex, when the burst

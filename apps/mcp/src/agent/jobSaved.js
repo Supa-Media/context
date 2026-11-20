@@ -1,5 +1,5 @@
 /**
- * A background job's saved progress, on the gateway's side (`apps/agent/src/jobProgress.ts` keeps it; Dev2's "jobs as
+ * A background job's saved progress, on the gateway's side (`packages/tex/worker/jobProgress.ts` keeps it; Dev2's "jobs as
  * config" plan, part B, 2026-11-17).
  *
  * A job's part streams each tool call's return, whether it is held for the person's yes, and each draft it writes, as
@@ -97,7 +97,7 @@ export function withJobDrafts(job, step, answerCheck) {
 /**
  * `body.job`'s resume, read strictly: which restart of the job this is, and the part whose saved rounds this part goes
  * on from: this part again after a try that died, or the part before, cut off before it answered
- * (`apps/agent/src/jobPartResume.ts`); 0 starts fresh and drops this part's own, which a try that died after it was
+ * (`packages/tex/worker/jobPartResume.ts`); 0 starts fresh and drops this part's own, which a try that died after it was
  * handed saved rounds may have left. Anything else is null.
  */
 export function jobResumeOf(value, attempt) {

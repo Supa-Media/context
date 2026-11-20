@@ -57,7 +57,7 @@ describe("translateSearch", () => {
 
   it("refuses any other key in args, naming the one search takes", () => {
     const out = translateSearch({ query: "q", args: { prefix: "a", limit: 3 } }, CLAUDE);
-    assert.equal(out.error, "search takes args: prefix, from, to. orient lists what each id takes.");
+    assert.equal(out.error, "search takes args: prefix, from, to. Call it again with only those; orient lists what each id takes.");
     assert.equal(out.arguments, undefined);
   });
 
@@ -140,11 +140,11 @@ describe("translateFetch: keyword ids", () => {
   it("refuses an arg a keyword id does not take, naming what it takes", () => {
     assert.equal(
       translateFetch({ id: "links:", args: { limit: 2 } }, CLAUDE).error,
-      'fetch "links:" takes no args. orient lists what each id takes.',
+      'fetch "links:" takes no args. Call it again without args; orient lists what each id takes.',
     );
     assert.equal(
       translateFetch({ id: "meetings:", args: { reads: true } }, CLAUDE).error,
-      'fetch "meetings:" takes args: limit. orient lists what each id takes.',
+      'fetch "meetings:" takes args: limit. Call it again with only those; orient lists what each id takes.',
     );
     assert.match(translateFetch({ id: "vault:", args: { fetch: {} } }, CLAUDE).error, /takes no args/);
     assert.match(translateFetch({ id: "changes:", args: { path: "x" } }, CLAUDE).error, /takes args: limit, reads/);
@@ -227,22 +227,22 @@ describe("translateFetch: note paths", () => {
   it("treats a lists value other than true as an unknown key on a note", () => {
     assert.equal(
       translateFetch({ id: "a.md", args: { lists: false } }, CLAUDE).error,
-      'fetch "a.md" takes args: mail; or, instead, one of: image: "<a picture\'s file name, as the note embeds it>" (one picture the note holds), related: true (with limit), lists: true, transcript, messages, activity. orient lists what each id takes.',
+      'fetch "a.md" takes args: mail; or, instead, one of: image: "<a picture\'s file name, as the note embeds it>" (one picture the note holds), related: true (with limit), lists: true, transcript, messages, activity. Call it again with only those; orient lists what each id takes.',
     );
   });
 
   it("refuses an arg a note does not take, naming what it takes", () => {
     assert.equal(
       translateFetch({ id: "a.md", args: { transcript: true, messages: true } }, CLAUDE).error,
-      'fetch "a.md" takes args: transcript. orient lists what each id takes.',
+      'fetch "a.md" takes args: transcript. Call it again with only those; orient lists what each id takes.',
     );
     assert.equal(
       translateFetch({ id: "a.md", args: { image: "x.png", mail: true } }, CLAUDE).error,
-      'fetch "a.md" takes args: image. orient lists what each id takes.',
+      'fetch "a.md" takes args: image. Call it again with only those; orient lists what each id takes.',
     );
     assert.equal(
       translateFetch({ id: "a.md", args: { limit: 3 } }, CLAUDE).error,
-      'fetch "a.md" takes args: mail; or, instead, one of: image: "<a picture\'s file name, as the note embeds it>" (one picture the note holds), related: true (with limit), lists: true, transcript, messages, activity. orient lists what each id takes.',
+      'fetch "a.md" takes args: mail; or, instead, one of: image: "<a picture\'s file name, as the note embeds it>" (one picture the note holds), related: true (with limit), lists: true, transcript, messages, activity. Call it again with only those; orient lists what each id takes.',
     );
   });
 
@@ -340,7 +340,7 @@ describe("translateFetch: folders", () => {
   it("refuses args on a folder, which takes none", () => {
     assert.equal(
       translateFetch({ id: "1-projects/", args: { mail: true } }, CLAUDE).error,
-      'fetch "1-projects/" takes no args. orient lists what each id takes.',
+      'fetch "1-projects/" takes no args. Call it again without args; orient lists what each id takes.',
     );
   });
 });

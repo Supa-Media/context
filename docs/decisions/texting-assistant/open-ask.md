@@ -35,7 +35,7 @@ Diamond with no reason given.
    Tex text did, without saying it changed or why, goes back.
 4. **A job is handed their own words.** A job started this turn gets the open
    ask word for word (`asked`), and the Worker adds the text it started from
-   last (`apps/agent/src/jobs.ts` `jobAsked`). The job's own turn reads them
+   last (`packages/tex/worker/jobs.ts` `jobAsked`). The job's own turn reads them
    as the job, and so does a part on a computer. The done check
    (`jobCheck.js`) judges against the finish line and every part of their
    words: a part the result drops that no later text took back means
@@ -55,6 +55,6 @@ Two decisions from the same audit, which this file does not contradict:
 - Handing a job only the brief lets a paraphrase narrow the ask.
 - Dropping `silent_change` lets a pick move with no word.
 
-Tests: `apps/mcp/test/openAsk.test.mjs` and `apps/agent/src/jobs.test.ts`
+Tests: `apps/mcp/test/openAsk.test.mjs` and `packages/tex/worker/jobs.test.ts`
 ("keeps their open texts a job started with"). The reviewer's cases are in
 `apps/mcp/bench/review/heard_them.json`.

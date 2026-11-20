@@ -5,7 +5,7 @@
  * - `/messages/inbox`: the newest mail in their inbox. They tap the emails
  *   Tex should take care of and send one card back,
  *   `https://context.lc/tex/inbox?m=<address>/<id>&m=…`, which reaches Tex as
- *   "Please take care of these emails: …" (`apps/agent/src/dataCards.ts`).
+ *   "Please take care of these emails: …" (`packages/tex/worker/dataCards.ts`).
  * - `/messages/times`: the next five days, with every busy time shaded. They
  *   tap up to five free times and send `https://context.lc/tex/times?d=<minutes>&z=<zone>&s=<instant>&s=…`,
  *   which reaches Tex, or a friend in that chat, as the times written out.

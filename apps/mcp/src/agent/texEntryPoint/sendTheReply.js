@@ -72,7 +72,7 @@ export async function sendTheReply(t) {
   const searchedMarked = front && group === null && job === null && report === null && !quiet && !silent && !crossAskRun && linkedMarked !== EMPTY_FALLBACK && !isEmptyAnswer(linkedMarked) ? withSearchedLine(linkedMarked, t.noteLinking?.searched) : linkedMarked; // the front door runs no reply checks, so a multi-workspace search's Searched line goes on in code (searchClaims.js, 2026-11-19)
   // A group turn answering several texts: the front door's "[2] " numbers come out, and say which text each paragraph goes under (`replyUnder.js`).
   const { answer: told, parts: underParts } = group !== null && job === null ? splitUnder(searchedMarked, t.logged?.covered) : { answer: searchedMarked, parts: null };
-  // An email's ask is texted exactly as written (`apps/agent/src/reply.ts`), or withdrawn if it would not fit; asks their text corrected are dropped (`claimCheck.js` rule 6).
+  // An email's ask is texted exactly as written (`packages/tex/worker/reply.ts`), or withdrawn if it would not fit; asks their text corrected are dropped (`claimCheck.js` rule 6).
   const { ask, verbatim } = await tex.step("ask_line", () => textedAsk(store, session, ledger.asked, told, { who: group?.from || null, stale: claims?.stale() === true ? setAside.map((entry) => entry.id) : null, chat: askChat }));
   const offerText = ledger.offered ? offerLine(ledger.offered) : null; // shown to whoever it goes from (`offerFor.js`)
   const answer = [answerWithAsk(claims?.stale() === true && ledger.asked.length === 0 && ask !== null && !/\?/.test(told) ? "" : told, ask, ledger.asked), offerText].filter(Boolean).join("\n\n"); // a drop's line replaces the model's unless it asked something

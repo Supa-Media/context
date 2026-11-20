@@ -237,7 +237,7 @@ message to thread under.
   for everyone and show the chat what they chose. Tests: "a group uses only
   its own, with who set them; never a member's"
   (`apps/convex/__tests__/texStyle.test.ts`) and "the next turn carries the
-  group's own instructions" (`apps/agent/src/texStyle.test.ts`).
+  group's own instructions" (`packages/tex/worker/texStyle.test.ts`).
 - Saying the instructions above the safety rules, or unfenced, would let a
   member's text change what Tex may do. Test: "a group turn is told the
   group's instructions after the built-in rules and its own words, the safety

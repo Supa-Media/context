@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 
-import { cliFailureReason, issuePersonaCode, probeCloudflare, runConvexSeed, storeStorageToken } from "./preview-seed.mjs";
+import { cliFailureReason, issuePersonaCode, probeCloudflare, runConvexSeed, storeStorageToken } from "./seed.mjs";
 
 test("a failed CLI run names its cause from stderr", () => {
   const reason = cliFailureReason(

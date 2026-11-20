@@ -18,7 +18,7 @@ saw the wrong answer but never the wrong fact it was handed.
 
 **Facts from state, step one (this change).**
 
-- The Worker names why a group turn runs (`apps/agent/src/groupCause.ts`: `check_in`, `routine`, `job_report`,
+- The Worker names why a group turn runs (`packages/tex/worker/groupCause.ts`: `check_in`, `routine`, `job_report`,
   `cross_chat`, `reaction`, `tagged`, `named`, `judged`), and `groupTurn.js` `taggedLine` says "tagged you" only for
   a text that names Tex. A turn with no cause (an older Worker) is told as before.
 - `turnPrompt.js` keeps `transcripts`, `checkIns` and `attention` to a 1:1 (`inGroup`).
@@ -32,7 +32,7 @@ built from a field, saying "not known" when the field is missing, with a test th
 field doesn't hold.
 
 **What a "simplification" costs.** Saying "tagged you" whatever ran the turn brings back the unprompted check-in
-replies and the invented explanations. Tests: `apps/mcp/test/devShare.test.mjs`, `apps/agent/src/groupCause.test.ts`,
+replies and the invented explanations. Tests: `apps/mcp/test/devShare.test.mjs`, `packages/tex/worker/groupCause.test.ts`,
 `apps/convex/__tests__/texLabShared.test.ts`, replay case `group-told-why`.
 
 ## Every module's words are kept beside its fingerprint (2026-11-17)

@@ -39,7 +39,7 @@ reach Tex or the advisor while its part ran.
   ([background jobs](./background-jobs.md)); to `advisor` the advisor answers on
   the note (`/agent/job/advise`).
 - **The advisor has a cap the job is never told**: ten asks a job
-  (`MAX_ADVISOR_ASKS`, `apps/agent/src/jobNote.ts`). Past it the advisor says to
+  (`MAX_ADVISOR_ASKS`, `packages/tex/worker/jobNote.ts`). Past it the advisor says to
   use its best judgement, without asking the model and without saying why.
 - **The advisor orchestrates** (owner, 2026-11-05): it knows the note's mail and
   the coworker jobs on it, so it can tell a job to mail its coworkers to split
@@ -64,7 +64,7 @@ person's job or a stray connection text through Tex.
 
 **Tests:** `apps/mcp/test/jobNote.test.mjs` (join binding, roster, delivery only
 from the sender's own job, the advisor's coworker knowledge),
-`apps/agent/src/jobNote.test.ts` (asked once, roster in the brief, mail to Tex
+`packages/tex/worker/jobNote.test.ts` (asked once, roster in the brief, mail to Tex
 reported, hidden cap), and the run-grant mail test in
 `apps/convex/__tests__/texMachineRuns.test.ts`.
 

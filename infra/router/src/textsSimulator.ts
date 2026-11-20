@@ -1,6 +1,6 @@
 /**
  * Staging only: hand /texts-simulator to the texting assistant's simulator
- * (apps/agent/src/simulator.ts), so it opens at the staging app's own address.
+ * (packages/tex/worker/simulator.ts), so it opens at the staging app's own address.
  *
  * The `TEXTS_SIMULATOR` service binding exists only in the staging
  * environment's wrangler config. Without it, which is production, this

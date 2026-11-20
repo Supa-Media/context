@@ -28,7 +28,7 @@ import { pagesView } from "./pages.js";
 
 /** Entries one raw page answers. */
 export const RAW_PAGE = 100;
-/** The texting Worker hands each turn this much of the chat itself (`apps/agent/src/events.ts` `KEEP_EVENTS_MS`). */
+/** The texting Worker hands each turn this much of the chat itself (`packages/tex/worker/events.ts` `KEEP_EVENTS_MS`). */
 const HELD_MS = 24 * 3_600_000;
 const DAY = /^(\d{4})-(\d{2})-(\d{2})$/;
 

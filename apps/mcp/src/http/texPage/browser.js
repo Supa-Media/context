@@ -6,7 +6,7 @@
  * A group's browser is tagged by the chat and the people in it
  * (`groupBrowserOwner`, `agent/browserProviders.js`), the hash the chat's last
  * turn used, which the chat's inbox in the texting Worker keeps
- * (`lastTurnPeople`, `apps/agent/src/groupChat.ts`). So the tag is made here
+ * (`lastTurnPeople`, `packages/tex/worker/groupChat.ts`). So the tag is made here
  * from the chat the control plane says the caller is in now, and from what
  * the Worker answers for that chat: never from anything in the request. A
  * key the caller is not in is refused as one that names nothing (`chatOf`).

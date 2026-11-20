@@ -8,9 +8,9 @@ import {
   previewSection,
   renderConfig,
   stripJsonComments,
-} from "./preview-config.mjs";
+} from "./config.mjs";
 
-const read = (path) => readFileSync(new URL(`../${path}`, import.meta.url), "utf8");
+const read = (path) => readFileSync(new URL(`../../../${path}`, import.meta.url), "utf8");
 const PR = 42;
 const SUB = "example-sub";
 const opts = { pr: PR, subdomain: SUB };

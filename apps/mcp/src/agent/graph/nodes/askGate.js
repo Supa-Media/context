@@ -104,10 +104,13 @@ export async function askGateNode(input, io) {
   if (read.kind !== "fact" || read.sure < climbAt) return { to: "bypass", ...base, when: ["bypass"] };
   // A second asking draft after the ladder sent one back: the quick rungs had their go, so the slow ones are a job's.
   if (t.ladderSentBack === true) return { to: "job", why: "still asking after the quick rungs", ...base, when: ["climbOn"] };
-  const terms = termsOf(questions);
+  // The words come from their text as well as the draft's questions: the draft asks in Tex's words ("an old email or
+  // a shipping receipt?"), while what they want is in theirs ("my sister's address"), and the draft's words alone
+  // matched every note that says "email".
+  const terms = termsOf([input?.ask, ...questions], 8);
   const [knows, notes, tools] = await Promise.all([
     has(io, "rungKnows") ? Promise.resolve(io.use.rungKnows({ terms })).catch(() => null) : null,
-    has(io, "rungNotes") ? Promise.resolve(io.use.rungNotes({ query: questions.slice(0, 2).join(" "), terms })).catch(() => null) : null,
+    has(io, "rungNotes") ? Promise.resolve(io.use.rungNotes({ query: [input?.ask, questions[0]].filter(Boolean).join(" ").slice(0, 300), terms })).catch(() => null) : null,
     has(io, "rungTools") ? Promise.resolve(io.use.rungTools({})).catch(() => null) : null,
   ]);
   const tried = new Set(Array.isArray(tools?.tried) ? tools.tried : []);

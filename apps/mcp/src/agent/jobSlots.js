@@ -17,7 +17,7 @@ import { configLimits } from "../../../../packages/shared/src/jobPartEnd.cjs";
 import { configStartLimits } from "../../../../packages/shared/src/jobStart.cjs";
 import { TEX_CONFIG } from "./texConfig.js";
 
-/** Cloud jobs at once in a chat: the Job start node's config (`jobStart.cjs`; `apps/agent/src/jobs.ts` holds the same). */
+/** Cloud jobs at once in a chat: the Job start node's config (`jobStart.cjs`; `packages/tex/worker/jobs.ts` holds the same). */
 export const MAX_CLOUD_JOBS = configStartLimits(TEX_CONFIG).cloudSlots;
 /** Parts one job may take, the first included, before it reports what it has: its Part end node's config (`jobPartEnd.cjs`). */
 export const MAX_JOB_ATTEMPTS = configLimits(TEX_CONFIG).parts;

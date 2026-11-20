@@ -6,7 +6,7 @@
  * (`packages/tex/src/textDecide.cjs`), so the two never drift.
  *
  * The cap and the usage rows stay in the control plane: the Worker asks its gate now and then and reports what was
- * decided after the answer is in (`apps/agent/src/decide.ts`). So this answers with `meter`, the counts that report
+ * decided after the answer is in (`packages/tex/worker/decide.ts`). So this answers with `meter`, the counts that report
  * needs: questions asked and characters Clef read, never words.
  *
  * The transcript and the draft are answered on, never kept or logged here: the one log line carries counts and codes.

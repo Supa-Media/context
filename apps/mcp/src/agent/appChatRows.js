@@ -26,7 +26,7 @@ export const EDIT_WINDOW_MS = 15 * 60 * 1000;
 
 /** The event kinds a row can be. Anything else (asks, settlements, deliveries) is folded into a row or dropped. */
 const ROW_KINDS = new Set(["text", "picture", "file", "link"]);
-/** A picture id (`apps/agent/src/appPictures.ts` `APP_PICTURE_ID`). */
+/** A picture id (`packages/tex/worker/appPictures.ts` `APP_PICTURE_ID`). */
 const PICTURE_ID = /^[0-9a-f]{32}$/;
 /** Tex's picture's address: the id its app line kept it under (`appPictureUrl`). */
 const TEX_PICTURE = /^https:\/\/app-chat\.invalid\/pic\/([0-9a-f]{32})\.(?:jpg|png|gif|webp)$/;

@@ -7,7 +7,7 @@
  * answer (`handbackWatch`): a SHA-256 of the browser's tag
  * (`browserOwner`, `groupBrowserOwner`), which names nobody. The texting
  * Worker watches the control plane for that browser
- * (`apps/agent/src/handbackWatch.ts`). Done on the take-over screen marks it
+ * (`packages/tex/worker/handbackWatch.ts`). Done on the take-over screen marks it
  * (`http/texComputer.js` `/tex/computer/done`, for a person the screen
  * already shows that browser to), and the Worker asks for a turn with
  * `event: "browser_handed_back"` and no words, in the chat that texted the

@@ -162,7 +162,7 @@ test("the front door, the prompt and the turn reach the core area; their neighbo
 });
 
 test("a job or page change reaches the jobs area, on a pool of its own with fewer reruns", () => {
-  assert.deepEqual(areasFor(["apps/agent/src/jobRun.ts"]), ["jobs"]);
+  assert.deepEqual(areasFor(["packages/tex/worker/jobRun.ts"]), ["jobs"]);
   assert.deepEqual(areasFor(["apps/mcp/src/agent/jobNote.js", "apps/mcp/bench/job-tasks/cases.json"]), ["jobs"]);
   assert.deepEqual(areasFor(["apps/mcp/bench/jobTasks.mjs", "apps/mcp/bench/world.mjs"]), [], "the scorer and the world are not Tex");
   const jobs = AREA_LIMITS.jobs;

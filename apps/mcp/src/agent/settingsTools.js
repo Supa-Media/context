@@ -274,7 +274,7 @@ const INVITE_WORDS = /\b(add|invite|share|bring|let|give|everyone|everybody|all 
  * "Share @studio with everyone here", in any words (Dev2, 2026-11-12): invite everyone in this group chat to a shared
  * workspace, as the fixed "Tex, add everyone here to @studio" does. The chat's numbers are only ever the texting
  * Worker's, so this tool only asks for it (`onInvite`, carried on the answer as `invite`), and the Worker runs the same
- * command as the person who asked, once the answer has gone (`apps/agent/src/groupInvite.ts`): only an owner there
+ * command as the person who asked, once the answer has gone (`packages/tex/worker/groupInvite.ts`): only an owner there
  * invites anyone, checked by the control plane against their own number. Their own words must ask for it.
  */
 function chatInviteTool({ group, words, judge, onInvite }) {

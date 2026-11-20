@@ -1,8 +1,8 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 
-import { deletePreview, sweep } from "./preview-cleanup.mjs";
-import { deleteConvexPreview, emptyAndDeleteBucket, findConvexPreview, previewKeyProject, previewTokenOf, revokePreviewTokens } from "./preview-teardown.mjs";
+import { deletePreview, sweep } from "./cleanup.mjs";
+import { deleteConvexPreview, emptyAndDeleteBucket, findConvexPreview, previewKeyProject, previewTokenOf, revokePreviewTokens } from "./teardown.mjs";
 
 /** A fake R2 bucket holding `count` objects behind the REST API, deleted only once empty. */
 function fakeBucket(count, { pageSize = 1000 } = {}) {

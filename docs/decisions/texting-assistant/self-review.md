@@ -45,7 +45,7 @@ Tex … to opt in to sharing their entire history in order to improve the app
 … and then it just works." The yes is the same `texReviewSharing` row, set
 from a text as well as from Settings: "Tex, share my chats with the devs"
 (or "opt into sharing with devs"), "stop sharing with the devs" (or "opt
-out"), and "am I sharing with the devs?" (`apps/agent/src/reviewSharing.ts`,
+out"), and "am I sharing with the devs?" (`packages/tex/worker/reviewSharing.ts`,
 `POST /agent-texts/review-sharing`, keyed by the phone that texted). The words
 are read whole by code, never by the model, as "Tex, settings" is: a yes that
 lets people read somebody's messages has to be their own words, so every
@@ -75,7 +75,7 @@ the numbers and the tier, never anybody's words.
 
 **When a conversation has ended.** Nobody says goodbye to an assistant they
 text, so it has ended after twenty quiet minutes. Every answered text starts a
-watch over in the chat's own Durable Object (`apps/agent/src/reviewWatch.ts`),
+watch over in the chat's own Durable Object (`packages/tex/worker/reviewWatch.ts`),
 keeping the phone, or the group's line, id and participants, for those
 minutes only. When it is due, the watch asks `POST /agent/review` once, with a
 token minted the way a turn's is, so the review runs as that conversation's own

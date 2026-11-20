@@ -1,4 +1,4 @@
-// A job paused at the daily limit starts again by itself once the limit resets (apps/agent/src/jobPause.ts), so a turn
+// A job paused at the daily limit starts again by itself once the limit resets (packages/tex/worker/jobPause.ts), so a turn
 // must be able to stop it ("never mind the trip plan") or it would restart anyway; a change can't reach it until then.
 import assert from "node:assert/strict";
 import { test } from "node:test";

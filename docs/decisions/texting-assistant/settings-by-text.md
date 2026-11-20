@@ -45,7 +45,7 @@ Tex could not say which a login had, nor change it.
   group, `send chat_add_everyone` (their own words, judged) puts `invite` on the
   answer, and the texting Worker, which alone holds the chat's numbers, runs the
   same command as "Tex, add everyone here to @studio" as the asker once the
-  answer has gone (`apps/agent/src/groupInvite.ts`); only an owner there
+  answer has gone (`packages/tex/worker/groupInvite.ts`); only an owner there
   invites anyone, and the chat hears how it went either way.
 - Still app-only, each named on its row: deleting a saved login, cutting off one
   particular AI, disconnecting an app, and early features (the Context team's).

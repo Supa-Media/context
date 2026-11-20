@@ -5,7 +5,7 @@
  * In one afternoon's chat about a spending breakdown, Tex:
  *
  *   1. answered nothing at all four times. The texting Worker sends no text
- *      for an empty answer (`apps/agent/src/reply.ts`), so "What in the
+ *      for an empty answer (`packages/tex/worker/reply.ts`), so "What in the
  *      actual heck, are you not working on this?" and "Im not sending this
  *      again" got silence;
  *   2. texted "The bulk of that is医保 and necessities": a word in a script

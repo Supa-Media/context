@@ -64,6 +64,8 @@ const SHARED_IGNORED = [
   ".github/**",
   ".claude/**",
   "scripts/**",
+  // The preview sandbox's tooling; a preview's own fan-out lists the files that redeploy one.
+  "packages/sandbox/**",
   "plugins/**",
   "artifacts/**",
   "apps/desktop/**",
@@ -78,22 +80,30 @@ const SHARED_IGNORED = [
   "architecture.config.json",
 ];
 
+/**
+ * Tex's package holds the texting Worker's code beside the config and prompts
+ * Convex and the app import a few files of; only the files they import count,
+ * so a Worker change deploys the Worker, not Convex and the app.
+ */
+const TEX_IMPORT_ONLY = ["@context/tex"];
+/** The texting Worker's code, inside Tex's package; `apps/agent` is only its entry point and Wrangler config. */
+const TEX_WORKER = "packages/tex/worker";
 /** Declared by the app for types; only the files it imports are bundled. */
-const APP_IMPORT_ONLY = ["@context/convex"];
+const APP_IMPORT_ONLY = ["@context/convex", ...TEX_IMPORT_ONLY];
 
 const workflow = (name) => `.github/workflows/${name}.yml`;
 /** What turns a Worker's secrets into one `wrangler secret bulk` request. */
 const WORKER_SECRETS = "scripts/worker-secrets.mjs";
 /** What renders each preview's wrangler config from the one in the repository. */
-const PREVIEW_CONFIG = "scripts/preview-config.mjs";
-const PREVIEW_CONVEX_ENV = "scripts/preview-convex-env.mjs";
+const PREVIEW_CONFIG = "packages/sandbox/src/config.mjs";
+const PREVIEW_CONVEX_ENV = "packages/sandbox/src/convex-env.mjs";
 /** Every script a preview runs; changing one re-proves the whole preview. */
 const PREVIEW_SCRIPTS = [
   PREVIEW_CONFIG,
   PREVIEW_CONVEX_ENV,
-  "scripts/preview-guards.mjs",
-  "scripts/preview-seed.mjs",
-  "scripts/preview-smoke.mjs",
+  "packages/sandbox/src/guards.mjs",
+  "packages/sandbox/src/seed.mjs",
+  "packages/sandbox/src/smoke.mjs",
   WORKER_SECRETS,
 ];
 
@@ -108,13 +118,13 @@ export const TARGETS = {
     title: "Staging",
     workflow: "deploy-staging.yml",
     components: {
-      convex: { packages: ["@context/convex"], files: ["convex.json", "scripts/staging-env.mjs"] },
+      convex: { packages: ["@context/convex"], importOnly: TEX_IMPORT_ONLY, files: ["convex.json", "scripts/staging-env.mjs"] },
       transcribe: { packages: ["@context/transcribe-worker"], worker: "infra/transcribe-worker" },
       egress: { packages: ["@context/egress-service"], worker: "infra/egress-service" },
       photon: { packages: ["@context/photon-bridge"], worker: "infra/photon-bridge" },
       computer: { packages: ["@context/tex-computer"], worker: "infra/tex-computer" },
       email: { packages: ["@context/email-worker"], worker: "infra/email-worker" },
-      agent: { packages: ["@context/agent"], worker: "apps/agent", files: [WORKER_SECRETS] },
+      agent: { packages: ["@context/agent"], dirs: [TEX_WORKER], worker: "apps/agent", files: [WORKER_SECRETS] },
       // The gateway's job deploys its screenshot Worker and its eval service
       // first (a service binding needs its target), so any one changing
       // deploys them all.
@@ -136,9 +146,9 @@ export const TARGETS = {
     workflow: "deploy-preview.yml",
     perBranch: true,
     components: {
-      convex: { packages: ["@context/convex"], files: ["convex.json", "scripts/staging-env.mjs", PREVIEW_CONVEX_ENV] },
+      convex: { packages: ["@context/convex"], importOnly: TEX_IMPORT_ONLY, files: ["convex.json", "scripts/staging-env.mjs", PREVIEW_CONVEX_ENV] },
       mcp: { packages: ["@context/mcp", "@context/site-shots", "@context/tex-eval"], worker: "apps/mcp", files: [WORKER_SECRETS, PREVIEW_CONFIG] },
-      agent: { packages: ["@context/agent"], worker: "apps/agent", files: [WORKER_SECRETS, PREVIEW_CONFIG] },
+      agent: { packages: ["@context/agent"], dirs: [TEX_WORKER], worker: "apps/agent", files: [WORKER_SECRETS, PREVIEW_CONFIG] },
       router: { packages: ["@context/router", "@context/mobile"], importOnly: APP_IMPORT_ONLY, worker: "infra/router", files: [PREVIEW_CONFIG] },
       app: { packages: ["@context/mobile"], importOnly: APP_IMPORT_ONLY, files: ["scripts/build-drawing-editor.mjs"] },
     },
@@ -151,11 +161,11 @@ export const TARGETS = {
     title: "Production",
     workflow: "deploy-production.yml",
     components: {
-      convex: { packages: ["@context/convex"], files: ["convex.json", workflow("deploy-convex")] },
+      convex: { packages: ["@context/convex"], importOnly: TEX_IMPORT_ONLY, files: ["convex.json", workflow("deploy-convex")] },
       gateway: { packages: ["@context/mcp", "@context/site-shots", "@context/tex-eval"], files: [workflow("deploy-mcp"), WORKER_SECRETS] },
       email: { packages: ["@context/email-worker"], files: [workflow("deploy-email-worker")] },
       transcribe: { packages: ["@context/transcribe-worker"], files: [workflow("deploy-transcribe-worker")] },
-      agent: { packages: ["@context/agent"], files: [workflow("deploy-agent-worker"), WORKER_SECRETS] },
+      agent: { packages: ["@context/agent"], dirs: [TEX_WORKER], files: [workflow("deploy-agent-worker"), WORKER_SECRETS] },
       egress: { packages: ["@context/egress-service"], files: [workflow("deploy-egress-service")] },
       photon: { packages: ["@context/photon-bridge"], files: [workflow("deploy-photon-bridge")] },
       computer: { packages: ["@context/tex-computer"], files: [workflow("deploy-tex-computer")] },
@@ -268,6 +278,11 @@ export function componentInputs(component, root = ROOT, byName = manifests(root)
     }
   };
   for (const name of component.packages) claimPackage(name);
+  // A directory a component is built from that is not a workspace package of its own.
+  for (const dir of component.dirs ?? []) {
+    dirs.add(dir);
+    queue.push(...sourceFiles(root, dir));
+  }
 
   while (queue.length > 0) {
     const file = queue.pop();

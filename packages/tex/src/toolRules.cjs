@@ -50,14 +50,16 @@ function rateError(text) {
 }
 
 /**
- * Rule 3: the files Tex keeps its own state in, each with the dedicated action that should change it. `action: null`
- * is a file with no dedicated action yet: Tex saves it with a plain note write today, and the CI check counts it.
+ * Rule 3: the files Tex keeps its own state in, each with the dedicated action that should change it. `write` means a
+ * plain note write is the way, by design: voice and routines are notes the person reads and edits. `action: null`
+ * would be a file with no dedicated action yet, and the CI check counts it. A plain note write to a file whose action
+ * is another one (`setting`, `remember`) is logged as a bypass and shown in the Lab's Tools tab.
  */
 const TEX_STATE_FILES = Object.freeze([
-  { file: "tex/heartbeat.md", what: "check-in settings (pause, quiet hours)", action: null },
-  { file: "tex/attention.md", what: "how much other agents may ping them", action: null },
-  { file: "tex/voice.md", what: "how they talk", action: null },
-  { file: "tex/routines/", what: "routines and reminders", action: null },
+  { file: "tex/heartbeat.md", what: "check-in settings (pause, quiet hours)", action: "setting" },
+  { file: "tex/attention.md", what: "how much other agents may ping them", action: "setting" },
+  { file: "tex/voice.md", what: "how they talk", action: "write" },
+  { file: "tex/routines/", what: "routines and reminders", action: "write" },
   { file: "tex/about.md", what: "what Tex knows about them", action: "remember" },
 ]);
 

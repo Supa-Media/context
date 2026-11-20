@@ -18,7 +18,7 @@ import {
   MEANING_QUERY,
   meaningHitIn,
   appSearchRoute,
-} from './preview-smoke.mjs';
+} from './smoke.mjs';
 
 test('the simulator key is 64 hex digits, deterministic, and differs per preview and per number', () => {
   const base = { deployKey: 'preview:team:project|secret', previewName: 'pr42', phone: SMOKE_PHONE };
@@ -165,7 +165,7 @@ test('the meaning check counts only a meaning-only hit on the weekly plan', () =
 });
 
 test('the meaning query shares no word with the note it must find', async () => {
-  const { stagingNotes } = await import('./fixtures/staging-notes.mjs');
+  const { stagingNotes } = await import('../../../scripts/fixtures/staging-notes.mjs');
   const note = stagingNotes.alpha['1-projects/weekly-plan.md'].toLowerCase();
   for (const word of MEANING_QUERY.toLowerCase().split(/\s+/)) assert.equal(note.includes(word), false, word);
 });

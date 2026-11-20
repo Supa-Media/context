@@ -8,7 +8,7 @@
  *  - the first time a job's ask is made (`ws.machine.assign` answers
  *    `ask_first` with `fresh`), the gateway answers the job with this line,
  *    naming the owner by handle; the job hands it to the chat's Tex as its
- *    report's `ask` (`apps/agent/src/machineTurn.ts`), which texts it word for
+ *    report's `ask` (`packages/tex/worker/machineTurn.ts`), which texts it word for
  *    word (`agent/jobReport.js` `reportReply`);
  *  - a 👍 or ❤️ on it from the computer's owner, and only the owner, is the
  *    yes, and a 👎 the no (`machineThumb`, before any other approval is read:
@@ -26,7 +26,7 @@ import { callTexStore } from "../texStore/wire.js";
 import { folded } from "../agent/folded.js";
 import { jobChatOf, lentToChat } from "./reach.js";
 
-/** What every machine ask says, and what the Worker's thumbs read as an ask (`apps/agent/src/thumbs.ts` `ASK`). */
+/** What every machine ask says, and what the Worker's thumbs read as an ask (`packages/tex/worker/thumbs.ts` `ASK`). */
 export const MACHINE_ASK_OPENING = "Give this a 👍 and I'll start";
 const HANDLE = /^[a-z0-9][a-z0-9_-]{0,38}$/i;
 const MAX_TITLE = 120;
@@ -93,6 +93,6 @@ export async function machineThumb(env, session, quoted, controlPlane, { guest =
 
 /** What Tex says to the owner's tapback, in the gateway's words. */
 export function machineThumbLine({ yes, title, name }) {
-  // "can run", not "is running": a job that stopped waiting starts on its next try (`apps/agent/src/machineTurn.ts`).
+  // "can run", not "is running": a job that stopped waiting starts on its next try (`packages/tex/worker/machineTurn.ts`).
   return yes ? `Thanks, "${title}" can run on ${name} now.` : `OK, "${title}" won't run on ${name}.`;
 }

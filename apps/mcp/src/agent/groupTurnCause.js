@@ -1,6 +1,6 @@
 /**
  * What a group turn is told about why it runs (Dev2, 2026-11-17), out of `groupTurn.js`, which re-exports it.
- * The cause comes from the Worker (`apps/agent/src/groupCause.ts`); see
+ * The cause comes from the Worker (`packages/tex/worker/groupCause.ts`); see
  * docs/decisions/texting-assistant/turn-told-from-state.md.
  */
 import { shownWho, taggerLabel } from "./groupNames.js";
@@ -23,7 +23,7 @@ function invitedLine(who) {
 export const CAUSE_NOT_KNOWN =
   "Why this turn runs is not known: it may be a text, the chat's own check-in or a follow-up. Never say anyone tagged you, asked you or why you're answering; if nothing in the newest texts is for you, call send with action say_nothing.";
 
-/** Why a group turn runs, as the Worker names it (`apps/agent/src/groupCause.ts`). */
+/** Why a group turn runs, as the Worker names it (`packages/tex/worker/groupCause.ts`). */
 export const TURN_CAUSES = Object.freeze(["check_in", "routine", "job_report", "cross_chat", "vault_saved", "browser_handed_back", "reaction", "tagged", "named", "judged"]);
 
 /**

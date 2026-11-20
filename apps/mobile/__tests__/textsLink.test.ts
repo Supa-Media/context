@@ -24,7 +24,7 @@ describe("the texted sign-in link", () => {
   });
 
   test("the message is what the assistant reads as a link command", () => {
-    // Mirrors LINK_COMMAND in apps/agent/src/reply.ts.
+    // Mirrors LINK_COMMAND in packages/tex/worker/reply.ts.
     expect(linkMessage("ABCD2345")).toMatch(/^\s*link\s+([a-z0-9]{6,10})\s*[.!]?\s*$/i);
   });
 

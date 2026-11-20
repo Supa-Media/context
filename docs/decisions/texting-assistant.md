@@ -149,7 +149,7 @@ the answer first, no Markdown, no note paths unless asked, a blank line between
 texts, and one search rather than `orient` for a simple question, because every
 tool call is another model round. The Worker then strips any Markdown that
 slipped through and sends paragraphs as separate texts, at most three, with a
-web link last as a text of its own (`apps/agent/src/format.ts`). It is decided
+web link last as a text of its own (`packages/tex/worker/format.ts`). It is decided
 by the grant's client, never by the request, so the app's own agent keeps
 citing paths.
 

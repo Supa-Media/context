@@ -2,7 +2,7 @@ name: Preview cleanup
 
 # Deletes a pull request's preview (its Workers, Workflows and storage) and
 # sweeps for any left behind. The matching is exact, so one preview's cleanup
-# can never touch another's (scripts/preview-cleanup.mjs explains the names).
+# can never touch another's (packages/sandbox/src/cleanup.mjs explains the names).
 #
 # Four ways in:
 #
@@ -21,12 +21,12 @@ name: Preview cleanup
 # needs the close, so a `closed`-only trigger is refused (rule A).
 #
 # What one deletion covers, and the check that ends it, are in
-# scripts/preview-cleanup.mjs and scripts/preview-teardown.mjs: the Workers (and
+# packages/sandbox/src/cleanup.mjs and packages/sandbox/src/teardown.mjs: the Workers (and
 # with them their Durable Objects and secrets), the Workflows, the Convex preview
 # deployment, the emptied buckets, the search databases and indexes, and the
 # scoped R2 tokens. Anything still there afterwards fails the run.
 #
-# This workflow runs `wrangler delete`, inside scripts/preview-cleanup.mjs. The
+# This workflow runs `wrangler delete`, inside packages/sandbox/src/cleanup.mjs. The
 # trigger checker does not count a delete as a deploy, so the file keeps its
 # name. Its deletions are exact-name only, and no production name can match.
 on:
@@ -92,16 +92,16 @@ jobs:
             exit 0
           fi
           for number in $numbers; do
-            node scripts/preview-cleanup.mjs delete "$number"
+            node packages/sandbox/src/cleanup.mjs delete "$number"
           done
 
       - name: Delete the requested preview
         if: ${{ github.event_name == 'workflow_dispatch' && inputs.pr != '' }}
-        run: node scripts/preview-cleanup.mjs delete "$INPUT_PR"
+        run: node packages/sandbox/src/cleanup.mjs delete "$INPUT_PR"
 
       # Every preview whose pull request is closed, and a count of the live ones
       # against the ceiling. Runs after a merge, on the daily schedule, and on a
       # dispatch that names no pull request.
       - name: Sweep for previews whose pull request is closed
         if: ${{ github.event_name == 'push' || github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && inputs.pr == '') }}
-        run: node scripts/preview-cleanup.mjs sweep
+        run: node packages/sandbox/src/cleanup.mjs sweep

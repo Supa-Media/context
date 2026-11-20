@@ -530,7 +530,7 @@ binding = "CF_VERSION_METADATA"
 
 # Preview: a throwaway copy of this gateway for one pull request, so that branch's Context and Tex can be
 # exercised end to end on workers.dev without touching production or staging data. Its names and hosts are
-# placeholders (__PREVIEW__ and __WORKERS_DEV__) that scripts/preview-config.mjs renders into a copy beside this
+# placeholders (__PREVIEW__ and __WORKERS_DEV__) that packages/sandbox/src/config.mjs renders into a copy beside this
 # file. Never deploy this section directly: the rendered copy is the only thing that goes out.
 [env.preview]
 name = "context-mcp-__PREVIEW__"

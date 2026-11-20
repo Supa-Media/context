@@ -2,10 +2,10 @@ import test from "node:test";
 import assert from "node:assert/strict";
 
 import { readFileSync } from "node:fs";
-import { deletePreview, isPreviewResource, storageAccounts } from "./preview-cleanup.mjs";
-import { verifyGone } from "./preview-teardown.mjs";
-import { API_FAMILIES, apiFamily, OWNED, registryProblems } from "./preview-resources.mjs";
-import { accountPaths, deployedWorkers, previewKeys, problems } from "./preview-resources-check.mjs";
+import { deletePreview, isPreviewResource, storageAccounts } from "./cleanup.mjs";
+import { verifyGone } from "./teardown.mjs";
+import { API_FAMILIES, apiFamily, OWNED, registryProblems } from "./resources.mjs";
+import { accountPaths, deployedWorkers, previewKeys, problems } from "./resources-check.mjs";
 
 const N = 7;
 const ENV = { CLOUDFLARE_API_TOKEN: "t", CLOUDFLARE_ACCOUNT_ID: "gateway", MANAGED_R2_ACCOUNT_ID: "storage", CONVEX_DEPLOY_KEY: "preview:team:proj|secret" };
@@ -141,5 +141,5 @@ test("code that calls an unlisted Cloudflare API family fails", () => {
 });
 
 function readReal(path) {
-  return readFileSync(new URL(`../${path}`, import.meta.url), "utf8");
+  return readFileSync(new URL(`../../../${path}`, import.meta.url), "utf8");
 }

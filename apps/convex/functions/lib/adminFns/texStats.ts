@@ -6,7 +6,7 @@
  *
  * Three sources, each asked for exactly the window, never more:
  * - texts in and out and who texted: the texting Worker's `tex_text_counts`
- *   (`apps/agent/src/textCounts.ts`), one point per text, a person named only by
+ *   (`packages/tex/worker/textCounts.ts`), one point per text, a person named only by
  *   their inbox object's id;
  * - notes created and edited: the workspace objects' `note` points in
  *   `context_calls` (`apps/mcp/src/observability/callCounts.js`

@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { ownHostsFrom, problemsFrom } from './preview-browser.mjs';
+import { ownHostsFrom, problemsFrom } from './browser.mjs';
 
 test('only page errors and failed requests to the preview hosts count', () => {
   const own = ownHostsFrom({ PREVIEW_ROUTER_ORIGIN: 'https://r.example', PREVIEW_MCP_ORIGIN: 'https://m.example', PREVIEW_CONVEX_URL: 'not a url' });

@@ -4,7 +4,7 @@
  * move went (`functions/texChatMoves.ts`): flicking it asks the texting Worker to text that one chat the new number
  * from the old line within a minute; the row then shows told, and moved once the person texts the new number. A group's
  * switch adds the new number to the group, posts the swap note from the old one, and is moved once the new number has
- * taken the old one out (`apps/agent/src/groupMoves.ts`).
+ * taken the old one out (`packages/tex/worker/groupMoves.ts`).
  */
 import type { FunctionReturnType } from "convex/server";
 import type { api } from "@context/convex/_generated/api";

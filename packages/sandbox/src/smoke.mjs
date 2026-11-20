@@ -21,7 +21,7 @@ import { createHmac, randomBytes } from 'node:crypto';
 import { pathToFileURL } from 'node:url';
 import { ConvexHttpClient } from 'convex/browser';
 import { makeFunctionReference } from 'convex/server';
-import { issuePersonaCode, personaEmail, previewConfig } from './preview-seed.mjs';
+import { issuePersonaCode, personaEmail, previewConfig } from './seed.mjs';
 
 export const SMOKE_PHONE = '+12125550101';
 export const SMOKE_TEXT = 'Hi Tex, this is a preview smoke test. Reply with one word.';

@@ -78,10 +78,11 @@ test("a setup note with no models runs on the config's, exactly as the same note
   assert.deepEqual([named.ownModels, fromConfig.ownModels], [true, false]);
   assert.equal(fromConfig.model, texModel("fd"));
   assert.equal(fromConfig.advisor, texStep("advisor").on ? texModel("advisor") : null);
-  // The fallback model is the Front door's own setting (Dev2, 2026-11-16), the Fallback step kept turned off.
+  // No fallback model (Dev2, 2026-11-20: "retry Haiku fast, drop GLM"): GLM took 60 s and more on a front-door prompt,
+  // so a failed call is asked again on the same model (`turn.js`) and the Fallback step stays off.
   assert.equal(texStep("fallback").on, false);
-  assert.equal(typeof texStep("fd").fallback, "string", "the Front door names a fallback model");
-  assert.equal(fromConfig.fallback, TEX_CONFIG.models[texStep("fd").fallback]);
+  assert.equal(texStep("fd").fallback, undefined, "the Front door names no fallback model");
+  assert.equal(fromConfig.fallback, null);
   assert.equal(fromConfig.efforts[texModel("fd")], texStep("fd").effort);
   assert.equal(fromConfig.planBigAsks, texStep("planner").on);
   assert.equal(fromConfig.replyJudge !== null, texStep(texPick(["answerCheck", "reviewer"])).on);

@@ -8,7 +8,7 @@
  * `context_texts_group`), and the run's grant is minted from that same grant, so what it says the part may reach is
  * what the part's Context login reaches. The runner keeps a short prompt of its own about the computer
  * (`apps/machine-runner/src/run.rs` `system_prompt`); the note's mail roster comes after the brief
- * (`apps/agent/src/machineTurn.ts`).
+ * (`packages/tex/worker/machineTurn.ts`).
  */
 
 import { TEXTS_CLIENT_ID, TEXTS_GROUP_CLIENT_ID } from "./reach.js";

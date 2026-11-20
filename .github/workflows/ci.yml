@@ -146,7 +146,7 @@ jobs:
           # is missing; Fast repository guards fails until it is here.
           - '.github/workflows/**'
           - '.github/workflows/deploy-mobile-native.yml'
-          - 'apps/agent/src/stepEvents.ts'
+          - 'packages/tex/worker/stepEvents.ts'
           - 'apps/agent/wrangler.jsonc'
           - 'apps/convex/functions/agentGrant.ts'
           - 'apps/convex/functions/files.ts'
@@ -401,7 +401,7 @@ jobs:
           node --test scripts/sendblue-status-url.test.mjs
           node --test scripts/ci-performance-report.test.mjs
           # The per-pull-request previews: their guards, config, and teardown (seed and smoke import convex, which this job does not install).
-          node --test scripts/preview-cleanup.test.mjs scripts/preview-teardown.test.mjs scripts/preview-config.test.mjs scripts/preview-convex-env.test.mjs scripts/preview-guards.test.mjs scripts/preview-sign-in-code.test.mjs
+          node --test packages/sandbox/src/cleanup.test.mjs packages/sandbox/src/teardown.test.mjs packages/sandbox/src/config.test.mjs packages/sandbox/src/convex-env.test.mjs packages/sandbox/src/guards.test.mjs packages/sandbox/src/sign-in-code.test.mjs
           node --test scripts/mcp-speed-budgets.test.mjs
           node --test scripts/tex-speed-budgets.test.mjs
           node scripts/check-speed-budget.mjs --self-test

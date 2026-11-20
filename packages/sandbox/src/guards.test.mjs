@@ -12,7 +12,7 @@ import {
   silenceProblems,
   workerSecretListProblems,
   workflowSilenceProblems,
-} from "./preview-guards.mjs";
+} from "./guards.mjs";
 
 // Built at run time: scripts/check-no-identifiers.mjs rejects a committed Convex hostname, fakes included.
 const CONVEX_CLOUD = ["convex", "cloud"].join(".");
@@ -21,7 +21,7 @@ const CONVEX_SITE = ["convex", "site"].join(".");
 const FAKE_VALUE = "fake-value-that-must-never-print";
 
 test("the Photon names are the two the Photon bridge deploy reads, and no others", () => {
-  const bridge = readFileSync(new URL("../.github/workflows/deploy-photon-bridge.yml", import.meta.url), "utf8");
+  const bridge = readFileSync(new URL("../../../.github/workflows/deploy-photon-bridge.yml", import.meta.url), "utf8");
   const photon = FORBIDDEN_PREVIEW_KEYS.filter((key) => key.startsWith("PHOTON_")).sort();
   assert.deepEqual(photon, ["PHOTON_PROJECT_ID", "PHOTON_PROJECT_SECRET"]);
   for (const key of photon) {
@@ -166,16 +166,16 @@ test("agent-health never prints the origin it was given", async () => {
   assert.ok(problems.every((problem) => !problem.includes("example-sub")));
 });
 
-const SCRIPT = new URL("./preview-guards.mjs", import.meta.url).pathname;
-const REPO_ROOT = new URL("..", import.meta.url).pathname;
+const SCRIPT = new URL("./guards.mjs", import.meta.url).pathname;
+const REPO_ROOT = new URL("../../..", import.meta.url).pathname;
 
 test("the real deploy-preview workflow passes the static silence check", () => {
-  const text = readFileSync(new URL("../.github/workflows/deploy-preview.yml", import.meta.url), "utf8");
+  const text = readFileSync(new URL("../../../.github/workflows/deploy-preview.yml", import.meta.url), "utf8");
   assert.deepEqual(workflowSilenceProblems(text), []);
 });
 
 test("a workflow that maps any forbidden key into an environment fails and names it", () => {
-  const base = readFileSync(new URL("../.github/workflows/deploy-preview.yml", import.meta.url), "utf8");
+  const base = readFileSync(new URL("../../../.github/workflows/deploy-preview.yml", import.meta.url), "utf8");
   for (const key of FORBIDDEN_PREVIEW_KEYS) {
     const text = `${base}\n          ${key}: \${{ secrets.${key} }}\n`;
     const problems = workflowSilenceProblems(text);
@@ -186,7 +186,7 @@ test("a workflow that maps any forbidden key into an environment fails and names
 });
 
 test("a forbidden key that appears only in a comment line passes", () => {
-  const base = readFileSync(new URL("../.github/workflows/deploy-preview.yml", import.meta.url), "utf8");
+  const base = readFileSync(new URL("../../../.github/workflows/deploy-preview.yml", import.meta.url), "utf8");
   const text = `${base}\n      # RESEND_API_KEY: \${{ secrets.RESEND_API_KEY }}\n`;
   assert.deepEqual(workflowSilenceProblems(text), []);
 });

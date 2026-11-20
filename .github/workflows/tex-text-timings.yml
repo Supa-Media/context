@@ -1,5 +1,5 @@
 # Where a text's wait goes, from both sides (the owner, 2026-11-04: "please make sure you speed up both
-# group chats and 1:1 texts"). The texting Worker's `tex_text_timing` (`apps/agent/src/textTiming.ts`):
+# group chats and 1:1 texts"). The texting Worker's `tex_text_timing` (`packages/tex/worker/textTiming.ts`):
 # per kind (one, group), the median and 95th percentile of each column, from arrival to the first bubble
 # out. The gateway's `tex_entry` (`apps/mcp/src/agent/texTiming.js`): per turn kind and step, the median
 # and 95th percentile of how long that step held the turn up. Names, kinds and milliseconds only: neither

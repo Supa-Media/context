@@ -8,7 +8,7 @@ then "go ahead" on the plan in the group-chat architecture review). Narrows
 ## What went
 
 - **The "Tex, settings" menu**, in a person's own chat and in groups
-  (`apps/agent/src/texStyle.ts`, `groupSettings.ts`), and the fixed words that
+  (`packages/tex/worker/texStyle.ts`, `groupSettings.ts`), and the fixed words that
   went with it: quick picks ("Tex, no emoji", "Tex, one bubble"), "Tex, undo
   the change", "Tex, clear instructions". Those words now reach the model like
   any other text, and it changes the instructions with `tex_instructions_set`
@@ -50,9 +50,9 @@ what to do in words, the same way a person would be.
 
 Bringing back a menu or levels means a second source of truth beside the
 words, and a question before the first answer. Tests that fail if it comes
-back: `apps/agent/src/groupDecide.test.ts` (no style question, "Tex, settings"
-reaches the model), `apps/agent/src/inboxTurn.test.ts` (no 1:1 menu),
-`apps/agent/src/groupCommandWords.test.ts` (no settings or style commands),
+back: `packages/tex/worker/groupDecide.test.ts` (no style question, "Tex, settings"
+reaches the model), `packages/tex/worker/inboxTurn.test.ts` (no 1:1 menu),
+`packages/tex/worker/groupCommandWords.test.ts` (no settings or style commands),
 `apps/mcp/test/agentCommandTools.test.mjs` (no updates or engagement tools,
 undo on the instructions tool), `apps/mcp/test/texPageRoutes.test.mjs` (no
 picks or answers on the Tex page).

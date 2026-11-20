@@ -4,7 +4,7 @@
  * Run as `convex deploy --preview-run functions/seed:preview`. It makes the persona fixtures
  * (`lib/personaSeed.ts`, the same rows the staging seed makes), a few folders in one shared workspace, and the
  * phone link the post-deploy smoke test texts from. Nothing here writes a note body: bodies live in the
- * workspace's object, so `scripts/preview-seed.mjs` writes them after the deploy. Nothing here is a secret,
+ * workspace's object, so `packages/sandbox/src/seed.mjs` writes them after the deploy. Nothing here is a secret,
  * and nothing is a real phone number.
  */
 import { ConvexError, v } from "convex/values";
@@ -31,7 +31,7 @@ const PREVIEW_PERSONAL = [
   { persona: "gamma", slug: "gamma", name: "Gamma Ellis" },
 ] as const;
 
-/** The simulator's numbers (`apps/agent/src/simulator.ts`): +1 212 555 01XX, never a real line. */
+/** The simulator's numbers (`packages/tex/worker/simulator.ts`): +1 212 555 01XX, never a real line. */
 export const PREVIEW_PHONES = {
   alpha: "+12125550101",
   beta: "+12125550102",
@@ -149,7 +149,7 @@ export const previewSeedActor = internalQuery({
 
 /**
  * Stores the preview environment's Cloudflare token as the deployment's `MANAGED_R2_API_TOKEN` integration secret,
- * so a preview's managed buckets are created in its own Workers account (`scripts/preview-seed.mjs` runs this with
+ * so a preview's managed buckets are created in its own Workers account (`packages/sandbox/src/seed.mjs` runs this with
  * the token from the workflow). Preview only. The token is never logged and never returned.
  */
 export const previewStorageToken = internalAction({

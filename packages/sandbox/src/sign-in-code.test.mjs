@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { TEAM_INBOX, codeMail, main } from "./preview-sign-in-code.mjs";
+import { TEAM_INBOX, codeMail, main } from "./sign-in-code.mjs";
 
 const ENV = { PR: "3786", PERSONA: "alpha", RESEND_API_KEY: "re_test", CONVEX_DEPLOY_KEY: "preview:t:p|s" };
 
@@ -32,7 +32,7 @@ test("the mail links the preview's login page when the host is known", () => {
 });
 
 test("the personas here are the seed's", async () => {
-  const { PERSONAS } = await import("./preview-sign-in-code.mjs");
-  const seed = await import("./preview-seed.mjs").catch(() => null);
+  const { PERSONAS } = await import("./sign-in-code.mjs");
+  const seed = await import("./seed.mjs").catch(() => null);
   if (seed) assert.deepEqual(PERSONAS, seed.PERSONAS);
 });
