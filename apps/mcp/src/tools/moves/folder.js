@@ -52,7 +52,7 @@ import { toolError, toolText, writePermissionError } from "../results.js";
 export async function toolMoveFolder(store, scope, rules, overrides, sourceArg, destinationArg, dryRun) {
   const source = normalizePath(sourceArg)?.replace(/\/+$/, "");
   const destination = normalizePath(destinationArg)?.replace(/\/+$/, "");
-  if (!source || !destination) return toolError("invalid folder path");
+  if (!source || !destination) return toolError("invalid folder path: give the folder's full path, like projects/portal");
   if (source === destination) return toolText("source and destination are the same");
   if (
     isPlumbing(source) ||
@@ -60,7 +60,7 @@ export async function toolMoveFolder(store, scope, rules, overrides, sourceArg, 
     source.startsWith(destination + "/") ||
     destination.startsWith(source + "/")
   ) {
-    return toolError("source and destination folders must be separate, non-reserved trees");
+    return toolError("source and destination folders must be separate, non-reserved trees; pick a destination outside the source folder");
   }
   // A keyed workspace's notes live at their id keys; the objects at their
   // paths are frozen copies, so the folder moves as rows in the control plane
@@ -119,13 +119,13 @@ export async function toolMoveFolder(store, scope, rules, overrides, sourceArg, 
   if (allObjects.length > LOGICAL_FOLDER_MOVE_THRESHOLD) {
     if (scope !== "private") {
       return toolError(
-        `folder has more than ${LOGICAL_FOLDER_MOVE_THRESHOLD} visible objects; large logical folder moves require owner access`
+        `folder has more than ${LOGICAL_FOLDER_MOVE_THRESHOLD} visible objects; large logical folder moves require owner access; move it in smaller parts, or ask an owner`
       );
     }
     if (dryRun) {
       const destinationObjects = await listAllKeys(lister, destinationPrefix);
       if (destinationObjects.some(({ key }) => !isPlumbing(key))) {
-        return toolError(`conflict: destination already contains objects: ${destination}/`);
+        return toolError(`conflict: destination already contains objects: ${destination}/; pick an empty destination, or move the notes one by one`);
       }
       return toolText(
         `preflight ok: large folder ${source}/ → ${destination}/ (${allObjects.length} objects)\n` +
@@ -185,7 +185,7 @@ export async function toolMoveFolder(store, scope, rules, overrides, sourceArg, 
   // existing raw copy/delete path.
   for (const move of moves) {
     const object = await getWithLegacyFallback(store, move.source);
-    if (!object) return toolError(`source changed during move: ${move.source}`);
+    if (!object) return toolError(`source changed during move: ${move.source}; re-read it and move it again`);
     move.rawEtag = object.etag;
     if (move.source.endsWith(".md")) {
       const sourceText = await object.text();
@@ -193,13 +193,13 @@ export async function toolMoveFolder(store, scope, rules, overrides, sourceArg, 
           collaborationEligible(move.source, sourceText)) {
         const head = await collaborationHead(store, move.source);
         if (head?.status && head.status !== "active") {
-          return toolError(`this note cannot be moved safely right now: ${move.source}`);
+          return toolError(`this note cannot be moved safely right now: ${move.source}; try again in a minute`);
         }
         if (head || store.capabilities?.conditionalDelete === true) {
           try {
             move.collaborationBase = await readCollaborationDocument(store, move.source);
           } catch {
-            return toolError(`this note cannot be moved safely right now: ${move.source}`);
+            return toolError(`this note cannot be moved safely right now: ${move.source}; try again in a minute`);
           }
         } else {
           move.body = new TextEncoder().encode(sourceText);
@@ -224,7 +224,7 @@ export async function toolMoveFolder(store, scope, rules, overrides, sourceArg, 
       if (!move.collaborationBase) {
         const object = await getWithLegacyFallback(store, move.source);
         if (!object || object.etag !== move.rawEtag) {
-          throw new Error(`source changed during move: ${move.source}`);
+          throw new Error(`source changed during move: ${move.source}; re-read it and move it again`);
         }
       }
       // See `move_note`: any narrowing, installed first, at its own value.

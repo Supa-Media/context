@@ -119,7 +119,7 @@ test("a picture sent with this text is attached as attachment:N; one already kep
   assert.equal(csv, attachments[1].kept.id);
   // A file shown again from an earlier text is not "sent with this text".
   const refused = await wrapped("send_email", draft(["attachment:3"]));
-  assert.match(refused.content[0].text, /^Not sent: could not attach attachment:3: not a file sent with this text\.$/);
+  assert.match(refused.content[0].text, /^Not sent: could not attach attachment:3: not a file sent with this text; pass a file from their notes or one they sent in this chat\.$/);
 });
 
 test("download ids and every other tool pass through untouched", async () => {

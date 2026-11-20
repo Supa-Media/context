@@ -63,11 +63,11 @@ function sizeOf(data) {
  * base64, and answer `{ id, name, type, size, keptFor }` or `{ error }`.
  */
 export async function keepDownload(store, file, { now = Date.now() } = {}) {
-  if (typeof store?.put !== "function") return { error: "files can't be kept here" };
+  if (typeof store?.put !== "function") return { error: "files can't be kept here; tell the person, and link the page instead" };
   const data = typeof file?.data === "string" ? file.data : "";
-  if (!data || !/^[A-Za-z0-9+/]+=*$/.test(data)) return { error: "the browser gave back no file" };
+  if (!data || !/^[A-Za-z0-9+/]+=*$/.test(data)) return { error: "the browser gave back no file; open the page again and retry the download step" };
   const size = sizeOf(data);
-  if (size > MAX_DOWNLOAD_BYTES) return { error: "that file is over the 10 MB a file can be" };
+  if (size > MAX_DOWNLOAD_BYTES) return { error: "that file is over the 10 MB a file can be; link it instead of attaching it" };
   const name = downloadName(file.name);
   const type = typeof file.type === "string" && TYPE.test(file.type) ? file.type : "application/octet-stream";
   const long = size <= LONG_KEEP_BYTES;
@@ -84,7 +84,7 @@ export async function keepDownload(store, file, { now = Date.now() } = {}) {
  */
 export async function readDownload(store, rawId, { now = Date.now() } = {}) {
   const id = String(rawId ?? "").trim();
-  if (!ID.test(id)) return { error: "a downloaded file is named by the download:… id the download step gave" };
+  if (!ID.test(id)) return { error: "a downloaded file is named by the download:… id the download step gave; pass that id" };
   if (expired(id, now)) return { error: `${id} is no longer kept; download it again` };
   let parsed = null;
   try {

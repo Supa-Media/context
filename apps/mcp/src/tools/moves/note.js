@@ -45,7 +45,7 @@ export async function toolMoveNote(store, scope, rules, overrides, sourceArg, de
     return toolError("invalid path (source and destination must end in .md)");
   }
   if (source === destination) return toolText("source and destination are the same");
-  if (isPlumbing(source) || isPlumbing(destination)) return toolError("that path is reserved");
+  if (isPlumbing(source) || isPlumbing(destination)) return toolError("that path is reserved: pick another path outside Context's own files");
   // Both questions asked, then decided, so refusing a source this caller may
   // not see costs what refusing an absent one costs; on metadata, so no
   // unreadable body is pulled in to refuse. `toolReadNote` argues it in full.

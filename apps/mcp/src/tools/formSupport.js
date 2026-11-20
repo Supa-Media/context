@@ -97,7 +97,7 @@ export async function readFormResponses(store, config, responsesPath) {
       collaboration = await readCollaborationDocument(store, responsesPath);
       text = collaboration.text;
     } catch {
-      return { refusal: toolError("this response file cannot be updated safely right now") };
+      return { refusal: toolError("this response file cannot be updated safely right now; wait a minute and try again") };
     }
   }
   const parsed = parseResponsesFile(text, config);
@@ -121,12 +121,12 @@ export async function readFormResponses(store, config, responsesPath) {
  * rather than resolved: two answers to one question have no right answer.
  */
 export function valuesFromPairs(pairs) {
-  if (!Array.isArray(pairs)) return { error: "values must be a list of { field, value } entries" };
+  if (!Array.isArray(pairs)) return { error: "values must be a list of { field, value } entries; pass them that way" };
   const values = {};
   for (const pair of pairs) {
     const field = pair?.field;
     if (Object.prototype.hasOwnProperty.call(values, field)) {
-      return { error: `"${field}" is answered twice` };
+      return { error: `"${field}" is answered twice; keep one answer for it` };
     }
     values[field] = pair?.value;
   }

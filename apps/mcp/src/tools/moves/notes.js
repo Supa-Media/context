@@ -53,7 +53,7 @@ export async function toolMoveNotes(store, scope, rules, overrides, movesArg, dr
       return toolError("invalid path (every source and destination must end in .md): give each its full note path, ending in .md");
     }
     if (source === destination) return toolError(`source and destination are the same: ${source}; leave it out, or give it a new destination`);
-    if (isPlumbing(source) || isPlumbing(destination)) return toolError("that path is reserved");
+    if (isPlumbing(source) || isPlumbing(destination)) return toolError("that path is reserved: pick another path outside Context's own files");
     moves.push({ source, destination, expectedSourceEtag: raw.expected_source_etag });
   }
 
@@ -119,7 +119,7 @@ export async function toolMoveNotes(store, scope, rules, overrides, movesArg, dr
         try {
           collaborationBase = await readCollaborationDocument(store, move.source);
         } catch {
-          return toolError(`this note cannot be moved safely right now: ${move.source}`);
+          return toolError(`this note cannot be moved safely right now: ${move.source}; try again in a minute`);
         }
       }
     }

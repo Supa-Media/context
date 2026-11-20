@@ -165,7 +165,7 @@ async function runTool(name, args, store, scope, options = {}) {
       return toolEvaluateLists(store, scope, rules, overrides, args.path);
     case "suggest_destination":
       if (typeof store.suggestDestination !== "function") {
-        return toolError("routing suggestions are unavailable on this deployment");
+        return toolError("routing suggestions are unavailable on this deployment; pick the folder yourself");
       }
       return store.suggestDestination(args);
     case "list_meetings":
@@ -342,7 +342,7 @@ async function runTool(name, args, store, scope, options = {}) {
       // its person belongs to.
       if (scope !== "private") {
         return toolError(
-          "reading this context's Obsidian plugins is the context owner's.",
+          "reading this context's Obsidian plugins is the context owner's. Ask the owner.",
         );
       }
       return toolListPlugins(store);

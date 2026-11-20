@@ -33,12 +33,12 @@ const ANSWERS = {
     toolError(
       "Not started: a dream was already asked for recently" +
         (Number.isFinite(dream.retryAt) ? `; another can be asked for after ${when(dream.retryAt)}.` : ".") +
-        " tex/about.md has what the last one wrote.",
+         " Read tex/about.md for what the last one wrote.",
     ),
   not_included: () =>
     toolError("Not started: their plan doesn't include dreams. Without it, Tex keeps tex/about.md up to date as it texts with them."),
-  daily_limit: () => toolError("Not started: today's use of Tex is used up. Tonight's dream will still run if one is due."),
-  unavailable: () => toolError("Not started: Tex's dreams are switched off on this deployment just now."),
+  daily_limit: () => toolError("Not started: today's use of Tex is used up. Tonight's dream will still run if one is due. Tell the person and leave it."),
+  unavailable: () => toolError("Not started: Tex's dreams are switched off on this deployment just now. Tell the person and try tomorrow."),
   not_texting: () =>
     toolError("Not started: Tex dreams only for someone who texts with it, and this person has no linked phone, or texting is paused."),
 };
@@ -47,7 +47,7 @@ export async function toolDreamNow(store, scope) {
   // The owner's, like a link: anything below the private tier is refused
   // before the control plane is asked, which refuses it again.
   if (scope !== "private") return toolError(NOT_YOURS);
-  if (typeof store?.dreamNow !== "function") return toolError("Not started: dreams are not available on this deployment.");
+  if (typeof store?.dreamNow !== "function") return toolError("Not started: dreams are not available on this deployment. Tell the person, and don't try again.");
   let dream;
   try {
     dream = await store.dreamNow();

@@ -446,7 +446,7 @@ export function browserSession(computer, { allowed, addresses, takePages, say = 
           // The person's file is theirs to send where they said, as their notes' words are (`type` above).
           const onlyOn = openWeb ? null : theirSites.length > 0 ? theirSites : undefined;
           if (onlyOn === undefined) {
-            return textResult("You can only attach the person's files on a site they named in their message.", true);
+            return textResult("You can only attach the person's files on a site they named in their message. Ask the person first whether to upload it there.", true);
           }
           const read = await files(step);
           if (read?.file === undefined) return textResult(`Not attached: ${read?.error ?? "that file could not be read"}.`, true);
@@ -471,7 +471,7 @@ export function browserSession(computer, { allowed, addresses, takePages, say = 
           gotos += 1;
           planned.push({ do: "goto", url });
         } else if (step.do === "type") {
-          if (typeof step.text !== "string") return textResult("A type step needs text.", true);
+          if (typeof step.text !== "string") return textResult("A type step needs text. Add text with the words to type.", true);
           if (await guessedSignInEmail(step.text, planned)) return textResult(GUESSED_EMAIL, true);
           let onlyOn = null;
           // Open web: anything on any page, and no host re-check at the keys.
@@ -491,7 +491,7 @@ export function browserSession(computer, { allowed, addresses, takePages, say = 
         } else if (step.do === "wait") {
           // Seconds, or the milliseconds a model sometimes writes instead (2026-11-05: `{ do: "wait", ms: 3000 }`).
           const seconds = step.seconds !== undefined ? Number(step.seconds) : Math.ceil(Number(step.ms) / 1_000);
-          if (!Number.isFinite(seconds) || seconds < 1 || seconds > MAX_WAIT_SECONDS) return textResult(`A wait step needs seconds, from 1 to ${MAX_WAIT_SECONDS}.`, true);
+          if (!Number.isFinite(seconds) || seconds < 1 || seconds > MAX_WAIT_SECONDS) return textResult(`A wait step needs seconds, from 1 to ${MAX_WAIT_SECONDS}. Pass seconds in that range.`, true);
           planned.push({ do: "wait", seconds: Math.floor(seconds) });
         } else if (step.do === "read") {
           // `from` is the gateway's, for which elements to list; the browser reads the page the same way.
