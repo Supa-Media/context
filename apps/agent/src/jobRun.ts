@@ -126,7 +126,7 @@ export const OVERLAP_WAIT_MS = 30_000;
  * its workflow, which runs every pass; without one, the object's alarm does.
  */
 export async function acceptJob(storage: InboxStorage, run: JobRun, now: number, start?: () => Promise<void>): Promise<void> {
-  if ((await storage.get<JobRun>(RUN_KEY)) !== undefined) return;
+  if ((await storage.get<JobRun>(RUN_KEY)) !== undefined) return start === undefined ? undefined : await start(); // a lost start, retried (`jobWatch.ts`)
   await storage.put<Stored>(RUN_KEY, { ...run, sent: 0 });
   if (start !== undefined) return await start();
   await storage.setAlarm(now);
