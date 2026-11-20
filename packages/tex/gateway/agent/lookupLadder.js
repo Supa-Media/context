@@ -38,9 +38,17 @@ const MAX_ASK = 2_000;
 /** Sentences of a draft that end in a question mark, in order. Code's only part of reading an ask: a pre-filter. */
 export function questionsIn(draft) {
   const text = String(draft ?? "");
-  if (!text.includes("?")) return [];
-  return (text.match(/[^.!?\n]*\?+/g) ?? []).map((s) => s.replace(/\s+/g, " ").trim()).filter((s) => /[a-z0-9]/i.test(s));
+  const tidy = (list) => list.map((s) => s.replace(/\s+/g, " ").trim()).filter((s) => /[a-z0-9]/i.test(s));
+  const marked = text.includes("?") ? tidy(text.match(/[^.!?\n]*\?+/g) ?? []) : [];
+  // An ask need not end in a question mark: "Send me her address." asks them as surely as "What's her address?"
+  // (2026-11-20, a live test text that skipped the climb). Sentences that ask them for something count too; the model
+  // still reads what each asks, so a "let me know if you want more" is passed as no real ask.
+  const told = tidy((text.match(/[^.!?\n]+[.!]?/g) ?? []).filter((s) => !s.includes("?") && ASKS_THEM.test(s)));
+  return [...marked, ...told];
 }
+
+/** Words that ask the person for something without a question mark. */
+const ASKS_THEM = /\b(?:send|tell|give|text|share|forward|drop|remind) me\b|\blet me know\b|\bi(?:'ll| will)? need (?:you|your|the|her|his|their)\b|\bconfirm (?:the|your|which|her|his|their)\b/i;
 
 /** The selector a Workers AI decision model is asked with: the last part of its id ("@cf/typesafe/jev" -> "jev"). */
 export function selectorOf(model) {

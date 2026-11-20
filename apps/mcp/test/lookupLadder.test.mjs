@@ -39,6 +39,12 @@ test("questions are the sentences that end in a question mark", () => {
   assert.deepEqual(questionsIn("Done. What's your flight number? Also, which day?"), ["What's your flight number?", "Also, which day?"]);
   assert.deepEqual(questionsIn("All set, it's booked."), []);
   assert.deepEqual(questionsIn("???"), []);
+  // An ask with no question mark is one too (a live draft, 2026-11-20, went out without climbing). Sabotage: keeping
+  // only sentences with "?" fails these.
+  assert.deepEqual(questionsIn("I couldn't find it. Send me her address and I'll mail it."), ["Send me her address and I'll mail it."]);
+  assert.deepEqual(questionsIn("Let me know which sister it is."), ["Let me know which sister it is."]);
+  assert.deepEqual(questionsIn("Booked. Which day? Tell me the time too."), ["Which day?", "Tell me the time too."]);
+  assert.deepEqual(questionsIn("Sent the card to Ana."), [], "a done thing asks nothing");
 });
 
 test("the model's read is a known kind with its confidence, or nothing", () => {
