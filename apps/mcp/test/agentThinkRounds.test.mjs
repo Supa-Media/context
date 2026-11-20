@@ -240,7 +240,7 @@ test("the fallback still takes over mid-plan, and the turn stays on it", async (
     async run(model, input) {
       calls.push(model);
       if (model === "@cf/acme/main") throw new Error("upstream said no");
-      const toolCall = calls.length < 4 ? [{ id: `c${calls.length}`, type: "function", function: { name: "read_note", arguments: "{}" } }] : [];
+      const toolCall = calls.length < 5 ? [{ id: `c${calls.length}`, type: "function", function: { name: "read_note", arguments: "{}" } }] : [];
       return { choices: [{ message: { content: toolCall.length ? "" : "From the spare.", tool_calls: toolCall }, finish_reason: toolCall.length ? "tool_calls" : "stop" }], usage: { prompt_tokens: 5, completion_tokens: 2 } };
     },
   };
@@ -255,10 +255,11 @@ test("the fallback still takes over mid-plan, and the turn stays on it", async (
     builtinModelOverride: "@cf/acme/main",
     router: { decide: async () => ({ tier: { choice: "think", confidence: 0.9 } }), think: "@cf/acme/think", thinkRounds: 1 },
     fallback: "@cf/acme/spare",
+    retryWaitMs: 0,
   });
   // Round 0 plans on think; round 1 would drive on main, which fails, so the
-  // spare answers that round and every one after it.
-  assert.deepEqual(calls, ["@cf/acme/think", "@cf/acme/main", "@cf/acme/spare", "@cf/acme/spare"]);
+  // spare answers that round and every one after it (after main is asked once more).
+  assert.deepEqual(calls, ["@cf/acme/think", "@cf/acme/main", "@cf/acme/main", "@cf/acme/spare", "@cf/acme/spare"]); // main asked again once, then the spare
   assert.equal(result.answer, "From the spare.");
   assert.equal(result.model, "@cf/acme/spare");
   assert.deepEqual(Object.keys(result.usageByModel).sort(), ["@cf/acme/spare", "@cf/acme/think"]);

@@ -39,6 +39,11 @@ import { awaitExamples } from "./turnExamples.js";
 import { BUILTIN_PROVIDER, builtinModel, hasBuiltinModel, liveTurn, requestBuiltin, systemText } from "./builtin.js";
 import { ProviderError, THINKING_REFUSED } from "./providers.js";
 
+/** How long a failed model call waits before it is asked again, once (`runTurn`). */
+const RETRY_CALL_MS = 2_000;
+/** Refusals another try cannot change: a bad request or a key the provider will not take. */
+const NOT_RETRIED = new Set([400, 401, 403]);
+
 /** Why a model call failed, as the trace keeps it: the provider's own phrase and, through the gateway, each payer asked and its status (`aiGateway.js`). */
 const failedWhy = (error) => ({ ...(typeof error?.reason === "string" ? { reason: error.reason } : {}), ...(Array.isArray(error?.payers) && error.payers.length > 0 ? { payers: error.payers } : {}) });
 import { BROWSE_TIMED_OUT, BROWSE_TOOL } from "./computer.js";
@@ -454,6 +459,10 @@ export async function runTurn(options) {
   let escalate = false;
   // The fallback is taken once a turn: a turn that moved models must never loop back to it.
   let fellBack = false;
+  // A failed model call is asked again once, on the same model, after a short wait (Dev2, 2026-11-20: "retry Haiku fast,
+  // drop GLM"): the GLM fallback took 60 s and more on a front-door prompt, so a blip now costs seconds, not a minute.
+  let retriedCall = false;
+  const retryWaitMs = Number.isFinite(options.retryWaitMs) && options.retryWaitMs >= 0 ? options.retryWaitMs : RETRY_CALL_MS;
 
   // An earlier try's rounds (`savedRounds.js`): put back after the question, its calls counted as this turn's own, never run or logged again.
   const firstRound = resumedRounds({ resumeFrom, rounds, messages, held, steps, tell });
@@ -536,6 +545,17 @@ export async function runTurn(options) {
     } catch (error) {
       // A provider that refused the earlier blocks (`aiGateway.js` names it): once more without them.
       if (error instanceof ProviderError && error.reason === THINKING_REFUSED && !stripped && messages.some((m) => m.content)) { stripped = strippedNote = true; timing.modelMs += clock() - asked; for (const m of messages) delete m.content; round -= 1; continue; }
+      if (error instanceof ProviderError && !retriedCall && !NOT_RETRIED.has(error.status)) {
+        retriedCall = true;
+        const ms = clock() - asked;
+        timing.modelMs += ms;
+        const why = failedWhy(error);
+        trace.push({ kind: "retry", model, status: error.status ?? null, ...why, ok: false, at: asked - began, ms });
+        tell({ kind: "model", step: "model", model, ms, ok: false, input: { round, status: error.status ?? null, ...why }, output: { retryInMs: retryWaitMs }, reason: `${model} failed: ${error.reason}; asked again once` });
+        if (retryWaitMs > 0) await new Promise((resolve) => setTimeout(resolve, retryWaitMs));
+        round -= 1;
+        continue;
+      }
       /*
         THE FALLBACK MODEL (decided by the owner, 2026-10-09). A provider that
         failed after its retry costs the person a slower answer, never no
