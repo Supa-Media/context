@@ -8,7 +8,7 @@
  * try: a fresh session, a quieter moment.
  */
 
-/** The gateway hands back at most this much of what it heard (`apps/mcp/src/agent/heardWords.js` `MAX_HEARD_CHARS`). */
+/** The gateway hands back at most this much of what it heard (`packages/tex/gateway/agent/heardWords.js` `MAX_HEARD_CHARS`). */
 export const MAX_HEARD = 3_000;
 
 /** A gateway refusal as one short line for a job's status and the logs: its status and its own reason, a fixed line of the gateway's, never the person's words. Null when it is not a refusal. */

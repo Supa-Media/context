@@ -4,8 +4,8 @@
  * as in production (`heartbeat.js` HEARTBEAT_CLIENT_ID, `routine.js` ROUTINES_CLIENT_ID), through the real `/agent`.
  * Their answers are shaped as a texted turn's (`world.text`), so `run.mjs` `converse` and the judge read them alike.
  */
-import { HEARTBEAT_CLIENT_ID } from "../src/agent/heartbeat.js";
-import { ROUTINES_CLIENT_ID } from "../src/agent/routine.js";
+import { HEARTBEAT_CLIENT_ID } from "../../../packages/tex/gateway/agent/heartbeat.js";
+import { ROUTINES_CLIENT_ID } from "../../../packages/tex/gateway/agent/routine.js";
 import { createWorkerCtx } from "../test/workerCtx.mjs";
 import { realNow } from "./clock.mjs";
 import { quietCallsOf } from "./frontDoorCall.mjs";

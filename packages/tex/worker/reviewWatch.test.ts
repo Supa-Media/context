@@ -8,7 +8,7 @@ import type { GroupMessage } from "./sendblueGroups";
 
 /**
  * A CONVERSATION THAT WENT QUIET IS SCORED (the owner, 2026-10-24;
- * `apps/mcp/src/agent/selfReview.js`).
+ * `packages/tex/gateway/agent/selfReview.js`).
  *
  * Every answered text starts the watch over; once the chat has been quiet for
  * `REVIEW_QUIET_MS`, the alarm asks the gateway for one review, with a token

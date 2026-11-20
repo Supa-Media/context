@@ -48,9 +48,9 @@ import {
   transcriptWords,
   waitingSummary,
 } from "../../../../packages/meetings/src/summary.js";
-import { DEFAULT_GATEWAY_MODEL } from "../agent/builtin.js";
-import { aiGatewayConfig, gatewayMetadata, isGatewayModel, requestViaGateway } from "../agent/aiGateway.js";
-import { promptSections } from "../agent/production.js";
+import { DEFAULT_GATEWAY_MODEL } from "../../../../packages/tex/gateway/agent/builtin.js";
+import { aiGatewayConfig, gatewayMetadata, isGatewayModel, requestViaGateway } from "../../../../packages/tex/gateway/agent/aiGateway.js";
+import { promptSections } from "../../../../packages/tex/gateway/agent/production.js";
 import { loadPrivacyState } from "../privacy/state.js";
 import { toolReadNote } from "../tools/notes/read.js";
 import { toolWriteNote } from "../tools/notes/write.js";

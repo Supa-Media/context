@@ -10,7 +10,7 @@
  * the person's later texts (`STEERS_KEY`) and sends it into the part running
  * now through `/agent/steer` with a `mail` marker, so the part takes it in
  * after its next tool call, shown as another agent's words that vouch for
- * nothing (`apps/mcp/src/agent/steer.js` `mailLine`). One the part never took
+ * nothing (`packages/tex/gateway/agent/steer.js` `mailLine`). One the part never took
  * is shown to the next part.
  *
  * An interrupt (the gateway lets only Tex's own turn send one) is the same

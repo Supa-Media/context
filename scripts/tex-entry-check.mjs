@@ -5,8 +5,8 @@
  * that we are never guessing").
  *
  * Code between `// TEX ENTRY POINT: begin` and `// TEX ENTRY POINT: end`
- * (the gateway's `texEntryPoint`, `apps/mcp/src/agent/texEntryPoint.js`, and each of its
- * steps under `apps/mcp/src/agent/texEntryPoint/`; any region in
+ * (the gateway's `texEntryPoint`, `packages/tex/gateway/agent/texEntryPoint.js`, and each of its
+ * steps under `packages/tex/gateway/agent/texEntryPoint/`; any region in
  * the texting Worker, `packages/tex/worker`, is checked the same way) is the path
  * a text takes to its answer. Every `await` in there must await a timed call of the entry point
  * (`await tex.step("name", ...)`, `tex.wait`, `tex.ahead`, `tex.after`,
@@ -35,15 +35,15 @@ export const ENTRY_POINTS = [
     label: "Tex",
     begin: "// TEX ENTRY POINT: begin",
     end: "// TEX ENTRY POINT: end",
-    scanned: ["apps/mcp/src/agent", "packages/tex/worker"],
+    scanned: ["packages/tex/gateway/agent", "packages/tex/worker"],
     // The texting Worker's side (`packages/tex/worker`) is timed per text by `textTiming.ts` (`tex_text_timing`);
     // a region there is checked the same way once one is added, and joins this list then.
-    required: ["apps/mcp/src/agent/texEntryPoint.js"],
+    required: ["packages/tex/gateway/agent/texEntryPoint.js"],
     // Every step file of the turn holds a region too (`texEntryPoint/steps.js` lists them; it and `clients.js` hold no code that waits).
-    requiredUnder: { dir: "apps/mcp/src/agent/texEntryPoint", except: ["steps.js", "clients.js"] },
+    requiredUnder: { dir: "packages/tex/gateway/agent/texEntryPoint", except: ["steps.js", "clients.js"] },
     timed: /^await\s+tex\.(step|wait|ahead|after|behind)\(/,
     // `texEntryPoint` itself awaits its steps, each a file whose own region is checked here: only there, and only as `steps.<name>(t)`.
-    stepCalls: { file: "apps/mcp/src/agent/texEntryPoint.js", timed: /^await\s+steps\.[a-zA-Z]+\(t(, error)?\)/ },
+    stepCalls: { file: "packages/tex/gateway/agent/texEntryPoint.js", timed: /^await\s+steps\.[a-zA-Z]+\(t(, error)?\)/ },
     step: /\btex\.(step|wait|ahead|after)\(/g,
     fix: 'wrap it as `await tex.step("what_it_does", () => ...)` (texTiming)',
   },
@@ -170,11 +170,11 @@ function selfTest() {
   if (nested.problems.length !== 1) throw new Error("self-test: an untimed await inside a step passed");
   const stepsOk = checkSource(`${BEGIN}\nconst a = (await steps.readTheText(t)) ?? (await steps.sendTheReply(t));\nreturn await steps.recoverFromFailure(t, error);\n${END}\n`, TEX, TEX.stepCalls.file);
   if (stepsOk.problems.length !== 0) throw new Error(`self-test: texEntryPoint's own steps were refused: ${stepsOk.problems.join("; ")}`);
-  const stepsElsewhere = checkSource(`${BEGIN}\nconst a = await steps.readTheText(t);\n${END}\n`, TEX, "apps/mcp/src/agent/texEntryPoint/readTheText.js");
+  const stepsElsewhere = checkSource(`${BEGIN}\nconst a = await steps.readTheText(t);\n${END}\n`, TEX, "packages/tex/gateway/agent/texEntryPoint/readTheText.js");
   if (stepsElsewhere.problems.length !== 1) throw new Error("self-test: a step call outside texEntryPoint.js passed");
   const stepsOther = checkSource(`${BEGIN}\nconst a = await steps.readTheText(t, more);\nconst b = await other.readTheText(t);\n${END}\n`, TEX, TEX.stepCalls.file);
   if (stepsOther.problems.length !== 2) throw new Error("self-test: an await that is not a step of the turn passed in texEntryPoint.js");
-  if (!mustHold(TEX, "apps/mcp/src/agent/texEntryPoint/sendTheReply.js") || mustHold(TEX, "apps/mcp/src/agent/texEntryPoint/steps.js") || mustHold(TEX, "apps/mcp/src/agent/turn.js")) throw new Error("self-test: which step files must hold a region is wrong");
+  if (!mustHold(TEX, "packages/tex/gateway/agent/texEntryPoint/sendTheReply.js") || mustHold(TEX, "packages/tex/gateway/agent/texEntryPoint/steps.js") || mustHold(TEX, "packages/tex/gateway/agent/turn.js")) throw new Error("self-test: which step files must hold a region is wrong");
   const MCP = ENTRY_POINTS[1];
   const mcpOk = checkSource(`${MCP.begin}\nconst s = await mcp.step("session", () => r());\n${MCP.end}\n`, MCP);
   if (mcpOk.problems.length !== 0 || mcpOk.regions !== 1) throw new Error(`self-test: a timed MCP region was refused: ${mcpOk.problems.join("; ")}`);

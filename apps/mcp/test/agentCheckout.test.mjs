@@ -27,14 +27,14 @@
  *     sentences" fails.
  */
 
-import { carries } from "../src/agent/checkFindings.js";
+import { carries } from "../../../packages/tex/gateway/agent/checkFindings.js";
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { browserSession, handoffRefusedIn, shownElements } from "../src/agent/browse.js";
-import { CARD_NOTICE, LOOK_ON_SITE_NOTICE, handsBackThePayment, saysNotFoundOnSite } from "../src/agent/checkoutChecks.js";
-import { claimCheck } from "../src/agent/claimCheck.js";
-import { announcesNextStep, unfinishedJob } from "../src/agent/stopsShort.js";
+import { browserSession, handoffRefusedIn, shownElements } from "../../../packages/tex/gateway/agent/browse.js";
+import { CARD_NOTICE, LOOK_ON_SITE_NOTICE, handsBackThePayment, saysNotFoundOnSite } from "../../../packages/tex/gateway/agent/checkoutChecks.js";
+import { claimCheck } from "../../../packages/tex/gateway/agent/claimCheck.js";
+import { announcesNextStep, unfinishedJob } from "../../../packages/tex/gateway/agent/stopsShort.js";
 import { TEXTED_REPORT_CAP, reportGate } from "../src/tools/reportGate.js";
 
 /** A bus checkout: a long schedule of links, then the passenger and card boxes and the Purchase button. */

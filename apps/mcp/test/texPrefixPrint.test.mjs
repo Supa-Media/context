@@ -14,7 +14,7 @@ import assert from "node:assert/strict";
 import { after, before, test } from "node:test";
 
 import { createEgressWorld, textTex, TOKEN_TEXTS } from "./agentEgressFixtures.mjs";
-import { MAX_HISTORY_PRINTS, prefixPrint } from "../src/agent/prefixPrint.js";
+import { MAX_HISTORY_PRINTS, prefixPrint } from "../../../packages/tex/gateway/agent/prefixPrint.js";
 
 test("a moved cache mark never changes a fingerprint; a changed message does", () => {
   const body = (mark, words = "hi") => ({

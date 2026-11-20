@@ -532,7 +532,7 @@ describe("sendblue sending", () => {
   });
 
   // The replied-to words reach Tex, but apart from the question: the gateway's guards vouch from
-  // the person's own words, and the message picked may be one Tex sent (`apps/mcp/src/agent/quoted.js`).
+  // the person's own words, and the message picked may be one Tex sent (`packages/tex/gateway/agent/quoted.js`).
   it("sends the replied-to words apart from the person's own", async () => {
     const storage = new MemoryStorage();
     await accept(storage, { ...message("sendblue:mh_q"), text: "yes", quoted: "Want me to book it?" }, 1_000);

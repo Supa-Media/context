@@ -22,7 +22,7 @@
 import { cardsOn, type AppCard, type AppCardConfig } from "./appCards";
 import { PICTURE_FAILED, type SendPart } from "./outgoing";
 
-/** One option of a set, as the gateway read it from an option card (`apps/mcp/src/agent/outgoingPictures.js`). */
+/** One option of a set, as the gateway read it from an option card (`packages/tex/gateway/agent/outgoingPictures.js`). */
 export type Choice = { name: string; price?: string; pick?: true; picture: number };
 
 const MAX_CHOICES = 8;

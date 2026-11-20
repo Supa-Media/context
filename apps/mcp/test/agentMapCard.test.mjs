@@ -24,11 +24,11 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { outgoingPictures } from "../src/agent/outgoingPictures.js";
-import { pictureMaker, withPictureMaker } from "../src/agent/pictureMaker.js";
-import { VISUAL_TEMPLATES, VISUAL_TOOL, buildVisual } from "../src/agent/visuals/index.js";
-import { MAP_HEIGHT, MAX_TILES, PIN_ROOM, drawMap, googleMapUrl, mapStops, spreadPins, tileLayout, worldPixel } from "../src/agent/visuals/map.js";
-import { cardCheckFor, unpinnedRule } from "../src/agent/cardCheck.js";
+import { outgoingPictures } from "../../../packages/tex/gateway/agent/outgoingPictures.js";
+import { pictureMaker, withPictureMaker } from "../../../packages/tex/gateway/agent/pictureMaker.js";
+import { VISUAL_TEMPLATES, VISUAL_TOOL, buildVisual } from "../../../packages/tex/gateway/agent/visuals/index.js";
+import { MAP_HEIGHT, MAX_TILES, PIN_ROOM, drawMap, googleMapUrl, mapStops, spreadPins, tileLayout, worldPixel } from "../../../packages/tex/gateway/agent/visuals/map.js";
+import { cardCheckFor, unpinnedRule } from "../../../packages/tex/gateway/agent/cardCheck.js";
 
 const CARD_PNG = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAAC0lEQVR4nGNgAAIAAAUAAXpeqz8AAAAASUVORK5CYII=";
 const KEY = "test-maps-key-not-real";

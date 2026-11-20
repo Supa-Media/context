@@ -21,7 +21,7 @@ const NAME_RE = /^[a-z0-9][a-z0-9-]{0,23}$/;
 const MAX_PATH = 1024;
 const JOB_ID_RE = /^[A-Za-z0-9_-]{8,64}$/;
 const MAX_JOB_MAILBOXES = 20;
-/** The roster's own names on every job note (`apps/mcp/src/agent/jobNote.js`): a job never joins as one. */
+/** The roster's own names on every job note (`packages/tex/gateway/agent/jobNote.js`): a job never joins as one. */
 const ROSTER_NAMES = new Set(["tex", "advisor"]);
 
 const mailboxView = v.object({

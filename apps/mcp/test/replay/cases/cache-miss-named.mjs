@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { oneToOne } from "../chats.mjs";
-import { earlierRoom } from "../../../src/agent/ledgerHistory.js";
+import { earlierRoom } from "../../../../../packages/tex/gateway/agent/ledgerHistory.js";
 
 export default {
   id: "cache-miss-named",

@@ -13,7 +13,7 @@ first to fire won and the rest waited for the rewrite.
 
 - Every code check (`claimCheck.js`, `replyChecks.js`, `doItChecks.js`) reads
   the same draft, and it goes back **once** with every finding
-  (`apps/mcp/src/agent/checkFindings.js`). One finding goes back word for word.
+  (`packages/tex/gateway/agent/checkFindings.js`). One finding goes back word for word.
 - A **fact** is something the turn's own record proves wrong (a change claimed
   with no call, a link nothing gave, a figure nothing read, a browser never
   tried, a look-up handed back, a bare page with no cover). Facts block.

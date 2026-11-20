@@ -7,7 +7,7 @@
  * code and tests import gateway modules by relative path. It is the longest
  * check on a pull request (four minutes across three shards), and it ran on
  * every texting-assistant fix, although nothing in `apps/convex` reaches
- * `apps/mcp/src/agent/` or the gateway's own tests (2026-10-20). So the convex
+ * `packages/tex/gateway/agent/` or the gateway's own tests (2026-10-20). So the convex
  * filter in `ci.yml` names the gateway files Convex actually reaches, and
  * `check-ci-path-gates.mjs` fails when it stops covering what this derives:
  *
@@ -25,11 +25,13 @@
  * It fails toward running the suite: a Convex import of a workspace package by
  * name claims the whole package, so a Convex file importing `@context/mcp`
  * would require `apps/mcp/**` back.
+ * `@context/tex` is the exception, as in the deploy plan: Convex counts only the
+ * Tex files it imports, since Tex's gateway objects live in the same package.
  */
 import { readFileSync, readdirSync, existsSync, statSync, realpathSync } from "node:fs";
 import { basename, dirname, join, relative, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
-import { componentInputs } from "./deploy-plan.mjs";
+import { TEX_IMPORT_ONLY, componentInputs } from "./deploy-plan.mjs";
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const CONVEX = "apps/convex";
@@ -76,9 +78,10 @@ export function convexGatewayReads(root = ROOT) {
   const convexFiles = sources(root, CONVEX);
   const files = new Set();
   const scanners = new Set();
-  // Convex reads the Lab package's `src/` files by path (`@context/lab/src/x.cjs`) and nothing else of it; claiming the
-  // whole package would count its gateway half (`packages/lab/gateway`, which reaches into the gateway) as Convex's.
-  const { files: reached, dirs } = componentInputs({ packages: [], files: convexFiles, importOnly: ["@context/lab"] }, root);
+  // Convex reads Tex's and the Lab's packages by path (`@context/lab/src/x.cjs`) and nothing else of them; claiming a
+  // whole package would count its gateway half (`packages/tex/gateway`, `packages/lab/gateway`, which reach into the
+  // gateway) as Convex's.
+  const { files: reached, dirs } = componentInputs({ packages: [], importOnly: TEX_IMPORT_ONLY, files: convexFiles }, root);
   if (dirs.some((dir) => `${dir}/`.startsWith(GATEWAY))) scanners.add(`${CONVEX} imports the gateway package by name`);
   for (const file of reached) if (file.startsWith(GATEWAY)) files.add(file);
   for (const file of convexFiles) {
@@ -128,7 +131,7 @@ function selfTest() {
     ['const FILES = ["apps/mcp/src"];', [{ path: "apps/mcp/src", whole: true }]],
     ['readFileSync(join(ROOT, "apps/mcp/test/test.mjs"))', [{ path: "apps/mcp/test/test.mjs", whole: false }]],
     // Prose names repository paths in backticks; that is not a read.
-    [" * The gateway's `apps/mcp/src/agent/route.js` is what this mirrors.", []],
+    [" * The gateway's `packages/tex/gateway/agent/route.js` is what this mirrors.", []],
     [" * `apps/mcp/src`, `packages/*` is treated like a package", []],
     ['import { x } from "./local";', []],
   ];

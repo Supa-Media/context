@@ -26,10 +26,10 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { DOWNLOADS_PREFIX, LONG_KEEP_MS, SHORT_KEEP_MS, keepDownload, readDownload, sweepDownloads } from "../src/agent/downloads.js";
-import { browserSession } from "../src/agent/browse.js";
-import { withFileWords } from "../src/agent/browserProviders.js";
-import { resolveUpload } from "../src/agent/uploads.js";
+import { DOWNLOADS_PREFIX, LONG_KEEP_MS, SHORT_KEEP_MS, keepDownload, readDownload, sweepDownloads } from "../../../packages/tex/gateway/agent/downloads.js";
+import { browserSession } from "../../../packages/tex/gateway/agent/browse.js";
+import { withFileWords } from "../../../packages/tex/gateway/agent/browserProviders.js";
+import { resolveUpload } from "../../../packages/tex/gateway/agent/uploads.js";
 import { emailCopy, readEmail, toolSaveEmailDraft, toolSendEmail } from "../src/tools/email.js";
 import { emailGate } from "../src/tools/emailGate.js";
 import { createMemoryStore } from "./gmailSync/fixtures.mjs";

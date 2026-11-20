@@ -16,7 +16,7 @@ The fix is the inverse: one judge in front, a floor of three code backstops behi
 
 ### Research path
 
-- **Tools.** The main model gets `search_web` (Brave, 6 results, snippets cut to 400 characters) and `open_page` (`apps/mcp/src/agent/search.js`, `computer.js`). A 1:1 text gets the person's browser; a group gets the chat's own browser and the same search (`turnWeb.js:75-82`). Both reach the model as tools (`turn.js:286`, `turn.js:295`).
+- **Tools.** The main model gets `search_web` (Brave, 6 results, snippets cut to 400 characters) and `open_page` (`packages/tex/gateway/agent/search.js`, `computer.js`). A 1:1 text gets the person's browser; a group gets the chat's own browser and the same search (`turnWeb.js:75-82`). Both reach the model as tools (`turn.js:286`, `turn.js:295`).
 - **Budgets.** Without the setup's `open_web`, a question may run 3 searches and open 5 pages (`search.js:23`, `computer.js:59`). With it, 50 and 40 (`search.js:31`, `computer.js:66`). A page shows the model at most 12,000 characters, with a cut marker that says how to read on (`computer.js:86`, `computer.js:270-283`).
 - **Which pages may open.** Without `open_web`, only an address the person wrote, a search result or a link on an opened page (`computer.js:464-468`). The model cannot open a release page it knows the address of unless a search returned it.
 - **Failures.** A failed page reaches the model as an error tool result with a next step: try the browser or another site (`computer.js:488-489`, `otherSites.js:45`, `providers.js:56-69`). The cause (timeout, refused, wall) is logged and not told (`computer.js:351-360`). A thrown tool error reaches the model without its reason (`turn.js:626-639`).
@@ -175,7 +175,7 @@ people talking ("it's directly related to details it was handling"). Dev2:
 brief kept when each turn ends.
 
 - When a group turn ends, the gateway keeps a `brief` entry in the chat's
-  ledger (`apps/mcp/src/agent/judgeBrief.js`, from `sendTheReply.js`): who
+  ledger (`packages/tex/gateway/agent/judgeBrief.js`, from `sendTheReply.js`): who
   asked and their words (200 characters), the tools it ran and the sites or
   note paths they touched, the yeses it waits on, the chat's about note
   (900) and its custom instructions (400). No model call.

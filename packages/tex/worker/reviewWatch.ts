@@ -1,6 +1,6 @@
 /**
  * Telling the gateway a conversation with Tex has ended, so it can score how
- * it went (the owner, 2026-10-24; `apps/mcp/src/agent/selfReview.js`,
+ * it went (the owner, 2026-10-24; `packages/tex/gateway/agent/selfReview.js`,
  * docs/decisions/texting-assistant/self-review.md).
  *
  * Nobody says goodbye to an assistant they text, so a conversation has ended

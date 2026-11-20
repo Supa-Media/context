@@ -27,7 +27,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { DATA_CARDS_LINE, MAX_PICTURES, PICTURES_LINE, outgoingPictures } from "../src/agent/outgoingPictures.js";
+import { DATA_CARDS_LINE, MAX_PICTURES, PICTURES_LINE, outgoingPictures } from "../../../packages/tex/gateway/agent/outgoingPictures.js";
 import { createEgressWorld, request, TOKEN_TEXTS } from "./agentEgressFixtures.mjs";
 
 // A 1x1 PNG.

@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 
-import { EARLIER, estimateBodyTokens, fitHaikuBody, HAIKU_INPUT_BUDGET, LEFT_OUT } from "../../../src/agent/promptBudget.js";
+import { EARLIER, estimateBodyTokens, fitHaikuBody, HAIKU_INPUT_BUDGET, LEFT_OUT } from "../../../../../packages/tex/gateway/agent/promptBudget.js";
 
 export default {
   id: "prompt-under-cliff",

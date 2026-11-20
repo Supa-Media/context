@@ -7,8 +7,8 @@
 
 import { MACHINE_PATHS, handleMachines } from "../machines/routes.js";
 import { MACHINE_JOB_PATHS, handleMachineJob } from "../machines/jobRoutes.js";
-import { JOB_NOTE_PATHS, handleJobNote } from "../agent/jobNote.js";
-import { JOB_PART_END_PATH, handleJobPartEnd } from "../agent/jobPartEndRoute.js";
+import { JOB_NOTE_PATHS, handleJobNote } from "../../../../packages/tex/gateway/agent/jobNote.js";
+import { JOB_PART_END_PATH, handleJobPartEnd } from "../../../../packages/tex/gateway/agent/jobPartEndRoute.js";
 import { MACHINE_APP_PATHS, handleMachineApp } from "../machines/appRoutes.js";
 import { openaiAppsChallengeResponse } from "./openaiAppsChallenge.js";
 import { actorFor, contextsFor } from "../context/identity.js";
@@ -43,13 +43,13 @@ import {
 import { corsResponse, json, RETRY_AFTER } from "./responses.js";
 import { createControlPlane } from "../controlPlane.js";
 import { enforceOrigin, isTransportPath } from "../origin.js";
-import { handleAgent } from "../agent/route.js";
-import { handleReview } from "../agent/selfReview.js";
-import { DREAMS_CLIENT_ID } from "../agent/dream.js";
-import { HEARTBEAT_CLIENT_ID, handleHeartbeat } from "../agent/heartbeat.js";
-import { HOUSEKEEPING_CLIENT_ID } from "../agent/housekeeping.js";
-import { handleDream, handleHousekeeping } from "../agent/nightlyRoute.js";
-import { streamTurn, wantsProgress } from "../agent/progress.js";
+import { handleAgent } from "../../../../packages/tex/gateway/agent/route.js";
+import { handleReview } from "../../../../packages/tex/gateway/agent/selfReview.js";
+import { DREAMS_CLIENT_ID } from "../../../../packages/tex/gateway/agent/dream.js";
+import { HEARTBEAT_CLIENT_ID, handleHeartbeat } from "../../../../packages/tex/gateway/agent/heartbeat.js";
+import { HOUSEKEEPING_CLIENT_ID } from "../../../../packages/tex/gateway/agent/housekeeping.js";
+import { handleDream, handleHousekeeping } from "../../../../packages/tex/gateway/agent/nightlyRoute.js";
+import { streamTurn, wantsProgress } from "../../../../packages/tex/gateway/agent/progress.js";
 import { APP_ROUTES } from "./appRoutes.js";
 import { handleMessagesBackup, isMessagesBackupPath, isMessagesBackupRead, messagesBackupRefusal } from "../communications/messagesBackup.js";
 import { MESSAGES_BACKUP_LOG_ROUTE, handleMessagesBackupFileRead, handleMessagesBackupLog } from "../communications/messagesBackupRead.js";
@@ -76,18 +76,18 @@ import { MEETING_SUMMARY_PATH, handleMeetingSummary } from "../meetings/summariz
 import { publishMeetingNote, resolveMeetingNotePath } from "../meetings/notes.js";
 import { transcriptionForwarder } from "../ingestion/transcription.js";
 import { PINNED_CONTEXT_NAME } from "../orient/globalNote.js";
-import { PRODUCTION_MEETING_SUMMARIES_PATH, readJobSetupWith } from "../agent/production.js";
-import { handleTryIt } from "../agent/tryIt.js";
-import { TEXTING_ROUTES } from "../agent/textingRoutes.js";
+import { PRODUCTION_MEETING_SUMMARIES_PATH, readJobSetupWith } from "../../../../packages/tex/gateway/agent/production.js";
+import { handleTryIt } from "../../../../packages/tex/gateway/agent/tryIt.js";
+import { TEXTING_ROUTES } from "../../../../packages/tex/gateway/agent/textingRoutes.js";
 import { withSearchPassesHeld } from "../search/heldPasses.js";
 import { MOVER_PAGE_PATH, handleMoverPage } from "../moves/mover.js";
-import { TEX_STORE_PATH, handleTexStoreDoor } from "../texStore/door.js";
-import { THREADS_BACKFILL_PATH, handleThreadsBackfill } from "../agent/threadsBackfillDoor.js";
+import { TEX_STORE_PATH, handleTexStoreDoor } from "../../../../packages/tex/gateway/texStore/door.js";
+import { THREADS_BACKFILL_PATH, handleThreadsBackfill } from "../../../../packages/tex/gateway/agent/threadsBackfillDoor.js";
 import { WORKSPACE_STORE_PATH, handleWorkspaceStoreDoor } from "../workspaceStore/door.js";
 import { IMAGE_UPLOAD_PATH, handleImageUpload } from "../notes/imageUploads.js";
 import { judgeFor } from "../privacy/judge.js";
 import { TEX_EVAL_PREFIX, handleTexEval } from "./texTestSet.js";
-import { CREDIT_REST_PATH, handleCreditRest } from "../agent/creditRest.js";
+import { CREDIT_REST_PATH, handleCreditRest } from "../../../../packages/tex/gateway/agent/creditRest.js";
 import { LAB_SANDBOX_PATH, handleLabSandbox } from "../../../../packages/lab/gateway/labSandbox/route.js";
 import { PAGE_PREFIX as LAB_SANDBOX_PAGES, handleLabSandboxPage } from "../../../../packages/lab/gateway/labSandbox/pages.js";
 

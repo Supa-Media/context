@@ -21,19 +21,19 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { texLedger } from "../src/texStore/ledger.js";
+import { texLedger } from "../../../packages/tex/gateway/texStore/ledger.js";
 import { durableSql } from "./texStoreFixture.mjs";
-import { eventEntry } from "../src/agent/ledger.js";
-import { heardEntry, heardEvents } from "../src/agent/heardWords.js";
-import { dayFromLedger, earlierFromLedger } from "../src/agent/ledgerHistory.js";
-import { renderEvents } from "../src/agent/logRender.js";
-import { conversationFromLedger } from "../src/agent/ledgerConversation.js";
-import { checkEvent } from "../src/agent/log.js";
-import { ATTENTION_QUESTION } from "../src/agent/attention.js";
-import { sentByItself } from "../src/agent/sentByItself.js";
-import { ADVISOR_NOTICE, doItChecks } from "../src/agent/doItChecks.js";
-import { SLOW_TURN_NOTE } from "../src/agent/background.js";
-import { ADVISOR_TOOL } from "../src/agent/advisor.js";
+import { eventEntry } from "../../../packages/tex/gateway/agent/ledger.js";
+import { heardEntry, heardEvents } from "../../../packages/tex/gateway/agent/heardWords.js";
+import { dayFromLedger, earlierFromLedger } from "../../../packages/tex/gateway/agent/ledgerHistory.js";
+import { renderEvents } from "../../../packages/tex/gateway/agent/logRender.js";
+import { conversationFromLedger } from "../../../packages/tex/gateway/agent/ledgerConversation.js";
+import { checkEvent } from "../../../packages/tex/gateway/agent/log.js";
+import { ATTENTION_QUESTION } from "../../../packages/tex/gateway/agent/attention.js";
+import { sentByItself } from "../../../packages/tex/gateway/agent/sentByItself.js";
+import { ADVISOR_NOTICE, doItChecks } from "../../../packages/tex/gateway/agent/doItChecks.js";
+import { SLOW_TURN_NOTE } from "../../../packages/tex/gateway/agent/background.js";
+import { ADVISOR_TOOL } from "../../../packages/tex/gateway/agent/advisor.js";
 
 const CHAT = "texts";
 const AT = 1_793_804_525_376; // 15:02 UTC, the voice message

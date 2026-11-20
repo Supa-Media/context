@@ -1,1 +1,1 @@
-export * from "../../../../apps/mcp/src/agent/ledger.js";
+export * from "../../../tex/gateway/agent/ledger.js";

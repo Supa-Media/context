@@ -9,8 +9,8 @@
  */
 import test from "node:test";
 import assert from "node:assert/strict";
-import { appendLogEntry, appendLogEntryWhy } from "../src/agent/jobLog.js";
-import { shortEntry } from "../src/agent/heartbeat.js";
+import { appendLogEntry, appendLogEntryWhy } from "../../../packages/tex/gateway/agent/jobLog.js";
+import { shortEntry } from "../../../packages/tex/gateway/agent/heartbeat.js";
 
 const NOTE = "etag: c2.doc-a.r-b\npath: tex/heartbeat/2026-10-19.md\nvisibility: private\ndocument_id: doc-a\n\n# Log\n\n## 12:11 pm\n\n_Stayed quiet._\n";
 

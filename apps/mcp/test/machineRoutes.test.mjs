@@ -10,7 +10,7 @@ import { MACHINE_PATHS, handleMachines, mintMachineGrant, mintPairingCode } from
 import { MACHINE_APP_PATHS } from "../src/machines/appRoutes.js";
 import { splitWorkspacePath } from "../src/workspacePath.js";
 import { serveMachineCall } from "../src/workspaceStore/serveMachines.js";
-import { opOf } from "../src/texStore/move.js";
+import { opOf } from "../../../packages/tex/gateway/texStore/move.js";
 import { FACTS, keyPair, machineWorld, protocol } from "./machineWorld.mjs";
 
 const ORIGIN = "https://mcp.example.test";

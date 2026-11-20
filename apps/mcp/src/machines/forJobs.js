@@ -9,7 +9,7 @@
  */
 
 import { workspaceStub } from "../workspaceStore/api.js";
-import { callTexStore } from "../texStore/wire.js";
+import { callTexStore } from "../../../../packages/tex/gateway/texStore/wire.js";
 import { lentToChat, TEXTS_CLIENT_ID } from "./reach.js";
 import { WORK_FOLDER } from "../workspaceStore/machines.js";
 

@@ -36,7 +36,7 @@
 
 import { R2Store } from "../store/r2.js";
 import { objectByName } from "../objectPlace.js";
-import { callTexStore, texBucket } from "../texStore/wire.js";
+import { callTexStore, texBucket } from "../../../../packages/tex/gateway/texStore/wire.js";
 import { personAccessClient } from "./personClient.js";
 
 /** Where a workspace's note bodies are read from. */

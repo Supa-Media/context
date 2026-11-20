@@ -8,7 +8,7 @@ import { internal } from "../_generated/api";
  * People could once save their own Anthropic or OpenAI key for the assistant
  * to spend ("bring your own key"). The owner removed that on 2026-10-10: the
  * keys are deleted and the assistant runs only on the built-in model
- * (`builtinModel.ts`, and `apps/mcp/src/agent/turn.js` on the gateway's side).
+ * (`builtinModel.ts`, and `packages/tex/gateway/agent/turn.js` on the gateway's side).
  * The Settings page went first (#1465); the functions that saved, listed,
  * disconnected and opened a key, and the `/gateway/provider` route the gateway
  * fetched one through, went with this file's rewrite.

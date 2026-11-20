@@ -37,12 +37,12 @@ import { createMemoryStore } from "./gmailSync/fixtures.mjs";
 import { withServedTree } from "./servedTree.mjs";
 import { PAGE_SKILL, PAGE_SKILL_STAMP } from "../src/pageSkill.js";
 import { toolWriteNote } from "../src/tools/notes/write.js";
-import { jobPrompt, jobReportPrompt } from "../src/agent/background.js";
-import { outgoingPictures } from "../src/agent/outgoingPictures.js";
-import { pictureMaker, withPictureMaker } from "../src/agent/pictureMaker.js";
+import { jobPrompt, jobReportPrompt } from "../../../packages/tex/gateway/agent/background.js";
+import { outgoingPictures } from "../../../packages/tex/gateway/agent/outgoingPictures.js";
+import { pictureMaker, withPictureMaker } from "../../../packages/tex/gateway/agent/pictureMaker.js";
 import { createTreeMethods, MAX_COVER_CHARS } from "../src/controlPlane/tree.js";
-import { VISUAL_DEFINITION, VISUAL_TOOL } from "../src/agent/visuals/index.js";
-import { pageCover } from "../src/agent/visuals/page.js";
+import { VISUAL_DEFINITION, VISUAL_TOOL } from "../../../packages/tex/gateway/agent/visuals/index.js";
+import { pageCover } from "../../../packages/tex/gateway/agent/visuals/page.js";
 import { BLOCK_KINDS } from "../../../packages/shared/src/pages/blocks.cjs";
 
 const GOOD = [

@@ -155,7 +155,7 @@ for (const { name, groupId } of LINES) {
       expect([...(await storage.list({ prefix: "gpending:" })).keys()]).toEqual([]);
     });
 
-    // Dev2, 2026-11-17: a retry tells the gateway so, which goes on from what the failed try did (`apps/mcp/src/agent/savedRounds.js`).
+    // Dev2, 2026-11-17: a retry tells the gateway so, which goes on from what the failed try did (`packages/tex/gateway/agent/savedRounds.js`).
     // Sabotage: pass `deps` unchanged in `groupTurnRun.ts` `answerOnce` and the second ask has no `again`.
     it("a retried turn tells the gateway it is a retry, and the first try does not", async () => {
       const { storage, w, deps, run } = handedWorld(groupId);

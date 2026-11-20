@@ -9,9 +9,9 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 
-import { LOCK_LEASE_MS, writeLocks } from "../src/texStore/writeLock.js";
-import { serveTexStore } from "../src/texStore/wire.js";
-import { LOCK_WAIT_MS, withChatWriteLock } from "../src/agent/chatWriteLock.js";
+import { LOCK_LEASE_MS, writeLocks } from "../../../packages/tex/gateway/texStore/writeLock.js";
+import { serveTexStore } from "../../../packages/tex/gateway/texStore/wire.js";
+import { LOCK_WAIT_MS, withChatWriteLock } from "../../../packages/tex/gateway/agent/chatWriteLock.js";
 
 /** A chat store answering only the lock calls, through the real wire (`serveTexStore`). */
 function lockStore(now) {

@@ -1,5 +1,5 @@
 /**
- * Pictures Tex texts back (`apps/mcp/src/agent/outgoingPictures.js` decides
+ * Pictures Tex texts back (`packages/tex/gateway/agent/outgoingPictures.js` decides
  * which): read from the gateway's answer, and sent as photos after its words.
  *
  * A picture from the person's notes arrives as bytes and is uploaded to Linq

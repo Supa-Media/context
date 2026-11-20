@@ -13,10 +13,10 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { MAX_DAYS_PER_NIGHT, chatDays, readSummary, writeDaySummaries } from "../src/agent/daySummaries.js";
-import { earlierFromLedger, readLedger, summaryLines } from "../src/agent/ledgerHistory.js";
-import { eventEntry } from "../src/agent/ledger.js";
-import { texLedger } from "../src/texStore/ledger.js";
+import { MAX_DAYS_PER_NIGHT, chatDays, readSummary, writeDaySummaries } from "../../../packages/tex/gateway/agent/daySummaries.js";
+import { earlierFromLedger, readLedger, summaryLines } from "../../../packages/tex/gateway/agent/ledgerHistory.js";
+import { eventEntry } from "../../../packages/tex/gateway/agent/ledger.js";
+import { texLedger } from "../../../packages/tex/gateway/texStore/ledger.js";
 import { durableSql } from "./texStoreFixture.mjs";
 
 const DAY = 86_400_000;
@@ -106,7 +106,7 @@ test("a long chat reads the summaries past its pages; a short one makes no extra
 });
 
 test("a 1:1 turn opens its history with the summaries of days it no longer shows", async () => {
-  const { loggedTurn } = await import("../src/agent/loggedTurn.js");
+  const { loggedTurn } = await import("../../../packages/tex/gateway/agent/loggedTurn.js");
   const ledger = texLedger(durableSql());
   const ask = `${NOW}-000990`;
   ledger.append("texts", [

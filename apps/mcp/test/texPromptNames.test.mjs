@@ -16,8 +16,8 @@ import { after, before, test } from "node:test";
 
 import { TOKEN_TEXTS, createEgressWorld, request } from "./agentEgressFixtures.mjs";
 import { BUILTIN_ALLOWED } from "./agentModelFixture.mjs";
-import { parseSetup } from "../src/agent/production.js";
-import { staleToolNames } from "../src/agent/promptNames.js";
+import { parseSetup } from "../../../packages/tex/gateway/agent/production.js";
+import { staleToolNames } from "../../../packages/tex/gateway/agent/promptNames.js";
 
 const TOKEN_CHAT = `cat_prompt_names_chat_${"0".repeat(17)}`;
 const KEY = "c3".repeat(32);

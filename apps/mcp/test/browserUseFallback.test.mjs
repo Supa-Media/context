@@ -6,12 +6,12 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { webSession } from "../src/agent/computer.js";
-import { BROWSE_TOOL } from "../src/agent/browse.js";
-import { STUCK_LINE } from "../src/agent/captchaLadder.js";
-import { resetBrowserbaseProbe, siteShotsComputer } from "../src/agent/browserProviders.js";
-import { browserUseFlag, fallbackWanted, siteBlockAfterLadder } from "../src/agent/browserUseFallback.js";
-import { TEX_CONFIG } from "../src/agent/texConfig.js";
+import { webSession } from "../../../packages/tex/gateway/agent/computer.js";
+import { BROWSE_TOOL } from "../../../packages/tex/gateway/agent/browse.js";
+import { STUCK_LINE } from "../../../packages/tex/gateway/agent/captchaLadder.js";
+import { resetBrowserbaseProbe, siteShotsComputer } from "../../../packages/tex/gateway/agent/browserProviders.js";
+import { browserUseFlag, fallbackWanted, siteBlockAfterLadder } from "../../../packages/tex/gateway/agent/browserUseFallback.js";
+import { TEX_CONFIG } from "../../../packages/tex/gateway/agent/texConfig.js";
 
 const PAGE = "https://wwws.airfrance.com/check-in";
 const OWNER = "a".repeat(64);

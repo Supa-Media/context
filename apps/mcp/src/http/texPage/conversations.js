@@ -12,8 +12,8 @@
  * Who may, and which chat: `page.js`, as every Tex page route.
  */
 
-import { listedThreads, readThreads } from "../../agent/conversationThreads.js";
-import { OWN_SOURCES } from "../../agent/sentOnItsOwn.js";
+import { listedThreads, readThreads } from "../../../../../packages/tex/gateway/agent/conversationThreads.js";
+import { OWN_SOURCES } from "../../../../../packages/tex/gateway/agent/sentOnItsOwn.js";
 
 /** The most threads one list answers, and the most lines one thread does. */
 export const MAX_THREADS = 500;

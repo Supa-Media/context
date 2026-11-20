@@ -11,10 +11,10 @@
 
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { JAR_KEY, browserJar } from "../src/agent/browserJar.js";
-import { browserProfile } from "../src/agent/browserProfile.js";
-import { resetBrowserbaseProbe, siteShotsComputer } from "../src/agent/browserProviders.js";
-import { computerFor, webSession } from "../src/agent/computer.js";
+import { JAR_KEY, browserJar } from "../../../packages/tex/gateway/agent/browserJar.js";
+import { browserProfile } from "../../../packages/tex/gateway/agent/browserProfile.js";
+import { resetBrowserbaseProbe, siteShotsComputer } from "../../../packages/tex/gateway/agent/browserProviders.js";
+import { computerFor, webSession } from "../../../packages/tex/gateway/agent/computer.js";
 
 const OWNER = "a".repeat(64);
 const PROFILE = "0b6c0e3e-7a43-4b1e-9d0a-2f5a1c9e8d71";

@@ -31,7 +31,7 @@ import { readFile, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { aiGatewayConfig, requestViaGateway } from "../src/agent/aiGateway.js";
+import { aiGatewayConfig, requestViaGateway } from "../../../packages/tex/gateway/agent/aiGateway.js";
 import { benchFolder, REPO_BENCH_FOLDER } from "./folder.mjs";
 import { inSample, jobsSample } from "./gateSample.mjs";
 import { readBenchFolder } from "./load.mjs";

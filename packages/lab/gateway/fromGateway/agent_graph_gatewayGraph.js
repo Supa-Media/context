@@ -1,1 +1,1 @@
-export * from "../../../../apps/mcp/src/agent/graph/gatewayGraph.js";
+export * from "../../../tex/gateway/agent/graph/gatewayGraph.js";

@@ -53,7 +53,7 @@ import { MACHINE_HEADER, machineSockets } from "../../src/workspaceStore/machine
 import { serveWorkspaceStore } from "../../src/workspaceStore/serve.js";
 import { workspaceRows } from "../../src/workspaceStore/rows.js";
 import { workspaceMembers } from "../../src/workspaceStore/members.js";
-import { texObjects } from "../../src/texStore/objects.js";
+import { texObjects } from "../../../../packages/tex/gateway/texStore/objects.js";
 
 const require = createRequire(import.meta.url);
 const protocol = require("../../../../packages/shared/src/machineProtocol.cjs");

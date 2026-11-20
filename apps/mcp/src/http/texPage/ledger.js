@@ -17,11 +17,11 @@
  * route and outcome (`serve.js`).
  */
 
-import { ledgerFor, ONE_TO_ONE_CHAT } from "../../agent/ledger.js";
-import { earlierFromLedger, readLedger } from "../../agent/ledgerHistory.js";
-import { renderEvents } from "../../agent/logRender.js";
-import { READ_CHARS } from "../../agent/log.js";
-import { LEDGER_KINDS } from "../../texStore/ledger.js";
+import { ledgerFor, ONE_TO_ONE_CHAT } from "../../../../../packages/tex/gateway/agent/ledger.js";
+import { earlierFromLedger, readLedger } from "../../../../../packages/tex/gateway/agent/ledgerHistory.js";
+import { renderEvents } from "../../../../../packages/tex/gateway/agent/logRender.js";
+import { READ_CHARS } from "../../../../../packages/tex/gateway/agent/log.js";
+import { LEDGER_KINDS } from "../../../../../packages/tex/gateway/texStore/ledger.js";
 import { handleOf, startOfDay } from "./page.js";
 import { conversationsView, conversationView } from "./conversations.js";
 import { pagesView } from "./pages.js";

@@ -27,9 +27,9 @@ export type LabNode = {
   icon: string;
   model: string;
   effort?: string;
-  /** Which tools the step's model is shown (`apps/mcp/src/agent/sixToolsFixed.js`): what its turn holds, or the fixed list of its kind of chat. */
+  /** Which tools the step's model is shown (`packages/tex/gateway/agent/sixToolsFixed.js`): what its turn holds, or the fixed list of its kind of chat. */
   toolList?: "turn" | "fixed";
-  /** When the step's rarely-changing modules are read (`apps/mcp/src/agent/frozenModules.js`): each turn, or once a day until the next summary. */
+  /** When the step's rarely-changing modules are read (`packages/tex/gateway/agent/frozenModules.js`): each turn, or once a day until the next summary. */
   freeze?: "turn" | "summary";
   kind?: "input" | "tool";
   outSchema?: OutField[];

@@ -10,7 +10,7 @@ on Clef, with verdicts such as "did not complete or start what the user asked",
 "too verbose" and "accepted", reading every action the turn took and its final
 reply, with the model going back to correct itself before anything is sent.
 
-**What it is** (`apps/mcp/src/agent/replyJudge.js`):
+**What it is** (`packages/tex/gateway/agent/replyJudge.js`):
 
 - A setup turns it on with `reply_judge: clef` or `reply_judge: clef-flash`,
   and `judge_at` (0 to 1, default 0.5) the yes a fault needs to be acted on.
@@ -56,7 +56,7 @@ a roast's "nine-bullet essay" read as an unbacked claim (did_what_it_says failed
 38 times, most of any gate). The analysis is the artifact "Tex reply checks:
 redesign".
 
-**What it is** (`apps/mcp/src/agent/replyJudge.js`):
+**What it is** (`packages/tex/gateway/agent/replyJudge.js`):
 
 - One Haiku 5.5 call (effort low) per draft, through the AI gateway, filed
   under `client: reviewer`. It reads the same state the gates read (their
@@ -152,7 +152,7 @@ limit that the judges can only send back 2 times", and "make sure each of these
 judges are also well tuned". This replaces the one-call, eight-check judge
 above:
 
-- Ten gates (`apps/mcp/src/agent/replyGates.js`): did what it says, tried
+- Ten gates (`packages/tex/gateway/agent/replyGates.js`): did what it says, tried
   first, does it, finished, sourced, heard them, followed them, never arrived,
   promises kept, short and clean. "Never arrived" was split out of "followed
   them" because Clef Flash missed it inside a three-part question. Each is one yes/no question with passing and failing examples, the
@@ -231,7 +231,7 @@ said, then the notice, so the model took it as sent, and each rewrite dropped
 the answer it had found; one also saved a second, unasked email draft.
 
 - The held draft is never put in as said. The model gets one note
-  (`sendBackNote`, `apps/mcp/src/agent/sendBack.js`) built from the turn's
+  (`sendBackNote`, `packages/tex/gateway/agent/sendBack.js`) built from the turn's
   ledger entries (`tool` and `judge`, the same ones the chat's history keeps):
   every action the turn took and how it went, every draft so far quoted and
   marked NOT sent with the judges that held it (score against threshold), the

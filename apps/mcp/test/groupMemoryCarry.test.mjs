@@ -32,9 +32,9 @@ import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
 import { test } from "node:test";
 
-import { groupMemoryPath, keepGroupExchange, readGroupMemory } from "../src/agent/groupTurn.js";
-import { renderGroupNote, updateGroupPage } from "../src/agent/groupMemoryNote.js";
-import { CARRY_TRIES, ON_PAGE, mergeTurns } from "../src/agent/groupMemoryCarry.js";
+import { groupMemoryPath, keepGroupExchange, readGroupMemory } from "../../../packages/tex/gateway/agent/groupTurn.js";
+import { renderGroupNote, updateGroupPage } from "../../../packages/tex/gateway/agent/groupMemoryNote.js";
+import { CARRY_TRIES, ON_PAGE, mergeTurns } from "../../../packages/tex/gateway/agent/groupMemoryCarry.js";
 import { createMemoryStore } from "./gmailSync/fixtures.mjs";
 
 const HOME = "tex/groups/orbit-lamp-river";
@@ -307,7 +307,7 @@ test("a record that cannot be read is never written over with less", async () =>
 });
 
 test("a refusal's words become a code a public log keeps", async () => {
-  const { reasonCode } = await import("../src/agent/groupMemoryNote.js");
+  const { reasonCode } = await import("../../../packages/tex/gateway/agent/groupMemoryNote.js");
   assert.equal(reasonCode("permission denied"), "permission_denied");
   assert.equal(reasonCode("this workspace's file list could not be read just now; try again in a moment."), "this_workspace_s_file_list_could_not_be");
   assert.equal(reasonCode(""), "refused");

@@ -245,7 +245,7 @@ the group-chat architecture review). Two promises in onboarding were not kept:
   so whatever that text asked was never answered. The text is already in the
   chat's event outbox and reaches the history once the phone is linked (within
   a day), so the gateway's `setup` line (`TOLD.setup`,
-  `apps/mcp/src/agent/conversation.js`) now says it is still unanswered, and
+  `packages/tex/gateway/agent/conversation.js`) now says it is still unanswered, and
   the onboarding skill's step 0 answers it.
 - **"I'm reading your mail" read an empty folder.** Step 2 of the onboarding
   skill searched `0-inbox/email`, but mail has not been copied into notes

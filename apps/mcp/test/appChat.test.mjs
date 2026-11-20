@@ -15,10 +15,10 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 
-import { handleAppChat } from "../src/agent/appChatRoute.js";
-import { EDIT_WINDOW_MS, buildRows, ledgerEntries } from "../src/agent/appChatRows.js";
-import { eventEntry } from "../src/agent/ledger.js";
-import { serveAppArrive, serveAppOutbox } from "../src/texChat/appChat.js";
+import { handleAppChat } from "../../../packages/tex/gateway/agent/appChatRoute.js";
+import { EDIT_WINDOW_MS, buildRows, ledgerEntries } from "../../../packages/tex/gateway/agent/appChatRows.js";
+import { eventEntry } from "../../../packages/tex/gateway/agent/ledger.js";
+import { serveAppArrive, serveAppOutbox } from "../../../packages/tex/gateway/texChat/appChat.js";
 
 const USER = "k7m2q9x4b8n3c6v1";
 const CHAT = `app:${USER}`;

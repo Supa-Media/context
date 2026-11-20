@@ -14,7 +14,7 @@ or ChatGPT on track and then deliver the final results to the main Tex
 loop".
 
 - **One tool does the bookkeeping, as the person.** `delegate`
-  (`apps/mcp/src/agent/delegate.js`, offered as `send { action: "delegate" }`
+  (`packages/tex/gateway/agent/delegate.js`, offered as `send { action: "delegate" }`
   on a texted turn that can write) writes three things through the turn's own
   dispatcher, so the privacy engine, activity and history are those of any
   write: the **task note** in the project's folder (`status: in progress`,
@@ -35,7 +35,7 @@ loop".
   this call wrote it in a turn that has read nothing from outside; `again`
   never vouches ([agent egress](../privacy-and-sharing/agent-egress.md)).
 - **The supervisor is a routine, so it is not the person's thread.** Each run
-  (`apps/mcp/src/agent/supervise.js`) joins the note's mail as `tex` and
+  (`packages/tex/gateway/agent/supervise.js`) joins the note's mail as `tex` and
   reads what is new, then decides *before any model runs*: the note says
   done → deliver; new mail → review; the agent silent 45 minutes since its
   last word or Tex's last chase → chase, twice, then tell the person once;

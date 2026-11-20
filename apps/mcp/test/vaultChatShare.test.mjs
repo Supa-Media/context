@@ -23,7 +23,7 @@ import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
 import { test } from "node:test";
 import { actorAccessOf, chatShareTo, CHAT_SHARE_PREFIX } from "../src/vault/access.js";
-import { linkHash, withGroupVault, withVaultWatch } from "../src/agent/vaultSaved.js";
+import { linkHash, withGroupVault, withVaultWatch } from "../../../packages/tex/gateway/agent/vaultSaved.js";
 
 const CHAT = "a".repeat(64);
 const OTHER_CHAT = "b".repeat(64);

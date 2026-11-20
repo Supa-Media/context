@@ -22,9 +22,9 @@ import { test } from "node:test";
 import worker from "../src/index.js";
 import { createWorkerCtx } from "./workerCtx.mjs";
 import { createControlPlaneStub, createS3Backend, CONTROL_PLANE_ORIGIN, GATEWAY_SECRET } from "./controlPlaneStub.mjs";
-import { resetBrowserbaseProbe } from "../src/agent/browserProviders.js";
+import { resetBrowserbaseProbe } from "../../../packages/tex/gateway/agent/browserProviders.js";
 import { texStoreNamespace } from "./texStoreFixture.mjs";
-import { NORMAL_LEAD, PLAN_EXAMPLE, PLAN_ONLY_LEAD, PLAN_ONLY_NOTICE, claimsDone } from "../src/agent/progress.js";
+import { NORMAL_LEAD, PLAN_EXAMPLE, PLAN_ONLY_LEAD, PLAN_ONLY_NOTICE, claimsDone } from "../../../packages/tex/gateway/agent/progress.js";
 
 const S3_ENDPOINT = "https://s3.example-levels.test";
 const TOKEN_TEXTS = `cat_levels_texts_${"0".repeat(22)}`;
@@ -164,7 +164,7 @@ test("the plan example passes the done check, so the model's copy of it is never
 
 // Nov Babies, 2026-11-12: a job was told "Sent" for lines the texting Worker only puts on its status (`jobRun.ts`).
 test("a job's line with no link is noted on its status, not reported as texted; one with a link is sent", async () => {
-  const { progressChannel: channelOf, JOB_NOTED } = await import("../src/agent/progress.js");
+  const { progressChannel: channelOf, JOB_NOTED } = await import("../../../packages/tex/gateway/agent/progress.js");
   const said = [];
   const channel = channelOf(async (text) => said.push(text), { job: true });
   const plain = await channel.call({ text: "Checking each venue's own page." });

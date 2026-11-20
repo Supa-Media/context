@@ -1,6 +1,6 @@
 /**
  * A background job's part goes on from saved rounds (Dev2, 2026-11-17: "jobs must be reliable"; `jobPartResume.ts`, the
- * gateway's `apps/mcp/src/agent/turnResume.js`). The Worker only names the part to go on from; the rounds stay in
+ * gateway's `packages/tex/gateway/agent/turnResume.js`). The Worker only names the part to go on from; the rounds stay in
  * the chat's own home, never here.
  *
  * Sabotage record (applied, suite run, named test observed failing, reverted):

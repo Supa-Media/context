@@ -14,14 +14,14 @@
  * only: its stand-in judge answers by the label, so it proves nothing about judgment. Nothing is written anywhere.
  */
 
-import { decideWhyNode, decideWhyOn } from "../src/agent/graph/nodes/decideWhy.js";
+import { decideWhyNode, decideWhyOn } from "../../../packages/tex/gateway/agent/graph/nodes/decideWhy.js";
 import { readFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { readHeldOut, writeRows } from "./replayGate.mjs";
 
-import { decisionEngine } from "../src/agent/decide.js";
+import { decisionEngine } from "../../../packages/tex/gateway/agent/decide.js";
 import { modelSocket, socketAi } from "./modelSocket.mjs";
 import { decideRequest, readDecideAnswers } from "../../../packages/tex/src/textDecide.cjs";
 import { workersAi } from "./models.mjs";

@@ -7,7 +7,7 @@
  * A 👍 or ❤️ on a text that reads as one of the gateway's asks is handed to
  * the queue here, and goes to the gateway at once as the tapback it is, with
  * the words it was on; the gateway decides whether those words are the ask
- * for exactly what is waiting (`apps/mcp/src/agent/textedApprovals.js`,
+ * for exactly what is waiting (`packages/tex/gateway/agent/textedApprovals.js`,
  * `thumbsUpIsYes`). Nothing here can release anything.
  *
  * It used to wait ten seconds first, so taking it back could cancel. Dev2

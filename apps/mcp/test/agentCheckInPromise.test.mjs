@@ -23,8 +23,8 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { claimCheck } from "../src/agent/claimCheck.js";
-import { CHECK_IN_NOTICE, LATER_NOTICE, promisesCheckInAt, promisesLater } from "../src/agent/otherRoutes.js";
+import { claimCheck } from "../../../packages/tex/gateway/agent/claimCheck.js";
+import { CHECK_IN_NOTICE, LATER_NOTICE, promisesCheckInAt, promisesLater } from "../../../packages/tex/gateway/agent/otherRoutes.js";
 
 const LOG = "Logged job work from 12:17 as Upkeep. I’ll check the log at 4:30 and text you when it’s done.";
 const TONIGHT = "Noted: invoice is waiting on Jonathan and Nnenna’s approval for the video. I’ll check with you tonight.";

@@ -12,7 +12,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { DEFAULT_SEARCH_SETTINGS, readSearchSettings, searchSettingsFor, searchSettingsOf, wireSearchSettings } from "../src/search/settings.js";
-import { parseSearchSetup, parseSetup } from "../src/agent/production.js";
+import { parseSearchSetup, parseSetup } from "../../../packages/tex/gateway/agent/production.js";
 
 test("a section's keys are read, checked and renamed; what it leaves out stays out", () => {
   assert.deepEqual(readSearchSettings({ everywhere: "true", min_score: "0.35", extra_notes: "6", snippet_chars: "600" }), {

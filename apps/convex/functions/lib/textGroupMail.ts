@@ -30,7 +30,7 @@
  *   people are those who still write in the workspace it is bound to.
  *
  * Sending stays the sharer's own yes: a group turn sends from someone's own
- * Gmail only on their 👍 (`apps/mcp/src/agent/groupTurn.js`).
+ * Gmail only on their 👍 (`packages/tex/gateway/agent/groupTurn.js`).
  */
 
 import type { Doc, Id } from "../../_generated/dataModel";

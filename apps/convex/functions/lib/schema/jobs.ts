@@ -291,7 +291,7 @@ export const jobTables = {
    * The control plane's way into Tex's notes (`lib/texStore.ts`): one
    * workspace, the owners whose Durable Objects its keys may name
    * (`person:<workspaceId>`), minted when a console store first meets a Tex
-   * key and spent by the gateway on each call (`apps/mcp/src/texStore/door.js`).
+   * key and spent by the gateway on each call (`packages/tex/gateway/texStore/door.js`).
    * Kept until it expires, so one export's many reads share it.
    */
   texStoreTickets: defineTable({

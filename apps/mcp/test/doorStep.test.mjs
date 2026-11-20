@@ -14,10 +14,10 @@ import assert from "node:assert/strict";
 
 import graphLib from "../../../packages/tex/src/texGraph.cjs";
 // The simpler graph, drawn in the Lab and promoted to live Tex's config (Dev2, 2026-11-16).
-import { TEX_CONFIG } from "../src/agent/texConfig.js";
-import { DOOR_PARTS, runDoor } from "../src/agent/graph/door.js";
-import { bypassNode } from "../src/agent/graph/nodes/bypass.js";
-import { doorOutput } from "../src/agent/graph/nodes/doorStep.js";
+import { TEX_CONFIG } from "../../../packages/tex/gateway/agent/texConfig.js";
+import { DOOR_PARTS, runDoor } from "../../../packages/tex/gateway/agent/graph/door.js";
+import { bypassNode } from "../../../packages/tex/gateway/agent/graph/nodes/bypass.js";
+import { doorOutput } from "../../../packages/tex/gateway/agent/graph/nodes/doorStep.js";
 
 const { createGraph } = graphLib;
 

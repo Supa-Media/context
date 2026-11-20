@@ -1,1 +1,1 @@
-export * from "../../../../apps/mcp/src/agent/route.js";
+export * from "../../../tex/gateway/agent/route.js";

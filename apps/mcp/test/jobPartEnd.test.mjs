@@ -16,8 +16,8 @@ import { readFileSync } from "node:fs";
 
 import partEndLib from "../../../packages/shared/src/jobPartEnd.cjs";
 import SHELF from "../../../packages/tex/src/texNodeShelf.json" with { type: "json" };
-import { partEndNode } from "../src/agent/graph/nodes/partEnd.js";
-import { GATEWAY_NODES } from "../src/agent/graph/gatewayNodes.js";
+import { partEndNode } from "../../../packages/tex/gateway/agent/graph/nodes/partEnd.js";
+import { GATEWAY_NODES } from "../../../packages/tex/gateway/agent/graph/gatewayNodes.js";
 
 const { decidePartEnd, DEFAULT_LIMITS, limitsOf } = partEndLib;
 const MIN = 60_000;
@@ -114,7 +114,7 @@ test("the texting Worker's limits are the node's config, not numbers of its own"
 });
 
 test("Part end is wired in the config (off the shelf), with its limits, and its code is in the gateway's table", async () => {
-  const { TEX_CONFIG } = await import("../src/agent/texConfig.js");
+  const { TEX_CONFIG } = await import("../../../packages/tex/gateway/agent/texConfig.js");
   assert.ok(!SHELF.nodes.partEnd, "off the shelf once promoted");
   assert.ok(TEX_CONFIG.edges.some((e) => e.from === "job" && e.to === "partEnd" && e.mode === "uses"), "the job -> partEnd wire");
   assert.deepEqual(partEndLib.configLimits(TEX_CONFIG), { ...DEFAULT_LIMITS, staleParts: 2 }, "today's limits from the node's config; the stale rule on at 2 (2026-11-18)");
@@ -122,8 +122,8 @@ test("Part end is wired in the config (off the shelf), with its limits, and its 
 });
 
 // Step 6: the texting Worker asks the gateway (`/agent/job/part-end`, `agent/jobPartEndRoute.js`) after each part.
-import { handleJobPartEnd, partEndFor } from "../src/agent/jobPartEndRoute.js";
-import { lendJob, returnJob } from "../src/agent/graph/jobHandles.js";
+import { handleJobPartEnd, partEndFor } from "../../../packages/tex/gateway/agent/jobPartEndRoute.js";
+import { lendJob, returnJob } from "../../../packages/tex/gateway/agent/graph/jobHandles.js";
 
 const texting = (fields = {}) => ({ actorClientId: "context_texts", scopes: ["context:read", "context:write"], ...fields });
 const askRoute = (body, session, method = "POST") =>
@@ -164,8 +164,8 @@ test("a job's limits everywhere are its Part end node's config, today's numbers 
   const { configLimits } = partEndLib;
   assert.deepEqual(configLimits({ nodes: [] }), DEFAULT_LIMITS);
   assert.deepEqual(configLimits({ nodes: [{ id: "partEnd", limits: { parts: 4, minutes: 12 } }] }), { ...DEFAULT_LIMITS, parts: 4, minutes: 12 });
-  const { MAX_JOB_ATTEMPTS } = await import("../src/agent/background.js");
-  const { TEX_CONFIG } = await import("../src/agent/texConfig.js");
+  const { MAX_JOB_ATTEMPTS } = await import("../../../packages/tex/gateway/agent/background.js");
+  const { TEX_CONFIG } = await import("../../../packages/tex/gateway/agent/texConfig.js");
   assert.equal(MAX_JOB_ATTEMPTS, configLimits(TEX_CONFIG).parts);
 });
 

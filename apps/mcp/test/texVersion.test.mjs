@@ -7,8 +7,8 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 
 import { createEgressWorld, request, TOKEN_TEXTS } from "./agentEgressFixtures.mjs";
-import { ledgerFor, ONE_TO_ONE_CHAT } from "../src/agent/ledger.js";
-import { texVersion } from "../src/agent/texVersion.js";
+import { ledgerFor, ONE_TO_ONE_CHAT } from "../../../packages/tex/gateway/agent/ledger.js";
+import { texVersion } from "../../../packages/tex/gateway/agent/texVersion.js";
 
 const CHAT = "sendblue:line:+15555550100";
 

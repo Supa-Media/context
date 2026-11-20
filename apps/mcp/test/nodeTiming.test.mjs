@@ -10,7 +10,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 
-import { eventEntry, nodeEntry } from "../src/agent/ledger.js";
+import { eventEntry, nodeEntry } from "../../../packages/tex/gateway/agent/ledger.js";
 
 test("a node's entry keeps its whole run and its own time, never more own than whole", () => {
   const e = nodeEntry({ node: "checks", input: {}, output: {}, ms: 4595, own: 2.4, ok: true, via: "wait" }, { turn: "t-1", at: 1 });

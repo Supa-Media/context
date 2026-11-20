@@ -47,12 +47,21 @@ test("the texting assistant deploys only itself, to staging and to production", 
   assert.deepEqual(promote(".github/workflows/deploy-agent-worker.yml"), ["agent"]);
 });
 
-// The gateway's TexChat runs the Worker's chat object (`apps/mcp/src/texChat.js`), so its code deploys both; the
+// The gateway's TexChat runs the Worker's chat object (`packages/tex/gateway/texChat.js`), so its code deploys both; the
 // webhooks (`index.ts`) stay the Worker's alone.
 test("the chat object's code deploys the texting assistant and the gateway", () => {
   for (const file of ["packages/tex/worker/chatObject.ts", "packages/tex/worker/inbox.ts", "packages/tex/worker/remoteLine.ts"]) {
     assert.deepEqual(on(plan(file)).sort(), ["agent", "mcp"], file);
     assert.deepEqual(promote(file).sort(), ["agent", "gateway"], file);
+  }
+});
+
+// Tex's gateway code lives in packages/tex/gateway; the gateway Worker is built from it, the texting Worker is not.
+test("Tex's gateway objects deploy the gateway", () => {
+  for (const file of ["packages/tex/gateway/texStore.js", "packages/tex/gateway/texStore/wire.js", "packages/tex/gateway/texJob.js"]) {
+    assert.ok(on(plan(file)).includes("mcp"), file);
+    assert.ok(!on(plan(file)).includes("agent"), file);
+    assert.ok(promote(file).includes("gateway"), file);
   }
 });
 

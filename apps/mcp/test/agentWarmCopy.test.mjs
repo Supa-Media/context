@@ -21,7 +21,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 
 import { createEgressWorld, keepDeskKeys, request, TOKEN_TEXTS } from "./agentEgressFixtures.mjs";
-import { mergeEvents, openWarm, sealWarm, WARM_NOTES_MS, WARM_SETUP_MS, WARM_STALE_MS, warmTurn } from "../src/agent/warmCopy.js";
+import { mergeEvents, openWarm, sealWarm, WARM_NOTES_MS, WARM_SETUP_MS, WARM_STALE_MS, warmTurn } from "../../../packages/tex/gateway/agent/warmCopy.js";
 
 const env = { GATEWAY_SECRET: "a-test-secret-of-some-length" };
 const session = { workspaceId: "ws_1", actorUserId: "user_1", actorClientId: "context_texts" };

@@ -22,7 +22,7 @@ import {
   DECISION_MODEL,
   decisionEngine,
   decisionTokens,
-} from "../src/agent/decide.js";
+} from "../../../packages/tex/gateway/agent/decide.js";
 import { workersAi } from "./models.mjs";
 import { priceUsd } from "./report.mjs";
 import { parseJudgedSections, parseResult } from "./resultNote.mjs";

@@ -1,7 +1,7 @@
 # Tex event log and model-decided turns: contracts
 
 Approved by Dev2, 2026-10-26. One PR, straight to production, no switch; the
-fallback is reverting the PR. Today's history (`apps/mcp/src/agent/events.js`,
+fallback is reverting the PR. Today's history (`packages/tex/gateway/agent/events.js`,
 `conversation.js`, `tex/groups/chat-<id>.md`) keeps being written beside the
 new log, so a revert loses nothing.
 

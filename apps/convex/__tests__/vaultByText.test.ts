@@ -13,7 +13,7 @@ import { FAKE_STORAGE, addMember, asUser, createUser, createWorkspace, gatewayPo
  * Sabotage record (each broken by hand, the named tests failed, then restored):
  *  - the common group path minting without `ownTag` (as #3205 left it) → "the saver lists it ..." and "only the saver
  *    changes it" (the tagger's turn is refused).
- *  - the gateway's own-words check removed (`apps/mcp/src/agent/settingsTools.js`) → its "sharing a login runs only on
+ *  - the gateway's own-words check removed (`packages/tex/gateway/agent/settingsTools.js`) → its "sharing a login runs only on
  *    the person's own words" and "the judge decides" tests.
  */
 

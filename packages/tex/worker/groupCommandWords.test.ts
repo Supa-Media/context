@@ -6,7 +6,7 @@
  * code, beside a running turn too (`groupBeside.ts`). How Tex talks is not a
  * command since the "Tex, settings" menu was retired (Dev2, 2026-11-11): any
  * wording about it reaches a turn, where the agent has the instructions tool
- * (`apps/mcp/src/agent/commandTools.js`).
+ * (`packages/tex/gateway/agent/commandTools.js`).
  */
 
 import { describe, expect, it } from "vitest";

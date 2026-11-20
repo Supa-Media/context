@@ -21,8 +21,8 @@ import { SessionRefusal } from "../../session.js";
 import { createControlPlane } from "../../controlPlane.js";
 import { forbiddenResponse, unauthorizedResponse } from "../../oauth.js";
 import { json } from "../responses.js";
-import { texStoreStub } from "../../texStore/wire.js";
-import { PAGE_LIVE_PATH, PAGE_SOCKET_MAX_MS, PAGE_VIEWER_HEADER } from "../../texStore/pageLive.js";
+import { texStoreStub } from "../../../../../packages/tex/gateway/texStore/wire.js";
+import { PAGE_LIVE_PATH, PAGE_SOCKET_MAX_MS, PAGE_VIEWER_HEADER } from "../../../../../packages/tex/gateway/texStore/pageLive.js";
 import { PageRefusal, chatOf, checkViewer, loadPage } from "./page.js";
 
 export { TEX_PAGE_SOCKET_PATH };

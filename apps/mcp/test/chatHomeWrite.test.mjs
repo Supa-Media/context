@@ -14,7 +14,7 @@ import { withPrivacyAuthority } from "../src/store/privacyAuthority.js";
 import { PrivacyOverrides } from "../src/privacy/engine.js";
 import { createMemoryStore } from "./gmailSync/fixtures.mjs";
 import { withServedTree } from "./servedTree.mjs";
-import { markChatHome } from "../src/agent/chatHomeSeal.js";
+import { markChatHome } from "../../../packages/tex/gateway/agent/chatHomeSeal.js";
 
 const HOME = "tex/groups/orbit-lamp-river";
 const FOLDERS = [{ prefix: "tex", vis: "team" }, { prefix: "notes", vis: "team" }];

@@ -1,6 +1,6 @@
 /**
  * Which saved rounds a background job's part goes on from (Dev2, 2026-11-17: "jobs must be reliable"; built on the
- * texted turn's resume, `apps/mcp/src/agent/turnResume.js`, plan reviewed by Fable the same day).
+ * texted turn's resume, `packages/tex/gateway/agent/turnResume.js`, plan reviewed by Fable the same day).
  *
  * The gateway keeps each part's rounds in the chat's own home as its calls return, and reads back only the part this
  * names (`resumeFrom`), so a part that dies goes on from its last call instead of searching and reading again:

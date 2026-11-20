@@ -12,7 +12,7 @@
  * included) is read again about once a second until it fills or the call's
  * wait runs out, and a page with words that the browser still calls loading
  * is given a little longer to finish. How long is the gateway's to say,
- * `waitMs` on the request (`apps/mcp/src/agent/browse.js`): a background job
+ * `waitMs` on the request (`packages/tex/gateway/agent/browse.js`): a background job
  * waits long, a chat turn briefly, and a page still blank after it says so
  * (`loading`) rather than reading as empty.
  *

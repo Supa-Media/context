@@ -4,7 +4,7 @@
  * ultimately the one who can contact the user"; docs/decisions/texting-assistant/job-notes.md).
  *
  * - `openJobNote`: before its first part the job's object asks the gateway for its note (`/agent/job/note`,
- *   `apps/mcp/src/agent/jobNote.js`): the project note Tex put it in, or one in Tex's own notes. The job joins its
+ *   `packages/tex/gateway/agent/jobNote.js`): the project note Tex put it in, or one in Tex's own notes. The job joins its
  *   mail, Tex and the advisor join as `tex` and `advisor`, and the job is told who is there (`roster`).
  * - A line the job mails to `tex` reaches this object (`apps/mcp/src/mail/deliver.js`) and goes to the chat's own
  *   turn as the job's word on its way, the one turn that texts the person (`mailToTex`). Their answer comes back to
@@ -62,7 +62,7 @@ export async function openJobNote(deps: NoteDeps, token: string, run: JobRun): P
 
 /**
  * A line the job mailed to Tex: the chat's own turn is handed it as the job's word on its way, and texts it to them
- * (`apps/mcp/src/agent/jobReport.js`). Its own pass, named by the line, so it is one report however often it comes.
+ * (`packages/tex/gateway/agent/jobReport.js`). Its own pass, named by the line, so it is one report however often it comes.
  */
 export async function mailToTex(storage: InboxStorage, delivery: MailDelivery, report: (inbox: string, update: JobUpdate) => Promise<boolean>): Promise<boolean> {
   const run = await storage.get<JobRun>(RUN_KEY);

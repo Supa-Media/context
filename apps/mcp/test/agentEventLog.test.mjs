@@ -50,11 +50,11 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { appendEvents, checkEvent, EventRefusal, logPrefix, MAX_EVENT_TEXT, MAX_EVENTS_PER_CALL, readEvents } from "../src/agent/log.js";
-import { renderEvents } from "../src/agent/logRender.js";
-import { LOG_PREFACE, loggedTurn, pruneTurns, recordedTurn, TURNS_PREFIX } from "../src/agent/loggedTurn.js";
-import { CANCEL_PREFIX, RUNNING_PREFIX } from "../src/agent/steer.js";
-import { TOLD } from "../src/agent/conversation.js";
+import { appendEvents, checkEvent, EventRefusal, logPrefix, MAX_EVENT_TEXT, MAX_EVENTS_PER_CALL, readEvents } from "../../../packages/tex/gateway/agent/log.js";
+import { renderEvents } from "../../../packages/tex/gateway/agent/logRender.js";
+import { LOG_PREFACE, loggedTurn, pruneTurns, recordedTurn, TURNS_PREFIX } from "../../../packages/tex/gateway/agent/loggedTurn.js";
+import { CANCEL_PREFIX, RUNNING_PREFIX } from "../../../packages/tex/gateway/agent/steer.js";
+import { TOLD } from "../../../packages/tex/gateway/agent/conversation.js";
 
 const NOW = Date.UTC(2026, 9, 26, 16, 16, 0); // Monday, Oct 26, 12:16 PM in New York
 const CHAT = "chat-ada-1";

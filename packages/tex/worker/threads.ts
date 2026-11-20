@@ -4,7 +4,7 @@
  * it should be in the same thread, why isn't there continuity in the chat").
  *
  * The gateway's look says which text with them its check-in continues, as
- * that text's words (`continues`, `apps/mcp/src/agent/heartbeat.js`). Sendblue
+ * that text's words (`continues`, `packages/tex/gateway/agent/heartbeat.js`). Sendblue
  * threads a message under another by its `message_handle`, so the inbox keeps
  * the handles of the last few texts in the chat, theirs and Tex's, each with a
  * salted hash of its opening words, never the words: enough to find

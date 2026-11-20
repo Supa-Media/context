@@ -23,10 +23,10 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { aiGatewayConfig, resetCreditState } from "../src/agent/aiGateway.js";
-import { BUILTIN_PROVIDER } from "../src/agent/builtin.js";
-import { runTurn } from "../src/agent/turn.js";
-import { CAUSES, failureShape, reportToolFailures, toolFailure, wireFailures } from "../src/agent/toolFailures.js";
+import { aiGatewayConfig, resetCreditState } from "../../../packages/tex/gateway/agent/aiGateway.js";
+import { BUILTIN_PROVIDER } from "../../../packages/tex/gateway/agent/builtin.js";
+import { runTurn } from "../../../packages/tex/gateway/agent/turn.js";
+import { CAUSES, failureShape, reportToolFailures, toolFailure, wireFailures } from "../../../packages/tex/gateway/agent/toolFailures.js";
 
 const ENV = {
   AI_GATEWAY_ACCOUNT_ID: "0123456789abcdef0123456789abcdef",

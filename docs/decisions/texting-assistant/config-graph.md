@@ -105,7 +105,7 @@ output names a field the schema does not give.
 ## The runner logs every node run
 
 The runner writes one ledger entry for every run, a `step` entry with
-`step: "node"` (`apps/mcp/src/agent/ledger.js` `nodeEntry`): the node, its input
+`step: "node"` (`packages/tex/gateway/agent/ledger.js` `nodeEntry`): the node, its input
 and output, the milliseconds, ok or the error, and the wire that ran it (`via`).
 Replay reads those as each node's Got and Gave. No node writes that line itself.
 
@@ -139,7 +139,7 @@ The texting Worker is plumbing only: it checks the webhook, hands the message
 over and delivers the reply. The per-chat queues move into the gateway with the
 nodes.
 
-The one graph is `apps/mcp/src/agent/graph/gatewayGraph.js`, over
+The one graph is `packages/tex/gateway/agent/graph/gatewayGraph.js`, over
 `GATEWAY_NODES` (`gatewayNodes.js`). The move is staged:
 `packages/tex/src/texGraphNotYet.json` names every node whose code is not on
 the runner yet. A node leaves it in the pull request that puts it in
@@ -212,7 +212,7 @@ nobody edits them by hand:
 1. The drawing in `docs/architecture/tex.md` (Mermaid: a box per node, its group
    as a subgraph, an arrow per wire drawn by its mode), and the steps table in
    the same page.
-2. `apps/mcp/src/agent/texArchitecture.generated.js`, which holds `TEX_MAP`: the
+2. `packages/tex/gateway/agent/texArchitecture.generated.js`, which holds `TEX_MAP`: the
    same graph in words. `texArchitecture.js` puts it ahead of every Tex agent's
    prompt, with the one line naming the node that agent is. Its `ROLES` are keyed
    by node id.
@@ -266,7 +266,7 @@ edits its line in the capability list ([capabilities](./capabilities.md)).
 2026-11-16: "for code changes, create the node inside the code first and merge
 it to main, this should be simple and easy because the node is not used in any
 config yet"). Step one is a pull request that only adds the node's code: its
-file under `apps/mcp/src/agent/graph/nodes/`, its entry in `GATEWAY_NODES`, its
+file under `packages/tex/gateway/agent/graph/nodes/`, its entry in `GATEWAY_NODES`, its
 unit test, and an entry on the shelf, `packages/tex/src/texNodeShelf.json`
 (its id, its files and what it is for). The config does not change, so the
 drawing, the map and every prompt stay byte for byte the same, no model area is
@@ -284,7 +284,7 @@ A node with no code, on the shelf or in the config, cannot be promoted.
 
 **A draft runs its shelf nodes** (2026-11-16, the simpler graph). A Lab test
 chat or Lab run on a draft that draws a shelf node runs it: `withDraft`
-(`apps/mcp/src/agent/texConfig.js`) adds the draft's shelf nodes, and when every
+(`packages/tex/gateway/agent/texConfig.js`) adds the draft's shelf nodes, and when every
 wire of the draft names a node that can run, takes the draft's wires and each
 node's input and output shapes. A main node the draft removes stays in the
 turn's config only for the settings code reads off it; no wire reaches it, so it

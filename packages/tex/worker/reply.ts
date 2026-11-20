@@ -108,7 +108,7 @@ export type ReplyDeps = {
   onPictures?: (pictures: OutgoingPicture[], choices: Choice[]) => void;
   /** Handed the data cards an answer offers (`dataCards.ts`); absent, none go. */
   onOffers?: (offers: Offer[], hub?: string) => void; // `hub`: the chat's Tex page, when the gateway named one (`jobs.ts` `readHub`)
-  /** Handed where the reply goes (`threadFor`) and the tapback a hushed turn answers with instead of words (`apps/mcp/src/agent/respond.js`). */
+  /** Handed where the reply goes (`threadFor`) and the tapback a hushed turn answers with instead of words (`packages/tex/gateway/agent/respond.js`). */
   onPlace?: (place: ReplyPlace) => void;
   onReact?: (emoji: string) => void;
   /**
@@ -121,7 +121,7 @@ export type ReplyDeps = {
    * run: a held send is asked again, never sent, and the same ask is deduped.
    */
   retry?: boolean;
-  /** A try after one that failed: the gateway reads what that try did and goes on from it (`apps/mcp/src/agent/savedRounds.js`). */
+  /** A try after one that failed: the gateway reads what that try did and goes on from it (`packages/tex/gateway/agent/savedRounds.js`). */
   again?: boolean;
   /**
    * Names the turn, so a text sent while it runs can join it (`inbox.ts`):
@@ -331,7 +331,7 @@ async function answer(message: Message, deps: ReplyDeps): Promise<string | strin
     await deps.steer?.onSession(session.accessToken);
     const warm = { warm: await deps.warm?.get(), beside: await deps.warm?.beside(), recent: await deps.warm?.recent(message.chatId) };
     deps.onStage?.("asking");
-    // The Worker's own wait, said to the gateway so the turn's timing in the ledger shows it (`apps/mcp/src/agent/turnTiming.js`).
+    // The Worker's own wait, said to the gateway so the turn's timing in the ledger shows it (`packages/tex/gateway/agent/turnTiming.js`).
     const worker = { sessionMs: sessioned - lookup, beforeAskMs: Date.now() - sessioned };
     const answer = await askAgent(
       deps.fetch,
@@ -341,7 +341,7 @@ async function answer(message: Message, deps: ReplyDeps): Promise<string | strin
       deps.onProgress,
       session.timeZone,
       attachments,
-      // Somebody else's words, kept apart from the person's (`apps/mcp/src/agent/quoted.js`).
+      // Somebody else's words, kept apart from the person's (`packages/tex/gateway/agent/quoted.js`).
       message.quoted ?? (message.threaded ? "" : undefined),
       message.threadStart,
       { tapback: message.tapback, reacted: message.reacted, turn: deps.steer?.turn, running: deps.running, event: message.event, jobReport: message.jobReport, ...(message.crossChat ? { crossChat: crossFields(message.crossChat).crossChat } : {}), ...(deps.crossCounts ? { crossCounts: deps.crossCounts } : {}), covers: deps.covers, chat: message.chatId, told: deps.told, settings: session.settings, arrivedAt: deps.arrivedAt, worker, ...warm, ...(deps.again ? { again: true } : {}) },

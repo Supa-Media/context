@@ -87,9 +87,11 @@ const SHARED_IGNORED = [
  * package is the same: its gateway folder is the gateway's, so the app and
  * Convex claim only the Lab files they import, not the gateway behind it.
  */
-const TEX_IMPORT_ONLY = ["@context/tex", "@context/lab"];
+export const TEX_IMPORT_ONLY = ["@context/tex", "@context/lab"];
 /** The texting Worker's code, inside Tex's package; `apps/agent` is only its entry point and Wrangler config. */
 const TEX_WORKER = "packages/tex/worker";
+/** The gateway's Tex code (its chat, job and store objects), inside Tex's package; the gateway Worker is built from it. */
+const TEX_GATEWAY = "packages/tex/gateway";
 /** Declared by the app for types; only the files it imports are bundled. */
 const APP_IMPORT_ONLY = ["@context/convex", ...TEX_IMPORT_ONLY];
 
@@ -130,7 +132,7 @@ export const TARGETS = {
       // The gateway's job deploys its screenshot Worker and its eval service
       // first (a service binding needs its target), so any one changing
       // deploys them all.
-      mcp: { packages: ["@context/mcp", "@context/site-shots", "@context/tex-eval"], worker: "apps/mcp", files: [WORKER_SECRETS] },
+      mcp: { packages: ["@context/mcp", "@context/site-shots", "@context/tex-eval"], dirs: [TEX_GATEWAY], worker: "apps/mcp", files: [WORKER_SECRETS] },
       // Staging publishes the app export inside this Worker's Static Assets
       // version, so an app input is also a router input.
       router: { packages: ["@context/router", "@context/mobile"], importOnly: APP_IMPORT_ONLY, worker: "infra/router" },
@@ -149,7 +151,7 @@ export const TARGETS = {
     perBranch: true,
     components: {
       convex: { packages: ["@context/convex"], importOnly: TEX_IMPORT_ONLY, files: ["convex.json", "scripts/staging-env.mjs", PREVIEW_CONVEX_ENV] },
-      mcp: { packages: ["@context/mcp", "@context/site-shots", "@context/tex-eval"], worker: "apps/mcp", files: [WORKER_SECRETS, PREVIEW_CONFIG] },
+      mcp: { packages: ["@context/mcp", "@context/site-shots", "@context/tex-eval"], dirs: [TEX_GATEWAY], worker: "apps/mcp", files: [WORKER_SECRETS, PREVIEW_CONFIG] },
       agent: { packages: ["@context/agent"], dirs: [TEX_WORKER], worker: "apps/agent", files: [WORKER_SECRETS, PREVIEW_CONFIG] },
       router: { packages: ["@context/router", "@context/mobile"], importOnly: APP_IMPORT_ONLY, worker: "infra/router", files: [PREVIEW_CONFIG] },
       app: { packages: ["@context/mobile"], importOnly: APP_IMPORT_ONLY, files: ["scripts/build-drawing-editor.mjs"] },
@@ -164,7 +166,7 @@ export const TARGETS = {
     workflow: "deploy-production.yml",
     components: {
       convex: { packages: ["@context/convex"], importOnly: TEX_IMPORT_ONLY, files: ["convex.json", workflow("deploy-convex")] },
-      gateway: { packages: ["@context/mcp", "@context/site-shots", "@context/tex-eval"], files: [workflow("deploy-mcp"), WORKER_SECRETS] },
+      gateway: { packages: ["@context/mcp", "@context/site-shots", "@context/tex-eval"], dirs: [TEX_GATEWAY], files: [workflow("deploy-mcp"), WORKER_SECRETS] },
       email: { packages: ["@context/email-worker"], files: [workflow("deploy-email-worker")] },
       transcribe: { packages: ["@context/transcribe-worker"], files: [workflow("deploy-transcribe-worker")] },
       agent: { packages: ["@context/agent"], dirs: [TEX_WORKER], files: [workflow("deploy-agent-worker"), WORKER_SECRETS] },

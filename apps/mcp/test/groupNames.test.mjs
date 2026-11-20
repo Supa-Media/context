@@ -11,8 +11,8 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { groupOf, groupPrompt, taggedLine } from "../src/agent/groupTurn.js";
-import { cleanName, namesOf } from "../src/agent/groupNames.js";
+import { groupOf, groupPrompt, taggedLine } from "../../../packages/tex/gateway/agent/groupTurn.js";
+import { cleanName, namesOf } from "../../../packages/tex/gateway/agent/groupNames.js";
 
 test("the tagger is named by handle and name, and only people in the chat are named", () => {
   const group = groupOf({
@@ -54,7 +54,7 @@ test("a name can't carry an instruction", () => {
  * is listed, guests by label"; `whoIsWhoLine` dropped from `guestPrompt` fails
  * "a chat with a guest is told its roster too".
  */
-import { guestsOf, rosterLine, sizeOf } from "../src/agent/groupNames.js";
+import { guestsOf, rosterLine, sizeOf } from "../../../packages/tex/gateway/agent/groupNames.js";
 
 
 test("everyone here is listed, guests by label, with how many", () => {
@@ -99,7 +99,7 @@ test("a roster takes only labels and a sane count, and says nothing without one"
  * "each person here is shown with their number"; `numbersOf` keeping a number
  * for someone not named here fails "a number is kept only for someone here".
  */
-import { numbersOf, shownNumber } from "../src/agent/groupNames.js";
+import { numbersOf, shownNumber } from "../../../packages/tex/gateway/agent/groupNames.js";
 
 const chatWithNumbers = (extra = {}) =>
   groupOf({
@@ -171,9 +171,9 @@ test("a guest who tagged Tex is named by label and number, and only a label that
  * fails "a kept name sits beside the label on every line"; dropping the `here` check in `name_guest` fails
  * "name_guest keeps only a guest of this chat".
  */
-import { guestNameEntry, guestNamesFrom, guestNamesWithAbout, guestNameTool, namesInAbout, NAME_GUEST, readGuestNames } from "../src/agent/groupGuestNames.js";
-import { chatLines } from "../src/agent/groupTurn.js";
-import { groupQuestion } from "../src/agent/groupLedgerHistory.js";
+import { guestNameEntry, guestNamesFrom, guestNamesWithAbout, guestNameTool, namesInAbout, NAME_GUEST, readGuestNames } from "../../../packages/tex/gateway/agent/groupGuestNames.js";
+import { chatLines } from "../../../packages/tex/gateway/agent/groupTurn.js";
+import { groupQuestion } from "../../../packages/tex/gateway/agent/groupLedgerHistory.js";
 
 const named = () => ({
   key: "c3".repeat(32),

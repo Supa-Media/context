@@ -21,8 +21,8 @@ import assert from "node:assert/strict";
 import { after, before, test } from "node:test";
 
 import { createEgressWorld, textTex, TOKEN_TEXTS } from "./agentEgressFixtures.mjs";
-import { gatewayBody, CONTEXT_BETA } from "../src/agent/aiGateway.js";
-import { STUB_GRANT, STUB_OTHER, STUB_WITHHELD, carryCounts, stretchSince, stretchTurns } from "../src/agent/stretch.js";
+import { gatewayBody, CONTEXT_BETA } from "../../../packages/tex/gateway/agent/aiGateway.js";
+import { STUB_GRANT, STUB_OTHER, STUB_WITHHELD, carryCounts, stretchSince, stretchTurns } from "../../../packages/tex/gateway/agent/stretch.js";
 
 let world;
 const realNow = Date.now;
@@ -150,7 +150,7 @@ test("context editing rides only on a texted turn's body, with its beta named", 
 });
 
 test("a 400 naming context_management is sent once more without it, beta header and all, and remembered", async () => {
-  const { requestViaGateway, resetContextEdits } = await import("../src/agent/aiGateway.js");
+  const { requestViaGateway, resetContextEdits } = await import("../../../packages/tex/gateway/agent/aiGateway.js");
   resetContextEdits();
   const sent = [];
   const fetchImpl = async (_url, init) => {

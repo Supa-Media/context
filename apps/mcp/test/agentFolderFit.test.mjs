@@ -15,7 +15,7 @@
 
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { folderShape, withFolderFit } from "../src/agent/folderFit.js";
+import { folderShape, withFolderFit } from "../../../packages/tex/gateway/agent/folderFit.js";
 
 const LISTING = [
   "Areas/Thoughts and Reflection/2026 - Fall/journal-10-01.md (120 bytes)",

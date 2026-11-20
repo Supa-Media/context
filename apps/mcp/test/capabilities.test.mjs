@@ -2,14 +2,14 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 
-import { CAPABILITIES, CAPABILITY_LIST, ONE_TO_ONE_ONLY, capabilitiesFor } from "../src/agent/capabilities.js";
+import { CAPABILITIES, CAPABILITY_LIST, ONE_TO_ONE_ONLY, capabilitiesFor } from "../../../packages/tex/gateway/agent/capabilities.js";
 import { ACTIONS } from "../src/tools/v2/actions.js";
 import { STAFF_ONLY_TOOLS } from "../src/tools/registry.js";
-import { ASSISTANT_SEND_ACTIONS } from "../src/agent/sixTools.js";
-import { COMMAND_SEND_ACTIONS } from "../src/agent/commandTools.js";
-import { SOMEBODYS_ALONE } from "../src/agent/groupTurn.js";
-import { chatMailPrompt } from "../src/agent/groupMail.js";
-import { architectureFor } from "../src/agent/texArchitecture.js";
+import { ASSISTANT_SEND_ACTIONS } from "../../../packages/tex/gateway/agent/sixTools.js";
+import { COMMAND_SEND_ACTIONS } from "../../../packages/tex/gateway/agent/commandTools.js";
+import { SOMEBODYS_ALONE } from "../../../packages/tex/gateway/agent/groupTurn.js";
+import { chatMailPrompt } from "../../../packages/tex/gateway/agent/groupMail.js";
+import { architectureFor } from "../../../packages/tex/gateway/agent/texArchitecture.js";
 
 // Dev2, 2026-11-08: "One capability list everywhere", and "how are we making sure these capabilities lists are updated as we build?"
 // Every action, chat command and group command word is on a line, or this fails (`capabilities.js`).
@@ -39,7 +39,7 @@ function everything() {
 test("every action, chat command and group command word is on the capability list", () => {
   const listed = new Set(CAPABILITIES.flatMap((entry) => entry.actions));
   const missing = [...everything().keys()].filter((name) => !listed.has(name));
-  assert.deepEqual(missing, [], `add a line (or an action to a line) in apps/mcp/src/agent/capabilities.js for: ${missing.join(", ")}`);
+  assert.deepEqual(missing, [], `add a line (or an action to a line) in packages/tex/gateway/agent/capabilities.js for: ${missing.join(", ")}`);
 });
 
 test("the list names nothing that no longer exists, and each action once", () => {
@@ -114,7 +114,7 @@ test("the roles that talk, guide or check Tex carry the list and where they are;
 
 // Dev2, 2026-11-08: a list of what Tex can't do, where, and the way around it, kept with the capability it waits on.
 test("every can't says where, and hands a way around it of a known kind", async () => {
-  const { CANT_WHERE, WORKAROUND_KINDS } = await import("../src/agent/capabilities.js");
+  const { CANT_WHERE, WORKAROUND_KINDS } = await import("../../../packages/tex/gateway/agent/capabilities.js");
   const cants = CAPABILITIES.flatMap((entry) => (entry.cant ?? []).map((cant) => ({ entry, cant })));
   assert.ok(cants.length >= 10, "the list carries the can'ts");
   for (const { entry, cant } of cants) {
@@ -150,6 +150,6 @@ test("every computer app route is something Tex can do, or a can't with its way 
     for (const cant of entry.cant ?? []) for (const route of cant.appRoutes ?? []) covered.set(route, `${entry.name} (can't)`);
   }
   const missing = [...MACHINE_APP_PATHS].filter((route) => !covered.has(route));
-  assert.deepEqual(missing, [], `give Tex these, or add a can't with the way around it, in apps/mcp/src/agent/capabilities.js: ${missing.join(", ")}`);
+  assert.deepEqual(missing, [], `give Tex these, or add a can't with the way around it, in packages/tex/gateway/agent/capabilities.js: ${missing.join(", ")}`);
   for (const route of covered.keys()) assert.ok(MACHINE_APP_PATHS.has(route), `${covered.get(route)}: ${route} is not an app route any more`);
 });

@@ -12,11 +12,11 @@ import assert from "node:assert/strict";
 import { after, before, beforeEach, test } from "node:test";
 
 import worker from "../src/index.js";
-import { PRODUCTION_TEXTING_PATH, parseSetup } from "../src/agent/production.js";
-import { MAX_SKILLS, READ_SKILL_TOOL, skillPath } from "../src/agent/skills.js";
-import { webSession } from "../src/agent/computer.js";
-import { BROWSE_TOOL } from "../src/agent/browse.js";
-import { resetBrowserbaseProbe } from "../src/agent/browserProviders.js";
+import { PRODUCTION_TEXTING_PATH, parseSetup } from "../../../packages/tex/gateway/agent/production.js";
+import { MAX_SKILLS, READ_SKILL_TOOL, skillPath } from "../../../packages/tex/gateway/agent/skills.js";
+import { webSession } from "../../../packages/tex/gateway/agent/computer.js";
+import { BROWSE_TOOL } from "../../../packages/tex/gateway/agent/browse.js";
+import { resetBrowserbaseProbe } from "../../../packages/tex/gateway/agent/browserProviders.js";
 import { CONTROL_PLANE_ORIGIN, GATEWAY_SECRET, createControlPlaneStub, createS3Backend } from "./controlPlaneStub.mjs";
 import { createWorkerCtx } from "./workerCtx.mjs";
 import { BUILTIN_ALLOWED } from "./agentModelFixture.mjs";

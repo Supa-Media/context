@@ -9,9 +9,9 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { FINISHED_OFFER_NOTICE, finishedOfferNotice } from "../src/agent/finishedOffer.js";
-import { RECORD_READ_NOTICE, recordReadNotice } from "../src/agent/recordRead.js";
-import { untriedWebCheck } from "../src/agent/untriedWeb.js";
+import { FINISHED_OFFER_NOTICE, finishedOfferNotice } from "../../../packages/tex/gateway/agent/finishedOffer.js";
+import { RECORD_READ_NOTICE, recordReadNotice } from "../../../packages/tex/gateway/agent/recordRead.js";
+import { untriedWebCheck } from "../../../packages/tex/gateway/agent/untriedWeb.js";
 
 test("an ask to read a note, with no read, is sent back; a mention is not", () => {
   assert.equal(recordReadNotice("what does the note say about the trip", []), RECORD_READ_NOTICE);

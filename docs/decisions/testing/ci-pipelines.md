@@ -34,7 +34,7 @@ first-parent rule. `ci / Lint` follows the reusable workflow's `mobile` filter
 _Decided 2026-10-20, from the owner's ask that a texting-assistant change ship
 in seconds rather than minutes._ `ci / Test Convex Backend` (about four minutes
 across three shards) and the Convex deploy typecheck used to watch all of
-`apps/mcp/**`, so every Tex fix under `apps/mcp/src/agent/` paid for both,
+`apps/mcp/**`, so every Tex fix under `packages/tex/gateway/agent/` paid for both,
 although nothing in `apps/convex` imports it. They now watch the gateway files
 `scripts/convex-gateway-reads.mjs` derives: every `apps/mcp` file reached by
 imports out of any file in `apps/convex`, and every one a Convex file names by a

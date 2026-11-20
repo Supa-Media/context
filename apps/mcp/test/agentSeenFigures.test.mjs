@@ -19,9 +19,9 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 
 import { ask, createEgressWorld, TOKEN_TEXTS } from "./agentEgressFixtures.mjs";
-import { RECHECK_FROM } from "../src/agent/recheck.js";
-import { seenFiguresNotice } from "../src/agent/sourcedFigures.js";
-import { untriedWebCheck } from "../src/agent/untriedWeb.js";
+import { RECHECK_FROM } from "../../../packages/tex/gateway/agent/recheck.js";
+import { seenFiguresNotice } from "../../../packages/tex/gateway/agent/sourcedFigures.js";
+import { untriedWebCheck } from "../../../packages/tex/gateway/agent/untriedWeb.js";
 import { readTexConfig } from "../../../scripts/lib/texConfigFile.mjs";
 
 const read = (text) => [
@@ -90,7 +90,7 @@ test("the Reply reviewer reads only a job's report and a routine's text (Dev2, 2
   assert.deepEqual(wired("answerCheck", "fd").map((w) => w.mode), ["loop"], "a draft sent back goes to the Front door");
   assert.ok(config.nodes.find((n) => n.id === "answerCheck").on, "the Answer check is on");
   assert.equal(config.edges.filter((w) => w.from === "reviewer" || w.to === "reviewer").length, 0, "the old Reply reviewer is unwired");
-  const { answerCheckNode } = await import("../src/agent/graph/nodes/answerCheck.js");
+  const { answerCheckNode } = await import("../../../packages/tex/gateway/agent/graph/nodes/answerCheck.js");
   const run = async (reviewedAs) => {
     let reviewed = 0;
     const turn = {

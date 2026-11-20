@@ -27,10 +27,10 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { attachmentsLine } from "../src/agent/attachments.js";
-import { keepSentFiles, keptRef, readKeptFile } from "../src/agent/keptFiles.js";
-import { anthropicMessages } from "../src/agent/providers.js";
-import { toolResultImages } from "../src/agent/toolResults.js";
+import { attachmentsLine } from "../../../packages/tex/gateway/agent/attachments.js";
+import { keepSentFiles, keptRef, readKeptFile } from "../../../packages/tex/gateway/agent/keptFiles.js";
+import { anthropicMessages } from "../../../packages/tex/gateway/agent/providers.js";
+import { toolResultImages } from "../../../packages/tex/gateway/agent/toolResults.js";
 import { PICTURE_PAGES, PICTURE_PAGES_UNSEEN, pdfHasNoWords, wordsWithoutPages } from "../src/tools/readFile.js";
 
 /** What Workers AI's toMarkdown gives back for a PDF with no text layer: a title, metadata and empty pages. */

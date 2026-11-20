@@ -28,11 +28,11 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { OPEN_PAGE_TOOL, SEARCH_WEB_TOOL } from "../src/agent/computer.js";
-import { outgoingPictures } from "../src/agent/outgoingPictures.js";
-import { pictureMaker, withPictureMaker } from "../src/agent/pictureMaker.js";
-import { VISUAL_TOOL } from "../src/agent/visuals/index.js";
-import { HUNTED_TEMPLATES, huntPhotos, pageNamed } from "../src/agent/visuals/hunt.js";
+import { OPEN_PAGE_TOOL, SEARCH_WEB_TOOL } from "../../../packages/tex/gateway/agent/computer.js";
+import { outgoingPictures } from "../../../packages/tex/gateway/agent/outgoingPictures.js";
+import { pictureMaker, withPictureMaker } from "../../../packages/tex/gateway/agent/pictureMaker.js";
+import { VISUAL_TOOL } from "../../../packages/tex/gateway/agent/visuals/index.js";
+import { HUNTED_TEMPLATES, huntPhotos, pageNamed } from "../../../packages/tex/gateway/agent/visuals/hunt.js";
 
 const CARD_PNG = "iVBORw0KGgo=";
 const SHOT_JPEG = "c2NyZWVuc2hvdA==";

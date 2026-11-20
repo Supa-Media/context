@@ -15,9 +15,9 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { groupOf, groupPrompt } from "../src/agent/groupTurn.js";
-import { blockedLine, blockedOf, groupReachOut, guestPrompt } from "../src/agent/groupGuests.js";
-import { settingsTools } from "../src/agent/settingsTools.js";
+import { groupOf, groupPrompt } from "../../../packages/tex/gateway/agent/groupTurn.js";
+import { blockedLine, blockedOf, groupReachOut, guestPrompt } from "../../../packages/tex/gateway/agent/groupGuests.js";
+import { settingsTools } from "../../../packages/tex/gateway/agent/settingsTools.js";
 
 const HEX = "a".repeat(64);
 const SHYOH = { slug: "crystal-co", who: "sam", why: "not_member" };

@@ -37,18 +37,18 @@
 import { json } from "../http/responses.js";
 import { hasScope, SCOPE_WRITE } from "../session.js";
 import { workspaceStub } from "../workspaceStore/api.js";
-import { callTexStore } from "../texStore/wire.js";
-import { jobFields } from "../agent/jobCheck.js";
-import { gatewayGraph } from "../agent/graph/gatewayGraph.js";
-import { jobCheckOnGraph } from "../agent/graph/bridges.js";
-import { readComputerJobSettings, readProductionSetup } from "../agent/production.js";
-import { jobTagged, storeLedger } from "../agent/ledger.js";
-import { advisorRequest } from "../agent/advisor.js";
-import { aiGatewayConfig } from "../agent/aiGateway.js";
-import { builtinModel, canRunBuiltin } from "../agent/builtin.js";
+import { callTexStore } from "../../../../packages/tex/gateway/texStore/wire.js";
+import { jobFields } from "../../../../packages/tex/gateway/agent/jobCheck.js";
+import { gatewayGraph } from "../../../../packages/tex/gateway/agent/graph/gatewayGraph.js";
+import { jobCheckOnGraph } from "../../../../packages/tex/gateway/agent/graph/bridges.js";
+import { readComputerJobSettings, readProductionSetup } from "../../../../packages/tex/gateway/agent/production.js";
+import { jobTagged, storeLedger } from "../../../../packages/tex/gateway/agent/ledger.js";
+import { advisorRequest } from "../../../../packages/tex/gateway/agent/advisor.js";
+import { aiGatewayConfig } from "../../../../packages/tex/gateway/agent/aiGateway.js";
+import { builtinModel, canRunBuiltin } from "../../../../packages/tex/gateway/agent/builtin.js";
 import { jobChatOf, reachedWorkspace, TEXTS_CLIENT_ID, TEXTS_GROUP_CLIENT_ID } from "./reach.js";
 import { machineAskLine, ownerHandleIn } from "./groupAsk.js";
-import { personHubUrl } from "../agent/hubLinks.js";
+import { personHubUrl } from "../../../../packages/tex/gateway/agent/hubLinks.js";
 import { backgroundedBrief } from "./jobBackground.js";
 import { MAX_RUN_WAIT_MS } from "../workspaceStore/runWait.js";
 

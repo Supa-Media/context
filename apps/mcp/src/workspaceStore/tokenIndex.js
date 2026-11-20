@@ -7,7 +7,7 @@
  */
 
 import { objectByName } from "../objectPlace.js";
-import { callTexStore } from "../texStore/wire.js";
+import { callTexStore } from "../../../../packages/tex/gateway/texStore/wire.js";
 import { TOKEN_HASH, tokenIndexName } from "./access.js";
 
 const ID = /^[A-Za-z0-9_-]{1,64}$/;

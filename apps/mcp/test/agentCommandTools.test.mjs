@@ -23,11 +23,11 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { COMMAND_SEND_ACTIONS, OWN_WORDS_REFUSAL, commandTools, consentFor } from "../src/agent/commandTools.js";
-import { sixToolsOver } from "../src/agent/sixTools.js";
+import { COMMAND_SEND_ACTIONS, OWN_WORDS_REFUSAL, commandTools, consentFor } from "../../../packages/tex/gateway/agent/commandTools.js";
+import { sixToolsOver } from "../../../packages/tex/gateway/agent/sixTools.js";
 import { createControlPlane } from "../src/controlPlane/index.js";
-import { SETTINGS_LINE } from "../src/agent/chatVoice.js";
-import { systemPrompt } from "../src/agent/prompt.js";
+import { SETTINGS_LINE } from "../../../packages/tex/gateway/agent/chatVoice.js";
+import { systemPrompt } from "../../../packages/tex/gateway/agent/prompt.js";
 
 const names = (tools) => tools.map((entry) => entry.tool.name).sort();
 const byName = (tools, name) => tools.find((entry) => entry.tool.name === name);

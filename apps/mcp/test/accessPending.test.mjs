@@ -10,7 +10,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 
-import { texObjects } from "../src/texStore/objects.js";
+import { texObjects } from "../../../packages/tex/gateway/texStore/objects.js";
 import { workspaceRows } from "../src/workspaceStore/rows.js";
 import { workspaceAccess } from "../src/workspaceStore/accessRows.js";
 import { mirrorOutbox } from "../src/workspaceStore/mirrorOutbox.js";

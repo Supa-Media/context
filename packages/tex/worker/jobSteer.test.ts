@@ -127,7 +127,7 @@ describe("steering a running job", () => {
 
   /*
     A part that read from outside hands its mark on. The next part is built on this one's words — its draft, and the
-    advisor's advice on it (`apps/mcp/src/agent/jobCheck.js`) — so a page's words reach it through a model that read
+    advisor's advice on it (`packages/tex/gateway/agent/jobCheck.js`) — so a page's words reach it through a model that read
     them. In the gateway that mark is what refuses a learned skill's write and what holds a widening, and it dies with
     the request, so only the job's own record carries it between parts (`JobAsk.tainted`).
   */

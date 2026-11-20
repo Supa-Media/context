@@ -26,16 +26,16 @@
  *  9. The prompt's "repeats what an earlier text already told them" rule put back → "a scheduled run's follow-up, last call or close-out…" fails.
  */
 
-import { withArchitecture } from "../src/agent/texArchitecture.js";
+import { withArchitecture } from "../../../packages/tex/gateway/agent/texArchitecture.js";
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { BUILTIN_PROVIDER } from "../src/agent/builtin.js";
-import { parseSetup } from "../src/agent/production.js";
-import { actionsOf, GOES_ON_A_LAST_STEP, ADVISOR_WINDOW_MS, ASK_ADVISOR_FIRST, judgeState, MAX_SEND_BACKS, PROBLEMS, SEND_BACK_WINDOW_MS, TASK_SEND_BACKS, readReplyJudge, readReview, replyJudge, reviewMessage, REVIEW_MODEL, REVIEW_SYSTEM, sendBackNotice, takesBack } from "../src/agent/replyJudge.js";
-import { runTurn } from "../src/agent/turn.js";
-import { wireTraceEntry } from "../src/agent/turnLog.js";
-import { STEP_NAMES } from "../src/agent/ledger.js";
+import { BUILTIN_PROVIDER } from "../../../packages/tex/gateway/agent/builtin.js";
+import { parseSetup } from "../../../packages/tex/gateway/agent/production.js";
+import { actionsOf, GOES_ON_A_LAST_STEP, ADVISOR_WINDOW_MS, ASK_ADVISOR_FIRST, judgeState, MAX_SEND_BACKS, PROBLEMS, SEND_BACK_WINDOW_MS, TASK_SEND_BACKS, readReplyJudge, readReview, replyJudge, reviewMessage, REVIEW_MODEL, REVIEW_SYSTEM, sendBackNotice, takesBack } from "../../../packages/tex/gateway/agent/replyJudge.js";
+import { runTurn } from "../../../packages/tex/gateway/agent/turn.js";
+import { wireTraceEntry } from "../../../packages/tex/gateway/agent/turnLog.js";
+import { STEP_NAMES } from "../../../packages/tex/gateway/agent/ledger.js";
 
 const MAIN = "@cf/acme/main-model";
 const BROWSE = {

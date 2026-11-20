@@ -12,7 +12,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 
-import { texObjects } from "../src/texStore/objects.js";
+import { texObjects } from "../../../packages/tex/gateway/texStore/objects.js";
 import { workspaceRows } from "../src/workspaceStore/rows.js";
 import { workspaceMarks } from "../src/workspaceStore/marks.js";
 import { workspaceSearch } from "../src/workspaceStore/searchIndex.js";

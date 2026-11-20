@@ -11,28 +11,28 @@
  * advisor role; each role's own instructions, its brief builder and its cases reach that role alone (Dev2, 2026-11-13:
  * split the advisor by role "so that they can be evaluated separately"; docs/decisions/testing/advisor-roles.md).
  */
-const ADVISOR_CORE = /^apps\/mcp\/src\/agent\/advisorRoles\/core\.js$/;
+const ADVISOR_CORE = /^packages\/tex\/gateway\/agent\/advisorRoles\/core\.js$/;
 /** What the advisor is told of a job note's mail: both roles that read a job. */
-const ADVISOR_KNOWS_MAIL = /^apps\/mcp\/src\/agent\/advisorRoles\/knowsMail\.js$/;
+const ADVISOR_KNOWS_MAIL = /^packages\/tex\/gateway\/agent\/advisorRoles\/knowsMail\.js$/;
 
 export const AREAS = {
   respond: [/^packages\/tex\/src\/textDecide/, /^packages\/tex\/worker\/.*decide/i, /^apps\/mcp\/bench\/respond\//],
-  review: [/^apps\/mcp\/src\/agent\/(replyJudge|sendBack|recheck|replyChecks)/, /^apps\/mcp\/bench\/review\//],
+  review: [/^packages\/tex\/gateway\/agent\/(replyJudge|sendBack|recheck|replyChecks)/, /^apps\/mcp\/bench\/review\//],
   // The front door, the prompt and the turn (Dev2, 2026-11-13): the steps every text takes to an answer, the prompt
   // they assemble, and the core set and simple asks that measure them (`coreArea.mjs`).
   core: [
-    /^apps\/mcp\/src\/agent\/texEntryPoint(\.js$|\/)/,
-    /^apps\/mcp\/src\/agent\/(frontDoor|turn|turnPrompt|turnStages|threadedTurn|loggedTurn|prompt|promptModules|promptFence|promptNames|production|modelPlan|router|advisor|sixTools|customInstructions)\.js$/,
+    /^packages\/tex\/gateway\/agent\/texEntryPoint(\.js$|\/)/,
+    /^packages\/tex\/gateway\/agent\/(frontDoor|turn|turnPrompt|turnStages|threadedTurn|loggedTurn|prompt|promptModules|promptFence|promptNames|production|modelPlan|router|advisor|sixTools|customInstructions)\.js$/,
     /^apps\/mcp\/bench\/ai\/tests\/(core|simple-asks)\.md$/,
   ],
-  "advisor-chat": [ADVISOR_CORE, /^apps\/mcp\/src\/agent\/advisorRoles\/chat\.js$/, /^apps\/mcp\/src\/agent\/advisor\.js$/, /^apps\/mcp\/bench\/advisor\/chat\.json$/],
-  "advisor-job-check": [ADVISOR_CORE, ADVISOR_KNOWS_MAIL, /^apps\/mcp\/src\/agent\/advisorRoles\/jobCheck\.js$/, /^apps\/mcp\/src\/agent\/jobCheck\.js$/, /^apps\/mcp\/bench\/advisor\/job-check\.json$/],
-  "advisor-planner": [ADVISOR_CORE, /^apps\/mcp\/src\/agent\/advisorRoles\/planner\.js$/, /^apps\/mcp\/src\/agent\/planBigAsk\.js$/, /^apps\/mcp\/bench\/advisor\/planner\.json$/],
-  "advisor-job-mail": [ADVISOR_CORE, ADVISOR_KNOWS_MAIL, /^apps\/mcp\/src\/agent\/advisorRoles\/jobMail\.js$/, /^apps\/mcp\/bench\/advisor\/job-mail\.json$/],
+  "advisor-chat": [ADVISOR_CORE, /^packages\/tex\/gateway\/agent\/advisorRoles\/chat\.js$/, /^packages\/tex\/gateway\/agent\/advisor\.js$/, /^apps\/mcp\/bench\/advisor\/chat\.json$/],
+  "advisor-job-check": [ADVISOR_CORE, ADVISOR_KNOWS_MAIL, /^packages\/tex\/gateway\/agent\/advisorRoles\/jobCheck\.js$/, /^packages\/tex\/gateway\/agent\/jobCheck\.js$/, /^apps\/mcp\/bench\/advisor\/job-check\.json$/],
+  "advisor-planner": [ADVISOR_CORE, /^packages\/tex\/gateway\/agent\/advisorRoles\/planner\.js$/, /^packages\/tex\/gateway\/agent\/planBigAsk\.js$/, /^apps\/mcp\/bench\/advisor\/planner\.json$/],
+  "advisor-job-mail": [ADVISOR_CORE, ADVISOR_KNOWS_MAIL, /^packages\/tex\/gateway\/agent\/advisorRoles\/jobMail\.js$/, /^apps\/mcp\/bench\/advisor\/job-mail\.json$/],
   // A background job end to end (`jobTasks.mjs`): how a job is started, asked, carried on and reported, the pages it
   // writes, the Worker's job runner, and the tasks and the scripted sites they run on. Its own budget (`AREA_LIMITS.jobs`).
   jobs: [
-    /^apps\/mcp\/src\/agent\/(background|jobs|jobStart|jobNote|jobReport|jobPages|jobSlots|chatJobs|lastRound|openAsk|stopsShort|workPage|progress)\.js$/,
+    /^packages\/tex\/gateway\/agent\/(background|jobs|jobStart|jobNote|jobReport|jobPages|jobSlots|chatJobs|lastRound|openAsk|stopsShort|workPage|progress)\.js$/,
     /^apps\/mcp\/src\/(pages|pageSkill)\.js$/,
     /^packages\/tex\/worker\/job[A-Za-z]*\.ts$/,
     /^apps\/mcp\/bench\/job-tasks\//,

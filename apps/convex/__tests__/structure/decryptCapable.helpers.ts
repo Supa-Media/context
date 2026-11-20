@@ -175,11 +175,11 @@ export const DECRYPT_CAPABLE_FUNCTIONS: readonly string[] = [
       // deploy key, counts only.
       "functions.workspaceObjectsRepair.repairRecent",
       // Copies each workspace's one-to-one Tex history and turn records from its bucket into its Tex Durable Object
-      // (`texHistoryMigration.ts`, `apps/mcp/src/agent/agentHomeMove.js`), run by hand from the workflow. internalAction,
+      // (`texHistoryMigration.ts`, `packages/tex/gateway/agent/agentHomeMove.js`), run by hand from the workflow. internalAction,
       // reached only from that workflow's deploy key; it answers counts only, and deletes nothing.
       "functions.texHistoryMigration.run",
       // Copies each personal workspace's one-to-one Tex chat into its ledger (`texLedgerBackfill.ts`,
-      // `apps/mcp/src/agent/ledgerBackfill.js`), run by hand from its workflow. internalAction, reached only from that
+      // `packages/tex/gateway/agent/ledgerBackfill.js`), run by hand from its workflow. internalAction, reached only from that
       // workflow's deploy key; it answers counts and fixed codes only, and deletes nothing.
       "functions.texLedgerBackfill.run",
       // Copies each quiet group chat's old log into its ledger (`texLedgerBackfillGroups.ts`), and moves each person's
@@ -188,7 +188,7 @@ export const DECRYPT_CAPABLE_FUNCTIONS: readonly string[] = [
       "functions.texLedgerBackfillGroups.run",
       "functions.texTranscriptsTrash.run",
       // Makes each personal workspace's first Tex call, which moves the person's Tex into the workspace's object
-      // (`texPersonMerge.ts`, `apps/mcp/src/texStore/merge.js`), run by hand from its workflow. internalAction, reached
+      // (`texPersonMerge.ts`, `packages/tex/gateway/texStore/merge.js`), run by hand from its workflow. internalAction, reached
       // only from that workflow's deploy key; it reads one key's metadata, answers counts and fixed codes, deletes nothing.
       "functions.texPersonMerge.run",
       // Reads each group chat's event log in a window and answers counts, bytes and runs by set of people

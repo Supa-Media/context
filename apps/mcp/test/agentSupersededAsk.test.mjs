@@ -29,9 +29,9 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 
 import { EVERY_CHAT, createPending, listPending } from "../src/tools/approvals.js";
-import { settleTextedText } from "../src/agent/textedSettle.js";
-import { askLine, textedAsk, thumbsUpIsYes } from "../src/agent/textedApprovals.js";
-import { SUPERSEDE_NOTICE, claimCheck, correctsTheAsk } from "../src/agent/claimCheck.js";
+import { settleTextedText } from "../../../packages/tex/gateway/agent/textedSettle.js";
+import { askLine, textedAsk, thumbsUpIsYes } from "../../../packages/tex/gateway/agent/textedApprovals.js";
+import { SUPERSEDE_NOTICE, claimCheck, correctsTheAsk } from "../../../packages/tex/gateway/agent/claimCheck.js";
 import { createMemoryStore } from "./gmailSync/fixtures.mjs";
 
 const ACTOR = { workspaceId: "ws_1", userId: "user_a", clientId: "context_texts", client: "Tex" };

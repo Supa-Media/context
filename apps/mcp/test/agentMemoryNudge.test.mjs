@@ -22,8 +22,8 @@ import assert from "node:assert/strict";
 import { after, before, beforeEach, test } from "node:test";
 
 import worker from "../src/index.js";
-import { NUDGE_EVERY, NUDGE_MARKER, answersAskAboutThem, nudgeCallTool, nudgeQuestion, textsSince } from "../src/agent/memoryNudge.js";
-import { ABOUT_ME_PATH } from "../src/agent/aboutMe.js";
+import { NUDGE_EVERY, NUDGE_MARKER, answersAskAboutThem, nudgeCallTool, nudgeQuestion, textsSince } from "../../../packages/tex/gateway/agent/memoryNudge.js";
+import { ABOUT_ME_PATH } from "../../../packages/tex/gateway/agent/aboutMe.js";
 import { CONTROL_PLANE_ORIGIN, GATEWAY_SECRET, createControlPlaneStub, createS3Backend } from "./controlPlaneStub.mjs";
 import { createWorkerCtx } from "./workerCtx.mjs";
 import { AI_GATEWAY_ENV, AI_GATEWAY_ORIGIN, BUILTIN_ALLOWED } from "./agentModelFixture.mjs";
@@ -259,7 +259,7 @@ test("their answer to a question about them is kept at once, not ten texts later
 /* ---------------- a Lab test chat ---------------- */
 
 test("in a Lab test chat the nudge keeps its count in the test chat, never the workspace's bucket (whose key is blanked there)", async () => {
-  const { memoryNudge } = await import("../src/agent/memoryNudge.js");
+  const { memoryNudge } = await import("../../../packages/tex/gateway/agent/memoryNudge.js");
   const { LAB_SANDBOX_KEY } = await import("../src/labSandbox/policy.js");
   const kv = new Map();
   const gate = {

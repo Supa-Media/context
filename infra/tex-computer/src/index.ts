@@ -6,7 +6,7 @@
  * no route and no workers.dev address, so it holds no secret. A request wakes the computer if it sleeps; it goes back
  * to sleep, and its disk is wiped, after ten minutes with no request (`setInactivityTimeout`).
  *
- * The container has no internet (`enableInternet: false`). Tex's web guard (`apps/mcp/src/agent/computer.js`) lets a
+ * The container has no internet (`enableInternet: false`). Tex's web guard (`packages/tex/gateway/agent/computer.js`) lets a
  * turn open only addresses the person gave or a page it opened showed, so what it read can never leave in an address
  * it chose. A shell with the internet would let a command carry what Tex read anywhere, so the computer gets none:
  * the browser stays the web's way in, behind that guard.

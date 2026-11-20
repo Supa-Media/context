@@ -13,9 +13,9 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 
-import { chatForTexts, decideForTexts, eventsForTexts, nowFacts, TEXTS_CHAT_PATH, TEXTS_DECIDE_PATH, TEXTS_EVENTS_PATH, TEXTS_RECHECK_PATH } from "../src/agent/textsDecide.js";
+import { chatForTexts, decideForTexts, eventsForTexts, nowFacts, TEXTS_CHAT_PATH, TEXTS_DECIDE_PATH, TEXTS_EVENTS_PATH, TEXTS_RECHECK_PATH } from "../../../packages/tex/gateway/agent/textsDecide.js";
 import { decideRequest, recheckRequest } from "../../../packages/tex/src/textDecide.cjs";
-import { MAX_DECISION_STATE_CHARS } from "../src/agent/decide.js";
+import { MAX_DECISION_STATE_CHARS } from "../../../packages/tex/gateway/agent/decide.js";
 import { TexTexts } from "../src/index.js";
 
 const id = (n) => `${String(1_700_000_000_000 + n).padStart(13, "0")}-${String(n).padStart(6, "0")}`;

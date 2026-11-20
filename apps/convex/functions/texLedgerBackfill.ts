@@ -3,7 +3,7 @@
  * that have not texted since the ledger began (Dev, 2026-11-02: retire the old
  * copies of a chat; `docs/decisions/texting-assistant/chat-ledger.md`,
  * "Retiring the old copies"). A chat that texts copies itself in after the
- * Worker's post (`apps/mcp/src/agent/ledgerBackfill.js` `startBackfill`); a
+ * Worker's post (`packages/tex/gateway/agent/ledgerBackfill.js` `startBackfill`); a
  * quiet one never would, and its old copies (the bucket's event log, the
  * history record) cannot be deleted until it is in.
  *
@@ -24,7 +24,7 @@ import type { Id } from "../_generated/dataModel";
 import { internal } from "../_generated/api";
 import { internalAction } from "../_generated/server";
 import { storeForBinding } from "../../mcp/src/store/factory.js";
-import { backfillLedger } from "../../mcp/src/agent/ledgerBackfill.js";
+import { backfillLedger } from "../../../packages/tex/gateway/agent/ledgerBackfill.js";
 import { managedEncryptionOption } from "./lib/managedEncryptionFns/storeOption";
 import type { GatewayCredential } from "./lib/storage/shapes";
 import { consoleTexRouting } from "./lib/texStore";

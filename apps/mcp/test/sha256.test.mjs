@@ -3,7 +3,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { etagHex, sha256 } from "../src/texStore/sha256.js";
+import { etagHex, sha256 } from "../../../packages/tex/gateway/texStore/sha256.js";
 
 async function subtle(bytes) {
   const digest = new Uint8Array(await crypto.subtle.digest("SHA-256", bytes));

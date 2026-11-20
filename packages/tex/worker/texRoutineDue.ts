@@ -1,6 +1,6 @@
 /**
  * The routine a Tex store's alarm asks for, run now: the named RPC entrypoint
- * `TexRoutines.routineDue({owner, id})` (`apps/mcp/src/texStore/dispatch.js`
+ * `TexRoutines.routineDue({owner, id})` (`packages/tex/gateway/texStore/dispatch.js`
  * calls it through the gateway's `TEXTING` binding, with `entrypoint`).
  *
  * A named entrypoint is reachable only through a service binding that names

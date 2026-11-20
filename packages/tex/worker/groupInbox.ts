@@ -90,7 +90,7 @@ export { SEEN_FOR_MS };
 
 export type GroupDeps = {
   fetch: Fetch;
-  /** A try of a handed turn after one that failed: the gateway goes on from what that try did (`apps/mcp/src/agent/savedRounds.js`). */
+  /** A try of a handed turn after one that failed: the gateway goes on from what that try did (`packages/tex/gateway/agent/savedRounds.js`). */
   again?: boolean;
   /** Where each answered text's wait is written (`textTiming.ts`); absent, nowhere. */
   textTiming?: TimingDataset;

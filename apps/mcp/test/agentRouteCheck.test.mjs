@@ -24,12 +24,12 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { cardCheckFor, readVerdict } from "../src/agent/cardCheck.js";
-import { outgoingPictures } from "../src/agent/outgoingPictures.js";
-import { pictureMaker } from "../src/agent/pictureMaker.js";
-import { buildVisual } from "../src/agent/visuals/index.js";
-import { drawMap } from "../src/agent/visuals/map.js";
-import { ROUTER, decodePolyline, lengthWords, routeThrough } from "../src/agent/visuals/route.js";
+import { cardCheckFor, readVerdict } from "../../../packages/tex/gateway/agent/cardCheck.js";
+import { outgoingPictures } from "../../../packages/tex/gateway/agent/outgoingPictures.js";
+import { pictureMaker } from "../../../packages/tex/gateway/agent/pictureMaker.js";
+import { buildVisual } from "../../../packages/tex/gateway/agent/visuals/index.js";
+import { drawMap } from "../../../packages/tex/gateway/agent/visuals/map.js";
+import { ROUTER, decodePolyline, lengthWords, routeThrough } from "../../../packages/tex/gateway/agent/visuals/route.js";
 
 const CARD_PNG = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAAC0lEQVR4nGNgAAIAAAUAAXpeqz8AAAAASUVORK5CYII=";
 const KEY = "test-maps-key-not-real";

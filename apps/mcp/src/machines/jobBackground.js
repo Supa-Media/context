@@ -12,7 +12,7 @@
  */
 
 import { TEXTS_CLIENT_ID, TEXTS_GROUP_CLIENT_ID } from "./reach.js";
-import { architectureFor } from "../agent/texArchitecture.js";
+import { architectureFor } from "../../../../packages/tex/gateway/agent/texArchitecture.js";
 
 const plain = (text, max) => String(text ?? "").replace(/\s+/g, " ").trim().slice(0, max);
 

@@ -6,7 +6,7 @@
  *
  * The move itself is the gateway's: the first Tex call to a personal
  * workspace's object copies the person's Tex store in, checks it and only then
- * answers (`apps/mcp/src/texStore/merge.js`). This sweep makes that first call
+ * answers (`packages/tex/gateway/texStore/merge.js`). This sweep makes that first call
  * for each personal workspace, one read of the person's history record through
  * the door (`lib/texStore.ts`), so nobody waits for a copy on a text. A person
  * already moved pays one read. Run from the `Tex into workspace objects`

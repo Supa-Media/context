@@ -21,12 +21,12 @@
  *     picture turn whose model fails…" in `agentProduction.test.mjs` fails.
  */
 
-import { carries } from "../src/agent/checkFindings.js";
+import { carries } from "../../../packages/tex/gateway/agent/checkFindings.js";
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { claimCheck } from "../src/agent/claimCheck.js";
-import { LATER_NOTICE, promisesLater } from "../src/agent/otherRoutes.js";
+import { claimCheck } from "../../../packages/tex/gateway/agent/claimCheck.js";
+import { LATER_NOTICE, promisesLater } from "../../../packages/tex/gateway/agent/otherRoutes.js";
 import {
   ASK_NOTICE,
   EMPTY_FALLBACK,
@@ -37,7 +37,7 @@ import {
   pointsAtWaitingAsk,
   replyChecks,
   strayScript,
-} from "../src/agent/replyChecks.js";
+} from "../../../packages/tex/gateway/agent/replyChecks.js";
 import { createEgressWorld, request, TOKEN_TEXTS } from "./agentEgressFixtures.mjs";
 
 test("an empty answer, a stray script, notes blamed and the waiting ask pointed at are each caught once", () => {
@@ -109,7 +109,7 @@ test("an answer still empty is never sent as nothing", async () => {
 });
 
 test("an answer that asks them something past a picture they sent looks at it again, once", async () => {
-  const { PICTURE_NOTICE, asksPastPicture } = await import("../src/agent/replyChecks.js");
+  const { PICTURE_NOTICE, asksPastPicture } = await import("../../../packages/tex/gateway/agent/replyChecks.js");
   const check = replyChecks({ question: "can you add these to my cal", pictures: true });
   assert.equal(check("Is there a time you want me to block for the fitting?"), PICTURE_NOTICE);
   assert.equal(check("Is there a time you want me to block for the fitting?"), null, "once a turn");
@@ -118,7 +118,7 @@ test("an answer that asks them something past a picture they sent looks at it ag
 });
 
 test("figures about a picture are checked against it once, whether it came with the text or was read again", async () => {
-  const { FIGURES_NOTICE, figuresFromPicture } = await import("../src/agent/replyChecks.js");
+  const { FIGURES_NOTICE, figuresFromPicture } = await import("../../../packages/tex/gateway/agent/replyChecks.js");
   const read = [{ name: "read_image", ok: true }];
   // The review's own line: category totals the screenshot didn't show.
   assert.equal(figuresFromPicture("The category totals show it: Social 1h 37m, Travel 1h 6m, Information & Reading 46m.", false, read), true);
@@ -132,7 +132,7 @@ test("figures about a picture are checked against it once, whether it came with 
 });
 
 test("a calendar try said with no calendar_event call gets one more round, and a retry on a schedule is a promise to keep (@shyoh, 2026-10-25)", async () => {
-  const { TRY_CLAIM_NOTICE, claimsCalendarTry } = await import("../src/agent/replyChecks.js");
+  const { TRY_CLAIM_NOTICE, claimsCalendarTry } = await import("../../../packages/tex/gateway/agent/replyChecks.js");
   // The review's own turn: earlier_texts and write_note, then a retry claimed.
   const steps = [
     { name: "earlier_texts", ok: true },

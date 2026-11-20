@@ -17,7 +17,7 @@ jest.mock("@context/lab/app/labData.generated", () => {
   const real = jest.requireActual<typeof import("@context/lab/app/labData.generated")>("@context/lab/app/labData.generated");
   // The map is generated from the config (scripts/tex-architecture.mjs), so it grows with every node's shape; the golden
   // holds it at the size it had when the golden was drawn (6,995 characters), so a config change never moves this test.
-  // The capability list (apps/mcp/src/agent/capabilities.js) grows with every capability line the same way, so it is
+  // The capability list (packages/tex/gateway/agent/capabilities.js) grows with every capability line the same way, so it is
   // held at its size on 2026-11-16 (33,350 characters).
   const kept = Object.fromEntries(Object.entries(real.MODTEXT).filter(([key]) => !key.startsWith("p-")));
   return { ...real, MODTEXT: { ...kept, map: "m".repeat(6995), caps: "c".repeat(33350) } };

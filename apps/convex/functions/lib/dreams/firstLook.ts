@@ -7,7 +7,7 @@
  * had run, found no texts and no front page, and written nothing; it still
  * counted as dreamed, so no later night dreamed again until they texted. The
  * gateway now treats any dream with no note as a first look around the
- * workspace that always starts the note (`apps/mcp/src/agent/dream.js`); this
+ * workspace that always starts the note (`packages/tex/gateway/agent/dream.js`); this
  * makes that dream due now for the people the old one left out.
  *
  * Only a schedule row, as every arming is: whether the dream runs, and as
@@ -22,7 +22,7 @@ import type { MutationCtx } from "../../../_generated/server";
 import { personalWorkspaceOf } from "../../textLinks";
 import { nodeAt } from "../nodes/paths";
 
-/** Tex's note about the person (`apps/mcp/src/agent/aboutMe.js`). */
+/** Tex's note about the person (`packages/tex/gateway/agent/aboutMe.js`). */
 export const ABOUT_ME_PATH = "tex/about.md";
 
 /** Its name until 2026-11-01's rename (`texFolderNames.ts`), counted until that has run everywhere. */

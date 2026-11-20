@@ -22,10 +22,10 @@ import { readdir, readFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { aiGatewayConfig, requestViaGateway } from "../src/agent/aiGateway.js";
+import { aiGatewayConfig, requestViaGateway } from "../../../packages/tex/gateway/agent/aiGateway.js";
 import { ANSWER_WAIT_MS, modelSocket, socketRequest } from "./modelSocket.mjs";
 import { readHeldOut, writeRows } from "./replayGate.mjs";
-import { judgeState, reviewReply } from "../src/agent/replyJudge.js";
+import { judgeState, reviewReply } from "../../../packages/tex/gateway/agent/replyJudge.js";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 export const SETS = join(HERE, "review");

@@ -17,11 +17,11 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { DEV_SHARE_MODULE, DEV_SHARE_NOT_KNOWN, devShareOf, devShareOn, devSharePrompt } from "../src/agent/devShare.js";
-import { groupOf, taggedLine, TURN_CAUSES } from "../src/agent/groupTurn.js";
-import { CAUSE_NOT_KNOWN } from "../src/agent/groupTurnCause.js";
-import { turnPrompt } from "../src/agent/turnPrompt.js";
-import { TEX_CONFIG, texStep, withDraft } from "../src/agent/texConfig.js";
+import { DEV_SHARE_MODULE, DEV_SHARE_NOT_KNOWN, devShareOf, devShareOn, devSharePrompt } from "../../../packages/tex/gateway/agent/devShare.js";
+import { groupOf, taggedLine, TURN_CAUSES } from "../../../packages/tex/gateway/agent/groupTurn.js";
+import { CAUSE_NOT_KNOWN } from "../../../packages/tex/gateway/agent/groupTurnCause.js";
+import { turnPrompt } from "../../../packages/tex/gateway/agent/turnPrompt.js";
+import { TEX_CONFIG, texStep, withDraft } from "../../../packages/tex/gateway/agent/texConfig.js";
 
 const KEY = "c3".repeat(32);
 const MEMBERS = "d4".repeat(32);

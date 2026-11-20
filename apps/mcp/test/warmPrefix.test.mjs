@@ -1,23 +1,23 @@
 /**
  * WARMING THE CACHE (Dev2, 2026-11-20, the cache rules: "the cache is warmed when the chat opens or the person starts
  * typing"; node `warm`, on the shelf; `src/agent/warmPrefix.js`, `graph/nodes/warm.js`, `textsWarm.js`,
- * `src/texStore/warm.js`). A turn keeps the request its first round sent, cut at the history's end; a read receipt,
+ * `packages/tex/gateway/texStore/warm.js`). A turn keeps the request its first round sent, cut at the history's end; a read receipt,
  * an open chat or typing sends that prefix again, byte for byte, with a one-token answer.
  * Sabotage: cut at the last mark instead of the first in `keptPrefix` and "the kept prefix is the history" fails; drop
  * `rawBody` in `aiGateway.js` and "sent byte for byte" fails; drop the day check in the node and "another day" fails.
  */
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { requestBuiltin } from "../src/agent/builtin.js";
-import { aiGatewayConfig, requestViaGateway, resetCreditState, resetHourMarks } from "../src/agent/aiGateway.js";
-import { keptPrefix, prefixKeeper, warmRequest, warmWired, WARM_ASK } from "../src/agent/warmPrefix.js";
-import { warmNode, WARM_AGAIN_MS } from "../src/agent/graph/nodes/warm.js";
-import { warmChat, warmForTexts, warmPlace } from "../src/agent/textsWarm.js";
-import { TEX_CONFIG } from "../src/agent/texConfig.js";
-import { texWarm, WARM_FRESH_MS, MAX_WARM_BYTES } from "../src/texStore/warm.js";
-import { TexObjectRefused } from "../src/texStore/objects.js";
+import { requestBuiltin } from "../../../packages/tex/gateway/agent/builtin.js";
+import { aiGatewayConfig, requestViaGateway, resetCreditState, resetHourMarks } from "../../../packages/tex/gateway/agent/aiGateway.js";
+import { keptPrefix, prefixKeeper, warmRequest, warmWired, WARM_ASK } from "../../../packages/tex/gateway/agent/warmPrefix.js";
+import { warmNode, WARM_AGAIN_MS } from "../../../packages/tex/gateway/agent/graph/nodes/warm.js";
+import { warmChat, warmForTexts, warmPlace } from "../../../packages/tex/gateway/agent/textsWarm.js";
+import { TEX_CONFIG } from "../../../packages/tex/gateway/agent/texConfig.js";
+import { texWarm, WARM_FRESH_MS, MAX_WARM_BYTES } from "../../../packages/tex/gateway/texStore/warm.js";
+import { TexObjectRefused } from "../../../packages/tex/gateway/texStore/objects.js";
 import { durableSql, texStoreNamespace } from "./texStoreFixture.mjs";
-import { ledgerFor } from "../src/agent/ledger.js";
+import { ledgerFor } from "../../../packages/tex/gateway/agent/ledger.js";
 
 const MODEL = "anthropic/claude-haiku-5-5";
 const NOW = Date.UTC(2026, 10, 20, 15, 0, 0);

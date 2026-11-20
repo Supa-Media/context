@@ -43,14 +43,14 @@
  *     before it answers…" fails.
  */
 
-import { texLedger } from "../src/texStore/ledger.js";
+import { texLedger } from "../../../packages/tex/gateway/texStore/ledger.js";
 import { durableSql } from "./texStoreFixture.mjs";
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { appendConversation } from "../src/agent/conversation.js";
+import { appendConversation } from "../../../packages/tex/gateway/agent/conversation.js";
 import { createFeedbackMethods, TEX_REVIEW_FILE_TIMEOUT_MS } from "../src/controlPlane/feedback.js";
-import { failedOf, handleReview, markOf, readReview, reviewAfterTurn, reviewConversation, reviewOutcome, sinceReviewed, transcriptOf, urgentReason } from "../src/agent/selfReview.js";
+import { failedOf, handleReview, markOf, readReview, reviewAfterTurn, reviewConversation, reviewOutcome, sinceReviewed, transcriptOf, urgentReason } from "../../../packages/tex/gateway/agent/selfReview.js";
 
 const ENV = { TEX_REVIEW: "on", AI_GATEWAY_ACCOUNT_ID: "0123456789abcdef0123456789abcdef", AI_GATEWAY_ID: "gw-fake", AI_GATEWAY_TOKEN: "fake-token-0123456789abcdef" };
 const SCORES = { goal: 4, independence: 3, turns: 5, friendly: 6, calm: 2 };

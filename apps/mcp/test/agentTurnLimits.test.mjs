@@ -12,9 +12,9 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { BUILTIN_PROVIDER } from "../src/agent/builtin.js";
-import { runTurn } from "../src/agent/turn.js";
-import { systemPrompt } from "../src/agent/prompt.js";
+import { BUILTIN_PROVIDER } from "../../../packages/tex/gateway/agent/builtin.js";
+import { runTurn } from "../../../packages/tex/gateway/agent/turn.js";
+import { systemPrompt } from "../../../packages/tex/gateway/agent/prompt.js";
 
 const MODEL = "@cf/zai-org/glm-4.7-flash";
 const SEARCH = {

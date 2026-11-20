@@ -30,7 +30,7 @@
 import { DETAIL_CAP, createPending, disarmTexting, findPending, ALREADY_ASKED, shownBefore, takeDone } from "./approvals.js";
 import { toolError } from "./results.js";
 import { EMAIL_TOOL, REFUSED, emailCopy, emailSummary, readEmail, refusalText, sendRefusedText } from "./email.js";
-import { readHelperCallers } from "../agent/production.js";
+import { readHelperCallers } from "../../../../packages/tex/gateway/agent/production.js";
 import { parseEmailId } from "./emailRead.js";
 import { standingForward } from "./forwardRule.js";
 import { attachedFiles } from "./emailAttach.js";
@@ -38,7 +38,7 @@ import { agreedToForward, agreedToShownEmail, agreedWordsHold } from "./likedPre
 import { shownCopyOf } from "./shownEmail.js";
 import { recordChange } from "../activity/record.js";
 import { offerFor, offerTarget } from "./offerFor.js";
-import { mailVerdict, recordMail } from "../agent/workEntries.js";
+import { mailVerdict, recordMail } from "../../../../packages/tex/gateway/agent/workEntries.js";
 
 export { EMAIL_TOOL };
 

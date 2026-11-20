@@ -23,14 +23,14 @@
 
 import { callToolForSession } from "../../tools/session.js";
 import { actorFor, contextsFor } from "../../context/identity.js";
-import { browserOwner } from "../../agent/browserProviders.js";
+import { browserOwner } from "../../../../../packages/tex/gateway/agent/browserProviders.js";
 import { groupTagOf } from "./browser.js";
-import { readPageRecords } from "../../texStore/pageRecords.js";
-import { pokeTexPage } from "../../texStore/pageLive.js";
+import { readPageRecords } from "../../../../../packages/tex/gateway/texStore/pageRecords.js";
+import { pokeTexPage } from "../../../../../packages/tex/gateway/texStore/pageLive.js";
 import { json } from "../responses.js";
 import { fetchPageJobs, jobDetail, jobSummary, jobsOverview, slotsOf, steerPageJob } from "./jobs.js";
 import * as notes from "./notes.js";
-import { readHabits, settingSet } from "../../agent/settingsTools.js";
+import { readHabits, settingSet } from "../../../../../packages/tex/gateway/agent/settingsTools.js";
 import { ledgerView } from "./ledger.js";
 import { PageRefusal, chatOf, checkViewer, loadPage, pickerOf, readPageBody, startOfDay } from "./page.js";
 

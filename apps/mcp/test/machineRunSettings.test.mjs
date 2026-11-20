@@ -8,7 +8,7 @@
  */
 import assert from "node:assert/strict";
 import test from "node:test";
-import { computerJobSettingsOf } from "../src/agent/production.js";
+import { computerJobSettingsOf } from "../../../packages/tex/gateway/agent/production.js";
 import { FACTS, machineWorld } from "./machineWorld.mjs";
 
 const NOTE = `---

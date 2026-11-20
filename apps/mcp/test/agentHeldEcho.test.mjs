@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { withoutHeldEcho, withoutWaitTalk } from "../src/agent/heldEcho.js";
+import { withoutHeldEcho, withoutWaitTalk } from "../../../packages/tex/gateway/agent/heldEcho.js";
 
 const COPY =
   "From: seyi@example.com\nTo: luciana@example.com\nSubject: RE: Bowling, 11.06.26\n\nHi Luciana,\n\n" +

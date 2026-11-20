@@ -30,13 +30,13 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { outgoingPictures, sentPicturesLine } from "../src/agent/outgoingPictures.js";
-import { DRAW_TOOL, MAKE_TOOL, pictureMaker, withDrawnImages, withPictureMaker } from "../src/agent/pictureMaker.js";
-import { VISUALS_LINE, VISUAL_DEFINITION, VISUAL_TEMPLATES, VISUAL_TOOL, buildVisual } from "../src/agent/visuals/index.js";
-import { esc, photoUrl } from "../src/agent/visuals/kit.js";
-import { hours } from "../src/agent/visuals/time.js";
-import { MAX_PHOTO_BYTES, downloadPhoto, fillPictures, pagesIn } from "../src/agent/visuals/photos.js";
-import { OPEN_PAGE_TOOL, webSession } from "../src/agent/computer.js";
+import { outgoingPictures, sentPicturesLine } from "../../../packages/tex/gateway/agent/outgoingPictures.js";
+import { DRAW_TOOL, MAKE_TOOL, pictureMaker, withDrawnImages, withPictureMaker } from "../../../packages/tex/gateway/agent/pictureMaker.js";
+import { VISUALS_LINE, VISUAL_DEFINITION, VISUAL_TEMPLATES, VISUAL_TOOL, buildVisual } from "../../../packages/tex/gateway/agent/visuals/index.js";
+import { esc, photoUrl } from "../../../packages/tex/gateway/agent/visuals/kit.js";
+import { hours } from "../../../packages/tex/gateway/agent/visuals/time.js";
+import { MAX_PHOTO_BYTES, downloadPhoto, fillPictures, pagesIn } from "../../../packages/tex/gateway/agent/visuals/photos.js";
+import { OPEN_PAGE_TOOL, webSession } from "../../../packages/tex/gateway/agent/computer.js";
 
 /** One real 1x1 PNG: what the screenshot Worker hands back, small enough to read. */
 const CARD_PNG = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAAC0lEQVR4nGNgAAIAAAUAAXpeqz8AAAAASUVORK5CYII=";
@@ -324,7 +324,7 @@ test("a set of option cards is numbered on each card, and the saved conversation
 
 test("a texted list that drew nothing goes back once, and comes out as a card and one line", async () => {
   const { createEgressWorld, request, TOKEN_TEXTS } = await import("./agentEgressFixtures.mjs");
-  const { VISUAL_NOTICE } = await import("../src/agent/visuals/notice.js");
+  const { VISUAL_NOTICE } = await import("../../../packages/tex/gateway/agent/visuals/notice.js");
   const world = await createEgressWorld();
   world.env.TEX_FRONT_DOOR = "off"; // The old turn: the reply checks run only with the front door off (`frontDoor.js`).
   try {

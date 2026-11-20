@@ -15,8 +15,8 @@ import { createHash } from "node:crypto";
 import { after, before, beforeEach, test } from "node:test";
 
 import worker from "../src/index.js";
-import { DEFAULT_BUILTIN_MODEL, DEFAULT_GATEWAY_MODEL } from "../src/agent/builtin.js";
-import { PRODUCTION_TEXTING_PATH, parseSetup } from "../src/agent/production.js";
+import { DEFAULT_BUILTIN_MODEL, DEFAULT_GATEWAY_MODEL } from "../../../packages/tex/gateway/agent/builtin.js";
+import { PRODUCTION_TEXTING_PATH, parseSetup } from "../../../packages/tex/gateway/agent/production.js";
 
 /** The retired app assistant's note (removed by the owner, 2026-10-17), left in the bucket to prove nothing reads it. */
 const RETIRED_APP_PATH = "ai/production/app-assistant.md";

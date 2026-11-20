@@ -21,9 +21,9 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { advisorEntry, heldCheckId, jobChecked, jobEntry, mailEntry, mailVerdict, recordMail, settledMail, startedJobEntries } from "../src/agent/workEntries.js";
-import { pageViews } from "../src/texStore/pageViews.js";
-import { ledgerFor } from "../src/agent/ledger.js";
+import { advisorEntry, heldCheckId, jobChecked, jobEntry, mailEntry, mailVerdict, recordMail, settledMail, startedJobEntries } from "../../../packages/tex/gateway/agent/workEntries.js";
+import { pageViews } from "../../../packages/tex/gateway/texStore/pageViews.js";
+import { ledgerFor } from "../../../packages/tex/gateway/agent/ledger.js";
 import { settlePending, createPending } from "../src/tools/approvals.js";
 import { createMemoryStore } from "./gmailSync/fixtures.mjs";
 import { ask, createEgressWorld, TOKEN_TEXTS } from "./agentEgressFixtures.mjs";

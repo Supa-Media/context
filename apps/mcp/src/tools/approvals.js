@@ -16,7 +16,7 @@
  * with the same arguments and be handed what the person released.
  */
 
-import { settledMail } from "../agent/workEntries.js";
+import { settledMail } from "../../../../packages/tex/gateway/agent/workEntries.js";
 import { listAllKeysWithLegacy } from "../notes/storage.js";
 import { deleteWithLegacyFallback, getWithLegacyFallback } from "../storageLayout.js";
 import { timestampSlug } from "../notes/paths.js";

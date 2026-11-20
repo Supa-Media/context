@@ -25,9 +25,9 @@ import { afterRead } from "../src/labSandbox/sandboxTools.js";
 import { handleLabSandboxPage } from "../../../packages/lab/gateway/labSandbox/pages.js";
 import { handleLabSandbox } from "../../../packages/lab/gateway/labSandbox/route.js";
 import { runChatTurn } from "../../../packages/lab/gateway/labSandbox/chatRun.js";
-import { streamTurn, wantsProgress } from "../src/agent/progress.js";
-import { eventEntry } from "../src/agent/ledger.js";
-import { TEX_CONFIG } from "../src/agent/texConfig.js";
+import { streamTurn, wantsProgress } from "../../../packages/tex/gateway/agent/progress.js";
+import { eventEntry } from "../../../packages/tex/gateway/agent/ledger.js";
+import { TEX_CONFIG } from "../../../packages/tex/gateway/agent/texConfig.js";
 import { createGraph } from "../../../packages/tex/src/texGraph.cjs";
 import { durableSql } from "./texStoreFixture.mjs";
 

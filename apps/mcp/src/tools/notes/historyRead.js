@@ -15,10 +15,10 @@
  * sealed to the chat's people (`chat-homes.md`) and is read through its row.
  */
 
-import { deskEligible } from "../../agent/texDesk.js";
+import { deskEligible } from "../../../../../packages/tex/gateway/agent/texDesk.js";
 import { canSee, effectiveVisibility } from "../../privacy/engine.js";
-import { HISTORY_PATH } from "../../agent/historyFile.js";
-import { ONE_TO_ONE_CHAT } from "../../agent/ledger.js";
+import { HISTORY_PATH } from "../../../../../packages/tex/gateway/agent/historyFile.js";
+import { ONE_TO_ONE_CHAT } from "../../../../../packages/tex/gateway/agent/ledger.js";
 import { toolError, toolText } from "../results.js";
 
 /** The most entries one read shows, and the most characters, so the answer fits in a tool result. */

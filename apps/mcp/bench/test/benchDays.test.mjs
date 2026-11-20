@@ -10,7 +10,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 
 import { benchDaySummaries } from "../benchDays.mjs";
-import { MAX_SUMMARY_CHARS } from "../../src/agent/daySummaries.js";
+import { MAX_SUMMARY_CHARS } from "../../../../packages/tex/gateway/agent/daySummaries.js";
 
 const at = (iso) => Date.parse(iso);
 // Sunday 18 October 2026, noon UTC: a 7-day window starts at midnight on Monday 12 October.

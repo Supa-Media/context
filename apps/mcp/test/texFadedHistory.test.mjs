@@ -10,7 +10,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { FADE, earlierFromLedger, faded } from "../src/agent/ledgerHistory.js";
+import { FADE, earlierFromLedger, faded } from "../../../packages/tex/gateway/agent/ledgerHistory.js";
 
 const DAY = 86_400_000;
 const BEFORE = Date.UTC(2026, 10, 6, 9);
@@ -51,9 +51,9 @@ test("faded, the oldest day is shown whole or not at all, and unfaded nothing ch
 });
 
 test("a 1:1 turn is shown its older days faded, today whole", async () => {
-  const { loggedTurn } = await import("../src/agent/loggedTurn.js");
-  const { eventEntry } = await import("../src/agent/ledger.js");
-  const { texLedger } = await import("../src/texStore/ledger.js");
+  const { loggedTurn } = await import("../../../packages/tex/gateway/agent/loggedTurn.js");
+  const { eventEntry } = await import("../../../packages/tex/gateway/agent/ledger.js");
+  const { texLedger } = await import("../../../packages/tex/gateway/texStore/ledger.js");
   const { durableSql } = await import("./texStoreFixture.mjs");
   const now = Date.UTC(2026, 10, 6, 15);
   const old = now - 12 * DAY;

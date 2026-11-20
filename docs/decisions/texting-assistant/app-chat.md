@@ -12,7 +12,7 @@ Meetings (`apps/mobile/features/console/aside/`, `features/tex/chat/`). Only on 
 open. This is not the in-app agent removed on 2026-10-10 (which ran on a pasted model key): it is Tex.
 
 **The app is a line, not a second Tex.** A message from the app goes to the gateway's `POST /tex/app-chat`
-(`apps/mcp/src/agent/appChatRoute.js`), which builds what Photon's line hands a chat object (the shapes the Lab's test
+(`packages/tex/gateway/agent/appChatRoute.js`), which builds what Photon's line hands a chat object (the shapes the Lab's test
 chats build, `labSandbox/chatRun.js` `inboundOf`): a text with its pictures to `/accept`, a tapback to `/react`, an
 edit or an unsend to `/edit`. It hands them to the gateway's `TexChat` object `chat:app:<userId>`, which runs the
 texting Worker's `SenderInbox` exactly as every Photon chat in the gateway does (`texChat.js`). From there nothing is

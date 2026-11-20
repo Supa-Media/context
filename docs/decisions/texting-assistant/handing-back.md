@@ -55,7 +55,7 @@ A phrase can show "forward me the receipt" (`claimCheck.js` `handsWorkBack`),
 but it can't show "which receipt does she need?". That sentence is a
 hand-back only because the receipt is in their mail. So a texted answer that
 may ask the person something (a question mark, "text me", "you'll need to"…)
-is read by a small model, the hand-back judge (`apps/mcp/src/agent/handbackJudge.js`,
+is read by a small model, the hand-back judge (`packages/tex/gateway/agent/handbackJudge.js`,
 Haiku, `HANDBACK_JUDGE = "on"`). The judge is told what Tex can do. It reads
 the person's text, the answer, and the names of the tools this turn ran with
 ok or failed. It labels each ask with the codes above. An H-code sends the
@@ -96,7 +96,7 @@ them, not the model:
    known bot-check tell.
 2. **A reload.** If the captcha stays, the browse tool opens the same page
    again: a new challenge, and the solver gets another go
-   (`apps/mcp/src/agent/captchaLadder.js`).
+   (`packages/tex/gateway/agent/captchaLadder.js`).
 3. **A fresh browser.** The Worker lets the person's browser go and starts a
    new one (`fresh: true`), with a new address and fingerprint and the
    person's sign-ins put back from their jar.
@@ -212,7 +212,7 @@ The judge reads an answer before it goes, and may send it back once, so
 what a person was really texted can still hand them work: a second answer
 the judge never saw, or one it let through. So once a night, after the
 dream, the gateway reads the texted turns the dream's transcripts hold since
-the last dream (`apps/mcp/src/agent/handbackMiner.js`). It is the gateway,
+the last dream (`packages/tex/gateway/agent/handbackMiner.js`). It is the gateway,
 never a model with tools, and it reads at most 30 answers a night, only
 those that may ask something. Each goes to the same judge, with the person's
 text and the names of the tools the turn ran. What it finds goes in the
@@ -251,7 +251,7 @@ email what they hold, so their mail from that app; their calendar; their
 notes; the app's website in the browser), and to say where it read the
 answer. An answer that gives up on a turn where a call failed, or that says
 a source is down, gets one more round naming the roads that turn didn't take
-(`apps/mcp/src/agent/otherRoutes.js`). An answer that promises to text later,
+(`packages/tex/gateway/agent/otherRoutes.js`). An answer that promises to text later,
 with no routine written and no job started in the turn, gets one more round
 telling Tex to write the hourly routine (with `until:`) that keeps the
 promise and answers in that same chat; that text answers their question, so
@@ -283,12 +283,12 @@ the card boxes were in Stripe's frame.
 - **The saved login's email.** `fill_login` takes `username_ref` alone for
   a page that asks for the email first. `browse` refuses to type an email the
   person never wrote on a site they have a login saved for, and names
-  `fill_login` (`guessedSignInEmail`, `apps/mcp/src/agent/browse.js`).
+  `fill_login` (`guessedSignInEmail`, `packages/tex/gateway/agent/browse.js`).
 - **The captcha ladder gets its time.** Browse calls were cut at 30 s, but
   the Worker alone waits 30 s for Browserbase's solver before the reload and
   the fresh browser (`captchaLadder.js`), so the ladder never finished and the
   model was told "don't retry it". Browse now gets 160 s
-  (`apps/mcp/src/agent/texEntryPoint.js`). The probe knows "confirm you're human",
+  (`packages/tex/gateway/agent/texEntryPoint.js`). The probe knows "confirm you're human",
   "select all images" and AWS WAF's frame, and an answer handing over a
   "picture check" is read as handing over a captcha.
 - **A stumble is retried.** A browse call that ran long is told the browser
@@ -341,7 +341,7 @@ someone (an email, a call, a quote request) waits for a yes.
 
 So an answer that says part of the ask is still missing, names its own next
 step, or offers to keep looking gets one more round telling Tex to do it now
-(`apps/mcp/src/agent/stopsShort.js`, through `claimCheck.js`). A background
+(`packages/tex/gateway/agent/stopsShort.js`, through `claimCheck.js`). A background
 job whose final answer still stops short is not done: the gateway marks it
 `unfinished`, keeps it out of the conversation, and the Worker
 (`packages/tex/worker/jobRun.ts`) runs another part shown that answer to finish,
@@ -424,7 +424,7 @@ take over the browser" the moment the link exists, mid-turn, so the
 hand-back judge, which reads only the finished answer, never saw it. The
 owner: "why is my tex asking me to complete a regular form myself?"
 
-So the handoff step itself is checked (`apps/mcp/src/agent/handoffGate.js`),
+So the handoff step itself is checked (`packages/tex/gateway/agent/handoffGate.js`),
 against the reading the steps before it left, before any link is made. It
 goes ahead only for a fair ask a page can show: a sign-in (a password box,
 or a page whose title or address says it is a sign-in or consent screen,
@@ -452,7 +452,7 @@ texted the person the whole form to fill in. The screenshot Worker now
 reports a captcha that shows nothing until a form is sent
 (`invisibleCaptcha`, `infra/site-shots/src/captcha.ts`), and a send button
 that leaves such a page exactly as it was twice running is that captcha
-saying no (`apps/mcp/src/agent/silentSubmit.js`). The gateway then fills the
+saying no (`packages/tex/gateway/agent/silentSubmit.js`). The gateway then fills the
 same form in a fresh browser and presses once more. If that is turned away
 too, the captcha counts as stuck, the handoff goes ahead for that one press
 with the form already filled, and the reading says so. Tests:
@@ -472,6 +472,6 @@ filing it with `report_problem` (`LOOK_FIRST_LINE`). The hand-back judge
 counts the chat and Tex's own logs as places to look (H9), and a "fix
 yourself" turn answered by asking what's wrong, or with no tool run, gets
 one more round (`selfRepairNotice`, both in
-`apps/mcp/src/agent/lookFirst.js`). Removing either brings back the
+`packages/tex/gateway/agent/lookFirst.js`). Removing either brings back the
 question the chat already answered. Tests:
 `apps/mcp/test/agentLookFirst.test.mjs` (sabotage record in its header).

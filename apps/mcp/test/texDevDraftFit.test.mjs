@@ -13,12 +13,12 @@
  */
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { SHELF_NODES, draftFit, TEX_CONFIG, withDraft } from "../src/agent/texConfig.js";
+import { SHELF_NODES, draftFit, TEX_CONFIG, withDraft } from "../../../packages/tex/gateway/agent/texConfig.js";
 import { ranAsOf, runCard } from "../../../packages/lab/gateway/texDev/sandbox.js";
 import { turnFrom } from "../../../packages/lab/gateway/texDev/probe.js";
 import { nodeStatsAnswer, runOf, tally } from "../../../packages/lab/gateway/texDev/nodeStats.js";
 import { chatStepsOf } from "../../../packages/lab/gateway/labSandbox/chatRun.js";
-import { failedAt } from "../src/agent/memoryNudge.js";
+import { failedAt } from "../../../packages/tex/gateway/agent/memoryNudge.js";
 
 const clone = (x) => JSON.parse(JSON.stringify(x));
 const main = () => ({ nodes: clone(TEX_CONFIG.nodes), edges: clone(TEX_CONFIG.edges) });

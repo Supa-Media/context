@@ -20,16 +20,16 @@
  *     app is handing back" fails.
  */
 
-import { carries } from "../src/agent/checkFindings.js";
+import { carries } from "../../../packages/tex/gateway/agent/checkFindings.js";
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { BUILTIN_PROVIDER } from "../src/agent/builtin.js";
-import { HANDBACK_NOTICE, claimCheck, handsWorkBack } from "../src/agent/claimCheck.js";
-import { mayAsk } from "../src/agent/handbackJudge.js";
-import { LATER_NOTICE, givesUp, promisesLater, untriedRoutes } from "../src/agent/otherRoutes.js";
-import { OTHER_ROUTES_LINE, systemPrompt } from "../src/agent/prompt.js";
-import { runTurn } from "../src/agent/turn.js";
+import { BUILTIN_PROVIDER } from "../../../packages/tex/gateway/agent/builtin.js";
+import { HANDBACK_NOTICE, claimCheck, handsWorkBack } from "../../../packages/tex/gateway/agent/claimCheck.js";
+import { mayAsk } from "../../../packages/tex/gateway/agent/handbackJudge.js";
+import { LATER_NOTICE, givesUp, promisesLater, untriedRoutes } from "../../../packages/tex/gateway/agent/otherRoutes.js";
+import { OTHER_ROUTES_LINE, systemPrompt } from "../../../packages/tex/gateway/agent/prompt.js";
+import { runTurn } from "../../../packages/tex/gateway/agent/turn.js";
 
 const QUESTION = "but planning center works now? am I serving sunday?";
 const GAVE_UP =

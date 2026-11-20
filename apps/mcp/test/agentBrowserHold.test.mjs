@@ -17,8 +17,8 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { resetBrowserbaseProbe, siteShotsComputer } from "../src/agent/browserProviders.js";
-import { waitsOnThem } from "../src/agent/browserHold.js";
+import { resetBrowserbaseProbe, siteShotsComputer } from "../../../packages/tex/gateway/agent/browserProviders.js";
+import { waitsOnThem } from "../../../packages/tex/gateway/agent/browserHold.js";
 
 const OWNER = "a".repeat(64);
 

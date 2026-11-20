@@ -9,12 +9,12 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { gatewayGraph } from "../src/agent/graph/gatewayGraph.js";
-import { routine, startsAtRoutine } from "../src/agent/graph/nodes/routine.js";
-import { ROUTINE_START, TURN_START } from "../src/agent/graph/turnGraph.js";
-import { DOOR_PARTS } from "../src/agent/graph/door.js";
-import { ROUTINES_CLIENT_ID } from "../src/agent/routine.js";
-import { TEX_CONFIG } from "../src/agent/texConfig.js";
+import { gatewayGraph } from "../../../packages/tex/gateway/agent/graph/gatewayGraph.js";
+import { routine, startsAtRoutine } from "../../../packages/tex/gateway/agent/graph/nodes/routine.js";
+import { ROUTINE_START, TURN_START } from "../../../packages/tex/gateway/agent/graph/turnGraph.js";
+import { DOOR_PARTS } from "../../../packages/tex/gateway/agent/graph/door.js";
+import { ROUTINES_CLIENT_ID } from "../../../packages/tex/gateway/agent/routine.js";
+import { TEX_CONFIG } from "../../../packages/tex/gateway/agent/texConfig.js";
 
 const routineTurn = () => ({ session: { actorClientId: ROUTINES_CLIENT_ID } });
 

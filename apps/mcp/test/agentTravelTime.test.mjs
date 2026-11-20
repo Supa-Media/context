@@ -5,8 +5,8 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 
-import { directionsUrl, minutesIn, minutesWords, placeOf, travelTimeTool, TRAVEL_TIME_TOOL } from "../src/agent/travelTime.js";
-import { webPrompt, webSession } from "../src/agent/computer.js";
+import { directionsUrl, minutesIn, minutesWords, placeOf, travelTimeTool, TRAVEL_TIME_TOOL } from "../../../packages/tex/gateway/agent/travelTime.js";
+import { webPrompt, webSession } from "../../../packages/tex/gateway/agent/computer.js";
 
 const MAPS_PAGE = [
   "Directions",

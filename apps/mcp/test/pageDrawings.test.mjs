@@ -44,10 +44,10 @@ import { parsePage } from "../../../packages/shared/src/pages/parse.cjs";
 import { renderPage } from "../../../packages/shared/src/pages/render.cjs";
 import { hasPicture } from "../../../packages/shared/src/pages/cover.cjs";
 import { PAGE_SKILL_STAMP } from "../src/pageSkill.js";
-import { outgoingPictures } from "../src/agent/outgoingPictures.js";
-import { pictureMaker, withPictureMaker } from "../src/agent/pictureMaker.js";
-import { VISUAL_TOOL } from "../src/agent/visuals/index.js";
-import { DRAWING_DARK_NAME, DRAWING_NAME, MAX_DRAWING_TRIES, SCENE_ASK, withDrawingFields } from "../src/agent/visuals/pageDrawing.js";
+import { outgoingPictures } from "../../../packages/tex/gateway/agent/outgoingPictures.js";
+import { pictureMaker, withPictureMaker } from "../../../packages/tex/gateway/agent/pictureMaker.js";
+import { VISUAL_TOOL } from "../../../packages/tex/gateway/agent/visuals/index.js";
+import { DRAWING_DARK_NAME, DRAWING_NAME, MAX_DRAWING_TRIES, SCENE_ASK, withDrawingFields } from "../../../packages/tex/gateway/agent/visuals/pageDrawing.js";
 
 const SCENE = [
   '<svg viewBox="0 0 1200 900">',

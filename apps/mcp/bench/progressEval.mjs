@@ -14,10 +14,10 @@
  * the model meets a slow step without touching a real site.
  */
 
-import { runTurn } from "../src/agent/turn.js";
-import { BUILTIN_PROVIDER, DEFAULT_GATEWAY_MODEL } from "../src/agent/builtin.js";
-import { progressChannel } from "../src/agent/progress.js";
-import { aiGatewayConfig } from "../src/agent/aiGateway.js";
+import { runTurn } from "../../../packages/tex/gateway/agent/turn.js";
+import { BUILTIN_PROVIDER, DEFAULT_GATEWAY_MODEL } from "../../../packages/tex/gateway/agent/builtin.js";
+import { progressChannel } from "../../../packages/tex/gateway/agent/progress.js";
+import { aiGatewayConfig } from "../../../packages/tex/gateway/agent/aiGateway.js";
 
 const ASKS = [
   "What's on my calendar tomorrow?",

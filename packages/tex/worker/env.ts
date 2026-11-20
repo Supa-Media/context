@@ -39,7 +39,7 @@ export interface Env {
   /** The gateway origin, e.g. https://mcp.context.lc */
   GATEWAY_ORIGIN: string;
   GATEWAY_TEXTS?: TextsBinding; // the gateway's `TexTexts`: a text's session from the person object (`gatewaySession.ts`)
-  /** The chat object's way out to the network, when it runs in the gateway (`apps/mcp/src/texChat.js`); absent, the global fetch. */
+  /** The chat object's way out to the network, when it runs in the gateway (`packages/tex/gateway/texChat.js`); absent, the global fetch. */
   FETCH?: (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>;
   /** Where an incoming text's head runs: "gateway" hands it to the gateway's TexChat (`/texts/arrive`); anything else keeps the SenderInbox queue (`handOver.ts`). */
   INTAKE?: string;
@@ -53,7 +53,7 @@ export interface Env {
   SIMULATOR?: string;
   /**
    * The app chat id (`app:<userId>`) this object is, set only by the gateway for the object it placed for the Context
-   * app's chat (`apps/mcp/src/texChat.js`). A turn runs as an app chat's user only when its chat id is this one
+   * app's chat (`packages/tex/gateway/texChat.js`). A turn runs as an app chat's user only when its chat id is this one
    * (`reply.ts` `sessionOf`): an `app:` chat id from anywhere else (a provider's webhook) names nobody.
    */
   APP_CHAT?: string;

@@ -27,12 +27,12 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { jobTagged, toolEntry } from "../src/agent/ledger.js";
-import { advisorThinking, advisorTools } from "../src/agent/advisor.js";
-import { checkJob, jobFields } from "../src/agent/jobCheck.js";
-import { jobChecked, mailEntry, mailVerdict } from "../src/agent/workEntries.js";
-import { mailCheckerFor } from "../src/agent/mailChecker.js";
-import { texLedger } from "../src/texStore/ledger.js";
+import { jobTagged, toolEntry } from "../../../packages/tex/gateway/agent/ledger.js";
+import { advisorThinking, advisorTools } from "../../../packages/tex/gateway/agent/advisor.js";
+import { checkJob, jobFields } from "../../../packages/tex/gateway/agent/jobCheck.js";
+import { jobChecked, mailEntry, mailVerdict } from "../../../packages/tex/gateway/agent/workEntries.js";
+import { mailCheckerFor } from "../../../packages/tex/gateway/agent/mailChecker.js";
+import { texLedger } from "../../../packages/tex/gateway/texStore/ledger.js";
 import { durableSql } from "./texStoreFixture.mjs";
 import { texEntryPointSource } from "./texEntryPointSource.mjs";
 

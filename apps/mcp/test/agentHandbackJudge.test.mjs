@@ -21,10 +21,10 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { BUILTIN_PROVIDER } from "../src/agent/builtin.js";
-import { claimCheck } from "../src/agent/claimCheck.js";
-import { CODE_NOTICES, handbackJudgeFor, mayAsk, noticeFor, readAsks } from "../src/agent/handbackJudge.js";
-import { runTurn } from "../src/agent/turn.js";
+import { BUILTIN_PROVIDER } from "../../../packages/tex/gateway/agent/builtin.js";
+import { claimCheck } from "../../../packages/tex/gateway/agent/claimCheck.js";
+import { CODE_NOTICES, handbackJudgeFor, mayAsk, noticeFor, readAsks } from "../../../packages/tex/gateway/agent/handbackJudge.js";
+import { runTurn } from "../../../packages/tex/gateway/agent/turn.js";
 
 const CONFIG = { accountId: "acct", gateway: "gw", token: "t" };
 
@@ -154,7 +154,7 @@ test("runTurn waits for the judge and gives the model one more round", async () 
 // "Namudol ... I can't give you a price for it. I didn't change anything, so there's nothing to undo."
 // Sabotage record: with `RECHECK_REPLACES` left off the notice in turn.js, this test fails.
 test("a notice's round is told its answer replaces the last one, and H8 never asks for a 'nothing to undo'", async () => {
-  const { RECHECK_REPLACES } = await import("../src/agent/recheck.js");
+  const { RECHECK_REPLACES } = await import("../../../packages/tex/gateway/agent/recheck.js");
   const MAIN = "@cf/acme/main-model";
   const ai = scripted(["Want me to look up Namudol?", "Hibino $12, Sapps $15, Namudol $14."]);
   const claims = claimCheck({ question: "lunch near me with prices", judge: async () => noticeFor("H8") });

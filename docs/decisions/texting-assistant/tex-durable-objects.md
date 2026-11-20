@@ -15,7 +15,7 @@ skills, routines and heartbeat, dreams, attention, handbacks, housekeeping,
 style and voice, a group chat's memory) keep their text in a Durable Object:
 a person's in their personal workspace's own object (`workspace:<workspaceId>`,
 `apps/mcp/src/workspaceStore/texHost.js`), and each group chat's in a Tex
-store of its own (`apps/mcp/src/texStore.js`, binding `TEX_STORE`). Both run
+store of its own (`packages/tex/gateway/texStore.js`, binding `TEX_STORE`). Both run
 the same code (`texStore/engine.js`). Each object keeps its
 notes in its own SQLite, shaped like a bucket (`texStore/objects.js`), and
 the gateway reaches it with its ordinary R2 adapter (`texStore/wire.js`).
@@ -37,7 +37,7 @@ refused rather than looked for in the bucket.
 
 The control plane's own stores (Download as folders, emptying the trash,
 filing a shared edit) reach the objects through the gateway's door,
-`POST /internal/tex-store` (`apps/mcp/src/texStore/door.js`), as the mover
+`POST /internal/tex-store` (`packages/tex/gateway/texStore/door.js`), as the mover
 does: the gateway secret plus a ticket this deployment minted for one
 workspace's own objects, five minutes long (`texStoreTickets`). The secret
 alone opens nothing.

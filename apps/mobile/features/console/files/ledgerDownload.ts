@@ -22,7 +22,7 @@ const GROUP_KEY = /^[0-9a-f]{64}$/;
 /**
  * The read-only history file in a Tex folder (`tex/history.ledger.json`, and a
  * chat home's), a view of the same ledger this archive writes whole
- * (`apps/mcp/src/texStore/historyView.js`). A whole-workspace download leaves it
+ * (`packages/tex/gateway/texStore/historyView.js`). A whole-workspace download leaves it
  * out so the chat leaves once, whole, never a second, cut copy beside it.
  */
 // The conversations file beside it is a view of the same chat, so it is left out the same way and opens as its page.

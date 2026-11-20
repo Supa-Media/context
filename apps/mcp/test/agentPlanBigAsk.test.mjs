@@ -31,11 +31,11 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { BUILTIN_PROVIDER } from "../src/agent/builtin.js";
-import { runTurn } from "../src/agent/turn.js";
-import { MAX_RUNNING_JOBS, QUIET_ACK, backgroundSession, withBackground } from "../src/agent/background.js";
-import { PLAN_DEFINITION, PLAN_TOOL, holdsNotes, parsePlan, planCall, planFolder, readPlanSetting, splitFirst } from "../src/agent/planBigAsk.js";
-import { parseSetup } from "../src/agent/production.js";
+import { BUILTIN_PROVIDER } from "../../../packages/tex/gateway/agent/builtin.js";
+import { runTurn } from "../../../packages/tex/gateway/agent/turn.js";
+import { MAX_RUNNING_JOBS, QUIET_ACK, backgroundSession, withBackground } from "../../../packages/tex/gateway/agent/background.js";
+import { PLAN_DEFINITION, PLAN_TOOL, holdsNotes, parsePlan, planCall, planFolder, readPlanSetting, splitFirst } from "../../../packages/tex/gateway/agent/planBigAsk.js";
+import { parseSetup } from "../../../packages/tex/gateway/agent/production.js";
 
 const MODEL = "@cf/zai-org/glm-4.7-flash";
 const NOW = Date.UTC(2026, 10, 4, 14, 0, 0);

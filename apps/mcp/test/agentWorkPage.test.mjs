@@ -10,8 +10,8 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { replyChecks } from "../src/agent/replyChecks.js";
-import { WORK_PAGE_NOTICE, workForAPage } from "../src/agent/workPage.js";
+import { replyChecks } from "../../../packages/tex/gateway/agent/replyChecks.js";
+import { WORK_PAGE_NOTICE, workForAPage } from "../../../packages/tex/gateway/agent/workPage.js";
 
 const SEARCHED = [{ name: "search_web", ok: true }, { name: "open_page", ok: true }];
 const FINDINGS = [

@@ -14,11 +14,11 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { BUILTIN_PROVIDER } from "../src/agent/builtin.js";
-import { QUIET_WORD } from "../src/agent/checkInGuards.js";
-import { replyJudge } from "../src/agent/replyJudge.js";
-import { SAID_NOTHING, SAY_NOTHING_TOOL } from "../src/agent/sayNothing.js";
-import { runTurn } from "../src/agent/turn.js";
+import { BUILTIN_PROVIDER } from "../../../packages/tex/gateway/agent/builtin.js";
+import { QUIET_WORD } from "../../../packages/tex/gateway/agent/checkInGuards.js";
+import { replyJudge } from "../../../packages/tex/gateway/agent/replyJudge.js";
+import { SAID_NOTHING, SAY_NOTHING_TOOL } from "../../../packages/tex/gateway/agent/sayNothing.js";
+import { runTurn } from "../../../packages/tex/gateway/agent/turn.js";
 
 const MAIN = "@cf/acme/main-model";
 const read = (name) => ({ name, description: name, inputSchema: { type: "object", properties: {} }, annotations: { readOnlyHint: true } });

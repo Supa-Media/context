@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { groupChat } from "../chats.mjs";
-import { PLAYBOOK_PATH, playbookPath, playbookPrompt, readPlaybook } from "../../../src/agent/groupPlaybook.js";
+import { PLAYBOOK_PATH, playbookPath, playbookPrompt, readPlaybook } from "../../../../../packages/tex/gateway/agent/groupPlaybook.js";
 
 const HOME = "tex/groups/sand-crane-coast";
 const notes = (held) => async (name, args) =>

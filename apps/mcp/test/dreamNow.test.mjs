@@ -28,10 +28,10 @@ import assert from "node:assert/strict";
 import { after, before, beforeEach, test } from "node:test";
 
 import worker from "../src/index.js";
-import { dreamCallTool } from "../src/agent/dream.js";
-import { agentTools } from "../src/agent/turn.js";
-import { textingWriteTools } from "../src/agent/textingWrites.js";
-import { sixToolsOver } from "../src/agent/sixTools.js";
+import { dreamCallTool } from "../../../packages/tex/gateway/agent/dream.js";
+import { agentTools } from "../../../packages/tex/gateway/agent/turn.js";
+import { textingWriteTools } from "../../../packages/tex/gateway/agent/textingWrites.js";
+import { sixToolsOver } from "../../../packages/tex/gateway/agent/sixTools.js";
 import { CONTROL_PLANE_ORIGIN, GATEWAY_SECRET, createControlPlaneStub, createS3Backend } from "./controlPlaneStub.mjs";
 import { createWorkerCtx } from "./workerCtx.mjs";
 import { fullToolList } from "./fullToolList.mjs";

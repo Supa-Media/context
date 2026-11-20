@@ -13,7 +13,7 @@ working on this?" got no status, and every other ask waited behind it.
 
 - **A texted turn hands a long ask off.** In a 1:1 chat or a group, the model
   may call `send { action: "background", args: { title, brief, done_when } }`
-  (`start_background_job`, `apps/mcp/src/agent/background.js`). The gateway
+  (`start_background_job`, `packages/tex/gateway/agent/background.js`). The gateway
   only records it and names it in the answer (`jobs`); the turn answers at
   once ("on it, I'll text you"). Offered only when the texting Worker sent the
   chat's job list (`running`), so a caller that can't run jobs is offered
@@ -91,7 +91,7 @@ history, while the chat kept telling the owner they were still going.
 
 - **Every job has a finish line** (`done_when`, written when it starts), and
   a job is done when that line is met, never because its turn ended.
-- **The advisor checks each part** (`apps/mcp/src/agent/jobCheck.js`): the
+- **The advisor checks each part** (`packages/tex/gateway/agent/jobCheck.js`): the
   same model the advisor tool runs, a request of its own after the job's turn,
   reading the brief, the finish line, the person's later texts and the whole
   part (Tex's instructions, every tool call and result, its last words). It
@@ -188,7 +188,7 @@ auditing it etc".
   own text** to the job's object (`/job-steer`), never words the model wrote,
   and only for a job that chat started and that is still running. The job's
   object sends it into its running turn through the existing steer route
-  (`apps/mcp/src/agent/steer.js`, with the job's own grant; a group's grant is
+  (`packages/tex/gateway/agent/steer.js`, with the job's own grant; a group's grant is
   accepted there because only a group's job turns are ever named), where it
   is taken in after the next tool call. One the turn never took in is shown to
   the next turn as a follow-up ("newer than your plan"), and a job that
@@ -272,7 +272,7 @@ of the chat itself (`packages/tex/worker/jobTexts.ts`: `event: "job_report"`,
 the words as `jobReport`; in a 1:1 chat a turn the Worker asks for, in a
 group its asker's tag run the way a chat routine's is). That turn, the
 coordinator, is asked the gateway's own line and shown the report as the
-job's words, which vouch for nothing (`apps/mcp/src/agent/jobReport.js`;
+job's words, which vouch for nothing (`packages/tex/gateway/agent/jobReport.js`;
 the turn counts as having read from outside). It checks the report against
 the chat and the notes it names, then texts it in its own words with the
 page's cover, fixes it, starts the job again on the person's own words,
@@ -543,7 +543,7 @@ when issues".
   browser up for the person (`HOLD_MS`, fifteen minutes) is a separate clock.
   Taken, taken over after it expired, refused and released are logged
   (`site_shots_lease`) by owner tag and holder id, never anything secret.
-- **Each question is one holder.** `browserSession` (`apps/mcp/src/agent/browse.js`)
+- **Each question is one holder.** `browserSession` (`packages/tex/gateway/agent/browse.js`)
   makes a random holder id and sends it on every step and every vault fill,
   and releases the lease when the question ends, held for the person or not:
   their reply is a new question with its own holder.

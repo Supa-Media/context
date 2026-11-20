@@ -1,7 +1,7 @@
 /**
  * WHAT TEX ACTUALLY COST, AS CLOUDFLARE COUNTED IT (tex.lc/admin).
  *
- * Every model call Tex makes goes through our AI gateway (`apps/mcp/src/agent/
+ * Every model call Tex makes goes through our AI gateway (`packages/tex/gateway/agent/
  * aiGateway.js`) with a `cf-aig-metadata` label naming the feature and the job
  * (`feature: "assistant", client: "texts"`, and so on). The gateway prices each
  * call itself, cache reads and writes at their own rates, and its analytics

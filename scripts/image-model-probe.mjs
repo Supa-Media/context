@@ -1,7 +1,7 @@
 /**
  * Does Tex's image model answer through our AI Gateway?
  *
- * `make_picture` (apps/mcp/src/agent/pictureMaker.js) answers "the image
+ * `make_picture` (packages/tex/gateway/agent/pictureMaker.js) answers "the image
  * model could not make that right now" for any failed call, by design: no
  * error body reaches the model. This asks the same endpoint for one small
  * picture of a fixed, made-up subject and prints the status and the

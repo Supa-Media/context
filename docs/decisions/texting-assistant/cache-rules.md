@@ -22,7 +22,7 @@ not a CI check".
 change on 2–10% of texts (a group's playbook and who's who 10%, About me 6%,
 learned skills, workspaces and the web about 4%): each change rewrote the whole
 cached history after it. A model step set to `freeze: "summary"` (front door or
-job step; `apps/mcp/src/agent/frozenModules.js`) sends these modules with the
+job step; `packages/tex/gateway/agent/frozenModules.js`) sends these modules with the
 words of the chat's first turn of the day, kept in the chat's own home
 (`texStore/frozen.js`, beside the ledger, two days at most, wiped with it). What
 changed since is said after the history, in the turn's preamble, and wins. The

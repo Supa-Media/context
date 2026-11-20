@@ -6,10 +6,10 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 
 import { createEgressWorld, request, TOKEN_TEXTS } from "./agentEgressFixtures.mjs";
-import { ledgerFor, ONE_TO_ONE_CHAT } from "../src/agent/ledger.js";
-import { appendConversation, appendTold, rememberRoutineText } from "../src/agent/conversation.js";
+import { ledgerFor, ONE_TO_ONE_CHAT } from "../../../packages/tex/gateway/agent/ledger.js";
+import { appendConversation, appendTold, rememberRoutineText } from "../../../packages/tex/gateway/agent/conversation.js";
 import { withTexRouting } from "../src/store/texRouting.js";
-import { gatewayTexStore } from "../src/texStore/wire.js";
+import { gatewayTexStore } from "../../../packages/tex/gateway/texStore/wire.js";
 import { texStoreNamespace } from "./texStoreFixture.mjs";
 
 const CHAT = "sendblue:line:+15555550100";

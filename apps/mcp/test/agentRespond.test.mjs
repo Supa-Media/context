@@ -13,7 +13,7 @@ import assert from "node:assert/strict";
 
 import { createEgressWorld, request, TOKEN_TEXTS } from "./agentEgressFixtures.mjs";
 import { systemText } from "./agentModelFixture.mjs";
-import { readVerdict, THREADS_SYSTEM } from "../src/agent/conversationThreads.js";
+import { readVerdict, THREADS_SYSTEM } from "../../../packages/tex/gateway/agent/conversationThreads.js";
 
 const CHAT = "sendblue:line:+15555550101";
 let seq = 0;

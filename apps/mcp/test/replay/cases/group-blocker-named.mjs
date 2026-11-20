@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { groupChat } from "../chats.mjs";
-import { CAPABILITIES } from "../../../src/agent/capabilities.js";
+import { CAPABILITIES } from "../../../../../packages/tex/gateway/agent/capabilities.js";
 
 export default {
   id: "group-blocker-named",

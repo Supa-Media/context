@@ -14,9 +14,9 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { BUILTIN_PROVIDER } from "../src/agent/builtin.js";
-import { runTurn } from "../src/agent/turn.js";
-import { MOVE_TIMED_OUT, MOVE_TIMEOUTS, isMove } from "../src/agent/slowMoves.js";
+import { BUILTIN_PROVIDER } from "../../../packages/tex/gateway/agent/builtin.js";
+import { runTurn } from "../../../packages/tex/gateway/agent/turn.js";
+import { MOVE_TIMED_OUT, MOVE_TIMEOUTS, isMove } from "../../../packages/tex/gateway/agent/slowMoves.js";
 
 const MOVE = { name: "move_note", description: "Move a note", inputSchema: { type: "object", properties: { source: { type: "string" }, destination: { type: "string" } } } };
 const ARGS = { source: "projects/backlog/google-approval/casa.md", destination: "projects/google-oauth/casa/casa.md" };

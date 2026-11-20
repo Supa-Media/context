@@ -4,13 +4,13 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 
-import { BACKFILLED, backfillEntries, backfillLedger, GROUP_BACKFILLED } from "../src/agent/ledgerBackfill.js";
-import { earlierFromLedger, readLedger } from "../src/agent/ledgerHistory.js";
-import { eventEntry, ledgerFor, ONE_TO_ONE_CHAT } from "../src/agent/ledger.js";
-import { HISTORY_KEY } from "../src/agent/history.js";
-import { LOG_PREFIX, logPrefix } from "../src/agent/log.js";
+import { BACKFILLED, backfillEntries, backfillLedger, GROUP_BACKFILLED } from "../../../packages/tex/gateway/agent/ledgerBackfill.js";
+import { earlierFromLedger, readLedger } from "../../../packages/tex/gateway/agent/ledgerHistory.js";
+import { eventEntry, ledgerFor, ONE_TO_ONE_CHAT } from "../../../packages/tex/gateway/agent/ledger.js";
+import { HISTORY_KEY } from "../../../packages/tex/gateway/agent/history.js";
+import { LOG_PREFIX, logPrefix } from "../../../packages/tex/gateway/agent/log.js";
 import { withTexRouting } from "../src/store/texRouting.js";
-import { gatewayTexStore } from "../src/texStore/wire.js";
+import { gatewayTexStore } from "../../../packages/tex/gateway/texStore/wire.js";
 import { texStoreNamespace } from "./texStoreFixture.mjs";
 
 const DAY = 86_400_000;
@@ -105,7 +105,7 @@ test("backfillEntries: the record's exchanges only from before the log began", (
 });
 
 test("the Worker's event post starts a part after its answer, and a finished workspace is not asked again", async () => {
-  const { startBackfill } = await import("../src/agent/ledgerBackfill.js");
+  const { startBackfill } = await import("../../../packages/tex/gateway/agent/ledgerBackfill.js");
   const { store, ledger } = await world();
   const later = [];
   store.defer = (work) => later.push(work);
@@ -127,7 +127,7 @@ test("the Worker's event post starts a part after its answer, and a finished wor
 });
 
 test("a group chat's old log goes into the group's own ledger, and no other group's", async () => {
-  const { startBackfill } = await import("../src/agent/ledgerBackfill.js");
+  const { startBackfill } = await import("../../../packages/tex/gateway/agent/ledgerBackfill.js");
   // The ledger is kept under the group key (its line and group id, hashed: `textGroups.ts` `groupKeyOf`); the old log under
   // the chat the Worker named in its events, the line's group id. Reading the log by the key found nothing (2026-11-02).
   const group = "a".repeat(64);

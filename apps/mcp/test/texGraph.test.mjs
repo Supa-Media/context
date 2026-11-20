@@ -18,7 +18,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 
 import graphLib from "../../../packages/tex/src/texGraph.cjs";
-import { TEX_CONFIG } from "../src/agent/texConfig.js";
+import { TEX_CONFIG } from "../../../packages/tex/gateway/agent/texConfig.js";
 
 const { createGraph, problemsOf, coverageProblems, GraphError, provisionalWiring, provisionalHeld, orderFrom } = graphLib;
 

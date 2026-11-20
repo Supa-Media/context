@@ -18,8 +18,8 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { parseSetup } from "../src/agent/production.js";
-import { ROUTER_MODEL } from "../src/agent/router.js";
+import { parseSetup } from "../../../packages/tex/gateway/agent/production.js";
+import { ROUTER_MODEL } from "../../../packages/tex/gateway/agent/router.js";
 
 const MAIN = "anthropic/claude-haiku-5-5";
 const OPUS = "anthropic/claude-opus-5-5";

@@ -27,8 +27,8 @@ import assert from "node:assert/strict";
 import worker from "../src/index.js";
 import { createEgressWorld, request, TOKEN_TEXTS } from "./agentEgressFixtures.mjs";
 import { createWorkerCtx } from "./workerCtx.mjs";
-import { warmTurn } from "../src/agent/warmCopy.js";
-import { afterTurn } from "../src/agent/deferred.js";
+import { warmTurn } from "../../../packages/tex/gateway/agent/warmCopy.js";
+import { afterTurn } from "../../../packages/tex/gateway/agent/deferred.js";
 import { readFileSync } from "node:fs";
 import { texEntryPointSource } from "./texEntryPointSource.mjs";
 

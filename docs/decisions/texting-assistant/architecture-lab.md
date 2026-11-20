@@ -109,7 +109,7 @@ probably be read only".
   deploy workflows), Cloudflare's Worker version id (`CF_VERSION_METADATA`)
   and the live setup's version (`production.js` `versionOf`), because the
   words Tex runs on change in Context, outside a pull request
-  (`apps/mcp/src/agent/texVersion.js`). A turn's own reads drop it, so it
+  (`packages/tex/gateway/agent/texVersion.js`). A turn's own reads drop it, so it
   changes no prompt.
 - **"You" is the signed-in staff member, and only their own 1:1 chat.** The
   Test user swap in the Lab's sidebar reads their texts through the Tex page's

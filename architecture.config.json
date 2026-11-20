@@ -73,7 +73,7 @@
     }
   ],
   "reviewed": {
-    "apps/mcp/src/agent/turn.js": "The model loop's one tool funnel, at the 700-line review threshold before this change; it grew by one import line only so a Lab test chat's turn answers every non-read tool as done there (labSandbox/policy.js sandboxedTool), the one place Tex's local, web and MCP tools all pass.",
+    "packages/tex/gateway/agent/turn.js": "The model loop's one tool funnel, at the 700-line review threshold before this change; it grew by one import line only so a Lab test chat's turn answers every non-read tool as done there (labSandbox/policy.js sandboxedTool), the one place Tex's local, web and MCP tools all pass.",
     "packages/tex/worker/inbox.ts": "The chat queue's one drain and reply path, at the 700-line review threshold before this change; it grew by two lines only to hand the chat's remote line to lineDeps (the step 3 line seam, lineCalls.ts and remoteLine.ts), and it moves out with the rest of the head.",
     "apps/machine-runner/src/protocol.rs": "The runner's whole wire protocol: every frame the gateway and the runner exchange, each a serde struct with deny_unknown_fields mirroring packages/shared/src/machineProtocol.schema.json one to one, so one file can be read against the schema field by field.",
     "packages/shared/src/machineProtocol.schema.json": "The machine protocol's JSON Schema: the single source both sides are checked against and machineProtocolTypes.mjs generates TypeScript from, one $defs entry per frame, kept in one file so the frames and the Rust mirror in apps/machine-runner/src/protocol.rs can be read side by side.",
@@ -127,8 +127,8 @@
     "docs/decisions/README.md": "The index of every durable decision title, one line each, grouped by area; code and tests cite these titles, so one list to search beats splitting it across files.",
     "apps/mobile/__tests__/noteAccessory.test.ts": "One stubbed editor: every case drives the same real EditorControls stub over NoteEditor's frontmatter path, and jest.mock factories cannot be shared across files, so splitting it would copy that stub per file.",
     ".github/workflows/deploy-desktop.yml": "The desktop release: the Mac half is one job of ordered gates (certificate preflight, notarisation check, Gatekeeper and icon checks, launch, publish) that test/packaging/deployWorkflow.test.mjs reads step by step and in order, so it cannot be split across files without losing those checks; the Linux half already lives in deploy-desktop-linux.yml, and the attach logic in build/attach-linux-release.sh.",
-    "apps/mcp/src/agent/claimCheck.js": "The turn's one claim watcher, over the 700-line review threshold before this change (715); it grew by six lines only to wire the every-workspace search claim, whose logic lives in searchClaims.js, as each check's logic lives in its own module.",
-    "apps/mcp/src/agent/background.js": "The background-job session's one tool set, over the 700-line review threshold before this change (715); it grew by five lines only so job_status answers every job for a title that matches none, never \"no such job\" while one runs.",
+    "packages/tex/gateway/agent/claimCheck.js": "The turn's one claim watcher, over the 700-line review threshold before this change (715); it grew by six lines only to wire the every-workspace search claim, whose logic lives in searchClaims.js, as each check's logic lives in its own module.",
+    "packages/tex/gateway/agent/background.js": "The background-job session's one tool set, over the 700-line review threshold before this change (715); it grew by five lines only so job_status answers every job for a title that matches none, never \"no such job\" while one runs.",
     "apps/mcp/test/unit.list": "The list of unit test files test/run.mjs runs, one path per line and no logic; gatewaySourceGuards.test.mjs requires every node:test file in it, so it grows by one line per new test file."
   },
   "baseline": {}

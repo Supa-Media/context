@@ -9,10 +9,10 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { BUILTIN_PROVIDER } from "../src/agent/builtin.js";
-import { isParallelRead, PARALLEL_READS, roundIsParallel } from "../src/agent/parallelReads.js";
-import { sixToolsOver } from "../src/agent/sixTools.js";
-import { runTurn } from "../src/agent/turn.js";
+import { BUILTIN_PROVIDER } from "../../../packages/tex/gateway/agent/builtin.js";
+import { isParallelRead, PARALLEL_READS, roundIsParallel } from "../../../packages/tex/gateway/agent/parallelReads.js";
+import { sixToolsOver } from "../../../packages/tex/gateway/agent/sixTools.js";
+import { runTurn } from "../../../packages/tex/gateway/agent/turn.js";
 import { translateFetch, translateSearch } from "../src/tools/v2/searchFetch.js";
 import { EMAIL_ID_PREFIX } from "../src/tools/emailRead.js";
 import { GOOGLE_CHAT_ID_PREFIX } from "../src/tools/googleChatRead.js";

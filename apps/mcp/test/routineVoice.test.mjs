@@ -41,10 +41,10 @@
 
 import test from "node:test";
 import assert from "node:assert/strict";
-import { saysQuiet, spokenToThem } from "../src/agent/checkInGuards.js";
-import { recentTextsSection, repeatsItself, routineCalendarTools, routineQuestion, runOutcome, withoutLastClaim } from "../src/agent/routine.js";
-import { checkInText } from "../src/agent/heartbeat.js";
-import { textingAwareCallTool } from "../src/agent/textingWrites.js";
+import { saysQuiet, spokenToThem } from "../../../packages/tex/gateway/agent/checkInGuards.js";
+import { recentTextsSection, repeatsItself, routineCalendarTools, routineQuestion, runOutcome, withoutLastClaim } from "../../../packages/tex/gateway/agent/routine.js";
+import { checkInText } from "../../../packages/tex/gateway/agent/heartbeat.js";
+import { textingAwareCallTool } from "../../../packages/tex/gateway/agent/textingWrites.js";
 
 const LEAKED = "I couldn't reliably see recent Context code changes; no status update.\nSKIP";
 

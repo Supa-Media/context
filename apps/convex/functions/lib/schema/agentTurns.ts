@@ -39,7 +39,7 @@ export const agentTurnTraceEntry = v.object({
 
 /**
  * The tool list a turn's model was shown (rules 1 and 2 of the tool rules, `packages/tex/src/toolRules.cjs`;
- * `apps/mcp/src/agent/turnLog.js` `toolsShownOf`): the whole list's fingerprint and each tool's name, size and
+ * `packages/tex/gateway/agent/turnLog.js` `toolsShownOf`): the whole list's fingerprint and each tool's name, size and
  * fingerprint. Fingerprints and counts, never words.
  */
 export const agentTurnToolsShown = v.object({
@@ -72,7 +72,7 @@ export const agentTurnTables = {
     ms: v.number(),
     /**
      * How long the text waited before the gateway had it: the group pause,
-     * the decision, the queue, a retry (`apps/mcp/src/agent/turnLog.js`
+     * the decision, the queue, a retry (`packages/tex/gateway/agent/turnLog.js`
      * `waitBefore`). `ms` starts after it. Missing on turns the Worker did not
      * time, and on every turn before 2026-10-30.
      */

@@ -3,11 +3,11 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 
-import { TexStore } from "../src/texStore.js";
-import { texObjects } from "../src/texStore/objects.js";
-import { readPageRecords } from "../src/texStore/pageRecords.js";
-import { CHANGED_GAP_MS, PAGE_CLOSE_REAUTH, PAGE_LIVE_PATH, PAGE_VIEWER_HEADER, pageLive, pokeTexPage } from "../src/texStore/pageLive.js";
-import { serveTexStore, texBucket } from "../src/texStore/wire.js";
+import { TexStore } from "../../../packages/tex/gateway/texStore.js";
+import { texObjects } from "../../../packages/tex/gateway/texStore/objects.js";
+import { readPageRecords } from "../../../packages/tex/gateway/texStore/pageRecords.js";
+import { CHANGED_GAP_MS, PAGE_CLOSE_REAUTH, PAGE_LIVE_PATH, PAGE_VIEWER_HEADER, pageLive, pokeTexPage } from "../../../packages/tex/gateway/texStore/pageLive.js";
+import { serveTexStore, texBucket } from "../../../packages/tex/gateway/texStore/wire.js";
 import { R2Store } from "../src/store/r2.js";
 import { arrivedSql, durableSql, texStoreNamespace } from "./texStoreFixture.mjs";
 

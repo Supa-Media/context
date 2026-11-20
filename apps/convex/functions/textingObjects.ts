@@ -3,7 +3,7 @@
  * (decided by the owner, 2026-11-04: `docs/decisions/texting-assistant/texting-in-objects.md`).
  *
  * - **The record** (`recordFor`): the phones linked to the person, kept in the object only as keyed hashes
- *   (`apps/mcp/src/agent/textingPhone.js`, the same key the gateway derives); whether texting is paused; the scopes
+ *   (`packages/tex/gateway/agent/textingPhone.js`, the same key the gateway derives); whether texting is paused; the scopes
  *   their role allows; their zone, Tex style and the identity block Tex is told every turn.
  * - **The push** (`push`): the record written whole into the object. A newer record always wins there, and an
  *   unlinked phone or a pause revokes every texting token the object opened.
@@ -32,7 +32,7 @@ import { accessHomeOf } from "./lib/accessObjects/home";
 import { consoleWorkspaceClient } from "./lib/workspaceObjects/door";
 import { GATEWAY_SECRET_ENV_VAR } from "./lib/gatewayAuth";
 import { TEXTS_SCOPES, isPhoneNumber, keepTextsGrant, personalWorkspaceOf } from "./textLinks";
-import { textingPhoneHash } from "../../mcp/src/agent/textingPhone.js";
+import { textingPhoneHash } from "../../../packages/tex/gateway/agent/textingPhone.js";
 
 /** A record older than this is pushed again behind the next text. */
 export const REFRESH_MS = 10 * 60 * 1000;

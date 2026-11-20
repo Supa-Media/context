@@ -24,7 +24,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 
 import { resolveSession, sessionForContext, SCOPE_WRITE } from "../src/session.js";
-import { groupOf, groupPrompt, inFirstReach, reachOf } from "../src/agent/groupTurn.js";
+import { groupOf, groupPrompt, inFirstReach, reachOf } from "../../../packages/tex/gateway/agent/groupTurn.js";
 
 const TOKEN = `cat_chat_reach_${"0".repeat(24)}`;
 const HOME = "tex/groups/orbit-lamp-river";

@@ -37,8 +37,8 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { appOriginOf, NOTE_LINK_LINE, noteLinkUrl, sentNoteLinks, withNoteLinks, withSavedLink } from "../src/agent/noteLinks.js";
-import { systemPrompt } from "../src/agent/prompt.js";
+import { appOriginOf, NOTE_LINK_LINE, noteLinkUrl, sentNoteLinks, withNoteLinks, withSavedLink } from "../../../packages/tex/gateway/agent/noteLinks.js";
+import { systemPrompt } from "../../../packages/tex/gateway/agent/prompt.js";
 import { withActivityHint } from "../src/live/activityHint.js";
 
 const ORIGIN = "https://app.example";

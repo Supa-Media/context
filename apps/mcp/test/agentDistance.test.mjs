@@ -19,10 +19,10 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { test } from "node:test";
 
-import { outgoingPictures } from "../src/agent/outgoingPictures.js";
-import { pictureMaker, withPictureMaker } from "../src/agent/pictureMaker.js";
-import { VISUAL_TOOL } from "../src/agent/visuals/index.js";
-import { distanceWords, fillDistances, geocode, geocoderFor, kmBetween } from "../src/agent/visuals/distance.js";
+import { outgoingPictures } from "../../../packages/tex/gateway/agent/outgoingPictures.js";
+import { pictureMaker, withPictureMaker } from "../../../packages/tex/gateway/agent/pictureMaker.js";
+import { VISUAL_TOOL } from "../../../packages/tex/gateway/agent/visuals/index.js";
+import { distanceWords, fillDistances, geocode, geocoderFor, kmBetween } from "../../../packages/tex/gateway/agent/visuals/distance.js";
 import { texEntryPointSource } from "./texEntryPointSource.mjs";
 
 const CARD_PNG = "iVBORw0KGgo=";

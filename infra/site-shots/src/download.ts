@@ -2,7 +2,7 @@
  * The `download` step: press what a person presses to save a file (an
  * invoice's download arrow, a "PDF" link), or take the file the page itself
  * is, and hand the file back to the gateway, which keeps it for a day in the
- * person's own bucket (`apps/mcp/src/agent/downloads.js`) so it can go into
+ * person's own bucket (`packages/tex/gateway/agent/downloads.js`) so it can go into
  * an email or another page.
  *
  * Added 2026-10-22: Tex found a Google Voice invoice in the Admin console and

@@ -11,8 +11,8 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { chatSkillsFolder, chatSkillsPrompt, openChatSkills, touchesChatSkills, withChatSkills } from "../src/agent/chatSkills.js";
-import { homePrompt } from "../src/agent/chatHome.js";
+import { chatSkillsFolder, chatSkillsPrompt, openChatSkills, touchesChatSkills, withChatSkills } from "../../../packages/tex/gateway/agent/chatSkills.js";
+import { homePrompt } from "../../../packages/tex/gateway/agent/chatHome.js";
 import { markChatWords, markUntrusted, newLedger, recordRead } from "../src/privacy/egress.js";
 
 const FOLDER = "tex/groups/orbit-lamp-river";

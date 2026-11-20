@@ -10,7 +10,7 @@
  *
  * Tex reads the values through `send tex_settings` (`commandTools.js` with `settingsSnapshot`), and the app's
  * settings page renders these same rows, so the chat and the page cannot drift apart. Data only: reading and changing
- * a value is the gateway's (`apps/mcp/src/agent/settingsTools.js`), never this file's.
+ * a value is the gateway's (`packages/tex/gateway/agent/settingsTools.js`), never this file's.
  *
  * `apps/mcp/test/texSettings.test.mjs` fails when a row names an action Tex doesn't have, a `setting` row has no
  * handler, or a handler has no row.

@@ -27,7 +27,7 @@ import { ticketNamespace, ticketProtocols } from "./liveTicketFixture.mjs";
 import { createControlPlaneStub, CONTROL_PLANE_ORIGIN, GATEWAY_SECRET } from "./controlPlaneStub.mjs";
 import { texStoreNamespace } from "./texStoreFixture.mjs";
 import { handleTexPageLive } from "../src/http/texPage/live.js";
-import { PAGE_VIEWER_HEADER } from "../src/texStore/pageLive.js";
+import { PAGE_VIEWER_HEADER } from "../../../packages/tex/gateway/texStore/pageLive.js";
 import { actOwned } from "../src/http/texPage/serve.js";
 
 const tok = (name) => `cat_texpage_${name}_`.padEnd(40, "0");
@@ -320,7 +320,7 @@ test("the live socket: no token is refused; alice's goes to her chat's own Tex o
 test("alice reads her chat's history file raw, by kind and by day, and what Tex sees", async () => {
   const world = await setUp();
   try {
-    const { ledgerFor, eventEntry, toolEntry, wordsEntry } = await import("../src/agent/ledger.js");
+    const { ledgerFor, eventEntry, toolEntry, wordsEntry } = await import("../../../packages/tex/gateway/agent/ledger.js");
     const ledger = ledgerFor(world.env, { person: "ws_alice" });
     const at = Date.UTC(2026, 9, 30, 16, 0, 0); // Oct 30, noon in New York
     const asked = { id: `${at}-000001`, at, chat: "c", from: { kind: "person", name: "alice" }, kind: "text", text: "find me a dentist" };

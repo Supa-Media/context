@@ -2,11 +2,11 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 
-import { ROLES, TEX_MAP, architectureFor, trainingFor, withArchitecture } from "../src/agent/texArchitecture.js";
-import { replyJudge } from "../src/agent/replyJudge.js";
+import { ROLES, TEX_MAP, architectureFor, trainingFor, withArchitecture } from "../../../packages/tex/gateway/agent/texArchitecture.js";
+import { replyJudge } from "../../../packages/tex/gateway/agent/replyJudge.js";
 import { backgroundedBrief } from "../src/machines/jobBackground.js";
 import { mapFor } from "../../../scripts/tex-architecture.mjs";
-import { TEX_CONFIG } from "../src/agent/texConfig.js";
+import { TEX_CONFIG } from "../../../packages/tex/gateway/agent/texConfig.js";
 
 // Dev2, 2026-11-06: "make sure the architecture in code is loaded into every agents context, and tell them what part of the graph they are".
 

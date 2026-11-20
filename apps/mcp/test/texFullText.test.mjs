@@ -19,12 +19,12 @@ import { after, before, test } from "node:test";
 
 import { createEgressWorld, request, TEXTED_CHAT, TOKEN_TEXTS } from "./agentEgressFixtures.mjs";
 import { BUILTIN_ALLOWED } from "./agentModelFixture.mjs";
-import { LOG_PREFACE, loggedTurn, OLD_CAP_UNTIL } from "../src/agent/loggedTurn.js";
-import { WEEK_PREFACE } from "../src/agent/weekHistory.js";
+import { LOG_PREFACE, loggedTurn, OLD_CAP_UNTIL } from "../../../packages/tex/gateway/agent/loggedTurn.js";
+import { WEEK_PREFACE } from "../../../packages/tex/gateway/agent/weekHistory.js";
 
 /** A turn shown the chat from its ledger: the week's history (`weekHistory.js`), or the log's view before it. */
 const fromLedger = (all) => all.includes(WEEK_PREFACE.slice(0, 40)) || all.includes(LOG_PREFACE);
-import { checkEvent } from "../src/agent/log.js";
+import { checkEvent } from "../../../packages/tex/gateway/agent/log.js";
 
 const TOKEN_GROUP = `cat_fulltext_group_ada_${"0".repeat(16)}`;
 const KEY = "f".repeat(64);

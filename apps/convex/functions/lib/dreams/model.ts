@@ -13,7 +13,7 @@ import type { Id } from "../../../_generated/dataModel";
 import type { MutationCtx } from "../../../_generated/server";
 import { nextRunFor } from "../routines/model";
 
-/** The dream runner's first-party client. The gateway decides by it (`apps/mcp/src/agent/dream.js`). */
+/** The dream runner's first-party client. The gateway decides by it (`packages/tex/gateway/agent/dream.js`). */
 export const DREAMS_CLIENT_ID = "context_dreams";
 /** What the note's history and Connected apps call it. */
 export const DREAMS_CLIENT_NAME = "Tex, dreaming";

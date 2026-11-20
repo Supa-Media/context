@@ -6,7 +6,7 @@ Dev2 approved the "What Tex is working on" page on 2026-11-02, and the same
 morning decided that each chat keeps one record, its ledger, from which every
 view is rebuilt. The page's Behind the scenes section shows three things a
 turn's own steps don't, so the gateway writes them into that ledger as they
-happen (`apps/mcp/src/agent/workEntries.js`), never into a store of the
+happen (`packages/tex/gateway/agent/workEntries.js`), never into a store of the
 page's own:
 
 - `advisor`: a job's check against its finish line (`jobCheck.js`), marked

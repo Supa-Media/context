@@ -116,7 +116,7 @@ which only the chat's people open. Dev2 picked this over keeping labels only.
   label) (`packages/tex/worker/groupModelTurn.ts`). Lines the chat said still name
   people by handle or label; the number goes only in that list.
 - The gateway keeps a number only for someone named in this chat, only a real
-  one (E.164), once each (`apps/mcp/src/agent/groupNames.js` `numbersOf`), and
+  one (E.164), once each (`packages/tex/gateway/agent/groupNames.js` `numbersOf`), and
   the roster says each beside its name; the turn is told to say a number where
   a person would and a guest label never.
 - Unchanged: rows, grants and the control plane still hold account ids and
@@ -155,7 +155,7 @@ to match label to name by itself and credited one's joke to the other. Dev2
 picked a roster of names kept on the chat itself.
 
 - When someone here says who a guest is (or the guest says it), Tex calls
-  `send` action `name_guest` (`apps/mcp/src/agent/groupGuestNames.js`) with
+  `send` action `name_guest` (`packages/tex/gateway/agent/groupGuestNames.js`) with
   the label and the name. It is kept as a `name` entry in the chat's ledger,
   the chat's one copy; the newest per guest is that guest's name. Only a
   label in this chat is taken, and the name is cleaned as an account's is
@@ -178,7 +178,7 @@ picked a roster of names kept on the chat itself.
 ## What a group turn can do
 
 A separate client id turns off what is somebody's alone
-(`apps/mcp/src/agent/groupTurn.js`): no routines, no delegation, no learned
+(`packages/tex/gateway/agent/groupTurn.js`): no routines, no delegation, no learned
 skills, none of the tagger's `tex/` notes and no texts conversation. Since
 2026-10-23 everything else is a person's own text's (below): the same note
 tools by the tagger's role, progress texts and pictures. The turn is marked untrusted from the start, since
@@ -229,7 +229,7 @@ other people's words are in its history.
 - **Never invite.** Calendar writes refuse guests and send no updates, so
   the prompt says to email the details or have each person ask.
 - **Use the web with the chat's own browser, never the tagger's**
-  (`apps/mcp/src/agent/turnWeb.js`). Until 2026-10-24 a group's browser had
+  (`packages/tex/gateway/agent/turnWeb.js`). Until 2026-10-24 a group's browser had
   no tag and kept nothing, so a site that signs in with an email and a
   one-time code could not be signed in at all: the code arrives in a later
   text, after the browser had closed, and Tex refused it for want of a vault
@@ -560,7 +560,7 @@ What a simplification would cost: caching the reach on the grant and trusting it
 
 Dev2 chose this on the 2026-11-05 bug hunt: "Tex, find us a dinner spot for Friday" said as a voice message in a group got no answer, and the same words typed did. Whether a group message is for Tex is decided from its words (`groupInbox.ts` `acceptGroup`), and a voice message has none: its words were only made inside the gateway's turn, after that decision.
 
-- **A message that is only a voice recording is heard first** (`packages/tex/worker/groupVoice.ts`): the group's object downloads it and asks the gateway's `TexTexts` entrypoint (`/texts/hear`, `apps/mcp/src/agent/textsHear.js`) for its words. That is the transcription a turn uses (`hearVoiceMessages`), reached over the service binding, so no new secret or service hears the audio; the caller is the chat's hash.
+- **A message that is only a voice recording is heard first** (`packages/tex/worker/groupVoice.ts`): the group's object downloads it and asks the gateway's `TexTexts` entrypoint (`/texts/hear`, `packages/tex/gateway/agent/textsHear.js`) for its words. That is the transcription a turn uses (`hearVoiceMessages`), reached over the service binding, so no new secret or service hears the audio; the caller is the chat's hash.
 _Superseded 2026-11-11 by [one-judge-one-record](./one-judge-one-record.md) (PR 1): a voice message's heard words are logged as its line ("(voice message) ...") and judged like typed words; no name rule decides it._
 
 - **Said aloud, Tex's name anywhere is the tag** (`addressesTex` or `namesTex` on `heard`): decide cannot hear a recording, so leaving a named voice message to it would leave it unanswered as before.

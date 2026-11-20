@@ -9,7 +9,7 @@ import { test } from "node:test";
 
 import { markUntrusted, mightWiden, newLedger, oneLine, recordRead } from "../src/privacy/egress.js";
 import { isChatHistoryPath } from "../src/notes/paths.js";
-import { historyWriteRefusal } from "../src/agent/historyFile.js";
+import { historyWriteRefusal } from "../../../packages/tex/gateway/agent/historyFile.js";
 
 test("anything from outside the workspace marks the turn", () => {
   const content = { content: [{ type: "text", text: "hello" }] };

@@ -12,13 +12,13 @@
  * 3. `claimsNotePicture` ignoring `images`: "a write that carried the card" fails.
  * 4. The group check dropped from `reportGate`: "a group's report never carries texts" fails.
  */
-import { carries } from "../src/agent/checkFindings.js";
+import { carries } from "../../../packages/tex/gateway/agent/checkFindings.js";
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { claimCheck } from "../src/agent/claimCheck.js";
-import { BUG_NOTICE } from "../src/agent/bugCheck.js";
-import { NOTE_PICTURE_NOTICE, claimsNotePicture } from "../src/agent/visuals/notice.js";
+import { claimCheck } from "../../../packages/tex/gateway/agent/claimCheck.js";
+import { BUG_NOTICE } from "../../../packages/tex/gateway/agent/bugCheck.js";
+import { NOTE_PICTURE_NOTICE, claimsNotePicture } from "../../../packages/tex/gateway/agent/visuals/notice.js";
 import { asksToFile, reportGate } from "../src/tools/reportGate.js";
 
 const ASKED = "File the fact that you can’t see your own diagram and messages as a bug report";

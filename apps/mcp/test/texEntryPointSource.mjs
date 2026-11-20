@@ -6,7 +6,7 @@
  */
 import { readFileSync } from "node:fs";
 
-const read = (path) => readFileSync(new URL(`../src/agent/${path}`, import.meta.url), "utf8");
+const read = (path) => readFileSync(new URL(`../../../packages/tex/gateway/agent/${path}`, import.meta.url), "utf8");
 
 export function texEntryPointSource() {
   const order = [...read("texEntryPoint/steps.js").matchAll(/from "\.\/(\w+\.js)"/g)].map((match) => match[1]);

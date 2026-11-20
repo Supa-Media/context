@@ -13,12 +13,12 @@ try {
 }
 const skip = sqliteMissing ? "node:sqlite is not available" : false;
 
-const { TexStore } = await import("../src/texStore.js");
+const { TexStore } = await import("../../../packages/tex/gateway/texStore.js");
 const { WorkspaceStore } = await import("../src/workspaceStore.js");
-const { gatewayTexStore, texStoreStub, texTimers } = await import("../src/texStore/wire.js");
-const { placeOf } = await import("../src/texStore/move.js");
-const { KEEP_MERGED_MS } = await import("../src/texStore/merge.js");
-const { everyAlarm } = await import("../src/texStore/alarms.js");
+const { gatewayTexStore, texStoreStub, texTimers } = await import("../../../packages/tex/gateway/texStore/wire.js");
+const { placeOf } = await import("../../../packages/tex/gateway/texStore/move.js");
+const { KEEP_MERGED_MS } = await import("../../../packages/tex/gateway/texStore/merge.js");
+const { everyAlarm } = await import("../../../packages/tex/gateway/texStore/alarms.js");
 
 const NOTE = "notes/0190a3b2-0000-7000-8000-000000000001.md";
 const OTHER = "notes/0190a3b2-0000-7000-8000-000000000002.md";
@@ -163,7 +163,7 @@ test("a gateway still on the old code writes to the old store, which passes it o
   await gatewayTexStore(w.env)("person:w1").get(NOTE);
   // The old route: straight to the placed Tex store, naming the person.
   const { R2Store } = await import("../src/store/r2.js");
-  const { texBucket } = await import("../src/texStore/wire.js");
+  const { texBucket } = await import("../../../packages/tex/gateway/texStore/wire.js");
   const { objectByName } = await import("../src/objectPlace.js");
   const raw = objectByName(w.env.TEX_STORE, "enam:person:w1");
   const stale = new R2Store(texBucket({ fetch: (request) => (request.headers.set("x-tex-owner", "person:w1"), raw.fetch(request)) }));
@@ -252,7 +252,7 @@ test("wiping the person's Tex clears it in the workspace object and the old stor
   const old = await seedPerson(w, "w1");
   const store = gatewayTexStore(w.env)("person:w1");
   await store.get(NOTE);
-  const { callTexStore } = await import("../src/texStore/wire.js");
+  const { callTexStore } = await import("../../../packages/tex/gateway/texStore/wire.js");
   await callTexStore(texStoreStub(w.env, { person: "w1" }), "wipe");
   const sql = w.workspaces.get("workspace:w1").state.storage.sql;
   assert.equal(sql.exec("SELECT COUNT(*) AS n FROM tex_objects").toArray()[0].n, 0);

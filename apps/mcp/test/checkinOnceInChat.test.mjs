@@ -9,15 +9,15 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 
-import { dayFromLedger, earlierFromLedger } from "../src/agent/ledgerHistory.js";
-import { conversationFromLedger } from "../src/agent/ledgerConversation.js";
-import { stretchSince, stretchTurns } from "../src/agent/stretch.js";
-import { sentByItself } from "../src/agent/sentByItself.js";
-import { notSaidOwn, linkedSends, saidTexts } from "../src/agent/sentOnItsOwn.js";
-import { eventEntry, wordsEntry } from "../src/agent/ledger.js";
-import { checkInAbout } from "../src/agent/checkInTexts.js";
-import { momentView, loggedTurn } from "../src/agent/loggedTurn.js";
-import { weekView } from "../src/agent/weekHistory.js";
+import { dayFromLedger, earlierFromLedger } from "../../../packages/tex/gateway/agent/ledgerHistory.js";
+import { conversationFromLedger } from "../../../packages/tex/gateway/agent/ledgerConversation.js";
+import { stretchSince, stretchTurns } from "../../../packages/tex/gateway/agent/stretch.js";
+import { sentByItself } from "../../../packages/tex/gateway/agent/sentByItself.js";
+import { notSaidOwn, linkedSends, saidTexts } from "../../../packages/tex/gateway/agent/sentOnItsOwn.js";
+import { eventEntry, wordsEntry } from "../../../packages/tex/gateway/agent/ledger.js";
+import { checkInAbout } from "../../../packages/tex/gateway/agent/checkInTexts.js";
+import { momentView, loggedTurn } from "../../../packages/tex/gateway/agent/loggedTurn.js";
+import { weekView } from "../../../packages/tex/gateway/agent/weekHistory.js";
 import { threadLines } from "../src/http/texPage/conversations.js";
 
 const CHAT = "sendblue:line:+15555550100";

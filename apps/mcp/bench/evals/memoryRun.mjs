@@ -17,7 +17,7 @@
  * a run is priced per phase: saving costs nothing, filing is housekeeping's turns, reading is the reader's rounds.
  */
 
-import { PRODUCTION_HOUSEKEEPING_PATH } from "../../src/agent/production.js";
+import { PRODUCTION_HOUSEKEEPING_PATH } from "../../../../packages/tex/gateway/agent/production.js";
 import { atEarlierTime } from "../clock.mjs";
 import { anthropicGateway } from "../models.mjs";
 import { prepareRun } from "../warm.mjs";

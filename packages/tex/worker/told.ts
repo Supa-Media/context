@@ -10,7 +10,7 @@
  *   (`events.ts`), which waits in the buffer until the next session writes it;
  * - the name, owed under `told` until a turn answered with it: the next
  *   `/agent` call names them (`told`), so today's history
- *   (`apps/mcp/src/agent/conversation.js`) writes its own fixed line for each.
+ *   (`packages/tex/gateway/agent/conversation.js`) writes its own fixed line for each.
  */
 
 import { addEvent } from "./events";

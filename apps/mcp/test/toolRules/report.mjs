@@ -14,7 +14,7 @@ import { fileURLToPath } from "node:url";
 import { oneToOne, groupChat } from "../replay/chats.mjs";
 import { toolDefinitions } from "../../src/tools/registry.js";
 import { V2_TOOLS } from "../../src/tools/advertised.js";
-import { ASSISTANT_SEND_ACTIONS } from "../../src/agent/sixTools.js";
+import { ASSISTANT_SEND_ACTIONS } from "../../../../packages/tex/gateway/agent/sixTools.js";
 import rules from "../../../../packages/tex/src/toolRules.cjs";
 
 const { TOOL_CHAR_LIMIT, toolChars, rateError, TEX_STATE_FILES, SHELL_NAMES } = rules;
@@ -108,7 +108,7 @@ function literalEnd(match) {
 
 export function errorStrings() {
   const found = new Map();
-  for (const file of ["src/agent", "src/tools", "src/machines"].flatMap((dir) => files(join(MCP_ROOT, dir)))) {
+  for (const file of ["../../packages/tex/gateway/agent", "src/tools", "src/machines"].flatMap((dir) => files(join(MCP_ROOT, dir)))) {
     const source = readFileSync(file, "utf8");
     for (const shape of ERROR_SHAPES) {
       for (const match of source.matchAll(shape)) {

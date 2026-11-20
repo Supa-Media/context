@@ -13,10 +13,10 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { webSession } from "../src/agent/computer.js";
-import { BROWSE_TOOL } from "../src/agent/browse.js";
-import { NOT_THEIRS } from "../src/agent/handoffGate.js";
-import { SUBMIT_CLEARED_LINE, SUBMIT_STUCK_LINE, pressedSend } from "../src/agent/silentSubmit.js";
+import { webSession } from "../../../packages/tex/gateway/agent/computer.js";
+import { BROWSE_TOOL } from "../../../packages/tex/gateway/agent/browse.js";
+import { NOT_THEIRS } from "../../../packages/tex/gateway/agent/handoffGate.js";
+import { SUBMIT_CLEARED_LINE, SUBMIT_STUCK_LINE, pressedSend } from "../../../packages/tex/gateway/agent/silentSubmit.js";
 
 const FORM = "https://register.example.org/conference";
 

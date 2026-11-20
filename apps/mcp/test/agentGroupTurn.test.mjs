@@ -21,13 +21,13 @@ import assert from "node:assert/strict";
 import { after, before, beforeEach, test } from "node:test";
 
 import worker from "../src/index.js";
-import { GROUP_MEMORY_PREFIX, MAX_CHAT_CHARS, groupOf, groupAwareCallTool, groupWriteTools } from "../src/agent/groupTurn.js";
+import { GROUP_MEMORY_PREFIX, MAX_CHAT_CHARS, groupOf, groupAwareCallTool, groupWriteTools } from "../../../packages/tex/gateway/agent/groupTurn.js";
 import { CONTROL_PLANE_ORIGIN, GATEWAY_SECRET, createControlPlaneStub, createS3Backend } from "./controlPlaneStub.mjs";
 import { createWorkerCtx } from "./workerCtx.mjs";
 import { AI_GATEWAY_ENV, AI_GATEWAY_ORIGIN, BUILTIN_ALLOWED } from "./agentModelFixture.mjs";
 import { fakeModel, PRIVACY_MANIFEST } from "./agentEgressFixtures.mjs";
 import { texStoreNamespace } from "./texStoreFixture.mjs";
-import { EMPTY_FALLBACK } from "../src/agent/replyChecks.js";
+import { EMPTY_FALLBACK } from "../../../packages/tex/gateway/agent/replyChecks.js";
 
 const S3_ENDPOINT = "https://s3.example-group.test";
 const TOKEN_GROUP = `cat_group_editor_${"0".repeat(22)}`;

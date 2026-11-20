@@ -34,10 +34,10 @@
 
 import { ask, request, toolReplies, createEgressWorld } from "./agentEgressFixtures.mjs";
 import { TOKEN_CONSOLE, TOKEN_TEXTS, TOKEN_ROUTINE } from "./agentEgressFixtures.mjs";
-import { approvalVerdict, notDone } from "../src/agent/textedApprovals.js";
-import { TOLD } from "../src/agent/conversation.js";
-import { overtaken } from "../src/agent/askOvertaken.js";
-import { askLine } from "../src/agent/textedApprovals.js";
+import { approvalVerdict, notDone } from "../../../packages/tex/gateway/agent/textedApprovals.js";
+import { TOLD } from "../../../packages/tex/gateway/agent/conversation.js";
+import { overtaken } from "../../../packages/tex/gateway/agent/askOvertaken.js";
+import { askLine } from "../../../packages/tex/gateway/agent/textedApprovals.js";
 import { teamNow } from "./accessRows.mjs";
 
 export async function runAgentEgressTextingChecks(check) {

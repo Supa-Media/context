@@ -1,8 +1,8 @@
 import assert from "node:assert/strict";
-import { BUILTIN_PROVIDER } from "../../../src/agent/builtin.js";
-import { jobOf } from "../../../src/agent/background.js";
-import { runTurn } from "../../../src/agent/turn.js";
-import { carriedRounds } from "../../../src/agent/turnResume.js";
+import { BUILTIN_PROVIDER } from "../../../../../packages/tex/gateway/agent/builtin.js";
+import { jobOf } from "../../../../../packages/tex/gateway/agent/background.js";
+import { runTurn } from "../../../../../packages/tex/gateway/agent/turn.js";
+import { carriedRounds } from "../../../../../packages/tex/gateway/agent/turnResume.js";
 
 const SEARCH = { name: "search_email", description: "Search mail", inputSchema: { type: "object", properties: { query: { type: "string" } } }, annotations: { readOnlyHint: true } };
 const USAGE = { prompt_tokens: 10, completion_tokens: 5 };

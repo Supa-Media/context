@@ -17,10 +17,10 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { texLedger } from "../src/texStore/ledger.js";
-import { TexObjectRefused, texObjects } from "../src/texStore/objects.js";
-import { HISTORY_VIEW_MARKER, withHistoryView } from "../src/texStore/historyView.js";
-import { HISTORY_PATH, ensureHistoryFile, historyWriteRefusal, homeHistoryPath } from "../src/agent/historyFile.js";
+import { texLedger } from "../../../packages/tex/gateway/texStore/ledger.js";
+import { TexObjectRefused, texObjects } from "../../../packages/tex/gateway/texStore/objects.js";
+import { HISTORY_VIEW_MARKER, withHistoryView } from "../../../packages/tex/gateway/texStore/historyView.js";
+import { HISTORY_PATH, ensureHistoryFile, historyWriteRefusal, homeHistoryPath } from "../../../packages/tex/gateway/agent/historyFile.js";
 import { callTool } from "../src/tools/dispatch.js";
 import { durableSql } from "./texStoreFixture.mjs";
 

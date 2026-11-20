@@ -46,7 +46,7 @@ import { actorAccessOf } from "../src/vault/access.js";
 import { recipientMaySee } from "../src/live/relayAuthorization.js";
 import { PrivacyOverrides } from "../src/privacy/engine.js";
 import { PAGE_SKILL_STAMP } from "../src/pageSkill.js";
-import { guestAwareCallTool, guestPrompt } from "../src/agent/groupGuests.js";
+import { guestAwareCallTool, guestPrompt } from "../../../packages/tex/gateway/agent/groupGuests.js";
 
 const TOKEN_CHAT = `cat_group_guests_chat_${"0".repeat(18)}`;
 const KEY = "c".repeat(64);

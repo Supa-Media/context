@@ -19,8 +19,8 @@ import { LabSandboxObject } from "../../../packages/lab/gateway/labSandbox/objec
 import { handleLabSandbox, newIds, open, DAILY_SENDS } from "../../../packages/lab/gateway/labSandbox/route.js";
 import { objectRun, objectCarry, runInObject } from "../../../packages/lab/gateway/labSandbox/crossRuns.js";
 import { runChatTurn } from "../../../packages/lab/gateway/labSandbox/chatRun.js";
-import { streamTurn, wantsProgress } from "../src/agent/progress.js";
-import { eventEntry } from "../src/agent/ledger.js";
+import { streamTurn, wantsProgress } from "../../../packages/tex/gateway/agent/progress.js";
+import { eventEntry } from "../../../packages/tex/gateway/agent/ledger.js";
 import { durableSql } from "./texStoreFixture.mjs";
 
 const ALICE = "tok_alice_example_000000000000";

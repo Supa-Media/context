@@ -39,7 +39,7 @@ import { createServer } from "node:http";
 import { tmpdir } from "node:os";
 import { basename, dirname, join } from "node:path";
 
-import { MODULE_FOLDER } from "../src/agent/promptModules.js";
+import { MODULE_FOLDER } from "../../../packages/tex/gateway/agent/promptModules.js";
 import { ledgersFolderFor } from "./modelLog.mjs";
 import { repliesName } from "./replies.mjs";
 import { section, summaryMarkdown } from "./summary.mjs";

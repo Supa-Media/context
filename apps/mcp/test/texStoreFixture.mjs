@@ -6,8 +6,8 @@
  */
 
 import { DatabaseSync } from "node:sqlite";
-import { TexStore } from "../src/texStore.js";
-import { PLACED_PREFIX, placeOf } from "../src/texStore/move.js";
+import { TexStore } from "../../../packages/tex/gateway/texStore.js";
+import { PLACED_PREFIX, placeOf } from "../../../packages/tex/gateway/texStore/move.js";
 
 /** `node:sqlite` in the Durable Object's `sql.exec(...).toArray()` shape. */
 export function durableSql() {

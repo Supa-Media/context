@@ -34,7 +34,7 @@ import { watchedLinks } from "./vaultWatch";
 import { watchedBrowser } from "./handbackWatch";
 import { readInvite, type ChatInvite } from "./chatInvite";
 
-/** The gateway seals a warm copy only this large (`apps/mcp/src/agent/warmCopy.js` `WARM_MAX_CHARS`). */
+/** The gateway seals a warm copy only this large (`packages/tex/gateway/agent/warmCopy.js` `WARM_MAX_CHARS`). */
 export const MAX_WARM_CHARS = 1_500_000;
 
 export type Fetch = typeof fetch;
@@ -281,7 +281,7 @@ export type AgentAnswer =
  * none.
  *
  * With `onProgress`, the turn is asked for as a stream (`Accept:
- * application/x-ndjson`, `apps/mcp/src/agent/progress.js`): a long task texts
+ * application/x-ndjson`, `packages/tex/gateway/agent/progress.js`): a long task texts
  * where it has got to while it works, each `{"progress"}` line is handed to
  * `onProgress` as it arrives, and the last line carries the turn's own status
  * and body. A gateway that answers plain JSON (one deployed before streaming)
@@ -298,7 +298,7 @@ export async function askAgent(
   /**
    * The words an inline reply answers, sent apart from the question: they are
    * somebody else's, and `question` is what the gateway's guards vouch from
-   * (`apps/mcp/src/agent/quoted.js`). An empty string is a reply whose words
+   * (`packages/tex/gateway/agent/quoted.js`). An empty string is a reply whose words
    * could not be read, sent as `replied` so the turn still knows it was one.
    */
   quoted?: string,
@@ -307,7 +307,7 @@ export async function askAgent(
   /**
    * An answered tapback's name, the tapbacks noted since the last text
    * (`reactions.ts`), and the name of this turn, which texts sent while it
-   * runs are steered into (`apps/mcp/src/agent/steer.js`).
+   * runs are steered into (`packages/tex/gateway/agent/steer.js`).
    */
   {
     tapback,
@@ -353,14 +353,14 @@ export async function askAgent(
     told?: readonly string[];
     /** How this chat asked Tex to talk and its progress updates (`texStyle.ts`), said to the model by the gateway. */
     settings?: Settings;
-    /** When the first text this turn answers came in (`apps/mcp/src/agent/turnLog.js` `waitBefore`). */
+    /** When the first text this turn answers came in (`packages/tex/gateway/agent/turnLog.js` `waitBefore`). */
     arrivedAt?: number;
-    /** The Worker's own wait before this ask: the session lookup and the work after it (`apps/mcp/src/agent/turnTiming.js`). */
+    /** The Worker's own wait before this ask: the session lookup and the work after it (`packages/tex/gateway/agent/turnTiming.js`). */
     worker?: { sessionMs: number; beforeAskMs: number };
     /** The sealed copy the last answer handed back, and this chat's newest events (`warm.ts`). */
     warm?: string; beside?: readonly string[]; // and what was written to the history beside it (`warm.ts` `keepBeside`)
     recent?: readonly TexEvent[]; // the outbox: what the gateway has not taken yet, added to the ledger's day (`warmCopy.js` `mergeEvents`)
-    /** A try after one that failed: the gateway goes on from what that try did (`apps/mcp/src/agent/savedRounds.js`). */
+    /** A try after one that failed: the gateway goes on from what that try did (`packages/tex/gateway/agent/savedRounds.js`). */
     again?: boolean;
   } = {},
 ): Promise<AgentAnswer> {
@@ -421,7 +421,7 @@ export function agentAnswer(status: number, json: unknown): AgentAnswer {
   const body = record(json);
   if (status === 200 && body.cancelled === true) return { kind: "cancelled" };
   const pictures = readPictures(body.pictures);
-  if (status === 200 && typeof body.answer === "string" && (body.answer.trim() || pictures.length > 0 || body.quiet === true)) { // `quiet`: a turn with nothing to text, as a flag (`apps/mcp/src/agent/jobReport.js`)
+  if (status === 200 && typeof body.answer === "string" && (body.answer.trim() || pictures.length > 0 || body.quiet === true)) { // `quiet`: a turn with nothing to text, as a flag (`packages/tex/gateway/agent/jobReport.js`)
     const verbatim = readVerbatim(body.verbatim, body.answer);
     const steered = Array.isArray(body.steered) ? body.steered.filter((id): id is string => typeof id === "string").slice(0, 5) : [];
     const jobs = readStartedJobs(body.jobs);
@@ -436,12 +436,12 @@ export function agentAnswer(status: number, json: unknown): AgentAnswer {
       ...(readChoices(body.choices).length > 0 ? { choices: readChoices(body.choices) } : {}),
       ...(readOffers(body.offers).length > 0 ? { offers: readOffers(body.offers), ...(readHub(body.hub) !== null ? { hub: readHub(body.hub)! } : {}) } : {}), // `hub`: the chat's Tex page the view points to (`jobs.ts` `readHub`)
       ...(verbatim.length > 0 ? { verbatim } : {}), ...(body.quiet === true ? { quiet: true as const } : {}),
-      ...(body.quiet === true && typeof body.react === "string" && body.react.length <= 8 ? { react: body.react } : {}), ...(body.place === "under" || body.place === "plain" ? { place: body.place } : {}), ...(readUnder(body.under, body.answer).length > 0 ? { under: readUnder(body.under, body.answer) } : {}), // the classifier's tapback instead of a text (checked again in `reactEmoji.ts`), and where a reply goes (`apps/mcp/src/agent/respond.js`)
+      ...(body.quiet === true && typeof body.react === "string" && body.react.length <= 8 ? { react: body.react } : {}), ...(body.place === "under" || body.place === "plain" ? { place: body.place } : {}), ...(readUnder(body.under, body.answer).length > 0 ? { under: readUnder(body.under, body.answer) } : {}), // the classifier's tapback instead of a text (checked again in `reactEmoji.ts`), and where a reply goes (`packages/tex/gateway/agent/respond.js`)
       ...(steered.length > 0 ? { steered } : {}),
       ...(jobs.length > 0 ? { jobs } : {}),
       ...(steers.length > 0 ? { steers } : {}),
       ...(body.exhausted === true ? { exhausted: true as const } : {}),
-      ...(body.unfinished === true ? { unfinished: true as const } : {}), ...(body.untrusted === true ? { untrusted: true as const } : {}), ...(body.idle === true ? { idle: true as const } : {}), ...(typeof body.verdict === "string" && ["done", "keep_going", "waiting", "stuck"].includes(body.verdict) ? { verdict: body.verdict as JobVerdict, ...(typeof body.advice === "string" && body.advice.trim() ? { advice: body.advice.trim().slice(0, 600) } : {}) } : {}), // the advisor's check on a job's part (`apps/mcp/src/agent/jobCheck.js`); `untrusted`: it read from outside (`route.js`)
+      ...(body.unfinished === true ? { unfinished: true as const } : {}), ...(body.untrusted === true ? { untrusted: true as const } : {}), ...(body.idle === true ? { idle: true as const } : {}), ...(typeof body.verdict === "string" && ["done", "keep_going", "waiting", "stuck"].includes(body.verdict) ? { verdict: body.verdict as JobVerdict, ...(typeof body.advice === "string" && body.advice.trim() ? { advice: body.advice.trim().slice(0, 600) } : {}) } : {}), // the advisor's check on a job's part (`packages/tex/gateway/agent/jobCheck.js`); `untrusted`: it read from outside (`route.js`)
       ...(body.muted === true ? { muted: true as const } : {}), // the turn muted this group chat: the Worker says so in fixed words (`groupModelTurn.ts`)
       ...(readInvite(body.invite) !== null ? { invite: readInvite(body.invite)! } : {}), // a group's people invited to a workspace, after the answer (`groupInvite.ts`)
       ...(body.vaultWatch === true ? { vaultWatch: true as const, ...(watchedLinks(body.vaultLinks).length > 0 ? { vaultLinks: watchedLinks(body.vaultLinks) } : {}) } : {}),
@@ -456,13 +456,13 @@ export function agentAnswer(status: number, json: unknown): AgentAnswer {
   }
   if (status === 409) return { kind: "no_model" };
   if (status === 429) return { kind: "daily_limit" };
-  // Only the gateway's own 503, sent before the turn runs (`apps/mcp/src/agent/route.js`):
+  // Only the gateway's own 503, sent before the turn runs (`packages/tex/gateway/agent/route.js`):
   // a platform 503 (a Worker over its limits) can come after tools ran.
   if (status === 503 && body.error === "model_unavailable") return { kind: "not_started" };
   if (status === 503 && body.error === "storage_unavailable") return { kind: "no_storage" };
   const refused = refusalOf(status, body);
   if (refused !== null) return { kind: "unavailable", refused };
-  // The gateway's word on why the turn died (`apps/mcp/src/agent/progress.js` `diedOf`, `recoverFromFailure.js`).
+  // The gateway's word on why the turn died (`packages/tex/gateway/agent/progress.js` `diedOf`, `recoverFromFailure.js`).
   if (status === 502 && body.error === "model_unavailable") return { kind: "unavailable", cause: "model_down" };
   if (body.cause === "check_limit" || body.cause === "crash") return { kind: "unavailable", cause: body.cause };
   return { kind: "unavailable" };
@@ -502,7 +502,7 @@ export async function askAgentStream(
     clearTimeout(idle);
     idle = setTimeout(expire, AGENT_STREAM_IDLE_MS);
   };
-  // A job's part sends its answer before the advisor's check (`apps/mcp/src/agent/progress.js` `answered`): when the gateway dies after it (out of memory, 2026-11-08), the part still answered, unchecked, rather than being redone.
+  // A job's part sends its answer before the advisor's check (`packages/tex/gateway/agent/progress.js` `answered`): when the gateway dies after it (out of memory, 2026-11-08), the part still answered, unchecked, rather than being redone.
   let early: AgentAnswer | null = null;
   const dead = (): AgentAnswer => early ?? { kind: "unavailable", cause: "crash" }, failed = (final: AgentAnswer) => (final.kind === "unavailable" && final.refused === undefined ? (early ?? final) : final);
   try {
@@ -544,7 +544,7 @@ export async function askAgentStream(
           continue;
         }
         if (typeof parsed.step === "string" && parsed.step.trim()) {
-          // Whether it failed, and the tool's short reason, for the jobs page (`apps/mcp/src/agent/background.js` `stepWhy`);
+          // Whether it failed, and the tool's short reason, for the jobs page (`packages/tex/gateway/agent/background.js` `stepWhy`);
           // what it returned and whether it waits on their yes, saved by a job as it comes (`jobProgress.ts`).
           const why = typeof parsed.why === "string" ? parsed.why.replace(/\s+/g, " ").trim().slice(0, 160) : "";
           const result = typeof parsed.result === "string" && parsed.result.trim() ? parsed.result.trim().slice(0, MAX_STEP_RESULT) : "";

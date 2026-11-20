@@ -17,8 +17,8 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { sentNoteLinks, sentNoteLinksLine } from "../src/agent/noteLinks.js";
-import { MEETINGS_LINE, systemPrompt } from "../src/agent/prompt.js";
+import { sentNoteLinks, sentNoteLinksLine } from "../../../packages/tex/gateway/agent/noteLinks.js";
+import { MEETINGS_LINE, systemPrompt } from "../../../packages/tex/gateway/agent/prompt.js";
 
 const ORIGIN = "https://context.lc";
 

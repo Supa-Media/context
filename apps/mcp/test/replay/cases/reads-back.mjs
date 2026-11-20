@@ -1,10 +1,10 @@
 import assert from "node:assert/strict";
 import { oneToOne } from "../chats.mjs";
-import { sixToolsOver } from "../../../src/agent/sixTools.js";
-import { groupChatsTool, readsGroups } from "../../../src/agent/groupChats.js";
-import { texStep } from "../../../src/agent/texConfig.js";
-import { readDayTool, dayLine } from "../../../src/agent/weekHistory.js";
-import { readThreadTool } from "../../../src/agent/conversationThreads.js";
+import { sixToolsOver } from "../../../../../packages/tex/gateway/agent/sixTools.js";
+import { groupChatsTool, readsGroups } from "../../../../../packages/tex/gateway/agent/groupChats.js";
+import { texStep } from "../../../../../packages/tex/gateway/agent/texConfig.js";
+import { readDayTool, dayLine } from "../../../../../packages/tex/gateway/agent/weekHistory.js";
+import { readThreadTool } from "../../../../../packages/tex/gateway/agent/conversationThreads.js";
 
 export default {
   id: "reads-back",

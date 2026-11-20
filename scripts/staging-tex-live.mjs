@@ -78,7 +78,7 @@ async function text(message, { timeoutMs = 3 * 60_000 } = {}) {
 
 // "intake": a text's chat runs in the gateway (step 3 of Tex's config graph, `INTAKE=gateway` on staging). An unlinked
 // fictional number texts once: the gateway's copy of the chat answers the send (`x-tex-chat-home`, set only there,
-// `apps/mcp/src/texChat.js`), and the chat's first reply, the link invite, comes back. No persona, no model.
+// `packages/tex/gateway/texChat.js`), and the chat's first reply, the link invite, comes back. No persona, no model.
 if (SUITE === "intake") {
   const sent = await fetch(`${origin}/texts-simulator/api/send`, {
     method: "POST",
@@ -209,7 +209,7 @@ try {
     assert.ok(long.length >= 2, `a long task should text progress before its result, got: ${long.join(" | ")}`);
     pass("a long task texts progress and then its result");
 
-    // The browser (apps/mcp/src/agent/browse.js): a site's own search box,
+    // The browser (packages/tex/gateway/agent/browse.js): a site's own search box,
     // typed with the person's words, then the answer read off the result.
     const browsed = await text(
       "Go to wikipedia.org, type Ada Lovelace into its search box and open her article, then tell me the year she was born.",

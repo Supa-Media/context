@@ -18,8 +18,8 @@ import assert from "node:assert/strict";
 
 import { LabSandboxObject } from "../../../packages/lab/gateway/labSandbox/object.js";
 import { chatEnvFor, chatStepsOf, gatewayRoutes, inboundOf, keepingLine, LAB_CONTROL_PLANE, LAB_GATEWAY, LAB_WORKER_SECRET, MemoryStorage, runChatTurn } from "../../../packages/lab/gateway/labSandbox/chatRun.js";
-import { streamTurn, wantsProgress } from "../src/agent/progress.js";
-import { eventEntry } from "../src/agent/ledger.js";
+import { streamTurn, wantsProgress } from "../../../packages/tex/gateway/agent/progress.js";
+import { eventEntry } from "../../../packages/tex/gateway/agent/ledger.js";
 import { durableSql } from "./texStoreFixture.mjs";
 
 const KEY = "c".repeat(64);

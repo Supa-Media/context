@@ -1,10 +1,10 @@
 import assert from "node:assert/strict";
 
-import { webSession } from "../../../src/agent/computer.js";
-import { BROWSE_TOOL } from "../../../src/agent/browse.js";
-import { STUCK_LINE } from "../../../src/agent/captchaLadder.js";
-import { browserUseFlag } from "../../../src/agent/browserUseFallback.js";
-import { TEX_CONFIG } from "../../../src/agent/texConfig.js";
+import { webSession } from "../../../../../packages/tex/gateway/agent/computer.js";
+import { BROWSE_TOOL } from "../../../../../packages/tex/gateway/agent/browse.js";
+import { STUCK_LINE } from "../../../../../packages/tex/gateway/agent/captchaLadder.js";
+import { browserUseFlag } from "../../../../../packages/tex/gateway/agent/browserUseFallback.js";
+import { TEX_CONFIG } from "../../../../../packages/tex/gateway/agent/texConfig.js";
 
 const PAGE = "https://register.example.org/conference";
 

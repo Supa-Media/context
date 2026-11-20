@@ -7,7 +7,7 @@ with a thumbs up ... once they have a thumbs up for like 10 seconds, then
 you're good to go", then "Same for like emails and sending messages and all
 these other things."
 
-Every ask the gateway texts (`askLine`, `apps/mcp/src/agent/textedApprovals.js`)
+Every ask the gateway texts (`askLine`, `packages/tex/gateway/agent/textedApprovals.js`)
 ends "Give it a 👍 and I'll send it" (or "…make the change", "…fill it in",
 "…go ahead"), in a group too (Dev2, later on 2026-10-21: "a thumbs up should
 always be seen as an approval, the text should end with something simple like

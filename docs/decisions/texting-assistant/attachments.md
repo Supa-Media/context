@@ -19,7 +19,7 @@ that pictures and files reach the model. Now:
   file as its words (`officeText.ts`, a bounded zip reader); a voice message
   or other recording (8 MB at most) as audio; anything else, video included,
   as a sentence saying why it couldn't be opened.
-- The gateway (`apps/mcp/src/agent/attachments.js`) checks types and sizes
+- The gateway (`packages/tex/gateway/agent/attachments.js`) checks types and sizes
   against the model API's (8 files, 5 MB a picture, 10 MB a PDF, 20 MB in all)
   and sends them as image and document blocks before the person's words. A
   text-only fallback model is told what it cannot see, and not to guess what a
@@ -59,7 +59,7 @@ Tests: `agentAttachments.test.mjs`, `attachments.test.ts`, `inbound.test.ts`.
 A texted answer may end with photos. The model writes `[picture N]` on its own
 line for picture N that a tool showed it this turn (a note's picture, read with
 `read_image`, so its privacy check has passed), or `[picture <https address>]`
-for a web image. The gateway (`apps/mcp/src/agent/outgoingPictures.js`) takes
+for a web image. The gateway (`packages/tex/gateway/agent/outgoingPictures.js`) takes
 those lines out of the text and returns the pictures, at most four, as
 `pictures` on the `/agent` answer. Only a text from the person's phone does
 this, and the prompt says so on every texted turn, a production setup included.
@@ -89,7 +89,7 @@ did see it texted cash-flow figures that weren't in it.
 Now a file that comes with a text (a file's words, or a PDF) is kept the way a
 file Tex's browser downloads is: in the person's own bucket under
 `.context/agent/downloads/`, for 30 days, named by a random `download:` id
-(`apps/mcp/src/agent/keptFiles.js`). The turn is told the id, the saved
+(`packages/tex/gateway/agent/keptFiles.js`). The turn is told the id, the saved
 conversation keeps it, and any later turn or background job reads the file
 again with `read_file` (or `read_note`, or `fetch`) and that id; a long file
 is read in parts (`download:<id>@<from>`), each part naming where the next one
@@ -107,7 +107,7 @@ background job with the file's id in its brief.
 The bucket is the tenancy boundary, so an id names nothing outside it, and
 what a kept file holds is someone else's words like any file: reading it marks
 the turn untrusted. Undo: drop `keepSentFiles` and `withKeptFiles` from
-`apps/mcp/src/agent/texEntryPoint.js`; `agentKeptFiles.test.mjs` fails.
+`packages/tex/gateway/agent/texEntryPoint.js`; `agentKeptFiles.test.mjs` fails.
 
 ## A table is read whole, its repeats counted, its totals summed (owner's review, 2026-10-24)
 
@@ -134,7 +134,7 @@ new part (the Worker's `changed`), and that answer was never texted, but the
 gateway had already saved it to the conversation, and the next part worked
 the figures out again, differently: two "finished" results. Now a job's answer
 is not saved while a steer waits unread (`steer.pending()` in
-`apps/mcp/src/agent/texEntryPoint.js`), and the Worker hands the unsent answer to the
+`packages/tex/gateway/agent/texEntryPoint.js`), and the Worker hands the unsent answer to the
 next part as `draft` (`packages/tex/worker/jobRun.ts`), which is told to build on
 it and keep its figures unless the new text changes them; its answer replaces
 the draft. Undo: drop the `replaced` check; `agentBackgroundRoute.test.mjs`
@@ -152,7 +152,7 @@ saved conversation was not enough: a model had to choose the one call that
 reads it.
 
 So the files the last four texts kept ride along again as attachments marked
-`carried` (`carryKeptFiles`, `apps/mcp/src/agent/keptFiles.js`): the newest
+`carried` (`carryKeptFiles`, `packages/tex/gateway/agent/keptFiles.js`): the newest
 two, a PDF only up to 3 MB, a text file's first 30,000 characters with where
 the rest starts. They are told as files from earlier in the chat, never saved
 as sent with this text, never sent to the planner as a data file, and they
@@ -184,7 +184,7 @@ got the wrong screenshot, then an empty file, and Tex told the person to tap
 the paperclip themselves.
 
 - **`attach` takes what Tex was shown, in the words it was shown it**
-  (`apps/mcp/src/agent/emailFiles.js`): `attachment:N` for a file sent with
+  (`packages/tex/gateway/agent/emailFiles.js`): `attachment:N` for a file sent with
   this text, `<image> in <note>` for a picture an earlier text sent (as the
   saved conversation names it), or a file in their notes by path. Each is read
   through the turn's own `callTool` (so the privacy engine and a group chat's

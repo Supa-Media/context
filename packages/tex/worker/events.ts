@@ -67,7 +67,7 @@ type Kept = { e: TexEvent; w?: true };
 const PREFIX = "ev:";
 const SEQ = "evseq";
 export const MAX_EVENT_TEXT = MAX_INBOUND_TEXT;
-/** The most the outbox holds: a gateway that stays down this long loses the oldest (`apps/mcp/src/agent/log.js` `READ_LIMIT`, `READ_CHARS`). */
+/** The most the outbox holds: a gateway that stays down this long loses the oldest (`packages/tex/gateway/agent/log.js` `READ_LIMIT`, `READ_CHARS`). */
 export const MAX_KEPT_EVENTS = 400;
 export const MAX_KEPT_CHARS = 120_000;
 /** What decide is shown of the kept log, at most. */
@@ -179,7 +179,7 @@ export async function flushEvents(
   await flushOutbox(storage, deps.now, chat, (events) => post(deps.fetch, "gateway", `${deps.gatewayOrigin}/agent/events`, accessToken, { conversation, events }, FLUSH_TIMEOUT_MS));
 }
 
-/** The gateway's binding route for a group's events by its ledger key (`apps/mcp/src/agent/textsDecide.js` `eventsForTexts`). */
+/** The gateway's binding route for a group's events by its ledger key (`packages/tex/gateway/agent/textsDecide.js` `eventsForTexts`). */
 export const GATEWAY_EVENTS_URL = "https://gateway/texts/events";
 export type LedgerWrite = { binding: { fetch: (input: string, init?: RequestInit) => Promise<Response> }; ledger: string };
 
@@ -371,11 +371,11 @@ const NOT_DELIVERED: Record<EventReason, string> = {
   too_long: "too long to send",
 };
 
-/** Words as one line: a line break or control character in someone's words never forges a line (`apps/mcp/src/agent/logRender.js` `oneLine`). */
+/** Words as one line: a line break or control character in someone's words never forges a line (`packages/tex/gateway/agent/logRender.js` `oneLine`). */
 const BREAKS = /[\u0000-\u001f\u007f-\u009f\u2028\u2029]+/g;
 export const oneLine = (text: string): string => text.replace(BREAKS, " \u23ce ");
 
-/** A fixed Worker text (`told.ts`) as decide reads it: the gist of the gateway's words for it (`apps/mcp/src/agent/conversation.js` `TOLD`). */
+/** A fixed Worker text (`told.ts`) as decide reads it: the gist of the gateway's words for it (`packages/tex/gateway/agent/conversation.js` `TOLD`). */
 const TOLD_WORDS: Record<string, string> = {
   setup: "Set them up by text and told them their notes would be ready in a couple of minutes.",
   ready: "Told them their notes are ready and asked them to connect their Gmail.",
@@ -400,7 +400,7 @@ function shortQuote(text: string): string {
  * The transcript decide is shown (section 5), newest last, at most `limit`
  * characters: oldest lines go first. "You" is Tex, "Context" the system, and every person "@name" (`speaker`). A person's event
  * no delivered answer covers, and no older than the newest one an answer covers, is "(not answered)"; an older one is
- * history, as the gateway's transcript shows it (`apps/mcp/src/agent/logRender.js`, 2026-11-03). A group's is the whole
+ * history, as the gateway's transcript shows it (`packages/tex/gateway/agent/logRender.js`, 2026-11-03). A group's is the whole
  * log, whoever has joined or left since (the owner, 2026-11-02).
  */
 export function renderTranscript(events: readonly TexEvent[], options: { timeZone?: string; limit?: number; names?: ReadonlyMap<string, string> } = {}): string {

@@ -16,7 +16,7 @@ in regex in the texting Worker, and the model had no say and no tools.
   2026-11-01, replacing `tex_style_set`; `custom-instructions.md`), `chat_engagement_set`, `chat_mute`,
   `chat_status`, `chat_share_mail`, `chat_unshare_mail` in a group, and
   `tex_settings_get`, `tex_instructions_set`, `tex_updates_set`, `review_sharing_set` in a person's own
-  chat (`apps/mcp/src/agent/commandTools.js`), shown as `send` actions
+  chat (`packages/tex/gateway/agent/commandTools.js`), shown as `send` actions
   (`sixTools.js`). Any wording works. Each answer says what happened, and a
   refusal is never worded as done.
 - **The grant decides who acts, never the arguments.** A tool posts

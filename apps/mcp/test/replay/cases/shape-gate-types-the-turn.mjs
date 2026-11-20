@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
-import { doItChecks } from "../../../src/agent/doItChecks.js";
-import { HOLD_AT, ONE_LINE_NOTICE, ORDER_NOTICE, TAPBACK_NOTICE, readShape, shapeNote, shapeRequest } from "../../../src/agent/shapeGate.js";
+import { doItChecks } from "../../../../../packages/tex/gateway/agent/doItChecks.js";
+import { HOLD_AT, ONE_LINE_NOTICE, ORDER_NOTICE, TAPBACK_NOTICE, readShape, shapeNote, shapeRequest } from "../../../../../packages/tex/gateway/agent/shapeGate.js";
 
 /** Clef's answers for one invented text, as the gate reads them. */
 const read = (ending, confidence, order = 0, records = 0) => readShape({ ending: { choice: ending, confidence }, order: { noul: order }, records: { noul: records } });

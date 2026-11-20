@@ -13,7 +13,7 @@ instead of in a GitHub secret.
 - Order: each stored key, then the plan key (`ANTHROPIC_CREDIT_KEY`), then no
   key, which Unified Billing pays. Each spent payer rests 15 minutes on its
   own. Since 2026-11-17 that rest is one Durable Object for the whole gateway
-  (`CREDIT_REST`, `apps/mcp/src/agent/creditRest.js`), not a map in the
+  (`CREDIT_REST`, `packages/tex/gateway/agent/creditRest.js`), not a map in the
   isolate: after the first call sees the credit spent, every other isolate
   skips that payer and the call is attempted once, on the next payer. When
   the rest ends, one caller probes the key and the others still skip it. A

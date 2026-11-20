@@ -4,10 +4,10 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 
-import { texLedger } from "../src/texStore/ledger.js";
-import { ledgerObserver, stepEntry, stepLog, STEP_NAMES, MAX_RESULT_CHARS } from "../src/agent/ledger.js";
+import { texLedger } from "../../../packages/tex/gateway/texStore/ledger.js";
+import { ledgerObserver, stepEntry, stepLog, STEP_NAMES, MAX_RESULT_CHARS } from "../../../packages/tex/gateway/agent/ledger.js";
 import { durableSql } from "./texStoreFixture.mjs";
-import { loggedCardCheck } from "../src/agent/pictureMaker.js";
+import { loggedCardCheck } from "../../../packages/tex/gateway/agent/pictureMaker.js";
 
 test("a step entry keeps its name, outcome, milliseconds, input and output, and the ledger takes the kind", () => {
   const entry = stepEntry({ step: "router", ms: 41.6, input: "what's on today", output: { tier: "main", pick: "main" }, model: "claude-haiku" }, { turn: "turn-1", at: 5 });

@@ -21,12 +21,12 @@
 
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { BUILTIN_PROVIDER } from "../src/agent/builtin.js";
-import { runTurn } from "../src/agent/turn.js";
+import { BUILTIN_PROVIDER } from "../../../packages/tex/gateway/agent/builtin.js";
+import { runTurn } from "../../../packages/tex/gateway/agent/turn.js";
 
-import { TRY_NOTICE } from "../src/agent/claimCheck.js";
-import { frontDoorChecks, untriedWebCheck } from "../src/agent/untriedWeb.js";
-import { withStands } from "../src/agent/texEntryPoint/runTheModel.js";
+import { TRY_NOTICE } from "../../../packages/tex/gateway/agent/claimCheck.js";
+import { frontDoorChecks, untriedWebCheck } from "../../../packages/tex/gateway/agent/untriedWeb.js";
+import { withStands } from "../../../packages/tex/gateway/agent/texEntryPoint/runTheModel.js";
 import {
   STANDS_HONEST,
   STANDS_NOTICE,
@@ -37,7 +37,7 @@ import {
   standsGate,
   standsNotice,
   stepOf,
-} from "../src/agent/standsCheck.js";
+} from "../../../packages/tex/gateway/agent/standsCheck.js";
 
 const INCIDENT = "I already did this at 1:31 PM. The reply is saved as a Gmail draft in your account. Nothing was sent.";
 const DRAFT_EARLIER = "I already saved the draft reply to Bo earlier, so I didn't make a second one.";
@@ -188,7 +188,7 @@ test("a texted answer keeps the untried-web check, and it still runs before the 
 
 test("the gate is composed before every turn's checks in runTheModel.js (source guards)", async () => {
   const { readFileSync } = await import("node:fs");
-  const source = readFileSync(new URL("../src/agent/texEntryPoint/runTheModel.js", import.meta.url), "utf8");
+  const source = readFileSync(new URL("../../../packages/tex/gateway/agent/texEntryPoint/runTheModel.js", import.meta.url), "utf8");
   assert.match(source, /const stands = runner \? null : standsGate\(\{ question: askedNow \}\)/, "the gate is built from their ask, not on runner turns");
   assert.match(source, /answerChecksFor\(\{ judge, doIt, claims, tries, chatLog, ledgerAt, stands \}\)/, "every turn's checks get the gate");
   assert.match(source, /stands\?\.wrap/, "every call a turn makes is seen by the gate");

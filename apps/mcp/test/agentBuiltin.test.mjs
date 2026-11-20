@@ -23,7 +23,7 @@ import {
   CONTROL_PLANE_ORIGIN,
   GATEWAY_SECRET,
 } from "./controlPlaneStub.mjs";
-import { DEFAULT_BUILTIN_MODEL, requestBuiltin } from "../src/agent/builtin.js";
+import { DEFAULT_BUILTIN_MODEL, requestBuiltin } from "../../../packages/tex/gateway/agent/builtin.js";
 import { texStoreNamespace } from "./texStoreFixture.mjs";
 
 const S3_ENDPOINT = "https://s3.example-builtin.test";

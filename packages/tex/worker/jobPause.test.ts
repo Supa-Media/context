@@ -138,7 +138,7 @@ describe("a job paused at the daily limit", () => {
 
   it("stopped while paused, it never starts again", async () => {
     const { inbox, id, send, restarts } = await pausedJob();
-    // "Never mind the trip plan": the turn stops it (`apps/mcp/src/agent/background.js` steer).
+    // "Never mind the trip plan": the turn stops it (`packages/tex/gateway/agent/background.js` steer).
     expect(await steerJobs(inbox, [{ id, stop: true }], { id: "ev_stop", text: "never mind the trip plan" }, async () => true, NOW + 60_000)).toBe(1);
     expect((await chatJobs(inbox, NOW + 60_000))[0]).toMatchObject({ id, state: "failed", status: "Stopped when they asked" });
     await resumePausedJobs(inbox, send, RESET);

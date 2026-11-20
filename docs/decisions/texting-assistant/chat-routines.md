@@ -17,7 +17,7 @@ of the owner's defaults on 2026-10-27.
   there still never runs (`runsRoutine`, `functions/lib/routines/access.ts`).
   A personal workspace's routine ignores `chat:`.
 - **It is set from the chat.** A group turn may write a routine only with this
-  chat's id in it (`chatRoutineRefusal`, `apps/mcp/src/agent/groupRoutines.js`);
+  chat's id in it (`chatRoutineRefusal`, `packages/tex/gateway/agent/groupRoutines.js`);
   a guest chat sets none, nor does an invited person with no account, whose
   turn runs on the binder's grant.
 - **When it is due, the control plane asks again** (`functions/lib/routines/chats.ts`):
@@ -45,7 +45,7 @@ of the owner's defaults on 2026-10-27.
   2. The gateway decides a scheduled turn's answer in code: one that is the
      quiet word, or opens or closes with it, becomes the same structured
      nothing a `say_nothing` call is, no words and `quiet: true`
-     (`apps/mcp/src/agent/scheduledQuiet.js`).
+     (`packages/tex/gateway/agent/scheduledQuiet.js`).
   3. The Worker's last guard wraps every line's `sendText`, 1:1 and group,
      on every app (`packages/tex/worker/outboundGuard.ts`): a skip or quiet
      decision, a bare control word, or words that end in `SKIP` as a token of
@@ -84,7 +84,7 @@ routine in a bound workspace:
   says, so none is needed.
 - The writer must be one of the home's people (`homeUsers`), never a role in
   the pin. The home's door reports a write there only for paths inside its own
-  home (`apps/mcp/src/agent/chatHomeSeal.js`), and the control plane keeps the
+  home (`packages/tex/gateway/agent/chatHomeSeal.js`), and the control plane keeps the
   writer only if they are in the chat at that moment.
 - A home's notes never leave it, so asking to stop one sets `paused: yes`
   instead of archiving it.

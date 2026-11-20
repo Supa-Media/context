@@ -46,7 +46,7 @@ export type TurnInput = {
   acceptedAt: number;
   /** When the newest message it answers came in: the asker's words after it are what `recheckDraft` reads. */
   upTo: number;
-  arrivedAt: number; // when the first message it answers came in, for the turn log's wait (`apps/mcp/src/agent/turnLog.js`)
+  arrivedAt: number; // when the first message it answers came in, for the turn log's wait (`packages/tex/gateway/agent/turnLog.js`)
   covers: string[];
   people: string[];
   asked: Extract<ControlAnswer, { status: "ready" }>;
@@ -123,7 +123,7 @@ export async function groupTurn(storage: InboxStorage, deps: GroupDeps, { messag
     pauses the turn's lines for good; a list that can't be read (twice, as
     `readTwice` reads it) holds only that line (2026-11-02). Each held line is
     logged as held, as the answer is. A routine (a job's report runs as one)
-    texts once, so it says none (`apps/mcp/src/agent/route.js`); nor does a
+    texts once, so it says none (`packages/tex/gateway/agent/route.js`); nor does a
     chat stopped or muted since the turn began. A line that won't send costs
     the chat a line, never the answer, as in a 1:1 text.
   */
@@ -175,7 +175,7 @@ export async function groupTurn(storage: InboxStorage, deps: GroupDeps, { messag
         group: { ...group, chat: said.lines.map((line) => ({ from: handles.get(line.from) ?? labels.get(line.from) ?? "", text: line.text || PICTURE_LINE })) },
         turn: steer.turn,
         ...(gate !== undefined ? { provisional: true, allow: gate.allow } : {}),
-        arrivedAt, ...(await fixedTimings(storage)), ...(deps.again ? { again: true } : {}), // a try after one that failed (`apps/mcp/src/agent/savedRounds.js`) // fixed replies since the last turn, for the chat's note
+        arrivedAt, ...(await fixedTimings(storage)), ...(deps.again ? { again: true } : {}), // a try after one that failed (`packages/tex/gateway/agent/savedRounds.js`) // fixed replies since the last turn, for the chat's note
         ...(covers.length > 0 ? { covers, chat: message.groupId, ...(await outbox(storage, message.groupId)) } : {}), // the chat's day is the gateway's ledger; the outbox goes on top
         ...(attachments.length > 0 ? { attachments } : {}),
         ...(asked.timeZone ? { timeZone: asked.timeZone } : {}),
@@ -264,10 +264,10 @@ export async function groupTurn(storage: InboxStorage, deps: GroupDeps, { messag
     if (ready.steers && deps.steerJob) await steerJobs(storage, ready.steers, theirWords, deps.steerJob, deps.now());
     if (ready.steers && deps.steerJob) await resumeJobs(storage, ready.steers, theirWords, deps.steerJob, deps.now()); // "restart it": an ended job picks up where it stopped, with their words
   };
-  // Nothing to text (a group's SKIP, `apps/mcp/src/agent/route.js`): the gateway kept nothing, so this object keeps the chat's lines.
+  // Nothing to text (a group's SKIP, `packages/tex/gateway/agent/route.js`): the gateway kept nothing, so this object keeps the chat's lines.
   if (!routine && answer.quiet && (answer.verbatim?.length ?? 0) === 0 && answer.pictures.length === 0) {
-    // Answered with a tapback and no words: the conversation classifier's (`apps/mcp/src/agent/respond.js`), the emoji checked against the list.
-    // Tex's own pick (the front door's `tapback`, `apps/mcp/src/agent/tapbackEnding.js`) replaces the early one when it
+    // Answered with a tapback and no words: the conversation classifier's (`packages/tex/gateway/agent/respond.js`), the emoji checked against the list.
+    // Tex's own pick (the front door's `tapback`, `packages/tex/gateway/agent/tapbackEnding.js`) replaces the early one when it
     // differs: a person keeps one tapback on a message, so the second takes the first's place, never beside a text.
     const replaces = acked && tapped !== undefined && answer.react !== "" && answer.react !== undefined && reactionFor(answer.react, ackEmoji(message.text)) !== tapped;
     if (answer.react !== undefined && message.reaction === undefined && message.answersTapback === undefined && (!acked || replaces)) await tapback(storage, { chat: message.groupId, now: deps.now, by: answer.react ? "tex" : "classifier", asked: answer.react || undefined, turn: steer.turn }, message.text, (sent) => groupLineFor(groupLineSeam(deps), message.groupId).react({ line: message.line, groupId: message.groupId }, message.messageId, sent)).catch(() => {});
@@ -390,7 +390,7 @@ async function dropSteered(storage: InboxStorage, ids: string[], covers: string[
   }
 }
 
-/** The events the gateway has not taken yet, for it to add to the chat's day from the ledger (`apps/mcp/src/agent/warmCopy.js` `mergeEvents`). */
+/** The events the gateway has not taken yet, for it to add to the chat's day from the ledger (`packages/tex/gateway/agent/warmCopy.js` `mergeEvents`). */
 async function outbox(storage: InboxStorage, chat: string): Promise<{ recent?: unknown[] }> {
   const recent = await recentEvents(storage, chat);
   return recent.length > 0 ? { recent } : {};

@@ -175,7 +175,7 @@ required when making pages".
   note that tex produces should be a page, and only ever a regular note when
   the user explicitly asks"). Asked by text for a detailed concert plan, Tex
   had saved a plain checklist: only background jobs were told to write pages.
-  The texting prompt now says it (`PAGES_LINE` in `apps/mcp/src/agent/prompt.js`),
+  The texting prompt now says it (`PAGES_LINE` in `packages/tex/gateway/agent/prompt.js`),
   and a texted or group turn that still creates a plain `.md` goes back once
   with the skill attached (`agent/pageNotice.js`, read by `claimCheck.js`).
   Left plain: a change to a note that already exists (an etag was passed),
@@ -258,7 +258,7 @@ tree, then a redirect to the console address) before the note was asked for.
 A page someone is waiting on should be on screen at once.
 
 **What it does.** A page's link is `/p/@slug/<path>.page.md`
-(`noteLinkUrl` in `apps/mcp/src/agent/noteLinks.js`; a plain note keeps
+(`noteLinkUrl` in `packages/tex/gateway/agent/noteLinks.js`; a plain note keeps
 `/note/…`). For a person the router answers it with the page viewer
 (`infra/router/src/pageViewer.ts`): one small page from the web export
 (`apps/mobile/page-viewer/`, about 7 KB of script, built by
@@ -358,7 +358,7 @@ job already delivered one; what still came back as bubbles was a turn that
 searched, opened sites or browsed and texted its findings. Such an answer,
 over 110 words or four list lines of findings, is sent back once to be a
 page from a template, with one line and the link texted
-(`apps/mcp/src/agent/workPage.js`). A quick answer stays a text, and so does
+(`packages/tex/gateway/agent/workPage.js`). A quick answer stays a text, and so does
 a turn that only read their notes, already made a page or picture, wrote
 words to copy, or was asked for as a text.
 
@@ -418,7 +418,7 @@ drawing; and its sources were bare addresses, drawn as words.
 - A turn that saves a page with no picture of any kind (no cover photo, no
   option's or person's photo, no image, no map, no drawing) and makes no
   cover call after it is sent back once to make one
-  (`apps/mcp/src/agent/pageCoverFloor.js`, a reply check). The cover call
+  (`packages/tex/gateway/agent/pageCoverFloor.js`, a reply check). The cover call
   draws the picture (`visuals/pageDrawing.js`), so the floor is code, not
   the reviewer's judgement or the model's choice.
 - The page-photo hunt reads people (searched by name with their role, so it
