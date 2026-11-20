@@ -121,9 +121,11 @@ const saidText = (result) => (typeof result.instructions === "string" && result.
  * `consent(kind)` resolves true only when the turn's own message asks for a
  * consent-gated action (`consentFor`); without it those actions are refused.
  *
- * @param {{ run: (command: object) => Promise<object|null>, group: object|null, consent?: (kind: string) => Promise<boolean> }} options
+ * `onMute()` runs when the chat was muted, so the reply tells the Worker to say so in code.
+ *
+ * @param {{ run: (command: object) => Promise<object|null>, group: object|null, consent?: (kind: string) => Promise<boolean>, onMute?: (() => void)|null }} options
  */
-export function commandTools({ run, group, consent = async () => false, snapshot = null }) {
+export function commandTools({ run, group, consent = async () => false, snapshot = null, onMute = null }) {
   if (typeof run !== "function") return [];
   const asked = async (kind) => {
     try {
@@ -216,7 +218,12 @@ export function commandTools({ run, group, consent = async () => false, snapshot
         "\"Be quiet\" alone means answer only when asked, which is how Tex already works here: say so and don't mute. Anyone here may.",
       inputSchema: { type: "object", properties: {} },
     },
-    call: call({ kind: "mute" }, () => 'Done: Tex is muted here. Tell them anyone can text "Tex, start" to bring it back.'),
+    // The chat is told it is muted by code, after the turn, in the fixed words "Tex, stop" gets (`onMute`, the Worker's
+    // `GROUP_LINES.stopped`): a reviewer once sent the turn's own line back and the chat never heard (Dev2, 2026-11-20).
+    call: call({ kind: "mute" }, () => {
+      if (typeof onMute === "function") onMute();
+      return 'Done: Tex is muted here. The chat is told how to start it again ("Tex, start") without you, so say nothing more.';
+    }),
   };
   const status = {
     tool: {

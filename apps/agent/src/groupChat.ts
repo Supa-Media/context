@@ -29,8 +29,14 @@ const CHAT_PREFIX = "gchat:";
 const CHAT_SEQ = "gchatseq";
 /** Who was in the chat, hashed, when it last resolved to a workspace; nothing is kept without it, or for anyone else. */
 const BOUND_KEY = "gbound";
-/** Set while the chat is muted ("Tex, stop"): nothing but a command said to Tex by name is read, not even by the judge. */
+/**
+ * Set while the chat is muted ("Tex, stop", or a turn's `chat_mute`): nothing but a command said to Tex by name is read,
+ * except, once a mute, a message naming Tex, which the judge looks at so a clear ask hears how to start Tex again
+ * (Dev2, 2026-11-20: a muted chat dropped "Tex can you email..." in silence).
+ */
 const MUTED_KEY = "gmuted";
+/** Set once a muted chat was told how to start Tex again, so a clear ask there gets that line once a mute, never a judge after (Dev2, 2026-11-20). */
+const MUTED_TOLD_KEY = "gmutedtold";
 export const MAX_CHAT_LINES = 400;
 export const CHAT_FOR_MS = 7 * 24 * 60 * 60 * 1000;
 
@@ -125,6 +131,16 @@ export async function isMuted(storage: InboxStorage): Promise<boolean> {
 /** Started again ("Tex, start"): the next message that calls Tex is read as in any chat Tex is not set up in. */
 export async function unmute(storage: InboxStorage): Promise<void> {
   await storage.delete(MUTED_KEY);
+  await storage.delete(MUTED_TOLD_KEY);
+}
+
+/** Whether this mute already told the chat how to start Tex again (`answerGroup`). */
+export async function mutedTold(storage: InboxStorage): Promise<boolean> {
+  return (await storage.get<boolean>(MUTED_TOLD_KEY)) === true;
+}
+
+export async function markMutedTold(storage: InboxStorage): Promise<void> {
+  await storage.put(MUTED_TOLD_KEY, true);
 }
 
 /** Keep one untagged message, when the chat is bound. Whether it was kept. */
@@ -164,6 +180,7 @@ export async function dropChatLines(storage: InboxStorage, keys: readonly string
 export async function setChatBound(storage: InboxStorage, bound: GroupMessage | null, muted = false): Promise<void> {
   if (bound !== null) {
     await storage.delete(MUTED_KEY);
+    await storage.delete(MUTED_TOLD_KEY);
     return void (await storage.put(BOUND_KEY, await peopleKey(bound)));
   }
   if (muted) await storage.put(MUTED_KEY, true);

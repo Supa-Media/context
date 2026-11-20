@@ -18,6 +18,7 @@
 import { describe, expect, it } from "vitest";
 import { acceptGroup, drainGroup } from "./groupInbox";
 import { sha256Hex } from "./groupChat";
+import { GROUP_LINES } from "./groupLines";
 import { MemoryStorage } from "./memoryStorage.testing";
 import { ADA, chatLog, fakeJudge, LINE, LINES, setup } from "./groupWorld.testing";
 
@@ -91,12 +92,17 @@ describe("the one judge in a group", () => {
     expect(w.decided.length).toBe(before);
   });
 
-  it("a muted chat reads nothing but a command said to Tex by name, not even a message naming Tex", async () => {
+  it("a muted chat reads nothing but a command said to Tex by name, after its one look at a message naming Tex", async () => {
     const storage = new MemoryStorage();
-    const w = setup(groupId, { decide: fakeJudge, controlFor: (body) => (body.command ? { status: "stopped" } : undefined) });
+    let stopped = false;
+    const w = setup(groupId, { decide: fakeJudge, controlFor: (body) => (body.command ? ((stopped = true), { status: "stopped" }) : stopped ? { status: "muted" } : undefined) });
     await bound(storage, w);
     await acceptGroup(storage, w.message("Tex, stop"), 10);
     await drainGroup(storage, w.deps);
+    // Once a mute, a message naming Tex is looked at, so a clear ask hears how to start Tex again (Dev2, 2026-11-20).
+    expect(await acceptGroup(storage, w.message("Tex what's 2+2"), 15)).toBe("queued");
+    await drainGroup(storage, w.deps);
+    expect(w.texts.at(-1)).toBe(GROUP_LINES.muted);
     const decided = w.decided.length;
     for (const text of ["Tex what's 2+2", "@Tex are you there", "anyone up for tacos?"]) {
       expect(await acceptGroup(storage, w.message(text), 20), text).toBe("ignored");

@@ -41,6 +41,8 @@ export const GROUP_LINES = {
     "Text me on your own to connect it, then ask here again.",
   notOwner: (slug: string) => `Only an owner of @${slug} can add people to it. They can say "Tex add everyone here to @${slug}".`,
   stopped: `Okay, I'll stay quiet here. Say "Tex, start" when you want me back.`,
+  // A clear ask in a muted chat, once a mute (Dev2, 2026-11-20): never dropped in silence.
+  muted: `I'm muted in this chat, so I didn't do that. Say "Tex, start" to bring me back, then ask again.`,
   started: "I'm back. Start a message with \"Tex\" when you need me.",
   joined: "Someone joined while I was working on that, so I didn't send it. Ask me again.",
   sms: "I only answer in iMessage group chats.",
