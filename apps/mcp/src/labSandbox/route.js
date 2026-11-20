@@ -52,7 +52,7 @@
  *    so `tex_dev` reads a test turn with Replay's own code, as it reads a real one.
  */
 
-import REPO from "../../../../packages/shared/src/texSetsRepo.generated.json" with { type: "json" };
+import REPO from "../../../../packages/lab/src/texSetsRepo.generated.json" with { type: "json" };
 import { createControlPlane } from "../controlPlane.js";
 import { ONE_TO_ONE_CHAT } from "../agent/ledger.js";
 import { loggedSteps, oneRowPerText, realLedger, realRow } from "./realChat.js";

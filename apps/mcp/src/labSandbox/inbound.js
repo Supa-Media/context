@@ -24,7 +24,7 @@
  */
 
 import { MAX_REMOTE_IMAGE_BYTES, fetchableImageUrl } from "../../../../packages/shared/src/remoteImage.cjs";
-import { checkPics } from "../../../../packages/shared/src/texSetOps.cjs";
+import { checkPics } from "../../../../packages/lab/src/texSetOps.cjs";
 import { eventEntry } from "../agent/ledger.js";
 
 /** The chat key the turn's events are logged under: any key the log accepts (`loggedTurn.js` `isChatKey`). */

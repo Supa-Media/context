@@ -349,10 +349,25 @@ jobs:
         if: ${{ needs.resolve.outputs.mcp == 'true' && needs.resolve.outputs.agent == 'true' && env.GATEWAY_REDEPLOY == 'true' }}
         run: pnpm --dir apps/mcp exec wrangler deploy --config wrangler.preview.toml --env preview --name "context-mcp-pr$PR" --var "TEX_CODE_VERSION:$HEAD_SHA" --message "Preview pr$PR $HEAD_SHA"
 
-      # The web export is built only when the app or the router changed. The
-      # router serves the export as its Static Assets, so both come from here.
+      # A preview whose pull request never touched the app had no web app at
+      # all: the router is also deployed when its Worker does not exist yet.
+      - name: Find whether this preview has its web app yet
+        id: webapp
+        run: |
+          set -euo pipefail
+          status="$(curl --silent --output /dev/null --write-out '%{http_code}' \
+            -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN" \
+            "https://api.cloudflare.com/client/v4/accounts/$CLOUDFLARE_ACCOUNT_ID/workers/scripts/context-router-pr$PR/settings")"
+          case "$status" in
+            200) echo "missing=false" >> "$GITHUB_OUTPUT" ;;
+            404) echo "missing=true" >> "$GITHUB_OUTPUT" ;;
+            *) echo "Cloudflare answered $status for the router's settings." >&2; exit 1 ;;
+          esac
+
+      # The web export is built when the app or the router changed, or the
+      # router is missing. The router serves the export as its Static Assets.
       - name: Export the web app for the preview
-        if: ${{ needs.resolve.outputs.app == 'true' || needs.resolve.outputs.router == 'true' }}
+        if: ${{ needs.resolve.outputs.app == 'true' || needs.resolve.outputs.router == 'true' || steps.webapp.outputs.missing == 'true' }}
         env:
           EAS_PROJECT_ID: ${{ vars.EAS_PROJECT_ID || secrets.EAS_PROJECT_ID }}
         run: |
@@ -368,13 +383,13 @@ jobs:
           pnpm exec expo export --platform web --clear
 
       - name: Deploy the router with the web app
-        if: ${{ needs.resolve.outputs.app == 'true' || needs.resolve.outputs.router == 'true' }}
+        if: ${{ needs.resolve.outputs.app == 'true' || needs.resolve.outputs.router == 'true' || steps.webapp.outputs.missing == 'true' }}
         run: pnpm --dir infra/router exec wrangler deploy --config wrangler.preview.jsonc --env preview --name "context-router-pr$PR" --message "Preview pr$PR $HEAD_SHA"
 
       # After the deploy, as every Worker here does: `wrangler secret put` acts
       # on the live version, so the order cannot collide with a retired var.
       - name: Set the router's Convex origin
-        if: ${{ needs.resolve.outputs.app == 'true' || needs.resolve.outputs.router == 'true' }}
+        if: ${{ needs.resolve.outputs.app == 'true' || needs.resolve.outputs.router == 'true' || steps.webapp.outputs.missing == 'true' }}
         run: printf '%s' "$PREVIEW_CONTROL_PLANE_URL" | pnpm --dir infra/router exec wrangler secret put CONVEX_ORIGIN --config wrangler.preview.jsonc --name "context-router-pr$PR"
 
       # Each Worker's own secret list must hold no texting, SMS, email or billing
@@ -392,7 +407,7 @@ jobs:
           pnpm --dir apps/agent exec wrangler secret list --format json --config wrangler.preview.jsonc --name "context-agent-pr$PR" | node scripts/preview-guards.mjs worker-secrets "context-agent-pr$PR"
 
       - name: Check the router holds no line, mail or payment key
-        if: ${{ needs.resolve.outputs.app == 'true' || needs.resolve.outputs.router == 'true' }}
+        if: ${{ needs.resolve.outputs.app == 'true' || needs.resolve.outputs.router == 'true' || steps.webapp.outputs.missing == 'true' }}
         run: |
           set -euo pipefail
           pnpm --dir infra/router exec wrangler secret list --format json --config wrangler.preview.jsonc --name "context-router-pr$PR" | node scripts/preview-guards.mjs worker-secrets "context-router-pr$PR"
@@ -435,6 +450,19 @@ jobs:
           node scripts/preview-smoke.mjs
           echo "T_SMOKE=$(date +%s)" >> "$GITHUB_ENV"
 
+      # The web app in a real browser: the sign-in page renders and nothing on
+      # it throws. The router is there now, deployed by this run or an earlier one.
+      # Playwright 1.56 does not know the runner's newer Ubuntu, so it is told to
+      # fetch the 24.04 build; no --with-deps, the runner image already carries
+      # Chrome's libraries (and Chrome, which the script falls back to).
+      - name: Open the preview's web app in a browser
+        env:
+          PLAYWRIGHT_HOST_PLATFORM_OVERRIDE: ubuntu24.04-x64
+        run: |
+          set -euo pipefail
+          pnpm --dir apps/mobile exec playwright install chromium || echo "Playwright's Chromium did not install; the runner's Chrome is used."
+          node scripts/preview-browser.mjs
+
       # A pull request that closed while this ran was already swept, and this run
       # put its preview back up. Delete it again, so a closed preview never waits
       # for the daily sweep.
@@ -462,6 +490,7 @@ jobs:
           DEPLOYED_AGENT: ${{ needs.resolve.outputs.agent }}
           DEPLOYED_ROUTER: ${{ needs.resolve.outputs.router }}
           DEPLOYED_APP: ${{ needs.resolve.outputs.app }}
+          ROUTER_WAS_MISSING: ${{ steps.webapp.outputs.missing }}
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
@@ -478,7 +507,7 @@ jobs:
             printf '| Gateway | `context-mcp-pr%s` | %s |\n' "$PR" "$(word "$DEPLOYED_MCP")"
             printf '| Texting assistant | `context-agent-pr%s` | %s |\n' "$PR" "$(word "$DEPLOYED_AGENT")"
             router_changed=no
-            if [ "$DEPLOYED_ROUTER" = "true" ] || [ "$DEPLOYED_APP" = "true" ]; then router_changed=yes; fi
+            if [ "$DEPLOYED_ROUTER" = "true" ] || [ "$DEPLOYED_APP" = "true" ] || [ "$ROUTER_WAS_MISSING" = "true" ]; then router_changed=yes; fi
             printf '| Router and web app | `context-router-pr%s` | %s |\n\n' "$PR" "$router_changed"
             printf '%s\n' 'Hosts are `https://<name>.<account>.workers.dev`. The account part is left out here, because it names the account and this repository is public. The texting assistant has a simulator at `/texts-simulator` on its host. A preview sends no text and no email.' ''
             printf '%s\n' 'Seconds: commit to job start '"$(seconds "$PREVIEW_PUSHED_AT" "$PREVIEW_STARTED_AT")"'; job start to Convex '"$(seconds "$PREVIEW_STARTED_AT" "${T_CONVEX:-}")"'; Convex to Workers '"$(seconds "${T_CONVEX:-}" "${T_WORKERS:-}")"'; commit to live '"$(seconds "$PREVIEW_PUSHED_AT" "${T_LIVE:-}")"'; commit to smoke passed '"$(seconds "$PREVIEW_PUSHED_AT" "${T_SMOKE:-}")"'.'

@@ -11,9 +11,9 @@
 
 import type { MutationCtx } from "../../_generated/server";
 import type { Doc, Id } from "../../_generated/dataModel";
-import { applyOps, conflicts, diffGraphs, OpError } from "@context/shared/src/texLabOps.cjs";
-import type { LabGraphJson, LabOp } from "@context/shared/src/texLabOps.d.cts";
-import { keptPart, parseReport } from "@context/shared/src/texLabReport.cjs";
+import { applyOps, conflicts, diffGraphs, OpError } from "@context/lab/src/texLabOps.cjs";
+import type { LabGraphJson, LabOp } from "@context/lab/src/texLabOps.d.cts";
+import { keptPart, parseReport } from "@context/lab/src/texLabReport.cjs";
 import { MAX_JSON } from "../texLab";
 
 type Row = Doc<"texLabVersions">;

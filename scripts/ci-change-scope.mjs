@@ -46,7 +46,7 @@ export const TEX_DATA = [
   "packages/shared/src/texNodeShelf.json",
   "packages/shared/src/texPrompt/**",
   "packages/shared/src/texTraining.generated.json",
-  "packages/shared/src/texSetsRepo.generated.json",
+  "packages/lab/src/texSetsRepo.generated.json",
   "apps/mcp/bench/sets/**",
   "apps/mcp/src/agent/texArchitecture.generated.js",
   "apps/mcp/src/texDev/canvas.generated.js",
@@ -271,7 +271,7 @@ export function selfTest() {
   if (editor("apps/mobile/eslint.config.js")) throw new Error("a lint config matched the editor scope");
   // A diff of only Tex config and data runs only the jobs that opt in.
   const config = ["packages/shared/src/texConfig.json", "apps/mobile/features/tex/lab/labData.generated.ts", "docs/architecture/tex.md"];
-  const mobile = (changed, texData) => decide({ packages: [], paths: ["apps/mobile/**", "packages/shared/**"], changed, texData, root }).affected;
+  const mobile = (changed, texData) => decide({ packages: [], paths: ["apps/mobile/**", "packages/shared/**", "packages/lab/**"], changed, texData, root }).affected;
   if (mobile(config, false)) throw new Error("a config-only diff ran a job that did not opt in to Tex data");
   if (!mobile(config, true)) throw new Error("a config-only diff skipped a job that opted in to Tex data");
   if (!mobile([...config, "apps/mobile/App.tsx"], false)) throw new Error("a diff with code beside the config skipped a watching job");

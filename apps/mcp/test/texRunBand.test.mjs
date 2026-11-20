@@ -1,5 +1,5 @@
 /**
- * The Lab run's noise band (`packages/shared/src/texRunBand.cjs`; Dev2, 2026-11-19: one Front door run came back 11/30
+ * The Lab run's noise band (`packages/lab/src/texRunBand.cjs`; Dev2, 2026-11-19: one Front door run came back 11/30
  * and 15/30 minutes apart). Pinned: a score is its mean with its min..max band; a draft wins only when its worst repeat
  * beats its base's best, loses only when its best is under the base's worst, and has no band when either side ran once;
  * a run's repeats default to 3 and are 1 to 5; a cc run is labelled "model family only".
@@ -8,7 +8,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import { createRequire } from "node:module";
 
-const band = createRequire(import.meta.url)("../../../packages/shared/src/texRunBand.cjs");
+const band = createRequire(import.meta.url)("../../../packages/lab/src/texRunBand.cjs");
 
 test("bandOf reads the mean, min and max over the repeats, and a 95% interval inside the total", () => {
   const s = band.bandOf([11, 15, 13], 30);

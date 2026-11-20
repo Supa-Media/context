@@ -1,13 +1,13 @@
 /**
  * The Testing tab's state: the conversations it shows, what is selected in the grid, and the viewer's columns.
- * Every change is an op (`packages/shared/src/texSetOps.cjs`'s shapes), applied here at once and handed to the
+ * Every change is an op (`packages/lab/src/texSetOps.cjs`'s shapes), applied here at once and handed to the
  * sink the store registers (`setSetsSink`): Training and Dev drafts go to Convex, a Test chat to the eval service.
  * Views read it through `useSets()`.
  */
 import { useSyncExternalStore } from "react";
 import type { LabGraph } from "../types";
 import { fitCols, type Cols } from "./sets";
-import { applyOps, type SetOp } from "@context/shared/src/texSetOps.cjs";
+import { applyOps, type SetOp } from "@context/lab/src/texSetOps.cjs";
 import type { Conversation, SetId } from "./sets";
 import type { Pic } from "@context/shared/src/texSets.d.cts";
 

@@ -6,6 +6,8 @@
     "sonnet-5-5": "anthropic/claude-sonnet-5-5",
     "opus-5-5": "anthropic/claude-opus-5-5",
     "clef": "@cf/cloudflare/clef",
+    "clef-flash": "@cf/cloudflare/clef-flash",
+    "jev": "@cf/typesafe/jev",
     "glm-4-7": "@cf/zai-org/glm-4.7-flash",
     "gemini": "google/gemini-2.5-flash-image"
   },

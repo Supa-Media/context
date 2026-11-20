@@ -108,7 +108,7 @@ jobs:
         packages/shared/src/texNodeShelf.json
         packages/shared/src/texPrompt/**
         packages/shared/src/texTraining.generated.json
-        packages/shared/src/texSetsRepo.generated.json
+        packages/lab/src/texSetsRepo.generated.json
         apps/mcp/bench/sets/**
         apps/mcp/src/agent/texArchitecture.generated.js
         apps/mcp/src/texDev/canvas.generated.js
@@ -120,6 +120,7 @@ jobs:
       change-filters: |
         shared:
           - 'packages/shared/**'
+          - 'packages/lab/**'
           - 'package.json'
           - 'pnpm-lock.yaml'
           - 'tsconfig.json'
@@ -127,6 +128,7 @@ jobs:
         mobile:
           - 'apps/mobile/**'
           - 'packages/shared/**'
+          - 'packages/lab/**'
           - 'package.json'
           - 'pnpm-lock.yaml'
           - 'tsconfig.json'
@@ -323,6 +325,7 @@ jobs:
         e2e:
           - 'apps/mobile/**'
           - 'packages/shared/**'
+          - 'packages/lab/**'
           - 'tests/e2e/**'
           - 'playwright.config.ts'
           - 'package.json'
@@ -657,7 +660,7 @@ jobs:
         id: changes
         with:
           filters: |
-            mobile: ["apps/mobile/**", "apps/convex/**", "packages/collaboration/**", "packages/communications/**", "packages/desktop-bridge/**", "packages/drawings/**", "packages/meetings/**", "packages/obsidian-runtime/**", "packages/shared/**", ".npmrc", "package.json", "pnpm-lock.yaml", "pnpm-workspace.yaml", "patches/**", ".github/workflows/ci.yml"]
+            mobile: ["apps/mobile/**", "apps/convex/**", "packages/collaboration/**", "packages/communications/**", "packages/desktop-bridge/**", "packages/drawings/**", "packages/meetings/**", "packages/obsidian-runtime/**", "packages/shared/**", "packages/lab/**", ".npmrc", "package.json", "pnpm-lock.yaml", "pnpm-workspace.yaml", "patches/**", ".github/workflows/ci.yml"]
 
       # A diff of only Tex config and data is proven by the Tex suites and
       # test set, not by the app (scripts/ci-change-scope.mjs TEX_DATA).
@@ -724,7 +727,7 @@ jobs:
         id: changes
         with:
           filters: |
-            mobile: ["apps/mobile/**", "apps/convex/**", "packages/collaboration/**", "packages/communications/**", "packages/desktop-bridge/**", "packages/drawings/**", "packages/meetings/**", "packages/obsidian-runtime/**", "packages/shared/**", ".npmrc", "package.json", "pnpm-lock.yaml", "pnpm-workspace.yaml", "patches/**", ".github/workflows/ci.yml"]
+            mobile: ["apps/mobile/**", "apps/convex/**", "packages/collaboration/**", "packages/communications/**", "packages/desktop-bridge/**", "packages/drawings/**", "packages/meetings/**", "packages/obsidian-runtime/**", "packages/shared/**", "packages/lab/**", ".npmrc", "package.json", "pnpm-lock.yaml", "pnpm-workspace.yaml", "patches/**", ".github/workflows/ci.yml"]
 
       # A diff of only Tex config and data is proven by the Tex suites and
       # test set, not by the app (scripts/ci-change-scope.mjs TEX_DATA).

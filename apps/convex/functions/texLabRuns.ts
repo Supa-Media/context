@@ -24,9 +24,9 @@ import { internal } from "../_generated/api";
 import type { Doc, Id } from "../_generated/dataModel";
 import { internalAction, internalQuery, query, type MutationCtx, type QueryCtx } from "../_generated/server";
 import { requireAdmin } from "./lib/admin";
-import { DEFAULT_REPEATS, fidelityOf, repeatsOf } from "@context/shared/src/texRunBand.cjs";
-import { compareRuns, runStats } from "@context/shared/src/texRunStats.cjs";
-import { FAILURE_TAGS } from "@context/shared/src/texFailures.cjs";
+import { DEFAULT_REPEATS, fidelityOf, repeatsOf } from "@context/lab/src/texRunBand.cjs";
+import { compareRuns, runStats } from "@context/lab/src/texRunStats.cjs";
+import { FAILURE_TAGS } from "@context/lab/src/texFailures.cjs";
 import { handleForUser } from "./lib/identities";
 import { internalMutation, mutation } from "./lib/rowWatch/mutations";
 

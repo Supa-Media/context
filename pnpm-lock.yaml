@@ -80,6 +80,9 @@ importers:
       '@context/collaboration':
         specifier: workspace:*
         version: link:../../packages/collaboration
+      '@context/lab':
+        specifier: workspace:*
+        version: link:../../packages/lab
       '@context/obsidian-runtime':
         specifier: workspace:*
         version: link:../../packages/obsidian-runtime
@@ -221,6 +224,9 @@ importers:
       '@context/drawings':
         specifier: workspace:*
         version: link:../../packages/drawings
+      '@context/lab':
+        specifier: workspace:*
+        version: link:../../packages/lab
       '@context/meetings':
         specifier: workspace:*
         version: link:../../packages/meetings
@@ -692,6 +698,12 @@ importers:
   packages/drawings: {}
 
   packages/encryption-decryptor: {}
+
+  packages/lab:
+    dependencies:
+      '@context/shared':
+        specifier: workspace:*
+        version: link:../shared
 
   packages/meetings: {}
 
