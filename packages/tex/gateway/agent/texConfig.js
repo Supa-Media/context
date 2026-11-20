@@ -236,6 +236,9 @@ function draftStep(node, edit, config, words) {
   // When its rarely-changing modules are read (`frozenModules.js`): each turn, or once a day until the next summary.
   if (edit.freeze === "summary" || edit.freeze === "turn") out.freeze = edit.freeze;
   if (typeof edit.timeoutS === "number" && edit.timeoutS > 0 && edit.timeoutS <= MAX_TIMEOUT_S && node.timeoutS > 0) out.timeoutS = edit.timeoutS;
+  // Its own limits (the dream's About me budget, Part end's parts and minutes), each a whole number; null drops them.
+  if (edit.limits === null) delete out.limits;
+  else if (edit.limits && typeof edit.limits === "object" && !Array.isArray(edit.limits) && Object.values(edit.limits).every((v) => Number.isInteger(v) && v >= 0)) out.limits = { ...edit.limits };
   // What the step reads, when every prompt module it names has words here or in the draft.
   if (Array.isArray(edit.ctx) && edit.ctx.every((entry) => typeof entry === "string" && (PROMPT_ENTRY.exec(entry) === null || typeof words[PROMPT_ENTRY.exec(entry)[1]] === "string"))) out.ctx = edit.ctx;
   return out;
@@ -316,6 +319,7 @@ export function draftFit(config, draft) {
     if (!edit) continue;
     const ran = draftStep(node, edit, config, words);
     for (const key of ["model", "effort", "timeoutS"]) if (edit[key] !== undefined && edit[key] !== node[key] && ran[key] === node[key]) unapplied.push(`${node.id}.${key} ${JSON.stringify(edit[key])}`);
+    if (edit.limits !== undefined && JSON.stringify(edit.limits) !== JSON.stringify(node.limits ?? null) && JSON.stringify(ran.limits ?? null) === JSON.stringify(node.limits ?? null)) unapplied.push(`${node.id}.limits ${JSON.stringify(edit.limits)}`);
     if (Array.isArray(edit.ctx) && JSON.stringify(edit.ctx) !== JSON.stringify(node.ctx ?? []) && ran.ctx === node.ctx) unapplied.push(`${node.id}.ctx (a prompt module it names has no words)`);
   }
   const asDrawn = noCode.length === 0 && removed.length === 0 && wires === "draft" && unapplied.length === 0;
