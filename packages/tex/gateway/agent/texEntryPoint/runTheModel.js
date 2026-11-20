@@ -297,7 +297,9 @@ export async function runTheModel(t, via) {
     router,
     cacheTtl: texCacheTtl(job === null ? "fd" : "job", texConfigOf(env)), // the prefix cache's life, the step's own in Tex's config
     freeze, // the slow modules frozen for the day (`frozenModules.js`), or null: read each turn
-    fixedTools: texToolList(job === null ? "fd" : "job", texConfigOf(env)) === "fixed" ? (group ? "group" : "one") : null, // every tool its kind of chat has, the same bytes each turn (`sixToolsFixed.js`)
+    // Every tool its kind of chat has, the same bytes each turn (`sixToolsFixed.js`). Texts and group chats only: an app
+    // or another client's agent is shown what its own grant holds, as before.
+    fixedTools: (texting || group !== null) && texToolList(job === null ? "fd" : "job", texConfigOf(env)) === "fixed" ? (group ? "group" : "one") : null,
     efforts: turnEfforts(production, job), // a job's turn thinks as `models.job_effort` says (`production.js`)
     fallback: via.fallback(fallback),
     maxRounds: production?.maxSteps ?? undefined,
