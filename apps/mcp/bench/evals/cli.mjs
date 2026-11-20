@@ -6,14 +6,16 @@
  *   node apps/mcp/bench/evals/cli.mjs longmemeval --data longmemeval_s_cleaned.json --n 50 --out result.json \
  *     [--parallel 4] [--filings 4] [--reader claude-haiku-5-5] [--judge claude-sonnet-5-5] [--fake]
  *
- * `--data` is the dataset file as Hugging Face serves it (one JSON array). The slice is `sliceOf`'s: the same n is the
+ * `--data` is the dataset file as Hugging Face serves it (one JSON array), or `--fetch <dir>` downloads it there first. The slice is `sliceOf`'s: the same n is the
  * same questions every time. One process answers one question at a time, because a world sets the process's clock;
  * `--parallel k` runs k child processes over k shards of the slice. Claude is reached through the AI gateway
  * (`claudeTransport`), or through the model socket when `BENCH_MODEL_SOCKET` is set (the Lab's Claude Code runs).
  * Public data only: a row holds the dataset's own question, answer and the reader's reply, never anyone's notes.
  */
 import { spawn } from "node:child_process";
-import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { createWriteStream, existsSync, mkdirSync, mkdtempSync, readFileSync, renameSync, statSync, writeFileSync } from "node:fs";
+import { Readable } from "node:stream";
+import { pipeline } from "node:stream/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -54,8 +56,33 @@ export function modelsFor(options, env = process.env) {
   return { send, ai, route: send.route ?? null, socket };
 }
 
+const HF = "https://huggingface.co";
+
+/**
+ * The bench's dataset file in `dir`, downloaded from Hugging Face when it is not there yet: the file is found in the
+ * dataset's own listing by the bench's pattern (`BENCHES`), so a renamed file is found or the run says so.
+ */
+export async function fetchData(bench, dir, fetchImpl = fetch) {
+  const listed = await fetchImpl(`${HF}/api/datasets/${bench.repo}/tree/main`);
+  if (!listed.ok) throw new Error(`Hugging Face listing for ${bench.repo}: ${listed.status}`);
+  const files = (await listed.json()).filter((f) => f?.type === "file" && typeof f.path === "string" && /\.json$/i.test(f.path) && bench.file.test(f.path));
+  if (files.length !== 1) throw new Error(`${bench.repo} has ${files.length} files like ${bench.file}: ${files.map((f) => f.path).join(", ")}`);
+  const name = files[0].path.replace(/^.*\//, "");
+  const path = join(dir, name);
+  const size = files[0].lfs?.size ?? files[0].size ?? null;
+  if (existsSync(path) && (!size || statSync(path).size === size)) return path;
+  mkdirSync(dir, { recursive: true });
+  const got = await fetchImpl(`${HF}/datasets/${bench.repo}/resolve/main/${encodeURI(files[0].path)}`);
+  if (!got.ok || !got.body) throw new Error(`Hugging Face download of ${name}: ${got.status}`);
+  await pipeline(Readable.fromWeb(got.body), createWriteStream(`${path}.part`));
+  renameSync(`${path}.part`, path);
+  say(`downloaded ${name} (${Math.round(statSync(path).size / 1e6)} MB)`);
+  return path;
+}
+
 const OPTIONS = {
   data: { type: "string" },
+  fetch: { type: "string" },
   n: { type: "string" },
   out: { type: "string" },
   parallel: { type: "string" },
@@ -109,11 +136,12 @@ export async function main(argv = process.argv.slice(2)) {
   const { values: options } = parseArgs({ args: rest, options: OPTIONS, strict: true });
   if (!options.out) throw new Error("--out is required");
   if (options.items) return answerShard(options);
-  if (!options.data) throw new Error("--data is required");
   for (const key of ["reader", "judge"]) if (options[key] && !MODEL.test(options[key])) throw new Error(`--${key} is a Claude model id`);
   const bench = BENCHES.find((b) => b.id === (options.bench ?? "longmemeval-s"));
   if (!bench) throw new Error(`no bench ${options.bench}`);
-  const data = JSON.parse(readFileSync(options.data, "utf8"));
+  const file = options.data ?? (options.fetch ? await fetchData(bench, options.fetch) : null);
+  if (!file) throw new Error("--data <file> or --fetch <dir> is required");
+  const data = JSON.parse(readFileSync(file, "utf8"));
   if (!Array.isArray(data)) throw new Error("the dataset file is not a JSON array");
   const byId = new Map(data.map((item) => [item?.question_id, item]));
   const index = data.map((item, i) => entryOf(item, i)).filter(Boolean);

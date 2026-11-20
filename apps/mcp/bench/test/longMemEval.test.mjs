@@ -10,7 +10,11 @@ import { test } from "node:test";
 
 import { abilityOf, entryOf, judgePrompt, sessionsOf, sliceOf, transcriptOf, utcMs, verdictOf } from "../evals/longMemEval.mjs";
 import { filingTimes, readerSystem, runQuestion, scoresOf } from "../evals/memoryRun.mjs";
-import { fakeSend } from "../evals/cli.mjs";
+import { fakeSend, fetchData } from "../evals/cli.mjs";
+import { BENCHES } from "../evals/longMemEval.mjs";
+import { mkdtempSync, readFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { cachedEmbeddings, fakeAi } from "../models.mjs";
 
 const TYPES = ["single-session-user", "single-session-assistant", "single-session-preference", "multi-session", "temporal-reasoning", "knowledge-update"];
@@ -129,4 +133,22 @@ test("one question end to end: saved raw at each date, filed, found by a fresh r
   assert.equal(scores.pct, 50);
   assert.equal(scores.failed, 1);
   assert.equal(scores.byAbility.extraction.n, 2);
+});
+
+test("the dataset is found in Hugging Face's listing by the bench's pattern and downloaded once", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "lme-"));
+  const asked = [];
+  const body = JSON.stringify([item(0)]);
+  const fake = async (url) => {
+    asked.push(url);
+    if (url.endsWith("/tree/main")) return Response.json([{ type: "file", path: "longmemeval_oracle.json", size: 9 }, { type: "file", path: "longmemeval_s_cleaned.json", size: 120, lfs: { size: body.length } }, { type: "file", path: "README.md" }]);
+    return new Response(body);
+  };
+  const path = await fetchData(BENCHES[0], dir, fake);
+  assert.equal(path, join(dir, "longmemeval_s_cleaned.json"));
+  assert.equal(readFileSync(path, "utf8"), body);
+  assert.match(asked[1], /\/datasets\/xiaowu0162\/longmemeval-cleaned\/resolve\/main\/longmemeval_s_cleaned\.json$/);
+  await fetchData(BENCHES[0], dir, fake);
+  assert.equal(asked.length, 3, "a file already there is not downloaded again");
+  await assert.rejects(fetchData({ ...BENCHES[0], file: /nothing/ }, dir, fake), /has 0 files/);
 });

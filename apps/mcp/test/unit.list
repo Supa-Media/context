@@ -632,6 +632,7 @@ test/texDevLab.test.mjs
 test/texDevCases.test.mjs
 test/texDevSets.test.mjs
 test/texDevRuns.test.mjs
+test/texDevEvals.test.mjs
 test/texDevFailures.test.mjs
 test/texRunBand.test.mjs
 test/texRunStats.test.mjs
