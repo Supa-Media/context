@@ -169,3 +169,4 @@ test('the meaning query shares no word with the note it must find', async () => 
   const note = stagingNotes.alpha['1-projects/weekly-plan.md'].toLowerCase();
   for (const word of MEANING_QUERY.toLowerCase().split(/\s+/)) assert.equal(note.includes(word), false, word);
 });
+
