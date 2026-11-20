@@ -105,7 +105,18 @@ export async function overlayRead(name, args, gate) {
   if (!note) return null;
   if (note.gone) return { content: [{ type: "text", text: `There is no note at ${path}.` }], isError: true };
   if (note.body === null) return null;
-  return said([note.body, ...note.adds].join("\n"));
+  const body = [note.body, ...note.adds].join("\n");
+  // `read_note` answers as the real one does, its etag and path first, so code that reads a note's header (the nightly's
+  // `readAboutMe`, `readWithEtag`) finds it: without them a note the test chat wrote read as missing (Lab, 2026-11-20).
+  if (name !== "read_note") return said(body);
+  return said(`etag: ${labEtag(body)}\npath: ${path.replace(/^\/+/, "")}\n\n${body}`);
+}
+
+/** A test chat's own note version: its words' FNV-1a hash, plain so no workspace is named in it (`etagPlace.js`). */
+function labEtag(body) {
+  let h = 0x811c9dc5;
+  for (let i = 0; i < body.length; i++) h = Math.imul(h ^ body.charCodeAt(i), 0x01000193);
+  return `lab-${(h >>> 0).toString(16).padStart(8, "0")}`;
 }
 
 /**
