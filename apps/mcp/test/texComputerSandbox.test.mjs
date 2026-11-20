@@ -164,3 +164,13 @@ test("a Lab test chat gets a computer of its own, never the person's or the chat
   assert.equal(sandboxEnvOf({ TEX_COMPUTER: real }, { gate: { about: {} } }).TEX_COMPUTER, undefined);
 });
 
+test("a Lab test chat's turn runs tex_computer for real, on the test chat's own computer", async () => {
+  const { toolAnswer } = await import("../src/labSandbox/policy.js");
+  const kept = [];
+  const gate = { record: (write) => kept.push(write) };
+  assert.equal(await toolAnswer("tex_computer", { op: "run", command: "ls" }, gate), null, "null runs it for real");
+  assert.deepEqual(kept, [], "never listed as refused");
+  const refused = await toolAnswer("browse", { url: "https://example.com" }, gate);
+  assert.equal(refused.isError, true, "a browser is still refused");
+});
+

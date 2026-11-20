@@ -227,9 +227,10 @@ export const READ_TOOLS = Object.freeze(
  * that chat (`crossRuns.js`), and a do-ask's post lands in that test chat; a tapback as the whole answer ends the turn and
  * reacts in the test chat (`tapbackEnding.js`; answered as a write it never ended the turn, and Tex texted "Heart sent.");
  * a mute mutes the test chat (`controlPlaneAnswer`), and the chat object then reads it as a muted chat does.
- * Their note writes and calls pass the fences like any other.
+ * Tex's own computer (`tex_computer`) runs for real on the test chat's own computer, never the person's
+ * (`sandboxComputer`). Their note writes and calls pass the fences like any other.
  */
-export const RUN_IN_SANDBOX = Object.freeze(new Set(["start_background_job", "steer_background_job", "restart_background_job", "plan_big_ask", "text_progress", "ask_chat", "post_in_chat", "tapback", "chat_mute"]));
+export const RUN_IN_SANDBOX = Object.freeze(new Set(["start_background_job", "steer_background_job", "restart_background_job", "plan_big_ask", "text_progress", "ask_chat", "post_in_chat", "tapback", "chat_mute", "tex_computer"]));
 
 /**
  * Tools that need a browser or one of the person's computers, which a test chat never has: refused, said in words the
