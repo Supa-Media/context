@@ -88,8 +88,8 @@ import { IMAGE_UPLOAD_PATH, handleImageUpload } from "../notes/imageUploads.js";
 import { judgeFor } from "../privacy/judge.js";
 import { TEX_EVAL_PREFIX, handleTexEval } from "./texTestSet.js";
 import { CREDIT_REST_PATH, handleCreditRest } from "../agent/creditRest.js";
-import { LAB_SANDBOX_PATH, handleLabSandbox } from "../labSandbox/route.js";
-import { PAGE_PREFIX as LAB_SANDBOX_PAGES, handleLabSandboxPage } from "../labSandbox/pages.js";
+import { LAB_SANDBOX_PATH, handleLabSandbox } from "../../../../packages/lab/gateway/labSandbox/route.js";
+import { PAGE_PREFIX as LAB_SANDBOX_PAGES, handleLabSandboxPage } from "../../../../packages/lab/gateway/labSandbox/pages.js";
 
 export async function route(request, env, ctx) {
     const url = new URL(request.url);

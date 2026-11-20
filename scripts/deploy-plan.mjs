@@ -83,9 +83,11 @@ const SHARED_IGNORED = [
 /**
  * Tex's package holds the texting Worker's code beside the config and prompts
  * Convex and the app import a few files of; only the files they import count,
- * so a Worker change deploys the Worker, not Convex and the app.
+ * so a Worker change deploys the Worker, not Convex and the app. The Lab's
+ * package is the same: its gateway folder is the gateway's, so the app and
+ * Convex claim only the Lab files they import, not the gateway behind it.
  */
-export const TEX_IMPORT_ONLY = ["@context/tex"];
+export const TEX_IMPORT_ONLY = ["@context/tex", "@context/lab"];
 /** The texting Worker's code, inside Tex's package; `apps/agent` is only its entry point and Wrangler config. */
 const TEX_WORKER = "packages/tex/worker";
 /** The gateway's Tex code (its chat, job and store objects), inside Tex's package; the gateway Worker is built from it. */

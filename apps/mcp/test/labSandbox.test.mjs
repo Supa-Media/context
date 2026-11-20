@@ -1,4 +1,4 @@
-// The Lab's test chats (src/labSandbox/; Dev2, 2026-11-16: "have all the changes in the workspace / group chat object
+// The Lab's test chats (packages/lab/gateway/labSandbox/; Dev2, 2026-11-16: "have all the changes in the workspace / group chat object
 // be sandboxed so it doesn't actually affect production"; docs/decisions/texting-assistant/lab-sandbox.md).
 //
 // What these prove: a test turn's write never reaches the real object (it lands in the test chat's own object and is
@@ -18,12 +18,12 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 
-import { LabSandboxObject, sandboxTables, serveSandbox } from "../src/labSandbox/object.js";
-import { sandboxNamespace } from "../src/labSandbox/wire.js";
+import { LabSandboxObject, sandboxTables, serveSandbox } from "../../../packages/lab/gateway/labSandbox/object.js";
+import { sandboxNamespace } from "../../../packages/lab/gateway/labSandbox/wire.js";
 import { CONTROL_PLANE_READS, controlPlaneAnswer, LAB_SANDBOX_KEY, NO_NOTES_PERSONAL_READS, sandboxedTool, sandboxEnvOf, sandboxGateOf, toolAnswer, withoutKeys } from "../src/labSandbox/policy.js";
-import { sandboxGate, stepsOf, turnBody } from "../src/labSandbox/harness.js";
+import { sandboxGate, stepsOf, turnBody } from "../../../packages/lab/gateway/labSandbox/harness.js";
 import { noteOwnWorkspace } from "../src/tools/etagPlace.js";
-import { handleLabSandbox, MAX_DRAWN_GRAPH, MAYA_CONVO } from "../src/labSandbox/route.js";
+import { handleLabSandbox, MAX_DRAWN_GRAPH, MAYA_CONVO } from "../../../packages/lab/gateway/labSandbox/route.js";
 import { withDraft } from "../src/agent/graph/turnGraph.js";
 import { TEX_CONFIG, texConfigOf, texEffort, texModel, texSetupFront, texTimeoutMs, texWords } from "../src/agent/texConfig.js";
 import { createTransport } from "../src/controlPlane/client.js";

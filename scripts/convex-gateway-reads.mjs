@@ -78,6 +78,9 @@ export function convexGatewayReads(root = ROOT) {
   const convexFiles = sources(root, CONVEX);
   const files = new Set();
   const scanners = new Set();
+  // Convex reads Tex's and the Lab's packages by path (`@context/lab/src/x.cjs`) and nothing else of them; claiming a
+  // whole package would count its gateway half (`packages/tex/gateway`, `packages/lab/gateway`, which reach into the
+  // gateway) as Convex's.
   const { files: reached, dirs } = componentInputs({ packages: [], importOnly: TEX_IMPORT_ONLY, files: convexFiles }, root);
   if (dirs.some((dir) => `${dir}/`.startsWith(GATEWAY))) scanners.add(`${CONVEX} imports the gateway package by name`);
   for (const file of reached) if (file.startsWith(GATEWAY)) files.add(file);

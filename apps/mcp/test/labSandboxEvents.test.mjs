@@ -1,4 +1,4 @@
-// The Lab test chat's other iMessage events (src/labSandbox/inbound.js; docs/decisions/texting-assistant/lab-sandbox.md):
+// The Lab test chat's other iMessage events (packages/lab/gateway/labSandbox/inbound.js; docs/decisions/texting-assistant/lab-sandbox.md):
 // a text with pictures, a quoted reply, a tapback and an edit, each turned into its ledger event and its `/agent` body
 // by the texting Worker's own code (`packages/tex/worker/gatewayInbound.js`), as a real one is. Fake ids, words and hosts.
 //
@@ -14,12 +14,12 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 
-import { LabSandboxObject } from "../src/labSandbox/object.js";
-import { callSandbox } from "../src/labSandbox/object.js";
-import { inboundEvent, reactionOf, TAPBACK_OF } from "../src/labSandbox/inbound.js";
-import { turnRequestBody } from "../src/labSandbox/harness.js";
-import { handleLabSandbox, oneRowPerText } from "../src/labSandbox/route.js";
-import { guideText } from "../src/texDev/guide.js";
+import { LabSandboxObject } from "../../../packages/lab/gateway/labSandbox/object.js";
+import { callSandbox } from "../../../packages/lab/gateway/labSandbox/object.js";
+import { inboundEvent, reactionOf, TAPBACK_OF } from "../../../packages/lab/gateway/labSandbox/inbound.js";
+import { turnRequestBody } from "../../../packages/lab/gateway/labSandbox/harness.js";
+import { handleLabSandbox, oneRowPerText } from "../../../packages/lab/gateway/labSandbox/route.js";
+import { guideText } from "../../../packages/lab/gateway/texDev/guide.js";
 import { durableSql } from "./texStoreFixture.mjs";
 
 const KEY = "a".repeat(64);

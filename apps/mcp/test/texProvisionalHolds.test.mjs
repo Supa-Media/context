@@ -13,7 +13,7 @@ import { test } from "node:test";
 
 import schema from "../../../packages/tex/src/texConfigSchema.cjs";
 import { TEX_CONFIG } from "../src/agent/texConfig.js";
-import { draftProblems } from "../src/texDev/check.js";
+import { draftProblems } from "../../../packages/lab/gateway/texDev/check.js";
 import { configFrom } from "../../../scripts/tex-lab-promote.mjs";
 import { wordsOf } from "../../../scripts/tex-prompt-module.mjs";
 
@@ -91,7 +91,7 @@ test("a Lab Promote draft that drops a hold is refused, and tex_dev refuses it t
 test("tex_dev promote refuses a draft that drops a hold and does not ask for it", async () => {
   const graph = clone({ nodes: TEX_CONFIG.nodes, edges: TEX_CONFIG.edges });
   graph.edges.find((e) => e.from === "lanes" && e.mode === "provisional").unless = ["firstLook", "unpaired"];
-  const { createTexDev } = await import("../src/texDev/tool.js");
+  const { createTexDev } = await import("../../../packages/lab/gateway/texDev/tool.js");
   const plane = {
     calls: [],
     async texDev(_token, action, args) {

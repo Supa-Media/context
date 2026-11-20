@@ -1,8 +1,8 @@
 /**
- * The Lab's canvas as one still page, for `tex_dev snapshot` (`apps/mcp/src/texDev/snapshot.js`): a graph in, the
+ * The Lab's canvas as one still page, for `tex_dev snapshot` (`packages/lab/gateway/texDev/snapshot.js`): a graph in, the
  * HTML of a page that looks like the Lab's own canvas out, drawn by the same functions the Lab draws with
  * (`render.ts`) and styled by the Lab's own stylesheet (`labCss.ts`). The gateway cannot import TypeScript, so
- * `scripts/tex-dev-canvas.mjs` bundles this file into `apps/mcp/src/texDev/canvas.generated.js`; CI rebuilds it and
+ * `scripts/tex-dev-canvas.mjs` bundles this file into `packages/lab/gateway/texDev/canvas.generated.js`; CI rebuilds it and
  * fails when the committed copy differs, so the gateway's drawing can never drift from the Lab's.
  *
  * Pure strings and numbers, no DOM. The Lab's step lookups read its one state (`engine/state.ts`), so each drawing

@@ -1,7 +1,7 @@
 /**
  * The Lab's Replay, as the gateway's `tex_dev` runs it (Dev2, 2026-11-15: anything that can be done or seen inside the
  * Lab can be done or seen through the MCP). `scripts/tex-dev-replay.mjs` bundles this file to
- * `apps/mcp/src/texDev/replay.generated.js`, so the moments, the turns' measured times, what each step got and gave,
+ * `packages/lab/gateway/texDev/replay.generated.js`, so the moments, the turns' measured times, what each step got and gave,
  * the prompt at a version, a job's runs and the notes a turn read are worked out by the Lab's own code, never a copy.
  * Everything here reads the ledger entries it is handed and nothing else.
  */

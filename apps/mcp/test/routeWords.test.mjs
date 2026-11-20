@@ -36,7 +36,7 @@ import { THREADS_BACKFILL_PATH } from "../src/agent/threadsBackfillDoor.js";
 import { WORKSPACE_STORE_PATH } from "../src/workspaceStore/door.js";
 import { IMAGE_UPLOAD_PATH } from "../src/notes/imageUploads.js";
 import { TEX_EVAL_PREFIX } from "../src/http/texTestSet.js";
-import { LAB_SANDBOX_PATH } from "../src/labSandbox/route.js";
+import { LAB_SANDBOX_PATH } from "../../../packages/lab/gateway/labSandbox/route.js";
 import { MESSAGES_BACKUP_LOG_ROUTE } from "../src/communications/messagesBackupRead.js";
 import { MESSAGES_BACKUP_ROUTE } from "../../../packages/communications/src/backup.js";
 import { NOTE_READ_PATH } from "../src/live/noteReadRoute.js";

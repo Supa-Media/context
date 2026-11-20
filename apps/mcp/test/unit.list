@@ -710,4 +710,5 @@ test/toolRules.test.mjs
 test/texModuleChange.test.mjs
 test/sixToolsFixed.test.mjs
 test/frozenModules.test.mjs
+test/warmPrefix.test.mjs
 test/nextSteps.test.mjs

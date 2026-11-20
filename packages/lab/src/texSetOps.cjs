@@ -403,5 +403,5 @@ function blank({ id, title = "New chat", set = "dev", kind = "one", members = ["
   return { id, title, set, kind, members: [...members], msgs: [] };
 }
 
-// `checkPics`: the Lab test chats' pictures are checked as a Testing set message's are (`apps/mcp/src/labSandbox/inbound.js`).
+// `checkPics`: the Lab test chats' pictures are checked as a Testing set message's are (`packages/lab/gateway/labSandbox/inbound.js`).
 module.exports = { OPEN_SETS, MAX_OPS, MAX_PICS, OpError, checkPics: pics, apply, applyOps, keysOf, conflicts, describe, blank };

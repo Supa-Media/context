@@ -143,6 +143,7 @@ export async function serveTexStore(stored, request, timers = null, live = null,
         objects.ledger?.wipe();
         objects.rounds?.wipe();
         objects.frozen?.wipe();
+        objects.warm?.wipe();
         return Response.json({ ok: true });
       // A texted turn's rounds, for a try of the same text after a crash (`rounds.js`, `agent/savedRounds.js`).
       case "rounds_put": {
@@ -172,6 +173,23 @@ export async function serveTexStore(stored, request, timers = null, live = null,
         }
         return Response.json(objects.frozen.put(call.chat, call.step, data));
       }
+      // A chat's last cached prompt prefix, to warm the model's cache (`warm.js`, `agent/warmPrefix.js`).
+      case "warm_put": {
+        if (!objects.warm) return unknownOp();
+        let data;
+        try {
+          data = JSON.parse(await request.text());
+        } catch {
+          throw new TexObjectRefused("not a prefix");
+        }
+        return Response.json(objects.warm.put(call.chat, data));
+      }
+      case "warm_get":
+        if (!objects.warm) return unknownOp();
+        return Response.json({ warm: objects.warm.get(call.chat) });
+      case "warm_used":
+        if (!objects.warm) return unknownOp();
+        return Response.json(objects.warm.used(call.chat));
       case "frozen_get":
         if (!objects.frozen) return unknownOp();
         return Response.json({ frozen: objects.frozen.get(call.chat, call.step) });
@@ -320,6 +338,16 @@ export function texBucket(stub) {
     async frozenPut(chat, step, data) {
       await call("frozen_put", { chat, step }, new TextEncoder().encode(JSON.stringify(data)));
     },
+    /** A chat's last cached prompt prefix (`warm.js`): keep it, read it back, mark it sent again. */
+    async warmPut(chat, data) {
+      await call("warm_put", { chat }, new TextEncoder().encode(JSON.stringify(data)));
+    },
+    async warmGet(chat) {
+      return (await (await call("warm_get", { chat })).json()).warm ?? null;
+    },
+    async warmUsed(chat) {
+      await call("warm_used", { chat });
+    },
     async frozenGet(chat, step) {
       return (await (await call("frozen_get", { chat, step })).json()).frozen ?? null;
     },
@@ -363,7 +391,7 @@ export function texTimers(stub) {
 export function texBucketStore(bucket) {
   return Object.assign(new R2Store(bucket), {
     desk: () => bucket.desk(),
-    ledger: { append: (chat, entries) => bucket.ledgerAppend(chat, entries), read: (chat, options) => bucket.ledgerRead(chat, options), chats: () => bucket.ledgerChats(), prepend: (chat, entries) => bucket.ledgerPrepend(chat, entries), oldest: (chat) => bucket.ledgerOldest(chat), keepRounds: (chat, key, data) => bucket.roundsPut(chat, key, data), roundsOf: (chat, key) => bucket.roundsGet(chat, key), forgetRounds: (chat, key) => bucket.roundsForget(chat, key), keepFrozen: (chat, step, data) => bucket.frozenPut(chat, step, data), frozenOf: (chat, step) => bucket.frozenGet(chat, step) },
+    ledger: { append: (chat, entries) => bucket.ledgerAppend(chat, entries), read: (chat, options) => bucket.ledgerRead(chat, options), chats: () => bucket.ledgerChats(), prepend: (chat, entries) => bucket.ledgerPrepend(chat, entries), oldest: (chat) => bucket.ledgerOldest(chat), keepRounds: (chat, key, data) => bucket.roundsPut(chat, key, data), roundsOf: (chat, key) => bucket.roundsGet(chat, key), forgetRounds: (chat, key) => bucket.roundsForget(chat, key), keepFrozen: (chat, step, data) => bucket.frozenPut(chat, step, data), frozenOf: (chat, step) => bucket.frozenGet(chat, step), keepWarm: (chat, data) => bucket.warmPut(chat, data), warmOf: (chat) => bucket.warmGet(chat), warmUsed: (chat) => bucket.warmUsed(chat) },
   });
 }
 

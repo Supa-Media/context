@@ -78,6 +78,7 @@ export function TexChatComposer({
   onCancelReply,
   onCancelEdit,
   onSend,
+  onTyping,
 }: {
   sending: boolean;
   disabled: boolean;
@@ -86,6 +87,8 @@ export function TexChatComposer({
   onCancelReply: () => void;
   onCancelEdit: () => void;
   onSend: (text: string, pictures: Blob[]) => void;
+  /** The person typed in the box: the chat warms the model's cache for their text (`useAppChat` `typing`). */
+  onTyping?: () => void;
 }) {
   const styles = useThemedStyles(makeStyles);
   const fieldFont = useFieldFont(pointerType.lede);
@@ -216,7 +219,10 @@ export function TexChatComposer({
         )}
         <TextInput
           value={text}
-          onChangeText={setText}
+          onChangeText={(next) => {
+            setText(next);
+            if (next.trim() !== "") onTyping?.();
+          }}
           placeholder="Ask Tex, or tell it what to do"
           placeholderTextColor={colors.muted}
           multiline

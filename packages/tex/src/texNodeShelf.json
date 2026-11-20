@@ -54,6 +54,22 @@
         "apps/mcp/src/agent/lookupLadder.js"
       ],
       "why": "Rungs 3 and 4 of the lookup ladder, Apps and web search: which of the front door's lookups this turn tried (a connected app, web search, the browser, the advisor) and which connected app failed; askGate's send-back names the fast ones untried. Called by askGate (askGate -> rungTools, uses)."
+    },
+    "warm": {
+      "files": [
+        "apps/mcp/src/agent/graph/nodes/warm.js",
+        "apps/mcp/src/agent/warmPrefix.js",
+        "apps/mcp/src/agent/textsWarm.js",
+        "packages/tex/gateway/texStore/warm.js",
+        "apps/mcp/src/agent/aiGateway.js",
+        "apps/mcp/src/agent/texEntryPoint/runTheModel.js",
+        "packages/tex/worker/warmStep.ts",
+        "apps/mcp/src/index.js",
+        "packages/tex/gateway/texStore/engine.js",
+        "packages/tex/gateway/texStore/wire.js",
+        "apps/mcp/src/agent/graph/gatewayNodes.js"
+      ],
+      "why": "Warms the model's cache before the person's next text (Dev2, 2026-11-20, the cache rules: \"the cache is warmed when the chat opens or the person starts typing\"). With the node in the config, each texted front-door turn keeps the request its first round sent, cut at the history's end, in the chat's own home (texStore/warm.js); when the person reads Tex's text (Photon's read receipt, packages/tex/worker warmStep.ts), opens the chat or starts typing in the app, /texts/warm runs this node, which sends that prefix again with a one-token answer. Skips a prefix from another day or sent under 50 minutes ago (the cache still holds it). Input { owner, chat, cause: read|open|typing }; output { when: [warmed], usage, ms } or { when: [skip], why, ms }."
     }
   }
 }

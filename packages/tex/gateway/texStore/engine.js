@@ -17,6 +17,7 @@ import { DEFAULT_TABLES, texObjects } from "./objects.js";
 import { texLedger } from "./ledger.js";
 import { texRounds } from "./rounds.js";
 import { texFrozen } from "./frozen.js";
+import { texWarm } from "./warm.js";
 import { PAGE_LIVE_PATH, pageLive } from "./pageLive.js";
 import { logChatOf, pageViews, sectionsForKinds } from "./pageViews.js";
 import { serveTexStore } from "./wire.js";
@@ -60,6 +61,8 @@ export class TexEngine {
     this.objects.rounds = texRounds(sql, { now: this.now, guard });
     // A chat's prompt modules frozen for the day, so its system prompt keeps its bytes until the next summary (`frozen.js`).
     this.objects.frozen = texFrozen(sql, { now: this.now, guard });
+    // The chat's last cached prompt prefix, to warm the model's cache before the next text (`warm.js`).
+    this.objects.warm = texWarm(sql, { now: this.now, guard });
     // The chat's Tex page: the open pages' sockets (`pageLive.js`), and its records as views of the chat's one log
     // (`pageViews.js`), which pushes what changed to an open page on every append.
     this.objects.records = pageViews(() => this.objects.ledger);
