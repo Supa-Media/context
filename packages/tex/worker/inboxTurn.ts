@@ -27,6 +27,7 @@ import { addEvent, kindOf, markStale, renderTranscript, waitingAsks } from "./ev
 import { chatEvents } from "./chatRead";
 import { decide, IDLE_DECIDE_MS, RUNNING_DECIDE_MS, type ControlDeps, type DecideAsk, type Decision } from "./decide";
 import { decideStep, logStep, triageStep } from "./stepEvents";
+import { markLeftover } from "./turnWatch";
 import { sha256Hex } from "./groupChat";
 import { linkCode, type Message } from "./reply";
 import { restartTurn, runningTurn, steerInto } from "./steer";
@@ -204,6 +205,12 @@ export async function chooseTurn(storage: InboxStorage, deps: ControlDeps & { no
   const ids = burst.flatMap(([, item]) => (item.ev ? [item.ev] : []));
   // The simulator is answered directly, as before decide.
   if (ids.length === 0 || first[1].message.channel === "simulator") return await triage(burst, "tex", "the simulator is answered directly"), { answer: fallbackTurn(burst), drop: [] };
+  // A text that outlived every turn that could have answered it (`leftoverText`) beside newer ones is never forced into
+  // their turn: the judge says whether the new text carries it on, and one it leaves out is marked failed, with Try
+  // again, never answered again by itself (Dev2, 2026-11-21).
+  const now = deps.now();
+  const leftovers = burst.filter((entry) => leftoverText(entry[1], now));
+  if (leftovers.length > 0 && leftovers.length < burst.length) return await leftoverTurn(storage, deps, burst, leftovers, ids, triage);
   // Tex's front door (Seyi, 2026-10-31): one text goes straight to Tex. Decide is asked only when there is a choice: several texts waiting,
   // a bare "thanks" a tapback may answer, or an ask of Tex's this text may leave behind (`markStale`), so "never mind that email" still disarms it.
   const ack = burst.length === 1 && pureAck(burst[0][1].message);
@@ -226,6 +233,66 @@ export async function chooseTurn(storage: InboxStorage, deps: ControlDeps & { no
   // An older text it left out that still needs an answer goes first; acknowledgements before the answer go unanswered (`gatherTheTurn.ts`).
   const { answer, left } = gatherTheTurn(burst, covered, (entry) => !may(entry[1].message));
   return { answer, drop: left };
+}
+
+/**
+ * How long a text may wait in the queue before it has outlived every turn that could answer it: a turn's own run, its
+ * tries (`MAX_ANSWER_ATTEMPTS`, minutes at most) and the lost-turn watch (`turnWatch.ts`, 90 s) all end well inside it.
+ * A text older than this is still waiting only because its turn was lost before the watch existed, or its object
+ * stopped: on 2026-11-20 an app text's turn wrote the note it asked for and was lost before its reply was recorded; the
+ * text sat in the queue until a new, unrelated question the next morning, and was answered again beside it.
+ */
+export const LEFTOVER_MS = 30 * 60_000;
+
+/** Whether a waiting text is a leftover (`LEFTOVER_MS`): one queued again on purpose (`force`: a retry, a restart) never is. */
+export function leftoverText(item: Pending, now: number): boolean {
+  return item.force !== true && item.at !== undefined && now - item.at > LEFTOVER_MS;
+}
+
+/**
+ * The turn for newer texts with leftovers among them: the judge alone may put a leftover in (a new text that carries
+ * it on, "can you do what I asked?"), since its text and what its lost turn did are in the transcript it reads. One it
+ * leaves out, or every one when the judge cannot say, is marked failed (`markLeftover`): the app shows it with Try
+ * again, and the ledger says why.
+ */
+async function leftoverTurn(
+  storage: InboxStorage,
+  deps: ControlDeps & { now: () => number },
+  burst: Entry[],
+  left: Entry[],
+  ids: string[],
+  triage: (entries: Entry[], to: "tex" | "judge", why: string, more?: Record<string, unknown>) => Promise<unknown>,
+): Promise<Choice> {
+  const fresh = burst.filter((entry) => !left.includes(entry));
+  const leftIds = left.flatMap(([, item]) => (item.ev ? [item.ev] : []));
+  await triage(burst, "judge", "a text left from a lost turn beside newer ones: the judge says whether the new text carries it on", { leftover: leftIds });
+  const decision = await ask(storage, deps, burst.at(-1)![1].message, ids, false);
+  const may = (message: Message) => pureAck(message) || message.edited !== undefined;
+  let answer: Entry[];
+  let drop: Entry[];
+  if (!decision.ok) {
+    // The judge could not say: the newer texts are answered as before it, and no leftover rides along unasked.
+    answer = fallbackTurn(fresh);
+    drop = [];
+  } else if (decision.act !== "answer") {
+    const must = fresh.filter(([, item]) => item.force || !may(item.message));
+    if (must.length === 0) {
+      await markLeftover(storage, burst[0][1].message.chatId, left, deps.now());
+      const newest = burst.at(-1)![1].message;
+      return { answer: [], drop: burst, ...(decision.act === "react" ? { react: newest, ...(decision.emoji ? { emoji: decision.emoji } : {}) } : {}) };
+    }
+    answer = must;
+    drop = burst.filter((entry) => !must.includes(entry));
+  } else {
+    const covered = (entry: Entry) => entry[1].force === true || (entry[1].ev !== undefined && decision.covers.includes(entry[1].ev));
+    // A leftover is answered only when decide covered it; the newer texts keep the 1:1 rule (`gatherTheTurn.ts`).
+    const gathered = gatherTheTurn(burst, covered, (entry) => !left.includes(entry) && !may(entry[1].message));
+    answer = gathered.answer;
+    drop = gathered.left;
+  }
+  const dropped = left.filter((entry) => !answer.includes(entry));
+  await markLeftover(storage, burst[0][1].message.chatId, dropped, deps.now());
+  return { answer, drop: [...drop.filter((entry) => !dropped.includes(entry)), ...dropped] };
 }
 
 /** Several texts as the one a turn answers: words in order, files first-sent first, the newest's place. */

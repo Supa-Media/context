@@ -40,6 +40,8 @@ const REASON_WORDS = {
   held_newcomer: "held back from someone new to the chat",
   failed: "it failed to send",
   timed_out: "sending it timed out",
+  // A lost turn's drafted answer (`ledgerHistory.js` `lostReplies`): what it did is real, what it said never arrived.
+  lost: "its turn was lost before this was sent, so they never saw it; what that turn did still happened",
   too_long: "it was too long to send",
 };
 
