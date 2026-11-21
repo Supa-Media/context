@@ -77,6 +77,14 @@ test("the question says it is Tex in a note's thread, and carries the note, the 
   assert.match(q, /"replace"/);
 });
 
+test("the question carries the note without its comment threads or markers, which an edit would otherwise copy", () => {
+  const noteText = "# Plan\n\nShip <!--c:ab12-->the outline<!--/c:ab12--> soon.\n\n```comments\nab12 \"the outline\"\n- 2026-11-21T05:40:40Z @alpha: @Tex give me a basic outline here\n```\n";
+  const q = noteRunQuestion({ path: "plan.md", noteText, anchor: { text: "the outline", before: "", after: "" }, ask: "give me a basic outline here", history: [], pending: null, chatHistory: "", audience: "only the asker" });
+  assert.match(q, /Ship the outline soon\./);
+  assert.doesNotMatch(q, /```comments/);
+  assert.doesNotMatch(q, /<!--c:/);
+});
+
 test("a collapsed point asks for the text to insert there, not a change to words", () => {
   const q = noteRunQuestion({ path: J19, noteText: "# Judges 19\n", anchor: { text: "", before: "The night was long.", after: "" }, ask: "add a line about the road", history: [], pending: null, chatHistory: "", audience: "only you" });
   assert.match(q, /a point in the note/);

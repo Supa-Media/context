@@ -23,6 +23,7 @@ import { READ_DAY, weekTurn } from "./weekHistory.js";
 import { DEFAULT_TIME_ZONE } from "./localNow.js";
 import { carryKey } from "./stretch.js";
 import { noteName } from "./noteConnect.js";
+import comments from "../../../shared/src/comments.cjs";
 
 /** The caps a run's words are held to: the note, the Tex chat, the ask, one thread line, the words beside the highlight. */
 export const RUN_NOTE_CHARS = 12_000;
@@ -90,10 +91,21 @@ function threadOf(history) {
  * What the model is asked: Tex inside a note's thread, the note, the highlight, the thread, the pending suggestion, the
  * asker's Tex chat, who reads the note, and the one shape the answer takes.
  */
+/**
+ * The note as its readers see it: the comment threads and mail at its end, and
+ * the markers around commented words, are conversation about the note, not the
+ * note. Tex's edit is written straight into the note, so a model shown that
+ * block copies it into the edit (found on a preview, 2026-11-21); the thread's
+ * own lines reach the prompt as its history instead.
+ */
+export function noteWords(text) {
+  return comments.stripComments(typeof text === "string" ? text : "").replace(/\n{3,}$/, "\n");
+}
+
 export function noteRunQuestion({ path, noteText, anchor, ask, history, pending, chatHistory, audience }) {
   return [
     "This is Tex inside a note's comment thread, not a text from a person. Nobody is texted: your answer is posted in the thread for the people who read the note.",
-    `The note is ${str(path)}. Its words as they are now (up to ${RUN_NOTE_CHARS} characters):\n\n${clip(noteText, RUN_NOTE_CHARS)}`,
+    `The note is ${str(path)}. Its words as they are now (up to ${RUN_NOTE_CHARS} characters):\n\n${clip(noteWords(noteText), RUN_NOTE_CHARS)}`,
     anchorOf(anchor),
     `What the person asks: "${clip(ask, RUN_ASK_CHARS)}"`,
     `The comment thread so far:\n\n${threadOf(history)}`,
