@@ -48,7 +48,7 @@ export const BUNDLE_SOURCES: Readonly<Record<string, string>> = {
   "apps/mobile/features/console/files/comments/model.ts": "cde449f37f0f619ba48e554eb29c3af73a6b4622ee57a7d31ee5a8096f5f3ecd",
   "apps/mobile/features/console/files/comments/sheet.ts": "c3ee715b4a8816a6b9183376c26f17ba97af3a6cfd0e72d4db2b992b405ba8a5",
   "apps/mobile/features/console/files/comments/styles.ts": "8145d94c2eafaf0df16a8c82fadcfb79e9830c90e620a4df85ad4c4f2b2c4793",
-  "apps/mobile/features/console/files/comments/tex/contract.ts": "206c203ea327caa5a5947c7f3027472f3370fb76b7bf22f2403ecb19908622ea",
+  "apps/mobile/features/console/files/comments/tex/contract.ts": "4eb3e45dda756c995fda2c819f903f496e683f3bf92cc20971276252e7f169a3",
   "apps/mobile/features/console/files/dictate.ts": "9f2956b51062539111e7be74c9652001e65c00d4e934d8400ce76307f79d8d10",
   "apps/mobile/features/console/files/editorSetup.ts": "d6b509d75f84a8790ef4a8636fb63a61ad700b3599b732bace35e5d3a5d180ee",
   "apps/mobile/features/console/files/emoji/emojiComplete.ts": "9b9beeea0c51c4a7eab16e7b6772ccf2d83ae4ef6176ae7e2620da2a121f4187",
