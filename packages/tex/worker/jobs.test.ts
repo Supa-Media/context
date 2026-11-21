@@ -390,8 +390,8 @@ describe("background jobs", () => {
     const { deps, asked, reports } = jobDeps([], { linked: false });
     await runJob(storage, deps);
     expect(asked).toEqual([]);
-    // Its one part ended "stopped" (`jobProgress.ts`): said for `job_status`, never texted.
-    expect(reports).toEqual([{ id: "job-1234-abcd", state: "failed", first: 0, pass: expect.any(String), part: 1, ends: [{ part: 1, cause: "stopped" }] }]);
+    // Its one part ended "stopped" (`jobProgress.ts`): said for `job_status` and the Lab with why (2026-11-21, `jobAppChat.test.ts`), never texted.
+    expect(reports).toEqual([{ id: "job-1234-abcd", state: "failed", status: expect.stringContaining("no session"), first: 0, pass: expect.any(String), part: 1, ends: [{ part: 1, cause: "stopped" }] }]);
   });
 
   it("hands the result to the chat's own turn under the ask it came from, never texting it, and queues an update offered again once", async () => {

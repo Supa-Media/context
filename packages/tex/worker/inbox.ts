@@ -670,6 +670,8 @@ async function crossFor(storage: InboxStorage, message: Message, deps: InboxDeps
 async function jobsFor(storage: InboxStorage, message: Message, deps: InboxDeps): Promise<Pick<ReplyDeps, "running" | "onJobs" | "onSteers">> {
   const spawn = deps.spawnJob;
   if (spawn === undefined || message.sms) return {};
+  // An in-app chat's jobs run as its user (`personSession.ts`), so only the object the gateway placed for that chat starts them.
+  if ((namesAppChat(message.from) || namesAppChat(message.chatId)) && (deps.appChat !== message.chatId || message.from !== message.chatId)) return {};
   const channel = message.channel === "simulator" ? { channel: "simulator" as const } : {};
   return {
     running: await chatJobs(storage, deps.now(), { results: true }),
