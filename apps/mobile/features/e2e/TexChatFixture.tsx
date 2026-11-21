@@ -57,6 +57,13 @@ function seedRows(now: number): AppChatRow[] {
       reactions: [{ who: "me", emoji: "👍" }],
     },
     {
+      id: "r3b",
+      who: "tex",
+      kind: "text",
+      text: "Two things are still open on [Saturday party plan](https://context.lc/note/@demo/projects/saturday-party.md):\n\n- Whether to add the **$3 cake fee** to the booking.\n- Who picks up the cake.\n\nhttps://context.lc/note/@demo/areas/bible-study/daniel-6-study.md",
+      at: minutesAgo(16),
+    },
+    {
       id: "r4",
       who: "me",
       kind: "picture",

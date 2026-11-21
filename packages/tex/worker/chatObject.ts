@@ -5,6 +5,7 @@
  * `env`, never from a module-level binding.
  */
 
+import { retryText, stopTurn } from "./turnWatch";
 import { jobRoute } from "./jobRoutes";
 import { jobStub } from "./jobPlace";
 import { logged } from "./agentError";
@@ -285,6 +286,12 @@ export class SenderInbox implements DurableObject {
     if (path === "/host-picture") {
       // The Worker's line (`lineCalls.ts`) asks this object to host a picture its line sends; the same call `deps()` makes.
       return Response.json({ url: await this.hostPictureHere((await request.json()) as Picture) });
+    }
+    // The app's stop and Try again on a 1:1 (`turnWatch.ts`): cancel the running turn, or queue a failed or stopped text again.
+    if (path === "/turn-stop" || path === "/turn-retry") {
+      const body = (await request.json().catch(() => null)) as { chat?: unknown; ev?: unknown } | null;
+      if (path === "/turn-stop") return typeof body?.chat === "string" && body.chat !== "" ? Response.json(await stopTurn(this.state.storage, body.chat, Date.now())) : new Response(null, { status: 400 });
+      return typeof body?.ev === "string" && body.ev !== "" ? Response.json({ outcome: (await retryText(this.state.storage, body.ev, Date.now())) ? "queued" : "none" }) : new Response(null, { status: 400 });
     }
     // Node "edit": someone edited or unsent a text they sent (`editStep.ts`); kept beside it, a turn when an edit changed it.
     if (path === "/edit") {

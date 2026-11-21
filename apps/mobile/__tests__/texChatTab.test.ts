@@ -29,7 +29,7 @@ import { act, createElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import type { AppChatRow, ChatLine, PendingLine } from "../features/tex/chat/appChatGateway";
 import type { AppChatView } from "../features/tex/chat/useAppChat";
-import { TEX_EMPTY, TEX_TAB_SUB, TEX_WORKING, TexChatView } from "../features/tex/chat/TexChatTab";
+import { TEX_EMPTY, TEX_WORKING, TexChatView } from "../features/tex/chat/TexChatTab";
 import { AsideStrip } from "../features/console/aside/AsideStrip";
 import { AsidePanel } from "../features/console/aside/AsidePanel";
 import { forgetAsideChoice } from "../features/console/aside/asideChoice";
@@ -131,11 +131,16 @@ function mount(view: AppChatView & { calls: Calls }) {
 }
 
 describe("the header and the empty chat", () => {
-  test("Tex's name and its one line under it", () => {
+  test("the header is the Tex pill: its name and its status, with no line under it (Dev2, 2026-11-20 mock)", () => {
     const tab = mount(fakeView());
     expect(tab.text()).toContain("Tex");
-    expect(tab.text()).toContain(TEX_TAB_SUB);
-    expect(TEX_TAB_SUB).toBe("Its own chat. Tex remembers your texts too.");
+    expect(tab.find("tex-status")?.textContent).toBe("Ready");
+    expect(tab.text()).not.toContain("Its own chat");
+  });
+
+  test("the status says Working while Tex has a turn open", () => {
+    const tab = mount(fakeView({ busy: true }));
+    expect(tab.find("tex-status")?.textContent).toBe("Working");
   });
 
   test("an empty chat says what to do in the middle of it", () => {
@@ -369,7 +374,7 @@ describe("tapbacks and the row's actions", () => {
     const tab = mount(fakeView({ lines: [row({ id: "m1", who: "me", text: "helo", editable: true })] }));
     tab.hover("tex-row-m1");
     tab.press("tex-edit-m1");
-    expect(tab.find("tex-edit-bar")?.textContent).toContain("Editing message");
+    expect(tab.find("tex-edit-bar")?.textContent).toContain("Editing your text");
     expect((tab.find("tex-input") as HTMLTextAreaElement | null)?.value).toBe("helo");
     tab.type("tex-input", "hello");
     tab.press("tex-send");
@@ -402,7 +407,7 @@ describe("the box", () => {
 
   test("the picture button is labelled for a screen reader", () => {
     const tab = mount(fakeView());
-    expect(tab.find("tex-picture")?.getAttribute("aria-label")).toBe("Add pictures");
+    expect(tab.find("tex-picture")?.getAttribute("aria-label")).toBe("Attach");
     expect(tab.find("tex-send")?.getAttribute("aria-label")).toBe("Send");
   });
 });
