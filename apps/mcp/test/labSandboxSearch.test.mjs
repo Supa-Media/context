@@ -192,6 +192,18 @@ test("a try-out answers main and the draft, ranked, with each step's time, and n
   assert.equal(store.rows.length, 0, "a try-out writes no counted row, nor a timing row");
 });
 
+test("a real search's steps still count their notes when the log cuts their long output", async () => {
+  // Forty renewal notes with long bodies: each step's rows run far past the runner's log size (3,500 characters),
+  // so a count taken from the logged output would be lost, as it was on the live Lab (2026-11-21).
+  const many = Object.fromEntries(Array.from({ length: 40 }, (_, i) => [`projects/renewal-${i}.md`, `# Renewal ${i}\n\n${"The renewal quote and carrier call. ".repeat(20)}\n`]));
+  const store = withPrivacyAuthority(scannedStore(many, { contexts: [{ name: "@me", current: true, role: "owner" }] }), { rules: { etag: "rows-v1", accessVersion: 1, folders: [], notes: [] } });
+  const answer = await searchAnswer({ store, scope: "private", rules: [], overrides: new Map(), query: "renewal", config: null });
+  const notes = Object.fromEntries(answer.main.steps.map((s) => [s.node, s.notes]));
+  assert.ok(notes.words > 0, `words counted its notes (${notes.words})`);
+  for (const step of ["visible", "probes", "floor", "code"]) assert.equal(typeof notes[step], "number", `${step} counted its notes`);
+  assert.equal(notes.answer, answer.main.hits.length, "the answer's count is its hits");
+});
+
 test("a draft with no search config answers draft null and changes nothing", async () => {
   const store = homeStore();
   const answer = await searchAnswer({ store, scope: "private", rules: [], overrides: new Map(), query: "renewal", config: null });

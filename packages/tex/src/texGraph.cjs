@@ -287,6 +287,9 @@ function provisionalHeld(unless, facts) {
  *   now         () => number.
  *   onStart     ({ node, id, parent, at, via, input }) => void: each node run as it starts, before its code runs (the
  *               Lab's test chat shows running steps); never awaited, never throws out.
+ *   count       (nodeId, output) => number | null: how many items a node handed on, counted from its whole output
+ *               before the log cuts a long one, and kept on its entry as `count` (search's notes per step, Dev2
+ *               2026-11-21). Never throws out; a non-number is left off.
  *   concurrent  true: a node starts as soon as every node that may feed it has finished, so two steps fed by the same
  *               one run side by side (search's word and meaning nominators, Dev2 2026-11-21). False (Tex's runs): one
  *               node at a time, in order. What runs, and on what input, is the same either way.
@@ -298,12 +301,21 @@ function provisionalHeld(unless, facts) {
 let runSeq = 0;
 /** A run id, unique in the isolate: every log entry gets its own, so a parent always names an entry that was kept. */
 const nextRunId = () => ((runSeq = (runSeq + 1) % Number.MAX_SAFE_INTEGER), `r${runSeq}`);
-function createGraph(config, impls, { log = () => {}, background = null, handOff = null, now = Date.now, onStart = null, start = null, concurrent = false } = {}) {
+function createGraph(config, impls, { log = () => {}, background = null, handOff = null, now = Date.now, onStart = null, start = null, concurrent = false, count = null } = {}) {
   const problems = problemsOf(config);
   if (problems.length) throw new GraphError(problems.join("; "));
   const byId = new Map(config.nodes.map((n) => [n.id, n]));
   const out = (id, mode) => config.edges.filter((e) => e.from === id && e.mode === mode);
 
+  const counted = (id, output) => {
+    if (!count) return {};
+    try {
+      const n = count(id, output);
+      return typeof n === "number" && Number.isFinite(n) ? { count: n } : {};
+    } catch {
+      return {};
+    }
+  };
   const keep = (entry) => {
     try {
       const r = log(entry);
@@ -419,7 +431,7 @@ function createGraph(config, impls, { log = () => {}, background = null, handOff
       checkShape(id, "input", input, node.inSchema);
       const output = await impl(input, io);
       checkShape(id, "output", output, node.outSchema);
-      keep({ node: id, input: shaped(input), output: shaped(output), ...timing(), ok: true, at, via, ...ids });
+      keep({ node: id, input: shaped(input), output: shaped(output), ...counted(id, output), ...timing(), ok: true, at, via, ...ids });
       return { ran: true, output, id: self };
     } catch (error) {
       keep({ node: id, input: shaped(input), output: null, ...timing(), ok: false, error: error?.name === "GraphError" ? error.message : String(error?.name ?? "error"), at, via, ...ids });
