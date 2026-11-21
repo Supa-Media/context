@@ -95,7 +95,8 @@ test("a 1:1 test text runs from A text arrives through the chat object, and Tex'
   assert.ok(turn, "the chat object asked /agent");
   assert.equal(turn.body.question, "what's on today?");
   assert.match(token, /^Bearer lab_[0-9a-f]{48}$/, "a token minted for this text, never the caller's");
-  assert.ok(gw.texted.includes("/texts/old-line"), "Old number? was asked");
+  // A text on Photon's line can't be on the old number: the step passes it without asking the gateway, and still logs (2026-11-21).
+  assert.ok(!gw.texted.includes("/texts/old-line"), "Old number? is not asked for a new-line chat");
   const nodes = reply.steps.map((s) => s.node);
   for (const node of ["text", "oldLine", "triage"]) assert.ok(nodes.includes(node), `step ${node} logged (${nodes.join(", ")})`);
   assert.ok(!state.meta.running, "nothing left running");
