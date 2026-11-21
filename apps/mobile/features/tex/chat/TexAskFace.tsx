@@ -3,6 +3,7 @@ import { ActivityIndicator, Pressable, StyleSheet, TextInput, View, type TextSty
 import Svg, { Path } from "react-native-svg";
 import { Icon } from "../../design/components/Icon";
 import { Text } from "../../design/components/Text";
+import { useFieldFont } from "../../design/fieldFont";
 import { pointerType, radii, space } from "../../design/tokens";
 import { useColors, useThemedStyles, type Colors } from "../../design/theme";
 
@@ -138,6 +139,7 @@ function BodyBox({ body }: { body: FaceBody }) {
   const colors = useColors();
   const [hovered, setHovered] = useState(false);
   const [focused, setFocused] = useState(false);
+  const fieldFont = useFieldFont(pointerType.ui);
 
   if (body.onChangeText === undefined) {
     return (
@@ -160,7 +162,7 @@ function BodyBox({ body }: { body: FaceBody }) {
         textAlignVertical="top"
         accessibilityLabel={body.label}
         testID={body.testID}
-        style={[styles.bodyBox, styles.bodyText, styles.bodyInput, focused && { backgroundColor: colors.ground }, NO_OUTLINE]}
+        style={[styles.bodyBox, styles.bodyText, styles.bodyInput, fieldFont, focused && { backgroundColor: colors.ground }, NO_OUTLINE]}
       />
       <View
         pointerEvents="none"

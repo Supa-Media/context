@@ -12,7 +12,7 @@
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
-import { afterEach, describe, expect, jest, test } from "@jest/globals";
+import { afterEach, describe, expect, test } from "@jest/globals";
 import { act, createElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import type { AnswerChoice, AskCard } from "../features/tex/chat/appChatGateway";
